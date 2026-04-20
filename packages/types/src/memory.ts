@@ -7,11 +7,17 @@
  *
  * Reference implementation: @nextain/alpha-memory.
  * See docs/memory-provider-audit.md for the façade → alpha-memory mapping.
+ *
+ * Score semantics (MemoryHit.score): implementations SHOULD normalize to
+ * [0, 1] where 1 = strongest match. Raw strength or cosine distance must be
+ * normalized before returning.
  */
+
+export type MemoryRole = "user" | "assistant" | "tool";
 
 export interface MemoryInput {
   content: string;
-  role: "user" | "assistant" | "tool";
+  role: MemoryRole;
   /** Optional context hints (project, activeFile, sessionId, ...). */
   context?: Record<string, string>;
   /** Optional timestamp override (useful for ingesting historical data). */
@@ -31,16 +37,24 @@ export interface MemoryHit {
   id: string;
   content: string;
   summary?: string;
-  /** Implementation-defined score (strength, cosine similarity, ...). */
+  /** Normalized 0..1 match score. 1 = strongest. */
   score: number;
   timestamp?: number;
   metadata?: Record<string, unknown>;
 }
 
+export interface ConsolidationSummary {
+  /** How many new facts were extracted. */
+  factsCreated: number;
+  /** Milliseconds spent. */
+  durationMs: number;
+}
+
 export interface MemoryProvider {
   encode(input: MemoryInput): Promise<void>;
   recall(query: string, opts?: RecallOpts): Promise<MemoryHit[]>;
-  consolidate(): Promise<void>;
+  /** Returns a summary so hosts can emit Event.data for observability. */
+  consolidate(): Promise<ConsolidationSummary>;
   close(): Promise<void>;
 }
 
@@ -57,9 +71,21 @@ export interface EmbeddingCapable {
   embed(text: string): Promise<number[]>;
 }
 
+export interface Entity {
+  id: string;
+  name: string;
+  type?: string;
+}
+
+export interface Relation {
+  from: string;
+  to: string;
+  relation: string;
+}
+
 export interface KnowledgeGraphCapable {
-  queryEntities(name: string): Promise<{ id: string; name: string; type?: string }[]>;
-  queryRelations(fromEntityId: string, relation?: string): Promise<{ from: string; to: string; relation: string }[]>;
+  queryEntities(name: string): Promise<Entity[]>;
+  queryRelations(fromEntityId: string, relation?: string): Promise<Relation[]>;
 }
 
 export interface ImportanceScore {
@@ -73,8 +99,13 @@ export interface ImportanceCapable {
   scoreImportance(input: MemoryInput): Promise<ImportanceScore>;
 }
 
+export interface Contradiction {
+  conflictFactId: string;
+  reason: string;
+}
+
 export interface ReconsolidationCapable {
-  findContradictions(factId: string): Promise<{ conflictFactId: string; reason: string }[]>;
+  findContradictions(factId: string): Promise<Contradiction[]>;
 }
 
 export interface TemporalCapable {
@@ -87,16 +118,21 @@ export interface SessionRecallCapable {
 }
 
 /**
- * Type guard — check if a MemoryProvider implementation also implements a Capability.
+ * Type guard — check if a MemoryProvider also implements a Capability.
+ *
+ * Multi-method capabilities (like BackupCapable with both backup + restore)
+ * require all methods present. Supply an array to enforce this.
  *
  * @example
- *   if (isCapable<BackupCapable>(memory, "backup")) {
+ *   if (isCapable<BackupCapable>(memory, ["backup", "restore"])) {
  *     const blob = await memory.backup();
  *   }
  */
 export function isCapable<C>(
   provider: MemoryProvider,
-  method: keyof C,
+  methods: keyof C | readonly (keyof C)[],
 ): provider is MemoryProvider & C {
-  return typeof (provider as unknown as Record<string, unknown>)[method as string] === "function";
+  const list = Array.isArray(methods) ? methods : [methods as keyof C];
+  const record = provider as unknown as Record<string, unknown>;
+  return list.every((m) => typeof record[m as string] === "function");
 }
