@@ -1,3 +1,5 @@
+[English](README.md) | [한국어](READMES/README.ko.md)
+
 # naia-agent
 
 **AI coding agent runtime.** Embeddable library + hosts — loop, tools, compaction, memory, LLM routing.
