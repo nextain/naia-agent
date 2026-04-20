@@ -1,0 +1,17 @@
+{
+  "name": "naia-agent",
+  "version": "0.0.0",
+  "private": true,
+  "description": "AI coding agent runtime — loop, tools, compaction, memory, LLM routing",
+  "type": "module",
+  "license": "Apache-2.0",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc --build"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0"
+  }
+}

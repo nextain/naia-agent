@@ -91,7 +91,8 @@ All hosts consume the same `naia-agent` runtime, so behavior is consistent regar
 ## Status
 
 - [x] Repo created
-- [ ] `LLMClient` interface
+- [x] pnpm workspace scaffold (`packages/core`)
+- [x] `LLMClient` interface stub
 - [ ] Core loop skeleton
 - [ ] Tool execution
 - [ ] Compaction
@@ -103,7 +104,22 @@ All hosts consume the same `naia-agent` runtime, so behavior is consistent regar
 
 ## Development
 
-Not yet scaffolded. See [Issues](https://github.com/nextain/naia-agent/issues) for early design discussion.
+```bash
+pnpm install
+pnpm build
+```
+
+Workspace layout:
+
+```
+naia-agent/
+├── packages/
+│   └── core/        # @naia-agent/core — loop, tools, compaction (WIP)
+├── package.json     # pnpm workspace root
+└── tsconfig.json    # TypeScript project references
+```
+
+See [Issues](https://github.com/nextain/naia-agent/issues) for early design discussion.
 
 ## Design Discussion
 
