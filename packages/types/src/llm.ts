@@ -1,13 +1,18 @@
 /**
  * LLMClient — the only contract through which naia-agent talks to LLMs.
  *
+ * **Package policy**: ESM-only. Requires Node ≥ 22. CJS consumers are
+ * unsupported; use dynamic `import()` if interop is needed.
+ *
  * Implementations wrap providers directly (Anthropic/OpenAI/...), a routing
  * gateway (any-llm), or a mock (tests). Hosts construct and inject the
  * concrete client at startup; naia-agent never imports providers directly.
  *
- * Streaming follows the Anthropic SSE pattern (start → content_block_start →
- * content_block_delta* → content_block_stop → usage → end). This is general
- * enough to wrap other providers (OpenAI, Google) without lossy conversion.
+ * Streaming follows the Anthropic SSE shape (start → content_block_start →
+ * content_block_delta* → content_block_stop → usage → end). Provider
+ * adapters are responsible for converting native streams into this shape;
+ * blocks/deltas that don't map to a known variant should be dropped or
+ * rewrapped, not passed through with a fallback union arm.
  */
 
 export type LLMRole = "system" | "user" | "assistant" | "tool";
@@ -37,8 +42,12 @@ export interface LLMMessage {
 }
 
 /**
- * Content block union. Known types are typed; provider-specific blocks pass
- * through via the string-index fallback for forward compatibility.
+ * Content block discriminated union. Each variant is exhaustive on `type`.
+ *
+ * Provider adapters must convert native content into one of these variants.
+ * Unknown provider blocks should be dropped at the adapter boundary — do
+ * NOT introduce a permissive fallback here, as it breaks narrowing on all
+ * known variants.
  */
 export type LLMContentBlock =
   | { type: "text"; text: string }
@@ -46,13 +55,18 @@ export type LLMContentBlock =
   | { type: "redacted_thinking"; data: string }
   | { type: "tool_use"; id: string; name: string; input: unknown }
   | { type: "tool_result"; toolCallId: string; content: string; isError?: boolean }
-  | { type: "image"; source: { type: "base64" | "url"; mediaType: string; data: string } }
-  | { type: string; [k: string]: unknown };
+  | { type: "image"; source: LLMImageSource };
+
+export interface LLMImageSource {
+  type: "base64" | "url";
+  mediaType: string;
+  data: string;
+}
 
 export interface ToolDefinition {
   name: string;
   description?: string;
-  /** JSON Schema. Shape is opaque here; soldification deferred to Part B. */
+  /** JSON Schema. Shape deferred to Part B (may promote to JSONSchema7). */
   inputSchema: Record<string, unknown>;
 }
 
@@ -86,14 +100,13 @@ export interface LLMUsage {
 }
 
 /**
- * Streaming delta — incremental content block fragments. Follows Anthropic's
- * SSE shape (text_delta / thinking_delta / input_json_delta).
+ * Streaming delta — incremental content block fragments. Exhaustive on `type`.
+ * Unknown provider deltas should be dropped at the adapter boundary.
  */
 export type LLMContentDelta =
   | { type: "text_delta"; text: string }
   | { type: "thinking_delta"; thinking: string }
-  | { type: "input_json_delta"; partialJson: string }
-  | { type: string; [k: string]: unknown };
+  | { type: "input_json_delta"; partialJson: string };
 
 export type LLMStreamChunk =
   | { type: "start"; id: string; model: string }

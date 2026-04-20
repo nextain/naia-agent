@@ -123,6 +123,12 @@ export interface SessionRecallCapable {
  * Multi-method capabilities (like BackupCapable with both backup + restore)
  * require all methods present. Supply an array to enforce this.
  *
+ * **CAVEAT**: This is structural duck-typing — only method **presence** is
+ * verified, not signature. An implementation with `backup(x: number): void`
+ * still passes `isCapable<BackupCapable>`. Implementations declaring a
+ * capability are expected to honor the contract; shape mismatches surface
+ * as runtime errors, not compile-time errors.
+ *
  * @example
  *   if (isCapable<BackupCapable>(memory, ["backup", "restore"])) {
  *     const blob = await memory.backup();
