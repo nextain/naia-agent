@@ -1,7 +1,7 @@
 {
-  "name": "@naia-agent/core",
-  "version": "0.0.0",
-  "description": "Agent loop, tool execution, compaction, memory — core runtime library",
+  "name": "@naia-agent/types",
+  "version": "0.0.1",
+  "description": "Zero-runtime-dep contracts for the Naia ecosystem — LLMClient, MemoryProvider, Event, etc.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -15,8 +15,5 @@
   "license": "Apache-2.0",
   "scripts": {
     "build": "tsc -b"
-  },
-  "dependencies": {
-    "@naia-agent/types": "workspace:*"
   }
 }
