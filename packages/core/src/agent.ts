@@ -76,10 +76,29 @@ export type AgentStreamEvent =
   | { type: "session.started"; session: Readonly<Session> }
   | { type: "turn.started"; userText: string; recalled: number }
   | { type: "llm.chunk"; chunk: LLMStreamChunk }
+  | {
+      /** Emitted per thinking_delta chunk so hosts can render a dedicated
+       *  thinking UI without parsing llm.chunk themselves. */
+      type: "thinking";
+      text: string;
+    }
+  | {
+      /** Emitted per text_delta chunk for progressive assistant rendering. */
+      type: "text";
+      text: string;
+    }
   | { type: "tool.started"; invocation: ToolInvocation }
   | { type: "tool.ended"; invocation: ToolInvocation; result: ToolExecutionResult }
   | { type: "compaction"; droppedCount: number; realtime: boolean }
   | { type: "usage"; usage: LLMUsage }
+  | {
+      /** Emitted when the agent stops because tool calls repeatedly returned
+       *  errors. Inspect `lastResult` to surface to the user / logs. */
+      type: "tool.error.halt";
+      consecutiveErrors: number;
+      lastInvocation: ToolInvocation;
+      lastResult: ToolExecutionResult;
+    }
   | { type: "turn.ended"; assistantText: string }
   | { type: "session.ended"; state: SessionState };
 
@@ -160,6 +179,11 @@ export class Agent {
     const aggUsage: LLMUsage = { inputTokens: 0, outputTokens: 0 };
     const tierByName = new Map<string, TierLevel>();
     let compactedThisTurn = false;
+    /** Stop after N consecutive tool errors per turn to avoid loops. */
+    const MAX_CONSECUTIVE_TOOL_ERRORS = 3;
+    let consecutiveToolErrors = 0;
+    let lastBadInvocation: ToolInvocation | undefined;
+    let lastBadResult: ToolExecutionResult | undefined;
 
     while (hopsRemaining-- > 0) {
       if (signal?.aborted) break;
@@ -203,6 +227,7 @@ export class Agent {
 
       // 5. Tool-hop: execute each tool_use, push tool_result turn.
       const toolResults: LLMContentBlock[] = [];
+      let halted = false;
       for (const block of blocks) {
         if (block.type !== "tool_use") continue;
         if (signal?.aborted) break;
@@ -216,15 +241,37 @@ export class Agent {
         yield { type: "tool.started", invocation };
         const result = await this.#executeTool(invocation, signal);
         yield { type: "tool.ended", invocation, result };
+        if (result.isError === true) {
+          consecutiveToolErrors++;
+          lastBadInvocation = invocation;
+          lastBadResult = result;
+        } else {
+          consecutiveToolErrors = 0;
+        }
         toolResults.push({
           type: "tool_result",
           toolCallId: block.id,
           content: result.content,
           ...(result.isError === true ? { isError: true } : {}),
         });
+        if (consecutiveToolErrors >= MAX_CONSECUTIVE_TOOL_ERRORS) {
+          yield {
+            type: "tool.error.halt",
+            consecutiveErrors: consecutiveToolErrors,
+            lastInvocation: invocation,
+            lastResult: result,
+          };
+          halted = true;
+          break;
+        }
       }
       this.#history.push({ role: "tool", content: toolResults });
+      if (halted) {
+        finalText = `[agent halted — ${consecutiveToolErrors} consecutive tool errors on "${lastBadInvocation?.name}"]`;
+        break;
+      }
     }
+    void lastBadResult;
 
     if (!finalText) {
       this.#host.logger.warn("agent.send.max_hops_or_abort", {
@@ -321,6 +368,13 @@ export class Agent {
         }
       } else if (chunk.type === "content_block_delta") {
         applyDelta(blocks, chunk.index, chunk.delta, toolInputBuffer);
+        // Surface progressive text / thinking as discrete events so hosts
+        // don't have to re-parse llm.chunk.
+        if (chunk.delta.type === "text_delta") {
+          yield { type: "text", text: String(chunk.delta.text) };
+        } else if (chunk.delta.type === "thinking_delta") {
+          yield { type: "thinking", text: String(chunk.delta.thinking) };
+        }
       } else if (chunk.type === "content_block_stop") {
         // Finalize tool_use input from accumulated JSON.
         const raw = toolInputBuffer.get(chunk.index);
