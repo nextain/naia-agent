@@ -126,7 +126,7 @@ export class AnthropicClient implements LLMClient {
     return {
       id: response.id,
       model: response.model,
-      content: response.content.map(fromSdkBlock),
+      content: mapSdkBlocks(response.content),
       stopReason: mapSdkStopReason(response.stop_reason) ?? "end_turn",
       usage,
     };
@@ -138,6 +138,7 @@ export class AnthropicClient implements LLMClient {
         return { type: "start", id: event.message.id, model: event.message.model };
       case "content_block_start": {
         const block = fromSdkBlock(event.content_block);
+        if (!block) return undefined;
         return { type: "content_block_start", index: event.index, block };
       }
       case "content_block_delta": {
@@ -156,11 +157,34 @@ export class AnthropicClient implements LLMClient {
 // ─── Conversion helpers ──────────────────────────────────────────────────────
 
 function toSdkMessage(msg: LLMMessage): Anthropic.Messages.MessageParam {
+  if (msg.role === "tool") {
+    // Anthropic convention: tool outputs are wrapped as a `user` message
+    // with a `tool_result` block referencing `toolCallId`. If the caller
+    // already provided a `tool_result` block array, pass through; otherwise
+    // wrap the string content.
+    if (typeof msg.content === "string") {
+      return {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: msg.toolCallId ?? "",
+            content: msg.content,
+          },
+        ],
+      };
+    }
+    return {
+      role: "user",
+      content: msg.content.map(toSdkBlock) as Anthropic.Messages.ContentBlockParam[],
+    };
+  }
+
   if (typeof msg.content === "string") {
-    return { role: msg.role === "tool" ? "user" : msg.role, content: msg.content };
+    return { role: msg.role, content: msg.content };
   }
   return {
-    role: msg.role === "tool" ? "user" : msg.role,
+    role: msg.role,
     content: msg.content.map(toSdkBlock) as Anthropic.Messages.ContentBlockParam[],
   };
 }
@@ -206,7 +230,12 @@ function toSdkBlock(block: LLMContentBlock): Anthropic.Messages.ContentBlockPara
   }
 }
 
-function fromSdkBlock(block: Anthropic.Messages.ContentBlock): LLMContentBlock {
+/**
+ * Convert a single SDK block to a known LLMContentBlock variant, or
+ * `undefined` if the block type has no mapping. Callers filter undefined
+ * at the adapter boundary per LLMContentBlock contract ("drop unknown").
+ */
+function fromSdkBlock(block: Anthropic.Messages.ContentBlock): LLMContentBlock | undefined {
   switch (block.type) {
     case "text":
       return { type: "text", text: block.text };
@@ -221,9 +250,17 @@ function fromSdkBlock(block: Anthropic.Messages.ContentBlock): LLMContentBlock {
     case "redacted_thinking":
       return { type: "redacted_thinking", data: block.data };
     default:
-      // Future block types fall back to text with raw JSON.
-      return { type: "text", text: JSON.stringify(block) };
+      return undefined;
   }
+}
+
+function mapSdkBlocks(blocks: readonly Anthropic.Messages.ContentBlock[]): LLMContentBlock[] {
+  const out: LLMContentBlock[] = [];
+  for (const b of blocks) {
+    const mapped = fromSdkBlock(b);
+    if (mapped !== undefined) out.push(mapped);
+  }
+  return out;
 }
 
 function fromSdkDelta(delta: Anthropic.Messages.RawContentBlockDeltaEvent["delta"]): LLMContentDelta | undefined {
