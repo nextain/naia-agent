@@ -16,6 +16,7 @@
   },
   "references": [
     { "path": "packages/types" },
+    { "path": "packages/protocol" },
     { "path": "packages/core" },
     { "path": "packages/providers" }
   ],
