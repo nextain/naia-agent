@@ -149,9 +149,17 @@ async function main(): Promise<void> {
 
   try {
     // Opt-in LLM-backed summarizer (alpha-memory v1 hook).
-    // Here we simulate a summarizer with a small transform; a real host
-    // would pass a function that wraps `LLMClient.generate()`.
+    // A separate MockLLMClient is dedicated to summarization so its call
+    // count is independent from the main agent's LLM.
     const useLlmSummarizer = process.env["ALPHA_MEMORY_LLM_SUMMARIZER"] === "1";
+    const summarizerLlm = new MockLLMClient({
+      turns: [
+        {
+          blocks: "[SUMMARY via dedicated LLM] earlier exchange folded into a single assistant turn.",
+          stopReason: "end_turn",
+        },
+      ],
+    });
     const summarizer = useLlmSummarizer
       ? async (input: {
           messages: readonly { role: string; content: string; timestamp?: number }[];
@@ -159,8 +167,21 @@ async function main(): Promise<void> {
           targetTokens: number;
           seedSummary: string;
         }) => {
-          // Simulated polish — real impl calls LLM.
-          return `[POLISHED by mock summarizer — ${input.messages.length} msgs]\n${input.seedSummary}`;
+          // Actually call the LLM. Real hosts wrap their own LLMClient here.
+          const response = await summarizerLlm.generate({
+            messages: [
+              {
+                role: "user",
+                content: `Summarize the prior conversation. Seed: ${input.seedSummary}`,
+              },
+            ],
+            maxTokens: input.targetTokens,
+          });
+          const text = response.content
+            .filter((b): b is { type: "text"; text: string } => b.type === "text")
+            .map((b) => b.text)
+            .join("");
+          return text;
         }
       : undefined;
 
