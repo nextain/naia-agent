@@ -1,6 +1,6 @@
 {
   "name": "@nextain/agent-protocol",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Wire protocol for host ↔ naia-agent communication. Zero runtime deps.",
   "type": "module",
   "main": "./dist/index.js",

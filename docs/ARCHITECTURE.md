@@ -151,7 +151,7 @@ communication policy). Pre-v0.1 (now) — expect frequent breaking.
 | T5 `HostContext` + `VoiceEvent` + all contracts | ✓ |
 | T6 `MemoryProvider` façade | ✓ (alpha-memory audit + mem0 dual audit done) |
 | T7 `docs/ARCHITECTURE.md` (this file) | ✓ |
-| T8 v0.1.0 freeze — additive-only rule active | pending |
+| T8 v0.1.0 freeze — additive-only rule active | ✓ (see [CHANGELOG.md](../CHANGELOG.md)) |
 
 ## Pointers
 

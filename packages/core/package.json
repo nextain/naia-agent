@@ -1,6 +1,6 @@
 {
   "name": "@nextain/agent-core",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Agent loop, tool execution, compaction, memory — core runtime library",
   "type": "module",
   "main": "./dist/index.js",

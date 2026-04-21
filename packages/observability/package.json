@@ -1,6 +1,6 @@
 {
   "name": "@nextain/agent-observability",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Default Logger/Tracer/Meter implementations for @nextain/agent-types contracts.",
   "type": "module",
   "main": "./dist/index.js",

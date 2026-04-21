@@ -1,6 +1,6 @@
 {
   "name": "@nextain/agent-providers",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "LLMClient implementations for major providers (Anthropic, more to come).",
   "type": "module",
   "main": "./dist/index.js",
