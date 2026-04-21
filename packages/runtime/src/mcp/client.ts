@@ -68,12 +68,23 @@ export class MCPClient {
       { name: "naia-agent", version: "0.1.0" },
       { capabilities: {} },
     );
+    const env = filterDefinedEnv({
+      ...(process.env as Record<string, string | undefined>),
+      ...(this.config.env ?? {}),
+    });
     const transport = new StdioClientTransport({
       command: this.config.command,
       args: this.config.args ?? [],
-      env: { ...(process.env as Record<string, string>), ...(this.config.env ?? {}) },
+      env,
     });
     await client.connect(transport);
+    // Flip our connected flag back to false if the SDK tells us the
+    // remote disconnected. Without this, a crashed MCP server would let
+    // callTool() bypass our "not connected" guard and hit the SDK
+    // directly.
+    (client as { onclose?: () => void }).onclose = () => {
+      this.#connected = false;
+    };
     this.#client = client;
     this.#connected = true;
   }
@@ -110,6 +121,17 @@ export class MCPClient {
     return out;
   }
 
+  /**
+   * Call an MCP tool. Returns a `ToolExecutionResult` suitable for the
+   * Agent's tool-hop loop.
+   *
+   * **Content flattening caveat**: MCP supports multiple content types
+   * (text, image base64, resource refs, embedded resources) per call.
+   * `ToolExecutionResult.content` is a single string, so non-text parts
+   * are JSON.stringify'd inline — the LLM sees an opaque blob for them.
+   * Structured passthrough is deferred; hosts that need it should wrap
+   * MCPClient directly instead of using MCPToolExecutor.
+   */
   async callTool(
     unqualifiedName: string,
     input: unknown,
@@ -124,13 +146,10 @@ export class MCPClient {
       }>;
     };
     const result = await client.callTool({ name: unqualifiedName, arguments: input });
-    // Flatten MCP's content array into a single string, preserving isError.
     const text = (result.content ?? [])
       .map((c) => (typeof c.text === "string" ? c.text : JSON.stringify(c)))
       .join("\n");
-    const out: ToolExecutionResult = {
-      content: text,
-    };
+    const out: ToolExecutionResult = { content: text };
     if (result.isError === true) out.isError = true;
     return out;
   }
@@ -140,8 +159,10 @@ export class MCPClient {
     const client = this.#client as { close: () => Promise<void> };
     try {
       await client.close();
-    } catch {
-      // swallow — disconnected/already-closed
+    } catch (err) {
+      // Already-disconnected is common; still emit something so silent
+      // zombies can be traced when they surface.
+      console.warn(`[MCPClient ${this.config.name}] close threw:`, err);
     }
     this.#connected = false;
     this.#client = null;
@@ -150,6 +171,14 @@ export class MCPClient {
   get connected(): boolean {
     return this.#connected;
   }
+}
+
+function filterDefinedEnv(obj: Record<string, string | undefined>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (typeof v === "string") out[k] = v;
+  }
+  return out;
 }
 
 /**
