@@ -1,0 +1,38 @@
+{
+  "name": "@nextain/agent-runtime",
+  "version": "0.1.0",
+  "description": "Runtime impls for @nextain/agent-types — ToolExecutor, ApprovalBroker helpers. Scaffold.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "default": "./dist/index.js"
+    }
+  },
+  "sideEffects": false,
+  "files": ["dist", "src"],
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nextain/naia-agent.git",
+    "directory": "packages/runtime"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@nextain/agent-types": "workspace:*"
+  }
+}

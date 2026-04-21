@@ -18,6 +18,7 @@
     { "path": "packages/types" },
     { "path": "packages/protocol" },
     { "path": "packages/core" },
+    { "path": "packages/runtime" },
     { "path": "packages/providers" },
     { "path": "packages/observability" }
   ],
