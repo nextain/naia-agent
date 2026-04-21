@@ -12,7 +12,8 @@
     "build": "tsc --build",
     "smoke:anthropic": "tsx scripts/smoke-anthropic.ts",
     "smoke:agent": "tsx examples/minimal-host.ts",
-    "smoke:compaction": "tsx examples/compaction-host.ts"
+    "smoke:compaction": "tsx examples/compaction-host.ts",
+    "smoke:alpha-memory": "tsx examples/alpha-memory-host.ts"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
@@ -21,6 +22,7 @@
     "@nextain/agent-providers": "workspace:*",
     "@nextain/agent-runtime": "workspace:*",
     "@nextain/agent-types": "workspace:*",
+    "@nextain/alpha-memory": "file:../alpha-memory",
     "@types/node": "^22.0.0",
     "tsx": "^4.19.0",
     "typescript": "^5.8.0"

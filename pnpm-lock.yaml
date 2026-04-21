@@ -26,6 +26,9 @@ importers:
       '@nextain/agent-types':
         specifier: workspace:*
         version: link:packages/types
+      '@nextain/alpha-memory':
+        specifier: file:../alpha-memory
+        version: file:../alpha-memory(typescript@5.9.3)
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
@@ -233,6 +236,25 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@nextain/alpha-memory@file:../alpha-memory':
+    resolution: {directory: ../alpha-memory, type: directory}
+    engines: {node: '>=20'}
+    peerDependencies:
+      '@huggingface/transformers': ^3.0.0
+    peerDependenciesMeta:
+      '@huggingface/transformers':
+        optional: true
+
+  '@qdrant/js-client-rest@1.17.0':
+    resolution: {integrity: sha512-aZFQeirWVqWAa1a8vJ957LMzcXkFHGbsoRhzc8AkGfg6V0jtK8PlG8/eyyc2xhYsR961FDDx1Tx6nyE0K7lS+A==}
+    engines: {node: '>=18.17.0', pnpm: '>=8'}
+    peerDependencies:
+      typescript: '>=4.7'
+
+  '@qdrant/openapi-typescript-fetch@1.2.6':
+    resolution: {integrity: sha512-oQG/FejNpItrxRHoyctYvT3rwGZOnK4jr3JdppO/c78ktDvkWiPXPHNsrDf33K9sZdRb6PR7gi4noIapu5q4HA==}
+    engines: {node: '>=18.0.0', pnpm: '>=8'}
+
   '@types/node-fetch@2.6.13':
     resolution: {integrity: sha512-QGpRVpzSaUs30JBSGPjOg4Uveu384erbHBoT1zeONvyCfwQxIkUshLAOqN/k9EjGviPRmWTTe6aH2qySWKTVSw==}
 
@@ -394,6 +416,10 @@ packages:
   undici-types@6.21.0:
     resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
 
+  undici@6.25.0:
+    resolution: {integrity: sha512-ZgpWDC5gmNiuY9CnLVXEH8rl50xhRCuLNA97fAUnKi8RRuV4E6KG31pDTsLVUKnohJE0I3XDrTeEydAXRw47xg==}
+    engines: {node: '>=18.17'}
+
   web-streams-polyfill@4.0.0-beta.3:
     resolution: {integrity: sha512-QW95TCTaHmsYfHDybGMwO5IJIM93I/6vTRk+daHTWFPhwh+C8Cg7j7XyKrwrj8Ib6vYXe0ocYNrmzY4xAAN6ug==}
     engines: {node: '>= 14'}
@@ -495,6 +521,20 @@ snapshots:
 
   '@esbuild/win32-x64@0.27.7':
     optional: true
+
+  '@nextain/alpha-memory@file:../alpha-memory(typescript@5.9.3)':
+    dependencies:
+      '@qdrant/js-client-rest': 1.17.0(typescript@5.9.3)
+    transitivePeerDependencies:
+      - typescript
+
+  '@qdrant/js-client-rest@1.17.0(typescript@5.9.3)':
+    dependencies:
+      '@qdrant/openapi-typescript-fetch': 1.2.6
+      typescript: 5.9.3
+      undici: 6.25.0
+
+  '@qdrant/openapi-typescript-fetch@1.2.6': {}
 
   '@types/node-fetch@2.6.13':
     dependencies:
@@ -672,6 +712,8 @@ snapshots:
   undici-types@5.26.5: {}
 
   undici-types@6.21.0: {}
+
+  undici@6.25.0: {}
 
   web-streams-polyfill@4.0.0-beta.3: {}
 
