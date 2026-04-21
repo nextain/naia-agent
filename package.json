@@ -14,7 +14,8 @@
     "smoke:agent": "tsx examples/minimal-host.ts",
     "smoke:compaction": "tsx examples/compaction-host.ts",
     "smoke:alpha-memory": "tsx examples/alpha-memory-host.ts",
-    "smoke:tool-error-halt": "tsx examples/tool-error-halt.ts"
+    "smoke:tool-error-halt": "tsx examples/tool-error-halt.ts",
+    "smoke:skill-loader": "tsx examples/skill-loader-host.ts"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
