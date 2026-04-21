@@ -144,10 +144,10 @@ communication policy). Pre-v0.1 (now) — expect frequent breaking.
 
 | Phase 1 | Status |
 |---------|:---:|
-| T1 `@nextain/agent-types` initial shape | ✓ (v0.0.1) |
-| T2 `@nextain/agent-protocol` package | ✓ (v0.0.1) |
-| T3 `@naia-adk/skill-spec` package | ✓ (v0.0.1, in naia-adk repo) |
-| T4 `@nextain/agent-observability` defaults | ✓ (v0.0.1) |
+| T1 `@nextain/agent-types` v0.1.0 | ✓ |
+| T2 `@nextain/agent-protocol` v0.1.0 | ✓ |
+| T3 `@naia-adk/skill-spec` v0.1.0 (naia-adk repo) | ✓ |
+| T4 `@nextain/agent-observability` v0.1.0 | ✓ |
 | T5 `HostContext` + `VoiceEvent` + all contracts | ✓ |
 | T6 `MemoryProvider` façade | ✓ (alpha-memory audit + mem0 dual audit done) |
 | T7 `docs/ARCHITECTURE.md` (this file) | ✓ |

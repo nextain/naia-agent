@@ -21,8 +21,11 @@ First stable-shape release. Includes:
 - `HostContext`, `HostContextCore`, `DeviceIdentity`
 - `Event`, `ErrorEvent`, `Severity`, `VoiceEvent` family
 - `Logger`, `Tracer`, `Span`, `SpanContext`, `Meter`, `Counter`, `Histogram`
+- `Session`, `SessionState`, `SessionEvent`, `SessionTransition`, `ALLOWED_TRANSITIONS`, `isTerminalSessionState`
 
-Zero-runtime-dep. ESM-only. Node ≥ 22.
+Zero-runtime-dep (package contains no external runtime imports; a few
+typed constants like `APPROVAL_DEFAULT_TIMEOUT_MS` and `ALLOWED_TRANSITIONS`
+are compile-time data, not dependencies). ESM-only. Node ≥ 22.
 
 ### `@nextain/agent-protocol`
 First release. Wire protocol for host ↔ agent stdio communication.

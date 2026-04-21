@@ -118,20 +118,28 @@ All contracts are published open-source. No hidden extension points, no private 
 
 All hosts consume the same `naia-agent` runtime, so behavior is consistent regardless of surface.
 
-## Status
+## Status — v0.1.0 (Phase 1 freeze)
 
-- [x] Repo created
-- [x] pnpm workspace scaffold (`packages/core`)
-- [x] `LLMClient` interface stub
-- [ ] `@nextain/agent-types` package (contracts)
-- [ ] Core loop skeleton
-- [ ] Tool execution
+**Published contracts** (additive-only from here):
+
+- [x] `@nextain/agent-types` 0.1.0 — LLMClient / MemoryProvider / ToolExecutor / ApprovalBroker / HostContext / Event / ErrorEvent / VoiceEvent / Logger / Tracer / Meter / TierLevel / SessionLifecycle
+- [x] `@nextain/agent-protocol` 0.1.0 — StdioFrame wire format
+- [x] `@naia-adk/skill-spec` 0.1.0 — SkillDescriptor / SkillLoader (in naia-adk repo)
+- [x] `@nextain/agent-providers` 0.1.0 — AnthropicClient
+- [x] `@nextain/agent-observability` 0.1.0 — ConsoleLogger / NoopTracer / InMemoryMeter
+- [x] `@nextain/agent-core` 0.1.0 — contracts re-export (runtime loop WIP)
+
+**Phase 2 (next)**:
+
+- [ ] Core loop skeleton (Strangler Fig X3)
+- [ ] Tool execution runtime (X2)
 - [ ] Compaction
-- [ ] Skill loader (reads naia-adk workspace)
-- [ ] Memory client (wraps alpha-memory)
-- [ ] Reference host: embedded in naia-os
+- [ ] Skill loader (reads naia-adk workspace) (X4)
+- [ ] MCP bridge (X4, continuation of #200)
+- [ ] stdio protocol flip-day (X5)
+- [ ] Reference host: embedded in naia-os (X1 providers already available)
 - [ ] CLI host
-- [ ] v0.1 public interface freeze
+- [ ] Messengers (X8)
 
 ## Development
 
@@ -145,10 +153,14 @@ Workspace layout:
 ```
 naia-agent/
 ├── packages/
-│   ├── types/       # @nextain/agent-types — contracts (planned)
-│   └── core/        # @nextain/agent-core — loop, tools, compaction (WIP)
-├── package.json     # pnpm workspace root
-└── tsconfig.json    # TypeScript project references
+│   ├── types/          # @nextain/agent-types — contracts
+│   ├── protocol/       # @nextain/agent-protocol — wire format
+│   ├── core/           # @nextain/agent-core — runtime scaffold
+│   ├── providers/      # @nextain/agent-providers — AnthropicClient
+│   └── observability/  # @nextain/agent-observability — defaults
+├── scripts/smoke-anthropic.ts
+├── package.json        # pnpm workspace root
+└── tsconfig.json       # TypeScript project references
 ```
 
 See [Issues](https://github.com/nextain/naia-agent/issues) for early design discussion.

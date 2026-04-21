@@ -13,7 +13,10 @@
  */
 
 export const PROTOCOL_VERSION = "1" as const;
-export type ProtocolVersion = typeof PROTOCOL_VERSION | "2";
+/** Current wire-format version. Future versions will widen this union when
+ *  shipped (Phase 2 X5 flip-day). Until then, accepting unknown versions
+ *  would be silent corruption. */
+export type ProtocolVersion = typeof PROTOCOL_VERSION;
 
 /** Every wire message has this outer shape. */
 export interface StdioFrame<P = unknown> {

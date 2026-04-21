@@ -10,3 +10,4 @@ export * from "./observability.js";
 export * from "./tool.js";
 export * from "./approval.js";
 export * from "./host.js";
+export * from "./session.js";
