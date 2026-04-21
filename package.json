@@ -9,9 +9,14 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "tsc --build"
+    "build": "tsc --build",
+    "smoke:anthropic": "tsx scripts/smoke-anthropic.ts"
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@naia-agent/providers": "workspace:*",
+    "@naia-agent/types": "workspace:*",
+    "tsx": "^4.19.0",
     "typescript": "^5.8.0"
   }
 }
