@@ -162,9 +162,56 @@ These are **Part B** in the migration plan — decided at implementation time, n
 - [x] Minimum façade drafted (4 methods)
 - [x] Capability coverage mapped (7 capabilities, all satisfied by alpha-memory)
 - [x] Open questions logged (deferred to Part B)
-- [ ] Interface file `packages/types/src/memory.ts` scaffolded (next step — MVM #2)
+- [x] Interface file `packages/types/src/memory.ts` scaffolded (completed in MVM #2)
+
+## 6. mem0 dual audit (Phase 0 S1b)
+
+Plan v6 Phase 0 S1 includes a dual audit "alpha-memory + mem0". This section
+confirms mem0 is already accommodated by the existing design.
+
+### mem0 is not a separate MemoryProvider
+
+Alpha-memory has three internal adapters (`LocalAdapter`, `Mem0Adapter`,
+`QdrantAdapter`) all implementing the **internal** `MemoryAdapter`
+interface. `MemorySystem` — the orchestrator — is the single
+`MemoryProvider` façade. The layering is:
+
+```
+MemoryProvider (public façade, @naia-agent/types)
+   └── MemorySystem (alpha-memory orchestrator)
+        └── MemoryAdapter (Local / Mem0 / Qdrant — backend choice)
+             └── mem0 / SQLite+hnswlib / Qdrant
+```
+
+Therefore, from a naia-agent consumer's perspective, whether alpha-memory
+uses mem0 as a backend or not is **transparent**. No façade change is
+required.
+
+### Source references
+
+- `alpha-memory/src/memory/index.ts` — `MemorySystem` (the façade)
+- `alpha-memory/src/memory/types.ts` — `MemoryAdapter` interface (internal)
+- `alpha-memory/src/memory/adapters/mem0.ts` — `Mem0Adapter` (internal backend)
+
+### Capability implications
+
+All 7 `MemoryProvider` Capabilities (see §3) continue to apply regardless
+of backend choice — they are implemented in alpha-memory's top layer, not
+in the backend. `Mem0Adapter` can be swapped in without affecting:
+`BackupCapable`, `EmbeddingCapable` (uses injected `EmbeddingProvider`),
+`KnowledgeGraphCapable`, `ImportanceCapable`, `ReconsolidationCapable`,
+`TemporalCapable`, `SessionRecallCapable`.
+
+### Acceptance (S1b)
+
+- [x] mem0 integration path identified: internal `MemoryAdapter` swap
+- [x] No `MemoryProvider` façade change required
+- [x] Capability coverage preserved across adapter swaps
+- [x] Open question logged: mem0-specific tuning (LLM-based dedup, KO
+      handling) is adapter-layer concern, not façade concern. Deferred
+      to alpha-memory's own roadmap (see alpha-memory#12)
 
 ## References
 
-- Migration plan: `alpha-adk/.agents/progress/naia-4repo-migration-plan.md` v6 §A.5
-- Alpha-memory source: `nextain/alpha-memory@bd2ad3b`
+- Migration plan: `alpha-adk/.agents/progress/naia-4repo-migration-plan.md` v6 §A.5, Phase 0 S1/S1b
+- Alpha-memory source: `nextain/alpha-memory@main` (post-bd2ad3b)
