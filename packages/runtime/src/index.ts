@@ -25,3 +25,7 @@ export type {
   MockTurn,
   InMemoryToolDef,
 } from "./mocks/index.js";
+
+// MCP bridge — Phase 2 X4. SDK (@modelcontextprotocol/sdk) is a peerDep.
+export { MCPClient, MCPToolExecutor } from "./mcp/index.js";
+export type { MCPServerConfig } from "./mcp/index.js";
