@@ -1,18 +1,31 @@
 {
   "name": "@nextain/agent-core",
   "version": "0.1.0",
-  "description": "Agent loop, tool execution, compaction, memory — core runtime library",
+  "description": "Agent loop, tool execution, compaction, memory — core runtime library (scaffold)",
   "type": "module",
   "main": "./dist/index.js",
+  "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "default": "./dist/index.js"
     }
   },
+  "sideEffects": false,
   "files": ["dist", "src"],
   "license": "Apache-2.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nextain/naia-agent.git",
+    "directory": "packages/core"
+  },
   "publishConfig": {
     "access": "public"
   },
