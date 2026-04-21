@@ -12,3 +12,15 @@ export type {
   SkillInput,
   SkillOutput,
 } from "./skill-loader.js";
+
+// Mocks for tests, examples, and bootstrap hosts.
+export {
+  InMemoryMemory,
+  MockLLMClient,
+  InMemoryToolExecutor,
+} from "./mocks/index.js";
+export type {
+  MockScript,
+  MockTurn,
+  InMemoryToolDef,
+} from "./mocks/index.js";

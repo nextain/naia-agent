@@ -48,4 +48,23 @@ export interface ToolExecutionResult {
 
 export interface ToolExecutor {
   execute(invocation: ToolInvocation, signal?: AbortSignal): Promise<ToolExecutionResult>;
+  /**
+   * Optional. Returns the tool definitions the LLM should see. Agent calls
+   * this once per turn (tool registry can change between turns — e.g.
+   * skill enable/disable). Host that never exposes tools to the LLM can
+   * omit this method; Agent falls back to no tool-use advertising.
+   */
+  list?(signal?: AbortSignal): Promise<ToolDefinitionWithTier[]>;
+}
+
+/**
+ * ToolExecutor.list returns these. Keeps tier info on the runtime side so
+ * Agent can classify invocations without a separate SkillLoader lookup.
+ */
+export interface ToolDefinitionWithTier {
+  name: string;
+  description?: string;
+  /** JSON Schema. Shape is opaque here; see @nextain/agent-types LLMRequest.tools. */
+  inputSchema: Record<string, unknown>;
+  tier: TierLevel;
 }

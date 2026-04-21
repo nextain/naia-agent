@@ -10,11 +10,15 @@
   ],
   "scripts": {
     "build": "tsc --build",
-    "smoke:anthropic": "tsx scripts/smoke-anthropic.ts"
+    "smoke:anthropic": "tsx scripts/smoke-anthropic.ts",
+    "smoke:agent": "tsx examples/minimal-host.ts"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
+    "@nextain/agent-core": "workspace:*",
+    "@nextain/agent-observability": "workspace:*",
     "@nextain/agent-providers": "workspace:*",
+    "@nextain/agent-runtime": "workspace:*",
     "@nextain/agent-types": "workspace:*",
     "@types/node": "^22.0.0",
     "tsx": "^4.19.0",

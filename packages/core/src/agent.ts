@@ -33,6 +33,8 @@ import type {
   Session,
   SessionState,
   StopReason,
+  ToolDefinition,
+  ToolDefinitionWithTier,
   ToolExecutionResult,
   ToolInvocation,
   TierLevel,
@@ -126,6 +128,17 @@ export class Agent {
     return finalText;
   }
 
+  /** Async generator version for callers that want chunk-level control. */
+  async #listTools(signal?: AbortSignal): Promise<ToolDefinitionWithTier[]> {
+    if (!this.#host.tools.list) return [];
+    try {
+      return await this.#host.tools.list(signal);
+    } catch (err) {
+      this.#host.logger.warn("agent.tools.list.error", { err: String(err) });
+      return [];
+    }
+  }
+
   /** Stream-first entry point. Yields structured events throughout the turn. */
   async *sendStream(
     userText: string,
@@ -145,16 +158,29 @@ export class Agent {
     let hopsRemaining = this.#maxHops;
     let finalText = "";
     const aggUsage: LLMUsage = { inputTokens: 0, outputTokens: 0 };
+    const tierByName = new Map<string, TierLevel>();
+    let compactedThisTurn = false;
 
     while (hopsRemaining-- > 0) {
       if (signal?.aborted) break;
 
-      // 2. Budget check → delegate compaction to memory if capable.
-      const compactEvent = await this.#maybeCompact();
-      if (compactEvent) yield compactEvent;
+      // 2. Refresh tool list per iteration (careti pattern — tool registry
+      //    may change mid-loop when skills enable/disable).
+      const toolDefs = await this.#listTools(signal);
+      tierByName.clear();
+      for (const t of toolDefs) tierByName.set(t.name, t.tier);
 
-      // 3. Build + stream LLM request.
-      const request = this.#buildRequest(hits);
+      // 3. Budget check → delegate compaction to memory if capable (once/turn).
+      if (!compactedThisTurn) {
+        const compactEvent = await this.#maybeCompact(hits, toolDefs);
+        if (compactEvent) {
+          compactedThisTurn = true;
+          yield compactEvent;
+        }
+      }
+
+      // 4. Build + stream LLM request.
+      const request = this.#buildRequest(hits, toolDefs);
       const { blocks, stopReason, usage } = yield* this.#streamLLM(request, signal);
       aggUsage.inputTokens += usage.inputTokens;
       aggUsage.outputTokens += usage.outputTokens;
@@ -175,7 +201,7 @@ export class Agent {
         break;
       }
 
-      // 4. Tool-hop: execute each tool_use, push tool_result turn.
+      // 5. Tool-hop: execute each tool_use, push tool_result turn.
       const toolResults: LLMContentBlock[] = [];
       for (const block of blocks) {
         if (block.type !== "tool_use") continue;
@@ -184,7 +210,7 @@ export class Agent {
           id: block.id,
           name: block.name,
           input: block.input,
-          tier: this.#tierFor(block.name),
+          tier: tierByName.get(block.name) ?? this.#tierFor(block.name),
           sessionId: this.#session.id,
         };
         yield { type: "tool.started", invocation };
@@ -216,15 +242,14 @@ export class Agent {
     yield { type: "turn.ended", assistantText: finalText };
   }
 
-  /** End the session. Further `send()` calls throw. */
-  async close(): Promise<void> {
+  /**
+   * End the session. Further `send()` calls throw.
+   * Host owns `memory.close()` — multiple Agents may share one HostContext
+   * so Agent MUST NOT close the shared memory here.
+   */
+  close(): void {
     if (this.#session.state === "closed" || this.#session.state === "failed") return;
     this.#transitionTo("closed");
-    try {
-      await this.#host.memory.close();
-    } catch (err) {
-      this.#host.logger.warn("agent.memory.close.error", { err: String(err) });
-    }
   }
 
   // ─── internals ─────────────────────────────────────────────────────────
@@ -238,7 +263,10 @@ export class Agent {
     }
   }
 
-  #buildRequest(memoryHits: MemoryHit[]): LLMRequest {
+  #buildRequest(
+    memoryHits: MemoryHit[],
+    toolDefs: readonly ToolDefinitionWithTier[] = [],
+  ): LLMRequest {
     const systemParts: string[] = [];
     if (this.#system) systemParts.push(this.#system);
     if (memoryHits.length > 0) {
@@ -248,12 +276,23 @@ export class Agent {
     const req: LLMRequest = { messages: this.#history };
     if (this.#model !== undefined) req.model = this.#model;
     if (systemParts.length > 0) req.system = systemParts.join("\n\n");
+    if (toolDefs.length > 0) {
+      req.tools = toolDefs.map<ToolDefinition>((t) => {
+        const def: ToolDefinition = { name: t.name, inputSchema: t.inputSchema };
+        if (t.description !== undefined) def.description = t.description;
+        return def;
+      });
+    }
     return req;
   }
 
   /**
    * Streaming helper — consumes `llm.stream()`, forwards chunks as
    * AgentStreamEvents, accumulates final block/stopReason/usage.
+   *
+   * Tool-use `input` is assembled from `input_json_delta` partials, parsed
+   * on `content_block_stop`. Text/thinking blocks accumulate their deltas
+   * across chunks.
    */
   async *#streamLLM(
     request: LLMRequest,
@@ -264,6 +303,8 @@ export class Agent {
     usage: LLMUsage;
   }> {
     const blocks: LLMContentBlock[] = [];
+    /** Accumulator for tool_use input_json_delta partials, keyed by block index. */
+    const toolInputBuffer = new Map<number, string>();
     let stopReason: StopReason = "end_turn";
     const usage: LLMUsage = { inputTokens: 0, outputTokens: 0 };
 
@@ -274,8 +315,30 @@ export class Agent {
       yield { type: "llm.chunk", chunk };
       if (chunk.type === "content_block_start") {
         blocks[chunk.index] = chunk.block;
+        // tool_use SDK-starts with empty/partial input; we'll rebuild on stop.
+        if (chunk.block.type === "tool_use") {
+          toolInputBuffer.set(chunk.index, "");
+        }
       } else if (chunk.type === "content_block_delta") {
-        applyDelta(blocks, chunk.index, chunk.delta);
+        applyDelta(blocks, chunk.index, chunk.delta, toolInputBuffer);
+      } else if (chunk.type === "content_block_stop") {
+        // Finalize tool_use input from accumulated JSON.
+        const raw = toolInputBuffer.get(chunk.index);
+        if (raw !== undefined) {
+          const block = blocks[chunk.index];
+          if (block?.type === "tool_use") {
+            try {
+              blocks[chunk.index] = { ...block, input: JSON.parse(raw || "{}") };
+            } catch {
+              this.#host.logger.warn("agent.tool_use.input_parse.error", {
+                index: chunk.index,
+                raw,
+              });
+              blocks[chunk.index] = { ...block, input: {} };
+            }
+          }
+          toolInputBuffer.delete(chunk.index);
+        }
       } else if (chunk.type === "usage") {
         if (chunk.usage.inputTokens !== undefined) usage.inputTokens = chunk.usage.inputTokens;
         if (chunk.usage.outputTokens !== undefined) usage.outputTokens = chunk.usage.outputTokens;
@@ -289,7 +352,11 @@ export class Agent {
         if (chunk.usage.cacheWriteTokens !== undefined) usage.cacheWriteTokens = chunk.usage.cacheWriteTokens;
       }
     }
-    return { blocks: blocks.filter((b): b is LLMContentBlock => b !== undefined), stopReason, usage };
+    return {
+      blocks: blocks.filter((b): b is LLMContentBlock => b !== undefined),
+      stopReason,
+      usage,
+    };
   }
 
   async #executeTool(
@@ -333,42 +400,51 @@ export class Agent {
    * request exceeds the soft budget, delegate compaction. Updates
    * `this.#history` in place. Returns an AgentStreamEvent to yield, or
    * undefined if no compaction was performed.
+   *
+   * The cut point is always a **turn boundary** (between user messages).
+   * This prevents `tool_use` / `tool_result` orphaning (opencode pattern).
+   * Passing `memoryHits` and `toolDefs` lets us estimate the full request
+   * (not just the bare history), matching the actual LLM call size.
    */
-  async #maybeCompact(): Promise<AgentStreamEvent | undefined> {
-    const request = this.#buildRequest([]); // estimate without memory context
+  async #maybeCompact(
+    memoryHits: MemoryHit[],
+    toolDefs: readonly ToolDefinitionWithTier[],
+  ): Promise<AgentStreamEvent | undefined> {
+    const request = this.#buildRequest(memoryHits, toolDefs);
     if (this.#estimate(request) <= this.#budget) return undefined;
 
+    // Find turn boundary — keep last N user messages verbatim.
+    const cutAt = findTurnCutPoint(this.#history, this.#keepTail);
+    if (cutAt <= 0) return undefined;
+    const head = this.#history.slice(0, cutAt);
+    const keptTail = this.#history.length - cutAt;
+
     if (!isCapable<CompactableCapable>(this.#host.memory, "compact")) {
-      // No compaction available; drop oldest messages as crude fallback.
-      const excess = this.#history.length - this.#keepTail;
-      if (excess > 0) {
-        this.#history.splice(0, excess);
-        this.#host.logger.info("agent.compaction.fallback.sliced", {
-          dropped: excess,
-          kept: this.#keepTail,
-        });
-      }
+      // No compaction available; drop head as crude fallback.
+      this.#history.splice(0, cutAt);
+      this.#host.logger.info("agent.compaction.fallback.sliced", {
+        dropped: cutAt,
+        kept: keptTail,
+      });
       return undefined;
     }
-
-    const keepTail = Math.min(this.#keepTail, this.#history.length);
-    const head = this.#history.slice(0, this.#history.length - keepTail);
-    if (head.length === 0) return undefined;
 
     const compactionInput: CompactionMessage[] = head.map(toCompactionMessage);
     try {
       const result = await this.#host.memory.compact({
         messages: compactionInput,
-        keepTail,
+        keepTail: keptTail,
         targetTokens: Math.max(1_000, Math.floor(this.#budget * 0.15)),
         sessionId: this.#session.id,
       });
-      // Replace head with a synthetic assistant message summarizing it.
+      // Replace the head window with a synthetic assistant message.
+      // `droppedCount` is an advisory from memory; we honour our own cutAt
+      // as the source of truth to keep history.length predictable.
       const summaryMsg: LLMMessage = {
         role: "assistant",
         content: result.summary.content,
       };
-      this.#history.splice(0, head.length, summaryMsg);
+      this.#history.splice(0, cutAt, summaryMsg);
       return {
         type: "compaction",
         droppedCount: result.droppedCount,
@@ -422,12 +498,13 @@ function toCompactionMessage(msg: LLMMessage): CompactionMessage {
 
 /**
  * Apply an in-progress content_block_delta to the accumulating block at
- * `index`. Mutates `blocks` in place.
+ * `index`. Mutates `blocks` and `toolInputBuffer` in place.
  */
 function applyDelta(
   blocks: LLMContentBlock[],
   index: number,
   delta: { type: string; [k: string]: unknown },
+  toolInputBuffer: Map<number, string>,
 ): void {
   const existing = blocks[index];
   if (!existing) return;
@@ -438,10 +515,26 @@ function applyDelta(
       ...existing,
       thinking: existing.thinking + String(delta["thinking"] ?? ""),
     };
+  } else if (delta.type === "input_json_delta" && existing.type === "tool_use") {
+    const prev = toolInputBuffer.get(index) ?? "";
+    toolInputBuffer.set(index, prev + String(delta["partialJson"] ?? ""));
   }
-  // input_json_delta for tool_use blocks: accumulate as raw string — caller
-  // finalizes JSON.parse on content_block_stop. We keep it simple: the
-  // provider adapter is responsible for assembling final tool_use.input.
+}
+
+/**
+ * Return the index at which to cut `history` so that the last `keepTurns`
+ * user messages (and every assistant/tool message after them) stay intact.
+ * Returns 0 if the history has ≤ keepTurns user messages.
+ */
+function findTurnCutPoint(history: readonly LLMMessage[], keepTurns: number): number {
+  let userSeen = 0;
+  for (let i = history.length - 1; i >= 0; i--) {
+    if (history[i]?.role === "user") {
+      userSeen++;
+      if (userSeen >= keepTurns) return i;
+    }
+  }
+  return 0;
 }
 
 /** Rough default: 4 characters per token. Host should inject a provider-

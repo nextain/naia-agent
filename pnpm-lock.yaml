@@ -11,9 +11,18 @@ importers:
       '@anthropic-ai/sdk':
         specifier: ^0.39.0
         version: 0.39.0
+      '@nextain/agent-core':
+        specifier: workspace:*
+        version: link:packages/core
+      '@nextain/agent-observability':
+        specifier: workspace:*
+        version: link:packages/observability
       '@nextain/agent-providers':
         specifier: workspace:*
         version: link:packages/providers
+      '@nextain/agent-runtime':
+        specifier: workspace:*
+        version: link:packages/runtime
       '@nextain/agent-types':
         specifier: workspace:*
         version: link:packages/types
