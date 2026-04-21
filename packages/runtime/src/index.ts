@@ -17,7 +17,10 @@ export { SkillToolExecutor } from "./skill-tool-bridge.js";
 export type { SkillToolExecutorOptions } from "./skill-tool-bridge.js";
 
 export { CompositeToolExecutor } from "./composite-tool-executor.js";
-export type { CompositeSub } from "./composite-tool-executor.js";
+export type {
+  CompositeSub,
+  CompositeToolExecutorOptions,
+} from "./composite-tool-executor.js";
 
 // Mocks for tests, examples, and bootstrap hosts.
 export {

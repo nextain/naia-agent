@@ -31,37 +31,75 @@ export interface CompositeSub {
   executor: ToolExecutor;
 }
 
+export interface CompositeToolExecutorOptions {
+  subs: CompositeSub[];
+  /**
+   * Warn sink for tool-name shadowing. Default: `console.warn`. Shadowing
+   * happens when two subs expose the same tool name — first-registered
+   * wins. **Sub order is a trust boundary**: if skills are listed before
+   * MCP, an attacker controlling an MCP server cannot shadow a built-in
+   * skill of the same name.
+   */
+  onWarn?: (message: string, context?: Record<string, unknown>) => void;
+}
+
 export class CompositeToolExecutor implements ToolExecutor {
   readonly #subs: CompositeSub[];
+  readonly #onWarn: NonNullable<CompositeToolExecutorOptions["onWarn"]>;
   /** tool name → sub id, populated by list(). */
   #ownership = new Map<string, string>();
-  /** Pending rebuild when execute() is called before list(). */
+  #shadowed: ShadowRecord[] = [];
   #listed = false;
 
-  constructor(subs: CompositeSub[]) {
+  constructor(options: CompositeToolExecutorOptions | CompositeSub[]) {
+    const subs = Array.isArray(options) ? options : options.subs;
     if (subs.length === 0) throw new Error("CompositeToolExecutor: at least one sub-executor required");
     const seen = new Set<string>();
     for (const s of subs) {
       if (seen.has(s.id)) throw new Error(`CompositeToolExecutor: duplicate sub id "${s.id}"`);
       seen.add(s.id);
+      if (!s.executor.list) {
+        // A sub without list() can never be routed to — its execute() is
+        // unreachable through the composite because ownership is built
+        // from list() results. Surface at construction.
+        (Array.isArray(options) || !options.onWarn ? console.warn : options.onWarn)(
+          `[CompositeToolExecutor] sub "${s.id}" has no list() — its tools are unreachable via composite`,
+        );
+      }
     }
     this.#subs = subs;
+    this.#onWarn =
+      (Array.isArray(options) ? undefined : options.onWarn) ??
+      ((msg, ctx) => {
+        if (ctx) console.warn(`[CompositeToolExecutor] ${msg}`, ctx);
+        else console.warn(`[CompositeToolExecutor] ${msg}`);
+      });
   }
 
   async list(): Promise<ToolDefinitionWithTier[]> {
     const aggregated: ToolDefinitionWithTier[] = [];
     const nextOwnership = new Map<string, string>();
+    const nextShadowed: ShadowRecord[] = [];
     for (const sub of this.#subs) {
       if (!sub.executor.list) continue;
       const defs = await sub.executor.list();
       for (const def of defs) {
-        // First-registered wins — later subs are shadowed silently.
-        if (nextOwnership.has(def.name)) continue;
+        // First-registered wins. Record shadow for diagnostics.
+        const winner = nextOwnership.get(def.name);
+        if (winner) {
+          nextShadowed.push({ name: def.name, winner, loser: sub.id });
+          this.#onWarn(
+            `tool "${def.name}" from sub "${sub.id}" shadowed by "${winner}"`,
+            { name: def.name, winner, loser: sub.id },
+          );
+          continue;
+        }
         nextOwnership.set(def.name, sub.id);
         aggregated.push(def);
       }
     }
     this.#ownership = nextOwnership;
+    this.#shadowed = nextShadowed;
     this.#listed = true;
     return aggregated;
   }
@@ -104,4 +142,15 @@ export class CompositeToolExecutor implements ToolExecutor {
   ownerOf(toolName: string): string | undefined {
     return this.#ownership.get(toolName);
   }
+
+  /** Diagnostics — tool-name shadowings from the most recent list(). */
+  shadowedNames(): readonly ShadowRecord[] {
+    return this.#shadowed;
+  }
+}
+
+interface ShadowRecord {
+  name: string;
+  winner: string;
+  loser: string;
 }
