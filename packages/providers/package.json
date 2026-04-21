@@ -1,0 +1,56 @@
+{
+  "name": "@naia-agent/providers",
+  "version": "0.0.1",
+  "description": "LLMClient implementations for major providers (Anthropic, more to come).",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "default": "./dist/index.js"
+    },
+    "./anthropic": {
+      "import": {
+        "types": "./dist/anthropic.d.ts",
+        "default": "./dist/anthropic.js"
+      },
+      "default": "./dist/anthropic.js"
+    }
+  },
+  "sideEffects": false,
+  "files": ["dist", "src"],
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nextain/naia-agent.git",
+    "directory": "packages/providers"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@naia-agent/types": "workspace:*"
+  },
+  "peerDependencies": {
+    "@anthropic-ai/sdk": "^0.39.0"
+  },
+  "peerDependenciesMeta": {
+    "@anthropic-ai/sdk": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "^0.39.0"
+  }
+}

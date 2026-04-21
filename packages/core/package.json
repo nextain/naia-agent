@@ -13,6 +13,9 @@
   },
   "files": ["dist", "src"],
   "license": "Apache-2.0",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -b"
   },
