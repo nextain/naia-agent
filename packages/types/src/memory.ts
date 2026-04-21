@@ -118,6 +118,62 @@ export interface SessionRecallCapable {
 }
 
 /**
+ * `CompactableCapable` — memory-assisted context compaction.
+ *
+ * Consumed by the agent loop when the LLM context approaches its budget.
+ * Memory implementations that know the full conversation (via prior
+ * `encode` calls) can produce a semantic summary that replaces a window of
+ * raw messages, preserving meaning while shrinking tokens.
+ *
+ * Real-time variant: a future alpha-memory version may maintain a rolling
+ * summary during `encode` calls so `compact()` returns instantly. The
+ * contract allows both on-demand and pre-computed strategies — callers
+ * should not assume compact() is cheap.
+ */
+export interface CompactableCapable {
+  compact(input: CompactionInput): Promise<CompactionResult>;
+}
+
+export interface CompactionInput {
+  /**
+   * The message window to compact. Usually the leading N turns of a
+   * conversation, excluding the tail that is kept verbatim.
+   * Implementation-opaque — concrete shape is defined by caller.
+   */
+  messages: readonly CompactionMessage[];
+  /** How many raw messages from the end of the original transcript will be
+   *  preserved by the caller. Informational — lets memory shape summary. */
+  keepTail: number;
+  /** Rough target token budget for the returned summary. */
+  targetTokens: number;
+  /** Optional session id for context continuity. */
+  sessionId?: string;
+}
+
+/**
+ * Minimum wire shape for a message in compaction input. Callers map their
+ * native message type (e.g. `LLMMessage`) into this. Kept separate from
+ * `LLMMessage` to avoid a cross-file dependency inside types.
+ */
+export interface CompactionMessage {
+  role: "user" | "assistant" | "tool";
+  /** Text representation of the message. Tool-use and structured content
+   *  are serialized by the caller before passing here. */
+  content: string;
+  /** Optional timestamp for temporal reasoning. */
+  timestamp?: number;
+}
+
+export interface CompactionResult {
+  /** The summary message — role is always "assistant" (meta-narration). */
+  summary: CompactionMessage;
+  /** How many of the input messages were subsumed by the summary. */
+  droppedCount: number;
+  /** Whether the summary was pre-computed (cheap) or freshly generated. */
+  realtime?: boolean;
+}
+
+/**
  * Type guard — check if a MemoryProvider also implements a Capability.
  *
  * Multi-method capabilities (like BackupCapable with both backup + restore)
