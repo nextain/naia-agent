@@ -33,6 +33,12 @@ importers:
         specifier: workspace:*
         version: link:../types
 
+  packages/observability:
+    dependencies:
+      '@nextain/agent-types':
+        specifier: workspace:*
+        version: link:../types
+
   packages/protocol: {}
 
   packages/providers:

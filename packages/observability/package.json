@@ -1,0 +1,38 @@
+{
+  "name": "@nextain/agent-observability",
+  "version": "0.0.1",
+  "description": "Default Logger/Tracer/Meter implementations for @nextain/agent-types contracts.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "default": "./dist/index.js"
+    }
+  },
+  "sideEffects": false,
+  "files": ["dist", "src"],
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nextain/naia-agent.git",
+    "directory": "packages/observability"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@nextain/agent-types": "workspace:*"
+  }
+}
