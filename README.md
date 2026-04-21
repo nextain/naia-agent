@@ -6,7 +6,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-> ⚠️ **Early development.** Public interface not yet stable. Expect breaking changes until v0.1.
+> **v0.1.0 — Phase 1 freeze (2026-04-21).** Public contracts are additive-only from here. Breaking shape changes require MAJOR bump and 4-week advance notice (see [CHANGELOG.md](CHANGELOG.md)).
 
 ## Philosophy — Interfaces, not dependencies
 

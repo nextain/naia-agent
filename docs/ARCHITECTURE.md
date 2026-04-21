@@ -1,7 +1,7 @@
 # naia-agent Architecture
 
-Status: Phase 1 (pre-v0.1). Summary-level document; the full normative
-source is the migration plan at
+Status: Phase 1 freeze (v0.1.0, 2026-04-21). Summary-level document; the
+full normative source is the migration plan at
 `alpha-adk/.agents/progress/naia-4repo-migration-plan.md` (Part A).
 
 ## Philosophy — Interfaces, not dependencies
