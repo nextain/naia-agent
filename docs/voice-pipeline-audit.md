@@ -1,6 +1,7 @@
-# Voice Pipeline Audit — Phase 0 S6 (partial)
+# Voice Pipeline Audit — Phase 0 S6
 
-**Status**: analysis document. **Decision required from maintainer** — see §4.
+**Status**: decision made — **Option C (3-layer hybrid)**. Ratified by
+maintainer on 2026-04-21. See §5 for the resolved action items.
 
 This audit captures the current TTS + STT surface across naia-os so the
 Phase 0 S6 decision (voice pipeline ownership: `naia-agent` vs `shell` vs
@@ -69,17 +70,19 @@ argument for Option A is weak: STT's Rust plugin is nontrivially better
 than a Node implementation for OS audio capture. Option B loses agent-side
 audio emission capability.
 
-## 5. Maintainer action
+## 5. Maintainer action — RESOLVED (2026-04-21)
 
-To close Phase 0 S6:
+Decision: **Option C — 3-layer hybrid**.
 
-- [ ] Pick A / B / C
-- [ ] Document decision in `@naia-agent/types/src/voice.ts` (interface) + `@naia-agent/tts` (if Option A/C) creation plan
-- [ ] Record in migration plan v6 §A.6 as resolved
+- [x] **Picked**: Option C.
+  - TTS remains in agent (TS providers), STT remains in shell (Rust plugin).
+  - `VoiceEvent` in `@naia-agent/types` is the shared contract across layers.
+  - Agent emits `audio_chunk` / `viseme`, shell renders; shell emits `transcript` back to agent.
+- [ ] `@naia-agent/types/src/voice.ts` — draft `VoiceEvent` interface (Phase 1 T5 scope).
+- [ ] `@naia-agent/tts` package creation — Phase 2 X7. No early scaffold.
+- [x] Recorded in migration plan v6 §A.6 (VoiceEvent ownership already present; S6 now marked resolved).
 
-Until the decision is made, Phase 0 S6 remains **open but non-blocking**
-for MVM exit (Phase 1 entry). Phase 2 X7 (TTS extraction) cannot start
-without a decision.
+Phase 0 S6 **closed**. Phase 2 X7 (TTS extraction) can now be scheduled.
 
 ## References
 
