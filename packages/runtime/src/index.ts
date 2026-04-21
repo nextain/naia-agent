@@ -13,6 +13,9 @@ export type {
   SkillOutput,
 } from "./skill-loader.js";
 
+export { SkillToolExecutor } from "./skill-tool-bridge.js";
+export type { SkillToolExecutorOptions } from "./skill-tool-bridge.js";
+
 // Mocks for tests, examples, and bootstrap hosts.
 export {
   InMemoryMemory,
