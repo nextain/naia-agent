@@ -13,6 +13,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { AnthropicClient } from "@naia-agent/providers/anthropic";
+import type { StopReason } from "@naia-agent/types";
 
 const apiKey = process.env["ANTHROPIC_API_KEY"];
 const model = process.env["ANTHROPIC_MODEL"] ?? "claude-haiku-4-5-20251001";
@@ -20,7 +21,9 @@ const model = process.env["ANTHROPIC_MODEL"] ?? "claude-haiku-4-5-20251001";
 async function main(): Promise<void> {
   if (!apiKey) {
     console.log("━ dry-run (no ANTHROPIC_API_KEY) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    const sdk = new Anthropic({ apiKey: "dry-run" });
+    // Use a properly-prefixed placeholder so that future SDK versions with
+    // format validation won't break the dry-run path.
+    const sdk = new Anthropic({ apiKey: "sk-ant-dry-run-noop" });
     const client = new AnthropicClient(sdk, { defaultModel: model });
 
     const hasGenerate = typeof client.generate === "function";
@@ -54,7 +57,7 @@ async function main(): Promise<void> {
   console.log("\n[stream]");
   process.stdout.write("  text: ");
   let streamedText = "";
-  let finalStopReason: string | undefined;
+  let finalStopReason: StopReason | undefined;
   let finalUsage: unknown;
   for await (const chunk of client.stream({
     messages: [{ role: "user", content: "Count from 1 to 3, one number per line, nothing else." }],
