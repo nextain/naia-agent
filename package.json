@@ -14,8 +14,8 @@
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
-    "@naia-agent/providers": "workspace:*",
-    "@naia-agent/types": "workspace:*",
+    "@nextain/agent-providers": "workspace:*",
+    "@nextain/agent-types": "workspace:*",
     "@types/node": "^22.0.0",
     "tsx": "^4.19.0",
     "typescript": "^5.8.0"

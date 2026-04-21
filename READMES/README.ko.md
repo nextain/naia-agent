@@ -12,7 +12,7 @@
 
 `naia-agent`는 동반 레포들과 **런타임 의존이 아닌 "공개된 인터페이스"로만 연결**됩니다.
 
-- **투명합니다**: 모든 인터페이스는 `@naia-agent/types`에 명세되고 문서화되며 버전이 붙습니다. 누구든 읽고 직접 구현할 수 있어요.
+- **투명합니다**: 모든 인터페이스는 `@nextain/agent-types`에 명세되고 문서화되며 버전이 붙습니다. 누구든 읽고 직접 구현할 수 있어요.
 - **서로 묶이지 않습니다**: `naia-adk`·`alpha-memory`·호스트들은 **`naia-agent`를 import하지 않습니다**. 그냥 계약(interface)을 구현할 뿐. `naia-agent` 역시 그들을 import하지 않습니다 — 구체 구현체를 주입받아 호출합니다.
 - **추상화되어 있습니다**: 런타임은 어떤 LLM 프로바이더·메모리 백엔드·스킬 소스가 쓰이는지 모릅니다. 바꿔 끼워도 나머지가 그대로 돕니다.
 
@@ -21,7 +21,7 @@ Ports & Adapters(헥사고날) 아키텍처를 생태계 단위로 확장한 구
 ```
                      계약 정의
  ┌──────────────────────────────────────────┐
- │   @naia-agent/types (공개 퍼블리시)       │
+ │   @nextain/agent-types (공개 퍼블리시)       │
  │   LLMClient · MemoryProvider ·           │
  │   SkillLoader · ToolExecutor · ...       │
  └───────┬─────────────────┬────────────────┘
@@ -49,7 +49,7 @@ Ports & Adapters(헥사고날) 아키텍처를 생태계 단위로 확장한 구
 
 ### naia-agent — 런타임 엔진 (이 레포)
 - **무엇인가**: 에이전트 루프, 툴 디스패치, 컨텍스트 관리, compaction, 스킬 실행.
-- **담당**: `@naia-agent/types` 계약과 그것을 구현한 레퍼런스 런타임.
+- **담당**: `@nextain/agent-types` 계약과 그것을 구현한 레퍼런스 런타임.
 - **다른 레포와의 관계**: *계약 소비자*. 인터페이스를 통해서만 바깥과 소통합니다. `naia-adk`나 `alpha-memory`의 런타임 코드를 import하지 않아요. 프로바이더·저장소 백엔드·UI에 대한 직접 지식이 없습니다.
 - **독립성**: Node.js가 도는 곳이면 어디서든 실행됩니다. 내놓는 인터페이스 외에 외부 의존이 없어요.
 
@@ -87,7 +87,7 @@ Ports & Adapters(헥사고날) 아키텍처를 생태계 단위로 확장한 구
 
 에이전트는 주입받은 `LLMClient` 인터페이스만 압니다. 어떤 프로바이더·게이트웨이·프로토콜인지 모릅니다.
 
-## 공개되는 인터페이스 (`@naia-agent/types`)
+## 공개되는 인터페이스 (`@nextain/agent-types`)
 
 모든 계약은 런타임 의존 없는 하나의 패키지에 있습니다. 누구든 구현할 수 있어요.
 
@@ -122,7 +122,7 @@ Ports & Adapters(헥사고날) 아키텍처를 생태계 단위로 확장한 구
 - [x] 레포 생성
 - [x] pnpm workspace 스캐폴드 (`packages/core`)
 - [x] `LLMClient` 인터페이스 스텁
-- [ ] `@naia-agent/types` 패키지 (계약들)
+- [ ] `@nextain/agent-types` 패키지 (계약들)
 - [ ] 코어 루프 골격
 - [ ] 툴 실행
 - [ ] Compaction
@@ -144,8 +144,8 @@ pnpm build
 ```
 naia-agent/
 ├── packages/
-│   ├── types/       # @naia-agent/types — 계약들 (계획)
-│   └── core/        # @naia-agent/core — 루프·툴·compaction (작업 중)
+│   ├── types/       # @nextain/agent-types — 계약들 (계획)
+│   └── core/        # @nextain/agent-core — 루프·툴·compaction (작업 중)
 ├── package.json     # pnpm workspace 루트
 └── tsconfig.json    # TypeScript project references
 ```

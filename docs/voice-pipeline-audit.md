@@ -55,7 +55,7 @@ Phase 0 S6 asks: where does the voice pipeline live after migration?
 - **Loss**: agent cannot emit audio directly (must request host)
 
 ### Option C — 3-layer hybrid (current)
-- Keep TTS in agent, STT in shell, `VoiceEvent` in `@naia-agent/types` as the shared contract
+- Keep TTS in agent, STT in shell, `VoiceEvent` in `@nextain/agent-types` as the shared contract
 - Agent emits `audio_chunk` / `viseme`; shell renders
 - Shell emits `transcript` back to agent
 - **Cost**: zero migration (status quo)
@@ -76,9 +76,9 @@ Decision: **Option C — 3-layer hybrid**.
 
 - [x] **Picked**: Option C.
   - TTS remains in agent (TS providers), STT remains in shell (Rust plugin).
-  - `VoiceEvent` in `@naia-agent/types` is the shared contract across layers.
+  - `VoiceEvent` in `@nextain/agent-types` is the shared contract across layers.
   - Agent emits `audio_chunk` / `viseme`, shell renders; shell emits `transcript` back to agent.
-- [ ] `@naia-agent/types/src/voice.ts` — draft `VoiceEvent` interface (Phase 1 T5 scope).
+- [ ] `@nextain/agent-types/src/voice.ts` — draft `VoiceEvent` interface (Phase 1 T5 scope).
 - [ ] `@naia-agent/tts` package creation — Phase 2 X7. No early scaffold.
 - [x] Recorded in migration plan v6 §A.6 (VoiceEvent ownership already present; S6 now marked resolved).
 

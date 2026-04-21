@@ -11,10 +11,10 @@ importers:
       '@anthropic-ai/sdk':
         specifier: ^0.39.0
         version: 0.39.0
-      '@naia-agent/providers':
+      '@nextain/agent-providers':
         specifier: workspace:*
         version: link:packages/providers
-      '@naia-agent/types':
+      '@nextain/agent-types':
         specifier: workspace:*
         version: link:packages/types
       '@types/node':
@@ -29,13 +29,13 @@ importers:
 
   packages/core:
     dependencies:
-      '@naia-agent/types':
+      '@nextain/agent-types':
         specifier: workspace:*
         version: link:../types
 
   packages/providers:
     dependencies:
-      '@naia-agent/types':
+      '@nextain/agent-types':
         specifier: workspace:*
         version: link:../types
     devDependencies:

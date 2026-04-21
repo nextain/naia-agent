@@ -1,5 +1,5 @@
 /**
- * Smoke test for @naia-agent/providers/anthropic.
+ * Smoke test for @nextain/agent-providers/anthropic.
  *
  * MVM #3b (integration stand-in for shell integration): verify that
  * `AnthropicClient` can be constructed, implements `LLMClient`, and — when
@@ -12,8 +12,8 @@
  */
 
 import Anthropic from "@anthropic-ai/sdk";
-import { AnthropicClient } from "@naia-agent/providers/anthropic";
-import type { StopReason } from "@naia-agent/types";
+import { AnthropicClient } from "@nextain/agent-providers/anthropic";
+import type { StopReason } from "@nextain/agent-types";
 
 const apiKey = process.env["ANTHROPIC_API_KEY"];
 const model = process.env["ANTHROPIC_MODEL"] ?? "claude-haiku-4-5-20251001";

@@ -1,5 +1,5 @@
 {
-  "name": "@naia-agent/core",
+  "name": "@nextain/agent-core",
   "version": "0.0.0",
   "description": "Agent loop, tool execution, compaction, memory — core runtime library",
   "type": "module",
@@ -20,6 +20,6 @@
     "build": "tsc -b"
   },
   "dependencies": {
-    "@naia-agent/types": "workspace:*"
+    "@nextain/agent-types": "workspace:*"
   }
 }

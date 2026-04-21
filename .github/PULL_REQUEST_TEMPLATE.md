@@ -4,7 +4,7 @@
 
 <!-- 1–3 sentences. What and why. -->
 
-## Contract impact (`@naia-agent/types`)
+## Contract impact (`@nextain/agent-types`)
 
 - [ ] Adds types / optional fields — **MINOR** bump, additive per A.5 freeze rule
 - [ ] Breaking shape change — **MAJOR** bump

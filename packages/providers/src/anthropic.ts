@@ -3,7 +3,7 @@
  *
  * Usage:
  *   import Anthropic from "@anthropic-ai/sdk";
- *   import { AnthropicClient } from "@naia-agent/providers/anthropic";
+ *   import { AnthropicClient } from "@nextain/agent-providers/anthropic";
  *
  *   const client = new AnthropicClient(new Anthropic({ apiKey }), {
  *     defaultModel: "claude-opus-4-7",
@@ -24,7 +24,7 @@ import type {
   LLMUsage,
   StopReason,
   ToolDefinition,
-} from "@naia-agent/types";
+} from "@nextain/agent-types";
 
 export interface AnthropicClientOptions {
   defaultModel?: string;

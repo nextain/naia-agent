@@ -1,5 +1,5 @@
-// @naia-agent/core — runtime loop and dispatch (scaffold only).
-// Consumes contracts from @naia-agent/types. See migration plan A.3/A.4.
+// @nextain/agent-core — runtime loop and dispatch (scaffold only).
+// Consumes contracts from @nextain/agent-types. See migration plan A.3/A.4.
 
 // Re-export key contracts so hosts get a single import surface for the
 // runtime-facing API. No runtime values yet.
@@ -11,4 +11,4 @@ export type {
   MemoryProvider,
   Event,
   ErrorEvent,
-} from "@naia-agent/types";
+} from "@nextain/agent-types";

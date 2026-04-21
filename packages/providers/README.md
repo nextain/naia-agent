@@ -1,4 +1,4 @@
-# @naia-agent/providers
+# @nextain/agent-providers
 
 LLMClient implementations for major providers.
 
@@ -6,14 +6,14 @@ LLMClient implementations for major providers.
 
 ## Currently available
 
-- `AnthropicClient` from `@naia-agent/providers/anthropic` — wraps `@anthropic-ai/sdk`.
+- `AnthropicClient` from `@nextain/agent-providers/anthropic` — wraps `@anthropic-ai/sdk`.
 
 Future: OpenAI, Google, gateway (any-llm), Mock.
 
 ## Install
 
 ```bash
-pnpm add @naia-agent/providers @anthropic-ai/sdk
+pnpm add @nextain/agent-providers @anthropic-ai/sdk
 ```
 
 `@anthropic-ai/sdk` is a peerDependency — you install the version you want.
@@ -22,7 +22,7 @@ pnpm add @naia-agent/providers @anthropic-ai/sdk
 
 ```typescript
 import Anthropic from "@anthropic-ai/sdk";
-import { AnthropicClient } from "@naia-agent/providers/anthropic";
+import { AnthropicClient } from "@nextain/agent-providers/anthropic";
 
 const client = new AnthropicClient(new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }), {
   defaultModel: "claude-opus-4-7",
@@ -45,7 +45,7 @@ for await (const chunk of client.stream({
 
 ## Contract
 
-`AnthropicClient implements LLMClient` — see [`@naia-agent/types`](../types) for the contract definition.
+`AnthropicClient implements LLMClient` — see [`@nextain/agent-types`](../types) for the contract definition.
 
 **Provider-specific block variants**: `thinking`, `redacted_thinking` are Anthropic-origin. Other provider adapters (future) will map native content to the nearest known variant or drop at the adapter boundary — they do not add new union arms.
 

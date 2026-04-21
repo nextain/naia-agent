@@ -1,4 +1,4 @@
-# @naia-agent/types
+# @nextain/agent-types
 
 Zero-runtime-dep public contracts for the Naia ecosystem.
 
@@ -15,7 +15,7 @@ This package contains only types — no runtime code. It is safe to depend on fr
 ## Usage
 
 ```typescript
-import type { LLMClient, MemoryProvider, Event } from "@naia-agent/types";
+import type { LLMClient, MemoryProvider, Event } from "@nextain/agent-types";
 
 function makeAgent(llm: LLMClient, memory: MemoryProvider) {
   // ... implementation code lives elsewhere; this package defines shapes only.

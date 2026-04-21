@@ -1,5 +1,5 @@
 {
-  "name": "@naia-agent/providers",
+  "name": "@nextain/agent-providers",
   "version": "0.0.1",
   "description": "LLMClient implementations for major providers (Anthropic, more to come).",
   "type": "module",
@@ -40,7 +40,7 @@
     "build": "tsc -b"
   },
   "dependencies": {
-    "@naia-agent/types": "workspace:*"
+    "@nextain/agent-types": "workspace:*"
   },
   "peerDependencies": {
     "@anthropic-ai/sdk": "^0.39.0"

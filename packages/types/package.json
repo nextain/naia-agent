@@ -1,5 +1,5 @@
 {
-  "name": "@naia-agent/types",
+  "name": "@nextain/agent-types",
   "version": "0.0.1",
   "description": "Zero-runtime-dep public contracts for the Naia ecosystem — LLMClient, MemoryProvider, Event, ErrorEvent.",
   "type": "module",

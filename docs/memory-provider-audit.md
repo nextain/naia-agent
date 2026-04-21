@@ -47,12 +47,12 @@ Interface signatures (`src/memory/types.ts`):
 - `EmbeddingProvider` interface
 - Implementations: `OfflineEmbeddingProvider`, `OpenAICompatEmbeddingProvider`, `NaiaGatewayEmbeddingProvider`
 
-## 2. Proposed `MemoryProvider` façade (for `@naia-agent/types`)
+## 2. Proposed `MemoryProvider` façade (for `@nextain/agent-types`)
 
 Minimum surface — matches A.5 contract (`encode`, `recall`, `consolidate`, `close`) with alpha-memory mapping:
 
 ```typescript
-// @naia-agent/types (zero runtime deps)
+// @nextain/agent-types (zero runtime deps)
 
 export interface MemoryProvider {
   encode(input: MemoryInput): Promise<void>;
@@ -177,7 +177,7 @@ interface. `MemorySystem` — the orchestrator — is the single
 `MemoryProvider` façade. The layering is:
 
 ```
-MemoryProvider (public façade, @naia-agent/types)
+MemoryProvider (public façade, @nextain/agent-types)
    └── MemorySystem (alpha-memory orchestrator)
         └── MemoryAdapter (Local / Mem0 / Qdrant — backend choice)
              └── mem0 / SQLite+hnswlib / Qdrant

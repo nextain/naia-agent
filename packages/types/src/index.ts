@@ -1,4 +1,4 @@
-// @naia-agent/types — zero-runtime-dep public contracts for the Naia ecosystem.
+// @nextain/agent-types — zero-runtime-dep public contracts for the Naia ecosystem.
 // Part of the 4-repo architecture (see github.com/nextain/naia-agent).
 // Every export here is a type (or const type alias). No runtime values.
 

@@ -12,7 +12,7 @@
 
 `naia-agent` relates to its companion repos through **published interfaces**, not through runtime dependencies.
 
-- **Transparent**: every interface is specified in `@naia-agent/types`, documented, and versioned — open for anyone to read or implement.
+- **Transparent**: every interface is specified in `@nextain/agent-types`, documented, and versioned — open for anyone to read or implement.
 - **Non-binding**: companion repos (`naia-adk`, `alpha-memory`, hosts) do **not** import `naia-agent`. They implement the contracts. `naia-agent` doesn't import them either — it receives concrete implementations via dependency injection.
 - **Abstracted**: the runtime knows nothing about which LLM provider, which memory backend, or which skill source is in use. Swap any of them and nothing else changes.
 
@@ -21,7 +21,7 @@ This is Ports & Adapters (hexagonal) architecture applied at the ecosystem scale
 ```
                     defines contracts
  ┌──────────────────────────────────────────┐
- │   @naia-agent/types (published, public)  │
+ │   @nextain/agent-types (published, public)  │
  │   LLMClient · MemoryProvider ·           │
  │   SkillLoader · ToolExecutor · ...       │
  └───────┬─────────────────┬────────────────┘
@@ -50,7 +50,7 @@ This is Ports & Adapters (hexagonal) architecture applied at the ecosystem scale
 
 ### naia-agent — Runtime engine (this repo)
 - **What it is**: Agent loop, tool dispatch, context management, compaction, skill execution.
-- **What it owns**: the `@naia-agent/types` contracts and a reference implementation that reads them.
+- **What it owns**: the `@nextain/agent-types` contracts and a reference implementation that reads them.
 - **Relationship to others**: *consumer of contracts* — calls out through interfaces only. Does not import `naia-adk` or `alpha-memory` runtime code. Does not know about providers, storage backends, or UIs directly.
 - **Independence**: naia-agent runs anywhere Node.js runs. Its dependencies are the interfaces it publishes, nothing else.
 
@@ -88,7 +88,7 @@ Runtime concerns (loop, tools) are separated from I/O concerns (network, UI) by 
 
 The agent depends only on the injected `LLMClient` interface — it has no knowledge of which provider, which gateway, or which network protocol carries the call.
 
-## Published interfaces (`@naia-agent/types`)
+## Published interfaces (`@nextain/agent-types`)
 
 Every contract lives in a single zero-runtime package. Anyone can implement:
 
@@ -123,7 +123,7 @@ All hosts consume the same `naia-agent` runtime, so behavior is consistent regar
 - [x] Repo created
 - [x] pnpm workspace scaffold (`packages/core`)
 - [x] `LLMClient` interface stub
-- [ ] `@naia-agent/types` package (contracts)
+- [ ] `@nextain/agent-types` package (contracts)
 - [ ] Core loop skeleton
 - [ ] Tool execution
 - [ ] Compaction
@@ -145,8 +145,8 @@ Workspace layout:
 ```
 naia-agent/
 ├── packages/
-│   ├── types/       # @naia-agent/types — contracts (planned)
-│   └── core/        # @naia-agent/core — loop, tools, compaction (WIP)
+│   ├── types/       # @nextain/agent-types — contracts (planned)
+│   └── core/        # @nextain/agent-core — loop, tools, compaction (WIP)
 ├── package.json     # pnpm workspace root
 └── tsconfig.json    # TypeScript project references
 ```
