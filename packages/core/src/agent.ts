@@ -49,6 +49,9 @@ export interface AgentOptions {
   model?: string;
   /** Maximum tool-use iterations per `send()` call. Default 10. */
   maxToolHops?: number;
+  /** After N consecutive tool calls return isError within one turn, the
+   *  agent halts the turn and emits `tool.error.halt`. Default 3. */
+  maxConsecutiveToolErrors?: number;
   /**
    * Estimate token count for a request. Agent-facing hook so callers can
    * plug in provider-accurate tokenizers. Default: rough char/4 heuristic.
@@ -71,19 +74,27 @@ export interface AgentOptions {
   tierForTool?: (name: string) => TierLevel;
 }
 
-/** Events emitted by `sendStream()`. Callers pattern-match on `type`. */
+/**
+ * Events emitted by `sendStream()`. Callers pattern-match on `type`.
+ *
+ * **Channel duplication note**: `llm.chunk` carries the raw stream;
+ * `text`/`thinking` events are **convenience derivatives** emitted by
+ * Agent for the same underlying deltas. Subscribe to EITHER
+ *   (a) `llm.chunk` for raw / low-level access, OR
+ *   (b) `text` + `thinking` for pre-parsed progressive rendering.
+ * Subscribing to both will double-render the same content.
+ */
 export type AgentStreamEvent =
   | { type: "session.started"; session: Readonly<Session> }
   | { type: "turn.started"; userText: string; recalled: number }
   | { type: "llm.chunk"; chunk: LLMStreamChunk }
   | {
-      /** Emitted per thinking_delta chunk so hosts can render a dedicated
-       *  thinking UI without parsing llm.chunk themselves. */
+      /** Derived from `text_delta` in llm.chunk. See channel-duplication note. */
       type: "thinking";
       text: string;
     }
   | {
-      /** Emitted per text_delta chunk for progressive assistant rendering. */
+      /** Derived from `text_delta` in llm.chunk. See channel-duplication note. */
       type: "text";
       text: string;
     }
@@ -113,6 +124,7 @@ export class Agent {
   readonly #budget: number;
   readonly #keepTail: number;
   readonly #tierFor: (name: string) => TierLevel;
+  readonly #maxConsecutiveToolErrors: number;
 
   constructor(options: AgentOptions) {
     this.#host = options.host;
@@ -123,6 +135,7 @@ export class Agent {
     this.#budget = options.contextBudget ?? 80_000;
     this.#keepTail = options.compactionKeepTail ?? 6;
     this.#tierFor = options.tierForTool ?? (() => "T1");
+    this.#maxConsecutiveToolErrors = options.maxConsecutiveToolErrors ?? 3;
 
     this.#session = {
       id: randomSessionId(),
@@ -179,11 +192,9 @@ export class Agent {
     const aggUsage: LLMUsage = { inputTokens: 0, outputTokens: 0 };
     const tierByName = new Map<string, TierLevel>();
     let compactedThisTurn = false;
-    /** Stop after N consecutive tool errors per turn to avoid loops. */
-    const MAX_CONSECUTIVE_TOOL_ERRORS = 3;
     let consecutiveToolErrors = 0;
     let lastBadInvocation: ToolInvocation | undefined;
-    let lastBadResult: ToolExecutionResult | undefined;
+    let halted = false;
 
     while (hopsRemaining-- > 0) {
       if (signal?.aborted) break;
@@ -227,7 +238,6 @@ export class Agent {
 
       // 5. Tool-hop: execute each tool_use, push tool_result turn.
       const toolResults: LLMContentBlock[] = [];
-      let halted = false;
       for (const block of blocks) {
         if (block.type !== "tool_use") continue;
         if (signal?.aborted) break;
@@ -244,7 +254,6 @@ export class Agent {
         if (result.isError === true) {
           consecutiveToolErrors++;
           lastBadInvocation = invocation;
-          lastBadResult = result;
         } else {
           consecutiveToolErrors = 0;
         }
@@ -254,7 +263,7 @@ export class Agent {
           content: result.content,
           ...(result.isError === true ? { isError: true } : {}),
         });
-        if (consecutiveToolErrors >= MAX_CONSECUTIVE_TOOL_ERRORS) {
+        if (consecutiveToolErrors >= this.#maxConsecutiveToolErrors) {
           yield {
             type: "tool.error.halt",
             consecutiveErrors: consecutiveToolErrors,
@@ -271,7 +280,6 @@ export class Agent {
         break;
       }
     }
-    void lastBadResult;
 
     if (!finalText) {
       this.#host.logger.warn("agent.send.max_hops_or_abort", {
@@ -285,7 +293,12 @@ export class Agent {
     }
 
     yield { type: "usage", usage: aggUsage };
-    await this.#encodeTurn(userText, finalText);
+    // Skip memory encoding when halted — the halt marker is noise that
+    // would pollute future recalls. Surface the halt through the event
+    // stream only.
+    if (!halted) {
+      await this.#encodeTurn(userText, finalText);
+    }
     yield { type: "turn.ended", assistantText: finalText };
   }
 
