@@ -16,6 +16,7 @@ export type {
 // Mocks for tests, examples, and bootstrap hosts.
 export {
   InMemoryMemory,
+  CompactableMemory,
   MockLLMClient,
   InMemoryToolExecutor,
 } from "./mocks/index.js";

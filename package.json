@@ -11,7 +11,8 @@
   "scripts": {
     "build": "tsc --build",
     "smoke:anthropic": "tsx scripts/smoke-anthropic.ts",
-    "smoke:agent": "tsx examples/minimal-host.ts"
+    "smoke:agent": "tsx examples/minimal-host.ts",
+    "smoke:compaction": "tsx examples/compaction-host.ts"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
