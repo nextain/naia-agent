@@ -64,6 +64,18 @@ class AlphaMemoryAdapter implements MemoryProvider, CompactableCapable {
           .map(([k, v]) => `${k}=${v}`)
           .join(" ")
       : undefined;
+    // Unpack selected context keys into alpha-memory's EncodingContext
+    // object so features like rolling-summary-per-session can activate.
+    const encodingContext: {
+      sessionId?: string;
+      project?: string;
+      activeFile?: string;
+      taskDescription?: string;
+    } = {};
+    if (input.context?.["sessionId"]) encodingContext.sessionId = input.context["sessionId"];
+    if (input.context?.["project"]) encodingContext.project = input.context["project"];
+    if (input.context?.["activeFile"]) encodingContext.activeFile = input.context["activeFile"];
+    if (input.context?.["taskDescription"]) encodingContext.taskDescription = input.context["taskDescription"];
     await this.#sys.encode(
       {
         content: input.content,
@@ -71,7 +83,7 @@ class AlphaMemoryAdapter implements MemoryProvider, CompactableCapable {
         ...(contextStr !== undefined ? { context: contextStr } : {}),
         ...(input.timestamp !== undefined ? { timestamp: input.timestamp } : {}),
       },
-      {},
+      encodingContext,
     );
   }
 
@@ -255,12 +267,23 @@ async function main(): Promise<void> {
       console.error("FAIL: compact() was never exercised");
       process.exit(1);
     }
-    if (lastCompactionRealtime !== false) {
-      console.error(`FAIL: expected realtime=false from alpha-memory v0 impl, got ${lastCompactionRealtime}`);
+    // With a sessionId flowing into encode() (via Agent → context), the
+    // rolling summary path activates and compact() returns realtime=true.
+    if (lastCompactionRealtime !== true) {
+      console.error(
+        `FAIL: expected realtime=true once a sessionId is encoded (v2 rolling summary), got ${lastCompactionRealtime}`,
+      );
       process.exit(1);
     }
 
-    console.log("\n✓ alpha-memory CompactableCapable structural match confirmed");
+    const snapshots = sys.snapshotRollingSummaries();
+    console.log(`  rolling summaries tracked: ${snapshots.length}`);
+    if (snapshots.length === 0) {
+      console.error("FAIL: expected at least one rolling summary snapshot");
+      process.exit(1);
+    }
+
+    console.log("\n✓ alpha-memory v2 rolling summary path confirmed");
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
