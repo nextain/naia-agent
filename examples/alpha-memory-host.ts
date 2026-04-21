@@ -256,6 +256,11 @@ async function main(): Promise<void> {
       }
     }
 
+    // Snapshot BEFORE cleanup so the assertion below can see the tracked
+    // session. clearRollingSummary releases the map entry so long-running
+    // hosts don't leak per-session entries.
+    const snapshotsBeforeClose = sys.snapshotRollingSummaries();
+    sys.clearRollingSummary(agent.session.id);
     await memory.close();
     agent.close();
 
@@ -276,14 +281,19 @@ async function main(): Promise<void> {
       process.exit(1);
     }
 
-    const snapshots = sys.snapshotRollingSummaries();
-    console.log(`  rolling summaries tracked: ${snapshots.length}`);
-    if (snapshots.length === 0) {
-      console.error("FAIL: expected at least one rolling summary snapshot");
+    const snapshotsAfterClose = sys.snapshotRollingSummaries();
+    console.log(`  rolling summaries pre-close:  ${snapshotsBeforeClose.length}`);
+    console.log(`  rolling summaries post-close: ${snapshotsAfterClose.length}`);
+    if (snapshotsBeforeClose.length === 0) {
+      console.error("FAIL: expected at least one rolling summary snapshot before close");
+      process.exit(1);
+    }
+    if (snapshotsAfterClose.length !== 0) {
+      console.error("FAIL: clearRollingSummary should have released the entry");
       process.exit(1);
     }
 
-    console.log("\n✓ alpha-memory v2 rolling summary path confirmed");
+    console.log("\n✓ alpha-memory v2 rolling summary path + lifecycle confirmed");
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
