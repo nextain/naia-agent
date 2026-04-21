@@ -148,10 +148,28 @@ async function main(): Promise<void> {
   const dbPath = join(tmp, "memory.json");
 
   try {
-    const sys = new MemorySystem({
+    // Opt-in LLM-backed summarizer (alpha-memory v1 hook).
+    // Here we simulate a summarizer with a small transform; a real host
+    // would pass a function that wraps `LLMClient.generate()`.
+    const useLlmSummarizer = process.env["ALPHA_MEMORY_LLM_SUMMARIZER"] === "1";
+    const summarizer = useLlmSummarizer
+      ? async (input: {
+          messages: readonly { role: string; content: string; timestamp?: number }[];
+          keepTail: number;
+          targetTokens: number;
+          seedSummary: string;
+        }) => {
+          // Simulated polish — real impl calls LLM.
+          return `[POLISHED by mock summarizer — ${input.messages.length} msgs]\n${input.seedSummary}`;
+        }
+      : undefined;
+
+    const sysOptions: ConstructorParameters<typeof MemorySystem>[0] = {
       adapter: new LocalAdapter(dbPath),
       consolidationIntervalMs: 60_000 * 60, // never auto during smoke
-    });
+    };
+    if (summarizer) sysOptions.summarizer = summarizer;
+    const sys = new MemorySystem(sysOptions);
     const memory = new AlphaMemoryAdapter(sys);
 
     const llm = new MockLLMClient({
