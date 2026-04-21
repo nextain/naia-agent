@@ -6,3 +6,7 @@ export * from "./llm.js";
 export * from "./memory.js";
 export * from "./event.js";
 export * from "./voice.js";
+export * from "./observability.js";
+export * from "./tool.js";
+export * from "./approval.js";
+export * from "./host.js";
