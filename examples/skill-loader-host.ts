@@ -33,10 +33,16 @@ Polite hello.
 
 const SKILL_B = `---
 name: danger
-description: Pretends to be a dangerous command.
+description: |
+  Pretends to be a dangerous command.
+  Multiple paragraphs are allowed.
+  This tests block scalar parsing.
 version: 0.2.1
 tier: T3
 author: test-fixture
+tags:
+  - security
+  - blocklist-sample
 ---
 
 # danger
@@ -92,6 +98,14 @@ async function main(): Promise<void> {
     const danger = await loader.get("danger");
     if (danger?.tier !== "T3" || danger.author !== "test-fixture") {
       console.error(`FAIL: danger descriptor mismatch`);
+      process.exit(1);
+    }
+    if (!danger.description.includes("Multiple paragraphs")) {
+      console.error(`FAIL: danger.description block scalar lost content: "${danger.description}"`);
+      process.exit(1);
+    }
+    if (!Array.isArray(danger.tags) || !danger.tags.includes("security")) {
+      console.error(`FAIL: danger.tags block list not parsed: ${JSON.stringify(danger.tags)}`);
       process.exit(1);
     }
     const schemaObj = greet?.inputSchema as { type?: string; properties?: { name?: { type?: string } } };

@@ -53,6 +53,11 @@ export interface FileSkillLoaderOptions {
    * returns an isError result telling the caller the loader is parse-only.
    */
   invoker?: (descriptor: SkillDescriptor, input: SkillInput) => Promise<SkillOutput>;
+  /**
+   * Optional warn-level sink for parse failures (malformed front-matter,
+   * IO errors). Default: `console.warn`. Set to a no-op for silent mode.
+   */
+  onWarn?: (message: string, context?: Record<string, unknown>) => void;
 }
 
 /**
@@ -63,11 +68,18 @@ export interface FileSkillLoaderOptions {
 export class FileSkillLoader implements SkillLoader {
   readonly #root: string;
   readonly #invoker?: FileSkillLoaderOptions["invoker"];
+  readonly #onWarn: NonNullable<FileSkillLoaderOptions["onWarn"]>;
   #cache: SkillDescriptor[] | null = null;
 
   constructor(options: FileSkillLoaderOptions) {
     this.#root = options.workspaceRoot;
     if (options.invoker) this.#invoker = options.invoker;
+    this.#onWarn =
+      options.onWarn ??
+      ((msg, ctx) => {
+        if (ctx) console.warn(`[FileSkillLoader] ${msg}`, ctx);
+        else console.warn(`[FileSkillLoader] ${msg}`);
+      });
   }
 
   async list(): Promise<SkillDescriptor[]> {
@@ -79,13 +91,22 @@ export class FileSkillLoader implements SkillLoader {
       if (!entry.isDirectory()) continue;
       const skillDir = join(skillsDir, entry.name);
       const manifestPath = join(skillDir, "SKILL.md");
-      const raw = await readFile(manifestPath, "utf-8").catch(() => null);
+      const raw = await readFile(manifestPath, "utf-8").catch((err: unknown) => {
+        this.#onWarn("failed to read SKILL.md", { path: manifestPath, err: String(err) });
+        return null;
+      });
       if (!raw) continue;
       const descriptor = parseSkillManifest(raw, {
         fallbackName: entry.name,
         sourcePath: relative(this.#root, manifestPath),
       });
-      if (descriptor) out.push(descriptor);
+      if (!descriptor) {
+        this.#onWarn("SKILL.md missing or malformed front-matter — skill skipped", {
+          path: manifestPath,
+        });
+        continue;
+      }
+      out.push(descriptor);
     }
     this.#cache = out;
     return out;
@@ -157,25 +178,72 @@ export function parseSkillManifest(
   const frontmatter: Record<string, unknown> = {};
   let inputSchemaLines: string[] = [];
   let collecting: string | null = null;
+  /** Accumulator for multi-line string / list under the current key. */
+  let multilineText: string[] = [];
+  let multilineList: string[] = [];
+  let multilineKind: "text" | "list" | null = null;
+
+  const flushMultiline = () => {
+    if (collecting && collecting !== "input_schema") {
+      if (multilineKind === "text" && multilineText.length > 0) {
+        // Trim trailing blank lines, join with \n.
+        while (multilineText.length > 0 && multilineText[multilineText.length - 1] === "") {
+          multilineText.pop();
+        }
+        frontmatter[collecting] = multilineText.join("\n").trim();
+      } else if (multilineKind === "list" && multilineList.length > 0) {
+        frontmatter[collecting] = multilineList;
+      }
+    }
+    multilineText = [];
+    multilineList = [];
+    multilineKind = null;
+  };
 
   for (const line of fm.split("\n")) {
-    // Start of a key:value or key: block
     const topLevel = /^([a-zA-Z_][\w-]*)\s*:\s*(.*)$/.exec(line);
-    if (topLevel && !line.startsWith("  ")) {
+    if (topLevel && !line.startsWith(" ") && !line.startsWith("\t")) {
+      // Flush previous multiline accumulator
+      flushMultiline();
+
       const key = topLevel[1] ?? "";
       const val = (topLevel[2] ?? "").trim();
+
       if (val === "") {
-        // Block scalar follows
+        // Block scalar / block list follows
         collecting = key;
-        if (key === "input_schema") inputSchemaLines = [];
+        if (key === "input_schema") {
+          inputSchemaLines = [];
+          multilineKind = null;
+        } else {
+          multilineKind = null; // determined by first content line
+        }
+      } else if (val === "|" || val === ">") {
+        // YAML block scalar indicator — capture lines until next top key
+        collecting = key;
+        multilineKind = "text";
+        multilineText = [];
       } else {
         collecting = null;
         frontmatter[key] = parseScalarOrList(val);
       }
     } else if (collecting === "input_schema") {
       inputSchemaLines.push(line);
+    } else if (collecting) {
+      const stripped = line.replace(/^[ \t]+/, "");
+      if (stripped.startsWith("- ")) {
+        multilineKind = "list";
+        multilineList.push(stripQuotes(stripped.slice(2).trim()));
+      } else if (stripped !== "" && multilineKind !== "list") {
+        multilineKind = "text";
+        multilineText.push(stripped);
+      } else if (multilineKind === "text") {
+        // Blank line inside block scalar
+        multilineText.push("");
+      }
     }
   }
+  flushMultiline();
 
   if (inputSchemaLines.length > 0) {
     frontmatter["input_schema"] = parseNestedBlock(inputSchemaLines);
