@@ -293,7 +293,25 @@ async function main(): Promise<void> {
       process.exit(1);
     }
 
-    console.log("\n✓ alpha-memory v2 rolling summary path + lifecycle confirmed");
+    // Durability round-trip — snapshot → load → snapshot should preserve shape.
+    sys.loadRollingSummaries(snapshotsBeforeClose);
+    const restored = sys.snapshotRollingSummaries();
+    if (restored.length !== snapshotsBeforeClose.length) {
+      console.error(
+        `FAIL: loadRollingSummaries should restore ${snapshotsBeforeClose.length} entries, got ${restored.length}`,
+      );
+      process.exit(1);
+    }
+    if (
+      restored[0]?.sessionId !== snapshotsBeforeClose[0]?.sessionId ||
+      restored[0]?.userCount !== snapshotsBeforeClose[0]?.userCount
+    ) {
+      console.error("FAIL: restored rolling summary differs from snapshot");
+      process.exit(1);
+    }
+    console.log(`  durability round-trip: ✓`);
+
+    console.log("\n✓ alpha-memory v2 rolling summary + lifecycle + durability confirmed");
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
