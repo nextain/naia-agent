@@ -8,6 +8,47 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [Slice 1c+] — 2026-04-25 — OpenAI-compat provider (GLM/zai/vLLM/OpenRouter…) + 사용자 키 자동 설정
+
+**사용자 directive: "키 넣어줘"** — `~/dev/my-envs/naia.nextain.io.env`에서 valid GLM 키 발견 → `~/.naia-agent/.env`에 자동 설정 → 즉시 실 호출 동작 확인.
+
+### Added
+- `packages/providers/src/openai-compat.ts` — OpenAI-compat fetch wrapper (no SDK 의존). zai GLM, vLLM, OpenRouter, Together, Groq, Ollama 등 모든 OpenAI-compat endpoint 호환
+- bin provider 분기 우선순위 update: ANTHROPIC > OpenAI-compat (GLM 자동 + OPENAI 환경) > Vertex > mock
+- `~/.naia-agent/.env` (mode 600) — GLM_API_KEY + GLM_MODEL 설정. 사용자 키 위치 자동 검출
+
+### 실 호출 검증 (실제로 동작)
+```bash
+$ pnpm naia-agent "안녕! 한국어 5단어 이내로 답해줘"
+[naia-agent] loaded .env=/home/luke/.naia-agent/.env (2 keys)
+[naia-agent] provider: openai-compat (model=glm-4.5-flash, baseUrl=https://open.bigmodel.cn/api/paas/v4)
+안녕하세요!
+```
+
+### Provider matrix (4 옵션)
+| 환경변수 | provider |
+|---|---|
+| `ANTHROPIC_API_KEY` | Anthropic 직접 |
+| `ANTHROPIC_API_KEY` + `ANTHROPIC_BASE_URL` | Anthropic-compat gateway |
+| `OPENAI_API_KEY` + `OPENAI_BASE_URL` | OpenAI-compat (vLLM/OpenRouter/etc) |
+| **`GLM_API_KEY`** (단독) | **zai/Zhipu GLM** (open.bigmodel.cn 자동) |
+| `VERTEX_PROJECT_ID` + `VERTEX_REGION` | Anthropic on Vertex AI (gcloud ADC) |
+| (none) | mock fallback |
+
+### 보안
+- `~/.naia-agent/.env` mode 600 (owner-only read)
+- 코드는 키 값 절대 stdout/stderr 노출 안 함 (key 이름만)
+- `.gitignore`에 `.naia-agent/` 포함 (commit 방지)
+- 매트릭스 §B22 준수: cleanroom 코드 라인 인용 0
+
+### 테스트
+- 160 PASS (protocol 73 + runtime 87)
+- tsc clean
+
+### 매트릭스 §A 신규 (다음 commit에서 update)
+- A20 후보: env+JSON config auto-loader
+- A21 후보: OpenAI-compat client (multi-endpoint)
+
 ## [Slice 1c] — 2026-04-25 — .env / JSON config auto-load + Vertex AI provider
 
 **사용자 키 보관 친화.** "키 직접 기억하지 않아" directive 반영 — 사용자가 표준 위치(.env, JSON config) 또는 명시 path에 키 두면 자동 로드. Anthropic 직접 + Vertex AI 둘 다 지원.

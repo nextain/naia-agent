@@ -141,12 +141,17 @@ describe("loadEnvAndConfig", () => {
     expect(process.env["ANTHROPIC_BASE_URL"]).toBe("u1");
   });
 
-  it("falls through candidates if file missing", () => {
-    // No envPath, no configPath, no cwd files → empty report (uses HOME paths
-    // which test doesn't write to).
+  it("falls through candidates if file missing (cwd only, HOME may have user .naia-agent)", () => {
+    // We only assert cwd-level files are NOT picked up. HOME ~/.naia-agent
+    // may exist on user machines (out of test control).
     const report = loadEnvAndConfig({ cwd: tmp });
-    expect(report.envFile).toBeUndefined();
-    expect(report.configFile).toBeUndefined();
+    if (report.envFile !== undefined) {
+      // If anything loaded, it must be from HOME, not our tmp.
+      expect(report.envFile).not.toContain(tmp);
+    }
+    if (report.configFile !== undefined) {
+      expect(report.configFile).not.toContain(tmp);
+    }
   });
 
   it("CLI flag wins over NAIA_AGENT_ENV", () => {

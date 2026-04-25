@@ -27,6 +27,13 @@
         "default": "./dist/anthropic-vertex.js"
       },
       "default": "./dist/anthropic-vertex.js"
+    },
+    "./openai-compat": {
+      "import": {
+        "types": "./dist/openai-compat.d.ts",
+        "default": "./dist/openai-compat.js"
+      },
+      "default": "./dist/openai-compat.js"
     }
   },
   "sideEffects": false,

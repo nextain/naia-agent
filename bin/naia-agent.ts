@@ -43,7 +43,33 @@ async function detectRealLLM(): Promise<{ client?: LLMClient; mode: string }> {
     }
   }
 
-  // Priority 2: Anthropic on Vertex AI.
+  // Priority 2: OpenAI-compat (zai GLM, vLLM, OpenRouter, Together, Groq, Ollama …).
+  // Detected via OPENAI_API_KEY + OPENAI_BASE_URL OR GLM_API_KEY (zai default endpoint).
+  const openaiKey = process.env["OPENAI_API_KEY"];
+  const openaiBase = process.env["OPENAI_BASE_URL"];
+  const glmKey = process.env["GLM_API_KEY"];
+  if ((openaiKey && openaiBase) || glmKey) {
+    try {
+      const { OpenAICompatClient } = await import("@nextain/agent-providers/openai-compat");
+      const apiKey = openaiKey ?? glmKey ?? "";
+      const baseUrl =
+        openaiBase ??
+        process.env["GLM_BASE_URL"] ??
+        "https://open.bigmodel.cn/api/paas/v4";
+      const model =
+        process.env["OPENAI_MODEL"] ?? process.env["GLM_MODEL"] ?? "glm-4.5-flash";
+      return {
+        client: new OpenAICompatClient({ apiKey, baseUrl, model }),
+        mode: `openai-compat (model=${model}, baseUrl=${baseUrl})`,
+      };
+    } catch (err) {
+      process.stderr.write(
+        `[naia-agent] openai-compat provider load failed: ${(err as Error).message}\n`,
+      );
+    }
+  }
+
+  // Priority 3: Anthropic on Vertex AI.
   const vertexProject =
     process.env["VERTEX_PROJECT_ID"] ?? process.env["GOOGLE_CLOUD_PROJECT"];
   const vertexRegion =
