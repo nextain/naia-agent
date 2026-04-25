@@ -8,6 +8,47 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [Plan v2] — 2026-04-25 — Cross-review 적용 (Option A light)
+
+**3-perspective cross-review** (architect + reference-driven + paranoid auditor) + 추가 ref 3개 검토(Mastra/LangGraph/Vercel) 결과 반영. **Option A (가벼운 buffer)** 채택.
+
+### 매트릭스 변경
+- §D 신규 9건: D09 (workspace sentinel) P0 / D10 (Tool 메타) P0 / D11~D17 (Tool context, onStepFinish, 3중 방어, Eval scorers, Memory tiers, Prompt cache C04 격상, Provider fallback)
+- §B 신규 6건: B17~B22 (Mastra monorepo / Mastra Studio / LangChain core / StateGraph reducer / Vercel multi-provider / cleanroom 라인 복붙)
+- §C04 → §D16 격상 (Vercel cache_control 영향)
+- §F05 신규: cleanroom 폐기 대응 plan (archived 2025-03)
+- §G 점수표: Mastra ★★★★★, Vercel ★★★★, LangGraph ★★★ 추가
+
+### 새 forbidden_actions
+- F01 보안 예외: CVE 패치 차단 면제 (4-repo plan A.13)
+- F09: cleanroom 단독 의존 금지 (OWASP/RFC 출처 cross-reference 강제)
+- F11: SDK breaking 사전 감지 (Anthropic SDK minor+ bump 시 fixture 재녹화)
+
+### 새 success criterion
+- G15: CI fixture-only mode default (API key 노출 방지)
+
+### Slice spine 변경
+- Slice 1 → 1a (mock-only) / 1b (real Anthropic + fixture-replay) 분할 — 위험 격리
+- Slice 1b에 D09/D10/D11 P0 ingrain
+- Slice 3에 G06 cross-repo P0 gate 명시 (alpha-memory stub 해소 전 진입 차단)
+- R3+ Slice 6/7/8/9/10 outline 신설 (Eval framework / Tool meta+context / Hook 28-event / Task framework / naia-os sidecar)
+
+### 신규 산출물 (`.agents/progress/refs/`)
+- `cc-cleanroom-security-audit-2026-04-25.md` (F1~F4 미완성 stub 발견, 악성 0건)
+- `cc-cleanroom-deep-audit-2026-04-25.md` (F5~F12 LLM 환각/silent fail + 8 파일 블랙리스트)
+- `mastra-review.md` (★★★★★ Eval/Memory tiers/Tool context)
+- `langgraphjs-review.md` (★★★ Checkpoint/Sub-agent/Interrupt)
+- `vercel-ai-sdk-review.md` (★★★★ ToolLoopAgent/onStepFinish)
+
+### 의도적 제외 (백로그 / R3+)
+- D14 Eval scorers 정식 framework (R3.1)
+- D12/D13 Task/Hook framework (R3.3/3.4)
+- D17 needs-approval 단순화 (Vercel deprecated, 우리 Tier T0~T3 우월)
+- 24h enforcement 자동화 (1인 환경 권고만)
+- Mastra DynamicArgument / StateGraph reducer / Vercel multi-provider 직접 의존
+
+코드 변경 0줄. 매트릭스 + agents-rules + AGENTS.md(+4 mirror auto) + r1-slice-spine + CHANGELOG only.
+
 ## [Slice 0] — 2026-04-25 — Structure / Dev env
 
 **R2 — 인프라 정비.** 코드 0줄 변경. 다음 슬라이스 진입을 위한 거버넌스·CI 정비.

@@ -13,6 +13,10 @@
     ".agents/progress/dev-framework-and-process.md",
     ".agents/progress/multi-tool-harness.md"
   ],
+  "supplementary_reads_security": [
+    ".agents/progress/refs/cc-cleanroom-security-audit-2026-04-25.md",
+    ".agents/progress/refs/cc-cleanroom-deep-audit-2026-04-25.md"
+  ],
   "mandatory_reads_upstream": [
     "../../alpha-adk/.agents/progress/naia-4repo-migration-plan.md",
     "../../alpha-adk/.agents/progress/direction-2026-04-25.md"
@@ -22,7 +26,8 @@
       "id": "F01",
       "rule": "no_code_change_without_skeleton",
       "description": "bin/naia-agent 진입점 미존재 시 packages/core/src/agent.ts 수정 금지, packages/runtime/src/ 신규 파일 추가 금지(테스트 제외), examples/ 외 위치에 새 host 코드 작성 금지",
-      "release_condition": "issue #3 (G01 bin/naia-agent) close"
+      "release_condition": "issue #3 (G01 bin/naia-agent) close",
+      "exemption": "보안 패치(CVE-worthy) — F01 차단 면제. 단 단위 테스트 동시 도입 강제. 4-repo plan A.13 보안 패치 lockstep 면제 원칙 적용"
     },
     {
       "id": "F02",
@@ -65,6 +70,19 @@
       "rule": "no_r1_plan_with_open_p0",
       "description": "OPEN P0 sub-issue 1건이라도 있으면 R1 plan 작성 차단",
       "release_condition": "P0 sub-issue 모두 close (#3, #4, #5, #6)"
+    },
+    {
+      "id": "F09",
+      "rule": "no_cleanroom_sole_dependency",
+      "description": "ref-cc-cleanroom (ghuntley) 단독 의존 금지. D01(DANGEROUS_COMMANDS regex) / D02(Path normalize) 같은 패턴 차용 시 OWASP/RFC/Anthropic 1차 spec 출처 docs 1건 이상 cross-reference 강제. cleanroom 코드 라인 직접 복붙 금지(B22). 근거: cc-cleanroom-deep-audit F1~F12 LLM 환각/silent drift + repo archived 2025-03 + 2 commits only",
+      "release_condition": "never (영구 강제)",
+      "enforcement": "PR description에 'OWASP/RFC 출처 명시' 체크박스 추가 (Slice 2 진입 시 PR template 신설)"
+    },
+    {
+      "id": "F11",
+      "rule": "anthropic_sdk_minor_bump_requires_fixture_replay",
+      "description": "@anthropic-ai/sdk minor 이상 버전 bump PR은 fixture-replay 재녹화 + StreamPlayer 재생 검증 의무. SDK breaking change 사전 감지",
+      "release_condition": "Slice 5 fixture-replay framework 정식 도입 후 자동화 가능"
     }
   ],
   "required_actions_for_slice_pr": [
@@ -87,6 +105,12 @@
       "id": "S04",
       "rule": "changelog_entry",
       "description": "README 또는 CHANGELOG에 슬라이스 entry 1건"
+    },
+    {
+      "id": "G15",
+      "rule": "ci_fixture_only_mode_default",
+      "description": "CI에서 ANTHROPIC_API_KEY 없을 때 fixture-replay만으로 모든 test pass 가능해야 함. real-LLM smoke는 KEY 있을 때만 opt-in. fixture에 실제 API key 절대 금지",
+      "release_condition": "Slice 1b 이후 (fixture-replay 1건 도입 후)"
     }
   ],
   "matrix_id_citation": {

@@ -78,6 +78,10 @@
 
 (c) 통합 검증 부재 슬라이스 = **머지 거부**.
 
+### G15 (v2 추가). CI fixture-only mode default
+
+CI에서 ANTHROPIC_API_KEY 없을 때 fixture-replay만으로 모든 test pass 가능해야 함. real-LLM smoke는 KEY 있을 때만 opt-in. fixture에 실제 API key 절대 금지.
+
 ---
 
 ## 절대 금지 (forbidden_actions, machine-readable: `.agents/context/agents-rules.json`)
@@ -118,6 +122,18 @@
 ### F08. OPEN P0 시 R1 차단
 
 OPEN P0 sub-issue (label `R0/P0` 또는 제목 prefix `[R0/P0]`)가 1건이라도 남아있으면 R1 plan 작성·실행 차단. 현재 P0: #3, #4, #5, #6.
+
+### F09. cleanroom 단독 의존 금지 (v2 추가)
+
+`ref-cc-cleanroom` (ghuntley) 단독 의존 금지. D01/D02 같은 패턴 차용 시 OWASP/RFC/Anthropic 1차 spec 출처 docs 1건 이상 cross-reference 강제. cleanroom 코드 라인 직접 복붙 금지(B22). 근거: cleanroom archived(2025-03) + 2 commits + LLM 환각/silent drift 위험 (deep-audit F1~F12).
+
+### F11. SDK breaking 사전 감지 (v2 추가)
+
+`@anthropic-ai/sdk` minor 이상 버전 bump PR은 fixture-replay 재녹화 + StreamPlayer 재생 검증 의무. SDK breaking change가 R1 plan-killer로 식별됨 (paranoid audit).
+
+### F01 보안 예외 (v2 보강)
+
+F01 차단은 **보안 패치(CVE-worthy)에 적용 안 함** (4-repo plan A.13 보안 lockstep 면제 원칙). 단 단위 테스트 동시 도입 강제.
 
 ---
 
