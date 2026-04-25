@@ -38,3 +38,7 @@ export type {
 // MCP bridge — Phase 2 X4. SDK (@modelcontextprotocol/sdk) is a peerDep.
 export { MCPClient, MCPToolExecutor } from "./mcp/index.js";
 export type { MCPServerConfig } from "./mcp/index.js";
+
+// Host factory — Slice 1a R3. Assembles HostContext for bin and embedded uses.
+export { createHost } from "./host/index.js";
+export type { CreateHostOptions } from "./host/index.js";

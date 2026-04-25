@@ -8,6 +8,43 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [Slice 1a] — 2026-04-25 — bin/naia-agent skeleton (mock-only)
+
+**R3 진입.** naia-agent를 처음으로 사용자 명령으로 호출 가능한 도구로 만듦.
+
+### Added
+- `bin/naia-agent.ts` — REPL/stdin/args 분기 entry (mock LLM)
+- `packages/runtime/src/host/create-host.ts` — host factory (DI 단순 주입, Mastra/opencode 매트릭스 §C22 단순화 채택)
+- `packages/runtime/src/host/index.ts` + runtime index re-export
+- `package.json scripts.naia-agent` (`tsx bin/naia-agent.ts`)
+- `packages/runtime/src/__tests__/create-host.test.ts` (5 tests)
+
+### Slice 1a success criterion (자가 검증 + paranoid review 통과)
+- ✅ S01 새 명령: `pnpm naia-agent "hi"` / `echo "hi" | pnpm naia-agent` / `pnpm naia-agent` (REPL)
+- ✅ S02 단위 테스트: create-host.test.ts 5 cases (총 128 PASS — protocol 73 + runtime 55)
+- ✅ S03 통합 검증: `pnpm smoke:agent` 회귀 PASS + `pnpm run check:harness-sync` PASS
+- ✅ S04 본 entry
+
+### Paranoid review fix (2건 즉시 적용)
+- P3: parseArgs `--` terminator 지원
+- P7: createHost default logLevel "info" → "warn" 일관성
+
+### 매트릭스 영향
+- 해소: G01 (bin/naia-agent 진입점) — F08 자동 해제 trigger 충족
+- §C22 (DI 단순화) — service factory 함수 패턴 채택, §A 승격은 Slice 1b에서 묶음
+- F09 준수: cleanroom 코드 인용 0건 (bin/host 모두 자체 작성)
+- F11 영향 없음: SDK import 0건 (mock only)
+
+### Sub-issues closed
+- closes #9 (sub-1 bin entry)
+- closes #10 (sub-2 host factory)
+- closes #11 (sub-3 단위 테스트 + 회귀)
+
+### Slice 1b 예고
+- real Anthropic / NAIA gateway 통합 (`NAIA_GATEWAY_URL` + `GEMINI_API_KEY`)
+- fixture-replay 1건 + StreamPlayer 골격
+- D09/D10/D11 P0 ingrain
+
 ## [Plan v2] — 2026-04-25 — Cross-review 적용 (Option A light)
 
 **3-perspective cross-review** (architect + reference-driven + paranoid auditor) + 추가 ref 3개 검토(Mastra/LangGraph/Vercel) 결과 반영. **Option A (가벼운 buffer)** 채택.

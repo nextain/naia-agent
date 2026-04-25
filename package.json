@@ -13,6 +13,7 @@
     "test": "pnpm -r --if-present test",
     "check:harness-sync": "bash scripts/sync-harness-mirrors.sh --check",
     "sync:harness": "bash scripts/sync-harness-mirrors.sh",
+    "naia-agent": "tsx bin/naia-agent.ts",
     "smoke:anthropic": "tsx scripts/smoke-anthropic.ts",
     "smoke:agent": "tsx examples/minimal-host.ts",
     "smoke:compaction": "tsx examples/compaction-host.ts",
