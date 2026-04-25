@@ -5,6 +5,9 @@ build/
 .DS_Store
 .env
 .env.local
+naia-agent.env
+.naia-agent.json
+.naia-agent/
 coverage/
 *.tsbuildinfo
 .turbo/

@@ -8,6 +8,67 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [Slice 1c] — 2026-04-25 — .env / JSON config auto-load + Vertex AI provider
+
+**사용자 키 보관 친화.** "키 직접 기억하지 않아" directive 반영 — 사용자가 표준 위치(.env, JSON config) 또는 명시 path에 키 두면 자동 로드. Anthropic 직접 + Vertex AI 둘 다 지원.
+
+### Added
+- `packages/runtime/src/utils/env-loader.ts` — native .env parser + JSON config flattener (camelCase/kebab → SCREAMING_SNAKE_CASE 자동 변환). dotenv 의존 0
+- `packages/runtime/src/__tests__/env-loader.test.ts` (18 tests)
+- `packages/providers/src/anthropic-vertex.ts` — `createAnthropicVertexClient` (Anthropic on Vertex AI via `@anthropic-ai/vertex-sdk`)
+- `bin/naia-agent.ts` — `--env <path>` / `--config <path>` 플래그 + `NAIA_AGENT_ENV` / `NAIA_AGENT_CONFIG` 환경변수 + 자동 검색
+- Provider 결정 로직: ANTHROPIC_API_KEY 우선 → VERTEX_PROJECT_ID + VERTEX_REGION → mock fallback
+- 의존: `@anthropic-ai/vertex-sdk@^0.16.0` (peer optional)
+
+### Auto-loaded files (first match wins, never overwrites process.env)
+- `.env`: `./.env` → `./naia-agent.env` → `~/.naia-agent/.env`
+- JSON: `./.naia-agent.json` → `~/.naia-agent/config.json`
+
+### Slice 1c success criterion (S01~S04)
+- ✅ S01 새 명령: `pnpm naia-agent --env .env "..."` / `pnpm naia-agent --config cfg.json "..."` / 자동 검색 모두 동작
+- ✅ S02 단위 테스트: env-loader 18 tests + 기존 142 = **160 PASS**
+- ✅ S03 통합 검증: .env 자동 로드 + provider 분기 시연 검증
+- ✅ S04 본 entry
+
+### .gitignore 추가
+`naia-agent.env` / `.naia-agent.json` / `.naia-agent/` (사용자 키 commit 방지)
+
+### Provider matrix
+| 환경변수 | 효과 |
+|---|---|
+| `ANTHROPIC_API_KEY` | Anthropic 직접 (claude-haiku-4-5-20251001 default) |
+| `ANTHROPIC_API_KEY` + `ANTHROPIC_BASE_URL` | Anthropic-compat gateway 라우팅 |
+| `VERTEX_PROJECT_ID` + `VERTEX_REGION` | Anthropic on Vertex AI (gcloud ADC 자동 사용) |
+| (none) | mock fallback |
+
+### 사용자 검증 안내
+
+**옵션 A — Anthropic 직접**:
+```bash
+echo "ANTHROPIC_API_KEY=sk-ant-..." > .naia-agent/.env  # ~/.naia-agent/.env
+pnpm naia-agent "hi"
+```
+
+**옵션 B — Vertex AI** (gcloud auth application-default login 이미 됨):
+```bash
+echo "VERTEX_PROJECT_ID=your-vertex-project" > .naia-agent/.env
+echo "VERTEX_REGION=us-east5" >> .naia-agent/.env
+pnpm naia-agent "hi"
+```
+
+**옵션 C — JSON config** (camelCase 자동 변환):
+```bash
+cat > ~/.naia-agent/config.json <<EOF
+{ "anthropic": { "apiKey": "sk-ant-...", "model": "claude-haiku-4-5-20251001" } }
+EOF
+pnpm naia-agent "hi"
+```
+
+**옵션 D — 명시 path** (사용자 자체 .env 재사용):
+```bash
+pnpm naia-agent --env ~/dev/my-envs/anthropic.env "hi"
+```
+
 ## [Slice 1b] — 2026-04-25 — real Anthropic + fixture-replay + D09/D10/D11
 
 **R3 척추 살아남음 증명.** real LLM 통합 + 결정적 회귀 테스트 + Tool 메타/context schema + Workspace sentinel.

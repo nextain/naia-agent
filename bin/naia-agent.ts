@@ -10,10 +10,10 @@
 
 import * as readline from "node:readline";
 import { Agent } from "@nextain/agent-core";
-import { createHost } from "@nextain/agent-runtime";
+import { createHost, loadEnvAndConfig } from "@nextain/agent-runtime";
 import type { LLMClient } from "@nextain/agent-types";
 
-const VERSION = "0.0.2-slice-1b";
+const VERSION = "0.0.3-slice-1c";
 
 // Slice 1b — env-detected real LLM injection.
 // Convention: ANTHROPIC_API_KEY + optional ANTHROPIC_BASE_URL (for gateway
@@ -21,39 +21,72 @@ const VERSION = "0.0.2-slice-1b";
 // AND when the gateway is Anthropic-compat. OpenAI-compat gateways are not
 // supported in 1b (matrix B21 — no multi-provider direct deps; gateway
 // translation lives in user environment).
-async function detectRealLLM(): Promise<LLMClient | undefined> {
-  const apiKey = process.env["ANTHROPIC_API_KEY"];
-  if (!apiKey) return undefined;
-  const baseURL = process.env["ANTHROPIC_BASE_URL"];
-  try {
-    // Defer SDK + provider imports to runtime to keep dry-run/mock paths fast.
-    const Anthropic = (await import("@anthropic-ai/sdk")).default;
-    const { AnthropicClient } = await import("@nextain/agent-providers/anthropic");
-    const sdk = new Anthropic(baseURL ? { apiKey, baseURL } : { apiKey });
-    const defaultModel = process.env["ANTHROPIC_MODEL"] ?? "claude-haiku-4-5-20251001";
-    return new AnthropicClient(sdk, { defaultModel });
-  } catch (err) {
-    // F11 graceful — SDK breaking change or provider load failure → fall back
-    // to mock with stderr warning. Avoids hard crash + stack trace in user shell.
-    process.stderr.write(
-      `[naia-agent] real LLM provider load failed: ${(err as Error).message}\n` +
-        `             falling back to mock mode. Verify @anthropic-ai/sdk + @nextain/agent-providers installed.\n`,
-    );
-    return undefined;
+async function detectRealLLM(): Promise<{ client?: LLMClient; mode: string }> {
+  // Priority 1: Anthropic direct (or via ANTHROPIC_BASE_URL gateway).
+  const anthropicKey = process.env["ANTHROPIC_API_KEY"];
+  if (anthropicKey) {
+    const baseURL = process.env["ANTHROPIC_BASE_URL"];
+    try {
+      const Anthropic = (await import("@anthropic-ai/sdk")).default;
+      const { AnthropicClient } = await import("@nextain/agent-providers/anthropic");
+      const sdk = new Anthropic(baseURL ? { apiKey: anthropicKey, baseURL } : { apiKey: anthropicKey });
+      const defaultModel = process.env["ANTHROPIC_MODEL"] ?? "claude-haiku-4-5-20251001";
+      return {
+        client: new AnthropicClient(sdk, { defaultModel }),
+        mode: `anthropic-direct (model=${defaultModel}${baseURL ? `, baseURL=${baseURL}` : ""})`,
+      };
+    } catch (err) {
+      process.stderr.write(
+        `[naia-agent] anthropic-direct provider load failed: ${(err as Error).message}\n` +
+          `             trying Vertex AI / falling back to mock.\n`,
+      );
+    }
   }
+
+  // Priority 2: Anthropic on Vertex AI.
+  const vertexProject =
+    process.env["VERTEX_PROJECT_ID"] ?? process.env["GOOGLE_CLOUD_PROJECT"];
+  const vertexRegion =
+    process.env["VERTEX_REGION"] ?? process.env["GOOGLE_CLOUD_LOCATION"];
+  if (vertexProject && vertexRegion) {
+    try {
+      const { createAnthropicVertexClient } = await import(
+        "@nextain/agent-providers/anthropic-vertex"
+      );
+      const defaultModel = process.env["ANTHROPIC_MODEL"] ?? "claude-haiku-4-5@20251001";
+      return {
+        client: createAnthropicVertexClient({
+          projectId: vertexProject,
+          region: vertexRegion,
+          defaultModel,
+        }),
+        mode: `anthropic-vertex (project=${vertexProject}, region=${vertexRegion}, model=${defaultModel})`,
+      };
+    } catch (err) {
+      process.stderr.write(
+        `[naia-agent] anthropic-vertex provider load failed: ${(err as Error).message}\n` +
+          `             falling back to mock. Verify @anthropic-ai/vertex-sdk + ADC (gcloud auth application-default login).\n`,
+      );
+    }
+  }
+
+  return { mode: "mock (no provider env detected)" };
 }
 
 interface CliArgs {
   prompt?: string;
   help: boolean;
   version: boolean;
+  envPath?: string;
+  configPath?: string;
 }
 
 function parseArgs(argv: string[]): CliArgs {
   const args: CliArgs = { help: false, version: false };
   const positional: string[] = [];
   let terminated = false;
-  for (const a of argv) {
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i] ?? "";
     if (terminated) {
       positional.push(a);
       continue;
@@ -62,7 +95,15 @@ function parseArgs(argv: string[]): CliArgs {
       terminated = true;
     } else if (a === "--help" || a === "-h") args.help = true;
     else if (a === "--version" || a === "-V") args.version = true;
-    else if (a.startsWith("-")) {
+    else if (a === "--env") {
+      args.envPath = argv[++i];
+    } else if (a.startsWith("--env=")) {
+      args.envPath = a.slice("--env=".length);
+    } else if (a === "--config") {
+      args.configPath = argv[++i];
+    } else if (a.startsWith("--config=")) {
+      args.configPath = a.slice("--config=".length);
+    } else if (a.startsWith("-")) {
       throw new Error(`unknown flag: ${a}`);
     } else positional.push(a);
   }
@@ -74,15 +115,29 @@ function printHelp(): void {
   console.log(`naia-agent ${VERSION}
 
 Usage:
-  pnpm naia-agent "your prompt"   # args mode (1-shot)
-  echo "prompt" | pnpm naia-agent # stdin mode (1-shot)
-  pnpm naia-agent                  # REPL mode
+  pnpm naia-agent "your prompt"             # args mode (1-shot)
+  echo "prompt" | pnpm naia-agent           # stdin mode (1-shot)
+  pnpm naia-agent                            # REPL mode
+  pnpm naia-agent --env path/to/.env "..."  # custom .env path
+  pnpm naia-agent --config ~/cfg.json "..."  # custom JSON config path
 
 Flags:
-  -h, --help     show this help
-  -V, --version  show version
+  -h, --help        show this help
+  -V, --version     show version
+  --env <path>      .env file path (or NAIA_AGENT_ENV)
+  --config <path>   JSON config path (or NAIA_AGENT_CONFIG)
 
-Slice 1a — mock LLM only. Slice 1b adds real Anthropic / NAIA gateway.`);
+Provider resolution (first match wins):
+  1) ANTHROPIC_API_KEY  → Anthropic direct (claude-haiku-4-5-20251001 default)
+                          + ANTHROPIC_BASE_URL → Anthropic-compat gateway routing
+  2) VERTEX_PROJECT_ID + VERTEX_REGION (with gcloud ADC)
+                       → Anthropic on Vertex AI (claude-haiku-4-5@20251001)
+  3) (none)            → mock LLM (smoke + dry-run)
+
+Auto-loaded files (in order, first match wins):
+  .env: ./.env, ./naia-agent.env, ~/.naia-agent/.env
+  json: ./.naia-agent.json, ~/.naia-agent/config.json
+  process.env always wins; .env/json only fill missing keys.`);
 }
 
 async function readStdin(): Promise<string> {
@@ -160,12 +215,22 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  // Slice 1b: detect ANTHROPIC_API_KEY (+ ANTHROPIC_BASE_URL gateway routing).
-  // Falls back to mock if absent — keeps Slice 1a smoke path live.
-  const realLLM = await detectRealLLM();
-  if (realLLM) {
-    process.stderr.write(`[naia-agent] real LLM mode (model=${process.env["ANTHROPIC_MODEL"] ?? "claude-haiku-4-5-20251001"}${process.env["ANTHROPIC_BASE_URL"] ? `, gateway=${process.env["ANTHROPIC_BASE_URL"]}` : ""})\n`);
+  // Slice 1c: auto-load .env + JSON config, then detect provider env.
+  const envReport = loadEnvAndConfig({
+    envPath: cli.envPath,
+    configPath: cli.configPath,
+  });
+  if (envReport.envFile || envReport.configFile) {
+    process.stderr.write(
+      `[naia-agent] loaded ${envReport.envFile ? `.env=${envReport.envFile}` : ""}` +
+        `${envReport.envFile && envReport.configFile ? " " : ""}` +
+        `${envReport.configFile ? `config=${envReport.configFile}` : ""}` +
+        ` (${envReport.loadedKeys.length} keys)\n`,
+    );
   }
+
+  const { client: realLLM, mode } = await detectRealLLM();
+  process.stderr.write(`[naia-agent] provider: ${mode}\n`);
   const host = createHost({ logLevel: "warn", llm: realLLM });
   const agent = new Agent({
     host,

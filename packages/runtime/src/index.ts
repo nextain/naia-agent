@@ -53,3 +53,7 @@ export {
   normalizeWorkspacePath,
   WorkspaceEscapeError,
 } from "./utils/path-normalize.js";
+
+// Env + JSON config auto-loader — Slice 1c. Native .env parser + flatten JSON.
+export { loadEnvAndConfig, parseEnv, flattenConfig } from "./utils/env-loader.js";
+export type { EnvLoadOptions, EnvLoadReport } from "./utils/env-loader.js";

@@ -6,3 +6,5 @@
 
 export { AnthropicClient } from "./anthropic.js";
 export type { AnthropicClientOptions } from "./anthropic.js";
+export { createAnthropicVertexClient } from "./anthropic-vertex.js";
+export type { AnthropicVertexClientOptions } from "./anthropic-vertex.js";
