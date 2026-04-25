@@ -106,10 +106,11 @@ interface CliArgs {
   envPath?: string;
   configPath?: string;
   enableBash: boolean;
+  enableFiles: boolean;
 }
 
 function parseArgs(argv: string[]): CliArgs {
-  const args: CliArgs = { help: false, version: false, enableBash: false };
+  const args: CliArgs = { help: false, version: false, enableBash: false, enableFiles: false };
   const positional: string[] = [];
   let terminated = false;
   for (let i = 0; i < argv.length; i++) {
@@ -132,6 +133,11 @@ function parseArgs(argv: string[]): CliArgs {
       args.configPath = a.slice("--config=".length);
     } else if (a === "--enable-bash") {
       args.enableBash = true;
+    } else if (a === "--enable-files") {
+      args.enableFiles = true;
+    } else if (a === "--enable-all") {
+      args.enableBash = true;
+      args.enableFiles = true;
     } else if (a.startsWith("-")) {
       throw new Error(`unknown flag: ${a}`);
     } else positional.push(a);
@@ -156,6 +162,8 @@ Flags:
   --env <path>       .env file path (or NAIA_AGENT_ENV)
   --config <path>    JSON config path (or NAIA_AGENT_CONFIG)
   --enable-bash      register the built-in bash skill (T1, DANGEROUS_COMMANDS-filtered)
+  --enable-files     register read_file/write_file/edit_file/list_files skills (T0/T1, D09 sentinel)
+  --enable-all       --enable-bash + --enable-files
 
 Provider resolution (first match wins):
   1) ANTHROPIC_API_KEY  → Anthropic direct (claude-haiku-4-5-20251001 default)
@@ -261,23 +269,31 @@ async function main(): Promise<number> {
 
   const { client: realLLM, mode } = await detectRealLLM();
   process.stderr.write(`[naia-agent] provider: ${mode}\n`);
-  if (cli.enableBash) {
-    process.stderr.write(`[naia-agent] bash skill ENABLED (T1, DANGEROUS_COMMANDS pre-filtered)\n`);
+  const enabledSkills: string[] = [];
+  if (cli.enableBash) enabledSkills.push("bash(T1)");
+  if (cli.enableFiles) enabledSkills.push("read_file(T0)", "write_file(T1)", "edit_file(T1)", "list_files(T0)");
+  if (enabledSkills.length > 0) {
+    process.stderr.write(`[naia-agent] skills ENABLED: ${enabledSkills.join(", ")}\n`);
   }
   const host = createHost({
     logLevel: "warn",
     llm: realLLM,
     enableBash: cli.enableBash,
+    enableFiles: cli.enableFiles,
   });
+  const skillHints: string[] = [];
+  if (cli.enableBash) skillHints.push("`bash` to run shell commands");
+  if (cli.enableFiles) skillHints.push("`read_file`/`write_file`/`edit_file`/`list_files` for workspace files");
   const agent = new Agent({
     host,
     systemPrompt:
       "You are naia-agent, a helpful AI assistant in CLI mode. " +
-      (cli.enableBash
-        ? "You have a `bash` tool — use it to inspect or run shell commands. "
-        : "") +
+      (skillHints.length > 0 ? `You have these tools: ${skillHints.join(", ")}. ` : "") +
       "Answer concisely.",
-    tierForTool: (name) => (name === "bash" ? "T1" : "T0"),
+    tierForTool: (name) => {
+      if (name === "bash" || name === "write_file" || name === "edit_file") return "T1";
+      return "T0";
+    },
   });
 
   try {

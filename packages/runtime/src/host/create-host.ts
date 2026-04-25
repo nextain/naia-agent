@@ -19,6 +19,7 @@ import { InMemoryMemory } from "../mocks/in-memory-memory.js";
 import { InMemoryToolExecutor, type InMemoryToolDef } from "../mocks/in-memory-tool-executor.js";
 import { MockLLMClient, type MockScript } from "../mocks/mock-llm-client.js";
 import { createBashSkill } from "../skills/bash.js";
+import { createFileOpsSkills, type FileOpsOptions } from "../skills/file-ops.js";
 
 export interface CreateHostOptions {
   llm?: LLMClient;
@@ -29,6 +30,10 @@ export interface CreateHostOptions {
   mockScript?: MockScript;
   /** Slice 2 — register the built-in `bash` skill (T1, DANGEROUS_COMMANDS-filtered). */
   enableBash?: boolean;
+  /** Slice 2.6 — register read_file/write_file/edit_file/list_files skills (T0/T1, D09 sentinel). */
+  enableFiles?: boolean;
+  /** Slice 2.6 — file-ops options (workspaceRoot, maxBytes). */
+  fileOpsOptions?: FileOpsOptions;
   /** Slice 2 — register additional InMemoryToolDef[] (advanced). */
   extraTools?: InMemoryToolDef[];
 }
@@ -52,6 +57,7 @@ export function createHost(opts: CreateHostOptions = {}): HostContext {
   } else {
     const builtins: InMemoryToolDef[] = [];
     if (opts.enableBash) builtins.push(createBashSkill());
+    if (opts.enableFiles) builtins.push(...createFileOpsSkills(opts.fileOpsOptions ?? {}));
     if (opts.extraTools) builtins.push(...opts.extraTools);
     tools = new InMemoryToolExecutor(builtins);
   }

@@ -8,6 +8,63 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [Slice 2.6] — 2026-04-25 — File ops skills (read/write/edit/list_files)
+
+**naia-agent가 본격 coding agent로.** LLM이 read_file/write_file/edit_file/list_files 자율 호출 → workspace 내 파일 작업.
+
+### Added
+- `packages/runtime/src/skills/file-ops.ts` — 4 skill factories:
+  - `createReadFileSkill` (T0, concurrencySafe) — UTF-8 read with maxBytes truncation
+  - `createWriteFileSkill` (T1, destructive) — write + auto-mkdir + maxBytes guard
+  - `createEditFileSkill` (T1, destructive) — exact-match find/replace (single or all)
+  - `createListFilesSkill` (T0, concurrencySafe) — non-recursive ls with type prefix
+  - `createFileOpsSkills(opts)` — bundle of all 4
+- 모두 D09 `normalizeWorkspacePath` (workspace sentinel) 재사용 → path traversal 차단
+- `packages/runtime/src/__tests__/file-ops.test.ts` — 23 tests (read/write/edit/list × 안전 + 차단 + 경계 케이스 + e2e bundle)
+- `bin/naia-agent.ts` — `--enable-files` + `--enable-all` 플래그
+- `createHost({ enableFiles, fileOpsOptions })` 옵션 확장
+- bin tierForTool 매핑: bash/write_file/edit_file → T1, read_file/list_files → T0
+
+### Slice 2.6 success criterion (S01~S04)
+- ✅ S01 새 명령: `pnpm naia-agent --enable-files "..."` 또는 `--enable-all`
+- ✅ S02 단위 테스트: 23 신규 file-ops + 기존 회귀. **Total 250 PASS** (protocol 73 + observability 17 + runtime 160)
+- ✅ S03 통합 검증: GLM 실 호출 — `list_files`로 .agents/progress/refs/ 11개 파일 정확히 출력
+- ✅ S04 본 entry
+
+### 매트릭스 §A 승격 1건
+- **A30** File ops skills bundle (D09 sentinel 재사용)
+
+### 사용자 검증 (실 GLM 호출)
+
+```bash
+$ pnpm naia-agent --enable-all ".agents/progress/refs/ 의 파일 목록 보여줘"
+[naia-agent] skills ENABLED: bash(T1), read_file(T0), write_file(T1), edit_file(T1), list_files(T0)
+[naia-agent] provider: openai-compat (model=glm-4.5-flash, ...)
+
+- cline-review.md
+- jikime-adk-review.md
+- jikime-mem-review.md
+- langgraphjs-review.md
+- mastra-review.md
+- moltbot-review.md
+- openclaw-review.md
+- opencode-review.md
+- project-airi-review.md
+- vercel-ai-sdk-review.md
+```
+
+GLM이 `list_files` 도구를 자율 호출 → 결과를 markdown 리스트로 정리.
+
+### 보안 모델 (file-ops 일관)
+- T0 (read/list) — opt-in 후 자유 호출
+- T1 (write/edit) — opt-in 후 호출 가능, GatedToolExecutor (Slice 6+)에서 approval 추가
+- D09 workspace sentinel — `../../etc/passwd` 같은 경로 100% 차단 (BLOCKED 응답)
+- maxBytes (256KB default) — 대용량 파일 truncate 또는 reject
+
+### Slice 2.6 follow-up
+- glob/grep skills (find . -name 패턴 + ripgrep) — Slice 2.7 후보
+- 파일 watcher / hot reload — Phase 2
+
 ## [Slice 2.5] — 2026-04-25 — OpenAI-compat tool calling integration
 
 **LLM이 진짜로 도구를 호출.** Slice 2의 bash skill이 GLM-4.5-Flash로 자율 호출돼서 실 답변 생성.

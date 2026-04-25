@@ -67,6 +67,13 @@ export {
 } from "./utils/dangerous-commands.js";
 export type { DangerousMatch, DangerousCheckResult } from "./utils/dangerous-commands.js";
 
-// Built-in skills — Slice 2 (Bash). Subsequent slices add more.
-export { createBashSkill } from "./skills/index.js";
-export type { BashSkillOptions, BashInput } from "./skills/index.js";
+// Built-in skills — Slice 2 (Bash) + Slice 2.6 (file-ops).
+export {
+  createBashSkill,
+  createReadFileSkill,
+  createWriteFileSkill,
+  createEditFileSkill,
+  createListFilesSkill,
+  createFileOpsSkills,
+} from "./skills/index.js";
+export type { BashSkillOptions, BashInput, FileOpsOptions } from "./skills/index.js";
