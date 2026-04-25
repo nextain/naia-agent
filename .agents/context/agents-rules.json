@@ -6,10 +6,12 @@
   "phase": "R0 (design re-check)",
   "mandatory_reads": [
     "AGENTS.md",
-    "CLAUDE.md",
     ".agents/progress/design-recheck-2026-04-25.md",
     ".agents/progress/ref-adoption-matrix.md",
-    ".agents/progress/runnable-testable-gap.md"
+    ".agents/progress/runnable-testable-gap.md",
+    ".agents/progress/r1-slice-spine-2026-04-25.md",
+    ".agents/progress/dev-framework-and-process.md",
+    ".agents/progress/multi-tool-harness.md"
   ],
   "mandatory_reads_upstream": [
     "../../alpha-adk/.agents/progress/naia-4repo-migration-plan.md",
@@ -100,8 +102,63 @@
   },
   "context_priority": [
     ".agents/context/agents-rules.json",
-    "CLAUDE.md",
     "AGENTS.md",
     ".agents/context/project-index.yaml"
-  ]
+  ],
+  "harness_compatibility": {
+    "standard": "AAIF / agents.md (https://agents.md/)",
+    "canonical_sot": "AGENTS.md",
+    "mirrors": {
+      "CLAUDE.md": {
+        "tool": "Claude Code",
+        "kind": "auto-generated mirror",
+        "auto_synced_from": "AGENTS.md",
+        "tool_specific_dir": ".claude/"
+      },
+      "GEMINI.md": {
+        "tool": "Gemini CLI",
+        "kind": "auto-generated mirror",
+        "auto_synced_from": "AGENTS.md",
+        "tool_specific_dir": ".gemini/",
+        "note": "Gemini CLI may also read .gemini/settings.json"
+      },
+      "OPENCODE.md": {
+        "tool": "opencode (sst)",
+        "kind": "auto-generated mirror",
+        "auto_synced_from": "AGENTS.md",
+        "tool_specific_dir": ".opencode/",
+        "note": "opencode reads AGENTS.md directly; mirror exists for explicitness"
+      },
+      "CODEX.md": {
+        "tool": "Codex (OpenAI)",
+        "kind": "auto-generated mirror",
+        "auto_synced_from": "AGENTS.md",
+        "note": "Codex reads AGENTS.md directly per OpenAI convention; mirror exists for explicitness"
+      }
+    },
+    "naia_self_tool": {
+      "kind": "future internal tool",
+      "reads": "AGENTS.md directly (no wrapper)",
+      "rationale": "We design our own tool to follow AAIF standard; no NAIA.md needed"
+    },
+    "sync_mechanism": {
+      "script": "scripts/sync-harness-mirrors.sh",
+      "modes": {
+        "default": "regenerate all 4 mirrors from AGENTS.md",
+        "--check": "exit 1 if any mirror diverges (CI / pre-commit)"
+      },
+      "edit_rule": "Edit ONLY AGENTS.md. Direct edits to mirrors are overwritten on next sync.",
+      "banner": "Each mirror starts with HTML comment <!-- AUTO-GENERATED MIRROR --> (hidden in Markdown render, visible to LLMs/grep)",
+      "pre_commit_hook": "ln -sf ../../scripts/sync-harness-mirrors.sh .git/hooks/pre-commit (optional, recommended)"
+    },
+    "tool_specific_dirs": {
+      "rule": "Tool-specific behavior (hooks, slash commands, settings) lives in .{tool}/ directory, not in <TOOL>.md mirror",
+      "rationale": "Mirror contains only the canonical project rules (same as AGENTS.md). Tool-specific extras are isolated in tool-specific dirs."
+    },
+    "conflict_resolution": [
+      "If AGENTS.md and mirror disagree → run sync script (AGENTS.md wins)",
+      "If .agents/context/agents-rules.json and AGENTS.md disagree → JSON wins (machine-readable, more precise)",
+      "If tool-specific dir setting and AGENTS.md disagree → tool-specific dir wins WITHIN tool's scope only (does not override forbidden_actions)"
+    ]
+  }
 }
