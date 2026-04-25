@@ -38,6 +38,25 @@ export class ConsoleLogger implements Logger {
     this.#write("fatal", msg, ctx, err);
   }
 
+  /** D06 — child logger with merged tags. opencode pattern. */
+  tag(...tags: string[]): Logger {
+    const existingTags = (this.#base["tags"] as string[] | undefined) ?? [];
+    return new ConsoleLogger({
+      level: this.#level,
+      stream: this.#stream,
+      baseContext: { ...this.#base, tags: [...existingTags, ...tags] },
+    });
+  }
+
+  /** D06 — start a timer; the returned function emits an info log with elapsed ms. */
+  time(label: string, ctx?: Record<string, unknown>): () => void {
+    const start = Date.now();
+    return () => {
+      const elapsedMs = Date.now() - start;
+      this.info(`${label}.elapsed`, { ...ctx, elapsedMs });
+    };
+  }
+
   #write(level: LogLevel, msg: string, ctx?: Record<string, unknown>, err?: Error): void {
     if (LEVELS[level] < LEVELS[this.#level]) return;
     const entry: Record<string, unknown> = {
@@ -64,9 +83,26 @@ const LEVELS: Record<LogLevel, number> = {
 
 /** Discards all messages. For tests. */
 export class SilentLogger implements Logger {
-  debug(): void {}
-  info(): void {}
-  warn(): void {}
-  error(): void {}
-  fatal(): void {}
+  debug(_msg: string, _ctx?: Record<string, unknown>): void {
+    void _msg;
+    void _ctx;
+  }
+  info(_msg: string, _ctx?: Record<string, unknown>): void {
+    void _msg;
+    void _ctx;
+  }
+  warn(_msg: string, _ctx?: Record<string, unknown>): void {
+    void _msg;
+    void _ctx;
+  }
+  error(_msg: string, _err?: Error, _ctx?: Record<string, unknown>): void {
+    void _msg;
+    void _err;
+    void _ctx;
+  }
+  fatal(_msg: string, _err?: Error, _ctx?: Record<string, unknown>): void {
+    void _msg;
+    void _err;
+    void _ctx;
+  }
 }

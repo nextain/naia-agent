@@ -57,3 +57,16 @@ export {
 // Env + JSON config auto-loader — Slice 1c. Native .env parser + flatten JSON.
 export { loadEnvAndConfig, parseEnv, flattenConfig } from "./utils/env-loader.js";
 export type { EnvLoadOptions, EnvLoadReport } from "./utils/env-loader.js";
+
+// DANGEROUS_COMMANDS regex — D01 (Slice 2). OWASP A03 출처, F09 cleanroom 단독 의존 금지.
+export {
+  DANGEROUS_PATTERNS,
+  checkDangerous,
+  assertSafe,
+  DangerousCommandError,
+} from "./utils/dangerous-commands.js";
+export type { DangerousMatch, DangerousCheckResult } from "./utils/dangerous-commands.js";
+
+// Built-in skills — Slice 2 (Bash). Subsequent slices add more.
+export { createBashSkill } from "./skills/index.js";
+export type { BashSkillOptions, BashInput } from "./skills/index.js";

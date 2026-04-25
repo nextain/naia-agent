@@ -8,6 +8,75 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [Slice 2] — 2026-04-25 — Bash skill + DANGEROUS_COMMANDS + observability
+
+**naia-agent의 첫 진짜 도구 실행.** LLM이 bash 호출 → DANGEROUS_COMMANDS regex 사전 차단 → 실 shell 실행. Logger.tag/time + observability 단위 테스트.
+
+### Added
+- `packages/runtime/src/utils/dangerous-commands.ts` — D01 catalog (12+ 패턴, OWASP A03 + CWE-78 출처). `checkDangerous`/`assertSafe`/`DangerousCommandError` API. F09 cleanroom 라인 인용 0건 (자체 작성).
+- `packages/runtime/src/skills/bash.ts` — `createBashSkill()` factory (T1, execFile + args[] + 30s timeout + 32KB output cap + DANGEROUS pre-filter)
+- `packages/runtime/src/__tests__/dangerous-commands.test.ts` (38 tests — block 17 + allow 16 + assertSafe 2 + 메타 2)
+- `packages/runtime/src/__tests__/bash-skill.test.ts` (12 tests — 실 shell 실행 + BLOCKED + timeout + cwd + stderr)
+- `packages/types/src/observability.ts` — D06 Logger.tag/time optional methods (additive, A.8 MAJOR 위반 0)
+- `packages/observability/src/logger.ts` — ConsoleLogger.tag/time 구현
+- `packages/observability/{vitest.config.ts, src/__tests__/{console-logger,meter,tracer}.test.ts}` — 17 신규 단위 테스트 (G05 0개 → 17개 해소)
+- `bin/naia-agent.ts` — `--enable-bash` 플래그 (opt-in, default off)
+- `examples/bash-skill-host.ts` + `package.json scripts.smoke:bash-skill` — mock LLM + bash 실 실행 + DANGEROUS 차단 시연
+- `createHost({ enableBash, extraTools })` — host factory 옵션 확장
+
+### Slice 2 success criterion (S01~S04)
+- ✅ S01 새 명령: `pnpm naia-agent --enable-bash "..."` + `pnpm smoke:bash-skill`
+- ✅ S02 단위 테스트: dangerous 38 + bash-skill 12 + observability 17 = **67 신규**. Total 227 (protocol 73 + observability 17 + runtime 137)
+- ✅ S03 통합 검증: bash-skill-host.ts smoke — 실 ls 실행 + rm -rf / BLOCKED 검증
+- ✅ S04 본 entry
+
+### 매트릭스 §A 승격 (5건)
+- **A24** DANGEROUS_COMMANDS regex catalog (D01 §D → §A)
+- **A25** Bash skill (T1)
+- **A26** Logger.tag/time (D06 §D → §A)
+- **A27** Observability 단위 테스트 (G05 해소)
+- **A28** host factory enableBash + extraTools 옵션
+
+### F09 준수 (paranoid review 포함)
+- DANGEROUS_COMMANDS regex 출처: OWASP Top 10 2021 A03 + CWE-78 (Improper Neutralization of Special Elements)
+- cleanroom-cc 코드 라인 직접 인용 0건 — 자체 작성, OWASP/CWE cross-reference
+
+### 보안 모델
+- bash skill T1: --enable-bash opt-in 필수 (사용자 동의 역할)
+- DANGEROUS regex 사전 차단 (12+ 패턴): rm -rf root/home, fork bomb, dd to disk, mkfs, sudo destructive, chmod 777 root, curl|bash, nc reverse shell, eval/exec injection 등
+- execFile + args 배열 (shell-string 직접 평가 안 함)
+- T2/T3 도구는 Slice 6+에서 GatedToolExecutor + ApprovalBroker 통합
+
+### Slice 2 follow-up
+- LLM tool calling integration: OpenAI-compat client가 LLMRequest.tools를 OpenAI tools format으로 변환 필요 (현재 GLM이 도구 모름 — 별도 commit)
+- D12 onStepFinish callback (Slice 2.5 또는 후속)
+- D11 ToolExecutionContext orphan 해소 (ToolExecutor.execute() 시그니처 확장)
+
+### 사용자 검증
+
+```bash
+$ pnpm smoke:bash-skill
+━━━ safe-bash (ls) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[tool ▶] bash({"command":"ls bin/*.ts 2>/dev/null | head -3"})
+[tool ◀] bin/naia-agent.ts
+[exit 0]
+[final] I found the bin entry — bin/naia-agent.ts.
+
+━━━ dangerous-bash (rm -rf /) — should be BLOCKED ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[tool ▶] bash({"command":"rm -rf /"})
+[tool ◀] BLOCKED: dangerous command blocked: rm -rf / — rm -rf targeting filesystem root or home (CWE-78)
+[final] The dangerous command was blocked, as expected.
+
+✓ bash-skill-host smoke passed
+```
+
+### Sub-issues closed
+- closes #16 (sub-A bash skill + DANGEROUS regex)
+- closes #17 (sub-B observability + Logger.tag/time)
+- closes #18 (sub-C bin + example + CHANGELOG + 매트릭스)
+- closes #15 (Slice 2 메인)
+- closes #5 (G03+G04 P0 — DANGEROUS + path normalize 모두 §A)
+
 ## [Slice 1c++] — 2026-04-25 — LLM Config Standard 정규화 + 프로젝트 example
 
 **사용자 directive**: "지금 프로젝트에 설정 + LLM 설정 표준 미리 만들어두는게 좋지 않을까?"

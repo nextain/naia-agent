@@ -18,6 +18,19 @@ export interface Logger {
   error(msg: string, err?: Error, ctx?: Record<string, unknown>): void;
   /** Fatal is reserved — emit before process termination. */
   fatal(msg: string, err?: Error, ctx?: Record<string, unknown>): void;
+  /**
+   * D06 (Slice 2 — opencode pattern). Returns a child logger with the
+   * given tags merged into baseContext as `tags: [...]`. Optional —
+   * implementations MAY return `this` if tagging is not supported.
+   */
+  tag?(...tags: string[]): Logger;
+  /**
+   * D06 (Slice 2). Start a named timer; returns an end function that
+   * emits an info log with elapsed ms. Optional. Usage:
+   *   const stop = logger.time?.("db.query");
+   *   try { await query() } finally { stop?.() }
+   */
+  time?(label: string, ctx?: Record<string, unknown>): () => void;
 }
 
 export interface SpanContext {

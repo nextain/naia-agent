@@ -16,8 +16,9 @@ import {
   NoopTracer,
 } from "@nextain/agent-observability";
 import { InMemoryMemory } from "../mocks/in-memory-memory.js";
-import { InMemoryToolExecutor } from "../mocks/in-memory-tool-executor.js";
+import { InMemoryToolExecutor, type InMemoryToolDef } from "../mocks/in-memory-tool-executor.js";
 import { MockLLMClient, type MockScript } from "../mocks/mock-llm-client.js";
+import { createBashSkill } from "../skills/bash.js";
 
 export interface CreateHostOptions {
   llm?: LLMClient;
@@ -26,6 +27,10 @@ export interface CreateHostOptions {
   logLevel?: "debug" | "info" | "warn" | "error";
   // Mock LLM script (used only when llm not provided).
   mockScript?: MockScript;
+  /** Slice 2 — register the built-in `bash` skill (T1, DANGEROUS_COMMANDS-filtered). */
+  enableBash?: boolean;
+  /** Slice 2 — register additional InMemoryToolDef[] (advanced). */
+  extraTools?: InMemoryToolDef[];
 }
 
 /**
@@ -40,7 +45,16 @@ export interface CreateHostOptions {
 export function createHost(opts: CreateHostOptions = {}): HostContext {
   const llm = opts.llm ?? new MockLLMClient(opts.mockScript ?? defaultMockScript());
   const memory = opts.memory ?? new InMemoryMemory();
-  const tools = opts.tools ?? new InMemoryToolExecutor([]);
+
+  let tools: ToolExecutor;
+  if (opts.tools) {
+    tools = opts.tools;
+  } else {
+    const builtins: InMemoryToolDef[] = [];
+    if (opts.enableBash) builtins.push(createBashSkill());
+    if (opts.extraTools) builtins.push(...opts.extraTools);
+    tools = new InMemoryToolExecutor(builtins);
+  }
 
   return {
     llm,

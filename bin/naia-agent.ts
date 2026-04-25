@@ -105,10 +105,11 @@ interface CliArgs {
   version: boolean;
   envPath?: string;
   configPath?: string;
+  enableBash: boolean;
 }
 
 function parseArgs(argv: string[]): CliArgs {
-  const args: CliArgs = { help: false, version: false };
+  const args: CliArgs = { help: false, version: false, enableBash: false };
   const positional: string[] = [];
   let terminated = false;
   for (let i = 0; i < argv.length; i++) {
@@ -129,6 +130,8 @@ function parseArgs(argv: string[]): CliArgs {
       args.configPath = argv[++i];
     } else if (a.startsWith("--config=")) {
       args.configPath = a.slice("--config=".length);
+    } else if (a === "--enable-bash") {
+      args.enableBash = true;
     } else if (a.startsWith("-")) {
       throw new Error(`unknown flag: ${a}`);
     } else positional.push(a);
@@ -148,10 +151,11 @@ Usage:
   pnpm naia-agent --config ~/cfg.json "..."  # custom JSON config path
 
 Flags:
-  -h, --help        show this help
-  -V, --version     show version
-  --env <path>      .env file path (or NAIA_AGENT_ENV)
-  --config <path>   JSON config path (or NAIA_AGENT_CONFIG)
+  -h, --help         show this help
+  -V, --version      show version
+  --env <path>       .env file path (or NAIA_AGENT_ENV)
+  --config <path>    JSON config path (or NAIA_AGENT_CONFIG)
+  --enable-bash      register the built-in bash skill (T1, DANGEROUS_COMMANDS-filtered)
 
 Provider resolution (first match wins):
   1) ANTHROPIC_API_KEY  → Anthropic direct (claude-haiku-4-5-20251001 default)
@@ -257,11 +261,23 @@ async function main(): Promise<number> {
 
   const { client: realLLM, mode } = await detectRealLLM();
   process.stderr.write(`[naia-agent] provider: ${mode}\n`);
-  const host = createHost({ logLevel: "warn", llm: realLLM });
+  if (cli.enableBash) {
+    process.stderr.write(`[naia-agent] bash skill ENABLED (T1, DANGEROUS_COMMANDS pre-filtered)\n`);
+  }
+  const host = createHost({
+    logLevel: "warn",
+    llm: realLLM,
+    enableBash: cli.enableBash,
+  });
   const agent = new Agent({
     host,
-    systemPrompt: "You are naia-agent, a helpful AI assistant in CLI mode.",
-    tierForTool: () => "T0",
+    systemPrompt:
+      "You are naia-agent, a helpful AI assistant in CLI mode. " +
+      (cli.enableBash
+        ? "You have a `bash` tool — use it to inspect or run shell commands. "
+        : "") +
+      "Answer concisely.",
+    tierForTool: (name) => (name === "bash" ? "T1" : "T0"),
   });
 
   try {

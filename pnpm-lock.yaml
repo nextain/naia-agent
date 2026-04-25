@@ -57,6 +57,9 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
+      vitest:
+        specifier: ^2.1.9
+        version: 2.1.9(@types/node@22.19.17)
 
   packages/protocol:
     devDependencies:
@@ -76,6 +79,9 @@ importers:
       '@anthropic-ai/sdk':
         specifier: ^0.39.0
         version: 0.39.0
+      '@anthropic-ai/vertex-sdk':
+        specifier: ^0.16.0
+        version: 0.16.0(zod@4.3.6)
 
   packages/runtime:
     dependencies:
@@ -1787,7 +1793,9 @@ snapshots:
   '@nextain/alpha-memory@file:../alpha-memory(typescript@5.9.3)':
     dependencies:
       '@qdrant/js-client-rest': 1.17.0(typescript@5.9.3)
+      express: 5.2.1
     transitivePeerDependencies:
+      - supports-color
       - typescript
 
   '@pkgjs/parseargs@0.11.0':

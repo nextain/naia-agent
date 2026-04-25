@@ -16,7 +16,10 @@
     }
   },
   "sideEffects": false,
-  "files": ["dist", "src"],
+  "files": [
+    "dist",
+    "src"
+  ],
   "license": "Apache-2.0",
   "engines": {
     "node": ">=22"
@@ -30,7 +33,8 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsc -b"
+    "build": "tsc -b",
+    "test": "vitest run"
   },
   "dependencies": {
     "@nextain/agent-types": "workspace:*"
@@ -39,6 +43,7 @@
     "@types/node": ">=22"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0"
+    "@types/node": "^22.0.0",
+    "vitest": "^2.1.9"
   }
 }
