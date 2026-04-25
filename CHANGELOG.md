@@ -8,6 +8,39 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [Slice 1c++] — 2026-04-25 — LLM Config Standard 정규화 + 프로젝트 example
+
+**사용자 directive**: "지금 프로젝트에 설정 + LLM 설정 표준 미리 만들어두는게 좋지 않을까?"
+
+### Added
+- `docs/llm-config-standard.md` — LLM provider 설정 정규 표준 (환경변수 / JSON shape / 우선순위 / 보안 / multi-tool harness 호환)
+- `naia-agent.env.example` (프로젝트 root) — 4 provider option 포함, 사용자가 채워서 `naia-agent.env`로 rename
+- `.naia-agent.example.json` — JSON config example, camelCase 자동 변환 시연
+- `AGENTS.md` "LLM Config Standard" 섹션 (mirror 자동 sync)
+
+### 매트릭스 §A 신규 4건
+- **A20** env + JSON config auto-loader (camelCase → SCREAMING_SNAKE_CASE)
+- **A21** OpenAI-compat client (zai GLM / vLLM / OpenRouter / Together / Groq / Ollama)
+- **A22** Anthropic on Vertex AI provider
+- **A23** LLM Config Standard docs + multi-tool harness 표준화
+
+### 표준 핵심 (요약)
+- Provider priority: ANTHROPIC > OpenAI-compat > GLM > Vertex > mock
+- 파일 검색: `--env/--config` flag > env var > project file > `~/.naia-agent/`
+- 보안: mode 600 권장, .gitignore, 키 값 stdout 노출 금지, F09 (cleanroom 단독 의존 금지)
+- 도구 무관: Claude Code / opencode / Codex / Gemini / naia 자체 모두 동일 표준 사용
+
+### Slice 1 (전체) 완전 종료
+- Slice 1a (mock skeleton) ✓
+- Slice 1b (real Anthropic + fixture-replay + D09/D10/D11) ✓
+- Slice 1c (.env/JSON auto-load + Vertex provider) ✓
+- Slice 1c+ (OpenAI-compat + 사용자 키 자동 설정) ✓
+- Slice 1c++ (본 entry — LLM Config Standard 정규화) ✓
+- **사용자 직접 검증**: `pnpm naia-agent "안녕"` → "안녕하세요! 😊 How can I help you today?" (GLM-4.5-Flash) ✓
+
+### 다음 단계
+Slice 2 (Bash skill + observability + 보안 D01/D02/D09 ingrain) — sub-issue #5
+
 ## [Slice 1c+] — 2026-04-25 — OpenAI-compat provider (GLM/zai/vLLM/OpenRouter…) + 사용자 키 자동 설정
 
 **사용자 directive: "키 넣어줘"** — `~/dev/my-envs/naia.nextain.io.env`에서 valid GLM 키 발견 → `~/.naia-agent/.env`에 자동 설정 → 즉시 실 호출 동작 확인.

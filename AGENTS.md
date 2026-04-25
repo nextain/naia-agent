@@ -147,6 +147,41 @@ F01 차단은 **보안 패치(CVE-worthy)에 적용 안 함** (4-repo plan A.13 
 
 ---
 
+## LLM Config Standard (Slice 1c+ R3)
+
+LLM provider 설정은 **`docs/llm-config-standard.md`** 정규 표준 따름. 도구 무관(opencode/Codex/Gemini 등 모두 동일 표준 적용).
+
+### 빠른 시작
+
+```bash
+# 1) example 복사 + 키 입력
+cp naia-agent.env.example naia-agent.env
+# (편집기에서 ONE provider section uncomment + 키 입력)
+chmod 600 naia-agent.env
+
+# 2) 호출
+pnpm naia-agent "hi"
+```
+
+### Provider resolution priority (first match wins)
+1. `ANTHROPIC_API_KEY` (+ optional `ANTHROPIC_BASE_URL`) → Anthropic 직접
+2. `OPENAI_API_KEY` + `OPENAI_BASE_URL` → OpenAI-compat (generic)
+3. `GLM_API_KEY` → zai/Zhipu GLM (단축, endpoint 자동)
+4. `VERTEX_PROJECT_ID` + `VERTEX_REGION` → Anthropic on Vertex AI
+5. (none) → mock fallback
+
+### 자동 로드 위치 (first match wins, process.env가 항상 최우선)
+- `.env`: `--env <path>` > `NAIA_AGENT_ENV` > `./.env` > `./naia-agent.env` > `~/.naia-agent/.env`
+- JSON: `--config <path>` > `NAIA_AGENT_CONFIG` > `./.naia-agent.json` > `~/.naia-agent/config.json`
+
+### 보안 강제
+- `naia-agent.env` / `.naia-agent.json` mode 600 권장
+- `.gitignore`에 `naia-agent.env`, `.naia-agent.json`, `.naia-agent/` 포함됨
+- 키 값 stdout/stderr 노출 절대 금지 (key 이름만 OK)
+- F09 (cleanroom 단독 의존 금지) 강제
+
+상세 표준: `docs/llm-config-standard.md`
+
 ## 빌드 / 테스트 / 명령
 
 | 명령 | 동작 |

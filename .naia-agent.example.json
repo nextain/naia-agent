@@ -1,0 +1,35 @@
+{
+  "_comment": "naia-agent JSON config example. Copy to .naia-agent.json (in project root) or ~/.naia-agent/config.json. camelCase keys auto-convert to SCREAMING_SNAKE_CASE env vars (anthropic.apiKey → ANTHROPIC_API_KEY). Uncomment ONE provider block. See docs/llm-config-standard.md.",
+
+  "_anthropic_example": {
+    "anthropic": {
+      "apiKey": "sk-ant-...",
+      "model": "claude-haiku-4-5-20251001"
+    }
+  },
+
+  "_openai_compat_example": {
+    "openai": {
+      "apiKey": "sk-...",
+      "baseUrl": "https://api.openai.com/v1",
+      "model": "gpt-4"
+    }
+  },
+
+  "_glm_example": {
+    "glm": {
+      "apiKey": "...",
+      "model": "glm-4.5-flash"
+    }
+  },
+
+  "_vertex_example": {
+    "vertex": {
+      "projectId": "your-gcp-project",
+      "region": "us-east5"
+    },
+    "anthropic": {
+      "model": "claude-haiku-4-5@20251001"
+    }
+  }
+}
