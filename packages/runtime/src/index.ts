@@ -42,3 +42,14 @@ export type { MCPServerConfig } from "./mcp/index.js";
 // Host factory — Slice 1a R3. Assembles HostContext for bin and embedded uses.
 export { createHost } from "./host/index.js";
 export type { CreateHostOptions } from "./host/index.js";
+
+// Testing — Slice 1b R3. StreamPlayer for fixture-replay (minimal pin;
+// formalized as @nextain/agent-testing in Slice 5).
+export { StreamPlayer } from "./testing/index.js";
+export type { StreamPlayerFixture } from "./testing/index.js";
+
+// Workspace sentinel — D09 (Slice 1b). OWASP A01 Path Traversal guard.
+export {
+  normalizeWorkspacePath,
+  WorkspaceEscapeError,
+} from "./utils/path-normalize.js";

@@ -1,0 +1,37 @@
+{
+  "meta": {
+    "recordedAt": "2026-04-25",
+    "sdkVersion": "@anthropic-ai/sdk@0.39.0 (synthesized — Slice 1b minimal pin)",
+    "model": "claude-haiku-4-5-20251001",
+    "notes": "Minimal 1-turn fixture for Slice 1b regression. naia LLMStreamChunk normalized form (NOT raw Anthropic SDK shape — provider adapter normalizes). F11 SDK bumps affect packages/providers/src/anthropic.ts mapping, NOT this fixture directly. Slice 5 will add SDK-shape fixtures alongside. Emit text 'Hi from fixture.' across 3 deltas to exercise streaming assembly."
+  },
+  "chunks": [
+    { "type": "start", "id": "msg_fixture_001", "model": "claude-haiku-4-5-20251001" },
+    {
+      "type": "content_block_start",
+      "index": 0,
+      "block": { "type": "text", "text": "" }
+    },
+    {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": { "type": "text_delta", "text": "Hi " }
+    },
+    {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": { "type": "text_delta", "text": "from " }
+    },
+    {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": { "type": "text_delta", "text": "fixture." }
+    },
+    { "type": "content_block_stop", "index": 0 },
+    {
+      "type": "end",
+      "stopReason": "end_turn",
+      "usage": { "inputTokens": 5, "outputTokens": 3 }
+    }
+  ]
+}

@@ -8,6 +8,66 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [Slice 1b] — 2026-04-25 — real Anthropic + fixture-replay + D09/D10/D11
+
+**R3 척추 살아남음 증명.** real LLM 통합 + 결정적 회귀 테스트 + Tool 메타/context schema + Workspace sentinel.
+
+### Added
+- `bin/naia-agent.ts` `detectRealLLM()` — `ANTHROPIC_API_KEY` (+ `ANTHROPIC_BASE_URL` gateway 라우팅) 검출 → AnthropicClient 주입. F11 graceful fallback (SDK load 실패 시 stderr 경고 + mock fallback)
+- `packages/runtime/src/testing/stream-player.ts` — minimal fixture-replay LLMClient (C21 부분 채택, Slice 5에서 정식)
+- `packages/runtime/src/__fixtures__/anthropic-1turn.json` — 1-turn naia 정규형 fixture (5 deltas → "Hi from fixture.")
+- `packages/runtime/src/__tests__/fixture-replay.test.ts` (4 tests) — G02 해소, G15 (CI fixture-only) 만족
+- `packages/types/src/tool.ts` — D10 Tool 메타 4 필드 (`isConcurrencySafe?`/`isDestructive?`/`searchHint?`/`contextSchema?`) + D11 `ToolExecutionContext` (sessionId/workingDir/signal/ask). 모두 optional (additive, A.8 MAJOR 위반 0)
+- `packages/runtime/src/utils/path-normalize.ts` — D09 `normalizeWorkspacePath` + `WorkspaceEscapeError` (OWASP A01 출처, F09 cleanroom 라인 인용 0건)
+- `packages/runtime/src/__tests__/path-normalize.test.ts` (10 tests) — partial-prefix attack 차단 검증
+
+### Slice 1b success criterion (자가 검증 + paranoid review 통과)
+- ✅ S01 새 명령: `ANTHROPIC_API_KEY=... pnpm naia-agent "hi"` (real Anthropic) / `ANTHROPIC_BASE_URL=...` gateway 라우팅 / 키 없으면 mock fallback
+- ✅ S02 단위 테스트: fixture-replay 4 + path-normalize 10 = +14 (총 142 PASS — protocol 73 + runtime 69)
+- ✅ S03 통합 검증: fixture-replay 결정적 재생 (Anthropic API 호출 없이) — G02 해소, G15 (CI fixture-only mode) 만족
+- ✅ S04 본 entry
+
+### 매트릭스 §A 승격 (Slice 1b 머지로)
+- **A16** Tool 메타 (`isConcurrencySafe?`/`isDestructive?`/`searchHint?`/`contextSchema?`) — D10 §D → §A. 출처: cc 분석 + Vercel + Mastra
+- **A17** Tool context schema (sessionId/workingDir/signal/ask) — D11/D05 §D → §A. 출처: opencode + Vercel `ToolExecutionOptions`
+- **A18** Workspace sentinel — D09 §D → §A. 출처: cleanroom-cc deep-audit F3 fix (OWASP A01 재근거)
+- **A19** Fixture-replay minimal (StreamPlayer + 정규형 fixture) — C21 부분 §C → §A 부분. 정식 framework는 Slice 5
+
+### Paranoid review fix (2건 즉시 적용)
+- F11 graceful: SDK load 실패 시 stderr 경고 + mock fallback (hard crash 방지)
+- fixture notes 정정: "naia LLMStreamChunk normalized form (NOT raw SDK shape)"
+
+### Slice 2 follow-up (paranoid review 권고)
+- D11 orphan 해소 (`ToolExecutor.execute(invocation, ctx?)` 시그니처 확장)
+- D09 추가 케이스 (Windows UNC / null byte / symlink realpath)
+- F11 fixture 재녹화 (실 SDK 응답 녹음 — Slice 5에서 자동화)
+
+### 사용자 검증 안내 (직접 테스트)
+
+**환경변수**:
+```bash
+export ANTHROPIC_API_KEY=...                    # 진짜 키
+export ANTHROPIC_BASE_URL=...                   # (선택) Anthropic-compat gateway
+export ANTHROPIC_MODEL=claude-haiku-4-5-20251001 # (선택, 기본값)
+```
+
+**실행**:
+```bash
+pnpm naia-agent "hi"                  # args 모드
+echo "1+1?" | pnpm naia-agent          # stdin 모드
+pnpm naia-agent                        # REPL 모드
+```
+
+**키 없을 때**: mock fallback ("Hello! I'm naia-agent in mock mode" 출력).
+
+**참고**: 환경 점검 시 `~/.openclaw/gateway-env.json`의 `GEMINI_API_KEY`와 `gw-...` gateway key 둘 다 만료 확인됨 (2026-04-25 기준). 사용자 측 키 갱신 후 테스트.
+
+### Sub-issues closed
+- closes #12 (sub-4 real AnthropicClient + smoke:real-agent)
+- closes #13 (sub-5 fixture-replay 1건 + StreamPlayer)
+- closes #14 (sub-6 D09/D10/D11 ingrain + 매트릭스 §A 승격)
+- closes #8 (Slice 1 메인 — 1a + 1b 모두 종료)
+
 ## [Slice 1a] — 2026-04-25 — bin/naia-agent skeleton (mock-only)
 
 **R3 진입.** naia-agent를 처음으로 사용자 명령으로 호출 가능한 도구로 만듦.

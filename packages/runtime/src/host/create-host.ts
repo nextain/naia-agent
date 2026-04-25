@@ -1,7 +1,11 @@
 // Host factory — assembles HostContext for bin/naia-agent and embedded uses.
 //
-// Slice 1a (R3): mock LLM only. Slice 1b adds real Anthropic / gateway
-// (NAIA_GATEWAY_URL or ANTHROPIC_API_KEY env detection).
+// Slice 1a (R3): mock LLM only.
+// Slice 1b (R3): real Anthropic injection via opts.llm. The bin/naia-agent
+// detects ANTHROPIC_API_KEY (+ optional ANTHROPIC_BASE_URL for gateway
+// routing) and passes a constructed AnthropicClient to createHost. We keep
+// AnthropicClient construction OUT of this file to preserve runtime's
+// zero-runtime-dep posture relative to providers (matrix A.3).
 //
 // DI policy: simple object injection (matrix C22). No container framework.
 

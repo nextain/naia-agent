@@ -11,8 +11,37 @@
 import * as readline from "node:readline";
 import { Agent } from "@nextain/agent-core";
 import { createHost } from "@nextain/agent-runtime";
+import type { LLMClient } from "@nextain/agent-types";
 
-const VERSION = "0.0.1-slice-1a";
+const VERSION = "0.0.2-slice-1b";
+
+// Slice 1b — env-detected real LLM injection.
+// Convention: ANTHROPIC_API_KEY + optional ANTHROPIC_BASE_URL (for gateway
+// routing). NAIA_GATEWAY_URL takes precedence as ANTHROPIC_BASE_URL when set
+// AND when the gateway is Anthropic-compat. OpenAI-compat gateways are not
+// supported in 1b (matrix B21 — no multi-provider direct deps; gateway
+// translation lives in user environment).
+async function detectRealLLM(): Promise<LLMClient | undefined> {
+  const apiKey = process.env["ANTHROPIC_API_KEY"];
+  if (!apiKey) return undefined;
+  const baseURL = process.env["ANTHROPIC_BASE_URL"];
+  try {
+    // Defer SDK + provider imports to runtime to keep dry-run/mock paths fast.
+    const Anthropic = (await import("@anthropic-ai/sdk")).default;
+    const { AnthropicClient } = await import("@nextain/agent-providers/anthropic");
+    const sdk = new Anthropic(baseURL ? { apiKey, baseURL } : { apiKey });
+    const defaultModel = process.env["ANTHROPIC_MODEL"] ?? "claude-haiku-4-5-20251001";
+    return new AnthropicClient(sdk, { defaultModel });
+  } catch (err) {
+    // F11 graceful — SDK breaking change or provider load failure → fall back
+    // to mock with stderr warning. Avoids hard crash + stack trace in user shell.
+    process.stderr.write(
+      `[naia-agent] real LLM provider load failed: ${(err as Error).message}\n` +
+        `             falling back to mock mode. Verify @anthropic-ai/sdk + @nextain/agent-providers installed.\n`,
+    );
+    return undefined;
+  }
+}
 
 interface CliArgs {
   prompt?: string;
@@ -131,9 +160,13 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  // Slice 1a: createHost defaults to MockLLMClient. Slice 1b will detect
-  // ANTHROPIC_API_KEY / NAIA_GATEWAY_URL env and inject real client.
-  const host = createHost({ logLevel: "warn" });
+  // Slice 1b: detect ANTHROPIC_API_KEY (+ ANTHROPIC_BASE_URL gateway routing).
+  // Falls back to mock if absent — keeps Slice 1a smoke path live.
+  const realLLM = await detectRealLLM();
+  if (realLLM) {
+    process.stderr.write(`[naia-agent] real LLM mode (model=${process.env["ANTHROPIC_MODEL"] ?? "claude-haiku-4-5-20251001"}${process.env["ANTHROPIC_BASE_URL"] ? `, gateway=${process.env["ANTHROPIC_BASE_URL"]}` : ""})\n`);
+  }
+  const host = createHost({ logLevel: "warn", llm: realLLM });
   const agent = new Agent({
     host,
     systemPrompt: "You are naia-agent, a helpful AI assistant in CLI mode.",
