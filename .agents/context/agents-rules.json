@@ -1,0 +1,107 @@
+{
+  "$schema": "https://schemas.nextain.com/agents-rules-v1.json",
+  "project": "naia-agent",
+  "version": "0.1.0",
+  "updated": "2026-04-25",
+  "phase": "R0 (design re-check)",
+  "mandatory_reads": [
+    "AGENTS.md",
+    "CLAUDE.md",
+    ".agents/progress/design-recheck-2026-04-25.md",
+    ".agents/progress/ref-adoption-matrix.md",
+    ".agents/progress/runnable-testable-gap.md"
+  ],
+  "mandatory_reads_upstream": [
+    "../../alpha-adk/.agents/progress/naia-4repo-migration-plan.md",
+    "../../alpha-adk/.agents/progress/direction-2026-04-25.md"
+  ],
+  "forbidden_actions": [
+    {
+      "id": "F01",
+      "rule": "no_code_change_without_skeleton",
+      "description": "bin/naia-agent 진입점 미존재 시 packages/core/src/agent.ts 수정 금지, packages/runtime/src/ 신규 파일 추가 금지(테스트 제외), examples/ 외 위치에 새 host 코드 작성 금지",
+      "release_condition": "issue #3 (G01 bin/naia-agent) close"
+    },
+    {
+      "id": "F02",
+      "rule": "no_phase_d_branch_modification",
+      "description": "migration/phase-d 브랜치(Phase B + C.2 = 189 unit test) 절대 push/merge 금지. PAUSED 상태 보존",
+      "release_condition": "사용자 명시 directive (재개)"
+    },
+    {
+      "id": "F03",
+      "rule": "no_ref_modification",
+      "description": "projects/refs/ref-* 하위 모든 파일 수정·삭제 금지. submodule clean 유지",
+      "release_condition": "never (영구 read-only)"
+    },
+    {
+      "id": "F04",
+      "rule": "no_cleanroom_redistribution",
+      "description": "projects/refs/ref-cc-cleanroom (ghuntley) 코드 복붙·재배포 금지. 패턴 reference로만",
+      "release_condition": "never"
+    },
+    {
+      "id": "F05",
+      "rule": "no_cc_source_reextract_without_consent",
+      "description": "projects/refs/ref-cc (nextain private) 원본 source 재추출 시도 시 사용자 승인 필요",
+      "release_condition": "사용자 승인"
+    },
+    {
+      "id": "F06",
+      "rule": "no_d_decisions_modification",
+      "description": "docs/agent-loop-design.md D1~D8 결정 수정 금지. 신규 결정만 ref-adoption-matrix.md §D에 추가",
+      "release_condition": "never (보존)"
+    },
+    {
+      "id": "F07",
+      "rule": "no_part_a_modification",
+      "description": "alpha-adk/.agents/progress/naia-4repo-migration-plan.md Part A 수정 금지. 본 레포 R0는 실행 시퀀싱만 변경",
+      "release_condition": "새 plan 버전 + 사용자 승인"
+    },
+    {
+      "id": "F08",
+      "rule": "no_r1_plan_with_open_p0",
+      "description": "OPEN P0 sub-issue 1건이라도 있으면 R1 plan 작성 차단",
+      "release_condition": "P0 sub-issue 모두 close (#3, #4, #5, #6)"
+    }
+  ],
+  "required_actions_for_slice_pr": [
+    {
+      "id": "S01",
+      "rule": "new_runnable_command",
+      "description": "슬라이스 PR은 새 실행 가능 명령 1+ 도입 필수 (예: pnpm exec naia-agent ...)"
+    },
+    {
+      "id": "S02",
+      "rule": "unit_test_1_plus",
+      "description": "vitest 단위 테스트 1+ 도입"
+    },
+    {
+      "id": "S03",
+      "rule": "integration_verify_1_plus",
+      "description": "통합 검증 1+ 도입 (fixture-replay or real-LLM smoke or 실 backend 호출). 부재 시 머지 차단"
+    },
+    {
+      "id": "S04",
+      "rule": "changelog_entry",
+      "description": "README 또는 CHANGELOG에 슬라이스 entry 1건"
+    }
+  ],
+  "matrix_id_citation": {
+    "rule": "commit message + PR description에 매트릭스 ID(A##/B##/C##/D##/E##/F##/G##) 인용 필수",
+    "format": "예: 'fixes G03/D01' or 'addresses E05'",
+    "exemption": "매트릭스 외 영역(docs, infra) 변경 시 면제"
+  },
+  "tracking_issues": {
+    "master": "nextain/naia-agent#2",
+    "test_coverage_audit": "nextain/naia-agent#1",
+    "r0_p0_subissues": ["nextain/naia-agent#3", "nextain/naia-agent#4", "nextain/naia-agent#5", "nextain/naia-agent#6"],
+    "r0_p1_cluster": "nextain/naia-agent#7"
+  },
+  "context_priority": [
+    ".agents/context/agents-rules.json",
+    "CLAUDE.md",
+    "AGENTS.md",
+    ".agents/context/project-index.yaml"
+  ]
+}
