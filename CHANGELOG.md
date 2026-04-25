@@ -8,6 +8,43 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [Slice 2.5] — 2026-04-25 — OpenAI-compat tool calling integration
+
+**LLM이 진짜로 도구를 호출.** Slice 2의 bash skill이 GLM-4.5-Flash로 자율 호출돼서 실 답변 생성.
+
+### Added
+- `packages/providers/src/openai-compat.ts` 보강 — tool calling 양방향 translation:
+  - `LLMRequest.tools` → OpenAI `tools[]` (function-calling format)
+  - response `message.tool_calls` → `LLMContentBlock[]` `tool_use`
+  - assistant message `tool_use` → OpenAI `assistant.tool_calls`
+  - `tool_result` block → OpenAI `role: "tool"` message (tool_call_id 보존)
+  - finish_reason `"tool_calls"` → `StopReason "tool_use"`
+
+### 사용자 검증 (실 GLM 호출, 이전 commit 직후)
+
+```bash
+$ pnpm naia-agent --enable-bash "bin/ 디렉터리에 무엇이 있나? bash로 확인하고 답해줘."
+[naia-agent] provider: openai-compat (model=glm-4.5-flash, ...)
+[naia-agent] bash skill ENABLED (T1, DANGEROUS_COMMANDS pre-filtered)
+
+bin/ 디렉터리에는 `naia-agent.ts` 파일 하나가 있습니다. 이 파일은 실행 권한이 있고 10,742바이트 크기입니다.
+```
+
+GLM이 자율적으로 `bash` 도구를 호출 → ls 실행 → 결과를 자연어로 정리.
+
+### Slice 2.5 success criterion (S01~S04)
+- ✅ S01 새 명령: `pnpm naia-agent --enable-bash "..."` (real LLM이 도구 자율 호출)
+- ✅ S02 단위 테스트: 기존 회귀 (227 PASS) + tsc clean
+- ✅ S03 통합 검증: GLM-4.5-Flash 실 호출 — bash 도구 자율 사용
+- ✅ S04 본 entry
+
+### 매트릭스 §A 승격 1건
+- **A29** OpenAI-compat tool calling translation (양방향)
+
+### 보안 모델 일관
+- LLM이 도구 호출 → DANGEROUS_COMMANDS regex로 사전 차단 (Slice 2 A24)
+- T1 도구는 --enable-bash opt-in 필수 (사용자 동의 역할 유지)
+
 ## [Slice 2] — 2026-04-25 — Bash skill + DANGEROUS_COMMANDS + observability
 
 **naia-agent의 첫 진짜 도구 실행.** LLM이 bash 호출 → DANGEROUS_COMMANDS regex 사전 차단 → 실 shell 실행. Logger.tag/time + observability 단위 테스트.
