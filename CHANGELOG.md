@@ -60,7 +60,7 @@ pnpm naia-agent                        # REPL 모드
 
 **키 없을 때**: mock fallback ("Hello! I'm naia-agent in mock mode" 출력).
 
-**참고**: 환경 점검 시 `~/.openclaw/gateway-env.json`의 `GEMINI_API_KEY`와 `gw-...` gateway key 둘 다 만료 확인됨 (2026-04-25 기준). 사용자 측 키 갱신 후 테스트.
+**참고**: naia-agent는 표준 `ANTHROPIC_API_KEY` 환경변수만 사용. 외부 도구·gateway 의존 0. 사용자가 자체 키 또는 Anthropic-compat gateway URL을 직접 환경변수로 제공.
 
 ### Sub-issues closed
 - closes #12 (sub-4 real AnthropicClient + smoke:real-agent)
