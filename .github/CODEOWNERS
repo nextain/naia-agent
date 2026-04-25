@@ -1,0 +1,22 @@
+# Code ownership for naia-agent
+#
+# Single maintainer (1인 환경). Self-review with 24h observation per
+# 4-repo plan A.7 (migration/* branch prefix soft regime).
+#
+# This file exists so GitHub PR UI surfaces ownership and migration-sensitive
+# paths. Branch protection is intentionally permissive (1인 환경).
+
+# Default — solo maintainer
+*                       @luke-n-alpha
+
+# Public contracts (zero-runtime-dep) — extra care, MAJOR breaking risk
+/packages/types/        @luke-n-alpha
+/packages/protocol/     @luke-n-alpha
+
+# Multi-tool harness — edit AGENTS.md only, mirrors are auto-generated
+/AGENTS.md              @luke-n-alpha
+/scripts/sync-harness-mirrors.sh    @luke-n-alpha
+
+# Project context (SoT)
+/.agents/context/       @luke-n-alpha
+/.agents/progress/      @luke-n-alpha

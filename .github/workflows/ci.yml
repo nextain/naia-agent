@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 jobs:
-  typecheck:
+  build-and-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,7 +18,19 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+
       - run: pnpm install --frozen-lockfile=false
+
+      # Build first — packages depend on each other
       - run: pnpm build
       - run: pnpm exec tsc -p scripts/tsconfig.json
+
+      # Multi-tool harness invariant — AGENTS.md and 4 mirrors must match
+      - name: Verify harness mirrors in sync
+        run: pnpm run check:harness-sync
+
+      # Unit tests across workspace (vitest)
+      - run: pnpm test
+
+      # Provider smoke (dry-run path; live path runs only when ANTHROPIC_API_KEY set)
       - run: pnpm smoke:anthropic

@@ -4,6 +4,31 @@ All notable changes to `@nextain/agent-*` packages.
 
 Each package follows independent SemVer. Monorepo-wide entries below.
 
+Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short title`.
+
+## [Unreleased]
+
+## [Slice 0] — 2026-04-25 — Structure / Dev env
+
+**R2 — 인프라 정비.** 코드 0줄 변경. 다음 슬라이스 진입을 위한 거버넌스·CI 정비.
+
+### Added
+- `.github/CODEOWNERS` — 1인 maintainer 명시 + 핵심 영역(types/protocol, AGENTS.md, sync script, .agents/) 마킹
+- `.github/PULL_REQUEST_TEMPLATE.md` — minimal (Summary / Test plan / 4 체크박스)
+- `package.json scripts`:
+  - `test` — `pnpm -r --if-present test` (전 패키지 vitest 실행)
+  - `check:harness-sync` — `sync-harness-mirrors.sh --check` (CI invariant)
+  - `sync:harness` — mirror 강제 재생성
+- `.github/workflows/ci.yml` 보강 — `check:harness-sync` + `pnpm test` 단계 추가
+
+### Slice 0 success criterion (자가 검증 통과)
+- ✅ S01 새 실행 가능 명령: `pnpm run check:harness-sync` (mirror 동기 검증)
+- ✅ S02 단위 테스트: 기존 protocol 73 + runtime 50 = 123 tests (CI에서 실행)
+- ✅ S03 통합 검증: `check:harness-sync` PASS (CI workflow에 통합)
+- ✅ S04 CHANGELOG entry: 본 entry
+
+매트릭스 영향: S05 (CODEOWNERS), S06 (PR template), S09 (smoke:real-agent placeholder는 부정직하다는 cross-review 권고로 미도입), S10 (CHANGELOG 포맷) 해소. Sub-issue #7의 R2 항목 일부 close.
+
 ## 0.1.0 — 2026-04-21 — Phase 1 freeze
 
 **Phase 1 exit.** Public contracts now subject to the additive-only rule
