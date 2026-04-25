@@ -41,6 +41,7 @@
 | **A28** | host factory enableBash + extraTools 옵션 | 자체 (Slice 2) | `packages/runtime/src/host/create-host.ts` | bash-skill-host.ts smoke + bin --enable-bash 검증 |
 | **A29** | OpenAI-compat tool calling translation (양방향) | 자체 (Slice 2.5). LLMRequest.tools ↔ OpenAI tools[] + tool_use ↔ tool_calls + tool_result ↔ role:"tool" | `packages/providers/src/openai-compat.ts` | 실 호출 검증 (GLM-4.5-Flash가 bash 도구 자율 호출 → 결과 자연어 정리) |
 | **A30** | File ops skills (read_file/write_file/edit_file/list_files) — D09 sentinel 재사용 | 자체 + claude-code/aider 영감 (Slice 2.6). T0 read/list, T1 write/edit | `packages/runtime/src/skills/file-ops.ts` + `createFileOpsSkills()` bundle | 23 unit (file-ops.test.ts) + GLM 실 호출 검증 (list_files로 ref review 11개 정확히 출력) |
+| **A31** | Log Policy + `Logger.fn()` helper (enter/branch/exit + caller file:line + elapsedMs + args/result) + Dev mode 자동 감지 + 파일 자동 저장 + 5-pattern secret redact | 자체 + opencode tag/time 영감 (Slice 2.7) | `docs/log-policy.md` + `packages/observability/src/{logger.ts, dev-logger.ts, redact.ts}` + 핵심 8 영역 적용 (bin/host/bash/file-ops/openai-compat/anthropic/env-loader/agent) | 250 PASS 회귀 + 실 호출 trace 검증 (`~/.naia-agent/logs/naia-agent-YYYYMMDD.jsonl` append) |
 
 ---
 

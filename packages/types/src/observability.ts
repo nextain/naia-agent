@@ -31,6 +31,23 @@ export interface Logger {
    *   try { await query() } finally { stop?.() }
    */
   time?(label: string, ctx?: Record<string, unknown>): () => void;
+  /**
+   * Log Policy §6 (Slice 2.7). Returns a function-scoped logger with
+   * enter/branch/exit helpers — emits debug logs with consistent fmt:
+   *   debug("enter:<fn>", {args})
+   *   debug("branch:<fn>:<label>", ctx)
+   *   debug("exit:<fn>", {result?, elapsedMs})
+   * Implementations MAY return a no-op when level > debug for perf.
+   */
+  fn?(name: string, args?: Record<string, unknown>): FnLogger;
+}
+
+/** Function-scoped logger. Returned by Logger.fn(name). */
+export interface FnLogger {
+  /** Emit branch debug log. Use at if/switch/loop decision points. */
+  branch(label: string, ctx?: Record<string, unknown>): void;
+  /** Emit exit debug log + auto elapsed ms. Returns the result for chaining. */
+  exit<T>(result?: T): T;
 }
 
 export interface SpanContext {

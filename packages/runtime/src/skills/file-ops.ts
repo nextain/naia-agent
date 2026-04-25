@@ -9,6 +9,7 @@
 import { readFile, writeFile, mkdir, readdir, stat } from "node:fs/promises";
 import { dirname, relative, join } from "node:path";
 import type { InMemoryToolDef } from "../mocks/in-memory-tool-executor.js";
+import type { Logger } from "@nextain/agent-types";
 import {
   normalizeWorkspacePath,
   WorkspaceEscapeError,
@@ -19,6 +20,8 @@ export interface FileOpsOptions {
   workspaceRoot?: string;
   /** Max bytes per file read/write. Default 256 KB. */
   maxBytes?: number;
+  /** Optional logger — file ops will emit debug enter/branch/exit traces. */
+  logger?: Logger;
 }
 
 const DEFAULT_MAX_BYTES = 256 * 1024;
@@ -50,17 +53,29 @@ export function createReadFileSkill(opts: FileOpsOptions = {}): InMemoryToolDef 
     isConcurrencySafe: true,
     handler: async (input) => {
       const { path } = input as { path: string };
-      if (typeof path !== "string" || !path.trim()) return "ERROR: read_file requires `path`";
+      const fn = opts.logger?.fn?.("read_file.handler", { path });
+      if (typeof path !== "string" || !path.trim()) {
+        fn?.branch("invalid-path");
+        return fn?.exit("ERROR: read_file requires `path`") ?? "ERROR: read_file requires `path`";
+      }
       try {
         const abs = await safePath(path, opts);
         const buf = await readFile(abs);
         if (buf.length > max) {
-          return buf.subarray(0, max).toString("utf8") + `\n[truncated to ${max} bytes — full size ${buf.length}]`;
+          fn?.branch("truncated", { fullSize: buf.length, maxBytes: max });
+          const out = buf.subarray(0, max).toString("utf8") + `\n[truncated to ${max} bytes — full size ${buf.length}]`;
+          return fn?.exit({ size: max, truncated: true }) ? out : out;
         }
+        fn?.exit({ size: buf.length });
         return buf.toString("utf8");
       } catch (e) {
-        if (e instanceof WorkspaceEscapeError) return `BLOCKED: ${e.message}`;
-        return `ERROR: ${(e as Error).message}`;
+        if (e instanceof WorkspaceEscapeError) {
+          fn?.branch("workspace-escape");
+          opts.logger?.warn("security.path_escape", { attempted: path });
+          return fn?.exit(`BLOCKED: ${e.message}`) ?? `BLOCKED: ${e.message}`;
+        }
+        fn?.branch("error", { msg: (e as Error).message });
+        return fn?.exit(`ERROR: ${(e as Error).message}`) ?? `ERROR: ${(e as Error).message}`;
       }
     },
   };
@@ -88,18 +103,20 @@ export function createWriteFileSkill(opts: FileOpsOptions = {}): InMemoryToolDef
     isConcurrencySafe: false,
     handler: async (input) => {
       const { path, content } = input as { path: string; content: string };
-      if (typeof path !== "string" || !path.trim()) return "ERROR: write_file requires `path`";
-      if (typeof content !== "string") return "ERROR: write_file requires `content` (string)";
+      const fn = opts.logger?.fn?.("write_file.handler", { path, contentLen: typeof content === "string" ? content.length : 0 });
+      if (typeof path !== "string" || !path.trim()) { fn?.exit("ERROR"); return "ERROR: write_file requires `path`"; }
+      if (typeof content !== "string") { fn?.exit("ERROR"); return "ERROR: write_file requires `content` (string)"; }
       const bytes = Buffer.byteLength(content, "utf8");
-      if (bytes > max) return `ERROR: content exceeds maxBytes (${bytes} > ${max})`;
+      if (bytes > max) { fn?.branch("size-exceeded"); fn?.exit("ERROR"); return `ERROR: content exceeds maxBytes (${bytes} > ${max})`; }
       try {
         const abs = await safePath(path, opts);
         await mkdir(dirname(abs), { recursive: true });
         await writeFile(abs, content, "utf8");
-        return `wrote ${bytes} bytes → ${relative(resolveRoot(opts), abs)}`;
+        const out = `wrote ${bytes} bytes → ${relative(resolveRoot(opts), abs)}`;
+        return fn?.exit({ bytes }) ? out : out;
       } catch (e) {
-        if (e instanceof WorkspaceEscapeError) return `BLOCKED: ${e.message}`;
-        return `ERROR: ${(e as Error).message}`;
+        if (e instanceof WorkspaceEscapeError) { fn?.branch("workspace-escape"); opts.logger?.warn("security.path_escape", { attempted: path }); return fn?.exit(`BLOCKED`) ? `BLOCKED: ${e.message}` : `BLOCKED: ${e.message}`; }
+        fn?.branch("error"); return fn?.exit(`ERROR`) ? `ERROR: ${(e as Error).message}` : `ERROR: ${(e as Error).message}`;
       }
     },
   };
@@ -134,33 +151,34 @@ export function createEditFileSkill(opts: FileOpsOptions = {}): InMemoryToolDef 
         replace: string;
         replaceAll?: boolean;
       };
-      if (!path?.trim()) return "ERROR: edit_file requires `path`";
-      if (typeof find !== "string" || find.length === 0)
-        return "ERROR: edit_file requires non-empty `find`";
-      if (typeof replace !== "string") return "ERROR: edit_file requires `replace` (string)";
+      const fn = opts.logger?.fn?.("edit_file.handler", { path, replaceAll: !!replaceAll });
+      if (!path?.trim()) { fn?.exit("ERROR"); return "ERROR: edit_file requires `path`"; }
+      if (typeof find !== "string" || find.length === 0) { fn?.exit("ERROR"); return "ERROR: edit_file requires non-empty `find`"; }
+      if (typeof replace !== "string") { fn?.exit("ERROR"); return "ERROR: edit_file requires `replace` (string)"; }
       try {
         const abs = await safePath(path, opts);
         const original = await readFile(abs, "utf8");
         let updated: string;
         let count: number;
         if (replaceAll) {
+          fn?.branch("replace-all");
           const parts = original.split(find);
           count = parts.length - 1;
           updated = parts.join(replace);
         } else {
+          fn?.branch("replace-single");
           const idx = original.indexOf(find);
-          if (idx === -1) {
-            return `ERROR: find pattern not found in ${relative(resolveRoot(opts), abs)}`;
-          }
+          if (idx === -1) { fn?.exit("not-found"); return `ERROR: find pattern not found in ${relative(resolveRoot(opts), abs)}`; }
           updated = original.slice(0, idx) + replace + original.slice(idx + find.length);
           count = 1;
         }
-        if (count === 0) return `no changes — find pattern not present`;
+        if (count === 0) { fn?.exit("no-change"); return `no changes — find pattern not present`; }
         await writeFile(abs, updated, "utf8");
-        return `edited ${relative(resolveRoot(opts), abs)} (${count} replacement${count > 1 ? "s" : ""})`;
+        const out = `edited ${relative(resolveRoot(opts), abs)} (${count} replacement${count > 1 ? "s" : ""})`;
+        return fn?.exit({ count }) ? out : out;
       } catch (e) {
-        if (e instanceof WorkspaceEscapeError) return `BLOCKED: ${e.message}`;
-        return `ERROR: ${(e as Error).message}`;
+        if (e instanceof WorkspaceEscapeError) { fn?.branch("workspace-escape"); opts.logger?.warn("security.path_escape", { attempted: path }); return fn?.exit(`BLOCKED`) ? `BLOCKED: ${e.message}` : `BLOCKED: ${e.message}`; }
+        fn?.branch("error"); return fn?.exit(`ERROR`) ? `ERROR: ${(e as Error).message}` : `ERROR: ${(e as Error).message}`;
       }
     },
   };
@@ -185,6 +203,7 @@ export function createListFilesSkill(opts: FileOpsOptions = {}): InMemoryToolDef
     isConcurrencySafe: true,
     handler: async (input) => {
       const { path = "." } = (input ?? {}) as { path?: string };
+      const fn = opts.logger?.fn?.("list_files.handler", { path });
       try {
         const abs = await safePath(path, opts);
         const entries = await readdir(abs);
@@ -198,10 +217,11 @@ export function createListFilesSkill(opts: FileOpsOptions = {}): InMemoryToolDef
             lines.push(`[?] ${e}`);
           }
         }
-        return lines.length > 0 ? lines.join("\n") : "(empty directory)";
+        const out = lines.length > 0 ? lines.join("\n") : "(empty directory)";
+        return fn?.exit({ entries: lines.length }) ? out : out;
       } catch (e) {
-        if (e instanceof WorkspaceEscapeError) return `BLOCKED: ${e.message}`;
-        return `ERROR: ${(e as Error).message}`;
+        if (e instanceof WorkspaceEscapeError) { fn?.branch("workspace-escape"); opts.logger?.warn("security.path_escape", { attempted: path }); return fn?.exit(`BLOCKED`) ? `BLOCKED: ${e.message}` : `BLOCKED: ${e.message}`; }
+        fn?.branch("error"); return fn?.exit(`ERROR`) ? `ERROR: ${(e as Error).message}` : `ERROR: ${(e as Error).message}`;
       }
     },
   };

@@ -22,6 +22,7 @@ import type {
   LLMResponse,
   LLMStreamChunk,
   LLMUsage,
+  Logger,
   StopReason,
   ToolDefinition,
 } from "@nextain/agent-types";
@@ -29,25 +30,41 @@ import type {
 export interface AnthropicClientOptions {
   defaultModel?: string;
   defaultMaxTokens?: number;
+  logger?: Logger;
 }
 
 export class AnthropicClient implements LLMClient {
   readonly #sdk: Anthropic;
   readonly #defaultModel: string;
   readonly #defaultMaxTokens: number;
+  readonly #logger: Logger | undefined;
 
   constructor(sdk: Anthropic, options: AnthropicClientOptions = {}) {
     this.#sdk = sdk;
     this.#defaultModel = options.defaultModel ?? "claude-opus-4-7";
     this.#defaultMaxTokens = options.defaultMaxTokens ?? 8192;
+    this.#logger = options.logger;
   }
 
   async generate(request: LLMRequest): Promise<LLMResponse> {
-    const body = this.#toSdkRequest(request);
-    const response = await this.#sdk.messages.create(body, {
-      signal: request.signal,
+    const fn = this.#logger?.fn?.("anthropic.generate", {
+      model: request.model ?? this.#defaultModel,
+      messageCount: request.messages.length,
+      toolsCount: request.tools?.length ?? 0,
     });
-    return this.#fromSdkResponse(response);
+    const body = this.#toSdkRequest(request);
+    try {
+      const response = await this.#sdk.messages.create(body, {
+        signal: request.signal,
+      });
+      const out = this.#fromSdkResponse(response);
+      fn?.exit({ stopReason: out.stopReason, contentBlocks: out.content.length, usage: out.usage });
+      return out;
+    } catch (e) {
+      fn?.branch("error");
+      this.#logger?.error("llm.error", e as Error, { provider: "anthropic" });
+      throw e;
+    }
   }
 
   async *stream(request: LLMRequest): AsyncIterable<LLMStreamChunk> {

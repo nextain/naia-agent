@@ -153,10 +153,12 @@ export class Agent {
 
   /** Convenience: drain the stream and return the final assistant text. */
   async send(userText: string, signal?: AbortSignal): Promise<string> {
+    const fn = this.#host.logger.fn?.("Agent.send", { userTextLen: userText.length });
     let finalText = "";
     for await (const ev of this.sendStream(userText, signal)) {
       if (ev.type === "turn.ended") finalText = ev.assistantText;
     }
+    fn?.exit({ assistantTextLen: finalText.length });
     return finalText;
   }
 
@@ -176,7 +178,9 @@ export class Agent {
     userText: string,
     signal?: AbortSignal,
   ): AsyncGenerator<AgentStreamEvent> {
+    const fn = this.#host.logger.fn?.("Agent.sendStream", { userTextLen: userText.length, sessionState: this.#session.state });
     if (this.#session.state !== "active") {
+      fn?.branch("session-not-active");
       throw new Error(`Cannot send — session is "${this.#session.state}"`);
     }
 
@@ -185,6 +189,7 @@ export class Agent {
     // 1. Recall memory for context.
     const hits = await this.#recallMemory(userText);
     this.#history.push({ role: "user", content: userText });
+    fn?.branch("turn-started", { recalled: hits.length });
     yield { type: "turn.started", userText, recalled: hits.length };
 
     let hopsRemaining = this.#maxHops;

@@ -25,10 +25,13 @@ import { homedir } from "node:os";
 
 const HOME = homedir();
 
+import type { Logger } from "@nextain/agent-types";
+
 export interface EnvLoadOptions {
   envPath?: string;
   configPath?: string;
   cwd?: string;
+  logger?: Logger;
 }
 
 export interface EnvLoadReport {
@@ -128,9 +131,9 @@ export function flattenConfig(
 
 export function loadEnvAndConfig(opts: EnvLoadOptions = {}): EnvLoadReport {
   const cwd = opts.cwd ?? process.cwd();
+  const fn = opts.logger?.fn?.("loadEnvAndConfig", { cwd, envPath: opts.envPath, configPath: opts.configPath });
   const report: EnvLoadReport = { loadedKeys: [] };
 
-  // .env
   for (const candidate of ENV_CANDIDATES(cwd, opts.envPath)) {
     if (!candidate || !isReadableFile(candidate)) continue;
     try {
@@ -142,13 +145,13 @@ export function loadEnvAndConfig(opts: EnvLoadOptions = {}): EnvLoadReport {
         }
       }
       report.envFile = candidate;
+      fn?.branch("env-loaded", { file: candidate, keys: Object.keys(parsed).length });
       break;
     } catch {
       // try next
     }
   }
 
-  // JSON config
   for (const candidate of CONFIG_CANDIDATES(cwd, opts.configPath)) {
     if (!candidate || !isReadableFile(candidate)) continue;
     try {
@@ -161,11 +164,13 @@ export function loadEnvAndConfig(opts: EnvLoadOptions = {}): EnvLoadReport {
         }
       }
       report.configFile = candidate;
+      fn?.branch("config-loaded", { file: candidate, keys: Object.keys(flat).length });
       break;
     } catch {
       // try next
     }
   }
 
+  fn?.exit({ totalKeys: report.loadedKeys.length, envFile: report.envFile, configFile: report.configFile });
   return report;
 }

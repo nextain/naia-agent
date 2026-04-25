@@ -20,11 +20,14 @@ import { InMemoryToolExecutor, type InMemoryToolDef } from "../mocks/in-memory-t
 import { MockLLMClient, type MockScript } from "../mocks/mock-llm-client.js";
 import { createBashSkill } from "../skills/bash.js";
 import { createFileOpsSkills, type FileOpsOptions } from "../skills/file-ops.js";
+import type { Logger } from "@nextain/agent-types";
 
 export interface CreateHostOptions {
   llm?: LLMClient;
   memory?: MemoryProvider;
   tools?: ToolExecutor;
+  /** Pre-constructed Logger. If omitted, a ConsoleLogger is created with `logLevel`. */
+  logger?: Logger;
   logLevel?: "debug" | "info" | "warn" | "error";
   // Mock LLM script (used only when llm not provided).
   mockScript?: MockScript;
@@ -48,25 +51,36 @@ export interface CreateHostOptions {
  * - approvals/identity: throwing shims (T0 only — caller must wire if T1+)
  */
 export function createHost(opts: CreateHostOptions = {}): HostContext {
+  const logger = opts.logger ?? new ConsoleLogger({ level: opts.logLevel ?? "warn" });
+  const fn = logger.fn?.("createHost", {
+    enableBash: !!opts.enableBash,
+    enableFiles: !!opts.enableFiles,
+    hasLLM: !!opts.llm,
+    hasMemory: !!opts.memory,
+  });
+
   const llm = opts.llm ?? new MockLLMClient(opts.mockScript ?? defaultMockScript());
   const memory = opts.memory ?? new InMemoryMemory();
 
   let tools: ToolExecutor;
   if (opts.tools) {
+    fn?.branch("tools-injected");
     tools = opts.tools;
   } else {
     const builtins: InMemoryToolDef[] = [];
-    if (opts.enableBash) builtins.push(createBashSkill());
-    if (opts.enableFiles) builtins.push(...createFileOpsSkills(opts.fileOpsOptions ?? {}));
+    if (opts.enableBash) builtins.push(createBashSkill({ logger }));
+    if (opts.enableFiles) builtins.push(...createFileOpsSkills({ ...opts.fileOpsOptions, logger }));
     if (opts.extraTools) builtins.push(...opts.extraTools);
+    fn?.branch("tools-built", { count: builtins.length });
     tools = new InMemoryToolExecutor(builtins);
   }
 
+  fn?.exit({ toolCount: "set" });
   return {
     llm,
     memory,
     tools,
-    logger: new ConsoleLogger({ level: opts.logLevel ?? "warn" }),
+    logger,
     tracer: new NoopTracer(),
     meter: new InMemoryMeter(),
     approvals: {

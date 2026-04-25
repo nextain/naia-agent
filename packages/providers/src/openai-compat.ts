@@ -19,6 +19,7 @@ import type {
   LLMContentBlock,
   StopReason,
   ToolDefinition,
+  Logger,
 } from "@nextain/agent-types";
 
 export interface OpenAICompatClientOptions {
@@ -26,6 +27,7 @@ export interface OpenAICompatClientOptions {
   baseUrl: string;
   model: string;
   defaultMaxTokens?: number;
+  logger?: Logger;
 }
 
 interface OAIToolCall {
@@ -73,16 +75,24 @@ export class OpenAICompatClient implements LLMClient {
   readonly #baseUrl: string;
   readonly #model: string;
   readonly #defaultMaxTokens: number;
+  readonly #logger: Logger | undefined;
 
   constructor(opts: OpenAICompatClientOptions) {
     this.#apiKey = opts.apiKey;
     this.#baseUrl = opts.baseUrl.replace(/\/$/, "");
     this.#model = opts.model;
     this.#defaultMaxTokens = opts.defaultMaxTokens ?? 4096;
+    this.#logger = opts.logger;
   }
 
   async generate(request: LLMRequest): Promise<LLMResponse> {
+    const fn = this.#logger?.fn?.("openai-compat.generate", {
+      model: request.model ?? this.#model,
+      messageCount: request.messages.length,
+      toolsCount: request.tools?.length ?? 0,
+    });
     const body = this.#toOpenAIRequest(request, false);
+    fn?.branch("request-built", { bodyKeys: Object.keys(body) });
     const res = await fetch(`${this.#baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
@@ -93,12 +103,15 @@ export class OpenAICompatClient implements LLMClient {
       signal: request.signal ?? null,
     });
     if (!res.ok) {
-      throw new Error(
-        `OpenAICompat ${res.status} ${res.statusText}: ${(await res.text()).slice(0, 200)}`,
-      );
+      const errText = (await res.text()).slice(0, 200);
+      fn?.branch("api-error", { status: res.status });
+      this.#logger?.error("llm.error", undefined, { provider: "openai-compat", status: res.status, errText });
+      throw new Error(`OpenAICompat ${res.status} ${res.statusText}: ${errText}`);
     }
     const json = (await res.json()) as OpenAIChatResponse;
-    return this.#fromOpenAIResponse(json);
+    const out = this.#fromOpenAIResponse(json);
+    fn?.exit({ stopReason: out.stopReason, contentBlocks: out.content.length, usage: out.usage });
+    return out;
   }
 
   async *stream(request: LLMRequest): AsyncIterable<LLMStreamChunk> {

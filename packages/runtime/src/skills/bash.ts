@@ -11,10 +11,12 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { InMemoryToolDef } from "../mocks/in-memory-tool-executor.js";
 import { assertSafe, DangerousCommandError } from "../utils/dangerous-commands.js";
+import type { Logger } from "@nextain/agent-types";
 
 const exec = promisify(execFile);
 
 export interface BashSkillOptions {
+  logger?: Logger;
   /** Shell to invoke. Defaults to /bin/bash. */
   shell?: string;
   /** Working directory. Default: process.cwd() at call time. */
@@ -29,7 +31,7 @@ export interface BashSkillOptions {
   includeStderr?: boolean;
 }
 
-const DEFAULT_OPTIONS: Required<Omit<BashSkillOptions, "cwd">> = {
+const DEFAULT_OPTIONS: Required<Omit<BashSkillOptions, "cwd" | "logger">> = {
   shell: "/bin/bash",
   timeoutMs: 30_000,
   maxOutputBytes: 32_768,
@@ -77,27 +79,36 @@ export function createBashSkill(opts: BashSkillOptions = {}): InMemoryToolDef {
     isConcurrencySafe: false,
     handler: async (input) => {
       const { command } = input as BashInput;
+      const fn = opts.logger?.fn?.("bash.handler", { commandLen: typeof command === "string" ? command.length : 0 });
       if (typeof command !== "string" || command.trim().length === 0) {
-        return "ERROR: bash skill requires a non-empty `command` string.";
+        fn?.branch("invalid-command");
+        return fn?.exit("ERROR: bash skill requires a non-empty `command` string.") ?? "ERROR: bash skill requires a non-empty `command` string.";
       }
 
       try {
         assertSafe(command);
       } catch (e) {
         if (e instanceof DangerousCommandError) {
-          return `BLOCKED: ${e.message}`;
+          fn?.branch("dangerous-blocked", { reasons: e.reasons });
+          opts.logger?.warn("security.dangerous_blocked", {
+            commandPrefix: command.slice(0, 60),
+            reasons: e.reasons,
+          });
+          return fn?.exit(`BLOCKED: ${e.message}`) ?? `BLOCKED: ${e.message}`;
         }
         throw e;
       }
 
       try {
+        fn?.branch("exec-start", { shell: cfg.shell, timeoutMs: cfg.timeoutMs });
         const { stdout, stderr } = await exec(cfg.shell, ["-c", command], {
           cwd: cwd ?? process.cwd(),
           timeout: cfg.timeoutMs,
           maxBuffer: cfg.maxOutputBytes,
           encoding: "utf8",
         });
-        return formatOutput(stdout, stderr, 0, cfg);
+        const out = formatOutput(stdout, stderr, 0, cfg);
+        return fn?.exit(out.slice(0, 80)) ? out : out;
       } catch (err) {
         // execFile error: includes stdout/stderr/code on most failures.
         const e = err as NodeJS.ErrnoException & {
@@ -108,10 +119,14 @@ export function createBashSkill(opts: BashSkillOptions = {}): InMemoryToolDef {
           signal?: string;
         };
         if (e.killed && e.signal === "SIGTERM") {
-          return `TIMEOUT: command exceeded ${cfg.timeoutMs}ms`;
+          fn?.branch("timeout");
+          const msg = `TIMEOUT: command exceeded ${cfg.timeoutMs}ms`;
+          return fn?.exit(msg) ?? msg;
         }
         const code = typeof e.code === "number" ? e.code : -1;
-        return formatOutput(e.stdout ?? "", e.stderr ?? e.message, code, cfg);
+        fn?.branch("non-zero-exit", { code });
+        const out = formatOutput(e.stdout ?? "", e.stderr ?? e.message, code, cfg);
+        return fn?.exit(out.slice(0, 80)) ? out : out;
       }
     },
   };
@@ -121,7 +136,7 @@ function formatOutput(
   stdout: string,
   stderr: string,
   code: number,
-  cfg: Required<Omit<BashSkillOptions, "cwd">>,
+  cfg: Required<Omit<BashSkillOptions, "cwd" | "logger">>,
 ): string {
   const out = stdout.trim();
   const err = stderr.trim();

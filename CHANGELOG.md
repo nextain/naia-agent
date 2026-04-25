@@ -8,6 +8,77 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [Slice 2.7] — 2026-04-26 — Log Policy 정규화 + Logger.fn() 표준 + dev mode 자동 file logging
+
+**개발 추적 가능한 구조.** 모든 핵심 함수에 enter/branch/exit + caller(file:line) + elapsedMs + args/result trace.
+
+### Added
+- `docs/log-policy.md` — 로그 정책 정규 표준 (5 levels / 출력 위치 / 회전 / 포맷 / 민감 정보 마스킹 / 이벤트별 정규 fields / CLI 플래그)
+- `packages/types/src/observability.ts` — `Logger.fn()` + `FnLogger` interface (additive, optional)
+- `packages/observability/src/logger.ts` — ConsoleLogger.fn() 구현 (caller 자동 추출 + elapsedMs)
+- `packages/observability/src/dev-logger.ts` — `createProjectLogger()` factory (auto-detect dev: tsx/NODE_ENV/DEV_MODE) + 파일 자동 저장
+- `packages/observability/src/redact.ts` — 5 pattern (Anthropic / OpenAI / GW / Google / Bearer) 자동 마스킹
+
+### Logger.fn() 적용 (8 영역)
+- `bin/naia-agent.ts` — main, detectRealLLM
+- `host/create-host.ts` — createHost
+- `skills/bash.ts` — handler (DANGEROUS branch + exec/timeout/exit)
+- `skills/file-ops.ts` — read/write/edit/list 4 handlers
+- `providers/openai-compat.ts` — generate
+- `providers/anthropic.ts` — generate
+- `utils/env-loader.ts` — loadEnvAndConfig
+- `core/agent.ts` — sendStream, send
+
+### 자동 dev mode 동작
+- 감지: `NODE_ENV !== "production"` OR `DEV_MODE=1` OR argv[1]가 `.ts/.tsx`
+- Dev: level=`debug` + 파일 자동 저장 `~/.naia-agent/logs/naia-agent-YYYYMMDD.jsonl`
+- Production: level=`warn` + stderr만 (LOG_FILE 명시 시 파일도)
+
+### Slice 2.7 success criterion
+- ✅ S01 새 명령 동작 (기존 + dev mode 자동)
+- ✅ S02 회귀 250 PASS
+- ✅ S03 통합 검증 — 실 GLM 호출 후 trace 모두 파일에 기록 + caller/elapsedMs 정확
+- ✅ S04 본 entry
+
+### 검증된 trace (실 호출)
+```jsonl
+{"ts":"...","level":"debug","msg":"enter:main","caller":"bin/naia-agent.ts:258","argv":["--enable-all","..."]}
+{"ts":"...","level":"debug","msg":"enter:detectRealLLM","caller":"bin/naia-agent.ts:35"}
+{"ts":"...","level":"debug","msg":"branch:detectRealLLM:openai-compat","hasGlm":true}
+{"ts":"...","level":"debug","msg":"enter:createHost","enableBash":true,"enableFiles":true}
+{"ts":"...","level":"debug","msg":"branch:createHost:tools-built","count":5}
+{"ts":"...","level":"debug","msg":"exit:createHost","elapsedMs":0,"result":{"toolCount":"set"}}
+{"ts":"...","level":"info","msg":"session.active","sessionId":"sess-..."}
+{"ts":"...","level":"debug","msg":"enter:Agent.sendStream","userTextLen":54,"sessionState":"active"}
+{"ts":"...","level":"debug","msg":"enter:list_files.handler","path":".agents/progress/refs/"}
+{"ts":"...","level":"debug","msg":"exit:list_files.handler","elapsedMs":1,"result":{"entries":13}}
+{"ts":"...","level":"info","msg":"session.closed","sessionId":"sess-..."}
+```
+
+### 매트릭스 §A 승격 1건
+- **A31** Log Policy + Logger.fn() + dev mode auto + redact
+
+### 보안 (redact 패턴)
+- `sk-ant-...` → `sk-ant-***`
+- `sk-...` → `sk-***`
+- `gw-...` → `gw-***`
+- `AIzaSy...` → `AIzaSy***`
+- `Bearer ...` → `Bearer ***`
+- 자동 적용 (모든 log entry string values 재귀)
+
+### 사용자 검증
+```bash
+# Dev mode (tsx 자동 감지) — debug + file 자동
+pnpm naia-agent --enable-all "..."
+tail -f ~/.naia-agent/logs/naia-agent-YYYYMMDD.jsonl
+
+# Production (build 후)
+LOG_LEVEL=warn node dist-bin/naia-agent.js "..."
+
+# 명시 file 저장
+LOG_FILE=~/my.log pnpm naia-agent "..."
+```
+
 ## [Slice 2.6] — 2026-04-25 — File ops skills (read/write/edit/list_files)
 
 **naia-agent가 본격 coding agent로.** LLM이 read_file/write_file/edit_file/list_files 자율 호출 → workspace 내 파일 작업.

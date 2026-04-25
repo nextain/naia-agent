@@ -11,9 +11,19 @@
 import * as readline from "node:readline";
 import { Agent } from "@nextain/agent-core";
 import { createHost, loadEnvAndConfig } from "@nextain/agent-runtime";
-import type { LLMClient } from "@nextain/agent-types";
+import { createProjectLogger } from "@nextain/agent-observability";
+import type { LLMClient, Logger } from "@nextain/agent-types";
 
-const VERSION = "0.0.3-slice-1c";
+const VERSION = "0.0.4-slice-2.7";
+
+let _logger: Logger | undefined;
+function log(): Logger {
+  if (!_logger) {
+    const r = createProjectLogger();
+    _logger = r.logger;
+  }
+  return _logger;
+}
 
 // Slice 1b — env-detected real LLM injection.
 // Convention: ANTHROPIC_API_KEY + optional ANTHROPIC_BASE_URL (for gateway
@@ -22,9 +32,11 @@ const VERSION = "0.0.3-slice-1c";
 // supported in 1b (matrix B21 — no multi-provider direct deps; gateway
 // translation lives in user environment).
 async function detectRealLLM(): Promise<{ client?: LLMClient; mode: string }> {
+  const fn = log().fn?.("detectRealLLM");
   // Priority 1: Anthropic direct (or via ANTHROPIC_BASE_URL gateway).
   const anthropicKey = process.env["ANTHROPIC_API_KEY"];
   if (anthropicKey) {
+    fn?.branch("anthropic-direct");
     const baseURL = process.env["ANTHROPIC_BASE_URL"];
     try {
       const Anthropic = (await import("@anthropic-ai/sdk")).default;
@@ -49,6 +61,7 @@ async function detectRealLLM(): Promise<{ client?: LLMClient; mode: string }> {
   const openaiBase = process.env["OPENAI_BASE_URL"];
   const glmKey = process.env["GLM_API_KEY"];
   if ((openaiKey && openaiBase) || glmKey) {
+    fn?.branch("openai-compat", { hasOpenAI: !!openaiKey, hasGlm: !!glmKey });
     try {
       const { OpenAICompatClient } = await import("@nextain/agent-providers/openai-compat");
       const apiKey = openaiKey ?? glmKey ?? "";
@@ -75,6 +88,7 @@ async function detectRealLLM(): Promise<{ client?: LLMClient; mode: string }> {
   const vertexRegion =
     process.env["VERTEX_REGION"] ?? process.env["GOOGLE_CLOUD_LOCATION"];
   if (vertexProject && vertexRegion) {
+    fn?.branch("vertex");
     try {
       const { createAnthropicVertexClient } = await import(
         "@nextain/agent-providers/anthropic-vertex"
@@ -96,7 +110,8 @@ async function detectRealLLM(): Promise<{ client?: LLMClient; mode: string }> {
     }
   }
 
-  return { mode: "mock (no provider env detected)" };
+  fn?.branch("mock-fallback");
+  return fn?.exit({ mode: "mock (no provider env detected)" }) ?? { mode: "mock (no provider env detected)" };
 }
 
 interface CliArgs {
@@ -235,10 +250,18 @@ async function repl(agent: Agent): Promise<void> {
 }
 
 async function main(): Promise<number> {
+  // Initialize logger early so dev mode + log file are set up.
+  const { isDev, level, logFile } = (await import("@nextain/agent-observability")).createProjectLogger();
+  if (logFile) {
+    process.stderr.write(`[naia-agent] log file: ${logFile} (level=${level}${isDev ? ", dev" : ""})\n`);
+  }
+  const fn = log().fn?.("main", { argv: process.argv.slice(2) });
+
   let cli: CliArgs;
   try {
     cli = parseArgs(process.argv.slice(2));
   } catch (e) {
+    fn?.branch("parseArgs-error");
     console.error(`error: ${(e as Error).message}`);
     printHelp();
     return 1;
@@ -276,7 +299,7 @@ async function main(): Promise<number> {
     process.stderr.write(`[naia-agent] skills ENABLED: ${enabledSkills.join(", ")}\n`);
   }
   const host = createHost({
-    logLevel: "warn",
+    logger: log(),
     llm: realLLM,
     enableBash: cli.enableBash,
     enableFiles: cli.enableFiles,
