@@ -20,7 +20,12 @@
     { "path": "packages/core" },
     { "path": "packages/runtime" },
     { "path": "packages/providers" },
-    { "path": "packages/observability" }
+    { "path": "packages/observability" },
+    { "path": "packages/adapter-shell" },
+    { "path": "packages/adapter-opencode-cli" },
+    { "path": "packages/workspace" },
+    { "path": "packages/verification" },
+    { "path": "packages/cli-app" }
   ],
   "files": []
 }

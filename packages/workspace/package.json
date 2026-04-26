@@ -1,0 +1,25 @@
+{
+  "name": "@nextain/agent-workspace",
+  "version": "0.1.0",
+  "description": "WorkspaceWatcher (chokidar) + git diff for naia-agent supervisor.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "default": "./dist/index.js"
+    }
+  },
+  "sideEffects": false,
+  "files": ["dist", "src"],
+  "license": "Apache-2.0",
+  "engines": { "node": ">=22" },
+  "publishConfig": { "access": "public" },
+  "scripts": { "build": "tsc -b" },
+  "dependencies": { "@nextain/agent-types": "workspace:*" }
+}

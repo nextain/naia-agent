@@ -1,0 +1,31 @@
+{
+  "name": "@nextain/agent-cli-app",
+  "version": "0.1.0",
+  "description": "naia-agent CLI app — REPL + Conversation + Supervisor wiring (Phase 1 Day 5).",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "default": "./dist/index.js"
+    }
+  },
+  "sideEffects": false,
+  "files": ["dist", "src"],
+  "license": "Apache-2.0",
+  "engines": { "node": ">=22" },
+  "publishConfig": { "access": "public" },
+  "scripts": { "build": "tsc -b" },
+  "dependencies": {
+    "@nextain/agent-types": "workspace:*",
+    "@nextain/agent-adapter-shell": "workspace:*",
+    "@nextain/agent-adapter-opencode-cli": "workspace:*",
+    "@nextain/agent-workspace": "workspace:*",
+    "@nextain/agent-verification": "workspace:*"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "composite": true
+  },
+  "include": ["src/**/*"],
+  "references": [
+    { "path": "../types" },
+    { "path": "../adapter-shell" },
+    { "path": "../adapter-opencode-cli" },
+    { "path": "../workspace" },
+    { "path": "../verification" }
+  ]
+}
