@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@nextain/agent-types": "workspace:*",
+    "@nextain/agent-protocol": "workspace:*",
     "@nextain/agent-adapter-shell": "workspace:*",
     "@nextain/agent-adapter-opencode-cli": "workspace:*",
     "@nextain/agent-workspace": "workspace:*",

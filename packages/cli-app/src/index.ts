@@ -21,5 +21,15 @@ export {
   AutoApproveApprovalBroker,
 } from "./approval-broker.js";
 export type { CliApprovalBrokerOptions } from "./approval-broker.js";
+export {
+  IpcApprovalBroker,
+  isValidKind,
+} from "./ipc-approval-broker.js";
+export type {
+  IpcApprovalBrokerOptions,
+  ApprovalRequestPayload,
+  ApprovalResponsePayload,
+  ApprovalCancelPayload,
+} from "./ipc-approval-broker.js";
 export { InterruptManager } from "./interrupt-manager.js";
 export type { InterruptManagerOptions } from "./interrupt-manager.js";

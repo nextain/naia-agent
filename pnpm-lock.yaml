@@ -107,6 +107,9 @@ importers:
       '@nextain/agent-adapter-shell':
         specifier: workspace:*
         version: link:../adapter-shell
+      '@nextain/agent-protocol':
+        specifier: workspace:*
+        version: link:../protocol
       '@nextain/agent-types':
         specifier: workspace:*
         version: link:../types
