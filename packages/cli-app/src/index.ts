@@ -31,5 +31,12 @@ export type {
   ApprovalResponsePayload,
   ApprovalCancelPayload,
 } from "./ipc-approval-broker.js";
+export { StdioDispatcher } from "./stdio-dispatcher.js";
+export type {
+  StdioDispatcherOptions,
+  FrameHandler,
+  HandshakeRequestPayload,
+  HandshakeAckPayload,
+} from "./stdio-dispatcher.js";
 export { InterruptManager } from "./interrupt-manager.js";
 export type { InterruptManagerOptions } from "./interrupt-manager.js";

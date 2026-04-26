@@ -107,6 +107,15 @@ export interface IpcApprovalBrokerOptions {
   defaultTimeoutMs?: Partial<Record<TierLevel, number>>;
   /** Optional sessionId for correlation. */
   sessionId?: string;
+  /**
+   * Day 3 (adversarial P1-5 fix) — operating mode.
+   * - "standalone" (default): broker owns its own readline reader. Use when no
+   *   StdioDispatcher is in play (legacy / direct test usage).
+   * - "dispatched": broker does NOT create a readline reader. A StdioDispatcher
+   *   (or other coordinator) must call `broker.handleFrame()` for inbound frames.
+   *   Eliminates multi-reader collision when other components share stdin.
+   */
+  mode?: "standalone" | "dispatched";
 }
 
 interface PendingApproval {
@@ -128,6 +137,7 @@ export class IpcApprovalBroker implements ApprovalBroker {
   readonly #in: NodeJS.ReadableStream;
   readonly #defaultTimeoutMs: Record<TierLevel, number>;
   readonly #sessionId?: string;
+  readonly #mode: "standalone" | "dispatched";
   readonly #pending = new Map<string, PendingApproval>();
   #rl: readline.Interface | null = null;
   #closed = false;
@@ -135,13 +145,17 @@ export class IpcApprovalBroker implements ApprovalBroker {
   constructor(opts: IpcApprovalBrokerOptions = {}) {
     this.#out = opts.out ?? process.stdout;
     this.#in = opts.in ?? process.stdin;
+    this.#mode = opts.mode ?? "standalone";
     // Paranoid P1-B (Day 2 review) — TTY readline collision guard.
-    // IpcApprovalBroker assumes JSON-frame stdin (host = Tauri shell). If a TTY
-    // is attached, the user is at a terminal — they should use CliApprovalBroker
-    // instead. Coexistence breaks readline.createInterface stream ownership.
-    if (this.#in === process.stdin && process.stdin.isTTY) {
+    // Only standalone mode creates a reader; in dispatched mode, the dispatcher
+    // owns the reader and broker only receives via handleFrame().
+    if (
+      this.#mode === "standalone" &&
+      this.#in === process.stdin &&
+      process.stdin.isTTY
+    ) {
       throw new Error(
-        "IpcApprovalBroker requires non-TTY stdin (JSON frames). For terminal use, instantiate CliApprovalBroker.",
+        "IpcApprovalBroker (standalone) requires non-TTY stdin (JSON frames). For terminal use, instantiate CliApprovalBroker. For shared stdin, use mode: 'dispatched' with StdioDispatcher.",
       );
     }
     this.#defaultTimeoutMs = {
@@ -153,7 +167,31 @@ export class IpcApprovalBroker implements ApprovalBroker {
     if (opts.sessionId !== undefined) {
       this.#sessionId = opts.sessionId;
     }
-    this.#startReader();
+    if (this.#mode === "standalone") {
+      this.#startReader();
+    }
+  }
+
+  /**
+   * Day 3 — wire this broker into a StdioDispatcher (mode "dispatched").
+   * Registers handleFrame() for both `approval` (response) and `approval_cancel`
+   * (event) kinds.
+   *
+   * Usage:
+   *   const dispatcher = new StdioDispatcher();
+   *   const broker = new IpcApprovalBroker({ out: ..., mode: "dispatched" });
+   *   broker.attachToDispatcher(dispatcher);
+   *   dispatcher.start();
+   */
+  attachToDispatcher(dispatcher: { register: (kind: string, h: (f: StdioFrame) => void) => void }): void {
+    if (this.#mode !== "dispatched") {
+      throw new Error(
+        "attachToDispatcher() requires mode: 'dispatched'. Current mode: " + this.#mode,
+      );
+    }
+    const handler = (f: StdioFrame): void => this.handleFrame(f);
+    dispatcher.register("approval", handler);
+    dispatcher.register("approval_cancel", handler);
   }
 
   async decide(request: ApprovalRequest): Promise<ApprovalDecision> {
@@ -274,8 +312,10 @@ export class IpcApprovalBroker implements ApprovalBroker {
       } else {
         // Invalid status (e.g. "always", typo) — log to stderr, drop.
         // Pending stays — eventually times out via timer.
-        // Paranoid P2-A (Day 2): include payload snippet for debug.
-        const payloadSnippet = JSON.stringify(resPayload).slice(0, 200);
+        // Paranoid P2-A (Day 2 review): include payload snippet.
+        // Adversarial Day 2 P2-2 (Day 3 fix): redact `reason` field (may carry secrets).
+        const safePayload = { ...resPayload, reason: "***redacted***" };
+        const payloadSnippet = JSON.stringify(safePayload).slice(0, 200);
         process.stderr.write(
           `[IpcApprovalBroker] dropped invalid approval status: ${String(status)} (id=${frame.id}, payload=${payloadSnippet})\n`,
         );
