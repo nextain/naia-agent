@@ -47,9 +47,9 @@ importers:
       '@nextain/agent-workspace':
         specifier: workspace:*
         version: link:packages/workspace
-      '@nextain/alpha-memory':
+      '@nextain/naia-memory':
         specifier: file:../alpha-memory
-        version: file:../alpha-memory(typescript@5.9.3)
+        version: '@nextain/alpha-memory@file:../alpha-memory(typescript@5.9.3)'
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17

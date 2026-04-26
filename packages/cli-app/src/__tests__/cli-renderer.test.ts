@@ -58,7 +58,8 @@ describe("renderChunk — formatting", () => {
       },
       verifications: [],
     });
-    expect(r).toContain("[알파] 완료");
+    // renderChunk emits placeholder; runCli replaces with actual label
+    expect(r).toContain("[NAIA_LABEL] 완료");
     expect(r).toContain("files: 1 (+5/-0)");
   });
 

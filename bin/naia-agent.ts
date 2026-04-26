@@ -24,6 +24,8 @@
  * R3 examples remain in git history (commit before 2026-04-26).
  */
 
+import { access as fsAccess } from "node:fs/promises";
+import path from "node:path";
 import process from "node:process";
 import { ShellAdapter } from "@nextain/agent-adapter-shell";
 import { OpencodeRunAdapter } from "@nextain/agent-adapter-opencode-cli";
@@ -219,14 +221,29 @@ async function main(): Promise<number> {
 
   const adapter = buildAdapter(parsed);
   const watcher = new ChokidarWatcher({ usePolling: false });
-  const verifiers = parsed.noVerify ? [] : buildVerifiers();
+
+  // verification UX — workdir에 package.json 없으면 자동 skip + warn
+  // (사용자 environment 보호; --no-verify 명시 시도 동일 효과)
+  let effectiveNoVerify = parsed.noVerify;
+  if (!effectiveNoVerify) {
+    try {
+      const pkgPath = path.resolve(parsed.workdir, "package.json");
+      await fsAccess(pkgPath);
+    } catch {
+      process.stderr.write(
+        `naia-agent: workdir lacks package.json — skipping verification\n`,
+      );
+      effectiveNoVerify = true;
+    }
+  }
+  const verifiers = effectiveNoVerify ? [] : buildVerifiers();
   const approvalBroker = buildApprovalBroker(parsed);
 
   const supervisor = new Phase1Supervisor({
     adapter,
     watcher,
     verifiers,
-    noVerify: parsed.noVerify,
+    noVerify: effectiveNoVerify,
     verificationTimeoutMs: 60_000,
     showDiff: parsed.showDiff,
     ...(approvalBroker !== undefined && { approvalBroker }),

@@ -17,7 +17,7 @@
     "smoke:anthropic": "tsx scripts/smoke-anthropic.ts",
     "smoke:agent": "tsx examples/minimal-host.ts",
     "smoke:compaction": "tsx examples/compaction-host.ts",
-    "smoke:alpha-memory": "tsx examples/alpha-memory-host.ts",
+    "smoke:naia-memory": "tsx examples/naia-memory-host.ts",
     "smoke:tool-error-halt": "tsx examples/tool-error-halt.ts",
     "smoke:skill-loader": "tsx examples/skill-loader-host.ts",
     "smoke:skill-tool": "tsx examples/skill-tool-host.ts",
@@ -39,7 +39,7 @@
     "@nextain/agent-types": "workspace:*",
     "@nextain/agent-verification": "workspace:*",
     "@nextain/agent-workspace": "workspace:*",
-    "@nextain/alpha-memory": "file:../alpha-memory",
+    "@nextain/naia-memory": "file:../alpha-memory",
     "@types/node": "^22.0.0",
     "tsx": "^4.19.0",
     "typescript": "^5.8.0"

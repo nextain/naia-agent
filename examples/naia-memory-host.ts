@@ -1,5 +1,5 @@
 /**
- * alpha-memory-host — runs Agent against the **real** @nextain/alpha-memory.
+ * alpha-memory-host — runs Agent against the **real** @nextain/naia-memory.
  *
  * This closes the loop: the CompactableCapable contract defined in
  * @nextain/agent-types was just proven against CompactableMemory (mock);
@@ -39,7 +39,7 @@ import {
   MockLLMClient,
 } from "@nextain/agent-runtime";
 
-import { LocalAdapter, MemorySystem } from "@nextain/alpha-memory";
+import { LocalAdapter, MemorySystem } from "@nextain/naia-memory";
 
 /**
  * Adapter that wires alpha-memory's `MemorySystem` to the MemoryProvider +

@@ -178,9 +178,14 @@ class OpencodeAcpSession implements SubAgentSession {
     });
 
     // Wire ACP notifications → NaiaStreamChunk
-    this.#client.onNotification("session/update", (note) =>
-      this.#handleSessionUpdate(note.params),
-    );
+    this.#client.onNotification("session/update", (note) => {
+      if (process.env["NAIA_DEBUG_ACP"]) {
+        process.stderr.write(
+          `[acp/update] ${JSON.stringify(note.params).slice(0, 800)}\n`,
+        );
+      }
+      this.#handleSessionUpdate(note.params);
+    });
 
     // Bidirectional — server requests permission from us
     this.#client.onServerRequest((method, params) => {
@@ -230,68 +235,86 @@ class OpencodeAcpSession implements SubAgentSession {
       sessionId?: string;
       update?: {
         sessionUpdate?: string;
-        text?: string;
-        toolCall?: {
-          toolCallId?: string;
-          title?: string;
-          status?: string;
-          rawInput?: unknown;
-          rawOutput?: unknown;
-        };
+        // Verified via spike (2026-04-26 NAIA_DEBUG_ACP=1):
+        // - agent_message_chunk / agent_thought_chunk: { content: { type: "text", text: "..." } }
+        // - tool_call_*: { toolCallId, status, rawInput, rawOutput, title }
+        content?: { type?: string; text?: string };
+        toolCallId?: string;
+        title?: string;
+        status?: string;
+        rawInput?: unknown;
+        rawOutput?: unknown;
       };
     };
     const update = u.update;
     if (!update) return;
     const kind = update.sessionUpdate;
+    const text = update.content?.text;
 
-    // text/agent message
-    if (kind === "agent_message_chunk" && typeof update.text === "string") {
+    // Final assistant message text
+    if (kind === "agent_message_chunk" && typeof text === "string" && text.length > 0) {
       this.#emit({
         type: "text_delta",
         sessionId: this.id,
-        text: redactString(update.text),
+        text: redactString(text),
       });
       return;
     }
 
-    // tool call lifecycle
-    if (kind === "tool_call_start" && update.toolCall) {
-      const tc = update.toolCall;
-      const tcid = tc.toolCallId ?? "unknown";
-      this.#liveTools.set(tcid, {
-        tool: tc.title ?? "unknown",
-        startedAt: Date.now(),
-      });
+    // Reasoning / thinking text (Phase 1: emit as thinking_delta)
+    if (kind === "agent_thought_chunk" && typeof text === "string" && text.length > 0) {
       this.#emit({
-        type: "tool_use_start",
+        type: "thinking_delta",
         sessionId: this.id,
-        toolUseId: tcid,
-        tool: tc.title ?? "unknown",
-        input: this.#redactDeep(tc.rawInput),
+        thinking: redactString(text),
       });
       return;
     }
 
-    if (kind === "tool_call_progress" || kind === "tool_call_end") {
-      const tc = update.toolCall;
-      if (!tc) return;
-      const tcid = tc.toolCallId ?? "unknown";
-      const status = tc.status;
-      if (status === "completed" || status === "failed") {
+    // Tool call lifecycle — opencode emits flat fields on update (not nested toolCall)
+    if (kind === "tool_call" || kind === "tool_call_start" || kind === "tool_call_update") {
+      const tcid = update.toolCallId ?? "unknown";
+      const status = update.status ?? "pending";
+      if (status === "pending" || status === "running" || status === "in_progress") {
+        if (!this.#liveTools.has(tcid)) {
+          this.#liveTools.set(tcid, {
+            tool: update.title ?? "unknown",
+            startedAt: Date.now(),
+          });
+          this.#emit({
+            type: "tool_use_start",
+            sessionId: this.id,
+            toolUseId: tcid,
+            tool: update.title ?? "unknown",
+            input: this.#redactDeep(update.rawInput),
+          });
+        }
+      } else if (status === "completed" || status === "failed") {
         const live = this.#liveTools.get(tcid);
+        if (!live) {
+          // synth start+end
+          this.#emit({
+            type: "tool_use_start",
+            sessionId: this.id,
+            toolUseId: tcid,
+            tool: update.title ?? "unknown",
+            input: this.#redactDeep(update.rawInput),
+          });
+        }
         const startedAt = live?.startedAt ?? Date.now();
         this.#liveTools.delete(tcid);
         this.#emit({
           type: "tool_use_end",
           sessionId: this.id,
           toolUseId: tcid,
-          tool: live?.tool ?? tc.title ?? "unknown",
-          result: this.#redactDeep(tc.rawOutput),
+          tool: live?.tool ?? update.title ?? "unknown",
+          result: this.#redactDeep(update.rawOutput),
           ok: status === "completed",
           elapsedMs: Date.now() - startedAt,
         });
       }
     }
+    // usage_update / plan / etc. — silently skip in Phase 2
   }
 
   async #handleRequestPermission(params: unknown): Promise<unknown> {

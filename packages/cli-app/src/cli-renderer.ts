@@ -6,20 +6,27 @@ export interface CliOptions {
   noVerify?: boolean;
   /** Print every chunk type for debug. */
   debug?: boolean;
+  /**
+   * Display label for the assistant in CLI output. Default "Naia".
+   * Hosts (alpha-adk, naia-shell) override via env NAIA_PERSONA_LABEL or
+   * by passing personaLabel here. Persona system prompt itself is injected
+   * at TaskSpec.extraSystemPrompt (Phase 3 alpha-memory integration).
+   */
+  personaLabel?: string;
 }
 
 /**
  * Render NaiaStreamChunk to CLI-friendly text.
  *
  * Phase 1 spec target output (r4-phase-1-spec.md §1):
- *   [알파] task 시작: <prompt>
+ *   [NAIA_LABEL] task 시작: <prompt>
  *   [opencode 0001] spawning ...
  *   [opencode 0001] phase: planning
  *   [opencode 0001] phase: editing
  *     ✚ src/utils/hello.ts (+5)
  *   [verify] running pnpm test ...
  *   [verify] test 24/24 PASS (3.2s)
- *   [알파] 완료
+ *   [NAIA_LABEL] 완료
  *           files: 1 (+5/-0)
  *           tests: 24/24 PASS
  *           elapsed: 12.4s
@@ -65,7 +72,7 @@ export function renderChunk(chunk: NaiaStreamChunk): string | null {
       return `[verify] ${chunk.runner}${detail} (${(chunk.durationMs / 1000).toFixed(1)}s)${chunk.pass ? "" : ""}`;
     }
     case "report":
-      return `[알파] 완료\n${indentBlock(chunk.summary, 8)}`;
+      return `[NAIA_LABEL] 완료\n${indentBlock(chunk.summary, 8)}`;
     case "interrupt":
       return `[!!] interrupt: ${chunk.reason} (mode=${chunk.mode})`;
     case "audio_delta":
@@ -96,15 +103,28 @@ function indentBlock(s: string, indent: number): string {
     .join("\n");
 }
 
+const LABEL_PLACEHOLDER = "[NAIA_LABEL]";
+
 /**
  * Run CLI: stream Phase1Supervisor and print rendered chunks to stdout.
  * Returns final exit code.
+ *
+ * Persona label resolution:
+ *   1. opts.personaLabel (programmatic injection)
+ *   2. process.env.NAIA_PERSONA_LABEL (host-injected, e.g., alpha-adk sets "알파")
+ *   3. default "Naia"
+ *
+ * The agent runtime itself stays neutral — persona system prompt comes from
+ * alpha-adk (workspace context / system prompt convention) + alpha-memory
+ * (user-specific recall). Phase 3 wires both via TaskSpec.extraSystemPrompt.
  */
 export async function runCli(
   stream: AsyncIterable<NaiaStreamChunk>,
   opts: CliOptions,
 ): Promise<number> {
-  process.stdout.write(`[알파] task 시작: ${opts.prompt}\n`);
+  const label =
+    opts.personaLabel ?? process.env["NAIA_PERSONA_LABEL"] ?? "Naia";
+  process.stdout.write(`[${label}] task 시작: ${opts.prompt}\n`);
   let hadError = false;
   let verificationFailed = false;
   for await (const chunk of stream) {
@@ -118,7 +138,10 @@ export async function runCli(
       process.stdout.write(`[debug] ${chunk.type}\n`);
     }
     const line = renderChunk(chunk);
-    if (line !== null) process.stdout.write(line + "\n");
+    if (line !== null) {
+      const replaced = line.split(LABEL_PLACEHOLDER).join(`[${label}]`);
+      process.stdout.write(replaced + "\n");
+    }
   }
   if (hadError) return 2;
   if (verificationFailed) return 1;

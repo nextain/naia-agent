@@ -63,6 +63,108 @@
 
 ---
 
+## 4b. Naia (engine) vs alpha (persona instance)
+
+| layer | 이름 | 정의 |
+|---|---|---|
+| **runtime engine** (이 repo) | **Naia** | generic, 페르소나 없음. default CLI label "[Naia]" |
+| **persona instance** | **alpha** | luke 개인용 AI = naia-adk(skill+convention) + alpha-memory(user context) 결합 |
+
+**원칙**: naia-agent는 페르소나를 가지지 않는다. "alpha"는 인스턴스 이름이며, 다음 두 layer가 정의한다:
+
+1. **naia-adk** — naia 인스턴스의 **스킬 + 프로세스 + 기본 컨텍스트 (페르소나)**
+   - skill 표준 + skill 카탈로그
+   - 워크플로우 프로세스 (예: 검토 → 결정 → 실행 패턴)
+   - 페르소나 system prompt 컨벤션 (캐릭터, 한국어 default, 비서 role, 대화 스타일)
+   - 모두 정적 (사용자 무관, 인스턴스 정의)
+2. **alpha-memory** — 사용자별 long-term **기억** (동적)
+   - 이전 대화 history
+   - 사용자 선호 / 메타데이터
+   - 작업 history / task 컨텍스트
+
+### 페르소나 위치 trade-off (디자인 결정 기록)
+
+**의미론적 정당성**: 페르소나(personality, identity)는 "그 사람을 그 사람이게 하는 기억"의 일부 → 본질적으로 alpha-memory에 속하는 게 자연스러움.
+
+**현실 (기존 시스템 호환)**: 그러나 Claude / opencode / Vercel AI SDK 등 모든 기존 agent 시스템은 페르소나를 **system prompt** (정적 spec) 으로 inject한다. naia-agent도 sub-agent로 그들을 wrap하므로, 페르소나는 **system prompt 컨벤션 영역 = naia-adk**가 가지는 게 현실적이고 호환됨.
+
+**결정**: naia-adk가 페르소나 (정적 base) + alpha-memory가 사용자 컨텍스트 (동적). 두 layer가 합쳐져 "alpha" 인스턴스를 정의.
+
+→ Phase 3에서 두 layer 동시 inject 메커니즘 정식화: `TaskSpec.extraSystemPrompt = naia-adk persona base + alpha-memory.recall() result`
+
+### naia-* / alpha-* prefix 체계 (이름 일관성)
+
+**모든 engine 모듈은 `naia-` prefix** (사용자 directive 2026-04-26 결정 — alpha-memory → naia-memory rename):
+
+| prefix | 의미 | 예 |
+|---|---|---|
+| **naia-** | generic engine 모듈 (모두에게 동일, npm `@nextain/`) | naia-agent / naia-adk / **naia-memory** / naia-os / naia-shell |
+| **(개인 prefix)** | **사용자 인스턴스** workspace (host repo) | **alpha-adk** (luke의 host repo, 페르소나 = "alpha") / `bob-adk` (bob의 host) 등 |
+
+따라서:
+- **alpha** = luke의 AI **페르소나/인스턴스 이름**
+- **alpha-adk** = luke workspace root (이 repo, host) — alpha 인스턴스의 모든 데이터 보관
+- **naia-memory** = generic memory 엔진 (npm pkg `@nextain/naia-memory`)
+
+### alpha 인스턴스 백업 시나리오 (사용자 directive)
+
+**`alpha-adk` 디렉터리만 백업하면 alpha 인스턴스 완전 복원**:
+
+```
+alpha-adk/                            # ← 이걸 backup하면 alpha 전체 복원
+├── data/                             # 인스턴스 데이터 (naia-adk 컨벤션)
+│   ├── memory/                       # ← naia-memory가 여기 저장 (사용자 기억)
+│   ├── skills/                       # ← 사용자 추가 skill 정의
+│   └── persona/                      # ← 페르소나 override (한국어 톤, 호칭 등)
+├── projects/                         # ← submodule pointers
+│   ├── naia-agent/                   # generic engine
+│   ├── naia-adk/                     # generic skill+process+persona convention
+│   ├── alpha-memory/ → naia-memory   # generic memory engine (디렉터리명 alpha-memory 유지, pkg name `@nextain/naia-memory`)
+│   └── naia-os/                      # generic host shell
+├── .agents/                          # workspace context/rules
+└── ... (기타 user 영역)
+```
+
+→ `git push alpha-adk origin main` (또는 tar backup) = alpha의 **skill + context + 기억 모두 보존**.
+→ engine module들 (naia-agent / naia-memory 등) 은 generic이라 어디서든 받아 결합.
+
+### naia-adk가 정의하는 memory storage path 컨벤션 (Phase 3 정식화)
+
+```
+${ADK_ROOT}/data/memory/        # naia-adk 컨벤션 (relative)
+```
+
+`alpha-adk`가 host로 동작 시:
+- `ADK_ROOT=/var/home/luke/alpha-adk` (또는 env에서)
+- `naia-memory`가 `/var/home/luke/alpha-adk/data/memory/` 에 SQLite/vector store 저장
+- alpha-adk repo backup = memory data 자동 포함
+
+다른 사용자 (`bob-adk`):
+- `ADK_ROOT=/path/to/bob-adk` → `bob-adk/data/memory/` 에 저장
+- 동일 `naia-memory` engine으로 격리된 데이터.
+
+이 컨벤션은 Phase 3 alpha-memory(현 naia-memory) 통합 시점에 정식 wire.
+
+naia-agent는 두 layer를 **inject할 hook만 제공**:
+
+| hook | 시점 | Phase |
+|---|---|---|
+| `NAIA_PERSONA_LABEL` env | CLI 출력 label override (예: "Naia" → "alpha") | **Phase 2 (현재)** |
+| `TaskSpec.extraSystemPrompt` | sub-agent system prompt에 페르소나/memory 주입 | Phase 3 (alpha-memory 통합 시) |
+| `MemoryProvider.recall()` | 대화 시작 시 사용자 컨텍스트 가져옴 → extraSystemPrompt | Phase 3 |
+
+**alpha-adk (이 workspace) host 가 inject 예시** (Phase 3):
+```bash
+export NAIA_PERSONA_LABEL=alpha
+# alpha-adk가 naia-adk에서 페르소나 spec 로드 + alpha-memory.recall() 결과 결합 →
+# TaskSpec.extraSystemPrompt 채워서 naia-agent 호출
+pnpm naia-agent "..."
+```
+
+→ 동일 naia-agent 엔진으로 다양한 페르소나 인스턴스 (alpha / 다른 사용자용 / public Naia 등) 생성 가능. naia-agent는 "**페르소나 hosting platform**"이지 페르소나 자체가 아님.
+
+---
+
 ## 5. lock된 결정 요약 (R4)
 
 | | 결정 |

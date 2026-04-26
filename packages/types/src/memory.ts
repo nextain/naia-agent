@@ -5,7 +5,7 @@
  * Optional behaviours exposed via Capability interfaces. Consumers check
  * capability at runtime; graceful degradation is the rule (A.11).
  *
- * Reference implementation: @nextain/alpha-memory.
+ * Reference implementation: @nextain/naia-memory.
  * See docs/memory-provider-audit.md for the façade → alpha-memory mapping.
  *
  * Score semantics (MemoryHit.score): implementations SHOULD normalize to
