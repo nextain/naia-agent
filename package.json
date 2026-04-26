@@ -22,7 +22,8 @@
     "smoke:skill-loader": "tsx examples/skill-loader-host.ts",
     "smoke:skill-tool": "tsx examples/skill-tool-host.ts",
     "smoke:composite": "tsx examples/composite-host.ts",
-    "smoke:bash-skill": "tsx examples/bash-skill-host.ts"
+    "smoke:bash-skill": "tsx examples/bash-skill-host.ts",
+    "smoke:opencode": "tsx scripts/smoke-opencode.ts"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
