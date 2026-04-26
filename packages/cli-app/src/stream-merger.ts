@@ -32,6 +32,10 @@ export async function* mergeStreams<T>(
     if (live.length === 0) break;
     const winner = await Promise.race(live.map((p) => p.promise));
     const { index, result } = winner;
+    // Paranoid P0-1 fix — pending[index] may have been settled by another
+    // race winner during the await. Re-check before reassigning.
+    const currentSlot = pending[index];
+    if (!currentSlot) continue;
     if (result.done) {
       pending[index] = null;
       continue;

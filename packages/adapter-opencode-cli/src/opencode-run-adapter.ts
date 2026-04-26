@@ -75,6 +75,11 @@ export class OpencodeRunAdapter implements SubAgentAdapter {
     }
     args.push(task.prompt);
 
+    // P1-1 (Paranoid) — opencode CLI requires LLM provider credentials
+    // (Z.AI/OpenRouter/Anthropic API keys) discovered through process.env
+    // OR ~/.local/share/opencode/auth.json. We forward parent env so
+    // existing user credentials work transparently. This is intentional.
+    // Phase 2: secure mode will scrub known sensitive vars before forwarding.
     const env: NodeJS.ProcessEnv = task.env
       ? { ...process.env, ...task.env }
       : { ...process.env };
@@ -178,6 +183,13 @@ class OpencodeSession implements SubAgentSession {
       this.#stdoutBuf = this.#stdoutBuf.slice(nl + 1);
       this.#processLine(line);
     }
+    // Paranoid P0-3 fix — single NDJSON line >64MiB is pathological
+    // (malformed opencode output or DoS). Drop the in-flight buffer and
+    // emit a fail-safe session_end to avoid OOM.
+    if (this.#stdoutBuf.length > 64 * 1024 * 1024) {
+      this.#stdoutBuf = "";
+      if (!this.#ended) this.#emitEnd("failed");
+    }
   }
 
   #onStderr(chunk: Buffer): void {
@@ -274,6 +286,10 @@ class OpencodeSession implements SubAgentSession {
   }
 
   #emit(chunk: NaiaStreamChunk): void {
+    // Paranoid P0-2 fix — guard against late stdout chunk after session_end
+    // already drained waiters. Without this, a queued chunk could resolve a
+    // waiter that should have been done:true.
+    if (this.#ended) return;
     if (this.#waiters.length > 0) {
       const w = this.#waiters.shift()!;
       w({ value: chunk, done: false });

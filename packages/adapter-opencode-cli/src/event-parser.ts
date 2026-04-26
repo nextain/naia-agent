@@ -72,7 +72,13 @@ interface RawStepFinishPart {
   };
 }
 
-/** Returns null if line is not valid JSON. Returns parsed event otherwise. */
+/**
+ * Returns null if line is not valid JSON. Returns parsed event otherwise.
+ *
+ * P1-2 (Reference review) — invalid JSON / "unknown" type are silently
+ * dropped. Phase 2 will accept an optional Logger to warn on drop. Until
+ * then, callers who need visibility should wrap with a count metric.
+ */
 export function parseOpencodeEvent(line: string): OpencodeEvent | null {
   const trimmed = line.trim();
   if (trimmed.length === 0) return null;

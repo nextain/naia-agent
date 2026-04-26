@@ -89,6 +89,24 @@
 
 ---
 
+## 6b. 보안 stance (Phase별)
+
+| Phase | path traversal | secret redact | approval gate | bash 위험 명령 |
+|---|:---:|:---:|:---:|:---:|
+| **Phase 1** | **CLI 미차단 (의도 미이행)** | ✓ adapter emit 시점 | ✗ skipPermissions | ✗ |
+| Phase 2 | runtime BashSkill + workspace sentinel (D09) | ✓ | ✓ T2/T3 ApprovalBroker | ✓ DANGEROUS_COMMANDS regex (D01) |
+| Phase 3+ | + 4-repo plan A.13 보안 lockstep | + | + | + |
+
+**Phase 1 보안 가정** (사용자 trust model):
+- naia-agent CLI는 **사용자 본인이 직접 실행** (untrusted input source 없음)
+- workdir은 **사용자가 명시적으로 지정** — path traversal 책임 = 사용자
+- sub-agent (opencode)가 받은 prompt도 **사용자 본인 작성** — prompt injection 위협 낮음
+- 따라서 Phase 1은 redact + workdir cwd 격리 + UnsupportedError throw 정도만 (functional review C1 결과 정합)
+
+Phase 1을 untrusted/multi-tenant 환경에서 사용 금지. Phase 2부터 정식 보안 layer.
+
+---
+
 ## 7. 변경 절차
 
 R4 lock 이후 본 vision 변경 시:

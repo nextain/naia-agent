@@ -160,6 +160,10 @@ class ShellSession implements SubAgentSession {
   }
 
   #emit(chunk: NaiaStreamChunk): void {
+    // Paranoid P0-2 fix — guard against late stdout/stderr races after
+    // session_end already drained waiters. Without this, a queued chunk
+    // could resolve a waiter that should have been done:true.
+    if (this.#ended) return;
     if (this.#waiters.length > 0) {
       const w = this.#waiters.shift()!;
       w({ value: chunk, done: false });
