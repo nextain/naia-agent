@@ -71,6 +71,7 @@
 | **B20** | LangGraph StateGraph 채널 reducer (정적 schema) | langgraphjs | D1 stream-first 결정과 모델 충돌 |
 | **B21** | Vercel `@ai-sdk/<provider>` 50개 직접 의존 + React hooks | vercel-ai-sdk | A10 단일 provider + zero-runtime-dep + host 책임 분리 |
 | **B22** | cleanroom 코드 라인 직접 복붙 (8 파일) | cleanroom-cc deep-audit F1~F12 | F4 강화 — 패턴 idea만 차용, 라인 복붙 금지 (LLM 환각 silent drift 위험) |
+| **B23** | naia-agent를 claude-code/opencode 수준 자체 build (provider 50+, MCP, SQL session, compaction 정교, tool 본체 풀스택) | R4 1인 환경 평가 | 1인 70k+ LOC 1년+ 무리. Hybrid wrapper(D18)가 현실 path. wrapper layer ~2,150 LOC로 사용자 가치 80% 달성 가능 |
 
 ---
 
@@ -124,6 +125,22 @@
 | **D15** | Memory 3-tier blueprint (history/working/observational) | Mastra | P2 | M | alpha-memory R3+ spec only |
 | **D16** | Prompt cache opinionated 정책 (passthrough → 정책) — **C04 격상** | Vercel `cache_control` + Anthropic provider 자동 처리 | P1 | S | Slice 2 이후 |
 | **D17** | Provider fallback array (`model: [{...}, {...}]`) | Mastra + Vercel | P2 | S | Slice 2 이후 백로그 (multi-provider 진입 전) |
+| **D18** | **Hybrid wrapper path (B)** — opencode + claude-code SDK를 sub-agent로 wrap, naia-agent는 thin supervisor | R4 (사용자 본질 고민 — 1인 70k+ LOC 풀 build 불가) | **P0** | XL (Phase 1~4) | apps/cli + adapters/{opencode,claude-code,shell} |
+| **D19** | **단일 대화 + workspace 가시성 + 자동 verification + 수치 정직 보고** | R4 (사용자 vision — 보고 ≠ 실제 낭패 해소) | **P0** | L | apps/cli/repl + workspace/{watcher,diff} + verification/* + report/formatter |
+| **D20** | **NaiaStreamChunk multi-modal protocol** (text/audio/image/tool/workspace/session/verification/report/interrupt) | R4 (omni-voice 시대 vllm-omni / GPT-4o realtime) | **P0** | M | packages/types/src/stream.ts + core/stream-merger |
+| **D21** | **Real-time interrupt + pause/resume** (음성 "중지중지" / Ctrl+C / 카드 [중지]) | R4 (사용자 통제권) | **P0** | M | core/interrupt + adapter cancel/pause/resume contract |
+| **D22** | **vllm-omni adapter** (omni audio output, audio_delta passthrough) | R4 + 사용자 자체 fork (nextain/vllm-omni MiniCPM-o 4.5) | P1 | L | adapters/vllm-omni (Phase 4+) |
+| **D23** | **Vercel AI SDK 보류** — any-llm으로 충분 (multi-provider routing은 원격 gateway). 외부 distribution 시 재검토 | R4 (any-llm = naia 자체 fork, naia-anyllm) | P2 | — | (deferred, reconsider 시점 신규 D 추가) |
+| **D24** | **Sub-agent supervisor pattern** (ACP/Claude SDK adapter + 다중 session orchestration + audit trail) | R4 (사용자 다중 터미널 워크플로우 자동화) | **P0** | L | core/supervisor + adapters/{opencode,claude-code} + observability audit |
+| **D25** | **Tool context schema 정형화** (sessionId/workingDir/ask/tier) — SpawnContext.toolContext | R4 cross-review (opencode + Vercel) | **P0** | S | adapters/* — `ToolExecutionContext` interface (adapter-contract.md §2) |
+| **D26** | **onSessionEnd hook → session_aggregated chunk** (supervisor가 stats/verification aggregate 후 emit, report 전 단계) | R4 cross-review (Mastra + Vercel onStepFinish, D12 보강) | **P0** | S | core/supervisor + stream-protocol.md §5b 신규 |
+| **D27** | **Verification 3중 방어** (abort signal + memory limit + wall-clock timeout) | R4 cross-review (Mastra D13 + cleanroom F11 회피) | **P0** | M | verification/orchestrator + architecture-hybrid.md §6b |
+| **D28** | **Memory 3-tier blueprint** (D15 구체화 — history/working/observational) | R4 cross-review (Mastra) | P1 | M | alpha-memory adapter Phase 3 진입 시 정식화 |
+| **D29** | **viseme vocabulary spec** (AEIOU + lipsync 알고리즘, NaiaStreamChunk audio_delta 확장) | R4 cross-review (project-airi D03) | P1 | M | stream-protocol.md audio_delta + Phase 4 X7 (TTS extraction) |
+| **D30** | **Verification 3중 방어 재근거화** (cleanroom 단독 의존 해제 → OWASP/Mastra 출처 cross-reference) | R4 Week 0 2차 cross-review (Reference) | P1 | S | docs/verification-audit.md 신설 (Phase 4 verification pkg 완료 후) — F09 강제 |
+| **D31** | **onSessionEnd hook 정형화** (D26 구체화 — supervisor pseudo-code 예시) | R4 Week 0 2차 cross-review (Reference) | P1 | S | stream-protocol.md §5b 명시화 (현 docs에 이미 일부 있음) — Phase 2 supervisor 구현 시 |
+| **D32** | **bash/file-ops dev-only marker** (R3 250 PASS test 보존 정책 명시) | R4 Week 0 2차 cross-review (Reference + Paranoid R3-R4) | **P0** | S | runtime/skills/README.md 신설 + bash/file-ops test에 `describe.skip(production)` marker — Day 1 진행 중 |
+| **D33** | **opencode `run --format json` JSON event protocol** (Phase 1 채택, ACP는 Phase 2) | R4 Week 0 spike 2026-04-26 | **P0** | S | adapters/opencode-cli/ — Phase 1 정식 path. JSON event NDJSON parse → NaiaStreamChunk 변환 |
 
 ---
 
@@ -212,3 +229,46 @@
 - **§G 점수표** — Mastra/LangGraph/Vercel 3 ref 추가
 
 채택 옵션 A (light, 가볍게 directive): D09/D10 P0만 즉시 ingrain (Slice 1b), 나머지 P1/P2는 슬라이스 진행 시 자연 §A 승격. R3+ slice 신설은 outline만 (정식 신설은 R1 종료 후).
+
+---
+
+## J. R4 변경 이력 (2026-04-26 Hybrid Wrapper Pivot)
+
+**trigger**: 사용자 본질 고민 — "바닥부터 만드는 게 맞나" + "팀장 역할이 피곤" + "보고 ≠ 실제로 큰 낭패" + "알파와 단일 대화창에서 연속적으로 일을 시키고 싶다"
+
+**변경 요약**:
+
+- **§D 신규 7건** (D18~D24) — Hybrid wrapper / 단일 대화 + 정직 보고 / NaiaStreamChunk multi-modal / Real-time interrupt / vllm-omni adapter / Vercel AI SDK 보류 / Sub-agent supervisor
+- **§B 신규 1건** (B23) — naia-agent 풀 자체 build 거부 (1인 70k+ LOC 무리)
+- **§A 변경 0건** — R0 lock 보존 (interface contract / D1~D8 / Voice 3-layer 등 그대로)
+- **신규 docs 4건** — `docs/{vision-statement, architecture-hybrid, stream-protocol, adapter-contract}.md`
+- **R4 progress** — `.agents/progress/r4-hybrid-wrapper-2026-04-26.md`
+- **master issue** — nextain/naia-agent#2 댓글 R4 announce
+
+**vision lock**:
+> "Real-time interruptible multi-agent supervisor with multi-modal stream + 정직 보고"
+>
+> 3차원 차별화 (다른 framework에 거의 없음):
+> 1. Multi-modal stream (audio_delta 1급)
+> 2. Sub-agent supervisor (ACP/SDK + audit + interrupt)
+> 3. 단일 대화 + 정직 보고 (verification + diff + 수치)
+
+**Phase outline**:
+- Phase 1 (Week 1): 알파 CLI + opencode 단순 stdio + workspace watcher + verification + 수치 보고 → 사용자 피로 30~50% 감소 검증
+- Phase 2 (Week 2~3): ACP 정식 + Interrupt + Approval gate
+- Phase 3 (Week 4~6): claude SDK + sub-session card + alpha-memory
+- Phase 4 (Week 7~10): Adversarial review + naia-shell 통합 + vllm-omni audio
+
+**Week 0 cross-review (2026-04-26)** — 3-perspective parallel:
+
+- **Architect**: APPROVED with conditions (P0 3건 — SessionPhase enum / unsupported matrix / core 내부 DAG)
+- **Reference-driven**: APPROVED with P0 3건 + P1 5건 + 신규 §D 5건 (D25 tool context / D26 onSessionEnd / D27 3중 방어 / D28 memory 3-tier / D29 viseme vocab)
+- **Paranoid auditor**: APPROVED_WITH_RISKS — P0 5건 (외부 의존 검증 + secret redact + interrupt 500ms hard kill)
+
+**resolved by spike** (2026-04-26):
+- opencode ACP: ✓ `@agentclientprotocol/sdk@0.20.0`, opencode `packages/opencode/src/acp/` 정식 구현
+- Claude Agent SDK: ✓ `@anthropic-ai/claude-agent-sdk@0.2.119` public
+
+**P0 11건 모두 docs 반영** (stream-protocol §2/§5b, architecture-hybrid §5b/§6b/§6c, adapter-contract §2/§3 매핑/§8 보안/§9 contract test C11~C15).
+
+상세: `.agents/progress/r4-week0-cross-review-summary.md`
