@@ -1,7 +1,12 @@
 /**
- * @nextain/agent-workspace — Day 3 placeholder.
+ * @nextain/agent-workspace — Phase 1 Day 3
  *
- * Will provide ChokidarWatcher (WorkspaceWatcher impl) + GitDiff helpers.
- * See r4-phase-1-spec.md Day 3.
+ * ChokidarWatcher + GitDiff implementations of WorkspaceWatcher.
+ * Decisions: D19 (workspace 가시성) + D20 (workspace_change chunk).
+ *
+ * Spec: docs/adapter-contract.md §6
  */
-export const PLACEHOLDER = "Day 3";
+
+export { ChokidarWatcher } from "./chokidar-watcher.js";
+export type { ChokidarWatcherOptions } from "./chokidar-watcher.js";
+export { gitDiff, gitDiffStats } from "./git-diff.js";
