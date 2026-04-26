@@ -109,4 +109,8 @@ export interface ToolExecutionContext {
   signal?: AbortSignal;
   /** Optional ask() callback — tools may request approval mid-execution. */
   ask?: (prompt: string) => Promise<boolean>;
+  /** R4 D25/D40 — tier hint for sub-agent supervisor approval gates. */
+  tier?: "T0" | "T1" | "T2" | "T3";
+  /** R4 D25/D40 — environment subset propagated to child processes. */
+  env?: Readonly<Record<string, string>>;
 }

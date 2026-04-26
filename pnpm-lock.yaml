@@ -14,6 +14,9 @@ importers:
       '@anthropic-ai/vertex-sdk':
         specifier: ^0.16.0
         version: 0.16.0(zod@4.3.6)
+      '@nextain/agent-adapter-opencode-acp':
+        specifier: workspace:*
+        version: link:packages/adapter-opencode-acp
       '@nextain/agent-adapter-opencode-cli':
         specifier: workspace:*
         version: link:packages/adapter-opencode-cli
@@ -56,6 +59,19 @@ importers:
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
+
+  packages/adapter-opencode-acp:
+    dependencies:
+      '@nextain/agent-observability':
+        specifier: workspace:*
+        version: link:../observability
+      '@nextain/agent-types':
+        specifier: workspace:*
+        version: link:../types
+    devDependencies:
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@22.19.17)
 
   packages/adapter-opencode-cli:
     dependencies:

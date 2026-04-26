@@ -1,0 +1,34 @@
+{
+  "name": "@nextain/agent-adapter-opencode-acp",
+  "version": "0.1.0",
+  "description": "opencode ACP (Agent Client Protocol v1) SubAgentAdapter — JSON-RPC over stdio. R4 Phase 2 (D24 supervisor).",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "default": "./dist/index.js"
+    }
+  },
+  "sideEffects": false,
+  "files": ["dist", "src"],
+  "license": "Apache-2.0",
+  "engines": { "node": ">=22" },
+  "publishConfig": { "access": "public" },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@nextain/agent-types": "workspace:*",
+    "@nextain/agent-observability": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.4"
+  }
+}

@@ -43,7 +43,11 @@ export function renderChunk(chunk: NaiaStreamChunk): string | null {
     case "workspace_change": {
       const sym =
         chunk.kind === "add" ? "✚" : chunk.kind === "delete" ? "✘" : "✎";
-      return `  ${sym} ${chunk.path}`;
+      const base = `  ${sym} ${chunk.path}`;
+      if (chunk.diff && chunk.diff.length > 0) {
+        return `${base}\n${indentBlock(chunk.diff, 4)}`;
+      }
+      return base;
     }
     case "session_end":
       return `[${shortId(chunk.sessionId)}] end: ${chunk.reason}`;

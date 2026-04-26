@@ -23,6 +23,7 @@
     { "path": "packages/observability" },
     { "path": "packages/adapter-shell" },
     { "path": "packages/adapter-opencode-cli" },
+    { "path": "packages/adapter-opencode-acp" },
     { "path": "packages/workspace" },
     { "path": "packages/verification" },
     { "path": "packages/cli-app" }

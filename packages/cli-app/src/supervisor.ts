@@ -1,4 +1,5 @@
 import type {
+  ApprovalBroker,
   NaiaStreamChunk,
   ReportStats,
   SubAgentAdapter,
@@ -20,6 +21,17 @@ export interface Phase1SupervisorOptions {
   noVerify?: boolean;
   /** Per-verifier wall-clock timeout. Default 60_000. */
   verificationTimeoutMs?: number;
+  /**
+   * Phase 2 Day 3.4 — show full unified diff in workspace_change chunks
+   * (lazy via WorkspaceWatcher.diff()). Default false (stats only).
+   */
+  showDiff?: boolean;
+  /**
+   * Phase 2 — ApprovalBroker DI (Architect P0-2 / D38). When supervisor
+   * runs an ACP-aware adapter (OpencodeAcpAdapter), the broker handles
+   * `session/request_permission` callbacks for T2/T3 tool gating.
+   */
+  approvalBroker?: ApprovalBroker;
 }
 
 /**
@@ -46,22 +58,39 @@ export class Phase1Supervisor {
       workingDir: workdir,
     };
 
-    // 1) Spawn sub-agent
+    // 1) Spawn sub-agent (Phase 2 — approvalBroker propagated to adapter)
     const session = await this.#opts.adapter.spawn(
       { prompt, workdir },
-      { signal, toolContext: tc },
+      {
+        signal,
+        toolContext: tc,
+        ...(this.#opts.approvalBroker !== undefined && {
+          approvalBroker: this.#opts.approvalBroker,
+        }),
+      },
     );
 
     // 2) Optional workspace watcher
     let workspaceStream: AsyncIterable<NaiaStreamChunk> | null = null;
     if (this.#opts.watcher) {
       const watcher = this.#opts.watcher;
+      const showDiff = this.#opts.showDiff === true;
       workspaceStream = (async function* () {
         for await (const wc of watcher.watch(workdir, signal)) {
+          let diff: string | undefined;
+          if (showDiff && wc.kind !== "delete") {
+            try {
+              const d = await watcher.diff(workdir, wc.path);
+              if (d) diff = d;
+            } catch {
+              /* diff failure non-fatal */
+            }
+          }
           yield {
             type: "workspace_change",
             path: wc.path,
             kind: wc.kind,
+            ...(diff !== undefined && { diff }),
             ...(wc.sourceSession !== undefined && { sourceSession: wc.sourceSession }),
           } satisfies NaiaStreamChunk;
         }

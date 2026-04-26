@@ -28,6 +28,7 @@
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
     "@anthropic-ai/vertex-sdk": "^0.16.0",
+    "@nextain/agent-adapter-opencode-acp": "workspace:*",
     "@nextain/agent-adapter-opencode-cli": "workspace:*",
     "@nextain/agent-adapter-shell": "workspace:*",
     "@nextain/agent-cli-app": "workspace:*",

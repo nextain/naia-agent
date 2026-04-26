@@ -15,3 +15,11 @@ export { Phase1Supervisor } from "./supervisor.js";
 export type { Phase1SupervisorOptions } from "./supervisor.js";
 export { renderChunk, runCli } from "./cli-renderer.js";
 export type { CliOptions } from "./cli-renderer.js";
+export {
+  CliApprovalBroker,
+  AutoDenyApprovalBroker,
+  AutoApproveApprovalBroker,
+} from "./approval-broker.js";
+export type { CliApprovalBrokerOptions } from "./approval-broker.js";
+export { InterruptManager } from "./interrupt-manager.js";
+export type { InterruptManagerOptions } from "./interrupt-manager.js";
