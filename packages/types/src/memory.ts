@@ -6,7 +6,7 @@
  * capability at runtime; graceful degradation is the rule (A.11).
  *
  * Reference implementation: @nextain/naia-memory.
- * See docs/memory-provider-audit.md for the façade → alpha-memory mapping.
+ * See docs/memory-provider-audit.md for the façade → naia-memory mapping.
  *
  * Score semantics (MemoryHit.score): implementations SHOULD normalize to
  * [0, 1] where 1 = strongest match. Raw strength or cosine distance must be
@@ -125,7 +125,7 @@ export interface SessionRecallCapable {
  * `encode` calls) can produce a semantic summary that replaces a window of
  * raw messages, preserving meaning while shrinking tokens.
  *
- * Real-time variant: a future alpha-memory version may maintain a rolling
+ * Real-time variant: a future naia-memory version may maintain a rolling
  * summary during `encode` calls so `compact()` returns instantly. The
  * contract allows both on-demand and pre-computed strategies — callers
  * should not assume compact() is cheap.

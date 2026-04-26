@@ -64,7 +64,7 @@ This is Ports & Adapters (hexagonal) architecture applied at the ecosystem scale
 - **What it is**: a memory system (episodic, semantic, procedural) with importance filtering, knowledge graph extraction, and time-based decay.
 - **What it owns**: its own storage schema, 4-store architecture, pluggable vector backends.
 - **Relationship to naia-agent**: *one implementation of `MemoryProvider`*. naia-agent treats it as a black box behind the interface. Another memory system could replace it by implementing the same interface.
-- **Independence**: alpha-memory is published as `@nextain/alpha-memory` and can be used by anything, not just naia-agent.
+- **Independence**: alpha-memory is published as `@nextain/naia-memory` and can be used by anything, not just naia-agent.
 
 ## Architecture (runtime layering)
 
@@ -183,5 +183,5 @@ Copyright 2026 Nextain Inc.
 
 - **Naia OS** — [github.com/nextain/naia-os](https://github.com/nextain/naia-os)
 - **Naia ADK** — [github.com/nextain/naia-adk](https://github.com/nextain/naia-adk)
-- **Alpha Memory** — [github.com/nextain/alpha-memory](https://github.com/nextain/alpha-memory)
+- **Naia Memory** (legacy: Alpha Memory) — [github.com/nextain/alpha-memory](https://github.com/nextain/alpha-memory)
 - **Nextain** — [nextain.io](https://nextain.io)

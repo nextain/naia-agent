@@ -18,7 +18,7 @@ Standard: AAIF / agents.md (https://agents.md/)
 | `naia-os` | Host (Tauri shell + 3D avatar + OS 이미지) |
 | **`naia-agent`** (이 레포) | Runtime 엔진 + 공개 인터페이스 SoT |
 | `naia-adk` | 워크스페이스 포맷 + 스킬 표준 (`@naia-adk/skill-spec`) |
-| `alpha-memory` | MemoryProvider 레퍼런스 구현 |
+| `naia-memory` | MemoryProvider 레퍼런스 구현 |
 
 원칙: **Interfaces, not dependencies** — 공개 인터페이스로만 결합, 런타임 결합 금지. 호스트가 구현체 주입.
 

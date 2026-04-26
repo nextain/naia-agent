@@ -1,15 +1,15 @@
 /**
- * alpha-memory-host — runs Agent against the **real** @nextain/naia-memory.
+ * naia-memory-host — runs Agent against the **real** @nextain/naia-memory.
  *
  * This closes the loop: the CompactableCapable contract defined in
  * @nextain/agent-types was just proven against CompactableMemory (mock);
- * here we verify alpha-memory's real MemorySystem.compact() also matches
+ * here we verify naia-memory's real MemorySystem.compact() also matches
  * the contract structurally.
  *
- * No external services required — alpha-memory's LocalAdapter runs
+ * No external services required — naia-memory's LocalAdapter runs
  * in-process with an in-memory SQLite.
  *
- * Run: pnpm exec tsx examples/alpha-memory-host.ts
+ * Run: pnpm exec tsx examples/naia-memory-host.ts
  */
 
 import { randomUUID } from "node:crypto";
@@ -42,7 +42,7 @@ import {
 import { LocalAdapter, MemorySystem } from "@nextain/naia-memory";
 
 /**
- * Adapter that wires alpha-memory's `MemorySystem` to the MemoryProvider +
+ * Adapter that wires naia-memory's `MemorySystem` to the MemoryProvider +
  * CompactableCapable shapes naia-agent expects.
  *
  * Type mismatches handled here:
@@ -64,7 +64,7 @@ class AlphaMemoryAdapter implements MemoryProvider, CompactableCapable {
           .map(([k, v]) => `${k}=${v}`)
           .join(" ")
       : undefined;
-    // Unpack selected context keys into alpha-memory's EncodingContext
+    // Unpack selected context keys into naia-memory's EncodingContext
     // object so features like rolling-summary-per-session can activate.
     const encodingContext: {
       sessionId?: string;
@@ -93,7 +93,7 @@ class AlphaMemoryAdapter implements MemoryProvider, CompactableCapable {
       ...(opts?.minStrength !== undefined ? { minStrength: opts.minStrength } : {}),
       ...(opts?.deepRecall !== undefined ? { deepRecall: opts.deepRecall } : {}),
     });
-    // alpha-memory recall may return [] or undefined depending on adapter;
+    // naia-memory recall may return [] or undefined depending on adapter;
     // coerce to array before mapping.
     const episodes = Array.isArray(result) ? result : [];
     return episodes.map<MemoryHit>((e) => ({
@@ -115,7 +115,7 @@ class AlphaMemoryAdapter implements MemoryProvider, CompactableCapable {
   }
 
   async compact(input: CompactionInput): Promise<CompactionResult> {
-    // alpha-memory's compact() is structurally compatible with
+    // naia-memory's compact() is structurally compatible with
     // CompactableCapable.compact() — we forward directly.
     const result = await this.#sys.compact({
       messages: input.messages.map((m) => {
@@ -264,7 +264,7 @@ async function main(): Promise<void> {
     await memory.close();
     agent.close();
 
-    console.log("\n━━━ alpha-memory smoke results ━━━━━━━━━━━━━━━━━━━━━━━━━");
+    console.log("\n━━━ naia-memory smoke results ━━━━━━━━━━━━━━━━━━━━━━━━━");
     console.log(`  compaction events: ${compactedEvents}`);
     console.log(`  last realtime flag: ${lastCompactionRealtime}`);
 
@@ -311,7 +311,7 @@ async function main(): Promise<void> {
     }
     console.log(`  durability round-trip: ✓`);
 
-    console.log("\n✓ alpha-memory v2 rolling summary + lifecycle + durability confirmed");
+    console.log("\n✓ naia-memory v2 rolling summary + lifecycle + durability confirmed");
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
