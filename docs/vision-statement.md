@@ -92,6 +92,33 @@
 
 → Phase 3에서 두 layer 동시 inject 메커니즘 정식화: `TaskSpec.extraSystemPrompt = naia-adk persona base + alpha-memory.recall() result`
 
+### 4-repo 책임 분리 LOCK (2026-04-26 사용자 directive)
+
+| repo | 책임 |
+|---|---|
+| **naia-os** (host) | host OS 전체 — UI + Avatar + audio device IO (mic/speaker via Tauri Rust cpal) + channel adapters + OS-specific skills (Device/Voicewake/Panel/Channels) |
+| **naia-agent** (engine) | LLM core + **audio stream orchestration** (Vercel AI SDK 패턴 — STT/TTS provider abstraction + omni audio_delta stream, D43) + supervisor + sub-agent |
+| **naia-adk** | skill **spec/interface only** + 9 generic skills 카탈로그 (Cron/Memo/Time/Weather/Notify/Diagnostics/Sessions/Skill-manager/Config/SystemStatus). 실행은 naia-agent |
+| **naia-memory** (= alpha-memory pkg) | memory engine (encode/recall/decay/etc) |
+
+### omni model 호환 (D43 — Vercel AI SDK 패턴)
+
+```
+[mic PCM in (naia-os device)]
+  ↓ (audio_delta upstream via IPC)
+naia-agent audio provider layer:
+  ├─ omni model (vllm-omni / GPT-4o realtime / Gemini Live):
+  │   audio_delta in → omni LLM → audio_delta out (직접)
+  └─ 비-omni model:
+      audio_delta in → STT provider → text → LLM → TTS provider → audio_delta out
+  ↓ (audio_delta downstream via IPC)
+[speaker PCM out (naia-os device) + Avatar lip-sync (naia-os UI)]
+```
+
+**naia-os = thin device IO + UI / naia-agent = audio orchestration**.
+
+이 분리 → vllm-omni / GPT-4o realtime 같은 end-to-end 음성 모델 자연 통합 (STT/TTS 분리 layer 강제 X).
+
 ### naia-* / alpha-* prefix 체계 (이름 일관성)
 
 **모든 engine 모듈은 `naia-` prefix** (사용자 directive 2026-04-26 결정 — alpha-memory → naia-memory rename):
