@@ -13,6 +13,6 @@ export { LintVerifier } from "./runners/lint.js";
 export { BuildVerifier } from "./runners/build.js";
 export { VerificationOrchestrator } from "./orchestrator.js";
 export type { OrchestratorOptions } from "./orchestrator.js";
-export { formatReport } from "./reporter.js";
+export { formatReport, reportStatsFromInput } from "./reporter.js";
 export type { FormatReportInput } from "./reporter.js";
 export { runShellVerifier } from "./runners/shell.js";

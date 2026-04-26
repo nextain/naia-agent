@@ -14,6 +14,15 @@ importers:
       '@anthropic-ai/vertex-sdk':
         specifier: ^0.16.0
         version: 0.16.0(zod@4.3.6)
+      '@nextain/agent-adapter-opencode-cli':
+        specifier: workspace:*
+        version: link:packages/adapter-opencode-cli
+      '@nextain/agent-adapter-shell':
+        specifier: workspace:*
+        version: link:packages/adapter-shell
+      '@nextain/agent-cli-app':
+        specifier: workspace:*
+        version: link:packages/cli-app
       '@nextain/agent-core':
         specifier: workspace:*
         version: link:packages/core
@@ -29,6 +38,12 @@ importers:
       '@nextain/agent-types':
         specifier: workspace:*
         version: link:packages/types
+      '@nextain/agent-verification':
+        specifier: workspace:*
+        version: link:packages/verification
+      '@nextain/agent-workspace':
+        specifier: workspace:*
+        version: link:packages/workspace
       '@nextain/alpha-memory':
         specifier: file:../alpha-memory
         version: file:../alpha-memory(typescript@5.9.3)
@@ -85,6 +100,10 @@ importers:
       '@nextain/agent-workspace':
         specifier: workspace:*
         version: link:../workspace
+    devDependencies:
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@22.19.17)
 
   packages/core:
     dependencies:

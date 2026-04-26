@@ -1,350 +1,156 @@
 #!/usr/bin/env -S pnpm exec tsx
-// bin/naia-agent — entry point. Slice 1a R3 (mock-only). Real LLM in 1b.
-//
-// Modes (process.stdin.isTTY decides):
-//   1) args mode:   pnpm naia-agent "hi"        → 1-shot, prints answer to stdout
-//   2) stdin mode:  echo "hi" | pnpm naia-agent → 1-shot, reads stdin
-//   3) REPL mode:   pnpm naia-agent             → multi-turn readline loop
-//
-// Exit codes: 0 ok, 1 user error, 2 internal error.
+/**
+ * bin/naia-agent — R4 Phase 1 entry.
+ *
+ * Hybrid wrapper CLI: spawns opencode (or shell fallback) as a sub-agent,
+ * watches workspace, runs post-task verification, prints honest numeric report.
+ *
+ * Usage:
+ *   pnpm naia-agent "<prompt>"                       # default opencode CLI
+ *   pnpm naia-agent "<prompt>" --workdir /path       # specify workdir (default cwd)
+ *   pnpm naia-agent "<prompt>" --no-verify           # skip pnpm test/typecheck
+ *   pnpm naia-agent "<prompt>" --adapter shell -- echo "x"   # use shell fallback
+ *   pnpm naia-agent "<prompt>" -m provider/model     # opencode model selection
+ *   pnpm naia-agent "<prompt>" --debug               # print every chunk type
+ *
+ * Exit codes:
+ *   0 — task ok, all verifications PASS
+ *   1 — task ok but verification FAIL
+ *   2 — sub-agent failed
+ *   3 — usage error
+ *
+ * R3 modes (REPL / stdin / anthropic-direct LLM call) are removed —
+ * naia-agent is now a sub-agent supervisor (R4 D18 Hybrid wrapper).
+ * R3 examples remain in git history (commit before 2026-04-26).
+ */
 
-import * as readline from "node:readline";
-import { Agent } from "@nextain/agent-core";
-import { createHost, loadEnvAndConfig } from "@nextain/agent-runtime";
-import { createProjectLogger } from "@nextain/agent-observability";
-import type { LLMClient, Logger } from "@nextain/agent-types";
+import process from "node:process";
+import { ShellAdapter } from "@nextain/agent-adapter-shell";
+import { OpencodeRunAdapter } from "@nextain/agent-adapter-opencode-cli";
+import { ChokidarWatcher } from "@nextain/agent-workspace";
+import { TestVerifier, TypeCheckVerifier } from "@nextain/agent-verification";
+import { Phase1Supervisor, runCli } from "@nextain/agent-cli-app";
+import type { SubAgentAdapter, Verifier } from "@nextain/agent-types";
 
-const VERSION = "0.0.4-slice-2.7";
-
-let _logger: Logger | undefined;
-function log(): Logger {
-  if (!_logger) {
-    const r = createProjectLogger();
-    _logger = r.logger;
-  }
-  return _logger;
+interface Args {
+  prompt: string;
+  workdir: string;
+  noVerify: boolean;
+  debug: boolean;
+  adapter: "opencode-cli" | "shell";
+  shellCommand?: string;
+  shellArgs: string[];
+  model?: string;
 }
 
-// Slice 1b — env-detected real LLM injection.
-// Convention: ANTHROPIC_API_KEY + optional ANTHROPIC_BASE_URL (for gateway
-// routing). NAIA_GATEWAY_URL takes precedence as ANTHROPIC_BASE_URL when set
-// AND when the gateway is Anthropic-compat. OpenAI-compat gateways are not
-// supported in 1b (matrix B21 — no multi-provider direct deps; gateway
-// translation lives in user environment).
-async function detectRealLLM(): Promise<{ client?: LLMClient; mode: string }> {
-  const fn = log().fn?.("detectRealLLM");
-  // Priority 1: Anthropic direct (or via ANTHROPIC_BASE_URL gateway).
-  const anthropicKey = process.env["ANTHROPIC_API_KEY"];
-  if (anthropicKey) {
-    fn?.branch("anthropic-direct");
-    const baseURL = process.env["ANTHROPIC_BASE_URL"];
-    try {
-      const Anthropic = (await import("@anthropic-ai/sdk")).default;
-      const { AnthropicClient } = await import("@nextain/agent-providers/anthropic");
-      const sdk = new Anthropic(baseURL ? { apiKey: anthropicKey, baseURL } : { apiKey: anthropicKey });
-      const defaultModel = process.env["ANTHROPIC_MODEL"] ?? "claude-haiku-4-5-20251001";
-      return {
-        client: new AnthropicClient(sdk, { defaultModel }),
-        mode: `anthropic-direct (model=${defaultModel}${baseURL ? `, baseURL=${baseURL}` : ""})`,
-      };
-    } catch (err) {
-      process.stderr.write(
-        `[naia-agent] anthropic-direct provider load failed: ${(err as Error).message}\n` +
-          `             trying Vertex AI / falling back to mock.\n`,
-      );
-    }
-  }
-
-  // Priority 2: OpenAI-compat (zai GLM, vLLM, OpenRouter, Together, Groq, Ollama …).
-  // Detected via OPENAI_API_KEY + OPENAI_BASE_URL OR GLM_API_KEY (zai default endpoint).
-  const openaiKey = process.env["OPENAI_API_KEY"];
-  const openaiBase = process.env["OPENAI_BASE_URL"];
-  const glmKey = process.env["GLM_API_KEY"];
-  if ((openaiKey && openaiBase) || glmKey) {
-    fn?.branch("openai-compat", { hasOpenAI: !!openaiKey, hasGlm: !!glmKey });
-    try {
-      const { OpenAICompatClient } = await import("@nextain/agent-providers/openai-compat");
-      const apiKey = openaiKey ?? glmKey ?? "";
-      const baseUrl =
-        openaiBase ??
-        process.env["GLM_BASE_URL"] ??
-        "https://open.bigmodel.cn/api/paas/v4";
-      const model =
-        process.env["OPENAI_MODEL"] ?? process.env["GLM_MODEL"] ?? "glm-4.5-flash";
-      return {
-        client: new OpenAICompatClient({ apiKey, baseUrl, model }),
-        mode: `openai-compat (model=${model}, baseUrl=${baseUrl})`,
-      };
-    } catch (err) {
-      process.stderr.write(
-        `[naia-agent] openai-compat provider load failed: ${(err as Error).message}\n`,
-      );
-    }
-  }
-
-  // Priority 3: Anthropic on Vertex AI.
-  const vertexProject =
-    process.env["VERTEX_PROJECT_ID"] ?? process.env["GOOGLE_CLOUD_PROJECT"];
-  const vertexRegion =
-    process.env["VERTEX_REGION"] ?? process.env["GOOGLE_CLOUD_LOCATION"];
-  if (vertexProject && vertexRegion) {
-    fn?.branch("vertex");
-    try {
-      const { createAnthropicVertexClient } = await import(
-        "@nextain/agent-providers/anthropic-vertex"
-      );
-      const defaultModel = process.env["ANTHROPIC_MODEL"] ?? "claude-haiku-4-5@20251001";
-      return {
-        client: createAnthropicVertexClient({
-          projectId: vertexProject,
-          region: vertexRegion,
-          defaultModel,
-        }),
-        mode: `anthropic-vertex (project=${vertexProject}, region=${vertexRegion}, model=${defaultModel})`,
-      };
-    } catch (err) {
-      process.stderr.write(
-        `[naia-agent] anthropic-vertex provider load failed: ${(err as Error).message}\n` +
-          `             falling back to mock. Verify @anthropic-ai/vertex-sdk + ADC (gcloud auth application-default login).\n`,
-      );
-    }
-  }
-
-  fn?.branch("mock-fallback");
-  return fn?.exit({ mode: "mock (no provider env detected)" }) ?? { mode: "mock (no provider env detected)" };
-}
-
-interface CliArgs {
-  prompt?: string;
-  help: boolean;
-  version: boolean;
-  envPath?: string;
-  configPath?: string;
-  enableBash: boolean;
-  enableFiles: boolean;
-}
-
-function parseArgs(argv: string[]): CliArgs {
-  const args: CliArgs = { help: false, version: false, enableBash: false, enableFiles: false };
-  const positional: string[] = [];
-  let terminated = false;
+function parseArgs(argv: string[]): Args | { error: string } {
+  const args: Args = {
+    prompt: "",
+    workdir: process.cwd(),
+    noVerify: false,
+    debug: false,
+    adapter: "opencode-cli",
+    shellArgs: [],
+  };
   for (let i = 0; i < argv.length; i++) {
-    const a = argv[i] ?? "";
-    if (terminated) {
-      positional.push(a);
-      continue;
+    const a = argv[i];
+    if (a === undefined) continue;
+    if (a === "--workdir") {
+      const v = argv[++i];
+      if (!v) return { error: "--workdir requires a value" };
+      args.workdir = v;
+    } else if (a === "--no-verify") {
+      args.noVerify = true;
+    } else if (a === "--debug") {
+      args.debug = true;
+    } else if (a === "--adapter") {
+      const v = argv[++i];
+      if (v === "opencode-cli" || v === "shell") args.adapter = v;
+      else return { error: `--adapter must be opencode-cli|shell` };
+    } else if (a === "-m" || a === "--model") {
+      args.model = argv[++i];
+    } else if (a === "--") {
+      // remaining args go to shell adapter
+      args.shellArgs = argv.slice(i + 1);
+      break;
+    } else if (!a.startsWith("-") && args.prompt.length === 0) {
+      args.prompt = a;
+    } else {
+      return { error: `unknown arg: ${a}` };
     }
-    if (a === "--") {
-      terminated = true;
-    } else if (a === "--help" || a === "-h") args.help = true;
-    else if (a === "--version" || a === "-V") args.version = true;
-    else if (a === "--env") {
-      args.envPath = argv[++i];
-    } else if (a.startsWith("--env=")) {
-      args.envPath = a.slice("--env=".length);
-    } else if (a === "--config") {
-      args.configPath = argv[++i];
-    } else if (a.startsWith("--config=")) {
-      args.configPath = a.slice("--config=".length);
-    } else if (a === "--enable-bash") {
-      args.enableBash = true;
-    } else if (a === "--enable-files") {
-      args.enableFiles = true;
-    } else if (a === "--enable-all") {
-      args.enableBash = true;
-      args.enableFiles = true;
-    } else if (a.startsWith("-")) {
-      throw new Error(`unknown flag: ${a}`);
-    } else positional.push(a);
   }
-  if (positional.length > 0) args.prompt = positional.join(" ");
+  if (args.prompt.length === 0) {
+    return { error: "prompt required (positional argument)" };
+  }
+  if (args.adapter === "shell" && args.shellArgs.length === 0) {
+    args.shellCommand = "/usr/bin/env";
+    args.shellArgs = ["echo", args.prompt];
+  } else if (args.adapter === "shell") {
+    args.shellCommand = args.shellArgs[0];
+    args.shellArgs = args.shellArgs.slice(1);
+  }
   return args;
 }
 
-function printHelp(): void {
-  console.log(`naia-agent ${VERSION}
-
-Usage:
-  pnpm naia-agent "your prompt"             # args mode (1-shot)
-  echo "prompt" | pnpm naia-agent           # stdin mode (1-shot)
-  pnpm naia-agent                            # REPL mode
-  pnpm naia-agent --env path/to/.env "..."  # custom .env path
-  pnpm naia-agent --config ~/cfg.json "..."  # custom JSON config path
-
-Flags:
-  -h, --help         show this help
-  -V, --version      show version
-  --env <path>       .env file path (or NAIA_AGENT_ENV)
-  --config <path>    JSON config path (or NAIA_AGENT_CONFIG)
-  --enable-bash      register the built-in bash skill (T1, DANGEROUS_COMMANDS-filtered)
-  --enable-files     register read_file/write_file/edit_file/list_files skills (T0/T1, D09 sentinel)
-  --enable-all       --enable-bash + --enable-files
-
-Provider resolution (first match wins):
-  1) ANTHROPIC_API_KEY  → Anthropic direct (claude-haiku-4-5-20251001 default)
-                          + ANTHROPIC_BASE_URL → Anthropic-compat gateway routing
-  2) VERTEX_PROJECT_ID + VERTEX_REGION (with gcloud ADC)
-                       → Anthropic on Vertex AI (claude-haiku-4-5@20251001)
-  3) (none)            → mock LLM (smoke + dry-run)
-
-Auto-loaded files (in order, first match wins):
-  .env: ./.env, ./naia-agent.env, ~/.naia-agent/.env
-  json: ./.naia-agent.json, ~/.naia-agent/config.json
-  process.env always wins; .env/json only fill missing keys.`);
+function buildAdapter(a: Args): SubAgentAdapter {
+  if (a.adapter === "shell") {
+    return new ShellAdapter({
+      command: a.shellCommand ?? "/usr/bin/env",
+      args: () => a.shellArgs,
+    });
+  }
+  return new OpencodeRunAdapter({
+    ...(a.model !== undefined && { model: a.model }),
+    skipPermissions: true, // Phase 1 — interactive approval is Phase 2
+  });
 }
 
-async function readStdin(): Promise<string> {
-  const chunks: string[] = [];
-  process.stdin.setEncoding("utf8");
-  for await (const chunk of process.stdin as AsyncIterable<string>) {
-    chunks.push(chunk);
-  }
-  return chunks.join("").trim();
-}
-
-async function runOnce(agent: Agent, prompt: string): Promise<void> {
-  let textStreamed = false;
-  let finalText = "";
-  for await (const ev of agent.sendStream(prompt)) {
-    if (ev.type === "text" && ev.text) {
-      // Real LLM streams non-empty text deltas; print as they arrive.
-      process.stdout.write(ev.text);
-      textStreamed = true;
-    } else if (ev.type === "turn.ended") {
-      finalText = ev.assistantText;
-      // Mock LLMs may not stream deltas; fall back to finalText print.
-      if (!textStreamed && finalText) {
-        process.stdout.write(finalText);
-      }
-      process.stdout.write("\n");
-    }
-  }
-}
-
-async function repl(agent: Agent): Promise<void> {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  const ask = (q: string): Promise<string> =>
-    new Promise((resolve) => rl.question(q, resolve));
-
-  console.log(`naia-agent ${VERSION} REPL — type ":quit" or Ctrl+D to exit.\n`);
-  try {
-    while (true) {
-      let line: string;
-      try {
-        line = (await ask("naia> ")).trim();
-      } catch {
-        // Ctrl+D / EOF
-        break;
-      }
-      if (!line) continue;
-      if (line === ":quit" || line === ":exit" || line === ":q") break;
-      try {
-        await runOnce(agent, line);
-      } catch (err) {
-        console.error(`\n[error] ${(err as Error).message}`);
-      }
-    }
-  } finally {
-    rl.close();
-  }
+function buildVerifiers(): readonly Verifier[] {
+  return [new TestVerifier(), new TypeCheckVerifier()];
 }
 
 async function main(): Promise<number> {
-  // Initialize logger early so dev mode + log file are set up.
-  const { isDev, level, logFile } = (await import("@nextain/agent-observability")).createProjectLogger();
-  if (logFile) {
-    process.stderr.write(`[naia-agent] log file: ${logFile} (level=${level}${isDev ? ", dev" : ""})\n`);
-  }
-  const fn = log().fn?.("main", { argv: process.argv.slice(2) });
-
-  let cli: CliArgs;
-  try {
-    cli = parseArgs(process.argv.slice(2));
-  } catch (e) {
-    fn?.branch("parseArgs-error");
-    console.error(`error: ${(e as Error).message}`);
-    printHelp();
-    return 1;
-  }
-
-  if (cli.help) {
-    printHelp();
-    return 0;
-  }
-  if (cli.version) {
-    console.log(VERSION);
-    return 0;
-  }
-
-  // Slice 1c: auto-load .env + JSON config, then detect provider env.
-  const envReport = loadEnvAndConfig({
-    envPath: cli.envPath,
-    configPath: cli.configPath,
-  });
-  if (envReport.envFile || envReport.configFile) {
+  const argv = process.argv.slice(2);
+  const parsed = parseArgs(argv);
+  if ("error" in parsed) {
+    process.stderr.write(`naia-agent: ${parsed.error}\n`);
     process.stderr.write(
-      `[naia-agent] loaded ${envReport.envFile ? `.env=${envReport.envFile}` : ""}` +
-        `${envReport.envFile && envReport.configFile ? " " : ""}` +
-        `${envReport.configFile ? `config=${envReport.configFile}` : ""}` +
-        ` (${envReport.loadedKeys.length} keys)\n`,
+      `usage: pnpm naia-agent "<prompt>" [--workdir DIR] [--no-verify] [-m model] [--adapter shell -- cmd args] [--debug]\n`,
     );
+    return 3;
   }
 
-  const { client: realLLM, mode } = await detectRealLLM();
-  process.stderr.write(`[naia-agent] provider: ${mode}\n`);
-  const enabledSkills: string[] = [];
-  if (cli.enableBash) enabledSkills.push("bash(T1)");
-  if (cli.enableFiles) enabledSkills.push("read_file(T0)", "write_file(T1)", "edit_file(T1)", "list_files(T0)");
-  if (enabledSkills.length > 0) {
-    process.stderr.write(`[naia-agent] skills ENABLED: ${enabledSkills.join(", ")}\n`);
-  }
-  const host = createHost({
-    logger: log(),
-    llm: realLLM,
-    enableBash: cli.enableBash,
-    enableFiles: cli.enableFiles,
-  });
-  const skillHints: string[] = [];
-  if (cli.enableBash) skillHints.push("`bash` to run shell commands");
-  if (cli.enableFiles) skillHints.push("`read_file`/`write_file`/`edit_file`/`list_files` for workspace files");
-  const agent = new Agent({
-    host,
-    systemPrompt:
-      "You are naia-agent, a helpful AI assistant in CLI mode. " +
-      (skillHints.length > 0 ? `You have these tools: ${skillHints.join(", ")}. ` : "") +
-      "Answer concisely.",
-    tierForTool: (name) => {
-      if (name === "bash" || name === "write_file" || name === "edit_file") return "T1";
-      return "T0";
-    },
+  const adapter = buildAdapter(parsed);
+  const watcher = new ChokidarWatcher({ usePolling: false });
+  const verifiers = parsed.noVerify ? [] : buildVerifiers();
+
+  const supervisor = new Phase1Supervisor({
+    adapter,
+    watcher,
+    verifiers,
+    noVerify: parsed.noVerify,
+    verificationTimeoutMs: 60_000,
   });
 
-  try {
-    if (cli.prompt) {
-      // args mode
-      await runOnce(agent, cli.prompt);
-    } else if (!process.stdin.isTTY) {
-      // stdin mode
-      const input = await readStdin();
-      if (!input) {
-        console.error("error: empty stdin");
-        return 1;
-      }
-      await runOnce(agent, input);
-    } else {
-      // REPL mode
-      await repl(agent);
-    }
-    return 0;
-  } catch (err) {
-    console.error(`\nFAIL: ${(err as Error).message}`);
-    return 2;
-  } finally {
-    agent.close();
-  }
+  const ac = new AbortController();
+  process.on("SIGINT", () => {
+    process.stderr.write("\n[알파] interrupt — cancelling\n");
+    ac.abort("user-SIGINT");
+  });
+
+  const stream = supervisor.run(parsed.prompt, parsed.workdir, ac.signal);
+  return runCli(stream, {
+    prompt: parsed.prompt,
+    workdir: parsed.workdir,
+    noVerify: parsed.noVerify,
+    debug: parsed.debug,
+  });
 }
 
-main().then((code) => process.exit(code)).catch((err) => {
-  console.error("FATAL:", err);
-  process.exit(2);
-});
+main().then(
+  (code) => process.exit(code),
+  (err) => {
+    process.stderr.write(`naia-agent: fatal: ${(err as Error).message}\n`);
+    process.exit(2);
+  },
+);

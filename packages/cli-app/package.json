@@ -20,12 +20,18 @@
   "license": "Apache-2.0",
   "engines": { "node": ">=22" },
   "publishConfig": { "access": "public" },
-  "scripts": { "build": "tsc -b" },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run"
+  },
   "dependencies": {
     "@nextain/agent-types": "workspace:*",
     "@nextain/agent-adapter-shell": "workspace:*",
     "@nextain/agent-adapter-opencode-cli": "workspace:*",
     "@nextain/agent-workspace": "workspace:*",
     "@nextain/agent-verification": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.4"
   }
 }
