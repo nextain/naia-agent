@@ -132,14 +132,43 @@ export class ClaudeCliClient implements LLMClient {
       "-p",
     ];
 
-    const env = { ...process.env };
-    delete env["ANTHROPIC_API_KEY"];
-    delete env["CLAUDECODE"];
+    // Phase 4.2 Day 5.1 (Cross-review Paranoid P0-3 fix) — env allowlist.
+    // Previous behavior: spread `process.env` then `delete` selected keys.
+    // Risk: PATH manipulation, LD_PRELOAD trojan, DYLD_* injection — child
+    // inherits ALL parent env, attacker controls execution context.
+    // Fix: explicit allowlist of required env vars only. New process env =
+    // ONLY allowlisted entries + Claude Code-specific overrides.
+    const ALLOWED_ENV_KEYS = [
+      "PATH",          // binary resolution (claude CLI lookup)
+      "HOME",          // ~/.claude config / cache
+      "USER",          // some CLI tools require it
+      "LANG", "LC_ALL", "LC_CTYPE",  // locale for stdout encoding
+      "TERM",          // terminal type (subprocess may check)
+      "TZ",            // time zone for timestamps
+      "TMPDIR", "TEMP", "TMP",  // temp file paths
+      "FLATPAK", "FLATPAK_ID",  // Flatpak detect (caller may need)
+      "XDG_CACHE_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME",  // XDG dirs
+    ];
+    const env: NodeJS.ProcessEnv = {};
+    for (const key of ALLOWED_ENV_KEYS) {
+      const v = process.env[key];
+      if (v !== undefined) env[key] = v;
+    }
+    // Forward CLAUDE_* config keys (subset, no API_KEY family).
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith("CLAUDE_CODE_") && key !== "CLAUDE_CODE_MAX_OUTPUT_TOKENS"
+          && key !== "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC") {
+        env[key] = process.env[key];
+      }
+    }
+    // Apply Claude Code-specific overrides (always set, regardless of env).
     env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] = this.#maxOutputTokens;
     env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] =
-      env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] ?? "1";
+      process.env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] ?? "1";
     env["DISABLE_NON_ESSENTIAL_MODEL_CALLS"] =
-      env["DISABLE_NON_ESSENTIAL_MODEL_CALLS"] ?? "1";
+      process.env["DISABLE_NON_ESSENTIAL_MODEL_CALLS"] ?? "1";
+    // NOTE: ANTHROPIC_API_KEY / CLAUDECODE / LD_PRELOAD / LD_LIBRARY_PATH /
+    // DYLD_* are NEVER added — implicit by allowlist construction.
 
     const child = spawn(this.#binaryPath, args, {
       stdio: ["pipe", "pipe", "pipe"],

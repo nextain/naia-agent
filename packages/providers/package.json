@@ -65,7 +65,8 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsc -b"
+    "build": "tsc -b",
+    "test": "vitest run"
   },
   "dependencies": {
     "@nextain/agent-types": "workspace:*"
@@ -84,6 +85,7 @@
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
-    "@anthropic-ai/vertex-sdk": "^0.16.0"
+    "@anthropic-ai/vertex-sdk": "^0.16.0",
+    "vitest": "^3.2.4"
   }
 }
