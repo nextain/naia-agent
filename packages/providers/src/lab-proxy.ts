@@ -156,7 +156,20 @@ export class LabProxyClient implements LLMClient {
     try {
       outer: while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          // Cross-review (Day 4.3 Paranoid P0-1) — detect 0-byte SSE BEFORE
+          // emitting any chunks to consumer. Gateway streaming bug = 200 OK
+          // with empty body indicates silent backend error. Throwing here
+          // (inside loop, before any yield outside try) prevents partial-data
+          // delivery race where consumer would receive empty content_block
+          // sequence then the error after completion.
+          if (bytesReceived === 0) {
+            throw new Error(
+              `Lab proxy: empty SSE stream for model "${model}" — gateway may lack credentials for this provider.`,
+            );
+          }
+          break;
+        }
         bytesReceived += value.byteLength;
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
@@ -262,12 +275,11 @@ export class LabProxyClient implements LLMClient {
       yield { type: "content_block_stop", index: idx };
     }
 
-    // Gateway streaming bug: 200 OK with 0-byte body = silent backend error.
-    if (bytesReceived === 0) {
-      throw new Error(
-        `Lab proxy: empty SSE stream for model "${model}" — gateway may lack credentials for this provider.`,
-      );
-    }
+    // Note: bytesReceived === 0 detection is performed inside the read loop
+    // (above) so the throw happens BEFORE any chunk is yielded to the consumer.
+    // This prevents partial-data delivery where the consumer would otherwise
+    // receive an empty content_block sequence and then a deferred error.
+    // (Cross-review Day 4.3 Paranoid P0-1 fix.)
 
     yield { type: "end", stopReason: "end_turn", usage };
   }
