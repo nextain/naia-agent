@@ -24,6 +24,10 @@
 
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { existsSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { platform } from "node:process";
 import type {
   LLMClient,
   LLMContentBlock,
@@ -54,6 +58,10 @@ const DEFAULT_DISALLOWED_TOOLS = [
 ].join(",");
 
 const DEFAULT_MAX_OUTPUT_TOKENS = "32000";
+
+// Day 7.3 — system-prompt size threshold for file fallback (Linux ARG_MAX
+// ~128KB, Windows CreateProcess ~32KB; 64KB is the safe shared limit).
+const SYSTEM_PROMPT_FILE_THRESHOLD = 64 * 1024;
 
 interface ClaudeCliMessage {
   type: "system" | "assistant" | "error" | "result";
@@ -122,15 +130,28 @@ export class ClaudeCliClient implements LLMClient {
     yield { type: "start", id, model };
 
     const systemPrompt = this.#systemString(request);
-    const args = [
-      "--system-prompt", systemPrompt,
+    const args: string[] = [];
+
+    // Phase 5 Day 7.3 — system-prompt-file fallback (>64KB).
+    // Long prompts via --system-prompt arg may exceed shell ARG_MAX
+    // (~128KB Linux, ~32KB Windows). Use temp file when too large.
+    let systemPromptFile: string | undefined;
+    if (systemPrompt.length > SYSTEM_PROMPT_FILE_THRESHOLD) {
+      systemPromptFile = join(tmpdir(), `claude-system-prompt-${randomUUID()}.txt`);
+      writeFileSync(systemPromptFile, systemPrompt, "utf-8");
+      args.push("--system-prompt-file", systemPromptFile);
+    } else {
+      args.push("--system-prompt", systemPrompt);
+    }
+
+    args.push(
       "--verbose",
       "--output-format", "stream-json",
       "--disallowedTools", this.#disallowedTools,
       "--max-turns", "1",
       "--model", model,
       "-p",
-    ];
+    );
 
     // Phase 4.2 Day 5.1 (Cross-review Paranoid P0-3 fix) — env allowlist.
     // Previous behavior: spread `process.env` then `delete` selected keys.
@@ -177,7 +198,31 @@ export class ClaudeCliClient implements LLMClient {
     //   - subprocess env inheritance via ptrace is possible if attacker
     //     shares uid; mitigated at host level (HostContext trust model).
 
-    const child = spawn(this.#binaryPath, args, {
+    // Phase 5 Day 7.3 — Flatpak detection + flatpak-spawn --host wrap.
+    // When running inside Flatpak sandbox, the host's `claude` binary is not
+    // accessible directly. Use flatpak-spawn to invoke it on the host.
+    const isFlatpak =
+      existsSync("/run/flatpak-info") || process.env["FLATPAK"] === "1";
+
+    // Phase 5 Day 7.3 — Windows .cmd shim resolution.
+    // On Windows, npm-installed binaries are .cmd shims that CreateProcess
+    // does not auto-resolve. Append .cmd if no extension present.
+    let resolvedBinary = this.#binaryPath;
+    if (platform === "win32" && !resolvedBinary.match(/\.(cmd|exe|bat|ps1)$/i)) {
+      // Try .cmd first (npm shim), .exe second (compiled binary).
+      // existsSync check is best-effort — caller may need to set CLAUDE_CODE_PATH
+      // explicitly if neither exists.
+      if (existsSync(`${resolvedBinary}.cmd`)) {
+        resolvedBinary = `${resolvedBinary}.cmd`;
+      } else if (existsSync(`${resolvedBinary}.exe`)) {
+        resolvedBinary = `${resolvedBinary}.exe`;
+      }
+    }
+
+    const spawnCmd = isFlatpak ? "flatpak-spawn" : resolvedBinary;
+    const spawnArgs = isFlatpak ? ["--host", resolvedBinary, ...args] : args;
+
+    const child = spawn(spawnCmd, spawnArgs, {
       stdio: ["pipe", "pipe", "pipe"],
       env,
     });
@@ -201,6 +246,12 @@ export class ClaudeCliClient implements LLMClient {
     let stopReason: StopReason = "end_turn";
     let blockIndex = 0;
 
+    // Phase 5 Day 7.3 — Careti partial-JSON recovery.
+    // Claude Code CLI may emit a single JSON object split across stream chunks
+    // when objects are large or network is slow. We accumulate a "partial"
+    // buffer across line boundaries until JSON.parse succeeds.
+    let partialData: string | null = null;
+
     child.stdout.setEncoding("utf8");
     try {
       for await (const rawChunk of child.stdout) {
@@ -212,10 +263,23 @@ export class ClaudeCliClient implements LLMClient {
           const trimmed = line.trim();
           if (!trimmed) continue;
           let msg: ClaudeCliMessage | null = null;
-          try {
-            msg = JSON.parse(trimmed) as ClaudeCliMessage;
-          } catch {
-            continue;  // partial JSON recovery deferred to Phase 4.2
+
+          // Day 7.3 — partial JSON recovery (Careti pattern from native naia-os).
+          if (partialData !== null) {
+            partialData += trimmed;
+            try {
+              msg = JSON.parse(partialData) as ClaudeCliMessage;
+              partialData = null;  // success — reset accumulator
+            } catch {
+              continue;  // still incomplete, keep accumulating
+            }
+          } else {
+            try {
+              msg = JSON.parse(trimmed) as ClaudeCliMessage;
+            } catch {
+              partialData = trimmed;  // start accumulating
+              continue;
+            }
           }
           if (msg.type === "assistant" && msg.message?.content) {
             for (const block of msg.message.content) {
@@ -281,6 +345,18 @@ export class ClaudeCliClient implements LLMClient {
     } finally {
       request.signal?.removeEventListener("abort", onAbort);
       if (!child.killed) child.kill();
+      // Day 7.3 — cleanup system-prompt temp file (best-effort).
+      if (systemPromptFile) {
+        try {
+          // Use unlinkSync for synchronous cleanup before generator returns.
+          // Failure is non-critical (OS will reclaim /tmp eventually).
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const fs = require("node:fs");
+          fs.unlinkSync(systemPromptFile);
+        } catch {
+          // ignore — temp file cleanup best-effort
+        }
+      }
     }
 
     yield { type: "end", stopReason, usage };
