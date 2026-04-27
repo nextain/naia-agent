@@ -10,3 +10,5 @@ export { createAnthropicVertexClient } from "./anthropic-vertex.js";
 export type { AnthropicVertexClientOptions } from "./anthropic-vertex.js";
 export { OpenAICompatClient } from "./openai-compat.js";
 export type { OpenAICompatClientOptions } from "./openai-compat.js";
+export { ClaudeCliClient } from "./claude-cli.js";
+export type { ClaudeCliClientOptions } from "./claude-cli.js";

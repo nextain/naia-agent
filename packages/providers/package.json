@@ -34,6 +34,13 @@
         "default": "./dist/openai-compat.js"
       },
       "default": "./dist/openai-compat.js"
+    },
+    "./claude-cli": {
+      "import": {
+        "types": "./dist/claude-cli.d.ts",
+        "default": "./dist/claude-cli.js"
+      },
+      "default": "./dist/claude-cli.js"
     }
   },
   "sideEffects": false,
