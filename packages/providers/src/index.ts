@@ -14,3 +14,5 @@ export { ClaudeCliClient } from "./claude-cli.js";
 export type { ClaudeCliClientOptions } from "./claude-cli.js";
 export { LabProxyClient, toGatewayModel, LAB_PROXY_DEFAULT_GATEWAY_URL } from "./lab-proxy.js";
 export type { LabProxyClientOptions } from "./lab-proxy.js";
+export { GeminiClient } from "./gemini.js";
+export type { GeminiClientOptions } from "./gemini.js";

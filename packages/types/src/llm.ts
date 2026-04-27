@@ -53,7 +53,19 @@ export type LLMContentBlock =
   | { type: "text"; text: string }
   | { type: "thinking"; thinking: string; signature?: string }
   | { type: "redacted_thinking"; data: string }
-  | { type: "tool_use"; id: string; name: string; input: unknown }
+  | {
+      type: "tool_use";
+      id: string;
+      name: string;
+      input: unknown;
+      /**
+       * Phase 5 Day 7.1 — Gemini 3 thinking-tool calling parity.
+       * Optional opaque token returned by Gemini 3 thought-aware tool calls.
+       * Must be echoed back in subsequent turns for accurate continuation.
+       * Other providers ignore this field.
+       */
+      thoughtSignature?: string;
+    }
   | { type: "tool_result"; toolCallId: string; content: string; isError?: boolean }
   | { type: "image"; source: LLMImageSource };
 
