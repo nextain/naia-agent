@@ -169,6 +169,13 @@ export class ClaudeCliClient implements LLMClient {
       process.env["DISABLE_NON_ESSENTIAL_MODEL_CALLS"] ?? "1";
     // NOTE: ANTHROPIC_API_KEY / CLAUDECODE / LD_PRELOAD / LD_LIBRARY_PATH /
     // DYLD_* are NEVER added — implicit by allowlist construction.
+    //
+    // Cross-review (Phase 4.2 Paranoid P2 caveat) — additional excluded keys:
+    //   - NPM_*, NODE_OPTIONS (would inject Node flags if claude were
+    //     npm-invoked; mitigated by direct binary spawn)
+    //   - GIT_SSH_COMMAND, SSH_AUTH_SOCK (claude CLI does not need SSH)
+    //   - subprocess env inheritance via ptrace is possible if attacker
+    //     shares uid; mitigated at host level (HostContext trust model).
 
     const child = spawn(this.#binaryPath, args, {
       stdio: ["pipe", "pipe", "pipe"],
