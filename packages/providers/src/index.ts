@@ -12,3 +12,5 @@ export { OpenAICompatClient } from "./openai-compat.js";
 export type { OpenAICompatClientOptions } from "./openai-compat.js";
 export { ClaudeCliClient } from "./claude-cli.js";
 export type { ClaudeCliClientOptions } from "./claude-cli.js";
+export { LabProxyClient, toGatewayModel, LAB_PROXY_DEFAULT_GATEWAY_URL } from "./lab-proxy.js";
+export type { LabProxyClientOptions } from "./lab-proxy.js";
