@@ -16,3 +16,5 @@ export { LabProxyClient, toGatewayModel, LAB_PROXY_DEFAULT_GATEWAY_URL } from ".
 export type { LabProxyClientOptions } from "./lab-proxy.js";
 export { GeminiClient } from "./gemini.js";
 export type { GeminiClientOptions } from "./gemini.js";
+export { LabProxyLiveClient, LAB_PROXY_LIVE_DEFAULT_GATEWAY_WS_URL } from "./lab-proxy-live.js";
+export type { LabProxyLiveClientOptions } from "./lab-proxy-live.js";

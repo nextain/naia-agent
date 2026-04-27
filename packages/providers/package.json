@@ -55,6 +55,13 @@
         "default": "./dist/gemini.js"
       },
       "default": "./dist/gemini.js"
+    },
+    "./lab-proxy-live": {
+      "import": {
+        "types": "./dist/lab-proxy-live.d.ts",
+        "default": "./dist/lab-proxy-live.js"
+      },
+      "default": "./dist/lab-proxy-live.js"
     }
   },
   "sideEffects": false,
@@ -81,7 +88,8 @@
   "peerDependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
     "@anthropic-ai/vertex-sdk": "^0.16.0",
-    "@google/genai": "^1.42.0"
+    "@google/genai": "^1.42.0",
+    "ws": "^8.19.0"
   },
   "peerDependenciesMeta": {
     "@anthropic-ai/sdk": {
@@ -92,12 +100,17 @@
     },
     "@google/genai": {
       "optional": true
+    },
+    "ws": {
+      "optional": true
     }
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
     "@anthropic-ai/vertex-sdk": "^0.16.0",
     "@google/genai": "^1.42.0",
+    "@types/ws": "^8.18.1",
+    "ws": "^8.19.0",
     "vitest": "^3.2.4"
   }
 }
