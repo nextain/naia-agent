@@ -206,7 +206,10 @@ describe("LabProxyLiveClient integration - real WebSocket round-trip", () => {
   });
 
   // P0 fix (적대적 2차) — _allowInsecureForTest로 실제 round-trip 검증.
-  it("REAL round-trip: client connects, sends request, receives text + usage + end", async () => {
+  // NOTE (적대적 4차 조건): "REAL" = mock server round-trip (loopback ws://).
+  // 실제 Naia Lab Gateway (wss://naia-gateway-...) protocol 정합성은 별도 검증.
+  // 본 test는 client-side parsing + AsyncIterable 소비 + chunk 누적 logic 검증.
+  it("MOCK server round-trip: client connects, sends request, receives text + usage + end", async () => {
     const server = await startMockServer("stream");
     try {
       const client = new LabProxyLiveClient({
@@ -242,7 +245,7 @@ describe("LabProxyLiveClient integration - real WebSocket round-trip", () => {
     }
   });
 
-  it("REAL round-trip: error frame from server raises throw", async () => {
+  it("MOCK server: error frame from server raises throw", async () => {
     const server = await startMockServer("error");
     try {
       const client = new LabProxyLiveClient({
