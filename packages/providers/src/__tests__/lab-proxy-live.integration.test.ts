@@ -204,4 +204,77 @@ describe("LabProxyLiveClient integration - real WebSocket round-trip", () => {
       await server.close();
     }
   });
+
+  // P0 fix (적대적 2차) — _allowInsecureForTest로 실제 round-trip 검증.
+  it("REAL round-trip: client connects, sends request, receives text + usage + end", async () => {
+    const server = await startMockServer("stream");
+    try {
+      const client = new LabProxyLiveClient({
+        naiaKey: "test-key-realrt",
+        gatewayWsUrl: `ws://127.0.0.1:${server.port}/v1/live`,
+        defaultModel: "test-model",
+        connectTimeoutMs: 2000,
+        _allowInsecureForTest: true,
+      });
+      const chunks: Array<{ type: string; [k: string]: unknown }> = [];
+      for await (const chunk of client.stream({ messages: [{ role: "user", content: "hi" }] })) {
+        chunks.push(chunk as { type: string; [k: string]: unknown });
+      }
+      // Verify auth captured by mock server
+      expect(server.receivedAuthKey).toBe("test-key-realrt");
+      // Verify mock server received the initial request payload
+      expect(server.receivedMessages.length).toBeGreaterThan(0);
+      const initial = JSON.parse(server.receivedMessages[0]!) as { type: string; model: string };
+      expect(initial.type).toBe("request");
+      expect(initial.model).toBe("test-model");
+      // Verify chunk sequence: start → content_block_start → content_block_delta(s) → content_block_stop → end
+      const types = chunks.map((c) => c.type);
+      expect(types).toContain("start");
+      expect(types).toContain("content_block_delta");
+      expect(types[types.length - 1]).toBe("end");
+      // Verify accumulated text matches "Hello world" from mock stream scenario
+      const textDeltas = chunks
+        .filter((c) => c.type === "content_block_delta")
+        .map((c) => (c as { delta: { text?: string } }).delta.text ?? "");
+      expect(textDeltas.join("")).toBe("Hello world");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("REAL round-trip: error frame from server raises throw", async () => {
+    const server = await startMockServer("error");
+    try {
+      const client = new LabProxyLiveClient({
+        naiaKey: "test-key-err",
+        gatewayWsUrl: `ws://127.0.0.1:${server.port}/v1/live`,
+        defaultModel: "test-model",
+        connectTimeoutMs: 2000,
+        _allowInsecureForTest: true,
+      });
+      let caught: Error | null = null;
+      try {
+        for await (const _ of client.stream({ messages: [{ role: "user", content: "hi" }] })) {
+          // expected to throw
+        }
+      } catch (err) {
+        caught = err as Error;
+      }
+      expect(caught).not.toBeNull();
+      expect(caught?.message).toContain("gateway test error");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("_allowInsecureForTest blocks non-loopback ws:// (defense layered)", () => {
+    expect(
+      () =>
+        new LabProxyLiveClient({
+          naiaKey: "k",
+          gatewayWsUrl: "ws://example.com/insecure",
+          _allowInsecureForTest: true,
+        }),
+    ).toThrow(/loopback/);
+  });
 });

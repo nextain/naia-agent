@@ -43,6 +43,12 @@ export interface LabProxyLiveClientOptions {
   defaultModel?: string;
   /** Connection timeout (ms). Default 30s. */
   connectTimeoutMs?: number;
+  /**
+   * **TEST ONLY** — bypass WSS scheme guard. Used by integration tests with
+   * loopback ws:// mock server (no naiaKey actually transmitted in plaintext
+   * over network — loopback only). NEVER set in production.
+   */
+  _allowInsecureForTest?: boolean;
 }
 
 const DEFAULT_PROD_GATEWAY_WS_URL =
@@ -65,9 +71,15 @@ export class LabProxyLiveClient implements LLMClient {
   readonly #connectTimeoutMs: number;
 
   constructor(opts: LabProxyLiveClientOptions) {
-    if (!opts.gatewayWsUrl.startsWith("wss://")) {
+    const allowInsecure = opts._allowInsecureForTest === true;
+    if (!opts.gatewayWsUrl.startsWith("wss://") && !allowInsecure) {
       throw new Error(
         `LabProxyLiveClient: rejecting non-WSS gateway URL "${opts.gatewayWsUrl}" — naiaKey must only be sent over secure WebSocket.`,
+      );
+    }
+    if (allowInsecure && !opts.gatewayWsUrl.startsWith("ws://127.0.0.1:") && !opts.gatewayWsUrl.startsWith("ws://localhost:")) {
+      throw new Error(
+        `LabProxyLiveClient: _allowInsecureForTest only permits ws:// loopback (127.0.0.1 or localhost). Got: "${opts.gatewayWsUrl}".`,
       );
     }
     this.#naiaKey = opts.naiaKey;
