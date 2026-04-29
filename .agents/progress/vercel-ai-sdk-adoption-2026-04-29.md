@@ -1,10 +1,12 @@
 ---
 session_id: 4c96aad1-d830-44c7-bfcc-2d77c2dff50c
-phase: R5 (Vercel AI SDK 채택 정정)
-status: in_progress
+phase: R5 LOCKED (Vercel AI SDK 채택 정정)
+status: locked
 created: 2026-04-29
+locked: 2026-04-29
 matrix_id: D44
 supersedes: D23
+follow_up_progress: r5-cross-review-2026-04-29.md
 ---
 
 # Vercel AI SDK 채택 정정 — 2026-04-29

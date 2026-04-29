@@ -8,6 +8,79 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [Slice 5.x.6] — 2026-04-29 — Cross-review fixes (Tier A) + R5 lock (D44 §6)
+
+**3-perspective cross-review 결과 surgical fixes.** architect / reference-driven (vercel:ai-architect) / paranoid 3개 병렬 review → P0 5건 통합 + P1 일부 즉시 적용. types 확장 필요한 항목은 Tier B로 매트릭스 backlog (D45~D52 후보).
+
+### Cross-review verdict
+- architect: APPROVED_WITH_CONDITIONS (P0 3건)
+- reference-driven: APPROVED_WITH_RECOMMENDATIONS (P0 2건 — Vercel canonical 패턴 deviation)
+- paranoid: NEEDS_REVISION (P0 1건 + P1 5건)
+
+### Tier A — 본 commit 적용 (8건)
+1. **P0-1** dist/ 잔존 5 provider artifacts 정리 + `clean`/`rebuild` script (`packages/providers/package.json`). npm publish 시 deleted code 배포 위험 차단
+2. **P0-2** specificationVersion discriminant — `VercelClient.#spec` 필드 + `fromVercelFinishReason(reason, spec)` / `fromVercelUsage(usage, spec)` (이전 structural sniff 제거)
+3. **P0-3** README + 매트릭스 B21 정정 — `optionalDependencies` 5 default bundle + peer 분리 명시. "zero-runtime-dep 정신 보존" 주장 제거 (자동설치와 충돌)
+4. **P0-4** V2 Anthropic `cacheReadTokens` `inputTokenDetails` fallback. `@ai-sdk/anthropic@2.x`가 V2 spec의 `cachedInputTokens` 대신 `inputTokenDetails.cacheReadTokens` 사용 → 이전 cache hit silent 0
+5. **P0-5** `tool-call` aggregate fallback — id가 idToIndex에 없을 때 content_block_start + input_json_delta + content_block_stop trio synthesize. Bedrock 등 tool-input-* 안 emit하는 provider 도구 호출 silent 손실 방지
+6. **P1-C** `reader.cancel()` 추가 (`finally` block, before releaseLock). consumer early-exit 시 upstream HTTP/SSE 연결 leak 방지
+7. **P1-A** `fromV2*` → `fromVercel*` rename, legacy alias 보존 (5.x.7+에서 제거 예정)
+8. **P1-A/R-P1-3** `toolName: ""` JSDoc 정직 다운그레이드 — "Anthropic-only verified" 명시, Bedrock 등 strict-validate 위험 경고
+
+### Added (테스트 보강)
+- `vercel-client.test.ts` 11 신규:
+  - `fromVercelUsage` V2 explicit / V2 inputTokenDetails fallback (P0-4) / V2 양쪽 동시일 때 cachedInputTokens 우선 / V3 nested / V3 undefined zero
+  - `fromVercelFinishReason` V2 string / V3 `{unified}` object / undefined fallback
+  - `tool-call` aggregate fallback (P0-5) — id unknown 시 trio synthesize
+  - `tool-call` aggregate 중복 방지 — tool-input-* 이미 처리한 id는 drop
+  - `reader.cancel()` 호출 검증 (P1-C) — early-exit 시 cancel hook 호출
+
+### Tier B — 매트릭스 backlog (R5 범위 밖, R6 후보)
+LLMRequest/Response 타입 확장 또는 인프라 신규 작업이 필요한 항목 — `.agents/progress/r5-cross-review-2026-04-29.md` §3 inventory:
+
+| 후보 ID | 항목 | 우선순위 |
+|---|---|---|
+| D45 | `LLMRequest.providerOptions` round-trip (Vercel canonical) | P1 |
+| D46 | `LLMRequest.toolChoice` | P1 |
+| D47 | `LLMResponse.provider` 50+ provider observability | P1 |
+| D48 | error part throw 시 `end` chunk yield 계약 | P1 |
+| D49 | adapter-level Vercel SDK shape fixture (F11 v3) | P1 |
+| D50 | V4+ strict mode opt-in | P2 |
+| D51 | `optionalDependencies` exact pin + `onlyBuiltDependencies` 가드 | P2 |
+| D52 | top-level system 다중 메시지 (Anthropic cache_control) | P2 |
+
+기존 reserved D45 (RunPod naia-anyllm gateway 통합) → **D53으로 이동**.
+
+### 의도적 미적용
+- `safeParseJson` → `@ai-sdk/provider-utils parseJSON` 교체 (R-P1-5): provider-utils가 transitive hoisted 상태이지만 직접 의존 명시는 현 peer dep 정책과 충돌. Tier B (D49와 함께 묶음)로 이연
+
+### 회귀
+- **459 PASS** (이전 448 + 11 신규)
+  - protocol 73 / observability 17 / providers **53 (36 unit + 11 lab-proxy + 6 cross-provider)** / verification 20 / runtime 160 / workspace 16 / adapter-opencode-cli 15 / adapter-shell 13 / adapter-opencode-acp 8 / cli-app 84
+- 0 회귀 (active code path 모두 통과)
+- TypeScript build 통과 (`pnpm build` ok)
+- smoke `pnpm smoke:vercel-anthropic` dry-run pass
+
+### Slice 5.x.6 success criterion
+- ✅ S01 새 명령 — `pnpm -F @nextain/agent-providers rebuild` (clean + build, dist/ 위생 보장)
+- ✅ S02 단위 테스트 — 11 신규 (Tier A 모든 코드 변경에 회귀 방지 테스트)
+- ✅ S03 통합 검증 — 6 cross-provider integration test (이전 slice) 회귀 + dry-run smoke
+- ✅ S04 본 entry + `r5-cross-review-2026-04-29.md` progress 파일 신설
+
+### 매트릭스 ID 인용
+- `fix(providers): R5 cross-review Tier A surgical fixes — fixes D44 §6`
+
+### R5 lock
+본 commit으로 R5 (Vercel AI SDK adoption) **lock**:
+- ✅ 5.x.0 docs lock (`98a81df`)
+- ✅ 5.x.1 VercelClient MVP (`c153a6d`)
+- ✅ 5.x.2 AnthropicClient deprecate (`c18678a`)
+- ✅ 5.x.3 Gemini/OpenAICompat/Vertex deprecate (`8f09905`)
+- ✅ 5.x.4 자체 5개 제거 + V2/V3 + 자동설치 + cross-platform (`e566e6e`)
+- ✅ 5.x.6 cross-review fixes (본 commit)
+
+R6 후보 = Tier B 8건 + D53 RunPod (사용자 directive 별도 논의 항목)
+
 ## [Slice 5.x.4] — 2026-04-29 — 자체 5개 provider 제거 + 자동설치 + V2/V3 호환 + 크로스플랫폼 (D44 §4-5)
 
 **사용자 directive 통합 cleanup.** 5.x.4 (claude-cli deprecate) + 5.x.5 (5개 일괄 제거 + cleanup) 통합 진행. 추가로 Vercel SDK 생태계 V2/V3 spec 혼재 발견 → adapter dual-version 호환 보강. 자동설치 의존성 + cross-platform 가이드 정리.

@@ -89,9 +89,11 @@ type V2OrV3FinishReason = LanguageModelV2FinishReason | LanguageModelV3FinishRea
 type V2OrV3Usage = LanguageModelV2Usage | LanguageModelV3Usage;
 type V2OrV3StreamPart = LanguageModelV2StreamPart | LanguageModelV3StreamPart;
 type V2OrV3Content = LanguageModelV2Content | LanguageModelV3Content;
+type SpecVersion = "v2" | "v3";
 
 export class VercelClient implements LLMClient {
   readonly #model: LanguageModelV2OrV3;
+  readonly #spec: SpecVersion;
   readonly #defaultMaxTokens: number;
   readonly #logger: Logger | undefined;
 
@@ -103,6 +105,11 @@ export class VercelClient implements LLMClient {
       );
     }
     this.#model = model;
+    // Pin spec at construction (5.x.6 cross-review P0-2). Helpers receive
+    // this discriminant explicitly instead of structural sniffing on every
+    // chunk — prevents silent token miscount if a wrapper proxies a V3
+    // shape under "v2" specificationVersion.
+    this.#spec = spec;
     this.#defaultMaxTokens = options.defaultMaxTokens ?? 8192;
     this.#logger = options.logger;
   }
@@ -139,9 +146,9 @@ export class VercelClient implements LLMClient {
       const out: LLMResponse = {
         id: result.response?.id ?? `vercel-${randomId()}`,
         model: result.response?.modelId ?? this.#model.modelId,
-        content: fromV2Content(result.content),
-        stopReason: fromV2FinishReason(result.finishReason),
-        usage: fromV2Usage(result.usage),
+        content: fromVercelContent(result.content),
+        stopReason: fromVercelFinishReason(result.finishReason, this.#spec),
+        usage: fromVercelUsage(result.usage, this.#spec),
       };
       fn?.exit({
         stopReason: out.stopReason,
@@ -205,12 +212,40 @@ export class VercelClient implements LLMClient {
           yield { type: "start", id: messageId, model };
         }
 
-        const chunk = toLLMStreamChunk(part, indexFor);
-        if (chunk !== undefined) yield chunk;
+        // 5.x.6 cross-review P0-5: tool-call aggregate fallback. Some
+        // providers (Bedrock, certain openai-compatible servers) emit a
+        // single `tool-call` part without preceding tool-input-* deltas.
+        // If the id was never seen via tool-input-start, synthesize the
+        // full content_block_* trio so the tool call isn't silently lost.
+        if (part.type === "tool-call" && !idToIndex.has(part.toolCallId)) {
+          const idx = indexFor(part.toolCallId);
+          yield {
+            type: "content_block_start",
+            index: idx,
+            block: {
+              type: "tool_use",
+              id: part.toolCallId,
+              name: part.toolName,
+              input: {},
+            },
+          };
+          yield {
+            type: "content_block_delta",
+            index: idx,
+            delta: {
+              type: "input_json_delta",
+              partialJson: typeof part.input === "string" ? part.input : "",
+            },
+          };
+          yield { type: "content_block_stop", index: idx };
+        } else {
+          const chunk = toLLMStreamChunk(part, indexFor);
+          if (chunk !== undefined) yield chunk;
+        }
 
         if (part.type === "finish") {
-          stopReason = fromV2FinishReason(part.finishReason);
-          usage = fromV2Usage(part.usage);
+          stopReason = fromVercelFinishReason(part.finishReason, this.#spec);
+          usage = fromVercelUsage(part.usage, this.#spec);
         } else if (part.type === "error") {
           throw part.error instanceof Error
             ? part.error
@@ -218,10 +253,22 @@ export class VercelClient implements LLMClient {
         }
       }
     } finally {
+      // 5.x.6 cross-review P1-C: cancel() upstream so the provider's
+      // ReadableStream releases HTTP/SSE connection on early consumer exit
+      // (e.g. break out of `for await`). releaseLock alone leaks.
+      try {
+        await reader.cancel();
+      } catch {
+        // cancel() is idempotent / best-effort; some streams reject after
+        // they've already finished. Ignore — releaseLock still runs below.
+      }
       reader.releaseLock();
     }
 
     // Always close with an end chunk, even if the upstream omitted finish.
+    // NOTE: this end chunk is NOT emitted on the throw path above (V2/V3
+    // stream `error` part). Consumers that depend on always seeing `end`
+    // must wrap their iteration in try/finally. See README "Contract".
     yield { type: "end", stopReason, usage };
   }
 
@@ -269,8 +316,11 @@ function toV2Message(msg: LLMMessage): LanguageModelV2Message {
     // Tool messages: each block must be a tool-result. If `content` is a
     // string, wrap as a single tool-result with text output and the
     // message-level toolCallId. toolName is required by V2 but not always
-    // tracked in our LLMMessage shape; "" is accepted by all known
-    // providers that match on toolCallId (Anthropic / OpenAI-compat).
+    // tracked in our LLMMessage shape; "" is **only verified safe with
+    // Anthropic** (matches on toolCallId) — Bedrock and some openai-
+    // compatible servers may strict-validate toolName non-empty and
+    // 400. Tracked as Tier B (D45-candidate) follow-up: thread toolName
+    // through LLMMessage or maintain a per-session toolCallId→toolName map.
     if (typeof msg.content === "string") {
       return {
         role: "tool",
@@ -398,6 +448,14 @@ function toV2Tool(tool: ToolDefinition): LanguageModelV2FunctionTool {
 }
 
 // ─── V2/V3 result → LLMResponse helpers ─────────────────────────────────
+//
+// 5.x.6 cross-review P1-1 (architect): renamed from `fromV2*` to
+// `fromVercel*` since both V2 and V3 are handled. The `fromV2*` legacy
+// aliases below are kept exported for backward compatibility within
+// 5.x; remove in 5.x.7+.
+// 5.x.6 cross-review P0-2 (architect): finishReason / usage helpers now
+// take an explicit `spec: SpecVersion` discriminant instead of structural
+// sniffing — pinned at construction by VercelClient.#spec.
 
 /**
  * Convert V2 or V3 content array to LLMContentBlock[]. Both spec versions
@@ -405,7 +463,7 @@ function toV2Tool(tool: ToolDefinition): LanguageModelV2FunctionTool {
  * source / tool-result), so a single switch handles both shapes — the
  * differences are confined to providerMetadata fields we don't consume.
  */
-export function fromV2Content(
+export function fromVercelContent(
   content: readonly V2OrV3Content[],
 ): LLMContentBlock[] {
   const out: LLMContentBlock[] = [];
@@ -455,16 +513,24 @@ export function fromV2Content(
  * | 'other' | 'unknown'`. V3 wraps the same vocabulary (minus 'unknown')
  * inside `unified`. Either way the unified token vocabulary maps 1:1 to
  * our StopReason union.
+ *
+ * `spec` is the discriminant pinned at VercelClient construction; passing
+ * it explicitly avoids structural sniffing per chunk.
  */
-export function fromV2FinishReason(
+export function fromVercelFinishReason(
   reason: V2OrV3FinishReason | undefined,
+  spec: SpecVersion,
 ): StopReason {
   if (reason === undefined) return "end_turn";
   // V3: extract `.unified` field; V2: pass through string.
+  // (Defensive: if the spec discriminant disagrees with the runtime
+  // shape, prefer the runtime — a wrapper that lies about specVersion
+  // shouldn't crash here.)
   const token =
-    typeof reason === "string"
-      ? reason
-      : (reason as { unified?: string }).unified;
+    spec === "v3" || typeof reason !== "string"
+      ? (reason as { unified?: string }).unified ??
+        (typeof reason === "string" ? reason : undefined)
+      : reason;
   switch (token) {
     case "stop":
       return "end_turn";
@@ -481,23 +547,29 @@ export function fromV2FinishReason(
 }
 
 /**
- * Flatten V2 (already flat) and V3 (nested `inputTokens.{total,cacheRead}`)
- * usage shapes to LLMUsage.
+ * Flatten V2 (flat) and V3 (nested) usage shapes to LLMUsage.
+ *
+ * V2 spec: `{ inputTokens, outputTokens, totalTokens, cachedInputTokens? }`.
+ * However `@ai-sdk/anthropic@2.x` does NOT populate `cachedInputTokens`
+ * directly — it sets `inputTokenDetails.{cacheReadTokens, cacheWriteTokens}`.
+ * We read both forms (V2 cross-review P0-4).
+ *
+ * V3 spec: `{ inputTokens: { total, cacheRead, cacheWrite }, outputTokens: { total, ... } }`.
+ *
+ * `spec` is the discriminant pinned at construction; we still defensively
+ * accept the other shape if the wrapper lies about specVersion.
  */
-export function fromV2Usage(usage: V2OrV3Usage): LLMUsage {
-  // V3 detection via nested `inputTokens` object shape.
-  const inT = (usage as { inputTokens?: unknown }).inputTokens;
-  if (inT !== null && typeof inT === "object") {
-    // V3 nested shape.
+export function fromVercelUsage(usage: V2OrV3Usage, spec: SpecVersion): LLMUsage {
+  if (spec === "v3") {
     const v3 = usage as LanguageModelV3Usage;
     const out: LLMUsage = {
-      inputTokens: v3.inputTokens.total ?? 0,
-      outputTokens: v3.outputTokens.total ?? 0,
+      inputTokens: v3.inputTokens?.total ?? 0,
+      outputTokens: v3.outputTokens?.total ?? 0,
     };
-    if (v3.inputTokens.cacheRead != null) {
+    if (v3.inputTokens?.cacheRead != null) {
       out.cacheReadTokens = v3.inputTokens.cacheRead;
     }
-    if (v3.inputTokens.cacheWrite != null) {
+    if (v3.inputTokens?.cacheWrite != null) {
       out.cacheWriteTokens = v3.inputTokens.cacheWrite;
     }
     return out;
@@ -508,10 +580,38 @@ export function fromV2Usage(usage: V2OrV3Usage): LLMUsage {
     inputTokens: v2.inputTokens ?? 0,
     outputTokens: v2.outputTokens ?? 0,
   };
+  // V2 spec puts cache info in `cachedInputTokens`, but @ai-sdk/anthropic@2.x
+  // populates `inputTokenDetails.{cacheReadTokens, cacheWriteTokens}` instead.
+  // Read both forms (P0-4).
   if (v2.cachedInputTokens != null) {
     out.cacheReadTokens = v2.cachedInputTokens;
   }
+  const details = (v2 as { inputTokenDetails?: { cacheReadTokens?: number; cacheWriteTokens?: number } }).inputTokenDetails;
+  if (details) {
+    if (details.cacheReadTokens != null && out.cacheReadTokens === undefined) {
+      out.cacheReadTokens = details.cacheReadTokens;
+    }
+    if (details.cacheWriteTokens != null) {
+      out.cacheWriteTokens = details.cacheWriteTokens;
+    }
+  }
   return out;
+}
+
+// Legacy aliases (5.x.6 cross-review P1-1). Remove in 5.x.7+.
+/** @deprecated Use {@link fromVercelContent}. */
+export const fromV2Content = fromVercelContent;
+/** @deprecated Use {@link fromVercelFinishReason} with explicit spec. */
+export function fromV2FinishReason(reason: V2OrV3FinishReason | undefined): StopReason {
+  // Best-effort spec inference for legacy callers: V3 has object-typed
+  // reason; V2 has string. This matches pre-cross-review behavior.
+  return fromVercelFinishReason(reason, typeof reason === "object" && reason !== null ? "v3" : "v2");
+}
+/** @deprecated Use {@link fromVercelUsage} with explicit spec. */
+export function fromV2Usage(usage: V2OrV3Usage): LLMUsage {
+  // Legacy structural sniff for backward compat. New callers must pass spec.
+  const inT = (usage as { inputTokens?: unknown }).inputTokens;
+  return fromVercelUsage(usage, inT !== null && typeof inT === "object" ? "v3" : "v2");
 }
 
 // ─── Stream-part conversion ─────────────────────────────────────────────

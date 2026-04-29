@@ -51,7 +51,9 @@
     "access": "public"
   },
   "scripts": {
+    "clean": "rm -rf dist tsconfig.tsbuildinfo",
     "build": "tsc -b",
+    "rebuild": "pnpm run clean && pnpm run build",
     "test": "vitest run"
   },
   "dependencies": {

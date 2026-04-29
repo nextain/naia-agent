@@ -17,20 +17,33 @@ accepts both. Spec V4+ would require an adapter rewrite (surfaced via the
 
 ### Installation
 
-For workspace consumers, the most common Vercel providers are already
-installed automatically (see root `package.json` `dependencies`):
+The package uses a **two-tier dependency model** (5.x.6 cross-review P0-3
+clarified):
 
-```
-ai
-@ai-sdk/anthropic
-@ai-sdk/openai-compatible
-@ai-sdk/google
-zhipu-ai-provider
-ai-sdk-provider-claude-code
-```
+1. **Auto-installed default bundle** (`optionalDependencies` in this
+   package, mirrored as `dependencies` at the workspace root for
+   convenience). `pnpm add @nextain/agent-providers` will best-effort
+   install these — failure on platforms where one is unavailable is
+   tolerated:
+   - `@ai-sdk/anthropic` — Anthropic API
+   - `@ai-sdk/google` — Google Gemini
+   - `@ai-sdk/openai-compatible` — vLLM / vllm-omni / LM Studio / Ollama / OpenRouter / etc.
+   - `zhipu-ai-provider` — Z.ai coding plan / Zhipu GLM
+   - `ai-sdk-provider-claude-code` — Claude Pro/Max subscription
 
-For external library consumers (after `pnpm add @nextain/agent-providers`),
-the Vercel SDK is a peer dependency — install whichever providers you need:
+2. **Peer dependencies** (host **must** install — version pin authority):
+   - `ai` (Vercel core)
+   - `@ai-sdk/provider` (type imports)
+   - `ws` (only if using `LabProxyLiveClient`)
+
+The B21 matrix entry was demoted because the Vercel SDK 50-provider sprawl
+concern is mitigated: this package auto-installs only a 5-provider default
+bundle (everything else stays opt-in), and the host pins the core
+versions. See `.agents/progress/ref-adoption-matrix.md` B21/D44 for the
+full rationale.
+
+For external library consumers needing additional providers beyond the
+default bundle, install them as peers:
 
 ```bash
 # Direct API key path (always-available providers)

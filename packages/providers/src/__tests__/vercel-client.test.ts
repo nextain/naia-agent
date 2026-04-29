@@ -30,6 +30,8 @@ import {
   fromV2Content,
   fromV2FinishReason,
   fromV2Usage,
+  fromVercelFinishReason,
+  fromVercelUsage,
   toV2Prompt,
 } from "../vercel-client.js";
 
@@ -292,7 +294,7 @@ describe("fromV2FinishReason", () => {
   });
 });
 
-describe("fromV2Usage", () => {
+describe("fromV2Usage (legacy auto-sniff alias)", () => {
   it("flattens cachedInputTokens to cacheReadTokens", () => {
     const out = fromV2Usage({
       inputTokens: 10,
@@ -314,6 +316,118 @@ describe("fromV2Usage", () => {
       totalTokens: undefined,
     });
     expect(out).toEqual({ inputTokens: 0, outputTokens: 0 });
+  });
+});
+
+describe("fromVercelUsage (5.x.6 P0-2 + P0-4 fixes)", () => {
+  it("V2 spec: explicit cachedInputTokens path", () => {
+    const out = fromVercelUsage(
+      {
+        inputTokens: 10,
+        outputTokens: 20,
+        totalTokens: 30,
+        cachedInputTokens: 4,
+      },
+      "v2",
+    );
+    expect(out).toEqual({
+      inputTokens: 10,
+      outputTokens: 20,
+      cacheReadTokens: 4,
+    });
+  });
+
+  it("V2 spec: @ai-sdk/anthropic@2.x inputTokenDetails fallback (P0-4)", () => {
+    // Real-world @ai-sdk/anthropic@2.x shape — populates inputTokenDetails
+    // even though V2 spec advertises cachedInputTokens. Without P0-4 fix
+    // the cache hit silently returned 0 tokens read.
+    const out = fromVercelUsage(
+      {
+        inputTokens: 10,
+        outputTokens: 20,
+        totalTokens: 30,
+        // intentionally no top-level cachedInputTokens
+        // @ts-expect-error inputTokenDetails not in @ai-sdk/provider@2.0.1 type
+        // surface but real Anthropic provider populates it.
+        inputTokenDetails: { cacheReadTokens: 7, cacheWriteTokens: 3 },
+      },
+      "v2",
+    );
+    expect(out).toEqual({
+      inputTokens: 10,
+      outputTokens: 20,
+      cacheReadTokens: 7,
+      cacheWriteTokens: 3,
+    });
+  });
+
+  it("V2 spec: cachedInputTokens preferred over inputTokenDetails when both present", () => {
+    const out = fromVercelUsage(
+      {
+        inputTokens: 10,
+        outputTokens: 20,
+        totalTokens: 30,
+        cachedInputTokens: 4,
+        // @ts-expect-error real-world shape, see P0-4 comment.
+        inputTokenDetails: { cacheReadTokens: 7 },
+      },
+      "v2",
+    );
+    expect(out.cacheReadTokens).toBe(4);
+  });
+
+  it("V3 spec: nested inputTokens.{total,cacheRead,cacheWrite}", () => {
+    const out = fromVercelUsage(
+      {
+        inputTokens: { total: 10, noCache: 6, cacheRead: 4, cacheWrite: 2 },
+        outputTokens: { total: 20, text: 18, reasoning: 2 },
+      },
+      "v3",
+    );
+    expect(out).toEqual({
+      inputTokens: 10,
+      outputTokens: 20,
+      cacheReadTokens: 4,
+      cacheWriteTokens: 2,
+    });
+  });
+
+  it("V3 spec: zeros undefined nested token totals", () => {
+    const out = fromVercelUsage(
+      {
+        inputTokens: { total: undefined, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+        outputTokens: { total: undefined, text: undefined, reasoning: undefined },
+      },
+      "v3",
+    );
+    expect(out).toEqual({ inputTokens: 0, outputTokens: 0 });
+  });
+});
+
+describe("fromVercelFinishReason (5.x.6 P0-2 fix)", () => {
+  it("V2 spec: plain string token", () => {
+    expect(fromVercelFinishReason("tool-calls", "v2")).toBe("tool_use");
+    expect(fromVercelFinishReason("stop", "v2")).toBe("end_turn");
+    expect(fromVercelFinishReason("length", "v2")).toBe("max_tokens");
+    expect(fromVercelFinishReason("content-filter", "v2")).toBe("refusal");
+  });
+
+  it("V3 spec: {unified, raw} object", () => {
+    expect(
+      fromVercelFinishReason({ unified: "tool-calls", raw: "tool_use" }, "v3"),
+    ).toBe("tool_use");
+    expect(fromVercelFinishReason({ unified: "stop", raw: "end_turn" }, "v3")).toBe(
+      "end_turn",
+    );
+  });
+
+  it("undefined or unknown → end_turn fallback", () => {
+    expect(fromVercelFinishReason(undefined, "v2")).toBe("end_turn");
+    expect(fromVercelFinishReason(undefined, "v3")).toBe("end_turn");
+    expect(fromVercelFinishReason("error", "v2")).toBe("end_turn");
+    expect(
+      fromVercelFinishReason({ unified: "error", raw: "x" }, "v3"),
+    ).toBe("end_turn");
   });
 });
 
@@ -566,5 +680,121 @@ describe("VercelClient.stream", () => {
       stopReason: "end_turn",
       usage: { inputTokens: 0, outputTokens: 0 },
     });
+  });
+
+  it("synthesizes content_block_* trio for `tool-call` aggregate without preceding tool-input-* (5.x.6 P0-5)", async () => {
+    // Bedrock and certain openai-compatible servers emit a single
+    // resolved `tool-call` part instead of progressive tool-input-*
+    // deltas. Without P0-5 fix, the tool call is silently dropped.
+    const client = new VercelClient(
+      mockModel({
+        streamParts: [
+          {
+            type: "tool-call",
+            toolCallId: "tu_solo",
+            toolName: "calc",
+            input: '{"a":1,"b":2}',
+          },
+          {
+            type: "finish",
+            usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+            finishReason: "tool-calls",
+          },
+        ],
+      }),
+    );
+    const chunks = await collect(
+      client.stream({ messages: [{ role: "user", content: "hi" }] }),
+    );
+    const start = chunks.find((c) => c.type === "content_block_start");
+    expect(start).toMatchObject({
+      block: { type: "tool_use", id: "tu_solo", name: "calc", input: {} },
+    });
+    const delta = chunks.find(
+      (c) =>
+        c.type === "content_block_delta" &&
+        c.delta.type === "input_json_delta",
+    );
+    expect(delta).toMatchObject({
+      delta: { type: "input_json_delta", partialJson: '{"a":1,"b":2}' },
+    });
+    const stop = chunks.find((c) => c.type === "content_block_stop");
+    expect(stop).toBeDefined();
+    expect(chunks[chunks.length - 1]).toMatchObject({
+      type: "end",
+      stopReason: "tool_use",
+    });
+  });
+
+  it("does NOT duplicate `tool-call` aggregate when tool-input-* already emitted same id", async () => {
+    // Anthropic/streaming-friendly path: tool-input-start/delta/end have
+    // already covered the call. tool-call aggregate must drop, not re-emit.
+    const client = new VercelClient(
+      mockModel({
+        streamParts: [
+          { type: "tool-input-start", id: "tu_dup", toolName: "calc" },
+          { type: "tool-input-delta", id: "tu_dup", delta: '{"a":' },
+          { type: "tool-input-delta", id: "tu_dup", delta: "1}" },
+          { type: "tool-input-end", id: "tu_dup" },
+          {
+            type: "tool-call",
+            toolCallId: "tu_dup",
+            toolName: "calc",
+            input: '{"a":1}',
+          },
+          {
+            type: "finish",
+            usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+            finishReason: "tool-calls",
+          },
+        ],
+      }),
+    );
+    const chunks = await collect(
+      client.stream({ messages: [{ role: "user", content: "hi" }] }),
+    );
+    const starts = chunks.filter((c) => c.type === "content_block_start");
+    expect(starts).toHaveLength(1);
+    const stops = chunks.filter((c) => c.type === "content_block_stop");
+    expect(stops).toHaveLength(1);
+  });
+
+  it("calls reader.cancel() when consumer breaks out of `for await` (5.x.6 P1-C)", async () => {
+    let cancelled = false;
+    const cancellableStream = new ReadableStream({
+      start(controller) {
+        controller.enqueue({ type: "text-start", id: "t1" } as never);
+        controller.enqueue({
+          type: "text-delta",
+          id: "t1",
+          delta: "hi",
+        } as never);
+        // Don't close — simulate long-running stream.
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const model: never = {
+      specificationVersion: "v2",
+      provider: "mock.test",
+      modelId: "mock-cancel",
+      supportedUrls: {},
+      doGenerate: async () => ({}),
+      doStream: async () => ({ stream: cancellableStream }),
+    } as never;
+    const client = new VercelClient(model);
+
+    let yieldCount = 0;
+    for await (const _ of client.stream({
+      messages: [{ role: "user", content: "hi" }],
+    })) {
+      yieldCount++;
+      if (yieldCount >= 2) break; // early exit
+    }
+
+    // Allow microtask queue to drain so the generator's finally runs.
+    await new Promise((r) => setTimeout(r, 5));
+    expect(cancelled).toBe(true);
   });
 });
