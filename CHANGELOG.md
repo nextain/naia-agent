@@ -8,6 +8,57 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [Slice 5.x.1] — 2026-04-29 — VercelClient adapter MVP (D44 §1)
+
+**Vercel AI SDK 첫 코드 진입.** `LanguageModelV2` → `LLMClient` 어댑터 1개로 50+ provider 즉시 호환 가능 상태로 전환. 기존 5개 자체 provider (anthropic / anthropic-vertex / gemini / openai-compat / claude-cli)는 후속 슬라이스에서 deprecate.
+
+### Added
+- `packages/providers/src/vercel-client.ts` — `VercelClient` 어댑터 + 순수 변환 헬퍼 (`toV2Prompt` / `fromV2Content` / `fromV2FinishReason` / `fromV2Usage`) export
+- `packages/providers/src/__tests__/vercel-client.test.ts` — 25 unit (bidirectional 변환 모두 커버: system / user / assistant / tool 메시지 / tool_use / thinking / image base64 / 각 V2 finishReason / cachedInputTokens / stream id→index / reasoning / response-metadata 우선 / error 부분 / finish 누락 fallback)
+- `scripts/smoke-vercel-anthropic.ts` — dry-run + live 양 path
+- `package.json` `smoke:vercel-anthropic` script
+- `packages/providers/package.json` exports `./vercel` 추가
+- `packages/providers/package.json` peer dep + devDep: `ai@^6` / `@ai-sdk/anthropic@^2` / `@ai-sdk/provider@^3` (모두 optional peer dep — host가 필요한 것만 install, B21 격하 근거)
+- 루트 `package.json` devDep: `ai@^6` / `@ai-sdk/anthropic@^2` (smoke script가 root에서 실행 가능하도록)
+
+### 어댑터 design (LLMClient SSE shape 정합)
+- V2 string `id` → 우리 numeric `index` 매핑 (Map, auto-increment) — Anthropic-style content_block_* 보존
+- V2 stream-part 흡수: text-start/delta/end, reasoning-start/delta/end, tool-input-start/delta/end, finish, error, response-metadata, stream-start
+- 알 수 없는 part (file/source/raw/tool-call aggregate) drop — LLMContentBlock "unknown 변종은 어댑터 경계에서 drop" 정책
+- 합성 start chunk 지연 emit — response-metadata id/modelId 받은 후 emit (없으면 random id + constructor modelId 사용)
+- finish 누락 시도 end chunk 항상 발행 (우리 SSE 계약 보장)
+- error part → throw (caller에서 catch)
+
+### Slice 5.x.1 success criterion
+- ✅ S01 새 명령 — `pnpm smoke:vercel-anthropic` (dry-run 즉시, live는 ANTHROPIC_API_KEY 있을 때 opt-in)
+- ✅ S02 단위 테스트 — 25 신규 (vercel-client.test.ts)
+- ✅ S03 통합 검증 — mock `LanguageModelV2` 가 실제 V2 stream-part shape를 emit하는 형태로 25 테스트가 통합 변환 round-trip 검증. 실 Anthropic 호출 검증은 ANTHROPIC_API_KEY opt-in (G15 fixture-only-default 강제 + key는 사용자 환경)
+- ✅ S04 본 entry
+
+### 회귀
+- **460 PASS** (이전 435 + 25 신규)
+  - protocol 73 / observability 17 / providers **54 (29 + 25 신규)** / verification 20 / runtime 160 / workspace 16 / adapter-opencode-cli 15 / adapter-shell 13 / adapter-opencode-acp 8 / cli-app 84
+- 0 회귀
+
+### 매트릭스 ID 인용
+- `feat(providers): VercelClient adapter MVP — fixes D44 §1`
+
+### F09 (cleanroom 단독 의존 금지) 준수
+- Vercel AI SDK는 Apache 2.0 + 23.5K stars + 활발한 maintenance. cleanroom 출처 0건. OWASP/RFC 출처 cross-reference 면제 (cleanroom 영역 무관)
+
+### F11 (Anthropic SDK minor bump fixture re-record) — 5.x.2로 이연
+- 본 5.x.1은 **신규 어댑터 추가**만 — 기존 `anthropic.ts` + `__fixtures__/anthropic-1turn.json` 변경 없음
+- F11 강제는 **5.x.2 (자체 anthropic.ts deprecate → Vercel-backed)** 시점에 적용. fixture re-record + StreamPlayer 재생 검증 동시 수행
+
+### 보존 (변경 없음)
+- 기존 7 provider 모두 그대로 유지 (deprecate는 후속 slice)
+- bin / examples / runtime / 250 PASS R3 baseline 무관
+
+### 다음 단계 (Slice 5.x.2 예정)
+- 자체 `anthropic.ts` deprecate → 호스트 측에서 `VercelClient + createAnthropic(...)` 우선
+- `__fixtures__/anthropic-1turn.json` Vercel-backed로 재녹화 (F11)
+- `scripts/smoke-anthropic.ts`는 deprecate 직전 마지막 commit에서 제거
+
 ## [Slice 5.x.0] — 2026-04-29 — D44 lock: Vercel AI SDK 채택 정정 (D23 supersede)
 
 **Decision-only commit (docs).** R4에서 lock된 D23 ("Vercel AI SDK 보류")이 사용자 원래 의사 ("로컬은 Vercel로 50+ provider 즉시 확보")와 정반대로 silent drift된 것을 정정. D44 (Vercel AI SDK 로컬 LLM 단일 abstraction 채택, peer-dep 패턴) 신규 lock.

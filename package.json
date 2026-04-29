@@ -15,6 +15,7 @@
     "sync:harness": "bash scripts/sync-harness-mirrors.sh",
     "naia-agent": "tsx bin/naia-agent.ts",
     "smoke:anthropic": "tsx scripts/smoke-anthropic.ts",
+    "smoke:vercel-anthropic": "tsx scripts/smoke-vercel-anthropic.ts",
     "smoke:agent": "tsx examples/minimal-host.ts",
     "smoke:compaction": "tsx examples/compaction-host.ts",
     "smoke:naia-memory": "tsx examples/naia-memory-host.ts",
@@ -26,8 +27,10 @@
     "smoke:opencode": "tsx scripts/smoke-opencode.ts"
   },
   "devDependencies": {
+    "@ai-sdk/anthropic": "^2.0.0",
     "@anthropic-ai/sdk": "^0.39.0",
     "@anthropic-ai/vertex-sdk": "^0.16.0",
+    "ai": "^6.0.0",
     "@nextain/agent-adapter-opencode-acp": "workspace:*",
     "@nextain/agent-adapter-opencode-cli": "workspace:*",
     "@nextain/agent-adapter-shell": "workspace:*",

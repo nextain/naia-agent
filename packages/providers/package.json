@@ -62,6 +62,13 @@
         "default": "./dist/lab-proxy-live.js"
       },
       "default": "./dist/lab-proxy-live.js"
+    },
+    "./vercel": {
+      "import": {
+        "types": "./dist/vercel-client.d.ts",
+        "default": "./dist/vercel-client.js"
+      },
+      "default": "./dist/vercel-client.js"
     }
   },
   "sideEffects": false,
@@ -86,12 +93,21 @@
     "@nextain/agent-types": "workspace:*"
   },
   "peerDependencies": {
+    "@ai-sdk/anthropic": "^2.0.0",
+    "@ai-sdk/provider": "^3.0.0",
     "@anthropic-ai/sdk": "^0.39.0",
     "@anthropic-ai/vertex-sdk": "^0.16.0",
     "@google/genai": "^1.42.0",
+    "ai": "^6.0.0",
     "ws": "^8.19.0"
   },
   "peerDependenciesMeta": {
+    "@ai-sdk/anthropic": {
+      "optional": true
+    },
+    "@ai-sdk/provider": {
+      "optional": true
+    },
     "@anthropic-ai/sdk": {
       "optional": true
     },
@@ -101,15 +117,21 @@
     "@google/genai": {
       "optional": true
     },
+    "ai": {
+      "optional": true
+    },
     "ws": {
       "optional": true
     }
   },
   "devDependencies": {
+    "@ai-sdk/anthropic": "^2.0.0",
+    "@ai-sdk/provider": "^3.0.0",
     "@anthropic-ai/sdk": "^0.39.0",
     "@anthropic-ai/vertex-sdk": "^0.16.0",
     "@google/genai": "^1.42.0",
     "@types/ws": "^8.18.1",
+    "ai": "^6.0.0",
     "ws": "^8.19.0",
     "vitest": "^3.2.4"
   }

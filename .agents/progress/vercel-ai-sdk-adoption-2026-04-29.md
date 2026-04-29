@@ -105,32 +105,40 @@ naia-agent core/runtime  ← LLMClient interface로만 인지
 - ✅ 본 progress 파일 신설 + session_id 바인딩
 - (S01~S04 면제: matrix_id_citation 룰의 "매트릭스 외 영역(docs, infra)" 면제 항목)
 
-### 5.x.1 — `VercelClient` adapter MVP
+### 5.x.1 — `VercelClient` adapter MVP ✅ 완료 (commit 다음)
 
 **핵심 작업**: `LanguageModelV2` → `LLMClient` 변환 어댑터 구현. Vercel SDK 1개 model로 우선 검증.
 
-| 항목 | 상세 |
+| 항목 | 결과 |
 |---|---|
-| 신규 파일 | `packages/providers/src/vercel-client.ts` (`VercelClient` 구현) |
-| 신규 파일 | `packages/providers/src/__tests__/vercel-client.test.ts` (unit) |
-| 신규 fixture | `packages/providers/src/__fixtures__/vercel-anthropic-1turn.json` |
-| package.json 변경 | `peerDependencies` `optional`: `ai@^6.0.0`, `@ai-sdk/anthropic@^2.0.0` |
-| package.json | `devDependencies`: 동일 추가 (테스트용) |
-| package.json `exports` | `./vercel`: `./dist/vercel-client.js` |
-| index.ts | `export { VercelClient }` |
-| **S01 신규 명령** | `pnpm naia-agent --provider=vercel-anthropic "hi"` (bin에 추가) |
-| **S02 unit** | `LLMRequest` → `LanguageModelV2.doGenerate()/doStream()` 변환 + 역변환 (text / tool_use / thinking / image / usage / stopReason) |
-| **S03 통합** | real Anthropic via Vercel SDK (ANTHROPIC_API_KEY 있을 때) + fixture-replay (KEY 없을 때 G15 강제) |
-| **S04** | `CHANGELOG.md` Slice 5.x.1 entry |
-| 매트릭스 ID 인용 | `feat(providers): VercelClient adapter MVP — fixes D44 §1` |
+| 신규 파일 | ✅ `packages/providers/src/vercel-client.ts` (~430 LOC, `VercelClient` + 순수 헬퍼) |
+| 신규 파일 | ✅ `packages/providers/src/__tests__/vercel-client.test.ts` (25 unit) |
+| 신규 smoke | ✅ `scripts/smoke-vercel-anthropic.ts` (dry-run + live opt-in) |
+| package.json 변경 | ✅ `peerDependencies` optional: `ai@^6` / `@ai-sdk/anthropic@^2` / `@ai-sdk/provider@^3` |
+| package.json | ✅ `devDependencies` 동일 추가 + 루트 devDep 추가 (smoke script root 실행) |
+| package.json `exports` | ✅ `./vercel`: `./dist/vercel-client.js` |
+| index.ts | ✅ `export { VercelClient }` + `VercelClientOptions` |
+| **S01 신규 명령** | ✅ `pnpm smoke:vercel-anthropic` |
+| **S02 unit** | ✅ 25 신규 (LLMRequest ↔ V2 prompt / V2 content ↔ LLMContentBlock / finishReason / usage / stream id→index / 모든 stream-part 종류 / response-metadata / error / finish 누락 fallback) |
+| **S03 통합** | ✅ Mock LanguageModelV2 가 실 V2 stream-part shape emit. 25 테스트가 round-trip 검증. 실 Anthropic은 ANTHROPIC_API_KEY opt-in (G15 fixture-only-default) |
+| **S04** | ✅ CHANGELOG Slice 5.x.1 entry |
+| 회귀 | ✅ **460 PASS** (이전 435 + 25 신규, 0 회귀) |
+| 매트릭스 ID 인용 | ✅ `feat(providers): VercelClient adapter MVP — fixes D44 §1` |
 
-**design 결정 (Slice 5.x.1 사전 lock)**:
+**design 결정 (실 구현 lock)**:
 
-- `VercelClient` 생성자: `{ model: LanguageModelV2 }` 1개 인자만. host가 `createAnthropic({apiKey})('claude-opus-4-7')` 같은 Vercel model factory 결과를 주입.
-- `generate()` 구현: `model.doGenerate({prompt, abortSignal})` → `LLMResponse` 변환. content block 매핑은 Anthropic shape이 LLMContentBlock과 1:1 가까움.
-- `stream()` 구현: `model.doStream({prompt, abortSignal})` AsyncIterable → `LLMStreamChunk` 변환. Vercel은 `LanguageModelV2StreamPart` (text-start/delta/end, tool-input-start/delta/end, finish, usage 등)를 emit, 우리 SSE shape (start → content_block_start → content_block_delta → content_block_stop → usage → end)로 매핑.
-- 알 수 없는 part는 **drop** (LLMClient 정책: "unknown blocks should be dropped at adapter boundary, not passed through with a fallback union arm").
-- `thoughtSignature` (Gemini 3) — Phase 5 Day 7.1 필드 보존. Vercel `providerMetadata` 통해 round-trip.
+- `VercelClient(model: LanguageModelV2, options?: { defaultMaxTokens?, logger? })` — model 1개 + 옵션. host가 `createAnthropic({apiKey})('claude-opus-4-7')` 같은 model factory 결과 주입.
+- `specificationVersion !== "v2"` 면 throw — V3/V4 호환성은 미래 slice (현 `@ai-sdk/anthropic@2.0.77`이 V2 반환).
+- `generate()` — `doGenerate()` 호출 후 content array → `LLMContentBlock[]` 변환. response.id / response.modelId가 있으면 사용, 없으면 random id + constructor modelId fallback.
+- `stream()` — `doStream()` 의 `ReadableStream<LanguageModelV2StreamPart>` reader.read() 루프. start chunk는 lazy emit (response-metadata 받으면 그 id/modelId 사용, 받기 전에 content 시작되면 random fallback). finish 누락 시도 end chunk 항상 발행.
+- V2 string `id` → 우리 numeric `index` 매핑 (Map, auto-increment). 같은 id의 start/delta/end는 같은 index 보존.
+- V2 `tool-call` (aggregate) drop — `tool-input-start/delta/end` 가 동일 페이로드를 progressive로 covers + Anthropic SSE shape 보존. 둘 다 emit하면 다운스트림 중복.
+- error part → `throw new Error(...)`. caller가 catch.
+
+**미해결 → 후속 slice**:
+
+- `thoughtSignature` (Gemini 3) round-trip — V2는 `providerMetadata` 통해 가능. Slice 5.x.3a (Gemini deprecate) 시점에 정식 wire.
+- `cacheBreakpoint` 메시지 hint → V2 `providerOptions` 매핑 (Anthropic은 `cache_control`). Slice 5.x.2에서 anthropic deprecate 시 cache 정책 (D16) 적용 시점에.
 
 ### 5.x.2 — 자체 `anthropic.ts` deprecate → Vercel-backed
 

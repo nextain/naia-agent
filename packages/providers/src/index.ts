@@ -18,3 +18,5 @@ export { GeminiClient } from "./gemini.js";
 export type { GeminiClientOptions } from "./gemini.js";
 export { LabProxyLiveClient, LAB_PROXY_LIVE_DEFAULT_GATEWAY_WS_URL } from "./lab-proxy-live.js";
 export type { LabProxyLiveClientOptions } from "./lab-proxy-live.js";
+export { VercelClient } from "./vercel-client.js";
+export type { VercelClientOptions } from "./vercel-client.js";

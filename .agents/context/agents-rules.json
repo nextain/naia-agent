@@ -2,8 +2,8 @@
   "$schema": "https://schemas.nextain.com/agents-rules-v1.json",
   "project": "naia-agent",
   "version": "0.1.0",
-  "updated": "2026-04-25",
-  "phase": "R0 (design re-check)",
+  "updated": "2026-04-29",
+  "phase": "R5 (Vercel AI SDK adoption — Slice 5.x.1 complete, 5.x.2 next)",
   "mandatory_reads": [
     "AGENTS.md",
     ".agents/progress/design-recheck-2026-04-25.md",
