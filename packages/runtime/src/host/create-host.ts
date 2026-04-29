@@ -1,11 +1,12 @@
 // Host factory — assembles HostContext for bin/naia-agent and embedded uses.
 //
 // Slice 1a (R3): mock LLM only.
-// Slice 1b (R3): real Anthropic injection via opts.llm. The bin/naia-agent
-// detects ANTHROPIC_API_KEY (+ optional ANTHROPIC_BASE_URL for gateway
-// routing) and passes a constructed AnthropicClient to createHost. We keep
-// AnthropicClient construction OUT of this file to preserve runtime's
-// zero-runtime-dep posture relative to providers (matrix A.3).
+// Slice 1b (R3): real LLM injection via opts.llm. The host (bin/naia-agent
+// or embedder) constructs the LLMClient (Slice 5.x.4: VercelClient wrapping
+// any Vercel AI SDK LanguageModelV2, or LabProxyClient for naia gateway)
+// and passes it in. We keep concrete client construction OUT of this file
+// to preserve runtime's zero-runtime-dep posture relative to providers
+// (matrix A.3).
 //
 // DI policy: simple object injection (matrix C22). No container framework.
 

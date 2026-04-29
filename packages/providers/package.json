@@ -1,7 +1,7 @@
 {
   "name": "@nextain/agent-providers",
-  "version": "0.1.0",
-  "description": "LLMClient implementations for major providers (Anthropic, more to come).",
+  "version": "0.2.0",
+  "description": "LLMClient implementations: VercelClient (50+ providers via Vercel AI SDK) + Naia Lab Gateway (HTTPS / WSS).",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -14,47 +14,12 @@
       },
       "default": "./dist/index.js"
     },
-    "./anthropic": {
-      "import": {
-        "types": "./dist/anthropic.d.ts",
-        "default": "./dist/anthropic.js"
-      },
-      "default": "./dist/anthropic.js"
-    },
-    "./anthropic-vertex": {
-      "import": {
-        "types": "./dist/anthropic-vertex.d.ts",
-        "default": "./dist/anthropic-vertex.js"
-      },
-      "default": "./dist/anthropic-vertex.js"
-    },
-    "./openai-compat": {
-      "import": {
-        "types": "./dist/openai-compat.d.ts",
-        "default": "./dist/openai-compat.js"
-      },
-      "default": "./dist/openai-compat.js"
-    },
-    "./claude-cli": {
-      "import": {
-        "types": "./dist/claude-cli.d.ts",
-        "default": "./dist/claude-cli.js"
-      },
-      "default": "./dist/claude-cli.js"
-    },
     "./lab-proxy": {
       "import": {
         "types": "./dist/lab-proxy.d.ts",
         "default": "./dist/lab-proxy.js"
       },
       "default": "./dist/lab-proxy.js"
-    },
-    "./gemini": {
-      "import": {
-        "types": "./dist/gemini.d.ts",
-        "default": "./dist/gemini.js"
-      },
-      "default": "./dist/gemini.js"
     },
     "./lab-proxy-live": {
       "import": {
@@ -93,28 +58,12 @@
     "@nextain/agent-types": "workspace:*"
   },
   "peerDependencies": {
-    "@ai-sdk/anthropic": "^2.0.0",
     "@ai-sdk/provider": "^3.0.0",
-    "@anthropic-ai/sdk": "^0.39.0",
-    "@anthropic-ai/vertex-sdk": "^0.16.0",
-    "@google/genai": "^1.42.0",
     "ai": "^6.0.0",
     "ws": "^8.19.0"
   },
   "peerDependenciesMeta": {
-    "@ai-sdk/anthropic": {
-      "optional": true
-    },
     "@ai-sdk/provider": {
-      "optional": true
-    },
-    "@anthropic-ai/sdk": {
-      "optional": true
-    },
-    "@anthropic-ai/vertex-sdk": {
-      "optional": true
-    },
-    "@google/genai": {
       "optional": true
     },
     "ai": {
@@ -124,12 +73,16 @@
       "optional": true
     }
   },
+  "optionalDependencies": {
+    "@ai-sdk/anthropic": "^2.0.0",
+    "@ai-sdk/google": "^3.0.0",
+    "@ai-sdk/openai-compatible": "^2.0.0",
+    "ai-sdk-provider-claude-code": "^3.0.0",
+    "zhipu-ai-provider": "^0.3.0"
+  },
   "devDependencies": {
     "@ai-sdk/anthropic": "^2.0.0",
     "@ai-sdk/provider": "^3.0.0",
-    "@anthropic-ai/sdk": "^0.39.0",
-    "@anthropic-ai/vertex-sdk": "^0.16.0",
-    "@google/genai": "^1.42.0",
     "@types/ws": "^8.18.1",
     "ai": "^6.0.0",
     "ws": "^8.19.0",

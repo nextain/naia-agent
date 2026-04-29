@@ -171,32 +171,40 @@ naia-agent core/runtime  ← LLMClient interface로만 인지
 | 회귀 | ✅ **460 PASS** (변동 없음) |
 | 매트릭스 ID 인용 | ✅ `chore(providers): @deprecated Gemini/OpenAICompat/AnthropicVertex — fixes D44 §3` |
 
-### 5.x.4 — `claude-cli.ts` deprecate → community provider
+### 5.x.4 — 자체 5개 provider 제거 + V2/V3 dual support + 자동설치 + 크로스플랫폼 ✅ 완료 (사용자 directive 통합 cleanup)
 
-| 항목 | 상세 |
+**사용자 directive로 5.x.4 (claude-cli deprecate) + 5.x.5 (5개 일괄 제거 + cleanup) 통합 진행.** 추가 발견: Vercel ecosystem V2/V3 spec 혼재 → adapter dual-version 호환 보강 + 자동설치 가이드 + cross-platform 가이드.
+
+| 항목 | 결과 |
 |---|---|
-| 대체 | `ai-sdk-provider-claude-code` (Pro/Max 구독 path 보존) |
-| 폐기 | `packages/providers/src/claude-cli.ts` 모든 subprocess wrap 로직 + `_allowInsecureForTest` 등 |
-| 제거 | Flatpak/Windows parity 코드 (community provider가 흡수) |
-| **S01** | `pnpm naia-agent --provider=claude-code "hi"` (community provider 기반) |
-| **S02** | community provider unit (mock) + 회귀 |
-| **S03** | 실 Claude Code CLI binary 통합 검증 (사용자 환경) |
-| **S04** | CHANGELOG entry |
+| 5 source 제거 | ✅ `anthropic.ts` / `anthropic-vertex.ts` / `gemini.ts` / `openai-compat.ts` / `claude-cli.ts` |
+| 2 test 제거 | ✅ `claude-cli-env.test.ts` (10) + `claude-cli-env.integration.test.ts` (8) |
+| smoke 제거 | ✅ `scripts/smoke-anthropic.ts` + root `smoke:anthropic` script |
+| index.ts 정리 | ✅ 5 export 제거, 헤더 코멘트 갱신 |
+| package.json 0.1→0.2 | ✅ exports 5개 path 제거, peer dep 정리, optionalDependencies 신규 |
+| **V2/V3 dual support** | ✅ `LanguageModelV2OrV3` union — `fromV2FinishReason` (V2 string + V3 `{unified}` 둘 다), `fromV2Usage` (V2 flat + V3 nested 둘 다), `specificationVersion` `"v2" | "v3"` 허용 |
+| **자동설치** | ✅ 루트 `dependencies` 6개 (`ai`, `@ai-sdk/anthropic`, `@ai-sdk/google`, `@ai-sdk/openai-compatible`, `zhipu-ai-provider`, `ai-sdk-provider-claude-code`) + providers package `optionalDependencies` 미러 |
+| **cross-platform 가이드** | ✅ README — Linux/macOS/Windows + Flatpak/sandbox 우회 path 3종 |
+| Cross-provider integration test | ✅ `vercel-providers-compat.integration.test.ts` 6 tests — 5 실 Vercel SDK 패키지 모델 구성 검증 + V1/V4+ explicit error 검증 + 누락 dep graceful skip |
+| 회귀 | ✅ **448 PASS** (이전 460 - 18 removed + 6 신규) |
+| 매트릭스 ID 인용 | ✅ `feat(providers)!: remove 5 self-built providers + V2/V3 dual support + auto-install + cross-platform — fixes D44 §4-5` |
 
-### 5.x.5 — bin / examples / fixture-replay 일괄 갱신 + 자체 5개 제거
+**Vercel ecosystem 발견 (5.x.4 mid-progress)**:
 
-- 자체 5개 provider 파일 + `__tests__/` 제거
-- `package.json` `exports` 정리 (Vercel-only 경로 + lab-proxy 2개 + 향후 D43 audio)
-- `bin/naia-agent.ts` provider resolution 로직 단순화 (Vercel SDK가 흡수)
-- `examples/` 갱신
-- README + naia-agent.env.example 갱신
-- 회귀 250+ PASS
+V2 spec: `@ai-sdk/anthropic@2.x` (현 latest)
+V3 spec: `@ai-sdk/google@3.x` / `@ai-sdk/openai-compatible@2.x` / `zhipu-ai-provider@0.3.x` / `ai-sdk-provider-claude-code@3.x` / `ai@6.x` (core)
 
-### 5.x.6 — Cross-review 3-perspective
+V2/V3 차이는 적음 (finishReason / usage shape만 실질 변동, content / stream-part / prompt format은 호환). VercelClient adapter가 양쪽 normalize.
 
-- **architect**: SOLID / interface 결합도 / peer-dep 패턴 검증
-- **reference-driven**: opencode / Mastra / Vercel 본가 패턴 일치도
-- **paranoid**: 키 노출 / SDK breaking / fixture drift / F09 cleanroom 단독 의존 회피 / F11 SDK bump 검증
+### 5.x.5 — (5.x.4와 통합 완료)
+
+5.x.4가 5.x.5 작업 (5개 제거 + cleanup) 모두 흡수. 별도 slice 없음.
+
+### 5.x.6 — Cross-review 3-perspective (다음)
+
+- **architect**: SOLID / interface 결합도 / peer-dep + optionalDependencies 패턴 검증 / V2/V3 dual support 설계 / B21 격하 정합성
+- **reference-driven**: opencode / Mastra / Vercel 본가 패턴 일치도 / `LanguageModelV2OrV3` union 타입 vs Vercel 권장 패턴
+- **paranoid**: 키 노출 / SDK breaking (V4 진입 시 explicit error로 surfacing 검증) / fixture drift / F09 cleanroom / F11 SDK bump / cross-platform CLI binary 누락 시 graceful failure / Flatpak sandbox 회피 path 정확성
 
 P0 fix 반영 → 본 progress lock.
 

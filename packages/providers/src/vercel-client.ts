@@ -44,6 +44,11 @@ import type {
   LanguageModelV2Prompt,
   LanguageModelV2StreamPart,
   LanguageModelV2Usage,
+  LanguageModelV3,
+  LanguageModelV3Content,
+  LanguageModelV3FinishReason,
+  LanguageModelV3StreamPart,
+  LanguageModelV3Usage,
 } from "@ai-sdk/provider";
 import type {
   LLMClient,
@@ -65,15 +70,36 @@ export interface VercelClientOptions {
   logger?: Logger;
 }
 
+/**
+ * VercelClient accepts both `LanguageModelV2` and `LanguageModelV3` because
+ * the Vercel SDK ecosystem is mid-migration: `@ai-sdk/anthropic@2.x` still
+ * targets V2, while `@ai-sdk/google@3.x` / `@ai-sdk/openai-compatible@2.x`
+ * / community providers (`ai-sdk-provider-claude-code@3.x`,
+ * `zhipu-ai-provider`) target V3. Differences are limited to:
+ *   - `finishReason`: V2 plain string, V3 `{unified, raw}` object
+ *   - `usage`:        V2 flat `{inputTokens, outputTokens, ...}`,
+ *                     V3 nested `{inputTokens: {total, cacheRead, ...}, ...}`
+ *   - Stream parts and content shapes are otherwise compatible.
+ *
+ * Both shapes are normalized at the adapter boundary; downstream
+ * consumers see a stable LLMClient SSE shape regardless of provider spec.
+ */
+type LanguageModelV2OrV3 = LanguageModelV2 | LanguageModelV3;
+type V2OrV3FinishReason = LanguageModelV2FinishReason | LanguageModelV3FinishReason;
+type V2OrV3Usage = LanguageModelV2Usage | LanguageModelV3Usage;
+type V2OrV3StreamPart = LanguageModelV2StreamPart | LanguageModelV3StreamPart;
+type V2OrV3Content = LanguageModelV2Content | LanguageModelV3Content;
+
 export class VercelClient implements LLMClient {
-  readonly #model: LanguageModelV2;
+  readonly #model: LanguageModelV2OrV3;
   readonly #defaultMaxTokens: number;
   readonly #logger: Logger | undefined;
 
-  constructor(model: LanguageModelV2, options: VercelClientOptions = {}) {
-    if (model.specificationVersion !== "v2") {
+  constructor(model: LanguageModelV2OrV3, options: VercelClientOptions = {}) {
+    const spec = (model as { specificationVersion?: string }).specificationVersion;
+    if (spec !== "v2" && spec !== "v3") {
       throw new Error(
-        `VercelClient: unsupported LanguageModel spec "${(model as { specificationVersion: string }).specificationVersion}" — expected "v2"`,
+        `VercelClient: unsupported LanguageModel spec "${spec}" — expected "v2" or "v3"`,
       );
     }
     this.#model = model;
@@ -98,12 +124,19 @@ export class VercelClient implements LLMClient {
       messageCount: request.messages.length,
       toolsCount: request.tools?.length ?? 0,
     });
+    // V2/V3 call options are structurally compatible for the subset we use
+    // (prompt / maxOutputTokens / temperature / stopSequences / abortSignal /
+    // tools); `doGenerate` overload union does not narrow on assignment, so
+    // we route through `unknown` and assert the structurally-shared shape.
     const callOpts = this.#toCallOptions(request);
     try {
-      const result = await this.#model.doGenerate(callOpts);
+      const result = await (this.#model.doGenerate as unknown as (o: typeof callOpts) => Promise<{
+        content: readonly V2OrV3Content[];
+        finishReason: V2OrV3FinishReason;
+        usage: V2OrV3Usage;
+        response?: { id?: string; modelId?: string };
+      }>)(callOpts);
       const out: LLMResponse = {
-        // V2 doGenerate doesn't return a message id at the response root;
-        // synthesize via response-metadata if available, else random.
         id: result.response?.id ?? `vercel-${randomId()}`,
         model: result.response?.modelId ?? this.#model.modelId,
         content: fromV2Content(result.content),
@@ -127,7 +160,10 @@ export class VercelClient implements LLMClient {
 
   async *stream(request: LLMRequest): AsyncIterable<LLMStreamChunk> {
     const callOpts = this.#toCallOptions(request);
-    const result = await this.#model.doStream(callOpts);
+    // Same V2/V3 union cast pattern as in generate(); see comment there.
+    const result = await (this.#model.doStream as unknown as (o: typeof callOpts) => Promise<{
+      stream: ReadableStream<V2OrV3StreamPart>;
+    }>)(callOpts);
 
     // Synthesize a start chunk early. V2 may emit response-metadata later
     // with the real provider-assigned id; we don't retroactively patch
@@ -361,10 +397,16 @@ function toV2Tool(tool: ToolDefinition): LanguageModelV2FunctionTool {
   return out;
 }
 
-// ─── V2 result/stream → LLMResponse / LLMStreamChunk ───────────────────
+// ─── V2/V3 result → LLMResponse helpers ─────────────────────────────────
 
+/**
+ * Convert V2 or V3 content array to LLMContentBlock[]. Both spec versions
+ * share the same content union (text / reasoning / tool-call / file /
+ * source / tool-result), so a single switch handles both shapes — the
+ * differences are confined to providerMetadata fields we don't consume.
+ */
 export function fromV2Content(
-  content: readonly LanguageModelV2Content[],
+  content: readonly V2OrV3Content[],
 ): LLMContentBlock[] {
   const out: LLMContentBlock[] = [];
   for (const c of content) {
@@ -376,7 +418,7 @@ export function fromV2Content(
         out.push({ type: "thinking", thinking: c.text });
         break;
       case "tool-call": {
-        // V2 tool-call.input is a stringified JSON; parse to unknown.
+        // V2/V3 tool-call.input is a stringified JSON; parse to unknown.
         out.push({
           type: "tool_use",
           id: c.toolCallId,
@@ -399,7 +441,7 @@ export function fromV2Content(
         }
         break;
       }
-      // source / tool-result are not represented in our content blocks.
+      // source / tool-result / tool-approval-request not represented.
       default:
         break;
     }
@@ -407,10 +449,23 @@ export function fromV2Content(
   return out;
 }
 
+/**
+ * Normalize V2 (string) and V3 (`{unified, raw}` object) finish reasons.
+ * V2 emits `'stop' | 'length' | 'content-filter' | 'tool-calls' | 'error'
+ * | 'other' | 'unknown'`. V3 wraps the same vocabulary (minus 'unknown')
+ * inside `unified`. Either way the unified token vocabulary maps 1:1 to
+ * our StopReason union.
+ */
 export function fromV2FinishReason(
-  reason: LanguageModelV2FinishReason | undefined,
+  reason: V2OrV3FinishReason | undefined,
 ): StopReason {
-  switch (reason) {
+  if (reason === undefined) return "end_turn";
+  // V3: extract `.unified` field; V2: pass through string.
+  const token =
+    typeof reason === "string"
+      ? reason
+      : (reason as { unified?: string }).unified;
+  switch (token) {
     case "stop":
       return "end_turn";
     case "length":
@@ -419,28 +474,49 @@ export function fromV2FinishReason(
       return "refusal";
     case "tool-calls":
       return "tool_use";
-    case "error":
-    case "other":
-    case "unknown":
-    case undefined:
+    default:
+      // 'error' / 'other' / 'unknown' / unrecognized → end_turn fallback.
       return "end_turn";
   }
 }
 
-export function fromV2Usage(usage: LanguageModelV2Usage): LLMUsage {
+/**
+ * Flatten V2 (already flat) and V3 (nested `inputTokens.{total,cacheRead}`)
+ * usage shapes to LLMUsage.
+ */
+export function fromV2Usage(usage: V2OrV3Usage): LLMUsage {
+  // V3 detection via nested `inputTokens` object shape.
+  const inT = (usage as { inputTokens?: unknown }).inputTokens;
+  if (inT !== null && typeof inT === "object") {
+    // V3 nested shape.
+    const v3 = usage as LanguageModelV3Usage;
+    const out: LLMUsage = {
+      inputTokens: v3.inputTokens.total ?? 0,
+      outputTokens: v3.outputTokens.total ?? 0,
+    };
+    if (v3.inputTokens.cacheRead != null) {
+      out.cacheReadTokens = v3.inputTokens.cacheRead;
+    }
+    if (v3.inputTokens.cacheWrite != null) {
+      out.cacheWriteTokens = v3.inputTokens.cacheWrite;
+    }
+    return out;
+  }
+  // V2 flat shape.
+  const v2 = usage as LanguageModelV2Usage;
   const out: LLMUsage = {
-    inputTokens: usage.inputTokens ?? 0,
-    outputTokens: usage.outputTokens ?? 0,
+    inputTokens: v2.inputTokens ?? 0,
+    outputTokens: v2.outputTokens ?? 0,
   };
-  if (usage.cachedInputTokens != null) {
-    out.cacheReadTokens = usage.cachedInputTokens;
+  if (v2.cachedInputTokens != null) {
+    out.cacheReadTokens = v2.cachedInputTokens;
   }
   return out;
 }
 
 // ─── Stream-part conversion ─────────────────────────────────────────────
 
-function shouldEmitStart(part: LanguageModelV2StreamPart): boolean {
+function shouldEmitStart(part: V2OrV3StreamPart): boolean {
   // Defer the synthetic start until we actually have content to emit.
   // stream-start (warnings) and response-metadata are pre-content; we
   // delay so any id/modelId from response-metadata is included.
@@ -454,7 +530,7 @@ function shouldEmitStart(part: LanguageModelV2StreamPart): boolean {
 }
 
 function toLLMStreamChunk(
-  part: LanguageModelV2StreamPart,
+  part: V2OrV3StreamPart,
   indexFor: (id: string) => number,
 ): LLMStreamChunk | undefined {
   switch (part.type) {

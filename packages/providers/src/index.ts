@@ -1,21 +1,20 @@
-// @nextain/agent-providers — LLMClient implementations.
-// Currently: Anthropic. Future: OpenAI, Google, gateway (any-llm), mock.
-//
-// Each provider is a separate subpath to avoid pulling unused SDKs:
-//   import { AnthropicClient } from "@nextain/agent-providers/anthropic";
+/**
+ * @nextain/agent-providers — LLMClient implementations.
+ *
+ * Active clients (Slice 5.x.4):
+ *   - VercelClient    — wraps any Vercel AI SDK LanguageModelV2 (50+ providers)
+ *   - LabProxyClient  — Naia Lab Gateway HTTPS (naiaKey)
+ *   - LabProxyLiveClient — Naia Lab Gateway WSS (vllm-omni /v1/realtime)
+ *
+ * Removed in Slice 5.x.4 (D44 — Vercel AI SDK adoption):
+ *   AnthropicClient, createAnthropicVertexClient, OpenAICompatClient,
+ *   GeminiClient, ClaudeCliClient.
+ *   See docs/migration-vercel.md (or CHANGELOG Slice 5.x.4 entry) for
+ *   per-provider replacement instructions through `VercelClient`.
+ */
 
-export { AnthropicClient } from "./anthropic.js";
-export type { AnthropicClientOptions } from "./anthropic.js";
-export { createAnthropicVertexClient } from "./anthropic-vertex.js";
-export type { AnthropicVertexClientOptions } from "./anthropic-vertex.js";
-export { OpenAICompatClient } from "./openai-compat.js";
-export type { OpenAICompatClientOptions } from "./openai-compat.js";
-export { ClaudeCliClient } from "./claude-cli.js";
-export type { ClaudeCliClientOptions } from "./claude-cli.js";
 export { LabProxyClient, toGatewayModel, LAB_PROXY_DEFAULT_GATEWAY_URL } from "./lab-proxy.js";
 export type { LabProxyClientOptions } from "./lab-proxy.js";
-export { GeminiClient } from "./gemini.js";
-export type { GeminiClientOptions } from "./gemini.js";
 export { LabProxyLiveClient, LAB_PROXY_LIVE_DEFAULT_GATEWAY_WS_URL } from "./lab-proxy-live.js";
 export type { LabProxyLiveClientOptions } from "./lab-proxy-live.js";
 export { VercelClient } from "./vercel-client.js";

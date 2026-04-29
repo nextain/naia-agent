@@ -8,6 +8,104 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [Slice 5.x.4] — 2026-04-29 — 자체 5개 provider 제거 + 자동설치 + V2/V3 호환 + 크로스플랫폼 (D44 §4-5)
+
+**사용자 directive 통합 cleanup.** 5.x.4 (claude-cli deprecate) + 5.x.5 (5개 일괄 제거 + cleanup) 통합 진행. 추가로 Vercel SDK 생태계 V2/V3 spec 혼재 발견 → adapter dual-version 호환 보강. 자동설치 의존성 + cross-platform 가이드 정리.
+
+### Removed (5 self-built providers)
+- `packages/providers/src/anthropic.ts` → `VercelClient + @ai-sdk/anthropic`
+- `packages/providers/src/anthropic-vertex.ts` → `VercelClient + @ai-sdk/anthropic` Vertex 모드
+- `packages/providers/src/gemini.ts` → `VercelClient + @ai-sdk/google` (또는 community `ai-sdk-provider-gemini-cli`)
+- `packages/providers/src/openai-compat.ts` → `VercelClient + @ai-sdk/openai-compatible` (vLLM/vllm-omni 텍스트/LM Studio/Ollama/OpenRouter), Z.ai coding plan은 `zhipu-ai-provider`
+- `packages/providers/src/claude-cli.ts` → community `ai-sdk-provider-claude-code` (Pro/Max 구독 path 동일 보존)
+- `packages/providers/src/__tests__/claude-cli-env.test.ts` (10 unit)
+- `packages/providers/src/__tests__/claude-cli-env.integration.test.ts` (8 integration)
+- `scripts/smoke-anthropic.ts` (deprecated since 5.x.2; `pnpm smoke:vercel-anthropic` 대체)
+- root `package.json` `smoke:anthropic` script
+
+### Adapter — V2/V3 dual support (D44 §4 보강)
+Vercel ecosystem mid-migration: `@ai-sdk/anthropic@2.x`는 V2 spec, `@ai-sdk/google@3.x` / `@ai-sdk/openai-compatible@2.x` / `ai-sdk-provider-claude-code@3.x` / `zhipu-ai-provider@0.3.x`는 V3 spec. VercelClient를 양쪽 지원하도록 보강:
+- `specificationVersion` 검사 `"v2" | "v3"` 허용 (V4+는 explicit error로 surfacing)
+- `LanguageModelV2OrV3` 타입 union 도입 (`Content`/`Usage`/`FinishReason`/`StreamPart`)
+- `fromV2FinishReason` — V2 plain string + V3 `{unified, raw}` object 둘 다 처리
+- `fromV2Usage` — V2 flat `{inputTokens, outputTokens, cachedInputTokens}` + V3 nested `{inputTokens: {total, cacheRead, cacheWrite}, outputTokens: {total, ...}}` 둘 다 처리
+- `doGenerate`/`doStream` cast — V2/V3 overload union이 TS에서 narrow 안 되므로 `unknown` 경유 structural assertion
+
+### Auto-install 의존성 (자동설치)
+`pnpm install`만으로 가장 흔히 쓰이는 5+ Vercel provider 즉시 사용 가능:
+
+| 위치 | 패키지 | 효과 |
+|---|---|---|
+| 루트 `dependencies` | `ai`, `@ai-sdk/anthropic`, `@ai-sdk/google`, `@ai-sdk/openai-compatible`, `zhipu-ai-provider`, `ai-sdk-provider-claude-code` | 모든 워크스페이스 패키지에서 즉시 import 가능 |
+| `packages/providers` `optionalDependencies` | 같은 5개 | 외부 npm 소비자가 `pnpm add @nextain/agent-providers` 시 자동 설치 (실패 tolerant) |
+| `packages/providers` `peerDependencies` | `ai@^6`, `@ai-sdk/provider@^3`, `ws@^8` (모두 optional) | 고급 사용자가 버전 pin 가능 |
+
+제거된 dep: `@anthropic-ai/sdk`, `@anthropic-ai/vertex-sdk`, `@google/genai` (자체 5개 제거에 따라 root + providers package 양쪽에서)
+
+### Package version bump
+- `@nextain/agent-providers` 0.1.0 → **0.2.0** (breaking — 5개 export 제거)
+
+### Cross-platform 가이드 (README)
+- 모든 Vercel SDK 패키지는 pure JavaScript → Linux / macOS / Windows 지원
+- CLI subscription providers는 host CLI binary 필요 (`claude` / `codex` / `gemini`):
+  - Linux/macOS: 일반 설치
+  - Windows: `.cmd`/`.exe` shim
+  - Flatpak/sandbox: 3가지 우회 path 명시 (직접 API key / `flatpak-spawn --host` / LabProxy)
+- Windows path quirks는 SDK 측 platform-aware handling 위임
+
+### Added
+- `packages/providers/src/__tests__/vercel-providers-compat.integration.test.ts` (6 tests):
+  - `@ai-sdk/anthropic` (V2 spec) — 모델 구성 검증
+  - `@ai-sdk/google` (V3 spec) — 모델 구성 검증
+  - `@ai-sdk/openai-compatible` (V3 spec, vLLM-style baseURL) — 모델 구성 검증
+  - `zhipu-ai-provider` (V3 spec, Z.ai coding plan endpoint) — 모델 구성 검증
+  - `ai-sdk-provider-claude-code` (V3 spec, Pro/Max 구독) — 모델 구성 검증
+  - V1/V4+ 잘못된 spec → 명시적 throw 검증
+  - 누락 dep는 `console.warn` 후 skip (cross-platform graceful degradation)
+- `packages/providers/README.md` — 전면 재작성:
+  - VercelClient 메인 문서 (use cases / install / 50+ provider matrix)
+  - Cross-platform 섹션 (Linux/macOS/Windows + Flatpak/sandbox 가이드)
+  - "Removed" 섹션 (5개 → Vercel 매핑 표)
+
+### Changed
+- `packages/runtime/src/host/create-host.ts` — 코멘트만 갱신 (AnthropicClient → "any LLMClient" 일반화)
+- `packages/providers/src/index.ts` — 5개 export 제거, 헤더 코멘트 갱신
+- `packages/providers/package.json`:
+  - `version` 0.1.0 → 0.2.0
+  - `exports`: `./anthropic` / `./anthropic-vertex` / `./gemini` / `./openai-compat` / `./claude-cli` 제거
+  - `peerDependencies`: 자체 5개 SDK 제거, Vercel SDK 3개 (`ai`, `@ai-sdk/provider`, `ws`) optional 유지
+  - `optionalDependencies` 신규 — 5개 자동설치 (anthropic / google / openai-compatible / zhipu / claude-code)
+  - `devDependencies` 정리 (자체 SDK 제거)
+- 루트 `package.json`:
+  - `dependencies` 신규 6개 (Vercel SDK 자동설치)
+  - `devDependencies`에서 `@anthropic-ai/sdk` / `@anthropic-ai/vertex-sdk` / `@ai-sdk/anthropic` / `ai` 제거 (deps로 이동)
+  - `smoke:anthropic` script 제거
+
+### 회귀
+- **448 PASS** (이전 460 - 18 claude-cli-env removed + 6 cross-provider integration = 448)
+  - protocol 73 / observability 17 / providers **42 (25 unit + 11 lab-proxy + 6 cross-provider)** / verification 20 / runtime 160 / workspace 16 / adapter-opencode-cli 15 / adapter-shell 13 / adapter-opencode-acp 8 / cli-app 84
+- 0 회귀 (active code path 모두 통과)
+- TypeScript build 통과
+
+### Slice 5.x.4 success criterion
+- ✅ S01 새 명령 — `pnpm smoke:vercel-anthropic` 유지 + 6 cross-provider integration test
+- ✅ S02 단위 테스트 — 25 vercel-client unit (이전) 유지 + 6 cross-provider integration 신규
+- ✅ S03 통합 검증 — 5개 실 Vercel provider 패키지로 모델 구성 검증 (cross-platform on Linux 검증, Windows/macOS는 community provider 측에서 보장)
+- ✅ S04 본 entry
+
+### F09 (cleanroom 단독 의존 금지) 준수
+- 본 cleanup은 자체 코드 제거 → 외부 Vercel SDK 의존. cleanroom 영역 무관
+
+### F11 (Anthropic SDK minor bump fixture re-record) 미트리거
+- `__fixtures__/anthropic-1turn.json`은 generic `LLMStreamChunk[]` 그대로 유지 (StreamPlayer 사용, 어떤 LLMClient 구현과도 무관)
+
+### 매트릭스 ID 인용
+- `feat(providers)!: remove 5 self-built providers + V2/V3 dual support + auto-install + cross-platform — fixes D44 §4-5`
+
+### 다음 단계 (Slice 5.x.6)
+- Cross-review 3-perspective (architect / reference / paranoid)
+- 별도 논의 항목 (사용자 directive): RunPod 통합 (D45 후보, naia-anyllm gateway)
+
 ## [Slice 5.x.3] — 2026-04-29 — `GeminiClient` / `OpenAICompatClient` / `createAnthropicVertexClient` deprecate (D44 §3)
 
 **3 provider 통합 deprecate.** 사용자 directive "통합" — 분할 (5.x.3a/b/c) 대신 단일 commit. 모두 동일 pattern (file-level + class/interface/factory `@deprecated` JSDoc, scope 변경 없음).
