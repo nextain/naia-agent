@@ -1,7 +1,25 @@
 /**
  * AnthropicClient — LLMClient implementation over @anthropic-ai/sdk.
  *
- * Usage:
+ * @deprecated Slice 5.x.2 (D44). Use `VercelClient` from
+ *   `@nextain/agent-providers/vercel` with `@ai-sdk/anthropic`:
+ *
+ *   ```ts
+ *   import { createAnthropic } from "@ai-sdk/anthropic";
+ *   import { VercelClient } from "@nextain/agent-providers/vercel";
+ *
+ *   const anthropic = createAnthropic({ apiKey });
+ *   const client = new VercelClient(anthropic("claude-opus-4-7"));
+ *   ```
+ *
+ *   Migration rationale: Vercel AI SDK provides 50+ provider abstractions
+ *   through a single `LanguageModelV2` interface, replacing per-provider
+ *   bespoke clients. Removed in Slice 5.x.5 along with the other 4 self-
+ *   built providers (gemini / openai-compat / anthropic-vertex / claude-cli).
+ *   See `.agents/progress/vercel-ai-sdk-adoption-2026-04-29.md` for the
+ *   migration plan and `.agents/progress/ref-adoption-matrix.md` D44 entry.
+ *
+ * Usage (legacy — kept until 5.x.5):
  *   import Anthropic from "@anthropic-ai/sdk";
  *   import { AnthropicClient } from "@nextain/agent-providers/anthropic";
  *
@@ -27,12 +45,19 @@ import type {
   ToolDefinition,
 } from "@nextain/agent-types";
 
+/**
+ * @deprecated Slice 5.x.2 (D44). Use `VercelClientOptions`. Removed 5.x.5.
+ */
 export interface AnthropicClientOptions {
   defaultModel?: string;
   defaultMaxTokens?: number;
   logger?: Logger;
 }
 
+/**
+ * @deprecated Slice 5.x.2 (D44). Use `VercelClient` with `@ai-sdk/anthropic`.
+ *   Removed in Slice 5.x.5. See top-of-file JSDoc for migration example.
+ */
 export class AnthropicClient implements LLMClient {
   readonly #sdk: Anthropic;
   readonly #defaultModel: string;

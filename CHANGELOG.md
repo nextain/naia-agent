@@ -8,6 +8,35 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [Slice 5.x.2] — 2026-04-29 — `AnthropicClient` deprecate (D44 §2)
+
+**자체 anthropic.ts → Vercel-backed 마이그레이션 path 공식 권고.** AnthropicClient는 5.x.5에서 제거 예정. 신규 코드는 `VercelClient + @ai-sdk/anthropic` 사용. 기존 코드는 그대로 동작 (소프트 deprecate).
+
+### Changed
+- `packages/providers/src/anthropic.ts` — `@deprecated` JSDoc (file-level + class + interface). 마이그레이션 예시 코드 포함, Slice 5.x.5 제거 시점 명시
+- `scripts/smoke-anthropic.ts` — `@deprecated` JSDoc, `pnpm smoke:vercel-anthropic` 권고
+- `packages/providers/README.md` — VercelClient 섹션을 메인으로 승격, 자체 5개 provider는 "Deprecated" 섹션으로 이동, 다른 provider 옵션 표 (50+) 추가, lab-proxy 계열은 Vercel-independent로 명시 보존
+
+### 기존 코드 영향
+- **0 회귀** — `AnthropicClient` 클래스/메서드 시그니처 변경 없음. JSDoc deprecate marker만 추가
+- TypeScript는 `@deprecated`를 informational로 처리 (build/test 영향 없음). 사용자 IDE에서 strikethrough로 표시
+- `anthropic-vertex.ts` 는 내부적으로 `AnthropicClient` 재사용 (deprecate 워닝 inherit) — 본 slice scope 밖, 5.x.3c 시점에 정식 deprecate
+
+### 회귀
+- **460 PASS** (변동 없음 — 5.x.1 신규 25 포함)
+
+### F11 (Anthropic SDK minor bump fixture re-record) — 미트리거
+- 본 slice는 SDK 버전 bump 아니고 내부 client deprecate. fixture (`packages/runtime/src/__fixtures__/anthropic-1turn.json`) 는 generic `LLMStreamChunk[]` JSON으로 어떤 LLMClient 구현과도 무관. 5.x.5에서 anthropic.ts 제거 시점에 fixture는 그대로 유지 (StreamPlayer 가 사용)
+
+### 매트릭스 ID 인용
+- `chore(providers): @deprecated AnthropicClient — fixes D44 §2`
+
+### 다음 단계
+- Slice 5.x.3a/b/c: `gemini.ts` / `openai-compat.ts` / `anthropic-vertex.ts` 동일 패턴 deprecate
+- Slice 5.x.4: `claude-cli.ts` deprecate → `ai-sdk-provider-claude-code` (community)
+- Slice 5.x.5: 자체 5개 제거 + bin/examples/fixture 일괄 정리 + 회귀 460 PASS 유지 검증
+- Slice 5.x.6: cross-review 3-perspective (architect / reference / paranoid)
+
 ## [Slice 5.x.1] — 2026-04-29 — VercelClient adapter MVP (D44 §1)
 
 **Vercel AI SDK 첫 코드 진입.** `LanguageModelV2` → `LLMClient` 어댑터 1개로 50+ provider 즉시 호환 가능 상태로 전환. 기존 5개 자체 provider (anthropic / anthropic-vertex / gemini / openai-compat / claude-cli)는 후속 슬라이스에서 deprecate.

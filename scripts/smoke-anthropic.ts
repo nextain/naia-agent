@@ -1,6 +1,10 @@
 /**
  * Smoke test for @nextain/agent-providers/anthropic.
  *
+ * @deprecated Slice 5.x.2 (D44). Use `pnpm smoke:vercel-anthropic` instead
+ *   (`scripts/smoke-vercel-anthropic.ts`), which exercises the same path
+ *   through `VercelClient + @ai-sdk/anthropic`. Removed in Slice 5.x.5.
+ *
  * MVM #3b (integration stand-in for shell integration): verify that
  * `AnthropicClient` can be constructed, implements `LLMClient`, and — when
  * `ANTHROPIC_API_KEY` is set — makes an actual request/stream to the API.

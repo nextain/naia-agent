@@ -140,18 +140,24 @@ naia-agent core/runtime  ← LLMClient interface로만 인지
 - `thoughtSignature` (Gemini 3) round-trip — V2는 `providerMetadata` 통해 가능. Slice 5.x.3a (Gemini deprecate) 시점에 정식 wire.
 - `cacheBreakpoint` 메시지 hint → V2 `providerOptions` 매핑 (Anthropic은 `cache_control`). Slice 5.x.2에서 anthropic deprecate 시 cache 정책 (D16) 적용 시점에.
 
-### 5.x.2 — 자체 `anthropic.ts` deprecate → Vercel-backed
+### 5.x.2 — `AnthropicClient` deprecate ✅ 완료
 
-| 항목 | 상세 |
+**조사 결과 scope 축소**: bin/naia-agent.ts는 LLM provider를 직접 import하지 않음 (R4 Hybrid path로 전환되어 opencode/shell adapter만 사용). examples/는 모두 MockLLMClient. 외부 사용처는 `scripts/smoke-anthropic.ts` 1건. 따라서 Slice 5.x.2는 **bin "wiring 변경" 없음** — 순수 deprecation 표기 + README 갱신.
+
+| 항목 | 결과 |
 |---|---|
-| 변경 | `bin/naia-agent.ts` `detectRealLLM` — ANTHROPIC_API_KEY 발견 시 `VercelClient + createAnthropic()` 우선 |
-| deprecate | `packages/providers/src/anthropic.ts` — `@deprecated` JSDoc + 다음 minor에서 제거 명시 |
-| F11 준수 | `__fixtures__/anthropic-1turn.json` Vercel-backed로 재녹화 + StreamPlayer 재생 검증 |
-| 회귀 | 250 PASS 유지 |
-| **S01** | `pnpm naia-agent "hi"` (기본 path가 Vercel-backed로 전환) |
-| **S02** | 기존 anthropic-client.test.ts → VercelClient × Anthropic 통합 테스트로 보강 |
-| **S03** | 실 Anthropic 호출 trace (ANTHROPIC_API_KEY 있을 때) |
-| **S04** | CHANGELOG entry |
+| deprecate | ✅ `packages/providers/src/anthropic.ts` — file-level + class + interface JSDoc `@deprecated`, 마이그레이션 예시 + 5.x.5 제거 명시 |
+| smoke deprecate | ✅ `scripts/smoke-anthropic.ts` — `@deprecated` + `pnpm smoke:vercel-anthropic` 권고 |
+| README 갱신 | ✅ `packages/providers/README.md` — VercelClient 메인 승격, 50+ provider 표, 자체 5개 "Deprecated" 섹션, lab-proxy Vercel-independent 명시 |
+| **fixture (F11)** | ⊘ 미트리거 — 본 slice는 SDK bump 아니라 내부 deprecate. 기존 fixture는 generic `LLMStreamChunk[]` JSON이라 어떤 LLMClient 구현과도 무관 (StreamPlayer 가 사용) |
+| 회귀 | ✅ **460 PASS** (변동 없음) |
+| **S01~S04** | ⊘ 부분 면제 — 본 slice는 deprecation 표기만. 신규 명령/단위 테스트/통합 검증 없음 (5.x.1에서 도입). S04 (CHANGELOG entry) 만 충족. matrix_id_citation rule "docs/infra 변경" 면제 적용 |
+| 매트릭스 ID 인용 | ✅ `chore(providers): @deprecated AnthropicClient — fixes D44 §2` |
+
+**미해결 → 후속 slice**:
+
+- `anthropic-vertex.ts` 는 내부적으로 `AnthropicClient` 재사용 (deprecate inherit). 5.x.3c 시점에 정식 deprecate.
+- 신규 host 코드 path 없음 (R4 hybrid path가 sub-agent로 전환했음). 5.x.5에서 5 provider 일괄 제거 가능.
 
 ### 5.x.3 — Gemini / OpenAI-compat / Vertex deprecate
 

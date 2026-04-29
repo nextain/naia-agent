@@ -3,7 +3,7 @@
   "project": "naia-agent",
   "version": "0.1.0",
   "updated": "2026-04-29",
-  "phase": "R5 (Vercel AI SDK adoption — Slice 5.x.1 complete, 5.x.2 next)",
+  "phase": "R5 (Vercel AI SDK adoption — Slices 5.x.0~5.x.2 complete, 5.x.3 next)",
   "mandatory_reads": [
     "AGENTS.md",
     ".agents/progress/design-recheck-2026-04-25.md",
