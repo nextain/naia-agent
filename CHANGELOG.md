@@ -8,6 +8,46 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [Slice 5.x.0] — 2026-04-29 — D44 lock: Vercel AI SDK 채택 정정 (D23 supersede)
+
+**Decision-only commit (docs).** R4에서 lock된 D23 ("Vercel AI SDK 보류")이 사용자 원래 의사 ("로컬은 Vercel로 50+ provider 즉시 확보")와 정반대로 silent drift된 것을 정정. D44 (Vercel AI SDK 로컬 LLM 단일 abstraction 채택, peer-dep 패턴) 신규 lock.
+
+### Matrix 변경
+- **§D 신규 1건** D44 — Vercel AI SDK 채택 (peer-dep 패턴, 50+ provider, lab-proxy 보존, vllm-omni audio_delta는 D43 그대로)
+- **§D supersede** D23 → D44 (strikethrough + supersede 명시)
+- **§B 격하** B21 → demoted (sub-concern 회피 가능: optional peer dep + headless)
+- **§K 신규** R5 변경 이력 (2026-04-29 Vercel AI SDK 채택 정정)
+
+### Progress 파일 신설
+- `.agents/progress/vercel-ai-sdk-adoption-2026-04-29.md` — D44 근거, slice 시퀀스 (5.x.0~5.x.6), vllm-omni 처리, RunPod 별도 논의
+
+### Slice 시퀀스 outline (Phase 5.x)
+- **5.x.0** (본 commit): docs lock
+- **5.x.1**: `VercelClient` adapter MVP (Anthropic 우선 검증)
+- **5.x.2**: 자체 `anthropic.ts` deprecate → Vercel-backed
+- **5.x.3** (3 sub): `gemini` / `openai-compat` / `anthropic-vertex` deprecate
+- **5.x.4**: `claude-cli.ts` deprecate → `ai-sdk-provider-claude-code` (community)
+- **5.x.5**: bin / examples / fixture-replay 갱신 + 자체 5개 제거
+- **5.x.6**: Cross-review 3-perspective + P0 fix
+
+### 보존 (변경 없음)
+- `lab-proxy.ts` / `lab-proxy-live.ts` (naiaKey 보호 + WebSocket Live API, Vercel 영역 밖)
+- D43 audio provider layer (vllm-omni audio_delta WSS 자체 구현 path)
+- 4-repo 책임 분리 LOCK / A01~A31 / F01~F11
+
+### Out of scope (본 R5 외)
+- RunPod 통합 (D45 후보, 사용자 directive로 별도 논의)
+- vllm-omni RunPod 호스팅 (자체 컨테이너, Phase 5+ 별도)
+- vllm-omni audio_delta D43 layer 구현
+
+### 매트릭스 ID 인용
+- `docs(matrix): D44 lock + D23 supersede + B21 demote + K changelog`
+
+### Slice 5.x.0 success criterion (docs-only 면제)
+- ✅ S01~S04 면제 (matrix_id_citation 룰의 "매트릭스 외 영역 — docs/infra" 면제)
+- ✅ 매트릭스 D44 / D23 strikethrough / B21 demote / K changelog 4건 모두 반영
+- ✅ progress 파일 + session_id 바인딩
+
 ## [Slice 2.7] — 2026-04-26 — Log Policy 정규화 + Logger.fn() 표준 + dev mode 자동 file logging
 
 **개발 추적 가능한 구조.** 모든 핵심 함수에 enter/branch/exit + caller(file:line) + elapsedMs + args/result trace.

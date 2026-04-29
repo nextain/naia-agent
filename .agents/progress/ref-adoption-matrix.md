@@ -69,7 +69,7 @@
 | **B18** | Mastra Studio web IDE | mastra | host(naia-os) 책임 분리 — UI는 host |
 | **B19** | LangChain `@langchain/core` 직접 의존 | langgraphjs | B09와 동일 — zero-runtime-dep 위배 + ecosystem lock-in |
 | **B20** | LangGraph StateGraph 채널 reducer (정적 schema) | langgraphjs | D1 stream-first 결정과 모델 충돌 |
-| **B21** | Vercel `@ai-sdk/<provider>` 50개 직접 의존 + React hooks | vercel-ai-sdk | A10 단일 provider + zero-runtime-dep + host 책임 분리 |
+| ~~B21~~ | ~~Vercel `@ai-sdk/<provider>` 50개 직접 의존 + React hooks~~ — **DEMOTED by D44 (2026-04-29)**. 두 sub-concern 모두 회피 가능: (1) `@ai-sdk/<provider>`는 **optional peer dep**으로 두면 host(naia-os) 가 필요한 것만 install → zero-runtime-dep 정신 보존, (2) `@ai-sdk/react` hooks는 별도 패키지, naia-agent는 headless로 import 안 함. 즉 B21은 본질적 차단이 아니라 회피 가능한 운영 사항 | vercel-ai-sdk | demoted (sub-concern only) |
 | **B22** | cleanroom 코드 라인 직접 복붙 (8 파일) | cleanroom-cc deep-audit F1~F12 | F4 강화 — 패턴 idea만 차용, 라인 복붙 금지 (LLM 환각 silent drift 위험) |
 | **B23** | naia-agent를 claude-code/opencode 수준 자체 build (provider 50+, MCP, SQL session, compaction 정교, tool 본체 풀스택) | R4 1인 환경 평가 | 1인 70k+ LOC 1년+ 무리. Hybrid wrapper(D18)가 현실 path. wrapper layer ~2,150 LOC로 사용자 가치 80% 달성 가능 |
 
@@ -130,7 +130,7 @@
 | **D20** | **NaiaStreamChunk multi-modal protocol** (text/audio/image/tool/workspace/session/verification/report/interrupt) | R4 (omni-voice 시대 vllm-omni / GPT-4o realtime) | **P0** | M | packages/types/src/stream.ts + core/stream-merger |
 | **D21** | **Real-time interrupt + pause/resume** (음성 "중지중지" / Ctrl+C / 카드 [중지]) | R4 (사용자 통제권) | **P0** | M | core/interrupt + adapter cancel/pause/resume contract |
 | **D22** | **vllm-omni adapter** (omni audio output, audio_delta passthrough) | R4 + 사용자 자체 fork (nextain/vllm-omni MiniCPM-o 4.5) | P1 | L | adapters/vllm-omni (Phase 4+) |
-| **D23** | **Vercel AI SDK 보류** — any-llm으로 충분 (multi-provider routing은 원격 gateway). 외부 distribution 시 재검토 | R4 (any-llm = naia 자체 fork, naia-anyllm) | P2 | — | (deferred, reconsider 시점 신규 D 추가) |
+| ~~D23~~ | ~~**Vercel AI SDK 보류** — any-llm으로 충분 (multi-provider routing은 원격 gateway). 외부 distribution 시 재검토~~ — **SUPERSEDED by D44 (2026-04-29)**. D23 근거의 결함: any-llm gateway는 원격 naia 계정 한정이고, 사용자 자체 키 환경에서는 multi-provider 확보 못함. 5개 자체 provider는 이전 naia-os/agent에서 carry-over일 뿐 실질 신규 abstraction 아님 | R4 (any-llm = naia 자체 fork, naia-anyllm) | ~~P2~~ | — | superseded |
 | **D24** | **Sub-agent supervisor pattern** (ACP/Claude SDK adapter + 다중 session orchestration + audit trail) | R4 (사용자 다중 터미널 워크플로우 자동화) | **P0** | L | core/supervisor + adapters/{opencode,claude-code} + observability audit |
 | **D25** | **Tool context schema 정형화** (sessionId/workingDir/ask/tier) — SpawnContext.toolContext | R4 cross-review (opencode + Vercel) | **P0** | S | adapters/* — `ToolExecutionContext` interface (adapter-contract.md §2) |
 | **D26** | **onSessionEnd hook → session_aggregated chunk** (supervisor가 stats/verification aggregate 후 emit, report 전 단계) | R4 cross-review (Mastra + Vercel onStepFinish, D12 보강) | **P0** | S | core/supervisor + stream-protocol.md §5b 신규 |
@@ -142,6 +142,7 @@
 | **D32** | **bash/file-ops dev-only marker** (R3 250 PASS test 보존 정책 명시) | R4 Week 0 2차 cross-review (Reference + Paranoid R3-R4) | **P0** | S | runtime/skills/README.md 신설 + bash/file-ops test에 `describe.skip(production)` marker — Day 1 진행 중 |
 | **D33** | **opencode `run --format json` JSON event protocol** (Phase 1 채택, ACP는 Phase 2) | R4 Week 0 spike 2026-04-26 | **P0** | S | adapters/opencode-cli/ — Phase 1 정식 path. JSON event NDJSON parse → NaiaStreamChunk 변환 |
 | **D43** | **naia-agent의 STT/TTS provider abstraction** (Vercel AI SDK 패턴, omni audio_delta 호환) — naia-os는 device IO만 (mic/speaker via Tauri Rust cpal) | R4 Phase 4 cross-review 사용자 통찰 — "tts/stt naia-shell 처리 시 omni 곤란" | P1 | M | naia-agent에 audio provider layer (Vercel `experimental_generateSpeech` / `experimental_transcribe` 패턴) — Phase 5+ |
+| **D44** | **Vercel AI SDK 로컬 LLM 단일 abstraction 채택** (D23 supersede) — `ai` core를 peer dep, `@ai-sdk/<provider>`도 optional peer dep. 50+ provider 즉시 호환. 자체 5개(`anthropic`/`anthropic-vertex`/`gemini`/`openai-compat`/`claude-cli`) → `VercelClient` adapter 1개로 대체. CLI 구독 path는 community provider (`ai-sdk-provider-claude-code`/`-codex-cli`/`-gemini-cli`/`-opencode-sdk`)로 흡수. **lab-proxy / lab-proxy-live는 보존** (naiaKey 보호 + WebSocket Live API, Vercel 영역 밖). vllm-omni 텍스트 mode = `@ai-sdk/openai-compatible`로 즉시 호환, audio_delta realtime은 D43 자체 layer 유지 | 사용자 directive 2026-04-29 — D23 silent drift 정정. 토큰 부족 → multi-provider 확보 절실. RunPod naia 계정 통합은 별도 (D45 후보) | **P0** | L (Phase 5.x slices) | packages/providers/src/vercel-client.ts (adapter) + 5개 자체 provider deprecate → 제거 (slice 시퀀스). bin / examples / fixture-replay 갱신 |
 
 ---
 
@@ -273,3 +274,42 @@
 **P0 11건 모두 docs 반영** (stream-protocol §2/§5b, architecture-hybrid §5b/§6b/§6c, adapter-contract §2/§3 매핑/§8 보안/§9 contract test C11~C15).
 
 상세: `.agents/progress/r4-week0-cross-review-summary.md`
+
+---
+
+## K. R5 변경 이력 (2026-04-29 Vercel AI SDK 채택 정정)
+
+**trigger**: 사용자 directive 2026-04-29 — "Vercel ai sdk를 쓰면 어쨌든 llm확보가 매우 쉬워지잖아" + "토큰이 딸리게 생겨서 naia계정, anyllm에서 runpod을 지원할 수 있을지도 고려" + "우선 vercel ai sdk 적용으로 정리하고 계획 세우고 작업 진행해 / 우리 any-llm의 runpod지원은 이후에 추가 논의하자"
+
+**배경**: D23 (Vercel AI SDK 보류, R4 lock)이 사용자 원래 의사 ("로컬은 vercel꺼 쓰면 다 해결")와 정반대로 기록되어 silent drift. R3~R4에서 만든 7개 자체 provider 중 5개가 이전 naia-os/agent에서 carry-over일 뿐 실질 신규 abstraction 아니고, registry/factory layer는 오히려 후퇴.
+
+**변경 요약**:
+
+- **§D 신규 1건** (D44) — Vercel AI SDK 로컬 LLM 단일 abstraction 채택, peer-dep 패턴
+- **§D supersede** — D23 → D44 (strikethrough + supersede 명시)
+- **§B 격하** — B21 → demoted (sub-concern 회피 가능 명시: optional peer dep + headless)
+- **§A 영향 (예정)** — A10/A21/A22 자체 provider 채택 항목들은 Slice 시퀀스에서 §C/§deprecated 이동 후 제거. lab-proxy / lab-proxy-live (gateway 경로) + claude-cli (subprocess) 검토
+- **§D 미결 (RunPod)** — 사용자 directive로 "이후 논의" 보류. D45 후보 자리 표시: naia-anyllm gateway에 RunPod backend 통합 (lab-proxy `runpod:<model>` prefix 라우팅 + naiaKey 단일 인증)
+
+**P0 결정 (Phase 5.x, slices)**:
+
+| Slice | 목표 | success criterion |
+|---|---|---|
+| **5.x.0** | 매트릭스 + progress lock (본 commit) | docs only — S03/S04 면제 (matrix_id_citation 면제 항목) |
+| **5.x.1** | `VercelClient` adapter MVP — `LanguageModelV2` → `LLMClient` wrap | S01 신규 명령 (Vercel-backed `pnpm naia-agent`) + S02 unit (stream/generate 양방향 변환) + S03 integration (real Anthropic via Vercel) + S04 CHANGELOG entry |
+| **5.x.2** | 자체 `anthropic.ts` deprecate → VercelClient + `@ai-sdk/anthropic` | S01 동일 명령에서 Vercel-backed 동작 + S02 회귀 + S03 fixture-replay 재녹화 (F11 강제) |
+| **5.x.3** | `gemini.ts` / `openai-compat.ts` / `anthropic-vertex.ts` deprecate → Vercel | (3 sub-slices) GLM via zhipu-ai-provider, vLLM via @ai-sdk/openai-compatible, Vertex via @ai-sdk/google-vertex |
+| **5.x.4** | `claude-cli.ts` deprecate → `ai-sdk-provider-claude-code` (community) | subprocess wrap → Vercel SDK 패턴, Pro/Max 구독 path 보존 |
+| **5.x.5** | bin / examples / fixture-replay 갱신 + 자체 provider 5개 제거 | 250 PASS 회귀 + bin --help가 Vercel-backed provider 노출 |
+| **5.x.6** | Cross-review 3-perspective (architect / reference / paranoid) | review docs 3건 + P0 fix 반영 |
+
+**out of scope (별도 논의)**:
+- RunPod 통합 (D45 후보, naia-anyllm gateway 측 작업)
+- vllm-omni RunPod 호스팅 (자체 컨테이너 빌드 + Pod 배포, Phase 5+ 별도 검토)
+
+**보존 (Vercel 영역 밖, 변경 없음)**:
+- `lab-proxy.ts` (HTTPS, naiaKey)
+- `lab-proxy-live.ts` (WSS, naiaKey, vllm-omni `/v1/realtime`)
+- D43 자체 audio provider layer (Phase 5+)
+
+상세: `.agents/progress/vercel-ai-sdk-adoption-2026-04-29.md`
