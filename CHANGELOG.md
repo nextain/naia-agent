@@ -8,6 +8,41 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [Slice 5.x.3] — 2026-04-29 — `GeminiClient` / `OpenAICompatClient` / `createAnthropicVertexClient` deprecate (D44 §3)
+
+**3 provider 통합 deprecate.** 사용자 directive "통합" — 분할 (5.x.3a/b/c) 대신 단일 commit. 모두 동일 pattern (file-level + class/interface/factory `@deprecated` JSDoc, scope 변경 없음).
+
+### Changed
+- `packages/providers/src/gemini.ts` — `@deprecated` JSDoc + 두 마이그레이션 path 명시:
+  - API key path: `@ai-sdk/google` (Vercel SDK)
+  - Subscription path: `ai-sdk-provider-gemini-cli` (community, Gemini Code Assist)
+  - Gemini 3 `thoughtSignature` round-trip은 Vercel `LanguageModelV2 providerMetadata` 통해 가능 (5.x.5 cleanup 시점에 검증)
+- `packages/providers/src/openai-compat.ts` — `@deprecated` JSDoc + 마이그레이션 예시:
+  - vLLM / vllm-omni / LM Studio / Ollama / OpenRouter / Together / Groq / Cerebras / DeepSeek / Fireworks / Perplexity → `@ai-sdk/openai-compatible` (단일 official 패키지)
+  - Z.ai coding plan / Zhipu GLM → `zhipu-ai-provider` (community, `createZhipu({ baseURL: 'https://api.z.ai/api/paas/v4' })`)
+  - B21 historical rationale ("avoids 50-provider direct deps") demote 명시 — `@ai-sdk/openai-compatible`은 단일 optional peer dep으로 모든 OpenAI-compat backend 커버
+- `packages/providers/src/anthropic-vertex.ts` — `@deprecated` JSDoc:
+  - `@ai-sdk/anthropic` Vertex 모드 또는 `@ai-sdk/google-vertex`
+  - `AnthropicClient`를 transitively 의존 (5.x.2에서 deprecate된 client) → 5.x.5에서 함께 제거
+
+### 기존 코드 영향
+- **0 회귀** — JSDoc만 추가, 시그니처/런타임 변경 없음
+- IDE strikethrough cue + TypeScript informational marker
+
+### 회귀
+- **460 PASS** (변동 없음)
+
+### Slice 5.x.3 success criterion
+- ⊘ S01~S04 부분 면제 (5.x.2와 동일 — deprecation 표기, matrix_id_citation rule "docs/infra 변경" 면제)
+- ✅ S04 본 entry
+
+### 매트릭스 ID 인용
+- `chore(providers): @deprecated Gemini/OpenAICompat/AnthropicVertex — fixes D44 §3`
+
+### 다음 단계 (Slice 5.x.4)
+- `claude-cli.ts` deprecate → `ai-sdk-provider-claude-code` (community, Claude Pro/Max 구독 path 보존). Subprocess wrap (Flatpak/Windows/partial-JSON parity) 로직은 community provider가 흡수
+- 이후 5.x.5: 자체 5개 일괄 제거 + bin/examples/fixture 정리 + 회귀 460 PASS 유지
+
 ## [Slice 5.x.2] — 2026-04-29 — `AnthropicClient` deprecate (D44 §2)
 
 **자체 anthropic.ts → Vercel-backed 마이그레이션 path 공식 권고.** AnthropicClient는 5.x.5에서 제거 예정. 신규 코드는 `VercelClient + @ai-sdk/anthropic` 사용. 기존 코드는 그대로 동작 (소프트 deprecate).

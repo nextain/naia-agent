@@ -1,9 +1,31 @@
 /**
  * GeminiClient — LLMClient implementation over @google/genai SDK.
  *
+ * @deprecated Slice 5.x.3 (D44). Use one of the Vercel SDK paths via
+ *   `VercelClient` instead. Removed in Slice 5.x.5.
+ *
+ *   API key path:
+ *   ```ts
+ *   import { google } from "@ai-sdk/google";
+ *   import { VercelClient } from "@nextain/agent-providers/vercel";
+ *   const client = new VercelClient(google("gemini-2.5-flash"));
+ *   ```
+ *
+ *   Subscription (Gemini Code Assist) path:
+ *   ```ts
+ *   import { createGeminiProvider } from "ai-sdk-provider-gemini-cli";
+ *   const gemini = createGeminiProvider({ authType: "oauth-personal" });
+ *   const client = new VercelClient(gemini("gemini-2.5-flash"));
+ *   ```
+ *
+ *   `thoughtSignature` (Gemini 3 thinking-tool calling parity) round-trip:
+ *   handled in 5.x.3 follow-up via `LanguageModelV2 providerMetadata`. The
+ *   self-built path remains importable until 5.x.5 for users who depend on
+ *   the explicit `thoughtSignature` field on `LLMContentBlock.tool_use`.
+ *
  * R4 Phase 5 Day 7.1 — Gemini 3 thoughtSignature parity (full feature).
  *
- * Usage:
+ * Usage (legacy — kept until 5.x.5):
  *   import { GoogleGenAI } from "@google/genai";
  *   import { GeminiClient } from "@nextain/agent-providers/gemini";
  *
@@ -33,6 +55,9 @@ import type {
   ToolDefinition,
 } from "@nextain/agent-types";
 
+/**
+ * @deprecated Slice 5.x.3 (D44). Removed 5.x.5. See top-of-file JSDoc.
+ */
 export interface GeminiClientOptions {
   defaultModel?: string;
   /**
@@ -42,6 +67,10 @@ export interface GeminiClientOptions {
   defaultTemperature?: number;
 }
 
+/**
+ * @deprecated Slice 5.x.3 (D44). Use `VercelClient` with `@ai-sdk/google` or
+ *   community `ai-sdk-provider-gemini-cli`. Removed 5.x.5.
+ */
 export class GeminiClient implements LLMClient {
   readonly #sdk: GoogleGenAI;
   readonly #defaultModel: string;

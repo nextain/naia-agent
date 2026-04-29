@@ -1,14 +1,42 @@
-// Slice 1c (extension) + Slice 2.5 — OpenAI-compat LLM client.
-//
-// Minimal fetch-based wrapper. No SDK dependency (matrix B21 compliance —
-// avoids 50-provider direct deps). Supports any endpoint that speaks
-// OpenAI Chat Completions API: zai/Zhipu GLM (open.bigmodel.cn),
-// vLLM/Ollama (OpenAI-compat mode), OpenRouter, Together, Groq, etc.
-//
-// Slice 2.5 adds tool calling translation:
-//   - LLMRequest.tools → OpenAI tools[] (function-calling format)
-//   - response.choices[0].message.tool_calls → LLMContentBlock[] tool_use
-//   - LLMMessage tool_use/tool_result blocks → OpenAI assistant.tool_calls / tool message
+/**
+ * OpenAICompatClient — fetch-based wrapper over OpenAI Chat Completions API.
+ *
+ * @deprecated Slice 5.x.3 (D44). Use `VercelClient` with the official
+ *   `@ai-sdk/openai-compatible` package, which exposes the same surface
+ *   (apiKey + baseURL) and supports vLLM / vllm-omni / LM Studio / Ollama /
+ *   OpenRouter / Together / Groq / Cerebras / DeepSeek / Fireworks /
+ *   Perplexity / etc. through one interface. For Z.ai coding plan / Zhipu
+ *   GLM, use `zhipu-ai-provider` (community) — `createZhipu({ baseURL:
+ *   "https://api.z.ai/api/paas/v4", apiKey })`. Removed in Slice 5.x.5.
+ *
+ *   ```ts
+ *   import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
+ *   import { VercelClient } from "@nextain/agent-providers/vercel";
+ *
+ *   const vllm = createOpenAICompatible({
+ *     name: "vllm",
+ *     baseURL: "http://localhost:8000/v1",
+ *     apiKey: "EMPTY",
+ *   });
+ *   const client = new VercelClient(vllm("qwen/qwen3-32b-awq"));
+ *   ```
+ *
+ *   B21 historical rationale ("avoids 50-provider direct deps") is
+ *   demoted: `@ai-sdk/openai-compatible` is a single optional peer dep
+ *   that covers all OpenAI-compat backends without per-backend modules.
+ *
+ * Slice 1c (extension) + Slice 2.5 history (legacy — kept until 5.x.5).
+ *
+ * Minimal fetch-based wrapper. No SDK dependency. Supports any endpoint
+ * that speaks OpenAI Chat Completions API: zai/Zhipu GLM
+ * (open.bigmodel.cn), vLLM/Ollama (OpenAI-compat mode), OpenRouter,
+ * Together, Groq, etc.
+ *
+ * Slice 2.5 adds tool calling translation:
+ *   - LLMRequest.tools → OpenAI tools[] (function-calling format)
+ *   - response.choices[0].message.tool_calls → LLMContentBlock[] tool_use
+ *   - LLMMessage tool_use/tool_result blocks → OpenAI assistant.tool_calls / tool message
+ */
 
 import type {
   LLMClient,
@@ -22,6 +50,9 @@ import type {
   Logger,
 } from "@nextain/agent-types";
 
+/**
+ * @deprecated Slice 5.x.3 (D44). Removed 5.x.5. See top-of-file JSDoc.
+ */
 export interface OpenAICompatClientOptions {
   apiKey: string;
   baseUrl: string;
@@ -70,6 +101,11 @@ interface OpenAIChatResponse {
   usage?: { prompt_tokens: number; completion_tokens: number };
 }
 
+/**
+ * @deprecated Slice 5.x.3 (D44). Use `VercelClient` with
+ *   `@ai-sdk/openai-compatible` (or `zhipu-ai-provider` for Z.ai/GLM).
+ *   Removed 5.x.5.
+ */
 export class OpenAICompatClient implements LLMClient {
   readonly #apiKey: string;
   readonly #baseUrl: string;

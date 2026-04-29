@@ -159,15 +159,17 @@ naia-agent core/runtime  ← LLMClient interface로만 인지
 - `anthropic-vertex.ts` 는 내부적으로 `AnthropicClient` 재사용 (deprecate inherit). 5.x.3c 시점에 정식 deprecate.
 - 신규 host 코드 path 없음 (R4 hybrid path가 sub-agent로 전환했음). 5.x.5에서 5 provider 일괄 제거 가능.
 
-### 5.x.3 — Gemini / OpenAI-compat / Vertex deprecate
+### 5.x.3 — Gemini / OpenAI-compat / Vertex deprecate ✅ 완료 (사용자 directive "통합")
 
-3 sub-slices:
+**사용자 directive로 분할 (5.x.3a/b/c) → 통합 (단일 commit) 으로 변경.** 모두 동일 pattern (JSDoc deprecate, 시그니처 변경 없음).
 
-- **5.x.3a**: `gemini.ts` deprecate → `@ai-sdk/google` (또는 `ai-sdk-provider-gemini-cli` 구독 path)
-- **5.x.3b**: `openai-compat.ts` deprecate → `@ai-sdk/openai-compatible`. Z.ai coding plan = `zhipu-ai-provider`.
-- **5.x.3c**: `anthropic-vertex.ts` deprecate → `@ai-sdk/google-vertex` 또는 `@ai-sdk/anthropic` Vertex 모드. **사용자 자체 GCP 환경 검증 필요** (gcloud ADC).
-
-각 sub-slice S01~S04 + G15 만족.
+| 항목 | 결과 |
+|---|---|
+| `gemini.ts` deprecate | ✅ file + class + interface JSDoc. API key path (`@ai-sdk/google`) + Subscription path (`ai-sdk-provider-gemini-cli`) 둘 다 명시. thoughtSignature round-trip은 Vercel `LanguageModelV2 providerMetadata`로 5.x.5 cleanup 시 검증 |
+| `openai-compat.ts` deprecate | ✅ file + class + interface JSDoc. vLLM/vllm-omni/LM Studio/Ollama/OpenRouter/Together/Groq/Cerebras/DeepSeek/Fireworks/Perplexity → `@ai-sdk/openai-compatible`. Z.ai coding plan/Zhipu GLM → `zhipu-ai-provider` (`createZhipu({ baseURL: 'https://api.z.ai/api/paas/v4' })`) 명시. B21 historical rationale demote |
+| `anthropic-vertex.ts` deprecate | ✅ file + interface + factory function JSDoc. `@ai-sdk/anthropic` Vertex 모드 또는 `@ai-sdk/google-vertex`. AnthropicClient transitively 의존 (5.x.2 deprecate) → 5.x.5에서 함께 제거 |
+| 회귀 | ✅ **460 PASS** (변동 없음) |
+| 매트릭스 ID 인용 | ✅ `chore(providers): @deprecated Gemini/OpenAICompat/AnthropicVertex — fixes D44 §3` |
 
 ### 5.x.4 — `claude-cli.ts` deprecate → community provider
 
