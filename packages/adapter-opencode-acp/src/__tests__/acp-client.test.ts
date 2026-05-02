@@ -68,13 +68,10 @@ describe("AcpClient — crash recovery + close behaviour", () => {
 
 describe("AcpClient — JSON-RPC framing (mock server)", () => {
   it("processes a JSON-RPC response line correctly", async () => {
-    // Mock server: emit a JSON-RPC response with id=1 then exit
+    // Mock server: emit a JSON-RPC response with id=1 then linger 100ms
     const client = new AcpClient({
-      command: "/bin/sh",
-      args: [
-        "-c",
-        `printf '{"jsonrpc":"2.0","id":1,"result":{"ok":true}}\\n'; sleep 0.1`,
-      ],
+      command: process.execPath,
+      args: ["-e", `process.stdout.write('{"jsonrpc":"2.0","id":1,"result":{"ok":true}}\\n'); setTimeout(()=>{}, 100)`],
       hardKillDeadlineMs: 200,
     });
     // Manually wire request id=1 by sending a request first
@@ -88,11 +85,8 @@ describe("AcpClient — JSON-RPC framing (mock server)", () => {
   it("processes notification (no id) via handler", async () => {
     let received: unknown = null;
     const client = new AcpClient({
-      command: "/bin/sh",
-      args: [
-        "-c",
-        `printf '{"jsonrpc":"2.0","method":"session/update","params":{"text":"hi"}}\\n'; sleep 0.1`,
-      ],
+      command: process.execPath,
+      args: ["-e", `process.stdout.write('{"jsonrpc":"2.0","method":"session/update","params":{"text":"hi"}}\\n'); setTimeout(()=>{}, 100)`],
       hardKillDeadlineMs: 200,
     });
     client.onNotification("session/update", (note) => {

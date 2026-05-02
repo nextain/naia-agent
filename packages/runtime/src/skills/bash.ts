@@ -32,7 +32,7 @@ export interface BashSkillOptions {
 }
 
 const DEFAULT_OPTIONS: Required<Omit<BashSkillOptions, "cwd" | "logger">> = {
-  shell: "/bin/bash",
+  shell: process.platform === "win32" ? "cmd.exe" : "/bin/bash",
   timeoutMs: 30_000,
   maxOutputBytes: 32_768,
   tier: "T1",

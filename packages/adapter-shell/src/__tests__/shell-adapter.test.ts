@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import os from "node:os";
+import path from "node:path";
 import {
   type NaiaStreamChunk,
   type SpawnContext,
@@ -103,11 +105,8 @@ describe("ShellAdapter — adapter contract C1~C10 + path traversal A6", () => {
 
   it("C3/C12 — cancel() resolves and yields session_end(cancelled) within deadline", async () => {
     const adapter = new ShellAdapter({
-      command: process.platform === "win32" ? "cmd" : "/usr/bin/env",
-      args: () =>
-        process.platform === "win32"
-          ? ["/c", "ping", "-n", "10", "127.0.0.1"]
-          : ["sleep", "5"],
+      command: process.execPath,
+      args: () => ["-e", "setTimeout(()=>{},60000)"],
       hardKillDeadlineMs: 200,
     });
     const session = await adapter.spawn(
@@ -196,12 +195,13 @@ describe("ShellAdapter — adapter contract C1~C10 + path traversal A6", () => {
   });
 
   it("A6 — workdir is resolved and child cwd is set", async () => {
+    const tmpDir = os.tmpdir();
     const adapter = new ShellAdapter({
-      command: process.platform === "win32" ? "cmd" : "/bin/sh",
-      args: () => (process.platform === "win32" ? ["/c", "cd"] : ["-c", "pwd"]),
+      command: process.execPath,
+      args: () => ["-e", "process.stdout.write(process.cwd())"],
     });
     const session = await adapter.spawn(
-      { prompt: "x", workdir: "/tmp" },
+      { prompt: "x", workdir: tmpDir },
       makeCtx(),
     );
     const events = await collect(session.events());
@@ -209,6 +209,6 @@ describe("ShellAdapter — adapter contract C1~C10 + path traversal A6", () => {
       .filter((e) => e.type === "text_delta")
       .map((e) => (e.type === "text_delta" ? e.text : ""))
       .join("");
-    expect(text).toContain("/tmp");
+    expect(text.trim()).toBe(path.resolve(tmpDir));
   });
 });

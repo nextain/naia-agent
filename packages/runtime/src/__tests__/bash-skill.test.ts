@@ -16,14 +16,14 @@ describe("createBashSkill (D01 + D02)", () => {
     expect(typeof skill.handler).toBe("function");
   });
 
-  it("executes a safe ls command and returns stdout + exit 0", async () => {
+  it.skipIf(process.platform === "win32")("executes a safe ls command and returns stdout + exit 0", async () => {
     const skill = createBashSkill();
     const result = await skill.handler({ command: "echo hello-from-bash-skill" });
     expect(result).toContain("hello-from-bash-skill");
     expect(result).toContain("[exit 0]");
   });
 
-  it("captures non-zero exit and stderr", async () => {
+  it.skipIf(process.platform === "win32")("captures non-zero exit and stderr", async () => {
     const skill = createBashSkill();
     const result = await skill.handler({ command: "false" });
     expect(result).toContain("[exit 1]");
@@ -63,19 +63,19 @@ describe("createBashSkill (D01 + D02)", () => {
     expect(result as string).toMatch(/^ERROR:/);
   });
 
-  it("respects custom cwd option", async () => {
+  it.skipIf(process.platform === "win32")("respects custom cwd option", async () => {
     const skill = createBashSkill({ cwd: "/tmp" });
     const result = await skill.handler({ command: "pwd" });
     expect(result).toContain("/tmp");
   });
 
-  it("respects timeout option (1s) on long-running command", async () => {
+  it.skipIf(process.platform === "win32")("respects timeout option (1s) on long-running command", async () => {
     const skill = createBashSkill({ timeoutMs: 1000 });
     const result = await skill.handler({ command: "sleep 5" });
     expect(result as string).toContain("TIMEOUT");
   }, 8000);
 
-  it("includes stderr by default", async () => {
+  it.skipIf(process.platform === "win32")("includes stderr by default", async () => {
     const skill = createBashSkill();
     const result = await skill.handler({
       command: "echo to-stderr 1>&2 ; echo to-stdout",
@@ -85,7 +85,7 @@ describe("createBashSkill (D01 + D02)", () => {
     expect(result).toContain("to-stderr");
   });
 
-  it("excludes stderr when includeStderr=false", async () => {
+  it.skipIf(process.platform === "win32")("excludes stderr when includeStderr=false", async () => {
     const skill = createBashSkill({ includeStderr: false });
     const result = await skill.handler({
       command: "echo to-stderr 1>&2 ; echo to-stdout",

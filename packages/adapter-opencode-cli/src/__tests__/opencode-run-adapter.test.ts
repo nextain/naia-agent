@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import os from "node:os";
 import {
   type NaiaStreamChunk,
   type SpawnContext,
@@ -17,7 +18,7 @@ import { OpencodeRunAdapter } from "../opencode-run-adapter.js";
  */
 
 function makeCtx(): SpawnContext {
-  const tc: ToolExecutionContext = { sessionId: "test", workingDir: "/tmp" };
+  const tc: ToolExecutionContext = { sessionId: "test", workingDir: os.tmpdir() };
   return { signal: new AbortController().signal, toolContext: tc };
 }
 
@@ -45,13 +46,11 @@ function makeAdapter(ndjson: string) {
   return new OpencodeRunAdapter({
     hardKillDeadlineMs: 200,
     resolveBin: () => ({
-      command: "/usr/bin/printf",
-      // %s prints the next argument verbatim; subsequent args are ignored
-      // by printf when format has only one %s. We pass our NDJSON as the
-      // first positional — adapter appends opencode's own args after.
-      // To control output regardless of adapter args, prepend our format
-      // and let `printf` ignore the rest.
-      prefixArgs: ["%s", ndjson],
+      command: process.execPath,
+      // node -e "process.stdout.write(ndjson)" -- <adapter-args...>
+      // The `--` terminates Node.js flag parsing so adapter-appended args
+      // (run, --format, --dir, etc.) are treated as process.argv, not flags.
+      prefixArgs: ["-e", `process.stdout.write(${JSON.stringify(ndjson)})`, "--"],
     }),
   });
 }
@@ -60,7 +59,7 @@ describe("OpencodeRunAdapter — NDJSON event → NaiaStreamChunk conversion", (
   it("text-only turn emits session_start + session_progress + text_delta + session_end(completed)", async () => {
     const adapter = makeAdapter(FAKE_NDJSON_TEXT_ONLY);
     const session = await adapter.spawn(
-      { prompt: "hi", workdir: "/tmp" },
+      { prompt: "hi", workdir: os.tmpdir() },
       makeCtx(),
     );
     const events = await collect(session.events());
@@ -73,7 +72,7 @@ describe("OpencodeRunAdapter — NDJSON event → NaiaStreamChunk conversion", (
   it("text_delta carries the right text", async () => {
     const adapter = makeAdapter(FAKE_NDJSON_TEXT_ONLY);
     const session = await adapter.spawn(
-      { prompt: "x", workdir: "/tmp" },
+      { prompt: "x", workdir: os.tmpdir() },
       makeCtx(),
     );
     const events = await collect(session.events());
@@ -87,7 +86,7 @@ describe("OpencodeRunAdapter — NDJSON event → NaiaStreamChunk conversion", (
   it("tool_use(completed) synthesizes tool_use_start + tool_use_end pair (C5)", async () => {
     const adapter = makeAdapter(FAKE_NDJSON_WITH_TOOL);
     const session = await adapter.spawn(
-      { prompt: "x", workdir: "/tmp" },
+      { prompt: "x", workdir: os.tmpdir() },
       makeCtx(),
     );
     const events = await collect(session.events());
@@ -113,7 +112,7 @@ describe("OpencodeRunAdapter — NDJSON event → NaiaStreamChunk conversion", (
       }) + "\n";
     const adapter = makeAdapter(ndjson);
     const session = await adapter.spawn(
-      { prompt: "x", workdir: "/tmp" },
+      { prompt: "x", workdir: os.tmpdir() },
       makeCtx(),
     );
     const events = await collect(session.events());
@@ -135,7 +134,7 @@ describe("OpencodeRunAdapter — NDJSON event → NaiaStreamChunk conversion", (
   it("C7/C14 — pause/resume/inject throw UnsupportedError", async () => {
     const adapter = makeAdapter(FAKE_NDJSON_TEXT_ONLY);
     const session = await adapter.spawn(
-      { prompt: "x", workdir: "/tmp" },
+      { prompt: "x", workdir: os.tmpdir() },
       makeCtx(),
     );
     await expect(session.pause()).rejects.toBeInstanceOf(UnsupportedError);
@@ -147,7 +146,7 @@ describe("OpencodeRunAdapter — NDJSON event → NaiaStreamChunk conversion", (
   it("C2 — session_end emitted exactly once as last chunk", async () => {
     const adapter = makeAdapter(FAKE_NDJSON_WITH_TOOL);
     const session = await adapter.spawn(
-      { prompt: "x", workdir: "/tmp" },
+      { prompt: "x", workdir: os.tmpdir() },
       makeCtx(),
     );
     const events = await collect(session.events());
