@@ -70,10 +70,11 @@ export type { DangerousMatch, DangerousCheckResult } from "./utils/dangerous-com
 // Built-in skills — Slice 2 (Bash) + Slice 2.6 (file-ops).
 export {
   createBashSkill,
+  createCodingSkill,
   createReadFileSkill,
   createWriteFileSkill,
   createEditFileSkill,
   createListFilesSkill,
   createFileOpsSkills,
 } from "./skills/index.js";
-export type { BashSkillOptions, BashInput, FileOpsOptions } from "./skills/index.js";
+export type { BashSkillOptions, BashInput, CodingSkillOptions, CodingInput, FileOpsOptions } from "./skills/index.js";
