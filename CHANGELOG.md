@@ -8,6 +8,30 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [R1-prep] — 2026-05-06 — MemoryProvider type alignment + ContradictionFilterCapable (#25 P1)
+
+**Slice 3 prerequisite.** Aligns `@nextain/agent-types` MemoryProvider façade with the naia-memory R2.5 reference implementation (commits 346e8ae bi-temporal recall + f9c5dfa hybrid contradiction filter, KO benchmark 76→82% B grade `naia-memory#14`). Type-only / docs change — no runtime behaviour change for any active consumer (only `compact()` is used today; mocks unaffected).
+
+### Changed (broaden 7 — agent type widened to accept memory's richer shape)
+- `MemoryProvider.encode(input, opts?: EncodeOpts)` — added `EncodeOpts.project` for project-scoped tagging
+- `RecallOpts` — added `project?` and `sessionId?` for context-dependent recall
+- `MemoryHit` — added `createdAt?` and `updatedAt?` (timestamp kept as deprecated alias)
+- `ConsolidationSummary` — added `factsUpdated?` and `episodesProcessed?` (optional)
+- `BackupCapable` — `backup()/restore(data)` → `exportBackup(password)/importBackup(blob, password)` (adopts memory's AES-256-GCM scheme; password parameter required by contract for forward compatibility)
+- `ReconsolidationCapable.findContradictions(newContent, existingIds?)` — signature changed (was `(factId)`); `Contradiction` shape now `{conflictingId, conflictType: "direct"|"indirect", reason}`
+- `TemporalCapable.recallWithHistory(query, atTimestamp, opts?)` — `atTimestamp` now required; opts shape mirrors `RecallOpts`. `applyDecay()` returns `Promise<number>` (count of pruned items).
+
+### Added (R2.5 — dual-process retrieval-rerank capability)
+- `ContradictionFilterCapable.filterContradictions(candidates)` — small-LLM (or heuristic) filter that rejects false-positive contradictions before supersede. Mirrors the human ACC (conflict detection) → PFC (resolution) division of labour. Implementations live in naia-memory: `HeuristicContradictionFilter`, `GeminiFlashLiteContradictionFilter`, `VllmReasoningContradictionFilter`. Selection by env: `VLLM_REASONING_BASE > GEMINI_API_KEY > heuristic`.
+- `ContradictionCandidate`, `ContradictionVerdict` types (verdict includes `confidence` 0–1; default acceptance threshold ≥0.7 in naia-memory's filter).
+
+### Notes
+- `isCapable` example updated to use the new BackupCapable method names.
+- All 84 existing unit tests pass; tsc clean. Mock implementations (`runtime/src/mocks/in-memory-memory.ts`, `compactable-memory.ts`) unaffected — they don't implement the changed capabilities.
+- naia-memory's `provider-types.ts` switching to `import { … } from "@nextain/agent-types"` is the next step (separate naia-memory commit). At that point Slice 3 wire-in (`bin/naia-agent --memory=alpha`) becomes type-clean.
+
+Refs: nextain/naia-agent#25, nextain/naia-memory#14, naia-memory commits 346e8ae + f9c5dfa.
+
 ## [Slice 5.x.6] — 2026-04-29 — Cross-review fixes (Tier A) + R5 lock (D44 §6)
 
 **3-perspective cross-review 결과 surgical fixes.** architect / reference-driven (vercel:ai-architect) / paranoid 3개 병렬 review → P0 5건 통합 + P1 일부 즉시 적용. types 확장 필요한 항목은 Tier B로 매트릭스 backlog (D45~D52 후보).
