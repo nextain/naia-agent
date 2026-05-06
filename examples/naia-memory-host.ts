@@ -342,6 +342,13 @@ async function main(): Promise<void> {
           "gemini-embedding-001",
           3072,
         );
+        // Direct embedder probe — verifies the URL fix (#20) is live.
+        try {
+          const probeVec = await embedder.embed("probe text");
+          console.log(`  [probe] embedder.embed() returned vec dim=${probeVec.length}`);
+        } catch (e) {
+          console.error(`  [probe] embedder.embed() THREW: ${(e as Error).message}`);
+        }
         // Use the default heuristic fact extractor — that's enough to
         // exercise the embedding + recall + contradiction-filter chain.
         // (LLMFactExtractor lives behind naia-memory's package boundary
@@ -363,12 +370,23 @@ async function main(): Promise<void> {
           context: ctx,
         });
         const cs = await verifyMem.consolidate();
-        const store = (verifySys as unknown as { getStore?: () => unknown }).getStore?.() as
-          | { facts?: { status?: string }[]; factEmbeddings?: Record<string, unknown> }
+        const adapter = (verifySys as unknown as { adapter: { getStore?: () => unknown } }).adapter;
+        const store = adapter.getStore?.() as
+          | {
+              facts?: { status?: string; id?: string; content?: string }[];
+              episodes?: { id?: string }[];
+              factEmbeddings?: Record<string, unknown>;
+              episodeEmbeddings?: Record<string, unknown>;
+            }
           | undefined;
         const facts = store?.facts ?? [];
+        const episodes = store?.episodes ?? [];
         const supersedeCount = facts.filter((f) => f?.status === "superseded").length;
         const factEmbeddings = Object.keys(store?.factEmbeddings ?? {}).length;
+        const episodeEmbeddings = Object.keys(store?.episodeEmbeddings ?? {}).length;
+        console.log(`  episodes:         ${episodes.length}`);
+        console.log(`  episodeEmbeddings:${episodeEmbeddings}  (informational)`);
+        console.log(`  facts (sample):   ${facts.slice(0,2).map(f => `[${f.status}] "${f.content?.slice(0,40)}"`).join(" | ")}`);
         const hits = await verifyMem.recall("editor", { topK: 3 });
 
         console.log("\n━━━ R2.3/R2.5 mini-verification ━━━━━━━━━━━━━━━━━━━━━━");
