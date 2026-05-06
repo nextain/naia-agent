@@ -359,16 +359,30 @@ async function main(): Promise<void> {
         });
         const verifyMem = new AlphaMemoryAdapter(verifySys);
         const ctx = { project: "smoke" };
-        await verifyMem.encode({
-          content: "I'm using Neovim as my code editor.",
-          role: "user",
-          context: ctx,
-        });
-        await verifyMem.encode({
-          content: "Actually I switched to Cursor recently.",
-          role: "user",
-          context: ctx,
-        });
+
+        // Scenarios chosen to *probe* the four false-positive categories
+        // identified during the over-fit retro (naia-memory#22):
+        //   S-replace : same entity + same attribute, different value
+        //               → supersede SHOULD fire (positive case).
+        //   S-list    : list-like attribute (hobby) with multiple coexisting
+        //               values → supersede SHOULD NOT fire.
+        //   S-sibling : same parent ("user tool") but different attributes
+        //               (editor vs terminal) → supersede SHOULD NOT fire.
+        //   S-other   : different entity sharing an attribute name
+        //               (mentor's role vs user's role) → supersede SHOULD NOT fire.
+        // We do not assert outcomes — this is a ledger for human review,
+        // both during smoke and during real daily use.
+        const scenarios: { tag: string; turns: string[] }[] = [
+          { tag: "S-replace", turns: ["I'm using Neovim as my code editor.", "Actually I switched to Cursor recently."] },
+          { tag: "S-list",    turns: ["My hobby is photography.", "I also enjoy cooking on weekends."] },
+          { tag: "S-sibling", turns: ["I use Cursor as my editor.", "I use Wezterm as my terminal."] },
+          { tag: "S-other",   turns: ["My mentor's previous role was CTO.", "My role is CEO."] },
+        ];
+        for (const scn of scenarios) {
+          for (const t of scn.turns) {
+            await verifyMem.encode({ content: t, role: "user", context: ctx });
+          }
+        }
         const cs = await verifyMem.consolidate();
         const adapter = (verifySys as unknown as { adapter: { getStore?: () => unknown } }).adapter;
         const store = adapter.getStore?.() as
@@ -386,7 +400,8 @@ async function main(): Promise<void> {
         const episodeEmbeddings = Object.keys(store?.episodeEmbeddings ?? {}).length;
         console.log(`  episodes:         ${episodes.length}`);
         console.log(`  episodeEmbeddings:${episodeEmbeddings}  (informational)`);
-        console.log(`  facts (sample):   ${facts.slice(0,2).map(f => `[${f.status}] "${f.content?.slice(0,40)}"`).join(" | ")}`);
+        console.log(`  scenarios run:    ${scenarios.length}  (S-replace / S-list / S-sibling / S-other)`);
+        console.log(`  facts (sample):   ${facts.slice(0,3).map(f => `[${f.status}] "${f.content?.slice(0,40)}"`).join(" | ")}`);
         const hits = await verifyMem.recall("editor", { topK: 3 });
 
         console.log("\n━━━ R2.3/R2.5 mini-verification ━━━━━━━━━━━━━━━━━━━━━━");
