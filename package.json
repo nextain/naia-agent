@@ -37,7 +37,7 @@
     "@nextain/agent-types": "workspace:*",
     "@nextain/agent-verification": "workspace:*",
     "@nextain/agent-workspace": "workspace:*",
-    "@nextain/naia-memory": "file:../alpha-memory",
+    "@nextain/naia-memory": "file:../naia-memory",
     "@types/node": "^22.0.0",
     "tsx": "^4.19.0",
     "typescript": "^5.8.0"
