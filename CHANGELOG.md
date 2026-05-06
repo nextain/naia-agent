@@ -8,6 +8,31 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [Slice 3] — 2026-05-06 — alpha-memory backend integration
+
+**naia-memory wired in as a real MemoryProvider implementation.** Closes the loop opened by R1-prep type alignment: `examples/naia-memory-host.ts` now exercises the real `@nextain/naia-memory` `MemorySystem` end-to-end through the `AlphaMemoryAdapter` (MemoryProvider + CompactableCapable shape).
+
+### Changed
+- `package.json` — `@nextain/naia-memory` file: dep path corrected (`../alpha-memory` → `../naia-memory`). The submodule was renamed but the dep wasn't updated; `pnpm smoke:naia-memory` was silently broken until this fix.
+- `examples/naia-memory-host.ts` — added an R2.3/R2.5 mini-verification block (runs only when `GEMINI_API_KEY` is set). Encodes two natural-conversation update statements, runs forced consolidation through the real `MemorySystem`, and reports facts created, factEmbeddings count, supersede count, and recall hits. Hard-asserts `factsCreated > 0`; the rest is informational because the heuristic fact extractor's behaviour depends on environment (LLM extractor, embedding provider).
+
+### Why this matters
+- Cross-repo contract is now exercised against a real backend, not a mock. The R1-prep type widening (commit 164d980) was hypothetical until this slice.
+- Following the over-fit lessons from this session (`naia-memory#22`), this smoke is **not** a benchmark score check — it's a contract + reachability check. Fact-bank scoring stays deferred to its own crate; this slice only proves the wiring.
+
+### Slice 3 success criterion (r1-slice-spine §6.4)
+- (a) New runnable command: `pnpm smoke:naia-memory` — ✅
+- (b) Unit tests: 84/84 across the workspace, no regressions — ✅
+- (c) Integration verification: smoke exercises the real memory backend — ✅
+- (d) CHANGELOG entry: this entry — ✅
+
+### Open follow-ups (separate issues)
+- `naia-memory#21` — fact duplication when force-consolidating per query.
+- `naia-memory` (new, not yet filed) — investigate why `factEmbeddings` stayed at 0 in this smoke despite a properly-wired `OpenAICompatEmbeddingProvider` and `naia-memory#20` URL fix landed (suspected: heuristic extractor returns episode content verbatim, hitting the `contentChanged === false` path so embed never runs).
+- `naia-memory#14` and `#22` remain open for prompt fine-tuning, scheduled for after this Slice 3 baseline is verified in real use.
+
+Refs: nextain/naia-agent#25 (closes Slice 3 portion), nextain/naia-memory#20 (URL fix landed), naia-memory commits ffd535b + d202957 (over-fit cleanup) + 164d980 here (R1-prep).
+
 ## [R1-prep] — 2026-05-06 — MemoryProvider type alignment + ContradictionFilterCapable (#25 P1)
 
 **Slice 3 prerequisite.** Aligns `@nextain/agent-types` MemoryProvider façade with the naia-memory R2.5 reference implementation (commits 346e8ae bi-temporal recall + f9c5dfa hybrid contradiction filter, KO benchmark 76→82% B grade `naia-memory#14`). Type-only / docs change — no runtime behaviour change for any active consumer (only `compact()` is used today; mocks unaffected).

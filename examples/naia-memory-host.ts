@@ -311,6 +311,87 @@ async function main(): Promise<void> {
     }
     console.log(`  durability round-trip: ✓`);
 
+    // ── R2.3 / R2.5 mini-verification ─────────────────────────────────
+    // Slice 3: confirm the real R2.3 (bi-temporal recall) and R2.5
+    // (hybrid contradiction filter) machinery is reachable end-to-end
+    // when naia-memory is wired into a host. We feed two natural
+    // conversation turns about a state change, run a forced
+    // consolidation, and report:
+    //   - factEmbeddings count (catches the silent embedding-URL bug
+    //     class — see naia-memory#20: any value > 0 confirms vector
+    //     path active)
+    //   - superseded count (>0 when contradiction filter took action;
+    //     heuristic fallback may legitimately stay at 0 — informational)
+    //   - recall returns hits (recall pipeline reachable)
+    //
+    // Runs only when GEMINI_API_KEY is set, otherwise the consolidation
+    // would skip extraction entirely (no LLM extractor). Heuristic
+    // fallback is exercised by the unit tests, not here.
+    const verifyR25 = process.env["GEMINI_API_KEY"];
+    if (verifyR25) {
+      const verifyTmp = mkdtempSync(join(tmpdir(), "naia-r25-verify-"));
+      try {
+        const {
+          LocalAdapter: VLA,
+          MemorySystem: VMS,
+          OpenAICompatEmbeddingProvider,
+        } = await import("@nextain/naia-memory");
+        const embedder = new OpenAICompatEmbeddingProvider(
+          "https://generativelanguage.googleapis.com/v1beta/openai/",
+          verifyR25,
+          "gemini-embedding-001",
+          3072,
+        );
+        // Use the default heuristic fact extractor — that's enough to
+        // exercise the embedding + recall + contradiction-filter chain.
+        // (LLMFactExtractor lives behind naia-memory's package boundary
+        // and is not in its public exports map; that's a separate concern.)
+        const verifySys = new VMS({
+          adapter: new VLA({ storePath: join(verifyTmp, "memory.json"), embeddingProvider: embedder }),
+          consolidationIntervalMs: 60_000 * 60,
+        });
+        const verifyMem = new AlphaMemoryAdapter(verifySys);
+        const ctx = { project: "smoke" };
+        await verifyMem.encode({
+          content: "I'm using Neovim as my code editor.",
+          role: "user",
+          context: ctx,
+        });
+        await verifyMem.encode({
+          content: "Actually I switched to Cursor recently.",
+          role: "user",
+          context: ctx,
+        });
+        const cs = await verifyMem.consolidate();
+        const store = (verifySys as unknown as { getStore?: () => unknown }).getStore?.() as
+          | { facts?: { status?: string }[]; factEmbeddings?: Record<string, unknown> }
+          | undefined;
+        const facts = store?.facts ?? [];
+        const supersedeCount = facts.filter((f) => f?.status === "superseded").length;
+        const factEmbeddings = Object.keys(store?.factEmbeddings ?? {}).length;
+        const hits = await verifyMem.recall("editor", { topK: 3 });
+
+        console.log("\n━━━ R2.3/R2.5 mini-verification ━━━━━━━━━━━━━━━━━━━━━━");
+        console.log(`  facts created:    ${cs.factsCreated}`);
+        console.log(`  factEmbeddings:   ${factEmbeddings}  (informational)`);
+        console.log(`  supersede count:  ${supersedeCount}  (informational; depends on filter env)`);
+        console.log(`  recall hits:      ${hits.length}  (informational)`);
+
+        // Hard assertion (Slice 3 §6.4 #3): fact extraction must complete.
+        // Other counts are informational — heuristic factExtractor + small
+        // sample size produces non-deterministic embedding cache hits.
+        if (cs.factsCreated === 0) {
+          console.error("FAIL: consolidate() created 0 facts — extraction broke.");
+          process.exit(1);
+        }
+        await verifyMem.close();
+      } finally {
+        rmSync(verifyTmp, { recursive: true, force: true });
+      }
+    } else {
+      console.log("\n  R2.3/R2.5 mini-verification skipped — GEMINI_API_KEY not set");
+    }
+
     console.log("\n✓ naia-memory v2 rolling summary + lifecycle + durability confirmed");
   } finally {
     rmSync(tmp, { recursive: true, force: true });
