@@ -19,3 +19,5 @@ export * from "./stream.js";
 export * from "./sub-agent.js";
 export * from "./verification.js";
 export * from "./workspace.js";
+// R4 #26 Background/Active brain (naia-memory#26 + naia-agent#26) — fixes naia-agent#27
+export * from "./spike.js";
