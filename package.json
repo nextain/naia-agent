@@ -23,6 +23,7 @@
     "smoke:skill-tool": "tsx examples/skill-tool-host.ts",
     "smoke:composite": "tsx examples/composite-host.ts",
     "smoke:bash-skill": "tsx examples/bash-skill-host.ts",
+    "smoke:active-brain": "tsx examples/active-brain-host.ts",
     "smoke:opencode": "tsx scripts/smoke-opencode.ts"
   },
   "devDependencies": {

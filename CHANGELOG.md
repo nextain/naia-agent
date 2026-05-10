@@ -8,6 +8,41 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [Slice 6A] — 2026-05-10 — Active brain skeleton (subscriber + ActiveContext, no LLM)
+
+**Active brain first slice — wire-only, log-only.** naia-memory R4 Background brain (commit `naia-memory@3c89a3c`) emits `SpikeEvent` via `SubscribableMemory.on('spike', handler)`. naia-agent now provides a `SpikeHandler` implementation that decides `inject-next-turn` vs `skip` using rule-based source-monitor — no LLM yet. LLM-driven source-monitor + pragmatic-gate are deferred to Slice 6B / 6C.
+
+Schema home: `@nextain/agent-types/spike` (commit `335e7cf`, naia-agent#27 closed).
+
+### Added
+- `@nextain/agent-cli-app` — `ActiveBrain` class (`packages/cli-app/src/active-brain.ts`). Decides per-spike action via 5 rule axes:
+  1. project scope partition (cross-project leak skip)
+  2. confidence floor (default 0.5)
+  3. opt-out topic substring skip
+  4. active-topic substring match → inject
+  5. `recentFactIds ∩ relatedFactIds` → inject
+- `examples/active-brain-host.ts` — mock `SubscribableMemory` + 4 `SpikeEvent` mix (inject + skip) + assertion-driven exit code. `pnpm smoke:active-brain`.
+- `packages/cli-app/src/__tests__/active-brain.test.ts` — 8 unit tests covering each rule axis + `setActiveContext` switch + case-insensitive topic match.
+
+### Slice 6A success criterion
+- (a) New runnable command: `pnpm smoke:active-brain` — ✅ (4 events, exits 0)
+- (b) Unit tests: 92/92 across cli-app (10 files, +8 new) — ✅
+- (c) Integration verification: smoke exercises mock subscriber path + log capture + decision count assertions — ✅
+- (d) CHANGELOG entry: this entry — ✅
+
+### Why split here
+Cross-review (2 independent reviewers) recommended deferring source-monitor LLM (~200 LOC) and pragmatic-gate LLM (~150 LOC) until a real host (naia-os#240) wires the spike pipeline against a non-trivial conversation. Skeleton stays useful: hosts (naia-os, custom shells) can subscribe today without waiting for the LLM gating layer.
+
+### Open follow-ups (separate slices)
+- **Slice 6B** — LLM source-monitor (Gricean relevance check, replaces substring rule)
+- **Slice 6C** — LLM pragmatic-gate + active inject into supervisor prompt stream
+- **naia-os#240** — host wires `MemorySystem.on('spike', new ActiveBrain({...}).handle)`; supervises ActiveContext push from session topic
+
+### Slice ID note
+`r1-slice-spine-2026-04-25.md` reserves Slice 4 = compaction, Slice 5 = fixture-replay-framework. R4 D18 Hybrid wrapper supersedes the original Slice 4/5 designs (compaction is now sub-agent-side via opencode; fixture-replay landed ad-hoc in Slice 1b). Active brain takes the next free ID — **Slice 6**. Spine doc is left as historical R3 design; ADR for R4 spine refresh deferred (avoid yak shaving).
+
+Refs: naia-agent#26 (Active brain parent, partial), naia-agent#27 (schema, closed `335e7cf`), naia-memory#26 (Background brain, sibling).
+
 ## [Slice 3] — 2026-05-06 — alpha-memory backend integration
 
 **naia-memory wired in as a real MemoryProvider implementation.** Closes the loop opened by R1-prep type alignment: `examples/naia-memory-host.ts` now exercises the real `@nextain/naia-memory` `MemorySystem` end-to-end through the `AlphaMemoryAdapter` (MemoryProvider + CompactableCapable shape).

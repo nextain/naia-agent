@@ -40,3 +40,6 @@ export type {
 } from "./stdio-dispatcher.js";
 export { InterruptManager } from "./interrupt-manager.js";
 export type { InterruptManagerOptions } from "./interrupt-manager.js";
+// R4 Slice 6A — Active brain skeleton (no LLM, log-only)
+export { ActiveBrain } from "./active-brain.js";
+export type { ActiveBrainOptions } from "./active-brain.js";
