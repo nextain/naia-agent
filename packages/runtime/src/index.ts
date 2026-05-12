@@ -67,6 +67,14 @@ export {
 } from "./utils/dangerous-commands.js";
 export type { DangerousMatch, DangerousCheckResult } from "./utils/dangerous-commands.js";
 
+// Memory context fencing — G-NA-01 (ref-analysis-gap-plan-2026-05-12).
+// Prevents <memory-context> blocks leaking into streaming UI. F09 OWASP A03/CWE-74.
+export {
+  sanitizeContext,
+  StreamingContextScrubber,
+  buildMemoryContextBlock,
+} from "./memory-scrubber.js";
+
 // Built-in skills — Slice 2 (Bash) + Slice 2.6 (file-ops).
 export {
   createBashSkill,

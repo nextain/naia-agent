@@ -93,6 +93,15 @@ Standard: AAIF / agents.md (https://agents.md/)
 
 CI에서 ANTHROPIC_API_KEY 없을 때 fixture-replay만으로 모든 test pass 가능해야 함. real-LLM smoke는 KEY 있을 때만 opt-in. fixture에 실제 API key 절대 금지.
 
+### karpathy 4원칙 (G-NA-02, ref: andrej-karpathy-skills)
+
+코드 작성 전 항상 적용. 출처: `projects/refs/andrej-karpathy-skills/CLAUDE.md`.
+
+1. **Think Before Coding** — 가정을 명시적으로 밝힌다. 불명확하면 멈추고 질문한다. 다중 해석이 있으면 침묵하지 말고 제시한다.
+2. **Simplicity First** — 요청된 최소한의 코드만. 단일 사용 추상화, 요청되지 않은 유연성, 불가능한 시나리오에 대한 에러 핸들링 금지.
+3. **Surgical Changes** — 변경해야 할 것만 건드린다. 인접 코드 "개선" 금지. 변경된 모든 라인이 사용자 요청으로 직접 추적 가능해야 한다.
+4. **Goal-Driven Execution** — 성공 기준을 정의하고 검증될 때까지 루프를 반복한다. 멀티 스텝 작업은 `[Step] → verify: [check]` 형식으로 계획을 제시한다.
+
 ---
 
 ## 절대 금지 (forbidden_actions, machine-readable: `.agents/context/agents-rules.json`)

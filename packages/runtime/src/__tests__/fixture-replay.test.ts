@@ -2,6 +2,9 @@
 // Verifies StreamPlayer + Agent produce deterministic assistantText.
 // Closes G02 (Agent × real-LLM 통합 검증 0건) via fixture path.
 // G15 (CI fixture-only mode) — this test runs without ANTHROPIC_API_KEY.
+//
+// G-NA-01 integration: memory-context-stream fixture verifies StreamingContextScrubber
+// strips <memory-context> blocks across chunk boundaries in the streaming pipeline.
 
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
@@ -10,6 +13,7 @@ import { dirname, resolve } from "node:path";
 import { Agent } from "@nextain/agent-core";
 import { createHost } from "../host/create-host.js";
 import { StreamPlayer, type StreamPlayerFixture } from "../testing/stream-player.js";
+import { StreamingContextScrubber } from "../memory-scrubber.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const fixturePath = resolve(__dirname, "../__fixtures__/anthropic-1turn.json");
@@ -71,5 +75,57 @@ describe("fixture-replay (Slice 1b — G02 / G15)", () => {
     await expect(player.generate({ messages: [], model: "x" })).rejects.toThrow(
       /no `response`/,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// G-NA-01 integration: StreamingContextScrubber × StreamPlayer
+// Verifies that <memory-context> tags split across chunk boundaries
+// are stripped when output is piped through the scrubber.
+// ---------------------------------------------------------------------------
+
+const scrubFixturePath = resolve(__dirname, "../__fixtures__/memory-context-stream.json");
+
+describe("StreamingContextScrubber × fixture-replay (G-NA-01)", () => {
+  const scrubFixture = JSON.parse(
+    readFileSync(scrubFixturePath, "utf8"),
+  ) as StreamPlayerFixture;
+
+  it("scrubber strips <memory-context> block split across chunk boundaries", async () => {
+    const player = new StreamPlayer(scrubFixture);
+    const scrubber = new StreamingContextScrubber();
+
+    let visible = "";
+    for await (const chunk of player.stream({ messages: [], model: "x" })) {
+      if (chunk.type === "content_block_delta" && chunk.delta.type === "text_delta") {
+        visible += scrubber.feed(chunk.delta.text);
+      }
+    }
+    visible += scrubber.flush();
+
+    // Raw stream contains: "Visible: " + "<memory-con" + "text>secret</memory-" + "context>" + "end."
+    // After scrubbing the split <memory-context> block must be invisible.
+    expect(visible).toBe("Visible: end.");
+    expect(visible).not.toContain("secret");
+    expect(visible).not.toContain("memory-context");
+  });
+
+  it("scrubber is transparent when stream has no memory-context tags", async () => {
+    const plainFixture = JSON.parse(
+      readFileSync(resolve(__dirname, "../__fixtures__/anthropic-1turn.json"), "utf8"),
+    ) as StreamPlayerFixture;
+
+    const player = new StreamPlayer(plainFixture);
+    const scrubber = new StreamingContextScrubber();
+
+    let visible = "";
+    for await (const chunk of player.stream({ messages: [], model: "x" })) {
+      if (chunk.type === "content_block_delta" && chunk.delta.type === "text_delta") {
+        visible += scrubber.feed(chunk.delta.text);
+      }
+    }
+    visible += scrubber.flush();
+
+    expect(visible).toBe("Hi from fixture.");
   });
 });

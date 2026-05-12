@@ -8,6 +8,37 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [G-NA-01/02] — 2026-05-12 — Memory context fencing + karpathy 4원칙
+
+**hermes-agent 레퍼런스 분석 결과 채택.** `<memory-context>` 태그가 스트리밍 UI에 노출되는 정보 누출(CWE-200)을 막는 scrubber 모듈 추가. naia-agent AGENTS.md에 Karpathy LLM 코딩 원칙 4개 병합.
+
+### Added
+
+- `@nextain/agent-runtime` — `StreamingContextScrubber` (stateful, chunk-boundary-safe state machine)
+  - `sanitizeContext(text)` — 완전 문자열 대상 3단계 정규식 정화
+  - `StreamingContextScrubber.feed() / flush() / reset()` — 청크 경계 분할 안전 처리
+  - `buildMemoryContextBlock(raw)` — recalled memory를 fenced block으로 래핑
+  - 위치: `packages/runtime/src/memory-scrubber.ts`
+  - F09 compliance: OWASP A03 / CWE-74 cross-ref. Ref: hermes-agent `memory_manager.py`
+
+- Fixture `packages/runtime/src/__fixtures__/memory-context-stream.json` — 청크 경계 분할 시나리오 재현용
+
+- `AGENTS.md` `## 작업 규칙` — karpathy 4원칙 서브섹션 추가 (G-NA-02):
+  Think Before Coding / Simplicity First / Surgical Changes / Goal-Driven Execution
+
+### G-NA-01 success criterion
+- (a) 통합 검증: `fixture-replay.test.ts` × `StreamingContextScrubber` — `<memory-context>` 청크 경계 분할 케이스 2건 ✅
+- (b) 단위 테스트: `memory-scrubber.test.ts` 18 tests (boundary-1/2/3 포함) ✅
+- (c) CI fixture-only (G15): API key 불필요 ✅
+- (d) CHANGELOG entry: 이 항목 ✅
+
+### Wired-in (naia-os)
+- `naia-os/agent/src/memory-scrubber.ts` — `MemoryTagScrubber` (`<recalled_memories>` 태그, naia-os 패턴)
+- `naia-os/agent/src/index.ts` — 스트리밍 루프에 scrubber.feed()/flush() 연결
+- naia-os#240 closed ✅
+
+Refs: nextain/naia-agent#28 (G-NA-01), nextain/naia-agent#29 (G-NA-02), gap-plan `ref-analysis-gap-plan-2026-05-12.md`
+
 ## [Slice 6A] — 2026-05-10 — Active brain skeleton (subscriber + ActiveContext, no LLM)
 
 **Active brain first slice — wire-only, log-only.** naia-memory R4 Background brain (commit `naia-memory@3c89a3c`) emits `SpikeEvent` via `SubscribableMemory.on('spike', handler)`. naia-agent now provides a `SpikeHandler` implementation that decides `inject-next-turn` vs `skip` using rule-based source-monitor — no LLM yet. LLM-driven source-monitor + pragmatic-gate are deferred to Slice 6B / 6C.

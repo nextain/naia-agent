@@ -1,0 +1,47 @@
+{
+  "meta": {
+    "recordedAt": "2026-05-12",
+    "sdkVersion": "synthesized — G-NA-01 StreamingContextScrubber integration fixture",
+    "model": "claude-haiku-4-5-20251001",
+    "notes": "Simulates LLM stream that embeds a <memory-context> block split across chunk boundaries. Chunk 3+4 split the open tag '<memory-con' / 'text>'. Chunk 5+6 split the close tag '</memory-' / 'context>'. Final visible output must be 'Visible: ' + 'end.' = 'Visible: end.' after scrubbing."
+  },
+  "chunks": [
+    { "type": "start", "id": "msg_fixture_scrub_001", "model": "claude-haiku-4-5-20251001" },
+    {
+      "type": "content_block_start",
+      "index": 0,
+      "block": { "type": "text", "text": "" }
+    },
+    {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": { "type": "text_delta", "text": "Visible: " }
+    },
+    {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": { "type": "text_delta", "text": "<memory-con" }
+    },
+    {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": { "type": "text_delta", "text": "text>secret</memory-" }
+    },
+    {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": { "type": "text_delta", "text": "context>" }
+    },
+    {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": { "type": "text_delta", "text": "end." }
+    },
+    { "type": "content_block_stop", "index": 0 },
+    {
+      "type": "end",
+      "stopReason": "end_turn",
+      "usage": { "inputTokens": 5, "outputTokens": 6 }
+    }
+  ]
+}
