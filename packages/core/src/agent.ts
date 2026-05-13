@@ -20,6 +20,7 @@
  *      compact the message history in place.
  */
 
+import { DEFAULT_SYSTEM_PROMPT } from "./default-system-prompt.js";
 import type {
   CompactableCapable,
   CompactionMessage,
@@ -334,6 +335,9 @@ export class Agent {
   ): LLMRequest {
     const systemParts: string[] = [];
     if (this.#system) systemParts.push(this.#system);
+    // Behavioral contract — always enforced, not bypassable by any host.
+    // Persona (this.#system) comes first; rules come after. See default-system-prompt.ts.
+    systemParts.push(DEFAULT_SYSTEM_PROMPT);
     if (memoryHits.length > 0) {
       const recalled = memoryHits.map((h) => `- ${h.content}`).join("\n");
       systemParts.push(`Relevant context from memory:\n${recalled}`);

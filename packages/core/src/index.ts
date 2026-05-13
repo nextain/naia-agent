@@ -3,6 +3,7 @@
 
 export { Agent } from "./agent.js";
 export type { AgentOptions, AgentStreamEvent } from "./agent.js";
+export { DEFAULT_SYSTEM_PROMPT } from "./default-system-prompt.js";
 
 // Re-export key contracts so hosts get a single import surface for the
 // runtime-facing API.

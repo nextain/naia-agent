@@ -47,6 +47,7 @@ import {
 } from "@nextain/agent-runtime";
 import { VercelClient } from "@nextain/agent-providers";
 
+
 // Supervisor mode imports
 import { ShellAdapter } from "@nextain/agent-adapter-shell";
 import { OpencodeRunAdapter } from "@nextain/agent-adapter-opencode-cli";
@@ -303,9 +304,7 @@ async function runDirect(args: Args): Promise<number> {
 
   const agent = new Agent({
     host,
-    systemPrompt:
-      args.systemPrompt ??
-      "You are Naia, a helpful AI assistant. Answer concisely. When asked to edit code or run commands, use the bash tool.",
+    systemPrompt: args.systemPrompt,
     tierForTool: () => "T1",
   });
 
