@@ -30,6 +30,21 @@ export interface LLMRequest {
   cache?: PromptCacheHint;
   /** Abort signal for cancellation. */
   signal?: AbortSignal;
+  /**
+   * naia domain hint: which user persona this request belongs to.
+   * Common values: `"emotional"` (MiniCPM-o-ko voice) | `"workflow"`
+   * (Qwen3.6-27B text). Opaque to providers that don't recognize it —
+   * naia-aware gateways (any-llm) use it to route to the matching
+   * RunPod pod. Free-form string so additional personas can be added
+   * without bumping the type package.
+   */
+  persona?: string;
+  /**
+   * naia domain hint: which upstream backend should serve this request.
+   * Common values: `"runpod"` | `"any-llm"`. Opaque to providers that
+   * don't recognize it. Lets a host route without overloading `model`.
+   */
+  backend?: string;
 }
 
 export interface LLMMessage {
