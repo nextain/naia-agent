@@ -194,6 +194,24 @@ slice_spine_outline:
     name: fixture-replay framework 정식
     deliverable: StreamRecorder/Player
 
+# opt-in localmodel backends (2026-05-15)
+# naia-agent 가 선택적으로 호출하는 외부 음성/모달 backend. 항상 X — vertical 필요 시.
+# 이들은 naia-agent 를 import 하지 않고, naia-agent 의 localmodel API 계약만 따른다.
+# RAG / context 관리 / 장기기억 / 도메인 지식 = naia-agent / naia-memory 책임 (backend X).
+opt_in_localmodels:
+  - name: naia-minicpm-ko-serve
+    repo: nextain/naia-minicpm-ko-serve
+    visibility: private (nextain org)
+    provides: 한국어 full-duplex 음성 대화 backend (MiniCPM-o-4.5 ko fine-tune) + 품질 벤치마크
+    api: HTTPS /ws/duplex (sid prefix adx_*), /v1/realtime-style
+    selected_via: naia-adk localmodel 설정 (opt-in)
+    boundary: ko-serve 는 모델 serving + system prompt + 벤치마크만. RAG/context/기억은 naia-agent.
+  - name: naia-sing
+    repo: nextain/naia-sing
+    visibility: private (nextain org)
+    provides: 노래(SVS) backend — ref voice + 곡 → 사용자 음색 가창
+    selected_via: naia-adk localmodel 설정 (opt-in)
+
 # 컨텍스트 우선순위 (충돌 시)
 priority:
   - .agents/context/agents-rules.json
