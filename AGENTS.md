@@ -200,7 +200,13 @@ pnpm naia-agent "hi"
 | `pnpm test` (R2 신설) | vitest run (전 패키지 단위 테스트) |
 | `pnpm smoke:anthropic` | AnthropicClient 직접 smoke (ANTHROPIC_API_KEY 필요) |
 | `pnpm smoke:agent` | examples/minimal-host.ts (mock) |
+| `pnpm smoke:hardened` | examples/hardened-sqlite-host.ts (SQLite v6.0) |
 | `pnpm exec naia-agent ...` (Slice 1 신설) | bin REPL/명령 |
+
+## 🧠 Memory Integration (Hardened v6.0)
+- **Engine**: Full support for `@nextain/naia-memory` v6.0 Async SQLite engine.
+- **Example**: `examples/hardened-sqlite-host.ts` demonstrates 10k fact scale retrieval and backup parity.
+- **Interface**: Optimized `MemoryProvider` implementation with tiered recall (Hot/Cold) and bi-temporal support.
 
 전체 script 목록: `package.json` + 갱신은 각 슬라이스 README/CHANGELOG entry에.
 
