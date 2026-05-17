@@ -8,6 +8,81 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [Slice R6/SB-1] — 2026-05-17 — service manifest loader
+
+**R6 Agent Service Builder 우산 (#31) 1번 슬라이스 (#32, matrix §D50).**
+naia-adk workspace 데이터 파일(`*.service.json`)을 읽어 **기존 HostContext**
+(llm=D44 Vercel / memory / persona=system msg)를 조립하는 host-side loader.
+**신규 최상위 계약 0개** — Part A 3-계약 불변, `ServiceManifest`는 runtime
+host helper 타입이지 계약 아님. RAG·orchestration·eval 없음 (SB-2/3/4 후속,
+schema §1 호환표대로 additive). 스키마 SoT = `naia-adk/docs/service-manifest-schema.md` v0.1.0.
+
+### Added
+
+- `@nextain/agent-runtime` — `parseServiceManifest()` / `resolveMemoryBinding()`
+  / `manifestBaseURLTrust()` / `manifestInvalid()` / `SUPPORTED_MANIFEST_MAJOR`
+  (`packages/runtime/src/host/service-manifest.ts`)
+  - 순수(provider·naia-memory zero-dep) — 스키마 검증 + semver 호환(§3:
+    MAJOR bump 거부 / forward-compat MINOR 무시) + memory binding 해석
+  - 실패 = canonical Part-A.11 `ErrorEvent` (`errorCode: "MANIFEST_INVALID"`,
+    `severity: "error"`, `retryable: false`) — 설계 §5
+- `bin/naia-agent.ts` — `--service <path>` 모드: read → parse → manifest.llm
+  → provider(키는 host env 전용, manifest 금지 — schema §4 / 4-repo A.6) →
+  memory.binding 해석(`alpha-memory`=naia-memory Sqlite lazy import,
+  `~/.naia-agent/services/<name>.db`, env `NAIA_AGENT_MEMORY_DB` override) →
+  persona.systemPrompt → `Agent.sendStream`. direct/service 공용 `executeAgent()`.
+- Fixture `packages/runtime/src/__fixtures__/qwen-1turn.json` — qwen3.6-27b
+  결정적 1턴 (naia 정규화 LLMStreamChunk, F11 안전 posture = anthropic-1turn.json)
+
+### Security & cross-review hardening
+
+manifest = 신뢰 불가 입력(schema §4 보안 경계). 자가 보안 리뷰 + codex/gemini
+different-profile cross-review(6 라운드 → **2회 연속 양쪽 CLEAN**, round-5/6)로
+다음을 강화 (전 라운드 지적 RESOLVED):
+
+- **Vuln 1 (credential exfil)** — `manifest.llm.baseURL`이 임의 원격 호스트면
+  host env API key가 그 호스트로 전송(openai-compatible Bearer). →
+  `manifestBaseURLTrust()`: `node:net` `isIP()` + 숫자 IPv4 사설/loopback
+  레인지 + IPv6 `::1`/ULA/link-local 판정(문자열 prefix 금지 — codex r1 MAJOR:
+  `10.0.0.5.evil.com` 류 우회 차단), 비-IP는 정확히 `localhost`만, allowlist
+  **정확 일치**, http/https 외 거부, **userinfo(`user:pass@`) 거부**(codex r3:
+  자격증명 로그 누출 차단·schema §4). 비신뢰=요청 거부(exit 3). 순수·모든 host 공용.
+- **Vuln 2 (path traversal)** — `manifest.name` 무검증 → alpha-memory DB 경로
+  `../` 탈출. → `parseServiceManifest` strict kebab(`^[a-z0-9][a-z0-9-]*$`,
+  ≤64) 강제 + `buildAlphaMemory` containment 단언(defense-in-depth).
+- **ErrorEvent 일관성** (codex r4 MEDIUM) — `runService` 파일읽기 실패가 손수
+  만든 객체(canonical `timestamp` 누락) 대신 공유 export `manifestInvalid()`
+  재사용 → parser·host 단일 canonical Part-A.11 shape (drift 0, shared-shape test).
+- **자원 정리** (gemini r1 MAJOR/MINOR) — `runService`/`runDirect`가
+  `try/finally`로 `memory.close()` 보장(alpha-memory SQLite/WAL 누수 차단);
+  `executeAgent` 단일 `try/finally`로 모든 경로에서 `agent.close()`.
+- 회귀 커버리지: `service-manifest.test.ts` 18→68 tests (traversal/non-kebab,
+  baseURL trust 매트릭스 — 적대적 hostname/canon/exact-allowlist/userinfo,
+  canonical ErrorEvent shared-shape).
+- cross-review 산출물: `.agents/reviews/sb1-loader-{codex,gemini}-r1..r6.md`.
+
+### Slice success criterion
+
+- (S01) 새 실행 명령: `pnpm exec naia-agent --service <manifest>` ✅
+  (arg + MANIFEST_INVALID/unknown-backend 경로 backend 불요 스모크 검증)
+- (S02) 단위: `service-manifest.test.ts` 68 tests (필수필드/JSON/semver
+  MAJOR 거부/forward-compat MINOR/binding 분기 + 보안·cross-review 매트릭스) ✅
+- (S03) 통합 검증: `service-manifest-replay.test.ts` 2 tests — manifest →
+  HostContext → `Agent.sendStream` fixture-replay 결정성 + 회귀 ✅
+- (S04) 이 CHANGELOG entry ✅
+- (G15) CI fixture-only: API key 불필요로 S02/S03 pass ✅
+- matrix ID: **D50** (manifest workspace 포맷=비-계약, loader=naia-agent CLI host)
+
+### Known baseline (this slice 범위 외)
+
+- `packages/runtime/src/__tests__/coding-tool.test.ts` TS2532 5건은 commit
+  `f2d4308`(#22)에서 유입된 **기존 baseline 결함** — 본 슬라이스 작업 stash
+  상태에서도 재현. 본 슬라이스 코드는 tsc 0 error. coding-tool 수정은 별도
+  스코프(T2, 미수정·보고).
+
+Refs: nextain/naia-agent#32 (SB-1), #31 (R6 우산), matrix §D50/§L,
+설계 SoT `nextain/naia-adk:.agents/progress/agent-service-builder-architecture.md` v4
+
 ## [G-NA-01/02] — 2026-05-12 — Memory context fencing + karpathy 4원칙
 
 **hermes-agent 레퍼런스 분석 결과 채택.** `<memory-context>` 태그가 스트리밍 UI에 노출되는 정보 누출(CWE-200)을 막는 scrubber 모듈 추가. naia-agent AGENTS.md에 Karpathy LLM 코딩 원칙 4개 병합.

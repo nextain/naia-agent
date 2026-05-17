@@ -1,0 +1,37 @@
+{
+  "meta": {
+    "recordedAt": "2026-05-17",
+    "sdkVersion": "@ai-sdk/openai-compatible (synthesized — R6/SB-1 #32 pin)",
+    "model": "Qwen/Qwen3.6-27B-FP8",
+    "notes": "Deterministic 1-turn fixture for R6/SB-1 manifest loader (#32, matrix §D50). naia LLMStreamChunk normalized form (NOT raw provider SDK shape — VercelClient normalizes), same posture as anthropic-1turn.json so F11 SDK bumps affect packages/providers mapping, NOT this fixture. Represents a qwen3.6-27b-dense coding-assistant reply (manifest persona) emitted across 3 deltas to exercise streaming assembly."
+  },
+  "chunks": [
+    { "type": "start", "id": "msg_qwen_sb1_001", "model": "Qwen/Qwen3.6-27B-FP8" },
+    {
+      "type": "content_block_start",
+      "index": 0,
+      "block": { "type": "text", "text": "" }
+    },
+    {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": { "type": "text_delta", "text": "manifest " }
+    },
+    {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": { "type": "text_delta", "text": "loader " }
+    },
+    {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": { "type": "text_delta", "text": "ready." }
+    },
+    { "type": "content_block_stop", "index": 0 },
+    {
+      "type": "end",
+      "stopReason": "end_turn",
+      "usage": { "inputTokens": 12, "outputTokens": 4 }
+    }
+  ]
+}

@@ -3,8 +3,33 @@
   "title": "[R6/SB-1] service manifest 스키마 + naia-agent CLI loader",
   "umbrella": "nextain/naia-agent#31 (R6 Agent Service Builder)",
   "branch": "migration/slice-r6-sb1-manifest-loader",
-  "phase": "build (slice)",
-  "status": "IN_PROGRESS — 스키마 SoT 완료, loader 미착수",
+  "phase": "cross-review PASSED (2x clean) — ready to commit",
+  "status": "BUILD + SEC-FIX + CROSS-REVIEW DONE. loader 구현 + 자가 보안 리뷰 HIGH 2건 + codex/gemini different-profile cross-review 6라운드(전 지적 RESOLVED) → round-5·round-6 양쪽 연속 CLEAN = 2x clean 게이트 통과. S01·S02(68 unit)·S03(2)·S04·G15 충족. runtime 262 pass. tsc 본 슬라이스 0 error (coding-tool.test.ts 5건=commit f2d4308#22 유입 기존 baseline, T2 미수정·보고). 남음: commit (branch migration/slice-r6-sb1-manifest-loader, nextain repo 직커밋, no-PR).",
+  "cross_review_2026_05_17": {
+    "method": "codex exec + gemini -p (--approval-mode plan) different-profile, .agents/reviews/sb1-loader-{codex,gemini}-r1..r6.md",
+    "rounds": "r1: 양쪽 ISSUES (codex MAJOR baseURL prefix-bypass+MINOR / gemini MAJOR memory.close+MAJOR rel-import+MINOR exec-safety). r2: gemini CLEAN, codex MINOR(test). r3: gemini CLEAN, codex NEW MINOR(userinfo log). r4: codex NEW MEDIUM(ErrorEvent shape drift). r5: 양쪽 CLEAN. r6(무변경 확인): 양쪽 CLEAN → 2 consecutive clean.",
+    "fixes": "baseURL gate net.isIP 재작성(prefix-bypass 차단)+userinfo 거부 / name strict kebab+containment / memory.close try-finally(runService+runDirect) / executeAgent 단일 try-finally / 공유 export manifestInvalid(canonical ErrorEvent drift 제거). rel-import = 문서화된 의도적 결정(런타임 해석 실증, examples 동일, Phase-2 deferral) — 양쪽 RESOLVED 동의.",
+    "verify": "runtime 262 pass (service-manifest 18→68). tsc 0(mine). S01: traversal/remote-baseURL/userinfo→exit3, localhost 신뢰, alpha-memory import 런타임 실증."
+  },
+  "security_review_2026_05_17": {
+    "method": "security-review skill: identify subtask + 2 parallel FP-filter subtasks (둘 다 conf 9/10 ≥8 유지)",
+    "vuln1_credential_exfil": "manifest.llm.baseURL 임의 원격 host → host env API key Bearer 전송. FIX = manifestBaseURLTrust() 순수함수(loopback/private only, NAIA_ALLOW_MANIFEST_BASEURL_HOSTS opt-in, http/https only, 비신뢰=요청거부). 모든 host 공용·단위테스트.",
+    "vuln2_path_traversal": "manifest.name 무검증 → alpha-memory db 경로 ../  traversal. FIX = parseServiceManifest strict kebab ^[a-z0-9][a-z0-9-]*$ ≤64 (스키마 권고→강제) + buildAlphaMemory containment 단언(defense-in-depth).",
+    "verify": "runtime 238 pass (service-manifest 18→44, 보안 26건). tsc 0(mine). S01 스모크: traversal→MANIFEST_INVALID kebab exit3 / remote baseURL→refuse exit3 / localhost→gate통과 정상."
+  },
+  "build_done_2026_05_17": {
+    "files": [
+      "packages/runtime/src/host/service-manifest.ts (신규, 순수 — parseServiceManifest/resolveMemoryBinding/manifestBaseURLTrust/SUPPORTED_MANIFEST_MAJOR, ErrorEvent=canonical Part A.11 errorCode, name strict kebab)",
+      "packages/runtime/src/host/index.ts + packages/runtime/src/index.ts (export)",
+      "bin/naia-agent.ts (--service 모드 + buildLLMClientFromManifest[baseURL trust gate] + buildAlphaMemory lazy[containment] + executeAgent 공용 추출)",
+      "packages/runtime/src/__fixtures__/qwen-1turn.json (신규)",
+      "packages/runtime/src/__tests__/service-manifest.test.ts (S02, 44 tests incl 보안 26)",
+      "packages/runtime/src/__tests__/service-manifest-replay.test.ts (S03, 2 tests)",
+      "CHANGELOG.md (S04, Slice R6/SB-1 entry + Security 섹션, D50 인용)"
+    ],
+    "verify": "pnpm --filter @nextain/agent-runtime test = 238 pass(무회귀). tsc: 본 슬라이스 0 error. S01 스모크: no-value/missing-file/bad-json/unknown-backend/name-traversal/remote-baseURL 전부 exit3 + canonical MANIFEST_INVALID/refuse; localhost baseURL gate 통과(정상 보존).",
+    "decisions": "memory none→InMemoryMemory(SB-1 single-shot 동일, NoopMemory 후속). alpha-memory DB=~/.naia-agent/services/<name>.db (NAIA_AGENT_MEMORY_DB override). 키=env 전용(schema §4)."
+  },
   "session_handoff_2026_05_17": {
     "done": [
       "스키마 SoT 완료: naia-adk/docs/service-manifest-schema.md v0.1.0 (commit naia-adk ad85a50, pushed). 계약표면 = 비-계약 데이터포맷, 최소필드 name/persona/llm/memory, semver+호환표, 보안(secret 금지)"

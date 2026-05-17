@@ -20,6 +20,7 @@
  *   pnpm naia-agent "task" --adapter shell -- echo "x"  # shell sub-agent
  *   pnpm naia-agent "task" -m provider/model     # model (supervisor)
  *   pnpm naia-agent "task" --debug               # verbose event log
+ *   pnpm naia-agent "hi" --service app.service.json  # R6/SB-1 manifest (#32, §D50)
  *
  * Provider resolution (direct mode, first match wins):
  *   1. ANTHROPIC_API_KEY  → claude-haiku-4-5-20251001 (or ANTHROPIC_MODEL)
@@ -33,18 +34,24 @@
  */
 
 import readline from "node:readline";
-import { access as fsAccess } from "node:fs/promises";
+import { access as fsAccess, readFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 
 import { Agent } from "@nextain/agent-core";
-import type { HostContext, LLMClient } from "@nextain/agent-types";
+import type { HostContext, LLMClient, MemoryProvider } from "@nextain/agent-types";
 import { ConsoleLogger, InMemoryMeter, NoopTracer } from "@nextain/agent-observability";
 import {
   InMemoryMemory,
   InMemoryToolExecutor,
   createBashSkill,
+  parseServiceManifest,
+  resolveMemoryBinding,
+  manifestBaseURLTrust,
+  manifestInvalid,
 } from "@nextain/agent-runtime";
+import type { ServiceManifest } from "@nextain/agent-runtime";
 import { VercelClient } from "@nextain/agent-providers";
 
 
@@ -100,6 +107,9 @@ interface Args {
   workdir: string;
   // direct mode
   systemPrompt?: string;
+  /** R6/SB-1 (#32, §D50) — path to a *.service.json manifest. Implies direct
+   *  mode; llm/memory/persona are assembled from the manifest, not env. */
+  service?: string;
   debug: boolean;
   // supervisor mode
   noVerify: boolean;
@@ -142,6 +152,11 @@ function parseArgs(argv: string[]): Args | { error: string } {
       const v = argv[++i];
       if (!v) return { error: "--system requires a value" };
       args.systemPrompt = v;
+    } else if (a === "--service") {
+      const v = argv[++i];
+      if (!v) return { error: "--service requires a path to a *.service.json manifest" };
+      args.service = v;
+      args.mode = "direct";
     } else if (a === "--no-verify") {
       args.noVerify = true;
     } else if (a === "--debug") {
@@ -308,49 +323,319 @@ async function runDirect(args: Args): Promise<number> {
     tierForTool: () => "T1",
   });
 
-  if (args.prompt.length > 0) {
-    // Single-shot mode (prompt from argv or non-TTY pipe)
-    await streamToStdout(agent, args.prompt, args.debug);
-    agent.close();
-    return 0;
+  // close the MemoryProvider on exit — agent.close() does not (cross-review
+  // r1, gemini MAJOR). Harmless for InMemoryMemory, required for SQLite.
+  try {
+    return await executeAgent(agent, args);
+  } finally {
+    await memory.close();
   }
+}
 
-  // REPL mode — requires TTY
-  if (!process.stdin.isTTY) {
-    // Read single prompt from stdin
-    const piped = await readStdin();
-    if (piped.trim().length === 0) {
-      process.stderr.write("naia-agent: no prompt (stdin empty and no positional arg)\n");
-      return 3;
+/**
+ * Runs an assembled Agent against the prompt source: positional arg / piped
+ * stdin (single-shot) or an interactive TTY REPL. Shared by direct mode and
+ * --service mode (R6/SB-1, #32) so manifest-built agents get the same UX.
+ */
+async function executeAgent(agent: Agent, args: Args): Promise<number> {
+  // Single try/finally so agent.close() runs on every path including a
+  // streamToStdout throw (cross-review r1, gemini MINOR — exception safety).
+  try {
+    if (args.prompt.length > 0) {
+      // Single-shot mode (prompt from argv or non-TTY pipe)
+      await streamToStdout(agent, args.prompt, args.debug);
+      return 0;
     }
-    await streamToStdout(agent, piped.trim(), args.debug);
-    agent.close();
+
+    // REPL mode — requires TTY
+    if (!process.stdin.isTTY) {
+      // Read single prompt from stdin
+      const piped = await readStdin();
+      if (piped.trim().length === 0) {
+        process.stderr.write("naia-agent: no prompt (stdin empty and no positional arg)\n");
+        return 3;
+      }
+      await streamToStdout(agent, piped.trim(), args.debug);
+      return 0;
+    }
+
+    // Interactive REPL
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      prompt: "\nnaia> ",
+      terminal: true,
+    });
+
+    rl.prompt();
+    for await (const line of rl) {
+      const trimmed = line.trim();
+      if (trimmed === "exit" || trimmed === "quit" || trimmed === ".exit") break;
+      if (trimmed.length === 0) {
+        rl.prompt();
+        continue;
+      }
+      await streamToStdout(agent, trimmed, args.debug);
+      rl.prompt();
+    }
+
+    rl.close();
     return 0;
+  } finally {
+    agent.close();
+  }
+}
+
+// ─── Service mode (R6/SB-1 — #32, matrix §D50) ──────────────────────────────
+// Manifest = naia-adk workspace data file (NOT a Part-A contract). The loader
+// reads it and fills the existing HostContext. Schema SoT:
+//   naia-adk/docs/service-manifest-schema.md (v0.1.0)
+// Keys/secrets are NEVER read from the manifest — host env only (schema §4,
+// 4-repo plan A.6: LLM key = shell stronghold).
+
+/**
+ * Builds an LLMClient from `manifest.llm`. The API key always comes from the
+ * host env (never the manifest). Returns null + a written stderr reason on a
+ * missing key / unknown backend / untrusted baseURL so the caller exits 3.
+ */
+async function buildLLMClientFromManifest(
+  llm: ServiceManifest["llm"],
+): Promise<LLMClient | null> {
+  const env = process.env;
+  switch (llm.backend) {
+    case "openai-compatible": {
+      if (!llm.baseURL) {
+        process.stderr.write(
+          `naia-agent: manifest llm.backend "openai-compatible" requires llm.baseURL\n`,
+        );
+        return null;
+      }
+      const trust = manifestBaseURLTrust(llm.baseURL, env);
+      if (!trust.ok) {
+        process.stderr.write(`naia-agent: ${trust.reason}\n`);
+        return null;
+      }
+      const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
+      // Reached only for a trusted (loopback/private or operator-allowlisted)
+      // host. Local vLLM servers commonly accept any/empty key; OPENAI_API_KEY
+      // / NAIA_SERVICE_API_KEY from host env (never the manifest).
+      const apiKey = env.OPENAI_API_KEY ?? env.NAIA_SERVICE_API_KEY ?? "";
+      const provider = createOpenAICompatible({
+        name: "manifest-openai-compat",
+        apiKey,
+        baseURL: llm.baseURL,
+      });
+      process.stderr.write(
+        `naia-agent: provider=openai-compat model=${llm.model} baseURL=${llm.baseURL}\n`,
+      );
+      return new VercelClient(provider.chatModel(llm.model));
+    }
+    case "anthropic": {
+      if (!env.ANTHROPIC_API_KEY) {
+        process.stderr.write(
+          `naia-agent: manifest llm.backend "anthropic" needs ANTHROPIC_API_KEY in host env (never in manifest, schema §4)\n`,
+        );
+        return null;
+      }
+      const { createAnthropic } = await import("@ai-sdk/anthropic");
+      const anthropic = createAnthropic({
+        apiKey: env.ANTHROPIC_API_KEY,
+        ...(env.ANTHROPIC_BASE_URL && { baseURL: env.ANTHROPIC_BASE_URL }),
+      });
+      process.stderr.write(`naia-agent: provider=anthropic model=${llm.model}\n`);
+      return new VercelClient(anthropic(llm.model));
+    }
+    case "vertex": {
+      if (!env.VERTEX_PROJECT_ID || !env.VERTEX_REGION) {
+        process.stderr.write(
+          `naia-agent: manifest llm.backend "vertex" needs VERTEX_PROJECT_ID + VERTEX_REGION in host env\n`,
+        );
+        return null;
+      }
+      const { createVertex } = await import("@ai-sdk/google");
+      const vertex = createVertex({
+        project: env.VERTEX_PROJECT_ID,
+        location: env.VERTEX_REGION,
+      });
+      process.stderr.write(`naia-agent: provider=vertex model=${llm.model}\n`);
+      return new VercelClient(vertex(llm.model));
+    }
+    default:
+      process.stderr.write(
+        `naia-agent: unknown manifest llm.backend "${llm.backend}" ` +
+          `(supported: openai-compatible | anthropic | vertex)\n`,
+      );
+      return null;
+  }
+}
+
+/**
+ * "alpha-memory" binding factory. naia-memory is imported lazily (heavy
+ * footprint) so the in-memory path and the schema validator never load it.
+ * Mirrors examples/hardened-sqlite-host.ts (SqliteAdapter + MemorySystem +
+ * OfflineEmbeddingProvider). DB path: env NAIA_AGENT_MEMORY_DB override, else
+ * ~/.naia-agent/services/<name>.db (host policy — not a manifest field).
+ */
+async function buildAlphaMemory(serviceName: string): Promise<MemoryProvider> {
+  // Cross-repo source-relative specifier — INTENTIONAL, matches the canonical
+  // alpha-memory integration example examples/hardened-sqlite-host.ts (same
+  // `projects/naia-agent/*` depth → resolves to `projects/naia-memory`). The
+  // bin runs via tsx (shebang `pnpm exec tsx`); `@nextain/naia-memory`'s
+  // package export points at `./dist` which would force a naia-memory build
+  // and break the no-build source-run flow. Switching to the package
+  // specifier is deferred to the standalone-published CLI host (Phase 2,
+  // README Status). Cross-review r1 (gemini): verified resolves at runtime.
+  const { SqliteAdapter, MemorySystem, OfflineEmbeddingProvider } = await import(
+    "../../naia-memory/src/memory/index.js"
+  );
+  // `serviceName` is already restricted to strict kebab by
+  // parseServiceManifest (no separators / ".."). Defense-in-depth: for the
+  // default (name-derived) path, assert the resolved DB stays inside the
+  // services dir before touching the filesystem (security review SB-1
+  // Vuln 2). The env override is operator-trusted and not constrained.
+  let dbPath: string;
+  if (process.env.NAIA_AGENT_MEMORY_DB) {
+    dbPath = process.env.NAIA_AGENT_MEMORY_DB;
+  } else {
+    const servicesDir = path.join(homedir(), ".naia-agent", "services");
+    dbPath = path.resolve(servicesDir, `${serviceName}.db`);
+    if (dbPath !== path.join(servicesDir, `${serviceName}.db`) ||
+        !dbPath.startsWith(servicesDir + path.sep)) {
+      throw new Error(`refusing alpha-memory db path outside ${servicesDir} (name="${serviceName}")`);
+    }
+  }
+  const adapter = new SqliteAdapter({
+    dbPath,
+    embeddingProvider: new OfflineEmbeddingProvider(),
+  });
+  const sys = new MemorySystem({ adapter });
+  await sys.init();
+  process.stderr.write(`naia-agent: memory=alpha-memory db=${dbPath}\n`);
+
+  // Minimal MemoryProvider façade (SB-1 needs only the core contract:
+  // encode / recall / consolidate / close). Capabilities are out of scope.
+  return {
+    async encode(input) {
+      await sys.encode(
+        { content: input.content, role: input.role, timestamp: input.timestamp },
+        { sessionId: input.context?.["sessionId"], project: input.context?.["project"] },
+      );
+    },
+    async recall(query, opts) {
+      const topK = opts?.topK ?? 5;
+      const result = await sys.recall(query, {
+        topK,
+        deepRecall: opts?.deepRecall,
+        project: opts?.project,
+      });
+      const hits = [
+        ...result.facts.map((f: { id: string; content: string; relevanceScore?: number; createdAt?: number }) => ({
+          id: f.id,
+          content: f.content,
+          score: f.relevanceScore ?? 0,
+          createdAt: f.createdAt,
+          metadata: { type: "fact" },
+        })),
+        ...result.episodes.map((e: { id: string; content: string; strength?: number; timestamp?: number }) => ({
+          id: e.id,
+          content: e.content,
+          score: e.strength ?? 0.5,
+          createdAt: e.timestamp,
+          metadata: { type: "episode" },
+        })),
+      ];
+      return hits.sort((a, b) => b.score - a.score).slice(0, topK);
+    },
+    async consolidate() {
+      const t0 = performance.now();
+      const r = await sys.consolidateNow(true);
+      return {
+        factsCreated: r.factsCreated,
+        factsUpdated: r.factsUpdated,
+        episodesProcessed: r.episodesProcessed,
+        durationMs: performance.now() - t0,
+      };
+    },
+    async close() {
+      await sys.close();
+    },
+  };
+}
+
+async function runService(args: Args): Promise<number> {
+  const manifestPath = args.service as string;
+
+  let raw: string;
+  try {
+    raw = await readFile(manifestPath, "utf8");
+  } catch (e) {
+    // File I/O failure surfaces as the SAME canonical MANIFEST_INVALID
+    // ErrorEvent the parser emits (design §5, Part A.11) — reuse the shared
+    // builder so the shape never drifts (cross-review r4, codex MEDIUM).
+    const err = manifestInvalid(
+      `cannot read manifest "${manifestPath}": ${(e as Error).message}`,
+    );
+    process.stderr.write(JSON.stringify(err) + "\n");
+    return 3;
   }
 
-  // Interactive REPL
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-    prompt: "\nnaia> ",
-    terminal: true,
+  const result = parseServiceManifest(raw);
+  if (!result.ok) {
+    process.stderr.write(JSON.stringify(result.error) + "\n");
+    return 3;
+  }
+  const manifest = result.manifest;
+
+  const llm = await buildLLMClientFromManifest(manifest.llm);
+  if (!llm) return 3;
+
+  let memory: MemoryProvider;
+  try {
+    memory = await resolveMemoryBinding(manifest.memory.binding, {
+      alphaMemoryFactory: () => buildAlphaMemory(manifest.name),
+    });
+  } catch (e) {
+    process.stderr.write(`naia-agent: ${(e as Error).message}\n`);
+    return 3;
+  }
+
+  const logger = new ConsoleLogger({ level: args.debug ? "debug" : "warn" });
+  const host: HostContext = {
+    llm,
+    memory,
+    tools: new InMemoryToolExecutor([createBashSkill()]),
+    logger,
+    tracer: new NoopTracer(),
+    meter: new InMemoryMeter(),
+    approvals: {
+      async decide() {
+        throw new Error("naia-agent: tool approval not wired (service mode)");
+      },
+    },
+    identity: {
+      deviceId: "naia-agent-cli",
+      publicKeyEd25519: "cli",
+      async sign() {
+        throw new Error("naia-agent: sign() not wired");
+      },
+    },
+  };
+
+  process.stderr.write(`naia-agent: service="${manifest.name}" (schema ${manifest.schemaVersion})\n`);
+  const agent = new Agent({
+    host,
+    systemPrompt: manifest.persona.systemPrompt,
+    tierForTool: () => "T1",
   });
 
-  rl.prompt();
-  for await (const line of rl) {
-    const trimmed = line.trim();
-    if (trimmed === "exit" || trimmed === "quit" || trimmed === ".exit") break;
-    if (trimmed.length === 0) {
-      rl.prompt();
-      continue;
-    }
-    await streamToStdout(agent, trimmed, args.debug);
-    rl.prompt();
+  // close the MemoryProvider on exit — agent.close() does not (cross-review
+  // r1, gemini MAJOR). For "alpha-memory" this checkpoints/closes the SQLite
+  // connection (WAL) instead of leaking it on CLI exit.
+  try {
+    return await executeAgent(agent, args);
+  } finally {
+    await memory.close();
   }
-
-  rl.close();
-  agent.close();
-  return 0;
 }
 
 async function streamToStdout(agent: Agent, prompt: string, debug: boolean): Promise<void> {
@@ -463,9 +748,14 @@ async function main(): Promise<number> {
     process.stderr.write(`naia-agent: ${parsed.error}\n`);
     process.stderr.write(
       `usage: pnpm naia-agent [prompt] [--mode=direct|supervisor] [--workdir DIR] [--debug]\n` +
+      `       pnpm naia-agent [prompt] --service app.service.json\n` +
       `       pnpm naia-agent [prompt] --mode=supervisor [--no-verify] [-m model] [--adapter shell -- cmd args]\n`,
     );
     return 3;
+  }
+
+  if (parsed.service !== undefined) {
+    return runService(parsed);
   }
 
   if (parsed.mode === "supervisor") {

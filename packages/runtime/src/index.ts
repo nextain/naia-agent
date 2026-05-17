@@ -43,6 +43,21 @@ export type { MCPServerConfig } from "./mcp/index.js";
 export { createHost } from "./host/index.js";
 export type { CreateHostOptions } from "./host/index.js";
 
+// Service manifest loader — R6/SB-1 (#32, matrix §D50). Pure parse/validate
+// + memory-binding resolve. Schema SoT: naia-adk/docs/service-manifest-schema.md.
+export {
+  parseServiceManifest,
+  resolveMemoryBinding,
+  manifestBaseURLTrust,
+  manifestInvalid,
+  SUPPORTED_MANIFEST_MAJOR,
+} from "./host/index.js";
+export type {
+  ServiceManifest,
+  ManifestParseResult,
+  AlphaMemoryFactory,
+} from "./host/index.js";
+
 // Testing — Slice 1b R3. StreamPlayer for fixture-replay (minimal pin;
 // formalized as @nextain/agent-testing in Slice 5).
 export { StreamPlayer } from "./testing/index.js";
