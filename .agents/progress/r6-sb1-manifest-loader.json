@@ -1,0 +1,40 @@
+{
+  "issue": "nextain/naia-agent#32",
+  "title": "[R6/SB-1] service manifest 스키마 + naia-agent CLI loader",
+  "umbrella": "nextain/naia-agent#31 (R6 Agent Service Builder)",
+  "branch": "migration/slice-r6-sb1-manifest-loader",
+  "phase": "build (slice)",
+  "status": "IN_PROGRESS — 스키마 SoT 완료, loader 미착수",
+  "session_handoff_2026_05_17": {
+    "done": [
+      "스키마 SoT 완료: naia-adk/docs/service-manifest-schema.md v0.1.0 (commit naia-adk ad85a50, pushed). 계약표면 = 비-계약 데이터포맷, 최소필드 name/persona/llm/memory, semver+호환표, 보안(secret 금지)"
+    ],
+    "next_exact_start": [
+      "1) git checkout migration/slice-r6-sb1-manifest-loader (naia-agent)",
+      "2) bin/naia-agent.ts parseArgs(L116 부근)에 --service <path> 추가",
+      "3) manifest loader 모듈 신설: JSON.parse → 스키마검증(필수필드+schemaVersion 호환, 실패=ErrorEvent MANIFEST_INVALID) → 기존 HostContext 조립(persona.systemPrompt→system msg / llm→D44 VercelClient / memory.binding→alpha-memory|InMemory) → 기존 Agent.sendStream 실행. **신규 최상위 계약 0** (기존 HostContext만 채움)",
+      "4) S02 unit: 스키마검증(필수필드 누락/잘못된 schemaVersion MAJOR 거부/forward-compat MINOR 무시) test",
+      "5) S03 fixture-replay: qwen3.6-27b manifest(예시=schema §5)로 1턴 결정적 재생",
+      "6) S04 CHANGELOG + README slice entry"
+    ],
+    "must_read_first": [
+      "naia-adk/docs/service-manifest-schema.md (스키마+loader 계약 SoT)",
+      "naia-adk/.agents/progress/agent-service-builder-architecture.md v4 §2/§5/§6 SB-1",
+      "naia-agent/.agents/progress/ref-adoption-matrix.md §D50(manifest 비-계약)/§D51(orchestration)/§L",
+      "naia-agent mandatory reads(AGENTS.md §Mandatory Reads 1~7) — slice 코드 착수 전 BLOCKING"
+    ],
+    "constraints": [
+      "F-rule: F01 해제됨(bin 실존), F06 D1~D8 불변, F07 Part A 불변. slice success criterion S01~S04 머지게이트",
+      "신규 최상위 계약 0개 (Part A 3-계약 불변). manifest=naia-adk 데이터파일, RAG=SB-2(RecallOpts.sources additive), orchestration=SB-4",
+      "karpathy: 최소구현(SB-1=manifest→HostContext만, rag/orch/eval 없음). migration/* branch + 24h self-review",
+      "cross-review: slice 머지 전 codex+gemini 2 consecutive clean (different-profile). codex usage limit 주의(회복=일자별)"
+    ],
+    "baseline_persisted": {
+      "naia-adk": "ad85a50(schema) / 821c718(설계 v4 + 3R reviews)",
+      "naia-agent": "f7db128(matrix D50/D51+RecallOpts additive) / 1510ecc(§D+§L+draft)",
+      "github": "#31 R6 우산 / #32 SB-1 / #33 SB-2 / #34 SB-3 (전부 OPEN)"
+    }
+  },
+  "cross_review_record": "3+1R: v1 ISSUES → v2 부분 → v3 surgical → v4. 판정 gemini v3 CLEAN(6 PASS) + codex v3 조건부('매핑1개')→v4(rag.sources→RecallOpts.sources additive) 충족. Phase0 G0-1~5 전부 통과.",
+  "session_id": "0c422131-7c02-453b-82e5-acf1650c81fc"
+}
