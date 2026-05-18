@@ -1,7 +1,7 @@
 {
   "issue": "nextain/naia-agent#39",
   "umbrella": "nextain/naia-agent#37 (D-OC10)",
-  "current_phase": "plan",
+  "current_phase": "SIMPLIFIED: main=mode-A only (claude-code shipped | gateway/API-key); subscription-agentic-CLI dropped from main; gemini=naia gateway only",
   "design_locked": "2026-05-18 user-affirmed",
   "architecture": {
     "config_home": "naia-adk workspace settings via @naia-adk/naia-anyllm (NOT naia-agent env)",
@@ -31,5 +31,16 @@
     "gemini": "follow-on: official gemini-cli OAuth thin-wrap (NOT @ketd npm — rejected supply-chain)"
   },
   "security_audit_ketd_gemini_cli_sdk": "REJECTED: no install-script malware vector but published manifest leaks dangling link:../ganyi/aoe-desktop dep (dev leak, broken for consumers), solo maint, 518/wk -> fails F09/F11",
-  "claude_code_close_pending": "unit test (manifest accepts backend claude-code) + CHANGELOG + commit citing #39/D18/#37"
+  "claude_code_close_pending": "unit test (manifest accepts backend claude-code) + CHANGELOG + commit citing #39/D18/#37",
+  "roles": "main-llm / aux-llm / reviewer (flagship)",
+  "shipped": "case claude-code in buildLLMClientFromManifest — commit b28e3f2, 4 gates met, GitHub-synced",
+  "follow_on": "capability-aware CLI auth + role schema in naia-adk workspace settings (config!=env); naia-adk#7 auto-mirror (aux consumer); #38 ToS gate for distribution",
+  "decision_2026_05_18_simplify": "main = mode-A raw LLMClient ONLY. claude-code(sub,adapter,SHIPPED) or any provider via naia any-llm gateway/API key (gemini via gateway, GLM, anthropic, openai-compat, vertex). Personal-sub gemini-cli/codex NOT a main option. mode-B subagent-as-main follow-on DROPPED. No code change needed (claude-code done; gemini=existing openai-compatible/gateway = config).",
+  "main_choices_FINAL": "3: (1) Claude=claude-code Agent SDK [SHIPPED b28e3f2] (2) naia account Gemini=any-llm gateway/openai-compatible [no code, config] (3) Codex=official OpenAI Codex SDK [follow-on: verify SDK/adapter fit like claude-code]",
+  "correction": "Codex IS a main option (official SDK, like claude-code). Only personal gemini-cli excluded from main; Gemini-main = naia gateway.",
+  "next_concrete": "Codex: verify Codex SDK (developers.openai.com/codex/sdk) LLMClient/adapter fit before impl. Gemini: gateway registration config (no naia-agent code). Claude: done.",
+  "registry_FINAL": "OPEN registry, not closed enum. openai-compatible backend absorbs long tail (naia-Gemini/GLM/Ollama/vLLM/future = config, 0 code). Named SDK backends only: claude-code(SHIPPED) + codex(follow-on). New providers = manifest config, no code.",
+  "remaining_code": "ONLY codex (verify Codex SDK fit, then case codex like claude-code). All else = openai-compatible config today.",
+  "two_layer_FINAL": "main = mode-A LLMClient (claude-code adapter[SHIPPED] | openai-compatible[config] | codex SDK[follow-on]). aux/reviewer = mode-B ONE generic subagent-CLI caller (subprocess call, config-driven, absorbs any CLI) = D18/D-OC10 concrete mechanism.",
+  "scope_final": "code remaining: (1) codex SDK main [verify fit] (2) ONE generic subagent-CLI caller for aux/reviewer [D18/D-OC10]. Else = openai-compatible config. claude-code main = DONE."
 }
