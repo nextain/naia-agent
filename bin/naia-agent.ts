@@ -602,6 +602,19 @@ async function runService(args: Args): Promise<number> {
   const llm = await buildLLMClientFromManifest(manifest.llm);
   if (!llm) return 3;
 
+  // Test-only hermetic routing gate (naia-agent#39 G1). When set, the LLM
+  // client has been built (provider routing succeeded) — exit cleanly
+  // WITHOUT memory/agent assembly or any LLM call (no credit). Never set in
+  // production. A broken provider branch → buildLLMClientFromManifest null
+  // → exits 3 above → the gate test fails. Keeps the builder in the
+  // composition root (no cross-package extraction).
+  if (process.env.NAIA_AGENT_DRYRUN === "1") {
+    process.stderr.write(
+      `naia-agent: dry-run OK — llm client built (backend=${manifest.llm.backend})\n`,
+    );
+    return 0;
+  }
+
   let memory: MemoryProvider;
   try {
     memory = await resolveMemoryBinding(manifest.memory.binding, {

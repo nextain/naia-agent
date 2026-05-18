@@ -8,6 +8,31 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [Slice R6/SB-1.2] — 2026-05-18 — provider-routing CI gate (naia-agent#39 G1)
+
+Adversarial review proved the claude-code slice's coverage was parse-only
+theater — a renamed `case "claude-code"` / `return null` survived 263/263
+(routing branch ungated). A first fix (extract `buildLLMClientFromManifest`
+→ `@nextain/agent-runtime`) was **reverted**: the builder composes runtime
+manifest-trust + providers' VercelClient/`@ai-sdk` SDKs, so it belongs in
+the composition root (`bin`); extracting it violated the runtime package's
+deliberate no-provider-SDK dependency boundary (structural disturbance).
+Reverted clean to `b28e3f2`.
+**Structurally-correct gate (this slice):** builder stays in `bin`; added
+a test-only env hook `NAIA_AGENT_DRYRUN=1` (after the client is built,
+exit 0 without memory/agent/LLM call — hermetic, no credit; never set in
+prod) + a spawn test `packages/cli-app/src/__tests__/bin-llm-routing.test.ts`
+(mirrors `bin-direct.test.ts`) asserting `backend:"claude-code"` →
+`provider=claude-code` + exit 0 with NO API key, and unknown backend →
+exit 3. **Mutation-proof:** both reviewer mutations now FAIL the gate.
+- Runnable: `pnpm naia-agent --service <claude-code> ` (prod path
+  unchanged — DRYRUN unset → real run, verified exit 0).
+- Tests: cli-app 97/97; new gate 2/2; prod path non-regressive.
+- 0 new contracts; no cross-package boundary change; bin-only + cli-app
+  test. Pre-existing finding: `@ai-sdk/google@3` lacks `createVertex`
+  (vertex case latent type gap, bin's looser tsconfig hides it) — tracked
+  #39, separate fix.
+
 ## [Slice R6/SB-1.1] — 2026-05-18 — claude-code subscription backend
 
 **naia-agent#39 (two-tier main-llm), D18 (claude-code SDK adopted), D-OC10
