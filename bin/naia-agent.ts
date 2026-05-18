@@ -460,10 +460,23 @@ async function buildLLMClientFromManifest(
       process.stderr.write(`naia-agent: provider=vertex model=${llm.model}\n`);
       return new VercelClient(vertex(llm.model));
     }
+    case "claude-code": {
+      // Claude Agent SDK in-process via ai-sdk-provider-claude-code (D18,
+      // adopted; same pattern as runtime coding-tool.ts). Uses the user's
+      // Claude subscription auth — NO API key (subscription Agent SDK credit,
+      // policy 2026-06-15; per-account, capped). Dynamic import keeps the SDK
+      // optional at module load. Refs naia-agent#39 (two-tier main-llm).
+      const { createClaudeCode } = await import("ai-sdk-provider-claude-code");
+      const provider = createClaudeCode();
+      process.stderr.write(
+        `naia-agent: provider=claude-code model=${llm.model} (subscription, no API key)\n`,
+      );
+      return new VercelClient(provider(llm.model as Parameters<typeof provider>[0]));
+    }
     default:
       process.stderr.write(
         `naia-agent: unknown manifest llm.backend "${llm.backend}" ` +
-          `(supported: openai-compatible | anthropic | vertex)\n`,
+          `(supported: openai-compatible | anthropic | vertex | claude-code)\n`,
       );
       return null;
   }

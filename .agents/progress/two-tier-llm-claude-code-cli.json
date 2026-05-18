@@ -1,0 +1,35 @@
+{
+  "issue": "nextain/naia-agent#39",
+  "umbrella": "nextain/naia-agent#37 (D-OC10)",
+  "current_phase": "plan",
+  "design_locked": "2026-05-18 user-affirmed",
+  "architecture": {
+    "config_home": "naia-adk workspace settings via @naia-adk/naia-anyllm (NOT naia-agent env)",
+    "tiers": "main(default=claude-code-cli) + aux(switchable: naia-anyllm-account|GEMINI_API_KEY|vertex)",
+    "claude_code_cli_provider": "naia-agent shells `claude` non-interactive as LLM backend (zero credits, D-OC10 practical)",
+    "cli_auth": "CLI command writes workspace settings (no hand-edited env)",
+    "ext_point": "bin/naia-agent.ts buildLLMClient()/buildLLMClientFromManifest(manifest.llm)",
+    "sequencing": "naia-agent CLI first (properly) → naia-os later via workspace; naia-os deferred"
+  },
+  "slices": {
+    "S1": "two-tier settings schema + pure resolver in @naia-adk/naia-anyllm + unit tests",
+    "S2": "claude-code-cli LLMClient (claude subprocess) + integration smoke (zero credits)",
+    "S3": "naia-agent buildLLMClient reads workspace settings; pnpm naia-agent runs main=claude-code-cli",
+    "S4": "CLI auth writes settings; aux=gemini via Vertex/ADC real-test (www-onmam-com); flash sufficiency"
+  },
+  "real_test_feasibility": "claude-code-cli = testable now (zero creds); aux gemini = Vertex ADC active (project www-onmam-com), lab-proxy gemini*->vertexai",
+  "next": "S1 — settings schema + resolver (foundation), naia-agent slice-discipline (4 gates)",
+  "critical_finding": "CORRECTED: claude-code is NOT a deep unsolved bridge — ai-sdk-provider-claude-code@3.4.4 already adapts @anthropic-ai/claude-agent-sdk in-process to LLMClient (D18 adopted, used in coding-tool.ts). Just wire into buildLLMClient().",
+  "decision_pending": "ship S1+aux-gemini-vertex first (work-in-naia-agent now) vs deep claude-code-cli IDD now",
+  "policy_verified": "2026-06-15: subscription Agent SDK credit (Pro$20/Max$100-200), per-account non-poolable, separate from interactive; internal use valid+no-API-key but CAPPED -> aux-llm separation correct. Distribution: cannot use others' claude.ai login (policy) -> per-user auth for #38.",
+  "claude_code_provider_status": "LOW effort: clone coding-tool.ts:90 createClaudeCode() pattern into buildLLMClient() as a selectable provider",
+  "tos_compliance": "naia ToS update REQUIRED before #38 distribution: BYO Claude auth (naia != LLM provider, no claude.ai-login-as-service), Anthropic Commercial Terms passthrough, credits user<->Anthropic non-shared, data-processing disclosure, scope by distribution form. Legal/outward — not auto-drafted; human/legal review gate on #38.",
+  "intent_crystallized": "subscription-auth-first tri-provider: users already hold subs (Claude/ChatGPT/Gemini) -> use existing subscription via official SDK/CLI login, API key = fallback only, no community-npm middlemen",
+  "provider_status": {
+    "claude-code": "DONE+real-test PASS (subscription, no key)",
+    "codex": "follow-on: official Codex SDK / ChatGPT sub",
+    "gemini": "follow-on: official gemini-cli OAuth thin-wrap (NOT @ketd npm — rejected supply-chain)"
+  },
+  "security_audit_ketd_gemini_cli_sdk": "REJECTED: no install-script malware vector but published manifest leaks dangling link:../ganyi/aoe-desktop dep (dev leak, broken for consumers), solo maint, 518/wk -> fails F09/F11",
+  "claude_code_close_pending": "unit test (manifest accepts backend claude-code) + CHANGELOG + commit citing #39/D18/#37"
+}

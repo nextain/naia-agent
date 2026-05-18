@@ -8,6 +8,26 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [Slice R6/SB-1.1] — 2026-05-18 — claude-code subscription backend
+
+**naia-agent#39 (two-tier main-llm), D18 (claude-code SDK adopted), D-OC10
+umbrella #37.** Adds `case "claude-code"` to `bin/naia-agent.ts`
+`buildLLMClientFromManifest` — `*.service.json` `llm.backend:"claude-code"`
+routes to the in-process Claude Agent SDK via the already-adopted
+`ai-sdk-provider-claude-code` (same pattern as runtime `coding-tool.ts`)
+→ `VercelClient`. Uses the user's **Claude subscription auth — NO API key**
+(subscription Agent SDK credit, policy 2026-06-15; per-account, capped →
+two-tier routes grunt work to a cheap aux to preserve it). Config lives in
+the naia-adk workspace manifest (not env), per direction. Provider matrix:
+claude-code=subscription (this) · codex=official Codex SDK (follow-on) ·
+gemini=official gemini-cli OAuth thin-wrap, aux-only (follow-on; community
+`@ketd/gemini-cli-sdk` rejected — supply-chain) · GLM=existing API-key.
+- Runnable: `pnpm naia-agent "..." --service <manifest backend:claude-code>`
+  — **real run PASS** (live SDK, no API key, model replied, exit 0).
+- Unit test: `service-manifest.test.ts` accepts `backend:"claude-code"`.
+- New top-level contracts: 0 (additive switch branch; `ServiceManifest` is
+  a runtime host helper type, not a Part-A contract).
+
 ## [Slice R6/SB-1] — 2026-05-17 — service manifest loader
 
 **R6 Agent Service Builder 우산 (#31) 1번 슬라이스 (#32, matrix §D50).**

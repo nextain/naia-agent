@@ -58,6 +58,23 @@ describe("parseServiceManifest — valid (schema §5 example)", () => {
     expect(r.manifest.llm.baseURL).toBeUndefined();
     expect(r.manifest.description).toBeUndefined();
   });
+
+  it('accepts backend "claude-code" (Claude Agent SDK / subscription — naia-agent#39, D18)', () => {
+    const r = parseServiceManifest(
+      JSON.stringify({
+        schemaVersion: "0.1.0",
+        name: "cc",
+        persona: { systemPrompt: "hi" },
+        llm: { backend: "claude-code", model: "sonnet" },
+        memory: { binding: "in-memory" },
+      }),
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.manifest.llm.backend).toBe("claude-code");
+    expect(r.manifest.llm.model).toBe("sonnet");
+    expect(r.manifest.llm.baseURL).toBeUndefined();
+  });
 });
 
 describe("parseServiceManifest — MANIFEST_INVALID (canonical ErrorEvent)", () => {
