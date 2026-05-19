@@ -16,7 +16,7 @@ const TOUCHED = [
   "GLM_API_KEY", "GLM_BASE_URL", "GLM_MODEL",
   "NAIA_SUB_PROVIDER", "NAIA_SUB_BASE_URL", "NAIA_SUB_MODEL",
   "NAIA_EMBED_PROVIDER", "NAIA_EMBED_BASE_URL", "NAIA_EMBED_MODEL", "NAIA_EMBED_DIMS",
-  "NAIA_ADK_PATH", "MY_KEY_REF",
+  "NAIA_ADK_PATH", "MY_KEY_REF", "MISSING_REF", "NAIA_ALLOW_MANIFEST_BASEURL_HOSTS",
 ];
 
 let saved: Record<string, string | undefined>;
@@ -99,6 +99,72 @@ describe("loadNaiaSettingsLLM", () => {
   it("missing file → skipped gracefully (env-only path still works)", () => {
     const r = loadNaiaSettingsLLM({ adkPath: dir }); // dir exists, no naia-settings/llm.json
     expect(r.skipped).toBe(true);
+    expect(process.env.OPENAI_BASE_URL).toBeUndefined();
+  });
+
+  it("openai-compat: resolved apiKeyRef OVERRIDES the local sentinel", () => {
+    process.env.MY_KEY_REF = "real-key-123";
+    loadNaiaSettingsLLM({
+      adkPath: writeLLM({
+        main: { provider: "openai-compat", baseUrl: "http://127.0.0.1:11434/v1", model: "m", apiKeyRef: "MY_KEY_REF" },
+      }),
+    });
+    expect(process.env.OPENAI_API_KEY).toBe("real-key-123"); // not "ollama"
+  });
+
+  it("openai-compat: REMOTE baseUrl + no apiKeyRef → NO 'ollama' sentinel (honest)", () => {
+    loadNaiaSettingsLLM({
+      adkPath: writeLLM({
+        main: { provider: "openai-compat", baseUrl: "https://api.openrouter.ai/v1", model: "m" },
+      }),
+    });
+    expect(process.env.OPENAI_BASE_URL).toBe("https://api.openrouter.ai/v1");
+    expect(process.env.OPENAI_MODEL).toBe("m");
+    expect(process.env.OPENAI_API_KEY).toBeUndefined(); // remote → no sentinel
+  });
+
+  it("openai-compat: apiKeyRef present but UNRESOLVED → NO sentinel (symmetric w/ anthropic)", () => {
+    loadNaiaSettingsLLM({
+      adkPath: writeLLM({
+        main: { provider: "openai-compat", baseUrl: "http://127.0.0.1:11434/v1", model: "m", apiKeyRef: "MISSING_REF" },
+      }),
+    });
+    expect(process.env.OPENAI_API_KEY).toBeUndefined(); // ref set but env absent
+  });
+
+  it("unknown provider → role recorded, no env mapped", () => {
+    const r = loadNaiaSettingsLLM({ adkPath: writeLLM({ main: { provider: "weird-x", model: "m" } }) });
+    expect(r.roles.main).toBe("weird-x");
+    expect(process.env.OPENAI_API_KEY).toBeUndefined();
+    expect(process.env.ANTHROPIC_MODEL).toBeUndefined();
+  });
+
+  it("version != 1 → warn but still proceeds", () => {
+    const warns: string[] = [];
+    const logger = { warn: (m: string) => void warns.push(m), fn: () => undefined } as unknown as Logger;
+    const r = loadNaiaSettingsLLM({ adkPath: writeLLM({ version: 2, main: { provider: "openai-compat", baseUrl: "http://127.0.0.1:11434/v1", model: "m" } }), logger });
+    expect(r.skipped).toBe(false);
+    expect(r.roles.main).toBe("openai-compat");
+    expect(warns.some((w) => w.includes("version.unknown"))).toBe(true);
+  });
+
+  it("plaintext secret in a role → WHOLE file rejected (no env set), warns", () => {
+    const warns: string[] = [];
+    const logger = { warn: (m: string) => void warns.push(m), fn: () => undefined } as unknown as Logger;
+    // (a) intuitive wrong field name
+    const r1 = loadNaiaSettingsLLM({
+      adkPath: writeLLM({ main: { provider: "anthropic", apiKey: "sk-ant-REALSECRET12345", model: "m" } }),
+      logger,
+    });
+    expect(r1.skipped).toBe(true);
+    expect(process.env.ANTHROPIC_MODEL).toBeUndefined();
+    expect(warns.some((w) => w.includes("plaintext_suspected"))).toBe(true);
+    // (b) raw-secret-looking VALUE in an otherwise-fine field
+    const r2 = loadNaiaSettingsLLM({
+      adkPath: writeLLM({ main: { provider: "openai-compat", baseUrl: "http://127.0.0.1:11434/v1", model: "AIzaSyAabcdefghij1234567890" } }),
+      logger,
+    });
+    expect(r2.skipped).toBe(true);
     expect(process.env.OPENAI_BASE_URL).toBeUndefined();
   });
 

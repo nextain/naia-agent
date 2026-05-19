@@ -29,6 +29,17 @@ model/tier branching.
   `loadEnvAndConfig()` (it was defined but never invoked — the documented
   resolution was inert). Priority: `process.env > naia-settings/llm.json
   > .env files > json config`. process.env never overwritten.
+  **Upgrader note**: `./.env` / `./naia-agent.env` /
+  `~/.naia-agent/config.json` were previously NOT loaded (loader never
+  invoked); they are now — review cwd for a stray `.env` before upgrading
+  (process.env still wins, so an exported var is unaffected).
+- **Secret invariant ENFORCED** (cross-review fix): the reader actively
+  rejects the whole `llm.json` (warn + skip, value never logged) if any
+  role carries a plaintext-secret-looking key/value — not merely "doesn't
+  read it". The `OPENAI_API_KEY=ollama` sentinel is now gated to
+  loopback/private baseUrls (reuses `manifestBaseURLTrust`); a remote
+  baseUrl without a key no longer gets a dummy key (fails honestly, not
+  opaquely). General — no model sniffing.
 - **New general flag** `--no-tools`: omit tools for models without native
   tool-calling (local gemma3n). Model-agnostic, no per-model branching.
 - **New unit test** (6/6): `naia-settings.test.ts` — main→env mapping,

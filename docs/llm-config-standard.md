@@ -108,6 +108,11 @@ JSON config 파일 (위 검색 순서대로 첫 매치)
 순서를 실제 적용한다(이전엔 로더가 호출되지 않아 표준이 미발효였음 —
 이 슬라이스에서 배선·수복).
 
+> ⚠️ **업그레이드 주의**: 그 결과 `./.env` / `./naia-agent.env` /
+> `~/.naia-agent/config.json`이 *이제부터* 실제 로드된다(이전엔 로더
+> 미호출로 무시됨). 업그레이드 전 cwd에 무관한 `.env`가 없는지 확인.
+> `process.env`(export된 변수)는 항상 최우선이라 영향 없음.
+
 ### 3.4 naia-settings/llm.json (크로스레포 정본)
 
 SoT = `naia-adk/naia-settings/README.md`. 3-role `{main,sub,embedded}`.
