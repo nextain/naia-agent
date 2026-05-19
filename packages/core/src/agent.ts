@@ -201,6 +201,10 @@ export class Agent {
     let consecutiveToolErrors = 0;
     let lastBadInvocation: ToolInvocation | undefined;
     let halted = false;
+    // 8G LLM-initiated recall (#41 v2): gemma3n can't native tool-call, so
+    // the model emits a `<recall>query</recall>` text marker. Depth-guarded
+    // to prevent self-generated recall loops (cross-review B-loop).
+    let recallHopsRemaining = 2;
 
     while (hopsRemaining-- > 0) {
       if (signal?.aborted) break;
@@ -239,6 +243,24 @@ export class Agent {
 
       if (stopReason !== "tool_use") {
         finalText = extractText(blocks);
+        // 8G LLM-initiated recall (#41 v2). If the model asked for memory
+        // via a `<recall>query</recall>` marker, recall and re-generate.
+        // Query sanitized (length-bounded, non-empty) per cross-review
+        // B-query; depth-guarded per B-loop. Writes unaffected (read-only).
+        const marker = finalText.match(/<recall>([\s\S]{1,256}?)<\/recall>/i);
+        const recallQuery = marker?.[1]?.trim();
+        if (recallQuery && recallQuery.length >= 2 && recallHopsRemaining-- > 0) {
+          const more = await this.#recallMemory(recallQuery);
+          for (const h of more) hits.push(h);
+          this.#host.logger.fn?.("Agent.recallMarker")?.exit({
+            query: recallQuery.slice(0, 64), hits: more.length,
+            hopsLeft: recallHopsRemaining,
+          });
+          continue;
+        }
+        // No actionable marker (or budget exhausted): strip any leftover
+        // marker so users never see raw tags, then finish.
+        finalText = finalText.replace(/<recall>[\s\S]*?<\/recall>/gi, "").trim();
         break;
       }
 
