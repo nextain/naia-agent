@@ -8,6 +8,39 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [Slice 3-XR-C] — 2026-05-20 — memory wired into the CLI (persistent recall)
+
+`pnpm naia-agent --memory` now uses a **persistent LiteMemoryProvider**
+(blessed `@nextain/naia-memory` components) + the naia-settings
+`embedded` embedder + the #41 `<recall>` recall, instead of ephemeral
+InMemoryMemory. Verified hands-on: a fact stored in process A is
+recalled & answered correctly by a separate process B (cross-session
+SQLite). Opt-in — default unchanged (no regression).
+
+- `--memory`: builds `OpenAICompatEmbeddingProvider` (from
+  `NAIA_EMBED_*`) + `LiteMemoryProvider` (`NAIA_AGENT_MEMORY_DB` or
+  `~/.naia-agent/memory/cli.sqlite`, writesEnabled). No `--system` →
+  built-in recall-protocol persona; defaults to lean prompt (the heavy
+  contract degrades small models + dilutes the recall instruction, #41
+  measured). Any failure degrades gracefully to InMemoryMemory (anchor
+  #6 — never crash over memory).
+- **Root-cause fixes** (memory was DOA without these):
+  - `package.json` `pnpm.onlyBuiltDependencies: [better-sqlite3,
+    esbuild]` — pnpm 10 had silently skipped the native build, so
+    `LiteMemoryProvider` could not open SQLite at all.
+  - bin normalizes the embedder base URL (strips a trailing `/v1`):
+    `OpenAICompatEmbeddingProvider` unconditionally appends
+    `/v1/embeddings`, so a uniform `…/v1` naia-settings baseUrl produced
+    `…/v1/v1/embeddings` → 404 → every encode failed silently. General,
+    composition-root adaptation; no model branching.
+- Known caveat (not a regression): a small model (e4b) emits malformed
+  markers (`<recal_…`) that the strict parser correctly does not act on,
+  so they leak into the visible answer — recall still works via the
+  always-on start-of-turn path. Lenient-strip polish deferred (#41).
+- Follow-up recommendation (separate, cross-reviewed): make
+  naia-memory `OpenAICompatEmbeddingProvider`'s URL idempotent for a
+  `/v1` base so every consumer is safe at the source.
+
 ## [Slice 3-XR-B.1] — 2026-05-20 — graceful turn failure (no fatal crash)
 
 A model-server outage (ECONNREFUSED etc.) no longer fatal-crashes the

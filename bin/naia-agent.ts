@@ -57,6 +57,9 @@ import {
   readConfiguredAdkPath,
 } from "@nextain/agent-runtime";
 import type { ServiceManifest, ParsedRole } from "@nextain/agent-runtime";
+// Composition root may depend on a MemoryProvider implementation (the
+// runtime/core packages must not). Blessed pattern: examples/naia-memory-host.
+import { LiteMemoryProvider, OpenAICompatEmbeddingProvider } from "@nextain/naia-memory";
 import { VercelClient } from "@nextain/agent-providers";
 
 
@@ -133,6 +136,10 @@ interface Args {
    *  models are degraded by the long English contract (#41 v2, measured).
    *  Model-agnostic — any host with its own prompt / tight budget. */
   noDefaultSystem: boolean;
+  /** Use the persistent LiteMemoryProvider (naia-settings `embedded`
+   *  embedder) + #41 `<recall>` marker recall instead of ephemeral
+   *  InMemoryMemory. Opt-in — default off (no behavior change). */
+  memory: boolean;
 }
 
 function parseArgs(argv: string[]): Args | { error: string } {
@@ -150,6 +157,7 @@ function parseArgs(argv: string[]): Args | { error: string } {
     autoApprove: false,
     noTools: false,
     noDefaultSystem: false,
+    memory: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -177,6 +185,8 @@ function parseArgs(argv: string[]): Args | { error: string } {
       args.noTools = true;
     } else if (a === "--no-default-system") {
       args.noDefaultSystem = true;
+    } else if (a === "--memory") {
+      args.memory = true;
     } else if (a === "--debug") {
       args.debug = true;
     } else if (a === "--show-diff") {
@@ -307,11 +317,64 @@ function buildScrubbed(): NodeJS.ProcessEnv {
 
 // ─── Direct mode ─────────────────────────────────────────────────────────────
 
+/** Default persona for `--memory`: teaches the #41 v2 recall protocol so
+ *  the model actually emits the marker (model-agnostic, Korean-capable). */
+const MEMORY_PERSONA =
+  "너는 naia. 영속 장기기억이 있다. 사용자의 과거·개인 정보(취향, 이름, 약속 등)를 " +
+  "물으면 추측하지 말고 정확히 `<recall>검색어</recall>` 한 줄만 출력하라. 기억이 " +
+  "주입되면 그 내용으로 자연스럽게 답하라. 일반 상식·현재 대화는 바로 답하라. " +
+  "한국어로 간결하게.";
+
+/**
+ * CLI memory provider. `--memory` → persistent LiteMemoryProvider with the
+ * naia-settings `embedded` embedder (blessed naia-memory components). Any
+ * failure degrades gracefully to ephemeral InMemoryMemory (anchor #6 —
+ * never crash the CLI over memory). Default (no `--memory`) = unchanged.
+ */
+function buildCliMemory(args: Args): MemoryProvider {
+  if (!args.memory) return new InMemoryMemory();
+  const base = process.env["NAIA_EMBED_BASE_URL"];
+  const model = process.env["NAIA_EMBED_MODEL"];
+  const dims = Number(process.env["NAIA_EMBED_DIMS"]);
+  if (!base || !model || !Number.isInteger(dims) || dims <= 0) {
+    process.stderr.write(
+      `naia-agent: --memory needs a configured 'embedded' role ` +
+        `(naia-settings/llm.json) — falling back to ephemeral memory.\n`,
+    );
+    return new InMemoryMemory();
+  }
+  try {
+    // OpenAICompatEmbeddingProvider unconditionally appends `/v1/embeddings`
+    // (its #20 URL contract expects a base WITHOUT `/v1`). naia-settings
+    // keeps every role's baseUrl uniform (`…/v1`, needed by the chat role),
+    // so the composition root normalizes here — strip a trailing `/v1` to
+    // avoid `…/v1/v1/embeddings` (404). General; no model branching.
+    const embedBase = base.replace(/\/+$/, "").replace(/\/v1$/, "");
+    const embedder = new OpenAICompatEmbeddingProvider(
+      embedBase,
+      process.env["NAIA_EMBED_API_KEY"] ?? "ollama", // local ignores key
+      model,
+      dims,
+    );
+    const dbPath =
+      process.env["NAIA_AGENT_MEMORY_DB"] ??
+      path.join(homedir(), ".naia-agent", "memory", "cli.sqlite");
+    mkdirSync(path.dirname(dbPath), { recursive: true });
+    process.stderr.write(`naia-agent: memory=lite db=${dbPath} embed=${model}\n`);
+    return new LiteMemoryProvider({ dbPath, embedder, writesEnabled: true });
+  } catch (e) {
+    process.stderr.write(
+      `naia-agent: memory init failed (${(e as Error).message}) — ephemeral fallback.\n`,
+    );
+    return new InMemoryMemory();
+  }
+}
+
 async function runDirect(args: Args): Promise<number> {
   const llm = await buildLLMClient();
   if (!llm) return 3;
   const tools = new InMemoryToolExecutor(args.noTools ? [] : [createBashSkill()]);
-  const memory = new InMemoryMemory();
+  const memory = buildCliMemory(args);
   const logger = new ConsoleLogger({ level: args.debug ? "debug" : "warn" });
 
   const host: HostContext = {
@@ -337,9 +400,14 @@ async function runDirect(args: Args): Promise<number> {
 
   const agent = new Agent({
     host,
-    systemPrompt: args.systemPrompt,
+    // --memory with no explicit --system → the recall-protocol persona so
+    // the marker actually fires (otherwise memory is never exercised).
+    systemPrompt: args.systemPrompt ?? (args.memory ? MEMORY_PERSONA : undefined),
     tierForTool: () => "T1",
-    appendDefaultSystemPrompt: !args.noDefaultSystem,
+    // --memory defaults to lean (the heavy contract degrades small models
+    // AND dilutes the recall instruction — #41 v2 measured); explicit
+    // --no-default-system always wins. Non-memory behavior unchanged.
+    appendDefaultSystemPrompt: args.noDefaultSystem ? false : !args.memory,
   });
 
   // close the MemoryProvider on exit — agent.close() does not (cross-review

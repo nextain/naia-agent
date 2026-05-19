@@ -5,6 +5,9 @@
   "description": "AI coding agent runtime — loop, tools, compaction, memory, LLM routing",
   "type": "module",
   "license": "Apache-2.0",
+  "pnpm": {
+    "onlyBuiltDependencies": ["better-sqlite3", "esbuild"]
+  },
   "workspaces": [
     "packages/*"
   ],
