@@ -2,11 +2,12 @@
 //
 // Resolution order (first match wins, populates process.env if unset):
 //   1) process.env (existing — never overwritten)
-//   2) CLI flag --env <path>
-//   3) NAIA_AGENT_ENV env var
-//   4) ./.env (cwd)
-//   5) ./naia-agent.env (cwd, opinionated name)
-//   6) ~/.naia-agent/.env (global)
+//   2) naia-settings/llm.json (cross-repo SoT, via NAIA_ADK_PATH)
+//   3) CLI flag --env <path>
+//   4) NAIA_AGENT_ENV env var
+//   5) ./.env (cwd)
+//   6) ./naia-agent.env (cwd, opinionated name)
+//   7) ~/.naia-agent/.env (global)
 //
 // JSON config separate:
 //   1) CLI flag --config <path>
@@ -26,18 +27,22 @@ import { homedir } from "node:os";
 const HOME = homedir();
 
 import type { Logger } from "@nextain/agent-types";
+import { loadNaiaSettingsLLM, type NaiaSettingsReport } from "./naia-settings.js";
 
 export interface EnvLoadOptions {
   envPath?: string;
   configPath?: string;
   cwd?: string;
   logger?: Logger;
+  /** naia-adk workspace root for naia-settings/llm.json (else NAIA_ADK_PATH). */
+  adkPath?: string;
 }
 
 export interface EnvLoadReport {
   envFile?: string;
   configFile?: string;
   loadedKeys: string[];
+  naiaSettings?: NaiaSettingsReport;
 }
 
 const ENV_CANDIDATES = (cwd: string, explicit?: string): string[] => {
@@ -133,6 +138,14 @@ export function loadEnvAndConfig(opts: EnvLoadOptions = {}): EnvLoadReport {
   const cwd = opts.cwd ?? process.cwd();
   const fn = opts.logger?.fn?.("loadEnvAndConfig", { cwd, envPath: opts.envPath, configPath: opts.configPath });
   const report: EnvLoadReport = { loadedKeys: [] };
+
+  // Cross-repo SoT — applied first so it sits just below process.env and
+  // above all .env/json files (it only sets keys that are unset).
+  const ns = loadNaiaSettingsLLM({ ...(opts.adkPath ? { adkPath: opts.adkPath } : {}), ...(opts.logger ? { logger: opts.logger } : {}) });
+  if (!ns.skipped) {
+    report.naiaSettings = ns;
+    for (const k of ns.setKeys) if (!report.loadedKeys.includes(k)) report.loadedKeys.push(k);
+  }
 
   for (const candidate of ENV_CANDIDATES(cwd, opts.envPath)) {
     if (!candidate || !isReadableFile(candidate)) continue;

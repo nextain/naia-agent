@@ -97,10 +97,30 @@
 ```
 process.env (이미 export됨)
    ↓ (덮어쓰지 않음, 비어있는 키만 fill)
+naia-settings/llm.json   ← 크로스레포 SoT, NAIA_ADK_PATH/naia-settings/llm.json
+   ↓
 .env 파일 (위 검색 순서대로 첫 매치)
    ↓
 JSON config 파일 (위 검색 순서대로 첫 매치)
 ```
+
+`bin/naia-agent`는 `main()` 진입 시 `loadEnvAndConfig()`를 호출해 위
+순서를 실제 적용한다(이전엔 로더가 호출되지 않아 표준이 미발효였음 —
+이 슬라이스에서 배선·수복).
+
+### 3.4 naia-settings/llm.json (크로스레포 정본)
+
+SoT = `naia-adk/naia-settings/README.md`. 3-role `{main,sub,embedded}`.
+`naia-agent`는 `NAIA_ADK_PATH`로 위치를 찾아 `main`을 위 provider
+resolution 환경키(`OPENAI_*`/`ANTHROPIC_*`/`GLM_*`)로 매핑(미설정 키만),
+`sub`/`embedded`는 `NAIA_SUB_*`/`NAIA_EMBED_*`로 노출. **평문 키 금지** —
+`apiKeyRef`(env 변수명, Slice B에서 OS keychain)만. 로컬 Ollama/vLLM은
+키 불요(openai-compat resolver용 sentinel 자동). 모델/tier 분기 없음.
+
+### 3.5 `--no-tools`
+
+native tool-calling 미지원 모델(예: 로컬 Ollama gemma3n)용. Agent에
+도구를 부착하지 않음. 모델 무관 범용 플래그(특정 모델 분기 아님).
 
 ---
 

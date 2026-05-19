@@ -72,6 +72,9 @@ export {
 // Env + JSON config auto-loader — Slice 1c. Native .env parser + flatten JSON.
 export { loadEnvAndConfig, parseEnv, flattenConfig } from "./utils/env-loader.js";
 export type { EnvLoadOptions, EnvLoadReport } from "./utils/env-loader.js";
+// Cross-repo LLM config — naia-adk/naia-settings/llm.json reader.
+export { loadNaiaSettingsLLM } from "./utils/naia-settings.js";
+export type { NaiaSettingsOptions, NaiaSettingsReport } from "./utils/naia-settings.js";
 
 // DANGEROUS_COMMANDS regex — D01 (Slice 2). OWASP A03 출처, F09 cleanroom 단독 의존 금지.
 export {

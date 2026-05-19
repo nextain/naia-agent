@@ -50,6 +50,7 @@ import {
   resolveMemoryBinding,
   manifestBaseURLTrust,
   manifestInvalid,
+  loadEnvAndConfig,
 } from "@nextain/agent-runtime";
 import type { ServiceManifest } from "@nextain/agent-runtime";
 import { VercelClient } from "@nextain/agent-providers";
@@ -121,6 +122,9 @@ interface Args {
   showDiff: boolean;
   secureEnv: boolean;
   autoApprove: boolean;
+  /** Attach no tools to the Agent. Needed for models without native
+   *  tool-calling (e.g. local Ollama gemma3n). Model-agnostic. */
+  noTools: boolean;
 }
 
 function parseArgs(argv: string[]): Args | { error: string } {
@@ -136,6 +140,7 @@ function parseArgs(argv: string[]): Args | { error: string } {
     showDiff: false,
     secureEnv: false,
     autoApprove: false,
+    noTools: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -159,6 +164,8 @@ function parseArgs(argv: string[]): Args | { error: string } {
       args.mode = "direct";
     } else if (a === "--no-verify") {
       args.noVerify = true;
+    } else if (a === "--no-tools") {
+      args.noTools = true;
     } else if (a === "--debug") {
       args.debug = true;
     } else if (a === "--show-diff") {
@@ -292,7 +299,7 @@ function buildScrubbed(): NodeJS.ProcessEnv {
 async function runDirect(args: Args): Promise<number> {
   const llm = await buildLLMClient();
   if (!llm) return 3;
-  const tools = new InMemoryToolExecutor([createBashSkill()]);
+  const tools = new InMemoryToolExecutor(args.noTools ? [] : [createBashSkill()]);
   const memory = new InMemoryMemory();
   const logger = new ConsoleLogger({ level: args.debug ? "debug" : "warn" });
 
@@ -629,7 +636,7 @@ async function runService(args: Args): Promise<number> {
   const host: HostContext = {
     llm,
     memory,
-    tools: new InMemoryToolExecutor([createBashSkill()]),
+    tools: new InMemoryToolExecutor(args.noTools ? [] : [createBashSkill()]),
     logger,
     tracer: new NoopTracer(),
     meter: new InMemoryMeter(),
@@ -779,6 +786,11 @@ async function main(): Promise<number> {
     );
     return 3;
   }
+
+  // Auto-load config so the documented resolution actually applies:
+  //   process.env  >  naia-settings/llm.json (NAIA_ADK_PATH)  >  .env files
+  // Only sets keys that are unset — process.env always wins.
+  loadEnvAndConfig();
 
   if (parsed.service !== undefined) {
     return runService(parsed);

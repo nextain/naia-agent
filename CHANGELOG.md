@@ -8,6 +8,39 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [Slice 3-XR-A] — 2026-05-20 — cross-repo LLM config: naia-settings/llm.json (Task #3)
+
+naia-agent now CONSUMES the canonical cross-repo LLM config
+(`<NAIA_ADK_PATH>/naia-settings/llm.json`, 3-role `{main,sub,embedded}`;
+SoT = naia-adk/naia-settings/README.md). General/provider-driven — no
+model/tier branching.
+
+- **New runnable**: `NAIA_ADK_PATH=<naia-adk> pnpm naia-agent --no-tools "…"`
+  → reads naia-settings → drives the configured `main` LLM. Verified
+  end-to-end against a local Ollama (`provider=openai-compat
+  model=gemma3n:e4b`, real Korean response).
+- **New module**: `packages/runtime/src/utils/naia-settings.ts` —
+  `loadNaiaSettingsLLM()`. `main` → `OPENAI_*`/`ANTHROPIC_*`/`GLM_*`
+  (unset keys only; local no-key → `OPENAI_API_KEY=ollama` sentinel);
+  `sub`/`embedded` → `NAIA_SUB_*`/`NAIA_EMBED_*`. No plaintext key —
+  `apiKeyRef` names an env var (Slice B: OS keychain). Graceful skip on
+  missing/malformed; never logs values.
+- **Wired the dead loader**: `bin/naia-agent main()` now calls
+  `loadEnvAndConfig()` (it was defined but never invoked — the documented
+  resolution was inert). Priority: `process.env > naia-settings/llm.json
+  > .env files > json config`. process.env never overwritten.
+- **New general flag** `--no-tools`: omit tools for models without native
+  tool-calling (local gemma3n). Model-agnostic, no per-model branching.
+- **New unit test** (6/6): `naia-settings.test.ts` — main→env mapping,
+  local sentinel, apiKeyRef deref, process.env precedence, sub/embedded,
+  graceful skip/warn.
+- Governance: docs/llm-config-standard.md §3.3–3.5 (SoT) updated;
+  ref-adoption-matrix §D53. Cross-repo: naia-adk gets
+  `naia-settings/llm.json` (8G local instance, no secrets) + README.
+- Pre-existing build-blocker noted (unrelated): `coding-tool.test.ts`
+  TS2532 fails `tsc -b`; this slice's files are type-clean (unit green,
+  end-to-end verified).
+
 ## [Slice 8G-B] — 2026-05-20 — tiered conversational recall benchmark (naia-agent#41 v2)
 
 The naia-agent-owned **conversational** benchmark for the 8G LLM-initiated
