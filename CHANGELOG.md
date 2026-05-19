@@ -8,6 +8,36 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [Slice 8G-B] — 2026-05-20 — tiered conversational recall benchmark (naia-agent#41 v2)
+
+The naia-agent-owned **conversational** benchmark for the 8G LLM-initiated
+text-marker recall (naia-memory does retrieval-only bench; anchor #3/§B02).
+
+- **New runnable command**: `pnpm exec tsx examples/conversational-recall-bench.ts`
+  — runs N trials of the real Agent loop against a real container model
+  (GPU0), scored by a deterministic tiered judge. Env: `BENCH_TRIALS`,
+  `OLLAMA_MODEL`.
+- **New unit test** (10/10): `packages/runtime/src/__tests__/recall-bench-judge.test.ts`
+  — encodes the 2026-05-20 directive: SMALL tier (e2b) = structure
+  capability ONLY (≥1 well-formed marker; accuracy/leak report-only, low
+  rate fine); strictness rises with model size (MID/e4b additionally gates
+  round-trip accuracy + raw-marker leak). Mirrors naia-memory criteria.ts
+  `{target,minimum,metric}`; `koIncludes` faithfully ported (no runtime
+  cross-repo dep — "Interfaces, not dependencies").
+- **New pure module**: `packages/runtime/src/bench/recall-bench-judge.ts`
+  — `koIncludes`, `WELL_FORMED_MARKER`, `LOOSE_MARKER_LEAK`, `tierForModel`,
+  `evaluateTier`. Anchor #8: deterministic judge, no external cloud LLM.
+- **Integration (real backend)**: honest negative recorded — `gemma3n:e2b`
+  small tier, 5 trials, marker-path isolated: **structure 0/5, accuracy 0%,
+  leak 100%** → small gate correctly FAILED. e2b is below the #41 v2 marker
+  capability floor (confirms adversarial-review B2 empirically). Anti-false-
+  positive: marker read from RAW model output (TeeLLM, unconfounded by the
+  agent's always-on start-of-turn recall, which `IsolatingMemory` removes);
+  malformed `<recal<` caught by the LOOSE leak detector. e4b MID-tier
+  measurement is the next strictness step (pending model pull).
+- Supersedes the prior `examples/lite-memory-8g-e2e.ts` (removed — its weak
+  assertions false-positived on the 2026-05-19 garbled-marker leak).
+
 ## [Slice R6/SB-1.2] — 2026-05-18 — provider-routing CI gate (naia-agent#39 G1)
 
 Adversarial review proved the claude-code slice's coverage was parse-only
