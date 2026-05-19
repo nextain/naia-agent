@@ -274,9 +274,11 @@ export class Agent {
           });
           continue;
         }
-        // No actionable marker (or budget exhausted): strip any leftover
-        // marker so users never see raw tags, then finish.
-        finalText = finalText.replace(/<recall>[\s\S]*?<\/recall>/gi, "").trim();
+        // No actionable marker (or budget exhausted): sanitize residue so
+        // users never see raw tags — well-formed AND small-model malformed
+        // variants. OUTPUT hygiene only; the agent still ACTS solely on the
+        // strict form above (#41 v2 — leniency must not reach recall).
+        finalText = stripRecallResidue(finalText);
         break;
       }
 
@@ -684,4 +686,44 @@ function randomSessionId(): string {
     if (uuid) return `sess-${uuid}`;
   } catch {}
   return `sess-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * Display hygiene for the final answer: remove small-model `<recall>`
+ * marker residue (well-formed AND malformed: `<recalall>…</recalall>`,
+ * `<recal_l>…</recal_l>`, `<recal_…</recal>`, `<recal<…</recal>`, stray
+ * `</recall>`, unterminated trailing `<recal_…`). OUTPUT-ONLY: the agent
+ * still ACTS solely on the strict `<recall>q</recall>` form (#41 v2) —
+ * this leniency must never influence whether a recall fires (cross-review
+ * invariant A), only what the user sees.
+ *
+ * Cross-review #2 BLOCK fixes:
+ *  - Anchor to the `recal` family ONLY (`recal[la]*`): `<recap>`,
+ *    `<recapitulate>`, `<recital>`, `<receipt>` never match.
+ *  - Strip ONLY a line-leading/standalone marker (the small-model failure
+ *    mode) — a `<recall>` quoted mid-prose or in a code span is preserved
+ *    (the agent must not erase its own protocol documentation).
+ *  - Content bounded to {0,256} (mirrors the strict matcher) so a marker
+ *    cannot bridge real paragraphs; trailing-open bounded to 64.
+ *  - Marker-free input is returned BYTE-IDENTICAL (no whitespace/​trim
+ *    mangling of normal answers or code); trim only when residue removed.
+ *  - Nullish-safe. Pure + exported for unit tests.
+ */
+export function stripRecallResidue(text: string): string {
+  if (!text) return text ?? "";
+  const W = String.raw`recal[la]*`; // recal | recall | recalll | recalall
+  const LEAD = String.raw`(^|\n)[ \t]*`; // line-leading only
+  const out = text
+    // line-leading marker PAIR (content bounded — no paragraph bridging)
+    .replace(
+      new RegExp(`${LEAD}<\\s*${W}[\\s\\S]{0,256}?<\\s*/\\s*${W}[^>]{0,8}>`, "gi"),
+      "$1",
+    )
+    // line-leading unpaired marker-ish tag (bounded)
+    .replace(new RegExp(`${LEAD}<\\s*/?\\s*${W}[^>]{0,16}>`, "gi"), "$1")
+    // line-leading unterminated open at end (bounded, single-line)
+    .replace(new RegExp(`${LEAD}<\\s*/?\\s*${W}[^>\\n]{0,64}$`, "i"), "$1");
+  // Only normalize edges when residue was actually removed — a marker-free
+  // answer (incl. code/whitespace) is returned untouched.
+  return out === text ? text : out.replace(/^\s+|\s+$/g, "");
 }

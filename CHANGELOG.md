@@ -8,6 +8,32 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [Slice 3-XR-D] — 2026-05-20 — recall-marker residue hygiene (no leak)
+
+Small models (e4b) emit malformed `<recall>` markers (`<recalall>…`,
+`<recal_l>…`, `<recal<…`, stray `</recall>`) the strict parser correctly
+ignores — they were leaking into the CLI answer.
+
+- New exported pure `stripRecallResidue` (core; `index.ts` export) +
+  `agent.ts` strip-path uses it (the STRICT match/act is unchanged —
+  cross-review invariant A: leniency never reaches recall behavior).
+- **Behavior change (disclosed):** `bin streamToStdout` no longer streams
+  raw `llm.chunk` text deltas; it prints the agent's final *sanitized*
+  `assistantText` on `turn.ended`. Raw streaming bypassed the strip and
+  leaked markers. Trade-off: no live token streaming in direct mode
+  (acceptable for short answers; applies to all direct-mode turns).
+- Claude sub-agent adversarial review = BLOCK → all fixed:
+  B1 anchored to the `recal` family only (`<recap>`/`<recapitulate>`/
+  `<recital>`/`<receipt>` no longer destroyed); B2 strip only
+  line-leading/standalone residue (a `<recall>` quoted in prose/code is
+  preserved — the agent must not erase its own protocol docs); B3
+  content bounded `{0,256}` + line-anchored (no cross-paragraph
+  bridging); D5 marker-free input returned BYTE-IDENTICAL (no
+  whitespace/​trim mangling of normal answers or code); F6 nullish-safe.
+- Regression test `strip-recall-residue.test.ts` encodes every BLOCK
+  negative (recap/recapitulate/receipt, quoted-protocol, cross-paragraph,
+  code indentation, undefined) — fails pre-fix, passes post-fix.
+
 ## [Slice 3-XR-C] — 2026-05-20 — memory wired into the CLI (persistent recall)
 
 `pnpm naia-agent --memory` now uses a **persistent LiteMemoryProvider**
