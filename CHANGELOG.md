@@ -8,6 +8,15 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [Slice 3-XR-B.1] — 2026-05-20 — graceful turn failure (no fatal crash)
+
+A model-server outage (ECONNREFUSED etc.) no longer fatal-crashes the
+CLI. `safeTurn` wraps every turn: REPL prints an actionable message
+(server unreachable at <baseURL> → `naia-agent login …`) and **stays
+alive**; single-shot exits cleanly (code 2) with the same hint instead of
+`naia-agent: fatal: …`. Surfaced by the Slice-A dead-loader wiring now
+live-loading a stale `./naia-agent.env` (cross-review F4/F5 scenario).
+
 ## [Slice 3-XR-B] — 2026-05-20 — `naia-agent login` + OS-keychain secrets (Task #3)
 
 `naia-agent login` configures the 3-role LLM (main/sub/embedded) and

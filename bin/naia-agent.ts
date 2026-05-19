@@ -354,8 +354,8 @@ async function executeAgent(agent: Agent, args: Args): Promise<number> {
   try {
     if (args.prompt.length > 0) {
       // Single-shot mode (prompt from argv or non-TTY pipe)
-      await streamToStdout(agent, args.prompt, args.debug);
-      return 0;
+      const ok = await safeTurn(agent, args.prompt, args.debug);
+      return ok ? 0 : 2;
     }
 
     // REPL mode — requires TTY
@@ -366,8 +366,8 @@ async function executeAgent(agent: Agent, args: Args): Promise<number> {
         process.stderr.write("naia-agent: no prompt (stdin empty and no positional arg)\n");
         return 3;
       }
-      await streamToStdout(agent, piped.trim(), args.debug);
-      return 0;
+      const ok = await safeTurn(agent, piped.trim(), args.debug);
+      return ok ? 0 : 2;
     }
 
     // Interactive REPL
@@ -386,7 +386,7 @@ async function executeAgent(agent: Agent, args: Args): Promise<number> {
         rl.prompt();
         continue;
       }
-      await streamToStdout(agent, trimmed, args.debug);
+      await safeTurn(agent, trimmed, args.debug); // never throws → REPL survives
       rl.prompt();
     }
 
@@ -694,6 +694,32 @@ async function streamToStdout(agent: Agent, prompt: string, debug: boolean): Pro
     } else if (debug) {
       process.stderr.write(`[${ev.type}]\n`);
     }
+  }
+}
+
+/**
+ * Run one turn without ever crashing the process. A model-server outage
+ * (ECONNREFUSED etc.) must NOT kill the REPL or fatal-exit single-shot —
+ * it prints a clean, actionable message and the caller decides flow.
+ */
+async function safeTurn(agent: Agent, prompt: string, debug: boolean): Promise<boolean> {
+  try {
+    await streamToStdout(agent, prompt, debug);
+    return true;
+  } catch (e) {
+    const msg = (e as Error)?.message ?? String(e);
+    const conn = /ECONNREFUSED|Cannot connect|fetch failed|ENOTFOUND|ETIMEDOUT|socket hang up|network|getaddrinfo/i.test(msg);
+    const url =
+      process.env["OPENAI_BASE_URL"] ?? process.env["ANTHROPIC_BASE_URL"] ?? process.env["GLM_BASE_URL"];
+    process.stderr.write(
+      `\nnaia-agent: turn failed — ${msg}\n` +
+        (conn
+          ? `  The model server${url ? ` at ${url}` : ""} is unreachable. Start it, or reconfigure:\n` +
+            `    pnpm naia-agent login --adk <naia-adk> \\\n` +
+            `      --main "openai-compat|http://127.0.0.1:11434/v1|gemma3n:e4b"\n`
+          : ""),
+    );
+    return false;
   }
 }
 
