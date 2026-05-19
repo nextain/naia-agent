@@ -40,7 +40,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 
-import { Agent } from "@nextain/agent-core";
+import { Agent, stripRecallResidue } from "@nextain/agent-core";
 import type { HostContext, LLMClient, MemoryProvider } from "@nextain/agent-types";
 import { ConsoleLogger, InMemoryMeter, NoopTracer } from "@nextain/agent-observability";
 import {
@@ -756,12 +756,14 @@ async function runService(args: Args): Promise<number> {
 
 async function streamToStdout(agent: Agent, prompt: string, debug: boolean): Promise<void> {
   for await (const ev of agent.sendStream(prompt)) {
-    if (ev.type === "llm.chunk") {
-      if (ev.chunk.type === "content_block_delta" && ev.chunk.delta.type === "text_delta") {
-        process.stdout.write(ev.chunk.delta.text);
-      }
-    } else if (ev.type === "turn.ended") {
-      process.stdout.write("\n");
+    if (ev.type === "turn.ended") {
+      // Print the agent's FINAL sanitized answer (not raw streamed
+      // tokens) — raw streaming bypassed stripRecallResidue, leaking
+      // small-model malformed `<recal…>` markers. assistantText is
+      // already stripped at agent.ts; re-strip is idempotent insurance
+      // for the user-facing surface. (Trade-off: no live token stream;
+      // acceptable for short memory-CLI answers.)
+      process.stdout.write(`${stripRecallResidue(ev.assistantText)}\n`);
     } else if (ev.type === "tool.started") {
       process.stderr.write(`[tool] ${ev.invocation.name}(${JSON.stringify(ev.invocation.input).slice(0, 120)})\n`);
     } else if (ev.type === "tool.ended") {
@@ -893,6 +895,7 @@ async function runSupervisor(args: Args): Promise<number> {
 // an env var. The value is never written to disk nor printed.
 
 function runLogin(argv: string[]): number {
+  if (argv.length === 0) return usageLogin("no arguments — see usage below");
   let adk: string | undefined;
   const roles: Record<string, ParsedRole> = {};
   const keys: Array<[string, string]> = [];
@@ -997,6 +1000,50 @@ function usageLogin(err: string): number {
   return 3;
 }
 
+// ─── show subcommand — read-only config inspection (no secret values) ──────
+function runShow(): number {
+  const adk = process.env["NAIA_ADK_PATH"];
+  let llmPath = "";
+  let llm: { main?: ParsedRole; sub?: ParsedRole; embedded?: ParsedRole } = {};
+  if (adk) {
+    llmPath = path.join(adk, "naia-settings", "llm.json");
+    try {
+      if (existsSync(llmPath)) llm = JSON.parse(readFileSync(llmPath, "utf8")) as typeof llm;
+    } catch {
+      /* keep llmPath; show missing/unreadable below */
+    }
+  }
+  const role = (name: string, r: ParsedRole | undefined): string => {
+    if (!r) return `  ${name.padEnd(10)} <none>`;
+    const ref = r.apiKeyRef ? `  apiKeyRef=${r.apiKeyRef}` : "";
+    const dims = r.dims ? `  dims=${r.dims}` : "";
+    return `  ${name.padEnd(10)} ${r.provider} ${r.model} @ ${r.baseUrl}${dims}${ref}`;
+  };
+  const env = process.env;
+  // mirror buildLLMClient's resolution order — what would run now
+  let resolved = "<none — set ANTHROPIC_API_KEY / OPENAI_API_KEY+OPENAI_BASE_URL / GLM_API_KEY, or `naia-agent login`>";
+  if (env["ANTHROPIC_API_KEY"]) resolved = `anthropic ${env["ANTHROPIC_MODEL"] ?? "<default>"}`;
+  else if (env["OPENAI_API_KEY"] && env["OPENAI_BASE_URL"])
+    resolved = `openai-compat ${env["OPENAI_MODEL"] ?? "<default>"} @ ${env["OPENAI_BASE_URL"]}`;
+  else if (env["GLM_API_KEY"]) resolved = `glm ${env["GLM_MODEL"] ?? "<default>"}`;
+  const memDb = env["NAIA_AGENT_MEMORY_DB"] ?? path.join(homedir(), ".naia-agent", "memory", "cli.sqlite");
+  const memExists = existsSync(memDb);
+  const cfgJson = path.join(homedir(), ".naia-agent", "config.json");
+  process.stdout.write(
+    `naia-agent show — current configuration (no secret values)\n` +
+      `  naia-adk:    ${adk ?? "<unset>"}\n` +
+      `  llm.json:    ${llmPath || "<n/a>"}${llmPath && !existsSync(llmPath) ? "  (missing)" : ""}\n` +
+      `${role("main", llm.main)}\n` +
+      `${role("sub", llm.sub)}\n` +
+      `${role("embedded", llm.embedded)}\n` +
+      `  resolved:    ${resolved}\n` +
+      `  memory db:   ${memDb}  (${memExists ? "exists" : "absent"})\n` +
+      `  config.json: ${cfgJson}\n` +
+      `  (apiKeyRef shows the env var / keychain NAME only — values are never printed.)\n`,
+  );
+  return 0;
+}
+
 async function main(): Promise<number> {
   const argv = process.argv.slice(2);
   if (argv[0] === "login") return runLogin(argv.slice(1));
@@ -1005,6 +1052,9 @@ async function main(): Promise<number> {
     process.stderr.write(`naia-agent: ${parsed.error}\n`);
     process.stderr.write(
       `usage: pnpm naia-agent [prompt] [--mode=direct|supervisor] [--workdir DIR] [--debug]\n` +
+      `       pnpm naia-agent [prompt] [--no-tools] [--no-default-system] [--memory] [--system "…"]\n` +
+      `       pnpm naia-agent login --adk <path> [--main …] [--sub …] [--embedded …] [--key REF=VAL]\n` +
+      `       pnpm naia-agent show                       # show current config (no secret values)\n` +
       `       pnpm naia-agent [prompt] --service app.service.json\n` +
       `       pnpm naia-agent [prompt] --mode=supervisor [--no-verify] [-m model] [--adapter shell -- cmd args]\n`,
     );
@@ -1015,6 +1065,8 @@ async function main(): Promise<number> {
   //   process.env  >  naia-settings/llm.json (NAIA_ADK_PATH)  >  .env files
   // Only sets keys that are unset — process.env always wins.
   loadEnvAndConfig();
+
+  if (argv[0] === "show") return runShow();
 
   if (parsed.service !== undefined) {
     return runService(parsed);

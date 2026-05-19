@@ -8,6 +8,22 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [Slice 3-XR-E] — 2026-05-20 — CLI UX: `show`, `login` empty-args guard, usage discoverability
+
+Direct response to user UX concerns (Task #3 wrap-up):
+
+- **New** `pnpm naia-agent show` — read-only one-screen inspection of
+  current configuration: naia-adk path, llm.json roles (provider/model/
+  baseUrl/dims), apiKeyRef NAME (never values), resolved LLM that would
+  run, memory db path + existence, `~/.naia-agent/config.json`. Closes
+  "is naia-adk storage right? what would my CLI invoke?" without
+  cat'ing files. Secret values are never printed.
+- **Fix** `pnpm naia-agent login` (no args) → previously wrote llm.json
+  + `~/.naia-agent/config.json` with empty roles and printed
+  "configured" (misleading silent noop). Now prints usage + exits 3.
+- Main usage now lists `login`, `show`, `--memory`, `--no-tools`,
+  `--no-default-system`, `--system` for discoverability.
+
 ## [Slice 3-XR-D] — 2026-05-20 — recall-marker residue hygiene (no leak)
 
 Small models (e4b) emit malformed `<recall>` markers (`<recalall>…`,
