@@ -46,6 +46,20 @@ export interface AgentOptions {
   host: HostContext;
   /** Optional system prompt, inserted as top-level `system` field. */
   systemPrompt?: string;
+  /**
+   * Whether to append the built-in `DEFAULT_SYSTEM_PROMPT` behavioral
+   * contract after the host's `systemPrompt`. Default `true` (unchanged
+   * for all existing hosts). A host may set this `false` when it supplies
+   * its own complete contract, runs under a tight token budget, or drives
+   * a small model that the long contract degrades. General host-side
+   * composition control — model/tier/profile-agnostic (the Agent has no
+   * notion of tiers; profiles live in the host layer).
+   *
+   * Trade-off: opting out also removes the built-in Trust/Safety
+   * behavioral rules in `DEFAULT_SYSTEM_PROMPT` — such a host must supply
+   * equivalent guarantees itself.
+   */
+  appendDefaultSystemPrompt?: boolean;
   /** Override default model (otherwise provider default is used). */
   model?: string;
   /** Maximum tool-use iterations per `send()` call. Default 10. */
@@ -126,11 +140,13 @@ export class Agent {
   readonly #keepTail: number;
   readonly #tierFor: (name: string) => TierLevel;
   readonly #maxConsecutiveToolErrors: number;
+  readonly #appendDefaultSystem: boolean;
 
   constructor(options: AgentOptions) {
     this.#host = options.host;
     if (options.model !== undefined) this.#model = options.model;
     if (options.systemPrompt !== undefined) this.#system = options.systemPrompt;
+    this.#appendDefaultSystem = options.appendDefaultSystemPrompt ?? true;
     this.#maxHops = options.maxToolHops ?? 10;
     this.#estimate = options.estimateTokens ?? defaultEstimate;
     this.#budget = options.contextBudget ?? 80_000;
@@ -201,9 +217,9 @@ export class Agent {
     let consecutiveToolErrors = 0;
     let lastBadInvocation: ToolInvocation | undefined;
     let halted = false;
-    // 8G LLM-initiated recall (#41 v2): gemma3n can't native tool-call, so
-    // the model emits a `<recall>query</recall>` text marker. Depth-guarded
-    // to prevent self-generated recall loops (cross-review B-loop).
+    // LLM-initiated recall (#41 v2): a model emits a `<recall>query</recall>`
+    // text marker instead of a native tool call. Model-agnostic. Depth-
+    // guarded to prevent self-generated recall loops (cross-review B-loop).
     let recallHopsRemaining = 2;
 
     while (hopsRemaining-- > 0) {
@@ -243,7 +259,7 @@ export class Agent {
 
       if (stopReason !== "tool_use") {
         finalText = extractText(blocks);
-        // 8G LLM-initiated recall (#41 v2). If the model asked for memory
+        // LLM-initiated recall (#41 v2). If the model asked for memory
         // via a `<recall>query</recall>` marker, recall and re-generate.
         // Query sanitized (length-bounded, non-empty) per cross-review
         // B-query; depth-guarded per B-loop. Writes unaffected (read-only).
@@ -357,9 +373,14 @@ export class Agent {
   ): LLMRequest {
     const systemParts: string[] = [];
     if (this.#system) systemParts.push(this.#system);
-    // Behavioral contract — always enforced, not bypassable by any host.
-    // Persona (this.#system) comes first; rules come after. See default-system-prompt.ts.
-    systemParts.push(DEFAULT_SYSTEM_PROMPT);
+    // Behavioral contract appended after the host persona (this.#system).
+    // Default-on for every host; a host may opt out via
+    // `appendDefaultSystemPrompt: false` when it owns the full contract,
+    // is token-constrained, or drives a small model the long contract
+    // degrades. Opting out drops the built-in Trust/Safety rules — the
+    // host owns equivalent guarantees. See AgentOptions
+    // .appendDefaultSystemPrompt / default-system-prompt.ts.
+    if (this.#appendDefaultSystem) systemParts.push(DEFAULT_SYSTEM_PROMPT);
     if (memoryHits.length > 0) {
       const recalled = memoryHits.map((h) => `- ${h.content}`).join("\n");
       systemParts.push(`Relevant context from memory:\n${recalled}`);

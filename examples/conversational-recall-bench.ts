@@ -158,7 +158,16 @@ async function trial(llmInner: LLMClient): Promise<TrialResult> {
     tracer: new NoopTracer(),
     meter: new InMemoryMeter(),
   } as HostContext;
-  const agent = new Agent({ host, systemPrompt: SYSTEM, tierForTool: () => "T0" });
+  // Consumer of the general host-side composition control: a small model
+  // is degraded by the long built-in contract (#41 v2 root cause), so this
+  // host opts out. NOT 8G/model-specific wiring in the Agent — the Agent
+  // stays tier-agnostic; the host simply sets a general boolean.
+  const agent = new Agent({
+    host,
+    systemPrompt: SYSTEM,
+    tierForTool: () => "T0",
+    appendDefaultSystemPrompt: false,
+  });
   let answer = "";
   for await (const ev of agent.sendStream(QUESTION)) {
     if (ev.type === "turn.ended") answer = ev.assistantText;

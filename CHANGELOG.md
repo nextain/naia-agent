@@ -38,6 +38,34 @@ text-marker recall (naia-memory does retrieval-only bench; anchor #3/§B02).
 - Supersedes the prior `examples/lite-memory-8g-e2e.ts` (removed — its weak
   assertions false-positived on the 2026-05-19 garbled-marker leak).
 
+## [Slice 8G-C] — 2026-05-20 — general system-prompt composition control (naia-agent#41 v2)
+
+Root-cause fix for the 8G marker failure, generalized (NOT an 8G special
+path — user directive: naia-agent stays general-purpose, no per-profile
+wiring, no overfitting).
+
+- **Root cause** (diagnosed + proven): `agent.ts #buildRequest`
+  unconditionally appended the long `DEFAULT_SYSTEM_PROMPT` behavioral
+  contract. A small model is degraded by it — emits malformed `<recal>` +
+  echoes the injected fact (0/5 well-formed markers in the loop), while a
+  DIRECT ollama call (lean prompt) yields a clean `<recall>…</recall>`.
+- **Fix (general)**: new `AgentOptions.appendDefaultSystemPrompt?: boolean`,
+  default `true` → every existing host's `request.system` is byte-
+  unchanged. A host may set `false` (own contract / token budget / a small
+  model the long contract degrades). The Agent has **no** tier/model/
+  profile awareness — single code path, the host sets a general boolean;
+  profiles live in the host layer. Honest comment replaces the prior
+  "not bypassable by any host".
+- **New unit test** (3/3): `agent-system-prompt-composition.test.ts` —
+  unset/true → contract appended (unchanged); false → contract omitted,
+  host persona still sent.
+- **Consumer**: `examples/conversational-recall-bench.ts` sets the option
+  (a small-model host). Empirical post-fix: gemma3n:e4b MID tier
+  **structure 4/5 · accuracy 80% · leak 20% → PASS** (was 0/0/60 FAIL) —
+  #41 v2 marker mechanism validated end-to-end at the 8G tier.
+- Governance: ref-adoption-matrix §D52 (general entry). F06 unaffected
+  (touched a code comment, not a numbered D1~D8 decision).
+
 ## [Slice R6/SB-1.2] — 2026-05-18 — provider-routing CI gate (naia-agent#39 G1)
 
 Adversarial review proved the claude-code slice's coverage was parse-only
