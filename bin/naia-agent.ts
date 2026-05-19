@@ -129,6 +129,10 @@ interface Args {
   /** Attach no tools to the Agent. Needed for models without native
    *  tool-calling (e.g. local Ollama gemma3n). Model-agnostic. */
   noTools: boolean;
+  /** Omit the built-in DEFAULT_SYSTEM_PROMPT behavioral contract. Small
+   *  models are degraded by the long English contract (#41 v2, measured).
+   *  Model-agnostic — any host with its own prompt / tight budget. */
+  noDefaultSystem: boolean;
 }
 
 function parseArgs(argv: string[]): Args | { error: string } {
@@ -145,6 +149,7 @@ function parseArgs(argv: string[]): Args | { error: string } {
     secureEnv: false,
     autoApprove: false,
     noTools: false,
+    noDefaultSystem: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -170,6 +175,8 @@ function parseArgs(argv: string[]): Args | { error: string } {
       args.noVerify = true;
     } else if (a === "--no-tools") {
       args.noTools = true;
+    } else if (a === "--no-default-system") {
+      args.noDefaultSystem = true;
     } else if (a === "--debug") {
       args.debug = true;
     } else if (a === "--show-diff") {
@@ -332,6 +339,7 @@ async function runDirect(args: Args): Promise<number> {
     host,
     systemPrompt: args.systemPrompt,
     tierForTool: () => "T1",
+    appendDefaultSystemPrompt: !args.noDefaultSystem,
   });
 
   // close the MemoryProvider on exit — agent.close() does not (cross-review
