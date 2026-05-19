@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Logger } from "@nextain/agent-types";
 import { loadNaiaSettingsLLM } from "../utils/naia-settings.js";
+import { __setSecretStoreForTest, type SecretStore } from "../utils/secret-store.js";
 
 const TOUCHED = [
   "OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_MODEL",
@@ -16,8 +17,14 @@ const TOUCHED = [
   "GLM_API_KEY", "GLM_BASE_URL", "GLM_MODEL",
   "NAIA_SUB_PROVIDER", "NAIA_SUB_BASE_URL", "NAIA_SUB_MODEL",
   "NAIA_EMBED_PROVIDER", "NAIA_EMBED_BASE_URL", "NAIA_EMBED_MODEL", "NAIA_EMBED_DIMS",
-  "NAIA_ADK_PATH", "MY_KEY_REF", "MISSING_REF", "NAIA_ALLOW_MANIFEST_BASEURL_HOSTS",
+  "NAIA_ADK_PATH", "MY_KEY_REF", "MISSING_REF", "NAIA_ALLOW_MANIFEST_BASEURL_HOSTS", "KCREF",
 ];
+
+const fakeStore = (map: Record<string, string>): SecretStore => ({
+  available: () => true,
+  get: (n) => map[n],
+  set: () => true,
+});
 
 let saved: Record<string, string | undefined>;
 let dir: string;
@@ -36,6 +43,7 @@ afterEach(() => {
     else process.env[k] = saved[k];
   }
   rmSync(dir, { recursive: true, force: true });
+  __setSecretStoreForTest(); // reset keychain seam
 });
 
 function writeLLM(obj: unknown): string {
@@ -94,6 +102,23 @@ describe("loadNaiaSettingsLLM", () => {
     });
     expect(process.env.ANTHROPIC_API_KEY).toBeUndefined(); // no sentinel for anthropic
     expect(process.env.ANTHROPIC_MODEL).toBe("claude-y");
+  });
+
+  it("apiKeyRef resolves from OS keychain when env var is unset", () => {
+    __setSecretStoreForTest(fakeStore({ KCREF: "kc-secret-val" }));
+    loadNaiaSettingsLLM({
+      adkPath: writeLLM({ main: { provider: "anthropic", model: "claude-z", apiKeyRef: "KCREF" } }),
+    });
+    expect(process.env.ANTHROPIC_API_KEY).toBe("kc-secret-val");
+  });
+
+  it("env var WINS over keychain for the same apiKeyRef", () => {
+    process.env.KCREF = "env-wins";
+    __setSecretStoreForTest(fakeStore({ KCREF: "kc-loses" }));
+    loadNaiaSettingsLLM({
+      adkPath: writeLLM({ main: { provider: "anthropic", model: "claude-z", apiKeyRef: "KCREF" } }),
+    });
+    expect(process.env.ANTHROPIC_API_KEY).toBe("env-wins");
   });
 
   it("missing file → skipped gracefully (env-only path still works)", () => {

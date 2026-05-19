@@ -23,6 +23,7 @@ import { join } from "node:path";
 
 import type { Logger } from "@nextain/agent-types";
 import { manifestBaseURLTrust } from "../host/service-manifest.js";
+import { getSecretStore } from "./secret-store.js";
 
 export interface NaiaSettingsOptions {
   /** naia-adk workspace root. Defaults to process.env.NAIA_ADK_PATH. */
@@ -57,10 +58,14 @@ export interface NaiaSettingsReport {
 
 const KNOWN_VERSION = 1;
 
-/** Resolve a secret by reference. Slice A: env-var name. (Slice B: OS keychain.) */
+/**
+ * Resolve a secret by reference name. `apiKeyRef` may name an env var
+ * (process.env wins — highest priority / override) OR an OS-keychain entry
+ * (device-key encrypted, Slice B). Never a plaintext value from llm.json.
+ */
 function resolveSecret(ref: string | undefined): string | undefined {
   if (!ref) return undefined;
-  return process.env[ref];
+  return process.env[ref] ?? getSecretStore().get(ref);
 }
 
 // llm.json is a git-tracked backup unit — it must carry NO raw secret, only
@@ -69,8 +74,10 @@ function resolveSecret(ref: string | undefined): string | undefined {
 // or a value that looks like a raw credential → the whole file is rejected.
 // cleanroom deep-audit F8/§128 ("plaintext forbidden") + user hard line.
 const SECRETISH_KEY = /^(api[_-]?key|key|token|secret|password|passwd|pwd|bearer)$/i;
-const RAW_SECRET_VALUE = [
-  /sk-[A-Za-z0-9]{8,}/,
+/** Raw-credential value heuristics — shared with the login WRITE path so a
+ *  secret is rejected at the boundary, not only detected on later read. */
+export const RAW_SECRET_VALUE = [
+  /sk-[A-Za-z0-9_-]{8,}/, // incl. Anthropic sk-ant-api03-… (hyphenated)
   /AIza[0-9A-Za-z_-]{10,}/,
   /\b(ghp|gho|ghs|github_pat)_[A-Za-z0-9]/,
   /xox[baprs]-[A-Za-z0-9]/,

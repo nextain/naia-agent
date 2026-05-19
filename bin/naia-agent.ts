@@ -35,6 +35,7 @@
 
 import readline from "node:readline";
 import { access as fsAccess, readFile } from "node:fs/promises";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -51,8 +52,11 @@ import {
   manifestBaseURLTrust,
   manifestInvalid,
   loadEnvAndConfig,
+  getSecretStore,
+  parseRoleSpec,
+  readConfiguredAdkPath,
 } from "@nextain/agent-runtime";
-import type { ServiceManifest } from "@nextain/agent-runtime";
+import type { ServiceManifest, ParsedRole } from "@nextain/agent-runtime";
 import { VercelClient } from "@nextain/agent-providers";
 
 
@@ -774,8 +778,123 @@ async function runSupervisor(args: Args): Promise<number> {
 
 // ─── Entry point ─────────────────────────────────────────────────────────────
 
+// ─── login subcommand — persist naia-settings/llm.json + OS-keychain keys ──
+//
+// Writes the cross-repo 3-role config to <adk>/naia-settings/llm.json
+// (provider/baseUrl/model/apiKeyRef/dims ONLY — never a raw key) and the
+// naia-adk path to ~/.naia-agent/config.json. `--key REF=VALUE` stores the
+// secret in the OS keychain (device-key encrypted); if the keychain is
+// unavailable it REFUSES (no plaintext fallback) and tells the user to use
+// an env var. The value is never written to disk nor printed.
+
+function runLogin(argv: string[]): number {
+  let adk: string | undefined;
+  const roles: Record<string, ParsedRole> = {};
+  const keys: Array<[string, string]> = [];
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    const next = (): string | undefined => argv[++i];
+    if (a === "--adk") adk = next();
+    else if (a === "--main" || a === "--sub" || a === "--embedded") {
+      const v = next();
+      if (!v) return usageLogin(`${a} requires a value`);
+      const r = parseRoleSpec(v, a === "--embedded");
+      if (!r.ok) return usageLogin(`${a}: ${r.err}`);
+      roles[a.slice(2)] = r.role;
+    } else if (a === "--key") {
+      const v = next();
+      const eq = v ? v.indexOf("=") : -1;
+      if (!v || eq <= 0) return usageLogin(`--key must be REF=VALUE`);
+      keys.push([v.slice(0, eq), v.slice(eq + 1)]);
+    } else {
+      return usageLogin(`unknown arg: ${a}`);
+    }
+  }
+
+  adk = adk ?? process.env["NAIA_ADK_PATH"] ?? readConfiguredAdkPath();
+  if (!adk) return usageLogin("no naia-adk path — pass --adk <path> (or set NAIA_ADK_PATH)");
+  if (!existsSync(adk)) return usageLogin(`--adk path does not exist: ${adk}`);
+
+  // Store keys in the OS keychain. NO plaintext fallback.
+  if (keys.length > 0) {
+    const store = getSecretStore();
+    if (!store.available()) {
+      process.stderr.write(
+        `naia-agent login: ERROR — OS keychain unavailable; refusing to store a key in plaintext.\n` +
+          `  Export the secret in your shell environment (NOT a file), then reference it\n` +
+          `  by name via apiKeyRef in the role spec\n` +
+          `  (e.g. export ANTHROPIC_API_KEY=... ; --main "anthropic|...|model|ANTHROPIC_API_KEY").\n`,
+      );
+      return 2;
+    }
+    for (const [ref, value] of keys) {
+      if (!store.set(ref, value)) {
+        process.stderr.write(`naia-agent login: ERROR — failed to store key "${ref}" in OS keychain.\n`);
+        return 2;
+      }
+    }
+  }
+
+  // Merge into existing llm.json (preserve roles not being changed).
+  const settingsDir = path.join(adk, "naia-settings");
+  const llmPath = path.join(settingsDir, "llm.json");
+  let llm: Record<string, unknown> = { version: 1 };
+  try {
+    if (existsSync(llmPath)) llm = JSON.parse(readFileSync(llmPath, "utf8")) as Record<string, unknown>;
+  } catch {
+    /* start fresh on unreadable existing file */
+  }
+  llm["version"] = 1;
+  for (const [k, v] of Object.entries(roles)) llm[k] = v;
+  mkdirSync(settingsDir, { recursive: true });
+  writeFileSync(llmPath, `${JSON.stringify(llm, null, 2)}\n`);
+
+  // Persist the adk path so future runs need no NAIA_ADK_PATH export.
+  const cfgDir = path.join(homedir(), ".naia-agent");
+  const cfgPath = path.join(cfgDir, "config.json");
+  let cfg: Record<string, unknown> = {};
+  try {
+    if (existsSync(cfgPath)) cfg = JSON.parse(readFileSync(cfgPath, "utf8")) as Record<string, unknown>;
+  } catch {
+    /* overwrite unreadable */
+  }
+  cfg["naiaAdkPath"] = adk;
+  mkdirSync(cfgDir, { recursive: true });
+  writeFileSync(cfgPath, `${JSON.stringify(cfg, null, 2)}\n`);
+  try {
+    chmodSync(cfgPath, 0o600);
+  } catch {
+    /* best effort */
+  }
+
+  process.stderr.write(
+    `naia-agent login: configured.\n` +
+      `  naia-adk:   ${adk}\n` +
+      `  llm.json:   ${llmPath}\n` +
+      Object.entries(roles)
+        .map(([r, v]) => `  ${r}: ${String(v["provider"])} ${String(v["model"])}${v["apiKeyRef"] ? ` (key→${String(v["apiKeyRef"])})` : ""}\n`)
+        .join("") +
+      (keys.length > 0 ? `  keychain:   stored ${keys.map(([r]) => r).join(", ")} (device-key encrypted)\n` : "") +
+      `Run: pnpm naia-agent --no-tools "your prompt"\n`,
+  );
+  return 0;
+}
+
+function usageLogin(err: string): number {
+  process.stderr.write(
+    `naia-agent login: ${err}\n` +
+      `usage: pnpm naia-agent login --adk <path>\n` +
+      `         [--main "provider|baseUrl|model[|apiKeyRef]"]\n` +
+      `         [--sub  "provider|baseUrl|model[|apiKeyRef]"]\n` +
+      `         [--embedded "provider|baseUrl|model|dims[|apiKeyRef]"]\n` +
+      `         [--key REF=VALUE]   (stored in OS keychain, never plaintext)\n`,
+  );
+  return 3;
+}
+
 async function main(): Promise<number> {
   const argv = process.argv.slice(2);
+  if (argv[0] === "login") return runLogin(argv.slice(1));
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
     process.stderr.write(`naia-agent: ${parsed.error}\n`);

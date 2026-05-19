@@ -8,6 +8,7 @@ import {
   parseEnv,
   flattenConfig,
   loadEnvAndConfig,
+  readConfiguredAdkPath,
 } from "../utils/env-loader.js";
 
 describe("parseEnv", () => {
@@ -84,6 +85,32 @@ describe("flattenConfig", () => {
     expect(flattenConfig({ foo: null, bar: undefined, baz: "ok" })).toEqual({
       BAZ: "ok",
     });
+  });
+});
+
+describe("readConfiguredAdkPath (Slice B — login-persisted path)", () => {
+  let d: string;
+  beforeEach(() => {
+    d = mkdtempSync(join(tmpdir(), "adkcfg-"));
+  });
+  afterEach(() => rmSync(d, { recursive: true, force: true }));
+
+  it("returns naiaAdkPath from a valid config.json", () => {
+    const p = join(d, "config.json");
+    writeFileSync(p, JSON.stringify({ naiaAdkPath: "/srv/naia-adk", other: 1 }));
+    expect(readConfiguredAdkPath(p)).toBe("/srv/naia-adk");
+  });
+  it("graceful undefined: missing file / bad JSON / non-string / empty", () => {
+    expect(readConfiguredAdkPath(join(d, "nope.json"))).toBeUndefined();
+    const g = join(d, "g.json");
+    writeFileSync(g, "{ not json");
+    expect(readConfiguredAdkPath(g)).toBeUndefined();
+    const n = join(d, "n.json");
+    writeFileSync(n, JSON.stringify({ naiaAdkPath: 123 }));
+    expect(readConfiguredAdkPath(n)).toBeUndefined();
+    const e = join(d, "e.json");
+    writeFileSync(e, JSON.stringify({ naiaAdkPath: "" }));
+    expect(readConfiguredAdkPath(e)).toBeUndefined();
   });
 });
 

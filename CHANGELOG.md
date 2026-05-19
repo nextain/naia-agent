@@ -8,6 +8,42 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [Slice 3-XR-B] — 2026-05-20 — `naia-agent login` + OS-keychain secrets (Task #3)
+
+`naia-agent login` configures the 3-role LLM (main/sub/embedded) and
+persists keys device-key-encrypted in the OS keychain — never plaintext.
+
+- **New runnable**: `pnpm naia-agent login --adk <path> --main
+  "provider|baseUrl|model[|apiKeyRef]" [--sub …] [--embedded
+  "…|dims[|apiKeyRef]"] [--key REF=VALUE]`. Writes
+  `<adk>/naia-settings/llm.json` (provider/baseUrl/model/apiKeyRef/dims
+  only — NEVER a key value) + `~/.naia-agent/config.json` `{naiaAdkPath}`
+  (mode 600). `--key` stores into the OS keychain (libsecret /
+  Secret Service, device-key encrypted). Verified login→persist→consume
+  round-trip (local e4b, no `NAIA_ADK_PATH` export needed).
+- **No-plaintext, enforced both sides**: `parseRoleSpec` rejects a raw
+  secret in the `apiKeyRef` slot at the WRITE boundary (not only the
+  Slice-A read-side scan); the secret-value heuristic now also catches
+  hyphenated keys (`sk-ant-…`) — strengthens Slice A too.
+- **Keychain unavailable → REFUSE** (no plaintext fallback): availability
+  is classified locale-independently (`classifyProbe` — cross-review
+  BLOCK fix; the prior English-substring heuristic false-positived on a
+  localized `secret-tool`). Non-Linux degrades to unavailable, never
+  plaintext.
+- **Behavior-change disclosure** (cross-review F4): after `naia-agent
+  login`, `~/.naia-agent/config.json`'s `naiaAdkPath` makes
+  naia-settings auto-load on *every* invocation (Slice A required an
+  explicit `NAIA_ADK_PATH`). Remove that file / its `naiaAdkPath` to
+  revert to env-only.
+- New modules: `secret-store.ts` (`getSecretStore`/`classifyProbe`),
+  `login-spec.ts` (`parseRoleSpec`); `readConfiguredAdkPath` exported &
+  de-duplicated (was copied in bin). Tests: secret-store 7
+  (classifyProbe fixture table incl. measured Korean down-states),
+  login-spec 6, naia-settings keychain 2, env-loader readConfiguredAdkPath
+  2 — 64/64 runtime green. Claude sub-agent adversarial review (BLOCK →
+  all fixes applied). Governance: llm-config-standard §3.6,
+  ref-adoption-matrix §D53.
+
 ## [Slice 3-XR-A] — 2026-05-20 — cross-repo LLM config: naia-settings/llm.json (Task #3)
 
 naia-agent now CONSUMES the canonical cross-repo LLM config

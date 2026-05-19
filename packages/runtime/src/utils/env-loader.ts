@@ -134,14 +134,36 @@ export function flattenConfig(
   return out;
 }
 
+/** Peek ~/.naia-agent/config.json for a persisted naiaAdkPath (login).
+ *  Canonical impl (the `v.length > 0` guard) — also used by `bin` login. */
+export function readConfiguredAdkPath(
+  configPath: string = join(HOME, ".naia-agent", "config.json"),
+): string | undefined {
+  try {
+    if (!isReadableFile(configPath)) return undefined;
+    const j = JSON.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
+    const v = j["naiaAdkPath"];
+    return typeof v === "string" && v.length > 0 ? v : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function loadEnvAndConfig(opts: EnvLoadOptions = {}): EnvLoadReport {
   const cwd = opts.cwd ?? process.cwd();
   const fn = opts.logger?.fn?.("loadEnvAndConfig", { cwd, envPath: opts.envPath, configPath: opts.configPath });
   const report: EnvLoadReport = { loadedKeys: [] };
 
+  // Resolve the naia-adk workspace root BEFORE naia-settings runs:
+  // explicit opt > NAIA_ADK_PATH env > ~/.naia-agent/config.json naiaAdkPath
+  // (so `naia-agent login`-persisted path works without exporting an env
+  // var — the json config is otherwise read too late in this function).
+  const adkPath =
+    opts.adkPath ?? process.env["NAIA_ADK_PATH"] ?? readConfiguredAdkPath();
+
   // Cross-repo SoT — applied first so it sits just below process.env and
   // above all .env/json files (it only sets keys that are unset).
-  const ns = loadNaiaSettingsLLM({ ...(opts.adkPath ? { adkPath: opts.adkPath } : {}), ...(opts.logger ? { logger: opts.logger } : {}) });
+  const ns = loadNaiaSettingsLLM({ ...(adkPath ? { adkPath } : {}), ...(opts.logger ? { logger: opts.logger } : {}) });
   if (!ns.skipped) {
     report.naiaSettings = ns;
     for (const k of ns.setKeys) if (!report.loadedKeys.includes(k)) report.loadedKeys.push(k);
