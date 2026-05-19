@@ -55,6 +55,7 @@ import {
   getSecretStore,
   parseRoleSpec,
   readConfiguredAdkPath,
+  decideCliMemory,
 } from "@nextain/agent-runtime";
 import type { ServiceManifest, ParsedRole } from "@nextain/agent-runtime";
 // Composition root may depend on a MemoryProvider implementation (the
@@ -317,13 +318,16 @@ function buildScrubbed(): NodeJS.ProcessEnv {
 
 // ─── Direct mode ─────────────────────────────────────────────────────────────
 
-/** Default persona for `--memory`: teaches the #41 v2 recall protocol so
- *  the model actually emits the marker (model-agnostic, Korean-capable). */
+/** Default persona for `--memory`: teaches the #41 v2 recall protocol.
+ *  Language-NEUTRAL (cross-review F3 — naia-agent is general-purpose; no
+ *  output-language is commanded, the model mirrors the user). */
 const MEMORY_PERSONA =
-  "너는 naia. 영속 장기기억이 있다. 사용자의 과거·개인 정보(취향, 이름, 약속 등)를 " +
-  "물으면 추측하지 말고 정확히 `<recall>검색어</recall>` 한 줄만 출력하라. 기억이 " +
-  "주입되면 그 내용으로 자연스럽게 답하라. 일반 상식·현재 대화는 바로 답하라. " +
-  "한국어로 간결하게.";
+  "You are naia, an assistant with persistent long-term memory. " +
+  "When asked about the user's past or personal information (preferences, " +
+  "names, plans, …), do not guess — output exactly one line: " +
+  "`<recall>query</recall>`. When memory is injected, answer naturally " +
+  "using it. Answer general knowledge and the ongoing conversation " +
+  "directly. Reply in the user's language; be concise.";
 
 /**
  * CLI memory provider. `--memory` → persistent LiteMemoryProvider with the
@@ -333,34 +337,33 @@ const MEMORY_PERSONA =
  */
 function buildCliMemory(args: Args): MemoryProvider {
   if (!args.memory) return new InMemoryMemory();
-  const base = process.env["NAIA_EMBED_BASE_URL"];
-  const model = process.env["NAIA_EMBED_MODEL"];
-  const dims = Number(process.env["NAIA_EMBED_DIMS"]);
-  if (!base || !model || !Number.isInteger(dims) || dims <= 0) {
-    process.stderr.write(
-      `naia-agent: --memory needs a configured 'embedded' role ` +
-        `(naia-settings/llm.json) — falling back to ephemeral memory.\n`,
-    );
+  const d = decideCliMemory(process.env); // pure: gate + /v1 normalization
+  if (d.kind === "ephemeral") {
+    process.stderr.write(`naia-agent: ${d.reason} — falling back to ephemeral memory.\n`);
     return new InMemoryMemory();
   }
   try {
-    // OpenAICompatEmbeddingProvider unconditionally appends `/v1/embeddings`
-    // (its #20 URL contract expects a base WITHOUT `/v1`). naia-settings
-    // keeps every role's baseUrl uniform (`…/v1`, needed by the chat role),
-    // so the composition root normalizes here — strip a trailing `/v1` to
-    // avoid `…/v1/v1/embeddings` (404). General; no model branching.
-    const embedBase = base.replace(/\/+$/, "").replace(/\/v1$/, "");
+    const embedBase = d.base as string;
+    // Embed key: explicit env wins; else the `ollama` dummy ONLY for a
+    // loopback/private endpoint (cross-review F2 — symmetric with the chat
+    // sentinel; a real remote w/o key gets "" → honest 401, not a
+    // misleading dummy-auth). manifestBaseURLTrust is the same general gate.
+    const explicitKey = process.env["NAIA_EMBED_API_KEY"];
+    const embedKey =
+      explicitKey ?? (manifestBaseURLTrust(embedBase, process.env).ok ? "ollama" : "");
     const embedder = new OpenAICompatEmbeddingProvider(
       embedBase,
-      process.env["NAIA_EMBED_API_KEY"] ?? "ollama", // local ignores key
-      model,
-      dims,
+      embedKey,
+      d.model as string,
+      d.dims as number,
     );
     const dbPath =
       process.env["NAIA_AGENT_MEMORY_DB"] ??
       path.join(homedir(), ".naia-agent", "memory", "cli.sqlite");
     mkdirSync(path.dirname(dbPath), { recursive: true });
-    process.stderr.write(`naia-agent: memory=lite db=${dbPath} embed=${model}\n`);
+    process.stderr.write(
+      `naia-agent: memory=lite db=${dbPath} embed=${d.model}\n`,
+    );
     return new LiteMemoryProvider({ dbPath, embedder, writesEnabled: true });
   } catch (e) {
     process.stderr.write(

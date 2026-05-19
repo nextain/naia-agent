@@ -40,6 +40,28 @@ SQLite). Opt-in — default unchanged (no regression).
 - Follow-up recommendation (separate, cross-reviewed): make
   naia-memory `OpenAICompatEmbeddingProvider`'s URL idempotent for a
   `/v1` base so every consumer is safe at the source.
+- ⚠️ Single global memory store: default db is shared by every
+  `--memory` invocation in any directory — set `NAIA_AGENT_MEMORY_DB`
+  per workspace to isolate (cross-project recall is by-design for a
+  personal assistant but a confidentiality footgun otherwise).
+
+Slice success criterion (CLAUDE.md gate):
+- (a) Runnable: `pnpm naia-agent --memory "…"` (persistent recall).
+- (b) Unit test: `packages/runtime/src/__tests__/cli-memory.test.ts`
+  (`normalizeEmbedBaseUrl` incl. Gemini/`/v1` edges + `decideCliMemory`
+  fallback gate) + naia-settings `applyAux` apiKeyRef wiring covered by
+  the existing naia-settings suite.
+- (c) Integration: verified hands-on — process-A store → process-B
+  recall via cross-session SQLite (local e4b + bge-m3).
+- (d) CHANGELOG: this entry.
+
+Cross-review (Claude sub-agent, PASS-WITH-FIXES) applied: F1 extracted
+`cli-memory.ts` + test (slice gate); F2 embed sentinel gated by
+`manifestBaseURLTrust` + `applyAux` now wires `*_API_KEY` via
+`resolveSecret` (a configured remote sub/embed key is no longer
+dropped); F3 `MEMORY_PERSONA` made language-neutral (general-purpose —
+no Korean output directive); F4 global-store footgun documented; F5
+`normalizeEmbedBaseUrl` guards the provider's Gemini discriminator.
 
 ## [Slice 3-XR-B.1] — 2026-05-20 — graceful turn failure (no fatal crash)
 

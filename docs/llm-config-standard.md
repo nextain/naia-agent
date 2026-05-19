@@ -130,10 +130,15 @@ native tool-calling 미지원 모델(예: 로컬 Ollama gemma3n)용. Agent에
 ### 3.5b `--memory`
 
 영속 기억 on. `@nextain/naia-memory` `LiteMemoryProvider` + naia-settings
-`embedded` 임베더 + #41 `<recall>` recall. `NAIA_AGENT_MEMORY_DB`(없으면
-`~/.naia-agent/memory/cli.sqlite`). `--system` 미지정 시 recall-프로토콜
-페르소나 + lean 기본. 임베더/SQLite 실패 시 ephemeral로 graceful
-degrade(크래시 X). 기본 off=무회귀. 모델 무관(소형모델 leak은 #41 caveat).
+`embedded` 임베더 + #41 `<recall>` recall. `--system` 미지정 시
+recall-프로토콜 페르소나(언어중립) + lean 기본. 임베더/SQLite 실패 시
+ephemeral로 graceful degrade(크래시 X). 기본 off=무회귀. 모델·로케일
+무관(소형모델 marker leak은 #41 caveat).
+
+> ⚠️ **단일 글로벌 스토어**: 기본 db = `~/.naia-agent/memory/cli.sqlite`
+> — *모든* 디렉터리/프로젝트의 `--memory` 호출이 공유한다(프로젝트 A의
+> 사실이 프로젝트 B에서 회상됨 = 의도된 개인비서 동작이자 기밀 footgun).
+> 워크스페이스별 격리는 `NAIA_AGENT_MEMORY_DB=<경로>`로 분리.
 
 ### 3.6 `naia-agent login` (설정 영속 + OS keychain)
 

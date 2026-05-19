@@ -147,6 +147,9 @@ function applyAux(prefix: string, role: LLMRole, set: string[]): void {
   setIfUnset(`${prefix}_BASE_URL`, role.baseUrl, set);
   setIfUnset(`${prefix}_MODEL`, role.model, set);
   if (role.dims !== undefined) setIfUnset(`${prefix}_DIMS`, String(role.dims), set);
+  // A configured sub/embedded apiKeyRef must reach its consumer (cross-
+  // review F2: it was silently dropped → a remote embed/sub got no key).
+  setIfUnset(`${prefix}_API_KEY`, resolveSecret(role.apiKeyRef), set);
 }
 
 /**
