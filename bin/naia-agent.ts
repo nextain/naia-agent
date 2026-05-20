@@ -177,6 +177,13 @@ interface Args {
    *  See `docs/compaction-survey.md` for `realtime` / `anthropic-native`
    *  / `off` semantics. Env override: `NAIA_AGENT_COMPACT_STRATEGY`. */
   compactStrategy: "reactive" | "realtime" | "anthropic-native" | "off";
+  /** Cross-session handoff — Slice 3-XR-Handoff (#50).
+   *  Path to write the HandoffBlob (JSON) when the session ends OR
+   *  auto-trigger fires (post-compact, budget≥95%). Disabled if undefined. */
+  handoffOut?: string;
+  /** Path to read a HandoffBlob (JSON) at session start. The blob's recap +
+   *  identifier anchors are injected into the first turn's system prompt. */
+  handoffIn?: string;
 }
 
 function parseArgs(argv: string[]): Args | { error: string } {
@@ -255,6 +262,14 @@ function parseArgs(argv: string[]): Args | { error: string } {
         };
       }
       args.compactStrategy = v;
+    } else if (a === "--handoff-out") {
+      const v = argv[++i];
+      if (!v) return { error: "--handoff-out requires a path" };
+      args.handoffOut = v;
+    } else if (a === "--handoff-in") {
+      const v = argv[++i];
+      if (!v) return { error: "--handoff-in requires a path" };
+      args.handoffIn = v;
     } else if (a === "--debug") {
       args.debug = true;
     } else if (a === "--show-diff") {
@@ -489,6 +504,32 @@ function buildCliMemory(args: Args): MemoryProvider {
 }
 
 async function runDirect(args: Args): Promise<number> {
+  // Slice 3-XR-Handoff (#50) — read + parse handoff-in BEFORE the LLM check
+  // so file-shape errors surface even when no provider is configured.
+  // The parsed blob is passed to agent.importHandoff() once the agent exists.
+  let importedHandoffBlob: unknown = undefined;
+  if (args.handoffIn !== undefined) {
+    try {
+      const raw = await readFile(args.handoffIn, "utf8");
+      const parsed: unknown = JSON.parse(raw);
+      if (
+        parsed &&
+        typeof parsed === "object" &&
+        (parsed as { version?: unknown }).version === 1
+      ) {
+        importedHandoffBlob = parsed;
+      } else {
+        process.stderr.write(
+          `naia-agent: --handoff-in ${args.handoffIn} — not a valid HandoffBlob (version!=1), skipping\n`,
+        );
+      }
+    } catch (err) {
+      process.stderr.write(
+        `naia-agent: --handoff-in ${args.handoffIn} — read failed: ${err instanceof Error ? err.message : String(err)} (continuing without import)\n`,
+      );
+    }
+  }
+
   const llm = await buildLLMClient();
   if (!llm) return 3;
 
@@ -563,10 +604,44 @@ async function runDirect(args: Args): Promise<number> {
     compactionStrategy: args.compactStrategy,
   });
 
+  // Slice 3-XR-Handoff (#50) — apply the previously parsed handoff blob now
+  // that the agent exists. Read + parse happened above (pre-LLM-check) so
+  // file-shape errors are visible without provider configured.
+  if (importedHandoffBlob !== undefined) {
+    const blob = importedHandoffBlob as { turnCount?: number; anchors?: unknown[] };
+    await agent.importHandoff(importedHandoffBlob as never);
+    if (args.debug) {
+      process.stderr.write(
+        `naia-agent: imported handoff blob from ${args.handoffIn} (${blob.turnCount ?? 0} turns, ${(blob.anchors ?? []).length} anchors)\n`,
+      );
+    }
+  }
+
   // close the MemoryProvider on exit — agent.close() does not (cross-review
   // r1, gemini MAJOR). Harmless for InMemoryMemory, required for SQLite.
   try {
-    return await executeAgent(agent, args);
+    const code = await executeAgent(agent, args);
+    // Slice 3-XR-Handoff (#50) — `--handoff-out <path>` persists the session
+    // recap at clean exit. Runs only on successful execution paths.
+    if (args.handoffOut !== undefined && code === 0) {
+      try {
+        const blob = await agent.exportHandoff("session-close");
+        await writeFile(args.handoffOut, JSON.stringify(blob, null, 2), {
+          encoding: "utf8",
+          mode: 0o600,
+        });
+        if (args.debug) {
+          process.stderr.write(
+            `naia-agent: handoff exported → ${args.handoffOut} (${blob.turnCount} turns, ${blob.anchors.length} anchors)\n`,
+          );
+        }
+      } catch (err) {
+        process.stderr.write(
+          `naia-agent: --handoff-out ${args.handoffOut} — write failed: ${err instanceof Error ? err.message : String(err)}\n`,
+        );
+      }
+    }
+    return code;
   } finally {
     await memory.close();
   }
