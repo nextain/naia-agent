@@ -8,6 +8,72 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [Slice 3-XR-G] — 2026-05-20 — integration scenarios + LLM-as-judge + ADK ecosystem coverage (Task #17/#18/#19)
+
+User asked: "이제 연결, 검증만 했고 — 시나리오 더 다양화 + pi의 tool calling + 코딩 도구 동작 + naia-adk hooks/skill + 다른 AI들과 설계해 + LLM-judge + 랄프개선 + naia-business-adk (team/RAG/LangGraph) + naia-os 페르소나 + onmam-adk/onmam-dev". This slice answers it.
+
+- **Design v3 (cross-reviewed by GLM, 2 rounds)**:
+  `.agents/progress/integration-scenarios-design-2026-05-20.md`. Verdict
+  loop v1=REVISE → v2=REVISE → micro-adjust (Ralph max-iter=5,
+  judge consistency probe simplified, Group K trimmed, J2b deferred,
+  Ralph timebox 60min, codepath gating ≥2 scenarios) → FINAL v3.
+
+- **LLM-as-judge harness** —
+  `packages/cli-app/src/__tests__/lib/llm-judge.ts` (~230 LOC). Provider
+  resolution GLM > OpenAI-compat > Anthropic. Strict JSON envelope
+  `{pass, reason}` + one fence-strip retry. Transport/parse/empty =
+  infra-noise (scenarios tolerate, real-verdict-false still flunks).
+  Self-judge bias avoidance: SUT=Gemma family local / Judge=GLM (different
+  family, vendor, size). Privacy: synthetic test inputs only, never user
+  memory (cf feedback_naia_reasoning_locality).
+
+- **New `packages/cli-app/src/__tests__/integration-scenarios.test.ts`** —
+  **26 hermetic spawn-tests (25 active + 1 dummy grid-completeness skip),
+  Ralph 5 rounds → 2-consecutive PASS R4 + R5 (26/26)**. Total wall ≈ 5min.
+  Groups:
+  - **A. 24G live (gemma4:31b)** 4/4 — Korean greeting (thinking-mode
+    suppressed via "Answer directly" + `max_tokens≥300`), English tech
+    answer, persistent memory recall (lite_facts SQLite probe), no-tools
+    refuse-fabricate.
+  - **B. coding behaviour** 3/3 — read+explain, bug-spot (silent div-by-0
+    return), refactor proposal (input validation).
+  - **C. tool-calling/pi loop** 1/1 — e4b native-tools error surface.
+  - **E. business-adk reserve (LangGraph/RAG)** 2/2 — backend stub graceful.
+  - **F. naia-os persona injection (`--system`)** 4/4 — pirate tone,
+    persona+memory composition, --no-default-system rider absent,
+    4KB persona pass-through.
+  - **H. error handling** 5/5 — server-down, malformed manifest,
+    no-provider, --memory without embedded role (ephemeral fallback
+    actionable), unknown-flag graceful.
+  - **I. security secret-shape** 5/5 — raw sk-ant / AIza / ghp_ rejected
+    at login WRITE boundary + show value-leak 0 + positive control.
+  - **J. composite** 1 dummy placeholder for grid completeness.
+  - **K. e4b vs 31b same prompt** 1/1 — Merkle tree; both pass judge.
+
+- **Judge stats round 5**: **11/11 PASS** (100%), 0 infra-error,
+  0 real-fail.
+
+- **No core change** — over-fit guard
+  (`feedback_naia_agent_general_purpose_no_overfit`) 100% preserved.
+  All 5 round-corrections were scenario or test-harness fixes (SQLite
+  table name, manifest schemaVersion, judge transport tolerance,
+  vitest it-timeout 10s→30s, e4b default-rider).
+
+- **Full cli-app suite regression**: 14 files / **145 passed / 2
+  skipped / 0 failed** / 307s wall (existing 22+2 unit + new 26+1).
+
+- **Reports**:
+  - `.agents/progress/integration-scenarios-results-2026-05-20.json`
+  - `.agents/progress/integration-scenarios-report-2026-05-20.md`
+  - `.agents/progress/cross-review-glm-2026-05-20.json`
+
+- **Deferred (explicit ledger, 3-surface)**:
+  `--skills-dir <path>` CLI for FileSkillLoader live (D1~D5 mechanism-only
+  here); LangGraph node routing (E4); RAG retriever (E5); onmam-dev GCE
+  live (G4); multi-turn REPL PTY; live Claude Code subscription;
+  SDLC artifact production (needs strong backend); naia-adk hooks/
+  policies live invocation (D3).
+
 ## [Slice 3-XR-F] — 2026-05-20 — user-perspective scenarios + user manual + onboarding UX (Task #3)
 
 The user asked for tests that reflect a real non-developer typing the

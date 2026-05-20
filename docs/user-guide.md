@@ -165,6 +165,36 @@ pnpm naia-agent login        # usage for login
 
 ---
 
+## ADK 생태계와의 관계 (advanced)
+
+`naia-agent` 는 **뼈대 (runtime skeleton)** 이며 ADK 패키지의 skills
+를 사용합니다. 시나리오별 통합 동작은 다음과 같이 검증됩니다 (Slice 3-XR-G):
+
+| ADK | 통합 방식 | 시나리오 |
+|---|---|---|
+| `naia-adk` | `FileSkillLoader` + `SkillToolExecutor` (예정 `--skills-dir`) | D 그룹 (메커니즘 확인됨, 라이브 별 슬라이스) |
+| `naia-business-adk` | `--service <manifest>` `backend:"langgraph"\|"rag-retriever"` | E 그룹 (reserve graceful, 라이브 deferred) |
+| `naia-os` | `--system "<persona text>"` 페르소나 주입 | F 그룹 (라이브 24G ✅) |
+| `onmam-adk` | `naia-adk` 와 동일한 import 경로 (도메인 skill) | D/G (메커니즘 동일) |
+
+자세한 시나리오 결과: `.agents/progress/integration-scenarios-report-2026-05-20.md`.
+
+## 페르소나 주입 (`--system`)
+
+naia-os 호스트가 페르소나를 inject할 때 사용하는 인터페이스. CLI 에서도 직접 사용 가능:
+
+```bash
+pnpm naia-agent --no-tools --no-default-system \
+  --system "You are a soft-spoken Korean voice assistant. Be brief." \
+  "안녕하세요?"
+```
+
+- 페르소나 + `--memory` 합성 가능 (F2 시나리오 검증). 페르소나 톤 유지하면서
+  cross-process 회상 동작.
+- 페르소나 ≤ 4KB 까지 검증 (F4).
+- thinking-mode 가 있는 모델 (Gemma 4) 사용 시 페르소나에
+  `Answer directly. Do not write any internal reasoning.` 라이더를 합치면 깨끗.
+
 ## Planned / not yet shipped (deferred)
 
 These appear in the project roadmap but are NOT covered by the current
