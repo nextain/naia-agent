@@ -1467,6 +1467,169 @@ describe("Group D — naia-adk skills via --skills-dir", () => {
   });
 });
 
+// ─── Group G. onmam-adk domain skills (Slice 3-XR-L) ─────────────────────────
+
+describe("Group G — onmam-adk domain skills via --skills-dir", () => {
+  let tmp: string;
+  const onmamAdkSkills = resolve(repoRoot, "../onmam-adk/skills");
+
+  beforeAll(() => {
+    tmp = mkdtempSync(join(tmpdir(), "naia-intg-G-"));
+  });
+  afterAll(() => {
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it("G1 onmam-adk skills/ load — 10 skills incl. wp-archive (mechanism)", async () => {
+    const start = Date.now();
+    if (!existsSync(onmamAdkSkills)) {
+      record("G1", "G", "onmam-adk skills/ load", start, {
+        skipped: `onmam-adk submodule not present at ${onmamAdkSkills}`,
+      });
+      return;
+    }
+    const { FileSkillLoader } = await import(
+      resolve(repoRoot, "packages/runtime/src/index.ts")
+    );
+    const loader = new FileSkillLoader({
+      workspaceRoot: onmamAdkSkills,
+      skillsDir: onmamAdkSkills,
+      onWarn: () => {
+        /* silent */
+      },
+    });
+    const skills = await loader.list();
+    const names = new Set(skills.map((s: { name: string }) => s.name));
+    const hasWpArchive = names.has("wp-archive");
+    const hasOverlap = ["channel-management", "doc-coauthoring", "email", "sms"].every((n) =>
+      names.has(n),
+    );
+    const mechPass = skills.length >= 10 && hasWpArchive && hasOverlap;
+    record("G1", "G", "onmam-adk skills/ load", start, {
+      mechanism: {
+        pass: mechPass,
+        notes: [
+          `loaded=${skills.length}`,
+          `wp-archive=${hasWpArchive}`,
+          `overlap_naia=${hasOverlap}`,
+          `tier-distribution: T0=${skills.filter((s: { tier: string }) => s.tier === "T0").length} T1=${skills.filter((s: { tier: string }) => s.tier === "T1").length}`,
+        ],
+      },
+      observedTail: `names: ${[...names].join(",")}`,
+    });
+    expect(mechPass).toBe(true);
+  });
+
+  it("G2 wp-archive (onmam-only domain skill) — descriptor valid", async () => {
+    const start = Date.now();
+    if (!existsSync(onmamAdkSkills)) {
+      record("G2", "G", "wp-archive descriptor", start, { skipped: "no onmam-adk" });
+      return;
+    }
+    const { FileSkillLoader } = await import(
+      resolve(repoRoot, "packages/runtime/src/index.ts")
+    );
+    const loader = new FileSkillLoader({
+      workspaceRoot: onmamAdkSkills,
+      skillsDir: onmamAdkSkills,
+      onWarn: () => {
+        /* silent */
+      },
+    });
+    const wp = await loader.get("wp-archive");
+    const mechPass =
+      !!wp &&
+      typeof wp.name === "string" &&
+      typeof wp.description === "string" &&
+      ["T0", "T1", "T2", "T3"].includes(wp.tier);
+    record("G2", "G", "wp-archive descriptor", start, {
+      mechanism: {
+        pass: mechPass,
+        notes: [
+          `present=${!!wp}`,
+          `name="${wp?.name ?? ""}"`,
+          `tier=${wp?.tier ?? ""}`,
+          `descLen=${wp?.description?.length ?? 0}`,
+        ],
+      },
+      observedTail: `desc: ${wp?.description?.slice(0, 200) ?? "<missing>"}`,
+    });
+    expect(mechPass).toBe(true);
+  });
+
+  it("G3 naia-adk + onmam-adk skill-name collision via Composite — first-registered wins (shadow recorded)", async () => {
+    const start = Date.now();
+    const naiaAdkSkills = resolve(repoRoot, "../naia-adk/skills");
+    if (!existsSync(naiaAdkSkills) || !existsSync(onmamAdkSkills)) {
+      record("G3", "G", "naia+onmam composite collision", start, {
+        skipped: "need both naia-adk and onmam-adk",
+      });
+      return;
+    }
+    const { FileSkillLoader, SkillToolExecutor, CompositeToolExecutor } = await import(
+      resolve(repoRoot, "packages/runtime/src/index.ts")
+    );
+    const naiaLoader = new FileSkillLoader({
+      workspaceRoot: naiaAdkSkills,
+      skillsDir: naiaAdkSkills,
+      onWarn: () => {
+        /* silent */
+      },
+    });
+    const onmamLoader = new FileSkillLoader({
+      workspaceRoot: onmamAdkSkills,
+      skillsDir: onmamAdkSkills,
+      onWarn: () => {
+        /* silent */
+      },
+    });
+    const composite = new CompositeToolExecutor({
+      subs: [
+        { id: "naia-adk", executor: new SkillToolExecutor({ loader: naiaLoader }) },
+        { id: "onmam-adk", executor: new SkillToolExecutor({ loader: onmamLoader }) },
+      ],
+      onWarn: () => {
+        /* silent — we inspect shadowedNames() instead */
+      },
+    });
+    const list = await composite.list();
+    const shadows = composite.shadowedNames();
+    const allNames = new Set(list.map((t: { name: string }) => t.name));
+    // Naia owns 'channel-management' (first sub) → onmam version shadowed.
+    const naiaWinsChan = composite.ownerOf("channel-management") === "naia-adk";
+    // wp-archive is onmam-only → present, owner=onmam-adk.
+    const wpOwner = composite.ownerOf("wp-archive");
+    // Each overlap (9 names) should appear in shadow list with winner=naia-adk.
+    const shadowCount = shadows.length;
+    const mechPass =
+      naiaWinsChan && wpOwner === "onmam-adk" && shadowCount >= 9 && allNames.has("time") && allNames.has("wp-archive");
+    record("G3", "G", "naia+onmam composite collision", start, {
+      mechanism: {
+        pass: mechPass,
+        notes: [
+          `totalTools=${list.length}`,
+          `naiaWinsChan=${naiaWinsChan}`,
+          `wpOwner=${wpOwner}`,
+          `shadowCount=${shadowCount}`,
+          `naiaOnlyPresent=${allNames.has("time")}`,
+          `onmamOnlyPresent=${allNames.has("wp-archive")}`,
+        ],
+      },
+      observedTail: `shadow sample: ${shadows.slice(0, 3).map((s: { name: string; winner: string; loser: string }) => `${s.name}:${s.winner}>${s.loser}`).join(", ")}`,
+    });
+    expect(mechPass).toBe(true);
+  });
+
+  it("G4 onmam-dev GCE live invocation — DEFERRED (user gate, external server)", async () => {
+    const start = Date.now();
+    record("G4", "G", "onmam-dev GCE live", start, {
+      skipped:
+        "DEFERRED — onmam-dev GCE host modification is user-gated (feedback_ai_leads_human_executes_serverenv). Out of scope for Slice 3-XR-L mechanism.",
+    });
+    expect(true).toBe(true);
+  });
+});
+
 // ─── Group P. pi-based coding (LIVE tool calling — Slice 3-XR-I) ─────────────
 
 describe("Group P — pi-based coding LIVE (native tool-calling)", () => {

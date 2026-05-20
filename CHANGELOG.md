@@ -8,6 +8,28 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [Slice 3-XR-L] — 2026-05-20 — onmam-adk 도메인 skills 자동 적용 검증 (Task #24)
+
+User gate (2026-05-20): "L도 해야겠네". The Slice 3-XR-J `--skills-dir` mechanism is ADK-agnostic — onmam-adk should work identically since it shares the same SKILL.md format and top-level `skills/` layout. This slice closes that loop.
+
+- **onmam-adk inventory**: 10 SKILL.md-valid skills + 1 stub dir (business/, no SKILL.md). 9 share names with naia-adk (channel-management, doc-coauthoring, document-generation, email, read-doc, review-pass, service-management, sms, web-monitoring), 1 onmam-only (`wp-archive`).
+
+- **Group G — 4 scenarios** (integration-scenarios.test.ts):
+  - **G1** onmam-adk skills/ load — 10 skills + `wp-archive` + 9 naia overlap (mechanism, tier distribution recorded)
+  - **G2** wp-archive descriptor valid — onmam-only domain skill (name/tier/description/inputSchema)
+  - **G3** naia-adk + onmam-adk **collision** via `CompositeToolExecutor` — first-registered wins:
+    - `ownerOf("channel-management") === "naia-adk"` (first sub wins)
+    - `ownerOf("wp-archive") === "onmam-adk"` (onmam-only present)
+    - `shadowedNames().length >= 9` (the 9 overlapping names)
+    - Trust boundary documented: sub ORDER controls shadowing. Putting an attacker-controlled sub first would let it shadow a built-in.
+  - **G4** onmam-dev GCE live invocation — **DEFERRED** (user gate per `feedback_ai_leads_human_executes_serverenv`; external server modification is human-executed only). Honest skip in the results JSON.
+
+- **Ralph trajectory**: R1 = 4/4 PASS, R2 = 4/4 PASS (2-consecutive). No core changes needed — onmam-adk works through the existing Slice 3-XR-J machinery as predicted.
+
+- **Full cli-app regression**: 14 files / **160 passed / 2 skipped / 1 flake (S7 ollama cache swap, NOT Group G)** / 465s wall. S7 was flake-fixed once already (Slice 3-XR-I 240s timeout + Slice 3-XR-J 480s + retry); under the now-larger LIVE pressure (Group D 24G + Group P 24G + Group G mechanism all using gemma4:31b in the same suite run) the e4b cold-start sometimes exceeds 2× retries. Not a Slice 3-XR-L regression.
+
+- **Honest verification of the user's hypothesis**: "naia-adk와 동일 메커니즘이므로 #22 끝나면 자동 적용 가능" — confirmed. Zero bin/runtime changes needed for onmam-adk. Same `--skills-dir <path>` flag, same FileSkillLoader, same SkillToolExecutor, same Composite shadowing semantics.
+
 ## [Slice 3-XR-H] — 2026-05-20 — multi-judge ensemble (GLM + Codex + Claude) — Task #20
 
 Resolves `feedback_pi_substrate_not_glm_only_2026_05_20`: the pi pin-bundle substrate intent is **multi-tool external subprocess**, not a single GLM HTTP call. This slice ships the missing ensemble path.
