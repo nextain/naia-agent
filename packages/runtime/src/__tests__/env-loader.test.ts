@@ -1,9 +1,14 @@
 // Slice 1c — env + JSON config loader unit tests.
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
+
+// ~/.naia-agent/config.json이 존재하면 NAIA_ADK_PATH 테스트가 candidate #4에서
+// 가로채져 실패함. CI에는 해당 파일이 없으므로 정상 실행, 로컬은 skipIf로 skip.
+const naiaHomeConfig = join(homedir(), ".naia-agent", "config.json");
+const noHomeConfig = !existsSync(naiaHomeConfig);
 import {
   parseEnv,
   flattenConfig,
@@ -152,6 +157,66 @@ describe("loadEnvAndConfig", () => {
     if (report.configFile !== undefined) {
       expect(report.configFile).not.toContain(tmp);
     }
+  });
+
+  // skipIf: ~/.naia-agent/config.json이 있는 개발자 머신에서는 candidate #4가
+  // NAIA_ADK_PATH candidate #5보다 먼저 히트하여 이 테스트가 실패함.
+  // CI에는 해당 파일이 없으므로 항상 실행됨.
+  it.skipIf(!noHomeConfig)("loads config from NAIA_ADK_PATH/naia-settings/config.json", () => {
+    // simulate naia-adk workspace layout
+    const adkRoot = join(tmp, "naia-adk");
+    const settingsDir = join(adkRoot, "naia-settings");
+    mkdirSync(settingsDir, { recursive: true });
+    writeFileSync(
+      join(settingsDir, "config.json"),
+      JSON.stringify({ anthropic: { apiKey: "adk-key", model: "claude-opus-4-6" } }),
+    );
+    process.env["NAIA_ADK_PATH"] = adkRoot;
+    delete process.env["ANTHROPIC_API_KEY"];
+    delete process.env["ANTHROPIC_MODEL"];
+
+    const report = loadEnvAndConfig({ cwd: tmp });
+
+    expect(report.configFile).toBe(join(settingsDir, "config.json"));
+    expect(process.env["ANTHROPIC_API_KEY"]).toBe("adk-key");
+    expect(process.env["ANTHROPIC_MODEL"]).toBe("claude-opus-4-6");
+
+    delete process.env["NAIA_ADK_PATH"];
+  });
+
+  it("NAIA_ADK_PATH is lower priority than .naia-agent.json", () => {
+    // agent-specific config wins
+    writeFileSync(
+      join(tmp, ".naia-agent.json"),
+      JSON.stringify({ anthropic: { apiKey: "agent-key" } }),
+    );
+    const adkRoot = join(tmp, "naia-adk");
+    const settingsDir = join(adkRoot, "naia-settings");
+    mkdirSync(settingsDir, { recursive: true });
+    writeFileSync(
+      join(settingsDir, "config.json"),
+      JSON.stringify({ anthropic: { apiKey: "adk-key" } }),
+    );
+    process.env["NAIA_ADK_PATH"] = adkRoot;
+    delete process.env["ANTHROPIC_API_KEY"];
+
+    loadEnvAndConfig({ cwd: tmp });
+
+    // .naia-agent.json loaded first → adk config never reached
+    expect(process.env["ANTHROPIC_API_KEY"]).toBe("agent-key");
+
+    delete process.env["NAIA_ADK_PATH"];
+  });
+
+  it("NAIA_ADK_PATH with path traversal is safely resolved (no crash)", () => {
+    // resolve() normalises ../../ to an absolute path; file won't exist → skip
+    process.env["NAIA_ADK_PATH"] = "../../etc";
+    delete process.env["ANTHROPIC_API_KEY"];
+
+    // must not throw
+    expect(() => loadEnvAndConfig({ cwd: tmp })).not.toThrow();
+
+    delete process.env["NAIA_ADK_PATH"];
   });
 
   it("CLI flag wins over NAIA_AGENT_ENV", () => {

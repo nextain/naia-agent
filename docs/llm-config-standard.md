@@ -39,6 +39,7 @@
 | `VERTEX_REGION` | (provider 4) | — | region (또는 `GOOGLE_CLOUD_LOCATION`) |
 | `NAIA_AGENT_ENV` | optional | — | .env 파일 경로 override |
 | `NAIA_AGENT_CONFIG` | optional | — | JSON config 파일 경로 override |
+| `NAIA_ADK_PATH` | optional | `~/naia-adk` | naia-adk 워크스페이스 경로. 미설정 시 `~/naia-adk` 사용 |
 
 ---
 
@@ -91,6 +92,11 @@
 2. `NAIA_AGENT_CONFIG` 환경변수
 3. `./.naia-agent.json` (cwd)
 4. `~/.naia-agent/config.json` (글로벌)
+5. `{NAIA_ADK_PATH}/naia-settings/config.json` (naia-adk 워크스페이스, 설정 시)
+6. `~/naia-adk/naia-settings/config.json` (기본 fallback)
+
+**naia-adk workspace config**: 워크스페이스 기준 설정. 에이전트 전용 설정(1~4)에 의해 override됨.
+JSON 형식은 §2 표준과 동일 (naia-os가 flat 형식 쓸 때는 Slice B 마이그레이션 후 호환).
 
 ### 3.3 우선순위 종합
 
@@ -131,7 +137,30 @@ naia-agent.env
 
 ---
 
-## 5. Multi-tool harness 표준화
+## 5. CLI login 커맨드
+
+naia-agent 단독 실행을 위한 interactive key 저장 커맨드. naia-os 없이도 사용 가능.
+
+```bash
+pnpm naia-agent login --key anthropic   # ANTHROPIC_API_KEY 저장
+pnpm naia-agent login --key openai      # OPENAI_API_KEY + OPENAI_BASE_URL 저장
+pnpm naia-agent login --key glm         # GLM_API_KEY 저장
+pnpm naia-agent login --key vertex      # VERTEX_PROJECT_ID + VERTEX_REGION 저장
+```
+
+**저장 위치**: `~/.naia-agent/.env` (append, 기존 키 덮어쓰기 없음)
+
+**보안**:
+- 파일에 키 쓴 후 자동으로 mode 600 설정 (Linux/macOS)
+- Windows: chmod 지원 안 됨, 수동 권한 제한 필요
+- 이미 있는 키는 건너뜀 (업데이트 시 파일에서 직접 수정)
+- stdin이 TTY가 아니면 거부 (pipe injection 방어)
+
+**naia-os 관계**: naia-os의 AdkSetupScreen은 UI 인터페이스. login 커맨드는 CLI standalone path로, 동일한 `~/.naia-agent/.env`에 저장하여 양쪽 공유.
+
+---
+
+## 6. Multi-tool harness 표준화
 
 본 표준은 도구 무관:
 
@@ -144,7 +173,7 @@ naia-agent.env
 
 ---
 
-## 6. 신규 provider 추가 절차
+## 9. 신규 provider 추가 절차
 
 새 provider(예: Mistral, Cohere) 추가 시:
 
@@ -157,7 +186,26 @@ naia-agent.env
 
 ---
 
-## 7. 모델 명명 규약
+## 7. naia-adk 역할 분담 (3-repo 관계)
+
+| 역할 | 담당 |
+|---|---|
+| LLM API key 보관 | shell stronghold (naia-os: `HostContext.llm` 주입) **또는** CLI login → `~/.naia-agent/.env` |
+| 워크스페이스 경로 | `NAIA_ADK_PATH` 환경변수 **또는** `~/naia-adk` 기본값 |
+| naia-adk config 초기화 | naia-os `init_naia_settings` (UI path) **또는** 사용자 직접 생성 (CLI path) |
+| naia-agent standalone | `pnpm naia-agent login --key <provider>` 로 키 저장 후 실행 가능 |
+
+**naia-adk/naia-settings/config.json 형식 표준** (§2 JSON config와 동일):
+```json
+{
+  "anthropic": { "apiKey": "sk-ant-...", "model": "claude-opus-4-6" }
+}
+```
+naia-os flat 형식(`{provider, model, apiKey}`)은 Slice B에서 nested로 마이그레이션 예정.
+
+---
+
+## 10. 모델 명명 규약
 
 | Provider | 형식 예시 |
 |---|---|
@@ -169,7 +217,7 @@ naia-agent.env
 
 ---
 
-## 8. 본 표준의 변경 정책
+## 11. 본 표준의 변경 정책
 
 - **MINOR (additive)**: 새 provider, 새 환경변수, 새 JSON 키. 기존 동작 보존
 - **MAJOR (breaking)**: 환경변수 이름 변경, JSON shape 변경, 우선순위 변경
@@ -182,7 +230,7 @@ naia-agent.env
 
 ---
 
-## 9. 참고 — example 파일
+## 12. 참고 — example 파일
 
 - `naia-agent.env.example` (프로젝트 root) — 사용자가 자체 키로 채워서 `naia-agent.env`로 rename
 - `.naia-agent.example.json` (프로젝트 root) — JSON 사용자 채움
@@ -191,4 +239,5 @@ naia-agent.env
 ---
 
 ## 변경 이력
+- **2026-05-18** (Slice A): NAIA_ADK_PATH 지원 + naia-adk workspace config 연동. CLI login 커맨드. 3-repo 역할 분담 명세. §5/§7 신설.
 - **2026-04-25** (Slice 1c+): 초기 표준 정의. 4 provider + .env/JSON auto-load + 보안 + multi-tool harness 호환

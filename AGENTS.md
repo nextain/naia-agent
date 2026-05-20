@@ -163,12 +163,15 @@ LLM provider 설정은 **`docs/llm-config-standard.md`** 정규 표준 따름. �
 ### 빠른 시작
 
 ```bash
-# 1) example 복사 + 키 입력
+# Option A: CLI login (naia-os 없이 단독 실행)
+pnpm naia-agent login --key anthropic   # 또는 openai | glm | vertex
+# → ~/.naia-agent/.env 에 저장, mode 600 자동 설정
+
+# Option B: example 파일 복사 + 수동 편집
 cp naia-agent.env.example naia-agent.env
-# (편집기에서 ONE provider section uncomment + 키 입력)
 chmod 600 naia-agent.env
 
-# 2) 호출
+# 호출
 pnpm naia-agent "hi"
 ```
 
@@ -182,6 +185,7 @@ pnpm naia-agent "hi"
 ### 자동 로드 위치 (first match wins, process.env가 항상 최우선)
 - `.env`: `--env <path>` > `NAIA_AGENT_ENV` > `./.env` > `./naia-agent.env` > `~/.naia-agent/.env`
 - JSON: `--config <path>` > `NAIA_AGENT_CONFIG` > `./.naia-agent.json` > `~/.naia-agent/config.json`
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;> `{NAIA_ADK_PATH}/naia-settings/config.json` > `~/naia-adk/naia-settings/config.json`
 
 ### 보안 강제
 - `naia-agent.env` / `.naia-agent.json` mode 600 권장

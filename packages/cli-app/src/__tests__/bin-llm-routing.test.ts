@@ -39,7 +39,9 @@ const tsxCli = findTsxCli();
 function runBin(args: string[], env?: NodeJS.ProcessEnv, timeoutMs = 30_000) {
   return spawnSync(process.execPath, [tsxCli, binPath, ...args], {
     cwd: repoRoot,
-    env: { ...process.env, ...env },
+    // Point NAIA_ADK_PATH to a temp dir so keychainGet is never invoked
+    // (credentials file absent → credKeys empty → no DPAPI/secret-tool spawns).
+    env: { ...process.env, NAIA_ADK_PATH: dir, ...env },
     encoding: "utf8",
     timeout: timeoutMs,
   });

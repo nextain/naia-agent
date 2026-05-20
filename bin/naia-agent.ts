@@ -21,6 +21,7 @@
  *   pnpm naia-agent "task" -m provider/model     # model (supervisor)
  *   pnpm naia-agent "task" --debug               # verbose event log
  *   pnpm naia-agent "hi" --service app.service.json  # R6/SB-1 manifest (#32, §D50)
+ *   pnpm naia-agent --stdio                         # JSON-line IPC mode (naia-os bridge)
  *   pnpm naia-agent login --key anthropic          # save API key → ~/.naia-agent/.env
  *
  * Provider resolution (direct mode, first match wins):
@@ -112,6 +113,8 @@ interface Args {
   mode: Mode;
   prompt: string;
   workdir: string;
+  /** JSON-line IPC mode — implements naia-os embedded agent protocol on stdin/stdout. */
+  stdio: boolean;
   // direct mode
   systemPrompt?: string;
   /** R6/SB-1 (#32, §D50) — path to a *.service.json manifest. Implies direct
@@ -135,6 +138,7 @@ function parseArgs(argv: string[]): Args | { error: string } {
     mode: "direct",
     prompt: "",
     workdir: process.cwd(),
+    stdio: false,
     debug: false,
     noVerify: false,
     adapter: "opencode-cli",
@@ -174,6 +178,8 @@ function parseArgs(argv: string[]): Args | { error: string } {
       args.secureEnv = true;
     } else if (a === "--auto-approve") {
       args.autoApprove = true;
+    } else if (a === "--stdio") {
+      args.stdio = true;
     } else if (a === "--acp") {
       args.acp = true;
       args.adapter = "opencode-acp";
@@ -731,6 +737,204 @@ function readStdin(): Promise<string> {
     process.stdin.on("data", (chunk: string) => { data += chunk; });
     process.stdin.on("end", () => resolve(data));
   });
+}
+
+// ─── Stdio IPC mode (--stdio) ─────────────────────────────────────────────────
+// Implements the JSON-line IPC protocol used by naia-os shell to communicate with
+// its embedded agent core. Allows the standalone naia-agent binary to be spawned
+// by naia-os as an alternative to the embedded agent.
+//
+// Stdin (newline-delimited JSON):
+//   { type: "auth_update",   naiaKey }        → set NAIA_ANYLLM_API_KEY
+//   { type: "notify_config", ... }            → set webhook env vars
+//   { type: "creds_update",  keys, ttsKeys }  → set provider API keys
+//   { type: "chat_request",  requestId, messages, systemPrompt } → run chat
+//   { type: "cancel_stream", requestId }      → abort in-flight request
+//
+// Stdout (newline-delimited JSON):
+//   { type: "text",   requestId, text }    → incremental text chunk
+//   { type: "finish", requestId }          → request completed
+//   { type: "error",  requestId, message } → request failed
+//
+// Phase 2 note: each chat_request uses only the last user message as the prompt.
+// Full multi-turn history forwarding is deferred to Phase 3.
+
+function stdioWriteLine(data: unknown): void {
+  process.stdout.write(`${JSON.stringify(data)}\n`);
+}
+
+async function runStdio(): Promise<number> {
+  const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+  const activeStreams = new Map<string, AbortController>();
+
+  for await (const line of rl) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    let msg: Record<string, unknown>;
+    try {
+      msg = JSON.parse(trimmed) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+
+    const type = typeof msg.type === "string" ? msg.type : null;
+    if (!type) continue;
+
+    switch (type) {
+      case "auth_update": {
+        const key = typeof msg.naiaKey === "string" ? msg.naiaKey : "";
+        // [fix] symmetric with notify_config: empty key clears the env var (supports logout)
+        if (key) process.env["NAIA_ANYLLM_API_KEY"] = key;
+        else delete process.env["NAIA_ANYLLM_API_KEY"];
+        break;
+      }
+      case "notify_config": {
+        const pairs: [string, unknown][] = [
+          ["SLACK_WEBHOOK_URL", msg.slackWebhookUrl],
+          ["DISCORD_WEBHOOK_URL", msg.discordWebhookUrl],
+          ["GOOGLE_CHAT_WEBHOOK_URL", msg.googleChatWebhookUrl],
+          ["DISCORD_DEFAULT_USER_ID", msg.discordDefaultUserId],
+          ["DISCORD_DEFAULT_TARGET", msg.discordDefaultTarget],
+          ["DISCORD_DEFAULT_CHANNEL_ID", msg.discordDmChannelId],
+        ];
+        for (const [envKey, val] of pairs) {
+          if (typeof val !== "string") continue;
+          const v = val.trim();
+          if (v) process.env[envKey] = v;
+          else delete process.env[envKey];
+        }
+        break;
+      }
+      case "creds_update": {
+        const keys =
+          msg.keys && typeof msg.keys === "object" && !Array.isArray(msg.keys)
+            ? (msg.keys as Record<string, string>)
+            : {};
+        // Map well-known provider IDs → env vars (mirrors all buildLLMClient() branches).
+        // Base URL / model vars (NAIA_ANYLLM_BASE_URL, OPENAI_BASE_URL, NAIA_MAIN_MODEL)
+        // are configuration rather than secrets and are expected to arrive via
+        // naia-settings/config.json loaded by loadEnvAndConfig() at startup.
+        const keyMap: Record<string, string> = {
+          anthropic: "ANTHROPIC_API_KEY",
+          openai: "OPENAI_API_KEY",
+          "naia-anyllm": "NAIA_ANYLLM_API_KEY",
+          glm: "GLM_API_KEY",
+          vertex: "VERTEX_PROJECT_ID",       // primary Vertex credential
+          "vertex-region": "VERTEX_REGION",  // companion (host may send separately)
+        };
+        for (const [id, apiKey] of Object.entries(keys)) {
+          const envKey = keyMap[id];
+          if (!envKey) continue;
+          if (apiKey) process.env[envKey] = apiKey;
+          else delete process.env[envKey];
+        }
+        break;
+      }
+      case "chat_request": {
+        const requestId =
+          typeof msg.requestId === "string" ? msg.requestId : `req-${Date.now()}`;
+        const messages = Array.isArray(msg.messages)
+          ? (msg.messages as Array<{ role: string; content: unknown }>)
+          : [];
+        const sysPrompt =
+          typeof msg.systemPrompt === "string" ? msg.systemPrompt : undefined;
+
+        const lastUser = [...messages].reverse().find((m) => m.role === "user");
+        if (!lastUser) {
+          stdioWriteLine({ type: "error", requestId, message: "no user message in request" });
+          break;
+        }
+        // [fix] coerce content to string to guard against non-string values from the host
+        const prompt = typeof lastUser.content === "string"
+          ? lastUser.content
+          : String(lastUser.content ?? "");
+
+        const controller = new AbortController();
+        activeStreams.set(requestId, controller);
+
+        // Fire-and-forget so cancel_stream can arrive on the readline while streaming.
+        void (async () => {
+          const llm = await buildLLMClient();
+          if (!llm) {
+            stdioWriteLine({ type: "error", requestId, message: "no LLM provider configured" });
+            activeStreams.delete(requestId);
+            return;
+          }
+
+          const memory = new InMemoryMemory();
+          const host: HostContext = {
+            llm,
+            memory,
+            tools: new InMemoryToolExecutor([createBashSkill()]),
+            logger: new ConsoleLogger({ level: "warn" }),
+            tracer: new NoopTracer(),
+            meter: new InMemoryMeter(),
+            approvals: {
+              async decide() {
+                return { status: "approved" as const, at: Date.now() };
+              },
+            },
+            identity: {
+              deviceId: "naia-agent-standalone",
+              publicKeyEd25519: "standalone",
+              async sign() {
+                throw new Error("sign() not wired");
+              },
+            },
+          };
+
+          const agent = new Agent({ host, systemPrompt: sysPrompt, tierForTool: () => "T1" });
+
+          try {
+            for await (const ev of agent.sendStream(prompt)) {
+              if (controller.signal.aborted) break;
+              if (ev.type === "llm.chunk") {
+                if (
+                  ev.chunk.type === "content_block_delta" &&
+                  ev.chunk.delta.type === "text_delta"
+                ) {
+                  stdioWriteLine({ type: "text", requestId, text: ev.chunk.delta.text });
+                }
+              }
+            }
+            if (!controller.signal.aborted) {
+              stdioWriteLine({ type: "finish", requestId });
+            }
+          } catch (err) {
+            stdioWriteLine({
+              type: "error",
+              requestId,
+              message: err instanceof Error ? err.message : String(err),
+            });
+          } finally {
+            agent.close();
+            await memory.close();
+            activeStreams.delete(requestId);
+          }
+        })();
+        break;
+      }
+      case "cancel_stream": {
+        const requestId = typeof msg.requestId === "string" ? msg.requestId : "";
+        const ctrl = activeStreams.get(requestId);
+        if (ctrl) {
+          ctrl.abort();
+          activeStreams.delete(requestId);
+        }
+        break;
+      }
+    }
+  }
+
+  // [fix] stdin closed: abort all in-flight streams so fire-and-forget IIFEs
+  // can reach their finally blocks before process.exit() runs.
+  for (const ctrl of activeStreams.values()) {
+    ctrl.abort();
+  }
+  activeStreams.clear();
+
+  return 0;
 }
 
 // ─── Supervisor mode ─────────────────────────────────────────────────────────
@@ -1497,6 +1701,7 @@ async function main(): Promise<number> {
     process.stderr.write(`naia-agent: ${parsed.error}\n`);
     process.stderr.write(
       `usage: pnpm naia-agent [prompt] [--mode=direct|supervisor] [--workdir DIR] [--debug]\n` +
+      `       pnpm naia-agent --stdio\n` +
       `       pnpm naia-agent [prompt] --service app.service.json\n` +
       `       pnpm naia-agent [prompt] --mode=supervisor [--no-verify] [-m model] [--adapter shell -- cmd args]\n` +
       `       pnpm naia-agent login --key anthropic|openai|glm|vertex\n`,
@@ -1520,6 +1725,12 @@ async function main(): Promise<number> {
   }
 
   // If no LLM provider is configured and we're on a TTY, auto-redirect to login.
+  // Stdio IPC mode: enter readline JSON loop before login redirect check
+  // (credentials arrive dynamically via auth_update, so hasLLMConfig() is false at startup).
+  if (parsed.stdio) {
+    return runStdio();
+  }
+
   if (!hasLLMConfig() && process.stdin.isTTY) {
     process.stdout.write("naia-agent: no LLM provider configured — starting setup.\n\n");
     const loginResult = await runLogin([]);

@@ -13,6 +13,8 @@
 //   2) NAIA_AGENT_CONFIG env var
 //   3) ./.naia-agent.json (cwd)
 //   4) ~/.naia-agent/config.json (global)
+//   5) {NAIA_ADK_PATH}/naia-settings/config.json (naia-adk workspace, if set)
+//   6) ~/naia-adk/naia-settings/config.json (default naia-adk fallback)
 //
 // Loaded JSON keys flatten into process.env if not already set (string values
 // only — nested keys flattened with `_`, booleans/numbers stringified).
@@ -56,6 +58,15 @@ const CONFIG_CANDIDATES = (cwd: string, explicit?: string): string[] => {
   if (process.env["NAIA_AGENT_CONFIG"]) list.push(process.env["NAIA_AGENT_CONFIG"]);
   list.push(join(cwd, ".naia-agent.json"));
   list.push(join(HOME, ".naia-agent", "config.json"));
+  // naia-adk workspace config (lowest priority — overridden by agent-specific above)
+  const adkPathEnv = process.env["NAIA_ADK_PATH"];
+  if (adkPathEnv) {
+    // resolve() canonicalises to an absolute path — note: this is not a sandbox.
+    // A valid file at the resolved location will still be loaded.
+    const adkResolved = resolve(adkPathEnv);
+    list.push(join(adkResolved, "naia-settings", "config.json"));
+  }
+  list.push(join(HOME, "naia-adk", "naia-settings", "config.json"));
   return list;
 };
 
