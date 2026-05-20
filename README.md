@@ -180,7 +180,7 @@ User guide: [docs/user-guide.md](docs/user-guide.md). LLM configuration standard
 | Integration (ADK ecosystem, LLM-as-judge) | `packages/cli-app/src/__tests__/integration-scenarios.test.ts` | **26 active + 1 dummy grid skip** (Slice 3-XR-G) |
 | Pi-based coding LIVE (native tool-calling) | `packages/cli-app/src/__tests__/integration-scenarios.test.ts` Group P | **6 scenarios** (Slice 3-XR-I, ongoing) |
 | LLM-as-judge harness | `packages/cli-app/src/__tests__/lib/llm-judge.ts` | GLM > OpenAI-compat > Anthropic; strict JSON envelope; transport/parse tolerance |
-| Tiered conversational recall bench (#41 v2) | `benches/conversational-recall/` | judge + harness, per-tier (8G / 24G / 48G) recall scoring |
+| Tiered conversational recall bench (#41 v2) | `examples/conversational-recall-bench.ts` | judge + harness, per-tier (8G / 24G / 48G) recall scoring |
 | Tier comparison report | `.agents/progress/tier-8g-vs-24g-comparison-2026-05-20.md` | 8G `gemma3n:e4b` vs 24G `gemma4:31b` |
 | Cross-OS compat sanity | `.agents/progress/cross-os-compat-results-2026-05-20.json` | Windows ↔ Linux 5 checks (4/5 PASS) |
 | Multi-judge ensemble | (Slice 3-XR-H, planned — GLM + Codex + Claude verdicts) | judge_disagreement_rate, per-provider bias |

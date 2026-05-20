@@ -180,7 +180,7 @@ pnpm naia-agent --no-tools "한국어로 한 문장만 인사해줘"
 | 통합 (ADK 생태계, LLM-as-judge) | `packages/cli-app/src/__tests__/integration-scenarios.test.ts` | **26 active + 1 dummy** (Slice 3-XR-G) |
 | pi 기반 코딩 LIVE (native tool-calling) | 같은 파일의 Group P | **6 시나리오** (Slice 3-XR-I, 진행 중) |
 | LLM-as-judge 하네스 | `packages/cli-app/src/__tests__/lib/llm-judge.ts` | GLM > OpenAI-compat > Anthropic; 엄격 JSON envelope; transport/parse 관용 |
-| Tiered conversational recall bench (#41 v2) | `benches/conversational-recall/` | judge + harness, tier별 (8G / 24G / 48G) recall 점수 |
+| Tiered conversational recall bench (#41 v2) | `examples/conversational-recall-bench.ts` | judge + harness, tier별 (8G / 24G / 48G) recall 점수 |
 | Tier 비교 보고서 | `.agents/progress/tier-8g-vs-24g-comparison-2026-05-20.md` | 8G `gemma3n:e4b` vs 24G `gemma4:31b` |
 | Cross-OS 호환성 sanity | `.agents/progress/cross-os-compat-results-2026-05-20.json` | 윈도 ↔ Linux 5 checks (4/5 PASS) |
 | Multi-judge ensemble | (Slice 3-XR-H, 예정 — GLM + Codex + Claude verdict) | judge_disagreement_rate, provider별 편향 |
