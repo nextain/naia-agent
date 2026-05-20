@@ -1,55 +1,146 @@
 project: naia-agent
-version: 0.1.0
-updated: 2026-04-25
-phase: R0 (design re-check)
+version: 0.2.0
+updated: 2026-05-20
+phase: Slice 3-XR — bin shipped end-to-end (E/F/G/H/I/J/L/M/N/O + Docs DONE)
 description: |
-  4-repo Naia 생태계의 허브 런타임. Interfaces, not dependencies — 공개 인터페이스로만
-  결합, 런타임 결합 금지. 호스트가 구현체 주입.
+  4-repo Naia ecosystem hub runtime. Interfaces, not dependencies — public
+  interfaces only; no runtime coupling. The host injects concrete
+  implementations.
 
-# 진입점 — 코드 만지기 전 읽을 순서
+# Entry points — read these before touching code
 entry_points:
   - file: AGENTS.md
-    purpose: 일반 진입 + 작업 규칙
+    purpose: General entry + work rules
   - file: CLAUDE.md
-    purpose: Claude 전용 추가 규칙
-  - file: .agents/progress/design-recheck-2026-04-25.md
-    purpose: 현 R0 메인 산출물 (어디까지 결정됐고 어디부터 진행)
-  - file: .agents/progress/ref-adoption-matrix.md
-    purpose: 8개 ref + cc 분석 통합 채택 매트릭스
-  - file: .agents/progress/runnable-testable-gap.md
-    purpose: 현 표면 vs progressive runnable+testable 만족도
+    purpose: Claude Code mirror of AGENTS.md (kept identical via sync script)
+  - file: CHANGELOG.md
+    purpose: Slice-by-slice ledger (3-XR-A through 3-XR-O + Docs)
+  - file: .agents/progress/slice-3-xr-h-i-j-l-plan-2026-05-20.md
+    purpose: H → J → L sequence plan (active 2026-05-20)
+  - file: .agents/progress/integration-scenarios-design-2026-05-20.md
+    purpose: FINAL v3 — integration scenarios design (cross-reviewed by GLM, 2 rounds)
+  - file: .agents/progress/integration-scenarios-report-2026-05-20.md
+    purpose: Slice 3-XR-G integration scenarios live report (Ralph R4/R5 2-consecutive PASS)
+  - file: .agents/progress/integration-scenarios-results-2026-05-20.json
+    purpose: Machine-readable per-scenario verdicts (referenced by harness)
 
-# 정규 디자인 문서 (R0는 수정하지 않음)
+# On-demand loading — load only the section you need (do not load every file)
+on_demand_loading:
+  active_2026_05:
+    - file: .agents/progress/slice-3-xr-h-i-j-l-plan-2026-05-20.md
+      topics: [3-XR-H, 3-XR-J, 3-XR-L, ensemble judge, skills-dir, plan]
+    - file: .agents/progress/integration-scenarios-design-2026-05-20.md
+      topics: [integration scenarios, LLM-as-judge, design, ADK ecosystem]
+    - file: .agents/progress/integration-scenarios-report-2026-05-20.md
+      topics: [Slice 3-XR-G report, Ralph convergence, judge stats]
+    - file: .agents/progress/integration-scenarios-results-2026-05-20.json
+      topics: [per-scenario verdicts, machine-readable results]
+    - file: .agents/progress/tier-8g-vs-24g-comparison-2026-05-20.md
+      topics: [tier comparison, gemma3n:e4b vs gemma4:31b, tool-call probe]
+    - file: .agents/progress/8g-recall-bench-test-guide-2026-05-20.md
+      topics: [8G recall bench, test guide]
+    - file: .agents/progress/cross-review-glm-2026-05-20.json
+      topics: [GLM cross-review verdicts]
+    - file: .agents/progress/task-3-cross-repo-connection-2026-05-20.md
+      topics: [Task 3, cross-repo connection]
+  legacy_r0_r5:
+    - file: .agents/progress/design-recheck-2026-04-25.md
+      topics: [R0 design re-check, baseline]
+    - file: .agents/progress/ref-adoption-matrix.md
+      topics: [matrix, A/B/C/D/E/F/G IDs, 8 ref + cc analysis]
+    - file: .agents/progress/runnable-testable-gap.md
+      topics: [G01~G14 gaps, slice success criteria]
+    - file: .agents/progress/r1-slice-spine-2026-04-25.md
+      topics: [Slice 0~5 spine]
+    - file: .agents/progress/dev-framework-and-process.md
+      topics: [dev framework, process, conventions]
+    - file: .agents/progress/multi-tool-harness.md
+      topics: [AAIF, agents.md, multi-tool mirror sync]
+    - file: .agents/progress/r4-phase-1-spec.md
+      topics: [R4 Phase 1 spec]
+    - file: .agents/progress/r4-phase-2-spec.md
+      topics: [R4 Phase 2 spec, ACP handshake]
+    - file: .agents/progress/r5-cross-review-2026-04-29.md
+      topics: [R5 cross-review]
+    - file: .agents/progress/vercel-ai-sdk-adoption-2026-04-29.md
+      topics: [Vercel AI SDK adoption, Slices 5.x.0~5.x.6]
+  security:
+    - file: .agents/progress/refs/cc-cleanroom-security-audit-2026-04-25.md
+      topics: [security audit, cleanroom]
+    - file: .agents/progress/refs/cc-cleanroom-deep-audit-2026-04-25.md
+      topics: [deep audit, F1~F12, LLM hallucination/silent drift]
+
+# Canonical design docs — English-canonical; 8 have full KO mirrors under .users/docs/ko/
 canonical_docs:
-  - file: docs/ARCHITECTURE.md
-    purpose: 전체 아키텍처 + 패키지 맵
-    immutable_in_r0: true
-  - file: docs/agent-loop-design.md
-    purpose: Agent 루프 D1~D8 결정
-    immutable_in_r0: true
-    extension_only: ref-adoption-matrix.md §D
-  - file: docs/hosting-guide.md
-    purpose: 임베드 가이드 (5분~20분)
-  - file: docs/memory-provider-audit.md
-    purpose: 메모리 façade 감사
-  - file: docs/voice-pipeline-audit.md
-    purpose: 음성 파이프라인 감사 (Option C 결정)
+  english_canonical:
+    - file: docs/ARCHITECTURE.md
+      purpose: R0~R3 canonical architecture (superseded by architecture-hybrid.md R4)
+      immutable_in_r0: true
+    - file: docs/agent-loop-design.md
+      purpose: Agent loop D1~D8 decisions (immutable; additions via ref-adoption-matrix.md §D)
+      immutable_in_r0: true
+      extension_only: ref-adoption-matrix.md §D
+    - file: docs/architecture-hybrid.md
+      purpose: R4 hybrid architecture (canonical)
+      ko_mirror: .users/docs/ko/architecture-hybrid.md
+    - file: docs/user-guide.md
+      purpose: User-facing CLI guide (login, env, memory, --service)
+      ko_mirror: .users/docs/ko/user-guide.md
+    - file: docs/llm-config-standard.md
+      purpose: LLM provider config standard (Slice 1c+ R3; tool-agnostic)
+      ko_mirror: .users/docs/ko/llm-config-standard.md
+    - file: docs/naia-memory-wire.md
+      purpose: naia-memory wire protocol (LiteMemoryProvider integration)
+      ko_mirror: .users/docs/ko/naia-memory-wire.md
+    - file: docs/stream-protocol.md
+      purpose: Stream protocol (chunks, deltas, tool markers)
+      ko_mirror: .users/docs/ko/stream-protocol.md
+    - file: docs/log-policy.md
+      purpose: Log policy (stderr markers, secret-shape redaction)
+      ko_mirror: .users/docs/ko/log-policy.md
+    - file: docs/vision-statement.md
+      purpose: Vision statement (4-repo Naia ecosystem)
+      ko_mirror: .users/docs/ko/vision-statement.md
+    - file: docs/adapter-contract.md
+      purpose: Adapter contract (opencode-cli, opencode-acp, shell)
+      ko_mirror: .users/docs/ko/adapter-contract.md
+    - file: docs/hosting-guide.md
+      purpose: Host embedding guide (5min~20min)
+      ko_mirror: null
+    - file: docs/memory-provider-audit.md
+      purpose: MemoryProvider façade audit
+      ko_mirror: null
+    - file: docs/voice-pipeline-audit.md
+      purpose: Voice pipeline audit (Option C decision)
+      ko_mirror: null
+    - file: docs/auth-not-logged-in.md
+      purpose: Short Anthropic-OAuth not-logged-in note
+      ko_mirror: null
+  ko_mirror_root:
+    - file: .users/docs/README.md
+      purpose: Multi-language mirror index — explains structure + current status
+    - directory: .users/docs/ko/
+      purpose: Korean translations of the 8 user-facing docs (Slice 3-XR-Docs)
+      rule: "docs/<file>.md is canonical. Translation mirror MUST start with language chooser. Stale mirrors flagged in frontmatter."
+      slice: 3-XR-Docs (Task #29)
 
-# 상위 컨텍스트 (alpha-adk)
+# Upstream context (alpha-adk)
 upstream_context:
   - file: ../../alpha-adk/.agents/progress/naia-4repo-migration-plan.md
-    purpose: 4-repo plan v7.2 Part A — 정규 SoT
+    purpose: 4-repo plan v7.2 Part A — canonical SoT
     immutable: true
   - file: ../../alpha-adk/.agents/progress/direction-2026-04-25.md
-    purpose: 이번 R0 트리거 directive
+    purpose: R0 trigger directive
   - file: ../../alpha-adk/CLAUDE.md
-    purpose: alpha-adk 루트 mandatory reads
+    purpose: alpha-adk root mandatory reads
+  - file: ../../alpha-adk/.agents/context/agents-rules.json
+    purpose: Root SoT — workfile_lifecycle policy inherited here (mirrored block in this repo's agents-rules.json)
 
-# 패키지 (6개)
+# Packages (6)
 packages:
   - name: '@nextain/agent-types'
     path: packages/types
-    role: 계약 (zero-runtime-dep)
+    role: contract (zero-runtime-dep)
     status: v0.1.0 freeze
   - name: '@nextain/agent-protocol'
     path: packages/protocol
@@ -58,73 +149,94 @@ packages:
     tests: 73 unit (Phase A)
   - name: '@nextain/agent-core'
     path: packages/core
-    role: Agent 루프
-    status: WIP
+    role: Agent loop
+    status: shipped (Slice 3-XR end-to-end)
     tests: 23 unit (Phase B + C.2)
   - name: '@nextain/agent-runtime'
     path: packages/runtime
-    role: 도구 + skill loader
-    status: WIP
+    role: tools + skill loader (FileSkillLoader + SkillToolExecutor + CompositeToolExecutor)
+    status: shipped
     tests: 93 unit (Phase B)
   - name: '@nextain/agent-providers'
     path: packages/providers
-    role: LLMClient (Anthropic)
+    role: LLMClient (Anthropic + Vercel AI SDK)
     status: implemented
     tests: smoke + 15 unit (X1 adapter)
   - name: '@nextain/agent-observability'
     path: packages/observability
-    role: Logger/Tracer/Meter 기본 구현
+    role: Logger/Tracer/Meter
     status: implemented
     tests: 0 (drift E02 — gap G05 sub-issue #7)
+  - name: '@nextain/cli-app'
+    path: packages/cli-app
+    role: bin/naia-agent + integration-scenarios.test.ts harness
+    status: shipped — 175 passed / 2 skipped (Slice 3-XR-O run)
+    flags: ['--mode', '--workdir', '--system', '--service', '--no-verify', '--no-tools', '--no-default-system', '--memory', '--enable-file-ops', '--skills-dir', '--repl', '--debug', '--show-diff', '--secure-env', '--auto-approve', '--acp', '--no-acp', '--adapter', '-m/--model', '--']
+    backend_cases: ['openai-compatible', 'anthropic', 'vertex', 'claude-code', 'langgraph (stub)', 'rag-retriever (stub)']
 
-# 진행 산출물 (R0)
-progress_outputs:
-  matrix: .agents/progress/ref-adoption-matrix.md
-  gap: .agents/progress/runnable-testable-gap.md
-  design_recheck: .agents/progress/design-recheck-2026-04-25.md
-  ref_reviews:
-    - .agents/progress/refs/cline-review.md
-    - .agents/progress/refs/jikime-adk-review.md
-    - .agents/progress/refs/jikime-mem-review.md
-    - .agents/progress/refs/moltbot-review.md
-    - .agents/progress/refs/openclaw-review.md
-    - .agents/progress/refs/opencode-review.md
-    - .agents/progress/refs/project-airi-review.md
-    - .agents/progress/refs/cc-review.md
+# Slice progress (R0~R5 legacy spine kept for history; current state in CHANGELOG)
+slices_completed:
+  3-XR-A: cross-repo LLM config — naia-settings/llm.json
+  3-XR-B: naia-agent login + OS-keychain secrets
+  3-XR-B.1: graceful turn failure
+  3-XR-C: memory wired into the CLI
+  3-XR-D: recall-marker residue hygiene
+  3-XR-E: CLI UX (show, login empty-args guard, usage discoverability)
+  3-XR-F: user-perspective scenarios + manual + onboarding UX (Task #3) — 22+2 unit
+  3-XR-G: integration scenarios + LLM-as-judge + ADK ecosystem coverage — 26 scenarios
+  3-XR-H: multi-judge ensemble (GLM + Codex + Claude) — Task #20
+  3-XR-I: pi-based coding LIVE verification (Group P 6/6) — Task #21
+  3-XR-J: --skills-dir + naia-adk skills LIVE invocation — Task #22 (K small reserve included)
+  3-XR-L: onmam-adk domain skills automatic application — Task #24
+  3-XR-M: multi-turn REPL (--repl) + Claude Code subscription routing — Task #25
+  3-XR-N: cross-OS (Windows/Linux) sanity mechanism — Task #26
+  3-XR-O: naia-agent ↔ Claude Code parity ledger — Task #27
+  3-XR-Docs: 8 docs English-canonical + KO mirror under .users/docs/ko/ — Task #29
 
-# 레퍼런스 (8개 ref + 1 분석 파일)
+slices_deferred:
+  3-XR-K:
+    task: 23
+    description: business-adk LangGraph nodes + RAG retriever REAL implementation
+    status: small reserve only (manifest enum + stub message), real impl needs explicit user re-open
+  3-XR-Voice:
+    task: 28
+    description: VoxCPM2 + LiveKit voice pipeline integration into naia-agent
+    scope: P0c-2 only (P0c-1 standalone tech demo handled by another session)
+    status: deferred (gated)
+
+# References (8 ref submodules + 1 analysis file)
 references:
   ref_submodules:
     - path: ../refs/ref-cline
       url: https://github.com/cline/cline
       visibility: public
-      role_for_us: pattern reference (IDE plugin, embeddable runtime과 직교)
+      role_for_us: pattern reference (IDE plugin, orthogonal to embeddable runtime)
       review: .agents/progress/refs/cline-review.md
     - path: ../refs/ref-jikime-adk
       url: https://github.com/jikime/jikime-adk
       visibility: public
-      role_for_us: pattern reference (Go-based migration ADK, 별개 layer)
+      role_for_us: pattern reference (Go-based migration ADK, separate layer)
       review: .agents/progress/refs/jikime-adk-review.md
     - path: ../refs/ref-jikime-mem
       url: https://github.com/jikime/jikime-mem
       visibility: public
-      role_for_us: pattern reference (모놀리식 memory plugin, 직접 차용 안 함)
+      role_for_us: pattern reference (monolithic memory plugin, not adopted)
       review: .agents/progress/refs/jikime-mem-review.md
     - path: ../refs/ref-moltbot
       url: https://github.com/moltbot/moltbot
       visibility: public
-      role_for_us: pattern reference (messenger gateway, ChannelPlugin 패턴만)
+      role_for_us: pattern reference (messenger gateway, ChannelPlugin pattern only)
       review: .agents/progress/refs/moltbot-review.md
     - path: ../refs/ref-openclaw
       url: https://github.com/qwibitai/nanoclaw
       visibility: public
-      role_for_us: prior analysis baseline + nanoclaw v2 변동 추적
+      role_for_us: prior analysis baseline + nanoclaw v2 tracking
       review: .agents/progress/refs/openclaw-review.md
       prior_analysis: ../../alpha-adk/.agents/progress/issue-186-openclaw-analysis.md
     - path: ../refs/ref-opencode
       url: https://github.com/sst/opencode
       visibility: public
-      role_for_us: 핵심 reference (D1/D2/D3 영향, 추가 채택 4건)
+      role_for_us: core reference (D1/D2/D3 influence, +4 adoptions)
       review: .agents/progress/refs/opencode-review.md
     - path: ../refs/ref-project-airi
       url: https://github.com/moeru-ai/airi
@@ -134,85 +246,89 @@ references:
     - path: ../refs/ref-cc
       url: https://github.com/nextain/ref-cc
       visibility: private (nextain org)
-      role_for_us: claude-code 분석 docs (원본 source 1,884 files 유실)
+      role_for_us: claude-code analysis docs (original source 1,884 files lost)
       review: .agents/progress/refs/cc-review.md
       modification: forbidden (F03)
       sensitive: true
     - path: ../refs/ref-cc-cleanroom
       url: https://github.com/ghuntley/claude-code-source-code-deobfuscation
       visibility: public
-      role_for_us: claude-code cleanroom (ghuntley, 2025-03 0.2.x 시절, 패턴 reference만)
+      role_for_us: claude-code cleanroom (ghuntley, 2025-03 0.2.x, pattern reference only)
       review: .agents/progress/refs/cc-review.md
-      license: All rights reserved (LICENSE 없음)
-      restriction: code copying/redistribution 금지 (F04)
+      license: All rights reserved (no LICENSE file)
+      restriction: code copying/redistribution forbidden (F04)
 
   analysis_only:
     - file: ../../alpha-adk/.agents/progress/11-ref-cc-analysis.json
-      role: claude-code 15-agent 3라운드 분석 메타정보
-      cross_link_pending: F01 (cc-review.md로 부분 해소)
+      role: claude-code 15-agent 3-round analysis metadata
+      cross_link_pending: F01 (cc-review.md partial resolution)
 
-# 트래킹 이슈
+# Tracking issues
 issues:
   master: nextain/naia-agent#2
   test_coverage_audit: nextain/naia-agent#1 (PAUSED)
   r0_p0_subissues:
-    - 'nextain/naia-agent#3'  # G01 bin/naia-agent
-    - 'nextain/naia-agent#4'  # G02 Agent × real-LLM 통합 검증
-    - 'nextain/naia-agent#5'  # G03+G04 보안 필터 + path normalize
-    - 'nextain/naia-agent#6'  # F01 claude-code 분석 cross-link
+    - 'nextain/naia-agent#3'  # G01 bin/naia-agent — CLOSED (bin shipped Slice 3-XR-E~O)
+    - 'nextain/naia-agent#4'  # G02 Agent × real-LLM integration verify — CLOSED
+    - 'nextain/naia-agent#5'  # G03+G04 security filter + path normalize — CLOSED
+    - 'nextain/naia-agent#6'  # F01 claude-code analysis cross-link — CLOSED
   r0_p1_cluster: nextain/naia-agent#7
+  recent_slices:
+    - 'nextain/naia-agent#38'  # ToS gate (deploy)
+    - 'nextain/naia-agent#39'  # two-tier LLM SoT
+    - 'nextain/naia-agent#40'  # ctx adversarial review v2
+    - 'nextain/naia-agent#41'  # appendDefaultSystemPrompt (v2)
 
-# PAUSED 자산 (보존)
+# PAUSED assets (preserved)
 paused:
   - branch: migration/phase-d
     content: Phase B + C.2 (189 unit test), commit 7f8a161
-    purpose: TDD rewind 잔여, 스켈레톤 운행 후 재평가
+    purpose: TDD rewind remainder, re-evaluate post skeleton
     modification: forbidden (F02)
 
-# 슬라이스 척추 (R0 헤드라인, R1에서 상세화)
+# Slice spine — historical R0 outline (current state in CHANGELOG)
 slice_spine_outline:
   - slice: 0
-    name: R2 — 구조·개발환경 정비
-    deliverable: AGENTS.md/CLAUDE.md/.agents/context (R0.8에서 일부 처리), CODEOWNERS, PR template
-    next_in_r1: true
+    name: R2 — structure + dev environment
+    deliverable: AGENTS.md/CLAUDE.md/.agents/context, CODEOWNERS, PR template
   - slice: 1
-    name: bin/naia-agent 최소 REPL
-    deliverable: real Anthropic + InMemoryMemory + 빈 ToolExecutor + fixture-replay 1건
+    name: bin/naia-agent minimal REPL
+    deliverable: real Anthropic + InMemoryMemory + empty ToolExecutor + fixture-replay
     sub_issues: [3, 4, 7]
   - slice: 2
-    name: bash skill + observability 보강
-    deliverable: DANGEROUS regex + path normalize + Logger.tag + obs 단위 테스트
+    name: bash skill + observability
+    deliverable: DANGEROUS regex + path normalize + Logger.tag + obs unit tests
     sub_issues: [5, 7]
   - slice: 3
-    name: alpha-memory 실 backend
-    deliverable: real memory consolidate 검증
+    name: alpha-memory real backend
+    deliverable: real memory consolidate verification
   - slice: 4
-    name: Compaction 동적 정책
-    deliverable: overflow + 동적 preserveRecent (D07)
+    name: compaction dynamic policy
+    deliverable: overflow + dynamic preserveRecent (D07)
     sub_issues: [7]
   - slice: 5
-    name: fixture-replay framework 정식
+    name: fixture-replay framework
     deliverable: StreamRecorder/Player
 
 # opt-in localmodel backends (2026-05-15)
-# naia-agent 가 선택적으로 호출하는 외부 음성/모달 backend. 항상 X — vertical 필요 시.
-# 이들은 naia-agent 를 import 하지 않고, naia-agent 의 localmodel API 계약만 따른다.
-# RAG / context 관리 / 장기기억 / 도메인 지식 = naia-agent / naia-memory 책임 (backend X).
+# naia-agent optionally calls these external voice/modal backends. Not always-on — vertical-specific.
+# These do NOT import naia-agent; they conform to naia-agent's localmodel API contract.
+# RAG / context / long-term memory / domain knowledge = naia-agent / naia-memory responsibility (NOT backends).
 opt_in_localmodels:
   - name: naia-minicpm-ko-serve
     repo: nextain/naia-minicpm-ko-serve
     visibility: private (nextain org)
-    provides: 한국어 full-duplex 음성 대화 backend (MiniCPM-o-4.5 ko fine-tune) + 품질 벤치마크
+    provides: Korean full-duplex voice dialogue backend (MiniCPM-o-4.5 ko fine-tune) + quality benchmarks
     api: HTTPS /ws/duplex (sid prefix adx_*), /v1/realtime-style
-    selected_via: naia-adk localmodel 설정 (opt-in)
-    boundary: ko-serve 는 모델 serving + system prompt + 벤치마크만. RAG/context/기억은 naia-agent.
+    selected_via: naia-adk localmodel config (opt-in)
+    boundary: ko-serve = model serving + system prompt + benchmarks only. RAG/context/memory = naia-agent.
   - name: naia-sing
     repo: nextain/naia-sing
     visibility: private (nextain org)
-    provides: 노래(SVS) backend — ref voice + 곡 → 사용자 음색 가창
-    selected_via: naia-adk localmodel 설정 (opt-in)
+    provides: singing (SVS) backend — ref voice + song → user-voice singing
+    selected_via: naia-adk localmodel config (opt-in)
 
-# 컨텍스트 우선순위 (충돌 시)
+# Context priority (on conflict)
 priority:
   - .agents/context/agents-rules.json
   - CLAUDE.md

@@ -1,8 +1,33 @@
 # @nextain/agent-providers
 
+> **Languages**: English (this file) · [한국어](../../.users/docs/ko/packages/providers/README.md)
+
 LLMClient implementations for naia-agent.
 
 **ESM-only, Node ≥ 22.** CJS consumers must use dynamic `import()`.
+
+## Active clients
+
+Verified against `src/index.ts`:
+
+| Export | Module | Purpose |
+|---|---|---|
+| `VercelClient` | `./vercel` | Wraps any Vercel AI SDK `LanguageModelV2` / `LanguageModelV3` — primary path (D44). Used for Anthropic, OpenAI-compatible (vLLM / GLM / Z.ai), Vertex Anthropic, Google Gemini, and the `ai-sdk-provider-claude-code` subscription path. |
+| `LabProxyClient` | `./lab-proxy` | Naia Lab Gateway HTTPS, OpenAI-compat shape, `naiaKey` auth. |
+| `LabProxyLiveClient` | `./lab-proxy-live` | Naia Lab Gateway WSS, vllm-omni `/v1/realtime` audio_delta path. |
+
+There is no standalone `AnthropicClient` / `GeminiClient` / `OpenAICompatClient`
+/ `ClaudeCliClient` export anymore — those were removed in Slice 5.x.4 (D44)
+in favour of one Vercel adapter. See the migration table below.
+
+### Claude Code (subscription, no API key)
+
+The Claude Pro/Max subscription path goes through
+[`ai-sdk-provider-claude-code`](https://www.npmjs.com/package/ai-sdk-provider-claude-code)
+wrapped by `VercelClient`. The provider shells out to the user's installed
+`claude` CLI, which carries the subscription auth — no `ANTHROPIC_API_KEY`
+required. The CLI binary must be on `PATH` (or invoked through
+`flatpak-spawn --host` in sandboxed environments).
 
 ## VercelClient — primary path (D44)
 
@@ -104,6 +129,28 @@ for await (const chunk of client.stream({
 | **ChatGPT Plus/Pro** | `ai-sdk-provider-codex-cli` | none (uses Codex CLI) | |
 | **Gemini Code Assist** | `ai-sdk-provider-gemini-cli` | none (uses gemini-cli) | |
 | **RunPod** | `@runpod/ai-sdk-provider` | `RUNPOD_API_KEY` | Supports vLLM/SGLang `baseURL` override |
+
+### Provider resolution priority (CLI direct mode)
+
+The `bin/naia-agent.ts` `buildLLMClient()` resolves the provider from
+environment in **first-match-wins** order (verified against the source):
+
+1. **`ANTHROPIC_API_KEY`** → Anthropic (`@ai-sdk/anthropic`), model from
+   `ANTHROPIC_MODEL` (default `claude-haiku-4-5-20251001`), optional
+   `ANTHROPIC_BASE_URL` override.
+2. **`OPENAI_API_KEY` + `OPENAI_BASE_URL`** → generic OpenAI-compatible
+   (`@ai-sdk/openai-compatible`), model from `OPENAI_MODEL`.
+3. **`GLM_API_KEY`** → Z.ai / Zhipu GLM via OpenAI-compat
+   (`name: "zhipu-glm"`), model from `GLM_MODEL` (default `glm-4.5-flash`),
+   `GLM_BASE_URL` defaults to `https://open.bigmodel.cn/api/paas/v4`.
+4. **`VERTEX_PROJECT_ID` + `VERTEX_REGION`** → Anthropic on Vertex AI via
+   `@ai-sdk/google` `createVertex`, model from `ANTHROPIC_MODEL`.
+5. Otherwise — error with guidance toward `naia-agent login` or one of the
+   env-var paths above.
+
+The manifest path (`buildLLMClientFromManifest`) additionally supports a
+`claude-code` backend that loads `ai-sdk-provider-claude-code` for the
+subscription auth flow (no API key in env).
 
 ### Cross-platform considerations
 

@@ -8,6 +8,10 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+### docs
+
+- **`docs/voice-cascade-contract.md`** (new, + `.users/docs/ko/` mirror) — Voice Cascade Contract spec between naia-agent and LiveKit `llm.LLM`. Locks four exit gates that Slice 3-XR-Voice (Task #28, P0c-2) must satisfy before merge: G1 cancel-propagates-upstream-in-one-turn, G2 no-cancelled-turn-memory-write, G3 partial-text-hidden-or-marked-unstable (voice path streams partials behind the `naia-agent[voice]` extra; chat path stays final-only), G4 tool-hop-cancel-leaves-session-reusable. Also locks the Codex r4 LiveKit-lock-in re-evaluation triggers (only G1/G2/G3 failures trigger backbone re-eval; G4 is a wrapper-design call). Provenance: promoted from `naia-labs/promote_to_naia_agent/b5_lite_contract_memo.md` (Codex r3 Q5 + r4 #5). Design lock only — no code yet; verification placement maps onto `docs/adapter-contract.md` §2 contract-test ladder at scaffold time. Cross-linked from `docs/voice-pipeline-audit.md` §1 integration surface.
+
 ## [Slice 3-XR-M + 3-XR-N + 3-XR-O] — 2026-05-20 — REPL/PTY + cross-OS sanity + Claude Code parity ledger (Tasks #25/#26/#27)
 
 User: "3-XR-O까지 달려야해". Three slices in one push (mechanism-heavy, single LIVE in Group M).

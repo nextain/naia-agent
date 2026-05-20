@@ -1,7 +1,13 @@
 # Agent Loop Design — references and decisions
 
+> **Languages**: English (this file) · [한국어](../.users/docs/ko/agent-loop-design.md)
+
 Design doc for `packages/core/src/agent.ts` (Phase 2 X3 scaffold).
 Captures why each choice was made, with reference to source material.
+
+> **F06 immutability**: decisions D1~D8 below are immutable. New decisions
+> are appended at the bottom under "Appended D decisions (Slice 3-XR
+> series)" as Dn matrix rows — never inlined into D1~D8.
 
 ## References surveyed
 
@@ -142,3 +148,148 @@ services); we use a yielded union for a simpler embedded story.
 Current: `scripts/smoke-anthropic.ts` exercises `AnthropicClient` directly
 (not `Agent`). An `Agent`-level smoke (InMemoryMemory + Mock LLM + Mock
 Tools) lands in a follow-up commit once bash is available to run builds.
+
+---
+
+## Appended D decisions (Slice 3-XR series)
+
+These rows are additive per F06. D1~D8 above remain unchanged. Each entry
+is a short prose decision + slice citation + code-evidence pointer (paths
+are repo-relative).
+
+### D-9. `safeTurn` REPL survival wrapper
+
+Every CLI turn is wrapped in `safeTurn(agent, prompt, debug)` so a single
+turn failure (model-server outage, `ECONNREFUSED`, tool error) prints an
+actionable hint and **does not crash the REPL or the host process**.
+Single-shot mode exits cleanly with code 2 plus the same hint; the REPL
+stays alive across per-turn failures, which is what the Slice 3-XR-M
+multi-turn LIVE test verifies on a real process boundary.
+
+- Slice: 3-XR-F (CHANGELOG `[Slice 3-XR-B.1]` + `[Slice 3-XR-F]`),
+  re-verified by 3-XR-M (multi-turn REPL LIVE).
+- Evidence: `bin/naia-agent.ts` → `async function safeTurn(...)`.
+
+### D-10. `stripRecallResidue` agent-loop sanitizer
+
+Small models (e.g. `gemma3n:e4b`) emit malformed `<recall>` markers
+(`<recalall>…`, `<recal_l>…`, `<recal<…`, stray `</recall>`). The strict
+recall parser correctly ignores them, but raw streaming used to leak the
+residue into user-visible text. A pure `stripRecallResidue(text)`
+exported from `@nextain/agent-core` is now applied to the agent's final
+`assistantText` on `turn.ended`. Strict match/act is unchanged
+(cross-review invariant: leniency never reaches recall behavior). Bounded
+match (`{0,256}`), line-anchored, marker-free input returned
+byte-identical.
+
+- Slice: 3-XR-F (CHANGELOG `[Slice 3-XR-D]`).
+- Evidence: `packages/core/src/agent.ts` → `export function
+  stripRecallResidue(text: string)` + `packages/core/src/index.ts` export
+  + `bin/naia-agent.ts` use on `turn.ended`.
+
+### D-11. `--memory` + `LiteMemoryProvider` CLI binding
+
+`pnpm naia-agent --memory` switches from ephemeral `InMemoryMemory` to a
+**persistent** `LiteMemoryProvider` (blessed `@nextain/naia-memory`
+component) wired to the naia-settings `embedded` embedder + `<recall>`
+recall protocol. DB defaults to `~/.naia-agent/memory/cli.sqlite`
+(override with `NAIA_AGENT_MEMORY_DB`). Any embedder/DB failure degrades
+gracefully back to in-memory — never crash over memory. Opt-in; default
+behavior unchanged.
+
+- Slice: 3-XR-C-mem (CHANGELOG `[Slice 3-XR-C]`).
+- Evidence: `bin/naia-agent.ts` → `LiteMemoryProvider` import + the
+  `--memory` branch in the CLI memory-provider factory; unit test
+  `packages/runtime/src/__tests__/cli-memory.test.ts`.
+
+### D-12. `--enable-file-ops` + `workspaceRoot` wiring
+
+New `--enable-file-ops` toggle (default OFF — no behavior change) that
+registers `read_file` / `write_file` / `edit_file` / `list_files`
+alongside `bash`. The `workspaceRoot` is sourced from the existing
+`--workdir` so D09 `normalizeWorkspacePath` enforces the boundary
+consistently. Wired in **both** direct mode (`runDirect`) and service
+mode (`runService`) so service manifests get the same protection.
+General toggle — no per-model branching (`feedback_naia_agent_general
+_purpose_no_overfit` guard preserved).
+
+- Slice: 3-XR-I (CHANGELOG `[Slice 3-XR-I]`).
+- Evidence: `bin/naia-agent.ts` → `--enable-file-ops` arg parsing +
+  `createFileOpsSkills({ workspaceRoot: args.workdir })` in direct and
+  service paths.
+
+### D-13. `--skills-dir` + `FileSkillLoader` + `CompositeToolExecutor` + `normalizeInputSchemaForOllama`
+
+Live loading of file-system SKILL.md skills under
+`<root>/skills/**/SKILL.md` (or `onmam-adk/skills/`) via
+`FileSkillLoader` and exposed to the LLM through a
+`CompositeToolExecutor` that composes the skill executor on top of
+`bash` + (optional) file-ops. Schemas are normalized for Ollama clients
+via `normalizeInputSchemaForOllama` so OpenAI-shaped function-call
+schemas round-trip cleanly. ADK-agnostic — naia-adk and onmam-adk share
+the same machinery (Slice 3-XR-L verified onmam-adk needs zero bin/
+runtime changes).
+
+- Slice: 3-XR-J (CHANGELOG `[Slice 3-XR-J]` + 3-XR-L confirmation).
+- Evidence: `bin/naia-agent.ts` → `--skills-dir` parsing +
+  `CompositeToolExecutor` construction with `FileSkillLoader`;
+  `packages/runtime/src/composite-tool-executor.ts`;
+  `packages/runtime/src/skill-tool-bridge.ts` →
+  `export function normalizeInputSchemaForOllama(...)`.
+
+### D-14. `--repl` force REPL on non-TTY stdin
+
+`--repl` forces the readline REPL loop regardless of stdin TTY status.
+The default still treats piped stdin as a single-shot turn
+(`readStdin` → one turn) per the existing design. `--repl` is the toggle
+for harness multi-turn tests and shell pipelines that feed several
+prompts. Model-agnostic, default OFF, no behavior change.
+
+- Slice: 3-XR-M (CHANGELOG `[Slice 3-XR-M + 3-XR-N + 3-XR-O]` § M1/O2).
+- Evidence: `bin/naia-agent.ts` → `--repl` arg parsing + the non-TTY
+  branch in the REPL launcher.
+
+### D-15. `--service backend=claude-code` subscription routing + DRYRUN gate
+
+`*.service.json` manifests can declare `llm.backend: "claude-code"` to
+route through the Claude Agent SDK (`ai-sdk-provider-claude-code`)
+**using the user's Claude subscription** — no API key needed
+(subscription-credit, per-account, capped, policy 2026-06-15). Same
+pattern as runtime `coding-tool.ts`. The `NAIA_AGENT_DRYRUN=1` env gate
+asserts the dispatcher arm without consuming subscription credit; opt-in
+`NAIA_AGENT_CLAUDECODE_LIVE=1` executes a real one-turn call.
+
+- Slice: 3-XR-G (manifest schema) / 3-XR-M (LIVE wire + DRYRUN gate)
+  (CHANGELOG `[Slice 3-XR-G]` + `[Slice R6/SB-1.1]` + 3-XR-M § M2).
+- Evidence: `bin/naia-agent.ts` → `case "claude-code"` in
+  `buildLLMClientFromManifest` + the `NAIA_AGENT_DRYRUN` branch in
+  `runService`.
+
+### D-16. `langgraph` + `rag-retriever` reserved backend stubs
+
+Service-manifest `llm.backend` accepts `"langgraph"` and
+`"rag-retriever"` as **reserved values** so manifest authors can declare
+intent ahead of the dispatcher implementation. The bin recognizes them,
+prints a self-explaining stderr line, and exits cleanly (no silent
+unknown-backend failure). Live dispatcher (LangGraph node routing / RAG
+retriever + vector store + LLM hop) is deferred to Slice 3-XR-K
+(business-adk).
+
+- Slice: 3-XR-J piggyback / 3-XR-K deferred (CHANGELOG `[Slice 3-XR-J]`,
+  Task #23 pending).
+- Evidence: `bin/naia-agent.ts` → `case "langgraph": case
+  "rag-retriever":` arm in `buildLLMClientFromManifest`.
+
+### D-17. 3-judge ensemble (GLM + Claude CLI + Codex CLI), opt-in `NAIA_JUDGE_ENSEMBLE=1`
+
+Integration-scenario LLM-as-judge has an opt-in **3-judge ensemble**
+mode for the three high-judgment scenarios (A1 / A4 / F2): GLM (default
+single judge) + `claude` CLI + `codex` CLI. Default OFF (single GLM) to
+bound subscription costs — `NAIA_JUDGE_ENSEMBLE=1` enables ensemble. Each
+ensemble-enabled run costs 3 scenarios × 3 judges = 9 API/CLI calls.
+The other 23 scenarios stay single-GLM (mechanism-asserted, low
+judgment).
+
+- Slice: 3-XR-H (CHANGELOG `[Slice 3-XR-H]`).
+- Evidence: `packages/cli-app/src/__tests__/integration-scenarios.test.ts`
+  → `NAIA_JUDGE_ENSEMBLE` env gate around the A1/A4/F2 paths.

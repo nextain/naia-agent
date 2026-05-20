@@ -1,11 +1,24 @@
 {
   "$schema": "https://schemas.nextain.com/agents-rules-v1.json",
   "project": "naia-agent",
-  "version": "0.1.0",
-  "updated": "2026-04-29",
-  "phase": "R5 LOCKED (Vercel AI SDK adoption — Slices 5.x.0~5.x.6 complete; R6 candidates = Tier B 8건 + D53 RunPod)",
+  "version": "0.2.0",
+  "updated": "2026-05-20",
+  "phase": "Slice 3-XR — bin shipped end-to-end (Slices E/F/G/H/I/J/L/M/N/O + Docs DONE). Active: Task #23 (3-XR-K LangGraph/RAG real impl) deferred, Task #28 (3-XR-Voice = P0c-2 naia-agent integration only) deferred.",
   "mandatory_reads": [
     "AGENTS.md",
+    "CHANGELOG.md",
+    ".agents/progress/slice-3-xr-h-i-j-l-plan-2026-05-20.md",
+    ".agents/progress/integration-scenarios-design-2026-05-20.md",
+    ".agents/progress/integration-scenarios-report-2026-05-20.md",
+    "docs/user-guide.md",
+    "docs/llm-config-standard.md",
+    "docs/architecture-hybrid.md"
+  ],
+  "supplementary_reads_security": [
+    ".agents/progress/refs/cc-cleanroom-security-audit-2026-04-25.md",
+    ".agents/progress/refs/cc-cleanroom-deep-audit-2026-04-25.md"
+  ],
+  "supplementary_reads_legacy": [
     ".agents/progress/design-recheck-2026-04-25.md",
     ".agents/progress/ref-adoption-matrix.md",
     ".agents/progress/runnable-testable-gap.md",
@@ -13,110 +26,130 @@
     ".agents/progress/dev-framework-and-process.md",
     ".agents/progress/multi-tool-harness.md"
   ],
-  "supplementary_reads_security": [
-    ".agents/progress/refs/cc-cleanroom-security-audit-2026-04-25.md",
-    ".agents/progress/refs/cc-cleanroom-deep-audit-2026-04-25.md"
-  ],
   "mandatory_reads_upstream": [
     "../../alpha-adk/.agents/progress/naia-4repo-migration-plan.md",
     "../../alpha-adk/.agents/progress/direction-2026-04-25.md"
   ],
+  "slices_completed": {
+    "3-XR-A": "cross-repo LLM config: naia-settings/llm.json",
+    "3-XR-B": "naia-agent login + OS-keychain secrets",
+    "3-XR-B.1": "graceful turn failure (no fatal crash)",
+    "3-XR-C": "memory wired into the CLI (persistent recall)",
+    "3-XR-D": "recall-marker residue hygiene",
+    "3-XR-E": "CLI UX: show, login empty-args guard, usage discoverability",
+    "3-XR-F": "user-perspective scenarios + user manual + onboarding UX (Task #3) — 22+2 unit",
+    "3-XR-G": "integration scenarios + LLM-as-judge + ADK ecosystem coverage — 26 scenarios",
+    "3-XR-H": "multi-judge ensemble (GLM + Codex + Claude) — Task #20",
+    "3-XR-I": "pi-based coding LIVE verification (Group P 6/6) — Task #21",
+    "3-XR-J": "--skills-dir CLI + naia-adk skills LIVE invocation — Task #22 (K small reserve included: langgraph/rag-retriever backend stubs)",
+    "3-XR-L": "onmam-adk domain skills automatic application — Task #24",
+    "3-XR-M": "multi-turn REPL (--repl) + Claude Code subscription routing — Task #25",
+    "3-XR-N": "cross-OS (Windows/Linux) sanity mechanism — Task #26",
+    "3-XR-O": "naia-agent ↔ Claude Code parity ledger — Task #27",
+    "3-XR-Docs": "8 docs English-canonical + KO mirror under .users/docs/ko/ — Task #29"
+  },
+  "slices_deferred": {
+    "3-XR-K": "business-adk LangGraph nodes + RAG retriever REAL implementation — Task #23 (only the small reserve stub shipped in 3-XR-J; real impl needs explicit user re-open)",
+    "3-XR-Voice": "VoxCPM2 + LiveKit voice pipeline — Task #28 (P0c-2 naia-agent integration ONLY; P0c-1 standalone tech demo handled by another session)"
+  },
   "forbidden_actions": [
     {
       "id": "F01",
       "rule": "no_code_change_without_skeleton",
-      "description": "bin/naia-agent 진입점 미존재 시 packages/core/src/agent.ts 수정 금지, packages/runtime/src/ 신규 파일 추가 금지(테스트 제외), examples/ 외 위치에 새 host 코드 작성 금지",
-      "release_condition": "issue #3 (G01 bin/naia-agent) close",
-      "exemption": "보안 패치(CVE-worthy) — F01 차단 면제. 단 단위 테스트 동시 도입 강제. 4-repo plan A.13 보안 패치 lockstep 면제 원칙 적용"
+      "status": "MOOT (RESOLVED 2026-05-20)",
+      "description": "bin/naia-agent skeleton shipped end-to-end via Slices 3-XR-E through 3-XR-O (CHANGELOG line 1 ledger). Original gate '#3 (G01 bin/naia-agent) close' satisfied multiple times over. Kept as historical record; no longer enforced.",
+      "release_condition": "released — bin shipped end-to-end",
+      "exemption": "n/a (rule itself is MOOT)"
     },
     {
       "id": "F02",
       "rule": "no_phase_d_branch_modification",
-      "description": "migration/phase-d 브랜치(Phase B + C.2 = 189 unit test) 절대 push/merge 금지. PAUSED 상태 보존",
-      "release_condition": "사용자 명시 directive (재개)"
+      "description": "migration/phase-d branch (Phase B + C.2 = 189 unit test) push/merge forbidden. PAUSED state preserved.",
+      "release_condition": "user explicit directive (re-open)"
     },
     {
       "id": "F03",
       "rule": "no_ref_modification",
-      "description": "projects/refs/ref-* 하위 모든 파일 수정·삭제 금지. submodule clean 유지",
-      "release_condition": "never (영구 read-only)"
+      "description": "projects/refs/ref-* — all files read-only. submodule clean state required.",
+      "release_condition": "never (permanent read-only)"
     },
     {
       "id": "F04",
       "rule": "no_cleanroom_redistribution",
-      "description": "projects/refs/ref-cc-cleanroom (ghuntley) 코드 복붙·재배포 금지. 패턴 reference로만",
+      "description": "projects/refs/ref-cc-cleanroom (ghuntley) code copying/redistribution forbidden. Pattern reference only.",
       "release_condition": "never"
     },
     {
       "id": "F05",
       "rule": "no_cc_source_reextract_without_consent",
-      "description": "projects/refs/ref-cc (nextain private) 원본 source 재추출 시도 시 사용자 승인 필요",
-      "release_condition": "사용자 승인"
+      "description": "projects/refs/ref-cc (nextain private) — original source re-extraction attempts require user approval.",
+      "release_condition": "user approval"
     },
     {
       "id": "F06",
       "rule": "no_d_decisions_modification",
-      "description": "docs/agent-loop-design.md D1~D8 결정 수정 금지. 신규 결정만 ref-adoption-matrix.md §D에 추가",
-      "release_condition": "never (보존)"
+      "description": "docs/agent-loop-design.md D1~D8 decisions immutable. New decisions only via ref-adoption-matrix.md §D.",
+      "release_condition": "never (preservation)"
     },
     {
       "id": "F07",
       "rule": "no_part_a_modification",
-      "description": "alpha-adk/.agents/progress/naia-4repo-migration-plan.md Part A 수정 금지. 본 레포 R0는 실행 시퀀싱만 변경",
-      "release_condition": "새 plan 버전 + 사용자 승인"
+      "description": "alpha-adk/.agents/progress/naia-4repo-migration-plan.md Part A immutable. This repo R0 only changes execution sequencing.",
+      "release_condition": "new plan version + user approval"
     },
     {
       "id": "F08",
       "rule": "no_r1_plan_with_open_p0",
-      "description": "OPEN P0 sub-issue 1건이라도 있으면 R1 plan 작성 차단",
-      "release_condition": "P0 sub-issue 모두 close (#3, #4, #5, #6)"
+      "status": "MOOT (RESOLVED — all R0/P0 sub-issues #3/#4/#5/#6 long since closed)",
+      "description": "Originally: if any OPEN P0 sub-issue existed, R1 plan authoring blocked. All R0 P0 sub-issues closed; bin shipped through Slice 3-XR-O.",
+      "release_condition": "released"
     },
     {
       "id": "F09",
       "rule": "no_cleanroom_sole_dependency",
-      "description": "ref-cc-cleanroom (ghuntley) 단독 의존 금지. D01(DANGEROUS_COMMANDS regex) / D02(Path normalize) 같은 패턴 차용 시 OWASP/RFC/Anthropic 1차 spec 출처 docs 1건 이상 cross-reference 강제. cleanroom 코드 라인 직접 복붙 금지(B22). 근거: cc-cleanroom-deep-audit F1~F12 LLM 환각/silent drift + repo archived 2025-03 + 2 commits only",
-      "release_condition": "never (영구 강제)",
-      "enforcement": "PR description에 'OWASP/RFC 출처 명시' 체크박스 추가 (Slice 2 진입 시 PR template 신설)"
+      "description": "ref-cc-cleanroom (ghuntley) sole-dependency forbidden. When borrowing D01 (DANGEROUS_COMMANDS regex) / D02 (Path normalize) style patterns, cross-reference ≥1 OWASP/RFC/Anthropic 1st-party spec doc. Direct line-level copy from cleanroom forbidden (B22). Rationale: cc-cleanroom-deep-audit F1~F12 LLM hallucination/silent drift + repo archived 2025-03 + 2 commits only.",
+      "release_condition": "never (permanently enforced)",
+      "enforcement": "PR description must include 'OWASP/RFC source cited' checkbox (added at Slice 2 entry via PR template)"
     },
     {
       "id": "F11",
       "rule": "anthropic_sdk_minor_bump_requires_fixture_replay",
-      "description": "@anthropic-ai/sdk minor 이상 버전 bump PR은 fixture-replay 재녹화 + StreamPlayer 재생 검증 의무. SDK breaking change 사전 감지",
-      "release_condition": "Slice 5 fixture-replay framework 정식 도입 후 자동화 가능"
+      "description": "@anthropic-ai/sdk minor-or-higher version bump PRs require fixture-replay re-record + StreamPlayer playback verification. Detects SDK breaking changes pre-merge.",
+      "release_condition": "Slice 5 fixture-replay framework formally introduced (auto-enforceable)"
     }
   ],
   "required_actions_for_slice_pr": [
     {
       "id": "S01",
       "rule": "new_runnable_command",
-      "description": "슬라이스 PR은 새 실행 가능 명령 1+ 도입 필수 (예: pnpm exec naia-agent ...)"
+      "description": "Each slice PR must add ≥1 new executable command (e.g. pnpm exec naia-agent ...)."
     },
     {
       "id": "S02",
       "rule": "unit_test_1_plus",
-      "description": "vitest 단위 테스트 1+ 도입"
+      "description": "vitest unit test ≥1."
     },
     {
       "id": "S03",
       "rule": "integration_verify_1_plus",
-      "description": "통합 검증 1+ 도입 (fixture-replay or real-LLM smoke or 실 backend 호출). 부재 시 머지 차단"
+      "description": "Integration verification ≥1 (fixture-replay or real-LLM smoke or live backend call). Absence = merge blocked."
     },
     {
       "id": "S04",
       "rule": "changelog_entry",
-      "description": "README 또는 CHANGELOG에 슬라이스 entry 1건"
+      "description": "README or CHANGELOG entry ≥1."
     },
     {
       "id": "G15",
       "rule": "ci_fixture_only_mode_default",
-      "description": "CI에서 ANTHROPIC_API_KEY 없을 때 fixture-replay만으로 모든 test pass 가능해야 함. real-LLM smoke는 KEY 있을 때만 opt-in. fixture에 실제 API key 절대 금지",
-      "release_condition": "Slice 1b 이후 (fixture-replay 1건 도입 후)"
+      "description": "In CI without ANTHROPIC_API_KEY, all tests must pass via fixture-replay alone. Real-LLM smoke is opt-in (KEY present). Real API keys never committed to fixtures.",
+      "release_condition": "after Slice 1b (first fixture-replay introduced)"
     }
   ],
   "matrix_id_citation": {
-    "rule": "commit message + PR description에 매트릭스 ID(A##/B##/C##/D##/E##/F##/G##) 인용 필수",
-    "format": "예: 'fixes G03/D01' or 'addresses E05'",
-    "exemption": "매트릭스 외 영역(docs, infra) 변경 시 면제"
+    "rule": "Commit message + PR description must cite matrix IDs (A##/B##/C##/D##/E##/F##/G##)",
+    "format": "e.g. 'fixes G03/D01' or 'addresses E05'",
+    "exemption": "Off-matrix areas (docs, infra) — exempt"
   },
   "tracking_issues": {
     "master": "nextain/naia-agent#2",
@@ -129,6 +162,31 @@
     "AGENTS.md",
     ".agents/context/project-index.yaml"
   ],
+  "workfile_lifecycle": {
+    "_inherited_from": "alpha-adk/.agents/context/agents-rules.json (workfile_lifecycle SoT)",
+    "_inheritance_mode": "inherit — values mirrored from root SoT. On root SoT update, refresh this block.",
+    "principle": "All work files (progress reports, scratch scripts, temp data) MUST follow explicit lifecycle. No accumulation without policy.",
+    "directories": {
+      ".agents/context/": "Permanent context (on_demand loaded). Long-lived. In-place corrections only. Never delete.",
+      ".agents/progress/": "Active work reports + completed reports. JSON files = harness 1st-class (session-inject reads). MD reports = lifecycle-tracked.",
+      ".agents/progress/archive/YYYY-MM/": "Completed reports moved here (preserved + searchable). readdirSync skips subdirs = automatically excluded from session-inject/commit-guard active set.",
+      ".agents/work/": "Temporary work scripts. gitignored at root (.gitignore: .agents/work/). User-managed cleanup (no AI auto-delete).",
+      "tmp/, tmp-*, tmp_*": "Debug/scratch. gitignored."
+    },
+    "completion_criteria": "A work file is 'complete' when 2+ of: (a) related code committed/pushed to origin, (b) user explicitly declares done/closed, (c) cross-review GO + user acceptance, (d) superseded by next-step plan/issue. AI self-declaring 'complete' is prohibited.",
+    "triggers": {
+      "work_start": "Create or update one progress file (1 per work, not 1 per session).",
+      "session_end_or_milestone": "Add status line ('done' / 'in-progress' / 'blocked').",
+      "after_commit_push": "Move that work's progress to .agents/progress/archive/YYYY-MM/ (selective — mention in commit message).",
+      "monthly_cleanup": "Review 30+ day progress files; archive completed or inline-resolve.",
+      "work_30d": ".agents/work/ 30+ day = user-decided deletion (volatile by design)."
+    },
+    "naming": "Existing convention: <topic>-YYYY-MM-DD.md. On archive: move only (no rename) to preserve cross-references.",
+    "archive_unit": "Archive MD/JSON pair together (same base name). If JSON has current_phase != close, set to close OR unbind before move — otherwise session-inject still treats it active (codex correction).",
+    "inbound_references": "Default: allow link breakage on archive (archived = historical). On case-by-case need: leave 1-line stub at original path pointing to archive/YYYY-MM/<file> (user decision). No automatic archive index — over-engineering.",
+    "harness_scope_asymmetry": "session-inject collects cwd + IMMEDIATE child subdirs only (projects/<sub>/.agents/progress/). 2nd-level subs not scanned. commit-guard scans cwd only. Policy applies repo-wide as convention but ENFORCEMENT range is root + direct children. 2nd-level subs need own hooks for enforcement (manual convention until then).",
+    "session_map_cleanup": "On archive: .agents/progress/.session-map.json entries pointing to archived files become stale. session-inject auto-prunes on next run, but explicit cleanup is cleaner (jq or manual edit)."
+  },
   "harness_compatibility": {
     "standard": "AAIF / agents.md (https://agents.md/)",
     "canonical_sot": "AGENTS.md",

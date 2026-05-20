@@ -1,12 +1,16 @@
 # naia-agent Architecture
 
+> **Languages**: English (this file) · [한국어](../.users/docs/ko/ARCHITECTURE.md)
+
+> **Superseded by R4 (`architecture-hybrid.md`)** — this document is the R0~R3 canonical record (v0.1.0 freeze, 2026-04-21). The Hybrid Wrapper architecture (R4 lock, 2026-04-26) lives in `docs/architecture-hybrid.md` and is additive. Both coexist by design: per F06 (immutable design decisions), R0~R3 decisions are preserved here as historical record. New decisions land in the matrix or in R4 docs. **For the current architecture, read `architecture-hybrid.md` first.**
+
 Status: Phase 1 freeze (v0.1.0, 2026-04-21). Summary-level document; the
 full normative source is the migration plan at
 `alpha-adk/.agents/progress/naia-4repo-migration-plan.md` (Part A).
 
 ## Philosophy — Interfaces, not dependencies
 
-The four Naia repos (`naia-os`, `naia-agent`, `naia-adk`, `alpha-memory`)
+The four Naia repos (`naia-os`, `naia-agent`, `naia-adk`, `naia-memory`)
 couple only through **published interfaces**, not runtime dependencies.
 
 - **Transparent** — every interface is specified in
@@ -26,9 +30,17 @@ This is Ports & Adapters at ecosystem scale.
 | `naia-os` | Host — Tauri shell, 3D avatar, OS image (Bazzite) |
 | **`naia-agent`** (this) | Runtime engine, LLMClient impls, observability defaults |
 | `naia-adk` | Workspace format + skills library (`@naia-adk/skill-spec`) |
-| `alpha-memory` | Reference `MemoryProvider` implementation |
+| `naia-memory` | Reference `MemoryProvider` implementation |
 
-## Package map (naia-agent)
+## Package map (naia-agent, R0~R3)
+
+The R0~R3 layout below was the canonical package map at v0.1.0 freeze.
+R4 adds `adapters/`, `workspace/`, `verification/`, `memory/`, `apps/cli/`
+and demotes some packages (see `architecture-hybrid.md` §2 for the live
+map; the actual on-disk layout today is:
+`adapter-opencode-acp`, `adapter-opencode-cli`, `adapter-shell`,
+`cli-app`, `core`, `observability`, `protocol`, `providers`, `runtime`,
+`types`, `verification`, `workspace`).
 
 ```
 @nextain/agent-types       — contracts (zero-runtime-dep)
@@ -140,7 +152,7 @@ communication policy). Pre-v0.1 (now) — expect frequent breaking.
 | Audit log | shell (tamper-evident, minimum retention) |
 | OS-level integration, packaging | shell |
 
-## Status tracker
+## Status tracker (R0~R3 freeze)
 
 | Phase 1 | Status |
 |---------|:---:|
@@ -149,12 +161,14 @@ communication policy). Pre-v0.1 (now) — expect frequent breaking.
 | T3 `@naia-adk/skill-spec` v0.1.0 (naia-adk repo) | ✓ |
 | T4 `@nextain/agent-observability` v0.1.0 | ✓ |
 | T5 `HostContext` + `VoiceEvent` + all contracts | ✓ |
-| T6 `MemoryProvider` façade | ✓ (alpha-memory audit + mem0 dual audit done) |
+| T6 `MemoryProvider` façade | ✓ (naia-memory audit + mem0 dual audit done) |
 | T7 `docs/ARCHITECTURE.md` (this file) | ✓ |
 | T8 v0.1.0 freeze — additive-only rule active | ✓ (see [CHANGELOG.md](../CHANGELOG.md)) |
 
 ## Pointers
 
+- **R4 live architecture**: `docs/architecture-hybrid.md`
+- **R4 vision (parent)**: `docs/vision-statement.md`
 - Migration plan (full normative): `alpha-adk/.agents/progress/naia-4repo-migration-plan.md`
 - Memory façade audit: `docs/memory-provider-audit.md`
 - Voice pipeline audit: `docs/voice-pipeline-audit.md`

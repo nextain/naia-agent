@@ -41,6 +41,8 @@ hybrid-language confusion we just cleaned up.
 ## Current mirrors
 
 All 8 docs have full Korean mirrors as of 2026-05-20 (Slice 3-XR-Docs).
+`voice-cascade-contract.md` (design lock for Slice 3-XR-Voice / P0c-2)
+added 2026-05-20 with a Korean mirror.
 
 | Language | File | Status |
 |---|---|---|
@@ -52,6 +54,7 @@ All 8 docs have full Korean mirrors as of 2026-05-20 (Slice 3-XR-Docs).
 | Korean | [`ko/naia-memory-wire.md`](ko/naia-memory-wire.md) | up-to-date |
 | Korean | [`ko/stream-protocol.md`](ko/stream-protocol.md) | up-to-date |
 | Korean | [`ko/vision-statement.md`](ko/vision-statement.md) | up-to-date |
+| Korean | [`ko/voice-cascade-contract.md`](ko/voice-cascade-contract.md) | up-to-date |
 
 Docs NOT mirrored yet (English-only is sufficient for now — limited
 Korean reader value):
