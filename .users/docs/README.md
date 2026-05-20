@@ -40,11 +40,32 @@ hybrid-language confusion we just cleaned up.
 
 ## Current mirrors
 
+All 8 docs have full Korean mirrors as of 2026-05-20 (Slice 3-XR-Docs).
+
 | Language | File | Status |
 |---|---|---|
-| Korean | [`ko/user-guide.md`](ko/user-guide.md) | up-to-date with `docs/user-guide.md` (2026-05-20) |
+| Korean | [`ko/user-guide.md`](ko/user-guide.md) | up-to-date |
+| Korean | [`ko/adapter-contract.md`](ko/adapter-contract.md) | up-to-date |
+| Korean | [`ko/architecture-hybrid.md`](ko/architecture-hybrid.md) | up-to-date |
+| Korean | [`ko/llm-config-standard.md`](ko/llm-config-standard.md) | up-to-date |
+| Korean | [`ko/log-policy.md`](ko/log-policy.md) | up-to-date |
+| Korean | [`ko/naia-memory-wire.md`](ko/naia-memory-wire.md) | up-to-date |
+| Korean | [`ko/stream-protocol.md`](ko/stream-protocol.md) | up-to-date |
+| Korean | [`ko/vision-statement.md`](ko/vision-statement.md) | up-to-date |
 
-Future docs (adapter-contract / architecture-hybrid / llm-config-standard
-/ log-policy / naia-memory-wire / stream-protocol / vision-statement)
-will be English-only in `docs/` first; Korean mirrors land in a follow-
-on slice once the English sources are stable.
+Docs NOT mirrored yet (English-only is sufficient for now — limited
+Korean reader value):
+
+- `ARCHITECTURE.md` — R0~R3 canonical (superseded by `architecture-hybrid.md` R4)
+- `agent-loop-design.md` — internal D1~D8 design decisions
+- `auth-not-logged-in.md` — short Anthropic-OAuth note
+- `hosting-guide.md` — host embedding guide
+- `memory-provider-audit.md` — internal façade audit
+- `voice-pipeline-audit.md` — voice-pipeline status (overlaps with Slice 3-XR-Voice plan)
+
+These can land in `.users/docs/ko/` on demand if a Korean reader
+asks. They were skipped this round because they're already English-
+canonical or are internal design records with thin user value.
+
+Future languages (`ja/`, `zh/`, …) land under `.users/docs/<lang>/`
+with the same lang-chooser pattern.
