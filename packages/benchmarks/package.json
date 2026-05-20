@@ -33,7 +33,8 @@
     "bench:compact": "tsx src/runner.ts"
   },
   "dependencies": {
-    "@nextain/agent-types": "workspace:*"
+    "@nextain/agent-types": "workspace:*",
+    "@nextain/naia-memory": "file:../../../naia-memory"
   },
   "devDependencies": {
     "tsx": "^4.19.0",

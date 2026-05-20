@@ -1,0 +1,2 @@
+# Per-run memory snapshots (re-created on each `pnpm bench:compact`).
+reports/_mem-*.json

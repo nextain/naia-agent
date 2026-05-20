@@ -135,7 +135,7 @@ describe("runFixturePlaceholder", () => {
 		expect(r.fixtureId).toBe("T001-smoke");
 		expect(r.strategy).toBe("reactive");
 		expect(r.errors).toHaveLength(1);
-		expect(r.errors[0]).toMatch(/P1 stub/);
+		expect(r.errors[0]).toMatch(/placeholder/);
 	});
 });
 

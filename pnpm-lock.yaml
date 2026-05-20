@@ -120,6 +120,9 @@ importers:
       '@nextain/agent-types':
         specifier: workspace:*
         version: link:../types
+      '@nextain/naia-memory':
+        specifier: file:../../../naia-memory
+        version: file:../naia-memory(@browserbasehq/sdk@2.10.0)(@browserbasehq/stagehand@1.14.0(@playwright/test@1.59.1)(deepmerge@4.3.1)(dotenv@16.4.5)(openai@6.36.0(ws@8.20.0)(zod@4.3.6))(zod@4.3.6))(@ibm-cloud/watsonx-ai@1.7.11(typescript@5.9.3))(@opentelemetry/api@1.9.0)(ibm-cloud-sdk-core@5.4.14)(jsonwebtoken@9.0.3)(openai@6.36.0(ws@8.20.0)(zod@4.3.6))(playwright@1.59.1)(typescript@5.9.3)(ws@8.20.0)
     devDependencies:
       tsx:
         specifier: ^4.19.0

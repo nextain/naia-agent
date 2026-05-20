@@ -16,7 +16,7 @@
  *   }
  */
 
-export type FixtureRole = "user" | "assistant" | "system";
+export type FixtureRole = "user" | "assistant" | "system" | "tool";
 
 export interface FixtureTurn {
 	readonly role: FixtureRole;
@@ -104,7 +104,12 @@ export function validateFixture(value: unknown): Fixture {
 			throw new Error(`fixture ${f.id}: turns[${i}] is not an object`);
 		}
 		const t = turn as Record<string, unknown>;
-		if (t.role !== "user" && t.role !== "assistant" && t.role !== "system") {
+		if (
+			t.role !== "user" &&
+			t.role !== "assistant" &&
+			t.role !== "system" &&
+			t.role !== "tool"
+		) {
 			throw new Error(`fixture ${f.id}: turns[${i}].role invalid`);
 		}
 		if (typeof t.content !== "string") {
