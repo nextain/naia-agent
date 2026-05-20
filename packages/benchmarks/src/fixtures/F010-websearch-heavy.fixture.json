@@ -1,0 +1,50 @@
+{
+  "id": "F010-websearch-heavy",
+  "domain": "websearch-heavy",
+  "notes": "Heavy web-search session — many tool messages returning URLs + search snippets. Replicates Anthropic-documented server-side sampling-loop limitation where cache tokens accumulate.",
+  "turns": [
+    { "role": "user", "content": "Research the latest TypeScript 5.x release features." },
+    { "role": "assistant", "content": "Starting web search for TypeScript 5.x release notes." },
+    { "role": "tool", "content": "websearch('TypeScript 5.5 release notes') -> https://devblogs.microsoft.com/typescript/typescript-5-5/ — top result" },
+    { "role": "tool", "content": "fetch(https://devblogs.microsoft.com/typescript/typescript-5-5/) -> Inferred Type Predicates, control flow improvements, JSDoc @import, regex syntax checking" },
+    { "role": "assistant", "content": "TypeScript 5.5 highlights: Inferred Type Predicates, control flow improvements for narrowing, JSDoc @import support, regex syntax checking." },
+    { "role": "tool", "content": "websearch('TypeScript 5.6 release notes') -> https://devblogs.microsoft.com/typescript/typescript-5-6/" },
+    { "role": "tool", "content": "fetch(https://devblogs.microsoft.com/typescript/typescript-5-6/) -> Disallowed nullish/truthy checks, iterator helper methods, --noUncheckedSideEffectImports" },
+    { "role": "assistant", "content": "TypeScript 5.6: disallowed-nullish/truthy compile errors, iterator helper methods, --noUncheckedSideEffectImports." },
+    { "role": "tool", "content": "websearch('TypeScript 5.7 release notes') -> https://devblogs.microsoft.com/typescript/typescript-5-7/" },
+    { "role": "tool", "content": "fetch(https://devblogs.microsoft.com/typescript/typescript-5-7/) -> path rewriting for relative imports, --target esnext support, never-initialized variable checks" },
+    { "role": "assistant", "content": "TypeScript 5.7: path rewriting for relative imports, --target esnext, never-initialized variable checks." },
+    { "role": "tool", "content": "websearch('TypeScript 5.8 release notes') -> https://devblogs.microsoft.com/typescript/typescript-5-8/" },
+    { "role": "tool", "content": "fetch(https://devblogs.microsoft.com/typescript/typescript-5-8/) -> granular conditional type checks, --module nodenext for imports, --erasableSyntaxOnly" },
+    { "role": "assistant", "content": "TypeScript 5.8: granular conditional type checks, --module nodenext, --erasableSyntaxOnly for Node native TS." },
+    { "role": "user", "content": "Which version introduced --erasableSyntaxOnly?" },
+    { "role": "assistant", "content": "TypeScript 5.8 introduced --erasableSyntaxOnly for Node 22+ native TypeScript support." },
+    { "role": "user", "content": "Which version added JSDoc @import?" },
+    { "role": "assistant", "content": "TypeScript 5.5 added JSDoc @import." },
+    { "role": "user", "content": "Summarize all four releases (5.5 through 5.8) with their headline features and URLs." }
+  ],
+  "probes": [
+    {
+      "afterTurn": 18,
+      "type": "fact-recall",
+      "question": "All four version URLs and headline features.",
+      "expectedKeywords": [
+        "5.5",
+        "5.6",
+        "5.7",
+        "5.8",
+        "https://devblogs.microsoft.com/typescript/",
+        "Inferred Type Predicates",
+        "iterator helper",
+        "path rewriting",
+        "erasableSyntaxOnly"
+      ]
+    },
+    {
+      "afterTurn": 18,
+      "type": "task-accuracy",
+      "criterion": "Assistant lists all four URLs verbatim and correctly attributes each headline feature to its version."
+    }
+  ],
+  "compactionPoints": [10]
+}

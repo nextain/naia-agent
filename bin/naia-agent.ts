@@ -38,17 +38,22 @@
 import readline from "node:readline";
 import { spawnSync } from "node:child_process";
 import { access as fsAccess, readFile, writeFile, mkdir, chmod } from "node:fs/promises";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 
-import { Agent } from "@nextain/agent-core";
+import { Agent, stripRecallResidue } from "@nextain/agent-core";
 import type { HostContext, LLMClient, MemoryProvider } from "@nextain/agent-types";
 import { ConsoleLogger, InMemoryMeter, NoopTracer } from "@nextain/agent-observability";
 import {
   InMemoryMemory,
   InMemoryToolExecutor,
   createBashSkill,
+  createFileOpsSkills,
+  FileSkillLoader,
+  SkillToolExecutor,
+  CompositeToolExecutor,
   parseServiceManifest,
   resolveMemoryBinding,
   manifestBaseURLTrust,
@@ -57,8 +62,15 @@ import {
   loadEnvAndConfig,
   checkDuplicateKeys,
   buildEnvAppend,
+  getSecretStore,
+  parseRoleSpec,
+  readConfiguredAdkPath,
+  decideCliMemory,
 } from "@nextain/agent-runtime";
-import type { ServiceManifest } from "@nextain/agent-runtime";
+import type { ServiceManifest, ParsedRole } from "@nextain/agent-runtime";
+// Composition root may depend on a MemoryProvider implementation (the
+// runtime/core packages must not). Blessed pattern: examples/naia-memory-host.
+import { LiteMemoryProvider, OpenAICompatEmbeddingProvider } from "@nextain/naia-memory";
 import { VercelClient } from "@nextain/agent-providers";
 
 
@@ -131,6 +143,40 @@ interface Args {
   showDiff: boolean;
   secureEnv: boolean;
   autoApprove: boolean;
+  /** Attach no tools to the Agent. Needed for models without native
+   *  tool-calling (e.g. local Ollama gemma3n). Model-agnostic. */
+  noTools: boolean;
+  /** Omit the built-in DEFAULT_SYSTEM_PROMPT behavioral contract. Small
+   *  models are degraded by the long English contract (#41 v2, measured).
+   *  Model-agnostic — any host with its own prompt / tight budget. */
+  noDefaultSystem: boolean;
+  /** Use the persistent LiteMemoryProvider (naia-settings `embedded`
+   *  embedder) + #41 `<recall>` marker recall instead of ephemeral
+   *  InMemoryMemory. Opt-in — default off (no behavior change). */
+  memory: boolean;
+  /** Register the read/write/edit/list file-ops skills in addition to
+   *  bash. Opt-in — default off (no behavior change). Model-agnostic
+   *  toggle; any native-tool-calling model can drive them
+   *  (cf. createFileOpsSkills in @nextain/agent-runtime/skills). */
+  enableFileOps: boolean;
+  /** Load skills from an external ADK directory (e.g. naia-adk/skills/
+   *  or onmam-adk/skills/) via FileSkillLoader. The path is treated as
+   *  the direct skills root containing `<name>/SKILL.md` entries.
+   *  Composes with bash + (optional) file-ops via CompositeToolExecutor.
+   *  Slice 3-XR-J — default OFF. */
+  skillsDir?: string;
+  /** Force interactive REPL mode regardless of stdin TTY status. Default
+   *  behavior treats piped stdin as single-shot (read full stdin →
+   *  one turn). With `--repl`, the bin enters the readline loop even
+   *  when stdin is piped — useful for harness-driven multi-turn tests
+   *  (Slice 3-XR-M) and for shell pipelines that want to feed several
+   *  prompts. Model-agnostic toggle. */
+  forceRepl: boolean;
+  /** Compaction strategy — Slice 3-XR-Compact (#47). Default `reactive`
+   *  (anchored iterative head summarization, opencode/openclaw pattern).
+   *  See `docs/compaction-survey.md` for `realtime` / `anthropic-native`
+   *  / `off` semantics. Env override: `NAIA_AGENT_COMPACT_STRATEGY`. */
+  compactStrategy: "reactive" | "realtime" | "anthropic-native" | "off";
 }
 
 function parseArgs(argv: string[]): Args | { error: string } {
@@ -147,6 +193,12 @@ function parseArgs(argv: string[]): Args | { error: string } {
     showDiff: false,
     secureEnv: false,
     autoApprove: false,
+    noTools: false,
+    noDefaultSystem: false,
+    memory: false,
+    enableFileOps: false,
+    forceRepl: false,
+    compactStrategy: resolveCompactStrategyEnv(),
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -170,6 +222,39 @@ function parseArgs(argv: string[]): Args | { error: string } {
       args.mode = "direct";
     } else if (a === "--no-verify") {
       args.noVerify = true;
+    } else if (a === "--no-tools") {
+      args.noTools = true;
+    } else if (a === "--no-default-system") {
+      args.noDefaultSystem = true;
+    } else if (a === "--memory") {
+      args.memory = true;
+    } else if (a === "--enable-file-ops") {
+      args.enableFileOps = true;
+    } else if (a === "--skills-dir") {
+      const v = argv[++i];
+      if (!v) return { error: "--skills-dir requires a path" };
+      args.skillsDir = v;
+    } else if (a === "--repl") {
+      args.forceRepl = true;
+    } else if (a === "--compact-strategy") {
+      const v = argv[++i];
+      if (!v) {
+        return {
+          error:
+            "--compact-strategy requires a value (reactive|realtime|anthropic-native|off)",
+        };
+      }
+      if (
+        v !== "reactive" &&
+        v !== "realtime" &&
+        v !== "anthropic-native" &&
+        v !== "off"
+      ) {
+        return {
+          error: `--compact-strategy: unknown value '${v}'. Allowed: reactive|realtime|anthropic-native|off`,
+        };
+      }
+      args.compactStrategy = v;
     } else if (a === "--debug") {
       args.debug = true;
     } else if (a === "--show-diff") {
@@ -230,6 +315,28 @@ function parseArgs(argv: string[]): Args | { error: string } {
   }
 
   return args;
+}
+
+/**
+ * Resolve compaction strategy from env. Default `reactive`. Slice 3-XR-Compact
+ * (#47). CLI flag `--compact-strategy` overrides this.
+ */
+function resolveCompactStrategyEnv(): Args["compactStrategy"] {
+  const v = process.env.NAIA_AGENT_COMPACT_STRATEGY;
+  if (
+    v === "reactive" ||
+    v === "realtime" ||
+    v === "anthropic-native" ||
+    v === "off"
+  ) {
+    return v;
+  }
+  if (v !== undefined && v.length > 0) {
+    process.stderr.write(
+      `naia-agent: warning — NAIA_AGENT_COMPACT_STRATEGY='${v}' invalid, using 'reactive'\n`,
+    );
+  }
+  return "reactive";
 }
 
 // ─── Provider resolution (direct mode) ──────────────────────────────────────
@@ -308,8 +415,9 @@ async function buildLLMClient(): Promise<LLMClient | null> {
 
   process.stderr.write(
     `naia-agent: ERROR — no LLM provider configured.\n` +
-    `  Set ANTHROPIC_API_KEY, GLM_API_KEY, or OPENAI_API_KEY+OPENAI_BASE_URL.\n` +
-    `  See: docs/llm-config-standard.md\n`,
+    `  Quickest path: pnpm naia-agent login --adk <naia-adk-path> --main "provider|baseUrl|model"\n` +
+    `  Or set an env var: ANTHROPIC_API_KEY, GLM_API_KEY, or OPENAI_API_KEY+OPENAI_BASE_URL.\n` +
+    `  See: docs/llm-config-standard.md, docs/user-guide.md\n`,
   );
   return null;
 }
@@ -325,6 +433,61 @@ function buildScrubbed(): NodeJS.ProcessEnv {
 
 // ─── Direct mode ─────────────────────────────────────────────────────────────
 
+/** Default persona for `--memory`: teaches the #41 v2 recall protocol.
+ *  Language-NEUTRAL (cross-review F3 — naia-agent is general-purpose; no
+ *  output-language is commanded, the model mirrors the user). */
+const MEMORY_PERSONA =
+  "You are naia, an assistant with persistent long-term memory. " +
+  "When asked about the user's past or personal information (preferences, " +
+  "names, plans, …), do not guess — output exactly one line: " +
+  "`<recall>query</recall>`. When memory is injected, answer naturally " +
+  "using it. Answer general knowledge and the ongoing conversation " +
+  "directly. Reply in the user's language; be concise.";
+
+/**
+ * CLI memory provider. `--memory` → persistent LiteMemoryProvider with the
+ * naia-settings `embedded` embedder (blessed naia-memory components). Any
+ * failure degrades gracefully to ephemeral InMemoryMemory (anchor #6 —
+ * never crash the CLI over memory). Default (no `--memory`) = unchanged.
+ */
+function buildCliMemory(args: Args): MemoryProvider {
+  if (!args.memory) return new InMemoryMemory();
+  const d = decideCliMemory(process.env); // pure: gate + /v1 normalization
+  if (d.kind === "ephemeral") {
+    process.stderr.write(`naia-agent: ${d.reason} — falling back to ephemeral memory.\n`);
+    return new InMemoryMemory();
+  }
+  try {
+    const embedBase = d.base as string;
+    // Embed key: explicit env wins; else the `ollama` dummy ONLY for a
+    // loopback/private endpoint (cross-review F2 — symmetric with the chat
+    // sentinel; a real remote w/o key gets "" → honest 401, not a
+    // misleading dummy-auth). manifestBaseURLTrust is the same general gate.
+    const explicitKey = process.env["NAIA_EMBED_API_KEY"];
+    const embedKey =
+      explicitKey ?? (manifestBaseURLTrust(embedBase, process.env).ok ? "ollama" : "");
+    const embedder = new OpenAICompatEmbeddingProvider(
+      embedBase,
+      embedKey,
+      d.model as string,
+      d.dims as number,
+    );
+    const dbPath =
+      process.env["NAIA_AGENT_MEMORY_DB"] ??
+      path.join(homedir(), ".naia-agent", "memory", "cli.sqlite");
+    mkdirSync(path.dirname(dbPath), { recursive: true });
+    process.stderr.write(
+      `naia-agent: memory=lite db=${dbPath} embed=${d.model}\n`,
+    );
+    return new LiteMemoryProvider({ dbPath, embedder, writesEnabled: true });
+  } catch (e) {
+    process.stderr.write(
+      `naia-agent: memory init failed (${(e as Error).message}) — ephemeral fallback.\n`,
+    );
+    return new InMemoryMemory();
+  }
+}
+
 async function runDirect(args: Args): Promise<number> {
   const llm = await buildLLMClient();
   if (!llm) return 3;
@@ -336,8 +499,34 @@ async function runDirect(args: Args): Promise<number> {
     return 0;
   }
 
-  const tools = new InMemoryToolExecutor([createBashSkill()]);
-  const memory = new InMemoryMemory();
+  const inMemTools = new InMemoryToolExecutor(
+    args.noTools
+      ? []
+      : args.enableFileOps
+        ? [createBashSkill(), ...createFileOpsSkills({ workspaceRoot: args.workdir })]
+        : [createBashSkill()],
+  );
+  // Slice 3-XR-J — when --skills-dir is set, layer a SkillToolExecutor on
+  // top so naia-adk / onmam-adk top-level skills/ are visible to the model.
+  // Composite preserves bash + file-ops + ADK-skills in a single ToolExecutor.
+  const tools = args.skillsDir
+    ? new CompositeToolExecutor({
+        subs: [
+          { id: "builtins", executor: inMemTools },
+          {
+            id: "naia-adk-skills",
+            executor: new SkillToolExecutor({
+              loader: new FileSkillLoader({
+                workspaceRoot: args.skillsDir,
+                skillsDir: args.skillsDir,
+                onWarn: (m) => process.stderr.write(`naia-agent: skills-dir warn: ${m}\n`),
+              }),
+            }),
+          },
+        ],
+      })
+    : inMemTools;
+  const memory = buildCliMemory(args);
   const logger = new ConsoleLogger({ level: args.debug ? "debug" : "warn" });
 
   const host: HostContext = {
@@ -363,8 +552,15 @@ async function runDirect(args: Args): Promise<number> {
 
   const agent = new Agent({
     host,
-    systemPrompt: args.systemPrompt,
+    // --memory with no explicit --system → the recall-protocol persona so
+    // the marker actually fires (otherwise memory is never exercised).
+    systemPrompt: args.systemPrompt ?? (args.memory ? MEMORY_PERSONA : undefined),
     tierForTool: () => "T1",
+    // --memory defaults to lean (the heavy contract degrades small models
+    // AND dilutes the recall instruction — #41 v2 measured); explicit
+    // --no-default-system always wins. Non-memory behavior unchanged.
+    appendDefaultSystemPrompt: args.noDefaultSystem ? false : !args.memory,
+    compactionStrategy: args.compactStrategy,
   });
 
   // close the MemoryProvider on exit — agent.close() does not (cross-review
@@ -387,20 +583,20 @@ async function executeAgent(agent: Agent, args: Args): Promise<number> {
   try {
     if (args.prompt.length > 0) {
       // Single-shot mode (prompt from argv or non-TTY pipe)
-      await streamToStdout(agent, args.prompt, args.debug);
-      return 0;
+      const ok = await safeTurn(agent, args.prompt, args.debug);
+      return ok ? 0 : 2;
     }
 
-    // REPL mode — requires TTY
-    if (!process.stdin.isTTY) {
+    // REPL mode — requires TTY (or `--repl` force).
+    if (!process.stdin.isTTY && !args.forceRepl) {
       // Read single prompt from stdin
       const piped = await readStdin();
       if (piped.trim().length === 0) {
         process.stderr.write("naia-agent: no prompt (stdin empty and no positional arg)\n");
         return 3;
       }
-      await streamToStdout(agent, piped.trim(), args.debug);
-      return 0;
+      const ok = await safeTurn(agent, piped.trim(), args.debug);
+      return ok ? 0 : 2;
     }
 
     // Interactive REPL
@@ -419,7 +615,7 @@ async function executeAgent(agent: Agent, args: Args): Promise<number> {
         rl.prompt();
         continue;
       }
-      await streamToStdout(agent, trimmed, args.debug);
+      await safeTurn(agent, trimmed, args.debug); // never throws → REPL survives
       rl.prompt();
     }
 
@@ -517,10 +713,27 @@ async function buildLLMClientFromManifest(
       );
       return new VercelClient(provider(llm.model as Parameters<typeof provider>[0]));
     }
+    case "langgraph":
+    case "rag-retriever": {
+      // Reserve stub (Slice 3-XR-J piggyback for #23). These backends are
+      // recognized as valid manifest values so authors can declare intent
+      // ahead of implementation. The actual dispatcher (LangGraph node
+      // routing / RAG retriever + vector store + LLM hop) is deferred —
+      // see Slice 3-XR-K. Until then, refuse cleanly with a stable
+      // exit + a self-explaining stderr line. cf
+      //   .agents/progress/slice-3-xr-h-i-j-l-plan-2026-05-20.md §3
+      //   feedback_pi_substrate_not_glm_only_2026_05_20
+      process.stderr.write(
+        `naia-agent: manifest llm.backend "${llm.backend}" not implemented yet (deferred to Slice 3-XR-K). ` +
+          `Reserve stub: schema accepts the value but no live dispatcher is wired.\n`,
+      );
+      return null;
+    }
     default:
       process.stderr.write(
         `naia-agent: unknown manifest llm.backend "${llm.backend}" ` +
-          `(supported: openai-compatible | anthropic | vertex | claude-code)\n`,
+          `(supported: openai-compatible | anthropic | vertex | claude-code; ` +
+          `reserved: langgraph | rag-retriever)\n`,
       );
       return null;
   }
@@ -638,6 +851,10 @@ async function runService(args: Args): Promise<number> {
 
   const result = parseServiceManifest(raw);
   if (!result.ok) {
+    // Surface the manifest PATH alongside the structured error so a user
+    // with several manifests knows which one parsed wrong (cross-review
+    // A-F8). Keep the canonical JSON line for machine consumers.
+    process.stderr.write(`naia-agent: invalid manifest "${manifestPath}"\n`);
     process.stderr.write(JSON.stringify(result.error) + "\n");
     return 3;
   }
@@ -673,7 +890,31 @@ async function runService(args: Args): Promise<number> {
   const host: HostContext = {
     llm,
     memory,
-    tools: new InMemoryToolExecutor([createBashSkill()]),
+    tools: ((): import("@nextain/agent-types").ToolExecutor => {
+      const inMem = new InMemoryToolExecutor(
+        args.noTools
+          ? []
+          : args.enableFileOps
+            ? [createBashSkill(), ...createFileOpsSkills({ workspaceRoot: args.workdir })]
+            : [createBashSkill()],
+      );
+      if (!args.skillsDir) return inMem;
+      return new CompositeToolExecutor({
+        subs: [
+          { id: "builtins", executor: inMem },
+          {
+            id: "naia-adk-skills",
+            executor: new SkillToolExecutor({
+              loader: new FileSkillLoader({
+                workspaceRoot: args.skillsDir,
+                skillsDir: args.skillsDir,
+                onWarn: (m) => process.stderr.write(`naia-agent: skills-dir warn: ${m}\n`),
+              }),
+            }),
+          },
+        ],
+      });
+    })(),
     logger,
     tracer: new NoopTracer(),
     meter: new InMemoryMeter(),
@@ -696,6 +937,7 @@ async function runService(args: Args): Promise<number> {
     host,
     systemPrompt: manifest.persona.systemPrompt,
     tierForTool: () => "T1",
+    compactionStrategy: args.compactStrategy,
   });
 
   // close the MemoryProvider on exit — agent.close() does not (cross-review
@@ -710,12 +952,14 @@ async function runService(args: Args): Promise<number> {
 
 async function streamToStdout(agent: Agent, prompt: string, debug: boolean): Promise<void> {
   for await (const ev of agent.sendStream(prompt)) {
-    if (ev.type === "llm.chunk") {
-      if (ev.chunk.type === "content_block_delta" && ev.chunk.delta.type === "text_delta") {
-        process.stdout.write(ev.chunk.delta.text);
-      }
-    } else if (ev.type === "turn.ended") {
-      process.stdout.write("\n");
+    if (ev.type === "turn.ended") {
+      // Print the agent's FINAL sanitized answer (not raw streamed
+      // tokens) — raw streaming bypassed stripRecallResidue, leaking
+      // small-model malformed `<recal…>` markers. assistantText is
+      // already stripped at agent.ts; re-strip is idempotent insurance
+      // for the user-facing surface. (Trade-off: no live token stream;
+      // acceptable for short memory-CLI answers.)
+      process.stdout.write(`${stripRecallResidue(ev.assistantText)}\n`);
     } else if (ev.type === "tool.started") {
       process.stderr.write(`[tool] ${ev.invocation.name}(${JSON.stringify(ev.invocation.input).slice(0, 120)})\n`);
     } else if (ev.type === "tool.ended") {
@@ -727,6 +971,37 @@ async function streamToStdout(agent: Agent, prompt: string, debug: boolean): Pro
     } else if (debug) {
       process.stderr.write(`[${ev.type}]\n`);
     }
+  }
+}
+
+/**
+ * Run one turn without ever crashing the process. A model-server outage
+ * (ECONNREFUSED etc.) must NOT kill the REPL or fatal-exit single-shot —
+ * it prints a clean, actionable message and the caller decides flow.
+ */
+async function safeTurn(agent: Agent, prompt: string, debug: boolean): Promise<boolean> {
+  try {
+    await streamToStdout(agent, prompt, debug);
+    return true;
+  } catch (e) {
+    const msg = (e as Error)?.message ?? String(e);
+    const conn = /ECONNREFUSED|Cannot connect|fetch failed|ENOTFOUND|ETIMEDOUT|socket hang up|network|getaddrinfo/i.test(msg);
+    const noTools = /does not support tools|tool[_ ]?call|function[_ ]?call|tools.*unsupported/i.test(msg);
+    const url =
+      process.env["OPENAI_BASE_URL"] ?? process.env["ANTHROPIC_BASE_URL"] ?? process.env["GLM_BASE_URL"];
+    process.stderr.write(
+      `\nnaia-agent: turn failed — ${msg}\n` +
+        (conn
+          ? `  The model server${url ? ` at ${url}` : ""} is unreachable. Start it, or reconfigure:\n` +
+            `    pnpm naia-agent login --adk <naia-adk> \\\n` +
+            `      --main "openai-compat|http://127.0.0.1:11434/v1|gemma3n:e4b"\n`
+          : noTools
+          ? `  This model has no native tool-calling. Exit (\`exit\`/Ctrl-D) and re-run with --no-tools:\n` +
+            `    pnpm naia-agent --no-tools                          # REPL\n` +
+            `    pnpm naia-agent --no-tools --memory "your prompt"   # one-shot, with memory\n`
+          : ""),
+    );
+    return false;
   }
 }
 
@@ -1667,6 +1942,59 @@ async function runLogin(argv: string[]): Promise<number> {
 
 // ─── Entry point ─────────────────────────────────────────────────────────────
 
+// ─── login subcommand — persist naia-settings/llm.json + OS-keychain keys ──
+//
+// Writes the cross-repo 3-role config to <adk>/naia-settings/llm.json
+// (provider/baseUrl/model/apiKeyRef/dims ONLY — never a raw key) and the
+// naia-adk path to ~/.naia-agent/config.json. `--key REF=VALUE` stores the
+// secret in the OS keychain (device-key encrypted); if the keychain is
+// unavailable it REFUSES (no plaintext fallback) and tells the user to use
+// an env var. The value is never written to disk nor printed.
+
+// ─── show subcommand — read-only config inspection (no secret values) ──────
+function runShow(): number {
+  const adk = process.env["NAIA_ADK_PATH"];
+  let llmPath = "";
+  let llm: { main?: ParsedRole; sub?: ParsedRole; embedded?: ParsedRole } = {};
+  if (adk) {
+    llmPath = path.join(adk, "naia-settings", "llm.json");
+    try {
+      if (existsSync(llmPath)) llm = JSON.parse(readFileSync(llmPath, "utf8")) as typeof llm;
+    } catch {
+      /* keep llmPath; show missing/unreadable below */
+    }
+  }
+  const role = (name: string, r: ParsedRole | undefined): string => {
+    if (!r) return `  ${name.padEnd(10)} <none>`;
+    const ref = r.apiKeyRef ? `  apiKeyRef=${r.apiKeyRef}` : "";
+    const dims = r.dims ? `  dims=${r.dims}` : "";
+    return `  ${name.padEnd(10)} ${r.provider} ${r.model} @ ${r.baseUrl}${dims}${ref}`;
+  };
+  const env = process.env;
+  // mirror buildLLMClient's resolution order — what would run now
+  let resolved = "<none — set ANTHROPIC_API_KEY / OPENAI_API_KEY+OPENAI_BASE_URL / GLM_API_KEY, or `naia-agent login`>";
+  if (env["ANTHROPIC_API_KEY"]) resolved = `anthropic ${env["ANTHROPIC_MODEL"] ?? "<default>"}`;
+  else if (env["OPENAI_API_KEY"] && env["OPENAI_BASE_URL"])
+    resolved = `openai-compat ${env["OPENAI_MODEL"] ?? "<default>"} @ ${env["OPENAI_BASE_URL"]}`;
+  else if (env["GLM_API_KEY"]) resolved = `glm ${env["GLM_MODEL"] ?? "<default>"}`;
+  const memDb = env["NAIA_AGENT_MEMORY_DB"] ?? path.join(homedir(), ".naia-agent", "memory", "cli.sqlite");
+  const memExists = existsSync(memDb);
+  const cfgJson = path.join(homedir(), ".naia-agent", "config.json");
+  process.stdout.write(
+    `naia-agent show — current configuration (no secret values)\n` +
+      `  naia-adk:    ${adk ?? "<unset>"}\n` +
+      `  llm.json:    ${llmPath || "<n/a>"}${llmPath && !existsSync(llmPath) ? "  (missing)" : ""}\n` +
+      `${role("main", llm.main)}\n` +
+      `${role("sub", llm.sub)}\n` +
+      `${role("embedded", llm.embedded)}\n` +
+      `  resolved:    ${resolved}\n` +
+      `  memory db:   ${memDb}  (${memExists ? "exists" : "absent"})\n` +
+      `  config.json: ${cfgJson}\n` +
+      `  (apiKeyRef shows the env var / keychain NAME only — values are never printed.)\n`,
+  );
+  return 0;
+}
+
 /** Returns true if at least one LLM provider env is set (after env-load + keychain).
  *  Must mirror buildLLMClient() exactly — a false-positive here skips auto-redirect
  *  to login, then buildLLMClient() returns null and the process exits 3 with a
@@ -1701,6 +2029,10 @@ async function main(): Promise<number> {
     process.stderr.write(`naia-agent: ${parsed.error}\n`);
     process.stderr.write(
       `usage: pnpm naia-agent [prompt] [--mode=direct|supervisor] [--workdir DIR] [--debug]\n` +
+      `       pnpm naia-agent [prompt] [--no-tools] [--no-default-system] [--memory] [--system "…"]\n` +
+      `       pnpm naia-agent [prompt] [--compact-strategy reactive|realtime|anthropic-native|off]\n` +
+      `       pnpm naia-agent login --adk <path> [--main …] [--sub …] [--embedded …] [--key REF=VAL]\n` +
+      `       pnpm naia-agent show                       # show current config (no secret values)\n` +
       `       pnpm naia-agent --stdio\n` +
       `       pnpm naia-agent [prompt] --service app.service.json\n` +
       `       pnpm naia-agent [prompt] --mode=supervisor [--no-verify] [-m model] [--adapter shell -- cmd args]\n` +
@@ -1724,13 +2056,17 @@ async function main(): Promise<number> {
     }
   }
 
-  // If no LLM provider is configured and we're on a TTY, auto-redirect to login.
+  // show subcommand — read-only config inspection (after env+keychain load so
+  // resolved/keychain references are populated).
+  if (argv[0] === "show") return runShow();
+
   // Stdio IPC mode: enter readline JSON loop before login redirect check
   // (credentials arrive dynamically via auth_update, so hasLLMConfig() is false at startup).
   if (parsed.stdio) {
     return runStdio();
   }
 
+  // If no LLM provider is configured and we're on a TTY, auto-redirect to login.
   if (!hasLLMConfig() && process.stdin.isTTY) {
     process.stdout.write("naia-agent: no LLM provider configured — starting setup.\n\n");
     const loginResult = await runLogin([]);

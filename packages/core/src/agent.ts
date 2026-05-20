@@ -24,6 +24,7 @@ import { DEFAULT_SYSTEM_PROMPT } from "./default-system-prompt.js";
 import type {
   CompactableCapable,
   CompactionMessage,
+  CompactionStrategy,
   HostContext,
   LLMContentBlock,
   LLMMessage,
@@ -46,6 +47,20 @@ export interface AgentOptions {
   host: HostContext;
   /** Optional system prompt, inserted as top-level `system` field. */
   systemPrompt?: string;
+  /**
+   * Whether to append the built-in `DEFAULT_SYSTEM_PROMPT` behavioral
+   * contract after the host's `systemPrompt`. Default `true` (unchanged
+   * for all existing hosts). A host may set this `false` when it supplies
+   * its own complete contract, runs under a tight token budget, or drives
+   * a small model that the long contract degrades. General host-side
+   * composition control — model/tier/profile-agnostic (the Agent has no
+   * notion of tiers; profiles live in the host layer).
+   *
+   * Trade-off: opting out also removes the built-in Trust/Safety
+   * behavioral rules in `DEFAULT_SYSTEM_PROMPT` — such a host must supply
+   * equivalent guarantees itself.
+   */
+  appendDefaultSystemPrompt?: boolean;
   /** Override default model (otherwise provider default is used). */
   model?: string;
   /** Maximum tool-use iterations per `send()` call. Default 10. */
@@ -68,6 +83,18 @@ export interface AgentOptions {
    * (3 user/assistant turn pairs, roughly.)
    */
   compactionKeepTail?: number;
+  /**
+   * Compaction strategy — Slice 3-XR-Compact (#47). Passed through to
+   * memory.compact() as a hint and surfaced in the `compaction` event for
+   * observability. Default: `reactive` (industry pattern, anchored iterative).
+   *
+   * - `reactive`: on-demand summarize at threshold (opencode/openclaw pattern).
+   * - `realtime`: rolling summary via naia-memory v2 fast path.
+   * - `anthropic-native`: server-side compaction (when backend = anthropic +
+   *   Opus 4.6+). Agent does NOT call compact() — Anthropic handles it.
+   * - `off`: agent never calls compact(). Conversation grows unbounded.
+   */
+  compactionStrategy?: CompactionStrategy;
   /**
    * Tier resolver — given a tool name, returns its tier. Host plugs in a
    * skill-spec lookup. Default: T1 (safe assumption).
@@ -124,17 +151,25 @@ export class Agent {
   readonly #estimate: (req: LLMRequest) => number;
   readonly #budget: number;
   readonly #keepTail: number;
+  readonly #strategy: CompactionStrategy;
+  /** Prior recap from the last compaction in this session. Anchored iterative
+   *  summarization (Factory.ai) — the next compact() merges new head into this
+   *  rather than re-summarizing from raw. Slice 3-XR-Compact (#47). */
+  #priorRecap: CompactionMessage | undefined;
   readonly #tierFor: (name: string) => TierLevel;
   readonly #maxConsecutiveToolErrors: number;
+  readonly #appendDefaultSystem: boolean;
 
   constructor(options: AgentOptions) {
     this.#host = options.host;
     if (options.model !== undefined) this.#model = options.model;
     if (options.systemPrompt !== undefined) this.#system = options.systemPrompt;
+    this.#appendDefaultSystem = options.appendDefaultSystemPrompt ?? true;
     this.#maxHops = options.maxToolHops ?? 10;
     this.#estimate = options.estimateTokens ?? defaultEstimate;
     this.#budget = options.contextBudget ?? 80_000;
     this.#keepTail = options.compactionKeepTail ?? 6;
+    this.#strategy = options.compactionStrategy ?? "reactive";
     this.#tierFor = options.tierForTool ?? (() => "T1");
     this.#maxConsecutiveToolErrors = options.maxConsecutiveToolErrors ?? 3;
 
@@ -201,6 +236,10 @@ export class Agent {
     let consecutiveToolErrors = 0;
     let lastBadInvocation: ToolInvocation | undefined;
     let halted = false;
+    // LLM-initiated recall (#41 v2): a model emits a `<recall>query</recall>`
+    // text marker instead of a native tool call. Model-agnostic. Depth-
+    // guarded to prevent self-generated recall loops (cross-review B-loop).
+    let recallHopsRemaining = 2;
 
     while (hopsRemaining-- > 0) {
       if (signal?.aborted) break;
@@ -239,6 +278,26 @@ export class Agent {
 
       if (stopReason !== "tool_use") {
         finalText = extractText(blocks);
+        // LLM-initiated recall (#41 v2). If the model asked for memory
+        // via a `<recall>query</recall>` marker, recall and re-generate.
+        // Query sanitized (length-bounded, non-empty) per cross-review
+        // B-query; depth-guarded per B-loop. Writes unaffected (read-only).
+        const marker = finalText.match(/<recall>([\s\S]{1,256}?)<\/recall>/i);
+        const recallQuery = marker?.[1]?.trim();
+        if (recallQuery && recallQuery.length >= 2 && recallHopsRemaining-- > 0) {
+          const more = await this.#recallMemory(recallQuery);
+          for (const h of more) hits.push(h);
+          this.#host.logger.fn?.("Agent.recallMarker")?.exit({
+            query: recallQuery.slice(0, 64), hits: more.length,
+            hopsLeft: recallHopsRemaining,
+          });
+          continue;
+        }
+        // No actionable marker (or budget exhausted): sanitize residue so
+        // users never see raw tags — well-formed AND small-model malformed
+        // variants. OUTPUT hygiene only; the agent still ACTS solely on the
+        // strict form above (#41 v2 — leniency must not reach recall).
+        finalText = stripRecallResidue(finalText);
         break;
       }
 
@@ -335,9 +394,14 @@ export class Agent {
   ): LLMRequest {
     const systemParts: string[] = [];
     if (this.#system) systemParts.push(this.#system);
-    // Behavioral contract — always enforced, not bypassable by any host.
-    // Persona (this.#system) comes first; rules come after. See default-system-prompt.ts.
-    systemParts.push(DEFAULT_SYSTEM_PROMPT);
+    // Behavioral contract appended after the host persona (this.#system).
+    // Default-on for every host; a host may opt out via
+    // `appendDefaultSystemPrompt: false` when it owns the full contract,
+    // is token-constrained, or drives a small model the long contract
+    // degrades. Opting out drops the built-in Trust/Safety rules — the
+    // host owns equivalent guarantees. See AgentOptions
+    // .appendDefaultSystemPrompt / default-system-prompt.ts.
+    if (this.#appendDefaultSystem) systemParts.push(DEFAULT_SYSTEM_PROMPT);
     if (memoryHits.length > 0) {
       const recalled = memoryHits.map((h) => `- ${h.content}`).join("\n");
       systemParts.push(`Relevant context from memory:\n${recalled}`);
@@ -486,6 +550,16 @@ export class Agent {
     memoryHits: MemoryHit[],
     toolDefs: readonly ToolDefinitionWithTier[],
   ): Promise<AgentStreamEvent | undefined> {
+    // Strategy gates — short-circuit when the host explicitly disabled
+    // host-side compaction (Slice 3-XR-Compact #47 §6).
+    if (this.#strategy === "off") return undefined;
+    if (this.#strategy === "anthropic-native") {
+      // Server-side compaction is the authoritative path; we MUST NOT also
+      // mutate history client-side or we double-compact. The provider adapter
+      // surfaces compaction events separately when the API reports them.
+      return undefined;
+    }
+
     const request = this.#buildRequest(memoryHits, toolDefs);
     if (this.#estimate(request) <= this.#budget) return undefined;
 
@@ -512,6 +586,8 @@ export class Agent {
         keepTail: keptTail,
         targetTokens: Math.max(1_000, Math.floor(this.#budget * 0.15)),
         sessionId: this.#session.id,
+        strategy: this.#strategy,
+        ...(this.#priorRecap !== undefined ? { priorRecap: this.#priorRecap } : {}),
       });
       // Replace the head window with a synthetic assistant message.
       // `droppedCount` is an advisory from memory; we honour our own cutAt
@@ -521,6 +597,9 @@ export class Agent {
         content: result.summary.content,
       };
       this.#history.splice(0, cutAt, summaryMsg);
+      // Anchored iterative — store this recap as the seed for the next
+      // compaction in the same session. Slice 3-XR-Compact (#47) §6.
+      this.#priorRecap = result.summary;
       return {
         type: "compaction",
         droppedCount: result.droppedCount,
@@ -641,4 +720,44 @@ function randomSessionId(): string {
     if (uuid) return `sess-${uuid}`;
   } catch {}
   return `sess-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * Display hygiene for the final answer: remove small-model `<recall>`
+ * marker residue (well-formed AND malformed: `<recalall>…</recalall>`,
+ * `<recal_l>…</recal_l>`, `<recal_…</recal>`, `<recal<…</recal>`, stray
+ * `</recall>`, unterminated trailing `<recal_…`). OUTPUT-ONLY: the agent
+ * still ACTS solely on the strict `<recall>q</recall>` form (#41 v2) —
+ * this leniency must never influence whether a recall fires (cross-review
+ * invariant A), only what the user sees.
+ *
+ * Cross-review #2 BLOCK fixes:
+ *  - Anchor to the `recal` family ONLY (`recal[la]*`): `<recap>`,
+ *    `<recapitulate>`, `<recital>`, `<receipt>` never match.
+ *  - Strip ONLY a line-leading/standalone marker (the small-model failure
+ *    mode) — a `<recall>` quoted mid-prose or in a code span is preserved
+ *    (the agent must not erase its own protocol documentation).
+ *  - Content bounded to {0,256} (mirrors the strict matcher) so a marker
+ *    cannot bridge real paragraphs; trailing-open bounded to 64.
+ *  - Marker-free input is returned BYTE-IDENTICAL (no whitespace/​trim
+ *    mangling of normal answers or code); trim only when residue removed.
+ *  - Nullish-safe. Pure + exported for unit tests.
+ */
+export function stripRecallResidue(text: string): string {
+  if (!text) return text ?? "";
+  const W = String.raw`recal[la]*`; // recal | recall | recalll | recalall
+  const LEAD = String.raw`(^|\n)[ \t]*`; // line-leading only
+  const out = text
+    // line-leading marker PAIR (content bounded — no paragraph bridging)
+    .replace(
+      new RegExp(`${LEAD}<\\s*${W}[\\s\\S]{0,256}?<\\s*/\\s*${W}[^>]{0,8}>`, "gi"),
+      "$1",
+    )
+    // line-leading unpaired marker-ish tag (bounded)
+    .replace(new RegExp(`${LEAD}<\\s*/?\\s*${W}[^>]{0,16}>`, "gi"), "$1")
+    // line-leading unterminated open at end (bounded, single-line)
+    .replace(new RegExp(`${LEAD}<\\s*/?\\s*${W}[^>\\n]{0,64}$`, "i"), "$1");
+  // Only normalize edges when residue was actually removed — a marker-free
+  // answer (incl. code/whitespace) is returned untouched.
+  return out === text ? text : out.replace(/^\s+|\s+$/g, "");
 }

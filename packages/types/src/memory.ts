@@ -231,6 +231,23 @@ export interface CompactableCapable {
   compact(input: CompactionInput): Promise<CompactionResult>;
 }
 
+/**
+ * Compaction strategy enum — Slice 3-XR-Compact (#47).
+ *
+ * - `reactive`: opencode/openclaw pattern, on-demand summarize when token
+ *   threshold exceeded. Anchored iterative — prior recap is the seed for
+ *   the next recap.
+ * - `realtime`: naia-memory v2 rolling-summary fast path. encode() accumulates
+ *   a deterministic seed; compact() returns instantly. Optional LLM polish
+ *   only at compact() time (per-turn polish OFF by default).
+ * - `anthropic-native`: passthrough to Anthropic's `context_management.edits`
+ *   (cookbook beta). Server-side; host-side strategies auto-OFF when this is
+ *   active and backend = anthropic + model ≥ Opus 4.6.
+ * - `off`: caller never invokes compact(). Conversation grows unbounded
+ *   until provider raises a context-length error.
+ */
+export type CompactionStrategy = "reactive" | "realtime" | "anthropic-native" | "off";
+
 export interface CompactionInput {
   /**
    * The message window to compact. Usually the leading N turns of a
@@ -245,6 +262,20 @@ export interface CompactionInput {
   targetTokens: number;
   /** Optional session id for context continuity. */
   sessionId?: string;
+  /**
+   * Optional strategy hint — memory implementations MAY adapt behavior.
+   * Backward-compatible: implementations that ignore this field continue
+   * to work. Slice 3-XR-Compact (#47).
+   */
+  strategy?: CompactionStrategy;
+  /**
+   * Optional anchor — the prior recap (assistant message) from the previous
+   * compaction in this session. When present, the memory implementation
+   * should treat it as the persistent state to MERGE new head messages into,
+   * not re-summarize from raw. Reference: Factory.ai anchored iterative
+   * summarization. Slice 3-XR-Compact (#47).
+   */
+  priorRecap?: CompactionMessage;
 }
 
 /**

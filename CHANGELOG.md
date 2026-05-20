@@ -8,6 +8,624 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+### docs
+
+- **`docs/voice-cascade-contract.md`** (new, + `.users/docs/ko/` mirror) — Voice Cascade Contract spec between naia-agent and LiveKit `llm.LLM`. Locks four exit gates that Slice 3-XR-Voice (Task #28, P0c-2) must satisfy before merge: G1 cancel-propagates-upstream-in-one-turn, G2 no-cancelled-turn-memory-write, G3 partial-text-hidden-or-marked-unstable (voice path streams partials behind the `naia-agent[voice]` extra; chat path stays final-only), G4 tool-hop-cancel-leaves-session-reusable. Also locks the Codex r4 LiveKit-lock-in re-evaluation triggers (only G1/G2/G3 failures trigger backbone re-eval; G4 is a wrapper-design call). Provenance: promoted from `naia-labs/promote_to_naia_agent/b5_lite_contract_memo.md` (Codex r3 Q5 + r4 #5). Design lock only — no code yet; verification placement maps onto `docs/adapter-contract.md` §2 contract-test ladder at scaffold time. Cross-linked from `docs/voice-pipeline-audit.md` §1 integration surface.
+
+## [Slice 3-XR-Compact] — 2026-05-21 — triple-strategy compaction + benchmark harness (Task #47)
+
+User directive (2026-05-20): "둘 다 구현하고 벤치마킹 구조부터 / opencode 나 openclaw 를 참고 / naia-agent는 둘 다 지원하게 / 다른 ai들과 크로스리뷰 분석". This slice ships the entire surface — strategy enum, host wiring, naia-memory v3 anchored iterative, benchmark harness, 10 seed fixtures, first deterministic measurement, honest ledger.
+
+### P0 — external survey + plan v2 LOCKED (commit `bab5c6b`)
+
+- **`docs/compaction-survey.md`** (new) — canonical external-evidence record. Synthesizes 5-repo OSS patterns (ref-openclaw / ref-opencode / ref-cline / ref-moltbot / ref-cc-cleanroom), Anthropic Cookbook + `compact-2026-01-12` beta, Microsoft Agent Framework `ToolResultCompactionStrategy`, and 7 academic refs (MemGPT / recursive summary / Mem0 / Proactive Memory Extraction / Acon / Active Context Compression / Factory.ai anchored iterative). External LLM cross-review tools (codex / opencode / gemini / ollama) were environment-blocked (sandbox / TTY / GPU); peer-reviewed sources used as stronger cross-evidence.
+- **`.agents/progress/slice-3-xr-compact-plan-2026-05-20.md`** — full plan with §8 Open Questions LOCKED (Q1 threshold 75% per Acon "moderate best" / Q2 deterministic-by-default + LLM polish only at compact() time per Factory.ai / Q3 Microsoft ToolResultCompactionStrategy for tool_result / Q4 anthropic-native uppermost + host-side auto-OFF / Q7 reactive ALSO anchored iterative).
+
+### P1 — benchmark harness skeleton (commit `870b504`)
+
+- **`packages/benchmarks/`** (new package, `@nextain/agent-benchmarks`, private workspace). Fixture JSON schema + 5-axis metric collectors (task-accuracy / fact-recall / latency p50+p99+compactionAvg / cost / drift Jaccard) + markdown report writer (aggregate-by-strategy + per-fixture) + CLI runner (`pnpm bench:compact`).
+- **16 unit tests** — validate-fixture reject cases, metric edge cases, percentile math, drift Jaccard, report shape.
+
+### P2 — CompactionStrategy enum + flag + env (commit `e1a4e84`)
+
+- **`@nextain/agent-types`** — new `CompactionStrategy` union (`reactive` | `realtime` | `anthropic-native` | `off`); `CompactionInput` gains optional `strategy` + `priorRecap` (backward-compat).
+- **`@nextain/agent-core`** — `AgentOptions.compactionStrategy` (default `reactive`). `Agent.#maybeCompact` short-circuits when strategy = `off` or `anthropic-native` (server-side path is authoritative; host-side would double-compact). Tracks `#priorRecap` per session and forwards it to `memory.compact()`, enabling end-to-end anchored iterative summarization.
+- **`bin/naia-agent.ts`** — `--compact-strategy <reactive|realtime|anthropic-native|off>` flag + `NAIA_AGENT_COMPACT_STRATEGY` env (CLI > env > default reactive). Validation: unknown value → exit 3 with helpful stderr. Wired into both `runDirect` and `runService` Agent constructors.
+- **9 cli-app integration tests** (`bin-compact-strategy.test.ts`) — accept all four strategies, reject missing/unknown value, env-vs-CLI precedence.
+
+### P3 — naia-memory v3 anchored iterative + 5-section recap (companion commit naia-memory `604677f`, branch `migration/compact-anchored-iterative`)
+
+- **`MemorySystem.compact()`** accepts `strategy?` + `priorRecap?` (both optional, backward-compat with existing host tests).
+- Prepends `## Prior recap (anchored)` section verbatim when `priorRecap` supplied — Factory.ai anchored iterative pattern (prior recap = seed for next recap, never re-summarized from raw).
+- 5-section markdown appended after legacy `[Conversation recap …]` header: `## Goal` (first user) / `## Instructions` (system msgs) / `## Tool calls made` (deduped, cap 10) / `## Discoveries` (fact-shaped assistant lines) / `## Relevant files / URLs` (paths + URLs strict-preserved via regex).
+- **9 new tests** (`compact-anchored.test.ts`) + 19 pre-existing pass (28/28 total).
+
+### P4 + P5 — runtime wire-up integration (commit `1a1aafe`)
+
+- **`agent-compaction-strategy.test.ts`** — 6 integration tests proving end-to-end:
+  - **P4-01/02** strategy + sessionId forwarded to memory.compact() (reactive & realtime)
+  - **P4-03** second compaction in same session carries priorRecap from first (anchored iterative end-to-end)
+  - **P5-01/02** anthropic-native AND off short-circuit (memory.compact() NEVER invoked)
+  - **P5-03** reactive sanity (compact() DOES invoke under budget pressure)
+
+### P6 — 10 seed fixtures + real measurement runner + first ledger (commit `db85931`)
+
+- **10 seed fixtures** under `packages/benchmarks/src/fixtures/` (F001-F010 across 10 domains: customer-support / coding-pair / research-synthesis / persona-roleplay / tool-heavy / mixed-language / calculation-chain / story-continuation / preference-tracking / websearch-heavy). 18-23 turns each; 2-3 probes (fact-recall + task-accuracy + optional drift); explicit compactionPoints. `FixtureRole` schema extended to include `"tool"`.
+- **`runFixture()`** drives a fixture through real `MemorySystem.compact()` per strategy. realtime path encodes every turn first (rolling accumulation); reactive path triggers compaction at compactionPoints with anchored iterative `priorRecap` chained across rounds. `evaluateProbe()` is deterministic (keyword match for fact-recall, domain-anchor heuristic for task-accuracy, Jaccard for drift).
+- **First measurement** (`reports/2026-05-20-deterministic.md`):
+  - `reactive` task 0.40, recall 0.60, drift 0.545
+  - `realtime` task 0.40, recall 0.60, drift 0.531
+  - `anthropic-native` task 0.30, recall 1.00, drift 1.00
+  - `off` task 0.30, recall 1.00, drift 1.00
+- **CRITICAL caveat documented** in `.agents/progress/compact-bench-2026-05-20.md` ledger: the deterministic harness *appears* to favor `off`/`anthropic-native` on fact-recall because it doesn't simulate hard truncation. In production those strategies 4xx at context limit. Strategy ranking deferred to LLM-judge iteration (next slice).
+
+### Verification
+
+- All 40 new tests pass + 0 regression on touched packages.
+- Build green on @nextain/agent-types / @nextain/agent-core / @nextain/agent-benchmarks.
+- @nextain/agent-runtime build has pre-existing TS2532 in coding-tool.test.ts unrelated to this slice — `vitest run` works fine (TS errors are in test sources only, not build output).
+- `pnpm bench:compact` end-to-end: 10 fixtures × 4 strategies → report + per-fixture stderr, 0 errors.
+
+### Follow-up (separate slices)
+
+- **LLM-judge iteration** — `NAIA_JUDGE_ENSEMBLE` wiring (GLM HTTP + Codex CLI + Claude CLI 3-judge majority), hard-truncation simulation for `off`, real LLM driver mode (`--driver real` spawning `bin/naia-agent` per turn). Gated on user API keys (host env has `GLM_API_KEY` + `OPENAI_API_KEY` + codex/claude CLI tools).
+- **50-fixture expansion** + adversarial fixtures (100+ turn, multi-compaction chains).
+- **naia-os#185 Phase 2 wiring** — connect `agent/src/index.ts` `checkTokenBudget` to the new `--compact-strategy` path.
+- **MemGPT-light hierarchical** (long-horizon, optional).
+
+## [Slice 3-XR-M + 3-XR-N + 3-XR-O] — 2026-05-20 — REPL/PTY + cross-OS sanity + Claude Code parity ledger (Tasks #25/#26/#27)
+
+User: "3-XR-O까지 달려야해". Three slices in one push (mechanism-heavy, single LIVE in Group M).
+
+### 3-XR-M — multi-turn REPL + Claude Code subscription routing (Task #25)
+
+- **bin/naia-agent.ts**: new `--repl` flag. Default behavior treats piped stdin as single-shot (`readStdin` → one turn) per the existing design. `--repl` forces the readline REPL loop regardless of stdin TTY status — useful for harness multi-turn tests and for shell pipelines feeding several prompts. Model-agnostic.
+- **Group M — 2 scenarios**:
+  - **M1** multi-turn REPL via async `spawn` (no node-pty dep) — `--repl` + `--no-tools` against a dead model server. safeTurn keeps the REPL alive across per-turn failures: ≥2 `naia> ` prompts observed, clean exit on "exit". Verifies the Slice 3-XR-F safeTurn promise on a LIVE process boundary.
+  - **M2** Claude Code subscription routing — `--service <manifest>` with `backend:"claude-code"`. Dry-run mode (NAIA_AGENT_DRYRUN=1) asserts the dispatcher arm without consuming subscription credit. Opt-in `NAIA_AGENT_CLAUDECODE_LIVE=1` env gate executes a real one-turn call (credit consumed). Default OFF.
+
+### 3-XR-N — cross-OS sanity mechanism (Task #26)
+
+- **Group N — 6 scenarios** (Linux-side; Windows host LIVE honestly deferred):
+  - **N1** path-traversal blocked regardless of separator style; backslash on Linux = literal filename (documented).
+  - **N2** file-ops CRLF roundtrip — `write_file` + `read_file` preserve `\r\n` line endings.
+  - **N3** `getSecretStore()` cross-platform — `available()` returns a clean boolean on every platform; Linux wires `LibSecretStore`, others get `NullSecretStore`.
+  - **N4** HOME env read on Linux/macOS (USERPROFILE on Windows deferred to a Windows host run).
+  - **N5** shell adapter dual-platform branch — `process.platform === "win32"` selecting `cmd.exe` vs `/usr/bin/env`; refuses silent regression to a single-platform hard-code.
+  - **N6** honest DEFER — Windows host LIVE = separate slice with a Windows runner. Cross-OS sanity (Group N1-N5) is sufficient mechanism for this session.
+
+### 3-XR-O — naia-agent ↔ Claude Code parity ledger (Task #27)
+
+- **Group O — 7 scenarios** (pure mechanism + intentional-difference ledger):
+  - **O1** file-ops parity — naia-agent registers the same 5-skill core (`read_file` / `write_file` / `edit_file` / `list_files` / `bash`) Claude Code's editor surfaces.
+  - **O2** REPL parity — readline-based + `naia> ` prompt + exit/quit/.exit + `--repl` force.
+  - **O3** tool-marker parity — both runtimes emit per-invocation stderr markers (`[tool] name({args})` vs `● Tool(arg)`); semantics identical.
+  - **O4** exit-code parity — 0/2/3 tier (naia-agent) vs 0/1 (Claude Code); intentional divergence documented (3-tier is more actionable for shell pipelines).
+  - **O5** memory + persona parity — `--memory` + `--system` + `--no-default-system` wired; equivalent capability to Claude Code's CLAUDE.md + system rider, different shape.
+  - **O6** service-mode parity — `--service <manifest>` with `backend:"claude-code"` routes to Claude Code subscription (no API key); DRYRUN gate verifies the wire-up without credit.
+  - **O7** intentional-difference ledger — slash commands / TUI rendering / subagent dispatch / plugins / WebFetch / auto-compaction — these are Claude Code PRODUCT surfaces, NOT naia-agent runtime missing-features. Documented as honest non-replication.
+
+### Ralph + regression
+
+- Group M R1=1/2 → R2=2/2 (M1 needed `--repl` flag) → R3=2/2 (**2-consecutive**)
+- Group N R1=5/6 (N2 wrong skill handler signature — returns plain string, not `{content, isError}`) → R2=6/6 → R3=6/6 (**2-consecutive**)
+- Group O R1=7/7 → R2=7/7 (**2-consecutive**, pure mechanism)
+- **Full cli-app regression**: 14 files / **175 passed / 2 skipped / 1 LIVE flake** (S7 ollama cache swap under cumulative 24G + Group P LIVE + Group D LIVE pressure — environment side-effect, NOT a Slice 3-XR-M/N/O regression).
+
+### Over-fit guard preserved
+
+- `--repl` = model-agnostic toggle (default OFF, no behavior change).
+- N1-N5 / O1-O7 = mechanism + documentation only, no runtime branch.
+
+### Voice 트랙 (#28) 분리 흡수 (다른 세션 정렬, 2026-05-20)
+
+- Voice P0c phase 가 다른 세션에서 둘로 쪼개짐:
+  - **P0c-1 standalone tech demo** (naia-agent 의존 0, LiveKit ↔ ko-serve, mock LLM) = **다른 세션 산출**.
+  - **P0c-2 naia-agent integration** = 우리 Task #28 (M/N/O 끝난 후 또는 별 세션 진입).
+- plan 문서 `.agents/progress/slice-3-xr-h-i-j-l-plan-2026-05-20.md` §4.5 신설로 흡수.
+- Task #28 description = P0c-2 만으로 좁힘.
+
+## [Slice 3-XR-L] — 2026-05-20 — onmam-adk 도메인 skills 자동 적용 검증 (Task #24)
+
+User gate (2026-05-20): "L도 해야겠네". The Slice 3-XR-J `--skills-dir` mechanism is ADK-agnostic — onmam-adk should work identically since it shares the same SKILL.md format and top-level `skills/` layout. This slice closes that loop.
+
+- **onmam-adk inventory**: 10 SKILL.md-valid skills + 1 stub dir (business/, no SKILL.md). 9 share names with naia-adk (channel-management, doc-coauthoring, document-generation, email, read-doc, review-pass, service-management, sms, web-monitoring), 1 onmam-only (`wp-archive`).
+
+- **Group G — 4 scenarios** (integration-scenarios.test.ts):
+  - **G1** onmam-adk skills/ load — 10 skills + `wp-archive` + 9 naia overlap (mechanism, tier distribution recorded)
+  - **G2** wp-archive descriptor valid — onmam-only domain skill (name/tier/description/inputSchema)
+  - **G3** naia-adk + onmam-adk **collision** via `CompositeToolExecutor` — first-registered wins:
+    - `ownerOf("channel-management") === "naia-adk"` (first sub wins)
+    - `ownerOf("wp-archive") === "onmam-adk"` (onmam-only present)
+    - `shadowedNames().length >= 9` (the 9 overlapping names)
+    - Trust boundary documented: sub ORDER controls shadowing. Putting an attacker-controlled sub first would let it shadow a built-in.
+  - **G4** onmam-dev GCE live invocation — **DEFERRED** (user gate per `feedback_ai_leads_human_executes_serverenv`; external server modification is human-executed only). Honest skip in the results JSON.
+
+- **Ralph trajectory**: R1 = 4/4 PASS, R2 = 4/4 PASS (2-consecutive). No core changes needed — onmam-adk works through the existing Slice 3-XR-J machinery as predicted.
+
+- **Full cli-app regression**: 14 files / **160 passed / 2 skipped / 1 flake (S7 ollama cache swap, NOT Group G)** / 465s wall. S7 was flake-fixed once already (Slice 3-XR-I 240s timeout + Slice 3-XR-J 480s + retry); under the now-larger LIVE pressure (Group D 24G + Group P 24G + Group G mechanism all using gemma4:31b in the same suite run) the e4b cold-start sometimes exceeds 2× retries. Not a Slice 3-XR-L regression.
+
+- **Honest verification of the user's hypothesis**: "naia-adk와 동일 메커니즘이므로 #22 끝나면 자동 적용 가능" — confirmed. Zero bin/runtime changes needed for onmam-adk. Same `--skills-dir <path>` flag, same FileSkillLoader, same SkillToolExecutor, same Composite shadowing semantics.
+
+## [Slice 3-XR-H] — 2026-05-20 — multi-judge ensemble (GLM + Codex + Claude) — Task #20
+
+Resolves `feedback_pi_substrate_not_glm_only_2026_05_20`: the pi pin-bundle substrate intent is **multi-tool external subprocess**, not a single GLM HTTP call. This slice ships the missing ensemble path.
+
+- **`lib/llm-judge.ts`** — new functions:
+  - `judgeClaude(args, opts)` — spawns `claude -p <prompt> --output-format text` (Claude Code 2.1+ CLI). Out-of-process; uses CLI's own OAuth.
+  - `judgeCodex(args, opts)` — spawns `codex exec --output-last-message <file> <prompt>` (codex-cli 0.130+).
+  - `judgeEnsemble(args, opts, env)` — runs GLM HTTP + claude CLI + codex CLI in parallel. Returns `EnsembleVerdict { pass, reason, glm?, claude?, codex?, agreeRate, validCount, infraErrorCount }`.
+  - `ensembleAvailable()` — 5-second probe of each provider's invokability.
+  - Aggregation: infra-errored judges EXCLUDED from majority. Strict-majority pass among remaining → ensemble pass. Tie or all-fail → ensemble fail. Configurable via `includeGlm/includeClaude/includeCodex`.
+
+- **Self-judge bias avoidance — structural**:
+  - SUT (System Under Test) = local Gemma family (gemma4:31b / gemma3n:e4b on ollama).
+  - Judge ensemble = GLM-4.5 (cloud, Zhipu) + Claude (Anthropic) + Codex (OpenAI). **Different vendors, families, sizes.** Cannot self-vote.
+
+- **`integration-scenarios.test.ts`** — opt-in ensemble for **3 high-judgment scenarios** (A1 / A4 / F2). Gated by `NAIA_JUDGE_ENSEMBLE=1` (default off — single GLM, to bound subscription costs). Other 23 scenarios stay single-GLM (low-judgment, mechanism-asserted).
+
+- **Ralph R1 → R2 finding (real value of ensemble)**:
+  - R1 A1: ensemble `pass=true agreeRate=0.67` — **codex DISAGREED** with glm/claude. Codex strict-interpreted "the output" to include the harness's `[exit=N]` header + stderr tool logs, voted FAIL. GLM and Claude correctly evaluated only the model's response prose. **Single-GLM would have hidden this ambiguity.**
+  - R2 (this commit): A1 `expected` clarified — "Evaluate ONLY the model's reply text (above the `--- stderr ---` divider). Ignore [exit=N], stderr lines, tool logs". After clarification all 3 judges unanimous.
+  - R3: confirmed 2-consecutive PASS (R2+R3, agreeRate=1.0 across all 3 scenarios, 9/9 judges PASS, 0 infra-error).
+
+- **Cost ledger**: each ensemble-enabled run = 3 scenarios × 3 judges = 9 API calls. claude CLI subscription credits + codex CLI credits consumed. Default OFF preserves run cost. Set `NAIA_JUDGE_ENSEMBLE=1` for explicit ensemble runs.
+
+- **Full cli-app suite regression (single-GLM mode)**: 14 files / **151 passed / 2 skipped / 0 failed** / 395s wall. No regression. Over-fit guard 100% preserved (`feedback_naia_agent_general_purpose_no_overfit`) — judge harness only, no core change.
+
+- **Planning context (`.agents/progress/slice-3-xr-h-i-j-l-plan-2026-05-20.md`)** — design doc spelling out H → J → L sequence per user gate. K (LangGraph + RAG actual implementation) explicitly deferred; its small reserve (manifest enum + stub message) will piggyback on J as a separate commit.
+
+- **Limitations**:
+  - opencode / gemini CLIs NOT wired (user said "glm, codex, claude").
+  - Ensemble used on 3 scenarios only (high-judgment); 23 others still single-GLM.
+  - claude CLI subscription / codex credits consumed per ensemble run.
+
+## [Slice 3-XR-I] — 2026-05-20 — pi-based coding LIVE verification (Group P) — Task #21
+
+User asked (verbatim): "pi 기반의 코딩도 진행이 되는거야?". The prior Group B coding scenarios only exercised LLM read/explain prose. This slice closes the gap with **6 LIVE tool-calling scenarios** in which gemma4:31b drives the runtime tool-loop end-to-end.
+
+- **Native tool-calling probe**: ollama `gemma4:31b` returns `finish_reason="tool_calls"` + a populated `tool_calls` array (contrary to the earlier "likely no, Gemma family" note in tier-8g-vs-24g-comparison). GLM also OK. `naia-coding` (port 8000) currently down (separate `vllm-coding` 48G service).
+
+- **bin/naia-agent.ts**: new `--enable-file-ops` flag (general toggle, default OFF — no behavior change). When set, `createFileOpsSkills({ workspaceRoot: args.workdir })` registers `read_file` / `write_file` / `edit_file` / `list_files` alongside `bash`. The `workspaceRoot` is wired from the existing `--workdir` so D09 normalizeWorkspacePath enforces the boundary consistently. Same wiring applied to BOTH direct mode (`runDirect`) AND service mode (`runService`).
+
+- **Group P — 6 LIVE scenarios** (integration-scenarios.test.ts):
+  - **P1 write_file** — model writes to a tmp file via the tool; mech = file exists + content non-empty.
+  - **P2 read_file** — model reads a tmp file (which contains "the magic number is 73218") and quotes the number; mech = stderr `[tool] read_file` marker + stdout includes `73218`.
+  - **P3 list_files** — model lists a tmp dir with 3 files; mech = stderr `[tool] list_files` + all 3 file names in stdout. (R3: persona made strict on path; R4: `--workdir` wired so workspace boundary admits the tmp dir.)
+  - **P4 edit_file** — model patches `version=0.1.0 → 0.2.0`; mech = stderr `[tool] edit_file` + file content matches.
+  - **P5 bash** — `echo READY-marker-7Q`; mech = stderr `[tool] bash` + stdout quotes the marker.
+  - **P6 multi-tool composite** — write + (list either via list_files OR bash-ls) + (read either via read_file OR bash-cat) + final file content correct. Mech accepts either native file-ops OR bash fallback (model composes freely).
+
+- **Ralph 5 rounds → 2-consecutive PASS (R4 + R5, 6/6 ✅)**. Each round corrected scenarios or wiring, never core:
+  - R1=4/6 (P3 + P6 fail) → R2: P3 persona strict / P6 mech relaxed.
+  - R2=5/6 (P3 still fail) → diagnosed: `createListFilesSkill` BLOCKS path "escapes the workspace" because bin called `createFileOpsSkills()` without `workspaceRoot`, defaulting to `process.cwd()` (the test temp HOME, not the per-scenario `work` dir).
+  - R3 fix: bin wires `{ workspaceRoot: args.workdir }`; scenarios pass `--workdir <work>`. R3=5/6 (P6 fail — model emitted all 3 tools but final prose only quoted file content, not listing). 
+  - R4 fix: P6 mech accepts list_files-or-bash and read_file-or-bash markers (model composition is honest, ground-truth lives in stderr `[tool]` markers, not in response prose).
+  - **R4=6/6 PASS** ✅ — **R5=6/6 PASS** ✅ (2-consecutive).
+
+- **S7 (bin-user-scenarios) timeout bump**: 90_000 → 180_000 spawn + 240_000 vitest-it. e4b cold-start exceeds 90s when gemma4:31b (19.9GB) holds the ollama cache and forces a swap. Same-flake observation as `feedback_external_hdd_hang_local_fallback` cousin (environment side-effect, not scenario regression).
+
+- **Full cli-app suite regression**: 14 files / **151 passed / 2 skipped / 0 failed** / 352s wall. No core change beyond the `--enable-file-ops` toggle + workspaceRoot wiring (both are model-agnostic, default-off opt-in additions — `feedback_naia_agent_general_purpose_no_overfit` guard preserved).
+
+Reports: `.agents/progress/integration-scenarios-results-2026-05-20.json` (updated). CHANGELOG line of Slice 3-XR-G updated upstream entry's wording where needed.
+
+Honest framing: the model under test (gemma4:31b on ollama) often supplements native `read_file`/`list_files` with parallel `bash` calls — this is correct composition behaviour, not a defect. The runtime tool-loop accepted both paths.
+
+## [Slice 3-XR-G] — 2026-05-20 — integration scenarios + LLM-as-judge + ADK ecosystem coverage (Task #17/#18/#19)
+
+User asked: "이제 연결, 검증만 했고 — 시나리오 더 다양화 + pi의 tool calling + 코딩 도구 동작 + naia-adk hooks/skill + 다른 AI들과 설계해 + LLM-judge + 랄프개선 + naia-business-adk (team/RAG/LangGraph) + naia-os 페르소나 + onmam-adk/onmam-dev". This slice answers it.
+
+- **Design v3 (cross-reviewed by GLM, 2 rounds)**:
+  `.agents/progress/integration-scenarios-design-2026-05-20.md`. Verdict
+  loop v1=REVISE → v2=REVISE → micro-adjust (Ralph max-iter=5,
+  judge consistency probe simplified, Group K trimmed, J2b deferred,
+  Ralph timebox 60min, codepath gating ≥2 scenarios) → FINAL v3.
+
+- **LLM-as-judge harness** —
+  `packages/cli-app/src/__tests__/lib/llm-judge.ts` (~230 LOC). Provider
+  resolution GLM > OpenAI-compat > Anthropic. Strict JSON envelope
+  `{pass, reason}` + one fence-strip retry. Transport/parse/empty =
+  infra-noise (scenarios tolerate, real-verdict-false still flunks).
+  Self-judge bias avoidance: SUT=Gemma family local / Judge=GLM (different
+  family, vendor, size). Privacy: synthetic test inputs only, never user
+  memory (cf feedback_naia_reasoning_locality).
+
+- **New `packages/cli-app/src/__tests__/integration-scenarios.test.ts`** —
+  **26 hermetic spawn-tests (25 active + 1 dummy grid-completeness skip),
+  Ralph 5 rounds → 2-consecutive PASS R4 + R5 (26/26)**. Total wall ≈ 5min.
+  Groups:
+  - **A. 24G live (gemma4:31b)** 4/4 — Korean greeting (thinking-mode
+    suppressed via "Answer directly" + `max_tokens≥300`), English tech
+    answer, persistent memory recall (lite_facts SQLite probe), no-tools
+    refuse-fabricate.
+  - **B. coding behaviour** 3/3 — read+explain, bug-spot (silent div-by-0
+    return), refactor proposal (input validation).
+  - **C. tool-calling/pi loop** 1/1 — e4b native-tools error surface.
+  - **E. business-adk reserve (LangGraph/RAG)** 2/2 — backend stub graceful.
+  - **F. naia-os persona injection (`--system`)** 4/4 — pirate tone,
+    persona+memory composition, --no-default-system rider absent,
+    4KB persona pass-through.
+  - **H. error handling** 5/5 — server-down, malformed manifest,
+    no-provider, --memory without embedded role (ephemeral fallback
+    actionable), unknown-flag graceful.
+  - **I. security secret-shape** 5/5 — raw sk-ant / AIza / ghp_ rejected
+    at login WRITE boundary + show value-leak 0 + positive control.
+  - **J. composite** 1 dummy placeholder for grid completeness.
+  - **K. e4b vs 31b same prompt** 1/1 — Merkle tree; both pass judge.
+
+- **Judge stats round 5**: **11/11 PASS** (100%), 0 infra-error,
+  0 real-fail.
+
+- **No core change** — over-fit guard
+  (`feedback_naia_agent_general_purpose_no_overfit`) 100% preserved.
+  All 5 round-corrections were scenario or test-harness fixes (SQLite
+  table name, manifest schemaVersion, judge transport tolerance,
+  vitest it-timeout 10s→30s, e4b default-rider).
+
+- **Full cli-app suite regression**: 14 files / **145 passed / 2
+  skipped / 0 failed** / 307s wall (existing 22+2 unit + new 26+1).
+
+- **Reports**:
+  - `.agents/progress/integration-scenarios-results-2026-05-20.json`
+  - `.agents/progress/integration-scenarios-report-2026-05-20.md`
+  - `.agents/progress/cross-review-glm-2026-05-20.json`
+
+- **Deferred (explicit ledger, 3-surface)**:
+  `--skills-dir <path>` CLI for FileSkillLoader live (D1~D5 mechanism-only
+  here); LangGraph node routing (E4); RAG retriever (E5); onmam-dev GCE
+  live (G4); multi-turn REPL PTY; live Claude Code subscription;
+  SDLC artifact production (needs strong backend); naia-adk hooks/
+  policies live invocation (D3).
+
+- **⚠️ Honest limitation (2026-05-20 user correction)**: judge AND
+  design cross-review used GLM single-provider outsourcing only. Per
+  project_naia_own_orchestrator_pi_substrate, the pi pin-bundle
+  substrate intent is multi-tool external subprocess (claude / codex /
+  opencode / gemini + GLM HTTP). All four CLIs installed + GLM key
+  set — no environmental reason to use one only. Follow-on slice
+  3-XR-H = multi-judge ensemble (GLM + Codex + Claude verdicts +
+  judge_disagreement_rate). See cf feedback memory entry.
+
+## [Slice 3-XR-F] — 2026-05-20 — user-perspective scenarios + user manual + onboarding UX (Task #3)
+
+The user asked for tests that reflect a real non-developer typing the
+CLI, not flag mechanics — across two perspectives.
+
+- **New `packages/cli-app/src/__tests__/bin-user-scenarios.test.ts`** —
+  **24 hermetic spawn-tests (22 active + 2 honest skips)**, temp HOME
+  + temp adk; no leakage into the developer's real `~/.naia-agent` /
+  naia-adk / OS keychain. Live-LLM scenarios use per-scenario inline
+  re-probe via Node `fetch` + `AbortSignal.timeout` (no `curl`
+  dependency, no stale module-load gate); per-test
+  `{ timeout: 90_000…180_000 }` for cold-start margin. CLAUDE.md G15
+  fixture-only default; real-LLM opt-in by presence. The test file is
+  the canonical SoT for the active surface.
+  - **USER (1)** — S1 cold `show` (literal `<unset>`) · S2 first run
+    no config (advertises BOTH `naia-agent login` AND env-var paths,
+    no `fatal:`) · S3 `login` empty args + locked pipe-format hint
+    `provider|baseUrl|model` · S4 configure-then-inspect (`show`
+    mirrors login, `apiKeyRef=NAME` visible no `NAME=value`, locked
+    `Run:` next-step hint) · **S5** natural flow login → server dead
+    → retry (clean hint, exit 2) · **S5b** ENOTFOUND typo'd hostname
+    variant · S6 tools-less local model → `--no-tools` hint (LLM-live,
+    90s inner) · S7 happy-path one-shot (LLM-live) · S8 `--memory`
+    cross-process SQLite invariant (better-sqlite3 row probe — the
+    headline product mechanism) · S8-neg without `--memory`,
+    `cli.sqlite` is never created · **S9** login MERGE preserves
+    untouched roles · **S10** login SWAP replaces the same role ·
+    **S11** malformed `llm.json` → `show` still works, no crash ·
+    **S12** invalid `embedded.dims` → graceful ephemeral fallback +
+    actionable remediation breadcrumb (`login` / `--embedded` /
+    `dims`) · S13 honest skip (concurrent writes need `spawn`+WAL —
+    deferred) · **S15** empty stdin / no prompt → exit 3 with
+    `no prompt` + usage (the most common first-time mistake; closes
+    cross-review A-F2 BLOCK) · S20 deferred 24G placeholder.
+  - **SHELL / gateway (2)** (per
+    `[[feedback_naia_agent_gateway_only]]`) — G1 gateway URL +
+    `apiKeyRef` NAME; generic `_(API_KEY|TOKEN|SECRET|PASSWORD)=…`
+    leak shape forbidden for any credential var; literal
+    `apiKeyRef=GATEWAY_API_KEY` shape locked. G2 raw `sk-ant-…`
+    refused at WRITE boundary (tolerant `raw secret|raw credential`
+    rephrasing). **G2b** raw Google API key (`AIza…`) refused ·
+    **G2c** raw GitHub PAT (`ghp_…`) refused · **G2d** positive
+    control: legitimate ref NAME containing `_KEY` accepted (no
+    false-positive). **G3** `--service` manifest `backend:claude-code`
+    routes via `NAIA_AGENT_DRYRUN=1` (no API key, no LLM credit) —
+    the Claude Code subscription harness target. **G4** malformed
+    manifest → graceful parse error; bin now surfaces the manifest
+    PATH (`naia-agent: invalid manifest "<path>"`) so the user
+    knows which file failed.
+- **`safeTurn` hint extended**: "does not support tools" → actionable
+  `--no-tools` guidance (the natural friction surface surfaced in the
+  user's own live session).
+- **`buildLLMClient` error onboarding**: no-provider message now
+  advertises `pnpm naia-agent login` as the quickest path AND env-var
+  alternatives, with pointers to `docs/llm-config-standard.md` +
+  `docs/user-guide.md`.
+- **New `docs/user-guide.md`** — short user-facing manual covering both
+  perspectives, the 3-command quick-start (`login → show → chat`),
+  common tasks (`show`, swap model, real key via keychain, `--memory`,
+  REPL), troubleshooting, and where settings/secrets live (privacy
+  contract).
+- **`naia-model-infra/tiers/24g/`** — `profile.yaml` + refreshed README
+  for the daily-driver tier (Gemma 4 31B Q4_0 main, bge-m3 embedded,
+  optional gemma3n:e4b sub). Single-GPU `CUDA_VISIBLE_DEVICES` policy;
+  connection contract identical across tiers.
+- Adversarial cross-review loop (autonomous "랄프", 2 consecutive
+  CLEAN target): round #1 PASS-WITH-FIXES → all 10 findings (F1-F10)
+  applied; round #2 → S8/S8-neg converted from flaky model-output
+  assertions to deterministic file-system invariants (SQLite row vs
+  cli.sqlite absent) — same lesson as the #41 small-model lenient-strip:
+  test mechanism, not LLM vibes; round #3 BLOCK (vitest testTimeout
+  10s < LLM-live spawn caps) → per-test `{timeout}` applied; round
+  #A/B/C/D 4-perspective expansion (UX / Performance / Real-usage /
+  Benchmark objectivity) — all HIGH/BLOCK closed or honestly
+  deferred; round #4 (final consolidated) PASS-WITH-FIXES (4 LOW
+  only: CHANGELOG-doc / user-guide-doc / regex-tightness / `--key`
+  write path tracked) → doc-axis fixes applied this entry; code-axis
+  converged across rounds 2/3/A/B/C/D.
+- **Deferred (explicit, separate slice)**: `--key REF=VAL` keychain
+  WRITE round-trip (value reaches keychain, never to llm.json / stderr
+  — requires libsecret sandbox or fixture `SecretStore`; round #4
+  LOW-4) · multi-turn REPL `#history` (requires PTY emulation; bin
+  falls to single-shot on non-TTY) · 24G gemma4:31b live scenarios
+  (reasoning-channel suppression unsolved — see
+  `.agents/progress/tier-8g-vs-24g-comparison-…`) · baseURL `?key=…`
+  / `user:pass@host` leakage path (requires bin URL sanitization) ·
+  RBAC tier-policy /
+  approval-broker scenarios (needs ApprovalBroker UX surface) ·
+  **live-subscription** Claude-Code routing E2E (G3 covers the DRYRUN
+  dispatch from a service manifest; a live test would consume Claude
+  Code credits and is deferred) · SDLC
+  artifact production (requires a strong coding model; 8G/24G local
+  models cannot deliver — separate track when claude-code or a strong
+  gateway backend is configured). See `docs/user-guide.md` "Planned /
+  not yet shipped" for the user-facing summary.
+
+## [Slice 3-XR-E] — 2026-05-20 — CLI UX: `show`, `login` empty-args guard, usage discoverability
+
+Direct response to user UX concerns (Task #3 wrap-up):
+
+- **New** `pnpm naia-agent show` — read-only one-screen inspection of
+  current configuration: naia-adk path, llm.json roles (provider/model/
+  baseUrl/dims), apiKeyRef NAME (never values), resolved LLM that would
+  run, memory db path + existence, `~/.naia-agent/config.json`. Closes
+  "is naia-adk storage right? what would my CLI invoke?" without
+  cat'ing files. Secret values are never printed.
+- **Fix** `pnpm naia-agent login` (no args) → previously wrote llm.json
+  + `~/.naia-agent/config.json` with empty roles and printed
+  "configured" (misleading silent noop). Now prints usage + exits 3.
+- Main usage now lists `login`, `show`, `--memory`, `--no-tools`,
+  `--no-default-system`, `--system` for discoverability.
+
+## [Slice 3-XR-D] — 2026-05-20 — recall-marker residue hygiene (no leak)
+
+Small models (e4b) emit malformed `<recall>` markers (`<recalall>…`,
+`<recal_l>…`, `<recal<…`, stray `</recall>`) the strict parser correctly
+ignores — they were leaking into the CLI answer.
+
+- New exported pure `stripRecallResidue` (core; `index.ts` export) +
+  `agent.ts` strip-path uses it (the STRICT match/act is unchanged —
+  cross-review invariant A: leniency never reaches recall behavior).
+- **Behavior change (disclosed):** `bin streamToStdout` no longer streams
+  raw `llm.chunk` text deltas; it prints the agent's final *sanitized*
+  `assistantText` on `turn.ended`. Raw streaming bypassed the strip and
+  leaked markers. Trade-off: no live token streaming in direct mode
+  (acceptable for short answers; applies to all direct-mode turns).
+- Claude sub-agent adversarial review = BLOCK → all fixed:
+  B1 anchored to the `recal` family only (`<recap>`/`<recapitulate>`/
+  `<recital>`/`<receipt>` no longer destroyed); B2 strip only
+  line-leading/standalone residue (a `<recall>` quoted in prose/code is
+  preserved — the agent must not erase its own protocol docs); B3
+  content bounded `{0,256}` + line-anchored (no cross-paragraph
+  bridging); D5 marker-free input returned BYTE-IDENTICAL (no
+  whitespace/​trim mangling of normal answers or code); F6 nullish-safe.
+- Regression test `strip-recall-residue.test.ts` encodes every BLOCK
+  negative (recap/recapitulate/receipt, quoted-protocol, cross-paragraph,
+  code indentation, undefined) — fails pre-fix, passes post-fix.
+
+## [Slice 3-XR-C] — 2026-05-20 — memory wired into the CLI (persistent recall)
+
+`pnpm naia-agent --memory` now uses a **persistent LiteMemoryProvider**
+(blessed `@nextain/naia-memory` components) + the naia-settings
+`embedded` embedder + the #41 `<recall>` recall, instead of ephemeral
+InMemoryMemory. Verified hands-on: a fact stored in process A is
+recalled & answered correctly by a separate process B (cross-session
+SQLite). Opt-in — default unchanged (no regression).
+
+- `--memory`: builds `OpenAICompatEmbeddingProvider` (from
+  `NAIA_EMBED_*`) + `LiteMemoryProvider` (`NAIA_AGENT_MEMORY_DB` or
+  `~/.naia-agent/memory/cli.sqlite`, writesEnabled). No `--system` →
+  built-in recall-protocol persona; defaults to lean prompt (the heavy
+  contract degrades small models + dilutes the recall instruction, #41
+  measured). Any failure degrades gracefully to InMemoryMemory (anchor
+  #6 — never crash over memory).
+- **Root-cause fixes** (memory was DOA without these):
+  - `package.json` `pnpm.onlyBuiltDependencies: [better-sqlite3,
+    esbuild]` — pnpm 10 had silently skipped the native build, so
+    `LiteMemoryProvider` could not open SQLite at all.
+  - bin normalizes the embedder base URL (strips a trailing `/v1`):
+    `OpenAICompatEmbeddingProvider` unconditionally appends
+    `/v1/embeddings`, so a uniform `…/v1` naia-settings baseUrl produced
+    `…/v1/v1/embeddings` → 404 → every encode failed silently. General,
+    composition-root adaptation; no model branching.
+- Known caveat (not a regression): a small model (e4b) emits malformed
+  markers (`<recal_…`) that the strict parser correctly does not act on,
+  so they leak into the visible answer — recall still works via the
+  always-on start-of-turn path. Lenient-strip polish deferred (#41).
+- Follow-up recommendation (separate, cross-reviewed): make
+  naia-memory `OpenAICompatEmbeddingProvider`'s URL idempotent for a
+  `/v1` base so every consumer is safe at the source.
+- ⚠️ Single global memory store: default db is shared by every
+  `--memory` invocation in any directory — set `NAIA_AGENT_MEMORY_DB`
+  per workspace to isolate (cross-project recall is by-design for a
+  personal assistant but a confidentiality footgun otherwise).
+
+Slice success criterion (CLAUDE.md gate):
+- (a) Runnable: `pnpm naia-agent --memory "…"` (persistent recall).
+- (b) Unit test: `packages/runtime/src/__tests__/cli-memory.test.ts`
+  (`normalizeEmbedBaseUrl` incl. Gemini/`/v1` edges + `decideCliMemory`
+  fallback gate) + naia-settings `applyAux` apiKeyRef wiring covered by
+  the existing naia-settings suite.
+- (c) Integration: verified hands-on — process-A store → process-B
+  recall via cross-session SQLite (local e4b + bge-m3).
+- (d) CHANGELOG: this entry.
+
+Cross-review (Claude sub-agent, PASS-WITH-FIXES) applied: F1 extracted
+`cli-memory.ts` + test (slice gate); F2 embed sentinel gated by
+`manifestBaseURLTrust` + `applyAux` now wires `*_API_KEY` via
+`resolveSecret` (a configured remote sub/embed key is no longer
+dropped); F3 `MEMORY_PERSONA` made language-neutral (general-purpose —
+no Korean output directive); F4 global-store footgun documented; F5
+`normalizeEmbedBaseUrl` guards the provider's Gemini discriminator.
+
+## [Slice 3-XR-B.1] — 2026-05-20 — graceful turn failure (no fatal crash)
+
+A model-server outage (ECONNREFUSED etc.) no longer fatal-crashes the
+CLI. `safeTurn` wraps every turn: REPL prints an actionable message
+(server unreachable at <baseURL> → `naia-agent login …`) and **stays
+alive**; single-shot exits cleanly (code 2) with the same hint instead of
+`naia-agent: fatal: …`. Surfaced by the Slice-A dead-loader wiring now
+live-loading a stale `./naia-agent.env` (cross-review F4/F5 scenario).
+
+## [Slice 3-XR-B] — 2026-05-20 — `naia-agent login` + OS-keychain secrets (Task #3)
+
+`naia-agent login` configures the 3-role LLM (main/sub/embedded) and
+persists keys device-key-encrypted in the OS keychain — never plaintext.
+
+- **New runnable**: `pnpm naia-agent login --adk <path> --main
+  "provider|baseUrl|model[|apiKeyRef]" [--sub …] [--embedded
+  "…|dims[|apiKeyRef]"] [--key REF=VALUE]`. Writes
+  `<adk>/naia-settings/llm.json` (provider/baseUrl/model/apiKeyRef/dims
+  only — NEVER a key value) + `~/.naia-agent/config.json` `{naiaAdkPath}`
+  (mode 600). `--key` stores into the OS keychain (libsecret /
+  Secret Service, device-key encrypted). Verified login→persist→consume
+  round-trip (local e4b, no `NAIA_ADK_PATH` export needed).
+- **No-plaintext, enforced both sides**: `parseRoleSpec` rejects a raw
+  secret in the `apiKeyRef` slot at the WRITE boundary (not only the
+  Slice-A read-side scan); the secret-value heuristic now also catches
+  hyphenated keys (`sk-ant-…`) — strengthens Slice A too.
+- **Keychain unavailable → REFUSE** (no plaintext fallback): availability
+  is classified locale-independently (`classifyProbe` — cross-review
+  BLOCK fix; the prior English-substring heuristic false-positived on a
+  localized `secret-tool`). Non-Linux degrades to unavailable, never
+  plaintext.
+- **Behavior-change disclosure** (cross-review F4): after `naia-agent
+  login`, `~/.naia-agent/config.json`'s `naiaAdkPath` makes
+  naia-settings auto-load on *every* invocation (Slice A required an
+  explicit `NAIA_ADK_PATH`). Remove that file / its `naiaAdkPath` to
+  revert to env-only.
+- New modules: `secret-store.ts` (`getSecretStore`/`classifyProbe`),
+  `login-spec.ts` (`parseRoleSpec`); `readConfiguredAdkPath` exported &
+  de-duplicated (was copied in bin). Tests: secret-store 7
+  (classifyProbe fixture table incl. measured Korean down-states),
+  login-spec 6, naia-settings keychain 2, env-loader readConfiguredAdkPath
+  2 — 64/64 runtime green. Claude sub-agent adversarial review (BLOCK →
+  all fixes applied). Governance: llm-config-standard §3.6,
+  ref-adoption-matrix §D53.
+
+## [Slice 3-XR-A] — 2026-05-20 — cross-repo LLM config: naia-settings/llm.json (Task #3)
+
+naia-agent now CONSUMES the canonical cross-repo LLM config
+(`<NAIA_ADK_PATH>/naia-settings/llm.json`, 3-role `{main,sub,embedded}`;
+SoT = naia-adk/naia-settings/README.md). General/provider-driven — no
+model/tier branching.
+
+- **New runnable**: `NAIA_ADK_PATH=<naia-adk> pnpm naia-agent --no-tools "…"`
+  → reads naia-settings → drives the configured `main` LLM. Verified
+  end-to-end against a local Ollama (`provider=openai-compat
+  model=gemma3n:e4b`, real Korean response).
+- **New module**: `packages/runtime/src/utils/naia-settings.ts` —
+  `loadNaiaSettingsLLM()`. `main` → `OPENAI_*`/`ANTHROPIC_*`/`GLM_*`
+  (unset keys only; local no-key → `OPENAI_API_KEY=ollama` sentinel);
+  `sub`/`embedded` → `NAIA_SUB_*`/`NAIA_EMBED_*`. No plaintext key —
+  `apiKeyRef` names an env var (Slice B: OS keychain). Graceful skip on
+  missing/malformed; never logs values.
+- **Wired the dead loader**: `bin/naia-agent main()` now calls
+  `loadEnvAndConfig()` (it was defined but never invoked — the documented
+  resolution was inert). Priority: `process.env > naia-settings/llm.json
+  > .env files > json config`. process.env never overwritten.
+  **Upgrader note**: `./.env` / `./naia-agent.env` /
+  `~/.naia-agent/config.json` were previously NOT loaded (loader never
+  invoked); they are now — review cwd for a stray `.env` before upgrading
+  (process.env still wins, so an exported var is unaffected).
+- **Secret invariant ENFORCED** (cross-review fix): the reader actively
+  rejects the whole `llm.json` (warn + skip, value never logged) if any
+  role carries a plaintext-secret-looking key/value — not merely "doesn't
+  read it". The `OPENAI_API_KEY=ollama` sentinel is now gated to
+  loopback/private baseUrls (reuses `manifestBaseURLTrust`); a remote
+  baseUrl without a key no longer gets a dummy key (fails honestly, not
+  opaquely). General — no model sniffing.
+- **New general flag** `--no-tools`: omit tools for models without native
+  tool-calling (local gemma3n). Model-agnostic, no per-model branching.
+- **New unit test** (6/6): `naia-settings.test.ts` — main→env mapping,
+  local sentinel, apiKeyRef deref, process.env precedence, sub/embedded,
+  graceful skip/warn.
+- Governance: docs/llm-config-standard.md §3.3–3.5 (SoT) updated;
+  ref-adoption-matrix §D53. Cross-repo: naia-adk gets
+  `naia-settings/llm.json` (8G local instance, no secrets) + README.
+- Pre-existing build-blocker noted (unrelated): `coding-tool.test.ts`
+  TS2532 fails `tsc -b`; this slice's files are type-clean (unit green,
+  end-to-end verified).
+
+## [Slice 8G-B] — 2026-05-20 — tiered conversational recall benchmark (naia-agent#41 v2)
+
+The naia-agent-owned **conversational** benchmark for the 8G LLM-initiated
+text-marker recall (naia-memory does retrieval-only bench; anchor #3/§B02).
+
+- **New runnable command**: `pnpm exec tsx examples/conversational-recall-bench.ts`
+  — runs N trials of the real Agent loop against a real container model
+  (GPU0), scored by a deterministic tiered judge. Env: `BENCH_TRIALS`,
+  `OLLAMA_MODEL`.
+- **New unit test** (10/10): `packages/runtime/src/__tests__/recall-bench-judge.test.ts`
+  — encodes the 2026-05-20 directive: SMALL tier (e2b) = structure
+  capability ONLY (≥1 well-formed marker; accuracy/leak report-only, low
+  rate fine); strictness rises with model size (MID/e4b additionally gates
+  round-trip accuracy + raw-marker leak). Mirrors naia-memory criteria.ts
+  `{target,minimum,metric}`; `koIncludes` faithfully ported (no runtime
+  cross-repo dep — "Interfaces, not dependencies").
+- **New pure module**: `packages/runtime/src/bench/recall-bench-judge.ts`
+  — `koIncludes`, `WELL_FORMED_MARKER`, `LOOSE_MARKER_LEAK`, `tierForModel`,
+  `evaluateTier`. Anchor #8: deterministic judge, no external cloud LLM.
+- **Integration (real backend)**: honest negative recorded — `gemma3n:e2b`
+  small tier, 5 trials, marker-path isolated: **structure 0/5, accuracy 0%,
+  leak 100%** → small gate correctly FAILED. e2b is below the #41 v2 marker
+  capability floor (confirms adversarial-review B2 empirically). Anti-false-
+  positive: marker read from RAW model output (TeeLLM, unconfounded by the
+  agent's always-on start-of-turn recall, which `IsolatingMemory` removes);
+  malformed `<recal<` caught by the LOOSE leak detector. e4b MID-tier
+  measurement is the next strictness step (pending model pull).
+- Supersedes the prior `examples/lite-memory-8g-e2e.ts` (removed — its weak
+  assertions false-positived on the 2026-05-19 garbled-marker leak).
+
+## [Slice 8G-C] — 2026-05-20 — general system-prompt composition control (naia-agent#41 v2)
+
+Root-cause fix for the 8G marker failure, generalized (NOT an 8G special
+path — user directive: naia-agent stays general-purpose, no per-profile
+wiring, no overfitting).
+
+- **Root cause** (diagnosed + proven): `agent.ts #buildRequest`
+  unconditionally appended the long `DEFAULT_SYSTEM_PROMPT` behavioral
+  contract. A small model is degraded by it — emits malformed `<recal>` +
+  echoes the injected fact (0/5 well-formed markers in the loop), while a
+  DIRECT ollama call (lean prompt) yields a clean `<recall>…</recall>`.
+- **Fix (general)**: new `AgentOptions.appendDefaultSystemPrompt?: boolean`,
+  default `true` → every existing host's `request.system` is byte-
+  unchanged. A host may set `false` (own contract / token budget / a small
+  model the long contract degrades). The Agent has **no** tier/model/
+  profile awareness — single code path, the host sets a general boolean;
+  profiles live in the host layer. Honest comment replaces the prior
+  "not bypassable by any host".
+- **New unit test** (3/3): `agent-system-prompt-composition.test.ts` —
+  unset/true → contract appended (unchanged); false → contract omitted,
+  host persona still sent.
+- **Consumer**: `examples/conversational-recall-bench.ts` sets the option
+  (a small-model host). Empirical post-fix: gemma3n:e4b MID tier
+  **structure 4/5 · accuracy 80% · leak 20% → PASS** (was 0/0/60 FAIL) —
+  #41 v2 marker mechanism validated end-to-end at the 8G tier.
+- Governance: ref-adoption-matrix §D52 (general entry). F06 unaffected
+  (touched a code comment, not a numbered D1~D8 decision).
+
 ## [Cross-Review Hardening] — 2026-05-18 — 635-test suite adversarial review
 
 3-reviewer (Correctness/Security/Slop-detector) adversarial cross-review of

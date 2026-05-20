@@ -1,0 +1,36 @@
+{
+  "id": "F006-mixed-language",
+  "domain": "mixed-language",
+  "notes": "Korean / English alternating dialog. Tests that compaction preserves multilingual content faithfully without translating or dropping non-Latin text.",
+  "turns": [
+    { "role": "user", "content": "안녕하세요. 회의록 정리 도와줄 수 있어요?" },
+    { "role": "assistant", "content": "Hello! Yes, I can help with meeting notes. What is the meeting topic?" },
+    { "role": "user", "content": "주제는 'naia-agent 컴팩션 슬라이스' 입니다. 참석자는 Luke, Maya, Tanaka." },
+    { "role": "assistant", "content": "Got it. Topic: 'naia-agent compaction slice'. Attendees: Luke, Maya, Tanaka." },
+    { "role": "user", "content": "First decision was: threshold 75%. 이유는 Acon 페이퍼." },
+    { "role": "assistant", "content": "Decision 1: threshold = 75%, rationale = Acon paper (arxiv 2510.00615)." },
+    { "role": "user", "content": "두 번째: 5-섹션 markdown recap. opencode 패턴 채택." },
+    { "role": "assistant", "content": "Decision 2: 5-section markdown recap shape, adopted from opencode pattern." },
+    { "role": "user", "content": "Maya가 question 했어요: '리얼타임 polish 매 턴 vs compact 시점만'. 결정은 후자." },
+    { "role": "assistant", "content": "Maya raised: realtime polish every turn vs at compact() time only. Decision: at compact() time only." },
+    { "role": "user", "content": "Tanaka의 우려: 비용. GLM polish 비용 추정 필요." },
+    { "role": "assistant", "content": "Tanaka noted cost concern — GLM polish cost estimation is needed before P6 measurement." },
+    { "role": "user", "content": "다음 회의 날짜는 2026-05-25, 오후 3시 (KST)." },
+    { "role": "assistant", "content": "Next meeting scheduled: 2026-05-25, 15:00 KST." },
+    { "role": "user", "content": "회의록 요약: 안건, 결정 2개, action items, 다음 회의." }
+  ],
+  "probes": [
+    {
+      "afterTurn": 16,
+      "type": "fact-recall",
+      "question": "Topic, attendees, decisions, next meeting date — list all faithfully.",
+      "expectedKeywords": ["naia-agent", "Luke", "Maya", "Tanaka", "75%", "Acon", "opencode", "2026-05-25"]
+    },
+    {
+      "afterTurn": 16,
+      "type": "task-accuracy",
+      "criterion": "Assistant preserves Korean phrases verbatim where used and renders the bilingual meeting notes without dropping either language."
+    }
+  ],
+  "compactionPoints": [8]
+}

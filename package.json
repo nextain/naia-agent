@@ -5,6 +5,9 @@
   "description": "AI coding agent runtime — loop, tools, compaction, memory, LLM routing",
   "type": "module",
   "license": "Apache-2.0",
+  "pnpm": {
+    "onlyBuiltDependencies": ["better-sqlite3", "esbuild"]
+  },
   "workspaces": [
     "packages/*"
   ],
@@ -24,12 +27,14 @@
     "smoke:composite": "tsx examples/composite-host.ts",
     "smoke:bash-skill": "tsx examples/bash-skill-host.ts",
     "smoke:active-brain": "tsx examples/active-brain-host.ts",
-    "smoke:opencode": "tsx scripts/smoke-opencode.ts"
+    "smoke:opencode": "tsx scripts/smoke-opencode.ts",
+    "bench:compact": "pnpm --filter @nextain/agent-benchmarks bench:compact"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.74.1",
     "@nextain/agent-adapter-opencode-acp": "workspace:*",
     "@nextain/agent-adapter-pi": "workspace:*",
+    "@nextain/agent-benchmarks": "workspace:*",
     "@nextain/agent-adapter-opencode-cli": "workspace:*",
     "@nextain/agent-adapter-shell": "workspace:*",
     "@nextain/agent-cli-app": "workspace:*",

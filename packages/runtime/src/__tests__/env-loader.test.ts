@@ -13,6 +13,7 @@ import {
   parseEnv,
   flattenConfig,
   loadEnvAndConfig,
+  readConfiguredAdkPath,
 } from "../utils/env-loader.js";
 
 describe("parseEnv", () => {
@@ -89,6 +90,32 @@ describe("flattenConfig", () => {
     expect(flattenConfig({ foo: null, bar: undefined, baz: "ok" })).toEqual({
       BAZ: "ok",
     });
+  });
+});
+
+describe("readConfiguredAdkPath (Slice B — login-persisted path)", () => {
+  let d: string;
+  beforeEach(() => {
+    d = mkdtempSync(join(tmpdir(), "adkcfg-"));
+  });
+  afterEach(() => rmSync(d, { recursive: true, force: true }));
+
+  it("returns naiaAdkPath from a valid config.json", () => {
+    const p = join(d, "config.json");
+    writeFileSync(p, JSON.stringify({ naiaAdkPath: "/srv/naia-adk", other: 1 }));
+    expect(readConfiguredAdkPath(p)).toBe("/srv/naia-adk");
+  });
+  it("graceful undefined: missing file / bad JSON / non-string / empty", () => {
+    expect(readConfiguredAdkPath(join(d, "nope.json"))).toBeUndefined();
+    const g = join(d, "g.json");
+    writeFileSync(g, "{ not json");
+    expect(readConfiguredAdkPath(g)).toBeUndefined();
+    const n = join(d, "n.json");
+    writeFileSync(n, JSON.stringify({ naiaAdkPath: 123 }));
+    expect(readConfiguredAdkPath(n)).toBeUndefined();
+    const e = join(d, "e.json");
+    writeFileSync(e, JSON.stringify({ naiaAdkPath: "" }));
+    expect(readConfiguredAdkPath(e)).toBeUndefined();
   });
 });
 
@@ -232,5 +259,43 @@ describe("loadEnvAndConfig", () => {
 
     expect(process.env["FROM_FLAG"]).toBe("yes");
     expect(process.env["FROM_ENVVAR"]).toBeUndefined();
+  });
+
+  // Task #3 Slice A — integration: loadEnvAndConfig() actually CONSUMES
+  // naia-settings/llm.json (the path bin/naia-agent hits) AND naia-settings
+  // outranks .env files (process.env > naia-settings > .env > json).
+  it("consumes naia-settings/llm.json and it outranks .env files", () => {
+    const adkDir = join(tmp, "adk");
+    mkdirSync(join(adkDir, "naia-settings"), { recursive: true });
+    writeFileSync(
+      join(adkDir, "naia-settings", "llm.json"),
+      JSON.stringify({
+        version: 1,
+        main: { provider: "openai-compat", baseUrl: "http://127.0.0.1:11434/v1", model: "settings-model-X" },
+        sub: { provider: "openai-compat", baseUrl: "http://127.0.0.1:11434/v1", model: "sub-m" },
+        embedded: { provider: "ollama-embed", baseUrl: "http://127.0.0.1:11434/v1", model: "emb-m", dims: 1024 },
+      }),
+    );
+    // A cwd naia-agent.env that tries to set OPENAI_MODEL — must LOSE to
+    // naia-settings (applied first; .env is "if unset").
+    const workDir = join(tmp, "work");
+    mkdirSync(workDir, { recursive: true });
+    writeFileSync(join(workDir, "naia-agent.env"), "OPENAI_MODEL=fromenvfile\n");
+    for (const k of ["OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_MODEL", "NAIA_SUB_MODEL", "NAIA_EMBED_MODEL"]) {
+      delete process.env[k];
+    }
+
+    const report = loadEnvAndConfig({ adkPath: adkDir, cwd: workDir });
+
+    expect(report.naiaSettings).toBeDefined();
+    expect(report.naiaSettings?.skipped).toBe(false);
+    expect(report.loadedKeys).toContain("OPENAI_BASE_URL");
+    expect(report.loadedKeys).toContain("NAIA_EMBED_MODEL");
+    // Precedence: naia-settings ran first → .env's fromenvfile is ignored.
+    expect(process.env["OPENAI_MODEL"]).toBe("settings-model-X");
+    expect(process.env["OPENAI_BASE_URL"]).toBe("http://127.0.0.1:11434/v1");
+    expect(process.env["OPENAI_API_KEY"]).toBe("ollama"); // local sentinel
+    expect(process.env["NAIA_SUB_MODEL"]).toBe("sub-m");
+    expect(process.env["NAIA_EMBED_MODEL"]).toBe("emb-m");
   });
 });

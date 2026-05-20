@@ -1,30 +1,35 @@
 # Stream Protocol — NaiaStreamChunk (R4 lock 2026-04-26)
 
-> **상위**: `docs/vision-statement.md` / `docs/architecture-hybrid.md`
-> **이전**: `LLMStreamChunk` (R3, providers/types/llm.ts) — text-only
-> **status**: design lock (Week 0)
-> **rationale**: omni-voice 시대 (vllm-omni / GPT-4o realtime) — text/audio/image를 1급 시민으로 + sub-agent supervision event도 통합 stream
+> **Languages**: English (this file) · [한국어](../.users/docs/ko/stream-protocol.md)
+
+> **Parent docs**: `docs/vision-statement.md` / `docs/architecture-hybrid.md`
+> **Previous shape**: `LLMStreamChunk` (R3, `providers/types/llm.ts`) — text-only.
+> **Status**: design lock (Week 0).
+> **Rationale**: voice-capable + multi-agent era — text / audio / image are first-class citizens, and sub-agent supervision events flow through a single unified stream.
+> **Voice note**: voice output is produced by the **agent-layer cascade** track (Slice 3-XR-Voice / P0c-2 — LiveKit + VoxCPM2, currently deferred). The earlier in-model omni path (MiniCPM-o 4.5 / vllm-omni) is **deprecated**; see memory `project_minicpm_o_4_5_deprecated_2026_05_20`.
 
 ---
 
 ## 1. Why a unified stream
 
-기존 `LLMStreamChunk` = LLM 응답 stream만. 그러나 사용자(naia-shell/CLI)는 **여러 source**의 event를 한 흐름으로 받아야 함:
+The legacy `LLMStreamChunk` only modelled the LLM-response stream. In practice the host (`naia-shell`, `apps/cli`, any embedder) must receive events from several sources as a single flow:
 
-| Source | 종류 | R3까지 |
+| Source | Kind | Available in R3 |
 |---|---|---|
-| LLM 응답 | text/thinking/tool_use 토큰 | LLMStreamChunk |
-| sub-agent 활동 | tool_use_start/end, file_change | (없음) |
-| workspace | file watcher 결과 | (없음) |
-| verification | test/lint 결과 | (없음) |
-| 다중 sub-session 통합 | session_update / session_progress | (없음) |
-| 음성 | audio_delta (omni LLM 출력) | (없음) |
+| LLM response | text / thinking / tool_use tokens | LLMStreamChunk |
+| Sub-agent activity | tool_use_start/end, file_change | (none) |
+| Workspace | file-watcher results | (none) |
+| Verification | test / lint results | (none) |
+| Multi-sub-session merge | session_update / session_progress | (none) |
+| Voice | audio_delta (voice-cascade output, agent-layer — Slice 3-XR-Voice / P0c-2) | (none) |
 
-→ `NaiaStreamChunk` = **모든 layer를 통합한 single stream** (D20).
+`NaiaStreamChunk` is the **single union that carries every layer** (decision D20).
 
 ---
 
-## 2. NaiaStreamChunk union (정식 spec)
+## 2. NaiaStreamChunk union (canonical spec)
+
+The reference implementation lives in `packages/types/src/stream.ts`. The shape below is the spec; the source file is the executable form.
 
 ```typescript
 // packages/types/src/stream.ts
@@ -35,7 +40,7 @@ export type NaiaStreamChunk =
   | { type: "thinking_delta"; sessionId: string; thinking: string }
   | { type: "input_json_delta"; sessionId: string; partialJson: string }
 
-  // ─── multi-modal tokens (omni LLM) ────────────────────────────────
+  // ─── multi-modal tokens (voice cascade — Slice 3-XR-Voice / P0c-2 deferred) ────
   | {
       type: "audio_delta";
       sessionId: string;
@@ -52,7 +57,7 @@ export type NaiaStreamChunk =
       isPartial: boolean;
     }
 
-  // ─── tool lifecycle (LLM 또는 sub-agent) ──────────────────────────
+  // ─── tool lifecycle (LLM or sub-agent) ────────────────────────────
   | {
       type: "tool_use_start";
       sessionId: string;
@@ -82,7 +87,7 @@ export type NaiaStreamChunk =
   | {
       type: "session_progress";
       sessionId: string;
-      phase: SessionPhase;        // P0-1 fix — string literal union (consumer 추론 가능)
+      phase: SessionPhase;        // P0-1 fix — string literal union (consumer-inferrable)
       progress?: number;          // 0~1
       note?: string;
     }
@@ -92,9 +97,10 @@ export type NaiaStreamChunk =
       reason: SessionEndReason;
       stats?: SessionStats;
     }
-  // P0-11: onSessionEnd hook (Vercel onStepFinish + Mastra) — supervisor가 report 생성 전 emit
+  // P0-11: onSessionEnd hook (Vercel onStepFinish + Mastra) — supervisor emits this
+  // before the human-readable `report` chunk.
   | {
-      type: "session_aggregated";   // session_end 후 supervisor가 stats aggregate 완료
+      type: "session_aggregated";   // supervisor has aggregated stats after session_end
       sessionId: string;
       stats: SessionStats;
       verifications: readonly VerificationResultRef[];
@@ -106,17 +112,17 @@ export type NaiaStreamChunk =
       mode: "hard_kill" | "soft_pause" | "approval_gate";
     }
 
-  // ─── workspace 가시성 (D19) ───────────────────────────────────────
+  // ─── workspace visibility (D19) ───────────────────────────────────
   | {
       type: "workspace_change";
       path: string;                // workdir-relative
       kind: "add" | "modify" | "delete" | "rename";
-      sourceSession?: string;      // 이 변경을 일으킨 sub-session (있을 때)
-      diff?: string;               // unified diff (lazy, 요청 시만 채움)
+      sourceSession?: string;      // sub-session that caused the change (if any)
+      diff?: string;               // unified diff (lazy, filled on demand)
       stats?: { additions: number; deletions: number };
     }
 
-  // ─── verification (자동 검증, D19) ────────────────────────────────
+  // ─── verification (automatic checks, D19) ─────────────────────────
   | {
       type: "verification_start";
       runner: "test" | "lint" | "build" | "type_check" | "custom";
@@ -128,14 +134,14 @@ export type NaiaStreamChunk =
       pass: boolean;
       stats: VerificationStats;
       durationMs: number;
-      stdoutTail?: string;          // 마지막 N줄, 큰 출력 방지
+      stdoutTail?: string;          // last N lines, to keep payload bounded
     }
 
-  // ─── 정직 보고 (D19) ──────────────────────────────────────────────
+  // ─── honest reporting (D19) ───────────────────────────────────────
   | {
       type: "report";
       sessionId: string;
-      summary: string;              // "3 file 수정, +12/-3 line, test 24/24 PASS"
+      summary: string;              // e.g. "3 files modified, +12/-3 lines, tests 24/24 PASS"
       stats: ReportStats;
       verifications: readonly VerificationResultRef[];
     }
@@ -145,7 +151,7 @@ export type NaiaStreamChunk =
       type: "review_request";
       sessionId: string;
       target: "diff" | "plan" | "session_result";
-      reviewerId: string;            // 다른 모델/agent
+      reviewerId: string;            // a different model / agent
     }
   | {
       type: "review_finding";
@@ -156,7 +162,7 @@ export type NaiaStreamChunk =
       location?: string;
     }
 
-  // ─── 종료 ────────────────────────────────────────────────────────
+  // ─── terminal chunk ───────────────────────────────────────────────
   | {
       type: "end";
       sessionId: string;
@@ -177,12 +183,12 @@ export type SessionPhase =
   | "failed";
 
 export type SessionEndReason =
-  | "completed"       // 정상 종료
-  | "cancelled"       // 사용자 cancel (interrupt + cancel())
-  | "failed"          // adapter 에러 (exit code != 0 또는 exception)
+  | "completed"       // normal end
+  | "cancelled"       // user cancel (interrupt + cancel())
+  | "failed"          // adapter error (non-zero exit or exception)
   | "timeout"         // signal abort or wall-clock timeout
-  | "network"         // ACP/SDK connection lost (reconnect 실패 후)
-  | "paused";         // 일시 정지 (resume() 가능)
+  | "network"         // ACP/SDK connection lost (after reconnect failed)
+  | "paused";         // paused (resume() available)
 
 // ─── helper types ─────────────────────────────────────────────────
 export interface VerificationStats {
@@ -217,20 +223,20 @@ export interface VerificationResultRef {
 
 ---
 
-## 3. 기존 LLMStreamChunk와 관계
+## 3. Relationship to the existing LLMStreamChunk
 
-| 정책 | 결정 |
+| Policy | Decision |
 |---|---|
-| LLMStreamChunk 유지 | ✓ — provider adapter 내부 형식 (any-llm/anthropic/vertex) |
-| Provider → Core 변환 | adapter가 LLMStreamChunk → NaiaStreamChunk 변환 |
-| Core → Host emit | NaiaStreamChunk만 사용 |
-| Backward compat | LLMStreamChunk를 import하는 R3 코드는 그대로. core가 변환 |
+| Keep `LLMStreamChunk` | Yes — it remains the internal shape used inside provider adapters (any-llm / Anthropic / Vertex). |
+| Provider → Core conversion | The adapter converts `LLMStreamChunk` → `NaiaStreamChunk`. |
+| Core → Host emission | Only `NaiaStreamChunk` crosses the public boundary. |
+| Backward compatibility | R3 code that imports `LLMStreamChunk` keeps working; core does the conversion. |
 
-→ provider layer 변경 없이 R4 추가 가능.
+The provider layer therefore does not need to change to gain R4 capability.
 
 ---
 
-## 4. 변환 규칙 (provider → core)
+## 4. Conversion rules (provider → core)
 
 | LLMStreamChunk | NaiaStreamChunk |
 |---|---|
@@ -240,14 +246,15 @@ export interface VerificationResultRef {
 | `{type:"content_block_delta", delta:{type:"input_json_delta",partialJson}}` | `{type:"input_json_delta", sessionId, partialJson}` |
 | `{type:"content_block_start", block:{type:"tool_use",id,name,input}}` | `{type:"tool_use_start", sessionId, toolUseId:id, tool:name, input}` |
 | `{type:"end", stopReason, usage}` | `{type:"end", sessionId, stopReason, usage}` |
-| (없음) | `{type:"audio_delta", ...}` ← omni provider만 emit |
-| (없음) | `{type:"image_delta", ...}` ← omni provider만 emit |
+| (none) | `{type:"audio_delta", ...}` ← voice cascade only (Slice 3-XR-Voice / P0c-2) |
+| (none) | `{type:"image_delta", ...}` ← multi-modal provider only |
 
 ---
 
-## 5. Sub-agent 변환 규칙 (ACP → core)
+## 5. Sub-agent conversion rules (ACP → core)
 
-opencode ACP `session/update` event:
+The opencode ACP `session/update` event:
+
 ```json
 {
   "method": "session/update",
@@ -258,7 +265,8 @@ opencode ACP `session/update` event:
 }
 ```
 
-→ NaiaStreamChunk:
+becomes the following `NaiaStreamChunk`:
+
 ```json
 {
   "type": "tool_use_start",
@@ -269,27 +277,31 @@ opencode ACP `session/update` event:
 }
 ```
 
-ACP `session/file_changed` → `workspace_change` (sourceSession 채움)
-ACP `session/done` → `session_end`
-사용자 cancel → ACP `session/cancel` → `interrupt` + `session_end(reason:"cancelled")`
+Other mappings:
 
-상세 매핑은 `docs/adapter-contract.md`.
+- ACP `session/file_changed` → `workspace_change` (with `sourceSession` set).
+- ACP `session/done` → `session_end`.
+- User cancel → ACP `session/cancel` → `interrupt` + `session_end(reason:"cancelled")`.
+
+Full mapping table: `docs/adapter-contract.md`.
 
 ---
 
-## 5b. session_aggregated (P0-11, supervisor 책임)
+## 5b. session_aggregated (P0-11, supervisor responsibility)
 
-**문제** (Reference P0-2): `session_end`은 adapter가 emit. 그러나 supervisor가 `report`를 만들기 전에 stats를 aggregate해야 함 (verification 결과 + tool 사용량 + workspace stats 합산).
+**Problem** (Reference P0-2): `session_end` is emitted by the adapter, but the supervisor still needs to aggregate stats before producing the human-facing `report` — verification results, tool usage, and workspace stats must all be folded in.
 
-**해결**: supervisor는 `session_end` 수신 후 다음을 수행:
-1. session 동안 emit된 모든 chunk 집계 (tool count, tokens, file changes)
-2. 후속 verification 실행 + 결과 수집
-3. `session_aggregated` chunk emit (모든 stats 채워서)
-4. `report` chunk emit (사람-읽기 좋은 summary)
+**Solution**: after receiving `session_end`, the supervisor performs the following:
 
-이 hook 패턴 = Vercel `onStepFinish` + Mastra hook.
+1. Aggregate every chunk emitted during the session (tool count, tokens, file changes).
+2. Run the follow-up verification chain and collect results.
+3. Emit `session_aggregated` with the fully populated stats.
+4. Emit `report` — a human-readable summary chunk.
 
-**예시 시퀀스** (1 sub-session task):
+This hook pattern follows Vercel's `onStepFinish` and Mastra's session hooks.
+
+**Example sequence** (single sub-session task):
+
 ```
 session_start
   ├── session_progress (planning)
@@ -301,14 +313,14 @@ session_start
 session_end (reason: completed)
 verification_start (test)
 verification_result (test pass 24/24)
-session_aggregated (stats 합산)
-report (사람-읽기 summary)
+session_aggregated (stats aggregated)
+report (human-readable summary)
 end
 ```
 
 ---
 
-## 6. consumer pattern (host)
+## 6. Consumer pattern (host)
 
 ```typescript
 // naia-shell or apps/cli
@@ -326,47 +338,73 @@ for await (const chunk of agent.stream({ message: "..." })) {
     case "session_end": closeSessionCard(chunk); break;
     case "session_aggregated": updateSessionCardStats(chunk); break;
     case "end": break;
-    default: ((_: never) => {})(chunk);  // exhaustiveness
+    default: ((_: never) => {})(chunk);  // exhaustiveness guard
   }
 }
 ```
 
-→ host가 모든 chunk type 처리 (exhaustive switch). union 추가 시 typecheck 깨짐 (의도된 안전망).
+The host is expected to handle every chunk variant exhaustively. Adding a new variant to the union therefore breaks the host's typecheck — that is intentional, and is the union's primary safety net.
 
 ---
 
-## 7. 성능 / 안정 보장
+## 7. Performance / stability guarantees
 
-| 영역 | 보장 |
+| Area | Guarantee |
 |---|---|
-| backpressure | async iterable. consumer slow → producer 자연 wait |
-| binary size | `audio_delta.pcm` chunk size 권고 ≤ 64 KiB (16kHz 4초 미만). 큰 chunk는 split |
-| heap pressure | `image_delta.data` 큰 image는 Phase 4+ 처리. Phase 1~3은 image emit 안 함 |
-| ordering | 같은 sessionId 안에서 emit 순서 보장 (sequential await) |
-| concurrency | 다른 sessionId chunk는 interleave OK |
-| cancel safety | producer는 항상 `signal.aborted` 체크. cancel 시 `interrupt` + `session_end` 보장 |
+| Backpressure | The stream is an async iterable, so a slow consumer naturally throttles the producer. |
+| Binary size | `audio_delta.pcm` chunks should stay ≤ 64 KiB (under 4 s at 16 kHz). Larger chunks must be split. |
+| Heap pressure | Large `image_delta.data` payloads are a Phase 4+ concern. The earlier phases do not emit `image_delta`. |
+| Ordering | Within a single `sessionId`, emit order is preserved (sequential `await`). |
+| Concurrency | Chunks belonging to different `sessionId`s may interleave freely. |
+| Cancel safety | The producer must always check `signal.aborted`; on cancel it must emit `interrupt` followed by `session_end`. |
 
 ---
 
-## 8. test fixture (G15 fixture-only mode 호환)
+## 8. Test fixtures (G15 fixture-only mode compatibility)
 
-`packages/runtime/src/__fixtures__/`에 NaiaStreamChunk 시퀀스 JSON:
-- `simple-1turn.json` — text only 1 turn
-- `tool-call-1turn.json` — tool_use_start + workspace_change + tool_use_end
-- `verification-pass.json` — verification_start + verification_result(pass)
-- `interrupt-mid-tool.json` — tool 중 사용자 interrupt
-- `multi-session.json` — 2 session 병렬 interleave (Phase 3)
-- `omni-audio.json` — audio_delta 시퀀스 (Phase 4)
+Recorded `NaiaStreamChunk` sequences live in `packages/runtime/src/__fixtures__/` and are replayed by the `StreamPlayer` (introduced in Slice 1b, extended for `NaiaStreamChunk`). Fixture replay is the default verification mode in CI when no API key is available.
 
-`StreamPlayer` (Slice 1b 기존)를 NaiaStreamChunk로 확장. fixture replay = CI default.
+Today's fixtures (current state of the repository):
+
+- `anthropic-1turn.json` — text-only single turn from an Anthropic-shape provider.
+- `qwen-1turn.json` — text-only single turn from an OpenAI-compatible provider.
+- `memory-context-stream.json` — memory-context-prefixed turn (used by the recall regression suites).
+
+Planned fixtures (not yet recorded; tracked alongside the corresponding slice work):
+
+- `tool-call-1turn.json` — `tool_use_start` + `workspace_change` + `tool_use_end`.
+- `verification-pass.json` — `verification_start` + `verification_result` (pass).
+- `interrupt-mid-tool.json` — user interrupt mid-tool.
+- `multi-session.json` — two sessions interleaved (multi-supervisor track).
+- `voice-audio.json` — `audio_delta` sequence (Slice 3-XR-Voice / P0c-2, deferred).
 
 ---
 
-## 9. R4 lock 후 변경 절차
+## 9. Change procedure after the R4 lock
 
-union 추가 시:
-1. 본 파일에 새 variant + 해석 + 변환 규칙
-2. `packages/types/src/stream.ts` union 갱신
-3. consumer (apps/cli, naia-shell) 모두 exhaustive 처리 보강 (typecheck 강제)
-4. fixture 새 case 추가
-5. cross-review (paranoid auditor)
+To add a new variant to the union:
+
+1. Update this document with the new variant, its semantics, and any provider/adapter conversion rules.
+2. Update the union in `packages/types/src/stream.ts`.
+3. Extend the exhaustive `switch` in every consumer (`apps/cli`, `naia-shell`, embedders) — the typechecker will enforce this.
+4. Add or record the corresponding fixture under `packages/runtime/src/__fixtures__/`.
+5. Cross-review (paranoid auditor) before merging.
+
+---
+
+## 10. Status snapshot (2026-05-20)
+
+This protocol has been carrying the runtime through the Slice 3-XR series. Recent slices that exercise it end-to-end:
+
+- **Slice 3-XR-G** — integration scenarios + LLM-as-judge across the ADK ecosystem (DONE).
+- **Slice 3-XR-H** — multi-judge ensemble (GLM + Codex + Claude) over the existing scenario stream (DONE).
+- **Slice 3-XR-I** — pi-based coding LIVE verification (Group P, DONE).
+- **Slice 3-XR-J** — `--skills-dir` + the naia-adk skills full set, exercised over the same stream (DONE).
+- **Slice 3-XR-L** — onmam-adk domain skills auto-applied (DONE).
+- **Slice 3-XR-M / N / O** — multi-turn REPL, cross-OS sanity, and the naia-agent ↔ Claude Code parity ledger (all DONE).
+
+Open / deferred items that the protocol explicitly accommodates:
+
+- **Slice 3-XR-Voice (Task #28, P0c-2)** — agent-layer voice cascade integration (LiveKit + VoxCPM2). `audio_delta` exists in the union today; the recorded `voice-audio.json` fixture and the production producer are deferred to this slice. The earlier in-model omni route (MiniCPM-o 4.5) is deprecated.
+- **Adversarial review chunks (`review_request` / `review_finding`)** — Phase 4+ work.
+- **`image_delta` production path** — Phase 4+ once a multi-modal provider is wired in.

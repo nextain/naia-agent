@@ -70,8 +70,20 @@ export {
 } from "./utils/path-normalize.js";
 
 // Env + JSON config auto-loader — Slice 1c. Native .env parser + flatten JSON.
-export { loadEnvAndConfig, parseEnv, flattenConfig } from "./utils/env-loader.js";
+export { loadEnvAndConfig, parseEnv, flattenConfig, readConfiguredAdkPath } from "./utils/env-loader.js";
 export type { EnvLoadOptions, EnvLoadReport } from "./utils/env-loader.js";
+// `naia-agent login` role-spec parser (pure; rejects raw secrets at write).
+export { parseRoleSpec } from "./utils/login-spec.js";
+export type { ParsedRole, ParseRoleResult } from "./utils/login-spec.js";
+// `naia-agent --memory` pure decision logic (embed-URL norm + fallback gate).
+export { normalizeEmbedBaseUrl, decideCliMemory } from "./utils/cli-memory.js";
+export type { CliMemoryDecision } from "./utils/cli-memory.js";
+// Cross-repo LLM config — naia-adk/naia-settings/llm.json reader.
+export { loadNaiaSettingsLLM } from "./utils/naia-settings.js";
+export type { NaiaSettingsOptions, NaiaSettingsReport } from "./utils/naia-settings.js";
+// OS-keychain secret store (device-key encrypted; no plaintext fallback).
+export { getSecretStore, __setSecretStoreForTest, classifyProbe } from "./utils/secret-store.js";
+export type { SecretStore } from "./utils/secret-store.js";
 
 // Login subcommand pure helpers — Track B (G16). Side-effect-free, injectable for tests.
 export { parseLoginArgs, checkDuplicateKeys, buildEnvAppend } from "./utils/login-ops.js";

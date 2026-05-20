@@ -44,6 +44,41 @@ export interface SkillToolExecutorOptions {
   sanitizeError?: (message: string) => string;
 }
 
+/**
+ * Normalize a SKILL.md-shaped `input_schema` (a flat `{field: {type, required, …}}`
+ * map common in naia-adk skill front-matter) into a strict JSON Schema
+ * object (`{type: "object", properties: …, required: [...]}`). OpenAI-
+ * compatible APIs (ollama, vLLM tool-calling) reject the flat form with
+ * `cannot unmarshal object into Go struct field …parameters.type of type
+ * string`. Idempotent — input that already has `type: "object"` plus
+ * `properties` is returned as-is.
+ */
+export function normalizeInputSchemaForOllama(
+  raw: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  if (!raw || typeof raw !== "object") {
+    return { type: "object", properties: {}, additionalProperties: false };
+  }
+  if (raw["type"] === "object" && "properties" in raw) {
+    return raw;
+  }
+  const properties: Record<string, unknown> = {};
+  const required: string[] = [];
+  for (const [key, valUnknown] of Object.entries(raw)) {
+    if (!valUnknown || typeof valUnknown !== "object") continue;
+    const val = valUnknown as Record<string, unknown>;
+    const propType = typeof val["type"] === "string" ? (val["type"] as string) : "string";
+    const propSchema: Record<string, unknown> = { type: propType };
+    if (typeof val["description"] === "string") propSchema["description"] = val["description"];
+    if (Array.isArray(val["enum"])) propSchema["enum"] = val["enum"];
+    properties[key] = propSchema;
+    if (val["required"] === true) required.push(key);
+  }
+  const out: Record<string, unknown> = { type: "object", properties };
+  if (required.length > 0) out["required"] = required;
+  return out;
+}
+
 export class SkillToolExecutor implements ToolExecutor {
   readonly #loader: SkillLoader;
   readonly #filter: (name: string) => boolean;
@@ -69,7 +104,7 @@ export class SkillToolExecutor implements ToolExecutor {
       if (!this.#filter(s.name)) continue;
       const def: ToolDefinitionWithTier = {
         name: this.#toolNameFor(s.name),
-        inputSchema: s.inputSchema,
+        inputSchema: normalizeInputSchemaForOllama(s.inputSchema),
         tier: s.tier,
       };
       if (s.description) def.description = s.description;
