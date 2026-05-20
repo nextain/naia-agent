@@ -163,6 +163,11 @@ interface Args {
    *  (Slice 3-XR-M) and for shell pipelines that want to feed several
    *  prompts. Model-agnostic toggle. */
   forceRepl: boolean;
+  /** Compaction strategy — Slice 3-XR-Compact (#47). Default `reactive`
+   *  (anchored iterative head summarization, opencode/openclaw pattern).
+   *  See `docs/compaction-survey.md` for `realtime` / `anthropic-native`
+   *  / `off` semantics. Env override: `NAIA_AGENT_COMPACT_STRATEGY`. */
+  compactStrategy: "reactive" | "realtime" | "anthropic-native" | "off";
 }
 
 function parseArgs(argv: string[]): Args | { error: string } {
@@ -183,6 +188,7 @@ function parseArgs(argv: string[]): Args | { error: string } {
     memory: false,
     enableFileOps: false,
     forceRepl: false,
+    compactStrategy: resolveCompactStrategyEnv(),
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -220,6 +226,25 @@ function parseArgs(argv: string[]): Args | { error: string } {
       args.skillsDir = v;
     } else if (a === "--repl") {
       args.forceRepl = true;
+    } else if (a === "--compact-strategy") {
+      const v = argv[++i];
+      if (!v) {
+        return {
+          error:
+            "--compact-strategy requires a value (reactive|realtime|anthropic-native|off)",
+        };
+      }
+      if (
+        v !== "reactive" &&
+        v !== "realtime" &&
+        v !== "anthropic-native" &&
+        v !== "off"
+      ) {
+        return {
+          error: `--compact-strategy: unknown value '${v}'. Allowed: reactive|realtime|anthropic-native|off`,
+        };
+      }
+      args.compactStrategy = v;
     } else if (a === "--debug") {
       args.debug = true;
     } else if (a === "--show-diff") {
@@ -278,6 +303,28 @@ function parseArgs(argv: string[]): Args | { error: string } {
   }
 
   return args;
+}
+
+/**
+ * Resolve compaction strategy from env. Default `reactive`. Slice 3-XR-Compact
+ * (#47). CLI flag `--compact-strategy` overrides this.
+ */
+function resolveCompactStrategyEnv(): Args["compactStrategy"] {
+  const v = process.env.NAIA_AGENT_COMPACT_STRATEGY;
+  if (
+    v === "reactive" ||
+    v === "realtime" ||
+    v === "anthropic-native" ||
+    v === "off"
+  ) {
+    return v;
+  }
+  if (v !== undefined && v.length > 0) {
+    process.stderr.write(
+      `naia-agent: warning — NAIA_AGENT_COMPACT_STRATEGY='${v}' invalid, using 'reactive'\n`,
+    );
+  }
+  return "reactive";
 }
 
 // ─── Provider resolution (direct mode) ──────────────────────────────────────
@@ -470,6 +517,7 @@ async function runDirect(args: Args): Promise<number> {
     // AND dilutes the recall instruction — #41 v2 measured); explicit
     // --no-default-system always wins. Non-memory behavior unchanged.
     appendDefaultSystemPrompt: args.noDefaultSystem ? false : !args.memory,
+    compactionStrategy: args.compactStrategy,
   });
 
   // close the MemoryProvider on exit — agent.close() does not (cross-review
@@ -846,6 +894,7 @@ async function runService(args: Args): Promise<number> {
     host,
     systemPrompt: manifest.persona.systemPrompt,
     tierForTool: () => "T1",
+    compactionStrategy: args.compactStrategy,
   });
 
   // close the MemoryProvider on exit — agent.close() does not (cross-review

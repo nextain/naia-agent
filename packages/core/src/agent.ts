@@ -24,6 +24,7 @@ import { DEFAULT_SYSTEM_PROMPT } from "./default-system-prompt.js";
 import type {
   CompactableCapable,
   CompactionMessage,
+  CompactionStrategy,
   HostContext,
   LLMContentBlock,
   LLMMessage,
@@ -83,6 +84,18 @@ export interface AgentOptions {
    */
   compactionKeepTail?: number;
   /**
+   * Compaction strategy — Slice 3-XR-Compact (#47). Passed through to
+   * memory.compact() as a hint and surfaced in the `compaction` event for
+   * observability. Default: `reactive` (industry pattern, anchored iterative).
+   *
+   * - `reactive`: on-demand summarize at threshold (opencode/openclaw pattern).
+   * - `realtime`: rolling summary via naia-memory v2 fast path.
+   * - `anthropic-native`: server-side compaction (when backend = anthropic +
+   *   Opus 4.6+). Agent does NOT call compact() — Anthropic handles it.
+   * - `off`: agent never calls compact(). Conversation grows unbounded.
+   */
+  compactionStrategy?: CompactionStrategy;
+  /**
    * Tier resolver — given a tool name, returns its tier. Host plugs in a
    * skill-spec lookup. Default: T1 (safe assumption).
    */
@@ -138,6 +151,11 @@ export class Agent {
   readonly #estimate: (req: LLMRequest) => number;
   readonly #budget: number;
   readonly #keepTail: number;
+  readonly #strategy: CompactionStrategy;
+  /** Prior recap from the last compaction in this session. Anchored iterative
+   *  summarization (Factory.ai) — the next compact() merges new head into this
+   *  rather than re-summarizing from raw. Slice 3-XR-Compact (#47). */
+  #priorRecap: CompactionMessage | undefined;
   readonly #tierFor: (name: string) => TierLevel;
   readonly #maxConsecutiveToolErrors: number;
   readonly #appendDefaultSystem: boolean;
@@ -151,6 +169,7 @@ export class Agent {
     this.#estimate = options.estimateTokens ?? defaultEstimate;
     this.#budget = options.contextBudget ?? 80_000;
     this.#keepTail = options.compactionKeepTail ?? 6;
+    this.#strategy = options.compactionStrategy ?? "reactive";
     this.#tierFor = options.tierForTool ?? (() => "T1");
     this.#maxConsecutiveToolErrors = options.maxConsecutiveToolErrors ?? 3;
 
@@ -531,6 +550,16 @@ export class Agent {
     memoryHits: MemoryHit[],
     toolDefs: readonly ToolDefinitionWithTier[],
   ): Promise<AgentStreamEvent | undefined> {
+    // Strategy gates — short-circuit when the host explicitly disabled
+    // host-side compaction (Slice 3-XR-Compact #47 §6).
+    if (this.#strategy === "off") return undefined;
+    if (this.#strategy === "anthropic-native") {
+      // Server-side compaction is the authoritative path; we MUST NOT also
+      // mutate history client-side or we double-compact. The provider adapter
+      // surfaces compaction events separately when the API reports them.
+      return undefined;
+    }
+
     const request = this.#buildRequest(memoryHits, toolDefs);
     if (this.#estimate(request) <= this.#budget) return undefined;
 
@@ -557,6 +586,8 @@ export class Agent {
         keepTail: keptTail,
         targetTokens: Math.max(1_000, Math.floor(this.#budget * 0.15)),
         sessionId: this.#session.id,
+        strategy: this.#strategy,
+        ...(this.#priorRecap !== undefined ? { priorRecap: this.#priorRecap } : {}),
       });
       // Replace the head window with a synthetic assistant message.
       // `droppedCount` is an advisory from memory; we honour our own cutAt
@@ -566,6 +597,9 @@ export class Agent {
         content: result.summary.content,
       };
       this.#history.splice(0, cutAt, summaryMsg);
+      // Anchored iterative — store this recap as the seed for the next
+      // compaction in the same session. Slice 3-XR-Compact (#47) §6.
+      this.#priorRecap = result.summary;
       return {
         type: "compaction",
         droppedCount: result.droppedCount,
