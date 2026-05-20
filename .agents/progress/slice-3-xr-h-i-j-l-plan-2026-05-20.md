@@ -142,6 +142,32 @@ naia-adk 의 FileSkillLoader 메커니즘이 정상이면 onmam-adk 도 **동일
 
 ---
 
+## 4.5. Voice 트랙 (#28) 분리 정정 (2026-05-20 다른 세션 정렬)
+
+다른 세션에서 P0c (LiveKit + ko-serve voice pipeline) 를 두 phase 로 쪼갬:
+
+| Phase | naia-agent 의존? | 누가 | 산출 |
+|---|---|---|---|
+| **P0a** Compatibility smoke gate | ❌ | 다른 세션 (본 세션 OK) | smoke matrix 확인 |
+| **P0b** B5-lite contract memo | ❌ | 다른 세션 | 분석 memo |
+| **P0c-1** standalone tech demo | ❌ (mock LLM or external OpenAI) | **다른 세션** | `tools/voice_demo_standalone/` smoke_e2e + measure_realtime + vertical_demo + p0c1_metrics.json |
+| **P0c-2** naia-agent integration | ✅ 의존 | **우리(나중) 또는 별 세션** | livekit-plugins-naia-voxcpm2 + naia-LLM→LiveKit wrap + VoiceSession + memory hook |
+
+**핵심 교훈**:
+- product viability 검증 (LiveKit ↔ ko-serve) 을 naia-agent 통합 위험에서 분리.
+- LiveKit / ko-serve 에 critical issue 있으면 naia-agent 안 만지고 발견.
+- P0c-1 결과 = tech 증명서. 우리 세션 #28 잡을 때 그대로 reference.
+- naia-agent integration = voice cascade 위에 memory hook + vertical policy + naia LLM wrapper 얹는 단순 작업.
+
+**우리 (이번 + 후속) 책임**:
+- Task #28 = **P0c-2 naia-agent integration 만**. P0c-1 = 다른 세션 산출.
+- M/N/O 슬라이스 끝난 후 또는 별 세션에서 P0c-2 진입.
+- P0c-1 reference 문서 (다른 세션 산출물) 가 출발점.
+
+**naia-agent direct path final-text bias 충돌** (Codex r3/r4 핵심 risk) 해결 = #28 P0c-2 슬라이스의 일. P0c-1은 mock LLM으로 회피하고 결합 자체 검증.
+
+---
+
 ## 5. Deferred (3-surface 명시 유지)
 
 - **3-XR-K 실 구현** (LangGraph 노드 / RAG retriever) — 흔적은 J commit의 작은 reserve로 충분. 사용자 명시 시 재오픈.
@@ -149,7 +175,7 @@ naia-adk 의 FileSkillLoader 메커니즘이 정상이면 onmam-adk 도 **동일
 - **3-XR-M** (REPL PTY + live Claude-Code subscription) — 별 트랙
 - **3-XR-N** (cross-OS Windows/Linux full) — sanity 1차 끝남, 본격 별 트랙
 - **3-XR-O** (Claude Code 하네스 parity) — 별 트랙
-- **3-XR-Voice (#28)** — minicpm 4.5 폐기 대체. 별 트랙 (P0만 ~4-5 working day MVP).
+- **3-XR-Voice (#28) = P0c-2 (naia-agent integration) 만** — minicpm 4.5 폐기 대체 (cf §4.5). P0c-1 standalone tech demo 는 **다른 세션이 산출** (LiveKit↔ko-serve, mock LLM, naia-agent 의존 0). 우리 (이번 세션) M/N/O 끝난 후 또는 별 세션에서 P0c-2 진입. P0c-1 결과 reference 사용.
 - **opencode / gemini judge** — 사용자 명시 "glm, codex, claude" 3개만. 다른 2 CLI는 별 슬라이스 또는 사용자 명시 시.
 
 ---

@@ -156,6 +156,13 @@ interface Args {
    *  Composes with bash + (optional) file-ops via CompositeToolExecutor.
    *  Slice 3-XR-J — default OFF. */
   skillsDir?: string;
+  /** Force interactive REPL mode regardless of stdin TTY status. Default
+   *  behavior treats piped stdin as single-shot (read full stdin →
+   *  one turn). With `--repl`, the bin enters the readline loop even
+   *  when stdin is piped — useful for harness-driven multi-turn tests
+   *  (Slice 3-XR-M) and for shell pipelines that want to feed several
+   *  prompts. Model-agnostic toggle. */
+  forceRepl: boolean;
 }
 
 function parseArgs(argv: string[]): Args | { error: string } {
@@ -175,6 +182,7 @@ function parseArgs(argv: string[]): Args | { error: string } {
     noDefaultSystem: false,
     memory: false,
     enableFileOps: false,
+    forceRepl: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -210,6 +218,8 @@ function parseArgs(argv: string[]): Args | { error: string } {
       const v = argv[++i];
       if (!v) return { error: "--skills-dir requires a path" };
       args.skillsDir = v;
+    } else if (a === "--repl") {
+      args.forceRepl = true;
     } else if (a === "--debug") {
       args.debug = true;
     } else if (a === "--show-diff") {
@@ -486,8 +496,8 @@ async function executeAgent(agent: Agent, args: Args): Promise<number> {
       return ok ? 0 : 2;
     }
 
-    // REPL mode — requires TTY
-    if (!process.stdin.isTTY) {
+    // REPL mode — requires TTY (or `--repl` force).
+    if (!process.stdin.isTTY && !args.forceRepl) {
       // Read single prompt from stdin
       const piped = await readStdin();
       if (piped.trim().length === 0) {

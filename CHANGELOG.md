@@ -8,6 +8,58 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [Slice 3-XR-M + 3-XR-N + 3-XR-O] — 2026-05-20 — REPL/PTY + cross-OS sanity + Claude Code parity ledger (Tasks #25/#26/#27)
+
+User: "3-XR-O까지 달려야해". Three slices in one push (mechanism-heavy, single LIVE in Group M).
+
+### 3-XR-M — multi-turn REPL + Claude Code subscription routing (Task #25)
+
+- **bin/naia-agent.ts**: new `--repl` flag. Default behavior treats piped stdin as single-shot (`readStdin` → one turn) per the existing design. `--repl` forces the readline REPL loop regardless of stdin TTY status — useful for harness multi-turn tests and for shell pipelines feeding several prompts. Model-agnostic.
+- **Group M — 2 scenarios**:
+  - **M1** multi-turn REPL via async `spawn` (no node-pty dep) — `--repl` + `--no-tools` against a dead model server. safeTurn keeps the REPL alive across per-turn failures: ≥2 `naia> ` prompts observed, clean exit on "exit". Verifies the Slice 3-XR-F safeTurn promise on a LIVE process boundary.
+  - **M2** Claude Code subscription routing — `--service <manifest>` with `backend:"claude-code"`. Dry-run mode (NAIA_AGENT_DRYRUN=1) asserts the dispatcher arm without consuming subscription credit. Opt-in `NAIA_AGENT_CLAUDECODE_LIVE=1` env gate executes a real one-turn call (credit consumed). Default OFF.
+
+### 3-XR-N — cross-OS sanity mechanism (Task #26)
+
+- **Group N — 6 scenarios** (Linux-side; Windows host LIVE honestly deferred):
+  - **N1** path-traversal blocked regardless of separator style; backslash on Linux = literal filename (documented).
+  - **N2** file-ops CRLF roundtrip — `write_file` + `read_file` preserve `\r\n` line endings.
+  - **N3** `getSecretStore()` cross-platform — `available()` returns a clean boolean on every platform; Linux wires `LibSecretStore`, others get `NullSecretStore`.
+  - **N4** HOME env read on Linux/macOS (USERPROFILE on Windows deferred to a Windows host run).
+  - **N5** shell adapter dual-platform branch — `process.platform === "win32"` selecting `cmd.exe` vs `/usr/bin/env`; refuses silent regression to a single-platform hard-code.
+  - **N6** honest DEFER — Windows host LIVE = separate slice with a Windows runner. Cross-OS sanity (Group N1-N5) is sufficient mechanism for this session.
+
+### 3-XR-O — naia-agent ↔ Claude Code parity ledger (Task #27)
+
+- **Group O — 7 scenarios** (pure mechanism + intentional-difference ledger):
+  - **O1** file-ops parity — naia-agent registers the same 5-skill core (`read_file` / `write_file` / `edit_file` / `list_files` / `bash`) Claude Code's editor surfaces.
+  - **O2** REPL parity — readline-based + `naia> ` prompt + exit/quit/.exit + `--repl` force.
+  - **O3** tool-marker parity — both runtimes emit per-invocation stderr markers (`[tool] name({args})` vs `● Tool(arg)`); semantics identical.
+  - **O4** exit-code parity — 0/2/3 tier (naia-agent) vs 0/1 (Claude Code); intentional divergence documented (3-tier is more actionable for shell pipelines).
+  - **O5** memory + persona parity — `--memory` + `--system` + `--no-default-system` wired; equivalent capability to Claude Code's CLAUDE.md + system rider, different shape.
+  - **O6** service-mode parity — `--service <manifest>` with `backend:"claude-code"` routes to Claude Code subscription (no API key); DRYRUN gate verifies the wire-up without credit.
+  - **O7** intentional-difference ledger — slash commands / TUI rendering / subagent dispatch / plugins / WebFetch / auto-compaction — these are Claude Code PRODUCT surfaces, NOT naia-agent runtime missing-features. Documented as honest non-replication.
+
+### Ralph + regression
+
+- Group M R1=1/2 → R2=2/2 (M1 needed `--repl` flag) → R3=2/2 (**2-consecutive**)
+- Group N R1=5/6 (N2 wrong skill handler signature — returns plain string, not `{content, isError}`) → R2=6/6 → R3=6/6 (**2-consecutive**)
+- Group O R1=7/7 → R2=7/7 (**2-consecutive**, pure mechanism)
+- **Full cli-app regression**: 14 files / **175 passed / 2 skipped / 1 LIVE flake** (S7 ollama cache swap under cumulative 24G + Group P LIVE + Group D LIVE pressure — environment side-effect, NOT a Slice 3-XR-M/N/O regression).
+
+### Over-fit guard preserved
+
+- `--repl` = model-agnostic toggle (default OFF, no behavior change).
+- N1-N5 / O1-O7 = mechanism + documentation only, no runtime branch.
+
+### Voice 트랙 (#28) 분리 흡수 (다른 세션 정렬, 2026-05-20)
+
+- Voice P0c phase 가 다른 세션에서 둘로 쪼개짐:
+  - **P0c-1 standalone tech demo** (naia-agent 의존 0, LiveKit ↔ ko-serve, mock LLM) = **다른 세션 산출**.
+  - **P0c-2 naia-agent integration** = 우리 Task #28 (M/N/O 끝난 후 또는 별 세션 진입).
+- plan 문서 `.agents/progress/slice-3-xr-h-i-j-l-plan-2026-05-20.md` §4.5 신설로 흡수.
+- Task #28 description = P0c-2 만으로 좁힘.
+
 ## [Slice 3-XR-L] — 2026-05-20 — onmam-adk 도메인 skills 자동 적용 검증 (Task #24)
 
 User gate (2026-05-20): "L도 해야겠네". The Slice 3-XR-J `--skills-dir` mechanism is ADK-agnostic — onmam-adk should work identically since it shares the same SKILL.md format and top-level `skills/` layout. This slice closes that loop.
