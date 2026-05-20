@@ -117,4 +117,22 @@ raw `sk-ant-…` / `AIza…` / `ghp_…` 셋 다 login 시점 거절 (exit !=0).
 - 테스트 파일: `packages/cli-app/src/__tests__/integration-scenarios.test.ts`
 - Judge harness: `packages/cli-app/src/__tests__/lib/llm-judge.ts`
 
+---
+
+## ⚠️ 한계 (사용자 정정, 2026-05-20)
+
+이 슬라이스의 judge 와 design cross-review 는 **GLM 단독 외주** 만 사용. 사용자 정정: pi 핀번들 substrate (cf [[project_naia_own_orchestrator_pi_substrate]]) 의도는 **멀티툴 외부 subprocess** (claude / codex / opencode / gemini + GLM HTTP) — 즉 cross-review/judge 부터 **3+ 도구 ensemble** 이었어야 함.
+
+환경 점검: `codex 0.130 / claude 2.1.145 / opencode 1.15 / gemini 0.42` 모두 설치 + GLM 가용. 한 도구만 쓸 이유 없었음.
+
+후속 슬라이스 = **3-XR-H multi-judge ensemble**:
+- judge harness 를 3-도구 ensemble (GLM + Codex + Claude) 로 확장
+- 같은 시나리오 → 3 verdict 수집 → majority OR all-pass 정책
+- 외주 도구별 편향 정량화 (judge_disagreement_rate 보고)
+- pi substrate (또는 naia-agent aux/reviewer subagent-CLI caller) 통한 호출
+
+cf [[feedback_pi_substrate_not_glm_only_2026_05_20]]
+
+---
+
 cf [[project_task3_cross_repo_connection_2026_05_20]] (선행 단위 22+2)

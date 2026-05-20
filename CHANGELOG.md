@@ -74,6 +74,15 @@ User asked: "이제 연결, 검증만 했고 — 시나리오 더 다양화 + pi
   SDLC artifact production (needs strong backend); naia-adk hooks/
   policies live invocation (D3).
 
+- **⚠️ Honest limitation (2026-05-20 user correction)**: judge AND
+  design cross-review used GLM single-provider outsourcing only. Per
+  project_naia_own_orchestrator_pi_substrate, the pi pin-bundle
+  substrate intent is multi-tool external subprocess (claude / codex /
+  opencode / gemini + GLM HTTP). All four CLIs installed + GLM key
+  set — no environmental reason to use one only. Follow-on slice
+  3-XR-H = multi-judge ensemble (GLM + Codex + Claude verdicts +
+  judge_disagreement_rate). See cf feedback memory entry.
+
 ## [Slice 3-XR-F] — 2026-05-20 — user-perspective scenarios + user manual + onboarding UX (Task #3)
 
 The user asked for tests that reflect a real non-developer typing the
