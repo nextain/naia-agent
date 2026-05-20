@@ -144,6 +144,38 @@ G4 alone is not a trigger — it is a wrapper-design decision rather than a back
 
 The four gates map onto the existing adapter-contract test ladder (`docs/adapter-contract.md` §2 Contract tests). They will be filed as `voice-cascade`-adapter-specific entries when the Slice 3-XR-Voice scaffold introduces the `voice-cascade` adapter package. Until then they live in this document as the design lock.
 
+## 5A. P0c-2 real-mode verification status (2026-05-21, updated from naia-labs Phase F.5/F.6)
+
+All four exit gates verified real-mode (RTX 3090 GPU0, ollama gemma3n:e4b, VoxCPM2 + Whisper services). Harness lives under `nextain/naia-labs/.agents/voice_cascade/p0/p0c2/harness/`.
+
+| gate | mock | **real** | target | status |
+|---|---:|---:|---|:---:|
+| G1 cancel propagates upstream | 20 ms | **164 ms** (mock × 8.2) | ≤ 300 ms | ★ pass |
+| G2 no cancelled-turn write | 0 leaks | **0 leaks** (10 scenarios) | 0 | ★ pass |
+| G3 chain deaf_ms p50 | 50 ms | **332 ms** (Whisper small int8 beam=1) | ≤ 500 ms | ★ pass |
+| G4 tool-hop cancel reusable | 0 orphan | **0 orphan** (10 scenarios) | 0 | ★ pass |
+
+**Mock vs real gap (paradigm lesson)**:
+- G1 8.2×, G3 6.6× — mock measurement is contract-logic validation only, not a latency proxy. Real-mode measurement is mandatory before merge.
+- mock-and-real both required = "adversarial code-read review + live-call smoke" paradigm (3-round adversarial chain at `naia-labs/.../reviews/adversarial_summary_f{,_f3,_f4}.md`).
+
+**Phase F.5/F.6 산출** (production spec promote: `nextain/naia-labs/promote_to_naia_agent/voice_session_spec.md`):
+- `nextain/naia-model-infra/python/voice_session/` `VoiceSession.start()` 실 구현 (LiveKit AgentSession + plugins + memory hook)
+- `nextain/naia-model-infra/python/livekit-plugins-naia-{voxcpm2,whisper-faster,llm}/` editable install + wire smoke PASS
+- `nextain/naia-labs/.../harness/voice_session_wire_smoke.py` LiveKit dev server room connect 401.7 ms + VoiceSession.start() 16.7 ms PASS
+
+## 5B. Slice 3-XR-Voice entry prerequisites (단계 4)
+
+Order for entry:
+
+1. **`bin/naia-agent.ts --serve-openai-compat <port>`** — host sidecar
+   - `/v1/chat/completions` SSE (LiveKit Python LLM plugin client)
+   - `/v1/memory/{recall,write}` (LiveKit voice_session memory hook → naia-memory `LiteMemoryProvider` direct wire)
+   - HTTP request abort → upstream Agent-SDK stream cancel (G1)
+2. **STT VAD wrap** — silero VAD plugin (current F.6-1 wire warning: "STT does not support streaming, add VAD")
+3. **`allow_interruptions` → `turn_handling=TurnHandlingOptions(...)`** — livekit-agents 1.5.11 API migration
+4. **Full audio I/O smoke** — LiveKit local audio publish + STT recognize + LLM response + TTS first-chunk arrival 실측 (current F.6-1 wire smoke is idle-only)
+
 ## 6. References
 
 - `docs/voice-pipeline-audit.md` §1 — cascade canonical.
