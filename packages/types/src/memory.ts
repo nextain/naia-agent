@@ -302,6 +302,69 @@ export interface CompactionResult {
 }
 
 /**
+ * Trigger reason for a handoff export — Slice 3-XR-Handoff (#50).
+ *
+ * - `manual`: user invoked `/handoff` or bin `--handoff-out <path>`.
+ * - `budget-95-post-compact`: token budget hit 95% AND compaction already ran
+ *   this session — compaction couldn't shrink enough, escalate to handoff.
+ * - `session-close`: normal session end + `autoExport: true`.
+ */
+export type HandoffTrigger =
+  | "manual"
+  | "budget-95-post-compact"
+  | "session-close";
+
+/**
+ * Cross-session handoff blob — Slice 3-XR-Handoff (#50).
+ *
+ * Produced by `Agent.exportHandoff()` at session boundaries (manual, threshold,
+ * close). Consumed by `Agent.importHandoff(blob)` of a fresh session to seed
+ * its first system prompt with the prior session's recap + strict-preserved
+ * identifier anchors.
+ *
+ * Companion to `CompactionResult` (in-session): handoff is the cross-session
+ * generalization. Both share `naia-memory.compact()` v3 (Slice 3-XR-Compact)
+ * as the underlying recap producer.
+ */
+export interface HandoffBlob {
+  /** Schema version for forward-compat (current: 1). */
+  readonly version: 1;
+  /** Originating session ID. */
+  readonly sessionId: string;
+  /** Unix-ms timestamp when the blob was produced. */
+  readonly createdAt: number;
+  /** Total turns in the source session at export time. */
+  readonly turnCount: number;
+  /** Approximate total tokens (chars/4 heuristic) in the source session. */
+  readonly totalTokens: number;
+  /** What triggered the export. */
+  readonly trigger: HandoffTrigger;
+  /** The recap message — produced by `naia-memory.compact()` with `keepTail=0`. */
+  readonly recap: CompactionMessage;
+  /**
+   * Strict-preserved identifier anchors (UUID / URL / file path verbatim)
+   * extracted from the recap. Injected as a separate `Known identifiers:`
+   * line in the new session's system prompt — fact-level recall ↑.
+   */
+  readonly anchors: readonly string[];
+}
+
+/**
+ * `HandoffCapable` — a MemoryProvider that can export/attach a HandoffBlob
+ * to/from its long-term store. Slice 3-XR-Handoff (#50).
+ *
+ * Default `Agent.exportHandoff()` calls `memory.compact({keepTail: 0})` to
+ * produce the recap and synthesizes the blob — so this capability is
+ * **optional**. Memory implementations that already track session-level
+ * artifacts (naia-memory) MAY override for higher-fidelity exports.
+ */
+export interface HandoffCapable {
+  exportHandoff?(sessionId: string): Promise<HandoffBlob>;
+  /** Attach an incoming blob to long-term store so the next `recall()` finds it. */
+  attachHandoff(blob: HandoffBlob): Promise<void>;
+}
+
+/**
  * Type guard — check if a MemoryProvider also implements a Capability.
  *
  * Multi-method capabilities (like BackupCapable with both backup + restore)

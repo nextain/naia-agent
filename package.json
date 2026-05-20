@@ -6,7 +6,10 @@
   "type": "module",
   "license": "Apache-2.0",
   "pnpm": {
-    "onlyBuiltDependencies": ["better-sqlite3", "esbuild"]
+    "onlyBuiltDependencies": ["better-sqlite3", "esbuild"],
+    "overrides": {
+      "@naia-adk/skill-spec": "file:./vendor/naia-adk-skill-spec-0.1.0.tgz"
+    }
   },
   "workspaces": [
     "packages/*"
@@ -49,11 +52,6 @@
     "@types/node": "^22.0.0",
     "tsx": "^4.19.0",
     "typescript": "^5.8.0"
-  },
-  "pnpm": {
-    "overrides": {
-      "@naia-adk/skill-spec": "file:./vendor/naia-adk-skill-spec-0.1.0.tgz"
-    }
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.0",

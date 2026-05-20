@@ -144,7 +144,9 @@ G4 alone is not a trigger — it is a wrapper-design decision rather than a back
 
 The four gates map onto the existing adapter-contract test ladder (`docs/adapter-contract.md` §2 Contract tests). They will be filed as `voice-cascade`-adapter-specific entries when the Slice 3-XR-Voice scaffold introduces the `voice-cascade` adapter package. Until then they live in this document as the design lock.
 
-## 5A. P0c-2 real-mode verification status (2026-05-21, updated from naia-labs Phase F.5/F.6)
+## 5A. P0c-2 real-mode verification status (2026-05-21 local; NOT yet on main — F.6 round 4 review fix)
+
+> **Promotion status**: 본 §5A/§5B 추가 = `migration/slice-3-xr-compact` branch local commit. **main 으로 PR 머지 전 = 정식 canonical promote 아님**. naia-labs P0c-2 R&D 의 measurement evidence 를 reference 로만 가져옴.
 
 All four exit gates verified real-mode (RTX 3090 GPU0, ollama gemma3n:e4b, VoxCPM2 + Whisper services). Harness lives under `nextain/naia-labs/.agents/voice_cascade/p0/p0c2/harness/`.
 

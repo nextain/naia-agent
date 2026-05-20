@@ -25,6 +25,9 @@ import type {
   CompactableCapable,
   CompactionMessage,
   CompactionStrategy,
+  HandoffBlob,
+  HandoffCapable,
+  HandoffTrigger,
   HostContext,
   LLMContentBlock,
   LLMMessage,
@@ -84,6 +87,14 @@ export interface AgentOptions {
    */
   compactionKeepTail?: number;
   /**
+   * Handoff auto-trigger threshold — Slice 3-XR-Handoff (#50).
+   * When the estimated request exceeds `contextBudget * handoffThreshold`
+   * AND compaction has already run at least once this session, the agent
+   * auto-fires `exportHandoff()` and emits a `handoff.exported` event.
+   * Set to 0 to disable auto-trigger (manual export only). Default: 0.95.
+   */
+  handoffThreshold?: number;
+  /**
    * Compaction strategy — Slice 3-XR-Compact (#47). Passed through to
    * memory.compact() as a hint and surfaced in the `compaction` event for
    * observability. Default: `reactive` (industry pattern, anchored iterative).
@@ -129,6 +140,14 @@ export type AgentStreamEvent =
   | { type: "tool.started"; invocation: ToolInvocation }
   | { type: "tool.ended"; invocation: ToolInvocation; result: ToolExecutionResult }
   | { type: "compaction"; droppedCount: number; realtime: boolean }
+  | {
+      /** Cross-session handoff blob produced — Slice 3-XR-Handoff (#50).
+       *  Host should persist the blob (file or memory.attachHandoff) so the
+       *  next session can import it. */
+      type: "handoff.exported";
+      trigger: HandoffTrigger;
+      blob: HandoffBlob;
+    }
   | { type: "usage"; usage: LLMUsage }
   | {
       /** Emitted when the agent stops because tool calls repeatedly returned
@@ -156,6 +175,22 @@ export class Agent {
    *  summarization (Factory.ai) — the next compact() merges new head into this
    *  rather than re-summarizing from raw. Slice 3-XR-Compact (#47). */
   #priorRecap: CompactionMessage | undefined;
+  /** Whether compaction has fired at least once this session. Gate for
+   *  auto-handoff trigger (handoff only after compaction is exhausted).
+   *  Slice 3-XR-Handoff (#50). */
+  #compactedThisSession = false;
+  /** Total turns processed (user messages). Used as `turnCount` in handoff
+   *  blobs. Slice 3-XR-Handoff (#50). */
+  #turnCount = 0;
+  /** Auto-handoff threshold as a fraction of contextBudget (0..1, 0 = disable).
+   *  Slice 3-XR-Handoff (#50). */
+  readonly #handoffThreshold: number;
+  /** Whether a handoff has been auto-fired this session (one-shot guard so
+   *  budget-95 thrash doesn't emit duplicates). Slice 3-XR-Handoff (#50). */
+  #handoffFired = false;
+  /** Anchors injected into the system prompt from an imported handoff blob.
+   *  Prepended to system prompt at the start of the next turn. Slice 3-XR-Handoff (#50). */
+  #importedHandoff: HandoffBlob | undefined;
   readonly #tierFor: (name: string) => TierLevel;
   readonly #maxConsecutiveToolErrors: number;
   readonly #appendDefaultSystem: boolean;
@@ -170,6 +205,7 @@ export class Agent {
     this.#budget = options.contextBudget ?? 80_000;
     this.#keepTail = options.compactionKeepTail ?? 6;
     this.#strategy = options.compactionStrategy ?? "reactive";
+    this.#handoffThreshold = options.handoffThreshold ?? 0.95;
     this.#tierFor = options.tierForTool ?? (() => "T1");
     this.#maxConsecutiveToolErrors = options.maxConsecutiveToolErrors ?? 3;
 
@@ -225,6 +261,7 @@ export class Agent {
     // 1. Recall memory for context.
     const hits = await this.#recallMemory(userText);
     this.#history.push({ role: "user", content: userText });
+    this.#turnCount++;
     fn?.branch("turn-started", { recalled: hits.length });
     yield { type: "turn.started", userText, recalled: hits.length };
 
@@ -256,6 +293,14 @@ export class Agent {
         if (compactEvent) {
           compactedThisTurn = true;
           yield compactEvent;
+
+          // 3b. Auto-handoff trigger — Slice 3-XR-Handoff (#50).
+          // After compaction, if budget is STILL near limit, escalate to handoff.
+          // Fires at most once per session (idempotent).
+          const handoffEvent = await this.#maybeAutoHandoff(hits, toolDefs);
+          if (handoffEvent) {
+            yield handoffEvent;
+          }
         }
       }
 
@@ -402,6 +447,24 @@ export class Agent {
     // host owns equivalent guarantees. See AgentOptions
     // .appendDefaultSystemPrompt / default-system-prompt.ts.
     if (this.#appendDefaultSystem) systemParts.push(DEFAULT_SYSTEM_PROMPT);
+
+    // Imported handoff blob — Slice 3-XR-Handoff (#50). Prepended to memory
+    // context so the LLM treats it as "prior session knowledge" before any
+    // ad-hoc recall hits. Cleared after one use; subsequent turns rely on
+    // normal recall + history.
+    if (this.#importedHandoff) {
+      const h = this.#importedHandoff;
+      const lines = [
+        `Prior session recap (${h.turnCount} turns, exported ${new Date(h.createdAt).toISOString()}):`,
+        h.recap.content,
+      ];
+      if (h.anchors.length > 0) {
+        lines.push(`Known identifiers from prior session: ${h.anchors.join(", ")}`);
+      }
+      systemParts.push(lines.join("\n\n"));
+      this.#importedHandoff = undefined;
+    }
+
     if (memoryHits.length > 0) {
       const recalled = memoryHits.map((h) => `- ${h.content}`).join("\n");
       systemParts.push(`Relevant context from memory:\n${recalled}`);
@@ -600,6 +663,7 @@ export class Agent {
       // Anchored iterative — store this recap as the seed for the next
       // compaction in the same session. Slice 3-XR-Compact (#47) §6.
       this.#priorRecap = result.summary;
+      this.#compactedThisSession = true;
       return {
         type: "compaction",
         droppedCount: result.droppedCount,
@@ -608,6 +672,119 @@ export class Agent {
     } catch (err) {
       this.#host.logger.warn("agent.compaction.error", { err: String(err) });
       return undefined;
+    }
+  }
+
+  /**
+   * Auto-trigger check — Slice 3-XR-Handoff (#50).
+   *
+   * Fires AFTER a compaction attempt. If the request estimate STILL exceeds
+   * `contextBudget * handoffThreshold` (default 95%) even after compaction,
+   * escalate to a handoff export. Idempotent within a session: only fires
+   * once per session (`#handoffFired` guard) to avoid budget-thrash spam.
+   *
+   * Trigger gate: `handoffThreshold > 0` AND `#compactedThisSession === true`
+   * AND `#handoffFired === false` AND `estimate > budget * threshold`.
+   */
+  async #maybeAutoHandoff(
+    memoryHits: MemoryHit[],
+    toolDefs: readonly ToolDefinitionWithTier[],
+  ): Promise<AgentStreamEvent | undefined> {
+    if (this.#handoffThreshold <= 0) return undefined;
+    if (!this.#compactedThisSession) return undefined;
+    if (this.#handoffFired) return undefined;
+
+    const request = this.#buildRequest(memoryHits, toolDefs);
+    if (this.#estimate(request) <= this.#budget * this.#handoffThreshold) {
+      return undefined;
+    }
+
+    try {
+      const blob = await this.exportHandoff("budget-95-post-compact");
+      this.#handoffFired = true;
+      return { type: "handoff.exported", trigger: blob.trigger, blob };
+    } catch (err) {
+      this.#host.logger.warn("agent.handoff.error", { err: String(err) });
+      return undefined;
+    }
+  }
+
+  /**
+   * Export the current session as a HandoffBlob — Slice 3-XR-Handoff (#50).
+   *
+   * Calls `memory.compact({keepTail: 0})` on the full history so the recap
+   * covers EVERYTHING (not just the head). Extracts identifier anchors
+   * (UUID / URL / file paths) from the recap content for fact-level recall
+   * in the next session.
+   *
+   * Synchronous API for hosts that want to explicitly persist the blob
+   * (file mode). The auto-trigger path additionally emits a
+   * `handoff.exported` event for fire-and-forget hosts.
+   */
+  async exportHandoff(
+    trigger: HandoffTrigger = "manual",
+  ): Promise<HandoffBlob> {
+    const messages = this.#history.map(toCompactionMessage);
+    const totalChars = messages.reduce(
+      (acc, m) => acc + m.content.length,
+      0,
+    );
+
+    let recapContent = `[Session ${this.#session.id} — ${messages.length} messages exported]`;
+    if (isCapable<CompactableCapable>(this.#host.memory, "compact")) {
+      try {
+        const result = await this.#host.memory.compact({
+          messages,
+          keepTail: 0,
+          targetTokens: Math.max(2_000, Math.floor(this.#budget * 0.5)),
+          sessionId: this.#session.id,
+          strategy: this.#strategy,
+          ...(this.#priorRecap !== undefined ? { priorRecap: this.#priorRecap } : {}),
+        });
+        recapContent = result.summary.content;
+      } catch (err) {
+        this.#host.logger.warn("agent.handoff.compact.error", {
+          err: String(err),
+        });
+      }
+    }
+
+    const anchors = extractAnchors(recapContent, this.#history);
+
+    return {
+      version: 1,
+      sessionId: this.#session.id,
+      createdAt: Date.now(),
+      turnCount: this.#turnCount,
+      totalTokens: Math.floor(totalChars / 4),
+      trigger,
+      recap: { role: "assistant", content: recapContent, timestamp: Date.now() },
+      anchors,
+    };
+  }
+
+  /**
+   * Import a HandoffBlob — the recap + anchors will be injected into the
+   * system prompt at the start of the next turn. Slice 3-XR-Handoff (#50).
+   *
+   * The import is one-shot: once a turn has used the imported handoff,
+   * `#importedHandoff` is cleared so subsequent turns rely on normal
+   * recall + history.
+   *
+   * If the host's memory implements `HandoffCapable.attachHandoff`, the blob
+   * is ALSO attached to the long-term store so recall picks it up across
+   * future sessions.
+   */
+  async importHandoff(blob: HandoffBlob): Promise<void> {
+    this.#importedHandoff = blob;
+    if (isCapable<HandoffCapable>(this.#host.memory, "attachHandoff")) {
+      try {
+        await this.#host.memory.attachHandoff(blob);
+      } catch (err) {
+        this.#host.logger.warn("agent.handoff.attach.error", {
+          err: String(err),
+        });
+      }
     }
   }
 
@@ -632,6 +809,46 @@ function extractText(blocks: readonly LLMContentBlock[]): string {
     .filter((b): b is { type: "text"; text: string } => b.type === "text")
     .map((b) => b.text)
     .join("");
+}
+
+/**
+ * Extract strict-preserved identifier anchors from a recap + raw history —
+ * Slice 3-XR-Handoff (#50). File paths (extension-bearing), URLs, and
+ * uppercase-snake-case identifiers (e.g. order numbers `#A-7421`).
+ * Deduped, capped at 32. Used by handoff blobs for fact-level recall.
+ */
+function extractAnchors(
+  recap: string,
+  history: readonly LLMMessage[],
+): readonly string[] {
+  const combined =
+    recap + "\n" + history.map((m) => extractText(toContentBlocks(m))).join("\n");
+  const out = new Set<string>();
+  const pathRe = /(?:^|\s|`)([\/\w][\w./\-]*\.[a-z]{1,6})(?=\s|`|$|[,.;:!?])/gim;
+  const urlRe = /https?:\/\/[^\s)`'"<>]+/g;
+  const idRe = /#[A-Z][A-Z0-9_-]{2,}/g;
+  for (const m of combined.matchAll(pathRe)) {
+    const p = m[1];
+    if (p && p.length >= 3) out.add(p);
+    if (out.size >= 32) break;
+  }
+  for (const m of combined.matchAll(urlRe)) {
+    out.add(m[0]);
+    if (out.size >= 32) break;
+  }
+  for (const m of combined.matchAll(idRe)) {
+    out.add(m[0]);
+    if (out.size >= 32) break;
+  }
+  return [...out];
+}
+
+/** Adapt LLMMessage.content (string | block[]) to block[] for extractText. */
+function toContentBlocks(msg: LLMMessage): readonly LLMContentBlock[] {
+  if (typeof msg.content === "string") {
+    return [{ type: "text", text: msg.content }];
+  }
+  return msg.content;
 }
 
 function toCompactionMessage(msg: LLMMessage): CompactionMessage {
