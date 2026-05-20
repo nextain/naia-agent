@@ -47,6 +47,7 @@ import {
   InMemoryMemory,
   InMemoryToolExecutor,
   createBashSkill,
+  createFileOpsSkills,
   parseServiceManifest,
   resolveMemoryBinding,
   manifestBaseURLTrust,
@@ -141,6 +142,11 @@ interface Args {
    *  embedder) + #41 `<recall>` marker recall instead of ephemeral
    *  InMemoryMemory. Opt-in — default off (no behavior change). */
   memory: boolean;
+  /** Register the read/write/edit/list file-ops skills in addition to
+   *  bash. Opt-in — default off (no behavior change). Model-agnostic
+   *  toggle; any native-tool-calling model can drive them
+   *  (cf. createFileOpsSkills in @nextain/agent-runtime/skills). */
+  enableFileOps: boolean;
 }
 
 function parseArgs(argv: string[]): Args | { error: string } {
@@ -159,6 +165,7 @@ function parseArgs(argv: string[]): Args | { error: string } {
     noTools: false,
     noDefaultSystem: false,
     memory: false,
+    enableFileOps: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -188,6 +195,8 @@ function parseArgs(argv: string[]): Args | { error: string } {
       args.noDefaultSystem = true;
     } else if (a === "--memory") {
       args.memory = true;
+    } else if (a === "--enable-file-ops") {
+      args.enableFileOps = true;
     } else if (a === "--debug") {
       args.debug = true;
     } else if (a === "--show-diff") {
@@ -377,7 +386,13 @@ function buildCliMemory(args: Args): MemoryProvider {
 async function runDirect(args: Args): Promise<number> {
   const llm = await buildLLMClient();
   if (!llm) return 3;
-  const tools = new InMemoryToolExecutor(args.noTools ? [] : [createBashSkill()]);
+  const tools = new InMemoryToolExecutor(
+    args.noTools
+      ? []
+      : args.enableFileOps
+        ? [createBashSkill(), ...createFileOpsSkills()]
+        : [createBashSkill()],
+  );
   const memory = buildCliMemory(args);
   const logger = new ConsoleLogger({ level: args.debug ? "debug" : "warn" });
 
@@ -724,7 +739,13 @@ async function runService(args: Args): Promise<number> {
   const host: HostContext = {
     llm,
     memory,
-    tools: new InMemoryToolExecutor(args.noTools ? [] : [createBashSkill()]),
+    tools: new InMemoryToolExecutor(
+      args.noTools
+        ? []
+        : args.enableFileOps
+          ? [createBashSkill(), ...createFileOpsSkills()]
+          : [createBashSkill()],
+    ),
     logger,
     tracer: new NoopTracer(),
     meter: new InMemoryMeter(),

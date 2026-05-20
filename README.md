@@ -141,6 +141,66 @@ All hosts consume the same `naia-agent` runtime, so behavior is consistent regar
 - [ ] CLI host
 - [ ] Messengers (X8)
 
+## CLI usage (Slice 3-XR-E/F/G — Task #3)
+
+`naia-agent` ships an opinionated CLI for direct, host-less use. Three commands cover the everyday path:
+
+```bash
+# 1) configure (no plaintext key on disk — OS keychain via libsecret)
+pnpm naia-agent login --adk <naia-adk-path> \
+  --main "openai-compat|http://127.0.0.1:11434/v1|gemma4:31b"
+
+# 2) inspect (never echoes secret values — only the apiKeyRef NAME)
+pnpm naia-agent show
+
+# 3) chat
+pnpm naia-agent --no-tools "한국어로 한 문장만 인사해줘"
+```
+
+Flags that matter:
+
+| Flag | Effect |
+|---|---|
+| `--no-tools` | Disable tool-calling (for models without native function-calling, e.g. `gemma3n:e4b`). |
+| `--enable-file-ops` | Register `read_file` / `write_file` / `edit_file` / `list_files` skills alongside `bash` (Slice 3-XR-I). |
+| `--system "<text>"` | Inject a persona system rider (used by `naia-os` ChatPanel + naia-os shell integrations). |
+| `--no-default-system` | Omit the built-in `DEFAULT_SYSTEM_PROMPT` (helpful for small models, #41 v2). |
+| `--memory` | Persistent `LiteMemoryProvider` (SQLite `lite_facts` + `<recall>` marker protocol). |
+| `--service <manifest>` | Service-mode (manifest-driven LLM + memory + persona). |
+
+User guide: [docs/user-guide.md](docs/user-guide.md). LLM configuration standard: [docs/llm-config-standard.md](docs/llm-config-standard.md).
+
+## Evaluation & benchmarks
+
+`naia-agent` ships its own black-box scenario harness + LLM-as-judge — the same harness gates Ralph-loop convergence (`2-consecutive PASS`) before any push.
+
+| Surface | File | Active scenarios |
+|---|---|---|
+| Unit (user-perspective, CLI flag mechanics) | `packages/cli-app/src/__tests__/bin-user-scenarios.test.ts` | **22 active + 2 honest skips** (Slice 3-XR-F) |
+| Integration (ADK ecosystem, LLM-as-judge) | `packages/cli-app/src/__tests__/integration-scenarios.test.ts` | **26 active + 1 dummy grid skip** (Slice 3-XR-G) |
+| Pi-based coding LIVE (native tool-calling) | `packages/cli-app/src/__tests__/integration-scenarios.test.ts` Group P | **6 scenarios** (Slice 3-XR-I, ongoing) |
+| LLM-as-judge harness | `packages/cli-app/src/__tests__/lib/llm-judge.ts` | GLM > OpenAI-compat > Anthropic; strict JSON envelope; transport/parse tolerance |
+| Tiered conversational recall bench (#41 v2) | `benches/conversational-recall/` | judge + harness, per-tier (8G / 24G / 48G) recall scoring |
+| Tier comparison report | `.agents/progress/tier-8g-vs-24g-comparison-2026-05-20.md` | 8G `gemma3n:e4b` vs 24G `gemma4:31b` |
+| Cross-OS compat sanity | `.agents/progress/cross-os-compat-results-2026-05-20.json` | Windows ↔ Linux 5 checks (4/5 PASS) |
+| Multi-judge ensemble | (Slice 3-XR-H, planned — GLM + Codex + Claude verdicts) | judge_disagreement_rate, per-provider bias |
+
+Groups covered (integration):
+
+- **A** 24G live (`gemma4:31b`, thinking-mode suppressed via `Answer directly` + `max_tokens≥300`)
+- **B** coding behaviour (prompt-level read/explain, bug-spot, refactor)
+- **C** tool-calling / pi loop
+- **E** business-adk reserve (LangGraph / RAG backend stub graceful)
+- **F** naia-os persona injection (`--system`)
+- **H** error handling
+- **I** security secret-shape rejection
+- **K** model comparison (e4b vs 31b)
+- **P** pi-based coding LIVE (write/read/edit/list/bash + composite — Slice 3-XR-I)
+
+Reports: `.agents/progress/integration-scenarios-{design,report,results}-2026-05-20.{md,json}`. CHANGELOG `[Slice 3-XR-*]` entries.
+
+Honest limitation: judge currently single-provider (GLM external HTTP). Multi-provider ensemble (GLM + Codex CLI + Claude CLI) is Slice 3-XR-H — see `feedback_pi_substrate_not_glm_only_2026_05_20`.
+
 ## Development
 
 ```bash

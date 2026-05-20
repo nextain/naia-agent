@@ -1161,6 +1161,223 @@ describe("Group J — composite (persona + memory)", () => {
   });
 });
 
+// ─── Group P. pi-based coding (LIVE tool calling — Slice 3-XR-I) ─────────────
+
+describe("Group P — pi-based coding LIVE (native tool-calling)", () => {
+  let tmp: string;
+  beforeAll(() => {
+    tmp = mkdtempSync(join(tmpdir(), "naia-intg-P-"));
+  });
+  afterAll(() => {
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  // Run gemma4:31b WITHOUT --no-tools, with --enable-file-ops, so the model
+  // can drive bash + read/write/edit/list skills via native tool-calling
+  // (confirmed in probe: ollama gemma4:31b returns finish_reason=tool_calls).
+  function runCoding(args: string[], home: string, extra: NodeJS.ProcessEnv = {}, timeoutMs = 240_000) {
+    return runBin(
+      ["--enable-file-ops", "--no-default-system", ...args],
+      coldEnv(home, extra),
+      undefined,
+      timeoutMs,
+    );
+  }
+
+  it("P1 write_file — model writes a file to a tmp dir, mechanism asserts file content", async () => {
+    const start = Date.now();
+    if (!(await ollamaReachable()) || !(await modelAvailable("gemma4:31b"))) {
+      record("P1", "P", "write_file LIVE (24G)", start, { skipped: "no 24G" });
+      return;
+    }
+    const home = mkdtempSync(join(tmp, "home-"));
+    const adk = mkdtempSync(join(tmp, "adk-"));
+    bootstrap24G(home, adk);
+    const work = mkdtempSync(join(tmp, "work-"));
+    const target = join(work, "hello.txt");
+    const persona =
+      `You have tools to write files. Use the write_file tool to create the file "${target}" containing exactly the text "hello from naia-agent". Reply only after the tool returns.`;
+    const r = runCoding(["--system", persona, "Please do it now."], home);
+    const fileExists = existsSync(target);
+    const fileContent = fileExists ? readFileSync(target, "utf8") : "";
+    const observed = `[exit=${r.status}]\nstdout:\n${r.stdout.slice(0, 800)}\n--- stderr tail ---\n${r.stderr.slice(-1200)}\n--- file ---\nexists=${fileExists} content=${JSON.stringify(fileContent)}`;
+    const toolFired = /\[tool\]\s*write_file/.test(r.stderr);
+    const mechPass = r.status === 0 && fileExists && fileContent.length > 0;
+    record("P1", "P", "write_file LIVE (24G)", start, {
+      mechanism: {
+        pass: mechPass,
+        notes: [`exit=${r.status}`, `fileExists=${fileExists}`, `toolFired=${toolFired}`, `contentLen=${fileContent.length}`],
+      },
+      observedTail: observed.slice(-1500),
+    });
+    expect(mechPass).toBe(true);
+  }, 280_000);
+
+  it("P2 read_file — model reads a tmp file and quotes its content", async () => {
+    const start = Date.now();
+    if (!(await ollamaReachable()) || !(await modelAvailable("gemma4:31b"))) {
+      record("P2", "P", "read_file LIVE (24G)", start, { skipped: "no 24G" });
+      return;
+    }
+    const home = mkdtempSync(join(tmp, "home-"));
+    const adk = mkdtempSync(join(tmp, "adk-"));
+    bootstrap24G(home, adk);
+    const work = mkdtempSync(join(tmp, "work-"));
+    const target = join(work, "note.txt");
+    const secret = "the magic number is 73218";
+    writeFileSync(target, secret);
+    const persona =
+      `You have a read_file tool. Read "${target}" using the tool, then tell me what number is mentioned. Answer in one sentence.`;
+    const r = runCoding(["--system", persona, "Go."], home);
+    const observed = `[exit=${r.status}]\nstdout:\n${r.stdout}\n--- stderr tail ---\n${r.stderr.slice(-1200)}`;
+    const toolFired = /\[tool\]\s*read_file/.test(r.stderr);
+    const quoted = r.stdout.includes("73218");
+    const mechPass = r.status === 0 && toolFired && quoted;
+    let v: JudgeVerdict | undefined;
+    if (mechPass && judgeAvailable()) {
+      v = await judge({
+        scenarioId: "P2",
+        description: "model reads a file via read_file tool and quotes the magic number",
+        expected:
+          "The output names '73218' as the magic number. The stderr shows [tool] read_file fired before the answer.",
+        observed,
+      });
+    }
+    record("P2", "P", "read_file LIVE (24G)", start, {
+      mechanism: { pass: mechPass, notes: [`exit=${r.status}`, `toolFired=${toolFired}`, `quoted=${quoted}`] },
+      judge: v,
+      observedTail: observed.slice(-1500),
+    });
+    expect(mechPass).toBe(true);
+    if (v && v.pass === false && !/transport error|judge empty|judge parse error/.test(v.reason)) {
+      expect(v.pass).toBe(true);
+    }
+  }, 280_000);
+
+  it("P3 list_files — model lists tmp dir contents accurately", async () => {
+    const start = Date.now();
+    if (!(await ollamaReachable()) || !(await modelAvailable("gemma4:31b"))) {
+      record("P3", "P", "list_files LIVE (24G)", start, { skipped: "no 24G" });
+      return;
+    }
+    const home = mkdtempSync(join(tmp, "home-"));
+    const adk = mkdtempSync(join(tmp, "adk-"));
+    bootstrap24G(home, adk);
+    const work = mkdtempSync(join(tmp, "work-"));
+    writeFileSync(join(work, "alpha.txt"), "a");
+    writeFileSync(join(work, "beta.md"), "b");
+    writeFileSync(join(work, "gamma.json"), "{}");
+    const persona =
+      `You have a list_files tool. Call list_files EXACTLY ONCE with path="${work}" (use that absolute path verbatim). Do not call any other tool. Then tell me the file names from the tool's response, comma-separated.`;
+    const r = runCoding(["--system", persona, "What's there?"], home);
+    const observed = `[exit=${r.status}]\nstdout:\n${r.stdout}\n--- stderr tail ---\n${r.stderr.slice(-1200)}`;
+    const toolFired = /\[tool\]\s*list_files/.test(r.stderr);
+    const allNamed = ["alpha.txt", "beta.md", "gamma.json"].every((n) => r.stdout.includes(n));
+    const mechPass = r.status === 0 && toolFired && allNamed;
+    record("P3", "P", "list_files LIVE (24G)", start, {
+      mechanism: { pass: mechPass, notes: [`exit=${r.status}`, `toolFired=${toolFired}`, `allNamed=${allNamed}`] },
+      observedTail: observed.slice(-1500),
+    });
+    expect(mechPass).toBe(true);
+  }, 280_000);
+
+  it("P4 edit_file — model patches a file via edit_file tool", async () => {
+    const start = Date.now();
+    if (!(await ollamaReachable()) || !(await modelAvailable("gemma4:31b"))) {
+      record("P4", "P", "edit_file LIVE (24G)", start, { skipped: "no 24G" });
+      return;
+    }
+    const home = mkdtempSync(join(tmp, "home-"));
+    const adk = mkdtempSync(join(tmp, "adk-"));
+    bootstrap24G(home, adk);
+    const work = mkdtempSync(join(tmp, "work-"));
+    const target = join(work, "config.txt");
+    writeFileSync(target, "name=alpha\nversion=0.1.0\n");
+    const persona =
+      `You have an edit_file tool. In the file "${target}", change "version=0.1.0" to "version=0.2.0". Use the tool once.`;
+    const r = runCoding(["--system", persona, "Apply the edit."], home);
+    const after = existsSync(target) ? readFileSync(target, "utf8") : "";
+    const observed = `[exit=${r.status}]\nstdout:\n${r.stdout.slice(0, 600)}\n--- stderr tail ---\n${r.stderr.slice(-1200)}\n--- file after ---\n${after}`;
+    const toolFired = /\[tool\]\s*edit_file/.test(r.stderr);
+    const patched = after.includes("version=0.2.0") && !after.includes("version=0.1.0");
+    const mechPass = r.status === 0 && toolFired && patched;
+    record("P4", "P", "edit_file LIVE (24G)", start, {
+      mechanism: { pass: mechPass, notes: [`exit=${r.status}`, `toolFired=${toolFired}`, `patched=${patched}`] },
+      observedTail: observed.slice(-1500),
+    });
+    expect(mechPass).toBe(true);
+  }, 280_000);
+
+  it("P5 bash — model runs a single echo via bash skill", async () => {
+    const start = Date.now();
+    if (!(await ollamaReachable()) || !(await modelAvailable("gemma4:31b"))) {
+      record("P5", "P", "bash LIVE (24G)", start, { skipped: "no 24G" });
+      return;
+    }
+    const home = mkdtempSync(join(tmp, "home-"));
+    const adk = mkdtempSync(join(tmp, "adk-"));
+    bootstrap24G(home, adk);
+    const persona =
+      `You have a bash tool. Run \`echo READY-marker-7Q\` using bash, then tell me what the output was.`;
+    const r = runCoding(["--system", persona, "Run it."], home);
+    const observed = `[exit=${r.status}]\nstdout:\n${r.stdout}\n--- stderr tail ---\n${r.stderr.slice(-1200)}`;
+    const toolFired = /\[tool\]\s*bash/.test(r.stderr);
+    const quoted = r.stdout.includes("READY-marker-7Q");
+    const mechPass = r.status === 0 && toolFired && quoted;
+    record("P5", "P", "bash LIVE (24G)", start, {
+      mechanism: { pass: mechPass, notes: [`exit=${r.status}`, `toolFired=${toolFired}`, `quoted=${quoted}`] },
+      observedTail: observed.slice(-1500),
+    });
+    expect(mechPass).toBe(true);
+  }, 280_000);
+
+  it("P6 multi-tool composite — write + read + list in one session", async () => {
+    const start = Date.now();
+    if (!(await ollamaReachable()) || !(await modelAvailable("gemma4:31b"))) {
+      record("P6", "P", "multi-tool composite LIVE (24G)", start, { skipped: "no 24G" });
+      return;
+    }
+    const home = mkdtempSync(join(tmp, "home-"));
+    const adk = mkdtempSync(join(tmp, "adk-"));
+    bootstrap24G(home, adk);
+    const work = mkdtempSync(join(tmp, "work-"));
+    const target = join(work, "data.txt");
+    const persona =
+      `You have write_file, read_file, list_files tools. Step 1: write_file "${target}" with content "step1-done". Step 2: list_files in "${work}". Step 3: read_file "${target}" and quote it.`;
+    const r = runCoding(["--system", persona, "Execute all three steps."], home);
+    const observed = `[exit=${r.status}]\nstdout:\n${r.stdout.slice(0, 1000)}\n--- stderr tail ---\n${r.stderr.slice(-1500)}`;
+    const wroteFired = /\[tool\]\s*write_file/.test(r.stderr);
+    const listFired = /\[tool\]\s*list_files/.test(r.stderr);
+    const readFired = /\[tool\]\s*read_file/.test(r.stderr);
+    const bashFallback = /\[tool\]\s*bash/.test(r.stderr);
+    const fileOk = existsSync(target) && readFileSync(target, "utf8").includes("step1-done");
+    // The model is free to compose tools (write_file + bash for list/read is
+    // a legitimate path). Mechanism = file effect correct + AT LEAST write_file
+    // fired + response mentions both directory listing and the file's content.
+    const respondsListing = /data\.txt/.test(r.stdout);
+    const respondsRead = /step1-done/.test(r.stdout);
+    const mechPass =
+      r.status === 0 && wroteFired && fileOk && respondsListing && respondsRead;
+    record("P6", "P", "multi-tool composite LIVE (24G)", start, {
+      mechanism: {
+        pass: mechPass,
+        notes: [
+          `exit=${r.status}`,
+          `write=${wroteFired}`,
+          `list_native=${listFired}`,
+          `read_native=${readFired}`,
+          `bash_fallback=${bashFallback}`,
+          `fileOk=${fileOk}`,
+          `respondsListing=${respondsListing}`,
+          `respondsRead=${respondsRead}`,
+        ],
+      },
+      observedTail: observed.slice(-1800),
+    });
+    expect(mechPass).toBe(true);
+  }, 360_000);
+});
+
 // ─── Group K. model comparison ────────────────────────────────────────────────
 
 describe("Group K — same prompt: e4b vs 31b", () => {

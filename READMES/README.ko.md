@@ -141,6 +141,66 @@
 - [ ] CLI 호스트
 - [ ] 메신저 (X8)
 
+## CLI 사용 (Slice 3-XR-E/F/G — Task #3)
+
+`naia-agent` 는 호스트 없이 바로 쓸 수 있는 CLI 를 함께 제공합니다. 일상 흐름은 3 명령으로 충분합니다:
+
+```bash
+# 1) 설정 (디스크에 평문 키 없음 — libsecret OS keychain 사용)
+pnpm naia-agent login --adk <naia-adk-path> \
+  --main "openai-compat|http://127.0.0.1:11434/v1|gemma4:31b"
+
+# 2) 확인 (값은 절대 출력 안 함 — apiKeyRef 이름만)
+pnpm naia-agent show
+
+# 3) 채팅
+pnpm naia-agent --no-tools "한국어로 한 문장만 인사해줘"
+```
+
+핵심 플래그:
+
+| 플래그 | 효과 |
+|---|---|
+| `--no-tools` | tool-calling 비활성화 (native function-calling 없는 모델용, 예: `gemma3n:e4b`). |
+| `--enable-file-ops` | `read_file` / `write_file` / `edit_file` / `list_files` 스킬을 `bash` 와 함께 등록 (Slice 3-XR-I). |
+| `--system "<text>"` | 페르소나 system rider 주입 (naia-os ChatPanel + 호스트 통합에 사용). |
+| `--no-default-system` | 내장 `DEFAULT_SYSTEM_PROMPT` 생략 (소형 모델 도움, #41 v2). |
+| `--memory` | 영속 `LiteMemoryProvider` (SQLite `lite_facts` + `<recall>` 마커 프로토콜). |
+| `--service <manifest>` | 서비스 모드 (manifest 기반 LLM + memory + persona). |
+
+사용자 가이드: [docs/user-guide.md](../docs/user-guide.md). LLM 설정 표준: [docs/llm-config-standard.md](../docs/llm-config-standard.md).
+
+## 평가 & 벤치마크
+
+`naia-agent` 는 자체 블랙박스 시나리오 하네스 + LLM-as-judge 를 함께 제공합니다 — 같은 하네스가 Ralph 루프 수렴 (`2-consecutive PASS`) 을 게이트하고서 push 합니다.
+
+| 영역 | 파일 | 활성 시나리오 |
+|---|---|---|
+| 단위 (사용자 관점, CLI 플래그 메커니즘) | `packages/cli-app/src/__tests__/bin-user-scenarios.test.ts` | **22 active + 2 honest skips** (Slice 3-XR-F) |
+| 통합 (ADK 생태계, LLM-as-judge) | `packages/cli-app/src/__tests__/integration-scenarios.test.ts` | **26 active + 1 dummy** (Slice 3-XR-G) |
+| pi 기반 코딩 LIVE (native tool-calling) | 같은 파일의 Group P | **6 시나리오** (Slice 3-XR-I, 진행 중) |
+| LLM-as-judge 하네스 | `packages/cli-app/src/__tests__/lib/llm-judge.ts` | GLM > OpenAI-compat > Anthropic; 엄격 JSON envelope; transport/parse 관용 |
+| Tiered conversational recall bench (#41 v2) | `benches/conversational-recall/` | judge + harness, tier별 (8G / 24G / 48G) recall 점수 |
+| Tier 비교 보고서 | `.agents/progress/tier-8g-vs-24g-comparison-2026-05-20.md` | 8G `gemma3n:e4b` vs 24G `gemma4:31b` |
+| Cross-OS 호환성 sanity | `.agents/progress/cross-os-compat-results-2026-05-20.json` | 윈도 ↔ Linux 5 checks (4/5 PASS) |
+| Multi-judge ensemble | (Slice 3-XR-H, 예정 — GLM + Codex + Claude verdict) | judge_disagreement_rate, provider별 편향 |
+
+커버 그룹 (통합):
+
+- **A** 24G 라이브 (`gemma4:31b`, thinking-mode 억제 = `Answer directly` + `max_tokens≥300`)
+- **B** 코딩 동작 (프롬프트 레벨 read/explain, bug-spot, refactor)
+- **C** tool-calling / pi 루프
+- **E** business-adk reserve (LangGraph / RAG backend stub graceful)
+- **F** naia-os 페르소나 주입 (`--system`)
+- **H** 에러 처리
+- **I** 보안 secret-shape 거절
+- **K** 모델 비교 (e4b vs 31b)
+- **P** pi 기반 코딩 LIVE (write/read/edit/list/bash + composite — Slice 3-XR-I)
+
+보고서: `.agents/progress/integration-scenarios-{design,report,results}-2026-05-20.{md,json}`. CHANGELOG `[Slice 3-XR-*]` 항목.
+
+정직 한계: judge 가 현재 단일 외주 (GLM HTTP). 멀티 프로바이더 ensemble (GLM + Codex CLI + Claude CLI) = Slice 3-XR-H — `feedback_pi_substrate_not_glm_only_2026_05_20` 참고.
+
 ## 개발
 
 ```bash
