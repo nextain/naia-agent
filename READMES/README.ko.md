@@ -163,43 +163,97 @@ pnpm naia-agent --no-tools "한국어로 한 문장만 인사해줘"
 |---|---|
 | `--no-tools` | tool-calling 비활성화 (native function-calling 없는 모델용, 예: `gemma3n:e4b`). |
 | `--enable-file-ops` | `read_file` / `write_file` / `edit_file` / `list_files` 스킬을 `bash` 와 함께 등록 (Slice 3-XR-I). |
+| `--skills-dir <path>` | 외부 ADK skills 로드 (FileSkillLoader, naia-adk / onmam-adk top-level `skills/`). bash + file-ops 와 CompositeToolExecutor로 결합 (Slice 3-XR-J). |
 | `--system "<text>"` | 페르소나 system rider 주입 (naia-os ChatPanel + 호스트 통합에 사용). |
 | `--no-default-system` | 내장 `DEFAULT_SYSTEM_PROMPT` 생략 (소형 모델 도움, #41 v2). |
 | `--memory` | 영속 `LiteMemoryProvider` (SQLite `lite_facts` + `<recall>` 마커 프로토콜). |
-| `--service <manifest>` | 서비스 모드 (manifest 기반 LLM + memory + persona). |
+| `--repl` | stdin이 piped 상태여도 REPL 모드 강제 (default: piped = single-shot). 쉘 파이프라인이 다턴 입력 feeding 시 유용 (Slice 3-XR-M). |
+| `--service <manifest>` | 서비스 모드 (manifest 기반 LLM + memory + persona). 지원 backend: `openai-compatible` / `anthropic` / `vertex` / `claude-code` (Claude Code 구독, API 키 X) / `langgraph` (reserve stub) / `rag-retriever` (reserve stub). |
 
 사용자 가이드: [docs/user-guide.md](../docs/user-guide.md). LLM 설정 표준: [docs/llm-config-standard.md](../docs/llm-config-standard.md).
 
 ## 평가 & 벤치마크
 
-`naia-agent` 는 자체 블랙박스 시나리오 하네스 + LLM-as-judge 를 함께 제공합니다 — 같은 하네스가 Ralph 루프 수렴 (`2-consecutive PASS`) 을 게이트하고서 push 합니다.
+`naia-agent` 는 자체 블랙박스 시나리오 하네스 + **3-judge ensemble** 을 함께 제공합니다 — 같은 하네스가 Ralph 루프 수렴 (`2-consecutive PASS`) 을 게이트하고서 push 합니다.
 
-| 영역 | 파일 | 활성 시나리오 |
+| 영역 | 파일 | 상태 |
 |---|---|---|
-| 단위 (사용자 관점, CLI 플래그 메커니즘) | `packages/cli-app/src/__tests__/bin-user-scenarios.test.ts` | **22 active + 2 honest skips** (Slice 3-XR-F) |
-| 통합 (ADK 생태계, LLM-as-judge) | `packages/cli-app/src/__tests__/integration-scenarios.test.ts` | **26 active + 1 dummy** (Slice 3-XR-G) |
-| pi 기반 코딩 LIVE (native tool-calling) | 같은 파일의 Group P | **6 시나리오** (Slice 3-XR-I, 진행 중) |
-| LLM-as-judge 하네스 | `packages/cli-app/src/__tests__/lib/llm-judge.ts` | GLM > OpenAI-compat > Anthropic; 엄격 JSON envelope; transport/parse 관용 |
+| 단위 (사용자 관점, CLI 플래그 메커니즘) | `packages/cli-app/src/__tests__/bin-user-scenarios.test.ts` | **22 active + 2 honest skip** (Slice 3-XR-F) |
+| 통합 (ADK 생태계, LLM-as-judge, Groups A-O+P+K) | `packages/cli-app/src/__tests__/integration-scenarios.test.ts` | **53+ active** (Slice 3-XR-G/I/J/L/M/N/O) |
+| pi 기반 코딩 LIVE (native tool-calling) | Group P | **6 시나리오** (Slice 3-XR-I) |
+| naia-adk 풀셋 라이브 invocation | Group D | **6 시나리오** (Slice 3-XR-J — 3 LIVE + 3 mech, 19/19 system skills) |
+| onmam-adk 도메인 skills | Group G | **3 active + 1 honest defer** (Slice 3-XR-L — 10 skills + wp-archive) |
+| multi-turn REPL + Claude Code 라우팅 | Group M | **2 시나리오** (Slice 3-XR-M — `--repl` + DRYRUN) |
+| cross-OS sanity (Linux side) | Group N | **5 active + 1 honest defer** (Slice 3-XR-N) |
+| Claude Code 하네스 parity ledger | Group O | **7 mechanism + 의도적 차이 ledger** (Slice 3-XR-O) |
+| 3-judge ensemble (GLM HTTP + Claude CLI + Codex CLI) | `packages/cli-app/src/__tests__/lib/llm-judge.ts` | A1/A4/F2 wired (Slice 3-XR-H, `NAIA_JUDGE_ENSEMBLE=1` opt-in) |
 | Tiered conversational recall bench (#41 v2) | `examples/conversational-recall-bench.ts` | judge + harness, tier별 (8G / 24G / 48G) recall 점수 |
 | Tier 비교 보고서 | `.agents/progress/tier-8g-vs-24g-comparison-2026-05-20.md` | 8G `gemma3n:e4b` vs 24G `gemma4:31b` |
-| Cross-OS 호환성 sanity | `.agents/progress/cross-os-compat-results-2026-05-20.json` | 윈도 ↔ Linux 5 checks (4/5 PASS) |
-| Multi-judge ensemble | (Slice 3-XR-H, 예정 — GLM + Codex + Claude verdict) | judge_disagreement_rate, provider별 편향 |
+| Cross-OS 호환성 sanity 보고서 | `.agents/progress/cross-os-compat-results-2026-05-20.json` | 4/5 PASS (Linux side) |
 
 커버 그룹 (통합):
 
 - **A** 24G 라이브 (`gemma4:31b`, thinking-mode 억제 = `Answer directly` + `max_tokens≥300`)
 - **B** 코딩 동작 (프롬프트 레벨 read/explain, bug-spot, refactor)
 - **C** tool-calling / pi 루프
+- **D** naia-adk 풀셋 라이브 (`--skills-dir`)
 - **E** business-adk reserve (LangGraph / RAG backend stub graceful)
 - **F** naia-os 페르소나 주입 (`--system`)
+- **G** onmam-adk 도메인 (+ wp-archive)
 - **H** 에러 처리
 - **I** 보안 secret-shape 거절
 - **K** 모델 비교 (e4b vs 31b)
-- **P** pi 기반 코딩 LIVE (write/read/edit/list/bash + composite — Slice 3-XR-I)
+- **M** multi-turn REPL + Claude Code subscription 라우팅
+- **N** cross-OS sanity
+- **O** Claude Code 하네스 parity ledger
+- **P** pi 기반 코딩 LIVE (write/read/edit/list/bash + composite)
 
 보고서: `.agents/progress/integration-scenarios-{design,report,results}-2026-05-20.{md,json}`. CHANGELOG `[Slice 3-XR-*]` 항목.
 
-정직 한계: judge 가 현재 단일 외주 (GLM HTTP). 멀티 프로바이더 ensemble (GLM + Codex CLI + Claude CLI) = Slice 3-XR-H — `feedback_pi_substrate_not_glm_only_2026_05_20` 참고.
+## 벤치마크 + 시나리오 직접 실행
+
+```bash
+# 전체 (단위 + 통합; A1/A4/F2 는 단일 GLM judge)
+pnpm test                                                       # 모든 패키지
+pnpm --filter @nextain/agent-cli-app exec vitest run            # cli-app만
+
+# 그룹별
+pnpm --filter @nextain/agent-cli-app exec vitest run -t "Group P"   # pi-coding LIVE
+pnpm --filter @nextain/agent-cli-app exec vitest run -t "Group D"   # naia-adk skills
+pnpm --filter @nextain/agent-cli-app exec vitest run -t "Group G"   # onmam-adk
+pnpm --filter @nextain/agent-cli-app exec vitest run -t "Group M"   # REPL + Claude Code
+pnpm --filter @nextain/agent-cli-app exec vitest run -t "Group N"   # cross-OS sanity
+pnpm --filter @nextain/agent-cli-app exec vitest run -t "Group O"   # parity ledger
+
+# 3-judge ensemble (GLM HTTP + Claude CLI + Codex CLI) — 크레딧 소비!
+#   GLM_API_KEY 필요 + claude/codex CLI 설치 필요.
+NAIA_JUDGE_ENSEMBLE=1 \
+  pnpm --filter @nextain/agent-cli-app exec vitest run -t "A1|A4|F2"
+
+# Claude Code 구독 LIVE (구독 크레딧 소비)
+NAIA_AGENT_CLAUDECODE_LIVE=1 \
+  pnpm --filter @nextain/agent-cli-app exec vitest run -t "M2"
+
+# Tiered recall bench (#41 v2 — 소형 LLM "tiered" recall)
+pnpm exec tsx examples/conversational-recall-bench.ts --help
+```
+
+결과 파일 (machine-readable + 사람용 보고서):
+
+- `.agents/progress/integration-scenarios-results-2026-05-20.json` — 시나리오별 verdict + judge breakdown + observed tail
+- `.agents/progress/integration-scenarios-report-2026-05-20.md` — prose summary
+- `.agents/progress/integration-scenarios-design-2026-05-20.md` — FINAL v3 design (GLM cross-review 2 라운드 후)
+- `.agents/progress/cross-review-glm-2026-05-20.json` — GLM-judge design review
+- `.agents/progress/tier-8g-vs-24g-comparison-2026-05-20.md` — 실측 tier 비교
+- `.agents/progress/cross-os-compat-{sanity,results}-2026-05-20.{md,json}` — cross-OS sanity (4/5 PASS)
+- `.agents/progress/slice-3-xr-h-i-j-l-plan-2026-05-20.md` — slice 순서 + Voice P0c-1/P0c-2 분리
+
+정직 한계:
+
+- 3-judge ensemble 은 **3 시나리오만** wired (A1/A4/F2 — high-judgment). 나머지 50+ 는 단일 GLM (비용 의식).
+- LIVE 시나리오는 `gemma3n:e4b` (8G) + `gemma4:31b` (24G) 가 `http://127.0.0.1:11434` ollama 에 reachable 가정. 없으면 honest skip (results JSON에 기록).
+- `claude` / `codex` CLI 가 ensemble path 에 필요. 미설치 = `infra_error` (real-fail 아님, `lib/llm-judge.ts`).
+- multi-provider ensemble = 사용자 정정 후 추가 (초기 Slice 3-XR-G 단일 GLM 출시 — `feedback_pi_substrate_not_glm_only_2026_05_20`).
 
 ## 개발
 

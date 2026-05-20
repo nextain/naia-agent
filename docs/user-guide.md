@@ -95,6 +95,56 @@ Memory lives in `~/.naia-agent/memory/cli.sqlite` by default. Set
 `exit` (or Ctrl-D) to leave. The REPL stays alive across single failed
 turns — a model-server outage prints a hint and the prompt comes back.
 
+Pipe-fed REPL (Slice 3-XR-M) — use `--repl` to force REPL mode even when
+stdin is piped. Useful for shell pipelines feeding multiple prompts:
+
+```bash
+printf "hi\nstill there?\nexit\n" | pnpm naia-agent --no-tools --repl
+```
+
+### Use ADK skills (naia-adk, onmam-adk, …)
+
+The `--skills-dir <path>` flag (Slice 3-XR-J) loads an external ADK's
+top-level `skills/` directory and merges them with bash + file-ops via
+`CompositeToolExecutor`. First-registered wins on name collisions —
+sub order is a trust boundary.
+
+```bash
+# naia-adk system skills (19) — time, weather, channel-management, etc.
+pnpm naia-agent --enable-file-ops --skills-dir projects/naia-adk/skills \
+  --system "You can use time, weather, channel-management, etc." \
+  "What time is it in Seoul?"
+
+# onmam-adk domain skills (10 + wp-archive)
+pnpm naia-agent --enable-file-ops --skills-dir projects/onmam-adk/skills \
+  "summarize the wp-archive skill"
+```
+
+Tool invocations land on stderr as `[tool] <name>({args})` — greppable.
+
+### Run the evaluation harness yourself
+
+```bash
+# Full integration suite (53+ scenarios across Groups A/B/C/D/E/F/G/H/I/M/N/O/P/K)
+pnpm --filter @nextain/agent-cli-app exec vitest run \
+  src/__tests__/integration-scenarios.test.ts
+
+# A single group
+pnpm --filter @nextain/agent-cli-app exec vitest run -t "Group P"   # pi-coding LIVE
+pnpm --filter @nextain/agent-cli-app exec vitest run -t "Group D"   # naia-adk skills
+pnpm --filter @nextain/agent-cli-app exec vitest run -t "Group G"   # onmam-adk
+
+# 3-judge ensemble (GLM + Claude CLI + Codex CLI) — consumes credits!
+NAIA_JUDGE_ENSEMBLE=1 \
+  pnpm --filter @nextain/agent-cli-app exec vitest run -t "A1|A4|F2"
+```
+
+Results land in `.agents/progress/integration-scenarios-results-2026-05-20.json`
+(per-scenario verdict, judge breakdown, observed tail) and the prose
+summary in `integration-scenarios-report-2026-05-20.md`. See the
+project's main README "Running benchmarks + scenarios yourself" section
+for the complete list (tier comparison, cross-OS sanity, recall bench).
+
 ---
 
 ## naia-os shell / gateway perspective

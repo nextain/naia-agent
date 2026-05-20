@@ -163,43 +163,97 @@ Flags that matter:
 |---|---|
 | `--no-tools` | Disable tool-calling (for models without native function-calling, e.g. `gemma3n:e4b`). |
 | `--enable-file-ops` | Register `read_file` / `write_file` / `edit_file` / `list_files` skills alongside `bash` (Slice 3-XR-I). |
+| `--skills-dir <path>` | Load external ADK skills via FileSkillLoader (naia-adk / onmam-adk top-level `skills/`). CompositeToolExecutor merges with bash + file-ops (Slice 3-XR-J). |
 | `--system "<text>"` | Inject a persona system rider (used by `naia-os` ChatPanel + naia-os shell integrations). |
 | `--no-default-system` | Omit the built-in `DEFAULT_SYSTEM_PROMPT` (helpful for small models, #41 v2). |
 | `--memory` | Persistent `LiteMemoryProvider` (SQLite `lite_facts` + `<recall>` marker protocol). |
-| `--service <manifest>` | Service-mode (manifest-driven LLM + memory + persona). |
+| `--repl` | Force REPL mode even when stdin is piped (default: piped stdin = single-shot). Useful for shell pipelines feeding multiple prompts (Slice 3-XR-M). |
+| `--service <manifest>` | Service-mode (manifest-driven LLM + memory + persona). Supports backends: `openai-compatible` / `anthropic` / `vertex` / `claude-code` (Claude Code subscription, no API key) / `langgraph` (reserved stub) / `rag-retriever` (reserved stub). |
 
 User guide: [docs/user-guide.md](docs/user-guide.md). LLM configuration standard: [docs/llm-config-standard.md](docs/llm-config-standard.md).
 
 ## Evaluation & benchmarks
 
-`naia-agent` ships its own black-box scenario harness + LLM-as-judge — the same harness gates Ralph-loop convergence (`2-consecutive PASS`) before any push.
+`naia-agent` ships its own black-box scenario harness + 3-judge ensemble — the same harness gates Ralph-loop convergence (`2-consecutive PASS`) before any push.
 
-| Surface | File | Active scenarios |
+| Surface | File | Status |
 |---|---|---|
 | Unit (user-perspective, CLI flag mechanics) | `packages/cli-app/src/__tests__/bin-user-scenarios.test.ts` | **22 active + 2 honest skips** (Slice 3-XR-F) |
-| Integration (ADK ecosystem, LLM-as-judge) | `packages/cli-app/src/__tests__/integration-scenarios.test.ts` | **26 active + 1 dummy grid skip** (Slice 3-XR-G) |
-| Pi-based coding LIVE (native tool-calling) | `packages/cli-app/src/__tests__/integration-scenarios.test.ts` Group P | **6 scenarios** (Slice 3-XR-I, ongoing) |
-| LLM-as-judge harness | `packages/cli-app/src/__tests__/lib/llm-judge.ts` | GLM > OpenAI-compat > Anthropic; strict JSON envelope; transport/parse tolerance |
+| Integration (ADK ecosystem, LLM-as-judge, Groups A-O+P+K) | `packages/cli-app/src/__tests__/integration-scenarios.test.ts` | **53+ active** (Slice 3-XR-G/I/J/L/M/N/O) |
+| Pi-based coding LIVE (native tool-calling) | Group P | **6 scenarios** (Slice 3-XR-I) |
+| naia-adk full-set live invocation | Group D | **6 scenarios** (Slice 3-XR-J — 3 LIVE + 3 mechanism, 19/19 system skills) |
+| onmam-adk domain skills | Group G | **3 active + 1 honest defer** (Slice 3-XR-L — 10 skills incl. wp-archive) |
+| multi-turn REPL + Claude Code routing | Group M | **2 scenarios** (Slice 3-XR-M — `--repl` + DRYRUN) |
+| cross-OS sanity (Linux side) | Group N | **5 active + 1 honest defer** (Slice 3-XR-N) |
+| Claude Code parity ledger | Group O | **7 mechanism + intentional-difference ledger** (Slice 3-XR-O) |
+| 3-judge ensemble harness (GLM + Claude CLI + Codex CLI) | `packages/cli-app/src/__tests__/lib/llm-judge.ts` | A1/A4/F2 wired (Slice 3-XR-H, `NAIA_JUDGE_ENSEMBLE=1` opt-in) |
 | Tiered conversational recall bench (#41 v2) | `examples/conversational-recall-bench.ts` | judge + harness, per-tier (8G / 24G / 48G) recall scoring |
 | Tier comparison report | `.agents/progress/tier-8g-vs-24g-comparison-2026-05-20.md` | 8G `gemma3n:e4b` vs 24G `gemma4:31b` |
-| Cross-OS compat sanity | `.agents/progress/cross-os-compat-results-2026-05-20.json` | Windows ↔ Linux 5 checks (4/5 PASS) |
-| Multi-judge ensemble | (Slice 3-XR-H, planned — GLM + Codex + Claude verdicts) | judge_disagreement_rate, per-provider bias |
+| Cross-OS compat sanity report | `.agents/progress/cross-os-compat-results-2026-05-20.json` | 4/5 PASS (Linux side) |
 
 Groups covered (integration):
 
 - **A** 24G live (`gemma4:31b`, thinking-mode suppressed via `Answer directly` + `max_tokens≥300`)
 - **B** coding behaviour (prompt-level read/explain, bug-spot, refactor)
 - **C** tool-calling / pi loop
+- **D** naia-adk skills full-set live (`--skills-dir`)
 - **E** business-adk reserve (LangGraph / RAG backend stub graceful)
 - **F** naia-os persona injection (`--system`)
+- **G** onmam-adk domain (+ wp-archive)
 - **H** error handling
 - **I** security secret-shape rejection
 - **K** model comparison (e4b vs 31b)
-- **P** pi-based coding LIVE (write/read/edit/list/bash + composite — Slice 3-XR-I)
+- **M** multi-turn REPL + Claude Code subscription routing
+- **N** cross-OS sanity
+- **O** Claude Code harness parity ledger
+- **P** pi-based coding LIVE (write/read/edit/list/bash + composite)
 
 Reports: `.agents/progress/integration-scenarios-{design,report,results}-2026-05-20.{md,json}`. CHANGELOG `[Slice 3-XR-*]` entries.
 
-Honest limitation: judge currently single-provider (GLM external HTTP). Multi-provider ensemble (GLM + Codex CLI + Claude CLI) is Slice 3-XR-H — see `feedback_pi_substrate_not_glm_only_2026_05_20`.
+## Running benchmarks + scenarios yourself
+
+```bash
+# Full suite (unit + integration; single-GLM judge for A1/A4/F2)
+pnpm test                                                       # all packages
+pnpm --filter @nextain/agent-cli-app exec vitest run            # cli-app only
+
+# By scenario group
+pnpm --filter @nextain/agent-cli-app exec vitest run -t "Group P"   # pi-coding LIVE
+pnpm --filter @nextain/agent-cli-app exec vitest run -t "Group D"   # naia-adk skills
+pnpm --filter @nextain/agent-cli-app exec vitest run -t "Group G"   # onmam-adk
+pnpm --filter @nextain/agent-cli-app exec vitest run -t "Group M"   # REPL + Claude Code
+pnpm --filter @nextain/agent-cli-app exec vitest run -t "Group N"   # cross-OS sanity
+pnpm --filter @nextain/agent-cli-app exec vitest run -t "Group O"   # parity ledger
+
+# 3-judge ensemble (GLM HTTP + Claude CLI + Codex CLI) — consumes credits!
+#   GLM_API_KEY required + claude/codex CLIs installed.
+NAIA_JUDGE_ENSEMBLE=1 \
+  pnpm --filter @nextain/agent-cli-app exec vitest run -t "A1|A4|F2"
+
+# Claude Code subscription LIVE (consumes subscription credit)
+NAIA_AGENT_CLAUDECODE_LIVE=1 \
+  pnpm --filter @nextain/agent-cli-app exec vitest run -t "M2"
+
+# Tiered recall bench (#41 v2 — small-LLM "tiered" recall)
+pnpm exec tsx examples/conversational-recall-bench.ts --help
+```
+
+Result files (machine-readable + human reports):
+
+- `.agents/progress/integration-scenarios-results-2026-05-20.json` — per-scenario verdict + judge breakdown + observed tail
+- `.agents/progress/integration-scenarios-report-2026-05-20.md` — prose summary
+- `.agents/progress/integration-scenarios-design-2026-05-20.md` — FINAL v3 design (after 2 GLM cross-review rounds)
+- `.agents/progress/cross-review-glm-2026-05-20.json` — GLM-judge design review
+- `.agents/progress/tier-8g-vs-24g-comparison-2026-05-20.md` — measured tier comparison
+- `.agents/progress/cross-os-compat-{sanity,results}-2026-05-20.{md,json}` — cross-OS sanity (4/5 PASS)
+- `.agents/progress/slice-3-xr-h-i-j-l-plan-2026-05-20.md` — slice sequence + Voice P0c-1/P0c-2 split
+
+Honest limitations:
+
+- 3-judge ensemble wired on **only 3 scenarios** (A1/A4/F2 — high-judgment). The other 50+ use single-GLM (cost-bounded).
+- LIVE scenarios assume `gemma3n:e4b` (8G) and `gemma4:31b` (24G) reachable at `http://127.0.0.1:11434` via ollama. Without them, those tests honestly skip (recorded in the results JSON).
+- `claude` / `codex` CLIs need to be installed for the ensemble path; missing CLIs are recorded as `infra_error` (not real-fail) per `lib/llm-judge.ts`.
+- Multi-provider ensemble was a user-correction after the initial Slice 3-XR-G shipped with single-GLM (see `feedback_pi_substrate_not_glm_only_2026_05_20`).
 
 ## Development
 
