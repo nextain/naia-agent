@@ -30,7 +30,8 @@
   "scripts": {
     "build": "tsc -b",
     "test": "vitest run",
-    "bench:compact": "tsx src/runner.ts"
+    "bench:compact": "tsx src/runner.ts",
+    "smoke:judges:live": "tsx scripts/smoke-judges-live.ts"
   },
   "dependencies": {
     "@nextain/agent-types": "workspace:*",
