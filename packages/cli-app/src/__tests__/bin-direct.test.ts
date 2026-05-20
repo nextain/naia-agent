@@ -46,6 +46,9 @@ describe("bin/naia-agent direct mode (G01 / #21)", () => {
     const r = runBin(["test prompt"], {
       ANTHROPIC_API_KEY: "",
       OPENAI_API_KEY: "",
+      OPENAI_BASE_URL: "",
+      NAIA_ANYLLM_API_KEY: "",
+      NAIA_ANYLLM_BASE_URL: "",
       GLM_API_KEY: "",
       VERTEX_PROJECT_ID: "",
     });

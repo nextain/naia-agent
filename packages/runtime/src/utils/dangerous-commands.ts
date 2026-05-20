@@ -27,8 +27,10 @@ export interface DangerousMatch {
 export const DANGEROUS_PATTERNS: ReadonlyArray<DangerousMatch> = [
   {
     // rm -rf /  |  rm -rf ~  |  rm -rf --no-preserve-root
+    // Separator group includes " and ' so `eval "rm -rf /"` is also caught.
+    // End group includes " and ' so quoted variants like `"rm -rf /"` terminate correctly.
     pattern:
-      /(?:^|[\s;&|])\s*rm\s+(?:-[a-zA-Z]*[rRf][a-zA-Z]*\s+|--recursive\s+|--force\s+)+(?:[/~]\s*$|[/~][\s/]|--no-preserve-root)/,
+      /(?:^|[\s;&|"'])\s*rm\s+(?:-[a-zA-Z]*[rRf][a-zA-Z]*\s+|--recursive\s+|--force\s+)+(?:[/~]\s*$|[/~][\s/"']|--no-preserve-root)/,
     reason: "rm -rf targeting filesystem root or home (CWE-78)",
   },
   {

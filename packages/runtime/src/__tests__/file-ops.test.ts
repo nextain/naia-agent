@@ -197,12 +197,11 @@ describe("createFileOpsSkills (bundle)", () => {
   });
 
   it("end-to-end: write → read → edit → list", async () => {
-    const [readS, writeS, editS, listS] = createFileOpsSkills({ workspaceRoot: root }) as [
-      ReturnType<typeof createReadFileSkill>,
-      ReturnType<typeof createWriteFileSkill>,
-      ReturnType<typeof createEditFileSkill>,
-      ReturnType<typeof createListFilesSkill>,
-    ];
+    const skills = createFileOpsSkills({ workspaceRoot: root });
+    const readS = skills.find((s) => s.name === "read_file")! as ReturnType<typeof createReadFileSkill>;
+    const writeS = skills.find((s) => s.name === "write_file")! as ReturnType<typeof createWriteFileSkill>;
+    const editS = skills.find((s) => s.name === "edit_file")! as ReturnType<typeof createEditFileSkill>;
+    const listS = skills.find((s) => s.name === "list_files")! as ReturnType<typeof createListFilesSkill>;
     await writeS.handler({ path: "out.txt", content: "hello world" });
     expect(await readS.handler({ path: "out.txt" })).toBe("hello world");
     await editS.handler({ path: "out.txt", find: "world", replace: "naia" });

@@ -144,3 +144,48 @@ R0 종료 직전(R0.7)에 P0/P1 갭을 sub-issue로 등록 — 본 매트릭스 
 본 갭 분석의 D-항목(D01~D08, D03, D05, D06, D07)은 `ref-adoption-matrix.md` §D 참조. ID 일관성 유지.
 
 E-항목(E02, E05) 등은 같은 매트릭스 §E 참조. 본 갭 분석은 **새 갭만 G## 신규 부여** (G01~G14).
+
+---
+
+## 7. 사용자 시나리오 기반 갭 (G15~G17) — 2026-05-18 추가
+
+적대적 cross-review 4라운드(Round 1~4 A/B CLEAN PASS) 결과로 식별된 시나리오 갭.
+
+### S1~S5 시나리오 매핑
+
+| 시나리오 | 내용 | 상태 |
+|---|---|---|
+| S1 | `naia-agent login --key anthropic` → `~/.naia-agent/.env` 저장 | bin 구현 완료. 테스트 Track B |
+| S2 | bin 자동 로드 `~/.naia-agent/.env` (provider 환경변수) | **G15 RESOLVED** ✅ |
+| S3 | bin 자동 로드 `{NAIA_ADK_PATH}/naia-settings/config.json` | **G15 RESOLVED** ✅ |
+| S4 | piped stdin → 직접 single-shot 실행 | bin 구현 완료. 테스트 추가됨 |
+| S5 | bash 스킬 + approval broker REPL | runDirect()에 구현. approval "not wired" 의도됨 |
+
+### G15 — S2/S3 env-loader 자동 로드 미호출 [RESOLVED 2026-05-18]
+
+- **원인**: `bin/main()` 에서 `loadEnvAndConfig()` 미호출. `buildLLMClient()`가 `process.env` 직접 읽으므로 env 파일 로드 전에 provider 탐색 실패.
+- **해결**: `bin/naia-agent.ts:892` — `loadEnvAndConfig()` 호출 추가 (login 분기 이후, parseArgs 이전).
+- **테스트**: S2/S3는 `.todo()` 상태 (login-ops.test.ts Track B에서 처리).
+- **커밋**: 2026-05-18 Track A.
+
+### G16 — S1 TTY-gated login ops 테스트 부재 [DEFERRED → Track B]
+
+- **항목**: S1-L1 (빈 키 → "aborted (empty value)"), S1-L2 (중복 login → "already set").
+- **차단 원인**: `runLogin()` L830 `isTTY` 체크로 non-TTY(spawnSync) 환경에서 해당 코드 도달 불가.
+- **현재**: `bin-login.test.ts`에 `.todo()` 블록으로 명시적 기록됨.
+- **Track B 해결 방법**: `login-ops.ts` 모듈 분리 → `runLogin()`의 핵심 로직을 injectable 형태로 추출 → 단위 테스트 가능.
+
+### G17 — pi 번들링 / naia-adk substrate [Track C — Future]
+
+- **내용**: D-OC10 ADR(2026-05-18) — `naia-agent`가 `@earendil-works/pi-coding-agent`를 번들해야 함.
+- **현재**: `package.json`에 pi 미포함. `naia-adk/.pi/extensions/naia-harness.ts`가 ExtensionAPI 사용하나 naia-agent와 연결 없음.
+- **규모**: 20-24시간 대규모 재구현. 별도 이슈(GitHub issue) 생성 후 진행.
+- **차단 조건**: G15/G16 해소 후 Track C 시작 가능.
+
+### Track 분류 요약
+
+| Track | 내용 | 상태 |
+|---|---|---|
+| **Track A** | G15: `loadEnvAndConfig()` 와이어링 | ✅ DONE (2026-05-18) |
+| **Track B** | G16: login-ops.ts 분리 + S1-L1/L2 테스트 | PENDING — 별도 PR |
+| **Track C** | G17: pi 번들링 D-OC10 ADR 구현 | FUTURE — 별도 이슈 필요 |

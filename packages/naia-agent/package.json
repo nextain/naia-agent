@@ -1,0 +1,57 @@
+{
+  "name": "@nextain/naia-agent",
+  "version": "0.1.0",
+  "description": "Naia AI agent runtime — aggregated package bundling agent-core, agent-types, agent-protocol, agent-providers, agent-runtime, and naia-adk built-in skills.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nextain/naia-agent.git"
+  },
+  "keywords": ["naia", "ai-agent", "llm", "agent-runtime"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "default": "./dist/index.js"
+    },
+    "./skills": {
+      "import": {
+        "types": "./dist/skills.d.ts",
+        "default": "./dist/skills.js"
+      },
+      "default": "./dist/skills.js"
+    }
+  },
+  "files": ["dist", "src"],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@nextain/agent-core": "workspace:*",
+    "@nextain/agent-types": "workspace:*",
+    "@nextain/agent-protocol": "workspace:*",
+    "@nextain/agent-providers": "workspace:*",
+    "@nextain/agent-runtime": "workspace:*",
+    "@nextain/agent-observability": "workspace:*",
+    "@nextain/agent-workspace": "workspace:*",
+    "@nextain/agent-verification": "workspace:*",
+    "@naia-adk/skill-spec": "file:../../vendor/naia-adk-skill-spec-0.1.0.tgz",
+    "@naia-adk/skills-builtin": "file:../../vendor/naia-adk-skills-builtin-0.0.1.tgz"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

@@ -626,6 +626,42 @@ wiring, no overfitting).
 - Governance: ref-adoption-matrix §D52 (general entry). F06 unaffected
   (touched a code comment, not a numbered D1~D8 decision).
 
+## [Cross-Review Hardening] — 2026-05-18 — 635-test suite adversarial review
+
+3-reviewer (Correctness/Security/Slop-detector) adversarial cross-review of
+the full 635-test suite. Two valid findings implemented:
+
+**F1 (MEDIUM)** — `eval "rm -rf /"` bypassed all DANGEROUS_COMMANDS patterns.
+rm-rf regex separator `[\s;&|]` → `[\s;&|"']`; end-anchor `[/~][\s/]` →
+`[/~][\s/"']`. Two new block test cases added. A24 matrix updated.
+
+**F2 (MINOR)** — `file-ops.test.ts` bundle e2e used positional destructuring
+`[readS, writeS, editS, listS]`; silent mismatch if skill order changes.
+Replaced with `.find(s => s.name === "...")` name-based lookup. A30 matrix updated.
+
+Dismissed: `$(curl)` cmd substitution bypass (T1 human gate is primary defense),
+meter vacuous cache test (behavior pin), operational-patterns structural checks (intentional).
+
+Test count: 635 → 637 (0 failed, 15 skipped unchanged).
+
+## [Slice A] — 2026-05-18 — naia-adk workspace integration + CLI login
+
+**naia-agent standalone path** — naia-os 없이 naia-agent 단독 실행 가능하도록
+env-loader와 bin에 워크스페이스 연동 추가.
+
+- `NAIA_ADK_PATH` env var: `{adkPath}/naia-settings/config.json`을 JSON config
+  검색 체인(5번)에 추가. `~/naia-adk` 기본 fallback(6번) 추가. `path.resolve()`로
+  path traversal 방어.
+- `pnpm naia-agent login --key <provider>`: interactive CLI login 커맨드.
+  `~/.naia-agent/.env`에 API key 저장. mode 600 설정(Linux/macOS). naia-os
+  없이 단독 키 설정 가능.
+- 단위 테스트 3건 추가 (`env-loader.test.ts`: NAIA_ADK_PATH load, 우선순위,
+  path traversal no-crash).
+- `docs/llm-config-standard.md` §3.2/§5/§7 신설 — naia-adk 연동 표준화, 3-repo
+  역할 분담 명세.
+
+Runnable: `pnpm naia-agent login --key anthropic && pnpm naia-agent "hi"`
+
 ## [Slice R6/SB-1.2] — 2026-05-18 — provider-routing CI gate (naia-agent#39 G1)
 
 Adversarial review proved the claude-code slice's coverage was parse-only

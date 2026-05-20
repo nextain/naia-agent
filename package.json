@@ -31,7 +31,9 @@
     "bench:compact": "pnpm --filter @nextain/agent-benchmarks bench:compact"
   },
   "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.74.1",
     "@nextain/agent-adapter-opencode-acp": "workspace:*",
+    "@nextain/agent-adapter-pi": "workspace:*",
     "@nextain/agent-benchmarks": "workspace:*",
     "@nextain/agent-adapter-opencode-cli": "workspace:*",
     "@nextain/agent-adapter-shell": "workspace:*",
@@ -47,6 +49,11 @@
     "@types/node": "^22.0.0",
     "tsx": "^4.19.0",
     "typescript": "^5.8.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "@naia-adk/skill-spec": "file:./vendor/naia-adk-skill-spec-0.1.0.tgz"
+    }
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.0",

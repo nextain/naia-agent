@@ -85,6 +85,10 @@ export type { NaiaSettingsOptions, NaiaSettingsReport } from "./utils/naia-setti
 export { getSecretStore, __setSecretStoreForTest, classifyProbe } from "./utils/secret-store.js";
 export type { SecretStore } from "./utils/secret-store.js";
 
+// Login subcommand pure helpers — Track B (G16). Side-effect-free, injectable for tests.
+export { parseLoginArgs, checkDuplicateKeys, buildEnvAppend } from "./utils/login-ops.js";
+export type { ProviderField } from "./utils/login-ops.js";
+
 // DANGEROUS_COMMANDS regex — D01 (Slice 2). OWASP A03 출처, F09 cleanroom 단독 의존 금지.
 export {
   DANGEROUS_PATTERNS,

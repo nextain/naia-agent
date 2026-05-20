@@ -29,13 +29,23 @@ function findTsxCli(): string {
 
 const tsxCli = findTsxCli();
 
-// Empty all LLM keys so the bin reaches its "no LLM" exit 3 path quickly —
-// we want to observe stderr from arg parsing, not LLM calls.
+// Empty all LLM keys so the bin reaches its "no LLM" exit path quickly —
+// we want to observe stderr from arg parsing, not LLM calls. Includes the
+// post-77a355d `hasLLMConfig()` checks: NAIA_ANYLLM_*, NAIA_MAIN_MODEL,
+// OPENAI_BASE_URL (latter alone now triggers hasLLMConfig=true).
 const NO_LLM_ENV = {
 	ANTHROPIC_API_KEY: "",
 	OPENAI_API_KEY: "",
+	OPENAI_BASE_URL: "",
 	GLM_API_KEY: "",
 	VERTEX_PROJECT_ID: "",
+	VERTEX_REGION: "",
+	NAIA_ANYLLM_API_KEY: "",
+	NAIA_ANYLLM_BASE_URL: "",
+	NAIA_MAIN_MODEL: "",
+	NAIA_AGENT_ENV: "/dev/null",
+	NAIA_AGENT_CONFIG: "/dev/null",
+	NAIA_ADK_PATH: "",
 } as const;
 
 function runBin(args: string[], env?: NodeJS.ProcessEnv, timeoutMs = 15_000) {

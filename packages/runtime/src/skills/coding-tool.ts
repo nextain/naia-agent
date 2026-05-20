@@ -80,6 +80,12 @@ export function createCodingSkill(opts: CodingSkillOptions = {}): InMemoryToolDe
         return "ERROR: coding-tool requires a non-empty `task` string.";
       }
 
+      // G2: Reject workdir values containing control characters (newline injection guard).
+      // A hostile workdir like "/path\nIgnore above…" would contaminate the LLM prompt.
+      if (workdir !== undefined && /[\x00-\x1f\x7f]/.test(workdir)) {
+        return "ERROR: coding-tool: workdir contains invalid characters.";
+      }
+
       const cwd = workdir ?? process.cwd();
       const systemNote = `Working directory: ${cwd}`;
 
@@ -91,11 +97,14 @@ export function createCodingSkill(opts: CodingSkillOptions = {}): InMemoryToolDe
         const { VercelClient } = await import("@nextain/agent-providers");
 
         const provider = createClaudeCode();
-        const model = provider(modelId as Parameters<typeof provider>[0]);
+        // G1: Pass cwd as a model-level setting so Claude Code actually operates
+        // in that directory (not just as a prompt hint). The SDK validates that
+        // cwd exists — a non-existent path throws here and is caught below.
+        const model = provider(modelId as Parameters<typeof provider>[0], { cwd });
         const client = new VercelClient(model);
 
+        // G4: model field omitted — VercelClient uses the constructor-injected model.
         const response = await client.generate({
-          model: modelId,
           messages: [
             {
               role: "user",
