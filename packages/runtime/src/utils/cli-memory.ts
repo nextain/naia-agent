@@ -38,7 +38,7 @@ export function decideCliMemory(env: NodeJS.ProcessEnv): CliMemoryDecision {
     return {
       kind: "ephemeral",
       reason:
-        "--memory needs a configured 'embedded' role (naia-settings/llm.json)",
+        "--memory needs a valid 'embedded' role (run `naia-agent login --embedded \"provider|baseUrl|model|dims\"` or fix naia-settings/llm.json)",
     };
   }
   return { kind: "lite", base: normalizeEmbedBaseUrl(base), model, dims };

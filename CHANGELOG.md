@@ -8,6 +8,102 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [Slice 3-XR-F] — 2026-05-20 — user-perspective scenarios + user manual + onboarding UX (Task #3)
+
+The user asked for tests that reflect a real non-developer typing the
+CLI, not flag mechanics — across two perspectives.
+
+- **New `packages/cli-app/src/__tests__/bin-user-scenarios.test.ts`** —
+  **24 hermetic spawn-tests (22 active + 2 honest skips)**, temp HOME
+  + temp adk; no leakage into the developer's real `~/.naia-agent` /
+  naia-adk / OS keychain. Live-LLM scenarios use per-scenario inline
+  re-probe via Node `fetch` + `AbortSignal.timeout` (no `curl`
+  dependency, no stale module-load gate); per-test
+  `{ timeout: 90_000…180_000 }` for cold-start margin. CLAUDE.md G15
+  fixture-only default; real-LLM opt-in by presence. The test file is
+  the canonical SoT for the active surface.
+  - **USER (1)** — S1 cold `show` (literal `<unset>`) · S2 first run
+    no config (advertises BOTH `naia-agent login` AND env-var paths,
+    no `fatal:`) · S3 `login` empty args + locked pipe-format hint
+    `provider|baseUrl|model` · S4 configure-then-inspect (`show`
+    mirrors login, `apiKeyRef=NAME` visible no `NAME=value`, locked
+    `Run:` next-step hint) · **S5** natural flow login → server dead
+    → retry (clean hint, exit 2) · **S5b** ENOTFOUND typo'd hostname
+    variant · S6 tools-less local model → `--no-tools` hint (LLM-live,
+    90s inner) · S7 happy-path one-shot (LLM-live) · S8 `--memory`
+    cross-process SQLite invariant (better-sqlite3 row probe — the
+    headline product mechanism) · S8-neg without `--memory`,
+    `cli.sqlite` is never created · **S9** login MERGE preserves
+    untouched roles · **S10** login SWAP replaces the same role ·
+    **S11** malformed `llm.json` → `show` still works, no crash ·
+    **S12** invalid `embedded.dims` → graceful ephemeral fallback +
+    actionable remediation breadcrumb (`login` / `--embedded` /
+    `dims`) · S13 honest skip (concurrent writes need `spawn`+WAL —
+    deferred) · **S15** empty stdin / no prompt → exit 3 with
+    `no prompt` + usage (the most common first-time mistake; closes
+    cross-review A-F2 BLOCK) · S20 deferred 24G placeholder.
+  - **SHELL / gateway (2)** (per
+    `[[feedback_naia_agent_gateway_only]]`) — G1 gateway URL +
+    `apiKeyRef` NAME; generic `_(API_KEY|TOKEN|SECRET|PASSWORD)=…`
+    leak shape forbidden for any credential var; literal
+    `apiKeyRef=GATEWAY_API_KEY` shape locked. G2 raw `sk-ant-…`
+    refused at WRITE boundary (tolerant `raw secret|raw credential`
+    rephrasing). **G2b** raw Google API key (`AIza…`) refused ·
+    **G2c** raw GitHub PAT (`ghp_…`) refused · **G2d** positive
+    control: legitimate ref NAME containing `_KEY` accepted (no
+    false-positive). **G3** `--service` manifest `backend:claude-code`
+    routes via `NAIA_AGENT_DRYRUN=1` (no API key, no LLM credit) —
+    the Claude Code subscription harness target. **G4** malformed
+    manifest → graceful parse error; bin now surfaces the manifest
+    PATH (`naia-agent: invalid manifest "<path>"`) so the user
+    knows which file failed.
+- **`safeTurn` hint extended**: "does not support tools" → actionable
+  `--no-tools` guidance (the natural friction surface surfaced in the
+  user's own live session).
+- **`buildLLMClient` error onboarding**: no-provider message now
+  advertises `pnpm naia-agent login` as the quickest path AND env-var
+  alternatives, with pointers to `docs/llm-config-standard.md` +
+  `docs/user-guide.md`.
+- **New `docs/user-guide.md`** — short user-facing manual covering both
+  perspectives, the 3-command quick-start (`login → show → chat`),
+  common tasks (`show`, swap model, real key via keychain, `--memory`,
+  REPL), troubleshooting, and where settings/secrets live (privacy
+  contract).
+- **`naia-model-infra/tiers/24g/`** — `profile.yaml` + refreshed README
+  for the daily-driver tier (Gemma 4 31B Q4_0 main, bge-m3 embedded,
+  optional gemma3n:e4b sub). Single-GPU `CUDA_VISIBLE_DEVICES` policy;
+  connection contract identical across tiers.
+- Adversarial cross-review loop (autonomous "랄프", 2 consecutive
+  CLEAN target): round #1 PASS-WITH-FIXES → all 10 findings (F1-F10)
+  applied; round #2 → S8/S8-neg converted from flaky model-output
+  assertions to deterministic file-system invariants (SQLite row vs
+  cli.sqlite absent) — same lesson as the #41 small-model lenient-strip:
+  test mechanism, not LLM vibes; round #3 BLOCK (vitest testTimeout
+  10s < LLM-live spawn caps) → per-test `{timeout}` applied; round
+  #A/B/C/D 4-perspective expansion (UX / Performance / Real-usage /
+  Benchmark objectivity) — all HIGH/BLOCK closed or honestly
+  deferred; round #4 (final consolidated) PASS-WITH-FIXES (4 LOW
+  only: CHANGELOG-doc / user-guide-doc / regex-tightness / `--key`
+  write path tracked) → doc-axis fixes applied this entry; code-axis
+  converged across rounds 2/3/A/B/C/D.
+- **Deferred (explicit, separate slice)**: `--key REF=VAL` keychain
+  WRITE round-trip (value reaches keychain, never to llm.json / stderr
+  — requires libsecret sandbox or fixture `SecretStore`; round #4
+  LOW-4) · multi-turn REPL `#history` (requires PTY emulation; bin
+  falls to single-shot on non-TTY) · 24G gemma4:31b live scenarios
+  (reasoning-channel suppression unsolved — see
+  `.agents/progress/tier-8g-vs-24g-comparison-…`) · baseURL `?key=…`
+  / `user:pass@host` leakage path (requires bin URL sanitization) ·
+  RBAC tier-policy /
+  approval-broker scenarios (needs ApprovalBroker UX surface) ·
+  **live-subscription** Claude-Code routing E2E (G3 covers the DRYRUN
+  dispatch from a service manifest; a live test would consume Claude
+  Code credits and is deferred) · SDLC
+  artifact production (requires a strong coding model; 8G/24G local
+  models cannot deliver — separate track when claude-code or a strong
+  gateway backend is configured). See `docs/user-guide.md` "Planned /
+  not yet shipped" for the user-facing summary.
+
 ## [Slice 3-XR-E] — 2026-05-20 — CLI UX: `show`, `login` empty-args guard, usage discoverability
 
 Direct response to user UX concerns (Task #3 wrap-up):

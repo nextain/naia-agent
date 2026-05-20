@@ -301,8 +301,9 @@ async function buildLLMClient(): Promise<LLMClient | null> {
 
   process.stderr.write(
     `naia-agent: ERROR — no LLM provider configured.\n` +
-    `  Set ANTHROPIC_API_KEY, GLM_API_KEY, or OPENAI_API_KEY+OPENAI_BASE_URL.\n` +
-    `  See: docs/llm-config-standard.md\n`,
+    `  Quickest path: pnpm naia-agent login --adk <naia-adk-path> --main "provider|baseUrl|model"\n` +
+    `  Or set an env var: ANTHROPIC_API_KEY, GLM_API_KEY, or OPENAI_API_KEY+OPENAI_BASE_URL.\n` +
+    `  See: docs/llm-config-standard.md, docs/user-guide.md\n`,
   );
   return null;
 }
@@ -684,6 +685,10 @@ async function runService(args: Args): Promise<number> {
 
   const result = parseServiceManifest(raw);
   if (!result.ok) {
+    // Surface the manifest PATH alongside the structured error so a user
+    // with several manifests knows which one parsed wrong (cross-review
+    // A-F8). Keep the canonical JSON line for machine consumers.
+    process.stderr.write(`naia-agent: invalid manifest "${manifestPath}"\n`);
     process.stderr.write(JSON.stringify(result.error) + "\n");
     return 3;
   }
@@ -790,6 +795,7 @@ async function safeTurn(agent: Agent, prompt: string, debug: boolean): Promise<b
   } catch (e) {
     const msg = (e as Error)?.message ?? String(e);
     const conn = /ECONNREFUSED|Cannot connect|fetch failed|ENOTFOUND|ETIMEDOUT|socket hang up|network|getaddrinfo/i.test(msg);
+    const noTools = /does not support tools|tool[_ ]?call|function[_ ]?call|tools.*unsupported/i.test(msg);
     const url =
       process.env["OPENAI_BASE_URL"] ?? process.env["ANTHROPIC_BASE_URL"] ?? process.env["GLM_BASE_URL"];
     process.stderr.write(
@@ -798,6 +804,10 @@ async function safeTurn(agent: Agent, prompt: string, debug: boolean): Promise<b
           ? `  The model server${url ? ` at ${url}` : ""} is unreachable. Start it, or reconfigure:\n` +
             `    pnpm naia-agent login --adk <naia-adk> \\\n` +
             `      --main "openai-compat|http://127.0.0.1:11434/v1|gemma3n:e4b"\n`
+          : noTools
+          ? `  This model has no native tool-calling. Exit (\`exit\`/Ctrl-D) and re-run with --no-tools:\n` +
+            `    pnpm naia-agent --no-tools                          # REPL\n` +
+            `    pnpm naia-agent --no-tools --memory "your prompt"   # one-shot, with memory\n`
           : ""),
     );
     return false;
