@@ -139,16 +139,25 @@ async function main(): Promise<number> {
 					strategy,
 					probe.afterTurn,
 				);
+				// Use the fixture's last user turn as the actual question being
+				// asked. This grounds the judge: "does the visible context provide
+				// what's needed to answer THIS specific question?" Compaction
+				// quality is then measurable — recap that preserved the fact PASSes,
+				// recap that lost it FAILs.
+				const lastUserTurn = fixture.turns
+					.slice(0, probe.afterTurn)
+					.filter((t) => t.role === "user")
+					.pop()?.content ?? "(unknown)";
 				process.stderr.write(
 					`  probe@turn=${probe.afterTurn} → asking 4 judges...\n`,
 				);
 				const verdict = await runEnsemble(
 					{ judges: defaultEnsemble },
 					{
-						question: `Based on the conversation so far, ${visible.length > 0 ? "answer based on the visible context. " : ""}${probe.type === "task-accuracy" ? "" : ""}Summarize the key facts requested.`,
-						response: visible.slice(0, 4000),
+						question: lastUserTurn,
+						response: visible.slice(0, 6000),
 						criterion: probe.criterion,
-						timeoutMs: 60_000,
+						timeoutMs: 90_000,
 					},
 				);
 				probeResults.push({

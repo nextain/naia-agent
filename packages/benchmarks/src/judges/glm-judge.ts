@@ -44,7 +44,11 @@ export const glmJudge: Judge = async (
 				model,
 				messages: [{ role: "user", content: prompt }],
 				temperature: 0,
-				max_tokens: 200,
+				// glm-4.5-flash is a thinking model — its reasoning_content can
+				// consume the entire budget before any user-facing `content` is
+				// produced. 1500 leaves room for both reasoning AND the one-line
+				// PASS:/FAIL: verdict we need.
+				max_tokens: 1500,
 			}),
 			signal: controller.signal,
 		});
@@ -56,19 +60,30 @@ export const glmJudge: Judge = async (
 			};
 		}
 		const body = (await res.json()) as {
-			choices?: { message?: { content?: string } }[];
+			choices?: {
+				message?: { content?: string; reasoning_content?: string };
+			}[];
 			usage?: { total_tokens?: number };
 		};
-		const content = body.choices?.[0]?.message?.content ?? "";
-		const verdict = parseJudgeReply(
-			content,
-			performance.now() - t0,
-			body.usage?.total_tokens,
-		);
+		const msg = body.choices?.[0]?.message ?? {};
+		const content = msg.content ?? "";
+		// glm-4.5-flash (thinking) populates `reasoning_content` and may leave
+		// `content` empty when max_tokens caps mid-think. Try `content` first
+		// (canonical), then scan `reasoning_content` for a PASS:/FAIL: line.
+		const latencyMs = performance.now() - t0;
+		let verdict = parseJudgeReply(content, latencyMs, body.usage?.total_tokens);
+		if (!verdict && msg.reasoning_content) {
+			verdict = parseJudgeReply(
+				msg.reasoning_content,
+				latencyMs,
+				body.usage?.total_tokens,
+			);
+		}
 		if (!verdict) {
+			const preview = (content || msg.reasoning_content || "").slice(0, 200);
 			return {
-				infraError: `GLM reply unparseable: ${content.slice(0, 200)}`,
-				latencyMs: performance.now() - t0,
+				infraError: `GLM reply unparseable (content=${content.length} chars, reasoning=${(msg.reasoning_content ?? "").length} chars): ${preview}`,
+				latencyMs,
 			};
 		}
 		return verdict;
