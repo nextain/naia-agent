@@ -1,5 +1,7 @@
 [English](../README.md) | [한국어](README.ko.md)
 
+> 사용자 문서 mirror: [`.users/docs/`](../.users/docs/) (다국어). 엔지니어링 문서 (영문 정본) 는 [`docs/`](../docs/).
+
 # naia-agent
 
 **AI 코딩 에이전트 런타임.** 호스트가 임베드해 AI 코딩 에이전트를 얻는 라이브러리 — 루프, 툴, compaction, 메모리, LLM 라우팅.

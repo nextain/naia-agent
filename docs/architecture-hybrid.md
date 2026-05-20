@@ -45,8 +45,9 @@
         │                │
    ┌────▼──────┐    ┌────▼──────────────────┐
    │ any-llm   │    │ alpha-memory (peer)   │
-   │ vllm-omni │    │ naia-adk (peer, 미래) │
+   │ (gateway) │    │ naia-adk (peer)       │
    └───────────┘    └───────────────────────┘
+   (Voice = LiveKit cascade at agent layer — Slice 3-XR-Voice, deferred)
         ▲
         │ HTTP OpenAI-compat
    external LLM (Anthropic / Google / GLM / OpenAI / OpenRouter ...)
@@ -83,7 +84,7 @@
 | 2 | **Interface-first** — `@nextain/agent-types`에 interface, 구현 pkg 분리. host inject | F03 변형 강제 |
 | 3 | **Stream-first** — 모든 layer가 `AsyncIterable<NaiaStreamChunk>`. blocking 금지 | code review |
 | 4 | **No global state** — singleton/global 변수 0건. 모든 state ctor 주입 | lint rule (no-mutable-export) |
-| 5 | **Adapter pattern** — opencode/claude-code/vllm-omni 모두 같은 interface. 새 sub-agent = adapter 1개 | adapter contract test |
+| 5 | **Adapter pattern** — opencode/claude-code (and future adapters) all use the same interface. A new sub-agent = one adapter. | adapter contract test |
 | 6 | **모듈 ≤ 300 LOC** — 한 책임 원칙 | code review |
 | 7 | **Logger.fn() trace 표준** — 모든 함수에 enter/branch/exit | dev mode 자동 검사 (Slice 2.7 도입) |
 

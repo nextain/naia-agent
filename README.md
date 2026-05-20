@@ -1,5 +1,7 @@
 [English](README.md) | [한국어](READMES/README.ko.md)
 
+> User-facing docs mirror: [`.users/docs/`](.users/docs/) (multi-language). Engineering docs (English canonical) in [`docs/`](docs/).
+
 # naia-agent
 
 **AI coding agent runtime.** A library that hosts embed to get an AI coding agent — loop, tools, compaction, memory, LLM routing.

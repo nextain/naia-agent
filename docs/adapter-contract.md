@@ -33,7 +33,7 @@ export type Capability =
   | "browse_web"         // web fetch/search
   | "image_input"        // 이미지 입력
   | "audio_input"        // 음성 입력
-  | "audio_output";      // 음성 출력 (omni)
+  | "audio_output";      // voice cascade output (Slice 3-XR-Voice / P0c-2 — LiveKit + VoxCPM2 TTS at the agent layer, NOT in-model omni; cf project_minicpm_o_4_5_deprecated_2026_05_20)
 
 export interface TaskSpec {
   readonly prompt: string;                   // 사용자 명령
@@ -161,14 +161,14 @@ export interface SubAgentAdapter {
 | **`opencode`** | `@agentclientprotocol/sdk` JSON-RPC client | ACP `session/new` `session/update` `session/cancel` | `@agentclientprotocol/sdk@0.20.0` (public) |
 | **`claude-code`** | `@anthropic-ai/claude-agent-sdk` programmatic API | SDK Session API + AbortSignal | `@anthropic-ai/claude-agent-sdk@0.2.119` (public, Phase 2+ spike 후 정식) |
 | **`shell`** | `child_process.spawn` (Phase 1 fallback) | stdin/stdout passthrough + SIGTERM | (Node.js built-in) |
-| **`vllm-omni`** (Phase 4+) | HTTP custom (audio output) | timeout + fetch abort | (자체 호스팅) |
+| **`voice-cascade`** (Slice 3-XR-Voice / P0c-2, deferred) | LiveKit Agents framework (STT → LLM → VoxCPM2 TTS at the agent layer) | LiveKit cancel + fetch abort | (separate-session work; cf `project_voice_p0c_split_2026_05_20`) |
 | **`mcp-bridge`** (이연) | MCP server spawn | stdio MCP | — |
 
 ### Unsupported methods matrix (P0-5 fix, Architect)
 
 각 adapter가 지원/미지원 method:
 
-| method | opencode | claude-code | shell | vllm-omni |
+| method | opencode | claude-code | shell | voice-cascade (deferred) |
 |---|:---:|:---:|:---:|:---:|
 | `spawn` | ✓ | ✓ | ✓ | ✓ |
 | `events()` | ✓ | ✓ | ✓ (stdout/stderr) | ✓ (audio_delta) |

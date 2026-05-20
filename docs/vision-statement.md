@@ -43,7 +43,9 @@
 | **Sub-agent supervisor** (ACP/SDK + audit + interrupt) | ★★★ | standalone (supervisor가 아닌 supervisee) |
 | **단일 대화 + 정직 보고** (verification + diff + 수치) | ★★★ | 보고 ≠ 실제 (hallucination 문제 그대로) |
 
-→ **omni-voice 시대 + multi-agent 운영 시대의 supervisor runtime**.
+→ **voice-capable + multi-agent 운영 시대의 supervisor runtime**.
+
+(Note: voice = Slice 3-XR-Voice / P0c-2 — LiveKit + VoxCPM2 cascade at the agent layer, separate-session work. The earlier "omni LLM" plan — vllm-omni / MiniCPM-o-4.5 — is deprecated; see `project_minicpm_o_4_5_deprecated_2026_05_20` memory.)
 
 ---
 
@@ -58,7 +60,7 @@
 | ★★★ | Real-time interrupt + pause/resume | motivation #4 |
 | ★★★ | Sub-agent supervision (다중 orchestration) | motivation #2 |
 | ★★ | 연속 context (alpha-memory) | "연속적으로 일을 시키는" |
-| ★★ | Multi-modal stream protocol (audio/image forward) | omni-voice |
+| ★★ | Multi-modal stream protocol (audio/image forward) | voice cascade (Slice 3-XR-Voice / P0c-2) |
 | ★★ | Interface 정의 (SubAgentAdapter / Verifier / WorkspaceWatcher / LLMClient / MemoryProvider / SkillLoader) | DI |
 
 ---
@@ -97,27 +99,21 @@
 | repo | 책임 |
 |---|---|
 | **naia-os** (host) | host OS 전체 — UI + Avatar + audio device IO (mic/speaker via Tauri Rust cpal) + channel adapters + OS-specific skills (Device/Voicewake/Panel/Channels) |
-| **naia-agent** (engine) | LLM core + **audio stream orchestration** (Vercel AI SDK 패턴 — STT/TTS provider abstraction + omni audio_delta stream, D43) + supervisor + sub-agent |
+| **naia-agent** (engine) | LLM core + supervisor + sub-agent. Voice = agent-layer cascade via LiveKit (Slice 3-XR-Voice / P0c-2, deferred to a separate session). |
 | **naia-adk** | skill **spec/interface only** + 9 generic skills 카탈로그 (Cron/Memo/Time/Weather/Notify/Diagnostics/Sessions/Skill-manager/Config/SystemStatus). 실행은 naia-agent |
 | **naia-memory** (= alpha-memory pkg) | memory engine (encode/recall/decay/etc) |
 
-### omni model 호환 (D43 — Vercel AI SDK 패턴)
+### Voice / multi-modal (deferred — agent-layer cascade, NOT in-model omni)
 
-```
-[mic PCM in (naia-os device)]
-  ↓ (audio_delta upstream via IPC)
-naia-agent audio provider layer:
-  ├─ omni model (vllm-omni / GPT-4o realtime / Gemini Live):
-  │   audio_delta in → omni LLM → audio_delta out (직접)
-  └─ 비-omni model:
-      audio_delta in → STT provider → text → LLM → TTS provider → audio_delta out
-  ↓ (audio_delta downstream via IPC)
-[speaker PCM out (naia-os device) + Avatar lip-sync (naia-os UI)]
-```
+Voice support is targeted at the **agent layer** (Slice 3-XR-Voice / P0c-2), not at the LLM level. The earlier "omni model" plan (vllm-omni / MiniCPM-o-4.5 in-model audio I/O) is deprecated (cf `project_minicpm_o_4_5_deprecated_2026_05_20` memory).
 
-**naia-os = thin device IO + UI / naia-agent = audio orchestration**.
+Replacement architecture (separate-session work):
 
-이 분리 → vllm-omni / GPT-4o realtime 같은 end-to-end 음성 모델 자연 통합 (STT/TTS 분리 layer 강제 X).
+- **TTS**: VoxCPM2 served by ko-serve over an OpenAI-compatible endpoint.
+- **STT**: Whisper-large-v3 (separate endpoint or LiveKit plugin).
+- **Orchestration**: LiveKit Agents framework — STT → LLM (any) → TTS cascade with barge-in / turn-detector. Real-time guarantee at the agent layer, not the model.
+
+Splits naia-os = thin device IO + UI / naia-agent = agent-level audio orchestration.
 
 ### naia-* / alpha-* prefix 체계 (이름 일관성)
 
@@ -197,7 +193,7 @@ pnpm naia-agent "..."
 | | 결정 |
 |---|---|
 | Path | Hybrid wrapper (B) — 자체 ~2,150 LOC + 외부 wrap |
-| LLM | any-llm 원격 gateway main, vllm-omni omni audio, Vercel AI SDK 보류 |
+| LLM | any-llm 원격 gateway main, voice = LiveKit cascade (Slice 3-XR-Voice / P0c-2, deferred), Vercel AI SDK 보류 |
 | Sub-agent | opencode (ACP) + claude-code SDK + 단순 stdio fallback |
 | Memory | alpha-memory peer dep |
 | Skill | naia-adk peer dep (향후) |
@@ -212,7 +208,7 @@ pnpm naia-agent "..."
 | **Phase 1** | Week 1 (5일) | "hello 함수 추가" → 진행 보임 + diff + "test PASS" 보고 |
 | Phase 2 | Week 2~3 | ACP 정식 + Interrupt + Approval gate |
 | Phase 3 | Week 4~6 | claude SDK + sub-session card + alpha-memory |
-| Phase 4 | Week 7~10 | Adversarial review + naia-shell 통합 + vllm-omni |
+| Phase 4 | Week 7~10 | Adversarial review + naia-shell 통합 + voice cascade (Slice 3-XR-Voice / P0c-2) |
 
 **Phase 1 목표**: 사용자 피로 30~50% 감소. 안 되면 Path A(IDE 회귀) 또는 Path C(손으로 계속) 회귀, 노력 1주만 잃음.
 

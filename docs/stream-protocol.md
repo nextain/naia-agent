@@ -3,7 +3,7 @@
 > **상위**: `docs/vision-statement.md` / `docs/architecture-hybrid.md`
 > **이전**: `LLMStreamChunk` (R3, providers/types/llm.ts) — text-only
 > **status**: design lock (Week 0)
-> **rationale**: omni-voice 시대 (vllm-omni / GPT-4o realtime) — text/audio/image를 1급 시민으로 + sub-agent supervision event도 통합 stream
+> **rationale**: voice-capable + multi-agent era — text/audio/image are first-class citizens + sub-agent supervision events flow through a unified stream. Voice = agent-layer cascade (Slice 3-XR-Voice / P0c-2, LiveKit + VoxCPM2), NOT in-model omni (deprecated; cf `project_minicpm_o_4_5_deprecated_2026_05_20`).
 
 ---
 
@@ -18,7 +18,7 @@
 | workspace | file watcher 결과 | (없음) |
 | verification | test/lint 결과 | (없음) |
 | 다중 sub-session 통합 | session_update / session_progress | (없음) |
-| 음성 | audio_delta (omni LLM 출력) | (없음) |
+| voice | audio_delta (voice cascade output, agent-layer — Slice 3-XR-Voice / P0c-2) | (none) |
 
 → `NaiaStreamChunk` = **모든 layer를 통합한 single stream** (D20).
 
@@ -35,7 +35,7 @@ export type NaiaStreamChunk =
   | { type: "thinking_delta"; sessionId: string; thinking: string }
   | { type: "input_json_delta"; sessionId: string; partialJson: string }
 
-  // ─── multi-modal tokens (omni LLM) ────────────────────────────────
+  // ─── multi-modal tokens (voice cascade — Slice 3-XR-Voice / P0c-2 deferred) ────
   | {
       type: "audio_delta";
       sessionId: string;
@@ -240,8 +240,8 @@ export interface VerificationResultRef {
 | `{type:"content_block_delta", delta:{type:"input_json_delta",partialJson}}` | `{type:"input_json_delta", sessionId, partialJson}` |
 | `{type:"content_block_start", block:{type:"tool_use",id,name,input}}` | `{type:"tool_use_start", sessionId, toolUseId:id, tool:name, input}` |
 | `{type:"end", stopReason, usage}` | `{type:"end", sessionId, stopReason, usage}` |
-| (없음) | `{type:"audio_delta", ...}` ← omni provider만 emit |
-| (없음) | `{type:"image_delta", ...}` ← omni provider만 emit |
+| (none) | `{type:"audio_delta", ...}` ← voice cascade only (Slice 3-XR-Voice / P0c-2) |
+| (none) | `{type:"image_delta", ...}` ← multi-modal provider only |
 
 ---
 
@@ -356,7 +356,7 @@ for await (const chunk of agent.stream({ message: "..." })) {
 - `verification-pass.json` — verification_start + verification_result(pass)
 - `interrupt-mid-tool.json` — tool 중 사용자 interrupt
 - `multi-session.json` — 2 session 병렬 interleave (Phase 3)
-- `omni-audio.json` — audio_delta 시퀀스 (Phase 4)
+- `voice-audio.json` — audio_delta sequence (Slice 3-XR-Voice / P0c-2, deferred)
 
 `StreamPlayer` (Slice 1b 기존)를 NaiaStreamChunk로 확장. fixture replay = CI default.
 
