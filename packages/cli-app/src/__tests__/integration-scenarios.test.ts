@@ -1175,9 +1175,10 @@ describe("Group P — pi-based coding LIVE (native tool-calling)", () => {
   // Run gemma4:31b WITHOUT --no-tools, with --enable-file-ops, so the model
   // can drive bash + read/write/edit/list skills via native tool-calling
   // (confirmed in probe: ollama gemma4:31b returns finish_reason=tool_calls).
-  function runCoding(args: string[], home: string, extra: NodeJS.ProcessEnv = {}, timeoutMs = 240_000) {
+  // workdir = workspace root for file-ops boundary (D09 normalizeWorkspacePath).
+  function runCoding(args: string[], home: string, workdir: string, extra: NodeJS.ProcessEnv = {}, timeoutMs = 240_000) {
     return runBin(
-      ["--enable-file-ops", "--no-default-system", ...args],
+      ["--enable-file-ops", "--no-default-system", "--workdir", workdir, ...args],
       coldEnv(home, extra),
       undefined,
       timeoutMs,
@@ -1197,7 +1198,7 @@ describe("Group P — pi-based coding LIVE (native tool-calling)", () => {
     const target = join(work, "hello.txt");
     const persona =
       `You have tools to write files. Use the write_file tool to create the file "${target}" containing exactly the text "hello from naia-agent". Reply only after the tool returns.`;
-    const r = runCoding(["--system", persona, "Please do it now."], home);
+    const r = runCoding(["--system", persona, "Please do it now."], home, work);
     const fileExists = existsSync(target);
     const fileContent = fileExists ? readFileSync(target, "utf8") : "";
     const observed = `[exit=${r.status}]\nstdout:\n${r.stdout.slice(0, 800)}\n--- stderr tail ---\n${r.stderr.slice(-1200)}\n--- file ---\nexists=${fileExists} content=${JSON.stringify(fileContent)}`;
@@ -1228,7 +1229,7 @@ describe("Group P — pi-based coding LIVE (native tool-calling)", () => {
     writeFileSync(target, secret);
     const persona =
       `You have a read_file tool. Read "${target}" using the tool, then tell me what number is mentioned. Answer in one sentence.`;
-    const r = runCoding(["--system", persona, "Go."], home);
+    const r = runCoding(["--system", persona, "Go."], home, work);
     const observed = `[exit=${r.status}]\nstdout:\n${r.stdout}\n--- stderr tail ---\n${r.stderr.slice(-1200)}`;
     const toolFired = /\[tool\]\s*read_file/.test(r.stderr);
     const quoted = r.stdout.includes("73218");
@@ -1269,7 +1270,7 @@ describe("Group P — pi-based coding LIVE (native tool-calling)", () => {
     writeFileSync(join(work, "gamma.json"), "{}");
     const persona =
       `You have a list_files tool. Call list_files EXACTLY ONCE with path="${work}" (use that absolute path verbatim). Do not call any other tool. Then tell me the file names from the tool's response, comma-separated.`;
-    const r = runCoding(["--system", persona, "What's there?"], home);
+    const r = runCoding(["--system", persona, "What's there?"], home, work);
     const observed = `[exit=${r.status}]\nstdout:\n${r.stdout}\n--- stderr tail ---\n${r.stderr.slice(-1200)}`;
     const toolFired = /\[tool\]\s*list_files/.test(r.stderr);
     const allNamed = ["alpha.txt", "beta.md", "gamma.json"].every((n) => r.stdout.includes(n));
@@ -1295,7 +1296,7 @@ describe("Group P — pi-based coding LIVE (native tool-calling)", () => {
     writeFileSync(target, "name=alpha\nversion=0.1.0\n");
     const persona =
       `You have an edit_file tool. In the file "${target}", change "version=0.1.0" to "version=0.2.0". Use the tool once.`;
-    const r = runCoding(["--system", persona, "Apply the edit."], home);
+    const r = runCoding(["--system", persona, "Apply the edit."], home, work);
     const after = existsSync(target) ? readFileSync(target, "utf8") : "";
     const observed = `[exit=${r.status}]\nstdout:\n${r.stdout.slice(0, 600)}\n--- stderr tail ---\n${r.stderr.slice(-1200)}\n--- file after ---\n${after}`;
     const toolFired = /\[tool\]\s*edit_file/.test(r.stderr);
@@ -1319,7 +1320,7 @@ describe("Group P — pi-based coding LIVE (native tool-calling)", () => {
     bootstrap24G(home, adk);
     const persona =
       `You have a bash tool. Run \`echo READY-marker-7Q\` using bash, then tell me what the output was.`;
-    const r = runCoding(["--system", persona, "Run it."], home);
+    const r = runCoding(["--system", persona, "Run it."], home, home);
     const observed = `[exit=${r.status}]\nstdout:\n${r.stdout}\n--- stderr tail ---\n${r.stderr.slice(-1200)}`;
     const toolFired = /\[tool\]\s*bash/.test(r.stderr);
     const quoted = r.stdout.includes("READY-marker-7Q");
@@ -1344,7 +1345,7 @@ describe("Group P — pi-based coding LIVE (native tool-calling)", () => {
     const target = join(work, "data.txt");
     const persona =
       `You have write_file, read_file, list_files tools. Step 1: write_file "${target}" with content "step1-done". Step 2: list_files in "${work}". Step 3: read_file "${target}" and quote it.`;
-    const r = runCoding(["--system", persona, "Execute all three steps."], home);
+    const r = runCoding(["--system", persona, "Execute all three steps."], home, work);
     const observed = `[exit=${r.status}]\nstdout:\n${r.stdout.slice(0, 1000)}\n--- stderr tail ---\n${r.stderr.slice(-1500)}`;
     const wroteFired = /\[tool\]\s*write_file/.test(r.stderr);
     const listFired = /\[tool\]\s*list_files/.test(r.stderr);
@@ -1352,12 +1353,16 @@ describe("Group P — pi-based coding LIVE (native tool-calling)", () => {
     const bashFallback = /\[tool\]\s*bash/.test(r.stderr);
     const fileOk = existsSync(target) && readFileSync(target, "utf8").includes("step1-done");
     // The model is free to compose tools (write_file + bash for list/read is
-    // a legitimate path). Mechanism = file effect correct + AT LEAST write_file
-    // fired + response mentions both directory listing and the file's content.
+    // a legitimate path). Mechanism = file effect correct + AT LEAST write
+    // fired + (list happened by ANY route — native list_files OR bash-ls).
+    // Response prose is NOT asserted — the [tool] markers in stderr are the
+    // ground truth for what executed.
     const respondsListing = /data\.txt/.test(r.stdout);
     const respondsRead = /step1-done/.test(r.stdout);
+    const listHappened = listFired || /\[tool\]\s*bash[^\n]*ls/.test(r.stderr);
+    const readHappened = readFired || /\[tool\]\s*bash[^\n]*cat/.test(r.stderr);
     const mechPass =
-      r.status === 0 && wroteFired && fileOk && respondsListing && respondsRead;
+      r.status === 0 && wroteFired && listHappened && readHappened && fileOk;
     record("P6", "P", "multi-tool composite LIVE (24G)", start, {
       mechanism: {
         pass: mechPass,

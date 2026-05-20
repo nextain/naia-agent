@@ -390,7 +390,7 @@ async function runDirect(args: Args): Promise<number> {
     args.noTools
       ? []
       : args.enableFileOps
-        ? [createBashSkill(), ...createFileOpsSkills()]
+        ? [createBashSkill(), ...createFileOpsSkills({ workspaceRoot: args.workdir })]
         : [createBashSkill()],
   );
   const memory = buildCliMemory(args);
@@ -743,7 +743,7 @@ async function runService(args: Args): Promise<number> {
       args.noTools
         ? []
         : args.enableFileOps
-          ? [createBashSkill(), ...createFileOpsSkills()]
+          ? [createBashSkill(), ...createFileOpsSkills({ workspaceRoot: args.workdir })]
           : [createBashSkill()],
     ),
     logger,

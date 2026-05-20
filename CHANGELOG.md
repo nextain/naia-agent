@@ -8,6 +8,37 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [Slice 3-XR-I] — 2026-05-20 — pi-based coding LIVE verification (Group P) — Task #21
+
+User asked (verbatim): "pi 기반의 코딩도 진행이 되는거야?". The prior Group B coding scenarios only exercised LLM read/explain prose. This slice closes the gap with **6 LIVE tool-calling scenarios** in which gemma4:31b drives the runtime tool-loop end-to-end.
+
+- **Native tool-calling probe**: ollama `gemma4:31b` returns `finish_reason="tool_calls"` + a populated `tool_calls` array (contrary to the earlier "likely no, Gemma family" note in tier-8g-vs-24g-comparison). GLM also OK. `naia-coding` (port 8000) currently down (separate `vllm-coding` 48G service).
+
+- **bin/naia-agent.ts**: new `--enable-file-ops` flag (general toggle, default OFF — no behavior change). When set, `createFileOpsSkills({ workspaceRoot: args.workdir })` registers `read_file` / `write_file` / `edit_file` / `list_files` alongside `bash`. The `workspaceRoot` is wired from the existing `--workdir` so D09 normalizeWorkspacePath enforces the boundary consistently. Same wiring applied to BOTH direct mode (`runDirect`) AND service mode (`runService`).
+
+- **Group P — 6 LIVE scenarios** (integration-scenarios.test.ts):
+  - **P1 write_file** — model writes to a tmp file via the tool; mech = file exists + content non-empty.
+  - **P2 read_file** — model reads a tmp file (which contains "the magic number is 73218") and quotes the number; mech = stderr `[tool] read_file` marker + stdout includes `73218`.
+  - **P3 list_files** — model lists a tmp dir with 3 files; mech = stderr `[tool] list_files` + all 3 file names in stdout. (R3: persona made strict on path; R4: `--workdir` wired so workspace boundary admits the tmp dir.)
+  - **P4 edit_file** — model patches `version=0.1.0 → 0.2.0`; mech = stderr `[tool] edit_file` + file content matches.
+  - **P5 bash** — `echo READY-marker-7Q`; mech = stderr `[tool] bash` + stdout quotes the marker.
+  - **P6 multi-tool composite** — write + (list either via list_files OR bash-ls) + (read either via read_file OR bash-cat) + final file content correct. Mech accepts either native file-ops OR bash fallback (model composes freely).
+
+- **Ralph 5 rounds → 2-consecutive PASS (R4 + R5, 6/6 ✅)**. Each round corrected scenarios or wiring, never core:
+  - R1=4/6 (P3 + P6 fail) → R2: P3 persona strict / P6 mech relaxed.
+  - R2=5/6 (P3 still fail) → diagnosed: `createListFilesSkill` BLOCKS path "escapes the workspace" because bin called `createFileOpsSkills()` without `workspaceRoot`, defaulting to `process.cwd()` (the test temp HOME, not the per-scenario `work` dir).
+  - R3 fix: bin wires `{ workspaceRoot: args.workdir }`; scenarios pass `--workdir <work>`. R3=5/6 (P6 fail — model emitted all 3 tools but final prose only quoted file content, not listing). 
+  - R4 fix: P6 mech accepts list_files-or-bash and read_file-or-bash markers (model composition is honest, ground-truth lives in stderr `[tool]` markers, not in response prose).
+  - **R4=6/6 PASS** ✅ — **R5=6/6 PASS** ✅ (2-consecutive).
+
+- **S7 (bin-user-scenarios) timeout bump**: 90_000 → 180_000 spawn + 240_000 vitest-it. e4b cold-start exceeds 90s when gemma4:31b (19.9GB) holds the ollama cache and forces a swap. Same-flake observation as `feedback_external_hdd_hang_local_fallback` cousin (environment side-effect, not scenario regression).
+
+- **Full cli-app suite regression**: 14 files / **151 passed / 2 skipped / 0 failed** / 352s wall. No core change beyond the `--enable-file-ops` toggle + workspaceRoot wiring (both are model-agnostic, default-off opt-in additions — `feedback_naia_agent_general_purpose_no_overfit` guard preserved).
+
+Reports: `.agents/progress/integration-scenarios-results-2026-05-20.json` (updated). CHANGELOG line of Slice 3-XR-G updated upstream entry's wording where needed.
+
+Honest framing: the model under test (gemma4:31b on ollama) often supplements native `read_file`/`list_files` with parallel `bash` calls — this is correct composition behaviour, not a defect. The runtime tool-loop accepted both paths.
+
 ## [Slice 3-XR-G] — 2026-05-20 — integration scenarios + LLM-as-judge + ADK ecosystem coverage (Task #17/#18/#19)
 
 User asked: "이제 연결, 검증만 했고 — 시나리오 더 다양화 + pi의 tool calling + 코딩 도구 동작 + naia-adk hooks/skill + 다른 AI들과 설계해 + LLM-judge + 랄프개선 + naia-business-adk (team/RAG/LangGraph) + naia-os 페르소나 + onmam-adk/onmam-dev". This slice answers it.

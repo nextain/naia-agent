@@ -255,7 +255,11 @@ describe("(1) USER perspective — non-developer CLI flow", () => {
 
   // S7 — "I want to chat with my local model" (the happy path).
   // Goal: a real Korean answer; `--no-tools` makes it work.
-  it("S7 happy path one-shot with --no-tools → real model answer", { timeout: 120_000 }, async () => {
+  // Cross-review (Slice 3-XR-I R5 finding): e4b cold-start can exceed
+  // 90s when a bigger model (gemma4:31b 19.9GB) holds GPU cache; raise
+  // to 200_000 (vitest it) + 180_000 (spawn) so the natural happy-path
+  // does not fail on cache swap.
+  it("S7 happy path one-shot with --no-tools → real model answer", { timeout: 240_000 }, async () => {
     if (!(await skipUnlessLlm())) return;
     const home = mkdtempSync(join(tmp, "home-"));
     const adk = mkdtempSync(join(tmp, "adk-"));
@@ -267,7 +271,7 @@ describe("(1) USER perspective — non-developer CLI flow", () => {
       ["--no-tools", "--no-default-system", "--system", "Reply concisely.", "Say hello in one word."],
       coldEnv(home),
       undefined,
-      90_000,
+      180_000,
     );
     expect(r.status).toBe(0);
     // some non-empty answer reached stdout; we don't assert language to
