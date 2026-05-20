@@ -8,20 +8,70 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
-### Slice 3-XR-Compact (in progress — #47) — triple-strategy compaction + benchmark harness
-
-- **`docs/compaction-survey.md`** (new) — canonical external-evidence record for the triple-strategy compaction design. Synthesizes 5-repo OSS patterns (ref-openclaw / ref-opencode / ref-cline / ref-moltbot / ref-cc-cleanroom), Anthropic Cookbook + `compact-2026-01-12` beta, Microsoft Agent Framework `ToolResultCompactionStrategy`, and 7 academic refs (MemGPT / recursive summary / Mem0 / Proactive Memory Extraction / Acon / Active Context Compression / Factory.ai anchored iterative). External LLM cross-review tools (codex / opencode / gemini / ollama) were environment-blocked (sandbox / TTY / GPU); peer-reviewed sources used as stronger cross-evidence.
-- **`packages/benchmarks/`** (new package, `@nextain/agent-benchmarks`) — runnable but inert P1 skeleton: fixture JSON schema + 5-axis metric collectors (task-accuracy, fact-recall, latency p50/p99, total cost, drift Jaccard) + markdown report writer + CLI runner (`pnpm bench:compact`). 16 unit tests cover validate-fixture rejections, metric edge cases, percentile math, drift Jaccard, report shape. Real strategy execution + LLM-judge wiring lands in P6.
-- **`CompactionStrategy` enum** in `@nextain/agent-types` — `reactive` | `realtime` | `anthropic-native` | `off`. `CompactionInput` gains optional `strategy` + `priorRecap` (backward-compat). naia-memory `MemorySystem.compact()` accepts both and prepends `## Prior recap (anchored)` section when `priorRecap` is supplied (Factory.ai anchored iterative pattern — Q7 lock). v3 recap shape adds 5 markdown sections (Goal / Instructions / Tool calls / Discoveries / Files) appended after the legacy header; backward-compat preserved (existing assertions still pass).
-- **`bin/naia-agent.ts`** — new `--compact-strategy <reactive|realtime|anthropic-native|off>` flag + `NAIA_AGENT_COMPACT_STRATEGY` env (CLI > env > default reactive). Validation: unknown value → exit 3.
-- **`packages/core/src/agent.ts`** — `AgentOptions.compactionStrategy` (default `reactive`). `#maybeCompact` short-circuits when strategy = `off` or `anthropic-native` (server-side path is authoritative; host-side would double-compact). Tracks `#priorRecap` per session and forwards it to `memory.compact()`, enabling end-to-end anchored iterative summarization.
-- **Tests**: 9 cli-app integration (`bin-compact-strategy.test.ts`), 6 runtime integration (`agent-compaction-strategy.test.ts` — strategy + sessionId forwarding, priorRecap on second round, anthropic-native/off short-circuit), 9 memory unit (`compact-anchored.test.ts` in naia-memory), 16 benchmark harness unit. **40 new tests** for this slice (P0-P5 done; P6 fixture authoring + measurement pending).
-- **Companion commit** in naia-memory (`migration/compact-anchored-iterative`, commit `604677f`): v3 `compact()` shape + `buildStructuredSections()` helper + 9 anchored tests.
-- **Follow-up slices**: P6 = 10 seed fixtures + first measurement ledger; 50-fixture expansion + naia-os#185 Phase 2 wiring + MemGPT-light hierarchical path = separate slices.
-
 ### docs
 
 - **`docs/voice-cascade-contract.md`** (new, + `.users/docs/ko/` mirror) — Voice Cascade Contract spec between naia-agent and LiveKit `llm.LLM`. Locks four exit gates that Slice 3-XR-Voice (Task #28, P0c-2) must satisfy before merge: G1 cancel-propagates-upstream-in-one-turn, G2 no-cancelled-turn-memory-write, G3 partial-text-hidden-or-marked-unstable (voice path streams partials behind the `naia-agent[voice]` extra; chat path stays final-only), G4 tool-hop-cancel-leaves-session-reusable. Also locks the Codex r4 LiveKit-lock-in re-evaluation triggers (only G1/G2/G3 failures trigger backbone re-eval; G4 is a wrapper-design call). Provenance: promoted from `naia-labs/promote_to_naia_agent/b5_lite_contract_memo.md` (Codex r3 Q5 + r4 #5). Design lock only — no code yet; verification placement maps onto `docs/adapter-contract.md` §2 contract-test ladder at scaffold time. Cross-linked from `docs/voice-pipeline-audit.md` §1 integration surface.
+
+## [Slice 3-XR-Compact] — 2026-05-21 — triple-strategy compaction + benchmark harness (Task #47)
+
+User directive (2026-05-20): "둘 다 구현하고 벤치마킹 구조부터 / opencode 나 openclaw 를 참고 / naia-agent는 둘 다 지원하게 / 다른 ai들과 크로스리뷰 분석". This slice ships the entire surface — strategy enum, host wiring, naia-memory v3 anchored iterative, benchmark harness, 10 seed fixtures, first deterministic measurement, honest ledger.
+
+### P0 — external survey + plan v2 LOCKED (commit `bab5c6b`)
+
+- **`docs/compaction-survey.md`** (new) — canonical external-evidence record. Synthesizes 5-repo OSS patterns (ref-openclaw / ref-opencode / ref-cline / ref-moltbot / ref-cc-cleanroom), Anthropic Cookbook + `compact-2026-01-12` beta, Microsoft Agent Framework `ToolResultCompactionStrategy`, and 7 academic refs (MemGPT / recursive summary / Mem0 / Proactive Memory Extraction / Acon / Active Context Compression / Factory.ai anchored iterative). External LLM cross-review tools (codex / opencode / gemini / ollama) were environment-blocked (sandbox / TTY / GPU); peer-reviewed sources used as stronger cross-evidence.
+- **`.agents/progress/slice-3-xr-compact-plan-2026-05-20.md`** — full plan with §8 Open Questions LOCKED (Q1 threshold 75% per Acon "moderate best" / Q2 deterministic-by-default + LLM polish only at compact() time per Factory.ai / Q3 Microsoft ToolResultCompactionStrategy for tool_result / Q4 anthropic-native uppermost + host-side auto-OFF / Q7 reactive ALSO anchored iterative).
+
+### P1 — benchmark harness skeleton (commit `870b504`)
+
+- **`packages/benchmarks/`** (new package, `@nextain/agent-benchmarks`, private workspace). Fixture JSON schema + 5-axis metric collectors (task-accuracy / fact-recall / latency p50+p99+compactionAvg / cost / drift Jaccard) + markdown report writer (aggregate-by-strategy + per-fixture) + CLI runner (`pnpm bench:compact`).
+- **16 unit tests** — validate-fixture reject cases, metric edge cases, percentile math, drift Jaccard, report shape.
+
+### P2 — CompactionStrategy enum + flag + env (commit `e1a4e84`)
+
+- **`@nextain/agent-types`** — new `CompactionStrategy` union (`reactive` | `realtime` | `anthropic-native` | `off`); `CompactionInput` gains optional `strategy` + `priorRecap` (backward-compat).
+- **`@nextain/agent-core`** — `AgentOptions.compactionStrategy` (default `reactive`). `Agent.#maybeCompact` short-circuits when strategy = `off` or `anthropic-native` (server-side path is authoritative; host-side would double-compact). Tracks `#priorRecap` per session and forwards it to `memory.compact()`, enabling end-to-end anchored iterative summarization.
+- **`bin/naia-agent.ts`** — `--compact-strategy <reactive|realtime|anthropic-native|off>` flag + `NAIA_AGENT_COMPACT_STRATEGY` env (CLI > env > default reactive). Validation: unknown value → exit 3 with helpful stderr. Wired into both `runDirect` and `runService` Agent constructors.
+- **9 cli-app integration tests** (`bin-compact-strategy.test.ts`) — accept all four strategies, reject missing/unknown value, env-vs-CLI precedence.
+
+### P3 — naia-memory v3 anchored iterative + 5-section recap (companion commit naia-memory `604677f`, branch `migration/compact-anchored-iterative`)
+
+- **`MemorySystem.compact()`** accepts `strategy?` + `priorRecap?` (both optional, backward-compat with existing host tests).
+- Prepends `## Prior recap (anchored)` section verbatim when `priorRecap` supplied — Factory.ai anchored iterative pattern (prior recap = seed for next recap, never re-summarized from raw).
+- 5-section markdown appended after legacy `[Conversation recap …]` header: `## Goal` (first user) / `## Instructions` (system msgs) / `## Tool calls made` (deduped, cap 10) / `## Discoveries` (fact-shaped assistant lines) / `## Relevant files / URLs` (paths + URLs strict-preserved via regex).
+- **9 new tests** (`compact-anchored.test.ts`) + 19 pre-existing pass (28/28 total).
+
+### P4 + P5 — runtime wire-up integration (commit `1a1aafe`)
+
+- **`agent-compaction-strategy.test.ts`** — 6 integration tests proving end-to-end:
+  - **P4-01/02** strategy + sessionId forwarded to memory.compact() (reactive & realtime)
+  - **P4-03** second compaction in same session carries priorRecap from first (anchored iterative end-to-end)
+  - **P5-01/02** anthropic-native AND off short-circuit (memory.compact() NEVER invoked)
+  - **P5-03** reactive sanity (compact() DOES invoke under budget pressure)
+
+### P6 — 10 seed fixtures + real measurement runner + first ledger (commit `db85931`)
+
+- **10 seed fixtures** under `packages/benchmarks/src/fixtures/` (F001-F010 across 10 domains: customer-support / coding-pair / research-synthesis / persona-roleplay / tool-heavy / mixed-language / calculation-chain / story-continuation / preference-tracking / websearch-heavy). 18-23 turns each; 2-3 probes (fact-recall + task-accuracy + optional drift); explicit compactionPoints. `FixtureRole` schema extended to include `"tool"`.
+- **`runFixture()`** drives a fixture through real `MemorySystem.compact()` per strategy. realtime path encodes every turn first (rolling accumulation); reactive path triggers compaction at compactionPoints with anchored iterative `priorRecap` chained across rounds. `evaluateProbe()` is deterministic (keyword match for fact-recall, domain-anchor heuristic for task-accuracy, Jaccard for drift).
+- **First measurement** (`reports/2026-05-20-deterministic.md`):
+  - `reactive` task 0.40, recall 0.60, drift 0.545
+  - `realtime` task 0.40, recall 0.60, drift 0.531
+  - `anthropic-native` task 0.30, recall 1.00, drift 1.00
+  - `off` task 0.30, recall 1.00, drift 1.00
+- **CRITICAL caveat documented** in `.agents/progress/compact-bench-2026-05-20.md` ledger: the deterministic harness *appears* to favor `off`/`anthropic-native` on fact-recall because it doesn't simulate hard truncation. In production those strategies 4xx at context limit. Strategy ranking deferred to LLM-judge iteration (next slice).
+
+### Verification
+
+- All 40 new tests pass + 0 regression on touched packages.
+- Build green on @nextain/agent-types / @nextain/agent-core / @nextain/agent-benchmarks.
+- @nextain/agent-runtime build has pre-existing TS2532 in coding-tool.test.ts unrelated to this slice — `vitest run` works fine (TS errors are in test sources only, not build output).
+- `pnpm bench:compact` end-to-end: 10 fixtures × 4 strategies → report + per-fixture stderr, 0 errors.
+
+### Follow-up (separate slices)
+
+- **LLM-judge iteration** — `NAIA_JUDGE_ENSEMBLE` wiring (GLM HTTP + Codex CLI + Claude CLI 3-judge majority), hard-truncation simulation for `off`, real LLM driver mode (`--driver real` spawning `bin/naia-agent` per turn). Gated on user API keys (host env has `GLM_API_KEY` + `OPENAI_API_KEY` + codex/claude CLI tools).
+- **50-fixture expansion** + adversarial fixtures (100+ turn, multi-compaction chains).
+- **naia-os#185 Phase 2 wiring** — connect `agent/src/index.ts` `checkTokenBudget` to the new `--compact-strategy` path.
+- **MemGPT-light hierarchical** (long-horizon, optional).
 
 ## [Slice 3-XR-M + 3-XR-N + 3-XR-O] — 2026-05-20 — REPL/PTY + cross-OS sanity + Claude Code parity ledger (Tasks #25/#26/#27)
 
