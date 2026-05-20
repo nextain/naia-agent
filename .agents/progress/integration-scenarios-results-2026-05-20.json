@@ -1,7 +1,7 @@
 {
-  "runAt": "2026-05-20T05:48:23.254Z",
-  "total": 32,
-  "passed": 32,
+  "runAt": "2026-05-20T06:10:35.753Z",
+  "total": 38,
+  "passed": 38,
   "failed": 0,
   "skipped": 1,
   "judgeAvailable": true,
@@ -22,8 +22,8 @@
         "reason": "The model's reply is a natural Korean greeting in one sentence with no leaked reasoning markers.",
         "raw": "{\"pass\": true, \"reason\": \"The model's reply is a natural Korean greeting in one sentence with no leaked reasoning markers.\"}"
       },
-      "wallMs": 13147,
-      "observedTail": "[exit=0]\n안녕하세요!\n\n--- stderr ---\nnaia-agent: provider=openai-compat model=gemma4:31b\n(node:1847692) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n"
+      "wallMs": 11579,
+      "observedTail": "[exit=0]\n안녕하세요!\n\n--- stderr ---\nnaia-agent: provider=openai-compat model=gemma4:31b\n(node:1969597) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n"
     },
     {
       "id": "A2",
@@ -33,16 +33,16 @@
         "pass": true,
         "notes": [
           "exit=0",
-          "stdoutLen=447"
+          "stdoutLen=477"
         ]
       },
       "judge": {
         "pass": true,
-        "reason": "The output correctly explains that the `?` operator propagates Result/Option errors, unwraps Ok/Some values, and returns Err/None early, with proper technical details about function return type compatibility.",
-        "raw": "{\"pass\": true, \"reason\": \"The output correctly explains that the `?` operator propagates Result/Option errors, unwraps Ok/Some values, and returns Err/None early, with proper technical details about function return type compatibility.\"}"
+        "reason": "The output correctly explains that the ? operator propagates Result/Option errors, unwraps Ok/Some, and returns Err/None early.",
+        "raw": "{\"pass\": true, \"reason\": \"The output correctly explains that the ? operator propagates Result/Option errors, unwraps Ok/Some, and returns Err/None early.\"}"
       },
-      "wallMs": 28497,
-      "observedTail": "[exit=0]\nThe `?` operator in Rust is used for error propagation. When applied to a `Result` or `Option` value, it unwraps the value if it is `Ok` or `Some`, allowing the program to continue; however, if the value is `Err` or `None`, the operator immediately returns that error or none from the current function to the caller. For this to work, the return type of the containing function must be compatible with the type being returned by the `?` operator.\n\n--- stderr ---\nnaia-agent: provider=openai-compat model=gemma4:31b\n(node:1849390) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n"
+      "wallMs": 30396,
+      "observedTail": "[exit=0]\nThe `?` operator in Rust is used for error propagation. When applied to a `Result` or `Option` value, it unwraps the value if it is `Ok` or `Some`, allowing the program to continue. If the value is `Err` or `None`, the operator immediately returns that error or none from the current function to the caller. For this to work, the return type of the function must be compatible with the type being queried, typically meaning they share the same `Result` or `Option` outer type.\n\n--- stderr ---\nnaia-agent: provider=openai-compat model=gemma4:31b\n(node:1971590) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n"
     },
     {
       "id": "A3",
@@ -58,11 +58,11 @@
       },
       "judge": {
         "pass": true,
-        "reason": "The model correctly recalled and stated '보리차' as the user's favorite drink in p2.",
-        "raw": "{\"pass\": true, \"reason\": \"The model correctly recalled and stated '보리차' as the user's favorite drink in p2.\"}"
+        "reason": "The model correctly identified '보리차' as the user's favorite drink in p2.",
+        "raw": "{\"pass\": true, \"reason\": \"The model correctly identified '보리차' as the user's favorite drink in p2.\"}"
       },
-      "wallMs": 46386,
-      "observedTail": "[p1 exit=0]\n네, 루크님. 가장 좋아하는 음료가 보리차라는 점 기억하겠습니다.\n\n--- p1 stderr ---\n\nnaia-agent: memory=lite db=/tmp/naia-intg-A-9GdEmk/home-jucyph/.naia-agent/memory/cli.sqlite embed=bge-m3\n(node:1853365) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n\n\n[p2 exit=0]\n보리차입니다.\n\n--- p2 stderr ---\n\nnaia-agent: memory=lite db=/tmp/naia-intg-A-9GdEmk/home-jucyph/.naia-agent/memory/cli.sqlite embed=bge-m3\n(node:1856603) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n\n\n[sqlite facts rows after p1: 2]"
+      "wallMs": 50177,
+      "observedTail": "[p1 exit=0]\n네, 루크 님. 가장 좋아하는 음료가 보리차라는 점 기억하겠습니다.\n\n--- p1 stderr ---\n\nnaia-agent: memory=lite db=/tmp/naia-intg-A-plBhrf/home-nWFMWS/.naia-agent/memory/cli.sqlite embed=bge-m3\n(node:1976276) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n\n\n[p2 exit=0]\n보리차입니다.\n\n--- p2 stderr ---\n\nnaia-agent: memory=lite db=/tmp/naia-intg-A-plBhrf/home-nWFMWS/.naia-agent/memory/cli.sqlite embed=bge-m3\n(node:1980374) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n\n\n[sqlite facts rows after p1: 2]"
     },
     {
       "id": "A4",
@@ -76,11 +76,11 @@
       },
       "judge": {
         "pass": true,
-        "reason": "The output correctly states the model cannot access the filesystem and does not fabricate a file list.",
-        "raw": "{\"pass\": true, \"reason\": \"The output correctly states the model cannot access the filesystem and does not fabricate a file list.\"}"
+        "reason": "Output correctly states inability to access filesystem without fabricating file names.",
+        "raw": "{\"pass\": true, \"reason\": \"Output correctly states inability to access filesystem without fabricating file names.\"}"
       },
-      "wallMs": 18330,
-      "observedTail": "[exit=0]\nI cannot. I do not have access to the filesystem of the machine.\n\n--- stderr ---\nnaia-agent: provider=openai-compat model=gemma4:31b\n(node:1858759) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n"
+      "wallMs": 15184,
+      "observedTail": "[exit=0]\nI cannot. I do not have access to the filesystem of the machine running this session.\n\n--- stderr ---\nnaia-agent: provider=openai-compat model=gemma4:31b\n(node:1982626) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n"
     },
     {
       "id": "B1",
@@ -94,11 +94,11 @@
       },
       "judge": {
         "pass": true,
-        "reason": "The output correctly states that the function returns the sum of two numbers.",
-        "raw": "{\"pass\": true, \"reason\": \"The output correctly states that the function returns the sum of two numbers.\"}"
+        "reason": "The output correctly states that the function returns the sum of two provided arguments.",
+        "raw": "{\"pass\": true, \"reason\": \"The output correctly states that the function returns the sum of two provided arguments.\"}"
       },
-      "wallMs": 6816,
-      "observedTail": "[exit=0]\nThis function returns the sum of two provided numbers.\n\n--- stderr ---\nnaia-agent: provider=openai-compat model=gemma4:31b\n(node:1861090) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n"
+      "wallMs": 3385,
+      "observedTail": "[exit=0]\nThis function returns the sum of two provided arguments.\n\n--- stderr ---\nnaia-agent: provider=openai-compat model=gemma4:31b\n(node:1984277) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n"
     },
     {
       "id": "B2",
@@ -112,11 +112,11 @@
       },
       "judge": {
         "pass": true,
-        "reason": "Output correctly identifies that returning 0 silently for b==0 is wrong and should raise an exception instead.",
-        "raw": "{\"pass\": true, \"reason\": \"Output correctly identifies that returning 0 silently for b==0 is wrong and should raise an exception instead.\"}"
+        "reason": "Output correctly identifies that returning 0 for b==0 is wrong and should raise an exception instead.",
+        "raw": "{\"pass\": true, \"reason\": \"Output correctly identifies that returning 0 for b==0 is wrong and should raise an exception instead.\"}"
       },
-      "wallMs": 20767,
-      "observedTail": "[exit=0]\nReturning 0 when `b == 0` is mathematically incorrect and masks a `ZeroDivisionError`. This causes silent failures in calculations rather than alerting the caller to an invalid operation.\n\n--- stderr ---\nnaia-agent: provider=openai-compat model=gemma4:31b\n(node:1862092) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n"
+      "wallMs": 22012,
+      "observedTail": "[exit=0]\nReturning `0` when `b` is `0` is mathematically incorrect and masks a `ZeroDivisionError`. The function should instead raise an exception or return a value indicating the operation is undefined.\n\n--- stderr ---\nnaia-agent: provider=openai-compat model=gemma4:31b\n(node:1984559) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n"
     },
     {
       "id": "B3",
@@ -130,11 +130,11 @@
       },
       "judge": {
         "pass": true,
-        "reason": "The function validates input type, non-negative value, and throws appropriate error.",
-        "raw": "{\"pass\": true, \"reason\": \"The function validates input type, non-negative value, and throws appropriate error.\"}"
+        "reason": "The function validates years is a non-negative number before multiplying.",
+        "raw": "{\"pass\": true, \"reason\": \"The function validates years is a non-negative number before multiplying.\"}"
       },
-      "wallMs": 22520,
-      "observedTail": "[exit=0]\n```javascript\nfunction age(years) {\n  if (typeof years !== 'number' || years < 0) {\n    throw new TypeError('Invalid input: years must be a non-negative number');\n  }\n  return years * 365;\n}\n```\n\n--- stderr ---\nnaia-agent: provider=openai-compat model=gemma4:31b\n(node:1865272) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n"
+      "wallMs": 19053,
+      "observedTail": "[exit=0]\n```javascript\nfunction age(years) {\n  if (typeof years !== 'number' || years < 0) {\n    throw new TypeError('years must be a non-negative number');\n  }\n  return years * 365;\n}\n```\n\n--- stderr ---\nnaia-agent: provider=openai-compat model=gemma4:31b\n(node:1988080) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n"
     },
     {
       "id": "C1",
@@ -146,8 +146,8 @@
           "exit=2"
         ]
       },
-      "wallMs": 770,
-      "observedTail": "[exit=2]\nstdout:\nstderr:naia-agent: provider=openai-compat model=gemma3n:e4b\n(node:1869049) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n\nnaia-agent: turn failed — registry.ollama.ai/library/gemma3n:e4b does not support tools\n  This model has no native tool-calling. Exit (`exit`/Ctrl-D) and re-run with --no-tools:\n    pnpm naia-agent --no-tools                          # REPL\n    pnpm naia-agent --no-tools --memory \"your prompt\"   # one-shot, with memory\n"
+      "wallMs": 745,
+      "observedTail": "[exit=2]\nstdout:\nstderr:naia-agent: provider=openai-compat model=gemma3n:e4b\n(node:1991099) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n\nnaia-agent: turn failed — registry.ollama.ai/library/gemma3n:e4b does not support tools\n  This model has no native tool-calling. Exit (`exit`/Ctrl-D) and re-run with --no-tools:\n    pnpm naia-agent --no-tools                          # REPL\n    pnpm naia-agent --no-tools --memory \"your prompt\"   # one-shot, with memory\n"
     },
     {
       "id": "F1",
@@ -161,11 +161,11 @@
       },
       "judge": {
         "pass": true,
-        "reason": "Response contains pirate greeting 'Ahoy there, matey!' with pirate-style language.",
-        "raw": "{\"pass\": true, \"reason\": \"Response contains pirate greeting 'Ahoy there, matey!' with pirate-style language.\"}"
+        "reason": "Response includes pirate greeting 'Ahoy there, matey!' with pirate-style language.",
+        "raw": "{\"pass\": true, \"reason\": \"Response includes pirate greeting 'Ahoy there, matey!' with pirate-style language.\"}"
       },
-      "wallMs": 13699,
-      "observedTail": "[exit=0]\nAhoy there, matey!\n\n--- stderr ---\nnaia-agent: provider=openai-compat model=gemma4:31b\n(node:1869095) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n"
+      "wallMs": 12621,
+      "observedTail": "[exit=0]\nAhoy there, matey!\n\n--- stderr ---\nnaia-agent: provider=openai-compat model=gemma4:31b\n(node:1991150) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n"
     },
     {
       "id": "F2",
@@ -183,8 +183,8 @@
         "reason": "The assistant correctly named the dog '코코' in p2 while maintaining a Korean tone.",
         "raw": "{\"pass\": true, \"reason\": \"The assistant correctly named the dog '코코' in p2 while maintaining a Korean tone.\"}"
       },
-      "wallMs": 50218,
-      "observedTail": "[p1 exit=0]\n네, 코코라고 기억해둘게요.\n\n\n[p2 exit=0]\n코코예요.\n\n--- p2 stderr ---\n\nnaia-agent: memory=lite db=/tmp/naia-intg-F-ngyUdU/home-k82mlZ/.naia-agent/memory/cli.sqlite embed=bge-m3\n(node:1875287) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n"
+      "wallMs": 38926,
+      "observedTail": "[p1 exit=0]\n네, 기억할게요. 강아지 이름은 코코네요.\n\n\n[p2 exit=0]\n코코예요.\n\n--- p2 stderr ---\n\nnaia-agent: memory=lite db=/tmp/naia-intg-F-MdCpLj/home-vu34Ko/.naia-agent/memory/cli.sqlite embed=bge-m3\n(node:1995010) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n"
     },
     {
       "id": "H1",
@@ -209,8 +209,8 @@
           "exit=3"
         ]
       },
-      "wallMs": 306,
-      "observedTail": "(node:1877603) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\nnaia-agent: invalid manifest \"/tmp/naia-intg-H-MSfVer/home-Vd7c4N/bad.service.json\"\n{\"name\":\"error.manifest\",\"timestamp\":1779255930970,\"errorCode\":\"MANIFEST_INVALID\",\"severity\":\"error\",\"retryable\":false,\"data\":{\"detail\":\"invalid JSON: Expected property name or '}' in JSON at position 2 (line 1 column 3)\"},\"debug\":\"invalid JSON: Expected property name or '}' in JSON at position 2 (line 1 column 3)\"}\n"
+      "wallMs": 312,
+      "observedTail": "(node:1997567) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\nnaia-agent: invalid manifest \"/tmp/naia-intg-H-htPxNE/home-ufnmaR/bad.service.json\"\n{\"name\":\"error.manifest\",\"timestamp\":1779257219982,\"errorCode\":\"MANIFEST_INVALID\",\"severity\":\"error\",\"retryable\":false,\"data\":{\"detail\":\"invalid JSON: Expected property name or '}' in JSON at position 2 (line 1 column 3)\"},\"debug\":\"invalid JSON: Expected property name or '}' in JSON at position 2 (line 1 column 3)\"}\n"
     },
     {
       "id": "H3",
@@ -222,7 +222,7 @@
           "exit=3"
         ]
       },
-      "wallMs": 307,
+      "wallMs": 296,
       "observedTail": "naia-agent: ERROR — no LLM provider configured.\n  Quickest path: pnpm naia-agent login --adk <naia-adk-path> --main \"provider|baseUrl|model\"\n  Or set an env var: ANTHROPIC_API_KEY, GLM_API_KEY, or OPENAI_API_KEY+OPENAI_BASE_URL.\n  See: docs/llm-config-standard.md, docs/user-guide.md\n"
     },
     {
@@ -235,7 +235,7 @@
           "exit=3"
         ]
       },
-      "wallMs": 357,
+      "wallMs": 304,
       "observedTail": "naia-agent login: --main: apiKeyRef looks like a RAW SECRET — pass a name (env var / keychain entry), not the key itself\nusage: pnpm naia-agent login --adk <path>\n         [--main \"provider|baseUrl|model[|apiKeyRef]\"]\n         [--sub  \"provider|baseUrl|model[|apiKeyRef]\"]\n         [--embedded \"provider|baseUrl|model|dims[|apiKeyRef]\"]\n         [--key REF=VALUE]   (stored in OS keychain, never plaintext)\n"
     },
     {
@@ -248,8 +248,8 @@
           "exit=0"
         ]
       },
-      "wallMs": 595,
-      "observedTail": "ration (no secret values)\n  naia-adk:    /tmp/naia-intg-I-5ybP0T/adk-NYei44\n  llm.json:    /tmp/naia-intg-I-5ybP0T/adk-NYei44/naia-settings/llm.json\n  main       openai-compat gemma4:31b @ http://127.0.0.1:11434/v1  apiKeyRef=MY_FAKE_TOKEN_NAME\n  sub        <none>\n  embedded   <none>\n  resolved:    openai-compat gemma4:31b @ http://127.0.0.1:11434/v1\n  memory db:   /tmp/naia-intg-I-5ybP0T/home-2KnjsQ/.naia-agent/memory/cli.sqlite  (absent)\n  config.json: /tmp/naia-intg-I-5ybP0T/home-2KnjsQ/.naia-agent/config.json\n  (apiKeyRef shows the env var / keychain NAME only — values are never printed.)\n"
+      "wallMs": 605,
+      "observedTail": "ration (no secret values)\n  naia-adk:    /tmp/naia-intg-I-M3aQqp/adk-TgIWuX\n  llm.json:    /tmp/naia-intg-I-M3aQqp/adk-TgIWuX/naia-settings/llm.json\n  main       openai-compat gemma4:31b @ http://127.0.0.1:11434/v1  apiKeyRef=MY_FAKE_TOKEN_NAME\n  sub        <none>\n  embedded   <none>\n  resolved:    openai-compat gemma4:31b @ http://127.0.0.1:11434/v1\n  memory db:   /tmp/naia-intg-I-M3aQqp/home-S4AFcw/.naia-agent/memory/cli.sqlite  (absent)\n  config.json: /tmp/naia-intg-I-M3aQqp/home-S4AFcw/.naia-agent/config.json\n  (apiKeyRef shows the env var / keychain NAME only — values are never printed.)\n"
     },
     {
       "id": "F3",
@@ -266,8 +266,8 @@
         "reason": "Output is exactly one short sentence introducing UNIT-7 as expected.",
         "raw": "{\"pass\": true, \"reason\": \"Output is exactly one short sentence introducing UNIT-7 as expected.\"}"
       },
-      "wallMs": 13535,
-      "observedTail": "[exit=0]\nI am UNIT-7.\n\n--- stderr ---\nnaia-agent: provider=openai-compat model=gemma4:31b\n(node:1877745) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n"
+      "wallMs": 13607,
+      "observedTail": "[exit=0]\nI am UNIT-7.\n\n--- stderr ---\nnaia-agent: provider=openai-compat model=gemma4:31b\n(node:1997715) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n"
     },
     {
       "id": "F4",
@@ -281,8 +281,8 @@
           "stdoutLen=39"
         ]
       },
-      "wallMs": 3589,
-      "observedTail": "[exit=0, personaLen=3383]\nGreetings; I am Solas, the lorekeeper.\n\n--- stderr ---\nnaia-agent: provider=openai-compat model=gemma4:31b\n(node:1879697) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n"
+      "wallMs": 3545,
+      "observedTail": "[exit=0, personaLen=3383]\nGreetings; I am Solas, the lorekeeper.\n\n--- stderr ---\nnaia-agent: provider=openai-compat model=gemma4:31b\n(node:1999173) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n"
     },
     {
       "id": "H4",
@@ -294,8 +294,8 @@
           "exit=0"
         ]
       },
-      "wallMs": 7589,
-      "observedTail": "naia-agent: provider=openai-compat model=gemma4:31b\nnaia-agent: --memory needs a configured 'embedded' role (naia-settings/llm.json) — falling back to ephemeral memory.\n(node:1880136) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n"
+      "wallMs": 11839,
+      "observedTail": "naia-agent: provider=openai-compat model=gemma4:31b\nnaia-agent: --memory needs a valid 'embedded' role (run `naia-agent login --embedded \"provider|baseUrl|model|dims\"` or fix naia-settings/llm.json) — falling back to ephemeral memory.\n(node:1999463) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n"
     },
     {
       "id": "H5",
@@ -307,7 +307,7 @@
           "exit=3"
         ]
       },
-      "wallMs": 298,
+      "wallMs": 302,
       "observedTail": "naia-agent: unknown arg: --this-flag-does-not-exist\nusage: pnpm naia-agent [prompt] [--mode=direct|supervisor] [--workdir DIR] [--debug]\n       pnpm naia-agent [prompt] [--no-tools] [--no-default-system] [--memory] [--system \"…\"]\n       pnpm naia-agent login --adk <path> [--main …] [--sub …] [--embedded …] [--key REF=VAL]\n       pnpm naia-agent show                       # show current config (no secret values)\n       pnpm naia-agent [prompt] --service app.service.json\n       pnpm naia-agent [prompt] --mode=supervisor [--no-verify] [-m model] [--adapter shell -- cmd args]\n"
     },
     {
@@ -320,7 +320,7 @@
           "exit=3"
         ]
       },
-      "wallMs": 297,
+      "wallMs": 289,
       "observedTail": "naia-agent login: --main: apiKeyRef looks like a RAW SECRET — pass a name (env var / keychain entry), not the key itself\nusage: pnpm naia-agent login --adk <path>\n         [--main \"provider|baseUrl|model[|apiKeyRef]\"]\n         [--sub  \"provider|baseUrl|model[|apiKeyRef]\"]\n         [--embedded \"provider|baseUrl|model|dims[|apiKeyRef]\"]\n         [--key REF=VALUE]   (stored in OS keychain, never plaintext)\n"
     },
     {
@@ -333,7 +333,7 @@
           "exit=3"
         ]
       },
-      "wallMs": 303,
+      "wallMs": 315,
       "observedTail": "naia-agent login: --main: apiKeyRef looks like a RAW SECRET — pass a name (env var / keychain entry), not the key itself\nusage: pnpm naia-agent login --adk <path>\n         [--main \"provider|baseUrl|model[|apiKeyRef]\"]\n         [--sub  \"provider|baseUrl|model[|apiKeyRef]\"]\n         [--embedded \"provider|baseUrl|model|dims[|apiKeyRef]\"]\n         [--key REF=VALUE]   (stored in OS keychain, never plaintext)\n"
     },
     {
@@ -346,8 +346,8 @@
           "exit=0"
         ]
       },
-      "wallMs": 295,
-      "observedTail": "naia-agent login: configured.\n  naia-adk:   /tmp/naia-intg-I2-Juj5qm/adk-jyMNj9\n  llm.json:   /tmp/naia-intg-I2-Juj5qm/adk-jyMNj9/naia-settings/llm.json\n  main: openai-compat gemma4:31b (key→MY_API_KEY)\nRun: pnpm naia-agent --no-tools \"your prompt\"\n"
+      "wallMs": 297,
+      "observedTail": "naia-agent login: configured.\n  naia-adk:   /tmp/naia-intg-I2-7QdT91/adk-WxBWmE\n  llm.json:   /tmp/naia-intg-I2-7QdT91/adk-WxBWmE/naia-settings/llm.json\n  main: openai-compat gemma4:31b (key→MY_API_KEY)\nRun: pnpm naia-agent --no-tools \"your prompt\"\n"
     },
     {
       "id": "E1",
@@ -359,8 +359,8 @@
           "exit=3"
         ]
       },
-      "wallMs": 309,
-      "observedTail": "(node:1881465) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\nnaia-agent: invalid manifest \"/tmp/naia-intg-E-Rx5aKD/home-gdzprv/langgraph.service.json\"\n{\"name\":\"error.manifest\",\"timestamp\":1779255958451,\"errorCode\":\"MANIFEST_INVALID\",\"severity\":\"error\",\"retryable\":false,\"data\":{\"detail\":\"unsupported schemaVersion \\\"1.0.0\\\" (loader supports MAJOR ≤ 0)\"},\"debug\":\"unsupported schemaVersion \\\"1.0.0\\\" (loader supports MAJOR ≤ 0)\"}\n"
+      "wallMs": 305,
+      "observedTail": "(node:2001478) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\nnaia-agent: manifest llm.backend \"langgraph\" not implemented yet (deferred to Slice 3-XR-K). Reserve stub: schema accepts the value but no live dispatcher is wired.\n"
     },
     {
       "id": "E2",
@@ -372,8 +372,8 @@
           "exit=3"
         ]
       },
-      "wallMs": 310,
-      "observedTail": "(node:1881488) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\nnaia-agent: invalid manifest \"/tmp/naia-intg-E-Rx5aKD/home-d93ogE/rag.service.json\"\n{\"name\":\"error.manifest\",\"timestamp\":1779255958761,\"errorCode\":\"MANIFEST_INVALID\",\"severity\":\"error\",\"retryable\":false,\"data\":{\"detail\":\"unsupported schemaVersion \\\"1.0.0\\\" (loader supports MAJOR ≤ 0)\"},\"debug\":\"unsupported schemaVersion \\\"1.0.0\\\" (loader supports MAJOR ≤ 0)\"}\n"
+      "wallMs": 299,
+      "observedTail": "(node:2001501) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\nnaia-agent: manifest llm.backend \"rag-retriever\" not implemented yet (deferred to Slice 3-XR-K). Reserve stub: schema accepts the value but no live dispatcher is wired.\n"
     },
     {
       "id": "J2a",
@@ -385,6 +385,95 @@
       },
       "wallMs": 0,
       "skipped": "structurally identical to F2; tracked here for grid completeness"
+    },
+    {
+      "id": "D1",
+      "group": "D",
+      "description": "naia-adk skills/ load (24G)",
+      "mechanism": {
+        "pass": true,
+        "notes": [
+          "exit=0",
+          "hits=6/6",
+          "names=time,weather,memo,sessions,system-status,diagnostics"
+        ]
+      },
+      "wallMs": 43167,
+      "observedTail": "[exit=0]\nstdout:\nbash\nread_file\nwrite_file\nedit_file\nlist_files\nchannel-management\nconfig\ncron\ndiagnostics\ndoc-coauthoring\ndocument-generation\nemail\nmemo\nnotify\nread-doc\nreview-pass\nservice-management\nsessions\nskill-manager\nsms\nsystem-status\ntime\nweather\nweb-monitoring\n\n--- stderr ---\nnaia-agent: provider=openai-compat model=gemma4:31b\n(node:2001547) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\nnaia-agent: skills-dir warn: failed to read SKILL.md\n"
+    },
+    {
+      "id": "D2",
+      "group": "D",
+      "description": "composite executor smoke (24G)",
+      "mechanism": {
+        "pass": true,
+        "notes": [
+          "exit=0",
+          "bashFired=true",
+          "quoted=true"
+        ]
+      },
+      "wallMs": 13791,
+      "observedTail": "[exit=0]\nDELTA-COMPOSITE-2026\n\n--- stderr ---\nnaia-agent: provider=openai-compat model=gemma4:31b\n(node:2008168) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\nnaia-agent: skills-dir warn: failed to read SKILL.md\n[tool] bash({\"command\":\"echo DELTA-COMPOSITE-2026\"})\n"
+    },
+    {
+      "id": "D3",
+      "group": "D",
+      "description": "missing --skills-dir graceful",
+      "mechanism": {
+        "pass": true,
+        "notes": [
+          "exit=0",
+          "stdoutLen=6"
+        ]
+      },
+      "wallMs": 7624,
+      "observedTail": "naia-agent: provider=openai-compat model=gemma4:31b\n(node:2009883) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n"
+    },
+    {
+      "id": "D4",
+      "group": "D",
+      "description": "skill invoke parse-only contract",
+      "mechanism": {
+        "pass": true,
+        "notes": [
+          "listed=19",
+          "hasTime=true",
+          "invokeMsgLen=59"
+        ]
+      },
+      "wallMs": 167,
+      "observedTail": "list[0..5]=channel-management,config,cron,diagnostics,doc-coauthoring\ninvoke('time'): FileSkillLoader is parse-only — no invoker wired for \"time\""
+    },
+    {
+      "id": "D5",
+      "group": "D",
+      "description": "SKILL.md valid descriptors",
+      "mechanism": {
+        "pass": true,
+        "notes": [
+          "loaded=19",
+          "bad=0",
+          "tier-distribution: T0=3 T1=12 T2=2 T3=2"
+        ]
+      },
+      "wallMs": 2,
+      "observedTail": "all 19 valid"
+    },
+    {
+      "id": "D6",
+      "group": "D",
+      "description": "naia-adk 풀셋 roll-up",
+      "mechanism": {
+        "pass": true,
+        "notes": [
+          "loaded=19",
+          "want=19",
+          "missing=—"
+        ]
+      },
+      "wallMs": 1,
+      "observedTail": "got: channel-management,config,cron,diagnostics,doc-coauthoring,document-generation,email,memo,notify,read-doc,review-pass,service-management,sessions,skill-manager,sms,system-status,time,weather,web-monitoring"
     },
     {
       "id": "P1",
@@ -399,8 +488,8 @@
           "contentLen=21"
         ]
       },
-      "wallMs": 13120,
-      "observedTail": "[exit=0]\nstdout:\nDone.\n\n--- stderr tail ---\nnaia-agent: provider=openai-compat model=gemma4:31b\n(node:1881534) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n[tool] write_file({\"content\":\"hello from naia-agent\",\"path\":\"/tmp/naia-intg-P-CONhNV/work-Z11r6W/hello.txt\"})\n\n--- file ---\nexists=true content=\"hello from naia-agent\""
+      "wallMs": 10850,
+      "observedTail": "[exit=0]\nstdout:\nOK. I have created the file `/tmp/naia-intg-P-B6iFLX/work-cBVzDc/hello.txt` with the text \"hello from naia-agent\".\n\n--- stderr tail ---\nnaia-agent: provider=openai-compat model=gemma4:31b\n(node:2011107) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n[tool] write_file({\"content\":\"hello from naia-agent\",\"path\":\"/tmp/naia-intg-P-B6iFLX/work-cBVzDc/hello.txt\"})\n\n--- file ---\nexists=true content=\"hello from naia-agent\""
     },
     {
       "id": "P2",
@@ -419,8 +508,8 @@
         "reason": "The output correctly names '73218' as the magic number and stderr shows the read_file tool was fired before the answer.",
         "raw": "{\"pass\": true, \"reason\": \"The output correctly names '73218' as the magic number and stderr shows the read_file tool was fired before the answer.\"}"
       },
-      "wallMs": 16180,
-      "observedTail": "[exit=0]\nstdout:\nThe number mentioned in the file is 73218.\n\n--- stderr tail ---\nnaia-agent: provider=openai-compat model=gemma4:31b\n(node:1883861) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n[tool] read_file({\"path\":\"/tmp/naia-intg-P-CONhNV/work-ONTZ7c/note.txt\"})\n"
+      "wallMs": 21188,
+      "observedTail": "[exit=0]\nstdout:\nThe number mentioned in the file is 73218.\n\n--- stderr tail ---\nnaia-agent: provider=openai-compat model=gemma4:31b\n(node:2012746) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n[tool] read_file({\"path\":\"/tmp/naia-intg-P-B6iFLX/work-iBg0pe/note.txt\"})\n"
     },
     {
       "id": "P3",
@@ -434,8 +523,8 @@
           "allNamed=true"
         ]
       },
-      "wallMs": 17785,
-      "observedTail": "[exit=0]\nstdout:\nalpha.txt, beta.md, gamma.json\n\n--- stderr tail ---\nnaia-agent: provider=openai-compat model=gemma4:31b\n(node:1886371) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n[tool] list_files({\"path\":\"/tmp/naia-intg-P-CONhNV/work-phljnz\"})\n"
+      "wallMs": 13349,
+      "observedTail": "[exit=0]\nstdout:\nalpha.txt, beta.md, gamma.json\n\n--- stderr tail ---\nnaia-agent: provider=openai-compat model=gemma4:31b\n(node:2015935) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n[tool] list_files({\"path\":\"/tmp/naia-intg-P-B6iFLX/work-u3vz6g\"})\n"
     },
     {
       "id": "P4",
@@ -449,8 +538,8 @@
           "patched=true"
         ]
       },
-      "wallMs": 26416,
-      "observedTail": "[exit=0]\nstdout:\nThe edit has been successfully applied. \"version=0.1.0\" was changed to \"version=0.2.0\" in `/tmp/naia-intg-P-CONhNV/work-N30K4S/config.txt`.\n\n--- stderr tail ---\nnaia-agent: provider=openai-compat model=gemma4:31b\n(node:1889484) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n[tool] edit_file({\"find\":\"version=0.1.0\",\"path\":\"/tmp/naia-intg-P-CONhNV/work-N30K4S/config.txt\",\"replace\":\"version=0.2.0\"})\n\n--- file after ---\nname=alpha\nversion=0.2.0\n"
+      "wallMs": 15256,
+      "observedTail": "[exit=0]\nstdout:\nThe change has been applied successfully.\n\n--- stderr tail ---\nnaia-agent: provider=openai-compat model=gemma4:31b\n(node:2017998) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n[tool] edit_file({\"find\":\"version=0.1.0\",\"path\":\"/tmp/naia-intg-P-B6iFLX/work-qYL2r7/config.txt\",\"replace\":\"version=0.2.0\"})\n\n--- file after ---\nname=alpha\nversion=0.2.0\n"
     },
     {
       "id": "P5",
@@ -464,8 +553,8 @@
           "quoted=true"
         ]
       },
-      "wallMs": 9314,
-      "observedTail": "[exit=0]\nstdout:\nThe output was `READY-marker-7Q`.\n\n--- stderr tail ---\nnaia-agent: provider=openai-compat model=gemma4:31b\n(node:1894982) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n[tool] bash({\"command\":\"echo READY-marker-7Q\"})\n"
+      "wallMs": 8221,
+      "observedTail": "[exit=0]\nstdout:\nThe output was `READY-marker-7Q`.\n\n--- stderr tail ---\nnaia-agent: provider=openai-compat model=gemma4:31b\n(node:2020390) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n[tool] bash({\"command\":\"echo READY-marker-7Q\"})\n"
     },
     {
       "id": "P6",
@@ -484,8 +573,8 @@
           "respondsRead=true"
         ]
       },
-      "wallMs": 28200,
-      "observedTail": "[exit=0]\nstdout:\n\"step1-done\"\n\n--- stderr tail ---\nnaia-agent: provider=openai-compat model=gemma4:31b\n(node:1896552) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n[tool] write_file({\"content\":\"step1-done\",\"path\":\"/tmp/naia-intg-P-CONhNV/work-D2uVvu/data.txt\"})\n[tool] list_files({\"path\":\"/tmp/naia-intg-P-CONhNV/work-D2uVvu\"})\n[tool] read_file({\"path\":\"/tmp/naia-intg-P-CONhNV/work-D2uVvu/data.txt\"})\n"
+      "wallMs": 26651,
+      "observedTail": "[exit=0]\nstdout:\n\"step1-done\"\n\n--- stderr tail ---\nnaia-agent: provider=openai-compat model=gemma4:31b\n(node:2021603) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n[tool] write_file({\"content\":\"step1-done\",\"path\":\"/tmp/naia-intg-P-B6iFLX/work-2zupPl/data.txt\"})\n[tool] list_files({\"path\":\"/tmp/naia-intg-P-B6iFLX/work-2zupPl\"})\n[tool] read_file({\"path\":\"/tmp/naia-intg-P-B6iFLX/work-2zupPl/data.txt\"})\n"
     },
     {
       "id": "K1",
@@ -496,17 +585,17 @@
         "notes": [
           "8g.exit=0",
           "24g.exit=0",
-          "8gLen=228",
-          "24gLen=179"
+          "8gLen=230",
+          "24gLen=166"
         ]
       },
       "judge": {
         "pass": true,
-        "reason": "Both responses correctly mention integrity verification and efficient data verification without requiring full dataset download.",
-        "raw": "{\"pass\": true, \"reason\": \"Both responses correctly mention integrity verification and efficient data verification without requiring full dataset download.\"}"
+        "reason": "Both responses correctly mention integrity verification and tamper-evidence concepts.",
+        "raw": "{\"pass\": true, \"reason\": \"Both responses correctly mention integrity verification and tamper-evidence concepts.\"}"
       },
-      "wallMs": 33461,
-      "observedTail": "=== gemma3n:e4b (8G) exit=0\nstdout:\nA Merkle tree is a data structure used to efficiently and securely verify the integrity of large datasets by summarizing them into a single hash, allowing for proof of inclusion without needing to download the entire dataset. \n\n\nstderr-tail:\nnaia-agent: provider=openai-compat model=gemma3n:e4b\n(node:1902258) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n\n=== gemma4:31b (24G) exit=0\nstdout:\nA Merkle tree is used to efficiently and securely verify the integrity and presence of data within a large set without requiring the entire dataset to be downloaded or processed.\n\nstderr-tail:\nnaia-agent: provider=openai-compat model=gemma4:31b\n(node:1902567) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n"
+      "wallMs": 23479,
+      "observedTail": "=== gemma3n:e4b (8G) exit=0\nstdout:\nA Merkle tree is a data structure used to efficiently verify the integrity of large datasets by providing a concise \"fingerprint\" (the root hash) that can be used to quickly check if any part of the data has been tampered with. \n\n\nstderr-tail:\nnaia-agent: provider=openai-compat model=gemma3n:e4b\n(node:2025875) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n\n=== gemma4:31b (24G) exit=0\nstdout:\nA Merkle tree is used to efficiently and securely verify the integrity and presence of data within a large dataset without requiring the entire set to be downloaded.\n\nstderr-tail:\nnaia-agent: provider=openai-compat model=gemma4:31b\n(node:2025996) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n"
     }
   ]
 }

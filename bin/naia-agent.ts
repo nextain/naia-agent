@@ -48,6 +48,9 @@ import {
   InMemoryToolExecutor,
   createBashSkill,
   createFileOpsSkills,
+  FileSkillLoader,
+  SkillToolExecutor,
+  CompositeToolExecutor,
   parseServiceManifest,
   resolveMemoryBinding,
   manifestBaseURLTrust,
@@ -147,6 +150,12 @@ interface Args {
    *  toggle; any native-tool-calling model can drive them
    *  (cf. createFileOpsSkills in @nextain/agent-runtime/skills). */
   enableFileOps: boolean;
+  /** Load skills from an external ADK directory (e.g. naia-adk/skills/
+   *  or onmam-adk/skills/) via FileSkillLoader. The path is treated as
+   *  the direct skills root containing `<name>/SKILL.md` entries.
+   *  Composes with bash + (optional) file-ops via CompositeToolExecutor.
+   *  Slice 3-XR-J — default OFF. */
+  skillsDir?: string;
 }
 
 function parseArgs(argv: string[]): Args | { error: string } {
@@ -197,6 +206,10 @@ function parseArgs(argv: string[]): Args | { error: string } {
       args.memory = true;
     } else if (a === "--enable-file-ops") {
       args.enableFileOps = true;
+    } else if (a === "--skills-dir") {
+      const v = argv[++i];
+      if (!v) return { error: "--skills-dir requires a path" };
+      args.skillsDir = v;
     } else if (a === "--debug") {
       args.debug = true;
     } else if (a === "--show-diff") {
@@ -386,13 +399,33 @@ function buildCliMemory(args: Args): MemoryProvider {
 async function runDirect(args: Args): Promise<number> {
   const llm = await buildLLMClient();
   if (!llm) return 3;
-  const tools = new InMemoryToolExecutor(
+  const inMemTools = new InMemoryToolExecutor(
     args.noTools
       ? []
       : args.enableFileOps
         ? [createBashSkill(), ...createFileOpsSkills({ workspaceRoot: args.workdir })]
         : [createBashSkill()],
   );
+  // Slice 3-XR-J — when --skills-dir is set, layer a SkillToolExecutor on
+  // top so naia-adk / onmam-adk top-level skills/ are visible to the model.
+  // Composite preserves bash + file-ops + ADK-skills in a single ToolExecutor.
+  const tools = args.skillsDir
+    ? new CompositeToolExecutor({
+        subs: [
+          { id: "builtins", executor: inMemTools },
+          {
+            id: "naia-adk-skills",
+            executor: new SkillToolExecutor({
+              loader: new FileSkillLoader({
+                workspaceRoot: args.skillsDir,
+                skillsDir: args.skillsDir,
+                onWarn: (m) => process.stderr.write(`naia-agent: skills-dir warn: ${m}\n`),
+              }),
+            }),
+          },
+        ],
+      })
+    : inMemTools;
   const memory = buildCliMemory(args);
   const logger = new ConsoleLogger({ level: args.debug ? "debug" : "warn" });
 
@@ -579,10 +612,27 @@ async function buildLLMClientFromManifest(
       );
       return new VercelClient(provider(llm.model as Parameters<typeof provider>[0]));
     }
+    case "langgraph":
+    case "rag-retriever": {
+      // Reserve stub (Slice 3-XR-J piggyback for #23). These backends are
+      // recognized as valid manifest values so authors can declare intent
+      // ahead of implementation. The actual dispatcher (LangGraph node
+      // routing / RAG retriever + vector store + LLM hop) is deferred —
+      // see Slice 3-XR-K. Until then, refuse cleanly with a stable
+      // exit + a self-explaining stderr line. cf
+      //   .agents/progress/slice-3-xr-h-i-j-l-plan-2026-05-20.md §3
+      //   feedback_pi_substrate_not_glm_only_2026_05_20
+      process.stderr.write(
+        `naia-agent: manifest llm.backend "${llm.backend}" not implemented yet (deferred to Slice 3-XR-K). ` +
+          `Reserve stub: schema accepts the value but no live dispatcher is wired.\n`,
+      );
+      return null;
+    }
     default:
       process.stderr.write(
         `naia-agent: unknown manifest llm.backend "${llm.backend}" ` +
-          `(supported: openai-compatible | anthropic | vertex | claude-code)\n`,
+          `(supported: openai-compatible | anthropic | vertex | claude-code; ` +
+          `reserved: langgraph | rag-retriever)\n`,
       );
       return null;
   }
@@ -739,13 +789,31 @@ async function runService(args: Args): Promise<number> {
   const host: HostContext = {
     llm,
     memory,
-    tools: new InMemoryToolExecutor(
-      args.noTools
-        ? []
-        : args.enableFileOps
-          ? [createBashSkill(), ...createFileOpsSkills({ workspaceRoot: args.workdir })]
-          : [createBashSkill()],
-    ),
+    tools: ((): import("@nextain/agent-types").ToolExecutor => {
+      const inMem = new InMemoryToolExecutor(
+        args.noTools
+          ? []
+          : args.enableFileOps
+            ? [createBashSkill(), ...createFileOpsSkills({ workspaceRoot: args.workdir })]
+            : [createBashSkill()],
+      );
+      if (!args.skillsDir) return inMem;
+      return new CompositeToolExecutor({
+        subs: [
+          { id: "builtins", executor: inMem },
+          {
+            id: "naia-adk-skills",
+            executor: new SkillToolExecutor({
+              loader: new FileSkillLoader({
+                workspaceRoot: args.skillsDir,
+                skillsDir: args.skillsDir,
+                onWarn: (m) => process.stderr.write(`naia-agent: skills-dir warn: ${m}\n`),
+              }),
+            }),
+          },
+        ],
+      });
+    })(),
     logger,
     tracer: new NoopTracer(),
     meter: new InMemoryMeter(),

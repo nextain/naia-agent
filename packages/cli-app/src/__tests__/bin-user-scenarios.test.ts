@@ -259,7 +259,7 @@ describe("(1) USER perspective — non-developer CLI flow", () => {
   // 90s when a bigger model (gemma4:31b 19.9GB) holds GPU cache; raise
   // to 200_000 (vitest it) + 180_000 (spawn) so the natural happy-path
   // does not fail on cache swap.
-  it("S7 happy path one-shot with --no-tools → real model answer", { timeout: 240_000 }, async () => {
+  it("S7 happy path one-shot with --no-tools → real model answer", { timeout: 480_000 }, async () => {
     if (!(await skipUnlessLlm())) return;
     const home = mkdtempSync(join(tmp, "home-"));
     const adk = mkdtempSync(join(tmp, "adk-"));
@@ -267,12 +267,24 @@ describe("(1) USER perspective — non-developer CLI flow", () => {
       ["login", "--adk", adk, "--main", "openai-compat|http://127.0.0.1:11434/v1|gemma3n:e4b"],
       coldEnv(home),
     );
-    const r = runBin(
+    // Cross-review (Slice 3-XR-J finding): when bigger models hold the
+    // ollama cache, e4b cold-start can exceed 3 min on swap. Retry once
+    // to filter out the cache-swap transient; the second attempt almost
+    // always benefits from the now-warm slot.
+    let r = runBin(
       ["--no-tools", "--no-default-system", "--system", "Reply concisely.", "Say hello in one word."],
       coldEnv(home),
       undefined,
-      180_000,
+      210_000,
     );
+    if (r.status !== 0) {
+      r = runBin(
+        ["--no-tools", "--no-default-system", "--system", "Reply concisely.", "Say hello in one word."],
+        coldEnv(home),
+        undefined,
+        210_000,
+      );
+    }
     expect(r.status).toBe(0);
     // some non-empty answer reached stdout; we don't assert language to
     // stay robust to model variance — only that it spoke at all.

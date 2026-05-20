@@ -46,8 +46,22 @@ export interface SkillLoader {
 }
 
 export interface FileSkillLoaderOptions {
-  /** Workspace root (directory containing `.agents/`). */
+  /** Workspace root (directory containing `.agents/`). Used as the base
+   *  for relative `sourcePath` reporting + the default skills scan path
+   *  (`<workspaceRoot>/.agents/skills/*`). */
   workspaceRoot: string;
+  /**
+   * Optional override — directory to scan directly for `<name>/SKILL.md`
+   * entries. When set, this REPLACES the default `<workspaceRoot>/.agents/skills/`
+   * scan path. Used by naia-adk + onmam-adk, which keep skills at the
+   * REPO top-level (`<adk-root>/skills/`) rather than under `.agents/`.
+   *
+   * Example:
+   *   workspaceRoot = "/path/to/naia-adk"
+   *   skillsDir = "/path/to/naia-adk/skills"          // top-level system skills
+   *   // or omit skillsDir → scans /path/to/naia-adk/.agents/skills/  (agent-internal)
+   */
+  skillsDir?: string;
   /**
    * Host-supplied invoker — runs the skill's body. If omitted, `invoke()`
    * returns an isError result telling the caller the loader is parse-only.
@@ -67,12 +81,14 @@ export interface FileSkillLoaderOptions {
  */
 export class FileSkillLoader implements SkillLoader {
   readonly #root: string;
+  readonly #skillsDir: string | null;
   readonly #invoker?: FileSkillLoaderOptions["invoker"];
   readonly #onWarn: NonNullable<FileSkillLoaderOptions["onWarn"]>;
   #cache: SkillDescriptor[] | null = null;
 
   constructor(options: FileSkillLoaderOptions) {
     this.#root = options.workspaceRoot;
+    this.#skillsDir = options.skillsDir ?? null;
     if (options.invoker) this.#invoker = options.invoker;
     this.#onWarn =
       options.onWarn ??
@@ -84,7 +100,7 @@ export class FileSkillLoader implements SkillLoader {
 
   async list(): Promise<SkillDescriptor[]> {
     if (this.#cache) return this.#cache;
-    const skillsDir = join(this.#root, ".agents", "skills");
+    const skillsDir = this.#skillsDir ?? join(this.#root, ".agents", "skills");
     const entries = await safeReaddir(skillsDir);
     const out: SkillDescriptor[] = [];
     for (const entry of entries) {

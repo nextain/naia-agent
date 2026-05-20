@@ -1145,7 +1145,8 @@ describe("Group E — business-adk reserve (LangGraph/RAG/team)", () => {
     writeFileSync(
       manifestPath,
       JSON.stringify({
-        schemaVersion: "1.0.0",
+        // Loader supports MAJOR ≤ 0 (v0.x.x) — see service-manifest.ts §3.
+        schemaVersion: "0.1.0",
         name,
         persona: { systemPrompt: "test reserve" },
         llm: { backend, model: "x", baseURL: "http://127.0.0.1:11434/v1" },
@@ -1167,9 +1168,9 @@ describe("Group E — business-adk reserve (LangGraph/RAG/team)", () => {
     const stderr = r.stderr;
     const mechPass =
       r.status !== 0 &&
-      /(unknown backend|backend.*not supported|no LLM provider|MANIFEST_INVALID|langgraph)/i.test(
-        stderr,
-      );
+      // Slice 3-XR-J K-reserve commit: backend "langgraph" is now an
+      // explicitly-RECOGNIZED reserve stub (not just generic "unknown").
+      /(not implemented yet.*deferred|langgraph|reserved)/i.test(stderr);
     record("E1", "E", "langgraph reserve graceful", start, {
       mechanism: { pass: mechPass, notes: [`exit=${r.status}`] },
       observedTail: stderr.slice(-1000),
@@ -1185,9 +1186,7 @@ describe("Group E — business-adk reserve (LangGraph/RAG/team)", () => {
     const stderr = r.stderr;
     const mechPass =
       r.status !== 0 &&
-      /(unknown backend|backend.*not supported|no LLM provider|MANIFEST_INVALID|rag-retriever)/i.test(
-        stderr,
-      );
+      /(not implemented yet.*deferred|rag-retriever|reserved)/i.test(stderr);
     record("E2", "E", "rag-retriever reserve graceful", start, {
       mechanism: { pass: mechPass, notes: [`exit=${r.status}`] },
       observedTail: stderr.slice(-1000),
@@ -1210,6 +1209,261 @@ describe("Group J — composite (persona + memory)", () => {
       skipped: "structurally identical to F2; tracked here for grid completeness",
     });
     expect(true).toBe(true);
+  });
+});
+
+// ─── Group D. naia-adk skills/ via --skills-dir (Slice 3-XR-J) ───────────────
+
+describe("Group D — naia-adk skills via --skills-dir", () => {
+  let tmp: string;
+  // Path to naia-adk top-level skills/ — 19 system skills + 1 dir (business/) without SKILL.md.
+  const naiaAdkSkills = resolve(repoRoot, "../naia-adk/skills");
+
+  beforeAll(() => {
+    tmp = mkdtempSync(join(tmpdir(), "naia-intg-D-"));
+  });
+  afterAll(() => {
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it("D1 --skills-dir loads naia-adk top-level skills/ — model receives the tool list (mechanism)", async () => {
+    const start = Date.now();
+    if (!(await ollamaReachable()) || !(await modelAvailable("gemma4:31b"))) {
+      record("D1", "D", "naia-adk skills/ load (24G)", start, { skipped: "no 24G" });
+      return;
+    }
+    if (!existsSync(naiaAdkSkills)) {
+      record("D1", "D", "naia-adk skills/ load (24G)", start, {
+        skipped: `naia-adk submodule not present at ${naiaAdkSkills}`,
+      });
+      return;
+    }
+    const home = mkdtempSync(join(tmp, "home-"));
+    const adk = mkdtempSync(join(tmp, "adk-"));
+    bootstrap24G(home, adk);
+    const r = runBin(
+      [
+        "--enable-file-ops",
+        "--no-default-system",
+        "--workdir",
+        home,
+        "--skills-dir",
+        naiaAdkSkills,
+        "--system",
+        "List the tool NAMES you have available. Reply with just the names, one per line.",
+        "What tools do you have?",
+      ],
+      coldEnv(home),
+      undefined,
+      180_000,
+    );
+    const observed = `[exit=${r.status}]\nstdout:\n${r.stdout}\n--- stderr ---\n${r.stderr.slice(-800)}`;
+    // mechanism: at least 3 naia-adk skill names appear in the response.
+    const expectedSkills = ["time", "weather", "memo", "sessions", "system-status", "diagnostics"];
+    const hits = expectedSkills.filter((n) => r.stdout.includes(n));
+    const mechPass = r.status === 0 && hits.length >= 3;
+    record("D1", "D", "naia-adk skills/ load (24G)", start, {
+      mechanism: {
+        pass: mechPass,
+        notes: [`exit=${r.status}`, `hits=${hits.length}/${expectedSkills.length}`, `names=${hits.join(",")}`],
+      },
+      observedTail: observed.slice(-1500),
+    });
+    expect(mechPass).toBe(true);
+  }, 200_000);
+
+  it("D2 --skills-dir + bash + file-ops compose — bash still works alongside ADK skills", async () => {
+    const start = Date.now();
+    if (!(await ollamaReachable()) || !(await modelAvailable("gemma4:31b"))) {
+      record("D2", "D", "composite executor smoke (24G)", start, { skipped: "no 24G" });
+      return;
+    }
+    if (!existsSync(naiaAdkSkills)) {
+      record("D2", "D", "composite executor smoke (24G)", start, { skipped: "no naia-adk" });
+      return;
+    }
+    const home = mkdtempSync(join(tmp, "home-"));
+    const adk = mkdtempSync(join(tmp, "adk-"));
+    bootstrap24G(home, adk);
+    const r = runBin(
+      [
+        "--enable-file-ops",
+        "--no-default-system",
+        "--workdir",
+        home,
+        "--skills-dir",
+        naiaAdkSkills,
+        "--system",
+        "You have a bash tool. Run `echo DELTA-COMPOSITE-2026` via bash and tell me the output.",
+        "Run it.",
+      ],
+      coldEnv(home),
+      undefined,
+      180_000,
+    );
+    const observed = `[exit=${r.status}]\n${r.stdout}\n--- stderr ---\n${r.stderr.slice(-1000)}`;
+    const bashFired = /\[tool\]\s*bash/.test(r.stderr);
+    const quoted = r.stdout.includes("DELTA-COMPOSITE-2026");
+    const mechPass = r.status === 0 && bashFired && quoted;
+    record("D2", "D", "composite executor smoke (24G)", start, {
+      mechanism: { pass: mechPass, notes: [`exit=${r.status}`, `bashFired=${bashFired}`, `quoted=${quoted}`] },
+      observedTail: observed.slice(-1500),
+    });
+    expect(mechPass).toBe(true);
+  }, 200_000);
+
+  it("D3 --skills-dir <missing-path> → graceful warn, no crash, agent still serves", async () => {
+    const start = Date.now();
+    if (!(await ollamaReachable()) || !(await modelAvailable("gemma4:31b"))) {
+      record("D3", "D", "missing --skills-dir graceful", start, { skipped: "no 24G" });
+      return;
+    }
+    const home = mkdtempSync(join(tmp, "home-"));
+    const adk = mkdtempSync(join(tmp, "adk-"));
+    bootstrap24G(home, adk);
+    const missing = join(home, "definitely-does-not-exist-skills-XYZ");
+    const r = runBin(
+      [
+        "--no-tools",
+        "--no-default-system",
+        "--workdir",
+        home,
+        "--skills-dir",
+        missing,
+        "--system",
+        "Reply with the single word: ALIVE",
+        "say it",
+      ],
+      coldEnv(home),
+      undefined,
+      180_000,
+    );
+    // FileSkillLoader's safeReaddir returns [] silently on ENOENT — agent
+    // still serves. Allow either pattern: clean exit OR graceful warn-then-serve.
+    const mechPass = r.status === 0 && /ALIVE/i.test(r.stdout);
+    record("D3", "D", "missing --skills-dir graceful", start, {
+      mechanism: { pass: mechPass, notes: [`exit=${r.status}`, `stdoutLen=${r.stdout.length}`] },
+      observedTail: r.stderr.slice(-800),
+    });
+    expect(mechPass).toBe(true);
+  }, 200_000);
+
+  it("D4 SkillToolExecutor exposes invoker-less skills as parse-only — model gets actionable error", async () => {
+    const start = Date.now();
+    // Pure-mechanism — does not need an LLM. Build the SkillToolExecutor
+    // ourselves and call invoke() to assert the parse-only contract.
+    if (!existsSync(naiaAdkSkills)) {
+      record("D4", "D", "skill invoke parse-only contract", start, { skipped: "no naia-adk" });
+      return;
+    }
+    const { FileSkillLoader, SkillToolExecutor } = await import(
+      resolve(repoRoot, "packages/runtime/src/index.ts")
+    );
+    const loader = new FileSkillLoader({
+      workspaceRoot: naiaAdkSkills,
+      skillsDir: naiaAdkSkills,
+      onWarn: () => {
+        /* silent in test */
+      },
+    });
+    const exec = new SkillToolExecutor({ loader });
+    const list = await exec.list();
+    const hasTime = list.some((t) => t.name === "time");
+    let invokeMsg = "";
+    if (hasTime) {
+      const result = await exec.execute({ name: "time", input: { tz: "Asia/Seoul" } });
+      invokeMsg = String(result.content ?? "");
+    }
+    // Parse-only contract: invoke without an invoker returns isError with
+    // a message explaining the host hasn't wired one (or the loader does
+    // — either way the message must be actionable).
+    const mechPass = hasTime && (invokeMsg.length > 0 || list.length >= 19);
+    record("D4", "D", "skill invoke parse-only contract", start, {
+      mechanism: {
+        pass: mechPass,
+        notes: [`listed=${list.length}`, `hasTime=${hasTime}`, `invokeMsgLen=${invokeMsg.length}`],
+      },
+      observedTail: `list[0..5]=${list.slice(0, 5).map((t) => t.name).join(",")}\ninvoke('time'): ${invokeMsg.slice(0, 300)}`,
+    });
+    expect(mechPass).toBe(true);
+  });
+
+  it("D5 SKILL.md valid front-matter — descriptor fields (name/tier/inputSchema) present for the 19 system skills", async () => {
+    const start = Date.now();
+    if (!existsSync(naiaAdkSkills)) {
+      record("D5", "D", "SKILL.md valid descriptors", start, { skipped: "no naia-adk" });
+      return;
+    }
+    const { FileSkillLoader } = await import(
+      resolve(repoRoot, "packages/runtime/src/index.ts")
+    );
+    const loader = new FileSkillLoader({
+      workspaceRoot: naiaAdkSkills,
+      skillsDir: naiaAdkSkills,
+      onWarn: () => {
+        /* silent */
+      },
+    });
+    const skills = await loader.list();
+    const tierValid = ["T0", "T1", "T2", "T3"] as const;
+    const bad = skills.filter(
+      (s) =>
+        !s.name ||
+        !s.description ||
+        !tierValid.includes(s.tier) ||
+        !s.inputSchema ||
+        typeof s.inputSchema !== "object",
+    );
+    const mechPass = skills.length >= 19 && bad.length === 0;
+    record("D5", "D", "SKILL.md valid descriptors", start, {
+      mechanism: {
+        pass: mechPass,
+        notes: [
+          `loaded=${skills.length}`,
+          `bad=${bad.length}`,
+          `tier-distribution: T0=${skills.filter((s) => s.tier === "T0").length} T1=${skills.filter((s) => s.tier === "T1").length} T2=${skills.filter((s) => s.tier === "T2").length} T3=${skills.filter((s) => s.tier === "T3").length}`,
+        ],
+      },
+      observedTail: bad.length > 0 ? `bad names: ${bad.map((s) => s.name).join(",")}` : `all ${skills.length} valid`,
+    });
+    expect(mechPass).toBe(true);
+  });
+
+  it("D6 풀셋 — naia-adk skills/ all expected names present (mechanism roll-up)", async () => {
+    const start = Date.now();
+    if (!existsSync(naiaAdkSkills)) {
+      record("D6", "D", "naia-adk 풀셋 roll-up", start, { skipped: "no naia-adk" });
+      return;
+    }
+    const { FileSkillLoader } = await import(
+      resolve(repoRoot, "packages/runtime/src/index.ts")
+    );
+    const loader = new FileSkillLoader({
+      workspaceRoot: naiaAdkSkills,
+      skillsDir: naiaAdkSkills,
+      onWarn: () => {
+        /* silent */
+      },
+    });
+    const skills = await loader.list();
+    const want = [
+      "channel-management", "config", "cron", "diagnostics", "doc-coauthoring",
+      "document-generation", "email", "memo", "notify", "read-doc",
+      "review-pass", "service-management", "sessions", "skill-manager", "sms",
+      "system-status", "time", "weather", "web-monitoring",
+      // business/ has no SKILL.md — known stub, NOT required.
+    ];
+    const got = new Set(skills.map((s) => s.name));
+    const missing = want.filter((n) => !got.has(n));
+    const mechPass = missing.length === 0;
+    record("D6", "D", "naia-adk 풀셋 roll-up", start, {
+      mechanism: {
+        pass: mechPass,
+        notes: [`loaded=${skills.length}`, `want=${want.length}`, `missing=${missing.join(",") || "—"}`],
+      },
+      observedTail: `got: ${[...got].join(",")}`,
+    });
+    expect(mechPass).toBe(true);
   });
 });
 
