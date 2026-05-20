@@ -1,19 +1,21 @@
 # Adapter Contract — SubAgentAdapter / Verifier / WorkspaceWatcher (R4 lock 2026-04-26)
 
-> **상위**: `docs/vision-statement.md` / `docs/architecture-hybrid.md`
-> **관련**: `docs/stream-protocol.md` (NaiaStreamChunk)
-> **status**: design lock (Week 0)
+> **Languages**: English (this file) · [한국어](../.users/docs/ko/adapter-contract.md)
+>
+> **Parents**: `docs/vision-statement.md` / `docs/architecture-hybrid.md`
+> **Related**: `docs/stream-protocol.md` (NaiaStreamChunk)
+> **Status**: design lock (Week 0)
 
 ---
 
-## 1. 동기
+## 1. Motivation
 
-R4 Hybrid 결정 (D18) — opencode / claude-code / 미래 ACP-compliant agent를 sub-agent로 wrap. 새 sub-agent 추가 = adapter pkg 1개. core/cli 수정 0건.
+R4 Hybrid decision (D18) — wrap opencode / claude-code / future ACP-compliant agents as sub-agents. Adding a new sub-agent = one adapter package. Zero changes to core/cli.
 
-이를 위해 **3개 표준 contract**:
-1. `SubAgentAdapter` — sub-agent를 spawn / 통제 / event 수신
-2. `Verifier` — task 후 자동 검증 (test/lint/build)
-3. `WorkspaceWatcher` — workspace 변경 실시간 capture
+To make that work we lock down **three standard contracts**:
+1. `SubAgentAdapter` — spawn / control / receive events from a sub-agent
+2. `Verifier` — automatic post-task verification (test/lint/build)
+3. `WorkspaceWatcher` — real-time capture of workspace changes
 
 ---
 
@@ -25,45 +27,47 @@ R4 Hybrid 결정 (D18) — opencode / claude-code / 미래 ACP-compliant agent�
 // packages/types/src/sub-agent.ts
 
 export type Capability =
-  | "text_chat"          // 일반 대화
-  | "code_edit"          // 파일 수정
-  | "shell_exec"         // bash 등 명령 실행
-  | "git_ops"            // git 작업
-  | "test_run"           // 테스트 실행
+  | "text_chat"          // general dialog
+  | "code_edit"          // file edits
+  | "shell_exec"         // bash and other command execution
+  | "git_ops"            // git operations
+  | "test_run"           // run tests
   | "browse_web"         // web fetch/search
-  | "image_input"        // 이미지 입력
-  | "audio_input"        // 음성 입력
+  | "image_input"        // image input
+  | "audio_input"        // voice input
   | "audio_output";      // voice cascade output (Slice 3-XR-Voice / P0c-2 — LiveKit + VoxCPM2 TTS at the agent layer, NOT in-model omni; cf project_minicpm_o_4_5_deprecated_2026_05_20)
 
 export interface TaskSpec {
-  readonly prompt: string;                   // 사용자 명령
+  readonly prompt: string;                   // user command
   readonly workdir: string;                  // sub-agent working directory
   readonly maxTurns?: number;
   readonly timeoutMs?: number;
   readonly env?: Readonly<Record<string, string>>;
-  readonly extraSystemPrompt?: string;       // alpha-memory recall 결과 등 inject
+  readonly extraSystemPrompt?: string;       // injection point (alpha-memory recall result, etc.)
 }
 
 export interface SpawnContext {
   readonly signal: AbortSignal;
   readonly logger?: Logger;
-  readonly approvalBroker?: ApprovalBroker;  // T2/T3 tool 승인
-  readonly toolContext: ToolExecutionContext; // P0-4 (D25) — tool 호출 시 inject
+  readonly approvalBroker?: ApprovalBroker;  // T2/T3 tool approval
+  readonly toolContext: ToolExecutionContext; // P0-4 (D25) — injected on every tool call
 }
 
 /**
  * P0-4 fix (Reference + Architect):
- * opencode Tool context schema (matrix D25). adapter는 spawn 후 sub-agent에게
- * 이 context를 모든 tool 호출에 inject. opencode/Vercel AI SDK 패턴.
+ * opencode Tool context schema (matrix D25). After spawn the adapter injects
+ * this context into every tool call made by the sub-agent. Same pattern as
+ * opencode / Vercel AI SDK.
  */
 export interface ToolExecutionContext {
-  readonly sessionId: string;          // naia-agent 내부 sub-agent session ID
-  readonly workingDir: string;         // adapter cwd, sub-agent escape 금지 기준
+  readonly sessionId: string;          // naia-agent internal sub-agent session ID
+  readonly workingDir: string;         // adapter cwd, the basis for sub-agent escape prevention
   readonly tier?: "T0" | "T1" | "T2" | "T3";  // matrix D05
   /**
-   * Async approval RPC. supervisor에 question 전달 → 사용자 승인 대기 → answer.
-   * T2/T3 tool 호출 시 adapter가 이 callback을 호출하여 사전 승인 획득.
-   * undefined일 때 = sub-agent 자체 approval (opencode 자체 logic) 사용.
+   * Async approval RPC. Forwards the question to the supervisor, awaits user
+   * approval, then returns the answer. T2/T3 tool calls invoke this callback
+   * to obtain pre-approval. If undefined the adapter falls back to the
+   * sub-agent's own approval logic (e.g. opencode's built-in flow).
    */
   readonly ask?: (question: string, meta?: { tool?: string; tier?: string }) => Promise<boolean>;
   readonly env?: Readonly<Record<string, string>>;
@@ -88,19 +92,19 @@ export interface SubAgentSession {
 
   /**
    * Hard cancel — terminate sub-agent immediately.
-   * Resolves when session_end emitted or timeout (default 5s).
+   * Resolves when session_end is emitted, or after timeout (default 5s).
    */
   cancel(reason?: string): Promise<void>;
 
   /**
-   * Soft pause — sub-agent finishes current tool then halts.
+   * Soft pause — sub-agent finishes its current tool then halts.
    * Resume via resume(). If unsupported, throws UnsupportedError.
    */
   pause(): Promise<void>;
   resume(): Promise<void>;
 
   /**
-   * Inject system message mid-session (e.g., user feedback).
+   * Inject a system message mid-session (e.g. user feedback).
    * If unsupported, throws UnsupportedError.
    */
   inject(message: string): Promise<void>;
@@ -115,7 +119,7 @@ export type SubAgentStatus =
   | { phase: "ended"; reason: "completed" | "cancelled" | "failed"; durationMs: number };
 
 export interface SubAgentAdapter {
-  readonly id: string;                       // "opencode" | "claude-code" | "shell"
+  readonly id: string;                       // "opencode-acp" | "opencode-cli" | "shell"
   readonly name: string;
   readonly version: string;
   readonly capabilities: readonly Capability[];
@@ -123,98 +127,102 @@ export interface SubAgentAdapter {
   spawn(task: TaskSpec, ctx: SpawnContext): Promise<SubAgentSession>;
 
   /**
-   * Optional health check before spawn (e.g., binary exists, API key valid).
-   * Returns null if healthy, error message otherwise.
+   * Optional health check before spawn (e.g. binary present, API key valid).
+   * Returns null if healthy, an error message otherwise.
    */
   health?(): Promise<string | null>;
 }
 ```
 
-### Contract test (모든 adapter 통과 필수)
+### Contract tests (every adapter must pass)
 
-`packages/adapters/__tests__/contract.ts` (공유):
+Shared at `packages/adapters/__tests__/contract.ts`:
 
-| # | 검증 |
+| # | Check |
 |---|---|
-| C1 | `spawn` 후 `events()` 첫 chunk 반드시 `session_start` |
-| C2 | `events()` 마지막 chunk 반드시 `session_end` (exactly once) |
-| C3 | `cancel()` 호출 후 5초 내 `session_end(reason:"cancelled")` |
-| C4 | `signal.abort()` 시 `cancel()`과 동일 동작 |
-| C5 | tool 호출 시 `tool_use_start` → `tool_use_end` 짝 emit (start만 emit하고 end 없으면 contract 위반) |
-| C6 | file 수정 시 `workspace_change` emit (sourceSession=session.id) |
-| C7 | `pause`/`resume` unsupported 시 `UnsupportedError` throw (silent ignore 금지) |
-| C8 | `health()` 정의 시 spawn 전 호출 가능 |
-| C9 | `id`/`name`/`version`/`capabilities` 모두 non-empty |
-| C10 | 같은 adapter로 2 session 동시 spawn 시 isolated (event leak 없음) |
-| C11 | **(P0-7)** spawn 시 workdir 외부 file 접근 시 emit drop + warning (matrix D09 강제) |
-| C12 | **(P0-7, Paranoid)** `cancel()` 호출 후 500ms 내 `session_end(reason:"cancelled")` emit. 미emit 시 supervisor가 SIGKILL. |
-| C13 | **(P0-6)** 모든 emit chunk에서 secret pattern (sk-ant-/sk-/gw-/AIzaSy/Bearer) redact 검증 |
-| C14 | **(P0-5)** unsupported method (`pause`/`inject` 등) 호출 시 `UnsupportedError` throw |
-| C15 | session_end.reason은 `SessionEndReason` enum 값만 (string literal union 강제) |
+| C1 | After `spawn`, the first chunk emitted by `events()` must be `session_start` |
+| C2 | The last chunk emitted by `events()` must be `session_end` (exactly once) |
+| C3 | After `cancel()`, `session_end(reason:"cancelled")` must arrive within 5s |
+| C4 | `signal.abort()` behaves identically to `cancel()` |
+| C5 | Every tool call emits a `tool_use_start` → `tool_use_end` pair (emit `start` without `end` = contract violation) |
+| C6 | File modifications emit `workspace_change` (sourceSession=session.id) |
+| C7 | If `pause`/`resume` is unsupported it must throw `UnsupportedError` (silent ignore forbidden) |
+| C8 | If `health()` is defined it must be callable before spawn |
+| C9 | `id`, `name`, `version`, and `capabilities` are all non-empty |
+| C10 | Spawning two sessions from the same adapter concurrently keeps them isolated (no event leak) |
+| C11 | **(P0-7)** Attempts to access paths outside `workdir` emit drop + warning (enforces matrix D09) |
+| C12 | **(P0-7, Paranoid)** After `cancel()`, `session_end(reason:"cancelled")` must arrive within 500ms. If not, the supervisor escalates to SIGKILL. |
+| C13 | **(P0-6)** Every emitted chunk must have secret patterns (sk-ant- / sk- / gw- / AIzaSy / Bearer) redacted |
+| C14 | **(P0-5)** Calling an unsupported method (`pause`/`inject` etc.) must throw `UnsupportedError` |
+| C15 | `session_end.reason` must be a value of the `SessionEndReason` enum (string literal union enforced) |
 
-`tests/adapter-contract.spec.ts` 가 fake adapter / 진짜 adapter 모두 통과하는지 검증.
+`tests/adapter-contract.spec.ts` verifies the suite passes against fake and real adapters alike.
 
-### 구현체 매핑
+### Implementation mapping
 
-| Adapter id | 구현 | 통제 방식 | npm version (검증 2026-04-26) |
+| Adapter id | Implementation | Control surface | Notes (verified 2026-05-20) |
 |---|---|---|---|
-| **`opencode`** | `@agentclientprotocol/sdk` JSON-RPC client | ACP `session/new` `session/update` `session/cancel` | `@agentclientprotocol/sdk@0.20.0` (public) |
-| **`claude-code`** | `@anthropic-ai/claude-agent-sdk` programmatic API | SDK Session API + AbortSignal | `@anthropic-ai/claude-agent-sdk@0.2.119` (public, Phase 2+ spike 후 정식) |
-| **`shell`** | `child_process.spawn` (Phase 1 fallback) | stdin/stdout passthrough + SIGTERM | (Node.js built-in) |
-| **`voice-cascade`** (Slice 3-XR-Voice / P0c-2, deferred) | LiveKit Agents framework (STT → LLM → VoxCPM2 TTS at the agent layer) | LiveKit cancel + fetch abort | (separate-session work; cf `project_voice_p0c_split_2026_05_20`) |
-| **`mcp-bridge`** (이연) | MCP server spawn | stdio MCP | — |
+| **`opencode-acp`** | In-tree JSON-RPC client (`AcpClient`) speaking the opencode Agent Client Protocol over stdio | ACP `session/new` / `session/update` / `session/cancel` | Package `@nextain/agent-adapter-opencode-acp` (workspace). No external `@agentclientprotocol/sdk` dep — the protocol client is implemented in-repo. |
+| **`opencode-cli`** | Wraps `opencode run --format json` as a child process | stdout JSON line stream + SIGTERM | Package `@nextain/agent-adapter-opencode-cli` (workspace). Phase 1 fallback while ACP path matures. |
+| **`shell`** | `child_process.spawn` of any external CLI | stdin/stdout passthrough + SIGTERM/SIGKILL | Package `@nextain/agent-adapter-shell` (workspace). Node.js built-ins only. |
+| **`voice-cascade`** *(Slice 3-XR-Voice / P0c-2, deferred)* | LiveKit Agents framework (STT → LLM → VoxCPM2 TTS at the agent layer) | LiveKit cancel + fetch abort | Separate-session work; cf `project_voice_p0c_split_2026_05_20`. No package built yet. |
+| **`mcp-bridge`** *(deferred)* | MCP server spawn | stdio MCP | — |
+
+**Claude Code path (not an adapter).** Claude Code coding-agent integration is routed through the provider layer using `ai-sdk-provider-claude-code` (workspace dep `^3.4.4`, transitively `@anthropic-ai/claude-agent-sdk@0.2.122` for the platform-native binary), not through a dedicated `claude-code` `SubAgentAdapter`. See `packages/providers/src/vercel-client.ts` and Slice 3-XR-O (parity work, completed 2026-05-20).
 
 ### Unsupported methods matrix (P0-5 fix, Architect)
 
-각 adapter가 지원/미지원 method:
+What each adapter supports vs. doesn't:
 
-| method | opencode | claude-code | shell | voice-cascade (deferred) |
+| method | opencode-acp | opencode-cli | shell | voice-cascade (deferred) |
 |---|:---:|:---:|:---:|:---:|
 | `spawn` | ✓ | ✓ | ✓ | ✓ |
-| `events()` | ✓ | ✓ | ✓ (stdout/stderr) | ✓ (audio_delta) |
-| `cancel()` | ✓ (ACP `session/cancel`) | ✓ (AbortSignal) | ✓ (SIGTERM/SIGKILL) | ✓ (fetch abort) |
-| `pause()` | △ (Phase 2 spike — ACP spec 확인) | △ (SDK spec 확인) | ✗ | ✗ |
-| `resume()` | △ | △ | ✗ | ✗ |
-| `inject(message)` | ✗ (mid-session prompt 불가) | △ (SDK spec 확인) | ✗ (stdin closed after spawn) | ✗ |
-| `health()` | ✓ (ACP `initialize`) | ✓ (API key check) | ✓ (binary which) | ✓ (HTTP HEAD) |
+| `events()` | ✓ | ✓ (stdout JSON) | ✓ (stdout/stderr) | ✓ (audio_delta) |
+| `cancel()` | ✓ (ACP `session/cancel`) | ✓ (SIGTERM/SIGKILL) | ✓ (SIGTERM/SIGKILL) | ✓ (fetch abort) |
+| `pause()` | △ (Phase 2 spike — confirm ACP spec) | ✗ | ✗ | ✗ |
+| `resume()` | △ | ✗ | ✗ | ✗ |
+| `inject(message)` | ✗ (no mid-session prompt) | ✗ | ✗ (stdin closed after spawn) | ✗ |
+| `health()` | ✓ (ACP `initialize`) | ✓ (binary which) | ✓ (binary which) | ✓ (HTTP HEAD) |
 | `status()` | ✓ | ✓ | ✓ | ✓ |
 
-**규칙**: unsupported method 호출 시 `UnsupportedError` throw (silent ignore 금지). supervisor는 spawn 전 `adapter.capabilities`로 사전 확인.
+**Rule**: calling an unsupported method must throw `UnsupportedError` (silent ignore forbidden). The supervisor checks `adapter.capabilities` before spawn.
 
-`△` = Phase 진입 시 spike로 확정. 잠정 미지원으로 가정.
+`△` = to be confirmed by a spike when the phase begins. Assume unsupported until then.
 
 ---
 
-## 3. opencode ACP 매핑 상세
+## 3. opencode ACP mapping (detail)
 
-| ACP message | NaiaStreamChunk | 비고 |
+| ACP message | NaiaStreamChunk | Notes |
 |---|---|---|
-| `initialize` (request) | (internal) | adapter ctor 시 한 번 |
-| `session/new` (request) | (internal) — 응답으로 sessionId 획득 | spawn 첫 단계 |
-| `session/prompt` (request) | (sub-agent에 prompt 전달) | task.prompt |
-| `session/update` notification | `tool_use_start` 또는 `tool_use_end` 또는 `workspace_change` | update.kind 분기 |
-| `session/request_permission` (request from agent) | `tool_use_start` (tier 채움) → host approval → response | T2/T3 gate |
-| `session/cancel` (request) | (internal) | cancel() 호출 시 |
-| `session/done` notification | `session_end(reason: completed)` | 정상 종료 |
-| stderr / 비정상 종료 | `session_end(reason: failed)` | adapter 책임 |
+| `initialize` (request) | (internal) | Once at adapter ctor |
+| `session/new` (request) | (internal) — response yields the sessionId | First step of spawn |
+| `session/prompt` (request) | (forwarded to sub-agent prompt) | `task.prompt` |
+| `session/update` notification | `tool_use_start` or `tool_use_end` or `workspace_change` | Branched on `update.kind` |
+| `session/request_permission` (request from agent) | `tool_use_start` (tier populated) → host approval → response | T2/T3 gate |
+| `session/cancel` (request) | (internal) | On `cancel()` |
+| `session/done` notification | `session_end(reason: completed)` | Normal termination |
+| stderr / abnormal exit | `session_end(reason: failed)` | Adapter's responsibility |
 
 ---
 
-## 4. Claude Agent SDK 매핑 상세
+## 4. Claude Agent SDK mapping (detail)
+
+Used by the provider layer via `ai-sdk-provider-claude-code` (not a SubAgentAdapter). Listed here for symmetry — when/if a `claude-code` adapter is added, this is the event mapping to follow.
 
 | SDK call | NaiaStreamChunk |
 |---|---|
 | `new Session({ workdir })` | (internal) |
-| session iter (`for await ... of session`) | event 분기 |
+| session iter (`for await ... of session`) | event branch |
 | `event.type === "tool_use_started"` | `tool_use_start` |
 | `event.type === "tool_use_completed"` | `tool_use_end` |
 | `event.type === "file_edited"` | `workspace_change` |
 | `event.type === "thinking"` | `thinking_delta` |
 | `event.type === "text"` | `text_delta` |
 | `session.cancel()` | `interrupt` + `session_end(cancelled)` |
-| iter 종료 | `session_end(completed)` |
+| iter end | `session_end(completed)` |
 
-(SDK API 정확한 형식은 Phase 2 진입 시 spike로 확인. 현재 spec은 잠정.)
+(Exact SDK API will be re-checked by a spike when needed. The spec above is provisional.)
 
 ---
 
@@ -252,7 +260,7 @@ export interface Verifier {
 }
 ```
 
-### 표준 구현체 (Phase 1)
+### Standard implementations (Phase 1)
 
 | Verifier | command | parse |
 |---|---|---|
@@ -261,7 +269,7 @@ export interface Verifier {
 | **BuildVerifier** | `pnpm build` | tsc --build exit code |
 | **TypeCheckVerifier** | `pnpm typecheck` | tsc --noEmit exit code |
 
-각 verifier는 독립 — 병렬 실행 가능 (orchestrator).
+Each verifier is independent — the orchestrator may run them in parallel.
 
 ---
 
@@ -276,7 +284,7 @@ export interface WorkspaceChange {
   readonly path: string;                   // workdir-relative
   readonly kind: "add" | "modify" | "delete";
   readonly timestamp: number;              // epoch ms
-  readonly sourceSession?: string;         // 가능하면 추적, 없으면 undefined
+  readonly sourceSession?: string;         // tracked when possible, undefined otherwise
 }
 
 export interface WorkspaceWatcher {
@@ -289,7 +297,7 @@ export interface WorkspaceWatcher {
 
   /**
    * Compute git-style diff for path. Lazy — caller invokes when needed.
-   * Returns null if not in git repo or path unchanged.
+   * Returns null if not in a git repo or path unchanged.
    */
   diff(workdir: string, path: string): Promise<string | null>;
 
@@ -300,57 +308,57 @@ export interface WorkspaceWatcher {
 }
 ```
 
-### 표준 구현 (Phase 1)
+### Standard implementation (Phase 1)
 
 `packages/workspace/src/`:
-- `chokidar-watcher.ts` — chokidar 기반 watch + 100ms debounce + .gitignore 적용
+- `chokidar-watcher.ts` — chokidar-based watch + 100ms debounce + .gitignore filter
 - `git-diff.ts` — `git diff --numstat` + `git diff -- <path>`
 
 ---
 
-## 7. 성능 + 안정성 contract
+## 7. Performance + stability contract
 
-| 항목 | 보장 |
+| Item | Guarantee |
 |---|---|
-| spawn latency | ≤ 5초 (opencode/cc 시작 시간) |
-| cancel responsiveness | hard kill ≤ 5초 / soft pause ≤ 30초 (현재 tool에 따라) |
-| event order | 같은 session 안에서 strictly ordered |
-| event delivery | best-effort (network 끊김 시 timeout + session_end emit) |
-| memory | event chunk size ≤ 64 KiB 권고 (audio/image 큰 건 split) |
-| concurrent sessions | 최소 4 (Phase 1), Phase 3에서 N 검증 |
-| watcher debounce | 100ms (config 가능) |
-| verification timeout | runner 별 default 5분 (config 가능) |
+| spawn latency | ≤ 5s (opencode / Claude Code startup time) |
+| cancel responsiveness | hard kill ≤ 5s / soft pause ≤ 30s (depends on the current tool) |
+| event order | strictly ordered within a single session |
+| event delivery | best-effort (on network drop: timeout + session_end emitted) |
+| memory | event chunk size ≤ 64 KiB recommended (split large audio/image payloads) |
+| concurrent sessions | at least 4 in Phase 1; N validated in Phase 3 |
+| watcher debounce | 100ms (configurable) |
+| verification timeout | default 5 minutes per runner (configurable) |
 
 ---
 
-## 8. 보안 contract
+## 8. Security contract
 
-| 항목 | 강제 |
+| Item | Enforcement |
 |---|---|
-| **workdir 격리** | TaskSpec.workdir 외부로 sub-agent escape 금지. adapter는 `cwd` 옵션으로 강제. Phase 2+에서 추가 보강 (chroot/seccomp 검토 — Paranoid M1) |
-| **env 최소화** | TaskSpec.env에 명시된 것만 자식에 전달. process.env 무차별 전달 금지 |
-| **secret redact (P0-6)** | **모든 SubAgentEvent → NaiaStreamChunk 변환 시점에 redact 함수 mandatory wrapper** — `adapters/*/event-converter.ts`에서 `observability/redact.ts`의 `redactSecrets()` 호출 후 emit. (sk-ant- / sk- / gw- / AIzaSy / Bearer 5 패턴, Slice 2.7) |
-| **redact target fields** | `text_delta.text` / `tool_use_start.input` / `tool_use_end.result` / `verification_result.stdoutTail` / `report.summary` 모두. binary (audio/image) 제외 |
-| **redact contract test** | C13 — "ACP `session/update` with `Authorization: Bearer sk-xxx` in tool input → emitted chunk redacted" |
-| **approval gate** | T2/T3 tool 시작 시 `tool_use_start.tier` 채워서 host에 알림. host approval 전 실행 금지. SpawnContext.toolContext.ask 사용 |
-| **DANGEROUS regex** | bash tool 호출 시 input.command 사전 검사 (matrix D02 재사용, opencode 자체 보안 위 추가 layer) — Phase 2+ |
-| **path traversal** | workspace_change.path 가 workdir 외부 가리킬 시 emit drop + warning log (matrix D09) |
-| **trust assumption** | adapter 구현체 (opencode/cc)가 자체 보안을 가짐을 신뢰. naia-agent layer는 추가 격리 + audit trail 제공 (Paranoid P2-4) |
+| **workdir isolation** | Sub-agent must not escape `TaskSpec.workdir`. Adapter enforces this via the `cwd` option. Phase 2+ adds further hardening (chroot/seccomp under review — Paranoid M1). |
+| **env minimization** | Only entries listed in `TaskSpec.env` are passed to the child. Indiscriminate `process.env` forwarding is forbidden. |
+| **secret redact (P0-6)** | **Every `SubAgentEvent → NaiaStreamChunk` conversion site is a mandatory `redact` wrapper** — `adapters/*/event-converter.ts` calls `redactSecrets()` from `observability/redact.ts` before emit. Five patterns (sk-ant- / sk- / gw- / AIzaSy / Bearer), Slice 2.7. |
+| **redact target fields** | `text_delta.text` / `tool_use_start.input` / `tool_use_end.result` / `verification_result.stdoutTail` / `report.summary`. Binary payloads (audio/image) excluded. |
+| **redact contract test** | C13 — "ACP `session/update` with `Authorization: Bearer sk-xxx` in tool input → emitted chunk must be redacted." |
+| **approval gate** | At T2/T3 tool start, populate `tool_use_start.tier` to notify the host. Do not execute until host approval arrives. Use `SpawnContext.toolContext.ask`. |
+| **DANGEROUS regex** | Pre-scan `input.command` for bash tool calls (reuses matrix D02, layered above opencode's own security) — Phase 2+. |
+| **path traversal** | If `workspace_change.path` points outside `workdir`, drop the emit and log a warning (matrix D09). |
+| **trust assumption** | Trust the adapter implementation (opencode / claude-code) to enforce its own security. The naia-agent layer adds isolation + audit trail on top (Paranoid P2-4). |
 
 ---
 
-## 9. R4 lock 후 변경 절차
+## 9. Change procedure after R4 lock
 
-새 adapter 추가:
-1. `packages/adapters/<id>/` 신설
-2. contract test 모두 통과 (`pnpm test --filter @nextain/adapter-<id>`)
-3. 매트릭스 §D 항목 (D## 신규)
-4. cross-review (architect + paranoid)
-5. README/CHANGELOG
+Add a new adapter:
+1. Create `packages/adapters/<id>/`
+2. Pass every contract test (`pnpm test --filter @nextain/adapter-<id>`)
+3. Add matrix §D entry (new D## id)
+4. Cross-review (architect + paranoid)
+5. README/CHANGELOG entry
 
-interface 자체 변경:
-1. 본 파일 update + Change log
-2. `packages/types/src/{sub-agent,verification,workspace}.ts` 갱신
-3. 모든 기존 adapter 갱신 (breaking change 가능)
-4. fixture 갱신
-5. cross-review (3-perspective)
+Change the interfaces themselves:
+1. Update this file + add a change log
+2. Update `packages/types/src/{sub-agent,verification,workspace}.ts`
+3. Update every existing adapter (breaking change permitted)
+4. Update fixtures
+5. Cross-review (3-perspective)

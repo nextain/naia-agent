@@ -1,71 +1,87 @@
-# naia-agent ↔ naia-memory 연결 spec
+# naia-agent ↔ naia-memory wire spec
 
-> **status**: Phase 2 docs (Phase 3 정식 wire 시 정식화)
-> **상위**: `docs/vision-statement.md` §4b (페르소나 분리), `docs/memory-provider-audit.md` (façade 감사)
+> **Languages**: English (this file) · [한국어](../.users/docs/ko/naia-memory-wire.md)
+> **Status**: live (`--memory` flag shipped in Slice 3-XR-C-mem, Group A3 + F2 verify cross-process recall LIVE).
+> **Upstream refs**: `docs/vision-statement.md` §4b (persona separation), `docs/memory-provider-audit.md` (façade audit).
 
 ---
 
-## 1. 책임 분리 (사용자 directive 명시)
+## 1. Responsibility split (user directive, 2026-04-26 reaffirmed 2026-05-08)
 
-> "기억을 불러오거나 선택하는 모듈은 naia-memory에서 해야 한다"
+> "The module that retrieves or selects memories must live in naia-memory."
 
-| 책임 | 위치 |
+| Responsibility | Owner |
 |---|---|
-| **MemoryProvider interface 정의** | naia-agent (`packages/types/src/memory.ts`) |
-| **기억 저장 (encode)** | **naia-memory** (LocalAdapter / Mem0 / Qdrant 등) |
-| **기억 검색 (recall)** + **랭킹/선택** + **decay** + **importance gating** | **naia-memory** |
-| **압축 (compact)** | **naia-memory** (CompactableCapable impl) |
-| **interface 호출 + 결과 inject** | naia-agent (Phase 3 supervisor) |
+| **MemoryProvider interface definition** | naia-agent (`packages/types/src/memory.ts`) |
+| **Memory storage (encode)** | **naia-memory** (`LocalAdapter` / Mem0 / Qdrant adapters) |
+| **Memory retrieval (recall) + ranking + decay + importance gating** | **naia-memory** |
+| **Compaction (compact)** | **naia-memory** (`CompactableCapable` implementations) |
+| **`LiteMemoryProvider` (SQLite + embeddings, shipped 2026-05-15)** | **naia-memory** package (re-exported by naia-agent for CLI use) |
+| **Interface call + result injection** | naia-agent (CLI `--memory` flag, host injects in service mode) |
 
-→ naia-agent는 검색 로직을 가지지 않는다. `provider.recall(opts)` 호출 + 결과를 `extraSystemPrompt`에 주입할 뿐.
+→ naia-agent does NOT carry retrieval logic. It calls `provider.recall(opts)` and injects the result as `extraSystemPrompt` (or builds the `<recall>`-loop persona for the CLI memory mode).
 
 ---
 
-## 2. 의존 방식 (현재 = 로컬 file: dep)
+## 2. Dependency wiring (current = local `file:` dep)
 
 ```json
 // naia-agent/package.json (devDependencies)
-"@nextain/naia-memory": "file:../alpha-memory"
+"@nextain/naia-memory": "file:../naia-memory"
 ```
 
-**npm online publish 없이도 동작** — alpha-adk monorepo 안에서 file: 의존이 자동 link.
+**No npm publish required** — inside the alpha-adk monorepo the `file:` dep links automatically.
 
-| 환경 | 동작 |
+| Environment | Status |
 |---|:---:|
-| alpha-adk 안 (로컬 dev) | ✓ 즉시 (354 PASS 검증) |
-| 외부 사용자 / CI | ✗ alpha-memory 디렉터리 부재 |
+| Inside alpha-adk (local dev) | OK — verified (354 PASS, full suite + LIVE memory recall in Group A3 / F2) |
+| External user / CI | NOT YET — naia-memory directory absent (would need npm publish first) |
 
-**publish 시점 권고**:
-- alpha-memory 성능 테스트 / 안정화 후
-- 외부 distribution 필요 시 (지금은 미필요)
-- 권한: 사용자 본인 npm account
+**When to publish**:
+- After naia-memory perf testing / stabilization
+- When external distribution is needed (not now)
+- Permissions: user's own npm account
 
-publish 후에는 `"@nextain/naia-memory": "^0.x.y"` 로 변경.
+Once published, switch to `"@nextain/naia-memory": "^0.x.y"`.
 
 ---
 
-## 3. wire 패턴 (host = alpha-adk 또는 다른 인스턴스 host)
+## 3. Wire pattern (host = alpha-adk or any other host)
+
+### 3.1 CLI mode (`--memory` flag, shipped 2026-05-15)
+
+The bin builds the provider itself via `buildCliMemory(args)` and `LiteMemoryProvider`. The user just adds `--memory`:
+
+```bash
+pnpm naia-agent --no-tools --memory "기억해줘: 내 강아지 이름은 코코야."
+pnpm naia-agent --no-tools --memory "내 강아지 이름이 뭐였지?"
+# → "코코" (cross-process recall verified by Group A3 / F2)
+```
+
+Storage path: a `cli.sqlite` file under the user's `.naia-agent/memory/` directory by default. Override with the `NAIA_AGENT_MEMORY_DB` environment variable.
+
+### 3.2 Service-mode / host wire (manifest with `memory.binding: "alpha-memory"`)
 
 ```typescript
 import { Agent } from "@nextain/agent-core";
 import { LocalAdapter, MemorySystem } from "@nextain/naia-memory";
 
-// 1. naia-memory 인스턴스 (alpha-adk가 path 결정)
+// 1. naia-memory instance (host decides the path)
 const adkRoot = process.env["ADK_ROOT"] ?? process.cwd();
 const memorySystem = new MemorySystem({
   adapter: new LocalAdapter({
-    storagePath: path.join(adkRoot, "data/memory"),  // naia-adk 컨벤션
+    storagePath: path.join(adkRoot, "data/memory"),  // naia-adk convention
   }),
 });
 
-// 2. MemoryProvider 어댑터로 wrap (examples/naia-memory-host.ts 패턴)
+// 2. Wrap as MemoryProvider (see examples/naia-memory-host.ts)
 const provider: MemoryProvider = makeNaiaMemoryProvider(memorySystem);
 
-// 3. naia-agent에 inject
+// 3. Inject into naia-agent
 const host: HostContext = { llm, memory: provider, ... };
 const agent = new Agent(host, ...);
 
-// 4. (Phase 3 정식) supervisor가 prompt 보내기 전 recall + inject
+// 4. Supervisor recalls + injects before sending to sub-agent
 const hits = await provider.recall({
   query: userPrompt,
   topK: 5,
@@ -75,10 +91,10 @@ const memoryContext = hits.map((h) => h.content).join("\n");
 const taskSpec = {
   prompt: userPrompt,
   workdir,
-  extraSystemPrompt: `[기억]\n${memoryContext}\n\n[페르소나]\n${naiaAdkPersona}`,
+  extraSystemPrompt: `[memory]\n${memoryContext}\n\n[persona]\n${naiaAdkPersona}`,
 };
 
-// 5. sub-agent에 전달 → 응답 → encode 다시 호출
+// 5. Encode the assistant's reply back into memory
 await provider.encode({
   content: assistantResponse,
   role: "assistant",
@@ -86,39 +102,54 @@ await provider.encode({
 });
 ```
 
-**Phase 3에서 정식 wire**. 현재 Phase 2는 wire X (interface만 정의 + adapter 예시).
+---
+
+## 4. What naia-agent NEVER does
+
+- (NO) Vector search / cosine similarity
+- (NO) Memory importance scoring
+- (NO) Ebbinghaus decay
+- (NO) Knowledge graph
+- (NO) Direct import of any storage backend
+
+→ All of these are naia-memory's responsibility. naia-agent only **calls the interface and injects results**.
 
 ---
 
-## 4. naia-agent가 절대 하지 않는 것
+## 5. Directory layout vs package name
 
-- ❌ vector search / cosine similarity
-- ❌ 기억 importance scoring
-- ❌ Ebbinghaus decay
-- ❌ knowledge graph
-- ❌ 어떤 storage backend 직접 import
-
-→ 모두 naia-memory 책임. naia-agent는 **interface 호출 + 결과 inject** 만.
-
----
-
-## 5. 디렉터리명 vs pkg name (현 상황)
-
-| | 값 |
+| | Value |
 |---|---|
-| **GitHub repo** | `nextain/alpha-memory` (legacy 이름 유지) |
-| **submodule 디렉터리** | `projects/alpha-memory/` |
-| **npm package name** | **`@nextain/naia-memory`** (rename 완료) |
-| **import 식** | `import { ... } from "@nextain/naia-memory"` |
+| **GitHub repo** | `nextain/naia-memory` (renamed from `alpha-memory` in the 4-repo migration, 2026-04-26) |
+| **submodule directory** | `projects/naia-memory/` |
+| **npm package name** | **`@nextain/naia-memory`** |
+| **import** | `import { ... } from "@nextain/naia-memory"` |
 
-→ 디렉터리명 (alpha-memory) 과 pkg name (naia-memory) 분리. 코드/import는 naia-memory만 쓰니 의존 path 명확. 디렉터리 rename은 사용자 별도 결정 (Phase 3 권장).
+The directory has been renamed alongside the package; no legacy `alpha-memory` directory remains in the workspace.
 
 ---
 
-## 6. Phase 3 정식 wire 시 추가될 것
+## 6. Shipped functionality (vs original Phase 3 plan)
 
-- naia-adk가 storage path 컨벤션 export (예: `getMemoryStoragePath(adkRoot: string)`)
-- Phase2Supervisor → Phase3Supervisor (또는 옵션 추가)에 `MemoryProvider` DI
-- supervisor.run() 내부에서 recall → extraSystemPrompt 자동 채움
-- session_aggregated 후 encode 자동 호출
-- `--memory` flag (CLI에서 enable/disable)
+The original spec called this out as "Phase 3 wire (future)". As of 2026-05-15 (Slice 3-XR-C-mem) the following is shipped:
+
+- DONE — `--memory` flag in the CLI (`LiteMemoryProvider`).
+- DONE — `<recall>` marker protocol baked into `MEMORY_PERSONA` (default for `--memory`).
+- DONE — Cross-process recall verified LIVE in Group A3 + F2 (Slice 3-XR-G + 3-XR-I).
+- DONE — `stripRecallResidue` sanitizer on the agent loop (#2 leak fix, Slice 3-XR-F).
+- DONE — Service-mode binding (`memory.binding: "alpha-memory"`) in the manifest.
+
+### Still on the roadmap
+
+- `naia-adk` exposing a `getMemoryStoragePath(adkRoot)` convention helper.
+- Supervisor-mode `recall → extraSystemPrompt` auto-injection for sub-agents (Phase1Supervisor is host-driven today; the lift to a `MemoryProvider`-aware supervisor is the next step).
+- Per-session encode/decay cadence tuning.
+
+---
+
+## 7. Cross-refs
+
+- `docs/memory-provider-audit.md` — interface contract + capabilities.
+- `docs/vision-statement.md` — persona-vs-memory layer separation.
+- Slice 3-XR-C-mem (2026-05-15) — first ship of `--memory` + recall protocol.
+- Slice 3-XR-F / 3-XR-G — black-box scenarios (S8 SQLite probe, A3 cross-process recall, F2 persona + memory composition).

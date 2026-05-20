@@ -1,48 +1,123 @@
 # LLM Config Standard — naia-agent
 
-**작성일**: 2026-04-25 (Slice 1c+, R3)
+> **Languages**: English (this file) · [한국어](../.users/docs/ko/llm-config-standard.md)
+
+**Initial draft**: 2026-04-25 (Slice 1c+, R3)
+**Last revision**: 2026-05-20 (Slice 3-XR-B / E / F / G shipped — login + libsecret + 3-role canonical + service manifest)
 **Scope**: naia-agent CLI (`bin/naia-agent.ts`) + embedded host context
 **Status**: stable — additive only (semver MINOR for new providers/keys, MAJOR for breaking)
 
-본 문서는 LLM provider 설정의 정규 표준. naia-agent + multi-tool harness(CLAUDE/GEMINI/OPENCODE/CODEX 등)가 동일 표준 따름. 외부 도구 의존 없음(openclaw/anthropic 외부 gateway 등 무관).
+This document is the canonical standard for LLM provider configuration.
+naia-agent and the multi-tool harness (CLAUDE / GEMINI / OPENCODE / CODEX
+mirrors) all follow the same standard. No external-tool dependency
+(openclaw / Anthropic-external gateway / etc. all irrelevant).
+
+In the prose below, the per-user config directory is written as
+`<HOME>/.naia-agent/` to keep this file portable across users and OS
+shells. Code blocks reproduce the literal shell form.
 
 ---
 
-## 1. 환경변수 정규 (priority order)
+## 1. Environment variables (canonical, priority order)
 
 ### 1.1 Provider resolution priority
 
+The order below mirrors `buildLLMClient()` in `bin/naia-agent.ts`
+exactly — first match wins:
+
 ```
-1) ANTHROPIC_API_KEY (+ optional ANTHROPIC_BASE_URL) → Anthropic 직접
+1) ANTHROPIC_API_KEY (+ optional ANTHROPIC_BASE_URL) → Anthropic direct
 2) OPENAI_API_KEY + OPENAI_BASE_URL                  → OpenAI-compat (generic)
-3) GLM_API_KEY                                        → zai/Zhipu GLM (단축형)
+3) GLM_API_KEY                                        → zai/Zhipu GLM (shorthand)
 4) VERTEX_PROJECT_ID + VERTEX_REGION                  → Anthropic on Vertex AI
-5) (none)                                             → mock fallback
+5) (none)                                             → ERROR, exit 3 (no mock fallback in CLI)
 ```
 
-**규칙**: 첫 매치 wins. 동시 존재 시 위 순서대로.
+**Rule**: first match wins. When several keys are simultaneously
+present, the resolver picks the topmost row.
 
-### 1.2 환경변수 표
+> Note: the OpenAI branch requires BOTH `OPENAI_API_KEY` *and*
+> `OPENAI_BASE_URL` — bare `OPENAI_API_KEY` is intentionally not enough
+> (avoids accidental hits against the OpenAI public endpoint). Local
+> Ollama / vLLM are reached through this branch with the loopback
+> baseURL.
 
-| 변수 | 필수? | 기본값 | 용도 |
+### 1.2 Environment variable table
+
+| Variable | Required? | Default | Purpose |
 |---|---|---|---|
-| `ANTHROPIC_API_KEY` | (provider 1) | — | Anthropic 인증 |
-| `ANTHROPIC_BASE_URL` | optional | `https://api.anthropic.com` | Anthropic-compat gateway 라우팅 |
-| `ANTHROPIC_MODEL` | optional | `claude-haiku-4-5-20251001` | 모델 ID |
-| `OPENAI_API_KEY` | (provider 2) | — | OpenAI-compat 인증 |
-| `OPENAI_BASE_URL` | (provider 2) | — | endpoint URL |
-| `OPENAI_MODEL` | optional | `glm-4.5-flash` (GLM 단축 시) | 모델 ID |
-| `GLM_API_KEY` | (provider 3) | — | zai/Zhipu GLM 인증 (단축) |
+| `ANTHROPIC_API_KEY` | (provider 1) | — | Anthropic auth |
+| `ANTHROPIC_BASE_URL` | optional | `https://api.anthropic.com` | Anthropic-compat gateway routing |
+| `ANTHROPIC_MODEL` | optional | `claude-haiku-4-5-20251001` | Model ID |
+| `OPENAI_API_KEY` | (provider 2) | — | OpenAI-compat auth |
+| `OPENAI_BASE_URL` | (provider 2) | — | Endpoint URL |
+| `OPENAI_MODEL` | optional | `glm-4.5-flash` (shorthand default) | Model ID |
+| `GLM_API_KEY` | (provider 3) | — | zai/Zhipu GLM auth (shorthand) |
 | `GLM_BASE_URL` | optional | `https://open.bigmodel.cn/api/paas/v4` | zai endpoint |
-| `GLM_MODEL` | optional | `glm-4.5-flash` | 모델 ID |
-| `VERTEX_PROJECT_ID` | (provider 4) | — | GCP project (또는 `GOOGLE_CLOUD_PROJECT`) |
-| `VERTEX_REGION` | (provider 4) | — | region (또는 `GOOGLE_CLOUD_LOCATION`) |
-| `NAIA_AGENT_ENV` | optional | — | .env 파일 경로 override |
-| `NAIA_AGENT_CONFIG` | optional | — | JSON config 파일 경로 override |
+| `GLM_MODEL` | optional | `glm-4.5-flash` | Model ID |
+| `VERTEX_PROJECT_ID` | (provider 4) | — | GCP project (or `GOOGLE_CLOUD_PROJECT`) |
+| `VERTEX_REGION` | (provider 4) | — | Region (or `GOOGLE_CLOUD_LOCATION`) |
+| `NAIA_ADK_PATH` | optional | — | Path to the naia-adk workspace (locates `naia-settings/llm.json`) |
+| `NAIA_AGENT_ENV` | optional | — | Override path to the `.env` file |
+| `NAIA_AGENT_CONFIG` | optional | — | Override path to the JSON config file |
+| `NAIA_AGENT_MEMORY_DB` | optional | — | Override `--memory` SQLite path (workspace isolation) |
+| `NAIA_SUB_*` / `NAIA_EMBED_*` | optional | — | Exposed from `llm.json` `sub` / `embedded` roles |
 
 ---
 
-## 2. JSON config shape
+## 2. The 3-role canonical config (`naia-settings/llm.json`)
+
+The **cross-repo Single Source of Truth** is
+`naia-adk/naia-settings/llm.json`. It carries three roles plus
+`version: 1`:
+
+```jsonc
+{
+  "version": 1,
+  "main":     { "provider": "openai-compat", "baseUrl": "...", "model": "...", "apiKeyRef": "OPENAI_API_KEY" },
+  "sub":      { "provider": "openai-compat", "baseUrl": "...", "model": "..." },
+  "embedded": { "provider": "ollama-embed", "baseUrl": "...", "model": "...", "dims": 1024 }
+}
+```
+
+| Role | Purpose | Consumed by |
+|---|---|---|
+| `main` | The conversational Agent LLM | `naia-agent` direct mode (drives the running agent) |
+| `sub` | Reviewer / auxiliary subagent LLM | subagent calls (two-tier) |
+| `embedded` | Embedding model for memory recall | memory host / `--memory` recall |
+
+Supported `provider` values: `openai-compat` | `ollama-embed` |
+`anthropic` | `glm` (local Ollama / vLLM use `openai-compat` /
+`ollama-embed` and need no auth).
+
+`naia-agent` finds this file via `NAIA_ADK_PATH` (workspace root), maps
+`main` onto the provider resolution variables of §1 (`OPENAI_*` /
+`ANTHROPIC_*` / `GLM_*` — only keys not already present in
+`process.env`), and exposes `sub` / `embedded` as `NAIA_SUB_*` /
+`NAIA_EMBED_*`.
+
+### 2.1 Secret policy — no plaintext, ever
+
+`llm.json` is a git-tracked backup unit. It **must never contain a raw
+API key**:
+
+- `apiKeyRef` carries an **environment-variable NAME** (Slice A, now)
+  or an **OS-keychain entry NAME** (Slice B, device-key encrypted —
+  shipped). The actual secret lives in `process.env` or the OS
+  keychain — never in this file.
+- **Enforced, not just convention**: the `naia-agent` reader actively
+  rejects an entire `llm.json` (warn + skip; value never logged) if any
+  role carries a plaintext-secret-looking key (`apiKey` / `key` /
+  `token` / …) or value (`sk-…` / `AIza…` / 40-hex / …). A raw key here
+  is refused, not silently consumed into git.
+- Local Ollama / vLLM need no key — simply omit `apiKeyRef`
+  (a loopback / private `baseUrl` gets a dummy key automatically;
+  remote URLs do **not**).
+
+### 2.2 Legacy JSON config (still supported, role-less)
+
+A flat per-provider `JSON` config (no `main` / `sub` / `embedded`
+split) is still accepted for backward compatibility:
 
 ```json
 {
@@ -68,79 +143,97 @@
 }
 ```
 
-**자동 변환**: camelCase / kebab-case 키 → SCREAMING_SNAKE_CASE 환경변수.
+**Auto-conversion**: camelCase / kebab-case keys → SCREAMING_SNAKE_CASE
+environment variables.
+
 - `anthropic.apiKey` → `ANTHROPIC_API_KEY`
 - `glm.baseUrl` → `GLM_BASE_URL`
 - `vertex.projectId` → `VERTEX_PROJECT_ID`
 
-`process.env`가 항상 최우선 — JSON config는 미설정 키만 fill.
+`process.env` always wins — the JSON config only fills variables that
+are not yet set. **New deployments should prefer the 3-role
+`naia-settings/llm.json`** (§2) over this legacy shape.
 
 ---
 
-## 3. 파일 위치 우선순위
+## 3. File location priority
 
-### 3.1 .env 검색 (first match wins)
-1. `--env <path>` CLI 플래그
-2. `NAIA_AGENT_ENV` 환경변수
-3. `./.env` (cwd)
-4. `./naia-agent.env` (cwd, opinionated 이름)
-5. `~/.naia-agent/.env` (글로벌)
+### 3.1 `.env` search (first match wins)
 
-### 3.2 JSON config 검색
-1. `--config <path>` CLI 플래그
-2. `NAIA_AGENT_CONFIG` 환경변수
-3. `./.naia-agent.json` (cwd)
-4. `~/.naia-agent/config.json` (글로벌)
+1. `--env <path>` CLI flag
+2. `NAIA_AGENT_ENV` environment variable
+3. `.env` in the current working directory
+4. `naia-agent.env` in the current working directory (opinionated name)
+5. The user's global `.naia-agent/.env`
 
-### 3.3 우선순위 종합
+### 3.2 JSON config search
+
+1. `--config <path>` CLI flag
+2. `NAIA_AGENT_CONFIG` environment variable
+3. `.naia-agent.json` in the current working directory
+4. The user's global `.naia-agent/config.json`
+
+### 3.3 Combined priority
 
 ```
-process.env (이미 export됨)
-   ↓ (덮어쓰지 않음, 비어있는 키만 fill)
-naia-settings/llm.json   ← 크로스레포 SoT, NAIA_ADK_PATH/naia-settings/llm.json
+process.env (already exported)
+   ↓ (does not overwrite — fills missing keys only)
+naia-settings/llm.json     ← cross-repo SoT, found via NAIA_ADK_PATH
    ↓
-.env 파일 (위 검색 순서대로 첫 매치)
+.env files (first match per §3.1)
    ↓
-JSON config 파일 (위 검색 순서대로 첫 매치)
+JSON config files (first match per §3.2)
 ```
 
-`bin/naia-agent`는 `main()` 진입 시 `loadEnvAndConfig()`를 호출해 위
-순서를 실제 적용한다(이전엔 로더가 호출되지 않아 표준이 미발효였음 —
-이 슬라이스에서 배선·수복).
+`bin/naia-agent` calls `loadEnvAndConfig()` at `main()` entry and
+applies the order above. `process.env` (variables already exported in
+the shell) always wins.
 
-> ⚠️ **업그레이드 주의**: 그 결과 `./.env` / `./naia-agent.env` /
-> `~/.naia-agent/config.json`이 *이제부터* 실제 로드된다(이전엔 로더
-> 미호출로 무시됨). 업그레이드 전 cwd에 무관한 `.env`가 없는지 확인.
-> `process.env`(export된 변수)는 항상 최우선이라 영향 없음.
+> Upgrade caveat (from earlier prereleases): once `loadEnvAndConfig()`
+> is wired, your `.env` / `naia-agent.env` / user-global
+> `.naia-agent/config.json` are actually loaded (earlier they were
+> ignored because the loader was not called). Before upgrading, make
+> sure you do not have an unrelated `.env` sitting in cwd. Variables
+> already exported into `process.env` are unaffected — they always
+> win.
 
-### 3.4 naia-settings/llm.json (크로스레포 정본)
+### 3.4 `naia-settings/llm.json` (cross-repo canonical, summary)
 
-SoT = `naia-adk/naia-settings/README.md`. 3-role `{main,sub,embedded}`.
-`naia-agent`는 `NAIA_ADK_PATH`로 위치를 찾아 `main`을 위 provider
-resolution 환경키(`OPENAI_*`/`ANTHROPIC_*`/`GLM_*`)로 매핑(미설정 키만),
-`sub`/`embedded`는 `NAIA_SUB_*`/`NAIA_EMBED_*`로 노출. **평문 키 금지** —
-`apiKeyRef`(env 변수명, Slice B에서 OS keychain)만. 로컬 Ollama/vLLM은
-키 불요(openai-compat resolver용 sentinel 자동). 모델/tier 분기 없음.
+SoT = `naia-adk/naia-settings/README.md`. 3-role `{ main, sub, embedded }`.
+`naia-agent` locates the file through `NAIA_ADK_PATH` and maps `main`
+onto the provider-resolution variables of §1 (filling only the keys
+not already present in `process.env`); `sub` / `embedded` are exposed
+under `NAIA_SUB_*` / `NAIA_EMBED_*`. **No plaintext keys** — only
+`apiKeyRef` (the env-var NAME, or, since Slice B, the OS-keychain
+entry NAME). Local Ollama / vLLM need no key (the openai-compat
+resolver auto-applies a loopback sentinel). No per-model / per-tier
+branching.
 
 ### 3.5 `--no-tools`
 
-native tool-calling 미지원 모델(예: 로컬 Ollama gemma3n)용. Agent에
-도구를 부착하지 않음. 모델 무관 범용 플래그(특정 모델 분기 아님).
+For models without native tool-calling (e.g. local Ollama gemma3n).
+The Agent runs with zero tools attached. Model-agnostic flag (no
+per-model branch).
 
 ### 3.5b `--memory`
 
-영속 기억 on. `@nextain/naia-memory` `LiteMemoryProvider` + naia-settings
-`embedded` 임베더 + #41 `<recall>` recall. `--system` 미지정 시
-recall-프로토콜 페르소나(언어중립) + lean 기본. 임베더/SQLite 실패 시
-ephemeral로 graceful degrade(크래시 X). 기본 off=무회귀. 모델·로케일
-무관(소형모델 marker leak은 #41 caveat).
+Persistent long-term memory on. Wires `@nextain/naia-memory`
+`LiteMemoryProvider` + the `naia-settings` `embedded` embedder + the
+`<recall>` marker recall protocol (naia-agent#41 v2). With no
+`--system`, the agent receives a language-neutral recall-protocol
+persona plus a leaner default contract. On embedder / SQLite failure,
+memory degrades gracefully to ephemeral (no crash). Default off —
+no regression. Model and locale agnostic (small-model marker leak is
+a known caveat tracked in #41).
 
-> ⚠️ **단일 글로벌 스토어**: 기본 db = `~/.naia-agent/memory/cli.sqlite`
-> — *모든* 디렉터리/프로젝트의 `--memory` 호출이 공유한다(프로젝트 A의
-> 사실이 프로젝트 B에서 회상됨 = 의도된 개인비서 동작이자 기밀 footgun).
-> 워크스페이스별 격리는 `NAIA_AGENT_MEMORY_DB=<경로>`로 분리.
+> Single global store (default): the default DB lives at the user's
+> global `.naia-agent/memory/cli.sqlite`. *Every* directory / project
+> that invokes `--memory` shares it (a fact from project A can be
+> recalled in project B — intended personal-assistant behaviour, also
+> a confidentiality footgun). For per-workspace isolation, set
+> `NAIA_AGENT_MEMORY_DB=<path>`.
 
-### 3.6 `naia-agent login` (설정 영속 + OS keychain)
+### 3.6 `naia-agent login` (persisted config + OS keychain)
 
 ```
 pnpm naia-agent login --adk <path>
@@ -150,26 +243,37 @@ pnpm naia-agent login --adk <path>
   [--key REF=VALUE]
 ```
 
-- `<adk>/naia-settings/llm.json`에 구성요소만 기록 — **키 값은 절대
-  미기록**. `--key REF=VALUE`는 OS keychain(libsecret/Secret Service,
-  **기기 키 암호화**)에 저장하고 `apiKeyRef`로 이름만 참조.
-- keychain 불가 시 **거부**(평문 fallback 없음) — shell `export` 안내.
-  비-Linux는 unavailable로 degrade(평문 경로 없음).
-- `~/.naia-agent/config.json`에 `naiaAdkPath` 영속(mode 600). **주의**:
-  이후 `naia-agent` 호출은 `NAIA_ADK_PATH` 없이도 naia-settings를
-  자동 로드(§3.4). env-only로 되돌리려면 해당 파일/`naiaAdkPath` 제거.
-- `apiKeyRef`는 *이름*만 — raw 시크릿을 넣으면 login이 쓰기 시점에 거부.
+- Writes structural fields to `<adk>/naia-settings/llm.json` — **never
+  a raw key**. `--key REF=VALUE` stores the secret in the **OS
+  keychain** (libsecret / Secret Service on Linux, device-key
+  encrypted) and `llm.json` references it by name through `apiKeyRef`.
+- If the keychain is unavailable, login **refuses** (no plaintext
+  fallback) and points at a shell `export`. On non-Linux platforms the
+  store degrades to "unavailable" — no plaintext path is opened.
+- Persists `naiaAdkPath` to the user-global config file
+  `.naia-agent/config.json` (mode 600). **After login**, subsequent
+  `naia-agent` invocations load `naia-settings/llm.json` even without
+  `NAIA_ADK_PATH` exported (§3.4). To return to env-only mode, remove
+  the file or unset `naiaAdkPath` inside it.
+- `apiKeyRef` is the **NAME** only — if you accidentally pass a raw
+  secret in the `apiKeyRef` slot, login rejects the role at the WRITE
+  boundary (Slice 3-XR-G).
+- `naia-agent show` prints the current resolved configuration without
+  ever printing a secret value (NAMES only).
 
 ---
 
-## 4. 보안 표준
+## 4. Security standard
 
-### 4.1 파일 권한
-- `~/.naia-agent/.env` 권장 mode: **600** (owner-only read/write)
-- 프로젝트 단위 `.env`도 마찬가지 권장
-- `chmod 600 ~/.naia-agent/.env` 명령으로 설정
+### 4.1 File permissions
 
-### 4.2 .gitignore (모든 프로젝트 강제)
+- Recommended mode for the user's global `.naia-agent/.env`: **600**
+  (owner read/write only).
+- Same recommendation for any project-local `.env`.
+- `chmod 600` the file after creating it.
+
+### 4.2 `.gitignore` (mandatory in every project)
+
 ```
 .env
 .env.local
@@ -178,75 +282,126 @@ naia-agent.env
 .naia-agent/
 ```
 
-### 4.3 노출 금지
-- 코드는 키 **값**을 stdout/stderr/log에 절대 출력하지 않음
-- 키 **이름**(예: `ANTHROPIC_API_KEY loaded`)만 출력 허용
-- commit message, PR description, error message에 키 inline 금지
+### 4.3 No-exposure rule
 
-### 4.4 cleanroom 단독 의존 금지 (F09)
-- LLM provider 구현 시 `ref-cc-cleanroom` 코드 라인 직접 인용 금지
-- OWASP / RFC / 공식 SDK docs 출처 cross-reference 필수
+- Code must never print key **values** to stdout / stderr / log
+- Printing the key **NAME** is fine (e.g. `ANTHROPIC_API_KEY loaded`)
+- Never inline a key in a commit message, PR description, or error
+  message
 
----
+### 4.4 No solo-dependence on cleanroom (F09)
 
-## 5. Multi-tool harness 표준화
-
-본 표준은 도구 무관:
-
-- **Claude Code**: AGENTS.md mirror가 본 표준 가리킴. `~/.naia-agent/.env` 자동 로드
-- **opencode / Codex**: AGENTS.md 직접 읽음 → 본 표준 적용
-- **Gemini CLI**: GEMINI.md mirror 또는 `.gemini/settings.json`에서 본 표준 가리킴
-- **naia 자체 도구** (향후): AGENTS.md 직접 읽음 → 본 표준 적용
-
-도구별 추가 LLM 설정은 `.{tool}/` 디렉터리에 두되, **forbidden_actions은 본 표준 따름**.
+- When implementing an LLM provider, do not directly copy lines from
+  `ref-cc-cleanroom`
+- Cross-reference at least one of: OWASP, RFC, or an official SDK doc
 
 ---
 
-## 6. 신규 provider 추가 절차
+## 5. Multi-tool harness standardisation
 
-새 provider(예: Mistral, Cohere) 추가 시:
+This standard is tool-agnostic:
 
-1. **환경변수 정규**: `<PROVIDER>_API_KEY` + 필요 시 `<PROVIDER>_BASE_URL` / `_MODEL`
-2. **OpenAI-compat 우선 시도**: 새 provider가 OpenAI-compat이면 `OPENAI_API_KEY` + `OPENAI_BASE_URL`로 처리. 별도 코드 0
-3. **OpenAI-compat 아닌 경우**: `packages/providers/src/<provider>.ts` 신설 + provider 분기 추가
-4. **본 docs §1.2 표 update** + 매트릭스 §D 신규 항목 추가
-5. **example config update** (`naia-agent.env.example`)
-6. **PR template 매트릭스 ID 인용** (`addresses D##`)
+- **Claude Code** — the `AGENTS.md` mirror points at this standard;
+  the user's global `.naia-agent/.env` is auto-loaded
+- **opencode / Codex** — both read `AGENTS.md` directly; same standard
+  applies
+- **Gemini CLI** — `GEMINI.md` mirror or `.gemini/settings.json`
+  points at this standard
+- **naia first-party tools** (in progress) — read `AGENTS.md`
+  directly; same standard applies
+
+Per-tool additional LLM settings live in each tool's own `.{tool}/`
+directory, but **`forbidden_actions` always follow this standard**.
 
 ---
 
-## 7. 모델 명명 규약
+## 6. Adding a new provider
 
-| Provider | 형식 예시 |
+When adding a new provider (Mistral, Cohere, etc.):
+
+1. **Canonicalise env vars**: `<PROVIDER>_API_KEY` plus
+   `<PROVIDER>_BASE_URL` / `_MODEL` as needed.
+2. **Try OpenAI-compat first**: if the provider is OpenAI-compatible,
+   reuse `OPENAI_API_KEY` + `OPENAI_BASE_URL`. Zero additional code.
+3. **Non-OpenAI-compat case**: add `packages/providers/src/<provider>.ts`
+   and extend the resolver branch.
+4. **Update §1.2 in this doc** plus the cross-package matrix (§D).
+5. **Update the example file** (`naia-agent.env.example`).
+6. **Cite the matrix ID** in the PR template (`addresses D##`).
+
+---
+
+## 7. Model naming convention
+
+| Provider | Format example |
 |---|---|
-| Anthropic 직접 | `claude-haiku-4-5-20251001`, `claude-opus-4-7` |
-| Anthropic on Vertex | `claude-haiku-4-5@20251001` (Vertex 형식, `@` 사용) |
-| OpenAI / OpenAI-compat | provider별 (e.g. `gpt-4`, `glm-4.5-flash`, `mixtral-8x7b`) |
+| Anthropic direct | `claude-haiku-4-5-20251001`, `claude-opus-4-7` |
+| Anthropic on Vertex | `claude-haiku-4-5@20251001` (Vertex format — uses `@`) |
+| OpenAI / OpenAI-compat | Provider-specific (`gpt-4`, `glm-4.5-flash`, `mixtral-8x7b`, …) |
 
-`<PROVIDER>_MODEL` 환경변수로 default override 가능.
-
----
-
-## 8. 본 표준의 변경 정책
-
-- **MINOR (additive)**: 새 provider, 새 환경변수, 새 JSON 키. 기존 동작 보존
-- **MAJOR (breaking)**: 환경변수 이름 변경, JSON shape 변경, 우선순위 변경
-- 본 docs `2026-04-25` 시점 = v0.1 — additive-only 규칙 적용
-
-매트릭스 § cross-link:
-- §A20 (env-loader) — Slice 1c, file: `packages/runtime/src/utils/env-loader.ts`
-- §A21 (OpenAI-compat client) — Slice 1c+, file: `packages/providers/src/openai-compat.ts`
-- §B22 (cleanroom 라인 복붙 금지) — F09와 cross-reference
+`<PROVIDER>_MODEL` overrides the default.
 
 ---
 
-## 9. 참고 — example 파일
+## 8. `--service <manifest>` (Slice 3-XR-J / R6 / SB-1)
 
-- `naia-agent.env.example` (프로젝트 root) — 사용자가 자체 키로 채워서 `naia-agent.env`로 rename
-- `.naia-agent.example.json` (프로젝트 root) — JSON 사용자 채움
-- 둘 다 .gitignore에 의해 commit 안 됨 (`.example` suffix만 commit 됨)
+The `--service <path-to-*.service.json>` flag selects an
+naia-adk-shape **service manifest** instead of provider env vars. The
+manifest is data (workspace-local, not a Part-A contract), and the
+loader builds the LLM client through a fixed backend enum:
+
+| `llm.backend` | Status | Source of auth | Notes |
+|---|---|---|---|
+| `openai-compatible` | **shipped** | `OPENAI_API_KEY` or `NAIA_SERVICE_API_KEY` (host env) | `baseURL` trust gate enforced (loopback / private / operator allowlist) |
+| `anthropic` | **shipped** | `ANTHROPIC_API_KEY` (host env) | `ANTHROPIC_BASE_URL` honoured |
+| `vertex` | **shipped** | `VERTEX_PROJECT_ID` + `VERTEX_REGION` (host env) | — |
+| `claude-code` | **shipped** | Claude subscription (no API key) | In-process via `ai-sdk-provider-claude-code`; subscription-credit policy (see naia-agent#39) |
+| `langgraph` | reserve stub | n/a | Schema accepts the value; dispatcher deferred to Slice 3-XR-K |
+| `rag-retriever` | reserve stub | n/a | Schema accepts the value; dispatcher deferred to Slice 3-XR-K |
+
+API keys are **never** read from the manifest itself — schema §4
+(host env only, per 4-repo plan A.6 "LLM key = shell stronghold").
+Unknown backends fail closed with exit 3 and a stable stderr line.
 
 ---
 
-## 변경 이력
-- **2026-04-25** (Slice 1c+): 초기 표준 정의. 4 provider + .env/JSON auto-load + 보안 + multi-tool harness 호환
+## 9. Change policy
+
+- **MINOR (additive)** — new provider, new env var, new JSON key. All
+  existing behaviour preserved.
+- **MAJOR (breaking)** — renaming an env var, JSON shape change,
+  resolution-order change.
+- This doc at `2026-04-25` = v0.1 — additive-only rule in force.
+
+Matrix cross-links:
+
+- §A20 (env loader) — Slice 1c, file
+  `packages/runtime/src/utils/env-loader.ts`
+- §A21 (OpenAI-compat client) — Slice 1c+, file
+  `packages/providers/src/openai-compat.ts`
+- §B22 (no cleanroom line copy-paste) — cross-references F09
+
+---
+
+## 10. Reference — example files
+
+- `naia-agent.env.example` (repo root) — copy to `naia-agent.env`,
+  fill in your own keys
+- `.naia-agent.example.json` (repo root) — JSON variant, fill in your
+  own keys
+- Both are gitignored when filled (`*.example` suffix is the only form
+  that ships in git)
+
+---
+
+## Change history
+
+- **2026-04-25** (Slice 1c+) — initial standard. 4 providers +
+  `.env` / JSON auto-load + security + multi-tool harness compat.
+- **2026-05-20** (Slice 3-XR-B / E / F / G) — `naia-agent login` +
+  `naia-agent show` shipped; OS-keychain (libsecret) integration;
+  3-role `naia-settings/llm.json` is the canonical cross-repo SoT;
+  `--service <manifest>` flag with backend enum
+  (`openai-compatible` / `anthropic` / `vertex` / `claude-code` +
+  reserved `langgraph` / `rag-retriever`); plaintext-secret refusal
+  at the write boundary.

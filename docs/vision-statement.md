@@ -1,107 +1,109 @@
 # naia-agent vision statement (R4 lock 2026-04-26)
 
-> **One-liner**: "Real-time interruptible multi-agent supervisor with multi-modal stream + 정직 보고."
+> **Languages**: English (this file) · [한국어](../.users/docs/ko/vision-statement.md)
+
+> **One-liner**: "Real-time interruptible multi-agent supervisor with multi-modal stream + honest reporting."
 
 ---
 
 ## 1. What naia-agent is
 
-사용자 (luke) 의 **AI 비서 + 작업 운영자**. 단일 대화창 안에서 사용자가 명령하고, naia-agent가 다중 sub-agent를 운영해 실제 작업을 수행하며, **수치 기반 정직 보고**로 신뢰를 유지한다.
+The user (luke)'s **AI assistant + task operator**. In a single conversation window the user issues commands, naia-agent runs multiple sub-agents to carry out real work, and **numeric, honest reporting** maintains trust.
 
-핵심 use case (R4 motivation):
+Core use cases (R4 motivation):
 
-| # | 사용자 niddy | naia-agent의 답 |
+| # | User pain point | naia-agent's answer |
 |---|---|---|
-| 1 | 여러 터미널 + 여러 AI agent 병렬은 피곤 | 단일 대화창에 통합 |
-| 2 | 자꾸 놓침 (인지 부담) | naia-agent가 sub-session 운영 + 통합 보고 |
-| 3 | 보고 ≠ 실제 (큰 낭패) | 자동 verification (test/lint/build) + 수치 diff stats |
-| 4 | 잘못되면 즉시 멈춤 | "중지중지" 음성 / Ctrl+C / 카드 [중지] |
-| 5 | workspace 변경 즉시 확인 | file watcher + diff preview |
-| 6 | sub-session 활동 파악 | ACP/SDK event stream 카드 view |
+| 1 | Several terminals + several AI agents in parallel is exhausting | Unified into a single conversation window |
+| 2 | Things slip through the cracks (cognitive load) | naia-agent runs sub-sessions + delivers consolidated reports |
+| 3 | The report does not match reality (a major failure mode) | Automatic verification (test/lint/build) + numeric diff stats |
+| 4 | If something goes wrong, stop immediately | "stop stop" voice / Ctrl+C / card [Stop] |
+| 5 | Confirm workspace changes immediately | file watcher + diff preview |
+| 6 | See sub-session activity | ACP/SDK event-stream card view |
 
 ---
 
 ## 2. What naia-agent is NOT
 
-| ✗ NOT | 위임 또는 위 layer |
+| Not | Delegated to or higher layer |
 |---|---|
-| 자체 coding tool 본체 (bash/file/git/refactor) | opencode / claude-code (sub-agent) |
-| 자체 LLM provider 50+ | any-llm 원격 gateway |
-| 자체 음성/avatar/UI | naia-shell (별도 repo) |
-| 자체 long-term memory | alpha-memory (별도 repo) |
-| 자체 skill 카탈로그 | naia-adk (별도 repo) |
-| IDE / file editor / 자체 git impl | 사용자 기존 IDE 사용 |
-| Agent framework for 외부 사용자 | 1인(luke) 전용으로 시작 |
+| A coding tool itself (bash/file/git/refactor) | opencode / claude-code (sub-agent) |
+| A 50+ provider LLM aggregator | any-llm remote gateway |
+| Its own voice / avatar / UI | naia-shell (separate repo) |
+| Its own long-term memory | naia-memory (separate repo) |
+| Its own skill catalog | naia-adk (separate repo) |
+| IDE / file editor / its own git implementation | Uses the user's existing IDE |
+| Agent framework for external users | Starts as single-user (luke) only |
 
 ---
 
-## 3. 차별화 (3차원, 다른 framework에 거의 없음)
+## 3. Differentiation (3 axes — rare in other frameworks)
 
-| 차원 | naia-agent | claude-code / opencode / Mastra / Vercel AI SDK |
+| Axis | naia-agent | claude-code / opencode / Mastra / Vercel AI SDK |
 |---|:---:|:---:|
-| **Multi-modal stream** (audio_delta 1급) | ★★★ | text only |
-| **Sub-agent supervisor** (ACP/SDK + audit + interrupt) | ★★★ | standalone (supervisor가 아닌 supervisee) |
-| **단일 대화 + 정직 보고** (verification + diff + 수치) | ★★★ | 보고 ≠ 실제 (hallucination 문제 그대로) |
+| **Multi-modal stream** (audio_delta as a first-class event) | ★★★ | text only |
+| **Sub-agent supervisor** (ACP/SDK + audit + interrupt) | ★★★ | standalone (the supervisee, not the supervisor) |
+| **Single conversation + honest reporting** (verification + diff + numbers) | ★★★ | report does not match reality (the hallucination problem unchanged) |
 
-→ **voice-capable + multi-agent 운영 시대의 supervisor runtime**.
+→ a **supervisor runtime for the voice-capable + multi-agent operations era**.
 
 (Note: voice = Slice 3-XR-Voice / P0c-2 — LiveKit + VoxCPM2 cascade at the agent layer, separate-session work. The earlier "omni LLM" plan — vllm-omni / MiniCPM-o-4.5 — is deprecated; see `project_minicpm_o_4_5_deprecated_2026_05_20` memory.)
 
 ---
 
-## 4. 핵심 책임 (priority lock)
+## 4. Core responsibilities (priority lock)
 
-| 우선 | 책임 | 근거 |
+| Priority | Responsibility | Source |
 |:---:|---|---|
-| ★★★ | 단일 대화 인터페이스 | vision motivation #1 |
+| ★★★ | Single conversation interface | vision motivation #1 |
 | ★★★ | Workspace event stream (file watcher + diff) | motivation #5 |
 | ★★★ | Sub-session event stream (ACP/SDK capture) | motivation #6 |
-| ★★★ | 자동 verification + 수치 정직 보고 | motivation #3 |
+| ★★★ | Automatic verification + honest numeric reporting | motivation #3 |
 | ★★★ | Real-time interrupt + pause/resume | motivation #4 |
-| ★★★ | Sub-agent supervision (다중 orchestration) | motivation #2 |
-| ★★ | 연속 context (alpha-memory) | "연속적으로 일을 시키는" |
-| ★★ | Multi-modal stream protocol (audio/image forward) | voice cascade (Slice 3-XR-Voice / P0c-2) |
-| ★★ | Interface 정의 (SubAgentAdapter / Verifier / WorkspaceWatcher / LLMClient / MemoryProvider / SkillLoader) | DI |
+| ★★★ | Sub-agent supervision (multi-orchestration) | motivation #2 |
+| ★★ | Continuous context (naia-memory) | "to be assigned work continuously" |
+| ★★ | Multi-modal stream protocol (audio/image forwarding) | voice cascade (Slice 3-XR-Voice / P0c-2) |
+| ★★ | Interface definitions (SubAgentAdapter / Verifier / WorkspaceWatcher / LLMClient / MemoryProvider / SkillLoader) | DI |
 
 ---
 
 ## 4b. Naia (engine) vs alpha (persona instance)
 
-| layer | 이름 | 정의 |
+| Layer | Name | Definition |
 |---|---|---|
-| **runtime engine** (이 repo) | **Naia** | generic, 페르소나 없음. default CLI label "[Naia]" |
-| **persona instance** | **alpha** | luke 개인용 AI = naia-adk(skill+convention) + alpha-memory(user context) 결합 |
+| **Runtime engine** (this repo) | **Naia** | Generic, no persona. Default CLI label "[Naia]" |
+| **Persona instance** | **alpha** | luke's personal AI = naia-adk (skill + convention) + naia-memory (user context) combined |
 
-**원칙**: naia-agent는 페르소나를 가지지 않는다. "alpha"는 인스턴스 이름이며, 다음 두 layer가 정의한다:
+**Principle**: naia-agent does not carry a persona. "alpha" is the instance name and is defined by the following two layers:
 
-1. **naia-adk** — naia 인스턴스의 **스킬 + 프로세스 + 기본 컨텍스트 (페르소나)**
-   - skill 표준 + skill 카탈로그
-   - 워크플로우 프로세스 (예: 검토 → 결정 → 실행 패턴)
-   - 페르소나 system prompt 컨벤션 (캐릭터, 한국어 default, 비서 role, 대화 스타일)
-   - 모두 정적 (사용자 무관, 인스턴스 정의)
-2. **alpha-memory** — 사용자별 long-term **기억** (동적)
-   - 이전 대화 history
-   - 사용자 선호 / 메타데이터
-   - 작업 history / task 컨텍스트
+1. **naia-adk** — the **skills + processes + base context (persona)** for a naia instance
+   - skill standard + skill catalog
+   - workflow processes (e.g. review → decide → execute patterns)
+   - persona system-prompt conventions (character, Korean default, assistant role, conversational style)
+   - all static (independent of user, instance-level definition)
+2. **naia-memory** — per-user long-term **memory** (dynamic)
+   - prior conversation history
+   - user preferences / metadata
+   - work history / task context
 
-### 페르소나 위치 trade-off (디자인 결정 기록)
+### Persona-placement trade-off (design-decision record)
 
-**의미론적 정당성**: 페르소나(personality, identity)는 "그 사람을 그 사람이게 하는 기억"의 일부 → 본질적으로 alpha-memory에 속하는 게 자연스러움.
+**Semantic justification**: a persona (personality, identity) is part of "the memory that makes someone who they are" → it naturally belongs in naia-memory.
 
-**현실 (기존 시스템 호환)**: 그러나 Claude / opencode / Vercel AI SDK 등 모든 기존 agent 시스템은 페르소나를 **system prompt** (정적 spec) 으로 inject한다. naia-agent도 sub-agent로 그들을 wrap하므로, 페르소나는 **system prompt 컨벤션 영역 = naia-adk**가 가지는 게 현실적이고 호환됨.
+**Reality (compatibility with existing systems)**: however, all existing agent systems — Claude / opencode / Vercel AI SDK and the rest — inject the persona via a **system prompt** (static spec). Because naia-agent wraps these as sub-agents, having the persona live in the **system-prompt convention layer = naia-adk** is the realistic and compatible choice.
 
-**결정**: naia-adk가 페르소나 (정적 base) + alpha-memory가 사용자 컨텍스트 (동적). 두 layer가 합쳐져 "alpha" 인스턴스를 정의.
+**Decision**: naia-adk holds the persona (static base) + naia-memory holds the user context (dynamic). The two layers combine to define the "alpha" instance.
 
-→ Phase 3에서 두 layer 동시 inject 메커니즘 정식화: `TaskSpec.extraSystemPrompt = naia-adk persona base + alpha-memory.recall() result`
+→ In Phase 3 the simultaneous injection of both layers is formalized: `TaskSpec.extraSystemPrompt = naia-adk persona base + naia-memory.recall() result`
 
-### 4-repo 책임 분리 LOCK (2026-04-26 사용자 directive)
+### 4-repo responsibility split LOCK (2026-04-26, user directive)
 
-| repo | 책임 |
+| Repo | Responsibility |
 |---|---|
-| **naia-os** (host) | host OS 전체 — UI + Avatar + audio device IO (mic/speaker via Tauri Rust cpal) + channel adapters + OS-specific skills (Device/Voicewake/Panel/Channels) |
+| **naia-os** (host) | The full host OS — UI + Avatar + audio device IO (mic/speaker via Tauri Rust cpal) + channel adapters + OS-specific skills (Device/Voicewake/Panel/Channels) |
 | **naia-agent** (engine) | LLM core + supervisor + sub-agent. Voice = agent-layer cascade via LiveKit (Slice 3-XR-Voice / P0c-2, deferred to a separate session). |
-| **naia-adk** | skill **spec/interface only** + 9 generic skills 카탈로그 (Cron/Memo/Time/Weather/Notify/Diagnostics/Sessions/Skill-manager/Config/SystemStatus). 실행은 naia-agent |
-| **naia-memory** (= alpha-memory pkg) | memory engine (encode/recall/decay/etc) |
+| **naia-adk** | skill **spec/interface only** + a 9-skill generic catalog (Cron/Memo/Time/Weather/Notify/Diagnostics/Sessions/Skill-manager/Config/SystemStatus). Execution lives in naia-agent. |
+| **naia-memory** | memory engine (encode/recall/decay/etc.) |
 
 ### Voice / multi-modal (deferred — agent-layer cascade, NOT in-model omni)
 
@@ -115,129 +117,129 @@ Replacement architecture (separate-session work):
 
 Splits naia-os = thin device IO + UI / naia-agent = agent-level audio orchestration.
 
-### naia-* / alpha-* prefix 체계 (이름 일관성)
+### naia-* / alpha-* prefix scheme (naming consistency)
 
-**모든 engine 모듈은 `naia-` prefix** (사용자 directive 2026-04-26 결정 — alpha-memory → naia-memory rename):
+**Every engine module uses the `naia-` prefix** (user directive 2026-04-26 — alpha-memory → naia-memory rename):
 
-| prefix | 의미 | 예 |
+| Prefix | Meaning | Examples |
 |---|---|---|
-| **naia-** | generic engine 모듈 (모두에게 동일, npm `@nextain/`) | naia-agent / naia-adk / **naia-memory** / naia-os / naia-shell |
-| **(개인 prefix)** | **사용자 인스턴스** workspace (host repo) | **alpha-adk** (luke의 host repo, 페르소나 = "alpha") / `bob-adk` (bob의 host) 등 |
+| **naia-** | Generic engine modules (identical for everyone, npm `@nextain/`) | naia-agent / naia-adk / **naia-memory** / naia-os / naia-shell |
+| **(personal prefix)** | **User instance** workspace (host repo) | **alpha-adk** (luke's host repo, persona = "alpha") / `bob-adk` (bob's host) etc. |
 
-따라서:
-- **alpha** = luke의 AI **페르소나/인스턴스 이름**
-- **alpha-adk** = luke workspace root (이 repo, host) — alpha 인스턴스의 모든 데이터 보관
-- **naia-memory** = generic memory 엔진 (npm pkg `@nextain/naia-memory`)
+Therefore:
+- **alpha** = the name of luke's AI **persona / instance**
+- **alpha-adk** = luke's workspace root (this repo, host) — stores all data for the alpha instance
+- **naia-memory** = the generic memory engine (npm pkg `@nextain/naia-memory`)
 
-### alpha 인스턴스 백업 시나리오 (사용자 directive)
+### alpha-instance backup scenario (user directive)
 
-**`alpha-adk` 디렉터리만 백업하면 alpha 인스턴스 완전 복원**:
+**Backing up the `alpha-adk` directory alone fully restores the alpha instance**:
 
 ```
-alpha-adk/                            # ← 이걸 backup하면 alpha 전체 복원
-├── data/                             # 인스턴스 데이터 (naia-adk 컨벤션)
-│   ├── memory/                       # ← naia-memory가 여기 저장 (사용자 기억)
-│   ├── skills/                       # ← 사용자 추가 skill 정의
-│   └── persona/                      # ← 페르소나 override (한국어 톤, 호칭 등)
+alpha-adk/                            # ← backing this up restores all of alpha
+├── data/                             # instance data (naia-adk convention)
+│   ├── memory/                       # ← naia-memory stores here (user memory)
+│   ├── skills/                       # ← user-added skill definitions
+│   └── persona/                      # ← persona overrides (Korean tone, address forms, …)
 ├── projects/                         # ← submodule pointers
 │   ├── naia-agent/                   # generic engine
-│   ├── naia-adk/                     # generic skill+process+persona convention
-│   ├── alpha-memory/ → naia-memory   # generic memory engine (디렉터리명 alpha-memory 유지, pkg name `@nextain/naia-memory`)
+│   ├── naia-adk/                     # generic skill + process + persona convention
+│   ├── naia-memory/                  # generic memory engine (pkg name `@nextain/naia-memory`)
 │   └── naia-os/                      # generic host shell
 ├── .agents/                          # workspace context/rules
-└── ... (기타 user 영역)
+└── ... (other user areas)
 ```
 
-→ `git push alpha-adk origin main` (또는 tar backup) = alpha의 **skill + context + 기억 모두 보존**.
-→ engine module들 (naia-agent / naia-memory 등) 은 generic이라 어디서든 받아 결합.
+→ `git push alpha-adk origin main` (or tar backup) = preserves alpha's **skills + context + memory**.
+→ Engine modules (naia-agent / naia-memory, etc.) are generic and can be pulled in anywhere to compose.
 
-### naia-adk가 정의하는 memory storage path 컨벤션 (Phase 3 정식화)
+### naia-adk-defined memory-storage path convention (formalized in Phase 3)
 
 ```
-${ADK_ROOT}/data/memory/        # naia-adk 컨벤션 (relative)
+${ADK_ROOT}/data/memory/        # naia-adk convention (relative)
 ```
 
-`alpha-adk`가 host로 동작 시:
-- `ADK_ROOT=/var/home/luke/alpha-adk` (또는 env에서)
-- `naia-memory`가 `/var/home/luke/alpha-adk/data/memory/` 에 SQLite/vector store 저장
-- alpha-adk repo backup = memory data 자동 포함
+When `alpha-adk` acts as host:
+- `ADK_ROOT` points at the alpha-adk repo (resolved from env)
+- `naia-memory` writes its SQLite / vector store under `${ADK_ROOT}/data/memory/`
+- backing up the alpha-adk repo automatically includes the memory data
 
-다른 사용자 (`bob-adk`):
-- `ADK_ROOT=/path/to/bob-adk` → `bob-adk/data/memory/` 에 저장
-- 동일 `naia-memory` engine으로 격리된 데이터.
+For another user (`bob-adk`):
+- `ADK_ROOT` points at the bob-adk repo → store lives under `bob-adk/data/memory/`
+- the same `naia-memory` engine, but isolated data.
 
-이 컨벤션은 Phase 3 alpha-memory(현 naia-memory) 통합 시점에 정식 wire.
+This convention is formally wired at the Phase 3 naia-memory integration point.
 
-naia-agent는 두 layer를 **inject할 hook만 제공**:
+naia-agent only provides the **hooks for injecting the two layers**:
 
-| hook | 시점 | Phase |
+| Hook | When | Phase |
 |---|---|---|
-| `NAIA_PERSONA_LABEL` env | CLI 출력 label override (예: "Naia" → "alpha") | **Phase 2 (현재)** |
-| `TaskSpec.extraSystemPrompt` | sub-agent system prompt에 페르소나/memory 주입 | Phase 3 (alpha-memory 통합 시) |
-| `MemoryProvider.recall()` | 대화 시작 시 사용자 컨텍스트 가져옴 → extraSystemPrompt | Phase 3 |
+| `NAIA_PERSONA_LABEL` env | Overrides the CLI output label (e.g. "Naia" → "alpha") | **Phase 2 (current)** |
+| `TaskSpec.extraSystemPrompt` | Injects the persona / memory into the sub-agent's system prompt | Phase 3 (with naia-memory integration) |
+| `MemoryProvider.recall()` | Pulls user context at conversation start → extraSystemPrompt | Phase 3 |
 
-**alpha-adk (이 workspace) host 가 inject 예시** (Phase 3):
+**An example of alpha-adk (this workspace) host injection** (Phase 3):
 ```bash
 export NAIA_PERSONA_LABEL=alpha
-# alpha-adk가 naia-adk에서 페르소나 spec 로드 + alpha-memory.recall() 결과 결합 →
-# TaskSpec.extraSystemPrompt 채워서 naia-agent 호출
+# alpha-adk loads the persona spec from naia-adk + combines it with the result of naia-memory.recall() →
+# fills TaskSpec.extraSystemPrompt and calls naia-agent
 pnpm naia-agent "..."
 ```
 
-→ 동일 naia-agent 엔진으로 다양한 페르소나 인스턴스 (alpha / 다른 사용자용 / public Naia 등) 생성 가능. naia-agent는 "**페르소나 hosting platform**"이지 페르소나 자체가 아님.
+→ With the same naia-agent engine you can spin up different persona instances (alpha / per-user / public Naia / …). naia-agent is a "**persona hosting platform**", not the persona itself.
 
 ---
 
-## 5. lock된 결정 요약 (R4)
+## 5. Locked decisions (R4 summary)
 
-| | 결정 |
+| | Decision |
 |---|---|
-| Path | Hybrid wrapper (B) — 자체 ~2,150 LOC + 외부 wrap |
-| LLM | any-llm 원격 gateway main, voice = LiveKit cascade (Slice 3-XR-Voice / P0c-2, deferred), Vercel AI SDK 보류 |
-| Sub-agent | opencode (ACP) + claude-code SDK + 단순 stdio fallback |
-| Memory | alpha-memory peer dep |
-| Skill | naia-adk peer dep (향후) |
-| UI | CLI (Phase 1~3) → naia-shell 통합 (Phase 4+) |
+| Path | Hybrid wrapper (B) — ~2,150 LOC in-house + external wrap |
+| LLM | any-llm remote gateway as main; voice = LiveKit cascade (Slice 3-XR-Voice / P0c-2, deferred); Vercel AI SDK on hold |
+| Sub-agent | opencode (ACP) + claude-code SDK + a simple stdio fallback |
+| Memory | naia-memory peer dep |
+| Skill | naia-adk peer dep (future) |
+| UI | CLI (Phase 1–3) → integrated into naia-shell (Phase 4+) |
 
 ---
 
 ## 6. Phase outline
 
-| Phase | 기간 | 검증 |
+| Phase | Window | Verification |
 |---|:---:|---|
-| **Phase 1** | Week 1 (5일) | "hello 함수 추가" → 진행 보임 + diff + "test PASS" 보고 |
-| Phase 2 | Week 2~3 | ACP 정식 + Interrupt + Approval gate |
-| Phase 3 | Week 4~6 | claude SDK + sub-session card + alpha-memory |
-| Phase 4 | Week 7~10 | Adversarial review + naia-shell 통합 + voice cascade (Slice 3-XR-Voice / P0c-2) |
+| **Phase 1** (freeze 2026-04-21) | Week 1 (5 days) | "Add a hello function" → progress visible + diff + "test PASS" report |
+| Phase 2 (largely shipped) | Week 2–3 | ACP integration + interrupt + Approval gate (`ApprovalBroker` / `CliApprovalBroker` / `AutoDenyApprovalBroker` shipped in `bin/naia-agent.ts`; T2/T3 `GatedToolExecutor` wiring still in flight) |
+| Phase 3 (partially shipped) | Week 4–6 | claude SDK + sub-session card + naia-memory. `--memory` flag and `LiteMemoryProvider` wiring SHIPPED (Slice 3-XR-C / 3-XR-G / 3-XR-I, 2026-05-20); supervisor-side auto-injection of `TaskSpec.extraSystemPrompt` from `MemoryProvider.recall()` still on the roadmap |
+| Phase 4 | Week 7–10 | Adversarial review + naia-shell integration + voice cascade (Slice 3-XR-Voice / P0c-2, deferred to a separate session) |
 
-**Phase 1 목표**: 사용자 피로 30~50% 감소. 안 되면 Path A(IDE 회귀) 또는 Path C(손으로 계속) 회귀, 노력 1주만 잃음.
+**Phase 1 goal**: 30–50% reduction in user fatigue. If it does not deliver, fall back to Path A (regress to the IDE) or Path C (stay manual) — only one week of effort lost.
 
 ---
 
-## 6b. 보안 stance (Phase별)
+## 6b. Security stance (per Phase)
 
-| Phase | path traversal | secret redact | approval gate | bash 위험 명령 |
+| Phase | path traversal | secret redact | approval gate | dangerous bash |
 |---|:---:|:---:|:---:|:---:|
-| **Phase 1** | **CLI 미차단 (의도 미이행)** | ✓ adapter emit 시점 | ✗ skipPermissions | ✗ |
+| **Phase 1** | **CLI not yet enforced (intent unrealized)** | ✓ at adapter emit time | ✗ skipPermissions | ✗ |
 | Phase 2 | runtime BashSkill + workspace sentinel (D09) | ✓ | ✓ T2/T3 ApprovalBroker | ✓ DANGEROUS_COMMANDS regex (D01) |
-| Phase 3+ | + 4-repo plan A.13 보안 lockstep | + | + | + |
+| Phase 3+ | + 4-repo plan A.13 security lockstep | + | + | + |
 
-**Phase 1 보안 가정** (사용자 trust model):
-- naia-agent CLI는 **사용자 본인이 직접 실행** (untrusted input source 없음)
-- workdir은 **사용자가 명시적으로 지정** — path traversal 책임 = 사용자
-- sub-agent (opencode)가 받은 prompt도 **사용자 본인 작성** — prompt injection 위협 낮음
-- 따라서 Phase 1은 redact + workdir cwd 격리 + UnsupportedError throw 정도만 (functional review C1 결과 정합)
+**Phase 1 security assumptions** (user trust model):
+- The naia-agent CLI is **launched by the user in person** (no untrusted input source)
+- The workdir is **explicitly specified by the user** — path-traversal responsibility = the user
+- Prompts handed to the sub-agent (opencode) are **written by the user as well** — prompt-injection risk is low
+- Therefore Phase 1 carries only redact + workdir-cwd isolation + UnsupportedError throws (consistent with the C1 functional review)
 
-Phase 1을 untrusted/multi-tenant 환경에서 사용 금지. Phase 2부터 정식 보안 layer.
+Do not use Phase 1 in untrusted / multi-tenant environments. The proper security layer starts in Phase 2.
 
 ---
 
-## 7. 변경 절차
+## 7. Change procedure
 
-R4 lock 이후 본 vision 변경 시:
-1. 본 파일에 Change log 섹션
-2. r4-hybrid-wrapper-2026-04-26.md 에 사유
-3. 매트릭스 §D 새 결정 또는 §B 새 거부
-4. master issue #2 댓글 + cross-review
+To change this vision after the R4 lock:
+1. Add a Change-log section to this file
+2. Record the rationale in `r4-hybrid-wrapper-2026-04-26.md`
+3. Add a new decision in matrix §D, or a new rejection in §B
+4. Comment on master issue #2 + cross-review
 
-§A 채택 항목은 변경 금지 (R0 lock 유지).
+§A-adopted items are not subject to change (the R0 lock holds).
