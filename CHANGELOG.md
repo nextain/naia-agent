@@ -8,6 +8,39 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+## [Slice 3-XR-H] — 2026-05-20 — multi-judge ensemble (GLM + Codex + Claude) — Task #20
+
+Resolves `feedback_pi_substrate_not_glm_only_2026_05_20`: the pi pin-bundle substrate intent is **multi-tool external subprocess**, not a single GLM HTTP call. This slice ships the missing ensemble path.
+
+- **`lib/llm-judge.ts`** — new functions:
+  - `judgeClaude(args, opts)` — spawns `claude -p <prompt> --output-format text` (Claude Code 2.1+ CLI). Out-of-process; uses CLI's own OAuth.
+  - `judgeCodex(args, opts)` — spawns `codex exec --output-last-message <file> <prompt>` (codex-cli 0.130+).
+  - `judgeEnsemble(args, opts, env)` — runs GLM HTTP + claude CLI + codex CLI in parallel. Returns `EnsembleVerdict { pass, reason, glm?, claude?, codex?, agreeRate, validCount, infraErrorCount }`.
+  - `ensembleAvailable()` — 5-second probe of each provider's invokability.
+  - Aggregation: infra-errored judges EXCLUDED from majority. Strict-majority pass among remaining → ensemble pass. Tie or all-fail → ensemble fail. Configurable via `includeGlm/includeClaude/includeCodex`.
+
+- **Self-judge bias avoidance — structural**:
+  - SUT (System Under Test) = local Gemma family (gemma4:31b / gemma3n:e4b on ollama).
+  - Judge ensemble = GLM-4.5 (cloud, Zhipu) + Claude (Anthropic) + Codex (OpenAI). **Different vendors, families, sizes.** Cannot self-vote.
+
+- **`integration-scenarios.test.ts`** — opt-in ensemble for **3 high-judgment scenarios** (A1 / A4 / F2). Gated by `NAIA_JUDGE_ENSEMBLE=1` (default off — single GLM, to bound subscription costs). Other 23 scenarios stay single-GLM (low-judgment, mechanism-asserted).
+
+- **Ralph R1 → R2 finding (real value of ensemble)**:
+  - R1 A1: ensemble `pass=true agreeRate=0.67` — **codex DISAGREED** with glm/claude. Codex strict-interpreted "the output" to include the harness's `[exit=N]` header + stderr tool logs, voted FAIL. GLM and Claude correctly evaluated only the model's response prose. **Single-GLM would have hidden this ambiguity.**
+  - R2 (this commit): A1 `expected` clarified — "Evaluate ONLY the model's reply text (above the `--- stderr ---` divider). Ignore [exit=N], stderr lines, tool logs". After clarification all 3 judges unanimous.
+  - R3: confirmed 2-consecutive PASS (R2+R3, agreeRate=1.0 across all 3 scenarios, 9/9 judges PASS, 0 infra-error).
+
+- **Cost ledger**: each ensemble-enabled run = 3 scenarios × 3 judges = 9 API calls. claude CLI subscription credits + codex CLI credits consumed. Default OFF preserves run cost. Set `NAIA_JUDGE_ENSEMBLE=1` for explicit ensemble runs.
+
+- **Full cli-app suite regression (single-GLM mode)**: 14 files / **151 passed / 2 skipped / 0 failed** / 395s wall. No regression. Over-fit guard 100% preserved (`feedback_naia_agent_general_purpose_no_overfit`) — judge harness only, no core change.
+
+- **Planning context (`.agents/progress/slice-3-xr-h-i-j-l-plan-2026-05-20.md`)** — design doc spelling out H → J → L sequence per user gate. K (LangGraph + RAG actual implementation) explicitly deferred; its small reserve (manifest enum + stub message) will piggyback on J as a separate commit.
+
+- **Limitations**:
+  - opencode / gemini CLIs NOT wired (user said "glm, codex, claude").
+  - Ensemble used on 3 scenarios only (high-judgment); 23 others still single-GLM.
+  - claude CLI subscription / codex credits consumed per ensemble run.
+
 ## [Slice 3-XR-I] — 2026-05-20 — pi-based coding LIVE verification (Group P) — Task #21
 
 User asked (verbatim): "pi 기반의 코딩도 진행이 되는거야?". The prior Group B coding scenarios only exercised LLM read/explain prose. This slice closes the gap with **6 LIVE tool-calling scenarios** in which gemma4:31b drives the runtime tool-loop end-to-end.

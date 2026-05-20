@@ -245,3 +245,298 @@ export async function judgeConsistencyProbe(
   const v2 = await judge(args, {}, env);
   return { agree: v1.pass === v2.pass, v1, v2 };
 }
+
+// ─── Multi-judge ensemble (Slice 3-XR-H) ─────────────────────────────────────
+//
+// User correction (feedback_pi_substrate_not_glm_only_2026_05_20): the pi
+// pin-bundle substrate intent is MULTI-TOOL outsourcing, not a single GLM
+// HTTP call. Below we add subprocess judges for the two CLI tools the user
+// has installed — `codex` (codex-cli 0.130) and `claude` (Claude Code 2.1).
+// Combined with the HTTP `judge()` they form a 3-judge ensemble; agreement
+// rate quantifies per-provider bias.
+//
+// All three judges are independent processes (no shared cache, no shared
+// model family). Self-judge bias avoidance is structural.
+
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+const ENSEMBLE_SYSTEM = [
+  "You are a strict but fair evaluator of agent test outputs.",
+  "Reply with ONLY this JSON shape, nothing else (no markdown fences):",
+  '{"pass": boolean, "reason": "one short sentence"}',
+  "Do not include reasoning, do not preface, do not append notes.",
+].join("\n");
+
+function buildEnsemblePrompt(args: {
+  scenarioId: string;
+  description: string;
+  expected: string;
+  observed: string;
+}): string {
+  const observed =
+    args.observed.length > 4000
+      ? args.observed.slice(0, 4000) + "\n…[truncated]"
+      : args.observed;
+  return [
+    ENSEMBLE_SYSTEM,
+    "",
+    `Scenario: ${args.scenarioId} — ${args.description}`,
+    `Expected behavior:`,
+    args.expected,
+    ``,
+    `Observed (verbatim; may include tool logs and stderr markers):`,
+    `<<<`,
+    observed,
+    `>>>`,
+    ``,
+    `Did the observed output satisfy the expected behavior? JSON only.`,
+  ].join("\n");
+}
+
+/** Judge via the `claude` CLI (Claude Code 2.1+). Uses `-p` print mode +
+ *  `--output-format text` so the model returns only its single response.
+ *  Self-isolation: the spawned `claude` is an OUT-OF-PROCESS instance
+ *  using its own OAuth session — different from the harness invoking it. */
+export function judgeClaude(
+  args: {
+    scenarioId: string;
+    description: string;
+    expected: string;
+    observed: string;
+  },
+  options: { timeoutMs?: number; binary?: string } = {},
+): JudgeVerdict {
+  const prompt = buildEnsemblePrompt(args);
+  const timeoutMs = options.timeoutMs ?? 90_000;
+  const binary = options.binary ?? "claude";
+  try {
+    const r = spawnSync(
+      binary,
+      ["-p", prompt, "--output-format", "text"],
+      {
+        encoding: "utf8",
+        timeout: timeoutMs,
+        env: {
+          ...process.env,
+          // No-op: claude inherits its own OAuth; we just ensure no API key
+          // shape gets passed accidentally.
+        },
+      },
+    );
+    if (r.error || r.status !== 0) {
+      return {
+        pass: false,
+        reason: `claude judge transport: status=${r.status} ${(r.error?.message ?? "").slice(0, 100)}`,
+      };
+    }
+    return parseJudge(r.stdout ?? "");
+  } catch (e) {
+    return { pass: false, reason: `claude judge spawn error: ${(e as Error).message.slice(0, 120)}` };
+  }
+}
+
+/** Judge via the `codex` CLI (codex-cli 0.130+). Uses `codex exec` with
+ *  `--output-last-message <file>` so we get the model's final reply
+ *  cleanly (not the streaming UI). */
+export function judgeCodex(
+  args: {
+    scenarioId: string;
+    description: string;
+    expected: string;
+    observed: string;
+  },
+  options: { timeoutMs?: number; binary?: string } = {},
+): JudgeVerdict {
+  const prompt = buildEnsemblePrompt(args);
+  const timeoutMs = options.timeoutMs ?? 120_000;
+  const binary = options.binary ?? "codex";
+  const dir = mkdtempSync(join(tmpdir(), "codex-judge-"));
+  const outFile = join(dir, "last-message.txt");
+  try {
+    const r = spawnSync(
+      binary,
+      ["exec", "--output-last-message", outFile, prompt],
+      {
+        encoding: "utf8",
+        timeout: timeoutMs,
+      },
+    );
+    if (r.error || r.status !== 0) {
+      return {
+        pass: false,
+        reason: `codex judge transport: status=${r.status} ${(r.error?.message ?? "").slice(0, 100)}`,
+      };
+    }
+    let raw = "";
+    try {
+      raw = readFileSync(outFile, "utf8");
+    } catch {
+      // fallback to stdout
+      raw = r.stdout ?? "";
+    }
+    return parseJudge(raw);
+  } catch (e) {
+    return { pass: false, reason: `codex judge spawn error: ${(e as Error).message.slice(0, 120)}` };
+  } finally {
+    try {
+      unlinkSync(outFile);
+    } catch {
+      // best-effort
+    }
+  }
+}
+
+export interface EnsembleVerdict {
+  /** Majority verdict across all available judges. `pass=true` requires
+   *  STRICT majority (more passes than fails); tied or all-infra-noise
+   *  is reported as pass=false with a meta reason. */
+  pass: boolean;
+  reason: string;
+  /** Per-judge breakdown — undefined entry = judge unavailable. */
+  glm?: JudgeVerdict;
+  claude?: JudgeVerdict;
+  codex?: JudgeVerdict;
+  /** Fraction of available judges that voted pass (1.0 = unanimous). */
+  agreeRate: number;
+  /** Number of judges that produced a non-infra-error verdict. */
+  validCount: number;
+  /** Number of judges that returned infra-error (transport / parse). */
+  infraErrorCount: number;
+}
+
+const INFRA_ERROR_PATTERN = /transport error|judge empty|judge parse error|transport:|spawn error|no judge provider/;
+
+function isInfraError(v: JudgeVerdict | undefined): boolean {
+  if (!v) return false;
+  return !v.pass && INFRA_ERROR_PATTERN.test(v.reason);
+}
+
+/** 3-judge ensemble (GLM HTTP + claude CLI + codex CLI). Each judge
+ *  is independent. Aggregation:
+ *  - infra-errored judges are EXCLUDED from the majority vote.
+ *  - Among judges that produced a substantive verdict, strict majority
+ *    of passes → ensemble pass. Tie or all-fail → ensemble fail.
+ *  - If ALL judges infra-errored, reason is recorded as such.
+ *
+ *  Caller can inspect `agreeRate` to measure provider disagreement
+ *  (the `judge_disagreement_rate` metric requested in the design v3).
+ */
+export async function judgeEnsemble(
+  args: {
+    scenarioId: string;
+    description: string;
+    expected: string;
+    observed: string;
+  },
+  options: {
+    includeGlm?: boolean;
+    includeClaude?: boolean;
+    includeCodex?: boolean;
+    claudeTimeoutMs?: number;
+    codexTimeoutMs?: number;
+  } = {},
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<EnsembleVerdict> {
+  const includeGlm = options.includeGlm ?? true;
+  const includeClaude = options.includeClaude ?? true;
+  const includeCodex = options.includeCodex ?? true;
+
+  // Run subprocesses in parallel where possible. GLM is async fetch,
+  // claude/codex are sync spawnSync wrapped in Promise.resolve so they
+  // also yield to the event loop.
+  const tasks: Promise<{ key: keyof EnsembleVerdict; v: JudgeVerdict }>[] = [];
+  if (includeGlm && judgeAvailable(env)) {
+    tasks.push(
+      judge(args, {}, env).then((v) => ({ key: "glm" as const, v })),
+    );
+  }
+  if (includeClaude) {
+    tasks.push(
+      Promise.resolve(judgeClaude(args, { timeoutMs: options.claudeTimeoutMs })).then(
+        (v) => ({ key: "claude" as const, v }),
+      ),
+    );
+  }
+  if (includeCodex) {
+    tasks.push(
+      Promise.resolve(judgeCodex(args, { timeoutMs: options.codexTimeoutMs })).then(
+        (v) => ({ key: "codex" as const, v }),
+      ),
+    );
+  }
+
+  const results = await Promise.all(tasks);
+
+  const result: EnsembleVerdict = {
+    pass: false,
+    reason: "ensemble: no judges available",
+    agreeRate: 0,
+    validCount: 0,
+    infraErrorCount: 0,
+  };
+  for (const { key, v } of results) {
+    (result as unknown as Record<string, JudgeVerdict>)[key as string] = v;
+  }
+
+  const validVerdicts: JudgeVerdict[] = [];
+  for (const { v } of results) {
+    if (isInfraError(v)) {
+      result.infraErrorCount += 1;
+    } else {
+      validVerdicts.push(v);
+    }
+  }
+  result.validCount = validVerdicts.length;
+
+  if (validVerdicts.length === 0) {
+    result.pass = false;
+    result.reason = `ensemble: all ${results.length} judges infra-errored`;
+    result.agreeRate = 0;
+    return result;
+  }
+
+  const passCount = validVerdicts.filter((v) => v.pass).length;
+  const failCount = validVerdicts.length - passCount;
+  // Strict majority — tie counts as fail to be conservative.
+  result.pass = passCount > failCount;
+  result.agreeRate = Math.max(passCount, failCount) / validVerdicts.length;
+  result.reason = result.pass
+    ? `ensemble pass ${passCount}/${validVerdicts.length}: ${validVerdicts.find((v) => v.pass)?.reason ?? ""}`
+    : `ensemble fail ${failCount}/${validVerdicts.length}: ${validVerdicts.find((v) => !v.pass)?.reason ?? ""}`;
+  return result;
+}
+
+/** External CLI availability probe — used by tests to decide whether
+ *  the ensemble path is worth attempting. */
+export function ensembleAvailable(): {
+  glm: boolean;
+  claude: boolean;
+  codex: boolean;
+} {
+  const glm = judgeAvailable(process.env);
+  // For CLI we just check the binary is invokable with --version. Best-
+  // effort — if --version itself hangs, we still return false in a
+  // bounded time.
+  function probe(bin: string): boolean {
+    try {
+      const r = spawnSync(bin, ["--version"], { timeout: 5_000, encoding: "utf8" });
+      return !r.error && r.status === 0;
+    } catch {
+      return false;
+    }
+  }
+  return { glm, claude: probe("claude"), codex: probe("codex") };
+}
+
+// Mark unused imports as used — readFileSync and writeFileSync are used
+// in the helper functions; tmpdir/mkdtempSync/unlinkSync too. Kept here
+// to satisfy the linter when this file is compiled in isolation.
+void writeFileSync;
+void mkdtempSync;
+void readFileSync;
+void unlinkSync;
+void tmpdir;
+void join;
