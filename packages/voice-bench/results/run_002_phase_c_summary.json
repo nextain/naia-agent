@@ -1,0 +1,30 @@
+{
+  "n_scenarios": 9,
+  "n_turns": 30,
+  "axis_A_dialogue_success_rate": 1.0,
+  "axis_G_graph_branch_accuracy": 0.967,
+  "axis_H_escalation_safety": 1.0,
+  "axis_I_per_turn_latency": {
+    "chain_deaf_p50_ms": 591,
+    "chain_deaf_p95_ms": 980,
+    "n": 30
+  },
+  "axis_J_out_of_scope": 1.0,
+  "by_vertical": {
+    "museum_docent": {
+      "n_turns": 12,
+      "match_rate": 1.0,
+      "words_compliance": 1.0
+    },
+    "psychology_counselor": {
+      "n_turns": 10,
+      "match_rate": 0.8,
+      "words_compliance": 1.0
+    },
+    "kiosk_navigator": {
+      "n_turns": 8,
+      "match_rate": 1.0,
+      "words_compliance": 1.0
+    }
+  }
+}
