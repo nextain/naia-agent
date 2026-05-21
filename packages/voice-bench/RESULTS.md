@@ -10,12 +10,12 @@
 
 | axis | metric | R6 baseline | **Phase C** | target | result |
 |---|---|---|---|---|---|
-| A | dialogue_success_rate | 1.000 | **1.000** | ≥ 0.80 | ✅ |
-| G | graph_branch_accuracy | 0.833 | **0.967** | ≥ 0.85 | ✅ (+13.4%) |
-| H | escalation_safety | 0.500 | **1.000** | = 1.00 | ✅ (+50%) |
+| A | dialogue_success_rate | 1.000 | **1.000** | ≥ 0.80 | ✅ (single run) |
+| G | graph_branch_accuracy | 0.833 | **0.967** | ≥ 0.85 | ✅ (+13.4%, single run) |
+| H | escalation_safety | 0.500 | **1.000 (2/2 crisis turns, very small denominator)** | = 1.00 | ✅ recall-only (precision/false-positive 미평가) |
 | I | chain_deaf p50 | 608 ms | **591 ms** | ≤ 700 ms | ✅ (-17 ms) |
 | I | chain_deaf p95 | 1607 ms | **980 ms** | — | ✅ (-627 ms) |
-| J | out_of_scope_handling | 0.500 | **1.000** | ≥ 0.90 | ✅ (+50%) |
+| J | out_of_scope_handling | 0.500 | **1.000 (2/2 OOS turns, very small denominator)** | ≥ 0.90 | ✅ recall-only (over-refusal 미평가) |
 
 | vertical | R6 match_rate | **Phase C match_rate** | words_compliance |
 |---|---|---|---|
@@ -23,16 +23,16 @@
 | psychology_counselor | 0.700 (7/10) | **0.800 (8/10)** | 1.00 |
 | kiosk_navigator | 0.875 (7/8) | **1.000 (8/8)** | 1.00 |
 
-**Strengths (Phase C improvements)**:
-- ✅ Phase C 모든 6 P0 axis 충족 (R6 = 4/6, Phase C = 6/6, n=30 single run)
-- ✅ Escalation safety 0.5 → **1.0** (Lever 3 graph classify 보강 + Lever 1 psychology preset 1393 명시 효과)
-- ✅ OOS handling 0.5 → **1.0** (Lever 1 museum + kiosk preset OOS guard explicit 효과)
-- ✅ Graph branch accuracy 0.833 → **0.967** (escalation pattern recall 보강 효과)
-- ✅ chain_deaf p95 1607 → **980 ms** (p50 591 ms — internal target 충족, asymmetric env 동일)
-- ✅ Words compliance 1.00 (전 vertical)
+**Observed deltas (Phase C, single run, n=30; attribution provisional)**:
+- ✅ Phase C: single-run 측정에서 R6 baseline 의 6 P0 axis 모두 target 충족치 observed (R6 4/6 met; H/J는 small-denom recall, 다른 axis는 분모 안정). counterfactual ablation 없음 → 단정적 인과 주장 회피.
+- ✅ Escalation safety 0.5 → 1.0 (2/2 crisis turns) — after applying L1 (psychology preset 1393 명시) + L3 (graph escalation patterns 9 → 27) 후 observed. no isolated ablation, causality not established. precision/false-positive 미평가.
+- ✅ OOS handling 0.5 → 1.0 (2/2 OOS turns) — after applying L1 (museum + kiosk OOS guard explicit) observed. over-refusal precision 미평가.
+- ✅ Graph branch accuracy 0.833 → 0.967 — after L3 ESCALATION_PATTERNS 보강 observed.
+- ✅ chain_deaf p95 1607 → 980 ms (p50 591 ms — internal target 충족, asymmetric env 동일).
+- ✅ Words compliance 1.00 (전 vertical).
 
 **Remaining weakness**:
-- ⚠ **Counsel match 0.8** — R6 0.7 대비 +10% 개선됨, 그러나 target 0.85+ 약간 미달. corpus 보강 효과 일부 흡수, RAG threshold 추가 ablation 권장 (Lever 2 추가).
+- ⚠ **Counsel match 0.8** — R6 0.7 대비 +10% observed (single run). Lever 2 corpus expansion (5 → 8건) 이후 0.7 → 0.8 improvement observed; attribution provisional without ablation. target 0.85+ 약간 미달, corpus 추가 보강 or RAG threshold ablation 권장 (Lever 2 확장).
 
 ## Phase C lever applied (naia-model-infra commit f1f6597)
 
@@ -88,10 +88,10 @@
 
 ## Improvement levers (적용 + 다음 cycle)
 
-**Phase C 에 적용된 lever** (commit f1f6597):
-1. ✅ **Lever 1 (system prompt)** — psychology_counselor 1393 명시 + museum/kiosk OOS guard → H 0.5 → 1.0, J 0.5 → 1.0
-2. ✅ **Lever 2 (RAG corpus)** — counseling 5 → 8건 (depression/relationship/isolation) → counsel match 0.7 → 0.8 (target 0.85 미달, partial)
-3. ✅ **Lever 3 (graph classify)** — escalation pattern 9 → 27 (강+약+우울) → G 0.833 → 0.967, H +recall
+**Phase C 에 적용된 lever** (commit f1f6597); single run, attribution provisional (no isolated ablation):
+1. ✅ **Lever 1 (system prompt)** — psychology_counselor 1393 명시 + museum/kiosk OOS guard. After application: H 0.5 → 1.0 (2/2), J 0.5 → 1.0 (2/2) observed. consistent with L1 contribution; causality not established.
+2. ✅ **Lever 2 (RAG corpus)** — counseling 5 → 8건 (depression/relationship/isolation). After application: counsel match 0.7 → 0.8 observed. target 0.85 미달 (partial); attribution provisional without ablation.
+3. ✅ **Lever 3 (graph classify)** — escalation pattern 9 → 27 (강+약+우울). After application: G 0.833 → 0.967, H +recall observed. consistent with L3 contribution.
 
 **다음 cycle 후보** (Phase D):
 4. **Lever 2 추가** — counseling corpus 8 → 12건 (career/family/eating-disorder/grief) 또는 RAG threshold 0.40 → 0.45 ablation → counsel match 0.8 → 0.85+
@@ -143,13 +143,13 @@ packages/voice-bench/
 ## Conclusion (Phase C)
 
 본 cycle (P0c-4 Phase C) lever-applied 측정 (internal demo baseline, n=30 single run):
-- **chain_deaf 591 ms p50 / 980 ms p95** — internal target 충족 baseline (cross-service comparison 비대칭, asymmetric env 동일)
-- **dialogue_success 100%** — 30/30 turn 무사고 완료 (heuristic metric)
-- **Phase C 6/6 P0 axis 충족** (R6 4/6 대비 escalation/OOS 0.5 → 1.0 + branch 0.833 → 0.967 + p95 -627 ms) — 단, 1.0 값은 작은 분모의 결과, false-positive/over-refusal 미평가
-- **counsel match 0.8** (target 0.85+ 미달) — Lever 2 partial 효과 (corpus 5→8건). 추가 corpus 또는 threshold ablation 권장
-- **single-run noise 흡수 미평가** — Phase C "+50%" delta 가 noise/seed variance 분 포함 가능성, 3-run replication 권장
+- **chain_deaf 591 ms p50 / 980 ms p95** — internal target 충족 baseline (cross-service comparison 비대칭, asymmetric env 동일).
+- **dialogue_success 100%** — 30/30 turn 무사고 완료 (heuristic metric, single run).
+- **Single-run benchmark 에서 R6 baseline 의 6 P0 axis target 충족치 observed** (R6 = 4/6 met). H/J는 small-denom recall (각 2/2), precision/false-positive/over-refusal 미평가. 다른 axis (G/I/A) 는 분모 안정. counterfactual ablation 없음 → "달성"보다 "observed" framing.
+- **counsel match 0.8** (target 0.85+ 미달) — Lever 2 corpus expansion 이후 0.7 → 0.8 observed; attribution provisional without ablation.
+- **single-run noise 흡수 미평가** — Phase C "+50%" delta 가 noise/seed variance 분 포함 가능성, 3-run replication 권장.
 
-본 baseline = 외부 reviewer 가 reproducible internal benchmark methodology + script 로 검증 가능 (LLM-judge / 3-run replication / 한국어 multi-turn standard dataset / false-positive·over-refusal precision 측정 = 후속 cycle).
+본 baseline 은 re-runnable internal benchmark script + methodology 를 제공하며, internal reproduction 에 사용 가능 (independent validation / multi-run robustness / LLM-judge / 한국어 multi-turn standard dataset / false-positive·over-refusal precision 측정 = 후속 cycle, pending).
 
 cf naia-labs `.agents/voice_cascade/p0c4/ralph_plan.md` (Ralph 7-round spec).
 cf naia-model-infra commit `f1f6597` (Lever 1/2/3 적용 본).
