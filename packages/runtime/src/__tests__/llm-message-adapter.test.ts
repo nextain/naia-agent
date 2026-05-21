@@ -117,18 +117,44 @@ describe("LLMMessage adapter (Phase 1.2 / #56)", () => {
 		expect(prepare([])).toBeUndefined();
 	});
 
-	it("ADP-08: under default threshold (compactAfterTokens=0) → fires", () => {
-		// Default is compactAfterTokens=0 so any non-empty history triggers.
+	it("ADP-08: history with reasoning → default prune strips it (returns shrunk)", () => {
+		// Cookbook default `reasoning: "all"` strips thinking blocks from
+		// assistants. With at least one reasoning block to strip, the no-op
+		// guard passes and we get a shrunk result.
+		const prepare = createLLMMessagePrepareCompact();
+		const history: LLMMessage[] = [
+			{ role: "user", content: "hello" },
+			{
+				role: "assistant",
+				content: [
+					{ type: "thinking", thinking: "I should respond politely" },
+					{ type: "text", text: "world" },
+				],
+			},
+		];
+		const pruned = prepare(history);
+		expect(pruned).toBeDefined();
+		expect(pruned!.length).toBeGreaterThanOrEqual(1);
+		// thinking block must be gone from the assistant message
+		const asst = pruned!.find((m) => m.role === "assistant");
+		expect(asst).toBeDefined();
+		const hasThinking =
+			typeof asst!.content !== "string" &&
+			asst!.content.some((b) => b.type === "thinking");
+		expect(hasThinking).toBe(false);
+	});
+
+	it("ADP-08b (codex R1 #1): no-op prune returns undefined — guard against unchanged result", () => {
+		// Plain-text history has nothing to strip with cookbook defaults
+		// (no reasoning, no tool_calls). pruneMessages returns the same
+		// content. The factory MUST reject this so the Agent doesn't treat
+		// the no-op as a successful compaction.
 		const prepare = createLLMMessagePrepareCompact();
 		const history: LLMMessage[] = [
 			{ role: "user", content: "hello" },
 			{ role: "assistant", content: "world" },
 		];
-		const pruned = prepare(history);
-		// Cookbook defaults strip reasoning + old tool_calls + empty messages.
-		// Plain text survives — pruned should at least keep the user/asst pair.
-		expect(pruned).toBeDefined();
-		expect(pruned!.length).toBeGreaterThanOrEqual(1);
+		expect(prepare(history)).toBeUndefined();
 	});
 
 	it("ADP-09: host can pass explicit threshold to double-gate", () => {
@@ -138,6 +164,78 @@ describe("LLMMessage adapter (Phase 1.2 / #56)", () => {
 		});
 		const history: LLMMessage[] = [{ role: "user", content: "tiny" }];
 		expect(prepare(history)).toBeUndefined();
+	});
+
+	it("ADP-09b (codex R1 #2): url-backed image round-trips as url (not base64)", () => {
+		const orig: LLMMessage = {
+			role: "user",
+			content: [
+				{
+					type: "image",
+					source: {
+						type: "url",
+						mediaType: "image/png",
+						data: "https://example.com/x.png",
+					},
+				},
+			],
+		};
+		const back = modelMessageToLLMMessage(llmMessageToModelMessage(orig));
+		expect(back.role).toBe("user");
+		const blocks = typeof back.content === "string" ? [] : back.content;
+		const img = blocks.find((b) => b.type === "image") as
+			| (LLMMessage["content"] extends Array<infer T> ? T : never)
+			| undefined;
+		expect(img).toBeDefined();
+		expect((img as { source: { type: string; data: string } }).source.type).toBe(
+			"url",
+		);
+		expect(
+			(img as { source: { type: string; data: string } }).source.data,
+		).toBe("https://example.com/x.png");
+	});
+
+	it("ADP-09c (codex R1 #3): tool_result.isError survives round-trip", () => {
+		const orig: LLMMessage = {
+			role: "tool",
+			content: [
+				{
+					type: "tool_result",
+					toolCallId: "call_fail",
+					content: "permission denied",
+					isError: true,
+				},
+			],
+		};
+		const back = modelMessageToLLMMessage(llmMessageToModelMessage(orig));
+		expect(back.role).toBe("tool");
+		const blocks = typeof back.content === "string" ? [] : back.content;
+		const tr = blocks.find((b) => b.type === "tool_result") as
+			| { type: "tool_result"; content: string; isError?: boolean }
+			| undefined;
+		expect(tr).toBeDefined();
+		expect(tr!.content).toBe("permission denied");
+		expect(tr!.isError).toBe(true);
+	});
+
+	it("ADP-09d (codex R1 #3): tool_result without isError stays without isError", () => {
+		const orig: LLMMessage = {
+			role: "tool",
+			content: [
+				{
+					type: "tool_result",
+					toolCallId: "call_ok",
+					content: "ok response",
+				},
+			],
+		};
+		const back = modelMessageToLLMMessage(llmMessageToModelMessage(orig));
+		const blocks = typeof back.content === "string" ? [] : back.content;
+		const tr = blocks.find((b) => b.type === "tool_result") as
+			| { type: "tool_result"; isError?: boolean }
+			| undefined;
+		expect(tr).toBeDefined();
+		expect(tr!.isError).toBeUndefined();
 	});
 
 	it("ADP-10: pathological prune-to-empty is rejected (returns undefined)", () => {

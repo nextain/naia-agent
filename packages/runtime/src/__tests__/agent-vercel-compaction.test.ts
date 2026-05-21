@@ -150,16 +150,58 @@ describe("Agent.sendStream prepareCompact integration (Phase 1.2 / #56)", () => 
 		expect(r.prepareCalls).toBe(0);
 	});
 
-	it("AVC-03: double-compaction guard — `compaction` event still emits exactly once per over-budget turn", async () => {
+	it("AVC-03: double-compaction guard — `compaction` event fires at most once per over-budget turn", async () => {
+		// Use an always-shrinks deterministic prepare so we can assert the
+		// emission count without depending on pruneMessages's behaviour for
+		// plain-text histories (which is no-op — see AVC-08).
+		const memory = new CapturingMemory();
+		const host = createHost({
+			llm: new TinyLLM(["a", "b"]),
+			memory,
+			logger: {
+				trace() {},
+				debug() {},
+				info() {},
+				warn() {},
+				error() {},
+			} as never,
+		});
+		const agent = new Agent({
+			host,
+			estimateTokens: () => 100_000,
+			contextBudget: 1_000,
+			compactionStrategy: "reactive",
+			handoffThreshold: 0,
+			prepareCompact: (h) => (h.length > 1 ? h.slice(-1) : undefined),
+		});
+		let compactionEvents = 0;
+		for (let i = 0; i < 2; i++) {
+			for await (const ev of agent.sendStream(`turn ${i}`)) {
+				if (ev.type === "compaction") compactionEvents++;
+			}
+		}
+		// One compaction per over-budget turn; never two on the same turn.
+		expect(compactionEvents).toBeGreaterThan(0);
+		expect(compactionEvents).toBeLessThanOrEqual(2);
+		expect(memory.captured.length).toBe(0);
+	});
+
+	it("AVC-08 (codex R1 #1): no-op prune → NO compaction event, NO fallback to memory.compact()", async () => {
+		// With plain-text history, pruneMessages cookbook defaults are a
+		// no-op. The factory rejects no-op results (returns undefined), so
+		// the Agent emits NO compaction event. Crucially, it ALSO does NOT
+		// fall back to memory.compact() — the "exactly one path" contract
+		// holds even on no-op.
 		const r = await runAgent({
 			strategy: "reactive",
-			userTurns: 2,
+			userTurns: 3,
 			estimatedTokens: 100_000,
 			withPrepareCompact: true,
 		});
-		// One compaction event per turn at most; never two.
-		expect(r.compactionEvents).toBeGreaterThan(0);
-		expect(r.compactionEvents).toBeLessThanOrEqual(2);
+		expect(r.memory.captured.length).toBe(0);
+		expect(r.compactionEvents).toBe(0);
+		// prepareCompact was invoked (over-budget gate) but returned undefined.
+		expect(r.prepareCalls).toBeGreaterThan(0);
 	});
 
 	it("AVC-04: strategy=off + prepareCompact wired → prepareCompact NEVER called", async () => {

@@ -236,6 +236,10 @@ export function llmMessageToModelMessage(msg: LLMMessage): ModelMessage {
 			typeof msg.content === "string"
 				? [{ type: "text" as const, text: msg.content }]
 				: msg.content;
+		// R2 (codex #3): preserve `isError` bit by emitting `error-text` for
+		// failed tool results — matches packages/providers/src/vercel-client.ts.
+		// Without this, a compaction round-trip silently flips error results
+		// into normal text and changes model-visible conversation state.
 		const toolParts = blocks
 			.filter(
 				(b): b is LLMContentBlock & { type: "tool_result" } =>
@@ -245,7 +249,9 @@ export function llmMessageToModelMessage(msg: LLMMessage): ModelMessage {
 				type: "tool-result" as const,
 				toolCallId: b.toolCallId,
 				toolName: "",
-				output: { type: "text" as const, value: b.content },
+				output: b.isError
+					? { type: "error-text" as const, value: b.content }
+					: { type: "text" as const, value: b.content },
 			}));
 		return { role: "tool", content: toolParts };
 	}
@@ -276,6 +282,17 @@ export function llmMessageToModelMessage(msg: LLMMessage): ModelMessage {
 function llmBlockToUserPart(block: LLMContentBlock) {
 	if (block.type === "text") return { type: "text" as const, text: block.text };
 	if (block.type === "image") {
+		// R2 (codex #2): URL-backed images must round-trip as URLs, not be
+		// mislabeled as base64. SDK FilePart.data accepts `DataContent | URL`;
+		// for URL sources we pass a `URL` instance so the reverse adapter can
+		// distinguish from base64 strings.
+		if (block.source.type === "url") {
+			return {
+				type: "file" as const,
+				data: new URL(block.source.data),
+				mediaType: block.source.mediaType,
+			};
+		}
 		return {
 			type: "file" as const,
 			data: block.source.data,
@@ -321,10 +338,18 @@ export function modelMessageToLLMMessage(msg: ModelMessage): LLMMessage {
 					p.output && typeof p.output === "object" && "value" in p.output
 						? String((p.output as { value: unknown }).value ?? "")
 						: "";
+				const isError =
+					p.output &&
+					typeof p.output === "object" &&
+					"type" in p.output &&
+					p.output.type === "error-text";
 				content.push({
 					type: "tool_result",
 					toolCallId: p.toolCallId,
 					content: outputValue,
+					// R2 (codex #3): restore the `isError` bit so error tool
+					// results survive the round-trip with full semantics.
+					...(isError ? { isError: true } : {}),
 				});
 			}
 		}
@@ -354,15 +379,29 @@ export function modelMessageToLLMMessage(msg: ModelMessage): LLMMessage {
 				name: p.toolName,
 				input: p.input,
 			});
-		} else if (p.type === "file" && typeof p.data === "string") {
-			blocks.push({
-				type: "image",
-				source: {
-					type: "base64",
-					mediaType: p.mediaType,
-					data: p.data,
-				},
-			});
+		} else if (p.type === "file") {
+			// R2 (codex #2): distinguish URL vs base64 file parts. `URL`
+			// instances came from a `source.type === "url"` input — reverse
+			// them to the same shape. Otherwise treat as base64.
+			if (p.data instanceof URL) {
+				blocks.push({
+					type: "image",
+					source: {
+						type: "url",
+						mediaType: p.mediaType,
+						data: p.data.toString(),
+					},
+				});
+			} else if (typeof p.data === "string") {
+				blocks.push({
+					type: "image",
+					source: {
+						type: "base64",
+						mediaType: p.mediaType,
+						data: p.data,
+					},
+				});
+			}
 		}
 	}
 	return { role, content: blocks };
@@ -400,9 +439,39 @@ export function createLLMMessagePrepareCompact(
 		const result = inner({ messages: modelMessages });
 		if (!result) return undefined;
 		const pruned = result.messages.map(modelMessageToLLMMessage);
-		// Safety: never wipe non-empty history to empty (e.g. pathological
-		// prune output). Caller treats `undefined` as "skip".
+		// Safety: never wipe non-empty history to empty (pathological prune).
 		if (pruned.length === 0) return undefined;
+		// R2 (codex #1): reject no-op prunes. `pruneMessages` returns the same
+		// content for plain-text histories with no reasoning/tool_calls — the
+		// Agent's double-compaction guard would then treat that as success and
+		// send the unchanged over-budget request anyway. Require an actual
+		// reduction (either fewer messages OR smaller total content) before
+		// declaring success; otherwise return `undefined` so the Agent's own
+		// caller can decide what to do (currently: skip the turn-level emit).
+		const beforeChars = countContentChars(history);
+		const afterChars = countContentChars(pruned);
+		if (pruned.length >= history.length && afterChars >= beforeChars) {
+			return undefined;
+		}
 		return pruned;
 	};
+}
+
+function countContentChars(messages: readonly LLMMessage[]): number {
+	let total = 0;
+	for (const m of messages) {
+		if (typeof m.content === "string") {
+			total += m.content.length;
+			continue;
+		}
+		for (const b of m.content) {
+			if (b.type === "text") total += b.text.length;
+			else if (b.type === "thinking") total += b.thinking.length;
+			else if (b.type === "redacted_thinking") total += b.data.length;
+			else if (b.type === "tool_use") total += JSON.stringify(b.input).length;
+			else if (b.type === "tool_result") total += b.content.length;
+			else if (b.type === "image") total += b.source.data.length;
+		}
+	}
+	return total;
 }
