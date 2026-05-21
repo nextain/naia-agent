@@ -41,6 +41,7 @@ const REPORTS_DIR = join(HERE, "..", "reports");
 
 const STRATEGIES: readonly StrategyId[] = [
 	"reactive",
+	"reactive-vercel",
 	"realtime",
 	"anthropic-native",
 	"off",
@@ -63,32 +64,83 @@ interface StrategyResult {
 	};
 }
 
-/** Simulate the runner's "what context the LLM sees" extraction so the
- *  judge evaluates the post-compaction visible window, not the raw fixture. */
+/**
+ * Reconstruct the visible context the LLM would see at a probe turn.
+ *
+ * Phase 1.3 (#56) R2 fix (adversarial review S1): the previous heuristic
+ * sliced fixture turns and showed the **same** sliced text to judges
+ * regardless of compaction strategy. That made `reactive` (5-section
+ * markdown recap) and `reactive-vercel` (Vercel pruneMessages output)
+ * look identical to the judges — an unfair comparison.
+ *
+ * Now: when the strategy actually compacted (`reactive` / `reactive-vercel`
+ * / `realtime` with a compactionPoint <= currentTurn), we prepend the
+ * real `recapContent` produced by `runner.runFixture()`. The tail still
+ * comes from the fixture (this is what the agent would still have in
+ * `#history` after compaction).
+ *
+ * For `off` / `anthropic-native` / no-op vercel prune: recap is empty, so
+ * we show the full transcript up to the probe turn (matches what the LLM
+ * would actually have to read).
+ */
+/**
+ * Phase 1.3 R2 (codex S10 fix): simulate the LLM provider's context window
+ * truncation. `off` and `anthropic-native` (host-side disabled) would
+ * normally be force-truncated by the provider when the request exceeds the
+ * model's context limit. Without this, those strategies receive an "oracle"
+ * view (full transcript) and trivially win every probe — which is what the
+ * R1 measurement showed.
+ *
+ * Heuristic: cap the visible window to `windowChars` characters, keeping
+ * the most-recent turns (right-aligned truncation, matches how most
+ * provider-side compaction works when the head overflows).
+ */
+function simulateContextWindow(text: string, windowChars: number): string {
+	if (text.length <= windowChars) return text;
+	const tailStart = text.length - windowChars;
+	// Try to start at a turn boundary so we don't slice mid-message.
+	const nlAfterCut = text.indexOf("\n", tailStart);
+	const start = nlAfterCut !== -1 ? nlAfterCut + 1 : tailStart;
+	return `[context truncated by provider — ${(text.length - start)} of ${text.length} chars retained]\n${text.slice(start)}`;
+}
+
 function extractVisibleContext(
 	fixture: Fixture,
 	strategy: StrategyId,
 	currentTurn: number,
+	recapContent: string,
 ): string {
 	const compactionPoints = fixture.compactionPoints ?? [];
 	const last = [...compactionPoints]
 		.filter((p) => p <= currentTurn)
 		.sort((a, b) => a - b)
 		.pop();
-	if (
-		(strategy === "reactive" || strategy === "realtime") &&
-		last !== undefined
-	) {
-		// After compaction we'd have a recap + tail. For the PoC we feed the
-		// judge the raw tail messages — the recap content itself depends on
-		// memory.compact() output which is generated during runFixture.
+	const isCompactStrategy =
+		strategy === "reactive" ||
+		strategy === "reactive-vercel" ||
+		strategy === "realtime";
+
+	// Phase 1.3 R2 (codex S9 fix): reactive-vercel's recapContent is ALREADY
+	// the full pruned history serialized — adding a tail again would
+	// double-count retained messages. Distinct treatment per strategy class:
+	//
+	// - reactive / realtime → summarizer output (recap) + tail (the messages
+	//   AFTER the compaction point that the agent still holds verbatim).
+	// - reactive-vercel → pruned history is itself the full window; show as-is.
+	if (strategy === "reactive-vercel" && last !== undefined && recapContent.length > 0) {
+		return `[reactive-vercel post-prune window]\n${recapContent}`;
+	}
+	if (isCompactStrategy && last !== undefined && recapContent.length > 0) {
 		const tail = fixture.turns
 			.slice(last, currentTurn)
 			.map((t) => `${t.role}: ${t.content}`)
 			.join("\n");
-		return `[after compaction at turn ${last}]\n${tail}`;
+		return `[after compaction at turn ${last}]\n${recapContent}\n\n${tail}`;
 	}
-	// off / anthropic-native (host-side disabled): full transcript visible
+	// No effective compaction OR no-op vercel prune: full transcript.
+	// Phase 1.3 R2 (codex S10 fix): `off` / `anthropic-native` no longer get
+	// the full transcript here unconditionally — the caller is responsible
+	// for simulating a context-window cap. See `simulateContextWindow()`.
 	return fixture.turns
 		.slice(0, currentTurn)
 		.map((t) => `${t.role}: ${t.content}`)
@@ -134,20 +186,42 @@ async function main(): Promise<number> {
 
 			const probeResults: ProbeResult[] = [];
 			for (const probe of taskProbes) {
-				const visible = extractVisibleContext(
+				let visible = extractVisibleContext(
 					fixture,
 					strategy,
 					probe.afterTurn,
+					fr.recapContent ?? "",
 				);
-				// Use the fixture's last user turn as the actual question being
-				// asked. This grounds the judge: "does the visible context provide
-				// what's needed to answer THIS specific question?" Compaction
-				// quality is then measurable — recap that preserved the fact PASSes,
-				// recap that lost it FAILs.
-				const lastUserTurn = fixture.turns
-					.slice(0, probe.afterTurn)
-					.filter((t) => t.role === "user")
-					.pop()?.content ?? "(unknown)";
+				// Phase 1.3 R2 (codex S10 fix): the provider's context-window
+				// truncation only applies when no host-side compaction ran.
+				// reactive / realtime / reactive-vercel produced a recap that
+				// is by definition small; they don't get truncated again here.
+				// off / anthropic-native receive the simulated cap matching
+				// roughly the budget the agent would have hit in production.
+				if (strategy === "off" || strategy === "anthropic-native") {
+					// 2000 chars ≈ 500 tokens — small but representative of a
+					// modest production context budget. Tunable; the point is
+					// that "oracle" full transcript is no longer the default.
+					visible = simulateContextWindow(visible, 2000);
+				}
+				// Phase 1.3 R2 (codex S8 fix): prefer the fixture-author's
+				// explicit `question`. Fall back to the last user turn ONLY
+				// for legacy fixtures that pre-date the schema change. The
+				// fallback is structurally wrong (judge evaluates a different
+				// prompt) — emit a stderr warning so reviewers notice.
+				const explicitQuestion =
+					probe.type === "task-accuracy" ? probe.question : undefined;
+				const fallbackQuestion =
+					fixture.turns
+						.slice(0, probe.afterTurn)
+						.filter((t) => t.role === "user")
+						.pop()?.content ?? "(unknown)";
+				if (!explicitQuestion) {
+					process.stderr.write(
+						`  ⚠ S8 fallback: ${fixture.id} probe@${probe.afterTurn} lacks explicit \`question\` — using last user turn (may not match fixture intent)\n`,
+					);
+				}
+				const lastUserTurn = explicitQuestion ?? fallbackQuestion;
 				process.stderr.write(
 					`  probe@turn=${probe.afterTurn} → asking 4 judges...\n`,
 				);
@@ -201,9 +275,15 @@ async function main(): Promise<number> {
 	lines.push("## Ensemble verdict per strategy (majority of valid judges)");
 	lines.push("");
 	lines.push(
-		"| Strategy | Ensemble PASS rate | Avg validCount/4 | Infra errors | Deterministic task | Deterministic recall |",
+		"| Strategy | Ensemble PASS rate | Avg validCount/4 | Infra errors | Anchor-heuristic | Keyword-recall |",
 	);
 	lines.push("|---|---:|---:|---:|---:|---:|");
+	// Phase 1.3 R2 (codex S5 fix): the last two columns are NOT "deterministic
+	// task accuracy" — that label confused readers. They are:
+	//  - Anchor-heuristic: `evaluateProbe()` heuristic (visible len > 200 AND
+	//    domain anchor present). Coarse; for sanity, not for ranking.
+	//  - Keyword-recall: every probe-expected keyword present in visible text.
+	//    The honest deterministic signal.
 	for (const r of results) {
 		const passCount = r.probeResults.filter((pr) => pr.ensemble.pass).length;
 		const passRate = r.probeResults.length === 0 ? 0 : passCount / r.probeResults.length;

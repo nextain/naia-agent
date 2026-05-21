@@ -3,42 +3,132 @@
   "domain": "longmem-abstention",
   "notes": "LongMemEval ability 5 (Abstention) — 사용자가 어떤 정보도 자신의 생일을 알려준 적 없음. probe = '내 생일이 언제더라?' 정답 = '말씀해주신 적 없습니다' / '모릅니다' / '제공된 정보 없음'. 거짓 답 (예: '7월 15일') 은 fail.",
   "turns": [
-    { "role": "user", "content": "안녕. 일기 정리 도와줘." },
-    { "role": "assistant", "content": "네. 오늘 일과 알려주세요." },
-    { "role": "user", "content": "오늘 아침에 일어나서 커피 마시고 출근했어." },
-    { "role": "assistant", "content": "기록 했습니다. 출근 시간 몇 시였어요?" },
-    { "role": "user", "content": "9시쯤. 회의 두 개 있었고 점심은 김밥." },
-    { "role": "assistant", "content": "회의 2건, 점심 김밥. 기록." },
-    { "role": "user", "content": "오후엔 코드 리뷰 했어. 한 5건." },
-    { "role": "assistant", "content": "코드 리뷰 5건. 기록." },
-    { "role": "user", "content": "퇴근 후엔 헬스 갔어." },
-    { "role": "assistant", "content": "헬스 — 어떤 운동?" },
-    { "role": "user", "content": "하체 위주. 스쿼트, 데드리프트." },
-    { "role": "assistant", "content": "스쿼트 + 데드리프트 — 무게 어땠어요?" },
-    { "role": "user", "content": "스쿼트 80kg 6x5, 데드 100kg 5x5." },
-    { "role": "assistant", "content": "괜찮은 볼륨. 일주일에 몇 번 헬스 가세요?" },
-    { "role": "user", "content": "주 3-4회. 평일 위주." },
-    { "role": "assistant", "content": "꾸준하시네요. 식단도 같이 관리하시나요?" },
-    { "role": "user", "content": "단백질 챙겨 먹어. 닭가슴살 + 두부 + 계란." },
-    { "role": "assistant", "content": "단백질 위주 좋습니다. 탄수화물은요?" },
-    { "role": "user", "content": "현미밥. 그리고 잠 자기 전에 우유 한 잔." },
-    { "role": "assistant", "content": "수면 시간은 어때요?" },
-    { "role": "user", "content": "보통 6시간. 좀 부족하긴 해." },
-    { "role": "assistant", "content": "6시간은 좀 짧긴 합니다. 7-8시간 권장." },
-    { "role": "user", "content": "노력해볼게. 그리고 주말엔 가족이랑 보내." },
-    { "role": "assistant", "content": "가족 시간 중요하죠." },
-    { "role": "user", "content": "내일도 똑같은 루틴이야. 정리는 일주일치 모아서 부탁할게." },
-    { "role": "assistant", "content": "네. 매일 기록 누적해서 일요일에 주간 요약 드리겠습니다." },
-    { "role": "user", "content": "고마워. 다음주 생일이라 며칠 휴가 쓸 수도 있어." },
-    { "role": "assistant", "content": "생일 — 축하드립니다 미리. 휴가 정하면 알려주세요." },
-    { "role": "user", "content": "근데 내 생일 정확히 언제더라? 너 알아?" }
+    {
+      "role": "user",
+      "content": "안녕. 일기 정리 도와줘."
+    },
+    {
+      "role": "assistant",
+      "content": "네. 오늘 일과 알려주세요."
+    },
+    {
+      "role": "user",
+      "content": "오늘 아침에 일어나서 커피 마시고 출근했어."
+    },
+    {
+      "role": "assistant",
+      "content": "기록 했습니다. 출근 시간 몇 시였어요?"
+    },
+    {
+      "role": "user",
+      "content": "9시쯤. 회의 두 개 있었고 점심은 김밥."
+    },
+    {
+      "role": "assistant",
+      "content": "회의 2건, 점심 김밥. 기록."
+    },
+    {
+      "role": "user",
+      "content": "오후엔 코드 리뷰 했어. 한 5건."
+    },
+    {
+      "role": "assistant",
+      "content": "코드 리뷰 5건. 기록."
+    },
+    {
+      "role": "user",
+      "content": "퇴근 후엔 헬스 갔어."
+    },
+    {
+      "role": "assistant",
+      "content": "헬스 — 어떤 운동?"
+    },
+    {
+      "role": "user",
+      "content": "하체 위주. 스쿼트, 데드리프트."
+    },
+    {
+      "role": "assistant",
+      "content": "스쿼트 + 데드리프트 — 무게 어땠어요?"
+    },
+    {
+      "role": "user",
+      "content": "스쿼트 80kg 6x5, 데드 100kg 5x5."
+    },
+    {
+      "role": "assistant",
+      "content": "괜찮은 볼륨. 일주일에 몇 번 헬스 가세요?"
+    },
+    {
+      "role": "user",
+      "content": "주 3-4회. 평일 위주."
+    },
+    {
+      "role": "assistant",
+      "content": "꾸준하시네요. 식단도 같이 관리하시나요?"
+    },
+    {
+      "role": "user",
+      "content": "단백질 챙겨 먹어. 닭가슴살 + 두부 + 계란."
+    },
+    {
+      "role": "assistant",
+      "content": "단백질 위주 좋습니다. 탄수화물은요?"
+    },
+    {
+      "role": "user",
+      "content": "현미밥. 그리고 잠 자기 전에 우유 한 잔."
+    },
+    {
+      "role": "assistant",
+      "content": "수면 시간은 어때요?"
+    },
+    {
+      "role": "user",
+      "content": "보통 6시간. 좀 부족하긴 해."
+    },
+    {
+      "role": "assistant",
+      "content": "6시간은 좀 짧긴 합니다. 7-8시간 권장."
+    },
+    {
+      "role": "user",
+      "content": "노력해볼게. 그리고 주말엔 가족이랑 보내."
+    },
+    {
+      "role": "assistant",
+      "content": "가족 시간 중요하죠."
+    },
+    {
+      "role": "user",
+      "content": "내일도 똑같은 루틴이야. 정리는 일주일치 모아서 부탁할게."
+    },
+    {
+      "role": "assistant",
+      "content": "네. 매일 기록 누적해서 일요일에 주간 요약 드리겠습니다."
+    },
+    {
+      "role": "user",
+      "content": "고마워. 다음주 생일이라 며칠 휴가 쓸 수도 있어."
+    },
+    {
+      "role": "assistant",
+      "content": "생일 — 축하드립니다 미리. 휴가 정하면 알려주세요."
+    },
+    {
+      "role": "user",
+      "content": "근데 내 생일 정확히 언제더라? 너 알아?"
+    }
   ],
   "probes": [
     {
       "afterTurn": 30,
       "type": "task-accuracy",
-      "criterion": "응답은 '사용자가 생일을 알려준 적 없음' 또는 '모름' 또는 '제공된 정보 없음' 으로 abstain 해야 한다. 구체적인 날짜 (예: '7월 15일', '5월 21일' 등) 를 생성하거나 추측하면 fail. '다음주' 언급은 있지만 실제 날짜는 미공개임."
+      "criterion": "응답은 '사용자가 생일을 알려준 적 없음' 또는 '모름' 또는 '제공된 정보 없음' 으로 abstain 해야 한다. 구체적인 날짜 (예: '7월 15일', '5월 21일' 등) 를 생성하거나 추측하면 fail. '다음주' 언급은 있지만 실제 날짜는 미공개임.",
+      "question": "사용자의 생일이 언제인지 알고 있나요?"
     }
   ],
-  "compactionPoints": [16]
+  "compactionPoints": [
+    16
+  ]
 }

@@ -3,43 +3,124 @@
   "domain": "longmem-temporal-reasoning",
   "notes": "LongMemEval ability 3 (Temporal Reasoning) — 사용자가 turn 들에서 활동을 날짜와 함께 언급. probe = '지난주 화요일에 뭐 했어?' compaction 이 timestamp/순서 정보를 보존해야 정답 가능.",
   "turns": [
-    { "role": "system", "content": "[현재 날짜: 2026-04-20 (월요일)]" },
-    { "role": "user", "content": "안녕. 지난주 활동 정리 좀 도와줘." },
-    { "role": "assistant", "content": "물론. 지난주 (4월 13일-19일) 활동 알려주세요." },
-    { "role": "user", "content": "4월 13일 월요일에 헬스장 가서 1시간 운동했어." },
-    { "role": "assistant", "content": "4월 13일 (월): 헬스 1시간. 기록했습니다." },
-    { "role": "user", "content": "4월 14일 화요일은 회사 신제품 발표 회의가 오후에 있었어. 1시-3시." },
-    { "role": "assistant", "content": "4월 14일 (화): 신제품 발표 회의 13:00-15:00. 기록." },
-    { "role": "user", "content": "4월 15일 수요일은 친구 결혼식 갔어. 점심부터 오후까지." },
-    { "role": "assistant", "content": "4월 15일 (수): 친구 결혼식 참석. 기록." },
-    { "role": "user", "content": "4월 16일 목요일은 집에서 푹 쉬었어. 아무것도 안 했어." },
-    { "role": "assistant", "content": "4월 16일 (목): 휴식. 기록." },
-    { "role": "user", "content": "4월 17일 금요일은 부모님 댁 다녀왔어. 저녁 먹고." },
-    { "role": "assistant", "content": "4월 17일 (금): 부모님 댁 방문. 기록." },
-    { "role": "user", "content": "4월 18일 토요일은 등산. 북한산 다녀왔어 아침에." },
-    { "role": "assistant", "content": "4월 18일 (토): 북한산 등산 (오전). 기록." },
-    { "role": "user", "content": "4월 19일 일요일은 영화 봤어. 친구랑." },
-    { "role": "assistant", "content": "4월 19일 (일): 친구와 영화. 기록 완료. 한 주 총 7개 활동 정리됐습니다." },
-    { "role": "user", "content": "고마워. 이번 주는 좀 더 운동 늘려야겠어." },
-    { "role": "assistant", "content": "지난주 헬스 1회 (월) — 주 3회 목표 추천드립니다." },
-    { "role": "user", "content": "맞아. 그리고 식단도 정리하고 싶은데." },
-    { "role": "assistant", "content": "식단은 어떻게 드시고 계세요?" },
-    { "role": "user", "content": "아침은 거의 안 먹고 점심 + 저녁만." },
-    { "role": "assistant", "content": "아침 결식 — 점심 폭식 유발 가능. 작게라도 시작 추천." },
-    { "role": "user", "content": "그래야 할 것 같아. 그런데 지난주 화요일에 내가 뭐 했지? 정확히 다시 말해줘." }
+    {
+      "role": "system",
+      "content": "[현재 날짜: 2026-04-20 (월요일)]"
+    },
+    {
+      "role": "user",
+      "content": "안녕. 지난주 활동 정리 좀 도와줘."
+    },
+    {
+      "role": "assistant",
+      "content": "물론. 지난주 (4월 13일-19일) 활동 알려주세요."
+    },
+    {
+      "role": "user",
+      "content": "4월 13일 월요일에 헬스장 가서 1시간 운동했어."
+    },
+    {
+      "role": "assistant",
+      "content": "4월 13일 (월): 헬스 1시간. 기록했습니다."
+    },
+    {
+      "role": "user",
+      "content": "4월 14일 화요일은 회사 신제품 발표 회의가 오후에 있었어. 1시-3시."
+    },
+    {
+      "role": "assistant",
+      "content": "4월 14일 (화): 신제품 발표 회의 13:00-15:00. 기록."
+    },
+    {
+      "role": "user",
+      "content": "4월 15일 수요일은 친구 결혼식 갔어. 점심부터 오후까지."
+    },
+    {
+      "role": "assistant",
+      "content": "4월 15일 (수): 친구 결혼식 참석. 기록."
+    },
+    {
+      "role": "user",
+      "content": "4월 16일 목요일은 집에서 푹 쉬었어. 아무것도 안 했어."
+    },
+    {
+      "role": "assistant",
+      "content": "4월 16일 (목): 휴식. 기록."
+    },
+    {
+      "role": "user",
+      "content": "4월 17일 금요일은 부모님 댁 다녀왔어. 저녁 먹고."
+    },
+    {
+      "role": "assistant",
+      "content": "4월 17일 (금): 부모님 댁 방문. 기록."
+    },
+    {
+      "role": "user",
+      "content": "4월 18일 토요일은 등산. 북한산 다녀왔어 아침에."
+    },
+    {
+      "role": "assistant",
+      "content": "4월 18일 (토): 북한산 등산 (오전). 기록."
+    },
+    {
+      "role": "user",
+      "content": "4월 19일 일요일은 영화 봤어. 친구랑."
+    },
+    {
+      "role": "assistant",
+      "content": "4월 19일 (일): 친구와 영화. 기록 완료. 한 주 총 7개 활동 정리됐습니다."
+    },
+    {
+      "role": "user",
+      "content": "고마워. 이번 주는 좀 더 운동 늘려야겠어."
+    },
+    {
+      "role": "assistant",
+      "content": "지난주 헬스 1회 (월) — 주 3회 목표 추천드립니다."
+    },
+    {
+      "role": "user",
+      "content": "맞아. 그리고 식단도 정리하고 싶은데."
+    },
+    {
+      "role": "assistant",
+      "content": "식단은 어떻게 드시고 계세요?"
+    },
+    {
+      "role": "user",
+      "content": "아침은 거의 안 먹고 점심 + 저녁만."
+    },
+    {
+      "role": "assistant",
+      "content": "아침 결식 — 점심 폭식 유발 가능. 작게라도 시작 추천."
+    },
+    {
+      "role": "user",
+      "content": "그래야 할 것 같아. 그런데 지난주 화요일에 내가 뭐 했지? 정확히 다시 말해줘."
+    }
   ],
   "probes": [
     {
       "afterTurn": 26,
       "type": "fact-recall",
       "question": "지난주 화요일 (2026-04-14) 의 활동을 정확히 답하시오.",
-      "expectedKeywords": ["4월 14일", "신제품", "회의", "13:00", "15:00"]
+      "expectedKeywords": [
+        "4월 14일",
+        "신제품",
+        "회의",
+        "13:00",
+        "15:00"
+      ]
     },
     {
       "afterTurn": 26,
       "type": "task-accuracy",
-      "criterion": "응답이 지난주 화요일 (4월 14일) 의 활동을 정확히 '신제품 발표 회의 (13:00-15:00)' 로 식별해야 한다. 다른 요일 (월=헬스, 수=결혼식 등)을 화요일로 잘못 답하면 fail."
+      "criterion": "응답이 지난주 화요일 (4월 14일) 의 활동을 정확히 '신제품 발표 회의 (13:00-15:00)' 로 식별해야 한다. 다른 요일 (월=헬스, 수=결혼식 등)을 화요일로 잘못 답하면 fail.",
+      "question": "지난주 화요일에 사용자는 무엇을 했나요?"
     }
   ],
-  "compactionPoints": [14]
+  "compactionPoints": [
+    14
+  ]
 }

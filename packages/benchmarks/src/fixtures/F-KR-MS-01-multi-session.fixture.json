@@ -3,48 +3,142 @@
   "domain": "longmem-multi-session-reasoning",
   "notes": "LongMemEval ability 2 (Multi-Session Reasoning) — 두 개의 세션 (별도 'session' 마커)에 분산된 정보를 합쳐서 답해야 함. Session A 에서 예산 (월 500만원), Session B 에서 여행 기간 (5일) 명시. probe = 1일 평균 사용 가능 예산?",
   "turns": [
-    { "role": "system", "content": "[Session A — 2026-04-15]" },
-    { "role": "user", "content": "안녕하세요. 다음달 휴가 계획 도와주세요." },
-    { "role": "assistant", "content": "물론입니다. 어디로 가고 싶으신가요?" },
-    { "role": "user", "content": "유럽 쪽을 생각하고 있어요. 처음이라 무난한 곳으로." },
-    { "role": "assistant", "content": "유럽 처음이면 파리, 로마, 바르셀로나가 무난합니다." },
-    { "role": "user", "content": "파리 좋아요. 예산은 총 500만원 잡고 있어요." },
-    { "role": "assistant", "content": "총 예산 500만원 확인. 항공권 / 숙소 / 식비 / 관광 비율 추천 드릴게요." },
-    { "role": "user", "content": "비행기는 200, 숙소도 200 정도면 될까요?" },
-    { "role": "assistant", "content": "성수기면 빠듯합니다. 비수기라면 가능. 어느 시즌이세요?" },
-    { "role": "user", "content": "10월 초로 생각 중이에요." },
-    { "role": "assistant", "content": "10월 초 파리는 비수기 진입이라 항공 200, 숙소 200(중급 호텔/AirBnB)으로 가능합니다." },
-    { "role": "user", "content": "그럼 식비 + 관광이 100만원이네요. 부족할까요?" },
-    { "role": "assistant", "content": "식비는 하루 30유로, 관광은 박물관/투어 50유로 잡으면 1일 약 80유로 = 11만원." },
-    { "role": "user", "content": "음 그럼 식비+관광 100만원으로 며칠 가능해요?" },
-    { "role": "assistant", "content": "1일 11만원 기준 = 100만원이면 약 9일. 다만 항공 200 + 숙소 200 는 별도이니 총 일정과 맞춰야 합니다." },
-    { "role": "user", "content": "알겠어요. 좀 더 생각해보고 다시 올게요." },
-    { "role": "assistant", "content": "네, 일정 정해지시면 알려주세요." },
-    { "role": "system", "content": "[Session B — 2026-04-20 (5일 후 새 세션)]" },
-    { "role": "user", "content": "지난번에 파리 여행 상담 받았는데, 일정 정했어요. 10월 5일-9일 5일이요." },
-    { "role": "assistant", "content": "5일 일정 좋습니다. 어떤 항공편 보고 계신가요?" },
-    { "role": "user", "content": "대한항공 직항. 출발 10월 5일 12시." },
-    { "role": "assistant", "content": "직항 편하시고 시차 적응에도 좋습니다." },
-    { "role": "user", "content": "숙소는 마레지구 호텔 예약했어요." },
-    { "role": "assistant", "content": "마레지구 — 4구. 박물관/카페 접근 좋습니다." },
-    { "role": "user", "content": "에펠탑, 루브르, 베르사유 다 가보고 싶어요." },
-    { "role": "assistant", "content": "5일이면 다 가능합니다. 베르사유는 하루 통째로 잡아주세요." },
-    { "role": "user", "content": "현지 액티비티는 뭘 추천하세요?" },
-    { "role": "assistant", "content": "센강 야경 크루즈, 몽마르트르 산책, 바게트 베이커리 투어." },
-    { "role": "user", "content": "그래서 식비랑 관광 합쳐서 하루 평균 얼마 쓸 수 있는 거였죠?" }
+    {
+      "role": "system",
+      "content": "[Session A — 2026-04-15]"
+    },
+    {
+      "role": "user",
+      "content": "안녕하세요. 다음달 휴가 계획 도와주세요."
+    },
+    {
+      "role": "assistant",
+      "content": "물론입니다. 어디로 가고 싶으신가요?"
+    },
+    {
+      "role": "user",
+      "content": "유럽 쪽을 생각하고 있어요. 처음이라 무난한 곳으로."
+    },
+    {
+      "role": "assistant",
+      "content": "유럽 처음이면 파리, 로마, 바르셀로나가 무난합니다."
+    },
+    {
+      "role": "user",
+      "content": "파리 좋아요. 예산은 총 500만원 잡고 있어요."
+    },
+    {
+      "role": "assistant",
+      "content": "총 예산 500만원 확인. 항공권 / 숙소 / 식비 / 관광 비율 추천 드릴게요."
+    },
+    {
+      "role": "user",
+      "content": "비행기는 200, 숙소도 200 정도면 될까요?"
+    },
+    {
+      "role": "assistant",
+      "content": "성수기면 빠듯합니다. 비수기라면 가능. 어느 시즌이세요?"
+    },
+    {
+      "role": "user",
+      "content": "10월 초로 생각 중이에요."
+    },
+    {
+      "role": "assistant",
+      "content": "10월 초 파리는 비수기 진입이라 항공 200, 숙소 200(중급 호텔/AirBnB)으로 가능합니다."
+    },
+    {
+      "role": "user",
+      "content": "그럼 식비 + 관광이 100만원이네요. 부족할까요?"
+    },
+    {
+      "role": "assistant",
+      "content": "식비는 하루 30유로, 관광은 박물관/투어 50유로 잡으면 1일 약 80유로 = 11만원."
+    },
+    {
+      "role": "user",
+      "content": "음 그럼 식비+관광 100만원으로 며칠 가능해요?"
+    },
+    {
+      "role": "assistant",
+      "content": "1일 11만원 기준 = 100만원이면 약 9일. 다만 항공 200 + 숙소 200 는 별도이니 총 일정과 맞춰야 합니다."
+    },
+    {
+      "role": "user",
+      "content": "알겠어요. 좀 더 생각해보고 다시 올게요."
+    },
+    {
+      "role": "assistant",
+      "content": "네, 일정 정해지시면 알려주세요."
+    },
+    {
+      "role": "system",
+      "content": "[Session B — 2026-04-20 (5일 후 새 세션)]"
+    },
+    {
+      "role": "user",
+      "content": "지난번에 파리 여행 상담 받았는데, 일정 정했어요. 10월 5일-9일 5일이요."
+    },
+    {
+      "role": "assistant",
+      "content": "5일 일정 좋습니다. 어떤 항공편 보고 계신가요?"
+    },
+    {
+      "role": "user",
+      "content": "대한항공 직항. 출발 10월 5일 12시."
+    },
+    {
+      "role": "assistant",
+      "content": "직항 편하시고 시차 적응에도 좋습니다."
+    },
+    {
+      "role": "user",
+      "content": "숙소는 마레지구 호텔 예약했어요."
+    },
+    {
+      "role": "assistant",
+      "content": "마레지구 — 4구. 박물관/카페 접근 좋습니다."
+    },
+    {
+      "role": "user",
+      "content": "에펠탑, 루브르, 베르사유 다 가보고 싶어요."
+    },
+    {
+      "role": "assistant",
+      "content": "5일이면 다 가능합니다. 베르사유는 하루 통째로 잡아주세요."
+    },
+    {
+      "role": "user",
+      "content": "현지 액티비티는 뭘 추천하세요?"
+    },
+    {
+      "role": "assistant",
+      "content": "센강 야경 크루즈, 몽마르트르 산책, 바게트 베이커리 투어."
+    },
+    {
+      "role": "user",
+      "content": "그래서 식비랑 관광 합쳐서 하루 평균 얼마 쓸 수 있는 거였죠?"
+    }
   ],
   "probes": [
     {
       "afterTurn": 30,
       "type": "fact-recall",
       "question": "Session A 의 예산 정보와 Session B 의 여행 기간을 합쳐 1일 평균 식비+관광 예산 계산.",
-      "expectedKeywords": ["100만원", "5일", "20만원"]
+      "expectedKeywords": [
+        "100만원",
+        "5일",
+        "20만원"
+      ]
     },
     {
       "afterTurn": 30,
       "type": "task-accuracy",
-      "criterion": "응답이 두 세션 정보를 합쳐서 식비+관광 100만원 / 여행 5일 = 1일 평균 약 20만원(또는 일 평균 ~167유로)을 계산해야 한다. 단순히 '100만원' 만 말하거나 '5일' 만 말하는 응답은 fail."
+      "criterion": "응답이 두 세션 정보를 합쳐서 식비+관광 100만원 / 여행 5일 = 1일 평균 약 20만원(또는 일 평균 ~167유로)을 계산해야 한다. 단순히 '100만원' 만 말하거나 '5일' 만 말하는 응답은 fail.",
+      "question": "사용자의 파리 여행의 1일 평균 예산은 얼마인가요?"
     }
   ],
-  "compactionPoints": [18]
+  "compactionPoints": [
+    18
+  ]
 }

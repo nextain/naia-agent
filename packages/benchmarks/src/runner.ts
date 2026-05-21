@@ -33,6 +33,10 @@ import { fileURLToPath } from "node:url";
 
 import { LocalAdapter, MemorySystem } from "@nextain/naia-memory";
 
+// Phase 1.3 (#56) — Vercel pruneMessages path lives in runtime.
+import { createLLMMessagePrepareCompact } from "@nextain/agent-runtime";
+import type { LLMMessage } from "@nextain/agent-types";
+
 import type {
 	Fixture,
 	FixtureProbe,
@@ -50,6 +54,7 @@ const REPORTS_DIR = join(HERE, "..", "reports");
 
 const DEFAULT_STRATEGIES: readonly StrategyId[] = [
 	"reactive",
+	"reactive-vercel",
 	"realtime",
 	"anthropic-native",
 	"off",
@@ -71,7 +76,11 @@ function parseArgs(argv: readonly string[]): CliOptions {
 				.split(",")
 				.map((s) => s.trim())
 				.filter((s): s is StrategyId =>
-					s === "reactive" || s === "realtime" || s === "anthropic-native" || s === "off",
+					s === "reactive" ||
+					s === "reactive-vercel" ||
+					s === "realtime" ||
+					s === "anthropic-native" ||
+					s === "off",
 				);
 			i++;
 		} else if (a === "--fixtures" && i + 1 < argv.length) {
@@ -161,7 +170,9 @@ function evaluateProbe(
 
 	const wasCompacted =
 		lastCompactionPoint !== undefined &&
-		(strategy === "reactive" || strategy === "realtime");
+		(strategy === "reactive" ||
+			strategy === "reactive-vercel" ||
+			strategy === "realtime");
 
 	if (wasCompacted) {
 		// After compaction: recap + tail.
@@ -250,7 +261,7 @@ export async function runFixture(
 		}
 		perTurnLatencies.push(performance.now() - t0);
 
-		// Forced compaction trigger?
+		// Forced compaction trigger — naia-memory path.
 		if (
 			compactionPoints.includes(turnIdx) &&
 			(strategy === "reactive" || strategy === "realtime")
@@ -278,6 +289,38 @@ export async function runFixture(
 			} catch (err) {
 				compactionLatencies.push(performance.now() - cT0);
 				errors.push(`compact@${turnIdx}: ${String(err)}`);
+			}
+		}
+
+		// Phase 1.3 (#56) — Vercel pruneMessages path. Distinct compaction
+		// body: prunes ModelMessage blocks (reasoning, older tool_calls,
+		// empty messages) instead of generating a summarization recap.
+		// For plain-text fixtures the cookbook defaults are typically a
+		// no-op — the factory's no-op guard returns undefined, recap stays
+		// empty, and evaluateProbe treats it like the off baseline. That's
+		// the honest measurement: Vercel pruning helps only when there's
+		// reasoning/tool_call mass to strip.
+		if (
+			compactionPoints.includes(turnIdx) &&
+			strategy === "reactive-vercel"
+		) {
+			const llmHistory: LLMMessage[] = fixture.turns
+				.slice(0, turnIdx)
+				.map(toLLMMessage);
+			const cT0 = performance.now();
+			try {
+				const prepare = createLLMMessagePrepareCompact();
+				const pruned = prepare(llmHistory);
+				compactionLatencies.push(performance.now() - cT0);
+				if (pruned) {
+					recapContent = llmMessagesToText(pruned);
+				}
+				// If pruned === undefined (no-op rejection) recap stays as
+				// previous value (or empty), matching the in-house path's
+				// behaviour when memory.compact() errors.
+			} catch (err) {
+				compactionLatencies.push(performance.now() - cT0);
+				errors.push(`prune@${turnIdx}: ${String(err)}`);
 			}
 		}
 
@@ -353,12 +396,50 @@ export async function runFixture(
 		totalTokens,
 		driftScore: drift,
 		errors,
+		// Phase 1.3 (#56): expose actual recap so LLM-judge harnesses don't
+		// have to reconstruct visible context from fixture tails.
+		recapContent,
 	};
 }
 
 function mapRole(role: FixtureTurn["role"]): "user" | "assistant" | "tool" {
 	if (role === "system") return "user"; // memory has no native "system" role
 	return role;
+}
+
+/** Phase 1.3 (#56): adapt a fixture turn to the LLMMessage shape that the
+ *  Vercel prune helper consumes. Plain-text fixtures get plain-string
+ *  content; that's the honest representation — adding fake reasoning blocks
+ *  to "help Vercel win" would defeat the head-to-head purpose. */
+function toLLMMessage(turn: FixtureTurn): LLMMessage {
+	return {
+		role: mapRole(turn.role),
+		content: turn.content,
+	};
+}
+
+/** Serialize an LLMMessage[] back to a single string for `recapContent`
+ *  semantics (downstream `evaluateProbe` works on a string). Mirrors how
+ *  the Agent's history would surface as "what the model still sees". */
+function llmMessagesToText(messages: readonly LLMMessage[]): string {
+	return messages
+		.map((m) => {
+			const text =
+				typeof m.content === "string"
+					? m.content
+					: m.content
+							.map((b) => {
+								if (b.type === "text") return b.text;
+								if (b.type === "thinking") return `[thinking] ${b.thinking}`;
+								if (b.type === "tool_use")
+									return `[tool_use ${b.name}] ${JSON.stringify(b.input)}`;
+								if (b.type === "tool_result") return `[tool_result] ${b.content}`;
+								return `[${b.type}]`;
+							})
+							.join("\n");
+			return `${m.role}: ${text}`;
+		})
+		.join("\n");
 }
 
 async function ensureDir(path: string): Promise<void> {

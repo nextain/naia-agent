@@ -23,8 +23,17 @@ export interface FixtureTurn {
 	readonly content: string;
 }
 
-/** Compaction strategy identifier — wire-up locked in P2 (CompactionStrategy enum). */
-export type StrategyId = "reactive" | "realtime" | "anthropic-native" | "off";
+/** Compaction strategy identifier — wire-up locked in P2 (CompactionStrategy enum).
+ *  Phase 1.2 (#56) added `reactive-vercel`: same trigger as `reactive` but the
+ *  compaction body is Vercel AI SDK `pruneMessages` instead of
+ *  `memorySystem.compact()`. Semantically different (pruning vs summarization)
+ *  — included so head-to-head measurement is possible. */
+export type StrategyId =
+	| "reactive"
+	| "reactive-vercel"
+	| "realtime"
+	| "anthropic-native"
+	| "off";
 
 /**
  * Fixture probe — injected at `afterTurn` to measure post-compaction behavior.
@@ -49,6 +58,15 @@ export type FixtureProbe =
 			readonly afterTurn: number;
 			readonly type: "task-accuracy";
 			readonly criterion: string;
+			/**
+			 * Phase 1.3 R2 (codex S8 fix): the explicit question to ask the
+			 * judges. Without this the harness reverse-engineers a question
+			 * from the last user turn before `afterTurn`, which is structurally
+			 * wrong — it makes the judge evaluate a different prompt than the
+			 * fixture author intended. Optional for backward compat with R1
+			 * fixtures; new fixtures MUST provide it.
+			 */
+			readonly question?: string;
 	  }
 	| {
 			readonly afterTurn: number;
@@ -79,6 +97,16 @@ export interface FixtureResult {
 	readonly totalTokens: number;
 	readonly driftScore: number; // 0..1, 1 = identical to no-compact baseline
 	readonly errors: readonly string[];
+	/**
+	 * Phase 1.3 (#56) — actual post-compaction recap content (or empty for
+	 * `off` / `anthropic-native` / no-op `reactive-vercel`). Exposed so
+	 * downstream LLM-judge harnesses can feed judges the **real** visible
+	 * window rather than reconstructing it from fixture tails. Fixes the
+	 * R1 unfairness where `reactive` (5-section markdown) and
+	 * `reactive-vercel` (plain pruned messages) were shown to judges as
+	 * identical sliced-fixture text.
+	 */
+	readonly recapContent?: string;
 }
 
 /**
