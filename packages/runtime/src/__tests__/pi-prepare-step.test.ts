@@ -48,12 +48,10 @@ function mkLLMStub(summaryText: string): LLMClient {
 			yield { type: "content_block_stop", index: 0 };
 			yield {
 				type: "end",
-				stopReason: "stop",
+				stopReason: "end_turn",
 				usage: {
 					inputTokens: 100,
 					outputTokens: 50,
-					cacheCreationInputTokens: 0,
-					cacheReadInputTokens: 0,
 				},
 			};
 		}),
@@ -260,8 +258,8 @@ describe("createPiLLMMessagePrepareCompact", () => {
 		// Inspect the second LLM call's user message
 		const calls = (llm1.stream as ReturnType<typeof vi.fn>).mock.calls;
 		expect(calls.length).toBe(2);
-		const secondCallReq = calls[1]?.[0];
-		const userMsg = secondCallReq.messages[0];
+		const secondCallReq = calls[1]?.[0] as { messages: LLMMessage[] };
+		const userMsg = secondCallReq.messages[0]!;
 		expect(userMsg.content).toMatch(/<previous-summary>/);
 		expect(userMsg.content).toMatch(/First summary text/);
 		// UPDATE prompt is used on iteration
@@ -278,8 +276,8 @@ describe("createPiLLMMessagePrepareCompact", () => {
 		const hist = buildLongHistory(20, 200);
 		await prepare(hist);
 
-		const userMsg = (llm.stream as ReturnType<typeof vi.fn>).mock.calls[0][0]
-			.messages[0];
+		const userMsg = ((llm.stream as ReturnType<typeof vi.fn>).mock.calls[0]![0]
+			.messages as LLMMessage[])[0]!;
 		expect(userMsg.content).toMatch(/Additional focus: naia-memory integration/);
 	});
 
@@ -291,7 +289,7 @@ describe("createPiLLMMessagePrepareCompact", () => {
 		});
 		await prepare(buildLongHistory(20, 200));
 
-		const req = (llm.stream as ReturnType<typeof vi.fn>).mock.calls[0][0];
+		const req = (llm.stream as ReturnType<typeof vi.fn>).mock.calls[0]![0];
 		expect(req.system).toBe(PI_SUMMARIZATION_SYSTEM_PROMPT);
 	});
 

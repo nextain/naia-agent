@@ -147,3 +147,15 @@ export type {
   PiCompactionOptions,
   PiCutPointResult,
 } from "./compaction/pi-prepare-step.js";
+
+// R8 (#56) — Hermes Agent compaction algorithm port (MIT, NousResearch).
+export {
+  createHermesLLMMessagePrepareCompact,
+  findHermesCutPoints,
+  HERMES_SUMMARIZER_PREAMBLE,
+  HERMES_TEMPLATE_SECTIONS,
+} from "./compaction/hermes-prepare-step.js";
+export type {
+  HermesCompactionOptions,
+  HermesCutResult,
+} from "./compaction/hermes-prepare-step.js";

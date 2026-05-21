@@ -67,6 +67,8 @@ import {
   readConfiguredAdkPath,
   decideCliMemory,
   createLLMMessagePrepareCompact,
+  createPiLLMMessagePrepareCompact,
+  createHermesLLMMessagePrepareCompact,
 } from "@nextain/agent-runtime";
 import type { ServiceManifest, ParsedRole } from "@nextain/agent-runtime";
 // Composition root may depend on a MemoryProvider implementation (the
@@ -184,6 +186,16 @@ interface Args {
    *  `createLLMMessagePrepareCompact` into `Agent.prepareCompact`.
    *  Env override: `NAIA_AGENT_REACTIVE_VERCEL=1`. Default false. */
   reactiveVercel: boolean;
+  /** R8 (#56) — pi-mono compaction algorithm (MIT). When set AND
+   *  compactStrategy === "reactive", swaps in `createPiLLMMessagePrepareCompact`.
+   *  Mutually exclusive with `reactiveVercel`. Env override:
+   *  `NAIA_AGENT_REACTIVE_PI=1`. Default false. */
+  reactivePi: boolean;
+  /** R8 (#56) — Hermes Agent compaction algorithm (MIT). When set AND
+   *  compactStrategy === "reactive", swaps in
+   *  `createHermesLLMMessagePrepareCompact`. Mutually exclusive with
+   *  pi/vercel. Env override: `NAIA_AGENT_REACTIVE_HERMES=1`. */
+  reactiveHermes: boolean;
   /** Cross-session handoff — Slice 3-XR-Handoff (#50).
    *  Path to write the HandoffBlob (JSON) when the session ends OR
    *  auto-trigger fires (post-compact, budget≥95%). Disabled if undefined. */
@@ -214,6 +226,8 @@ function parseArgs(argv: string[]): Args | { error: string } {
     forceRepl: false,
     compactStrategy: resolveCompactStrategyEnv(),
     reactiveVercel: process.env["NAIA_AGENT_REACTIVE_VERCEL"] === "1",
+    reactivePi: process.env["NAIA_AGENT_REACTIVE_PI"] === "1",
+    reactiveHermes: process.env["NAIA_AGENT_REACTIVE_HERMES"] === "1",
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -272,6 +286,10 @@ function parseArgs(argv: string[]): Args | { error: string } {
       args.compactStrategy = v;
     } else if (a === "--reactive-vercel") {
       args.reactiveVercel = true;
+    } else if (a === "--reactive-pi") {
+      args.reactivePi = true;
+    } else if (a === "--reactive-hermes") {
+      args.reactiveHermes = true;
     } else if (a === "--handoff-out") {
       const v = argv[++i];
       if (!v) return { error: "--handoff-out requires a path" };
@@ -612,10 +630,16 @@ async function runDirect(args: Args): Promise<number> {
     // --no-default-system always wins. Non-memory behavior unchanged.
     appendDefaultSystemPrompt: args.noDefaultSystem ? false : !args.memory,
     compactionStrategy: args.compactStrategy,
-    // Slice 3-XR-Compact v2 / Phase 1.2 (#56) — opt-in Vercel AI SDK
-    // pruneMessages path. Only meaningful when strategy === "reactive";
-    // ignored otherwise. See AGENTS.md CLI flags section.
-    ...(args.reactiveVercel && args.compactStrategy === "reactive"
+    // R8 (#56): host-injected reactive compaction adapters. Mutually
+    // exclusive. Only meaningful when strategy === "reactive".
+    //   --reactive-pi      pi-mono anchored iterative LLM compaction (MIT)
+    //   --reactive-vercel  Vercel cookbook pruneMessages (Apache-2.0, prune-only)
+    //   (none)             host-default memory.compact() path
+    ...(args.compactStrategy === "reactive" && args.reactivePi
+      ? { prepareCompact: createPiLLMMessagePrepareCompact({ llm }) }
+      : args.compactStrategy === "reactive" && args.reactiveHermes
+      ? { prepareCompact: createHermesLLMMessagePrepareCompact({ llm }) }
+      : args.compactStrategy === "reactive" && args.reactiveVercel
       ? { prepareCompact: createLLMMessagePrepareCompact() }
       : {}),
   });
@@ -1029,7 +1053,12 @@ async function runService(args: Args): Promise<number> {
     systemPrompt: manifest.persona.systemPrompt,
     tierForTool: () => "T1",
     compactionStrategy: args.compactStrategy,
-    ...(args.reactiveVercel && args.compactStrategy === "reactive"
+    // R8 (#56): same precedence as direct mode — pi > vercel > host-default.
+    ...(args.compactStrategy === "reactive" && args.reactivePi
+      ? { prepareCompact: createPiLLMMessagePrepareCompact({ llm }) }
+      : args.compactStrategy === "reactive" && args.reactiveHermes
+      ? { prepareCompact: createHermesLLMMessagePrepareCompact({ llm }) }
+      : args.compactStrategy === "reactive" && args.reactiveVercel
       ? { prepareCompact: createLLMMessagePrepareCompact() }
       : {}),
   });
