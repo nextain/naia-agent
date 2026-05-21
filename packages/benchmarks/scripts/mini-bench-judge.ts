@@ -26,11 +26,16 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { LocalAdapter, MemorySystem } from "@nextain/naia-memory";
+import {
+	createPiLLMMessagePrepareCompact,
+	createHermesLLMMessagePrepareCompact,
+} from "@nextain/agent-runtime";
 
 import type { Fixture, FixtureProbe, StrategyId } from "../src/fixture.js";
 import { classifyProbeStress, validateFixture } from "../src/fixture.js";
 import { runFixture } from "../src/runner.js";
 import { buildVisibleContext } from "../src/visible-context.js";
+import { createBenchLLMClient } from "../src/bench-llm-client.js";
 import {
 	defaultEnsemble,
 	isInfraError,
@@ -43,9 +48,10 @@ const FIXTURES_DIR = join(HERE, "..", "src", "fixtures");
 const REPORTS_DIR = join(HERE, "..", "reports");
 
 const STRATEGIES: readonly StrategyId[] = [
+	// R8: head-to-head LLM compaction lineup.
+	"pi",
+	"hermes",
 	"reactive",
-	"reactive-vercel",
-	"realtime",
 	"off",
 ];
 
@@ -110,10 +116,27 @@ async function main(): Promise<number> {
 			consolidationIntervalMs: 0,
 		});
 		try {
+			// R8: lazy LLM client + factory per fixture run so anchored-iterative
+			// summaries are scoped to the fixture and not leaked across strategies.
+			const llmFor = (kind: "pi" | "hermes" | null) => {
+				if (kind === null) return undefined;
+				const llm = createBenchLLMClient();
+				// R8 measurement: fixtures are short (~240 tokens). Use small
+				// keep/tail so the cut actually fires for these fixtures.
+				return kind === "pi"
+					? createPiLLMMessagePrepareCompact({ llm, keepRecentTokens: 100 })
+					: createHermesLLMMessagePrepareCompact({
+							llm,
+							protectFirstN: 2,
+							tailTokenBudget: 100,
+						});
+			};
 			const fr = await runFixture(fixture, strategy, {
 				keepTail: BENCH_CONFIG.keepTail,
 				targetTokens: BENCH_CONFIG.targetTokens,
 				memorySystem,
+				...(strategy === "pi" ? { piPrepare: llmFor("pi") } : {}),
+				...(strategy === "hermes" ? { hermesPrepare: llmFor("hermes") } : {}),
 			});
 
 			const probeResults: ProbeResult[] = [];
@@ -172,7 +195,9 @@ async function main(): Promise<number> {
 			const isCompactStrategy =
 				strategy === "reactive" ||
 				strategy === "reactive-vercel" ||
-				strategy === "realtime";
+				strategy === "realtime" ||
+				strategy === "pi" ||
+				strategy === "hermes";
 			const recapNoOp =
 				isCompactStrategy && (fr.recapContent ?? "").length === 0;
 

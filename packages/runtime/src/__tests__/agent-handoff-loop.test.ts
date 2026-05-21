@@ -109,7 +109,7 @@ class ScriptedLLM implements LLMClient {
 			this.#i === 1
 				? `Recorded fact: ${this.fact}. Will remember for future turns. ${"lorem ipsum ".repeat(15)}`
 				: `Acknowledged turn ${this.#i}. ${"dolor sit amet ".repeat(20)}`;
-		yield { type: "text_delta", text: verbose };
+		yield { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: verbose } };
 	}
 }
 
@@ -118,7 +118,7 @@ function hostFor(llm: LLMClient, memory: MemoryProvider) {
 	return createHost({
 		llm,
 		memory,
-		logger: { trace() {}, debug() {}, info() {}, warn() {}, error() {} },
+		logger: { debug() {}, info() {}, warn() {}, error() {}, fatal() {} },
 	});
 }
 
@@ -242,7 +242,7 @@ describe("Auto-handoff loop (Slice 3-XR-Handoff #50 P5 — headline)", () => {
 			}
 			async *stream(req: LLMRequest): AsyncIterable<LLMStreamChunk> {
 				capturedSystem += typeof req.system === "string" ? req.system : "";
-				yield { type: "text_delta", text: "Acknowledged prior session." };
+				yield { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Acknowledged prior session." } };
 			}
 		}
 		const agent2 = new Agent({

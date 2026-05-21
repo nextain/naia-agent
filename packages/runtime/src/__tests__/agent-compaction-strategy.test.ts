@@ -69,7 +69,11 @@ class TinyLLM implements LLMClient {
 	async *stream(_: LLMRequest): AsyncIterable<LLMStreamChunk> {
 		const txt = this.turns[Math.min(this.#i, this.turns.length - 1)] ?? "ok";
 		this.#i++;
-		yield { type: "text_delta", text: txt };
+		yield {
+				type: "content_block_delta",
+				index: 0,
+				delta: { type: "text_delta", text: txt },
+			};
 	}
 }
 
@@ -82,7 +86,7 @@ async function runAgent(
 	const host = createHost({
 		llm: new TinyLLM(Array(userTurns).fill("noted.")),
 		memory,
-		logger: { trace() {}, debug() {}, info() {}, warn() {}, error() {} },
+		logger: { debug() {}, info() {}, warn() {}, error() {}, fatal() {} },
 	});
 	const agent = new Agent({
 		host,

@@ -40,7 +40,10 @@ export type StrategyId =
 	| "reactive"
 	| "reactive-vercel"
 	| "realtime"
-	| "off";
+	| "off"
+	// R8: real LLM-based compaction adapters (TS ports).
+	| "pi"
+	| "hermes";
 
 /**
  * Fixture probe — injected at `afterTurn` to measure post-compaction behavior.

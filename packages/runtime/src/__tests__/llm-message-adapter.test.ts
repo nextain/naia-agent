@@ -187,11 +187,11 @@ describe("LLMMessage adapter (Phase 1.2 / #56)", () => {
 			| (LLMMessage["content"] extends Array<infer T> ? T : never)
 			| undefined;
 		expect(img).toBeDefined();
-		expect((img as { source: { type: string; data: string } }).source.type).toBe(
+		expect((img as unknown as { source: { type: string; data: string } }).source.type).toBe(
 			"url",
 		);
 		expect(
-			(img as { source: { type: string; data: string } }).source.data,
+			(img as unknown as { source: { type: string; data: string } }).source.data,
 		).toBe("https://example.com/x.png");
 	});
 
