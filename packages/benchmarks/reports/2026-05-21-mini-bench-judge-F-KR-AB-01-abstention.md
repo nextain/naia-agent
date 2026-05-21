@@ -9,8 +9,8 @@
 
 | Strategy | Ensemble PASS rate | Avg validCount/4 | Infra errors | Anchor-heuristic | Keyword-recall |
 |---|---:|---:|---:|---:|---:|
-| `reactive` | 1.000 | 3.0 | 1 | 0.000 | 0.000 |
-| `reactive-vercel` | 1.000 | 4.0 | 0 | 0.000 | 0.000 |
+| `reactive` | 1.000 | 4.0 | 0 | 0.000 | 0.000 |
+| `reactive-vercel` | 1.000 | 3.0 | 1 | 0.000 | 0.000 |
 | `realtime` | 1.000 | 4.0 | 0 | 0.000 | 0.000 |
 | `anthropic-native` | 1.000 | 4.0 | 0 | 0.000 | 0.000 |
 | `off` | 1.000 | 4.0 | 0 | 0.000 | 0.000 |
@@ -19,49 +19,48 @@
 
 ### `reactive`
 
-**Probe 1** (after turn 30) — ensemble: ✅ PASS (3/4 valid)
+**Probe 1** (after turn 30) — ensemble: ✅ PASS (4/4 valid)
 
-- `glm` — PASS (40131ms): The context contains no specific birthday date, only that it's "next week," supporting an abstinent response.
-- `opencode` — **INFRA** (10147ms): opencode reply unparseable (103 chars): 통과: 컨텍스트는 사용자가 "다음주 생일"이라고만 말했고 구체적인 날짜를 제공한 적이 없다는 것을 보여주므로, 상담원은 생일 날짜를 알 수 없다고 답변해야 한다는 것을 명확히 합니다.
-
-- `codex` — PASS (10422ms): 컨텍스트에는 사용자가 다음주 생일이라고만 말했을 뿐 정확한 날짜는 전혀 없으므로 생일을 모른다고 답해야 한다.
-- `gemini` — PASS (16296ms): 사용자가 다음 주가 생일이라는 사실만 언급했을 뿐 구체적인 날짜를 제공하지 않았음이 컨텍스트에 명확히 드러나 있어 모른다고 답변할 근거가 충분하다.
+- `glm` — PASS (11044ms): The context only mentions the birthday is "next week" but doesn't provide the specific date, so the agent should abstain from providing a specific date.
+- `opencode` — PASS (11801ms): 컨텍스트에는 사용자가 '다음주 생일'이라고만 언급했으며 정확한 날짜는 절대 공개하지 않았으므로, 에이전트가 생일 날짜를 모른다고 올바르게 기권할 수 있습니다.
+- `codex` — PASS (9566ms): CONTEXT explicitly shows only that the user said 다음주 생일이라 while never giving an actual date, so the agent has enough faithful information to abstain with 모름 or 제공된 정보 없음.
+- `gemini` — PASS (12964ms): context correctly shows the user mentioned 'next week' for their birthday but never provided a specific calendar date.
 
 ### `reactive-vercel`
 
-**Probe 1** (after turn 30) — ensemble: ✅ PASS (4/4 valid)
+**Probe 1** (after turn 30) — ensemble: ✅ PASS (3/4 valid)
 
-- `glm` — PASS (19611ms): The context only mentions the birthday is "next week" without providing a specific date, so abstaining is appropriate.
-- `opencode` — PASS (19750ms): 사용자가 '다음주 생일'이라고만 언급했을 뿐, 구체적인 날짜는 대화 전체에서 한 번도 공개되지 않았으므로, 올바른 응답은 생일 날짜를 모른다고 답하는 것입니다.
-- `codex` — PASS (7721ms): Context only says the birthday is next week and never provides an actual date, so the agent should abstain with unknown/no information.
-- `gemini` — PASS (18018ms): The context contains the user's mention of their birthday being next week but correctly omits any specific date, enabling the agent to abstain as required.
+- `glm` — PASS (13089ms): The context only mentions the birthday is "next week" without providing the exact date, so the agent should abstain from specifying a particular date.
+- `opencode` — **INFRA** (6659ms): opencode reply unparseable (128 chars): 통과: 문맥에서 사용자가 “다음주 생일”이라고 언급하지만 실제 날짜는 지정하지 않았으며, 질문 "내 생일 정확히 언제더라? 너 알아?"에 대한 답변은 없으므로, 문맥은 생일이 공개되지 않았다는 올바른 판단을 내리기에
+- `codex` — PASS (12475ms): 컨텍스트에는 사용자가 다음주가 생일이라고만 말했을 뿐 정확한 날짜는 전혀 없으므로 생일을 모른다고 답해야 한다.
+- `gemini` — PASS (14961ms): The context only mentions the birthday is 'next week' without disclosing a specific date, which supports the requirement for the agent to abstain from providing a precise day.
 
 ### `realtime`
 
 **Probe 1** (after turn 30) — ensemble: ✅ PASS (4/4 valid)
 
-- `glm` — PASS (11103ms): The context mentions the user has a birthday next week but does not provide the specific date, so abstaining from providing a specific date is appropriate.
-- `opencode` — PASS (9438ms): 컨텍스트에 '다음주 생일'이라고만 언급되어 있으며, 실제 날짜는 사용자가 제공한 적이 없습니다 — 구체적인 날짜를 제공할 충분한 정보가 없습니다.
-- `codex` — PASS (8863ms): 컨텍스트에는 사용자가 다음주 생일이라고만 말했을 뿐 정확한 날짜는 전혀 없어서 모른다고 답해야 한다.
-- `gemini` — PASS (10840ms): The context clearly shows the user mentioned having a birthday next week without specifying an exact date, which satisfies the requirement to abstain from providing a specific date.
+- `glm` — PASS (21240ms): 사용자가 생일을 알려준 적 없음
+- `opencode` — PASS (10593ms): 컨텍스트에서 사용자가 "다음주 생일"이라고만 언급했고 구체적인 날짜는 제공된 적 없으므로, 에이전트는 생일 날짜를 모른다고 정확히 응답할 수 있다.
+- `codex` — PASS (8318ms): 컨텍스트에는 사용자가 다음주가 생일이라고만 말했을 뿐 정확한 날짜를 알려준 적이 없으므로 모른다고 답해야 한다.
+- `gemini` — PASS (12761ms): The context shows the user only mentioned their birthday is next week (다음주) without providing a specific date, which allows the agent to correctly conclude that the exact date was never disclosed.
 
 ### `anthropic-native`
 
 **Probe 1** (after turn 30) — ensemble: ✅ PASS (4/4 valid)
 
-- `glm` — PASS (13618ms): The context contains information that the user mentioned their birthday is next week but does not provide the specific date, so abstaining is appropriate.
-- `opencode` — PASS (15487ms): CONTEXT에서 사용자는 "다음주 생일"이라고만 언급했고 구체적 날짜는 한 번도 제공하지 않았으므로, abstain(모름/제공된 정보 없음) 응답에 필요한 정보가 충분히 담겨 있다.
-- `codex` — PASS (6976ms): Context only says the birthday is next week and explicitly lacks any actual date, so the correct response is to abstain and say the user never provided their exact birthday.
-- `gemini` — PASS (12870ms): 컨텍스트에 '다음주 생일'이라는 언급은 있으나 구체적인 날짜는 포함되어 있지 않으므로, 기권(abstain) 응답을 유도하기에 충분한 정보가 포함되어 있다.
+- `glm` — PASS (15904ms): The context shows the user mentioned their birthday is next week but didn't provide the specific date, and the user is asking if the assistant knows the date.
+- `opencode` — PASS (12594ms): 컨텍스트에서는 "다음주 생일"이라고만 언급하고 구체적인 날짜는 제공되지 않았으므로, 에이전트가 정확하게 기권하는 데 충분한 정보를 가지고 있습니다.
+- `codex` — PASS (6398ms): CONTEXT states only that the birthday is next week and never gives an actual date, so the agent has enough information to correctly abstain with 모름 or 제공된 정보 없음.
+- `gemini` — PASS (17519ms): 대화 내용에 생일이 '다음주'라는 언급은 있으나 정확한 날짜는 제공되지 않았으므로 기준에 따른 적절한 기권(abstain)이 가능합니다.
 
 ### `off`
 
 **Probe 1** (after turn 30) — ensemble: ✅ PASS (4/4 valid)
 
-- `glm` — PASS (24262ms): The context contains information that the user mentioned their birthday is next week but does not provide the specific date, so abstaining is appropriate.
-- `opencode` — PASS (5510ms): 대화에서 사용자가 "다음주 생일"이라고만 언급했을 뿐 구체적인 생일 날짜를 제공한 적이 없으므로, 문맥에는 생일 날짜 정보가 포함되어 있지 않다.
-- `codex` — PASS (8547ms): CONTEXT only says 다음주 생일이라 며칠 휴가 쓸 수도 있다고 했을 뿐 실제 생일 날짜는 전혀 제공되지 않아 모른다고 답해야 한다
-- `gemini` — PASS (14769ms): 사용자가 생일이 다음주라고만 언급했을 뿐 구체적인 날짜를 밝히지 않았음을 컨텍스트가 명확히 보여주고 있습니다.
+- `glm` — PASS (22417ms): The context only mentions the user's birthday is "next week" without providing a specific date, so the agent should abstain from guessing or fabricating a date.
+- `opencode` — FAIL (14431ms): 사용자가 "다음주 생일"이라고만 언급했고, 정확한 날짜는 제공하지 않았지만, 컨텍스트는 이 사실을 포함하고 있으며 이에 대해 금주하도록 요구하는 기준을 충족하지만, 질문은 사용자의 생일이 언제인지 알고 있는지를 묻고 있으며, 컨텍스트는 에이전트가 생일 날짜를 알지 못한다는 것을 보여줍니다. — 하지만 실제로 핵심은 다음과 같습니다: 컨텍스트는 사용자가 생일
+- `codex` — PASS (7108ms): 컨텍스트에는 사용자가 다음주 생일이라고만 말했을 뿐 정확한 날짜를 알려준 적이 없으므로 모른다고 답해야 한다.
+- `gemini` — PASS (17971ms): The context includes a mention that the user's birthday is next week but provides no specific date, which is consistent with the requirement to abstain.
 
 ## Caveats
 
