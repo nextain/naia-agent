@@ -121,6 +121,9 @@ export type { BashSkillOptions, BashInput, CodingSkillOptions, CodingInput, File
 // Slice 3-XR-Compact v2 / Phase 1 (#56) — Vercel AI SDK compaction adoption.
 export {
   createVercelCompactionPrepareStep,
+  createLLMMessagePrepareCompact,
+  llmMessageToModelMessage,
+  modelMessageToLLMMessage,
   defaultEstimateTokens,
   COOKBOOK_PRUNE_OPTIONS,
 } from "./compaction/vercel-prepare-step.js";

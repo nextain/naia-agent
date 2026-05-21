@@ -66,6 +66,7 @@ import {
   parseRoleSpec,
   readConfiguredAdkPath,
   decideCliMemory,
+  createLLMMessagePrepareCompact,
 } from "@nextain/agent-runtime";
 import type { ServiceManifest, ParsedRole } from "@nextain/agent-runtime";
 // Composition root may depend on a MemoryProvider implementation (the
@@ -177,6 +178,12 @@ interface Args {
    *  See `docs/compaction-survey.md` for `realtime` / `anthropic-native`
    *  / `off` semantics. Env override: `NAIA_AGENT_COMPACT_STRATEGY`. */
   compactStrategy: "reactive" | "realtime" | "anthropic-native" | "off";
+  /** Slice 3-XR-Compact v2 / Phase 1.2 (#56) — when true AND
+   *  compactStrategy === "reactive", swaps the in-house memory.compact()
+   *  path for the Vercel AI SDK `pruneMessages` cookbook recipe. Wires
+   *  `createLLMMessagePrepareCompact` into `Agent.prepareCompact`.
+   *  Env override: `NAIA_AGENT_REACTIVE_VERCEL=1`. Default false. */
+  reactiveVercel: boolean;
   /** Cross-session handoff — Slice 3-XR-Handoff (#50).
    *  Path to write the HandoffBlob (JSON) when the session ends OR
    *  auto-trigger fires (post-compact, budget≥95%). Disabled if undefined. */
@@ -206,6 +213,7 @@ function parseArgs(argv: string[]): Args | { error: string } {
     enableFileOps: false,
     forceRepl: false,
     compactStrategy: resolveCompactStrategyEnv(),
+    reactiveVercel: process.env["NAIA_AGENT_REACTIVE_VERCEL"] === "1",
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -262,6 +270,8 @@ function parseArgs(argv: string[]): Args | { error: string } {
         };
       }
       args.compactStrategy = v;
+    } else if (a === "--reactive-vercel") {
+      args.reactiveVercel = true;
     } else if (a === "--handoff-out") {
       const v = argv[++i];
       if (!v) return { error: "--handoff-out requires a path" };
@@ -602,6 +612,12 @@ async function runDirect(args: Args): Promise<number> {
     // --no-default-system always wins. Non-memory behavior unchanged.
     appendDefaultSystemPrompt: args.noDefaultSystem ? false : !args.memory,
     compactionStrategy: args.compactStrategy,
+    // Slice 3-XR-Compact v2 / Phase 1.2 (#56) — opt-in Vercel AI SDK
+    // pruneMessages path. Only meaningful when strategy === "reactive";
+    // ignored otherwise. See AGENTS.md CLI flags section.
+    ...(args.reactiveVercel && args.compactStrategy === "reactive"
+      ? { prepareCompact: createLLMMessagePrepareCompact() }
+      : {}),
   });
 
   // Slice 3-XR-Handoff (#50) — apply the previously parsed handoff blob now
@@ -1013,6 +1029,9 @@ async function runService(args: Args): Promise<number> {
     systemPrompt: manifest.persona.systemPrompt,
     tierForTool: () => "T1",
     compactionStrategy: args.compactStrategy,
+    ...(args.reactiveVercel && args.compactStrategy === "reactive"
+      ? { prepareCompact: createLLMMessagePrepareCompact() }
+      : {}),
   });
 
   // close the MemoryProvider on exit — agent.close() does not (cross-review
@@ -2106,6 +2125,7 @@ async function main(): Promise<number> {
       `usage: pnpm naia-agent [prompt] [--mode=direct|supervisor] [--workdir DIR] [--debug]\n` +
       `       pnpm naia-agent [prompt] [--no-tools] [--no-default-system] [--memory] [--system "…"]\n` +
       `       pnpm naia-agent [prompt] [--compact-strategy reactive|realtime|anthropic-native|off]\n` +
+      `       pnpm naia-agent [prompt] [--reactive-vercel]   # Slice 3-XR-Compact v2 (#56), opt-in pruneMessages\n` +
       `       pnpm naia-agent login --adk <path> [--main …] [--sub …] [--embedded …] [--key REF=VAL]\n` +
       `       pnpm naia-agent show                       # show current config (no secret values)\n` +
       `       pnpm naia-agent --stdio\n` +

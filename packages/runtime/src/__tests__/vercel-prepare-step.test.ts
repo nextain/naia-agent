@@ -161,18 +161,20 @@ describe("createVercelCompactionPrepareStep R2 (Slice v2 / #56)", () => {
 	});
 
 	it("VPS-R2-05 (gemini): pruneOptions override is forwarded to pruneMessages", () => {
+		// Phase 1.2 (#56): SDK-tracked PruneMessagesOptions — valid literals
+		// are `reasoning: 'all'|'before-last-message'|'none'` and
+		// `toolCalls: 'all'|'before-last-message'|'before-last-N-messages'|'none'|Array`.
 		const prepare = createVercelCompactionPrepareStep({
 			compactAfterTokens: 100_000,
 			pruneOptions: {
 				reasoning: "none",
-				toolCalls: "keep-all",
+				toolCalls: "none",
 				emptyMessages: "keep",
 			},
 		});
 		const result = prepare({ messages: [LONG_MESSAGE] });
 		// We don't assert on pruneMessages internals (that's its own test).
-		// Smoke: with `keep-all` + `keep`, the function should still return
-		// successfully without error.
+		// Smoke: with relaxed options, function returns successfully.
 		expect(result).toBeDefined();
 	});
 

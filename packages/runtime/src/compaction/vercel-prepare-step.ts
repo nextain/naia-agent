@@ -47,6 +47,10 @@
 
 import { pruneMessages } from "ai";
 import type { ModelMessage } from "ai";
+import type {
+	LLMContentBlock,
+	LLMMessage,
+} from "@nextain/agent-types";
 
 /**
  * Default rough token estimate — chars/4 heuristic from the cookbook.
@@ -59,21 +63,24 @@ export function defaultEstimateTokens(messages: readonly ModelMessage[]): number
 	return JSON.stringify(messages).length / 4;
 }
 
-/** Options accepted by `pruneMessages` from the AI SDK. Re-exposed so hosts
- *  can override the cookbook defaults if their fixture shape demands it. */
-export interface PruneMessagesOptions {
-	readonly reasoning?: "all" | "none" | "keep-last";
-	readonly toolCalls?:
-		| "remove-all"
-		| "before-last-3-messages"
-		| "before-last-message"
-		| "keep-all";
-	readonly emptyMessages?: "remove" | "keep";
-}
+/**
+ * Options accepted by `pruneMessages` from the AI SDK — sourced from the SDK
+ * type directly (sans `messages`) so we never drift from upstream.
+ *
+ * Phase 1.2 (#56) note: prior R2 hand-rolled type used stale literals
+ * (`"keep-all"` / `"remove-all"` / `"keep-last"`) that the SDK does not accept.
+ * Tracking SDK exactly removes that surface entirely (gemini cross-review
+ * intent, but pinned to actual SDK rather than the cookbook MDX).
+ */
+export type PruneMessagesOptions = Omit<
+	Parameters<typeof pruneMessages>[0],
+	"messages"
+>;
 
 /**
  * Cookbook defaults — exported so tests and hosts can compare against the
- * canonical recipe.
+ * canonical recipe (Vercel AI SDK cookbook
+ * `08-agent-context-compaction.mdx`).
  */
 export const COOKBOOK_PRUNE_OPTIONS: PruneMessagesOptions = {
 	reasoning: "all",
@@ -180,7 +187,9 @@ export function createVercelCompactionPrepareStep(
 		let pruned: ModelMessage[];
 		try {
 			pruned = pruneMessages({
-				messages,
+				// pruneMessages declares `ModelMessage[]` (mutable); we hold a
+				// readonly view but never mutate. Cast at the boundary.
+				messages: messages as ModelMessage[],
 				...pruneOpts,
 			});
 		} catch (err) {
@@ -201,5 +210,199 @@ export function createVercelCompactionPrepareStep(
 		}
 
 		return { messages: pruned };
+	};
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Phase 1.2 (#56) — LLMMessage ↔ ModelMessage adapter + Agent-side factory
+//
+// Reason for the adapter layer: naia-agent's core `Agent` operates on
+// `@nextain/agent-types` `LLMMessage` (Anthropic-style content blocks). The
+// Vercel SDK's `pruneMessages` operates on `ModelMessage` (Vercel's own
+// shape). Core MUST NOT depend on the `ai` SDK (layering), so the
+// integration runs through an injected callback whose body lives here.
+// ────────────────────────────────────────────────────────────────────────
+
+/**
+ * Convert a naia `LLMMessage` to a Vercel `ModelMessage`. Lossy by design —
+ * `redacted_thinking` blocks are dropped (no SDK part for them); cache
+ * breakpoints are not preserved (we're pruning, not requesting). Round-trip
+ * fidelity is best-effort — the goal is to let `pruneMessages` operate on a
+ * shape it understands, not to be a generic adapter.
+ */
+export function llmMessageToModelMessage(msg: LLMMessage): ModelMessage {
+	if (msg.role === "tool") {
+		const blocks =
+			typeof msg.content === "string"
+				? [{ type: "text" as const, text: msg.content }]
+				: msg.content;
+		const toolParts = blocks
+			.filter(
+				(b): b is LLMContentBlock & { type: "tool_result" } =>
+					b.type === "tool_result",
+			)
+			.map((b) => ({
+				type: "tool-result" as const,
+				toolCallId: b.toolCallId,
+				toolName: "",
+				output: { type: "text" as const, value: b.content },
+			}));
+		return { role: "tool", content: toolParts };
+	}
+
+	if (typeof msg.content === "string") {
+		return { role: msg.role, content: msg.content } as ModelMessage;
+	}
+
+	if (msg.role === "user") {
+		const parts = msg.content
+			.map((b) => llmBlockToUserPart(b))
+			.filter(
+				(p): p is NonNullable<ReturnType<typeof llmBlockToUserPart>> =>
+					p !== undefined,
+			);
+		return { role: "user", content: parts };
+	}
+
+	const parts = msg.content
+		.map((b) => llmBlockToAssistantPart(b))
+		.filter(
+			(p): p is NonNullable<ReturnType<typeof llmBlockToAssistantPart>> =>
+				p !== undefined,
+		);
+	return { role: "assistant", content: parts };
+}
+
+function llmBlockToUserPart(block: LLMContentBlock) {
+	if (block.type === "text") return { type: "text" as const, text: block.text };
+	if (block.type === "image") {
+		return {
+			type: "file" as const,
+			data: block.source.data,
+			mediaType: block.source.mediaType,
+		};
+	}
+	return undefined;
+}
+
+function llmBlockToAssistantPart(block: LLMContentBlock) {
+	if (block.type === "text") return { type: "text" as const, text: block.text };
+	if (block.type === "thinking") {
+		return { type: "reasoning" as const, text: block.thinking };
+	}
+	if (block.type === "tool_use") {
+		return {
+			type: "tool-call" as const,
+			toolCallId: block.id,
+			toolName: block.name,
+			input: block.input,
+		};
+	}
+	return undefined;
+}
+
+/**
+ * Convert a Vercel `ModelMessage` back to a naia `LLMMessage`. Round-trips
+ * the shapes we emit; for shapes we never emit (e.g. assistant file parts),
+ * returns a best-effort fallback rather than throwing.
+ */
+export function modelMessageToLLMMessage(msg: ModelMessage): LLMMessage {
+	if (msg.role === "tool") {
+		const content: LLMContentBlock[] = [];
+		const parts = Array.isArray(msg.content) ? msg.content : [];
+		for (const p of parts) {
+			if (
+				p &&
+				typeof p === "object" &&
+				"type" in p &&
+				p.type === "tool-result"
+			) {
+				const outputValue =
+					p.output && typeof p.output === "object" && "value" in p.output
+						? String((p.output as { value: unknown }).value ?? "")
+						: "";
+				content.push({
+					type: "tool_result",
+					toolCallId: p.toolCallId,
+					content: outputValue,
+				});
+			}
+		}
+		return { role: "tool", content };
+	}
+
+	// System role narrows out at the LLMMessage boundary — naia-agent carries
+	// system text as `LLMRequest.system`, not as a message. Fold it into an
+	// assistant text message so pruneMessages output stays representable.
+	const role: "user" | "assistant" =
+		msg.role === "user" ? "user" : "assistant";
+
+	if (typeof msg.content === "string") {
+		return { role, content: msg.content };
+	}
+
+	const blocks: LLMContentBlock[] = [];
+	for (const p of msg.content) {
+		if (p.type === "text") {
+			blocks.push({ type: "text", text: p.text });
+		} else if (p.type === "reasoning") {
+			blocks.push({ type: "thinking", thinking: p.text });
+		} else if (p.type === "tool-call") {
+			blocks.push({
+				type: "tool_use",
+				id: p.toolCallId,
+				name: p.toolName,
+				input: p.input,
+			});
+		} else if (p.type === "file" && typeof p.data === "string") {
+			blocks.push({
+				type: "image",
+				source: {
+					type: "base64",
+					mediaType: p.mediaType,
+					data: p.data,
+				},
+			});
+		}
+	}
+	return { role, content: blocks };
+}
+
+/**
+ * Agent-side compaction hook — factory for `AgentOptions.prepareCompact`.
+ *
+ * The returned callback:
+ *  1. Converts the Agent's `LLMMessage[]` history to `ModelMessage[]`.
+ *  2. Delegates to the cookbook helper (`pruneMessages` under the hood).
+ *  3. Converts the pruned result back to `LLMMessage[]`.
+ *  4. Returns `undefined` to signal "no compaction performed" — the Agent
+ *     leaves its history untouched.
+ *
+ * Default `compactAfterTokens` is **0** so the Agent's own `contextBudget`
+ * gate is the authoritative trigger (the Agent only invokes this when
+ * already over budget). Hosts that want double-gating can pass a positive
+ * `compactAfterTokens`.
+ *
+ * Double-compaction guard: when this hook is wired, the Agent skips its
+ * in-house `memory.compact()` path entirely for the reactive strategy.
+ * Exactly one compaction path runs per turn — never both.
+ */
+export function createLLMMessagePrepareCompact(
+	options: VercelCompactionOptions = {},
+): (history: readonly LLMMessage[]) => LLMMessage[] | undefined {
+	const inner = createVercelCompactionPrepareStep({
+		compactAfterTokens: 0,
+		...options,
+	});
+	return (history) => {
+		if (history.length === 0) return undefined;
+		const modelMessages = history.map(llmMessageToModelMessage);
+		const result = inner({ messages: modelMessages });
+		if (!result) return undefined;
+		const pruned = result.messages.map(modelMessageToLLMMessage);
+		// Safety: never wipe non-empty history to empty (e.g. pathological
+		// prune output). Caller treats `undefined` as "skip".
+		if (pruned.length === 0) return undefined;
+		return pruned;
 	};
 }

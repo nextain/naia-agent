@@ -107,6 +107,25 @@ export interface AgentOptions {
    */
   compactionStrategy?: CompactionStrategy;
   /**
+   * Optional history pre-processor — when provided AND
+   * `compactionStrategy === "reactive"`, replaces the in-house
+   * `memory.compact()` path with this callback. Receives the current
+   * `LLMMessage[]` history (read-only); returns a pruned history or
+   * `undefined` to skip.
+   *
+   * Phase 1.2 of Slice 3-XR-Compact v2 (#56). Hosts wire this from
+   * `@nextain/agent-runtime`'s `createLLMMessagePrepareCompact` factory —
+   * the runtime owns the `ai` SDK boundary so `core` stays SDK-agnostic.
+   *
+   * Double-compaction guard: when this hook is wired, the in-house
+   * `memory.compact()` call is **NOT** issued for the reactive strategy.
+   * Exactly one path runs per turn. Strategies `off`, `anthropic-native`,
+   * and `realtime` ignore this option (semantics unchanged).
+   */
+  prepareCompact?: (
+    history: readonly LLMMessage[],
+  ) => LLMMessage[] | undefined;
+  /**
    * Tier resolver — given a tool name, returns its tier. Host plugs in a
    * skill-spec lookup. Default: T1 (safe assumption).
    */
@@ -194,6 +213,12 @@ export class Agent {
   readonly #tierFor: (name: string) => TierLevel;
   readonly #maxConsecutiveToolErrors: number;
   readonly #appendDefaultSystem: boolean;
+  /** Phase 1.2 (#56): host-injected reactive compaction hook. When set
+   *  AND strategy === "reactive", supersedes the in-house memory.compact()
+   *  path (double-compaction guard). See AgentOptions.prepareCompact. */
+  readonly #prepareCompact?: (
+    history: readonly LLMMessage[],
+  ) => LLMMessage[] | undefined;
 
   constructor(options: AgentOptions) {
     this.#host = options.host;
@@ -208,6 +233,9 @@ export class Agent {
     this.#handoffThreshold = options.handoffThreshold ?? 0.95;
     this.#tierFor = options.tierForTool ?? (() => "T1");
     this.#maxConsecutiveToolErrors = options.maxConsecutiveToolErrors ?? 3;
+    if (options.prepareCompact !== undefined) {
+      this.#prepareCompact = options.prepareCompact;
+    }
 
     this.#session = {
       id: randomSessionId(),
@@ -609,6 +637,42 @@ export class Agent {
    * Passing `memoryHits` and `toolDefs` lets us estimate the full request
    * (not just the bare history), matching the actual LLM call size.
    */
+  /**
+   * Phase 1.2 (#56) — Vercel AI SDK `pruneMessages` path. Invoked only when
+   * strategy === "reactive" AND `#prepareCompact` is wired. Replaces the
+   * in-house `memory.compact()` path so exactly one compaction runs per
+   * turn (double-compaction guard). The Agent's `contextBudget` is already
+   * the trigger gate; this method is called only after budget was exceeded.
+   *
+   * Behavioural differences vs `memory.compact()`:
+   *  - No "summary message" insertion — pruning strips blocks (reasoning,
+   *    older tool_calls) but keeps message identity.
+   *  - `priorRecap` is not threaded (no recap to anchor on); subsequent
+   *    handoff exports still go through `memory.compact({keepTail:0})`.
+   *  - `#compactedThisSession` is still set, so auto-handoff trigger stays
+   *    consistent with the in-house path.
+   */
+  async #runPrepareCompact(): Promise<AgentStreamEvent | undefined> {
+    if (!this.#prepareCompact) return undefined;
+    const before = this.#history.length;
+    let pruned: LLMMessage[] | undefined;
+    try {
+      pruned = this.#prepareCompact(this.#history);
+    } catch (err) {
+      this.#host.logger.warn("agent.compaction.prepareCompact.error", {
+        err: String(err),
+      });
+      return undefined;
+    }
+    if (!pruned || pruned.length === 0) return undefined;
+    const dropped = Math.max(0, before - pruned.length);
+    // Replace history in place — splice keeps the array reference stable
+    // for any caller holding onto it.
+    this.#history.splice(0, this.#history.length, ...pruned);
+    this.#compactedThisSession = true;
+    return { type: "compaction", droppedCount: dropped, realtime: false };
+  }
+
   async #maybeCompact(
     memoryHits: MemoryHit[],
     toolDefs: readonly ToolDefinitionWithTier[],
@@ -625,6 +689,14 @@ export class Agent {
 
     const request = this.#buildRequest(memoryHits, toolDefs);
     if (this.#estimate(request) <= this.#budget) return undefined;
+
+    // Phase 1.2 (#56): host-injected reactive compaction supersedes the
+    // in-house memory.compact() path. Double-compaction guard — when
+    // prepareCompact is wired, the memory.compact() block below never
+    // runs for the reactive strategy.
+    if (this.#strategy === "reactive" && this.#prepareCompact) {
+      return this.#runPrepareCompact();
+    }
 
     // Find turn boundary — keep last N user messages verbatim.
     const cutAt = findTurnCutPoint(this.#history, this.#keepTail);
