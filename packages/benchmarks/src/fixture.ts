@@ -23,16 +23,23 @@ export interface FixtureTurn {
 	readonly content: string;
 }
 
-/** Compaction strategy identifier — wire-up locked in P2 (CompactionStrategy enum).
- *  Phase 1.2 (#56) added `reactive-vercel`: same trigger as `reactive` but the
- *  compaction body is Vercel AI SDK `pruneMessages` instead of
- *  `memorySystem.compact()`. Semantically different (pruning vs summarization)
- *  — included so head-to-head measurement is possible. */
+/** Compaction strategy identifier.
+ *
+ *  R7 Phase A (commit 09d3fdb replan): `anthropic-native` REMOVED from the
+ *  benchmark per gemini R6 audit ("placebo mimicking off"). It was a
+ *  `return undefined` sentinel — no API call, no measurement. plan §3 P1
+ *  deferred until `@ai-sdk/anthropic` + beta header `compact-2026-01-12` is
+ *  actually wired in a separate effort.
+ *
+ *  Current 4 strategies:
+ *   - `off`             : no compaction, full transcript subject to context-window cap
+ *   - `reactive`        : naia-memory `compact()` — 5-section markdown summarization
+ *   - `reactive-vercel` : Vercel AI SDK `pruneMessages` — strips reasoning + old tool_calls
+ *   - `realtime`        : naia-memory `compact()` with per-turn encode (rolling summary) */
 export type StrategyId =
 	| "reactive"
 	| "reactive-vercel"
 	| "realtime"
-	| "anthropic-native"
 	| "off";
 
 /**
@@ -59,14 +66,29 @@ export type FixtureProbe =
 			readonly type: "task-accuracy";
 			readonly criterion: string;
 			/**
-			 * Phase 1.3 R2 (codex S8 fix): the explicit question to ask the
-			 * judges. Without this the harness reverse-engineers a question
-			 * from the last user turn before `afterTurn`, which is structurally
-			 * wrong — it makes the judge evaluate a different prompt than the
-			 * fixture author intended. Optional for backward compat with R1
-			 * fixtures; new fixtures MUST provide it.
+			 * Explicit question for the LLM judge. REQUIRED in R7 — silent
+			 * fallback to "last user turn" was a R5 framing artefact that
+			 * judged a different prompt than the fixture author intended.
 			 */
-			readonly question?: string;
+			readonly question: string;
+			/**
+			 * R7 (gemini R6 audit): explicit 1-based turn indices where the
+			 * fact(s) required to answer this probe are established in the
+			 * fixture. Used by the harness to validate that the strategy
+			 * under test actually has to preserve the fact (i.e. fact is in
+			 * the recap range, not in the preserved tail).
+			 *
+			 * If empty / undefined, the probe is treated as "tail-trivial"
+			 * — answerable from the preserved tail without compaction
+			 * effort. Such probes can still be measured but are reported in
+			 * a separate column (NOT as strategy quality).
+			 *
+			 * Authoring rule: include EVERY turn where the fact (or a
+			 * close paraphrase) appears. The harness will classify the
+			 * probe by where those turns fall relative to `lastCompactionPoint`
+			 * and `keepTail`.
+			 */
+			readonly factTurns?: readonly number[];
 	  }
 	| {
 			readonly afterTurn: number;
@@ -147,6 +169,8 @@ export function validateFixture(value: unknown): Fixture {
 	if (!Array.isArray(f.probes)) {
 		throw new Error(`fixture ${f.id}: probes must be an array`);
 	}
+	// Validate each probe shape FIRST (so "invalid type" errors surface
+	// before the structural "must have task-accuracy" check below).
 	for (const [i, probe] of f.probes.entries()) {
 		if (typeof probe !== "object" || probe === null) {
 			throw new Error(`fixture ${f.id}: probes[${i}] is not an object`);
@@ -158,6 +182,72 @@ export function validateFixture(value: unknown): Fixture {
 		if (p.type !== "fact-recall" && p.type !== "task-accuracy" && p.type !== "drift") {
 			throw new Error(`fixture ${f.id}: probes[${i}].type invalid`);
 		}
+		if (p.type === "task-accuracy") {
+			// R7: question is REQUIRED for task-accuracy probes (no silent
+			// "last user turn" fallback — that was a R5 framing artefact).
+			if (typeof p.question !== "string" || p.question.length === 0) {
+				throw new Error(
+					`fixture ${f.id}: probes[${i}].question is required for task-accuracy`,
+				);
+			}
+			if (p.factTurns !== undefined) {
+				if (!Array.isArray(p.factTurns)) {
+					throw new Error(
+						`fixture ${f.id}: probes[${i}].factTurns must be an array of turn indices`,
+					);
+				}
+				for (const t of p.factTurns) {
+					if (typeof t !== "number" || t < 1) {
+						throw new Error(
+							`fixture ${f.id}: probes[${i}].factTurns entries must be 1-based positive turn indices`,
+						);
+					}
+				}
+			}
+		}
+	}
+	// R7 (gemini R6 audit Finding #6): strict — at least one task-accuracy
+	// probe required. R1-R5 silent fallback hid authoring errors where a
+	// fixture with zero probes still produced "PASS" rows.
+	const hasTaskProbe = f.probes.some(
+		(p) => typeof p === "object" && p !== null && (p as { type?: unknown }).type === "task-accuracy",
+	);
+	if (!hasTaskProbe) {
+		throw new Error(
+			`fixture ${f.id}: must define at least one probe of type "task-accuracy"`,
+		);
 	}
 	return value as Fixture;
+}
+
+/**
+ * Probe stress classification — R7 Phase A4.
+ *
+ * Given a task-accuracy probe's `factTurns` and the fixture's compaction
+ * geometry (`lastCompactionPoint`, `keepTail`), classify whether the probe
+ * actually stresses the strategy:
+ *
+ *   - "recap-only": every fact-turn is in turns[0..lastCompactionPoint-keepTail].
+ *     The strategy MUST preserve the fact through compaction; this is a
+ *     genuine strategy-quality probe.
+ *
+ *   - "tail-trivial": at least one fact-turn is in the preserved tail
+ *     (turns[lastCompactionPoint-keepTail..currentTurn]). The strategy is
+ *     not stressed; off can answer just as well as reactive.
+ *
+ *   - "no-compaction": no compactionPoint ≤ currentTurn, so no compaction
+ *     ran. Probe measures the cap, not the strategy.
+ *
+ *   - "unclassified": `factTurns` is undefined or empty.
+ */
+export function classifyProbeStress(
+	factTurns: readonly number[] | undefined,
+	lastCompactionPoint: number | undefined,
+	keepTail: number,
+): "recap-only" | "tail-trivial" | "no-compaction" | "unclassified" {
+	if (lastCompactionPoint === undefined) return "no-compaction";
+	if (factTurns === undefined || factTurns.length === 0) return "unclassified";
+	const tailStart = Math.max(0, lastCompactionPoint - keepTail);
+	const anyInTail = factTurns.some((t) => t > tailStart);
+	return anyInTail ? "tail-trivial" : "recap-only";
 }

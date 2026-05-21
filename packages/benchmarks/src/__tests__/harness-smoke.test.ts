@@ -25,6 +25,13 @@ const validFixture: Fixture = {
 			question: "who said hi?",
 			expectedKeywords: ["user"],
 		},
+		// R7: validateFixture now requires at least one task-accuracy probe.
+		{
+			afterTurn: 1,
+			type: "task-accuracy",
+			question: "did the user greet?",
+			criterion: "Response should mention greeting",
+		},
 	],
 };
 
@@ -91,6 +98,7 @@ describe("metrics", () => {
 			afterTurn: 0,
 			type: "task-accuracy",
 			criterion: "...",
+			question: "test?",
 		};
 		const judgements: ProbeJudgement[] = [
 			{ probe, response: "", pass: true },

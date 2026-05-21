@@ -47,6 +47,7 @@ import type {
 import { validateFixture } from "./fixture.js";
 import { driftScore } from "./metrics.js";
 import { renderReport } from "./report.js";
+import { buildVisibleContext } from "./visible-context.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = join(HERE, "fixtures");
@@ -56,7 +57,6 @@ const DEFAULT_STRATEGIES: readonly StrategyId[] = [
 	"reactive",
 	"reactive-vercel",
 	"realtime",
-	"anthropic-native",
 	"off",
 ];
 
@@ -79,7 +79,6 @@ function parseArgs(argv: readonly string[]): CliOptions {
 					s === "reactive" ||
 					s === "reactive-vercel" ||
 					s === "realtime" ||
-					s === "anthropic-native" ||
 					s === "off",
 				);
 			i++;
@@ -153,46 +152,17 @@ function evaluateProbe(
 	strategy: StrategyId,
 	keepTail: number,
 ): ProbeOutcome {
-	const compactionPoints = fixture.compactionPoints ?? [];
-	const lastCompactionPoint = [...compactionPoints]
-		.filter((p) => p <= currentTurn)
-		.sort((a, b) => a - b)
-		.pop();
-
-	let visibleText: string;
-	// Phase 1.3 R5 (codex S13 fix): match mini-bench-judge.ts logic so
-	// deterministic and ensemble paths produce comparable visible context.
-	//  - tailStart = max(0, lastCompactionPoint - keepTail) — closes the
-	//    "Missing Middle" gap (S12) for the deterministic path too.
-	//  - All strategies (compacted OR not) pass through the same context
-	//    window cap — no "oracle" view for off / anthropic-native.
-	const wasCompacted =
-		lastCompactionPoint !== undefined &&
-		(strategy === "reactive" ||
-			strategy === "reactive-vercel" ||
-			strategy === "realtime");
-
-	if (wasCompacted) {
-		const tailStart = Math.max(0, lastCompactionPoint! - keepTail);
-		const tailTurns = fixture.turns.slice(tailStart, currentTurn);
-		const tailText = tailTurns.map((t) => t.content).join("\n");
-		visibleText = `${recapContent}\n\n${tailText}`;
-	} else {
-		visibleText = fixture.turns
-			.slice(0, currentTurn)
-			.map((t) => t.content)
-			.join("\n");
-	}
-
-	// Phase 1.3 R5 (S13 + S18 alignment): apply the same provider context
-	// window cap mini-bench-judge.ts uses. 1200 chars ≈ 300 tokens.
-	const CONTEXT_WINDOW_CHARS = 1200;
-	if (visibleText.length > CONTEXT_WINDOW_CHARS) {
-		const start = visibleText.length - CONTEXT_WINDOW_CHARS;
-		const nlAfter = visibleText.indexOf("\n", start);
-		const safeStart = nlAfter !== -1 ? nlAfter + 1 : start;
-		visibleText = visibleText.slice(safeStart);
-	}
+	// R7 Phase A: shared visible-context builder. Same function the LLM
+	// judge harness uses. No per-site divergence.
+	const ctx = buildVisibleContext({
+		fixture,
+		strategy,
+		currentTurn,
+		recapContent,
+		keepTail,
+		contextWindowChars: 1200,
+	});
+	const visibleText = ctx.visible;
 
 	const lower = visibleText.toLowerCase();
 	let pass: boolean;
