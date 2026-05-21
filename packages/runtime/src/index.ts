@@ -133,3 +133,17 @@ export type {
   CompactionStepInput,
   CompactionStepResult,
 } from "./compaction/vercel-prepare-step.js";
+
+// R8 (#56) — pi-mono compaction algorithm port (MIT, anchored iterative).
+export {
+  createPiLLMMessagePrepareCompact,
+  estimateMessageTokens,
+  findCutPoint,
+  PI_SUMMARIZATION_SYSTEM_PROMPT,
+  PI_SUMMARIZATION_PROMPT,
+  PI_UPDATE_SUMMARIZATION_PROMPT,
+} from "./compaction/pi-prepare-step.js";
+export type {
+  PiCompactionOptions,
+  PiCutPointResult,
+} from "./compaction/pi-prepare-step.js";

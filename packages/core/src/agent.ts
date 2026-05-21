@@ -124,7 +124,7 @@ export interface AgentOptions {
    */
   prepareCompact?: (
     history: readonly LLMMessage[],
-  ) => LLMMessage[] | undefined;
+  ) => LLMMessage[] | undefined | Promise<LLMMessage[] | undefined>;
   /**
    * Tier resolver — given a tool name, returns its tier. Host plugs in a
    * skill-spec lookup. Default: T1 (safe assumption).
@@ -216,9 +216,12 @@ export class Agent {
   /** Phase 1.2 (#56): host-injected reactive compaction hook. When set
    *  AND strategy === "reactive", supersedes the in-house memory.compact()
    *  path (double-compaction guard). See AgentOptions.prepareCompact. */
+  /** Hook for host-injected reactive compaction (R7 Phase 1.2 + R8 pi/hermes adapter).
+   *   Sync return: prune-only (Vercel cookbook style). Async return: LLM-call path
+   *   (pi/Hermes anchored iterative). Agent always awaits the result. */
   readonly #prepareCompact?: (
     history: readonly LLMMessage[],
-  ) => LLMMessage[] | undefined;
+  ) => LLMMessage[] | undefined | Promise<LLMMessage[] | undefined>;
 
   constructor(options: AgentOptions) {
     this.#host = options.host;
@@ -657,7 +660,9 @@ export class Agent {
     const before = this.#history.length;
     let pruned: LLMMessage[] | undefined;
     try {
-      pruned = this.#prepareCompact(this.#history);
+      // R8: await — pi/Hermes adapters return Promise (LLM call). Vercel
+      // adapter returns sync; await on non-Promise is a no-op.
+      pruned = await this.#prepareCompact(this.#history);
     } catch (err) {
       this.#host.logger.warn("agent.compaction.prepareCompact.error", {
         err: String(err),
