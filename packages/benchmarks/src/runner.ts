@@ -35,7 +35,7 @@ import { LocalAdapter, MemorySystem } from "@nextain/naia-memory";
 
 // Phase 1.3 (#56) — Vercel pruneMessages path lives in runtime.
 import { createLLMMessagePrepareCompact } from "@nextain/agent-runtime";
-import type { LLMMessage } from "@nextain/agent-types";
+import type { LLMContentBlock, LLMMessage } from "@nextain/agent-types";
 
 import type {
 	Fixture,
@@ -410,12 +410,90 @@ function mapRole(role: FixtureTurn["role"]): "user" | "assistant" | "tool" {
 /** Phase 1.3 (#56): adapt a fixture turn to the LLMMessage shape that the
  *  Vercel prune helper consumes. Plain-text fixtures get plain-string
  *  content; that's the honest representation — adding fake reasoning blocks
- *  to "help Vercel win" would defeat the head-to-head purpose. */
+ *  to "help Vercel win" would defeat the head-to-head purpose.
+ *
+ *  Phase 1.3 R3 (gemini S2 fix): if the turn content carries explicit
+ *  inline markers `[thinking] ...`, `[tool_use NAME] JSON`, or
+ *  `[tool_result] ...`, parse them into real `LLMContentBlock` parts so
+ *  pruneMessages's `reasoning='all'` and `toolCalls=...` rules can actually
+ *  strip them. Without this the fixture-author's intent ("I gave Vercel
+ *  real material to prune") is silently dropped because the SDK only sees
+ *  `content: string` (no reasoning/tool parts).
+ */
 function toLLMMessage(turn: FixtureTurn): LLMMessage {
-	return {
-		role: mapRole(turn.role),
-		content: turn.content,
+	const role = mapRole(turn.role);
+	const blocks = parseInlineBlocks(turn.content);
+	if (blocks === null) {
+		return { role, content: turn.content };
+	}
+	return { role, content: blocks };
+}
+
+/** Parse `[thinking] ...`, `[tool_use NAME] {...}`, `[tool_result] ...`
+ *  inline markers in a fixture turn into proper `LLMContentBlock[]`. Returns
+ *  `null` when no markers are present (caller uses string content as before).
+ *  Idempotent on text without markers. */
+function parseInlineBlocks(content: string): LLMContentBlock[] | null {
+	if (
+		!content.includes("[thinking]") &&
+		!content.includes("[tool_use ") &&
+		!content.includes("[tool_result]")
+	) {
+		return null;
+	}
+	const blocks: LLMContentBlock[] = [];
+	// Split on newlines; each line is examined for a leading marker.
+	const lines = content.split("\n");
+	let textBuf: string[] = [];
+	const flushText = (): void => {
+		if (textBuf.length > 0) {
+			const text = textBuf.join("\n").trim();
+			if (text.length > 0) blocks.push({ type: "text", text });
+			textBuf = [];
+		}
 	};
+	let toolCallCounter = 0;
+	for (const line of lines) {
+		const thinkMatch = /^\[thinking\]\s*(.*)$/.exec(line);
+		if (thinkMatch) {
+			flushText();
+			blocks.push({ type: "thinking", thinking: thinkMatch[1] ?? "" });
+			continue;
+		}
+		const toolUseMatch = /^\[tool_use\s+([\w_\-]+)\]\s*(.*)$/.exec(line);
+		if (toolUseMatch) {
+			flushText();
+			let input: unknown = {};
+			try {
+				input = JSON.parse(toolUseMatch[2] ?? "{}");
+			} catch {
+				input = { raw: toolUseMatch[2] };
+			}
+			toolCallCounter++;
+			blocks.push({
+				type: "tool_use",
+				id: `call_${toolCallCounter}`,
+				name: toolUseMatch[1] ?? "",
+				input,
+			});
+			continue;
+		}
+		const toolResultMatch = /^\[tool_result\]\s*(.*)$/.exec(line);
+		if (toolResultMatch) {
+			flushText();
+			// tool_result blocks need a toolCallId; reuse the latest tool_use id.
+			const callId = `call_${toolCallCounter || 1}`;
+			blocks.push({
+				type: "tool_result",
+				toolCallId: callId,
+				content: toolResultMatch[1] ?? "",
+			});
+			continue;
+		}
+		textBuf.push(line);
+	}
+	flushText();
+	return blocks.length > 0 ? blocks : null;
 }
 
 /** Serialize an LLMMessage[] back to a single string for `recapContent`
