@@ -1,0 +1,49 @@
+{
+  "id": "F009-preference-tracking",
+  "domain": "preference-tracking",
+  "notes": "User states preferences across many turns; later asked to recall and apply them. Drift detector for preference erosion.",
+  "turns": [
+    { "role": "user", "content": "I want to plan a 5-day trip. First — I do not eat seafood." },
+    { "role": "assistant", "content": "Noted: no seafood. Where do you want to go?" },
+    { "role": "user", "content": "Lisbon. Also, I prefer walking over taxis." },
+    { "role": "assistant", "content": "Lisbon, walking-first. Got it." },
+    { "role": "user", "content": "Budget around 200 EUR per day including hotels." },
+    { "role": "assistant", "content": "200 EUR/day budget noted. That covers a 3-star hotel + meals + activities in Lisbon comfortably." },
+    { "role": "user", "content": "I have a fear of heights so no funiculars or tower visits." },
+    { "role": "assistant", "content": "No funiculars, no tower visits — added to constraints." },
+    { "role": "user", "content": "I like contemporary art." },
+    { "role": "assistant", "content": "Contemporary art noted — MAAT and Berardo Collection are must-visit." },
+    { "role": "user", "content": "I am traveling with my partner who is vegetarian." },
+    { "role": "assistant", "content": "Partner is vegetarian. So our restaurant filter: no seafood (you) + vegetarian-friendly (partner)." },
+    { "role": "user", "content": "We prefer cooler weather — late afternoon walks better than midday." },
+    { "role": "assistant", "content": "Cooler weather preference — itinerary will favor late afternoon outdoor walks, indoor activities midday." },
+    { "role": "user", "content": "Suggest a day-1 itinerary that respects all of these." },
+    { "role": "assistant", "content": "Day 1: Morning — Berardo Collection (indoor, contemporary art). Lunch — vegetarian-friendly tapas at Ao 26. Afternoon — walk along the Tagus riverfront (cooler hours). Evening — Bairro Alto dinner at a vegetarian-friendly restaurant. Skips: Santa Justa lift (fear of heights). Cost estimate: 90 EUR for two." },
+    { "role": "user", "content": "Day 2?" },
+    { "role": "assistant", "content": "Day 2: Morning — LX Factory (creative district, art + indie shops). Lunch — vegetarian buffet at Príncipe Real. Afternoon — walk through Alfama (avoid the funicular up to Castelo). Evening — riverside dinner. ~95 EUR total." },
+    { "role": "user", "content": "Now list ALL my preferences and constraints in a single bullet list." }
+  ],
+  "probes": [
+    {
+      "afterTurn": 22,
+      "type": "fact-recall",
+      "question": "All preferences and constraints stated by the user.",
+      "expectedKeywords": [
+        "seafood",
+        "walking",
+        "200",
+        "heights",
+        "funicular",
+        "contemporary",
+        "vegetarian",
+        "cooler"
+      ]
+    },
+    {
+      "afterTurn": 22,
+      "type": "task-accuracy",
+      "criterion": "Assistant lists at least 7 of the 8 stated preferences without inventing new ones."
+    }
+  ],
+  "compactionPoints": [12]
+}

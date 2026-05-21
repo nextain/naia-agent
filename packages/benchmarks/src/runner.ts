@@ -173,29 +173,19 @@ function evaluateProbe(
 		// quality is measured by what survives compaction.
 		pass = probe.expectedKeywords.every((k) => lower.includes(k.toLowerCase()));
 	} else if (probe.type === "task-accuracy") {
-		// R7 Phase A.2 (Claude audit F3 HALT fix): drop the
-		// English-only "domainAnchor" heuristic. It always-failed Korean
-		// fixtures and abstention probes. Use factTurns presence as the
-		// honest "did the strategy preserve the relevant turns" signal.
-		const factTurns = probe.factTurns ?? [];
-		if (factTurns.length === 0) {
-			// Abstention / unclassified — deterministic mode cannot judge
-			// whether the agent appropriately withheld an answer. Skip with
-			// a neutral pass; LLM judge is the authoritative source.
-			pass = true;
-		} else {
-			// At least one fact-turn's content should be present in visible.
-			// Strict check: ALL fact-turns must have at least one substantive
-			// token (≥4 chars) appear in the visible text.
-			pass = factTurns.every((turnIdx) => {
-				const turn = fixture.turns[turnIdx - 1];
-				if (!turn) return false;
-				// Use a short rolling substring of the turn content as the
-				// "fact signal" — first 8 chars of the content.
-				const signal = turn.content.slice(0, 8).toLowerCase();
-				return signal.length >= 4 && lower.includes(signal);
-			});
-		}
+		// R7 Final-Audit Finding #3 (HALT fix): deterministic evaluator
+		// CANNOT judge task-accuracy. R7 Phase A.2 substituted an 8-char
+		// substring scan that rewards verbatim retention (off, no-op
+		// reactive-vercel) and punishes paraphrased recaps (reactive,
+		// realtime), which is the OPPOSITE of strategy quality.
+		//
+		// New honest semantics: deterministic taskAccuracy is now a
+		// "context-non-empty" sanity check ONLY. It does NOT measure
+		// strategy quality. mini-bench-judge.ts's LLM judge ensemble is
+		// the authoritative source. The aggregate taskAccuracy in
+		// FixtureResult should be ignored when reading per-strategy
+		// quality; rely on the ensemble verdict instead.
+		pass = visibleText.length > 50; // any non-trivial context passes
 	} else {
 		// drift probe — scored separately via driftScore.
 		pass = true;

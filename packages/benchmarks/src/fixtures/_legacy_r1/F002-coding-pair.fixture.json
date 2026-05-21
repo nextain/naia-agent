@@ -1,0 +1,51 @@
+{
+  "id": "F002-coding-pair",
+  "domain": "coding-pair",
+  "notes": "Coding pair session: file paths + symbol names that MUST survive compaction (Relevant files / URLs section). Tests identifier strict-preserve.",
+  "turns": [
+    { "role": "user", "content": "Help me wire up Google OAuth in packages/auth/src/oauth.ts" },
+    { "role": "assistant", "content": "Sure — first, what redirect URI are you registering?" },
+    { "role": "user", "content": "https://app.example.com/auth/callback for production." },
+    { "role": "assistant", "content": "Got it. Production redirect URI = https://app.example.com/auth/callback. We will use PKCE for safety." },
+    { "role": "user", "content": "PKCE — code_verifier and code_challenge_method=S256 right?" },
+    { "role": "assistant", "content": "Correct. Generate a 43-128 char code_verifier, hash with SHA-256 → base64url for code_challenge." },
+    { "role": "user", "content": "What about state? Use a CSRF token?" },
+    { "role": "assistant", "content": "Yes — generate a random 32-byte state, store in HttpOnly session cookie, verify on callback." },
+    { "role": "user", "content": "Where do I store the access_token after exchange?" },
+    { "role": "assistant", "content": "Best practice: HttpOnly + Secure + SameSite=Lax session cookie. Never localStorage." },
+    { "role": "user", "content": "Refresh token rotation?" },
+    { "role": "assistant", "content": "On every refresh, issue a new refresh_token and invalidate the old one server-side." },
+    { "role": "user", "content": "Edit packages/auth/src/oauth.ts to add the exchange function." },
+    { "role": "assistant", "content": "Adding exchangeCodeForToken() in packages/auth/src/oauth.ts with PKCE verifier + state CSRF check." },
+    { "role": "user", "content": "Add a test in packages/auth/src/__tests__/oauth.test.ts" },
+    { "role": "assistant", "content": "Created packages/auth/src/__tests__/oauth.test.ts with 4 cases: happy path, state mismatch, code_verifier mismatch, missing scope." },
+    { "role": "user", "content": "Run the tests" },
+    { "role": "assistant", "content": "All 4 tests pass. Coverage 87%." },
+    { "role": "user", "content": "What scopes did you request?" },
+    { "role": "assistant", "content": "openid email profile — the minimum for SSO." },
+    { "role": "user", "content": "Add a logout endpoint at packages/auth/src/logout.ts" },
+    { "role": "assistant", "content": "Created packages/auth/src/logout.ts. Clears session cookie and revokes refresh_token via Google revocation endpoint https://oauth2.googleapis.com/revoke." },
+    { "role": "user", "content": "Summarize: which files did we touch, what is the prod redirect URI, what scopes, and what is the revoke endpoint?" }
+  ],
+  "probes": [
+    {
+      "afterTurn": 22,
+      "type": "fact-recall",
+      "question": "List the file paths, redirect URI, scopes, and revoke endpoint.",
+      "expectedKeywords": [
+        "packages/auth/src/oauth.ts",
+        "packages/auth/src/__tests__/oauth.test.ts",
+        "packages/auth/src/logout.ts",
+        "https://app.example.com/auth/callback",
+        "openid email profile",
+        "https://oauth2.googleapis.com/revoke"
+      ]
+    },
+    {
+      "afterTurn": 22,
+      "type": "task-accuracy",
+      "criterion": "Assistant correctly lists all three file paths verbatim and references PKCE + state CSRF design decisions."
+    }
+  ],
+  "compactionPoints": [12]
+}

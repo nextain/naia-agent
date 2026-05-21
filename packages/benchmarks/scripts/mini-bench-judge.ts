@@ -73,6 +73,7 @@ interface StrategyResult {
 		readonly totalTokens: number;
 	};
 	readonly vercelNoOp: boolean;
+	readonly recapNoOp: boolean;
 }
 
 async function main(): Promise<number> {
@@ -163,11 +164,17 @@ async function main(): Promise<number> {
 				);
 			}
 
-			// R7 Phase A: detect Vercel no-op (recap empty for reactive-vercel
-			// = pruneMessages rejected the prune). Reported explicitly, not
-			// silently mixed with valid results.
-			const vercelNoOp =
-				strategy === "reactive-vercel" && (fr.recapContent ?? "").length === 0;
+			// R7 Phase A: detect Vercel no-op (recap empty for reactive-vercel).
+			// R7 Final-Audit MAJOR #8 extension: ALSO detect reactive/realtime
+			// no-op (Korean naia-memory deterministic recap is fact-empty).
+			// Any compacting strategy with empty recap is a no-op artefact —
+			// reported uniformly via `recapNoOp` flag.
+			const isCompactStrategy =
+				strategy === "reactive" ||
+				strategy === "reactive-vercel" ||
+				strategy === "realtime";
+			const recapNoOp =
+				isCompactStrategy && (fr.recapContent ?? "").length === 0;
 
 			results.push({
 				strategy,
@@ -178,7 +185,9 @@ async function main(): Promise<number> {
 					driftScore: fr.driftScore,
 					totalTokens: fr.totalTokens,
 				},
-				vercelNoOp,
+				vercelNoOp:
+					strategy === "reactive-vercel" && (fr.recapContent ?? "").length === 0,
+				recapNoOp,
 			});
 		} finally {
 			await memorySystem.close();
@@ -219,7 +228,7 @@ async function main(): Promise<number> {
 	lines.push("## Ensemble verdict per strategy");
 	lines.push("");
 	lines.push(
-		"| Strategy | recap-only | tail-trivial | unclassified (e.g. abstention) | Vercel no-op? | Avg validCount/4 |",
+		"| Strategy | recap-only | tail-trivial | unclassified | Recap no-op? | Avg validCount/4 |",
 	);
 	lines.push("|---|---:|---:|---:|---:|---:|");
 	for (const r of results) {
@@ -235,8 +244,13 @@ async function main(): Promise<number> {
 			? 0
 			: r.probeResults.reduce((acc, pr) => acc + pr.ensemble.validCount, 0) /
 				r.probeResults.length;
+		const noOpLabel = r.recapNoOp
+			? r.vercelNoOp
+				? "**YES (vercel)**"
+				: "**YES (recap empty)**"
+			: "no";
 		lines.push(
-			`| \`${r.strategy}\` | ${rate(recapOnlyProbes)} | ${rate(tailTrivialProbes)} | ${rate(unclassProbes)} | ${r.vercelNoOp ? "**YES**" : "no"} | ${avgValid.toFixed(1)} |`,
+			`| \`${r.strategy}\` | ${rate(recapOnlyProbes)} | ${rate(tailTrivialProbes)} | ${rate(unclassProbes)} | ${noOpLabel} | ${avgValid.toFixed(1)} |`,
 		);
 	}
 	lines.push("");

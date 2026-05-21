@@ -183,9 +183,15 @@ export function validateFixture(value: unknown): Fixture {
 		// R7 Phase A.2 (Claude audit F2 HALT fix): range check afterTurn.
 		// R7 Phase B shipped F-KR-TR-01 with afterTurn=26 on a 24-turn
 		// fixture; runner clamped, mini-bench didn't, causing silent divergence.
-		if (p.afterTurn > turnsLen) {
+		//
+		// R7 Final-Audit Finding #1 fix: allow afterTurn = turns.length + 1
+		// as the "probe asked AFTER the last user turn" authoring convention.
+		// runner.ts:319-353 already handles this case by clamping currentTurn
+		// to turns.length. visible-context.ts's Array.slice also clamps. So
+		// turnsLen + 1 is structurally fine; >+1 was the actual error.
+		if (p.afterTurn > turnsLen + 1) {
 			throw new Error(
-				`fixture ${f.id}: probes[${i}].afterTurn=${p.afterTurn} exceeds turns.length=${turnsLen}`,
+				`fixture ${f.id}: probes[${i}].afterTurn=${p.afterTurn} exceeds turns.length+1=${turnsLen + 1}`,
 			);
 		}
 		if (p.type !== "fact-recall" && p.type !== "task-accuracy" && p.type !== "drift") {

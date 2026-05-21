@@ -102,7 +102,7 @@
   ],
   "probes": [
     {
-      "afterTurn": 24,
+      "afterTurn": 25,
       "type": "fact-recall",
       "question": "지난주 화요일 (2026-04-14) 의 활동을 정확히 답하시오.",
       "expectedKeywords": [
@@ -114,7 +114,7 @@
       ]
     },
     {
-      "afterTurn": 24,
+      "afterTurn": 25,
       "type": "task-accuracy",
       "criterion": "응답이 지난주 화요일 (4월 14일) 의 활동을 정확히 '신제품 발표 회의 (13:00-15:00)' 로 식별해야 한다. 다른 요일 (월=헬스, 수=결혼식 등)을 화요일로 잘못 답하면 fail.",
       "question": "지난주 화요일에 사용자는 무엇을 했나요?",
