@@ -36,7 +36,8 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@nextain/agent-types": "workspace:*"
+    "@nextain/agent-types": "workspace:*",
+    "ai": "^6.0.0"
   },
   "peerDependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0"

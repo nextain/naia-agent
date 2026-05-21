@@ -122,9 +122,11 @@ export type { BashSkillOptions, BashInput, CodingSkillOptions, CodingInput, File
 export {
   createVercelCompactionPrepareStep,
   defaultEstimateTokens,
+  COOKBOOK_PRUNE_OPTIONS,
 } from "./compaction/vercel-prepare-step.js";
 export type {
   VercelCompactionOptions,
-  PrepareStepInput,
-  PrepareStepResult,
+  PruneMessagesOptions,
+  CompactionStepInput,
+  CompactionStepResult,
 } from "./compaction/vercel-prepare-step.js";
