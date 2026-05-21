@@ -109,6 +109,7 @@ function extractVisibleContext(
 	strategy: StrategyId,
 	currentTurn: number,
 	recapContent: string,
+	keepTail: number,
 ): string {
 	const compactionPoints = fixture.compactionPoints ?? [];
 	const last = [...compactionPoints]
@@ -120,35 +121,32 @@ function extractVisibleContext(
 		strategy === "reactive-vercel" ||
 		strategy === "realtime";
 
-	// Phase 1.3 R3 (gemini S14 fix): reactive-vercel's recap covers ONLY
-	// the messages up to `lastCompactionPoint`. Turns between
-	// `lastCompactionPoint` and `currentTurn` are NOT in the recap because
-	// `runner.ts` only re-runs pruning at compactionPoint boundaries. So
-	// we still need to append a tail — but the tail is the slice
-	// `[lastCompactionPoint..currentTurn]`, NOT a re-show of recap'd
-	// messages. This is the same logic the summarizer strategies use,
-	// just with pruned-history-text replacing the 5-section markdown recap.
+	// Phase 1.3 R4 (gemini S12 fix — "Missing Middle"): tail starts at
+	// `lastCompactionPoint - keepTail`, not `lastCompactionPoint`. The
+	// summarizer keeps the last `keepTail` turns BEFORE the compaction
+	// point verbatim (they're outside the recap by construction). Tail
+	// then also covers `[lastCompactionPoint .. currentTurn]` (the
+	// post-compaction NEW turns).
 	//
-	// (R2's "no tail" fix over-corrected — it assumed recap = full history
-	// up to currentTurn, which is only true at the compactionPoint turn.)
-	if (strategy === "reactive-vercel" && last !== undefined && recapContent.length > 0) {
-		const tail = fixture.turns
-			.slice(last, currentTurn)
-			.map((t) => `${t.role}: ${t.content}`)
-			.join("\n");
-		return `[reactive-vercel post-prune window]\n${recapContent}\n\n${tail}`;
-	}
+	// Visible window = recap (turns [0 .. last - keepTail]) + tail
+	// (turns [last - keepTail .. currentTurn]).
+	//
+	// R3 used `slice(last, currentTurn)`, dropping the `keepTail`
+	// protected window from the judge's view.
 	if (isCompactStrategy && last !== undefined && recapContent.length > 0) {
+		const tailStart = Math.max(0, last - keepTail);
 		const tail = fixture.turns
-			.slice(last, currentTurn)
+			.slice(tailStart, currentTurn)
 			.map((t) => `${t.role}: ${t.content}`)
 			.join("\n");
-		return `[after compaction at turn ${last}]\n${recapContent}\n\n${tail}`;
+		const header =
+			strategy === "reactive-vercel"
+				? "[reactive-vercel post-prune window]"
+				: `[after compaction at turn ${last}]`;
+		return `${header}\n${recapContent}\n\n${tail}`;
 	}
 	// No effective compaction OR no-op vercel prune: full transcript.
-	// Phase 1.3 R2 (codex S10 fix): `off` / `anthropic-native` no longer get
-	// the full transcript here unconditionally — the caller is responsible
-	// for simulating a context-window cap. See `simulateContextWindow()`.
+	// (Caller applies `simulateContextWindow` to truncate.)
 	return fixture.turns
 		.slice(0, currentTurn)
 		.map((t) => `${t.role}: ${t.content}`)
@@ -199,30 +197,23 @@ async function main(): Promise<number> {
 					strategy,
 					probe.afterTurn,
 					fr.recapContent ?? "",
+					2, // S12 fix: keepTail matches runner.ts default
 				);
-				// Phase 1.3 R3 (gemini S10/S11 fix): the simulated context-window
-				// cap must apply to ANY strategy that didn't produce an
-				// actually-shrunk visible window. That covers:
-				//   - `off` / `anthropic-native` (no host-side compaction).
-				//   - `reactive-vercel` when pruneMessages returned undefined
-				//     (no-op rejection) and the fallback transcript is shown.
-				// Strategies that actually compacted (`reactive` / `realtime`
-				// with non-empty recap, or `reactive-vercel` with non-empty
-				// recap) produced a recap that's by construction smaller than
-				// the cap, so the cap is a no-op for them.
+				// Phase 1.3 R4 (gemini S18 fix): apply the context-window cap
+				// to **all** strategies uniformly. Previously `reactive` /
+				// `realtime` / non-empty `reactive-vercel` were exempt — but
+				// a 5-section markdown recap + verbatim tail can easily
+				// exceed 1200 chars on a 30-turn fixture, giving the
+				// summarizer an unfair "more context" advantage over the
+				// truncated baselines.
 				//
-				// 1200 chars ≈ 300 tokens — tighter than R2's 2000 to honestly
-				// represent that a real provider would force-truncate the head
-				// of a ~30-turn Korean transcript long before the agent's
-				// budget hook fired.
+				// Uniform application: the cap simulates the LLM provider's
+				// hard context window. ANY strategy whose visible context
+				// exceeds the cap gets right-aligned truncation. Strategies
+				// that produced a small recap+tail are naturally a no-op for
+				// this cap (their text was under-budget anyway).
 				const CONTEXT_WINDOW_CHARS = 1200;
-				const needsTruncation =
-					strategy === "off" ||
-					strategy === "anthropic-native" ||
-					(strategy === "reactive-vercel" && (fr.recapContent ?? "").length === 0);
-				if (needsTruncation) {
-					visible = simulateContextWindow(visible, CONTEXT_WINDOW_CHARS);
-				}
+				visible = simulateContextWindow(visible, CONTEXT_WINDOW_CHARS);
 				// Phase 1.3 R2 (codex S8 fix): prefer the fixture-author's
 				// explicit `question`. Fall back to the last user turn ONLY
 				// for legacy fixtures that pre-date the schema change. The

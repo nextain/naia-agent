@@ -1,43 +1,47 @@
 {
   "id": "F-EN-TH-01-tool-heavy",
   "domain": "tool-heavy",
-  "notes": "Phase 1.3 R2 (codex S2 fix): fixture with [thinking] and [tool_use]/[tool_result] inline blocks so the Vercel pruneMessages cookbook recipe (reasoning='all', toolCalls='before-last-3-messages', emptyMessages='remove') has actual content to strip. The Korean F-KR-* fixtures are pure user/assistant text and the prune path's no-op guard rejects them — that's the honest result but it means those fixtures cannot rank reactive-vercel against summarization. This fixture is the applicability proof: pruneMessages should produce a measurably shorter window than the in-house summarizer.",
+  "notes": "Phase 1.3 R4 (gemini S2 systemic fix): assistant turns with tool_use now have a SEPARATE `role: tool` turn following them carrying the tool_result. This matches the real Anthropic/Vercel SDK message shape (assistant message can carry text + tool_use + reasoning; tool message carries tool-result). With this, pruneMessages's `reasoning='all'` and `toolCalls=...` rules see the structured parts they were designed for. The inline `[thinking]` / `[tool_use NAME] JSON` markers are parsed by `runner.ts:parseInlineBlocks` into proper LLMContentBlock parts.",
   "turns": [
     { "role": "user", "content": "I want to plan a weekend trip to Busan. What's the weather looking like?" },
-    { "role": "assistant", "content": "[thinking] The user wants weather info for Busan over the weekend. I should call the weather tool with a date range. Let me also remember they're planning a trip — that's context I should keep.\n[tool_use weather_lookup] {\"location\": \"Busan\", \"date_range\": \"this weekend\"}\n[tool_result] Saturday: sunny, high 24°C low 18°C. Sunday: partly cloudy, high 22°C low 17°C." },
+    { "role": "assistant", "content": "[thinking] The user wants weather info for Busan over the weekend. I should call the weather tool with a date range. Let me also remember they're planning a trip — that's context I should keep.\n[tool_use weather_lookup] {\"location\": \"Busan\", \"date_range\": \"this weekend\"}" },
+    { "role": "tool", "content": "[tool_result] Saturday: sunny, high 24°C low 18°C. Sunday: partly cloudy, high 22°C low 17°C." },
     { "role": "assistant", "content": "This weekend in Busan: Saturday will be sunny with a high of 24°C, Sunday partly cloudy at 22°C. Good weekend for the trip!" },
     { "role": "user", "content": "Great. Find me hotels near Haeundae beach under 150,000 KRW per night." },
-    { "role": "assistant", "content": "[thinking] User wants a hotel: Haeundae area, budget 150k KRW. Let me search.\n[tool_use hotel_search] {\"location\": \"Haeundae\", \"max_price_krw\": 150000}\n[tool_result] 3 results: (1) Pale de CZ — 120k/night, 4.2★. (2) Lotte City Hotel — 145k/night, 4.5★. (3) Sea View Pension — 95k/night, 3.8★." },
+    { "role": "assistant", "content": "[thinking] User wants a hotel: Haeundae area, budget 150k KRW. Let me search.\n[tool_use hotel_search] {\"location\": \"Haeundae\", \"max_price_krw\": 150000}" },
+    { "role": "tool", "content": "[tool_result] 3 results: (1) Pale de CZ — 120k/night, 4.2★. (2) Lotte City Hotel — 145k/night, 4.5★. (3) Sea View Pension — 95k/night, 3.8★." },
     { "role": "assistant", "content": "Three options under 150k KRW near Haeundae: Pale de CZ at 120k (4.2★), Lotte City Hotel at 145k (4.5★), and Sea View Pension at 95k (3.8★). The Lotte City has the best rating; Sea View Pension is the budget pick." },
     { "role": "user", "content": "I'll go with the Lotte City Hotel. Book it for Saturday and Sunday nights." },
-    { "role": "assistant", "content": "[thinking] User confirmed Lotte City Hotel, Sat+Sun nights. Two nights. Need to call booking tool with hotel id and dates.\n[tool_use book_hotel] {\"hotel\": \"Lotte City Hotel Haeundae\", \"check_in\": \"2026-05-23\", \"check_out\": \"2026-05-25\"}\n[tool_result] Booking confirmed. Confirmation #LCH-2026-05-23-A7Q3. Total: 290,000 KRW." },
+    { "role": "assistant", "content": "[thinking] User confirmed Lotte City Hotel, Sat+Sun nights. Two nights. Need to call booking tool with hotel id and dates.\n[tool_use book_hotel] {\"hotel\": \"Lotte City Hotel Haeundae\", \"check_in\": \"2026-05-23\", \"check_out\": \"2026-05-25\"}" },
+    { "role": "tool", "content": "[tool_result] Booking confirmed. Confirmation #LCH-2026-05-23-A7Q3. Total: 290,000 KRW." },
     { "role": "assistant", "content": "Booked! Lotte City Hotel Haeundae, May 23–25 (Sat night + Sun night). Total 290,000 KRW. Confirmation number: LCH-2026-05-23-A7Q3." },
     { "role": "user", "content": "What activities should I plan? I like seafood and the beach." },
     { "role": "assistant", "content": "[thinking] User likes seafood + beach. Saturday is sunny so beach activities work well. Sunday is cloudy so indoor options or seafood market for variety. Let me suggest a balanced itinerary.\nSaturday morning: Haeundae beach walk + breakfast. Lunch: Jagalchi Seafood Market (live octopus, sashimi). Afternoon: Gwangalli beach (lively, view of bridge). Sunday: Dongbaek Park morning walk, then Centum City for shopping if it rains, or BIFF Square for street food." },
     { "role": "user", "content": "Add a reservation at the seafood market for Saturday lunch — 2 people, 12:30." },
-    { "role": "assistant", "content": "[thinking] Reservation at Jagalchi seafood market, Saturday 12:30, 2 people.\n[tool_use reservation] {\"venue\": \"Jagalchi Seafood Market\", \"date\": \"2026-05-23\", \"time\": \"12:30\", \"party_size\": 2}\n[tool_result] Confirmed reservation at Jagalchi level-2 fresh sashimi restaurant for 2 at 12:30 on May 23. Confirmation #RES-J-A4K7." },
+    { "role": "assistant", "content": "[thinking] Reservation at Jagalchi seafood market, Saturday 12:30, 2 people.\n[tool_use reservation] {\"venue\": \"Jagalchi Seafood Market\", \"date\": \"2026-05-23\", \"time\": \"12:30\", \"party_size\": 2}" },
+    { "role": "tool", "content": "[tool_result] Confirmed reservation at Jagalchi level-2 fresh sashimi restaurant for 2 at 12:30 on May 23. Confirmation #RES-J-A4K7." },
     { "role": "assistant", "content": "Reservation set: Jagalchi Market sashimi restaurant, May 23 at 12:30 for 2 people. Confirmation: RES-J-A4K7." },
     { "role": "user", "content": "Perfect. What's my total plan summary?" }
   ],
   "probes": [
     {
-      "afterTurn": 14,
+      "afterTurn": 19,
       "type": "task-accuracy",
       "question": "Summarize the user's complete weekend Busan trip plan including hotel booking confirmation number, seafood reservation confirmation number, and the suggested activities.",
       "criterion": "Response must include (a) hotel booking confirmation LCH-2026-05-23-A7Q3 (or recognizable equivalent), (b) seafood reservation confirmation RES-J-A4K7, (c) at least 2 activities mentioned (e.g. Haeundae beach, Jagalchi market, Gwangalli, Centum City). Generic 'busan trip' or 'hotel booked' without the specific identifiers fails."
     },
     {
-      "afterTurn": 14,
+      "afterTurn": 19,
       "type": "fact-recall",
       "question": "What is the hotel booking confirmation number?",
       "expectedKeywords": ["LCH-2026-05-23-A7Q3"]
     },
     {
-      "afterTurn": 14,
+      "afterTurn": 19,
       "type": "fact-recall",
       "question": "What is the seafood market reservation confirmation number?",
       "expectedKeywords": ["RES-J-A4K7"]
     }
   ],
-  "compactionPoints": [8]
+  "compactionPoints": [10]
 }
