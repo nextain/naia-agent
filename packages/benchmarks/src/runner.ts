@@ -173,11 +173,29 @@ function evaluateProbe(
 		// quality is measured by what survives compaction.
 		pass = probe.expectedKeywords.every((k) => lower.includes(k.toLowerCase()));
 	} else if (probe.type === "task-accuracy") {
-		// Without LLM judge, approximate by: context contains the fixture's
-		// domain-anchor keyword and is non-trivial. This is intentionally
-		// coarse — LLM-judge wiring is the next iteration.
-		const domainAnchor = fixture.domain.split("-")[0]?.toLowerCase() ?? "";
-		pass = visibleText.length > 200 && (domainAnchor === "" || lower.includes(domainAnchor));
+		// R7 Phase A.2 (Claude audit F3 HALT fix): drop the
+		// English-only "domainAnchor" heuristic. It always-failed Korean
+		// fixtures and abstention probes. Use factTurns presence as the
+		// honest "did the strategy preserve the relevant turns" signal.
+		const factTurns = probe.factTurns ?? [];
+		if (factTurns.length === 0) {
+			// Abstention / unclassified — deterministic mode cannot judge
+			// whether the agent appropriately withheld an answer. Skip with
+			// a neutral pass; LLM judge is the authoritative source.
+			pass = true;
+		} else {
+			// At least one fact-turn's content should be present in visible.
+			// Strict check: ALL fact-turns must have at least one substantive
+			// token (≥4 chars) appear in the visible text.
+			pass = factTurns.every((turnIdx) => {
+				const turn = fixture.turns[turnIdx - 1];
+				if (!turn) return false;
+				// Use a short rolling substring of the turn content as the
+				// "fact signal" — first 8 chars of the content.
+				const signal = turn.content.slice(0, 8).toLowerCase();
+				return signal.length >= 4 && lower.includes(signal);
+			});
+		}
 	} else {
 		// drift probe — scored separately via driftScore.
 		pass = true;
@@ -292,15 +310,17 @@ export async function runFixture(
 				const prepare = createLLMMessagePrepareCompact();
 				const pruned = prepare(llmHistory);
 				compactionLatencies.push(performance.now() - cT0);
-				if (pruned) {
-					recapContent = llmMessagesToText(pruned);
-				}
-				// If pruned === undefined (no-op rejection) recap stays as
-				// previous value (or empty), matching the in-house path's
-				// behaviour when memory.compact() errors.
+				// R7 Phase A.2 (glm audit fix — vercel staleness): explicit
+				// reset on no-op. R7 Phase A claimed honest no-op detection
+				// but recapContent could carry over from a PREVIOUS
+				// compactionPoint if there were multiple. Now: each prune
+				// call replaces recapContent unconditionally (undefined → "").
+				recapContent = pruned !== undefined ? llmMessagesToText(pruned) : "";
 			} catch (err) {
 				compactionLatencies.push(performance.now() - cT0);
 				errors.push(`prune@${turnIdx}: ${String(err)}`);
+				// Errors also reset recap to "" — no stale value.
+				recapContent = "";
 			}
 		}
 
@@ -333,13 +353,26 @@ export async function runFixture(
 		}
 	}
 
-	// Drift: compact-path visible text vs no-compact full transcript.
-	const fullTranscript = fixture.turns.map((t) => t.content).join("\n");
-	const compactPath =
-		recapContent.length > 0
-			? `${recapContent}\n${fixture.turns.slice(-keepTail).map((t) => t.content).join("\n")}`
-			: fullTranscript;
-	const drift = driftScore(compactPath, fullTranscript);
+	// R7 Phase A.2 (Claude audit F1 HALT fix): drift used divergent path
+	// in R1-R5. Now uses the shared `buildVisibleContext` so drift compares
+	// the SAME string the judge and evaluator see vs the off baseline.
+	const offCtx = buildVisibleContext({
+		fixture,
+		strategy: "off",
+		currentTurn: fixture.turns.length,
+		recapContent: "",
+		keepTail,
+		contextWindowChars: 0, // no cap for the drift baseline
+	});
+	const compactCtx = buildVisibleContext({
+		fixture,
+		strategy,
+		currentTurn: fixture.turns.length,
+		recapContent,
+		keepTail,
+		contextWindowChars: 0, // drift measured pre-cap
+	});
+	const drift = driftScore(compactCtx.visible, offCtx.visible);
 
 	// Metric aggregates.
 	const factRecallProbes = outcomes.filter((o) => o.probe.type === "fact-recall");

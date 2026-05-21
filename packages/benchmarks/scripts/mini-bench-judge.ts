@@ -216,27 +216,31 @@ async function main(): Promise<number> {
 	lines.push(`| unclassified | ${probeStressCounts["unclassified"]} | Probe lacks \`factTurns\` — cannot determine stress |`);
 	lines.push("");
 
-	lines.push("## Ensemble verdict per strategy (recap-only probes only — strategy quality)");
+	lines.push("## Ensemble verdict per strategy");
 	lines.push("");
 	lines.push(
-		"| Strategy | recap-only PASS rate | tail-trivial PASS rate | Vercel no-op? | Avg validCount/4 |",
+		"| Strategy | recap-only | tail-trivial | unclassified (e.g. abstention) | Vercel no-op? | Avg validCount/4 |",
 	);
-	lines.push("|---|---:|---:|---:|---:|");
+	lines.push("|---|---:|---:|---:|---:|---:|");
 	for (const r of results) {
 		const recapOnlyProbes = r.probeResults.filter((pr) => pr.stress === "recap-only");
 		const tailTrivialProbes = r.probeResults.filter((pr) => pr.stress === "tail-trivial");
-		const recapPass = recapOnlyProbes.filter((pr) => pr.ensemble.pass).length;
-		const recapRate = recapOnlyProbes.length === 0 ? "n/a" : (recapPass / recapOnlyProbes.length).toFixed(3);
-		const tailPass = tailTrivialProbes.filter((pr) => pr.ensemble.pass).length;
-		const tailRate = tailTrivialProbes.length === 0 ? "n/a" : (tailPass / tailTrivialProbes.length).toFixed(3);
+		const unclassProbes = r.probeResults.filter((pr) => pr.stress === "unclassified");
+		const rate = (probes: typeof recapOnlyProbes): string => {
+			if (probes.length === 0) return "n/a";
+			const pass = probes.filter((pr) => pr.ensemble.pass).length;
+			return `${(pass / probes.length).toFixed(3)} (n=${probes.length})`;
+		};
 		const avgValid = r.probeResults.length === 0
 			? 0
 			: r.probeResults.reduce((acc, pr) => acc + pr.ensemble.validCount, 0) /
 				r.probeResults.length;
 		lines.push(
-			`| \`${r.strategy}\` | ${recapRate} | ${tailRate} | ${r.vercelNoOp ? "**YES**" : "no"} | ${avgValid.toFixed(1)} |`,
+			`| \`${r.strategy}\` | ${rate(recapOnlyProbes)} | ${rate(tailTrivialProbes)} | ${rate(unclassProbes)} | ${r.vercelNoOp ? "**YES**" : "no"} | ${avgValid.toFixed(1)} |`,
 		);
 	}
+	lines.push("");
+	lines.push("Strategy quality is reported per stress class. recap-only = real compaction stress; tail-trivial = answerable from preserved tail; unclassified = abstention or factTurns omitted.");
 	lines.push("");
 
 	// Per-judge breakdown

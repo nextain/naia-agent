@@ -171,6 +171,7 @@ export function validateFixture(value: unknown): Fixture {
 	}
 	// Validate each probe shape FIRST (so "invalid type" errors surface
 	// before the structural "must have task-accuracy" check below).
+	const turnsLen = f.turns.length;
 	for (const [i, probe] of f.probes.entries()) {
 		if (typeof probe !== "object" || probe === null) {
 			throw new Error(`fixture ${f.id}: probes[${i}] is not an object`);
@@ -179,12 +180,18 @@ export function validateFixture(value: unknown): Fixture {
 		if (typeof p.afterTurn !== "number" || p.afterTurn < 0) {
 			throw new Error(`fixture ${f.id}: probes[${i}].afterTurn invalid`);
 		}
+		// R7 Phase A.2 (Claude audit F2 HALT fix): range check afterTurn.
+		// R7 Phase B shipped F-KR-TR-01 with afterTurn=26 on a 24-turn
+		// fixture; runner clamped, mini-bench didn't, causing silent divergence.
+		if (p.afterTurn > turnsLen) {
+			throw new Error(
+				`fixture ${f.id}: probes[${i}].afterTurn=${p.afterTurn} exceeds turns.length=${turnsLen}`,
+			);
+		}
 		if (p.type !== "fact-recall" && p.type !== "task-accuracy" && p.type !== "drift") {
 			throw new Error(`fixture ${f.id}: probes[${i}].type invalid`);
 		}
 		if (p.type === "task-accuracy") {
-			// R7: question is REQUIRED for task-accuracy probes (no silent
-			// "last user turn" fallback — that was a R5 framing artefact).
 			if (typeof p.question !== "string" || p.question.length === 0) {
 				throw new Error(
 					`fixture ${f.id}: probes[${i}].question is required for task-accuracy`,
@@ -202,7 +209,23 @@ export function validateFixture(value: unknown): Fixture {
 							`fixture ${f.id}: probes[${i}].factTurns entries must be 1-based positive turn indices`,
 						);
 					}
+					// R7 Phase A.2: range check factTurns.
+					if (t > turnsLen) {
+						throw new Error(
+							`fixture ${f.id}: probes[${i}].factTurns[${t}] exceeds turns.length=${turnsLen}`,
+						);
+					}
 				}
+			}
+		}
+	}
+	// R7 Phase A.2: range check compactionPoints.
+	if (Array.isArray(f.compactionPoints)) {
+		for (const cp of f.compactionPoints) {
+			if (typeof cp !== "number" || cp < 1 || cp > turnsLen) {
+				throw new Error(
+					`fixture ${f.id}: compactionPoint ${cp} must be in 1..${turnsLen}`,
+				);
 			}
 		}
 	}
