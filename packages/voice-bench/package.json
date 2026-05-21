@@ -1,0 +1,23 @@
+{
+  "name": "@nextain/voice-bench",
+  "version": "0.0.0",
+  "private": true,
+  "description": "naia-agent multi-turn dialogue + RAG/LangGraph benchmark (RAGAS-style)",
+  "type": "module",
+  "license": "Apache-2.0",
+  "bin": {
+    "naia-voice-bench": "./src/bin.ts"
+  },
+  "scripts": {
+    "bench": "tsx src/bin.ts",
+    "bench:py": "python3 scripts/run_bench.py"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
