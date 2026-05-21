@@ -35,7 +35,7 @@
   },
   "dependencies": {
     "@nextain/agent-types": "workspace:*",
-    "@nextain/naia-memory": "file:../../../naia-memory"
+    "@nextain/naia-memory": "file:../../../../naia-memory"
   },
   "devDependencies": {
     "tsx": "^4.19.0",

@@ -117,3 +117,14 @@ export {
   createFileOpsSkills,
 } from "./skills/index.js";
 export type { BashSkillOptions, BashInput, CodingSkillOptions, CodingInput, FileOpsOptions } from "./skills/index.js";
+
+// Slice 3-XR-Compact v2 / Phase 1 (#56) — Vercel AI SDK compaction adoption.
+export {
+  createVercelCompactionPrepareStep,
+  defaultEstimateTokens,
+} from "./compaction/vercel-prepare-step.js";
+export type {
+  VercelCompactionOptions,
+  PrepareStepInput,
+  PrepareStepResult,
+} from "./compaction/vercel-prepare-step.js";
