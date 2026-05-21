@@ -1,0 +1,27 @@
+{
+  "id": "F-LME-test-003",
+  "domain": "longmemeval-single-session-user",
+  "notes": "R7 Phase C: LongMemEval-S subset (ref-mastra test-dataset.json). question_type=single-session-user. compactionPoint at mid-point (1) so the answer location is predictable wrt recap vs tail. Published baseline (OMEGA 95.4%, Memoria ~89%, RetainDB 79%) uses the full 500-question set — this 3-item subset is sanity, not direct head-to-head.",
+  "turns": [
+    {
+      "role": "user",
+      "content": "I love cooking but I haven't decided on a favorite dish yet."
+    },
+    {
+      "role": "assistant",
+      "content": "Cooking is a wonderful hobby! What types of cuisine do you enjoy preparing?"
+    }
+  ],
+  "probes": [
+    {
+      "afterTurn": 2,
+      "type": "task-accuracy",
+      "question": "What is my favorite food?",
+      "criterion": "Response must include the answer 'The user has not mentioned their favorite food in the conversation history.' (or a clear paraphrase). Empty or contradictory answers fail. This is a single-session-user probe from LongMemEval-S.",
+      "factTurns": []
+    }
+  ],
+  "compactionPoints": [
+    1
+  ]
+}

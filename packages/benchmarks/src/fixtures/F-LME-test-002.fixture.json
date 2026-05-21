@@ -1,0 +1,41 @@
+{
+  "id": "F-LME-test-002",
+  "domain": "longmemeval-multi-session",
+  "notes": "R7 Phase C: LongMemEval-S subset (ref-mastra test-dataset.json). question_type=multi-session. compactionPoint at mid-point (2) so the answer location is predictable wrt recap vs tail. Published baseline (OMEGA 95.4%, Memoria ~89%, RetainDB 79%) uses the full 500-question set — this 3-item subset is sanity, not direct head-to-head.",
+  "turns": [
+    {
+      "role": "user",
+      "content": "I'm thinking about getting a pet."
+    },
+    {
+      "role": "assistant",
+      "content": "That's exciting! What kind of pet are you considering?"
+    },
+    {
+      "role": "system",
+      "content": "[Session 2 starts]"
+    },
+    {
+      "role": "user",
+      "content": "I got a golden retriever! His name is Max."
+    },
+    {
+      "role": "assistant",
+      "content": "Congratulations on your new golden retriever! Max is a great name."
+    }
+  ],
+  "probes": [
+    {
+      "afterTurn": 5,
+      "type": "task-accuracy",
+      "question": "What pet do I have?",
+      "criterion": "Response must include the answer 'A golden retriever named Max' (or a clear paraphrase). Empty or contradictory answers fail. This is a multi-session probe from LongMemEval-S.",
+      "factTurns": [
+        4
+      ]
+    }
+  ],
+  "compactionPoints": [
+    2
+  ]
+}
