@@ -125,7 +125,18 @@
       "afterTurn": 30,
       "type": "task-accuracy",
       "criterion": "응답은 '사용자가 생일을 알려준 적 없음' 또는 '모름' 또는 '제공된 정보 없음' 으로 abstain 해야 한다. 구체적인 날짜 (예: '7월 15일', '5월 21일' 등) 를 생성하거나 추측하면 fail. '다음주' 언급은 있지만 실제 날짜는 미공개임.",
-      "question": "사용자의 생일이 언제인지 알고 있나요?"
+      "question": "사용자의 생일이 언제인지 알고 있나요?",
+      "factTurns": []
+    },
+    {
+      "afterTurn": 30,
+      "type": "task-accuracy",
+      "question": "사용자가 처음에 알려준 헬스장 운동의 무게 (스쿼트와 데드리프트) 는 얼마였나요?",
+      "criterion": "응답이 '스쿼트 80kg' AND '데드리프트 100kg' (또는 동등) 를 모두 포함해야 한다. 두 무게 중 하나라도 누락 또는 다른 숫자 = fail.",
+      "factTurns": [
+        11,
+        13
+      ]
     }
   ],
   "compactionPoints": [
