@@ -9,9 +9,9 @@
 
 | Strategy | Ensemble PASS rate | Avg validCount/4 | Infra errors | Anchor-heuristic | Keyword-recall |
 |---|---:|---:|---:|---:|---:|
-| `reactive` | 1.000 | 3.0 | 1 | 0.000 | 1.000 |
-| `reactive-vercel` | 0.000 | 4.0 | 0 | 0.000 | 1.000 |
-| `realtime` | 1.000 | 4.0 | 0 | 0.000 | 1.000 |
+| `reactive` | 1.000 | 4.0 | 0 | 0.000 | 1.000 |
+| `reactive-vercel` | 1.000 | 4.0 | 0 | 0.000 | 1.000 |
+| `realtime` | 1.000 | 3.0 | 1 | 0.000 | 1.000 |
 | `anthropic-native` | 1.000 | 4.0 | 0 | 0.000 | 1.000 |
 | `off` | 1.000 | 4.0 | 0 | 0.000 | 1.000 |
 
@@ -19,48 +19,49 @@
 
 ### `reactive`
 
-**Probe 1** (after turn 28) — ensemble: ✅ PASS (3/4 valid)
+**Probe 1** (after turn 28) — ensemble: ✅ PASS (4/4 valid)
 
-- `glm` — PASS (14736ms): The context clearly shows the user has transitioned from Kakao to Naver and is currently working at Naver, as confirmed in the most recent messages.
-- `opencode` — **INFRA** (7573ms): opencode reply unparseable (131 chars): 통과: 컨텍스트는 사용자가 "[3개월 후] 네이버 합격"에서 카카오에서 네이버로 이직했음을 명시하고, 이후 "[1개월 후 — 네이버 입사 완료] 네이버 출근 시작했어" 및 "팀 분위기 좋아"는 현재 네이버에서 근무 
-- `codex` — PASS (7483ms): CONTEXT states the user said 네이버 합격 후 다음달 출근, then later explicitly said 네이버 출근 시작했어 적응 중, which establishes the current workplace as 네이버.
-- `gemini` — PASS (11150ms): The context explicitly states the user has started working at Naver and is currently adapting to the new environment after leaving Kakao.
+- `glm` — PASS (12549ms): The context explicitly states the user has started working at Naver and is currently adapting to their new role there.
+- `opencode` — PASS (10943ms): 컨텍스트에 "네이버 출근 시작했어. 적응 중" 및 "카카오 마지막 주야. 인수인계 중" 메시지가 포함되어 있어 사용자의 현재 고용주가 네이버임이 명확하다.
+- `codex` — PASS (5673ms): 문맥에 네이버 합격 후 카카오를 떠나는 마지막 주를 거쳐 네이버 입사 완료와 적응 중이라는 최신 상태가 있어 현재 직장은 네이버라고 명확히 판단할 수 있다.
+- `gemini` — PASS (15364ms): 컨텍스트에 사용자가 카카오에서 네이버로 이직하여 현재 네이버로 출근을 시작했다는 내용이 명확히 포함되어 있습니다.
 
 ### `reactive-vercel`
 
-**Probe 1** (after turn 28) — ensemble: ❌ FAIL (4/4 valid)
+**Probe 1** (after turn 28) — ensemble: ✅ PASS (4/4 valid)
 
-- `glm` — FAIL (12589ms): CONTEXT shows user currently employed at 카카오 (3 years) while interviewing at 네이버/토스, with no indication of resignation or job change.
-- `opencode` — FAIL (8299ms): CONTEXT는 사용자가 현재 카카오에 다니고 있으며 네이버와 토스에 면접 중임을 명확히 보여주지만, 네이버에 합류했다는 정보는 포함되어 있지 않아 "네이버"를 현재 직장으로 식별할 수 있는 근거가 없습니다.
-- `codex` — FAIL (10142ms): CONTEXT only states the user currently works at 카카오 and is interviewing with 네이버 and 토스, so it lacks any faithful evidence that the current employer is 네이버.
-- `gemini` — FAIL (41480ms): The context is truncated at turn 16 and lacks any information about the user joining Naver, showing them only as a Kakao employee interviewing at other companies.
+- `glm` — PASS (11800ms): The context explicitly states the user left Kakao and is now working at Naver, with updates confirming their start and adaptation at Naver.
+- `opencode` — PASS (12541ms): 사용자의 마지막 메시지가 '네이버 출근 시작했어'라고 명시하고, 이후의 대화도 네이버에서의 적응을 다루고 있어, 현재 직장이 네이버라는 것을 명확히 보여준다.
+- `codex` — PASS (6281ms): 문맥에 네이버 합격 후 카카오 마지막 주를 거쳐 [1개월 후 — 네이버 입사 완료] 네이버 출근 시작했다고 명시되어 있어 현재 직장은 네이버임이 분명하다
+- `gemini` — PASS (10691ms): The context explicitly shows the user moved from Kakao to Naver and stated 1 month ago that they started working at Naver and are currently adapting.
 
 ### `realtime`
 
-**Probe 1** (after turn 28) — ensemble: ✅ PASS (4/4 valid)
+**Probe 1** (after turn 28) — ensemble: ✅ PASS (3/4 valid)
 
-- `glm` — PASS (36933ms): The context clearly shows the user transitioned from Kakao to Naver, with the most recent updates confirming they've started working at Naver and are adapting to their new role.
-- `opencode` — PASS (14881ms): 컨텍스트에 사용자가 카카오에서 인수인계를 마치고 네이버에 입사하여 현재 출근 중이라는 이력("네이버 출근 시작했어", "팀 분위기 좋아")이 명확히 기록되어 현재 직장 = 네이버임을 충분히 확인할 수 있음.
-- `codex` — PASS (6379ms): Context explicitly says the user was in their last week at 카카오, then later started work at 네이버 and is currently adapting there, so the current company is 네이버.
-- `gemini` — PASS (10740ms): The context explicitly states the user has joined Naver and is currently adapting to the team after leaving Kakao.
+- `glm` — PASS (11739ms): The context clearly shows the user has started working at Naver and is currently adapting there, with previous employment at Kakao mentioned as past information.
+- `opencode` — **INFRA** (14219ms): opencode reply unparseable (98 chars): 통과: 컨텍스트는 사용자가 카카오에서 인수인계를 마치고 네이버에 합류했음을 명확히 보여준다 ("네이버 출근 시작했어. 적응 중"), 현재 고용주로서 네이버를 명확히 확립한다.
+
+- `codex` — PASS (10929ms): 문맥에 사용자가 네이버 합격 후 출근을 시작했고 적응 중이라고 명시되어 있어 현재 직장은 네이버로 판단할 수 있다.
+- `gemini` — PASS (10736ms): 사용자가 1개월 전 네이버에 입사하여 출근을 시작하고 적응 중이라는 사실이 컨텍스트에 명시되어 있습니다.
 
 ### `anthropic-native`
 
 **Probe 1** (after turn 28) — ensemble: ✅ PASS (4/4 valid)
 
-- `glm` — PASS (14130ms): Context explicitly states the user started at Naver and is no longer at Kakao, confirming current employment at Naver.
-- `opencode` — PASS (6150ms): 컨텍스트 말미에 사용자가 "네이버 출근 시작했어"라고 확인하고, 어시스턴트도 "네이버 적응 어떠세요?"라고 응답하여 현재 직장이 네이버임이 명확함.
-- `codex` — PASS (9839ms): Context explicitly states the user left 카카오, started at 네이버 a month later, and is currently adapting there, so the current employer is 네이버.
-- `gemini` — PASS (9031ms): 컨텍스트 후반부에 사용자가 네이버로 출근을 시작하여 적응 중이라는 사실이 명시되어 현재 직장이 네이버임을 알 수 있습니다.
+- `glm` — PASS (14005ms): The context explicitly states the user started at Naver and is currently adapting there, with no indication of returning to Kakao or working elsewhere.
+- `opencode` — PASS (8267ms): 컨텍스트는 사용자가 카카오에서 근무하다가 네이버에 합격했음을 명확히 보여주며, 가장 최근 메시지에서 사용자가 "[1개월 후 — 네이버 입사 완료] 네이버 출근 시작했어"라고 확인하여, 현재 직장이 네이버임을 나타낸다.
+- `codex` — PASS (6539ms): 문맥에 [1개월 후 — 네이버 입사 완료] 네이버 출근 시작했어라고 명시되어 있어 현재 직장은 카카오에서 이직한 뒤의 네이버임을 충분히 판단할 수 있다.
+- `gemini` — PASS (11262ms): The context explicitly states the user started working at Naver after leaving Kakao and is currently adapting to the new team.
 
 ### `off`
 
 **Probe 1** (after turn 28) — ensemble: ✅ PASS (4/4 valid)
 
-- `glm` — PASS (32338ms): The context explicitly states the user has started working at Naver and is currently adapting there.
-- `opencode` — PASS (10663ms): 대화 맨 끝 "[1개월 후 — 네이버 입사 완료] 네이버 출근 시작했어" 로 현재 직장이 네이버임이 명확하다.
-- `codex` — PASS (10048ms): 문맥 후반에 사용자가 네이버 합격 후 카카오를 퇴사하고 1개월 뒤 네이버 입사를 완료해 현재 네이버에 적응 중이라고 명시되어 있어 현재 직장이 네이버임을 분명히 알 수 있다.
-- `gemini` — PASS (9641ms): context explicitly states that the user joined Naver a month ago and is currently adapting to the new team.
+- `glm` — PASS (12902ms): The context explicitly states the user started working at Naver and is currently adapting there, with no ambiguity about their current employer.
+- `opencode` — PASS (7126ms): 컨텍스트는 "[1개월 후 — 네이버 입사 완료] 네이버 출근 시작했어"를 보여주며, 이는 네이버가 현재 고용주임을 명확히 나타냅니다.
+- `codex` — PASS (7690ms): 문맥에 [1개월 후 — 네이버 입사 완료]와 네이버 출근 시작했다는 최신 상태가 있어 사용자의 현재 직장은 네이버임을 명확히 알 수 있다.
+- `gemini` — PASS (11692ms): The context states the user has started working at Naver after completing their final week at Kakao, explicitly mentioning they are currently adapting to the new team environment at Naver.
 
 ## Caveats
 

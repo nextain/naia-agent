@@ -12,8 +12,8 @@
 | `reactive` | 1.000 | 4.0 | 0 | 0.000 | 1.000 |
 | `reactive-vercel` | 1.000 | 4.0 | 0 | 0.000 | 1.000 |
 | `realtime` | 1.000 | 4.0 | 0 | 0.000 | 1.000 |
-| `anthropic-native` | 1.000 | 4.0 | 0 | 0.000 | 1.000 |
-| `off` | 1.000 | 3.0 | 1 | 0.000 | 1.000 |
+| `anthropic-native` | 0.000 | 4.0 | 0 | 0.000 | 1.000 |
+| `off` | 0.000 | 4.0 | 0 | 0.000 | 1.000 |
 
 ## Per-judge breakdown
 
@@ -21,46 +21,46 @@
 
 **Probe 1** (after turn 32) — ensemble: ✅ PASS (4/4 valid)
 
-- `glm` — PASS (15328ms): The context accurately lists all allergy items (nuts - especially walnuts and cashews, shrimp) and correctly identifies seeds as non-allergic items while distinguishing other dietary preferences from 
-- `opencode` — PASS (13571ms): 컨텍스트의 발견 사항 섹션에 명시적으로 "견과류(특히 호두, 캐슈넛)와 새우 알레르기"라고 명시되어 있으며, 후속 대화에서 씨앗이 안전하다고 확인되었고("씨앗은 괜찮아요"), 채소는 취향 문제, 카페인과 수면은 건강 관심사로 별개로 다루어졌습니다.
-- `codex` — PASS (7835ms): CONTEXT explicitly states the user's 알레르기 is 견과류(특히 호두, 캐슈넛)와 새우 and separately states 씨앗은 괜찮고 채소 호불호·수면·카페인 관련 내용은 있어도 알레르기로 분류되지 않아 criterion을 충족합니다.
-- `gemini` — PASS (13275ms): Discoveries 섹션에 견과류(호두, 캐슈넛)와 새우가 알레르기로 명시되어 있고, 대화 내용에서 씨앗은 괜찮다는 확인과 채소는 단순 불호라는 점이 명확히 기록되어 있습니다.
+- `glm` — PASS (15405ms): The context accurately lists all allergy items (nuts - especially walnuts and cashews, shrimp) and correctly identifies non-allergy items (seeds, vegetable preferences, activity level, caffeine, sleep
+- `opencode` — PASS (17349ms): Discoveries에서 "견과류(특히 호두, 캐슈넛)와 새우 알레르기"를 명시하고, 대화에서 씨앗은 "괜찮아요"로 확인했으며 채소 호불호·수면·카페인은 알레르기와 무관한 별개 주제로 일관되게 구분되어 있음.
+- `codex` — PASS (7414ms): 컨텍스트에 견과류(특히 호두, 캐슈넛)와 새우 알레르기가 명시되어 있고 씨앗은 괜찮다, 채소는 비선호, 수면 부족, 커피 3-4잔 등은 알레르기가 아닌 별도 정보로 구분되어 있어 기준을 충족합니다.
+- `gemini` — PASS (14591ms): The context explicitly lists nuts (specifically walnuts and cashews) and shrimp as allergies and confirms that seeds, vegetable dislike, caffeine, and sleep are not allergies.
 
 ### `reactive-vercel`
 
 **Probe 1** (after turn 32) — ensemble: ✅ PASS (4/4 valid)
 
-- `glm` — PASS (11052ms): Context accurately lists all allergies (nuts: walnuts/cashews, shrimp) and correctly classifies non-allergy items (coffee, sleep, family history, activity) as non-allergies.
-- `opencode` — PASS (11265ms): 컨텍스트는 사용자의 견과류(호두, 캐슈넛) 및 새우 알레르기를 명확하게 기록하며, 비알레르기 항목(커피/카페인, 수면 문제, 가족력, 체중)은 알레르기로 오분류하지 않습니다.
-- `codex` — PASS (10120ms): CONTEXT explicitly states severe nut allergy, especially walnuts and cashews, plus shrimp allergy, and the other mentioned items like coffee intake and sleep issues are clearly presented as non-allerg
-- `gemini` — PASS (13424ms): 사용자의 견과류(호두, 캐슈넛) 및 새우 알레르기와 카페인 섭취, 당뇨 가족력 등 알레르기가 아닌 식이 관련 정보가 컨텍스트에 모두 명시되어 있습니다.
+- `glm` — PASS (10838ms): CONTEXT accurately lists all allergies (nuts—specifically walnuts/cashews, shrimp) and correctly identifies non-allergies (seeds, vegetable preferences, caffeine, sleep) without misclassification.
+- `opencode` — FAIL (16464ms): 컨텍스트에는 모든 알레르기 정보(견과류-호두, 캐슈넛; 새우)와 비알레르기 항목(씨앗 OK, 채소 기호, 수면, 카페인)에 대한 충분하고 신뢰할 수 있는 정보가 포함되어 있지만, 마지막 사용자 메시지가 "내 알레르기가 정확히 뭐였더라? 다시 한 번만 정확히 말해줘요."로 끝나며, 이에 대한 어시스턴트의 응답이 누락되어 있어 기준에 부합하는 응답이 컨텍스트에
+- `codex` — PASS (8390ms): 컨텍스트에 사용자가 견과류 알레르기(특히 호두와 캐슈넛)와 새우 알레르기가 있다고 명시되어 있고 씨앗은 괜찮다고 정정되어 있어 비알레르기 식이 항목을 알레르기로 오분류하지 않을 근거가 충분합니다.
+- `gemini` — PASS (11569ms): 컨텍스트에 견과류(호두, 캐슈넛)와 새우 알레르기가 명시되어 있고, 씨앗은 괜찮다는 사실과 채소 비선호, 카페인 섭취 등의 비알레르기 항목 정보가 모두 포함되어 있다.
 
 ### `realtime`
 
 **Probe 1** (after turn 32) — ensemble: ✅ PASS (4/4 valid)
 
-- `glm` — PASS (25414ms): CONTEXT accurately lists allergies (nuts—walnuts/cashews, shrimp) and correctly excludes non-allergies (seeds, vegetable dislikes, sleep, caffeine) from allergy classification.
-- `opencode` — PASS (17981ms): Discoveries에 "견과류(특히 호두, 캐슈넛)와 새우 알레르기"가 명시되어 있고, 대화 꼬리에서 씨앗이 괜찮음을 확인("씨앗은 괜찮아요")하며 채소·수면·카페인은 알레르기가 아닌 별개 주제로만 다뤄져 비-알레르기 항목 오분류 가능성이 없습니다.
-- `codex` — PASS (7552ms): 컨텍스트에 견과류 알레르기(특히 호두, 캐슈넛)와 새우 알레르기가 명시되어 있고 씨앗은 괜찮다고 되어 있어 씨앗·채소 호불호·수면·카페인을 알레르기로 오분류하지 않고 구분할 수 있습니다.
-- `gemini` — PASS (11389ms): The context explicitly identifies nuts (specifically walnuts and cashews) and shrimp as allergies, while clarifying that seeds are safe and noting other non-allergy factors like vegetable dislike and 
+- `glm` — PASS (13732ms): Context accurately lists allergies (nuts—walnuts/cashews, shrimp) and confirms seeds are safe, with no misclassification of non-allergy items.
+- `opencode` — PASS (10543ms): Discoveries에 "견과류(특히 호두, 캐슈넛)와 새우 알레르기"가 명시되어 있고, 후속 대화에서 씨앗은 괜찮음이 확인되었으며 채소 호불호·수면·카페인은 별개 항목으로 기록되어 알레르기 오분류 없이 모든 정보가 충실하게 보존됨.
+- `codex` — PASS (7483ms): 컨텍스트에 사용자의 알레르기가 견과류(특히 호두, 캐슈넛)와 새우라고 명시되어 있고 씨앗은 괜찮다고 확인되어 있어 씨앗·채소 호불호·수면·카페인 등을 알레르기로 오분류하지 않고 정확히 구분할 수 있습니다.
+- `gemini` — PASS (11619ms): CONTEXT specifies allergies to nuts (walnuts, cashews) and shrimp while explicitly confirming that seeds are safe and noting a dislike for vegetables without misclassifying them as allergies.
 
 ### `anthropic-native`
 
-**Probe 1** (after turn 32) — ensemble: ✅ PASS (4/4 valid)
+**Probe 1** (after turn 32) — ensemble: ❌ FAIL (4/4 valid)
 
-- `glm` — PASS (14617ms): CONTEXT contains all allergy items (nuts—specifically walnuts and cashews, shrimp) and correctly identifies non-allergy items (seeds, vegetable preferences, sleep issues, caffeine) without misclassifi
-- `opencode` — PASS (11975ms): CONTEXT에는 알레르기 항목(견과류 — 호두·캐슈넛, 새우)이 명시되어 있고, 씨앗은 "괜찮아요"로 알레르기가 아님이 확인되었으며, 채소 호불호·카페인·수면은 알레르기와 무관한 정보로만 등장합니다.
-- `codex` — PASS (6480ms): 문맥에 사용자의 알레르기가 견과류(특히 호두와 캐슈넛)와 새우라고 명시되어 있고, 씨앗은 괜찮다고 했으며 채소 호불호·수면 문제·커피 섭취는 알레르기가 아닌 별도 정보로 구분되어 있어 기준을 충족합니다.
-- `gemini` — PASS (12966ms): 컨텍스트에 견과류(호두, 캐슈넛)와 새우가 알레르기 항목임이 명시되어 있고, 씨앗은 괜찮다는 확인과 채소는 불호 항목임이 명확히 구분되어 기록되어 있습니다.
+- `glm` — PASS (26713ms): CONTEXT accurately lists nuts (including walnuts/cashews) and shrimp as allergies, and correctly identifies seeds, vegetable preferences, sleep issues, and caffeine as non-allergies.
+- `opencode` — FAIL (17689ms): 컨텍스트 잘림으로 초기 턴이 유실되어 견과류 알레르기가 일반적으로만 언급되며, 구체적인 호두와 캐슈넛은 나타나지 않고 새우 알레르기는 파생된 언급에서만 추론할 수 있어 원래 사용자의 정확한 알레르기 목록에 대한 신뢰할 수 있는 정보가 부족합니다.
+- `codex` — FAIL (8396ms): 문맥에는 견과류 알레르기와 새우 제외, 씨앗은 괜찮다는 정보만 있고 PASS 기준에 필요한 견과류의 구체 항목인 호두와 캐슈넛이 보이지 않아 모든 알레르기 항목을 정확히 열거할 근거가 부족합니다.
+- `gemini` — FAIL (20374ms): The context contains information about general nut and shrimp allergies but completely lacks the specific mentions of walnuts (호두) and cashews (캐슈넛) required to satisfy the pass criterion.
 
 ### `off`
 
-**Probe 1** (after turn 32) — ensemble: ✅ PASS (3/4 valid)
+**Probe 1** (after turn 32) — ensemble: ❌ FAIL (4/4 valid)
 
-- `glm` — PASS (24859ms): The context accurately lists all allergies (nuts—specifically walnuts and cashews, shrimp) and correctly identifies non-allergy items (seeds, vegetable preferences, sleep, caffeine) without misclassif
-- `opencode` — **INFRA** (13404ms): opencode reply unparseable (145 chars): 통과: 컨텍스트는 명확하게 모든 알레르기 항목(견과류 — 특히 호두와 캐슈넛, 새우)을 식별하고, 씨앗류를 명시적으로 알레르기가 아닌 것으로 확인("씨앗은 괜찮아요")하며, 채소 호불호, 수면 문제, 카페인 섭취를 
-- `codex` — PASS (7972ms): Context explicitly states severe nut allergy especially walnuts and cashews plus a shrimp allergy, and also clarifies seeds are okay while vegetable dislike, sleep issues, and coffee intake are not al
-- `gemini` — PASS (14133ms): 컨텍스트 내에 사용자의 알레르기(견과류, 특히 호두/캐슈넛, 새우)와 알레르기가 아닌 항목(씨앗, 채소 불호, 커피 등)이 명확히 구분되어 기록되어 있다.
+- `glm` — PASS (25191ms): CONTEXT accurately lists allergies (nuts, shrimp) and excludes non-allergens (seeds, caffeine, sleep issues) from allergy classification.
+- `opencode` — FAIL (18752ms): 컨텍스트에서 견과류 알레르기를 일반적으로만 언급하고 있으며 (호두와 캐슈넛의 구체적인 견과류 종류는 포함하지 않음), 이는 컨텍스트 잘림으로 인해 손실되었을 수 있으며, 새우 알레르기는 명시적으로 명시되지 않은 채 식사에서 제외된 것으로만 암시된다.
+- `codex` — FAIL (8006ms): 문맥에는 견과류 알레르기와 새우 제외, 씨앗은 괜찮다는 정보만 있고 PASS 기준의 핵심인 특히 호두와 캐슈넛이 알레르기 항목이라는 구체 정보가 없어 모든 알레르기를 정확히 나열할 수 없습니다.
+- `gemini` — FAIL (18658ms): The context lacks specific mention of walnut (호두) and cashew (캐슈넛), which are required by the pass criterion to accurately list all allergy items.
 
 ## Caveats
 
