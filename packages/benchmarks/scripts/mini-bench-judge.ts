@@ -84,23 +84,30 @@ interface StrategyResult {
  * would actually have to read).
  */
 /**
- * Phase 1.3 R2 (codex S10 fix): simulate the LLM provider's context window
- * truncation. `off` and `anthropic-native` (host-side disabled) would
- * normally be force-truncated by the provider when the request exceeds the
- * model's context limit. Without this, those strategies receive an "oracle"
- * view (full transcript) and trivially win every probe — which is what the
- * R1 measurement showed.
+ * Phase 1.3 R5 (codex S19 fix): simulate the LLM provider's context window
+ * truncation with a turn-boundary search that respects ROLE-PREFIXED line
+ * starts (`user: ...`, `assistant: ...`, `tool: ...`), not just any newline.
+ * R3's heuristic could land mid-message because turns themselves carry
+ * newlines (e.g. assistant content with multiple paragraphs).
  *
- * Heuristic: cap the visible window to `windowChars` characters, keeping
- * the most-recent turns (right-aligned truncation, matches how most
- * provider-side compaction works when the head overflows).
+ * Heuristic: cap visible window to `windowChars`, search forward for the
+ * next role-prefixed line start, fall back to nearest newline.
  */
 function simulateContextWindow(text: string, windowChars: number): string {
 	if (text.length <= windowChars) return text;
 	const tailStart = text.length - windowChars;
-	// Try to start at a turn boundary so we don't slice mid-message.
-	const nlAfterCut = text.indexOf("\n", tailStart);
-	const start = nlAfterCut !== -1 ? nlAfterCut + 1 : tailStart;
+	// Look for a role-prefixed line ("user:", "assistant:", "tool:") which
+	// is the start of a turn boundary. Falls back to nearest newline.
+	const rolePrefixRe = /\n(user:|assistant:|tool:|system:)/g;
+	rolePrefixRe.lastIndex = tailStart;
+	const match = rolePrefixRe.exec(text);
+	let start: number;
+	if (match) {
+		start = match.index + 1; // skip the leading \n
+	} else {
+		const nlAfter = text.indexOf("\n", tailStart);
+		start = nlAfter !== -1 ? nlAfter + 1 : tailStart;
+	}
 	return `[context truncated by provider — ${(text.length - start)} of ${text.length} chars retained]\n${text.slice(start)}`;
 }
 
@@ -192,28 +199,46 @@ async function main(): Promise<number> {
 
 			const probeResults: ProbeResult[] = [];
 			for (const probe of taskProbes) {
+				const recap = fr.recapContent ?? "";
 				let visible = extractVisibleContext(
 					fixture,
 					strategy,
 					probe.afterTurn,
-					fr.recapContent ?? "",
+					recap,
 					2, // S12 fix: keepTail matches runner.ts default
 				);
-				// Phase 1.3 R4 (gemini S18 fix): apply the context-window cap
-				// to **all** strategies uniformly. Previously `reactive` /
-				// `realtime` / non-empty `reactive-vercel` were exempt — but
-				// a 5-section markdown recap + verbatim tail can easily
-				// exceed 1200 chars on a 30-turn fixture, giving the
-				// summarizer an unfair "more context" advantage over the
-				// truncated baselines.
+				// Phase 1.3 R5 (codex S18 fairness inversion fix): apply the
+				// 1200-char cap to the **tail portion only**. The recap is by
+				// design the compressed product the agent worked hard to
+				// produce — truncating it from the right would destroy the
+				// compaction itself (R4's uniform cap could throw the entire
+				// recap away when recap+tail > cap, keeping only the latest
+				// tail). Instead, preserve the recap and trim the tail to fit.
 				//
-				// Uniform application: the cap simulates the LLM provider's
-				// hard context window. ANY strategy whose visible context
-				// exceeds the cap gets right-aligned truncation. Strategies
-				// that produced a small recap+tail are naturally a no-op for
-				// this cap (their text was under-budget anyway).
+				// Strategies without compaction (off / anthropic-native /
+				// vercel-no-op) get their full-transcript visible context
+				// truncated as before — there's no recap to preserve.
 				const CONTEXT_WINDOW_CHARS = 1200;
-				visible = simulateContextWindow(visible, CONTEXT_WINDOW_CHARS);
+				const isCompactStrategy =
+					strategy === "reactive" ||
+					strategy === "reactive-vercel" ||
+					strategy === "realtime";
+				if (isCompactStrategy && recap.length > 0) {
+					// Allocate cap budget: recap kept whole, tail truncated.
+					const tailBudget = Math.max(0, CONTEXT_WINDOW_CHARS - recap.length);
+					if (tailBudget < visible.length - recap.length) {
+						// Find tail portion (after recap + separator).
+						const recapEndIdx = visible.indexOf(recap) + recap.length;
+						const tailPortion = visible.slice(recapEndIdx);
+						const truncatedTail = simulateContextWindow(
+							tailPortion,
+							tailBudget,
+						);
+						visible = visible.slice(0, recapEndIdx) + truncatedTail;
+					}
+				} else {
+					visible = simulateContextWindow(visible, CONTEXT_WINDOW_CHARS);
+				}
 				// Phase 1.3 R2 (codex S8 fix): prefer the fixture-author's
 				// explicit `question`. Fall back to the last user turn ONLY
 				// for legacy fixtures that pre-date the schema change. The

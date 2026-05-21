@@ -41,6 +41,12 @@
       "type": "fact-recall",
       "question": "What is the seafood market reservation confirmation number?",
       "expectedKeywords": ["RES-J-A4K7"]
+    },
+    {
+      "afterTurn": 19,
+      "type": "task-accuracy",
+      "question": "What was the Saturday weather forecast for Busan that the user originally checked?",
+      "criterion": "Phase 1.3 R5 (codex S2 fundamental fix): the weather forecast (sunny, 24°C high) was established at turns 3 (tool_result) and 4 (assistant text), BOTH inside the compaction window 0..10 with keepTail=2. So at probe@19 with lastCompactionPoint=10, this fact is in the recap range (turns 0..8) — NOT in the preserved tail (turns 8..19). A strategy whose recap drops this detail will fail. Response must include 'sunny' or 'Saturday' AND the temperature '24°C' (or '24'). Vague 'good weather' or omission = fail."
     }
   ],
   "compactionPoints": [10]

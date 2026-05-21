@@ -160,14 +160,12 @@ function evaluateProbe(
 		.pop();
 
 	let visibleText: string;
-	const tailStart =
-		lastCompactionPoint !== undefined
-			? Math.max(lastCompactionPoint, currentTurn - keepTail)
-			: 0;
-
-	const tailTurns = fixture.turns.slice(tailStart, currentTurn);
-	const tailText = tailTurns.map((t) => t.content).join("\n");
-
+	// Phase 1.3 R5 (codex S13 fix): match mini-bench-judge.ts logic so
+	// deterministic and ensemble paths produce comparable visible context.
+	//  - tailStart = max(0, lastCompactionPoint - keepTail) — closes the
+	//    "Missing Middle" gap (S12) for the deterministic path too.
+	//  - All strategies (compacted OR not) pass through the same context
+	//    window cap — no "oracle" view for off / anthropic-native.
 	const wasCompacted =
 		lastCompactionPoint !== undefined &&
 		(strategy === "reactive" ||
@@ -175,16 +173,25 @@ function evaluateProbe(
 			strategy === "realtime");
 
 	if (wasCompacted) {
-		// After compaction: recap + tail.
+		const tailStart = Math.max(0, lastCompactionPoint! - keepTail);
+		const tailTurns = fixture.turns.slice(tailStart, currentTurn);
+		const tailText = tailTurns.map((t) => t.content).join("\n");
 		visibleText = `${recapContent}\n\n${tailText}`;
 	} else {
-		// off / anthropic-native (host-side disabled) / no compaction yet:
-		// raw transcript up to currentTurn (the full LLM context until the
-		// provider raises a context-length error, which we don't simulate).
 		visibleText = fixture.turns
 			.slice(0, currentTurn)
 			.map((t) => t.content)
 			.join("\n");
+	}
+
+	// Phase 1.3 R5 (S13 + S18 alignment): apply the same provider context
+	// window cap mini-bench-judge.ts uses. 1200 chars ≈ 300 tokens.
+	const CONTEXT_WINDOW_CHARS = 1200;
+	if (visibleText.length > CONTEXT_WINDOW_CHARS) {
+		const start = visibleText.length - CONTEXT_WINDOW_CHARS;
+		const nlAfter = visibleText.indexOf("\n", start);
+		const safeStart = nlAfter !== -1 ? nlAfter + 1 : start;
+		visibleText = visibleText.slice(safeStart);
 	}
 
 	const lower = visibleText.toLowerCase();
@@ -222,6 +229,9 @@ export async function runFixture(
 ): Promise<FixtureResult> {
 	const { keepTail, targetTokens, memorySystem } = opts;
 	const sessionId = `${fixture.id}-${strategy}-${performance.now().toFixed(0)}`;
+	// R5 S20: reset the module-level tool-call counter at the start of each
+	// fixture run so different fixtures don't share IDs.
+	resetParseInlineState();
 	const compactionPoints = (fixture.compactionPoints ?? []).slice().sort((a, b) => a - b);
 	const probesByTurn = new Map<number, FixtureProbe[]>();
 	for (const p of fixture.probes) {
@@ -420,6 +430,13 @@ function mapRole(role: FixtureTurn["role"]): "user" | "assistant" | "tool" {
  *  real material to prune") is silently dropped because the SDK only sees
  *  `content: string` (no reasoning/tool parts).
  */
+/** Phase 1.3 R5 (codex S20 fix): module-level counter so tool_use/tool_result
+ *  IDs are unique across fixture turns. R4's per-turn counter reset broke
+ *  the link between a tool_use and the subsequent tool_result turn (after
+ *  the S2 fixture refactor split them into separate role messages). */
+let _fixtureToolCallCounter = 0;
+let _lastToolCallId: string | null = null;
+
 function toLLMMessage(turn: FixtureTurn): LLMMessage {
 	const role = mapRole(turn.role);
 	const blocks = parseInlineBlocks(turn.content);
@@ -429,10 +446,21 @@ function toLLMMessage(turn: FixtureTurn): LLMMessage {
 	return { role, content: blocks };
 }
 
+/** Reset the tool-call counter — call this once per fixture run so different
+ *  fixtures don't accidentally share IDs. */
+export function resetParseInlineState(): void {
+	_fixtureToolCallCounter = 0;
+	_lastToolCallId = null;
+}
+
 /** Parse `[thinking] ...`, `[tool_use NAME] {...}`, `[tool_result] ...`
  *  inline markers in a fixture turn into proper `LLMContentBlock[]`. Returns
  *  `null` when no markers are present (caller uses string content as before).
- *  Idempotent on text without markers. */
+ *  Idempotent on text without markers.
+ *
+ *  R5 (codex S15 fix): text blocks NO LONGER `.trim()` — preserves leading
+ *  / trailing whitespace and blank-line-sensitive formatting (matters for
+ *  markdown / code / spacing-dependent tool output in future fixtures). */
 function parseInlineBlocks(content: string): LLMContentBlock[] | null {
 	if (
 		!content.includes("[thinking]") &&
@@ -442,17 +470,16 @@ function parseInlineBlocks(content: string): LLMContentBlock[] | null {
 		return null;
 	}
 	const blocks: LLMContentBlock[] = [];
-	// Split on newlines; each line is examined for a leading marker.
 	const lines = content.split("\n");
 	let textBuf: string[] = [];
 	const flushText = (): void => {
 		if (textBuf.length > 0) {
-			const text = textBuf.join("\n").trim();
+			const text = textBuf.join("\n");
+			// R5 S15: keep whitespace; only drop entirely empty buffer.
 			if (text.length > 0) blocks.push({ type: "text", text });
 			textBuf = [];
 		}
 	};
-	let toolCallCounter = 0;
 	for (const line of lines) {
 		const thinkMatch = /^\[thinking\]\s*(.*)$/.exec(line);
 		if (thinkMatch) {
@@ -469,10 +496,13 @@ function parseInlineBlocks(content: string): LLMContentBlock[] | null {
 			} catch {
 				input = { raw: toolUseMatch[2] };
 			}
-			toolCallCounter++;
+			// R5 S20: module-level counter (unique across fixture turns).
+			_fixtureToolCallCounter++;
+			const callId = `call_${_fixtureToolCallCounter}`;
+			_lastToolCallId = callId;
 			blocks.push({
 				type: "tool_use",
-				id: `call_${toolCallCounter}`,
+				id: callId,
 				name: toolUseMatch[1] ?? "",
 				input,
 			});
@@ -481,8 +511,9 @@ function parseInlineBlocks(content: string): LLMContentBlock[] | null {
 		const toolResultMatch = /^\[tool_result\]\s*(.*)$/.exec(line);
 		if (toolResultMatch) {
 			flushText();
-			// tool_result blocks need a toolCallId; reuse the latest tool_use id.
-			const callId = `call_${toolCallCounter || 1}`;
+			// R5 S20: link to the LAST issued tool_use id (across turns).
+			const callId =
+				_lastToolCallId ?? `call_${_fixtureToolCallCounter || 1}`;
 			blocks.push({
 				type: "tool_result",
 				toolCallId: callId,
