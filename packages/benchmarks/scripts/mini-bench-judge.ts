@@ -33,7 +33,7 @@ import {
 
 import type { Fixture, FixtureProbe, StrategyId } from "../src/fixture.js";
 import { classifyProbeStress, validateFixture } from "../src/fixture.js";
-import { runFixture } from "../src/runner.js";
+import { runFixture, createBenchSummarizer } from "../src/runner.js";
 import { buildVisibleContext } from "../src/visible-context.js";
 import { createBenchLLMClient } from "../src/bench-llm-client.js";
 import {
@@ -52,13 +52,14 @@ const STRATEGIES: readonly StrategyId[] = [
 	"pi",
 	"hermes",
 	"reactive",
+	"naia+llm",
 	"off",
 ];
 
 // R7 Phase A: shared benchmark config — no longer hardcoded at each call site.
 const BENCH_CONFIG = {
-	keepTail: 2,
-	contextWindowChars: 1200,
+	keepTail: 10,
+	contextWindowChars: 16_000,
 	targetTokens: 1000,
 } as const;
 
@@ -77,6 +78,9 @@ interface StrategyResult {
 		readonly factRecall: number;
 		readonly driftScore: number;
 		readonly totalTokens: number;
+		readonly compactionLatencyMs: number;
+		readonly compactionInputTokens: number;
+		readonly compactionOutputTokens: number;
 	};
 	readonly vercelNoOp: boolean;
 	readonly recapNoOp: boolean;
@@ -111,32 +115,44 @@ async function main(): Promise<number> {
 	for (const strategy of STRATEGIES) {
 		process.stderr.write(`[mini-bench] strategy=${strategy}\n`);
 		const memPath = join(REPORTS_DIR, `_mem-judge-${date}-${strategy}.json`);
-		const memorySystem = new MemorySystem({
+
+		// naia+llm needs a summarizer-injected MemorySystem.
+		let summarizerClient: ReturnType<typeof createBenchLLMClient> | undefined;
+		const memoryOpts: ConstructorParameters<typeof MemorySystem>[0] = {
 			adapter: new LocalAdapter(memPath),
 			consolidationIntervalMs: 0,
-		});
+		};
+		if (strategy === "naia+llm") {
+			summarizerClient = createBenchLLMClient();
+			memoryOpts.summarizer = createBenchSummarizer(summarizerClient);
+		}
+		const memorySystem = new MemorySystem(memoryOpts);
 		try {
 			// R8: lazy LLM client + factory per fixture run so anchored-iterative
 			// summaries are scoped to the fixture and not leaked across strategies.
 			const llmFor = (kind: "pi" | "hermes" | null) => {
-				if (kind === null) return undefined;
+				if (kind === null) return { prepare: undefined, client: undefined };
 				const llm = createBenchLLMClient();
-				// R8 measurement: fixtures are short (~240 tokens). Use small
-				// keep/tail so the cut actually fires for these fixtures.
-				return kind === "pi"
+				const prepare = kind === "pi"
 					? createPiLLMMessagePrepareCompact({ llm, keepRecentTokens: 100 })
 					: createHermesLLMMessagePrepareCompact({
 							llm,
 							protectFirstN: 2,
 							tailTokenBudget: 100,
 						});
+				return { prepare, client: llm };
 			};
+			const llmInfo = strategy === "pi" ? llmFor("pi")
+				: strategy === "hermes" ? llmFor("hermes")
+				: strategy === "naia+llm" ? { prepare: undefined, client: summarizerClient }
+				: { prepare: undefined, client: undefined };
 			const fr = await runFixture(fixture, strategy, {
 				keepTail: BENCH_CONFIG.keepTail,
 				targetTokens: BENCH_CONFIG.targetTokens,
 				memorySystem,
-				...(strategy === "pi" ? { piPrepare: llmFor("pi") } : {}),
-				...(strategy === "hermes" ? { hermesPrepare: llmFor("hermes") } : {}),
+				benchClient: llmInfo.client,
+				...(llmInfo.prepare && strategy === "pi" ? { piPrepare: llmInfo.prepare } : {}),
+				...(llmInfo.prepare && strategy === "hermes" ? { hermesPrepare: llmInfo.prepare } : {}),
 			});
 
 			const probeResults: ProbeResult[] = [];
@@ -197,7 +213,8 @@ async function main(): Promise<number> {
 				strategy === "reactive-vercel" ||
 				strategy === "realtime" ||
 				strategy === "pi" ||
-				strategy === "hermes";
+				strategy === "hermes" ||
+				strategy === "naia+llm";
 			const recapNoOp =
 				isCompactStrategy && (fr.recapContent ?? "").length === 0;
 
@@ -209,6 +226,9 @@ async function main(): Promise<number> {
 					factRecall: fr.factRecall,
 					driftScore: fr.driftScore,
 					totalTokens: fr.totalTokens,
+					compactionLatencyMs: fr.compactionLatencyMs,
+					compactionInputTokens: fr.compactionInputTokens,
+					compactionOutputTokens: fr.compactionOutputTokens,
 				},
 				vercelNoOp:
 					strategy === "reactive-vercel" && (fr.recapContent ?? "").length === 0,
@@ -253,9 +273,9 @@ async function main(): Promise<number> {
 	lines.push("## Ensemble verdict per strategy");
 	lines.push("");
 	lines.push(
-		"| Strategy | recap-only | tail-trivial | unclassified | Recap no-op? | Avg validCount/4 |",
+		"| Strategy | recap-only | tail-trivial | unclassified | Recap no-op? | Avg validCount/4 | Compact ms | Compact tokens (in/out) |",
 	);
-	lines.push("|---|---:|---:|---:|---:|---:|");
+	lines.push("|---|---:|---:|---:|---:|---:|---:|---:|");
 	for (const r of results) {
 		const recapOnlyProbes = r.probeResults.filter((pr) => pr.stress === "recap-only");
 		const tailTrivialProbes = r.probeResults.filter((pr) => pr.stress === "tail-trivial");
@@ -274,8 +294,10 @@ async function main(): Promise<number> {
 				? "**YES (vercel)**"
 				: "**YES (recap empty)**"
 			: "no";
+		const compactMs = r.fixtureResult.compactionLatencyMs.toFixed(0);
+		const compactTokens = `${r.fixtureResult.compactionInputTokens}/${r.fixtureResult.compactionOutputTokens}`;
 		lines.push(
-			`| \`${r.strategy}\` | ${rate(recapOnlyProbes)} | ${rate(tailTrivialProbes)} | ${rate(unclassProbes)} | ${noOpLabel} | ${avgValid.toFixed(1)} |`,
+			`| \`${r.strategy}\` | ${rate(recapOnlyProbes)} | ${rate(tailTrivialProbes)} | ${rate(unclassProbes)} | ${noOpLabel} | ${avgValid.toFixed(1)} | ${compactMs} | ${compactTokens} |`,
 		);
 	}
 	lines.push("");

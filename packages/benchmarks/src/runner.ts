@@ -32,9 +32,11 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { LocalAdapter, MemorySystem } from "@nextain/naia-memory";
+import type { CompactionSummarizer } from "@nextain/naia-memory";
 
 // Phase 1.3 (#56) — Vercel pruneMessages path lives in runtime.
 import { createLLMMessagePrepareCompact } from "@nextain/agent-runtime";
+import type { BenchLLMClient } from "./bench-llm-client.js";
 import type { LLMContentBlock, LLMMessage } from "@nextain/agent-types";
 
 import type {
@@ -52,6 +54,32 @@ import { buildVisibleContext } from "./visible-context.js";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = join(HERE, "fixtures");
 const REPORTS_DIR = join(HERE, "..", "reports");
+
+export function createBenchSummarizer(client: BenchLLMClient): CompactionSummarizer {
+	return async (input) => {
+		const prompt = `You are a conversation compaction engine. Given a deterministic recap seed and the original messages, produce a concise but information-preserving summary.
+
+Rules:
+- Preserve ALL named entities, numbers, dates, and specific facts from the seed.
+- Preserve topic transitions and their outcomes.
+- Keep tool calls and their results in abbreviated form.
+- Target ~${input.targetTokens} tokens.
+- Output plain text, no markdown headers.
+
+## Deterministic seed recap
+${input.seedSummary}`;
+
+		const messages = [
+			{ role: "user" as const, content: prompt },
+		];
+		const resp = await client.generate({ messages, temperature: 0 });
+		const text = resp.content
+			.filter((b): b is { type: "text"; text: string } => b.type === "text")
+			.map((b) => b.text)
+			.join("");
+		return text;
+	};
+}
 
 const DEFAULT_STRATEGIES: readonly StrategyId[] = [
 	"reactive",
@@ -127,6 +155,8 @@ export function runFixturePlaceholder(
 		latencyP99Ms: 0,
 		compactionLatencyMs: 0,
 		totalTokens: 0,
+		compactionInputTokens: 0,
+		compactionOutputTokens: 0,
 		driftScore: 1,
 		errors: [`placeholder — runFixture() bypassed (CI fallback)`],
 	};
@@ -207,6 +237,7 @@ interface RunOptions {
 	readonly hermesPrepare?: (
 		history: readonly LLMMessage[],
 	) => Promise<LLMMessage[] | undefined>;
+	readonly benchClient?: BenchLLMClient;
 }
 
 export async function runFixture(
@@ -261,7 +292,7 @@ export async function runFixture(
 		// Forced compaction trigger — naia-memory path.
 		if (
 			compactionPoints.includes(turnIdx) &&
-			(strategy === "reactive" || strategy === "realtime")
+			(strategy === "reactive" || strategy === "realtime" || strategy === "naia+llm")
 		) {
 			const head: FixtureTurn[] = fixture.turns
 				.slice(0, turnIdx)
@@ -458,10 +489,10 @@ export async function runFixture(
 		latencyP99Ms: p99,
 		compactionLatencyMs: compactionAvg,
 		totalTokens,
+		compactionInputTokens: opts.benchClient?.totalInputTokens ?? 0,
+		compactionOutputTokens: opts.benchClient?.totalOutputTokens ?? 0,
 		driftScore: drift,
 		errors,
-		// Phase 1.3 (#56): expose actual recap so LLM-judge harnesses don't
-		// have to reconstruct visible context from fixture tails.
 		recapContent,
 	};
 }
@@ -624,16 +655,24 @@ export async function main(argv: readonly string[]): Promise<void> {
 	const results: FixtureResult[] = [];
 	for (const s of opts.strategies) {
 		const memPath = join(REPORTS_DIR, `_mem-${date}-${s}.json`);
-		const memorySystem = new MemorySystem({
+		const memOpts: ConstructorParameters<typeof MemorySystem>[0] = {
 			adapter: new LocalAdapter(memPath),
 			consolidationIntervalMs: 0,
-		});
+		};
+		let benchClient: BenchLLMClient | undefined;
+		if (s === "naia+llm") {
+			const { createBenchLLMClient: makeClient } = await import("./bench-llm-client.js");
+			benchClient = makeClient();
+			memOpts.summarizer = createBenchSummarizer(benchClient);
+		}
+		const memorySystem = new MemorySystem(memOpts);
 		try {
 			for (const fx of fixtures) {
 				const r = await runFixture(fx, s, {
 					keepTail: 2,
 					targetTokens: 1000,
 					memorySystem,
+					...(benchClient ? { benchClient } : {}),
 				});
 				results.push(r);
 				process.stderr.write(

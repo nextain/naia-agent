@@ -43,7 +43,9 @@ export type StrategyId =
 	| "off"
 	// R8: real LLM-based compaction adapters (TS ports).
 	| "pi"
-	| "hermes";
+	| "hermes"
+	// R8.2: naia-memory + CompactionSummarizer (LLM-polished deterministic seed).
+	| "naia+llm";
 
 /**
  * Fixture probe — injected at `afterTurn` to measure post-compaction behavior.
@@ -120,6 +122,8 @@ export interface FixtureResult {
 	readonly latencyP99Ms: number;
 	readonly compactionLatencyMs: number;
 	readonly totalTokens: number;
+	readonly compactionInputTokens: number;
+	readonly compactionOutputTokens: number;
 	readonly driftScore: number; // 0..1, 1 = identical to no-compact baseline
 	readonly errors: readonly string[];
 	/**
