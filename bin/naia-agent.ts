@@ -371,6 +371,18 @@ async function buildLLMClient(): Promise<LLMClient | null> {
       );
       return null;
     }
+    // naia-*-live local bypass: route directly to local voice wrapper
+    const liveHost = env.NAIA_LIVE_HOST;
+    if (liveHost && /^naia-\d+[gt]-live$/i.test(model)) {
+      const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
+      const provider = createOpenAICompatible({
+        name: "naia-live-local",
+        apiKey: "",
+        baseURL: liveHost.replace(/\/+$/, ""),
+      });
+      process.stderr.write(`naia-agent: provider=naia-live-local model=${model}\n`);
+      return new VercelClient(provider.chatModel(model));
+    }
     const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
     const provider = createOpenAICompatible({
       name: "naia-anyllm",
@@ -1603,6 +1615,7 @@ async function getNaiaRegistryMeta(): Promise<{ defaultModel: string; modelIds: 
       "gemini-2.5-flash",
       "gemini-2.5-flash-lite",
       "gemini-2.5-flash-live",
+      "naia-24g-live",
     ],
   };
 }
