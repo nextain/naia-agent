@@ -192,11 +192,12 @@ const PROVIDERS: ProviderMeta[] = [
         const data = await resp.json() as { data?: { id: string }[] };
         return (data.data ?? []).map((m) => {
           const mid = m.id.toLowerCase();
+          const isAsr = mid.includes("asr") || mid.includes("whisper");
           const isOmni = mid.includes("minicpm-o") || mid.includes("minicpmo");
           return {
             id: m.id,
             label: isOmni ? `${m.id} (실시간)` : m.id,
-            capabilities: (isOmni ? ["llm", "omni"] : ["llm"]) as ("llm" | "omni")[],
+            capabilities: (isAsr ? ["asr"] : isOmni ? ["llm", "omni"] : ["llm"]) as ("llm" | "omni" | "asr")[],
           };
         });
       } catch { return null; }

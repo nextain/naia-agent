@@ -10,7 +10,7 @@
  * package — not here. This file is zero-runtime-dep (types only).
  */
 
-export type ModelCapability = "llm" | "omni" | "asr" | "tts";
+export type ModelCapability = "llm" | "omni" | "asr" | "stt" | "tts" | "vlm" | "world";
 
 export interface VoiceMeta {
   id: string;
