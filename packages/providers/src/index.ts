@@ -19,3 +19,13 @@ export { LabProxyLiveClient, LAB_PROXY_LIVE_DEFAULT_GATEWAY_WS_URL } from "./lab
 export type { LabProxyLiveClientOptions } from "./lab-proxy-live.js";
 export { VercelClient } from "./vercel-client.js";
 export type { VercelClientOptions } from "./vercel-client.js";
+export {
+  listProviders,
+  getProvider,
+  getProviderModels,
+  getDefaultModel,
+  fetchNaiaPricing,
+  fetchGatewayModels,
+  shouldMigrateNextainModel,
+  DEFAULT_GATEWAY_HTTP_URL,
+} from "./registry.js";

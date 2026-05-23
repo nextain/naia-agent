@@ -6,6 +6,7 @@
 // workspace, stream). See docs/{adapter-contract,stream-protocol}.md.
 
 export * from "./llm.js";
+export * from "./provider-registry.js";
 export * from "./memory.js";
 export * from "./event.js";
 export * from "./voice.js";

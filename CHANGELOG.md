@@ -8,6 +8,12 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+### feat
+
+- **`packages/types/src/provider-registry.ts`** (new) — `ProviderMeta`, `ModelMeta`, `VoiceMeta`, `ModelCapability` types. Runtime-agnostic provider catalogue contract, adapted from naia-os `shell/src/lib/llm/types.ts` with UI fields removed.
+- **`packages/providers/src/registry.ts`** (new) — 9-provider catalogue (nextain/Naia, claude-code-cli, gemini, openai, anthropic, xai, zai, ollama, vllm). Lookup helpers (`listProviders`, `getProvider`, `getProviderModels`, `getDefaultModel`). Gateway live pricing fetch (`fetchNaiaPricing`), gateway model discovery (`fetchGatewayModels`), dynamic fetch for ollama/vllm, `shouldMigrateNextainModel` migration helper.
+- **`bin/naia-agent.ts`** — `providers` subcommand: lists all providers with models, pricing, capabilities. `getNaiaRegistryMeta()` now imports naia-agent's own registry instead of naia-os dynamic import (removes cross-repo coupling). 18 unit tests in `packages/providers/src/__tests__/registry.test.ts`. Slice 4-P1 (#59).
+
 ### docs
 
 - **`docs/voice-cascade-contract.md`** (new, + `.users/docs/ko/` mirror) — Voice Cascade Contract spec between naia-agent and LiveKit `llm.LLM`. Locks four exit gates that Slice 3-XR-Voice (Task #28, P0c-2) must satisfy before merge: G1 cancel-propagates-upstream-in-one-turn, G2 no-cancelled-turn-memory-write, G3 partial-text-hidden-or-marked-unstable (voice path streams partials behind the `naia-agent[voice]` extra; chat path stays final-only), G4 tool-hop-cancel-leaves-session-reusable. Also locks the Codex r4 LiveKit-lock-in re-evaluation triggers (only G1/G2/G3 failures trigger backbone re-eval; G4 is a wrapper-design call). Provenance: promoted from `naia-labs/promote_to_naia_agent/b5_lite_contract_memo.md` (Codex r3 Q5 + r4 #5). Design lock only — no code yet; verification placement maps onto `docs/adapter-contract.md` §2 contract-test ladder at scaffold time. Cross-linked from `docs/voice-pipeline-audit.md` §1 integration surface.

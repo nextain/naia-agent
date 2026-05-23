@@ -1596,18 +1596,20 @@ async function addCredentialKey(keyName: string): Promise<void> {
  */
 async function getNaiaRegistryMeta(): Promise<{ defaultModel: string; modelIds: string[] }> {
   try {
-    const reg = await import("../../naia-os/shell/src/lib/llm/registry.js");
-    const p = reg.getLlmProvider("nextain");
+    const { getProvider } = await import("../packages/providers/src/registry.js");
+    const p = getProvider("nextain");
     if (p) {
+      const pricingModels = await fetchPricingOverlay();
       return {
-        defaultModel: p.defaultModel ?? "gemini-2.5-pro",
-        modelIds: p.models.map((m: { id: string }) => m.id),
+        defaultModel: p.defaultModel || "gemini-2.5-flash",
+        modelIds: (pricingModels ?? p.models).map((m) => m.id),
       };
     }
   } catch { /* fallback below */ }
   return {
-    defaultModel: "gemini-2.5-pro",
+    defaultModel: "gemini-2.5-flash",
     modelIds: [
+      "gemini-3.5-flash",
       "gemini-3.1-pro-preview",
       "gemini-3.1-flash-lite-preview",
       "gemini-3-flash-preview",
@@ -1618,6 +1620,13 @@ async function getNaiaRegistryMeta(): Promise<{ defaultModel: string; modelIds: 
       "naia-24g-live",
     ],
   };
+}
+
+async function fetchPricingOverlay() {
+  try {
+    const { fetchNaiaPricing } = await import("../packages/providers/src/registry.js");
+    return await fetchNaiaPricing();
+  } catch { return null; }
 }
 
 const PROVIDER_DEFAULTS: Record<string, string> = {
@@ -2039,6 +2048,32 @@ async function runLogin(argv: string[]): Promise<number> {
 // unavailable it REFUSES (no plaintext fallback) and tells the user to use
 // an env var. The value is never written to disk nor printed.
 
+// ─── providers subcommand — list providers and models ─────────────────────
+async function runProviders(): Promise<number> {
+  const { listProviders, fetchNaiaPricing } = await import("../packages/providers/src/registry.js");
+  const providers = listProviders();
+  const pricingModels = await fetchNaiaPricing();
+  const pricingMap = new Map((pricingModels ?? []).map((m) => [m.id, m.pricing]));
+
+  for (const p of providers) {
+    process.stdout.write(`\n── ${p.name} (${p.id}) ──\n`);
+    if (p.isLocal) {
+      process.stdout.write(`  ${p.description}\n  (local — models discovered at runtime)\n`);
+      continue;
+    }
+    for (const m of p.models) {
+      const pricing = pricingMap.get(m.id) ?? m.pricing;
+      const priceStr = pricing ? `  $${pricing[0].toFixed(3)} / $${pricing[1].toFixed(3)}` : "";
+      const caps = m.capabilities.filter((c) => c !== "llm").join(",");
+      const capStr = caps ? `  [${caps}]` : "";
+      const marker = m.id === p.defaultModel ? " (default)" : "";
+      process.stdout.write(`  ${m.id}${marker}${capStr}${priceStr}\n`);
+    }
+  }
+  process.stdout.write("\n");
+  return 0;
+}
+
 // ─── show subcommand — read-only config inspection (no secret values) ──────
 function runShow(): number {
   const adk = process.env["NAIA_ADK_PATH"];
@@ -2111,6 +2146,11 @@ async function main(): Promise<number> {
     return runLogin(argv.slice(1));
   }
 
+  // providers subcommand — list providers and models (no auth needed)
+  if (argv[0] === "providers") {
+    return runProviders();
+  }
+
   // Parse args early so usage errors exit immediately (before slow keychain load).
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
@@ -2121,6 +2161,7 @@ async function main(): Promise<number> {
       `       pnpm naia-agent [prompt] [--compact-strategy reactive|realtime|anthropic-native|off]\n` +
       `       pnpm naia-agent login --adk <path> [--main …] [--sub …] [--embedded …] [--key REF=VAL]\n` +
       `       pnpm naia-agent show                       # show current config (no secret values)\n` +
+      `       pnpm naia-agent providers                   # list providers and models\n` +
       `       pnpm naia-agent --stdio\n` +
       `       pnpm naia-agent [prompt] --service app.service.json\n` +
       `       pnpm naia-agent [prompt] --mode=supervisor [--no-verify] [-m model] [--adapter shell -- cmd args]\n` +

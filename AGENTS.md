@@ -305,6 +305,7 @@ unknown backend = exit 3 + 위 enum 안내 stderr.
 
 DONE (시간순, 최근부터):
 
+- **4-P1** (Task #59) — Provider Registry migration from naia-os: 9-provider catalogue + gateway pricing/model fetch + `providers` subcommand + naia-os cross-repo import 제거.
 - **3-XR-Docs** (Task #29) — 7 docs 영문 정본화 + stale 정정 + cross-review + KO mirror (`.users/docs/ko/`).
 - **3-XR-O** (Task #27) — naia-agent ↔ Claude Code behavioral parity ledger (Group O 7/7, intentional-difference 명시).
 - **3-XR-N** (Task #26) — cross-OS sanity mechanism (Group N 6/6 Linux-side, Windows host LIVE honestly deferred).
