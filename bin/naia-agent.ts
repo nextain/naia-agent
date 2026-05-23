@@ -1600,21 +1600,25 @@ async function getNaiaRegistryMeta(): Promise<{ defaultModel: string; modelIds: 
     const p = getProvider("nextain");
     if (p) {
       const pricingModels = await fetchPricingOverlay();
-      return {
-        defaultModel: p.defaultModel || "gemini-2.5-flash",
-        modelIds: (pricingModels ?? p.models).map((m) => m.id),
-      };
+      const models = pricingModels ?? p.models;
+      const ids = models.map((m) => m.id);
+      const defaultIdx = ids.indexOf(p.defaultModel);
+      if (defaultIdx > 0) {
+        const [removed] = ids.splice(defaultIdx, 1);
+        ids.unshift(removed);
+      }
+      return { defaultModel: p.defaultModel || "gemini-2.5-flash", modelIds: ids };
     }
   } catch { /* fallback below */ }
   return {
     defaultModel: "gemini-2.5-flash",
     modelIds: [
+      "gemini-2.5-flash",
       "gemini-3.5-flash",
       "gemini-3.1-pro-preview",
       "gemini-3.1-flash-lite-preview",
       "gemini-3-flash-preview",
       "gemini-2.5-pro",
-      "gemini-2.5-flash",
       "gemini-2.5-flash-lite",
       "gemini-2.5-flash-live",
       "naia-24g-live",
@@ -1993,6 +1997,17 @@ async function runLogin(argv: string[]): Promise<number> {
     if (argv[i] === "--key") provider = argv[++i];
   }
 
+  // ── Shortcut: login naia → browser login + model select → done ──
+  if (argv[0] === "naia") {
+    return configureNaiaKey();
+  }
+
+  // ── Shortcut: login anthropic / openai / glm / vertex → direct --key flow ──
+  const directProviders = new Set(["anthropic", "openai", "glm", "vertex", "vllm", "ollama"]);
+  if (argv[0] && directProviders.has(argv[0])) {
+    provider = argv[0];
+  }
+
   // ── Legacy --key flow (backwards compat + non-TTY tests) ──
   if (provider) {
     const fields = LOGIN_PROVIDERS[provider.toLowerCase()];
@@ -2193,7 +2208,8 @@ async function main(): Promise<number> {
       `       pnpm naia-agent --stdio\n` +
       `       pnpm naia-agent [prompt] --service app.service.json\n` +
       `       pnpm naia-agent [prompt] --mode=supervisor [--no-verify] [-m model] [--adapter shell -- cmd args]\n` +
-      `       pnpm naia-agent login --key anthropic|openai|glm|vertex\n`,
+      `       pnpm naia-agent login naia                  # browser login → model select → done\n` +
+      `       pnpm naia-agent login anthropic            # direct API key entry\n` +
     );
     return 3;
   }
