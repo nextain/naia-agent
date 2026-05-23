@@ -1629,6 +1629,9 @@ async function fetchPricingOverlay() {
   } catch { return null; }
 }
 
+const DEFAULT_GATEWAY_HTTP_URL_CLI =
+  "https://naia-gateway-181404717065.asia-northeast3.run.app";
+
 const PROVIDER_DEFAULTS: Record<string, string> = {
   anthropic: "claude-opus-4-5",
   openai: "gpt-4o",
@@ -1841,19 +1844,44 @@ async function saveApiKeys(values: Record<string, string>): Promise<void> {
 
 async function configureNaiaKey(): Promise<number> {
   process.stdout.write("\n── Naia (naia.nextain.io) ──\n");
-  process.stdout.write("  Get your credentials at: naia.nextain.io\n\n");
-  // Naia uses NAIA_ANYLLM_API_KEY + NAIA_ANYLLM_BASE_URL (same as main LLM "naia" path).
-  const apiKey = await promptLine("Naia AnyLLM API key", true);
-  if (apiKey === null) return 3;
-  const baseUrl = await promptLine("Naia AnyLLM gateway URL (e.g. http://localhost:8000/v1)");
-  if (baseUrl === null) return 3;
+
+  const method = await selectFromList("Login method:", [
+    "Browser login  (opens naia.nextain.io — recommended)",
+    "Manual key     (paste gw-xxx key)",
+  ]);
+  process.stdout.write("\n");
+  if (method === null) return 3;
+
+  let apiKey: string;
+  let baseUrl: string;
+
+  if (method === "Browser login  (opens naia.nextain.io — recommended)") {
+    try {
+      const { browserLogin } = await import("../packages/runtime/src/utils/browser-auth.js");
+      const result = await browserLogin();
+      apiKey = result.key;
+      baseUrl = DEFAULT_GATEWAY_HTTP_URL_CLI;
+      process.stdout.write(`  ✓ Received key (${apiKey.length} chars)\n`);
+      if (result.userId) {
+        process.stdout.write(`  ✓ User ID: ${result.userId}\n`);
+      }
+    } catch (err) {
+      process.stderr.write(`  Browser login failed: ${(err as Error).message}\n`);
+      process.stderr.write(`  Falling back to manual key entry.\n\n`);
+      apiKey = (await promptLine("Naia AnyLLM API key", true)) ?? "";
+      if (!apiKey) return 3;
+      baseUrl = (await promptLine("Naia AnyLLM gateway URL (e.g. http://localhost:8000/v1)")) ?? DEFAULT_GATEWAY_HTTP_URL_CLI;
+    }
+  } else {
+    apiKey = (await promptLine("Naia AnyLLM API key", true)) ?? "";
+    if (!apiKey) return 3;
+    baseUrl = (await promptLine("Naia AnyLLM gateway URL (e.g. http://localhost:8000/v1)")) ?? DEFAULT_GATEWAY_HTTP_URL_CLI;
+  }
 
   const meta = await getNaiaRegistryMeta();
   const items = meta.modelIds.length > 0 ? meta.modelIds : [meta.defaultModel];
   process.stdout.write("\n");
   const picked = await selectFromList("Model:", items);
-  // Collect all inputs before saving — avoids partial state where API key is saved
-  // but NAIA_MAIN_MODEL is missing (B4 cross-review finding, R4-B).
   if (picked === null) return 3;
 
   await saveApiKeys({ NAIA_ANYLLM_API_KEY: apiKey, NAIA_ANYLLM_BASE_URL: baseUrl });

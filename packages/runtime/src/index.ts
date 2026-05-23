@@ -88,6 +88,9 @@ export type { SecretStore } from "./utils/secret-store.js";
 // Login subcommand pure helpers — Track B (G16). Side-effect-free, injectable for tests.
 export { parseLoginArgs, checkDuplicateKeys, buildEnvAppend } from "./utils/login-ops.js";
 export type { ProviderField } from "./utils/login-ops.js";
+// Browser-based Naia login (localhost callback flow) — Slice 4-P2 (#59).
+export { browserLogin, NAIA_WEB_BASE_URL } from "./utils/browser-auth.js";
+export type { BrowserAuthResult } from "./utils/browser-auth.js";
 
 // DANGEROUS_COMMANDS regex — D01 (Slice 2). OWASP A03 출처, F09 cleanroom 단독 의존 금지.
 export {
