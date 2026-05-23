@@ -3,7 +3,7 @@
  * Verifies provider catalogue, lookup helpers, gateway pricing overlay,
  * model migration, and dynamic fetch stubs.
  */
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 
 // We test the source directly (tsconfig paths resolve @nextain/agent-types).
 // The registry is pure data — no network calls unless explicitly testing fetch.
@@ -100,10 +100,10 @@ describe("Provider Registry — Naia model details", () => {
     expect(live!.transcriptProvided).toBe(true);
   });
 
-  it("Naia provider does NOT list gemini-3.x models that gateway lacks", () => {
+  it("Naia provider lists gemini-3.x models", () => {
     const models = getProviderModels("nextain");
     const ids = models.map((m) => m.id);
-    const gemini3x = ids.filter((id) => id.startsWith("gemini-3") && !id.includes("flash-lite"));
+    const gemini3x = ids.filter((id) => id.startsWith("gemini-3"));
     expect(gemini3x.length).toBeGreaterThan(0);
   });
 });

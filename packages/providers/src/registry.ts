@@ -25,19 +25,6 @@ const GEMINI_LIVE_VOICES = [
   { id: "Zephyr", label: "Zephyr (중성)" },
 ];
 
-const OPENAI_REALTIME_VOICES = [
-  { id: "alloy", label: "Alloy (중성)" },
-  { id: "ash", label: "Ash (남성)" },
-  { id: "ballad", label: "Ballad (남성)" },
-  { id: "coral", label: "Coral (여성)" },
-  { id: "echo", label: "Echo (남성)" },
-  { id: "sage", label: "Sage (여성)" },
-  { id: "shimmer", label: "Shimmer (여성)" },
-  { id: "verse", label: "Verse (남성)" },
-  { id: "marin", label: "Marin (여성)" },
-  { id: "cedar", label: "Cedar (남성)" },
-];
-
 // ─── Provider definitions ───────────────────────────────────────────────────
 
 const PROVIDERS: ProviderMeta[] = [
