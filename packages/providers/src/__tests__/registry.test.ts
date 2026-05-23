@@ -71,7 +71,7 @@ describe("Provider Registry — lookup helpers", () => {
   });
 
   it("getDefaultModel returns default for provider", () => {
-    expect(getDefaultModel("nextain")).toBe("gemini-2.5-flash");
+    expect(getDefaultModel("nextain")).toBe("gemini-3.5-flash");
     expect(getDefaultModel("anthropic")).toBe("claude-sonnet-4-6");
   });
 
@@ -81,13 +81,11 @@ describe("Provider Registry — lookup helpers", () => {
 });
 
 describe("Provider Registry — Naia model details", () => {
-  it("Naia provider has pricing on text models", () => {
+  it("Naia text models have no static pricing (fetched from gateway)", () => {
     const models = getProviderModels("nextain");
     const flash = models.find((m) => m.id === "gemini-2.5-flash");
     expect(flash).toBeDefined();
-    expect(flash!.pricing).toBeDefined();
-    expect(flash!.pricing!.length).toBe(2);
-    expect(flash!.pricing![0]).toBeGreaterThan(0);
+    expect(flash!.pricing).toBeUndefined();
   });
 
   it("Naia provider has omni models with voice metadata", () => {
@@ -131,7 +129,7 @@ describe("Provider Registry — shouldMigrateNextainModel", () => {
 
   it("returns true with fallback for a removed model", () => {
     const result = shouldMigrateNextainModel("nextain", "gemini-1.5-pro-obsolete");
-    expect(result).toEqual({ migrate: true, to: "gemini-2.5-flash" });
+    expect(result).toEqual({ migrate: true, to: "gemini-3.5-flash" });
   });
 
   it("returns false for non-nextain provider", () => {

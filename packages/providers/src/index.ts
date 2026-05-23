@@ -28,4 +28,6 @@ export {
   fetchGatewayModels,
   shouldMigrateNextainModel,
   DEFAULT_GATEWAY_HTTP_URL,
+  NAIA_PRICING_MARKUP,
+  GEMINI_LIVE_VOICES,
 } from "./registry.js";

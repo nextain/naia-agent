@@ -22,7 +22,7 @@ export const NAIA_WEB_BASE_URL =
 
 export interface BrowserAuthResult {
   key: string;
-  userId?: string;
+  userId: string | undefined;
 }
 
 /**

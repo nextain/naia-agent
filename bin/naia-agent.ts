@@ -1607,13 +1607,13 @@ async function getNaiaRegistryMeta(): Promise<{ defaultModel: string; modelIds: 
         const [removed] = ids.splice(defaultIdx, 1);
         ids.unshift(removed);
       }
-      return { defaultModel: p.defaultModel || "gemini-2.5-flash", modelIds: ids };
+      return { defaultModel: p.defaultModel || "gemini-3.5-flash", modelIds: ids };
     }
   } catch { /* fallback below */ }
   return {
-    defaultModel: "gemini-2.5-flash",
+    defaultModel: "gemini-3.5-flash",
     modelIds: [
-      "gemini-2.5-flash",
+      "gemini-3.5-flash",
       "gemini-3.5-flash",
       "gemini-3.1-pro-preview",
       "gemini-3.1-flash-lite-preview",

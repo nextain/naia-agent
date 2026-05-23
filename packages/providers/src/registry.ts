@@ -34,15 +34,15 @@ const PROVIDERS: ProviderMeta[] = [
     description: "Naia Cloud — no API key needed.",
     requiresApiKey: false,
     requiresNaiaKey: true,
-    defaultModel: "gemini-2.5-flash",
+    defaultModel: "gemini-3.5-flash",
     models: [
-      { id: "gemini-3.5-flash", label: "Gemini 3.5 Flash", capabilities: ["llm"], pricing: [1.815, 10.89] },
-      { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro Preview", capabilities: ["llm"], pricing: [2.2, 13.2] },
-      { id: "gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash Lite Preview", capabilities: ["llm"], pricing: [0.275, 1.65] },
-      { id: "gemini-3-flash-preview", label: "Gemini 3 Flash Preview", capabilities: ["llm"], pricing: [0.55, 3.3] },
-      { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", capabilities: ["llm"], pricing: [1.375, 11.0] },
-      { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", capabilities: ["llm"], pricing: [0.33, 2.75] },
-      { id: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite", capabilities: ["llm"], pricing: [0.11, 0.44] },
+      { id: "gemini-3.5-flash", label: "Gemini 3.5 Flash", capabilities: ["llm"] },
+      { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro Preview", capabilities: ["llm"] },
+      { id: "gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash Lite Preview", capabilities: ["llm"] },
+      { id: "gemini-3-flash-preview", label: "Gemini 3 Flash Preview", capabilities: ["llm"] },
+      { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", capabilities: ["llm"] },
+      { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", capabilities: ["llm"] },
+      { id: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite", capabilities: ["llm"] },
       {
         id: "gemini-2.5-flash-live",
         label: "Gemini 2.5 Flash Live (실시간)",
@@ -58,7 +58,6 @@ const PROVIDERS: ProviderMeta[] = [
         voiceSelectable: true,
         voices: [{ id: "alloy", label: "Naia Korean (여성)" }],
         transcriptProvided: true,
-        pricing: [0.39, 0],
       },
     ],
   },
@@ -81,8 +80,8 @@ const PROVIDERS: ProviderMeta[] = [
     requiresApiKey: true,
     defaultModel: "gemini-2.5-flash",
     models: [
-      { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", capabilities: ["llm"], pricing: [1.25, 10.0] },
-      { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", capabilities: ["llm"], pricing: [0.3, 2.5] },
+      { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", capabilities: ["llm"] },
+      { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", capabilities: ["llm"] },
       {
         id: "gemini-2.5-flash-live",
         label: "Gemini 2.5 Flash Live (실시간)",
@@ -100,7 +99,7 @@ const PROVIDERS: ProviderMeta[] = [
     requiresApiKey: true,
     defaultModel: "gpt-4o",
     models: [
-      { id: "gpt-4o", label: "GPT-4o", capabilities: ["llm"], pricing: [2.5, 10.0] },
+      { id: "gpt-4o", label: "GPT-4o", capabilities: ["llm"] },
       {
         id: "gemini-2.5-flash-live",
         label: "Gemini 2.5 Flash Live (실시간)",
@@ -126,9 +125,9 @@ const PROVIDERS: ProviderMeta[] = [
     requiresApiKey: true,
     defaultModel: "claude-sonnet-4-6",
     models: [
-      { id: "claude-opus-4-6", label: "Claude Opus 4.6", capabilities: ["llm"], pricing: [15.0, 75.0] },
-      { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", capabilities: ["llm"], pricing: [3.0, 15.0] },
-      { id: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5", capabilities: ["llm"], pricing: [0.8, 4.0] },
+      { id: "claude-opus-4-6", label: "Claude Opus 4.6", capabilities: ["llm"] },
+      { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", capabilities: ["llm"] },
+      { id: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5", capabilities: ["llm"] },
     ],
   },
   {
@@ -138,7 +137,7 @@ const PROVIDERS: ProviderMeta[] = [
     requiresApiKey: true,
     defaultModel: "grok-3-mini",
     models: [
-      { id: "grok-3-mini", label: "Grok 3 Mini", capabilities: ["llm"], pricing: [0.3, 0.5] },
+      { id: "grok-3-mini", label: "Grok 3 Mini", capabilities: ["llm"] },
     ],
   },
   {
@@ -230,6 +229,8 @@ export function getDefaultModel(providerId: string): string {
 export const DEFAULT_GATEWAY_HTTP_URL =
   "https://naia-gateway-181404717065.asia-northeast3.run.app";
 
+export const NAIA_PRICING_MARKUP = 1.1;
+
 interface GatewayPricingEntry {
   model_key: string;
   input_price_per_million: number;
@@ -238,8 +239,9 @@ interface GatewayPricingEntry {
 }
 
 /**
- * Fetch live pricing from the Naia gateway and return updated Naia model list.
- * Returns null if gateway is unreachable (caller should keep static pricing).
+ * Fetch live pricing from the Naia gateway (SoT), apply NAIA_PRICING_MARKUP,
+ * and return models with pricing overlaid.
+ * Returns null if gateway is unreachable.
  */
 export async function fetchNaiaPricing(
   gatewayHttpUrl = DEFAULT_GATEWAY_HTTP_URL,
@@ -256,9 +258,11 @@ export async function fetchNaiaPricing(
 
     const pricingMap = new Map<string, [number, number]>();
     for (const entry of entries) {
-      if (!entry.model_key.startsWith("vertexai:")) continue;
-      const modelId = entry.model_key.replace("vertexai:", "");
-      pricingMap.set(modelId, [entry.input_price_per_million, entry.output_price_per_million]);
+      const prefix = entry.model_key.split(":")[0];
+      const modelId = entry.model_key.replace(`${prefix}:`, "");
+      const input = Math.round(entry.input_price_per_million * NAIA_PRICING_MARKUP * 1000) / 1000;
+      const output = Math.round(entry.output_price_per_million * NAIA_PRICING_MARKUP * 1000) / 1000;
+      pricingMap.set(modelId, [input, output]);
     }
 
     return provider.models.map((m) => {
