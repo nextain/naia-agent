@@ -10,11 +10,11 @@
  * host or bin entry point — this module is pure data + optional fetch helpers.
  */
 
-import type { ProviderMeta, ModelMeta } from "@nextain/agent-types";
+import type { ProviderMeta, ModelMeta, VoiceMeta } from "@nextain/agent-types";
 
 // ─── Voice presets ──────────────────────────────────────────────────────────
 
-const GEMINI_LIVE_VOICES = [
+export const GEMINI_LIVE_VOICES: VoiceMeta[] = [
   { id: "Kore", label: "Kore (여성, 부드러움)" },
   { id: "Puck", label: "Puck (남성, 익살)" },
   { id: "Charon", label: "Charon (남성)" },
