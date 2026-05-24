@@ -1392,8 +1392,10 @@ async function runStdio(): Promise<number> {
           openai: "OPENAI_API_KEY",
           "naia-anyllm": "NAIA_ANYLLM_API_KEY",
           glm: "GLM_API_KEY",
-          vertex: "VERTEX_PROJECT_ID",       // primary Vertex credential
-          "vertex-region": "VERTEX_REGION",  // companion (host may send separately)
+          vertex: "VERTEX_PROJECT_ID",
+          "vertex-region": "VERTEX_REGION",
+          "embedding-api-key": "NAIA_EMBED_API_KEY",
+          "memory-llm-api-key": "NAIA_LLM_API_KEY",
         };
         for (const [id, apiKey] of Object.entries(keys)) {
           const envKey = keyMap[id];
@@ -1546,6 +1548,27 @@ async function runStdio(): Promise<number> {
         const result = typeof msg.result === "string" ? msg.result : JSON.stringify(msg.result ?? "");
         if (success) pending.resolve(result);
         else pending.reject(new Error(result));
+        break;
+      }
+      case "tts_request": {
+        const requestId = typeof msg.requestId === "string" ? msg.requestId : `tts-${Date.now()}`;
+        stdioWriteLine({ type: "tts_ack", requestId, status: "not_supported" });
+        break;
+      }
+      case "tool_request": {
+        const requestId = typeof msg.requestId === "string" ? msg.requestId : `tool-${Date.now()}`;
+        stdioWriteLine({ type: "tool_ack", requestId, status: "not_supported" });
+        break;
+      }
+      case "skill_list": {
+        const requestId = typeof msg.requestId === "string" ? msg.requestId : `skill-${Date.now()}`;
+        const names = hostInjectedDefs.map((d) => d.name);
+        stdioWriteLine({ type: "skill_list_response", requestId, skills: names });
+        break;
+      }
+      case "approval_response": {
+        const requestId = typeof msg.requestId === "string" ? msg.requestId : "";
+        stdioWriteLine({ type: "approval_ack", requestId, status: "accepted" });
         break;
       }
     }
