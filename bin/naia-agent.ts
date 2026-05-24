@@ -463,6 +463,22 @@ async function buildLLMClient(overrideModel?: string): Promise<LLMClient | null>
     return new VercelClient(vertex(model));
   }
 
+  const naiaMainProvider = env.NAIA_MAIN_PROVIDER || readNaiaSettingsSync()["NAIA_MAIN_PROVIDER"];
+  if (naiaMainProvider === "claude-code") {
+    try {
+      const { createClaudeCode } = await import("ai-sdk-provider-claude-code");
+      const provider = createClaudeCode();
+      const model = overrideModel || env.NAIA_MAIN_MODEL || "sonnet";
+      process.stderr.write(`naia-agent: provider=claude-code model=${model} (subscription)\n`);
+      return new VercelClient(provider(model as Parameters<typeof provider>[0]));
+    } catch {
+      process.stderr.write(
+        `naia-agent: ERROR — Claude Code SDK not available. Install: npm install -g @anthropic-ai/claude-code && claude login\n`,
+      );
+      return null;
+    }
+  }
+
   process.stderr.write(
     `naia-agent: ERROR — no LLM provider configured.\n` +
     `  Quickest path: pnpm naia-agent login --adk <naia-adk-path> --main "provider|baseUrl|model"\n` +
@@ -673,24 +689,7 @@ async function runDirect(args: Args): Promise<number> {
           mode: 0o600,
         });
         if (args.debug) {
-  // Claude Code subscription (no API key) — NAIA_MAIN_PROVIDER=claude-code
-  const naiaMainProvider = env.NAIA_MAIN_PROVIDER || readNaiaSettingsSync()["NAIA_MAIN_PROVIDER"];
-  if (naiaMainProvider === "claude-code") {
-    try {
-      const { createClaudeCode } = await import("ai-sdk-provider-claude-code");
-      const provider = createClaudeCode();
-      const model = overrideModel || env.NAIA_MAIN_MODEL || "sonnet";
-      process.stderr.write(`naia-agent: provider=claude-code model=${model} (subscription)\n`);
-      return new VercelClient(provider(model as Parameters<typeof provider>[0]));
-    } catch {
-      process.stderr.write(
-        `naia-agent: ERROR — Claude Code SDK not available. Install: npm install -g @anthropic-ai/claude-code && claude login\n`,
-      );
-      return null;
-    }
-  }
-
-  process.stderr.write(
+          process.stderr.write(
             `naia-agent: handoff exported → ${args.handoffOut} (${blob.turnCount} turns, ${blob.anchors.length} anchors)\n`,
           );
         }
@@ -1229,6 +1228,8 @@ async function runStdio(): Promise<number> {
   const TOOL_TIMEOUT_MS = 30_000;
 
   const hostInjectedDefs: ToolDefinitionWithTier[] = [];
+  let cachedLlm: LLMClient | null | undefined = undefined;
+  let cachedMemory: InMemoryMemory | null = null;
   let hostToolExecutor: ToolExecutor = {
     list: async () => hostInjectedDefs,
     execute: async (inv) => {
@@ -1262,9 +1263,9 @@ async function runStdio(): Promise<number> {
     switch (type) {
       case "auth_update": {
         const key = typeof msg.naiaKey === "string" ? msg.naiaKey : "";
-        // [fix] symmetric with notify_config: empty key clears the env var (supports logout)
         if (key) process.env["NAIA_ANYLLM_API_KEY"] = key;
         else delete process.env["NAIA_ANYLLM_API_KEY"];
+        cachedLlm = undefined;
         break;
       }
       case "notify_config": {
@@ -1307,6 +1308,7 @@ async function runStdio(): Promise<number> {
           if (apiKey) process.env[envKey] = apiKey;
           else delete process.env[envKey];
         }
+        cachedLlm = undefined;
         break;
       }
       case "chat_request": {
@@ -1333,7 +1335,10 @@ async function runStdio(): Promise<number> {
 
         // Fire-and-forget so cancel_stream can arrive on the readline while streaming.
         void (async () => {
-  const llm = await buildLLMClient(args.model);
+          if (cachedLlm === undefined) {
+            cachedLlm = await buildLLMClient();
+          }
+          const llm = cachedLlm;
           if (!llm) {
             stdioWriteLine({ type: "error", requestId, message: "no LLM provider configured" });
             activeStreams.delete(requestId);
@@ -1353,7 +1358,8 @@ async function runStdio(): Promise<number> {
           const tools: ToolExecutor = hostInjectedDefs.length > 0
             ? new CompositeToolExecutor({ subs: [{ id: "builtins", executor: baseTools }, { id: "host", executor: hostToolExecutor }] })
             : baseTools;
-          const memory = new InMemoryMemory();
+          if (!cachedMemory) cachedMemory = new InMemoryMemory();
+          const memory = cachedMemory;
           const host: HostContext = {
             llm,
             memory,
@@ -1399,7 +1405,6 @@ async function runStdio(): Promise<number> {
             });
           } finally {
             agent.close();
-            await memory.close();
             activeStreams.delete(requestId);
           }
         })();
