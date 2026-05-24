@@ -407,7 +407,7 @@ async function buildLLMClient(overrideModel?: string): Promise<LLMClient | null>
 
   if (env.ANTHROPIC_API_KEY) {
     const { createAnthropic } = await import("@ai-sdk/anthropic");
-    const model = overrideModel || env.ANTHROPIC_MODEL;
+    const model = overrideModel || env.NAIA_MAIN_MODEL || env.ANTHROPIC_MODEL;
     if (!model) {
       process.stderr.write(`naia-agent: ERROR — no model specified. Use --model <id>\n`);
       return null;
@@ -438,7 +438,7 @@ async function buildLLMClient(overrideModel?: string): Promise<LLMClient | null>
 
   if (env.GLM_API_KEY) {
     const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
-    const model = overrideModel || env.GLM_MODEL;
+    const model = overrideModel || env.NAIA_MAIN_MODEL || env.GLM_MODEL;
     if (!model) {
       process.stderr.write(`naia-agent: ERROR — no model specified. Use --model <id>\n`);
       return null;
@@ -673,7 +673,24 @@ async function runDirect(args: Args): Promise<number> {
           mode: 0o600,
         });
         if (args.debug) {
-          process.stderr.write(
+  // Claude Code subscription (no API key) — NAIA_MAIN_PROVIDER=claude-code
+  const naiaMainProvider = env.NAIA_MAIN_PROVIDER || readNaiaSettingsSync()["NAIA_MAIN_PROVIDER"];
+  if (naiaMainProvider === "claude-code") {
+    try {
+      const { createClaudeCode } = await import("ai-sdk-provider-claude-code");
+      const provider = createClaudeCode();
+      const model = overrideModel || env.NAIA_MAIN_MODEL || "claude-sonnet-4-20250514";
+      process.stderr.write(`naia-agent: provider=claude-code model=${model} (subscription)\n`);
+      return new VercelClient(provider(model as Parameters<typeof provider>[0]));
+    } catch {
+      process.stderr.write(
+        `naia-agent: ERROR — Claude Code SDK not available. Install: npm install -g @anthropic-ai/claude-code && claude login\n`,
+      );
+      return null;
+    }
+  }
+
+  process.stderr.write(
             `naia-agent: handoff exported → ${args.handoffOut} (${blob.turnCount} turns, ${blob.anchors.length} anchors)\n`,
           );
         }
@@ -1489,10 +1506,7 @@ async function runSupervisor(args: Args): Promise<number> {
 // Ref design: opencode auth.json (per-provider), pi OAuth PKCE (deferred).
 
 const LOGIN_PROVIDERS: Record<string, { envKey: string; label: string; secret?: boolean; optional?: boolean }[]> = {
-  naia: [
-    { envKey: "NAIA_ANYLLM_API_KEY", label: "Naia AnyLLM API key", secret: true },
-    { envKey: "NAIA_ANYLLM_BASE_URL", label: "Naia AnyLLM gateway URL (e.g. http://localhost:8000/v1)" },
-  ],
+  "claude-code": [],
   anthropic: [
     { envKey: "ANTHROPIC_API_KEY", label: "Anthropic API key (sk-ant-...)", secret: true },
   ],
@@ -1501,7 +1515,7 @@ const LOGIN_PROVIDERS: Record<string, { envKey: string; label: string; secret?: 
     { envKey: "OPENAI_BASE_URL", label: "OpenAI base URL (e.g. https://api.openai.com/v1)" },
   ],
   glm: [
-    { envKey: "GLM_API_KEY", label: "Zhipu GLM API key", secret: true },
+    { envKey: "GLM_API_KEY", label: "zai coding plan API key", secret: true },
   ],
   vllm: [
     { envKey: "OPENAI_API_KEY",  label: "vLLM API key (Enter to skip)", secret: true, optional: true },
@@ -1509,10 +1523,6 @@ const LOGIN_PROVIDERS: Record<string, { envKey: string; label: string; secret?: 
   ],
   ollama: [
     { envKey: "OPENAI_BASE_URL", label: "Ollama base URL", optional: true },
-  ],
-  vertex: [
-    { envKey: "VERTEX_PROJECT_ID", label: "GCP project ID" },
-    { envKey: "VERTEX_REGION",     label: "Vertex region (e.g. us-east5)" },
   ],
 };
 
@@ -1746,12 +1756,12 @@ const DEFAULT_GATEWAY_HTTP_URL_CLI =
   "https://naia-gateway-dev-181404717065.asia-northeast3.run.app";
 
 const PROVIDER_DEFAULTS: Record<string, string> = {
+  "claude-code": "claude-sonnet-4-20250514",
   anthropic: "claude-opus-4-5",
   openai: "gpt-4o",
-  glm: "glm-4",
+  glm: "glm-4.5-flash",
   vllm: "Qwen/Qwen3-8B",
   ollama: "llama3.2",
-  vertex: "claude-opus-4-5",
 };
 
 const EMBED_DEFAULTS: Record<string, string> = {
@@ -1763,13 +1773,14 @@ const EMBED_DEFAULTS: Record<string, string> = {
 };
 
 // Agents bundled with naia-agent (no separate download needed)
-const AGENT_TYPES = ["pi", "opencode", "claude-code", "codex"] as const;
+const AGENT_TYPES = ["pi", "opencode", "claude-code", "codex", "gemini"] as const;
 // Display labels (shown in UI; pi uses npx auto-install)
 const AGENT_DISPLAYS: readonly string[] = [
   "pi           (naia — auto-installed via npx on first use)",
   "opencode",
   "claude-code",
   "codex",
+  "gemini",
 ];
 
 // ── TTY menu render helpers ───────────────────────────────────────────────────
@@ -1926,6 +1937,44 @@ async function readNaiaSettings(): Promise<Record<string, string>> {
   } catch { return {}; }
 }
 
+function readNaiaSettingsSync(): Record<string, string> {
+  try {
+    const raw = readFileSync(path.join(naiaSettingsDir(), "config.json"), "utf8");
+    return JSON.parse(raw) as Record<string, string>;
+  } catch { return {}; }
+}
+
+const GLM_KNOWN_MODELS = [
+  "glm-5.1",
+  "glm-4.5-flash",
+  "glm-4.5",
+  "glm-4-plus",
+  "glm-4-long",
+  "glm-4-flash",
+  "glm-4",
+  "glm-4v-plus",
+  "glm-4v",
+];
+
+async function getGlmModels(apiKey?: string): Promise<{ defaultModel: string; modelIds: string[] }> {
+  if (apiKey) {
+    try {
+      const res = await fetch("https://open.bigmodel.cn/api/paas/v4/models", {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (res.ok) {
+        const data = await res.json() as { data?: { id: string }[] };
+        if (data.data?.length) {
+          const ids = data.data.map((m) => m.id).sort();
+          return { defaultModel: ids[0], modelIds: ids };
+        }
+      }
+    } catch { /* fallback */ }
+  }
+  return { defaultModel: GLM_KNOWN_MODELS[0], modelIds: [...GLM_KNOWN_MODELS] };
+}
+
 /** Write naia-settings/config.json (creates directory if needed). */
 async function writeNaiaSettings(cfg: Record<string, string>): Promise<void> {
   const dir = naiaSettingsDir();
@@ -2013,32 +2062,59 @@ async function configureMainLlm(): Promise<number> {
     process.stdout.write("\n");
     if (!provider) { process.stderr.write("aborted\n"); return 3; }
 
+    let model: string;
+
+    if (provider === "claude-code") {
+      try {
+        const { createClaudeCode } = await import("ai-sdk-provider-claude-code");
+        createClaudeCode();
+        process.stdout.write("  ✓ Claude Code subscription detected\n");
+      } catch {
+        process.stderr.write("  ✗ Claude Code not available — install and login first: npm install -g @anthropic-ai/claude-code && claude login\n");
+        continue;
+      }
+      const defaultModel = PROVIDER_DEFAULTS["claude-code"] ?? "claude-sonnet-4-20250514";
+      model = await promptOptional("Model", defaultModel);
+      const cfg = await readNaiaSettings();
+      cfg["NAIA_MAIN_PROVIDER"] = "claude-code";
+      cfg["NAIA_MAIN_MODEL"] = model;
+      await writeNaiaSettings(cfg);
+      process.stdout.write(`  ✓ main LLM → claude-code / ${model}\n`);
+      return 0;
+    }
+
     const fields = LOGIN_PROVIDERS[provider]!;
     const keyValues: Record<string, string> = {};
     let goBack = false;
     for (const field of fields) {
       const val = await promptLine(field.label, field.secret ?? false);
       if (val === null) {
-        if (field.optional) continue; // ESC on optional field = skip
-        goBack = true; break;         // ESC on required field = back to provider list
+        if (field.optional) continue;
+        goBack = true; break;
       }
       keyValues[field.envKey] = val;
     }
     if (goBack) continue;
 
-    let model: string;
     if (provider === "naia") {
       const meta = await getNaiaRegistryMeta();
       const items = meta.modelIds.length > 0 ? meta.modelIds : [meta.defaultModel];
       process.stdout.write("\n");
       const picked = await selectFromList("Model:", items);
-      if (picked === null) continue; // ESC/Ctrl+C = back to provider selection (nothing saved)
+      if (picked === null) continue;
+      model = picked;
+    } else if (provider === "glm") {
+      const glmMeta = await getGlmModels(keyValues["GLM_API_KEY"]);
+      const items = glmMeta.modelIds.length > 0 ? glmMeta.modelIds : [glmMeta.defaultModel];
+      process.stdout.write("\n");
+      const picked = await selectFromList("Model:", items);
+      if (picked === null) continue;
       model = picked;
     } else {
       const defaultModel = PROVIDER_DEFAULTS[provider] ?? "";
       model = await promptOptional("Model", defaultModel);
     }
-    await saveApiKeys(keyValues); // save only after all inputs collected
+    await saveApiKeys(keyValues);
 
     const cfg = await readNaiaSettings();
     cfg["NAIA_MAIN_PROVIDER"] = provider;
@@ -2097,6 +2173,164 @@ async function configureEmbedLlm(): Promise<number> {
   cfg["NAIA_EMBED_MODEL"] = model;
   await writeNaiaSettings(cfg);
   process.stdout.write(`  ✓ embedding → ${path.join(naiaSettingsDir(), "config.json")}\n`);
+  return 0;
+}
+
+type OnboardingStep =
+  | "welcome"
+  | "agentName"
+  | "userName"
+  | "speechStyle"
+  | "provider"
+  | "complete";
+
+const ONBOARDING_STEPS: OnboardingStep[] = [
+  "welcome",
+  "agentName",
+  "userName",
+  "speechStyle",
+  "provider",
+  "complete",
+];
+
+function onboardingChat(step: OnboardingStep, agentName: string, userName: string): string {
+  const n = agentName || "나이아";
+  const u = userName ? `${userName}님` : "";
+  switch (step) {
+    case "welcome":
+      return "안녕하세요! 시작하기 전에 잠깐 확인해 주세요";
+    case "agentName":
+      return "안녕하세요! 저는 나이아예요. 제 이름을 지어주세요!";
+    case "userName":
+      return `${n}! 정말 좋은 이름이에요. 그럼 저는 당신을 어떻게 부를까요?`;
+    case "speechStyle":
+      return `${u || ""} 어떤 말투로 대화할까요? 편한 걸 골라주세요`;
+    case "provider":
+      return "거의 다 왔어요! 저의 두뇌를 연결해 주세요";
+    case "complete":
+      return `${u ? u + ", " : ""}준비 완료! ${n}와 함께 시작해요!`;
+  }
+}
+
+const SUPPORTED_LOCALES = [
+  { code: "ko", label: "한국어" },
+  { code: "en", label: "English" },
+  { code: "ja", label: "日本語" },
+  { code: "zh", label: "中文" },
+  { code: "fr", label: "Français" },
+  { code: "de", label: "Deutsch" },
+  { code: "ru", label: "Русский" },
+  { code: "es", label: "Español" },
+  { code: "pt", label: "Português" },
+];
+
+async function runOnboarding(): Promise<number> {
+  const cfg = await readNaiaSettings();
+  let agentName = cfg["NAIA_AGENT_NAME"] || "";
+  let userName = cfg["NAIA_USER_NAME"] || "";
+  let speechStyle: "casual" | "formal" = (cfg["NAIA_SPEECH_STYLE"] as "casual" | "formal") || "casual";
+  let honorific = cfg["NAIA_HONORIFIC"] || "";
+  let extraPersona = cfg["NAIA_EXTRA_PERSONA"] || "";
+  let locale = cfg["NAIA_LOCALE"] || "ko";
+
+  const stepIdx = (s: OnboardingStep) => ONBOARDING_STEPS.indexOf(s);
+  let current: OnboardingStep = "welcome";
+
+  function printStep() {
+    process.stdout.write(`\n── ${onboardingChat(current, agentName, userName)} ──\n\n`);
+  }
+
+  // ── Step: welcome + language ──
+  current = "welcome";
+  printStep();
+  process.stdout.write("  Naia Agent — Open Source AI Companion\n\n");
+  const langChoice = await selectFromList("Language / 언어:", SUPPORTED_LOCALES.map((l) => `${l.code}  ${l.label}`));
+  if (langChoice) locale = langChoice.split(/\s+/)[0];
+
+  // ── Step: agentName ──
+  current = "agentName";
+  printStep();
+  {
+    const val = await promptLine("Agent name (Enter = Naia)");
+    if (val !== null && val.trim()) agentName = val.trim();
+    else agentName = "Naia";
+  }
+
+  // ── Step: userName ──
+  current = "userName";
+  printStep();
+  {
+    const val = await promptLine("Your name");
+    if (val !== null && val.trim()) userName = val.trim();
+  }
+
+  // ── Step: speechStyle ──
+  current = "speechStyle";
+  printStep();
+  {
+    const styleChoice = await selectFromList("Speech style:", [
+      "casual  (반말 — 친근하고 따뜻하게)",
+      "formal  (존댓말 — 정중하고 예의 바르게)",
+    ]);
+    if (styleChoice) speechStyle = styleChoice.startsWith("casual") ? "casual" : "formal";
+    const hon = await promptLine("Honorific / 호칭 (선택, 예: 선생님, 대표님)");
+    if (hon !== null && hon.trim()) honorific = hon.trim();
+    const persona = await promptLine("Extra persona (선택 — 성격, 말투, 행동 규칙 등)");
+    if (persona !== null && persona.trim()) extraPersona = persona.trim();
+  }
+
+  // ── Step: provider (LLM) — MANDATORY, cannot skip ──
+  current = "provider";
+  printStep();
+  {
+    const providerChoice = await selectFromList("Connect:", [
+      "naia login  (naia.nextain.io — 추천)",
+      "main LLM    (직접 프로바이더 설정)",
+    ]);
+    if (providerChoice === null || providerChoice.startsWith("naia login")) {
+      const result = await configureNaiaKey();
+      if (result !== 0) {
+        process.stdout.write("\n  naia 로그인 없이 main LLM을 설정합니다.\n");
+        const mainResult = await configureMainLlm();
+        if (mainResult !== 0) {
+          process.stderr.write("  LLM 설정이 필요합니다. 다시 실행해 주세요.\n");
+          return 3;
+        }
+      }
+    } else {
+      const mainResult = await configureMainLlm();
+      if (mainResult !== 0) {
+        process.stderr.write("  LLM 설정이 필요합니다. 다시 실행해 주세요.\n");
+        return 3;
+      }
+    }
+  }
+
+  // ── Save persona config ──
+  const speechDesc =
+    speechStyle === "casual"
+      ? "casually and warmly"
+      : "formally and professionally";
+  const personaBase = `You are ${agentName.trim() || "Naia"}, an AI companion. Speak ${speechDesc}.`;
+  const persona = extraPersona?.trim()
+    ? `${personaBase}\n\n${extraPersona.trim()}`
+    : personaBase;
+
+  const finalCfg = await readNaiaSettings();
+  finalCfg["NAIA_AGENT_NAME"] = agentName;
+  finalCfg["NAIA_USER_NAME"] = userName;
+  finalCfg["NAIA_SPEECH_STYLE"] = speechStyle;
+  finalCfg["NAIA_HONORIFIC"] = honorific;
+  finalCfg["NAIA_EXTRA_PERSONA"] = extraPersona;
+  finalCfg["NAIA_PERSONA"] = persona;
+  finalCfg["NAIA_LOCALE"] = locale;
+  finalCfg["onboardingComplete"] = "true";
+  await writeNaiaSettings(finalCfg);
+
+  // ── Step: complete ──
+  current = "complete";
+  printStep();
+  process.stdout.write(`  ✓ ${agentName} 준비 완료!\n\n`);
   return 0;
 }
 
@@ -2414,11 +2648,19 @@ async function main(): Promise<number> {
     return runStdio();
   }
 
-  // If no LLM provider is configured and we're on a TTY, auto-redirect to login.
+  // If no LLM provider is configured and we're on a TTY, auto-redirect to onboarding.
   if (!hasLLMConfig() && process.stdin.isTTY) {
-    process.stdout.write("naia-agent: no LLM provider configured — starting setup.\n\n");
-    const loginResult = await runLogin([]);
-    if (loginResult !== 0) return loginResult;
+    const cfg = await readNaiaSettings();
+    const isFirstRun = !cfg["onboardingComplete"];
+    if (isFirstRun) {
+      process.stdout.write("naia-agent: first run — starting setup.\n");
+      const result = await runOnboarding();
+      if (result !== 0) return result;
+    } else {
+      process.stdout.write("naia-agent: no LLM provider configured — starting setup.\n\n");
+      const loginResult = await runLogin([]);
+      if (loginResult !== 0) return loginResult;
+    }
     // Reload env after login so newly saved keys are available
     loadEnvAndConfig();
     const credKeys2 = await readCredentialKeys();
