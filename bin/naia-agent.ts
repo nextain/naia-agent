@@ -44,7 +44,7 @@ import path from "node:path";
 import process from "node:process";
 
 import { Agent, stripRecallResidue } from "@nextain/agent-core";
-import type { HostContext, LLMClient, MemoryProvider } from "@nextain/agent-types";
+import type { HostContext, LLMClient, MemoryProvider, ToolExecutor } from "@nextain/agent-types";
 import { ConsoleLogger, InMemoryMeter, NoopTracer } from "@nextain/agent-observability";
 import {
   InMemoryMemory,
@@ -467,7 +467,7 @@ const MEMORY_PERSONA =
   "You are naia, an assistant with persistent long-term memory. " +
   "When asked about the user's past or personal information (preferences, " +
   "names, plans, …), do not guess — output exactly one line: " +
-  "`<recall>query</recall>`. When memory is injected, answer naturally " +
+  String.raw`<recall>query</recall>` + ". When memory is injected, answer naturally " +
   "using it. Answer general knowledge and the ongoing conversation " +
   "directly. Reply in the user's language; be concise.";
 
@@ -977,7 +977,7 @@ async function runService(args: Args): Promise<number> {
   const host: HostContext = {
     llm,
     memory,
-    tools: ((): import("@nextain/agent-types").ToolExecutor => {
+    tools: ((): ToolExecutor => {
       const inMem = new InMemoryToolExecutor(
         args.noTools
           ? []
@@ -2138,7 +2138,7 @@ function runShow(): number {
   };
   const env = process.env;
   // mirror buildLLMClient's resolution order — what would run now
-  let resolved = "<none — set ANTHROPIC_API_KEY / OPENAI_API_KEY+OPENAI_BASE_URL / GLM_API_KEY, or `naia-agent login`>";
+  let resolved = "<none \u2014 set ANTHROPIC_API_KEY / OPENAI_API_KEY+OPENAI_BASE_URL / GLM_API_KEY, or naia-agent login>";
   if (env["ANTHROPIC_API_KEY"]) resolved = `anthropic ${env["ANTHROPIC_MODEL"] ?? "<default>"}`;
   else if (env["OPENAI_API_KEY"] && env["OPENAI_BASE_URL"])
     resolved = `openai-compat ${env["OPENAI_MODEL"] ?? "<default>"} @ ${env["OPENAI_BASE_URL"]}`;
@@ -2199,17 +2199,17 @@ async function main(): Promise<number> {
   if ("error" in parsed) {
     process.stderr.write(`naia-agent: ${parsed.error}\n`);
     process.stderr.write(
-      `usage: pnpm naia-agent [prompt] [--mode=direct|supervisor] [--workdir DIR] [--debug]\n` +
-      `       pnpm naia-agent [prompt] [--no-tools] [--no-default-system] [--memory] [--system "…"]\n` +
-      `       pnpm naia-agent [prompt] [--compact-strategy reactive|realtime|anthropic-native|off]\n` +
-      `       pnpm naia-agent login --adk <path> [--main …] [--sub …] [--embedded …] [--key REF=VAL]\n` +
-      `       pnpm naia-agent show                       # show current config (no secret values)\n` +
-      `       pnpm naia-agent providers                   # list providers and models\n` +
-      `       pnpm naia-agent --stdio\n` +
-      `       pnpm naia-agent [prompt] --service app.service.json\n` +
-      `       pnpm naia-agent [prompt] --mode=supervisor [--no-verify] [-m model] [--adapter shell -- cmd args]\n` +
-      `       pnpm naia-agent login naia                  # browser login → model select → done\n` +
-      `       pnpm naia-agent login anthropic            # direct API key entry\n` +
+      "usage: pnpm naia-agent [prompt] [--mode=direct|supervisor] [--workdir DIR] [--debug]\n" +
+      "       pnpm naia-agent [prompt] [--no-tools] [--no-default-system] [--memory] [--system \"...\"]\n" +
+      "       pnpm naia-agent [prompt] [--compact-strategy reactive|realtime|anthropic-native|off]\n" +
+      "       pnpm naia-agent login --adk <path> [--main ...] [--sub ...] [--embedded ...] [--key REF=VAL]\n" +
+      "       pnpm naia-agent show                       # show current config (no secret values)\n" +
+      "       pnpm naia-agent providers                   # list providers and models\n" +
+      "       pnpm naia-agent --stdio\n" +
+      "       pnpm naia-agent [prompt] --service app.service.json\n" +
+      "       pnpm naia-agent [prompt] --mode=supervisor [--no-verify] [-m model] [--adapter shell -- cmd args]\n" +
+      "       pnpm naia-agent login naia                  # browser login -> model select -> done\n" +
+      "       pnpm naia-agent login anthropic            # direct API key entry\n",
     );
     return 3;
   }

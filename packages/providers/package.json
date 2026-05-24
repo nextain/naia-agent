@@ -34,6 +34,13 @@
         "default": "./dist/vercel-client.js"
       },
       "default": "./dist/vercel-client.js"
+    },
+    "./registry": {
+      "import": {
+        "types": "./dist/registry.d.ts",
+        "default": "./dist/registry.js"
+      },
+      "default": "./dist/registry.js"
     }
   },
   "sideEffects": false,

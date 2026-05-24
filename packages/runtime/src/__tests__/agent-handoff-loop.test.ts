@@ -103,13 +103,14 @@ class ScriptedLLM implements LLMClient {
 	}
 	async *stream(_: LLMRequest): AsyncIterable<LLMStreamChunk> {
 		this.#i++;
-		// Every reply 200+ chars, embeds the fact at turn 1 only (so handoff
-		// must propagate it forward).
 		const verbose =
 			this.#i === 1
 				? `Recorded fact: ${this.fact}. Will remember for future turns. ${"lorem ipsum ".repeat(15)}`
 				: `Acknowledged turn ${this.#i}. ${"dolor sit amet ".repeat(20)}`;
-		yield { type: "text_delta", text: verbose };
+		yield { type: "content_block_start", index: 0, block: { type: "text", text: "" } };
+		yield { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: verbose } };
+		yield { type: "content_block_stop", index: 0 };
+		yield { type: "end", stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 } };
 	}
 }
 
@@ -118,7 +119,7 @@ function hostFor(llm: LLMClient, memory: MemoryProvider) {
 	return createHost({
 		llm,
 		memory,
-		logger: { trace() {}, debug() {}, info() {}, warn() {}, error() {} },
+		logger: { debug() {}, info() {}, warn() {}, error() {}, fatal() {} },
 	});
 }
 
@@ -242,7 +243,10 @@ describe("Auto-handoff loop (Slice 3-XR-Handoff #50 P5 — headline)", () => {
 			}
 			async *stream(req: LLMRequest): AsyncIterable<LLMStreamChunk> {
 				capturedSystem += typeof req.system === "string" ? req.system : "";
-				yield { type: "text_delta", text: "Acknowledged prior session." };
+				yield { type: "content_block_start", index: 0, block: { type: "text", text: "" } };
+				yield { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Acknowledged prior session." } };
+				yield { type: "content_block_stop", index: 0 };
+				yield { type: "end", stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 } };
 			}
 		}
 		const agent2 = new Agent({
