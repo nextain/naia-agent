@@ -32,6 +32,7 @@ import type {
   HandoffCapable,
   HandoffTrigger,
   HostContext,
+  LLMClient,
   LLMContentBlock,
   LLMMessage,
   LLMRequest,
@@ -235,6 +236,10 @@ export class Agent {
     this.#compactedThisSession = false;
     this.#turnCount = 0;
     this.#handoffFired = false;
+  }
+
+  replaceLlm(llm: LLMClient): void {
+    (this.#host as { llm: LLMClient }).llm = llm;
   }
 
   /** Convenience: drain the stream and return the final assistant text. */

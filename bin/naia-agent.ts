@@ -679,7 +679,7 @@ async function runDirect(args: Args): Promise<number> {
     try {
       const { createClaudeCode } = await import("ai-sdk-provider-claude-code");
       const provider = createClaudeCode();
-      const model = overrideModel || env.NAIA_MAIN_MODEL || "claude-sonnet-4-20250514";
+      const model = overrideModel || env.NAIA_MAIN_MODEL || "sonnet";
       process.stderr.write(`naia-agent: provider=claude-code model=${model} (subscription)\n`);
       return new VercelClient(provider(model as Parameters<typeof provider>[0]));
     } catch {
@@ -757,8 +757,22 @@ async function executeAgent(agent: Agent, args: Args): Promise<number> {
       }
       if (trimmed === "/setup") {
         rl.pause();
-        await runLogin([]);
-        process.stdout.write("  ✓ 설정 완료. 계속 대화하세요.\n");
+        await runOnboarding();
+        loadEnvAndConfig();
+        const credKeys3 = await readCredentialKeys();
+        for (const keyName of credKeys3) {
+          if (process.env[keyName] === undefined) {
+            const val = keychainGet(keyName);
+            if (val) process.env[keyName] = val;
+          }
+        }
+        const newLlm = await buildLLMClient(args.model);
+        if (newLlm) {
+          agent.replaceLlm(newLlm);
+          process.stdout.write("  ✓ 설정 완료. 계속 대화하세요.\n");
+        } else {
+          process.stderr.write("  ✗ LLM 설정 실패. 다시 시도하세요.\n");
+        }
         rl.resume();
         rl.prompt();
         continue;
@@ -1780,13 +1794,19 @@ const DEFAULT_GATEWAY_HTTP_URL_CLI =
   "https://naia-gateway-dev-181404717065.asia-northeast3.run.app";
 
 const PROVIDER_DEFAULTS: Record<string, string> = {
-  "claude-code": "claude-sonnet-4-20250514",
+  "claude-code": "sonnet",
   anthropic: "claude-opus-4-5",
   openai: "gpt-4o",
   glm: "glm-4.5-flash",
   vllm: "Qwen/Qwen3-8B",
   ollama: "llama3.2",
 };
+
+const CLAUDE_CODE_MODELS = [
+  "sonnet   (claude-sonnet-4 — fast & balanced)",
+  "opus     (claude-opus-4 — most capable)",
+  "haiku    (claude-haiku-4 — fastest)",
+];
 
 const EMBED_DEFAULTS: Record<string, string> = {
   naia: "google/text-embedding-004",
@@ -2092,13 +2112,14 @@ async function configureMainLlm(): Promise<number> {
       try {
         const { createClaudeCode } = await import("ai-sdk-provider-claude-code");
         createClaudeCode();
-        process.stdout.write("  ✓ Claude Code subscription detected\n");
+        process.stdout.write("  ✓ Claude Code subscription detected\n\n");
       } catch {
         process.stderr.write("  ✗ Claude Code not available — install and login first: npm install -g @anthropic-ai/claude-code && claude login\n");
         continue;
       }
-      const defaultModel = PROVIDER_DEFAULTS["claude-code"] ?? "claude-sonnet-4-20250514";
-      model = await promptOptional("Model", defaultModel);
+      const picked = await selectFromList("Model:", CLAUDE_CODE_MODELS);
+      if (picked === null) continue;
+      model = picked.split(/\s+/)[0];
       const cfg = await readNaiaSettings();
       cfg["NAIA_MAIN_PROVIDER"] = "claude-code";
       cfg["NAIA_MAIN_MODEL"] = model;
