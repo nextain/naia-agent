@@ -37,6 +37,12 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 - **G3 integration test** updated: first-wins → last-wins assertion.
 - **ALLOWED_KINDS** already includes `panel_skills`, `panel_skills_clear`, `panel_tool_result`, `panel_tool_call`.
 
+### feat (Slice 4-I)
+
+- **`bin/naia-agent.ts`** — CLI now registers time, weather, memo, system-status skills in all 3 modes (direct, service, stdio). Users get all built-in tools by default.
+- **`packages/runtime/src/index.ts`** — re-exports new skill factories from barrel.
+- **`packages/runtime/src/adk-extension-loader.ts`** (new) — `loadAdkExtension()`: loads `hooks.json` + `prompt.md` from `--skills-dir`. Hook entries → `HookRegistration`, prompt → `PromptFragment`.
+
 ### feat (Slice 4-E)
 
 - **`packages/core/src/hook-dispatcher.ts`** (new) — `HookDispatcher` with `register()` / `emit()`. Async sequential execution, priority ordering, fire-and-forget on failure. Events: `turn-start`, `turn-end`, `error`, `tool-call`, `tool-result`. Sources: `core`, `host`, `adk`.

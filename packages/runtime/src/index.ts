@@ -118,5 +118,9 @@ export {
   createEditFileSkill,
   createListFilesSkill,
   createFileOpsSkills,
+  createTimeSkill,
+  createWeatherSkill,
+  createMemoSkill,
+  createSystemStatusSkill,
 } from "./skills/index.js";
-export type { BashSkillOptions, BashInput, CodingSkillOptions, CodingInput, FileOpsOptions } from "./skills/index.js";
+export type { BashSkillOptions, BashInput, CodingSkillOptions, CodingInput, FileOpsOptions, TimeSkillOptions, WeatherSkillOptions, MemoSkillOptions, SystemStatusSkillOptions } from "./skills/index.js";

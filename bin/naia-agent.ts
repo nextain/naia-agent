@@ -51,6 +51,10 @@ import {
   InMemoryToolExecutor,
   createBashSkill,
   createFileOpsSkills,
+  createTimeSkill,
+  createWeatherSkill,
+  createMemoSkill,
+  createSystemStatusSkill,
   FileSkillLoader,
   SkillToolExecutor,
   CompositeToolExecutor,
@@ -552,13 +556,17 @@ async function runDirect(args: Args): Promise<number> {
     return 0;
   }
 
-  const inMemTools = new InMemoryToolExecutor(
-    args.noTools
-      ? []
-      : args.enableFileOps
-        ? [createBashSkill(), ...createFileOpsSkills({ workspaceRoot: args.workdir })]
-        : [createBashSkill()],
-  );
+  const builtinSkills = args.noTools
+    ? []
+    : [
+        createBashSkill(),
+        createTimeSkill(),
+        createWeatherSkill(),
+        createSystemStatusSkill(),
+        createMemoSkill(),
+        ...(args.enableFileOps ? createFileOpsSkills({ workspaceRoot: args.workdir }) : []),
+      ];
+  const inMemTools = new InMemoryToolExecutor(builtinSkills);
   // Slice 3-XR-J — when --skills-dir is set, layer a SkillToolExecutor on
   // top so naia-adk / onmam-adk top-level skills/ are visible to the model.
   // Composite preserves bash + file-ops + ADK-skills in a single ToolExecutor.
@@ -981,9 +989,14 @@ async function runService(args: Args): Promise<number> {
       const inMem = new InMemoryToolExecutor(
         args.noTools
           ? []
-          : args.enableFileOps
-            ? [createBashSkill(), ...createFileOpsSkills({ workspaceRoot: args.workdir })]
-            : [createBashSkill()],
+          : [
+              createBashSkill(),
+              createTimeSkill(),
+              createWeatherSkill(),
+              createSystemStatusSkill(),
+              createMemoSkill(),
+              ...(args.enableFileOps ? createFileOpsSkills({ workspaceRoot: args.workdir }) : []),
+            ],
       );
       if (!args.skillsDir) return inMem;
       return new CompositeToolExecutor({
@@ -1247,7 +1260,13 @@ async function runStdio(): Promise<number> {
             return;
           }
 
-          const baseTools = new InMemoryToolExecutor([createBashSkill()]);
+          const baseTools = new InMemoryToolExecutor([
+            createBashSkill(),
+            createTimeSkill(),
+            createWeatherSkill(),
+            createSystemStatusSkill(),
+            createMemoSkill(),
+          ]);
           const tools: ToolExecutor = hostInjectedDefs.length > 0
             ? new CompositeToolExecutor({ subs: [{ id: "builtins", executor: baseTools }, { id: "host", executor: hostToolExecutor }] })
             : baseTools;
