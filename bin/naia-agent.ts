@@ -37,7 +37,7 @@
 
 import readline from "node:readline";
 import { spawnSync } from "node:child_process";
-import { access as fsAccess, readFile, writeFile, mkdir, chmod } from "node:fs/promises";
+import { access as fsAccess, readFile, writeFile, mkdir, readdir, chmod } from "node:fs/promises";
 import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -790,11 +790,79 @@ async function executeAgent(agent: Agent, args: Args): Promise<number> {
       }
       if (trimmed === "/help") {
         process.stdout.write(
-          "  /reset  — 대화 초기화\n" +
-          "  /setup  — 프로바이더/모델 재설정\n" +
-          "  /help   — 이 도움말\n" +
-          "  exit    — 종료\n",
+          "  /reset    — 대화 초기화\n" +
+          "  /setup    — 프로바이더/모델 재설정\n" +
+          "  /sessions — 저장된 세션 목록\n" +
+          "  /resume   — 이전 세션 이어하기\n" +
+          "  /help     — 이 도움말\n" +
+          "  exit      — 종료\n",
         );
+        rl.prompt();
+        continue;
+      }
+      if (trimmed === "/sessions") {
+        const sessionsDir = path.join(naiaSettingsDir(), "sessions");
+        try {
+          const entries = await readdir(sessionsDir);
+          const sessionFiles = entries.filter((e) => e.endsWith(".json")).sort().reverse();
+          if (sessionFiles.length === 0) {
+            process.stdout.write("  (저장된 세션 없음)\n");
+          } else {
+            for (const f of sessionFiles.slice(0, 20)) {
+              try {
+                const raw = await readFile(path.join(sessionsDir, f), "utf8");
+                const blob = JSON.parse(raw) as { turnCount?: number; anchors?: unknown[]; savedAt?: string };
+                const id = f.replace(".json", "");
+                const turns = blob.turnCount ?? "?";
+                const when = blob.savedAt ? new Date(blob.savedAt).toLocaleString() : "?";
+                process.stdout.write(`  ${id}  (${turns} turns, ${when})\n`);
+              } catch {
+                process.stdout.write(`  ${f}\n`);
+              }
+            }
+          }
+        } catch {
+          process.stdout.write("  (저장된 세션 없음)\n");
+        }
+        rl.prompt();
+        continue;
+      }
+      if (trimmed === "/resume") {
+        rl.pause();
+        const sessionsDir = path.join(naiaSettingsDir(), "sessions");
+        try {
+          const entries = await readdir(sessionsDir);
+          const sessionFiles = entries.filter((e) => e.endsWith(".json")).sort().reverse();
+          if (sessionFiles.length === 0) {
+            process.stdout.write("  (저장된 세션 없음)\n");
+          } else {
+            process.stdout.write("  세션 선택:\n");
+            for (let i = 0; i < Math.min(sessionFiles.length, 10); i++) {
+              process.stdout.write(`  ${i + 1}. ${sessionFiles[i].replace(".json", "")}\n`);
+            }
+            const choice = await promptLine("번호 또는 세션 ID");
+            if (choice !== null && choice.trim()) {
+              const idx = parseInt(choice.trim(), 10);
+              const file = !isNaN(idx) && idx >= 1 && idx <= sessionFiles.length
+                ? sessionFiles[idx - 1]
+                : `${choice.trim()}.json`;
+              const filePath = path.join(sessionsDir, file);
+              try {
+                const raw = await readFile(filePath, "utf8");
+                const blob = JSON.parse(raw);
+                agent.clearHistory();
+                await agent.importHandoff(blob);
+                const turnCount = blob.turnCount ?? "?";
+                process.stdout.write(`  ✓ 세션 복원 (${turnCount} turns)\n`);
+              } catch (err) {
+                process.stderr.write(`  ✗ 세션 복원 실패: ${err instanceof Error ? err.message : String(err)}\n`);
+              }
+            }
+          }
+        } catch {
+          process.stdout.write("  (저장된 세션 없음)\n");
+        }
+        rl.resume();
         rl.prompt();
         continue;
       }
@@ -803,6 +871,19 @@ async function executeAgent(agent: Agent, args: Args): Promise<number> {
     }
 
     rl.close();
+
+    try {
+      const blob = await agent.exportHandoff("session-save");
+      const sessionsDir = path.join(naiaSettingsDir(), "sessions");
+      await mkdir(sessionsDir, { recursive: true });
+      const sessionId = `sess-${Date.now().toString(36)}`;
+      await writeFile(
+        path.join(sessionsDir, `${sessionId}.json`),
+        JSON.stringify({ ...blob, savedAt: new Date().toISOString() }, null, 2) + "\n",
+        "utf8",
+      );
+    } catch { /* non-fatal */ }
+
     return 0;
   } finally {
     agent.close();
