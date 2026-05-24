@@ -33,6 +33,15 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 - **`bin/naia-agent.ts`** — global `SessionManager` + `ConfigManager` instances wired into all 3 CLI modes (direct, service, stdio) with `PROCESS_STARTED_AT` uptime tracking.
 - **`packages/runtime/src/__tests__/session-config-diag.test.ts`** (new) — 32 unit tests (SessionManager: 12, ConfigManager: 6, diagnostics: 4, sessions: 8, config: 3 + resume + zero-delta edge cases).
 
+### feat (Slice 5 — @nextain/agent-testing)
+
+- **`packages/testing/`** (new package) — `@nextain/agent-testing`: formal fixture-replay framework extracted from runtime.
+- **`packages/testing/src/stream-player.ts`** — `StreamPlayer`: LLMClient impl that replays recorded fixtures. Migrated from runtime with identical API.
+- **`packages/testing/src/stream-recorder.ts`** (new) — `StreamRecorder`: wraps an LLMClient, records all stream/generate calls into `StreamPlayerFixture[]` for deterministic replay. Supports toJSON(), reset(), lastRecording.
+- **`packages/testing/src/__tests__/recorder-player.test.ts`** (new) — 14 unit tests (StreamPlayer: 6, StreamRecorder: 8). Round-trip record→replay verified.
+- **`packages/runtime/src/testing/`** — preserved as backward-compat re-export. Runtime tests continue to pass unchanged.
+- **`tsconfig.json`** — added `packages/testing` to project references.
+
 ### feat
 
 - **`packages/runtime/src/skills/time.ts`** (new) — `createTimeSkill()`: locale / ISO 8601 / Unix timestamp formats with optional timezone. Tier T0, zero dependencies. Migrated from naia-os.

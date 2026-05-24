@@ -1,4 +1,5 @@
-// @nextain/agent-runtime/testing — fixture-replay (Slice 1b minimal,
-// formalized in Slice 5 as @nextain/agent-testing package).
+// @nextain/agent-runtime/testing — re-export from @nextain/agent-testing (Slice 5).
+// The canonical package is @nextain/agent-testing. This re-export preserves
+// backward compatibility for existing imports during migration.
 export { StreamPlayer } from "./stream-player.js";
 export type { StreamPlayerFixture } from "./stream-player.js";

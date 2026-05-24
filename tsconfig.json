@@ -28,7 +28,8 @@
     { "path": "packages/workspace" },
     { "path": "packages/verification" },
     { "path": "packages/cli-app" },
-    { "path": "packages/benchmarks" }
+    { "path": "packages/benchmarks" },
+    { "path": "packages/testing" }
   ],
   "files": []
 }

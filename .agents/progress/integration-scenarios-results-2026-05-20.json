@@ -1,5 +1,5 @@
 {
-  "runAt": "2026-05-24T12:59:59.856Z",
+  "runAt": "2026-05-24T13:29:19.808Z",
   "total": 57,
   "passed": 57,
   "failed": 0,
@@ -14,7 +14,7 @@
         "pass": true,
         "notes": []
       },
-      "wallMs": 24,
+      "wallMs": 34,
       "skipped": "ollama unreachable or gemma4:31b missing"
     },
     {
@@ -25,7 +25,7 @@
         "pass": true,
         "notes": []
       },
-      "wallMs": 4,
+      "wallMs": 7,
       "skipped": "no 24G"
     },
     {
@@ -36,7 +36,7 @@
         "pass": true,
         "notes": []
       },
-      "wallMs": 11,
+      "wallMs": 16,
       "skipped": "no 24G"
     },
     {
@@ -47,7 +47,7 @@
         "pass": true,
         "notes": []
       },
-      "wallMs": 11,
+      "wallMs": 6,
       "skipped": "no 24G"
     },
     {
@@ -58,7 +58,7 @@
         "pass": true,
         "notes": []
       },
-      "wallMs": 6,
+      "wallMs": 8,
       "skipped": "no 24G"
     },
     {
@@ -80,7 +80,7 @@
         "pass": true,
         "notes": []
       },
-      "wallMs": 3,
+      "wallMs": 11,
       "skipped": "no 24G"
     },
     {
@@ -91,7 +91,7 @@
         "pass": true,
         "notes": []
       },
-      "wallMs": 3,
+      "wallMs": 7,
       "skipped": "no e4b"
     },
     {
@@ -102,7 +102,7 @@
         "pass": true,
         "notes": []
       },
-      "wallMs": 8,
+      "wallMs": 13,
       "skipped": "no 24G"
     },
     {
@@ -113,7 +113,7 @@
         "pass": true,
         "notes": []
       },
-      "wallMs": 9,
+      "wallMs": 5,
       "skipped": "no 24G"
     },
     {
@@ -126,7 +126,7 @@
           "exit=2"
         ]
       },
-      "wallMs": 2731,
+      "wallMs": 3276,
       "observedTail": "naia-agent: provider=openai-compat model=absent\n\nnaia-agent: turn failed — Cannot connect to API: bad port\n  The model server at http://127.0.0.1:1/v1 is unreachable. Start it, or reconfigure:\n    pnpm naia-agent login --adk <naia-adk> \\\n      --main \"openai-compat|http://127.0.0.1:11434/v1|gemma3n:e4b\"\n"
     },
     {
@@ -139,8 +139,8 @@
           "exit=3"
         ]
       },
-      "wallMs": 939,
-      "observedTail": "naia-agent: invalid manifest \"C:\\Users\\LukeYang\\AppData\\Local\\Temp\\naia-intg-H-6to7mn\\home-DlYPGB\\bad.service.json\"\n{\"name\":\"error.manifest\",\"timestamp\":1779627588602,\"errorCode\":\"MANIFEST_INVALID\",\"severity\":\"error\",\"retryable\":false,\"data\":{\"detail\":\"invalid JSON: Expected property name or '}' in JSON at position 2 (line 1 column 3)\"},\"debug\":\"invalid JSON: Expected property name or '}' in JSON at position 2 (line 1 column 3)\"}\n"
+      "wallMs": 1140,
+      "observedTail": "naia-agent: invalid manifest \"C:\\Users\\LukeYang\\AppData\\Local\\Temp\\naia-intg-H-fw7bDj\\home-DJuk7i\\bad.service.json\"\n{\"name\":\"error.manifest\",\"timestamp\":1779629346861,\"errorCode\":\"MANIFEST_INVALID\",\"severity\":\"error\",\"retryable\":false,\"data\":{\"detail\":\"invalid JSON: Expected property name or '}' in JSON at position 2 (line 1 column 3)\"},\"debug\":\"invalid JSON: Expected property name or '}' in JSON at position 2 (line 1 column 3)\"}\n"
     },
     {
       "id": "H3",
@@ -152,7 +152,7 @@
           "exit=3"
         ]
       },
-      "wallMs": 844,
+      "wallMs": 996,
       "observedTail": "naia-agent: ERROR — no LLM provider configured.\n  Quickest path: pnpm naia-agent login --adk <naia-adk-path> --main \"provider|baseUrl|model\"\n  Or set an env var: ANTHROPIC_API_KEY, GLM_API_KEY, or OPENAI_API_KEY+OPENAI_BASE_URL.\n  See: docs/llm-config-standard.md, docs/user-guide.md\n"
     },
     {
@@ -165,7 +165,7 @@
           "exit=3"
         ]
       },
-      "wallMs": 880,
+      "wallMs": 927,
       "observedTail": "naia-agent login: --main: apiKeyRef looks like a RAW SECRET — pass a name (env var / keychain entry), not the key itself\n"
     },
     {
@@ -178,8 +178,8 @@
           "exit=0"
         ]
       },
-      "wallMs": 1703,
-      "observedTail": "ers\\LukeYang\\AppData\\Local\\Temp\\naia-intg-I-w0vkiq\\adk-T7jsKH\\naia-settings\\llm.json\n  main       openai-compat gemma4:31b @ http://127.0.0.1:11434/v1  apiKeyRef=MY_FAKE_TOKEN_NAME\n  sub        <none>\n  embedded   <none>\n  resolved:    openai-compat gemma4:31b @ http://127.0.0.1:11434/v1\n  memory db:   C:\\Users\\LukeYang\\AppData\\Local\\Temp\\naia-intg-I-w0vkiq\\home-jF8gKo\\.naia-agent\\memory\\cli.sqlite  (absent)\n  config.json: C:\\Users\\LukeYang\\AppData\\Local\\Temp\\naia-intg-I-w0vkiq\\home-jF8gKo\\.naia-agent\\config.json\n  (apiKeyRef shows the env var / keychain NAME only — values are never printed.)\n"
+      "wallMs": 2001,
+      "observedTail": "ers\\LukeYang\\AppData\\Local\\Temp\\naia-intg-I-zSxbyS\\adk-CJbyeP\\naia-settings\\llm.json\n  main       openai-compat gemma4:31b @ http://127.0.0.1:11434/v1  apiKeyRef=MY_FAKE_TOKEN_NAME\n  sub        <none>\n  embedded   <none>\n  resolved:    openai-compat gemma4:31b @ http://127.0.0.1:11434/v1\n  memory db:   C:\\Users\\LukeYang\\AppData\\Local\\Temp\\naia-intg-I-zSxbyS\\home-VxVYEU\\.naia-agent\\memory\\cli.sqlite  (absent)\n  config.json: C:\\Users\\LukeYang\\AppData\\Local\\Temp\\naia-intg-I-zSxbyS\\home-VxVYEU\\.naia-agent\\config.json\n  (apiKeyRef shows the env var / keychain NAME only — values are never printed.)\n"
     },
     {
       "id": "F3",
@@ -189,7 +189,7 @@
         "pass": true,
         "notes": []
       },
-      "wallMs": 5,
+      "wallMs": 4,
       "skipped": "no 24G"
     },
     {
@@ -200,7 +200,7 @@
         "pass": true,
         "notes": []
       },
-      "wallMs": 2,
+      "wallMs": 1,
       "skipped": "no 24G"
     },
     {
@@ -213,7 +213,7 @@
           "exit=2"
         ]
       },
-      "wallMs": 1597,
+      "wallMs": 1724,
       "observedTail": "naia-agent: provider=openai-compat model=gemma4:31b\nnaia-agent: --memory needs a valid 'embedded' role (run `naia-agent login --embedded \"provider|baseUrl|model|dims\"` or fix naia-settings/llm.json) — falling back to ephemeral memory.\n\nnaia-agent: turn failed — model 'gemma4:31b' not found\n"
     },
     {
@@ -226,7 +226,7 @@
           "exit=3"
         ]
       },
-      "wallMs": 570,
+      "wallMs": 650,
       "observedTail": "--adk <path> [--main ...] [--sub ...] [--embedded ...] [--key REF=VAL]\n       pnpm naia-agent show                       # show current config (no secret values)\n       pnpm naia-agent providers                   # list providers and models\n       pnpm naia-agent --stdio\n       pnpm naia-agent [prompt] --service app.service.json\n       pnpm naia-agent [prompt] --mode=supervisor [--no-verify] [-m model] [--adapter shell -- cmd args]\n       pnpm naia-agent login naia                  # browser login -> model select -> done\n       pnpm naia-agent login anthropic            # direct API key entry\n"
     },
     {
@@ -239,7 +239,7 @@
           "exit=3"
         ]
       },
-      "wallMs": 533,
+      "wallMs": 633,
       "observedTail": "naia-agent login: --main: apiKeyRef looks like a RAW SECRET — pass a name (env var / keychain entry), not the key itself\n"
     },
     {
@@ -252,7 +252,7 @@
           "exit=3"
         ]
       },
-      "wallMs": 569,
+      "wallMs": 634,
       "observedTail": "naia-agent login: --main: apiKeyRef looks like a RAW SECRET — pass a name (env var / keychain entry), not the key itself\n"
     },
     {
@@ -265,7 +265,7 @@
           "exit=0"
         ]
       },
-      "wallMs": 540,
+      "wallMs": 606,
       "observedTail": "naia-agent login: configured (main)\n  Run: pnpm naia-agent --no-tools \"your prompt here\"\n"
     },
     {
@@ -278,7 +278,7 @@
           "exit=3"
         ]
       },
-      "wallMs": 540,
+      "wallMs": 636,
       "observedTail": "naia-agent: manifest llm.backend \"langgraph\" not implemented yet (deferred to Slice 3-XR-K). Reserve stub: schema accepts the value but no live dispatcher is wired.\n"
     },
     {
@@ -291,7 +291,7 @@
           "exit=3"
         ]
       },
-      "wallMs": 545,
+      "wallMs": 685,
       "observedTail": "naia-agent: manifest llm.backend \"rag-retriever\" not implemented yet (deferred to Slice 3-XR-K). Reserve stub: schema accepts the value but no live dispatcher is wired.\n"
     },
     {
@@ -324,7 +324,7 @@
         "pass": true,
         "notes": []
       },
-      "wallMs": 2,
+      "wallMs": 1,
       "skipped": "no 24G"
     },
     {
@@ -335,7 +335,7 @@
         "pass": true,
         "notes": []
       },
-      "wallMs": 5,
+      "wallMs": 2,
       "skipped": "no 24G"
     },
     {
@@ -350,7 +350,7 @@
           "invokeMsgLen=59"
         ]
       },
-      "wallMs": 297,
+      "wallMs": 397,
       "observedTail": "list[0..5]=channel-management,config,cron,diagnostics,doc-coauthoring\ninvoke('time'): FileSkillLoader is parse-only — no invoker wired for \"time\""
     },
     {
@@ -365,7 +365,7 @@
           "tier-distribution: T0=4 T1=5 T2=5 T3=5"
         ]
       },
-      "wallMs": 5,
+      "wallMs": 8,
       "observedTail": "all 19 valid"
     },
     {
@@ -380,7 +380,7 @@
           "missing=—"
         ]
       },
-      "wallMs": 6,
+      "wallMs": 11,
       "observedTail": "got: channel-management,config,cron,diagnostics,doc-coauthoring,document-generation,email,memo,notify,read-doc,review-pass,service-management,sessions,skill-manager,sms,system-status,time,weather,web-monitoring"
     },
     {
@@ -396,7 +396,7 @@
           "tier-distribution: T0=0 T1=10"
         ]
       },
-      "wallMs": 4,
+      "wallMs": 6,
       "observedTail": "names: channel-management,doc-coauthoring,document-generation,email,read-doc,review-pass,service-management,sms,web-monitoring,wp-archive"
     },
     {
@@ -412,7 +412,7 @@
           "descLen=60"
         ]
       },
-      "wallMs": 4,
+      "wallMs": 7,
       "observedTail": "desc: WP/Gnuboard 사이트 아카이브 — 파일 백업, DB 덤프, GCS 업로드, 서버 정리, 인프라 정리."
     },
     {
@@ -430,7 +430,7 @@
           "onmamOnlyPresent=true"
         ]
       },
-      "wallMs": 9,
+      "wallMs": 15,
       "observedTail": "shadow sample: channel-management:onmam-adk>naia-adk, doc-coauthoring:onmam-adk>naia-adk, document-generation:onmam-adk>naia-adk"
     },
     {
@@ -456,7 +456,7 @@
           "stderrHas turn failed=true"
         ]
       },
-      "wallMs": 1227,
+      "wallMs": 1392,
       "observedTail": "stderr tail: naia-agent: provider=openai-compat model=absent\n\nnaia-agent: turn failed — Cannot connect to API: bad port\n  The model server at http://127.0.0.1:1/v1 is unreachable. Start it, or reconfigure:\n    pnpm naia-agent login --adk <naia-adk> \\\n      --main \"openai-compat|http://127.0.0.1:11434/v1|gemma3n:e4b\"\n\nnaia-agent: turn failed — Cannot connect to API: bad port\n  The model server at http://127.0.0.1:1/v1 is unreachable. Start it, or reconfigure:\n    pnpm naia-agent login --adk <naia-adk> \\\n      --main \"openai-compat|http://127.0.0.1:11434/v1|gemma3n:e4b\"\n"
     },
     {
@@ -471,7 +471,7 @@
           "liveExit=<skipped>"
         ]
       },
-      "wallMs": 746,
+      "wallMs": 809,
       "observedTail": "dry stderr: naia-agent: provider=claude-code model=claude-haiku-4-5-20251001 (subscription, no API key)\n[WARN] Claude Code Model: Unknown model ID: 'claude-haiku-4-5-20251001'. Proceeding with custom model. Known models are: opus, sonnet, haiku\nnaia-agent: dry-run OK — llm client built (backend=claude-code)\n\n"
     },
     {
@@ -500,7 +500,7 @@
           "contentLen=21"
         ]
       },
-      "wallMs": 3,
+      "wallMs": 2,
       "observedTail": "roundtrip: write=\"wrote 21 bytes → crlf.txt\" / read=\"line1\r\nline2\r\nline3\r\n\""
     },
     {
@@ -515,7 +515,7 @@
           "availableValue=false"
         ]
       },
-      "wallMs": 2,
+      "wallMs": 0,
       "observedTail": "win32: secret-store available=false (Linux=libsecret/Null fallback; other=NullSecretStore)"
     },
     {
@@ -530,8 +530,8 @@
           "platform=win32"
         ]
       },
-      "wallMs": 528,
-      "observedTail": "show stdout: I_KEY / OPENAI_API_KEY+OPENAI_BASE_URL / GLM_API_KEY, or naia-agent login>\n  memory db:   C:\\Users\\LukeYang\\AppData\\Local\\Temp\\naia-intg-N-9waPft\\custom-home-m9cMYX\\.naia-agent\\memory\\cli.sqlite  (absent)\n  config.json: C:\\Users\\LukeYang\\AppData\\Local\\Temp\\naia-intg-N-9waPft\\custom-home-m9cMYX\\.naia-agent\\config.json\n  (apiKeyRef shows the env var / keychain NAME only — values are never printed.)\n"
+      "wallMs": 707,
+      "observedTail": "show stdout: I_KEY / OPENAI_API_KEY+OPENAI_BASE_URL / GLM_API_KEY, or naia-agent login>\n  memory db:   C:\\Users\\LukeYang\\AppData\\Local\\Temp\\naia-intg-N-tm700m\\custom-home-FO7WHR\\.naia-agent\\memory\\cli.sqlite  (absent)\n  config.json: C:\\Users\\LukeYang\\AppData\\Local\\Temp\\naia-intg-N-tm700m\\custom-home-FO7WHR\\.naia-agent\\config.json\n  (apiKeyRef shows the env var / keychain NAME only — values are never printed.)\n"
     },
     {
       "id": "N5",
@@ -545,7 +545,7 @@
           "cmd.exe=true"
         ]
       },
-      "wallMs": 1,
+      "wallMs": 0,
       "observedTail": "bin/naia-agent.ts has the dual-platform shell adapter branch"
     },
     {
@@ -601,7 +601,7 @@
           "stderrTag=true"
         ]
       },
-      "wallMs": 0,
+      "wallMs": 1,
       "observedTail": "intentional diff: prefix only ('[tool] read_file({…})' vs '● Read(…)'). Both go to stderr and are caller-greppable. Group P scenarios assert the [tool] marker presence on LIVE tool-calls."
     },
     {
@@ -616,7 +616,7 @@
           "return3=true"
         ]
       },
-      "wallMs": 1,
+      "wallMs": 0,
       "observedTail": "intentional diff: naia-agent 0/2/3 vs Claude Code 0/1. Group H scenarios (H1/H2/H3) and S1-S5 unit scenarios assert the convention."
     },
     {
@@ -670,7 +670,7 @@
         "pass": true,
         "notes": []
       },
-      "wallMs": 3,
+      "wallMs": 2,
       "skipped": "no 24G"
     },
     {
@@ -681,7 +681,7 @@
         "pass": true,
         "notes": []
       },
-      "wallMs": 1,
+      "wallMs": 2,
       "skipped": "no 24G"
     },
     {
@@ -714,7 +714,7 @@
         "pass": true,
         "notes": []
       },
-      "wallMs": 1,
+      "wallMs": 3,
       "skipped": "no 24G"
     },
     {
@@ -725,7 +725,7 @@
         "pass": true,
         "notes": []
       },
-      "wallMs": 2,
+      "wallMs": 1,
       "skipped": "no 24G"
     },
     {

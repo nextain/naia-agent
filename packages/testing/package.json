@@ -1,0 +1,43 @@
+{
+  "name": "@nextain/agent-testing",
+  "version": "0.1.0",
+  "description": "Testing utilities for @nextain/agent — StreamRecorder, StreamPlayer, fixture-replay framework.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "default": "./dist/index.js"
+    }
+  },
+  "sideEffects": false,
+  "files": ["dist", "src"],
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nextain/naia-agent.git",
+    "directory": "packages/testing"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@nextain/agent-types": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.8"
+  }
+}
