@@ -133,7 +133,7 @@ describe("S2: env-loader auto-load from ~/.naia-agent/.env (Track A RESOLVED)", 
     // 임시 HOME에 .naia-agent/.env 생성
     const naiaDir = join(tmpHome, ".naia-agent");
     mkdirSync(naiaDir, { recursive: true });
-    writeFileSync(join(naiaDir, ".env"), "ANTHROPIC_API_KEY=sk-ant-test-s2-fake\n", { mode: 0o600 });
+    writeFileSync(join(naiaDir, ".env"), "ANTHROPIC_API_KEY=sk-ant-test-s2-fake\nANTHROPIC_MODEL=claude-haiku-4-5-20251001\n", { mode: 0o600 });
 
     const r = runBin(
       ["hi"],
@@ -190,7 +190,7 @@ describe("S3: NAIA_ADK_PATH/naia-settings/config.json auto-load (Track A RESOLVE
     mkdirSync(settingsDir, { recursive: true });
     writeFileSync(
       join(settingsDir, "config.json"),
-      JSON.stringify({ ANTHROPIC_API_KEY: "sk-ant-test-s3-fake" }),
+      JSON.stringify({ ANTHROPIC_API_KEY: "sk-ant-test-s3-fake", ANTHROPIC_MODEL: "claude-haiku-4-5-20251001" }),
     );
 
     const r = runBin(

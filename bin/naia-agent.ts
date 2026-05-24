@@ -369,18 +369,17 @@ function resolveCompactStrategyEnv(): Args["compactStrategy"] {
 
 // ─── Provider resolution (direct mode) ──────────────────────────────────────
 
-async function buildLLMClient(): Promise<LLMClient | null> {
+async function buildLLMClient(overrideModel?: string): Promise<LLMClient | null> {
   const env = process.env;
 
   // Naia AnyLLM gateway (OpenAI-compatible, takes priority over plain OPENAI_*)
   if (env.NAIA_ANYLLM_API_KEY && env.NAIA_ANYLLM_BASE_URL) {
-    const model = env.NAIA_MAIN_MODEL && env.NAIA_MAIN_MODEL !== "auto"
-      ? env.NAIA_MAIN_MODEL
-      : undefined;
+    const model = overrideModel
+      || (env.NAIA_MAIN_MODEL && env.NAIA_MAIN_MODEL !== "auto" ? env.NAIA_MAIN_MODEL : undefined);
     if (!model) {
       process.stderr.write(
-        `naia-agent: ERROR — NAIA_MAIN_MODEL not set.\n` +
-        `  Run: pnpm naia-agent login → main LLM → select model\n`,
+        `naia-agent: ERROR — no model specified.\n` +
+        `  Use --model <id> or run: pnpm naia-agent login → main LLM → select model\n`,
       );
       return null;
     }
@@ -408,7 +407,11 @@ async function buildLLMClient(): Promise<LLMClient | null> {
 
   if (env.ANTHROPIC_API_KEY) {
     const { createAnthropic } = await import("@ai-sdk/anthropic");
-    const model = env.ANTHROPIC_MODEL ?? "claude-haiku-4-5-20251001";
+    const model = overrideModel || env.ANTHROPIC_MODEL;
+    if (!model) {
+      process.stderr.write(`naia-agent: ERROR — no model specified. Use --model <id>\n`);
+      return null;
+    }
     const anthropic = createAnthropic({
       apiKey: env.ANTHROPIC_API_KEY,
       ...(env.ANTHROPIC_BASE_URL && { baseURL: env.ANTHROPIC_BASE_URL }),
@@ -418,12 +421,15 @@ async function buildLLMClient(): Promise<LLMClient | null> {
   }
 
   if (env.OPENAI_BASE_URL) {
-    // Covers: openai-compat (with key) + ollama/vllm (no-auth local servers).
     const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
-    const model = env.NAIA_MAIN_MODEL || env.OPENAI_MODEL || "llama3.2";
+    const model = overrideModel || env.NAIA_MAIN_MODEL || env.OPENAI_MODEL;
+    if (!model) {
+      process.stderr.write(`naia-agent: ERROR — no model specified. Use --model <id>\n`);
+      return null;
+    }
     const provider = createOpenAICompatible({
       name: "openai-compat",
-      apiKey: env.OPENAI_API_KEY ?? "",  // ollama accepts empty key
+      apiKey: env.OPENAI_API_KEY ?? "",
       baseURL: env.OPENAI_BASE_URL,
     });
     process.stderr.write(`naia-agent: provider=openai-compat model=${model}\n`);
@@ -432,7 +438,11 @@ async function buildLLMClient(): Promise<LLMClient | null> {
 
   if (env.GLM_API_KEY) {
     const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
-    const model = env.GLM_MODEL ?? "glm-4.5-flash";
+    const model = overrideModel || env.GLM_MODEL;
+    if (!model) {
+      process.stderr.write(`naia-agent: ERROR — no model specified. Use --model <id>\n`);
+      return null;
+    }
     const baseURL = env.GLM_BASE_URL ?? "https://open.bigmodel.cn/api/paas/v4";
     const provider = createOpenAICompatible({
       name: "zhipu-glm",
@@ -447,7 +457,7 @@ async function buildLLMClient(): Promise<LLMClient | null> {
     const { createVertex } = await import("@ai-sdk/google");
     const project = env.VERTEX_PROJECT_ID ?? env.GOOGLE_CLOUD_PROJECT ?? "";
     const region = env.VERTEX_REGION ?? env.GOOGLE_CLOUD_LOCATION ?? "us-east5";
-    const model = env.ANTHROPIC_MODEL ?? "claude-haiku-4-5-20251001";
+    const model = overrideModel || env.ANTHROPIC_MODEL;
     const vertex = createVertex({ project, location: region });
     process.stderr.write(`naia-agent: provider=vertex model=${model}\n`);
     return new VercelClient(vertex(model));
@@ -555,7 +565,7 @@ async function runDirect(args: Args): Promise<number> {
     }
   }
 
-  const llm = await buildLLMClient();
+  const llm = await buildLLMClient(args.model);
   if (!llm) return 3;
 
   // Test-only hermetic provider gate. Same pattern as runService DRYRUN.
@@ -1268,7 +1278,7 @@ async function runStdio(): Promise<number> {
 
         // Fire-and-forget so cancel_stream can arrive on the readline while streaming.
         void (async () => {
-          const llm = await buildLLMClient();
+  const llm = await buildLLMClient(args.model);
           if (!llm) {
             stdioWriteLine({ type: "error", requestId, message: "no LLM provider configured" });
             activeStreams.delete(requestId);

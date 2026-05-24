@@ -61,8 +61,8 @@ function baseEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   };
 }
 
-function runBin(env: NodeJS.ProcessEnv, timeoutMs = 15_000) {
-  return spawnSync(process.execPath, [tsxCli, binPath, "hi"], {
+function runBin(env: NodeJS.ProcessEnv, extraArgs: string[] = [], timeoutMs = 15_000) {
+  return spawnSync(process.execPath, [tsxCli, binPath, "hi", ...extraArgs], {
     cwd: repoRoot,
     env,
     encoding: "utf8",
@@ -79,12 +79,11 @@ describe("ollama/vllm path — OPENAI_BASE_URL alone (Fix 4 + Fix 5)", () => {
     rmSync(tmpAdk, { recursive: true, force: true });
   });
 
-  it("T-OL-1: OPENAI_BASE_URL alone → hasLLMConfig true → provider=openai-compat + dry-run OK", () => {
-    // Fix 4: hasLLMConfig() now includes OPENAI_BASE_URL-alone check.
-    // DRYRUN exits 0 only if buildLLMClient() succeeds → proves routing reaches ollama path.
-    const r = runBin(baseEnv({ OPENAI_BASE_URL: "http://localhost:11434/v1" }));
+  it("T-OL-1: OPENAI_BASE_URL alone → requires --model → provider=openai-compat + dry-run OK", () => {
+    const r = runBin(baseEnv({ OPENAI_BASE_URL: "http://localhost:11434/v1" }), ["--model", "llama3.2"]);
     expect(r.status).toBe(0);
     expect(r.stderr).toContain("provider=openai-compat");
+    expect(r.stderr).toContain("model=llama3.2");
     expect(r.stderr).toContain("dry-run OK");
   });
 
@@ -110,14 +109,12 @@ describe("ollama/vllm path — OPENAI_BASE_URL alone (Fix 4 + Fix 5)", () => {
     expect(r.stderr).toContain("model=llama3.1");
   });
 
-  it("T-OL-4: OPENAI_BASE_URL only, no model env → default llama3.2", () => {
-    // Fix 5: ultimate default fallback.
+  it("T-OL-4: OPENAI_BASE_URL only, no model env → exit 3 error (no default)", () => {
     const r = runBin(baseEnv({
       OPENAI_BASE_URL: "http://localhost:11434/v1",
-      // OPENAI_MODEL: "" (base env), NAIA_MAIN_MODEL: "" (base env)
     }));
-    expect(r.status).toBe(0);
-    expect(r.stderr).toContain("model=llama3.2");
+    expect(r.status).toBe(3);
+    expect(r.stderr).toContain("no model specified");
   });
 });
 
@@ -153,7 +150,7 @@ describe("naia AnyLLM path — NAIA_ANYLLM_API_KEY (Fix 3)", () => {
       // NAIA_MAIN_MODEL: "" (base env — triggers the "not set" error path)
     }));
     expect(r.status).toBe(3);
-    expect(r.stderr).toContain("NAIA_MAIN_MODEL not set");
+    expect(r.stderr).toContain("no model specified");
   });
 
   it("T-NA-3: NAIA_ANYLLM_API_KEY without BASE_URL → naia path skipped → exit 3", () => {
