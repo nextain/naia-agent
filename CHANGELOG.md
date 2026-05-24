@@ -10,6 +10,14 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ### feat
 
+- **`packages/runtime/src/skills/time.ts`** (new) — `createTimeSkill()`: locale / ISO 8601 / Unix timestamp formats with optional timezone. Tier T0, zero dependencies. Migrated from naia-os.
+- **`packages/runtime/src/skills/weather.ts`** (new) — `createWeatherSkill()`: wttr.in API (no key required). Returns temperature, humidity, wind, UV index. Tier T0. Migrated from naia-os.
+- **`packages/runtime/src/skills/memo.ts`** (new) — `createMemoSkill()`: key-value memo storage (save/read/list/delete). Flat files in `~/.naia/memos`. Tier T1. Migrated from naia-os.
+- **`packages/runtime/src/skills/system-status.ts`** (new) — `createSystemStatusSkill()`: OS info, memory, CPU, uptime. Sections queryable. Tier T0. Migrated from naia-os.
+- **`packages/runtime/src/skills/index.ts`** — barrel exports for 4 new skills.
+- **`packages/runtime/src/__tests__/new-skills.test.ts`** — 24 unit tests (time: 6, weather: 3, memo: 9, system-status: 6). All pass.
+- **3 skills deferred** (diagnostics, sessions, config): require `ctx.gateway` (naia-os GatewayAdapter RPC). Will be addressed when host injection protocol (4-D) lands.
+
 - **`packages/types/src/provider-registry.ts`** (new) — `ProviderMeta`, `ModelMeta`, `VoiceMeta`, `ModelCapability` types. Runtime-agnostic provider catalogue contract, adapted from naia-os `shell/src/lib/llm/types.ts` with UI fields removed.
 - **`packages/providers/src/registry.ts`** (new) — 9-provider catalogue (nextain/Naia, claude-code-cli, gemini, openai, anthropic, xai, zai, ollama, vllm). Lookup helpers (`listProviders`, `getProvider`, `getProviderModels`, `getDefaultModel`). Gateway live pricing fetch (`fetchNaiaPricing`), gateway model discovery (`fetchGatewayModels`), dynamic fetch for ollama/vllm, `shouldMigrateNextainModel` migration helper.
 - **`bin/naia-agent.ts`** — `providers` subcommand: lists all providers with models, pricing, capabilities. `getNaiaRegistryMeta()` now imports naia-agent's own registry instead of naia-os dynamic import (removes cross-repo coupling). 18 unit tests in `packages/providers/src/__tests__/registry.test.ts`. Slice 4-P1 (#59).
