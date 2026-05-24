@@ -749,7 +749,31 @@ async function executeAgent(agent: Agent, args: Args): Promise<number> {
         rl.prompt();
         continue;
       }
-      await safeTurn(agent, trimmed, args.debug); // never throws → REPL survives
+      if (trimmed === "/reset") {
+        agent.clearHistory();
+        process.stdout.write("  ✓ 대화 초기화됨\n");
+        rl.prompt();
+        continue;
+      }
+      if (trimmed === "/setup") {
+        rl.pause();
+        await runLogin([]);
+        process.stdout.write("  ✓ 설정 완료. 계속 대화하세요.\n");
+        rl.resume();
+        rl.prompt();
+        continue;
+      }
+      if (trimmed === "/help") {
+        process.stdout.write(
+          "  /reset  — 대화 초기화\n" +
+          "  /setup  — 프로바이더/모델 재설정\n" +
+          "  /help   — 이 도움말\n" +
+          "  exit    — 종료\n",
+        );
+        rl.prompt();
+        continue;
+      }
+      await safeTurn(agent, trimmed, args.debug);
       rl.prompt();
     }
 

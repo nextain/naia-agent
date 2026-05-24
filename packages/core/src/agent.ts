@@ -229,6 +229,14 @@ export class Agent {
     return this.#session;
   }
 
+  clearHistory(): void {
+    this.#history.length = 0;
+    this.#priorRecap = undefined;
+    this.#compactedThisSession = false;
+    this.#turnCount = 0;
+    this.#handoffFired = false;
+  }
+
   /** Convenience: drain the stream and return the final assistant text. */
   async send(userText: string, signal?: AbortSignal): Promise<string> {
     const fn = this.#host.logger.fn?.("Agent.send", { userTextLen: userText.length });
