@@ -210,7 +210,7 @@ function t(key: TranslationKey): string;
      naia-os agent/src/skills/built-in/ → naia-agent packages/runtime/src/skills/
      의존: 없음. 순수 코드 이동.
 
-4-B: 시스템 프롬프트 빌더 리팩토링
+4-B: 시스템 프롬프트 빌더 리팩토링 **DONE**
      buildToolStatusPrompt() → SystemPromptBuilder (PromptFragment 기반)
      의존: 없음. 독립 리팩토링.
 

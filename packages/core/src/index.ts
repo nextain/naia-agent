@@ -4,6 +4,12 @@
 export { Agent, stripRecallResidue } from "./agent.js";
 export type { AgentOptions, AgentStreamEvent } from "./agent.js";
 export { DEFAULT_SYSTEM_PROMPT } from "./default-system-prompt.js";
+export { SystemPromptBuilder } from "./system-prompt-builder.js";
+export type {
+  PromptFragment,
+  PromptFragmentSource,
+  PromptSection,
+} from "./system-prompt-builder.js";
 
 // Re-export key contracts so hosts get a single import surface for the
 // runtime-facing API.

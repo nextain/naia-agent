@@ -21,6 +21,9 @@
  */
 
 import { DEFAULT_SYSTEM_PROMPT } from "./default-system-prompt.js";
+import {
+  SystemPromptBuilder,
+} from "./system-prompt-builder.js";
 import type {
   CompactableCapable,
   CompactionMessage,
@@ -437,21 +440,26 @@ export class Agent {
     memoryHits: MemoryHit[],
     toolDefs: readonly ToolDefinitionWithTier[] = [],
   ): LLMRequest {
-    const systemParts: string[] = [];
-    if (this.#system) systemParts.push(this.#system);
-    // Behavioral contract appended after the host persona (this.#system).
-    // Default-on for every host; a host may opt out via
-    // `appendDefaultSystemPrompt: false` when it owns the full contract,
-    // is token-constrained, or drives a small model the long contract
-    // degrades. Opting out drops the built-in Trust/Safety rules — the
-    // host owns equivalent guarantees. See AgentOptions
-    // .appendDefaultSystemPrompt / default-system-prompt.ts.
-    if (this.#appendDefaultSystem) systemParts.push(DEFAULT_SYSTEM_PROMPT);
+    const builder = new SystemPromptBuilder();
 
-    // Imported handoff blob — Slice 3-XR-Handoff (#50). Prepended to memory
-    // context so the LLM treats it as "prior session knowledge" before any
-    // ad-hoc recall hits. Cleared after one use; subsequent turns rely on
-    // normal recall + history.
+    if (this.#system) {
+      builder.add({
+        source: "host",
+        priority: 100,
+        section: "identity",
+        content: this.#system,
+      });
+    }
+
+    if (this.#appendDefaultSystem) {
+      builder.add({
+        source: "core",
+        priority: 200,
+        section: "safety",
+        content: DEFAULT_SYSTEM_PROMPT,
+      });
+    }
+
     if (this.#importedHandoff) {
       const h = this.#importedHandoff;
       const lines = [
@@ -461,17 +469,29 @@ export class Agent {
       if (h.anchors.length > 0) {
         lines.push(`Known identifiers from prior session: ${h.anchors.join(", ")}`);
       }
-      systemParts.push(lines.join("\n\n"));
+      builder.add({
+        source: "core",
+        priority: 300,
+        section: "handoff",
+        content: lines.join("\n\n"),
+      });
       this.#importedHandoff = undefined;
     }
 
     if (memoryHits.length > 0) {
       const recalled = memoryHits.map((h) => `- ${h.content}`).join("\n");
-      systemParts.push(`Relevant context from memory:\n${recalled}`);
+      builder.add({
+        source: "core",
+        priority: 400,
+        section: "memory",
+        content: `Relevant context from memory:\n${recalled}`,
+      });
     }
+
     const req: LLMRequest = { messages: this.#history };
     if (this.#model !== undefined) req.model = this.#model;
-    if (systemParts.length > 0) req.system = systemParts.join("\n\n");
+    const system = builder.build();
+    if (system.length > 0) req.system = system;
     if (toolDefs.length > 0) {
       req.tools = toolDefs.map<ToolDefinition>((t) => {
         const def: ToolDefinition = { name: t.name, inputSchema: t.inputSchema };

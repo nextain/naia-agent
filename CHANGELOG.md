@@ -18,6 +18,13 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 - **`packages/runtime/src/__tests__/new-skills.test.ts`** — 24 unit tests (time: 6, weather: 3, memo: 9, system-status: 6). All pass.
 - **3 skills deferred** (diagnostics, sessions, config): require `ctx.gateway` (naia-os GatewayAdapter RPC). Will be addressed when host injection protocol (4-D) lands.
 
+### feat (Slice 4-B)
+
+- **`packages/core/src/system-prompt-builder.ts`** (new) — `SystemPromptBuilder` with `PromptFragment` (source, priority, section, content). Priority-based sorting, double-newline join. Extracted from `Agent.#buildRequest()` inline composition.
+- **`packages/core/src/agent.ts`** — `#buildRequest()` now uses `SystemPromptBuilder` instead of manual `systemParts[]`. Identical output (byte-level regression tests pass).
+- **`packages/core/src/index.ts`** — exports `SystemPromptBuilder`, `PromptFragment`, `PromptFragmentSource`, `PromptSection`.
+- **`packages/runtime/src/__tests__/system-prompt-builder.test.ts`** — 8 unit tests (sorting, tie-breaking, composition ordering, real-agent simulation).
+
 - **`packages/types/src/provider-registry.ts`** (new) — `ProviderMeta`, `ModelMeta`, `VoiceMeta`, `ModelCapability` types. Runtime-agnostic provider catalogue contract, adapted from naia-os `shell/src/lib/llm/types.ts` with UI fields removed.
 - **`packages/providers/src/registry.ts`** (new) — 9-provider catalogue (nextain/Naia, claude-code-cli, gemini, openai, anthropic, xai, zai, ollama, vllm). Lookup helpers (`listProviders`, `getProvider`, `getProviderModels`, `getDefaultModel`). Gateway live pricing fetch (`fetchNaiaPricing`), gateway model discovery (`fetchGatewayModels`), dynamic fetch for ollama/vllm, `shouldMigrateNextainModel` migration helper.
 - **`bin/naia-agent.ts`** — `providers` subcommand: lists all providers with models, pricing, capabilities. `getNaiaRegistryMeta()` now imports naia-agent's own registry instead of naia-os dynamic import (removes cross-repo coupling). 18 unit tests in `packages/providers/src/__tests__/registry.test.ts`. Slice 4-P1 (#59).

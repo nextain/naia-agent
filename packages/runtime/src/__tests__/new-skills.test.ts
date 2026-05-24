@@ -17,9 +17,9 @@ describe("createTimeSkill", () => {
     expect(typeof skill.handler).toBe("function");
   });
 
-  it("returns locale-formatted time by default", () => {
+  it("returns locale-formatted time by default", async () => {
     const skill = createTimeSkill();
-    const result = skill.handler({});
+    const result = await skill.handler({});
     expect(typeof result).toBe("string");
     expect(result.length).toBeGreaterThan(0);
   });
