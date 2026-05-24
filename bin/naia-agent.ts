@@ -1743,7 +1743,7 @@ async function fetchPricingOverlay() {
 }
 
 const DEFAULT_GATEWAY_HTTP_URL_CLI =
-  "https://naia-gateway-181404717065.asia-northeast3.run.app";
+  "https://naia-gateway-dev-181404717065.asia-northeast3.run.app";
 
 const PROVIDER_DEFAULTS: Record<string, string> = {
   anthropic: "claude-opus-4-5",
@@ -1983,12 +1983,12 @@ async function configureNaiaKey(): Promise<number> {
       process.stderr.write(`  Falling back to manual key entry.\n\n`);
       apiKey = (await promptLine("Naia AnyLLM API key", true)) ?? "";
       if (!apiKey) return 3;
-      baseUrl = (await promptLine("Naia AnyLLM gateway URL (e.g. http://localhost:8000/v1)")) ?? DEFAULT_GATEWAY_HTTP_URL_CLI;
+      baseUrl = DEFAULT_GATEWAY_HTTP_URL_CLI;
     }
   } else {
     apiKey = (await promptLine("Naia AnyLLM API key", true)) ?? "";
     if (!apiKey) return 3;
-    baseUrl = (await promptLine("Naia AnyLLM gateway URL (e.g. http://localhost:8000/v1)")) ?? DEFAULT_GATEWAY_HTTP_URL_CLI;
+    baseUrl = DEFAULT_GATEWAY_HTTP_URL_CLI;
   }
 
   const meta = await getNaiaRegistryMeta();
