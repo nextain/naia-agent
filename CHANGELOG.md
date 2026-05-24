@@ -25,6 +25,11 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 - **`packages/core/src/index.ts`** — exports `SystemPromptBuilder`, `PromptFragment`, `PromptFragmentSource`, `PromptSection`.
 - **`packages/runtime/src/__tests__/system-prompt-builder.test.ts`** — 8 unit tests (sorting, tie-breaking, composition ordering, real-agent simulation).
 
+### feat (Slice 4-C)
+
+- **`packages/runtime/src/composite-tool-executor.ts`** — collision policy changed from first-wins to **last-wins**. Sub registration order now determines priority: core → ADK → host (later overrides earlier).
+- **`packages/runtime/src/__tests__/composite-tool-executor.test.ts`** (new) — 8 unit tests covering last-wins, 3-layer override, non-colliding aggregation, lazy rebuild, shadowedNames diagnostics.
+
 - **`packages/types/src/provider-registry.ts`** (new) — `ProviderMeta`, `ModelMeta`, `VoiceMeta`, `ModelCapability` types. Runtime-agnostic provider catalogue contract, adapted from naia-os `shell/src/lib/llm/types.ts` with UI fields removed.
 - **`packages/providers/src/registry.ts`** (new) — 9-provider catalogue (nextain/Naia, claude-code-cli, gemini, openai, anthropic, xai, zai, ollama, vllm). Lookup helpers (`listProviders`, `getProvider`, `getProviderModels`, `getDefaultModel`). Gateway live pricing fetch (`fetchNaiaPricing`), gateway model discovery (`fetchGatewayModels`), dynamic fetch for ollama/vllm, `shouldMigrateNextainModel` migration helper.
 - **`bin/naia-agent.ts`** — `providers` subcommand: lists all providers with models, pricing, capabilities. `getNaiaRegistryMeta()` now imports naia-agent's own registry instead of naia-os dynamic import (removes cross-repo coupling). 18 unit tests in `packages/providers/src/__tests__/registry.test.ts`. Slice 4-P1 (#59).

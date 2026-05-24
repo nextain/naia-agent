@@ -214,7 +214,7 @@ function t(key: TranslationKey): string;
      buildToolStatusPrompt() → SystemPromptBuilder (PromptFragment 기반)
      의존: 없음. 독립 리팩토링.
 
-4-C: 스킬 충돌 해결 + 우선순위
+4-C: 스킬 충돌 해결 + 우선순위 **DONE**
      SkillRegistry.register() 덮어쓰 허용, core→adk→host 순서 보장
      결정 기준: CompositeToolExecutor를 SkillRegistry로 대체 (unified "last wins" 단일 경로)
      의존: 없음.

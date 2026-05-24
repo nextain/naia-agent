@@ -6,7 +6,7 @@
  *
  * Routing rules:
  *   - `list()` aggregates definitions from every sub-executor, de-duplicates
- *     by tool name (first-registered wins), and remembers which sub owns
+ *     by tool name (last-registered wins), and remembers which sub owns
  *     each name.
  *   - `execute()` uses the ownership map built by the most recent `list()`
  *     to route. If the Agent invokes a tool that wasn't in the last
@@ -35,10 +35,9 @@ export interface CompositeToolExecutorOptions {
   subs: CompositeSub[];
   /**
    * Warn sink for tool-name shadowing. Default: `console.warn`. Shadowing
-   * happens when two subs expose the same tool name — first-registered
-   * wins. **Sub order is a trust boundary**: if skills are listed before
-   * MCP, an attacker controlling an MCP server cannot shadow a built-in
-   * skill of the same name.
+   * happens when two subs expose the same tool name — last-registered wins.
+   * **Sub order determines priority**: register in core → ADK → host order
+   * so host injection overrides ADK, which overrides core.
    */
   onWarn?: (message: string, context?: Record<string, unknown>) => void;
 }
@@ -84,18 +83,18 @@ export class CompositeToolExecutor implements ToolExecutor {
       if (!sub.executor.list) continue;
       const defs = await sub.executor.list();
       for (const def of defs) {
-        // First-registered wins. Record shadow for diagnostics.
-        const winner = nextOwnership.get(def.name);
-        if (winner) {
-          nextShadowed.push({ name: def.name, winner, loser: sub.id });
+        const existing = nextOwnership.get(def.name);
+        if (existing) {
+          nextShadowed.push({ name: def.name, winner: sub.id, loser: existing });
           this.#onWarn(
-            `tool "${def.name}" from sub "${sub.id}" shadowed by "${winner}"`,
-            { name: def.name, winner, loser: sub.id },
+            `tool "${def.name}" from sub "${existing}" overridden by "${sub.id}"`,
+            { name: def.name, winner: sub.id, loser: existing },
           );
-          continue;
         }
         nextOwnership.set(def.name, sub.id);
-        aggregated.push(def);
+        const idx = aggregated.findIndex((a) => a.name === def.name);
+        if (idx >= 0) aggregated[idx] = def;
+        else aggregated.push(def);
       }
     }
     this.#ownership = nextOwnership;

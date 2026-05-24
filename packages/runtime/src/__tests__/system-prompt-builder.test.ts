@@ -51,8 +51,8 @@ describe("SystemPromptBuilder", () => {
     builder.add({ source: "core", priority: 100, section: "identity", content: "A" });
     builder.add({ source: "host", priority: 200, section: "domain", content: "B" });
     expect(builder.fragments).toHaveLength(2);
-    expect(builder.fragments[0].source).toBe("core");
-    expect(builder.fragments[1].source).toBe("host");
+    expect(builder.fragments[0]!.source).toBe("core");
+    expect(builder.fragments[1]!.source).toBe("host");
   });
 
   it("simulates real agent composition: persona + contract + handoff + memory", () => {
