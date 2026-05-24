@@ -10,6 +10,14 @@ export type {
   PromptFragmentSource,
   PromptSection,
 } from "./system-prompt-builder.js";
+export { HookDispatcher } from "./hook-dispatcher.js";
+export type {
+  HookEvent,
+  HookSource,
+  HookContext,
+  HookHandler,
+  HookRegistration,
+} from "./hook-dispatcher.js";
 
 // Re-export key contracts so hosts get a single import surface for the
 // runtime-facing API.
