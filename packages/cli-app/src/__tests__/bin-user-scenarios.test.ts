@@ -80,11 +80,14 @@ function runBin(args: string[], env: NodeJS.ProcessEnv, stdin?: string, timeoutM
   return spawnSync(process.execPath, [tsxCli, binPath, ...args], opts);
 }
 
-/** Live-LLM gate — opt-in when the local Ollama container is reachable.
- *  Uses Node built-in fetch (no `curl` dependency, cross-review F5). */
+const OLLAMA_BASE = process.env.NAIA_TEST_OLLAMA_BASE ?? "http://127.0.0.1:11434";
+const LIVE_MODEL = process.env.NAIA_TEST_LIVE_MODEL ?? "gemma3n:e4b";
+const LIVE_EMBED_MODEL = process.env.NAIA_TEST_LIVE_EMBED_MODEL ?? "bge-m3";
+const LIVE_EMBED_DIMS = parseInt(process.env.NAIA_TEST_LIVE_EMBED_DIMS ?? "1024", 10);
+
 async function ollamaReachable(): Promise<boolean> {
   try {
-    const r = await fetch("http://127.0.0.1:11434/api/tags", {
+    const r = await fetch(`${OLLAMA_BASE}/api/tags`, {
       signal: AbortSignal.timeout(2_000),
     });
     return r.ok;
@@ -93,10 +96,33 @@ async function ollamaReachable(): Promise<boolean> {
   }
 }
 
-// Inline per-scenario probe (F4 — brittleness: state changes mid-run are
-// handled at the call site; no stale module-load capture).
+async function modelAvailable(name: string): Promise<boolean> {
+  if (!name) return false;
+  try {
+    const r = await fetch(`${OLLAMA_BASE}/api/tags`, {
+      signal: AbortSignal.timeout(2_000),
+    });
+    if (!r.ok) return false;
+    const body = await r.json() as { models?: { name: string }[] };
+    return (body.models ?? []).some((m) => m.name === name || m.name.startsWith(name + ":"));
+  } catch {
+    return false;
+  }
+}
+
 async function skipUnlessLlm(): Promise<boolean> {
-  return await ollamaReachable();
+  if (!LIVE_MODEL) return false;
+  if (!(await ollamaReachable())) return false;
+  if (!(await modelAvailable(LIVE_MODEL))) return false;
+  return true;
+}
+
+function liveModelSpec(): string {
+  return `openai-compat|${OLLAMA_BASE}/v1|${LIVE_MODEL}`;
+}
+
+function liveEmbedSpec(): string {
+  return `ollama-embed|${OLLAMA_BASE}/v1|${LIVE_EMBED_MODEL}|${LIVE_EMBED_DIMS}`;
 }
 
 describe("(1) USER perspective — non-developer CLI flow", () => {
@@ -250,7 +276,7 @@ describe("(1) USER perspective — non-developer CLI flow", () => {
       const home = mkdtempSync(join(tmp, "home-"));
       const adk = mkdtempSync(join(tmp, "adk-"));
       runBin(
-        ["login", "--adk", adk, "--main", "openai-compat|http://127.0.0.1:11434/v1|gemma3:4b"],
+        ["login", "--adk", adk, "--main", liveModelSpec()],
         coldEnv(home),
       );
       const r = runBin(["hi"], coldEnv(home), undefined, 90_000); // cross-review B-#2
@@ -270,7 +296,7 @@ describe("(1) USER perspective — non-developer CLI flow", () => {
     const home = mkdtempSync(join(tmp, "home-"));
     const adk = mkdtempSync(join(tmp, "adk-"));
     runBin(
-      ["login", "--adk", adk, "--main", "openai-compat|http://127.0.0.1:11434/v1|gemma3:4b"],
+        ["login", "--adk", adk, "--main", liveModelSpec()],
       coldEnv(home),
     );
     // Cross-review (Slice 3-XR-J finding): when bigger models hold the
@@ -310,8 +336,8 @@ describe("(1) USER perspective — non-developer CLI flow", () => {
     runBin(
       [
         "login", "--adk", adk,
-        "--main", "openai-compat|http://127.0.0.1:11434/v1|gemma3:4b",
-        "--embedded", "ollama-embed|http://127.0.0.1:11434/v1|nomic-embed-text|768",
+        "--main", liveModelSpec(),
+        "--embedded", liveEmbedSpec(),
       ],
       coldEnv(home),
     );
@@ -345,7 +371,7 @@ describe("(1) USER perspective — non-developer CLI flow", () => {
     const home = mkdtempSync(join(tmp, "home-"));
     const adk = mkdtempSync(join(tmp, "adk-"));
     runBin(
-      ["login", "--adk", adk, "--main", "openai-compat|http://127.0.0.1:11434/v1|gemma3n:e4b"],
+      ["login", "--adk", adk, "--main", liveModelSpec()],
       coldEnv(home),
     );
     runBin(
@@ -427,8 +453,8 @@ describe("(1) USER perspective — non-developer CLI flow", () => {
       const home = mkdtempSync(join(tmp, "home-"));
       const adk = mkdtempSync(join(tmp, "adk-"));
       runBin(
-        ["login", "--adk", adk, "--main", "openai-compat|http://127.0.0.1:11434/v1|gemma3n:e4b",
-         "--embedded", "ollama-embed|http://127.0.0.1:11434/v1|bge-m3|1024"],
+        ["login", "--adk", adk, "--main", liveModelSpec(),
+         "--embedded", liveEmbedSpec()],
         coldEnv(home),
       );
       // race the two writes by spawning roughly simultaneously

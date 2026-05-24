@@ -31,9 +31,9 @@
 | weather | packages/runtime/src/skills/weather.ts | **4-A DONE** HTTP (wttr.in, key 불필요), T0 |
 | memo | packages/runtime/src/skills/memo.ts | **4-A DONE** node:fs, T1 |
 | system-status | packages/runtime/src/skills/system-status.ts | **4-A DONE** node:os, T0 |
-| diagnostics | — | **보류** ctx.gateway 필수 |
-| sessions | — | **보류** ctx.gateway + local-sessions.js |
-| config | — | **보류** ctx.gateway + MODEL_PRICING |
+| diagnostics | packages/runtime/src/skills/diagnostics.ts | **DONE** SessionManager + ConfigManager 상태 노출, T0 |
+| sessions | packages/runtime/src/skills/sessions.ts | **DONE** SessionManager 기반 세션 관리, T0 |
+| config | packages/runtime/src/skills/config.ts | **DONE** ConfigManager 기반 설정 조회/변경, T1 |
 
 ### Host Injection — naia-os 전용, stdio proxy로 주입
 

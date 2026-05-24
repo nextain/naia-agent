@@ -8,6 +8,31 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+### fix (adversarial review — 5 bugs)
+
+- **`packages/core/src/agent.ts`** — `session.started` now emits only once per session (one-shot `#sessionStartedEmitted` guard). Previously fired on every `sendStream()` call.
+- **`packages/core/src/agent.ts`** — CJK token estimation no longer underestimates. Separate counters: `ascii/4 + cjk*1.5` (Korean, Chinese, Japanese codepoint ranges). Previous `chars/4` undercounted CJK by 50-75%.
+- **`packages/core/src/agent.ts`** — `strategy="off"` now hard-trims history when budget exceeded (turn-boundary splice). Previously history grew unbounded.
+- **`packages/core/src/agent.ts`** — `#buildRequest()` gains `consumeTransient` flag. Prevents `#importedHandoff` from being consumed during `#maybeCompact()` / `#maybeAutoHandoff()` budget estimation calls.
+- **`packages/runtime/src/mocks/in-memory-tool-executor.ts`** + **`skill-tool-bridge.ts`** — `execute()` now accepts `_signal?: AbortSignal` matching the `ToolExecutor` interface. Previously the parameter was missing, silently dropping abort signals.
+- **`packages/providers/src/registry.ts`** — Removed `gemini-2.5-flash-live` and `naia-24g-live` from the `"openai"` provider (they belong only under `"nextain"`). Duplicate entries bypassed provider-specific streaming boundaries.
+
+### feat (core infrastructure — SessionManager + ConfigManager)
+
+- **`packages/runtime/src/session-manager.ts`** (new) — `SessionManager`: multi-session CRUD with state machine enforcement (`ALLOWED_TRANSITIONS`), activation of paused sessions (paused→resumed→active), stats tracking (turns, tokens), LRU eviction, crypto.randomUUID session IDs.
+- **`packages/runtime/src/config-manager.ts`** (new) — `ConfigManager`: agent config get/set/reset with `onChange` callback. Covers provider, model, contextBudget, compactionStrategy, language.
+- **`packages/types/src/session.ts`** — `ALLOWED_TRANSITIONS["resumed"]` now includes `"active"` (enables paused→resumed→active two-hop resume path).
+
+### feat (3 new skills — diagnostics, sessions, config)
+
+- **`packages/runtime/src/skills/diagnostics.ts`** (new) — `createDiagnosticsSkill()`: agent/system/config diagnostics. Sections: agent (active session, uptime, token stats), system (memory, CPU, node version), config (current settings). Tier T0.
+- **`packages/runtime/src/skills/sessions.ts`** (new) — `createSessionsSkill()`: session management via LLM tool. Actions: list, create, switch, pause, close, delete, current. Backed by `SessionManager`. Tier T0.
+- **`packages/runtime/src/skills/config.ts`** (new) — `createConfigSkill()`: agent config get/set/reset via LLM tool. Backed by `ConfigManager`. Tier T1.
+- **`packages/runtime/src/skills/index.ts`** — barrel exports for 3 new skills.
+- **`packages/runtime/src/index.ts`** — runtime barrel exports `SessionManager`, `ConfigManager`, and 3 new skills.
+- **`bin/naia-agent.ts`** — global `SessionManager` + `ConfigManager` instances wired into all 3 CLI modes (direct, service, stdio) with `PROCESS_STARTED_AT` uptime tracking.
+- **`packages/runtime/src/__tests__/session-config-diag.test.ts`** (new) — 32 unit tests (SessionManager: 12, ConfigManager: 6, diagnostics: 4, sessions: 8, config: 3 + resume + zero-delta edge cases).
+
 ### feat
 
 - **`packages/runtime/src/skills/time.ts`** (new) — `createTimeSkill()`: locale / ISO 8601 / Unix timestamp formats with optional timezone. Tier T0, zero dependencies. Migrated from naia-os.

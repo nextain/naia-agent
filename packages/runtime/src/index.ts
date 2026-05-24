@@ -122,5 +122,14 @@ export {
   createWeatherSkill,
   createMemoSkill,
   createSystemStatusSkill,
+  createDiagnosticsSkill,
+  createSessionsSkill,
+  createConfigSkill,
 } from "./skills/index.js";
-export type { BashSkillOptions, BashInput, CodingSkillOptions, CodingInput, FileOpsOptions, TimeSkillOptions, WeatherSkillOptions, MemoSkillOptions, SystemStatusSkillOptions } from "./skills/index.js";
+export type { BashSkillOptions, BashInput, CodingSkillOptions, CodingInput, FileOpsOptions, TimeSkillOptions, WeatherSkillOptions, MemoSkillOptions, SystemStatusSkillOptions, DiagnosticsSkillOptions, SessionsSkillOptions, ConfigSkillOptions } from "./skills/index.js";
+
+// Session + Config managers — Claude Code-level core infrastructure.
+export { SessionManager } from "./session-manager.js";
+export type { SessionRecord, SessionManagerOptions } from "./session-manager.js";
+export { ConfigManager } from "./config-manager.js";
+export type { AgentConfig, ConfigManagerOptions } from "./config-manager.js";

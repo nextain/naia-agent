@@ -55,6 +55,11 @@ import {
   createWeatherSkill,
   createMemoSkill,
   createSystemStatusSkill,
+  createDiagnosticsSkill,
+  createSessionsSkill,
+  createConfigSkill,
+  SessionManager,
+  ConfigManager,
   FileSkillLoader,
   SkillToolExecutor,
   CompositeToolExecutor,
@@ -120,6 +125,10 @@ const SENSITIVE_ENV_PATTERNS: readonly RegExp[] = [
   /_PASSWORD$/,
   /_API_KEY$/,
 ];
+
+const PROCESS_STARTED_AT = Date.now();
+const sessionManager = new SessionManager();
+const configManager = new ConfigManager();
 
 // ─── Args ────────────────────────────────────────────────────────────────────
 
@@ -564,6 +573,9 @@ async function runDirect(args: Args): Promise<number> {
         createWeatherSkill(),
         createSystemStatusSkill(),
         createMemoSkill(),
+        createDiagnosticsSkill({ sessionManager, configManager, startedAt: PROCESS_STARTED_AT }),
+        createSessionsSkill({ sessionManager }),
+        createConfigSkill({ configManager }),
         ...(args.enableFileOps ? createFileOpsSkills({ workspaceRoot: args.workdir }) : []),
       ];
   const inMemTools = new InMemoryToolExecutor(builtinSkills);
@@ -995,6 +1007,9 @@ async function runService(args: Args): Promise<number> {
               createWeatherSkill(),
               createSystemStatusSkill(),
               createMemoSkill(),
+              createDiagnosticsSkill({ sessionManager, configManager, startedAt: PROCESS_STARTED_AT }),
+              createSessionsSkill({ sessionManager }),
+              createConfigSkill({ configManager }),
               ...(args.enableFileOps ? createFileOpsSkills({ workspaceRoot: args.workdir }) : []),
             ],
       );
@@ -1266,6 +1281,9 @@ async function runStdio(): Promise<number> {
             createWeatherSkill(),
             createSystemStatusSkill(),
             createMemoSkill(),
+            createDiagnosticsSkill({ sessionManager, configManager, startedAt: PROCESS_STARTED_AT }),
+            createSessionsSkill({ sessionManager }),
+            createConfigSkill({ configManager }),
           ]);
           const tools: ToolExecutor = hostInjectedDefs.length > 0
             ? new CompositeToolExecutor({ subs: [{ id: "builtins", executor: baseTools }, { id: "host", executor: hostToolExecutor }] })

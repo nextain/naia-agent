@@ -62,7 +62,7 @@ export const ALLOWED_TRANSITIONS: Readonly<Record<SessionState, readonly Session
   created: ["active", "failed"],
   active: ["paused", "closed", "failed"],
   paused: ["resumed", "closed", "failed"],
-  resumed: ["paused", "closed", "failed"],
+  resumed: ["active", "paused", "closed", "failed"],
   closed: [],
   failed: [],
 };

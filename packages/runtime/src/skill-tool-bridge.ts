@@ -113,7 +113,7 @@ export class SkillToolExecutor implements ToolExecutor {
     return out;
   }
 
-  async execute(invocation: ToolInvocation): Promise<ToolExecutionResult> {
+  async execute(invocation: ToolInvocation, _signal?: AbortSignal): Promise<ToolExecutionResult> {
     const skillName = this.#skillNameFor(invocation.name);
     if (skillName === null) {
       return {

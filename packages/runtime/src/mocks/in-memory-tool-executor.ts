@@ -35,7 +35,7 @@ export class InMemoryToolExecutor implements ToolExecutor {
     );
   }
 
-  async execute(invocation: ToolInvocation): Promise<ToolExecutionResult> {
+  async execute(invocation: ToolInvocation, _signal?: AbortSignal): Promise<ToolExecutionResult> {
     const tool = this.#tools.get(invocation.name);
     if (!tool) {
       return { content: `Tool "${invocation.name}" not found`, isError: true };

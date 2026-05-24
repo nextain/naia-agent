@@ -100,22 +100,6 @@ const PROVIDERS: ProviderMeta[] = [
     defaultModel: "gpt-4o",
     models: [
       { id: "gpt-4o", label: "GPT-4o", capabilities: ["llm"] },
-      {
-        id: "gemini-2.5-flash-live",
-        label: "Gemini 2.5 Flash Live (실시간)",
-        capabilities: ["llm", "omni"],
-        voiceSelectable: true,
-        voices: [...GEMINI_LIVE_VOICES],
-        transcriptProvided: true,
-      },
-      {
-        id: "naia-24g-live",
-        label: "Naia Live 1.0",
-        capabilities: ["llm", "omni"],
-        voiceSelectable: true,
-        voices: [{ id: "alloy", label: "Naia Korean (여성)" }],
-        transcriptProvided: true,
-      },
     ],
   },
   {

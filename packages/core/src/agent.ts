@@ -191,6 +191,9 @@ export class Agent {
   /** Whether a handoff has been auto-fired this session (one-shot guard so
    *  budget-95 thrash doesn't emit duplicates). Slice 3-XR-Handoff (#50). */
   #handoffFired = false;
+  /** Whether session.started has been emitted. One-shot guard so
+   *  sendStream() does not re-emit on subsequent turns. */
+  #sessionStartedEmitted = false;
   /** Anchors injected into the system prompt from an imported handoff blob.
    *  Prepended to system prompt at the start of the next turn. Slice 3-XR-Handoff (#50). */
   #importedHandoff: HandoffBlob | undefined;
@@ -259,7 +262,10 @@ export class Agent {
       throw new Error(`Cannot send — session is "${this.#session.state}"`);
     }
 
-    yield { type: "session.started", session: this.#session };
+    if (!this.#sessionStartedEmitted) {
+      this.#sessionStartedEmitted = true;
+      yield { type: "session.started", session: this.#session };
+    }
 
     // 1. Recall memory for context.
     const hits = await this.#recallMemory(userText);
@@ -439,6 +445,7 @@ export class Agent {
   #buildRequest(
     memoryHits: MemoryHit[],
     toolDefs: readonly ToolDefinitionWithTier[] = [],
+    consumeTransient = true,
   ): LLMRequest {
     const builder = new SystemPromptBuilder();
 
@@ -475,7 +482,7 @@ export class Agent {
         section: "handoff",
         content: lines.join("\n\n"),
       });
-      this.#importedHandoff = undefined;
+      if (consumeTransient) this.#importedHandoff = undefined;
     }
 
     if (memoryHits.length > 0) {
@@ -635,7 +642,20 @@ export class Agent {
   ): Promise<AgentStreamEvent | undefined> {
     // Strategy gates — short-circuit when the host explicitly disabled
     // host-side compaction (Slice 3-XR-Compact #47 §6).
-    if (this.#strategy === "off") return undefined;
+    if (this.#strategy === "off") {
+      const request = this.#buildRequest(memoryHits, toolDefs, false);
+      if (this.#estimate(request) > this.#budget) {
+        const cutAt = findTurnCutPoint(this.#history, this.#keepTail);
+        if (cutAt > 0) {
+          this.#history.splice(0, cutAt);
+          this.#host.logger.info("agent.history.hard-trim", {
+            reason: "strategy-off-budget-exceeded",
+            dropped: cutAt,
+          });
+        }
+      }
+      return undefined;
+    }
     if (this.#strategy === "anthropic-native") {
       // Server-side compaction is the authoritative path; we MUST NOT also
       // mutate history client-side or we double-compact. The provider adapter
@@ -643,8 +663,7 @@ export class Agent {
       return undefined;
     }
 
-    const request = this.#buildRequest(memoryHits, toolDefs);
-    if (this.#estimate(request) <= this.#budget) return undefined;
+    const request = this.#buildRequest(memoryHits, toolDefs, false);
 
     // Find turn boundary — keep last N user messages verbatim.
     const cutAt = findTurnCutPoint(this.#history, this.#keepTail);
@@ -714,7 +733,7 @@ export class Agent {
     if (!this.#compactedThisSession) return undefined;
     if (this.#handoffFired) return undefined;
 
-    const request = this.#buildRequest(memoryHits, toolDefs);
+    const request = this.#buildRequest(memoryHits, toolDefs, false);
     if (this.#estimate(request) <= this.#budget * this.#handoffThreshold) {
       return undefined;
     }
@@ -932,22 +951,38 @@ function findTurnCutPoint(history: readonly LLMMessage[], keepTurns: number): nu
 /** Rough default: 4 characters per token. Host should inject a provider-
  *  accurate tokenizer when available. */
 function defaultEstimate(req: LLMRequest): number {
-  let chars = 0;
-  if (typeof req.system === "string") chars += req.system.length;
+  let asciiChars = 0;
+  let cjkChars = 0;
+  const countBlock = (text: string) => {
+    for (const ch of text) {
+      const cp = ch.codePointAt(0)!;
+      if (
+        (cp >= 0x4e00 && cp <= 0x9fff) ||
+        (cp >= 0x3400 && cp <= 0x4dbf) ||
+        (cp >= 0xf900 && cp <= 0xfaff) ||
+        (cp >= 0x3040 && cp <= 0x309f) ||
+        (cp >= 0x30a0 && cp <= 0x30ff) ||
+        (cp >= 0xac00 && cp <= 0xd7a3) ||
+        (cp >= 0x1100 && cp <= 0x11ff) ||
+        (cp >= 0x3130 && cp <= 0x318f)
+      ) {
+        cjkChars++;
+      } else {
+        asciiChars++;
+      }
+    }
+  };
+  if (typeof req.system === "string") countBlock(req.system);
   else if (Array.isArray(req.system))
-    chars += req.system.reduce(
-      (sum, b) => sum + (b.type === "text" ? b.text.length : 0),
-      0,
-    );
+    for (const b of req.system)
+      if (b.type === "text") countBlock(b.text);
   for (const m of req.messages) {
-    if (typeof m.content === "string") chars += m.content.length;
+    if (typeof m.content === "string") countBlock(m.content);
     else
-      chars += m.content.reduce(
-        (sum, b) => sum + (b.type === "text" ? b.text.length : 0),
-        0,
-      );
+      for (const b of m.content)
+        if (b.type === "text") countBlock(b.text);
   }
-  return Math.ceil(chars / 4);
+  return Math.ceil(asciiChars / 4 + cjkChars * 1.5);
 }
 
 function randomSessionId(): string {
