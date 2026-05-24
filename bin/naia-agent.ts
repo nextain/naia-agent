@@ -605,26 +605,30 @@ async function runDirect(args: Args): Promise<number> {
         ...(args.enableFileOps ? createFileOpsSkills({ workspaceRoot: args.workdir }) : []),
       ];
   const inMemTools = new InMemoryToolExecutor(builtinSkills);
-  // Slice 3-XR-J — when --skills-dir is set, layer a SkillToolExecutor on
-  // top so naia-adk / onmam-adk top-level skills/ are visible to the model.
-  // Composite preserves bash + file-ops + ADK-skills in a single ToolExecutor.
-  const tools = args.skillsDir
-    ? new CompositeToolExecutor({
-        subs: [
-          { id: "builtins", executor: inMemTools },
-          {
-            id: "naia-adk-skills",
-            executor: new SkillToolExecutor({
-              loader: new FileSkillLoader({
-                workspaceRoot: args.skillsDir,
-                skillsDir: args.skillsDir,
-                onWarn: (m) => process.stderr.write(`naia-agent: skills-dir warn: ${m}\n`),
-              }),
-            }),
-          },
-        ],
-      })
-    : inMemTools;
+  const adkAutoSkillDirs: string[] = [];
+  const adkBase = resolveAdkPath();
+  for (const sub of [".agents/skills", "skills"]) {
+    const candidate = path.join(adkBase, sub);
+    if (existsSync(candidate)) adkAutoSkillDirs.push(candidate);
+  }
+  const allSkillDirs = [...(args.skillsDir ? [args.skillsDir] : []), ...adkAutoSkillDirs];
+
+  let tools: ToolExecutor;
+  if (allSkillDirs.length > 0) {
+    const skillSubs = allSkillDirs.map((dir, i) => ({
+      id: `adk-skills-${i}`,
+      executor: new SkillToolExecutor({
+        loader: new FileSkillLoader({
+          workspaceRoot: dir,
+          skillsDir: dir,
+          onWarn: (m: string) => process.stderr.write(`naia-agent: skills-dir warn: ${m}\n`),
+        }),
+      }),
+    }));
+    tools = new CompositeToolExecutor({ subs: [{ id: "builtins", executor: inMemTools }, ...skillSubs] });
+  } else {
+    tools = inMemTools;
+  }
   const memory = buildCliMemory(args);
   const logger = new ConsoleLogger({ level: args.debug ? "debug" : "warn" });
 
@@ -756,6 +760,14 @@ async function executeAgent(agent: Agent, args: Args): Promise<number> {
       }
       if (trimmed === "/setup") {
         rl.pause();
+        const providerEnvKeys = [
+          "NAIA_MAIN_PROVIDER", "NAIA_MAIN_MODEL", "NAIA_ANYLLM_API_KEY", "NAIA_ANYLLM_BASE_URL",
+          "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "ANTHROPIC_BASE_URL",
+          "OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_MODEL",
+          "GLM_API_KEY", "GLM_MODEL", "GLM_BASE_URL",
+          "VERTEX_PROJECT_ID", "VERTEX_REGION",
+        ];
+        for (const k of providerEnvKeys) delete process.env[k];
         await runOnboarding();
         loadEnvAndConfig();
         const credKeys3 = await readCredentialKeys();
@@ -1724,9 +1736,28 @@ function keychainGet(keyName: string): string | null {
 }
 
 /** naia-settings directory path. */
+function resolveAdkPath(): string {
+  if (process.env["NAIA_ADK_PATH"]) return process.env["NAIA_ADK_PATH"];
+
+  const bootstrapPath = path.join(homedir(), ".naia-agent", "config.json");
+  try {
+    const raw = readFileSync(bootstrapPath, "utf8");
+    const cfg = JSON.parse(raw) as { adkPath?: string; naiaAdkPath?: string };
+    const resolved = cfg.adkPath || cfg.naiaAdkPath;
+    if (resolved && typeof resolved === "string") return resolved;
+  } catch { /* not found or invalid */ }
+
+  const cachePath = path.join(homedir(), ".naia", "adk-path");
+  try {
+    const cached = readFileSync(cachePath, "utf8").trim();
+    if (cached) return cached;
+  } catch { /* not found */ }
+
+  return path.join(homedir(), "naia-adk");
+}
+
 function naiaSettingsDir(): string {
-  const adkPath = process.env["NAIA_ADK_PATH"] ?? path.join(homedir(), "naia-adk");
-  return path.join(adkPath, "naia-settings");
+  return path.join(resolveAdkPath(), "naia-settings");
 }
 
 /** credentials manifest: list of key names stored in OS keychain. */
@@ -1979,17 +2010,39 @@ async function promptOptional(label: string, defaultVal: string): Promise<string
 }
 
 /** Read existing naia-settings/config.json (empty object if missing). */
+const CAMEL_TO_NAIA_MAP: Record<string, string> = {
+  agentName: "NAIA_AGENT_NAME",
+  userName: "NAIA_USER_NAME",
+  speechStyle: "NAIA_SPEECH_STYLE",
+  honorific: "NAIA_HONORIFIC",
+  extraPersona: "NAIA_EXTRA_PERSONA",
+  persona: "NAIA_PERSONA",
+  locale: "NAIA_LOCALE",
+  provider: "NAIA_MAIN_PROVIDER",
+  model: "NAIA_MAIN_MODEL",
+};
+
+function normalizeConfigKeys(cfg: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = { ...cfg };
+  for (const [camel, naia] of Object.entries(CAMEL_TO_NAIA_MAP)) {
+    if (out[camel] !== undefined && out[naia] === undefined) {
+      out[naia] = out[camel];
+    }
+  }
+  return out;
+}
+
 async function readNaiaSettings(): Promise<Record<string, string>> {
   try {
     const raw = await readFile(path.join(naiaSettingsDir(), "config.json"), "utf8");
-    return JSON.parse(raw) as Record<string, string>;
+    return normalizeConfigKeys(JSON.parse(raw) as Record<string, string>);
   } catch { return {}; }
 }
 
 function readNaiaSettingsSync(): Record<string, string> {
   try {
     const raw = readFileSync(path.join(naiaSettingsDir(), "config.json"), "utf8");
-    return JSON.parse(raw) as Record<string, string>;
+    return normalizeConfigKeys(JSON.parse(raw) as Record<string, string>);
   } catch { return {}; }
 }
 
@@ -2376,6 +2429,19 @@ async function runOnboarding(): Promise<number> {
   finalCfg["NAIA_LOCALE"] = locale;
   finalCfg["onboardingComplete"] = "true";
   await writeNaiaSettings(finalCfg);
+
+  const adkDir = resolveAdkPath();
+  if (!process.env["NAIA_ADK_PATH"]) {
+    const bootstrapDir = path.join(homedir(), ".naia-agent");
+    try {
+      await mkdir(bootstrapDir, { recursive: true });
+      await writeFile(
+        path.join(bootstrapDir, "config.json"),
+        JSON.stringify({ adkPath: adkDir, naiaAdkPath: adkDir, version: "0.0.1" }, null, 2) + "\n",
+        "utf8",
+      );
+    } catch { /* non-fatal */ }
+  }
 
   // ── Step: complete ──
   current = "complete";
