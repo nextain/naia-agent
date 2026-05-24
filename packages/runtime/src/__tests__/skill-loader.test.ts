@@ -188,19 +188,16 @@ describe("parseSkillManifest — adversarial edges (R11)", () => {
 		expect(d).toBeNull();
 	});
 
-	it("[SK-EDGE CRLF pin] CRLF breaks per-key parsing — top-level regex .* fails on trailing \\r, descriptor returns all fallbacks", () => {
-		// Frontmatter extraction succeeds (outer regex tolerates \r via \s*),
-		// but per-line key regex `/^([a-zA-Z_][\w-]*)\s*:\s*(.*)$/` fails on
-		// "name: s\r": `.*` doesn't eat \r and `$` without /m requires string
-		// end, which \r is not. So every key is silently lost → fallback.
+	it("[SK-EDGE CRLF] CRLF frontmatter parses correctly after normalization", () => {
 		const raw = `---\r\nname: s\r\ndescription: d\r\nversion: 0.1.0\r\n---\r\nbody`;
 		const d = parseSkillManifest(raw, FALLBACKS);
 		expect(d).not.toBeNull();
-		expect(d?.name).toBe(FALLBACKS.fallbackName);
-		expect(d?.description).toBe("");
+		expect(d?.name).toBe("s");
+		expect(d?.description).toBe("d");
+		expect(d?.version).toBe("0.1.0");
 	});
 
-	it.fails(
+	it(
 		"[B-BUG SK-EDGE-CRLF Phase D contract] CRLF frontmatter should parse with trimmed \\r — user fields preserved",
 		() => {
 			const raw = `---\r\nname: s\r\ndescription: d\r\nversion: 0.1.0\r\n---\r\nbody`;

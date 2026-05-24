@@ -1993,8 +1993,68 @@ async function configureEmbedLlm(): Promise<number> {
 
 async function runLogin(argv: string[]): Promise<number> {
   let provider: string | undefined;
+  let adkPath: string | undefined;
+  let mainSpec: string | undefined;
+  let subSpec: string | undefined;
+  let embeddedSpec: string | undefined;
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--key") provider = argv[++i];
+    else if (argv[i] === "--adk") adkPath = argv[++i];
+    else if (argv[i] === "--main") mainSpec = argv[++i];
+    else if (argv[i] === "--sub") subSpec = argv[++i];
+    else if (argv[i] === "--embedded") embeddedSpec = argv[++i];
+  }
+
+  if (adkPath) {
+    if (!mainSpec && !subSpec && !embeddedSpec) {
+      process.stderr.write(
+        "usage: naia-agent login --adk <path> --main <provider|baseUrl|model[|apiKeyRef]>\n" +
+        "                               [--sub <spec>] [--embedded <spec>]\n",
+      );
+      return 3;
+    }
+    const roles: Record<string, ParsedRole> = {};
+    if (mainSpec) {
+      const r = parseRoleSpec(mainSpec, false);
+      if (!r.ok) { process.stderr.write(`naia-agent login: --main: ${r.err}\n`); return 3; }
+      roles.main = r.role;
+    }
+    if (subSpec) {
+      const r = parseRoleSpec(subSpec, false);
+      if (!r.ok) { process.stderr.write(`naia-agent login: --sub: ${r.err}\n`); return 3; }
+      roles.sub = r.role;
+    }
+    if (embeddedSpec) {
+      const r = parseRoleSpec(embeddedSpec, true);
+      if (!r.ok) { process.stderr.write(`naia-agent login: --embedded: ${r.err}\n`); return 3; }
+      roles.embedded = r.role;
+    }
+    const settingsDir = path.join(adkPath, "naia-settings");
+    mkdirSync(settingsDir, { recursive: true });
+    const llmPath = path.join(settingsDir, "llm.json");
+    let existing: Record<string, unknown> = { version: 1 };
+    try {
+      if (existsSync(llmPath)) existing = JSON.parse(readFileSync(llmPath, "utf8")) as Record<string, unknown>;
+    } catch { /* overwrite */ }
+    const merged = { ...existing, ...roles };
+    writeFileSync(llmPath, JSON.stringify(merged, null, 2) + "\n");
+
+    const configDir = path.join(homedir(), ".naia-agent");
+    mkdirSync(configDir, { recursive: true });
+    const configJsonPath = path.join(configDir, "config.json");
+    let config: Record<string, unknown> = {};
+    try {
+      if (existsSync(configJsonPath)) config = JSON.parse(readFileSync(configJsonPath, "utf8")) as Record<string, unknown>;
+    } catch { /* overwrite */ }
+    config.naiaAdkPath = adkPath;
+    writeFileSync(configJsonPath, JSON.stringify(config, null, 2) + "\n");
+
+    const roleNames = Object.keys(roles).join(", ");
+    process.stderr.write(
+      `naia-agent login: configured (${roleNames})\n` +
+      `  Run: pnpm naia-agent --no-tools "your prompt here"\n`,
+    );
+    return 0;
   }
 
   // ── Shortcut: login naia → browser login + model select → done ──
@@ -2032,12 +2092,18 @@ async function runLogin(argv: string[]): Promise<number> {
     return 0;
   }
 
-  // ── non-TTY without --key: usage error (tests) ──
+  // ── No recognized flags / non-TTY: usage ──
   if (!process.stdin.isTTY) {
     process.stderr.write(
-      `naia-agent login: missing --key <provider>\n` +
-      `  providers: ${Object.keys(LOGIN_PROVIDERS).join(" | ")}\n` +
-      `  example:   pnpm naia-agent login --key anthropic\n`,
+      "naia-agent login: missing --key <provider> or --adk <path>\n" +
+      "usage: naia-agent login --adk <path> --main <provider|baseUrl|model[|apiKeyRef]>\n" +
+      "                               [--sub <spec>] [--embedded <spec>]\n" +
+      "       naia-agent login --key <provider>\n" +
+      "       naia-agent login naia                  # browser login -> model select -> done\n" +
+      "       naia-agent login <provider>            # anthropic | openai | glm | vertex\n" +
+      "\n" +
+      "  Role spec: provider|baseUrl|model[|apiKeyRef]\n" +
+      "  Embedded:  provider|baseUrl|model|dims[|apiKeyRef]\n",
     );
     return 3;
   }

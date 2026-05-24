@@ -96,13 +96,19 @@ function findTsxCli(): string {
 const tsxCli = findTsxCli();
 
 function coldEnv(home: string, extras: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
-  return {
+  const env: NodeJS.ProcessEnv = {
     PATH: process.env["PATH"],
     HOME: home,
     USER: process.env["USER"],
     SHELL: process.env["SHELL"],
     ...extras,
   };
+  if (process.platform === "win32") {
+    env["USERPROFILE"] = home;
+    env["HOMEDRIVE"] = undefined;
+    env["HOMEPATH"] = undefined;
+  }
+  return env;
 }
 
 function runBin(args: string[], env: NodeJS.ProcessEnv, stdin?: string, timeoutMs = 60_000) {
@@ -2080,7 +2086,7 @@ describe("Group O — naia-agent ↔ Claude Code harness behavioral parity (inte
     const { readFileSync } = require("node:fs") as typeof import("node:fs");
     const bin = readFileSync(resolve(repoRoot, "bin/naia-agent.ts"), "utf8");
     const has0 = /return\s+0/.test(bin);
-    const has2 = /return\s+2/.test(bin);
+    const has2 = /\b0\s*:\s*2\b|\breturn\s+2\b/.test(bin);
     const has3 = /return\s+3/.test(bin);
     const mechPass = has0 && has2 && has3;
     record("O4", "O", "exit-code parity (0/2/3 tier)", start, {

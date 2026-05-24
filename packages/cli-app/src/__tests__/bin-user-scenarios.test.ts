@@ -49,13 +49,19 @@ const tsxCli = findTsxCli();
  * keys/URLs/keychain refs.
  */
 function coldEnv(home: string, extras: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
-  return {
+  const env: NodeJS.ProcessEnv = {
     PATH: process.env["PATH"],
     HOME: home,
     USER: process.env["USER"],
     SHELL: process.env["SHELL"],
     ...extras,
   };
+  if (process.platform === "win32") {
+    env["USERPROFILE"] = home;
+    env["HOMEDRIVE"] = undefined;
+    env["HOMEPATH"] = undefined;
+  }
+  return env;
 }
 
 function runBin(args: string[], env: NodeJS.ProcessEnv, stdin?: string, timeoutMs = 20_000) {
@@ -244,7 +250,7 @@ describe("(1) USER perspective — non-developer CLI flow", () => {
       const home = mkdtempSync(join(tmp, "home-"));
       const adk = mkdtempSync(join(tmp, "adk-"));
       runBin(
-        ["login", "--adk", adk, "--main", "openai-compat|http://127.0.0.1:11434/v1|gemma3n:e4b"],
+        ["login", "--adk", adk, "--main", "openai-compat|http://127.0.0.1:11434/v1|gemma3:4b"],
         coldEnv(home),
       );
       const r = runBin(["hi"], coldEnv(home), undefined, 90_000); // cross-review B-#2
@@ -264,7 +270,7 @@ describe("(1) USER perspective — non-developer CLI flow", () => {
     const home = mkdtempSync(join(tmp, "home-"));
     const adk = mkdtempSync(join(tmp, "adk-"));
     runBin(
-      ["login", "--adk", adk, "--main", "openai-compat|http://127.0.0.1:11434/v1|gemma3n:e4b"],
+      ["login", "--adk", adk, "--main", "openai-compat|http://127.0.0.1:11434/v1|gemma3:4b"],
       coldEnv(home),
     );
     // Cross-review (Slice 3-XR-J finding): when bigger models hold the
@@ -304,8 +310,8 @@ describe("(1) USER perspective — non-developer CLI flow", () => {
     runBin(
       [
         "login", "--adk", adk,
-        "--main", "openai-compat|http://127.0.0.1:11434/v1|gemma3n:e4b",
-        "--embedded", "ollama-embed|http://127.0.0.1:11434/v1|bge-m3|1024",
+        "--main", "openai-compat|http://127.0.0.1:11434/v1|gemma3:4b",
+        "--embedded", "ollama-embed|http://127.0.0.1:11434/v1|nomic-embed-text|768",
       ],
       coldEnv(home),
     );

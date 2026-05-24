@@ -300,7 +300,8 @@ export function parseSkillManifest(
 }
 
 function extractFrontMatter(raw: string): string | null {
-  const match = /^---\s*\n([\s\S]*?)\n---\s*(?:\n|$)/.exec(raw);
+  const normalized = raw.replace(/\r\n/g, "\n");
+  const match = /^---\s*\n([\s\S]*?)\n---\s*(?:\n|$)/.exec(normalized);
   return match ? (match[1] ?? null) : null;
 }
 
