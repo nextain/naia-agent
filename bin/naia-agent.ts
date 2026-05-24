@@ -1107,16 +1107,20 @@ function readStdin(): Promise<string> {
 // by naia-os as an alternative to the embedded agent.
 //
 // Stdin (newline-delimited JSON):
-//   { type: "auth_update",   naiaKey }        → set NAIA_ANYLLM_API_KEY
-//   { type: "notify_config", ... }            → set webhook env vars
-//   { type: "creds_update",  keys, ttsKeys }  → set provider API keys
-//   { type: "chat_request",  requestId, messages, systemPrompt } → run chat
-//   { type: "cancel_stream", requestId }      → abort in-flight request
+//   { type: "auth_update",    naiaKey }        → set NAIA_ANYLLM_API_KEY
+//   { type: "notify_config",  ... }            → set webhook env vars
+//   { type: "creds_update",   keys, ttsKeys }  → set provider API keys
+//   { type: "skill_inject",   tools }           → register host proxy stubs
+//   { type: "skill_revoke",   names }           → unregister host proxy stubs
+//   { type: "chat_request",   requestId, messages, systemPrompt } → run chat
+//   { type: "cancel_stream",  requestId }      → abort in-flight request
+//   { type: "panel_tool_result", requestId, toolCallId, result, success } → proxy result
 //
 // Stdout (newline-delimited JSON):
-//   { type: "text",   requestId, text }    → incremental text chunk
-//   { type: "finish", requestId }          → request completed
-//   { type: "error",  requestId, message } → request failed
+//   { type: "text",              requestId, text }    → incremental text chunk
+//   { type: "finish",            requestId }          → request completed
+//   { type: "error",             requestId, message } → request failed
+//   { type: "panel_tool_call",   requestId, toolCallId, toolName, args } → proxy call
 //
 // Phase 2 note: each chat_request uses only the last user message as the prompt.
 // Full multi-turn history forwarding is deferred to Phase 3.
@@ -1128,6 +1132,25 @@ function stdioWriteLine(data: unknown): void {
 async function runStdio(): Promise<number> {
   const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
   const activeStreams = new Map<string, AbortController>();
+  const pendingToolCalls = new Map<string, { resolve: (v: string) => void; reject: (e: Error) => void }>();
+  const TOOL_TIMEOUT_MS = 30_000;
+
+  const hostInjectedDefs: ToolDefinitionWithTier[] = [];
+  let hostToolExecutor: ToolExecutor = {
+    list: async () => hostInjectedDefs,
+    execute: async (inv) => {
+      const toolCallId = `tc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const requestId = "proxy";
+      stdioWriteLine({ type: "panel_tool_call", requestId, toolCallId, toolName: inv.name, args: inv.input });
+      return new Promise<ToolExecutionResult>((resolve, reject) => {
+        const tid = setTimeout(() => reject(new Error(`Host tool timed out: ${inv.name}`)), TOOL_TIMEOUT_MS);
+        pendingToolCalls.set(toolCallId, {
+          resolve: (v) => { clearTimeout(tid); resolve({ content: v }); },
+          reject: (e) => { clearTimeout(tid); resolve({ content: e.message, isError: true }); },
+        });
+      });
+    },
+  };
 
   for await (const line of rl) {
     const trimmed = line.trim();
@@ -1224,12 +1247,15 @@ async function runStdio(): Promise<number> {
             return;
           }
 
+          const baseTools = new InMemoryToolExecutor([createBashSkill()]);
+          const tools: ToolExecutor = hostInjectedDefs.length > 0
+            ? new CompositeToolExecutor({ subs: [{ id: "builtins", executor: baseTools }, { id: "host", executor: hostToolExecutor }] })
+            : baseTools;
           const memory = new InMemoryMemory();
           const host: HostContext = {
             llm,
             memory,
-            tools: new InMemoryToolExecutor([createBashSkill()]),
-            logger: new ConsoleLogger({ level: "warn" }),
+            tools,
             tracer: new NoopTracer(),
             meter: new InMemoryMeter(),
             approvals: {
@@ -1284,6 +1310,42 @@ async function runStdio(): Promise<number> {
           ctrl.abort();
           activeStreams.delete(requestId);
         }
+        break;
+      }
+      case "skill_inject": {
+        const tools = Array.isArray(msg.tools) ? msg.tools as Array<Record<string, unknown>> : [];
+        for (const t of tools) {
+          const name = typeof t.name === "string" ? t.name : "";
+          if (!name) continue;
+          const idx = hostInjectedDefs.findIndex((d) => d.name === name);
+          const def: ToolDefinitionWithTier = {
+            name,
+            description: typeof t.description === "string" ? t.description : "",
+            inputSchema: (t.parameters ?? t.inputSchema ?? { type: "object", properties: {} }) as Record<string, unknown>,
+            tier: (typeof t.tier === "string" ? t.tier : typeof t.tier === "number" ? `T${t.tier}` : "T1") as ToolDefinitionWithTier["tier"],
+          };
+          if (idx >= 0) hostInjectedDefs[idx] = def;
+          else hostInjectedDefs.push(def);
+        }
+        break;
+      }
+      case "skill_revoke": {
+        const names = Array.isArray(msg.names) ? msg.names as string[] : [];
+        for (const n of names) {
+          const idx = hostInjectedDefs.findIndex((d) => d.name === n);
+          if (idx >= 0) hostInjectedDefs.splice(idx, 1);
+        }
+        break;
+      }
+      case "panel_tool_result": {
+        const toolCallId = typeof msg.toolCallId === "string" ? msg.toolCallId : "";
+        const pending = pendingToolCalls.get(toolCallId);
+        if (!pending) break;
+        pendingToolCalls.delete(toolCallId);
+        const success = msg.success !== false;
+        const result = typeof msg.result === "string" ? msg.result : JSON.stringify(msg.result ?? "");
+        if (success) pending.resolve(result);
+        else pending.reject(new Error(result));
         break;
       }
     }

@@ -219,7 +219,7 @@ function t(key: TranslationKey): string;
      결정 기준: CompositeToolExecutor를 SkillRegistry로 대체 (unified "last wins" 단일 경로)
      의존: 없음.
 
-4-D: 스킬 주입 프로토콜 (기존 PanelSkillsRequest 일반화)
+4-D: 스킬 주입 프로토콜 (기존 PanelSkillsRequest 일반화) **DONE**
      skill_inject / skill_revoke 메시지 추가
      schemaVersion 필드
      의존: 4-A (이관 완료 후 어떤 스킬을 proxy로 만들지 명확해짐)

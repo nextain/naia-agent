@@ -30,6 +30,13 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 - **`packages/runtime/src/composite-tool-executor.ts`** — collision policy changed from first-wins to **last-wins**. Sub registration order now determines priority: core → ADK → host (later overrides earlier).
 - **`packages/runtime/src/__tests__/composite-tool-executor.test.ts`** (new) — 8 unit tests covering last-wins, 3-layer override, non-colliding aggregation, lazy rebuild, shadowedNames diagnostics.
 
+### feat (Slice 4-D)
+
+- **`bin/naia-agent.ts` `runStdio()`** — new stdio IPC message types: `skill_inject` (register host proxy stubs), `skill_revoke` (remove), `panel_tool_result` (proxy result callback). Host tools injected via `CompositeToolExecutor` with last-wins priority over builtins.
+- **`packages/cli-app/src/__tests__/skill-inject-protocol.test.ts`** (new) — 5 tests covering host injection, override, dynamic replacement, routing.
+- **G3 integration test** updated: first-wins → last-wins assertion.
+- **ALLOWED_KINDS** already includes `panel_skills`, `panel_skills_clear`, `panel_tool_result`, `panel_tool_call`.
+
 - **`packages/types/src/provider-registry.ts`** (new) — `ProviderMeta`, `ModelMeta`, `VoiceMeta`, `ModelCapability` types. Runtime-agnostic provider catalogue contract, adapted from naia-os `shell/src/lib/llm/types.ts` with UI fields removed.
 - **`packages/providers/src/registry.ts`** (new) — 9-provider catalogue (nextain/Naia, claude-code-cli, gemini, openai, anthropic, xai, zai, ollama, vllm). Lookup helpers (`listProviders`, `getProvider`, `getProviderModels`, `getDefaultModel`). Gateway live pricing fetch (`fetchNaiaPricing`), gateway model discovery (`fetchGatewayModels`), dynamic fetch for ollama/vllm, `shouldMigrateNextainModel` migration helper.
 - **`bin/naia-agent.ts`** — `providers` subcommand: lists all providers with models, pricing, capabilities. `getNaiaRegistryMeta()` now imports naia-agent's own registry instead of naia-os dynamic import (removes cross-repo coupling). 18 unit tests in `packages/providers/src/__tests__/registry.test.ts`. Slice 4-P1 (#59).

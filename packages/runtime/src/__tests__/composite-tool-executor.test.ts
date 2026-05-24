@@ -78,7 +78,7 @@ describe("CompositeToolExecutor", () => {
       ],
     });
     await c.list();
-    const result = await c.execute({ id: "t1", name: "weather", input: {} });
+    const result = await c.execute({ id: "t1", name: "weather", input: {}, tier: "T0" });
     expect(result.content).toBe("adk-result");
   });
 
@@ -94,7 +94,7 @@ describe("CompositeToolExecutor", () => {
     expect(list).toHaveLength(1);
     expect(list[0]!.description).toBe("host weather");
     expect(c.ownerOf("weather")).toBe("host");
-    const result = await c.execute({ id: "t1", name: "weather", input: {} });
+    const result = await c.execute({ id: "t1", name: "weather", input: {}, tier: "T0" });
     expect(result.content).toBe("host");
   });
 
@@ -131,7 +131,7 @@ describe("CompositeToolExecutor", () => {
       subs: [{ id: "core", executor: mockExecutor([defD]) }],
     });
     await c.list();
-    const result = await c.execute({ id: "t1", name: "nonexistent", input: {} });
+    const result = await c.execute({ id: "t1", name: "nonexistent", input: {}, tier: "T0" });
     expect(result.isError).toBe(true);
   });
 
@@ -139,7 +139,7 @@ describe("CompositeToolExecutor", () => {
     const c = new CompositeToolExecutor({
       subs: [{ id: "core", executor: mockExecutor([defD], { bash: "lazy-ok" }) }],
     });
-    const result = await c.execute({ id: "t1", name: "bash", input: {} });
+    const result = await c.execute({ id: "t1", name: "bash", input: {}, tier: "T1" });
     expect(result.content).toBe("lazy-ok");
   });
 });

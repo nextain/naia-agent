@@ -124,9 +124,23 @@ function runBin(args: string[], env: NodeJS.ProcessEnv, stdin?: string, timeoutM
   return spawnSync(process.execPath, [tsxCli, binPath, ...args], opts);
 }
 
+const OLLAMA_BASE = process.env.NAIA_TEST_OLLAMA_BASE ?? "http://127.0.0.1:11434";
+const LIVE_MODEL_24G = process.env.NAIA_TEST_LIVE_MODEL_24G ?? "gemma4:31b";
+const LIVE_MODEL_8G = process.env.NAIA_TEST_LIVE_MODEL_8G ?? "gemma3n:e4b";
+const LIVE_EMBED_MODEL = process.env.NAIA_TEST_LIVE_EMBED_MODEL ?? "bge-m3";
+const LIVE_EMBED_DIMS = parseInt(process.env.NAIA_TEST_LIVE_EMBED_DIMS ?? "1024", 10);
+
+function liveModelSpec(model: string): string {
+  return `openai-compat|${OLLAMA_BASE}/v1|${model}`;
+}
+
+function liveEmbedSpec(): string {
+  return `ollama-embed|${OLLAMA_BASE}/v1|${LIVE_EMBED_MODEL}|${LIVE_EMBED_DIMS}`;
+}
+
 async function ollamaReachable(): Promise<boolean> {
   try {
-    const r = await fetch("http://127.0.0.1:11434/api/tags", {
+    const r = await fetch(`${OLLAMA_BASE}/api/tags`, {
       signal: AbortSignal.timeout(2_000),
     });
     return r.ok;
@@ -137,7 +151,7 @@ async function ollamaReachable(): Promise<boolean> {
 
 async function modelAvailable(name: string): Promise<boolean> {
   try {
-    const r = await fetch("http://127.0.0.1:11434/api/tags", {
+    const r = await fetch(`${OLLAMA_BASE}/api/tags`, {
       signal: AbortSignal.timeout(2_000),
     });
     if (!r.ok) return false;
@@ -156,9 +170,9 @@ function bootstrap24G(home: string, adk: string): void {
       "--adk",
       adk,
       "--main",
-      "openai-compat|http://127.0.0.1:11434/v1|gemma4:31b",
+      liveModelSpec(LIVE_MODEL_24G),
       "--embedded",
-      "ollama-embed|http://127.0.0.1:11434/v1|bge-m3|1024",
+      liveEmbedSpec(),
     ],
     coldEnv(home),
   );
@@ -174,9 +188,9 @@ function bootstrap8G(home: string, adk: string): void {
       "--adk",
       adk,
       "--main",
-      "openai-compat|http://127.0.0.1:11434/v1|gemma3n:e4b",
+      liveModelSpec(LIVE_MODEL_8G),
       "--embedded",
-      "ollama-embed|http://127.0.0.1:11434/v1|bge-m3|1024",
+      liveEmbedSpec(),
     ],
     coldEnv(home),
   );
@@ -252,7 +266,7 @@ describe("Group A — 24G live (gemma4:31b)", () => {
 
   it("A1 chat smoke — Korean one-sentence greeting (thinking suppressed)", async () => {
     const start = Date.now();
-    if (!(await ollamaReachable()) || !(await modelAvailable("gemma4:31b"))) {
+    if (!(await ollamaReachable()) || !(await modelAvailable(LIVE_MODEL_24G))) {
       record("A1", "A", "Korean one-sentence greeting (24G)", start, {
         skipped: "ollama unreachable or gemma4:31b missing",
       });
@@ -302,7 +316,7 @@ describe("Group A — 24G live (gemma4:31b)", () => {
 
   it("A2 chat smoke — English one-paragraph technical answer", async () => {
     const start = Date.now();
-    if (!(await ollamaReachable()) || !(await modelAvailable("gemma4:31b"))) {
+    if (!(await ollamaReachable()) || !(await modelAvailable(LIVE_MODEL_24G))) {
       record("A2", "A", "English technical answer (24G)", start, { skipped: "no 24G" });
       return;
     }
@@ -345,7 +359,7 @@ describe("Group A — 24G live (gemma4:31b)", () => {
 
   it("A3 persistent memory — fact stored in p1 is recalled in new process (24G)", async () => {
     const start = Date.now();
-    if (!(await ollamaReachable()) || !(await modelAvailable("gemma4:31b"))) {
+    if (!(await ollamaReachable()) || !(await modelAvailable(LIVE_MODEL_24G))) {
       record("A3", "A", "persistent memory recall (24G)", start, { skipped: "no 24G" });
       return;
     }
@@ -421,7 +435,7 @@ describe("Group A — 24G live (gemma4:31b)", () => {
 
   it("A4 no-tools refuse-fabricate — model declines without bash tool", async () => {
     const start = Date.now();
-    if (!(await ollamaReachable()) || !(await modelAvailable("gemma4:31b"))) {
+    if (!(await ollamaReachable()) || !(await modelAvailable(LIVE_MODEL_24G))) {
       record("A4", "A", "no-tools refuse-fabricate (24G)", start, { skipped: "no 24G" });
       return;
     }
@@ -484,7 +498,7 @@ describe("Group B — coding behaviour", () => {
 
   it("B1 read+explain — model summarises content of a file injected in the prompt (24G)", async () => {
     const start = Date.now();
-    if (!(await ollamaReachable()) || !(await modelAvailable("gemma4:31b"))) {
+    if (!(await ollamaReachable()) || !(await modelAvailable(LIVE_MODEL_24G))) {
       record("B1", "B", "read+explain (24G)", start, { skipped: "no 24G" });
       return;
     }
@@ -532,7 +546,7 @@ describe("Group B — coding behaviour", () => {
 
   it("B2 bug spot — model identifies the bug in a 5-line snippet (24G)", async () => {
     const start = Date.now();
-    if (!(await ollamaReachable()) || !(await modelAvailable("gemma4:31b"))) {
+    if (!(await ollamaReachable()) || !(await modelAvailable(LIVE_MODEL_24G))) {
       record("B2", "B", "bug spot (24G)", start, { skipped: "no 24G" });
       return;
     }
@@ -586,7 +600,7 @@ describe("Group B — coding behaviour", () => {
 
   it("B3 refactor proposal — model suggests adding input validation (24G)", async () => {
     const start = Date.now();
-    if (!(await ollamaReachable()) || !(await modelAvailable("gemma4:31b"))) {
+    if (!(await ollamaReachable()) || !(await modelAvailable(LIVE_MODEL_24G))) {
       record("B3", "B", "refactor proposal (24G)", start, { skipped: "no 24G" });
       return;
     }
@@ -647,7 +661,7 @@ describe("Group C — tool-calling / pi loop", () => {
 
   it("C1 native-tools error — gemma3n:e4b without --no-tools surfaces 'does not support tools' hint", async () => {
     const start = Date.now();
-    if (!(await ollamaReachable()) || !(await modelAvailable("gemma3n:e4b"))) {
+    if (!(await ollamaReachable()) || !(await modelAvailable(LIVE_MODEL_8G))) {
       record("C1", "C", "native-tools error", start, { skipped: "no e4b" });
       return;
     }
@@ -681,7 +695,7 @@ describe("Group F — persona injection (--system)", () => {
 
   it("F1 persona tone — pirate persona → response in pirate tone (24G)", async () => {
     const start = Date.now();
-    if (!(await ollamaReachable()) || !(await modelAvailable("gemma4:31b"))) {
+    if (!(await ollamaReachable()) || !(await modelAvailable(LIVE_MODEL_24G))) {
       record("F1", "F", "persona tone (24G)", start, { skipped: "no 24G" });
       return;
     }
@@ -727,7 +741,7 @@ describe("Group F — persona injection (--system)", () => {
 
   it("F2 persona + memory — naia-os style assistant remembers a fact across processes (24G)", async () => {
     const start = Date.now();
-    if (!(await ollamaReachable()) || !(await modelAvailable("gemma4:31b"))) {
+    if (!(await ollamaReachable()) || !(await modelAvailable(LIVE_MODEL_24G))) {
       record("F2", "F", "persona + memory (24G)", start, { skipped: "no 24G" });
       return;
     }
@@ -927,7 +941,7 @@ describe("Group F (cont.) — persona variants", () => {
 
   it("F3 --no-default-system + persona only — default rider absent (24G)", async () => {
     const start = Date.now();
-    if (!(await ollamaReachable()) || !(await modelAvailable("gemma4:31b"))) {
+    if (!(await ollamaReachable()) || !(await modelAvailable(LIVE_MODEL_24G))) {
       record("F3", "F", "persona-only --no-default-system (24G)", start, { skipped: "no 24G" });
       return;
     }
@@ -972,7 +986,7 @@ describe("Group F (cont.) — persona variants", () => {
 
   it("F4 large persona (4KB) — naia-agent passes through without crash (24G)", async () => {
     const start = Date.now();
-    if (!(await ollamaReachable()) || !(await modelAvailable("gemma4:31b"))) {
+    if (!(await ollamaReachable()) || !(await modelAvailable(LIVE_MODEL_24G))) {
       record("F4", "F", "4KB persona pass-through (24G)", start, { skipped: "no 24G" });
       return;
     }
@@ -1234,7 +1248,7 @@ describe("Group D — naia-adk skills via --skills-dir", () => {
 
   it("D1 --skills-dir loads naia-adk top-level skills/ — model receives the tool list (mechanism)", async () => {
     const start = Date.now();
-    if (!(await ollamaReachable()) || !(await modelAvailable("gemma4:31b"))) {
+    if (!(await ollamaReachable()) || !(await modelAvailable(LIVE_MODEL_24G))) {
       record("D1", "D", "naia-adk skills/ load (24G)", start, { skipped: "no 24G" });
       return;
     }
@@ -1280,7 +1294,7 @@ describe("Group D — naia-adk skills via --skills-dir", () => {
 
   it("D2 --skills-dir + bash + file-ops compose — bash still works alongside ADK skills", async () => {
     const start = Date.now();
-    if (!(await ollamaReachable()) || !(await modelAvailable("gemma4:31b"))) {
+    if (!(await ollamaReachable()) || !(await modelAvailable(LIVE_MODEL_24G))) {
       record("D2", "D", "composite executor smoke (24G)", start, { skipped: "no 24G" });
       return;
     }
@@ -1320,7 +1334,7 @@ describe("Group D — naia-adk skills via --skills-dir", () => {
 
   it("D3 --skills-dir <missing-path> → graceful warn, no crash, agent still serves", async () => {
     const start = Date.now();
-    if (!(await ollamaReachable()) || !(await modelAvailable("gemma4:31b"))) {
+    if (!(await ollamaReachable()) || !(await modelAvailable(LIVE_MODEL_24G))) {
       record("D3", "D", "missing --skills-dir graceful", start, { skipped: "no 24G" });
       return;
     }
@@ -1563,7 +1577,7 @@ describe("Group G — onmam-adk domain skills via --skills-dir", () => {
     expect(mechPass).toBe(true);
   });
 
-  it("G3 naia-adk + onmam-adk skill-name collision via Composite — first-registered wins (shadow recorded)", async () => {
+  it("G3 naia-adk + onmam-adk skill-name collision via Composite — last-registered wins (shadow recorded)", async () => {
     const start = Date.now();
     const naiaAdkSkills = resolve(repoRoot, "../naia-adk/skills");
     if (!existsSync(naiaAdkSkills) || !existsSync(onmamAdkSkills)) {
@@ -1601,20 +1615,20 @@ describe("Group G — onmam-adk domain skills via --skills-dir", () => {
     const list = await composite.list();
     const shadows = composite.shadowedNames();
     const allNames = new Set(list.map((t: { name: string }) => t.name));
-    // Naia owns 'channel-management' (first sub) → onmam version shadowed.
-    const naiaWinsChan = composite.ownerOf("channel-management") === "naia-adk";
+    // Onmam owns 'channel-management' (last sub, last-wins) → naia version overridden.
+    const onmamWinsChan = composite.ownerOf("channel-management") === "onmam-adk";
     // wp-archive is onmam-only → present, owner=onmam-adk.
     const wpOwner = composite.ownerOf("wp-archive");
-    // Each overlap (9 names) should appear in shadow list with winner=naia-adk.
+    // Each overlap (9 names) should appear in shadow list with winner=onmam-adk.
     const shadowCount = shadows.length;
     const mechPass =
-      naiaWinsChan && wpOwner === "onmam-adk" && shadowCount >= 9 && allNames.has("time") && allNames.has("wp-archive");
+      onmamWinsChan && wpOwner === "onmam-adk" && shadowCount >= 9 && allNames.has("time") && allNames.has("wp-archive");
     record("G3", "G", "naia+onmam composite collision", start, {
       mechanism: {
         pass: mechPass,
         notes: [
           `totalTools=${list.length}`,
-          `naiaWinsChan=${naiaWinsChan}`,
+          `onmamWinsChan=${onmamWinsChan}`,
           `wpOwner=${wpOwner}`,
           `shadowCount=${shadowCount}`,
           `naiaOnlyPresent=${allNames.has("time")}`,
@@ -2187,7 +2201,7 @@ describe("Group P — pi-based coding LIVE (native tool-calling)", () => {
 
   it("P1 write_file — model writes a file to a tmp dir, mechanism asserts file content", async () => {
     const start = Date.now();
-    if (!(await ollamaReachable()) || !(await modelAvailable("gemma4:31b"))) {
+    if (!(await ollamaReachable()) || !(await modelAvailable(LIVE_MODEL_24G))) {
       record("P1", "P", "write_file LIVE (24G)", start, { skipped: "no 24G" });
       return;
     }
@@ -2216,7 +2230,7 @@ describe("Group P — pi-based coding LIVE (native tool-calling)", () => {
 
   it("P2 read_file — model reads a tmp file and quotes its content", async () => {
     const start = Date.now();
-    if (!(await ollamaReachable()) || !(await modelAvailable("gemma4:31b"))) {
+    if (!(await ollamaReachable()) || !(await modelAvailable(LIVE_MODEL_24G))) {
       record("P2", "P", "read_file LIVE (24G)", start, { skipped: "no 24G" });
       return;
     }
@@ -2257,7 +2271,7 @@ describe("Group P — pi-based coding LIVE (native tool-calling)", () => {
 
   it("P3 list_files — model lists tmp dir contents accurately", async () => {
     const start = Date.now();
-    if (!(await ollamaReachable()) || !(await modelAvailable("gemma4:31b"))) {
+    if (!(await ollamaReachable()) || !(await modelAvailable(LIVE_MODEL_24G))) {
       record("P3", "P", "list_files LIVE (24G)", start, { skipped: "no 24G" });
       return;
     }
@@ -2284,7 +2298,7 @@ describe("Group P — pi-based coding LIVE (native tool-calling)", () => {
 
   it("P4 edit_file — model patches a file via edit_file tool", async () => {
     const start = Date.now();
-    if (!(await ollamaReachable()) || !(await modelAvailable("gemma4:31b"))) {
+    if (!(await ollamaReachable()) || !(await modelAvailable(LIVE_MODEL_24G))) {
       record("P4", "P", "edit_file LIVE (24G)", start, { skipped: "no 24G" });
       return;
     }
@@ -2311,7 +2325,7 @@ describe("Group P — pi-based coding LIVE (native tool-calling)", () => {
 
   it("P5 bash — model runs a single echo via bash skill", async () => {
     const start = Date.now();
-    if (!(await ollamaReachable()) || !(await modelAvailable("gemma4:31b"))) {
+    if (!(await ollamaReachable()) || !(await modelAvailable(LIVE_MODEL_24G))) {
       record("P5", "P", "bash LIVE (24G)", start, { skipped: "no 24G" });
       return;
     }
@@ -2334,7 +2348,7 @@ describe("Group P — pi-based coding LIVE (native tool-calling)", () => {
 
   it("P6 multi-tool composite — write + read + list in one session", async () => {
     const start = Date.now();
-    if (!(await ollamaReachable()) || !(await modelAvailable("gemma4:31b"))) {
+    if (!(await ollamaReachable()) || !(await modelAvailable(LIVE_MODEL_24G))) {
       record("P6", "P", "multi-tool composite LIVE (24G)", start, { skipped: "no 24G" });
       return;
     }
@@ -2398,8 +2412,8 @@ describe("Group K — same prompt: e4b vs 31b", () => {
     const start = Date.now();
     if (
       !(await ollamaReachable()) ||
-      !(await modelAvailable("gemma3n:e4b")) ||
-      !(await modelAvailable("gemma4:31b"))
+      !(await modelAvailable(LIVE_MODEL_8G)) ||
+      !(await modelAvailable(LIVE_MODEL_24G))
     ) {
       record("K1", "K", "e4b vs 31b same-prompt", start, { skipped: "need both models" });
       return;
