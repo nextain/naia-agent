@@ -136,7 +136,8 @@ describe("Group S2 — /sessions and /resume REPL commands exist", () => {
     const src = readFileSync(binPath, "utf8");
     expect(src).toContain("/sessions");
     expect(src).toContain("/resume");
-    expect(src).toContain("세션");
+    expect(src).toContain("repl.help.sessions");
+    expect(src).toContain("repl.help.resume");
   });
 
   it("S-REPL-2: session save dir uses naiaSettingsDir", () => {
@@ -146,9 +147,9 @@ describe("Group S2 — /sessions and /resume REPL commands exist", () => {
 });
 
 describe("Group S3 — auto skill loading", () => {
-  it("S-SKILL-1: auto-scans .agents/skills from resolveAdkPath", () => {
+  it("S-SKILL-1: auto-scans .agents/skills from resolveAdkPath (only)", () => {
     const src = readFileSync(binPath, "utf8");
-    expect(src).toContain('".agents/skills"');
+    expect(src).toContain('".agents"');
     expect(src).toContain('"skills"');
     expect(src).toContain("adkAutoSkillDirs");
   });

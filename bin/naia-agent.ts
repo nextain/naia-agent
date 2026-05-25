@@ -37,7 +37,7 @@
 
 import readline from "node:readline";
 import { spawnSync } from "node:child_process";
-import { access as fsAccess, readFile, writeFile, mkdir, readdir, chmod } from "node:fs/promises";
+import { access as fsAccess, readFile, writeFile, mkdir, readdir, chmod, unlink, rm } from "node:fs/promises";
 import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -46,6 +46,7 @@ import process from "node:process";
 import { Agent, stripRecallResidue } from "@nextain/agent-core";
 import type { HostContext, LLMClient, MemoryProvider, ToolExecutor } from "@nextain/agent-types";
 import { ConsoleLogger, InMemoryMeter, NoopTracer } from "@nextain/agent-observability";
+import { t, setLocale } from "@nextain/agent-runtime/i18n";
 import {
   InMemoryMemory,
   InMemoryToolExecutor,
@@ -611,10 +612,8 @@ async function runDirect(args: Args): Promise<number> {
   const inMemTools = new InMemoryToolExecutor(builtinSkills);
   const adkAutoSkillDirs: string[] = [];
   const adkBase = resolveAdkPath();
-  for (const sub of [".agents/skills", "skills"]) {
-    const candidate = path.join(adkBase, sub);
-    if (existsSync(candidate)) adkAutoSkillDirs.push(candidate);
-  }
+  const candidate = path.join(adkBase, ".agents", "skills");
+  if (existsSync(candidate)) adkAutoSkillDirs.push(candidate);
   const allSkillDirs = [...(args.skillsDir ? [args.skillsDir] : []), ...adkAutoSkillDirs];
 
   let tools: ToolExecutor;
@@ -756,9 +755,33 @@ async function executeAgent(agent: Agent, args: Args): Promise<number> {
         rl.prompt();
         continue;
       }
+      if (trimmed === "/factory-reset") {
+        agent.clearHistory();
+        const settingsDir = naiaSettingsDir();
+        const configFile = path.join(settingsDir, "config.json");
+        const sessionsDir = path.join(settingsDir, "sessions");
+        const bootstrapFile = path.join(homedir(), ".naia-agent", "config.json");
+        const cacheFile = path.join(homedir(), ".naia", "adk-path");
+        let removed = 0;
+        try { if (existsSync(configFile)) { await unlink(configFile); removed++; } } catch { /* ignore */ }
+        try { if (existsSync(sessionsDir)) { await rm(sessionsDir, { recursive: true }); removed++; } } catch { /* ignore */ }
+        try { if (existsSync(bootstrapFile)) { await unlink(bootstrapFile); removed++; } } catch { /* ignore */ }
+        try { if (existsSync(cacheFile)) { await unlink(cacheFile); removed++; } } catch { /* ignore */ }
+        const providerEnvKeys = [
+          "NAIA_MAIN_PROVIDER", "NAIA_MAIN_MODEL", "NAIA_ANYLLM_API_KEY", "NAIA_ANYLLM_BASE_URL",
+          "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "ANTHROPIC_BASE_URL",
+          "OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_MODEL",
+          "GLM_API_KEY", "GLM_MODEL", "GLM_BASE_URL",
+          "VERTEX_PROJECT_ID", "VERTEX_REGION",
+          "NAIA_AGENT_NAME", "NAIA_USER_NAME", "NAIA_SPEECH_STYLE", "NAIA_LOCALE",
+        ];
+        for (const k of providerEnvKeys) delete process.env[k];
+        process.stdout.write(`  ✓ ${t("repl.factory_reset.done")} (${removed} removed)\n`);
+        break;
+      }
       if (trimmed === "/reset") {
         agent.clearHistory();
-        process.stdout.write("  ✓ 대화 초기화됨\n");
+        process.stdout.write(`  ✓ ${t("repl.reset.done")}\n`);
         rl.prompt();
         continue;
       }
@@ -773,7 +796,9 @@ async function executeAgent(agent: Agent, args: Args): Promise<number> {
         ];
         for (const k of providerEnvKeys) delete process.env[k];
         await runOnboarding();
-        loadEnvAndConfig();
+  loadEnvAndConfig();
+  setLocaleFromEnv();
+
         const credKeys3 = await readCredentialKeys();
         for (const keyName of credKeys3) {
           if (process.env[keyName] === undefined) {
@@ -784,9 +809,9 @@ async function executeAgent(agent: Agent, args: Args): Promise<number> {
         const newLlm = await buildLLMClient(args.model);
         if (newLlm) {
           agent.replaceLlm(newLlm);
-          process.stdout.write("  ✓ 설정 완료. 계속 대화하세요.\n");
+          process.stdout.write(`  ✓ ${t("repl.setup.done")}\n`);
         } else {
-          process.stderr.write("  ✗ LLM 설정 실패. 다시 시도하세요.\n");
+          process.stderr.write(`  ✗ ${t("repl.setup.failed")}\n`);
         }
         rl.resume();
         rl.prompt();
@@ -794,12 +819,13 @@ async function executeAgent(agent: Agent, args: Args): Promise<number> {
       }
       if (trimmed === "/help") {
         process.stdout.write(
-          "  /reset    — 대화 초기화\n" +
-          "  /setup    — 프로바이더/모델 재설정\n" +
-          "  /sessions — 저장된 세션 목록\n" +
-          "  /resume   — 이전 세션 이어하기\n" +
-          "  /help     — 이 도움말\n" +
-          "  exit      — 종료\n",
+          `  /reset          — ${t("repl.help.reset")}\n` +
+          `  /setup          — ${t("repl.help.setup")}\n` +
+          `  /factory-reset  — ${t("repl.help.factory_reset")}\n` +
+          `  /sessions       — ${t("repl.help.sessions")}\n` +
+          `  /resume         — ${t("repl.help.resume")}\n` +
+          `  /help           — ${t("repl.help.help")}\n` +
+          `  exit            — ${t("repl.help.exit")}\n`,
         );
         rl.prompt();
         continue;
@@ -810,7 +836,7 @@ async function executeAgent(agent: Agent, args: Args): Promise<number> {
           const entries = await readdir(sessionsDir);
           const sessionFiles = entries.filter((e) => e.endsWith(".json")).sort().reverse();
           if (sessionFiles.length === 0) {
-            process.stdout.write("  (저장된 세션 없음)\n");
+            process.stdout.write(`  (${t("repl.sessions.empty")})\n`);
           } else {
             for (const f of sessionFiles.slice(0, 20)) {
               try {
@@ -826,7 +852,7 @@ async function executeAgent(agent: Agent, args: Args): Promise<number> {
             }
           }
         } catch {
-          process.stdout.write("  (저장된 세션 없음)\n");
+          process.stdout.write(`  (${t("repl.sessions.empty")})\n`);
         }
         rl.prompt();
         continue;
@@ -838,13 +864,13 @@ async function executeAgent(agent: Agent, args: Args): Promise<number> {
           const entries = await readdir(sessionsDir);
           const sessionFiles = entries.filter((e) => e.endsWith(".json")).sort().reverse();
           if (sessionFiles.length === 0) {
-            process.stdout.write("  (저장된 세션 없음)\n");
+            process.stdout.write(`  (${t("repl.sessions.empty")})\n`);
           } else {
-            process.stdout.write("  세션 선택:\n");
+            process.stdout.write("  Select session:\n");
             for (let i = 0; i < Math.min(sessionFiles.length, 10); i++) {
               process.stdout.write(`  ${i + 1}. ${sessionFiles[i].replace(".json", "")}\n`);
             }
-            const choice = await promptLine("번호 또는 세션 ID");
+            const choice = await promptLine("Number or session ID");
             if (choice !== null && choice.trim()) {
               const idx = parseInt(choice.trim(), 10);
               const file = !isNaN(idx) && idx >= 1 && idx <= sessionFiles.length
@@ -857,14 +883,14 @@ async function executeAgent(agent: Agent, args: Args): Promise<number> {
                 agent.clearHistory();
                 await agent.importHandoff(blob);
                 const turnCount = blob.turnCount ?? "?";
-                process.stdout.write(`  ✓ 세션 복원 (${turnCount} turns)\n`);
+                process.stdout.write(`  ✓ ${t("repl.resume.restored")} (${turnCount} turns)\n`);
               } catch (err) {
-                process.stderr.write(`  ✗ 세션 복원 실패: ${err instanceof Error ? err.message : String(err)}\n`);
+                process.stderr.write(`  ✗ ${t("repl.resume.failed")}: ${err instanceof Error ? err.message : String(err)}\n`);
               }
             }
           }
         } catch {
-          process.stdout.write("  (저장된 세션 없음)\n");
+          process.stdout.write(`  (${t("repl.sessions.empty")})\n`);
         }
         rl.resume();
         rl.prompt();
@@ -1868,6 +1894,11 @@ function naiaSettingsDir(): string {
   return path.join(resolveAdkPath(), "naia-settings");
 }
 
+function setLocaleFromEnv(): void {
+  const raw = process.env["NAIA_LOCALE"] ?? process.env["NAIA_AGENT_LOCALE"] ?? process.env["LANG"];
+  if (raw) setLocale(raw as never);
+}
+
 /** credentials manifest: list of key names stored in OS keychain. */
 async function readCredentialKeys(): Promise<string[]> {
   try {
@@ -2405,24 +2436,24 @@ const ONBOARDING_STEPS: OnboardingStep[] = [
   "complete",
 ];
 
-function onboardingChat(step: OnboardingStep, agentName: string, userName: string): string {
-  const n = agentName || "나이아";
-  const u = userName ? `${userName}님` : "";
-  switch (step) {
-    case "welcome":
-      return "안녕하세요! 시작하기 전에 잠깐 확인해 주세요";
-    case "agentName":
-      return "안녕하세요! 저는 나이아예요. 제 이름을 지어주세요!";
-    case "userName":
-      return `${n}! 정말 좋은 이름이에요. 그럼 저는 당신을 어떻게 부를까요?`;
-    case "speechStyle":
-      return `${u || ""} 어떤 말투로 대화할까요? 편한 걸 골라주세요`;
-    case "provider":
-      return "거의 다 왔어요! 저의 두뇌를 연결해 주세요";
-    case "complete":
-      return `${u ? u + ", " : ""}준비 완료! ${n}와 함께 시작해요!`;
-  }
-}
+ function onboardingChat(step: OnboardingStep, agentName: string, userName: string): string {
+   const n = agentName || "Naia";
+   const u = userName || "";
+   switch (step) {
+     case "welcome":
+       return "Welcome! Let's get started with a few questions";
+     case "agentName":
+       return `Hi! I'm ${n}. What would you like to call me?`;
+     case "userName":
+       return `${n} — great name! What should I call you?`;
+     case "speechStyle":
+       return `${u ? u + ", " : ""}How would you like me to speak?`;
+     case "provider":
+       return "Almost there! Connect my brain";
+     case "complete":
+       return `${u ? u + ", " : ""}All set! Let's go with ${n}!`;
+   }
+ }
 
 const SUPPORTED_LOCALES = [
   { code: "ko", label: "한국어" },
@@ -2502,18 +2533,18 @@ async function runOnboarding(): Promise<number> {
     if (providerChoice === null || providerChoice.startsWith("naia login")) {
       const result = await configureNaiaKey();
       if (result !== 0) {
-        process.stdout.write("\n  naia 로그인 없이 main LLM을 설정합니다.\n");
+         process.stdout.write("\n  naia login unavailable — configuring main LLM directly.\n");
         const mainResult = await configureMainLlm();
         if (mainResult !== 0) {
-          process.stderr.write("  LLM 설정이 필요합니다. 다시 실행해 주세요.\n");
+          process.stderr.write("  LLM setup required. Please try again.\n");
           return 3;
         }
       }
     } else {
       const mainResult = await configureMainLlm();
-      if (mainResult !== 0) {
-        process.stderr.write("  LLM 설정이 필요합니다. 다시 실행해 주세요.\n");
-        return 3;
+       if (mainResult !== 0) {
+         process.stderr.write("  LLM setup required. Please try again.\n");
+         return 3;
       }
     }
   }
@@ -2555,7 +2586,7 @@ async function runOnboarding(): Promise<number> {
   // ── Step: complete ──
   current = "complete";
   printStep();
-  process.stdout.write(`  ✓ ${agentName} 준비 완료!\n\n`);
+   process.stdout.write(`  ✓ ${agentName} ready!\n\n`);
   return 0;
 }
 

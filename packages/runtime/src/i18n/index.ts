@@ -35,7 +35,21 @@ export type TranslationKey =
   | "skill.time.description"
   | "skill.weather.description"
   | "skill.memo.description"
-  | "skill.system_status.description";
+  | "skill.system_status.description"
+  | "repl.help.reset"
+  | "repl.help.setup"
+  | "repl.help.factory_reset"
+  | "repl.help.sessions"
+  | "repl.help.resume"
+  | "repl.help.help"
+  | "repl.help.exit"
+  | "repl.reset.done"
+  | "repl.setup.done"
+  | "repl.setup.failed"
+  | "repl.factory_reset.done"
+  | "repl.sessions.empty"
+  | "repl.resume.restored"
+  | "repl.resume.failed";
 
 const translations: Record<TranslationKey, Record<Locale, string>> = {
   "cli.no_provider": {
@@ -141,7 +155,63 @@ const translations: Record<TranslationKey, Record<Locale, string>> = {
   "skill.system_status.description": {
     ko: "시스템 정보를 확인합니다.",
     en: "Get system information.",
-    ja: "システム情報を確認します。", zh: "获取系统信息。", fr: "Obtenir les informations système.", de: "Systeminformationen abrufen.", ru: "Получить системную информацию.", es: "Obtener información del sistema.", ar: "الحصول على معلومات النظام.", hi: "सिस्टम जानकारी प्राप्त करें।", bn: "সিস্টেম তথ্য পান।", pt: "Obter informações do sistema.", id: "Dapatkan informasi sistem.", vi: "Lấy thông tin hệ thống.",
+    ja: "システム情報を確認します。", zh: "获取系统信息。", fr: "Obtenir les informations système.", de: "Systeminformationen abrufen.", ru: "Получить системную информацию.", es: "Obtener información del sistema.", ar: "الحصول على معلومات النظام.", hi: "सिस्टम जानकारी प्राप्त करें।", bn: "সিস্টম তথ্য পান।", pt: "Obter informações do sistema.", id: "Dapatkan informasi sistem.", vi: "Lấy thông tin hệ thống.",
+  },
+  "repl.help.reset": {
+    ko: "대화 초기화", en: "Clear conversation history",
+    ja: "会話をリセット", zh: "清除对话历史", fr: "Effacer l'historique", de: "Verlauf löschen", ru: "Очистить историю", es: "Borrar historial", ar: "مسح المحادثة", hi: "बातचीत मिटाएं", bn: "কথোপকথন মুছুন", pt: "Limpar histórico", id: "Hapus riwayat", vi: "Xóa lịch sử",
+  },
+  "repl.help.setup": {
+    ko: "프로바이더/모델 재설정", en: "Reconfigure provider/model",
+    ja: "プロバイダー/モデル再設定", zh: "重新配置提供商/模型", fr: "Reconfigurer fournisseur/modèle", de: "Anbieter/Modell neu konfigurieren", ru: "Перенастроить провайдер/модель", es: "Reconfigurar proveedor/modelo", ar: "إعادة تكوين المزود/النموذج", hi: "प्रदाता/मॉडल पुनः कॉन्फ़िगर", bn: "প্রদানকারী/মডেল পুনরায় কনফিগার", pt: "Reconfigurar provedor/modelo", id: "Konfigurasi ulang penyedia/model", vi: "Cấu hình lại nhà cung cấp/mô hình",
+  },
+  "repl.help.factory_reset": {
+    ko: "설정·세션·부트스트랩 초기화 후 종료", en: "Wipe config, sessions, bootstrap; then exit",
+    ja: "設定・セッション・ブートストラップを消去して終了", zh: "清除配置、会话、引导后退出", fr: "Réinitialiser config, sessions, bootstrap puis quitter", de: "Config, Sessions, Bootstrap löschen und beenden", ru: "Сбросить конфиг, сессии, загрузку и выйти", es: "Borrar config, sesiones, bootstrap y salir", ar: "مسح التكوين والجلسات والتمهيد ثم الخروج", hi: "कॉन्फ़िग, सेशन, बूटस्ट्रैप मिटाकर बाहर निकलें", bn: "কনফিগ, সেশন, বুটস্ট্র্যাপ মুছে প্রস্থান করুন", pt: "Limpar config, sessões, bootstrap e sair", id: "Hapus config, sesi, bootstrap lalu keluar", vi: "Xóa config, phiên, bootstrap rồi thoát",
+  },
+  "repl.help.sessions": {
+    ko: "저장된 세션 목록", en: "List saved sessions",
+    ja: "保存されたセッション一覧", zh: "列出已保存的会话", fr: "Lister les sessions sauvegardées", de: "Gespeicherte Sitzungen auflisten", ru: "Список сохранённых сессий", es: "Listar sesiones guardadas", ar: "عرض الجلسات المحفوظة", hi: "सहेजे गए सत्रों की सूची", bn: "সংরক্ষিত সেশনের তালিকা", pt: "Listar sessões salvas", id: "Daftar sesi tersimpan", vi: "Liệt kê phiên đã lưu",
+  },
+  "repl.help.resume": {
+    ko: "이전 세션 이어하기", en: "Resume a previous session",
+    ja: "前のセッションを再開", zh: "恢复之前的会话", fr: "Reprendre une session précédente", de: "Vorherige Sitzung fortsetzen", ru: "Возобновить предыдущую сессию", es: "Reanudar sesión anterior", ar: "استئناف جلسة سابقة", hi: "पिछला सत्र फिर से शुरू करें", bn: "পূর্ববর্তী সেশন পুনরায় শুরু করুন", pt: "Retomar sessão anterior", id: "Lanjutkan sesi sebelumnya", vi: "Tiếp tục phiên trước",
+  },
+  "repl.help.help": {
+    ko: "이 도움말", en: "Show this help",
+    ja: "このヘルプ", zh: "显示帮助", fr: "Afficher cette aide", de: "Diese Hilfe anzeigen", ru: "Показать справку", es: "Mostrar ayuda", ar: "عرض المساعدة", hi: "यह सहायता दिखाएं", bn: "এই সাহায্য দেখান", pt: "Mostrar esta ajuda", id: "Tampilkan bantuan ini", vi: "Hiển thị trợ giúp",
+  },
+  "repl.help.exit": {
+    ko: "종료", en: "Exit REPL",
+    ja: "終了", zh: "退出", fr: "Quitter", de: "Beenden", ru: "Выход", es: "Salir", ar: "خروج", hi: "बाहर जाएं", bn: "প্রস্থান", pt: "Sair", id: "Keluar", vi: "Thoát",
+  },
+  "repl.reset.done": {
+    ko: "대화 초기화됨", en: "Conversation cleared",
+    ja: "会話をリセットしました", zh: "对话已清除", fr: "Conversation effacée", de: "Verlauf gelöscht", ru: "История очищена", es: "Conversación borrada", ar: "تم مسح المحادثة", hi: "बातचीत मिटा दी गई", bn: "কথোপকথন মুছে ফেলা হয়েছে", pt: "Conversa limpa", id: "Percakapan dihapus", vi: "Đã xóa cuộc trò chuyện",
+  },
+  "repl.setup.done": {
+    ko: "설정 완료. 계속 대화하세요.", en: "Setup complete. Continue chatting.",
+    ja: "設定完了。会話を続けてください。", zh: "设置完成。继续对话。", fr: "Configuration terminée. Continuez la conversation.", de: "Einrichtung abgeschlossen. Weiter chatten.", ru: "Настройка завершена. Продолжайте.", es: "Configuración completa. Siga chateando.", ar: "اكتمل الإعداد. تابع المحادثة.", hi: "सेटअप पूरा। बातचीत जारी रखें।", bn: "সেটআপ সম্পন্ন। চ্যাট চালিয়ে যান।", pt: "Configuração concluída. Continue conversando.", id: "Pengaturan selesai. Lanjutkan obrolan.", vi: "Cài đặt hoàn tất. Tiếp tục trò chuyện.",
+  },
+  "repl.setup.failed": {
+    ko: "LLM 설정 실패. 다시 시도하세요.", en: "LLM setup failed. Try again.",
+    ja: "LLM設定に失敗しました。再試行してください。", zh: "LLM设置失败。请重试。", fr: "Échec de la configuration LLM. Réessayez.", de: "LLM-Einrichtung fehlgeschlagen. Erneut versuchen.", ru: "Ошибка настройки LLM. Попробуйте снова.", es: "Error de configuración LLM. Reintente.", ar: "فشل إعداد LLM. حاول مرة أخرى.", hi: "LLM सेटअप विफल। पुनः प्रयास करें।", bn: "LLM সেটআপ ব্যর্থ। আবার চেষ্টা করুন।", pt: "Falha na configuração LLM. Tente novamente.", id: "Pengaturan LLM gagal. Coba lagi.", vi: "Cài đặt LLM thất bại. Thử lại.",
+  },
+  "repl.factory_reset.done": {
+    ko: "초기화 완료. 종료 후 다시 실행하세요.", en: "Factory reset done. Restart to begin fresh.",
+    ja: "初期化完了。再起動してください。", zh: "重置完成。请重新启动。", fr: "Réinitialisation terminée. Redémarrez.", de: "Zurückgesetzt. Bitte neu starten.", ru: "Сброс завершён. Перезапустите.", es: "Restablecimiento completo. Reinicie.", ar: "اكتملت إعادة التعيين. أعد التشغيل.", hi: "फ़ैक्टरी रीसेट पूरा। पुनः आरंभ करें।", bn: "ফ্যাক্টরি রিসেট সম্পন্ন। পুনরায় শুরু করুন।", pt: "Reset de fábrica concluído. Reinicie.", id: "Factory reset selesai. Mulai ulang.", vi: "Đặt lại xong. Khởi động lại.",
+  },
+  "repl.sessions.empty": {
+    ko: "저장된 세션 없음", en: "No saved sessions",
+    ja: "保存されたセッションなし", zh: "没有已保存的会话", fr: "Aucune session sauvegardée", de: "Keine gespeicherten Sitzungen", ru: "Нет сохранённых сессий", es: "Sin sesiones guardadas", ar: "لا توجد جلسات محفوظة", hi: "कोई सहेजा गया सत्र नहीं", bn: "কোনো সংরক্ষিত সেশন নেই", pt: "Sem sessões salvas", id: "Tidak ada sesi tersimpan", vi: "Không có phiên đã lưu",
+  },
+  "repl.resume.restored": {
+    ko: "세션 복원", en: "Session restored",
+    ja: "セッション復元", zh: "会话已恢复", fr: "Session restaurée", de: "Sitzung wiederhergestellt", ru: "Сессия восстановлена", es: "Sesión restaurada", ar: "تمت استعادة الجلسة", hi: "सत्र पुनर्स्थापित", bn: "সেশন পুনরুদ্ধার", pt: "Sessão restaurada", id: "Sesi dipulihkan", vi: "Phiên đã khôi phục",
+  },
+  "repl.resume.failed": {
+    ko: "세션 복원 실패", en: "Session restore failed",
+    ja: "セッション復元に失敗", zh: "会话恢复失败", fr: "Échec de restauration de session", de: "Sitzungswiederherstellung fehlgeschlagen", ru: "Ошибка восстановления сессии", es: "Error al restaurar sesión", ar: "فشل استعادة الجلسة", hi: "सत्र पुनर्स्थापना विफल", bn: "সেশন পুনরুদ্ধার ব্যর্থ", pt: "Falha ao restaurar sessão", id: "Gagal memulihkan sesi", vi: "Khôi phục phiên thất bại",
   },
 };
 
