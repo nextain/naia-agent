@@ -2724,7 +2724,6 @@ async function runOnboarding(): Promise<number> {
   finalCfg["onboardingComplete"] = "true";
   await writeNaiaSettings(finalCfg);
 
-  const adkDir = resolveAdkPath();
   if (!process.env["NAIA_ADK_PATH"]) {
     const bootstrapDir = path.join(homedir(), ".naia-agent");
     try {
