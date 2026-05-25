@@ -198,8 +198,16 @@ export function loadEnvAndConfig(opts: EnvLoadOptions = {}): EnvLoadReport {
     }
   }
 
+  const configFiles: string[] = [];
   for (const candidate of CONFIG_CANDIDATES(cwd, opts.configPath)) {
     if (!candidate || !isReadableFile(candidate)) continue;
+    configFiles.push(candidate);
+  }
+  // Merge ALL found config files (lower-index = higher priority, but we only
+  // set unset keys so the first match wins per-key). This ensures both
+  // ~/.naia-agent/config.json (bootstrap) AND naia-settings/config.json
+  // (full config) are loaded.
+  for (const candidate of configFiles) {
     try {
       const json = JSON.parse(readFileSync(candidate, "utf8")) as Record<string, unknown>;
       const flat = flattenConfig(json);
@@ -209,9 +217,8 @@ export function loadEnvAndConfig(opts: EnvLoadOptions = {}): EnvLoadReport {
           if (!report.loadedKeys.includes(k)) report.loadedKeys.push(k);
         }
       }
-      report.configFile = candidate;
+      if (!report.configFile) report.configFile = candidate;
       fn?.branch("config-loaded", { file: candidate, keys: Object.keys(flat).length });
-      break;
     } catch {
       // try next
     }
