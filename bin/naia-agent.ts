@@ -2527,6 +2527,60 @@ const SUPPORTED_LOCALES = [
 ];
 
 async function runOnboarding(): Promise<number> {
+  // ── Step 0: ADK path (BEFORE anything else) ──
+  const resolvedAdk = resolveAdkPath();
+  const defaultAdk = path.join(homedir(), "naia-adk");
+  process.stdout.write("\n── Naia Agent Setup ──\n\n");
+  const adkChoice = await selectFromList("ADK workspace:", [
+    `current  ${resolvedAdk}`,
+    `default  ${defaultAdk}`,
+    `custom   (enter manually)`,
+  ]);
+  let adkDir = resolvedAdk;
+  if (adkChoice?.startsWith("default")) {
+    adkDir = defaultAdk;
+  } else if (adkChoice?.startsWith("custom")) {
+    const custom = await promptLine("ADK path");
+    if (custom?.trim()) adkDir = path.resolve(custom.trim());
+  }
+
+  // current path → use directly, skip setup
+  if (adkDir !== resolvedAdk) {
+    if (!existsSync(adkDir)) {
+      try { await mkdir(adkDir, { recursive: true }); } catch { /* ignore */ }
+      try { await mkdir(path.join(adkDir, "naia-settings"), { recursive: true }); } catch { /* ignore */ }
+    } else {
+      const settingsDir = path.join(adkDir, "naia-settings");
+      const configFile = path.join(settingsDir, "config.json");
+      if (existsSync(settingsDir) && existsSync(configFile)) {
+        const clearChoice = await selectFromList(`Path exists with data: ${adkDir}`, [
+          "keep     (기존 설정 유지)",
+          "clear    (초기화 — naia-settings 삭제 후 재생성)",
+        ]);
+        if (clearChoice?.startsWith("clear")) {
+          try { await rm(settingsDir, { recursive: true }); } catch { /* ignore */ }
+          try { await mkdir(settingsDir, { recursive: true }); } catch { /* ignore */ }
+        }
+      } else {
+        try { await mkdir(settingsDir, { recursive: true }); } catch { /* ignore */ }
+      }
+    }
+  }
+
+  // ensure naia-settings exists regardless of choice
+  try { await mkdir(path.join(adkDir, "naia-settings"), { recursive: true }); } catch { /* non-fatal */ }
+
+  process.env["NAIA_ADK_PATH"] = adkDir;
+  const bootstrapDir = path.join(homedir(), ".naia-agent");
+  try {
+    await mkdir(bootstrapDir, { recursive: true });
+    await writeFile(
+      path.join(bootstrapDir, "config.json"),
+      JSON.stringify({ adkPath: adkDir, naiaAdkPath: adkDir, version: "0.0.1" }, null, 2) + "\n",
+      "utf8",
+    );
+  } catch { /* non-fatal */ }
+
   const cfg = await readNaiaSettings();
   let agentName = cfg["NAIA_AGENT_NAME"] || "";
   let userName = cfg["NAIA_USER_NAME"] || "";
