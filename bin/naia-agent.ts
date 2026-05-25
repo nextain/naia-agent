@@ -761,12 +761,18 @@ async function executeAgent(agent: Agent, args: Args): Promise<number> {
         const configFile = path.join(settingsDir, "config.json");
         const sessionsDir = path.join(settingsDir, "sessions");
         const bootstrapFile = path.join(homedir(), ".naia-agent", "config.json");
+        const bootstrapEnvFile = path.join(homedir(), ".naia-agent", ".env");
         const cacheFile = path.join(homedir(), ".naia", "adk-path");
+        const keysDir = path.join(settingsDir, ".keys");
+        const credsFile = path.join(settingsDir, "credentials");
         let removed = 0;
         try { if (existsSync(configFile)) { await unlink(configFile); removed++; } } catch { /* ignore */ }
         try { if (existsSync(sessionsDir)) { await rm(sessionsDir, { recursive: true }); removed++; } } catch { /* ignore */ }
         try { if (existsSync(bootstrapFile)) { await unlink(bootstrapFile); removed++; } } catch { /* ignore */ }
+        try { if (existsSync(bootstrapEnvFile)) { await unlink(bootstrapEnvFile); removed++; } } catch { /* ignore */ }
         try { if (existsSync(cacheFile)) { await unlink(cacheFile); removed++; } } catch { /* ignore */ }
+        try { if (existsSync(keysDir)) { await rm(keysDir, { recursive: true }); removed++; } } catch { /* ignore */ }
+        try { if (existsSync(credsFile)) { await unlink(credsFile); removed++; } } catch { /* ignore */ }
         const providerEnvKeys = [
           "NAIA_MAIN_PROVIDER", "NAIA_MAIN_MODEL", "NAIA_ANYLLM_API_KEY", "NAIA_ANYLLM_BASE_URL",
           "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "ANTHROPIC_BASE_URL",
