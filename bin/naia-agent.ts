@@ -44,7 +44,7 @@ import path from "node:path";
 import process from "node:process";
 
 import { Agent, stripRecallResidue } from "@nextain/agent-core";
-import type { HostContext, LLMClient, MemoryProvider, ToolExecutor } from "@nextain/agent-types";
+import type { HostContext, LLMClient, MemoryProvider, TierLevel, ToolExecutor } from "@nextain/agent-types";
 import { ConsoleLogger, InMemoryMeter, NoopTracer } from "@nextain/agent-observability";
 import { t, setLocale } from "@nextain/agent-runtime/i18n";
 import {
@@ -80,9 +80,8 @@ import {
 import type { ServiceManifest, ParsedRole } from "@nextain/agent-runtime";
 // Composition root may depend on a MemoryProvider implementation (the
 // runtime/core packages must not). Blessed pattern: examples/naia-memory-host.
-import { LiteMemoryProvider, OpenAICompatEmbeddingProvider } from "@nextain/naia-memory";
+import { LiteMemoryProvider, OpenAICompatEmbeddingProvider, SqliteAdapter, MemorySystem } from "@nextain/naia-memory";
 import { VercelClient } from "@nextain/agent-providers";
-
 
 // Supervisor mode imports
 import { ShellAdapter } from "@nextain/agent-adapter-shell";
@@ -439,7 +438,11 @@ async function buildLLMClient(overrideModel?: string): Promise<LLMClient | null>
 
   if (env.GLM_API_KEY) {
     const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
-    const model = overrideModel || env.NAIA_MAIN_MODEL || env.GLM_MODEL;
+    // Claude Code aliases ("sonnet"/"opus"/"haiku") are not valid GLM model IDs —
+    // filter them out so a previous claude-code session doesn't poison GLM calls.
+    const CLAUDE_ALIASES = new Set(["sonnet", "opus", "haiku"]);
+    const rawModel = overrideModel || env.NAIA_MAIN_MODEL || env.GLM_MODEL;
+    const model = (rawModel && !CLAUDE_ALIASES.has(rawModel)) ? rawModel : (env.GLM_MODEL ?? "glm-4.5-flash");
     if (!model) {
       process.stderr.write(`naia-agent: ERROR — no model specified. Use --model <id>\n`);
       return null;
@@ -656,12 +659,20 @@ async function runDirect(args: Args): Promise<number> {
     },
   };
 
+  // Build tier map from all registered tools so ADK skill tiers are enforced.
+  // tools.list() is optional (ToolExecutor contract); safe to skip when absent.
+  const cliToolTierMap = new Map<string, TierLevel>();
+  if (tools.list) {
+    const cliDefs = await tools.list().catch(() => []);
+    for (const d of cliDefs) cliToolTierMap.set(d.name, d.tier);
+  }
+
   const agent = new Agent({
     host,
     // --memory with no explicit --system → the recall-protocol persona so
     // the marker actually fires (otherwise memory is never exercised).
-    systemPrompt: args.systemPrompt ?? (args.memory ? MEMORY_PERSONA : undefined),
-    tierForTool: () => "T1",
+    systemPrompt: args.systemPrompt ?? process.env["NAIA_PERSONA"] ?? (args.memory ? MEMORY_PERSONA : undefined),
+    tierForTool: (name) => cliToolTierMap.get(name) ?? "T1",
     // --memory defaults to lean (the heavy contract degrades small models
     // AND dilutes the recall instruction — #41 v2 measured); explicit
     // --no-default-system always wins. Non-memory behavior unchanged.
@@ -1241,10 +1252,16 @@ async function runService(args: Args): Promise<number> {
   };
 
   process.stderr.write(`naia-agent: service="${manifest.name}" (schema ${manifest.schemaVersion})\n`);
+  // Build tier map from manifest tools so ADK skill tiers are enforced.
+  const svcToolTierMap = new Map<string, TierLevel>();
+  if (host.tools.list) {
+    const svcDefs = await host.tools.list().catch(() => []);
+    for (const d of svcDefs) svcToolTierMap.set(d.name, d.tier);
+  }
   const agent = new Agent({
     host,
     systemPrompt: manifest.persona.systemPrompt,
-    tierForTool: () => "T1",
+    tierForTool: (name) => svcToolTierMap.get(name) ?? "T1",
     compactionStrategy: args.compactStrategy,
   });
 
@@ -1355,10 +1372,48 @@ async function runStdio(): Promise<number> {
   const activeStreams = new Map<string, AbortController>();
   const pendingToolCalls = new Map<string, { resolve: (v: string) => void; reject: (e: Error) => void }>();
   const TOOL_TIMEOUT_MS = 30_000;
+  const APPROVAL_TIMEOUT_MS = 120_000;
 
   const hostInjectedDefs: ToolDefinitionWithTier[] = [];
+  /** panelId → registered tool names (for panel_skills_clear) */
+  const panelSkillsByPanel = new Map<string, string[]>();
+  /** toolCallId → resolve function (for approval_response) */
+  const pendingApprovals = new Map<string, { resolve: (decision: "approved" | "denied") => void }>();
   let cachedLlm: LLMClient | null | undefined = undefined;
   let cachedMemory: InMemoryMemory | null = null;
+  /** Lazy-initialized MemorySystem for export/import (SqliteAdapter backed). */
+  let stdioMemorySystem: MemorySystem | null = null;
+
+  /** Get or create the SqliteAdapter-backed MemorySystem for backup ops. */
+  function getOrCreateMemorySystem(): MemorySystem {
+    if (stdioMemorySystem) return stdioMemorySystem;
+    const dbPath = path.join(naiaSettingsDir(), ".memory", "alpha-memory.sqlite");
+    mkdirSync(path.dirname(dbPath), { recursive: true });
+    stdioMemorySystem = new MemorySystem({
+      adapter: new SqliteAdapter({ dbPath }),
+    });
+    return stdioMemorySystem;
+  }
+
+  // Signal readiness immediately so the shell can start sending messages.
+  stdioWriteLine({ type: "ready" });
+
+  // Send config_sync so the shell can restore localStorage from config.json
+  // without reading the file directly. Secret fields (API keys) are excluded.
+  {
+    const SECRET_KEYS = new Set([
+      "NAIA_ANYLLM_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+      "GLM_API_KEY", "GEMINI_API_KEY", "apiKey", "naiaKey", "googleApiKey",
+      "openaiTtsApiKey", "elevenlabsApiKey", "gatewayToken", "openaiRealtimeApiKey",
+      "memoryEmbeddingApiKey", "memoryLlmApiKey", "qdrantApiKey",
+    ]);
+    const raw = readNaiaSettingsSync();
+    const config: Record<string, string> = {};
+    for (const [k, v] of Object.entries(raw)) {
+      if (!SECRET_KEYS.has(k)) config[k] = v;
+    }
+    stdioWriteLine({ type: "config_sync", config });
+  }
   let hostToolExecutor: ToolExecutor = {
     list: async () => hostInjectedDefs,
     execute: async (inv) => {
@@ -1495,11 +1550,39 @@ async function runStdio(): Promise<number> {
             llm,
             memory,
             tools,
+            // stdio mode: stdout is the IPC channel, so logger must use stderr
+            logger: new ConsoleLogger({ level: "warn", stream: process.stderr }),
             tracer: new NoopTracer(),
             meter: new InMemoryMeter(),
             approvals: {
-              async decide() {
-                return { status: "approved" as const, at: Date.now() };
+              async decide(req) {
+                const tier = req.tier ?? "T1";
+                // T0/T1 — auto-approve (read/low-risk operations)
+                if (tier === "T0" || tier === "T1") {
+                  return { status: "approved" as const, at: Date.now() };
+                }
+                // T2/T3 — request user approval via IPC
+                const toolCallId = req.id;
+                stdioWriteLine({
+                  type: "approval_request",
+                  requestId,
+                  toolCallId,
+                  toolName: req.invocation.name,
+                  tier,
+                  description: req.reason ?? `Execute ${req.invocation.name}`,
+                });
+                return new Promise<{ status: "approved" | "denied"; at: number }>((resolve) => {
+                  const tid = setTimeout(() => {
+                    pendingApprovals.delete(toolCallId);
+                    resolve({ status: "denied", at: Date.now() });
+                  }, APPROVAL_TIMEOUT_MS);
+                  pendingApprovals.set(toolCallId, {
+                    resolve: (decision) => {
+                      clearTimeout(tid);
+                      resolve({ status: decision, at: Date.now() });
+                    },
+                  });
+                });
               },
             },
             identity: {
@@ -1511,7 +1594,10 @@ async function runStdio(): Promise<number> {
             },
           };
 
-          const agent = new Agent({ host, systemPrompt: sysPrompt, tierForTool: () => "T1" });
+          // Look up each tool's declared tier from hostInjectedDefs so T2/T3
+          // panel skills reach the approval gate (Gap 4 fix, #61).
+          const injectedTierMap = new Map(hostInjectedDefs.map(d => [d.name, d.tier]));
+          const agent = new Agent({ host, systemPrompt: sysPrompt, tierForTool: (name) => injectedTierMap.get(name) ?? "T1" });
 
           try {
             for await (const ev of agent.sendStream(prompt)) {
@@ -1588,29 +1674,246 @@ async function runStdio(): Promise<number> {
       }
       case "tts_request": {
         const requestId = typeof msg.requestId === "string" ? msg.requestId : `tts-${Date.now()}`;
-        stdioWriteLine({ type: "tts_ack", requestId, status: "not_supported" });
+        const text = typeof msg.text === "string" ? msg.text : "";
+        const voice = typeof msg.voice === "string" ? msg.voice : "en-US-JennyNeural";
+        const ttsProvider = typeof msg.ttsProvider === "string" ? msg.ttsProvider : "edge";
+        if (!text) { stdioWriteLine({ type: "finish", requestId }); break; }
+        void (async () => {
+          try {
+            let audioBase64: string | null = null;
+            if (ttsProvider === "edge" || ttsProvider === "auto") {
+              try {
+                const edgeTts = await import("msedge-tts") as {
+                  MsEdgeTTS: new () => {
+                    setMetadata(voice: string, outputFormat: string): Promise<void>;
+                    toStream(text: string): { audioStream: NodeJS.ReadableStream };
+                  };
+                  OUTPUT_FORMAT: Record<string, string>;
+                };
+                const client = new edgeTts.MsEdgeTTS();
+                await client.setMetadata(voice, edgeTts.OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
+                const chunks: Buffer[] = [];
+                const { audioStream } = client.toStream(text);
+                await new Promise<void>((res, rej) => {
+                  audioStream.on("data", (c: unknown) => chunks.push(c as Buffer));
+                  audioStream.once("end", () => res());
+                  audioStream.once("error", (e: Error) => rej(e));
+                });
+                if (chunks.length > 0) {
+                  audioBase64 = Buffer.concat(chunks).toString("base64");
+                }
+              } catch (e) {
+                process.stderr.write(`[stdio:tts] edge-tts failed: ${e instanceof Error ? e.message : String(e)}\n`);
+              }
+            } else if (ttsProvider === "openai") {
+              const apiKey = process.env["OPENAI_API_KEY"] ?? "";
+              if (apiKey) {
+                const resp = await fetch("https://api.openai.com/v1/audio/speech", {
+                  method: "POST",
+                  headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
+                  body: JSON.stringify({ model: "tts-1", input: text, voice: voice || "nova" }),
+                });
+                if (resp.ok) {
+                  const buf = await resp.arrayBuffer();
+                  audioBase64 = Buffer.from(buf).toString("base64");
+                }
+              }
+            }
+            if (audioBase64) {
+              stdioWriteLine({ type: "audio", requestId, data: audioBase64 });
+            }
+            stdioWriteLine({ type: "finish", requestId });
+          } catch (err) {
+            stdioWriteLine({ type: "error", requestId, message: err instanceof Error ? err.message : String(err) });
+          }
+        })();
         break;
       }
       case "tool_request": {
         const requestId = typeof msg.requestId === "string" ? msg.requestId : `tool-${Date.now()}`;
-        stdioWriteLine({ type: "tool_ack", requestId, status: "not_supported" });
+        const toolName = typeof msg.toolName === "string" ? msg.toolName : "";
+        const args = msg.args && typeof msg.args === "object" && !Array.isArray(msg.args)
+          ? (msg.args as Record<string, unknown>) : {};
+        void (async () => {
+          try {
+            const baseTools = new InMemoryToolExecutor([
+              createBashSkill(),
+              createTimeSkill(),
+              createWeatherSkill(),
+              createSystemStatusSkill(),
+              createMemoSkill(),
+              createDiagnosticsSkill({ sessionManager, configManager, startedAt: PROCESS_STARTED_AT }),
+              createSessionsSkill({ sessionManager }),
+              createConfigSkill({ configManager }),
+            ]);
+            const executor = hostInjectedDefs.length > 0
+              ? new CompositeToolExecutor({ subs: [{ id: "builtins", executor: baseTools }, { id: "host", executor: hostToolExecutor }] })
+              : baseTools;
+            const result = await executor.execute({ name: toolName, input: args });
+            stdioWriteLine({
+              type: "tool_result",
+              requestId,
+              toolCallId: `direct-${requestId}`,
+              toolName,
+              output: result.content,
+              success: !result.isError,
+            });
+            stdioWriteLine({ type: "finish", requestId });
+          } catch (err) {
+            stdioWriteLine({ type: "error", requestId, message: err instanceof Error ? err.message : String(err) });
+          }
+        })();
         break;
       }
       case "skill_list": {
         const requestId = typeof msg.requestId === "string" ? msg.requestId : `skill-${Date.now()}`;
-        const names = hostInjectedDefs.map((d) => d.name);
-        stdioWriteLine({ type: "skill_list_response", requestId, skills: names });
+        // Return full tool definitions (compatible with embedded agent format)
+        const tools = hostInjectedDefs.map((d) => ({
+          name: d.name,
+          description: d.description ?? "",
+          parameters: d.inputSchema ?? { type: "object", properties: {} },
+          tier: typeof d.tier === "string" ? (d.tier.startsWith("T") ? parseInt(d.tier.slice(1)) : 1) : 1,
+        }));
+        stdioWriteLine({ type: "skill_list_response", requestId, tools, skills: tools.map((t) => t.name) });
+        break;
+      }
+      case "panel_skills": {
+        // Backward-compat: naia-os panel tool registration (maps to skill_inject internally)
+        const panelId = typeof msg.panelId === "string" ? msg.panelId : "";
+        const tools = Array.isArray(msg.tools) ? msg.tools as Array<Record<string, unknown>> : [];
+        // Clear previous tools for this panel
+        const prevNames = panelSkillsByPanel.get(panelId);
+        if (prevNames) {
+          for (const name of prevNames) {
+            const idx = hostInjectedDefs.findIndex((d) => d.name === name);
+            if (idx >= 0) hostInjectedDefs.splice(idx, 1);
+          }
+        }
+        const names: string[] = [];
+        for (const t of tools) {
+          const name = typeof t.name === "string" ? t.name : "";
+          if (!name) continue;
+          const def: ToolDefinitionWithTier = {
+            name,
+            description: typeof t.description === "string" ? t.description : "",
+            inputSchema: (t.parameters ?? t.inputSchema ?? { type: "object", properties: {} }) as Record<string, unknown>,
+            tier: (typeof t.tier === "string" ? t.tier : typeof t.tier === "number" ? `T${t.tier}` : "T1") as ToolDefinitionWithTier["tier"],
+          };
+          const idx = hostInjectedDefs.findIndex((d) => d.name === name);
+          if (idx >= 0) hostInjectedDefs[idx] = def;
+          else hostInjectedDefs.push(def);
+          names.push(name);
+        }
+        panelSkillsByPanel.set(panelId, names);
+        break;
+      }
+      case "panel_skills_clear": {
+        const panelId = typeof msg.panelId === "string" ? msg.panelId : "";
+        const names = panelSkillsByPanel.get(panelId);
+        if (names) {
+          for (const name of names) {
+            const idx = hostInjectedDefs.findIndex((d) => d.name === name);
+            if (idx >= 0) hostInjectedDefs.splice(idx, 1);
+          }
+          panelSkillsByPanel.delete(panelId);
+        }
+        break;
+      }
+      case "embedding_prefetch": {
+        const model = typeof msg.model === "string" ? msg.model : "all-MiniLM-L6-v2";
+        stdioWriteLine({ type: "embedding_progress", status: "starting", model, progress: 0 });
+        void (async () => {
+          let pipelineFn: ((task: string, model: string, opts?: Record<string, unknown>) => Promise<unknown>) | undefined;
+          let envObj: Record<string, unknown> | undefined;
+          try {
+            const mod = await import("@huggingface/transformers") as Record<string, unknown>;
+            pipelineFn = mod.pipeline as typeof pipelineFn;
+            envObj = mod.env as Record<string, unknown>;
+          } catch {
+            stdioWriteLine({ type: "embedding_progress", status: "error", model, error: "@huggingface/transformers not installed" });
+            return;
+          }
+          const modelsDir = path.join(naiaSettingsDir(), ".models");
+          mkdirSync(modelsDir, { recursive: true });
+          if (envObj) envObj.cacheDir = modelsDir;
+          try {
+            await pipelineFn!("feature-extraction", `Xenova/${model}`, {
+              progress_callback: (p: Record<string, unknown>) => {
+                stdioWriteLine({
+                  type: "embedding_progress", model,
+                  status: p.status ?? "downloading",
+                  progress: typeof p.progress === "number" ? Math.round(p.progress) : 0,
+                  file: p.file,
+                });
+              },
+            });
+            stdioWriteLine({ type: "embedding_progress", status: "done", model, progress: 100 });
+          } catch (err) {
+            stdioWriteLine({ type: "embedding_progress", status: "error", model, error: err instanceof Error ? err.message : String(err) });
+          }
+        })();
+        break;
+      }
+      case "memory_export": {
+        const requestId = typeof msg.requestId === "string" ? msg.requestId : `memex-${Date.now()}`;
+        const password = typeof msg.password === "string" ? msg.password : "";
+        void (async () => {
+          try {
+            const ms = getOrCreateMemorySystem();
+            const blob = await ms.exportBackup(password);
+            stdioWriteLine({ type: "memory_export_result", requestId, data: Array.from(blob) });
+          } catch (err) {
+            stdioWriteLine({ type: "memory_export_result", requestId, error: err instanceof Error ? err.message : String(err) });
+          }
+        })();
+        break;
+      }
+      case "memory_import": {
+        const requestId = typeof msg.requestId === "string" ? msg.requestId : `memim-${Date.now()}`;
+        const data = Array.isArray(msg.data) ? new Uint8Array(msg.data as number[]) : new Uint8Array(0);
+        const password = typeof msg.password === "string" ? msg.password : "";
+        void (async () => {
+          try {
+            const ms = getOrCreateMemorySystem();
+            await ms.importBackup(data, password);
+            stdioWriteLine({ type: "memory_import_result", requestId });
+          } catch (err) {
+            stdioWriteLine({ type: "memory_import_result", requestId, error: err instanceof Error ? err.message : String(err) });
+          }
+        })();
         break;
       }
       case "approval_response": {
-        const requestId = typeof msg.requestId === "string" ? msg.requestId : "";
-        stdioWriteLine({ type: "approval_ack", requestId, status: "accepted" });
+        const toolCallId = typeof msg.toolCallId === "string" ? msg.toolCallId : "";
+        const decision = msg.decision === "reject" ? "denied" : "approved";
+        const pending = pendingApprovals.get(toolCallId);
+        if (pending) {
+          pending.resolve(decision as "approved" | "denied");
+          pendingApprovals.delete(toolCallId);
+        }
+        break;
+      }
+      case "get_config": {
+        const SECRET_KEYS = new Set([
+          "NAIA_ANYLLM_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+          "GLM_API_KEY", "GEMINI_API_KEY", "apiKey", "naiaKey", "googleApiKey",
+          "openaiTtsApiKey", "elevenlabsApiKey", "gatewayToken", "openaiRealtimeApiKey",
+          "memoryEmbeddingApiKey", "memoryLlmApiKey", "qdrantApiKey",
+        ]);
+        void (async () => {
+          const raw = await readNaiaSettings();
+          const config: Record<string, string> = {};
+          for (const [k, v] of Object.entries(raw)) {
+            if (!SECRET_KEYS.has(k)) config[k] = v;
+          }
+          stdioWriteLine({ type: "config_sync", config });
+        })();
         break;
       }
       case "factory_reset": {
         const id = typeof msg.id === "string" ? msg.id : `fr-${Date.now()}`;
         try {
-          agent.clearHistory();
+          // runStdio() creates a fresh Agent per chat_request — no persistent agent to clear
           const settingsDir = naiaSettingsDir();
           const configFile = path.join(settingsDir, "config.json");
           const sessionsDir = path.join(settingsDir, "sessions");
@@ -1902,8 +2205,14 @@ function keysDir(): string {
   return path.join(naiaSettingsDir(), ".keys");
 }
 
+/** Validate keyName is safe for use as a filesystem and keychain identifier. */
+function isValidKeyName(keyName: string): boolean {
+  return /^[A-Za-z0-9_]+$/.test(keyName) && keyName.length > 0 && keyName.length <= 128;
+}
+
 /** Store a secret. Returns true on success. */
 function keychainSet(keyName: string, value: string): boolean {
+  if (!isValidKeyName(keyName)) return false;
   try {
     if (process.platform === "win32") {
       // DPAPI: encrypt with current-user scope, store as .dpapi binary file
@@ -1939,6 +2248,7 @@ function keychainSet(keyName: string, value: string): boolean {
 
 /** Retrieve a secret. Returns null if not found or decryption fails. */
 function keychainGet(keyName: string): string | null {
+  if (!isValidKeyName(keyName)) return null;
   try {
     if (process.platform === "win32") {
       const keyFile = path.join(keysDir(), `${keyName}.dpapi`).replace(/\\/g, "\\\\");
