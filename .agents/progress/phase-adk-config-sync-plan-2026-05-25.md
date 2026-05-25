@@ -1,7 +1,7 @@
 # Phase: naia-adk 설정 동기화 + 대화 동기화 (v2 — 전수 리뷰 기반)
 
 Date: 2026-05-25
-Status: PLANNING (2nd cross-review complete)
+Status: DONE (2-pass cross-review clean, 0 CRITICAL/0 MAJOR)
 Depends: Slice 4 (완료), Slice 5 (완료), 온보딩 뼈대 (완료, commit `2142c20`)
 
 ---
@@ -171,15 +171,28 @@ W18-W22 (stdio 보강) — W2, W3 이후
 
 ## 5. 완료 기준
 
-1. `pnpm naia-agent` → ADK에서 설정 + 스킬 자동 로드 → 대화 가능
-2. `NAIA_MAIN_PROVIDER=claude-code` → Claude Code 구독으로 대화 가능
-3. naia-os → naia-agent stdio → IPC로 설정 주입 → 대화 가능
-4. naia-os에서 설정 변경 → config.json 업데이트 → naia-agent standalone에서 동일 설정
-5. `/setup` 후 env 리로드 → 새 프로바이더로 대화 전환
-6. 세션 저장/복원 동작
-7. 전체 테스트 통과
+1. `pnpm naia-agent` → ADK에서 설정 + 스킬 자동 로드 → 대화 가능 ✅
+2. `NAIA_MAIN_PROVIDER=claude-code` → Claude Code 구독으로 대화 가능 ✅
+3. naia-os → naia-agent stdio → IPC로 설정 주입 → 대화 가능 ✅
+4. naia-os에서 설정 변경 → config.json 업데이트 → naia-agent standalone에서 동일 설정 ✅
+5. `/setup` 후 env 리로드 → 새 프로바이더로 대화 전환 ✅
+6. 세션 저장/복원 동작 ✅
+7. 전체 테스트 통과 ✅ (228 passed, 0 failed)
 
-## 6. 통계
+## 6. 완료 이력
+
+| Phase | 커밋 | 내용 |
+|-------|------|------|
+| Phase 1 (CRITICAL) | `f3bf9b9` | D-01 Claude Code 분기 이동, D-02 runStdio args 수정, D-07 LLM/Memory 캐싱 |
+| Phase 2 (설정 인프라) | `5ac16ad` | W4-W8 resolveAdkPath, 부트스트랩, 자동 스킬, env 리로드, 필드명 통일 |
+| Phase 3 (naia-os 동기화) | `7741f46` | W9-W13 onboardingComplete 보존, persona/memory LLM 필드, NAIA_ADK_PATH 전달 |
+| Phase 4 (세션 동기화) | `f417d32` | W15-W17 세션 저장, /resume, /sessions |
+| Phase 5 (stdio 보강) | `d44f78b` | W18-W22 tts/tool/skill/approval 핸들러, embedding 키 매핑 |
+| W14 + 시나리오 + 리뷰 | `1b18547` | 게이트웨이 PROD 통일, 16 시나리오 테스트, vertex null-check 수정 |
+
+2-pass cross-review: 0 CRITICAL, 0 MAJOR, 4 MINOR (all accepted).
+
+## 7. 통계
 
 | 항목 | 수 |
 |------|-----|
