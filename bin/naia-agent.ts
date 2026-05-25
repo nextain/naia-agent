@@ -1601,6 +1601,58 @@ async function runStdio(): Promise<number> {
         stdioWriteLine({ type: "approval_ack", requestId, status: "accepted" });
         break;
       }
+      case "config_update": {
+        const id = typeof msg.id === "string" ? msg.id : `cfg-${Date.now()}`;
+        try {
+          const config =
+            msg.config && typeof msg.config === "object" && !Array.isArray(msg.config)
+              ? (msg.config as Record<string, string>)
+              : {};
+          if (Object.keys(config).length > 0) {
+            const existing = await readNaiaSettings();
+            await writeNaiaSettings({ ...existing, ...normalizeConfigKeys(config) });
+          }
+          loadEnvAndConfig();
+          const credKeys = await readCredentialKeys();
+          for (const keyName of credKeys) {
+            if (process.env[keyName] === undefined) {
+              const val = keychainGet(keyName);
+              if (val) process.env[keyName] = val;
+            }
+          }
+          const secrets =
+            msg.secrets && typeof msg.secrets === "object" && !Array.isArray(msg.secrets)
+              ? (msg.secrets as Record<string, string>)
+              : {};
+          const keychainWarnings: string[] = [];
+          for (const [keyName, value] of Object.entries(secrets)) {
+            if (!value) continue;
+            const ok = keychainSet(keyName, value);
+            if (ok) {
+              await addCredentialKey(keyName);
+              process.env[keyName] = value;
+            } else {
+              keychainWarnings.push(keyName);
+              process.env[keyName] = value;
+            }
+          }
+          setLocaleFromEnv();
+          cachedLlm = undefined;
+          const resp: Record<string, unknown> = { type: "config_update_response", id, status: "ok" };
+          if (keychainWarnings.length > 0) {
+            resp.warnings = keychainWarnings;
+          }
+          stdioWriteLine(resp);
+        } catch (err) {
+          stdioWriteLine({
+            type: "config_update_response",
+            id,
+            status: "error",
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        break;
+      }
     }
   }
 

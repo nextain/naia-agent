@@ -49,7 +49,9 @@ export type TranslationKey =
   | "repl.factory_reset.done"
   | "repl.sessions.empty"
   | "repl.resume.restored"
-  | "repl.resume.failed";
+  | "repl.resume.failed"
+  | "ipc.config_update_ok"
+  | "ipc.config_update_error";
 
 const translations: Record<TranslationKey, Record<Locale, string>> = {
   "cli.no_provider": {
@@ -212,6 +214,14 @@ const translations: Record<TranslationKey, Record<Locale, string>> = {
   "repl.resume.failed": {
     ko: "세션 복원 실패", en: "Session restore failed",
     ja: "セッション復元に失敗", zh: "会话恢复失败", fr: "Échec de restauration de session", de: "Sitzungswiederherstellung fehlgeschlagen", ru: "Ошибка восстановления сессии", es: "Error al restaurar sesión", ar: "فشل استعادة الجلسة", hi: "सत्र पुनर्स्थापना विफल", bn: "সেশন পুনরুদ্ধার ব্যর্থ", pt: "Falha ao restaurar sessão", id: "Gagal memulihkan sesi", vi: "Khôi phục phiên thất bại",
+  },
+  "ipc.config_update_ok": {
+    ko: "설정 업데이트 완료", en: "Config updated",
+    ja: "設定更新完了", zh: "配置已更新", fr: "Configuration mise à jour", de: "Konfiguration aktualisiert", ru: "Конфигурация обновлена", es: "Configuración actualizada", ar: "تم تحديث التكوين", hi: "कॉन्फ़िग अपडेट किया गया", bn: "কনফিগ আপডেট হয়েছে", pt: "Configuração atualizada", id: "Konfigurasi diperbarui", vi: "Đã cập nhật cấu hình",
+  },
+  "ipc.config_update_error": {
+    ko: "설정 업데이트 실패", en: "Config update failed",
+    ja: "設定更新に失敗", zh: "配置更新失败", fr: "Échec de la mise à jour", de: "Konfigurationsaktualisierung fehlgeschlagen", ru: "Ошибка обновления конфигурации", es: "Error al actualizar configuración", ar: "فشل تحديث التكوين", hi: "कॉन्फ़िग अपडेट विफल", bn: "কনফিগ আপডেট ব্যর্থ", pt: "Falha ao atualizar configuração", id: "Gagal memperbarui konfigurasi", vi: "Cập nhật cấu hình thất bại",
   },
 };
 

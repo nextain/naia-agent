@@ -218,3 +218,59 @@ describe("Group S6 — runStdio LLM caching", () => {
     expect(afterAuth).toContain("cachedLlm = undefined");
   });
 });
+
+describe("Group S7 — config_update stdio handler", () => {
+  it("S-CFG-1: config_update case exists in runStdio switch", () => {
+    const src = readFileSync(binPath, "utf8");
+    expect(src).toContain('case "config_update"');
+  });
+
+  it("S-CFG-2: config_update merges into config.json via readNaiaSettings + writeNaiaSettings", () => {
+    const src = readFileSync(binPath, "utf8");
+    const cfgIdx = src.indexOf('case "config_update"');
+    expect(cfgIdx).toBeGreaterThan(0);
+    const block = src.slice(cfgIdx, cfgIdx + 2000);
+    expect(block).toContain("readNaiaSettings");
+    expect(block).toContain("writeNaiaSettings");
+    expect(block).toContain("normalizeConfigKeys");
+  });
+
+  it("S-CFG-3: config_update saves secrets to keychain via keychainSet + addCredentialKey", () => {
+    const src = readFileSync(binPath, "utf8");
+    const cfgIdx = src.indexOf('case "config_update"');
+    const block = src.slice(cfgIdx, cfgIdx + 2500);
+    expect(block).toContain("keychainSet");
+    expect(block).toContain("addCredentialKey");
+  });
+
+  it("S-CFG-4: config_update invalidates cachedLlm", () => {
+    const src = readFileSync(binPath, "utf8");
+    const cfgIdx = src.indexOf('case "config_update"');
+    const block = src.slice(cfgIdx, cfgIdx + 2500);
+    expect(block).toContain("cachedLlm = undefined");
+  });
+
+  it("S-CFG-5: config_update calls loadEnvAndConfig after write", () => {
+    const src = readFileSync(binPath, "utf8");
+    const cfgIdx = src.indexOf('case "config_update"');
+    const block = src.slice(cfgIdx, cfgIdx + 2500);
+    expect(block).toContain("loadEnvAndConfig()");
+  });
+
+  it("S-CFG-6: config_update sends config_update_response with id and status", () => {
+    const src = readFileSync(binPath, "utf8");
+    const cfgIdx = src.indexOf('case "config_update"');
+    const block = src.slice(cfgIdx, cfgIdx + 2500);
+    expect(block).toContain("config_update_response");
+    expect(block).toContain('status: "ok"');
+    expect(block).toContain("error:");
+  });
+
+  it("S-CFG-7: config_update reloads keychain credentials into process.env", () => {
+    const src = readFileSync(binPath, "utf8");
+    const cfgIdx = src.indexOf('case "config_update"');
+    const block = src.slice(cfgIdx, cfgIdx + 2500);
+    expect(block).toContain("readCredentialKeys");
+    expect(block).toContain("keychainGet");
+  });
+});
