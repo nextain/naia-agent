@@ -57,19 +57,15 @@ const ENV_CANDIDATES = (cwd: string, explicit?: string): string[] => {
   return list;
 };
 
-const CONFIG_CANDIDATES = (cwd: string, explicit?: string): string[] => {
+const CONFIG_CANDIDATES = (cwd: string, explicit?: string, adkPath?: string): string[] => {
   const list: string[] = [];
   if (explicit) list.push(explicit);
   if (process.env["NAIA_AGENT_CONFIG"]) list.push(process.env["NAIA_AGENT_CONFIG"]);
   list.push(join(cwd, ".naia-agent.json"));
   list.push(join(HOME, ".naia-agent", "config.json"));
-  // naia-adk workspace config (lowest priority — overridden by agent-specific above)
-  const adkPathEnv = process.env["NAIA_ADK_PATH"];
-  if (adkPathEnv) {
-    // resolve() canonicalises to an absolute path — note: this is not a sandbox.
-    // A valid file at the resolved location will still be loaded.
-    const adkResolved = resolve(adkPathEnv);
-    list.push(join(adkResolved, "naia-settings", "config.json"));
+  const resolved = adkPath ?? process.env["NAIA_ADK_PATH"];
+  if (resolved) {
+    list.push(join(resolve(resolved), "naia-settings", "config.json"));
   }
   list.push(join(HOME, "naia-adk", "naia-settings", "config.json"));
   return list;
@@ -153,7 +149,7 @@ export function readConfiguredAdkPath(
   try {
     if (!isReadableFile(configPath)) return undefined;
     const j = JSON.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
-    const v = j["naiaAdkPath"];
+    const v = j["adkPath"] || j["naiaAdkPath"];
     return typeof v === "string" && v.length > 0 ? v : undefined;
   } catch {
     return undefined;
@@ -199,7 +195,7 @@ export function loadEnvAndConfig(opts: EnvLoadOptions = {}): EnvLoadReport {
   }
 
   const configFiles: string[] = [];
-  for (const candidate of CONFIG_CANDIDATES(cwd, opts.configPath)) {
+  for (const candidate of CONFIG_CANDIDATES(cwd, opts.configPath, adkPath)) {
     if (!candidate || !isReadableFile(candidate)) continue;
     configFiles.push(candidate);
   }
