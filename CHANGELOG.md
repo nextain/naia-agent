@@ -8,6 +8,14 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+### fix (Gap 4 — ADK skill tier enforcement, naia-os #61)
+
+- **`bin/naia-agent.ts`** — `tierForTool` was hardcoded `() => "T1"` at all three `new Agent()` call sites (stdio/naia-os IPC, CLI direct mode, service mode), causing every tool — including T2/T3 panel skills — to be auto-approved before reaching the approval gate. The gate itself (`approvals.decide()`: T2/T3 → `approval_request` IPC) was correctly implemented; only the tier lookup was missing.
+  - **naia-os IPC path** (`runStdio()` → `chat_request` handler): build `injectedTierMap` from `hostInjectedDefs` (populated by `panel_skills` IPC) and use `(name) => injectedTierMap.get(name) ?? "T1"` as the lookup.
+  - **CLI direct mode** (`runDirectMode()`): pre-load `tools.list()` into a tier map before `new Agent()` (already in async context, `list()` is optional on `ToolExecutor` contract — guarded).
+  - **Service mode** (`runServiceMode()`): same pre-load from `host.tools.list()`.
+- **`packages/cli-app/src/__tests__/bin-adk-skill-tier.test.ts`** (new) — 8 unit tests: T0–T3 tier preservation, fallback to T1 for unknowns, builtin default, multi-tool independence, IPC numeric-tier normalization.
+
 ### fix (adversarial review — 5 bugs)
 
 - **`packages/core/src/agent.ts`** — `session.started` now emits only once per session (one-shot `#sessionStartedEmitted` guard). Previously fired on every `sendStream()` call.
