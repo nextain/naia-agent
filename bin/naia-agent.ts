@@ -458,6 +458,10 @@ async function buildLLMClient(overrideModel?: string): Promise<LLMClient | null>
     const project = env.VERTEX_PROJECT_ID ?? env.GOOGLE_CLOUD_PROJECT ?? "";
     const region = env.VERTEX_REGION ?? env.GOOGLE_CLOUD_LOCATION ?? "us-east5";
     const model = overrideModel || env.ANTHROPIC_MODEL;
+    if (!model) {
+      process.stderr.write(`naia-agent: ERROR — no model specified. Use --model <id>\n`);
+      return null;
+    }
     const vertex = createVertex({ project, location: region });
     process.stderr.write(`naia-agent: provider=vertex model=${model}\n`);
     return new VercelClient(vertex(model));
@@ -1931,7 +1935,8 @@ async function fetchPricingOverlay() {
 }
 
 const DEFAULT_GATEWAY_HTTP_URL_CLI =
-  "https://naia-gateway-dev-181404717065.asia-northeast3.run.app";
+  process.env["NAIA_GATEWAY_URL"] ||
+  "https://naia-gateway-181404717065.asia-northeast3.run.app";
 
 const PROVIDER_DEFAULTS: Record<string, string> = {
   "claude-code": "sonnet",
