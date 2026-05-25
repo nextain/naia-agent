@@ -2641,15 +2641,19 @@ async function runOnboarding(): Promise<number> {
   current = "welcome";
   printStep();
   process.stdout.write("  Naia Agent — Open Source AI Companion\n\n");
-  const langChoice = await selectFromList("Language / 언어:", SUPPORTED_LOCALES.map((l) => `${l.code}  ${l.label}`));
-  if (langChoice) locale = langChoice.split(/\s+/)[0];
+  {
+    const langChoice = await selectFromList("Language / 언어:", SUPPORTED_LOCALES.map((l) => `${l.code}  ${l.label}`));
+    if (langChoice === null) { locale = locale || "ko"; }
+    else { locale = langChoice.split(/\s+/)[0]; }
+  }
 
   // ── Step: agentName ──
   current = "agentName";
   printStep();
   {
     const val = await promptLine("Agent name (Enter = Naia)");
-    if (val !== null && val.trim()) agentName = val.trim();
+    if (val === null) { /* ESC — keep default */ }
+    else if (val.trim()) agentName = val.trim();
     else agentName = "Naia";
   }
 
@@ -2658,7 +2662,8 @@ async function runOnboarding(): Promise<number> {
   printStep();
   {
     const val = await promptLine("Your name");
-    if (val !== null && val.trim()) userName = val.trim();
+    if (val === null) { /* ESC — keep current */ }
+    else if (val.trim()) userName = val.trim();
   }
 
   // ── Step: speechStyle ──
@@ -2669,7 +2674,8 @@ async function runOnboarding(): Promise<number> {
       "casual  (반말 — 친근하고 따뜻하게)",
       "formal  (존댓말 — 정중하고 예의 바르게)",
     ]);
-    if (styleChoice) speechStyle = styleChoice.startsWith("casual") ? "casual" : "formal";
+    if (styleChoice === null) { /* ESC — keep current */ }
+    else speechStyle = styleChoice.startsWith("casual") ? "casual" : "formal";
     const hon = await promptLine("Honorific / 호칭 (선택, 예: 선생님, 대표님)");
     if (hon !== null && hon.trim()) honorific = hon.trim();
     const persona = await promptLine("Extra persona (선택 — 성격, 말투, 행동 규칙 등)");
