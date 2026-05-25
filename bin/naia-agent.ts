@@ -1607,6 +1607,47 @@ async function runStdio(): Promise<number> {
         stdioWriteLine({ type: "approval_ack", requestId, status: "accepted" });
         break;
       }
+      case "factory_reset": {
+        const id = typeof msg.id === "string" ? msg.id : `fr-${Date.now()}`;
+        try {
+          agent.clearHistory();
+          const settingsDir = naiaSettingsDir();
+          const configFile = path.join(settingsDir, "config.json");
+          const sessionsDir = path.join(settingsDir, "sessions");
+          const bootstrapFile = path.join(homedir(), ".naia-agent", "config.json");
+          const bootstrapEnvFile = path.join(homedir(), ".naia-agent", ".env");
+          const cacheFile = path.join(homedir(), ".naia", "adk-path");
+          const keysDir = path.join(settingsDir, ".keys");
+          const credsFile = path.join(settingsDir, "credentials");
+          let removed = 0;
+          try { if (existsSync(configFile)) { await unlink(configFile); removed++; } } catch { /* ignore */ }
+          try { if (existsSync(sessionsDir)) { await rm(sessionsDir, { recursive: true }); removed++; } } catch { /* ignore */ }
+          try { if (existsSync(bootstrapFile)) { await unlink(bootstrapFile); removed++; } } catch { /* ignore */ }
+          try { if (existsSync(bootstrapEnvFile)) { await unlink(bootstrapEnvFile); removed++; } } catch { /* ignore */ }
+          try { if (existsSync(cacheFile)) { await unlink(cacheFile); removed++; } } catch { /* ignore */ }
+          try { if (existsSync(keysDir)) { await rm(keysDir, { recursive: true }); removed++; } } catch { /* ignore */ }
+          try { if (existsSync(credsFile)) { await unlink(credsFile); removed++; } } catch { /* ignore */ }
+          const providerEnvKeys = [
+            "NAIA_MAIN_PROVIDER", "NAIA_MAIN_MODEL", "NAIA_ANYLLM_API_KEY", "NAIA_ANYLLM_BASE_URL",
+            "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "ANTHROPIC_BASE_URL",
+            "OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_MODEL",
+            "GLM_API_KEY", "GLM_MODEL", "GLM_BASE_URL",
+            "VERTEX_PROJECT_ID", "VERTEX_REGION",
+            "NAIA_AGENT_NAME", "NAIA_USER_NAME", "NAIA_SPEECH_STYLE", "NAIA_LOCALE",
+          ];
+          for (const k of providerEnvKeys) delete process.env[k];
+          cachedLlm = undefined;
+          stdioWriteLine({ type: "factory_reset_response", id, status: "ok", removed });
+        } catch (err) {
+          stdioWriteLine({
+            type: "factory_reset_response",
+            id,
+            status: "error",
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        break;
+      }
       case "config_update": {
         const id = typeof msg.id === "string" ? msg.id : `cfg-${Date.now()}`;
         try {
