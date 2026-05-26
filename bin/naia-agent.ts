@@ -1966,14 +1966,35 @@ async function runStdio(): Promise<number> {
           // leaving the next chat_request with stale provider info →
           // "no LLM provider configured" (nextain/naia-os#326).
           //
+          // Lab-proxy-determining env vars (NAIA_ANYLLM_BASE_URL / _API_KEY)
+          // must also be force-applied so a dev/prod gateway switch from the
+          // shell takes effect on the next chat_request — env-loader.ts is
+          // first-match-wins and would otherwise keep the previously-cached
+          // prod URL, causing 401 against the dev gateway
+          // (nextain/naia-os#329 split-brain real failure case).
+          //
           // env-loader.ts is first-match-wins (never overwrites process.env),
           // so explicit assignment is required here.
-          const ENV_OVERRIDE_KEYS = ["NAIA_ADK_PATH", "NAIA_SETTINGS_DIR"] as const;
+          const ENV_OVERRIDE_KEYS = [
+            "NAIA_ADK_PATH",
+            "NAIA_SETTINGS_DIR",
+            "NAIA_ANYLLM_BASE_URL",
+            "NAIA_ANYLLM_API_KEY",
+          ] as const;
+          let providerEnvChanged = false;
           for (const k of ENV_OVERRIDE_KEYS) {
             const v = config[k];
-            if (typeof v === "string" && v) {
+            if (typeof v === "string" && v && process.env[k] !== v) {
               process.env[k] = v;
+              if (k === "NAIA_ANYLLM_BASE_URL" || k === "NAIA_ANYLLM_API_KEY") {
+                providerEnvChanged = true;
+              }
             }
+          }
+          // Invalidate cached LLM so the next chat_request rebuilds with
+          // the new gateway URL / key (otherwise stale prod URL stays cached).
+          if (providerEnvChanged) {
+            cachedLlm = undefined;
           }
           if (Object.keys(config).length > 0) {
             const existing = await readNaiaSettings();
