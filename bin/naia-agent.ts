@@ -1958,6 +1958,23 @@ async function runStdio(): Promise<number> {
             msg.config && typeof msg.config === "object" && !Array.isArray(msg.config)
               ? (msg.config as Record<string, string>)
               : {};
+          // Settings-dir-determining env vars MUST be applied to process.env
+          // BEFORE readNaiaSettings/writeNaiaSettings (which derive their path
+          // from resolveAdkPath → process.env.NAIA_ADK_PATH). Without this,
+          // a shell-initiated ADK switch would write into the OLD settings
+          // dir (chicken-and-egg) and the new path would be silently ignored,
+          // leaving the next chat_request with stale provider info →
+          // "no LLM provider configured" (nextain/naia-os#326).
+          //
+          // env-loader.ts is first-match-wins (never overwrites process.env),
+          // so explicit assignment is required here.
+          const ENV_OVERRIDE_KEYS = ["NAIA_ADK_PATH", "NAIA_SETTINGS_DIR"] as const;
+          for (const k of ENV_OVERRIDE_KEYS) {
+            const v = config[k];
+            if (typeof v === "string" && v) {
+              process.env[k] = v;
+            }
+          }
           if (Object.keys(config).length > 0) {
             const existing = await readNaiaSettings();
             await writeNaiaSettings({ ...existing, ...normalizeConfigKeys(config) });
