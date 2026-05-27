@@ -81,6 +81,43 @@ export type { CliMemoryDecision } from "./utils/cli-memory.js";
 // Cross-repo LLM config — naia-adk/naia-settings/llm.json reader.
 export { loadNaiaSettingsLLM } from "./utils/naia-settings.js";
 export type { NaiaSettingsOptions, NaiaSettingsReport } from "./utils/naia-settings.js";
+
+// naia-gateway error classification + cold-start retry (Slice 5-RB1.a / 5-RB1.b).
+export {
+  classifyGatewayError,
+  formatGatewayErrorMessage,
+  coldStartDelayMs,
+  coldStartTimeoutMessage,
+  isEnglishLocale,
+  COLD_START_MAX_ELAPSED_MS,
+  COLD_START_BASE_DELAY_MS,
+  COLD_START_MAX_DELAY_MS,
+} from "./utils/gateway-errors.js";
+export type {
+  GatewayErrorClass,
+  GatewayError,
+} from "./utils/gateway-errors.js";
+
+// naia-gateway fetch wrapper that wires error classification + retry into
+// @ai-sdk/openai-compatible's `fetch` option (Slice 5-RB1.a / 5-RB1.b).
+export { makeGatewayFetch } from "./utils/gateway-fetch.js";
+export type { GatewayFetchDeps } from "./utils/gateway-fetch.js";
+
+// naia-os instance_id resolver (Slice 5-RB1.d).
+export { resolveInstanceId } from "./utils/instance-id.js";
+export type { ResolveInstanceIdDeps, InstanceIdResolution } from "./utils/instance-id.js";
+
+// naia-gateway heartbeat sender (Slice 5-RB1.c, safety-net layer [4]).
+export {
+  maybeStartHeartbeat,
+  startHeartbeat,
+} from "./utils/heartbeat.js";
+export type {
+  HeartbeatConfig,
+  HeartbeatController,
+  HeartbeatScheduler,
+  HeartbeatHandle,
+} from "./utils/heartbeat.js";
 // OS-keychain secret store (device-key encrypted; no plaintext fallback).
 export { getSecretStore, __setSecretStoreForTest, classifyProbe } from "./utils/secret-store.js";
 export type { SecretStore } from "./utils/secret-store.js";

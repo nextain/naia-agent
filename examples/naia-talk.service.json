@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "0.1.0",
+  "name": "naia-talk",
+  "description": "naia Tier B voice Pod (24g-voice, RTX 3090, $0.33/h credit-prepaid). Phase 1 manifest — replace baseURL with deployed naia-gateway URL after G8.",
+  "persona": {
+    "systemPrompt": "You are a warm Korean conversation partner. Keep replies natural and short for voice playback."
+  },
+  "llm": {
+    "backend": "openai-compatible",
+    "model": "naia-talk",
+    "baseURL": "https://naia-gateway-dev.run.app/v1"
+  },
+  "memory": {
+    "binding": "alpha-memory"
+  }
+}

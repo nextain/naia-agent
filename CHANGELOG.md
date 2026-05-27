@@ -8,6 +8,21 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+### feat (Slice 5-RB1 — RunPod Tier B gateway path: license / heartbeat / cold-start retry / manifest, #63 master)
+
+Phase 1 RunPod Tier B (크레딧 prepaid $0.33/h, plan `alpha-adk/.agents/progress/naia-runpod-phase1-plan-2026-05-27.md` Round 11 v9). Sub-issues #64 / #65 / #66 / #67.
+
+- **`packages/runtime/src/utils/gateway-errors.ts`** (new) — `classifyGatewayError(401|402|503, body?, retryAfter?)` for naia-gateway-specific responses (`license-failed` / `credit-insufficient` / `pod-starting`). `coldStartDelayMs()` exponential backoff (5s → 60s cap). `COLD_START_MAX_ELAPSED_MS = 300_000` (5-min cap, plan §0.6). `formatGatewayErrorMessage()` ko/en/ja/zh stderr with `https://naia.nextain.io/{lang}/pricing` deeplink; POSIX (`LANG=C` / `C.UTF-8`) defaults to English. (#64, #65)
+- **`packages/runtime/src/utils/gateway-fetch.ts`** (new) — `makeGatewayFetch()` wraps `fetch` for `@ai-sdk/openai-compatible`. Classifies + retries transparently with the same exponential cap; license/credit/timeout escalate via injected `onFatalError` (bin exits 3, tests substitute). Pod-starting fires `onPodStarting` on every retry — host emits a fresh alive-signal each cycle, not a single one-shot hint (cross-review r1 MEDIUM fix). (#64, #65)
+- **`packages/runtime/src/utils/instance-id.ts`** (new) — `resolveInstanceId({ adkPath, home })` → naia-os routing key. Priority: `{adkPath}/naia-settings/naia-os.json` (naia-os owns) → `{home}/.naia-agent/instance.json` fallback (UUID v4 generated, mode 600 on Linux/macOS; mode best-effort on Windows). (#67, plan §0.5, §2.4)
+- **`packages/runtime/src/utils/heartbeat.ts`** (new) — `maybeStartHeartbeat(env, cfg)` opt-in via `NAIA_AGENT_HEARTBEAT=1` (default OFF). POST `{baseURL}/heartbeat` with `{instance_id, ts}` body + `X-Naia-OS-Instance` header. Failures silent — safety-net layer [4] (dev/verification only). Custom `intervalMs` via `NAIA_AGENT_HEARTBEAT_INTERVAL_MS` (≥1_000). (#66, plan §0.8)
+- **`packages/runtime/src/__tests__/{gateway-errors,gateway-fetch,instance-id,heartbeat,slice-5-rb1-integration}.test.ts`** (new) — 57 unit + integration tests (25 + 8 + 6 + 11 + 7) across the four utilities + end-to-end manifest-parse + error-chain scenarios. All green; CI fixture-only (G15).
+- **`bin/naia-agent.ts`** — `runService()` resolves `instanceId` at `bin/naia-agent.ts:1219`, passes to `buildLLMClientFromManifest({ instanceId, lang })`. openai-compatible branch at `bin/naia-agent.ts:973` injects `X-Naia-OS-Instance` header + `makeGatewayFetch` into the provider; `onPodStarting` formats progressive `retry #N in <s>s` stderr (ko/en). Heartbeat started after memory binding, stopped in `finally` (no leak on early returns). New `resolveAgentLang()` (`bin/naia-agent.ts:2427`) reduces `NAIA_LOCALE` / `NAIA_AGENT_LOCALE` / `LANG` to BCP-47 short tag; `isEnglishLocale()` unifies the en-check across `coldStartTimeoutMessage`, `formatGatewayErrorMessage`, and the bin's `onPodStarting` suffix (R2 cross-review fix — partial-locale-dispatch bug surfaced under `LANG=C`).
+- **`examples/naia-coding.service.json`** + **`examples/naia-talk.service.json`** (new) — Phase 1 manifests (`llm.backend=openai-compatible`, `llm.model=naia-{coding,talk}`, placeholder `baseURL=https://naia-gateway-dev.run.app/v1` — operator MUST set `NAIA_ALLOW_MANIFEST_BASEURL_HOSTS=naia-gateway-dev.run.app` before invocation, schema §4 + `packages/runtime/src/host/service-manifest.ts:269`). (#67)
+- **`packages/runtime/src/index.ts`** — barrel exports for the four new util modules + types.
+
+Pre-existing flake (NOT touched by this slice): `packages/runtime/src/__tests__/i18n.test.ts:33` fails when system `LANG=ko_KR.UTF-8` because the default locale resolution falls back to `ko`. Reproduces on `main` without these changes.
+
 ### fix (Gap 4 — ADK skill tier enforcement, naia-os #61)
 
 - **`bin/naia-agent.ts`** — `tierForTool` was hardcoded `() => "T1"` at all three `new Agent()` call sites (stdio/naia-os IPC, CLI direct mode, service mode), causing every tool — including T2/T3 panel skills — to be auto-approved before reaching the approval gate. The gate itself (`approvals.decide()`: T2/T3 → `approval_request` IPC) was correctly implemented; only the tier lookup was missing.

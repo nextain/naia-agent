@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "0.1.0",
+  "name": "naia-coding",
+  "description": "naia Tier B coding Pod (24g, RTX 3090, $0.33/h credit-prepaid). Phase 1 manifest — replace baseURL with deployed naia-gateway URL after G8.",
+  "persona": {
+    "systemPrompt": "You are a precise coding assistant. Respond in Korean by default; switch to English when the user does. Prefer minimal surgical edits; ask before refactoring unrelated code."
+  },
+  "llm": {
+    "backend": "openai-compatible",
+    "model": "naia-coding",
+    "baseURL": "https://naia-gateway-dev.run.app/v1"
+  },
+  "memory": {
+    "binding": "alpha-memory"
+  }
+}

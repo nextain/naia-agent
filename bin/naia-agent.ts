@@ -76,8 +76,17 @@ import {
   parseRoleSpec,
   readConfiguredAdkPath,
   decideCliMemory,
+  resolveInstanceId,
+  makeGatewayFetch,
+  maybeStartHeartbeat,
+  isEnglishLocale,
 } from "@nextain/agent-runtime";
-import type { ServiceManifest, ParsedRole } from "@nextain/agent-runtime";
+import type {
+  ServiceManifest,
+  ParsedRole,
+  HeartbeatController,
+  GatewayErrorClass,
+} from "@nextain/agent-runtime";
 // Composition root may depend on a MemoryProvider implementation (the
 // runtime/core packages must not). Blessed pattern: examples/naia-memory-host.
 import { LiteMemoryProvider, OpenAICompatEmbeddingProvider, SqliteAdapter, MemorySystem } from "@nextain/naia-memory";
@@ -965,8 +974,16 @@ async function executeAgent(agent: Agent, args: Args): Promise<number> {
  * host env (never the manifest). Returns null + a written stderr reason on a
  * missing key / unknown backend / untrusted baseURL so the caller exits 3.
  */
+interface BuildLLMClientFromManifestOpts {
+  /** naia-os routing key — sent as `X-Naia-OS-Instance` on every gateway call. */
+  instanceId?: string;
+  /** BCP-47 short tag for user-facing stderr (license/credit/cold-start). */
+  lang?: string;
+}
+
 async function buildLLMClientFromManifest(
   llm: ServiceManifest["llm"],
+  opts: BuildLLMClientFromManifestOpts = {},
 ): Promise<LLMClient | null> {
   const env = process.env;
   switch (llm.backend) {
@@ -987,10 +1004,32 @@ async function buildLLMClientFromManifest(
       // host. Local vLLM servers commonly accept any/empty key; OPENAI_API_KEY
       // / NAIA_SERVICE_API_KEY from host env (never the manifest).
       const apiKey = env.OPENAI_API_KEY ?? env.NAIA_SERVICE_API_KEY ?? "";
+      const headers = opts.instanceId
+        ? { "X-Naia-OS-Instance": opts.instanceId }
+        : undefined;
+      const lang = opts.lang ?? "ko";
+      const customFetch = opts.instanceId
+        ? makeGatewayFetch({
+            lang,
+            onFatalError: (cls: GatewayErrorClass | "timeout", message: string) => {
+              process.stderr.write(message + "\n");
+              process.exit(3);
+            },
+            onPodStarting: (message, waitMs, attempt) => {
+              const seconds = Math.ceil(waitMs / 1000);
+              const suffix = isEnglishLocale(lang)
+                ? ` (retry #${attempt} in ${seconds}s, 5 min cap)`
+                : ` (${attempt}번째 재시도, ${seconds}초 후, 최대 5분)`;
+              process.stderr.write(message + suffix + "\n");
+            },
+          })
+        : undefined;
       const provider = createOpenAICompatible({
         name: "manifest-openai-compat",
         apiKey,
         baseURL: llm.baseURL,
+        ...(headers ? { headers } : {}),
+        ...(customFetch ? { fetch: customFetch } : {}),
       });
       process.stderr.write(
         `naia-agent: provider=openai-compat model=${llm.model} baseURL=${llm.baseURL}\n`,
@@ -1187,7 +1226,31 @@ async function runService(args: Args): Promise<number> {
   }
   const manifest = result.manifest;
 
-  const llm = await buildLLMClientFromManifest(manifest.llm);
+  // Slice 5-RB1.d — naia-os routing key. Resolved once per service-mode
+  // invocation; same id flows into the manifest-built LLM fetch (headers)
+  // and the heartbeat sender (body + header). Source: naia-settings/
+  // naia-os.json (naia-os owns) → ~/.naia-agent/instance.json (fallback,
+  // generated on first run, mode 600). Failures here are fatal because
+  // the gateway routes by (user_id, instance_id) per plan §0.5.
+  let instanceId: string;
+  try {
+    const r = await resolveInstanceId({
+      adkPath: resolveAdkPath(),
+      home: homedir(),
+    });
+    instanceId = r.instanceId;
+  } catch (e) {
+    process.stderr.write(
+      `naia-agent: failed to resolve instance_id: ${(e as Error).message}\n`,
+    );
+    return 3;
+  }
+
+  const lang = resolveAgentLang();
+  const llm = await buildLLMClientFromManifest(manifest.llm, {
+    instanceId,
+    lang,
+  });
   if (!llm) return 3;
 
   // Test-only hermetic routing gate (naia-agent#39 G1). When set, the LLM
@@ -1284,9 +1347,23 @@ async function runService(args: Args): Promise<number> {
   // close the MemoryProvider on exit — agent.close() does not (cross-review
   // r1, gemini MAJOR). For "alpha-memory" this checkpoints/closes the SQLite
   // connection (WAL) instead of leaking it on CLI exit.
+  //
+  // Slice 5-RB1.c — safety-net layer [4] heartbeat (dev/verification only,
+  // default OFF via NAIA_AGENT_HEARTBEAT env). Started immediately before
+  // the agent loop so memory-bind / manifest-parse failures above don't
+  // leak a timer. Fate-shares with the gateway endpoint; the Cloud
+  // Scheduler cron (layer [2]) is the primary dead-agent detector.
+  const heartbeat: HeartbeatController | null = manifest.llm.baseURL
+    ? maybeStartHeartbeat(process.env, {
+        baseURL: manifest.llm.baseURL,
+        instanceId,
+      })
+    : null;
+
   try {
     return await executeAgent(agent, args);
   } finally {
+    heartbeat?.stop();
     await memory.close();
   }
 }
@@ -2360,6 +2437,13 @@ function naiaSettingsDir(): string {
 function setLocaleFromEnv(): void {
   const raw = process.env["NAIA_LOCALE"] ?? process.env["NAIA_AGENT_LOCALE"] ?? process.env["LANG"];
   if (raw) setLocale(raw as never);
+}
+
+/** BCP-47 short tag (ko/en/ja/zh) for gateway-error stderr (Slice 5-RB1). */
+function resolveAgentLang(): string {
+  const raw = process.env["NAIA_LOCALE"] ?? process.env["NAIA_AGENT_LOCALE"] ?? process.env["LANG"] ?? "ko";
+  const short = raw.split(/[_.-]/)[0];
+  return short && short.length > 0 ? short.toLowerCase() : "ko";
 }
 
 /** credentials manifest: list of key names stored in OS keychain. */
