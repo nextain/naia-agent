@@ -172,6 +172,8 @@ interface Args {
    *  toggle; any native-tool-calling model can drive them
    *  (cf. createFileOpsSkills in @nextain/agent-runtime/skills). */
   enableFileOps: boolean;
+  /** Override the default max tool-hop budget (default: 10). */
+  maxHops?: number;
   /** Load skills from an external ADK directory (e.g. naia-adk/skills/
    *  or onmam-adk/skills/) via FileSkillLoader. The path is treated as
    *  the direct skills root containing `<name>/SKILL.md` entries.
@@ -235,6 +237,19 @@ function parseArgs(argv: string[]): Args | { error: string } {
       const v = argv[++i];
       if (!v) return { error: "--system requires a value" };
       args.systemPrompt = v;
+    } else if (a === "--system-file") {
+      const v = argv[++i];
+      if (!v) return { error: "--system-file requires a path" };
+      try {
+        args.systemPrompt = readFileSync(v, "utf-8");
+      } catch (e) {
+        return { error: `--system-file: cannot read '${v}': ${String(e)}` };
+      }
+    } else if (a === "--max-hops") {
+      const v = argv[++i];
+      const n = parseInt(v ?? "", 10);
+      if (!v || isNaN(n) || n < 1) return { error: "--max-hops requires a positive integer" };
+      args.maxHops = n;
     } else if (a === "--service") {
       const v = argv[++i];
       if (!v) return { error: "--service requires a path to a *.service.json manifest" };
@@ -678,6 +693,7 @@ async function runDirect(args: Args): Promise<number> {
     // --no-default-system always wins. Non-memory behavior unchanged.
     appendDefaultSystemPrompt: args.noDefaultSystem ? false : !args.memory,
     compactionStrategy: args.compactStrategy,
+    ...(args.maxHops !== undefined && { maxToolHops: args.maxHops }),
   });
 
   // Slice 3-XR-Handoff (#50) — apply the previously parsed handoff blob now

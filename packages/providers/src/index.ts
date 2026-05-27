@@ -4,7 +4,7 @@
  * Active clients (Slice 5.x.4):
  *   - VercelClient    — wraps any Vercel AI SDK LanguageModelV2 (50+ providers)
  *   - LabProxyClient  — Naia Lab Gateway HTTPS (naiaKey)
- *   - LabProxyLiveClient — Naia Lab Gateway WSS (vllm-omni /v1/realtime)
+ *   - LabProxyLiveClient — Naia Lab Gateway WSS (naia-omni realtime endpoint /v1/realtime)
  *
  * Removed in Slice 5.x.4 (D44 — Vercel AI SDK adoption):
  *   AnthropicClient, createAnthropicVertexClient, OpenAICompatClient,

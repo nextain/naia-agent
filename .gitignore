@@ -12,3 +12,4 @@ coverage/
 *.tsbuildinfo
 .turbo/
 .pnpm-store/
+experiments/context-integrity/results/

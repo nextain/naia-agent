@@ -343,7 +343,16 @@ export class Agent {
       // Commit assistant turn to history (so next iteration sees tool_use).
       this.#history.push({ role: "assistant", content: blocks });
 
-      if (stopReason !== "tool_use") {
+      // Defensive: some OpenAI-compat gateways (e.g. naia-gateway via Vertex)
+      // return finish_reason "other" instead of "tool_calls" — causing the
+      // Vercel SDK to emit finishReason.unified="other" → stopReason="end_turn"
+      // even when tool_use blocks ARE present. Fall back to content inspection.
+      const resolvedStopReason =
+        stopReason === "end_turn" && blocks.some((b) => b.type === "tool_use")
+          ? "tool_use"
+          : stopReason;
+
+      if (resolvedStopReason !== "tool_use") {
         finalText = extractText(blocks);
         // LLM-initiated recall (#41 v2). If the model asked for memory
         // via a `<recall>query</recall>` marker, recall and re-generate.
