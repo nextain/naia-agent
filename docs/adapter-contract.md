@@ -35,7 +35,7 @@ export type Capability =
   | "browse_web"         // web fetch/search
   | "image_input"        // image input
   | "audio_input"        // voice input
-  | "audio_output";      // voice cascade output (Slice 3-XR-Voice / P0c-2 — LiveKit + VoxCPM2 TTS at the agent layer, NOT in-model omni; cf project_minicpm_o_4_5_deprecated_2026_05_20)
+  | "audio_output";      // voice output — produced by naia-os / naia-omni, forwarded to agent as needed
 
 export interface TaskSpec {
   readonly prompt: string;                   // user command
@@ -164,8 +164,9 @@ Shared at `packages/adapters/__tests__/contract.ts`:
 |---|---|---|---|
 | **`opencode-acp`** | In-tree JSON-RPC client (`AcpClient`) speaking the opencode Agent Client Protocol over stdio | ACP `session/new` / `session/update` / `session/cancel` | Package `@nextain/agent-adapter-opencode-acp` (workspace). No external `@agentclientprotocol/sdk` dep — the protocol client is implemented in-repo. |
 | **`opencode-cli`** | Wraps `opencode run --format json` as a child process | stdout JSON line stream + SIGTERM | Package `@nextain/agent-adapter-opencode-cli` (workspace). Phase 1 fallback while ACP path matures. |
+| **`pi-cli`** | Wraps `pi -p "<prompt>" --mode json --no-session` as a child process — converts stdout NDJSON event stream to `NaiaStreamChunk` | stdout NDJSON stream + SIGTERM/SIGKILL (500 ms hard kill) | Package `@nextain/agent-adapter-pi` (workspace). Uses `@earendil-works/pi-coding-agent ^0.74.1` binary. Single-shot (no-session) mode only. |
 | **`shell`** | `child_process.spawn` of any external CLI | stdin/stdout passthrough + SIGTERM/SIGKILL | Package `@nextain/agent-adapter-shell` (workspace). Node.js built-ins only. |
-| **`voice-cascade`** *(Slice 3-XR-Voice / P0c-2, deferred)* | LiveKit Agents framework (STT → LLM → VoxCPM2 TTS at the agent layer) | LiveKit cancel + fetch abort | Separate-session work; cf `project_voice_p0c_split_2026_05_20`. No package built yet. |
+| **`voice-cascade`** *(deferred — naia-os/naia-omni territory)* | Voice orchestration is handled by naia-os + naia-omni. naia-agent is LLM text turn only. | n/a | Not a naia-agent adapter concern. |
 | **`mcp-bridge`** *(deferred)* | MCP server spawn | stdio MCP | — |
 
 **Claude Code path (not an adapter).** Claude Code coding-agent integration is routed through the provider layer using `ai-sdk-provider-claude-code` (workspace dep `^3.4.4`, transitively `@anthropic-ai/claude-agent-sdk@0.2.122` for the platform-native binary), not through a dedicated `claude-code` `SubAgentAdapter`. See `packages/providers/src/vercel-client.ts` and Slice 3-XR-O (parity work, completed 2026-05-20).
@@ -174,16 +175,16 @@ Shared at `packages/adapters/__tests__/contract.ts`:
 
 What each adapter supports vs. doesn't:
 
-| method | opencode-acp | opencode-cli | shell | voice-cascade (deferred) |
-|---|:---:|:---:|:---:|:---:|
-| `spawn` | ✓ | ✓ | ✓ | ✓ |
-| `events()` | ✓ | ✓ (stdout JSON) | ✓ (stdout/stderr) | ✓ (audio_delta) |
-| `cancel()` | ✓ (ACP `session/cancel`) | ✓ (SIGTERM/SIGKILL) | ✓ (SIGTERM/SIGKILL) | ✓ (fetch abort) |
-| `pause()` | △ (Phase 2 spike — confirm ACP spec) | ✗ | ✗ | ✗ |
-| `resume()` | △ | ✗ | ✗ | ✗ |
-| `inject(message)` | ✗ (no mid-session prompt) | ✗ | ✗ (stdin closed after spawn) | ✗ |
-| `health()` | ✓ (ACP `initialize`) | ✓ (binary which) | ✓ (binary which) | ✓ (HTTP HEAD) |
-| `status()` | ✓ | ✓ | ✓ | ✓ |
+| method | opencode-acp | opencode-cli | pi-cli | shell | voice-cascade (deferred) |
+|---|:---:|:---:|:---:|:---:|:---:|
+| `spawn` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `events()` | ✓ | ✓ (stdout JSON) | ✓ (stdout NDJSON) | ✓ (stdout/stderr) | ✓ (audio_delta) |
+| `cancel()` | ✓ (ACP `session/cancel`) | ✓ (SIGTERM/SIGKILL) | ✓ (SIGTERM → 500 ms → SIGKILL) | ✓ (SIGTERM/SIGKILL) | ✓ (fetch abort) |
+| `pause()` | △ (Phase 2 spike — confirm ACP spec) | ✗ | ✗ | ✗ | ✗ |
+| `resume()` | △ | ✗ | ✗ | ✗ | ✗ |
+| `inject(message)` | ✗ (no mid-session prompt) | ✗ | ✗ (single-shot only) | ✗ (stdin closed after spawn) | ✗ |
+| `health()` | ✓ (ACP `initialize`) | ✓ (binary which) | ✓ (binary which) | ✓ (binary which) | ✓ (HTTP HEAD) |
+| `status()` | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 **Rule**: calling an unsupported method must throw `UnsupportedError` (silent ignore forbidden). The supervisor checks `adapter.capabilities` before spawn.
 

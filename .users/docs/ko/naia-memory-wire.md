@@ -2,7 +2,7 @@
 
 > **언어**: [English](../../../docs/naia-memory-wire.md) · 한국어 (이 파일)
 > **상태**: 라이브 (`--memory` 플래그 Slice 3-XR-C-mem 에서 출시, Group A3 + F2 가 cross-process 회상 LIVE 검증).
-> **상위**: `docs/vision-statement.md` §4b (페르소나 분리), `docs/memory-provider-audit.md` (façade 감사).
+> **상위**: [`vision-statement.md`](vision-statement.md) §4b (페르소나 분리), [`memory-provider-audit.md`](memory-provider-audit.md) (façade 감사).
 
 ---
 

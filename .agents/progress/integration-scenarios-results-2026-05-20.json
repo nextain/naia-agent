@@ -1,8 +1,8 @@
 {
-  "runAt": "2026-05-25T10:20:32.531Z",
+  "runAt": "2026-05-25T18:29:35.657Z",
   "total": 57,
-  "passed": 45,
-  "failed": 12,
+  "passed": 57,
+  "failed": 0,
   "skipped": 25,
   "judgeAvailable": false,
   "results": [
@@ -14,7 +14,7 @@
         "pass": true,
         "notes": []
       },
-      "wallMs": 27,
+      "wallMs": 29,
       "skipped": "ollama unreachable or gemma4:31b missing"
     },
     {
@@ -25,7 +25,7 @@
         "pass": true,
         "notes": []
       },
-      "wallMs": 5,
+      "wallMs": 13,
       "skipped": "no 24G"
     },
     {
@@ -36,7 +36,7 @@
         "pass": true,
         "notes": []
       },
-      "wallMs": 7,
+      "wallMs": 8,
       "skipped": "no 24G"
     },
     {
@@ -47,7 +47,7 @@
         "pass": true,
         "notes": []
       },
-      "wallMs": 3,
+      "wallMs": 5,
       "skipped": "no 24G"
     },
     {
@@ -58,7 +58,7 @@
         "pass": true,
         "notes": []
       },
-      "wallMs": 5,
+      "wallMs": 12,
       "skipped": "no 24G"
     },
     {
@@ -69,7 +69,7 @@
         "pass": true,
         "notes": []
       },
-      "wallMs": 4,
+      "wallMs": 9,
       "skipped": "no 24G"
     },
     {
@@ -80,7 +80,7 @@
         "pass": true,
         "notes": []
       },
-      "wallMs": 2,
+      "wallMs": 6,
       "skipped": "no 24G"
     },
     {
@@ -91,7 +91,7 @@
         "pass": true,
         "notes": []
       },
-      "wallMs": 5,
+      "wallMs": 3,
       "skipped": "no e4b"
     },
     {
@@ -102,7 +102,7 @@
         "pass": true,
         "notes": []
       },
-      "wallMs": 5,
+      "wallMs": 3,
       "skipped": "no 24G"
     },
     {
@@ -113,7 +113,7 @@
         "pass": true,
         "notes": []
       },
-      "wallMs": 12,
+      "wallMs": 5,
       "skipped": "no 24G"
     },
     {
@@ -121,39 +121,39 @@
       "group": "H",
       "description": "server-down clean hint",
       "mechanism": {
-        "pass": false,
+        "pass": true,
         "notes": [
-          "exit=1"
+          "exit=2"
         ]
       },
-      "wallMs": 948,
-      "observedTail": "\n    at failureErrorWithLog (D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:1748:15)\r\n    at D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:1017:50\r\n    at responseCallbacks.<computed> (D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:884:9)\r\n    at handleIncomingPacket (D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:939:12)\r\n    at Socket.readFromStdout (D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:862:7)\r\n    at Socket.emit (node:events:508:28)\r\n    at addChunk (node:internal/streams/readable:563:12)\r\n    at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)\r\n    at Readable.push (node:internal/streams/readable:394:5)\r\n    at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)\r\n\r\nNode.js v24.14.0\r\n"
+      "wallMs": 3089,
+      "observedTail": "naia-agent: provider=openai-compat model=absent\n\nnaia-agent: turn failed — Cannot connect to API: bad port\n  The model server at http://127.0.0.1:1/v1 is unreachable. Start it, or reconfigure:\n    pnpm naia-agent login --adk <naia-adk> \\\n      --main \"openai-compat|http://127.0.0.1:11434/v1|gemma3n:e4b\"\n"
     },
     {
       "id": "H2",
       "group": "H",
       "description": "malformed manifest",
       "mechanism": {
-        "pass": false,
+        "pass": true,
         "notes": [
-          "exit=1"
+          "exit=3"
         ]
       },
-      "wallMs": 527,
-      "observedTail": "\n    at failureErrorWithLog (D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:1748:15)\r\n    at D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:1017:50\r\n    at responseCallbacks.<computed> (D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:884:9)\r\n    at handleIncomingPacket (D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:939:12)\r\n    at Socket.readFromStdout (D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:862:7)\r\n    at Socket.emit (node:events:508:28)\r\n    at addChunk (node:internal/streams/readable:563:12)\r\n    at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)\r\n    at Readable.push (node:internal/streams/readable:394:5)\r\n    at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)\r\n\r\nNode.js v24.14.0\r\n"
+      "wallMs": 1401,
+      "observedTail": "naia-agent: invalid manifest \"C:\\Users\\LukeYang\\AppData\\Local\\Temp\\naia-intg-H-XwDmWh\\home-DfpCek\\bad.service.json\"\n{\"name\":\"error.manifest\",\"timestamp\":1779733763822,\"errorCode\":\"MANIFEST_INVALID\",\"severity\":\"error\",\"retryable\":false,\"data\":{\"detail\":\"invalid JSON: Expected property name or '}' in JSON at position 2 (line 1 column 3)\"},\"debug\":\"invalid JSON: Expected property name or '}' in JSON at position 2 (line 1 column 3)\"}\n"
     },
     {
       "id": "H3",
       "group": "H",
       "description": "no provider clear path forward",
       "mechanism": {
-        "pass": false,
+        "pass": true,
         "notes": [
-          "exit=1"
+          "exit=3"
         ]
       },
-      "wallMs": 540,
-      "observedTail": "build@0.27.7\\node_modules\\esbuild\\lib\\main.js:1017:50\r\n    at responseCallbacks.<computed> (D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:884:9)\r\n    at handleIncomingPacket (D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:939:12)\r\n    at Socket.readFromStdout (D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:862:7)\r\n    at Socket.emit (node:events:508:28)\r\n    at addChunk (node:internal/streams/readable:563:12)\r\n    at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)\r\n    at Readable.push (node:internal/streams/readable:394:5)\r\n    at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)\r\n\r\nNode.js v24.14.0\r\n"
+      "wallMs": 1045,
+      "observedTail": "naia-agent: ERROR — no LLM provider configured.\n  Quickest path: pnpm naia-agent login --adk <naia-adk-path> --main \"provider|baseUrl|model\"\n  Or set an env var: ANTHROPIC_API_KEY, GLM_API_KEY, or OPENAI_API_KEY+OPENAI_BASE_URL.\n  See: docs/llm-config-standard.md, docs/user-guide.md\n"
     },
     {
       "id": "I1",
@@ -162,24 +162,24 @@
       "mechanism": {
         "pass": true,
         "notes": [
-          "exit=1"
+          "exit=3"
         ]
       },
-      "wallMs": 536,
-      "observedTail": "    at handleIncomingPacket (D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:939:12)\r\n    at Socket.readFromStdout (D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:862:7)\r\n    at Socket.emit (node:events:508:28)\r\n    at addChunk (node:internal/streams/readable:563:12)\r\n    at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)\r\n    at Readable.push (node:internal/streams/readable:394:5)\r\n    at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)\r\n\r\nNode.js v24.14.0\r\n"
+      "wallMs": 890,
+      "observedTail": "naia-agent login: --main: apiKeyRef looks like a RAW SECRET — pass a name (env var / keychain entry), not the key itself\n"
     },
     {
       "id": "I2",
       "group": "I",
       "description": "show no value leak",
       "mechanism": {
-        "pass": false,
+        "pass": true,
         "notes": [
-          "exit=1"
+          "exit=0"
         ]
       },
-      "wallMs": 780,
-      "observedTail": ""
+      "wallMs": 1792,
+      "observedTail": "ers\\LukeYang\\AppData\\Local\\Temp\\naia-intg-I-gj9l7A\\adk-vTe09s\\naia-settings\\llm.json\n  main       openai-compat gemma4:31b @ http://127.0.0.1:11434/v1  apiKeyRef=MY_FAKE_TOKEN_NAME\n  sub        <none>\n  embedded   <none>\n  resolved:    openai-compat gemma4:31b @ http://127.0.0.1:11434/v1\n  memory db:   C:\\Users\\LukeYang\\AppData\\Local\\Temp\\naia-intg-I-gj9l7A\\home-DpfX28\\.naia-agent\\memory\\cli.sqlite  (absent)\n  config.json: C:\\Users\\LukeYang\\AppData\\Local\\Temp\\naia-intg-I-gj9l7A\\home-DpfX28\\.naia-agent\\config.json\n  (apiKeyRef shows the env var / keychain NAME only — values are never printed.)\n"
     },
     {
       "id": "F3",
@@ -200,7 +200,7 @@
         "pass": true,
         "notes": []
       },
-      "wallMs": 3,
+      "wallMs": 4,
       "skipped": "no 24G"
     },
     {
@@ -208,26 +208,26 @@
       "group": "H",
       "description": "--memory no embedded role",
       "mechanism": {
-        "pass": false,
+        "pass": true,
         "notes": [
-          "exit=1"
+          "exit=2"
         ]
       },
-      "wallMs": 648,
-      "observedTail": "build@0.27.7\\node_modules\\esbuild\\lib\\main.js:1017:50\r\n    at responseCallbacks.<computed> (D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:884:9)\r\n    at handleIncomingPacket (D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:939:12)\r\n    at Socket.readFromStdout (D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:862:7)\r\n    at Socket.emit (node:events:508:28)\r\n    at addChunk (node:internal/streams/readable:563:12)\r\n    at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)\r\n    at Readable.push (node:internal/streams/readable:394:5)\r\n    at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)\r\n\r\nNode.js v24.14.0\r\n"
+      "wallMs": 1680,
+      "observedTail": "naia-agent: provider=openai-compat model=gemma4:31b\nnaia-agent: --memory needs a valid 'embedded' role (run `naia-agent login --embedded \"provider|baseUrl|model|dims\"` or fix naia-settings/llm.json) — falling back to ephemeral memory.\n\nnaia-agent: turn failed — model 'gemma4:31b' not found\n"
     },
     {
       "id": "H5",
       "group": "H",
       "description": "unknown flag graceful",
       "mechanism": {
-        "pass": false,
+        "pass": true,
         "notes": [
-          "exit=1"
+          "exit=3"
         ]
       },
-      "wallMs": 286,
-      "observedTail": "    at handleIncomingPacket (D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:939:12)\r\n    at Socket.readFromStdout (D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:862:7)\r\n    at Socket.emit (node:events:508:28)\r\n    at addChunk (node:internal/streams/readable:563:12)\r\n    at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)\r\n    at Readable.push (node:internal/streams/readable:394:5)\r\n    at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)\r\n\r\nNode.js v24.14.0\r\n"
+      "wallMs": 594,
+      "observedTail": "--adk <path> [--main ...] [--sub ...] [--embedded ...] [--key REF=VAL]\n       pnpm naia-agent show                       # show current config (no secret values)\n       pnpm naia-agent providers                   # list providers and models\n       pnpm naia-agent --stdio\n       pnpm naia-agent [prompt] --service app.service.json\n       pnpm naia-agent [prompt] --mode=supervisor [--no-verify] [-m model] [--adapter shell -- cmd args]\n       pnpm naia-agent login naia                  # browser login -> model select -> done\n       pnpm naia-agent login anthropic            # direct API key entry\n"
     },
     {
       "id": "I3",
@@ -236,11 +236,11 @@
       "mechanism": {
         "pass": true,
         "notes": [
-          "exit=1"
+          "exit=3"
         ]
       },
-      "wallMs": 251,
-      "observedTail": "    at handleIncomingPacket (D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:939:12)\r\n    at Socket.readFromStdout (D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:862:7)\r\n    at Socket.emit (node:events:508:28)\r\n    at addChunk (node:internal/streams/readable:563:12)\r\n    at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)\r\n    at Readable.push (node:internal/streams/readable:394:5)\r\n    at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)\r\n\r\nNode.js v24.14.0\r\n"
+      "wallMs": 573,
+      "observedTail": "naia-agent login: --main: apiKeyRef looks like a RAW SECRET — pass a name (env var / keychain entry), not the key itself\n"
     },
     {
       "id": "I4",
@@ -249,50 +249,50 @@
       "mechanism": {
         "pass": true,
         "notes": [
-          "exit=1"
+          "exit=3"
         ]
       },
-      "wallMs": 251,
-      "observedTail": "    at handleIncomingPacket (D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:939:12)\r\n    at Socket.readFromStdout (D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:862:7)\r\n    at Socket.emit (node:events:508:28)\r\n    at addChunk (node:internal/streams/readable:563:12)\r\n    at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)\r\n    at Readable.push (node:internal/streams/readable:394:5)\r\n    at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)\r\n\r\nNode.js v24.14.0\r\n"
+      "wallMs": 564,
+      "observedTail": "naia-agent login: --main: apiKeyRef looks like a RAW SECRET — pass a name (env var / keychain entry), not the key itself\n"
     },
     {
       "id": "I5",
       "group": "I",
       "description": "positive control — legit ref name accepted",
       "mechanism": {
-        "pass": false,
+        "pass": true,
         "notes": [
-          "exit=1"
+          "exit=0"
         ]
       },
-      "wallMs": 260,
-      "observedTail": ":events:508:28)\r\n    at addChunk (node:internal/streams/readable:563:12)\r\n    at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)\r\n    at Readable.push (node:internal/streams/readable:394:5)\r\n    at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)\r\n\r\nNode.js v24.14.0\r\n"
+      "wallMs": 559,
+      "observedTail": "naia-agent login: configured (main)\n  Run: pnpm naia-agent --no-tools \"your prompt here\"\n"
     },
     {
       "id": "E1",
       "group": "E",
       "description": "langgraph reserve graceful",
       "mechanism": {
-        "pass": false,
+        "pass": true,
         "notes": [
-          "exit=1"
+          "exit=3"
         ]
       },
-      "wallMs": 254,
-      "observedTail": "\n    at failureErrorWithLog (D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:1748:15)\r\n    at D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:1017:50\r\n    at responseCallbacks.<computed> (D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:884:9)\r\n    at handleIncomingPacket (D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:939:12)\r\n    at Socket.readFromStdout (D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:862:7)\r\n    at Socket.emit (node:events:508:28)\r\n    at addChunk (node:internal/streams/readable:563:12)\r\n    at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)\r\n    at Readable.push (node:internal/streams/readable:394:5)\r\n    at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)\r\n\r\nNode.js v24.14.0\r\n"
+      "wallMs": 554,
+      "observedTail": "naia-agent: manifest llm.backend \"langgraph\" not implemented yet (deferred to Slice 3-XR-K). Reserve stub: schema accepts the value but no live dispatcher is wired.\n"
     },
     {
       "id": "E2",
       "group": "E",
       "description": "rag-retriever reserve graceful",
       "mechanism": {
-        "pass": false,
+        "pass": true,
         "notes": [
-          "exit=1"
+          "exit=3"
         ]
       },
-      "wallMs": 245,
-      "observedTail": "\n    at failureErrorWithLog (D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:1748:15)\r\n    at D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:1017:50\r\n    at responseCallbacks.<computed> (D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:884:9)\r\n    at handleIncomingPacket (D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:939:12)\r\n    at Socket.readFromStdout (D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:862:7)\r\n    at Socket.emit (node:events:508:28)\r\n    at addChunk (node:internal/streams/readable:563:12)\r\n    at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)\r\n    at Readable.push (node:internal/streams/readable:394:5)\r\n    at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)\r\n\r\nNode.js v24.14.0\r\n"
+      "wallMs": 540,
+      "observedTail": "naia-agent: manifest llm.backend \"rag-retriever\" not implemented yet (deferred to Slice 3-XR-K). Reserve stub: schema accepts the value but no live dispatcher is wired.\n"
     },
     {
       "id": "J2a",
@@ -313,7 +313,7 @@
         "pass": true,
         "notes": []
       },
-      "wallMs": 3,
+      "wallMs": 2,
       "skipped": "no 24G"
     },
     {
@@ -335,7 +335,7 @@
         "pass": true,
         "notes": []
       },
-      "wallMs": 2,
+      "wallMs": 1,
       "skipped": "no 24G"
     },
     {
@@ -350,7 +350,7 @@
           "invokeMsgLen=59"
         ]
       },
-      "wallMs": 288,
+      "wallMs": 335,
       "observedTail": "list[0..5]=channel-management,config,cron,diagnostics,doc-coauthoring\ninvoke('time'): FileSkillLoader is parse-only — no invoker wired for \"time\""
     },
     {
@@ -365,7 +365,7 @@
           "tier-distribution: T0=4 T1=5 T2=5 T3=5"
         ]
       },
-      "wallMs": 5,
+      "wallMs": 8,
       "observedTail": "all 19 valid"
     },
     {
@@ -380,7 +380,7 @@
           "missing=—"
         ]
       },
-      "wallMs": 12,
+      "wallMs": 8,
       "observedTail": "got: channel-management,config,cron,diagnostics,doc-coauthoring,document-generation,email,memo,notify,read-doc,review-pass,service-management,sessions,skill-manager,sms,system-status,time,weather,web-monitoring"
     },
     {
@@ -396,7 +396,7 @@
           "tier-distribution: T0=0 T1=10"
         ]
       },
-      "wallMs": 4,
+      "wallMs": 5,
       "observedTail": "names: channel-management,doc-coauthoring,document-generation,email,read-doc,review-pass,service-management,sms,web-monitoring,wp-archive"
     },
     {
@@ -430,7 +430,7 @@
           "onmamOnlyPresent=true"
         ]
       },
-      "wallMs": 8,
+      "wallMs": 10,
       "observedTail": "shadow sample: channel-management:onmam-adk>naia-adk, doc-coauthoring:onmam-adk>naia-adk, document-generation:onmam-adk>naia-adk"
     },
     {
@@ -449,30 +449,30 @@
       "group": "M",
       "description": "REPL safeTurn cross-turn survival",
       "mechanism": {
-        "pass": false,
+        "pass": true,
         "notes": [
-          "exit=1",
-          "promptCount=0",
-          "stderrHas turn failed=false"
+          "exit=0",
+          "promptCount=3",
+          "stderrHas turn failed=true"
         ]
       },
-      "wallMs": 506,
-      "observedTail": "stderr tail: build@0.27.7\\node_modules\\esbuild\\lib\\main.js:1017:50\r\n    at responseCallbacks.<computed> (D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:884:9)\r\n    at handleIncomingPacket (D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:939:12)\r\n    at Socket.readFromStdout (D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:862:7)\r\n    at Socket.emit (node:events:508:28)\r\n    at addChunk (node:internal/streams/readable:563:12)\r\n    at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)\r\n    at Readable.push (node:internal/streams/readable:394:5)\r\n    at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)\r\n\r\nNode.js v24.14.0\r\n"
+      "wallMs": 1279,
+      "observedTail": "stderr tail: naia-agent: provider=openai-compat model=absent\n\nnaia-agent: turn failed — Cannot connect to API: bad port\n  The model server at http://127.0.0.1:1/v1 is unreachable. Start it, or reconfigure:\n    pnpm naia-agent login --adk <naia-adk> \\\n      --main \"openai-compat|http://127.0.0.1:11434/v1|gemma3n:e4b\"\n\nnaia-agent: turn failed — Cannot connect to API: bad port\n  The model server at http://127.0.0.1:1/v1 is unreachable. Start it, or reconfigure:\n    pnpm naia-agent login --adk <naia-adk> \\\n      --main \"openai-compat|http://127.0.0.1:11434/v1|gemma3n:e4b\"\n"
     },
     {
       "id": "M2",
       "group": "M",
       "description": "Claude Code subscription routing (DRYRUN + opt-in live)",
       "mechanism": {
-        "pass": false,
+        "pass": true,
         "notes": [
-          "dry.exit=1",
-          "dryMech=false",
+          "dry.exit=0",
+          "dryMech=true",
           "liveExit=<skipped>"
         ]
       },
-      "wallMs": 247,
-      "observedTail": "dry stderr:     at handleIncomingPacket (D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:939:12)\r\n    at Socket.readFromStdout (D:\\alpha-adk\\projects\\naia-agent\\node_modules\\.pnpm\\esbuild@0.27.7\\node_modules\\esbuild\\lib\\main.js:862:7)\r\n    at Socket.emit (node:events:508:28)\r\n    at addChunk (node:internal/streams/readable:563:12)\r\n    at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)\r\n    at Readable.push (node:internal/streams/readable:394:5)\r\n    at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)\r\n\r\nNode.js v24.14.0\r\n\n"
+      "wallMs": 725,
+      "observedTail": "dry stderr: naia-agent: provider=claude-code model=claude-haiku-4-5-20251001 (subscription, no API key)\n[WARN] Claude Code Model: Unknown model ID: 'claude-haiku-4-5-20251001'. Proceeding with custom model. Known models are: opus, sonnet, haiku\nnaia-agent: dry-run OK — llm client built (backend=claude-code)\n\n"
     },
     {
       "id": "N1",
@@ -500,7 +500,7 @@
           "contentLen=21"
         ]
       },
-      "wallMs": 3,
+      "wallMs": 2,
       "observedTail": "roundtrip: write=\"wrote 21 bytes → crlf.txt\" / read=\"line1\r\nline2\r\nline3\r\n\""
     },
     {
@@ -515,7 +515,7 @@
           "availableValue=false"
         ]
       },
-      "wallMs": 0,
+      "wallMs": 1,
       "observedTail": "win32: secret-store available=false (Linux=libsecret/Null fallback; other=NullSecretStore)"
     },
     {
@@ -523,15 +523,15 @@
       "group": "N",
       "description": "HOME env read on Linux/macOS (Windows USERPROFILE deferred)",
       "mechanism": {
-        "pass": false,
+        "pass": true,
         "notes": [
-          "exit=1",
-          "customHomeMentioned=false",
+          "exit=0",
+          "customHomeMentioned=true",
           "platform=win32"
         ]
       },
-      "wallMs": 246,
-      "observedTail": "show stdout: "
+      "wallMs": 548,
+      "observedTail": "show stdout: I_KEY / OPENAI_API_KEY+OPENAI_BASE_URL / GLM_API_KEY, or naia-agent login>\n  memory db:   C:\\Users\\LukeYang\\AppData\\Local\\Temp\\naia-intg-N-hUpQxf\\custom-home-6pCQle\\.naia-agent\\memory\\cli.sqlite  (absent)\n  config.json: C:\\Users\\LukeYang\\AppData\\Local\\Temp\\naia-intg-N-hUpQxf\\custom-home-6pCQle\\.naia-agent\\config.json\n  (apiKeyRef shows the env var / keychain NAME only — values are never printed.)\n"
     },
     {
       "id": "N5",
@@ -545,7 +545,7 @@
           "cmd.exe=true"
         ]
       },
-      "wallMs": 0,
+      "wallMs": 1,
       "observedTail": "bin/naia-agent.ts has the dual-platform shell adapter branch"
     },
     {
@@ -586,7 +586,7 @@
           "forceRepl=true"
         ]
       },
-      "wallMs": 0,
+      "wallMs": 1,
       "observedTail": "intentional diff: Claude Code uses '> ' as prompt; naia-agent uses 'naia> '. Both are readline-driven. naia-agent adds --repl to force REPL on non-TTY stdin (testing affordance). Multi-turn safeTurn survival verified in Group M."
     },
     {
@@ -616,7 +616,7 @@
           "return3=true"
         ]
       },
-      "wallMs": 0,
+      "wallMs": 1,
       "observedTail": "intentional diff: naia-agent 0/2/3 vs Claude Code 0/1. Group H scenarios (H1/H2/H3) and S1-S5 unit scenarios assert the convention."
     },
     {
@@ -631,7 +631,7 @@
           "--no-default-system=true"
         ]
       },
-      "wallMs": 1,
+      "wallMs": 0,
       "observedTail": "parity-with-care: Claude Code uses 'Project memory' / 'CLAUDE.md' (file-based) + system prompt template; naia-agent uses LiteMemoryProvider SQLite + --system rider. Equivalent capability, different shape. Group F (4 scenarios incl. F2 persona+memory) + Group A3 (cross-process recall) verify on LIVE."
     },
     {
@@ -646,7 +646,7 @@
           "DRYRUN gate=true"
         ]
       },
-      "wallMs": 0,
+      "wallMs": 1,
       "observedTail": "naia-agent can ROUTE to Claude Code (subscription, no API key) via --service <manifest> with backend:\"claude-code\". DRYRUN gate (NAIA_AGENT_DRYRUN=1) verifies routing without credit cost. Group M M2 + Group G3 cross-ref."
     },
     {
@@ -681,7 +681,7 @@
         "pass": true,
         "notes": []
       },
-      "wallMs": 1,
+      "wallMs": 2,
       "skipped": "no 24G"
     },
     {
@@ -714,7 +714,7 @@
         "pass": true,
         "notes": []
       },
-      "wallMs": 1,
+      "wallMs": 2,
       "skipped": "no 24G"
     },
     {
@@ -736,7 +736,7 @@
         "pass": true,
         "notes": []
       },
-      "wallMs": 1,
+      "wallMs": 2,
       "skipped": "need both models"
     }
   ]

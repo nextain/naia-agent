@@ -2,11 +2,11 @@
 
 > **언어**: [English](../../../docs/stream-protocol.md) · 한국어 (이 파일)
 
-> **상위 문서**: `docs/vision-statement.md` / `docs/architecture-hybrid.md`
+> **상위 문서**: [`vision-statement.md`](vision-statement.md) / [`architecture-hybrid.md`](architecture-hybrid.md)
 > **이전 형태**: `LLMStreamChunk` (R3, `providers/types/llm.ts`) — 텍스트 전용.
 > **상태**: 디자인 lock (Week 0).
 > **배경**: voice 와 multi-agent 시대 — 텍스트 / 오디오 / 이미지 가 1급 시민이 되어야 하고, sub-agent 감독 이벤트도 **하나의 통합 스트림**을 타고 흘러야 한다.
-> **음성 주석**: 음성 출력은 **agent-layer cascade** 트랙 (Slice 3-XR-Voice / P0c-2 — LiveKit + VoxCPM2, 현재 deferred) 으로 생산한다. 이전의 모델 내장 omni 경로 (MiniCPM-o 4.5 / vllm-omni) 는 **폐기**되었다. 메모리 `project_minicpm_o_4_5_deprecated_2026_05_20` 참고.
+> **음성 주석**: voice I/O는 naia-os + naia-omni 영역. naia-agent는 text turn만 처리. `audio_delta`는 union에 예약됨.
 
 ---
 
@@ -283,7 +283,7 @@ opencode ACP `session/update` 이벤트:
 - ACP `session/done` → `session_end`.
 - 사용자 cancel → ACP `session/cancel` → `interrupt` + `session_end(reason:"cancelled")`.
 
-상세 매핑은 `docs/adapter-contract.md` 참고.
+상세 매핑은 [`adapter-contract.md`](adapter-contract.md) 참고.
 
 ---
 
@@ -405,6 +405,6 @@ union 에 새 variant 를 추가할 때:
 
 프로토콜이 명시적으로 수용하지만 아직 열린 / deferred 항목:
 
-- **Slice 3-XR-Voice (Task #28, P0c-2)** — agent-layer voice cascade 통합 (LiveKit + VoxCPM2). `audio_delta` 는 이미 union 에 존재. 녹화된 `voice-audio.json` fixture 와 production producer 는 이 슬라이스로 미뤘다. 이전의 모델 내장 omni 경로 (MiniCPM-o 4.5) 는 폐기.
+- **Voice** — naia-os + naia-omni 영역. `audio_delta` 타입은 union에 예약되어 있지만 naia-agent가 생산하지 않음. Voice 오케스트레이션은 naia-agent 범위 외.
 - **Adversarial review chunk (`review_request` / `review_finding`)** — Phase 4+ 작업.
 - **`image_delta` production 경로** — multi-modal provider 가 연결되는 Phase 4+ 이후.

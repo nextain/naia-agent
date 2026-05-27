@@ -219,4 +219,4 @@ pnpm naia-agent login        # login usage
 - **RBAC tier policy / approval broker UX** — runtime 은 tiers (T0–T3) + `ApprovalBroker` 지원, 그러나 end-to-end CLI 시나리오 미작성.
 - **Claude Code subscription routing** — bin 은 `--service <manifest>` 와 `backend:"claude-code"` (API key X, Claude Code CLI OAuth) 수용. DRYRUN dispatch 는 시나리오 G3 (`NAIA_AGENT_DRYRUN=1`) 가 검증; live-subscription E2E 는 deferred (Claude Code 크레딧 소비).
 - **SDLC artifact production** (실 코딩 / specs / docs) — 강 코딩 모델 필요; 8G/24G 로컬 프로파일은 채팅 가능하지만 SDLC-grade artifact 는 신뢰성 부족. plan: strong backend (claude-code subscription / gateway-hosted Anthropic / Codex) 가 `main` 에 설정된 경우 활성화.
-- **3-XR-Voice (#28) = P0c-2 naia-agent integration** — minicpm 4.5 폐기 후 VoxCPM2 + LiveKit 음성 파이프라인 통합. P0c-1 standalone tech demo (LiveKit ↔ ko-serve, naia-agent 의존 0) 는 별 세션 산출. 우리 (별 세션) 는 그 reference 받아 livekit-plugins-naia-voxcpm2 + LLM wrap + VoiceSession + memory hook + vertical 진행.
+- **3-XR-Voice (#28) = P0c-2** — Voice 오케스트레이션은 naia-os + naia-omni 영역. naia-agent는 LLM 텍스트 턴만 담당 (voice I/O 없음). P0c-2 통합 작업은 별도 세션에서 naia-os 주도로 진행.

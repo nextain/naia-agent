@@ -6,7 +6,7 @@
 > **Previous shape**: `LLMStreamChunk` (R3, `providers/types/llm.ts`) — text-only.
 > **Status**: design lock (Week 0).
 > **Rationale**: voice-capable + multi-agent era — text / audio / image are first-class citizens, and sub-agent supervision events flow through a single unified stream.
-> **Voice note**: voice output is produced by the **agent-layer cascade** track (Slice 3-XR-Voice / P0c-2 — LiveKit + VoxCPM2, currently deferred). The earlier in-model omni path (MiniCPM-o 4.5 / vllm-omni) is **deprecated**; see memory `project_minicpm_o_4_5_deprecated_2026_05_20`.
+> **Voice note**: voice I/O is handled by naia-os + naia-omni. naia-agent receives text via `chat_request` and returns text. `audio_delta` is reserved for future use.
 
 ---
 
@@ -21,7 +21,7 @@ The legacy `LLMStreamChunk` only modelled the LLM-response stream. In practice t
 | Workspace | file-watcher results | (none) |
 | Verification | test / lint results | (none) |
 | Multi-sub-session merge | session_update / session_progress | (none) |
-| Voice | audio_delta (voice-cascade output, agent-layer — Slice 3-XR-Voice / P0c-2) | (none) |
+| Voice | audio_delta (naia-os/naia-omni produces; reserved in union) | (none) |
 
 `NaiaStreamChunk` is the **single union that carries every layer** (decision D20).
 
@@ -405,6 +405,6 @@ This protocol has been carrying the runtime through the Slice 3-XR series. Recen
 
 Open / deferred items that the protocol explicitly accommodates:
 
-- **Slice 3-XR-Voice (Task #28, P0c-2)** — agent-layer voice cascade integration (LiveKit + VoxCPM2). `audio_delta` exists in the union today; the recorded `voice-audio.json` fixture and the production producer are deferred to this slice. The earlier in-model omni route (MiniCPM-o 4.5) is deprecated.
+- **Voice** — naia-os + naia-omni territory. `audio_delta` type reserved in the union but not produced by naia-agent. Voice orchestration is out of scope for naia-agent.
 - **Adversarial review chunks (`review_request` / `review_finding`)** — Phase 4+ work.
 - **`image_delta` production path** — Phase 4+ once a multi-modal provider is wired in.

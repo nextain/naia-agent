@@ -47,7 +47,7 @@ Core use cases (R4 motivation):
 
 → a **supervisor runtime for the voice-capable + multi-agent operations era**.
 
-(Note: voice = Slice 3-XR-Voice / P0c-2 — LiveKit + VoxCPM2 cascade at the agent layer, separate-session work. The earlier "omni LLM" plan — vllm-omni / MiniCPM-o-4.5 — is deprecated; see `project_minicpm_o_4_5_deprecated_2026_05_20` memory.)
+(Note: voice I/O = naia-os + naia-omni territory. naia-agent is LLM text turn only.)
 
 ---
 
@@ -62,7 +62,7 @@ Core use cases (R4 motivation):
 | ★★★ | Real-time interrupt + pause/resume | motivation #4 |
 | ★★★ | Sub-agent supervision (multi-orchestration) | motivation #2 |
 | ★★ | Continuous context (naia-memory) | "to be assigned work continuously" |
-| ★★ | Multi-modal stream protocol (audio/image forwarding) | voice cascade (Slice 3-XR-Voice / P0c-2) |
+| ★★ | Multi-modal stream protocol (audio/image forwarding) | naia-os injects audio context via IPC |
 | ★★ | Interface definitions (SubAgentAdapter / Verifier / WorkspaceWatcher / LLMClient / MemoryProvider / SkillLoader) | DI |
 
 ---
@@ -101,21 +101,17 @@ Core use cases (R4 motivation):
 | Repo | Responsibility |
 |---|---|
 | **naia-os** (host) | The full host OS — UI + Avatar + audio device IO (mic/speaker via Tauri Rust cpal) + channel adapters + OS-specific skills (Device/Voicewake/Panel/Channels) |
-| **naia-agent** (engine) | LLM core + supervisor + sub-agent. Voice = agent-layer cascade via LiveKit (Slice 3-XR-Voice / P0c-2, deferred to a separate session). |
+| **naia-agent** (engine) | LLM core + supervisor + sub-agent. Voice I/O = naia-os + naia-omni territory (naia-agent is text turn only). |
 | **naia-adk** | skill **spec/interface only** + a 9-skill generic catalog (Cron/Memo/Time/Weather/Notify/Diagnostics/Sessions/Skill-manager/Config/SystemStatus). Execution lives in naia-agent. |
 | **naia-memory** | memory engine (encode/recall/decay/etc.) |
 
-### Voice / multi-modal (deferred — agent-layer cascade, NOT in-model omni)
+### Voice / multi-modal (naia-os + naia-omni territory)
 
-Voice support is targeted at the **agent layer** (Slice 3-XR-Voice / P0c-2), not at the LLM level. The earlier "omni model" plan (vllm-omni / MiniCPM-o-4.5 in-model audio I/O) is deprecated (cf `project_minicpm_o_4_5_deprecated_2026_05_20` memory).
+Voice I/O is handled by **naia-os + naia-omni**. naia-agent is the LLM text turn only — it has no awareness of audio devices, STT, TTS, or streaming orchestration.
 
-Replacement architecture (separate-session work):
-
-- **TTS**: VoxCPM2 served by ko-serve over an OpenAI-compatible endpoint.
-- **STT**: Whisper-large-v3 (separate endpoint or LiveKit plugin).
-- **Orchestration**: LiveKit Agents framework — STT → LLM (any) → TTS cascade with barge-in / turn-detector. Real-time guarantee at the agent layer, not the model.
-
-Splits naia-os = thin device IO + UI / naia-agent = agent-level audio orchestration.
+- naia-omni internal implementation details (LiveKit, WebRTC, VoxCPM2, Whisper, etc.) are encapsulated and must not be referenced in naia-agent code or docs.
+- naia-agent receives text via `chat_request` IPC and returns text. Voice wrapping around it is naia-os's concern.
+- The earlier "omni model" plan (vllm-omni / MiniCPM-o-4.5) is deprecated. See memory `project_minicpm_o_4_5_deprecated_2026_05_20`.
 
 ### naia-* / alpha-* prefix scheme (naming consistency)
 
@@ -195,7 +191,7 @@ pnpm naia-agent "..."
 | | Decision |
 |---|---|
 | Path | Hybrid wrapper (B) — ~2,150 LOC in-house + external wrap |
-| LLM | any-llm remote gateway as main; voice = LiveKit cascade (Slice 3-XR-Voice / P0c-2, deferred); Vercel AI SDK on hold |
+| LLM | any-llm remote gateway as main; voice = naia-os + naia-omni territory; Vercel AI SDK on hold |
 | Sub-agent | opencode (ACP) + claude-code SDK + a simple stdio fallback |
 | Memory | naia-memory peer dep |
 | Skill | naia-adk peer dep (future) |

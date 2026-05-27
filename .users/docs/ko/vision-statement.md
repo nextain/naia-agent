@@ -47,7 +47,7 @@
 
 → **voice-capable + multi-agent 운영 시대의 supervisor runtime**.
 
-(주: voice = Slice 3-XR-Voice / P0c-2 — agent 레이어에서 LiveKit + VoxCPM2 cascade 로 별도 세션 작업. 이전 "omni LLM" 계획 — vllm-omni / MiniCPM-o-4.5 — 은 폐기됨; `project_minicpm_o_4_5_deprecated_2026_05_20` 메모리 참조.)
+(주: voice I/O = naia-os + naia-omni 영역. naia-agent는 text turn only.)
 
 ---
 
@@ -101,21 +101,17 @@
 | repo | 책임 |
 |---|---|
 | **naia-os** (host) | host OS 전체 — UI + Avatar + audio device IO (mic/speaker via Tauri Rust cpal) + channel adapters + OS-specific skills (Device/Voicewake/Panel/Channels) |
-| **naia-agent** (engine) | LLM core + supervisor + sub-agent. Voice = agent-layer cascade via LiveKit (Slice 3-XR-Voice / P0c-2, 별도 세션에 deferred). |
+| **naia-agent** (engine) | LLM core + supervisor + sub-agent. Voice I/O = naia-os + naia-omni 영역 (naia-agent는 text turn only). |
 | **naia-adk** | skill **spec/interface only** + 9 generic skills 카탈로그 (Cron/Memo/Time/Weather/Notify/Diagnostics/Sessions/Skill-manager/Config/SystemStatus). 실행은 naia-agent |
 | **naia-memory** | memory engine (encode/recall/decay/etc) |
 
-### Voice / multi-modal (deferred — agent-layer cascade, in-model omni 아님)
+### Voice / multi-modal (naia-os + naia-omni 영역)
 
-음성 지원은 **agent layer** (Slice 3-XR-Voice / P0c-2) 를 목표로 하며, LLM 레벨이 아님. 이전 "omni model" 계획 (vllm-omni / MiniCPM-o-4.5 의 in-model audio I/O) 은 폐기됨 (`project_minicpm_o_4_5_deprecated_2026_05_20` 메모리 참조).
+Voice I/O는 **naia-os + naia-omni** 가 담당. naia-agent는 text turn only — 오디오 장치, STT, TTS, 스트리밍 오케스트레이션을 인식하지 않음.
 
-대체 아키텍처 (별도 세션 작업):
-
-- **TTS**: VoxCPM2 를 ko-serve 가 OpenAI 호환 엔드포인트로 서빙.
-- **STT**: Whisper-large-v3 (별도 엔드포인트 또는 LiveKit 플러그인).
-- **Orchestration**: LiveKit Agents 프레임워크 — STT → LLM (any) → TTS cascade, barge-in / turn-detector 포함. 실시간 보장은 모델이 아닌 agent layer 에서.
-
-분담은 naia-os = thin device IO + UI / naia-agent = agent 레벨 audio orchestration.
+- naia-omni 내부 구현은 캡슐화됨. naia-agent 코드·문서에 노출 금지.
+- naia-agent는 `chat_request` IPC로 텍스트를 받고 텍스트를 반환. Voice wrapping은 naia-os 담당.
+- 이전 "omni model" 계획 (vllm-omni / MiniCPM-o-4.5) 폐기. 메모리 `project_minicpm_o_4_5_deprecated_2026_05_20` 참조.
 
 ### naia-* / alpha-* prefix 체계 (이름 일관성)
 
@@ -195,7 +191,7 @@ pnpm naia-agent "..."
 | | 결정 |
 |---|---|
 | Path | Hybrid wrapper (B) — 자체 ~2,150 LOC + 외부 wrap |
-| LLM | any-llm 원격 gateway main, voice = LiveKit cascade (Slice 3-XR-Voice / P0c-2, deferred), Vercel AI SDK 보류 |
+| LLM | any-llm 원격 gateway main; voice = naia-os + naia-omni 영역 (naia-agent는 LLM 텍스트 턴만); Vercel AI SDK 보류 |
 | Sub-agent | opencode (ACP) + claude-code SDK + 단순 stdio fallback |
 | Memory | naia-memory peer dep |
 | Skill | naia-adk peer dep (향후) |

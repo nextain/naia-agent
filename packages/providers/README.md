@@ -14,7 +14,7 @@ Verified against `src/index.ts`:
 |---|---|---|
 | `VercelClient` | `./vercel` | Wraps any Vercel AI SDK `LanguageModelV2` / `LanguageModelV3` — primary path (D44). Used for Anthropic, OpenAI-compatible (vLLM / GLM / Z.ai), Vertex Anthropic, Google Gemini, and the `ai-sdk-provider-claude-code` subscription path. |
 | `LabProxyClient` | `./lab-proxy` | Naia Lab Gateway HTTPS, OpenAI-compat shape, `naiaKey` auth. |
-| `LabProxyLiveClient` | `./lab-proxy-live` | Naia Lab Gateway WSS, vllm-omni `/v1/realtime` audio_delta path. |
+| `LabProxyLiveClient` | `./lab-proxy-live` | Naia Lab Gateway WSS, `/v1/realtime` audio_delta path (naia-omni realtime endpoint). |
 
 There is no standalone `AnthropicClient` / `GeminiClient` / `OpenAICompatClient`
 / `ClaudeCliClient` export anymore — those were removed in Slice 5.x.4 (D44)
@@ -52,7 +52,7 @@ clarified):
    tolerated:
    - `@ai-sdk/anthropic` — Anthropic API
    - `@ai-sdk/google` — Google Gemini
-   - `@ai-sdk/openai-compatible` — vLLM / vllm-omni / LM Studio / Ollama / OpenRouter / etc.
+   - `@ai-sdk/openai-compatible` — vLLM / LM Studio / Ollama / OpenRouter / etc.
    - `zhipu-ai-provider` — Z.ai coding plan / Zhipu GLM
    - `ai-sdk-provider-claude-code` — Claude Pro/Max subscription
 
@@ -75,7 +75,7 @@ default bundle, install them as peers:
 pnpm add ai @ai-sdk/anthropic              # Anthropic
 pnpm add ai @ai-sdk/openai                 # OpenAI
 pnpm add ai @ai-sdk/google                 # Google Gemini
-pnpm add ai @ai-sdk/openai-compatible      # vLLM / vllm-omni / LM Studio / Ollama / OpenRouter / etc.
+pnpm add ai @ai-sdk/openai-compatible      # vLLM / LM Studio / Ollama / OpenRouter / etc.
 
 # CLI subscription paths (no API key, uses your existing subscription)
 pnpm add ai ai-sdk-provider-claude-code    # Claude Pro/Max
@@ -123,7 +123,7 @@ for await (const chunk of client.stream({
 | **Google Gemini** | `@ai-sdk/google` | `GEMINI_API_KEY` | Direct API |
 | **Google Vertex** | `@ai-sdk/google-vertex` | gcloud ADC | |
 | **vLLM / LM Studio / Ollama / OpenRouter / etc.** | `@ai-sdk/openai-compatible` | per-server | `baseURL` override |
-| **vllm-omni (text mode)** | `@ai-sdk/openai-compatible` | per-server | `/v1/chat/completions` |
+| **vLLM / LM Studio / Ollama (OpenAI-compat)** | `@ai-sdk/openai-compatible` | per-server | `baseURL` override, `/v1/chat/completions` |
 | **Z.ai coding plan / Zhipu GLM** | `zhipu-ai-provider` | `ZAI_API_KEY` | `createZhipu({ baseURL: 'https://api.z.ai/api/paas/v4' })` |
 | **Claude Pro/Max** | `ai-sdk-provider-claude-code` | none (uses `claude` CLI subscription) | See cross-platform notes |
 | **ChatGPT Plus/Pro** | `ai-sdk-provider-codex-cli` | none (uses Codex CLI) | |
@@ -179,7 +179,7 @@ outside the Vercel adapter because they enforce HTTPS/WSS-only naiaKey
 transport and embed gateway-specific routing rules:
 
 - **`LabProxyClient`** — HTTPS, OpenAI-compat shape (`/chat/completions`).
-- **`LabProxyLiveClient`** — WSS, vllm-omni `/v1/realtime` audio_delta path.
+- **`LabProxyLiveClient`** — WSS, `/v1/realtime` audio_delta path (naia-omni realtime endpoint).
 
 ```typescript
 import { LabProxyClient } from "@nextain/agent-providers/lab-proxy";

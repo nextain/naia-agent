@@ -49,7 +49,7 @@
    │ any-llm   │    │ naia-memory (peer)    │
    │ (gateway) │    │ naia-adk (peer)       │
    └───────────┘    └───────────────────────┘
-   (Voice = LiveKit cascade at agent layer — Slice 3-XR-Voice, deferred)
+   (Voice = naia-os + naia-omni territory — naia-agent is LLM text turn only)
         ▲
         │ HTTP OpenAI-compat
    external LLM (Anthropic / Google / GLM / OpenAI / OpenRouter ...)

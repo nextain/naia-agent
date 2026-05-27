@@ -2,8 +2,8 @@
 
 > **언어**: [English](../../../docs/architecture-hybrid.md) · 한국어 (이 파일)
 
-> **상위**: `docs/vision-statement.md` (R4 lock)
-> **이전**: `docs/ARCHITECTURE.md` (R0~R3, 정규 SoT 보존; R4는 sup 추가)
+> **상위**: [`vision-statement.md`](vision-statement.md) (R4 lock)
+> **이전**: [`ARCHITECTURE.md`](ARCHITECTURE.md) (R0~R3, 정규 SoT 보존; R4는 additive)
 > **status**: design lock (Week 0)
 
 ---
@@ -49,7 +49,7 @@
    │ any-llm   │    │ naia-memory (peer)    │
    │ (gateway) │    │ naia-adk (peer)       │
    └───────────┘    └───────────────────────┘
-   (Voice = LiveKit cascade at agent layer — Slice 3-XR-Voice, deferred)
+   (Voice = naia-os + naia-omni 영역 — naia-agent는 LLM 텍스트 턴만)
         ▲
         │ HTTP OpenAI-compat
    external LLM (Anthropic / Google / GLM / OpenAI / OpenRouter ...)
@@ -240,7 +240,7 @@ verification orchestrator는 다음 3 layer로 fail-safe:
 | 단계 | 예산 |
 |---|---|
 | 마이크 캡처 | 50ms |
-| STT (Whisper minimal) | ≤ 800ms (keyword detection + partial decode) |
+| STT | ≤ 800ms (keyword detection + partial decode) |
 | naia-agent core dispatch | ≤ 50ms |
 | **adapter.cancel() invocation** | ≤ 50ms |
 | **adapter session_end emit** | ≤ 500ms (hard deadline) |

@@ -2,7 +2,7 @@
 
 > **언어**: [English](../../../docs/ARCHITECTURE.md) · 한국어 (이 파일)
 
-> **R4(`architecture-hybrid.md`)에 의해 supersede됨** — 이 문서는 R0~R3 canonical 기록(v0.1.0 freeze, 2026-04-21)입니다. Hybrid Wrapper 아키텍처(R4 lock, 2026-04-26)는 `docs/architecture-hybrid.md`에 있고 additive입니다. 두 문서는 의도적으로 공존합니다: F06(immutable 설계 결정 보존)에 따라 R0~R3 결정은 역사 기록으로 여기 보존됩니다. 신규 결정은 matrix 또는 R4 문서로 들어갑니다. **현재 아키텍처는 `architecture-hybrid.md`를 먼저 읽으세요.**
+> **[`architecture-hybrid.md`](architecture-hybrid.md)에 의해 supersede됨** — 이 문서는 R0~R3 canonical 기록(v0.1.0 freeze, 2026-04-21)입니다. Hybrid Wrapper 아키텍처(R4 lock, 2026-04-26)는 [`architecture-hybrid.md`](architecture-hybrid.md)에 있고 additive입니다. 두 문서는 의도적으로 공존합니다: F06(immutable 설계 결정 보존)에 따라 R0~R3 결정은 역사 기록으로 여기 보존됩니다. 신규 결정은 matrix 또는 R4 문서로 들어갑니다. **현재 아키텍처는 [`architecture-hybrid.md`](architecture-hybrid.md)를 먼저 읽으세요.**
 
 상태: Phase 1 freeze (v0.1.0, 2026-04-21). 요약 수준 문서이며, 정규
 SoT는 `alpha-adk/.agents/progress/naia-4repo-migration-plan.md` (Part A)
@@ -167,9 +167,9 @@ Breaking change는 v0.1 이후 4주 사전 공지 필요 (plan A.11 communicatio
 
 ## 포인터
 
-- **R4 live 아키텍처**: `docs/architecture-hybrid.md`
-- **R4 vision (parent)**: `docs/vision-statement.md`
+- **R4 live 아키텍처**: [`architecture-hybrid.md`](architecture-hybrid.md)
+- **R4 vision (parent)**: [`vision-statement.md`](vision-statement.md)
 - 마이그레이션 plan (정규 SoT): `alpha-adk/.agents/progress/naia-4repo-migration-plan.md`
-- Memory façade 감사: `docs/memory-provider-audit.md`
-- 음성 파이프라인 감사: `docs/voice-pipeline-audit.md`
-- README (최상위): `../README.md`
+- Memory façade 감사: [`memory-provider-audit.md`](memory-provider-audit.md)
+- 음성 파이프라인 감사: [`voice-pipeline-audit.md`](voice-pipeline-audit.md)
+- 문서 목록: [`../README.md`](../README.md)

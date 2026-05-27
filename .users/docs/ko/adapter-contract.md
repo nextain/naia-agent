@@ -2,8 +2,8 @@
 
 > **언어**: [English](../../../docs/adapter-contract.md) · 한국어 (이 파일)
 >
-> **상위**: `docs/vision-statement.md` / `docs/architecture-hybrid.md`
-> **관련**: `docs/stream-protocol.md` (NaiaStreamChunk)
+> **상위**: [`vision-statement.md`](vision-statement.md) / [`architecture-hybrid.md`](architecture-hybrid.md)
+> **관련**: [`stream-protocol.md`](stream-protocol.md) (NaiaStreamChunk)
 > **status**: design lock (Week 0)
 
 ---
@@ -35,7 +35,7 @@ export type Capability =
   | "browse_web"         // web fetch/search
   | "image_input"        // 이미지 입력
   | "audio_input"        // 음성 입력
-  | "audio_output";      // voice cascade output (Slice 3-XR-Voice / P0c-2 — LiveKit + VoxCPM2 TTS at the agent layer, NOT in-model omni; cf project_minicpm_o_4_5_deprecated_2026_05_20)
+  | "audio_output";      // voice output — naia-os + naia-omni 영역, naia-agent는 text turn only
 
 export interface TaskSpec {
   readonly prompt: string;                   // 사용자 명령
@@ -162,8 +162,9 @@ export interface SubAgentAdapter {
 |---|---|---|---|
 | **`opencode-acp`** | 인트리 JSON-RPC 클라이언트 (`AcpClient`) — opencode Agent Client Protocol 을 stdio 로 처리 | ACP `session/new` / `session/update` / `session/cancel` | 패키지 `@nextain/agent-adapter-opencode-acp` (workspace). 외부 `@agentclientprotocol/sdk` 의존 없음 — 프로토콜 클라이언트는 사내 구현. |
 | **`opencode-cli`** | `opencode run --format json` 을 자식 프로세스로 wrap | stdout JSON line stream + SIGTERM | 패키지 `@nextain/agent-adapter-opencode-cli` (workspace). ACP 경로 성숙 전까지의 Phase 1 fallback. |
+| **`pi-cli`** | `pi -p "<prompt>" --mode json --no-session` 자식 프로세스 wrap — NDJSON 이벤트 스트림을 `NaiaStreamChunk` 로 변환 | stdout NDJSON stream + SIGTERM/SIGKILL (500ms hard kill) | 패키지 `@nextain/agent-adapter-pi` (workspace). `@earendil-works/pi-coding-agent ^0.74.1` 바이너리 사용. single-shot (no-session) 모드 전용. |
 | **`shell`** | 임의 외부 CLI 를 `child_process.spawn` | stdin/stdout passthrough + SIGTERM/SIGKILL | 패키지 `@nextain/agent-adapter-shell` (workspace). Node.js 빌트인만 사용. |
-| **`voice-cascade`** *(Slice 3-XR-Voice / P0c-2, 이연)* | LiveKit Agents framework (STT → LLM → VoxCPM2 TTS at the agent layer) | LiveKit cancel + fetch abort | 별도 세션 작업; cf `project_voice_p0c_split_2026_05_20`. 아직 패키지 미구현. |
+| **`voice-cascade`** *(naia-os/naia-omni 영역)* | Voice 오케스트레이션은 naia-os + naia-omni 담당. naia-agent는 text turn만. | n/a | naia-agent adapter 범위 외. |
 | **`mcp-bridge`** *(이연)* | MCP server spawn | stdio MCP | — |
 
 **Claude Code 경로 (adapter 아님).** Claude Code 코딩 에이전트 연동은 전용 `claude-code` `SubAgentAdapter` 가 아니라 provider 레이어의 `ai-sdk-provider-claude-code` (workspace dep `^3.4.4`, 트랜지티브로 `@anthropic-ai/claude-agent-sdk@0.2.122` 플랫폼 네이티브 바이너리) 를 통해 라우팅. `packages/providers/src/vercel-client.ts` 및 Slice 3-XR-O (parity 작업, 2026-05-20 완료) 참고.
@@ -172,16 +173,16 @@ export interface SubAgentAdapter {
 
 각 adapter 가 지원/미지원 method:
 
-| method | opencode-acp | opencode-cli | shell | voice-cascade (이연) |
-|---|:---:|:---:|:---:|:---:|
-| `spawn` | ✓ | ✓ | ✓ | ✓ |
-| `events()` | ✓ | ✓ (stdout JSON) | ✓ (stdout/stderr) | ✓ (audio_delta) |
-| `cancel()` | ✓ (ACP `session/cancel`) | ✓ (SIGTERM/SIGKILL) | ✓ (SIGTERM/SIGKILL) | ✓ (fetch abort) |
-| `pause()` | △ (Phase 2 spike — ACP spec 확인) | ✗ | ✗ | ✗ |
-| `resume()` | △ | ✗ | ✗ | ✗ |
-| `inject(message)` | ✗ (mid-session prompt 불가) | ✗ | ✗ (stdin closed after spawn) | ✗ |
-| `health()` | ✓ (ACP `initialize`) | ✓ (binary which) | ✓ (binary which) | ✓ (HTTP HEAD) |
-| `status()` | ✓ | ✓ | ✓ | ✓ |
+| method | opencode-acp | opencode-cli | pi-cli | shell | voice-cascade (이연) |
+|---|:---:|:---:|:---:|:---:|:---:|
+| `spawn` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `events()` | ✓ | ✓ (stdout JSON) | ✓ (stdout NDJSON) | ✓ (stdout/stderr) | ✓ (audio_delta) |
+| `cancel()` | ✓ (ACP `session/cancel`) | ✓ (SIGTERM/SIGKILL) | ✓ (SIGTERM → 500ms → SIGKILL) | ✓ (SIGTERM/SIGKILL) | ✓ (fetch abort) |
+| `pause()` | △ (Phase 2 spike — ACP spec 확인) | ✗ | ✗ | ✗ | ✗ |
+| `resume()` | △ | ✗ | ✗ | ✗ | ✗ |
+| `inject(message)` | ✗ (mid-session prompt 불가) | ✗ | ✗ (single-shot only) | ✗ (stdin closed after spawn) | ✗ |
+| `health()` | ✓ (ACP `initialize`) | ✓ (binary which) | ✓ (binary which) | ✓ (binary which) | ✓ (HTTP HEAD) |
+| `status()` | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 **규칙**: unsupported method 호출 시 `UnsupportedError` throw (silent ignore 금지). supervisor 는 spawn 전 `adapter.capabilities` 로 사전 확인.
 
