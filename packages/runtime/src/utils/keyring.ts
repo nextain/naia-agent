@@ -34,7 +34,7 @@
 
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { userInfo } from "node:os";
 
 export type KeyringBackendName = "windows" | "macos" | "linux" | "headless";
@@ -182,17 +182,41 @@ function makeMacosBackend(env: KeyringEnvironment): KeyringBackend {
 		async set(service, account, password) {
 			// `-U` updates if exists; without it `add-generic-password` errors
 			// with status 45 (errSecDuplicateItem).
-			const r = env.exec(
-				"security",
-				[
-					"add-generic-password",
-					"-U",
-					"-s", service,
-					"-a", account,
-					"-w", password,
-				],
-				{ timeoutMs: 5000 },
-			);
+			//
+			// Codex cross-review finding #4 (HIGH): the master password MUST NOT
+			// be passed as an argv element. Per `man security(1)`, when the
+			// `-w` flag is supplied with NO trailing value, the password is
+			// read from stdin (one line) — keeping it out of `/proc/<pid>/argv`
+			// and out of process-inspection tools like `ps` / `top` / `htop`.
+			// Escape hatch: `NAIA_KEYRING_MACOS_LEGACY_ARGV=1` reverts to the
+			// old argv-based path for any user who hits an edge case (e.g. a
+			// hypothetical legacy `security` that doesn't honor stdin `-w`).
+			// This is documented to leak the password and should only be used
+			// as a temporary diagnostic.
+			const legacy = process.env.NAIA_KEYRING_MACOS_LEGACY_ARGV === "1";
+			const r = legacy
+				? env.exec(
+					"security",
+					[
+						"add-generic-password",
+						"-U",
+						"-s", service,
+						"-a", account,
+						"-w", password,
+					],
+					{ timeoutMs: 5000 },
+				)
+				: env.exec(
+					"security",
+					[
+						"add-generic-password",
+						"-U",
+						"-s", service,
+						"-a", account,
+						"-w",
+					],
+					{ input: password, timeoutMs: 5000 },
+				);
 			if (r.error || r.status !== 0) {
 				throw new Error(
 					`security add-generic-password failed (status=${r.status ?? "null"}): ${(r.stderr ?? "").trim()}`,
@@ -463,9 +487,61 @@ function makeHeadlessBackend(env: KeyringEnvironment): KeyringBackend {
 	};
 }
 
+// --- file-backed test backend (cross-process integration tests) -------------
+
+// Persists a JSON `{ "service account": "password" }` map to the path in
+// `NAIA_KEYRING_TEST_FILE`. Used ONLY by integration tests that spawn child
+// agent processes (#337 Phase 10 S115/S116) where a memory-only stub cannot
+// survive the spawn boundary and the real OS keyring would pollute user state.
+//
+// NEVER selected unless the env var is set — keeps production paths untouched.
+
+function makeFileBackedTestBackend(filePath: string): KeyringBackend {
+	function load(): Map<string, string> {
+		try {
+			const raw = readFileSync(filePath, "utf8");
+			const obj = JSON.parse(raw) as Record<string, string>;
+			return new Map(Object.entries(obj));
+		} catch {
+			return new Map();
+		}
+	}
+	function save(m: Map<string, string>): void {
+		const obj: Record<string, string> = {};
+		for (const [k, v] of m) obj[k] = v;
+		writeFileSync(filePath, JSON.stringify(obj));
+	}
+	const k = (service: string, account: string) => `${service} ${account}`;
+	return {
+		name: "headless",
+		async isAvailable() {
+			return true;
+		},
+		async set(service, account, password) {
+			const m = load();
+			m.set(k(service, account), password);
+			save(m);
+		},
+		async get(service, account) {
+			const m = load();
+			return m.get(k(service, account)) ?? null;
+		},
+		async delete(service, account) {
+			const m = load();
+			m.delete(k(service, account));
+			save(m);
+		},
+	};
+}
+
 // --- selection logic ---------------------------------------------------------
 
 async function selectBackend(env: KeyringEnvironment): Promise<KeyringBackend> {
+	// Test seam: cross-process file-backed backend. Selected only when the env
+	// var is set; production code paths never see this branch.
+	const testFile = process.env.NAIA_KEYRING_TEST_FILE;
+	if (testFile) return makeFileBackedTestBackend(testFile);
+
 	let native: KeyringBackend | null = null;
 	if (env.platform === "win32") native = makeWindowsBackend(env);
 	else if (env.platform === "darwin") native = makeMacosBackend(env);
@@ -504,6 +580,17 @@ export async function getKeyring(): Promise<KeyringBackend> {
 	return cachedKeyring;
 }
 
+/**
+ * Store the master password in the platform-native credential store (or the
+ * headless fallback if no native backend is reachable).
+ *
+ * Environment overrides:
+ *   - `NAIA_KEYRING_MACOS_LEGACY_ARGV=1` — (macOS only) revert to the legacy
+ *     argv-based `security add-generic-password -w <password>` path. The
+ *     default uses stdin to keep the password out of `ps` / `top` / argv
+ *     listings (codex cross-review #337 finding #4, HIGH). Use only as a
+ *     temporary diagnostic if the stdin path misbehaves on a given box.
+ */
 export async function setMasterPassword(
 	service: string,
 	account: string,

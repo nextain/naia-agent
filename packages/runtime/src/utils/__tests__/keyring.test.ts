@@ -376,6 +376,100 @@ describe("headless warning — emitted exactly once per process", () => {
 	});
 });
 
+describe("macOS backend — set passes password via stdin (#337 codex #4)", () => {
+	it("set uses stdin: argv ends with bare '-w', no trailing password, input=password", async () => {
+		const calls: Array<{
+			cmd: string;
+			args: string[];
+			opts: { input?: string; timeoutMs?: number } | undefined;
+		}> = [];
+		delete process.env.NAIA_KEYRING_MACOS_LEGACY_ARGV;
+		__setKeyringEnvForTest(
+			makeEnv({
+				platform: "darwin",
+				exec: (cmd, args, opts) => {
+					calls.push({ cmd, args, opts });
+					// First call is the `security -h` isAvailable probe.
+					return ok("ok");
+				},
+			}),
+		);
+
+		await setMasterPassword("io.nextain.naia", "auth-master-v1", "super-secret-pw");
+
+		// Find the add-generic-password invocation (skip the -h probe).
+		const setCall = calls.find((c) => c.args[0] === "add-generic-password");
+		expect(setCall, "expected an add-generic-password invocation").toBeDefined();
+		const args = setCall!.args;
+		// `-w` must be the final argument (no trailing password).
+		expect(args[args.length - 1]).toBe("-w");
+		// Password must NOT appear anywhere in argv.
+		expect(args).not.toContain("super-secret-pw");
+		// Password MUST be piped via stdin.
+		expect(setCall!.opts?.input).toBe("super-secret-pw");
+		// Sanity: -U / -s / -a / service / account still wired correctly.
+		expect(args).toContain("-U");
+		expect(args).toContain("-s");
+		expect(args).toContain("io.nextain.naia");
+		expect(args).toContain("-a");
+		expect(args).toContain("auth-master-v1");
+	});
+
+	it("set throws when security CLI returns non-zero (stdin path)", async () => {
+		delete process.env.NAIA_KEYRING_MACOS_LEGACY_ARGV;
+		let nthCall = 0;
+		__setKeyringEnvForTest(
+			makeEnv({
+				platform: "darwin",
+				exec: () => {
+					nthCall += 1;
+					// 1st = -h probe (ok). 2nd = add-generic-password (fail).
+					if (nthCall === 1) return ok("ok");
+					return fail("write denied", 1);
+				},
+			}),
+		);
+		await expect(
+			setMasterPassword("svc", "acct", "pw"),
+		).rejects.toThrow(/security add-generic-password failed/);
+	});
+
+	it("NAIA_KEYRING_MACOS_LEGACY_ARGV=1 reverts to argv-based path", async () => {
+		const calls: Array<{
+			cmd: string;
+			args: string[];
+			opts: { input?: string; timeoutMs?: number } | undefined;
+		}> = [];
+		process.env.NAIA_KEYRING_MACOS_LEGACY_ARGV = "1";
+		try {
+			__setKeyringEnvForTest(
+				makeEnv({
+					platform: "darwin",
+					exec: (cmd, args, opts) => {
+						calls.push({ cmd, args, opts });
+						return ok("ok");
+					},
+				}),
+			);
+
+			await setMasterPassword("svc", "acct", "legacy-pw");
+
+			const setCall = calls.find((c) => c.args[0] === "add-generic-password");
+			expect(setCall, "expected an add-generic-password invocation").toBeDefined();
+			// Legacy path: password IS in argv (the documented escape hatch).
+			expect(setCall!.args).toContain("legacy-pw");
+			// And stdin is NOT used.
+			expect(setCall!.opts?.input).toBeUndefined();
+			// `-w` is not the final arg in legacy mode (password follows it).
+			const wIdx = setCall!.args.indexOf("-w");
+			expect(wIdx).toBeGreaterThanOrEqual(0);
+			expect(setCall!.args[wIdx + 1]).toBe("legacy-pw");
+		} finally {
+			delete process.env.NAIA_KEYRING_MACOS_LEGACY_ARGV;
+		}
+	});
+});
+
 describe("public API helpers route through getKeyring", () => {
 	it("setMasterPassword + getMasterPassword + deleteMasterPassword all go through the cached backend", async () => {
 		const log: string[] = [];
