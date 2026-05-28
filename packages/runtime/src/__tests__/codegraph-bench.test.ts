@@ -314,10 +314,11 @@ describe.skipIf(!LIVE)("Section B — LIVE LLM benchmark (CODEGRAPH_BENCH_LIVE=1
 
     if (env["GLM_API_KEY"]) {
       const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
-      const model = env["GLM_MODEL"] ?? "glm-4.5-flash";
+      const model = env["GLM_MODEL"] ?? "glm-4.5";
       const provider = createOpenAICompatible({
         name: "glm",
-        baseURL: env["GLM_BASE_URL"] ?? "https://open.bigmodel.cn/api/paas/v4",
+        // z.ai coding plan endpoint (paid plan, separate from BIGMODEL pay-as-you-go).
+        baseURL: env["GLM_BASE_URL"] ?? "https://api.z.ai/api/coding/paas/v4",
         apiKey: env["GLM_API_KEY"],
         ...(defaultParameters ? { defaultParameters } : {}),
       });

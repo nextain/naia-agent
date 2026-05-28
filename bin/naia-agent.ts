@@ -498,7 +498,9 @@ async function buildLLMClient(overrideModel?: string): Promise<LLMClient | null>
       process.stderr.write(`naia-agent: ERROR — no model specified. Use --model <id>\n`);
       return null;
     }
-    const baseURL = env.GLM_BASE_URL ?? "https://open.bigmodel.cn/api/paas/v4";
+    // GLM_API_KEY = z.ai coding plan API key. Default to coding-plan endpoint
+    // (paid subscription) instead of BIGMODEL pay-as-you-go (separate balance).
+    const baseURL = env.GLM_BASE_URL ?? "https://api.z.ai/api/coding/paas/v4";
     const provider = createOpenAICompatible({
       name: "zhipu-glm",
       apiKey: env.GLM_API_KEY,

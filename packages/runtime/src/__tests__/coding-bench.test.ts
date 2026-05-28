@@ -158,15 +158,32 @@ function runCodeTest(code: string, funcName: string, tc: TestCase): { pass: bool
 
 // ─── Pricing ──────────────────────────────────────────────────────────────
 
+// USD per 1M tokens. Sources:
+//   - Gemini:  https://ai.google.dev/gemini-api/docs/pricing  (Google AI Studio)
+//   - GLM:     https://docs.z.ai/guides/overview/pricing       (pay-as-you-go)
+//
+// GLM via the z.ai coding plan (subscription, default endpoint of GLM_BASE_URL)
+// is FLAT-RATE — per-token cost is $0 marginal up to the plan's monthly cap.
+// The figures below are the standalone pay-as-you-go reference so the report
+// still produces a comparable per-1M-tok cost when no subscription is in play.
+// Use BENCH_PRICE_IN / BENCH_PRICE_OUT env to override on a per-run basis.
 const PRICE_TABLE: Record<string, { in: number; out: number }> = {
-  "gemini-2.5-flash":     { in: 0.075, out: 0.30 },
-  "gemini-2.0-flash":     { in: 0.10,  out: 0.40 },
-  "gemini-1.5-flash":     { in: 0.075, out: 0.30 },
-  "gemini-flash-lite":    { in: 0.019, out: 0.075 },
-  "glm-4.7-flash":        { in: 0.014, out: 0.014 },
-  "glm-4.5-flash":        { in: 0.014, out: 0.014 },
-  "glm-z1-flash":         { in: 0.014, out: 0.014 },
-  "glm-z1-airx":          { in: 0.007, out: 0.007 },
+  // Gemini Flash family
+  "gemini-3.5-flash":        { in: 1.50, out: 9.00 },
+  "gemini-3-flash-preview":  { in: 0.50, out: 3.00 },
+  "gemini-3.1-flash-lite":   { in: 0.25, out: 1.50 },
+  "gemini-2.5-flash":        { in: 0.30, out: 2.50 },
+  "gemini-2.0-flash":        { in: 0.10, out: 0.40 },
+  "gemini-1.5-flash":        { in: 0.075, out: 0.30 },
+  "gemini-flash-lite":       { in: 0.019, out: 0.075 }, // legacy fallback key
+  // GLM family (Z.AI pay-as-you-go; coding plan = flat-rate, $0 marginal)
+  "glm-5.1":                 { in: 1.40, out: 4.40 },
+  "glm-5-turbo":             { in: 1.20, out: 4.00 },
+  "glm-5":                   { in: 1.00, out: 3.20 },
+  "glm-4.7":                 { in: 0.60, out: 2.20 },
+  "glm-4.6":                 { in: 0.60, out: 2.20 },
+  "glm-4.5-air":             { in: 0.20, out: 1.10 },
+  "glm-4.5":                 { in: 0.60, out: 2.20 },
 };
 
 function getPrice(model: string) {
@@ -713,10 +730,11 @@ describe.skipIf(!LIVE)(
       }
       if (env["GLM_API_KEY"]) {
         const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
-        const model = env["GLM_MODEL"] ?? "glm-4.7-flash";
+        const model = env["GLM_MODEL"] ?? "glm-4.7";
         const p = createOpenAICompatible({
           name: "glm",
-          baseURL: env["GLM_BASE_URL"] ?? "https://open.bigmodel.cn/api/paas/v4",
+          // z.ai coding plan endpoint (paid plan, separate from BIGMODEL pay-as-you-go).
+          baseURL: env["GLM_BASE_URL"] ?? "https://api.z.ai/api/coding/paas/v4",
           apiKey: env["GLM_API_KEY"],
         });
         console.log(`[bench] GLM model=${model}`);
