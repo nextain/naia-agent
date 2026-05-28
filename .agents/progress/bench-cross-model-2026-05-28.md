@@ -10,15 +10,35 @@
 - **Suite**: C (Code Gen, 10 task / 49 점) + R (Reasoning, 6 task / 14 점) + A (Agent Tool Use, 5 task / 18 점) = **총 81 점 만점** (정상 측정 시)
 - **Provider 분기**: bench framework 가 env 별 자동 — `GEMINI_API_KEY` → Vercel AI SDK Google, `GLM_API_KEY` → BIGMODEL OpenAI-compat, `OPENAI_API_KEY + OPENAI_BASE_URL` → 일반 OpenAI-compat (호스트 vLLM / ollama 등)
 
-## 2. 결과 — 측정 완료 5 모델
+## 1.5. 단가 출처 (정정 — 2026-05-29 추가)
 
-| 모델 | Provider | C / 49 | R / 14 | A / 18 | Total | Duration | Cost | 비고 |
-|---|---|---|---|---|---|---|---|---|
-| **24g-coding** Qwen3.6-27B-AWQ-INT4 (max_hops 60, 최고치) | vLLM 호스트 GPU 1 | 40 (82%) | 9 (64%) | 15 (83%) | **64/81 = 79%** | 1690 s | $0 (로컬) | tool 강함, reasoning thinking 잔재로 C/R 손해 |
-| **24g-audio** Gemma 4 E4B Q8_0 | ollama 호스트 GPU 0 | 49 (100%) | 13 (93%) | 10 (56%) | **72/81 = 89%** | 1473 s | $0 (로컬) | thinking 모드 없음 → C/R 만점급, tool 약함 |
-| gemini-2.5-flash | Google API | 49 (100%) | 8 (57%) | **0 (skip)** | **57/63 = 90%** | 119 s | $0.00516 | A 측정 누락 |
-| gemini-3.1-flash-lite | Google API | 49 (100%) | 14 (100%) | **0 (skip)** | **63/63 = 100%** | **22 s** ★ | $0 | A 측정 누락, 가장 빠름 |
-| gemini-3.5-flash | Google API | 49 (100%) | 14 (100%) | **0 (skip)** | **63/63 = 100%** | 121 s | $0 | A 측정 누락 |
+코드 측 `PRICE_TABLE` 이 옛 값 (Gemini flash 1/4, GLM 1/40 수준) 이라 cost 가 거의 0 표시되던 issue 발견 → commit 9c55359 에서 갱신. 정정된 단가 ($USD per 1M tokens):
+
+- Gemini: https://ai.google.dev/gemini-api/docs/pricing
+  - 2.5-flash: in $0.30 / out $2.50
+  - 3.1-flash-lite: in $0.25 / out $1.50
+  - 3.5-flash: in $1.50 / out $9.00
+- GLM: https://docs.z.ai/guides/overview/pricing (pay-as-you-go reference)
+  - 4.7 / 4.6 / 4.5: in $0.60 / out $2.20
+  - 5.1: in $1.40 / out $4.40
+  - 4.5-air: in $0.20 / out $1.10
+
+**z.ai coding plan** = flat-rate subscription, marginal $0/run up to monthly cap. 위 단가는 동일 워크로드 pay-as-you-go 환산 reference.
+
+## 2. 결과 — 측정 완료 5 모델 (+ GLM 1)
+
+정확 cost = 옛 PRICE_TABLE 잔재로 보고서 표 의 Cost column 은 무의미. 아래 표는 **정정 PRICE_TABLE × 실제 토큰 (per-task column 의 In tok / Out tok)** 으로 재계산.
+
+| 모델 | Provider | C / 49 | R / 14 | A / 18 | Total | Duration | In tok | Out tok | Cost (pay-as-you-go) | Tier B 환산 ($0.33/h) | 비고 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| **24g-coding** Qwen3.6-27B-AWQ-INT4 (max_hops 60) | vLLM 호스트 GPU 1 | 40 (82%) | 9 (64%) | 15 (83%) | **64/81 = 79%** | 1690 s | (0 capture issue) | (0 capture issue) | $0 (로컬) | **$0.155** | tool 강함, reasoning thinking 잔재로 C/R 손해 |
+| **24g-audio** Gemma 4 E4B Q8_0 | ollama 호스트 GPU 0 | 49 (100%) | 13 (93%) | 10 (56%) | **72/81 = 89%** | 1473 s | (0 capture issue) | (0 capture issue) | $0 (로컬) | **$0.135** | thinking 모드 없음 → C/R 만점급, tool 약함 |
+| gemini-2.5-flash | Google API | 49 (100%) | 8 (57%) | **0 (skip)** | **57/63 = 90%** | 119 s | 3,436 | 16,348 | **$0.042** | $0.011 | A 측정 누락 (별 issue) |
+| gemini-3.1-flash-lite | Google API | 49 (100%) | 14 (100%) | **0 (skip)** | **63/63 = 100%** | **22 s** ★ | 3,500 | 4,188 | **$0.007** ★ | $0.002 | A 측정 누락, 최저비용 + 최단시간 |
+| gemini-3.5-flash | Google API | 49 (100%) | 14 (100%) | **0 (skip)** | **63/63 = 100%** | 121 s | 3,500 | 22,575 | **$0.208** | $0.011 | A 측정 누락, output thinking 길어 cost 30× |
+| **glm-4.7** (z.ai coding plan, default endpoint 정정 후) | z.ai api/coding/paas/v4 | 49 (100%) | 13 (93%) | **18 (100%)** | **80/81 = 99%** ★ | 1482 s | **1,150,856** | 44,636 | **$0.788 reference / $0 (정액제)** | **$0.136** | Suite A 까지 다 측정됨 — Gemini 의 skip 과 대조. input 폭증은 tool 결과 누적 |
+
+vLLM/ollama (OpenAI-compat) 의 토큰 0 표시 = stream usage chunk 캡처 issue. Vercel AI SDK 의 `@ai-sdk/openai-compatible` 가 `stream_options.include_usage: true` 안 보내는 듯. fix 별 commit.
 
 ### Suite A skip 이슈 — Gemini 측 일관 발생
 
@@ -48,8 +68,8 @@ Gemini 의 Suite A 결손 보정 위해 C+R 만으로 비교:
 
 | 모델 | 사유 | 게이트 |
 |---|---|---|
-| **glm-4.7** | 잔액 부족 (`1113: 余额不足或无可用资源包`) | 사용자 BIGMODEL 충전 |
-| **glm-5.1** | 동일 | 동일 |
+| **glm-4.7** | ✓ 측정 완료 (coding plan endpoint 정정 후) | 99% 달성 |
+| **glm-5.1** | z.ai internal 500 일시 장애 (`1234`) — polling retry 중 | 재시도 |
 | **Claude CLI** (구독 SDK) | bench framework 에 `claude-code` backend 분기 미통합 | 별 commit — `NAIA_AGENT_CLAUDECODE_LIVE` env hook (Slice 3-XR-H/M) 재사용 |
 | **48g-coding A40** (Qwen3.6-27B 4비트/8비트) | RunPod Pod 미생성 | 사용자 직접 Pod 생성 + endpoint URL |
 | **48g-audio A40** omni | RunPod Pod 미생성 | 사용자 직접 |
@@ -67,7 +87,11 @@ Gemini 의 Suite A 결손 보정 위해 C+R 만으로 비교:
 
 ## 6. 알려진 issue (별 fix 항목)
 
-1. **Suite A 가 Gemini provider 에서 실행 0건** — bench framework 의 `@ai-sdk/google` 분기에서 BM-B2 가 skip 되는 원인 파악 필요. tool calling 호출 미동작 또는 chunked tool message 누락 가능성.
+1. **PRICE_TABLE 옛 단가 (commit 9c55359 에서 정정)** — `glm-4.7-flash`/`glm-4.5-flash` $0.014 (실제 GLM 4.7 = $0.60/$2.20 의 1/40 수준) + `gemini-2.5-flash` $0.075/$0.30 (실제 $0.30/$2.50 의 1/4) 였음. 진행 중이던 process 는 옛 값 적용 → 본 보고서 §2 의 Cost column 은 정정 단가 × 실제 토큰 으로 재계산. 다음 sweep 부터 새 값 자동.
+
+2. **z.ai coding plan endpoint default 누락 (commit 9c55359 에서 fix)** — `GLM_BASE_URL` 미명시 시 default 가 BIGMODEL `open.bigmodel.cn/api/paas/v4` 였음. 사용자 GLM_API_KEY 는 z.ai coding plan 키라 BIGMODEL 에서 잔액 부족 1113. default 를 `api.z.ai/api/coding/paas/v4` 로 변경 + default model `glm-4.7-flash` → `glm-4.7` (z.ai 실제 모델 명) 정정.
+
+3. **Suite A 가 Gemini provider 에서 실행 0건** — bench framework 의 `@ai-sdk/google` 분기에서 BM-B2 가 skip 되는 원인 파악 필요. tool calling 호출 미동작 또는 chunked tool message 누락 가능성. GLM coding plan 은 Suite A 정상 측정 (`@ai-sdk/openai-compatible`) — 즉 Gemini 분기 측 issue.
 2. **vLLM 의 usage capture 0 표시** — In/Out tok 가 모두 0 — stream 의 마지막 usage chunk 를 bench framework 가 못 캡처. vLLM stream usage 옵션 (`stream_options.include_usage: true`) 추가 또는 framework 측 fallback 필요.
 3. **24g-coding C-09/C-10 의 thinking residue syntax** — reasoning thinking 흔적이 코드 본문에 섞이는 케이스. 3-5 run 반복으로 randomness 분간 후 vLLM parser fix vs client-side code-extraction hardening 결정.
 4. **Suite A 의 vitest 1500 s timeout** — 호스트 vLLM 측정 시 A-04/A-05 일부 미실행 — `testTimeout 2400-3000 s` 격상 권장 (#69 commit 0d31317 의 후속 권장사항 그대로 유효).
