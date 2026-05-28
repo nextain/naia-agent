@@ -134,6 +134,13 @@ export function startOAuth(opts: OAuthStartOptions): OAuthStartResult {
 	params.set("state", state);
 	params.set("app", "naia-os");
 	params.set("platform", process.platform);
+	// #337 callback fix (2026-05-28): portal's middleware honors `redirect=desktop`
+	// to send already-logged-in sessions to /callback (which fires the naia://
+	// deep-link) instead of /dashboard. Without these params the portal silently
+	// redirects to dashboard and the Tauri shell waits forever.
+	// portal: naia.nextain.io src/proxy.ts:86-91
+	params.set("redirect", "desktop");
+	params.set("source", "desktop");
 	const authUrl = `${issuer}/${locale}/login?${params.toString()}`;
 
 	appendLog({
