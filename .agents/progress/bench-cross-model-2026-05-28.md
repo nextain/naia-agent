@@ -25,7 +25,41 @@
 
 **z.ai coding plan** = flat-rate subscription, marginal $0/run up to monthly cap. 위 단가는 동일 워크로드 pay-as-you-go 환산 reference.
 
-## 2. 결과 — 측정 완료 5 모델 (+ GLM 1)
+## 2. 결과 — 8 모델 fair baseline (auto + max_hops 30, 2026-05-29 재측정)
+
+**Baseline 정착** = `max_hops 30` + `tool_choice: "auto"` (실제 운영 환경). 이전 sweep 의 `"required"` 강제는 commit 04bd35c 에서 제거. 본 표 = 8 모델 다 동일 baseline 으로 재측정한 fair comparison.
+
+| 모델 | Provider | C / 49 | R / 14 | A / 18 | Total / 81 | Duration | In tok | Out tok | Cost (pay-as-you-go) | Tier B ($0.33/h) | 비고 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| gemini-3.5-flash | Google API | 49 (100%) | 14 (100%) | (skip) | 63/63 = 100% | 128 s | (raw) | (raw) | $0.211 | $0.012 | A skip (별 issue) |
+| **gemini-3.1-flash-lite** | Google API | 49 (100%) | 13 (93%) | (skip) | **62/63 = 98%** | **24 s** ★ | (raw) | (raw) | **$0.007** ★ | $0.002 | 최저 비용 + 최단 시간. A skip |
+| gemini-2.5-flash | Google API | 49 (100%) | 11 (79%) | (skip) | 60/63 = 95% | 113 s | (raw) | (raw) | $0.052 | $0.010 | A skip |
+| **glm-5.1** (z.ai coding plan) | z.ai api/coding/paas/v4 | 49 (100%) | 13 (93%) | 15 (83%) | **77/81 = 95%** ★ | 1055 s | (raw) | (raw) | $2.15 ref / **$0 (정액제)** | $0.097 | Suite A 포함 fair top. auto 에서 glm-4.7 ↑ |
+| **24g-audio** Gemma 4 E4B Q8_0 | ollama 호스트 GPU 0 | 49 (100%) | 13 (93%) | 13 (72%) | **75/81 = 93%** ★ | **417 s** | (0 capture issue) | (0 capture issue) | **$0 (로컬)** | $0.038 | 로컬 top. auto 가 작은 모델에 유리 (required 89% → 93%, 3.5× 빠름) |
+| glm-4.7 (z.ai coding plan) | z.ai api/coding/paas/v4 | 49 (100%) | 10 (71%) | 15 (83%) | 74/81 = 91% | 1112 s | (raw) | (raw) | $0.73 ref / **$0 (정액제)** | $0.102 | glm-5.1 보다 -4pp (auto 자율 능력 우위 = 5.1) |
+| claude-code sonnet | ai-sdk-provider-claude-code | 49 (100%) | 13 (93%) | **5 (28%)** ✗ | 67/81 = 83% | 688 s | (raw, 큼) | (raw) | $17.11 ref / **$0 (구독)** | $0.063 | C/R 만점급, Suite A 28% — bench tool signature ↔ Claude Code SDK native tool 호환 X (별 issue) |
+| 24g-coding Qwen3.6-27B-AWQ-INT4 | vLLM 호스트 GPU 1 | 28 (57%) | 9 (64%) | **13 (93%)** ★ | **50/77 = 65%** (A timeout) | 1801 s (vitest timeout) | (0 capture issue) | (0 capture issue) | $0 (로컬) | $0.165 | Suite A 93% (라인업 default 정합 검증 ★). C/R thinking residue 일관 손해 |
+
+**Fair baseline 의 핵심 변화 (required → auto):**
+
+| 모델 | required Total | auto Total | Δ | 해석 |
+|---|---|---|---|---|
+| glm-4.7 | 99% | **91%** | -8 | required 가 강제 보정한 점수 |
+| glm-5.1 | 99% | **95%** | -4 | 자율 능력 우위 — auto 에서 glm-5.1 가 glm-4.7 ↑ |
+| 24g-audio E4B | 89% | **93%** | +4 | auto 가 작은 모델에 유리, 3.5× 빠름 |
+| claude-code | 83% | 83% | = | required ↔ auto 영향 없음 (Suite A 28% 일관) |
+| gemini-2.5-flash | 90% | 95% | +5 | R 측 자율 모드에서 강 |
+| gemini-3.1-lite | 100% | 98% | -2 | R 1 task ↓ |
+| gemini-3.5-flash | 100% | 100% | = | 만점 유지 |
+| 24g-coding Qwen | (60 hops 79%) | 65% (30 hops timeout) | — | hops 와 timeout 영향 분리 분석 필요 — Suite A 93% 일관 |
+
+→ **자율 운영 환경 fair top:**
+- **외부 Suite A 포함**: glm-5.1 coding plan 95% (정액제 $0)
+- **로컬**: 24g-audio Gemma 4 E4B 93% ($0)
+- **외부 최저비용 (Suite A skip 한계)**: gemini-3.1-flash-lite ($0.007 + 24초)
+- **라인업 default 검증**: 24g-coding Suite A 93% ★ (tool 강점 일관)
+
+## 2b. 이전 sweep — required baseline 보존 (history)
 
 정확 cost = 옛 PRICE_TABLE 잔재로 보고서 표 의 Cost column 은 무의미. 아래 표는 **정정 PRICE_TABLE × 실제 토큰 (per-task column 의 In tok / Out tok)** 으로 재계산.
 
