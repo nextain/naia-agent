@@ -249,7 +249,7 @@ describe("handleLabProxyRequest", () => {
 		expect(JSON.stringify(result)).not.toContain("gw-secret-abc");
 	});
 
-	it("prepends issuer to relative path, leaves absolute URLs untouched", async () => {
+	it("prepends issuer to relative path", async () => {
 		const { state } = handleAuthStart({ mode: "dev" });
 		await handleAuthReceived({ deepLinkUrl: makeDeepLink(state) });
 
@@ -266,13 +266,94 @@ describe("handleLabProxyRequest", () => {
 			{ mode: "dev", method: "GET", path: "/api/balance" },
 			stubFetch,
 		);
-		await handleLabProxyRequest(
-			{ mode: "dev", method: "GET", path: "https://other.example.com/x" },
+
+		expect(urls[0]).toBe("http://localhost:3001/api/balance");
+	});
+
+	// --- #337 cross-review HIGH #3: restrict proxy to issuer-origin ----------
+
+	it("accepts absolute URL matching issuer origin exactly", async () => {
+		const { state } = handleAuthStart({ mode: "dev" });
+		await handleAuthReceived({ deepLinkUrl: makeDeepLink(state) });
+
+		const urls: string[] = [];
+		const stubFetch = vi.fn(async (url: RequestInfo | URL) => {
+			urls.push(String(url));
+			return new Response(JSON.stringify({ ok: true }), {
+				status: 200,
+				headers: { "content-type": "application/json" },
+			});
+		}) as unknown as typeof fetch;
+
+		const result = await handleLabProxyRequest(
+			{
+				mode: "dev",
+				method: "GET",
+				path: "http://localhost:3001/api/balance",
+			},
 			stubFetch,
 		);
 
+		expect(result.ok).toBe(true);
+		expect(result.status).toBe(200);
+		expect(stubFetch).toHaveBeenCalledTimes(1);
 		expect(urls[0]).toBe("http://localhost:3001/api/balance");
-		expect(urls[1]).toBe("https://other.example.com/x");
+	});
+
+	it("rejects absolute URL to a different host with disallowed_host (fetch NOT called)", async () => {
+		const { state } = handleAuthStart({ mode: "dev" });
+		await handleAuthReceived({
+			deepLinkUrl: makeDeepLink(state, "gw-secret-leak"),
+		});
+
+		const stubFetch = vi.fn(async () => {
+			return new Response("{}", { status: 200 });
+		}) as unknown as typeof fetch;
+
+		const result = await handleLabProxyRequest(
+			{
+				mode: "dev",
+				method: "GET",
+				path: "https://evil.com/leak",
+			},
+			stubFetch,
+		);
+
+		expect(result).toEqual({
+			ok: false,
+			status: 400,
+			body: null,
+			error: "disallowed_host",
+		});
+		expect(stubFetch).not.toHaveBeenCalled();
+		// CRITICAL: naiaKey must not leak through the rejected response.
+		expect(JSON.stringify(result)).not.toContain("gw-secret-leak");
+	});
+
+	it("rejects malformed URL with invalid_path (fetch NOT called)", async () => {
+		const { state } = handleAuthStart({ mode: "dev" });
+		await handleAuthReceived({
+			deepLinkUrl: makeDeepLink(state, "gw-secret-mal"),
+		});
+
+		const stubFetch = vi.fn(async () => {
+			return new Response("{}", { status: 200 });
+		}) as unknown as typeof fetch;
+
+		const result = await handleLabProxyRequest(
+			{ mode: "dev", method: "GET", path: "://bogus" },
+			stubFetch,
+		);
+
+		expect(result).toEqual({
+			ok: false,
+			status: 400,
+			body: null,
+			error: "invalid_path",
+		});
+		expect(stubFetch).not.toHaveBeenCalled();
+		// CRITICAL: naiaKey must not leak through the rejected response.
+		expect(JSON.stringify(result)).not.toContain("gw-secret-mal");
 	});
 
 	it("returns ok:false status:0 on fetch network error", async () => {

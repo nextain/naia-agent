@@ -214,6 +214,36 @@ export async function handleAuthLegacyMigrate(
  * `emit` is injected so the bin dispatcher can route `auth_expired` events to
  * stdout; tests can use a `vi.fn()`.
  */
+/**
+ * Restrict the proxy to issuer-origin URLs only — closes the naiaKey
+ * exfiltration vector (codex cross-review HIGH #3) where a compromised
+ * renderer could pass `path: "https://evil.com/leak"` and the agent would
+ * happily inject `X-AnyLLM-Key: Bearer <naiaKey>` into the outbound request.
+ *
+ * Accepts:
+ *   * Route-relative paths starting with "/" (current Phase 6b call-site form)
+ *   * Pseudo-absolute URLs whose origin matches the AuthState issuer EXACTLY
+ *
+ * Rejects everything else (cross-host absolute URLs, malformed URLs,
+ * schema-less paths like "api/balance" or "://bogus").
+ */
+function resolveProxyUrl(reqPath: string, issuer: string): URL {
+	if (reqPath.startsWith("/")) {
+		return new URL(reqPath, issuer);
+	}
+	let parsed: URL;
+	try {
+		parsed = new URL(reqPath);
+	} catch {
+		throw new Error("invalid_path");
+	}
+	const issuerOrigin = new URL(issuer).origin;
+	if (parsed.origin !== issuerOrigin) {
+		throw new Error("disallowed_host");
+	}
+	return parsed;
+}
+
 export async function handleLabProxyRequest(
 	req: LabProxyRequest,
 	fetchImpl: typeof fetch = fetch,
@@ -228,7 +258,17 @@ export async function handleLabProxyRequest(
 		return { ok: false, status: 401, body: null, error: "not_logged_in" };
 	}
 
-	const result = await doFetch(req, state, fetchImpl);
+	// Validate the URL BEFORE any fetch call — never let a compromised renderer
+	// direct the proxy (with naiaKey injection) to an arbitrary host.
+	let url: URL;
+	try {
+		url = resolveProxyUrl(req.path, state.issuer);
+	} catch (err) {
+		const error = err instanceof Error ? err.message : String(err);
+		return { ok: false, status: 400, body: null, error };
+	}
+
+	const result = await doFetch(req, state, fetchImpl, url);
 	if (result.status !== 401) return result;
 
 	// 401 — attempt refresh + retry once.
@@ -240,18 +280,15 @@ export async function handleLabProxyRequest(
 		// original 401 to the caller so it can pivot to a logged-out UI.
 		return result;
 	}
-	return doFetch(req, refreshed.state, fetchImpl);
+	return doFetch(req, refreshed.state, fetchImpl, url);
 }
 
 async function doFetch(
 	req: LabProxyRequest,
 	state: AuthState,
 	fetchImpl: typeof fetch,
+	url: URL,
 ): Promise<LabProxyResponse> {
-	const url = req.path.startsWith("http")
-		? req.path
-		: `${state.issuer}${req.path.startsWith("/") ? "" : "/"}${req.path}`;
-
 	const headers: Record<string, string> = { ...(req.headers ?? {}) };
 	// Override caller's auth header — shell must never see or set this value.
 	headers["X-AnyLLM-Key"] = `Bearer ${state.naiaKey}`;
