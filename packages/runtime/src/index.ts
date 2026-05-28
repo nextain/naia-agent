@@ -162,8 +162,9 @@ export {
   createDiagnosticsSkill,
   createSessionsSkill,
   createConfigSkill,
+  createCodeGraphExecutor,
 } from "./skills/index.js";
-export type { BashSkillOptions, BashInput, CodingSkillOptions, CodingInput, FileOpsOptions, TimeSkillOptions, WeatherSkillOptions, MemoSkillOptions, SystemStatusSkillOptions, DiagnosticsSkillOptions, SessionsSkillOptions, ConfigSkillOptions } from "./skills/index.js";
+export type { BashSkillOptions, BashInput, CodingSkillOptions, CodingInput, FileOpsOptions, TimeSkillOptions, WeatherSkillOptions, MemoSkillOptions, SystemStatusSkillOptions, DiagnosticsSkillOptions, SessionsSkillOptions, ConfigSkillOptions, CodeGraphOptions } from "./skills/index.js";
 
 // Auth IPC handlers — #337 Phase 5a. Pure async handlers wired into
 // bin/naia-agent.ts stdio dispatcher. naiaKey never leaks to the shell.

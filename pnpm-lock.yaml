@@ -29,9 +29,6 @@ importers:
       msedge-tts:
         specifier: ^2.0.4
         version: 2.0.5
-      youtubei.js:
-        specifier: ^17.0.1
-        version: 17.0.1
       zhipu-ai-provider:
         specifier: ^0.3.0
         version: 0.3.0(zod@4.3.6)
@@ -292,6 +289,9 @@ importers:
 
   packages/runtime:
     dependencies:
+      '@colbymchenry/codegraph':
+        specifier: ^0.9.6
+        version: 0.9.6
       '@nextain/agent-types':
         specifier: workspace:*
         version: link:../types
@@ -603,6 +603,40 @@ packages:
 
   '@cfworker/json-schema@4.1.1':
     resolution: {integrity: sha512-gAmrUZSGtKc3AiBL71iNWxDsyUC5uMaKKGdvzYsBoTW/xi42JQHl7eKV2OYzCUqvc+D2RCcf7EXY2iCyFIk6og==}
+
+  '@colbymchenry/codegraph-darwin-arm64@0.9.6':
+    resolution: {integrity: sha512-686DNvhblzVcCcelhf6yZaKVZ5imbb7xptzG4Q4jkWdf/1lp/4nFi8ZUlDuVKv2Ie1N53QDGYaYJPrC7+Kjr6Q==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@colbymchenry/codegraph-darwin-x64@0.9.6':
+    resolution: {integrity: sha512-YbP6Nelxcs6fza5l2dftStf0cOy3Rv95oZrMYfqfUGRO7U0Y2Rcz3TWm7G5YQTL2cCUjETPFnps5cS44Ez32bg==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@colbymchenry/codegraph-linux-arm64@0.9.6':
+    resolution: {integrity: sha512-NTLBqzjSt7wPKis3n+VRFygCmtxf67/JWwQFTKpwYDrQMHspHRTw16/AoFWA4iZPJ8h/0lFfrfeaGtdnAkINtA==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@colbymchenry/codegraph-linux-x64@0.9.6':
+    resolution: {integrity: sha512-fMLGKvxZlWLOroPpOSNHx4jDlUZ3hCuoJt42El6AKoJEUWYBGYHVVVEFqqkJ2ARZ11zr7aoWgLvsfDE0ythELg==}
+    cpu: [x64]
+    os: [linux]
+
+  '@colbymchenry/codegraph-win32-arm64@0.9.6':
+    resolution: {integrity: sha512-Jbf/TDkhc45MujmwuZpaOO+66bxwRNuc8azZoCRnYNgCeZTCtN/hGa6IaPppmXPPqwDzeEiSQA4ozj30BqjMug==}
+    cpu: [arm64]
+    os: [win32]
+
+  '@colbymchenry/codegraph-win32-x64@0.9.6':
+    resolution: {integrity: sha512-RTREYQhT84tZwI0AGENDSwISmrveJt5XB4qNSDvTh6lZKoGqRUZFuiMssouberHub51yTyimuY+2nRDlCclqyw==}
+    cpu: [x64]
+    os: [win32]
+
+  '@colbymchenry/codegraph@0.9.6':
+    resolution: {integrity: sha512-tMrlwtUtKKGw9f/9qvSqzwSa02Wd6YgN8TTEoKovo8oLROMMVOYiCbodzVDKa++GSNxsKtrZXHmYTzt6XiYgJw==}
+    hasBin: true
 
   '@cspotcode/source-map-support@0.8.1':
     resolution: {integrity: sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw==}
@@ -3757,9 +3791,37 @@ snapshots:
       - encoding
       - utf-8-validate
 
-  '@bufbuild/protobuf@2.12.0': {}
+  '@bufbuild/protobuf@2.12.0':
+    optional: true
 
   '@cfworker/json-schema@4.1.1': {}
+
+  '@colbymchenry/codegraph-darwin-arm64@0.9.6':
+    optional: true
+
+  '@colbymchenry/codegraph-darwin-x64@0.9.6':
+    optional: true
+
+  '@colbymchenry/codegraph-linux-arm64@0.9.6':
+    optional: true
+
+  '@colbymchenry/codegraph-linux-x64@0.9.6':
+    optional: true
+
+  '@colbymchenry/codegraph-win32-arm64@0.9.6':
+    optional: true
+
+  '@colbymchenry/codegraph-win32-x64@0.9.6':
+    optional: true
+
+  '@colbymchenry/codegraph@0.9.6':
+    optionalDependencies:
+      '@colbymchenry/codegraph-darwin-arm64': 0.9.6
+      '@colbymchenry/codegraph-darwin-x64': 0.9.6
+      '@colbymchenry/codegraph-linux-arm64': 0.9.6
+      '@colbymchenry/codegraph-linux-x64': 0.9.6
+      '@colbymchenry/codegraph-win32-arm64': 0.9.6
+      '@colbymchenry/codegraph-win32-x64': 0.9.6
 
   '@cspotcode/source-map-support@0.8.1':
     dependencies:
@@ -5492,7 +5554,8 @@ snapshots:
 
   merge-descriptors@2.0.0: {}
 
-  meriyah@6.1.4: {}
+  meriyah@6.1.4:
+    optional: true
 
   mime-db@1.52.0: {}
 
@@ -6247,6 +6310,7 @@ snapshots:
     dependencies:
       '@bufbuild/protobuf': 2.12.0
       meriyah: 6.1.4
+    optional: true
 
   zhipu-ai-provider@0.3.0(zod@4.3.6):
     dependencies:

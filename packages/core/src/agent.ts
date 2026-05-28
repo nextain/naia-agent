@@ -72,6 +72,13 @@ export interface AgentOptions {
   model?: string;
   /** Maximum tool-use iterations per `send()` call. Default 10. */
   maxToolHops?: number;
+  /**
+   * On the final tool-use hop, strip all tools from the LLM request so the
+   * model is forced to emit a text answer instead of another tool call.
+   * Helpful for small/quantized models that cannot self-terminate the ReAct
+   * loop (keep calling tools until maxToolHops is exhausted). Default: false.
+   */
+  forceTextOnLastHop?: boolean;
   /** After N consecutive tool calls return isError within one turn, the
    *  agent halts the turn and emits `tool.error.halt`. Default 3. */
   maxConsecutiveToolErrors?: number;
@@ -201,6 +208,7 @@ export class Agent {
   readonly #tierFor: (name: string) => TierLevel;
   readonly #maxConsecutiveToolErrors: number;
   readonly #appendDefaultSystem: boolean;
+  readonly #forceTextOnLastHop: boolean;
 
   constructor(options: AgentOptions) {
     this.#host = options.host;
@@ -208,6 +216,7 @@ export class Agent {
     if (options.systemPrompt !== undefined) this.#system = options.systemPrompt;
     this.#appendDefaultSystem = options.appendDefaultSystemPrompt ?? true;
     this.#maxHops = options.maxToolHops ?? 10;
+    this.#forceTextOnLastHop = options.forceTextOnLastHop ?? false;
     this.#estimate = options.estimateTokens ?? defaultEstimate;
     this.#budget = options.contextBudget ?? 80_000;
     this.#keepTail = options.compactionKeepTail ?? 6;
@@ -305,7 +314,12 @@ export class Agent {
 
       // 2. Refresh tool list per iteration (careti pattern — tool registry
       //    may change mid-loop when skills enable/disable).
-      const toolDefs = await this.#listTools(signal);
+      // forceTextOnLastHop: on the final iteration (hopsRemaining === 0 after
+      // the post-decrement above) strip tools so the model MUST emit text.
+      const toolDefs =
+        this.#forceTextOnLastHop && hopsRemaining === 0
+          ? []
+          : await this.#listTools(signal);
       tierByName.clear();
       for (const t of toolDefs) tierByName.set(t.name, t.tier);
 

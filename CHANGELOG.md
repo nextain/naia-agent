@@ -8,6 +8,28 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+### feat (bench — Agent `forceTextOnLastHop` + VercelClient tool-choice control)
+
+Fixes Suite A tool-use score for small quantized models (Gemma 4 26B AWQ): 28% → 39%.
+
+- **`packages/core/src/agent.ts`** — `AgentOptions.forceTextOnLastHop?: boolean` (default `false`). On the final tool-use hop (`hopsRemaining === 0` after decrement) strips all tools from the LLM request, forcing the model to emit a text answer instead of another tool call. Solves the ReAct loop self-termination failure on 4-bit AWQ quantized models.
+- **`packages/providers/src/vercel-client.ts`** — `VercelClientOptions.defaultToolChoice?: "auto"|"none"|"required"` and `defaultTemperature?: number`. Allows hosts to override per-request defaults; used by the bench harness to set `tool_choice="required"` + `temperature=0.1` for instruction-following reliability on local vLLM.
+- **`packages/runtime/src/index.ts`** — `createCodeGraphExecutor` / `CodeGraphOptions` export was missing (barrel gap introduced in Slice #68); added. Fixes Tauri naia-agent import crash.
+- **`packages/runtime/src/__tests__/coding-bench.test.ts`** (new) — full Suite C/R/A bench harness with `forceTextOnLastHop: true` activated in BM-B2 (Suite A). Fixed pre-existing `exactOptionalPropertyTypes` TS errors (4 sites).
+- **`packages/runtime/src/__tests__/codegraph-bench.test.ts`** (new) — Section B LIVE bench for codegraph RAG (9 tools, 3 missions).
+- **`packages/runtime/src/__tests__/codegraph-integration.test.ts`** (new) — CompositeToolExecutor + Agent + createHost integration tests for codegraph.
+- **Bench baseline (Gemma 4 26B AWQ, 2026-05-28):** Suite C 100% / R 86% / A 39% / Total 84%. Report: `.agents/progress/coding-bench-2026-05-28.md`.
+
+### feat (Slice #68 — CodeGraph RAG skill: `--enable-codegraph`)
+
+Embeds [`@colbymchenry/codegraph`](https://github.com/colbymchenry/codegraph) as a runtime dependency and exposes its code-intelligence MCP tools to the LLM via `--enable-codegraph [workdir]`. Benchmarked at ~35% cost reduction and ~71% fewer tool calls on real codebases.
+
+- **`packages/runtime/package.json`** — `@colbymchenry/codegraph ^0.9.6` added to `dependencies` (auto-included in `@nextain/naia-agent` distribution). (#68)
+- **`packages/runtime/src/skills/codegraph.ts`** (new) — `createCodeGraphExecutor(opts)` spawns `codegraph serve --mcp --path <workdir>` via `MCPClient` and returns an `MCPToolExecutor`. Returns `null` gracefully when `.codegraph/` is absent or the binary is not on PATH. All tools are T0 (read-only). (#68)
+- **`packages/runtime/src/skills/index.ts`** — barrel-exports `createCodeGraphExecutor` + `CodeGraphOptions`. (#68)
+- **`bin/naia-agent.ts`** — `--enable-codegraph [path]` flag (default OFF). When set, `createCodeGraphExecutor` is awaited before tool assembly and the resulting executor is composed into `CompositeToolExecutor`. (#68)
+- **`packages/runtime/src/__tests__/codegraph.test.ts`** (new) — unit tests: graceful skip when `.codegraph/` absent, graceful skip on binary failure, executor shape. (#68)
+
 ### feat (Slice 5-RB1 — RunPod Tier B gateway path: license / heartbeat / cold-start retry / manifest, #63 master)
 
 Phase 1 RunPod Tier B (크레딧 prepaid $0.33/h, plan `alpha-adk/.agents/progress/naia-runpod-phase1-plan-2026-05-27.md` Round 11 v9). Sub-issues #64 / #65 / #66 / #67.

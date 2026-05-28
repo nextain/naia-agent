@@ -52,6 +52,7 @@ import {
   InMemoryToolExecutor,
   createBashSkill,
   createFileOpsSkills,
+  createCodeGraphExecutor,
   createTimeSkill,
   createWeatherSkill,
   createMemoSkill,
@@ -190,6 +191,14 @@ interface Args {
    *  toggle; any native-tool-calling model can drive them
    *  (cf. createFileOpsSkills in @nextain/agent-runtime/skills). */
   enableFileOps: boolean;
+  /** Enable CodeGraph RAG tools (codegraph_search / _context / _trace / …).
+   *  Requires `.codegraph/` index in workdir (`codegraph init -i`).
+   *  Spawns `codegraph serve --mcp` subprocess; all tools are T0.
+   *  Gracefully skipped when index or binary is absent. Default OFF.
+   *  Slice #68. */
+  enableCodeGraph: boolean;
+  /** Project path for --enable-codegraph. Defaults to args.workdir. */
+  codegraphWorkdir?: string;
   /** Override the default max tool-hop budget (default: 10). */
   maxHops?: number;
   /** Load skills from an external ADK directory (e.g. naia-adk/skills/
@@ -237,6 +246,7 @@ function parseArgs(argv: string[]): Args | { error: string } {
     noDefaultSystem: false,
     memory: false,
     enableFileOps: false,
+    enableCodeGraph: false,
     forceRepl: false,
     compactStrategy: resolveCompactStrategyEnv(),
   };
@@ -283,6 +293,14 @@ function parseArgs(argv: string[]): Args | { error: string } {
       args.memory = true;
     } else if (a === "--enable-file-ops") {
       args.enableFileOps = true;
+    } else if (a === "--enable-codegraph") {
+      args.enableCodeGraph = true;
+      // Optional path arg: --enable-codegraph /path/to/project
+      const next = argv[i + 1];
+      if (next && !next.startsWith("--")) {
+        args.codegraphWorkdir = next;
+        i++;
+      }
     } else if (a === "--skills-dir") {
       const v = argv[++i];
       if (!v) return { error: "--skills-dir requires a path" };
@@ -667,6 +685,17 @@ async function runDirect(args: Args): Promise<number> {
     tools = new CompositeToolExecutor({ subs: [{ id: "builtins", executor: inMemTools }, ...skillSubs] });
   } else {
     tools = inMemTools;
+  }
+  // Slice #68 — CodeGraph RAG (opt-in, T0 read-only tools)
+  if (args.enableCodeGraph) {
+    const cgWorkdir = args.codegraphWorkdir ?? args.workdir ?? process.cwd();
+    const cgExecutor = await createCodeGraphExecutor({ workdir: cgWorkdir }).catch(() => null);
+    if (cgExecutor) {
+      tools = new CompositeToolExecutor({ subs: [{ id: "main", executor: tools }, { id: "codegraph", executor: cgExecutor }] });
+      process.stderr.write(`naia-agent: codegraph RAG enabled (${cgWorkdir})\n`);
+    } else {
+      process.stderr.write(`naia-agent: codegraph skip — .codegraph/ absent or binary not found\n`);
+    }
   }
   const memory = buildCliMemory(args);
   const logger = new ConsoleLogger({ level: args.debug ? "debug" : "warn" });
@@ -1286,6 +1315,17 @@ async function runService(args: Args): Promise<number> {
   }
 
   const logger = new ConsoleLogger({ level: args.debug ? "debug" : "warn" });
+  // Slice #68 — pre-compute codegraph executor (async) before sync tools IIFE
+  const svcCgExecutor = args.enableCodeGraph
+    ? await createCodeGraphExecutor({ workdir: args.codegraphWorkdir ?? args.workdir }).catch(() => null)
+    : null;
+  if (args.enableCodeGraph) {
+    if (svcCgExecutor) {
+      process.stderr.write(`naia-agent: codegraph RAG enabled (${args.codegraphWorkdir ?? args.workdir ?? process.cwd()})\n`);
+    } else {
+      process.stderr.write(`naia-agent: codegraph skip — .codegraph/ absent or binary not found\n`);
+    }
+  }
   const host: HostContext = {
     llm,
     memory,
@@ -1305,10 +1345,13 @@ async function runService(args: Args): Promise<number> {
               ...(args.enableFileOps ? createFileOpsSkills({ workspaceRoot: args.workdir }) : []),
             ],
       );
-      if (!args.skillsDir) return inMem;
+      const baseSubs: { id: string; executor: ToolExecutor }[] = [{ id: "builtins", executor: inMem }];
+      if (svcCgExecutor) baseSubs.push({ id: "codegraph", executor: svcCgExecutor });
+      if (!args.skillsDir && !svcCgExecutor) return inMem;
+      if (!args.skillsDir) return new CompositeToolExecutor({ subs: baseSubs });
       return new CompositeToolExecutor({
         subs: [
-          { id: "builtins", executor: inMem },
+          ...baseSubs,
           {
             id: "naia-adk-skills",
             executor: new SkillToolExecutor({

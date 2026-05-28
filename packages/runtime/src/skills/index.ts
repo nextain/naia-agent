@@ -25,3 +25,5 @@ export { createSessionsSkill } from "./sessions.js";
 export type { SessionsSkillOptions } from "./sessions.js";
 export { createConfigSkill } from "./config.js";
 export type { ConfigSkillOptions } from "./config.js";
+export { createCodeGraphExecutor } from "./codegraph.js";
+export type { CodeGraphOptions } from "./codegraph.js";

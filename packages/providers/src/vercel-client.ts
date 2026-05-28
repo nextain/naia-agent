@@ -68,6 +68,17 @@ export interface VercelClientOptions {
   defaultMaxTokens?: number;
   /** Optional logger; emits enter/branch/exit traces if Logger.fn() exists. */
   logger?: Logger;
+  /**
+   * Default tool_choice when the request includes tools but does not specify
+   * one. "required" forces the model to call a tool every turn — useful for
+   * benchmarks or agent loops that must always invoke tools.
+   */
+  defaultToolChoice?: "auto" | "none" | "required";
+  /**
+   * Default temperature when LLMRequest.temperature is unset.
+   * Lower values (0.1–0.3) improve instruction-following for tool use.
+   */
+  defaultTemperature?: number;
 }
 
 /**
@@ -96,6 +107,8 @@ export class VercelClient implements LLMClient {
   readonly #spec: SpecVersion;
   readonly #defaultMaxTokens: number;
   readonly #logger: Logger | undefined;
+  readonly #defaultToolChoice: "auto" | "none" | "required" | undefined;
+  readonly #defaultTemperature: number | undefined;
 
   constructor(model: LanguageModelV2OrV3, options: VercelClientOptions = {}) {
     const spec = (model as { specificationVersion?: string }).specificationVersion;
@@ -112,6 +125,8 @@ export class VercelClient implements LLMClient {
     this.#spec = spec;
     this.#defaultMaxTokens = options.defaultMaxTokens ?? 8192;
     this.#logger = options.logger;
+    this.#defaultToolChoice = options.defaultToolChoice;
+    this.#defaultTemperature = options.defaultTemperature;
   }
 
   /** Provider id (e.g. "anthropic.messages"). Useful for telemetry. */
@@ -279,11 +294,15 @@ export class VercelClient implements LLMClient {
       prompt: toV2Prompt(request),
       maxOutputTokens: request.maxTokens ?? this.#defaultMaxTokens,
     };
-    if (request.temperature !== undefined) opts.temperature = request.temperature;
+    const temp = request.temperature ?? this.#defaultTemperature;
+    if (temp !== undefined) opts.temperature = temp;
     if (request.stop !== undefined) opts.stopSequences = request.stop;
     if (request.signal !== undefined) opts.abortSignal = request.signal;
     if (request.tools !== undefined && request.tools.length > 0) {
       opts.tools = request.tools.map(toV2Tool);
+      if (this.#defaultToolChoice !== undefined) {
+        opts.toolChoice = { type: this.#defaultToolChoice };
+      }
     }
     return opts;
   }
