@@ -78,7 +78,7 @@ afterEach(async () => {
 	else delete process.env.NAIA_ADK_PATH;
 	if (ORIG_MODE !== undefined) process.env.NAIA_AGENT_MODE = ORIG_MODE;
 	else delete process.env.NAIA_AGENT_MODE;
-	__setKeyringForTest(null);
+	__setKeyringForTest(undefined);
 	await rm(adkRoot, { recursive: true, force: true });
 	vi.restoreAllMocks();
 });
