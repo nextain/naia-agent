@@ -165,6 +165,35 @@ export {
 } from "./skills/index.js";
 export type { BashSkillOptions, BashInput, CodingSkillOptions, CodingInput, FileOpsOptions, TimeSkillOptions, WeatherSkillOptions, MemoSkillOptions, SystemStatusSkillOptions, DiagnosticsSkillOptions, SessionsSkillOptions, ConfigSkillOptions } from "./skills/index.js";
 
+// Auth IPC handlers — #337 Phase 5a. Pure async handlers wired into
+// bin/naia-agent.ts stdio dispatcher. naiaKey never leaks to the shell.
+export {
+  handleAuthStart,
+  handleAuthReceived,
+  handleAuthLogout,
+  handleAuthQuery,
+  handleLabProxyRequest,
+} from "./auth/ipc-handlers.js";
+export type {
+  AuthStartRequest,
+  AuthStartResponse,
+  AuthReceivedRequest,
+  AuthReceivedResponse,
+  AuthLogoutRequest,
+  AuthLogoutResponse,
+  AuthQueryRequest,
+  AuthQueryResponse,
+  LabProxyRequest,
+  LabProxyResponse,
+} from "./auth/ipc-handlers.js";
+// Auth-store re-exports (mode helpers + types) so the dispatcher can map
+// `mode` field → AuthMode without reaching into a sub-path.
+export { getCurrentMode } from "./utils/auth-store.js";
+export type { AuthMode, AuthState } from "./utils/auth-store.js";
+// OAuth forensic log accessor — exposed for diagnostics IPC.
+export { getOAuthLog } from "./utils/oauth-flow.js";
+export type { OAuthLogEntry } from "./utils/oauth-flow.js";
+
 // Session + Config managers — Claude Code-level core infrastructure.
 export { SessionManager } from "./session-manager.js";
 export type { SessionRecord, SessionManagerOptions } from "./session-manager.js";

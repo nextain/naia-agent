@@ -80,7 +80,15 @@ import {
   makeGatewayFetch,
   maybeStartHeartbeat,
   isEnglishLocale,
+  // #337 Phase 5a — auth IPC handlers
+  handleAuthStart,
+  handleAuthReceived,
+  handleAuthLogout,
+  handleAuthQuery,
+  handleLabProxyRequest,
+  getOAuthLog,
 } from "@nextain/agent-runtime";
+import type { AuthMode } from "@nextain/agent-runtime";
 import type {
   ServiceManifest,
   ParsedRole,
@@ -1537,12 +1545,120 @@ async function runStdio(): Promise<number> {
     const type = typeof msg.type === "string" ? msg.type : null;
     if (!type) continue;
 
+    // #337 Phase 5a — coerce wire `mode` field → AuthMode, default to current.
+    const coerceMode = (v: unknown): AuthMode => (v === "dev" ? "dev" : "prod");
+
     switch (type) {
       case "auth_update": {
         const key = typeof msg.naiaKey === "string" ? msg.naiaKey : "";
         if (key) process.env["NAIA_ANYLLM_API_KEY"] = key;
         else delete process.env["NAIA_ANYLLM_API_KEY"];
         cachedLlm = undefined;
+        break;
+      }
+      case "auth_start": {
+        const id = typeof msg.id === "string" ? msg.id : `auth-${Date.now()}`;
+        try {
+          const startReq: Parameters<typeof handleAuthStart>[0] = {
+            mode: coerceMode(msg.mode),
+          };
+          if (Array.isArray(msg.scope)) {
+            startReq.scope = msg.scope.filter((s): s is string => typeof s === "string");
+          }
+          if (typeof msg.locale === "string") startReq.locale = msg.locale;
+          const result = handleAuthStart(startReq);
+          stdioWriteLine({ type: "auth_start_response", id, ...result });
+        } catch (err) {
+          stdioWriteLine({
+            type: "auth_start_response", id, error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        break;
+      }
+      case "auth_received": {
+        const id = typeof msg.id === "string" ? msg.id : `auth-${Date.now()}`;
+        const deepLinkUrl = typeof msg.deepLinkUrl === "string" ? msg.deepLinkUrl : "";
+        try {
+          const result = await handleAuthReceived({ deepLinkUrl });
+          stdioWriteLine({ type: "auth_received_response", id, ...result });
+          if (result.ok) {
+            // Invalidate cached LLM so next chat_request rebuilds with new key,
+            // matching auth_update's behavior (line above).
+            cachedLlm = undefined;
+            stdioWriteLine({
+              type: "auth_changed",
+              mode: result.mode ?? coerceMode(msg.mode),
+              loggedIn: true,
+            });
+          }
+        } catch (err) {
+          stdioWriteLine({
+            type: "auth_received_response", id, ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        break;
+      }
+      case "auth_logout": {
+        const id = typeof msg.id === "string" ? msg.id : `auth-${Date.now()}`;
+        const mode = coerceMode(msg.mode);
+        try {
+          const result = await handleAuthLogout({ mode });
+          stdioWriteLine({ type: "auth_logout_response", id, ...result });
+          cachedLlm = undefined;
+          stdioWriteLine({ type: "auth_changed", mode, loggedIn: false });
+        } catch (err) {
+          // deleteAuth is idempotent per design — surface error but still emit
+          // logged-out (the file is gone or never existed).
+          stdioWriteLine({
+            type: "auth_logout_response", id, ok: true,
+            warning: err instanceof Error ? err.message : String(err),
+          });
+          stdioWriteLine({ type: "auth_changed", mode, loggedIn: false });
+        }
+        break;
+      }
+      case "auth_query": {
+        const id = typeof msg.id === "string" ? msg.id : `auth-${Date.now()}`;
+        const mode = coerceMode(msg.mode);
+        try {
+          const result = await handleAuthQuery({ mode });
+          stdioWriteLine({ type: "auth_query_response", id, ...result });
+        } catch (err) {
+          stdioWriteLine({
+            type: "auth_query_response", id, loggedIn: false,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        break;
+      }
+      case "lab_proxy_request": {
+        const id = typeof msg.id === "string" ? msg.id : `lab-${Date.now()}`;
+        try {
+          const proxyReq: Parameters<typeof handleLabProxyRequest>[0] = {
+            mode: coerceMode(msg.mode),
+            method: (typeof msg.method === "string"
+              ? msg.method.toUpperCase()
+              : "GET") as Parameters<typeof handleLabProxyRequest>[0]["method"],
+            path: typeof msg.path === "string" ? msg.path : "",
+          };
+          if (msg.body !== undefined) proxyReq.body = msg.body;
+          if (msg.headers && typeof msg.headers === "object" && !Array.isArray(msg.headers)) {
+            proxyReq.headers = msg.headers as Record<string, string>;
+          }
+          const result = await handleLabProxyRequest(proxyReq);
+          stdioWriteLine({ type: "lab_proxy_response", id, ...result });
+        } catch (err) {
+          stdioWriteLine({
+            type: "lab_proxy_response", id, ok: false, status: 0, body: null,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        break;
+      }
+      case "oauth_log_query": {
+        const id = typeof msg.id === "string" ? msg.id : `oauth-${Date.now()}`;
+        stdioWriteLine({ type: "oauth_log_response", id, entries: getOAuthLog() });
         break;
       }
       case "notify_config": {
