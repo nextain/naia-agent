@@ -1,11 +1,11 @@
 {
-  "model": "glm:glm-5.1",
-  "date": "2026-05-28 15:27:15",
-  "totalScore": 0.9876543209876543,
+  "model": "claude-code:sonnet",
+  "date": "2026-05-28 16:06:59",
+  "totalScore": 0.8271604938271605,
   "suiteScores": {
     "C": 1,
     "R": 0.9285714285714286,
-    "A": 1
+    "A": 0.2777777777777778
   },
   "tasks": [
     {
@@ -18,9 +18,9 @@
       "maxScore": 4,
       "llmTurns": 1,
       "toolCalls": 0,
-      "inputTokens": 305,
-      "outputTokens": 44,
-      "durationMs": 5618.879507
+      "inputTokens": 25559,
+      "outputTokens": 36,
+      "durationMs": 4666.488106
     },
     {
       "taskId": "C-02",
@@ -32,9 +32,9 @@
       "maxScore": 4,
       "llmTurns": 1,
       "toolCalls": 0,
-      "inputTokens": 311,
-      "outputTokens": 52,
-      "durationMs": 5687.143427000001
+      "inputTokens": 25686,
+      "outputTokens": 75,
+      "durationMs": 3589.719335999999
     },
     {
       "taskId": "C-03",
@@ -46,9 +46,9 @@
       "maxScore": 8,
       "llmTurns": 1,
       "toolCalls": 0,
-      "inputTokens": 309,
-      "outputTokens": 111,
-      "durationMs": 7816.1342509999995
+      "inputTokens": 25849,
+      "outputTokens": 123,
+      "durationMs": 3749.4775080000018
     },
     {
       "taskId": "C-04",
@@ -60,9 +60,9 @@
       "maxScore": 3,
       "llmTurns": 1,
       "toolCalls": 0,
-      "inputTokens": 327,
-      "outputTokens": 126,
-      "durationMs": 8970.939112
+      "inputTokens": 26081,
+      "outputTokens": 143,
+      "durationMs": 4744.0251100000005
     },
     {
       "taskId": "C-05",
@@ -74,9 +74,9 @@
       "maxScore": 7,
       "llmTurns": 1,
       "toolCalls": 0,
-      "inputTokens": 313,
-      "outputTokens": 157,
-      "durationMs": 7615.245804999999
+      "inputTokens": 26315,
+      "outputTokens": 114,
+      "durationMs": 3937.050034
     },
     {
       "taskId": "C-06",
@@ -88,9 +88,9 @@
       "maxScore": 4,
       "llmTurns": 1,
       "toolCalls": 0,
-      "inputTokens": 314,
-      "outputTokens": 97,
-      "durationMs": 6288.789978000001
+      "inputTokens": 26524,
+      "outputTokens": 99,
+      "durationMs": 3520.7898700000005
     },
     {
       "taskId": "C-07",
@@ -102,9 +102,9 @@
       "maxScore": 5,
       "llmTurns": 1,
       "toolCalls": 0,
-      "inputTokens": 309,
-      "outputTokens": 106,
-      "durationMs": 6438.563289999998
+      "inputTokens": 26712,
+      "outputTokens": 113,
+      "durationMs": 4011.1328920000014
     },
     {
       "taskId": "C-08",
@@ -116,9 +116,9 @@
       "maxScore": 4,
       "llmTurns": 1,
       "toolCalls": 0,
-      "inputTokens": 309,
-      "outputTokens": 186,
-      "durationMs": 9374.72234
+      "inputTokens": 26918,
+      "outputTokens": 159,
+      "durationMs": 3936.4154419999977
     },
     {
       "taskId": "C-09",
@@ -130,9 +130,9 @@
       "maxScore": 5,
       "llmTurns": 1,
       "toolCalls": 0,
-      "inputTokens": 320,
-      "outputTokens": 178,
-      "durationMs": 8195.656729999995
+      "inputTokens": 27178,
+      "outputTokens": 103,
+      "durationMs": 3980.8476119999978
     },
     {
       "taskId": "C-10",
@@ -144,9 +144,9 @@
       "maxScore": 5,
       "llmTurns": 1,
       "toolCalls": 0,
-      "inputTokens": 350,
-      "outputTokens": 1705,
-      "durationMs": 41361.639232
+      "inputTokens": 27418,
+      "outputTokens": 1651,
+      "durationMs": 23580.300800000005
     },
     {
       "taskId": "R-01",
@@ -158,9 +158,9 @@
       "maxScore": 2,
       "llmTurns": 1,
       "toolCalls": 0,
-      "inputTokens": 300,
-      "outputTokens": 360,
-      "durationMs": 13718.750949000008
+      "inputTokens": 29273,
+      "outputTokens": 174,
+      "durationMs": 5238.180372999996
     },
     {
       "taskId": "R-02",
@@ -172,9 +172,9 @@
       "maxScore": 2,
       "llmTurns": 1,
       "toolCalls": 0,
-      "inputTokens": 332,
-      "outputTokens": 149,
-      "durationMs": 7871.633512999993
+      "inputTokens": 29583,
+      "outputTokens": 75,
+      "durationMs": 4678.208551000003
     },
     {
       "taskId": "R-03",
@@ -186,37 +186,37 @@
       "maxScore": 1,
       "llmTurns": 1,
       "toolCalls": 0,
-      "inputTokens": 338,
-      "outputTokens": 221,
-      "durationMs": 8673.895409000004
+      "inputTokens": 29792,
+      "outputTokens": 45,
+      "durationMs": 3543.420702000003
     },
     {
       "taskId": "R-04",
       "suite": "R",
       "difficulty": 3,
       "name": "버그 찾기",
-      "score": 0.5,
-      "rawScore": 1,
+      "score": 1,
+      "rawScore": 2,
       "maxScore": 2,
       "llmTurns": 1,
       "toolCalls": 0,
-      "inputTokens": 358,
-      "outputTokens": 910,
-      "durationMs": 30661.33538599999
+      "inputTokens": 29998,
+      "outputTokens": 298,
+      "durationMs": 7109.602150999999
     },
     {
       "taskId": "R-05",
       "suite": "R",
       "difficulty": 4,
       "name": "설계 트레이드오프 분석",
-      "score": 1,
-      "rawScore": 3,
+      "score": 0.6666666666666666,
+      "rawScore": 2,
       "maxScore": 3,
       "llmTurns": 1,
       "toolCalls": 0,
-      "inputTokens": 312,
-      "outputTokens": 2071,
-      "durationMs": 70961.14708299999
+      "inputTokens": 30406,
+      "outputTokens": 1434,
+      "durationMs": 30167.233548000004
     },
     {
       "taskId": "R-06",
@@ -227,84 +227,84 @@
       "rawScore": 4,
       "maxScore": 4,
       "llmTurns": 1,
-      "toolCalls": 1,
-      "inputTokens": 777,
-      "outputTokens": 8277,
-      "durationMs": 216118.30224899997
+      "toolCalls": 0,
+      "inputTokens": 31977,
+      "outputTokens": 2496,
+      "durationMs": 47441.851907000004
     },
     {
       "taskId": "A-01",
       "suite": "A",
       "difficulty": 3,
       "name": "파일 구조 탐색",
-      "score": 1,
-      "rawScore": 3,
+      "score": 0.3333333333333333,
+      "rawScore": 1,
       "maxScore": 3,
       "llmTurns": 1,
-      "toolCalls": 17,
-      "inputTokens": 16648,
-      "outputTokens": 1233,
-      "durationMs": 60803.321781000006
+      "toolCalls": 3,
+      "inputTokens": 221459,
+      "outputTokens": 2378,
+      "durationMs": 50979.938142
     },
     {
       "taskId": "A-02",
       "suite": "A",
       "difficulty": 3,
       "name": "함수 정의 위치 찾기",
-      "score": 1,
-      "rawScore": 3,
+      "score": 0.3333333333333333,
+      "rawScore": 1,
       "maxScore": 3,
       "llmTurns": 1,
-      "toolCalls": 14,
-      "inputTokens": 12358,
-      "outputTokens": 1580,
-      "durationMs": 77444.44390099996
+      "toolCalls": 3,
+      "inputTokens": 281575,
+      "outputTokens": 1301,
+      "durationMs": 27829.338864999998
     },
     {
       "taskId": "A-03",
       "suite": "A",
       "difficulty": 4,
       "name": "다중 파일 추적",
-      "score": 1,
-      "rawScore": 4,
+      "score": 0.25,
+      "rawScore": 1,
       "maxScore": 4,
       "llmTurns": 1,
-      "toolCalls": 13,
-      "inputTokens": 418299,
-      "outputTokens": 2990,
-      "durationMs": 143672.90499900002
+      "toolCalls": 3,
+      "inputTokens": 1522220,
+      "outputTokens": 9218,
+      "durationMs": 172409.528765
     },
     {
       "taskId": "A-04",
       "suite": "A",
       "difficulty": 4,
       "name": "변경 영향 분석",
-      "score": 1,
-      "rawScore": 4,
+      "score": 0.25,
+      "rawScore": 1,
       "maxScore": 4,
       "llmTurns": 1,
-      "toolCalls": 32,
-      "inputTokens": 162948,
-      "outputTokens": 3561,
-      "durationMs": 153768.143086
+      "toolCalls": 3,
+      "inputTokens": 1581939,
+      "outputTokens": 7913,
+      "durationMs": 136167.77399899997
     },
     {
       "taskId": "A-05",
       "suite": "A",
       "difficulty": 5,
       "name": "신규 기능 구현 계획",
-      "score": 1,
-      "rawScore": 4,
+      "score": 0.25,
+      "rawScore": 1,
       "maxScore": 4,
       "llmTurns": 1,
-      "toolCalls": 19,
-      "inputTokens": 535934,
-      "outputTokens": 5383,
-      "durationMs": 233694.62628199998
+      "toolCalls": 3,
+      "inputTokens": 2077473,
+      "outputTokens": 10923,
+      "durationMs": 197965.825557
     }
   ],
-  "totalInputTokens": 1151771,
-  "totalOutputTokens": 29497,
-  "totalDurationMs": 1124756.21831,
-  "estimatedCostUSD": 1.7422662
+  "totalInputTokens": 6129935,
+  "totalOutputTokens": 38871,
+  "totalDurationMs": 743247.1492699999,
+  "estimatedCostUSD": 18.97287
 }

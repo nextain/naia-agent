@@ -168,6 +168,16 @@ function runCodeTest(code: string, funcName: string, tc: TestCase): { pass: bool
 // still produces a comparable per-1M-tok cost when no subscription is in play.
 // Use BENCH_PRICE_IN / BENCH_PRICE_OUT env to override on a per-run basis.
 const PRICE_TABLE: Record<string, { in: number; out: number }> = {
+  // Anthropic Claude (subscription via Pro/Max — flat-rate, marginal $0 up to plan cap).
+  // The figures below are the pay-as-you-go API reference per Anthropic's pricing page.
+  "claude-sonnet-4.5":       { in: 3.00, out: 15.00 },
+  "claude-haiku-4.5":        { in: 0.80, out: 4.00 },
+  "claude-opus-4.5":         { in: 15.00, out: 75.00 },
+  "claude-sonnet-4":         { in: 3.00, out: 15.00 },
+  "claude-haiku-4":          { in: 0.25, out: 1.25 },
+  "sonnet":                  { in: 3.00, out: 15.00 },
+  "haiku":                   { in: 0.80, out: 4.00 },
+  "opus":                    { in: 15.00, out: 75.00 },
   // Gemini Flash family
   "gemini-3.5-flash":        { in: 1.50, out: 9.00 },
   "gemini-3-flash-preview":  { in: 0.50, out: 3.00 },
@@ -718,6 +728,18 @@ describe.skipIf(!LIVE)(
       const env = process.env;
       const isLocal24g = !!env["OPENAI_BASE_URL"]?.includes("100.91.187.24");
 
+      // Claude Code (Pro/Max subscription, no API key — OAuth via local `claude` CLI).
+      // Opt-in via NAIA_AGENT_CLAUDECODE_LIVE=1 to protect subscription credit.
+      if (env["NAIA_AGENT_CLAUDECODE_LIVE"] === "1" || env["CLAUDE_CODE_LIVE"] === "1") {
+        const { createClaudeCode } = await import("ai-sdk-provider-claude-code");
+        const model = env["CLAUDE_CODE_MODEL"] ?? "sonnet";
+        const cc = createClaudeCode();
+        console.log(`[bench] Claude Code subscription model=${model}`);
+        return { llm: new VercelClient(cc(model), {
+          ...(opts.toolChoice   !== undefined ? { defaultToolChoice:   opts.toolChoice   } : {}),
+          ...(opts.temperature  !== undefined ? { defaultTemperature:  opts.temperature  } : {}),
+        }), model: `claude-code:${model}` };
+      }
       if (env["GEMINI_API_KEY"]) {
         const { createGoogleGenerativeAI } = await import("@ai-sdk/google");
         const model = env["GEMINI_MODEL"] ?? "gemini-2.5-flash";

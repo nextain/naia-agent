@@ -38,6 +38,7 @@
 | gemini-3.5-flash | Google API | 49 (100%) | 14 (100%) | **0 (skip)** | **63/63 = 100%** | 121 s | 3,500 | 22,575 | **$0.208** | $0.011 | A 측정 누락, output thinking 길어 cost 30× |
 | **glm-4.7** (z.ai coding plan) | z.ai api/coding/paas/v4 | 49 (100%) | 13 (93%) | **18 (100%)** | **80/81 = 99%** ★ | 1482 s | **1,150,856** | 44,636 | **$0.788 ref / $0 (정액제)** ★ | $0.136 | Suite A 까지 다 측정됨 — Gemini 의 skip 과 대조. input 폭증은 tool 결과 누적 |
 | **glm-5.1** (z.ai coding plan) | z.ai api/coding/paas/v4 | 49 (100%) | 13 (93%) | **18 (100%)** | **80/81 = 99%** | **1125 s** ★ | 1,151,771 | 29,497 | **$1.743 ref / $0 (정액제)** | $0.103 | glm-4.7 와 동률 점수. 더 빠르지만 단가 2.2× → 비싸 ($1.74 vs $0.79). 빠른 응답 우선 시 |
+| **claude-code sonnet** (Pro/Max 구독) | ai-sdk-provider-claude-code | 49 (100%) | 13 (93%) | **5 (28%)** ✗ | **67/81 = 83%** | **744 s** ★ | **6,129,935** | 38,871 | **$18.97 ref / $0 (구독)** | $0.068 | C/R 만점급, Suite A 28% — bench tool signature ↔ Claude Code SDK native tool 호환 X 의심. Input 6.13M tokens (다른 모델의 5–1700×) — context 폭증 |
 
 vLLM/ollama (OpenAI-compat) 의 토큰 0 표시 = stream usage chunk 캡처 issue. Vercel AI SDK 의 `@ai-sdk/openai-compatible` 가 `stream_options.include_usage: true` 안 보내는 듯. fix 별 commit.
 
@@ -71,7 +72,7 @@ Gemini 의 Suite A 결손 보정 위해 C+R 만으로 비교:
 |---|---|---|
 | **glm-4.7** | ✓ 측정 완료 (coding plan endpoint 정정 후) | 99% 달성 |
 | **glm-5.1** | ✓ 측정 완료 (z.ai 복구 후 polling 자동 재실행) | 99% 동률, 더 빠르지만 비쌈 |
-| **Claude CLI** (구독 SDK) | bench framework 에 `claude-code` backend 분기 미통합 | 별 commit — `NAIA_AGENT_CLAUDECODE_LIVE` env hook (Slice 3-XR-H/M) 재사용 |
+| **Claude CLI** (구독 SDK) | ✓ 통합 완료 + 측정 — C/R 강함, Suite A 28% (bench tool signature 호환 별 issue) | 후속: Suite A signature 호환 fix 또는 Claude Code native tool 직접 사용 |
 | **48g-coding A40** (Qwen3.6-27B 4비트/8비트) | RunPod Pod 미생성 | 사용자 직접 Pod 생성 + endpoint URL |
 | **48g-audio A40** omni | RunPod Pod 미생성 | 사용자 직접 |
 
