@@ -1,11 +1,11 @@
 {
   "model": "vllm:naia-coding",
-  "date": "2026-05-28 07:32:05",
-  "totalScore": 0.8395061728395061,
+  "date": "2026-05-28 13:18:00",
+  "totalScore": 0.8051948051948052,
   "suiteScores": {
-    "C": 1,
-    "R": 0.8571428571428571,
-    "A": 0.3888888888888889
+    "C": 0.7959183673469388,
+    "R": 0.6428571428571429,
+    "A": 1
   },
   "tasks": [
     {
@@ -20,7 +20,7 @@
       "toolCalls": 0,
       "inputTokens": 0,
       "outputTokens": 0,
-      "durationMs": 789.8833
+      "durationMs": 33781.180087
     },
     {
       "taskId": "C-02",
@@ -34,7 +34,7 @@
       "toolCalls": 0,
       "inputTokens": 0,
       "outputTokens": 0,
-      "durationMs": 10743.2284
+      "durationMs": 47719.607715
     },
     {
       "taskId": "C-03",
@@ -48,7 +48,7 @@
       "toolCalls": 0,
       "inputTokens": 0,
       "outputTokens": 0,
-      "durationMs": 4265.726100000002
+      "durationMs": 72152.00024300002
     },
     {
       "taskId": "C-04",
@@ -62,7 +62,7 @@
       "toolCalls": 0,
       "inputTokens": 0,
       "outputTokens": 0,
-      "durationMs": 6824.591
+      "durationMs": 57906.011345000006
     },
     {
       "taskId": "C-05",
@@ -76,7 +76,7 @@
       "toolCalls": 0,
       "inputTokens": 0,
       "outputTokens": 0,
-      "durationMs": 8282.088899999999
+      "durationMs": 68186.63752299998
     },
     {
       "taskId": "C-06",
@@ -90,21 +90,22 @@
       "toolCalls": 0,
       "inputTokens": 0,
       "outputTokens": 0,
-      "durationMs": 6930.785600000003
+      "durationMs": 38398.455665000016
     },
     {
       "taskId": "C-07",
       "suite": "C",
       "difficulty": 3,
       "name": "longestCommonPrefix",
-      "score": 1,
-      "rawScore": 5,
+      "score": 0,
+      "rawScore": 0,
       "maxScore": 5,
       "llmTurns": 1,
       "toolCalls": 0,
       "inputTokens": 0,
       "outputTokens": 0,
-      "durationMs": 5380.726899999994
+      "durationMs": 82893.90327099996,
+      "execError": "SyntaxError: Unexpected end of input"
     },
     {
       "taskId": "C-08",
@@ -118,7 +119,7 @@
       "toolCalls": 0,
       "inputTokens": 0,
       "outputTokens": 0,
-      "durationMs": 12576.196900000003
+      "durationMs": 77697.30371100002
     },
     {
       "taskId": "C-09",
@@ -132,21 +133,21 @@
       "toolCalls": 0,
       "inputTokens": 0,
       "outputTokens": 0,
-      "durationMs": 3841.9095000000016
+      "durationMs": 51010.418672
     },
     {
       "taskId": "C-10",
       "suite": "C",
       "difficulty": 5,
       "name": "LFU Cache",
-      "score": 1,
-      "rawScore": 5,
+      "score": 0,
+      "rawScore": 0,
       "maxScore": 5,
       "llmTurns": 1,
       "toolCalls": 0,
       "inputTokens": 0,
       "outputTokens": 0,
-      "durationMs": 17835.702599999997
+      "durationMs": 67215.58522399992
     },
     {
       "taskId": "R-01",
@@ -160,7 +161,7 @@
       "toolCalls": 0,
       "inputTokens": 0,
       "outputTokens": 0,
-      "durationMs": 1453.9107999999978
+      "durationMs": 41696.17741999996
     },
     {
       "taskId": "R-02",
@@ -174,7 +175,7 @@
       "toolCalls": 0,
       "inputTokens": 0,
       "outputTokens": 0,
-      "durationMs": 1142.0312999999878
+      "durationMs": 47478.019657000084
     },
     {
       "taskId": "R-03",
@@ -188,123 +189,109 @@
       "toolCalls": 0,
       "inputTokens": 0,
       "outputTokens": 0,
-      "durationMs": 103.24230000001262
+      "durationMs": 10869.784266000031
     },
     {
       "taskId": "R-04",
       "suite": "R",
       "difficulty": 3,
       "name": "버그 찾기",
-      "score": 1,
-      "rawScore": 2,
+      "score": 0.5,
+      "rawScore": 1,
       "maxScore": 2,
       "llmTurns": 1,
       "toolCalls": 0,
       "inputTokens": 0,
       "outputTokens": 0,
-      "durationMs": 17957.198000000004
+      "durationMs": 70970.93190199998
     },
     {
       "taskId": "R-05",
       "suite": "R",
       "difficulty": 4,
       "name": "설계 트레이드오프 분석",
-      "score": 0.3333333333333333,
-      "rawScore": 1,
+      "score": 0,
+      "rawScore": 0,
       "maxScore": 3,
       "llmTurns": 1,
       "toolCalls": 0,
       "inputTokens": 0,
       "outputTokens": 0,
-      "durationMs": 40256.0006
+      "durationMs": 82158.36913200002
     },
     {
       "taskId": "R-06",
       "suite": "R",
       "difficulty": 5,
       "name": "시스템 설계 (메모리 시스템)",
-      "score": 1,
-      "rawScore": 4,
+      "score": 0.75,
+      "rawScore": 3,
       "maxScore": 4,
       "llmTurns": 1,
       "toolCalls": 0,
       "inputTokens": 0,
       "outputTokens": 0,
-      "durationMs": 35067.8125
+      "durationMs": 77906.02872599999
     },
     {
       "taskId": "A-01",
       "suite": "A",
       "difficulty": 3,
       "name": "파일 구조 탐색",
-      "score": 0.6666666666666666,
-      "rawScore": 2,
+      "score": 1,
+      "rawScore": 3,
       "maxScore": 3,
       "llmTurns": 1,
-      "toolCalls": 9,
+      "toolCalls": 18,
       "inputTokens": 0,
       "outputTokens": 0,
-      "durationMs": 13308.996899999998
+      "durationMs": 87533.321108
     },
     {
       "taskId": "A-02",
       "suite": "A",
       "difficulty": 3,
       "name": "함수 정의 위치 찾기",
-      "score": 0.3333333333333333,
-      "rawScore": 1,
+      "score": 1,
+      "rawScore": 3,
       "maxScore": 3,
       "llmTurns": 1,
-      "toolCalls": 9,
+      "toolCalls": 12,
       "inputTokens": 0,
       "outputTokens": 0,
-      "durationMs": 5390.688700000028
+      "durationMs": 86801.33306600002
     },
     {
       "taskId": "A-03",
       "suite": "A",
       "difficulty": 4,
       "name": "다중 파일 추적",
-      "score": 0.5,
-      "rawScore": 2,
+      "score": 1,
+      "rawScore": 4,
       "maxScore": 4,
       "llmTurns": 1,
-      "toolCalls": 9,
+      "toolCalls": 10,
       "inputTokens": 0,
       "outputTokens": 0,
-      "durationMs": 5315.185800000007
+      "durationMs": 447344.9466919999
     },
     {
       "taskId": "A-04",
       "suite": "A",
       "difficulty": 4,
       "name": "변경 영향 분석",
-      "score": 0.25,
-      "rawScore": 1,
+      "score": 1,
+      "rawScore": 4,
       "maxScore": 4,
       "llmTurns": 1,
-      "toolCalls": 9,
+      "toolCalls": 20,
       "inputTokens": 0,
       "outputTokens": 0,
-      "durationMs": 9704.858500000002
-    },
-    {
-      "taskId": "A-05",
-      "suite": "A",
-      "difficulty": 5,
-      "name": "신규 기능 구현 계획",
-      "score": 0.25,
-      "rawScore": 1,
-      "maxScore": 4,
-      "llmTurns": 1,
-      "toolCalls": 9,
-      "inputTokens": 0,
-      "outputTokens": 0,
-      "durationMs": 5129.9881999999925
+      "durationMs": 209847.71133499988
     }
   ],
   "totalInputTokens": 0,
   "totalOutputTokens": 0,
-  "totalDurationMs": 212300.75280000002,
+  "totalDurationMs": 1759567.72676,
   "estimatedCostUSD": 0
 }

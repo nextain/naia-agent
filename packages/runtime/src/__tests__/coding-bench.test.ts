@@ -774,11 +774,13 @@ describe.skipIf(!LIVE)(
           : "You are a precise technical analyst. Think step by step and be concise.";
 
       // appendDefaultSystemPrompt=false: Trust/Work 룰 제외 → 4096 토큰 절약
+      // CODING_BENCH_MAX_HOPS env override (default 30 for local reasoning models)
       const agent = new Agent({
         host,
         tierForTool: () => "T0",
         systemPrompt,
         appendDefaultSystemPrompt: false,
+        maxToolHops: Number(process.env.CODING_BENCH_MAX_HOPS ?? 30),
         ...agentOpts,
       });
 
