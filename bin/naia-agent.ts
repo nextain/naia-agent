@@ -1646,7 +1646,9 @@ async function runStdio(): Promise<number> {
           if (msg.headers && typeof msg.headers === "object" && !Array.isArray(msg.headers)) {
             proxyReq.headers = msg.headers as Record<string, string>;
           }
-          const result = await handleLabProxyRequest(proxyReq);
+          const result = await handleLabProxyRequest(proxyReq, fetch, (evt) => {
+            stdioWriteLine(evt);
+          });
           stdioWriteLine({ type: "lab_proxy_response", id, ...result });
         } catch (err) {
           stdioWriteLine({

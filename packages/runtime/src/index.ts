@@ -186,6 +186,9 @@ export type {
   LabProxyRequest,
   LabProxyResponse,
 } from "./auth/ipc-handlers.js";
+// Refresh-token rotation + single-flight — #337 Phase 7.
+export { refreshAuth } from "./auth/refresh.js";
+export type { RefreshResult, RefreshFailureReason, RefreshAuthOptions } from "./auth/refresh.js";
 // Auth-store re-exports (mode helpers + types) so the dispatcher can map
 // `mode` field → AuthMode without reaching into a sub-path.
 export { getCurrentMode } from "./utils/auth-store.js";

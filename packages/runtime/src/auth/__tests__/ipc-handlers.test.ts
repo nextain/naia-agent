@@ -26,6 +26,7 @@ import {
 	loadAuth,
 } from "../../utils/auth-store.js";
 import { __resetOAuthFlowForTest } from "../../utils/oauth-flow.js";
+import { __resetRefreshForTest } from "../refresh.js";
 
 import {
 	handleAuthLogout,
@@ -71,6 +72,7 @@ beforeEach(async () => {
 	__setKeyringForTest(makeMemKeyring());
 	__resetAuthStoreForTest();
 	__resetOAuthFlowForTest();
+	__resetRefreshForTest();
 });
 
 afterEach(async () => {
@@ -357,5 +359,146 @@ describe("naiaKey leak guard", () => {
 			stubFetch,
 		);
 		expect(JSON.stringify(proxyResult)).not.toContain(SECRET);
+	});
+});
+
+// --- #337 Phase 7: refresh-on-401 retry loop --------------------------------
+
+describe("handleLabProxyRequest — 401 refresh retry (#337 Phase 7)", () => {
+	it("200 response → refresh fetch never invoked", async () => {
+		const { state } = handleAuthStart({ mode: "dev" });
+		await handleAuthReceived({
+			deepLinkUrl: makeDeepLink(state, "gw-init"),
+		});
+		// Manually attach a refreshToken so the path is plausible. We bypass the
+		// portal — Phase 4 oauth-flow doesn't set refreshToken — by re-saving via
+		// loadAuth + saveAuth.
+		const cur = await loadAuth("dev");
+		if (!cur) throw new Error("expected logged-in state");
+		await (await import("../../utils/auth-store.js")).saveAuth({
+			...cur,
+			refreshToken: "rt-abc",
+		});
+
+		const stubFetch = vi.fn(
+			async () => new Response(JSON.stringify({ ok: true }), {
+				status: 200,
+				headers: { "content-type": "application/json" },
+			}),
+		) as unknown as typeof fetch;
+		const emit = vi.fn();
+
+		const result = await handleLabProxyRequest(
+			{ mode: "dev", method: "GET", path: "/api/balance" },
+			stubFetch,
+			emit,
+		);
+
+		expect(result.ok).toBe(true);
+		expect(result.status).toBe(200);
+		expect(stubFetch).toHaveBeenCalledTimes(1);
+		// no /api/auth/refresh call
+		const urls = (stubFetch as unknown as ReturnType<typeof vi.fn>).mock.calls.map(
+			(c: unknown[]) => String(c[0]),
+		);
+		expect(urls.some((u: string) => u.includes("/api/auth/refresh"))).toBe(false);
+		expect(emit).not.toHaveBeenCalled();
+	});
+
+	it("401 + refresh succeeds → retry returns 200 to caller", async () => {
+		const { state } = handleAuthStart({ mode: "dev" });
+		await handleAuthReceived({ deepLinkUrl: makeDeepLink(state, "gw-old") });
+		const cur = await loadAuth("dev");
+		if (!cur) throw new Error("expected logged-in state");
+		await (await import("../../utils/auth-store.js")).saveAuth({
+			...cur,
+			refreshToken: "rt-abc",
+		});
+
+		const calls: Array<{ url: string; auth: string }> = [];
+		let labCallNo = 0;
+		const stubFetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+			const u = String(url);
+			const hdrs = init?.headers as Record<string, string> | undefined;
+			calls.push({ url: u, auth: hdrs?.["X-AnyLLM-Key"] ?? "" });
+
+			if (u.endsWith("/api/auth/refresh")) {
+				return new Response(
+					JSON.stringify({
+						naiaKey: "gw-rotated",
+						refreshToken: "rt-rotated",
+						expiresAt: 1700007200,
+					}),
+					{ status: 200, headers: { "content-type": "application/json" } },
+				);
+			}
+			labCallNo++;
+			if (labCallNo === 1) {
+				// first lab call → 401
+				return new Response("Unauthorized", { status: 401 });
+			}
+			// retry after refresh → 200
+			return new Response(JSON.stringify({ balance: 99 }), {
+				status: 200,
+				headers: { "content-type": "application/json" },
+			});
+		}) as unknown as typeof fetch;
+		const emit = vi.fn();
+
+		const result = await handleLabProxyRequest(
+			{ mode: "dev", method: "GET", path: "/api/balance" },
+			stubFetch,
+			emit,
+		);
+
+		expect(result.ok).toBe(true);
+		expect(result.status).toBe(200);
+		expect(result.body).toEqual({ balance: 99 });
+		// 3 fetches: lab(401), refresh(200), lab-retry(200)
+		expect(stubFetch).toHaveBeenCalledTimes(3);
+		// First lab call used original key, retry used rotated key
+		const labCalls = calls.filter((c) => c.url.endsWith("/api/balance"));
+		expect(labCalls.length).toBe(2);
+		expect(labCalls[0]?.auth).toBe("Bearer gw-old");
+		expect(labCalls[1]?.auth).toBe("Bearer gw-rotated");
+		// Refresh succeeded — no auth_expired emitted
+		expect(emit).not.toHaveBeenCalled();
+	});
+
+	it("401 + refresh fails (404) → caller sees original 401 + emit once", async () => {
+		const { state } = handleAuthStart({ mode: "dev" });
+		await handleAuthReceived({ deepLinkUrl: makeDeepLink(state, "gw-old") });
+		const cur = await loadAuth("dev");
+		if (!cur) throw new Error("expected logged-in state");
+		await (await import("../../utils/auth-store.js")).saveAuth({
+			...cur,
+			refreshToken: "rt-abc",
+		});
+
+		const stubFetch = vi.fn(async (url: RequestInfo | URL) => {
+			const u = String(url);
+			if (u.endsWith("/api/auth/refresh")) {
+				return new Response("Not Found", { status: 404 });
+			}
+			return new Response("Unauthorized", { status: 401 });
+		}) as unknown as typeof fetch;
+		const emit = vi.fn();
+
+		const result = await handleLabProxyRequest(
+			{ mode: "dev", method: "GET", path: "/api/balance" },
+			stubFetch,
+			emit,
+		);
+
+		expect(result.ok).toBe(false);
+		expect(result.status).toBe(401);
+		// 2 fetches: lab(401) + refresh(404). NO retry.
+		expect(stubFetch).toHaveBeenCalledTimes(2);
+		expect(emit).toHaveBeenCalledTimes(1);
+		expect(emit).toHaveBeenCalledWith({
+			type: "auth_expired",
+			mode: "dev",
+			reason: "refresh_failed",
+		});
 	});
 });

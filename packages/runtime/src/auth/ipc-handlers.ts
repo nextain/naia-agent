@@ -15,6 +15,7 @@
 
 import {
 	type AuthMode,
+	type AuthState,
 	deleteAuth,
 	loadAuth,
 } from "../utils/auth-store.js";
@@ -22,6 +23,7 @@ import {
 	receiveOAuthDeepLink,
 	startOAuth,
 } from "../utils/oauth-flow.js";
+import { refreshAuth, type RefreshFailureReason } from "./refresh.js";
 
 // --- public types ------------------------------------------------------------
 
@@ -141,17 +143,49 @@ export async function handleAuthQuery(
  * response body/status are returned as-is; the key is only used to authorize
  * the outbound fetch.
  *
+ * Phase 7: on a 401 from the upstream service, attempt a single refresh-token
+ * exchange and retry the request once with the rotated naiaKey. Refresh is
+ * single-flight per mode (see `refresh.ts`). On refresh failure, the original
+ * 401 is returned to the caller and `emit` is invoked with `auth_expired`.
+ *
  * `fetchImpl` is injected for testability — defaults to native fetch.
+ * `emit` is injected so the bin dispatcher can route `auth_expired` events to
+ * stdout; tests can use a `vi.fn()`.
  */
 export async function handleLabProxyRequest(
 	req: LabProxyRequest,
 	fetchImpl: typeof fetch = fetch,
+	emit?: (event: {
+		type: "auth_expired";
+		mode: AuthMode;
+		reason: RefreshFailureReason;
+	}) => void,
 ): Promise<LabProxyResponse> {
 	const state = await loadAuth(req.mode);
 	if (!state) {
 		return { ok: false, status: 401, body: null, error: "not_logged_in" };
 	}
 
+	const result = await doFetch(req, state, fetchImpl);
+	if (result.status !== 401) return result;
+
+	// 401 — attempt refresh + retry once.
+	const refreshOpts: Parameters<typeof refreshAuth>[1] = { fetchImpl };
+	if (emit) refreshOpts.emit = emit;
+	const refreshed = await refreshAuth(req.mode, refreshOpts);
+	if (!refreshed.ok || !refreshed.state) {
+		// refreshAuth already emitted auth_expired (when applicable). Surface the
+		// original 401 to the caller so it can pivot to a logged-out UI.
+		return result;
+	}
+	return doFetch(req, refreshed.state, fetchImpl);
+}
+
+async function doFetch(
+	req: LabProxyRequest,
+	state: AuthState,
+	fetchImpl: typeof fetch,
+): Promise<LabProxyResponse> {
 	const url = req.path.startsWith("http")
 		? req.path
 		: `${state.issuer}${req.path.startsWith("/") ? "" : "/"}${req.path}`;
