@@ -23,7 +23,7 @@
 //   * Master-key rotation — `keyVersion` is stored day-1 (cross-review §9.4)
 //     but only the single value 1 is honored.
 
-import { mkdir, rename, rm, writeFile, readFile } from "node:fs/promises";
+import { chmod, mkdir, rename, rm, writeFile, readFile } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -177,10 +177,34 @@ async function ensureMasterPassword(): Promise<string> {
 
 // --- atomic write ------------------------------------------------------------
 
+// Auth-blob file mode: owner read/write only (0o600). The blob is AES-GCM
+// encrypted, but defense-in-depth — no reason to leave ciphertext readable by
+// other local users. Windows: NTFS ignores POSIX mode bits and `fs.chmod` is a
+// no-op; default NTFS ACLs are per-user, so the leak is much less severe.
+const AUTH_FILE_MODE = 0o600;
+const AUTH_DIR_MODE = 0o700;
+
 async function atomicWrite(filePath: string, data: Uint8Array): Promise<void> {
 	const tmp = `${filePath}.tmp`;
-	await writeFile(tmp, data);
+	// `writeFile` honors `mode` only on CREATE (open(2) O_CREAT). Pass it so
+	// the temp file starts at 0o600 instead of the umask-derived default.
+	await writeFile(tmp, data, { mode: AUTH_FILE_MODE });
 	await rename(tmp, filePath);
+	// rename(2) preserves the source file's mode, but some filesystems ignore
+	// the `mode` option above. Explicit chmod after rename guarantees the
+	// final state. On Windows this is effectively a no-op.
+	try {
+		await chmod(filePath, AUTH_FILE_MODE);
+	} catch (e) {
+		// A real chmod failure on POSIX is rare (FS without permission bits).
+		// File is still encrypted — surface as a warning rather than failing
+		// the save. Trade-off: the blob may be group/world-readable.
+		const msg = (e as NodeJS.ErrnoException).message ?? String(e);
+		console.warn(
+			`[auth-store] chmod(${filePath}, 0o600) failed: ${msg} ` +
+				`— file is still encrypted but may be readable by other users.`,
+		);
+	}
 }
 
 // --- public API --------------------------------------------------------------
@@ -232,7 +256,11 @@ export async function saveAuth(state: AuthState): Promise<void> {
 	return lockFor(mode).withWrite(async () => {
 		const password = await ensureMasterPassword();
 		const filePath = getAuthFilePath(mode);
-		await mkdir(path.dirname(filePath), { recursive: true });
+		// `mkdir mode` only applies on directory CREATION — existing dirs keep
+		// their bits. An upgrade path for installs predating this fix is a
+		// separate (LOW) follow-up; file mode is the critical bit. Windows
+		// ignores `mode`.
+		await mkdir(path.dirname(filePath), { recursive: true, mode: AUTH_DIR_MODE });
 
 		const plaintext = new TextEncoder().encode(JSON.stringify(state));
 		const blob = await encryptEnvelope(plaintext, password);

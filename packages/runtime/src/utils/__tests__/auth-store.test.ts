@@ -9,7 +9,7 @@
 //   * Module-level caches in auth-store (RW locks, master password) are
 //     reset via `__resetAuthStoreForTest`.
 
-import { mkdtemp, readFile, rm, writeFile, access } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile, access } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -282,6 +282,33 @@ describe("RW lock — concurrent reads + read-during-write", () => {
 
 		const [, loaded] = await Promise.all([writePromise, readPromise]);
 		expect(loaded?.naiaKey).toBe("v2");
+	});
+});
+
+describe("file permissions", () => {
+	// codex cross-review HIGH #5: auth blob must be 0o600 and its directory
+	// 0o700 on POSIX. On Windows NTFS ignores POSIX bits and fs.chmod is a
+	// no-op, so we only assert the file exists.
+	const isWin = process.platform === "win32";
+
+	it.skipIf(isWin)("auth file has mode 0o600 on POSIX", async () => {
+		await saveAuth(sampleState("dev"));
+		const filePath = getAuthFilePath("dev");
+		const s = await stat(filePath);
+		expect(s.mode & 0o777).toBe(0o600);
+	});
+
+	it.skipIf(isWin)("auth directory has mode 0o700 on POSIX", async () => {
+		await saveAuth(sampleState("dev"));
+		const dirPath = path.dirname(getAuthFilePath("dev"));
+		const s = await stat(dirPath);
+		expect(s.mode & 0o777).toBe(0o700);
+	});
+
+	it.skipIf(!isWin)("saveAuth succeeds on Windows and the file exists", async () => {
+		await saveAuth(sampleState("dev"));
+		const filePath = getAuthFilePath("dev");
+		expect(await fileExists(filePath)).toBe(true);
 	});
 });
 
