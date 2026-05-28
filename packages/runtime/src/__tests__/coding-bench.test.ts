@@ -907,9 +907,13 @@ describe.skipIf(!LIVE)(
 
     // ── B2: Suite A (agent + tools) ────────────────────────────────────
     it("BM-B2: Suite A (agent + tool use)", async () => {
-      // tool_choice=required: 4bit AWQ가 자발적 tool 선택 안 하는 특성 보완
-      // temperature=0.1: instruction following 결정성 ↑
-      const { llm, model } = await buildLLM({ toolChoice: "required", temperature: 0.1 });
+      // tool_choice=auto: real-world fair baseline (자율 tool 선택 능력 측정).
+      // Prior "required" was a workaround for Gemma 4 4-bit AWQ's low spontaneous
+      // tool-call rate; current lineup (Qwen3.6-27B etc.) doesn't need that crutch,
+      // and "required" wasn't translating into Gemini's tool_config anyway, leaving
+      // every Gemini Suite A run at 0 tasks. auto is what production traffic sees.
+      // temperature=0.1 retained for instruction-following determinism.
+      const { llm, model } = await buildLLM({ toolChoice: "auto", temperature: 0.1 });
       _modelName = model;
 
       // list_files + read_file 2개만 사용
