@@ -79,6 +79,24 @@ describe("startOAuth", () => {
 		const url = new URL(result.authUrl);
 		expect(url.searchParams.get("scope")).toBe("chat,memory");
 	});
+
+	// #337 callback fix (2026-05-28): portal middleware (naia.nextain.io
+	// src/proxy.ts:86-91) honors `redirect=desktop` to route already-logged-in
+	// /login visits to /callback (which fires naia:// deep-link). Without this
+	// param the portal silently redirects to /dashboard and the Tauri shell
+	// hangs on '로그인 대기중' forever.
+	it("emits redirect=desktop + source=desktop so portal honors callback for already-logged-in users", () => {
+		const result = startOAuth({ mode: "dev" });
+		const url = new URL(result.authUrl);
+		expect(url.searchParams.get("redirect")).toBe("desktop");
+		expect(url.searchParams.get("source")).toBe("desktop");
+	});
+
+	it("emits app=naia-os param as a defense-in-depth signal", () => {
+		const result = startOAuth({ mode: "prod" });
+		const url = new URL(result.authUrl);
+		expect(url.searchParams.get("app")).toBe("naia-os");
+	});
 });
 
 // --- receiveOAuthDeepLink — validation order --------------------------------
