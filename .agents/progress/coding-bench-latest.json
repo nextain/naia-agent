@@ -1,11 +1,11 @@
 {
-  "model": "gemini:gemini-3.5-flash",
-  "date": "2026-05-28 14:30:19",
-  "totalScore": 1,
+  "model": "glm:glm-5.1",
+  "date": "2026-05-28 15:27:15",
+  "totalScore": 0.9876543209876543,
   "suiteScores": {
     "C": 1,
-    "R": 1,
-    "A": 0
+    "R": 0.9285714285714286,
+    "A": 1
   },
   "tasks": [
     {
@@ -18,9 +18,9 @@
       "maxScore": 4,
       "llmTurns": 1,
       "toolCalls": 0,
-      "inputTokens": 205,
-      "outputTokens": 240,
-      "durationMs": 2277.768909
+      "inputTokens": 305,
+      "outputTokens": 44,
+      "durationMs": 5618.879507
     },
     {
       "taskId": "C-02",
@@ -32,9 +32,9 @@
       "maxScore": 4,
       "llmTurns": 1,
       "toolCalls": 0,
-      "inputTokens": 211,
-      "outputTokens": 1301,
-      "durationMs": 6627.254116
+      "inputTokens": 311,
+      "outputTokens": 52,
+      "durationMs": 5687.143427000001
     },
     {
       "taskId": "C-03",
@@ -46,9 +46,9 @@
       "maxScore": 8,
       "llmTurns": 1,
       "toolCalls": 0,
-      "inputTokens": 208,
-      "outputTokens": 791,
-      "durationMs": 4725.816451000001
+      "inputTokens": 309,
+      "outputTokens": 111,
+      "durationMs": 7816.1342509999995
     },
     {
       "taskId": "C-04",
@@ -60,9 +60,9 @@
       "maxScore": 3,
       "llmTurns": 1,
       "toolCalls": 0,
-      "inputTokens": 226,
-      "outputTokens": 620,
-      "durationMs": 4133.079946000002
+      "inputTokens": 327,
+      "outputTokens": 126,
+      "durationMs": 8970.939112
     },
     {
       "taskId": "C-05",
@@ -74,9 +74,9 @@
       "maxScore": 7,
       "llmTurns": 1,
       "toolCalls": 0,
-      "inputTokens": 212,
-      "outputTokens": 914,
-      "durationMs": 5126.6732520000005
+      "inputTokens": 313,
+      "outputTokens": 157,
+      "durationMs": 7615.245804999999
     },
     {
       "taskId": "C-06",
@@ -88,9 +88,9 @@
       "maxScore": 4,
       "llmTurns": 1,
       "toolCalls": 0,
-      "inputTokens": 214,
-      "outputTokens": 378,
-      "durationMs": 2535.1841650000024
+      "inputTokens": 314,
+      "outputTokens": 97,
+      "durationMs": 6288.789978000001
     },
     {
       "taskId": "C-07",
@@ -102,9 +102,9 @@
       "maxScore": 5,
       "llmTurns": 1,
       "toolCalls": 0,
-      "inputTokens": 208,
-      "outputTokens": 968,
-      "durationMs": 5177.388324
+      "inputTokens": 309,
+      "outputTokens": 106,
+      "durationMs": 6438.563289999998
     },
     {
       "taskId": "C-08",
@@ -116,9 +116,9 @@
       "maxScore": 4,
       "llmTurns": 1,
       "toolCalls": 0,
-      "inputTokens": 210,
-      "outputTokens": 1134,
-      "durationMs": 5034.750527
+      "inputTokens": 309,
+      "outputTokens": 186,
+      "durationMs": 9374.72234
     },
     {
       "taskId": "C-09",
@@ -130,9 +130,9 @@
       "maxScore": 5,
       "llmTurns": 1,
       "toolCalls": 0,
-      "inputTokens": 220,
-      "outputTokens": 504,
-      "durationMs": 3059.670994
+      "inputTokens": 320,
+      "outputTokens": 178,
+      "durationMs": 8195.656729999995
     },
     {
       "taskId": "C-10",
@@ -144,9 +144,9 @@
       "maxScore": 5,
       "llmTurns": 1,
       "toolCalls": 0,
-      "inputTokens": 253,
-      "outputTokens": 4155,
-      "durationMs": 19661.293113
+      "inputTokens": 350,
+      "outputTokens": 1705,
+      "durationMs": 41361.639232
     },
     {
       "taskId": "R-01",
@@ -158,9 +158,9 @@
       "maxScore": 2,
       "llmTurns": 1,
       "toolCalls": 0,
-      "inputTokens": 195,
-      "outputTokens": 609,
-      "durationMs": 3176.1121399999975
+      "inputTokens": 300,
+      "outputTokens": 360,
+      "durationMs": 13718.750949000008
     },
     {
       "taskId": "R-02",
@@ -172,9 +172,9 @@
       "maxScore": 2,
       "llmTurns": 1,
       "toolCalls": 0,
-      "inputTokens": 235,
-      "outputTokens": 484,
-      "durationMs": 3122.8532609999966
+      "inputTokens": 332,
+      "outputTokens": 149,
+      "durationMs": 7871.633512999993
     },
     {
       "taskId": "R-03",
@@ -186,23 +186,23 @@
       "maxScore": 1,
       "llmTurns": 1,
       "toolCalls": 0,
-      "inputTokens": 239,
-      "outputTokens": 385,
-      "durationMs": 2681.831714999993
+      "inputTokens": 338,
+      "outputTokens": 221,
+      "durationMs": 8673.895409000004
     },
     {
       "taskId": "R-04",
       "suite": "R",
       "difficulty": 3,
       "name": "버그 찾기",
-      "score": 1,
-      "rawScore": 2,
+      "score": 0.5,
+      "rawScore": 1,
       "maxScore": 2,
       "llmTurns": 1,
       "toolCalls": 0,
-      "inputTokens": 266,
-      "outputTokens": 1817,
-      "durationMs": 9648.998479000002
+      "inputTokens": 358,
+      "outputTokens": 910,
+      "durationMs": 30661.33538599999
     },
     {
       "taskId": "R-05",
@@ -214,9 +214,9 @@
       "maxScore": 3,
       "llmTurns": 1,
       "toolCalls": 0,
-      "inputTokens": 191,
-      "outputTokens": 3522,
-      "durationMs": 19119.201503000004
+      "inputTokens": 312,
+      "outputTokens": 2071,
+      "durationMs": 70961.14708299999
     },
     {
       "taskId": "R-06",
@@ -227,14 +227,84 @@
       "rawScore": 4,
       "maxScore": 4,
       "llmTurns": 1,
-      "toolCalls": 0,
-      "inputTokens": 207,
-      "outputTokens": 4753,
-      "durationMs": 25341.803129000007
+      "toolCalls": 1,
+      "inputTokens": 777,
+      "outputTokens": 8277,
+      "durationMs": 216118.30224899997
+    },
+    {
+      "taskId": "A-01",
+      "suite": "A",
+      "difficulty": 3,
+      "name": "파일 구조 탐색",
+      "score": 1,
+      "rawScore": 3,
+      "maxScore": 3,
+      "llmTurns": 1,
+      "toolCalls": 17,
+      "inputTokens": 16648,
+      "outputTokens": 1233,
+      "durationMs": 60803.321781000006
+    },
+    {
+      "taskId": "A-02",
+      "suite": "A",
+      "difficulty": 3,
+      "name": "함수 정의 위치 찾기",
+      "score": 1,
+      "rawScore": 3,
+      "maxScore": 3,
+      "llmTurns": 1,
+      "toolCalls": 14,
+      "inputTokens": 12358,
+      "outputTokens": 1580,
+      "durationMs": 77444.44390099996
+    },
+    {
+      "taskId": "A-03",
+      "suite": "A",
+      "difficulty": 4,
+      "name": "다중 파일 추적",
+      "score": 1,
+      "rawScore": 4,
+      "maxScore": 4,
+      "llmTurns": 1,
+      "toolCalls": 13,
+      "inputTokens": 418299,
+      "outputTokens": 2990,
+      "durationMs": 143672.90499900002
+    },
+    {
+      "taskId": "A-04",
+      "suite": "A",
+      "difficulty": 4,
+      "name": "변경 영향 분석",
+      "score": 1,
+      "rawScore": 4,
+      "maxScore": 4,
+      "llmTurns": 1,
+      "toolCalls": 32,
+      "inputTokens": 162948,
+      "outputTokens": 3561,
+      "durationMs": 153768.143086
+    },
+    {
+      "taskId": "A-05",
+      "suite": "A",
+      "difficulty": 5,
+      "name": "신규 기능 구현 계획",
+      "score": 1,
+      "rawScore": 4,
+      "maxScore": 4,
+      "llmTurns": 1,
+      "toolCalls": 19,
+      "inputTokens": 535934,
+      "outputTokens": 5383,
+      "durationMs": 233694.62628199998
     }
   ],
-  "totalInputTokens": 3500,
-  "totalOutputTokens": 22575,
-  "totalDurationMs": 121449.68002400002,
-  "estimatedCostUSD": 0
+  "totalInputTokens": 1151771,
+  "totalOutputTokens": 29497,
+  "totalDurationMs": 1124756.21831,
+  "estimatedCostUSD": 1.7422662
 }
