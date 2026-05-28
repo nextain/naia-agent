@@ -29,6 +29,7 @@ import { __resetOAuthFlowForTest } from "../../utils/oauth-flow.js";
 import { __resetRefreshForTest } from "../refresh.js";
 
 import {
+	handleAuthLegacyMigrate,
 	handleAuthLogout,
 	handleAuthQuery,
 	handleAuthReceived,
@@ -500,5 +501,98 @@ describe("handleLabProxyRequest — 401 refresh retry (#337 Phase 7)", () => {
 			mode: "dev",
 			reason: "refresh_failed",
 		});
+	});
+});
+
+// --- #337 Phase 8: legacy migration -----------------------------------------
+
+describe("handleAuthLegacyMigrate (#337 Phase 8)", () => {
+	it("happy path: persists AuthState via saveAuth and returns ok:true", async () => {
+		const before = Math.floor(Date.now() / 1000);
+		const result = await handleAuthLegacyMigrate({
+			mode: "prod",
+			naiaKey: "gw-legacy-abc",
+			userId: "naia_legacy_user",
+		});
+		const after = Math.floor(Date.now() / 1000);
+
+		expect(result.ok).toBe(true);
+		expect(result.reason).toBeUndefined();
+
+		const onDisk = await loadAuth("prod");
+		expect(onDisk).not.toBeNull();
+		expect(onDisk?.naiaKey).toBe("gw-legacy-abc");
+		expect(onDisk?.userId).toBe("naia_legacy_user");
+		expect(onDisk?.mode).toBe("prod");
+		expect(onDisk?.schema).toBe(1);
+		expect(onDisk?.keyVersion).toBe(1);
+		// refreshToken, expiresAt, rotatedAt must all be null (no portal session).
+		expect(onDisk?.refreshToken).toBeNull();
+		expect(onDisk?.expiresAt).toBeNull();
+		expect(onDisk?.rotatedAt).toBeNull();
+		// scope empty array, issuedAt = now (in unix seconds).
+		expect(onDisk?.scope).toEqual([]);
+		expect(onDisk?.issuedAt).toBeGreaterThanOrEqual(before);
+		expect(onDisk?.issuedAt).toBeLessThanOrEqual(after);
+		// Mode-derived default issuer (prod = naia.nextain.io).
+		expect(onDisk?.issuer).toBe("https://naia.nextain.io");
+	});
+
+	it("dev mode uses localhost:3001 issuer", async () => {
+		const result = await handleAuthLegacyMigrate({
+			mode: "dev",
+			naiaKey: "gw-legacy-dev",
+		});
+		expect(result.ok).toBe(true);
+		const onDisk = await loadAuth("dev");
+		expect(onDisk?.issuer).toBe("http://localhost:3001");
+	});
+
+	it("missing userId defaults to empty string", async () => {
+		const result = await handleAuthLegacyMigrate({
+			mode: "prod",
+			naiaKey: "gw-no-user",
+		});
+		expect(result.ok).toBe(true);
+		const onDisk = await loadAuth("prod");
+		expect(onDisk?.userId).toBe("");
+	});
+
+	it("empty naiaKey returns ok:false reason:missing_naia_key, no saveAuth", async () => {
+		const result = await handleAuthLegacyMigrate({
+			mode: "prod",
+			naiaKey: "",
+		});
+		expect(result.ok).toBe(false);
+		expect(result.reason).toBe("missing_naia_key");
+		const onDisk = await loadAuth("prod");
+		expect(onDisk).toBeNull();
+	});
+
+	it("saveAuth throw → returns ok:false with error message", async () => {
+		// Force saveAuth to throw by unsetting NAIA_ADK_PATH — getAuthFilePath
+		// explicitly rejects with this message when the env var is missing.
+		delete process.env.NAIA_ADK_PATH;
+		try {
+			const result = await handleAuthLegacyMigrate({
+				mode: "prod",
+				naiaKey: "gw-ok",
+			});
+			expect(result.ok).toBe(false);
+			expect(result.reason).toContain("NAIA_ADK_PATH");
+		} finally {
+			process.env.NAIA_ADK_PATH = adkRoot;
+		}
+	});
+
+	it("result never echoes the naiaKey (defense-in-depth)", async () => {
+		const SECRET = "gw-supersecret-99887766";
+		const result = await handleAuthLegacyMigrate({
+			mode: "prod",
+			naiaKey: SECRET,
+			userId: "naia_x",
+		});
+		expect(result.ok).toBe(true);
+		expect(JSON.stringify(result)).not.toContain(SECRET);
 	});
 });

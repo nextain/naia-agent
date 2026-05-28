@@ -18,6 +18,7 @@ import {
 	type AuthState,
 	deleteAuth,
 	loadAuth,
+	saveAuth,
 } from "../utils/auth-store.js";
 import {
 	receiveOAuthDeepLink,
@@ -66,6 +67,17 @@ export interface AuthQueryResponse {
 	expiresAt?: number;
 	userId?: string;
 	scope?: string[];
+}
+
+export interface AuthLegacyMigrateRequest {
+	mode: AuthMode;
+	naiaKey: string;
+	userId?: string;
+}
+
+export interface AuthLegacyMigrateResponse {
+	ok: boolean;
+	reason?: string;
 }
 
 export interface LabProxyRequest {
@@ -132,6 +144,56 @@ export async function handleAuthQuery(
 	if (state.userId) resp.userId = state.userId;
 	if (state.scope.length > 0) resp.scope = state.scope.slice();
 	return resp;
+}
+
+/**
+ * auth_legacy_migrate handler — one-shot path used by shell Phase 8 to seed
+ * the agent's encrypted auth file from the legacy `secure-keys.dat:naiaKey`
+ * slot. Matches `auth_received`'s happy-path side effects so the shell never
+ * needs to know about the encrypted file directly.
+ *
+ * Behaviour (design doc §3):
+ *  * Build a minimal AuthState (refreshToken=null, expiresAt=null, scope=[]).
+ *  * Persist via saveAuth — same as the OAuth deep-link path.
+ *  * Return {ok: true} on success; the bin dispatcher is responsible for
+ *    emitting the `auth_changed {loggedIn: true}` event.
+ *  * On any failure (saveAuth throw / invalid input) return
+ *    {ok: false, reason: error.message} — caller must NOT delete the legacy
+ *    slot in that case so the user can retry.
+ */
+export async function handleAuthLegacyMigrate(
+	req: AuthLegacyMigrateRequest,
+): Promise<AuthLegacyMigrateResponse> {
+	try {
+		if (!req.naiaKey) {
+			return { ok: false, reason: "missing_naia_key" };
+		}
+		const issuer =
+			req.mode === "dev"
+				? "http://localhost:3001"
+				: "https://naia.nextain.io";
+		const now = Math.floor(Date.now() / 1000);
+		const state: AuthState = {
+			schema: 1,
+			keyVersion: 1,
+			mode: req.mode,
+			naiaKey: req.naiaKey,
+			refreshToken: null,
+			userId: req.userId ?? "",
+			issuer,
+			scope: [],
+			issuedAt: now,
+			expiresAt: null,
+			rotatedAt: null,
+		};
+		await saveAuth(state);
+		return { ok: true };
+	} catch (err) {
+		return {
+			ok: false,
+			reason: err instanceof Error ? err.message : String(err),
+		};
+	}
 }
 
 /**

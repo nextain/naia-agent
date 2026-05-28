@@ -172,6 +172,7 @@ export {
   handleAuthReceived,
   handleAuthLogout,
   handleAuthQuery,
+  handleAuthLegacyMigrate,
   handleLabProxyRequest,
 } from "./auth/ipc-handlers.js";
 export type {
@@ -183,6 +184,8 @@ export type {
   AuthLogoutResponse,
   AuthQueryRequest,
   AuthQueryResponse,
+  AuthLegacyMigrateRequest,
+  AuthLegacyMigrateResponse,
   LabProxyRequest,
   LabProxyResponse,
 } from "./auth/ipc-handlers.js";

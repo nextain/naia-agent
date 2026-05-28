@@ -85,6 +85,7 @@ import {
   handleAuthReceived,
   handleAuthLogout,
   handleAuthQuery,
+  handleAuthLegacyMigrate,
   handleLabProxyRequest,
   getOAuthLog,
 } from "@nextain/agent-runtime";
@@ -1628,6 +1629,33 @@ async function runStdio(): Promise<number> {
           stdioWriteLine({
             type: "auth_query_response", id, loggedIn: false,
             error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        break;
+      }
+      case "auth_legacy_migrate": {
+        // #337 Phase 8 — one-shot path used by the shell to seed the agent's
+        // encrypted auth file from the legacy `secure-keys.dat:naiaKey` slot.
+        // Mirrors `auth_received` side effects on success (invalidate cached
+        // LLM + emit `auth_changed loggedIn:true`).
+        const id = typeof msg.id === "string" ? msg.id : `auth-${Date.now()}`;
+        const mode = coerceMode(msg.mode);
+        const naiaKey = typeof msg.naiaKey === "string" ? msg.naiaKey : "";
+        const migrateReq: Parameters<typeof handleAuthLegacyMigrate>[0] = {
+          mode, naiaKey,
+        };
+        if (typeof msg.userId === "string") migrateReq.userId = msg.userId;
+        try {
+          const result = await handleAuthLegacyMigrate(migrateReq);
+          stdioWriteLine({ type: "auth_legacy_migrate_response", id, ...result });
+          if (result.ok) {
+            cachedLlm = undefined;
+            stdioWriteLine({ type: "auth_changed", mode, loggedIn: true });
+          }
+        } catch (err) {
+          stdioWriteLine({
+            type: "auth_legacy_migrate_response", id, ok: false,
+            reason: err instanceof Error ? err.message : String(err),
           });
         }
         break;
