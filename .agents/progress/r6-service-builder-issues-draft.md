@@ -45,7 +45,7 @@ CLEAN / codex v2 지적 v3 전부 흡수**, 사용자 합의 2026-05-17).
 
 ## Cross-ref
 - matrix §D50/D51 + §L (R6 변경이력)
-- ko-serve(`nextain/naia-minicpm-ko-serve`) PAUSED — Phase2 의존
+- ko-serve(`nextain/naia-ko-serve`) PAUSED — Phase2 의존
 - #2 master = CLOSED → 본 #31 이 R6 우산 (sub-task 는 본 이슈 하위)
 ```
 

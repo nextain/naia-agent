@@ -29,7 +29,7 @@
    이 문서 작성자는 그 중 AGENTS.md·agents-rules.json·project-index.yaml·
    voice-pipeline-audit 만 읽음 — 나머지는 다음 세션이 읽고 §D/슬라이스
    판단할 것.
-2. ko-serve 연결 계약: `nextain/naia-minicpm-ko-serve :
+2. ko-serve 연결 계약: `nextain/naia-ko-serve :
    .agents/contracts/localmodel-realtime-v2.md` (rev2.1, 2x clean).
 3. ko-serve 현황(왜 minicpm 개선이 멈췄나): 그 repo
    `.agents/progress/current.json` (CORRECTION_voxcpm2_streaming /
@@ -122,7 +122,7 @@ S01 새 실행 명령 · S02 unit test 1+ · S03 통합검증(Phase1 fixture-rep
 
 ## 9. Cross-ref
 
-- ko-serve(`nextain/naia-minicpm-ko-serve`) = PAUSED. agent-flow 평가
+- ko-serve(`nextain/naia-ko-serve`) = PAUSED. agent-flow 평가
   프레임웍은 **여기(naia-agent)** 책임. ko-serve `current.json` 에 본
   문서로의 포인터 기록됨(cross-ref).
 - 외부(gh issue create / push) = 사용자 승인. 이 문서는 핸드오프 draft.

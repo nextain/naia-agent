@@ -315,8 +315,8 @@ slice_spine_outline:
 # These do NOT import naia-agent; they conform to naia-agent's localmodel API contract.
 # RAG / context / long-term memory / domain knowledge = naia-agent / naia-memory responsibility (NOT backends).
 opt_in_localmodels:
-  - name: naia-minicpm-ko-serve
-    repo: nextain/naia-minicpm-ko-serve
+  - name: naia-ko-serve
+    repo: nextain/naia-ko-serve
     visibility: private (nextain org)
     provides: Korean full-duplex voice dialogue backend (MiniCPM-o-4.5 ko fine-tune) + quality benchmarks
     api: HTTPS /ws/duplex (sid prefix adx_*), /v1/realtime-style
