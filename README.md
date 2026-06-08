@@ -1,13 +1,13 @@
-# {{PROJECT_NAME}}
+# naia-agent
 
-{{PROJECT_DESCRIPTION}}
+naia 생태계 허브 런타임 (RAG·context·장기기억) — clean rebuild (헥사고날 이식)
 
 ---
 
 ## 프로젝트 구조
 
 ```
-{{PROJECT_NAME}}/
+naia-agent/
 │
 │  # ── 헌장 (Charter) ──────────────────────────────────────────
 │  # AI 도구와 사람 모두가 읽는 프로젝트 규칙과 진입점.
