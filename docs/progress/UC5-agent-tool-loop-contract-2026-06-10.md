@@ -112,7 +112,7 @@ slice 1 의 fake provider 를 실 provider 로 대체. `makeOpenAICompatProvider
 ### C.1 요청 매핑 (domain → OpenAI wire)
 - **tools**: `opts.tools?.length` 일 때만 body 에 `tools: specs.map(s => ({ type:"function", function:{ name:s.name, description:s.description, parameters:s.parameters } }))` 추가. (없으면 tools 키 자체 생략 — 기존 채팅 동작 불변.) `tool_choice` 는 미설정(provider 기본=auto).
 - **메시지 매핑**(각 ChatMessage → OpenAI message):
-  - `assistant` + `toolCalls?.length`: `{ role:"assistant", content: content==="" ? null : content, tool_calls: toolCalls.map(c => ({ id:c.id, type:"function", function:{ name:c.name, arguments: JSON.stringify(c.args ?? {}) } })) }`. (content "" + toolCalls → null = OpenAI 규약.)
+  - `assistant` + `toolCalls?.length`: `{ role:"assistant", content: content==="" ? null : content, tool_calls: toolCalls.map(c => ({ id:c.id, type:"function", function:{ name:c.name, arguments: JSON.stringify(c.args) } })) }`. (content "" + toolCalls → null = OpenAI 규약. args 는 parse 단계서 항상 plain object 보장이라 `?? {}` 불요·생략 — null→{} 변환 같은 의미 변경 방지.)
   - `tool`: `{ role:"tool", tool_call_id: m.toolCallId, content: m.content }`. ⚠️ `toolCallId` 없으면 **mapping error throw**(skip 금지 — assistant tool_calls ↔ 결과 대응이 깨진 채 요청 의미 변경 방지; rejection→handler catch→terminal error). 정상 경로엔 threadToolRound 가 항상 설정.
   - 그 외(system/user/일반 assistant): `{ role: m.role, content: m.content }`(기존).
 
