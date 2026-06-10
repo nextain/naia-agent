@@ -41,7 +41,7 @@ ConversationPort:                     # 대화조립 (conversation/ + system-pro
     assemble(req): { messages, systemPrompt }   # token-budget 적용. 순수에 가까움(이식 시 I/O 분리)
 CredentialPort:                       # provider 자격증명 저장 (agent측) — secret(apiKey/naiaKey) 보관·주입
     update(provider, secret): void                            # creds_update 수신 시 갱신(다음 chat 의 buildProvider 가 읽음)
-    get(provider): secret | undefined                         # providerConfig 조립 시 주입(secret 은 ChatRequest wire 에 없음, 이 포트가 권위)
+    get(provider): { apiKey?, naiaKey? } | undefined          # providerConfig 에 spread(undefined=={}). secret 키=apiKey/naiaKey(=ProviderConfig 자격 키). secret 은 wire 에 없음, 이 포트가 권위
 ApprovalPort:                         # 도구 승인 결속 (agent측, approval-bridge.ts) — os ApprovalPort 의 짝
     resolve(requestId, toolCallId, decision): void            # ⚠️ **UC1 범위 = inbound approval_response 처리만**. 보류 레지스트리의 해당 결정을 해소.
     # awaitDecision(...) (tool_use 발생 시 emit approvalRequest + 대기 후 추론 계속) = **호출자=도구실행(UC5) → UC5 에서 추가**. UC1 기본 chat 은 도구 없어 미호출.
@@ -59,13 +59,17 @@ AgentEgressPort:                      # AgentEmit → wire AgentMessage writeLin
 ### B.3 app/
 ```
 ChatTurnHandler (UC1 오케스트레이션, ingress router 가 type 별 호출):
+  # ⚠️ turn 레지스트리(os ChatService 미러): Map<requestId, {abort:AbortController, state}>.
+  #    onChatRequest 등록(중복 requestId=거부, baseline 불변식). terminal(finished/errored) 시 해제. onCancel 은 여기서 조회.
   onChatRequest(req):
-    providerConfig = { ...req.provider, enableThinking: req.enableThinking, ...CredentialPort.get(req.provider.provider) }   # ⚠️ enableThinking top-level 주입 + secret 은 wire 에 없어 CredentialPort 에서 주입(creds_update 채널, baseline 등가)
-    { messages, systemPrompt } = ConversationPort.assemble(req)
+    if (turns.has(req.requestId)) { emit(req.requestId,{kind:error,message:"duplicate requestId"}); return }  # 충돌 거부
+    const t = { abort: new AbortController(), state:"streaming" }; turns.set(req.requestId, t)
     let sawTerminal=false, usage={in:0,out:0}
     # ⚠️ 불변식: usage 는 terminal(finish/error) *직전* 정확히 1회. terminal 이후 어떤 방출도 없음(R4/R5).
     try {
-      stream = ProviderPort.chat(providerConfig, messages, { systemPrompt, abort })  # ⚠️ try *안* — chat() 동기 throw 도 catch→error 종결(R6, os SEV-1 동류)
+      providerConfig = { ...req.provider, enableThinking: req.enableThinking, ...(CredentialPort.get(req.provider.provider) ?? {}) }  # ⚠️ try *안*(R9): get/assemble 예외도 catch→error. secret={apiKey?,naiaKey?} spread(undefined=={}). enableThinking top-level.
+      { messages, systemPrompt } = ConversationPort.assemble(req)
+      stream = ProviderPort.chat(providerConfig, messages, { systemPrompt, signal:t.abort.signal })  # chat() 동기 throw 도 catch→error(R6)
       for await chunk of stream:
         if chunk.kind==="usage": usage 누적(emit 안 함)            # 스트림 누적만(중복방출 방지)
         else if chunk.kind==="finish": emit(usage,...); emit(finish); sawTerminal=true; state=finished; **break**  # usage→finish 순, 즉시 종료(이후 chunk·불법전이 차단)
@@ -75,10 +79,10 @@ ChatTurnHandler (UC1 오케스트레이션, ingress router 가 type 별 호출):
     }
     # 무-terminal EOF(예외도 finish 도 없음)=조기종료 → usage→error
     if (!sawTerminal) { emit(usage,...); emit({kind:error,message:"incomplete stream"}); state=errored }
-    # usage 는 위 각 분기에서 terminal 직전 1회만 — 여기서 추가 방출 없음
-  onApprovalResponse(req): ApprovalPort.resolve(requestId, toolCallId, decision)  # 보류 결정 해소(대기측=도구실행 UC5). UC1 기본 chat 은 보류 없음 → no-op 가능
+    turns.delete(req.requestId)   # ⚠️ terminal 도달 → 레지스트리 해제(usage 는 각 분기 terminal 직전 1회만)
+  onApprovalResponse(req): ApprovalPort.resolve(requestId, toolCallId, decision)  # 보류 결정 해소(대기측=도구실행 UC5). UC1 기본 chat 보류 없음 → no-op 가능
   onCredsUpdate(req): CredentialPort.update(req.provider, req.secret)  # 다음 chat 의 buildProvider 가 get 으로 주입. turn 상태 무관
-  onCancel(requestId): abort signal set → ChatTurn streaming→cancelling(비종결; 후속 finished/errored 가 종결)
+  onCancel(requestId): const t=turns.get(requestId); if(!t||t.state!=="streaming") return; t.state="cancelling"; t.abort.abort()  # 레지스트리 조회→abort(없음/종결=no-op). 후속 finished/errored 가 해제(비종결)
   # wire encode/decode·demux 안 봄(adapter). provider 선택만 domain.
 ```
 
