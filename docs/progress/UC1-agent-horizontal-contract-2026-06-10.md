@@ -41,7 +41,7 @@ ConversationPort:                     # 대화조립 (conversation/ + system-pro
     assemble(req): { messages, systemPrompt }   # token-budget 적용. 순수에 가까움(이식 시 I/O 분리)
 CredentialPort:                       # provider 자격증명 저장 (agent측) — secret(apiKey/naiaKey) 보관·주입
     update(provider, secret): void                            # creds_update 수신 시 갱신(다음 chat 의 buildProvider 가 읽음)
-    get(provider): { apiKey?, naiaKey? } | undefined          # providerConfig 에 spread(undefined=={}). secret 키=apiKey/naiaKey(=ProviderConfig 자격 키). secret 은 wire 에 없음, 이 포트가 권위
+    get(provider): { apiKey?, naiaKey? } | undefined          # providerConfig 에 spread(undefined=={}). secret 키=apiKey/naiaKey(=ProviderConfig 자격 키). ⚠️ secret 은 *chat_request* wire 엔 없음(strip)이고 **creds_update wire 채널로만** 전달(update 로 적재) → chat 조립 시 이 포트가 권위(os stripForAgent 정합)
 ApprovalPort:                         # 도구 승인 결속 (agent측, approval-bridge.ts) — os ApprovalPort 의 짝
     resolve(requestId, toolCallId, decision): void            # ⚠️ **UC1 범위 = inbound approval_response 처리만**. 보류 레지스트리의 해당 결정을 해소.
     # awaitDecision(...) (tool_use 발생 시 emit approvalRequest + 대기 후 추론 계속) = **호출자=도구실행(UC5) → UC5 에서 추가**. UC1 기본 chat 은 도구 없어 미호출.
@@ -67,7 +67,7 @@ ChatTurnHandler (UC1 오케스트레이션, ingress router 가 type 별 호출):
     let sawTerminal=false, usage={in:0,out:0}
     # ⚠️ 불변식: usage 는 terminal(finish/error) *직전* 정확히 1회. terminal 이후 어떤 방출도 없음(R4/R5).
     try {
-      providerConfig = { ...req.provider, enableThinking: req.enableThinking, ...(CredentialPort.get(req.provider.provider) ?? {}) }  # ⚠️ try *안*(R9): get/assemble 예외도 catch→error. secret={apiKey?,naiaKey?} spread(undefined=={}). enableThinking top-level.
+      providerConfig = { ...req.provider, enableThinking: req.enableThinking, ...(CredentialPort.get(req.provider.provider) ?? {}) }  # ⚠️ try *안*(R9): get/assemble 예외도 catch→error. secret(chat_request 엔 없음, creds_update 로 적재됨)={apiKey?,naiaKey?} spread(undefined=={}). enableThinking top-level.
       { messages, systemPrompt } = ConversationPort.assemble(req)
       stream = ProviderPort.chat(providerConfig, messages, { systemPrompt, signal:t.abort.signal })  # chat() 동기 throw 도 catch→error(R6)
       for await chunk of stream:
