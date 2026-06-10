@@ -128,6 +128,19 @@ describe("ChatTurnHandler (turn 파이프라인)", () => {
     const last = emits[emits.length-1]!.e;
     expect(last.kind).toBe("error"); expect((last as {message:string}).message).toBe("cancelled");  // AbortError 아님
   });
+  it("cancel: provider 가 abort 무시 *및* next() 영구대기(hang) 해도 race 로 종결+해제(코드리뷰 R5)", async () => {
+    const { deps, emits } = capture();
+    // 첫 chunk 후 영구 hang(다음 next() 가 resolve 안 됨, abort 도 무시) — for-await 면 누수.
+    const hang: ProviderPort = { async *chat(): AsyncIterable<ProviderChunk> { yield { kind:"text", text:"a" }; await new Promise(()=>{}); } };
+    const h = new ChatTurnHandler({ ...deps, provider: hang });
+    const p = h.onChatRequest(req());
+    await Promise.resolve(); await Promise.resolve();
+    h.onCancel({ kind:"cancel", requestId:"r1" });
+    await p;   // race 로 abort 가 이겨 종료 — hang 이면 이 await 가 영구 블록(테스트 타임아웃)
+    const last = emits[emits.length-1]!.e;
+    expect(last.kind).toBe("error"); expect((last as {message:string}).message).toBe("cancelled");
+    expect(h.turnState("r1")).toBeUndefined();
+  });
   it("creds_update → providerConfig 에 secret 주입(다음 chat)", async () => {
     const { deps } = capture();
     let seenConfig: ProviderConfig | null = null;

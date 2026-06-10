@@ -43,9 +43,19 @@ export class ChatTurnHandler {
       };
       const asm = this.d.conversation.assemble({ messages: req.messages, systemPrompt: req.systemPrompt });
       const stream = this.d.provider.chat(providerConfig, asm.messages, { systemPrompt: asm.systemPrompt, signal: t.abort.signal });
-      for await (const chunk of stream) {
-        // ⚠️ provider 가 abort 를 무시해도 매 iteration self-break(취소 후 방출·누수 방지, baseline 동작). 종결=finally.
-        if (t.abort.signal.aborted) break;
+      // ⚠️ for-await 대신 수동 구동 + abort race(코드리뷰 R5): provider 가 abort 무시 *및* next() 영구 대기해도
+      //    abort 가 race 를 이겨 즉시 break → finally 해제. (for-await 는 next() 블록 시 self-break 미도달=누수.)
+      const it = stream[Symbol.asyncIterator]();
+      const ABORTED = Symbol("aborted");
+      const abortP: Promise<typeof ABORTED> = new Promise((res) => {
+        if (t.abort.signal.aborted) res(ABORTED);
+        else t.abort.signal.addEventListener("abort", () => res(ABORTED), { once: true });
+      });
+      for (;;) {
+        const r = await Promise.race([it.next(), abortP]);
+        if (r === ABORTED) { void it.return?.(); break; }   // abort 승: 대기 중단 + iterator best-effort close(await 안 함=return 도 hang 가능)
+        if (r.done) break;                                   // 정상 EOF(finish 없음)→ finally 가 error 종결
+        const chunk = r.value;
         if (chunk.kind === "usage") {
           usage.inputTokens += chunk.inputTokens; usage.outputTokens += chunk.outputTokens; // 누적만(emit 안 함)
         } else if (chunk.kind === "finish") {
