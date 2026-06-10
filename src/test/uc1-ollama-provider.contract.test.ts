@@ -49,6 +49,11 @@ describe("makeOllamaProvider (native /api/chat, mock fetch)", () => {
     const gen = makeOllamaProvider({ fetch: mockFetch([], { ok: false, status: 503 }) as never }).chat(cfg, [], {});
     await expect(collect(gen)).rejects.toThrow(/503/);
   });
+  it("HTTP 200 스트림 내 {error} → throw(성공 오인 방지, R4)", async () => {
+    const lines = [JSON.stringify({ message: { content: "부분" } }) + "\n", JSON.stringify({ error: "model not found" }) + "\n"];
+    const gen = makeOllamaProvider({ fetch: mockFetch(lines) as never }).chat(cfg, [], {});
+    await expect(collect(gen)).rejects.toThrow(/model not found/);
+  });
   it("손상 NDJSON 줄 skip(크래시 없음)", async () => {
     const lines = ["not json\n", JSON.stringify({ message: { content: "ok" } }) + "\n", JSON.stringify({ done: true }) + "\n"];
     const out = await collect(makeOllamaProvider({ fetch: mockFetch(lines) as never }).chat(cfg, [], {}));

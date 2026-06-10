@@ -17,6 +17,7 @@ interface OllamaChunk {
   done?: boolean;
   prompt_eval_count?: number;
   eval_count?: number;
+  error?: string; // Ollama 는 HTTP 200 스트림 안에서 {"error":...} 로 실패 보고 가능
 }
 
 /** old toOllamaMessages 의 UC1 부분(system 합류 + role/content). tool 메시지=UC5. */
@@ -61,6 +62,7 @@ export function makeOllamaProvider(deps?: { fetch?: FetchLike }): ProviderPort {
         if (!t) return [];
         let evt: OllamaChunk;
         try { evt = JSON.parse(t) as OllamaChunk; } catch { return []; } // 손상 NDJSON 줄 skip
+        if (evt.error) throw new Error(`Ollama stream error: ${evt.error}`); // ⚠️ HTTP 200 스트림 내 오류=실패(rejection→handler catch=error, 성공 오인 방지 R4)
         const chunks: ProviderChunk[] = [];
         if (evt.message?.thinking) chunks.push({ kind: "thinking", text: evt.message.thinking });
         if (evt.message?.content) chunks.push({ kind: "text", text: evt.message.content });
