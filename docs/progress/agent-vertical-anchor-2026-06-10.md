@@ -78,3 +78,10 @@ os `uc1-trace-harness` 의 `AGENT_CMD=node ../new-naia-agent/scripts/builds/agen
 **new-naia-os(child-stdio transport) ↔ new-naia-agent(ingress→handler→provider(fake)→egress)** 를 *실 process stdio* 로 연결.
 1턴 결과: `rendered=[text,usage,finish], ownerReleased=true, ✅ PASS exit 0`.
 → 독립 빌드·독립 2-clean 두 repo 가 공유 wire(AgentOutbound↔AgentMessage)로 정합. **fake LLM provider 만 실 provider(ollama 이식)로 교체하면 실 채팅 경로**. 헤드리스(GPU·앱 무접촉).
+
+---
+## 🎉🎉 실 LLM end-to-end 성공 (2026-06-10) — 진짜 채팅
+GPU1 naia-omni 정지(루크 승인) → host ollama(GPU1) gemma4:e4b-it-q8_0 → **shell-compat → os core → 실 new-naia-agent(AGENT_PROVIDER=ollama) → 실 gemma4** 1턴:
+- 입력 "한국어로 자기소개" → 한국어 474자 스트리밍 응답, usage(i28/o791), 12.2s, exit 0. **fake 아님 = 실 LLM 추론.**
+- naia-admin(GPU0) 무접촉 보존. naia-omni(GPU1)=정지 상태(루크 것, 복원은 루크 관리).
+→ 이식 UC1 수직(육체 os + 뇌 agent + 실 provider)이 **진짜 채팅을 낸다**. 남은 건 라이브 Tauri 앱 결선(B0 import 교체 + B3)뿐.
