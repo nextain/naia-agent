@@ -51,7 +51,8 @@ export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string
       };
 
       try {
-        for (;;) {
+        let sawDone = false;
+        outer: for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
           if (value) buffer += decoder.decode(value, { stream: true });
@@ -59,12 +60,16 @@ export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string
           while ((nl = buffer.indexOf("\n")) !== -1) {
             const line = buffer.slice(0, nl); buffer = buffer.slice(nl + 1);
             const s = line.trim();
-            if (s.startsWith("data:")) { for (const c of parseData(s.slice(5))) yield c; }
+            if (!s.startsWith("data:")) continue;
+            if (s.slice(5).trim() === "[DONE]") { sawDone = true; break outer; } // ⚠️ [DONE]=종료(서버 연결 유지해도 read 영구대기 방지, R1)
+            for (const c of parseData(s.slice(5))) yield c;
           }
         }
-        buffer += decoder.decode();
-        const last = buffer.trim();
-        if (last.startsWith("data:")) { for (const c of parseData(last.slice(5))) yield c; }
+        if (!sawDone) { // 스트림이 [DONE] 없이 끝남(EOF) → trailing 처리
+          buffer += decoder.decode();
+          const last = buffer.trim();
+          if (last.startsWith("data:") && last.slice(5).trim() !== "[DONE]") { for (const c of parseData(last.slice(5))) yield c; }
+        }
         if (inTok > 0 || outTok > 0) yield { kind: "usage", inputTokens: inTok, outputTokens: outTok };
         yield { kind: "finish" };
       } finally {
