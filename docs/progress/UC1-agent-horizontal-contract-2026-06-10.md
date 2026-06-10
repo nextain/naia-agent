@@ -61,7 +61,7 @@ ChatTurnHandler (UC1 오케스트레이션, ingress router 가 type 별 호출):
     try {
       for await chunk of stream:
         if chunk.kind==="usage": usage 누적(emit 안 함)            # ⚠️ usage 는 스트림 누적만(중복방출 방지, S1)
-        else: e=mapProviderChunk(chunk); emit(req.requestId, e); if e.kind==="finish": sawTerminal=true; state=finished   # provider 정상 종료=finish chunk 만(ProviderChunk 에 error 없음; 실패=rejection→catch)
+        else: e=mapProviderChunk(chunk); emit(req.requestId, e); if e.kind==="finish": sawTerminal=true; state=finished; **break**   # finish 즉시 종료 — 이후 chunk·불법전이 차단(R4). provider 정상=finish chunk 만(error 없음; 실패=rejection→catch)
     } catch (err) { emit(req.requestId, {kind:error,message}); state=errored; sawTerminal=true }  # provider rejection→error+terminal
     # 종결 규칙(S1): 정상은 provider 가 finish chunk 방출(sawTerminal). 무-terminal EOF(예외도 finish 도 없음)=조기종료→ emit error+errored. (finish 강제 안 함)
     if !sawTerminal: emit(req.requestId, {kind:error,message:"incomplete stream"}); state=errored
