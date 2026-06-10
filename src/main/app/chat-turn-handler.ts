@@ -59,7 +59,8 @@ export class ChatTurnHandler {
     } catch (err) {
       if (!sawTerminal) {
         emit({ kind: "usage", ...usage });
-        emit({ kind: "error", message: errMessage(err) });
+        // ⚠️ abort 시엔 provider 가 AbortError 를 throw 해도 취소 종결="cancelled" 로 통일(self-break 경로와 일치, 코드리뷰 R3)
+        emit({ kind: "error", message: t.abort.signal.aborted ? "cancelled" : errMessage(err) });
         sawTerminal = true; t.state = "errored";
       }
     } finally {

@@ -113,6 +113,21 @@ describe("ChatTurnHandler (turn 파이프라인)", () => {
     expect(last.kind).toBe("error"); expect((last as {message:string}).message).toBe("cancelled");
     expect(h.turnState("r1")).toBeUndefined();  // 해제
   });
+  it("cancel: provider 가 abort 시 throw(AbortError) 해도 종결='cancelled'(catch 통일, 코드리뷰 R3)", async () => {
+    const { deps, emits } = capture();
+    const throwOnAbort: ProviderPort = { async *chat(_c:ProviderConfig,_m:readonly ChatMessage[],o:ProviderChatOpts): AsyncIterable<ProviderChunk> {
+      yield { kind:"text", text:"a" };
+      while(!o.signal?.aborted) await Promise.resolve();
+      throw Object.assign(new Error("The operation was aborted"), { name:"AbortError" });
+    } };
+    const h = new ChatTurnHandler({ ...deps, provider: throwOnAbort });
+    const p = h.onChatRequest(req());
+    await Promise.resolve();
+    h.onCancel({ kind:"cancel", requestId:"r1" });
+    await p;
+    const last = emits[emits.length-1]!.e;
+    expect(last.kind).toBe("error"); expect((last as {message:string}).message).toBe("cancelled");  // AbortError 아님
+  });
   it("creds_update → providerConfig 에 secret 주입(다음 chat)", async () => {
     const { deps } = capture();
     let seenConfig: ProviderConfig | null = null;
