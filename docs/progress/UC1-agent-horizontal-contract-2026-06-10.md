@@ -62,7 +62,7 @@ ChatTurnHandler (UC1 오케스트레이션, ingress router 가 type 별 호출):
   # ⚠️ turn 레지스트리(os ChatService 미러): Map<requestId, {abort:AbortController, state}>.
   #    onChatRequest 등록(중복 requestId=거부, baseline 불변식). terminal(finished/errored) 시 해제. onCancel 은 여기서 조회.
   onChatRequest(req):
-    if (turns.has(req.requestId)) { emit(req.requestId,{kind:error,message:"duplicate requestId"}); return }  # 충돌 거부
+    if (turns.has(req.requestId)) { DiagnosticLog("duplicate requestId — 무시", req.requestId); return }  # ⚠️ 충돌=requestId 고유성 불변식 위반(os §B.4.1 conceded). **wire error emit 금지**(그 id=기존 활성턴 소유 → 종료시켜 terminal 위반, R10). 진단 로그(stderr/out-of-band)만, silent drop 아님
     const t = { abort: new AbortController(), state:"streaming" }; turns.set(req.requestId, t)
     let sawTerminal=false, usage={in:0,out:0}
     # ⚠️ 불변식: usage 는 terminal(finish/error) *직전* 정확히 1회. terminal 이후 어떤 방출도 없음(R4/R5).
