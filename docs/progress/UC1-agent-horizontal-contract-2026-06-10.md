@@ -26,10 +26,10 @@
 | 값객체 | 규칙 |
 |---|---|
 | `ChatRequest` | parseRequest 결과의 domain 형(requestId, provider:ProviderConfig, messages, systemPrompt?, enableTools?, **enableThinking?**(top-level), gatewayUrl?, disabledSkills?). wire `AgentOutbound.chat_request` 와 동형(os 측 정합). |
-| `ProviderChunk` | provider-중립 스트림 단위 = `text|thinking|toolUse{id,name,args}|usage{in,out}|finish|audio{data}`(=old StreamChunk). LLM 출력 추상. |
-| `AgentEmit` | egress 가 wire 로 내보낼 domain chunk = chat-turn AgentMessage 의 domain 표현(text·thinking·toolUse{toolCallId,toolName}·toolResult·finish·error·usage·logEntry·tokenWarning·audio). **권위=os AgentMessage 분류(공유)**. |
-| `ChatTurn` | requestId 턴 상태기계: `streaming →(abort)→ cancelling → finish/error(terminal)`. provider 중립. |
-| `mapProviderChunk(ProviderChunk): AgentEmit` | 순수 매핑(tool_use id→toolCallId,name→toolName; usage 누적; audio 통과). os 의 domain↔protocol 매핑과 대칭. |
+| `ProviderChunk` | provider-중립 *도메인 정규화* 스트림 단위 = `text|thinking|toolUse{id,name,args}|usage{in,out}|finish`. ⚠️ old `StreamChunk`(raw, snake `tool_use`)와 *별 레이어* — **provider 어댑터가 raw→ProviderChunk 정규화**(camel). audio=UC2(voice) 범위라 UC1 ProviderChunk 제외. |
+| `AgentEmit` | egress 가 wire 로 내보낼 chat-turn domain chunk = os chat-turn AgentMessage 의 domain 표현(폐쇄): `text·thinking·toolUse{toolCallId,toolName}·toolResult·approvalRequest·gatewayApprovalRequest·finish·error·usage·logEntry·tokenWarning`. **권위=os AgentMessage chat-turn 분류(공유, audio 제외=nonchat/UC2)**. |
+| `ChatTurn` | requestId 턴 상태기계. **정상: streaming→finish(terminal) / streaming→error(terminal)**. **취소: streaming→(abort 요청)→cancelling→finish/error(terminal)**. **provider 예외/조기종료: →error(terminal)**. finish/error 양쪽 terminal. provider 중립·순수. |
+| `mapProviderChunk(ProviderChunk): AgentEmit` | **1:1 순수 매핑**(toolUse id→toolCallId, name→toolName). ⚠️ usage *누적은 여기 아님* — ChatTurnHandler 상태(B.3). os domain↔protocol 매핑과 대칭. |
 
 ### B.2 ports/
 ```
@@ -38,24 +38,29 @@ ProviderPort:                         # LLM 추론 (이식 소스 providers/)
     chat(config, messages, opts): AsyncIterable<ProviderChunk>   # 스트림. abort signal 수용. rejection 전파
 ConversationPort:                     # 대화조립 (conversation/ + system-prompt)
     assemble(req): { messages, systemPrompt }   # token-budget 적용. 순수에 가까움(이식 시 I/O 분리)
-# driving-in (wire→brain)
+# driving-in (wire→brain) — ⚠️ **단일 구독자**(os MessageRouter 대칭): 모든 inbound 한 곳, type 별 라우팅
 AgentIngressPort:                     # stdin wire → AgentRequest (= H-agent 경계 agent측)
-    onRequest(cb): Unsub              # parseRequest. AgentOutbound 전 variant 수용(미지=무시+log, silent drop 금지)
+    onRequest(cb): Unsub              # parseRequest 후 *전 AgentOutbound variant*(chat_request·cancel_stream·approval_response·creds_update) 단일 cb 로. router 가 type 분기→해당 app 핸들러. 미지=무시+log(silent drop 금지)
 # driven-out (brain→wire)
 AgentEgressPort:                      # AgentEmit → wire AgentMessage writeLine (= H-agent egress)
     emit(requestId, emit: AgentEmit): void   # requestId 결속. flat JSON-line
-ControlPort:                          # cancel/approval/creds (chat_request 외 inbound)
-    onCancel(cb)/onApproval(cb)/onCreds(cb)
+# control = app 핸들러 인터페이스(별도 stdin 구독 아님 — ingress router 가 호출):
+#   ChatTurnHandler.onCancel(requestId) / onApprovalResponse(...) / onCredsUpdate(...)
 ```
 > ⚠️ god-port 금지: provider/conversation/skill 독립. ingress 가 모든 inbound 받아 type 별 라우팅(os MessageRouter 대칭 — 단일 구독).
 
 ### B.3 app/
 ```
-ChatTurnHandler (UC1 오케스트레이션):
-  on chat_request → ConversationPort.assemble → ProviderPort.chat(stream)
-    → for await chunk: AgentEgressPort.emit(requestId, mapProviderChunk(chunk))
-    → ChatTurn 상태기계(streaming→finish/error 종결). cancel=abort→cancelling.
-  # wire encode/decode 안 봄(adapter). provider 선택만 domain.
+ChatTurnHandler (UC1 오케스트레이션, ingress router 가 type 별 호출):
+  onChatRequest(req):
+    providerConfig = { ...req.provider, enableThinking: req.enableThinking }   # ⚠️ top-level enableThinking → providerConfig 명시 주입(os outbound 가 top-level 송신, baseline 등가)
+    { messages, systemPrompt } = ConversationPort.assemble(req)
+    stream = ProviderPort.chat(providerConfig, messages, { systemPrompt, abort })
+    try { for await chunk of stream: AgentEgressPort.emit(req.requestId, mapProviderChunk(chunk)); usage 누적 }
+    catch (e) { AgentEgressPort.emit(req.requestId, {error}); ChatTurn→errored }   # ⚠️ provider rejection→wire error+terminal(baseline 등가)
+    finally { 미방출 시 finish 보장 } ; 종결 시 누적 usage emit
+  onCancel(requestId): abort signal → ChatTurn streaming→cancelling(비종결; 후속 finish/error 가 종결)
+  # wire encode/decode·demux 안 봄(adapter). provider 선택만 domain.
 ```
 
 ### B.4 adapters/
