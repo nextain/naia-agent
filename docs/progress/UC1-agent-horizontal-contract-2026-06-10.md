@@ -39,6 +39,9 @@ ProviderPort:                         # LLM 추론 (이식 소스 providers/)
     chat(config, messages, opts): AsyncIterable<ProviderChunk>   # 스트림. abort signal 수용. rejection 전파
 ConversationPort:                     # 대화조립 (conversation/ + system-prompt)
     assemble(req): { messages, systemPrompt }   # token-budget 적용. 순수에 가까움(이식 시 I/O 분리)
+ApprovalPort:                         # 도구 승인 결속 (agent측, approval-bridge.ts) — os ApprovalPort 의 짝
+    awaitDecision(requestId, toolCallId): Promise<decision>   # tool_use 승인 대기(turn 추론이 await)
+    resolve(requestId, toolCallId, decision): void            # approval_response 수신 시 위 Promise 해소(타임아웃=reject 기본)
 # driving-in (wire→brain) — ⚠️ **단일 구독자**(os MessageRouter 대칭): 모든 inbound 한 곳, type 별 라우팅
 AgentIngressPort:                     # stdin wire → AgentRequest (= H-agent 경계 agent측)
     onRequest(cb): Unsub              # parseRequest 후 *전 AgentOutbound variant*(chat_request·cancel_stream·approval_response·creds_update) 단일 cb 로. router 가 type 분기→해당 app 핸들러. 미지=무시+log(silent drop 금지)
@@ -56,10 +59,10 @@ ChatTurnHandler (UC1 오케스트레이션, ingress router 가 type 별 호출):
   onChatRequest(req):
     providerConfig = { ...req.provider, enableThinking: req.enableThinking }   # ⚠️ top-level enableThinking → providerConfig 명시 주입(os outbound top-level 송신, baseline 등가)
     { messages, systemPrompt } = ConversationPort.assemble(req)
-    stream = ProviderPort.chat(providerConfig, messages, { systemPrompt, abort })
     let sawTerminal=false, usage={in:0,out:0}
     # ⚠️ 불변식: usage 는 terminal(finish/error) *직전* 정확히 1회. terminal 이후 어떤 방출도 없음(R4/R5).
     try {
+      stream = ProviderPort.chat(providerConfig, messages, { systemPrompt, abort })  # ⚠️ try *안* — chat() 동기 throw 도 catch→error 종결(R6, os SEV-1 동류)
       for await chunk of stream:
         if chunk.kind==="usage": usage 누적(emit 안 함)            # 스트림 누적만(중복방출 방지)
         else if chunk.kind==="finish": emit(usage,...); emit(finish); sawTerminal=true; state=finished; **break**  # usage→finish 순, 즉시 종료(이후 chunk·불법전이 차단)
