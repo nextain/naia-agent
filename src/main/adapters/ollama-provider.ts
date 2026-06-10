@@ -60,8 +60,10 @@ export function makeOllamaProvider(deps?: { fetch?: FetchLike }): ProviderPort {
       const parseLine = (line: string): ProviderChunk[] => {
         const t = line.trim();
         if (!t) return [];
-        let evt: OllamaChunk;
-        try { evt = JSON.parse(t) as OllamaChunk; } catch { return []; } // 손상 NDJSON 줄 skip
+        let parsed: unknown;
+        try { parsed = JSON.parse(t); } catch { return []; } // 손상 NDJSON 줄 skip
+        if (!parsed || typeof parsed !== "object") return []; // "null"/숫자/bool = TypeError 방지(R5)
+        const evt = parsed as OllamaChunk;
         if (evt.error) throw new Error(`Ollama stream error: ${evt.error}`); // ⚠️ HTTP 200 스트림 내 오류=실패(rejection→handler catch=error, 성공 오인 방지 R4)
         const chunks: ProviderChunk[] = [];
         if (evt.message?.thinking) chunks.push({ kind: "thinking", text: evt.message.thinking });
