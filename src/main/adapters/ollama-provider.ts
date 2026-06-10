@@ -82,6 +82,7 @@ export function makeOllamaProvider(deps?: { fetch?: FetchLike }): ProviderPort {
             buffer = buffer.slice(nl + 1);
           }
         }
+        buffer += decoder.decode(); // ⚠️ flush — 분할된 멀티바이트 UTF-8 마지막 문자 유실 방지(R3)
         if (buffer) { for (const c of parseLine(buffer)) yield c; } // trailing line
         if (inputTokens > 0 || outputTokens > 0) yield { kind: "usage", inputTokens, outputTokens };
         yield { kind: "finish" };
