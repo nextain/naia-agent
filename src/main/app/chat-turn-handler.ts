@@ -46,6 +46,8 @@ export class ChatTurnHandler {
       // ⚠️ for-await 대신 수동 구동 + abort race(코드리뷰 R5): provider 가 abort 무시 *및* next() 영구 대기해도
       //    abort 가 race 를 이겨 즉시 break → finally 해제. (for-await 는 next() 블록 시 self-break 미도달=누수.)
       const it = stream[Symbol.asyncIterator]();
+      // ⚠️ 수동 iterator 는 break 시 자동 close 안 됨(for-await 와 달리) → 모든 break 경로서 명시 close(R8). rejection 격리.
+      const closeIt = () => { void Promise.resolve(it.return?.()).catch(() => {}); };
       const ABORTED = Symbol("aborted");
       const abortP: Promise<typeof ABORTED> = new Promise((res) => {
         if (t.abort.signal.aborted) res(ABORTED);
@@ -53,15 +55,15 @@ export class ChatTurnHandler {
       });
       for (;;) {
         const r = await Promise.race([it.next(), abortP]);
-        if (r === ABORTED) { void Promise.resolve(it.return?.()).catch(() => {}); break; }   // abort 승: 대기 중단 + iterator best-effort close. ⚠️ return() rejection catch(unhandled rejection→프로세스 종료 방지, R6); await 안 함=return hang 대비
-        if (r.done) break;                                   // 정상 EOF(finish 없음)→ finally 가 error 종결
+        if (r === ABORTED) { closeIt(); break; }             // abort 승: 대기 중단 + iterator close(R6/R8). await 안 함=return hang 대비
+        if (r.done) break;                                   // 정상 EOF(iterator 소진=close 불요)→ finally 가 error 종결
         const chunk = r.value;
         if (chunk.kind === "usage") {
           usage.inputTokens += chunk.inputTokens; usage.outputTokens += chunk.outputTokens; // 누적만(emit 안 함)
         } else if (chunk.kind === "finish") {
           emit({ kind: "usage", ...usage }); emit({ kind: "finish" });
           sawTerminal = true; t.state = "finished";
-          break; // finish 즉시 종료
+          closeIt(); break; // finish 즉시 종료 + iterator close(수동 break=자동 close 안 됨, R8)
         } else {
           emit(mapProviderChunk(chunk));
         }
