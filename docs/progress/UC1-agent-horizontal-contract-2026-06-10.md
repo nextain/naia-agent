@@ -25,10 +25,11 @@
 ### B.1 domain/ (순수, import 0)
 | 값객체 | 규칙 |
 |---|---|
-| `ChatRequest` | parseRequest 결과의 domain 형(requestId, provider:ProviderConfig, messages, systemPrompt?, enableTools?, **enableThinking?**(top-level), gatewayUrl?, disabledSkills?). wire `AgentOutbound.chat_request` 와 동형(os 측 정합). |
+| `AgentRequest` | inbound domain 폐쇄 union = `ChatRequest | CancelRequest{requestId} | ApprovalResponse{requestId,toolCallId,decision} | CredsUpdate{provider,secret}`. **os `AgentOutbound` 와 1:1**(ingress 가 wire→이 union 디코드). |
+| `ChatRequest` | requestId, provider:ProviderConfig, messages, systemPrompt?, enableTools?, **enableThinking?**(top-level), gatewayUrl?, disabledSkills?. wire `AgentOutbound.chat_request` 와 동형(os 정합). |
 | `ProviderChunk` | provider-중립 *도메인 정규화* 스트림 단위 = `text|thinking|toolUse{id,name,args}|usage{in,out}|finish`. ⚠️ old `StreamChunk`(raw, snake `tool_use`)와 *별 레이어* — **provider 어댑터가 raw→ProviderChunk 정규화**(camel). audio=UC2(voice) 범위라 UC1 ProviderChunk 제외. |
 | `AgentEmit` | egress 가 wire 로 내보낼 chat-turn domain chunk = os chat-turn AgentMessage 의 domain 표현(폐쇄): `text·thinking·toolUse{toolCallId,toolName}·toolResult·approvalRequest·gatewayApprovalRequest·finish·error·usage·logEntry·tokenWarning`. **권위=os AgentMessage chat-turn 분류(공유, audio 제외=nonchat/UC2)**. |
-| `ChatTurn` | requestId 턴 상태기계. **정상: streaming→finish(terminal) / streaming→error(terminal)**. **취소: streaming→(abort 요청)→cancelling→finish/error(terminal)**. **provider 예외/조기종료: →error(terminal)**. finish/error 양쪽 terminal. provider 중립·순수. |
+| `ChatTurn` | requestId 턴 상태기계. 상태=`streaming|cancelling|finished|errored`(terminal=finished,errored). **정상: streaming→finished(provider finish chunk) / →errored(error chunk)**. **취소: streaming→(abort)→cancelling→finished/errored**. **provider 예외/무-terminal EOF: →errored**. provider 중립·순수. |
 | `mapProviderChunk(ProviderChunk): AgentEmit` | **1:1 순수 매핑**(toolUse id→toolCallId, name→toolName). ⚠️ usage *누적은 여기 아님* — ChatTurnHandler 상태(B.3). os domain↔protocol 매핑과 대칭. |
 
 ### B.2 ports/
@@ -53,13 +54,21 @@ AgentEgressPort:                      # AgentEmit → wire AgentMessage writeLin
 ```
 ChatTurnHandler (UC1 오케스트레이션, ingress router 가 type 별 호출):
   onChatRequest(req):
-    providerConfig = { ...req.provider, enableThinking: req.enableThinking }   # ⚠️ top-level enableThinking → providerConfig 명시 주입(os outbound 가 top-level 송신, baseline 등가)
+    providerConfig = { ...req.provider, enableThinking: req.enableThinking }   # ⚠️ top-level enableThinking → providerConfig 명시 주입(os outbound top-level 송신, baseline 등가)
     { messages, systemPrompt } = ConversationPort.assemble(req)
     stream = ProviderPort.chat(providerConfig, messages, { systemPrompt, abort })
-    try { for await chunk of stream: AgentEgressPort.emit(req.requestId, mapProviderChunk(chunk)); usage 누적 }
-    catch (e) { AgentEgressPort.emit(req.requestId, {error}); ChatTurn→errored }   # ⚠️ provider rejection→wire error+terminal(baseline 등가)
-    finally { 미방출 시 finish 보장 } ; 종결 시 누적 usage emit
-  onCancel(requestId): abort signal → ChatTurn streaming→cancelling(비종결; 후속 finish/error 가 종결)
+    let sawTerminal=false, usage={in:0,out:0}
+    try {
+      for await chunk of stream:
+        if chunk.kind==="usage": usage 누적(emit 안 함)            # ⚠️ usage 는 스트림 누적만(중복방출 방지, S1)
+        else: e=mapProviderChunk(chunk); emit(req.requestId, e); if e.kind∈{finish,error}: sawTerminal=true; state=…
+    } catch (err) { emit(req.requestId, {kind:error,message}); state=errored; sawTerminal=true }  # provider rejection→error+terminal
+    # 종결 규칙(S1): 정상은 provider 가 finish chunk 방출(sawTerminal). 무-terminal EOF(예외도 finish 도 없음)=조기종료→ emit error+errored. (finish 강제 안 함)
+    if !sawTerminal: emit(req.requestId, {kind:error,message:"incomplete stream"}); state=errored
+    emit(req.requestId, {kind:usage, ...usage})                    # ⚠️ 누적 usage *1회* 종결 시(중복 아님)
+  onApprovalResponse(req): 보류 중 approval Promise resolve(decision) → 해당 turn 추론 계속  # ApprovalPort 결속
+  onCredsUpdate(req): provider 자격 저장 갱신(다음 chat 부터 적용). turn 상태 무관
+  onCancel(requestId): abort signal set → ChatTurn streaming→cancelling(비종결; 후속 finished/errored 가 종결)
   # wire encode/decode·demux 안 봄(adapter). provider 선택만 domain.
 ```
 
