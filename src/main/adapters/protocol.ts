@@ -4,8 +4,10 @@ import type { AgentRequest, AgentEmit, ProviderConfig, ChatMessage } from "../do
 
 /** wire line → AgentRequest. parseRequest(관대): type 화이트리스트, 미지=null. */
 export function decodeRequest(line: string): AgentRequest | null {
-  let o: Record<string, unknown>;
-  try { o = JSON.parse(line) as Record<string, unknown>; } catch { return null; }
+  let parsed: unknown;
+  try { parsed = JSON.parse(line); } catch { return null; }
+  if (!parsed || typeof parsed !== "object") return null; // ⚠️ "null"/"3"/"true" 등 = TypeError 방지(baseline parseRequest 가드)
+  const o = parsed as Record<string, unknown>;
   const type = typeof o["type"] === "string" ? (o["type"] as string) : undefined;
   switch (type) {
     case "chat_request":

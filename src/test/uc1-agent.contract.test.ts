@@ -45,6 +45,8 @@ describe("protocol (wire conform — os AgentOutbound↔AgentMessage)", () => {
     expect(decodeRequest('{"type":"creds_update","provider":"openai","apiKey":"sk"}')).toEqual({ kind: "credsUpdate", provider: "openai", secret: { apiKey: "sk" } });
     expect(decodeRequest('{"type":"discord_message"}')).toBeNull(); // 미지=null
     expect(decodeRequest("not json")).toBeNull();
+    expect(decodeRequest("null")).toBeNull();   // JSON null = TypeError 방지(R1)
+    expect(decodeRequest("3")).toBeNull(); expect(decodeRequest("true")).toBeNull();
   });
   it("encodeEmit: kind(camel)→type(snake), requestId 결속", () => {
     expect(encodeEmit("r1", { kind: "text", text: "hi" })).toEqual({ type: "text", requestId: "r1", text: "hi" });
