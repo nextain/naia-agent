@@ -87,7 +87,7 @@ export function makeOllamaProvider(deps?: { fetch?: FetchLike }): ProviderPort {
         yield { kind: "finish" };
       } finally {
         // ⚠️ 소비자 중도 종료(generator.return — handler abort/finish closeIt)·정상 종료 모두 reader 정리(HTTP/lock 누수 방지, R1)
-        try { void reader.cancel?.(); } catch { /* 격리 */ }
+        try { await reader.cancel?.(); } catch { /* 동기 throw·비동기 reject 모두 격리(R2) */ }
       }
     },
   };
