@@ -1,0 +1,17 @@
+{
+  "name": "new-naia-agent",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "naia-agent(brain) 헥사고날 이식 — UC1 brain 파이프라인",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run src/test/*.test.ts",
+    "test:watch": "vitest src/test/*.test.ts",
+    "test:report": "vitest run src/test/*.test.ts --reporter=verbose"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

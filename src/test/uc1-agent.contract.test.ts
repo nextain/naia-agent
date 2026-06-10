@@ -1,0 +1,110 @@
+// UC1 agent(brain) 계약 테스트 (P02). fake ProviderPort → ChatTurnHandler → egress 캡처.
+import { describe, it, expect } from "vitest";
+import { mapProviderChunk, isTerminalEmit, type AgentEmit, type ChatRequest } from "../main/domain/chat.js";
+import { ChatTurnHandler, type HandlerDeps } from "../main/app/chat-turn-handler.js";
+import { decodeRequest, encodeEmit } from "../main/adapters/protocol.js";
+import { makeFakeProvider } from "../main/adapters/fake-provider.js";
+import { makeInMemoryCredentials } from "../main/composition/index.js";
+import type { ProviderPort, ProviderChatOpts } from "../main/ports/uc1.js";
+import type { ProviderConfig, ChatMessage, ProviderChunk } from "../main/domain/chat.js";
+
+function capture() {
+  const emits: { requestId: string; e: AgentEmit }[] = [];
+  const logs: string[] = [];
+  const deps: HandlerDeps = {
+    provider: makeFakeProvider(),
+    conversation: { assemble: (r) => ({ messages: r.messages, ...(r.systemPrompt !== undefined ? { systemPrompt: r.systemPrompt } : {}) }) },
+    credentials: makeInMemoryCredentials(),
+    approval: { resolve: () => {} },
+    egress: { emit: (requestId, e) => emits.push({ requestId, e }) },
+    diag: { log: (m) => logs.push(m) },
+  };
+  return { deps, emits, logs };
+}
+const req = (o: Partial<ChatRequest> = {}): ChatRequest => ({
+  kind: "chat", requestId: "r1", provider: { provider: "ollama", model: "gemma4" }, messages: [{ role: "user", content: "hi" }], ...o,
+});
+
+describe("domain (agent UC1)", () => {
+  it("mapProviderChunk: toolUse id→toolCallId, name→toolName", () => {
+    expect(mapProviderChunk({ kind: "toolUse", id: "x", name: "n", args: {} })).toEqual({ kind: "toolUse", toolCallId: "x", toolName: "n", args: {} });
+    expect(mapProviderChunk({ kind: "text", text: "a" })).toEqual({ kind: "text", text: "a" });
+    expect(mapProviderChunk({ kind: "finish" })).toEqual({ kind: "finish" });
+  });
+  it("isTerminalEmit: finish/error 만", () => {
+    expect(isTerminalEmit({ kind: "finish" })).toBe(true);
+    expect(isTerminalEmit({ kind: "error", message: "e" })).toBe(true);
+    expect(isTerminalEmit({ kind: "text", text: "a" })).toBe(false);
+  });
+});
+
+describe("protocol (wire conform — os AgentOutbound↔AgentMessage)", () => {
+  it("decodeRequest: chat_request/cancel/approval/creds + 미지=null", () => {
+    expect(decodeRequest('{"type":"chat_request","requestId":"r1","provider":{"provider":"ollama","model":"m"},"messages":[]}')?.kind).toBe("chat");
+    expect(decodeRequest('{"type":"cancel_stream","requestId":"r1"}')).toEqual({ kind: "cancel", requestId: "r1" });
+    expect(decodeRequest('{"type":"creds_update","provider":"openai","apiKey":"sk"}')).toEqual({ kind: "credsUpdate", provider: "openai", secret: { apiKey: "sk" } });
+    expect(decodeRequest('{"type":"discord_message"}')).toBeNull(); // 미지=null
+    expect(decodeRequest("not json")).toBeNull();
+  });
+  it("encodeEmit: kind(camel)→type(snake), requestId 결속", () => {
+    expect(encodeEmit("r1", { kind: "text", text: "hi" })).toEqual({ type: "text", requestId: "r1", text: "hi" });
+    expect(encodeEmit("r1", { kind: "toolUse", toolCallId: "t", toolName: "n", args: {} })).toEqual({ type: "tool_use", requestId: "r1", toolCallId: "t", toolName: "n", args: {} });
+    expect(encodeEmit("r1", { kind: "finish" })).toEqual({ type: "finish", requestId: "r1" });
+  });
+  it("decode 시 enableThinking top-level 보존", () => {
+    const d = decodeRequest('{"type":"chat_request","requestId":"r1","provider":{"provider":"o","model":"m"},"messages":[],"enableThinking":true}');
+    expect((d as ChatRequest).enableThinking).toBe(true);
+  });
+});
+
+describe("ChatTurnHandler (turn 파이프라인)", () => {
+  it("정상 1턴: fake provider → text→usage→finish 순, terminal 후 무방출", async () => {
+    const { deps, emits } = capture();
+    await new ChatTurnHandler(deps).onChatRequest(req());
+    expect(emits.map((x) => x.e.kind)).toEqual(["text", "usage", "finish"]); // usage 는 finish 직전 1회
+    expect(emits.every((x) => x.requestId === "r1")).toBe(true);
+  });
+  it("provider rejection → usage→error(terminal), 레지스트리 해제", async () => {
+    const { deps, emits } = capture();
+    const failing: ProviderPort = { async *chat(_c: ProviderConfig, _m: readonly ChatMessage[], _o: ProviderChatOpts): AsyncIterable<ProviderChunk> { throw new Error("LLM down"); } };
+    const h = new ChatTurnHandler({ ...deps, provider: failing });
+    await h.onChatRequest(req());
+    expect(emits.map((x) => x.e.kind)).toEqual(["usage", "error"]);
+    expect(h.turnState("r1")).toBeUndefined(); // 해제
+  });
+  it("provider 동기 throw 도 catch→error(try 안)", async () => {
+    const { deps, emits } = capture();
+    const syncThrow: ProviderPort = { chat() { throw new Error("sync build fail"); } };
+    await new ChatTurnHandler({ ...deps, provider: syncThrow }).onChatRequest(req());
+    expect(emits.some((x) => x.e.kind === "error")).toBe(true);
+  });
+  it("무-terminal EOF(finish 없는 스트림) → usage→error", async () => {
+    const { deps, emits } = capture();
+    const noFinish: ProviderPort = { async *chat(): AsyncIterable<ProviderChunk> { yield { kind: "text", text: "a" }; } };
+    const h = new ChatTurnHandler({ ...deps, provider: noFinish });
+    await h.onChatRequest(req());
+    expect(emits.map((x) => x.e.kind)).toEqual(["text", "usage", "error"]);
+  });
+  it("중복 requestId = 진단 로그만(wire error emit 금지)", async () => {
+    const { deps, emits, logs } = capture();
+    const h = new ChatTurnHandler(deps);
+    // 첫 턴 진행 중 동일 id 재진입을 흉내: 첫 턴이 동기적으로 끝나므로, 별 방법 — 수동으로 두 번째를 첫 turn 활성 중 호출.
+    const slow: ProviderPort = { async *chat(): AsyncIterable<ProviderChunk> { await new Promise((r) => setTimeout(r, 5)); yield { kind: "finish" }; } };
+    const h2 = new ChatTurnHandler({ ...deps, provider: slow });
+    const p = h2.onChatRequest(req());            // 활성
+    await h2.onChatRequest(req());                // 중복(활성 중) → 로그
+    await p;
+    expect(logs.some((l) => l.includes("duplicate"))).toBe(true);
+    expect(emits.some((x) => x.e.kind === "error" && (x.e as { message: string }).message.includes("duplicate"))).toBe(false); // wire error 없음
+    void h;
+  });
+  it("creds_update → providerConfig 에 secret 주입(다음 chat)", async () => {
+    const { deps } = capture();
+    let seenConfig: ProviderConfig | null = null;
+    const spy: ProviderPort = { async *chat(c: ProviderConfig): AsyncIterable<ProviderChunk> { seenConfig = c; yield { kind: "finish" }; } };
+    const h = new ChatTurnHandler({ ...deps, provider: spy });
+    h.onCredsUpdate({ kind: "credsUpdate", provider: "ollama", secret: { apiKey: "sk-1" } });
+    await h.onChatRequest(req());
+    expect(seenConfig!.apiKey).toBe("sk-1"); // creds_update 채널 → providerConfig 주입
+  });
+});
