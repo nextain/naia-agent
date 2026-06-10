@@ -53,7 +53,7 @@ export class ChatTurnHandler {
       });
       for (;;) {
         const r = await Promise.race([it.next(), abortP]);
-        if (r === ABORTED) { void it.return?.(); break; }   // abort 승: 대기 중단 + iterator best-effort close(await 안 함=return 도 hang 가능)
+        if (r === ABORTED) { void Promise.resolve(it.return?.()).catch(() => {}); break; }   // abort 승: 대기 중단 + iterator best-effort close. ⚠️ return() rejection catch(unhandled rejection→프로세스 종료 방지, R6); await 안 함=return hang 대비
         if (r.done) break;                                   // 정상 EOF(finish 없음)→ finally 가 error 종결
         const chunk = r.value;
         if (chunk.kind === "usage") {
