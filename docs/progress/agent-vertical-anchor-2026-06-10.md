@@ -71,3 +71,10 @@ A-ingress.receive(stdin line)→parseRequest→ChatRequest(domain)
 1. **P01** agent user-scenarios(UC1 brain 시각) → 2. **P02** test coverage map → 3. **P03** requirements → 4. UC1 agent 수평 계약(ingress/egress/provider/conv 포트, 2-clean) → 5. domain/ports/app/adapters 코드 + 계약테스트 → 6. **수직 결선**: new-naia-os child-stdio transport ↔ new-naia-agent ingress/egress(헤드리스 trace, fake LLM provider 로 1턴).
 - 결선 = os `uc1-trace-harness` 의 `AGENT_CMD` 를 **new-naia-agent**(빌드본)로 지정 → 양 repo 가 한 wire 로 end-to-end.
 - 절대기준: 각 단계 codex 2-clean + 결정론 게이트(probe 재사용). 앵커(이 문서) 이탈 시 멈춤.
+
+---
+## ✅ 수직 결선 성공 (2026-06-10) — 두 repo end-to-end
+os `uc1-trace-harness` 의 `AGENT_CMD=node ../new-naia-agent/scripts/builds/agent-stdio-entry.mjs` 로
+**new-naia-os(child-stdio transport) ↔ new-naia-agent(ingress→handler→provider(fake)→egress)** 를 *실 process stdio* 로 연결.
+1턴 결과: `rendered=[text,usage,finish], ownerReleased=true, ✅ PASS exit 0`.
+→ 독립 빌드·독립 2-clean 두 repo 가 공유 wire(AgentOutbound↔AgentMessage)로 정합. **fake LLM provider 만 실 provider(ollama 이식)로 교체하면 실 채팅 경로**. 헤드리스(GPU·앱 무접촉).
