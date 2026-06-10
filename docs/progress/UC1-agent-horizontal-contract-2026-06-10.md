@@ -58,14 +58,18 @@ ChatTurnHandler (UC1 오케스트레이션, ingress router 가 type 별 호출):
     { messages, systemPrompt } = ConversationPort.assemble(req)
     stream = ProviderPort.chat(providerConfig, messages, { systemPrompt, abort })
     let sawTerminal=false, usage={in:0,out:0}
+    # ⚠️ 불변식: usage 는 terminal(finish/error) *직전* 정확히 1회. terminal 이후 어떤 방출도 없음(R4/R5).
     try {
       for await chunk of stream:
-        if chunk.kind==="usage": usage 누적(emit 안 함)            # ⚠️ usage 는 스트림 누적만(중복방출 방지, S1)
-        else: e=mapProviderChunk(chunk); emit(req.requestId, e); if e.kind==="finish": sawTerminal=true; state=finished; **break**   # finish 즉시 종료 — 이후 chunk·불법전이 차단(R4). provider 정상=finish chunk 만(error 없음; 실패=rejection→catch)
-    } catch (err) { emit(req.requestId, {kind:error,message}); state=errored; sawTerminal=true }  # provider rejection→error+terminal
-    # 종결 규칙(S1): 정상은 provider 가 finish chunk 방출(sawTerminal). 무-terminal EOF(예외도 finish 도 없음)=조기종료→ emit error+errored. (finish 강제 안 함)
-    if !sawTerminal: emit(req.requestId, {kind:error,message:"incomplete stream"}); state=errored
-    emit(req.requestId, {kind:usage, ...usage})                    # ⚠️ 누적 usage *1회* 종결 시(중복 아님)
+        if chunk.kind==="usage": usage 누적(emit 안 함)            # 스트림 누적만(중복방출 방지)
+        else if chunk.kind==="finish": emit(usage,...); emit(finish); sawTerminal=true; state=finished; **break**  # usage→finish 순, 즉시 종료(이후 chunk·불법전이 차단)
+        else: emit(req.requestId, mapProviderChunk(chunk))         # text/thinking/toolUse — terminal 아님
+    } catch (err) {
+      if (!sawTerminal) { emit(usage,...); emit({kind:error,message}); sawTerminal=true; state=errored }  # ⚠️ 이미 finish 면 무시 — break 의 iterator-close rejection 이 finish 후 error 만드는 것 차단(R5)
+    }
+    # 무-terminal EOF(예외도 finish 도 없음)=조기종료 → usage→error
+    if (!sawTerminal) { emit(usage,...); emit({kind:error,message:"incomplete stream"}); state=errored }
+    # usage 는 위 각 분기에서 terminal 직전 1회만 — 여기서 추가 방출 없음
   onApprovalResponse(req): 보류 중 approval Promise resolve(decision) → 해당 turn 추론 계속  # ApprovalPort 결속
   onCredsUpdate(req): provider 자격 저장 갱신(다음 chat 부터 적용). turn 상태 무관
   onCancel(requestId): abort signal set → ChatTurn streaming→cancelling(비종결; 후속 finished/errored 가 종결)
