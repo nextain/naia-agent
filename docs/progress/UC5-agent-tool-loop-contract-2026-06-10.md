@@ -143,3 +143,71 @@ slice 1 의 fake provider 를 실 provider 로 대체. `makeOpenAICompatProvider
 - **mock fetch 계약 테스트**(기존 `uc1-openai-compat.contract.test.ts` 패턴): (a) tools 전달 시 body.tools 매핑 정확 (b) SSE delta.tool_calls 다조각 재조립(id 첫조각·arguments 분할) → 완전 toolUse{id,name,args 파싱} (c) text+tool_calls 혼합 → text chunk + toolUse 둘 다 (d) arguments JSON **손상 → throw**(provider error); arguments **빈 문자열 → args={}** (e) id 누락 → call_{index} 합성 (f) tools·tool-bearing 메시지 미전달 → 기존 text-only 회귀 없음 (g) assistant(toolCalls)+tool 메시지 매핑 → body.messages 형상(content null·tool_call_id) / tool 메시지 toolCallId 누락 → throw (h) type!=="function" delta → 해당 index 제외(yield 안 함) (i) finalize 단일성: `[DONE]` 후 EOF 와도 toolUse 이중 yield 없음 (j) **원자성**: 다중 call 중 뒤 call args 손상 → throw + 선행 toolUse **0개** 방출(parse-all-then-yield) (k) **abort commit-point**: finalize 진입 전 aborted signal → toolUse·usage·finish **전부 미방출** (l) **EOF-only**(`[DONE]` 없이 스트림 EOF) → finalize 배치(toolUse→usage→finish) 정확히 1회 방출 (m) **중복 provider id**(두 call 같은 nonempty id) → throw / 빈 id 2개 + 충돌 prefix → 유일 합성. (n) **conflict 지연**: 같은 index 에 다른 nonempty id/name 후속 → finalize 에서만 throw(누적 중 아님) (o) **excluded 억제**: id/name 충돌난 index 가 후속 non-function type 으로 excluded → 오류 없이 yield 제외. (p) **invalid index**(누락/음수/비정수) → throw (q) **빈 name** → throw (r) **non-object args**(`null`·배열·문자열·숫자 = JSON-valid 지만 비객체) → throw.
 - **루프 결합**(선택): makeOpenAICompatProvider(mock fetch, 2-라운드: 1라운드 tool_calls·2라운드 text) + echo executor + ChatTurnHandler → uc5 루프 시퀀스. (slice 1 stdio 통합의 provider 교체판.)
 - **codex 2-clean**: §C + openai-compat-provider 코드 2연속 NONE.
+
+## §D. slice 2 — 승인 게이트 (tier-gated 도구, UC13)
+agent 루프가 **tier-gated 도구를 실행 전 사용자 승인 대기**. wire 의 `approval_request`(agent emit, 기존 chat-turn variant)·`approval_response`(inbound AgentOutbound, 기존) 사용. slice 1 의 call 처리 단계만 확장 — 루프 골격·wire·usage·terminal 래치 불변.
+**범위**: agent 측(emit approval_request + await + approve/reject 분기). **os 측 표시/응답 송신 = os UC13(범위 밖, 후속)** — os MessageRouter 는 approval_request 를 이미 chat-turn(approvalRequest)으로 라우팅(UC1 §B.4), 응답 송신 배선만 os 후속.
+
+### D.1 tier 출처
+- `ToolSpec` 에 `tier?: string` 추가. **미설정 또는 `"none"` = 자동 실행**(slice 1 경로, approval 불요). 그 외(예 "ask") = **승인 필요**.
+- `exec.specs()` 의 **name 은 유일**(executor 계약). 루프가 `call.name` 으로 tier 조회. 미등록 도구 = tier none(어차피 execute isError — approval 무의미). ⚠️ **보수적**: 같은 name 이 둘 이상 매치(계약 위반 상황)면 가장 제한적 tier(= 승인필요) 채택 — gated→auto 로 **조용히 강등 금지**.
+
+### D.2 ApprovalPort 확장 (2단계 — register-before-emit)
+```
+interface ApprovalPort {
+  resolve(requestId, toolCallId, decision): void   # inbound approval_response 처리. UC1 no-op → slice 2 실구현
+  prepareDecision(requestId, toolCallId, opts:{signal?}): { promise: Promise<"approve"|"reject">; dispose: () => void }
+}
+```
+- `prepareDecision`: 보류를 **즉시 등록** 후 `{promise, dispose}` 반환. ⚠️ **키는 구조적**(nested `Map<requestId, Map<toolCallId, pending>>` 또는 충돌 불가능 키) — `requestId|toolCallId` 문자열 concat 금지(둘 중 하나에 `|` 포함 시 다른 쌍과 충돌해 오결정). handler 가 *먼저 호출해 등록* → 그 다음 approval_request emit → 그 다음 `promise` await. ⚠️ **fast/sync resolve 유실 방지**(emit 전 등록 완료).
+  - ⚠️ **abort 원자성 (check→listen→recheck)**: ① `signal.aborted` 검사 — 이미 true 면 promise 즉시 reject(미등록/즉시 dispose). ② false 면 abort listener 설치(abort → reject + 보류 제거 + listener 해제). ③ listener 설치 **직후 `signal.aborted` 재검사** — 그새 abort 됐으면(check~listen 윈도우) 즉시 reject + 정리. 이 3단계로 check↔listen 경합(이벤트 놓쳐 영구 대기) 제거.
+  - `dispose()`: 보류가 **아직 미해소면 제거 후 promise 를 reject(settle)** + abort listener 해제 — 무한 pending 방지(first-settlement 보장). 이미 해소(resolve/abort)됐으면 **no-op**(idempotent). handler `finally` 에서 항상 호출(예외/정상 무관). reject 는 handler 의 `void promise.catch(()=>{})` 가 관찰(unhandled 없음).
+  - **단일 settlement**: resolve·abort·dispose 중 첫 효력만, 이후 no-op(**delete-before-settle** — settle 전 보류 맵에서 제거해 재진입·중복 차단).
+- `resolve`: key 보류를 **먼저 제거한 뒤** settle. 미등록 key(보류 없음/이미 해소/지연·중복) = **no-op**. listener 해제.
+
+### D.3 handler 루프 — call 처리 확장 (slice 1 §B.3 의 `for call in calls` 내부)
+```
+for call in calls:
+  if signal.aborted: terminal_error("cancelled"); stop        # (c) 기존
+  # ⚠️ cid = **turn-unique correlation id**(D-I7): turn used-set 기준 — 후보 = call.id, used 면 `${call.id}#r${toolRounds}`, 그것도 used 면 `${call.id}#r${toolRounds}_2`, `_3`… **unused 까지 반복**(한정값 자체 충돌도 검사 — provider 가 `x#r1` 같은 값을 직접 줄 수도 있음). 확정 cid 를 used-set 에 추가. 이후 toolUse·approval_request·toolResult·threadToolRound 전부 **cid 일관**(LLM correlation 유지 + 지연 approval_response 오결정 차단).
+  cid = turnUniqueCorrelationId(call.id)   # loop-until-unused (§C 합성 id 와 동일 보장)
+  emit toolUse({...call, toolCallId: cid})                    # 표시(승인 대상 노출, cid)
+  tier = tierOf(call.name)                                    # specs 조회, 없으면 "none"(중복 매치=승인필요 보수)
+  if tier != "none":                                          # 승인 필요
+     if signal.aborted: terminal_error("cancelled"); stop     # (e) prepare 전 가드
+     const { promise, dispose } = approval.prepareDecision(requestId, cid, {signal})  # 등록 먼저(turn-unique 키)
+     void promise.catch(() => {})  # ⚠️ rejection 관찰자 즉시 부착 — await 안 하는 early-stop(e2)서 unhandled rejection 방지(실제 결정은 아래 await).
+     if signal.aborted: dispose(); terminal_error("cancelled"); stop  # (e2) prepare 직후·emit 전 가드(prepare 중 abort 시 해소불가 approval_request emit 방지)
+     decision = "reject"
+     try:
+       emit approval_request{toolCallId: cid, toolName: call.name, tier}  # 등록 후 emit(fast resolve 안전, cid)
+       try: decision = await promise
+       catch: decision = "reject"                              # abort 면 아래 (f) 가 cancelled; 비-abort reject = 안전 기본
+     finally: dispose()                                        # 항상 정리(누수 방지, idempotent)
+     if signal.aborted: terminal_error("cancelled"); stop      # (f) await 후 가드(abort 단일 cancelled)
+     if decision == "reject":
+        emit toolResult{toolCallId: cid, output: "도구 호출이 거부되었습니다"}  # 거부도 toolResult 쌍(I6, cid)
+        results.push({id: cid, output: "도구 호출이 거부되었습니다", isError: true})
+        continue                                               # 실행 안 함 — 다음 call
+  # approve 또는 비-gated → slice 1 그대로(cid 사용):
+  r = await exec.execute(call, {signal}) ...                   # (d) 가드 등 slice 1 동일(executor 는 id 무관)
+  emit toolResult{toolCallId: cid, output: r.output}; results.push({id: cid, ...r})
+# threadToolRound 는 cid 로 묶은 calls(assistant tool_calls id=cid) + 결과(tool 메시지 toolCallId=cid) 사용 — turn 내 일관.
+msgs = threadToolRound(msgs, roundText, callsWithCid, results)
+```
+⚠️ call 단위 `dispose`(finally)로 미해소 보류 즉시 정리 — 별도 turn-finally 추적 불요. **cid turn-unique + requestId turn-unique(§B.4.1) ⇒ (requestId,cid) wire correlation 키가 turn 내 유일 → 지연/cross-round approval_response 오결정 없음**. reused requestId 충돌도 dispose 로 차단.
+
+### D.4 불변식 (slice 1 계승 + slice 2)
+- (D-I1) **비-gated(tier none) = slice 1 동작 완전 동일**(approval_request 미방출).
+- (D-I2) **toolUse↔toolResult 쌍 유지**: gated 도구도 approve→실행 toolResult / reject→거부 toolResult. 모든 emit 된 toolUse 는 toolResult 와 쌍. (cancel 중 in-flight = 기존 수용 bound — toolUse/approval_request 후 cancel 시 toolResult 없이 cancelled.)
+- (D-I3) **reject ≠ terminal**: 거부 = toolResult(isError) + threadToolRound 포함 → LLM 재호출(복구·대안 제시). 무한 retry 는 cap(I7) 바운드.
+- (D-I4) **cancel**: approval 대기 중 abort → promise reject → terminal "cancelled"(단일 래치). 가드 = (e) prepare 전 (e2) prepare 직후·emit 전 (f) await 후 + catch. dispose 가 finally 에서 보류·listener 정리. terminal 이후 무방출.
+- (D-I5) **순서·결속**: prepareDecision(등록) → emit toolUse 는 이미 됨 → emit approval_request → (decision) → toolResult. 전부 requestId·toolCallId 결속. **등록이 emit 보다 먼저**(fast resolve 유실 방지).
+- (D-I6) **단일 settlement·정리**: resolve 는 delete-before-settle(미등록/중복/지연 = no-op). 모든 종결 경로(resolve/abort/dispose)가 보류 제거 + listener 해제, 첫 효력만. dispose idempotent — 누수 없음.
+- (D-I7) **correlation 키 turn-unique**: requestId turn-unique(§B.4.1) + cid turn-unique(used-set·round 접미사) ⇒ `(requestId, cid)` wire 승인 correlation 키가 turn 내 유일. 합성 `call_{index}` 라운드 반복·provider id 재사용에도 지연/cross-round approval_response 가 다른 보류를 오결정하지 않음. cid 는 toolUse·approval_request·toolResult·threadToolRound 전부 일관.
+- (I1·I2·I5·I7 등 slice 1 계승): usage 1회·finish XOR error 래치·emit no-throw·cap 등 불변.
+
+### D.5 검증
+- 계약 테스트: (a) gated approve → toolUse→approval_request→execute→toolResult→재호출→finish (b) gated reject → toolUse→approval_request→toolResult(거부)→재호출→finish(execute 안 함) (c) non-gated → approval_request 미방출(slice 1 동일) (d) approval 대기 중 cancel → cancelled terminal·toolResult 미emit·usage 1회 (e) 다중 call 혼합(gated+non-gated) 순서·쌍 (f) 미지 approval_response(보류 없는 id) → no-op (g) **fast/sync resolve**(emit 직후 즉시 resolve)도 유실 없이 반영(register-before-emit) (h) **dispose idempotent**: 해소 후/중복 dispose 무해, 보류 누수 없음 (i) **abort 원자(check→listen→recheck)**: 이미 aborted signal → 즉시 cancelled; listener 설치 직후 abort 도 즉시 settle(영구 대기 없음) (j) **중복 tier name**(계약 위반) → 승인필요(보수) (k) **cid turn-unique**: 두 라운드가 같은 call.id(예 합성 call_0) 사용 → 2라운드는 round 접미사로 한정(`call_0#r2`)되어 1라운드의 지연 approval_response(call_0)가 2라운드 보류를 건드리지 않음; toolUse/approval/toolResult/thread 전부 cid 일관.
+- 라이브(선택): GLM + gated 도구 + approve/reject.
+- **codex 2-clean**: §D + ApprovalPort 구현 + handler 확장 코드 2연속 NONE.
