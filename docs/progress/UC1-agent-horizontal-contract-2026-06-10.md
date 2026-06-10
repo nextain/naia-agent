@@ -28,7 +28,7 @@
 | `AgentRequest` | inbound domain 폐쇄 union = `ChatRequest | CancelRequest{requestId} | ApprovalResponse{requestId,toolCallId,decision} | CredsUpdate{provider,secret}`. **os `AgentOutbound` 와 1:1**(ingress 가 wire→이 union 디코드). |
 | `ChatRequest` | requestId, provider:ProviderConfig, messages, systemPrompt?, enableTools?, **enableThinking?**(top-level), gatewayUrl?, disabledSkills?. wire `AgentOutbound.chat_request` 와 동형(os 정합). |
 | `ProviderChunk` | provider-중립 *도메인 정규화* 스트림 단위 = `text|thinking|toolUse{id,name,args}|usage{in,out}|finish`. ⚠️ old `StreamChunk`(raw, snake `tool_use`)와 *별 레이어* — **provider 어댑터가 raw→ProviderChunk 정규화**(camel). audio=UC2 범위라 UC1 제외. **error variant 없음 — provider 실패=rejection(throw)**, handler catch 가 AgentEmit error 생성(mapProviderChunk 는 error 안 만듦). |
-| `AgentEmit` | egress 가 wire 로 내보낼 chat-turn domain chunk = os chat-turn AgentMessage 의 domain 표현(폐쇄): `text·thinking·toolUse{toolCallId,toolName}·toolResult·approvalRequest·gatewayApprovalRequest·finish·error·usage·logEntry·tokenWarning`. **권위=os AgentMessage chat-turn 분류(공유, audio 제외=nonchat/UC2)**. `error`=handler 가 provider rejection catch 시 생성(ProviderChunk 매핑 아님). |
+| `AgentEmit` | egress 가 wire 로 내보낼 chat-turn domain chunk = os chat-turn AgentMessage 의 domain 표현(폐쇄): `text·thinking·toolUse{toolCallId,toolName}·toolResult·approvalRequest·gatewayApprovalRequest·finish·error·usage·logEntry·tokenWarning`. **권위=os AgentMessage chat-turn 분류(공유, audio 제외=nonchat/UC2)**. `error`=handler 가 provider rejection catch 시 생성(ProviderChunk 매핑 아님). ⚠️ `approvalRequest`/`gatewayApprovalRequest`=wire-canon 멤버(os chat-turn 분류)이나 **방출은 UC5(도구)** — UC1 기본 chat 미방출. |
 | `ChatTurn` | requestId 턴 상태기계. 상태=`streaming|cancelling|finished|errored`(terminal=finished,errored). **정상: streaming→finished(provider finish chunk) / →errored(error chunk)**. **취소: streaming→(abort)→cancelling→finished/errored**. **provider 예외/무-terminal EOF: →errored**. provider 중립·순수. |
 | `mapProviderChunk(ProviderChunk): AgentEmit` | **1:1 순수 매핑**(toolUse id→toolCallId, name→toolName). ⚠️ usage *누적은 여기 아님* — ChatTurnHandler 상태(B.3). os domain↔protocol 매핑과 대칭. |
 
@@ -40,8 +40,8 @@ ProviderPort:                         # LLM 추론 (이식 소스 providers/)
 ConversationPort:                     # 대화조립 (conversation/ + system-prompt)
     assemble(req): { messages, systemPrompt }   # token-budget 적용. 순수에 가까움(이식 시 I/O 분리)
 ApprovalPort:                         # 도구 승인 결속 (agent측, approval-bridge.ts) — os ApprovalPort 의 짝
-    awaitDecision(requestId, toolCallId): Promise<decision>   # tool_use 승인 대기(turn 추론이 await)
-    resolve(requestId, toolCallId, decision): void            # approval_response 수신 시 위 Promise 해소(타임아웃=reject 기본)
+    resolve(requestId, toolCallId, decision): void            # ⚠️ **UC1 범위 = inbound approval_response 처리만**. 보류 레지스트리의 해당 결정을 해소.
+    # awaitDecision(...) (tool_use 발생 시 emit approvalRequest + 대기 후 추론 계속) = **호출자=도구실행(UC5) → UC5 에서 추가**. UC1 기본 chat 은 도구 없어 미호출.
 # driving-in (wire→brain) — ⚠️ **단일 구독자**(os MessageRouter 대칭): 모든 inbound 한 곳, type 별 라우팅
 AgentIngressPort:                     # stdin wire → AgentRequest (= H-agent 경계 agent측)
     onRequest(cb): Unsub              # parseRequest 후 *전 AgentOutbound variant*(chat_request·cancel_stream·approval_response·creds_update) 단일 cb 로. router 가 type 분기→해당 app 핸들러. 미지=무시+log(silent drop 금지)
@@ -73,7 +73,7 @@ ChatTurnHandler (UC1 오케스트레이션, ingress router 가 type 별 호출):
     # 무-terminal EOF(예외도 finish 도 없음)=조기종료 → usage→error
     if (!sawTerminal) { emit(usage,...); emit({kind:error,message:"incomplete stream"}); state=errored }
     # usage 는 위 각 분기에서 terminal 직전 1회만 — 여기서 추가 방출 없음
-  onApprovalResponse(req): 보류 중 approval Promise resolve(decision) → 해당 turn 추론 계속  # ApprovalPort 결속
+  onApprovalResponse(req): ApprovalPort.resolve(requestId, toolCallId, decision)  # 보류 결정 해소(대기측=도구실행 UC5). UC1 기본 chat 은 보류 없음 → no-op 가능
   onCredsUpdate(req): provider 자격 저장 갱신(다음 chat 부터 적용). turn 상태 무관
   onCancel(requestId): abort signal set → ChatTurn streaming→cancelling(비종결; 후속 finished/errored 가 종결)
   # wire encode/decode·demux 안 봄(adapter). provider 선택만 domain.
