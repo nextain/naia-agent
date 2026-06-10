@@ -211,3 +211,32 @@ msgs = threadToolRound(msgs, roundText, callsWithCid, results)
 - 계약 테스트: (a) gated approve → toolUse→approval_request→execute→toolResult→재호출→finish (b) gated reject → toolUse→approval_request→toolResult(거부)→재호출→finish(execute 안 함) (c) non-gated → approval_request 미방출(slice 1 동일) (d) approval 대기 중 cancel → cancelled terminal·toolResult 미emit·usage 1회 (e) 다중 call 혼합(gated+non-gated) 순서·쌍 (f) 미지 approval_response(보류 없는 id) → no-op (g) **fast/sync resolve**(emit 직후 즉시 resolve)도 유실 없이 반영(register-before-emit) (h) **dispose idempotent**: 해소 후/중복 dispose 무해, 보류 누수 없음 (i) **abort 원자(check→listen→recheck)**: 이미 aborted signal → 즉시 cancelled; listener 설치 직후 abort 도 즉시 settle(영구 대기 없음) (j) **중복 tier name**(계약 위반) → 승인필요(보수) (k) **cid turn-unique**: 두 라운드가 같은 call.id(예 합성 call_0) 사용 → 2라운드는 round 접미사로 한정(`call_0#r2`)되어 1라운드의 지연 approval_response(call_0)가 2라운드 보류를 건드리지 않음; toolUse/approval/toolResult/thread 전부 cid 일관.
 - 라이브(선택): GLM + gated 도구 + approve/reject.
 - **codex 2-clean**: §D + ApprovalPort 구현 + handler 확장 코드 2연속 NONE.
+
+## §E. 실 스킬 — S20 time / S21 weather / S22 memo (ToolExecutorPort 구현)
+echo(데모)를 실 스킬로. ToolExecutorPort(§B.2, 2-clean) 뒤의 concrete 어댑터 — 포트·루프·승인 불변. 도구 5개를 한 `makeBuiltinSkillsExecutor(deps)` 가 제공.
+
+### E.1 deps 주입(순수·테스트성)
+- `clock(): Date` (S20), `fetchWeather(lat,lon,signal): Promise<{tempC:number; code:number}>` (S21, 외부 — **기본값 없음**; live entry 가 open-meteo 구현 주입, 테스트는 mock 주입), `memo: MemoStore` (S22).
+- `MemoStore = { save(title,content): void; list(): readonly string[]; get(title): string|null }`. **memo 는 기본값 = in-memory Map**(항상 가용; 파일영속 = 후속, entry 가 주입 가능). **clock·fetchWeather 는 기본값 없음**(테스트성 위해 ()=>new Date 금지) — 미주입 시 해당 도구만 isError(E-I4). 즉 memo_*는 항상 가용, get_time/get_weather 는 dep 주입 시에만 가용.
+
+### E.2 도구 5개 (name · tier · args · 동작)
+| name | tier | args | 동작 | 결과 |
+|---|---|---|---|---|
+| `get_time` | none | `{timezone?: string}` | clock() → ISO 문자열(+tz 있으면 Intl 포맷) | 시각 문자열 |
+| `get_weather` | none | `{latitude:number, longitude:number}` | fetchWeather | "기온 X°C, 코드 Y" |
+| `memo_list` | none | `{}` | memo.list() | 저장소 순서 유지 `titles.join("\n")`; 빈 목록은 "(없음)" |
+| `memo_get` | none | `{title:string}` | memo.get(title) | 내용 / "(없음)" |
+| `memo_save` | **ask** | `{title:string, content:string}` | memo.save (mutate) → 승인 게이트(§D) | "저장됨: <title>" |
+
+### E.3 불변식 (각 도구 — 통합 no-throw / abort)
+- (E-I1 abort) execute **진입 즉시** `signal.aborted` 검사 → **reject**(abort). **mutating(memo_save)** 은 mutation *직전* 재검사 → reject(취소 후 부작용 방지). **async dep(fetchWeather 등) await *직후* 재검사** → reject(취소 무시하는 dep 이 abort 후 성공 반환·검증·포맷하는 것 차단). 그 외 reject 금지.
+- (E-I1b no-throw 경계) **arg 파싱·검증·dep 호출(clock/fetch/memo)·결과 포맷 전부 단일 try/catch 안**. catch 시: `signal.aborted` 면 **reject**(전파), 아니면 `{output:<msg>, isError:true}`. ⚠️ **msg 추출 자체가 fail-safe**: 임의 throw 값(예: .message getter 가 throw·toString throw 하는 객체)을 문자열화하는 과정이 또 throw 할 수 있으므로 중첩 try/catch 로 추출하고 실패 시 고정 문자열("tool error")로 폴백 — execute 가 절대 throw 하지 않음(abort 제외). ⚠️ fetch 의 AbortError 도 동일 — *AbortError 종류로 분류하지 않고* `signal.aborted` 여부로만 reject 판정(비-abort 실패는 isError). 미등록 name 도 isError.
+- (E-I2 arg 검증, 읽기 전·no-throw 경계 안) **plain-object 술어** = `v!==null && typeof v==="object" && !Array.isArray(v)`. 아니면 isError. 필드 읽기는 경계 안(getter/proxy throw → catch→isError). `latitude/longitude` = **`Number.isFinite` 후** 범위(-90..90 / -180..180), 아니면 isError(NaN/Infinity 배제). `title/content` = string 필수, `timezone` = optional·**존재 시 string**(아니면 isError; 없으면 UTC).
+- (E-I3 tier) memo_save=**ask**, 나머지(time/weather/memo_list/memo_get)=none. specs() 노출(§D tierOf).
+- (E-I4 deps 미주입) clock/fetchWeather 미주입 시 get_time/get_weather → isError("<tool> unavailable"). memo 는 기본 in-memory 라 항상 가용(memo_* unavailable 없음). executor 생성 성공(부분 가용).
+- (E-I5 결정론·포맷 고정) get_time 기본 = `clock().toISOString()`(UTC ISO, 결정론). timezone 주어지면 `Intl.DateTimeFormat("en-US", {timeZone, year:numeric, month/day:2-digit, hour/minute/second:2-digit, hourCycle:"h23", era:"short"})` 의 **`formatToParts()`** (⚠️ `era:"short"` 포함 — en-US era="AD" 검증용; 없으면 era part 부재로 전부 isError) 로 year/month/day/hour/minute/second part 를 뽑아 **직접 `YYYY-MM-DD HH:mm:ss (tz)` 조립**(locale 문자열 형식·구분자 변동 제거, hourCycle h23 로 자정 24:00:00 방지). year 는 `padStart(4,"0")`, month/day/hour/minute/second 는 `padStart(2,"0")` 로 자리수 보장. ⚠️ **연도 1..9999 CE 만 지원** — clock 연도가 아니라 **formatToParts 의 *zoned* `era` + `year` 를 검증**(tz 오프셋이 경계서 BCE/연10000 로 넘길 수 있으므로 zoned 기준): `era` part 가 CE(AD) 가 아니거나 zoned year 가 1..9999 밖이면 **isError**. 이로써 BCE/확장연도 클래스 전체를 한 지점에서 종결(현재 시각 도구엔 현실적으로 불가 → 명시적 수용 bound, era 무한 처리 회피). 유효하지 않은 tz → Intl 생성자 throw → catch → isError. clock() 반환 = 유효 Date(`!isNaN(getTime())`) 검증 후 포맷. **memo.list() = string 배열(아니면 isError), memo.get() = string|null(그 외 타입이면 isError)** 검증 후 사용. 모든 dep 동기 throw 도 catch→isError. **fetchWeather 반환 `tempC`·`code` 는 포맷 전 `Number.isFinite` 검증** — 둘 중 하나라도 비유한수면 isError(malformed 응답을 "기온 NaN°C" 로 성공처리 금지). clock/fetchWeather/memo 주입으로 테스트(라이브만 실 clock/open-meteo/store).
+
+### E.4 검증
+- 계약 테스트: (a) get_time(주입 clock) → UTC ISO; tz 주면 고정 포맷 (b) get_weather(mock fetch) → 포맷 / 비-abort fetch reject → isError / aborted signal → reject (c) memo_save→list→get 왕복(주입 store) (d) arg 누락/타입오류·배열·null → isError(throw 아님) (e) 미등록 name → isError (f) memo_save tier=ask(specs) · 읽기 tier=none (g) clock/fetchWeather 미주입 → get_time/get_weather isError; memo 미주입이어도 memo_* 정상(기본 in-memory) (h) **lat/lon = NaN/Infinity/범위밖 → isError** (i) **invalid timezone → isError**(Intl throw catch) (j) **getter throw 하는 args / 동기 throw 하는 clock·memo → isError**(no-throw 경계) (k) **이미 aborted signal 로 execute → reject**(진입 검사) (l) **memo_save: mutation 직전 abort → reject·미저장** (m) **malformed weather**(tempC/code 비유한수) → isError (n) **get_weather: fetchWeather await 직후 abort** → reject(검증/포맷 전) (o) **malformed memo 반환**(list 비배열·get 비string/null) → isError (p) **clock 무효 Date** → isError.
+- 라이브(선택): GLM + get_time/memo(로컬) + get_weather(open-meteo). memo_save 는 승인 게이트.
+- **codex 2-clean**: §E + makeBuiltinSkillsExecutor 코드 2연속 NONE.
