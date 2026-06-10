@@ -5,6 +5,7 @@
 import { createInterface } from "node:readline";
 import { wireAgentUC1 } from "../../dist/main/composition/index.js";
 import { makeOllamaProvider } from "../../dist/main/adapters/ollama-provider.js";
+import { makeOpenAICompatProvider } from "../../dist/main/adapters/openai-compat-provider.js";
 
 // process stdin/stdout → LineIO
 const rl = createInterface({ input: process.stdin });
@@ -15,11 +16,17 @@ const io = {
 };
 rl.on("line", (l) => lineCb?.(l));
 
-// AGENT_PROVIDER=ollama → 실 ollama(NDJSON 스트림, GPU 필요). 미설정=fake(헤드리스).
-const useOllama = process.env.AGENT_PROVIDER === "ollama";
-const { start } = wireAgentUC1({ io, ...(useOllama ? { provider: makeOllamaProvider() } : {}) });
+// AGENT_PROVIDER: ollama(GPU) | glm(클라우드 z.ai coding, GLM_KEY) | (미설정)=fake 헤드리스.
+const ap = process.env.AGENT_PROVIDER;
+let provider, label = "fake";
+if (ap === "ollama") { provider = makeOllamaProvider(); label = "ollama"; }
+else if (ap === "glm") {
+  provider = makeOpenAICompatProvider({ baseUrl: process.env.GLM_BASE_URL || "https://api.z.ai/api/coding/paas/v4", apiKey: process.env.GLM_KEY || process.env.GLM_API_KEY || "" });
+  label = "glm(z.ai)";
+}
+const { start } = wireAgentUC1({ io, ...(provider ? { provider } : {}) });
 start?.();
-process.stderr.write(`[new-naia-agent] stdio ready (${useOllama ? "ollama" : "fake"} provider)\n`);
+process.stderr.write(`[new-naia-agent] stdio ready (${label} provider)\n`);
 
 // stdin 닫히면 종료
 rl.on("close", () => process.exit(0));
