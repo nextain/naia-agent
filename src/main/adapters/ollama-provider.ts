@@ -9,7 +9,7 @@ const DEFAULT_NUM_CTX = 8192;
 
 type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal }) => Promise<{
   ok: boolean; status: number; statusText: string;
-  body: { getReader(): { read(): Promise<{ done: boolean; value?: Uint8Array }> } } | null;
+  body: { getReader(): { read(): Promise<{ done: boolean; value?: Uint8Array }>; cancel?(): Promise<void> | void } } | null;
 }>;
 
 interface OllamaChunk {
@@ -71,20 +71,24 @@ export function makeOllamaProvider(deps?: { fetch?: FetchLike }): ProviderPort {
         return chunks;
       };
 
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (value) buffer += decoder.decode(value, { stream: true });
-        let nl: number;
-        while ((nl = buffer.indexOf("\n")) !== -1) {
-          for (const c of parseLine(buffer.slice(0, nl))) yield c;
-          buffer = buffer.slice(nl + 1);
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value) buffer += decoder.decode(value, { stream: true });
+          let nl: number;
+          while ((nl = buffer.indexOf("\n")) !== -1) {
+            for (const c of parseLine(buffer.slice(0, nl))) yield c;
+            buffer = buffer.slice(nl + 1);
+          }
         }
+        if (buffer) { for (const c of parseLine(buffer)) yield c; } // trailing line
+        if (inputTokens > 0 || outputTokens > 0) yield { kind: "usage", inputTokens, outputTokens };
+        yield { kind: "finish" };
+      } finally {
+        // ⚠️ 소비자 중도 종료(generator.return — handler abort/finish closeIt)·정상 종료 모두 reader 정리(HTTP/lock 누수 방지, R1)
+        try { void reader.cancel?.(); } catch { /* 격리 */ }
       }
-      if (buffer) { for (const c of parseLine(buffer)) yield c; } // trailing line
-
-      if (inputTokens > 0 || outputTokens > 0) yield { kind: "usage", inputTokens, outputTokens };
-      yield { kind: "finish" };
     },
   };
 }
