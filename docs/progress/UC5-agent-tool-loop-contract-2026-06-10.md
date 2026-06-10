@@ -105,3 +105,41 @@ loop:
 
 ### B.7 다음
 slice 1 코드 → slice 1b(openai-compat tool_calls, GLM 실동작) → slice 2(승인 게이트 ApprovalPort.awaitDecision) → S20+ 실 스킬(time/weather/memo) per-tool.
+
+## §C. slice 1b — openai-compat provider 의 실 tool_calls (GLM 실동작)
+slice 1 의 fake provider 를 실 provider 로 대체. `makeOpenAICompatProvider` 가 (1) tools 전송 (2) tool-bearing 메시지 매핑 (3) SSE delta.tool_calls 재조립 → 완전 toolUse chunk yield. **agent 루프(slice 1)·wire·ToolExecutor 불변** — provider 어댑터만 변경. domain ProviderChunk.toolUse{id,name,args} 그대로 사용.
+
+### C.1 요청 매핑 (domain → OpenAI wire)
+- **tools**: `opts.tools?.length` 일 때만 body 에 `tools: specs.map(s => ({ type:"function", function:{ name:s.name, description:s.description, parameters:s.parameters } }))` 추가. (없으면 tools 키 자체 생략 — 기존 채팅 동작 불변.) `tool_choice` 는 미설정(provider 기본=auto).
+- **메시지 매핑**(각 ChatMessage → OpenAI message):
+  - `assistant` + `toolCalls?.length`: `{ role:"assistant", content: content==="" ? null : content, tool_calls: toolCalls.map(c => ({ id:c.id, type:"function", function:{ name:c.name, arguments: JSON.stringify(c.args ?? {}) } })) }`. (content "" + toolCalls → null = OpenAI 규약.)
+  - `tool`: `{ role:"tool", tool_call_id: m.toolCallId, content: m.content }`. ⚠️ `toolCallId` 없으면 **mapping error throw**(skip 금지 — assistant tool_calls ↔ 결과 대응이 깨진 채 요청 의미 변경 방지; rejection→handler catch→terminal error). 정상 경로엔 threadToolRound 가 항상 설정.
+  - 그 외(system/user/일반 assistant): `{ role: m.role, content: m.content }`(기존).
+
+### C.2 응답 파싱 (SSE delta.tool_calls 재조립)
+- 기존 `delta.content` → text chunk 즉시 yield(불변).
+- **delta.tool_calls**(배열, 각 `{ index, id?, type?, function?:{ name?, arguments? } }`): ⚠️ **index 검증 먼저** — `index` 가 non-negative integer(`Number.isInteger(index) && index >= 0`) 아니면(누락/음수/비정수/실수) **throw**(누적 전; 잘못된 index 는 call 병합·순서 오류 유발). 통과 시 index 별 누적 버퍼 `acc[index] = { id, name, args:"", excluded:false, conflict:false }`:
+  - `id` 도착 시 설정(첫 조각). ⚠️ 이미 nonempty id 가 설정된 index 에 후속 delta 가 **다른 nonempty id** 를 가져오면 **즉시 throw 하지 말고 `conflict=true` 마커만** 세움(동일 id 재전송·빈 id 후속은 무시). `function.name` 동일(다른 nonempty name 후속 → conflict 마커). `function.arguments`(문자열 조각)는 **이어붙임**(args += fragment).
+  - ⚠️ **type 가드**: delta 에 `type` 이 존재하고 `"function"` 이 아니면 그 index 를 `excluded=true` 로 표시(non-function tool = 미지원). ⚠️ excluded 인 index 는 **이후 모든 필드(id/name/args/conflict) 무시** — 미지원 호출의 충돌은 오류 아님("미지원=무시"). type 미존재(스트림 조각엔 흔함)는 function 으로 간주.
+  - ⚠️ **conflict 는 finalize 에서만 평가**(누적 중 throw 금지) — 후속 delta 가 그 index 를 excluded 로 밝힐 수 있으므로(레이스). finalize 가 non-excluded index 만 검증.
+- **usage/finish 도 finalize 에서만**(스트림 중 즉시 yield 금지): `usage`(inTok/outTok)는 스트림 중 *누적만*(기존), `finish` 도 mid-stream yield 안 함. 종료 단위 산출(toolUse·usage·finish) 전부 단일 finalize 가 순서대로 방출 → `toolUse → usage → finish` 순서 보장.
+- **단일 finalize 경로**(`finalized` 가드로 정확히 1회 — `[DONE]` *또는* EOF 중 먼저 도달한 쪽에서만 실행, 다른 쪽은 가드로 no-op → 이중 yield 차단). 순서: **(1) 원자적 toolUse 배열 yield → (2) usage(누적값, inTok|outTok>0 일 때) → (3) finish**:
+  - ⚠️ **abort = 단일 commit point**: 배치 yield *시작 전* `signal.aborted` 1회 검사 — true 면 toolUse·usage·finish 전부 yield 안 함(acc 폐기, abort 가 정상 EOF 로 관찰돼도 부분 flush 방지). false 면 **commit** = 추가 검사 없이 배치 완주 yield. ⚠️ async generator 는 각 yield 에서 suspend 하므로 yield *사이* abort 가 들 수 있으나 provider 가 per-yield 로 막지 않음 — **all-or-none 은 소비 측에서 성립**: agent runRound 가 `Promise.race([it.next(), abortP])` 로 abort 후 `it.next()` 결과를 안 읽고 멈춤(잔여 chunk 미소비). 기존 usage/finish yield 와 동일 모델(provider 단독 보장 불요).
+  - ⚠️ **2단계(parse-all-then-yield-all, 원자적)**: 먼저 누적된 acc 를 **index 오름차순**, `excluded` 아닌 것만 전부 검증해 `{id,name,args}` **완성 배열**을 만든다. 각 non-excluded index 검증: **conflict 마커면 throw**(id/name 혼선), 그 다음 name/args 검증(아래). 이 단계서 어떤 위반이든 throw — 어떤 toolUse 도 아직 yield 안 함 → 부분 방출 없음. 검증 통과 후에만 배열을 순서대로 일괄 yield. (index 순 parse↔yield 교차 금지.)
+  - ⚠️ **provider id 중복 거부**: parse-all 중 *nonempty* provider 제공 id 가 배치 내 둘 이상 같으면 **throw**(protocol 손상 — 같은 id 의 결과 결속이 모호. 합성 id 충돌 회피(아래)는 빈 id 만 다루므로 이건 별도). 빈 id 만 합성 대상.
+    - `id` = acc.id, 없으면 **배치 내 유일 합성**: provider 제공 id 전체를 used 집합에 먼저 모으고, `call_${index}` 가 used 에 있으면 `call_${index}_1`, `_2`… 충돌 없는 첫 값(결정론·배치 내 유일 — 합성 id 가 다른 call 의 provider id 와 겹쳐 결과 결속이 모호해지는 것 방지). 합성 id 도 used 에 추가.
+    - `name` = acc.name — **빈/미설정이면 throw**(protocol 손상; name 없는 tool_call 은 "완전 toolUse" 아님. unknown-tool isError 로 오분류 금지 — 그건 *유효한* name 이 실행기에 미등록일 때만).
+    - `args` = acc.args 가 **빈 문자열이면 `{}`**(인자 없는 도구 = 정상). 아니면 `JSON.parse(acc.args)` 후 **반드시 plain object(non-null, non-array) 검증** — parse 실패 *또는* 결과가 object 아님(null/배열/문자열/숫자)이면 **throw**(malformed arguments = protocol 손상 → terminal "provider error"). 빈 객체로 무마하면 인자 없이 도구 오실행 위험이라 금지. (function arguments 는 JSON object 규약.)
+- 순서: **text chunk(스트림 중) → finalize 에서 모든 toolUse chunk(index 순) → usage → finish**. (agent runRound 는 toolUse 를 calls 로 버퍼링하므로 순서 무관하나 결정적 순서 고정.)
+
+### C.3 불변식·경계 (slice 1 계승 + 1b)
+- (C-I1) **tools *및* tool-bearing 메시지(assistant.toolCalls·tool role)가 모두 없는 기존 text-only 입력 = 동작 완전 동일**(tools 키 생략 + 메시지 매핑이 기존 {role,content} 경로 → delta.tool_calls 안 옴 → toolUse 0). (tool-bearing 메시지가 있으면 C.1 새 매핑 적용 = 의도된 차이.)
+- (C-I2) reader cleanup(finally cancel)·`[DONE]` 종료·`{error}` 이벤트 throw·null 가드 = 기존 2-clean 그대로.
+- (C-I3) tool_calls 재조립은 **provider 호출 1회(라운드) 범위** — 라운드 종료 시 acc 비움(라운드 간 누수 없음, 새 호출=새 generator=새 acc).
+- (C-I4) abort: 기존 signal 전파(opts.signal) 그대로. **commit point 모델**(C.2): finalize 진입 전 abort 면 배치 전체 미yield(폐기). commit 후 yield 간 abort 는 provider 가 안 막고 소비자(agent runRound abort-race)가 잔여 미소비로 처리 — provider 단독 all-or-none 보장 불요(async-gen suspension 상 불가능하며 기존 usage/finish 와 동일). 부분 누적 tool_calls 는 finalize 전 abort 면 미yield.
+- **경계 밖**: parallel tool_calls 의 정확한 OpenAI/GLM 변종 차이(zai 가 표준 따른다고 가정), tool_choice 강제, function 외 tool type(미지원=무시).
+
+### C.4 검증
+- **mock fetch 계약 테스트**(기존 `uc1-openai-compat.contract.test.ts` 패턴): (a) tools 전달 시 body.tools 매핑 정확 (b) SSE delta.tool_calls 다조각 재조립(id 첫조각·arguments 분할) → 완전 toolUse{id,name,args 파싱} (c) text+tool_calls 혼합 → text chunk + toolUse 둘 다 (d) arguments JSON **손상 → throw**(provider error); arguments **빈 문자열 → args={}** (e) id 누락 → call_{index} 합성 (f) tools·tool-bearing 메시지 미전달 → 기존 text-only 회귀 없음 (g) assistant(toolCalls)+tool 메시지 매핑 → body.messages 형상(content null·tool_call_id) / tool 메시지 toolCallId 누락 → throw (h) type!=="function" delta → 해당 index 제외(yield 안 함) (i) finalize 단일성: `[DONE]` 후 EOF 와도 toolUse 이중 yield 없음 (j) **원자성**: 다중 call 중 뒤 call args 손상 → throw + 선행 toolUse **0개** 방출(parse-all-then-yield) (k) **abort commit-point**: finalize 진입 전 aborted signal → toolUse·usage·finish **전부 미방출** (l) **EOF-only**(`[DONE]` 없이 스트림 EOF) → finalize 배치(toolUse→usage→finish) 정확히 1회 방출 (m) **중복 provider id**(두 call 같은 nonempty id) → throw / 빈 id 2개 + 충돌 prefix → 유일 합성. (n) **conflict 지연**: 같은 index 에 다른 nonempty id/name 후속 → finalize 에서만 throw(누적 중 아님) (o) **excluded 억제**: id/name 충돌난 index 가 후속 non-function type 으로 excluded → 오류 없이 yield 제외. (p) **invalid index**(누락/음수/비정수) → throw (q) **빈 name** → throw (r) **non-object args**(`null`·배열·문자열·숫자 = JSON-valid 지만 비객체) → throw.
+- **루프 결합**(선택): makeOpenAICompatProvider(mock fetch, 2-라운드: 1라운드 tool_calls·2라운드 text) + echo executor + ChatTurnHandler → uc5 루프 시퀀스. (slice 1 stdio 통합의 provider 교체판.)
+- **codex 2-clean**: §C + openai-compat-provider 코드 2연속 NONE.
