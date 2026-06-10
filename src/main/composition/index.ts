@@ -3,7 +3,7 @@ import { ChatTurnHandler, type HandlerDeps } from "../app/chat-turn-handler.js";
 import { makeStdioIngress, makeStdioEgress, type LineIO } from "../adapters/stdio.js";
 import { makeFakeProvider } from "../adapters/fake-provider.js";
 import type {
-  ProviderPort, ConversationPort, CredentialPort, ApprovalPort, AgentIngressPort, DiagnosticLog,
+  ProviderPort, ConversationPort, CredentialPort, ApprovalPort, AgentIngressPort, DiagnosticLog, ToolExecutorPort,
 } from "../ports/uc1.js";
 import type { AgentRequest } from "../domain/chat.js";
 
@@ -28,6 +28,7 @@ export function wireAgentUC1(opts?: {
   conversation?: ConversationPort;
   credentials?: CredentialPort;
   approval?: ApprovalPort;
+  toolExecutor?: ToolExecutorPort; // UC5 — 미주입 = 도구 없음(UC1 순수 채팅)
   diag?: DiagnosticLog;
 }): { handler: ChatTurnHandler; ingress?: AgentIngressPort; start?: () => void } {
   const diag: DiagnosticLog = opts?.diag ?? { log: (m, c) => console.error("[agent-diag]", m, c ?? "") };
@@ -37,6 +38,7 @@ export function wireAgentUC1(opts?: {
     conversation: opts?.conversation ?? passthroughConversation,
     credentials: opts?.credentials ?? makeInMemoryCredentials(),
     approval,
+    ...(opts?.toolExecutor ? { toolExecutor: opts.toolExecutor } : {}),
     egress: opts?.io ? makeStdioEgress(opts.io, (e) => diag.log("egress write 실패", e)) : { emit: () => {} },
     diag,
   };

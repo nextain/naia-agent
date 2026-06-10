@@ -1,6 +1,6 @@
-// ports — UC1 agent(brain) (계약 §B.2). domain 만 의존.
+// ports — UC1 agent(brain) (계약 §B.2) + UC5 도구(§B.2). domain 만 의존.
 import type {
-  ProviderConfig, ChatMessage, ProviderChunk, AgentEmit, AgentRequest,
+  ProviderConfig, ChatMessage, ProviderChunk, AgentEmit, AgentRequest, ToolSpec, ToolCall,
 } from "../domain/chat.js";
 
 export type Unsub = () => void;
@@ -9,10 +9,19 @@ export type Unsub = () => void;
 export interface ProviderChatOpts {
   readonly systemPrompt?: string;
   readonly signal?: AbortSignal;
+  readonly tools?: readonly ToolSpec[]; // UC5 — LLM 에 전달할 도구 사양(미지원 provider 는 무시)
 }
 export interface ProviderPort {
   /** LLM 추론 스트림. abort signal 수용. rejection(throw) 전파(error 는 chunk 아님). */
   chat(config: ProviderConfig, messages: readonly ChatMessage[], opts: ProviderChatOpts): AsyncIterable<ProviderChunk>;
+}
+
+/** UC5 도구 실행기(driven). agent 가 등록 도구를 실행. */
+export interface ToolExecutorPort {
+  /** LLM 에 전달할 등록 도구 사양(빈 배열 가능 = 도구 없음). */
+  specs(): readonly ToolSpec[];
+  /** ⚠️ no-throw 책임: 미등록/실행실패/타임아웃 = { output, isError:true } 반환(throw 금지 — 루프 안정·LLM 복구). abort 시에만 reject 허용(루프가 cancelled 처리). */
+  execute(call: ToolCall, opts: { signal?: AbortSignal }): Promise<{ output: string; isError?: boolean }>;
 }
 
 export interface ConversationPort {

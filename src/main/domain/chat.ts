@@ -13,9 +13,15 @@ export interface ProviderConfig {
   readonly naiaKey?: string;
 }
 
+// ── UC5 도구 (계약 §B.1) ──
+export interface ToolSpec { readonly name: string; readonly description: string; readonly parameters: unknown /* JSON schema */; }
+export interface ToolCall { readonly id: string; readonly name: string; readonly args: unknown; }
+
 export interface ChatMessage {
-  readonly role: "user" | "assistant" | "tool";
+  readonly role: "system" | "user" | "assistant" | "tool";
   readonly content: string;
+  readonly toolCalls?: readonly ToolCall[]; // assistant 전용 — UC5 도구 라운드(없으면 미설정)
+  readonly toolCallId?: string;             // tool 전용 — 결과 메시지가 어느 call 에 대응하는지 결속
 }
 
 // ── inbound domain 폐쇄 union (os AgentOutbound 와 1:1) ──
@@ -84,4 +90,20 @@ export function mapProviderChunk(c: Exclude<ProviderChunk, { kind: "usage" }>): 
     case "toolUse": return { kind: "toolUse", toolCallId: c.id, toolName: c.name, args: c.args };
     case "finish": return { kind: "finish" };
   }
+}
+
+/**
+ * UC5 도구 라운드 결과를 다음 provider 호출용 messages 로 엮음(순수, 계약 §B.1).
+ * assistant(roundText + toolCalls) append → 각 call 의 결과를 tool 메시지로 append(순서·결속 보존).
+ * roundText 가 history 에서 유실되지 않음. results[i] = calls[i] 의 결과(인덱스 대응).
+ */
+export function threadToolRound(
+  messages: readonly ChatMessage[],
+  roundText: string,
+  calls: readonly ToolCall[],
+  results: readonly { readonly output: string }[],
+): readonly ChatMessage[] {
+  const assistant: ChatMessage = { role: "assistant", content: roundText, toolCalls: calls };
+  const toolMsgs: ChatMessage[] = calls.map((c, i) => ({ role: "tool", toolCallId: c.id, content: results[i]?.output ?? "" }));
+  return [...messages, assistant, ...toolMsgs];
 }
