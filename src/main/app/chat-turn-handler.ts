@@ -44,6 +44,8 @@ export class ChatTurnHandler {
       const asm = this.d.conversation.assemble({ messages: req.messages, systemPrompt: req.systemPrompt });
       const stream = this.d.provider.chat(providerConfig, asm.messages, { systemPrompt: asm.systemPrompt, signal: t.abort.signal });
       for await (const chunk of stream) {
+        // ⚠️ provider 가 abort 를 무시해도 매 iteration self-break(취소 후 방출·누수 방지, baseline 동작). 종결=finally.
+        if (t.abort.signal.aborted) break;
         if (chunk.kind === "usage") {
           usage.inputTokens += chunk.inputTokens; usage.outputTokens += chunk.outputTokens; // 누적만(emit 안 함)
         } else if (chunk.kind === "finish") {
@@ -61,9 +63,9 @@ export class ChatTurnHandler {
         sawTerminal = true; t.state = "errored";
       }
     } finally {
-      if (!sawTerminal) { // 무-terminal EOF=조기종료
+      if (!sawTerminal) { // 무-terminal: 취소(abort) 또는 조기종료(EOF)
         emit({ kind: "usage", ...usage });
-        emit({ kind: "error", message: "incomplete stream" });
+        emit({ kind: "error", message: t.abort.signal.aborted ? "cancelled" : "incomplete stream" });
         t.state = "errored";
       }
       this.turns.delete(req.requestId); // 예외 무관 terminal 해제 보장

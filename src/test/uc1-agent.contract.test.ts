@@ -100,6 +100,19 @@ describe("ChatTurnHandler (turn 파이프라인)", () => {
     expect(emits.some((x) => x.e.kind === "error" && (x.e as { message: string }).message.includes("duplicate"))).toBe(false); // wire error 없음
     void h;
   });
+  it("cancel: provider 가 abort 무시해도 self-break→터미널 error('cancelled')+레지스트리 해제(누수 방지, 코드리뷰 R2)", async () => {
+    const { deps, emits } = capture();
+    // abort 무시하는 provider(무한에 가까운 스트림)
+    const ignoreAbort: ProviderPort = { async *chat(): AsyncIterable<ProviderChunk> { for (let i=0;i<1000;i++){ await Promise.resolve(); yield { kind:"text", text:String(i) }; } } };
+    const h = new ChatTurnHandler({ ...deps, provider: ignoreAbort });
+    const p = h.onChatRequest(req());
+    await Promise.resolve();           // 첫 chunk 처리 진입
+    h.onCancel({ kind: "cancel", requestId: "r1" });
+    await p;
+    const last = emits[emits.length-1]!.e;
+    expect(last.kind).toBe("error"); expect((last as {message:string}).message).toBe("cancelled");
+    expect(h.turnState("r1")).toBeUndefined();  // 해제
+  });
   it("creds_update → providerConfig 에 secret 주입(다음 chat)", async () => {
     const { deps } = capture();
     let seenConfig: ProviderConfig | null = null;
