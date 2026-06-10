@@ -9,8 +9,12 @@ type FetchLike = (url: string, init: { method: string; headers: Record<string, s
   body: { getReader(): { read(): Promise<{ done: boolean; value?: Uint8Array }>; cancel?(): Promise<void> | void } } | null;
 }>;
 
-/** baseUrl 예: https://api.z.ai/api/coding/paas/v4 (GLM coding plan). apiKey=Bearer. */
-export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string; fetch?: FetchLike }): ProviderPort {
+/**
+ * baseUrl 예: https://api.z.ai/api/coding/paas/v4 (GLM coding plan). apiKey=Bearer.
+ * model(옵션): 셸이 보낸 config.model 이 이 백엔드 카탈로그에 없을 때(예: UI=naia-local
+ *   → GLM 거부) 강제할 모델 id. 미지정 시 config.model 그대로(계약 기본 동작 불변).
+ */
+export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string; model?: string; fetch?: FetchLike }): ProviderPort {
   const doFetch: FetchLike = deps.fetch ?? (globalThis.fetch as unknown as FetchLike);
   const base = deps.baseUrl.replace(/\/+$/, "");
   return {
@@ -22,7 +26,7 @@ export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string
       const resp = await doFetch(`${base}/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${deps.apiKey}` },
-        body: JSON.stringify({ model: config.model, messages: msgs, stream: true, stream_options: { include_usage: true } }),
+        body: JSON.stringify({ model: deps.model ?? config.model, messages: msgs, stream: true, stream_options: { include_usage: true } }),
         ...(opts.signal ? { signal: opts.signal } : {}),
       });
       if (!resp.ok || !resp.body) {

@@ -21,8 +21,10 @@ const ap = process.env.AGENT_PROVIDER;
 let provider, label = "fake";
 if (ap === "ollama") { provider = makeOllamaProvider(); label = "ollama"; }
 else if (ap === "glm") {
-  provider = makeOpenAICompatProvider({ baseUrl: process.env.GLM_BASE_URL || "https://api.z.ai/api/coding/paas/v4", apiKey: process.env.GLM_KEY || process.env.GLM_API_KEY || "" });
-  label = "glm(z.ai)";
+  // GLM_MODEL: 셸 UI 가 보낸 model(naia-local 등)을 GLM 이 거부하므로 유효 모델로 강제.
+  const glmModel = process.env.GLM_MODEL || "glm-4.6";
+  provider = makeOpenAICompatProvider({ baseUrl: process.env.GLM_BASE_URL || "https://api.z.ai/api/coding/paas/v4", apiKey: process.env.GLM_KEY || process.env.GLM_API_KEY || "", model: glmModel });
+  label = `glm(z.ai ${glmModel})`;
 }
 const { start } = wireAgentUC1({ io, ...(provider ? { provider } : {}) });
 start?.();

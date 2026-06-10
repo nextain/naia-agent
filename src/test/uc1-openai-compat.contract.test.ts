@@ -47,4 +47,17 @@ describe("makeOpenAICompatProvider (GLM/openai SSE, mock)", () => {
     const out = await collect(prov(lines).chat(cfg, [], {}));
     expect(out.some((c) => c.kind === "text" && (c as { text: string }).text === "ok")).toBe(true);
   });
+  it("deps.model 지정 시 config.model(naia-local) 대신 강제 — 미지정 시 config.model 유지", async () => {
+    let sentBody: { model?: string } = {};
+    const capture = async (_url: string, init: { body: string }) => {
+      sentBody = JSON.parse(init.body);
+      return { ok: true, status: 200, statusText: "OK", body: { getReader: () => ({ read: async () => ({ done: true }), cancel() {} }) } };
+    };
+    // 오버라이드: UI=naia-local → GLM 으로 glm-4.6 강제
+    await collect(makeOpenAICompatProvider({ baseUrl: "https://x", apiKey: "k", model: "glm-4.6", fetch: capture as never }).chat({ provider: "zai", model: "naia-local" }, [], {}));
+    expect(sentBody.model).toBe("glm-4.6");
+    // 미지정: 계약 기본 = config.model 그대로
+    await collect(makeOpenAICompatProvider({ baseUrl: "https://x", apiKey: "k", fetch: capture as never }).chat({ provider: "zai", model: "glm-4.5" }, [], {}));
+    expect(sentBody.model).toBe("glm-4.5");
+  });
 });
