@@ -47,7 +47,7 @@ export class ChatTurnHandler {
       //    abort 가 race 를 이겨 즉시 break → finally 해제. (for-await 는 next() 블록 시 self-break 미도달=누수.)
       const it = stream[Symbol.asyncIterator]();
       // ⚠️ 수동 iterator 는 break 시 자동 close 안 됨(for-await 와 달리) → 모든 break 경로서 명시 close(R8). rejection 격리.
-      const closeIt = () => { void Promise.resolve(it.return?.()).catch(() => {}); };
+      const closeIt = () => { try { void Promise.resolve(it.return?.()).catch(() => {}); } catch { /* return() 동기 throw 격리(R9) */ } };
       const ABORTED = Symbol("aborted");
       const abortP: Promise<typeof ABORTED> = new Promise((res) => {
         if (t.abort.signal.aborted) res(ABORTED);
