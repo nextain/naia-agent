@@ -2,6 +2,7 @@
 import { ChatTurnHandler, type HandlerDeps } from "../app/chat-turn-handler.js";
 import { makeStdioIngress, makeStdioEgress, type LineIO } from "../adapters/stdio.js";
 import { makeFakeProvider } from "../adapters/fake-provider.js";
+import { makeInMemoryApproval } from "../adapters/approval.js";
 import type {
   ProviderPort, ConversationPort, CredentialPort, ApprovalPort, AgentIngressPort, DiagnosticLog, ToolExecutorPort,
 } from "../ports/uc1.js";
@@ -32,7 +33,7 @@ export function wireAgentUC1(opts?: {
   diag?: DiagnosticLog;
 }): { handler: ChatTurnHandler; ingress?: AgentIngressPort; start?: () => void } {
   const diag: DiagnosticLog = opts?.diag ?? { log: (m, c) => console.error("[agent-diag]", m, c ?? "") };
-  const approval: ApprovalPort = opts?.approval ?? { resolve: () => {} }; // UC1 보류 없음
+  const approval: ApprovalPort = opts?.approval ?? makeInMemoryApproval(); // UC5 slice 2 — tier-gated 도구 승인 보류
   const deps: HandlerDeps = {
     provider: opts?.provider ?? makeFakeProvider(),
     conversation: opts?.conversation ?? passthroughConversation,

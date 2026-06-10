@@ -14,7 +14,7 @@ export interface ProviderConfig {
 }
 
 // ── UC5 도구 (계약 §B.1) ──
-export interface ToolSpec { readonly name: string; readonly description: string; readonly parameters: unknown /* JSON schema */; }
+export interface ToolSpec { readonly name: string; readonly description: string; readonly parameters: unknown /* JSON schema */; readonly tier?: string /* UC5 slice 2: 미설정/"none"=자동, 그 외=승인 필요 */; }
 export interface ToolCall { readonly id: string; readonly name: string; readonly args: unknown; }
 
 export interface ChatMessage {

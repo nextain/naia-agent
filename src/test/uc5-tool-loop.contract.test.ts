@@ -2,6 +2,7 @@
 import { describe, it, expect } from "vitest";
 import { ChatTurnHandler, type HandlerDeps } from "../main/app/chat-turn-handler.js";
 import { makeEchoToolExecutor } from "../main/adapters/echo-tool-executor.js";
+import { makeInMemoryApproval } from "../main/adapters/approval.js";
 import { makeFakeProvider, makeFakeToolProvider } from "../main/adapters/fake-provider.js";
 import type { ProviderPort, ToolExecutorPort } from "../main/ports/uc1.js";
 import type { AgentEmit, ChatRequest } from "../main/domain/chat.js";
@@ -12,7 +13,7 @@ function setup(over: Partial<HandlerDeps> = {}) {
     provider: makeFakeToolProvider(),
     conversation: { assemble: (r) => ({ messages: r.messages, ...(r.systemPrompt !== undefined ? { systemPrompt: r.systemPrompt } : {}) }) },
     credentials: { update: () => {}, get: () => undefined },
-    approval: { resolve: () => {} },
+    approval: makeInMemoryApproval(),
     egress: { emit: (_id, e) => emits.push(e) },
     diag: { log: () => {} },
     toolExecutor: makeEchoToolExecutor(),

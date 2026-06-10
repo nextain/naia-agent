@@ -37,8 +37,14 @@ export interface CredentialPort {
 }
 
 export interface ApprovalPort {
-  /** inbound approval_response 처리(보류 결정 해소). UC1 범위. awaitDecision(emit+대기)=UC5. */
+  /** inbound approval_response 처리(보류 해소). 미등록/이미 해소 key = no-op(delete-before-settle). */
   resolve(requestId: string, toolCallId: string, decision: "approve" | "reject"): void;
+  /**
+   * UC5 slice 2 — 보류를 *즉시 등록*(register-before-emit) 후 {promise, dispose} 반환.
+   * promise: approval_response 도착 시 resolve / abort·dispose 시 reject. dispose: 미해소면 reject(settle)+정리, idempotent.
+   * abort 원자성(check→listen→recheck). 구조적 키(nested map). 단일 settlement.
+   */
+  prepareDecision(requestId: string, toolCallId: string, opts: { signal?: AbortSignal }): { promise: Promise<"approve" | "reject">; dispose: () => void };
 }
 
 // ── driving-in (wire→brain), 단일 구독자 ──

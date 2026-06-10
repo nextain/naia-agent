@@ -63,6 +63,19 @@ export class ChatTurnHandler {
       const tools = exec?.specs() ?? [];
       let messages: readonly ChatMessage[] = asm.messages;
       let toolRounds = 0;
+      const usedCids = new Set<string>(); // turn-unique correlation id (D-I7)
+      // tier 조회: name 매치 중 gated(none 아님) 있으면 그 tier(승인필요), 없으면 "none". 미등록=none. (중복 매치=보수적 gated 우선)
+      const tierOf = (name: string): string => {
+        const gated = tools.find((s) => s.name === name && s.tier !== undefined && s.tier !== "none");
+        return gated?.tier ?? "none";
+      };
+      // cid: call.id 가 used 면 round 접미사, 그것도 used 면 counter — unused 까지 반복(loop-until-unused, §D).
+      const turnCid = (id: string): string => {
+        if (!usedCids.has(id)) { usedCids.add(id); return id; }
+        let cand = `${id}#r${toolRounds}`; let n = 2;
+        while (usedCids.has(cand)) cand = `${id}#r${toolRounds}_${n++}`;
+        usedCids.add(cand); return cand;
+      };
 
       for (;;) {
         if (sawTerminal) break;
@@ -77,23 +90,47 @@ export class ChatTurnHandler {
         if (toolRounds >= MAX_TOOL_ROUNDS) { terminalError("tool loop limit exceeded"); break; } // cap-th 실행 후 재호출이 또 도구 → error(usage 1회, toolUse 미emit=orphan 없음)
         toolRounds++;
         const results: { output: string; isError?: boolean }[] = [];
+        const threadedCalls: ToolCall[] = []; // cid 로 묶은 calls(threadToolRound·LLM correlation 일관)
         let cancelled = false;
         for (const call of round.calls) {                                           // cap 통과 — 이제 toolUse emit 안전
-          if (signal.aborted) { terminalError("cancelled"); cancelled = true; break; } // (c) 매 execute 전 가드(아직 미emit → orphan 없음)
-          emit({ kind: "toolUse", toolCallId: call.id, toolName: call.name, args: call.args }); // 실행 직전 emit — toolResult 와 쌍(I6)
+          if (signal.aborted) { terminalError("cancelled"); cancelled = true; break; } // (c) 매 call 전 가드(아직 미emit → orphan 없음)
+          const cid = turnCid(call.id);                                             // turn-unique correlation id(D-I7)
+          threadedCalls.push({ id: cid, name: call.name, args: call.args });
+          emit({ kind: "toolUse", toolCallId: cid, toolName: call.name, args: call.args }); // emit(cid) — toolResult 와 쌍(I6)
+          const tier = tierOf(call.name);
+          if (tier !== "none") {                                                    // 승인 게이트(slice 2)
+            if (signal.aborted) { terminalError("cancelled"); cancelled = true; break; } // (e) prepare 전 가드
+            const { promise, dispose } = this.d.approval.prepareDecision(req.requestId, cid, { signal }); // 등록 먼저
+            void promise.catch(() => {});                                           // early-stop 경로 unhandled rejection 방지
+            if (signal.aborted) { dispose(); terminalError("cancelled"); cancelled = true; break; } // (e2) prepare 직후·emit 전
+            let decision: "approve" | "reject" = "reject";
+            // ⚠️ emit·await 를 한 try/finally 로 — emit 이 throw 해도 dispose 항상 호출(보류·listener 누수 방지).
+            try {
+              emit({ kind: "approvalRequest", toolCallId: cid, toolName: call.name, tier }); // 등록 후 emit(fast resolve 안전)
+              decision = await promise;
+            } catch { decision = "reject"; } finally { dispose(); } // abort→catch→(f) cancelled; 비-abort reject=거부
+            if (signal.aborted) { terminalError("cancelled"); cancelled = true; break; } // (f) await 후 가드
+            if (decision === "reject") {
+              const out = "도구 호출이 거부되었습니다";
+              emit({ kind: "toolResult", toolCallId: cid, output: out });           // 거부도 toolResult 쌍(I6)
+              results.push({ output: out, isError: true });
+              continue;                                                             // 실행 안 함 — 다음 call
+            }
+          }
+          // approve 또는 비-gated → 실행:
           let r: { output: string; isError?: boolean };
           try {
-            r = exec ? await exec.execute(call, { signal }) : { output: "no tool executor available", isError: true };
+            r = exec ? await exec.execute({ ...call, id: cid }, { signal }) : { output: "no tool executor available", isError: true }; // cid 일관(executor 가 id 로 correlate 해도 turn-unique)
           } catch (e) {
             if (signal.aborted) { terminalError("cancelled"); cancelled = true; break; } // execute reject + abort = cancelled
-            r = { output: errMessage(e), isError: true };                            // 비-abort reject = isError(루프 안정, no-throw 계약 위반 provider 방어)
+            r = { output: errMessage(e), isError: true };                            // 비-abort reject = isError(루프 안정)
           }
-          if (signal.aborted) { terminalError("cancelled"); cancelled = true; break; } // (d) execute 직후 가드(toolResult 방출 금지)
-          emit({ kind: "toolResult", toolCallId: call.id, output: r.output });        // toolUse 와 쌍
+          if (signal.aborted) { terminalError("cancelled"); cancelled = true; break; } // (d) execute 직후 가드
+          emit({ kind: "toolResult", toolCallId: cid, output: r.output });           // toolUse 와 쌍(cid)
           results.push(r);
         }
         if (cancelled || sawTerminal) break;
-        messages = threadToolRound(messages, round.text, round.calls, results);      // assistant(text+calls) + tool 메시지들 → 다음 라운드
+        messages = threadToolRound(messages, round.text, threadedCalls, results);    // assistant(text+cid calls) + tool 메시지들 → 다음 라운드
       }
     } catch (err) {
       // 루프 밖 예기치 못한 throw(포트 계약 위반 등). abort 면 cancelled.

@@ -5,6 +5,7 @@ import { ChatTurnHandler, type HandlerDeps } from "../main/app/chat-turn-handler
 import { decodeRequest, encodeEmit } from "../main/adapters/protocol.js";
 import { makeFakeProvider } from "../main/adapters/fake-provider.js";
 import { makeInMemoryCredentials } from "../main/composition/index.js";
+import { makeInMemoryApproval } from "../main/adapters/approval.js";
 import type { ProviderPort, ProviderChatOpts } from "../main/ports/uc1.js";
 import type { ProviderConfig, ChatMessage, ProviderChunk } from "../main/domain/chat.js";
 
@@ -15,7 +16,7 @@ function capture() {
     provider: makeFakeProvider(),
     conversation: { assemble: (r) => ({ messages: r.messages, ...(r.systemPrompt !== undefined ? { systemPrompt: r.systemPrompt } : {}) }) },
     credentials: makeInMemoryCredentials(),
-    approval: { resolve: () => {} },
+    approval: makeInMemoryApproval(),
     egress: { emit: (requestId, e) => emits.push({ requestId, e }) },
     diag: { log: (m) => logs.push(m) },
   };
