@@ -8,6 +8,10 @@ import { makeOllamaProvider } from "../../dist/main/adapters/ollama-provider.js"
 import { makeOpenAICompatProvider } from "../../dist/main/adapters/openai-compat-provider.js";
 import { makeBuiltinSkillsExecutor } from "../../dist/main/adapters/builtin-skills.js";
 import { makeOpenMeteoFetchWeather } from "../../dist/main/adapters/openmeteo-weather.js";
+import { makeFileMemoStore } from "../../dist/main/adapters/file-memo-store.js";
+import * as nodeFs from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 
 // process stdin/stdout → LineIO
 const rl = createInterface({ input: process.stdin });
@@ -32,8 +36,11 @@ else if (ap === "glm") {
 // clock=현재시각, fetchWeather=open-meteo(키 불요), memo=in-memory(기본). memo_save 는 승인 게이트(tier ask).
 let toolExecutor, skillsLabel = "off";
 if (process.env.NAIA_AGENT_SKILLS !== "off") {
-  toolExecutor = makeBuiltinSkillsExecutor({ clock: () => new Date(), fetchWeather: makeOpenMeteoFetchWeather() });
-  skillsLabel = "time/weather/memo";
+  // memo 영속: NAIA_MEMO_PATH(또는 ~/.naia-agent/memos.json). node:fs 주입(코어 순수 유지).
+  const memoPath = process.env.NAIA_MEMO_PATH || join(homedir(), ".naia-agent", "memos.json");
+  const memo = makeFileMemoStore({ path: memoPath, dir: dirname(memoPath), fs: nodeFs });
+  toolExecutor = makeBuiltinSkillsExecutor({ clock: () => new Date(), fetchWeather: makeOpenMeteoFetchWeather(), memo });
+  skillsLabel = `time/weather/memo(${memoPath})`;
 }
 
 const { start } = wireAgentUC1({ io, ...(provider ? { provider } : {}), ...(toolExecutor ? { toolExecutor } : {}) });
