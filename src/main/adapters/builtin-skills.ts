@@ -2,6 +2,7 @@
 // 통합 no-throw 경계(arg/dep/format 단일 try, abort만 reject, fail-safe msg), abort 3가드(진입/await후/mutate전).
 import type { ToolExecutorPort } from "../ports/uc1.js";
 import type { ToolSpec, ToolCall } from "../domain/chat.js";
+import { isAborted } from "./signal-util.js";
 
 export interface MemoStore {
   save(title: string, content: string): void;
@@ -42,9 +43,12 @@ export function makeBuiltinSkillsExecutor(deps: SkillDeps = {}): ToolExecutorPor
   return {
     specs: () => TOOLS,
     async execute(call: ToolCall, opts: { signal?: AbortSignal }): Promise<{ output: string; isError?: boolean }> {
-      const signal = opts.signal;
-      if (signal?.aborted) throw new Error("aborted"); // (진입 가드) → reject
+      let signal: AbortSignal | undefined; // ⚠️ try 안에서 읽음 — malformed opts/throwing getter 도 catch→isError(NO-THROW)
+      let aborted = false; // 결정론 abort 추적(catch 에서 signal 재독 의존 안 함 — getter 가 뒤집혀도 swallow 안 됨)
+      const abortGuard = () => { if (isAborted(signal)) { aborted = true; throw new Error("aborted"); } };
       try {
+        signal = opts?.signal;
+        abortGuard(); // (진입 가드) → reject
         if (!isObj(call.args)) return err("args must be object"); // §E.2 plain-object 계약(§C 가 이미 보장; 방어)
         const a = call.args;
         switch (call.name) {
@@ -69,7 +73,7 @@ export function makeBuiltinSkillsExecutor(deps: SkillDeps = {}): ToolExecutorPor
             if (!Number.isFinite(lat) || (lat as number) < -90 || (lat as number) > 90) return err("latitude must be finite number in -90..90");
             if (!Number.isFinite(lon) || (lon as number) < -180 || (lon as number) > 180) return err("longitude must be finite number in -180..180");
             const w = await deps.fetchWeather(lat as number, lon as number, signal);
-            if (signal?.aborted) throw new Error("aborted"); // (await 후 가드) → reject
+            abortGuard(); // (await 후 가드) → reject
             if (!w || !Number.isFinite(w.tempC) || !Number.isFinite(w.code)) return err("malformed weather response");
             return ok(`기온 ${w.tempC}°C, 코드 ${w.code}`);
           }
@@ -86,7 +90,7 @@ export function makeBuiltinSkillsExecutor(deps: SkillDeps = {}): ToolExecutorPor
           }
           case "memo_save": {
             if (typeof a.title !== "string" || typeof a.content !== "string") return err("title/content must be string");
-            if (signal?.aborted) throw new Error("aborted"); // (mutate 전 가드) → reject
+            abortGuard(); // (mutate 전 가드) → reject
             memo.save(a.title, a.content);
             return ok(`저장됨: ${a.title}`);
           }
@@ -94,7 +98,7 @@ export function makeBuiltinSkillsExecutor(deps: SkillDeps = {}): ToolExecutorPor
             return err(`unknown tool: ${call.name}`);
         }
       } catch (e) {
-        if (signal?.aborted) throw e instanceof Error ? e : new Error("aborted"); // abort → reject(루프가 cancelled)
+        if (aborted || isAborted(signal)) throw e instanceof Error ? e : new Error("aborted"); // abort(flag 우선) → reject
         return err(safeMsg(e)); // 비-abort = isError(no-throw)
       }
     },
