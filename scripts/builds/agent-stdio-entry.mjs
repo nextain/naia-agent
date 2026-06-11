@@ -7,6 +7,8 @@ import { wireAgentUC1 } from "../../dist/main/composition/index.js";
 import { makeOllamaProvider } from "../../dist/main/adapters/ollama-provider.js";
 import { makeOpenAICompatProvider } from "../../dist/main/adapters/openai-compat-provider.js";
 import { makeBuiltinSkillsExecutor } from "../../dist/main/adapters/builtin-skills.js";
+import { makeGithubSkillsExecutor } from "../../dist/main/adapters/github-skills.js";
+import { makeCompositeToolExecutor } from "../../dist/main/adapters/composite-tool-executor.js";
 import { makeOpenMeteoFetchWeather } from "../../dist/main/adapters/openmeteo-weather.js";
 import { makeFileMemoStore } from "../../dist/main/adapters/file-memo-store.js";
 import * as nodeFs from "node:fs";
@@ -39,8 +41,16 @@ if (process.env.NAIA_AGENT_SKILLS !== "off") {
   // memo 영속: NAIA_MEMO_PATH(또는 ~/.naia-agent/memos.json). node:fs 주입(코어 순수 유지).
   const memoPath = process.env.NAIA_MEMO_PATH || join(homedir(), ".naia-agent", "memos.json");
   const memo = makeFileMemoStore({ path: memoPath, dir: dirname(memoPath), fs: nodeFs });
-  toolExecutor = makeBuiltinSkillsExecutor({ clock: () => new Date(), fetchWeather: makeOpenMeteoFetchWeather(), memo });
+  const builtin = makeBuiltinSkillsExecutor({ clock: () => new Date(), fetchWeather: makeOpenMeteoFetchWeather(), memo });
   skillsLabel = `time/weather/memo(${memoPath})`;
+  // GITHUB_TOKEN 있으면 github 읽기전용 스킬 합성(builtin 우선). 없으면 builtin 단독.
+  const ghToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+  if (ghToken) {
+    toolExecutor = makeCompositeToolExecutor([builtin, makeGithubSkillsExecutor({ token: ghToken })]);
+    skillsLabel += " + github(ro)";
+  } else {
+    toolExecutor = builtin;
+  }
 }
 
 const { start } = wireAgentUC1({ io, ...(provider ? { provider } : {}), ...(toolExecutor ? { toolExecutor } : {}) });
