@@ -6,6 +6,7 @@ import { createInterface } from "node:readline";
 import { wireAgentUC1 } from "../../dist/main/composition/index.js";
 import { makeOllamaProvider } from "../../dist/main/adapters/ollama-provider.js";
 import { makeOpenAICompatProvider } from "../../dist/main/adapters/openai-compat-provider.js";
+import { resolveProviderSpec } from "../../dist/main/composition/provider-resolver.js";
 import { makeBuiltinSkillsExecutor } from "../../dist/main/adapters/builtin-skills.js";
 import { makeGithubSkillsExecutor } from "../../dist/main/adapters/github-skills.js";
 import { makeObsidianSkillsExecutor } from "../../dist/main/adapters/obsidian-skills.js";
@@ -28,16 +29,25 @@ const io = {
 };
 rl.on("line", (l) => lineCb?.(l));
 
-// AGENT_PROVIDER: ollama(GPU) | glm(클라우드 z.ai coding, GLM_KEY) | (미설정)=fake 헤드리스.
-const ap = process.env.AGENT_PROVIDER;
-let provider, label = "fake";
-if (ap === "ollama") { provider = makeOllamaProvider(); label = "ollama"; }
-else if (ap === "glm") {
-  // GLM_MODEL: 셸 UI 가 보낸 model(naia-local 등)을 GLM 이 거부하므로 유효 모델로 강제.
-  const glmModel = process.env.GLM_MODEL || "glm-4.6";
-  provider = makeOpenAICompatProvider({ baseUrl: process.env.GLM_BASE_URL || "https://api.z.ai/api/coding/paas/v4", apiKey: process.env.GLM_KEY || process.env.GLM_API_KEY || "", model: glmModel });
-  label = `glm(z.ai ${glmModel})`;
+// UC12 런타임 provider 선택 — 기존 컨벤션 재사용(새 스킴 X):
+//   (1) NAIA_SETTINGS_DIR/config.json 의 NAIA_MAIN_PROVIDER/MODEL (앱이 buildNaiaConfigEnv 로 영속)
+//   (2) AGENT_PROVIDER env (run-new-core-dev.sh / 헤드리스) 폴백
+//   (3) fake
+// 비밀키는 config.json 에 없으므로 env(키체인 주입)에서. 해석 로직 = 순수 resolveProviderSpec(단위테스트).
+let naiaConfig = {};
+const settingsDir = process.env.NAIA_SETTINGS_DIR;
+if (settingsDir) {
+  try {
+    const raw = nodeFs.readFileSync(join(settingsDir, "config.json"), "utf8");
+    if (raw.trim()) naiaConfig = JSON.parse(raw);
+  } catch { /* 없거나 손상 → env 폴백 */ }
 }
+const spec = resolveProviderSpec({ config: naiaConfig, env: process.env });
+let provider; // undefined = fake (wireAgentUC1 기본)
+const label = spec.label;
+if (spec.kind === "ollama") provider = makeOllamaProvider();
+else if (spec.kind === "openai-compat") provider = makeOpenAICompatProvider({ baseUrl: spec.baseUrl, apiKey: spec.apiKey, model: spec.model });
+else if (spec.kind === "fake") console.error(`[agent] provider=fake — ${spec.reason}`);
 // UC5 실 스킬(time/weather/memo) — 기본 활성(NAIA_AGENT_SKILLS=off 로 비활성). 실 deps 주입:
 // clock=현재시각, fetchWeather=open-meteo(키 불요), memo=in-memory(기본). memo_save 는 승인 게이트(tier ask).
 let toolExecutor, skillsLabel = "off";
