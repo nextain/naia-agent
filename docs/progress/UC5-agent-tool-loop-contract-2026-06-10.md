@@ -240,3 +240,28 @@ echo(데모)를 실 스킬로. ToolExecutorPort(§B.2, 2-clean) 뒤의 concrete 
 - 계약 테스트: (a) get_time(주입 clock) → UTC ISO; tz 주면 고정 포맷 (b) get_weather(mock fetch) → 포맷 / 비-abort fetch reject → isError / aborted signal → reject (c) memo_save→list→get 왕복(주입 store) (d) arg 누락/타입오류·배열·null → isError(throw 아님) (e) 미등록 name → isError (f) memo_save tier=ask(specs) · 읽기 tier=none (g) clock/fetchWeather 미주입 → get_time/get_weather isError; memo 미주입이어도 memo_* 정상(기본 in-memory) (h) **lat/lon = NaN/Infinity/범위밖 → isError** (i) **invalid timezone → isError**(Intl throw catch) (j) **getter throw 하는 args / 동기 throw 하는 clock·memo → isError**(no-throw 경계) (k) **이미 aborted signal 로 execute → reject**(진입 검사) (l) **memo_save: mutation 직전 abort → reject·미저장** (m) **malformed weather**(tempC/code 비유한수) → isError (n) **get_weather: fetchWeather await 직후 abort** → reject(검증/포맷 전) (o) **malformed memo 반환**(list 비배열·get 비string/null) → isError (p) **clock 무효 Date** → isError.
 - 라이브(선택): GLM + get_time/memo(로컬) + get_weather(open-meteo). memo_save 는 승인 게이트.
 - **codex 2-clean**: §E + makeBuiltinSkillsExecutor 코드 2연속 NONE.
+
+## §F. S24 obsidian — 로컬 vault 읽기 스킬 (ToolExecutorPort, 읽기전용)
+naia-agent 의 **RAG·context 책임** 직결 — 사용자 vault(.md 노트) 를 agent 가 읽어 맥락으로. 외부 auth 없음(로컬 fs). github(S23) 과 동일 §E 규약(통합 no-throw·abort 2가드·strict 검증) + **파일시스템 경로 격리**(신규 위협면).
+
+### F.1 어댑터 makeObsidianSkillsExecutor({ vaultDir, fs })
+- vaultDir: string (entry 가 NAIA_OBSIDIAN_VAULT 절대경로 주입), fs: ObsidianFsLike(읽기 subset 주입 — 코어 순수). vaultDir/fs 미가용 시 전 도구 unavailable isError.
+- 도구(전부 tier none 읽기): **obsidian_list_notes** {folder?} → vault(또는 하위 folder) 의 .md 노트 상대경로 목록(재귀, 결과 최대 500 + **fs 스캔 노드 최대 5000(방문 디렉터리/파일 수 hard cap)** — 둘 중 먼저 도달 시 "더 있음" 표기, **정확 잔여수 계산 안 함**, silent cap 금지). **obsidian_read_note** {path} → .md 노트 내용(파일 크기 1MB 초과 시 isError "note too large"; 출력 8000자 cap, 초과 시 "...(생략)"). **obsidian_search** {query, folder?} → 후보 .md(동일 스캔 cap) 본문에 query(대소문자 무시 부분일치) 포함 노트 경로 목록(최대 100, 초과 표기). **search 도 per-note 1MB 초과 파일은 read 생략(skip)** — 거대 파일 메모리 폭발 차단.
+
+### F.2 위협경계 (THREAT-MODEL BOUND — 무한 하드닝 회피, [[feedback_bound_threat_model_in_review_prompts]])
+- **신뢰**: vaultDir(entry 가 준 신뢰 절대경로) + fs(node:fs 표준 — readFileSync/statSync 는 부재 시 throw, 표준 동작).
+- **위협(in-scope)**: LLM 이 준 path/folder/query 인자 — 경로탈출(상위참조 dot-dot)·절대경로·null byte·과대파일·개수폭발.
+- **범위밖(OOS)**: symlink realpath 탈출(vault=사용자 소유·동일 uid → 이미 접근권 있는 파일; realpath 격리는 후속), vault 동시변경 race, 비-utf8 인코딩, Windows 경로구분자(linux 타깃), **단일 디렉터리 엔트리 수(readdir 한 번이 거대 디렉터리 전체 적재)** — 디렉터리 크기는 *신뢰된 vault 의 구조적 속성*이지 LLM 읽기전용 인자로 통제 불가(읽기 도구로 디렉터리 거대화 불가). scan-node cap(5000)이 *방문* fs 작업량은 bound; per-readdir 스트리밍(opendir)은 사용자 자기 vault 에 over-hardening → 후속.
+
+### F.3 불변식 (§E 계승 + 경로격리)
+- (F-I1 no-throw 경계) arg 검증·경로해석·fs 호출·포맷 전부 단일 try/catch. catch: aborted flag 우선 + isAborted(signal) → reject, 아니면 {output, isError:true}. msg 추출 fail-safe(중첩 try, 폴백 "tool error"). abort 만 reject(fs ENOENT/throw 는 isError).
+- (F-I2 abort 가드 — fs 호출별) 진입 가드 + **재귀 walk/search 의 매 fs 호출(readdir/stat/readFile) 직전·직후 가드**(직전=취소 후 추가 fs 호출 금지, 직후=**마지막 fs 호출 후 abort 도 reject**(터미널 케이스 — success 반환 금지)). aborted flag(getter flip 무관). 테스트: (i) 이른 fs 후 abort → 이후 fs 미발생; (i2) 마지막 fs(stat/read) 후 abort → reject.
+- (F-I3 arg 검증) plain-object 술어. path/folder/query 존재 시 string·비공백. **query 최대 길이 MAX_QUERY(1000) — 초과 시 fs 호출 전 isError**(LLM-통제 거대 query CPU/메모리 차단). 경로격리 술어 **safeRel(rel)**: string·null byte 없음·**루트표기("" "." "/" 거부 — 루트 열거는 folder 생략으로만)**·절대경로 아님(선행 슬래시 거부)·슬래시/역슬래시 **비-collapse 분할**(연속/후행 슬래시가 빈 세그먼트 생성 → 거부) 후 어떤 세그먼트도 상위참조(dot-dot)/단일 dot/빈문자 아님. 위반 → isError. read 는 .md 확장자만(아니면 isError). path·folder 동일 적용.
+- (F-I4 격리 경로조립) 검증된 세그먼트만 vaultDir 뒤에 슬래시로 조립(node:path resolve 의존 안 함 — 명시 거부가 더 안전). folder 도 동일 safeRel.
+- (F-I5 cap·no-silent·fs-work bound) **결과 cap(list 500/search 100) + fs 스캔 노드 cap(5000)** 둘 다 적용 — 어느 쪽이든 도달 시 "더 있음"류 마커(정확 잔여수 계산 금지 = 전체순회 불요). search per-note 1MB 초과 skip. read 1MB 초과 isError·출력 8000자 초과 "…(생략)". 모든 truncation 은 가시 마커(silent 금지).
+
+### F.4 계약 테스트(주입 fake fs)
+(a) list_notes → vault 내 .md 상대경로 목록(재귀, 비-.md 제외) (b) read_note(유효 path) → 내용 (c) search(query) → 일치 노트만 (d) **경로격리 전 벡터(상위참조 dot-dot·중간 상위참조·단일 dot·빈 세그먼트(연속/후행 슬래시)·루트표기·절대경로(선행 슬래시/역슬래시)·null byte — **슬래시·역슬래시 구분자 변형 모두**)를 read_note.path·list_notes.folder·search.folder 각각에 적용 → 모두 isError(fs 미호출 — readdir/stat/readFile 호출수 0 검증)** (e) read 비-.md → isError (f) arg 누락/비객체/배열/non-string → isError (g) **getter throw args / fs 동기 throw → isError**(no-throw) (h) 이미 aborted signal → reject(진입) (i) **이른 fs 호출 직후 abort → 이후 fs 호출 안 일어남**(spy 호출수)·reject (j) vaultDir/fs 미주입 → unavailable isError (k) read 1MB 초과 → isError (l) list 결과 cap 초과 → "더 있음" 표기 (m) 미등록 name → isError (n) 전 도구 tier none (o) **search: per-note 1MB 초과 파일 read 생략**(stat 크기로 판정 → **readFile 미호출**, 후보서 제외) (p) **fs 스캔 노드 cap(5000) 도달 → 순회 중단 + "더 있음"**(전체 미순회 — **방문 노드 수 ≤ MAX_SCAN**; fs 호출수는 노드당 O(1) 이므로 O(노드수), raw 호출수 동치 검증 아님). (q) **search 결과 cap(100) — scan-node cap 과 직교**: 100개 초과 매칭(노드<5000) → 결과 ≤100 + "더 있음" 마커, 조기 중단. (r) **read 8000자 soft truncation**: 1MB 미만이나 본문 >8000자 → 출력 ≤ 8000+마커, "…(생략)" 가시 마커(silent drop 금지). (s) **search query 길이 MAX_QUERY(1000) 초과 → isError(fs 미호출)**. (t) **search 도 scan-node cap(5000) 적용**(list 와 동일 walk) — 후보 절단 시 "더 있음". (u) **folder 유효 scoping**: folder 주면 해당 하위만 열거(다른 폴더 제외).
+
+### F.5 게이트
+계약 §F 2-AI 2-clean(codex+GLM5.1 각 R1·R2 NONE) → 코드 makeObsidianSkillsExecutor 2-AI 2-clean → 계약테스트 → entry 결선(NAIA_OBSIDIAN_VAULT 있으면 composite 추가) → 라이브(GLM + 실 vault).
