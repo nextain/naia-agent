@@ -6,6 +6,8 @@ import { createInterface } from "node:readline";
 import { wireAgentUC1 } from "../../dist/main/composition/index.js";
 import { makeOllamaProvider } from "../../dist/main/adapters/ollama-provider.js";
 import { makeOpenAICompatProvider } from "../../dist/main/adapters/openai-compat-provider.js";
+import { makeBuiltinSkillsExecutor } from "../../dist/main/adapters/builtin-skills.js";
+import { makeOpenMeteoFetchWeather } from "../../dist/main/adapters/openmeteo-weather.js";
 
 // process stdin/stdout → LineIO
 const rl = createInterface({ input: process.stdin });
@@ -26,9 +28,17 @@ else if (ap === "glm") {
   provider = makeOpenAICompatProvider({ baseUrl: process.env.GLM_BASE_URL || "https://api.z.ai/api/coding/paas/v4", apiKey: process.env.GLM_KEY || process.env.GLM_API_KEY || "", model: glmModel });
   label = `glm(z.ai ${glmModel})`;
 }
-const { start } = wireAgentUC1({ io, ...(provider ? { provider } : {}) });
+// UC5 실 스킬(time/weather/memo) — 기본 활성(NAIA_AGENT_SKILLS=off 로 비활성). 실 deps 주입:
+// clock=현재시각, fetchWeather=open-meteo(키 불요), memo=in-memory(기본). memo_save 는 승인 게이트(tier ask).
+let toolExecutor, skillsLabel = "off";
+if (process.env.NAIA_AGENT_SKILLS !== "off") {
+  toolExecutor = makeBuiltinSkillsExecutor({ clock: () => new Date(), fetchWeather: makeOpenMeteoFetchWeather() });
+  skillsLabel = "time/weather/memo";
+}
+
+const { start } = wireAgentUC1({ io, ...(provider ? { provider } : {}), ...(toolExecutor ? { toolExecutor } : {}) });
 start?.();
-process.stderr.write(`[new-naia-agent] stdio ready (${label} provider)\n`);
+process.stderr.write(`[new-naia-agent] stdio ready (${label} provider, skills: ${skillsLabel})\n`);
 
 // stdin 닫히면 종료
 rl.on("close", () => process.exit(0));
