@@ -9,10 +9,13 @@ import { makeOpenAICompatProvider } from "../../dist/main/adapters/openai-compat
 import { makeBuiltinSkillsExecutor } from "../../dist/main/adapters/builtin-skills.js";
 import { makeGithubSkillsExecutor } from "../../dist/main/adapters/github-skills.js";
 import { makeObsidianSkillsExecutor } from "../../dist/main/adapters/obsidian-skills.js";
+import { makeMcpSkillsExecutor } from "../../dist/main/adapters/mcp-skills.js";
+import { makeMcpJsonRpcClient } from "../../dist/main/adapters/mcp-stdio-transport.js";
 import { makeCompositeToolExecutor } from "../../dist/main/adapters/composite-tool-executor.js";
 import { makeOpenMeteoFetchWeather } from "../../dist/main/adapters/openmeteo-weather.js";
 import { makeFileMemoStore } from "../../dist/main/adapters/file-memo-store.js";
 import * as nodeFs from "node:fs";
+import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -50,6 +53,25 @@ if (process.env.NAIA_AGENT_SKILLS !== "off") {
   if (ghToken) { executors.push(makeGithubSkillsExecutor({ token: ghToken })); skillsLabel += " + github(ro)"; }
   const vault = process.env.NAIA_OBSIDIAN_VAULT;
   if (vault) { executors.push(makeObsidianSkillsExecutor({ vaultDir: vault, fs: nodeFs })); skillsLabel += " + obsidian(ro)"; }
+  // MCP 서버(NAIA_MCP_CMD="npx -y @modelcontextprotocol/server-everything stdio"). 초기화 실패=격리(MCP 없이 진행).
+  const mcpCmd = process.env.NAIA_MCP_CMD;
+  if (mcpCmd) {
+    try {
+      const parts = mcpCmd.trim().split(/\s+/);
+      const mcpName = process.env.NAIA_MCP_NAME || "mcp";
+      const child = spawn(parts[0], parts.slice(1), { stdio: ["pipe", "pipe", "inherit"] });
+      const mrl = createInterface({ input: child.stdout });
+      let mcb = null;
+      mrl.on("line", (l) => mcb?.(l));
+      const channel = { send: (line) => child.stdin.write(line + "\n"), onLine: (cb) => { mcb = cb; return () => { mcb = null; }; }, close: () => { try { child.kill(); } catch { /* noop */ } } };
+      const transport = makeMcpJsonRpcClient(channel);
+      const mcpExec = await makeMcpSkillsExecutor({ transport, serverName: mcpName, initTimeoutMs: 30000 });
+      executors.push(mcpExec);
+      skillsLabel += ` + mcp:${mcpName}(${mcpExec.specs().length})`;
+    } catch (e) {
+      process.stderr.write(`[new-naia-agent] MCP init 실패(격리, MCP 없이 진행): ${e instanceof Error ? e.message : String(e)}\n`);
+    }
+  }
   toolExecutor = executors.length > 1 ? makeCompositeToolExecutor(executors) : builtin;
 }
 
