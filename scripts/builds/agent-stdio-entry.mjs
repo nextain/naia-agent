@@ -8,6 +8,7 @@ import { makeOllamaProvider } from "../../dist/main/adapters/ollama-provider.js"
 import { makeOpenAICompatProvider } from "../../dist/main/adapters/openai-compat-provider.js";
 import { makeBuiltinSkillsExecutor } from "../../dist/main/adapters/builtin-skills.js";
 import { makeGithubSkillsExecutor } from "../../dist/main/adapters/github-skills.js";
+import { makeObsidianSkillsExecutor } from "../../dist/main/adapters/obsidian-skills.js";
 import { makeCompositeToolExecutor } from "../../dist/main/adapters/composite-tool-executor.js";
 import { makeOpenMeteoFetchWeather } from "../../dist/main/adapters/openmeteo-weather.js";
 import { makeFileMemoStore } from "../../dist/main/adapters/file-memo-store.js";
@@ -43,14 +44,13 @@ if (process.env.NAIA_AGENT_SKILLS !== "off") {
   const memo = makeFileMemoStore({ path: memoPath, dir: dirname(memoPath), fs: nodeFs });
   const builtin = makeBuiltinSkillsExecutor({ clock: () => new Date(), fetchWeather: makeOpenMeteoFetchWeather(), memo });
   skillsLabel = `time/weather/memo(${memoPath})`;
-  // GITHUB_TOKEN 있으면 github 읽기전용 스킬 합성(builtin 우선). 없으면 builtin 단독.
+  // 외부/로컬 스킬 합성(builtin 우선). 환경변수 있을 때만 추가, 없으면 builtin 단독.
+  const executors = [builtin];
   const ghToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
-  if (ghToken) {
-    toolExecutor = makeCompositeToolExecutor([builtin, makeGithubSkillsExecutor({ token: ghToken })]);
-    skillsLabel += " + github(ro)";
-  } else {
-    toolExecutor = builtin;
-  }
+  if (ghToken) { executors.push(makeGithubSkillsExecutor({ token: ghToken })); skillsLabel += " + github(ro)"; }
+  const vault = process.env.NAIA_OBSIDIAN_VAULT;
+  if (vault) { executors.push(makeObsidianSkillsExecutor({ vaultDir: vault, fs: nodeFs })); skillsLabel += " + obsidian(ro)"; }
+  toolExecutor = executors.length > 1 ? makeCompositeToolExecutor(executors) : builtin;
 }
 
 const { start } = wireAgentUC1({ io, ...(provider ? { provider } : {}), ...(toolExecutor ? { toolExecutor } : {}) });
