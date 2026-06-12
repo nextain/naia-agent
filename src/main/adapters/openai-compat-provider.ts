@@ -41,8 +41,10 @@ interface ToolAcc { id?: string; name?: string; args: string; excluded: boolean;
 export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string; model?: string; auth?: "bearer" | "x-anyllm"; fetch?: FetchLike }): ProviderPort {
   const doFetch: FetchLike = deps.fetch ?? (globalThis.fetch as unknown as FetchLike);
   const base = deps.baseUrl.replace(/\/+$/, "");
+  // ⚠️ x-anyllm(naia lab-proxy): 게이트웨이는 `Bearer <token>` 형식 요구(old lab-proxy.ts 와 동일).
+  //    "Bearer " 누락 시 401 "Invalid header format. Expected 'Bearer <token>'"(실 게이트웨이로 확인 2026-06-12).
   const authHeader: Record<string, string> = deps.auth === "x-anyllm"
-    ? { "X-AnyLLM-Key": deps.apiKey }
+    ? { "X-AnyLLM-Key": `Bearer ${deps.apiKey}` }
     : { Authorization: `Bearer ${deps.apiKey}` };
   return {
     async *chat(config: ProviderConfig, messages: readonly ChatMessage[], opts: ProviderChatOpts): AsyncIterable<ProviderChunk> {

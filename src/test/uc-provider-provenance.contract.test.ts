@@ -72,7 +72,7 @@ describe("makeProviderResolver (요청별 transport)", () => {
     const r = makeProviderResolver({ fetch: fetch as never });
     await collect(r.resolve(cfg({ provider: "gemini", naiaKey: "naia-XYZ" })).chat(cfg({ naiaKey: "naia-XYZ" }), [], {}));
     expect(box.url).toBe("https://api.nextain.io/v1/chat/completions");
-    expect(box.headers?.["X-AnyLLM-Key"]).toBe("naia-XYZ");
+    expect(box.headers?.["X-AnyLLM-Key"]).toBe("Bearer naia-XYZ");
     expect(box.headers?.Authorization).toBeUndefined();
   });
 
@@ -141,7 +141,7 @@ describe("canonical 흐름 wire 관통 (config provider → resolver → transpo
     const msgs = out.map((l) => JSON.parse(l) as Record<string, unknown>);
     // transport 도달: lab-proxy 라우팅(api.nextain.io + X-AnyLLM-Key)
     expect(box.url).toBe("https://api.nextain.io/v1/chat/completions");
-    expect(box.headers?.["X-AnyLLM-Key"]).toBe("naia-XYZ");
+    expect(box.headers?.["X-AnyLLM-Key"]).toBe("Bearer naia-XYZ");
     // wire 시퀀스 + usage 에 cost·model(셸 formatCost 크래시 회귀 방지)
     expect(msgs.map((m) => m["type"])).toEqual(["text", "usage", "finish"]);
     const usage = msgs.find((m) => m["type"] === "usage");
