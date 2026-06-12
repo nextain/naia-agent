@@ -5,17 +5,16 @@ import type { ProviderConfig } from "./chat.js";
 
 export type ProviderRoute = "lab-proxy" | "ollama" | "native";
 
-const LOCAL_PROVIDERS = new Set(["ollama", "vllm"]);
-
 /**
- * naiaKey(로그인) 있고 명시적 로컬 provider 아니면 → lab-proxy(naia 게이트웨이 api.nextain.io).
- * ollama → ollama. 그 외(키 직접) → native(provider별 baseUrl).
- * (old resolveProviderRoute 의 첫-흐름 부분집합: claude-cli/local-live/nextain-error 는 후속 슬라이스)
+ * **provider 타입**으로 라우팅(루크 정정 2026-06-12 — naiaKey 유무 아님):
+ *  - `nextain`(naia 계정 타입, 우리 관할) → lab-proxy(any-llm 게이트웨이 api.nextain.io).
+ *  - `ollama` → ollama(로컬).
+ *  - 그 외(API-key 타입: gemini/glm/zai/openai/anthropic/xai/vllm) → native(외부 API·SDK **직결**, 게이트웨이 안 탐).
+ *    ⚠️ API-key 타입은 naiaKey 가 있어도 직결 — 키체인에 naiaKey 남아있다고 lab-proxy 로 보내면 안 됨(그게 500 원인이었음).
  */
 export function resolveProviderRoute(config: ProviderConfig): ProviderRoute {
+	if (config.provider === "nextain") return "lab-proxy";
 	if (config.provider === "ollama") return "ollama";
-	const naiaKey = config.naiaKey;
-	if (naiaKey && !LOCAL_PROVIDERS.has(config.provider)) return "lab-proxy";
 	return "native";
 }
 
@@ -40,7 +39,8 @@ export function nativeBaseUrl(provider: string, override?: string): string {
 			return trimmed || "https://api.x.ai/v1";
 		case "glm":
 		case "zai":
-			return trimmed || "https://open.bigmodel.cn/api/paas/v4";
+			// z.ai coding plan (실측 200, Bearer). bigmodel.cn(Zhipu)은 잔액 0 → 429. 우리 GLM=z.ai coding.
+			return trimmed || "https://api.z.ai/api/coding/paas/v4";
 		case "gemini":
 			// Google AI Studio OpenAI-compat 엔드포인트.
 			return trimmed || "https://generativelanguage.googleapis.com/v1beta/openai";

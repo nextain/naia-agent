@@ -65,16 +65,16 @@ describe("wire-through: 키체인 naiaKey → resolver → lab-proxy (라이브 
   }
   async function waitFor(cond: () => boolean) { for (let i = 0; i < 200; i++) { if (cond()) return; await new Promise((r) => setTimeout(r, 5)); } throw new Error("timeout"); }
 
-  it("config{gemini}(naiaKey 미포함) + 키체인 NAIA_ANYLLM_API_KEY → lab-proxy(api.nextain.io, X-AnyLLM-Key)", async () => {
+  it("config{nextain}(naiaKey 미포함) + 키체인 NAIA_ANYLLM_API_KEY → lab-proxy(api.nextain.io/v1, X-AnyLLM-Key Bearer)", async () => {
     const box: { url?: string; headers?: Record<string, string> } = {};
     const { io, out, feed } = memIO();
-    // 셸은 naiaKey 를 wire 에 안 실음(secret strip) — agent 가 키체인서 read-back.
+    // 셸은 naiaKey 를 wire 에 안 실음(secret strip) — agent 가 키체인서 read-back. nextain(naia 계정)=lab-proxy.
     const credentials = makeKeychainCredentials({ read: (n) => (n === "NAIA_ANYLLM_API_KEY" ? "naia-FROM-KEYCHAIN" : undefined) });
     const resolver = makeProviderResolver({ fetch: sseFetch(box) as never });
     const { start } = wireAgentUC1({ io, credentials, resolver });
     start?.();
     // req.provider 에 naiaKey 없음(셸이 strip) — 키체인 creds 가 채움
-    feed(JSON.stringify({ type: "chat_request", requestId: "w1", provider: { provider: "gemini", model: "gemini-2.5-flash" }, messages: [{ role: "user", content: "안녕" }] }));
+    feed(JSON.stringify({ type: "chat_request", requestId: "w1", provider: { provider: "nextain", model: "gemini-2.5-flash" }, messages: [{ role: "user", content: "안녕" }] }));
     await waitFor(() => out.some((l) => (JSON.parse(l) as { type: string }).type === "finish"));
 
     expect(box.url).toBe("https://api.nextain.io/v1/chat/completions");

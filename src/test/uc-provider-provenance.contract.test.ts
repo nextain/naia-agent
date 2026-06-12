@@ -20,14 +20,13 @@ describe("provider-route (순수 라우팅)", () => {
     expect(resolveProviderRoute(cfg({ provider: "ollama", naiaKey: "n" }))).toBe("ollama");
     expect(resolveProviderRoute(cfg({ provider: "ollama" }))).toBe("ollama");
   });
-  it("naiaKey + cloud → lab-proxy", () => {
-    expect(resolveProviderRoute(cfg({ provider: "gemini", naiaKey: "naia-123" }))).toBe("lab-proxy");
-    expect(resolveProviderRoute(cfg({ provider: "openai", naiaKey: "naia-123" }))).toBe("lab-proxy");
+  it("nextain(naia 계정 타입) → lab-proxy", () => {
+    expect(resolveProviderRoute(cfg({ provider: "nextain", naiaKey: "naia-123" }))).toBe("lab-proxy");
   });
-  it("naiaKey 없으면 native (키 직접)", () => {
+  it("API-key 타입(gemini/zai/openai)은 naiaKey 있어도 native 직결 (provider 타입 기준, naiaKey 무관)", () => {
+    expect(resolveProviderRoute(cfg({ provider: "gemini", naiaKey: "naia-123" }))).toBe("native");
+    expect(resolveProviderRoute(cfg({ provider: "zai", naiaKey: "naia-123" }))).toBe("native");
     expect(resolveProviderRoute(cfg({ provider: "gemini" }))).toBe("native");
-  });
-  it("vllm 은 명시적 로컬 → naiaKey 있어도 native(lab-proxy 아님)", () => {
     expect(resolveProviderRoute(cfg({ provider: "vllm", naiaKey: "naia-123" }))).toBe("native");
   });
 });
@@ -41,6 +40,8 @@ describe("baseUrl 해석", () => {
   it("native family baseUrl (gemini→google openai-compat, openai→openai)", () => {
     expect(nativeBaseUrl("gemini")).toBe("https://generativelanguage.googleapis.com/v1beta/openai");
     expect(nativeBaseUrl("openai")).toBe("https://api.openai.com/v1");
+    expect(nativeBaseUrl("zai")).toBe("https://api.z.ai/api/coding/paas/v4"); // z.ai coding(실측 200), bigmodel 아님
+    expect(nativeBaseUrl("glm")).toBe("https://api.z.ai/api/coding/paas/v4");
     expect(nativeBaseUrl("ollama")).toBe("http://localhost:11434/v1");
     expect(nativeBaseUrl("gemini", "https://custom/")).toBe("https://custom");
   });
@@ -67,13 +68,23 @@ describe("makeProviderResolver (요청별 transport)", () => {
     return { fetch, box };
   }
 
-  it("lab-proxy: naiaKey+gemini → api.nextain.io + X-AnyLLM-Key", async () => {
+  it("lab-proxy: nextain(naia 계정) → api.nextain.io/v1 + X-AnyLLM-Key Bearer", async () => {
     const { fetch, box } = capture();
     const r = makeProviderResolver({ fetch: fetch as never });
-    await collect(r.resolve(cfg({ provider: "gemini", naiaKey: "naia-XYZ" })).chat(cfg({ naiaKey: "naia-XYZ" }), [], {}));
+    const nx = cfg({ provider: "nextain", naiaKey: "naia-XYZ" });
+    await collect(r.resolve(nx).chat(nx, [], {}));
     expect(box.url).toBe("https://api.nextain.io/v1/chat/completions");
     expect(box.headers?.["X-AnyLLM-Key"]).toBe("Bearer naia-XYZ");
     expect(box.headers?.Authorization).toBeUndefined();
+  });
+  it("native: zai(glm, API-key) → z.ai coding + Bearer apiKey (게이트웨이 안 탐)", async () => {
+    const { fetch, box } = capture();
+    const r = makeProviderResolver({ fetch: fetch as never });
+    const z = cfg({ provider: "zai", model: "glm-5.1", apiKey: "GLM-KEY" });
+    await collect(r.resolve(z).chat(z, [], {}));
+    expect(box.url).toBe("https://api.z.ai/api/coding/paas/v4/chat/completions");
+    expect(box.headers?.Authorization).toBe("Bearer GLM-KEY");
+    expect(box.headers?.["X-AnyLLM-Key"]).toBeUndefined();
   });
 
   it("native: 키 직접(gemini, naiaKey 없음) → google openai-compat + Bearer apiKey", async () => {
@@ -129,17 +140,17 @@ describe("canonical 흐름 wire 관통 (config provider → resolver → transpo
   }
   async function waitFor(cond: () => boolean) { for (let i = 0; i < 200; i++) { if (cond()) return; await new Promise((r) => setTimeout(r, 5)); } throw new Error("timeout"); }
 
-  it("config{gemini, naiaKey} → lab-proxy(api.nextain.io, X-AnyLLM-Key) → text→usage(cost)→finish wire", async () => {
+  it("config{nextain, naiaKey} → lab-proxy(api.nextain.io/v1, X-AnyLLM-Key Bearer) → text→usage(cost)→finish wire", async () => {
     const box: { url?: string; headers?: Record<string, string> } = {};
     const { io, out, feed } = memIO();
     const resolver = makeProviderResolver({ fetch: sseFetch(box) as never });
     const { start } = wireAgentUC1({ io, resolver });
     start?.();
-    feed(JSON.stringify({ type: "chat_request", requestId: "w1", provider: { provider: "gemini", model: "gemini-2.5-flash", naiaKey: "naia-XYZ" }, messages: [{ role: "user", content: "안녕" }] }));
+    feed(JSON.stringify({ type: "chat_request", requestId: "w1", provider: { provider: "nextain", model: "gemini-2.5-flash", naiaKey: "naia-XYZ" }, messages: [{ role: "user", content: "안녕" }] }));
     await waitFor(() => out.some((l) => (JSON.parse(l) as { type: string }).type === "finish"));
 
     const msgs = out.map((l) => JSON.parse(l) as Record<string, unknown>);
-    // transport 도달: lab-proxy 라우팅(api.nextain.io + X-AnyLLM-Key)
+    // transport 도달: nextain(naia 계정) → lab-proxy 라우팅(api.nextain.io/v1 + X-AnyLLM-Key Bearer)
     expect(box.url).toBe("https://api.nextain.io/v1/chat/completions");
     expect(box.headers?.["X-AnyLLM-Key"]).toBe("Bearer naia-XYZ");
     // wire 시퀀스 + usage 에 cost·model(셸 formatCost 크래시 회귀 방지)
