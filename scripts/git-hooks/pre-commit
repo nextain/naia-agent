@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# pre-commit 무결성 게이트 (Luke 2026-06-12: "항상 깨끗한 상태 유지"). new-naia-agent.
+# 5d1078b 류(불완전/부분 커밋 → 깨진 HEAD) 재발 차단.
+# 활성화: git config core.hooksPath scripts/git-hooks  (clone 당 1회)
+# 검사: ① 미스테이지 source(.ts) 변경 차단 ② 컴파일 무결성(agent src tsc).
+# bypass(긴급): git commit --no-verify (가급적 금지)
+set -euo pipefail
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+unstaged="$(git diff --name-only -- '*.ts' '*.tsx' 2>/dev/null || true)"
+if [ -n "$unstaged" ]; then
+  echo "❌ pre-commit 차단: 미스테이지 source 변경 존재(불완전 커밋 위험)."
+  printf '   - %s\n' $unstaged
+  exit 1
+fi
+
+if [ -f scripts/check-compile-integrity.mjs ]; then
+  if ! node scripts/check-compile-integrity.mjs; then
+    echo "❌ pre-commit 차단: 컴파일 무결성 위반. 해소 후 커밋."
+    exit 1
+  fi
+fi
+echo "✅ pre-commit: 무결성 통과."
