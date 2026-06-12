@@ -4,7 +4,7 @@ import { makeStdioIngress, makeStdioEgress, type LineIO } from "../adapters/stdi
 import { makeFakeProvider } from "../adapters/fake-provider.js";
 import { makeInMemoryApproval } from "../adapters/approval.js";
 import type {
-  ProviderPort, ConversationPort, CredentialPort, ApprovalPort, AgentIngressPort, DiagnosticLog, ToolExecutorPort,
+  ProviderPort, ProviderResolverPort, ConversationPort, CredentialPort, ApprovalPort, AgentIngressPort, DiagnosticLog, ToolExecutorPort,
 } from "../ports/uc1.js";
 import type { AgentRequest } from "../domain/chat.js";
 
@@ -26,6 +26,7 @@ export function makeInMemoryCredentials(): CredentialPort {
 export function wireAgentUC1(opts?: {
   io?: LineIO;
   provider?: ProviderPort;
+  resolver?: ProviderResolverPort; // 요청별 provider 해석(주입 시 우선). 미주입 시 고정 provider.
   conversation?: ConversationPort;
   credentials?: CredentialPort;
   approval?: ApprovalPort;
@@ -36,6 +37,7 @@ export function wireAgentUC1(opts?: {
   const approval: ApprovalPort = opts?.approval ?? makeInMemoryApproval(); // UC5 slice 2 — tier-gated 도구 승인 보류
   const deps: HandlerDeps = {
     provider: opts?.provider ?? makeFakeProvider(),
+    ...(opts?.resolver ? { resolver: opts.resolver } : {}),
     conversation: opts?.conversation ?? passthroughConversation,
     credentials: opts?.credentials ?? makeInMemoryCredentials(),
     approval,

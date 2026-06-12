@@ -63,7 +63,7 @@ export type AgentEmit =
   | { readonly kind: "toolResult"; readonly toolCallId: string; readonly output: string }
   | { readonly kind: "approvalRequest"; readonly toolCallId: string; readonly toolName: string; readonly tier: string } // UC5 방출
   | { readonly kind: "gatewayApprovalRequest"; readonly toolCallId: string; readonly toolName: string; readonly args: unknown } // UC5 방출
-  | { readonly kind: "usage"; readonly inputTokens: number; readonly outputTokens: number }
+  | { readonly kind: "usage"; readonly inputTokens: number; readonly outputTokens: number; readonly cost?: number; readonly model?: string }
   | { readonly kind: "logEntry"; readonly level: string; readonly message: string }
   | { readonly kind: "tokenWarning"; readonly raw: unknown }
   | { readonly kind: "finish" }

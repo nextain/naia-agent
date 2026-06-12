@@ -4,8 +4,9 @@ import type {
   ChatRequest, CancelRequest, ApprovalResponse, CredsUpdate, ChatTurnState, ChatMessage, ToolCall, ProviderConfig,
 } from "../domain/chat.js";
 import { mapProviderChunk, threadToolRound } from "../domain/chat.js";
+import { calculateCost } from "../domain/cost.js";
 import type {
-  ProviderPort, ConversationPort, CredentialPort, ApprovalPort, AgentEgressPort, DiagnosticLog, ToolExecutorPort, ProviderChatOpts,
+  ProviderPort, ProviderResolverPort, ConversationPort, CredentialPort, ApprovalPort, AgentEgressPort, DiagnosticLog, ToolExecutorPort, ProviderChatOpts,
 } from "../ports/uc1.js";
 
 interface Turn { abort: AbortController; state: ChatTurnState; }
@@ -23,7 +24,10 @@ interface RoundResult {
 }
 
 export interface HandlerDeps {
+  /** 고정 provider(fallback/테스트). 라이브는 resolver 가 요청별 해석(우선). */
   readonly provider: ProviderPort;
+  /** 요청별 provider 해석(config 기반 라우팅). 주입 시 runRound 가 resolver.resolve(cfg) 사용. */
+  readonly resolver?: ProviderResolverPort;
   readonly conversation: ConversationPort;
   readonly credentials: CredentialPort;
   readonly approval: ApprovalPort;
@@ -49,8 +53,8 @@ export class ChatTurnHandler {
     const totalUsage = { inputTokens: 0, outputTokens: 0 };
     const emit = (e: Parameters<AgentEgressPort["emit"]>[1]) => this.d.egress.emit(req.requestId, e); // egress no-throw
     // terminal 래치(usage 중복 emit 원천 차단 — 두 종결 모두 이 헬퍼만 사용).
-    const terminalFinish = () => { if (!sawTerminal) { emit({ kind: "usage", ...totalUsage }); emit({ kind: "finish" }); sawTerminal = true; t.state = "finished"; } };
-    const terminalError = (message: string) => { if (!sawTerminal) { emit({ kind: "usage", ...totalUsage }); emit({ kind: "error", message }); sawTerminal = true; t.state = "errored"; } };
+    const terminalFinish = () => { if (!sawTerminal) { emit({ kind: "usage", ...totalUsage, cost: calculateCost(req.provider.model, totalUsage.inputTokens, totalUsage.outputTokens), model: req.provider.model }); emit({ kind: "finish" }); sawTerminal = true; t.state = "finished"; } };
+    const terminalError = (message: string) => { if (!sawTerminal) { emit({ kind: "usage", ...totalUsage, cost: calculateCost(req.provider.model, totalUsage.inputTokens, totalUsage.outputTokens), model: req.provider.model }); emit({ kind: "error", message }); sawTerminal = true; t.state = "errored"; } };
 
     try {
       const providerConfig: ProviderConfig = {
@@ -149,7 +153,9 @@ export class ChatTurnHandler {
     cfg: ProviderConfig, messages: readonly ChatMessage[], systemPrompt: string | undefined,
     tools: ProviderChatOpts["tools"], signal: AbortSignal, emit: (e: Parameters<AgentEgressPort["emit"]>[1]) => void,
   ): Promise<RoundResult> {
-    const stream = this.d.provider.chat(cfg, messages, { ...(systemPrompt !== undefined ? { systemPrompt } : {}), signal, ...(tools && tools.length ? { tools } : {}) });
+    // 요청별 provider 해석(resolver 주입 시) — config(provider/model/naiaKey)로 라우팅. 미주입=고정 provider(fallback/테스트).
+    const provider = this.d.resolver ? this.d.resolver.resolve(cfg) : this.d.provider;
+    const stream = provider.chat(cfg, messages, { ...(systemPrompt !== undefined ? { systemPrompt } : {}), signal, ...(tools && tools.length ? { tools } : {}) });
     const it = stream[Symbol.asyncIterator]();
     const closeIt = () => { try { void Promise.resolve(it.return?.()).catch(() => {}); } catch { /* return() 동기 throw 격리(R9) */ } };
     const ABORTED = Symbol("aborted");

@@ -42,7 +42,7 @@ export function encodeEmit(requestId: string, e: AgentEmit): Record<string, unkn
     case "toolResult": return { type: "tool_result", requestId, toolCallId: e.toolCallId, output: e.output };
     case "approvalRequest": return { type: "approval_request", requestId, toolCallId: e.toolCallId, toolName: e.toolName, tier: e.tier };
     case "gatewayApprovalRequest": return { type: "gateway_approval_request", requestId, toolCallId: e.toolCallId, toolName: e.toolName, args: e.args };
-    case "usage": return { type: "usage", requestId, inputTokens: e.inputTokens, outputTokens: e.outputTokens };
+    case "usage": return { type: "usage", requestId, inputTokens: e.inputTokens, outputTokens: e.outputTokens, ...(e.cost !== undefined ? { cost: e.cost } : {}), ...(e.model !== undefined ? { model: e.model } : {}) };
     case "logEntry": return { type: "log_entry", requestId, level: e.level, message: e.message };
     case "tokenWarning": return { type: "token_warning", requestId, raw: e.raw };
     case "finish": return { type: "finish", requestId };

@@ -16,6 +16,12 @@ export interface ProviderPort {
   chat(config: ProviderConfig, messages: readonly ChatMessage[], opts: ProviderChatOpts): AsyncIterable<ProviderChunk>;
 }
 
+/** 요청별 provider 해석(driven). config(provider/model/naiaKey/apiKey) → 그 요청용 ProviderPort.
+ *  단일 고정 provider 가 아닌 config 기반 라우팅(lab-proxy/native/ollama). old buildProvider 의 포트화. */
+export interface ProviderResolverPort {
+  resolve(config: ProviderConfig): ProviderPort;
+}
+
 /** UC5 도구 실행기(driven). agent 가 등록 도구를 실행. */
 export interface ToolExecutorPort {
   /** LLM 에 전달할 등록 도구 사양(빈 배열 가능 = 도구 없음). */

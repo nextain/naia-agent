@@ -4,8 +4,8 @@
 // 기본 provider=fake(LLM 불요, 헤드리스). 실 LLM 은 후속(providers/ 이식).
 import { createInterface } from "node:readline";
 import { wireAgentUC1 } from "../../dist/main/composition/index.js";
-import { makeOllamaProvider } from "../../dist/main/adapters/ollama-provider.js";
-import { makeOpenAICompatProvider } from "../../dist/main/adapters/openai-compat-provider.js";
+import { makeProviderResolver } from "../../dist/main/adapters/provider-resolver.js";
+import { makeFakeProvider } from "../../dist/main/adapters/fake-provider.js";
 import { makeBuiltinSkillsExecutor } from "../../dist/main/adapters/builtin-skills.js";
 import { makeGithubSkillsExecutor } from "../../dist/main/adapters/github-skills.js";
 import { makeObsidianSkillsExecutor } from "../../dist/main/adapters/obsidian-skills.js";
@@ -28,16 +28,14 @@ const io = {
 };
 rl.on("line", (l) => lineCb?.(l));
 
-// AGENT_PROVIDER: ollama(GPU) | glm(클라우드 z.ai coding, GLM_KEY) | (미설정)=fake 헤드리스.
+// provider 해석: 기본 = config-driven resolver — 요청의 provider/model/naiaKey/apiKey(naia-settings → 셸 → req.provider
+//   + creds_update) 로 lab-proxy(naia 게이트웨이)/native(키 직접)/ollama 라우팅. (옛 AGENT_PROVIDER=glm/ollama env 강제 삭제 —
+//   config 가 흐르게: "온보딩/설정 → adk → agent 가 읽어 그 provider 로 대화".)
+// AGENT_PROVIDER=fake → 헤드리스 결정론 fake provider(E2E·LLM 불요).
 const ap = process.env.AGENT_PROVIDER;
-let provider, label = "fake";
-if (ap === "ollama") { provider = makeOllamaProvider(); label = "ollama"; }
-else if (ap === "glm") {
-  // GLM_MODEL: 셸 UI 가 보낸 model(naia-local 등)을 GLM 이 거부하므로 유효 모델로 강제.
-  const glmModel = process.env.GLM_MODEL || "glm-4.6";
-  provider = makeOpenAICompatProvider({ baseUrl: process.env.GLM_BASE_URL || "https://api.z.ai/api/coding/paas/v4", apiKey: process.env.GLM_KEY || process.env.GLM_API_KEY || "", model: glmModel });
-  label = `glm(z.ai ${glmModel})`;
-}
+let provider, resolver, label;
+if (ap === "fake") { provider = makeFakeProvider(); label = "fake(headless)"; }
+else { resolver = makeProviderResolver(); label = "config-driven resolver(lab-proxy/native/ollama)"; }
 // UC5 실 스킬(time/weather/memo) — 기본 활성(NAIA_AGENT_SKILLS=off 로 비활성). 실 deps 주입:
 // clock=현재시각, fetchWeather=open-meteo(키 불요), memo=in-memory(기본). memo_save 는 승인 게이트(tier ask).
 let toolExecutor, skillsLabel = "off";
@@ -75,7 +73,7 @@ if (process.env.NAIA_AGENT_SKILLS !== "off") {
   toolExecutor = executors.length > 1 ? makeCompositeToolExecutor(executors) : builtin;
 }
 
-const { start } = wireAgentUC1({ io, ...(provider ? { provider } : {}), ...(toolExecutor ? { toolExecutor } : {}) });
+const { start } = wireAgentUC1({ io, ...(provider ? { provider } : {}), ...(resolver ? { resolver } : {}), ...(toolExecutor ? { toolExecutor } : {}) });
 start?.();
 process.stderr.write(`[new-naia-agent] stdio ready (${label} provider, skills: ${skillsLabel})\n`);
 

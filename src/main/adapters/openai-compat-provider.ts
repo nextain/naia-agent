@@ -36,10 +36,14 @@ interface ToolAcc { id?: string; name?: string; args: string; excluded: boolean;
 /**
  * baseUrl 예: https://api.z.ai/api/coding/paas/v4 (GLM coding plan). apiKey=Bearer.
  * model(옵션): config.model 이 백엔드 카탈로그에 없을 때 강제. 미지정 시 config.model.
+ * auth(옵션): "bearer"(기본, Authorization: Bearer) | "x-anyllm"(naia 게이트웨이 lab-proxy, X-AnyLLM-Key).
  */
-export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string; model?: string; fetch?: FetchLike }): ProviderPort {
+export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string; model?: string; auth?: "bearer" | "x-anyllm"; fetch?: FetchLike }): ProviderPort {
   const doFetch: FetchLike = deps.fetch ?? (globalThis.fetch as unknown as FetchLike);
   const base = deps.baseUrl.replace(/\/+$/, "");
+  const authHeader: Record<string, string> = deps.auth === "x-anyllm"
+    ? { "X-AnyLLM-Key": deps.apiKey }
+    : { Authorization: `Bearer ${deps.apiKey}` };
   return {
     async *chat(config: ProviderConfig, messages: readonly ChatMessage[], opts: ProviderChatOpts): AsyncIterable<ProviderChunk> {
       const wireMsgs = toWireMessages(opts.systemPrompt, messages); // tool 메시지 toolCallId 누락 시 throw(§C.1)
@@ -49,7 +53,7 @@ export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string
 
       const resp = await doFetch(`${base}/chat/completions`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${deps.apiKey}` },
+        headers: { "Content-Type": "application/json", ...authHeader },
         body: JSON.stringify({ model: deps.model ?? config.model, messages: wireMsgs, stream: true, stream_options: { include_usage: true }, ...(toolsBody ? { tools: toolsBody } : {}) }),
         ...(opts.signal ? { signal: opts.signal } : {}),
       });
