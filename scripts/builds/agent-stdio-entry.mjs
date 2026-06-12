@@ -6,6 +6,7 @@ import { createInterface } from "node:readline";
 import { wireAgentUC1 } from "../../dist/main/composition/index.js";
 import { makeProviderResolver } from "../../dist/main/adapters/provider-resolver.js";
 import { makeFakeProvider } from "../../dist/main/adapters/fake-provider.js";
+import { makeKeychainCredentials } from "../../dist/main/adapters/keychain-secret-store.js";
 import { makeBuiltinSkillsExecutor } from "../../dist/main/adapters/builtin-skills.js";
 import { makeGithubSkillsExecutor } from "../../dist/main/adapters/github-skills.js";
 import { makeObsidianSkillsExecutor } from "../../dist/main/adapters/obsidian-skills.js";
@@ -15,7 +16,7 @@ import { makeCompositeToolExecutor } from "../../dist/main/adapters/composite-to
 import { makeOpenMeteoFetchWeather } from "../../dist/main/adapters/openmeteo-weather.js";
 import { makeFileMemoStore } from "../../dist/main/adapters/file-memo-store.js";
 import * as nodeFs from "node:fs";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -73,7 +74,17 @@ if (process.env.NAIA_AGENT_SKILLS !== "off") {
   toolExecutor = executors.length > 1 ? makeCompositeToolExecutor(executors) : builtin;
 }
 
-const { start } = wireAgentUC1({ io, ...(provider ? { provider } : {}), ...(resolver ? { resolver } : {}), ...(toolExecutor ? { toolExecutor } : {}) });
+// creds = OS 키체인 read-back(naia-os write_agent_key 가 쓴 naiaKey/apiKey). creds_update 는 런타임 overlay 로 우선.
+// 키체인 read 주입(코어 순수 유지): Linux=secret-tool lookup(service=naia-agent), 기타=미지원(undefined, plaintext fallback 없음).
+const C_ENV = { ...process.env, LC_ALL: "C", LANG: "C", LANGUAGE: "C" };
+const secretToolRead = (name) => {
+  const r = spawnSync("secret-tool", ["lookup", "service", "naia-agent", "account", name], { encoding: "utf8", timeout: 5000, env: C_ENV });
+  if (r.error || r.status !== 0) return undefined;
+  const out = r.stdout ?? "";
+  return out.length > 0 ? out.replace(/\n$/, "") : undefined;
+};
+const credentials = makeKeychainCredentials({ read: process.platform === "linux" ? secretToolRead : () => undefined });
+const { start } = wireAgentUC1({ io, credentials, ...(provider ? { provider } : {}), ...(resolver ? { resolver } : {}), ...(toolExecutor ? { toolExecutor } : {}) });
 start?.();
 process.stderr.write(`[new-naia-agent] stdio ready (${label} provider, skills: ${skillsLabel})\n`);
 
