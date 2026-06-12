@@ -27,6 +27,15 @@ naia 생태계 허브 런타임 (RAG·context·장기기억) — clean rebuild (
 2. **규칙 SoT**: `.agents/context/agents-rules.json` — 모든 금지/필수 규칙.
 3. **구조 명세**: `docs/project-structure.md` — 허용된 루트 디렉토리/파일 목록.
 
+### ★ 작업 재시작/재부팅 시 — 기능 코딩보다 먼저 (MANDATORY)
+드리프트는 구조가 안 단단하다는 신호. 코드 한 줄 전에 **구조 건전성 점검**부터:
+```bash
+bash scripts/enforce-root-structure.sh                 # 루트 구조 위반
+node --test src/test/ci-verify-*.test.mjs              # 구조·헌장·SDLC·완전성
+pnpm test                                              # 깨어짐(tsc+vitest)
+```
+그리고 **드리프트 검출 갭** 확인: 파일단위 미계약 코드(기존 dir에 추가된 신규 파일 등)를 검출기가 잡나? 안 잡으면 — 그 갭 닫기(파일단위 계약 앵커 + 라이브 자동차단)가 **기능 작업보다 최우선**. 잘못된 작업은 거짓 앵커 → 고치지 말고 삭제(수정은 실패한다 = 이식 원칙).
+
 ---
 
 ## 구조 규칙 (F12/F13 — permanent)
