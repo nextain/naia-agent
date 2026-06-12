@@ -1,0 +1,25 @@
+{
+  "_doc": "파일단위 계약 앵커 (드리프트 자동차단). src/main 의 모든 .ts 는 여기 {layer, uc, contract} 와 함께 등록돼야 한다. 미등록 파일 = 미계약 코드 = RED (scripts/check-file-anchors.mjs). 계약 먼저, 코드 나중 — 새 파일 추가 전 이 manifest 에 앵커 선언. layer ∈ {domain,ports,app,adapters,composition}. contract = docs/progress 의 계약 문서.",
+  "files": {
+    "src/main/domain/chat.ts":                    { "layer": "domain",      "uc": ["UC1", "UC5"], "contract": "docs/progress/UC1-agent-horizontal-contract-2026-06-10.md", "note": "ChatMessage·turn 도메인" },
+    "src/main/ports/uc1.ts":                       { "layer": "ports",       "uc": ["UC1"],        "contract": "docs/progress/UC1-agent-horizontal-contract-2026-06-10.md", "note": "ProviderPort·IO·AgentOutbound 포트" },
+    "src/main/app/chat-turn-handler.ts":           { "layer": "app",         "uc": ["UC1", "UC5"], "contract": "docs/progress/UC5-agent-tool-loop-contract-2026-06-10.md", "note": "라운드 루프·terminal 래치·cancel 가드" },
+    "src/main/composition/index.ts":               { "layer": "composition", "uc": ["UC1", "UC5"], "contract": "docs/progress/UC1-agent-horizontal-contract-2026-06-10.md", "note": "wireAgentUC1 조립" },
+    "src/main/adapters/protocol.ts":               { "layer": "adapters",    "uc": ["UC1"],        "contract": "docs/progress/UC1-agent-horizontal-contract-2026-06-10.md", "note": "AgentEmit↔wire encodeEmit (11종)" },
+    "src/main/adapters/stdio.ts":                  { "layer": "adapters",    "uc": ["UC1"],        "contract": "docs/progress/UC1-agent-horizontal-contract-2026-06-10.md", "note": "stdin/stdout LineIO" },
+    "src/main/adapters/signal-util.ts":            { "layer": "adapters",    "uc": ["UC5"],        "contract": "docs/progress/UC5-agent-tool-loop-contract-2026-06-10.md", "note": "abort signal 유틸" },
+    "src/main/adapters/fake-provider.ts":          { "layer": "adapters",    "uc": ["UC1"],        "contract": "docs/progress/UC1-agent-horizontal-contract-2026-06-10.md", "note": "헤드리스 테스트 provider" },
+    "src/main/adapters/ollama-provider.ts":        { "layer": "adapters",    "uc": ["UC1"],        "contract": "docs/progress/UC1-agent-horizontal-contract-2026-06-10.md", "note": "ollama provider" },
+    "src/main/adapters/openai-compat-provider.ts": { "layer": "adapters",    "uc": ["UC1", "UC5"], "contract": "docs/progress/UC5-agent-tool-loop-contract-2026-06-10.md", "note": "openai-compat(GLM coding) provider + tool_calls" },
+    "src/main/adapters/echo-tool-executor.ts":     { "layer": "adapters",    "uc": ["UC5"],        "contract": "docs/progress/UC5-agent-tool-loop-contract-2026-06-10.md", "note": "echo 도구 executor" },
+    "src/main/adapters/composite-tool-executor.ts":{ "layer": "adapters",    "uc": ["UC5"],        "contract": "docs/progress/UC5-agent-tool-loop-contract-2026-06-10.md", "note": "도구 executor 합성(first-name-wins)" },
+    "src/main/adapters/builtin-skills.ts":         { "layer": "adapters",    "uc": ["UC5"],        "contract": "docs/progress/UC5-agent-tool-loop-contract-2026-06-10.md", "note": "time/weather/memo 빌트인 스킬" },
+    "src/main/adapters/file-memo-store.ts":        { "layer": "adapters",    "uc": ["UC5"],        "contract": "docs/progress/UC5-agent-tool-loop-contract-2026-06-10.md", "note": "memo 파일 영속" },
+    "src/main/adapters/github-skills.ts":          { "layer": "adapters",    "uc": ["UC5"],        "contract": "docs/progress/UC5-agent-tool-loop-contract-2026-06-10.md", "note": "github 읽기전용 스킬" },
+    "src/main/adapters/obsidian-skills.ts":        { "layer": "adapters",    "uc": ["UC5"],        "contract": "docs/progress/UC5-agent-tool-loop-contract-2026-06-10.md", "note": "obsidian vault 읽기 스킬" },
+    "src/main/adapters/mcp-skills.ts":             { "layer": "adapters",    "uc": ["UC5"],        "contract": "docs/progress/UC5-agent-tool-loop-contract-2026-06-10.md", "note": "MCP executor(발견+execute)" },
+    "src/main/adapters/mcp-stdio-transport.ts":    { "layer": "adapters",    "uc": ["UC5"],        "contract": "docs/progress/UC5-agent-tool-loop-contract-2026-06-10.md", "note": "MCP JSON-RPC stdio client" },
+    "src/main/adapters/openmeteo-weather.ts":      { "layer": "adapters",    "uc": ["UC5"],        "contract": "docs/progress/UC5-agent-tool-loop-contract-2026-06-10.md", "note": "open-meteo 날씨 fetch" },
+    "src/main/adapters/approval.ts":               { "layer": "adapters",    "uc": ["UC5"],        "contract": "docs/progress/UC5-agent-tool-loop-contract-2026-06-10.md", "note": "승인 게이트 ApprovalPort 구현" }
+  }
+}
