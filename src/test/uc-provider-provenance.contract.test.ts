@@ -33,9 +33,10 @@ describe("provider-route (순수 라우팅)", () => {
 });
 
 describe("baseUrl 해석", () => {
-  it("lab-proxy 기본=api.nextain.io, override 우선", () => {
-    expect(labProxyBaseUrl(cfg({}))).toBe("https://api.nextain.io");
-    expect(labProxyBaseUrl(cfg({ labGatewayUrl: "https://dev.gw/" }))).toBe("https://dev.gw");
+  it("lab-proxy 기본=api.nextain.io/v1(openai-compat 가 /chat/completions 붙임), override 우선", () => {
+    expect(labProxyBaseUrl(cfg({}))).toBe("https://api.nextain.io/v1");
+    expect(labProxyBaseUrl(cfg({ labGatewayUrl: "https://dev.gw/" }))).toBe("https://dev.gw/v1");
+    expect(labProxyBaseUrl(cfg({ labGatewayUrl: "https://x/v1" }))).toBe("https://x/v1"); // 중복 안 붙임
   });
   it("native family baseUrl (gemini→google openai-compat, openai→openai)", () => {
     expect(nativeBaseUrl("gemini")).toBe("https://generativelanguage.googleapis.com/v1beta/openai");
@@ -70,7 +71,7 @@ describe("makeProviderResolver (요청별 transport)", () => {
     const { fetch, box } = capture();
     const r = makeProviderResolver({ fetch: fetch as never });
     await collect(r.resolve(cfg({ provider: "gemini", naiaKey: "naia-XYZ" })).chat(cfg({ naiaKey: "naia-XYZ" }), [], {}));
-    expect(box.url).toBe("https://api.nextain.io/chat/completions");
+    expect(box.url).toBe("https://api.nextain.io/v1/chat/completions");
     expect(box.headers?.["X-AnyLLM-Key"]).toBe("naia-XYZ");
     expect(box.headers?.Authorization).toBeUndefined();
   });
@@ -139,7 +140,7 @@ describe("canonical 흐름 wire 관통 (config provider → resolver → transpo
 
     const msgs = out.map((l) => JSON.parse(l) as Record<string, unknown>);
     // transport 도달: lab-proxy 라우팅(api.nextain.io + X-AnyLLM-Key)
-    expect(box.url).toBe("https://api.nextain.io/chat/completions");
+    expect(box.url).toBe("https://api.nextain.io/v1/chat/completions");
     expect(box.headers?.["X-AnyLLM-Key"]).toBe("naia-XYZ");
     // wire 시퀀스 + usage 에 cost·model(셸 formatCost 크래시 회귀 방지)
     expect(msgs.map((m) => m["type"])).toEqual(["text", "usage", "finish"]);

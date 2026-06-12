@@ -77,7 +77,7 @@ describe("wire-through: 키체인 naiaKey → resolver → lab-proxy (라이브 
     feed(JSON.stringify({ type: "chat_request", requestId: "w1", provider: { provider: "gemini", model: "gemini-2.5-flash" }, messages: [{ role: "user", content: "안녕" }] }));
     await waitFor(() => out.some((l) => (JSON.parse(l) as { type: string }).type === "finish"));
 
-    expect(box.url).toBe("https://api.nextain.io/chat/completions");
+    expect(box.url).toBe("https://api.nextain.io/v1/chat/completions");
     expect(box.headers?.["X-AnyLLM-Key"]).toBe("naia-FROM-KEYCHAIN");
     const msgs = out.map((l) => JSON.parse(l) as Record<string, unknown>);
     expect(msgs.map((m) => m["type"])).toEqual(["text", "usage", "finish"]);

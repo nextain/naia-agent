@@ -19,9 +19,12 @@ export function resolveProviderRoute(config: ProviderConfig): ProviderRoute {
 	return "native";
 }
 
-/** lab-proxy 게이트웨이 baseUrl(설정 override > 기본 prod). old lab-proxy.ts PROD_GATEWAY_URL. */
+/** lab-proxy 게이트웨이 baseUrl(설정 override > 기본 prod) + `/v1`.
+ *  ⚠️ openai-compat 가 `${base}/chat/completions` 로 POST → base 에 `/v1` 필수(old lab-proxy.ts 는 `/v1/chat/completions`).
+ *  /v1 누락 시 api.nextain.io/chat/completions = 404(라이브 e2e 가 잡음). 이미 /vN 이면 중복 안 붙임. */
 export function labProxyBaseUrl(config: ProviderConfig): string {
-	return (config.labGatewayUrl?.replace(/\/+$/, "") || "https://api.nextain.io");
+	const raw = config.labGatewayUrl?.replace(/\/+$/, "") || "https://api.nextain.io";
+	return /\/v\d+$/.test(raw) ? raw : `${raw}/v1`;
 }
 
 /**
