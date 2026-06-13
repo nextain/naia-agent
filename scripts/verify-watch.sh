@@ -80,6 +80,21 @@ run_checks() {
     printf '%s\n' "$fares" | grep -E '✗' | sed 's/^[[:space:]]*✗[[:space:]]*/[file-anchor] /' >>"$WORK_DIR/.vw_tmp" 2>/dev/null || true
   fi
 
+  # 정본 정합 — UC 가 canon in_scope 밖이거나 transport 가 stdio(canon=grpc)면 드리프트(canon-scope.json · 골 #1).
+  #    "스크립트가 계약 외 드리프트를 검출"(루크 Goal). dormant 였던 검출기를 라이브 surface 로 배선.
+  if [ -f "$SCRIPT_DIR/check-canon-conformance.mjs" ]; then
+    local ccres
+    ccres="$(CI_PROJECT_ROOT="$ROOT_DIR" node "$SCRIPT_DIR/check-canon-conformance.mjs" 2>&1)" || true
+    printf '%s\n' "$ccres" | grep -E '✗' | sed 's/^[[:space:]]*✗[[:space:]]*/[canon] /' >>"$WORK_DIR/.vw_tmp" 2>/dev/null || true
+  fi
+
+  # 로깅 표준 강제 — src 에 console.*/직접 stderr·stdout write(표준 외 로깅) 있나(docs/logging.md · 계약 F-LOG-3).
+  if [ -f "$SCRIPT_DIR/check-logging.mjs" ]; then
+    local lgres
+    lgres="$(node "$SCRIPT_DIR/check-logging.mjs" 2>&1)" || true
+    printf '%s\n' "$lgres" | grep -E '✗' | sed 's/^[[:space:]]*✗[[:space:]]*/[check-logging] /' >>"$WORK_DIR/.vw_tmp" 2>/dev/null || true
+  fi
+
   # 컴파일 무결성 — agent src tsc(테스트-타입 노이즈 제외). 깨진 상태(삭제된 파일 import 등) 주기 검출.
   # "항상 깨끗한 상태 유지"(Luke) — 어떤 검출기도 tsc 를 안 돌려 미감지였던 갭.
   if [ -f "$SCRIPT_DIR/check-compile-integrity.mjs" ]; then

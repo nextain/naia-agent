@@ -28,7 +28,9 @@ export interface ChatMessage {
 export interface ChatRequest {
   readonly kind: "chat";
   readonly requestId: string;
-  readonly provider: ProviderConfig;
+  /** wire 가 실은 provider override(옵셔널). 없으면 agent 가 기동 시 naia-settings 로딩한 defaultConfig 사용 —
+   *  정본(루크): "대화는 메시지만 던지면 agent 가 미리(기동 시) 설정된 provider 로 처리". 있으면 그 요청만 오버라이드(하위호환). */
+  readonly provider?: ProviderConfig;
   readonly messages: readonly ChatMessage[];
   readonly systemPrompt?: string;
   readonly enableTools?: boolean;
@@ -45,7 +47,11 @@ export interface CredsUpdate {
   readonly kind: "credsUpdate"; readonly provider: string;
   readonly secret: { readonly apiKey?: string; readonly naiaKey?: string };
 }
-export type AgentRequest = ChatRequest | CancelRequest | ApprovalResponse | CredsUpdate;
+/** 셸의 standalone tool_request(IPC) — old-core 가 스킬을 직접 실행하던 경로(skill_sessions/skill_config/gateway history 등).
+ *  new-core 는 LLM 도구루프(chat_request) 로만 도구 실행 → standalone tool_request 는 미지원. 단 **즉시 error 응답**해야
+ *  셸 directToolCall 이 120s 행에 빠지지 않음(무응답 시 RESPONSE_TIMEOUT → 패널 행·WebDriver 세션 드롭 유발). */
+export interface ToolRequestControl { readonly kind: "toolRequest"; readonly requestId: string; readonly toolName: string; }
+export type AgentRequest = ChatRequest | CancelRequest | ApprovalResponse | CredsUpdate | ToolRequestControl;
 
 // ── provider-중립 도메인 정규화 스트림 단위 (old StreamChunk 의 정규화; error 없음=rejection) ──
 export type ProviderChunk =

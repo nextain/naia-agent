@@ -21,4 +21,12 @@ if [ -f scripts/check-compile-integrity.mjs ]; then
     exit 1
   fi
 fi
-echo "✅ pre-commit: 무결성 통과."
+
+# 로깅 표준 강제 — src 에 console.*/직접 write(표준 외 로깅) 금지(docs/logging.md · 계약 F-LOG-3).
+if [ -f scripts/check-logging.mjs ]; then
+  if ! node scripts/check-logging.mjs; then
+    echo "❌ pre-commit 차단: 표준 외 로깅. DiagnosticLog(diag.log/diag.debug) 로 교정 후 커밋."
+    exit 1
+  fi
+fi
+echo "✅ pre-commit: 무결성 통과(+ 로깅 표준)."

@@ -2,6 +2,9 @@
 // (ingress decodeRequest → ChatTurnHandler 루프 → egress encodeEmit → wire line) 을 wire 레벨로 검증.
 import { describe, it, expect } from "vitest";
 import { wireAgentUC1 } from "../main/composition/index.js";
+// transport=gRPC 이후 stdio 는 production(composition)에서 제거 → 테스트는 stdio 어댑터를 *직접* 써서 in-process
+// wire(decode/encode) 를 검증(stdio.ts = test 유틸). 검출기는 composition/entry 만 스캔하므로 GREEN 유지.
+import { makeStdioIngress, makeStdioEgress } from "../main/adapters/stdio.js";
 import { makeFakeToolProvider } from "../main/adapters/fake-provider.js";
 import { makeEchoToolExecutor } from "../main/adapters/echo-tool-executor.js";
 
@@ -23,7 +26,7 @@ const parse = (lines: string[]) => lines.map((l) => JSON.parse(l) as Record<stri
 describe("UC5 도구 루프 — 실 stdio 관통", () => {
   it("chat_request → 도구 루프 wire 시퀀스(tool_use→tool_result→text→usage→finish), requestId 결속", async () => {
     const { io, out, feed } = memIO();
-    const { start } = wireAgentUC1({ io, provider: makeFakeToolProvider(), toolExecutor: makeEchoToolExecutor() });
+    const { start } = wireAgentUC1({ ingress: makeStdioIngress(io), egress: makeStdioEgress(io), provider: makeFakeToolProvider(), toolExecutor: makeEchoToolExecutor() });
     start?.();
     feed(JSON.stringify({ type: "chat_request", requestId: "w1", provider: { provider: "fake", model: "m" }, messages: [{ role: "user", content: "hi" }] }));
     await waitFor(() => out.some((l) => (JSON.parse(l) as { type: string }).type === "finish"));

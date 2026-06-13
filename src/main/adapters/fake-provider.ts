@@ -15,6 +15,21 @@ export function makeFakeProvider(reply = "(fake) 안녕하세요, 나이아입�
 }
 
 /**
+ * 헤드리스 e2e 용 — **systemPrompt 를 그대로 응답으로 echo**. recall→inject 가 실제로 systemPrompt 에
+ * 회상을 넣었는지 wire text 로 관통 검증(실 진입점). LLM 불요.
+ */
+export function makeSystemEchoProvider(): ProviderPort {
+  return {
+    async *chat(_config: ProviderConfig, _messages: readonly ChatMessage[], opts: ProviderChatOpts): AsyncIterable<ProviderChunk> {
+      if (opts.signal?.aborted) return;
+      yield { kind: "text", text: `SYSTEM_ECHO:${opts.systemPrompt ?? ""}` };
+      yield { kind: "usage", inputTokens: 4, outputTokens: 4 };
+      yield { kind: "finish" };
+    },
+  };
+}
+
+/**
  * UC5 헤드리스 도구 루프용 fake provider. 라운드 판별 = messages 에 tool 결과 메시지 유무.
  *  - 1라운드(도구결과 없음): toolUse(echo) + finish → agent 가 실행→threadToolRound.
  *  - 2라운드(도구결과 있음): 최종 text + finish.

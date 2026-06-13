@@ -9,6 +9,8 @@ import { makeFakeProvider } from "../main/adapters/fake-provider.js";
 import { makeInMemoryCredentials } from "../main/composition/index.js";
 import { makeInMemoryApproval } from "../main/adapters/approval.js";
 import { wireAgentUC1 } from "../main/composition/index.js";
+// stdio 는 production(composition)에서 제거(transport=gRPC) → 테스트는 stdio 어댑터 직접 사용(in-process wire 검증).
+import { makeStdioIngress, makeStdioEgress } from "../main/adapters/stdio.js";
 import type { ProviderConfig, AgentEmit, ChatRequest } from "../main/domain/chat.js";
 
 const cfg = (over: Partial<ProviderConfig>): ProviderConfig => ({ provider: "gemini", model: "gemini-2.5-flash", ...over });
@@ -144,7 +146,7 @@ describe("canonical 흐름 wire 관통 (config provider → resolver → transpo
     const box: { url?: string; headers?: Record<string, string> } = {};
     const { io, out, feed } = memIO();
     const resolver = makeProviderResolver({ fetch: sseFetch(box) as never });
-    const { start } = wireAgentUC1({ io, resolver });
+    const { start } = wireAgentUC1({ ingress: makeStdioIngress(io), egress: makeStdioEgress(io), resolver });
     start?.();
     feed(JSON.stringify({ type: "chat_request", requestId: "w1", provider: { provider: "nextain", model: "gemini-2.5-flash", naiaKey: "naia-XYZ" }, messages: [{ role: "user", content: "안녕" }] }));
     await waitFor(() => out.some((l) => (JSON.parse(l) as { type: string }).type === "finish"));
@@ -160,5 +162,79 @@ describe("canonical 흐름 wire 관통 (config provider → resolver → transpo
     expect(typeof usage?.["cost"]).toBe("number");
     expect(usage?.["cost"]).toBeCloseTo(calculateCost("gemini-2.5-flash", 5, 7), 9);
     expect(msgs.every((m) => m["requestId"] === "w1")).toBe(true);
+  });
+});
+
+describe("config 정본 fallback (정본: 대화는 메시지만 — wire provider 없으면 기동 defaultConfig 사용)", () => {
+  function sseFetch(box: { url?: string; headers?: Record<string, string> }) {
+    const enc = new TextEncoder();
+    const lines = ['data: {"choices":[{"delta":{"content":"안녕"}}]}\n', 'data: {"choices":[{"delta":{}}],"usage":{"prompt_tokens":3,"completion_tokens":4}}\n', "data: [DONE]\n"];
+    return async (url: string, init: { headers: Record<string, string> }) => {
+      box.url = url; box.headers = init.headers;
+      let i = 0;
+      const reader = { read: async () => (i < lines.length ? { done: false, value: enc.encode(lines[i++]) } : { done: true }), cancel() {} };
+      return { ok: true, status: 200, statusText: "OK", body: { getReader: () => reader } };
+    };
+  }
+  function memIO() {
+    const out: string[] = []; let cb: ((l: string) => void) | null = null;
+    return { io: { writeLine: (l: string) => out.push(l), onLine: (c: (l: string) => void) => { cb = c; return () => { cb = null; }; } }, out, feed: (l: string) => cb?.(l) };
+  }
+  async function waitFor(cond: () => boolean) { for (let i = 0; i < 200; i++) { if (cond()) return; await new Promise((r) => setTimeout(r, 5)); } throw new Error("timeout"); }
+
+  it("chat_request 에 provider 없음 + defaultConfig{glm} → defaultConfig 로 native z.ai 직결(wire 아님)", async () => {
+    const box: { url?: string; headers?: Record<string, string> } = {};
+    const { io, out, feed } = memIO();
+    const resolver = makeProviderResolver({ fetch: sseFetch(box) as never });
+    // 기동 시 naia-settings 로딩한 활성 provider 를 주입(라이브 entry 의 settingsStore.loadMain 결과).
+    const { start } = wireAgentUC1({ ingress: makeStdioIngress(io), egress: makeStdioEgress(io), resolver, defaultConfig: { provider: "zai", model: "glm-5.1", apiKey: "GLM-KEY" } });
+    start?.();
+    // ⚠️ provider 필드 없는 chat_request — agent 가 defaultConfig 를 써야만 통과.
+    feed(JSON.stringify({ type: "chat_request", requestId: "d1", messages: [{ role: "user", content: "안녕" }] }));
+    await waitFor(() => out.some((l) => (JSON.parse(l) as { type: string }).type === "finish"));
+    expect(box.url).toBe("https://api.z.ai/api/coding/paas/v4/chat/completions");
+    expect(box.headers?.Authorization).toBe("Bearer GLM-KEY");
+    const msgs = out.map((l) => JSON.parse(l) as Record<string, unknown>);
+    expect(msgs.map((m) => m["type"])).toEqual(["text", "usage", "finish"]);
+    expect(msgs.find((m) => m["type"] === "usage")?.["model"]).toBe("glm-5.1"); // cost 도 defaultConfig.model 기준
+  });
+
+  it("wire provider 있으면 그 요청만 오버라이드(하위호환) — defaultConfig{glm} 무시하고 nextain 으로", async () => {
+    const box: { url?: string; headers?: Record<string, string> } = {};
+    const { io, out, feed } = memIO();
+    const resolver = makeProviderResolver({ fetch: sseFetch(box) as never });
+    const { start } = wireAgentUC1({ ingress: makeStdioIngress(io), egress: makeStdioEgress(io), resolver, defaultConfig: { provider: "zai", model: "glm-5.1", apiKey: "GLM-KEY" } });
+    start?.();
+    feed(JSON.stringify({ type: "chat_request", requestId: "d2", provider: { provider: "nextain", model: "gemini-2.5-flash", naiaKey: "naia-XYZ" }, messages: [{ role: "user", content: "안녕" }] }));
+    await waitFor(() => out.some((l) => (JSON.parse(l) as { type: string }).type === "finish"));
+    expect(box.url).toBe("https://api.nextain.io/v1/chat/completions"); // wire override = lab-proxy(naia 계정)
+    expect(box.headers?.["X-AnyLLM-Key"]).toBe("Bearer naia-XYZ");
+  });
+
+  it("standalone tool_request(old-core 스킬) → 같은 requestId 즉시 error(셸 120s 행 방지, 네트워크 0)", async () => {
+    const box: { url?: string; headers?: Record<string, string> } = {};
+    const { io, out, feed } = memIO();
+    const resolver = makeProviderResolver({ fetch: sseFetch(box) as never });
+    const { start } = wireAgentUC1({ ingress: makeStdioIngress(io), egress: makeStdioEgress(io), resolver, defaultConfig: { provider: "zai", model: "glm-5.1", apiKey: "K" } });
+    start?.();
+    feed(JSON.stringify({ type: "tool_request", requestId: "tr1", toolName: "skill_sessions", args: { action: "reset" } }));
+    await waitFor(() => out.some((l) => (JSON.parse(l) as { type: string }).type === "error"));
+    const err = out.map((l) => JSON.parse(l) as Record<string, unknown>).find((m) => m["type"] === "error");
+    expect(err?.["requestId"]).toBe("tr1"); // 셸 directToolCall 이 requestId 매칭 → reject→catch(warn)
+    expect(String(err?.["message"])).toMatch(/skill_sessions|미지원/);
+    expect(box.url).toBeUndefined(); // chat 아님 — 네트워크 0
+  });
+
+  it("provider 도 defaultConfig 도 없음 → honest error(no provider configured)", async () => {
+    const box: { url?: string; headers?: Record<string, string> } = {};
+    const { io, out, feed } = memIO();
+    const resolver = makeProviderResolver({ fetch: sseFetch(box) as never });
+    const { start } = wireAgentUC1({ ingress: makeStdioIngress(io), egress: makeStdioEgress(io), resolver }); // defaultConfig 없음
+    start?.();
+    feed(JSON.stringify({ type: "chat_request", requestId: "d3", messages: [{ role: "user", content: "안녕" }] }));
+    await waitFor(() => out.some((l) => (JSON.parse(l) as { type: string }).type === "error"));
+    const err = out.map((l) => JSON.parse(l) as Record<string, unknown>).find((m) => m["type"] === "error");
+    expect(String(err?.["message"])).toMatch(/no provider configured/);
+    expect(box.url).toBeUndefined(); // 네트워크 호출 0
   });
 });

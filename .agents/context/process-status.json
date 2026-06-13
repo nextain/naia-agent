@@ -10,20 +10,20 @@
 
   "current_work": {
     "issue": null,
-    "title": null,
-    "issue_doc": null,
+    "title": "UC-memory — naia-memory 연동(턴 전 recall 주입 / 턴 후 save)",
+    "issue_doc": "docs/progress/UC-memory-recall-save-contract-2026-06-12.md",
     "github_issue": null,
-    "started": null,
-    "last_updated": null,
-    "status": "idle"
+    "started": "2026-06-12",
+    "last_updated": "2026-06-12",
+    "status": "in_progress"
   },
 
   "sdlc_gates": {
-    "P01": { "status": "n/a", "name": "user_scenarios", "deliverable": null, "ref": null },
-    "P02": { "status": "n/a", "name": "test_scenarios", "deliverable": null, "ref": null },
-    "P03": { "status": "n/a", "name": "requirements", "deliverable": null, "ref": null },
-    "P04": { "status": "n/a", "name": "integration_test", "deliverable": null, "ref": null },
-    "P05": { "status": "n/a", "name": "requirements_complete", "deliverable": null, "ref": null }
+    "P01": { "status": "done", "name": "user_scenarios", "deliverable": "docs/user-scenarios.md (UC-MEM-1)", "ref": "docs/progress/UC-memory-recall-save-contract-2026-06-12.md" },
+    "P02": { "status": "done", "name": "test_scenarios", "deliverable": "src/test/uc1-memory-stdio.integration.test.ts + uc1-memory-process.integration.test.ts", "ref": "docs/user-scenarios.md#test-coverage-map" },
+    "P03": { "status": "done", "name": "requirements", "deliverable": "docs/requirements.md (FR-MEM-1~8 + NFR)", "ref": "docs/progress/UC-memory-recall-save-contract-2026-06-12.md" },
+    "P04": { "status": "done", "name": "integration_test", "deliverable": "uc1-memory-stdio/process integration tests (14+1) pass", "ref": null },
+    "P05": { "status": "in_progress", "name": "requirements_complete", "deliverable": "FR-MEM-1~10 Done(232 테스트 green, 실프로세스 recall→inject e2e 포함). 코드 2-clean 완료. 설계 리뷰 25라운드(위협모델 경계 명시 후 in-scope 만)·최신 라운드 지적 전부 반영; 설계 2-clean 최종 NONE×2 확인은 codex usage-limit(리셋 06-13 02:10)로 보류. ⚠️ 미커밋(provider-provenance 동시작업이 shared 파일에 얽혀 자율 커밋 보류).", "ref": "docs/progress/UC-memory-recall-save-contract-2026-06-12.md" }
   },
 
   "resource_registry": {

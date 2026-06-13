@@ -8,10 +8,14 @@ import { calculateCost } from "../domain/cost.js";
 import type {
   ProviderPort, ProviderResolverPort, ConversationPort, CredentialPort, ApprovalPort, AgentEgressPort, DiagnosticLog, ToolExecutorPort, ProviderChatOpts,
 } from "../ports/uc1.js";
+import type { MemoryPort } from "../ports/memory.js";
+import { formatRecalledMemory } from "../domain/memory.js";
 
 interface Turn { abort: AbortController; state: ChatTurnState; }
 
 const MAX_TOOL_ROUNDS = 8; // 허용 도구라운드 최대치(round 단위). cap-th 결과로 provider 1회 재호출 허용, 그게 또 도구면 error.
+const MEM_RECALL_TIMEOUT_MS = 5000; // recall bound — 무응답 시 주입 생략하고 턴 진행(terminal 항상 방출).
+const MEM_SAVE_TIMEOUT_MS = 5000;   // save bound — 무응답 시 finish/drain 영구정지 방지(timeout→로그 후 finish).
 
 /** 한 provider 호출(라운드)의 결과 — runRound 가 반환, onChatRequest 루프가 해석. */
 interface RoundResult {
@@ -33,7 +37,12 @@ export interface HandlerDeps {
   readonly approval: ApprovalPort;
   readonly egress: AgentEgressPort;
   readonly diag: DiagnosticLog;
+  /** 기동 시 naia-settings(llm.json main role) 로딩한 활성 provider. wire chat_request 가 provider 를
+   *  안 실으면 이걸 사용(정본: "대화는 메시지만"). req.provider 있으면 그 요청만 오버라이드(하위호환). */
+  readonly defaultConfig?: ProviderConfig;
   readonly toolExecutor?: ToolExecutorPort;                       // UC5 — 미주입 = 도구 없음(UC1 순수 채팅 회귀 없음)
+  readonly memory?: MemoryPort;                                   // UC-memory — 미주입 = 기존 동작(무회귀). 턴 전 recall 주입 / 턴 후 save.
+  readonly memoryTimeoutMs?: number;                              // recall/save deadline override(테스트용; 미주입=기본 5000ms).
 }
 
 export class ChatTurnHandler {
@@ -52,17 +61,43 @@ export class ChatTurnHandler {
     let sawTerminal = false;
     const totalUsage = { inputTokens: 0, outputTokens: 0 };
     const emit = (e: Parameters<AgentEgressPort["emit"]>[1]) => this.d.egress.emit(req.requestId, e); // egress no-throw
+    // config 정본: wire provider override > 기동 시 naia-settings 로딩한 defaultConfig(정본 "대화는 메시지만").
+    const activeConfig = req.provider ?? this.d.defaultConfig;
+    const costModel = activeConfig?.model ?? ""; // 미설정 = calculateCost("") = 0(크래시 아님)
     // terminal 래치(usage 중복 emit 원천 차단 — 두 종결 모두 이 헬퍼만 사용).
-    const terminalFinish = () => { if (!sawTerminal) { emit({ kind: "usage", ...totalUsage, cost: calculateCost(req.provider.model, totalUsage.inputTokens, totalUsage.outputTokens), model: req.provider.model }); emit({ kind: "finish" }); sawTerminal = true; t.state = "finished"; } };
-    const terminalError = (message: string) => { if (!sawTerminal) { emit({ kind: "usage", ...totalUsage, cost: calculateCost(req.provider.model, totalUsage.inputTokens, totalUsage.outputTokens), model: req.provider.model }); emit({ kind: "error", message }); sawTerminal = true; t.state = "errored"; } };
+    const terminalFinish = () => { if (!sawTerminal) { emit({ kind: "usage", ...totalUsage, cost: calculateCost(costModel, totalUsage.inputTokens, totalUsage.outputTokens), model: costModel }); emit({ kind: "finish" }); sawTerminal = true; t.state = "finished"; } };
+    const terminalError = (message: string) => { if (!sawTerminal) { emit({ kind: "usage", ...totalUsage, cost: calculateCost(costModel, totalUsage.inputTokens, totalUsage.outputTokens), model: costModel }); emit({ kind: "error", message }); sawTerminal = true; t.state = "errored"; } };
 
     try {
+      if (!activeConfig) { terminalError("no provider configured — naia-settings/llm.json 도 wire provider 도 없음"); return; }
       const providerConfig: ProviderConfig = {
-        ...req.provider,
+        ...activeConfig,
         ...(req.enableThinking !== undefined ? { enableThinking: req.enableThinking } : {}),
-        ...(this.d.credentials.get(req.provider.provider) ?? {}),
+        ...(this.d.credentials.get(activeConfig.provider) ?? {}),
       };
       const asm = this.d.conversation.assemble({ messages: req.messages, systemPrompt: req.systemPrompt });
+      // UC-memory FR-MEM-1: 턴 전 recall → systemPrompt 주입(회상 있으면). 기준 = *이 턴의 새 user
+      // 입력* = 메시지 배열의 마지막 메시지가 user 일 때 그것. ⚠️ "마지막 user 를 전체에서 탐색"이 아니라
+      // 마지막 메시지여야 한다 — assistant continuation/regenerate(마지막이 assistant) 요청에서 과거
+      // user 발화를 query·save 대상으로 재사용하는 오류를 막기 위함. 마지막이 user 가 아니면 이 턴엔 새
+      // 입력이 없으므로 recall/save 생략. content="" 도 정상 입력(빈 문자열 truthiness 로 건너뛰지 않음).
+      const lastMsg = req.messages.length ? req.messages[req.messages.length - 1] : undefined;
+      const currentUserMsg = lastMsg?.role === "user" ? lastMsg : undefined;
+      const lastUserText = currentUserMsg?.content ?? "";
+      let memSystemPrompt = asm.systemPrompt;
+      // FR-MEM-1a: 빈/공백 query 는 app 계층에서 단락(recall 미호출) — 빈 query 가 전체/임의 top-K 를
+      // 끌어와 무관 정보를 주입하는 것을 *어댑터 구현과 무관하게* 막는다(정책은 app 소유). 어댑터에도
+      // 동일 가드(방어 심층).
+      if (this.d.memory && currentUserMsg && lastUserText.trim()) {
+        try {
+          // recall 을 abort + deadline 과 race — recall 이 멈춰도(취소 또는 무응답) 즉시 풀려 (a) 가드/턴이
+          // 진행돼 terminal 이 항상 방출된다. abort/timeout → recalled=null=주입 생략(턴은 채팅 우선 진행).
+          const mem = await raceAbort(this.d.memory.recall(lastUserText), signal, this.d.memoryTimeoutMs ?? MEM_RECALL_TIMEOUT_MS);
+          // 프레이밍·예산 절단은 domain formatter 가 강제(adapter 무관 — FR-MEM-7/8 보장).
+          const recalled = mem ? formatRecalledMemory(mem) : "";
+          if (recalled) memSystemPrompt = asm.systemPrompt ? `${asm.systemPrompt}\n\n${recalled}` : recalled;
+        } catch (e) { this.safeDiag("memory recall 실패(턴 유지)", e); }
+      }
       const exec = this.d.toolExecutor;
       const tools = exec?.specs() ?? [];
       let messages: readonly ChatMessage[] = asm.messages;
@@ -81,16 +116,36 @@ export class ChatTurnHandler {
         usedCids.add(cand); return cand;
       };
 
+      const assistantTurnParts: string[] = []; // 턴 전체 assistant 텍스트 누적(도구 라운드 preamble 포함) — save 용
       for (;;) {
         if (sawTerminal) break;
         if (signal.aborted) { terminalError("cancelled"); break; }                 // (a) provider 호출 전 가드
-        const round = await this.runRound(providerConfig, messages, asm.systemPrompt, tools, signal, emit);
+        const round = await this.runRound(providerConfig, messages, memSystemPrompt, tools, signal, emit);
         if (round.usage) { totalUsage.inputTokens += round.usage.inputTokens; totalUsage.outputTokens += round.usage.outputTokens; } // 라운드 스냅샷 1회 합산
         if (round.aborted) { terminalError("cancelled"); break; }
         if (round.rejected !== undefined) { terminalError(`provider error: ${round.rejected}`); break; }
         if (!round.finished) { terminalError("incomplete stream"); break; }         // finish 없는 EOF = provider error(UC1 계승)
         if (signal.aborted) { terminalError("cancelled"); break; }                  // (b) provider loop 종료 직후 가드(finish 직후 취소 시 finish/cap-error 선방출 차단)
-        if (round.calls.length === 0) { terminalFinish(); break; }                  // 최종 응답
+        if (round.text) assistantTurnParts.push(round.text);                        // 이 라운드 assistant 텍스트 누적(도구 라운드 preamble 도 보존)
+        if (round.calls.length === 0) {                                             // 최종 응답
+          // UC-memory FR-MEM-2: provider 가 최종 응답을 낸 시점 = **커밋 지점**. 여기서 save → finish.
+          // 취소 의미 불변식: 취소는 커밋 지점 *전*((b) 가드)까지만 인정 — provider 가 최종 답을 낸 뒤
+          // save 중 도착한 취소는 무시하고 턴을 finish 한다(저장됐는데 wire 는 cancelled 인 모순 방지:
+          // "저장된 턴 = finish 된 턴"). assistant 텍스트는 *턴 전체*(도구 라운드 preamble 포함) 누적분.
+          // ⚠️ finish emit *전*에 save await — 클라이언트가 finish 즉시 다음 턴을 보내면 그 recall 이 이
+          // save 보다 먼저 돌아 저장 전 상태를 회상하는 레이스가 생긴다(save→finish→다음 recall 순서 보장).
+          // save 는 deadline 으로 bound — 무응답이어도 finish/drain 이 영구 정지하지 않음(timeout→로그 후 진행).
+          // save 실패/timeout=진단 로그, 턴 유지(FR-MEM-3). save 무방출이라 usage/finish 불변식 무영향.
+          if (this.d.memory && currentUserMsg) {
+            try {
+              const saveTimeoutMs = this.d.memoryTimeoutMs ?? MEM_SAVE_TIMEOUT_MS;
+              const ok = await raceTimeout(this.d.memory.save(lastUserText, assistantTurnParts.join("\n")), saveTimeoutMs);
+              if (!ok) this.safeDiag("memory save 시간초과(턴 유지)", new Error(`>${saveTimeoutMs}ms`));
+            } catch (e) { this.safeDiag("memory save 실패(턴 유지)", e); }
+          }
+          terminalFinish();
+          break;
+        }
         if (toolRounds >= MAX_TOOL_ROUNDS) { terminalError("tool loop limit exceeded"); break; } // cap-th 실행 후 재호출이 또 도구 → error(usage 1회, toolUse 미emit=orphan 없음)
         toolRounds++;
         const results: { output: string; isError?: boolean }[] = [];
@@ -145,6 +200,11 @@ export class ChatTurnHandler {
     }
   }
 
+  /** 메모리 실패 진단 로그 — 로거 자체가 throw 해도 흡수(FR-MEM-3: 메모리 실패가 턴을 깨지 않음). */
+  private safeDiag(message: string, e: unknown): void {
+    try { this.d.diag.log(message, errMessage(e)); } catch { /* 로거 throw 흡수 — 턴 유지 */ }
+  }
+
   /**
    * 한 provider 호출(라운드) 구동 — 수동 iterator + abort race(R5/R6/R8/R9 계승). text/thinking 즉시 emit,
    * toolUse 는 *버퍼링*(emit 안 함 — onChatRequest 가 cap 통과 후 emit), usage 마지막 스냅샷 채택, finish 종료자.
@@ -190,6 +250,11 @@ export class ChatTurnHandler {
   onCredsUpdate(req: CredsUpdate): void {
     this.d.credentials.update(req.provider, req.secret);
   }
+  /** standalone tool_request(old-core 스킬 직접 호출) — new-core 미지원. 즉시 error 응답(셸 directToolCall 120s 행 방지).
+   *  셸은 reject→catch(warn)로 우아하게 처리. (도구 실행은 chat_request 의 LLM 도구루프로만 — UC5.) */
+  onToolRequest(req: { requestId: string; toolName: string }): void {
+    this.d.egress.emit(req.requestId, { kind: "error", message: `tool '${req.toolName}' 는 new-core agent 미지원(chat 도구루프로만 실행)` });
+  }
   onCancel(req: CancelRequest): void {
     const t = this.turns.get(req.requestId);
     if (!t || t.state !== "streaming") return; // 없음/종결=no-op
@@ -202,3 +267,36 @@ export class ChatTurnHandler {
 }
 
 function errMessage(e: unknown): string { return e instanceof Error ? e.message : String(e); }
+
+/** p 를 abort + deadline 과 race. abort 또는 timeout 이 먼저면 null(p 는 dangling — void-catch 로
+ *  unhandled rejection 방지). p 가 먼저 resolve→값 / reject→전파(호출부 catch 로 진단). 어느 경로든
+ *  listener·timer 정리(잔존 방지). recall 이 무응답이어도 deadline 으로 풀려 턴이 진행된다. */
+function raceAbort<T>(p: Promise<T>, signal: AbortSignal, timeoutMs: number): Promise<T | null> {
+  void p.catch(() => {});                                                            // race 패배 시 p reject 흡수
+  if (signal.aborted) return Promise.resolve(null);
+  return new Promise<T | null>((resolve, reject) => {
+    let done = false;
+    const onAbort = () => settle(() => resolve(null));
+    // ⚠️ unref 금지 — drain 이 hang 중인 recall 만 기다릴 때 이 timer 가 이벤트 루프를 살려 deadline 이
+    // 실제로 발화하게 한다(unref 하면 프로세스가 timeout 전 종료 → terminal/close 누락). settle 시 clear.
+    const timer = setTimeout(() => settle(() => resolve(null)), timeoutMs);
+    const cleanup = () => { signal.removeEventListener("abort", onAbort); clearTimeout(timer); };
+    const settle = (act: () => void) => { if (!done) { done = true; cleanup(); act(); } };
+    signal.addEventListener("abort", onAbort, { once: true });
+    p.then((v) => settle(() => resolve(v)), (e) => settle(() => reject(e)));
+  });
+}
+
+/** p 를 deadline 과 race. 완료=true, timeout=false. p reject 는 전파(호출부 catch). save 를 bound 해
+ *  무응답 save 가 finish/drain 을 영구 정지시키지 못하게. p 는 dangling 가능(void-catch). */
+function raceTimeout<T>(p: Promise<T>, timeoutMs: number): Promise<boolean> {
+  void p.catch(() => {});
+  return new Promise<boolean>((resolve, reject) => {
+    let done = false;
+    const timer = setTimeout(() => { if (!done) { done = true; resolve(false); } }, timeoutMs); // unref 금지(위 raceAbort 와 동일 이유 — drain 중 발화 보장)
+    p.then(
+      () => { if (!done) { done = true; clearTimeout(timer); resolve(true); } },
+      (e) => { if (!done) { done = true; clearTimeout(timer); reject(e); } },
+    );
+  });
+}

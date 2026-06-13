@@ -65,7 +65,10 @@ export interface AgentEgressPort {
   emit(requestId: string, e: AgentEmit): void;
 }
 
-/** out-of-band 진단(중복 requestId 등 — wire 아님). */
+/** out-of-band 진단(중복 requestId 등 — wire 아님). 표준 로깅 sink(docs/logging.md). console.* 직접 금지(check-logging 강제). */
 export interface DiagnosticLog {
+  /** 항상 출력(경고/오류/진단). */
   log(message: string, ctx?: unknown): void;
+  /** 진입·분기 로그(시간+컴포넌트+파라미터) — **디버그 모드에서만** 출력(릴리즈 no-op). logging 규약 P1. */
+  debug?(message: string, ctx?: unknown): void;
 }

@@ -1,0 +1,87 @@
+syntax = "proto3";
+package naia.agent.v1;
+// 임의 JSON 값(toolUse.args/gatewayApprovalRequest.args/tokenWarning.raw)은 google.protobuf.Value 대신
+// JSON 문자열로 운반 — proto-loader 가 raw JS 값을 Value 로 직렬화 시 객체가 빈값으로 유실됨(codex 실측). JSON=무손실.
+
+// ── new-naia os↔agent 단일 transport 계약 (정본: naia-os --gRPC--> naia-agent --저장/불러오기--> naia-adk).
+// 직교: 이 proto = 가로(gRPC 경계). 도메인(chat-turn-handler 등)은 이 proto 를 모름 — adapter 가 proto↔domain 매핑.
+// 현 stdio wire(protocol.ts decodeRequest/encodeEmit) 의 충실한 이식(추가 아닌 교체). codex R1 반영.
+service NaiaAgent {
+  // 기동/설정: os 가 워크스페이스 경로 주입 → agent 가 naia-adk/naia-settings 로 provider/모델 로딩.
+  // 라이브 변경(사용자 모델 교체) = OS 가 naia-settings 갱신 후 재호출(멱등). (R1-2: startup-only 금지)
+  rpc SetWorkspace(SetWorkspaceRequest) returns (SetWorkspaceResult);
+  rpc ReloadSettings(ReloadSettingsRequest) returns (SetWorkspaceResult);
+
+  // 대화: 메시지만(provider 미포함 — 정본). 응답 = AgentEvent server-stream(현 AgentEmit 1:1).
+  rpc Chat(ChatRequest) returns (stream AgentEvent);
+
+  rpc Cancel(CancelRequest) returns (Ack);
+  rpc ApprovalResponse(ApprovalResponseRequest) returns (Ack);
+  rpc UpdateCreds(CredsUpdate) returns (Ack);          // 키체인 overlay(런타임 우선)
+  // 구 standalone tool_request — new-core 미지원: 즉시 error 이벤트(셸 120s 행 방지). (R1-4)
+  rpc ToolRequest(ToolRequestControl) returns (stream AgentEvent);
+}
+
+message Ack { bool ok = 1; }
+
+message SetWorkspaceRequest { string adk_path = 1; }
+message ReloadSettingsRequest {}
+message SetWorkspaceResult {
+  bool loaded = 1;            // naia-adk 에서 provider/model 로딩 성공?
+  string provider = 2;
+  string model = 3;
+}
+
+message Message { string role = 1; string content = 2; optional string tool_call_id = 3; } // role: system|user|assistant|tool (passthrough, protocol.ts 동형)
+
+// 현 protocol.ts chat_request 전 필드 보존 (R1-1: enableThinking/gatewayUrl/disabledSkills 누락 금지). provider 제거(정본).
+message ChatRequest {
+  string request_id = 1;
+  repeated Message messages = 2;
+  optional string system_prompt = 3;
+  optional bool enable_tools = 4;
+  optional bool enable_thinking = 5;      // handler 가 소비 — 누락 시 회귀
+  optional string gateway_url = 6;
+  repeated string disabled_skills = 7;
+}
+
+message CancelRequest { string request_id = 1; }
+message ApprovalResponseRequest {
+  string request_id = 1; string tool_call_id = 2;
+  enum Decision { REJECT = 0; APPROVE = 1; }
+  Decision decision = 3;
+}
+message CredsUpdate {
+  string provider = 1;
+  optional string api_key = 2;
+  optional string naia_key = 3;
+}
+message ToolRequestControl { string request_id = 1; string tool_name = 2; }
+
+// AgentEmit 11종 1:1 무손실(R1-3). args/raw = google.protobuf.Value, usage cost/model = optional(presence 보존).
+message AgentEvent {
+  string request_id = 1;
+  oneof event {
+    TextEvent text = 2;
+    TextEvent thinking = 3;
+    ToolUseEvent tool_use = 4;
+    ToolResultEvent tool_result = 5;
+    ApprovalRequestEvent approval_request = 6;
+    GatewayApprovalRequestEvent gateway_approval_request = 7;
+    UsageEvent usage = 8;
+    LogEntryEvent log_entry = 9;
+    TokenWarningEvent token_warning = 10;
+    FinishEvent finish = 11;
+    ErrorEvent error = 12;
+  }
+}
+message TextEvent { string text = 1; }
+message ToolUseEvent { string tool_call_id = 1; string tool_name = 2; string args_json = 3; }   // args = JSON 문자열(무손실)
+message ToolResultEvent { string tool_call_id = 1; string output = 2; }
+message ApprovalRequestEvent { string tool_call_id = 1; string tool_name = 2; int32 tier = 3; }
+message GatewayApprovalRequestEvent { string tool_call_id = 1; string tool_name = 2; string args_json = 3; }
+message UsageEvent { int64 input_tokens = 1; int64 output_tokens = 2; optional double cost = 3; optional string model = 4; }
+message LogEntryEvent { string level = 1; string message = 2; }
+message TokenWarningEvent { string raw_json = 1; }
+message FinishEvent {}
+message ErrorEvent { string message = 1; }

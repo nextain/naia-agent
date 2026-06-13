@@ -15,7 +15,7 @@
  * exit 0 = 모든 파일이 계약에 앵커됨. exit 1 = 드리프트.
  * 0 토큰·결정론·LLM 없음. PostToolUse 훅 + cron 에서 호출.
  */
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -64,12 +64,15 @@ function main() {
 	// 2. stale: manifest 에 있는데 디스크에 없음.
 	const diskSet = new Set(disk);
 	for (const f of keys) if (!diskSet.has(f)) errs.push(`stale 앵커(파일 없음): ${f}`);
-	// 3. 앵커 필드 완전성.
+	// 3. 앵커 필드 완전성 + contract 문서 실재 검증(존재만 확인하던 약점 보강 — 잘못된/stale 계약 경로 차단).
+	//    contract 는 string 또는 string[](한 파일이 복수 UC 계약을 가리킬 수 있음 — 예: handler = UC5 + UC-memory).
 	for (const f of keys) {
 		const a = files[f] || {};
 		if (!a.layer || !VALID_LAYERS.has(a.layer)) errs.push(`${f}: layer 누락/미허용 (${[...VALID_LAYERS].join("|")})`);
 		if (!a.uc) errs.push(`${f}: uc 앵커 누락`);
-		if (!a.contract) errs.push(`${f}: contract 문서 앵커 누락`);
+		const contracts = Array.isArray(a.contract) ? a.contract : (a.contract ? [a.contract] : []);
+		if (!contracts.length) errs.push(`${f}: contract 문서 앵커 누락`);
+		for (const c of contracts) if (!existsSync(join(ROOT, c))) errs.push(`${f}: contract 문서 부재(stale 앵커): ${c}`);
 	}
 
 	if (errs.length) {

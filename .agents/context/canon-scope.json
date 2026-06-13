@@ -1,0 +1,10 @@
+{
+  "_doc": "정본 scope 게이트의 외부 SoT. 출처 = 루크 구술 앵커(project_new_naia_goal_and_method_anchor / project_new_naia_os_agent_adk_architecture). AI 가 자기 계약을 써넣어도, 그 UC 가 여기 in_scope 에 없으면 RED. 자기-작성 계약 통과(file-anchor 게이트의 구멍)를 닫는다.",
+  "in_scope_uc": ["UC1", "UC5", "UC-provider-provenance"],
+  "out_of_scope_uc": {
+    "UC-memory": "메모리 연결(naia-memory ↔ new-naia-agent)=다른 세션 소유. 앵커: '이 goal로 끌어오지 말 것, 새로 짓거나 고치지 말 것, gRPC=memory-side 선행'. 여기서 만들면 드리프트."
+  },
+  "single_transport": { "canonical": "grpc", "legacy_baseline": "stdio-lineio", "rule": "os↔agent 단일 transport = gRPC (루크 Goal 2026-06-13: 직교 = UC×gRPC 횡적경계). stdio-lineio = 이식 대상 old baseline, 신규/완성 코드는 gRPC. 교체이지 추가 아님(단일 port-layer 유지)." },
+  "storage": { "canonical": "naia-adk/naia-settings", "rule": "provider/model/settings = naia-agent 가 naia-adk(<NAIA_ADK_PATH>/naia-settings)에 저장·로딩. 다른 저장소/경로 금지 (루크 Goal 2026-06-13)." },
+  "gate": { "rule": "각 UC 의 완성 = pnpm run tauri:dev 완전경로(UI→gRPC→naia-agent→naia-adk 저장/불러오기→back→UI)를 AI 가 먼저 통과 검증 후 핸드오프. 프록시/mock/stdio 테스트로 통과 주장 금지. 작업 후 다른 AI 코드리뷰 검증." }
+}

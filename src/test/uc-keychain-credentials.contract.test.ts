@@ -4,6 +4,8 @@ import { describe, it, expect } from "vitest";
 import { makeKeychainCredentials, apiKeyEnvFor, classifyProbe } from "../main/adapters/keychain-secret-store.js";
 import { makeProviderResolver } from "../main/adapters/provider-resolver.js";
 import { wireAgentUC1 } from "../main/composition/index.js";
+// stdio 는 production(composition)에서 제거(transport=gRPC) → 테스트는 stdio 어댑터 직접 사용(in-process wire 검증).
+import { makeStdioIngress, makeStdioEgress } from "../main/adapters/stdio.js";
 
 describe("apiKeyEnvFor (provider → env_key, naia-os resolveAgentEnvKey 거울)", () => {
   it("매핑", () => {
@@ -71,7 +73,7 @@ describe("wire-through: 키체인 naiaKey → resolver → lab-proxy (라이브 
     // 셸은 naiaKey 를 wire 에 안 실음(secret strip) — agent 가 키체인서 read-back. nextain(naia 계정)=lab-proxy.
     const credentials = makeKeychainCredentials({ read: (n) => (n === "NAIA_ANYLLM_API_KEY" ? "naia-FROM-KEYCHAIN" : undefined) });
     const resolver = makeProviderResolver({ fetch: sseFetch(box) as never });
-    const { start } = wireAgentUC1({ io, credentials, resolver });
+    const { start } = wireAgentUC1({ ingress: makeStdioIngress(io), egress: makeStdioEgress(io), credentials, resolver });
     start?.();
     // req.provider 에 naiaKey 없음(셸이 strip) — 키체인 creds 가 채움
     feed(JSON.stringify({ type: "chat_request", requestId: "w1", provider: { provider: "nextain", model: "gemini-2.5-flash" }, messages: [{ role: "user", content: "안녕" }] }));

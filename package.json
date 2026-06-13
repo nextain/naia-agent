@@ -10,6 +10,11 @@
     "test:watch": "vitest src/test/*.test.ts",
     "test:report": "vitest run src/test/*.test.ts --reporter=verbose"
   },
+  "dependencies": {
+    "@grpc/grpc-js": "^1.14.4",
+    "@grpc/proto-loader": "^0.8.1",
+    "@nextain/naia-memory": "file:../../naia-memory"
+  },
   "devDependencies": {
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
