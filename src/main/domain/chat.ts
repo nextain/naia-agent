@@ -66,8 +66,8 @@ export type AgentEmit =
   | { readonly kind: "text"; readonly text: string }
   | { readonly kind: "thinking"; readonly text: string }
   | { readonly kind: "toolUse"; readonly toolCallId: string; readonly toolName: string; readonly args: unknown }
-  | { readonly kind: "toolResult"; readonly toolCallId: string; readonly output: string }
-  | { readonly kind: "approvalRequest"; readonly toolCallId: string; readonly toolName: string; readonly tier: string } // UC5 방출
+  | { readonly kind: "toolResult"; readonly toolCallId: string; readonly output: string; readonly toolName: string; readonly success: boolean } // UC1 리뷰: success/toolName 보존
+  | { readonly kind: "approvalRequest"; readonly toolCallId: string; readonly toolName: string; readonly tier: string; readonly args: unknown; readonly description: string } // UC5 방출 + UC1 리뷰(args/description)
   | { readonly kind: "gatewayApprovalRequest"; readonly toolCallId: string; readonly toolName: string; readonly args: unknown } // UC5 방출
   | { readonly kind: "usage"; readonly inputTokens: number; readonly outputTokens: number; readonly cost?: number; readonly model?: string }
   | { readonly kind: "logEntry"; readonly level: string; readonly message: string }

@@ -63,8 +63,8 @@ export function emitToProto(requestId: string, e: AgentEmit): PbAgentEvent {
     case "text": return { requestId, text: { text: e.text } };
     case "thinking": return { requestId, thinking: { text: e.text } };
     case "toolUse": return { requestId, toolUse: { toolCallId: e.toolCallId, toolName: e.toolName, argsJson: JSON.stringify(e.args ?? null) } };
-    case "toolResult": return { requestId, toolResult: { toolCallId: e.toolCallId, output: e.output } };
-    case "approvalRequest": return { requestId, approvalRequest: { toolCallId: e.toolCallId, toolName: e.toolName, tier: e.tier } };
+    case "toolResult": return { requestId, toolResult: { toolCallId: e.toolCallId, output: e.output, toolName: e.toolName, success: e.success } };
+    case "approvalRequest": return { requestId, approvalRequest: { toolCallId: e.toolCallId, toolName: e.toolName, tier: e.tier, argsJson: JSON.stringify(e.args ?? null), description: e.description } };
     case "gatewayApprovalRequest": return { requestId, gatewayApprovalRequest: { toolCallId: e.toolCallId, toolName: e.toolName, argsJson: JSON.stringify(e.args ?? null) } };
     case "usage": return { requestId, usage: { inputTokens: e.inputTokens, outputTokens: e.outputTokens, ...(e.cost !== undefined ? { cost: e.cost } : {}), ...(e.model !== undefined ? { model: e.model } : {}) } };
     case "logEntry": return { requestId, logEntry: { level: e.level, message: e.message } };

@@ -169,13 +169,13 @@ export class ChatTurnHandler {
             let decision: "approve" | "reject" = "reject";
             // ⚠️ emit·await 를 한 try/finally 로 — emit 이 throw 해도 dispose 항상 호출(보류·listener 누수 방지).
             try {
-              emit({ kind: "approvalRequest", toolCallId: cid, toolName: call.name, tier }); // 등록 후 emit(fast resolve 안전)
+              emit({ kind: "approvalRequest", toolCallId: cid, toolName: call.name, tier, args: call.args, description: tools.find((s) => s.name === call.name)?.description ?? "" }); // 등록 후 emit; args/description=승인 페이로드(UC1 리뷰)
               decision = await promise;
             } catch { decision = "reject"; } finally { dispose(); } // abort→catch→(f) cancelled; 비-abort reject=거부
             if (signal.aborted) { terminalError("cancelled"); cancelled = true; break; } // (f) await 후 가드
             if (decision === "reject") {
               const out = "도구 호출이 거부되었습니다";
-              emit({ kind: "toolResult", toolCallId: cid, output: out });           // 거부도 toolResult 쌍(I6)
+              emit({ kind: "toolResult", toolCallId: cid, output: out, toolName: call.name, success: false });           // 거부도 toolResult 쌍(I6); success=false(UC1 리뷰)
               results.push({ output: out, isError: true });
               continue;                                                             // 실행 안 함 — 다음 call
             }
@@ -200,7 +200,7 @@ export class ChatTurnHandler {
             r = { output: errMessage(e), isError: true };                            // 비-abort reject = isError(루프 안정)
           }
           if (signal.aborted) { terminalError("cancelled"); cancelled = true; break; } // (d) execute 직후 가드
-          emit({ kind: "toolResult", toolCallId: cid, output: r.output });           // toolUse 와 쌍(cid)
+          emit({ kind: "toolResult", toolCallId: cid, output: r.output, toolName: call.name, success: !r.isError });           // toolUse 와 쌍(cid); success=!isError(UC1 리뷰)
           results.push(r);
         }
         if (cancelled || sawTerminal) break;

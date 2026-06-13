@@ -47,8 +47,8 @@ export function encodeEmit(requestId: string, e: AgentEmit): Record<string, unkn
     case "text": return { type: "text", requestId, text: e.text };
     case "thinking": return { type: "thinking", requestId, text: e.text };
     case "toolUse": return { type: "tool_use", requestId, toolCallId: e.toolCallId, toolName: e.toolName, args: e.args };
-    case "toolResult": return { type: "tool_result", requestId, toolCallId: e.toolCallId, output: e.output };
-    case "approvalRequest": return { type: "approval_request", requestId, toolCallId: e.toolCallId, toolName: e.toolName, tier: e.tier };
+    case "toolResult": return { type: "tool_result", requestId, toolCallId: e.toolCallId, output: e.output, toolName: e.toolName, success: e.success }; // UC1 리뷰: success/toolName
+    case "approvalRequest": return { type: "approval_request", requestId, toolCallId: e.toolCallId, toolName: e.toolName, tier: e.tier, args: e.args, description: e.description }; // UC1 리뷰: args/description
     case "gatewayApprovalRequest": return { type: "gateway_approval_request", requestId, toolCallId: e.toolCallId, toolName: e.toolName, args: e.args };
     case "usage": return { type: "usage", requestId, inputTokens: e.inputTokens, outputTokens: e.outputTokens, ...(e.cost !== undefined ? { cost: e.cost } : {}), ...(e.model !== undefined ? { model: e.model } : {}) };
     case "logEntry": return { type: "log_entry", requestId, level: e.level, message: e.message };
