@@ -275,6 +275,14 @@
         "UC8"
       ],
       "contract": "docs/progress/UC8-bgm-contract-2026-06-13.md"
+    },
+    "src/main/adapters/agent-browser-skills.ts": {
+      "layer": "adapters",
+      "uc": [
+        "UC6"
+      ],
+      "contract": "docs/progress/UC8-bgm-contract-2026-06-13.md",
+      "note": "UC6 browser ToolExecutor — agent-browser CLI 래퍼(injected runCli, 외부 CLI deferred). 계약=external-skill 패턴(UC8 동형)."
     }
   }
 }

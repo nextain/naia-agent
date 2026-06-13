@@ -1,0 +1,13 @@
+{
+  "uc": "UC6 (환경 조작-browser) — agent-local skill",
+  "repo": "new-naia-agent",
+  "date": "2026-06-13",
+  "session_id": "ec74cc29-3347-4f6e-b29a-237ea29f301e",
+  "tier": "T2 (환경 조작 + 외부 CLI/browser)",
+  "status": "agent-local skill 이식 완료(external CLI deferred)",
+  "developed": "agent-browser-skills.ts ToolExecutor: cmd 화이트리스트(open/snapshot/click/fill/press/screenshot/... 17개, 임의 cmd 차단) + args string[] 검증(인젝션 방지) + injected BrowserCliRun(미주입=정직 unsupported) + timeout-bound. tier='ask'(환경조작→UC13 승인). no-throw+abort 가드. 7 단위테스트(mock runCli).",
+  "self_review": "BLOCKER 0(self): cmd 화이트리스트(임의 명령 주입 차단)·args string[] only(객체 인젝션 차단)·injected(외부 직결 없음)·timeout·no-throw·정직 unsupported. old(agent-browser CLI 래퍼) 패턴 충실.",
+  "deferred_external": "BrowserCliRun(agent-browser CLI subprocess + 실 browser/CDP) = 신규계약(또는 os browser webview gRPC wire) + 루크머신 live. old 는 spawn(agent-browser CLI).",
+  "off_scope_note_memory_test": "agent 풀스윗 npm test = 249 passed exit 0(green). ⚠️ 단 uc1-memory-stdio(off-scope 메모리) 가 test-order-dependent flaky(UC8만 추가 시 fail, UC6+UC8 시 pass) — 메모리 세션의 격리버그. 현재 order 로는 green. 메모리=다른 세션 소유라 미수정, 격리수정은 그 세션.",
+  "next_review":"2-AI open-loop(정본=old agent-browser) — external wire 와 함께 정식. 이 증분=self-reviewed 이식."
+}
