@@ -20,11 +20,14 @@ const PROTO_PATH = [
 ].find((p) => existsSync(p)) ?? join(HERE, "naia_agent.proto");
 
 export interface SettingsResult { loaded: boolean; provider: string; model: string }
+/** F1 rich-health(신규계약 Diagnostics RPC). os InteroceptivePort.diagnostics rich payload. */
+export interface DiagnosticsResult { version: string; uptimeMs: number; healthy: boolean; components: readonly { name: string; healthy: boolean }[] }
 
 export interface GrpcServerDeps {
   bindAddr?: string;                                  // 기본 127.0.0.1:0(임의 포트). entry 가 주소 회수.
   onSetWorkspace: (adkPath: string) => SettingsResult; // naia-adk/naia-settings 로딩 결과(entry 제공)
   onReloadSettings: () => SettingsResult;
+  onDiagnostics?: () => DiagnosticsResult;            // F1 rich-health(미주입 시 기본 healthy). Rust os-client=후속.
   diag: DiagnosticLog;
 }
 
@@ -101,6 +104,9 @@ export function makeGrpcServer(deps: GrpcServerDeps): GrpcServer {
     },
     reloadSettings: (_call: grpc.ServerUnaryCall<unknown, unknown>, cb: grpc.sendUnaryData<SettingsResult>) => {
       cb(null, deps.onReloadSettings());
+    },
+    diagnostics: (_call: grpc.ServerUnaryCall<unknown, unknown>, cb: grpc.sendUnaryData<DiagnosticsResult>) => {
+      cb(null, deps.onDiagnostics ? deps.onDiagnostics() : { version: "", uptimeMs: 0, healthy: true, components: [] }); // 미주입=기본 healthy
     },
     chat: streamHandler((p) => chatRequestToDomain(p as PbChatRequest)),
     toolRequest: streamHandler((p) => toolRequestToDomain(p as PbToolRequest)),

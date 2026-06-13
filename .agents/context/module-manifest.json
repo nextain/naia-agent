@@ -299,6 +299,14 @@
       ],
       "contract": "docs/progress/UC5-agent-tool-loop-contract-2026-06-10.md",
       "note": "cron ToolExecutor — schedule/list/cancel + 순수 schedule-parse + injected CronStorePort. external-skill 패턴."
+    },
+    "src/main/adapters/diagnostics-provider.ts": {
+      "layer": "adapters",
+      "uc": [
+        "UC11"
+      ],
+      "contract": "docs/progress/diagnostics-rpc-contract-2026-06-13.md",
+      "note": "F1 rich-health provider — gRPC Diagnostics RPC 의 onDiagnostics(version/uptime/components). 순수-ish(injected now)."
     }
   }
 }

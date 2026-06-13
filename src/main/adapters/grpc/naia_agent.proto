@@ -20,9 +20,16 @@ service NaiaAgent {
   rpc UpdateCreds(CredsUpdate) returns (Ack);          // 키체인 overlay(런타임 우선)
   // 구 standalone tool_request — new-core 미지원: 즉시 error 이벤트(셸 120s 행 방지). (R1-4)
   rpc ToolRequest(ToolRequestControl) returns (stream AgentEvent);
+
+  // F1 rich-health(신규계약): agent version/uptime/health. os InteroceptivePort.diagnostics rich payload.
+  //   (os-local agentReachable=기본 health; 이 RPC=상세 payload. Rust os-client=후속.)
+  rpc Diagnostics(DiagnosticsRequest) returns (DiagnosticsResult);
 }
 
 message Ack { bool ok = 1; }
+message DiagnosticsRequest {}
+message DiagnosticsResult { string version = 1; int64 uptime_ms = 2; bool healthy = 3; repeated DiagComponent components = 4; }
+message DiagComponent { string name = 1; bool healthy = 2; }
 
 message SetWorkspaceRequest { string adk_path = 1; }
 message ReloadSettingsRequest {}
