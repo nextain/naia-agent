@@ -1,0 +1,17 @@
+{
+  "uc": "provider-provenance (agent provider 라우팅 + credential resolution)",
+  "repo": "new-naia-agent",
+  "date": "2026-06-13",
+  "session_id": "ec74cc29-3347-4f6e-b29a-237ea29f301e",
+  "tier": "T2 (provider 라우팅 + 키 — 보안핵심)",
+  "method": "open-loop 2 reviewers (security/routing + parity), ground-truth=canon architecture(루크 정정)+UC-provider-provenance 계약+old registry/factory",
+  "verdict": "ISSUES → BLOCKER 0(타입라우팅 정확), MEDIUM(anthropic 오라우팅) 수정",
+  "clean_strong": "타입기반 라우팅 정확(nextain→lab-proxy, ollama→ollama, 그외→native 직결; naiaKey-유무 아님=#329 fix 검증) · 키 교차오염 0(native=apiKey/Authorization, lab-proxy=naiaKey/X-AnyLLM-Key, 별도 env=collision 불가) · secret 키체인 read·요청/에러 누출 0 · per-request resolution(고정 env 아님) · cost.ts old verbatim+formatCost crash fix · missing-config 정직 에러.",
+  "findings": [
+    {"id":"PP-1","sev":"MEDIUM(정직성)","status":"FIXED","file":"domain/provider-route.ts nativeBaseUrl default","issue":"미등록 provider(anthropic/claude 등)가 default→api.openai.com/v1 로 조용히 오라우팅(anthropic 키를 openai 엔드포인트 POST→401/garbage). doc 주석은 anthropic 지원 주장+cost 는 claude 가격. old 는 dedicated anthropic adapter(드롭됨).","fix":"default: override 있으면 커스텀 허용, 없으면 정직 throw(silent openai 금지). anthropic SDK 직결 adapter=후속 신규계약. 반증 테스트."},
+    {"id":"PP-2","sev":"LOW","status":"NOTED","file":"adapters/provider-resolver.ts lab-proxy","issue":"nextain 빈 naiaKey → empty Bearer(401) 대신 old 'requires Naia login' 정직 에러 미보존(nextain-error 케이스).","fix":"lab-proxy assembleConfig 에서 naiaKey 빈값=정직 에러 — 후속."},
+    {"id":"PP-3","sev":"LOW","status":"DEFERRED","file":"adapters/diagnostic.ts","issue":"old observability/redact.ts(gw-*/sk-*/AIzaSy*/Bearer 마스킹)가 새 diagnostic.ts 에 없음 — 현 누출 0(키가 ctx 미진입)이나 defense-in-depth 드롭.","fix":"redactString/redactObject 포팅 후 fmt 적용 — 후속."},
+    {"id":"PP-4","sev":"LOW","status":"NOTED","file":"keychain-secret-store.ts","issue":"naiaKey gw- prefix/master-key 형식검증 부재(old setAgentNaiaKey 있었음). master-key 거부=gateway entitlement 의존.","fix":"client gw- prefix 가드(선택) 또는 gateway-side 단일통제 문서화."}
+  ],
+  "result":"BLOCKER 0(라우팅/키 보안 견고). anthropic silent-misroute(MEDIUM) → 정직 에러 수정+테스트. nextain-empty/redaction/key-validation = LOW deferred. 233 test green. ★ 타입라우팅(#329 fix)·키 분리는 정확하나 미등록 provider 의 silent openai default 를 open-loop 가 적발."
+}

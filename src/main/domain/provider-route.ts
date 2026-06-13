@@ -49,6 +49,9 @@ export function nativeBaseUrl(provider: string, override?: string): string {
 		case "vllm":
 			return `${trimmed || "http://localhost:8000"}/v1`;
 		default:
-			return trimmed || "https://api.openai.com/v1";
+			// ⚠️ 미등록 provider 를 조용히 openai 로 보내지 않음(provenance 리뷰 MEDIUM): override 있으면 커스텀 OpenAI-compat 허용,
+			//    없으면 정직 에러. anthropic/claude = OpenAI-compat 아님(SDK 직결 별도 어댑터 = 후속 신규계약) → host override 없으면 여기서 차단.
+			if (trimmed) return trimmed;
+			throw new Error(`provider '${provider}' baseUrl 미정의 — OpenAI-compat 미지원(anthropic 등은 SDK 직결 신규계약 필요) 또는 host override 지정 필요`);
 	}
 }
