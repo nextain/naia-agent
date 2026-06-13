@@ -283,6 +283,14 @@
       ],
       "contract": "docs/progress/UC8-bgm-contract-2026-06-13.md",
       "note": "UC6 browser ToolExecutor — agent-browser CLI 래퍼(injected runCli, 외부 CLI deferred). 계약=external-skill 패턴(UC8 동형)."
+    },
+    "src/main/adapters/notify-skills.ts": {
+      "layer": "adapters",
+      "uc": [
+        "UC5"
+      ],
+      "contract": "docs/progress/UC5-agent-tool-loop-contract-2026-06-10.md",
+      "note": "notify(slack/discord/google_chat) ToolExecutor — webhook POST(injected post+webhookUrl). external-skill 패턴(github 동형)."
     }
   }
 }
