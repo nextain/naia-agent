@@ -1,0 +1,19 @@
+{
+  "uc": "UC5 (agent 도구 루프 + skills)",
+  "repo": "new-naia-agent",
+  "date": "2026-06-13",
+  "session_id": "ec74cc29-3347-4f6e-b29a-237ea29f301e",
+  "tier": "T2 (도구 실행 + 승인 + mcp/외부 skill)",
+  "method": "open-loop 2 reviewers (security + parity/correctness), ground-truth=old agent(index.ts tool loop, tool-tiers, tool-bridge)+UC5 계약",
+  "context": "prior-session 도구루프+skills, 첫 2-AI 리뷰",
+  "verdict": "ISSUES → BLOCKER 0(루프 견고), MEDIUM/LOW 수정",
+  "clean_strong": "Reviewer A: 루프 bounded(MAX_TOOL_ROUNDS=8+terminal latch)·승인-먼저(tierOf→prepareDecision→reject 시 미실행)·명령주입 0(github fetch+encodeURIComponent, mcp__ prefix, obsidian safeSegs ..//null차단)·secret 누출 0(token header-only)·error contain(no-throw). os-side priors 보다 강함.",
+  "findings": [
+    {"id":"UC5-1","sev":"MEDIUM","status":"FIXED","file":"app/chat-turn-handler.ts:102","issue":"enableTools/disabledSkills 가 wire 파싱되나 루프 미소비 → enableTools:false(순수챗)도 도구 실행, disabled skill 호출 가능. old(index.ts:557)는 게이팅. dead wire 필드.","fix":"tools = enableTools===false ? [] : specs.filter(!disabledSkills.includes). "},
+    {"id":"UC5-2","sev":"MEDIUM","status":"FIXED","file":"app/chat-turn-handler.ts:182","issue":"per-tool 실행 timeout 없음 → hung MCP/HTTP 도구가 turn 무한 hang(usage/finish 미emit until cancel). memory ops 는 bound(5s)인데 tool 은 X.","fix":"raceAbort(exec.execute, signal, toolTimeoutMs??60000) — timeout=isError(LLM 복구), abort=cancelled."},
+    {"id":"UC5-3","sev":"LOW(보안-latent)","status":"FIXED","file":"adapters/composite-tool-executor.ts","issue":"이름충돌 시 첫 spec 만 유지(gated dup drop) → non-gated+gated 충돌 시 tierOf 가 gated 못 봐 silent auto 강등(§D.1 위반). 현 prefix/고정명이라 미도달이나 latent gate-bypass.","fix":"충돌 시 가장 보수적 tier 채택(gated 승격). 반증 테스트."},
+    {"id":"UC5-4","sev":"MEDIUM","status":"RATIFY(계약)","file":"adapters/builtin-skills.ts","issue":"skill 재설계(weather city→lat/lon, time format 드롭, memo delete 드롭, skill_ prefix 드롭) + tier 강등(weather/memo-read gated→auto). 계약-blessed 이나 old 대비 capability 축소 — 명시 ratify 필요(silent redesign 아님).","fix":"requirements/계약에 의도적 축소+tier 정책 결정 기록. (코드 변경 아님 — 신규계약 ratify.)"},
+    {"id":"UC5-5","sev":"LOW","status":"NOTED","file":"chat-turn-handler / domain/chat.ts","issue":"MAX_TOOL_ROUNDS 8(old 10), 동시 도구실행 드롭(순차, 계약 §B.3 blessed), tool-error 'Error:' prefix 미보존(LLM 복구 cue 약화).","fix":"순차/8라운드=계약 blessed(기록). error prefix 는 threadToolRound 에 'Error:' 추가 고려(후속)."}
+  ],
+  "result":"BLOCKER 0(루프 견고+승인+주입방어). enableTools 소비/per-tool timeout/composite 보수tier 수정+테스트(233 green). skill 재설계/tier 정책=계약 ratify 문서화. ★ Luke-verified 영역도 dead-wire-flag(enableTools 무시)+liveness(timeout) 갭을 open-loop 가 적발."
+}

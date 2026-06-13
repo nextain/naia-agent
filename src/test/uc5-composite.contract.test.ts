@@ -23,6 +23,13 @@ describe("makeCompositeToolExecutor", () => {
     expect((await c.execute({ id: "2", name: "z", args: {} }, {})).output).toBe("B:z");
     expect(a.calls).toEqual(["y"]); expect(b.calls).toEqual(["z"]);
   });
+  it("★ name 충돌 + 후순위가 gated → 보수적 tier 채택(gated→auto 조용히 강등 금지, §D.1 리뷰 fix)", () => {
+    // 첫(non-gated) 우선이라 실행은 A 지만, tier 는 gated(ask) 로 승격돼야 — tierOf 가 승인 요구하게.
+    const a = mk([{ name: "dup" }], "A"); // tier 없음(none)
+    const b = mk([{ name: "dup", tier: "ask" }], "B"); // gated
+    const c = makeCompositeToolExecutor([a, b]);
+    expect(c.specs().find((s) => s.name === "dup")?.tier).toBe("ask"); // 강등 안 됨
+  });
   it("name 충돌 → 첫 executor 우선(후순위 drop)", async () => {
     const a = mk([{ name: "dup" }], "A");
     const b = mk([{ name: "dup" }], "B");

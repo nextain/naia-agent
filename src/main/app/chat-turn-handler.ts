@@ -14,6 +14,7 @@ import { formatRecalledMemory } from "../domain/memory.js";
 interface Turn { abort: AbortController; state: ChatTurnState; }
 
 const MAX_TOOL_ROUNDS = 8; // 허용 도구라운드 최대치(round 단위). cap-th 결과로 provider 1회 재호출 허용, 그게 또 도구면 error.
+const TOOL_EXEC_TIMEOUT_MS = 60_000; // per-tool 실행 deadline(UC5 리뷰): hung MCP/HTTP 도구가 turn 무한 hang 방지. 초과=isError(LLM 복구).
 const MEM_RECALL_TIMEOUT_MS = 5000; // recall bound — 무응답 시 주입 생략하고 턴 진행(terminal 항상 방출).
 const MEM_SAVE_TIMEOUT_MS = 5000;   // save bound — 무응답 시 finish/drain 영구정지 방지(timeout→로그 후 finish).
 
@@ -43,6 +44,7 @@ export interface HandlerDeps {
   readonly toolExecutor?: ToolExecutorPort;                       // UC5 — 미주입 = 도구 없음(UC1 순수 채팅 회귀 없음)
   readonly memory?: MemoryPort;                                   // UC-memory — 미주입 = 기존 동작(무회귀). 턴 전 recall 주입 / 턴 후 save.
   readonly memoryTimeoutMs?: number;                              // recall/save deadline override(테스트용; 미주입=기본 5000ms).
+  readonly toolTimeoutMs?: number;                                // per-tool 실행 deadline override(테스트용; 미주입=60000ms).
 }
 
 export class ChatTurnHandler {
@@ -99,7 +101,9 @@ export class ChatTurnHandler {
         } catch (e) { this.safeDiag("memory recall 실패(턴 유지)", e); }
       }
       const exec = this.d.toolExecutor;
-      const tools = exec?.specs() ?? [];
+      // UC5 리뷰 fix: enableTools=false → 도구 미제공(순수 챗), disabledSkills 필터(wire 필드 소비, old 충실).
+      const allSpecs = exec?.specs() ?? [];
+      const tools = req.enableTools === false ? [] : allSpecs.filter((s) => !(req.disabledSkills ?? []).includes(s.name));
       let messages: readonly ChatMessage[] = asm.messages;
       let toolRounds = 0;
       const usedCids = new Set<string>(); // turn-unique correlation id (D-I7)
@@ -179,7 +183,18 @@ export class ChatTurnHandler {
           // approve 또는 비-gated → 실행:
           let r: { output: string; isError?: boolean };
           try {
-            r = exec ? await exec.execute({ ...call, id: cid }, { signal }) : { output: "no tool executor available", isError: true }; // cid 일관(executor 가 id 로 correlate 해도 turn-unique)
+            if (exec) {
+              // UC5 리뷰 fix(liveness): per-tool deadline race(memory 와 동일). 무응답 도구가 turn 영구 hang 못 하게.
+              const res = await raceAbort(exec.execute({ ...call, id: cid }, { signal }), signal, this.d.toolTimeoutMs ?? TOOL_EXEC_TIMEOUT_MS);
+              if (res === null) {
+                if (signal.aborted) { terminalError("cancelled"); cancelled = true; break; }
+                r = { output: `tool timeout (>${this.d.toolTimeoutMs ?? TOOL_EXEC_TIMEOUT_MS}ms)`, isError: true }; // 무응답=isError, LLM 복구 가능, turn 진행
+              } else {
+                r = res;
+              }
+            } else {
+              r = { output: "no tool executor available", isError: true }; // cid 일관(executor 가 id 로 correlate 해도 turn-unique)
+            }
           } catch (e) {
             if (signal.aborted) { terminalError("cancelled"); cancelled = true; break; } // execute reject + abort = cancelled
             r = { output: errMessage(e), isError: true };                            // 비-abort reject = isError(루프 안정)
