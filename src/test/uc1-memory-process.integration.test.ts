@@ -1,18 +1,45 @@
-// UC-memory — 실 *프로세스* 관통(진입점 lifecycle). in-memory writer 가 못 잡는 회귀를 실 OS
-// 파이프 + process.exit 경계에서 검증: stdin EOF 시 (drain→memory.close→stdout flush→exit) 가
-// ① 진행 중 턴의 wire 출력(text/usage/finish)을 유실 없이 내보내고 ② save 를 store 에 영속한다.
+// UC-memory — 실 *프로세스* 관통(gRPC 진입점 lifecycle). in-memory writer 가 못 잡는 회귀를 실 OS
+// 프로세스 + gRPC transport + SIGTERM 종료 경계에서 검증: ① 2턴 chat 이 gRPC 로 관통하고 턴1 save →
+// 턴2 recall→systemPrompt 주입(echo provider 가 wire 로 반향)이 실 프로세스에서 동작 ② SIGTERM 종료가
+// (drain→memory.close→flush→exit 0) 로 save 를 store 에 영속한다.
 // 진입점은 dist 를 import 하므로 beforeAll 에서 빌드한다(self-contained).
+// transport=gRPC(stdio 이식 후) → 옛 stdin/stdout JSON 라인이 아니라 GRPC_LISTENING 핸드셰이크 + gRPC 클라.
+// provider/config 는 wire 가 아니라 naia-adk settings(`<adk>/naia-settings/config.json`)에서 로딩(canon).
 import { describe, it, expect, beforeAll, afterEach } from "vitest";
-import { spawn, spawnSync } from "node:child_process";
-import { mkdtemp, rm, readFile } from "node:fs/promises";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { mkdtemp, mkdir, rm, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import * as grpc from "@grpc/grpc-js";
+import * as protoLoader from "@grpc/proto-loader";
 
 const pkgRoot = resolve(fileURLToPath(new URL("../..", import.meta.url))); // src/test → 패키지 루트
 const entry = join(pkgRoot, "scripts", "builds", "agent-stdio-entry.mjs");
+const PROTO = join(pkgRoot, "src", "main", "adapters", "grpc", "naia_agent.proto");
 
-describe("UC-memory — 실 프로세스 관통(진입점 종료 lifecycle)", () => {
+// biome-ignore lint/suspicious/noExplicitAny: proto-loader 동적 타입(테스트 전용 클라이언트)
+function makeClient(addr: string): any {
+  const pkgDef = protoLoader.loadSync(PROTO, { keepCase: false, longs: Number, defaults: true, oneofs: true });
+  // biome-ignore lint/suspicious/noExplicitAny: 동적 proto
+  const proto = grpc.loadPackageDefinition(pkgDef) as any;
+  return new proto.naia.agent.v1.NaiaAgent(addr, grpc.credentials.createInsecure());
+}
+
+// 한 chat 턴(server-stream)을 구동해 finish(스트림 end)까지 누적 text 반환.
+// biome-ignore lint/suspicious/noExplicitAny: 동적 클라이언트/이벤트
+function chatTurn(client: any, requestId: string, content: string): Promise<string> {
+  return new Promise((res, rej) => {
+    let text = "";
+    const call = client.chat({ requestId, messages: [{ role: "user", content }] });
+    // biome-ignore lint/suspicious/noExplicitAny: AgentEvent oneof
+    call.on("data", (ev: any) => { if (ev.event === "text" && ev.text) text += ev.text.text ?? ""; });
+    call.on("end", () => res(text));
+    call.on("error", (e: Error) => rej(e));
+  });
+}
+
+describe("UC-memory — 실 프로세스 관통(gRPC 진입점 종료 lifecycle)", () => {
   beforeAll(() => {
     // 진입점이 import 하는 dist 를 최신화(없거나 stale 이면 테스트가 옛 코드를 구동).
     const r = spawnSync("npx", ["tsc", "-p", "tsconfig.json"], { cwd: pkgRoot, encoding: "utf8", timeout: 120000 });
@@ -20,42 +47,59 @@ describe("UC-memory — 실 프로세스 관통(진입점 종료 lifecycle)", ()
   }, 130000);
 
   let dir: string | null = null;
-  afterEach(async () => { if (dir) { await rm(dir, { recursive: true, force: true }); dir = null; } });
+  let child: ChildProcess | null = null;
+  afterEach(async () => {
+    if (child && child.exitCode === null) child.kill("SIGKILL");
+    child = null;
+    if (dir) { await rm(dir, { recursive: true, force: true }); dir = null; }
+  });
 
-  it("실 진입점 2턴 e2e: 턴1 save → 턴2 recall→systemPrompt 주입(echo provider 로 wire 관통 확인) + 영속", async () => {
+  it("실 진입점 2턴 e2e(gRPC): 턴1 save → 턴2 recall→systemPrompt 주입(echo provider) + SIGTERM 영속", async () => {
     dir = await mkdtemp(join(tmpdir(), "naia-mem-proc-"));
     const storePath = join(dir, "store.json");
     const SECRET = "ProcZephyrLambda";
 
-    const child = spawn(process.execPath, [entry], {
+    // provider/config 는 naia-adk settings 에서 로딩(canon) — wire 에 provider 안 실음.
+    // echo-system provider 포트(AGENT_PROVIDER)는 동작을 담당, config 는 activeConfig 존재만 충족.
+    await mkdir(join(dir, "naia-settings"), { recursive: true });
+    await writeFile(join(dir, "naia-settings", "config.json"), JSON.stringify({ provider: "echo-system", model: "m" }));
+
+    child = spawn(process.execPath, [entry], {
       cwd: pkgRoot,
       // AGENT_PROVIDER=echo-system → provider 가 systemPrompt 를 그대로 echo → recall 이 주입했으면 wire 에 나옴.
       env: { ...process.env, AGENT_PROVIDER: "echo-system", NAIA_AGENT_SKILLS: "off", NAIA_MEMORY_STORE: storePath, NAIA_ADK_PATH: dir },
       stdio: ["pipe", "pipe", "ignore"],
     });
-    let out = "";
-    child.stdout.setEncoding("utf8");
-    child.stdout.on("data", (c) => { out += c; });
-    const finishes = () => out.split("\n").filter(Boolean).map((l) => JSON.parse(l) as { type: string }).filter((m) => m.type === "finish");
-    const waitFinishes = async (n: number) => { for (let i = 0; i < 600; i++) { if (finishes().length >= n) return; await new Promise((r) => setTimeout(r, 5)); } throw new Error(`finish<${n}`); };
-    const textFor = (rid: string) => out.split("\n").filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>).filter((m) => m["type"] === "text" && m["requestId"] === rid).map((m) => String(m["text"])).join("");
 
-    // 턴1 — 사실 발화(save). finish 후 턴2 전송(턴2 가 턴1 의 기억을 회상하는지 검증, gated 패턴).
-    child.stdin.write(JSON.stringify({ type: "chat_request", requestId: "p1", provider: { provider: "fake", model: "m" }, messages: [{ role: "user", content: `내 비밀 코드명은 ${SECRET}야` }] }) + "\n");
-    await waitFinishes(1);
-    expect(textFor("p1")).not.toContain(SECRET); // 턴1: 저장 전이라 systemPrompt(echo)에 비밀 없음(인과 분리)
-    // 턴2 — 턴1 의 사실을 질문. recall 이 비밀을 systemPrompt 에 주입했으면 echo provider 가 wire 로 뱉음.
-    child.stdin.write(JSON.stringify({ type: "chat_request", requestId: "p2", provider: { provider: "fake", model: "m" }, messages: [{ role: "user", content: "내 코드명이 뭐였지?" }] }) + "\n");
-    await waitFinishes(2);
-    child.stdin.end();
+    // GRPC_LISTENING <addr> 핸드셰이크(stdout). gRPC 이식 후 stdout = 이 한 줄(다른 로그는 stderr).
+    const addr = await new Promise<string>((res, rej) => {
+      let buf = "";
+      const to = setTimeout(() => rej(new Error("GRPC_LISTENING 타임아웃")), 60000);
+      child!.stdout!.setEncoding("utf8");
+      child!.stdout!.on("data", (c: string) => {
+        buf += c;
+        const m = buf.match(/GRPC_LISTENING\s+(\S+)/);
+        if (m) { clearTimeout(to); res(m[1]); }
+      });
+      child!.on("exit", () => { clearTimeout(to); rej(new Error("리스닝 전 종료")); });
+    });
 
-    const exitCode: number = await new Promise((res) => child.on("exit", (code) => res(code ?? -1)));
+    const client = makeClient(addr);
+    // 턴1 — 사실 발화(save). 저장 전이라 systemPrompt(echo)에 비밀 없음(인과 분리).
+    const t1 = await chatTurn(client, "p1", `내 비밀 코드명은 ${SECRET}야`);
+    expect(t1).not.toContain(SECRET);
+    // 턴2 — 턴1 의 사실 질문. recall 이 비밀을 systemPrompt 에 주입했으면 echo provider 가 wire 로 뱉음.
+    const t2 = await chatTurn(client, "p2", "내 코드명이 뭐였지?");
+    expect(t2).toContain(SECRET);
+    client.close?.();
+
+    // SIGTERM → drain(in-flight save 완료) → memory.close(flush) → exit 0.
+    const exitCode: number = await new Promise((res) => {
+      child!.on("exit", (code) => res(code ?? -1));
+      child!.kill("SIGTERM");
+    });
     expect(exitCode).toBe(0);
-
-    // ★ 핵심: 빌드된 진입점에서 동적 import → memory 주입 → recall → systemPrompt 주입 → provider 경로가
-    //   실제로 관통됨을 wire 로 증명(턴2 응답 = echo(systemPrompt) 에 비밀 포함).
-    expect(textFor("p2")).toContain(SECRET);
-    // 영속도 함께(종료 flush).
+    // 영속(종료 flush) — recall 이 관통했음을 store 로도 증명.
     expect(await readFile(storePath, "utf8")).toContain(SECRET);
-  }, 30000);
+  }, 90000);
 });
