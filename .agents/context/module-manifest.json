@@ -268,6 +268,13 @@
       ],
       "contract": "docs/logging.md",
       "note": "표준 진단 로깅 sink(DiagnosticLog 구현). 유일 sink, write/debug 주입(순수). console.* 금지=check-logging 강제. 로깅 규약 docs/logging.md"
+    },
+    "src/main/adapters/youtube-bgm-skills.ts": {
+      "layer": "adapters",
+      "uc": [
+        "UC8"
+      ],
+      "contract": "docs/progress/UC8-bgm-contract-2026-06-13.md"
     }
   }
 }

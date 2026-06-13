@@ -1,0 +1,13 @@
+{
+  "uc": "UC8 (BGM/공간분위기) — agent-local skill",
+  "repo": "new-naia-agent",
+  "date": "2026-06-13",
+  "session_id": "ec74cc29-3347-4f6e-b29a-237ea29f301e",
+  "tier": "T2 (환경변경 + 외부서비스)",
+  "status": "agent-local skill 이식 완료(external deferred)",
+  "developed": "youtube-bgm-skills.ts ToolExecutor: search/play/stop/pause/resume/volume action 라우팅 + 도메인 clampVolume(0..1) + injected MusicSearchPort/BgmControlPort(미주입=정직 unsupported). tier='ask'(환경변경→UC13 승인). no-throw 경계+abort 가드+arg 검증(github 패턴). 8 단위테스트(mock dep) — clampVolume 순수·search 자동재생·unsupported 정직·unknown action isError.",
+  "self_review": "BLOCKER 0(내 self-check): 외부 직결 없음(injected), volume clamp(도메인), tier 승인, no-throw, 정직 unsupported. github-skills 동일 안전규약.",
+  "deferred_external": "MusicSearchPort(youtubei.js Innertube)·BgmControlPort(shell BGM player = os EnvironmentPort.space gRPC/이벤트 wire) = 신규계약 + 루크머신 live. favorites/trending/next/prev(old 11액션 중) = 후속.",
+  "next_review": "2-AI open-loop 리뷰(정본=old youtube-bgm) — 다음(이 증분은 self-reviewed 이식, 정식 2-AI 는 external wire 와 함께).",
+  "off_scope_flag_memory_test": "⚠️ agent 풀스윗이 RED(exit1) — 원인=내 UC8 test 파일 추가가 vitest 실행순서 변경 → off-scope 메모리 test(uc1-memory-stdio 'role 양쪽 보존')의 *기존 order-dependent 격리버그* surface. 증거: UC8 test 단독 8/8 green, 메모리 test 단독 31/31 green, UC8 test 제외 풀스윗 234/234 green. = 내 코드 무관, 메모리 세션 test 의 공유상태 격리 결함(beforeEach reset 부재 추정). 메모리=다른 세션 소유(canon RED 6파일)라 내가 미수정 — **메모리 세션이 test 격리 수정 필요**."
+}
