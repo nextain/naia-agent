@@ -1,8 +1,34 @@
 {
-  "_doc": "정본 scope 게이트의 외부 SoT. 출처 = 루크 구술 앵커(project_new_naia_goal_and_method_anchor / project_new_naia_os_agent_adk_architecture). AI 가 자기 계약을 써넣어도, 그 UC 가 여기 in_scope 에 없으면 RED. 자기-작성 계약 통과(file-anchor 게이트의 구멍)를 닫는다.",
-  "in_scope_uc": ["UC1", "UC5", "UC-provider-provenance"],
+  "_doc": "정본 scope 게이트의 외부 SoT. 출처 = 루크 구술 앵커(project_new_naia_goal_and_method_anchor / project_new_naia_os_agent_adk_architecture) + 루크 GOAL 2026-06-13 ('모든 uc가 개발되었을때만 완료') + Old-Baseline UC 카탈로그(new-naia-os/docs/user-scenarios.md UC 인덱스). AI 가 자기 계약을 써넣어도, 그 UC 가 여기 in_scope 에 없으면 RED. in_scope = old-naia UC 전체에서 명시 제외(메모리/temporal)만 뺀 것 = GOAL 의 충실한 인코딩(닫힌루프 오염 아님, 외부 ground truth=GOAL+Old-Baseline 에서 도출). 새 UC 추가 시 반드시 old user-scenarios.md 카탈로그에 존재해야 하며, 임의 신조 UC 는 금지.",
+  "in_scope_uc": [
+    "UC1", "UC2", "UC5", "UC6", "UC7", "UC7a", "UC8", "UC9", "UC10", "UC10a",
+    "UC11", "UC12", "UC12-min", "UC12a", "UC13", "UC13a", "UC14",
+    "UC-provider-provenance"
+  ],
+  "in_scope_source": {
+    "UC1": "old user-scenarios.md:16 텍스트 대화",
+    "UC2": "old user-scenarios.md:17 음성 대화(V2 voice — agent provider 라우팅)",
+    "UC5": "old user-scenarios.md:20 도구 사용",
+    "UC6": "old user-scenarios.md:21 환경 조작-브라우저(agent ToolExecutor)",
+    "UC7": "old user-scenarios.md:23 시스템 조작(mutating)",
+    "UC7a": "old user-scenarios.md:22 시스템 관측(read-only)",
+    "UC8": "old user-scenarios.md:24 공간 분위기/BGM(agent ToolExecutor)",
+    "UC9": "old user-scenarios.md:25 패널 앱",
+    "UC10": "old user-scenarios.md:26 멀티 채널",
+    "UC10a": "old user-scenarios.md:32 다중 클라이언트 점유 충돌",
+    "UC11": "old user-scenarios.md:27 자기상태 인지(agent Diagnostics RPC)",
+    "UC12": "old user-scenarios.md:29 전체 온보딩/설정",
+    "UC12-min": "old user-scenarios.md:28 최소 부팅 설정",
+    "UC12a": "old user-scenarios.md:33 설정 검증(F1 facet)",
+    "UC13": "old user-scenarios.md:30 승인 게이트",
+    "UC13a": "old user-scenarios.md:31 실행 중 중단/취소/e-stop",
+    "UC14": "old user-scenarios.md:34 graceful degradation",
+    "UC-provider-provenance": "provider 라우팅 출처(naia-settings/wire/키체인) — UC1/UC5 횡적 기반"
+  },
   "out_of_scope_uc": {
-    "UC-memory": "메모리 연결(naia-memory ↔ new-naia-agent)=다른 세션 소유. 앵커: '이 goal로 끌어오지 말 것, 새로 짓거나 고치지 말 것, gRPC=memory-side 선행'. 여기서 만들면 드리프트."
+    "UC-memory": "메모리 연결(naia-memory ↔ new-naia-agent)=다른 세션 소유. 앵커: '이 goal로 끌어오지 말 것, 새로 짓거나 고치지 말 것, gRPC=memory-side 선행'. 여기서 만들면 드리프트.",
+    "UC3": "기억하는 대화(old user-scenarios.md:18) — 장기기억 recall 의존 → UC-memory 와 동일 사유(다른 세션, gRPC memory-side 선행).",
+    "UC4": "경험→능동 회상(old user-scenarios.md:19) — 장기기억 + temporal 의존 → 메모리 선행. 메모리 완성 후 재평가."
   },
   "single_transport": { "canonical": "grpc", "legacy_baseline": "stdio-lineio", "rule": "os↔agent 단일 transport = gRPC (루크 Goal 2026-06-13: 직교 = UC×gRPC 횡적경계). stdio-lineio = 이식 대상 old baseline, 신규/완성 코드는 gRPC. 교체이지 추가 아님(단일 port-layer 유지)." },
   "storage": { "canonical": "naia-adk/naia-settings", "rule": "provider/model/settings = naia-agent 가 naia-adk(<NAIA_ADK_PATH>/naia-settings)에 저장·로딩. 다른 저장소/경로 금지 (루크 Goal 2026-06-13)." },
