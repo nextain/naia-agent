@@ -48,6 +48,26 @@ describe("makeKeychainCredentials (주입 read)", () => {
     c.update("glm", { apiKey: "RUNTIME-OVERRIDE" });
     expect(c.get("glm")?.apiKey).toBe("RUNTIME-OVERRIDE");
   });
+
+  // 신규계약(2026-06-16, creds graft): update=merge, 빈=명시 unset(권위, 키체인 fallback 차단)
+  it("update=merge — apiKey-only 갱신이 직전 naiaKey overlay 를 안 지움(naia 로그인 보존)", () => {
+    const c = makeKeychainCredentials({ read: () => undefined });
+    c.update("nextain", { naiaKey: "naia-LOGGEDIN" }); // auth_update(naia 로그인)
+    c.update("nextain", { apiKey: "" }); // creds_update(설정 저장, nextain apiKey="")
+    // merge 아니면 naiaKey 가 통째 replace 로 소실 → 여기선 보존돼야 함
+    expect(c.get("nextain")).toEqual({ naiaKey: "naia-LOGGEDIN" });
+  });
+  it("빈 문자열 apiKey overlay = 명시 unset(키체인 옛키 부활 차단)", () => {
+    const c = makeKeychainCredentials({ read }); // store 에 GLM_API_KEY="glm-SECRET" 존재
+    c.update("glm", { apiKey: "" }); // 사용자가 키 삭제
+    // old `if(ovApi)` 버그면 ""(falsy)→키체인 옛키 부활. 신규계약은 명시 unset → apiKey 없음.
+    expect(c.get("glm")?.apiKey).toBeUndefined();
+  });
+  it("overlay 에 필드 부재 시에만 키체인 fallback(unset 과 구분)", () => {
+    const c = makeKeychainCredentials({ read }); // GLM_API_KEY 존재
+    c.update("glm", { naiaKey: "x" }); // apiKey 필드 미포함 → 키체인 fallback 유효
+    expect(c.get("glm")?.apiKey).toBe("glm-SECRET");
+  });
 });
 
 describe("wire-through: 키체인 naiaKey → resolver → lab-proxy (라이브 흐름 creds 연결)", () => {

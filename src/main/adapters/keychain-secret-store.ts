@@ -38,28 +38,35 @@ const NAIA_KEY_ENV = "NAIA_ANYLLM_API_KEY"; // 로그인 naiaKey(lab-proxy)
 /**
  * 키체인 backed CredentialPort. read=주입(키체인 lookup). get(provider) = apiKey(provider env) + naiaKey(NAIA_ANYLLM_API_KEY).
  * update(provider, secret) = 런타임 overlay(creds_update 채널 — 키체인보다 우선, 메모리 only).
- * 값 없으면 필드 생략, 둘 다 없으면 undefined(호출측이 빈 키로 호출 안 하게).
+ *
+ * 계약(2026-06-16, creds graft 신규계약 — old-baseline 의 "빈=unset" 시맨틱 충실 이식):
+ *  - update = **merge**(전체 replace 아님): apiKey-only 갱신이 직전 naiaKey overlay 를 안 지움(반대도 동일).
+ *    creds_update(provider 설정 변경)와 auth_update(naia 로그인)가 같은 provider 슬롯을 공유해도 상호 보존.
+ *  - get = overlay 필드 **존재(presence)가 권위**: 필드가 overlay 에 있으면(빈 문자열 포함) 그 값을 따른다 —
+ *    빈 문자열 = **명시적 unset**(키체인 fallback 차단). 필드 부재 시에만 키체인 env fallback.
+ *    (구현: `"apiKey" in ov` 로 명시 판정. old `if(ovApi)` 는 빈값을 키체인 옛키로 부활시키는 버그였음.)
  */
 export function makeKeychainCredentials(deps: { read: KeychainRead }): CredentialPort {
 	const read = deps.read;
 	const overlay = new Map<string, { apiKey?: string; naiaKey?: string }>();
 	return {
 		update(provider, secret) {
-			overlay.set(provider, secret);
+			const prev = overlay.get(provider) ?? {};
+			overlay.set(provider, { ...prev, ...secret }); // merge — 타 필드 보존
 		},
 		get(provider) {
 			const ov = overlay.get(provider);
 			const out: { apiKey?: string; naiaKey?: string } = {};
-			const ovApi = ov?.apiKey;
-			if (ovApi) out.apiKey = ovApi;
-			else {
+			if (ov && "apiKey" in ov) {
+				if (ov.apiKey) out.apiKey = ov.apiKey; // 빈="" = 명시 unset(필드 생략, fallback 차단)
+			} else {
 				const envKey = apiKeyEnvFor(provider);
 				const k = envKey ? read(envKey) : undefined;
 				if (k) out.apiKey = k;
 			}
-			const ovNaia = ov?.naiaKey;
-			if (ovNaia) out.naiaKey = ovNaia;
-			else {
+			if (ov && "naiaKey" in ov) {
+				if (ov.naiaKey) out.naiaKey = ov.naiaKey; // 빈="" = 명시 unset
+			} else {
 				const nk = read(NAIA_KEY_ENV);
 				if (nk) out.naiaKey = nk;
 			}
