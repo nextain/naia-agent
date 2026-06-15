@@ -6,7 +6,7 @@
       "uc": [
         "UC-provider-provenance"
       ],
-      "contract": "docs/progress/UC-provider-provenance-contract-2026-06-12.md",
+      "contract": "docs/progress/99.dev-comm/UC-provider-provenance-contract-2026-06-12.md",
       "note": "proto↔domain 순수 매핑(gRPC transport, protocol.ts 동형 이식). naia_agent.proto 계약."
     },
     "src/main/adapters/grpc/grpc-server.ts": {
@@ -14,7 +14,7 @@
       "uc": [
         "UC-provider-provenance"
       ],
-      "contract": "docs/progress/UC-provider-provenance-contract-2026-06-12.md",
+      "contract": "docs/progress/99.dev-comm/UC-provider-provenance-contract-2026-06-12.md",
       "note": "naia_agent.proto gRPC 서버 — AgentIngress/EgressPort 구현(stdio.ts 동형). per-request stream 라우팅."
     },
     "src/main/domain/chat.ts": {
@@ -23,7 +23,7 @@
         "UC1",
         "UC5"
       ],
-      "contract": "docs/progress/UC1-agent-horizontal-contract-2026-06-10.md",
+      "contract": "docs/progress/99.dev-comm/UC1-agent-horizontal-contract-2026-06-10.md",
       "note": "ChatMessage·turn 도메인"
     },
     "src/main/ports/uc1.ts": {
@@ -31,7 +31,7 @@
       "uc": [
         "UC1"
       ],
-      "contract": "docs/progress/UC1-agent-horizontal-contract-2026-06-10.md",
+      "contract": "docs/progress/99.dev-comm/UC1-agent-horizontal-contract-2026-06-10.md",
       "note": "ProviderPort·IO·AgentOutbound 포트"
     },
     "src/main/app/chat-turn-handler.ts": {
@@ -42,8 +42,8 @@
         "UC-memory"
       ],
       "contract": [
-        "docs/progress/UC5-agent-tool-loop-contract-2026-06-10.md",
-        "docs/progress/UC-memory-recall-save-contract-2026-06-12.md"
+        "docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md",
+        "docs/progress/99.dev-comm/UC-memory-recall-save-contract-2026-06-12.md"
       ],
       "note": "라운드 루프·terminal 래치·cancel 가드 + memory recall 주입/save seam(커밋지점·timeout·드레인)"
     },
@@ -55,8 +55,8 @@
         "UC-memory"
       ],
       "contract": [
-        "docs/progress/UC1-agent-horizontal-contract-2026-06-10.md",
-        "docs/progress/UC-memory-recall-save-contract-2026-06-12.md"
+        "docs/progress/99.dev-comm/UC1-agent-horizontal-contract-2026-06-10.md",
+        "docs/progress/99.dev-comm/UC-memory-recall-save-contract-2026-06-12.md"
       ],
       "note": "wireAgentUC1 조립 + memory/drain 배선"
     },
@@ -65,7 +65,7 @@
       "uc": [
         "UC1"
       ],
-      "contract": "docs/progress/UC1-agent-horizontal-contract-2026-06-10.md",
+      "contract": "docs/progress/99.dev-comm/UC1-agent-horizontal-contract-2026-06-10.md",
       "note": "AgentEmit↔wire encodeEmit (11종)"
     },
     "src/main/adapters/stdio.ts": {
@@ -73,7 +73,7 @@
       "uc": [
         "UC1"
       ],
-      "contract": "docs/progress/UC1-agent-horizontal-contract-2026-06-10.md",
+      "contract": "docs/progress/99.dev-comm/UC1-agent-horizontal-contract-2026-06-10.md",
       "note": "stdin/stdout LineIO"
     },
     "src/main/adapters/signal-util.ts": {
@@ -81,7 +81,7 @@
       "uc": [
         "UC5"
       ],
-      "contract": "docs/progress/UC5-agent-tool-loop-contract-2026-06-10.md",
+      "contract": "docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md",
       "note": "abort signal 유틸"
     },
     "src/main/adapters/fake-provider.ts": {
@@ -89,7 +89,7 @@
       "uc": [
         "UC1"
       ],
-      "contract": "docs/progress/UC1-agent-horizontal-contract-2026-06-10.md",
+      "contract": "docs/progress/99.dev-comm/UC1-agent-horizontal-contract-2026-06-10.md",
       "note": "헤드리스 테스트 provider"
     },
     "src/main/adapters/ollama-provider.ts": {
@@ -97,7 +97,7 @@
       "uc": [
         "UC1"
       ],
-      "contract": "docs/progress/UC1-agent-horizontal-contract-2026-06-10.md",
+      "contract": "docs/progress/99.dev-comm/UC1-agent-horizontal-contract-2026-06-10.md",
       "note": "ollama provider"
     },
     "src/main/adapters/openai-compat-provider.ts": {
@@ -106,7 +106,7 @@
         "UC1",
         "UC5"
       ],
-      "contract": "docs/progress/UC5-agent-tool-loop-contract-2026-06-10.md",
+      "contract": "docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md",
       "note": "openai-compat(GLM coding) provider + tool_calls"
     },
     "src/main/domain/cost.ts": {
@@ -114,7 +114,7 @@
       "uc": [
         "UC1"
       ],
-      "contract": "docs/progress/UC-provider-provenance-contract-2026-06-12.md",
+      "contract": "docs/progress/99.dev-comm/UC-provider-provenance-contract-2026-06-12.md",
       "note": "calculateCost + MODEL_PRICING(old verbatim 이식)"
     },
     "src/main/domain/provider-route.ts": {
@@ -122,7 +122,7 @@
       "uc": [
         "UC1"
       ],
-      "contract": "docs/progress/UC-provider-provenance-contract-2026-06-12.md",
+      "contract": "docs/progress/99.dev-comm/UC-provider-provenance-contract-2026-06-12.md",
       "note": "순수 provider 라우팅(lab-proxy/native/ollama) + native baseUrl"
     },
     "src/main/adapters/provider-resolver.ts": {
@@ -130,7 +130,7 @@
       "uc": [
         "UC1"
       ],
-      "contract": "docs/progress/UC-provider-provenance-contract-2026-06-12.md",
+      "contract": "docs/progress/99.dev-comm/UC-provider-provenance-contract-2026-06-12.md",
       "note": "요청별 ProviderResolver — route별 provider 인스턴스"
     },
     "src/main/adapters/keychain-secret-store.ts": {
@@ -138,7 +138,7 @@
       "uc": [
         "UC1"
       ],
-      "contract": "docs/progress/UC-provider-provenance-contract-2026-06-12.md",
+      "contract": "docs/progress/99.dev-comm/UC-provider-provenance-contract-2026-06-12.md",
       "note": "OS 키체인 read(secret-tool) + 키체인 backed CredentialPort (naia-os write_agent_key 가 쓴 키 read-back). old secret-store.ts 이식"
     },
     "src/main/adapters/naia-settings-store.ts": {
@@ -146,7 +146,7 @@
       "uc": [
         "UC1"
       ],
-      "contract": "docs/progress/UC-provider-provenance-contract-2026-06-12.md",
+      "contract": "docs/progress/99.dev-comm/UC-provider-provenance-contract-2026-06-12.md",
       "note": "config 정본 = <adk>/naia-settings/{llm.json,config.json} → ProviderConfig (기동 시 로딩). old loadNaiaSettingsLLM 헥사고날 이식, 키는 credentials 포트가 공급"
     },
     "src/main/adapters/echo-tool-executor.ts": {
@@ -154,7 +154,7 @@
       "uc": [
         "UC5"
       ],
-      "contract": "docs/progress/UC5-agent-tool-loop-contract-2026-06-10.md",
+      "contract": "docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md",
       "note": "echo 도구 executor"
     },
     "src/main/adapters/composite-tool-executor.ts": {
@@ -162,7 +162,7 @@
       "uc": [
         "UC5"
       ],
-      "contract": "docs/progress/UC5-agent-tool-loop-contract-2026-06-10.md",
+      "contract": "docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md",
       "note": "도구 executor 합성(first-name-wins)"
     },
     "src/main/adapters/builtin-skills.ts": {
@@ -170,7 +170,7 @@
       "uc": [
         "UC5"
       ],
-      "contract": "docs/progress/UC5-agent-tool-loop-contract-2026-06-10.md",
+      "contract": "docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md",
       "note": "time/weather/memo 빌트인 스킬"
     },
     "src/main/adapters/file-memo-store.ts": {
@@ -178,7 +178,7 @@
       "uc": [
         "UC5"
       ],
-      "contract": "docs/progress/UC5-agent-tool-loop-contract-2026-06-10.md",
+      "contract": "docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md",
       "note": "memo 파일 영속"
     },
     "src/main/adapters/github-skills.ts": {
@@ -186,7 +186,7 @@
       "uc": [
         "UC5"
       ],
-      "contract": "docs/progress/UC5-agent-tool-loop-contract-2026-06-10.md",
+      "contract": "docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md",
       "note": "github 읽기전용 스킬"
     },
     "src/main/adapters/obsidian-skills.ts": {
@@ -194,7 +194,7 @@
       "uc": [
         "UC5"
       ],
-      "contract": "docs/progress/UC5-agent-tool-loop-contract-2026-06-10.md",
+      "contract": "docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md",
       "note": "obsidian vault 읽기 스킬"
     },
     "src/main/adapters/mcp-skills.ts": {
@@ -202,7 +202,7 @@
       "uc": [
         "UC5"
       ],
-      "contract": "docs/progress/UC5-agent-tool-loop-contract-2026-06-10.md",
+      "contract": "docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md",
       "note": "MCP executor(발견+execute)"
     },
     "src/main/adapters/mcp-stdio-transport.ts": {
@@ -210,7 +210,7 @@
       "uc": [
         "UC5"
       ],
-      "contract": "docs/progress/UC5-agent-tool-loop-contract-2026-06-10.md",
+      "contract": "docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md",
       "note": "MCP JSON-RPC stdio client"
     },
     "src/main/adapters/openmeteo-weather.ts": {
@@ -218,7 +218,7 @@
       "uc": [
         "UC5"
       ],
-      "contract": "docs/progress/UC5-agent-tool-loop-contract-2026-06-10.md",
+      "contract": "docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md",
       "note": "open-meteo 날씨 fetch"
     },
     "src/main/adapters/approval.ts": {
@@ -226,7 +226,7 @@
       "uc": [
         "UC5"
       ],
-      "contract": "docs/progress/UC5-agent-tool-loop-contract-2026-06-10.md",
+      "contract": "docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md",
       "note": "승인 게이트 ApprovalPort 구현"
     },
     "src/main/domain/memory.ts": {
@@ -234,7 +234,7 @@
       "uc": [
         "UC-memory"
       ],
-      "contract": "docs/progress/UC-memory-recall-save-contract-2026-06-12.md",
+      "contract": "docs/progress/99.dev-comm/UC-memory-recall-save-contract-2026-06-12.md",
       "note": "RecalledMemory + formatRecalledMemory(비신뢰 프레이밍·예산 절단, 순수)"
     },
     "src/main/ports/memory.ts": {
@@ -242,7 +242,7 @@
       "uc": [
         "UC-memory"
       ],
-      "contract": "docs/progress/UC-memory-recall-save-contract-2026-06-12.md",
+      "contract": "docs/progress/99.dev-comm/UC-memory-recall-save-contract-2026-06-12.md",
       "note": "MemoryPort — recall(구조화 RecalledMemory)/save(턴후)"
     },
     "src/main/adapters/naia-memory.ts": {
@@ -250,7 +250,7 @@
       "uc": [
         "UC-memory"
       ],
-      "contract": "docs/progress/UC-memory-recall-save-contract-2026-06-12.md",
+      "contract": "docs/progress/99.dev-comm/UC-memory-recall-save-contract-2026-06-12.md",
       "note": "@nextain/naia-memory MemorySystem 래핑 ManagedMemoryPort(project 필수·topK clamp·role 보존)"
     },
     "src/main/adapters/workspace-project.ts": {
@@ -258,7 +258,7 @@
       "uc": [
         "UC-memory"
       ],
-      "contract": "docs/progress/UC-memory-recall-save-contract-2026-06-12.md",
+      "contract": "docs/progress/99.dev-comm/UC-memory-recall-save-contract-2026-06-12.md",
       "note": "deriveProjectKey/storeDirKey — workspace 격리 키 유도(순수, FR-MEM-9 SoT, 테스트 가능)"
     },
     "src/main/adapters/diagnostic.ts": {
@@ -274,14 +274,14 @@
       "uc": [
         "UC8"
       ],
-      "contract": "docs/progress/UC8-bgm-contract-2026-06-13.md"
+      "contract": "docs/progress/99.dev-comm/UC8-bgm-contract-2026-06-13.md"
     },
     "src/main/adapters/agent-browser-skills.ts": {
       "layer": "adapters",
       "uc": [
         "UC6"
       ],
-      "contract": "docs/progress/UC8-bgm-contract-2026-06-13.md",
+      "contract": "docs/progress/99.dev-comm/UC8-bgm-contract-2026-06-13.md",
       "note": "UC6 browser ToolExecutor — agent-browser CLI 래퍼(injected runCli, 외부 CLI deferred). 계약=external-skill 패턴(UC8 동형)."
     },
     "src/main/adapters/notify-skills.ts": {
@@ -289,7 +289,7 @@
       "uc": [
         "UC5"
       ],
-      "contract": "docs/progress/UC5-agent-tool-loop-contract-2026-06-10.md",
+      "contract": "docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md",
       "note": "notify(slack/discord/google_chat) ToolExecutor — webhook POST(injected post+webhookUrl). external-skill 패턴(github 동형)."
     },
     "src/main/adapters/cron-skills.ts": {
@@ -297,7 +297,7 @@
       "uc": [
         "UC5"
       ],
-      "contract": "docs/progress/UC5-agent-tool-loop-contract-2026-06-10.md",
+      "contract": "docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md",
       "note": "cron ToolExecutor — schedule/list/cancel + 순수 schedule-parse + injected CronStorePort. external-skill 패턴."
     },
     "src/main/adapters/diagnostics-provider.ts": {
@@ -305,7 +305,7 @@
       "uc": [
         "UC11"
       ],
-      "contract": "docs/progress/diagnostics-rpc-contract-2026-06-13.md",
+      "contract": "docs/progress/99.dev-comm/diagnostics-rpc-contract-2026-06-13.md",
       "note": "F1 rich-health provider — gRPC Diagnostics RPC 의 onDiagnostics(version/uptime/components). 순수-ish(injected now)."
     }
   }
