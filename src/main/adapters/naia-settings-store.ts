@@ -5,8 +5,9 @@
 // "대화는 메시지만 — agent 가 미리 설정된 provider 로 처리"). **키는 config 에 없음** — chat 시 keychain
 // CredentialPort(`credentials.get(provider)`)가 공급하므로 store 는 {provider, model}(+host override)만 읽는다.
 //
-// 읽기 우선순위(old naia-agent loader 와 정합): (1) `llm.json`(구 CLI login 의 3-role {main} 포맷, apiKeyRef →
-// 주입 resolveSecret) (2) `config.json`(naia-os 셸 정본 포맷). (1)이 stale/부재면 (2)로 폴백.
+// 읽기 우선순위(2026-06-17 정정 — desktop SoT 우선): (1) `config.json`(naia-os 셸 정본 — UI 선택을 OS 가 기록,
+// 라이브 reload 의 권위) (2) `llm.json`(구 CLI login 의 3-role {main} 포맷, apiKeyRef → 주입 resolveSecret) 폴백.
+// (구 순서는 llm.json 우선이었으나 stale llm.json 이 config.json 을 덮어 채팅 throw 시키는 회귀가 있어 역전.)
 //
 // 헥사고날: 전역 env 변이 없이 ProviderConfig 반환. fs read 주입(node:fs 직접 import 금지). 평문키 방어(llm.json).
 import type { ProviderConfig } from "../domain/chat.js";
@@ -77,7 +78,16 @@ function assembleConfig(
 		return { ...base, ...(opts.ollamaHost ?? opts.baseUrl ? { ollamaHost: opts.ollamaHost ?? opts.baseUrl } : {}) };
 	}
 	// native 직결 — 키는 credentials 포트(키체인)가 공급. llm.json apiKeyRef 가 있으면 그 secret 도 채움.
-	return { ...base, ...(opts.secret ? { apiKey: opts.secret } : {}), ...(provider === "vllm" && (opts.vllmHost ?? opts.baseUrl) ? { vllmHost: opts.vllmHost ?? opts.baseUrl } : {}) };
+	// ⚠️ host override 보존: vllm=vllmHost, 그 외 native=labGatewayUrl(provider-resolver 가 nativeBaseUrl(provider,
+	//    config.labGatewayUrl) 로 전달하는 override 필드). 안 실으면 커스텀 endpoint(openai-compat/self-host)가
+	//    nativeBaseUrl default 에서 "baseUrl 미정의" throw → 채팅 전체가 죽는다(실측 회귀). baseUrl 있으면 항상 보존.
+	return {
+		...base,
+		...(opts.secret ? { apiKey: opts.secret } : {}),
+		...(provider === "vllm"
+			? (opts.vllmHost ?? opts.baseUrl ? { vllmHost: opts.vllmHost ?? opts.baseUrl } : {})
+			: (opts.baseUrl ? { labGatewayUrl: opts.baseUrl } : {})),
+	};
 }
 
 export function makeNaiaSettingsStore(deps: {
@@ -121,7 +131,11 @@ export function makeNaiaSettingsStore(deps: {
 		const model = typeof c["model"] === "string" ? (c["model"] as string) : "";
 		if (!provider || !model) { log("naia-settings.config.incomplete", { file }); return null; }
 		const str = (k: string) => (typeof c[k] === "string" ? (c[k] as string) : undefined);
-		const baseUrl = str("naiaGatewayUrl") ?? str("NAIA_ANYLLM_BASE_URL");
+		// ⚠️ naiaGatewayUrl/NAIA_ANYLLM_BASE_URL = nextain(lab-proxy 게이트웨이) **전용** 필드. native provider(openai/
+		//    gemini/xai/zai 등)엔 적용하면 안 됨 — config 에 stale naiaGatewayUrl 이 남은 채 provider 를 native 로 바꾸면
+		//    그 native 호출이 stale 게이트웨이로 **조용히 오라우팅**(적대적 리뷰 MEDIUM). native 커스텀 host=vllmHost/
+		//    ollamaHost 전용 필드 또는 llm.json baseUrl(CLI). nextain 이 아니면 baseUrl 미적용.
+		const baseUrl = provider === "nextain" ? (str("naiaGatewayUrl") ?? str("NAIA_ANYLLM_BASE_URL")) : undefined;
 		return assembleConfig(provider, model, {
 			...(baseUrl ? { baseUrl } : {}),
 			...(str("ollamaHost") ? { ollamaHost: str("ollamaHost")! } : {}),
@@ -133,7 +147,11 @@ export function makeNaiaSettingsStore(deps: {
 		loadMain(adkPath) {
 			if (!adkPath) return null;
 			const dir = `${adkPath.replace(/\/+$/, "")}/naia-settings`;
-			return fromLlmJson(`${dir}/llm.json`) ?? fromConfigJson(`${dir}/config.json`);
+			// ⚠️ precedence: config.json(naia-os 셸 정본 — 사용자가 UI 에서 고른 provider/model 을 OS 가 write_naia_config 로
+		//    기록)을 *우선*. llm.json(구 CLI login 포맷)은 폴백. desktop 에선 config.json 이 라이브 선택의 SoT 이므로
+		//    stale llm.json 이 가리면 안 된다(실측 회귀: stale llm.json main.provider=openai-compat 가 config.json 을 덮어
+		//    채팅 전체 throw). config.json 부재/불완전이면 llm.json(CLI 로그인) 으로 폴백.
+		return fromConfigJson(`${dir}/config.json`) ?? fromLlmJson(`${dir}/llm.json`);
 		},
 	};
 }

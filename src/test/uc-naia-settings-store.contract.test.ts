@@ -1,6 +1,6 @@
 // naia-settings storage 정본 계약 — `<adkPath>/naia-settings/`(= naia-adk 워크스페이스) → 활성 ProviderConfig.
 // 정본(루크): 설정은 naia-adk 에 저장. naia-os 셸이 config.json 을 쓰고(시크릿 strip→키체인), agent 가 기동 시 로딩.
-// 읽기: llm.json(구 CLI 3-role, apiKeyRef→secret) → config.json(셸 정본 {provider,model}, 키는 credentials 포트가 공급) 폴백.
+// 읽기(2026-06-17 config-first): config.json(셸 정본 {provider,model}, 키는 credentials 포트가 공급) → llm.json(구 CLI 3-role, apiKeyRef→secret) 폴백.
 // 계약: docs/progress/UC-provider-provenance-contract-2026-06-12.md
 import { describe, it, expect } from "vitest";
 import { makeNaiaSettingsStore, roleHasPlaintextSecret, type SettingsFsRead } from "../main/adapters/naia-settings-store.js";
@@ -34,19 +34,32 @@ describe("loadMain — config.json (naia-os 셸 정본 포맷; 키는 키체인=
 		expect(store({ [CONFIG]: JSON.stringify({ provider: "ollama", model: "gemma3:4b", ollamaHost: "http://localhost:11434" }) }).loadMain("/ws"))
 			.toEqual({ provider: "ollama", model: "gemma3:4b", ollamaHost: "http://localhost:11434" });
 	});
+	it("★ native provider: config.json naiaGatewayUrl 무시(nextain 전용) — stale 게이트웨이 오라우팅 방지(적대적 리뷰 MEDIUM)", () => {
+		expect(store({ [CONFIG]: JSON.stringify({ provider: "openai", model: "gpt-4o", naiaGatewayUrl: "https://stale-gw/v1" }) }).loadMain("/ws"))
+			.toEqual({ provider: "openai", model: "gpt-4o" }); // labGatewayUrl 미적용 → nativeBaseUrl 기본(api.openai.com)
+	});
+	it("★ native provider + llm.json baseUrl(CLI 커스텀 self-host) → labGatewayUrl 보존(nativeBaseUrl override)", () => {
+		expect(store({ [LLM]: JSON.stringify({ version: 1, main: { provider: "openai", model: "gpt-4o", baseUrl: "https://my-openai-proxy/v1" } }) }).loadMain("/ws"))
+			.toEqual({ provider: "openai", model: "gpt-4o", labGatewayUrl: "https://my-openai-proxy/v1" });
+	});
 	it("provider/model 불완전 = null", () => {
 		expect(store({ [CONFIG]: JSON.stringify({ provider: "zai" }) }).loadMain("/ws")).toBeNull();
 	});
 });
 
-describe("loadMain — 폴백 우선순위(llm.json → config.json)", () => {
-	it("llm.json 있으면 우선(구 CLI 3-role, apiKeyRef→키체인 secret)", () => {
+describe("loadMain — 우선순위(config.json 정본 우선, llm.json 폴백)", () => {
+	it("config.json 우선: 둘 다 있으면 config.json(naia-os UI 선택) 채택", () => {
 		expect(store({
 			[LLM]: JSON.stringify({ version: 1, main: { provider: "glm", model: "glm-5.1", apiKeyRef: "GLM_API_KEY" } }),
 			[CONFIG]: JSON.stringify({ provider: "nextain", model: "gemini-2.5-flash" }),
-		}).loadMain("/ws")).toEqual({ provider: "glm", model: "glm-5.1", apiKey: "glm-SECRET" }); // llm.json 채택
+		}).loadMain("/ws")).toEqual({ provider: "nextain", model: "gemini-2.5-flash" }); // config.json 채택(desktop SoT)
 	});
-	it("★ stale llm.json(구 {openai:..} 포맷, main 없음) → config.json 으로 폴백", () => {
+	it("config.json 부재 시 llm.json 폴백(구 CLI 3-role, apiKeyRef→키체인 secret)", () => {
+		expect(store({
+			[LLM]: JSON.stringify({ version: 1, main: { provider: "glm", model: "glm-5.1", apiKeyRef: "GLM_API_KEY" } }),
+		}).loadMain("/ws")).toEqual({ provider: "glm", model: "glm-5.1", apiKey: "glm-SECRET" });
+	});
+	it("★ stale llm.json(구 {openai:..} 포맷, main 없음) 무시 + config.json 채택", () => {
 		expect(store({
 			[LLM]: JSON.stringify({ openai: { baseURL: "http://127.0.0.1:8000/v1", model: "naia-coding", apiKey: "EMPTY" } }),
 			[CONFIG]: JSON.stringify({ provider: "zai", model: "glm-5.1" }),
@@ -68,11 +81,10 @@ describe("loadMain — 폴백 우선순위(llm.json → config.json)", () => {
 });
 
 describe("loadMain — llm.json 평문 키 방어", () => {
-	it("main 에 raw 자격증명(apiKey 필드/sk- 값) = llm.json 거부 → config.json 폴백(있으면)", () => {
+	it("main 에 raw 자격증명(apiKey 필드/sk- 값) = llm.json 거부 → config 없으면 null(폴백 없음)", () => {
 		expect(store({
 			[LLM]: JSON.stringify({ main: { provider: "glm", model: "glm-5.1", apiKey: "sk-deadbeef12345678" } }),
-			[CONFIG]: JSON.stringify({ provider: "zai", model: "glm-5.1" }),
-		}).loadMain("/ws")).toEqual({ provider: "zai", model: "glm-5.1" });
+		}).loadMain("/ws")).toBeNull();
 	});
 	it("apiKeyRef 값이 raw 키처럼 생김 = 거부", () => {
 		expect(store({ [LLM]: JSON.stringify({ main: { provider: "anthropic", model: "claude", apiKeyRef: "sk-ant-api03-AAAAAAAA" } }) }).loadMain("/ws")).toBeNull();

@@ -10,20 +10,21 @@
 
   "current_work": {
     "issue": null,
-    "title": "UC-memory — naia-memory 연동(턴 전 recall 주입 / 턴 후 save)",
-    "issue_doc": "docs/progress/UC-memory-recall-save-contract-2026-06-12.md",
+    "title": "provider-wiring — naia-os 전 프로바이더/모델 ↔ agent 연결 (정본 Option S: naia-settings 설정 기반 라이브 reload)",
+    "issue_doc": "../../../.agents/progress/new-naia-provider-wiring-2026-06-17.md (alpha-adk 루트)",
     "github_issue": null,
-    "started": "2026-06-12",
-    "last_updated": "2026-06-12",
-    "status": "in_progress"
+    "started": "2026-06-17",
+    "last_updated": "2026-06-17",
+    "status": "in_progress",
+    "prior_work_note": "UC-memory(FR-MEM-1~10) 작업은 별도 — 미커밋 상태 유지(provider-provenance 동시작업 얽힘). 본 작업과 직교."
   },
 
   "sdlc_gates": {
-    "P01": { "status": "done", "name": "user_scenarios", "deliverable": "docs/user-scenarios.md (UC-MEM-1)", "ref": "docs/progress/UC-memory-recall-save-contract-2026-06-12.md" },
-    "P02": { "status": "done", "name": "test_scenarios", "deliverable": "src/test/uc1-memory-stdio.integration.test.ts + uc1-memory-process.integration.test.ts", "ref": "docs/user-scenarios.md#test-coverage-map" },
-    "P03": { "status": "done", "name": "requirements", "deliverable": "docs/requirements.md (FR-MEM-1~8 + NFR)", "ref": "docs/progress/UC-memory-recall-save-contract-2026-06-12.md" },
-    "P04": { "status": "done", "name": "integration_test", "deliverable": "uc1-memory-stdio/process integration tests (14+1) pass", "ref": null },
-    "P05": { "status": "in_progress", "name": "requirements_complete", "deliverable": "FR-MEM-1~10 Done(232 테스트 green, 실프로세스 recall→inject e2e 포함). 코드 2-clean 완료. 설계 리뷰 25라운드(위협모델 경계 명시 후 in-scope 만)·최신 라운드 지적 전부 반영; 설계 2-clean 최종 NONE×2 확인은 codex usage-limit(리셋 06-13 02:10)로 보류. ⚠️ 미커밋(provider-provenance 동시작업이 shared 파일에 얽혀 자율 커밋 보류).", "ref": "docs/progress/UC-memory-recall-save-contract-2026-06-12.md" }
+    "P01": { "status": "done", "name": "user_scenarios", "deliverable": "사용자 모델 교체 → agent 라이브 반영 시나리오 (docs/user-scenarios.md UC-PROV-1) + 진행문서", "ref": "../../../.agents/progress/new-naia-provider-wiring-2026-06-17.md" },
+    "P02": { "status": "done", "name": "test_scenarios", "deliverable": "all-providers-wiring.contract.test.ts(9) + uc1-reload-default-config.contract.test.ts(3) + uc-naia-settings-store(19) + 프로세스 e2e 2종", "ref": "docs/user-scenarios.md#test-coverage-map" },
+    "P03": { "status": "done", "name": "requirements", "deliverable": "docs/requirements.md FR-PROV-1(config-first precedence) FR-PROV-2(라이브 reload R1-2) FR-PROV-3(native host-override gating)", "ref": "../../../.agents/progress/new-naia-provider-wiring-2026-06-17.md" },
+    "P04": { "status": "done", "name": "integration_test", "deliverable": "48 contract green + 프로세스 e2e: (1)config.json 로딩(nextain/gemini-3.1-flash-lite) (2)gRPC SetWorkspace→ReloadSettings 라이브 swap(nextain→zai→gemini) 관통. 적대적 리뷰 통과(MEDIUM naiaGatewayUrl hijack 수정·잠금).", "ref": null },
+    "P05": { "status": "in_progress", "name": "requirements_complete", "deliverable": "코드+테스트 완료, 적대적 리뷰 통과. 커밋/푸시 후 사용자 실앱 테스트 대기(프론트엔드 rebuild 필요).", "ref": "../../../.agents/progress/new-naia-provider-wiring-2026-06-17.md" }
   },
 
   "resource_registry": {

@@ -49,7 +49,14 @@ export interface HandlerDeps {
 
 export class ChatTurnHandler {
   private readonly turns = new Map<string, Turn>();
-  constructor(private readonly d: HandlerDeps) {}
+  /** 활성 defaultConfig — 라이브 reload 가능. 초기값=주입 defaultConfig. 정본(R1-2 "startup-only 금지"):
+   *  사용자가 모델 교체 시 OS가 naia-settings 갱신 후 ReloadSettings/SetWorkspace 재호출 → entry 가 setDefaultConfig 로 swap. */
+  private activeDefaultConfig?: ProviderConfig;
+  constructor(private readonly d: HandlerDeps) { this.activeDefaultConfig = d.defaultConfig; }
+
+  /** 라이브 설정 reload — naia-settings 재로딩 결과(또는 undefined=설정 없음)를 활성 config 로 swap.
+   *  wire chat_request 가 provider override 를 안 실으면(gRPC 정본) 다음 턴부터 이 값을 쓴다. */
+  setDefaultConfig(config: ProviderConfig | undefined): void { this.activeDefaultConfig = config; }
 
   async onChatRequest(req: ChatRequest): Promise<void> {
     if (this.turns.has(req.requestId)) {
@@ -64,7 +71,7 @@ export class ChatTurnHandler {
     const totalUsage = { inputTokens: 0, outputTokens: 0 };
     const emit = (e: Parameters<AgentEgressPort["emit"]>[1]) => this.d.egress.emit(req.requestId, e); // egress no-throw
     // config 정본: wire provider override > 기동 시 naia-settings 로딩한 defaultConfig(정본 "대화는 메시지만").
-    const activeConfig = req.provider ?? this.d.defaultConfig;
+    const activeConfig = req.provider ?? this.activeDefaultConfig;
     const costModel = activeConfig?.model ?? ""; // 미설정 = calculateCost("") = 0(크래시 아님)
     // terminal 래치(usage 중복 emit 원천 차단 — 두 종결 모두 이 헬퍼만 사용).
     const terminalFinish = () => { if (!sawTerminal) { emit({ kind: "usage", ...totalUsage, cost: calculateCost(costModel, totalUsage.inputTokens, totalUsage.outputTokens), model: costModel }); emit({ kind: "finish" }); sawTerminal = true; t.state = "finished"; } };

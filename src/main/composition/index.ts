@@ -37,7 +37,7 @@ export function wireAgentUC1(opts?: {
   ingress?: AgentIngressPort;      // 비-stdio transport(gRPC) 가 직접 주입 — transport 무지(직교). 미주입+io 시 stdio.
   egress?: AgentEgressPort;        // 동상(gRPC per-request stream 등). 미주입+io 시 stdio.
   diag?: DiagnosticLog;
-}): { handler: ChatTurnHandler; ingress?: AgentIngressPort; start?: () => void; drain?: () => Promise<void> } {
+}): { handler: ChatTurnHandler; setDefaultConfig: (config: ProviderConfig | undefined) => void; ingress?: AgentIngressPort; start?: () => void; drain?: () => Promise<void> } {
   // 표준 sink(docs/logging.md). 미주입=no-op write(코어 순수·무소음) — entry 가 process.stderr+debug 게이트 주입. console.* 금지.
   const diag: DiagnosticLog = opts?.diag ?? makeStderrDiagnostic();
   const approval: ApprovalPort = opts?.approval ?? makeInMemoryApproval(); // UC5 slice 2 — tier-gated 도구 승인 보류
@@ -57,8 +57,11 @@ export function wireAgentUC1(opts?: {
   const handler = new ChatTurnHandler(deps);
 
   // ingress = 주입된 gRPC ingress(production) 또는 테스트가 직접 구성한 ports. 미주입 = handler 만(헤드리스).
+  // 라이브 reload(R1-2): entry 가 SetWorkspace/ReloadSettings 시 naia-settings 재로딩 결과를 이걸로 swap.
+  const setDefaultConfig = (config: ProviderConfig | undefined) => handler.setDefaultConfig(config);
+
   const ingress = opts?.ingress;
-  if (!ingress) return { handler };
+  if (!ingress) return { handler, setDefaultConfig };
   // 진행 중인 chat 턴 추적 — 종료(stdin EOF) 시 drain() 으로 in-flight save 완료를 기다린 뒤
   // memory flush/exit 해야 마지막 턴이 유실되지 않는다(라우팅은 fire-and-forget).
   const inflight = new Set<Promise<void>>();
@@ -78,7 +81,7 @@ export function wireAgentUC1(opts?: {
     }
   };
   return {
-    handler, ingress,
+    handler, setDefaultConfig, ingress,
     start: () => { ingress.onRequest(route); },
     drain: async () => { while (inflight.size) await Promise.all([...inflight]); }, // 종료 전 in-flight 턴 완료 대기(드레인 중 도착분까지)
   };

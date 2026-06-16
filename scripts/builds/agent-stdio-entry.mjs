@@ -120,6 +120,17 @@ const settingsResolveSecret = (ref) => process.env[ref] ?? (process.platform ===
 const settingsStore = makeNaiaSettingsStore({ fs: nodeFs, resolveSecret: settingsResolveSecret, log: (m, c) => process.stderr.write(`[new-naia-agent] ${m} ${c ? JSON.stringify(c) : ""}\n`) });
 const defaultConfig = settingsStore.loadMain(adkPath) ?? undefined;
 const configLabel = defaultConfig ? `naia-settings(${defaultConfig.provider}/${defaultConfig.model})` : `none(wire provider 필요) adk=${adkPath}`;
+// ★ 라이브 reload(정본 R1-2 "startup-only 금지"): 사용자가 naia-os 에서 모델/프로바이더 교체 시 OS 가
+//   naia-settings(config.json) 갱신 후 SetWorkspace/ReloadSettings 재호출 → 여기서 재로딩해 handler 활성 config 를 swap.
+//   applyDefaultConfig 는 wireAgentUC1 반환(아래)으로 채워진다 — 클로저가 *호출 시점* 값을 보므로 선언 순서 무관.
+let currentAdkPath = adkPath;
+let applyDefaultConfig = (_c) => {};
+const reloadConfigFrom = (path) => {
+  const c = path ? (settingsStore.loadMain(path) ?? undefined) : undefined;
+  applyDefaultConfig(c);
+  process.stderr.write(`[new-naia-agent] settings reload → ${c ? `${c.provider}/${c.model}` : "none"} (adk=${path})\n`);
+  return { loaded: !!c, provider: c?.provider ?? "", model: c?.model ?? "" };
+};
 
 // 장기기억(naia-memory) — 기본 활성(NAIA_AGENT_MEMORY=off 로 비활성, FR-MEM-3 무회귀). 턴 전 recall 주입 /
 // 턴 후 save. 초기화 실패=격리(기억 없이 진행). store=NAIA_MEMORY_STORE 또는 ~/.naia-agent/memory/store.json.
@@ -170,14 +181,16 @@ const diag = makeStderrDiagnostic({ write: (l) => process.stderr.write(l + "\n")
 // SetWorkspace/ReloadSettings = naia-adk/naia-settings 로딩 결과 반환(저장/불러오기 정본).
 const grpcServer = makeGrpcServer({
   bindAddr: process.env.NAIA_AGENT_GRPC_ADDR || "127.0.0.1:0",
-  onSetWorkspace: (adkPath) => {
-    const c = adkPath ? settingsStore.loadMain(adkPath) : defaultConfig;
-    return { loaded: !!c, provider: c?.provider ?? "", model: c?.model ?? "" };
+  onSetWorkspace: (wsPath) => {
+    if (wsPath) currentAdkPath = wsPath; // OS 가 워크스페이스 경로 주입 → 이후 ReloadSettings 도 이 경로 사용
+    return reloadConfigFrom(currentAdkPath);
   },
-  onReloadSettings: () => ({ loaded: !!defaultConfig, provider: defaultConfig?.provider ?? "", model: defaultConfig?.model ?? "" }),
+  onReloadSettings: () => reloadConfigFrom(currentAdkPath),
   diag,
 });
-const { start, drain } = wireAgentUC1({ ingress: grpcServer.ingress, egress: grpcServer.egress, credentials, diag, ...(provider ? { provider } : {}), ...(resolver ? { resolver } : {}), ...(toolExecutor ? { toolExecutor } : {}), ...(memory ? { memory } : {}), ...(defaultConfig ? { defaultConfig } : {}) });
+const wired = wireAgentUC1({ ingress: grpcServer.ingress, egress: grpcServer.egress, credentials, diag, ...(provider ? { provider } : {}), ...(resolver ? { resolver } : {}), ...(toolExecutor ? { toolExecutor } : {}), ...(memory ? { memory } : {}), ...(defaultConfig ? { defaultConfig } : {}) });
+applyDefaultConfig = wired.setDefaultConfig; // 라이브 reload 결선 — 이후 SetWorkspace/ReloadSettings 가 활성 config swap
+const { start, drain } = wired;
 start?.(); // ingress.onRequest(route) 등록 — gRPC 핸들러가 도메인 req 를 흘린다
 const grpcAddr = await grpcServer.start();
 // ⚠️ stdout 한 줄 핸드셰이크(데이터 transport 아님) — Rust 가 이 addr 를 읽어 gRPC connect.

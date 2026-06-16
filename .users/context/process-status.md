@@ -18,10 +18,11 @@
 
 ## 현재 작업
 
-**이슈**: UC-memory
-**제목**: naia-memory 연동(턴 전 recall 주입 / 턴 후 save)
-**이슈 문서**: [docs/progress/UC-memory-recall-save-contract-2026-06-12.md](../../docs/progress/UC-memory-recall-save-contract-2026-06-12.md)
-**상태**: in_progress (2026-06-12)
+**이슈**: provider-wiring
+**제목**: naia-os 전 프로바이더/모델 ↔ agent 연결 (정본 Option S: naia-settings 설정 기반 라이브 reload)
+**이슈 문서**: [.agents/progress/new-naia-provider-wiring-2026-06-17.md](../progress/new-naia-provider-wiring-2026-06-17.md) (alpha-adk 루트)
+**상태**: in_progress (2026-06-17)
+**비고**: UC-memory(FR-MEM-1~10) 작업은 별도 — 미커밋 상태 유지(provider-provenance 동시작업 얽힘). 본 작업과 직교.
 
 ---
 
@@ -29,13 +30,13 @@
 
 | 게이트 | 상태 | 산출물(deliverable) |
 |--------|:----:|---------------------|
-| P01 사용자시나리오 | done | docs/user-scenarios.md (UC-MEM-1) |
-| P02 테스트시나리오 | done | uc1-memory-stdio/process integration tests |
-| P03 요구사항 | done | docs/requirements.md (FR-MEM-1~8 + NFR) |
-| P04 통합테스트 | done | 통합테스트 14+1건 통과 |
-| P05 완료 | in_progress | FR-MEM-1~10 Done(232 테스트 green). 코드 2-clean 완료. 설계 리뷰 25라운드 반영; 설계 2-clean 최종 확인은 codex usage-limit(06-13 02:10 리셋)로 보류. 미커밋(동시작업 얽힘). |
+| P01 사용자시나리오 | done | docs/user-scenarios.md (UC-PROV-1) + 진행문서 |
+| P02 테스트시나리오 | done | all-providers-wiring(9) + uc1-reload-default-config(3) + uc-naia-settings-store(19) + 프로세스 e2e 2종 |
+| P03 요구사항 | done | docs/requirements.md (FR-PROV-1 config-first / FR-PROV-2 라이브 reload R1-2 / FR-PROV-3 native host-override gating) |
+| P04 통합테스트 | done | 48 contract green + 프로세스 e2e 2종(config.json 로딩 / gRPC SetWorkspace→ReloadSettings 라이브 swap). 적대적 리뷰 통과(MEDIUM naiaGatewayUrl hijack 수정·잠금). |
+| P05 완료 | in_progress | 코드+테스트 완료, 적대적 리뷰 통과. 커밋/푸시 후 사용자 실앱 테스트 대기(프론트엔드 rebuild 필요). |
 
-마지막 업데이트: 2026-06-12
+마지막 업데이트: 2026-06-17
 
 ---
 
