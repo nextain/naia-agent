@@ -24,7 +24,9 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
 	"grok-3-fast": { input: 5.0, output: 25.0 },
 	"grok-3-mini": { input: 0.3, output: 0.5 },
 	"grok-3-mini-fast": { input: 0.6, output: 4.0 },
-	// Anthropic
+	// Anthropic (alias = naia-os registry/anthropic·claude-code-cli provider 모델 — 비용 $0 회귀 방지, 적대적 리뷰 H1)
+	"claude-sonnet-4-6": { input: 3.0, output: 15.0 },
+	"claude-haiku-4-5": { input: 1.0, output: 5.0 },
 	"claude-sonnet-4-5-20250929": { input: 3.0, output: 15.0 },
 	"claude-sonnet-4-20250514": { input: 3.0, output: 15.0 },
 	"claude-haiku-4-5-20251001": { input: 1.0, output: 5.0 },

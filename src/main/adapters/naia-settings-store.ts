@@ -77,6 +77,11 @@ function assembleConfig(
 	if (route === "ollama") {
 		return { ...base, ...(opts.ollamaHost ?? opts.baseUrl ? { ollamaHost: opts.ollamaHost ?? opts.baseUrl } : {}) };
 	}
+	if (route === "anthropic") {
+		// Messages API(anthropic·claude-code-cli) — 키는 credentials 포트(키체인 ANTHROPIC_API_KEY)가 chat 시 공급.
+		// llm.json apiKeyRef secret/baseUrl override 도 보존(host override=labGatewayUrl, 어댑터가 anthropicBaseUrl 로 소비).
+		return { ...base, ...(opts.secret ? { apiKey: opts.secret } : {}), ...(opts.baseUrl ? { labGatewayUrl: opts.baseUrl } : {}) };
+	}
 	// native 직결 — 키는 credentials 포트(키체인)가 공급. llm.json apiKeyRef 가 있으면 그 secret 도 채움.
 	// ⚠️ host override 보존: vllm=vllmHost, 그 외 native=labGatewayUrl(provider-resolver 가 nativeBaseUrl(provider,
 	//    config.labGatewayUrl) 로 전달하는 override 필드). 안 실으면 커스텀 endpoint(openai-compat/self-host)가

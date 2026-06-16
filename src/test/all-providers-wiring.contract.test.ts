@@ -123,14 +123,17 @@ describe("all-providers wiring — naia-os 프로바이더 전수 (config.json �
 		expect(box.url).toBe("http://ollama-box:11434/api/chat"); // ollama 는 OpenAI-compat 아닌 native /api/chat
 	});
 
-	// 미구현(후속) — OpenAI-compat 아님(Anthropic SDK / Claude CLI 직결 신규계약 필요). 정직 throw(오해소지 에러 아님).
+	// anthropic·claude-code-cli — Anthropic Messages API(/v1/messages, x-api-key). claude-code = SDK/API 패러다임(CLI 아님, 루크 2026-06-17).
 	for (const p of ["anthropic", "claude-code-cli"]) {
-		it(`${p} → 미지원(정직 throw, openai-compat 으로 위장 안 함). config.json naiaGatewayUrl(nextain 전용)도 native override 안 됨`, () => {
-			const resolver = makeProviderResolver();
-			// config.json 의 naiaGatewayUrl 은 nextain 전용이라 native(anthropic/claude-code-cli)엔 적용 안 됨 → 여전히 throw.
-			const cfg = load({ provider: p, model: "x", naiaGatewayUrl: "https://stale-gw/v1" });
-			expect(cfg.labGatewayUrl).toBeUndefined();
-			expect(() => resolver.resolve(cfg)).toThrow(/baseUrl 미정의/);
+		it(`${p} → Anthropic Messages API(/v1/messages) + x-api-key`, async () => {
+			const { fetch, box } = capture();
+			const resolver = makeProviderResolver({ fetch: fetch as never });
+			const cfg = withKey(load({ provider: p, model: "claude-sonnet-4-6" }), { apiKey: "ANTHROPIC-KEY" });
+			await collect(resolver.resolve(cfg).chat(cfg, [], {}));
+			expect(box.url).toBe("https://api.anthropic.com/v1/messages");
+			expect(box.headers?.["x-api-key"]).toBe("ANTHROPIC-KEY");
+			expect(box.headers?.["anthropic-version"]).toBe("2023-06-01");
+			expect(box.headers?.Authorization).toBeUndefined(); // Bearer 아님 — x-api-key
 		});
 	}
 });

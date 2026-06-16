@@ -6,9 +6,10 @@
 // transport 자체는 stdio/gRPC 와 직교 — provider는 LLM 호출 어댑터일 뿐.
 import type { ProviderConfig } from "../domain/chat.js";
 import type { ProviderPort, ProviderResolverPort } from "../ports/uc1.js";
-import { resolveProviderRoute, labProxyBaseUrl, nativeBaseUrl } from "../domain/provider-route.js";
+import { resolveProviderRoute, labProxyBaseUrl, nativeBaseUrl, anthropicBaseUrl } from "../domain/provider-route.js";
 import { makeOpenAICompatProvider } from "./openai-compat-provider.js";
 import { makeOllamaProvider } from "./ollama-provider.js";
+import { makeAnthropicProvider } from "./anthropic-provider.js";
 
 export interface ProviderResolverDeps {
 	/** 테스트/대체용 fetch 주입(미주입 = global fetch). */
@@ -23,6 +24,14 @@ export function makeProviderResolver(deps?: ProviderResolverDeps): ProviderResol
 				case "ollama":
 					// fetch 주입 전달(미주입=global). 안 넘기면 헤드리스 테스트가 ollama 를 mock 못 해 실 네트워크로 샘(직교 위반).
 					return makeOllamaProvider(f ? { fetch: f } : undefined);
+				case "anthropic":
+					// anthropic·claude-code-cli — Messages API(/v1/messages, x-api-key). OpenAI-compat 아님 → 전용 어댑터.
+					return makeAnthropicProvider({
+						baseUrl: anthropicBaseUrl(config),
+						apiKey: config.apiKey ?? "",
+						model: config.model,
+						...(f ? { fetch: f } : {}),
+					});
 				case "lab-proxy":
 					// naia 게이트웨이 — OpenAI-compat /v1/chat/completions, auth=X-AnyLLM-Key: naiaKey.
 					return makeOpenAICompatProvider({

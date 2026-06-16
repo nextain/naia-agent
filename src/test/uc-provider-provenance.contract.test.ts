@@ -47,10 +47,11 @@ describe("baseUrl 해석", () => {
     expect(nativeBaseUrl("ollama")).toBe("http://localhost:11434/v1");
     expect(nativeBaseUrl("gemini", "https://custom/")).toBe("https://custom");
   });
-  it("★ 미등록 provider(anthropic 등) override 없음 → 정직 에러(silent openai 오라우팅 금지, 리뷰 MEDIUM fix)", () => {
-    expect(() => nativeBaseUrl("anthropic")).toThrow(); // openai 로 조용히 보내지 않음
+  it("★ 미등록 provider(cohere 등) override 없음 → 정직 에러(silent openai 오라우팅 금지, 리뷰 MEDIUM fix)", () => {
+    // anthropic·claude-code-cli 는 별 라우트(anthropic-provider)로 빠져 nativeBaseUrl 에 안 옴 → 진짜 미등록(cohere) 으로 검증.
+    expect(() => nativeBaseUrl("cohere")).toThrow(); // openai 로 조용히 보내지 않음
     expect(() => nativeBaseUrl("unknown-xyz")).toThrow();
-    expect(nativeBaseUrl("anthropic", "https://my-host/v1")).toBe("https://my-host/v1"); // override 는 허용(커스텀 compat)
+    expect(nativeBaseUrl("cohere", "https://my-host/v1")).toBe("https://my-host/v1"); // override 는 허용(커스텀 compat)
   });
 });
 
