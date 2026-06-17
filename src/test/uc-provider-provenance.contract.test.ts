@@ -65,6 +65,37 @@ describe("calculateCost (가격표)", () => {
   });
 });
 
+describe("cost 과금 0 회귀 방지 (native 모델 = MODEL_PRICING 키 — os registry.test.ts 스냅샷과 수동 동기화)", () => {
+  // ⚠️ 이 배열은 naia-os registry.test.ts 의 'native(per-token) provider 모델 ID 스냅샷' it 과 동일해야 한다.
+  //    registry 변경은 그 스냅샷 테스트가 먼저 잡고(cross-repo 변경 감지), 그때 여기 배열 + cost.ts 를 같이 갱신한다.
+  //    native(per-token)만 — nextain(게이트웨이 SoT)·claude-code-cli($0 구독)·ollama/vllm(동적)·realtime(시간 과금) 제외.
+  //    (정직: 자동 정합이 아니라 '수동 동기화 + 변경 감지' — codex HIGH3. 자동 단일 SoT 는 후속. zai/glm 통째 누락이 과거 과금 0 회귀.)
+  const REGISTRY_PRICED_MODELS = [
+    "claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5-20251001",                      // anthropic
+    "gpt-5.5", "gpt-5.4", "gpt-5.2", "gpt-5.1", "gpt-4.1", "gpt-4.1-mini", "o4-mini", "gpt-4o", // openai
+    "gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-3.1-pro-preview",                      // gemini(native)
+    "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash",
+    "grok-4.3", "grok-4", "grok-4.1-fast", "grok-code-fast-1", "grok-3-mini",                   // xai
+    "glm-5.2", "glm-5.1", "glm-5-turbo", "glm-4.7", "glm-4.5-air",                              // zai
+  ];
+
+  it("registry native 모델 전부 MODEL_PRICING 등록(0 회귀 없음)", () => {
+    const missing = REGISTRY_PRICED_MODELS.filter((m) => calculateCost(m, 1_000_000, 0) === 0);
+    expect(missing, `cost.ts 미등록(과금 0 회귀): ${missing.join(", ")}`).toEqual([]);
+  });
+
+  it("최신 모델 과금 > 0 (opus-4-8/gpt-5.5/grok-4.3/glm-5.2)", () => {
+    for (const m of ["claude-opus-4-8", "gpt-5.5", "grok-4.3", "glm-5.2"]) {
+      expect(calculateCost(m, 1_000_000, 1_000_000), m).toBeGreaterThan(0);
+    }
+  });
+
+  it("claude-code-cli provider = $0 (구독, per-token 제외) / anthropic 동일 모델은 과금", () => {
+    expect(calculateCost("claude-sonnet-4-6", 1_000_000, 1_000_000, "claude-code-cli")).toBe(0);
+    expect(calculateCost("claude-sonnet-4-6", 1_000_000, 1_000_000, "anthropic")).toBeGreaterThan(0);
+  });
+});
+
 describe("makeProviderResolver (요청별 transport)", () => {
   // 첫 fetch 호출의 url+headers 포착(transport 도달 확인). 스트림은 즉시 done.
   function capture() {

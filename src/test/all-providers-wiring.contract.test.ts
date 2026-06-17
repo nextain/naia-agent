@@ -4,6 +4,8 @@
 import { describe, it, expect } from "vitest";
 import { makeNaiaSettingsStore, type SettingsFsRead } from "../main/adapters/naia-settings-store.js";
 import { makeProviderResolver } from "../main/adapters/provider-resolver.js";
+import { makeClaudeCodeProvider, type QueryParams, type SdkQuery } from "../main/adapters/claude-code-provider.js";
+import { resolveProviderRoute } from "../main/domain/provider-route.js";
 import type { ProviderConfig, ProviderChunk } from "../main/domain/chat.js";
 
 function memFs(files: Record<string, string>): SettingsFsRead {
@@ -123,17 +125,65 @@ describe("all-providers wiring — naia-os 프로바이더 전수 (config.json �
 		expect(box.url).toBe("http://ollama-box:11434/api/chat"); // ollama 는 OpenAI-compat 아닌 native /api/chat
 	});
 
-	// anthropic·claude-code-cli — Anthropic Messages API(/v1/messages, x-api-key). claude-code = SDK/API 패러다임(CLI 아님, 루크 2026-06-17).
-	for (const p of ["anthropic", "claude-code-cli"]) {
-		it(`${p} → Anthropic Messages API(/v1/messages) + x-api-key`, async () => {
-			const { fetch, box } = capture();
-			const resolver = makeProviderResolver({ fetch: fetch as never });
-			const cfg = withKey(load({ provider: p, model: "claude-sonnet-4-6" }), { apiKey: "ANTHROPIC-KEY" });
-			await collect(resolver.resolve(cfg).chat(cfg, [], {}));
-			expect(box.url).toBe("https://api.anthropic.com/v1/messages");
-			expect(box.headers?.["x-api-key"]).toBe("ANTHROPIC-KEY");
-			expect(box.headers?.["anthropic-version"]).toBe("2023-06-01");
-			expect(box.headers?.Authorization).toBeUndefined(); // Bearer 아님 — x-api-key
-		});
-	}
+	// anthropic — Anthropic Messages API(/v1/messages, x-api-key, ANTHROPIC_API_KEY). per-token 직접 키.
+	it("anthropic → Anthropic Messages API(/v1/messages) + x-api-key", async () => {
+		const { fetch, box } = capture();
+		const resolver = makeProviderResolver({ fetch: fetch as never });
+		const cfg = withKey(load({ provider: "anthropic", model: "claude-sonnet-4-6" }), { apiKey: "ANTHROPIC-KEY" });
+		await collect(resolver.resolve(cfg).chat(cfg, [], {}));
+		expect(box.url).toBe("https://api.anthropic.com/v1/messages");
+		expect(box.headers?.["x-api-key"]).toBe("ANTHROPIC-KEY");
+		expect(box.headers?.["anthropic-version"]).toBe("2023-06-01");
+		expect(box.headers?.Authorization).toBeUndefined(); // Bearer 아님 — x-api-key
+	});
+
+	// claude-code-cli — Claude Agent SDK query()(로컬 구독 인증). Messages API/x-api-key 로 가지 않는다.
+	it("claude-code-cli → route 'claude-code' (Messages API/fetch 로 가지 않음)", async () => {
+		const cfg = load({ provider: "claude-code-cli", model: "claude-sonnet-4-6" });
+		expect(resolveProviderRoute(cfg)).toBe("claude-code"); // anthropic 아님
+		// resolver 가 claude-code 어댑터(SDK)로 보냄 → fetch 미사용(주입 fetch 가 안 불림 = Messages API 안 탐).
+		const { fetch, box } = capture();
+		const resolver = makeProviderResolver({ fetch: fetch as never });
+		const provider = resolver.resolve(cfg);
+		expect(typeof provider.chat).toBe("function");
+		expect(box.url).toBeUndefined(); // resolve 만으론 fetch 안 일어남(해석=어댑터 생성)
+	});
+
+	it("claude-code-cli → SDK query()에 apiKey 없이 model 전달 + 스트림 chunk 매핑", async () => {
+		// SDK query mock — query 인자 포착 + 합성 SDKMessage 스트림(stream_event/result) 방출.
+		let captured: QueryParams | undefined;
+		const mockQuery = (params: QueryParams): SdkQuery => {
+			captured = params;
+			async function* gen() {
+				yield { type: "message_start", _ignore: true } as never; // (스트림은 stream_event 안에 와이어 이벤트로 옴)
+				yield { type: "stream_event", event: { type: "message_start", message: { usage: { input_tokens: 5 } } } };
+				yield { type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Hi" } } };
+				yield { type: "stream_event", event: { type: "content_block_start", index: 1, content_block: { type: "tool_use", id: "t1", name: "search" } } };
+				yield { type: "stream_event", event: { type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: "{\"q\":1}" } } };
+				yield { type: "stream_event", event: { type: "content_block_stop", index: 1 } };
+				yield { type: "result", subtype: "success", is_error: false, result: "ok", usage: { input_tokens: 5, output_tokens: 7 } };
+			}
+			return gen();
+		};
+		const provider = makeClaudeCodeProvider({ model: "claude-sonnet-4-6", query: mockQuery });
+		const cfg = load({ provider: "claude-code-cli", model: "claude-sonnet-4-6" });
+		const chunks: ProviderChunk[] = [];
+		for await (const c of provider.chat(cfg, [{ role: "user", content: "hello" }], { systemPrompt: "be brief" })) chunks.push(c);
+
+		// 1) apiKey/x-api-key 전혀 없음 — 구독 인증. model 전달.
+		expect(captured).toBeDefined();
+		expect((captured!.options as Record<string, unknown>)?.["apiKey"]).toBeUndefined();
+		expect(JSON.stringify(captured)).not.toContain("api-key");
+		expect(captured!.options?.model).toBe("claude-sonnet-4-6");
+		expect(captured!.options?.systemPrompt).toBe("be brief"); // system role+opts 합류
+		expect(captured!.prompt).toContain("hello");
+
+		// 2) 스트림 → ProviderChunk 매핑(text/toolUse/usage/finish).
+		expect(chunks.find((c) => c.kind === "text")).toEqual({ kind: "text", text: "Hi" });
+		const tool = chunks.find((c) => c.kind === "toolUse");
+		expect(tool).toEqual({ kind: "toolUse", id: "t1", name: "search", args: { q: 1 } });
+		const usage = chunks.find((c) => c.kind === "usage");
+		expect(usage).toEqual({ kind: "usage", inputTokens: 5, outputTokens: 7 });
+		expect(chunks[chunks.length - 1]).toEqual({ kind: "finish" });
+	});
 });

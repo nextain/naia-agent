@@ -78,9 +78,14 @@ function assembleConfig(
 		return { ...base, ...(opts.ollamaHost ?? opts.baseUrl ? { ollamaHost: opts.ollamaHost ?? opts.baseUrl } : {}) };
 	}
 	if (route === "anthropic") {
-		// Messages API(anthropic·claude-code-cli) — 키는 credentials 포트(키체인 ANTHROPIC_API_KEY)가 chat 시 공급.
+		// Messages API(anthropic) — 키는 credentials 포트(키체인 ANTHROPIC_API_KEY)가 chat 시 공급.
 		// llm.json apiKeyRef secret/baseUrl override 도 보존(host override=labGatewayUrl, 어댑터가 anthropicBaseUrl 로 소비).
 		return { ...base, ...(opts.secret ? { apiKey: opts.secret } : {}), ...(opts.baseUrl ? { labGatewayUrl: opts.baseUrl } : {}) };
+	}
+	if (route === "claude-code") {
+		// claude-code-cli — Claude Agent SDK(로컬 구독 인증). 키·baseUrl 불요(SDK 가 CLI 프로세스로 인증/전송).
+		// ⚠️ secret/baseUrl 을 실으면 안 됨 — apiKey 가 있으면 구독 아닌 직접 키 과금 패러다임으로 오해될 수 있음. {provider,model}만.
+		return { ...base };
 	}
 	// native 직결 — 키는 credentials 포트(키체인)가 공급. llm.json apiKeyRef 가 있으면 그 secret 도 채움.
 	// ⚠️ host override 보존: vllm=vllmHost, 그 외 native=labGatewayUrl(provider-resolver 가 nativeBaseUrl(provider,

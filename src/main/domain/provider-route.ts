@@ -3,20 +3,23 @@
 // 첫 흐름(provider 출처)은 lab-proxy / native / ollama 만. local-live(naia-omni)·claude-cli·nextain-error 는 후속.
 import type { ProviderConfig } from "./chat.js";
 
-export type ProviderRoute = "lab-proxy" | "ollama" | "anthropic" | "native";
+export type ProviderRoute = "lab-proxy" | "ollama" | "anthropic" | "claude-code" | "native";
 
 /**
  * **provider 타입**으로 라우팅(루크 정정 2026-06-12 — naiaKey 유무 아님):
  *  - `nextain`(naia 계정 타입, 우리 관할) → lab-proxy(any-llm 게이트웨이 api.nextain.io).
  *  - `ollama` → ollama(로컬).
- *  - `anthropic`·`claude-code-cli` → anthropic(Messages API /v1/messages, x-api-key). claude-code = SDK/API 패러다임(CLI 아님, 루크 2026-06-17).
+ *  - `anthropic` → anthropic(Messages API /v1/messages, x-api-key, ANTHROPIC_API_KEY — 직접 키·per-token 과금).
+ *  - `claude-code-cli` → claude-code(Claude Agent SDK query(), 로컬 Claude Code **구독 인증** 사용 — apiKey 없음, 과금 $0).
+ *    ⚠️ anthropic 과 분리(루크 2026-06-17): claude-code-cli 를 Messages API 로 alias 하면 키 없으면 401·per-token 과금.
  *  - 그 외(OpenAI-compat API-key: gemini/glm/zai/openai/xai/vllm) → native(외부 API 직결, 게이트웨이 안 탐).
  *    ⚠️ API-key 타입은 naiaKey 가 있어도 직결 — 키체인에 naiaKey 남아있다고 lab-proxy 로 보내면 안 됨(그게 500 원인이었음).
  */
 export function resolveProviderRoute(config: ProviderConfig): ProviderRoute {
 	if (config.provider === "nextain") return "lab-proxy";
 	if (config.provider === "ollama") return "ollama";
-	if (config.provider === "anthropic" || config.provider === "claude-code-cli") return "anthropic";
+	if (config.provider === "claude-code-cli") return "claude-code"; // Agent SDK(구독 인증) — anthropic 보다 먼저 peel
+	if (config.provider === "anthropic") return "anthropic"; // Messages API(직접 키)
 	return "native";
 }
 
@@ -57,7 +60,7 @@ export function nativeBaseUrl(provider: string, override?: string): string {
 			return `${trimmed || "http://localhost:8000"}/v1`;
 		default:
 			// ⚠️ 미등록 provider 를 조용히 openai 로 보내지 않음: override 있으면 커스텀 OpenAI-compat 허용, 없으면 정직 에러.
-			//    anthropic/claude-code-cli 는 별 라우트(anthropic-provider, Messages API)로 빠지므로 여기 안 온다 — 여긴 진짜 미등록만.
+			//    anthropic(Messages API)·claude-code-cli(Agent SDK)는 별 라우트로 빠지므로 여기 안 온다 — 여긴 진짜 미등록만.
 			if (trimmed) return trimmed;
 			throw new Error(`provider '${provider}' baseUrl 미정의 — OpenAI-compat 미지원(미등록 provider) 또는 host override 지정 필요`);
 	}

@@ -23,14 +23,15 @@ export function classifyProbe(r: { error?: unknown; status: number | null; stder
 /** provider → apiKey env_key (naia-os resolveAgentEnvKey 거울). 키 없는 provider=null. */
 export function apiKeyEnvFor(provider: string): string | null {
 	switch (provider) {
-		case "anthropic":
-		case "claude-code-cli": return "ANTHROPIC_API_KEY"; // claude-code = Anthropic API(SDK 패러다임), 직접 키. OAuth(구독)는 후속 auth 모드.
+		case "anthropic": return "ANTHROPIC_API_KEY"; // anthropic = Messages API 직접 키(per-token).
+		// ⚠️ claude-code-cli 는 키 불요 — Claude Agent SDK 가 로컬 Claude Code **구독 인증** 사용(apiKey 없음, 루크 2026-06-17).
+		//    여기 ANTHROPIC_API_KEY 로 매핑하면 안 됨(그게 401·per-token 과금 회귀였음). default(null) 로 떨어진다.
 		case "openai": return "OPENAI_API_KEY";
 		case "glm":
 		case "zai": return "GLM_API_KEY";
 		case "gemini": return "GEMINI_API_KEY";
 		case "xai": return "XAI_API_KEY";
-		default: return null; // ollama/vllm 등 = 키 불요 (anthropic/claude-code-cli 는 위에서 ANTHROPIC_API_KEY)
+		default: return null; // ollama/vllm/claude-code-cli 등 = 키 불요 (anthropic 만 위에서 ANTHROPIC_API_KEY)
 	}
 }
 

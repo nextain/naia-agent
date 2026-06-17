@@ -20,8 +20,8 @@
 
 **이슈**: provider-wiring
 **제목**: naia-os 전 프로바이더/모델 ↔ agent 연결 (정본 Option S: naia-settings 설정 기반 라이브 reload)
-**이슈 문서**: [.agents/progress/new-naia-provider-wiring-2026-06-17.md](../progress/new-naia-provider-wiring-2026-06-17.md) (alpha-adk 루트)
-**상태**: in_progress (2026-06-17)
+**이슈 문서**: [.agents/progress/new-naia-port-execution-2026-06-18.md](../../../../../.agents/progress/new-naia-port-execution-2026-06-18.md) (모델 최신화 + claude-code SDK 분리; 선행 provider-wiring-2026-06-17)
+**상태**: in_progress (2026-06-18) — 모델 카탈로그 최신화 + claude-code-cli SDK 분리
 **비고**: UC-memory(FR-MEM-1~10) 작업은 별도 — 미커밋 상태 유지(provider-provenance 동시작업 얽힘). 본 작업과 직교.
 
 ---
@@ -36,7 +36,7 @@
 | P04 통합테스트 | done | 48 contract green + 프로세스 e2e 2종(config.json 로딩 / gRPC SetWorkspace→ReloadSettings 라이브 swap). 적대적 리뷰 통과(MEDIUM naiaGatewayUrl hijack 수정·잠금). |
 | P05 완료 | in_progress | 코드+테스트 완료, 적대적 리뷰 통과. 커밋/푸시 후 사용자 실앱 테스트 대기(프론트엔드 rebuild 필요). |
 
-마지막 업데이트: 2026-06-17
+마지막 업데이트: 2026-06-18
 
 ---
 

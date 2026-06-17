@@ -1,5 +1,7 @@
 // adapters/anthropic-provider — 실 ProviderPort. Anthropic Messages API(/v1/messages) SSE 스트림.
-// `anthropic`(직접 키) + `claude-code-cli`(클로드 코드 = SDK/API 패러다임, CLI 바이너리 아님 — 루크 정정 2026-06-17) 공용.
+// `anthropic`(직접 키, per-token) **전용**. ⚠️ claude-code-cli 는 더 이상 이 어댑터를 쓰지 않는다 —
+//   claude-code 라우트(adapters/claude-code-provider, Claude Agent SDK 구독 인증)로 격리(2026-06-18, FR-PROV-5).
+//   여긴 ANTHROPIC_API_KEY 직접 호출만(구독 아님). 라우팅 격리는 domain/provider-route.ts 가 SoT.
 // ⚠️ 에이전트 컨벤션 충실: @anthropic-ai/sdk 대신 **raw fetch(주입형)** — deps 최소 + 헤드리스 계약테스트(URL/헤더/스트림 mock).
 //    raw fetch 가 곧 SDK 와이어(SDK 는 이 위의 얇은 래퍼)이고, 기존 openai-compat/ollama 어댑터가 동일 패턴이다.
 // Messages API ≠ OpenAI-compat: 별 엔드포인트(/v1/messages), x-api-key + anthropic-version 헤더, content block 구조,

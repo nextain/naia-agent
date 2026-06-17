@@ -11,10 +11,10 @@
   "current_work": {
     "issue": null,
     "title": "provider-wiring — naia-os 전 프로바이더/모델 ↔ agent 연결 (정본 Option S: naia-settings 설정 기반 라이브 reload)",
-    "issue_doc": "../../../.agents/progress/new-naia-provider-wiring-2026-06-17.md (alpha-adk 루트)",
+    "issue_doc": "../../../.agents/progress/new-naia-port-execution-2026-06-18.md (모델 최신화 + claude-code-cli SDK 분리; 선행 new-naia-provider-wiring-2026-06-17.md)",
     "github_issue": null,
     "started": "2026-06-17",
-    "last_updated": "2026-06-17",
+    "last_updated": "2026-06-18",
     "status": "in_progress",
     "prior_work_note": "UC-memory(FR-MEM-1~10) 작업은 별도 — 미커밋 상태 유지(provider-provenance 동시작업 얽힘). 본 작업과 직교."
   },
