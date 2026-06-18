@@ -18,6 +18,7 @@ import { makeMcpJsonRpcClient } from "../../dist/main/adapters/mcp-stdio-transpo
 import { makeCompositeToolExecutor } from "../../dist/main/adapters/composite-tool-executor.js";
 import { makeNotifyExecutor } from "../../dist/main/adapters/notify-skills.js";
 import { makeAgentBrowserExecutor } from "../../dist/main/adapters/agent-browser-skills.js";
+import { makeAdkSkillExecutor, parseSkillMd } from "../../dist/main/adapters/adk-skill-loader.js";
 import { makeOpenMeteoFetchWeather } from "../../dist/main/adapters/openmeteo-weather.js";
 import { makeFileMemoStore } from "../../dist/main/adapters/file-memo-store.js";
 // ⚠️ makeNaiaMemory(→@nextain/naia-memory)는 *동적* import — 정적이면 모듈 로딩 실패 시 NAIA_AGENT_MEMORY=off
@@ -138,6 +139,23 @@ if (process.env.NAIA_AGENT_SKILLS !== "off") {
     });
     executors.push(makeAgentBrowserExecutor({ runCli: runBrowserCli }));
     skillsLabel += " + agent-browser";
+  }
+  // naia-adk 동적 스킬(SKILL.md) — 성격 구분의 naia-adk 측: 스킬 정의=naia-adk 워크스페이스(코드 없이 추가) / 실행=agent.
+  //   adkPath/.agents/skills/{name}/SKILL.md 스캔 → parseSkillMd → executor. 본문(절차)을 도구 output 으로 제공(프롬프트 주입형).
+  const adkSkills = [];
+  try {
+    const skillsDir = join(adkPath, ".agents", "skills");
+    for (const ent of nodeFs.readdirSync(skillsDir, { withFileTypes: true })) {
+      if (!ent.isDirectory()) continue;
+      try {
+        const parsed = parseSkillMd(nodeFs.readFileSync(join(skillsDir, ent.name, "SKILL.md"), "utf8"));
+        if (parsed) adkSkills.push(parsed);
+      } catch { /* SKILL.md 없음/파싱실패 = 스킵 */ }
+    }
+  } catch { /* .agents/skills 없음 = adk 스킬 없음 */ }
+  if (adkSkills.length) {
+    executors.push(makeAdkSkillExecutor(adkSkills));
+    skillsLabel += ` + adk-skills(${adkSkills.length})`;
   }
   toolExecutor = executors.length > 1 ? makeCompositeToolExecutor(executors) : builtin;
 }
