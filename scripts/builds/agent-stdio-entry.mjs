@@ -154,8 +154,10 @@ if (process.env.NAIA_AGENT_SKILLS !== "off") {
     }
   } catch { /* .agents/skills 없음 = adk 스킬 없음 */ }
   if (adkSkills.length) {
-    executors.push(makeAdkSkillExecutor(adkSkills));
-    skillsLabel += ` + adk-skills(${adkSkills.length})`;
+    const adkExec = makeAdkSkillExecutor(adkSkills);
+    executors.push(adkExec);
+    // 노출 수(specs)/파싱 수 — disable-model-invocation 스킬은 파싱되나 모델 도구로 미노출(노출 < 파싱).
+    skillsLabel += ` + adk-skills(${adkExec.specs().length}/${adkSkills.length})`;
   }
   toolExecutor = executors.length > 1 ? makeCompositeToolExecutor(executors) : builtin;
 }
