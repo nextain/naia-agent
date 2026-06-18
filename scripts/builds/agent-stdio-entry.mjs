@@ -17,6 +17,7 @@ import { makeMcpSkillsExecutor } from "../../dist/main/adapters/mcp-skills.js";
 import { makeMcpJsonRpcClient } from "../../dist/main/adapters/mcp-stdio-transport.js";
 import { makeCompositeToolExecutor } from "../../dist/main/adapters/composite-tool-executor.js";
 import { makeNotifyExecutor } from "../../dist/main/adapters/notify-skills.js";
+import { makeAgentBrowserExecutor } from "../../dist/main/adapters/agent-browser-skills.js";
 import { makeOpenMeteoFetchWeather } from "../../dist/main/adapters/openmeteo-weather.js";
 import { makeFileMemoStore } from "../../dist/main/adapters/file-memo-store.js";
 // ⚠️ makeNaiaMemory(→@nextain/naia-memory)는 *동적* import — 정적이면 모듈 로딩 실패 시 NAIA_AGENT_MEMORY=off
@@ -118,6 +119,25 @@ if (process.env.NAIA_AGENT_SKILLS !== "off") {
     };
     executors.push(makeNotifyExecutor({ post: notifyPost, webhookUrl: notifyWebhookUrl }));
     skillsLabel += " + notify";
+  }
+  // agent-browser(브라우저 조작) — CLI 경로 = naia-adk skills.json.agent_browser.cli_path > env NAIA_BROWSER_CLI_PATH.
+  //   스킬 코드=agent / CLI 경로(설정)=naia-adk. runCli=agent-browser CLI subprocess(cmd+args, timeout/abort bound). 미설정=미배선.
+  const browserCliPath = (skillsCfg && skillsCfg.agent_browser && typeof skillsCfg.agent_browser === "object" ? skillsCfg.agent_browser.cli_path : undefined) ?? process.env.NAIA_BROWSER_CLI_PATH;
+  if (browserCliPath) {
+    const runBrowserCli = (cmd, args, opts) => new Promise((resolve) => {
+      let done = false;
+      const child = spawn(browserCliPath, [cmd, ...args], { stdio: ["ignore", "pipe", "pipe"] });
+      let stdout = "", stderr = "";
+      child.stdout.on("data", (d) => { stdout += d; });
+      child.stderr.on("data", (d) => { stderr += d; });
+      const finish = (r) => { if (!done) { done = true; clearTimeout(timer); resolve(r); } };
+      const timer = setTimeout(() => { try { child.kill(); } catch { /* noop */ } finish({ ok: false, stdout, stderr: stderr + "\n[timeout]" }); }, opts.timeoutMs);
+      if (opts.signal) opts.signal.addEventListener("abort", () => { try { child.kill(); } catch { /* noop */ } finish({ ok: false, stdout, stderr: stderr + "\n[aborted]" }); }, { once: true });
+      child.on("close", (code) => finish({ ok: code === 0, stdout, stderr }));
+      child.on("error", (e) => finish({ ok: false, stdout, stderr: String(e) }));
+    });
+    executors.push(makeAgentBrowserExecutor({ runCli: runBrowserCli }));
+    skillsLabel += " + agent-browser";
   }
   toolExecutor = executors.length > 1 ? makeCompositeToolExecutor(executors) : builtin;
 }
