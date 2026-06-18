@@ -16,6 +16,7 @@ import { makeObsidianSkillsExecutor } from "../../dist/main/adapters/obsidian-sk
 import { makeMcpSkillsExecutor } from "../../dist/main/adapters/mcp-skills.js";
 import { makeMcpJsonRpcClient } from "../../dist/main/adapters/mcp-stdio-transport.js";
 import { makeCompositeToolExecutor } from "../../dist/main/adapters/composite-tool-executor.js";
+import { makeNotifyExecutor } from "../../dist/main/adapters/notify-skills.js";
 import { makeOpenMeteoFetchWeather } from "../../dist/main/adapters/openmeteo-weather.js";
 import { makeFileMemoStore } from "../../dist/main/adapters/file-memo-store.js";
 // ⚠️ makeNaiaMemory(→@nextain/naia-memory)는 *동적* import — 정적이면 모듈 로딩 실패 시 NAIA_AGENT_MEMORY=off
@@ -64,6 +65,13 @@ let provider, resolver, label;
 if (ap === "fake") { provider = makeFakeProvider(); label = "fake(headless)"; }
 else if (ap === "echo-system") { provider = makeSystemEchoProvider(); label = "echo-system(e2e: systemPrompt 반향)"; } // recall→inject 관통 검증용
 else { resolver = makeProviderResolver(); label = "config-driven resolver(lab-proxy/native/ollama)"; }
+// ADK 워크스페이스 경로(naia-adk) — config 정본 + 스킬 설정 위치(naia-os 가 기동 시 주입).
+const adkPath = process.env.NAIA_ADK_PATH || join(homedir(), "naia-adk");
+// 스킬 설정(성격 구분: 스킬 코드=agent 런타임 / 스킬 설정·시크릿=naia-adk 워크스페이스).
+//   adkPath/naia-settings/skills.json 예: { "notify": { "slack": "https://...", "discord": "..." } }. env 폴백.
+let skillsCfg = {};
+try { skillsCfg = JSON.parse(nodeFs.readFileSync(join(adkPath, "naia-settings", "skills.json"), "utf8")); } catch { /* 없음 = env 폴백 */ }
+
 // UC5 실 스킬(time/weather/memo) — 기본 활성(NAIA_AGENT_SKILLS=off 로 비활성). 실 deps 주입:
 // clock=현재시각, fetchWeather=open-meteo(키 불요), memo=in-memory(기본). memo_save 는 승인 게이트(tier ask).
 let toolExecutor, skillsLabel = "off";
@@ -98,6 +106,19 @@ if (process.env.NAIA_AGENT_SKILLS !== "off") {
       process.stderr.write(`[new-naia-agent] MCP init 실패(격리, MCP 없이 진행): ${e instanceof Error ? e.message : String(e)}\n`);
     }
   }
+  // notify(slack/discord/google_chat) — webhook URL = naia-adk skills.json.notify.{target} > env NAIA_NOTIFY_{TARGET}_WEBHOOK.
+  //   스킬 코드=agent / 설정(URL)=naia-adk. URL 있는 target 만 활성(github/obsidian 패턴). post=fetch.
+  const notifyUrls = (skillsCfg && typeof skillsCfg === "object" && skillsCfg.notify && typeof skillsCfg.notify === "object") ? skillsCfg.notify : {};
+  const notifyWebhookUrl = async (target) => notifyUrls[target] ?? process.env[`NAIA_NOTIFY_${target.toUpperCase()}_WEBHOOK`] ?? null;
+  const anyNotify = ["slack", "discord", "google_chat"].some((t) => notifyUrls[t] || process.env[`NAIA_NOTIFY_${t.toUpperCase()}_WEBHOOK`]);
+  if (anyNotify) {
+    const notifyPost = async (url, body, signal) => {
+      const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), ...(signal ? { signal } : {}) });
+      return { ok: r.ok, status: r.status };
+    };
+    executors.push(makeNotifyExecutor({ post: notifyPost, webhookUrl: notifyWebhookUrl }));
+    skillsLabel += " + notify";
+  }
   toolExecutor = executors.length > 1 ? makeCompositeToolExecutor(executors) : builtin;
 }
 
@@ -115,7 +136,6 @@ const credentials = makeKeychainCredentials({ read: process.platform === "linux"
 // ★ config 정본 = <NAIA_ADK_PATH>/naia-settings/llm.json (정본: naia-os 가 기동 시 워크스페이스 경로 주입 → agent 가
 //   naia-settings 로 provider/모델 로딩 완료 → 대화는 메시지만). apiKeyRef → process.env ?? 키체인(secret-tool).
 //   파일 없음/미설정 = defaultConfig 없음 → wire chat_request.provider 가 실리면 그걸로(하위호환), 둘 다 없으면 honest error.
-const adkPath = process.env.NAIA_ADK_PATH || join(homedir(), "naia-adk");
 const settingsResolveSecret = (ref) => process.env[ref] ?? (process.platform === "linux" ? secretToolRead(ref) : undefined);
 const settingsStore = makeNaiaSettingsStore({ fs: nodeFs, resolveSecret: settingsResolveSecret, log: (m, c) => process.stderr.write(`[new-naia-agent] ${m} ${c ? JSON.stringify(c) : ""}\n`) });
 const defaultConfig = settingsStore.loadMain(adkPath) ?? undefined;
