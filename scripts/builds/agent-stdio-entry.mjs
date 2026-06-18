@@ -17,7 +17,6 @@ import { makeMcpSkillsExecutor } from "../../dist/main/adapters/mcp-skills.js";
 import { makeMcpJsonRpcClient } from "../../dist/main/adapters/mcp-stdio-transport.js";
 import { makeCompositeToolExecutor } from "../../dist/main/adapters/composite-tool-executor.js";
 import { makeNotifyExecutor } from "../../dist/main/adapters/notify-skills.js";
-import { makeAgentBrowserExecutor } from "../../dist/main/adapters/agent-browser-skills.js";
 import { makeAdkSkillExecutor, parseSkillMd } from "../../dist/main/adapters/adk-skill-loader.js";
 import { makeOpenMeteoFetchWeather } from "../../dist/main/adapters/openmeteo-weather.js";
 import { makeFileMemoStore } from "../../dist/main/adapters/file-memo-store.js";
@@ -121,25 +120,10 @@ if (process.env.NAIA_AGENT_SKILLS !== "off") {
     executors.push(makeNotifyExecutor({ post: notifyPost, webhookUrl: notifyWebhookUrl }));
     skillsLabel += " + notify";
   }
-  // agent-browser(브라우저 조작) — CLI 경로 = naia-adk skills.json.agent_browser.cli_path > env NAIA_BROWSER_CLI_PATH.
-  //   스킬 코드=agent / CLI 경로(설정)=naia-adk. runCli=agent-browser CLI subprocess(cmd+args, timeout/abort bound). 미설정=미배선.
-  const browserCliPath = (skillsCfg && skillsCfg.agent_browser && typeof skillsCfg.agent_browser === "object" ? skillsCfg.agent_browser.cli_path : undefined) ?? process.env.NAIA_BROWSER_CLI_PATH;
-  if (browserCliPath) {
-    const runBrowserCli = (cmd, args, opts) => new Promise((resolve) => {
-      let done = false;
-      const child = spawn(browserCliPath, [cmd, ...args], { stdio: ["ignore", "pipe", "pipe"] });
-      let stdout = "", stderr = "";
-      child.stdout.on("data", (d) => { stdout += d; });
-      child.stderr.on("data", (d) => { stderr += d; });
-      const finish = (r) => { if (!done) { done = true; clearTimeout(timer); resolve(r); } };
-      const timer = setTimeout(() => { try { child.kill(); } catch { /* noop */ } finish({ ok: false, stdout, stderr: stderr + "\n[timeout]" }); }, opts.timeoutMs);
-      if (opts.signal) opts.signal.addEventListener("abort", () => { try { child.kill(); } catch { /* noop */ } finish({ ok: false, stdout, stderr: stderr + "\n[aborted]" }); }, { once: true });
-      child.on("close", (code) => finish({ ok: code === 0, stdout, stderr }));
-      child.on("error", (e) => finish({ ok: false, stdout, stderr: String(e) }));
-    });
-    executors.push(makeAgentBrowserExecutor({ runCli: runBrowserCli }));
-    skillsLabel += " + agent-browser";
-  }
+  // ⚠️ 브라우저/터미널/workspace/BGM/탭앱 = 환경(brain-body-environment §3·§4). agent 는 환경을 *실행하지 않는다*
+  //   (E1 뇌 독립: agent 가 죽거나 부재해도 환경은 독자 동작). agent 가 CLI/프로세스를 직접 spawn 하는 배선은 레이어 위반.
+  //   환경 = 셸 소유 사이드카 + agent 는 intent(navigate/play/run)만 emit — 실행은 new-naia-os(셸) 측. agent-browser-skills.ts·
+  //   youtube-bgm-skills.ts 어댑터는 dormant(추후 'intent→셸 사이드카' 경로 신설 시 재사용 또는 정리).
   // naia-adk 동적 스킬(SKILL.md) — 성격 구분의 naia-adk 측: 스킬 정의=naia-adk 워크스페이스(코드 없이 추가) / 실행=agent.
   //   adkPath/.agents/skills/{name}/SKILL.md 스캔 → parseSkillMd → executor. 본문(절차)을 도구 output 으로 제공(프롬프트 주입형).
   const adkSkills = [];
