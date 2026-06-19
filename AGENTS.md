@@ -94,7 +94,6 @@ pnpm test                                              # 깨어짐(tsc+vitest)
 | `docs/project-structure.md` | 구조 명세 + 리소스 레지스트리 (헌장①) |
 | `docs/requirements.md` | 기능/비기능 요구사항 |
 | `docs/user-scenarios.md` | 사용자 시나리오 + 테스트 커버리지 맵 |
-| `docs/glossary.md` | 도메인 용어사전 |
 | `docs/ARCHITECTURE.md` | 시스템 아키텍처 |
 
 > 추가 시: 위 표에 먼저 등록 → `docs/project-structure.md` Doc Registry 업데이트.
