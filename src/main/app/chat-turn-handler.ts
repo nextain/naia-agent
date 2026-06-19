@@ -9,6 +9,7 @@ import type {
   ProviderPort, ProviderResolverPort, ConversationPort, CredentialPort, ApprovalPort, AgentEgressPort, DiagnosticLog, ToolExecutorPort, ProviderChatOpts,
 } from "../ports/uc1.js";
 import type { MemoryPort } from "../ports/memory.js";
+import type { ConversationLogPort } from "../ports/conversation-log.js";
 import { formatRecalledMemory } from "../domain/memory.js";
 
 interface Turn { abort: AbortController; state: ChatTurnState; }
@@ -45,6 +46,7 @@ export interface HandlerDeps {
   readonly memory?: MemoryPort;                                   // UC-memory — 미주입 = 기존 동작(무회귀). 턴 전 recall 주입 / 턴 후 save.
   readonly memoryTimeoutMs?: number;                              // recall/save deadline override(테스트용; 미주입=기본 5000ms).
   readonly toolTimeoutMs?: number;                                // per-tool 실행 deadline override(테스트용; 미주입=60000ms).
+  readonly conversationLog?: ConversationLogPort;                 // FR-CONV.1 — turn 후 verbatim transcript append(전두엽 기록). 미주입=미기록(무회귀).
 }
 
 export class ChatTurnHandler {
@@ -154,6 +156,13 @@ export class ChatTurnHandler {
               const ok = await raceTimeout(this.d.memory.save(lastUserText, assistantTurnParts.join("\n")), saveTimeoutMs);
               if (!ok) this.safeDiag("memory save 시간초과(턴 유지)", new Error(`>${saveTimeoutMs}ms`));
             } catch (e) { this.safeDiag("memory save 실패(턴 유지)", e); }
+          }
+          // FR-CONV.1: verbatim transcript append(전두엽이 자기 turn 기록 — naia-memory.save 형제). append=no-throw 격리라
+          // turn/finish/usage 불변식 무영향(save 와 동일 무방출). sessionId 누락="default"(단일 fallback, FR-CONV.2).
+          if (this.d.conversationLog && currentUserMsg) {
+            try {
+              await this.d.conversationLog.append({ sessionId: req.sessionId ?? "default", userText: lastUserText, assistantText: assistantTurnParts.join("\n") });
+            } catch (e) { this.safeDiag("transcript append 실패(턴 유지)", e); }
           }
           terminalFinish();
           break;

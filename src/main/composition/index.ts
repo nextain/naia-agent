@@ -7,6 +7,7 @@ import type {
   ProviderPort, ProviderResolverPort, ConversationPort, CredentialPort, ApprovalPort, AgentIngressPort, AgentEgressPort, DiagnosticLog, ToolExecutorPort,
 } from "../ports/uc1.js";
 import type { MemoryPort } from "../ports/memory.js";
+import type { ConversationLogPort } from "../ports/conversation-log.js";
 import type { AgentRequest, ProviderConfig } from "../domain/chat.js";
 
 /** passthrough conversation(이식 시 token-budget+system-prompt 로 교체). */
@@ -32,6 +33,7 @@ export function wireAgentUC1(opts?: {
   approval?: ApprovalPort;
   toolExecutor?: ToolExecutorPort; // UC5 — 미주입 = 도구 없음(UC1 순수 채팅)
   memory?: MemoryPort;             // UC-memory — 미주입 = 기존 동작(무회귀)
+  conversationLog?: ConversationLogPort; // FR-CONV.1 — 미주입 = transcript 미기록(무회귀)
   memoryTimeoutMs?: number;        // recall/save deadline override(테스트용)
   defaultConfig?: ProviderConfig;  // 기동 시 naia-settings(llm.json main) 로딩한 활성 provider(wire provider 미실 시 사용)
   ingress?: AgentIngressPort;      // 비-stdio transport(gRPC) 가 직접 주입 — transport 무지(직교). 미주입+io 시 stdio.
@@ -49,6 +51,7 @@ export function wireAgentUC1(opts?: {
     approval,
     ...(opts?.toolExecutor ? { toolExecutor: opts.toolExecutor } : {}),
     ...(opts?.memory ? { memory: opts.memory } : {}),
+    ...(opts?.conversationLog ? { conversationLog: opts.conversationLog } : {}),
     ...(opts?.memoryTimeoutMs !== undefined ? { memoryTimeoutMs: opts.memoryTimeoutMs } : {}),
     ...(opts?.defaultConfig ? { defaultConfig: opts.defaultConfig } : {}),
     egress: opts?.egress ?? { emit: () => {} }, // transport=gRPC: egress 는 grpc adapter 주입(stdio 제거). 미주입=no-op(헤드리스).

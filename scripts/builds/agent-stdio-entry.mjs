@@ -20,6 +20,7 @@ import { makeNotifyExecutor } from "../../dist/main/adapters/notify-skills.js";
 import { makeAdkSkillExecutor, parseSkillMd } from "../../dist/main/adapters/adk-skill-loader.js";
 import { makeOpenMeteoFetchWeather } from "../../dist/main/adapters/openmeteo-weather.js";
 import { makeFileMemoStore } from "../../dist/main/adapters/file-memo-store.js";
+import { makeFileConversationLog } from "../../dist/main/adapters/conversation-log-store.js";
 // ⚠️ makeNaiaMemory(→@nextain/naia-memory)는 *동적* import — 정적이면 모듈 로딩 실패 시 NAIA_AGENT_MEMORY=off
 // 나 try/catch 에 도달 못 하고 프로세스가 죽어 메모리 비활성 채팅(FR-MEM-3)·초기화 격리 계약이 깨진다.
 import * as nodeFs from "node:fs";
@@ -219,6 +220,16 @@ if (process.env.NAIA_AGENT_MEMORY !== "off") {
   }
 }
 
+// 대화 transcript 영속(FR-CONV.1) — 전두엽(agent)이 turn 종료 시 verbatim 대화록을 {adkPath}/conversations/{sessionId}.jsonl append.
+//   기본 활성(NAIA_AGENT_TRANSCRIPT=off 로 비활성). 읽기는 shell(Rust IPC)·naia-memory 가 파일 직접(E1, agent 독립). no-throw 격리.
+//   store=naia-memory(시맨틱)와 별개 = verbatim 아카이브(memory recall 원재료 + 멀티모달 잠재기억 substrate).
+let conversationLog, transcriptLabel = "off";
+if (process.env.NAIA_AGENT_TRANSCRIPT !== "off") {
+  const conversationsDir = process.env.NAIA_CONVERSATIONS_DIR || join(adkPath, "conversations");
+  conversationLog = makeFileConversationLog({ conversationsDir, fs: nodeFs, join });
+  transcriptLabel = `conversations(${conversationsDir})`;
+}
+
 // 표준 로깅 sink 주입(docs/logging.md): stderr(stdout 은 wire 전용) + debug 게이트(NAIA_AGENT_DEBUG=1 시 진입·분기 로그).
 const diag = makeStderrDiagnostic({ write: (l) => process.stderr.write(l + "\n"), debug: process.env.NAIA_AGENT_DEBUG === "1" });
 // 정본 transport = gRPC (naia-os --gRPC--> naia-agent). os(Rust)가 이 서버에 connect. data 채널은 gRPC 단일.
@@ -232,14 +243,14 @@ const grpcServer = makeGrpcServer({
   onReloadSettings: () => reloadConfigFrom(currentAdkPath),
   diag,
 });
-const wired = wireAgentUC1({ ingress: grpcServer.ingress, egress: grpcServer.egress, credentials, diag, ...(provider ? { provider } : {}), ...(resolver ? { resolver } : {}), ...(toolExecutor ? { toolExecutor } : {}), ...(memory ? { memory } : {}), ...(defaultConfig ? { defaultConfig } : {}) });
+const wired = wireAgentUC1({ ingress: grpcServer.ingress, egress: grpcServer.egress, credentials, diag, ...(provider ? { provider } : {}), ...(resolver ? { resolver } : {}), ...(toolExecutor ? { toolExecutor } : {}), ...(memory ? { memory } : {}), ...(conversationLog ? { conversationLog } : {}), ...(defaultConfig ? { defaultConfig } : {}) });
 applyDefaultConfig = wired.setDefaultConfig; // 라이브 reload 결선 — 이후 SetWorkspace/ReloadSettings 가 활성 config swap
 const { start, drain } = wired;
 start?.(); // ingress.onRequest(route) 등록 — gRPC 핸들러가 도메인 req 를 흘린다
 const grpcAddr = await grpcServer.start();
 // ⚠️ stdout 한 줄 핸드셰이크(데이터 transport 아님) — Rust 가 이 addr 를 읽어 gRPC connect.
 process.stdout.write(`GRPC_LISTENING ${grpcAddr}\n`);
-process.stderr.write(`[new-naia-agent] grpc ready @${grpcAddr} (${label} provider, config: ${configLabel}, skills: ${skillsLabel}, memory: ${memoryLabel})\n`);
+process.stderr.write(`[new-naia-agent] grpc ready @${grpcAddr} (${label} provider, config: ${configLabel}, skills: ${skillsLabel}, memory: ${memoryLabel}, transcript: ${transcriptLabel})\n`);
 
 // stdin 닫히면 종료 — ⚠️ 순서: (1) drain(in-flight 턴 save 완료 대기) → (2) memory.close()(store flush)
 //   → (3) exit. naia-memory LocalAdapter 는 encode 를 in-memory 버퍼링하고 close() 에서 flush 하므로,

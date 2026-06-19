@@ -6,6 +6,7 @@ import type { AgentRequest, AgentEmit, ChatMessage } from "../../domain/chat.js"
 // proto-shaped 입력(proto-loader plain object; 필드명 = proto snake_case 또는 camelCase — loader keepCase=false 가정 camelCase).
 export interface PbChatRequest {
   requestId: string;
+  sessionId?: string;
   messages: { role: string; content: string; toolCallId?: string }[];
   systemPrompt?: string;
   enableTools?: boolean;
@@ -31,6 +32,7 @@ export function chatRequestToDomain(p: PbChatRequest): Extract<AgentRequest, { k
     kind: "chat",
     requestId: String(p.requestId ?? ""),
     messages,
+    ...(p.sessionId !== undefined ? { sessionId: String(p.sessionId) } : {}),
     ...(p.systemPrompt !== undefined ? { systemPrompt: p.systemPrompt } : {}),
     ...(p.enableTools !== undefined ? { enableTools: p.enableTools } : {}),
     ...(p.enableThinking !== undefined ? { enableThinking: p.enableThinking } : {}),

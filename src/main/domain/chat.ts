@@ -28,6 +28,8 @@ export interface ChatMessage {
 export interface ChatRequest {
   readonly kind: "chat";
   readonly requestId: string;
+  /** 대화별 세션 id(shell localSessionId) — agent 가 transcript 를 세션 파일로 분리하는 키(FR-CONV.2). 누락 시 단일 fallback. */
+  readonly sessionId?: string;
   /** wire 가 실은 provider override(옵셔널). 없으면 agent 가 기동 시 naia-settings 로딩한 defaultConfig 사용 —
    *  정본(루크): "대화는 메시지만 던지면 agent 가 미리(기동 시) 설정된 provider 로 처리". 있으면 그 요청만 오버라이드(하위호환). */
   readonly provider?: ProviderConfig;

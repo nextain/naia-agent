@@ -50,6 +50,7 @@ message ChatRequest {
   optional bool enable_thinking = 5;      // handler 가 소비 — 누락 시 회귀
   optional string gateway_url = 6;
   repeated string disabled_skills = 7;
+  optional string session_id = 8;         // 대화별 세션 id(shell localSessionId) — agent transcript 세션 파일 분리 키(FR-CONV.2). 누락=단일 fallback.
 }
 
 message CancelRequest { string request_id = 1; }
