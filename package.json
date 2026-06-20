@@ -6,9 +6,9 @@
   "description": "naia-agent(brain) 헥사고날 이식 — UC1 brain 파이프라인",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "vitest run src/test/*.test.ts",
-    "test:watch": "vitest src/test/*.test.ts",
-    "test:report": "vitest run src/test/*.test.ts --reporter=verbose"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:report": "vitest run --reporter=verbose"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.179",
