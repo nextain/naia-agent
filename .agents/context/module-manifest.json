@@ -1,6 +1,14 @@
 {
   "_doc": "파일단위 계약 앵커 (드리프트 자동차단). src/main 의 모든 .ts 는 여기 {layer, uc, contract} 와 함께 등록돼야 한다. 미등록 파일 = 미계약 코드 = RED (scripts/check-file-anchors.mjs). 계약 먼저, 코드 나중 — 새 파일 추가 전 이 manifest 에 앵커 선언. layer ∈ {domain,ports,app,adapters,composition}. contract = docs/progress 의 계약 문서.",
   "files": {
+    "src/main/adapters/budgeted-conversation.ts": {
+      "layer": "adapters",
+      "uc": [
+        "UC-012"
+      ],
+      "contract": "docs/progress/04.features/INDEX.md",
+      "note": "ConversationPort 실구현 — 토큰예산 대화 조립(systemPrompt 보존·오래된 메시지 절단·선두 고아 tool 가드·최신 보존). passthrough 스텁 교체. SPEC-007."
+    },
     "src/main/adapters/grpc/grpc-codec.ts": {
       "layer": "adapters",
       "uc": [

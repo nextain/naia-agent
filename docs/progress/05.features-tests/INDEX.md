@@ -18,6 +18,7 @@
 | TEST-F-004 | SPEC-004 | Diagnostics RPC provider(rich health) 계약 | `src/test/diagnostics-provider.contract.test.ts` | Pass |
 | TEST-F-005 | SPEC-005 | browser skill(cmd 화이트리스트·injected CLI) 계약 | `src/test/uc6-browser-skill.contract.test.ts` | Pass |
 | TEST-F-006 | SPEC-006 | bgm skill(search/play/volume) 계약 | `src/test/uc8-bgm-skill.contract.test.ts` | Pass |
+| TEST-F-007 | SPEC-007 | budgeted conversation(예산내 유지/초과 절단/최신·systemPrompt 보존/선두 고아 tool 가드) 계약 5케이스 | `src/test/budgeted-conversation.contract.test.ts` | Pass |
 
 ## 비고
 - off-scope UC-memory 테스트(`uc1-memory-stdio.integration.test.ts`, `uc1-memory-process.integration.test.ts`)는 본 추적 제외(01 노트). agent 전체 vitest 에는 포함(269 cases).

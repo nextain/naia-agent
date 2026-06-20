@@ -3,17 +3,13 @@ import { ChatTurnHandler, type HandlerDeps } from "../app/chat-turn-handler.js";
 import { makeFakeProvider } from "../adapters/fake-provider.js";
 import { makeInMemoryApproval } from "../adapters/approval.js";
 import { makeStderrDiagnostic } from "../adapters/diagnostic.js";
+import { makeBudgetedConversation } from "../adapters/budgeted-conversation.js";
 import type {
   ProviderPort, ProviderResolverPort, ConversationPort, CredentialPort, ApprovalPort, AgentIngressPort, AgentEgressPort, DiagnosticLog, ToolExecutorPort,
 } from "../ports/uc1.js";
 import type { MemoryPort } from "../ports/memory.js";
 import type { ConversationLogPort } from "../ports/conversation-log.js";
 import type { AgentRequest, ProviderConfig } from "../domain/chat.js";
-
-/** passthrough conversation(이식 시 token-budget+system-prompt 로 교체). */
-const passthroughConversation: ConversationPort = {
-  assemble: (req) => ({ messages: req.messages, ...(req.systemPrompt !== undefined ? { systemPrompt: req.systemPrompt } : {}) }),
-};
 
 /** in-memory credential store. */
 export function makeInMemoryCredentials(): CredentialPort {
@@ -46,7 +42,7 @@ export function wireAgentUC1(opts?: {
   const deps: HandlerDeps = {
     provider: opts?.provider ?? makeFakeProvider(),
     ...(opts?.resolver ? { resolver: opts.resolver } : {}),
-    conversation: opts?.conversation ?? passthroughConversation,
+    conversation: opts?.conversation ?? makeBudgetedConversation(),
     credentials: opts?.credentials ?? makeInMemoryCredentials(),
     approval,
     ...(opts?.toolExecutor ? { toolExecutor: opts.toolExecutor } : {}),

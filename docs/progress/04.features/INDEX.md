@@ -18,6 +18,7 @@
 | SPEC-004 | UC-011 | **Diagnostics RPC provider** — rich health(provider/연결/상태) gRPC | agent | Done | TEST-F-004 |
 | SPEC-005 | UC-006 | **browser agent-local skill** — cmd 화이트리스트 + injected CLI(external CDP defer) | agent | Done | TEST-F-005 |
 | SPEC-006 | UC-008 | **bgm agent-local skill** — youtube search/play/volume(external player defer) | agent | Done | TEST-F-006 |
+| SPEC-007 | UC-012 | **budgeted conversation assembly** — ConversationPort 실구현(char≈token 휴리스틱 예산, systemPrompt 보존, 오래된 메시지 절단, 선두 고아 tool 결과 가드, 최신 1건 보존). `adapters/budgeted-conversation.ts` — passthrough 스텁 교체 | agent | Done | TEST-F-007 |
 
 ## 비고
 - SPEC-002 = 도구루프 + 9개 agent-local skill 묶음(개별 skill = TEST-F-002 의 test_ref 군). external(브라우저 CDP·youtube)만 루크머신 runtime.
