@@ -7,8 +7,11 @@ import type { ConversationPort } from "../ports/uc1.js";
  *
  * Keeps the system prompt and the most-recent messages within a token budget and
  * drops the oldest, so long conversations don't overflow the provider's context
- * window (this is the agent's turn-level compaction). Token count is estimated by
- * character length (≈4 chars/token) to avoid a tokenizer dependency.
+ * window. This is a DROP-ONLY token-budget guard, NOT information-preserving
+ * compaction — the real summarizing compaction (rolling summary + light-model
+ * recap + attachHandoff) lives in naia-memory's `compact()`; delegating to it is
+ * tracked as a separate host-loop wiring task (agent#3). Token count is estimated
+ * by character length (≈4 chars/token) to avoid a tokenizer dependency.
  *
  * Correctness guards:
  * - **Tool rounds are atomic.** An `assistant` message carrying `toolCalls` plus

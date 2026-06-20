@@ -22,7 +22,7 @@ scripts/check-traceability.mjs 가 파싱. 상세 = docs/requirements.md, 99.dev
 | REQ-006 | 스킬-브라우저 | **browser 조작 skill**(cmd 화이트리스트 + injected CLI) — external runtime defer | Done | UC-006 | SPEC-005 | TEST-S-006 |
 | REQ-007 | 스킬-BGM | **youtube BGM skill**(search/play/volume) — external runtime defer | Done | UC-008 | SPEC-006 | TEST-S-008 |
 | REQ-008 | 스킬-cron/notify | **예약작업/알림 skill**(schedule·list·cancel / slack·discord·google_chat) — external defer | Done | UC-005 | SPEC-002 | TEST-S-007 |
-| REQ-009 | 대화 압축 | **턴 조립 토큰예산 압축** — ConversationPort 가 systemPrompt 보존 + 최근 메시지 우선으로 토큰예산 내 조립, 오래된 메시지 절단(고아 tool 결과 가드, 최신 1건 보존) | Done | UC-012 | SPEC-007 | TEST-S-012 |
+| REQ-009 | 대화 토큰예산 가드 | **턴 조립 토큰예산 가드(드롭형)** — ConversationPort 가 systemPrompt 보존 + 최근 메시지 우선으로 토큰예산 내 조립, 오래된 메시지 **드롭**(요약 아님; 고아 tool 가드·tool 라운드 원자·최신 보존). ⚠️정보보존형 compaction(요약)=naia-memory.compact(), agent 위임 미배선(→ agent#3) | Done | UC-012 | SPEC-007 | TEST-S-012 |
 
 ## 비기능 요구사항 (NFR → REQ)
 
