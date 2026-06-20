@@ -225,6 +225,17 @@
     "description": "self-trust 게이트(M2 SDLC / M4 완료증거 / M3 구조) 공통 설정. hook과 CI 스크립트가 하드코딩 대신 여기서 읽는다. 언어·경로·파일명 비종속을 위해 외부화. 프로젝트는 이 값을 자기 스택에 맞게 오버라이드한다.",
     "enforcement_level": "enforced",
     "_enforcement_levels": "off=검사안함 | advisory=경고만(차단 안함) | enforced=차단",
+    "definition_of_done": {
+      "_comment": "★ '끝났다(Done)'의 기준 — 적대검증 2026-06-21 교훈(stale Done·재현불가 숫자가 자꾸 게이트를 통과). ci-verify-completion·file-anchor 등은 *구문 백스톱*일 뿐 주장의 진위를 판단 못 한다. Done 선언(V모델 status·README ✅·이슈 close·커밋 '완료')은 아래 4기준을 모두 충족해야 한다. 미충족이면 'Done'이 아니라 'WIP/검증중'으로 표기.",
+      "criteria": [
+        "tests_rerun_green: 관련 테스트를 *이번에 직접 재실행*해 green(또는 RED면 그 원인을 플랫폼/WIP로 명시·문서화). '예전에 통과'·'CI에서 green일 것' 추정 금지.",
+        "adversarial_cross_review: 테스트가 vacuous 아님 + 구현이 stub 아님 + 엣지/실패모드를 *독립 적대 리뷰*(다른 AI/에이전트가 반증 시도)로 확인하고 기록을 남긴다(.agents/reviews/ 또는 이슈 코멘트).",
+        "contract_checked: 해당 포트/계약 문서(docs/progress, 99.dev-comm 등)와 구현 일치를 대조 확인.",
+        "measured_claims_reproducible: 측정 숫자(%, ms, recall@k 등)를 Done 근거로 쓰면 그 *재현 산출물*(원본 데이터+재현 스크립트 출력)이 gitignore 아닌 채로 커밋돼 있어야 한다. 재현 불가 숫자는 'unverified/design-target'으로만 표기."
+      ],
+      "automation_is_backstop": "ci-verify-completion·file-anchor·traceability는 구조·증거파일존재만 본다(주장 진위·재현·교차리뷰 판단 불가). 따라서 criteria 2·4는 사람/적대AI 단계가 강제한다 — 자동게이트 green ≠ Done.",
+      "self_declaration_forbidden": "AI 단독 'Done' 자가선언 금지(루트 workfile_lifecycle 동일). Done = 위 4기준 객관 충족."
+    },
     "completion": {
       "_comment": "완료선언 탐지. 다국어. ASCII는 단어경계, CJK/한글은 부분일치. negations에 걸리면 완료선언 아님으로 간주.",
       "keywords": [

@@ -22,7 +22,8 @@ function run(root, msg, ...changed) {
 	return spawnSync("node", [SCRIPT, ...changed], { input: msg, encoding: "utf8", env: { ...process.env, CI_PROJECT_ROOT: root } }).status;
 }
 
-const reg = setupRoot({ "README.md": "기존" });
+// 증거 파일은 *실재+비어있지않음* 이어야 인정(하드닝 2026-06-21) → pass 케이스의 파일을 실제 생성.
+const reg = setupRoot({ "README.md": "기존", "test-results/login.json": "{\"ok\":true}", "test results/out.json": "out" });
 let pass = 0, fail = 0;
 const check = (n, c) => { console.log(`${c ? "✅ PASS" : "❌ FAIL"} — ${n}`); c ? pass++ : fail++; };
 
@@ -33,6 +34,9 @@ check("완료+가짜 파일증거(diff에 없음) → exit 1", run(reg, "완료\
 check("[핵심] 완료+기존파일 재활용(README.md) → exit 1", run(reg, "완료\nVerified: README.md") === 1);
 check("완료+파일증거 diff 포함 → exit 0", run(reg, "완료\nVerified: test-results/login.json", "test-results/login.json") === 0);
 check("완료+따옴표 경로 diff 포함 → exit 0", run(reg, `완료\nVerified: "test results/out.json"`, "test results/out.json") === 0);
+// [하드닝 2026-06-21] 빈 증거 파일 = placeholder 우회 → exit 1
+const regEmpty = setupRoot({ "README.md": "기존", "empty.json": "" });
+check("[하드닝] 완료+빈 증거파일(diff포함이어도) → exit 1", run(regEmpty, "완료\nVerified: empty.json", "empty.json") === 1);
 check("완료선언 없음(chore) → exit 0", run(reg, "chore: 설정 변경") === 0);
 check("WIP(부정) → exit 0", run(reg, "WIP: 작업중") === 0);
 check("fail-closed: 설정 부재 → exit 1", run(mkdtempSync(join(tmpdir(), "cic-noreg-")), "완료\nVerified: x.json", "x.json") === 1);
