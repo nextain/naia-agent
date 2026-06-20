@@ -32,4 +32,4 @@ scripts/check-traceability.mjs 가 파싱. 상세 = docs/requirements.md, 99.dev
 | REQ-102 | NFR-보안 | 키체인 자격증명(secret 평문 미보존) + provider 전환 시 stale 키 clear | Done | — | — | TEST-S-003 |
 
 ## off-scope 노트 (추적 체인 제외)
-- **UC-memory (FR-MEM-1~10)**: 턴 recall 주입/save(naia-memory 연동). 다른 세션 소유(canon `out_of_scope`). 코드는 `feat/memory-wiring` 브랜치에 존재(FR-MEM-1~10 Done) 하나 본 V모델 추적 대상 아님 — 루크 우선순위 ⑧메모리 제외. 상세 = `99.dev-comm/UC-memory-recall-save-contract-2026-06-12.md`.
+- **UC-memory (FR-MEM-1~10)**: 턴 recall 주입/save(naia-memory 연동). ⚠️정정(2026-06-21, 교차검증): `feat/memory-wiring` 브랜치는 **존재하지 않음** — 코드+테스트가 **main에 배선·기본 활성**이다(진입점 `scripts/builds/agent-stdio-entry.mjs` 기본 주입, `memory-orthogonality.contract` 6/6 · `uc1-memory-stdio` 29/31 pass). 즉 **기능은 main DONE**(agent#4 closed). 본 노트의 "off-scope"는 *V모델 추적*에서만 제외라는 의미(루크 우선순위 ⑧). V모델 정식 backfill(REQ/UC/SPEC/TEST 편입) 여부는 미결. 상세 = `99.dev-comm/UC-memory-recall-save-contract-2026-06-12.md`.
