@@ -9,6 +9,49 @@
       "contract": "docs/progress/04.features/INDEX.md",
       "note": "ConversationPort 실구현 — 토큰예산 대화 조립(systemPrompt 보존·오래된 메시지 절단·선두 고아 tool 가드·최신 보존). passthrough 스텁 교체. SPEC-007."
     },
+    "src/main/adapters/anthropic-provider.ts": {
+      "layer": "adapters",
+      "uc": [
+        "UC1"
+      ],
+      "contract": "docs/progress/99.dev-comm/UC1-agent-horizontal-contract-2026-06-10.md",
+      "note": "anthropic provider — Messages API(/v1/messages, x-api-key) SSE, 직접 키 per-token. FR-PROV-5 라우팅 격리(claude-code 와 분리)."
+    },
+    "src/main/adapters/claude-code-provider.ts": {
+      "layer": "adapters",
+      "uc": [
+        "UC1"
+      ],
+      "contract": "docs/progress/99.dev-comm/UC1-agent-horizontal-contract-2026-06-10.md",
+      "note": "claude-code-cli provider — Claude Agent SDK(query), 로컬 Claude Code 구독 인증($0). FR-PROV-5. 런타임 의존=CLI 설치+로그인."
+    },
+    "src/main/adapters/adk-skill-loader.ts": {
+      "layer": "adapters",
+      "uc": [
+        "UC5"
+      ],
+      "contract": [
+        "docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md",
+        "docs/progress/99.dev-comm/skill-placement-resolution-2026-06-13.md"
+      ],
+      "note": "naia-adk 워크스페이스 SKILL.md → ToolExecutorPort(narrative skill, 프롬프트 주입형). 파싱=js-yaml, 스캔은 .mjs 진입점 주입."
+    },
+    "src/main/ports/conversation-log.ts": {
+      "layer": "ports",
+      "uc": [
+        "FR-CONV"
+      ],
+      "contract": "docs/progress/99.dev-comm/FR-CONV-conversation-log-contract-2026-06-21.md",
+      "note": "ConversationLogPort + ConversationTurnRecord — turn 종료 verbatim 기록(단일 writer, no-throw 격리)."
+    },
+    "src/main/adapters/conversation-log-store.ts": {
+      "layer": "adapters",
+      "uc": [
+        "FR-CONV"
+      ],
+      "contract": "docs/progress/99.dev-comm/FR-CONV-conversation-log-contract-2026-06-21.md",
+      "note": "ConversationLogPort 파일영속 — {conversationsDir}/{sessionId}.jsonl append-only(crash-safe), FsLike 주입."
+    },
     "src/main/adapters/grpc/grpc-codec.ts": {
       "layer": "adapters",
       "uc": [
