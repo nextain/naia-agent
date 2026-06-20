@@ -5,6 +5,21 @@
 > 셸(naia-os)이 gRPC로 메시지를 던지면, 이 런타임이 *기억 회상 → LLM 호출 → 저장*을 처리해 결과를 돌려줍니다.
 > 이 문서는 처음 오신 분이 "무엇을, 어떻게" 도울 수 있는지 안내합니다.
 
+## 처음이라면 — 가장 빠른 첫 기여 (15분)
+
+위에 "gRPC"·"런타임" 같은 말이 나와도 겁먹지 마세요. **첫 기여에는 그런 걸 몰라도 됩니다.**
+오타·문서·번역·작은 버그·테스트 보강 같은 작은 변경은 아래 게이트(P01~P05)를 거치지 않고 이슈 하나면 됩니다. naia-agent는 **순수 Node.js**라 Rust 같은 무거운 도구도 필요 없습니다.
+
+준비: [Node.js](https://nodejs.org/) 22 이상 설치 → `corepack enable && corepack prepare pnpm@9 --activate`(pnpm 켜기) → `pnpm install`. 확인: `node -v`, `pnpm -v`.
+
+AI 코딩 도구(Cursor, Claude Code 등)를 쓰신다면, 이 폴더를 연 뒤 아래를 그대로 복사해 붙여 보세요:
+
+> 이 저장소의 `.github/CONTRIBUTING.md`, `docs/ARCHITECTURE.md`, `.agents/context/agents-rules.json` 을 읽고,
+> gRPC·헥사고날 구조를 몰라도 할 수 있는 'good first issue' 후보 3개를, 각각 어떤 파일을 고치면 되는지와
+> 그 변경이 게이트(P01~P05)가 필요한지까지 함께 알려줘.
+
+막히면 [Discord](https://discord.gg/FGYJN7auty)에서 물어보세요.
+
 ## 1. 누구의 허락도 필요 없습니다
 
 먼저 저장소를 내려받습니다.
@@ -73,9 +88,11 @@ pnpm test      # 단위·계약 테스트 (vitest)
 **구조 점검 (코드 작성 전에 한 번)**
 
 ```bash
-./scripts/enforce-root-structure.sh             # 루트 구조 규칙 위반 확인
+./scripts/enforce-root-structure.sh             # 루트 구조 규칙을 "확인만" 합니다 (변경 없음)
 node --test src/test/ci-verify-*.test.mjs       # 구조·헌장·개발 절차(SDLC)·완전성 검사
 ```
+
+> ⚠️ `enforce-root-structure.sh --fix`는 규칙에 등록되지 않은 루트 파일·폴더를 **삭제**합니다. 작업 중인 파일이 날아갈 수 있으니 커밋하지 않은 변경이 있을 땐 쓰지 마세요. 평소엔 `--fix` 없이 확인만 하면 됩니다.
 
 ## 6. 코드 기여 절차
 
