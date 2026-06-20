@@ -8,6 +8,7 @@ import type {
   ProviderPort, ProviderResolverPort, ConversationPort, CredentialPort, ApprovalPort, AgentIngressPort, AgentEgressPort, DiagnosticLog, ToolExecutorPort,
 } from "../ports/uc1.js";
 import type { MemoryPort } from "../ports/memory.js";
+import type { CompactionPort } from "../ports/compaction.js";
 import type { ConversationLogPort } from "../ports/conversation-log.js";
 import type { AgentRequest, ProviderConfig } from "../domain/chat.js";
 
@@ -29,6 +30,10 @@ export function wireAgentUC1(opts?: {
   approval?: ApprovalPort;
   toolExecutor?: ToolExecutorPort; // UC5 — 미주입 = 도구 없음(UC1 순수 채팅)
   memory?: MemoryPort;             // UC-memory — 미주입 = 기존 동작(무회귀)
+  compaction?: CompactionPort;     // UC-compaction — 미주입 = 압축 없음(무회귀, budgeted-conversation 드롭만)
+  compactThresholdTokens?: number; // 압축 트리거 추정토큰 임계(미주입=기본)
+  compactKeepTail?: number;        // 압축 시 원문 유지 최근 메시지 수(미주입=기본)
+  compactTargetTokens?: number;    // recap 목표 토큰(미주입=기본)
   conversationLog?: ConversationLogPort; // FR-CONV.1 — 미주입 = transcript 미기록(무회귀)
   memoryTimeoutMs?: number;        // recall/save deadline override(테스트용)
   defaultConfig?: ProviderConfig;  // 기동 시 naia-settings(llm.json main) 로딩한 활성 provider(wire provider 미실 시 사용)
@@ -47,6 +52,10 @@ export function wireAgentUC1(opts?: {
     approval,
     ...(opts?.toolExecutor ? { toolExecutor: opts.toolExecutor } : {}),
     ...(opts?.memory ? { memory: opts.memory } : {}),
+    ...(opts?.compaction ? { compaction: opts.compaction } : {}),
+    ...(opts?.compactThresholdTokens !== undefined ? { compactThresholdTokens: opts.compactThresholdTokens } : {}),
+    ...(opts?.compactKeepTail !== undefined ? { compactKeepTail: opts.compactKeepTail } : {}),
+    ...(opts?.compactTargetTokens !== undefined ? { compactTargetTokens: opts.compactTargetTokens } : {}),
     ...(opts?.conversationLog ? { conversationLog: opts.conversationLog } : {}),
     ...(opts?.memoryTimeoutMs !== undefined ? { memoryTimeoutMs: opts.memoryTimeoutMs } : {}),
     ...(opts?.defaultConfig ? { defaultConfig: opts.defaultConfig } : {}),

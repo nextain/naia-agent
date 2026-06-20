@@ -22,7 +22,8 @@ scripts/check-traceability.mjs 가 파싱. 상세 = docs/requirements.md, 99.dev
 | REQ-006 | 스킬-브라우저 | **browser 조작 skill**(cmd 화이트리스트 + injected CLI) — external runtime defer | Done | UC-006 | SPEC-005 | TEST-S-006 |
 | REQ-007 | 스킬-BGM | **youtube BGM skill**(search/play/volume) — external runtime defer | Done | UC-008 | SPEC-006 | TEST-S-008 |
 | REQ-008 | 스킬-cron/notify | **예약작업/알림 skill**(schedule·list·cancel / slack·discord·google_chat) — external defer | Done | UC-005 | SPEC-002 | TEST-S-007 |
-| REQ-009 | 대화 토큰예산 가드 | **턴 조립 토큰예산 가드(드롭형)** — ConversationPort 가 systemPrompt 보존 + 최근 메시지 우선으로 토큰예산 내 조립, 오래된 메시지 **드롭**(요약 아님; 고아 tool 가드·tool 라운드 원자·최신 보존). ⚠️정보보존형 compaction(요약)=naia-memory.compact(), agent 위임 미배선(→ agent#3) | Done | UC-012 | SPEC-007 | TEST-S-012 |
+| REQ-009 | 대화 토큰예산 가드 | **턴 조립 토큰예산 가드(드롭형)** — ConversationPort 가 systemPrompt 보존 + 최근 메시지 우선으로 토큰예산 내 조립, 오래된 메시지 **드롭**(요약 아님; 고아 tool 가드·tool 라운드 원자·최신 보존). 정보보존형 compaction(요약)은 REQ-010 | Done | UC-012 | SPEC-007 | TEST-S-012 |
+| REQ-010 | 대화 압축(host-loop) | **정보보존형 compaction 배선** — 예산 압박 시 `naia-memory.compact()` 로 head 요약→systemPrompt 주입, 메시지는 tail 만, recap+anchors `attachHandoff` 로 영속(cross-session). 드롭형(REQ-009)은 폴백. no-throw 격리·deadline·무회귀(미주입=압축 없음) | Done | UC-013 | SPEC-008 | TEST-S-013 |
 
 ## 비기능 요구사항 (NFR → REQ)
 

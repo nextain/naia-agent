@@ -3,10 +3,14 @@
 // 절단은 domain formatRecalledMemory 소유(adapter 는 데이터만). save = user/assistant encode.
 import { LocalAdapter, MemorySystem } from "@nextain/naia-memory";
 import type { ManagedMemoryPort } from "../ports/memory.js";
+import type { CompactionPort, CompactionRequest, CompactionResult, HandoffBlob } from "../ports/compaction.js";
 import type { RecalledMemory } from "../domain/memory.js";
 
 const QUERY_CAP = 4000;   // recall query 입력 상한(embedding 비용 bound).
 const SAVE_CAP = 20000;   // save 원문(턴당, user/assistant 각각) 상한(디스크/flush 비용 bound).
+const RECAP_CAP = 20000;  // recap(요약) 반환·영속 상한 — 거대 요약이 systemPrompt/디스크를 폭증시키는 것 차단.
+const ANCHOR_MAX = 32;    // 영속 anchor 개수 상한.
+const ANCHOR_CAP = 512;   // anchor 1개 길이 상한.
 /** 입력 문자열 상한 절단(초과 시 표식). 거대 입력이 backend 비용을 폭증시키는 것 차단. */
 function capInput(s: string, max: number): string {
   const t = String(s ?? "");
@@ -30,7 +34,7 @@ export interface NaiaMemoryOpts {
 }
 
 /** MemoryPort 어댑터 + lifecycle close. */
-export function makeNaiaMemory(opts: NaiaMemoryOpts): ManagedMemoryPort {
+export function makeNaiaMemory(opts: NaiaMemoryOpts): ManagedMemoryPort & CompactionPort {
   const project = opts.project;
   // 타입(required string)만으론 ""·공백을 못 막는다 → 생성 경계에서 fail-closed(빈 project 가 backend
   // global/기본 scope 로 축약돼 격리를 우회하는 것 차단, FR-MEM-5/9).
@@ -78,6 +82,33 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ManagedMemoryPort {
 
     async close(): Promise<void> {
       await sys.close();
+    },
+
+    // ── CompactionPort (UC-compaction) — 같은 MemorySystem 위임 ──
+    async compact(req: CompactionRequest): Promise<CompactionResult> {
+      // 입력 메시지를 {role,content}로 정규화(상한 절단) — toolCalls/toolCallId 는 요약 대상 아님.
+      const messages = req.messages.map((m) => ({ role: m.role, content: capInput(m.content, SAVE_CAP) }));
+      const r = await sys.compact({
+        messages,
+        keepTail: Math.max(0, Math.floor(req.keepTail)),
+        targetTokens: Math.max(1, Math.floor(req.targetTokens)),
+        sessionId,
+      });
+      // recap 반환 상한(systemPrompt 폭증 차단). droppedCount = 요약에 흡수된 메시지 수(MemorySystem 계약).
+      return { recap: capInput(r?.summary?.content ?? "", RECAP_CAP), droppedCount: Number(r?.droppedCount ?? 0) };
+    },
+
+    async attachHandoff(blob: HandoffBlob): Promise<void> {
+      await sys.attachHandoff({
+        version: 1,
+        sessionId: (blob.sessionId && String(blob.sessionId).trim()) || sessionId,
+        createdAt: Date.now(),
+        turnCount: Math.max(0, Math.floor(Number(blob.turnCount) || 0)),
+        totalTokens: Math.max(0, Math.floor(Number(blob.totalTokens) || 0)),
+        trigger: String(blob.trigger ?? "compact"),
+        recap: { role: "assistant", content: capInput(blob.recap ?? "", RECAP_CAP) },
+        anchors: (Array.isArray(blob.anchors) ? blob.anchors : []).slice(0, ANCHOR_MAX).map((a) => capInput(String(a ?? ""), ANCHOR_CAP)),
+      });
     },
   };
 }

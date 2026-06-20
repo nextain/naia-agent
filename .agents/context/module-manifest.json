@@ -1,6 +1,14 @@
 {
   "_doc": "파일단위 계약 앵커 (드리프트 자동차단). src/main 의 모든 .ts 는 여기 {layer, uc, contract} 와 함께 등록돼야 한다. 미등록 파일 = 미계약 코드 = RED (scripts/check-file-anchors.mjs). 계약 먼저, 코드 나중 — 새 파일 추가 전 이 manifest 에 앵커 선언. layer ∈ {domain,ports,app,adapters,composition}. contract = docs/progress 의 계약 문서.",
   "files": {
+    "src/main/ports/compaction.ts": {
+      "layer": "ports",
+      "uc": [
+        "UC-compaction"
+      ],
+      "contract": "docs/progress/99.dev-comm/FR-COMPACT-compaction-host-loop-contract-2026-06-21.md",
+      "note": "CompactionPort — 예산 압박 시 head 요약(compact)+영속(attachHandoff). 구현=adapters/naia-memory(MemorySystem 위임). budgeted-conversation 드롭형은 폴백."
+    },
     "src/main/adapters/budgeted-conversation.ts": {
       "layer": "adapters",
       "uc": [

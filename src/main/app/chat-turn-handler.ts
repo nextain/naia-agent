@@ -3,12 +3,13 @@
 import type {
   ChatRequest, CancelRequest, ApprovalResponse, CredsUpdate, ChatTurnState, ChatMessage, ToolCall, ProviderConfig,
 } from "../domain/chat.js";
-import { mapProviderChunk, threadToolRound } from "../domain/chat.js";
+import { mapProviderChunk, threadToolRound, estimateMessageTokens } from "../domain/chat.js";
 import { calculateCost } from "../domain/cost.js";
 import type {
   ProviderPort, ProviderResolverPort, ConversationPort, CredentialPort, ApprovalPort, AgentEgressPort, DiagnosticLog, ToolExecutorPort, ProviderChatOpts,
 } from "../ports/uc1.js";
 import type { MemoryPort } from "../ports/memory.js";
+import type { CompactionPort } from "../ports/compaction.js";
 import type { ConversationLogPort } from "../ports/conversation-log.js";
 import { formatRecalledMemory } from "../domain/memory.js";
 
@@ -18,6 +19,10 @@ const MAX_TOOL_ROUNDS = 8; // 허용 도구라운드 최대치(round 단위). ca
 const TOOL_EXEC_TIMEOUT_MS = 60_000; // per-tool 실행 deadline(UC5 리뷰): hung MCP/HTTP 도구가 turn 무한 hang 방지. 초과=isError(LLM 복구).
 const MEM_RECALL_TIMEOUT_MS = 5000; // recall bound — 무응답 시 주입 생략하고 턴 진행(terminal 항상 방출).
 const MEM_SAVE_TIMEOUT_MS = 5000;   // save bound — 무응답 시 finish/drain 영구정지 방지(timeout→로그 후 finish).
+// UC-compaction(FR-COMPACT) 기본값 — compaction 포트 주입 시에만 동작(미주입=압축 없음).
+const DEFAULT_COMPACT_THRESHOLD_TOKENS = 4000; // 추정 토큰 이 임계 초과 시 head 요약 시도.
+const DEFAULT_COMPACT_KEEP_TAIL = 6;           // 압축 시 원문 유지할 최근 메시지 수.
+const DEFAULT_COMPACT_TARGET_TOKENS = 1000;    // recap 목표 토큰(요약 예산).
 
 /** 한 provider 호출(라운드)의 결과 — runRound 가 반환, onChatRequest 루프가 해석. */
 interface RoundResult {
@@ -44,7 +49,11 @@ export interface HandlerDeps {
   readonly defaultConfig?: ProviderConfig;
   readonly toolExecutor?: ToolExecutorPort;                       // UC5 — 미주입 = 도구 없음(UC1 순수 채팅 회귀 없음)
   readonly memory?: MemoryPort;                                   // UC-memory — 미주입 = 기존 동작(무회귀). 턴 전 recall 주입 / 턴 후 save.
-  readonly memoryTimeoutMs?: number;                              // recall/save deadline override(테스트용; 미주입=기본 5000ms).
+  readonly compaction?: CompactionPort;                           // UC-compaction — 미주입 = 압축 없음(무회귀, budgeted-conversation 드롭만). 예산 압박 시 head 요약→systemPrompt 주입 + 영속.
+  readonly compactThresholdTokens?: number;                       // 압축 트리거 추정토큰 임계(미주입=기본 4000).
+  readonly compactKeepTail?: number;                              // 압축 시 원문 유지 최근 메시지 수(미주입=기본 6).
+  readonly compactTargetTokens?: number;                          // recap 목표 토큰(미주입=기본 1000).
+  readonly memoryTimeoutMs?: number;                              // recall/save/compact deadline override(테스트용; 미주입=기본 5000ms).
   readonly toolTimeoutMs?: number;                                // per-tool 실행 deadline override(테스트용; 미주입=60000ms).
   readonly conversationLog?: ConversationLogPort;                 // FR-CONV.1 — turn 후 verbatim transcript append(전두엽 기록). 미주입=미기록(무회귀).
 }
@@ -59,6 +68,43 @@ export class ChatTurnHandler {
   /** 라이브 설정 reload — naia-settings 재로딩 결과(또는 undefined=설정 없음)를 활성 config 로 swap.
    *  wire chat_request 가 provider override 를 안 실으면(gRPC 정본) 다음 턴부터 이 값을 쓴다. */
   setDefaultConfig(config: ProviderConfig | undefined): void { this.activeDefaultConfig = config; }
+
+  /** UC-compaction(FR-COMPACT): 예산 압박 시 head 를 memory.compact() 로 *요약*(정보보존). 반환 =
+   *  {messages: 압축 후(tail) 또는 원본, recap: 요약 텍스트(systemPrompt 주입용; ""=압축 안 함)}.
+   *  미주입/임계이하/압축실패 = 원본 그대로(드롭형 budgeted-conversation 이 최종 하드 가드). compact/attachHandoff
+   *  실패는 격리 — 압축은 turn 을 깨지 않는다(요약 실패 < 대화 중단). */
+  private async maybeCompact(req: ChatRequest, signal: AbortSignal): Promise<{ messages: readonly ChatMessage[]; recap: string }> {
+    const compaction = this.d.compaction;
+    if (!compaction) return { messages: req.messages, recap: "" };
+    const est = estimateMessageTokens(req.messages);
+    const threshold = this.d.compactThresholdTokens ?? DEFAULT_COMPACT_THRESHOLD_TOKENS;
+    const rawKeepTail = Math.max(1, Math.floor(this.d.compactKeepTail ?? DEFAULT_COMPACT_KEEP_TAIL));
+    // 임계 이하 또는 압축할 head 없음(메시지 ≤ keepTail) → 원본(드롭 폴백은 assemble 담당).
+    if (est <= threshold || req.messages.length <= rawKeepTail) return { messages: req.messages, recap: "" };
+    // ⚠️ provider-safe: tail 선두를 **user 경계에 정렬**(적대리뷰 갭). (len-rawKeepTail) 부터 첫 user 까지 전진 →
+    // 그 앞을 전부 recap(요약)하고 tail 은 user 로 시작(마지막=현재 user). 엄격 provider(Anthropic Messages API)가
+    // leading assistant/tool 을 400 거부하는 것 차단. 경계 조정이라 정보손실 0(잘린 만큼 recap 이 흡수).
+    let tailStart = req.messages.length - rawKeepTail;
+    while (tailStart < req.messages.length - 1 && req.messages[tailStart]!.role !== "user") tailStart++;
+    const keepTail = req.messages.length - tailStart;
+    if (keepTail >= req.messages.length) return { messages: req.messages, recap: "" }; // 요약할 head 없음(정렬 후 전부 tail)
+    try {
+      const r = await raceAbort(
+        compaction.compact({ messages: req.messages, keepTail, targetTokens: this.d.compactTargetTokens ?? DEFAULT_COMPACT_TARGET_TOKENS }),
+        signal, this.d.memoryTimeoutMs ?? MEM_RECALL_TIMEOUT_MS,
+      );
+      // null=abort/timeout, droppedCount<=0=압축 미수행, recap 공백=주입할 요약 없음 → 모두 원본 유지.
+      if (!r || r.droppedCount <= 0 || !r.recap || !r.recap.trim()) return { messages: req.messages, recap: "" };
+      const tail = req.messages.slice(tailStart);
+      // recap+anchors 영속(cross-session) — fire-and-forget + no-throw(저장이 턴을 차단/실패시키지 않음).
+      compaction.attachHandoff({ sessionId: req.sessionId ?? "default", recap: r.recap, anchors: [], trigger: "budget", turnCount: req.messages.length, totalTokens: est })
+        .catch((e) => this.safeDiag("compaction attachHandoff 실패(턴 유지)", e));
+      return { messages: tail, recap: r.recap };
+    } catch (e) {
+      this.safeDiag("compaction 실패(드롭 폴백)", e);
+      return { messages: req.messages, recap: "" };
+    }
+  }
 
   async onChatRequest(req: ChatRequest): Promise<void> {
     if (this.turns.has(req.requestId)) {
@@ -87,7 +133,10 @@ export class ChatTurnHandler {
         ...(req.enableThinking !== undefined ? { enableThinking: req.enableThinking } : {}),
         ...(this.d.credentials.get(activeConfig.provider) ?? {}),
       };
-      const asm = this.d.conversation.assemble({ messages: req.messages, systemPrompt: req.systemPrompt });
+      // UC-compaction(FR-COMPACT): assemble 전 예산 압박이면 head 를 memory 가 요약(recap)해 교체(정보보존).
+      // 미주입/임계이하/실패 = 원본(budgeted-conversation 이 최종 드롭 가드). recap 은 아래 systemPrompt 에 주입.
+      const { messages: preMessages, recap: compactionRecap } = await this.maybeCompact(req, signal);
+      const asm = this.d.conversation.assemble({ messages: preMessages, systemPrompt: req.systemPrompt });
       // UC-memory FR-MEM-1: 턴 전 recall → systemPrompt 주입(회상 있으면). 기준 = *이 턴의 새 user
       // 입력* = 메시지 배열의 마지막 메시지가 user 일 때 그것. ⚠️ "마지막 user 를 전체에서 탐색"이 아니라
       // 마지막 메시지여야 한다 — assistant continuation/regenerate(마지막이 assistant) 요청에서 과거
@@ -96,7 +145,10 @@ export class ChatTurnHandler {
       const lastMsg = req.messages.length ? req.messages[req.messages.length - 1] : undefined;
       const currentUserMsg = lastMsg?.role === "user" ? lastMsg : undefined;
       const lastUserText = currentUserMsg?.content ?? "";
-      let memSystemPrompt = asm.systemPrompt;
+      // compaction recap → systemPrompt 주입(leading assistant 메시지 회피, recall 과 동일 패턴). recall 은 이 뒤에 append.
+      let memSystemPrompt = compactionRecap
+        ? (asm.systemPrompt ? `${asm.systemPrompt}\n\n## 이전 대화 요약(compacted)\n${compactionRecap}` : `## 이전 대화 요약(compacted)\n${compactionRecap}`)
+        : asm.systemPrompt;
       // FR-MEM-1a: 빈/공백 query 는 app 계층에서 단락(recall 미호출) — 빈 query 가 전체/임의 top-K 를
       // 끌어와 무관 정보를 주입하는 것을 *어댑터 구현과 무관하게* 막는다(정책은 app 소유). 어댑터에도
       // 동일 가드(방어 심층).
@@ -107,7 +159,7 @@ export class ChatTurnHandler {
           const mem = await raceAbort(this.d.memory.recall(lastUserText), signal, this.d.memoryTimeoutMs ?? MEM_RECALL_TIMEOUT_MS);
           // 프레이밍·예산 절단은 domain formatter 가 강제(adapter 무관 — FR-MEM-7/8 보장).
           const recalled = mem ? formatRecalledMemory(mem) : "";
-          if (recalled) memSystemPrompt = asm.systemPrompt ? `${asm.systemPrompt}\n\n${recalled}` : recalled;
+          if (recalled) memSystemPrompt = memSystemPrompt ? `${memSystemPrompt}\n\n${recalled}` : recalled;
         } catch (e) { this.safeDiag("memory recall 실패(턴 유지)", e); }
       }
       const exec = this.d.toolExecutor;

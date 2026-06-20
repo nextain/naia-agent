@@ -115,3 +115,11 @@ export function threadToolRound(
   const toolMsgs: ChatMessage[] = calls.map((c, i) => ({ role: "tool", toolCallId: c.id, content: results[i]?.output ?? "" }));
   return [...messages, assistant, ...toolMsgs];
 }
+
+/** 휴리스틱 토큰 추정(≈4 char/token, 메시지당 framing 16자) — 압축 트리거 판단용(정확 토크나이저 불요).
+ *  순수. budgeted-conversation 의 char≈token 휴리스틱과 동일 기준. */
+export function estimateMessageTokens(messages: readonly ChatMessage[]): number {
+  let chars = 0;
+  for (const m of messages) chars += (m.content?.length ?? 0) + 16;
+  return Math.ceil(chars / 4);
+}

@@ -19,6 +19,7 @@
 | UC-011 | 진단 | 에이전트가 자기 상태(rich health)를 gRPC Diagnostics 로 보고 | REQ-004 | Done | TEST-S-004 |
 | UC-006 | 브라우저 | 에이전트가 브라우저를 조작(navigate/click/fill) (구 UC6) | REQ-006 | Done | TEST-S-006 |
 | UC-008 | 유투브/BGM | 에이전트가 youtube BGM 을 검색/재생/볼륨 제어 (구 UC8) | REQ-007 | Done | TEST-S-008 |
-| UC-012 | 대화 토큰예산 가드 | 사용자가 긴 대화를 이어가도 에이전트가 토큰예산으로 오래된 메시지를 **드롭**해 컨텍스트 초과 없이 응답 (요약형 compaction 아님 — 그건 naia-memory) | REQ-009 | Done | TEST-S-012 |
+| UC-012 | 대화 토큰예산 가드 | 사용자가 긴 대화를 이어가도 에이전트가 토큰예산으로 오래된 메시지를 **드롭**해 컨텍스트 초과 없이 응답 (요약형 compaction 아님 — 그건 UC-013) | REQ-009 | Done | TEST-S-012 |
+| UC-013 | 대화 압축(요약) | 사용자가 긴 대화를 이어가도 에이전트가 오래된 맥락을 **버리지 않고 요약(recap)**해 유지하며 응답(naia-memory 위임, 정보보존). 요약은 장기기억에 영속돼 다음 세션에도 이어짐 | REQ-010 | Done | TEST-S-013 |
 
 > **상태 의미**: agent 측 Done = 이식+2-AI(또는 self)리뷰+계약테스트 완료. UC-006/008 = agent-local skill 완료, 실 외부서비스(CDP/youtube) runtime = 루크머신. off-scope(UC-memory) = 01 노트.
