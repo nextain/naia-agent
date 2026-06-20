@@ -19,7 +19,7 @@
 | TEST-S-006 | UC-006 | browser skill(cmd 화이트리스트·injected CLI) | 계약 | `src/test/uc6-browser-skill.contract.test.ts` | Pass |
 | TEST-S-007 | UC-005 | cron/notify skill(schedule/list/cancel · webhook) | 계약 | `src/test/cron-skill.contract.test.ts`, `notify-skill.contract.test.ts` | Pass |
 | TEST-S-008 | UC-008 | youtube BGM skill(search/play/volume) | 계약 | `src/test/uc8-bgm-skill.contract.test.ts` | Pass |
-| TEST-S-012 | UC-012 | 토큰예산 대화 조립(예산내 유지/초과시 절단/최신·systemPrompt 보존/고아 tool 가드) 5케이스 | 계약 | `src/test/budgeted-conversation.contract.test.ts` | Pass |
+| TEST-S-012 | UC-012 | 토큰예산 대화 조립(예산내 유지/초과 절단/최신·systemPrompt 보존/고아 tool 가드/**원자 tool 라운드·toolCalls payload 예산**) 7케이스 | 계약 | `src/test/budgeted-conversation.contract.test.ts` | Pass |
 | TEST-S-101 | REQ-101 | 헥사고날 직교 — 도메인 transport 무지(계약 경계) | 정적/계약 | (compile-integrity + 계약 테스트 경계) | Planned |
 
 ## 비고

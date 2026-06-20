@@ -42,12 +42,38 @@ describe("budgeted-conversation (SPEC-007) — 토큰예산 대화 조립", () =
     const big = "z".repeat(80);
     const messages: ChatMessage[] = [
       m("user", big),
-      m("assistant", "", { toolCalls: [{ id: "c1", name: "t", arguments: "{}" }] as unknown as ChatMessage["toolCalls"] }),
+      m("assistant", "", { toolCalls: [{ id: "c1", name: "t", args: {} }] as unknown as ChatMessage["toolCalls"] }),
       m("tool", big, { toolCallId: "c1" }),
       m("user", "final"),
     ];
     const out = conv.assemble({ messages });
     expect(out.messages[0]!.role).not.toBe("tool"); // 선두 고아 tool 없음
     expect(out.messages[out.messages.length - 1]!.content).toBe("final");
+  });
+
+  // codex 적대리뷰 보강: tool 라운드 원자성 + toolCalls payload 예산 계산
+  it("최신 tool 라운드(assistant+tool)는 예산이 빠듯해도 원자적으로 함께 보존한다(고아 tool 단독 금지)", () => {
+    const conv = makeBudgetedConversation({ maxTokens: 1 }); // 4자 예산 — 단독 tool 보존 유혹 상황
+    const messages: ChatMessage[] = [
+      m("assistant", "", { toolCalls: [{ id: "c1", name: "t", args: {} }] as unknown as ChatMessage["toolCalls"] }),
+      m("tool", "결과", { toolCallId: "c1" }),
+    ];
+    const out = conv.assemble({ messages });
+    expect(out.messages).toHaveLength(2); // 둘 다 보존 — assistant 없는 고아 tool 금지
+    expect(out.messages[0]!.role).toBe("assistant");
+  });
+
+  it("assistant.toolCalls payload(거대 args)도 예산에 계산되어 절단을 유발한다", () => {
+    const conv = makeBudgetedConversation({ maxTokens: 100 }); // ≈400자
+    const hugeArgs = "q".repeat(2000); // content 가 아닌 toolCalls 안에 큰 payload
+    const messages: ChatMessage[] = [
+      m("assistant", "", { toolCalls: [{ id: "c1", name: "search", args: hugeArgs }] as unknown as ChatMessage["toolCalls"] }),
+      m("tool", "ok", { toolCallId: "c1" }),
+      m("user", "최신질문"),
+    ];
+    const out = conv.assemble({ messages });
+    // payload 를 계산하지 않으면 라운드가 예산에 들어와 length 3 이 됨 → 1 이어야 정상(절단)
+    expect(out.messages).toHaveLength(1);
+    expect(out.messages[0]!.content).toBe("최신질문");
   });
 });
