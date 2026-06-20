@@ -7,7 +7,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { wireAgentUC1 } from "../main/composition/index.js";
 // stdio 는 production(composition)에서 제거(transport=gRPC) → 테스트는 stdio 어댑터 직접 사용(in-process wire 검증).
 import { makeStdioIngress, makeStdioEgress } from "../main/adapters/stdio.js";
@@ -315,12 +315,15 @@ describe("UC-memory — 실 stdio 관통(recall 주입 / save)", () => {
       isDirectory: () => true,
       randomUUID: () => `${String(++uuidN).padStart(8, "0")}-aaaa-bbbb-cccc-dddddddddddd`,
     });
+    // ⚠️ impl 은 resolve(adkPath)/.naia/workspace-id 로 키를 만든다(Windows=D:\...). 테스트 fixture 도
+    // *동일 정규화*로 키를 구성해야 크로스플랫폼(POSIX 리터럴 하드코딩은 Windows 서 키 불일치 → 오발급).
+    const idKey = (adkPath: string) => `${resolve(adkPath)}/.naia/workspace-id`;
     const id1 = resolveWorkspaceId("/ws/alpha", deps());        // 발급
     expect(id1).toMatch(/^ws-00000001-/);
     expect(resolveWorkspaceId("/ws/alpha", deps())).toBe(id1);  // 재호출 안정
-    files.set("/ws/moved/.naia/workspace-id", files.get("/ws/alpha/.naia/workspace-id")!);
+    files.set(idKey("/ws/moved"), files.get(idKey("/ws/alpha"))!);
     expect(resolveWorkspaceId("/ws/moved", deps())).toBe(id1);  // 이동 시 연속
-    files.delete("/ws/alpha/.naia/workspace-id");
+    files.delete(idKey("/ws/alpha"));
     expect(resolveWorkspaceId("/ws/alpha", deps())).not.toBe(id1); // 경로 재사용 = 새 id(누설 없음)
   });
 
@@ -330,9 +333,10 @@ describe("UC-memory — 실 stdio 관통(recall 주입 / save)", () => {
     const eexist = () => { const e: NodeJS.ErrnoException = new Error("EEXIST"); e.code = "EEXIST"; return e; };
     // 프로세스 B 가 먼저 써둔 상태를 모사: write 시 항상 EEXIST(이미 winner 존재), read 는 winner 반환.
     const WINNER = "0badf00d-aaaa-bbbb-cccc-dddddddddddd";
+    const raceKey = `${resolve("/ws/race")}/.naia/workspace-id`; // impl 과 동일 정규화(크로스플랫폼)
     const got = resolveWorkspaceId("/ws/race", {
       readFile: (p) => { if (!files.has(p)) throw enoent(); return files.get(p)!; },
-      writeFileExclusive: () => { files.set("/ws/race/.naia/workspace-id", WINNER); throw eexist(); }, // 경쟁: 내 write 직전 winner 가 씀
+      writeFileExclusive: () => { files.set(raceKey, WINNER); throw eexist(); }, // 경쟁: 내 write 직전 winner 가 씀
       mkdir: () => {},
       isDirectory: () => true,
       randomUUID: () => "1111aaaa-bbbb-cccc-dddd-eeeeeeeeeeee",

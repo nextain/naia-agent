@@ -94,13 +94,20 @@ describe("UC-memory — 실 프로세스 관통(gRPC 진입점 종료 lifecycle)
     expect(t2).toContain(SECRET);
     client.close?.();
 
-    // SIGTERM → drain(in-flight save 완료) → memory.close(flush) → exit 0.
-    const exitCode: number = await new Promise((res) => {
-      child!.on("exit", (code) => res(code ?? -1));
-      child!.kill("SIGTERM");
-    });
-    expect(exitCode).toBe(0);
-    // 영속(종료 flush) — recall 이 관통했음을 store 로도 증명.
-    expect(await readFile(storePath, "utf8")).toContain(SECRET);
+    // SIGTERM graceful shutdown(drain→flush→exit 0)은 **POSIX 계약** — Windows 는 SIGTERM 을 못 잡고
+    // OS 가 강제종료(TerminateProcess, graceful flush 불가)하므로 이 단언은 POSIX 에서만 의미가 있다.
+    // (위 2턴 recall→inject 관통은 전 플랫폼에서 이미 검증됨 — 이 분기는 종료 lifecycle 만 가른다.)
+    if (process.platform === "win32") {
+      child!.kill("SIGKILL"); // Windows: graceful 불가 → 강제종료(테스트 정리)
+    } else {
+      // SIGTERM → drain(in-flight save 완료) → memory.close(flush) → exit 0.
+      const exitCode: number = await new Promise((res) => {
+        child!.on("exit", (code) => res(code ?? -1));
+        child!.kill("SIGTERM");
+      });
+      expect(exitCode).toBe(0);
+      // 영속(종료 flush) — recall 이 관통했음을 store 로도 증명.
+      expect(await readFile(storePath, "utf8")).toContain(SECRET);
+    }
   }, 90000);
 });
