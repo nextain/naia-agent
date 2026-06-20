@@ -42,7 +42,8 @@ function chatTurn(client: any, requestId: string, content: string): Promise<stri
 describe("UC-memory — 실 프로세스 관통(gRPC 진입점 종료 lifecycle)", () => {
   beforeAll(() => {
     // 진입점이 import 하는 dist 를 최신화(없거나 stale 이면 테스트가 옛 코드를 구동).
-    const r = spawnSync("npx", ["tsc", "-p", "tsconfig.json"], { cwd: pkgRoot, encoding: "utf8", timeout: 120000 });
+    // shell:true so the npx launcher resolves on Windows (npx.cmd) as well as POSIX.
+    const r = spawnSync("npx", ["tsc", "-p", "tsconfig.json"], { cwd: pkgRoot, encoding: "utf8", timeout: 120000, shell: true });
     if (r.status !== 0) throw new Error(`dist 빌드 실패: ${r.stderr || r.stdout}`);
   }, 130000);
 
