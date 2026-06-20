@@ -43,6 +43,9 @@ pnpm-debug.log*
 data-private/
 !data-private/README.md
 
+# 로컬 스크래치(e2e·codex 리뷰 임시). 추적·구조검사 제외.
+tmp/
+
 # 보류 격리(Quarantine) — 방치 의심 자산 백업. 실물은 추적 제외, MANIFEST/README 만 추적
 # (컨텍스트가 "백업 자산이 있었다"를 알도록). scripts/quarantine.mjs 가 관리.
 quarantine/*
