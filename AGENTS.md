@@ -4,6 +4,19 @@ naia 생태계 허브 런타임 (RAG·context·장기기억) — clean rebuild (
 
 ---
 
+## 0. 먼저 읽을 것 — 이 파일이 헷갈린다면 (오리엔테이션)
+
+**이 프로젝트가 무엇인지·무엇을 하는지·어떻게 실행하는지는 → [`README.md`](README.md) 가 먼저다.**
+이 `AGENTS.md` 는 프로젝트 소개가 아니라 **AI 도구가 코드를 건드릴 때 지키는 프로세스 규칙(SoT)**이다 —
+필수 읽기 · 구조 규칙(F12/F13) · SDLC 게이트(P01~P05) · 헌장 불변. 그래서 곧장 규칙으로 시작한다.
+
+> **한 줄 멘탈모델**: naia-agent = 호스트(naia-os)가 gRPC 로 말 거는 **"뇌" 런타임**.
+> provider 호출 · 도구 실행 · 대화 조립 담당. 전체 그림 = README 의 "생태계에서의 위치".
+
+순서: **README**(무엇/왜/어떻게 실행) → **이 파일**(작업 규칙) → `docs/ARCHITECTURE.md`(브레인 측 구조).
+
+---
+
 ## ⚠️ Multi-tool Harness
 
 이 파일은 **canonical SoT** (Single Source of Truth). 아래 4개 파일은 자동 동기화 mirror:
