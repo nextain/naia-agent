@@ -74,6 +74,7 @@ export type AgentEmit =
   | { readonly kind: "usage"; readonly inputTokens: number; readonly outputTokens: number; readonly cost?: number; readonly model?: string }
   | { readonly kind: "logEntry"; readonly level: string; readonly message: string }
   | { readonly kind: "tokenWarning"; readonly raw: unknown }
+  | { readonly kind: "compacted"; readonly droppedCount: number } // UC-compaction(FR-COMPACT): 예산 압박 시 head 요약 발생 알림(UI 표시용, 비-terminal)
   | { readonly kind: "finish" }
   | { readonly kind: "error"; readonly message: string };
 

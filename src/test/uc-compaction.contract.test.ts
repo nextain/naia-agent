@@ -74,7 +74,10 @@ describe("UC-compaction (SPEC-008) — compaction host-loop", () => {
     const { port, calls } = fakeCompaction();
     const { deps, emits } = harness({ provider, compaction: port, compactThresholdTokens: 5, compactKeepTail: 2 });
     await new ChatTurnHandler(deps).onChatRequest(req());
-    expect(emits.map((e) => e.kind)).toEqual(["text", "usage", "finish"]); // 정상 종결
+    // 압축 발생 시 'compacted' wire 이벤트가 *맨 앞*(provider 라운드 전) 방출 → UI 표시용. 그 뒤 정상 종결.
+    expect(emits.map((e) => e.kind)).toEqual(["compacted", "text", "usage", "finish"]);
+    const compactedEmit = emits.find((e) => e.kind === "compacted") as { kind: "compacted"; droppedCount: number } | undefined;
+    expect(compactedEmit?.droppedCount).toBe(4);                            // bigConvo 6 - keepTail 2 = 4 흡수
     expect(calls.compact).toBe(1);                                          // 압축 호출됨
     expect(seenMsgs[0]!.length).toBe(2);                                    // tail 만(keepTail=2)
     expect(seenMsgs[0]![1]!.content).toBe("LAST_USER");                     // 현재 입력 보존

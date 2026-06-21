@@ -73,36 +73,36 @@ export class ChatTurnHandler {
    *  {messages: 압축 후(tail) 또는 원본, recap: 요약 텍스트(systemPrompt 주입용; ""=압축 안 함)}.
    *  미주입/임계이하/압축실패 = 원본 그대로(드롭형 budgeted-conversation 이 최종 하드 가드). compact/attachHandoff
    *  실패는 격리 — 압축은 turn 을 깨지 않는다(요약 실패 < 대화 중단). */
-  private async maybeCompact(req: ChatRequest, signal: AbortSignal): Promise<{ messages: readonly ChatMessage[]; recap: string }> {
+  private async maybeCompact(req: ChatRequest, signal: AbortSignal): Promise<{ messages: readonly ChatMessage[]; recap: string; droppedCount: number }> {
     const compaction = this.d.compaction;
-    if (!compaction) return { messages: req.messages, recap: "" };
+    if (!compaction) return { messages: req.messages, recap: "", droppedCount: 0 };
     const est = estimateMessageTokens(req.messages);
     const threshold = this.d.compactThresholdTokens ?? DEFAULT_COMPACT_THRESHOLD_TOKENS;
     const rawKeepTail = Math.max(1, Math.floor(this.d.compactKeepTail ?? DEFAULT_COMPACT_KEEP_TAIL));
     // 임계 이하 또는 압축할 head 없음(메시지 ≤ keepTail) → 원본(드롭 폴백은 assemble 담당).
-    if (est <= threshold || req.messages.length <= rawKeepTail) return { messages: req.messages, recap: "" };
+    if (est <= threshold || req.messages.length <= rawKeepTail) return { messages: req.messages, recap: "", droppedCount: 0 };
     // ⚠️ provider-safe: tail 선두를 **user 경계에 정렬**(적대리뷰 갭). (len-rawKeepTail) 부터 첫 user 까지 전진 →
     // 그 앞을 전부 recap(요약)하고 tail 은 user 로 시작(마지막=현재 user). 엄격 provider(Anthropic Messages API)가
     // leading assistant/tool 을 400 거부하는 것 차단. 경계 조정이라 정보손실 0(잘린 만큼 recap 이 흡수).
     let tailStart = req.messages.length - rawKeepTail;
     while (tailStart < req.messages.length - 1 && req.messages[tailStart]!.role !== "user") tailStart++;
     const keepTail = req.messages.length - tailStart;
-    if (keepTail >= req.messages.length) return { messages: req.messages, recap: "" }; // 요약할 head 없음(정렬 후 전부 tail)
+    if (keepTail >= req.messages.length) return { messages: req.messages, recap: "", droppedCount: 0 }; // 요약할 head 없음(정렬 후 전부 tail)
     try {
       const r = await raceAbort(
         compaction.compact({ messages: req.messages, keepTail, targetTokens: this.d.compactTargetTokens ?? DEFAULT_COMPACT_TARGET_TOKENS }),
         signal, this.d.memoryTimeoutMs ?? MEM_RECALL_TIMEOUT_MS,
       );
       // null=abort/timeout, droppedCount<=0=압축 미수행, recap 공백=주입할 요약 없음 → 모두 원본 유지.
-      if (!r || r.droppedCount <= 0 || !r.recap || !r.recap.trim()) return { messages: req.messages, recap: "" };
+      if (!r || r.droppedCount <= 0 || !r.recap || !r.recap.trim()) return { messages: req.messages, recap: "", droppedCount: 0 };
       const tail = req.messages.slice(tailStart);
       // recap+anchors 영속(cross-session) — fire-and-forget + no-throw(저장이 턴을 차단/실패시키지 않음).
       compaction.attachHandoff({ sessionId: req.sessionId ?? "default", recap: r.recap, anchors: [], trigger: "budget", turnCount: req.messages.length, totalTokens: est })
         .catch((e) => this.safeDiag("compaction attachHandoff 실패(턴 유지)", e));
-      return { messages: tail, recap: r.recap };
+      return { messages: tail, recap: r.recap, droppedCount: r.droppedCount };
     } catch (e) {
       this.safeDiag("compaction 실패(드롭 폴백)", e);
-      return { messages: req.messages, recap: "" };
+      return { messages: req.messages, recap: "", droppedCount: 0 };
     }
   }
 
@@ -135,7 +135,9 @@ export class ChatTurnHandler {
       };
       // UC-compaction(FR-COMPACT): assemble 전 예산 압박이면 head 를 memory 가 요약(recap)해 교체(정보보존).
       // 미주입/임계이하/실패 = 원본(budgeted-conversation 이 최종 드롭 가드). recap 은 아래 systemPrompt 에 주입.
-      const { messages: preMessages, recap: compactionRecap } = await this.maybeCompact(req, signal);
+      const { messages: preMessages, recap: compactionRecap, droppedCount: compactedCount } = await this.maybeCompact(req, signal);
+      // UC-compaction: 압축 발생 시 wire 로 알림(UI 표시용). 비-terminal·무손실 정보 — usage/finish 불변식 무영향.
+      if (compactedCount > 0) emit({ kind: "compacted", droppedCount: compactedCount });
       const asm = this.d.conversation.assemble({ messages: preMessages, systemPrompt: req.systemPrompt });
       // UC-memory FR-MEM-1: 턴 전 recall → systemPrompt 주입(회상 있으면). 기준 = *이 턴의 새 user
       // 입력* = 메시지 배열의 마지막 메시지가 user 일 때 그것. ⚠️ "마지막 user 를 전체에서 탐색"이 아니라

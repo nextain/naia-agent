@@ -71,6 +71,7 @@ export function emitToProto(requestId: string, e: AgentEmit): PbAgentEvent {
     case "usage": return { requestId, usage: { inputTokens: e.inputTokens, outputTokens: e.outputTokens, ...(e.cost !== undefined ? { cost: e.cost } : {}), ...(e.model !== undefined ? { model: e.model } : {}) } };
     case "logEntry": return { requestId, logEntry: { level: e.level, message: e.message } };
     case "tokenWarning": return { requestId, tokenWarning: { rawJson: JSON.stringify(e.raw ?? null) } };
+    case "compacted": return { requestId, compacted: { droppedCount: e.droppedCount } };
     case "finish": return { requestId, finish: {} };
     case "error": return { requestId, error: { message: e.message } };
   }

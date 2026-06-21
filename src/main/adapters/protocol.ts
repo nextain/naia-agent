@@ -53,6 +53,7 @@ export function encodeEmit(requestId: string, e: AgentEmit): Record<string, unkn
     case "usage": return { type: "usage", requestId, inputTokens: e.inputTokens, outputTokens: e.outputTokens, ...(e.cost !== undefined ? { cost: e.cost } : {}), ...(e.model !== undefined ? { model: e.model } : {}) };
     case "logEntry": return { type: "log_entry", requestId, level: e.level, message: e.message };
     case "tokenWarning": return { type: "token_warning", requestId, raw: e.raw };
+    case "compacted": return { type: "compacted", requestId, droppedCount: e.droppedCount };
     case "finish": return { type: "finish", requestId };
     case "error": return { type: "error", requestId, message: e.message };
   }
