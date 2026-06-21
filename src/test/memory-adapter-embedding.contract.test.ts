@@ -10,7 +10,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildEmbeddingProvider, buildMemoryFactExtractor, makeNaiaMemory } from "../main/adapters/naia-memory.js";
+import { buildEmbeddingProvider, buildMemoryFactExtractor, buildMemorySummarizer, makeNaiaMemory } from "../main/adapters/naia-memory.js";
 
 describe("issue #7 — buildEmbeddingProvider: UI embedding 선택 → EmbeddingProvider 매핑", () => {
   it("none/미지정 = 키워드-only(undefined)", () => {
@@ -115,5 +115,26 @@ describe("issue #7 후속 — embedding device(gpu/cpu) 선택(naia-embedded 컴
     expect(buildEmbeddingProvider({ provider: "offline", device: "gpu" })?.name).toBe("offline");
     expect(buildEmbeddingProvider({ provider: "offline", device: "cpu" })?.name).toBe("offline");
     expect(buildEmbeddingProvider({ provider: "offline", device: "auto" })?.name).toBe("offline");
+  });
+});
+
+describe("buildMemorySummarizer: small LLM 선택 → CompactionSummarizer 매핑(라이트 모델 요약)", () => {
+  it("none/미지정 = 결정론 recap(undefined)", () => {
+    expect(buildMemorySummarizer()).toBeUndefined();
+    expect(buildMemorySummarizer({ provider: "none" })).toBeUndefined();
+  });
+
+  it("vllm/ollama/naia = CompactionSummarizer(함수); baseUrl·model 누락 = fail-closed(throw)", () => {
+    expect(typeof buildMemorySummarizer({ provider: "vllm", baseUrl: "http://localhost:8000", model: "qwen" })).toBe("function");
+    expect(typeof buildMemorySummarizer({ provider: "naia", baseUrl: "https://gw", model: "vertexai:gemini" })).toBe("function");
+    expect(() => buildMemorySummarizer({ provider: "vllm", model: "x" })).toThrow(/baseUrl/);
+    expect(() => buildMemorySummarizer({ provider: "ollama", baseUrl: "http://x" })).toThrow(/model/);
+  });
+
+  it("실패(비-OK/네트워크) 시 seedSummary 폴백(무손실)", async () => {
+    // baseURL 명시 → 게이트웨이 키 override 안 함. 도달 불가 host → fetch 실패 → seed 폴백.
+    const s = buildMemorySummarizer({ provider: "vllm", baseUrl: "http://127.0.0.1:1/", model: "m" })!;
+    const out = await s({ messages: [{ role: "user", content: "hi" }], keepTail: 0, targetTokens: 100, seedSummary: "SEED-RECAP" });
+    expect(out).toBe("SEED-RECAP");
   });
 });

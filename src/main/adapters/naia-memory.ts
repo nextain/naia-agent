@@ -3,13 +3,14 @@
 // 절단은 domain formatRecalledMemory 소유(adapter 는 데이터만). save = user/assistant encode.
 import {
   buildLLMFactExtractor,
+  buildLLMSummarizer,
   LocalAdapter,
   MemorySystem,
   NaiaGatewayEmbeddingProvider,
   OfflineEmbeddingProvider,
   OpenAICompatEmbeddingProvider,
 } from "@nextain/naia-memory";
-import type { EmbeddingProvider, FactExtractor } from "@nextain/naia-memory";
+import type { CompactionSummarizer, EmbeddingProvider, FactExtractor } from "@nextain/naia-memory";
 import type { ManagedMemoryPort } from "../ports/memory.js";
 import type { CompactionPort, CompactionRequest, CompactionResult, HandoffBlob } from "../ports/compaction.js";
 import type { RecalledMemory } from "../domain/memory.js";
@@ -74,6 +75,16 @@ export function buildMemoryFactExtractor(cfg?: MemoryLlmConfig): FactExtractor |
     throw new Error(`memory llm(${cfg.provider}): baseUrl·model 은 필수다.`);
   }
   return buildLLMFactExtractor({ apiKey: cfg.apiKey ?? "", baseURL: cfg.baseUrl, model: cfg.model });
+}
+
+/** MemoryLlmConfig → CompactionSummarizer(또는 undefined=결정론 recap). factExtractor 와 같은 small-LLM 설정
+ *  사용 — 사용자 비전 "라이트 모델이 요약작업". compaction recap 을 LLM 으로 polish, 실패 시 결정론 폴백(무손실). */
+export function buildMemorySummarizer(cfg?: MemoryLlmConfig): CompactionSummarizer | undefined {
+  if (!cfg || cfg.provider === "none") return undefined;
+  if (!cfg.baseUrl?.trim() || !cfg.model?.trim()) {
+    throw new Error(`memory llm(${cfg.provider}): baseUrl·model 은 필수다(summarizer).`);
+  }
+  return buildLLMSummarizer({ apiKey: cfg.apiKey ?? "", baseURL: cfg.baseUrl, model: cfg.model });
 }
 
 /** 임베딩 provider 선택 — os 메모리 UI(memoryEmbeddingProvider 등)에서 유도. */
@@ -142,6 +153,7 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ManagedMemoryPort & Compac
   // embedding 은 adapter 선택과 분리해 빌드(순수). provider 별 필수 누락 = throw(상위 entry 가 catch→기억 없이 격리).
   const embeddingProvider = buildEmbeddingProvider(opts.embedding);
   const factExtractor = buildMemoryFactExtractor(opts.llm); // LLM 사실추출(미지정=휴리스틱, 무회귀).
+  const summarizer = buildMemorySummarizer(opts.llm); // LLM compaction recap polish(미지정=결정론, 무회귀).
   let sys: MemorySystem;
   if (opts.adapter === "qdrant") {
     // QdrantAdapter 는 embedding 필수(키워드-only 불가) — fail-closed.
@@ -161,6 +173,7 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ManagedMemoryPort & Compac
       },
       embeddingProvider,
       ...(factExtractor ? { factExtractor } : {}),
+      ...(summarizer ? { summarizer } : {}),
     });
   } else {
     // local: storePath 제어 위해 LocalAdapter 직접 생성(MemorySystem 내부 빌드는 storePath 미지정). embeddingProvider
@@ -171,6 +184,7 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ManagedMemoryPort & Compac
         ...(embeddingProvider ? { embeddingProvider } : {}),
       }),
       ...(factExtractor ? { factExtractor } : {}),
+      ...(summarizer ? { summarizer } : {}),
     });
   }
   // QdrantAdapter 는 비동기 initialize() 필요(recall/encode 는 내부적으로 _initPromise 대기 안 함). LocalAdapter
