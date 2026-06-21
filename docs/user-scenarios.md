@@ -1,17 +1,17 @@
 # User Scenarios (P01) + Test Coverage Map
 
-정본 사용자 시나리오 인덱스. 각 UC 의 권위 계약서는 `docs/progress/UC*-contract*.md` 이며,
+정본 사용자 시나리오 인덱스. 각 UC 의 권위 계약서는 `docs/progress/99.dev-comm/UC*-contract*.md` 이며,
 이 문서는 그 UC 목록과 테스트 커버리지 맵을 집약한다(SDLC P01 산출물).
 
 ## UC 인덱스
 
 | UC | 시나리오 | 권위 계약서 |
 |----|----------|-------------|
-| UC1 | 에이전트 수평 파이프라인(채팅 턴 = provider 호출 → wire 스트림) | `docs/progress/UC1-agent-horizontal-contract-2026-06-10.md` |
-| UC5 | 도구 실행 루프(toolUse → 실행 → 결과 스레딩 → 최종 응답) | `docs/progress/UC5-agent-tool-loop-contract-2026-06-10.md` |
-| UC-provider-provenance | provider 라우팅 출처(naia-settings/wire/키체인) | `docs/progress/UC-provider-provenance-contract-2026-06-12.md` |
-| UC-memory | 대화 턴 recall 주입 / save(naia-memory 연동) | `docs/progress/UC-memory-recall-save-contract-2026-06-12.md` |
-| UC-PROV | provider/model 라이브 교체 — 재기동 없이 다음 턴 반영 | `.agents/progress/new-naia-provider-wiring-2026-06-17.md` |
+| UC1 | 에이전트 수평 파이프라인(채팅 턴 = provider 호출 → wire 스트림) | `docs/progress/99.dev-comm/UC1-agent-horizontal-contract-2026-06-10.md` |
+| UC5 | 도구 실행 루프(toolUse → 실행 → 결과 스레딩 → 최종 응답) | `docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md` |
+| UC-provider-provenance | provider 라우팅 출처(naia-settings/wire/키체인) | `docs/progress/99.dev-comm/UC-provider-provenance-contract-2026-06-12.md` |
+| UC-memory | 대화 턴 recall 주입 / save(naia-memory 연동) | `docs/progress/99.dev-comm/UC-memory-recall-save-contract-2026-06-12.md` |
+| UC-PROV | provider/model 라이브 교체 — 재기동 없이 다음 턴 반영 | (계약 요약 = `docs/requirements.md` FR-PROV-1~5; 상세 진행기록은 메인테이너 워크스페이스) |
 
 ## UC-MEM-1 (장기기억 회상)
 

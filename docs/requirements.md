@@ -1,11 +1,11 @@
 # Requirements (P03) — FR / NFR
 
-정본 요구사항 인덱스. UC 별 FR/NFR 의 권위 계약서는 `docs/progress/UC*-contract*.md` 이며, 이 문서는
+정본 요구사항 인덱스. UC 별 FR/NFR 의 권위 계약서는 `docs/progress/99.dev-comm/UC*-contract*.md` 이며, 이 문서는
 집약 인덱스다(SDLC P03 산출물). UC1/UC5/provider-provenance FR 은 각 계약서 참조.
 
 ## UC-memory FR/NFR (FR-MEM-1 ~ 8)
 
-권위 계약서: `docs/progress/UC-memory-recall-save-contract-2026-06-12.md`.
+권위 계약서: `docs/progress/99.dev-comm/UC-memory-recall-save-contract-2026-06-12.md`.
 
 | ID | 요구사항 | 상태 |
 |----|----------|:----:|
@@ -29,8 +29,8 @@
 
 ## UC-PROV FR/NFR (FR-PROV-1 ~ 5, FR-MODEL-1)
 
-권위 진행문서: `.agents/progress/new-naia-provider-wiring-2026-06-17.md`,
-`.agents/progress/new-naia-port-execution-2026-06-18.md`(모델 최신화 + claude-code-cli SDK 분리).
+권위 계약·검증: 아래 FR-PROV-1~5·FR-MODEL-1 표 + Test Coverage Map 의 계약 테스트
+(`src/test/all-providers-wiring.contract.test.ts` 등). 상세 진행기록은 메인테이너 워크스페이스 보관(repo 외부).
 
 | ID | 요구사항 | 상태 |
 |----|----------|:----:|
@@ -48,6 +48,6 @@
 
 | UC | FR 위치 |
 |----|---------|
-| UC1 | `docs/progress/UC1-agent-horizontal-contract-2026-06-10.md` |
-| UC5 | `docs/progress/UC5-agent-tool-loop-contract-2026-06-10.md` |
-| UC-provider-provenance | `docs/progress/UC-provider-provenance-contract-2026-06-12.md` |
+| UC1 | `docs/progress/99.dev-comm/UC1-agent-horizontal-contract-2026-06-10.md` |
+| UC5 | `docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md` |
+| UC-provider-provenance | `docs/progress/99.dev-comm/UC-provider-provenance-contract-2026-06-12.md` |

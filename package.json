@@ -10,6 +10,7 @@
   "packageManager": "pnpm@10",
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "start": "node scripts/builds/agent-stdio-entry.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:report": "vitest run --reporter=verbose"
