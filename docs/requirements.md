@@ -20,6 +20,7 @@
 | FR-MEM-8 | 비신뢰 회상 — 신뢰 경계 표시 + 직접 경계-위조 방지(완화책; 모델 순응 차단은 *미보장*, 잔여 위험 명시). | Done |
 | FR-MEM-9 | 단일-project-per-process + workspace identity = 영속 UUID(`<adkPath>/.naia/workspace-id`). 정본: override → UUID → 실패 시 memory 비활성(fail-closed). 이동 연속·경로 재사용 누설 차단·동시부팅 배타생성. makeNaiaMemory project 필수+비공백. | Done |
 | FR-MEM-10 | 출처 보존 — recall 이 episode role(user/assistant) 보존, formatter 가 사용자 진술/assistant 생성물(미검증) 구분(자기증폭·확증루프 방지). | Done |
+| FR-MEM-11 | adapter/embedding 선택 배선(issue #7) — os 메모리 UI 의 `memoryAdapter`(local/qdrant)·`memoryEmbeddingProvider`(none/offline/vllm/ollama/naia) 선택이 config.json→`loadMemoryConfig`→`makeNaiaMemory`(`buildEmbeddingProvider`)로 런타임 반영. 이전엔 LocalAdapter+키워드-only 하드코딩이라 UI 선택 무시(silent no-op)였음. 미설정=local+키워드-only(무회귀). qdrant=embedding 필수 fail-closed. 비밀(*ApiKey)은 셸 strip→env/키체인 best-effort. 부팅 1회(라이브 변경=재시작 반영). 실 embed I/O(원격/모델다운로드/라이브 qdrant)=naia-memory 책임+외부자원(헤르메틱 범위 밖). | Done |
 
 ### NFR
 - 헥사고날 경계: domain 순수(formatRecalledMemory)·app 포트만·adapter 데이터만(프롬프트 정책 비누출).

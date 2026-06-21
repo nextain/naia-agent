@@ -213,8 +213,26 @@ if (process.env.NAIA_AGENT_MEMORY !== "off") {
     // 고정 "s1" 이면 같은 project 의 모든 재시작이 한 세션으로 합쳐짐. 회상은 content+project 기반이라
     // 정확성엔 무관하나, 세션 경계 위생을 위해 분리.
     const sessionId = process.env.NAIA_MEMORY_SESSION || `proc-${randomUUID()}`;
-    memory = makeNaiaMemory({ storePath, project, sessionId });
-    memoryLabel = `naia-memory(${storePath}, project=${project})`;
+    // issue #7: config.json(naia-settings) 의 adapter(local/qdrant)·embedding(offline/vllm/ollama/naia) 선택을
+    //   런타임에 반영(이전엔 LocalAdapter+키워드-only 하드코딩이라 UI 선택 무시). 비밀(*ApiKey/naiaKey)은 셸이
+    //   strip 하므로 env/키체인(settingsResolveSecret)으로 best-effort — 로컬 서버(무인증)는 빈 키로 동작.
+    //   ⚠️ 부팅 시 1회 읽음 — 사용자가 메모리 설정을 라이브 변경하면 agent 재시작(restart_agent) 시 반영(provider
+    //   는 ReloadSettings 로 라이브, memory 는 store 수명/마이그레이션 때문에 재시작 경계). 미설정/손상=local+키워드-only.
+    const memCfg = settingsStore.loadMemoryConfig(adkPath);
+    memory = makeNaiaMemory({
+      storePath,
+      project,
+      sessionId,
+      ...(memCfg
+        ? {
+            adapter: memCfg.adapter,
+            ...(memCfg.qdrantUrl ? { qdrantUrl: memCfg.qdrantUrl } : {}),
+            ...(memCfg.qdrantApiKey ? { qdrantApiKey: memCfg.qdrantApiKey } : {}),
+            embedding: memCfg.embedding,
+          }
+        : {}),
+    });
+    memoryLabel = `naia-memory(${storePath}, project=${project}, adapter=${memCfg?.adapter ?? "local"}, embed=${memCfg?.embedding.provider ?? "none"})`;
   } catch (e) {
     process.stderr.write(`[new-naia-agent] memory init 실패(격리, 기억 없이 진행): ${e instanceof Error ? e.message : String(e)}\n`);
   }

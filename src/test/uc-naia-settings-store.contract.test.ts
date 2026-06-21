@@ -107,3 +107,40 @@ describe("roleHasPlaintextSecret (불변식 방어 단위)", () => {
 		expect(roleHasPlaintextSecret({ provider: "x", baseUrl: "AIzaSyAAAAAAAAAA" })).toBe(true);
 	});
 });
+
+describe("loadMemoryConfig — config.json 의 adapter/embedding 선택(issue #7)", () => {
+	it("config 부재 = null(메모리 기본 local+키워드-only)", () => {
+		expect(store({}).loadMemoryConfig("/ws")).toBeNull();
+	});
+	it("memory 미설정 config → adapter=local, embedding.provider=none(기본)", () => {
+		const r = store({ [CONFIG]: JSON.stringify({ provider: "zai", model: "glm-5.1" }) }).loadMemoryConfig("/ws");
+		expect(r?.adapter).toBe("local");
+		expect(r?.embedding.provider).toBe("none");
+	});
+	it("offline embedding + offlineModel 매핑", () => {
+		const r = store({ [CONFIG]: JSON.stringify({ provider: "zai", model: "m", memoryEmbeddingProvider: "offline", memoryOfflineModel: "all-mpnet-base-v2" }) }).loadMemoryConfig("/ws");
+		expect(r?.embedding.provider).toBe("offline");
+		expect(r?.embedding.offlineModel).toBe("all-mpnet-base-v2");
+	});
+	it("vllm embedding(baseUrl/model) 매핑", () => {
+		const r = store({ [CONFIG]: JSON.stringify({ provider: "zai", model: "m", memoryEmbeddingProvider: "vllm", memoryEmbeddingBaseUrl: "http://localhost:11434", memoryEmbeddingModel: "nomic-embed-text" }) }).loadMemoryConfig("/ws");
+		expect(r?.embedding.provider).toBe("vllm");
+		expect(r?.embedding.baseUrl).toBe("http://localhost:11434");
+		expect(r?.embedding.model).toBe("nomic-embed-text");
+	});
+	it("qdrant adapter + qdrantUrl 매핑(키는 strip → config 엔 없음)", () => {
+		const r = store({ [CONFIG]: JSON.stringify({ provider: "zai", model: "m", memoryAdapter: "qdrant", qdrantUrl: "http://localhost:6333" }) }).loadMemoryConfig("/ws");
+		expect(r?.adapter).toBe("qdrant");
+		expect(r?.qdrantUrl).toBe("http://localhost:6333");
+		expect(r?.qdrantApiKey).toBeUndefined(); // strip 됨 → resolveSecret 미공급 시 부재
+	});
+	it("비밀(embed/qdrant apiKey)은 resolveSecret(env/키체인)로 best-effort 채움", () => {
+		const secretStore = makeNaiaSettingsStore({
+			fs: memFs({ [CONFIG]: JSON.stringify({ provider: "zai", model: "m", memoryAdapter: "qdrant", qdrantUrl: "http://q", memoryEmbeddingProvider: "vllm", memoryEmbeddingBaseUrl: "http://e", memoryEmbeddingModel: "em" }) }),
+			resolveSecret: (ref) => ({ NAIA_MEMORY_QDRANT_API_KEY: "qd-SECRET", NAIA_MEMORY_EMBED_API_KEY: "emb-SECRET" })[ref],
+		});
+		const r = secretStore.loadMemoryConfig("/ws");
+		expect(r?.qdrantApiKey).toBe("qd-SECRET");
+		expect(r?.embedding.apiKey).toBe("emb-SECRET");
+	});
+});

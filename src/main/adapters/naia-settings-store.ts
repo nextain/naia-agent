@@ -55,9 +55,29 @@ export function roleHasPlaintextSecret(role: unknown): boolean {
 	return false;
 }
 
+/** config.json 의 메모리 런타임 설정(issue #7) — os 메모리 UI 가 write_naia_config 로 기록한 adapter/embedding
+ *  선택. 비밀(*ApiKey/naiaKey)은 셸이 strip 하므로 config.json 엔 없음 → resolveSecret(env/키체인)로 best-effort.
+ *  makeNaiaMemory 의 NaiaMemoryOpts(adapter·qdrant·embedding)와 동형(entry 가 그대로 전달). */
+export interface MemoryRuntimeConfig {
+	adapter: "local" | "qdrant";
+	qdrantUrl?: string;
+	qdrantApiKey?: string;
+	embedding: {
+		provider: "none" | "offline" | "vllm" | "ollama" | "naia";
+		offlineModel?: "all-MiniLM-L6-v2" | "all-mpnet-base-v2" | "multilingual-e5-large";
+		baseUrl?: string;
+		apiKey?: string;
+		model?: string;
+		naiaGatewayUrl?: string;
+		naiaKey?: string;
+	};
+}
+
 export interface NaiaSettingsStore {
 	/** `<adkPath>/naia-settings/` 의 활성 ProviderConfig(llm.json main → config.json 순). 없음/손상 = null(degrade, no-throw). */
 	loadMain(adkPath: string): ProviderConfig | null;
+	/** config.json 의 메모리 adapter/embedding 선택(issue #7). 부재/손상/미설정 = null(메모리 기본=local+키워드-only). */
+	loadMemoryConfig(adkPath: string): MemoryRuntimeConfig | null;
 }
 
 const KNOWN_VERSION = 1;
@@ -153,6 +173,36 @@ export function makeNaiaSettingsStore(deps: {
 		});
 	}
 
+	/** (issue #7) config.json → MemoryRuntimeConfig. 비밀(*ApiKey/naiaKey)은 strip 되므로 env/키체인(resolveSecret)
+	 *  best-effort(로컬 서버=빈 값 허용). 부재/손상 = null(메모리 기본 local+키워드-only). */
+	function fromConfigJsonMemory(file: string): MemoryRuntimeConfig | null {
+		const c = readJson<Record<string, unknown>>(file);
+		if (!c || typeof c !== "object") return null;
+		const str = (k: string) => (typeof c[k] === "string" ? (c[k] as string) : undefined);
+		const adapter = str("memoryAdapter") === "qdrant" ? "qdrant" : "local";
+		const ep = str("memoryEmbeddingProvider");
+		const provider = (["offline", "vllm", "ollama", "naia"] as const).find((p) => p === ep) ?? "none";
+		const om = str("memoryOfflineModel");
+		const offlineModel = (["all-MiniLM-L6-v2", "all-mpnet-base-v2", "multilingual-e5-large"] as const).find((m) => m === om);
+		const embedApiKey = resolveSecret("NAIA_MEMORY_EMBED_API_KEY");
+		const qdrantApiKey = resolveSecret("NAIA_MEMORY_QDRANT_API_KEY");
+		const naiaKey = resolveSecret("NAIA_KEY") ?? resolveSecret("naiaKey");
+		return {
+			adapter,
+			...(str("qdrantUrl") ? { qdrantUrl: str("qdrantUrl") } : {}),
+			...(qdrantApiKey ? { qdrantApiKey } : {}),
+			embedding: {
+				provider,
+				...(offlineModel ? { offlineModel } : {}),
+				...(str("memoryEmbeddingBaseUrl") ? { baseUrl: str("memoryEmbeddingBaseUrl") } : {}),
+				...(embedApiKey ? { apiKey: embedApiKey } : {}),
+				...(str("memoryEmbeddingModel") ? { model: str("memoryEmbeddingModel") } : {}),
+				...(str("naiaGatewayUrl") ? { naiaGatewayUrl: str("naiaGatewayUrl") } : {}),
+				...(naiaKey ? { naiaKey } : {}),
+			},
+		};
+	}
+
 	return {
 		loadMain(adkPath) {
 			if (!adkPath) return null;
@@ -162,6 +212,11 @@ export function makeNaiaSettingsStore(deps: {
 		//    stale llm.json 이 가리면 안 된다(실측 회귀: stale llm.json main.provider=openai-compat 가 config.json 을 덮어
 		//    채팅 전체 throw). config.json 부재/불완전이면 llm.json(CLI 로그인) 으로 폴백.
 		return fromConfigJson(`${dir}/config.json`) ?? fromLlmJson(`${dir}/llm.json`);
+		},
+		loadMemoryConfig(adkPath) {
+			if (!adkPath) return null;
+			const dir = `${adkPath.replace(/\/+$/, "")}/naia-settings`;
+			return fromConfigJsonMemory(`${dir}/config.json`);
 		},
 	};
 }
