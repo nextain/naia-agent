@@ -65,6 +65,8 @@ export interface MemoryRuntimeConfig {
 	embedding: {
 		provider: "none" | "offline" | "vllm" | "ollama" | "naia";
 		offlineModel?: "all-MiniLM-L6-v2" | "all-mpnet-base-v2" | "multilingual-e5-large";
+		/** naia-embedded 컴퓨트 device(provider="offline"). cpu/gpu/auto. */
+		device?: "cpu" | "gpu" | "auto";
 		baseUrl?: string;
 		apiKey?: string;
 		model?: string;
@@ -191,6 +193,8 @@ export function makeNaiaSettingsStore(deps: {
 		const provider = (["offline", "vllm", "ollama", "naia"] as const).find((p) => p === ep) ?? "none";
 		const om = str("memoryOfflineModel");
 		const offlineModel = (["all-MiniLM-L6-v2", "all-mpnet-base-v2", "multilingual-e5-large"] as const).find((m) => m === om);
+		const dev = str("memoryEmbeddingDevice");
+		const device = (["cpu", "gpu", "auto"] as const).find((d) => d === dev);
 		const embedApiKey = resolveSecret("NAIA_MEMORY_EMBED_API_KEY");
 		const qdrantApiKey = resolveSecret("NAIA_MEMORY_QDRANT_API_KEY");
 		const naiaKey = resolveSecret("NAIA_KEY") ?? resolveSecret("naiaKey");
@@ -206,6 +210,7 @@ export function makeNaiaSettingsStore(deps: {
 			embedding: {
 				provider,
 				...(offlineModel ? { offlineModel } : {}),
+				...(device ? { device } : {}),
 				...(str("memoryEmbeddingBaseUrl") ? { baseUrl: str("memoryEmbeddingBaseUrl") } : {}),
 				...(embedApiKey ? { apiKey: embedApiKey } : {}),
 				...(str("memoryEmbeddingModel") ? { model: str("memoryEmbeddingModel") } : {}),

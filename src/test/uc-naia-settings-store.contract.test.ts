@@ -117,6 +117,12 @@ describe("loadMemoryConfig — config.json 의 adapter/embedding 선택(issue #7
 		expect(r?.adapter).toBe("local");
 		expect(r?.embedding.provider).toBe("none");
 	});
+	it("offline embedding device(gpu/cpu) 매핑 + 무효값 무시", () => {
+		const r = store({ [CONFIG]: JSON.stringify({ provider: "zai", model: "m", memoryEmbeddingProvider: "offline", memoryEmbeddingDevice: "gpu" }) }).loadMemoryConfig("/ws");
+		expect(r?.embedding.device).toBe("gpu");
+		const r2 = store({ [CONFIG]: JSON.stringify({ provider: "zai", model: "m", memoryEmbeddingProvider: "offline", memoryEmbeddingDevice: "tpu" }) }).loadMemoryConfig("/ws");
+		expect(r2?.embedding.device).toBeUndefined();
+	});
 	it("offline embedding + offlineModel 매핑", () => {
 		const r = store({ [CONFIG]: JSON.stringify({ provider: "zai", model: "m", memoryEmbeddingProvider: "offline", memoryOfflineModel: "all-mpnet-base-v2" }) }).loadMemoryConfig("/ws");
 		expect(r?.embedding.provider).toBe("offline");

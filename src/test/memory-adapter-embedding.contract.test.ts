@@ -109,3 +109,11 @@ describe("issue #7 — buildMemoryFactExtractor: UI LLM 선택 → FactExtractor
     expect(() => buildMemoryFactExtractor({ provider: "ollama", baseUrl: "http://x" })).toThrow(/model/);
   });
 });
+
+describe("issue #7 후속 — embedding device(gpu/cpu) 선택(naia-embedded 컴퓨트)", () => {
+  it("offline + device(gpu/cpu/auto) — 구성 성공(name=offline; 실 device 적용은 transformers init)", () => {
+    expect(buildEmbeddingProvider({ provider: "offline", device: "gpu" })?.name).toBe("offline");
+    expect(buildEmbeddingProvider({ provider: "offline", device: "cpu" })?.name).toBe("offline");
+    expect(buildEmbeddingProvider({ provider: "offline", device: "auto" })?.name).toBe("offline");
+  });
+});

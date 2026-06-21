@@ -82,6 +82,9 @@ export interface MemoryEmbeddingConfig {
   readonly provider: "none" | "offline" | "vllm" | "ollama" | "naia";
   /** offline 모델(provider="offline"). 기본 all-MiniLM-L6-v2. */
   readonly offlineModel?: "all-MiniLM-L6-v2" | "all-mpnet-base-v2" | "multilingual-e5-large";
+  /** naia-embedded 컴퓨트 device(provider="offline" 만 의미). "cpu"=강제CPU / "gpu"=가용시GPU(없으면 CPU 폴백)
+   *  / "auto"=자동. 미지정=transformers 기본. issue #7 후속(컴퓨트 선택). */
+  readonly device?: "cpu" | "gpu" | "auto";
   /** OpenAI-compat base URL(provider="vllm"|"ollama" 필수). */
   readonly baseUrl?: string;
   /** OpenAI-compat API key(provider="vllm"|"ollama"; 로컬 서버는 보통 빈 값 허용). */
@@ -101,7 +104,7 @@ export function buildEmbeddingProvider(cfg?: MemoryEmbeddingConfig): EmbeddingPr
   if (!cfg || cfg.provider === "none") return undefined;
   switch (cfg.provider) {
     case "offline":
-      return new OfflineEmbeddingProvider(cfg.offlineModel ?? "all-MiniLM-L6-v2");
+      return new OfflineEmbeddingProvider(cfg.offlineModel ?? "all-MiniLM-L6-v2", cfg.device);
     case "vllm":
     case "ollama": {
       if (!cfg.baseUrl?.trim() || !cfg.model?.trim()) {
