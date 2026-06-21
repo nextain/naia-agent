@@ -25,8 +25,8 @@ AI 코딩 도구(Cursor, Claude Code 등)를 쓰신다면, 이 폴더를 연 뒤
 먼저 저장소를 내려받습니다.
 
 ```bash
-git clone https://github.com/nextain/naia-agent.git
-cd naia-agent
+git clone https://github.com/nextain/new-naia-agent.git
+cd new-naia-agent
 ```
 
 그다음 사용하는 AI 코딩 도구(Claude Code, Cursor, GitHub Copilot, Gemini CLI 등)에서 이 폴더를 열고, 모국어로 이렇게 물어보세요.

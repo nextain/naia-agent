@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "description": "naia-agent(brain) 헥사고날 이식 — UC1 brain 파이프라인",
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@10",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
