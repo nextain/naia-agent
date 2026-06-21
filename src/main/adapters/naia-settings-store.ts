@@ -71,6 +71,13 @@ export interface MemoryRuntimeConfig {
 		naiaGatewayUrl?: string;
 		naiaKey?: string;
 	};
+	/** LLM 사실추출(factExtractor). naia=게이트웨이, vllm/ollama=로컬. provider/baseUrl/model 정규화됨. */
+	llm: {
+		provider: "none" | "vllm" | "ollama" | "naia";
+		baseUrl?: string;
+		apiKey?: string;
+		model?: string;
+	};
 }
 
 export interface NaiaSettingsStore {
@@ -187,6 +194,11 @@ export function makeNaiaSettingsStore(deps: {
 		const embedApiKey = resolveSecret("NAIA_MEMORY_EMBED_API_KEY");
 		const qdrantApiKey = resolveSecret("NAIA_MEMORY_QDRANT_API_KEY");
 		const naiaKey = resolveSecret("NAIA_KEY") ?? resolveSecret("naiaKey");
+		// LLM 사실추출(factExtractor) — naia=게이트웨이(naiaGatewayUrl+naiaKey), vllm/ollama=memoryLlmBaseUrl+로컬키.
+		const lp = str("memoryLlmProvider");
+		const llmProvider = (["vllm", "ollama", "naia"] as const).find((p) => p === lp) ?? "none";
+		const llmBaseUrl = llmProvider === "naia" ? str("naiaGatewayUrl") : str("memoryLlmBaseUrl");
+		const llmKey = llmProvider === "naia" ? naiaKey : resolveSecret("NAIA_MEMORY_LLM_API_KEY");
 		return {
 			adapter,
 			...(str("qdrantUrl") ? { qdrantUrl: str("qdrantUrl") } : {}),
@@ -199,6 +211,12 @@ export function makeNaiaSettingsStore(deps: {
 				...(str("memoryEmbeddingModel") ? { model: str("memoryEmbeddingModel") } : {}),
 				...(str("naiaGatewayUrl") ? { naiaGatewayUrl: str("naiaGatewayUrl") } : {}),
 				...(naiaKey ? { naiaKey } : {}),
+			},
+			llm: {
+				provider: llmProvider,
+				...(llmBaseUrl ? { baseUrl: llmBaseUrl } : {}),
+				...(llmKey ? { apiKey: llmKey } : {}),
+				...(str("memoryLlmModel") ? { model: str("memoryLlmModel") } : {}),
 			},
 		};
 	}

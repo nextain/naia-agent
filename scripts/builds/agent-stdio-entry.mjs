@@ -229,10 +229,11 @@ if (process.env.NAIA_AGENT_MEMORY !== "off") {
             ...(memCfg.qdrantUrl ? { qdrantUrl: memCfg.qdrantUrl } : {}),
             ...(memCfg.qdrantApiKey ? { qdrantApiKey: memCfg.qdrantApiKey } : {}),
             embedding: memCfg.embedding,
+            llm: memCfg.llm,
           }
         : {}),
     });
-    memoryLabel = `naia-memory(${storePath}, project=${project}, adapter=${memCfg?.adapter ?? "local"}, embed=${memCfg?.embedding.provider ?? "none"})`;
+    memoryLabel = `naia-memory(${storePath}, project=${project}, adapter=${memCfg?.adapter ?? "local"}, embed=${memCfg?.embedding.provider ?? "none"}, llm=${memCfg?.llm.provider ?? "none"})`;
   } catch (e) {
     process.stderr.write(`[new-naia-agent] memory init 실패(격리, 기억 없이 진행): ${e instanceof Error ? e.message : String(e)}\n`);
   }

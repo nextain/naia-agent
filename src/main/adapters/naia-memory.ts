@@ -2,13 +2,14 @@
 // recall = 시맨틱/키워드 검색 결과의 *원문*(facts/episodes content)을 반환 — 프롬프트 프레이밍·예산
 // 절단은 domain formatRecalledMemory 소유(adapter 는 데이터만). save = user/assistant encode.
 import {
+  buildLLMFactExtractor,
   LocalAdapter,
   MemorySystem,
   NaiaGatewayEmbeddingProvider,
   OfflineEmbeddingProvider,
   OpenAICompatEmbeddingProvider,
 } from "@nextain/naia-memory";
-import type { EmbeddingProvider } from "@nextain/naia-memory";
+import type { EmbeddingProvider, FactExtractor } from "@nextain/naia-memory";
 import type { ManagedMemoryPort } from "../ports/memory.js";
 import type { CompactionPort, CompactionRequest, CompactionResult, HandoffBlob } from "../ports/compaction.js";
 import type { RecalledMemory } from "../domain/memory.js";
@@ -48,6 +49,31 @@ export interface NaiaMemoryOpts {
   /** 임베딩 provider 설정. 미지정/provider="none" = 키워드-only(기존 동작). 지정 시 벡터 시맨틱 검색 활성.
    *  LocalAdapter 는 옵션(없으면 키워드-only), QdrantAdapter 는 필수. */
   readonly embedding?: MemoryEmbeddingConfig;
+  /** 메모리 LLM(사실추출 factExtractor). 미지정/provider="none" = 휴리스틱 추출(기존 동작·무회귀).
+   *  지정 시 LLM 기반 atomic 사실추출. compaction summarizer 는 별개(빌더 없음 → 결정론 recap 유지). issue #7. */
+  readonly llm?: MemoryLlmConfig;
+}
+
+/** 메모리 LLM(사실추출) 선택 — os 메모리 UI(memoryLlmProvider 등). baseUrl/apiKey/model 은 provider 별로
+ *  loadMemoryConfig 가 정규화(naia=게이트웨이, vllm/ollama=로컬). buildMemoryFactExtractor 는 OpenAI-compat 단일 경로. */
+export interface MemoryLlmConfig {
+  readonly provider: "none" | "vllm" | "ollama" | "naia";
+  /** OpenAI-compat chat/completions base URL(provider!="none" 필수, /chat/completions 제외). */
+  readonly baseUrl?: string;
+  /** API key(로컬 서버는 빈 값 허용; naia=게이트웨이 키). */
+  readonly apiKey?: string;
+  /** 모델명(provider!="none" 필수). */
+  readonly model?: string;
+}
+
+/** MemoryLlmConfig → FactExtractor(또는 undefined=휴리스틱). 순수·테스트 가능. baseUrl·model 누락 = fail-closed
+ *  throw(makeNaiaMemory 가 catch→기억 없이 격리). vllm/ollama/naia 모두 OpenAI-compat 단일 경로(buildLLMFactExtractor). */
+export function buildMemoryFactExtractor(cfg?: MemoryLlmConfig): FactExtractor | undefined {
+  if (!cfg || cfg.provider === "none") return undefined;
+  if (!cfg.baseUrl?.trim() || !cfg.model?.trim()) {
+    throw new Error(`memory llm(${cfg.provider}): baseUrl·model 은 필수다.`);
+  }
+  return buildLLMFactExtractor({ apiKey: cfg.apiKey ?? "", baseURL: cfg.baseUrl, model: cfg.model });
 }
 
 /** 임베딩 provider 선택 — os 메모리 UI(memoryEmbeddingProvider 등)에서 유도. */
@@ -112,6 +138,7 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ManagedMemoryPort & Compac
   // issue #7: os 메모리 UI 의 adapter/embedding 선택을 런타임에 반영(이전엔 LocalAdapter+키워드-only 하드코딩).
   // embedding 은 adapter 선택과 분리해 빌드(순수). provider 별 필수 누락 = throw(상위 entry 가 catch→기억 없이 격리).
   const embeddingProvider = buildEmbeddingProvider(opts.embedding);
+  const factExtractor = buildMemoryFactExtractor(opts.llm); // LLM 사실추출(미지정=휴리스틱, 무회귀).
   let sys: MemorySystem;
   if (opts.adapter === "qdrant") {
     // QdrantAdapter 는 embedding 필수(키워드-only 불가) — fail-closed.
@@ -130,6 +157,7 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ManagedMemoryPort & Compac
         collectionPrefix: project,
       },
       embeddingProvider,
+      ...(factExtractor ? { factExtractor } : {}),
     });
   } else {
     // local: storePath 제어 위해 LocalAdapter 직접 생성(MemorySystem 내부 빌드는 storePath 미지정). embeddingProvider
@@ -139,6 +167,7 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ManagedMemoryPort & Compac
         ...(opts.storePath ? { storePath: opts.storePath } : {}),
         ...(embeddingProvider ? { embeddingProvider } : {}),
       }),
+      ...(factExtractor ? { factExtractor } : {}),
     });
   }
   // QdrantAdapter 는 비동기 initialize() 필요(recall/encode 는 내부적으로 _initPromise 대기 안 함). LocalAdapter

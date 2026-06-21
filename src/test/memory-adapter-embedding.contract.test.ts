@@ -10,7 +10,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildEmbeddingProvider, makeNaiaMemory } from "../main/adapters/naia-memory.js";
+import { buildEmbeddingProvider, buildMemoryFactExtractor, makeNaiaMemory } from "../main/adapters/naia-memory.js";
 
 describe("issue #7 — buildEmbeddingProvider: UI embedding 선택 → EmbeddingProvider 매핑", () => {
   it("none/미지정 = 키워드-only(undefined)", () => {
@@ -92,5 +92,20 @@ describe("issue #7 — makeNaiaMemory: adapter 선택 + fail-closed 가드", () 
         embedding: { provider: "offline" },
       }),
     ).toThrow(/qdrantUrl/);
+  });
+});
+
+describe("issue #7 — buildMemoryFactExtractor: UI LLM 선택 → FactExtractor 매핑", () => {
+  it("none/미지정 = 휴리스틱(undefined)", () => {
+    expect(buildMemoryFactExtractor()).toBeUndefined();
+    expect(buildMemoryFactExtractor({ provider: "none" })).toBeUndefined();
+  });
+
+  it("vllm/ollama/naia = FactExtractor(함수); baseUrl·model 누락 = fail-closed(throw)", () => {
+    const fe = buildMemoryFactExtractor({ provider: "vllm", baseUrl: "http://localhost:8000", model: "qwen" });
+    expect(typeof fe).toBe("function");
+    expect(typeof buildMemoryFactExtractor({ provider: "naia", baseUrl: "https://gw", model: "vertexai:gemini" })).toBe("function");
+    expect(() => buildMemoryFactExtractor({ provider: "vllm", model: "x" })).toThrow(/baseUrl/);
+    expect(() => buildMemoryFactExtractor({ provider: "ollama", baseUrl: "http://x" })).toThrow(/model/);
   });
 });

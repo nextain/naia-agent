@@ -144,3 +144,27 @@ describe("loadMemoryConfig — config.json 의 adapter/embedding 선택(issue #7
 		expect(r?.embedding.apiKey).toBe("emb-SECRET");
 	});
 });
+
+describe("loadMemoryConfig — LLM 사실추출 선택(issue #7)", () => {
+	it("미설정 → llm.provider=none(휴리스틱)", () => {
+		const r = store({ [CONFIG]: JSON.stringify({ provider: "zai", model: "m" }) }).loadMemoryConfig("/ws");
+		expect(r?.llm.provider).toBe("none");
+	});
+	it("vllm LLM(baseUrl/model) 매핑", () => {
+		const r = store({ [CONFIG]: JSON.stringify({ provider: "zai", model: "m", memoryLlmProvider: "vllm", memoryLlmBaseUrl: "http://localhost:8000", memoryLlmModel: "qwen" }) }).loadMemoryConfig("/ws");
+		expect(r?.llm.provider).toBe("vllm");
+		expect(r?.llm.baseUrl).toBe("http://localhost:8000");
+		expect(r?.llm.model).toBe("qwen");
+	});
+	it("naia LLM = 게이트웨이(naiaGatewayUrl) + naiaKey(resolveSecret) 정규화", () => {
+		const secretStore = makeNaiaSettingsStore({
+			fs: memFs({ [CONFIG]: JSON.stringify({ provider: "zai", model: "m", memoryLlmProvider: "naia", naiaGatewayUrl: "https://gw", memoryLlmModel: "vertexai:gemini" }) }),
+			resolveSecret: (ref) => ({ NAIA_KEY: "naia-SECRET" })[ref],
+		});
+		const r = secretStore.loadMemoryConfig("/ws");
+		expect(r?.llm.provider).toBe("naia");
+		expect(r?.llm.baseUrl).toBe("https://gw");
+		expect(r?.llm.apiKey).toBe("naia-SECRET");
+		expect(r?.llm.model).toBe("vertexai:gemini");
+	});
+});
