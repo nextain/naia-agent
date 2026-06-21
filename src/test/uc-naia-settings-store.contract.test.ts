@@ -165,7 +165,8 @@ describe("loadMemoryConfig — LLM 사실추출 선택(issue #7)", () => {
 	it("naia LLM = 게이트웨이(naiaGatewayUrl) + naiaKey(resolveSecret) 정규화", () => {
 		const secretStore = makeNaiaSettingsStore({
 			fs: memFs({ [CONFIG]: JSON.stringify({ provider: "zai", model: "m", memoryLlmProvider: "naia", naiaGatewayUrl: "https://gw", memoryLlmModel: "vertexai:gemini" }) }),
-			resolveSecret: (ref) => ({ NAIA_KEY: "naia-SECRET" })[ref],
+			// 정식 account = NAIA_ANYLLM_API_KEY(os writeAgentKey(naiaKey)가 쓰는 곳).
+			resolveSecret: (ref) => ({ NAIA_ANYLLM_API_KEY: "naia-SECRET" })[ref],
 		});
 		const r = secretStore.loadMemoryConfig("/ws");
 		expect(r?.llm.provider).toBe("naia");

@@ -197,7 +197,12 @@ export function makeNaiaSettingsStore(deps: {
 		const device = (["cpu", "gpu", "auto"] as const).find((d) => d === dev);
 		const embedApiKey = resolveSecret("NAIA_MEMORY_EMBED_API_KEY");
 		const qdrantApiKey = resolveSecret("NAIA_MEMORY_QDRANT_API_KEY");
-		const naiaKey = resolveSecret("NAIA_KEY") ?? resolveSecret("naiaKey");
+		// naiaKey 는 os writeAgentKey(naiaKey)가 키체인 account "NAIA_ANYLLM_API_KEY" 로 기록(resolveAgentEnvKey).
+		// 메모리 naia 임베딩/LLM 도 같은 게이트웨이 키를 쓴다. 구 ref(NAIA_KEY/naiaKey)는 env override 폴백으로 유지.
+		const naiaKey =
+			resolveSecret("NAIA_ANYLLM_API_KEY") ??
+			resolveSecret("NAIA_KEY") ??
+			resolveSecret("naiaKey");
 		// LLM 사실추출(factExtractor) — naia=게이트웨이(naiaGatewayUrl+naiaKey), vllm/ollama=memoryLlmBaseUrl+로컬키.
 		const lp = str("memoryLlmProvider");
 		const llmProvider = (["vllm", "ollama", "naia"] as const).find((p) => p === lp) ?? "none";
