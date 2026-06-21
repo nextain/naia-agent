@@ -203,10 +203,17 @@ export function makeNaiaSettingsStore(deps: {
 			resolveSecret("NAIA_ANYLLM_API_KEY") ??
 			resolveSecret("NAIA_KEY") ??
 			resolveSecret("naiaKey");
+		// naia 게이트웨이 URL — main provider(provider-route labProxyBaseUrl)와 동일 해석: config(naiaGatewayUrl ??
+		// NAIA_ANYLLM_BASE_URL) 우선, 둘 다 없으면 기본 api.nextain.io. ⚠️ OS 는 config 에 naiaGatewayUrl 을 직접
+		// 안 쓰므로(있어도 NAIA_ANYLLM_BASE_URL 형태), 기본값 없으면 naia 임베딩/LLM 이 조용히 키워드-only 로 죽는다(적대적 리뷰 HIGH 수정).
+		const naiaGatewayUrl =
+			str("naiaGatewayUrl") ??
+			str("NAIA_ANYLLM_BASE_URL") ??
+			"https://api.nextain.io";
 		// LLM 사실추출(factExtractor) — naia=게이트웨이(naiaGatewayUrl+naiaKey), vllm/ollama=memoryLlmBaseUrl+로컬키.
 		const lp = str("memoryLlmProvider");
 		const llmProvider = (["vllm", "ollama", "naia"] as const).find((p) => p === lp) ?? "none";
-		const llmBaseUrl = llmProvider === "naia" ? str("naiaGatewayUrl") : str("memoryLlmBaseUrl");
+		const llmBaseUrl = llmProvider === "naia" ? naiaGatewayUrl : str("memoryLlmBaseUrl");
 		const llmKey = llmProvider === "naia" ? naiaKey : resolveSecret("NAIA_MEMORY_LLM_API_KEY");
 		return {
 			adapter,
@@ -219,7 +226,7 @@ export function makeNaiaSettingsStore(deps: {
 				...(str("memoryEmbeddingBaseUrl") ? { baseUrl: str("memoryEmbeddingBaseUrl") } : {}),
 				...(embedApiKey ? { apiKey: embedApiKey } : {}),
 				...(str("memoryEmbeddingModel") ? { model: str("memoryEmbeddingModel") } : {}),
-				...(str("naiaGatewayUrl") ? { naiaGatewayUrl: str("naiaGatewayUrl") } : {}),
+				naiaGatewayUrl, // config 우선 + 기본 api.nextain.io 폴백(naia 임베딩이 게이트웨이를 항상 찾도록).
 				...(naiaKey ? { naiaKey } : {}),
 			},
 			llm: {

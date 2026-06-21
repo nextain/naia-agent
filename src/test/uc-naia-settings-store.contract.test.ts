@@ -175,3 +175,24 @@ describe("loadMemoryConfig — LLM 사실추출 선택(issue #7)", () => {
 		expect(r?.llm.model).toBe("vertexai:gemini");
 	});
 });
+
+describe("loadMemoryConfig — naia 게이트웨이 URL 폴백(적대적 리뷰 HIGH 수정: OS 가 naiaGatewayUrl 미기록)", () => {
+	it("naia LLM — config 게이트웨이 없으면 기본 api.nextain.io 폴백(키워드-only 무단 강등 방지)", () => {
+		const r = store({ [CONFIG]: JSON.stringify({ provider: "zai", model: "m", memoryLlmProvider: "naia", memoryLlmModel: "vertexai:gemini" }) }).loadMemoryConfig("/ws");
+		expect(r?.llm.provider).toBe("naia");
+		expect(r?.llm.baseUrl).toBe("https://api.nextain.io"); // 이전엔 undefined → buildMemorySummarizer/FactExtractor throw → 메모리 OFF
+	});
+	it("naia 임베딩 — naiaGatewayUrl 기본 폴백(항상 게이트웨이 존재)", () => {
+		const r = store({ [CONFIG]: JSON.stringify({ provider: "zai", model: "m", memoryEmbeddingProvider: "naia" }) }).loadMemoryConfig("/ws");
+		expect(r?.embedding.provider).toBe("naia");
+		expect(r?.embedding.naiaGatewayUrl).toBe("https://api.nextain.io");
+	});
+	it("NAIA_ANYLLM_BASE_URL(OS buildNaiaConfigEnv 산출) 가 naiaGatewayUrl 보다 폴백 우선", () => {
+		const r = store({ [CONFIG]: JSON.stringify({ provider: "zai", model: "m", memoryEmbeddingProvider: "naia", NAIA_ANYLLM_BASE_URL: "https://gw.custom" }) }).loadMemoryConfig("/ws");
+		expect(r?.embedding.naiaGatewayUrl).toBe("https://gw.custom");
+	});
+	it("config naiaGatewayUrl 가 최우선(명시값 > NAIA_ANYLLM_BASE_URL > 기본)", () => {
+		const r = store({ [CONFIG]: JSON.stringify({ provider: "zai", model: "m", memoryEmbeddingProvider: "naia", naiaGatewayUrl: "https://gw.explicit", NAIA_ANYLLM_BASE_URL: "https://gw.env" }) }).loadMemoryConfig("/ws");
+		expect(r?.embedding.naiaGatewayUrl).toBe("https://gw.explicit");
+	});
+});
