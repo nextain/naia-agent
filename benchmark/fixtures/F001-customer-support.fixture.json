@@ -1,0 +1,44 @@
+{
+  "id": "F001-customer-support",
+  "domain": "customer-support",
+  "notes": "Refund flow with a strict-preserve identifier (order #A-7421) seeded at turn 2; tail probes it. Tests fact-recall + Goal-section preservation across compaction.",
+  "turns": [
+    { "role": "user", "content": "Hi, I need help with a refund." },
+    { "role": "assistant", "content": "Sure — can you share your order number?" },
+    { "role": "user", "content": "Order #A-7421, placed last Tuesday." },
+    { "role": "assistant", "content": "Got it. Order #A-7421. What is the issue with the item?" },
+    { "role": "user", "content": "The headphones arrived with a broken left earcup." },
+    { "role": "assistant", "content": "Understood. Our policy allows full refund within 30 days for defective items." },
+    { "role": "user", "content": "Great. The order is 6 days old, so I should qualify." },
+    { "role": "assistant", "content": "Correct. You qualify under the 30-day defective-item policy." },
+    { "role": "user", "content": "What about return shipping?" },
+    { "role": "assistant", "content": "We cover return shipping for defective items. I will email a prepaid label to the address on file." },
+    { "role": "user", "content": "My email is jane.doe@example.com — please confirm." },
+    { "role": "assistant", "content": "Confirmed: jane.doe@example.com. The prepaid label will arrive within 1 business day." },
+    { "role": "user", "content": "How long until the refund posts?" },
+    { "role": "assistant", "content": "After we receive the return, refund posts within 5-7 business days to the original payment method." },
+    { "role": "user", "content": "Original payment was a Visa ending 4291." },
+    { "role": "assistant", "content": "Acknowledged. The refund will go to Visa ending 4291." },
+    { "role": "user", "content": "Can you log this conversation as ticket TCK-99812?" },
+    { "role": "assistant", "content": "Done. Ticket TCK-99812 created and linked to order #A-7421." },
+    { "role": "user", "content": "Thanks. Anything else I should know?" },
+    { "role": "assistant", "content": "Just monitor your email for the prepaid label. Reply to this ticket if it does not arrive within 24 hours." },
+    { "role": "user", "content": "Will do. One more thing — can I also request a 10% discount on a future order as compensation?" },
+    { "role": "assistant", "content": "Compensation requests are reviewed per case. I have flagged this ticket for the team lead." },
+    { "role": "user", "content": "Appreciate it. Now please summarize: order number, ticket, payment card, and email." }
+  ],
+  "probes": [
+    {
+      "afterTurn": 22,
+      "type": "fact-recall",
+      "question": "What is the order number, ticket ID, last four of payment card, and email?",
+      "expectedKeywords": ["#A-7421", "TCK-99812", "4291", "jane.doe@example.com"]
+    },
+    {
+      "afterTurn": 22,
+      "type": "task-accuracy",
+      "criterion": "Assistant summary correctly references all four identifiers without invention."
+    }
+  ],
+  "compactionPoints": [12]
+}

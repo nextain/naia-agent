@@ -1,0 +1,47 @@
+{
+  "id": "F003-research-synthesis",
+  "domain": "research-synthesis",
+  "notes": "Multi-paper synthesis with DOI + author names. Tests verbatim quote preservation under compaction.",
+  "turns": [
+    { "role": "user", "content": "Summarize the three papers on context compaction we discussed last week." },
+    { "role": "assistant", "content": "Sure — papers are MemGPT (Packer et al.), Mem0 (Chhikara et al.), and Acon (Sun et al.). Which dimensions?" },
+    { "role": "user", "content": "Author, year, key claim, and arxiv ID." },
+    { "role": "assistant", "content": "MemGPT — Packer et al. 2024 — virtual context paging beats recursive summary on the deep memory retrieval task — arxiv 2310.08560." },
+    { "role": "user", "content": "Next." },
+    { "role": "assistant", "content": "Mem0 — Chhikara et al. 2025 — production-ready scalable long-term memory via LLM-driven fact extraction — arxiv 2504.19413." },
+    { "role": "user", "content": "And Acon?" },
+    { "role": "assistant", "content": "Acon — Sun et al. 2025 — moderate compression thresholds (~4096 history / 1024 observation) are the empirical sweet spot — arxiv 2510.00615." },
+    { "role": "user", "content": "Which paper's evaluation is closest to our use case (long avatar dialogue)?" },
+    { "role": "assistant", "content": "Mem0 — its evaluation is on conversational agents at scale, not document QA. MemGPT uses deep retrieval, Acon uses tool-heavy agents." },
+    { "role": "user", "content": "Quote the exact Acon recommendation on threshold." },
+    { "role": "assistant", "content": "Acon: \"smaller thresholds reduce tokens but incur more frequent compression calls and degrade accuracy; larger thresholds preserve accuracy with higher cost. Moderate values (4096 for history, 1024 for observation) provide the best trade-off.\"" },
+    { "role": "user", "content": "Cross-reference: did MemGPT also study threshold?" },
+    { "role": "assistant", "content": "MemGPT did not study threshold explicitly; it studies the alternative of pagination, where threshold is replaced by page-fault-on-demand." },
+    { "role": "user", "content": "Which of these would you pick to defend our 75% default threshold?" },
+    { "role": "assistant", "content": "Acon directly — it is the only paper of the three that frames threshold tuning as the main axis. Cite arxiv 2510.00615 §4." },
+    { "role": "user", "content": "Also, did any of them give us an opinion on tool_result preservation?" },
+    { "role": "assistant", "content": "None directly. Microsoft Agent Framework (non-paper, but production doc) recommends disk-spill for tool_result > 2k tokens with path reference + 10-line preview." },
+    { "role": "user", "content": "Good. Final summary: cite the three papers with arxiv IDs and the Acon threshold quote." }
+  ],
+  "probes": [
+    {
+      "afterTurn": 18,
+      "type": "fact-recall",
+      "question": "Provide three arxiv IDs and the Acon threshold recommendation.",
+      "expectedKeywords": [
+        "2310.08560",
+        "2504.19413",
+        "2510.00615",
+        "4096",
+        "1024",
+        "moderate"
+      ]
+    },
+    {
+      "afterTurn": 18,
+      "type": "task-accuracy",
+      "criterion": "Assistant correctly attributes papers to authors (Packer / Chhikara / Sun) and references the verbatim Acon threshold quote."
+    }
+  ],
+  "compactionPoints": [10]
+}
