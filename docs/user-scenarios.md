@@ -12,6 +12,7 @@
 | UC-provider-provenance | provider 라우팅 출처(naia-settings/wire/키체인) | `docs/progress/99.dev-comm/UC-provider-provenance-contract-2026-06-12.md` |
 | UC-memory | 대화 턴 recall 주입 / save(naia-memory 연동) | `docs/progress/99.dev-comm/UC-memory-recall-save-contract-2026-06-12.md` |
 | UC-PROV | provider/model 라이브 교체 — 재기동 없이 다음 턴 반영 | (계약 요약 = `docs/requirements.md` FR-PROV-1~5; 상세 진행기록은 메인테이너 워크스페이스) |
+| UC-CLI | naia-agent 단독 CLI 오케스트레이션(direct tool-loop + sub-agent supervisor + interrupt + 정직보고) — naia-os 없이 단독 실행 | `docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md` |
 
 ## UC-MEM-1 (장기기억 회상)
 
@@ -25,6 +26,19 @@
 턴부터** 해당 provider 로 응답한다(OS 가 naia-settings 갱신 후 `ReloadSettings`/`SetWorkspace`
 재호출 → 활성 `defaultConfig` swap). 모든 naia-os 프로바이더(nextain/gemini/openai/xai/zai/
 ollama/vllm)가 연결된다(anthropic/claude-code-cli 는 baseUrl 미정의로 미지원, 후속).
+
+## UC-CLI (naia-agent 단독 CLI 오케스트레이션)
+
+사용자(luke)가 **naia-os 없이** 터미널에서 `naia-agent`를 단독 실행해 실제 작업을 시킨다. naia-agent는
+(S1) in-process tool-loop로 직접 작업하거나, (S2) 외부 코딩 에이전트(pi/opencode/claude-code/codex/
+gemini)를 **sub-agent로 spawn**해 이벤트 스트림 통합 + workspace 변경 감시 + 검증(test/lint/build) +
+**정직한 숫자 리포트**를 낸다. (S3) "stop"/Ctrl+C로 실시간 중단(SIGTERM→유예→SIGKILL, terminal 1회).
+
+근본 원인: 이 단독 CLI 역량은 구 모노레포에서 **UC 없이**(vision/architecture 문서 + 단독 CLI로) 구현돼,
+UC-주도 clean-rebuild 스코프에서 빠졌다(`backup/main-2026-06-22` 보존). 본 UC가 신 arch로 정식 편입한다.
+직교: domain/app은 "세션 이벤트·변경 요약·검증 리포트·취소 요청"만 보고, subprocess/git/SIGTERM 등
+메커니즘은 adapter 안에만 둔다(`SubAgentPort`/`WorkspacePort`/`VerifierPort` — 권위 계약서 참조).
+naia-os gRPC 배선은 후속 phase(naia-os 워크스페이스 작업 후).
 
 ## Test Coverage Map
 
@@ -40,5 +54,8 @@ ollama/vllm)가 연결된다(anthropic/claude-code-cli 는 baseUrl 미정의로 
 | UC-PROV-1 / FR-PROV-1·2·3 | `src/test/all-providers-wiring.contract.test.ts`, `uc1-reload-default-config.contract.test.ts`, `uc-naia-settings-store.contract.test.ts` |
 | FR-PROV-5 (claude-code SDK 분리) | `src/test/all-providers-wiring.contract.test.ts`(claude-code 케이스 = Agent SDK 라우팅·apiKey 미주입) |
 | FR-MODEL-1 (모델 카탈로그 정합) | `src/test/uc-provider-provenance.contract.test.ts`(cost↔registry 정합·구독 $0), naia-os `src/lib/llm/__tests__/registry.test.ts`(카탈로그 정합·최신화) |
+| UC-CLI / AC1·AC3·AC5 (2a 최소 골격) | `src/test/uc-cli-supervisor.contract.test.ts` (예정 — fake SubAgentPort로 stream-merge·interrupt·직교 결정론) |
+| UC-CLI / AC1·AC6 (2b 실 어댑터) | `src/test/uc-cli-subagent-pi.contract.test.ts`, `uc-cli-subagent-opencode.contract.test.ts` (예정) |
+| UC-CLI / AC2·AC4 (2c 정직보고) | `src/test/uc-cli-verifier.contract.test.ts`, `uc-cli-workspace.contract.test.ts` (예정) |
 
 > UC1/UC5/provider-provenance 의 상세 시나리오·수용기준은 각 계약서 + `docs/acceptance-criteria.md` 참조.
