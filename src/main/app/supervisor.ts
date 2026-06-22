@@ -50,51 +50,72 @@ export class Supervisor {
     if (signal.aborted) onAbort();
     else signal.addEventListener("abort", onAbort, { once: true });
 
-    // 3) workspace 변경 감시(주입 시) — sub-agent 이벤트와 N-way merge. 최신 변경 스냅샷을 누적(latest-wins).
-    let latestWorkspace: WorkspaceChange | undefined;
-    const wsStream = this.d.workspace ? this.d.workspace.changes(task.workdir, signal) : undefined;
+    try {
+      // 3) workspace 변경 감시(주입 시) — sub-agent 이벤트와 N-way merge. 최신 변경 스냅샷을 누적(latest-wins).
+      let latestWorkspace: WorkspaceChange | undefined;
+      const wsStream = this.d.workspace ? this.d.workspace.changes(task.workdir, signal) : undefined;
 
-    // 두 스트림을 태깅해 단일 패스로 merge — sub-agent 이벤트는 forward, workspace 변경은 집계.
-    // session_end 가 terminal: 관측 즉시 break(workspace 스트림은 abort/소진으로 정리).
-    type Tagged = { readonly src: "agent"; readonly e: SubAgentEvent } | { readonly src: "ws"; readonly c: WorkspaceChange };
-    const tagAgent = async function* (it: AsyncIterable<SubAgentEvent>): AsyncIterable<Tagged> { for await (const e of it) yield { src: "agent", e }; };
-    const tagWs = async function* (it: AsyncIterable<WorkspaceChange>): AsyncIterable<Tagged> { for await (const c of it) yield { src: "ws", c }; };
+      // 두 스트림을 태깅해 단일 패스로 merge — sub-agent 이벤트는 forward, workspace 변경은 집계.
+      // session_end 가 terminal: 관측 즉시 break(workspace 스트림은 abort/소진으로 정리).
+      type Tagged = { readonly src: "agent"; readonly e: SubAgentEvent } | { readonly src: "ws"; readonly c: WorkspaceChange };
+      const tagAgent = async function* (it: AsyncIterable<SubAgentEvent>): AsyncIterable<Tagged> { for await (const e of it) yield { src: "agent", e }; };
+      const tagWs = async function* (it: AsyncIterable<WorkspaceChange>): AsyncIterable<Tagged> { for await (const c of it) yield { src: "ws", c }; };
 
-    const merged = wsStream
-      ? mergeStreams<Tagged>(tagAgent(session.events), tagWs(wsStream))
-      : tagAgent(session.events);
+      const merged = wsStream
+        ? mergeStreams<Tagged>(tagAgent(session.events), tagWs(wsStream))
+        : tagAgent(session.events);
 
-    let sessionOk = false;
-    let sawSessionEnd = false;
-    for await (const t of merged) {
-      if (t.src === "ws") { latestWorkspace = t.c; continue; }
-      // sub-agent 이벤트 forward(인과 순서 보존, AC3). emit no-throw 흡수.
-      this.safeEvent(t.e);
-      if (t.e.kind === "session_end") {
-        sessionOk = t.e.ok;
-        sawSessionEnd = true;
-        break; // terminal 관측 — merge 종료(workspace 는 abort/GC 로 정리, supervisor 는 다음 단계로)
+      let sessionOk = false;
+      let sawSessionEnd = false;
+      // ⚠️ 입력 스트림(sub-agent/workspace iterable) reject 를 흡수(P1, 적대리뷰 2026-06-23): 어떤 입력
+      //    어댑터가 iteration 중 throw 해도 run() 이 깨지거나 리포트 0회가 되면 안 됨(I1·AC2). 합성 session_end
+      //    로 종결 처리 후 verify+report 로 진행 → exactly-one-report 불변식 보존. (오늘 shell 은 미reject 이나
+      //    2b pi/opencode transport·2c chokidar/git 권한 에러가 reject 경로를 실제로 친다.)
+      try {
+        for await (const t of merged) {
+          if (t.src === "ws") { latestWorkspace = t.c; continue; }
+          // sub-agent 이벤트 forward(인과 순서 보존, AC3). emit no-throw 흡수.
+          this.safeEvent(t.e);
+          if (t.e.kind === "session_end") {
+            sessionOk = t.e.ok;
+            sawSessionEnd = true;
+            break; // terminal 관측 — merge 종료(workspace 는 abort/GC 로 정리, supervisor 는 다음 단계로)
+          }
+        }
+      } catch (streamErr) {
+        this.safeDiag("입력 스트림 오류(ok:false 리포트로 흡수)", streamErr);
+        this.safeEvent({ kind: "session_end", ok: false, reason: `stream error: ${errMessage(streamErr)}` });
+        sessionOk = false;
+        sawSessionEnd = true; // 합성 terminal 발화함 — 아래 안전망 중복 방지
       }
-    }
-    if (!sawSessionEnd) {
-      // 잘 동작하는 adapter 라면 발생 안 함(세션당 session_end 1회 계약). 안전망 — 비정상 종료로 간주하고 forward.
-      const synthetic: SubAgentEvent = { kind: "session_end", ok: false, reason: "stream ended without session_end" };
-      this.safeEvent(synthetic);
-      sessionOk = false;
-    }
+      if (!sawSessionEnd) {
+        // 잘 동작하는 adapter 라면 발생 안 함(세션당 session_end 1회 계약). 안전망 — 비정상 종료로 간주하고 forward.
+        const synthetic: SubAgentEvent = { kind: "session_end", ok: false, reason: "stream ended without session_end" };
+        this.safeEvent(synthetic);
+        sessionOk = false;
+      }
 
-    // 4) session_end 후 검증 — ok 여부 무관 항상 수행(AC4). never-throws 래핑(AC2/I3).
-    const verification = await this.runVerifierSafe(task.workdir);
+      // P3(적대리뷰 round2/codex): terminal 도달 *즉시* abort 리스너 해제 — verify/report 창에서의 abort 가
+      //   이미-종료된 세션에 stale cancel 을 걸지 않도록(비-idempotent 어댑터 대비). finally 는 backstop(중복 무해).
+      signal.removeEventListener("abort", onAbort);
 
-    // 5) 정직 보고 — 정확히 1회(terminal, I1). workspace 미주입/무변경 = 수치 0.
-    const report: SupervisorReport = {
-      filesChanged: workspaceFileCount(latestWorkspace),
-      additions: latestWorkspace ? latestWorkspace.added.length + latestWorkspace.modified.length : 0,
-      deletions: latestWorkspace ? latestWorkspace.deleted.length : 0,
-      verification,
-      sessionOk,
-    };
-    this.safeReport(report);
+      // 4) session_end 후 검증 — ok 여부 무관 항상 수행(AC4). never-throws 래핑(AC2/I3).
+      const verification = await this.runVerifierSafe(task.workdir);
+
+      // 5) 정직 보고 — 정확히 1회(terminal, I1). workspace 미주입/무변경 = 수치 0.
+      const report: SupervisorReport = {
+        filesChanged: workspaceFileCount(latestWorkspace),
+        additions: latestWorkspace ? latestWorkspace.added.length + latestWorkspace.modified.length : 0,
+        deletions: latestWorkspace ? latestWorkspace.deleted.length : 0,
+        verification,
+        sessionOk,
+      };
+      this.safeReport(report);
+    } finally {
+      // P2(적대리뷰 2026-06-23): 정상완료 경로에서도 abort 리스너 해제 — 공유/재사용 signal 누수 +
+      //   완료된 세션에 대한 stale-cancel 방지. (abort 가 이미 fire 됐으면 once 로 자동 제거됨 → 무해 중복 호출.)
+      signal.removeEventListener("abort", onAbort);
+    }
   }
 
   /** verifier 미주입=검증 생략(ok:true 중립). 주입 시 verify 를 deadline 과 race + try/catch 로 감싸 never-throws 보장(AC2). */

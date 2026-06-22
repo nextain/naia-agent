@@ -1,0 +1,63 @@
+{
+  "uc": "UC-CLI Stage 2a — sub-agent 오케스트레이션 골격 (SubAgentPort + Supervisor + shell adapter)",
+  "repo": "naia-agent",
+  "date": "2026-06-23",
+  "session_id": "7c563b0a-67bf-4c7d-9fad-13c6d52e7a0c",
+  "process": "독립 적대 리뷰(definition_of_done #2) — 2 리뷰어: (R1) 내부 general-purpose 에이전트(실코드 정독+테스트 실행 반증), (R2) codex gpt-5.5(외부 AI, 수정본 재검증). read→fix until clean.",
+  "scope_files": [
+    "src/main/domain/orchestration.ts",
+    "src/main/ports/orchestration.ts",
+    "src/main/app/supervisor.ts",
+    "src/main/adapters/subagent-shell.ts",
+    "src/test/uc-cli-supervisor.contract.test.ts",
+    "src/test/uc-cli-subagent-shell.contract.test.ts"
+  ],
+  "round1_internal_agent": {
+    "agent_id": "acdc80ada165009d0",
+    "verdict": "FIX-FIRST",
+    "confirmed_defects": [
+      {
+        "id": "P1",
+        "title": "merge 루프 try/catch 부재 → 입력 스트림 mid-iteration reject 시 run() throw + 리포트 0회",
+        "where": "supervisor.ts:69 (구판)",
+        "impact": "불변식 I1(정확히 1 report)·헤더 'throw 안 함'·AC2 위반. 오늘 dormant(shell 이 에러를 session_end 로 변환)이나 2b(pi/opencode transport)·2c(chokidar/git 권한) 어댑터가 reject 경로를 실제로 침. 테스트 커버리지 0.",
+        "fix": "merge for-await 를 try/catch 로 감싸 catch 시 합성 session_end{ok:false,reason} forward(sawSessionEnd=true) → verify+report 로 진행. exactly-one-report 보존.",
+        "regression_test": "uc-cli-supervisor.contract.test.ts: 'P1 — sub-agent 스트림 reject' + 'P1 — workspace 스트림 reject'(빈 sub-agent 로 catch 결정론 도달)."
+      },
+      {
+        "id": "P2",
+        "title": "정상완료 시 abort 리스너 미해제 → 공유/재사용 signal 누수 + stale-cancel",
+        "where": "supervisor.ts:51 (구판)",
+        "impact": "세션-와이드 stop signal 재사용 시 onAbort 누적(MaxListeners) + 완료 세션에 stale cancel. shell 은 idempotent 라 무해하나 비-idempotent 어댑터엔 잠재 위험.",
+        "fix": "run() 본문을 try/finally 로 감싸 finally 에서 signal.removeEventListener('abort', onAbort).",
+        "regression_test": "uc-cli-supervisor.contract.test.ts: 'P2 — 정상 완료 후 abort 리스너 해제'(완료 후 abort → cancel 미호출 증명)."
+      }
+    ],
+    "refuted_suspicions": [
+      "raceDeadline dangling promise → unhandled rejection: void p.catch() 가드로 0건(검증).",
+      "abandoned workspace generator throw-after-break → for-await break 가 return() 호출로 종결, 0 unhandled.",
+      "verifier never-throws 불완전(sync-throw/hang/malformed): 전부 흡수, ok:false 1회.",
+      "double-abort/cancel-after-end: cancel 1회·report 1회·ended 세션 cancel no-op.",
+      "throwing egress: safeEvent/safeReport 흡수, run() 미throw(I4).",
+      "mergeStreams 드롭/데드락(uneven timing, N>1): 0 드롭, P0-1 stale-slot 재확인 존재.",
+      "boundary 테스트 vacuous/협소: src/main 48파일 스캔(신규4 포함), supervisor 에 child_process 주입 시 RED 확인.",
+      "stub-detector vacuous: SENTINEL 가 seam 관통 증명, AC4 가 실패세션 verify 단언 — no-op supervisor 면 FAIL."
+    ],
+    "non_blocking_nits": [
+      "win32(현 플랫폼)에선 실프로세스 SIGKILL 에스컬레이션이 if(!isWindows) 게이트로 미단언(POSIX-only 검증). fake child 로 결정론 SIGTERM→SIGKILL 은 단언됨.",
+      "close-during-grace(SIGKILL-skipped) 분기 미테스트(probe 로 동작 확인)."
+    ]
+  },
+  "round2_codex": {
+    "model": "gpt-5.5",
+    "verdict": "FIX-CONFIRMED (P1·P2)",
+    "confirmed": "Q1 mid-stream reject = 정확히 1 report(0/2 경로 없음). Q2 finally removeEventListener 안전(미추가/이미해제 listener 제거 무해, double-report 무). Q3 fix 로 인한 신규 fatal 0(runVerifierSafe never-throws·safeReport no-throw·finally 비throw). Q4 workspace-reject 테스트가 catch 경로 결정론 도달(빈 sub-agent → ws reject 만 live).",
+    "residual_P3": {
+      "title": "abort 리스너가 terminal 이후 verify/report 창에도 살아있어, 그 창 abort 시 이미-종료 세션에 stale cancel 가능(비-idempotent 어댑터 대비). double-report 아님.",
+      "fix": "terminal 도달 즉시(verify 전) signal.removeEventListener — finally 는 backstop 유지.",
+      "regression_test": "uc-cli-supervisor.contract.test.ts: 'P3 — terminal 이후 verify 중 abort 해도 stale-cancel 없음'."
+    }
+  },
+  "fix_verification": "P1/P2/P3 수정 후 이번 세션 직접 재실행: supervisor 계약 16 green(12+4 회귀), 전체 445 통과(회귀0), build EXIT0, import-boundary 3 green, F-LOG-3 OK.",
+  "verdict": "SHIP — 2 연속 클린 패스(R1 내부 에이전트 P1/P2 발견→수정, R2 codex FIX-CONFIRMED + P3 잔여→수정). 비차단 nit(win32 실프로세스 SIGKILL 단언은 POSIX-only — fake child 로 결정론 SIGTERM→SIGKILL 단언됨)은 잔존(2b 무관)."
+}

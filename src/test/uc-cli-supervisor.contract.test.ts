@@ -156,6 +156,70 @@ describe("UC-CLI Supervisor 직교 계약 (2a, fake 포트)", () => {
     expect(reports[0].sessionOk).toBe(false);
   });
 
+  it("P1(적대리뷰 2026-06-23) — sub-agent 이벤트 스트림이 iteration 중 reject 해도 run() 미throw + 합성 session_end + report 1회", async () => {
+    // 2b(pi/opencode transport 에러)·2c(chokidar/git 권한 에러)가 실제로 칠 경로. 구판은 여기서 run() 크래시 + 리포트 0회였음.
+    const port: SubAgentPort = {
+      spawn() {
+        return {
+          events: (async function* () {
+            yield { kind: "text_delta", text: "작업 중" } as SubAgentEvent;
+            throw new Error("transport reset");
+          })(),
+          cancel: async () => {},
+        };
+      },
+    };
+    let verifyCalls = 0;
+    const verifier: VerifierPort = { verify: async () => { verifyCalls++; return okReport; } };
+    const { deps, events: fwd, reports } = harness({ subAgent: port, verifier });
+    await expect(new Supervisor(deps).run(task, new AbortController().signal)).resolves.toBeUndefined(); // 크래시 안 함
+    const term = fwd.at(-1) as Extract<SubAgentEvent, { kind: "session_end" }>;
+    expect(term.kind).toBe("session_end");
+    expect(term.ok).toBe(false);
+    expect(term.reason).toContain("transport reset"); // 합성 terminal 이 원인 보존
+    expect(verifyCalls).toBe(1);   // 스트림 에러에도 검증 수행(AC4)
+    expect(reports).toHaveLength(1); // I1 — 정확히 1회(드롭 0)
+    expect(reports[0].sessionOk).toBe(false);
+  });
+
+  it("P1(적대리뷰 2026-06-23) — workspace 스트림이 reject 해도 run() 미throw + report 1회(I1)", async () => {
+    // sub-agent 빈 스트림(즉시 done) + workspace 가 throw → merge 가 ws reject 를 전파, supervisor 흡수.
+    const port: SubAgentPort = { spawn() { return { events: (async function* () { /* 빈 */ })(), cancel: async () => {} }; } };
+    const workspace: WorkspacePort = {
+      changes: (async function* () { throw new Error("EACCES watch"); }) as WorkspacePort["changes"],
+    };
+    const { deps, reports } = harness({ subAgent: port, workspace });
+    await expect(new Supervisor(deps).run(task, new AbortController().signal)).resolves.toBeUndefined();
+    expect(reports).toHaveLength(1); // 크래시/드롭 없이 정확히 1회
+    expect(reports[0].sessionOk).toBe(false);
+  });
+
+  it("P2(적대리뷰 2026-06-23) — 정상 완료 후 abort 리스너 해제(공유 signal 누수/stale-cancel 방지)", async () => {
+    const { port, cancels } = scriptedSubAgent([{ kind: "session_end", ok: true }]);
+    const ac = new AbortController();
+    const { deps } = harness({ subAgent: port });
+    await new Supervisor(deps).run(task, ac.signal); // 정상 완료(abort 없음)
+    ac.abort(); // 완료 *후* abort — 리스너가 해제됐으면 cancel 안 불림
+    await Promise.resolve();
+    expect(cancels).toEqual([]); // 완료된 세션에 stale-cancel 없음(리스너 해제 증명)
+  });
+
+  it("P3(적대리뷰 round2/codex) — terminal 이후 verify 중 abort 해도 stale-cancel 없음(terminal 즉시 리스너 해제)", async () => {
+    const { port, cancels } = scriptedSubAgent([{ kind: "session_end", ok: true }]);
+    const ac = new AbortController();
+    let releaseVerify!: () => void;
+    // verify 를 수동 제어 — supervisor 가 terminal 통과 후 verify 에 park 된 사이 abort 를 끼워넣는다.
+    const verifier: VerifierPort = { verify: () => new Promise<VerificationReport>((res) => { releaseVerify = () => res(okReport); }) };
+    const { deps, reports } = harness({ subAgent: port, verifier });
+    const done = new Supervisor(deps).run(task, ac.signal);
+    await new Promise((r) => setTimeout(r, 0)); // session_end 관측 → 리스너 해제 → verify 진입까지 flush
+    ac.abort();          // terminal 이후 abort — 리스너 해제됐으면 cancel 미발생
+    releaseVerify();     // verify 풀어 정상 종결
+    await done;
+    expect(cancels).toEqual([]); // verify 창 abort 가 stale-cancel 안 걸음
+    expect(reports).toHaveLength(1);
+  });
+
   it("외부 abort → sub-agent.cancel(semantic) 호출(SIGTERM/SIGKILL 메커니즘은 adapter)", async () => {
     const cancelled: string[] = [];
     const port: SubAgentPort = {
