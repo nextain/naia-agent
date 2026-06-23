@@ -167,6 +167,9 @@ export async function runFixture(
 	const factJudgements: ProbeJudgement[] = [];
 	const taskJudgements: ProbeJudgement[] = [];
 	const driftValues: number[] = [];
+	// 구조적 실패(응답 누락·drift baseline 누락)는 score 가 아니라 데이터/시스템 결함 →
+	// threshold 와 무관하게 unconditional fail(적대리뷰 R2 #1 — driftMin 완화로 우회 금지).
+	let fatal = false;
 
 	let responses: readonly ProbeResponse[];
 	try {
@@ -194,8 +197,9 @@ export async function runFixture(
 		const resp = byProbe.get(i);
 
 		if (resp === undefined) {
-			// Missing response = the SUT failed to answer this probe → fail closed.
+			// Missing response = the SUT failed to answer this probe → fail closed(구조적, fatal).
 			errors.push(`probe ${i} (${probe.type}): no response from SUT`);
+			fatal = true;
 			details.push({ probeIndex: i, type: probe.type, pass: false, note: "no response" });
 			if (probe.type === "fact-recall") {
 				factJudgements.push({ probe, response: "", pass: false });
@@ -225,6 +229,7 @@ export async function runFixture(
 			// fail-closed(적대리뷰 #2 — "no baseline → perfect" 금지).
 			if (resp.baselineAnswer === undefined) {
 				errors.push(`probe ${i} (drift): no baseline answer → cannot measure drift`);
+				fatal = true;
 				driftValues.push(0);
 				details.push({ probeIndex: i, type: probe.type, pass: false, note: "no baseline → fail" });
 			} else {
@@ -239,13 +244,14 @@ export async function runFixture(
 	const ta = taskAccuracy(taskJudgements);
 	// Aggregate drift = MIN(worst probe) — mean 이 per-probe 실패를 마스킹하지 않게(적대리뷰 #3:
 	// [0.0,1.0] 의 mean 0.5 가 driftMin 0.5 를 통과하던 문제). 드리프트 probe 없으면 1.0(무관).
-	const dr = driftValues.length === 0 ? 1.0 : Math.min(...driftValues);
+	const dr = driftValues.reduce((a, b) => Math.min(a, b), 1.0); // min(worst); spread 회피(대량 probe arg 한계, 적대리뷰 R2 #2). 빈 배열=1.0.
 
 	// An axis only gates if the fixture exercises it (has ≥1 probe of that type).
 	const hasFact = factJudgements.length > 0;
 	const hasTask = taskJudgements.length > 0;
 	const hasDrift = driftValues.length > 0;
 	const pass =
+		!fatal && // 구조적 실패(응답/baseline 누락)는 threshold 무관 unconditional fail(적대리뷰 R2 #1)
 		(!hasFact || fr >= thresholds.factRecallMin) &&
 		(!hasTask || ta >= thresholds.taskAccuracyMin) &&
 		(!hasDrift || dr >= thresholds.driftMin);

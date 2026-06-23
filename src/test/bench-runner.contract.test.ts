@@ -141,6 +141,14 @@ describe("runFixture — fail-closed 회귀 (적대리뷰 codex 1b)", () => {
     expect(r.scores.driftScore).toBe(0); // min(1.0,0.0)=0.0 (mean 0.5 아님)
     expect(r.pass).toBe(false);          // worst probe 실패 → fixture fail
   });
+
+  it("#R2 구조적 실패는 threshold 무관 unconditional fail — baseline 누락은 driftMin 0 이어도 fail", async () => {
+    const noBaselineSut: SystemUnderTest = { async run() { return [{ probeIndex: 0, answer: "x" }]; } };
+    const relaxed = { factRecallMin: 0, taskAccuracyMin: 0, driftMin: 0 };
+    const r = await runFixture(driftFixture, noBaselineSut, relaxed);
+    expect(r.pass).toBe(false); // fatal(baseline 누락)이라 threshold 완화 우회 불가
+    expect(r.errors.some((e) => e.includes("no baseline"))).toBe(true);
+  });
 });
 
 describe("runFixture — passing run (good deterministic SUT)", () => {

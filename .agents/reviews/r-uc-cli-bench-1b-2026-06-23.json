@@ -18,6 +18,16 @@
   },
   "fix_regression_tests": "bench-runner.contract.test.ts: #1 SUT throw fail-closed / #5 중복 probe 에러 / #2 baseline 누락 fail-closed / #3 drift min-gate(mean 마스킹 방지) 4건.",
   "fix_verification": "runner+report 25 green(+4 회귀), 전체 534 통과(회귀0), build EXIT0, benchmark tsc EXIT0, import-boundary 3.",
-  "round2_codex": "in-progress (수정 확인). push 시 갱신.",
-  "verdict": "R1 FIX-FIRST(4) → 수정·회귀 → R2 확인 대기. system-agnostic(src/main import 0)·결정론·1a 채점 재사용 견고."
+  "round2_codex": {
+    "model": "gpt-5.5",
+    "verdict": "FIX-FIRST (R1 수정의 잔여 2건)",
+    "confirmed": [
+      { "id": "R2-#1", "sev": "P2", "title": "missing baseline 가 threshold-bypassable(driftMin≤0 이면 통과) — 구조적 실패가 unconditional fail 아님", "fix": "fatal 플래그(응답 누락·baseline 누락) + pass = !fatal && (axis gates)", "status": "FIXED" },
+      { "id": "R2-#2", "sev": "P3", "title": "Math.min(...spread) 대량 probe arg 한계", "fix": "driftValues.reduce((a,b)=>Math.min(a,b),1.0)", "status": "FIXED" }
+    ],
+    "regression_test": "bench-runner '#R2 구조적 실패는 threshold 무관 fail — baseline 누락은 driftMin 0 이어도 fail'."
+  },
+  "round3_codex": "in-progress (R2 수정 확인). push 시 갱신.",
+  "fix_verification_r2": "runner+report 26 green(+1 R2 회귀), 전체 535 통과(회귀0), build·benchmark tsc·import-boundary green.",
+  "verdict": "R1 FIX-FIRST(4)→수정 → R2 FIX-FIRST(2)→수정 → R3 확인 대기. system-agnostic(src/main import 0)·결정론·1a 채점 재사용 견고."
 }
