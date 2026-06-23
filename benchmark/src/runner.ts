@@ -60,7 +60,8 @@ export interface ProbeResponse {
 	readonly taskPass?: boolean;
 	/**
 	 * For drift probes only: the baseline (no-compact) answer to compare against.
-	 * If omitted on a drift probe, drift defaults to 1.0 (no divergence observed).
+	 * REQUIRED on a drift probe — if omitted, the probe fails closed(드리프트 측정 불가,
+	 * "no baseline → perfect" 금지). 드리프트는 compact-path 답 vs 이 baseline 의 Jaccard.
 	 */
 	readonly baselineAnswer?: string;
 }
@@ -161,17 +162,32 @@ export async function runFixture(
 ): Promise<FixtureResult> {
 	const validated = validateFixture(fixture);
 	const input = toInput(validated);
-	const responses = await sut.run(input);
-
-	// Index responses by probe for O(1) lookup; last write wins on duplicates.
-	const byProbe = new Map<number, ProbeResponse>();
-	for (const r of responses) byProbe.set(r.probeIndex, r);
-
 	const errors: string[] = [];
 	const details: ProbeDetail[] = [];
 	const factJudgements: ProbeJudgement[] = [];
 	const taskJudgements: ProbeJudgement[] = [];
 	const driftValues: number[] = [];
+
+	let responses: readonly ProbeResponse[];
+	try {
+		responses = await sut.run(input);
+	} catch (e) {
+		// SUT throw/reject = 시스템 실패 → fail-closed(크래시 아님, 적대리뷰 #1). 전 probe fail + 에러.
+		return {
+			fixtureId: validated.id,
+			scores: { factRecall: 0, taskAccuracy: 0, driftScore: 0 },
+			pass: false,
+			details: validated.probes.map((p, i) => ({ probeIndex: i, type: p.type, pass: false, note: "SUT error" })),
+			errors: [`SUT run threw: ${e instanceof Error ? e.message : String(e)}`],
+		};
+	}
+
+	// Index responses by probe. 중복 probeIndex = SUT 버그 → 에러 표면화(적대리뷰 #5, last wins).
+	const byProbe = new Map<number, ProbeResponse>();
+	for (const r of responses) {
+		if (byProbe.has(r.probeIndex)) errors.push(`duplicate response for probe ${r.probeIndex} (last wins)`);
+		byProbe.set(r.probeIndex, r);
+	}
 
 	for (let i = 0; i < validated.probes.length; i++) {
 		const probe = validated.probes[i]!;
@@ -205,26 +221,25 @@ export async function runFixture(
 				note: resp.taskPass === undefined ? "SUT gave no task judgement → fail" : `SUT judged ${pass ? "pass" : "fail"}`,
 			});
 		} else {
-			// drift: compare the SUT's answer against the baseline it reports.
-			const baseline = resp.baselineAnswer ?? resp.answer;
-			const drift = driftScore(resp.answer, baseline);
-			driftValues.push(drift);
-			details.push({
-				probeIndex: i,
-				type: probe.type,
-				pass: drift >= thresholds.driftMin,
-				note: `drift=${drift.toFixed(3)}${resp.baselineAnswer === undefined ? " (no baseline → 1.0 path)" : ""}`,
-			});
+			// drift: SUT 의 compact-path 답 vs baseline(no-compact). baseline 없으면 발산 측정 불가 →
+			// fail-closed(적대리뷰 #2 — "no baseline → perfect" 금지).
+			if (resp.baselineAnswer === undefined) {
+				errors.push(`probe ${i} (drift): no baseline answer → cannot measure drift`);
+				driftValues.push(0);
+				details.push({ probeIndex: i, type: probe.type, pass: false, note: "no baseline → fail" });
+			} else {
+				const drift = driftScore(resp.answer, resp.baselineAnswer);
+				driftValues.push(drift);
+				details.push({ probeIndex: i, type: probe.type, pass: drift >= thresholds.driftMin, note: `drift=${drift.toFixed(3)}` });
+			}
 		}
 	}
 
 	const fr = factRecall(factJudgements);
 	const ta = taskAccuracy(taskJudgements);
-	// Aggregate drift = mean across drift probes; 1.0 when a fixture has none.
-	const dr =
-		driftValues.length === 0
-			? 1.0
-			: driftValues.reduce((acc, v) => acc + v, 0) / driftValues.length;
+	// Aggregate drift = MIN(worst probe) — mean 이 per-probe 실패를 마스킹하지 않게(적대리뷰 #3:
+	// [0.0,1.0] 의 mean 0.5 가 driftMin 0.5 를 통과하던 문제). 드리프트 probe 없으면 1.0(무관).
+	const dr = driftValues.length === 0 ? 1.0 : Math.min(...driftValues);
 
 	// An axis only gates if the fixture exercises it (has ≥1 probe of that type).
 	const hasFact = factJudgements.length > 0;

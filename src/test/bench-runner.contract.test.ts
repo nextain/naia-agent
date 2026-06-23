@@ -92,6 +92,57 @@ const badSut: SystemUnderTest = {
   },
 };
 
+describe("runFixture — fail-closed 회귀 (적대리뷰 codex 1b)", () => {
+  it("#1 SUT throw → 크래시 아니라 pass:false + error(전 probe fail)", async () => {
+    const throwSut: SystemUnderTest = { async run() { throw new Error("sut boom"); } };
+    const r = await runFixture(recallFixture, throwSut);
+    expect(r.pass).toBe(false);
+    expect(r.errors.some((e) => e.includes("SUT run threw") && e.includes("sut boom"))).toBe(true);
+    expect(r.details.every((d) => d.pass === false)).toBe(true);
+    expect(r.scores).toEqual({ factRecall: 0, taskAccuracy: 0, driftScore: 0 });
+  });
+
+  it("#5 중복 probeIndex → 에러 표면화(silent last-write 아님)", async () => {
+    const dupSut: SystemUnderTest = {
+      async run() { return [
+        { probeIndex: 0, answer: "호두 새우 입니다" },
+        { probeIndex: 0, answer: "중복 응답" },
+      ]; },
+    };
+    const r = await runFixture(recallFixture, dupSut);
+    expect(r.errors.some((e) => e.includes("duplicate response for probe 0"))).toBe(true);
+  });
+
+  it("#2 drift probe baseline 누락 → fail-closed(perfect 1.0 아님)", async () => {
+    const noBaselineSut: SystemUnderTest = {
+      async run() { return [{ probeIndex: 0, answer: "어떤 답" }]; },
+    };
+    const r = await runFixture(driftFixture, noBaselineSut);
+    expect(r.pass).toBe(false);
+    expect(r.scores.driftScore).toBe(0);
+    expect(r.errors.some((e) => e.includes("no baseline"))).toBe(true);
+  });
+
+  it("#3 drift 집계=min(worst) — 한 probe 0.0 이면 다른 probe 1.0 라도 fixture fail(mean 마스킹 방지)", async () => {
+    const twoDriftFixture: Fixture = {
+      id: "T-DRIFT2", domain: "test", turns: [{ role: "user", content: "x" }],
+      probes: [
+        { afterTurn: 1, type: "drift", question: "q1" },
+        { afterTurn: 1, type: "drift", question: "q2" },
+      ],
+    };
+    const mixedSut: SystemUnderTest = {
+      async run() { return [
+        { probeIndex: 0, answer: "동일 토큰 집합", baselineAnswer: "동일 토큰 집합" }, // drift 1.0
+        { probeIndex: 1, answer: "완전히 다른 단어", baselineAnswer: "전혀 겹치지 항목" }, // drift 0.0
+      ]; },
+    };
+    const r = await runFixture(twoDriftFixture, mixedSut);
+    expect(r.scores.driftScore).toBe(0); // min(1.0,0.0)=0.0 (mean 0.5 아님)
+    expect(r.pass).toBe(false);          // worst probe 실패 → fixture fail
+  });
+});
+
 describe("runFixture — passing run (good deterministic SUT)", () => {
   it("scores fact-recall 1.0 and passes when every keyword survives", async () => {
     const r = await runFixture(recallFixture, goodSut);
