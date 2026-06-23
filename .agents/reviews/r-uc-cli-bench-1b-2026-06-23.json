@@ -4,15 +4,46 @@
   "date": "2026-06-23",
   "session_id": "7c563b0a-67bf-4c7d-9fad-13c6d52e7a0c",
   "process": "독립 적대 리뷰(definition_of_done #2) — codex gpt-5.5(러너 채점/결정론/fail-closed) + 내 verify.",
-  "scope_files": ["benchmark/src/runner.ts", "benchmark/src/report.ts", "benchmark/src/sut-recall.ts", "benchmark/src/index.ts", "src/test/bench-runner.contract.test.ts", "src/test/bench-report.contract.test.ts"],
+  "scope_files": [
+    "benchmark/src/runner.ts",
+    "benchmark/src/report.ts",
+    "benchmark/src/sut-recall.ts",
+    "benchmark/src/index.ts",
+    "src/test/bench-runner.contract.test.ts",
+    "src/test/bench-report.contract.test.ts"
+  ],
   "round1_codex": {
     "model": "gpt-5.5",
     "verdict": "FIX-FIRST",
     "confirmed_defects": [
-      { "id": "#1", "sev": "P1", "title": "sut.run() try/catch 밖 → throwing SUT 크래시(fail-closed 계약 위반)", "fix": "try/catch → 전 probe fail + errors:[SUT run threw] 반환", "status": "FIXED" },
-      { "id": "#2", "sev": "P2", "title": "drift probe baseline 누락 → driftScore 1.0(perfect, no-baseline→완벽 경로)", "fix": "baseline 없으면 fail-closed(driftValue 0 + error)", "status": "FIXED" },
-      { "id": "#3", "sev": "P2", "title": "집계 mean-drift 가 per-probe 실패 마스킹([0.0,1.0] mean 0.5 통과)", "fix": "집계 drift = Math.min(worst probe)", "status": "FIXED" },
-      { "id": "#5", "sev": "P3", "title": "중복 probeIndex silent last-write", "fix": "중복 감지 → error 표면화", "status": "FIXED" }
+      {
+        "id": "#1",
+        "sev": "P1",
+        "title": "sut.run() try/catch 밖 → throwing SUT 크래시(fail-closed 계약 위반)",
+        "fix": "try/catch → 전 probe fail + errors:[SUT run threw] 반환",
+        "status": "FIXED"
+      },
+      {
+        "id": "#2",
+        "sev": "P2",
+        "title": "drift probe baseline 누락 → driftScore 1.0(perfect, no-baseline→완벽 경로)",
+        "fix": "baseline 없으면 fail-closed(driftValue 0 + error)",
+        "status": "FIXED"
+      },
+      {
+        "id": "#3",
+        "sev": "P2",
+        "title": "집계 mean-drift 가 per-probe 실패 마스킹([0.0,1.0] mean 0.5 통과)",
+        "fix": "집계 drift = Math.min(worst probe)",
+        "status": "FIXED"
+      },
+      {
+        "id": "#5",
+        "sev": "P3",
+        "title": "중복 probeIndex silent last-write",
+        "fix": "중복 감지 → error 표면화",
+        "status": "FIXED"
+      }
     ],
     "noted": "#4 sut-recall task proxy(non-empty recall=pass)는 문서화된 결정론 proxy(실 LLM judge=opt-in 후속) — taskPass 오버라이드 가능. SUT 어댑터 한계, 러너는 정확. 코멘트 유지."
   },
@@ -22,12 +53,28 @@
     "model": "gpt-5.5",
     "verdict": "FIX-FIRST (R1 수정의 잔여 2건)",
     "confirmed": [
-      { "id": "R2-#1", "sev": "P2", "title": "missing baseline 가 threshold-bypassable(driftMin≤0 이면 통과) — 구조적 실패가 unconditional fail 아님", "fix": "fatal 플래그(응답 누락·baseline 누락) + pass = !fatal && (axis gates)", "status": "FIXED" },
-      { "id": "R2-#2", "sev": "P3", "title": "Math.min(...spread) 대량 probe arg 한계", "fix": "driftValues.reduce((a,b)=>Math.min(a,b),1.0)", "status": "FIXED" }
+      {
+        "id": "R2-#1",
+        "sev": "P2",
+        "title": "missing baseline 가 threshold-bypassable(driftMin≤0 이면 통과) — 구조적 실패가 unconditional fail 아님",
+        "fix": "fatal 플래그(응답 누락·baseline 누락) + pass = !fatal && (axis gates)",
+        "status": "FIXED"
+      },
+      {
+        "id": "R2-#2",
+        "sev": "P3",
+        "title": "Math.min(...spread) 대량 probe arg 한계",
+        "fix": "driftValues.reduce((a,b)=>Math.min(a,b),1.0)",
+        "status": "FIXED"
+      }
     ],
     "regression_test": "bench-runner '#R2 구조적 실패는 threshold 무관 fail — baseline 누락은 driftMin 0 이어도 fail'."
   },
-  "round3_codex": "in-progress (R2 수정 확인). push 시 갱신.",
+  "round3_codex": {
+    "model": "gpt-5.5",
+    "verdict": "SHIP",
+    "confirmed": "fatal 플래그가 threshold 무관 fail 보장·reduce min 정확(빈→1.0)·잔여 실결함 0. nit(errors 독스트링 non-fatal) 정정."
+  },
   "fix_verification_r2": "runner+report 26 green(+1 R2 회귀), 전체 535 통과(회귀0), build·benchmark tsc·import-boundary green.",
-  "verdict": "R1 FIX-FIRST(4)→수정 → R2 FIX-FIRST(2)→수정 → R3 확인 대기. system-agnostic(src/main import 0)·결정론·1a 채점 재사용 견고."
+  "verdict": "SHIP — R1(4)→R2(2)→R3 SHIP 수렴. 벤치 러너 fail-closed·결정론·system-agnostic 견고."
 }

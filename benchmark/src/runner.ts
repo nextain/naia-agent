@@ -101,7 +101,8 @@ export interface FixtureResult {
 	/** Overall pass: all scored axes meet the threshold. */
 	readonly pass: boolean;
 	readonly details: readonly ProbeDetail[];
-	/** Non-fatal issues (missing probe response, etc.) — surfaced, not thrown. */
+	/** Issues surfaced (not thrown): 구조적 결함(응답 누락·drift baseline 누락 = fatal→pass:false 강제),
+	 *  중복 probeIndex, SUT throw 메시지 등. 채점 자체의 score-miss 는 errors 가 아니라 details/scores 로. */
 	readonly errors: readonly string[];
 }
 
