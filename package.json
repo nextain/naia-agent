@@ -1,9 +1,9 @@
 {
-  "name": "new-naia-agent",
+  "name": "@nextain/naia-agent",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "naia-agent(brain) 헥사고날 이식 — UC1 brain 파이프라인",
+  "description": "naia-agent — naia 생태계 뇌 런타임 + sub-agent 오케스트레이터(헥사고날)",
   "engines": {
     "node": ">=22"
   },

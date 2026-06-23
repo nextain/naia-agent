@@ -25,8 +25,8 @@ AI 코딩 도구(Cursor, Claude Code 등)를 쓰신다면, 이 폴더를 연 뒤
 먼저 저장소를 내려받습니다.
 
 ```bash
-git clone https://github.com/nextain/new-naia-agent.git
-cd new-naia-agent
+git clone https://github.com/nextain/naia-agent.git
+cd naia-agent
 ```
 
 그다음 사용하는 AI 코딩 도구(Claude Code, Cursor, GitHub Copilot, Gemini CLI 등)에서 이 폴더를 열고, 모국어로 이렇게 물어보세요.
@@ -86,15 +86,15 @@ pnpm test      # 단위·계약 테스트 (vitest)
 ```
 
 > ⚠️ **`naia-memory` 를 아래 레이아웃으로 함께 clone.** `package.json` 의
-> `@nextain/naia-memory` 의존이 로컬 경로 `file:../../naia-memory`(new-naia-agent 에서 **두 단계 위**)라,
-> **new-naia-agent 의 조부모 디렉토리**에 `naia-memory` 가 있어야 `pnpm install` 이 성공합니다.
+> `@nextain/naia-memory` 의존이 로컬 경로 `file:../../naia-memory`(naia-agent 에서 **두 단계 위**)라,
+> **naia-agent 의 조부모 디렉토리**에 `naia-memory` 가 있어야 `pnpm install` 이 성공합니다.
 >
 > ```bash
 > mkdir naia-stack && cd naia-stack
 > git clone https://github.com/nextain/naia-memory.git
-> git clone https://github.com/nextain/new-naia-agent.git new-naia/new-naia-agent
-> #   naia-stack/naia-memory  +  naia-stack/new-naia/new-naia-agent  ← 여기서 pnpm install
-> cd new-naia/new-naia-agent
+> git clone https://github.com/nextain/naia-agent.git dev/naia-agent
+> #   naia-stack/naia-memory  +  naia-stack/dev/naia-agent  ← 여기서 pnpm install
+> cd dev/naia-agent
 > ```
 
 **구조 점검 (코드 작성 전에 한 번)**
