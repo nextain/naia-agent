@@ -1,8 +1,9 @@
 // adapters/subprocess-session — sub-agent CLI(pi·opencode 등)를 subprocess 로 감싸는 **공유 세션 머신**.
 //
-// pi/opencode/shell 어댑터가 동형(同型) 구조를 가져 중복을 한 곳으로: child stdout 줄단위 파싱 → SubAgentEvent
-// 스트림(큐+waiter 백프레셔), session_end 정확히 1회, late-stdout race 가드, 64MiB 단일줄 가드, cancel=SIGTERM→
-// 유예→SIGKILL. 어댑터별로 다른 것은 (1) bin/args (2) `lineToEvent`(NDJSON/텍스트 줄 → 이벤트) (3) 라벨뿐.
+// pi/opencode 어댑터(줄단위 NDJSON 모델)가 동형(同型) 구조를 가져 중복을 한 곳으로: child stdout 줄단위 파싱 →
+// SubAgentEvent 스트림(큐+waiter 백프레셔), session_end 정확히 1회, late-stdout race 가드, 64MiB 단일줄 가드,
+// cancel=SIGTERM→유예→SIGKILL. 어댑터별로 다른 것은 (1) bin/args (2) `lineToEvent`(줄 → 이벤트) (3) 라벨뿐.
+// (subagent-shell 은 raw-chunk 모델의 독립 레퍼런스 — 줄 모델로의 통합은 동작변경이라 후속 검토 대상.)
 //
 // ⚠️ child_process 는 adapters 안에서만(import-boundary 강제). PID·SIGTERM·exit code 는 여기서 끝난다.
 import { spawn, type ChildProcess } from "node:child_process";
@@ -132,7 +133,7 @@ class SubprocessSession implements SubAgentSession {
     this.#stdoutBuf += chunk.toString("utf8");
     let nl: number;
     while ((nl = this.#stdoutBuf.indexOf("\n")) !== -1) {
-      const line = this.#stdoutBuf.slice(0, nl);
+      const line = this.#stdoutBuf.slice(0, nl).replace(/\r$/, ""); // CRLF 정규화 — 후행 \r 가 텍스트로 새지 않게(적대리뷰 P2).
       this.#stdoutBuf = this.#stdoutBuf.slice(nl + 1);
       this.#processLine(line);
     }
