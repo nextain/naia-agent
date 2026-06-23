@@ -9,22 +9,22 @@
   },
 
   "current_work": {
-    "issue": null,
-    "title": "provider-wiring — naia-os 전 프로바이더/모델 ↔ agent 연결 (정본 Option S: naia-settings 설정 기반 라이브 reload)",
-    "issue_doc": "../../../.agents/progress/new-naia-port-execution-2026-06-18.md (모델 최신화 + claude-code-cli SDK 분리; 선행 new-naia-provider-wiring-2026-06-17.md)",
+    "issue": "UC-CLI-orchestration + re-audit-hardening",
+    "title": "UC-CLI 단독 CLI 오케스트레이션(SPEC-009~011) + 재감사 하드닝(redaction·누수·문서 정합)",
+    "issue_doc": "../../../.agents/progress/naia-agent-reaudit-2026-06-23.md (선행: naia-agent-cutover-gap-and-capability-port-2026-06-22.md)",
     "github_issue": null,
-    "started": "2026-06-17",
-    "last_updated": "2026-06-18",
+    "started": "2026-06-22",
+    "last_updated": "2026-06-23",
     "status": "in_progress",
-    "prior_work_note": "UC-memory(FR-MEM-1~10) 작업은 별도 — 미커밋 상태 유지(provider-provenance 동시작업 얽힘). 본 작업과 직교."
+    "prior_work_note": "provider-wiring(FR-PROV-1~5)·UC-memory(FR-MEM-1~11) 작업은 커밋 완료(과거 stale 노트의 'UC-memory 미커밋'은 부정확 — 메모리 작업 origin 반영됨). 본 UC-CLI 와 직교."
   },
 
   "sdlc_gates": {
-    "P01": { "status": "done", "name": "user_scenarios", "deliverable": "사용자 모델 교체 → agent 라이브 반영 시나리오 (docs/user-scenarios.md UC-PROV-1) + 진행문서", "ref": "../../../.agents/progress/new-naia-provider-wiring-2026-06-17.md" },
-    "P02": { "status": "done", "name": "test_scenarios", "deliverable": "all-providers-wiring.contract.test.ts(9) + uc1-reload-default-config.contract.test.ts(3) + uc-naia-settings-store(19) + 프로세스 e2e 2종", "ref": "docs/user-scenarios.md#test-coverage-map" },
-    "P03": { "status": "done", "name": "requirements", "deliverable": "docs/requirements.md FR-PROV-1(config-first precedence) FR-PROV-2(라이브 reload R1-2) FR-PROV-3(native host-override gating)", "ref": "../../../.agents/progress/new-naia-provider-wiring-2026-06-17.md" },
-    "P04": { "status": "done", "name": "integration_test", "deliverable": "48 contract green + 프로세스 e2e: (1)config.json 로딩(nextain/gemini-3.1-flash-lite) (2)gRPC SetWorkspace→ReloadSettings 라이브 swap(nextain→zai→gemini) 관통. 적대적 리뷰 통과(MEDIUM naiaGatewayUrl hijack 수정·잠금).", "ref": null },
-    "P05": { "status": "in_progress", "name": "requirements_complete", "deliverable": "코드+테스트 완료, 적대적 리뷰 통과. 커밋/푸시 후 사용자 실앱 테스트 대기(프론트엔드 rebuild 필요).", "ref": "../../../.agents/progress/new-naia-provider-wiring-2026-06-17.md" }
+    "P01": { "status": "done", "name": "user_scenarios", "deliverable": "UC-CLI 단독 CLI 오케스트레이션 시나리오 (docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md + docs/user-scenarios.md UC-CLI S1~S4)", "ref": "docs/progress/02.user-scenarios/INDEX.md UC-014" },
+    "P02": { "status": "done", "name": "test_scenarios", "deliverable": "uc-cli-*.contract.test.ts + uc-cli-host-entry + redact.contract.test.ts + supervisor M3/F1/P2 회귀 (Test Coverage Map)", "ref": "docs/progress/03.uc-tests/INDEX.md TEST-S-014" },
+    "P03": { "status": "done", "name": "requirements", "deliverable": "docs/requirements.md FR-CLI-1~6 (+ 재감사 보안 NFR: 로그 redaction)", "ref": "docs/progress/01.requirements/INDEX.md REQ-011·012" },
+    "P04": { "status": "done", "name": "integration_test", "deliverable": "583 pass/5 skip. SPEC-009(코어)·010(어댑터)·011(host CLI bin) + 재감사 수정(F1 누수·gRPC 크래시·P1/P2/P3b 스트림·redaction 7R). 적대게이트(codex) 통과. e2e exit 0/2/3/64.", "ref": "docs/progress/04.features/INDEX.md SPEC-009~011" },
+    "P05": { "status": "in_progress", "name": "requirements_complete", "deliverable": "코드+테스트+문서 완료, 적대 7R 통과, 커밋/푸시 진행. naia-os gRPC 호스트 배선(②)은 naia-os 워크스페이스 작업 후 별도 phase.", "ref": "../../../.agents/progress/naia-agent-reaudit-2026-06-23.md" }
   },
 
   "resource_registry": {

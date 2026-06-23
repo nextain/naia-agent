@@ -85,5 +85,7 @@ jobs:
         run: node scripts/check-logging.mjs
       - name: file anchors (src/main 파일단위 계약)
         run: node scripts/check-file-anchors.mjs
+      - name: V-model traceability (REQ→UC→SPEC→TEST, orphan/dead-link 0)
+        run: node scripts/check-traceability.mjs --enforce
       - name: tests (vitest — unit/contract/integration)
         run: pnpm test

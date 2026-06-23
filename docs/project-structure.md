@@ -52,6 +52,8 @@
 | `README.md` | 이 repo 소개 (복제 제외) |
 | `README.template.md` | 새 프로젝트가 받는 README skeleton (create/migration 이 README.md 로 사용) |
 | `CHANGELOG.md` | 변경 이력 |
+| `review-pass.yaml` | 크로스리뷰 리뷰어 패널 project-local override (정본 SoT = naia-settings/review.json) |
+| `.env.example` | 환경변수 템플릿 (OSS-readiness) |
 
 > 새 파일 추가 시: `agents-rules.json` F13 → 이 표 → 사용자 승인 순서 필수.
 
@@ -88,6 +90,12 @@
 | `requirements.md` | 기능/비기능 요구사항 |
 | `user-scenarios.md` | 사용자 시나리오 + 테스트 커버리지 맵 |
 | `ARCHITECTURE.md` | 시스템 아키텍처 |
+| `glossary.md` | 도메인/온보딩 용어사전 |
+| `logging.md` | 로깅 규약 (DiagnosticLog·시크릿 redaction) |
+| `llm-roles.md` | LLM 역할(main/sub/embedded) 매핑 |
+| `acceptance-criteria.md` | 수용 기준 |
+| `threat-model.md` | 위협 모델 |
+| `README.md` | docs 진입/개요 |
 
 ---
 
