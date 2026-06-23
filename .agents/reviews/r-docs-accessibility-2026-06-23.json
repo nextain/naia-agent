@@ -1,0 +1,51 @@
+{
+  "uc": "문서 접근성 크로스리뷰 — 일반인·초급개발자",
+  "repo": "naia-agent",
+  "date": "2026-06-23",
+  "session_id": "7c563b0a-67bf-4c7d-9fad-13c6d52e7a0c",
+  "trigger": "사용자 지시: '크로스 리뷰로 문서화부터 손봐. 일반인들, 초급개발자들 접근가능한 수준인지 리뷰 다 해줘.'",
+  "process": "독립 리뷰어 2: 내부 general-purpose 에이전트(holistic 접근성, agentId a1bfb5258d8cf39d1) + codex gpt-5.5(2 페르소나 재검증).",
+  "scope_files": [
+    "README.md",
+    ".github/CONTRIBUTING.md",
+    "docs/glossary.md(신규)"
+  ],
+  "round1_internal_agent": {
+    "verdict": "README=BARRIERS(일반인), CONTRIBUTING=모범. glossary 누락(.users/context/project-index.md:48 broken link).",
+    "findings_applied": [
+      {
+        "id": "P1",
+        "title": "README 오프닝이 jargon 먼저(뇌 런타임/오케스트레이터/헥사고날/Hermes) — 일반인용 plain lede 부재",
+        "fix": "한 줄 요약 + 구체 예시(버그 고쳐줘→코딩AI spawn→정직 숫자) lede 추가, 기술 단락은 <details> demote, Hermes=내부 코드네임 글로스."
+      },
+      {
+        "id": "P1",
+        "title": "docs/glossary.md 부재(broken link) + 최악 jargon(wire·transport직교·SubAgentPort·배선대기·NDJSON) 무정의",
+        "fix": "docs/glossary.md 생성(18 용어 한국어 한줄) + README/헥사고날/CONTRIBUTING 에서 링크."
+      },
+      {
+        "id": "P2",
+        "title": "헥사고날 섹션이 ports/adapters 선지식 가정",
+        "fix": "CONTRIBUTING §8 한줄 글로스 인라인 재사용."
+      },
+      {
+        "id": "P2",
+        "title": "역량표가 유지보수용 status(🔌/dormant) 인데 newcomer엔 벽",
+        "fix": "표 위 '처음이면 ✅만 훑어도 됨' preface."
+      },
+      {
+        "id": "P2",
+        "title": "file:../../naia-memory 두단계위 레이아웃 '왜' 불명(주니어 trap)",
+        "fix": "'왜 이렇게'(로컬경로·딱 한 번) 평문 설명 — README+CONTRIBUTING."
+      }
+    ],
+    "noted_good": "CONTRIBUTING=접근성 모범(line10 '겁먹지마세요'·plain harness 정의·§8 헥사고날 한줄·15분 fast-path). README 다이어그램·정직 status markers·--fix 경고 prominent. 기술깊이 제거 금지 — on-ramp 추가만(progressive disclosure)."
+  },
+  "round2_codex": {
+    "model": "gpt-5.5",
+    "verdict": "APPROACHABLE",
+    "note": "opening on-ramp이 접근성 실제로 올림. 2 페르소나(비개발자·주니어) 첫화면에서 무엇·왜 파악 가능. 3 정제 적용: spawn=프로그램 실행으로 풀어씀·glossary transport직교→전송방식독립 표제+폴더이름 명시·🔌 배선대기에 지금 직접사용 불가 명시."
+  },
+  "fix_verification": "전 게이트 GREEN(test 535·file-anchors·traceability·ci-verify·enforce). glossary 링크 타깃 존재.",
+  "verdict": "APPROACHABLE — 기술깊이 보존 + 접근 on-ramp 추가(progressive disclosure). R1 적용 + R2 codex 확인 + 3 정제."
+}

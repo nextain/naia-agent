@@ -85,9 +85,10 @@ pnpm build     # 타입스크립트 빌드 (tsc -p tsconfig.json)
 pnpm test      # 단위·계약 테스트 (vitest)
 ```
 
-> ⚠️ **`naia-memory` 를 아래 레이아웃으로 함께 clone.** `package.json` 의
-> `@nextain/naia-memory` 의존이 로컬 경로 `file:../../naia-memory`(naia-agent 에서 **두 단계 위**)라,
-> **naia-agent 의 조부모 디렉토리**에 `naia-memory` 가 있어야 `pnpm install` 이 성공합니다.
+> ⚠️ **`naia-memory` 를 아래 레이아웃으로 함께 clone.**
+> **왜?** `package.json` 이 옆 레포 `naia-memory` 를 로컬 폴더에서 바로 가져오도록(`file:../../naia-memory`,
+> 배포 패키지 아님) 적혀 있어서, **딱 한 번** 아래처럼 폴더를 맞춰 두면 `pnpm install` 이 성공합니다.
+> (낯선 용어는 [용어 사전](../docs/glossary.md) 참고.)
 >
 > ```bash
 > mkdir naia-stack && cd naia-stack
