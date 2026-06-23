@@ -4,7 +4,7 @@
 // 패턴: memory-orthogonality.contract.test.ts 거울(fake 포트 harness + 결정론 assert + stub-detector).
 import { describe, it, expect, vi } from "vitest";
 import { Supervisor, mergeStreams, type SupervisorDeps } from "../main/app/supervisor.js";
-import type { SubAgentEvent, VerificationReport, SupervisorReport, TaskSpec } from "../main/domain/orchestration.js";
+import type { SubAgentEvent, VerificationReport, SupervisorReport, TaskSpec, WorkspaceChange } from "../main/domain/orchestration.js";
 import type { SubAgentPort, VerifierPort, WorkspacePort, SupervisorEgressPort } from "../main/ports/orchestration.js";
 
 /** 고정 이벤트 배열을 그대로 흘리는 fake SubAgentPort. cancel 호출 기록. */
@@ -144,6 +144,34 @@ describe("UC-CLI Supervisor 직교 계약 (2a, fake 포트)", () => {
     expect(reports[0].filesChanged).toBe(4);  // 1 add + 2 modify + 1 delete
     expect(reports[0].additions).toBe(3);     // added + modified
     expect(reports[0].deletions).toBe(1);
+  });
+
+  it("M3(적대감사 2026-06-23) — 정상완료 시 workspace 에 준 signal 이 abort 됨(폴러 teardown 보장, --watch hang 회귀)", async () => {
+    // 실 makeGitWorkspace 는 signal.aborted 시 close()→clearInterval(workspace-git.ts:100). 정상완료(외부 abort
+    // 없음) 경로에서도 supervisor 가 내부 wsAbort 를 finally 에서 abort 해 폴러를 끊어야 한다. 안 그러면 인터벌이
+    // 살아 프로세스가 종료 안 됨(M3, --watch hang). 여기선 workspace 가 받은 signal 의 aborted 로 teardown 을 잠근다.
+    let wsSignal: AbortSignal | undefined;
+    const workspace: WorkspacePort = {
+      changes: (_workdir: string, signal: AbortSignal) => {
+        wsSignal = signal;
+        return (async function* () {
+          // 스스로 안 끝나는 폴러 모사 — signal.aborted 까지 무한 yield(빈 변경).
+          for (;;) {
+            if (signal.aborted) return;
+            yield { added: [], modified: [], deleted: [] } as WorkspaceChange;
+            await new Promise((r) => setTimeout(r, 5));
+          }
+        })();
+      },
+    };
+    const { port } = scriptedSubAgent([
+      { kind: "text_delta", text: "작업" },
+      { kind: "session_end", ok: true },
+    ]);
+    const { deps, reports } = harness({ subAgent: port, workspace });
+    await new Supervisor(deps).run(task, new AbortController().signal);
+    expect(reports).toHaveLength(1);     // 정직보고 1회(terminal)
+    expect(wsSignal?.aborted).toBe(true); // ★ 정상완료 후 workspace signal abort → 폴러 종료 보장. fix 없으면 false.
   });
 
   it("AC3 안전망 — adapter 가 session_end 없이 스트림을 끝내도 합성 session_end(ok:false) + report 1회", async () => {

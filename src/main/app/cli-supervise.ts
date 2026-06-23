@@ -35,7 +35,8 @@ const USAGE = `naia-agent run <task> [options]
   --workdir <dir>     작업 디렉터리(기본: 현재 디렉터리)
   --agent <name>      sub-agent (shell | pi | opencode | claude-code | codex | gemini, 기본: shell)
   --model <id>        모델 힌트(옵션)
-  --watch             워크스페이스 변경 감시(git status 폴링)
+  --watch             워크스페이스 변경 감시(git status 폴링). 변경 수치는 폴 간격마다 샘플 —
+                      폴 간격보다 빨리 끝나는 작업은 변경이 안 잡힐 수 있음(권위적 결과는 --check 사용).
   --poll <ms>         감시 폴링 간격(ms)
   --check <name=cmd>  완료 후 검증 명령(반복 가능). 명령은 공백으로 분리(따옴표 인자 미지원).
                       예: --check test="pnpm test"

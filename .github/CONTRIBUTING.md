@@ -10,7 +10,7 @@
 위에 "gRPC"·"런타임" 같은 말이 나와도 겁먹지 마세요. **첫 기여에는 그런 걸 몰라도 됩니다.**
 오타·문서·번역·작은 버그·테스트 보강 같은 작은 변경은 아래 게이트(P01~P05)를 거치지 않고 이슈 하나면 됩니다. naia-agent는 **순수 Node.js**라 Rust 같은 무거운 도구도 필요 없습니다.
 
-준비: [Node.js](https://nodejs.org/) 22 이상 설치 → `corepack enable && corepack prepare pnpm@9 --activate`(pnpm 켜기) → (`naia-memory` 함께 clone — 아래 [5. 개발 환경 준비](#5-개발-환경-준비) 참고) → `pnpm install`. 확인: `node -v`, `pnpm -v`.
+준비: [Node.js](https://nodejs.org/) 22 이상 설치 → `corepack enable && corepack prepare pnpm@10 --activate`(pnpm 켜기) → (`naia-memory` 함께 clone — 아래 [5. 개발 환경 준비](#5-개발-환경-준비) 참고) → `pnpm install`. 확인: `node -v`, `pnpm -v`.
 
 AI 코딩 도구(Cursor, Claude Code 등)를 쓰신다면, 이 폴더를 연 뒤 아래를 그대로 복사해 붙여 보세요:
 
@@ -22,11 +22,15 @@ AI 코딩 도구(Cursor, Claude Code 등)를 쓰신다면, 이 폴더를 연 뒤
 
 ## 1. 누구의 허락도 필요 없습니다
 
-먼저 저장소를 내려받습니다.
+먼저 저장소를 내려받습니다. ⚠️ `naia-agent` 의 `package.json` 은 옆 레포 `naia-memory` 를 로컬 경로
+(`file:../../naia-memory`)로 참조하므로, **그냥 단독 clone 하면 `pnpm install` 이 실패**합니다.
+아래 레이아웃으로 함께 내려받으세요(상세 = [5. 개발 환경 준비](#5-개발-환경-준비)).
 
 ```bash
-git clone https://github.com/nextain/naia-agent.git
-cd naia-agent
+mkdir naia-stack && cd naia-stack
+git clone https://github.com/nextain/naia-memory.git
+git clone https://github.com/nextain/naia-agent.git dev/naia-agent
+cd dev/naia-agent     # ← 여기서 pnpm install (naia-stack/naia-memory 형제 필요)
 ```
 
 그다음 사용하는 AI 코딩 도구(Claude Code, Cursor, GitHub Copilot, Gemini CLI 등)에서 이 폴더를 열고, 모국어로 이렇게 물어보세요.

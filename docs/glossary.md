@@ -6,6 +6,8 @@
 - **spawn(스폰)** — 다른 프로그램(여기선 외부 코딩 AI)을 자식 프로세스로 띄우는 것.
 - **sub-agent(서브 에이전트)** — naia-agent 가 spawn 해서 실제 작업을 시키는 외부 코딩 AI(pi · opencode · claude-code 등).
 - **오케스트레이션(orchestration)** — 여러 sub-agent 를 띄우고 감독해 한 작업을 시키고, 결과를 모아 보고하는 것.
+- **supervisor(수퍼바이저)** — 한 작업을 sub-agent 로 spawn → 이벤트 스트림 forward + (옵션)워크스페이스 감시 + (옵션)검증 → **정직 보고 1회**를 내는 오케스트레이션 코어. `naia-agent run` CLI 가 이걸 구동한다.
+- **exit code (CLI)** — `naia-agent run` 종료 코드: `0`=세션 성공+검증 통과, `2`=검증 실패, `3`=세션 실패/중단, `64`=인자 오류.
 - **provider(프로바이더)** — 실제 답을 생성하는 LLM 서비스(예: ollama, openai 호환, 게이트웨이).
 - **wire / wire 스트림** — naia-os 와 naia-agent 가 gRPC 로 주고받는 메시지 흐름(텍스트·도구호출·사용량 등).
 - **gRPC** — 프로그램끼리 함수 호출하듯 통신하는 표준 프로토콜. naia-os ↔ naia-agent 경계가 이걸로 연결된다.

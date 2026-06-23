@@ -44,16 +44,27 @@ export class Supervisor {
     // 1) sub-agent spawn(동기 — 세션 핸들 즉시, 이벤트는 그 안에서 흐름).
     const session = this.d.subAgent.spawn(task);
 
-    // 2) 외부 abort → sub-agent cancel(semantic). adapter 가 SIGTERM→유예→SIGKILL 로 변환.
+    // workspace 폴러(setInterval 등)를 **정상완료·에러·취소 모든 경로**에서 확실히 종료시키는 내부 컨트롤러.
+    // 외부 signal 과 링크(외부 abort → 내부 abort)하고, run() 종료 시 finally 에서 abort → workspace.changes 가
+    // 받은 signal 이 abort 되어 어댑터가 폴러를 정리한다(workspace-git: signal abort → close()→clearInterval).
+    // ⚠️ mergeStreams 의 소스 return() 전파만으론 부족(async-gen 이 await 에 suspend 된 경우 inner return() 이
+    //    안 불림 — 적대감사 2026-06-23 M3 실측). 그래서 teardown 은 이 signal 경로로 **결정론적** 보장.
+    const wsAbort = new AbortController();
+
+    // 2) 외부 abort → sub-agent cancel(semantic) + workspace 폴러 종료. adapter 가 SIGTERM→유예→SIGKILL 로 변환.
     //    이미 abort 된 채 진입해도 1회 트리거(once). cancel reject 는 흡수(취소가 supervisor 를 깨지 않음).
-    const onAbort = () => { void session.cancel("supervisor: external abort").catch((e) => this.safeDiag("sub-agent cancel 실패(무시)", e)); };
+    const onAbort = () => {
+      wsAbort.abort();
+      void session.cancel("supervisor: external abort").catch((e) => this.safeDiag("sub-agent cancel 실패(무시)", e));
+    };
     if (signal.aborted) onAbort();
     else signal.addEventListener("abort", onAbort, { once: true });
 
     try {
       // 3) workspace 변경 감시(주입 시) — sub-agent 이벤트와 N-way merge. 최신 변경 스냅샷을 누적(latest-wins).
+      //    wsAbort.signal 주입(외부 signal 아님) — 정상완료 시에도 finally 가 abort 해 폴러를 끊는다.
       let latestWorkspace: WorkspaceChange | undefined;
-      const wsStream = this.d.workspace ? this.d.workspace.changes(task.workdir, signal) : undefined;
+      const wsStream = this.d.workspace ? this.d.workspace.changes(task.workdir, wsAbort.signal) : undefined;
 
       // 두 스트림을 태깅해 단일 패스로 merge — sub-agent 이벤트는 forward, workspace 변경은 집계.
       // session_end 가 terminal: 관측 즉시 break(workspace 스트림은 abort/소진으로 정리).
@@ -112,6 +123,9 @@ export class Supervisor {
       };
       this.safeReport(report);
     } finally {
+      // ★ workspace 폴러 종료 — 정상완료·에러 포함 **모든** 경로에서 wsAbort 를 abort 해 어댑터가 인터벌을
+      //   정리하게 한다(--watch hang 회귀, 적대감사 2026-06-23 M3). idempotent(이미 abort 면 무해).
+      wsAbort.abort();
       // P2(적대리뷰 2026-06-23): 정상완료 경로에서도 abort 리스너 해제 — 공유/재사용 signal 누수 +
       //   완료된 세션에 대한 stale-cancel 방지. (abort 가 이미 fire 됐으면 once 로 자동 제거됨 → 무해 중복 호출.)
       signal.removeEventListener("abort", onAbort);
@@ -187,16 +201,31 @@ export async function* mergeStreams<T>(...sources: Array<AsyncIterable<T>>): Asy
     promise: iter.next().then((result) => ({ index, result })),
   }));
 
-  while (pending.some((p) => p !== null)) {
-    const live = pending.filter((p): p is Pending => p !== null);
-    if (live.length === 0) break;
-    const winner = await Promise.race(live.map((p) => p.promise));
-    const { index, result } = winner;
-    const currentSlot = pending[index];
-    if (!currentSlot) continue; // 다른 race winner 가 settle 함 — 재확인(P0-1)
-    if (result.done) { pending[index] = null; continue; }
-    yield result.value;
-    const slot = pending[index];
-    if (slot) slot.promise = slot.iter.next().then((r) => ({ index, result: r }));
+  try {
+    while (pending.some((p) => p !== null)) {
+      const live = pending.filter((p): p is Pending => p !== null);
+      if (live.length === 0) break;
+      const winner = await Promise.race(live.map((p) => p.promise));
+      const { index, result } = winner;
+      const currentSlot = pending[index];
+      if (!currentSlot) continue; // 다른 race winner 가 settle 함 — 재확인(P0-1)
+      if (result.done) { pending[index] = null; continue; }
+      yield result.value;
+      const slot = pending[index];
+      if (slot) slot.promise = slot.iter.next().then((r) => ({ index, result: r }));
+    }
+  } finally {
+    // ⚠️ 소비자가 terminal 관측 후 break(또는 throw)로 일찍 빠지면 — JS 가 이 generator 를 return() 하고 finally 가
+    //    돈다 — 아직 **live**(소진 안 됨) 소스 iterator 를 return() 해 하위 자원을 정리한다(예: workspace-git 폴링
+    //    인터벌). 누락 시 폴러 타이머가 살아 프로세스가 종료되지 않음(--watch hang, 적대감사 2026-06-23 M3).
+    //    - done 슬롯(pending[i]=null)은 제외(불필요 return 부작용 표면 축소, codex #2).
+    //    - return() 을 **await 하지 않음**(fire-and-forget): 어떤 소스의 return() 이 pending next() 뒤에 큐잉돼
+    //      settle 안 되더라도 merger 가 재-hang 하지 않게(codex #1). 실 어댑터(workspace-git)는 return() 이
+    //      동기 close()→clearInterval 이라 타이머가 즉시 정리된다 — best-effort 로 충분. 거부는 swallow.
+    for (const p of pending) {
+      if (p?.iter.return) {
+        try { void Promise.resolve(p.iter.return()).catch(() => {}); } catch { /* 비표준 iterator 의 동기 throw 흡수 */ }
+      }
+    }
   }
 }
