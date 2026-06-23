@@ -20,6 +20,8 @@
 | TEST-F-006 | SPEC-006 | bgm skill(search/play/volume) 계약 | `src/test/uc8-bgm-skill.contract.test.ts` | Pass |
 | TEST-F-007 | SPEC-007 | budgeted conversation(예산내 유지/초과 절단/최신·systemPrompt 보존/선두 고아 tool 가드/원자 라운드·payload) 계약 7케이스 | `src/test/budgeted-conversation.contract.test.ts` | Pass |
 | TEST-F-008 | SPEC-008 | compaction host-loop(예산초과 compact+recap 주입+tail/tail user경계 정렬/attachHandoff/임계이하/droppedCount0/throw 드롭폴백/미주입 무회귀) 계약 7케이스 | `src/test/uc-compaction.contract.test.ts` | Pass |
+| TEST-F-009 | SPEC-009 | 오케스트레이션 코어 — supervisor(AC3 merge 순서·terminal 1회·AC4 실패세션 verify·AC2 verifier throw/hang 흡수·P1 스트림reject 흡수·P2/P3 리스너 청결·mergeStreams 드롭0) + composition wireSupervisor(verifier/workspace 조립·동시 run 독립·AC4 실 node 검증) | `src/test/uc-cli-supervisor.contract.test.ts`, `uc-cli-composition.contract.test.ts`, `uc-cli-supervisor-real-verifier.integration.test.ts` | Pass |
+| TEST-F-010 | SPEC-010 | 오케스트레이션 어댑터 — pi/opencode NDJSON→event·args·malformed 관용·honest-unsupported·SIGTERM→SIGKILL + roster(pi/opencode/shell·deferred·unknown AC6) + 공유머신(CRLF·partial-flush·session_end 1회·lineToEvent throw·64MiB SIGKILL·cancel 멱등·late drop) + verifier(never-throws: exit/ENOENT/timeout/throw·SIGKILL) + workspace(porcelain 분류·한글 C-quoting 디코드·rename old→deleted·abort 누수0) | `src/test/uc-cli-subagent-pi.contract.test.ts`, `uc-cli-subagent-opencode.contract.test.ts`, `uc-cli-subagent-roster.contract.test.ts`, `uc-cli-subagent-shell.contract.test.ts`, `subprocess-session.contract.test.ts`, `uc-cli-verifier.contract.test.ts`, `uc-cli-workspace.contract.test.ts` | Pass |
 
 ## 비고
 - off-scope UC-memory 테스트(`uc1-memory-stdio.integration.test.ts`, `uc1-memory-process.integration.test.ts`)는 본 추적 제외(01 노트). agent 전체 vitest 에는 포함(269 cases).

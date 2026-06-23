@@ -21,7 +21,8 @@
 | TEST-S-008 | UC-008 | youtube BGM skill(search/play/volume) | 계약 | `src/test/uc8-bgm-skill.contract.test.ts` | Pass |
 | TEST-S-012 | UC-012 | 토큰예산 대화 조립(예산내 유지/초과 절단/최신·systemPrompt 보존/고아 tool 가드/**원자 tool 라운드·toolCalls payload 예산**) 7케이스 | 계약 | `src/test/budgeted-conversation.contract.test.ts` | Pass |
 | TEST-S-013 | UC-013 | compaction host-loop(예산초과→compact+recap systemPrompt 주입+tail만/**tail user경계 정렬**/attachHandoff 영속/임계이하 무압축/droppedCount0 원본/compact throw 드롭폴백/미주입 무회귀) 7케이스 | 계약 | `src/test/uc-compaction.contract.test.ts` | Pass |
-| TEST-S-101 | REQ-101 | 헥사고날 직교 — 도메인 transport 무지(계약 경계) | 정적/계약 | (compile-integrity + 계약 테스트 경계) | Planned |
+| TEST-S-014 | UC-014 | 단독 CLI 오케스트레이션 — supervisor(이벤트 merge·terminal 1회·never-throws·session_end시 verify) + sub-agent 어댑터(pi/opencode/shell NDJSON→event·SIGTERM→SIGKILL·honest-unsupported) + roster(AC6) + 정직보고(verifier never-throws AC2·git classify) + composition wireSupervisor 조립 + 공유 머신(session_end 1회·64MiB/late 가드) | 계약/통합 | `src/test/uc-cli-supervisor.contract.test.ts`, `uc-cli-subagent-pi.contract.test.ts`, `uc-cli-subagent-opencode.contract.test.ts`, `uc-cli-subagent-roster.contract.test.ts`, `uc-cli-subagent-shell.contract.test.ts`, `subprocess-session.contract.test.ts`, `uc-cli-verifier.contract.test.ts`, `uc-cli-workspace.contract.test.ts`, `uc-cli-composition.contract.test.ts`, `uc-cli-supervisor-real-verifier.integration.test.ts` | Pass |
+| TEST-S-101 | REQ-101 | 헥사고날 직교 — 도메인/ports/app 이 transport/adapter/메커니즘(child_process·git·net) 미import(레이어 방향 + 메커니즘 누수 0) | 계약 | `src/test/import-boundary.contract.test.ts` | Pass |
 
 ## 비고
 - Pass = `npx vitest run` 기준(2026-06-15 agent 269 cases pass 확인). external(UC-006 CDP/UC-008 youtube) 실 서비스 runtime = 루크머신(계약·skill 로직만 자율 검증).

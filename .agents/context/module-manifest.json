@@ -366,6 +366,66 @@
       ],
       "contract": "docs/progress/99.dev-comm/diagnostics-rpc-contract-2026-06-13.md",
       "note": "F1 rich-health provider — gRPC Diagnostics RPC 의 onDiagnostics(version/uptime/components). 순수-ish(injected now)."
+    },
+    "src/main/domain/orchestration.ts": {
+      "layer": "domain",
+      "uc": ["UC-014"],
+      "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
+      "note": "오케스트레이션 semantic 타입(TaskSpec·SubAgentEvent·WorkspaceChange·VerificationReport·SupervisorReport). Node 무의존, 순수."
+    },
+    "src/main/ports/orchestration.ts": {
+      "layer": "ports",
+      "uc": ["UC-014"],
+      "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
+      "note": "SubAgentPort·WorkspacePort·VerifierPort·SupervisorEgressPort — semantic 계약(PID/SIGTERM/git 등 메커니즘 0). SPEC-009."
+    },
+    "src/main/app/supervisor.ts": {
+      "layer": "app",
+      "uc": ["UC-014"],
+      "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
+      "note": "Supervisor(구 Phase1Supervisor) — spawn→이벤트 forward(+ws merge)→session_end시 verify→정직보고 1회. mergeStreams. 불변식 I1(terminal 1회)·AC2 never-throws·AC4 항상 verify. SPEC-009."
+    },
+    "src/main/adapters/subprocess-session.ts": {
+      "layer": "adapters",
+      "uc": ["UC-014"],
+      "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
+      "note": "pi/opencode 공유 subprocess 세션 머신 — child stdout 줄→이벤트(큐+waiter)·session_end 1회·cancel SIGTERM→500ms→SIGKILL·late-stdout/64MiB 가드. child_process 격리. SPEC-010."
+    },
+    "src/main/adapters/subagent-pi.ts": {
+      "layer": "adapters",
+      "uc": ["UC-014"],
+      "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
+      "note": "pi 코딩에이전트 SubAgentPort — pi NDJSON→event·bin resolve(PI_BIN→node_modules→PATH→npx)·honest-unsupported. SPEC-010."
+    },
+    "src/main/adapters/subagent-opencode-cli.ts": {
+      "layer": "adapters",
+      "uc": ["UC-014"],
+      "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
+      "note": "opencode SubAgentPort — opencode run --format json NDJSON→event·bin resolve·honest-unsupported. SPEC-010."
+    },
+    "src/main/adapters/subagent-shell.ts": {
+      "layer": "adapters",
+      "uc": ["UC-014"],
+      "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
+      "note": "shell 레퍼런스 SubAgentPort — 임의 명령 spawn·SIGTERM→SIGKILL 인터럽트 레퍼런스(AC1 실프로세스 검증). SPEC-010."
+    },
+    "src/main/adapters/subagent-roster.ts": {
+      "layer": "adapters",
+      "uc": ["UC-014"],
+      "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
+      "note": "이름→SubAgentPort 선택 — pi/opencode/shell 구현 + claude-code/codex/gemini deferred·unknown = honest-unsupported(throw 아님, AC6). SPEC-010."
+    },
+    "src/main/adapters/verifier-commands.ts": {
+      "layer": "adapters",
+      "uc": ["UC-014"],
+      "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
+      "note": "VerifierPort 실 어댑터 — check 목록 병렬 실행 **never-throws(AC2)**(exit/ENOENT/timeout/spawn-throw→pass:false). 정직보고. SPEC-010."
+    },
+    "src/main/adapters/workspace-git.ts": {
+      "layer": "adapters",
+      "uc": ["UC-014"],
+      "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
+      "note": "WorkspacePort 실 어댑터 — git status --porcelain 폴링·classifyPorcelain(C-quoting 디코드)·abort 누수0. 정직보고 변경 수치. SPEC-010."
     }
   }
 }
