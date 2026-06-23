@@ -184,9 +184,14 @@ node bin/naia-agent-run.mjs run "이 버그 고쳐줘" --agent pi --watch
 node bin/naia-agent-run.mjs --help     # 전체 옵션(--workdir/--model/--watch/--poll/--check/--json)
 ```
 
-**exit code**: `0` 세션 성공+검증 통과 · `2` 검증 실패 · `3` 세션 실패/중단 · `64` 인자 오류.
+**exit code**: `0` 세션 성공+검증 통과 · `2` 검증 실패 · `3` 세션 실패/중단 · `64` 인자 오류 (`--help` 는 `0`).
 미설치 sub-agent(예: `--agent claude-code`)는 정직하게 unsupported 로 끝난다(세션 실패=3).
 `package.json` 의 `bin` 으로 `naia-agent` 명령도 노출된다(`pnpm link`/설치 후 `naia-agent run ...`).
+
+**출력 채널**: `stdout` 은 **기계 출력 전용** — `--json` 일 때만 리포트 JSON 한 줄(항상 valid JSON, 파이프 안전).
+sub-agent 의 원출력(stdout·stderr 합쳐 transcript)과 진행 이벤트·사람용 리포트는 모두 `stderr` 로 간다.
+즉 `... --json 2>/dev/null | jq` 가 깨지지 않는다. `--watch` 의 변경 수치는 작업 시작 시점(baseline) 대비 **델타**
+(작업 전부터 dirty 였던 파일은 제외)이며 폴 간격마다 샘플한다(빠른 작업은 변경이 안 잡힐 수 있음 → `--check` 권장).
 
 > naia-os 와 함께 쓰는 전체 데스크톱 경험은 [naia-os](https://github.com/nextain/naia-os) README 참조.
 

@@ -12,6 +12,7 @@
 //   - 구 redactString(@nextain/agent-observability) 제거 — 2a 비범위(시크릿 리댁션 정책은 후속). 셸 출력은 그대로 text_delta.
 //   - spawn 동기 반환(SubAgentPort 계약) — 구판 Promise<Session> 대신 세션 객체 즉시.
 import { spawn, type ChildProcess } from "node:child_process";
+import { StringDecoder } from "node:string_decoder";
 import type { TaskSpec, SubAgentEvent } from "../domain/orchestration.js";
 import type { SubAgentPort, SubAgentSession } from "../ports/orchestration.js";
 
@@ -58,13 +59,19 @@ class ShellSession implements SubAgentSession {
   #waiters: Array<(r: IteratorResult<SubAgentEvent>) => void> = [];
   #ended = false;
   #closeListeners: Array<() => void> = [];
+  // 스트림별 UTF-8 decoder — chunk 경계에 걸친 멀티바이트 문자를 잇는다(P3b).
+  readonly #outDecoder = new StringDecoder("utf8");
+  readonly #errDecoder = new StringDecoder("utf8");
 
   constructor(child: ChildProcess, hardKillMs: number) {
     this.#child = child;
     this.#hardKillMs = hardKillMs;
 
-    child.stdout?.on("data", (chunk: Buffer) => this.#emitText(chunk));
-    child.stderr?.on("data", (chunk: Buffer) => this.#emitText(chunk));
+    // ⚠️ 스트림별 StringDecoder — UTF-8 멀티바이트 문자가 ~64KiB 파이프 chunk 경계에서 쪼개지면 chunk 단위
+    //   toString("utf8") 가 U+FFFD 로 깨진다(재감사 2026-06-23 P3b). decoder 가 미완 바이트를 버퍼링해 경계를
+    //   잇는다. stdout·stderr 가 섞이지 않게 **각각** 별도 decoder.
+    child.stdout?.on("data", (chunk: Buffer) => this.#emitText(this.#outDecoder.write(chunk)));
+    child.stderr?.on("data", (chunk: Buffer) => this.#emitText(this.#errDecoder.write(chunk)));
 
     // spawn 자체 실패(ENOENT 등) — 비정상 종료(ok:false). close 가 안 와도 여기서 종결.
     child.on("error", (err: Error) => this.#emitEnd(false, `spawn error: ${err.message}`));
@@ -91,16 +98,19 @@ class ShellSession implements SubAgentSession {
     };
   }
 
-  #emitText(buf: Buffer): void {
+  #emitText(text: string): void {
     if (this.#ended) return;
-    const text = buf.toString("utf8");
-    if (text.length === 0) return;
+    if (text.length === 0) return; // decoder 가 미완 바이트만 받으면 "" 반환 — 경계 대기(다음 chunk 와 합침)
     this.#emit({ kind: "text_delta", text });
   }
 
   /** session_end 를 정확히 1회 — 이후 모든 emit/late stdout 무시(드롭/중복 0). waiter drain + cancel 대기자 해제. */
   #emitEnd(ok: boolean, reason?: string): void {
     if (this.#ended) return;
+    // ⚠️ session_end 전에 decoder 잔여 flush — 마지막 chunk 가 멀티바이트 미완으로 끝났어도 버퍼된 바이트를
+    //   방출(끝에 걸린 출력 유실 방지, P3b). decoder.end() 는 잔여 없으면 "".
+    this.#emitText(this.#outDecoder.end());
+    this.#emitText(this.#errDecoder.end());
     this.#emit(reason !== undefined ? { kind: "session_end", ok, reason } : { kind: "session_end", ok });
     this.#ended = true;
     this.#drainWaiters();

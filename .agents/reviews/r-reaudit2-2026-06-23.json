@@ -1,0 +1,24 @@
+{
+  "uc": "재감사 2차 — 검증기반 4갈래 적대 스윕 적발 결함 일괄 수정",
+  "repo": "naia-agent",
+  "date": "2026-06-23",
+  "session_id": "7c563b0a-67bf-4c7d-9fad-13c6d52e7a0c",
+  "trigger": "사용자: '한번 더 봐줘. 뭐가 또 나오냐' → 검증기반 4갈래 적대 스윕(누수·never-throws·CLI 하드·드리프트/게이트). 사용자 결정: 전부 수정(코드+문서+헌장).",
+  "method": "4 general-purpose 에이전트 병렬, 각 주장은 실행/재현으로 입증(지난 감사의 backup-파일 환각 재발 방지).",
+  "fixes": {
+    "F1_HIGH": "supervisor 가 sub-agent 자식을 스트림에러/no-end 경로서 cancel 안 해 고아 잔존 → finally 에서 realSessionEnd 미관측 시 session.cancel(P3 정상완료 무cancel 양립). 회귀테스트.",
+    "gRPC_crash_HIGH": "agent-stdio-entry grpcServer.start() 비방어 await → bind 실패 시 raw 스택 크래시 → try/catch 정직 exit(1) + unhandledRejection/uncaughtException 백스톱. 재현 검증(graceful).",
+    "P1_P1b_MED": "shell adapter 가 stdout+stderr 합쳐 CLI stdout 오염 + --json 파싱불가 → bin egress: stdout=기계출력(--json)전용, transcript/진행/사람리포트=stderr. e2e: stdout 청결·--json valid JSON.",
+    "P2_MED": "--watch 가 절대 git-status 보고(기존 dirty over-count) → supervisor baseline(첫 스냅샷) 대비 diffWorkspaceChange 델타. 회귀테스트(preexisting-dirty 제외).",
+    "P3b_MED": "subagent-shell buf.toString chunk 단위 → 멀티바이트 경계 U+FFFD → per-stream StringDecoder + close flush. 단위테스트(가×100000 무손상).",
+    "F2_MED": "MCP 자식 shutdown 미정리 → cleanupFns 수집 + onShutdown/백스톱서 dispose.",
+    "P4_low": "--help exit 64 → 0(parse 에러와 구분). e2e.",
+    "docs": "README CLI 출력채널/exit/델타 명시 · 269→583 cases(3곳) · user-scenarios claude-code 미지원 stale 정정 · logging [new-naia-agent]→[agent]·prefix 정합 · import-boundary side-effect import 검출.",
+    "gate": "check-traceability CI 배선(self-trust-gates.yml — inert 해소).",
+    "charter": "process-status.json 전면 갱신(current_work=UC-CLI+재감사, 거짓 'UC-memory 미커밋' 정정) + .users 미러 + project-structure.md F13(.env.example/review-pass)·Doc Registry 동기. (사용자 '헌장까지' 승인 — CI charter 게이트는 직접 push 시 라벨 부재로 flag 됨, 별도 처리)"
+  },
+  "adversarial_gate": "codex(코드 diff: F1/P2 supervisor·entry·subagent-shell). [verdict 채움]",
+  "verification": "build 0 · test 583 pass/5 skip/0 fail · file-anchors 56/56 · check-logging · traceability --enforce orphan0 · enforce PASS · e2e(gRPC graceful·--help 0·--json valid·stdout 청결·멀티바이트 무손상·--watch 델타).",
+  "verdict": "재감사 2차 — 검증된 결함 전부 수정(HIGH 2·MED 6·문서·게이트·헌장). 환각 정정(지난 감사 backup 주장 3건 미실재 재확인).",
+  "note": "지난 감사(1차)가 환각한 3건과 달리 2차는 전부 실행/재현 입증. CI charter 게이트는 직접-push 시 'charter-approved' 라벨(PR 전용) 부재로 charter 3파일(process-status·self-trust-gates·project-structure)에서 red — 설계상 자가보호, 메인테이너 결정사항."
+}

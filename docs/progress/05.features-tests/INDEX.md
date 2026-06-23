@@ -6,7 +6,7 @@
 코드 = src/test(vitest). 유닛테스트 @spec SPEC-### 태그 결속.
 -->
 
-> **이식 backfill (2026-06-15)**: agent `src/test/*.{contract,integration}.test.ts` 를 SPEC 별로 정리. (`npx vitest run` 269 cases pass, 2026-06-15)
+> **이식 backfill (2026-06-15)**: agent `src/test/*.{contract,integration}.test.ts` 를 SPEC 별로 정리. (`npx vitest run` 583 pass / 5 skip, 2026-06-23)
 
 ## 기능 테스트
 
@@ -25,5 +25,5 @@
 | TEST-F-011 | SPEC-011 | UC-CLI host 진입점 — argv 파싱(기본값·전 옵션·--check name=cmd·정직 에러: 빈 task/미지옵션/--poll 비양수/--check 형식/값누락/--help) + exit code(0 성공+검증통과·2 검증실패·3 세션실패) + renderReport(정직 숫자·검증 줄) + renderEvent(text_delta=null·planning/tool/session_end). bin e2e(별도 수동 검증: shell=0·실패=3·미지원=3·검증=2·usage=64) | `src/test/uc-cli-host-entry.contract.test.ts` | Pass |
 
 ## 비고
-- off-scope UC-memory 테스트(`uc1-memory-stdio.integration.test.ts`, `uc1-memory-process.integration.test.ts`)는 본 추적 제외(01 노트). agent 전체 vitest 에는 포함(269 cases).
+- off-scope UC-memory 테스트(`uc1-memory-stdio.integration.test.ts`, `uc1-memory-process.integration.test.ts`)는 본 추적 제외(01 노트). agent 전체 vitest 에는 포함(583 pass / 5 skip, 2026-06-23).
 - 유닛테스트 깊이: 마크다운은 TEST-F(통합/계약)까지. `@spec SPEC-###` 태그 backfill = 후속.

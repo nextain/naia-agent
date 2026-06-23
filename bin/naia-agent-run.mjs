@@ -20,8 +20,13 @@ const rest = argv[0] === "run" ? argv.slice(1) : argv;
 
 const parsed = parseSuperviseArgs(rest);
 if (!parsed.ok) {
+  // --help = 명시 요청(에러 아님) → stdout + exit 0(관례). 인자 오류 → stderr + exit 64(EX_USAGE).
+  if (parsed.help) {
+    process.stdout.write(parsed.error + "\n");
+    process.exit(0);
+  }
   process.stderr.write(parsed.error + "\n");
-  process.exit(64); // EX_USAGE
+  process.exit(64);
 }
 const a = parsed.args;
 const workdir = a.workdir === "." ? process.cwd() : a.workdir;
@@ -48,14 +53,16 @@ process.on("SIGINT", () => {
   controller.abort();
 });
 
-// SupervisorEgressPort — sub-agent 이벤트는 stderr(진행), text_delta 원문은 stdout, 최종 리포트는 정직 보고.
-// no-throw 계약(이벤트 처리 중 throw 금지).
+// SupervisorEgressPort — **stdout 은 기계 출력(--json 리포트) 전용 채널**, 그 외(sub-agent transcript·진행 이벤트·
+//   사람용 리포트)는 전부 **stderr**. 이렇게 분리해야 (1) sub-agent stdout/stderr 가 CLI stdout 을 오염시키지 않고
+//   (2) `--json` 의 stdout 이 항상 valid JSON 으로 파싱된다(재감사 2026-06-23 P1/P1b — shell 어댑터가 stdout+stderr
+//   를 한 text_delta 로 합치므로 CLI 가 채널을 책임진다). no-throw 계약(이벤트 처리 중 throw 금지).
 let reported = false;
 const egress = {
   event: (e) => {
     try {
       if (e.kind === "text_delta") {
-        process.stdout.write(e.text);
+        process.stderr.write(e.text); // sub-agent 원출력 = transcript → stderr(stdout 채널 보호)
         return;
       }
       const line = renderEvent(e);

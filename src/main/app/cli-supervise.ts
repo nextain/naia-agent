@@ -27,7 +27,8 @@ export interface SuperviseArgs {
 
 export type ParseResult =
   | { readonly ok: true; readonly args: SuperviseArgs }
-  | { readonly ok: false; readonly error: string };
+  /** help=true = 사용자가 도움말을 명시 요청(에러 아님) → host 는 stdout 출력 + exit 0. help 미설정 = 인자 오류 → stderr + exit 64. */
+  | { readonly ok: false; readonly error: string; readonly help?: boolean };
 
 const USAGE = `naia-agent run <task> [options]
 
@@ -69,7 +70,7 @@ export function parseSuperviseArgs(argv: readonly string[]): ParseResult {
     switch (a) {
       case "-h":
       case "--help":
-        return { ok: false, error: USAGE };
+        return { ok: false, error: USAGE, help: true };
       case "--workdir": {
         const v = argv[++i];
         if (v === undefined) return { ok: false, error: "--workdir 값 누락" };

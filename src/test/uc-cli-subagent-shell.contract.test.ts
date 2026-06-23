@@ -28,6 +28,22 @@ describe("subagent-shell 어댑터 계약 (2a, 실 자식 프로세스)", () => 
     expect((ends[0] as Extract<SubAgentEvent, { kind: "session_end" }>).ok).toBe(true); // exit 0 → ok
   });
 
+  it("P3b(재감사 2026-06-23) — 대량 멀티바이트 출력이 chunk 경계서 안 깨짐(StringDecoder)", async () => {
+    // 600KB 의 '가'(3바이트 UTF-8) → ~64KiB 파이프 chunk 다수로 쪼개짐 → 경계에 멀티바이트가 걸린다.
+    // chunk 단위 toString("utf8") 였다면 U+FFFD 손상. StringDecoder 가 경계를 이어 무손상이어야 한다.
+    const N = 100000;
+    const port = makeShellSubAgent({ command: NODE, args: () => ["-e", `process.stdout.write('가'.repeat(${N}))`] });
+    const session = port.spawn({ prompt: "ignored", workdir: process.cwd() });
+    const events = await drain(session.events);
+    const text = events
+      .filter((e) => e.kind === "text_delta")
+      .map((e) => (e as Extract<SubAgentEvent, { kind: "text_delta" }>).text)
+      .join("");
+    expect(text).not.toContain("�");   // 손상 문자(replacement) 0
+    expect(text.length).toBe(N);            // 정확히 N개(누락/중복 0)
+    expect(text).toBe("가".repeat(N));
+  });
+
   it("비정상 종료: exit code≠0 → session_end{ok:false}", async () => {
     const port = makeShellSubAgent({ command: NODE, args: () => ["-e", "process.exit(2)"] });
     const session = port.spawn({ prompt: "ignored", workdir: process.cwd() });

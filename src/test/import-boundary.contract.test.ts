@@ -33,8 +33,9 @@ function tsFiles(dir: string): string[] {
 /** static import / export-from / dynamic import / require 의 모듈 specifier 추출. */
 function specifiers(src: string): string[] {
   const out: string[] = [];
+  // side-effect import("import 'x'", from 절 없음)도 포함 — 메커니즘 모듈 부수효과 import 누수 검출(재감사 2026-06-23).
   const re =
-    /(?:\bimport\b[^'"]*?\bfrom\s*|\bexport\b[^'"]*?\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*)['"]([^'"]+)['"]/g;
+    /(?:\bimport\b[^'"]*?\bfrom\s*|\bexport\b[^'"]*?\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s+(?=['"]))['"]([^'"]+)['"]/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(src)) !== null) out.push(m[1]);
   return out;

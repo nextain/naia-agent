@@ -25,5 +25,5 @@
 | TEST-S-101 | REQ-101 | 헥사고날 직교 — 도메인/ports/app 이 transport/adapter/메커니즘(child_process·git·net) 미import(레이어 방향 + 메커니즘 누수 0) | 계약 | `src/test/import-boundary.contract.test.ts` | Pass |
 
 ## 비고
-- Pass = `npx vitest run` 기준(2026-06-15 agent 269 cases pass 확인). external(UC-006 CDP/UC-008 youtube) 실 서비스 runtime = 루크머신(계약·skill 로직만 자율 검증).
+- Pass = `npx vitest run` 기준(2026-06-23 agent 583 pass / 5 skip 확인). external(UC-006 CDP/UC-008 youtube) 실 서비스 runtime = 루크머신(계약·skill 로직만 자율 검증).
 - off-scope UC-memory 테스트(`uc1-memory-stdio.integration.test.ts` 등)는 본 추적 제외(01 노트).

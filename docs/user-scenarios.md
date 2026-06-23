@@ -25,7 +25,7 @@
 사용자가 naia-os 설정에서 텍스트 모델/프로바이더를 바꾸면, agent 재기동 없이 **다음 대화
 턴부터** 해당 provider 로 응답한다(OS 가 naia-settings 갱신 후 `ReloadSettings`/`SetWorkspace`
 재호출 → 활성 `defaultConfig` swap). 모든 naia-os 프로바이더(nextain/gemini/openai/xai/zai/
-ollama/vllm)가 연결된다(anthropic/claude-code-cli 는 baseUrl 미정의로 미지원, 후속).
+ollama/vllm)가 연결된다. anthropic/claude-code-cli 도 연결됨(FR-PROV-4/5 — claude-code 는 Claude Agent SDK 구독 인증, apiKey 불요. requirements.md 참조).
 
 ## UC-CLI (naia-agent 단독 CLI 오케스트레이션)
 

@@ -21,6 +21,22 @@ function scriptedSubAgent(events: readonly SubAgentEvent[]) {
   return { port, cancels };
 }
 
+/** session_end 를 잠깐 미룬 뒤 내는 sub-agent — workspace 의 동기 다중 스냅샷이 merge 에서 먼저 소비되도록(순서 결정론). */
+function delayedEndSubAgent(): SubAgentPort {
+  return {
+    spawn() {
+      return {
+        events: (async function* () {
+          yield { kind: "text_delta", text: "edit" } as SubAgentEvent;
+          await new Promise((r) => setTimeout(r, 25)); // workspace baseline+후속 스냅샷 드레인 시간
+          yield { kind: "session_end", ok: true } as SubAgentEvent;
+        })(),
+        cancel: async () => {},
+      };
+    },
+  };
+}
+
 /** egress 캡처 — forward 된 이벤트 + report 를 순서대로 기록. */
 function captureEgress() {
   const events: SubAgentEvent[] = [];
@@ -129,21 +145,36 @@ describe("UC-CLI Supervisor 직교 계약 (2a, fake 포트)", () => {
   });
 
   it("AC5 — workspace 포트 주입 시 변경 수치가 리포트에 집계된다(직교: subAgent ⊥ workspace)", async () => {
-    const { port } = scriptedSubAgent([
-      { kind: "text_delta", text: "edit" },
-      { kind: "session_end", ok: true },
-    ]);
+    const port = delayedEndSubAgent(); // session_end 전 대기 → workspace 두 스냅샷 먼저 소비(merge 순서 결정론)
     const workspace: WorkspacePort = {
       changes: (async function* () {
-        yield { added: ["a.ts"], modified: ["b.ts", "c.ts"], deleted: ["d.ts"] };
+        yield { added: [], modified: [], deleted: [] };                          // baseline(시작): clean
+        yield { added: ["a.ts"], modified: ["b.ts", "c.ts"], deleted: ["d.ts"] }; // 작업 후
       }) as WorkspacePort["changes"],
     };
     const { deps, reports } = harness({ subAgent: port, workspace });
     await new Supervisor(deps).run(task, new AbortController().signal);
     expect(reports).toHaveLength(1);
-    expect(reports[0].filesChanged).toBe(4);  // 1 add + 2 modify + 1 delete
+    expect(reports[0].filesChanged).toBe(4);  // 1 add + 2 modify + 1 delete (baseline clean → 전부 run-caused)
     expect(reports[0].additions).toBe(3);     // added + modified
     expect(reports[0].deletions).toBe(1);
+  });
+
+  it("P2(적대감사 2026-06-23) — 작업 전부터 dirty 였던 파일은 변경 수치서 제외(baseline delta·정직보고)", async () => {
+    const port = delayedEndSubAgent();
+    const workspace: WorkspacePort = {
+      changes: (async function* () {
+        yield { added: [], modified: ["preexisting-dirty.ts"], deleted: [] };      // baseline: 작업 전 이미 dirty
+        yield { added: ["new.ts"], modified: ["preexisting-dirty.ts"], deleted: [] }; // 작업 후: new.ts 추가, dirty 는 그대로
+      }) as WorkspacePort["changes"],
+    };
+    const { deps, reports } = harness({ subAgent: port, workspace });
+    await new Supervisor(deps).run(task, new AbortController().signal);
+    expect(reports).toHaveLength(1);
+    // ★ preexisting-dirty.ts 는 baseline 에 있었으니 제외 — sub-agent 가 만든 new.ts 만 집계(over-count 방지).
+    expect(reports[0].filesChanged).toBe(1);
+    expect(reports[0].additions).toBe(1);
+    expect(reports[0].deletions).toBe(0);
   });
 
   it("M3(적대감사 2026-06-23) — 정상완료 시 workspace 에 준 signal 이 abort 됨(폴러 teardown 보장, --watch hang 회귀)", async () => {
@@ -172,6 +203,33 @@ describe("UC-CLI Supervisor 직교 계약 (2a, fake 포트)", () => {
     await new Supervisor(deps).run(task, new AbortController().signal);
     expect(reports).toHaveLength(1);     // 정직보고 1회(terminal)
     expect(wsSignal?.aborted).toBe(true); // ★ 정상완료 후 workspace signal abort → 폴러 종료 보장. fix 없으면 false.
+  });
+
+  it("F1(적대감사 2026-06-23) — 스트림 reject 로 session_end 없이 종료돼도 sub-agent cancel 됨(고아 자식 누수 회귀)", async () => {
+    // M3 의 형제: 스트림 에러(git/transport reject) 경로에선 onAbort 가 안 불려 session.cancel 누락 → 자식 고아.
+    // supervisor finally 가 모든 경로에서 cancel 해야 한다. 여기선 sub-agent 가 스스로 안 끝나는 동안 workspace 가
+    // reject → merged throw → 합성 session_end → finally → cancel 을 잠근다.
+    const cancels: string[] = [];
+    const subAgent: SubAgentPort = {
+      spawn() {
+        return {
+          // 스스로 session_end 안 냄(자식이 살아있는 상태 모사) — workspace reject 가 종료를 유발해야 함.
+          events: (async function* () {
+            yield { kind: "text_delta", text: "작업 중" } as SubAgentEvent;
+            await new Promise(() => {}); // 영구 대기(자식 alive)
+          })(),
+          cancel: async (reason: string) => { cancels.push(reason); },
+        };
+      },
+    };
+    const workspace: WorkspacePort = {
+      changes: (async function* () { throw new Error("EACCES watch reject"); }) as WorkspacePort["changes"],
+    };
+    const { deps, reports } = harness({ subAgent, workspace });
+    await new Supervisor(deps).run(task, new AbortController().signal);
+    expect(reports).toHaveLength(1);          // 정직보고 1회(흡수 후에도 terminal)
+    expect(reports[0].sessionOk).toBe(false); // 스트림 에러 = 세션 실패
+    expect(cancels.length).toBeGreaterThan(0); // ★ finally 가 sub-agent cancel — 고아 방지. fix 없으면 0.
   });
 
   it("AC3 안전망 — adapter 가 session_end 없이 스트림을 끝내도 합성 session_end(ok:false) + report 1회", async () => {

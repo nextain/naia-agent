@@ -62,3 +62,27 @@ export function emptyVerification(): VerificationReport {
 export function emptyWorkspaceChange(): WorkspaceChange {
   return { added: [], modified: [], deleted: [] };
 }
+
+/**
+ * latest(작업 종료 시점) 에서 baseline(작업 시작 시점에 이미 dirty 였던 상태)에 있던 (category,path)를 뺀,
+ * **sub-agent 가 유발한 순수 변경**. 정직보고 — 작업 전부터 dirty 였던 파일을 "바꿈"으로 세지 않는다(재감사 2026-06-23 P2).
+ * per-category 집합 차(예: 시작 시 modified 였다가 작업이 삭제하면 latest.deleted\baseline.deleted 로 deleted 집계).
+ * baseline 미정(감시 시작 스냅샷 없음) = latest 그대로. 순수.
+ *
+ * ⚠️ **best-effort 한계(codex 재감사 2026-06-23)** — over-count(기존 dirty) 는 막지만 완벽한 인과 회계는 아니다:
+ *   (1) baseline = 감시 첫 폴 스냅샷이라, 폴 간격보다 빨리 끝난 sub-agent 변경이 baseline 에 섞이면 under-count.
+ *   (2) path+category granularity — 시작 시 modified 였던 파일을 sub-agent 가 *다시* 수정하면 둘 다 modified 라 0 으로 빠짐.
+ *   정확한 변경 검증이 필요하면 content/hash baseline 또는 --check(verifier) 사용. 이 함수는 path 수준 근사.
+ */
+export function diffWorkspaceChange(latest: WorkspaceChange, baseline: WorkspaceChange | undefined): WorkspaceChange {
+  if (!baseline) return latest;
+  const minus = (cur: readonly string[], base: readonly string[]): string[] => {
+    const baseSet = new Set(base);
+    return cur.filter((p) => !baseSet.has(p));
+  };
+  return {
+    added: minus(latest.added, baseline.added),
+    modified: minus(latest.modified, baseline.modified),
+    deleted: minus(latest.deleted, baseline.deleted),
+  };
+}

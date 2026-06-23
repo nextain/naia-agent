@@ -54,6 +54,8 @@ rl.on("line", (l) => {
 // ⚠️ init 가 hang 해도(import 무한대기) shutdown 이 영영 설치 안 될 수 있으므로, latch 가 발화하면 즉시
 // init-watchdog 강제 종료 timer 를 건다 — 조기 EOF + hung init 에서도 프로세스가 영구 정지하지 않게.
 let onShutdown = null;
+// 종료 시 정리할 자원(자식 프로세스·소켓 등) 핸들 — MCP 자식 등은 여기 push 해 onShutdown 이 정리(F2, 재감사 2026-06-23).
+const cleanupFns = [];
 // ⚠️ gRPC transport: stdin 은 데이터 채널 아님 → stdin EOF 는 종료 신호가 아니다(서버는 SIGTERM/SIGINT 까지 생존).
 // (구 stdio 진입점은 stdin EOF=클라 연결종료로 셧다운했으나, gRPC 서버는 Rust 가 시그널로 종료한다.)
 rl.on("close", () => { /* no-op — gRPC 모드: EOF≠shutdown */ });
@@ -103,9 +105,10 @@ if (process.env.NAIA_AGENT_SKILLS !== "off") {
       const transport = makeMcpJsonRpcClient(channel);
       const mcpExec = await makeMcpSkillsExecutor({ transport, serverName: mcpName, initTimeoutMs: 30000 });
       executors.push(mcpExec);
+      cleanupFns.push(channel.close); // F2: 종료 시 MCP 자식 kill(고아 누적 방지)
       skillsLabel += ` + mcp:${mcpName}(${mcpExec.specs().length})`;
     } catch (e) {
-      process.stderr.write(`[new-naia-agent] MCP init 실패(격리, MCP 없이 진행): ${e instanceof Error ? e.message : String(e)}\n`);
+      process.stderr.write(`[naia-agent] MCP init 실패(격리, MCP 없이 진행): ${e instanceof Error ? e.message : String(e)}\n`);
     }
   }
   // notify(slack/discord/google_chat) — webhook URL = naia-adk skills.json.notify.{target} > env NAIA_NOTIFY_{TARGET}_WEBHOOK.
@@ -162,7 +165,7 @@ const credentials = makeKeychainCredentials({ read: process.platform === "linux"
 //   naia-settings 로 provider/모델 로딩 완료 → 대화는 메시지만). apiKeyRef → process.env ?? 키체인(secret-tool).
 //   파일 없음/미설정 = defaultConfig 없음 → wire chat_request.provider 가 실리면 그걸로(하위호환), 둘 다 없으면 honest error.
 const settingsResolveSecret = (ref) => process.env[ref] ?? (process.platform === "linux" ? secretToolRead(ref) : undefined);
-const settingsStore = makeNaiaSettingsStore({ fs: nodeFs, resolveSecret: settingsResolveSecret, log: (m, c) => process.stderr.write(`[new-naia-agent] ${m} ${c ? JSON.stringify(c) : ""}\n`) });
+const settingsStore = makeNaiaSettingsStore({ fs: nodeFs, resolveSecret: settingsResolveSecret, log: (m, c) => process.stderr.write(`[naia-agent] ${m} ${c ? JSON.stringify(c) : ""}\n`) });
 const defaultConfig = settingsStore.loadMain(adkPath) ?? undefined;
 const configLabel = defaultConfig ? `naia-settings(${defaultConfig.provider}/${defaultConfig.model})` : `none(wire provider 필요) adk=${adkPath}`;
 // ★ 라이브 reload(정본 R1-2 "startup-only 금지"): 사용자가 naia-os 에서 모델/프로바이더 교체 시 OS 가
@@ -173,7 +176,7 @@ let applyDefaultConfig = (_c) => {};
 const reloadConfigFrom = (path) => {
   const c = path ? (settingsStore.loadMain(path) ?? undefined) : undefined;
   applyDefaultConfig(c);
-  process.stderr.write(`[new-naia-agent] settings reload → ${c ? `${c.provider}/${c.model}` : "none"} (adk=${path})\n`);
+  process.stderr.write(`[naia-agent] settings reload → ${c ? `${c.provider}/${c.model}` : "none"} (adk=${path})\n`);
   return { loaded: !!c, provider: c?.provider ?? "", model: c?.model ?? "" };
 };
 
@@ -235,7 +238,7 @@ if (process.env.NAIA_AGENT_MEMORY !== "off") {
     });
     memoryLabel = `naia-memory(${storePath}, project=${project}, adapter=${memCfg?.adapter ?? "local"}, embed=${memCfg?.embedding.provider ?? "none"}, llm=${memCfg?.llm.provider ?? "none"})`;
   } catch (e) {
-    process.stderr.write(`[new-naia-agent] memory init 실패(격리, 기억 없이 진행): ${e instanceof Error ? e.message : String(e)}\n`);
+    process.stderr.write(`[naia-agent] memory init 실패(격리, 기억 없이 진행): ${e instanceof Error ? e.message : String(e)}\n`);
   }
 }
 
@@ -267,10 +270,19 @@ const wired = wireAgentUC1({ ingress: grpcServer.ingress, egress: grpcServer.egr
 applyDefaultConfig = wired.setDefaultConfig; // 라이브 reload 결선 — 이후 SetWorkspace/ReloadSettings 가 활성 config swap
 const { start, drain } = wired;
 start?.(); // ingress.onRequest(route) 등록 — gRPC 핸들러가 도메인 req 를 흘린다
-const grpcAddr = await grpcServer.start();
+// ⚠️ gRPC bind 실패(포트 점유·잘못된 NAIA_AGENT_GRPC_ADDR·DNS·권한)는 부팅의 유일한 비방어 await 였다 →
+//   raw 스택 크래시(재감사 2026-06-23 HIGH). 정직 메시지 + 깔끔한 exit(1)로 감싼다(동적 import 격리와 동일 규율).
+let grpcAddr;
+try {
+  grpcAddr = await grpcServer.start();
+} catch (e) {
+  process.stderr.write(`[naia-agent] gRPC 시작 실패(주소: ${process.env.NAIA_AGENT_GRPC_ADDR ?? "기본"}): ${e instanceof Error ? e.message : String(e)}\n`);
+  for (const fn of cleanupFns) { try { fn(); } catch { /* best-effort */ } }
+  process.exit(1);
+}
 // ⚠️ stdout 한 줄 핸드셰이크(데이터 transport 아님) — Rust 가 이 addr 를 읽어 gRPC connect.
 process.stdout.write(`GRPC_LISTENING ${grpcAddr}\n`);
-process.stderr.write(`[new-naia-agent] grpc ready @${grpcAddr} (${label} provider, config: ${configLabel}, skills: ${skillsLabel}, memory: ${memoryLabel}, transcript: ${transcriptLabel})\n`);
+process.stderr.write(`[naia-agent] grpc ready @${grpcAddr} (${label} provider, config: ${configLabel}, skills: ${skillsLabel}, memory: ${memoryLabel}, transcript: ${transcriptLabel})\n`);
 
 // stdin 닫히면 종료 — ⚠️ 순서: (1) drain(in-flight 턴 save 완료 대기) → (2) memory.close()(store flush)
 //   → (3) exit. naia-memory LocalAdapter 는 encode 를 in-memory 버퍼링하고 close() 에서 flush 하므로,
@@ -286,11 +298,13 @@ onShutdown = async () => {
   setTimeout(() => process.exit(0), 30000);
   // 각 종료 단계를 독립 try/catch — 한 단계 실패가 다음(특히 stdout flush)을 건너뛰지 않게. close 는
   // *hang* 도 stdout flush 를 막지 못하게 timeout 으로 bound(reject 는 catch, hang 은 race).
-  try { if (drain) await drain(); } catch (e) { process.stderr.write(`[new-naia-agent] drain 실패: ${e instanceof Error ? e.message : String(e)}\n`); }
-  try { await grpcServer.shutdown(); } catch (e) { process.stderr.write(`[new-naia-agent] grpc shutdown 실패: ${e instanceof Error ? e.message : String(e)}\n`); }
+  try { if (drain) await drain(); } catch (e) { process.stderr.write(`[naia-agent] drain 실패: ${e instanceof Error ? e.message : String(e)}\n`); }
+  try { await grpcServer.shutdown(); } catch (e) { process.stderr.write(`[naia-agent] grpc shutdown 실패: ${e instanceof Error ? e.message : String(e)}\n`); }
+  // F2: MCP 자식 등 등록된 자원 정리(고아 누적 방지). 각 독립 try — 한 개 실패가 나머지/exit 를 막지 않게.
+  for (const fn of cleanupFns) { try { fn(); } catch (e) { process.stderr.write(`[naia-agent] cleanup 실패: ${e instanceof Error ? e.message : String(e)}\n`); } }
   try {
     if (memory) await Promise.race([memory.close(), new Promise((res) => setTimeout(res, 8000))]);
-  } catch (e) { process.stderr.write(`[new-naia-agent] memory flush 실패: ${e instanceof Error ? e.message : String(e)}\n`); }
+  } catch (e) { process.stderr.write(`[naia-agent] memory flush 실패: ${e instanceof Error ? e.message : String(e)}\n`); }
   // process.exit 는 미flush stdout 쓰기를 끊는다(turn 출력 유실 가능). 빈 write 콜백은 앞선 모든 쓰기가
   // 파이프로 flush 된 뒤 호출 → 그때 종료(순서 보장). drain/close 가 실패·hang 해도 이 줄에 항상 도달.
   process.stdout.write("", () => process.exit(0));
@@ -298,3 +312,15 @@ onShutdown = async () => {
 // gRPC 서버 종료 = OS(Rust)가 보내는 시그널. drain/flush/grpc-shutdown 수행 후 exit.
 process.on("SIGTERM", () => { if (onShutdown) onShutdown(); });
 process.on("SIGINT", () => { if (onShutdown) onShutdown(); });
+// ⚠️ 최후 백스톱(재감사 2026-06-23): 부팅/런타임의 잡히지 않은 reject/throw 가 raw 스택 크래시로 새지 않게 —
+//   정직 메시지 남기고 자원 정리 후 종료. 정상 경로는 각자 try/catch 로 처리되며 여긴 그물망이다.
+process.on("unhandledRejection", (reason) => {
+  process.stderr.write(`[naia-agent] unhandledRejection: ${reason instanceof Error ? reason.stack ?? reason.message : String(reason)}\n`);
+  for (const fn of cleanupFns) { try { fn(); } catch { /* best-effort */ } }
+  process.exit(1);
+});
+process.on("uncaughtException", (err) => {
+  process.stderr.write(`[naia-agent] uncaughtException: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`);
+  for (const fn of cleanupFns) { try { fn(); } catch { /* best-effort */ } }
+  process.exit(1);
+});

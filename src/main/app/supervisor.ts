@@ -13,7 +13,7 @@
 import type {
   TaskSpec, SubAgentEvent, WorkspaceChange, VerificationReport, SupervisorReport,
 } from "../domain/orchestration.js";
-import { emptyVerification } from "../domain/orchestration.js";
+import { emptyVerification, diffWorkspaceChange } from "../domain/orchestration.js";
 import type {
   SubAgentPort, WorkspacePort, VerifierPort, SupervisorEgressPort,
 } from "../ports/orchestration.js";
@@ -60,10 +60,17 @@ export class Supervisor {
     if (signal.aborted) onAbort();
     else signal.addEventListener("abort", onAbort, { once: true });
 
+    // 실제 sub-agent session_end 를 관측했나(합성 terminal 제외). finally 에서 읽으므로 **try 밖**(함수 스코프)에 선언
+    //   (try-블록 let 은 finally 에서 안 보임). true = 자식 스스로 종료 → 고아 없음 → finally cancel 불요(P3).
+    //   false = 자식 alive 가능 → finally 가 cancel(F1, 재감사 2026-06-23).
+    let realSessionEnd = false;
+
     try {
       // 3) workspace 변경 감시(주입 시) — sub-agent 이벤트와 N-way merge. 최신 변경 스냅샷을 누적(latest-wins).
       //    wsAbort.signal 주입(외부 signal 아님) — 정상완료 시에도 finally 가 abort 해 폴러를 끊는다.
       let latestWorkspace: WorkspaceChange | undefined;
+      // 감시 시작 시점의 dirty 상태(첫 스냅샷) — 작업 *전부터* 더러웠던 파일을 "바꿈"으로 세지 않기 위한 baseline(P2).
+      let baselineWorkspace: WorkspaceChange | undefined;
       const wsStream = this.d.workspace ? this.d.workspace.changes(task.workdir, wsAbort.signal) : undefined;
 
       // 두 스트림을 태깅해 단일 패스로 merge — sub-agent 이벤트는 forward, workspace 변경은 집계.
@@ -84,12 +91,13 @@ export class Supervisor {
       //    2b pi/opencode transport·2c chokidar/git 권한 에러가 reject 경로를 실제로 친다.)
       try {
         for await (const t of merged) {
-          if (t.src === "ws") { latestWorkspace = t.c; continue; }
+          if (t.src === "ws") { if (baselineWorkspace === undefined) baselineWorkspace = t.c; latestWorkspace = t.c; continue; }
           // sub-agent 이벤트 forward(인과 순서 보존, AC3). emit no-throw 흡수.
           this.safeEvent(t.e);
           if (t.e.kind === "session_end") {
             sessionOk = t.e.ok;
             sawSessionEnd = true;
+            realSessionEnd = true; // 실제 종료 관측 — 자식이 스스로 끝남(finally cancel 불요)
             break; // terminal 관측 — merge 종료(workspace 는 abort/GC 로 정리, supervisor 는 다음 단계로)
           }
         }
@@ -114,10 +122,12 @@ export class Supervisor {
       const verification = await this.runVerifierSafe(task.workdir);
 
       // 5) 정직 보고 — 정확히 1회(terminal, I1). workspace 미주입/무변경 = 수치 0.
+      //    ⚠️ baseline(작업 시작 dirty) 을 빼 **sub-agent 가 유발한 변경만** 센다(P2 — 기존 dirty 파일 over-count 방지).
+      const changes = latestWorkspace ? diffWorkspaceChange(latestWorkspace, baselineWorkspace) : undefined;
       const report: SupervisorReport = {
-        filesChanged: workspaceFileCount(latestWorkspace),
-        additions: latestWorkspace ? latestWorkspace.added.length + latestWorkspace.modified.length : 0,
-        deletions: latestWorkspace ? latestWorkspace.deleted.length : 0,
+        filesChanged: workspaceFileCount(changes),
+        additions: changes ? changes.added.length + changes.modified.length : 0,
+        deletions: changes ? changes.deleted.length : 0,
         verification,
         sessionOk,
       };
@@ -126,6 +136,13 @@ export class Supervisor {
       // ★ workspace 폴러 종료 — 정상완료·에러 포함 **모든** 경로에서 wsAbort 를 abort 해 어댑터가 인터벌을
       //   정리하게 한다(--watch hang 회귀, 적대감사 2026-06-23 M3). idempotent(이미 abort 면 무해).
       wsAbort.abort();
+      // ★ sub-agent 자식 프로세스 종료 — wsAbort 의 형제(F1, 재감사 2026-06-23). **실제 session_end 미관측 시에만**
+      //   cancel(스트림 reject / no-session-end / 합성 terminal) — 이 경로들은 onAbort 가 안 불려 자식(shell/pi/
+      //   opencode subprocess)이 고아로 잔존했다. 실제 종료를 봤으면(realSessionEnd) 자식은 이미 죽었으니 cancel
+      //   생략(P3 stale-cancel 회피). cancel 은 idempotent 라 안전하지만, 정상경로 무호출이 계약상 더 깔끔.
+      if (!realSessionEnd) {
+        void session.cancel("supervisor: teardown").catch((e) => this.safeDiag("sub-agent teardown cancel 실패(무시)", e));
+      }
       // P2(적대리뷰 2026-06-23): 정상완료 경로에서도 abort 리스너 해제 — 공유/재사용 signal 누수 +
       //   완료된 세션에 대한 stale-cancel 방지. (abort 가 이미 fire 됐으면 once 로 자동 제거됨 → 무해 중복 호출.)
       signal.removeEventListener("abort", onAbort);

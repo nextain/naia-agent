@@ -13,7 +13,7 @@
 
 agent 측 메커니즘:
 - 코어(brain): `DiagnosticLog` 포트(`diag.log(message, ctx)`) — ctx 에 파라미터 객체. 디버그 게이트는 주입 측(entry)에서.
-- entry/adapter: `[new-naia-agent]` prefix `process.stderr`.
+- entry/adapter: `[naia-agent]` prefix `process.stderr`.
 - 디버그 모드 플래그: `NAIA_AGENT_DEBUG=1`(미설정=릴리즈, 진입·분기 로그 생략).
 
 ## 원칙 2 — logs-first 디버깅 (1순위, HARD RULE)
