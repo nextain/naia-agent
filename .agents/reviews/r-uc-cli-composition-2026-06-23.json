@@ -1,0 +1,20 @@
+{
+  "uc": "UC-CLI composition — wireSupervisor (2a+2b+2c 조립)",
+  "repo": "naia-agent",
+  "date": "2026-06-23",
+  "session_id": "7c563b0a-67bf-4c7d-9fad-13c6d52e7a0c",
+  "process": "독립 적대 리뷰(definition_of_done #2) — codex gpt-5.5(이미 게이트 통과한 조각의 조립이라 비례 검증) + 내 verify.",
+  "scope_files": ["src/main/composition/index.ts (wireSupervisor)", "src/test/uc-cli-composition.contract.test.ts"],
+  "codex": {
+    "model": "gpt-5.5",
+    "verdict": "실결함 0",
+    "confirmed": "Q1 조건부 spread {...(workspace?{workspace}:{})} 정확(미요청 시 workspace/verifier 생략 = 기본 오케스트레이션만, 부작용 0). Q3 roster 기본 shell·미지 이름 정직 unsupported. Q4 실결함 없음.",
+    "Q2_concurrency": {
+      "concern": "공유 subAgent/workspace/verifier 포트를 동시 run() 이 공유 — stateful 워크스페이스면 cross-run 오염 가능.",
+      "resolution": "각 포트 *메서드*(spawn/changes/verify)가 per-call 상태 생성(makeGitWorkspace.changes → 새 pollChanges, verify → 무상태, spawn → 독립 세션) → 동시 run 안전. codex 권고대로 동시성 독립 테스트로 증명·고정.",
+      "test": "uc-cli-composition '동시 run() 독립 — spawn() per-call 상태(교차오염 0)' + 'subAgentName 생략 → 기본 shell'."
+    }
+  },
+  "fix_verification": "composition 계약 7 green(격리 3회 안정), 전체 509 통과(회귀0, 직전 간헐 1실패=기존 uc1-memory-stdio order-flaky), build EXIT0, import-boundary green, F-LOG-3 OK. AC4 실 node 서브프로세스로 verifier exit 0/≠0 실측.",
+  "verdict": "SHIP — codex 실결함 0 + Q2 동시성 독립 테스트 추가. 오케스트레이션이 composition root 에서 실행 가능하게 조립됨(호스트 CLI/gRPC 가 run(task,signal,egress) 구동)."
+}

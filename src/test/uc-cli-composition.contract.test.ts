@@ -72,4 +72,39 @@ describe("wireSupervisor 합성 계약 (UC-CLI — 2a+2b+2c 조립)", () => {
     expect(reports).toHaveLength(1);
     expect(reports[0].sessionOk).toBe(false); // unsupported → session_end ok:false
   });
+
+  it("subAgentName 생략 → 기본 'shell'(subAgentOpts.shell 로 구동)", async () => {
+    const { egress, reports } = captureEgress();
+    const orch = wireSupervisor({ subAgentOpts: { shell: { command: NODE, args: () => ["-e", "process.exit(0)"] } } });
+    await orch.run(task, new AbortController().signal, egress);
+    expect(reports[0].sessionOk).toBe(true); // 기본 shell 로 조립
+  }, 15_000);
+
+  it("동시 run() 독립 — 공유 포트라도 spawn() per-call 상태(교차오염 0, codex Q2)", async () => {
+    let n = 0;
+    const counting: SubAgentPort = {
+      spawn: () => {
+        const id = ++n;
+        return {
+          events: (async function* () {
+            yield { kind: "text_delta", text: `run-${id}` } as SubAgentEvent;
+            yield { kind: "session_end", ok: true } as SubAgentEvent;
+          })(),
+          cancel: async () => {},
+        };
+      },
+    };
+    const orch = wireSupervisor({ subAgent: counting }); // 한 인스턴스, 공유 포트
+    const a = captureEgress();
+    const b = captureEgress();
+    await Promise.all([
+      orch.run(task, new AbortController().signal, a.egress),
+      orch.run(task, new AbortController().signal, b.egress),
+    ]);
+    expect(a.reports).toHaveLength(1);
+    expect(b.reports).toHaveLength(1);
+    const txt = (es: SubAgentEvent[]) => (es.find((e) => e.kind === "text_delta") as Extract<SubAgentEvent, { kind: "text_delta" }>).text;
+    expect([txt(a.events), txt(b.events)].sort()).toEqual(["run-1", "run-2"]); // 두 독립 세션(격리)
+    expect(txt(a.events)).not.toBe(txt(b.events));                            // 교차오염 0
+  });
 });
