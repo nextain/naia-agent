@@ -6,6 +6,7 @@
 // 순수 유지: write/now/debug 게이트는 **주입**(entry 가 process.stderr + NAIA_AGENT_DEBUG 제공, 테스트는 버퍼).
 // 형식 = `[ISO ts] [LEVEL] [agent] message {ctx}`. debug() 는 디버그 모드에서만(진입·분기 로깅 P1, 릴리즈 생략).
 import type { DiagnosticLog } from "../ports/uc1.js";
+import { redactSecrets } from "./redact.js";
 
 export interface DiagnosticOpts {
 	/** 한 줄 출력(개행 미포함 줄). 기본 미주입 시 no-op(코어 순수). entry 가 process.stderr 주입. */
@@ -32,8 +33,9 @@ export function makeStderrDiagnostic(opts: DiagnosticOpts = {}): DiagnosticLog {
 	const debugOn = opts.debug ?? false;
 	const now = opts.now ?? (() => new Date().toISOString());
 	const comp = opts.component ?? "agent";
+	// ⚠️ write 직전 시크릿 마스킹 — message/ctx 에 섞인 API 키·토큰이 stderr 로그로 새지 않게(보안, redact.ts).
 	const fmt = (level: string, message: string, ctx?: unknown) =>
-		`[${now()}] [${level}] [${comp}] ${message}${ctx !== undefined ? ` ${safeJson(ctx)}` : ""}`;
+		redactSecrets(`[${now()}] [${level}] [${comp}] ${message}${ctx !== undefined ? ` ${safeJson(ctx)}` : ""}`);
 	return {
 		log: (message, ctx) => write?.(fmt("INFO", message, ctx)),
 		debug: (message, ctx) => {

@@ -326,7 +326,15 @@
         "UC1"
       ],
       "contract": "docs/logging.md",
-      "note": "표준 진단 로깅 sink(DiagnosticLog 구현). 유일 sink, write/debug 주입(순수). console.* 금지=check-logging 강제. 로깅 규약 docs/logging.md"
+      "note": "표준 진단 로깅 sink(DiagnosticLog 구현). 유일 sink, write/debug 주입(순수). console.* 금지=check-logging 강제. 로깅 규약 docs/logging.md. write 직전 redactSecrets 마스킹(시크릿 누출 방지)."
+    },
+    "src/main/adapters/redact.ts": {
+      "layer": "adapters",
+      "uc": [
+        "UC1"
+      ],
+      "contract": "docs/logging.md",
+      "note": "로그 시크릿 마스킹 — redactSecrets(): sk-/AIza/ghp_/xox/AKIA/gw-/JWT 토큰을 [REDACTED] 치환. diagnostic sink 가 write 직전 적용(평문 자격증명 stderr 누출 방지, 보안). 패턴은 naia-settings-store RAW_SECRET_VALUE 동족. 재감사 2026-06-23 컷오버 누락 적발 이식."
     },
     "src/main/adapters/youtube-bgm-skills.ts": {
       "layer": "adapters",

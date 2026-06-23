@@ -1,4 +1,4 @@
-# 로깅 규약 (Logging Convention) — new-naia-agent
+# 로깅 규약 (Logging Convention) — naia-agent
 
 루크 지시(2026-06-12)로 확립한 프로젝트 로깅 원칙. 신규 코드와 **이식(transplant)하는 코드 모두**에 적용.
 
@@ -35,7 +35,7 @@ agent 측 메커니즘:
 
 1. **stdout 은 wire(AgentMessage) 전용.** 진단/로그는 **stderr** 로만(stdout 로그는 protocol 파싱 깨짐).
 2. `console.log` 직접 금지. 표준 경로(`DiagnosticLog`/prefix stderr) 사용.
-3. 비밀 값 로그 금지 — 이름만.
+3. 비밀 값 로그 금지 — 이름만. **자동 방어선**: `DiagnosticLog` sink(`adapters/diagnostic.ts`)가 write 직전 `redactSecrets`(`adapters/redact.ts`)로 알려진 키·토큰(sk-/AIza/ghp_/xox/AKIA/gw-/JWT)을 `[REDACTED]` 마스킹한다 — 실수로 message/ctx 에 섞여도 stderr 누출 차단(보수적: 명백한 키 형태만, 오탐 최소).
 4. 만지는(신규·이식) 파일에만 원칙 1 적용. 기존 코드 일괄 교체 X.
 
-cf 루트 메모리 `feedback_observe_before_build_logs_first`, 셸/Rust 측은 new-naia-os `docs/logging.md`.
+cf 루트 메모리 `feedback_observe_before_build_logs_first`, 셸/Rust 측은 [naia-os](https://github.com/nextain/naia-os) `docs/logging.md`.

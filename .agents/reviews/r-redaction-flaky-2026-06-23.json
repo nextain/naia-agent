@@ -1,0 +1,30 @@
+{
+  "uc": "재감사 surface 처리 — 로그 시크릿 redaction(보안) + F13 등록 + flaky 견고화",
+  "repo": "naia-agent",
+  "date": "2026-06-23",
+  "session_id": "7c563b0a-67bf-4c7d-9fad-13c6d52e7a0c",
+  "trigger": "사용자: 재감사 surface 항목 '차례대로 다 하고 커밋 푸시'.",
+  "items": {
+    "B_f13": "F13 allowed_root_files 에 .env.example 등록(tracked인데 미등록 → enforce --fix 삭제위험). 헌장 수정, 사용자 승인. enforce PASS.",
+    "A_redaction": "로그 시크릿 redaction 신규(adapters/redact.ts) + diagnostic sink write-직전 적용 + docs/logging.md 조항. ※구 redactString 은 backup 미실재 → naia-settings RAW_SECRET_VALUE 동족 패턴으로 신규 구현(이식 아님).",
+    "flaky": "uc1-memory-stdio 출처왕복 — 근본=naia-memory cold-corpus user-편향(assistant recall 탈락, cross-repo). 워밍업만으론 full-suite 병렬서 잔여 flake → **결정론 단언으로 전환**(오라벨-0 루프 + user 왕복; assistant recall 자체는 비단언, 랭킹 무관). 격리 10/10 + 전체 6/6 클린.",
+    "C_bench_baseline": "조치 없음 — backup 전수검증 결과 벤치 결과파일 0개(감사 '~25파일' 주장 오류). 드롭 아님(구 main 에 벤치 자체 부재). baseline=deferred 라이브 SUT 생성.",
+    "egress_scrubber": "조치 없음 — backup 에 StreamingContextScrubber 0개(감사 주장 오류). 입력측 fencing(neutralizeFraming) 이미 이식·강화됨."
+  },
+  "redaction_adversarial_gate": {
+    "rounds": 7,
+    "reviewer": "codex gpt-5.5 (strict, 번들 텍스트만)",
+    "real_defects_found_and_fixed": [
+      "R1: prefix suffix-누출(./=/), Slack xapp- 누락, AWS secret access key 미감지, 무prefix 키문맥 통과",
+      "R2: escaped-quote 우회(\"a\\\"b\"), 과마스킹(next_token/page_token/secret:false 정상로그 파괴)",
+      "R3: JSON quoted-key 우회(\"access_token\":\"x\")",
+      "R4: 구조화 JSON 파괴(값 따옴표 통째 제거→invalid)",
+      "R5: quoted 숫자 문자열 시크릿 누출(\"password\":\"123456\")",
+      "R6: refresh/session/id token 미포착"
+    ],
+    "final": "R7 SHIP — 구조적 blocker 0. 남은 건 키명 enumeration 범위(보수적 안전망이라 비차단). redaction=defense-in-depth(완벽 DLP 아님, 1차방어=로그금지 규율).",
+    "coverage": "prefix(sk/AIza/ghp/xox/xapp/AKIA/gw/JWT) + 키문맥(api_key·apikey·client_secret·secret_access_key·access_key·auth/access/refresh/session/id_token·password·passwd·pwd) + escaped-quote + JSON-key + quote보존 + unquoted-trivial 가드. 26 계약테스트."
+  },
+  "verification": "build 0 · test 580p/5skip/0fail · file-anchors 56/56 · check-logging · traceability orphan0 · enforce PASS.",
+  "verdict": "SHIP — 재감사 surface 차례대로 처리(B·A·flaky 수정 / C·egress 정직 정정). redaction codex 7라운드 SHIP."
+}
