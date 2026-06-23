@@ -1,0 +1,41 @@
+{
+  "uc": "UC-014 / SPEC-011 — UC-CLI 단독 CLI bin (S2 supervisor mode host 진입점)",
+  "repo": "naia-agent",
+  "date": "2026-06-23",
+  "session_id": "7c563b0a-67bf-4c7d-9fad-13c6d52e7a0c",
+  "trigger": "사용자 결정(⑥): naia-os gRPC 배선은 naia-os foundation 미완으로 시기상조 → 열린 sliver인 'naia-agent 단독 CLI bin 노출' 선택. ③에서 '🔌 배선대기'로 둔 UC-CLI host측 완성.",
+  "scope": [
+    "src/main/app/cli-supervise.ts (신규, 순수: parseSuperviseArgs·renderEvent·renderReport·reportExitCode·superviseUsage)",
+    "bin/naia-agent-run.mjs (신규, host 셸: process I/O·SIGINT·platform shell·wireSupervisor 배선)",
+    "src/test/uc-cli-host-entry.contract.test.ts (신규, 18 테스트)",
+    "package.json bin 필드 + module-manifest 앵커 + 04/05 INDEX (SPEC-011/TEST-F-011)"
+  ],
+  "process": "독립 리뷰어 2: codex gpt-5.5(strict, 번들) + 내부 general-purpose 에이전트(실 파일 읽기 + bin e2e 실행).",
+  "round1": {
+    "internal_agent": {
+      "verdict": "SHIP",
+      "note": "bin e2e 전 시나리오 실측(help=64·shell성공=0·실패=3·미지원=3·검증실패=2·watch filesChanged=1). 테스트 비-vacuous(early-return 앞 expect 먼저 실패). 순수성 import-boundary 실강제. 보안 모델 타당(로컬 CLI). 풀스위트 553/0.",
+      "low_finding": "bin/*.mjs 는 tsconfig include 밖이라 빌드 타입체크 0 — 배선 typo 는 e2e 로만 검출. INDEX에 '별도 수동 검증'으로 disclosed. 후속(bin typecheck 편입) 권장, 별건."
+    },
+    "codex": {
+      "verdict": "FIX-NEEDED",
+      "real_defects": [
+        "(5 FAIL) sup.run()이 report 없이 resolve→exitCode 미설정→침묵 exit0. '이론상 불가'여도 host fallback 침묵 성공은 결함.",
+        "(3 CONCERN) 2회차 SIGINT 무시→cancel 경로 stall 시 사용자 강제 종료 불가.",
+        "(1 CONCERN) --check 공백 split이 따옴표 인자 미보존."
+      ]
+    }
+  },
+  "fixes_applied": [
+    "(5) bin: reported 플래그 — run() 이 report 없이 resolve 하면 stderr 경고 + exitCode=1 (fail-closed, 침묵 exit0 차단).",
+    "(3) bin: 2회차 Ctrl+C = process.exit(130) 강제 탈출(1회차 graceful abort 유지).",
+    "(1) cli-supervise USAGE: '명령은 공백으로 분리(따옴표 인자 미지원)' 명시."
+  ],
+  "round2_codex": {
+    "verdict": "SHIP",
+    "note": "3 수정 전부 확인 — reported 플래그 침묵 exit0 차단·2회차 SIGINT exit130 이 1회차 graceful 미파괴·USAGE 정직. 새 회귀 없음. 잔여(report 정확히 1회 중복검출 미수행)는 supervisor I1 불변식 레벨 책임, 이번 범위 회귀 아님."
+  },
+  "verification": "build 0 · 계약테스트 18(3회 안정) · 풀스위트 552p(uc1-memory-stdio order-flaky 1 = 기존 off-scope, 단독 31/31) · traceability orphan/dead-link 0(SPEC 11·TEST-F 11) · file-anchors 55/55 · ci-verify 4/4 · import-boundary 3 · e2e exit 0/2/3/64 실측.",
+  "verdict": "SHIP — UC-CLI host 진입점(S2) 완성. 2 리뷰어 최종 SHIP(codex R1 FIX→수정→R2 SHIP). naia-os 없이 단독 오케스트레이션 실행 가능.",
+  "residual": "bin/*.mjs 타입체크 사각(disclosed, 후속). naia-os gRPC 배선(②)은 naia-os foundation 준비 후 별도 UC."
+}

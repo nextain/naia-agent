@@ -8,9 +8,13 @@
     "node": ">=22"
   },
   "packageManager": "pnpm@10",
+  "bin": {
+    "naia-agent": "bin/naia-agent-run.mjs"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node scripts/builds/agent-stdio-entry.mjs",
+    "supervise": "node bin/naia-agent-run.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:report": "vitest run --reporter=verbose"

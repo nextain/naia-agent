@@ -385,6 +385,12 @@
       "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
       "note": "Supervisor(구 Phase1Supervisor) — spawn→이벤트 forward(+ws merge)→session_end시 verify→정직보고 1회. mergeStreams. 불변식 I1(terminal 1회)·AC2 never-throws·AC4 항상 verify. SPEC-009."
     },
+    "src/main/app/cli-supervise.ts": {
+      "layer": "app",
+      "uc": ["UC-014"],
+      "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
+      "note": "UC-CLI S2 supervisor mode host 진입점의 순수 로직 — argv 파싱·이벤트/정직 리포트 렌더·exit code(0/2/3, S4). process/Node 의존 0(bin/naia-agent-run.mjs 가 I/O·SIGINT·platform shell 주입). ③ '🔌 배선대기' host측. SPEC-011."
+    },
     "src/main/adapters/subprocess-session.ts": {
       "layer": "adapters",
       "uc": ["UC-014"],
