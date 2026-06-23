@@ -47,7 +47,7 @@ export interface CommandVerifierOptions {
 
 /** VerifierPort 실 어댑터. check 목록을 병렬 실행, never-throws 로 구조화 리포트 반환(AC2). */
 export function makeCommandVerifier(opts: CommandVerifierOptions): VerifierPort {
-  const checks = opts.checks;
+  const checks = opts.checks ?? []; // null/undefined 방어(타입상 non-nullable 이나 verify() reject 0 보장 — 적대리뷰 P2-a)
   const timeoutMs = opts.timeoutMs ?? DEFAULT_CHECK_TIMEOUT_MS;
   const hardKillMs = opts.hardKillMs ?? HARD_KILL_DEADLINE_MS;
   const tailBytes = opts.detailTailBytes ?? DEFAULT_DETAIL_TAIL_BYTES;

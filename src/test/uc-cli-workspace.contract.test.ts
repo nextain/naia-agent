@@ -10,7 +10,7 @@ function sortedChange(c: WorkspaceChange): { added: string[]; modified: string[]
 }
 
 describe("classifyPorcelain 순수 분류 계약 (2c)", () => {
-  it("A / ?? → added, ' M'/'MM' → modified, ' D'/'D ' → deleted, 'R ' rename → 새 경로 added", () => {
+  it("A / ?? → added, ' M'/'MM' → modified, ' D'/'D ' → deleted, 'R ' rename → 새 경로 added + old deleted", () => {
     const porcelain = [
       "A  staged-new.ts",   // index added
       "?? untracked.ts",    // untracked
@@ -18,12 +18,12 @@ describe("classifyPorcelain 순수 분류 계약 (2c)", () => {
       "MM both-mod.ts",     // index+worktree modified
       " D worktree-del.ts", // worktree deleted
       "D  staged-del.ts",   // index deleted
-      "R  old.ts -> renamed-new.ts", // rename → 새 경로 added
+      "R  old.ts -> renamed-new.ts", // rename → 새 경로 added + old 경로 deleted(정직보고)
     ].join("\n");
     const c = sortedChange(classifyPorcelain(porcelain));
     expect(c.added).toEqual(["renamed-new.ts", "staged-new.ts", "untracked.ts"]);
     expect(c.modified).toEqual(["both-mod.ts", "worktree-mod.ts"]);
-    expect(c.deleted).toEqual(["staged-del.ts", "worktree-del.ts"]);
+    expect(c.deleted).toEqual(["old.ts", "staged-del.ts", "worktree-del.ts"]); // rename old.ts 포함(P3-a)
   });
 
   it("빈 출력 → 빈 변경(crash 없음)", () => {
@@ -41,6 +41,24 @@ describe("classifyPorcelain 순수 분류 계약 (2c)", () => {
   it("따옴표 경로 unquote (공백/특수문자 경로)", () => {
     const c = sortedChange(classifyPorcelain("?? \"has space.ts\""));
     expect(c.added).toEqual(["has space.ts"]);
+  });
+
+  it("한글/비-ASCII 경로 — git C-quoting(8진 escape) 디코드(적대리뷰 P2-b)", () => {
+    // git 은 core.quotePath 로 비-ASCII 를 따옴표+8진 바이트로 출력. 실 UTF-8 바이트에서 git 방식대로
+    // quoted 입력을 구성(self-verifying — 손계산 8진 오류 방지): ASCII 는 리터럴, 비-ASCII 는 \nnn.
+    const name = "한글파일.ts";
+    const octal = Array.from(Buffer.from(name, "utf8"))
+      .map((b) => (b < 0x80 ? String.fromCharCode(b) : "\\" + b.toString(8).padStart(3, "0")))
+      .join("");
+    const c = classifyPorcelain(`?? "${octal}"`);
+    expect(c.added).toEqual([name]); // 8진 바이트 → UTF-8 한글 정상 복원(\nnn 잔재 0)
+  });
+
+  it("rename 한글 old/new 도 디코드 + old deleted", () => {
+    // "구.ts" -> "신.ts" (둘 다 ASCII 가정 — 디코드는 위에서 검증, 여기선 rename old→deleted 경로)
+    const c = sortedChange(classifyPorcelain("R  gu.ts -> sin.ts"));
+    expect(c.added).toEqual(["sin.ts"]);
+    expect(c.deleted).toEqual(["gu.ts"]);
   });
 });
 

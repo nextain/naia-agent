@@ -151,10 +151,11 @@ export function classifyPorcelain(out: string): WorkspaceChange {
 
     if (xy === "??") { added.add(unquote(rest)); continue; }
 
-    // rename(R) / copy(C) — "old -> new". 새 경로를 added 로 간주(구 분류: 신 경로 등장).
+    // rename(R) / copy(C) — "old -> new". 새 경로 added; rename 은 old 경로가 사라지므로 deleted(정직보고 — 적대리뷰 P3-a).
     if (x === "R" || y === "R" || x === "C" || y === "C") {
-      const newPath = renameTarget(rest);
+      const { oldPath, newPath } = renamePaths(rest);
       added.add(newPath);
+      if ((x === "R" || y === "R") && oldPath.length > 0) deleted.add(oldPath); // copy 는 원본 유지 → deleted 아님
       continue;
     }
 
@@ -176,17 +177,37 @@ export function classifyPorcelain(out: string): WorkspaceChange {
   };
 }
 
-/** rename 줄("old -> new")에서 새 경로 추출. ` -> ` 구분자. 따옴표 처리. */
-function renameTarget(rest: string): string {
+/** rename/copy 줄("old -> new")에서 old·new 경로 추출. ` -> ` 구분자. 각각 unquote. */
+function renamePaths(rest: string): { oldPath: string; newPath: string } {
   const idx = rest.indexOf(" -> ");
-  const target = idx >= 0 ? rest.slice(idx + 4) : rest;
-  return unquote(target);
+  if (idx < 0) return { oldPath: "", newPath: unquote(rest) };
+  return { oldPath: unquote(rest.slice(0, idx)), newPath: unquote(rest.slice(idx + 4)) };
 }
 
-/** porcelain 은 특수문자 경로를 "..." 로 감싸고 이스케이프함. 단순 unquote(따옴표만 제거 — 골격 충분). */
+const C_ESCAPES: Record<string, number> = { a: 0x07, b: 0x08, t: 0x09, n: 0x0a, v: 0x0b, f: 0x0c, r: 0x0d, '"': 0x22, "\\": 0x5c };
+
+/**
+ * porcelain 은 비-ASCII/특수문자 경로를 "..." 로 감싸고 C-스타일 이스케이프(\nnn 8진 바이트·\t\n\"\\ 등)한다.
+ * 따옴표 안을 디코드 → 바이트 → UTF-8(한글 등 다국어 경로 정상 복원, 적대리뷰 P2-b). 비-따옴표 경로는 그대로.
+ */
 function unquote(p: string): string {
-  if (p.length >= 2 && p.startsWith("\"") && p.endsWith("\"")) {
-    return p.slice(1, -1);
+  if (!(p.length >= 2 && p.startsWith("\"") && p.endsWith("\""))) return p;
+  const body = p.slice(1, -1);
+  const bytes: number[] = [];
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+    if (ch !== "\\") { bytes.push(body.charCodeAt(i) & 0xff); continue; }
+    const next = body[i + 1];
+    if (next !== undefined && next >= "0" && next <= "7") {
+      let oct = "";
+      let j = i + 1;
+      while (j < body.length && j < i + 4 && body[j] >= "0" && body[j] <= "7") { oct += body[j]; j++; }
+      bytes.push(parseInt(oct, 8) & 0xff);
+      i = j - 1;
+      continue;
+    }
+    if (next !== undefined && next in C_ESCAPES) { bytes.push(C_ESCAPES[next]); i++; continue; }
+    if (next !== undefined) { bytes.push(next.charCodeAt(0) & 0xff); i++; continue; } // 미지 이스케이프 = 리터럴
   }
-  return p;
+  return Buffer.from(bytes).toString("utf8");
 }

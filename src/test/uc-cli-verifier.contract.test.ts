@@ -155,6 +155,11 @@ describe("UC-CLI verifier-commands 어댑터 계약 (2c, fake spawn — never-th
     expect(await v.verify("/w")).toEqual({ ok: true, checks: [] });
   });
 
+  it("P2-a(적대리뷰) — checks=null/undefined 여도 verify() reject 없이 ok:true(?? [] 방어, never-throws)", async () => {
+    const v = makeCommandVerifier({ checks: null as unknown as CommandCheck[], spawnFn: fakeSpawn({ code: 0 }) });
+    await expect(v.verify("/w")).resolves.toEqual({ ok: true, checks: [] }); // reject 0
+  });
+
   // ── stub-detector: spawn 이 실제로 어댑터 결과를 좌우하는가(빈 통과/항상참 방지) ──
   it("stub-detector — fake spawn 의 exit code 가 pass 를 실제로 결정한다(seam 살아있음)", async () => {
     let spawnCalls = 0;

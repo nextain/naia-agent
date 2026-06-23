@@ -1,0 +1,53 @@
+{
+  "uc": "UC-CLI Stage 2c — 실 WorkspacePort/VerifierPort (정직보고, AC2/AC4)",
+  "repo": "naia-agent",
+  "date": "2026-06-23",
+  "session_id": "7c563b0a-67bf-4c7d-9fad-13c6d52e7a0c",
+  "process": "독립 적대 리뷰(definition_of_done #2) — R1 내부 general-purpose 에이전트(실코드+실 spawn probe), R2 codex gpt-5.5(수정본 재검증).",
+  "scope_files": [
+    "src/main/adapters/verifier-commands.ts (makeCommandVerifier — never-throws)",
+    "src/main/adapters/workspace-git.ts (makeGitWorkspace — git porcelain 폴링)",
+    "src/test/uc-cli-verifier.contract.test.ts",
+    "src/test/uc-cli-workspace.contract.test.ts",
+    "src/test/uc-cli-supervisor-real-verifier.integration.test.ts"
+  ],
+  "round1_internal_agent": {
+    "agent_id": "ae753013a411b1c1b",
+    "verdict": "SHIP (P0/P1 0)",
+    "refuted_attacks_solid": [
+      "AC2 never-throws: 실 spawn 으로 exit≠0·ENOENT·spawn 동기throw·timeout(SIGTERM→SIGKILL) 전부 pass:false 흡수, verify() reject 0. runOneCheck 외부 try/catch 백스톱 → Promise.all reject 0.",
+      "타임아웃 double-resolve/좀비: finish settled-guard 1회, killTimer clear, SIGTERM→500ms→SIGKILL.",
+      "폴링 인터벌 누수: abort AND iterator return 후 runGit delta=0(계측). clearInterval 확실.",
+      "직교: details/name opaque, exit code/porcelain XY 미누출. import-boundary green.",
+      "vacuous 0: stub-detector 실재(spawn count·exit7→fail·sentinel 관통). AC4 통합=실 verifier↔실 supervisor 실수치.",
+      "빈 checks vacuously ok:true(의도)."
+    ],
+    "confirmed_low_sev": [
+      {
+        "id": "P2-a",
+        "title": "opts.checks=null/undefined 시 verify() reject(checks.map)",
+        "note": "타입상 non-nullable(construction violation), check-execution 실패모드 아님. supervisor 도 try/catch. cheap.",
+        "fix": "const checks = opts.checks ?? [].",
+        "test": "uc-cli-verifier 'P2-a — checks=null → ok:true'.",
+        "status": "FIXED"
+      },
+      {
+        "id": "P2-b",
+        "title": "비-ASCII/한글 경로가 git octal escape(\\nnn) 미디코드 → 경로·dedup키 손상 (이 팀 한글경로 routine)",
+        "fix": "unquote() 가 C-quoting(octal \\nnn + named escape) 디코드 → 바이트 → UTF-8(Buffer).",
+        "test": "uc-cli-workspace '한글/비-ASCII 경로 디코드'(실 UTF-8 바이트로 git-quoting self-construct).",
+        "status": "FIXED"
+      },
+      {
+        "id": "P3-a",
+        "title": "rename(R) old 경로 deleted 미포함 → 삭제 under-count(정직보고 약화)",
+        "fix": "rename 은 old 경로도 deleted(copy C 는 원본 유지 → 제외). renameTarget→renamePaths.",
+        "test": "uc-cli-workspace 'rename old/new 디코드 + old deleted' + 분류 테스트 갱신.",
+        "status": "FIXED"
+      }
+    ]
+  },
+  "fix_verification": "P2-a/P2-b/P3-a 수정 후 재실행: 2c 계약 24 green(+3 회귀), 전체 502 통과(회귀0), build EXIT0, import-boundary 3 green, F-LOG-3 OK.",
+  "round2_codex": "in-progress (never-throws 재확인·unquote octal decode 안전성·rename·신규결함). push 시 갱신.",
+  "verdict": "R1 SHIP + P2-a/P2-b/P3-a 수정·테스트 → R2 codex 확인 대기."
+}
