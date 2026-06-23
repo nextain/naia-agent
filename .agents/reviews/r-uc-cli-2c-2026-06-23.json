@@ -47,7 +47,16 @@
       }
     ]
   },
-  "fix_verification": "P2-a/P2-b/P3-a 수정 후 재실행: 2c 계약 24 green(+3 회귀), 전체 502 통과(회귀0), build EXIT0, import-boundary 3 green, F-LOG-3 OK.",
-  "round2_codex": "in-progress (never-throws 재확인·unquote octal decode 안전성·rename·신규결함). push 시 갱신.",
-  "verdict": "R1 SHIP + P2-a/P2-b/P3-a 수정·테스트 → R2 codex 확인 대기."
+  "round2_codex": {
+    "model": "gpt-5.5",
+    "verdict": "SHIP",
+    "confirmed": "Q1 verify() never-rejects(모든 실패모드 흡수; null-opts 전체를 넘기는 건 계약 밖 오용). Q2 unquote octal/escape 디코드 정확·안전(1-3 octal·named·trailing backslash·malformed UTF-8 비throw). Q3 rename R old→deleted·C 제외·dedup 우선순위 정확. Q4 폴링 abort/return 정리·인터벌 누수 0.",
+    "nit_Q5": {
+      "title": "return()으로 닫힐 때 abort 리스너 미제거(공유 signal 리스너 lifetime 누수, 거동결함 아님 — close 멱등+인터벌 정리)",
+      "fix": "close() 에서 signal.removeEventListener('abort', close)(2a P2 동류 청결).",
+      "status": "FIXED"
+    }
+  },
+  "fix_verification": "P2-a/P2-b/P3-a + Q5 수정 후 재실행: 2c 계약 24 green(+3 회귀), workspace 12, 전체 502 통과(회귀0), build EXIT0, import-boundary 3 green, F-LOG-3 OK.",
+  "verdict": "SHIP — R1 내부 SHIP + P2-a/P2-b/P3-a(null-guard·한글경로 octal 디코드·rename 정직보고) → R2 codex SHIP + Q5(리스너 청결). 2c=정직보고(AC2 never-throws·AC4 실 verify) 실 어댑터 완료. Stage 2(오케스트레이션 2a+2b+2c) 전체 완성."
 }

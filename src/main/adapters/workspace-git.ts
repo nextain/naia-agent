@@ -71,6 +71,7 @@ function pollChanges(
   const close = (): void => {
     if (closed) return;
     closed = true;
+    signal.removeEventListener("abort", close); // return() 으로 닫힐 때도 리스너 해제(공유 signal 누수 방지 — codex Q5)
     if (timer) { clearInterval(timer); timer = undefined; }
     for (const w of waiters.splice(0)) w({ value: undefined as never, done: true });
   };
