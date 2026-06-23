@@ -41,6 +41,8 @@ export interface SpawnSessionSpec {
   readonly lineToEvent: LineToEvent;
   /** 미가용/실패 메시지 prefix(예: "pi unavailable", "opencode unavailable"). */
   readonly label: string;
+  /** 단일 줄 상한(테스트 override). 기본 64MiB. 초과 시 child kill + fail-safe 종료. */
+  readonly maxLineBytes?: number;
 }
 
 /** bin/args 로 subprocess 세션 생성. 동기 spawn throw(드묾) = 정직한 session_end{ok:false}(throw 금지, AC6). */
@@ -52,7 +54,7 @@ export function spawnSubprocessSession(spec: SpawnSessionSpec): SubAgentSession 
   } catch (e) {
     return endedSession(`${spec.label} unavailable: ${(e as Error).message}`);
   }
-  return new SubprocessSession(child, spec.hardKillMs, spec.lineToEvent, spec.label);
+  return new SubprocessSession(child, spec.hardKillMs, spec.lineToEvent, spec.label, spec.maxLineBytes ?? MAX_LINE_BYTES);
 }
 
 /** 이미 종료된 세션(즉시 session_end{ok:false}) — bin 미해결/spawn 동기실패용 정직 응답. terminal 정확히 1회. */
@@ -85,17 +87,20 @@ class SubprocessSession implements SubAgentSession {
   readonly #hardKillMs: number;
   readonly #lineToEvent: LineToEvent;
   readonly #label: string;
+  readonly #maxLineBytes: number;
   #queue: SubAgentEvent[] = [];
   #waiters: Array<(r: IteratorResult<SubAgentEvent>) => void> = [];
   #ended = false;
   #stdoutBuf = "";
   #closeListeners: Array<() => void> = [];
+  #cancelPromise: Promise<void> | undefined; // 진행 중 취소(멱등 — 적대리뷰 P3)
 
-  constructor(child: ChildProcess, hardKillMs: number, lineToEvent: LineToEvent, label: string) {
+  constructor(child: ChildProcess, hardKillMs: number, lineToEvent: LineToEvent, label: string, maxLineBytes: number) {
     this.#child = child;
     this.#hardKillMs = hardKillMs;
     this.#lineToEvent = lineToEvent;
     this.#label = label;
+    this.#maxLineBytes = maxLineBytes;
 
     child.stdout?.on("data", (chunk: Buffer) => this.#onStdout(chunk));
     child.stderr?.on("data", () => {}); // 진행/디버그 출력은 무시(text 아님).
@@ -105,6 +110,7 @@ class SubprocessSession implements SubAgentSession {
 
     // 종료 → session_end. 잔여 partial 줄 flush. SIGTERM/SIGKILL=취소, code 0=성공, 그 외=실패.
     child.on("close", (code: number | null, signal: NodeJS.Signals | null) => {
+      if (this.#ended) return; // 이미 종료(error/maxline 가드) → 추가 파싱/종료 안 함(적대리뷰 R3)
       if (this.#stdoutBuf.length > 0) {
         this.#processLine(this.#stdoutBuf);
         this.#stdoutBuf = "";
@@ -137,15 +143,21 @@ class SubprocessSession implements SubAgentSession {
       this.#stdoutBuf = this.#stdoutBuf.slice(nl + 1);
       this.#processLine(line);
     }
-    // 병적 단일 줄(>64MiB) = 비정상/DoS → 버퍼 폐기 + fail-safe 종료(구 P0-3).
-    if (this.#stdoutBuf.length > MAX_LINE_BYTES) {
+    // 병적 단일 줄(>한도) = 비정상/DoS → 버퍼 폐기 + child kill(좀비 방지, 적대리뷰 P1/P2) + fail-safe 종료(구 P0-3).
+    if (this.#stdoutBuf.length > this.#maxLineBytes) {
       this.#stdoutBuf = "";
+      try { this.#child.kill("SIGKILL"); } catch { /* 이미 종료 */ }
       this.#emitEnd(false, `${this.#label}: stdout line exceeded limit`);
     }
   }
 
   #processLine(line: string): void {
-    const e = this.#lineToEvent(line);
+    let e: SubAgentEvent | null;
+    try {
+      e = this.#lineToEvent(line);
+    } catch {
+      return; // 파서 throw = 해석불가 줄(드롭). 머신 불변식 보호 — session_end 는 close 가 보장(적대리뷰 P1).
+    }
     if (e) this.#emit(e);
   }
 
@@ -172,7 +184,14 @@ class SubprocessSession implements SubAgentSession {
   /** semantic cancel → 메커니즘. SIGTERM 후 hardKillMs 유예 내 미종료 시 SIGKILL. resolve = close 관측 또는 hard-kill 마감. */
   cancel(_reason: string): Promise<void> {
     if (this.#ended) return Promise.resolve();
-    const alive = this.#child.kill("SIGTERM"); // false = 이미 종료 → close 리스너가 session_end
+    if (this.#cancelPromise) return this.#cancelPromise; // 멱등(적대리뷰 P3/R3) — !alive 경로 포함 캐시(중복 신호/타이머 0)
+    this.#cancelPromise = this.#runCancel();
+    return this.#cancelPromise;
+  }
+
+  /** SIGTERM → 유예 → SIGKILL. !alive(이미 종료) = 즉시 resolve(close 리스너가 session_end). */
+  #runCancel(): Promise<void> {
+    const alive = this.#child.kill("SIGTERM"); // false = 이미 종료
     if (!alive) return Promise.resolve();
     return new Promise<void>((resolve) => {
       const t = setTimeout(() => {

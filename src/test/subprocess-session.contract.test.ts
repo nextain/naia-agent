@@ -17,7 +17,7 @@ function fake() {
       stdout: { on: (_e: string, cb: (b: Buffer) => void) => { stdoutCb = cb; } },
       stderr: { on: () => {} },
       on(ev: string, cb: (...a: unknown[]) => void) { handlers[ev] = cb; return this as unknown; },
-      kill(sig?: NodeJS.Signals) { killSignals.push(sig ?? "SIGTERM"); return true; },
+      kill(sig?: NodeJS.Signals) { const s = sig ?? "SIGTERM"; killSignals.push(s); if (s === "SIGKILL") setTimeout(() => handlers.close?.(null, "SIGKILL"), 0); return true; },
     };
     return child as unknown as ChildProcess;
   };
@@ -25,14 +25,18 @@ function fake() {
     spawnFn,
     write: (s: string) => stdoutCb?.(Buffer.from(s, "utf8")),
     close: (code: number | null, signal: NodeJS.Signals | null = null) => handlers.close?.(code, signal),
+    emitError: (msg: string) => handlers.error?.(new Error(msg)),
     get killSignals() { return killSignals; },
   };
 }
 async function drain(events: AsyncIterable<SubAgentEvent>): Promise<SubAgentEvent[]> {
   const out: SubAgentEvent[] = []; for await (const e of events) out.push(e); return out;
 }
-function mk(f: ReturnType<typeof fake>, lineToEvent: LineToEvent = textLine) {
-  return spawnSubprocessSession({ spawnFn: f.spawnFn, bin, args: [], cwd: "/tmp", hardKillMs: 50, lineToEvent, label: "x" });
+function mk(f: ReturnType<typeof fake>, opts: { lineToEvent?: LineToEvent; maxLineBytes?: number } = {}) {
+  return spawnSubprocessSession({
+    spawnFn: f.spawnFn, bin, args: [], cwd: "/tmp", hardKillMs: 50, lineToEvent: opts.lineToEvent ?? textLine, label: "x",
+    ...(opts.maxLineBytes !== undefined ? { maxLineBytes: opts.maxLineBytes } : {}),
+  });
 }
 
 describe("subprocess-session 공유 머신 계약 (2b)", () => {
@@ -77,5 +81,62 @@ describe("subprocess-session 공유 머신 계약 (2b)", () => {
     expect(events).toHaveLength(1);
     expect(events[0].ok).toBe(false);
     expect(events[0].reason).toBe("x unavailable: nope");
+  });
+
+  it("P1(적대리뷰 R2/codex) — lineToEvent throw 해도 머신 안 깨짐(해당 줄만 드롭, close 가 session_end 보장)", async () => {
+    const f = fake();
+    const throwingParser: LineToEvent = (line) => {
+      if (line === "boom") throw new Error("parser bug");
+      return line.length > 0 ? { kind: "text_delta", text: line } : null;
+    };
+    const s = mk(f, { lineToEvent: throwingParser });
+    f.write("ok1\nboom\nok2\n"); f.close(0);
+    const events = await drain(s.events);
+    const texts = events.filter((e) => e.kind === "text_delta").map((e) => (e as Extract<SubAgentEvent, { kind: "text_delta" }>).text);
+    expect(texts).toEqual(["ok1", "ok2"]);            // throw 한 줄만 드롭(나머지 정상)
+    expect(events.at(-1)?.kind).toBe("session_end");  // terminal 여전히 발화(crash 없음)
+  });
+
+  it("P1/P2(적대리뷰 R2/codex) — 단일 줄 한도 초과 → child SIGKILL(좀비 방지) + session_end{ok:false}", async () => {
+    const f = fake();
+    const s = mk(f, { maxLineBytes: 16 }); // 작은 한도(테스트 seam)
+    f.write("x".repeat(20)); // 개행 없는 20byte > 16 → 가드 발동
+    const events = await drain(s.events) as Extract<SubAgentEvent, { kind: "session_end" }>[];
+    expect(f.killSignals).toContain("SIGKILL"); // child 종료(좀비 방지)
+    expect(events.at(-1)?.ok).toBe(false);
+    expect(events.at(-1)?.reason).toContain("exceeded limit");
+  });
+
+  it("P3(적대리뷰 R2/codex) — cancel() 반복 호출 멱등(SIGTERM 정확히 1회)", async () => {
+    const f = fake(); // SIGTERM 으론 안 죽음 → 유예 후 SIGKILL
+    const s = mk(f);
+    const c1 = s.cancel("stop"); const c2 = s.cancel("stop again"); // 동시 2회
+    await Promise.all([c1, c2]);
+    expect(f.killSignals.filter((x) => x === "SIGTERM")).toHaveLength(1); // 멱등 — SIGTERM 중복 없음
+  });
+
+  it("P3(R3/codex) — cancel() !alive(kill=false) 경로도 멱등(SIGTERM 중복 0)", async () => {
+    const killSignals: Array<string | number> = [];
+    const handlers: Record<string, (...a: unknown[]) => void> = {};
+    const spawnFn: SpawnFn = () => ({
+      stdout: { on: () => {} }, stderr: { on: () => {} },
+      on(ev: string, cb: (...a: unknown[]) => void) { handlers[ev] = cb; return this as unknown; },
+      kill(sig?: NodeJS.Signals) { killSignals.push(sig ?? "SIGTERM"); return false; }, // 이미 죽음
+    } as unknown as ChildProcess);
+    const s = spawnSubprocessSession({ spawnFn, bin, args: [], cwd: "/tmp", hardKillMs: 50, lineToEvent: textLine, label: "x" });
+    await Promise.all([s.cancel("a"), s.cancel("b"), s.cancel("c")]);
+    expect(killSignals.filter((x) => x === "SIGTERM")).toHaveLength(1); // !alive 경로 캐시 — 1회만
+  });
+
+  it("R3(codex) — 이미 종료(error) 후 close 가 buffered 줄 재파싱 안 함(late-guard 강화)", async () => {
+    const parsed: string[] = [];
+    const recording: LineToEvent = (line) => { parsed.push(line); return null; };
+    const f = fake();
+    const s = mk(f, { lineToEvent: recording });
+    f.write("buffered-no-newline"); // 버퍼에만(개행 없음 → 미파싱)
+    f.emitError("boom");            // error 로 종결(버퍼 미flush)
+    f.close(1);                     // 종료 후 close — 버퍼 재파싱하면 안 됨
+    await drain(s.events);
+    expect(parsed).not.toContain("buffered-no-newline"); // close-after-ended 파싱 0
   });
 });

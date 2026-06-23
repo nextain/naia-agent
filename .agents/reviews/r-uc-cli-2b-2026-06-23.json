@@ -46,7 +46,60 @@
     "gap_noted": "pi/opencode AC1(SIGTERM→SIGKILL)은 fake-child 결정론 테스트만(실 바이너리 CI 미설치). 실프로세스 에스컬레이션은 shell 어댑터 실프로세스 테스트 + 공유 머신으로 커버 — 2b 적정.",
     "stub_vacuous": "없음 — toEqual 정확 시퀀스·ok:false on isError/status error·null on 빈/무관, partial-NDJSON 은 raw write+완성으로 버퍼 split 실제 시험."
   },
-  "fix_verification": "P2a 수정 후 재실행: 공유머신+pi+opencode+shell 25 green, 전체 473 통과(+5 subprocess-session 직접테스트, 회귀0), build EXIT0, import-boundary 3 green, F-LOG-3 OK.",
-  "round2_codex": "in-progress (수정본 재검증 — exactly-once·cancel·CRLF·roster never-throws·신규결함). 결과는 push 시 갱신.",
-  "verdict": "SHIP — R1 SHIP + P2a(CRLF) 수정·테스트, P2b 주석 정정+마이그레이션 후속보류. R2 codex 확인 대기. gap(pi/opencode 실프로세스 미테스트)=비차단."
+  "round2_codex": {
+    "model": "gpt-5.5",
+    "verdict": "FIX-FIRST (R1 이 놓친 실결함 3건 — 2 리뷰어 가치 입증)",
+    "confirmed_defects": [
+      {
+        "id": "P1-parser-throw",
+        "title": "#lineToEvent 가 try/catch 없이 호출 — 파서 throw 시 stdout 핸들러 escape → session_end 미발화(exactly-once 깨짐)",
+        "note": "pi/opencode 파서는 자체 try/catch 라 오늘 무해하나 공유 머신은 임의 lineToEvent 에 견고해야 함(텍스트 모드 등).",
+        "fix": "#processLine 가 lineToEvent 를 try/catch — throw 시 줄 드롭(close 가 session_end 보장).",
+        "test": "subprocess-session.contract.test.ts 'P1 — lineToEvent throw'.",
+        "status": "FIXED"
+      },
+      {
+        "id": "P1P2-64MiB-zombie",
+        "title": "64MiB 가드가 session_end 만 내고 child 미kill → 좀비 프로세스 + 이후 cancel no-op(#ended)",
+        "fix": "가드에서 this.#child.kill('SIGKILL') 후 emitEnd. maxLineBytes 주입 seam 추가(테스트).",
+        "test": "subprocess-session.contract.test.ts 'P1/P2 — 단일 줄 한도 초과 → child SIGKILL'.",
+        "status": "FIXED"
+      },
+      {
+        "id": "P3-cancel-idempotent",
+        "title": "cancel() 반복 호출 시 타이머/SIGTERM/SIGKILL 중복(멱등 아님)",
+        "fix": "#cancelPromise 캐시 — 진행 중 취소 재사용.",
+        "test": "subprocess-session.contract.test.ts 'P3 — cancel() 멱등(SIGTERM 1회)'.",
+        "status": "FIXED"
+      }
+    ],
+    "refuted_again": "CRLF strip 정확(후행 1개만), late-stdout 드롭, roster never-throws 전부 R2 도 확인."
+  },
+  "round3_codex": {
+    "model": "gpt-5.5",
+    "verdict": "FIX-FIRST (R2 수정의 잔여 엣지 2건)",
+    "confirmed_defects": [
+      {
+        "id": "P3-cancel-not-alive-uncached",
+        "title": "cancel() !alive(kill=false) 경로가 #cancelPromise 미캐시 → 그 경로 반복 호출 시 SIGTERM 재발사 가능(narrow race)",
+        "fix": "cancel() 이 alive 검사 *전*에 #cancelPromise = #runCancel() 캐시 — alive/!alive 모두 동일 promise 반환.",
+        "test": "subprocess-session.contract.test.ts 'P3-R3 — cancel() !alive 멱등'.",
+        "status": "FIXED"
+      },
+      {
+        "id": "close-after-ended-parse",
+        "title": "이미 종료(error/maxline) 후 close 핸들러가 buffered 줄 재파싱(emission 은 차단되나 파서 불필요 실행 → late-guard 약화)",
+        "fix": "close 핸들러 첫 줄 if(this.#ended) return;.",
+        "test": "subprocess-session.contract.test.ts 'R3 — 이미 종료 후 close 재파싱 0'.",
+        "status": "FIXED"
+      }
+    ]
+  },
+  "round4_codex": {
+    "model": "gpt-5.5",
+    "verdict": "SHIP",
+    "confirmed": "Q1 cancel() alive/!alive 모두 멱등(중복 신호/타이머 0). Q2 close early-return 이 post-end 파싱 차단하되 정상 close 는 partial flush+session_end 유지. Q3 exactly-once(close/error/maxline/late/double-close 전부 #ended 수렴). Q4 잔여 실결함 0(종료 후 cancel 이 fresh resolved promise 반환은 비결함 nit — 신호/타이머 부작용 없음)."
+  },
+  "fix_verification": "R3 수정(2건) 후 재실행: 공유머신 직접 10 green(+5 R2/R3 회귀)·pi/opencode/shell 회귀 green, 전체 478 통과(6/6 안정, 회귀0), build EXIT0, import-boundary 3 green, F-LOG-3 OK. 직전 1회 간헐 실패=기존 uc1-memory-stdio order-flaky(off-scope, 메모리 세션 소유 — r-uc6 기록).",
+  "verdict": "SHIP (게이트 수렴) — R1 SHIP+P2 → R2 FIX-FIRST(P1/P1/P3) → R3 FIX-FIRST(2) → R4 SHIP. 공유 머신 4라운드 적대 검증 완료. 잔여: shell 머신 통합(동작변경 후속, P2b) · pi/opencode 실프로세스 미테스트(shell 실프로세스+공유머신으로 커버, 비차단) · uc1-memory-stdio order-flaky(off-scope)."
 }
