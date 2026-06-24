@@ -26,8 +26,9 @@ export interface ProviderResolverPort {
 export interface ToolExecutorPort {
   /** LLM 에 전달할 등록 도구 사양(빈 배열 가능 = 도구 없음). */
   specs(): readonly ToolSpec[];
-  /** ⚠️ no-throw 책임: 미등록/실행실패/타임아웃 = { output, isError:true } 반환(throw 금지 — 루프 안정·LLM 복구). abort 시에만 reject 허용(루프가 cancelled 처리). */
-  execute(call: ToolCall, opts: { signal?: AbortSignal }): Promise<{ output: string; isError?: boolean }>;
+  /** ⚠️ no-throw 책임: 미등록/실행실패/타임아웃 = { output, isError:true } 반환(throw 금지 — 루프 안정·LLM 복구). abort 시에만 reject 허용(루프가 cancelled 처리).
+   *  requestId = UC-PANEL: panel(환경) 도구가 panel_tool_call 을 어느 chat 스트림으로 emit 할지 식별(셸 위임). builtin 도구는 무시. */
+  execute(call: ToolCall, opts: { signal?: AbortSignal; requestId?: string }): Promise<{ output: string; isError?: boolean }>;
 }
 
 export interface ConversationPort {

@@ -54,6 +54,7 @@ export function encodeEmit(requestId: string, e: AgentEmit): Record<string, unkn
     case "logEntry": return { type: "log_entry", requestId, level: e.level, message: e.message };
     case "tokenWarning": return { type: "token_warning", requestId, raw: e.raw };
     case "compacted": return { type: "compacted", requestId, droppedCount: e.droppedCount };
+    case "panelToolCall": return { type: "panel_tool_call", requestId, toolCallId: e.toolCallId, toolName: e.toolName, args: e.args }; // UC-PANEL FR-PANEL-2
     case "finish": return { type: "finish", requestId };
     case "error": return { type: "error", requestId, message: e.message };
   }

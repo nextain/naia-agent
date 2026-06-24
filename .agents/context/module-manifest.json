@@ -224,6 +224,14 @@
       "contract": "docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md",
       "note": "도구 executor 합성(first-name-wins)"
     },
+    "src/main/adapters/panel-tool-executor.ts": {
+      "layer": "adapters",
+      "uc": [
+        "UC-PANEL"
+      ],
+      "contract": ".agents/progress/panel-skill-grpc-port-2026-06-24.md",
+      "note": "환경 panel skill executor — execute()=panel_tool_call emit→PanelToolResult 대기(E1 위임, FR-PANEL-1~5)"
+    },
     "src/main/adapters/builtin-skills.ts": {
       "layer": "adapters",
       "uc": [

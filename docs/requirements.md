@@ -64,6 +64,20 @@
 - **로깅**: src 표준 로깅(DiagnosticLog 포트)만, console.* 금지(F-LOG-3).
 - **NFR-SEC-1 (로그 시크릿 마스킹)**: DiagnosticLog sink 가 write 직전 `adapters/redact.ts`(`redactSecrets`)로 알려진 키·토큰(sk-/AIza/ghp/xox/AKIA/gw/JWT + apiKey/password/token 키문맥)을 `[REDACTED]` 마스킹 — 평문 자격증명의 stderr 누출 방지(best-effort defense-in-depth, 1차 방어=로그금지 규율). 검증 `redact.contract.test.ts`(26 케이스, codex 적대 7R). 재감사 2026-06-23.
 
+## UC-PANEL FR/NFR (FR-PANEL-1 ~ 5) — 환경 panel skill (BGM·브라우저·workspace)
+
+| FR | 요구 | 상태 |
+|----|------|------|
+| FR-PANEL-1 | **PanelSkillPort 동적 등록** — 셸 `RegisterPanelSkills(panel_id, specs[])` → agent 동적 toolExecutor 합성(builtin 과 composite)해 LLM 노출. `ClearPanelSkills` 로 제거. spec=name/description/parameters_json/tier. | 예정 |
+| FR-PANEL-2 | **원격 위임(intent emit)** — LLM 이 panel tool call → 실행 대신 `panel_tool_call`(AgentEvent) emit. agent 는 환경을 실행하지 않음(E1, brain-body-environment). | 예정 |
+| FR-PANEL-3 | **결과 주입** — 셸 `PanelToolResult(request_id, tool_call_id, output, success)` → chat 루프가 pending(requestId+toolCallId) 매칭해 tool_result 주입 후 라운드 계속. | 예정 |
+| FR-PANEL-4 | **비동기 안전** — 원격 실행 대기 중 timeout(기본값)·취소·agent-down·다중 동시 tool call 매칭(pending map 누수 0). terminal 1회·usage 1회 불변식 보존. | 예정 |
+| FR-PANEL-5 | **무회귀** — panel skill 미등록 = 기존 builtin tool 즉시 실행 경로 무영향. tier 승인 게이트 그대로 적용. | 예정 |
+
+### NFR
+- **직교**: domain/app 은 panel tool 의 transport(gRPC)·셸 실행을 모름(`PanelSkillPort` 캡슐화, `import-boundary` green 유지).
+- **NFR-efferent-async 정합**: 원격 panel 실행 = async + interruption + 결과 매칭. 동기 가정 하드코딩 금지.
+
 ## 기타 UC FR
 
 | UC | FR 위치 |

@@ -16,6 +16,7 @@ import { makeObsidianSkillsExecutor } from "../../dist/main/adapters/obsidian-sk
 import { makeMcpSkillsExecutor } from "../../dist/main/adapters/mcp-skills.js";
 import { makeMcpJsonRpcClient } from "../../dist/main/adapters/mcp-stdio-transport.js";
 import { makeCompositeToolExecutor } from "../../dist/main/adapters/composite-tool-executor.js";
+import { makePanelToolExecutor } from "../../dist/main/adapters/panel-tool-executor.js";
 import { makeNotifyExecutor } from "../../dist/main/adapters/notify-skills.js";
 import { makeAdkSkillExecutor, parseSkillMd } from "../../dist/main/adapters/adk-skill-loader.js";
 import { makeOpenMeteoFetchWeather } from "../../dist/main/adapters/openmeteo-weather.js";
@@ -256,6 +257,8 @@ if (process.env.NAIA_AGENT_TRANSCRIPT !== "off") {
 const diag = makeStderrDiagnostic({ write: (l) => process.stderr.write(l + "\n"), debug: process.env.NAIA_AGENT_DEBUG === "1" });
 // 정본 transport = gRPC (naia-os --gRPC--> naia-agent). os(Rust)가 이 서버에 connect. data 채널은 gRPC 단일.
 // SetWorkspace/ReloadSettings = naia-adk/naia-settings 로딩 결과 반환(저장/불러오기 정본).
+// UC-PANEL(FR-PANEL): panel executor(환경 도구) 콜백은 late-binding — panelExec 는 egress 확보 후(아래) 생성.
+let panelExec;
 const grpcServer = makeGrpcServer({
   bindAddr: process.env.NAIA_AGENT_GRPC_ADDR || "127.0.0.1:0",
   onSetWorkspace: (wsPath) => {
@@ -263,8 +266,16 @@ const grpcServer = makeGrpcServer({
     return reloadConfigFrom(currentAdkPath);
   },
   onReloadSettings: () => reloadConfigFrom(currentAdkPath),
+  onRegisterPanelSkills: (panelId, tools) => panelExec?.register(panelId, tools),       // FR-PANEL-1
+  onClearPanelSkills: (panelId) => panelExec?.clear(panelId),                           // FR-PANEL-1
+  onListSkills: () => toolExecutor?.specs() ?? [],                                      // M2: ListSkills(voice)=composite 전체(builtin+panel, H1 동적 재집계). panel만 반환하던 버그 수정.
+  onPanelToolResult: (requestId, toolCallId, output, success) => panelExec?.resolveResult(requestId, toolCallId, output, success), // FR-PANEL-3 (H2: requestId+toolCallId)
   diag,
 });
+// panel executor 생성(egress 확보 후) + builtin 과 composite 합성. panel 도구 execute()=panel_tool_call emit→PanelToolResult 대기(E1, FR-PANEL-2/3).
+panelExec = makePanelToolExecutor({ egress: grpcServer.egress });
+toolExecutor = toolExecutor ? makeCompositeToolExecutor([toolExecutor, panelExec]) : panelExec;
+skillsLabel += " + panel(환경 위임)";
 // memory(makeNaiaMemory)는 MemoryPort + CompactionPort 둘 다 구현 → compaction 도 같은 인스턴스 주입(UC-compaction).
 const wired = wireAgentUC1({ ingress: grpcServer.ingress, egress: grpcServer.egress, credentials, diag, ...(provider ? { provider } : {}), ...(resolver ? { resolver } : {}), ...(toolExecutor ? { toolExecutor } : {}), ...(memory ? { memory } : {}), ...(memory ? { compaction: memory } : {}), ...(conversationLog ? { conversationLog } : {}), ...(defaultConfig ? { defaultConfig } : {}) });
 applyDefaultConfig = wired.setDefaultConfig; // 라이브 reload 결선 — 이후 SetWorkspace/ReloadSettings 가 활성 config swap

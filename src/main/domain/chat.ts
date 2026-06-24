@@ -75,6 +75,7 @@ export type AgentEmit =
   | { readonly kind: "logEntry"; readonly level: string; readonly message: string }
   | { readonly kind: "tokenWarning"; readonly raw: unknown }
   | { readonly kind: "compacted"; readonly droppedCount: number } // UC-compaction(FR-COMPACT): 예산 압박 시 head 요약 발생 알림(UI 표시용, 비-terminal)
+  | { readonly kind: "panelToolCall"; readonly toolCallId: string; readonly toolName: string; readonly args: unknown } // UC-PANEL FR-PANEL-2: 환경 도구(BGM·브라우저·workspace) 위임 — agent 미실행, 셸이 실행(비-terminal)
   | { readonly kind: "finish" }
   | { readonly kind: "error"; readonly message: string };
 

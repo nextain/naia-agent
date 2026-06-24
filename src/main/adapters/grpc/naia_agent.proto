@@ -24,6 +24,13 @@ service NaiaAgent {
   // F1 rich-health(신규계약): agent version/uptime/health. os InteroceptivePort.diagnostics rich payload.
   //   (os-local agentReachable=기본 health; 이 RPC=상세 payload. Rust os-client=후속.)
   rpc Diagnostics(DiagnosticsRequest) returns (DiagnosticsResult);
+
+  // UC-PANEL (FR-PANEL): 환경 panel skill(BGM·브라우저·workspace). 셸이 도구를 등록 → agent 가 LLM 에 노출,
+  //   LLM tool call 시 panel_tool_call(AgentEvent) emit → 셸 실행 → PanelToolResult 로 결과 주입(E1: agent 는 환경 미실행).
+  rpc RegisterPanelSkills(PanelSkills) returns (Ack);    // FR-PANEL-1 panel 활성화 — 동적 도구 등록
+  rpc ClearPanelSkills(PanelId) returns (Ack);           // FR-PANEL-1 panel 비활성화 — 도구 제거
+  rpc ListSkills(ListSkillsRequest) returns (SkillList); // 현재 노출 도구 목록(voice 세션 — 옛 fetchAgentSkills)
+  rpc PanelToolResult(PanelToolResultMsg) returns (Ack); // FR-PANEL-3 셸 실행 결과 → chat 루프 주입
 }
 
 message Ack { bool ok = 1; }
@@ -82,6 +89,7 @@ message AgentEvent {
     FinishEvent finish = 11;
     ErrorEvent error = 12;
     CompactedEvent compacted = 13;   // UC-compaction(FR-COMPACT): 예산 압박 시 head 요약 발생 알림(비-terminal)
+    PanelToolCallEvent panel_tool_call = 14; // UC-PANEL FR-PANEL-2: LLM 이 panel(환경) 도구 호출 → 셸에 위임(agent 미실행)
   }
 }
 message TextEvent { string text = 1; }
@@ -95,3 +103,13 @@ message TokenWarningEvent { string raw_json = 1; }
 message FinishEvent {}
 message ErrorEvent { string message = 1; }
 message CompactedEvent { int64 dropped_count = 1; }
+
+// ── UC-PANEL (FR-PANEL): 환경 panel skill (BGM·브라우저·workspace) ──────────────────
+// ToolSpec.parameters_json = JSON Schema 문자열(args_json 과 동형, 무손실). tier = 승인 게이트(미설정/0=none).
+message ToolSpec { string name = 1; string description = 2; string parameters_json = 3; optional int32 tier = 4; }
+message PanelSkills { string panel_id = 1; repeated ToolSpec tools = 2; }   // FR-PANEL-1 등록
+message PanelId { string panel_id = 1; }                                     // FR-PANEL-1 제거
+message ListSkillsRequest {}
+message SkillList { repeated ToolSpec tools = 1; }                           // 현재 노출 도구
+message PanelToolResultMsg { string request_id = 1; string tool_call_id = 2; string output = 3; bool success = 4; } // FR-PANEL-3 결과 주입
+message PanelToolCallEvent { string tool_call_id = 1; string tool_name = 2; string args_json = 3; } // FR-PANEL-2 위임(args=JSON 무손실, ToolUseEvent 동형)

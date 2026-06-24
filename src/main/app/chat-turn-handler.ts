@@ -256,7 +256,7 @@ export class ChatTurnHandler {
           try {
             if (exec) {
               // UC5 리뷰 fix(liveness): per-tool deadline race(memory 와 동일). 무응답 도구가 turn 영구 hang 못 하게.
-              const res = await raceAbort(exec.execute({ ...call, id: cid }, { signal }), signal, this.d.toolTimeoutMs ?? TOOL_EXEC_TIMEOUT_MS);
+              const res = await raceAbort(exec.execute({ ...call, id: cid }, { signal, requestId: req.requestId }), signal, this.d.toolTimeoutMs ?? TOOL_EXEC_TIMEOUT_MS); // requestId=UC-PANEL: panel 도구가 panel_tool_call 을 이 chat 스트림으로 위임
               if (res === null) {
                 if (signal.aborted) { terminalError("cancelled"); cancelled = true; break; }
                 r = { output: `tool timeout (>${this.d.toolTimeoutMs ?? TOOL_EXEC_TIMEOUT_MS}ms)`, isError: true }; // 무응답=isError, LLM 복구 가능, turn 진행

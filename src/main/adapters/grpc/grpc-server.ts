@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
-import type { AgentRequest, AgentEmit } from "../../domain/chat.js";
+import type { AgentRequest, AgentEmit, ToolSpec } from "../../domain/chat.js";
 import type { AgentIngressPort, AgentEgressPort, DiagnosticLog, Unsub } from "../../ports/uc1.js";
 import {
   chatRequestToDomain, cancelToDomain, approvalToDomain, credsToDomain, toolRequestToDomain,
@@ -28,6 +28,11 @@ export interface GrpcServerDeps {
   onSetWorkspace: (adkPath: string) => SettingsResult; // naia-adk/naia-settings 로딩 결과(entry 제공)
   onReloadSettings: () => SettingsResult;
   onDiagnostics?: () => DiagnosticsResult;            // F1 rich-health(미주입 시 기본 healthy). Rust os-client=후속.
+  // UC-PANEL(FR-PANEL): 환경 panel skill RPC → panel-tool-executor 연결(entry 주입). 미주입=panel 미지원(no-op).
+  onRegisterPanelSkills?: (panelId: string, tools: ToolSpec[]) => void;
+  onClearPanelSkills?: (panelId: string) => void;
+  onListSkills?: () => readonly ToolSpec[];
+  onPanelToolResult?: (requestId: string, toolCallId: string, output: string, success: boolean) => void;
   diag: DiagnosticLog;
 }
 
@@ -113,6 +118,30 @@ export function makeGrpcServer(deps: GrpcServerDeps): GrpcServer {
     cancel: unaryHandler((p) => cancelToDomain(p as PbCancel)),
     approvalResponse: unaryHandler((p) => approvalToDomain(p as PbApproval)),
     updateCreds: unaryHandler((p) => credsToDomain(p as PbCreds)),
+    // UC-PANEL(FR-PANEL): 환경 panel skill RPC. parametersJson/tier(int) ↔ domain ToolSpec(parameters/tier:string) 변환.
+    registerPanelSkills: (call: grpc.ServerUnaryCall<unknown, unknown>, cb: grpc.sendUnaryData<{ ok: boolean }>) => {
+      const r = call.request as { panelId?: string; tools?: { name: string; description: string; parametersJson?: string; tier?: number }[] };
+      const tools: ToolSpec[] = (r.tools ?? []).map((t) => {
+        let parameters: unknown = {};
+        try { if (t.parametersJson) parameters = JSON.parse(t.parametersJson); } catch { parameters = {}; }
+        return { name: String(t.name ?? ""), description: String(t.description ?? ""), parameters, ...(t.tier != null && t.tier > 0 ? { tier: "ask" } : {}) }; // M1: int>0 → gated "ask"(UC5 승인), 0/미설정=none(생략). String(int) 의미손실 제거.
+      });
+      deps.onRegisterPanelSkills?.(String(r.panelId ?? ""), tools);
+      cb(null, { ok: true });
+    },
+    clearPanelSkills: (call: grpc.ServerUnaryCall<unknown, unknown>, cb: grpc.sendUnaryData<{ ok: boolean }>) => {
+      deps.onClearPanelSkills?.(String((call.request as { panelId?: string }).panelId ?? ""));
+      cb(null, { ok: true });
+    },
+    listSkills: (_call: grpc.ServerUnaryCall<unknown, unknown>, cb: grpc.sendUnaryData<{ tools: unknown[] }>) => {
+      const tools = deps.onListSkills?.() ?? [];
+      cb(null, { tools: tools.map((t) => ({ name: t.name, description: t.description, parametersJson: JSON.stringify(t.parameters ?? {}), ...(t.tier != null && t.tier !== "none" ? { tier: 1 } : {}) })) }); // M1: gated→1, none/미설정 생략(Number("ask")=NaN 제거)
+    },
+    panelToolResult: (call: grpc.ServerUnaryCall<unknown, unknown>, cb: grpc.sendUnaryData<{ ok: boolean }>) => {
+      const r = call.request as { requestId?: string; toolCallId?: string; output?: string; success?: boolean };
+      deps.onPanelToolResult?.(String(r.requestId ?? ""), String(r.toolCallId ?? ""), String(r.output ?? ""), !!r.success); // H2: requestId+toolCallId 복합키
+      cb(null, { ok: true });
+    },
   };
 
   let server: grpc.Server | null = null;
