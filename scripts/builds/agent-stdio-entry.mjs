@@ -1,34 +1,13 @@
 #!/usr/bin/env node
-// agent-stdio-entry — new-naia-agent(brain) 를 실 process stdin/stdout 로 구동하는 진입점.
-// os uc1-trace-harness 의 AGENT_CMD 대상: stdin JSON-line(AgentOutbound) 수신 → wireAgentUC1 → stdout agent_response.
-// 기본 provider=fake(LLM 불요, 헤드리스). 실 LLM 은 후속(providers/ 이식).
+// agent-stdio-entry — new-naia-agent(brain) 를 **gRPC transport** 로 구동하는 진입점(naia-os 가 spawn → connect).
+// transport-독립 런타임 deps 는 compose-agent-deps.mjs(CLI host 와 공유, NFR-CLI-shared) — 여기선 gRPC server +
+// panel(환경 위임, egress 필요) + 라이브 reload + 종료(drain/flush) 등 **gRPC host 관심사**만 배선.
 import { createInterface } from "node:readline";
 import { wireAgentUC1 } from "../../dist/main/composition/index.js";
-import { makeProviderResolver } from "../../dist/main/adapters/provider-resolver.js";
-import { makeFakeProvider, makeSystemEchoProvider } from "../../dist/main/adapters/fake-provider.js";
-import { makeKeychainCredentials } from "../../dist/main/adapters/keychain-secret-store.js";
-import { makeNaiaSettingsStore } from "../../dist/main/adapters/naia-settings-store.js";
-import { makeStderrDiagnostic } from "../../dist/main/adapters/diagnostic.js";
-import { makeGrpcServer } from "../../dist/main/adapters/grpc/grpc-server.js";
-import { makeBuiltinSkillsExecutor } from "../../dist/main/adapters/builtin-skills.js";
-import { makeGithubSkillsExecutor } from "../../dist/main/adapters/github-skills.js";
-import { makeObsidianSkillsExecutor } from "../../dist/main/adapters/obsidian-skills.js";
-import { makeMcpSkillsExecutor } from "../../dist/main/adapters/mcp-skills.js";
-import { makeMcpJsonRpcClient } from "../../dist/main/adapters/mcp-stdio-transport.js";
 import { makeCompositeToolExecutor } from "../../dist/main/adapters/composite-tool-executor.js";
 import { makePanelToolExecutor } from "../../dist/main/adapters/panel-tool-executor.js";
-import { makeNotifyExecutor } from "../../dist/main/adapters/notify-skills.js";
-import { makeAdkSkillExecutor, parseSkillMd } from "../../dist/main/adapters/adk-skill-loader.js";
-import { makeOpenMeteoFetchWeather } from "../../dist/main/adapters/openmeteo-weather.js";
-import { makeFileMemoStore } from "../../dist/main/adapters/file-memo-store.js";
-import { makeFileConversationLog } from "../../dist/main/adapters/conversation-log-store.js";
-// ⚠️ makeNaiaMemory(→@nextain/naia-memory)는 *동적* import — 정적이면 모듈 로딩 실패 시 NAIA_AGENT_MEMORY=off
-// 나 try/catch 에 도달 못 하고 프로세스가 죽어 메모리 비활성 채팅(FR-MEM-3)·초기화 격리 계약이 깨진다.
-import * as nodeFs from "node:fs";
-import { spawn, spawnSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { makeGrpcServer } from "../../dist/main/adapters/grpc/grpc-server.js";
+import { composeAgentRuntimeDeps } from "./compose-agent-deps.mjs";
 
 // process stdin/stdout → LineIO. ⚠️ readline 은 즉시 시작하지만 라우터/종료 핸들러는 비동기 init(동적
 // import 등) *후* 등록된다 → init 중 도착한 입력·EOF 가 유실되지 않게 **boot 큐 + EOF latch** 로 보존.
@@ -52,123 +31,20 @@ rl.on("line", (l) => {
   if (bootQueue.length >= BOOT_QUEUE_MAX || bootBytes >= BOOT_QUEUE_MAX_BYTES) rl.pause();
 });
 // EOF latch — close 가 shutdown 등록 전에 발생하면 보류했다가 등록 시 실행(조기 EOF 에 flush 누락 방지).
-// ⚠️ init 가 hang 해도(import 무한대기) shutdown 이 영영 설치 안 될 수 있으므로, latch 가 발화하면 즉시
-// init-watchdog 강제 종료 timer 를 건다 — 조기 EOF + hung init 에서도 프로세스가 영구 정지하지 않게.
 let onShutdown = null;
-// 종료 시 정리할 자원(자식 프로세스·소켓 등) 핸들 — MCP 자식 등은 여기 push 해 onShutdown 이 정리(F2, 재감사 2026-06-23).
-const cleanupFns = [];
+// 종료 시 정리할 자원(자식 프로세스·소켓 등) 핸들 — compose 후 deps.cleanupFns 로 교체(최상단 핸들러가 정리, F2).
+let cleanupFns = [];
 // ⚠️ gRPC transport: stdin 은 데이터 채널 아님 → stdin EOF 는 종료 신호가 아니다(서버는 SIGTERM/SIGINT 까지 생존).
-// (구 stdio 진입점은 stdin EOF=클라 연결종료로 셧다운했으나, gRPC 서버는 Rust 가 시그널로 종료한다.)
 rl.on("close", () => { /* no-op — gRPC 모드: EOF≠shutdown */ });
 
-// provider 해석: 기본 = config-driven resolver — 요청의 provider/model/naiaKey/apiKey(naia-settings → 셸 → req.provider
-//   + creds_update) 로 lab-proxy(naia 게이트웨이)/native(키 직접)/ollama 라우팅. (옛 AGENT_PROVIDER=glm/ollama env 강제 삭제 —
-//   config 가 흐르게: "온보딩/설정 → adk → agent 가 읽어 그 provider 로 대화".)
-// AGENT_PROVIDER=fake → 헤드리스 결정론 fake provider(E2E·LLM 불요).
-const ap = process.env.AGENT_PROVIDER;
-let provider, resolver, label;
-if (ap === "fake") { provider = makeFakeProvider(); label = "fake(headless)"; }
-else if (ap === "echo-system") { provider = makeSystemEchoProvider(); label = "echo-system(e2e: systemPrompt 반향)"; } // recall→inject 관통 검증용
-else { resolver = makeProviderResolver(); label = "config-driven resolver(lab-proxy/native/ollama)"; }
-// ADK 워크스페이스 경로(naia-adk) — config 정본 + 스킬 설정 위치(naia-os 가 기동 시 주입).
-const adkPath = process.env.NAIA_ADK_PATH || join(homedir(), "naia-adk");
-// 스킬 설정(성격 구분: 스킬 코드=agent 런타임 / 스킬 설정·시크릿=naia-adk 워크스페이스).
-//   adkPath/naia-settings/skills.json 예: { "notify": { "slack": "https://...", "discord": "..." } }. env 폴백.
-let skillsCfg = {};
-try { skillsCfg = JSON.parse(nodeFs.readFileSync(join(adkPath, "naia-settings", "skills.json"), "utf8")); } catch { /* 없음 = env 폴백 */ }
+// ── transport-독립 런타임 deps = 공유 빌더(CLI host 와 literally 동일, NFR-CLI-shared) ──
+const deps = await composeAgentRuntimeDeps();
+cleanupFns = deps.cleanupFns;
+const { adkPath, provider, resolver, providerLabel: label, credentials, settingsStore, defaultConfig, configLabel } = deps;
+let { toolExecutor } = deps;
+const { memory, memoryLabel, conversationLog, transcriptLabel, diag } = deps;
+let skillsLabel = deps.skillsLabel;
 
-// UC5 실 스킬(time/weather/memo) — 기본 활성(NAIA_AGENT_SKILLS=off 로 비활성). 실 deps 주입:
-// clock=현재시각, fetchWeather=open-meteo(키 불요), memo=in-memory(기본). memo_save 는 승인 게이트(tier ask).
-let toolExecutor, skillsLabel = "off";
-if (process.env.NAIA_AGENT_SKILLS !== "off") {
-  // memo 영속: NAIA_MEMO_PATH(또는 ~/.naia-agent/memos.json). node:fs 주입(코어 순수 유지).
-  const memoPath = process.env.NAIA_MEMO_PATH || join(homedir(), ".naia-agent", "memos.json");
-  const memo = makeFileMemoStore({ path: memoPath, dir: dirname(memoPath), fs: nodeFs });
-  const builtin = makeBuiltinSkillsExecutor({ clock: () => new Date(), fetchWeather: makeOpenMeteoFetchWeather(), memo });
-  skillsLabel = `time/weather/memo(${memoPath})`;
-  // 외부/로컬 스킬 합성(builtin 우선). 환경변수 있을 때만 추가, 없으면 builtin 단독.
-  const executors = [builtin];
-  const ghToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
-  if (ghToken) { executors.push(makeGithubSkillsExecutor({ token: ghToken })); skillsLabel += " + github(ro)"; }
-  const vault = process.env.NAIA_OBSIDIAN_VAULT;
-  if (vault) { executors.push(makeObsidianSkillsExecutor({ vaultDir: vault, fs: nodeFs })); skillsLabel += " + obsidian(ro)"; }
-  // MCP 서버(NAIA_MCP_CMD="npx -y @modelcontextprotocol/server-everything stdio"). 초기화 실패=격리(MCP 없이 진행).
-  const mcpCmd = process.env.NAIA_MCP_CMD;
-  if (mcpCmd) {
-    try {
-      const parts = mcpCmd.trim().split(/\s+/);
-      const mcpName = process.env.NAIA_MCP_NAME || "mcp";
-      const child = spawn(parts[0], parts.slice(1), { stdio: ["pipe", "pipe", "inherit"] });
-      const mrl = createInterface({ input: child.stdout });
-      let mcb = null;
-      mrl.on("line", (l) => mcb?.(l));
-      const channel = { send: (line) => child.stdin.write(line + "\n"), onLine: (cb) => { mcb = cb; return () => { mcb = null; }; }, close: () => { try { child.kill(); } catch { /* noop */ } } };
-      const transport = makeMcpJsonRpcClient(channel);
-      const mcpExec = await makeMcpSkillsExecutor({ transport, serverName: mcpName, initTimeoutMs: 30000 });
-      executors.push(mcpExec);
-      cleanupFns.push(channel.close); // F2: 종료 시 MCP 자식 kill(고아 누적 방지)
-      skillsLabel += ` + mcp:${mcpName}(${mcpExec.specs().length})`;
-    } catch (e) {
-      process.stderr.write(`[naia-agent] MCP init 실패(격리, MCP 없이 진행): ${e instanceof Error ? e.message : String(e)}\n`);
-    }
-  }
-  // notify(slack/discord/google_chat) — webhook URL = naia-adk skills.json.notify.{target} > env NAIA_NOTIFY_{TARGET}_WEBHOOK.
-  //   스킬 코드=agent / 설정(URL)=naia-adk. URL 있는 target 만 활성(github/obsidian 패턴). post=fetch.
-  const notifyUrls = (skillsCfg && typeof skillsCfg === "object" && skillsCfg.notify && typeof skillsCfg.notify === "object") ? skillsCfg.notify : {};
-  const notifyWebhookUrl = async (target) => notifyUrls[target] ?? process.env[`NAIA_NOTIFY_${target.toUpperCase()}_WEBHOOK`] ?? null;
-  const anyNotify = ["slack", "discord", "google_chat"].some((t) => notifyUrls[t] || process.env[`NAIA_NOTIFY_${t.toUpperCase()}_WEBHOOK`]);
-  if (anyNotify) {
-    const notifyPost = async (url, body, signal) => {
-      const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), ...(signal ? { signal } : {}) });
-      return { ok: r.ok, status: r.status };
-    };
-    executors.push(makeNotifyExecutor({ post: notifyPost, webhookUrl: notifyWebhookUrl }));
-    skillsLabel += " + notify";
-  }
-  // ⚠️ 브라우저/터미널/workspace/BGM/탭앱 = 환경(brain-body-environment §3·§4). agent 는 환경을 *실행하지 않는다*
-  //   (E1 뇌 독립: agent 가 죽거나 부재해도 환경은 독자 동작). agent 가 CLI/프로세스를 직접 spawn 하는 배선은 레이어 위반.
-  //   환경 = 셸 소유 사이드카 + agent 는 intent(navigate/play/run)만 emit — 실행은 new-naia-os(셸) 측. agent-browser-skills.ts·
-  //   youtube-bgm-skills.ts 어댑터는 dormant(추후 'intent→셸 사이드카' 경로 신설 시 재사용 또는 정리).
-  // naia-adk 동적 스킬(SKILL.md) — 성격 구분의 naia-adk 측: 스킬 정의=naia-adk 워크스페이스(코드 없이 추가) / 실행=agent.
-  //   adkPath/.agents/skills/{name}/SKILL.md 스캔 → parseSkillMd → executor. 본문(절차)을 도구 output 으로 제공(프롬프트 주입형).
-  const adkSkills = [];
-  try {
-    const skillsDir = join(adkPath, ".agents", "skills");
-    for (const ent of nodeFs.readdirSync(skillsDir, { withFileTypes: true })) {
-      if (!ent.isDirectory()) continue;
-      try {
-        const parsed = parseSkillMd(nodeFs.readFileSync(join(skillsDir, ent.name, "SKILL.md"), "utf8"));
-        if (parsed) adkSkills.push(parsed);
-      } catch { /* SKILL.md 없음/파싱실패 = 스킵 */ }
-    }
-  } catch { /* .agents/skills 없음 = adk 스킬 없음 */ }
-  if (adkSkills.length) {
-    const adkExec = makeAdkSkillExecutor(adkSkills);
-    executors.push(adkExec);
-    // 노출 수(specs)/파싱 수 — disable-model-invocation 스킬은 파싱되나 모델 도구로 미노출(노출 < 파싱).
-    skillsLabel += ` + adk-skills(${adkExec.specs().length}/${adkSkills.length})`;
-  }
-  toolExecutor = executors.length > 1 ? makeCompositeToolExecutor(executors) : builtin;
-}
-
-// creds = OS 키체인 read-back(naia-os write_agent_key 가 쓴 naiaKey/apiKey). creds_update 는 런타임 overlay 로 우선.
-// 키체인 read 주입(코어 순수 유지): Linux=secret-tool lookup(service=naia-agent), 기타=미지원(undefined, plaintext fallback 없음).
-const C_ENV = { ...process.env, LC_ALL: "C", LANG: "C", LANGUAGE: "C" };
-const secretToolRead = (name) => {
-  const r = spawnSync("secret-tool", ["lookup", "service", "naia-agent", "account", name], { encoding: "utf8", timeout: 5000, env: C_ENV });
-  if (r.error || r.status !== 0) return undefined;
-  const out = r.stdout ?? "";
-  return out.length > 0 ? out.replace(/\n$/, "") : undefined;
-};
-const credentials = makeKeychainCredentials({ read: process.platform === "linux" ? secretToolRead : () => undefined });
-
-// ★ config 정본 = <NAIA_ADK_PATH>/naia-settings/llm.json (정본: naia-os 가 기동 시 워크스페이스 경로 주입 → agent 가
-//   naia-settings 로 provider/모델 로딩 완료 → 대화는 메시지만). apiKeyRef → process.env ?? 키체인(secret-tool).
-//   파일 없음/미설정 = defaultConfig 없음 → wire chat_request.provider 가 실리면 그걸로(하위호환), 둘 다 없으면 honest error.
-const settingsResolveSecret = (ref) => process.env[ref] ?? (process.platform === "linux" ? secretToolRead(ref) : undefined);
-const settingsStore = makeNaiaSettingsStore({ fs: nodeFs, resolveSecret: settingsResolveSecret, log: (m, c) => process.stderr.write(`[naia-agent] ${m} ${c ? JSON.stringify(c) : ""}\n`) });
-const defaultConfig = settingsStore.loadMain(adkPath) ?? undefined;
-const configLabel = defaultConfig ? `naia-settings(${defaultConfig.provider}/${defaultConfig.model})` : `none(wire provider 필요) adk=${adkPath}`;
 // ★ 라이브 reload(정본 R1-2 "startup-only 금지"): 사용자가 naia-os 에서 모델/프로바이더 교체 시 OS 가
 //   naia-settings(config.json) 갱신 후 SetWorkspace/ReloadSettings 재호출 → 여기서 재로딩해 handler 활성 config 를 swap.
 //   applyDefaultConfig 는 wireAgentUC1 반환(아래)으로 채워진다 — 클로저가 *호출 시점* 값을 보므로 선언 순서 무관.
@@ -181,80 +57,6 @@ const reloadConfigFrom = (path) => {
   return { loaded: !!c, provider: c?.provider ?? "", model: c?.model ?? "" };
 };
 
-// 장기기억(naia-memory) — 기본 활성(NAIA_AGENT_MEMORY=off 로 비활성, FR-MEM-3 무회귀). 턴 전 recall 주입 /
-// 턴 후 save. 초기화 실패=격리(기억 없이 진행). store=NAIA_MEMORY_STORE 또는 ~/.naia-agent/memory/store.json.
-// ⚠️ project = workspace 식별자 — 서로 다른 워크스페이스/사용자가 한 store 를 공유해도 회상이 섞이지 않게
-// (strict 격리는 project 키 단위). NAIA_MEMORY_PROJECT 미지정 시 workspace 경로(NAIA_ADK_PATH)에서 안정적
-// 으로 유도(고정 "default" 면 모든 워크스페이스가 합쳐져 교차 누설 — FR-MEM-5 위반). 경로 해시로 충돌 회피.
-let memory, memoryLabel = "off";
-if (process.env.NAIA_AGENT_MEMORY !== "off") {
-  try {
-    const { makeNaiaMemory } = await import("../../dist/main/adapters/naia-memory.js"); // 동적 — 로딩 실패=격리
-    // workspace 식별자는 *정규화 후* 해시 — 상대/절대/symlink/trailing-slash 가 같은 워크스페이스에 다른
-    // project 를 만들어 기억을 못 찾는 것 방지. 정상 운영(os→agent 가 존재하는 워크스페이스 경로 주입)에선
-    // realpath 가 안정적; 경로 부재(degenerate)면 절대경로 resolve 폴백(best-effort). 충돌 회피 위해 128-bit.
-    const { resolveWorkspaceId, storeDirKey } = await import("../../dist/main/adapters/workspace-project.js");
-    // project = workspace identity(영속 UUID `<adkPath>/.naia/workspace-id`, FR-MEM-9). 이동 시 따라가고
-    // 경로 재사용 시 새 UUID → 이전 워크스페이스 기억 누설 차단. 경로 부재면 경로해시 폴백. 환경변수 우선.
-    const project = process.env.NAIA_MEMORY_PROJECT || resolveWorkspaceId(adkPath, {
-      readFile: (p) => nodeFs.readFileSync(p, "utf8"),                                  // ENOENT/EACCES code 보존
-      writeFileExclusive: (p, d) => nodeFs.writeFileSync(p, d, { flag: "wx", mode: 0o600 }), // wx=배타(EEXIST)
-      mkdir: (p) => nodeFs.mkdirSync(p, { recursive: true, mode: 0o700 }),
-      isDirectory: (p) => { try { return nodeFs.statSync(p).isDirectory(); } catch { return false; } },
-      randomUUID,
-    });
-    // ⚠️ store 파일은 **workspace(project)별로 분리** — 단일 store 를 여러 워크스페이스가 공유하면 종료 flush
-    // 의 atomic-rename 이 lost-update 로 서로 덮어쓴다. 디렉터리 조각은 project 해시(traversal-safe).
-    // NAIA_MEMORY_DIR(base dir) 지정 시에도 그 아래 project-hash 서브디렉터리 분리 유지. NAIA_MEMORY_STORE
-    // (정확 파일) = 분리 우회 **escape hatch**(테스트/단일-store, 다중 워크스페이스 동시 시 lost-update 위험).
-    const storeBase = process.env.NAIA_MEMORY_DIR || join(homedir(), ".naia-agent", "memory");
-    const storePath = process.env.NAIA_MEMORY_STORE || join(storeBase, storeDirKey(project), "store.json");
-    // at-rest 기밀성 방어(저비용): store 디렉터리를 0700 으로 생성(다른 로컬 사용자 읽기 차단). 파일 권한
-    // (0600)·symlink·비정규 파일 처리는 실제 파일 I/O 를 소유한 naia-memory LocalAdapter 의 책임(이 wiring
-    // UC 범위 밖, naia-memory 하드닝 항목). umask 영향 회피 위해 mode 명시.
-    try { nodeFs.mkdirSync(dirname(storePath), { recursive: true, mode: 0o700 }); } catch { /* best-effort */ }
-    // sessionId = 프로세스별 고유 — 재시작마다 별 세션(provenance/rolling-summary/compact 경계 오염 방지).
-    // 고정 "s1" 이면 같은 project 의 모든 재시작이 한 세션으로 합쳐짐. 회상은 content+project 기반이라
-    // 정확성엔 무관하나, 세션 경계 위생을 위해 분리.
-    const sessionId = process.env.NAIA_MEMORY_SESSION || `proc-${randomUUID()}`;
-    // issue #7: config.json(naia-settings) 의 adapter(local/qdrant)·embedding(offline/vllm/ollama/naia) 선택을
-    //   런타임에 반영(이전엔 LocalAdapter+키워드-only 하드코딩이라 UI 선택 무시). 비밀(*ApiKey/naiaKey)은 셸이
-    //   strip 하므로 env/키체인(settingsResolveSecret)으로 best-effort — 로컬 서버(무인증)는 빈 키로 동작.
-    //   ⚠️ 부팅 시 1회 읽음 — 사용자가 메모리 설정을 라이브 변경하면 agent 재시작(restart_agent) 시 반영(provider
-    //   는 ReloadSettings 로 라이브, memory 는 store 수명/마이그레이션 때문에 재시작 경계). 미설정/손상=local+키워드-only.
-    const memCfg = settingsStore.loadMemoryConfig(adkPath);
-    memory = makeNaiaMemory({
-      storePath,
-      project,
-      sessionId,
-      ...(memCfg
-        ? {
-            adapter: memCfg.adapter,
-            ...(memCfg.qdrantUrl ? { qdrantUrl: memCfg.qdrantUrl } : {}),
-            ...(memCfg.qdrantApiKey ? { qdrantApiKey: memCfg.qdrantApiKey } : {}),
-            embedding: memCfg.embedding,
-            llm: memCfg.llm,
-          }
-        : {}),
-    });
-    memoryLabel = `naia-memory(${storePath}, project=${project}, adapter=${memCfg?.adapter ?? "local"}, embed=${memCfg?.embedding.provider ?? "none"}, llm=${memCfg?.llm.provider ?? "none"})`;
-  } catch (e) {
-    process.stderr.write(`[naia-agent] memory init 실패(격리, 기억 없이 진행): ${e instanceof Error ? e.message : String(e)}\n`);
-  }
-}
-
-// 대화 transcript 영속(FR-CONV.1) — 전두엽(agent)이 turn 종료 시 verbatim 대화록을 {adkPath}/conversations/{sessionId}.jsonl append.
-//   기본 활성(NAIA_AGENT_TRANSCRIPT=off 로 비활성). 읽기는 shell(Rust IPC)·naia-memory 가 파일 직접(E1, agent 독립). no-throw 격리.
-//   store=naia-memory(시맨틱)와 별개 = verbatim 아카이브(memory recall 원재료 + 멀티모달 잠재기억 substrate).
-let conversationLog, transcriptLabel = "off";
-if (process.env.NAIA_AGENT_TRANSCRIPT !== "off") {
-  const conversationsDir = process.env.NAIA_CONVERSATIONS_DIR || join(adkPath, "conversations");
-  conversationLog = makeFileConversationLog({ conversationsDir, fs: nodeFs, join });
-  transcriptLabel = `conversations(${conversationsDir})`;
-}
-
-// 표준 로깅 sink 주입(docs/logging.md): stderr(stdout 은 wire 전용) + debug 게이트(NAIA_AGENT_DEBUG=1 시 진입·분기 로그).
-const diag = makeStderrDiagnostic({ write: (l) => process.stderr.write(l + "\n"), debug: process.env.NAIA_AGENT_DEBUG === "1" });
 // 정본 transport = gRPC (naia-os --gRPC--> naia-agent). os(Rust)가 이 서버에 connect. data 채널은 gRPC 단일.
 // SetWorkspace/ReloadSettings = naia-adk/naia-settings 로딩 결과 반환(저장/불러오기 정본).
 // UC-PANEL(FR-PANEL): panel executor(환경 도구) 콜백은 late-binding — panelExec 는 egress 확보 후(아래) 생성.
@@ -301,14 +103,7 @@ process.stderr.write(`[naia-agent] grpc ready @${grpcAddr} (${label} provider, c
 onShutdown = async () => {
   process.exitCode = 0;
   // ⚠️ 강제 종료 안전망을 *최상단*(await 전)에 설치 — drain/close/flush 어디서 hang 해도 종료를 보장한다.
-  // (await memory.close() 뒤에 두면 close 가 pending 일 때 도달 못 해 영구 정지.) unref 금지 = 루프 유지.
-  // 30s = **종료 grace**. stdin EOF = 클라이언트 *이미 연결 종료* → 이 grace 의 목적은 응답 전달이 아니라
-  // in-flight 턴의 save 영속이다. memory recall/save deadline(5s)·정상 턴 지연보다 충분히 커 정당한 작업을
-  // 선점하지 않고, 병리적 provider/close hang 이 EOF 종료를 영구정지로 만드는 회귀만 차단한다(원래 진입점은
-  // EOF 시 즉시 exit 하며 in-flight 를 버렸음 — 30s grace 는 그보다 강한 보존, 한계 케이스만 best-effort 유실).
   setTimeout(() => process.exit(0), 30000);
-  // 각 종료 단계를 독립 try/catch — 한 단계 실패가 다음(특히 stdout flush)을 건너뛰지 않게. close 는
-  // *hang* 도 stdout flush 를 막지 못하게 timeout 으로 bound(reject 는 catch, hang 은 race).
   try { if (drain) await drain(); } catch (e) { process.stderr.write(`[naia-agent] drain 실패: ${e instanceof Error ? e.message : String(e)}\n`); }
   try { await grpcServer.shutdown(); } catch (e) { process.stderr.write(`[naia-agent] grpc shutdown 실패: ${e instanceof Error ? e.message : String(e)}\n`); }
   // F2: MCP 자식 등 등록된 자원 정리(고아 누적 방지). 각 독립 try — 한 개 실패가 나머지/exit 를 막지 않게.

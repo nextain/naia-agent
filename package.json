@@ -9,12 +9,14 @@
   },
   "packageManager": "pnpm@10.33.0",
   "bin": {
-    "naia-agent": "bin/naia-agent-run.mjs"
+    "naia-agent": "bin/naia-agent-run.mjs",
+    "naia-agent-chat": "bin/naia-agent-chat.mjs"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node scripts/builds/agent-stdio-entry.mjs",
     "supervise": "node bin/naia-agent-run.mjs",
+    "chat": "node bin/naia-agent-chat.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:report": "vitest run --reporter=verbose"
