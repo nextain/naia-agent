@@ -69,6 +69,7 @@
       ".gitignore",
       ".gitmodules",
       "LICENSE",
+      "CONTEXT-LICENSE",
       "package.json",
       "pnpm-workspace.yaml",
       "pnpm-lock.yaml",
