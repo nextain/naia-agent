@@ -85,12 +85,23 @@ describe("chooseProviderConfig", () => {
   it("아무 설정 없음 = honest error", () => {
     expect(chooseProviderConfig({ envKey: noEnv }).ok).toBe(false);
   });
+  it("게이트웨이(nextain) = naiaKey 슬롯, apiKey 없음", () => {
+    const r = chooseProviderConfig({ argProvider: "nextain", argModel: "naia-default", envKey: (n) => (n === "NAIA_API_KEY" ? "gw-xxx" : undefined) });
+    expect(r.ok).toBe(true);
+    if (r.ok) { expect(r.config).toMatchObject({ provider: "nextain", model: "naia-default", naiaKey: "gw-xxx" }); expect(r.config.apiKey).toBeUndefined(); }
+  });
+  it("naiaKey 는 직결 provider 에 ride-along 안 함(L2)", () => {
+    const r = chooseProviderConfig({ argProvider: "anthropic", envKey: (n) => (n === "ANTHROPIC_API_KEY" ? "sk-a" : n === "NAIA_API_KEY" ? "gw-x" : undefined) });
+    expect(r.ok).toBe(true);
+    if (r.ok) { expect(r.config.apiKey).toBe("sk-a"); expect(r.config.naiaKey).toBeUndefined(); }
+  });
 });
 
 describe("apiKeyEnvFor", () => {
   it("provider → env 이름(미지=null)", () => {
     expect(apiKeyEnvFor("anthropic")).toBe(PROVIDER_API_KEY_ENV.anthropic);
     expect(apiKeyEnvFor("naia")).toBe("NAIA_API_KEY");
+    expect(apiKeyEnvFor("nextain")).toBe("NAIA_API_KEY");
     expect(apiKeyEnvFor("nope")).toBeNull();
   });
 });
@@ -162,6 +173,22 @@ describe("makeReplConversation — 멀티턴 history + emit", () => {
     expect(id).toBe("r1");
     expect(h.requests[1]).toMatchObject({ kind: "cancel", requestId: "r1" });
     expect(h.repl.isBusy()).toBe(false);
+  });
+
+  it("error/cancel/빈-finish 는 턴 통째 폐기 — 빈 assistant·연속 user 오염 방지(H2/H3)", () => {
+    const h = harness();
+    // error → user 까지 폐기
+    h.repl.submit("질문A"); h.emit({ kind: "text", text: "부분" }); h.emit({ kind: "error", message: "터짐" });
+    expect(h.repl.history).toEqual([]);
+    // cancel → 폐기(부분응답 history 미보존)
+    h.repl.submit("질문B"); h.emit({ kind: "text", text: "부분..." }); h.repl.cancel();
+    expect(h.repl.history).toEqual([]);
+    // 빈 finish(응답 0) → 폐기(빈 assistant 금지)
+    h.repl.submit("질문C"); h.emit({ kind: "finish" });
+    expect(h.repl.history).toEqual([]);
+    // 정상 finish → 단일 user/assistant 쌍만, 앞선 폐기 턴의 잔재 없음
+    h.repl.submit("질문D"); h.emit({ kind: "text", text: "답D" }); h.emit({ kind: "finish" });
+    expect(h.repl.history.map((m) => [m.role, m.content])).toEqual([["user", "질문D"], ["assistant", "답D"]]);
   });
 
   it("requestId 불일치 emit 무시(취소된 잔류 스트림)", () => {

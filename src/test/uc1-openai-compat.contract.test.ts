@@ -38,6 +38,15 @@ describe("makeOpenAICompatProvider (GLM/openai SSE, mock)", () => {
   it("!ok → throw", async () => {
     await expect(collect(prov([], { ok: false, status: 401 }).chat(cfg, [], {}))).rejects.toThrow(/401/);
   });
+  it("비-OK(429 등) 응답 본문을 throw 전에 취소 — dangling 소켓→libuv 어설션 방지(적대리뷰)", async () => {
+    let cancelled = false;
+    const fetch = async () => ({
+      ok: false, status: 429, statusText: "Too Many Requests",
+      body: { getReader: () => ({ read: async () => ({ done: true }), cancel: async () => { cancelled = true; } }) },
+    });
+    await expect(collect(makeOpenAICompatProvider({ baseUrl: "https://x", apiKey: "k", fetch: fetch as never }).chat(cfg, [], {}))).rejects.toThrow(/429/);
+    expect(cancelled).toBe(true); // 본문 reader.cancel() 호출됨
+  });
   it("SSE error 이벤트 → throw", async () => {
     const lines = ['data: {"error":{"message":"bad key"}}\n'];
     await expect(collect(prov(lines).chat(cfg, [], {}))).rejects.toThrow(/error/);

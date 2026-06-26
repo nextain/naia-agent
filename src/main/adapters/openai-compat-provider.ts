@@ -60,6 +60,11 @@ export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string
         ...(opts.signal ? { signal: opts.signal } : {}),
       });
       if (!resp.ok || !resp.body) {
+        // ⚠️ 비-OK(429/404 등)도 응답 본문이 딸려온다 — throw 전 **반드시 소비/취소**한다. 안 그러면 undici
+        //    소켓이 dangling 으로 남아, 호스트가 곧장 process.exit() 하는 경로(CLI once-mode)에서 libuv
+        //    "UV_HANDLE_CLOSING"(async.c) 어설션 크래시를 유발(실 키 round-trip 테스트로 적발 2026-06-26).
+        //    성공 경로는 아래 finally(reader.cancel)가 정리하나, 이 early-throw 는 reader 생성 전이라 누락됐었음.
+        if (resp.body) { try { await resp.body.getReader().cancel?.(); } catch { /* 격리 */ } }
         throw new Error(`OpenAI-compat ${base} failed: ${resp.status} ${resp.statusText}`); // rejection→handler catch=error
       }
 
