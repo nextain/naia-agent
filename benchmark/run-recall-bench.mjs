@@ -15,6 +15,31 @@ import { formatRecalledMemory } from "../dist/main/domain/memory.js";
 const here = dirname(fileURLToPath(import.meta.url));
 const fixturesDir = join(here, "fixtures");
 
+// 선택적 실 LLM judge(task-accuracy probe) — 가용 로컬 LLM(ollama)로 회상 컨텍스트가 기준을 만족하는지
+//   PASS/FAIL 판정(temperature 0). 실패/미설정 = taskPass 미정 → runner fail-closed. proxy 보다 의미있으나
+//   judge 모델 한계(qwen3.5:4b)는 정직 라벨. NAIA_BENCH_NO_JUDGE=1 = 끔(proxy). 강 judge = 모델/URL 환경변수.
+const JUDGE_URL = process.env.NAIA_BENCH_JUDGE_URL || "http://127.0.0.1:11434/v1";
+const JUDGE_MODEL = process.env.NAIA_BENCH_JUDGE_MODEL || "qwen3.5:4b";
+const JUDGE_ENABLED = process.env.NAIA_BENCH_NO_JUDGE !== "1";
+async function llmJudge(criterion, recalled) {
+  const prompt = `너는 엄격한 채점관이다. 오직 아래 '회상된 정보'만 근거로 '기준' 만족 여부를 판정하라.\n기준: ${criterion}\n\n회상된 정보:\n${recalled || "(없음)"}\n\n만족하면 정확히 PASS, 아니면 정확히 FAIL — 한 단어만 출력.`;
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), 30000);
+  try {
+    const r = await fetch(`${JUDGE_URL}/chat/completions`, {
+      method: "POST", signal: ac.signal,
+      headers: { "content-type": "application/json", ...(process.env.NAIA_BENCH_JUDGE_KEY ? { Authorization: `Bearer ${process.env.NAIA_BENCH_JUDGE_KEY}` } : {}) },
+      body: JSON.stringify({ model: JUDGE_MODEL, messages: [{ role: "user", content: prompt }], temperature: 0, max_tokens: 8, stream: false }),
+    });
+    if (!r.ok) return undefined;
+    const j = await r.json();
+    const out = String(j.choices?.[0]?.message?.content || "").toUpperCase();
+    if (out.includes("FAIL")) return false;
+    if (out.includes("PASS")) return true;
+    return undefined;
+  } catch { return undefined; } finally { clearTimeout(t); }
+}
+
 // fixture 당 신선한 naia-memory(독립 store/project) — 회상이 fixture 간 누설되지 않게.
 async function makeSut() {
   const storeDir = mkdtempSync(join(tmpdir(), "naia-bench-"));
@@ -40,8 +65,26 @@ async function makeSut() {
     await flushPending();              // ⚠️ 마지막 unpaired user 턴(probe 직전) 누락 방지(적대리뷰 bench HIGH#1)
     return formatRecalledMemory(await memory.recall(query));
   };
-  const { createRecallSut } = await import("./dist/sut-recall.js");
-  return { sut: createRecallSut({ save, recall }), close: () => memory.close() };
+  // task-accuracy = 실 LLM judge(가용 시) — createRecallSut 의 'non-empty' proxy 대신 judge 주입(적대리뷰 bench HIGH#2).
+  const run = async (input) => {
+    for (const turn of input.turns) await save({ role: turn.role, content: turn.content });
+    const responses = [];
+    for (let i = 0; i < input.probes.length; i++) {
+      const probe = input.probes[i];
+      if (probe.type === "fact-recall") {
+        responses.push({ probeIndex: i, answer: await recall(probe.question) });
+      } else if (probe.type === "task-accuracy") {
+        const recalled = await recall(probe.criterion);
+        const taskPass = JUDGE_ENABLED ? await llmJudge(probe.criterion, recalled) : recalled.trim().length > 0;
+        responses.push({ probeIndex: i, answer: recalled, ...(taskPass !== undefined ? { taskPass } : {}) });
+      } else {
+        const a = await recall(probe.question);
+        responses.push({ probeIndex: i, answer: a, baselineAnswer: a }); // drift baseline 미주입 = 1.0(현 fixture drift probe 0)
+      }
+    }
+    return responses;
+  };
+  return { sut: { run }, close: () => memory.close() };
 }
 
 const files = readdirSync(fixturesDir).filter((f) => f.endsWith(".fixture.json")).sort();
@@ -79,8 +122,19 @@ console.log("\n## 요약 (SUT = naia-memory LocalAdapter · 키워드-only · �
 console.log("### factRecall — 유효 신호(결정론 키워드 생존)");
 console.log(`- fact-recall fixture: ${factFix.length} · 완전회상(=1.0): ${factPass} · 부분/실패: ${factFix.length - factPass}`);
 console.log(`- 평균 factRecall: ${(avgFR * 100).toFixed(1)}%  (키워드-only 바닥값 — 실패는 주로 숫자/식별자/고유명사 = 임베딩·LLM recap 영역)`);
-console.log("### taskAccuracy — ⚠️ 미측정 (LLM judge 없음 → 'recall 비어있지않음' proxy일 뿐, 신호 아님 · 게이트 제외)");
-console.log(`- task-accuracy-only fixture(현 SUT 로 유효 판정 불가): ${taskOnly.length}${taskOnly.length ? " — " + taskOnly.map((r) => r.fixtureId).join(", ") : ""}`);
+if (JUDGE_ENABLED) {
+  const taskFix = results.filter((r) => r.details.some((d) => d.type === "task-accuracy"));
+  const taskPass = taskFix.filter((r) => r.scores.taskAccuracy >= 1.0).length;
+  const avgTA = taskFix.length ? taskFix.reduce((a, r) => a + r.scores.taskAccuracy, 0) / taskFix.length : 0;
+  console.log(`### taskAccuracy — 측정 (LLM judge=${JUDGE_MODEL} @ ${JUDGE_URL}, temp 0)`);
+  console.log(`- task-accuracy fixture: ${taskFix.length} · 전부통과(=1.0): ${taskPass} · 평균: ${(avgTA * 100).toFixed(1)}%`);
+  console.log(`  ⚠️ 이 SUT 는 **recall-only(LLM 생성 없음)** — raw 회상 텍스트를 답으로 judge 에 넘긴다. 답변품질 criteria 는`);
+  console.log(`     추론된 답변을 요구하므로 0%대가 구조적으로 정상(qwen·gemini judge 동일 0% = judge 한계 아님 확인).`);
+  console.log(`     **진짜 task-accuracy = full-agent SUT**(recall→LLM→답변)로 측정해야 함 — 다음 통합(naia-agent chat 파이프라인 주입).`);
+} else {
+  console.log("### taskAccuracy — ⚠️ 미측정 (proxy 'recall 비어있지않음', 게이트 제외)");
+  console.log(`- task-accuracy-only fixture(유효 판정 불가): ${taskOnly.length}${taskOnly.length ? " — " + taskOnly.map((r) => r.fixtureId).join(", ") : ""}`);
+}
 console.log("- 지연(fixture 재생+회상, wall-clock):");
 const lat = timings.map((t) => t.ms).filter((m) => m > 0).sort((a, b) => a - b);
 if (lat.length) {
