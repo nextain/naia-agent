@@ -212,7 +212,19 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ManagedMemoryPort & Compac
       const episodes = Array.isArray(result?.episodes)
         ? result.episodes.slice(0, topK).map((e) => ({ content: cap(e?.content), ...(e?.role ? { role: e.role } : {}) }))
         : [];
-      return { facts, episodes };
+      // T0b: procedural 학습 교정(Reflection {task,failure,analysis,correction})을 회상에 surface.
+      // codex 적대리뷰 → **correction-ONLY**: raw failure/analysis 는 물론 task 도 표면화하지 않는다.
+      // task 는 실패 서술/주입문을 다시 실어 negative-capture(T0) 하드닝을 우회할 수 있으므로, 가장
+      // 안전한 렌더는 "다음에 다르게 할 것(correction)" 단독이다. string 타입만 수용(Symbol 등 방어).
+      // cap·경계표식 무력화·프레이밍은 facts 와 동일(domain formatter). procedural store 가 비어 있으면
+      // (아직 producer 없음) 빈 배열 → domain formatter 가 블록에서 생략(무회귀).
+      const reflections = Array.isArray((result as { reflections?: unknown })?.reflections)
+        ? (result as { reflections: ReadonlyArray<{ correction?: unknown }> }).reflections
+            .slice(0, topK)
+            .map((r) => (typeof r?.correction === "string" ? cap(r.correction.trim()) : ""))
+            .filter((s) => s.length > 0)
+        : [];
+      return { facts, episodes, reflections };
     },
 
     async save(userText: string, assistantText: string): Promise<void> {

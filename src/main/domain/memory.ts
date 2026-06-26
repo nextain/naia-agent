@@ -9,10 +9,14 @@ export interface RecalledEpisode {
   readonly role?: "user" | "assistant" | "tool";
 }
 
-/** 회상된 비신뢰 데이터(원문). facts=semantic 파생, episodes=원문+역할. 모두 비신뢰(지시문 섞일 수 있음). */
+/** 회상된 비신뢰 데이터(원문). facts=semantic 파생, episodes=원문+역할, reflections=procedural 학습 교정
+ *  (Reflexion). 모두 비신뢰(지시문 섞일 수 있음). reflections 는 procedural store(naia-memory)가 비어 있으면
+ *  생략된다(미주입=무회귀). */
 export interface RecalledMemory {
   readonly facts: readonly string[];
   readonly episodes: readonly RecalledEpisode[];
+  /** procedural 학습 교정(이미 "상황 → 교정" 으로 어댑터가 정형화한 문자열). 비신뢰·미검증 파생. */
+  readonly reflections?: readonly string[];
 }
 
 export interface RecallFormatOpts {
@@ -54,6 +58,7 @@ export function formatRecalledMemory(mem: RecalledMemory, opts: RecallFormatOpts
   // 반환해도 full scan/classify 비용이 동기 처리에서 폭발하지 않게(포트 반환이 무제한이어도 app 경계 방어).
   const facts = (Array.isArray(mem?.facts) ? mem.facts : []).slice(0, MAX_ITEMS);
   const episodes = (Array.isArray(mem?.episodes) ? mem.episodes : []).slice(0, MAX_ITEMS);
+  const reflections = (Array.isArray(mem?.reflections) ? mem.reflections : []).slice(0, MAX_ITEMS);
   // 출처 역할로 라벨 구분 — ⚠️ fail-safe: 오직 role==="user" 만 신뢰("사용자가 말함"). assistant·tool·
   // 누락(불명)은 모두 *미검증*으로 표시 — provenance 가 없으면 안전하게 미검증으로 떨어뜨려 assistant
   // 생성물/출처불명 데이터가 사용자 사실로 강화되지 않게(FR-MEM-10).
@@ -61,7 +66,8 @@ export function formatRecalledMemory(mem: RecalledMemory, opts: RecallFormatOpts
     role === "user" ? "사용자가 말함" : role === "assistant" ? "이전 내 답변(미검증)" : "이전 대화(출처 불명·미검증)";
   const epLine = (e: RecalledEpisode) => `- (${epLabel(e?.role)}) ${neutralizeFraming(clip(e?.content ?? "", maxItemChars))}`;
   // ⚠️ 신뢰 우선순위 정렬 — body 가 예산으로 *끝에서* 절단되므로 가장 출처 명확한 사용자 원문을 *먼저*
-  // 배치해 truncation 시 보존. 순서: 사용자 episode > 파생 fact(출처불명·미검증) > assistant/기타 episode.
+  // 배치해 truncation 시 보존. 순서: 사용자 episode > 파생 fact > 학습 교정(reflection) > assistant/기타 episode.
+  // reflection 은 procedural 파생(미검증)이라 fact 와 같은 신뢰 계층에 두되 fact 뒤에 배치.
   const userEps = episodes.filter((e) => e?.role === "user");
   const otherEps = episodes.filter((e) => e?.role !== "user");
   // 항목 수 상한(MAX_ITEMS) — 거대 반환값이 동기 처리에서 루프/메모리를 고갈시켜 lifecycle bound 우회하는
@@ -69,6 +75,7 @@ export function formatRecalledMemory(mem: RecalledMemory, opts: RecallFormatOpts
   const ordered = [
     ...userEps.map(epLine),
     ...facts.map((f) => `- (파생 기억·미검증) ${neutralizeFraming(clip(f, maxItemChars))}`),
+    ...reflections.map((r) => `- (학습된 교정·미검증) ${neutralizeFraming(clip(r, maxItemChars))}`),
     ...otherEps.map(epLine),
   ];
   if (!ordered.length) return "";
