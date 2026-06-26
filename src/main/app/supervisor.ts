@@ -2,11 +2,15 @@
 //
 // 책임(semantic, 메커니즘 0): sub-agent 를 spawn → 그 이벤트를 forward(워크스페이스 변경 스트림과 merge)
 //   → session_end 관측 시 verifier 실행(주입 시) → **정직 보고(SupervisorReport) 정확히 1회** 방출.
+//   T1(verify-on-stop nudge): verification 실패 시 maxVerifyRetries 까지 sub-agent 재spawn(실패 체크를
+//   prompt 에 덧붙여 "고쳐라"). report 는 최종 시도 기준 정확히 1회 — exactly-one-report 불변식 보존.
 // ⚠️ 이 파일은 `../domain/*` + `../ports/*` 만 import — child_process/git/transport 누수 금지(import-boundary 강제).
 //   취소(SIGTERM→유예→SIGKILL) 메커니즘은 adapter(subagent-shell)에 산다. supervisor 는 cancel(reason) semantic 만 호출.
 //
 // 불변식:
-//   (I1) session_end 후 정확히 1개의 report(terminal) — 드롭/중복 0.
+//   (I1) (재시도/치명오류 포함) 정확히 1개의 report(terminal) — 드롭/중복 0. report 는 run 의 루프 *밖*에서 1회.
+//   (I1b) session_end 는 **최종 시도 1회만** forward(중간 재시도 attempt 의 session_end 는 억제) — consumer 가
+//         session_end 를 supervisor terminal 로 해석해 조기종료하지 않도록(codex T1). 중간엔 "재시도" planning 만.
 //   (I2) session_end.ok 와 무관하게 verifier 가 주입돼 있으면 항상 verify(AC4 — 실패/중단 세션 포함).
 //   (I3) verifier 가 throw/hang(reject) 해도 supervisor 는 throw 하지 않고 ok:false 리포트로 흡수(AC2 — never-throws 래핑).
 //   (I4) emit(event/report) 은 no-throw 로 호출(egress 가 throw 해도 supervisor 진행) — diag 로 흡수.
@@ -27,6 +31,21 @@ export interface SupervisorDeps {
   readonly verifier?: VerifierPort;
   readonly egress: SupervisorEgressPort;
   readonly diag: DiagnosticLog;
+  /** T1(verify-on-stop nudge, hermes-derived): 검증 실패 시 sub-agent 재spawn 최대 횟수. 0(기본)=단발(무회귀).
+   *  재시도 조건(narrow): real session_end + verifier 주입 + verification 실패(구체 실패 체크 존재) + 미abort. */
+  readonly maxVerifyRetries?: number;
+}
+
+/** runAttempt 의 결과 — run 이 최종 시도의 이걸로 report 1회 구성 + 재시도 여부 판단 + 최종 session_end forward. */
+interface AttemptResult {
+  readonly sessionOk: boolean;
+  readonly verification: VerificationReport;
+  readonly latestWorkspace: WorkspaceChange | undefined;
+  readonly baselineWorkspace: WorkspaceChange | undefined;
+  /** 실제 session_end 관측 여부(합성/스트림에러/no-end 제외). 재시도는 real 일 때만. */
+  readonly realSessionEnd: boolean;
+  /** 이 시도의 terminal session_end(실제 or 합성). runAttempt 는 **forward 하지 않고** 반환만 — run 이 최종 시도 1회만 forward(I1b). */
+  readonly endEvent: SubAgentEvent;
 }
 
 /** verifier wall-clock 마감(ms) — never-throws 계약을 보강하는 *liveness* 가드. verifier 가 hang 해도
@@ -37,15 +56,67 @@ export class Supervisor {
   constructor(private readonly d: SupervisorDeps) {}
 
   /**
-   * 1개 작업을 sub-agent 로 수행하고 정직 보고를 낸다. terminal=report(정확히 1회). throw 하지 않는다.
+   * 1개 작업을 sub-agent 로 수행하고 정직 보고를 낸다. terminal=report(정확히 1회, I1). throw 하지 않는다.
+   * verify-on-stop nudge(T1): verifier 주입 + verification 실패(구체 실패 체크, 인프라 timeout 제외) + real
+   * session_end + 미abort 면 maxVerifyRetries 까지 sub-agent 를 *재spawn*(실패 체크를 prompt 에 덧붙여 "고쳐라").
+   * report 는 **최종 시도** 기준 정확히 1회(루프 밖에서 emit) + 최초 attempt baseline 대비 전체 변경 집계.
    * @param signal 외부 취소(Ctrl+C/stop) — abort 시 workspace 스트림 종료 + 이후 verify/report 진행(부분 리포트).
    */
   async run(task: TaskSpec, signal: AbortSignal): Promise<void> {
+    // Infinity/NaN/음수 가드 — maxRetries 는 유한·비음 정수여야 bounded(codex T1). 비정상=0.
+    const rawRetries = Number(this.d.maxVerifyRetries ?? 0);
+    const maxRetries = Number.isFinite(rawRetries) ? Math.max(0, Math.floor(rawRetries)) : 0;
+    let currentTask = task;
+    let result: AttemptResult | undefined;
+    let firstBaseline: WorkspaceChange | undefined; // 전체 run 의 변경 집계 기준(최초 attempt baseline, codex T1).
+    try {
+      for (let attempt = 0; ; attempt++) {
+        result = await this.runAttempt(currentTask, signal);
+        if (attempt === 0) firstBaseline = result.baselineWorkspace;
+        // 인프라 실패(verifier timeout/throw = name "verify")는 sub-agent 가 못 고침 → 재시도 제외(codex T1).
+        // "고칠 수 있는 구체 실패 체크"가 하나라도 있어야 재시도.
+        const hasRepairableFailure = result.verification.checks.some((c) => !c.pass && c.name !== "verify");
+        const canRetry =
+          attempt < maxRetries &&                       // bounded(유한)
+          result.realSessionEnd &&                      // 실제 종료만(합성/스트림에러/no-end 는 재시도 안 함)
+          !!this.d.verifier &&                          // 검증이 있어야 retry 의미
+          !result.verification.ok &&                    // 검증 실패
+          hasRepairableFailure &&                       // 인프라 실패가 아닌 구체 실패 존재
+          !signal.aborted;                              // 취소 중이면 재시도 안 함
+        if (!canRetry) {
+          this.safeEvent(result.endEvent);              // 최종 session_end 1회만 forward(I1b)
+          break;
+        }
+        // 재시도 — 중간 attempt 의 session_end 는 forward 하지 않고 "재시도" 알림만(I1b 투명성).
+        this.safeEvent({ kind: "planning", note: `검증 실패 — 재시도 ${attempt + 1}/${maxRetries}` });
+        currentTask = buildRetryTask(task, result.verification);
+      }
+    } catch (e) {
+      // runAttempt 는 설계상 모든 stream/session/verifier 예외를 흡수하므로 여기 도달하면 예기치 못한 치명 오류.
+      // I1 을 *코드로* 강제 — 치명 오류여도 아래에서 honest report 를 반드시 1회 낸다(0-report 방지, codex T1).
+      this.safeDiag("supervisor runAttempt 치명 오류(honest report 로 흡수)", e);
+    }
+    // exactly-one report(I1) — 최종 시도 기준. 변경 수치 = 최초 attempt baseline 대비 최종 latest(전체 run 집계, P2).
+    const changes = result?.latestWorkspace ? diffWorkspaceChange(result.latestWorkspace, firstBaseline) : undefined;
+    const report: SupervisorReport = {
+      filesChanged: workspaceFileCount(changes),
+      additions: changes ? changes.added.length + changes.modified.length : 0,
+      deletions: changes ? changes.deleted.length : 0,
+      verification: result?.verification ?? { ok: false, checks: [{ name: "supervisor", pass: false, details: "attempt 결과 없음(치명 오류)" }] },
+      sessionOk: result?.sessionOk ?? false,
+    };
+    this.safeReport(report);
+  }
+
+  /** 단일 시도(spawn→merge→verify). 비-terminal 이벤트는 forward(safeEvent) 하되 **session_end 와 report 는 내지
+   *  않는다** — session_end 는 endEvent 로 반환(run 이 최종 1회 forward, I1b), report 는 run 이 최종 1회(I1).
+   *  teardown(wsAbort/cancel/listener)은 이 메서드의 finally 가 시도별로 보장. AttemptResult 반환(설계상 throw 안 함). */
+  private async runAttempt(task: TaskSpec, signal: AbortSignal): Promise<AttemptResult> {
     // 1) sub-agent spawn(동기 — 세션 핸들 즉시, 이벤트는 그 안에서 흐름).
     const session = this.d.subAgent.spawn(task);
 
     // workspace 폴러(setInterval 등)를 **정상완료·에러·취소 모든 경로**에서 확실히 종료시키는 내부 컨트롤러.
-    // 외부 signal 과 링크(외부 abort → 내부 abort)하고, run() 종료 시 finally 에서 abort → workspace.changes 가
+    // 외부 signal 과 링크(외부 abort → 내부 abort)하고, 시도 종료 시 finally 에서 abort → workspace.changes 가
     // 받은 signal 이 abort 되어 어댑터가 폴러를 정리한다(workspace-git: signal abort → close()→clearInterval).
     // ⚠️ mergeStreams 의 소스 return() 전파만으론 부족(async-gen 이 await 에 suspend 된 경우 inner return() 이
     //    안 불림 — 적대감사 2026-06-23 M3 실측). 그래서 teardown 은 이 signal 경로로 **결정론적** 보장.
@@ -60,17 +131,21 @@ export class Supervisor {
     if (signal.aborted) onAbort();
     else signal.addEventListener("abort", onAbort, { once: true });
 
-    // 실제 sub-agent session_end 를 관측했나(합성 terminal 제외). finally 에서 읽으므로 **try 밖**(함수 스코프)에 선언
+    // 실제 sub-agent session_end 를 관측했나(합성 terminal 제외). finally 에서 읽으므로 **try 밖**(메서드 스코프)에 선언
     //   (try-블록 let 은 finally 에서 안 보임). true = 자식 스스로 종료 → 고아 없음 → finally cancel 불요(P3).
     //   false = 자식 alive 가능 → finally 가 cancel(F1, 재감사 2026-06-23).
     let realSessionEnd = false;
+    // ⚠️ report 를 run(루프 밖)이 구성하므로 이 값들도 메서드 스코프(try 밖)에서 누적 — finally 후 return 으로 전달.
+    let latestWorkspace: WorkspaceChange | undefined;
+    let baselineWorkspace: WorkspaceChange | undefined; // 감시 시작 dirty baseline(작업 전 dirty 를 "바꿈"으로 안 셈, P2).
+    let sessionOk = false;
+    let verification: VerificationReport = emptyVerification();
+    // terminal session_end(실제 or 합성) — runAttempt 는 forward 안 하고 반환(run 이 최종 1회 forward, I1b). 기본=안전망.
+    let endEvent: SubAgentEvent = { kind: "session_end", ok: false, reason: "no session_end observed" };
 
     try {
       // 3) workspace 변경 감시(주입 시) — sub-agent 이벤트와 N-way merge. 최신 변경 스냅샷을 누적(latest-wins).
       //    wsAbort.signal 주입(외부 signal 아님) — 정상완료 시에도 finally 가 abort 해 폴러를 끊는다.
-      let latestWorkspace: WorkspaceChange | undefined;
-      // 감시 시작 시점의 dirty 상태(첫 스냅샷) — 작업 *전부터* 더러웠던 파일을 "바꿈"으로 세지 않기 위한 baseline(P2).
-      let baselineWorkspace: WorkspaceChange | undefined;
       const wsStream = this.d.workspace ? this.d.workspace.changes(task.workdir, wsAbort.signal) : undefined;
 
       // 두 스트림을 태깅해 단일 패스로 merge — sub-agent 이벤트는 forward, workspace 변경은 집계.
@@ -83,34 +158,34 @@ export class Supervisor {
         ? mergeStreams<Tagged>(tagAgent(session.events), tagWs(wsStream))
         : tagAgent(session.events);
 
-      let sessionOk = false;
       let sawSessionEnd = false;
       // ⚠️ 입력 스트림(sub-agent/workspace iterable) reject 를 흡수(P1, 적대리뷰 2026-06-23): 어떤 입력
-      //    어댑터가 iteration 중 throw 해도 run() 이 깨지거나 리포트 0회가 되면 안 됨(I1·AC2). 합성 session_end
-      //    로 종결 처리 후 verify+report 로 진행 → exactly-one-report 불변식 보존. (오늘 shell 은 미reject 이나
+      //    어댑터가 iteration 중 throw 해도 시도가 깨지거나 리포트 0회가 되면 안 됨(I1·AC2). 합성 session_end
+      //    로 종결 처리 후 verify 로 진행 → exactly-one-report 불변식 보존. (오늘 shell 은 미reject 이나
       //    2b pi/opencode transport·2c chokidar/git 권한 에러가 reject 경로를 실제로 친다.)
       try {
         for await (const t of merged) {
           if (t.src === "ws") { if (baselineWorkspace === undefined) baselineWorkspace = t.c; latestWorkspace = t.c; continue; }
-          // sub-agent 이벤트 forward(인과 순서 보존, AC3). emit no-throw 흡수.
-          this.safeEvent(t.e);
           if (t.e.kind === "session_end") {
+            // terminal — forward 하지 않고 capture(run 이 최종 시도만 forward, I1b). sessionOk/real 갱신 후 break.
+            endEvent = t.e;
             sessionOk = t.e.ok;
             sawSessionEnd = true;
             realSessionEnd = true; // 실제 종료 관측 — 자식이 스스로 끝남(finally cancel 불요)
-            break; // terminal 관측 — merge 종료(workspace 는 abort/GC 로 정리, supervisor 는 다음 단계로)
+            break;
           }
+          // 비-terminal sub-agent 이벤트 forward(인과 순서 보존, AC3). emit no-throw 흡수.
+          this.safeEvent(t.e);
         }
       } catch (streamErr) {
         this.safeDiag("입력 스트림 오류(ok:false 리포트로 흡수)", streamErr);
-        this.safeEvent({ kind: "session_end", ok: false, reason: `stream error: ${errMessage(streamErr)}` });
+        endEvent = { kind: "session_end", ok: false, reason: `stream error: ${errMessage(streamErr)}` };
         sessionOk = false;
-        sawSessionEnd = true; // 합성 terminal 발화함 — 아래 안전망 중복 방지
+        sawSessionEnd = true; // 합성 terminal 준비됨 — 아래 안전망 중복 방지(realSessionEnd 는 false 유지=재시도 안 함)
       }
       if (!sawSessionEnd) {
-        // 잘 동작하는 adapter 라면 발생 안 함(세션당 session_end 1회 계약). 안전망 — 비정상 종료로 간주하고 forward.
-        const synthetic: SubAgentEvent = { kind: "session_end", ok: false, reason: "stream ended without session_end" };
-        this.safeEvent(synthetic);
+        // 잘 동작하는 adapter 라면 발생 안 함(세션당 session_end 1회 계약). 안전망 — 비정상 종료로 간주(합성, realSessionEnd=false).
+        endEvent = { kind: "session_end", ok: false, reason: "stream ended without session_end" };
         sessionOk = false;
       }
 
@@ -119,19 +194,7 @@ export class Supervisor {
       signal.removeEventListener("abort", onAbort);
 
       // 4) session_end 후 검증 — ok 여부 무관 항상 수행(AC4). never-throws 래핑(AC2/I3).
-      const verification = await this.runVerifierSafe(task.workdir);
-
-      // 5) 정직 보고 — 정확히 1회(terminal, I1). workspace 미주입/무변경 = 수치 0.
-      //    ⚠️ baseline(작업 시작 dirty) 을 빼 **sub-agent 가 유발한 변경만** 센다(P2 — 기존 dirty 파일 over-count 방지).
-      const changes = latestWorkspace ? diffWorkspaceChange(latestWorkspace, baselineWorkspace) : undefined;
-      const report: SupervisorReport = {
-        filesChanged: workspaceFileCount(changes),
-        additions: changes ? changes.added.length + changes.modified.length : 0,
-        deletions: changes ? changes.deleted.length : 0,
-        verification,
-        sessionOk,
-      };
-      this.safeReport(report);
+      verification = await this.runVerifierSafe(task.workdir);
     } finally {
       // ★ workspace 폴러 종료 — 정상완료·에러 포함 **모든** 경로에서 wsAbort 를 abort 해 어댑터가 인터벌을
       //   정리하게 한다(--watch hang 회귀, 적대감사 2026-06-23 M3). idempotent(이미 abort 면 무해).
@@ -147,6 +210,7 @@ export class Supervisor {
       //   완료된 세션에 대한 stale-cancel 방지. (abort 가 이미 fire 됐으면 once 로 자동 제거됨 → 무해 중복 호출.)
       signal.removeEventListener("abort", onAbort);
     }
+    return { sessionOk, verification, latestWorkspace, baselineWorkspace, realSessionEnd, endEvent };
   }
 
   /** verifier 미주입=검증 생략(ok:true 중립). 주입 시 verify 를 deadline 과 race + try/catch 로 감싸 never-throws 보장(AC2). */
@@ -176,6 +240,18 @@ export class Supervisor {
   private safeDiag(message: string, e: unknown): void {
     try { this.d.diag.log(message, errMessage(e)); } catch { /* 로거 throw 흡수 — supervisor 유지 */ }
   }
+}
+
+/** 검증 실패 체크를 prompt 에 덧붙인 재시도 task(T1). 순수 — 실패 체크만 나열("고쳐서 다시 통과시켜라").
+ *  pass 한 체크는 제외(노이즈↓). details 는 있으면 부착. retry 는 continuation 이 아니라 **repair pass** 이므로
+ *  "기존 변경 보존 + 최소 수정" 불변식을 명시(codex T1). 원 task 의 workdir/model 보존. */
+function buildRetryTask(task: TaskSpec, v: VerificationReport): TaskSpec {
+  const failing = v.checks
+    .filter((c) => !c.pass)
+    .map((c) => `- ${c.name}${c.details ? `: ${c.details}` : ""}`)
+    .join("\n");
+  const note = `\n\n[이전 시도가 검증을 통과하지 못했다 — 아래 실패한 검사를 고쳐서 다시 통과시켜라. 기존 변경은 보존하고 최소한으로 수정하라.]\n${failing}`;
+  return { ...task, prompt: `${task.prompt}${note}` };
 }
 
 /** workspace 변경 스냅샷 → 변경 파일 수(중복 경로는 add/modify/delete 별 집계 합 — 단순 골격). */
