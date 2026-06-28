@@ -82,7 +82,9 @@ export interface MemoryRuntimeConfig {
 	};
 }
 
-export type EngineProfileMode = "naia" | "direct" | "local";
+// EngineProfileMode(3-profile 잔재 "naia"|"direct"|"local")은 Phase 3.3 으로 폐기.
+// gate(naiaKey 파생)는 naia-os 측 소유(config.json 의 naiaKey 는 strip → agent 가 gate 산출 불가).
+// 여기서는 3-role 스냅샷만 제공(mode 파생 제거). SoT = alpha-adk 플랜 naia-model-slots-architecture.
 export type LocalGpuTier =
 	| "off"
 	| "auto"
@@ -91,7 +93,6 @@ export type LocalGpuTier =
 	| "full-local-24g";
 
 export interface EngineProfileConfig {
-	mode: EngineProfileMode;
 	mainProvider: string;
 	mainModel: string;
 	subProvider: "none" | "naia" | "vllm" | "ollama";
@@ -217,10 +218,8 @@ export function makeNaiaSettingsStore(deps: {
 			(["off", "auto", "external-llm-6g", "avatar-voice-12g", "full-local-24g"] as const).find(
 				(tier) => tier === str("localGpuTier"),
 			) ?? "off";
-		const mode: EngineProfileMode =
-			provider === "nextain" ? "naia" : provider === "ollama" || provider === "vllm" ? "local" : "direct";
+		// mode(3-profile 파생 "naia"|"direct"|"local")은 Phase 3.3 폐기 — gate 는 naia-os 측(naiaKey).
 		return {
-			mode,
 			mainProvider: provider,
 			mainModel: model,
 			subProvider,

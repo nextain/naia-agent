@@ -9,6 +9,7 @@ import { makeProviderResolver } from "../../dist/main/adapters/provider-resolver
 import { makeFakeProvider, makeSystemEchoProvider } from "../../dist/main/adapters/fake-provider.js";
 import { makeKeychainCredentials } from "../../dist/main/adapters/keychain-secret-store.js";
 import { makeNaiaSettingsStore } from "../../dist/main/adapters/naia-settings-store.js";
+import { buildSubLlmProvider } from "../../dist/main/adapters/sub-llm-provider.js";
 import { makeStderrDiagnostic } from "../../dist/main/adapters/diagnostic.js";
 import { makeBuiltinSkillsExecutor } from "../../dist/main/adapters/builtin-skills.js";
 import { makeGithubSkillsExecutor } from "../../dist/main/adapters/github-skills.js";
@@ -131,6 +132,18 @@ export async function composeAgentRuntimeDeps(o = {}) {
   const defaultConfig = settingsStore.loadMain(adkPath) ?? undefined;
   const configLabel = defaultConfig ? `naia-settings(${defaultConfig.provider}/${defaultConfig.model})` : `none(wire provider 필요) adk=${adkPath}`;
 
+  // ── Phase 3 graft: engine profile(3-role 스냅샷) 실소비 + sub-LLM first-class 표면(Phase 5 adk-batch 소비).
+  // loadEngineProfile 는 이제 런타임 소부(계약 전용 해소). mode 잔재는 Phase 3.3 폐기.
+  const engineProfile = settingsStore.loadEngineProfile(adkPath) ?? undefined;
+  const engineLabel = engineProfile
+    ? `engine(main=${engineProfile.mainProvider}/${engineProfile.mainModel}, sub=${engineProfile.subProvider}, embed=${engineProfile.embeddingProvider}, tier=${engineProfile.localGpuTier})`
+    : `engine(none)`;
+  // memCfg 를 memory 블록 밖에서 먼저 로드(cheap config read) — sub-LLM 은 memory 비활성 시에도 구성(adk-batch 독립).
+  const memCfg = settingsStore.loadMemoryConfig(adkPath);
+  // buildSubLlmProvider: 미구성(llm.provider="none"/필수누락) = undefined(호출처 폴백). native fetch 사용.
+  const subLlm = buildSubLlmProvider(memCfg?.llm, { fetch: async (url, init) => fetch(url, init) });
+  const subLlmLabel = subLlm ? `sub-llm(${subLlm.provider}/${subLlm.model ?? "?"})` : `sub-llm(none)`;
+
   // ── 장기기억(naia-memory) — 기본 활성(NAIA_AGENT_MEMORY=off 로 비활성). 초기화 실패=격리(기억 없이 진행). ──
   let memory, memoryLabel = "off";
   if (env.NAIA_AGENT_MEMORY !== "off") {
@@ -148,7 +161,6 @@ export async function composeAgentRuntimeDeps(o = {}) {
       const storePath = env.NAIA_MEMORY_STORE || join(storeBase, storeDirKey(project), "store.json");
       try { nodeFs.mkdirSync(dirname(storePath), { recursive: true, mode: 0o700 }); } catch { /* best-effort */ }
       const sessionId = env.NAIA_MEMORY_SESSION || `proc-${randomUUID()}`;
-      const memCfg = settingsStore.loadMemoryConfig(adkPath);
       memory = makeNaiaMemory({
         storePath, project, sessionId,
         ...(memCfg
@@ -183,6 +195,8 @@ export async function composeAgentRuntimeDeps(o = {}) {
     provider, resolver, providerLabel,
     credentials, secretToolRead,
     settingsStore, settingsResolveSecret, defaultConfig, configLabel,
+    engineProfile, engineLabel,
+    subLlm, subLlmLabel,
     toolExecutor, skillsLabel,
     memory, memoryLabel,
     conversationLog, transcriptLabel,

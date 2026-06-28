@@ -14,9 +14,9 @@
     "issue_doc": "../../../.agents/progress/naia-agent-reaudit-2026-06-23.md (선행: naia-agent-cutover-gap-and-capability-port-2026-06-22.md)",
     "github_issue": null,
     "started": "2026-06-22",
-    "last_updated": "2026-06-23",
+    "last_updated": "2026-06-29T00:00:00Z",
     "status": "in_progress",
-    "prior_work_note": "provider-wiring(FR-PROV-1~5)·UC-memory(FR-MEM-1~11) 작업은 커밋 완료(과거 stale 노트의 'UC-memory 미커밋'은 부정확 — 메모리 작업 origin 반영됨). 본 UC-CLI 와 직교."
+    "prior_work_note": "provider-wiring(FR-PROV-1~5)·UC-memory(FR-MEM-1~11) 작업은 커밋 완료(과거 stale 노트의 'UC-memory 미커밋'은 부정확 — 메모리 작업 origin 반영됨). 본 UC-CLI 와 직교. | 2026-06-29 병행(slots 아키텍처 Phase 3 — alpha-adk 플랜 naia-model-slots-architecture): 3 LLM 역할 first-class graft. 3.3 mode 잔재(naia|direct|local) retire(EngineProfileConfig+테스트). 3.1 loadEngineProfile 런타임 실소부(compose-agent-deps.mjs graft, 계약전용 해소) + 3-role 스냅샷(engineLabel). 3.2 SubLlmPort first-class 표면(ports/sub-llm.ts + adapters/sub-llm-provider.ts + compose 배선) — Phase 5 adk-batch 소비 예정. 검증: tsc clean + build OK + vitest 643 pass/5 skip. runtime e2e(stdio smoke)는 잔존 검증."
   },
 
   "sdlc_gates": {

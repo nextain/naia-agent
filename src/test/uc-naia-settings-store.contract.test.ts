@@ -197,8 +197,8 @@ describe("loadMemoryConfig — naia 게이트웨이 URL 폴백(적대적 리뷰 
 	});
 });
 
-describe("loadEngineProfile — naia-os Profile & Engine 계약", () => {
-	it("naia profile = nextain main + naia sub/embedding + GPU tier", () => {
+describe("loadEngineProfile — naia-os Profile & Engine 계약 (mode 잔재 Phase 3.3 폐기)", () => {
+	it("nextain main + naia sub/embedding + GPU tier (3-role 스냅샷, mode 없음)", () => {
 		const r = store({
 			[CONFIG]: JSON.stringify({
 				provider: "nextain",
@@ -209,16 +209,17 @@ describe("loadEngineProfile — naia-os Profile & Engine 계약", () => {
 			}),
 		}).loadEngineProfile("/ws");
 		expect(r).toEqual({
-			mode: "naia",
 			mainProvider: "nextain",
 			mainModel: "gemini-2.5-flash",
 			subProvider: "naia",
 			embeddingProvider: "naia",
 			localGpuTier: "auto",
 		});
+		// mode(3-profile 잔재)는 Phase 3.3 폐기 — 필드 없음 단언.
+		expect((r as unknown as Record<string, unknown>)?.mode).toBeUndefined();
 	});
 
-	it("local profile = ollama/vllm main + local memory providers", () => {
+	it("ollama/vllm main + local memory providers (3-role 스냅샷)", () => {
 		const r = store({
 			[CONFIG]: JSON.stringify({
 				provider: "ollama",
@@ -229,7 +230,6 @@ describe("loadEngineProfile — naia-os Profile & Engine 계약", () => {
 			}),
 		}).loadEngineProfile("/ws");
 		expect(r).toEqual({
-			mode: "local",
 			mainProvider: "ollama",
 			mainModel: "gemma3:4b",
 			subProvider: "ollama",
@@ -238,7 +238,7 @@ describe("loadEngineProfile — naia-os Profile & Engine 계약", () => {
 		});
 	});
 
-	it("direct profile = external API main; invalid sub/embedding/tier degrade to none/off", () => {
+	it("external API main; invalid sub/embedding/tier degrade to none/off", () => {
 		const r = store({
 			[CONFIG]: JSON.stringify({
 				provider: "gemini",
@@ -249,7 +249,6 @@ describe("loadEngineProfile — naia-os Profile & Engine 계약", () => {
 			}),
 		}).loadEngineProfile("/ws");
 		expect(r).toEqual({
-			mode: "direct",
 			mainProvider: "gemini",
 			mainModel: "gemini-2.5-flash",
 			subProvider: "none",
