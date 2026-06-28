@@ -82,11 +82,29 @@ export interface MemoryRuntimeConfig {
 	};
 }
 
+export type EngineProfileMode = "naia" | "direct" | "local";
+export type LocalGpuTier =
+	| "off"
+	| "auto"
+	| "external-llm-6g"
+	| "avatar-voice-12g"
+	| "full-local-24g";
+
+export interface EngineProfileConfig {
+	mode: EngineProfileMode;
+	mainProvider: string;
+	mainModel: string;
+	subProvider: "none" | "naia" | "vllm" | "ollama";
+	embeddingProvider: "none" | "offline" | "vllm" | "ollama" | "naia";
+	localGpuTier: LocalGpuTier;
+}
+
 export interface NaiaSettingsStore {
 	/** `<adkPath>/naia-settings/` 의 활성 ProviderConfig(llm.json main → config.json 순). 없음/손상 = null(degrade, no-throw). */
 	loadMain(adkPath: string): ProviderConfig | null;
 	/** config.json 의 메모리 adapter/embedding 선택(issue #7). 부재/손상/미설정 = null(메모리 기본=local+키워드-only). */
 	loadMemoryConfig(adkPath: string): MemoryRuntimeConfig | null;
+	loadEngineProfile(adkPath: string): EngineProfileConfig | null;
 }
 
 const KNOWN_VERSION = 1;
@@ -182,6 +200,35 @@ export function makeNaiaSettingsStore(deps: {
 		});
 	}
 
+	function fromConfigJsonEngineProfile(file: string): EngineProfileConfig | null {
+		const c = readJson<Record<string, unknown>>(file);
+		if (!c || typeof c !== "object") return null;
+		const str = (k: string) => (typeof c[k] === "string" ? (c[k] as string) : undefined);
+		const provider = str("provider")?.toLowerCase() ?? "";
+		const model = str("model") ?? "";
+		if (!provider || !model) {
+			log("naia-settings.engine_profile.incomplete", { file });
+			return null;
+		}
+		const subProvider = (["naia", "vllm", "ollama"] as const).find((p) => p === str("memoryLlmProvider")) ?? "none";
+		const embeddingProvider =
+			(["offline", "vllm", "ollama", "naia"] as const).find((p) => p === str("memoryEmbeddingProvider")) ?? "none";
+		const localGpuTier =
+			(["off", "auto", "external-llm-6g", "avatar-voice-12g", "full-local-24g"] as const).find(
+				(tier) => tier === str("localGpuTier"),
+			) ?? "off";
+		const mode: EngineProfileMode =
+			provider === "nextain" ? "naia" : provider === "ollama" || provider === "vllm" ? "local" : "direct";
+		return {
+			mode,
+			mainProvider: provider,
+			mainModel: model,
+			subProvider,
+			embeddingProvider,
+			localGpuTier,
+		};
+	}
+
 	/** (issue #7) config.json → MemoryRuntimeConfig. 비밀(*ApiKey/naiaKey)은 strip 되므로 env/키체인(resolveSecret)
 	 *  best-effort(로컬 서버=빈 값 허용). 부재/손상 = null(메모리 기본 local+키워드-only). */
 	function fromConfigJsonMemory(file: string): MemoryRuntimeConfig | null {
@@ -252,6 +299,11 @@ export function makeNaiaSettingsStore(deps: {
 			if (!adkPath) return null;
 			const dir = `${adkPath.replace(/\/+$/, "")}/naia-settings`;
 			return fromConfigJsonMemory(`${dir}/config.json`);
+		},
+		loadEngineProfile(adkPath) {
+			if (!adkPath) return null;
+			const dir = `${adkPath.replace(/\/+$/, "")}/naia-settings`;
+			return fromConfigJsonEngineProfile(`${dir}/config.json`);
 		},
 	};
 }

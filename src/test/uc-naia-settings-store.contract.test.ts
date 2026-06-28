@@ -196,3 +196,71 @@ describe("loadMemoryConfig — naia 게이트웨이 URL 폴백(적대적 리뷰 
 		expect(r?.embedding.naiaGatewayUrl).toBe("https://gw.explicit");
 	});
 });
+
+describe("loadEngineProfile — naia-os Profile & Engine 계약", () => {
+	it("naia profile = nextain main + naia sub/embedding + GPU tier", () => {
+		const r = store({
+			[CONFIG]: JSON.stringify({
+				provider: "nextain",
+				model: "gemini-2.5-flash",
+				memoryLlmProvider: "naia",
+				memoryEmbeddingProvider: "naia",
+				localGpuTier: "auto",
+			}),
+		}).loadEngineProfile("/ws");
+		expect(r).toEqual({
+			mode: "naia",
+			mainProvider: "nextain",
+			mainModel: "gemini-2.5-flash",
+			subProvider: "naia",
+			embeddingProvider: "naia",
+			localGpuTier: "auto",
+		});
+	});
+
+	it("local profile = ollama/vllm main + local memory providers", () => {
+		const r = store({
+			[CONFIG]: JSON.stringify({
+				provider: "ollama",
+				model: "gemma3:4b",
+				memoryLlmProvider: "ollama",
+				memoryEmbeddingProvider: "ollama",
+				localGpuTier: "external-llm-6g",
+			}),
+		}).loadEngineProfile("/ws");
+		expect(r).toEqual({
+			mode: "local",
+			mainProvider: "ollama",
+			mainModel: "gemma3:4b",
+			subProvider: "ollama",
+			embeddingProvider: "ollama",
+			localGpuTier: "external-llm-6g",
+		});
+	});
+
+	it("direct profile = external API main; invalid sub/embedding/tier degrade to none/off", () => {
+		const r = store({
+			[CONFIG]: JSON.stringify({
+				provider: "gemini",
+				model: "gemini-2.5-flash",
+				memoryLlmProvider: "openai",
+				memoryEmbeddingProvider: "pinecone",
+				localGpuTier: "12gb",
+			}),
+		}).loadEngineProfile("/ws");
+		expect(r).toEqual({
+			mode: "direct",
+			mainProvider: "gemini",
+			mainModel: "gemini-2.5-flash",
+			subProvider: "none",
+			embeddingProvider: "none",
+			localGpuTier: "off",
+		});
+	});
+
+	it("missing or incomplete config degrades to null", () => {
+		expect(store({}).loadEngineProfile("/ws")).toBeNull();
+		expect(store({ [CONFIG]: JSON.stringify({ provider: "nextain" }) }).loadEngineProfile("/ws")).toBeNull();
+		expect(store({ [CONFIG]: JSON.stringify({ provider: "nextain", model: "m" }) }).loadEngineProfile("")).toBeNull();
+	});
+});
