@@ -7,6 +7,8 @@
 //
 // ⚠️ child_process 는 adapters 안에서만(import-boundary 강제). PID·SIGTERM·exit code 는 여기서 끝난다.
 import { spawn, type ChildProcess } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { dirname, isAbsolute } from "node:path";
 import type { SubAgentEvent } from "../domain/orchestration.js";
 import type { SubAgentSession } from "../ports/orchestration.js";
 
@@ -26,6 +28,69 @@ export const defaultSpawn: SpawnFn = (command, args, o) => spawn(command, [...ar
 export interface ResolvedBin {
   readonly command: string;
   readonly prefixArgs: readonly string[];
+}
+
+/**
+ * `where`/`which` 결과 목록에서 spawn 가능한 바이너리 경로 선택.
+ * **Windows**: Node 의 child_process.spawn 은 확장자 없는 파일(npm 전역 sh-script shim)을 직접 실행 못 함
+ *   → ENOENT. 그래서 `.cmd`/`.exe`/`.bat` 확장자 경로를 **우선**. 없으면 첫 결과(테스트/비-Windows 호환).
+ * **non-Windows**: 첫 결과(shebang 으로 실행 가능).
+ * 어댑터들의 findXxxInPath 가 공유 — Windows bin-해석 회귀(2026-06-29 codex smoke 로 발견)의 공통 해결.
+ */
+export function pickSpawnableBin(lines: readonly string[]): string | null {
+  const trimmed = lines.map((s) => s.trim()).filter((s) => s.length > 0);
+  if (trimmed.length === 0) return null;
+  if (process.platform === "win32") {
+    const spawnable = trimmed.find((p) => /\.(cmd|exe|bat)$/i.test(p));
+    if (spawnable) return spawnable;
+  }
+  return trimmed[0];
+}
+
+/**
+ * Windows npm-global `.cmd`/`.bat` shim → spawn 가능한 ResolvedBin 추출. **injection-safe**(shell 없이 spawn
+ * → CVE-2024-27980 EINVAL + 프롬프트 주입 회피). shim 이 가리키는 대상에 따라:
+ *   - `.js`  → `node <pkg/bin/x.js>`(process.execPath + script 를 prefixArgs 로)
+ *   - `.exe` → 네이티브 바이너리를 직접 spawn(Node 가 .exe 실행엔 문제없음 = EINVAL 해당 X)
+ * npm cmd-shim 포맷(구 `node "..."` / 신 `"%_prog%" "..."`) 모두 수용 — node_modules 내 경로 자체 캡처.
+ * 못 찾으면 null(호출처 폴백). %dp0%/%~dp0/$basedir → shim dir 치환. 절대경로·널바이트 검증(주입 가드).
+ */
+export function resolveNpmShim(cmdPath: string): ResolvedBin | null {
+  try {
+    const text = readFileSync(cmdPath, "utf8");
+    const dir = dirname(cmdPath);
+    const substitute = (p: string): string => p
+      .replace(/%dp0%/gi, dir).replace(/%~dp0/gi, dir).replace(/\$basedir/gi, dir);
+    const safe = (p: string): boolean => isAbsolute(p) && !p.includes("\0");
+    // 1) .js → node wrapper
+    const jsM = text.match(/"([^"]*node_modules[^"]*\.js)"/i) ?? text.match(/"([^"]+\.js)"/i);
+    if (jsM) {
+      const script = substitute(jsM[1]);
+      if (safe(script)) return { command: process.execPath, prefixArgs: [script] };
+    }
+    // 2) .exe → 직접 spawn
+    const exeM = text.match(/"([^"]*node_modules[^"]*\.exe)"/i) ?? text.match(/"([^"]+\.exe)"/i);
+    if (exeM) {
+      const exe = substitute(exeM[1]);
+      if (safe(exe)) return { command: exe, prefixArgs: [] };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * PATH 에서 찾은 CLI 경로를 spawn 가능한 ResolvedBin 으로 정규화. Windows 의 .cmd/.bat shim 은
+ * resolveNpmShim 로 node+script 또는 .exe 직접 spawn 으로 변환(실패/비-Windows 는 경로 그대로).
+ * 어댑터 resolveXxxBin 공용.
+ */
+export function resolveSpawnableBin(picked: string): ResolvedBin {
+  if (process.platform === "win32" && /\.(cmd|bat)$/i.test(picked)) {
+    const shim = resolveNpmShim(picked);
+    if (shim) return shim;
+  }
+  return { command: picked, prefixArgs: [] };
 }
 
 /** 단일 stdout 줄 → SubAgentEvent 0~1개(malformed/무관 = null 드롭). 어댑터별 파서. */

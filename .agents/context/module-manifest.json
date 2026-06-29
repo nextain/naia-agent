@@ -431,11 +431,29 @@
       "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
       "note": "shell 레퍼런스 SubAgentPort — 임의 명령 spawn·SIGTERM→SIGKILL 인터럽트 레퍼런스(AC1 실프로세스 검증). SPEC-010."
     },
+    "src/main/adapters/subagent-claude-code.ts": {
+      "layer": "adapters",
+      "uc": ["UC-014"],
+      "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
+      "note": "claude-code SubAgentPort — claude -p --output-format stream-json NDJSON→event(assistant text/tool_use·user tool_result id→name 상태ful 페어링)·bin resolve(CLAUDE_BIN→PATH→npx). RT-verified(shape). SPEC-010. 진행=.agents/progress/naia-agent-subagent-adapters-2026-06-29.md"
+    },
+    "src/main/adapters/subagent-codex.ts": {
+      "layer": "adapters",
+      "uc": ["UC-014"],
+      "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
+      "note": "codex SubAgentPort — codex exec --json NDJSON→event(item.completed agent_message→text·command_execution/file_change→tool_use)·bin resolve(CODEX_BIN→PATH→npx). RT-verified. SPEC-010. 진행=naia-agent-subagent-adapters-2026-06-29.md"
+    },
+    "src/main/adapters/subagent-gemini.ts": {
+      "layer": "adapters",
+      "uc": ["UC-014"],
+      "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
+      "note": "gemini SubAgentPort — gemini -p --output-format stream-json NDJSON→event(init/message/tool_use/tool_result, 관용 파싱)·bin resolve(GEMINI_BIN→PATH→npx). ⚠️runtime-unverified(auth IneligibleTierError) schema=docs@0.47.0. SPEC-010. 진행=naia-agent-subagent-adapters-2026-06-29.md"
+    },
     "src/main/adapters/subagent-roster.ts": {
       "layer": "adapters",
       "uc": ["UC-014"],
       "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
-      "note": "이름→SubAgentPort 선택 — pi/opencode/shell 구현 + claude-code/codex/gemini deferred·unknown = honest-unsupported(throw 아님, AC6). SPEC-010."
+      "note": "이름→SubAgentPort 선택 — pi/opencode/shell/claude-code/codex/gemini 구현 + unknown = honest-unsupported(throw 아님, AC6). SPEC-010."
     },
     "src/main/adapters/verifier-commands.ts": {
       "layer": "adapters",

@@ -56,13 +56,16 @@ describe("subagent-roster 계약 (2b, AC6)", () => {
     expect(events[0].reason).toContain("unsupported sub-agent: shell");
   });
 
-  it.each(["claude-code", "codex", "gemini"])("'%s' (선언됐으나 후속) → 정직 unsupported(deferred), throw 아님", async (name) => {
-    const port = selectSubAgent(name);
+  it.each(["claude-code", "codex", "gemini"])("'%s' → 실 어댑터(주입 bin/spawn 으로 세션 생성 — session_end{ok:true})", async (name) => {
+    const opts = {
+      claudeCode: { resolveBin: fixedBin("claude"), spawnFn: closingSpawn() },
+      codex: { resolveBin: fixedBin("codex"), spawnFn: closingSpawn() },
+      gemini: { resolveBin: fixedBin("gemini"), spawnFn: closingSpawn() },
+    } as const;
+    const port = selectSubAgent(name, opts);
     const events = await drain(port.spawn({ prompt: "x", workdir: "/tmp/w" }).events) as Extract<SubAgentEvent, { kind: "session_end" }>[];
     expect(events).toHaveLength(1);
-    expect(events[0].ok).toBe(false);
-    expect(events[0].reason).toContain(`unsupported sub-agent: ${name}`);
-    expect(events[0].reason).toContain("deferred");
+    expect(events[0].ok).toBe(true);
   });
 
   it("미지(unknown) 이름 → 정직 unsupported + supported 목록 안내, throw 아님", async () => {
@@ -74,12 +77,10 @@ describe("subagent-roster 계약 (2b, AC6)", () => {
     expect(events[0].reason).toContain("pi, opencode, shell"); // 안내
   });
 
-  it("roster 목록: supported ⊆ declared, claude-code/codex/gemini 는 선언만", () => {
-    expect(SUPPORTED_SUBAGENTS).toEqual(["pi", "opencode", "shell"]);
+  it("roster 목록: supported = declared (전원 구현됨, 2026-06-29 SPEC-010 확장)", () => {
+    expect(SUPPORTED_SUBAGENTS).toEqual(["pi", "opencode", "shell", "claude-code", "codex", "gemini"]);
+    expect(DECLARED_SUBAGENTS).toEqual(["pi", "opencode", "shell", "claude-code", "codex", "gemini"]);
     for (const s of SUPPORTED_SUBAGENTS) expect(DECLARED_SUBAGENTS).toContain(s);
-    for (const d of ["claude-code", "codex", "gemini"]) {
-      expect(DECLARED_SUBAGENTS).toContain(d);
-      expect(SUPPORTED_SUBAGENTS as readonly string[]).not.toContain(d); // 아직 미구현
-    }
+    // supported ⊆ declared 이고 둘의 차집합 없음 = deferred 잔여 0
   });
 });

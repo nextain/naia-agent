@@ -16,7 +16,7 @@ import type { TaskSpec, SubAgentEvent } from "../domain/orchestration.js";
 import type { SubAgentPort, SubAgentSession } from "../ports/orchestration.js";
 import {
   DEFAULT_HARD_KILL_DEADLINE_MS, defaultSpawn, spawnSubprocessSession, endedSession,
-  type SpawnFn, type ResolvedBin,
+  type SpawnFn, type ResolvedBin, pickSpawnableBin, resolveSpawnableBin,
 } from "./subprocess-session.js";
 
 export type { SpawnFn, ResolvedBin };
@@ -63,8 +63,7 @@ function findPiInPath(): string | null {
   const cmd = process.platform === "win32" ? `where pi` : `which pi`;
   try {
     const result = execSync(cmd, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-    const first = result.split(/\r?\n/)[0]?.trim() ?? "";
-    return first.length > 0 ? first : null;
+    return pickSpawnableBin(result.split(/\r?\n/));
   } catch {
     return null;
   }
@@ -77,7 +76,7 @@ export function resolvePiBin(): ResolvedBin {
   const inNodeModules = findPiInNodeModules();
   if (inNodeModules) return { command: inNodeModules, prefixArgs: [] };
   const inPath = findPiInPath();
-  if (inPath) return { command: inPath, prefixArgs: [] };
+  if (inPath) return resolveSpawnableBin(inPath);
   return { command: "npx", prefixArgs: ["--yes", "@earendil-works/pi-coding-agent"] }; // 미설치 시 첫 사용에 설치.
 }
 

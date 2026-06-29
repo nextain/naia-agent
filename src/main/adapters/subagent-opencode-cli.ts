@@ -9,7 +9,7 @@ import type { TaskSpec, SubAgentEvent } from "../domain/orchestration.js";
 import type { SubAgentPort, SubAgentSession } from "../ports/orchestration.js";
 import {
   DEFAULT_HARD_KILL_DEADLINE_MS, defaultSpawn, spawnSubprocessSession, endedSession,
-  type SpawnFn, type ResolvedBin,
+  type SpawnFn, type ResolvedBin, pickSpawnableBin, resolveSpawnableBin,
 } from "./subprocess-session.js";
 
 export interface SubAgentOpencodeOptions {
@@ -39,8 +39,7 @@ function findOpencodeInPath(): string | null {
   const cmd = process.platform === "win32" ? `where opencode` : `which opencode`;
   try {
     const result = execSync(cmd, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-    const first = result.split(/\r?\n/)[0]?.trim() ?? "";
-    return first.length > 0 ? first : null;
+    return pickSpawnableBin(result.split(/\r?\n/));
   } catch {
     return null;
   }
@@ -50,7 +49,7 @@ export function resolveOpencodeBin(): ResolvedBin {
   const validated = validateOpencodeBin(process.env["OPENCODE_BIN"]);
   if (validated) return { command: validated, prefixArgs: [] };
   const inPath = findOpencodeInPath();
-  if (inPath) return { command: inPath, prefixArgs: [] };
+  if (inPath) return resolveSpawnableBin(inPath);
   return { command: "npx", prefixArgs: ["--yes", "opencode-ai@1.14.25"] }; // 구판 핀 버전.
 }
 

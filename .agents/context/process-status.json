@@ -9,22 +9,22 @@
   },
 
   "current_work": {
-    "issue": "UC-CLI-orchestration + re-audit-hardening",
-    "title": "UC-CLI 단독 CLI 오케스트레이션(SPEC-009~011) + 재감사 하드닝(redaction·누수·문서 정합)",
-    "issue_doc": "../../../.agents/progress/naia-agent-reaudit-2026-06-23.md (선행: naia-agent-cutover-gap-and-capability-port-2026-06-22.md)",
+    "issue": "UC-014-subagent-roster-expansion",
+    "title": "sub-agent 어댑터 3종 추가(claude-code·codex·gemini) + Windows bin 해석 — UC-014/SPEC-010 확장",
+    "issue_doc": "../../../.agents/progress/naia-agent-subagent-adapters-2026-06-29.md",
     "github_issue": null,
-    "started": "2026-06-22",
+    "started": "2026-06-29",
     "last_updated": "2026-06-29T00:00:00Z",
     "status": "in_progress",
-    "prior_work_note": "provider-wiring(FR-PROV-1~5)·UC-memory(FR-MEM-1~11) 작업은 커밋 완료(과거 stale 노트의 'UC-memory 미커밋'은 부정확 — 메모리 작업 origin 반영됨). 본 UC-CLI 와 직교. | 2026-06-29 병행(slots 아키텍처 Phase 3 — alpha-adk 플랜 naia-model-slots-architecture): 3 LLM 역할 first-class graft. 3.3 mode 잔재(naia|direct|local) retire(EngineProfileConfig+테스트). 3.1 loadEngineProfile 런타임 실소부(compose-agent-deps.mjs graft, 계약전용 해소) + 3-role 스냅샷(engineLabel). 3.2 SubLlmPort first-class 표면(ports/sub-llm.ts + adapters/sub-llm-provider.ts + compose 배선) — Phase 5 adk-batch 소비 예정. 검증: tsc clean + build OK + vitest 643 pass/5 skip. runtime e2e(stdio smoke)는 잔존 검증."
+    "prior_work_note": "직전: UC-CLI 단독 CLI 오케스트레이션(SPEC-009~011) + 재감사 하드닝(P05 near-done, 커밋 fb7201a 등 반영) + slots Phase 3(3-LLM-role graft·643→670 pass). 본 슬라이스는 UC-014/SPEC-010 roster 의 '선언만' 3종 실구현으로 직전 작업과 직교. | 2026-06-29 본 슬라이스: claude-code/codex/gemini SubAgentPort 3종 + 계약테스트 36 + roster 전원 구현 + Windows bin 해석(subprocess-session 공통 헬퍼 3종, injection-safe). 검증: tsc clean·vitest 670 pass/5 skip·.mjs 가드 PASS·file-anchors 내 3종 정상등록(4종 위반=사전존재 sub-llm 계열). runtime smoke: codex✅·claude-code✅(rate_limit 외부제약)·gemini⏭️(auth IneligibleTierError→문서기반 방어파싱). 병행: skill-role-reassignment SoT(cron/browser/BGM) 별도 progress 문서."
   },
 
   "sdlc_gates": {
-    "P01": { "status": "done", "name": "user_scenarios", "deliverable": "UC-CLI 단독 CLI 오케스트레이션 시나리오 (docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md + docs/user-scenarios.md UC-CLI S1~S4)", "ref": "docs/progress/02.user-scenarios/INDEX.md UC-014" },
-    "P02": { "status": "done", "name": "test_scenarios", "deliverable": "uc-cli-*.contract.test.ts + uc-cli-host-entry + redact.contract.test.ts + supervisor M3/F1/P2 회귀 (Test Coverage Map)", "ref": "docs/progress/03.uc-tests/INDEX.md TEST-S-014" },
-    "P03": { "status": "done", "name": "requirements", "deliverable": "docs/requirements.md FR-CLI-1~6 (+ 재감사 보안 NFR: 로그 redaction)", "ref": "docs/progress/01.requirements/INDEX.md REQ-011·012" },
-    "P04": { "status": "done", "name": "integration_test", "deliverable": "583 pass/5 skip. SPEC-009(코어)·010(어댑터)·011(host CLI bin) + 재감사 수정(F1 누수·gRPC 크래시·P1/P2/P3b 스트림·redaction 7R). 적대게이트(codex) 통과. e2e exit 0/2/3/64.", "ref": "docs/progress/04.features/INDEX.md SPEC-009~011" },
-    "P05": { "status": "in_progress", "name": "requirements_complete", "deliverable": "코드+테스트+문서 완료, 적대 7R 통과, 커밋/푸시 진행. naia-os gRPC 호스트 배선(②)은 naia-os 워크스페이스 작업 후 별도 phase.", "ref": "../../../.agents/progress/naia-agent-reaudit-2026-06-23.md" }
+    "P01": { "status": "done", "name": "user_scenarios", "deliverable": "UC-014 기존(UC-CLI 단독 CLI 오케스트레이션) — 외부 코딩 에이전트 spawn·감독. 본 슬라이스는 신규 UC 아닌 roster 확장", "ref": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md" },
+    "P02": { "status": "done", "name": "test_scenarios", "deliverable": "uc-cli-subagent-{claude-code,codex,gemini}.contract.test.ts(각 9) + roster 테스트 갱신(deferred→real). fake child 결정론 검증", "ref": "src/test/uc-cli-subagent-*.contract.test.ts" },
+    "P03": { "status": "done", "name": "requirements", "deliverable": "FR-CLI sub-agent roster(기존) — 3종(claude-code/codex/gemini) 구현 완료로 roster 전원 supported", "ref": "docs/progress/01.requirements/INDEX.md" },
+    "P04": { "status": "done", "name": "integration_test", "deliverable": "tsc clean·vitest 670 pass/5 skip(회귀0)·36 신규 pass·.mjs ci-verify/structure-guard/import-boundary PASS. runtime smoke: codex✅·claude-code✅·gemini⏭️(auth). Windows bin 해석(injection-safe) 해결", "ref": ".agents/progress/naia-agent-subagent-adapters-2026-06-29.md §6" },
+    "P05": { "status": "in_progress", "name": "requirements_complete", "deliverable": "코드+테스트+문서 완료. 커밋 진행 중. gemini runtime smoke(auth 복원 시)·naia-os gRPC 호스트 배선(②)은 후속", "ref": ".agents/progress/naia-agent-subagent-adapters-2026-06-29.md" }
   },
 
   "resource_registry": {
