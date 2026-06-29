@@ -23,6 +23,7 @@ import { makeOpenMeteoFetchWeather } from "../../dist/main/adapters/openmeteo-we
 import { makeFileMemoStore } from "../../dist/main/adapters/file-memo-store.js";
 import { makeFileConversationLog } from "../../dist/main/adapters/conversation-log-store.js";
 import { makePersonaSourceStore } from "../../dist/main/adapters/persona-source-store.js";
+import { makeWorkspaceContextStore } from "../../dist/main/adapters/workspace-context-store.js";
 // ⚠️ makeNaiaMemory(→@nextain/naia-memory)는 *동적* import(아래) — 정적이면 모듈 로딩 실패 시 NAIA_AGENT_MEMORY=off
 // 나 try/catch 에 도달 못 하고 프로세스가 죽어 메모리 비활성 채팅(FR-MEM-3)·초기화 격리 계약이 깨진다.
 import * as nodeFs from "node:fs";
@@ -75,6 +76,16 @@ export async function composeAgentRuntimeDeps(o = {}) {
   const personaLabel = personaProfile?.agentName
     ? `persona(${personaProfile.agentName}, locale=${personaProfile.locale ?? "?"}, style=${personaProfile.speechStyle ?? "?"})`
     : "persona(none)";
+
+  // ── UC-WORKSPACE-CTX(S2): 워크스페이스 컨텍스트(cwd + 프로젝트 이름) 경량 스냅샷 포트. **합성은 코어**
+  //    (ChatTurnHandler 가 workspaceContext 로 per-turn snapshot()→composeWorkspaceContext, persona 뒤 append).
+  //    shallow 1-depth readdir 만(<adkPath>/projects/ 디렉터리명) — 파일 내용/깊은 walk 없음(GLM: 덤프 방지).
+  //    wsLabel 은 stderr 상태줄 표기용으로만 snapshot() 1회 추출(프로젝트 수 + cwd).
+  const workspaceContextSource = makeWorkspaceContextStore({ fs: nodeFs, adkPath, cwd: process.cwd() });
+  const wsSnap = workspaceContextSource.snapshot();
+  const wsLabel = wsSnap
+    ? `workspace(cwd=${wsSnap.cwd}, projects=${wsSnap.projectTotal})`
+    : "workspace(none)";
 
   // ── UC5 실 스킬(time/weather/memo + github/obsidian/mcp/notify/adk) — 기본 활성(NAIA_AGENT_SKILLS=off 로 비활성). ──
   // ⚠️ panel(환경 위임)은 여기 미포함 — egress 가 필요해 gRPC host 가 wire 후 합성(브라우저/BGM=셸 소유 환경, E1).
@@ -241,6 +252,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
     memory, memoryLabel,
     conversationLog, transcriptLabel,
     personaSource, personaLabel,
+    workspaceContextSource, wsLabel,
     diag, cleanupFns,
   };
 }

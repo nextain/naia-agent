@@ -3,6 +3,7 @@ import type {
   ProviderConfig, ChatMessage, ProviderChunk, AgentEmit, AgentRequest, ToolSpec, ToolCall,
 } from "../domain/chat.js";
 import type { PersonaProfile } from "../domain/persona.js";
+import type { WorkspaceSnapshot } from "../domain/workspace-context.js";
 
 export type Unsub = () => void;
 
@@ -42,6 +43,15 @@ export interface ConversationPort {
 export interface PersonaSourcePort {
   /** 워크스페이스 페르소나 프로필. 소스 부재/손상 = undefined(페르소나 기본 없음). */
   load(): PersonaProfile | undefined;
+}
+
+/** UC-WORKSPACE-CTX driven — 워크스페이스 컨텍스트(cwd + 프로젝트 이름 목록) 경량 스냅샷(driven).
+ *  구현=workspace-context-store(`<adkPath>/projects/` 1-depth shallow readdir). **파일 내용/깊은 walk 없음**
+ *  (GLM: snapshot 덤프 방지 — 이름 + cwd 만, 상세는 read_file 도구=S3). 디렉터리 부재/읽기실패 = undefined 또는
+ *  빈 projects(no-throw degrade). 코어가 per-turn snapshot()→composeWorkspaceContext 로 persona 뒤에 append. */
+export interface WorkspaceContextPort {
+  /** 경량 워크스페이스 스냅샷(cwd + cap 적용 프로젝트 목록 + 전체 수). 소스 부재 = undefined. */
+  snapshot(): WorkspaceSnapshot | undefined;
 }
 
 export interface CredentialPort {

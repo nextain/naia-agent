@@ -236,11 +236,13 @@ async function doChat(args) {
     ...(deps.memory ? { memory: deps.memory, compaction: deps.memory } : {}),
     ...(deps.conversationLog ? { conversationLog: deps.conversationLog } : {}),
     ...(deps.personaSource ? { personaSource: deps.personaSource } : {}), // FR-PERSONA-3: 코어가 워크스페이스 페르소나 조립(클라가 안 보냄)
+    ...(deps.workspaceContextSource ? { workspaceContext: deps.workspaceContextSource } : {}), // FR-WORKSPACE: 코어가 워크스페이스 컨텍스트(cwd+프로젝트) 조립
     defaultConfig: config,
   });
   wired.start?.();
   const personaStatus = args.systemPrompt ? "persona(--system override)" : (deps.personaLabel ?? "persona(none)");
-  process.stderr.write(`[naia-agent-chat] provider=${config.provider}/${config.model} (${chosen.source}), ${personaStatus}, skills=${args.noTools ? "off" : deps.skillsLabel}, memory=${deps.memoryLabel}, delegate=${delegateOn ? "on" : "off"}, workspace=${adkPath}\n`);
+  const wsStatus = args.systemPrompt ? "workspace(--system override)" : (deps.wsLabel ?? "workspace(none)");
+  process.stderr.write(`[naia-agent-chat] provider=${config.provider}/${config.model} (${chosen.source}), ${personaStatus}, ${wsStatus}, skills=${args.noTools ? "off" : deps.skillsLabel}, memory=${deps.memoryLabel}, delegate=${delegateOn ? "on" : "off"}, workspace=${adkPath}\n`);
 
   let exiting = false;
   const shutdown = async (code) => {

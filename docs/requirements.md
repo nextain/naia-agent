@@ -102,6 +102,29 @@ ghost-edit split 없음). **조립 위치 = 코어**(host 아님): host 는 `Per
 - **NFR-PERSONA-no-import**: naia-os `persona.ts` 는 **참조만**(import 금지) — CLI 측 재구현. emotion-tag 블록은 naia-os 전용 유지(중복 아님 — 의도된 분기).
 - **NFR-PERSONA-core-owned**: 페르소나 조립은 **코어 소유**(host 조립·`req.systemPrompt` 로 주입하는 과도기 경로 금지). 식별자 `personaSystemPrompt` 는 코드베이스에 잔존하지 않는다(grep 0).
 
+## UC-WORKSPACE-CTX FR/NFR (FR-WORKSPACE-1 ~ 4) — 워크스페이스 컨텍스트 경량 인식
+
+집약 인덱스(권위 = 본 표 + Test Coverage Map 의 `uc-workspace-context.contract.test.ts`). **코어
+(`ChatTurnHandler`)가** 워크스페이스 컨텍스트(cwd + 프로젝트 이름 목록)를 **스스로 합성**해 페르소나 조립
+**바로 뒤에 append** 한다 → 에이전트가 자기 워크스페이스를 인식. 조립 위치 = **코어**(host 아님): host 는
+`WorkspaceContextPort` 만 주입한다. `req.systemPrompt`(override) 시 persona·workspace 둘 다 무시.
+
+★ 설계 제약(GLM 독립리뷰 — snapshot 전량덤프 아닌 retrieval): **경량 shallow 리스팅만** — 프로젝트 이름
+(디렉터리명 1-depth) + cwd 뿐. **파일 내용 덤프·깊은 walk 금지**(상세는 read_file 도구=S3). 토큰 bounded.
+
+| ID | 요구사항 | 상태 |
+|----|----------|:----:|
+| FR-WORKSPACE-1 | **순수 합성 계약(`composeWorkspaceContext`)** — domain 순수 함수(무 I/O). `WorkspaceSnapshot`(cwd·projects[cap 적용]·projectTotal) → `## Workspace` 블록: cwd 줄 + "Projects (<total>): a, b, c[, +N more]" 줄(이름은 **데이터**로 렌더 — 지시문 해석 방지) + "상세는 read_file 도구로(S3)" 안내. cwd·projects 둘 다 없으면 `""`(append 무영향). **토큰 bounded**: 프로젝트 목록은 `PROJECT_RENDER_CAP`(=40)까지만 표기, 초과분은 `+N more` 총계로만(렌더 수백 토큰 상한). 파일 내용/깊은 트리 미포함. | Done |
+| FR-WORKSPACE-2 | **경량 스냅샷(`WorkspaceContextPort`)** — `snapshot()` 가 `<adkPath>/projects/` 의 top-level **디렉터리명**(파일/dotfile 제외, 정렬)만 1-depth **shallow readdir** 로 수집 + cwd → `WorkspaceSnapshot`. `projectTotal`=전체 수, `projects`=상위 cap. `projects/` 부재/읽기실패/adkPath 빈값 = **no-throw degrade**(projects=[]·projectTotal=0; adkPath 빈값=undefined). `fs` 주입(node:fs-like `WorkspaceFsRead`=existsSync+readdirSync, 어댑터 DI 패턴). **파일 *내용* 은 절대 읽지 않는다**(snapshot 덤프 방지 — 상세 retrieval 은 read_file UC=S3). | Done |
+| FR-WORKSPACE-3 | **코어 조립 + persona 뒤 append(S2)** — `ChatTurnHandler` 가 `HandlerDeps.workspaceContext?`(optional)를 받아 **코어 안에서** persona 조립 직후 `composeWorkspaceContext(workspaceContext.snapshot() ?? {cwd:"",projects:[],projectTotal:0})` 를 합성하고 `[corePersona, coreWs].filter(Boolean).join("\n\n")` 로 합류한다. assemble base = `req.systemPrompt`(override) 우선, 없으면 코어 조립값(persona⊕workspace; 빈 문자열은 `undefined` 정규화). compaction recap·memory recall 은 이 base 위에 누적(무영향). `workspaceContext` 미주입 = 기존 동작(persona/`req.systemPrompt` 만, 무회귀). host(`bin/naia-agent-chat.mjs`·`agent-stdio-entry.mjs`)는 `compose-agent-deps` 가 만든 `workspaceContextSource` 를 `wireAgentUC1({ workspaceContext })` 로 주입하고 자체 조립하지 않는다. `compose-agent-deps` 는 로그용 `wsLabel`(snapshot() 1회 — cwd+프로젝트 수)만 반환. snapshot 은 per-turn 1회(shallow readdir — 라이브 반영). | Done |
+| FR-WORKSPACE-4 | **상세는 도구로(범위 경계)** — S2 워크스페이스 컨텍스트는 프로젝트 **이름 + cwd** 까지만 인지시킨다. 파일 *내용*·디렉터리 트리 등 **상세 retrieval 은 `read_file` 도구(S3) 몫**이며, S2 렌더는 그 안내 문구만 포함한다(컨텍스트 폭주 방지, GLM 덤프 금지 정합). | Done |
+
+### NFR
+- **NFR-WORKSPACE-pure**: `domain/workspace-context.ts` 순수(fs/process/transport 미import) — `import-boundary.contract.test.ts` green 유지. projects/ 읽기는 adapter(`fs` 주입), **조립은 코어(app/ChatTurnHandler 가 domain 순수 fn import)** — app←domain 허용 방향이라 경계 무위반.
+- **NFR-WORKSPACE-bounded**: 렌더 결과는 항상 토큰 bounded(프로젝트 cap=40 + "+N more" 총계). 프로젝트 수가 수백~수천이어도 system prompt 증가분이 상수 상한(수백 토큰)을 넘지 않는다. 깊은 walk·파일 내용 없음(상수 비용 readdir 1회).
+- **NFR-WORKSPACE-deterministic**: 계약테스트는 fake fs/fake provider + 고정 스냅샷으로 결정론. 합성 단언은 contains 기반(brittle full-string 금지). 프로젝트 이름 정렬로 readdir 순서 무관.
+- **NFR-WORKSPACE-core-owned**: 워크스페이스 컨텍스트 조립은 **코어 소유**(host 조립·`req.systemPrompt` 로 주입하는 경로 금지). host 는 포트 주입만.
+
 ## 기타 UC FR
 
 | UC | FR 위치 |

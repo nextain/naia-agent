@@ -88,10 +88,12 @@
     "src/main/ports/uc1.ts": {
       "layer": "ports",
       "uc": [
-        "UC1"
+        "UC1",
+        "UC-PERSONA-CLI",
+        "UC-WORKSPACE-CTX"
       ],
       "contract": "docs/progress/99.dev-comm/UC1-agent-horizontal-contract-2026-06-10.md",
-      "note": "ProviderPort·IO·AgentOutbound 포트"
+      "note": "ProviderPort·IO·AgentOutbound 포트 + PersonaSourcePort(FR-PERSONA-2) + WorkspaceContextPort(FR-WORKSPACE-2, snapshot)"
     },
     "src/main/app/chat-turn-handler.ts": {
       "layer": "app",
@@ -99,14 +101,15 @@
         "UC1",
         "UC5",
         "UC-memory",
-        "UC-PERSONA-CLI"
+        "UC-PERSONA-CLI",
+        "UC-WORKSPACE-CTX"
       ],
       "contract": [
         "docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md",
         "docs/progress/99.dev-comm/UC-memory-recall-save-contract-2026-06-12.md",
         "docs/requirements.md"
       ],
-      "note": "라운드 루프·terminal 래치·cancel 가드 + memory recall 주입/save seam(커밋지점·timeout·드레인) + FR-PERSONA-3: 코어가 personaSource(optional)로 워크스페이스 페르소나를 *스스로* 조립(composePersonaPrompt, domain import). baseSystemPrompt = req.systemPrompt(override) ?? 코어 조립. 미주입=req.systemPrompt 만(무회귀). 테스트=src/test/uc-persona-handler.contract.test.ts"
+      "note": "라운드 루프·terminal 래치·cancel 가드 + memory recall 주입/save seam(커밋지점·timeout·드레인) + FR-PERSONA-3: 코어가 personaSource(optional)로 워크스페이스 페르소나를 *스스로* 조립(composePersonaPrompt, domain import). FR-WORKSPACE: 코어가 workspaceContext(optional)로 워크스페이스 컨텍스트(cwd+프로젝트)를 persona 뒤 append(composeWorkspaceContext). baseSystemPrompt = req.systemPrompt(override) ?? 코어 조립(persona⊕workspace). 미주입=무회귀. 테스트=src/test/uc-persona-handler.contract.test.ts, uc-workspace-context.contract.test.ts"
     },
     "src/main/composition/index.ts": {
       "layer": "composition",
@@ -119,7 +122,7 @@
         "docs/progress/99.dev-comm/UC1-agent-horizontal-contract-2026-06-10.md",
         "docs/progress/99.dev-comm/UC-memory-recall-save-contract-2026-06-12.md"
       ],
-      "note": "wireAgentUC1 조립 + memory/drain 배선 + personaSource(optional) 조건부 주입(FR-PERSONA-3 코어 조립)"
+      "note": "wireAgentUC1 조립 + memory/drain 배선 + personaSource(optional, FR-PERSONA-3) + workspaceContext(optional, FR-WORKSPACE) 조건부 주입(코어 조립)"
     },
     "src/main/adapters/protocol.ts": {
       "layer": "adapters",
@@ -327,6 +330,28 @@
         "docs/user-scenarios.md"
       ],
       "note": "PersonaSourcePort 구현 — <adkPath>/naia-settings/config.json + 내장 persona JSON 문자열 파싱→PersonaProfile(NAIA_LOCALE→locale). 페르소나 SoT=naia-os 가 읽고 쓰는 동일 파일(ghost-edit split 없음). FsLike 주입, 부재/손상=undefined(no-throw). FR-PERSONA-2. S1b: 이 포트를 코어(ChatTurnHandler)에 주입 → 코어가 per-turn load()→composePersonaPrompt 조립(host 조립 아님). 테스트=src/test/uc-persona-compose.contract.test.ts"
+    },
+    "src/main/domain/workspace-context.ts": {
+      "layer": "domain",
+      "uc": [
+        "UC-WORKSPACE-CTX"
+      ],
+      "contract": [
+        "docs/requirements.md",
+        "docs/user-scenarios.md"
+      ],
+      "note": "WorkspaceSnapshot 타입 + composeWorkspaceContext(cwd+프로젝트 이름 → system prompt 줄 순수 합성). S2: persona 뒤 append 하는 경량 컨텍스트(shallow, 이름만). PROJECT_RENDER_CAP(40)+'+N more' 토큰 bounded. 빈 입력=\"\". 파일 내용/깊은 walk 없음(GLM 덤프 방지, 상세=read_file 도구 S3). FR-WORKSPACE-1~4. 테스트=src/test/uc-workspace-context.contract.test.ts"
+    },
+    "src/main/adapters/workspace-context-store.ts": {
+      "layer": "adapters",
+      "uc": [
+        "UC-WORKSPACE-CTX"
+      ],
+      "contract": [
+        "docs/requirements.md",
+        "docs/user-scenarios.md"
+      ],
+      "note": "WorkspaceContextPort 구현 — <adkPath>/projects/ 1-depth shallow readdir(디렉터리명, dotfile/파일 제외, 정렬)+cwd→WorkspaceSnapshot. projectTotal=전체수, projects=상위 PROJECT_RENDER_CAP. projects/ 부재·읽기실패=no-throw degrade(projects=[]). FsLike 주입(WorkspaceFsRead=existsSync+readdirSync). 파일 내용 안 읽음(snapshot 덤프 방지). S2: 코어(ChatTurnHandler)에 주입 → 코어가 per-turn snapshot()→composeWorkspaceContext. FR-WORKSPACE-2. 테스트=src/test/uc-workspace-context.contract.test.ts"
     },
     "src/main/ports/memory.ts": {
       "layer": "ports",
