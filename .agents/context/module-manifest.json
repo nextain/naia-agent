@@ -455,6 +455,12 @@
       "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
       "note": "이름→SubAgentPort 선택 — pi/opencode/shell/claude-code/codex/gemini 구현 + unknown = honest-unsupported(throw 아님, AC6). SPEC-010."
     },
+    "src/main/adapters/delegate-agent-skill.ts": {
+      "layer": "adapters",
+      "uc": ["UC-014"],
+      "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
+      "note": "delegate_agent ToolExecutorPort — 메인 LLM 이 sub-agent 를 부리는 도구(UC-014 오케스트레이션 확장, 메인→다중 sub-agent 위임·취합). supervisor runner DI(import-boundary 준수). opt-in(env NAIA_DELEGATE_AGENT). 진행=naia-agent-subagent-adapters-2026-06-29.md"
+    },
     "src/main/adapters/verifier-commands.ts": {
       "layer": "adapters",
       "uc": ["UC-014"],

@@ -12,7 +12,9 @@ import { randomUUID } from "node:crypto";
 import {
   parseChatArgs, makeReplConversation, chooseProviderConfig, upsertEnvLine, apiKeyEnvFor, CHAT_USAGE,
 } from "../dist/main/app/cli-chat.js";
-import { wireAgentUC1 } from "../dist/main/composition/index.js";
+import { wireAgentUC1, wireSupervisor } from "../dist/main/composition/index.js";
+import { makeCompositeToolExecutor } from "../dist/main/adapters/composite-tool-executor.js";
+import { makeDelegateAgentSkill } from "../dist/main/adapters/delegate-agent-skill.js";
 import { composeAgentRuntimeDeps } from "../scripts/builds/compose-agent-deps.mjs";
 
 const ENV_PATH = join(homedir(), ".naia-agent", ".env");
@@ -61,6 +63,23 @@ async function doChat(args) {
   const deps = await composeAgentRuntimeDeps();
   const cleanup = () => { for (const fn of deps.cleanupFns) { try { fn(); } catch { /* best-effort */ } } };
 
+  // delegate_agent 도구(opt-in: env NAIA_DELEGATE_AGENT=1) — 메인 LLM 이 sub-agent(gemini/opencode/...)를 부리는
+  // 오케스트레이션 확장(UC-014). host 가 wireSupervisor(composition) 로 runner 를 조립해 어댑터에 주입(import-boundary).
+  let toolExecutor = deps.toolExecutor;
+  const delegateOn = !args.noTools && process.env.NAIA_DELEGATE_AGENT === "1" && !!toolExecutor;
+  if (delegateOn) {
+    const agentOpts = (name) =>
+      name === "gemini" ? { gemini: { yolo: true } }
+      : name === "opencode" ? { opencode: { skipPermissions: true } }
+      : {};
+    const delegateRun = async (agent, task, signal, egress) => {
+      const sup = wireSupervisor({ subAgentName: agent, subAgentOpts: agentOpts(agent) });
+      await sup.run(task, signal, egress);
+    };
+    const delegateExec = makeDelegateAgentSkill({ run: delegateRun, defaultWorkdir: process.cwd() });
+    toolExecutor = makeCompositeToolExecutor([delegateExec, toolExecutor]);
+  }
+
   const chosen = chooseProviderConfig({
     argProvider: args.provider,
     argModel: args.model,
@@ -98,13 +117,13 @@ async function doChat(args) {
     diag: deps.diag,
     ...(deps.provider ? { provider: deps.provider } : {}),
     ...(deps.resolver ? { resolver: deps.resolver } : {}),
-    ...(deps.toolExecutor && !args.noTools ? { toolExecutor: deps.toolExecutor } : {}),
+    ...(toolExecutor && !args.noTools ? { toolExecutor } : {}),
     ...(deps.memory ? { memory: deps.memory, compaction: deps.memory } : {}),
     ...(deps.conversationLog ? { conversationLog: deps.conversationLog } : {}),
     defaultConfig: config,
   });
   wired.start?.();
-  process.stderr.write(`[naia-agent-chat] provider=${config.provider}/${config.model} (${chosen.source}), skills=${args.noTools ? "off" : deps.skillsLabel}, memory=${deps.memoryLabel}\n`);
+  process.stderr.write(`[naia-agent-chat] provider=${config.provider}/${config.model} (${chosen.source}), skills=${args.noTools ? "off" : deps.skillsLabel}, memory=${deps.memoryLabel}, delegate=${delegateOn ? "on" : "off"}\n`);
 
   let exiting = false;
   const shutdown = async (code) => {
