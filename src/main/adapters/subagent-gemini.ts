@@ -17,7 +17,7 @@ import type { TaskSpec, SubAgentEvent } from "../domain/orchestration.js";
 import type { SubAgentPort, SubAgentSession } from "../ports/orchestration.js";
 import {
   DEFAULT_HARD_KILL_DEADLINE_MS, defaultSpawn, spawnSubprocessSession, endedSession,
-  type SpawnFn, type ResolvedBin, pickSpawnableBin, resolveSpawnableBin,
+  type SpawnFn, type ResolvedBin, pickSpawnableBin, resolveSpawnableBin, resolveFallbackCommand,
 } from "./subprocess-session.js";
 
 export type { SpawnFn, ResolvedBin };
@@ -61,7 +61,8 @@ export function resolveGeminiBin(): ResolvedBin {
   if (validated) return { command: validated, prefixArgs: [] };
   const inPath = findGeminiInPath();
   if (inPath) return resolveSpawnableBin(inPath);
-  return { command: "npx", prefixArgs: ["--yes", "@google/gemini-cli"] };
+  const fb = resolveFallbackCommand("npx");
+  return { command: fb.command, prefixArgs: [...fb.prefixArgs, "--yes", "@google/gemini-cli"] };
 }
 
 // ── gemini stream-json 파싱 (방어적 — runtime-unverified, 변형 수용) ────────────

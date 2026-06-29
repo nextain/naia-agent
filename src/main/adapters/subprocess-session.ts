@@ -6,7 +6,7 @@
 // (subagent-shell 은 raw-chunk 모델의 독립 레퍼런스 — 줄 모델로의 통합은 동작변경이라 후속 검토 대상.)
 //
 // ⚠️ child_process 는 adapters 안에서만(import-boundary 강제). PID·SIGTERM·exit code 는 여기서 끝난다.
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, execSync, type ChildProcess } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, isAbsolute } from "node:path";
 import type { SubAgentEvent } from "../domain/orchestration.js";
@@ -57,23 +57,17 @@ export function pickSpawnableBin(lines: readonly string[]): string | null {
  */
 export function resolveNpmShim(cmdPath: string): ResolvedBin | null {
   try {
-    const text = readFileSync(cmdPath, "utf8");
     const dir = dirname(cmdPath);
-    const substitute = (p: string): string => p
+    // 전체 텍스트에서 환경변수 치환 후 경로 추출(npx.cmd 처럼 SET "VAR=%~dp0\...js" 동적 참조도 커버).
+    const text = readFileSync(cmdPath, "utf8")
       .replace(/%dp0%/gi, dir).replace(/%~dp0/gi, dir).replace(/\$basedir/gi, dir);
-    const safe = (p: string): boolean => isAbsolute(p) && !p.includes("\0");
-    // 1) .js → node wrapper
-    const jsM = text.match(/"([^"]*node_modules[^"]*\.js)"/i) ?? text.match(/"([^"]+\.js)"/i);
-    if (jsM) {
-      const script = substitute(jsM[1]);
-      if (safe(script)) return { command: process.execPath, prefixArgs: [script] };
-    }
-    // 2) .exe → 직접 spawn
-    const exeM = text.match(/"([^"]*node_modules[^"]*\.exe)"/i) ?? text.match(/"([^"]+\.exe)"/i);
-    if (exeM) {
-      const exe = substitute(exeM[1]);
-      if (safe(exe)) return { command: exe, prefixArgs: [] };
-    }
+    const safe = (p: string): boolean => isAbsolute(p) && !p.includes("\0") && !p.includes("%");
+    // 드라이브문자 앵커 — 경로 내 공백("Program Files") 허용, 따옴표/줄바꿈 으로 경계. .js → node wrapper.
+    const jsM = text.match(/([A-Za-z]:\\[^"]*node_modules[^"]*\.js)/i);
+    if (jsM && safe(jsM[1])) return { command: process.execPath, prefixArgs: [jsM[1]] };
+    // .exe → 직접 spawn
+    const exeM = text.match(/([A-Za-z]:\\[^"]*node_modules[^"]*\.exe)/i);
+    if (exeM && safe(exeM[1])) return { command: exeM[1], prefixArgs: [] };
     return null;
   } catch {
     return null;
@@ -91,6 +85,24 @@ export function resolveSpawnableBin(picked: string): ResolvedBin {
     if (shim) return shim;
   }
   return { command: picked, prefixArgs: [] };
+}
+
+/**
+ * `"npx"` 같은 fallback 명령을 spawn 가능한 ResolvedBin 으로 해석. CLI 미설치 시 어댑터들이 npx fallback
+ * 을 쓰는데, Windows 에선 `npx` 가 확장자 없어 spawn 불가(ENOENT/EINVAL). `where` 로 찾아 shim 해석
+ * (npx.cmd → node + npx-cli.js). non-Windows / 해석 실패 시 명령 그대로.
+ */
+export function resolveFallbackCommand(command: string): ResolvedBin {
+  if (process.platform === "win32" && !/\.[a-z0-9]+$/i.test(command)) {
+    try {
+      const r = execSync(`where ${command}`, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+      const picked = pickSpawnableBin(r.split(/\r?\n/));
+      if (picked) return resolveSpawnableBin(picked);
+    } catch {
+      /* fall through — 명령 그대로 반환(호출처가 정직 unsupported 로 처리) */
+    }
+  }
+  return { command, prefixArgs: [] };
 }
 
 /** 단일 stdout 줄 → SubAgentEvent 0~1개(malformed/무관 = null 드롭). 어댑터별 파서. */

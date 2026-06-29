@@ -9,7 +9,7 @@ import type { TaskSpec, SubAgentEvent } from "../domain/orchestration.js";
 import type { SubAgentPort, SubAgentSession } from "../ports/orchestration.js";
 import {
   DEFAULT_HARD_KILL_DEADLINE_MS, defaultSpawn, spawnSubprocessSession, endedSession,
-  type SpawnFn, type ResolvedBin, pickSpawnableBin, resolveSpawnableBin,
+  type SpawnFn, type ResolvedBin, pickSpawnableBin, resolveSpawnableBin, resolveFallbackCommand,
 } from "./subprocess-session.js";
 
 export interface SubAgentOpencodeOptions {
@@ -50,7 +50,8 @@ export function resolveOpencodeBin(): ResolvedBin {
   if (validated) return { command: validated, prefixArgs: [] };
   const inPath = findOpencodeInPath();
   if (inPath) return resolveSpawnableBin(inPath);
-  return { command: "npx", prefixArgs: ["--yes", "opencode-ai@1.14.25"] }; // 구판 핀 버전.
+  const fb = resolveFallbackCommand("npx");
+  return { command: fb.command, prefixArgs: [...fb.prefixArgs, "--yes", "opencode-ai@1.14.25"] }; // 구판 핀 버전.
 }
 
 // ── opencode NDJSON 파싱 (구 event-parser.ts: text/tool_use/step_start) ────────

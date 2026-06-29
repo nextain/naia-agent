@@ -19,7 +19,7 @@ import type { TaskSpec, SubAgentEvent } from "../domain/orchestration.js";
 import type { SubAgentPort, SubAgentSession } from "../ports/orchestration.js";
 import {
   DEFAULT_HARD_KILL_DEADLINE_MS, defaultSpawn, spawnSubprocessSession, endedSession,
-  type SpawnFn, type ResolvedBin, pickSpawnableBin, resolveSpawnableBin,
+  type SpawnFn, type ResolvedBin, pickSpawnableBin, resolveSpawnableBin, resolveFallbackCommand,
 } from "./subprocess-session.js";
 
 export type { SpawnFn, ResolvedBin };
@@ -61,7 +61,8 @@ export function resolveCodexBin(): ResolvedBin {
   if (validated) return { command: validated, prefixArgs: [] };
   const inPath = findCodexInPath();
   if (inPath) return resolveSpawnableBin(inPath);
-  return { command: "npx", prefixArgs: ["--yes", "@openai/codex"] };
+  const fb = resolveFallbackCommand("npx");
+  return { command: fb.command, prefixArgs: [...fb.prefixArgs, "--yes", "@openai/codex"] };
 }
 
 // ── codex JSONL 파싱 ─────────────────────────────────────────────────────────

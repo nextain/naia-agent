@@ -16,7 +16,7 @@ import type { TaskSpec, SubAgentEvent } from "../domain/orchestration.js";
 import type { SubAgentPort, SubAgentSession } from "../ports/orchestration.js";
 import {
   DEFAULT_HARD_KILL_DEADLINE_MS, defaultSpawn, spawnSubprocessSession, endedSession,
-  type SpawnFn, type ResolvedBin, pickSpawnableBin, resolveSpawnableBin,
+  type SpawnFn, type ResolvedBin, pickSpawnableBin, resolveSpawnableBin, resolveFallbackCommand,
 } from "./subprocess-session.js";
 
 export type { SpawnFn, ResolvedBin };
@@ -77,7 +77,8 @@ export function resolvePiBin(): ResolvedBin {
   if (inNodeModules) return { command: inNodeModules, prefixArgs: [] };
   const inPath = findPiInPath();
   if (inPath) return resolveSpawnableBin(inPath);
-  return { command: "npx", prefixArgs: ["--yes", "@earendil-works/pi-coding-agent"] }; // 미설치 시 첫 사용에 설치.
+  const fb = resolveFallbackCommand("npx");
+  return { command: fb.command, prefixArgs: [...fb.prefixArgs, "--yes", "@earendil-works/pi-coding-agent"] }; // 미설치 시 첫 사용에 설치.
 }
 
 // ── pi NDJSON 파싱 (구 adapter-pi/event-parser.ts 의 필요 부분만) ─────────────

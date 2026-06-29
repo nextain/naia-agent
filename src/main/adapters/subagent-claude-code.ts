@@ -20,7 +20,7 @@ import type { TaskSpec, SubAgentEvent } from "../domain/orchestration.js";
 import type { SubAgentPort, SubAgentSession } from "../ports/orchestration.js";
 import {
   DEFAULT_HARD_KILL_DEADLINE_MS, defaultSpawn, spawnSubprocessSession, endedSession,
-  type SpawnFn, type ResolvedBin, type LineToEvent, pickSpawnableBin, resolveSpawnableBin,
+  type SpawnFn, type ResolvedBin, type LineToEvent, pickSpawnableBin, resolveSpawnableBin, resolveFallbackCommand,
 } from "./subprocess-session.js";
 
 export type { SpawnFn, ResolvedBin };
@@ -63,7 +63,8 @@ export function resolveClaudeCodeBin(): ResolvedBin {
   if (validated) return { command: validated, prefixArgs: [] };
   const inPath = findClaudeCodeInPath();
   if (inPath) return resolveSpawnableBin(inPath);
-  return { command: "npx", prefixArgs: ["--yes", "@anthropic-ai/claude-code"] };
+  const fb = resolveFallbackCommand("npx");
+  return { command: fb.command, prefixArgs: [...fb.prefixArgs, "--yes", "@anthropic-ai/claude-code"] };
 }
 
 // ── claude stream-json NDJSON 파싱 ──────────────────────────────────────────
