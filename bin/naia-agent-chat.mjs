@@ -91,11 +91,85 @@ async function doWorkspace(args) {
   process.exit(0);
 }
 
+/** 워크스페이스의 config.json(정본) → llm.json(폴백) 에서 {provider, model} 만 경량 조회(온보딩 판단용).
+ *  composeAgentRuntimeDeps(무거운 memory/init 부작용) 없이 provider 존재만 확인. */
+function lightweightDefaultConfig(adkPath) {
+  try {
+    const c = JSON.parse(nodeFs.readFileSync(join(adkPath, "naia-settings", "config.json"), "utf8"));
+    if (typeof c.provider === "string" && typeof c.model === "string" && c.provider && c.model) {
+      return { provider: c.provider.toLowerCase(), model: c.model };
+    }
+  } catch { /* config.json 없음/손상 */ }
+  try {
+    const l = JSON.parse(nodeFs.readFileSync(join(adkPath, "naia-settings", "llm.json"), "utf8"));
+    if (l && l.main && typeof l.main.provider === "string" && typeof l.main.model === "string") {
+      return { provider: l.main.provider.toLowerCase(), model: l.main.model };
+    }
+  } catch { /* llm.json 없음/손상 */ }
+  return undefined;
+}
+
+/**
+ * 인터랙티브 온보딩 — "값 있으면 로딩, 없으면 온보딩". REPL(비 --once) 모드에서 doChat 시작 전 갭 채우기:
+ *   (1) 워크스페이스: 전역 config·env·flag 전부 없으면 경로 입력받아 전역 저장(기본 ~/naia-adk 제안).
+ *   (2) provider/키: 워크스페이스 config + 로그인 키 어느 것도 없으면 provider+API 키 입력받아
+ *       ~/.naia-agent/.env 에 저장(login 과 동일).
+ * 저장 후 다음 실행부턴 자동 로딩(다시 묻지 않음). 사용자 취소 시 false → 종료.
+ */
+async function ensureOnboarded(args) {
+  const defaultPath = join(homedir(), "naia-adk");
+
+  // (1) 워크스페이스 갭 — flag/env/전역 전부 없을 때만
+  let globalAdk;
+  try { globalAdk = readGlobalConfigAdk(nodeFs.readFileSync(GLOBAL_CONFIG_PATH, "utf8")); } catch { /* 없음 */ }
+  if (!args.workspace && !process.env.NAIA_ADK_PATH && !globalAdk) {
+    process.stdout.write("\n[온보딩] 워크스페이스가 설정되지 않았습니다. naia-settings/ 가 있는 디렉터리를 지정하세요.\n");
+    let ws = (await readLineFromStdin(`워크스페이스 경로 (기본 ${defaultPath}): `)).trim();
+    if (!ws) ws = defaultPath;
+    if (!isAbsolute(ws)) { process.stderr.write("절대경로가 아닙니다 — 종료.\n"); return false; }
+    nodeFs.mkdirSync(dirname(GLOBAL_CONFIG_PATH), { recursive: true, mode: 0o700 });
+    let existing = ""; try { existing = nodeFs.readFileSync(GLOBAL_CONFIG_PATH, "utf8"); } catch { /* 신규 */ }
+    nodeFs.writeFileSync(GLOBAL_CONFIG_PATH, setGlobalConfigAdk(existing, ws), { mode: 0o600 });
+    try { nodeFs.chmodSync(GLOBAL_CONFIG_PATH, 0o600); } catch { /* Windows 무시 */ }
+    process.stderr.write(`✓ 워크스페이스 저장 = ${ws}\n`);
+    globalAdk = ws;
+  }
+  const adkPath = args.workspace || process.env.NAIA_ADK_PATH || globalAdk || defaultPath;
+
+  // (2) provider/키 갭 — 워크스페이스 config + 로그인 키 어느 쪽도 없을 때만
+  loadEnvFile();
+  const chosen = chooseProviderConfig({
+    argProvider: args.provider,
+    argModel: args.model,
+    defaultConfig: lightweightDefaultConfig(adkPath),
+    envKey: (n) => process.env[n],
+  });
+  if (!chosen.ok) {
+    process.stdout.write("\n[온보딩] LLM provider 가 없습니다. provider 와 API 키를 입력하세요.\n");
+    const provider = (await readLineFromStdin("provider (glm/gemini/anthropic/openai/nextain): ")).trim().toLowerCase();
+    if (!apiKeyEnvFor(provider)) { process.stderr.write(`알 수 없는 provider '${provider}' — 종료.\n`); return false; }
+    const key = (await readLineFromStdin(`${provider} API 키 (화면에 표시됨): `)).trim();
+    if (!key) { process.stderr.write("키가 비어 있습니다 — 종료.\n"); return false; }
+    nodeFs.mkdirSync(dirname(ENV_PATH), { recursive: true, mode: 0o700 });
+    let envExisting = ""; try { envExisting = nodeFs.readFileSync(ENV_PATH, "utf8"); } catch { /* 신규 */ }
+    nodeFs.writeFileSync(ENV_PATH, upsertEnvLine(envExisting, apiKeyEnvFor(provider), key), { mode: 0o600 });
+    try { nodeFs.chmodSync(ENV_PATH, 0o600); } catch { /* Windows 무시 */ }
+    process.stderr.write(`✓ ${provider} 키 저장 → ${ENV_PATH}\n`);
+  }
+  return true;
+}
+
 async function doChat(args) {
   // 워크스페이스: --workspace 플래그만 이번 실행 env override 로 올림. 나머지 우선순위(NAIA_ADK_PATH env > 전역
   // config > 기본)은 composeAgentRuntimeDeps 가 **단일 해석**(중복 하드코딩 제거). 결과 deps.adkPath 로
   // LLM/스킬/기억의 workspace-의존 로딩. 단일 device workspace(1기기=1설정).
   if (args.workspace) process.env.NAIA_ADK_PATH = args.workspace;
+
+  // 온보딩(값 있으면 로딩, 없으면 인터랙티브 온보딩) — REPL 모드만. --once(파이프/스크립트)는 묻지 않고 에러.
+  if (!args.once) {
+    const ok = await ensureOnboarded(args);
+    if (!ok) process.exit(64);
+  }
 
   const deps = await composeAgentRuntimeDeps();
   const adkPath = deps.adkPath;
