@@ -125,6 +125,36 @@ ghost-edit split 없음). **조립 위치 = 코어**(host 아님): host 는 `Per
 - **NFR-WORKSPACE-deterministic**: 계약테스트는 fake fs/fake provider + 고정 스냅샷으로 결정론. 합성 단언은 contains 기반(brittle full-string 금지). 프로젝트 이름 정렬로 readdir 순서 무관.
 - **NFR-WORKSPACE-core-owned**: 워크스페이스 컨텍스트 조립은 **코어 소유**(host 조립·`req.systemPrompt` 로 주입하는 경로 금지). host 는 포트 주입만.
 
+## UC-FS-TOOLS FR/NFR (FR-FS-1 ~ 8 + NFR-SEC) — 에이전트 직접 파일/셸 도구 + 보안 sandbox
+
+집약 인덱스(권위 = 본 표 + Test Coverage Map 의 `uc-fs-tools.contract.test.ts`). 코어가 **에이전트 직접
+도구**(`list_dir`·`read_file`·`write_file`·`shell_exec`)를 `ToolExecutorPort` 로 제공하고, **보안계약(C3 +
+GLM 독립리뷰)을 1일차부터 전부 적용**한다. 실행기(realpath/exec)만 클라(host)가 주입하고, 코어가 **도구
+spec + sandbox 정책(allow-root) + tier(승인)** 를 소유한다.
+
+★ 이 워크스페이스엔 **실제 키/시크릿**이 있다(`naia-settings/.keys/*.dpapi`·`data-private` 등) → 보안 최우선.
+
+| ID | 요구사항 | 상태 |
+|----|----------|:----:|
+| FR-FS-1 | **도구 spec(`ToolExecutorPort`)** — `list_dir`(디렉터리 항목 나열)·`read_file`(파일 내용)·`write_file`(opt-in)·`shell_exec`(opt-in). 각 spec 의 `parameters` 는 JSON schema. `read_file`/`list_dir` 기본 등록, `write_file`/`shell_exec` 는 `NAIA_SHELL_TOOL=1` 일 때만 specs 노출. | Done |
+| FR-FS-2 | **allow-root sandbox(`validatePath`)** — 모든 fs/shell 경로는 allow-root(=`<adkPath>` 워크스페이스 하위)로 resolve 돼야 통과. 밖이면 거부. 정규화 **후** allow-root 컨테인먼트(prefix, 세그먼트 경계) 재검증. 빈 allow-root = deny-all. | Done |
+| FR-FS-3 | **경로 탈출 차단(전부)** — `..` 상위탈출, Windows 드라이브 절대경로(드라이브문자+콜론)·UNC(이중 역슬래시), env 확장(퍼센트/달러 토큰), 널바이트 → 전부 거부. raw 단계(env/널바이트/UNC) + 정규화 단계(`..` 해소 시 루트 위로 가면 탈출) 양쪽에서. | Done |
+| FR-FS-4 | **민감경로 denylist(allow-root 안이라도 거부)** — `.keys`·`.ssh`·`.git`·`data-private`·`data-business` 세그먼트, `.env`/`.env.*`/`id_rsa`/`id_ed25519` 등 키/자격증명 파일, `.dpapi`/`.pem`/`.key`/`.pfx`/`.age`/`.gpg` 접미사, 브라우저 프로필/토큰 저장소 substring. (`.keys` 유출은 `read_file` 만으로도 치명 — GLM → read 도 거부.) 대소문자/구분자 정규화 후 매칭(`isSensitivePath`). | Done |
+| FR-FS-5 | **realpath/TOCTOU 재검증(`realpathSync`)** — 문자열 검증만으론 부족: 실행 시점에 **realpath 로 실제 경로 resolve 후 `validatePath` 재검증**(승인↔실행 사이 symlink/junction swap 방지, GLM f). 부재 파일(write)은 부모 디렉터리 realpath 재검증. **write 대상이 기존 symlink 면 거부**(`lstatSync` — link-follow 외부 덮어쓰기 차단). realpath 는 **주입 fs**(어댑터) — domain 순수 유지. 이 워크스페이스가 junction(naia-memory → projects/naia-memory)을 쓰므로 필수. ⚠️ **잔존 TOCTOU race**: 검증↔read/write 사이 경로 swap 여지(Node 고수준 path API 한계 — 검증·I/O 가 같은 fd 아님). 완전 방어는 OS-level(O_NOFOLLOW/dir-fd `openat`) 필요·Node 표준 미지원 → opt-in+승인+denylist 로 **완화**(NFR-SEC-toctou-residual). | Done |
+| FR-FS-6 | **`shell_exec` = argv 스펙 + cwd realpath 재검증** — `command: string[]`(셸 문자열 보간/파이프/리다이렉트 0 = injection 차단). 주입 exec 가 `subprocess-session` 의 injection-safe spawn 헬퍼(`pickSpawnableBin`/`resolveSpawnableBin`/`resolveFallbackCommand`)로 **shell 없이** 실행(Windows .cmd/.bat shim → node+script/.exe). cwd 는 `validatePath` + **realpath 재검증**(지정·기본 cwd 모두 — cwd 의 symlink/junction 탈출 차단, 주입 `realpath`). ⚠️ **shell_exec 은 path-sandbox 가 아님**(NFR-SEC-shell-model 참조) — cwd 만 제한되고 명령 자체의 파일 접근은 제한 안 됨. | Done |
+| FR-FS-7 | **tier 승인(기존 ApprovalPort 재사용)** — `read_file`/`list_dir`=`"fs-read"`(gated 감사), `write_file`=`"fs-write"`, `shell_exec`=`"shell"`(상위). `ToolSpec.tier` 설정 시 `chat-turn-handler` 의 기존 게이트(tierOf→prepareDecision→approvalRequest)가 **자동 발화** — 코어 무변경(새 승인 메커니즘 신설 금지). | Done |
+| FR-FS-8 | **opt-in + no-throw** — `write_file`/`shell_exec` 는 `NAIA_SHELL_TOOL=1` opt-in(read/list 기본). 도구 execute 는 실패/거부/sandbox 위반 시 `{output, isError:true}`(throw 금지 — 루프 안정, ToolExecutorPort 계약). abort 시에만 reject. | Done |
+
+### NFR
+- **NFR-SEC-pure-domain**: `domain/fs-sandbox.ts` 순수(fs/process/transport/`node:path` 미import) — `import-boundary.contract.test.ts` green 유지. 경로 정규화/`..` 해소는 순수 문자열 로직(POSIX 슬래시 정규형). realpath I/O 는 어댑터(주입 fs)가 수행 후 도메인 fn 재호출.
+- **NFR-SEC-no-secret-leak**: 민감경로(`.keys`/`.dpapi`/`.env`/SSH 키/`data-private`)는 allow-root 안이라도 read/list/write 전부 거부(denylist). 시크릿/키를 로그·테스트·코드에 하드코딩하지 않는다(F-SEC01 — 테스트는 **가짜 경로만**, 실 키 미접근). `security.test.mjs` green 유지(추적 경로 시크릿 패턴 0).
+- **NFR-SEC-no-bypass**: **fs-tools(read/list/write)** 접근은 `validatePath` + realpath 재검증 통과 후에만(`resolveSafe` 단일 경로 — raw 경로 직접 사용 0). shell_exec 의 **cwd** 도 동일하게 `validatePath`+realpath 재검증(`resolveCwd`). 한 군데도 우회 경로 없음. (단 shell_exec 명령 자체는 path-sandbox 대상이 아님 → NFR-SEC-shell-model.)
+- **NFR-SEC-deterministic**: 계약테스트는 fake fs(realpathSync/lstatSync 포함)/fake exec+fake realpath 로 결정론(실 파일시스템·실 프로세스 0). 단언은 가짜 경로/가짜 링크 시뮬.
+- **NFR-SEC-shell-model (★ shell_exec 보안 모델 — 정직)**: `shell_exec` 은 argv 스펙으로 **셸 injection 은 차단**하지만 **path-sandbox 가 아니다**. argv 로 임의 바이너리(powershell/node/python 등)를 실행하므로 그 명령이 절대경로로 `.ssh`/`.env`/`data-private`/홈 등 **워크스페이스 밖·민감 파일에 접근할 수 있다**(cwd 와 무관). cwd 검증/realpath 재검증은 *작업 디렉터리* 만 제한한다. fs-tools(read/list/write)만 path-sandboxed(allow-root+denylist+realpath). **shell_exec 의 유일한 실효 통제 = opt-in(기본 off, `NAIA_SHELL_TOOL=1`) + tier 승인 게이트 + 신뢰 컨텍스트에서만 활성** 이며 path 격리가 아니다. (per-request capability 강화는 NFR-FS-future-capability — env-var 게이트는 자식 상속으로 약함.)
+- **NFR-SEC-denylist-besteffort (정직)**: 이름기반 denylist(세그먼트/파일명/접미사/substring — `.keys`·`secret(s)`·`service-account.json`·`authorized_keys`·`known_hosts`·`-key.json` 등)는 **defense-in-depth(보장 아님)**. 실 secret 이 비표준 이름(예: `prod.txt` 안의 토큰)으로 저장되면 통과할 수 있다. 근본 방어 = **allow-root 최소화**(워크스페이스만) + opt-in + 승인. denylist 는 *알려진* 민감 패턴의 보강 차단일 뿐.
+- **NFR-SEC-toctou-residual (정직)**: fs-tools 의 validatePath→realpath 재검증과 실제 read/write 사이, 그리고 write 의 부모 검증↔쓰기 사이에 **잔존 TOCTOU race** 가 있다(Node 고수준 path API 는 검증·I/O 가 같은 fd 아님). write 는 추가로 **대상 symlink 거부**(`lstatSync`)로 link-follow 덮어쓰기를 막지만 부모 swap race 는 완전히 닫지 못한다. **완전 방어는 OS-level(O_NOFOLLOW/dir-fd `openat`) 필요·Node 표준 미지원**(난도 높음) → opt-in(기본 off) + 승인 + denylist 로 **완화**. 코드 주석(fs-tools 헤더/`resolveSafe`)에도 정직 표기.
+- **NFR-FS-future-capability**: opt-in 은 현재 env-var 게이트(`NAIA_SHELL_TOOL`) — GLM 지적대로 자식 프로세스 상속으로 약하다. 본 슬라이스의 **핵심 보안은 sandbox/denylist/argv** 이며, **per-request capability**(chat_request 별 capability 토큰으로 도구 활성 범위 제한)는 미래 강화 항목으로 명시한다(코드 주석에도 `@future` 표기).
+
 ## 기타 UC FR
 
 | UC | FR 위치 |

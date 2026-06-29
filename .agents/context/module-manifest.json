@@ -521,6 +521,33 @@
       "uc": ["UC-014"],
       "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
       "note": "WorkspacePort 실 어댑터 — git status --porcelain 폴링·classifyPorcelain(C-quoting 디코드)·abort 누수0. 정직보고 변경 수치. SPEC-010."
+    },
+    "src/main/domain/fs-sandbox.ts": {
+      "layer": "domain",
+      "uc": ["UC-FS-TOOLS"],
+      "contract": [
+        "docs/requirements.md",
+        "docs/user-scenarios.md"
+      ],
+      "note": "S3 보안계약 순수 경로정책(무 I/O) — validatePath(allow-root 컨테인먼트·`..`/드라이브절대/UNC/env확장/널바이트 차단·민감 denylist)+isSensitivePath(.keys/.env/.dpapi/SSH키/data-private 등). realpath I/O 는 어댑터가 실행시 후 재호출(TOCTOU/symlink·junction 탈출, GLM f). node:path 미import(순수). 테스트=src/test/uc-fs-tools.contract.test.ts"
+    },
+    "src/main/adapters/fs-tools.ts": {
+      "layer": "adapters",
+      "uc": ["UC-FS-TOOLS"],
+      "contract": [
+        "docs/requirements.md",
+        "docs/user-scenarios.md"
+      ],
+      "note": "S3 fs 도구 ToolExecutorPort(list_dir/read_file/write_file) — 모든 경로 2단계 검증(domain validatePath → realpathSync 재검증, TOCTOU). write 는 enableWrite=true(NAIA_SHELL_TOOL=1)에서만 spec 노출(opt-in). tier fs-read/fs-write→기존 ApprovalPort 게이트 발화. no-throw. FsLike 주입(node:fs, 테스트 fake). 테스트=src/test/uc-fs-tools.contract.test.ts"
+    },
+    "src/main/adapters/shell-tool.ts": {
+      "layer": "adapters",
+      "uc": ["UC-FS-TOOLS"],
+      "contract": [
+        "docs/requirements.md",
+        "docs/user-scenarios.md"
+      ],
+      "note": "S3 shell_exec ToolExecutorPort — argv 스펙(셸 문자열 보간 0=injection 차단)·cwd allow-root 검증·주입 exec(subprocess-session injection-safe spawn 재사용, shell 없이)·tier shell(상위 승인). opt-in(NAIA_SHELL_TOOL=1). no-throw. 테스트=src/test/uc-fs-tools.contract.test.ts"
     }
   }
 }

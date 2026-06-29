@@ -19,6 +19,9 @@ import { makeMcpJsonRpcClient } from "../../dist/main/adapters/mcp-stdio-transpo
 import { makeCompositeToolExecutor } from "../../dist/main/adapters/composite-tool-executor.js";
 import { makeNotifyExecutor } from "../../dist/main/adapters/notify-skills.js";
 import { makeAdkSkillExecutor, parseSkillMd } from "../../dist/main/adapters/adk-skill-loader.js";
+import { makeFsTools } from "../../dist/main/adapters/fs-tools.js";
+import { makeShellTool } from "../../dist/main/adapters/shell-tool.js";
+import { pickSpawnableBin, resolveSpawnableBin, resolveFallbackCommand } from "../../dist/main/adapters/subprocess-session.js";
 import { makeOpenMeteoFetchWeather } from "../../dist/main/adapters/openmeteo-weather.js";
 import { makeFileMemoStore } from "../../dist/main/adapters/file-memo-store.js";
 import { makeFileConversationLog } from "../../dist/main/adapters/conversation-log-store.js";
@@ -96,6 +99,56 @@ export async function composeAgentRuntimeDeps(o = {}) {
     const builtin = makeBuiltinSkillsExecutor({ clock: () => new Date(), fetchWeather: makeOpenMeteoFetchWeather(), memo });
     skillsLabel = `time/weather/memo(${memoPath})`;
     const executors = [builtin];
+
+    // ── UC-FS-TOOLS(S3): 에이전트 직접 fs/shell 도구. ★ 보안 = 코어가 sandbox 정책(allow-root=adkPath)+tier 소유.
+    //    실행기(realpath/exec)만 여기서 node:fs/child_process 주입(코어 순수). read/list 기본 등록, write/shell 은
+    //    NAIA_SHELL_TOOL=1 opt-in. (GLM: env-var 게이트는 자식상속으로 약함 → 핵심 보안은 sandbox/denylist/argv;
+    //    per-request capability 미래 강화는 요구사항 NFR-SEC 노트.)
+    const enableShell = env.NAIA_SHELL_TOOL === "1";
+    executors.push(makeFsTools({ fs: nodeFs, allowRoots: [adkPath], enableWrite: enableShell }));
+    skillsLabel += enableShell ? " + fs-tools(read/list/write)" : " + fs-tools(read/list)";
+    if (enableShell) {
+      // ── injection-safe argv 실행기 — **shell 없이** spawn(subprocess-session 헬퍼로 Windows .cmd/.bat shim 해석).
+      //    timeout/maxBytes bound, abort 시 child kill. shell 문자열 보간 0(argv 직접).
+      const shellExec = (argv, opts) => new Promise((resolve, reject) => {
+        // bin 해석: argv[0] 절대경로면 그대로, 아니면 where/which → spawnable(.cmd→node+script / .exe 직접).
+        let bin = { command: argv[0], prefixArgs: [] };
+        try {
+          if (/[\\/]/.test(argv[0])) {
+            bin = resolveSpawnableBin(argv[0]); // 경로 포함 = 직접(Windows shim 해석만)
+          } else {
+            const where = process.platform === "win32" ? "where" : "which";
+            const r = spawnSync(where, [argv[0]], { encoding: "utf8", timeout: 5000 });
+            const picked = (r.status === 0 && r.stdout) ? pickSpawnableBin(r.stdout.split(/\r?\n/)) : null;
+            bin = picked ? resolveSpawnableBin(picked) : resolveFallbackCommand(argv[0]);
+          }
+        } catch { bin = resolveFallbackCommand(argv[0]); }
+        const fullArgs = [...bin.prefixArgs, ...argv.slice(1)];
+        let child;
+        try {
+          // ⚠️ shell:false(기본) — 셸 보간/주입 차단. cwd=검증된 절대경로. stdin 무시.
+          child = spawn(bin.command, fullArgs, { cwd: opts.cwd, stdio: ["ignore", "pipe", "pipe"], shell: false });
+        } catch (e) { resolve({ stdout: "", stderr: `spawn failed: ${e instanceof Error ? e.message : String(e)}`, code: null }); return; }
+        let out = "", errOut = "", bytes = 0, settled = false;
+        const cap = (s, chunk) => { const c = chunk.toString("utf8"); bytes += c.length; return bytes > opts.maxBytes ? s : s + c; };
+        const done = (res) => { if (settled) return; settled = true; clearTimeout(timer); if (onAbort) opts.signal?.removeEventListener("abort", onAbort); resolve(res); };
+        child.stdout?.on("data", (c) => { out = cap(out, c); });
+        child.stderr?.on("data", (c) => { errOut = cap(errOut, c); });
+        child.on("error", (e) => done({ stdout: out, stderr: `${errOut}\n${e.message}`, code: null }));
+        child.on("close", (code) => done({ stdout: out, stderr: errOut, code }));
+        const timer = setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* already gone */ } done({ stdout: out, stderr: `${errOut}\n[timeout ${opts.timeoutMs}ms]`, code: null }); }, opts.timeoutMs);
+        let onAbort = null;
+        if (opts.signal) {
+          if (opts.signal.aborted) { try { child.kill("SIGKILL"); } catch { /* noop */ } if (settled) return; settled = true; clearTimeout(timer); reject(new Error("aborted")); return; }
+          onAbort = () => { try { child.kill("SIGKILL"); } catch { /* noop */ } if (settled) return; settled = true; clearTimeout(timer); reject(new Error("aborted")); };
+          opts.signal.addEventListener("abort", onAbort, { once: true });
+        }
+      });
+      // realpath 주입 — cwd 의 symlink/junction 탈출 재검증(fs-tools 와 동형). 부재/실패 시 throw → 어댑터가 거부.
+      executors.push(makeShellTool({ exec: shellExec, allowRoots: [adkPath], realpath: (p) => nodeFs.realpathSync(p) }));
+      skillsLabel += " + shell-tool(argv)";
+    }
+
     const ghToken = env.GITHUB_TOKEN || env.GH_TOKEN;
     if (ghToken) { executors.push(makeGithubSkillsExecutor({ token: ghToken })); skillsLabel += " + github(ro)"; }
     const vault = env.NAIA_OBSIDIAN_VAULT;

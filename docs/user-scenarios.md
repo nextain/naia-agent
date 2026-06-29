@@ -16,6 +16,7 @@
 | UC-PANEL | 환경 panel skill(BGM·브라우저·workspace) 대화 도구 — agent 노출+위임, 셸 실행(E1) | `.agents/progress/panel-skill-grpc-port-2026-06-24.md` (설계) |
 | UC-PERSONA-CLI | 코어가 워크스페이스 설정의 페르소나(Alpha)를 system prompt 로 합성 → CLI 가 `--system` 없이도 알파로 응답 | `docs/requirements.md` FR-PERSONA-1~3 (집약) |
 | UC-WORKSPACE-CTX | 코어가 워크스페이스 컨텍스트(cwd + 프로젝트 이름 목록)를 system prompt 에 경량 포함 → 에이전트가 자기 워크스페이스를 인식 | `docs/requirements.md` FR-WORKSPACE-1~4 (집약) |
+| UC-FS-TOOLS | 에이전트가 **직접 도구**로 워크스페이스 내 파일을 나열/읽기(기본), opt-in 으로 쓰기/셸 실행 — allow-root sandbox + 민감경로 denylist + realpath 재검증(TOCTOU) + tier 승인 | `docs/requirements.md` FR-FS-1~8 / NFR-SEC (집약) |
 
 ## UC-MEM-1 (장기기억 회상)
 
@@ -131,6 +132,43 @@ emotion-tag 블록은 naia-os 전용으로 유지.
 직교: 합성은 domain(순수), projects/ 읽기는 adapter(`fs` 주입), **조립은 코어(app/ChatTurnHandler)** —
 host 는 `WorkspaceContextPort` 주입만.
 
+## UC-FS-TOOLS (에이전트 직접 파일/셸 도구 + 보안 sandbox)
+
+사용자가 에이전트에게 "이 워크스페이스의 파일을 봐줘"·"X 파일 내용을 읽어줘" 같은 요청을 하면, 에이전트가
+**직접 도구**(`list_dir`·`read_file`)로 워크스페이스(allow-root=`<adkPath>`) 안의 파일을 나열/읽는다. opt-in
+(`NAIA_SHELL_TOOL=1`) 시 `write_file`·`shell_exec` 도 쓸 수 있다. **이 워크스페이스엔 실제 키/시크릿이
+있으므로 보안이 최우선** — 모든 경로는 allow-root 안으로 resolve 돼야 하고, 민감경로(`.keys`·`.env`·`.dpapi`·
+SSH 키·`data-private` 등)는 allow-root 안이라도 거부한다.
+
+근본: S2 워크스페이스 컨텍스트(프로젝트 이름 + cwd)는 "무엇이 있는지"만 인지시키고, **상세(파일 내용)
+retrieval 은 본 UC(read_file)의 몫**이다(GLM: snapshot 덤프 방지). S3 는 그 상세 도구를 보안계약과 함께 1일차에 얹는다.
+
+- **S-FS-1 (sandbox containment)**: 모든 fs/shell 경로는 domain `validatePath` 가 검증 — `..` 상위탈출,
+  Windows 드라이브 절대(`C:\`·`D:/`)·UNC, env 확장(`%X%`·`$X`·`${X}`), 널바이트 → 전부 거부. 정규화 **후**
+  allow-root 컨테인먼트(prefix, 세그먼트 경계) 재검증. 빈 allow-root = 전부 거부(deny-all).
+- **S-FS-2 (denylist)**: allow-root 안이라도 민감경로는 거부 — `.keys`/`.ssh`/`.git`/`data-private`/`data-business`
+  세그먼트, `.env`/`.env.*`/`id_rsa`/`id_ed25519` 파일, `.dpapi`/`.pem`/`.key`/`.pfx`/`.age` 접미사, 브라우저
+  프로필/토큰 저장소 substring. (`.keys` 는 read 한 번으로도 치명 → read 도 거부.) 대소문자/구분자 정규화 후 매칭.
+- **S-FS-3 (realpath/TOCTOU)**: 문자열 검증만으로는 부족 — 실행 시점에 **`realpathSync` 로 실제 경로를
+  resolve 후 `validatePath` 재검증**(승인↔실행 사이 symlink/junction swap 방지, GLM f). 이 워크스페이스가
+  junction(`alpha-adk/naia-memory→projects/naia-memory`)을 쓰므로 realpath 후 재검증이 필수다. realpath I/O 는
+  주입 fs(어댑터)로 — domain 은 순수 유지.
+- **S-FS-4 (argv shell)**: `shell_exec` 는 **argv 스펙**(`command: string[]`) — 셸 문자열 보간/파이프/리다이렉트
+  없음(injection 차단). 주입 exec 가 `subprocess-session` 의 injection-safe spawn 헬퍼로 shell 없이 실행. cwd 도
+  allow-root 검증.
+- **S-FS-5 (tier 승인)**: `read_file`/`list_dir`=`fs-read`, `write_file`=`fs-write`, `shell_exec`=`shell`(상위).
+  ToolSpec.tier 설정 시 `chat-turn-handler` 의 기존 ApprovalPort 게이트(tierOf→prepareDecision→approvalRequest)가
+  **자동 발화**(새 승인 메커니즘 신설 없음).
+- **S-FS-6 (opt-in)**: `read_file`/`list_dir` 기본 등록, `write_file`/`shell_exec` 는 `NAIA_SHELL_TOOL=1` 일 때만
+  등록(specs 노출). (GLM: env-var 게이트는 자식 상속으로 약함 → 핵심 보안은 sandbox/denylist/argv; per-request
+  capability 강화는 미래 — NFR-SEC 노트.)
+- **S-FS-7 (no-throw)**: 도구 execute 는 실패/거부/sandbox 위반 시 `{output, isError:true}` 반환(throw 금지 —
+  루프 안정, ToolExecutorPort 계약). abort 시에만 reject.
+
+직교: 정책은 domain(순수, `validatePath`/`isSensitivePath`), realpath/exec(child_process) 등 메커니즘은
+adapter 가 주입 실행기로 소유, tier 승인은 코어의 기존 ApprovalPort. host(`compose-agent-deps`)는 실행기
+(node:fs/child_process)+allowRoots(=adkPath) 만 주입 — 코어 무변경(tier 만 설정하면 게이트 발화).
+
 ## Test Coverage Map
 
 | 요구 | 테스트 |
@@ -155,5 +193,7 @@ host 는 `WorkspaceContextPort` 주입만.
 | UC-PERSONA-CLI / S-PERSONA-3 / FR-PERSONA-3 (코어 조립 + override) | `src/test/uc-persona-handler.contract.test.ts` — fake provider 가 받은 systemPrompt 를 캡처: (a) `req.systemPrompt` 없음 + personaSource 주입 → provider 가 코어 조립 persona(알파 prefix) 수신, (b) `req.systemPrompt` 있음 → 그 override 가 쓰이고 코어 조립 무시, (c) personaSource 미주입 → `req.systemPrompt` 만(무회귀) |
 | UC-WORKSPACE-CTX / S-WORKSPACE-1·2 / FR-WORKSPACE-1·2 | `src/test/uc-workspace-context.contract.test.ts` — describe "composeWorkspaceContext" (cwd+projects 렌더·cap "+N more" 토큰 bounded·빈 입력→""·cwd-only·파일내용 미포함 단언) + describe "WorkspaceContextPort via fake fs" (fake readdir → 디렉터리명만 수집·dotfile/파일 제외·정렬·projects/ 부재 no-throw degrade·파일 내용 안 읽음) |
 | UC-WORKSPACE-CTX / S-WORKSPACE-3 / FR-WORKSPACE-3 (코어 조립 + persona 뒤 append) | `src/test/uc-workspace-context.contract.test.ts` — describe "ChatTurnHandler workspace 조립" — capturing provider 로 systemPrompt 캡처: persona+workspace 둘 다 포함(append 순서), `req.systemPrompt` override 시 둘 다 무시, workspaceContext 미주입 시 persona 만(무회귀) |
+| UC-FS-TOOLS / S-FS-1·2·3 / FR-FS-2·3·4 + NFR-SEC (sandbox 단위) | `src/test/uc-fs-tools.contract.test.ts` — describe "validatePath (domain)" — `..`/드라이브절대/UNC/env확장/널바이트 거부, allow-root 밖 거부·안 허용, denylist(.keys/.env/.dpapi/data-private/ssh) 거부, 빈 allowRoots deny-all + describe "realpath/TOCTOU" — fake realpath 가 allow-root 밖 가리키면 거부(symlink/junction 탈출 시뮬) |
+| UC-FS-TOOLS / S-FS-5·6·7 / FR-FS-1·5·6·7·8 (도구 계약) | `src/test/uc-fs-tools.contract.test.ts` — describe "makeFsTools" — read_file/list_dir(허용 성공·거부 isError·throw 안 함), write_file(enableWrite=false→spec 없음·동작 거부, true→동작·승인 tier), 민감경로 실증(`<adk>/naia-settings/.keys/x.dpapi`·`<adk>/data-private/...` read→isError) + describe "makeShellTool" — argv 정상·셸문자열(string) 거부·cwd 탈출 거부·tier shell·no-throw |
 
 > UC1/UC5/provider-provenance 의 상세 시나리오·수용기준은 각 계약서 + `docs/acceptance-criteria.md` 참조.
