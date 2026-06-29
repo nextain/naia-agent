@@ -14,6 +14,7 @@ import type { ConversationLogPort } from "../ports/conversation-log.js";
 import { formatRecalledMemory } from "../domain/memory.js";
 import { composePersonaPrompt } from "../domain/persona.js";
 import { composeWorkspaceContext } from "../domain/workspace-context.js";
+import { renderEnvironmentSegments } from "../domain/environment-segments.js";
 
 interface Turn { abort: AbortController; state: ChatTurnState; }
 
@@ -144,16 +145,22 @@ export class ChatTurnHandler {
       if (compactedCount > 0) emit({ kind: "compacted", droppedCount: compactedCount });
       // FR-PERSONA-3: 코어가 워크스페이스 페르소나를 *스스로* 조립(클라가 안 보냄). personaSource 주입 시
       // config.json 1회 읽기(작은 파일, per-turn 허용 — 라이브 편집 즉시 반영) → domain 순수 fn 으로 합성.
-      // req.systemPrompt(override: --system 플래그 + naia-os 과도기 경로) 우선, 없으면 코어 조립값. 둘 다
-      // 없으면 undefined(generic). personaSource 미주입 = 기존 동작(req.systemPrompt 만, 무회귀).
-      const corePersona = this.d.personaSource ? composePersonaPrompt(this.d.personaSource.load() ?? {}) : "";
+      // req.systemPrompt(명시 override: --system 플래그 / naia-os voice-pipeline·discord 의 per-turn 지시) 우선,
+      // 없으면 코어 조립값. S4 종착: naia-os 텍스트 채팅은 더는 systemPrompt 를 안 싣고 environmentSegments 만 보냄
+      // (persona-baking 두벌 제거). 둘 다 없으면 undefined(generic). personaSource 미주입 = 기존 동작(무회귀).
+      const personaProfile = this.d.personaSource ? (this.d.personaSource.load() ?? {}) : undefined;
+      const corePersona = personaProfile ? composePersonaPrompt(personaProfile) : "";
       // FR-WORKSPACE: persona 바로 뒤에 워크스페이스 컨텍스트(cwd+프로젝트 이름, 경량 shallow)를 append —
       // 에이전트가 자기 워크스페이스를 인식. snapshot()=undefined(소스 부재)면 빈 입력으로 정규화 → "".
-      // 코어 조립값 = persona ⊕ workspace(둘 다 빈 값이면 "" → undefined). req.systemPrompt override 시 둘 다 무시.
       const coreWs = this.d.workspaceContext ? composeWorkspaceContext(this.d.workspaceContext.snapshot() ?? { cwd: "", projects: [], projectTotal: 0 }) : "";
-      const coreComposed = [corePersona, coreWs].filter(Boolean).join("\n\n");
+      // S4(계약 C2): 클라(naia-os) 환경고유 세그먼트(아바타 감정·패널)를 workspace 뒤에 결정론 머지. emotion-tag
+      // 예시의 locale 은 코어가 소유한 persona 프로필(config.json locale)에서 취함(클라가 안 보냄 — 권한 모델).
+      // CLI 는 빈 배열 → ""(무영향). 화이트리스트 외 kind 는 renderEnvironmentSegments 가 드롭.
+      const coreEnv = renderEnvironmentSegments(req.environmentSegments ?? [], personaProfile?.locale);
+      // 코어 조립값 = persona ⊕ workspace ⊕ environment(전부 빈 값이면 "" → undefined). req.systemPrompt override 시 전부 무시.
+      const coreComposed = [corePersona, coreWs, coreEnv].filter(Boolean).join("\n\n");
       const baseSystemPrompt = req.systemPrompt ?? (coreComposed || undefined);
-      this.d.diag.debug?.("persona base 결정", { requestId: req.requestId, override: req.systemPrompt !== undefined, corePersona: corePersona.length > 0, workspace: coreWs.length > 0, source: req.systemPrompt !== undefined ? "override" : (coreComposed ? "core" : "none") });
+      this.d.diag.debug?.("persona base 결정", { requestId: req.requestId, override: req.systemPrompt !== undefined, corePersona: corePersona.length > 0, workspace: coreWs.length > 0, environment: coreEnv.length > 0, source: req.systemPrompt !== undefined ? "override" : (coreComposed ? "core" : "none") });
       const asm = this.d.conversation.assemble({ messages: preMessages, systemPrompt: baseSystemPrompt });
       // UC-memory FR-MEM-1: 턴 전 recall → systemPrompt 주입(회상 있으면). 기준 = *이 턴의 새 user
       // 입력* = 메시지 배열의 마지막 메시지가 user 일 때 그것. ⚠️ "마지막 user 를 전체에서 탐색"이 아니라

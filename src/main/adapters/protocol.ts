@@ -1,6 +1,35 @@
 // adapters/protocol — wire ↔ domain 변환 (계약 §B.4). 공유 wire(H-agent) conform.
 // os AgentOutbound(wire) → AgentRequest(domain) decode / AgentEmit(domain) → os AgentMessage(wire) encode.
-import type { AgentRequest, AgentEmit, ProviderConfig, ChatMessage } from "../domain/chat.js";
+import type { AgentRequest, AgentEmit, ProviderConfig, ChatMessage, EnvironmentSegment } from "../domain/chat.js";
+
+/** wire environmentSegments(unknown) → EnvironmentSegment[] 안전 디코드(S4). 화이트리스트(avatarEmotion|panel|responseStyle) 외 드롭.
+ *  비배열/잘못된 모양 = []. panel.entries 는 {type:string, data} 만 채택(자유 텍스트 위조 주입 차단 — 코어 domain 이 격리).
+ *  responseStyle 은 style enum("brief"|"normal") 만 채택(미지 style=normal 폴백, 자유 텍스트 주입 경로 없음). */
+export function decodeEnvironmentSegments(v: unknown): EnvironmentSegment[] {
+  if (!Array.isArray(v)) return [];
+  const out: EnvironmentSegment[] = [];
+  for (const s of v) {
+    if (!s || typeof s !== "object") continue;
+    const kind = (s as Record<string, unknown>)["kind"];
+    if (kind === "avatarEmotion") {
+      out.push({ kind: "avatarEmotion" });
+    } else if (kind === "panel") {
+      const rawEntries = (s as Record<string, unknown>)["entries"];
+      const entries = Array.isArray(rawEntries)
+        ? rawEntries
+            .filter((e): e is Record<string, unknown> => !!e && typeof e === "object" && typeof (e as Record<string, unknown>)["type"] === "string")
+            .map((e) => ({ type: String(e["type"]), data: e["data"] }))
+        : [];
+      out.push({ kind: "panel", entries });
+    } else if (kind === "responseStyle") {
+      // style 은 enum 만 — "brief" 만 효과, 그 외(미지정 포함)는 "normal"(무영향)로 정규화. 자유 텍스트 주입 경로 없음.
+      const style = (s as Record<string, unknown>)["style"] === "brief" ? "brief" : "normal";
+      out.push({ kind: "responseStyle", style });
+    }
+    // 그 외 kind = 드롭(화이트리스트).
+  }
+  return out;
+}
 
 /** wire line → AgentRequest. parseRequest(관대): type 화이트리스트, 미지=null. */
 export function decodeRequest(line: string): AgentRequest | null {
@@ -21,6 +50,7 @@ export function decodeRequest(line: string): AgentRequest | null {
         ...(hasProv ? { provider: prov as ProviderConfig } : {}),
         messages: (Array.isArray(o["messages"]) ? o["messages"] : []) as ChatMessage[],
         ...(o["systemPrompt"] !== undefined ? { systemPrompt: str(o["systemPrompt"]) } : {}),
+        ...(o["environmentSegments"] !== undefined ? { environmentSegments: decodeEnvironmentSegments(o["environmentSegments"]) } : {}),
         ...(o["enableTools"] !== undefined ? { enableTools: !!o["enableTools"] } : {}),
         ...(o["enableThinking"] !== undefined ? { enableThinking: !!o["enableThinking"] } : {}),
         ...(o["gatewayUrl"] !== undefined ? { gatewayUrl: str(o["gatewayUrl"]) } : {}),

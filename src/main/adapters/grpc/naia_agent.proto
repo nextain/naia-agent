@@ -58,6 +58,9 @@ message ChatRequest {
   optional string gateway_url = 6;
   repeated string disabled_skills = 7;
   optional string session_id = 8;         // 대화별 세션 id(shell localSessionId) — agent transcript 세션 파일 분리 키(FR-CONV.2). 누락=단일 fallback.
+  // S4 — 클라(naia-os) 환경 세그먼트(아바타 감정·패널). args_json/raw_json 과 동형으로 **JSON 문자열** 운반
+  // (proto-loader 가 구조화 값을 Value 로 직렬화하면 객체 유실 — 본 proto 상단 주석 참조). 코어가 화이트리스트 디코드.
+  optional string environment_segments_json = 9;
 }
 
 message CancelRequest { string request_id = 1; }

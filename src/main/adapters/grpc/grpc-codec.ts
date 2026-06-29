@@ -2,6 +2,7 @@
 // stdio 의 protocol.ts(decodeRequest/encodeEmit) 와 동형 — transport 만 다름(직교). gRPC 의존 없음(순수, 테스트 가능).
 // proto 메시지는 @grpc/proto-loader 가 런타임 로드하는 plain object → 여기서 도메인 타입으로 변환.
 import type { AgentRequest, AgentEmit, ChatMessage } from "../../domain/chat.js";
+import { decodeEnvironmentSegments } from "../protocol.js";
 
 // proto-shaped 입력(proto-loader plain object; 필드명 = proto snake_case 또는 camelCase — loader keepCase=false 가정 camelCase).
 export interface PbChatRequest {
@@ -9,6 +10,8 @@ export interface PbChatRequest {
   sessionId?: string;
   messages: { role: string; content: string; toolCallId?: string }[];
   systemPrompt?: string;
+  /** S4 — 클라 환경 세그먼트(아바타 감정·패널). proto `environment_segments_json` = JSON 문자열(args_json 동형, 무손실). */
+  environmentSegmentsJson?: string;
   enableTools?: boolean;
   enableThinking?: boolean;
   gatewayUrl?: string;
@@ -34,6 +37,7 @@ export function chatRequestToDomain(p: PbChatRequest): Extract<AgentRequest, { k
     messages,
     ...(p.sessionId !== undefined ? { sessionId: String(p.sessionId) } : {}),
     ...(p.systemPrompt !== undefined ? { systemPrompt: p.systemPrompt } : {}),
+    ...(p.environmentSegmentsJson ? { environmentSegments: decodeEnvironmentSegments(parseJsonSafe(p.environmentSegmentsJson)) } : {}),
     ...(p.enableTools !== undefined ? { enableTools: p.enableTools } : {}),
     ...(p.enableThinking !== undefined ? { enableThinking: p.enableThinking } : {}),
     ...(p.gatewayUrl !== undefined ? { gatewayUrl: p.gatewayUrl } : {}),
@@ -56,6 +60,11 @@ export function credsToDomain(p: PbCreds): Extract<AgentRequest, { kind: "credsU
 }
 export function toolRequestToDomain(p: PbToolRequest): Extract<AgentRequest, { kind: "toolRequest" }> {
   return { kind: "toolRequest", requestId: String(p.requestId ?? ""), toolName: String(p.toolName ?? "") };
+}
+
+/** environment_segments_json 안전 파싱 — 손상 JSON = [](디코더가 빈 배열 → 환경 블록 없음, no-throw). */
+function parseJsonSafe(s: string): unknown {
+  try { return JSON.parse(s); } catch { return []; }
 }
 
 // ── 도메인 AgentEmit → proto AgentEvent (protocol.ts encodeEmit 11종 1:1 이식; oneof field 1개 set) ──

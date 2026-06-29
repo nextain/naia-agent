@@ -66,7 +66,7 @@
         "UC-provider-provenance"
       ],
       "contract": "docs/progress/99.dev-comm/UC-provider-provenance-contract-2026-06-12.md",
-      "note": "proto↔domain 순수 매핑(gRPC transport, protocol.ts 동형 이식). naia_agent.proto 계약."
+      "note": "proto↔domain 순수 매핑(gRPC transport, protocol.ts 동형 이식). naia_agent.proto 계약. S4: environment_segments_json(JSON 문자열, args_json 동형)→decodeEnvironmentSegments(protocol.ts 공유)."
     },
     "src/main/adapters/grpc/grpc-server.ts": {
       "layer": "adapters",
@@ -80,10 +80,11 @@
       "layer": "domain",
       "uc": [
         "UC1",
-        "UC5"
+        "UC5",
+        "UC-ENV-SEGMENTS"
       ],
       "contract": "docs/progress/99.dev-comm/UC1-agent-horizontal-contract-2026-06-10.md",
-      "note": "ChatMessage·turn 도메인"
+      "note": "ChatMessage·turn 도메인 + S4 EnvironmentSegment 폐쇄 union(avatarEmotion|panel) + ChatRequest.environmentSegments(클라 환경 컨텍스트, 코어가 머지)"
     },
     "src/main/ports/uc1.ts": {
       "layer": "ports",
@@ -102,14 +103,15 @@
         "UC5",
         "UC-memory",
         "UC-PERSONA-CLI",
-        "UC-WORKSPACE-CTX"
+        "UC-WORKSPACE-CTX",
+        "UC-ENV-SEGMENTS"
       ],
       "contract": [
         "docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md",
         "docs/progress/99.dev-comm/UC-memory-recall-save-contract-2026-06-12.md",
         "docs/requirements.md"
       ],
-      "note": "라운드 루프·terminal 래치·cancel 가드 + memory recall 주입/save seam(커밋지점·timeout·드레인) + FR-PERSONA-3: 코어가 personaSource(optional)로 워크스페이스 페르소나를 *스스로* 조립(composePersonaPrompt, domain import). FR-WORKSPACE: 코어가 workspaceContext(optional)로 워크스페이스 컨텍스트(cwd+프로젝트)를 persona 뒤 append(composeWorkspaceContext). baseSystemPrompt = req.systemPrompt(override) ?? 코어 조립(persona⊕workspace). 미주입=무회귀. 테스트=src/test/uc-persona-handler.contract.test.ts, uc-workspace-context.contract.test.ts"
+      "note": "라운드 루프·terminal 래치·cancel 가드 + memory recall 주입/save seam(커밋지점·timeout·드레인) + FR-PERSONA-3: 코어가 personaSource(optional)로 워크스페이스 페르소나를 *스스로* 조립(composePersonaPrompt, domain import). FR-WORKSPACE: 코어가 workspaceContext(optional)로 워크스페이스 컨텍스트(cwd+프로젝트)를 persona 뒤 append(composeWorkspaceContext). S4(UC-ENV-SEGMENTS): req.environmentSegments(클라 환경 컨텍스트)를 renderEnvironmentSegments(profile.locale)로 workspace 뒤 머지. baseSystemPrompt = req.systemPrompt(override) ?? 코어 조립(persona⊕workspace⊕environment). 미주입=무회귀. 테스트=src/test/uc-persona-handler.contract.test.ts, uc-workspace-context.contract.test.ts, uc-environment-segments.contract.test.ts"
     },
     "src/main/composition/index.ts": {
       "layer": "composition",
@@ -130,7 +132,7 @@
         "UC1"
       ],
       "contract": "docs/progress/99.dev-comm/UC1-agent-horizontal-contract-2026-06-10.md",
-      "note": "AgentEmit↔wire encodeEmit (11종)"
+      "note": "AgentEmit↔wire encodeEmit (11종) + decodeRequest. S4: chat_request 에 environmentSegments 디코드 + decodeEnvironmentSegments(화이트리스트 avatarEmotion|panel, grpc-codec 공유 SoT)"
     },
     "src/main/adapters/stdio.ts": {
       "layer": "adapters",
@@ -330,6 +332,17 @@
         "docs/user-scenarios.md"
       ],
       "note": "PersonaSourcePort 구현 — <adkPath>/naia-settings/config.json + 내장 persona JSON 문자열 파싱→PersonaProfile(NAIA_LOCALE→locale). 페르소나 SoT=naia-os 가 읽고 쓰는 동일 파일(ghost-edit split 없음). FsLike 주입, 부재/손상=undefined(no-throw). FR-PERSONA-2. S1b: 이 포트를 코어(ChatTurnHandler)에 주입 → 코어가 per-turn load()→composePersonaPrompt 조립(host 조립 아님). 테스트=src/test/uc-persona-compose.contract.test.ts"
+    },
+    "src/main/domain/environment-segments.ts": {
+      "layer": "domain",
+      "uc": [
+        "UC-ENV-SEGMENTS"
+      ],
+      "contract": [
+        "docs/requirements.md",
+        "docs/user-scenarios.md"
+      ],
+      "note": "S4(계약 C2, alpha-adk .agents/progress/naia-agent-unified-core-{contract-freeze,migration}-2026-06-29.md) — EnvironmentSegment[] → system prompt 블록 순수 합성. avatarEmotion→표준 emotion-tag 지시(naia-os getEmotionInstructions 문구 SoT 이식, 코어 소유, locale 별 예시) / panel→`Panel [type] context: <escaped json>`(참고데이터 라벨, PANEL_ENTRY_JSON_CAP 길이 bounded). 빈/유효0=\"\". 화이트리스트(avatarEmotion|panel) 외 드롭. persona⊕workspace 뒤 결정론 머지(chat-turn-handler). 클라(naia-os)만 채움, CLI=빈배열. 테스트=src/test/uc-environment-segments.contract.test.ts"
     },
     "src/main/domain/workspace-context.ts": {
       "layer": "domain",

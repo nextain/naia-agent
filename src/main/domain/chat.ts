@@ -17,6 +17,23 @@ export interface ProviderConfig {
 export interface ToolSpec { readonly name: string; readonly description: string; readonly parameters: unknown /* JSON schema */; readonly tier?: string /* UC5 slice 2: 미설정/"none"=자동, 그 외=승인 필요 */; }
 export interface ToolCall { readonly id: string; readonly name: string; readonly args: unknown; }
 
+// ── UC-ENV-SEGMENTS (S4, 계약 C2) — 환경고유 컨텍스트 폐쇄 union ──
+// 클라(naia-os)가 환경고유 정보를 *raw systemPrompt 에 굽지 않고* 구조화 세그먼트로 전달, 코어가 머지.
+// 권한 모델(C2/GLM): persona/profile/workspaceContext 는 클라 주입 **금지**(코어 SoT) — environmentSegments **만**
+// 클라 제공이며, 그것도 자유 system-prompt 텍스트가 아니라 **kind 별 구조화 값**이다. 자유 텍스트로 persona/
+// workspace/agentInstruction 을 위조 주입하는 경로를 API 차원에서 차단(raw systemPrompt 이름만 바꾼 게 아님).
+//  - avatarEmotion: naia-os 아바타 모드 — 코어가 표준 emotion-tag 지시문을 *자체 발행*(클라는 capability flag 만,
+//    문구는 코어 소유). 아바타 없는 CLI 는 omit → emotion 지시 없음.
+//  - panel: 런타임 UI 패널 컨텍스트 — "참고 데이터"로 격리·이스케이프(JSON.stringify + 길이 제한). 모델 지시문 아님.
+//  - responseStyle: 환경의 응답 스타일 힌트(음성 파이프라인 = brief). 코어가 표준 간결성 지시문을 *자체 발행*
+//    (클라는 style enum 만, 문구는 코어 소유). brief=짧은 구어 응답, normal=무영향. 음성 STT→채팅 경로가 raw
+//    systemPrompt 로 persona 를 덮던 회귀(S4)를 닫는다 — persona 조립을 보존하면서 간결성만 환경 지시로 운반.
+// 화이트리스트(avatarEmotion|panel|responseStyle) 외 kind 는 코어가 드롭(domain/environment-segments.ts).
+export type EnvironmentSegment =
+  | { readonly kind: "avatarEmotion" }
+  | { readonly kind: "panel"; readonly entries: readonly { readonly type: string; readonly data: unknown }[] }
+  | { readonly kind: "responseStyle"; readonly style: "brief" | "normal" };
+
 export interface ChatMessage {
   readonly role: "system" | "user" | "assistant" | "tool";
   readonly content: string;
@@ -34,7 +51,12 @@ export interface ChatRequest {
    *  정본(루크): "대화는 메시지만 던지면 agent 가 미리(기동 시) 설정된 provider 로 처리". 있으면 그 요청만 오버라이드(하위호환). */
   readonly provider?: ProviderConfig;
   readonly messages: readonly ChatMessage[];
+  /** raw override(--system 플래그 등 명시 override). S4 종착: 코어가 persona+workspace+environmentSegments 를
+   *  스스로 조립 — naia-os 는 더는 systemPrompt 를 싣지 않는다. 있으면 코어 조립 전부 무시(명시 override only). */
   readonly systemPrompt?: string;
+  /** S4 — 클라(naia-os) 환경고유 컨텍스트(아바타 감정·패널). 코어가 persona+workspace 뒤에 결정론 머지.
+   *  CLI 는 빈 배열(아바타·패널 없음). 화이트리스트 외 kind 는 코어가 드롭. systemPrompt override 시 무시. */
+  readonly environmentSegments?: readonly EnvironmentSegment[];
   readonly enableTools?: boolean;
   readonly enableThinking?: boolean; // top-level (agent 가 providerConfig 에 주입)
   readonly gatewayUrl?: string;
