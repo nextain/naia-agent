@@ -23,7 +23,6 @@ import { makeOpenMeteoFetchWeather } from "../../dist/main/adapters/openmeteo-we
 import { makeFileMemoStore } from "../../dist/main/adapters/file-memo-store.js";
 import { makeFileConversationLog } from "../../dist/main/adapters/conversation-log-store.js";
 import { makePersonaSourceStore } from "../../dist/main/adapters/persona-source-store.js";
-import { composePersonaPrompt } from "../../dist/main/domain/persona.js";
 // ⚠️ makeNaiaMemory(→@nextain/naia-memory)는 *동적* import(아래) — 정적이면 모듈 로딩 실패 시 NAIA_AGENT_MEMORY=off
 // 나 try/catch 에 도달 못 하고 프로세스가 죽어 메모리 비활성 채팅(FR-MEM-3)·초기화 격리 계약이 깨진다.
 import * as nodeFs from "node:fs";
@@ -67,15 +66,14 @@ export async function composeAgentRuntimeDeps(o = {}) {
   let skillsCfg = {};
   try { skillsCfg = JSON.parse(nodeFs.readFileSync(join(adkPath, "naia-settings", "skills.json"), "utf8")); } catch { /* 없음 = env 폴백 */ }
 
-  // ── UC-PERSONA-CLI: 워크스페이스 페르소나(Alpha) → 기본 system prompt 합성. SoT = <adkPath>/naia-settings/
-  //    config.json(naia-os 가 읽고 쓰는 동일 파일). 합성은 domain(순수), 읽기는 adapter(fs 주입). CLI host 가
-  //    `args.systemPrompt ?? deps.personaSystemPrompt` 로 기본 주입(--system override 유지, FR-PERSONA-1~3). ──
+  // ── UC-PERSONA-CLI(S1b): 워크스페이스 페르소나(Alpha) SoT 읽기 포트만 제공. SoT = <adkPath>/naia-settings/
+  //    config.json(naia-os 가 읽고 쓰는 동일 파일). **합성은 코어(ChatTurnHandler)가 personaSource 로 스스로 수행**
+  //    (FR-PERSONA-3) — host 는 조립·주입하지 않는다(클라가 system prompt 를 안 보냄). personaLabel 은 stderr
+  //    상태줄 표기용으로만 load() 1회 추출. (S1a 의 host 합성·주입 경로는 제거 — 코어가 조립.)
   const personaSource = makePersonaSourceStore({ fs: nodeFs, adkPath });
   const personaProfile = personaSource.load();
-  const composedPersona = composePersonaPrompt(personaProfile ?? {});
-  const personaSystemPrompt = composedPersona.length > 0 ? composedPersona : undefined;
-  const personaLabel = personaSystemPrompt
-    ? `persona(${personaProfile?.agentName ?? "?"}, locale=${personaProfile?.locale ?? "?"}, style=${personaProfile?.speechStyle ?? "?"})`
+  const personaLabel = personaProfile?.agentName
+    ? `persona(${personaProfile.agentName}, locale=${personaProfile.locale ?? "?"}, style=${personaProfile.speechStyle ?? "?"})`
     : "persona(none)";
 
   // ── UC5 실 스킬(time/weather/memo + github/obsidian/mcp/notify/adk) — 기본 활성(NAIA_AGENT_SKILLS=off 로 비활성). ──
@@ -242,7 +240,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
     toolExecutor, skillsLabel,
     memory, memoryLabel,
     conversationLog, transcriptLabel,
-    personaSystemPrompt, personaLabel,
+    personaSource, personaLabel,
     diag, cleanupFns,
   };
 }

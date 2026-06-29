@@ -6,12 +6,13 @@ import type {
 import { mapProviderChunk, threadToolRound, estimateMessageTokens } from "../domain/chat.js";
 import { calculateCost } from "../domain/cost.js";
 import type {
-  ProviderPort, ProviderResolverPort, ConversationPort, CredentialPort, ApprovalPort, AgentEgressPort, DiagnosticLog, ToolExecutorPort, ProviderChatOpts,
+  ProviderPort, ProviderResolverPort, ConversationPort, CredentialPort, ApprovalPort, AgentEgressPort, DiagnosticLog, ToolExecutorPort, ProviderChatOpts, PersonaSourcePort,
 } from "../ports/uc1.js";
 import type { MemoryPort } from "../ports/memory.js";
 import type { CompactionPort } from "../ports/compaction.js";
 import type { ConversationLogPort } from "../ports/conversation-log.js";
 import { formatRecalledMemory } from "../domain/memory.js";
+import { composePersonaPrompt } from "../domain/persona.js";
 
 interface Turn { abort: AbortController; state: ChatTurnState; }
 
@@ -56,6 +57,7 @@ export interface HandlerDeps {
   readonly memoryTimeoutMs?: number;                              // recall/save/compact deadline override(테스트용; 미주입=기본 5000ms).
   readonly toolTimeoutMs?: number;                                // per-tool 실행 deadline override(테스트용; 미주입=60000ms).
   readonly conversationLog?: ConversationLogPort;                 // FR-CONV.1 — turn 후 verbatim transcript append(전두엽 기록). 미주입=미기록(무회귀).
+  readonly personaSource?: PersonaSourcePort;                     // FR-PERSONA-3 — 코어가 워크스페이스 페르소나를 *스스로* 조립(클라가 안 보냄). req.systemPrompt 는 override. 미주입=기존 동작(req.systemPrompt 만, 무회귀).
 }
 
 export class ChatTurnHandler {
@@ -138,7 +140,14 @@ export class ChatTurnHandler {
       const { messages: preMessages, recap: compactionRecap, droppedCount: compactedCount } = await this.maybeCompact(req, signal);
       // UC-compaction: 압축 발생 시 wire 로 알림(UI 표시용). 비-terminal·무손실 정보 — usage/finish 불변식 무영향.
       if (compactedCount > 0) emit({ kind: "compacted", droppedCount: compactedCount });
-      const asm = this.d.conversation.assemble({ messages: preMessages, systemPrompt: req.systemPrompt });
+      // FR-PERSONA-3: 코어가 워크스페이스 페르소나를 *스스로* 조립(클라가 안 보냄). personaSource 주입 시
+      // config.json 1회 읽기(작은 파일, per-turn 허용 — 라이브 편집 즉시 반영) → domain 순수 fn 으로 합성.
+      // req.systemPrompt(override: --system 플래그 + naia-os 과도기 경로) 우선, 없으면 코어 조립값. 둘 다
+      // 없으면 undefined(generic). personaSource 미주입 = 기존 동작(req.systemPrompt 만, 무회귀).
+      const corePersona = this.d.personaSource ? composePersonaPrompt(this.d.personaSource.load() ?? {}) : "";
+      const baseSystemPrompt = req.systemPrompt ?? (corePersona || undefined);
+      this.d.diag.debug?.("persona base 결정", { requestId: req.requestId, override: req.systemPrompt !== undefined, corePersona: corePersona.length > 0, source: req.systemPrompt !== undefined ? "override" : (corePersona ? "core" : "none") });
+      const asm = this.d.conversation.assemble({ messages: preMessages, systemPrompt: baseSystemPrompt });
       // UC-memory FR-MEM-1: 턴 전 recall → systemPrompt 주입(회상 있으면). 기준 = *이 턴의 새 user
       // 입력* = 메시지 배열의 마지막 메시지가 user 일 때 그것. ⚠️ "마지막 user 를 전체에서 탐색"이 아니라
       // 마지막 메시지여야 한다 — assistant continuation/regenerate(마지막이 assistant) 요청에서 과거

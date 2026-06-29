@@ -71,23 +71,30 @@ emit**, 실행은 셸. 셸 결과(panel_tool_result)를 받아 tool_result 로 L
 사용자를 "마스터"로 부름. naia-os 든 단독 CLI 든 **같은 알파**(동일 SoT = 같은 config.json 을
 naia-os 가 읽고 쓰므로 ghost-edit split 없음).
 
-근본: 오늘 CLI 는 `--system` 이 있어야만 systemPrompt 를 세팅(없으면 generic chatbot). 코어가
-config.json 의 `persona`(JSON 문자열, `systemPromptPrefix` 포함) + `agentName`/`userName`/`speechStyle`/
-`honorific`/`NAIA_LOCALE` 를 합성해 기본 페르소나 system prompt 를 만든다.
+근본: 오늘 CLI 는 `--system` 이 있어야만 systemPrompt 를 세팅(없으면 generic chatbot). **코어
+(`ChatTurnHandler`)가** `config.json` 의 `persona`(JSON 문자열, `systemPromptPrefix` 포함) +
+`agentName`/`userName`/`speechStyle`/`honorific`/`NAIA_LOCALE` 를 **스스로 합성**해 기본 페르소나
+system prompt 를 만든다. host(CLI·gRPC) 는 `PersonaSourcePort` 만 주입하고, 페르소나를 **클라이언트가
+보내지 않는다**(설계 원칙: 코어가 system prompt 를 소유). `req.systemPrompt` 는 **순수 override**
+(`--system` 플래그 + naia-os 과도기 경로)로만 남는다.
 
 - **S-PERSONA-1 (순수 합성)**: `composePersonaPrompt(profile)` (domain, 순수·무 I/O) 가 base(=`systemPromptPrefix`)
   + 컨텍스트 줄(userName·honorific·locale·speechStyle) 을 naia-os `buildSystemPrompt` **순서대로** 조립.
   단, 아바타/환경 전용 **emotion-tag 블록은 제외**(CLI 는 아바타 없음). profile 이 사실상 빈 값이면 "" 반환
-  (호출자가 "페르소나 기본 없음"으로 취급).
+  (코어가 "페르소나 기본 없음"으로 취급 → systemPrompt 미설정).
 - **S-PERSONA-2 (SoT 읽기)**: `PersonaSourcePort.load()` 가 `<adkPath>/naia-settings/config.json` +
   내장 `persona` JSON 문자열을 파싱해 `PersonaProfile` 로 매핑(`NAIA_LOCALE`→`locale`). 파일 부재/손상/
   필드 누락 = no-throw(undefined 필드로 degrade). 별도 페르소나 소스 신설 금지(config.json = 유일 SoT).
-- **S-PERSONA-3 (CLI 기본 주입)**: `bin/naia-agent-chat.mjs` 가 `compose-agent-deps` 가 만든
-  `personaSystemPrompt` 를 기본값으로 사용 — `args.systemPrompt ?? deps.personaSystemPrompt`(`--system`
-  이 있으면 그대로 override). stderr 상태줄에 persona label 표기.
+- **S-PERSONA-3 (코어 조립 + override 계약)**: `ChatTurnHandler.onChatRequest` 가 **코어 안에서**
+  `composePersonaPrompt(personaSource.load() ?? {})` 로 페르소나를 조립한다. 조립값과 `req.systemPrompt`
+  의 합성 규칙 = **`req.systemPrompt`(override) 우선, 없으면 코어 조립값**. `personaSource` 미주입 시
+  기존 동작(`req.systemPrompt` 만, 무회귀). config.json 은 매 턴 1회 읽기(작은 파일) → 라이브 편집 즉시 반영.
+  CLI host(`bin/naia-agent-chat.mjs`)·gRPC host(`agent-stdio-entry.mjs`) 둘 다 `compose-agent-deps` 가
+  만든 `personaSource` 를 `wireAgentUC1` 에 주입(병렬 경로 없음, NFR-CLI-shared). stderr 상태줄에 persona label 표기.
 
-직교: 합성은 domain(순수), config 읽기는 adapter(`fs` 주입), 기본 주입은 host(bin). naia-os 의
-`persona.ts` 는 **참조만**(import 금지) — CLI 측 재구현. emotion-tag 블록은 naia-os 전용으로 유지.
+직교: 합성은 domain(순수), config 읽기는 adapter(`fs` 주입), **조립은 코어(app/ChatTurnHandler)** —
+host 는 `PersonaSourcePort` 주입만. naia-os 의 `persona.ts` 는 **참조만**(import 금지) — CLI 측 재구현.
+emotion-tag 블록은 naia-os 전용으로 유지.
 
 ## Test Coverage Map
 
@@ -109,6 +116,7 @@ config.json 의 `persona`(JSON 문자열, `systemPromptPrefix` 포함) + `agentN
 | V모델: UC-CLI = UC-014 (REQ-011·012 → SPEC-009·010 → TEST-F-009·010), TEST-S-014 | `docs/progress/{01..05}/INDEX.md` (orphan 0) |
 | UC-CLI / S-CLI-CHAT·S-CLI-LOGIN (S1 대화·로그인) / FR-CLI-7·8 | `src/test/cli-chat.contract.test.ts`(멀티턴 history 누적·emit→stdout·finish 재프롬프트·error 격리·login 파싱→.env 기록) + bin 실행 검증(fake provider 2턴 맥락 유지) |
 | UC-PANEL / S-PANEL-1·2·3 / FR-PANEL-1~5 | `src/test/uc-panel-skill.contract.test.ts` (등록→노출·tool call→panel_tool_call emit·result→주입·timeout/취소·동시성·builtin 무회귀) [예정] |
-| UC-PERSONA-CLI / S-PERSONA-1·2·3 / FR-PERSONA-1·2·3 | `src/test/uc-persona-compose.contract.test.ts` — describe "composePersonaPrompt" (full Alpha profile→prefix·존댓말·루크·마스터·Korean 포함, emotion-tag 제외 단언) + describe "Golden case D (CLI/no avatar)" (빈 profile→"", prefix-only→base only) + describe "PersonaSourcePort (fake fs)" (실 config.json shape→매핑 PersonaProfile, 파일부재→undefined) |
+| UC-PERSONA-CLI / S-PERSONA-1·2 / FR-PERSONA-1·2 | `src/test/uc-persona-compose.contract.test.ts` — describe "composePersonaPrompt" (full Alpha profile→prefix·존댓말·루크·마스터·Korean 포함, emotion-tag 제외 단언) + describe "Golden case D (CLI/no avatar)" (빈 profile→"", prefix-only→base only) + describe "PersonaSourcePort (fake fs)" (실 config.json shape→매핑 PersonaProfile, 파일부재→undefined) |
+| UC-PERSONA-CLI / S-PERSONA-3 / FR-PERSONA-3 (코어 조립 + override) | `src/test/uc-persona-handler.contract.test.ts` — fake provider 가 받은 systemPrompt 를 캡처: (a) `req.systemPrompt` 없음 + personaSource 주입 → provider 가 코어 조립 persona(알파 prefix) 수신, (b) `req.systemPrompt` 있음 → 그 override 가 쓰이고 코어 조립 무시, (c) personaSource 미주입 → `req.systemPrompt` 만(무회귀) |
 
 > UC1/UC5/provider-provenance 의 상세 시나리오·수용기준은 각 계약서 + `docs/acceptance-criteria.md` 참조.

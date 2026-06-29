@@ -212,9 +212,9 @@ async function doChat(args) {
     write: (s) => process.stdout.write(s),
     prompt: () => {},   // REPL 모드에서 rl.prompt 로 교체. once 모드=no-op.
   };
-  // 기본 system prompt = 워크스페이스 페르소나(Alpha) — --system 이 있으면 그것이 override(FR-PERSONA-3).
-  // deps.personaSystemPrompt 는 compose-agent-deps 가 <adkPath>/naia-settings/config.json 에서 합성(없으면 undefined).
-  const systemPrompt = args.systemPrompt ?? deps.personaSystemPrompt;
+  // FR-PERSONA-3: 페르소나 조립은 **코어(ChatTurnHandler)가 personaSource 로 스스로 수행** — host 는 보내지 않는다.
+  // systemPrompt 는 순수 override(--system) 뿐. 없으면 미설정 → 코어가 워크스페이스 페르소나(Alpha)를 조립.
+  const systemPrompt = args.systemPrompt;
   const repl = makeReplConversation({
     io,
     newRequestId: () => randomUUID(),
@@ -235,6 +235,7 @@ async function doChat(args) {
     ...(toolExecutor && !args.noTools ? { toolExecutor } : {}),
     ...(deps.memory ? { memory: deps.memory, compaction: deps.memory } : {}),
     ...(deps.conversationLog ? { conversationLog: deps.conversationLog } : {}),
+    ...(deps.personaSource ? { personaSource: deps.personaSource } : {}), // FR-PERSONA-3: 코어가 워크스페이스 페르소나 조립(클라가 안 보냄)
     defaultConfig: config,
   });
   wired.start?.();

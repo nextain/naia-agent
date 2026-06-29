@@ -83,21 +83,24 @@
 
 ## UC-PERSONA-CLI FR/NFR (FR-PERSONA-1 ~ 3) — 워크스페이스 페르소나 기본 주입
 
-집약 인덱스(권위 = 본 표 + Test Coverage Map 의 `uc-persona-compose.contract.test.ts`). 코어가
-워크스페이스 설정의 페르소나(Alpha)를 system prompt 로 합성해, 단독 CLI(`naia-agent-chat`)가 `--system`
-없이도 알파로 응답하게 한다. SoT = `<adkPath>/naia-settings/config.json`(naia-os 가 읽고 쓰는 동일 파일 →
-ghost-edit split 없음).
+집약 인덱스(권위 = 본 표 + Test Coverage Map 의 `uc-persona-compose.contract.test.ts` +
+`uc-persona-handler.contract.test.ts`). **코어(`ChatTurnHandler`)가** 워크스페이스 설정의 페르소나(Alpha)를
+system prompt 로 **스스로 합성**해, 단독 CLI(`naia-agent-chat`)·gRPC(naia-os) 어디서든 `--system` 없이도
+알파로 응답하게 한다. SoT = `<adkPath>/naia-settings/config.json`(naia-os 가 읽고 쓰는 동일 파일 →
+ghost-edit split 없음). **조립 위치 = 코어**(host 아님): host 는 `PersonaSourcePort` 만 주입하고
+페르소나를 클라이언트가 보내지 않는다. `req.systemPrompt` = **순수 override** 계약.
 
 | ID | 요구사항 | 상태 |
 |----|----------|:----:|
-| FR-PERSONA-1 | **순수 합성 계약(`composePersonaPrompt`)** — domain 순수 함수(무 I/O). base = `systemPromptPrefix`(있으면) ?? `personaText` ?? 기본. agentName 치환 후 컨텍스트 줄을 naia-os `buildSystemPrompt` **순서**(userName → honorific[formality locale 만: ko/ja/de/fr/es/hi/vi/ru/pt/id/ar] → locale "Respond in <Lang>" → speechStyle formal/casual 지시)대로 append. 아바타/환경 전용 **emotion-tag 블록 제외**(CLI 무 아바타). profile 이 사실상 빈 값이면 `""` 반환(= 페르소나 기본 없음). | Pending |
-| FR-PERSONA-2 | **SoT 읽기(`PersonaSourcePort`)** — `load()` 가 `<adkPath>/naia-settings/config.json` + 내장 `persona` JSON 문자열을 파싱해 `PersonaProfile`(agentName/userName/honorific/speechStyle/locale[=NAIA_LOCALE]/systemPromptPrefix/personaText)로 매핑. `fs` 주입(node:fs-like, 어댑터 DI 패턴). 파일 부재/JSON 손상/`persona` 파싱 실패/필드 누락 = **no-throw**(undefined 필드로 degrade, 파일 부재=undefined 반환). 별도 페르소나 소스 신설 금지(config.json 유일 SoT). | Pending |
-| FR-PERSONA-3 | **CLI 기본 주입** — `compose-agent-deps` 가 `personaSystemPrompt`(string\|undefined, 합성 결과 비어있으면 undefined) + `personaLabel` 을 deps 에 추가. `bin/naia-agent-chat.mjs` 가 `makeReplConversation` systemPrompt 를 `args.systemPrompt ?? deps.personaSystemPrompt` 로 설정(`--system` override 유지). stderr 상태줄에 persona label 표기. | Pending |
+| FR-PERSONA-1 | **순수 합성 계약(`composePersonaPrompt`)** — domain 순수 함수(무 I/O). base = `systemPromptPrefix`(있으면) ?? `personaText` ?? 기본. agentName 치환 후 컨텍스트 줄을 naia-os `buildSystemPrompt` **순서**(userName → honorific[formality locale 만: ko/ja/de/fr/es/hi/vi/ru/pt/id/ar] → locale "Respond in <Lang>" → speechStyle formal/casual 지시)대로 append. 아바타/환경 전용 **emotion-tag 블록 제외**(CLI 무 아바타). profile 이 사실상 빈 값이면 `""` 반환(= 페르소나 기본 없음). | Done |
+| FR-PERSONA-2 | **SoT 읽기(`PersonaSourcePort`)** — `load()` 가 `<adkPath>/naia-settings/config.json` + 내장 `persona` JSON 문자열을 파싱해 `PersonaProfile`(agentName/userName/honorific/speechStyle/locale[=NAIA_LOCALE]/systemPromptPrefix/personaText)로 매핑. `fs` 주입(node:fs-like, 어댑터 DI 패턴). 파일 부재/JSON 손상/`persona` 파싱 실패/필드 누락 = **no-throw**(undefined 필드로 degrade, 파일 부재=undefined 반환). 별도 페르소나 소스 신설 금지(config.json 유일 SoT). | Done |
+| FR-PERSONA-3 | **코어 조립 + override 계약(S1b)** — `ChatTurnHandler` 가 `HandlerDeps.personaSource?`(optional `PersonaSourcePort`)를 받아 **코어 안에서** `composePersonaPrompt(personaSource.load() ?? {})` 로 페르소나를 조립한다. assemble 에 넘기는 systemPrompt = **`req.systemPrompt`(override) 우선, 없으면 코어 조립값**(빈 문자열은 `undefined` 로 정규화). compaction recap·memory recall 은 이 base 위에 그대로 누적(무영향). `personaSource` 미주입 = 기존 동작(`req.systemPrompt` 만, 무회귀). host(`bin/naia-agent-chat.mjs`·`agent-stdio-entry.mjs`)는 `compose-agent-deps` 가 만든 `personaSource` 를 `wireAgentUC1({ personaSource })` 로 주입하고 **자체 조립·주입하지 않는다**(과도기 `personaSystemPrompt` host 합성 경로 제거). `compose-agent-deps` 는 로그용 `personaLabel`(personaSource.load() 1회 추출) 만 반환. config.json 은 per-turn 1회 읽기(라이브 편집 반영). | Done |
 
 ### NFR
-- **NFR-PERSONA-pure**: `domain/persona.ts` 순수(fs/process/transport 미import) — `import-boundary.contract.test.ts` green 유지. config 읽기는 adapter(`fs` 주입), 기본 주입은 host(bin/.mjs).
-- **NFR-PERSONA-deterministic**: 계약테스트는 fake fs + 고정 profile 로 결정론. 합성 단언은 contains 기반(brittle full-string 금지).
+- **NFR-PERSONA-pure**: `domain/persona.ts` 순수(fs/process/transport 미import) — `import-boundary.contract.test.ts` green 유지. config 읽기는 adapter(`fs` 주입), **조립은 코어(app/ChatTurnHandler 가 domain 순수 fn import)** — app←domain 허용 방향이라 경계 무위반.
+- **NFR-PERSONA-deterministic**: 계약테스트는 fake fs/fake provider + 고정 profile 로 결정론. 합성 단언은 contains 기반(brittle full-string 금지).
 - **NFR-PERSONA-no-import**: naia-os `persona.ts` 는 **참조만**(import 금지) — CLI 측 재구현. emotion-tag 블록은 naia-os 전용 유지(중복 아님 — 의도된 분기).
+- **NFR-PERSONA-core-owned**: 페르소나 조립은 **코어 소유**(host 조립·`req.systemPrompt` 로 주입하는 과도기 경로 금지). 식별자 `personaSystemPrompt` 는 코드베이스에 잔존하지 않는다(grep 0).
 
 ## 기타 UC FR
 

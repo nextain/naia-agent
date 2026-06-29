@@ -5,7 +5,7 @@ import { makeInMemoryApproval } from "../adapters/approval.js";
 import { makeStderrDiagnostic } from "../adapters/diagnostic.js";
 import { makeBudgetedConversation } from "../adapters/budgeted-conversation.js";
 import type {
-  ProviderPort, ProviderResolverPort, ConversationPort, CredentialPort, ApprovalPort, AgentIngressPort, AgentEgressPort, DiagnosticLog, ToolExecutorPort,
+  ProviderPort, ProviderResolverPort, ConversationPort, CredentialPort, ApprovalPort, AgentIngressPort, AgentEgressPort, DiagnosticLog, ToolExecutorPort, PersonaSourcePort,
 } from "../ports/uc1.js";
 import type { MemoryPort } from "../ports/memory.js";
 import type { CompactionPort } from "../ports/compaction.js";
@@ -41,6 +41,7 @@ export function wireAgentUC1(opts?: {
   compactKeepTail?: number;        // 압축 시 원문 유지 최근 메시지 수(미주입=기본)
   compactTargetTokens?: number;    // recap 목표 토큰(미주입=기본)
   conversationLog?: ConversationLogPort; // FR-CONV.1 — 미주입 = transcript 미기록(무회귀)
+  personaSource?: PersonaSourcePort; // FR-PERSONA-3 — 코어가 워크스페이스 페르소나를 스스로 조립. 미주입 = req.systemPrompt 만(무회귀)
   memoryTimeoutMs?: number;        // recall/save deadline override(테스트용)
   defaultConfig?: ProviderConfig;  // 기동 시 naia-settings(llm.json main) 로딩한 활성 provider(wire provider 미실 시 사용)
   ingress?: AgentIngressPort;      // 비-stdio transport(gRPC) 가 직접 주입 — transport 무지(직교). 미주입+io 시 stdio.
@@ -63,6 +64,7 @@ export function wireAgentUC1(opts?: {
     ...(opts?.compactKeepTail !== undefined ? { compactKeepTail: opts.compactKeepTail } : {}),
     ...(opts?.compactTargetTokens !== undefined ? { compactTargetTokens: opts.compactTargetTokens } : {}),
     ...(opts?.conversationLog ? { conversationLog: opts.conversationLog } : {}),
+    ...(opts?.personaSource ? { personaSource: opts.personaSource } : {}),
     ...(opts?.memoryTimeoutMs !== undefined ? { memoryTimeoutMs: opts.memoryTimeoutMs } : {}),
     ...(opts?.defaultConfig ? { defaultConfig: opts.defaultConfig } : {}),
     egress: opts?.egress ?? { emit: () => {} }, // transport=gRPC: egress 는 grpc adapter 주입(stdio 제거). 미주입=no-op(헤드리스).

@@ -98,13 +98,15 @@
       "uc": [
         "UC1",
         "UC5",
-        "UC-memory"
+        "UC-memory",
+        "UC-PERSONA-CLI"
       ],
       "contract": [
         "docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md",
-        "docs/progress/99.dev-comm/UC-memory-recall-save-contract-2026-06-12.md"
+        "docs/progress/99.dev-comm/UC-memory-recall-save-contract-2026-06-12.md",
+        "docs/requirements.md"
       ],
-      "note": "라운드 루프·terminal 래치·cancel 가드 + memory recall 주입/save seam(커밋지점·timeout·드레인)"
+      "note": "라운드 루프·terminal 래치·cancel 가드 + memory recall 주입/save seam(커밋지점·timeout·드레인) + FR-PERSONA-3: 코어가 personaSource(optional)로 워크스페이스 페르소나를 *스스로* 조립(composePersonaPrompt, domain import). baseSystemPrompt = req.systemPrompt(override) ?? 코어 조립. 미주입=req.systemPrompt 만(무회귀). 테스트=src/test/uc-persona-handler.contract.test.ts"
     },
     "src/main/composition/index.ts": {
       "layer": "composition",
@@ -117,7 +119,7 @@
         "docs/progress/99.dev-comm/UC1-agent-horizontal-contract-2026-06-10.md",
         "docs/progress/99.dev-comm/UC-memory-recall-save-contract-2026-06-12.md"
       ],
-      "note": "wireAgentUC1 조립 + memory/drain 배선"
+      "note": "wireAgentUC1 조립 + memory/drain 배선 + personaSource(optional) 조건부 주입(FR-PERSONA-3 코어 조립)"
     },
     "src/main/adapters/protocol.ts": {
       "layer": "adapters",
@@ -324,7 +326,7 @@
         "docs/requirements.md",
         "docs/user-scenarios.md"
       ],
-      "note": "PersonaSourcePort 구현 — <adkPath>/naia-settings/config.json + 내장 persona JSON 문자열 파싱→PersonaProfile(NAIA_LOCALE→locale). 페르소나 SoT=naia-os 가 읽고 쓰는 동일 파일(ghost-edit split 없음). FsLike 주입, 부재/손상=undefined(no-throw). FR-PERSONA-2. 테스트=src/test/uc-persona-compose.contract.test.ts"
+      "note": "PersonaSourcePort 구현 — <adkPath>/naia-settings/config.json + 내장 persona JSON 문자열 파싱→PersonaProfile(NAIA_LOCALE→locale). 페르소나 SoT=naia-os 가 읽고 쓰는 동일 파일(ghost-edit split 없음). FsLike 주입, 부재/손상=undefined(no-throw). FR-PERSONA-2. S1b: 이 포트를 코어(ChatTurnHandler)에 주입 → 코어가 per-turn load()→composePersonaPrompt 조립(host 조립 아님). 테스트=src/test/uc-persona-compose.contract.test.ts"
     },
     "src/main/ports/memory.ts": {
       "layer": "ports",
