@@ -9,8 +9,9 @@
   },
   "packageManager": "pnpm@10.33.0",
   "bin": {
-    "naia-agent": "bin/naia-agent-run.mjs",
-    "naia-agent-chat": "bin/naia-agent-chat.mjs"
+    "naia-agent": "bin/naia-agent.mjs",
+    "naia-agent-chat": "bin/naia-agent-chat.mjs",
+    "naia-agent-run": "bin/naia-agent-run.mjs"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
