@@ -119,6 +119,68 @@ describe("composePersonaPrompt — Golden case D (CLI/no avatar) (FR-PERSONA-1)"
   });
 });
 
+// ── locale primary subtag 정규화(BCP-47, codex 적대리뷰) ──
+describe("composePersonaPrompt — locale 정규화 (NFR-PERSONA-locale-normalize)", () => {
+  const baseProfile = (locale: string): PersonaProfile => ({
+    systemPromptPrefix: ALPHA_PREFIX,
+    userName: "루크",
+    honorific: "마스터",
+    speechStyle: "formal",
+    locale,
+  });
+
+  for (const loc of ["ko-KR", "ko_KR", "KO", "ko-Kore-KR", "ko"]) {
+    it(`locale="${loc}" → Korean + 존댓말/호칭 정상(primary subtag 정규화)`, () => {
+      const out = composePersonaPrompt(baseProfile(loc));
+      expect(out).toContain("IMPORTANT: Respond in Korean."); // 영어 폴백 아님
+      expect(out).toContain("Speak politely in Korean (존댓말)"); // formality locale 적용(말투 붕괴 없음)
+      expect(out).toContain("마스터"); // honorific 줄(formality locale)
+      expect(out).not.toContain("Respond in English");
+    });
+  }
+
+  it("locale='ja-JP' → Japanese + 敬語(말투 정상)", () => {
+    const out = composePersonaPrompt({ systemPromptPrefix: "X", speechStyle: "formal", locale: "ja-JP" });
+    expect(out).toContain("IMPORTANT: Respond in Japanese.");
+    expect(out).toContain("Speak politely in Japanese");
+  });
+
+  it("정규화 무회귀 — 정규화 키 'en-US' → English(formality 아님, honorific/speechStyle 생략)", () => {
+    const out = composePersonaPrompt({ systemPromptPrefix: "X", userName: "Luke", honorific: "master", speechStyle: "formal", locale: "en-US" });
+    expect(out).toContain("IMPORTANT: Respond in English.");
+    expect(out).not.toContain("Speak formally");
+    expect(out).not.toContain("master Luke");
+  });
+});
+
+// ── speechStyle enum 정규화(codex 적대리뷰) ──
+describe("composePersonaPrompt — speechStyle 정규화 (NFR-PERSONA-locale-normalize)", () => {
+  const ko = (style: string): PersonaProfile => ({ systemPromptPrefix: "X", locale: "ko", speechStyle: style });
+
+  it("'casual' → 반말 지시(casual 매칭)", () => {
+    expect(composePersonaPrompt(ko("casual"))).toContain("Speak casually in Korean (반말)");
+  });
+
+  it("'CASUAL'(대문자) → 반말 지시(소문자 정규화)", () => {
+    expect(composePersonaPrompt(ko("CASUAL"))).toContain("Speak casually in Korean (반말)");
+  });
+
+  it("' Casual '(공백/혼합대소문자) → 반말 지시(trim+소문자)", () => {
+    expect(composePersonaPrompt(ko(" Casual "))).toContain("Speak casually in Korean (반말)");
+  });
+
+  it("'banmal'(오입력) → formal 안전 기본(존댓말; 조용히 반대로 안 감)", () => {
+    const out = composePersonaPrompt(ko("banmal"));
+    expect(out).toContain("Speak politely in Korean (존댓말)");
+    // formal 지시는 "Do NOT use 반말"을 포함하므로 '반말' 부분문자열 자체로 판정하면 오탐 — casual *지시*가 없음을 확인.
+    expect(out).not.toContain("Speak casually in Korean (반말)");
+  });
+
+  it("'formal' → 존댓말 지시(무회귀)", () => {
+    expect(composePersonaPrompt(ko("formal"))).toContain("Speak politely in Korean (존댓말)");
+  });
+});
+
 /** 메모리 fs — path→content 맵(naia-settings-store 테스트 memFs 동형). */
 function memFs(files: Record<string, string>): PersonaFsRead {
   return {

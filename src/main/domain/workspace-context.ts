@@ -21,6 +21,26 @@ export interface WorkspaceSnapshot {
 /** 프롬프트에 나열할 프로젝트 이름 최대 개수. 초과분은 "+N more" 총계로만(토큰 bounded). */
 export const PROJECT_RENDER_CAP = 40;
 
+/** 프로젝트 이름 새니타이즈 후 최대 길이(악성/비정상 디렉터리명이 프롬프트를 잠식 못 하게 — 정상명은 무손실). */
+export const PROJECT_NAME_CAP = 64;
+
+/**
+ * 프로젝트 이름 새니타이즈(C2 인젝션 차단, domain 순수) — 디렉터리명은 *데이터*(목록 항목)이지 지시문이 아니다.
+ * 개행/제어문자를 제거(개행 포함 악성 디렉터리명이 "IMPORTANT: ignore persona" 처럼 system prompt 에 지시
+ * 줄로 삽입되는 것 차단)하고 길이 cap. 콤마는 디렉터리명에 정상이라 보존(목록 구분자와 충돌해도 데이터일 뿐).
+ * 정상 이름(영문/한글/숫자/하이픈/언더스코어/점 등)은 무손실 통과(새니타이즈가 정상명을 망가뜨리지 않음).
+ */
+function sanitizeProjectName(s: string): string {
+  let out = "";
+  for (const ch of s) {
+    const code = ch.codePointAt(0)!;
+    // 제어문자(개행·탭·CR 포함, U+0000~001F · U+007F~009F) 제거 — 한 줄 강제.
+    if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) continue;
+    out += ch;
+  }
+  return out.length > PROJECT_NAME_CAP ? out.slice(0, PROJECT_NAME_CAP) : out;
+}
+
 /**
  * WorkspaceSnapshot → 워크스페이스 컨텍스트 줄(순수). persona 조립 **뒤에 append** 되는 경량 블록.
  *
@@ -42,7 +62,8 @@ export function composeWorkspaceContext(snap: WorkspaceSnapshot): string {
   if (cwd) lines.push(`Current dir: ${cwd}`);
 
   if (all.length > 0) {
-    const shown = all.slice(0, PROJECT_RENDER_CAP);
+    // 각 이름 새니타이즈(C2 인젝션 차단) 후 cap 까지만 나열 — 악성 디렉터리명이 지시문으로 삽입되지 않게.
+    const shown = all.slice(0, PROJECT_RENDER_CAP).map(sanitizeProjectName);
     const more = total - shown.length;
     const list = shown.join(", ") + (more > 0 ? `, +${more} more` : "");
     lines.push(`Projects (${total}): ${list}`);

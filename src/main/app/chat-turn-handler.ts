@@ -158,6 +158,10 @@ export class ChatTurnHandler {
       // CLI 는 빈 배열 → ""(무영향). 화이트리스트 외 kind 는 renderEnvironmentSegments 가 드롭.
       const coreEnv = renderEnvironmentSegments(req.environmentSegments ?? [], personaProfile?.locale);
       // 코어 조립값 = persona ⊕ workspace ⊕ environment(전부 빈 값이면 "" → undefined). req.systemPrompt override 시 전부 무시.
+      // ⚠️ override 신뢰모델(C2/C1, codex 적대리뷰): req.systemPrompt 는 코어 조립을 *무조건* 덮는다. **신뢰 로컬
+      // 단일유저**(C1)에서만 수용 — systemPrompt override 는 신뢰 로컬 클라(--system/voice/discord) 전용이며,
+      // naia-os 텍스트 채팅은 systemPrompt 미전송(environmentSegments 만 → persona 보존, S4). 악성 클라면 .keys 를
+      // 직접 읽으므로 wire 게이팅은 무의미(GLM 위협모델). 원격/멀티테넌트면 override 게이팅 필요(미래 — NFR-PERSONA-trust-model).
       const coreComposed = [corePersona, coreWs, coreEnv].filter(Boolean).join("\n\n");
       const baseSystemPrompt = req.systemPrompt ?? (coreComposed || undefined);
       this.d.diag.debug?.("persona base 결정", { requestId: req.requestId, override: req.systemPrompt !== undefined, corePersona: corePersona.length > 0, workspace: coreWs.length > 0, environment: coreEnv.length > 0, source: req.systemPrompt !== undefined ? "override" : (coreComposed ? "core" : "none") });

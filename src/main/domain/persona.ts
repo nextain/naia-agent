@@ -13,6 +13,25 @@ const FORMALITY_LOCALES = new Set([
   "ko", "ja", "de", "fr", "es", "hi", "vi", "ru", "pt", "id", "ar",
 ]);
 
+/**
+ * locale primary subtag 정규화(codex 적대리뷰 — BCP-47) — "ko-KR"/"ko_KR"/"KO" 등을 lookup 키 "ko" 로.
+ * `localeToLanguage`/`FORMALITY_LOCALES` 가 primary subtag("ko")만 알므로, region/script subtag 가 붙은
+ * 입력(NAIA_LOCALE="ko-KR" 등)에서 한국어/말투가 silent 붕괴(영어 폴백·formal 강제)하던 결함을 닫는다.
+ * BCP-47: `-`/`_` 분리 첫 토큰을 소문자화. 빈/비정상은 빈 문자열(호출자가 미설정으로 degrade).
+ */
+function normalizeLocale(locale: string): string {
+  return (locale.split(/[-_]/)[0] ?? "").trim().toLowerCase();
+}
+
+/**
+ * speechStyle enum 정규화(codex 적대리뷰) — 소문자화 후 "casual" 매칭만 견고히. "banmal"·오탈자 등 미지값은
+ * 기본 "formal"(존댓말) 유지 — 한국어 등 formality locale 에서 "casual" 오입력이 *조용히 반대(반말)*가 되지
+ * 않게(미지=formal 안전 기본). 과한 검증 불요 — casual 매칭만 신뢰.
+ */
+function normalizeSpeechStyle(style: string): "casual" | "formal" {
+  return style.trim().toLowerCase() === "casual" ? "casual" : "formal";
+}
+
 /** locale code → 영문 언어명(naia-os localeToLanguage 거울). */
 function localeToLanguage(locale: string): string {
   const map: Record<string, string> = {
@@ -96,6 +115,12 @@ export function composePersonaPrompt(profile: PersonaProfile): string {
   // "페르소나 기본 없음" = "" 반환(naia-os 는 DEFAULT_PERSONA 폴백이 있으나 CLI 는 generic 유지가 기본).
   if (!baseRaw) return "";
 
+  // locale primary subtag 정규화 1회(BCP-47) — "ko-KR"/"ko_KR" → "ko". 이후 모든 lookup 은 이 값으로
+  // (localeToLanguage/FORMALITY_LOCALES 가 region subtag 를 silent 영어/formal 로 떨구던 결함 차단).
+  // 정규화 결과가 빈 문자열(원본도 빈/공백)이면 locale 미설정으로 degrade.
+  const rawLocale = (profile.locale ?? "").trim();
+  const locale = rawLocale ? normalizeLocale(rawLocale) : "";
+
   let base = baseRaw;
   if (profile.agentName) {
     base = base.replace(/Naia\s*\(낸\)/g, profile.agentName);
@@ -113,16 +138,16 @@ export function composePersonaPrompt(profile: PersonaProfile): string {
 
   if (
     profile.honorific &&
-    (!profile.locale || FORMALITY_LOCALES.has(profile.locale))
+    (!locale || FORMALITY_LOCALES.has(locale))
   ) {
-    const lang = profile.locale ? localeToLanguage(profile.locale) : "the user's language";
+    const lang = locale ? localeToLanguage(locale) : "the user's language";
     contextLines.push(
       `Address the user as "${profile.honorific} ${profile.userName || ""}" or "${profile.userName || ""}${profile.honorific}" as appropriate for ${lang}.`,
     );
   }
 
-  if (profile.locale) {
-    const lang = localeToLanguage(profile.locale);
+  if (locale) {
+    const lang = localeToLanguage(locale);
     contextLines.push(
       `IMPORTANT: Respond in ${lang}. The user's preferred language is ${lang}.`,
     );
@@ -130,9 +155,9 @@ export function composePersonaPrompt(profile: PersonaProfile): string {
 
   if (
     profile.speechStyle &&
-    (!profile.locale || FORMALITY_LOCALES.has(profile.locale))
+    (!locale || FORMALITY_LOCALES.has(locale))
   ) {
-    contextLines.push(getSpeechStyleInstruction(profile.locale || "ko", profile.speechStyle));
+    contextLines.push(getSpeechStyleInstruction(locale || "ko", normalizeSpeechStyle(profile.speechStyle)));
   }
 
   if (contextLines.length > 0) {

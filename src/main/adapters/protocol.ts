@@ -49,6 +49,11 @@ export function decodeRequest(line: string): AgentRequest | null {
         requestId: str(o["requestId"]),
         ...(hasProv ? { provider: prov as ProviderConfig } : {}),
         messages: (Array.isArray(o["messages"]) ? o["messages"] : []) as ChatMessage[],
+        // ⚠️ systemPrompt override(C2/C1 신뢰모델): wire 의 systemPrompt 는 코어 조립(persona⊕workspace⊕
+        // environment)을 *무조건 덮는다*. 이는 **신뢰 로컬 단일유저** 모델(C1)에서만 수용 — 클라(naia-os
+        // --system/voice/discord)는 신뢰됨(악성 클라면 .keys 를 직접 읽으므로 systemPrompt 게이팅은 무의미,
+        // GLM 위협모델). naia-os **텍스트 채팅은 systemPrompt 를 안 보내고 environmentSegments 만** 보내
+        // persona 가 보존된다(S4). 원격/멀티테넌트 전개 시엔 override 게이팅 필요(미래 — NFR-PERSONA-trust-model).
         ...(o["systemPrompt"] !== undefined ? { systemPrompt: str(o["systemPrompt"]) } : {}),
         ...(o["environmentSegments"] !== undefined ? { environmentSegments: decodeEnvironmentSegments(o["environmentSegments"]) } : {}),
         ...(o["enableTools"] !== undefined ? { enableTools: !!o["enableTools"] } : {}),
