@@ -110,6 +110,13 @@ export interface NaiaSettingsStore {
 
 const KNOWN_VERSION = 1;
 
+// naia 게이트웨이 sub-LLM(메모리 사실추출/요약) 기본 모델 — config 의 memoryLlmModel 부재 시 폴백.
+// naia-os SettingsTab 은 provider="naia" 일 때 model 입력란을 렌더하지 않아(vllm/ollama 만) memoryLlmModel 을
+// 비워두므로(실측), 기본이 없으면 baseUrl 만 있고 model 누락 → makeNaiaMemory 의 fail-closed throw 로 메모리 전체가
+// OFF 가 된다(G5). FR-SLOT.3(naia 계정=sub-LLM gemini-flash-lite 기본)에 맞춘 경량 게이트웨이 모델.
+// ⚠️ 모델 *문자열*(시크릿 아님). main 모델(NAIA_MAIN_MODEL)은 게이트웨이가 아닐 수 있어(예: anthropic 직결) 부적합.
+const NAIA_MEMORY_LLM_DEFAULT_MODEL = "gemini-3.1-flash-lite";
+
 /** provider/model + 라우팅별 host override → ProviderConfig 조립(키는 미포함 — credentials 포트가 chat 시 공급).
  *  단, llm.json 경로는 apiKeyRef 해석 비밀을 옵션으로 실어줄 수 있음(secret). */
 function assembleConfig(
@@ -258,9 +265,24 @@ export function makeNaiaSettingsStore(deps: {
 			"https://api.nextain.io";
 		// LLM 사실추출(factExtractor) — naia=게이트웨이(naiaGatewayUrl+naiaKey), vllm/ollama=memoryLlmBaseUrl+로컬키.
 		const lp = str("memoryLlmProvider");
-		const llmProvider = (["vllm", "ollama", "naia"] as const).find((p) => p === lp) ?? "none";
-		const llmBaseUrl = llmProvider === "naia" ? naiaGatewayUrl : str("memoryLlmBaseUrl");
-		const llmKey = llmProvider === "naia" ? naiaKey : resolveSecret("NAIA_MEMORY_LLM_API_KEY");
+		const selectedLlmProvider = (["vllm", "ollama", "naia"] as const).find((p) => p === lp) ?? "none";
+		// naia: baseUrl=게이트웨이(항상 해석), model=memoryLlmModel ?? 기본 게이트웨이 경량 모델(S5: OS 가 naia 일 때
+		//   model 을 안 써 누락 → 기본 없으면 makeNaiaMemory throw 로 메모리 전체 OFF). key=naiaKey(게이트웨이 호출 필수).
+		// vllm/ollama: baseUrl/model=config, key=로컬(보통 빈 값 허용).
+		const llmBaseUrl = selectedLlmProvider === "naia" ? naiaGatewayUrl : str("memoryLlmBaseUrl");
+		const llmKey = selectedLlmProvider === "naia" ? naiaKey : resolveSecret("NAIA_MEMORY_LLM_API_KEY");
+		const llmModel =
+			str("memoryLlmModel") ?? (selectedLlmProvider === "naia" ? NAIA_MEMORY_LLM_DEFAULT_MODEL : undefined);
+		// graceful degrade(S5): sub-LLM 을 깨끗이 구성할 수 없으면(baseUrl/model 누락, 또는 naia 인데 키 부재로
+		//   게이트웨이 호출 불가) provider 를 "none" 으로 강등 → buildSubLlmProvider/buildMemoryFactExtractor 가
+		//   undefined(휴리스틱) 반환 → 메모리는 embedding/키워드로 **계속 동작**(LLM 추출/요약만 생략). sub-LLM 부재가
+		//   메모리 전체를 죽이지 않게 한다(이전엔 model 누락이 fail-closed throw → memory=off).
+		const llmConfigurable =
+			selectedLlmProvider !== "none" &&
+			!!llmBaseUrl?.trim() &&
+			!!llmModel?.trim() &&
+			(selectedLlmProvider !== "naia" || !!llmKey?.trim());
+		const llmProvider = llmConfigurable ? selectedLlmProvider : "none";
 		return {
 			adapter,
 			...(str("qdrantUrl") ? { qdrantUrl: str("qdrantUrl") } : {}),
@@ -275,12 +297,15 @@ export function makeNaiaSettingsStore(deps: {
 				naiaGatewayUrl, // config 우선 + 기본 api.nextain.io 폴백(naia 임베딩이 게이트웨이를 항상 찾도록).
 				...(naiaKey ? { naiaKey } : {}),
 			},
-			llm: {
-				provider: llmProvider,
-				...(llmBaseUrl ? { baseUrl: llmBaseUrl } : {}),
-				...(llmKey ? { apiKey: llmKey } : {}),
-				...(str("memoryLlmModel") ? { model: str("memoryLlmModel") } : {}),
-			},
+			llm:
+				llmProvider === "none"
+					? { provider: "none" }
+					: {
+							provider: llmProvider,
+							...(llmBaseUrl ? { baseUrl: llmBaseUrl } : {}),
+							...(llmKey ? { apiKey: llmKey } : {}),
+							...(llmModel ? { model: llmModel } : {}),
+						},
 		};
 	}
 

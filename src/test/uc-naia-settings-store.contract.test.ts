@@ -176,6 +176,50 @@ describe("loadMemoryConfig — LLM 사실추출 선택(issue #7)", () => {
 	});
 });
 
+describe("loadMemoryConfig — naia sub-LLM model 폴백 + graceful degrade (S5/G5)", () => {
+	// 실데이터(D:/alpha-adk/naia-settings/config.json): memoryLlmProvider:"naia" + NAIA_ANYLLM_BASE_URL 인데
+	// memoryLlmModel 부재(OS SettingsTab 이 naia 일 때 model 입력란 미렌더). 폴백 없으면 model 누락 →
+	// makeNaiaMemory 의 fail-closed throw → memory=off(G5). 기본 게이트웨이 경량 모델로 채워 init 정상화.
+	it("naia LLM + memoryLlmModel 부재 + 키 존재 → 기본 모델로 완전 구성(memory init 정상)", () => {
+		const secretStore = makeNaiaSettingsStore({
+			fs: memFs({ [CONFIG]: JSON.stringify({ provider: "anthropic", model: "claude-sonnet-4-6", memoryLlmProvider: "naia", NAIA_ANYLLM_BASE_URL: "https://api.nextain.io" }) }),
+			resolveSecret: (ref) => ({ NAIA_ANYLLM_API_KEY: "naia-SECRET" })[ref],
+		});
+		const r = secretStore.loadMemoryConfig("/ws");
+		expect(r?.llm.provider).toBe("naia");
+		expect(r?.llm.baseUrl).toBe("https://api.nextain.io");
+		expect(r?.llm.apiKey).toBe("naia-SECRET");
+		expect(r?.llm.model).toBe("gemini-3.1-flash-lite"); // 기본 폴백(메모리 경량 sub-LLM)
+	});
+	it("명시 memoryLlmModel 은 기본 폴백보다 우선", () => {
+		const secretStore = makeNaiaSettingsStore({
+			fs: memFs({ [CONFIG]: JSON.stringify({ provider: "zai", model: "m", memoryLlmProvider: "naia", memoryLlmModel: "vertexai:gemini-3.1-flash" }) }),
+			resolveSecret: (ref) => ({ NAIA_ANYLLM_API_KEY: "naia-SECRET" })[ref],
+		});
+		expect(secretStore.loadMemoryConfig("/ws")?.llm.model).toBe("vertexai:gemini-3.1-flash");
+	});
+	it("★ graceful degrade: naia 인데 키(naiaKey) 부재 → llm.provider=none(휴리스틱, 메모리 계속 동작 — 전체 OFF 아님)", () => {
+		// 게이트웨이 호출 키가 없으면 LLM 추출은 불가하지만, embedding/키워드 회상·저장은 살아야 한다.
+		const r = store({ [CONFIG]: JSON.stringify({ provider: "zai", model: "m", memoryLlmProvider: "naia", memoryLlmModel: "x" }) /* store 의 secrets 엔 NAIA_ANYLLM_API_KEY 가 있음 */ }).loadMemoryConfig("/ws");
+		// 기본 store 의 secrets 에는 NAIA_ANYLLM_API_KEY=naia-LOGIN 이 있어 키가 존재 → 정상 구성된다(대조군).
+		expect(r?.llm.provider).toBe("naia");
+		// 키 없는 store 로 다시 — 강등 검증
+		const noKey = makeNaiaSettingsStore({
+			fs: memFs({ [CONFIG]: JSON.stringify({ provider: "zai", model: "m", memoryLlmProvider: "naia", memoryLlmModel: "x" }) }),
+			resolveSecret: () => undefined,
+		});
+		const d = noKey.loadMemoryConfig("/ws");
+		expect(d?.llm.provider).toBe("none"); // 강등 — buildMemoryFactExtractor=undefined(휴리스틱), memory 계속 동작
+		expect(d?.llm.baseUrl).toBeUndefined();
+		expect(d?.llm.model).toBeUndefined();
+		expect(d?.adapter).toBe("local"); // 메모리 자체는 살아있음
+	});
+	it("vllm sub-LLM 은 model 만 있고 baseUrl 누락이면 degrade→none(graceful, throw 아님)", () => {
+		const r = store({ [CONFIG]: JSON.stringify({ provider: "zai", model: "m", memoryLlmProvider: "vllm", memoryLlmModel: "qwen" }) }).loadMemoryConfig("/ws");
+		expect(r?.llm.provider).toBe("none"); // baseUrl 없음 → 구성 불가 → 강등(메모리 살아있음)
+	});
+});
+
 describe("loadMemoryConfig — naia 게이트웨이 URL 폴백(적대적 리뷰 HIGH 수정: OS 가 naiaGatewayUrl 미기록)", () => {
 	it("naia LLM — config 게이트웨이 없으면 기본 api.nextain.io 폴백(키워드-only 무단 강등 방지)", () => {
 		const r = store({ [CONFIG]: JSON.stringify({ provider: "zai", model: "m", memoryLlmProvider: "naia", memoryLlmModel: "vertexai:gemini" }) }).loadMemoryConfig("/ws");

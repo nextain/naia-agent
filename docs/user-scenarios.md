@@ -24,6 +24,16 @@
 ("내 코드명이 뭐였지?") 에이전트가 **장기기억에서 회상**해 답한다. 회상된 사실은 모델 사전지식이
 아니라 **이전 턴에 저장된 기억**에서 온다. 비활성(memory 미주입) 시 회상되지 않는다(인과 분리).
 
+### S-MEM-SUBLLM (memory sub-LLM 구성 + offline graceful degrade — S5/G5)
+
+사용자가 naia-os 설정에서 메모리 sub-LLM 을 **naia 계정(게이트웨이)** 으로 고르면, CLI/gRPC 양쪽에서
+memory 초기화가 **정상 동작**한다(사실추출/요약이 게이트웨이 경량 모델로 활성). naia-os 가 naia 선택 시
+모델 문자열을 수집하지 않아도(SettingsTab 의 model 입력란이 naia 에는 미렌더) 코어가 **기본 게이트웨이
+경량 모델**로 채워 init 이 깨지지 않는다. 만약 sub-LLM 을 깨끗이 구성할 수 없으면(게이트웨이 키 부재 등)
+memory 가 **전체 OFF 되지 않고** sub-LLM 만 생략한 채 동작한다 — embedding(offline)·키워드 회상·저장은
+유지되고 LLM 기반 사실추출/요약만 비활성(graceful degrade). memory 격리 키는 워크스페이스 UUID 라
+페르소나 userName(S1b)을 옮겨도 기억 정체성이 갈라지지 않는다.
+
 ## UC-PROV-1 (provider/model 라이브 교체)
 
 사용자가 naia-os 설정에서 텍스트 모델/프로바이더를 바꾸면, agent 재기동 없이 **다음 대화
@@ -180,6 +190,7 @@ adapter 가 주입 실행기로 소유, tier 승인은 코어의 기존 Approval
 | FR-MEM-5 격리 / FR-MEM-6 영속·드레인 / FR-MEM-7 bounded / FR-MEM-8 프레이밍 | `uc1-memory-stdio.integration.test.ts`(scope·persist·drain·concurrent·bounded·framing·neutralize) |
 | FR-MEM-3 fault-injection(불변식) | `uc1-memory-stdio.integration.test.ts`(recall/save throw·hang → finish 1회·error 없음·usage 1회) |
 | 실 프로세스 lifecycle | `src/test/uc1-memory-process.integration.test.ts`(EOF→drain→close→flush, save 영속) |
+| FR-MEM-12 / S-MEM-SUBLLM (naia sub-LLM 폴백 + graceful degrade, S5) | `src/test/uc-naia-settings-store.contract.test.ts` — describe "naia sub-LLM model 폴백 + graceful degrade (S5/G5)" (naia+모델부재+키존재→기본모델 완전구성·명시모델 우선·키 부재→provider=none 강등(메모리 유지)·vllm baseUrl 누락→none 강등) + `sub-llm-provider.contract.test.ts`(미구성=undefined) |
 | UC-PROV-1 / FR-PROV-1·2·3 | `src/test/all-providers-wiring.contract.test.ts`, `uc1-reload-default-config.contract.test.ts`, `uc-naia-settings-store.contract.test.ts` |
 | FR-PROV-5 (claude-code SDK 분리) | `src/test/all-providers-wiring.contract.test.ts`(claude-code 케이스 = Agent SDK 라우팅·apiKey 미주입) |
 | FR-MODEL-1 (모델 카탈로그 정합) | `src/test/uc-provider-provenance.contract.test.ts`(cost↔registry 정합·구독 $0), naia-os `src/lib/llm/__tests__/registry.test.ts`(카탈로그 정합·최신화) |

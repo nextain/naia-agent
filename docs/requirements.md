@@ -21,11 +21,13 @@
 | FR-MEM-9 | 단일-project-per-process + workspace identity = 영속 UUID(`<adkPath>/.naia/workspace-id`). 정본: override → UUID → 실패 시 memory 비활성(fail-closed). 이동 연속·경로 재사용 누설 차단·동시부팅 배타생성. makeNaiaMemory project 필수+비공백. | Done |
 | FR-MEM-10 | 출처 보존 — recall 이 episode role(user/assistant) 보존, formatter 가 사용자 진술/assistant 생성물(미검증) 구분(자기증폭·확증루프 방지). | Done |
 | FR-MEM-11 | adapter/embedding/LLM 선택 배선(issue #7) — os 메모리 UI 의 `memoryAdapter`(local/qdrant)·`memoryEmbeddingProvider`(none/offline/vllm/ollama/naia)·`memoryLlmProvider`(none/vllm/ollama/naia, factExtractor) 선택이 config.json→`loadMemoryConfig`→`makeNaiaMemory`(`buildEmbeddingProvider`/`buildMemoryFactExtractor`)로 런타임 반영. 이전엔 LocalAdapter+키워드-only+휴리스틱 하드코딩이라 UI 선택 무시(silent no-op)였음. 미설정=local+키워드-only+휴리스틱(무회귀). qdrant=embedding 필수, embedding/LLM=baseUrl·model 필수 fail-closed. 비밀(*ApiKey)은 셸 strip→**키체인 정식 기록**(#18: NAIA_MEMORY_*_API_KEY, naiaKey=NAIA_ANYLLM_API_KEY)+env override 폴백. 부팅 1회(라이브 변경=재시작 반영). compaction **summarizer 도 same small-LLM 으로 배선**(buildMemorySummarizer→naia-memory buildLLMSummarizer, 실패 시 결정론 recap 폴백=무손실). embedding offline=GPU/CPU/auto device. 실 backend I/O(원격/모델다운로드/라이브 qdrant/LLM 출력 품질)=naia-memory 책임+외부자원(헤르메틱 범위 밖). | Done |
+| FR-MEM-12 | naia sub-LLM config 보강 + graceful degrade(S5/G5) — `memoryLlmProvider:"naia"` 일 때 `loadMemoryConfig` 가 sub-LLM 을 게이트웨이로 완전 구성: baseUrl=`naiaGatewayUrl`/`NAIA_ANYLLM_BASE_URL`(기본 api.nextain.io), key=naiaKey(키체인 NAIA_ANYLLM_API_KEY), model=`memoryLlmModel` **부재 시 기본 게이트웨이 경량 모델**(`gemini-3.1-flash-lite`, FR-SLOT.3 정합). 근본 원인: naia-os SettingsTab 이 provider="naia" 일 때 model 입력란을 렌더하지 않아(vllm/ollama 만) `memoryLlmModel` 누락 → 폴백 없으면 model 누락이 makeNaiaMemory 의 fail-closed throw 를 유발해 **메모리 전체 OFF**(G5: "memory=off"). **graceful degrade**: sub-LLM 을 깨끗이 구성 불가하면(baseUrl/model 누락, 또는 naia 인데 key 부재로 게이트웨이 호출 불가) `llm.provider` 를 `none` 으로 강등 → factExtractor/summarizer=undefined(휴리스틱·결정론 recap) → 메모리는 embedding/키워드 회상·저장으로 **계속 동작**(LLM 추출/요약만 생략). 즉 sub-LLM 부재가 memory 전체를 죽이지 않는다. | Done |
 
 ### NFR
 - 헥사고날 경계: domain 순수(formatRecalledMemory)·app 포트만·adapter 데이터만(프롬프트 정책 비누출).
 - 불변식: terminal 래치(finish XOR error 1회)·usage=terminal 직전 1회·registry finally 해제 — memory 경로 무영향.
 - recall 정확성은 content+project 기반(session/encode 순서 무관) → 동시 턴 교차 안전.
+- NFR-MEM-degrade(S5): sub-LLM(메모리 factExtractor/summarizer) 미구성/구성불가는 memory 전체를 비활성하지 않는다. `loadMemoryConfig` 가 구성불가 sub-LLM 을 `provider:"none"` 으로 강등(매핑 경계 graceful) → recall/save·embedding 은 보존, LLM 기반 추출/요약만 생략. memory identity 키 = **workspace-id(`resolveWorkspaceId`, 영속 UUID)** — persona userName(FR-PERSONA, S1b)과 직교(키 분리, identity split 없음).
 
 ## UC-PROV FR/NFR (FR-PROV-1 ~ 5, FR-MODEL-1)
 
