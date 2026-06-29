@@ -128,7 +128,9 @@ export async function composeAgentRuntimeDeps(o = {}) {
     toolExecutor = executors.length > 1 ? makeCompositeToolExecutor(executors) : builtin;
   }
 
-  // ── creds = OS 키체인 read-back(Linux=secret-tool lookup service=naia-agent). creds_update 는 런타임 overlay 로 우선. ──
+  // ── creds = OS 키체인 read-back. Linux=secret-tool(service=naia-agent account={env_key}).
+  //    Windows=DPAPI({adkPath}/naia-settings/.keys/{env_key}.dpapi, CurrentUser scope — naia-os write_agent_key 가 저장).
+  //    macOS=미지원(후속). creds_update 는 런타임 overlay 로 우선. ──
   const C_ENV = { ...env, LC_ALL: "C", LANG: "C", LANGUAGE: "C" };
   const secretToolRead = (name) => {
     const r = spawnSync("secret-tool", ["lookup", "service", "naia-agent", "account", name], { encoding: "utf8", timeout: 5000, env: C_ENV });
@@ -136,10 +138,25 @@ export async function composeAgentRuntimeDeps(o = {}) {
     const out = r.stdout ?? "";
     return out.length > 0 ? out.replace(/\n$/, "") : undefined;
   };
-  const credentials = makeKeychainCredentials({ read: process.platform === "linux" ? secretToolRead : () => undefined });
+  // Windows DPAPI read-back(키체인). {adk}/naia-settings/.keys/<name>.dpapi → PowerShell ProtectedData::Unprotect(CurrentUser).
+  // naia-os 가 write_agent_key 로 저장한 키를 agent 가 read-back(별도 login 불요). 경로는 $env:DPAPI_FILE 로 전달(명령 주입 방지).
+  // 키체인은 프로세스 중 불변 → 메모리 캐시(매 턴 PowerShell spawn 지연 방지).
+  const dpapiCache = new Map();
+  const winDpapiRead = (name) => {
+    if (dpapiCache.has(name)) return dpapiCache.get(name);
+    const file = join(adkPath, "naia-settings", ".keys", `${name}.dpapi`);
+    if (!nodeFs.existsSync(file)) { dpapiCache.set(name, undefined); return undefined; }
+    const r = spawnSync("powershell", ["-NoProfile", "-Command", "Add-Type -AssemblyName System.Security; [Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect([IO.File]::ReadAllBytes($env:DPAPI_FILE), $null, [Security.Cryptography.DataProtectionScope]::CurrentUser))"], { encoding: "utf8", timeout: 8000, env: { ...env, DPAPI_FILE: file } });
+    const out = (!r.error && r.status === 0) ? (r.stdout ?? "").replace(/\r?\n$/, "") : undefined;
+    const v = out && out.length > 0 ? out : undefined;
+    dpapiCache.set(name, v);
+    return v;
+  };
+  const keychainRead = process.platform === "win32" ? winDpapiRead : (process.platform === "linux" ? secretToolRead : () => undefined);
+  const credentials = makeKeychainCredentials({ read: keychainRead });
 
-  // ── config 정본 = <NAIA_ADK_PATH>/naia-settings/llm.json(main). apiKeyRef → env ?? 키체인. 없음=defaultConfig 없음. ──
-  const settingsResolveSecret = (ref) => env[ref] ?? (process.platform === "linux" ? secretToolRead(ref) : undefined);
+  // ── config 정본 = <adkPath>/naia-settings/llm.json(main). apiKeyRef → env ?? 키체인. 없음=defaultConfig 없음. ──
+  const settingsResolveSecret = (ref) => env[ref] ?? keychainRead(ref);
   const settingsStore = makeNaiaSettingsStore({ fs: nodeFs, resolveSecret: settingsResolveSecret, log: (m, c) => process.stderr.write(`[naia-agent] ${m} ${c ? JSON.stringify(c) : ""}\n`) });
   const defaultConfig = settingsStore.loadMain(adkPath) ?? undefined;
   const configLabel = defaultConfig ? `naia-settings(${defaultConfig.provider}/${defaultConfig.model})` : `none(wire provider 필요) adk=${adkPath}`;
