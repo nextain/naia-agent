@@ -9,22 +9,22 @@
   },
 
   "current_work": {
-    "issue": "UC-014-subagent-roster-expansion",
-    "title": "sub-agent 어댑터 3종 추가(claude-code·codex·gemini) + Windows bin 해석 — UC-014/SPEC-010 확장",
-    "issue_doc": "../../../.agents/progress/naia-agent-subagent-adapters-2026-06-29.md",
-    "github_issue": null,
-    "started": "2026-06-29",
-    "last_updated": "2026-06-29T00:00:00Z",
+    "issue": "UC-KNOWLEDGE-knowledge-pull-tool",
+    "title": "K1a — 워크스페이스 지식 풀 도구(skill_knowledge_search/ask) ToolExecutorPort + backend 주입(naia-kb-compiler)",
+    "issue_doc": "../../../.agents/progress/naia-kb-compiler-agent-os-integration-2026-06-29.md",
+    "github_issue": "nextain/naia-kb-compiler#1",
+    "started": "2026-06-30",
+    "last_updated": "2026-06-30T00:00:00Z",
     "status": "in_progress",
-    "prior_work_note": "직전: UC-CLI 단독 CLI 오케스트레이션(SPEC-009~011) + 재감사 하드닝(P05 near-done, 커밋 fb7201a 등 반영) + slots Phase 3(3-LLM-role graft·643→670 pass). 본 슬라이스는 UC-014/SPEC-010 roster 의 '선언만' 3종 실구현으로 직전 작업과 직교. | 2026-06-29 본 슬라이스: claude-code/codex/gemini SubAgentPort 3종 + 계약테스트 36 + roster 전원 구현 + Windows bin 해석(subprocess-session 공통 헬퍼 3종, injection-safe). 검증: tsc clean·vitest 670 pass/5 skip·.mjs 가드 PASS·file-anchors 내 3종 정상등록(4종 위반=사전존재 sub-llm 계열). runtime smoke: codex✅·claude-code✅(rate_limit 외부제약)·gemini⏭️(auth IneligibleTierError→문서기반 방어파싱). 병행: skill-role-reassignment SoT(cron/browser/BGM) 별도 progress 문서."
+    "prior_work_note": "직전: #79 단일코어 S1a~S5(persona/workspace-ctx/fs-shell sandbox/env-segments/memory sub-LLM) 커밋 완료(fc2fffe~4005c30) + UC-014 sub-agent roster. K1a 는 그 위에 ToolExecutorPort 에 read-only 지식 도구 그룹 추가(memory 푸시와 직교한 풀). K1a-1=어댑터(KnowledgeBackend 주입)+계약테스트(fake)+게이트(UC-KNOWLEDGE/FR-KB). K1a-2=compose 실 backend(naia-kb-compiler openWorkspaceKnowledge) 배선 + cross-repo 의존(junction+@naia/kb-compiler file:) 후속. 설계SoT=alpha-adk .agents/progress/naia-kb-compiler-agent-os-integration-2026-06-29.md(§13 적대리뷰 3R·V1)."
   },
 
   "sdlc_gates": {
-    "P01": { "status": "done", "name": "user_scenarios", "deliverable": "UC-014 기존(UC-CLI 단독 CLI 오케스트레이션) — 외부 코딩 에이전트 spawn·감독. 본 슬라이스는 신규 UC 아닌 roster 확장", "ref": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md" },
-    "P02": { "status": "done", "name": "test_scenarios", "deliverable": "uc-cli-subagent-{claude-code,codex,gemini}.contract.test.ts(각 9) + roster 테스트 갱신(deferred→real). fake child 결정론 검증", "ref": "src/test/uc-cli-subagent-*.contract.test.ts" },
-    "P03": { "status": "done", "name": "requirements", "deliverable": "FR-CLI sub-agent roster(기존) — 3종(claude-code/codex/gemini) 구현 완료로 roster 전원 supported", "ref": "docs/progress/01.requirements/INDEX.md" },
-    "P04": { "status": "done", "name": "integration_test", "deliverable": "tsc clean·vitest 670 pass/5 skip(회귀0)·36 신규 pass·.mjs ci-verify/structure-guard/import-boundary PASS. runtime smoke: codex✅·claude-code✅·gemini⏭️(auth). Windows bin 해석(injection-safe) 해결", "ref": ".agents/progress/naia-agent-subagent-adapters-2026-06-29.md §6" },
-    "P05": { "status": "in_progress", "name": "requirements_complete", "deliverable": "코드+테스트+문서 완료. 커밋 진행 중. gemini runtime smoke(auth 복원 시)·naia-os gRPC 호스트 배선(②)은 후속", "ref": ".agents/progress/naia-agent-subagent-adapters-2026-06-29.md" }
+    "P01": { "status": "done", "name": "user_scenarios", "deliverable": "UC-KNOWLEDGE(워크스페이스 지식 풀 도구 read-only search/ask) + S-KB-1~4", "ref": "docs/user-scenarios.md" },
+    "P02": { "status": "done", "name": "test_scenarios", "deliverable": "Test Coverage Map: UC-KNOWLEDGE → src/test/uc-knowledge.contract.test.ts(fake backend 결정론, 9 케이스)", "ref": "docs/user-scenarios.md (Test Coverage Map)" },
+    "P03": { "status": "done", "name": "requirements", "deliverable": "FR-KB-1~4 + NFR(헥사고날·읽기전용·memory↔knowledge 분리)", "ref": "docs/requirements.md" },
+    "P04": { "status": "done", "name": "integration_test", "deliverable": "src/test/uc-knowledge.contract.test.ts(9). tsc clean·vitest 무회귀·file-anchors knowledge-skill 등록·check-logging PASS (K1a-1)", "ref": "src/test/uc-knowledge.contract.test.ts" },
+    "P05": { "status": "in_progress", "name": "requirements_complete", "deliverable": "K1a-1(어댑터+계약테스트+게이트) 완료. K1a-2(compose 실 backend openWorkspaceKnowledge 배선 + cross-repo 의존 junction/@naia/kb-compiler file:)·naia-os 패널(K2)은 후속", "ref": ".agents/progress/naia-kb-compiler-agent-os-integration-2026-06-29.md" }
   },
 
   "resource_registry": {

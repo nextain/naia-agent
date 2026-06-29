@@ -4,7 +4,7 @@
     "UC1", "UC2", "UC5", "UC6", "UC7", "UC7a", "UC8", "UC9", "UC10", "UC10a",
     "UC11", "UC12", "UC12-min", "UC12a", "UC13", "UC13a", "UC14",
     "UC-provider-provenance",
-    "UC-PERSONA-CLI", "UC-WORKSPACE-CTX", "UC-FS-TOOLS", "UC-ENV-SEGMENTS"
+    "UC-PERSONA-CLI", "UC-WORKSPACE-CTX", "UC-FS-TOOLS", "UC-ENV-SEGMENTS", "UC-KNOWLEDGE"
   ],
   "in_scope_source": {
     "UC1": "old user-scenarios.md:16 텍스트 대화",
@@ -28,7 +28,8 @@
     "UC-PERSONA-CLI": "단일코어 마이그레이션(GH#79, unified-core design 2026-06-29). docs/user-scenarios.md:17 + requirements.md FR-PERSONA-1~3 — 코어가 워크스페이스 페르소나(Alpha)를 자체 조립 → naia-os·CLI 어디서든 알파. 루크 지시 마이그레이션의 정당 UC.",
     "UC-WORKSPACE-CTX": "단일코어 마이그레이션(GH#79). docs/user-scenarios.md:18 + requirements.md FR-WORKSPACE-1~4 — 코어가 워크스페이스 컨텍스트(cwd+프로젝트)를 경량 인식. UC-PERSONA-CLI 형제.",
     "UC-FS-TOOLS": "단일코어 마이그레이션(GH#79). docs/user-scenarios.md:19 + requirements.md FR-FS-1~8/NFR-SEC — 에이전트 직접 파일/셸 도구 + allow-root sandbox·denylist·realpath(TOCTOU)·tier 승인.",
-    "UC-ENV-SEGMENTS": "단일코어 마이그레이션(GH#79, 계약 C2). 클라(naia-os)가 환경고유 컨텍스트(아바타 감정·패널·responseStyle)를 raw systemPrompt 가 아닌 구조화 세그먼트로 전달 → 코어가 persona+workspace 뒤 결정론 머지. persona-baking 두벌 제거 + 음성 persona 회귀 닫기."
+    "UC-ENV-SEGMENTS": "단일코어 마이그레이션(GH#79, 계약 C2). 클라(naia-os)가 환경고유 컨텍스트(아바타 감정·패널·responseStyle)를 raw systemPrompt 가 아닌 구조화 세그먼트로 전달 → 코어가 persona+workspace 뒤 결정론 머지. persona-baking 두벌 제거 + 음성 persona 회귀 닫기.",
+    "UC-KNOWLEDGE": "사용자 명시 지시(2026-06-29~30 'naia-kb-compiler와 naia-agent·naia-adk 연계 및 naia-os 연동' 통합 작업) + 설계 SoT(alpha-adk .agents/progress/naia-kb-compiler-agent-os-integration-2026-06-29.md, 적대리뷰 3R·V1) + 에픽 nextain/naia-kb-compiler#1. 코어가 컴파일된 워크스페이스 KB(naia-kb-compiler)를 read-only 풀 도구(skill_knowledge_search/ask)로 노출 — memory(푸시)와 직교한 풀. ToolExecutorPort 도구 그룹(UC5 동족, 외부 엔진 backend 주입). AI 신조 아님=루크 지시 통합. K1a-1=어댑터+계약테스트, K1a-2=compose 실 backend(openWorkspaceKnowledge)+cross-repo 배선 후속."
   },
   "out_of_scope_uc": {
     "UC-memory": "메모리 연결(naia-memory ↔ new-naia-agent)=다른 세션 소유. 앵커: '이 goal로 끌어오지 말 것, 새로 짓거나 고치지 말 것, gRPC=memory-side 선행'. 여기서 만들면 드리프트.",

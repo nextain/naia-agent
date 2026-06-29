@@ -17,6 +17,7 @@
 | UC-PERSONA-CLI | 코어가 워크스페이스 설정의 페르소나(Alpha)를 system prompt 로 합성 → CLI 가 `--system` 없이도 알파로 응답 | `docs/requirements.md` FR-PERSONA-1~3 (집약) |
 | UC-WORKSPACE-CTX | 코어가 워크스페이스 컨텍스트(cwd + 프로젝트 이름 목록)를 system prompt 에 경량 포함 → 에이전트가 자기 워크스페이스를 인식 | `docs/requirements.md` FR-WORKSPACE-1~4 (집약) |
 | UC-FS-TOOLS | 에이전트가 **직접 도구**로 워크스페이스 내 파일을 나열/읽기(기본), opt-in 으로 쓰기/셸 실행 — allow-root sandbox + 민감경로 denylist + realpath 재검증(TOCTOU) + tier 승인 | `docs/requirements.md` FR-FS-1~8 / NFR-SEC (집약) |
+| UC-KNOWLEDGE | 코어가 컴파일된 워크스페이스 지식(KB)을 **풀 도구**(`skill_knowledge_search`/`ask`)로 노출 → 에이전트가 근거 있는 답변·근거 없으면 기권. memory(푸시)와 분리된 풀(tool) | `docs/requirements.md` FR-KB-1~4 (집약) |
 
 ## UC-MEM-1 (장기기억 회상)
 
@@ -179,6 +180,33 @@ retrieval 은 본 UC(read_file)의 몫**이다(GLM: snapshot 덤프 방지). S3 
 adapter 가 주입 실행기로 소유, tier 승인은 코어의 기존 ApprovalPort. host(`compose-agent-deps`)는 실행기
 (node:fs/child_process)+allowRoots(=adkPath) 만 주입 — 코어 무변경(tier 만 설정하면 게이트 발화).
 
+## UC-KNOWLEDGE (워크스페이스 지식 풀 도구 — read-only search/ask)
+
+사용자가 워크스페이스의 (컴파일된) 지식에 대해 물으면("전입신고 필요서류가 뭐야?"), 에이전트가 **직접 도구**
+(`skill_knowledge_search`·`skill_knowledge_ask`)로 워크스페이스 지식베이스(KB)를 검색·질의해 **근거(출처) 있는
+답변**을 한다. 근거가 없으면 **지어내지 않고 기권**한다(안전). 이 지식 경로는 장기기억(memory, 푸시)과 **분리된
+풀(pull/tool)** — 에이전트가 필요하다고 판단할 때 호출하며, 매 턴 자동 주입되지 않는다(memory=WHO/푸시,
+knowledge=WHAT/풀, 안 섞음).
+
+근본: KB 컴파일·서빙은 외부 엔진(naia-kb-compiler)이 담당하고, 코어는 그 KnowledgeService(검색/질의응답)를
+**ToolExecutorPort 도구로 노출**만 한다(naia-os 패널이 결과를 렌더·근거 칩). 통합 설계 SoT = 루트
+`.agents/progress/naia-kb-compiler-agent-os-integration-2026-06-29.md` (K1a).
+
+- **S-KB-1 (read-only 도구 노출)**: `makeKnowledgeSkillsExecutor` 가 `skill_knowledge_search`({query,k?})·
+  `skill_knowledge_ask`({query}) 2종을 ToolExecutorPort 로 노출. **tier 없음**(읽기 전용 → 승인 불요; 쓰기/컴파일은
+  K1b 에서 tier+승인). compile/재인덱싱 등 쓰기는 본 도구에 없다.
+- **S-KB-2 (backend 주입·비종속)**: 어댑터는 `KnowledgeBackend`(search/ask) **주입**받음 — naia-kb-compiler
+  `openWorkspaceKnowledge(dir)` 결과를 매핑(D03 교체 가능). backend 미주입/미가용 = 정직 unavailable(throw 아님).
+  코어는 특정 엔진을 import 하지 않는다(비종속).
+- **S-KB-3 (JSON 출력·출처 보존)**: execute output = JSON(`JSON.stringify`) — `ask`={abstained,answer,sources}·
+  `search`={hits}. sources/hits 의 **sourceUris 보존**(naia-os 가 파싱해 근거→원문 칩 렌더; 구조화 citation
+  cardId/snippet 확장은 후속 K5).
+- **S-KB-4 (no-throw·기권)**: 도구 execute 는 실패/미가용/잘못된 인자 시 `{output, isError:true}`(throw 금지 —
+  루프 안정, ToolExecutorPort 계약). abort 시에만 reject(2가드: 진입/await 후). 근거 없으면 backend abstained=true(지어내지 않음).
+
+직교: KB 컴파일/서빙 지능은 외부 엔진(어댑터가 backend 로 주입), 코어는 도구 노출만. `compose-agent-deps` 가
+실 backend(`openWorkspaceKnowledge`)를 주입(K1a-2). memory(push) 경로와 저장소·주입 모두 분리.
+
 ## Test Coverage Map
 
 | 요구 | 테스트 |
@@ -206,5 +234,6 @@ adapter 가 주입 실행기로 소유, tier 승인은 코어의 기존 Approval
 | UC-WORKSPACE-CTX / S-WORKSPACE-3 / FR-WORKSPACE-3 (코어 조립 + persona 뒤 append) | `src/test/uc-workspace-context.contract.test.ts` — describe "ChatTurnHandler workspace 조립" — capturing provider 로 systemPrompt 캡처: persona+workspace 둘 다 포함(append 순서), `req.systemPrompt` override 시 둘 다 무시, workspaceContext 미주입 시 persona 만(무회귀) |
 | UC-FS-TOOLS / S-FS-1·2·3 / FR-FS-2·3·4 + NFR-SEC (sandbox 단위) | `src/test/uc-fs-tools.contract.test.ts` — describe "validatePath (domain)" — `..`/드라이브절대/UNC/env확장/널바이트 거부, allow-root 밖 거부·안 허용, denylist(.keys/.env/.dpapi/data-private/ssh) 거부, 빈 allowRoots deny-all + describe "realpath/TOCTOU" — fake realpath 가 allow-root 밖 가리키면 거부(symlink/junction 탈출 시뮬) |
 | UC-FS-TOOLS / S-FS-5·6·7 / FR-FS-1·5·6·7·8 (도구 계약) | `src/test/uc-fs-tools.contract.test.ts` — describe "makeFsTools" — read_file/list_dir(허용 성공·거부 isError·throw 안 함), write_file(enableWrite=false→spec 없음·동작 거부, true→동작·승인 tier), 민감경로 실증(`<adk>/naia-settings/.keys/x.dpapi`·`<adk>/data-private/...` read→isError) + describe "makeShellTool" — argv 정상·셸문자열(string) 거부·cwd 탈출 거부·tier shell·no-throw |
+| UC-KNOWLEDGE / S-KB-1~4 / FR-KB-1~4 | `src/test/uc-knowledge.contract.test.ts` — describe "makeKnowledgeSkillsExecutor" (specs 2종·tier 없음 / search JSON hits+sourceUris / k 반영 / ask JSON answer+sources / 근거없음 기권 abstained / backend 미주입 unavailable / 빈·비문자 query·잘못 args isError no-throw / unknown tool / abort reject). fake backend 결정론 |
 
 > UC1/UC5/provider-provenance 의 상세 시나리오·수용기준은 각 계약서 + `docs/acceptance-criteria.md` 참조.

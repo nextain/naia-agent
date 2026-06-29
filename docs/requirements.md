@@ -29,6 +29,22 @@
 - recall 정확성은 content+project 기반(session/encode 순서 무관) → 동시 턴 교차 안전.
 - NFR-MEM-degrade(S5): sub-LLM(메모리 factExtractor/summarizer) 미구성/구성불가는 memory 전체를 비활성하지 않는다. `loadMemoryConfig` 가 구성불가 sub-LLM 을 `provider:"none"` 으로 강등(매핑 경계 graceful) → recall/save·embedding 은 보존, LLM 기반 추출/요약만 생략. memory identity 키 = **workspace-id(`resolveWorkspaceId`, 영속 UUID)** — persona userName(FR-PERSONA, S1b)과 직교(키 분리, identity split 없음).
 
+## UC-KNOWLEDGE FR/NFR (FR-KB-1 ~ 4) — 워크스페이스 지식 풀 도구
+
+설계 SoT: 루트 `.agents/progress/naia-kb-compiler-agent-os-integration-2026-06-29.md` (K1a). memory(푸시)와 분리된 풀(tool). KB 컴파일/서빙=외부 엔진(naia-kb-compiler), 코어는 도구 노출만.
+
+| ID | 요구사항 | 상태 |
+|----|----------|:----:|
+| FR-KB-1 | 코어가 컴파일된 워크스페이스 KB 를 **풀 도구**로 노출 — `skill_knowledge_search`({query,k?})·`skill_knowledge_ask`({query}) ToolExecutorPort. **읽기 전용**(tier 없음, 승인 불요). 쓰기/컴파일/재인덱싱은 본 도구에 없음(K1b). | Done |
+| FR-KB-2 | backend 주입(DI)·비종속 — 어댑터는 `KnowledgeBackend`(search/ask) 주입. naia-kb-compiler `openWorkspaceKnowledge` 결과 매핑(D03 교체가능). 미주입/미가용 = 정직 unavailable(throw 아님). 코어가 특정 엔진을 import 하지 않음(비종속). | Done |
+| FR-KB-3 | 결과 직렬화·출처 보존 — execute output=JSON. `ask`={abstained,answer,sources[{title,sourceUris}]}·`search`={hits[{title,snippet,score,sourceUris}]}. **sourceUris 보존**(근거→원문 키, naia-os 칩 렌더). 구조화 citation(cardId/snippet) 확장은 후속(K5). | Done |
+| FR-KB-4 | no-throw·기권 — 실패/미가용/잘못된 인자 → `{output,isError:true}`(throw 금지, 루프 안정). abort 만 reject(2가드: 진입/await 후). 근거 없으면 backend 가 abstained=true(지어내지 않음, 안전). | Done |
+
+### NFR
+- 헥사고날: adapter(backend 주입)·코어 비종속. 읽기 전용(쓰기/컴파일 분리=K1b).
+- memory(push)↔knowledge(pull) 분리 — 매 턴 자동주입 아님(에이전트 판단 호출), 저장소·주입 경로 분리. 조직지식↔개인기억 비혼합.
+- 실 backend(KB 컴파일/검색 품질·`openWorkspaceKnowledge` in-process 배선)=naia-kb-compiler + compose(K1a-2) 책임(본 어댑터 계약 범위 밖, fake 로 계약 검증).
+
 ## UC-PROV FR/NFR (FR-PROV-1 ~ 5, FR-MODEL-1)
 
 권위 계약·검증: 아래 FR-PROV-1~5·FR-MODEL-1 표 + Test Coverage Map 의 계약 테스트
@@ -103,6 +119,9 @@ ghost-edit split 없음). **조립 위치 = 코어**(host 아님): host 는 `Per
 - **NFR-PERSONA-deterministic**: 계약테스트는 fake fs/fake provider + 고정 profile 로 결정론. 합성 단언은 contains 기반(brittle full-string 금지).
 - **NFR-PERSONA-no-import**: naia-os `persona.ts` 는 **참조만**(import 금지) — CLI 측 재구현. emotion-tag 블록은 naia-os 전용 유지(중복 아님 — 의도된 분기).
 - **NFR-PERSONA-core-owned**: 페르소나 조립은 **코어 소유**(host 조립·`req.systemPrompt` 로 주입하는 과도기 경로 금지). 식별자 `personaSystemPrompt` 는 코드베이스에 잔존하지 않는다(grep 0).
+- **NFR-PERSONA-locale-normalize**: locale 은 `composePersonaPrompt` 진입에서 **primary subtag 정규화 1회**(BCP-47 — `-`/`_` 분리 첫 토큰 소문자화: `"ko-KR"`/`"ko_KR"`/`"KO"` → `"ko"`). `localeToLanguage`/`FORMALITY_LOCALES` lookup 이 region/script subtag 로 silent 영어 폴백·formal 강제되던 결함을 닫는다(한국어/말투 보존). speechStyle 은 소문자화 후 `"casual"` 매칭만 신뢰 — 미지값(`"banmal"` 등)은 **formal 안전 기본**(존댓말; casual 오입력이 조용히 반대로 가지 않게).
+- **NFR-PERSONA-trust-model** (systemPrompt override): `req.systemPrompt` 는 코어 조립(persona⊕workspace⊕environment)을 **무조건 덮는다**(C2). 이는 **신뢰 로컬 단일유저** 모델(C1)에서만 수용 — override 는 **신뢰 로컬 클라(`--system`/voice/discord) 전용**이며, naia-os **텍스트 채팅은 systemPrompt 미전송**(environmentSegments 만 → persona 보존, S4). 악성 클라면 `.keys` 를 직접 읽으므로 wire 게이팅은 무의미(GLM 위협모델 — 클라가 신뢰 경계 안). **원격/멀티테넌트 전개 시엔 override 게이팅이 필요**(미래 작업 — 현재는 미적용). 코드 마커: `adapters/protocol.ts`(systemPrompt decode 주석)·`app/chat-turn-handler.ts`(baseSystemPrompt 결정 주석).
+- **NFR-ENV-injection-hardening** (C2 인젝션 차단): 클라 제공 환경 컨텍스트는 *데이터*이지 지시문이 아니다. (1) panel.type **라벨 새니타이즈**(`sanitizeLabel` — 개행/제어문자·`[`/`]` 제거 + 길이 cap `PANEL_TYPE_LABEL_CAP`=64) + panel.data 한줄 강제(제어문자 제거). (2) 워크스페이스 **프로젝트 이름 새니타이즈**(개행/제어문자 제거 + cap `PROJECT_NAME_CAP`=64; 콤마 보존). (3) **크기 cap**: 세그먼트 `MAX_SEGMENTS`=8·panel entry `MAX_PANEL_ENTRIES`=16·렌더 총길이 `MAX_RENDER_CHARS`=4000(초과 절단+마커). 정상 라벨/이름/데이터는 무손실(새니타이즈가 정상값을 망가뜨리지 않음). domain 순수(`environment-segments.ts`·`workspace-context.ts`).
 
 ## UC-WORKSPACE-CTX FR/NFR (FR-WORKSPACE-1 ~ 4) — 워크스페이스 컨텍스트 경량 인식
 

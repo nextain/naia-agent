@@ -561,6 +561,15 @@
         "docs/user-scenarios.md"
       ],
       "note": "S3 shell_exec ToolExecutorPort — argv 스펙(셸 문자열 보간 0=injection 차단)·cwd allow-root 검증·주입 exec(subprocess-session injection-safe spawn 재사용, shell 없이)·tier shell(상위 승인). opt-in(NAIA_SHELL_TOOL=1). no-throw. 테스트=src/test/uc-fs-tools.contract.test.ts"
+    },
+    "src/main/adapters/knowledge-skill.ts": {
+      "layer": "adapters",
+      "uc": ["UC-KNOWLEDGE"],
+      "contract": [
+        "docs/requirements.md",
+        "docs/user-scenarios.md"
+      ],
+      "note": "K1a 워크스페이스 지식 풀 도구 ToolExecutorPort(읽기전용 skill_knowledge_search/ask) — KnowledgeBackend 주입(kb-compiler openWorkspaceKnowledge 등 교체가능, D03). output=JSON(sources/hits 의 sourceUris 보존=근거→원문). tier 없음(읽기전용 무승인, 쓰기/컴파일은 K1b). no-throw·abort 2가드(github-skills 동형). memory(푸시)와 분리된 풀(tool). compose 가 실 backend 주입(K1a-2). 설계SoT=alpha-adk .agents/progress/naia-kb-compiler-agent-os-integration-2026-06-29.md. 테스트=src/test/uc-knowledge.contract.test.ts"
     }
   }
 }
