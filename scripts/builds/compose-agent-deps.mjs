@@ -21,6 +21,7 @@ import { makeNotifyExecutor } from "../../dist/main/adapters/notify-skills.js";
 import { makeAdkSkillExecutor, parseSkillMd } from "../../dist/main/adapters/adk-skill-loader.js";
 import { makeFsTools } from "../../dist/main/adapters/fs-tools.js";
 import { makeShellTool } from "../../dist/main/adapters/shell-tool.js";
+import { makeKnowledgeSkillsExecutor } from "../../dist/main/adapters/knowledge-skill.js";
 import { pickSpawnableBin, resolveSpawnableBin, resolveFallbackCommand } from "../../dist/main/adapters/subprocess-session.js";
 import { makeOpenMeteoFetchWeather } from "../../dist/main/adapters/openmeteo-weather.js";
 import { makeFileMemoStore } from "../../dist/main/adapters/file-memo-store.js";
@@ -147,6 +148,23 @@ export async function composeAgentRuntimeDeps(o = {}) {
       // realpath 주입 — cwd 의 symlink/junction 탈출 재검증(fs-tools 와 동형). 부재/실패 시 throw → 어댑터가 거부.
       executors.push(makeShellTool({ exec: shellExec, allowRoots: [adkPath], realpath: (p) => nodeFs.realpathSync(p) }));
       skillsLabel += " + shell-tool(argv)";
+    }
+
+    // ── UC-KNOWLEDGE(K1a): 워크스페이스 지식 풀 도구(read-only skill_knowledge_search/ask). memory(푸시)와 직교한 풀.
+    //    backend = naia-kb-compiler openWorkspaceKnowledge(<adkPath>/knowledge/<scope>) — *동적* import(@naia/kb-compiler
+    //    미설치/빌드실패/KB부재 시 격리: 지식 도구만 생략, 채팅 무영향). 어댑터(makeKnowledgeSkillsExecutor)는 코어 소유,
+    //    backend 만 외부 엔진 주입(D03 비종속). scope=default(멀티스코프=post-MVP). 파일 부재=빈 KB(ask 기권).
+    if (env.NAIA_KNOWLEDGE !== "off") {
+      try {
+        const { openWorkspaceKnowledge } = await import("@naia/kb-compiler");
+        const knowledgeDir = env.NAIA_KNOWLEDGE_DIR || join(adkPath, "knowledge", "default");
+        const wk = await openWorkspaceKnowledge(knowledgeDir);
+        const backend = { search: (q, k) => wk.service.search(q, k), ask: (q) => wk.service.ask(q) };
+        executors.push(makeKnowledgeSkillsExecutor({ backend }));
+        skillsLabel += ` + knowledge(${knowledgeDir}, cards=${wk.kb.cards.length})`;
+      } catch (e) {
+        process.stderr.write(`[naia-agent] knowledge init 실패(격리, 지식 도구 없이 진행): ${e instanceof Error ? e.message : String(e)}\n`);
+      }
     }
 
     const ghToken = env.GITHUB_TOKEN || env.GH_TOKEN;

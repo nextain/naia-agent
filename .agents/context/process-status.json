@@ -24,7 +24,7 @@
     "P02": { "status": "done", "name": "test_scenarios", "deliverable": "Test Coverage Map: UC-KNOWLEDGE → src/test/uc-knowledge.contract.test.ts(fake backend 결정론, 9 케이스)", "ref": "docs/user-scenarios.md (Test Coverage Map)" },
     "P03": { "status": "done", "name": "requirements", "deliverable": "FR-KB-1~4 + NFR(헥사고날·읽기전용·memory↔knowledge 분리)", "ref": "docs/requirements.md" },
     "P04": { "status": "done", "name": "integration_test", "deliverable": "src/test/uc-knowledge.contract.test.ts(9). tsc clean·vitest 무회귀·file-anchors knowledge-skill 등록·check-logging PASS (K1a-1)", "ref": "src/test/uc-knowledge.contract.test.ts" },
-    "P05": { "status": "in_progress", "name": "requirements_complete", "deliverable": "K1a-1(어댑터+계약테스트+게이트) 완료. K1a-2(compose 실 backend openWorkspaceKnowledge 배선 + cross-repo 의존 junction/@naia/kb-compiler file:)·naia-os 패널(K2)은 후속", "ref": ".agents/progress/naia-kb-compiler-agent-os-integration-2026-06-29.md" }
+    "P05": { "status": "in_progress", "name": "requirements_complete", "deliverable": "K1a-1(어댑터+계약테스트 9+게이트)+K1a-2(compose 실 backend 배선: @naia/kb-compiler file: 의존+junction+openWorkspaceKnowledge 동적 import→KnowledgeBackend→executors push) 완료. 통합테스트 src/test/uc-knowledge.integration.test.ts(5, 실 KB 근거답변 관통). tsc0·vitest 873pass(회귀0). naia-os 패널(K2)·Playwright UC E2E는 후속", "ref": ".agents/progress/naia-kb-compiler-agent-os-integration-2026-06-29.md" }
   },
 
   "resource_registry": {
