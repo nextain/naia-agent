@@ -7,10 +7,11 @@ import process from "node:process";
 import { createInterface } from "node:readline";
 import * as nodeFs from "node:fs";
 import { homedir } from "node:os";
-import { join, dirname } from "node:path";
+import { join, dirname, isAbsolute } from "node:path";
 import { randomUUID } from "node:crypto";
 import {
   parseChatArgs, makeReplConversation, chooseProviderConfig, upsertEnvLine, apiKeyEnvFor, CHAT_USAGE,
+  resolveAdkPath, setGlobalConfigAdk, readGlobalConfigAdk,
 } from "../dist/main/app/cli-chat.js";
 import { wireAgentUC1, wireSupervisor } from "../dist/main/composition/index.js";
 import { makeCompositeToolExecutor } from "../dist/main/adapters/composite-tool-executor.js";
@@ -18,6 +19,7 @@ import { makeDelegateAgentSkill } from "../dist/main/adapters/delegate-agent-ski
 import { composeAgentRuntimeDeps } from "../scripts/builds/compose-agent-deps.mjs";
 
 const ENV_PATH = join(homedir(), ".naia-agent", ".env");
+const GLOBAL_CONFIG_PATH = join(homedir(), ".naia-agent", "config.json"); // 단일 device 워크스페이스 고정(1기기=1설정)
 
 // ~/.naia-agent/.env → process.env(기존 값 우선, 미설정만 채움). dotenv 무의존 미니 파서.
 function loadEnvFile() {
@@ -59,7 +61,49 @@ async function doLogin(args) {
   process.exit(0);
 }
 
+async function doWorkspace(args) {
+  nodeFs.mkdirSync(dirname(GLOBAL_CONFIG_PATH), { recursive: true, mode: 0o700 });
+  const defaultPath = join(homedir(), "naia-adk");
+  if (args.workspacePath) {
+    const ws = args.workspacePath;
+    if (!isAbsolute(ws)) { process.stderr.write("워크스페이스 경로는 절대경로여야 합니다.\n"); process.exit(64); }
+    let existing = "";
+    try { existing = nodeFs.readFileSync(GLOBAL_CONFIG_PATH, "utf8"); } catch { /* 신규 */ }
+    nodeFs.writeFileSync(GLOBAL_CONFIG_PATH, setGlobalConfigAdk(existing, ws), { mode: 0o600 });
+    try { nodeFs.chmodSync(GLOBAL_CONFIG_PATH, 0o600); } catch { /* Windows 무시 */ }
+    process.stderr.write(`✓ 전역 워크스페이스 = ${ws}\n  (${GLOBAL_CONFIG_PATH}) — 이후 모든 CLI 실행이 이 워크스페이스의 naia-settings 에서 LLM/설정을 로딩.\n`);
+    process.exit(0);
+  }
+  // show: 현재 해석된 워크스페이스 출력
+  let existing = null;
+  try { existing = nodeFs.readFileSync(GLOBAL_CONFIG_PATH, "utf8"); } catch { /* 없음 */ }
+  const globalAdk = readGlobalConfigAdk(existing);
+  const envAdk = process.env.NAIA_ADK_PATH;
+  const resolved = resolveAdkPath({ ...(envAdk ? { env: envAdk } : {}), ...(globalAdk ? { global: globalAdk } : {}), defaultPath });
+  const src = globalAdk ? "전역 config" : (envAdk ? "NAIA_ADK_PATH env" : "기본(~/naia-adk)");
+  process.stdout.write(`현재 워크스페이스: ${resolved}\n  (소스: ${src})\n`);
+  process.stdout.write(`  우선순위: --workspace > NAIA_ADK_PATH${envAdk ? `=${envAdk}` : "(unset)"} > 전역${globalAdk ? `=${globalAdk}` : "(unset)"} > 기본\n`);
+  // 워크스페이스의 LLM/엔진 설정 요약(있으면)
+  try {
+    const cfg = JSON.parse(nodeFs.readFileSync(join(resolved, "naia-settings", "config.json"), "utf8"));
+    process.stdout.write(`  main=${cfg.provider}/${cfg.model}  sub=${cfg.memoryLlmProvider ?? "-"}  embed=${cfg.memoryEmbeddingProvider ?? "-"}\n`);
+  } catch { /* config 없음 */ }
+  process.exit(0);
+}
+
 async function doChat(args) {
+  // 전역 워크스페이스 해석(1기기=1설정=단일 workspace) — composeAgentRuntimeDeps 보다 먼저 NAIA_ADK_PATH 를
+  // 올려, CLI 가 고정된 워크스페이스의 naia-settings 에서 LLM/스킬/기억을 로딩하게 함(workspace-의존 로딩).
+  let globalAdk;
+  try { globalAdk = readGlobalConfigAdk(nodeFs.readFileSync(GLOBAL_CONFIG_PATH, "utf8")); } catch { globalAdk = undefined; }
+  const adkPath = resolveAdkPath({
+    ...(args.workspace ? { flag: args.workspace } : {}),
+    ...(process.env.NAIA_ADK_PATH ? { env: process.env.NAIA_ADK_PATH } : {}),
+    ...(globalAdk ? { global: globalAdk } : {}),
+    defaultPath: join(homedir(), "naia-adk"),
+  });
+  process.env.NAIA_ADK_PATH = adkPath;
+
   const deps = await composeAgentRuntimeDeps();
   const cleanup = () => { for (const fn of deps.cleanupFns) { try { fn(); } catch { /* best-effort */ } } };
 
@@ -123,7 +167,7 @@ async function doChat(args) {
     defaultConfig: config,
   });
   wired.start?.();
-  process.stderr.write(`[naia-agent-chat] provider=${config.provider}/${config.model} (${chosen.source}), skills=${args.noTools ? "off" : deps.skillsLabel}, memory=${deps.memoryLabel}, delegate=${delegateOn ? "on" : "off"}\n`);
+  process.stderr.write(`[naia-agent-chat] provider=${config.provider}/${config.model} (${chosen.source}), skills=${args.noTools ? "off" : deps.skillsLabel}, memory=${deps.memoryLabel}, delegate=${delegateOn ? "on" : "off"}, workspace=${adkPath}\n`);
 
   let exiting = false;
   const shutdown = async (code) => {
@@ -182,4 +226,5 @@ if (!parsed.ok) {
 }
 loadEnvFile();
 if (parsed.args.mode === "login") await doLogin(parsed.args);
+else if (parsed.args.mode === "workspace") await doWorkspace(parsed.args);
 else await doChat(parsed.args);

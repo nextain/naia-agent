@@ -4,6 +4,7 @@ import { describe, it, expect } from "vitest";
 import {
   parseChatArgs, upsertEnvLine, chooseProviderConfig, apiKeyEnvFor, makeReplConversation,
   PROVIDER_DEFAULT_MODEL, PROVIDER_API_KEY_ENV,
+  resolveAdkPath, setGlobalConfigAdk, readGlobalConfigAdk,
 } from "../main/app/cli-chat.js";
 import type { AgentRequest, AgentEmit, ChatRequest } from "../main/domain/chat.js";
 
@@ -196,7 +197,65 @@ describe("makeReplConversation — 멀티턴 history + emit", () => {
     h.repl.submit("질문");
     h.emit({ kind: "finish" });               // r1 종료
     const before = h.writes.length;
-    h.emit({ kind: "text", text: "유령" }, "r1"); // 종료된 r1 으로 늦게 도착 → 무시
+    h.emit({ kind: "text", text: "명령" }, "r1"); // 종료된 r1 로의 emit → 도착 순서 무시
     expect(h.writes.length).toBe(before);
+  });
+});
+
+describe("workspace(전역 단일 device workspace) — FR-CLI-ws", () => {
+  it("parseChatArgs: `workspace <path>` → workspace 모드 + workspacePath", () => {
+    const r = parseChatArgs(["workspace", "D:\\naia-adk"]);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.args!.mode).toBe("workspace");
+    expect((r.args as { workspacePath?: string }).workspacePath).toBe("D:\\naia-adk");
+  });
+
+  it("parseChatArgs: `workspace`(경로 없음) → workspace 모드(조회용, workspacePath 미설정)", () => {
+    const r = parseChatArgs(["workspace"]);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.args!.mode).toBe("workspace");
+    expect((r.args as { workspacePath?: string }).workspacePath).toBeUndefined();
+  });
+
+  it("parseChatArgs: `--workspace <path>` 플래그(chat 모드, 이번 실행만)", () => {
+    const r = parseChatArgs(["--workspace", "/tmp/ws", "--once", "hi"]);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.args!.mode).toBe("chat");
+    expect((r.args as { workspace?: string }).workspace).toBe("/tmp/ws");
+  });
+
+  it("resolveAdkPath: 우선순위 flag > env > global > default", () => {
+    expect(resolveAdkPath({ flag: "/f", env: "/e", global: "/g", defaultPath: "/d" })).toBe("/f");
+    expect(resolveAdkPath({ env: "/e", global: "/g", defaultPath: "/d" })).toBe("/e");
+    expect(resolveAdkPath({ global: "/g", defaultPath: "/d" })).toBe("/g");
+    expect(resolveAdkPath({ defaultPath: "/d" })).toBe("/d");
+  });
+
+  it("setGlobalConfigAdk: 신규 생성 + 기존 키 보존 + idempotent", () => {
+    expect(setGlobalConfigAdk(null, "/ws")).toBe(JSON.stringify({ adkPath: "/ws" }, null, 2) + "\n");
+    const withOther = JSON.stringify({ version: "0.1", naiaAdkPath: "/x" });
+    const next = setGlobalConfigAdk(withOther, "/ws");
+    const parsed = JSON.parse(next);
+    expect(parsed.adkPath).toBe("/ws");
+    expect(parsed.version).toBe("0.1"); // 기존 키 보존
+    expect(parsed.naiaAdkPath).toBe("/x");
+    // 동일 경로 재설정 = idempotent(값 동일)
+    expect(JSON.parse(setGlobalConfigAdk(next, "/ws")).adkPath).toBe("/ws");
+  });
+
+  it("setGlobalConfigAdk: 손상 JSON → 폐기 후 재구성(다른 키 날아감, 정직)", () => {
+    const next = setGlobalConfigAdk("{ not json", "/ws");
+    expect(JSON.parse(next).adkPath).toBe("/ws");
+  });
+
+  it("readGlobalConfigAdk: 정상/미설정/손상", () => {
+    expect(readGlobalConfigAdk(JSON.stringify({ adkPath: "/ws" }))).toBe("/ws");
+    expect(readGlobalConfigAdk(null)).toBeUndefined();
+    expect(readGlobalConfigAdk(JSON.stringify({ other: 1 }))).toBeUndefined(); // adkPath 키 없음
+    expect(readGlobalConfigAdk("{ broken")).toBeUndefined(); // 손상
+    expect(readGlobalConfigAdk(JSON.stringify({ adkPath: 123 }))).toBeUndefined(); // 비문자열
   });
 });
