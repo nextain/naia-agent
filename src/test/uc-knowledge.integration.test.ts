@@ -69,6 +69,18 @@ describe("UC-KNOWLEDGE 통합 — compose 가 실 kb-compiler backend 배선(K1a
     expect(JSON.parse(r.output).abstained).toBe(true);
   });
 
+  it("skill_knowledge_graph(K3): 실 kb-compiler toGraphData → nodes(엔티티)·communityCount", async () => {
+    const adk = await seededAdk();
+    const deps = await composeAgentRuntimeDeps({ env: baseEnv(adk) });
+    expect(deps.toolExecutor.specs().map((s: { name: string }) => s.name)).toContain("skill_knowledge_graph");
+    const r = await deps.toolExecutor.execute({ id: "tg", name: "skill_knowledge_graph", args: {} }, {});
+    expect(r.isError).toBeFalsy();
+    const g = JSON.parse(r.output);
+    expect(Array.isArray(g.nodes)).toBe(true);
+    expect(g.nodes.some((n: { label: string }) => n.label === "전입신고")).toBe(true);
+    expect(typeof g.communityCount).toBe("number");
+  });
+
   it("KB 파일 부재(미컴파일) → 빈 KB 로 열림(cards=0) + ask 기권(채팅 무영향)", async () => {
     const adk = await seededAdk(false); // knowledge/default/kb.json 없음
     const deps = await composeAgentRuntimeDeps({ env: baseEnv(adk) });

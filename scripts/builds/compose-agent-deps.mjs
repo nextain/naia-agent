@@ -156,10 +156,10 @@ export async function composeAgentRuntimeDeps(o = {}) {
     //    backend 만 외부 엔진 주입(D03 비종속). scope=default(멀티스코프=post-MVP). 파일 부재=빈 KB(ask 기권).
     if (env.NAIA_KNOWLEDGE !== "off") {
       try {
-        const { openWorkspaceKnowledge } = await import("@naia/kb-compiler");
+        const { openWorkspaceKnowledge, toGraphData } = await import("@naia/kb-compiler");
         const knowledgeDir = env.NAIA_KNOWLEDGE_DIR || join(adkPath, "knowledge", "default");
         const wk = await openWorkspaceKnowledge(knowledgeDir);
-        const backend = { search: (q, k) => wk.service.search(q, k), ask: (q) => wk.service.ask(q) };
+        const backend = { search: (q, k) => wk.service.search(q, k), ask: (q) => wk.service.ask(q), graph: async () => toGraphData(wk.kb) };
         executors.push(makeKnowledgeSkillsExecutor({ backend }));
         skillsLabel += ` + knowledge(${knowledgeDir}, cards=${wk.kb.cards.length})`;
       } catch (e) {

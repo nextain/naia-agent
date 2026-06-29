@@ -82,3 +82,44 @@ describe("makeKnowledgeSkillsExecutor (UC-KNOWLEDGE)", () => {
     await expect(ex.execute(call("skill_knowledge_ask", { query: "x" }), { signal: ac.signal })).rejects.toThrow();
   });
 });
+
+describe("makeKnowledgeSkillsExecutor — skill_knowledge_graph (K3, backend.graph 선택 노출)", () => {
+  const graphBackend: KnowledgeBackend = {
+    ...fakeBackend,
+    async graph() {
+      return {
+        nodes: [
+          { id: "a", label: "전입신고", type: "Service", deg: 1, community: 0 },
+          { id: "b", label: "주민센터", type: "Department", deg: 1, community: 0 },
+        ],
+        edges: [{ from: "a", to: "b", type: "handled_by", weight: 1 }],
+        communityCount: 1,
+      };
+    },
+  };
+
+  it("backend.graph 있으면 specs 에 skill_knowledge_graph 추가", () => {
+    const ex = makeKnowledgeSkillsExecutor({ backend: graphBackend });
+    expect(ex.specs().map((s) => s.name)).toContain("skill_knowledge_graph");
+  });
+
+  it("backend.graph 없으면 specs 미노출(조건부)", () => {
+    const ex = makeKnowledgeSkillsExecutor({ backend: fakeBackend });
+    expect(ex.specs().map((s) => s.name)).not.toContain("skill_knowledge_graph");
+  });
+
+  it("graph 실행 → JSON {nodes, edges, communityCount}", async () => {
+    const ex = makeKnowledgeSkillsExecutor({ backend: graphBackend });
+    const r = await ex.execute(call("skill_knowledge_graph", {}), {});
+    expect(r.isError).toBeFalsy();
+    const g = JSON.parse(r.output);
+    expect(g.nodes[0].label).toBe("전입신고");
+    expect(g.edges[0].type).toBe("handled_by");
+    expect(g.communityCount).toBe(1);
+  });
+
+  it("backend.graph 없는데 graph 호출 → unavailable(isError, no-throw)", async () => {
+    const ex = makeKnowledgeSkillsExecutor({ backend: fakeBackend });
+    expect((await ex.execute(call("skill_knowledge_graph", {}), {})).isError).toBe(true);
+  });
+});

@@ -18,9 +18,14 @@ export interface KnowledgeAskResult {
   answer: string;
   sources: { title: string; sourceUris: string[] }[];
 }
+export interface KnowledgeGraphNode { id: string; label: string; type: string; deg: number; community: number; }
+export interface KnowledgeGraphEdge { from: string; to: string; type: string; weight: number; }
+export interface KnowledgeGraphData { nodes: KnowledgeGraphNode[]; edges: KnowledgeGraphEdge[]; communityCount: number; }
 export interface KnowledgeBackend {
   search(query: string, k?: number): Promise<KnowledgeSearchHit[]>;
   ask(query: string): Promise<KnowledgeAskResult>;
+  /** 시각화용 그래프 데이터 — 선택(backend 지원 시에만 skill_knowledge_graph 노출, K3). */
+  graph?(): Promise<KnowledgeGraphData>;
 }
 
 export interface KnowledgeDeps {
@@ -40,6 +45,12 @@ const TOOLS: readonly ToolSpec[] = [
     parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
   },
 ];
+// K3: 그래프 데이터(시각화용) — backend.graph 지원 시에만 specs 에 추가. 인자 없음.
+const GRAPH_TOOL: ToolSpec = {
+  name: "skill_knowledge_graph",
+  description: "워크스페이스 지식 그래프 데이터(엔티티·관계·군집) 조회 — 시각화용(읽기 전용). 인자 없음",
+  parameters: { type: "object", properties: {} },
+};
 
 const ok = (output: string) => ({ output });
 const err = (output: string) => ({ output, isError: true });
@@ -52,7 +63,7 @@ function safeMsg(e: unknown): string {
 export function makeKnowledgeSkillsExecutor(deps: KnowledgeDeps = {}): ToolExecutorPort {
   const backend = deps.backend;
   return {
-    specs: () => TOOLS,
+    specs: () => (backend?.graph ? [...TOOLS, GRAPH_TOOL] : TOOLS),
     async execute(call: ToolCall, opts: { signal?: AbortSignal }): Promise<{ output: string; isError?: boolean }> {
       let signal: AbortSignal | undefined; // ⚠️ try 안에서 읽음 — malformed opts/throwing getter 도 catch→isError(NO-THROW)
       let aborted = false; // 결정론 abort 추적(catch 에서 signal 재독 의존 안 함)
@@ -61,6 +72,12 @@ export function makeKnowledgeSkillsExecutor(deps: KnowledgeDeps = {}): ToolExecu
         signal = opts?.signal;
         abortGuard(); // (진입 가드)
         if (!backend) return err("knowledge unavailable (backend 미주입)");
+        if (call.name === "skill_knowledge_graph") {
+          if (!backend.graph) return err("knowledge graph unavailable");
+          const g = await backend.graph();
+          abortGuard(); // (await 후 가드)
+          return ok(JSON.stringify(g)); // {nodes, edges, communityCount}
+        }
         if (!isObj(call.args)) return err("args must be object");
         const q = call.args.query;
         if (typeof q !== "string" || q.trim() === "") return err("query must be non-empty string");
