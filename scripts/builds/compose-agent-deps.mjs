@@ -48,8 +48,20 @@ export async function composeAgentRuntimeDeps(o = {}) {
   else if (ap === "echo-system") { provider = makeSystemEchoProvider(); providerLabel = "echo-system(e2e)"; }
   else { resolver = makeProviderResolver(); providerLabel = "config-driven resolver(lab-proxy/native/ollama)"; }
 
-  // ADK 워크스페이스 경로(naia-adk) — config 정본 + 스킬 설정 위치.
-  const adkPath = env.NAIA_ADK_PATH || join(homedir(), "naia-adk");
+  // ADK 워크스페이스 경로 — 단일 device workspace(1기기=1설정=단일 워크스페이스). 우선순위:
+  //   NAIA_ADK_PATH env > 전역 config(~/.naia-agent/config.json adkPath) > 기본 ~/naia-adk(bootstrap 폴백).
+  // 전역 config 가 CLI standalone 의 SoT — 모든 진입점(chat/gRPC host)이 같은 워크스페이스에서 LLM/설정 로딩.
+  // ⚠️ 기본 ~/naia-adk 폴백은 silent-divergence 원인(다른 복제본 가리킘) — 사용 시 경고로 가시화.
+  const DEFAULT_ADK = join(homedir(), "naia-adk");
+  let globalAdk;
+  try {
+    const parsed = JSON.parse(nodeFs.readFileSync(join(homedir(), ".naia-agent", "config.json"), "utf8"));
+    if (typeof parsed?.adkPath === "string" && parsed.adkPath.length > 0) globalAdk = parsed.adkPath;
+  } catch { /* 전역 config 없음/손상 = 폴백 */ }
+  const adkPath = env.NAIA_ADK_PATH || globalAdk || DEFAULT_ADK;
+  if (!env.NAIA_ADK_PATH && !globalAdk) {
+    process.stderr.write(`[naia-agent] ⚠ 워크스페이스 미설정 — 기본(${DEFAULT_ADK}) 폴백. 'naia-agent-chat workspace <path>' 로 단일 device 워크스페이스 고정 권장(1기기=1설정).\n`);
+  }
   let skillsCfg = {};
   try { skillsCfg = JSON.parse(nodeFs.readFileSync(join(adkPath, "naia-settings", "skills.json"), "utf8")); } catch { /* 없음 = env 폴백 */ }
 

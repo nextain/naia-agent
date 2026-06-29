@@ -92,19 +92,13 @@ async function doWorkspace(args) {
 }
 
 async function doChat(args) {
-  // 전역 워크스페이스 해석(1기기=1설정=단일 workspace) — composeAgentRuntimeDeps 보다 먼저 NAIA_ADK_PATH 를
-  // 올려, CLI 가 고정된 워크스페이스의 naia-settings 에서 LLM/스킬/기억을 로딩하게 함(workspace-의존 로딩).
-  let globalAdk;
-  try { globalAdk = readGlobalConfigAdk(nodeFs.readFileSync(GLOBAL_CONFIG_PATH, "utf8")); } catch { globalAdk = undefined; }
-  const adkPath = resolveAdkPath({
-    ...(args.workspace ? { flag: args.workspace } : {}),
-    ...(process.env.NAIA_ADK_PATH ? { env: process.env.NAIA_ADK_PATH } : {}),
-    ...(globalAdk ? { global: globalAdk } : {}),
-    defaultPath: join(homedir(), "naia-adk"),
-  });
-  process.env.NAIA_ADK_PATH = adkPath;
+  // 워크스페이스: --workspace 플래그만 이번 실행 env override 로 올림. 나머지 우선순위(NAIA_ADK_PATH env > 전역
+  // config > 기본)은 composeAgentRuntimeDeps 가 **단일 해석**(중복 하드코딩 제거). 결과 deps.adkPath 로
+  // LLM/스킬/기억의 workspace-의존 로딩. 단일 device workspace(1기기=1설정).
+  if (args.workspace) process.env.NAIA_ADK_PATH = args.workspace;
 
   const deps = await composeAgentRuntimeDeps();
+  const adkPath = deps.adkPath;
   const cleanup = () => { for (const fn of deps.cleanupFns) { try { fn(); } catch { /* best-effort */ } } };
 
   // delegate_agent 도구(opt-in: env NAIA_DELEGATE_AGENT=1) — 메인 LLM 이 sub-agent(gemini/opencode/...)를 부리는
