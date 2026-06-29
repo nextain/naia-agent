@@ -304,6 +304,28 @@
       "contract": "docs/progress/99.dev-comm/UC-memory-recall-save-contract-2026-06-12.md",
       "note": "RecalledMemory + formatRecalledMemory(비신뢰 프레이밍·예산 절단, 순수)"
     },
+    "src/main/domain/persona.ts": {
+      "layer": "domain",
+      "uc": [
+        "UC-PERSONA-CLI"
+      ],
+      "contract": [
+        "docs/requirements.md",
+        "docs/user-scenarios.md"
+      ],
+      "note": "PersonaProfile + composePersonaPrompt(워크스페이스 페르소나 → system prompt 순수 합성). naia-os buildSystemPrompt 거울 MINUS emotion-tag 블록(CLI 무 아바타). 빈 profile=\"\". FR-PERSONA-1. 테스트=src/test/uc-persona-compose.contract.test.ts"
+    },
+    "src/main/adapters/persona-source-store.ts": {
+      "layer": "adapters",
+      "uc": [
+        "UC-PERSONA-CLI"
+      ],
+      "contract": [
+        "docs/requirements.md",
+        "docs/user-scenarios.md"
+      ],
+      "note": "PersonaSourcePort 구현 — <adkPath>/naia-settings/config.json + 내장 persona JSON 문자열 파싱→PersonaProfile(NAIA_LOCALE→locale). 페르소나 SoT=naia-os 가 읽고 쓰는 동일 파일(ghost-edit split 없음). FsLike 주입, 부재/손상=undefined(no-throw). FR-PERSONA-2. 테스트=src/test/uc-persona-compose.contract.test.ts"
+    },
     "src/main/ports/memory.ts": {
       "layer": "ports",
       "uc": [

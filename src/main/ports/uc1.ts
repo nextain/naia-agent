@@ -2,6 +2,7 @@
 import type {
   ProviderConfig, ChatMessage, ProviderChunk, AgentEmit, AgentRequest, ToolSpec, ToolCall,
 } from "../domain/chat.js";
+import type { PersonaProfile } from "../domain/persona.js";
 
 export type Unsub = () => void;
 
@@ -34,6 +35,13 @@ export interface ToolExecutorPort {
 export interface ConversationPort {
   /** 대화조립 — token-budget + system-prompt. */
   assemble(req: { messages: readonly ChatMessage[]; systemPrompt?: string }): { messages: readonly ChatMessage[]; systemPrompt?: string };
+}
+
+/** UC-PERSONA-CLI driven — 워크스페이스 설정의 페르소나 프로필 로드(driven). 구현=persona-source-store
+ *  (`<adkPath>/naia-settings/config.json` 읽기). 파일 부재/손상 = undefined(no-throw). */
+export interface PersonaSourcePort {
+  /** 워크스페이스 페르소나 프로필. 소스 부재/손상 = undefined(페르소나 기본 없음). */
+  load(): PersonaProfile | undefined;
 }
 
 export interface CredentialPort {

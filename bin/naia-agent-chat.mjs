@@ -212,10 +212,13 @@ async function doChat(args) {
     write: (s) => process.stdout.write(s),
     prompt: () => {},   // REPL 모드에서 rl.prompt 로 교체. once 모드=no-op.
   };
+  // 기본 system prompt = 워크스페이스 페르소나(Alpha) — --system 이 있으면 그것이 override(FR-PERSONA-3).
+  // deps.personaSystemPrompt 는 compose-agent-deps 가 <adkPath>/naia-settings/config.json 에서 합성(없으면 undefined).
+  const systemPrompt = args.systemPrompt ?? deps.personaSystemPrompt;
   const repl = makeReplConversation({
     io,
     newRequestId: () => randomUUID(),
-    ...(args.systemPrompt ? { systemPrompt: args.systemPrompt } : {}),
+    ...(systemPrompt ? { systemPrompt } : {}),
     enableTools: !args.noTools,
     sessionId: `cli-${randomUUID()}`,
     ...(process.env.NAIA_CHAT_VERBOSE === "1" ? { verbose: true } : {}),
@@ -235,7 +238,8 @@ async function doChat(args) {
     defaultConfig: config,
   });
   wired.start?.();
-  process.stderr.write(`[naia-agent-chat] provider=${config.provider}/${config.model} (${chosen.source}), skills=${args.noTools ? "off" : deps.skillsLabel}, memory=${deps.memoryLabel}, delegate=${delegateOn ? "on" : "off"}, workspace=${adkPath}\n`);
+  const personaStatus = args.systemPrompt ? "persona(--system override)" : (deps.personaLabel ?? "persona(none)");
+  process.stderr.write(`[naia-agent-chat] provider=${config.provider}/${config.model} (${chosen.source}), ${personaStatus}, skills=${args.noTools ? "off" : deps.skillsLabel}, memory=${deps.memoryLabel}, delegate=${delegateOn ? "on" : "off"}, workspace=${adkPath}\n`);
 
   let exiting = false;
   const shutdown = async (code) => {
