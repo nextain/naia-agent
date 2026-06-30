@@ -2,7 +2,7 @@
 // sandbox 단위(validatePath/isSensitivePath) + realpath/TOCTOU + 도구 계약(fs-tools/shell-tool) + 민감경로 실증.
 // ⚠️ F-SEC01: 실 키/시크릿 미접근 — 모든 경로는 **가짜**. allow-root 는 가공 디렉터리(/ws).
 import { describe, it, expect } from "vitest";
-import { validatePath, isSensitivePath, type SandboxPolicy } from "../main/domain/fs-sandbox.js";
+import { validatePath, isSensitivePath, isSettingsWriteFenced, type SandboxPolicy } from "../main/domain/fs-sandbox.js";
 import { makeFsTools, type FsToolsFsLike } from "../main/adapters/fs-tools.js";
 import { makeShellTool, type ShellExecFn, type ShellExecResult } from "../main/adapters/shell-tool.js";
 import type { ToolCall } from "../main/domain/chat.js";
@@ -115,6 +115,30 @@ describe("denylist (민감경로 — allow-root 안이라도 거부)", () => {
     expect(validatePath("docs/readme.md", POLICY).ok).toBe(true);
     expect(validatePath("src/main/x.ts", POLICY).ok).toBe(true);
     expect(isSensitivePath("/ws/docs/readme.md")).toBe(false);
+  });
+});
+
+describe("isSettingsWriteFenced (설정 쓰기-펜스 — write 전용, FR-KB-OS.9)", () => {
+  it("naia-settings/ 하위 = 펜스(true)", () => {
+    for (const p of [
+      "/ws/naia-settings",
+      "/ws/naia-settings/knowledge.json",
+      "/ws/naia-settings/config.json",
+      "/ws/naia-settings/.keys/k.dpapi",
+      "/ws/NAIA-SETTINGS/config.json", // 대소문자 무관
+    ])
+      expect(isSettingsWriteFenced(p, [ROOT])).toBe(true);
+  });
+  it("naia-settings 밖 = 펜스 아님(false) — 일반 워크스페이스/유사이름", () => {
+    for (const p of [
+      "/ws/docs/x.md",
+      "/ws/knowledge/default/kb.json",
+      "/ws/naia-settings-backup/x", // prefix 유사하지만 다른 디렉터리
+    ])
+      expect(isSettingsWriteFenced(p, [ROOT])).toBe(false);
+  });
+  it("빈 allowRoots = 펜스 안 함(컨테인먼트는 validatePath 가 별도 담당)", () => {
+    expect(isSettingsWriteFenced("/ws/naia-settings/x", [])).toBe(false);
   });
 });
 
@@ -254,6 +278,34 @@ describe("makeFsTools — 도구 계약", () => {
     const r = await ex.execute(CALL("write_file", { path: "plain.md", content: "new" }), {});
     expect(r.isError).toBeFalsy();
     expect(calls.write.length).toBe(1);
+  });
+  // ── K-SEC: naia-settings 쓰기-펜스(FR-KB-OS.9 "AI 가 설정 못 건드림") — 읽기는 허용, 쓰기만 거부 ──
+  it("write_file: naia-settings/ 설정 파일 쓰기 거부(셸 소유, write 미발생)", async () => {
+    const calls = { read: [] as string[], write: [] as string[] };
+    const fs = fakeFs({ "/ws/naia-settings/knowledge.json": "{}" }, { dirs: ["/ws", "/ws/naia-settings"], calls });
+    const ex = makeFsTools({ fs, allowRoots: [ROOT], enableWrite: true });
+    for (const p of ["naia-settings/knowledge.json", "naia-settings/config.json", "naia-settings/ui-config.json"]) {
+      const r = await ex.execute(CALL("write_file", { path: p, content: "evil" }), {});
+      expect(r.isError).toBe(true);
+      expect(r.output).toMatch(/read-only|settings/i);
+    }
+    expect(calls.write.length).toBe(0); // 설정에 실제 write 안 함
+  });
+  it("read_file: naia-settings/ 설정 읽기는 허용(에이전트가 provider/지식 config 읽음 — 펜스는 write 전용)", async () => {
+    const fs = fakeFs({ "/ws/naia-settings/config.json": "{\"provider\":\"gemini\"}" }, { dirs: ["/ws", "/ws/naia-settings"] });
+    const ex = makeFsTools({ fs, allowRoots: [ROOT], enableWrite: true });
+    const r = await ex.execute(CALL("read_file", { path: "naia-settings/config.json" }), {});
+    expect(r.isError).toBeFalsy();
+    expect(r.output).toContain("gemini");
+  });
+  it("write_file: symlink 으로 naia-settings 우회해도 real 이 펜스 안이면 거부", async () => {
+    const calls = { read: [] as string[], write: [] as string[] };
+    // /ws/innocent.json 은 존재하는 일반 경로지만 realpath 가 naia-settings/knowledge.json 으로 swap.
+    const fs = fakeFs({ "/ws/naia-settings/knowledge.json": "{}" }, { dirs: ["/ws", "/ws/naia-settings"], links: { "/ws/innocent.json": "/ws/naia-settings/knowledge.json" }, calls });
+    const ex = makeFsTools({ fs, allowRoots: [ROOT], enableWrite: true });
+    const r = await ex.execute(CALL("write_file", { path: "innocent.json", content: "evil" }), {});
+    expect(r.isError).toBe(true);
+    expect(calls.write.length).toBe(0);
   });
   it("tier 설정 확인 — read/list=fs-read, write=fs-write(승인 게이트 발화 근거)", () => {
     const ex = makeFsTools({ fs: fakeFs({}), allowRoots: [ROOT], enableWrite: true });

@@ -29,7 +29,7 @@
 - recall 정확성은 content+project 기반(session/encode 순서 무관) → 동시 턴 교차 안전.
 - NFR-MEM-degrade(S5): sub-LLM(메모리 factExtractor/summarizer) 미구성/구성불가는 memory 전체를 비활성하지 않는다. `loadMemoryConfig` 가 구성불가 sub-LLM 을 `provider:"none"` 으로 강등(매핑 경계 graceful) → recall/save·embedding 은 보존, LLM 기반 추출/요약만 생략. memory identity 키 = **workspace-id(`resolveWorkspaceId`, 영속 UUID)** — persona userName(FR-PERSONA, S1b)과 직교(키 분리, identity split 없음).
 
-## UC-KNOWLEDGE FR/NFR (FR-KB-1 ~ 5) — 워크스페이스 지식 풀 도구 + 컴파일
+## UC-KNOWLEDGE FR/NFR (FR-KB-1 ~ 6) — 워크스페이스 지식 풀 도구 + 컴파일 + 보안 가드
 
 설계 SoT: 루트 `.agents/progress/naia-kb-compiler-agent-os-integration-2026-06-29.md` (K1a·K1b). memory(푸시)와 분리된 풀(tool). KB 컴파일/서빙=외부 엔진(naia-kb-compiler), 코어는 도구 노출 + 컴파일 트리거.
 
@@ -40,6 +40,7 @@
 | FR-KB-3 | 결과 직렬화·출처 보존 — execute output=JSON. `ask`={abstained,answer,sources[{title,sourceUris}]}·`search`={hits[{title,snippet,score,sourceUris}]}. **sourceUris 보존**(근거→원문 키, naia-os 칩 렌더). 구조화 citation(cardId/snippet) 확장은 후속(K5). | Done |
 | FR-KB-4 | no-throw·기권 — 실패/미가용/잘못된 인자 → `{output,isError:true}`(throw 금지, 루프 안정). abort 만 reject(2가드: 진입/await 후). 근거 없으면 backend 가 abstained=true(지어내지 않음, 안전). | Done |
 | FR-KB-5 | **컴파일 트리거(K1b)** — gRPC `CompileKnowledge(adkPath)` RPC 가 셸 소유 `naia-settings/knowledge.json`(scope·sources)을 **읽어**(에이전트는 config 쓰기 없음 — naia-os FR-KB-OS.9 대칭) 등록 폴더(.md/.txt) → kb-compiler `compile()`(오프라인 결정론) → `knowledge/<scope>/kb.json` 영속. 통계({ok,scope,source/card/entity/relationCount,error?}) 반환. no-throw(미주입/실패=ok:false+error). backend 주입(DI·D03 비종속). | Done |
+| FR-KB-6 | **보안 가드(K-SEC)** — R2 적대리뷰의 "구호" 4종을 강제 코드로 전환: ①**설정 쓰기-펜스**(`isSettingsWriteFenced`, fs-sandbox): 에이전트 `write_file` 가 `naia-settings/` 쓰기 거부(읽기는 허용 — provider/지식 config) = FR-KB-OS.9 "AI 가 설정 못 건드림" 강제(realpath 해소 후 판정, symlink 우회 차단). ②**compile scope 경로탈출 방지**(`isValidKnowledgeScope`): 구분자/`..`/드라이브 scope 거부 → `knowledge/<scope>` outDir 워크스페이스 밖 탈출 차단. ③**extract 인젝션 안전**: 컴파일 추출=오프라인 결정론(Markdown, LLM 미사용)이라 자료 심긴 프롬프트 미해석=인젝션 surface 0(LLM 추출 전환 시 비신뢰 격리 필요 — 코드 명시). ④**memory↔knowledge 분리**: 컴파일은 `knowledge/<scope>/` 만 영속, naia-memory store 미접촉(누수 0). | Done |
 
 ### NFR
 - 헥사고날: adapter(backend 주입)·코어 비종속. 읽기 전용(쓰기/컴파일 분리=K1b).

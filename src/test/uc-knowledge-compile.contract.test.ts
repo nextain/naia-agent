@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+	isValidKnowledgeScope,
 	type KnowledgeCompileBackend,
 	makeCompileKnowledge,
 	readWorkspaceKnowledgeConfig,
@@ -83,6 +84,40 @@ describe("UC-KNOWLEDGE 컴파일 계약(FR-KB-5, K1b)", () => {
 			backend,
 		});
 		expect((await compile("/adk")).ok).toBe(false);
+	});
+
+	// ── K-SEC: scope 경로탈출 방지 ──
+	describe("isValidKnowledgeScope (경로탈출 방지)", () => {
+		it("정상 스코프 허용", () => {
+			for (const s of ["default", "proj-a", "고객1", "a_b.c"])
+				expect(isValidKnowledgeScope(s)).toBe(true);
+		});
+		it("구분자/..·드라이브·널·빈·과길이 거부", () => {
+			for (const s of [
+				"",
+				"..",
+				"../etc",
+				"a/b",
+				"a\\b",
+				"../../secret",
+				"C:\\x",
+				"a\0b",
+				"x".repeat(129),
+			])
+				expect(isValidKnowledgeScope(s)).toBe(false);
+		});
+	});
+
+	it("악의 scope(경로탈출) → ok:false + backend 미호출(kb.json 워크스페이스 밖 미작성)", async () => {
+		const { backend, calls } = recordingBackend();
+		const compile = makeCompileKnowledge({
+			readConfig: async () => ({ scope: "../../etc", sources: ["/docs/a"] }),
+			backend,
+		});
+		const r = await compile("/adk");
+		expect(r.ok).toBe(false);
+		expect(r.error).toMatch(/스코프/);
+		expect(calls).toHaveLength(0); // 컴파일 자체가 안 일어남 → 경로탈출 outDir 생성 0
 	});
 
 	describe("readWorkspaceKnowledgeConfig (셸 소유 knowledge.json 읽기전용)", () => {

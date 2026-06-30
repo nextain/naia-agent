@@ -123,6 +123,31 @@ function segments(posixPath: string): string[] {
   return posixPath.split("/").filter((s) => s.length > 0);
 }
 
+/**
+ * **쓰기 펜스** — `{allowRoot}/naia-settings/` 하위는 *쓰기* 거부(읽기는 허용).
+ *
+ * 설정 정본(config.json·knowledge.json·ui-config.json·credentials 등)은 **셸 소유**(사람이 UI 로만 변경)
+ * → 에이전트의 일반 파일도구(write_file)가 이를 못 바꾼다 = **신뢰경계 자가확장 차단**(naia-os FR-KB-OS.9:
+ * "AI 가 설정 못 건드림"). 에이전트는 config 를 *읽기는* 해야 하므로(provider/지식 스코프) 읽기는 허용,
+ * 쓰기만 펜스한다. 정당한 설정 쓰기는 전용 포트(naia-settings-store 등)·셸 IPC 가 담당(이 일반 도구 아님).
+ *
+ * isSensitivePath(read+write 거부, `.keys` 등 시크릿)와 **직교** — 이건 write 전용·config 영역.
+ * realpath 해소 후 호출(symlink 가 naia-settings 를 가리켜도 real 이 펜스 안이면 차단).
+ */
+export function isSettingsWriteFenced(
+  normalizedPath: string,
+  allowRoots: readonly string[],
+): boolean {
+  const lower = toPosix(normalizedPath).toLowerCase();
+  for (const root of allowRoots) {
+    const r = toPosix(root).toLowerCase();
+    if (!r) continue;
+    const fence = `${r}/naia-settings`;
+    if (lower === fence || lower.startsWith(`${fence}/`)) return true;
+  }
+  return false;
+}
+
 /** 정규화된 경로가 민감경로(denylist)인가. 정규화는 **소문자**로(대소문자 무관 매칭). */
 export function isSensitivePath(normalizedPath: string): boolean {
   const lower = toPosix(normalizedPath).toLowerCase();

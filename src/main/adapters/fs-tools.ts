@@ -17,7 +17,7 @@
 // ⚠️ 코어 순수 — node:fs 직접 import 안 함. FsLike 주입(compose-agent-deps 가 node:fs 제공, 테스트는 fake).
 import type { ToolExecutorPort } from "../ports/uc1.js";
 import type { ToolSpec, ToolCall } from "../domain/chat.js";
-import { validatePath, type SandboxPolicy } from "../domain/fs-sandbox.js";
+import { isSettingsWriteFenced, validatePath, type SandboxPolicy } from "../domain/fs-sandbox.js";
 import { isAborted } from "./signal-util.js";
 
 /** fs-tools 가 쓰는 최소 fs(node:fs 부분집합). realpathSync 는 **TOCTOU 재검증의 핵심**(symlink/junction 해소). */
@@ -180,6 +180,9 @@ export function makeFsTools(deps: FsToolsDeps): ToolExecutorPort {
             if (a.content.length > MAX_WRITE) return err("content too large (>1MB)");
             const safe = resolveSafe(a.path, { forWrite: true });
             if (!safe.ok) return err(`denied: ${safe.reason}`);
+            // 설정 쓰기-펜스(FR-KB-OS.9): naia-settings/ 는 셸 소유 → 에이전트 일반 파일도구가 못 바꾼다.
+            //   real(symlink 해소 후)로 판정 — 링크로 우회 불가. 읽기는 허용(read_file 미적용).
+            if (isSettingsWriteFenced(safe.real, allowRoots)) return err("denied: naia-settings is read-only for the agent (settings owned by shell)");
             abortGuard(); // (mutate 전 가드)
             fs.writeFileSync(safe.real, a.content, { encoding: "utf8", mode: 0o600 });
             return ok(`작성됨: ${safe.real} (${a.content.length} bytes)`);

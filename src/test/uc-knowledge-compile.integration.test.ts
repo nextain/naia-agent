@@ -1,6 +1,6 @@
 /** @spec UC-KNOWLEDGE / FR-KB-5 통합(K1b) — 실 kb-compiler backend: 폴더(.md) → compile → kb.json 영속.
  *  cross-repo in-process(naia-agent → @naia/kb-compiler: Ingest + Markdown extract + WorkspaceStore). fake 아님. */
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -62,6 +62,11 @@ describe("UC-KNOWLEDGE 컴파일 통합 — 실 kb-compiler 폴더→kb.json(FR-
 			(c: { sourceUris: string[] }) => c.sourceUris,
 		);
 		expect(uris.some((u: string) => u.includes("jeonipsingo.md"))).toBe(true);
+
+		// K-SEC 분리: 컴파일은 knowledge/<scope>/ 만 영속 — memory store 미접촉(누수 0).
+		expect(await readdir(join(adk, "knowledge"))).toEqual(["gov"]); // scope 만
+		const rootEntries = await readdir(adk);
+		expect(rootEntries.some((e) => /memory/i.test(e))).toBe(false); // memory 류 디렉터리 미생성
 	});
 
 	it("config 부재(소스 0) → ok:false(미컴파일, throw 아님)", async () => {
