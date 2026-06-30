@@ -169,10 +169,29 @@ export async function composeAgentRuntimeDeps(o = {}) {
           } catch { /* knowledge.json 부재/깨짐 = default */ }
           knowledgeDir = join(adkPath, "knowledge", scope);
         }
-        const wk = await openWorkspaceKnowledge(knowledgeDir);
-        const backend = { search: (q, k) => wk.service.search(q, k), ask: (q) => wk.service.ask(q), graph: async () => toGraphData(wk.kb) };
+        // ★ 라이브 리로드(컴파일 후 재시작 불요): kb.json 은 기동 시 1회 인덱싱되므로, "지금 컴파일" 로
+        //   파일이 바뀌어도 기존 KB(인덱스)는 stale → AI 가 새 지식을 못 본다. mtime 변화 감지 시 다음 질의에서
+        //   재로딩(재인덱싱) = 컴파일 RPC 와 결선 없이 자가교정. 무변화면 캐시 재사용(매 질의 재인덱싱 안 함).
+        const kbFile = join(knowledgeDir, "kb.json");
+        let cached = null;
+        let cachedMtime = -1;
+        const loadKnowledge = async () => {
+          let mtime = 0;
+          try { mtime = nodeFs.statSync(kbFile).mtimeMs; } catch { mtime = 0; } // 부재 = mtime 0(빈 KB)
+          if (cached === null || mtime !== cachedMtime) {
+            cached = await openWorkspaceKnowledge(knowledgeDir);
+            cachedMtime = mtime;
+          }
+          return cached;
+        };
+        const wk = await loadKnowledge(); // 초기 로드(존재·라벨)
+        const backend = {
+          search: async (q, k) => (await loadKnowledge()).service.search(q, k),
+          ask: async (q) => (await loadKnowledge()).service.ask(q),
+          graph: async () => toGraphData((await loadKnowledge()).kb),
+        };
         executors.push(makeKnowledgeSkillsExecutor({ backend }));
-        skillsLabel += ` + knowledge(${knowledgeDir}, cards=${wk.kb.cards.length})`;
+        skillsLabel += ` + knowledge(${knowledgeDir}, cards=${wk.kb.cards.length}, live-reload)`;
       } catch (e) {
         process.stderr.write(`[naia-agent] knowledge init 실패(격리, 지식 도구 없이 진행): ${e instanceof Error ? e.message : String(e)}\n`);
       }

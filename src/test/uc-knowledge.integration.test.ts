@@ -112,6 +112,21 @@ describe("UC-KNOWLEDGE 통합 — compose 가 실 kb-compiler backend 배선(K1a
     expect(JSON.parse(r.output).answer).toContain("신분증");
   });
 
+  it("★라이브 리로드 — 기동 후 컴파일(kb.json 변경)이 재시작 없이 다음 질의에 반영", async () => {
+    const adk = await seededAdk(false); // kb.json 없음(빈 KB 로 기동)
+    const deps = await composeAgentRuntimeDeps({ env: baseEnv(adk) });
+    // 1) 컴파일 전 = 기권(빈 KB)
+    const r1 = await deps.toolExecutor.execute({ id: "lr1", name: "skill_knowledge_ask", args: { query: "전입신고 필요서류?" } }, {});
+    expect(JSON.parse(r1.output).abstained).toBe(true);
+    // 2) "지금 컴파일" 시뮬 — kb.json 작성(mtime 변화)
+    await mkdir(join(adk, "knowledge", "default"), { recursive: true });
+    await writeFile(join(adk, "knowledge", "default", "kb.json"), JSON.stringify(KB), "utf8");
+    // 3) 재시작 없이 같은 deps 로 질의 → 재로딩되어 근거 답변(stale KB 버그 회귀 차단)
+    const r2 = await deps.toolExecutor.execute({ id: "lr2", name: "skill_knowledge_ask", args: { query: "전입신고 필요서류?" } }, {});
+    expect(JSON.parse(r2.output).abstained).toBe(false);
+    expect(JSON.parse(r2.output).answer).toContain("신분증");
+  });
+
   it("무효 scope(knowledge.json) → default 폴백(경로탈출 안전)", async () => {
     const adk = await seededAdk(); // knowledge/default/kb.json 시드
     await mkdir(join(adk, "naia-settings"), { recursive: true });
