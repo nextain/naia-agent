@@ -17,7 +17,7 @@
 | UC-PERSONA-CLI | 코어가 워크스페이스 설정의 페르소나(Alpha)를 system prompt 로 합성 → CLI 가 `--system` 없이도 알파로 응답 | `docs/requirements.md` FR-PERSONA-1~3 (집약) |
 | UC-WORKSPACE-CTX | 코어가 워크스페이스 컨텍스트(cwd + 프로젝트 이름 목록)를 system prompt 에 경량 포함 → 에이전트가 자기 워크스페이스를 인식 | `docs/requirements.md` FR-WORKSPACE-1~4 (집약) |
 | UC-FS-TOOLS | 에이전트가 **직접 도구**로 워크스페이스 내 파일을 나열/읽기(기본), opt-in 으로 쓰기/셸 실행 — allow-root sandbox + 민감경로 denylist + realpath 재검증(TOCTOU) + tier 승인 | `docs/requirements.md` FR-FS-1~8 / NFR-SEC (집약) |
-| UC-KNOWLEDGE | 코어가 컴파일된 워크스페이스 지식(KB)을 **풀 도구**(`skill_knowledge_search`/`ask`)로 노출 → 에이전트가 근거 있는 답변·근거 없으면 기권. memory(푸시)와 분리된 풀(tool) | `docs/requirements.md` FR-KB-1~4 (집약) |
+| UC-KNOWLEDGE | 코어가 컴파일된 워크스페이스 지식(KB)을 **풀 도구**(`skill_knowledge_search`/`ask`)로 노출 → 에이전트가 근거 있는 답변·근거 없으면 기권. + **컴파일 트리거**(`CompileKnowledge` RPC, K1b — 소스 폴더→kb.json). memory(푸시)와 분리된 풀(tool) | `docs/requirements.md` FR-KB-1~5 (집약) |
 
 ## UC-MEM-1 (장기기억 회상)
 
@@ -203,9 +203,13 @@ knowledge=WHAT/풀, 안 섞음).
   cardId/snippet 확장은 후속 K5).
 - **S-KB-4 (no-throw·기권)**: 도구 execute 는 실패/미가용/잘못된 인자 시 `{output, isError:true}`(throw 금지 —
   루프 안정, ToolExecutorPort 계약). abort 시에만 reject(2가드: 진입/await 후). 근거 없으면 backend abstained=true(지어내지 않음).
+- **S-KB-5 (컴파일 트리거 — K1b)**: gRPC `CompileKnowledge(adkPath)` RPC 가 셸 소유 `naia-settings/knowledge.json`
+  (scope·sources)을 **읽어**(에이전트는 config 쓰기 없음 — naia-os FR-KB-OS.9 대칭) 등록 폴더(.md/.txt) → kb-compiler
+  `compile()`(오프라인 결정론) → `knowledge/<scope>/kb.json` 영속. 통계({ok,scope,*Count,error?}) 반환·no-throw.
+  셸 "지금 컴파일" 버튼이 호출. backend 주입(D03 비종속). 읽기(S-KB-1)와 직교.
 
-직교: KB 컴파일/서빙 지능은 외부 엔진(어댑터가 backend 로 주입), 코어는 도구 노출만. `compose-agent-deps` 가
-실 backend(`openWorkspaceKnowledge`)를 주입(K1a-2). memory(push) 경로와 저장소·주입 모두 분리.
+직교: KB 컴파일/서빙 지능은 외부 엔진(어댑터가 backend 로 주입), 코어는 도구 노출 + 컴파일 트리거. `compose-agent-deps` 가
+실 backend(`openWorkspaceKnowledge`)를 주입(K1a-2), entry 가 컴파일 backend(`makeKbCompilerBackend`)를 주입(K1b). memory(push) 경로와 저장소·주입 모두 분리.
 
 ## Test Coverage Map
 
@@ -235,5 +239,6 @@ knowledge=WHAT/풀, 안 섞음).
 | UC-FS-TOOLS / S-FS-1·2·3 / FR-FS-2·3·4 + NFR-SEC (sandbox 단위) | `src/test/uc-fs-tools.contract.test.ts` — describe "validatePath (domain)" — `..`/드라이브절대/UNC/env확장/널바이트 거부, allow-root 밖 거부·안 허용, denylist(.keys/.env/.dpapi/data-private/ssh) 거부, 빈 allowRoots deny-all + describe "realpath/TOCTOU" — fake realpath 가 allow-root 밖 가리키면 거부(symlink/junction 탈출 시뮬) |
 | UC-FS-TOOLS / S-FS-5·6·7 / FR-FS-1·5·6·7·8 (도구 계약) | `src/test/uc-fs-tools.contract.test.ts` — describe "makeFsTools" — read_file/list_dir(허용 성공·거부 isError·throw 안 함), write_file(enableWrite=false→spec 없음·동작 거부, true→동작·승인 tier), 민감경로 실증(`<adk>/naia-settings/.keys/x.dpapi`·`<adk>/data-private/...` read→isError) + describe "makeShellTool" — argv 정상·셸문자열(string) 거부·cwd 탈출 거부·tier shell·no-throw |
 | UC-KNOWLEDGE / S-KB-1~4 / FR-KB-1~4 | `src/test/uc-knowledge.contract.test.ts` — describe "makeKnowledgeSkillsExecutor" (specs 2종·tier 없음 / search JSON hits+sourceUris / k 반영 / ask JSON answer+sources / 근거없음 기권 abstained / backend 미주입 unavailable / 빈·비문자 query·잘못 args isError no-throw / unknown tool / abort reject). fake backend 결정론 |
+| UC-KNOWLEDGE / S-KB-5 / FR-KB-5 (컴파일 K1b) | `src/test/uc-knowledge-compile.contract.test.ts` — makeCompileKnowledge(소스→backend·통계 / 소스0·빈adkPath·backend throw·readConfig throw = ok:false no-throw) + readWorkspaceKnowledgeConfig(부재·유효·깨짐). `src/test/uc-knowledge-compile.integration.test.ts` — 실 kb-compiler: 폴더(.md)→compile→knowledge/<scope>/kb.json 영속+sourceUris 보존(cross-repo) |
 
 > UC1/UC5/provider-provenance 의 상세 시나리오·수용기준은 각 계약서 + `docs/acceptance-criteria.md` 참조.

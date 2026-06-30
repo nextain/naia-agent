@@ -29,9 +29,9 @@
 - recall 정확성은 content+project 기반(session/encode 순서 무관) → 동시 턴 교차 안전.
 - NFR-MEM-degrade(S5): sub-LLM(메모리 factExtractor/summarizer) 미구성/구성불가는 memory 전체를 비활성하지 않는다. `loadMemoryConfig` 가 구성불가 sub-LLM 을 `provider:"none"` 으로 강등(매핑 경계 graceful) → recall/save·embedding 은 보존, LLM 기반 추출/요약만 생략. memory identity 키 = **workspace-id(`resolveWorkspaceId`, 영속 UUID)** — persona userName(FR-PERSONA, S1b)과 직교(키 분리, identity split 없음).
 
-## UC-KNOWLEDGE FR/NFR (FR-KB-1 ~ 4) — 워크스페이스 지식 풀 도구
+## UC-KNOWLEDGE FR/NFR (FR-KB-1 ~ 5) — 워크스페이스 지식 풀 도구 + 컴파일
 
-설계 SoT: 루트 `.agents/progress/naia-kb-compiler-agent-os-integration-2026-06-29.md` (K1a). memory(푸시)와 분리된 풀(tool). KB 컴파일/서빙=외부 엔진(naia-kb-compiler), 코어는 도구 노출만.
+설계 SoT: 루트 `.agents/progress/naia-kb-compiler-agent-os-integration-2026-06-29.md` (K1a·K1b). memory(푸시)와 분리된 풀(tool). KB 컴파일/서빙=외부 엔진(naia-kb-compiler), 코어는 도구 노출 + 컴파일 트리거.
 
 | ID | 요구사항 | 상태 |
 |----|----------|:----:|
@@ -39,6 +39,7 @@
 | FR-KB-2 | backend 주입(DI)·비종속 — 어댑터는 `KnowledgeBackend`(search/ask) 주입. naia-kb-compiler `openWorkspaceKnowledge` 결과 매핑(D03 교체가능). 미주입/미가용 = 정직 unavailable(throw 아님). 코어가 특정 엔진을 import 하지 않음(비종속). | Done |
 | FR-KB-3 | 결과 직렬화·출처 보존 — execute output=JSON. `ask`={abstained,answer,sources[{title,sourceUris}]}·`search`={hits[{title,snippet,score,sourceUris}]}. **sourceUris 보존**(근거→원문 키, naia-os 칩 렌더). 구조화 citation(cardId/snippet) 확장은 후속(K5). | Done |
 | FR-KB-4 | no-throw·기권 — 실패/미가용/잘못된 인자 → `{output,isError:true}`(throw 금지, 루프 안정). abort 만 reject(2가드: 진입/await 후). 근거 없으면 backend 가 abstained=true(지어내지 않음, 안전). | Done |
+| FR-KB-5 | **컴파일 트리거(K1b)** — gRPC `CompileKnowledge(adkPath)` RPC 가 셸 소유 `naia-settings/knowledge.json`(scope·sources)을 **읽어**(에이전트는 config 쓰기 없음 — naia-os FR-KB-OS.9 대칭) 등록 폴더(.md/.txt) → kb-compiler `compile()`(오프라인 결정론) → `knowledge/<scope>/kb.json` 영속. 통계({ok,scope,source/card/entity/relationCount,error?}) 반환. no-throw(미주입/실패=ok:false+error). backend 주입(DI·D03 비종속). | Done |
 
 ### NFR
 - 헥사고날: adapter(backend 주입)·코어 비종속. 읽기 전용(쓰기/컴파일 분리=K1b).

@@ -7,6 +7,11 @@ import { wireAgentUC1 } from "../../dist/main/composition/index.js";
 import { makeCompositeToolExecutor } from "../../dist/main/adapters/composite-tool-executor.js";
 import { makePanelToolExecutor } from "../../dist/main/adapters/panel-tool-executor.js";
 import { makeGrpcServer } from "../../dist/main/adapters/grpc/grpc-server.js";
+import {
+  makeCompileKnowledge,
+  makeKbCompilerBackend,
+  readWorkspaceKnowledgeConfig,
+} from "../../dist/main/adapters/knowledge-compile.js";
 import { composeAgentRuntimeDeps } from "./compose-agent-deps.mjs";
 
 // process stdin/stdout → LineIO. ⚠️ readline 은 즉시 시작하지만 라우터/종료 핸들러는 비동기 init(동적
@@ -68,6 +73,14 @@ const grpcServer = makeGrpcServer({
     return reloadConfigFrom(currentAdkPath);
   },
   onReloadSettings: () => reloadConfigFrom(currentAdkPath),
+  // UC-KNOWLEDGE-COMPILE(FR-KB-5): "지금 컴파일" → 등록 소스 폴더(naia-settings/knowledge.json) → kb.json.
+  //   config 읽기=셸 소유 정본(에이전트 읽기전용), 실 backend=kb-compiler(오프라인 결정론). adk_path 미지정=현 워크스페이스.
+  onCompileKnowledge: (wsPath) =>
+    makeCompileKnowledge({
+      readConfig: readWorkspaceKnowledgeConfig,
+      backend: makeKbCompilerBackend(),
+      diag,
+    })(wsPath || currentAdkPath),
   onRegisterPanelSkills: (panelId, tools) => panelExec?.register(panelId, tools),       // FR-PANEL-1
   onClearPanelSkills: (panelId) => panelExec?.clear(panelId),                           // FR-PANEL-1
   onListSkills: () => toolExecutor?.specs() ?? [],                                      // M2: ListSkills(voice)=composite 전체(builtin+panel, H1 동적 재집계). panel만 반환하던 버그 수정.

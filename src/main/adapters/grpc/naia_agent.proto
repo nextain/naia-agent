@@ -12,6 +12,10 @@ service NaiaAgent {
   rpc SetWorkspace(SetWorkspaceRequest) returns (SetWorkspaceResult);
   rpc ReloadSettings(ReloadSettingsRequest) returns (SetWorkspaceResult);
 
+  // UC-KNOWLEDGE-COMPILE (FR-KB-5): naia-os 설정 지식 탭이 등록한 소스 폴더(naia-settings/knowledge.json) →
+  //   kb-compiler compile → naia-adk knowledge/<scope>/kb.json 영속. 셸 "지금 컴파일" 버튼이 호출(additive RPC).
+  rpc CompileKnowledge(CompileKnowledgeRequest) returns (CompileKnowledgeResult);
+
   // 대화: 메시지만(provider 미포함 — 정본). 응답 = AgentEvent server-stream(현 AgentEmit 1:1).
   rpc Chat(ChatRequest) returns (stream AgentEvent);
 
@@ -44,6 +48,18 @@ message SetWorkspaceResult {
   bool loaded = 1;            // naia-adk 에서 provider/model 로딩 성공?
   string provider = 2;
   string model = 3;
+}
+
+// UC-KNOWLEDGE-COMPILE (FR-KB-5): 컴파일 트리거 + 통계. adk_path 미지정 시 현 워크스페이스 사용(entry).
+message CompileKnowledgeRequest { string adk_path = 1; }
+message CompileKnowledgeResult {
+  bool ok = 1;                // 컴파일 성공(소스 0/오류 = false)
+  string scope = 2;           // 컴파일된 지식 스코프(knowledge/<scope>/kb.json)
+  int32 source_count = 3;
+  int32 card_count = 4;
+  int32 entity_count = 5;
+  int32 relation_count = 6;
+  optional string error = 7;  // 실패 사유(정직 표기 — 셸이 표시)
 }
 
 message Message { string role = 1; string content = 2; optional string tool_call_id = 3; } // role: system|user|assistant|tool (passthrough, protocol.ts 동형)

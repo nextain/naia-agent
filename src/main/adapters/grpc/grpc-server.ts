@@ -20,6 +20,8 @@ const PROTO_PATH = [
 ].find((p) => existsSync(p)) ?? join(HERE, "naia_agent.proto");
 
 export interface SettingsResult { loaded: boolean; provider: string; model: string }
+/** UC-KNOWLEDGE-COMPILE (FR-KB-5) — CompileKnowledge RPC 결과(통계). proto camelCase 동형. */
+export interface CompileKnowledgeResult { ok: boolean; scope: string; sourceCount: number; cardCount: number; entityCount: number; relationCount: number; error?: string }
 /** F1 rich-health(신규계약 Diagnostics RPC). os InteroceptivePort.diagnostics rich payload. */
 export interface DiagnosticsResult { version: string; uptimeMs: number; healthy: boolean; components: readonly { name: string; healthy: boolean }[] }
 
@@ -27,6 +29,8 @@ export interface GrpcServerDeps {
   bindAddr?: string;                                  // 기본 127.0.0.1:0(임의 포트). entry 가 주소 회수.
   onSetWorkspace: (adkPath: string) => SettingsResult; // naia-adk/naia-settings 로딩 결과(entry 제공)
   onReloadSettings: () => SettingsResult;
+  // UC-KNOWLEDGE-COMPILE(FR-KB-5): 지식 컴파일 트리거(entry 주입, async). 미주입=unavailable(no-op 정직 보고).
+  onCompileKnowledge?: (adkPath: string) => Promise<CompileKnowledgeResult>;
   onDiagnostics?: () => DiagnosticsResult;            // F1 rich-health(미주입 시 기본 healthy). Rust os-client=후속.
   // UC-PANEL(FR-PANEL): 환경 panel skill RPC → panel-tool-executor 연결(entry 주입). 미주입=panel 미지원(no-op).
   onRegisterPanelSkills?: (panelId: string, tools: ToolSpec[]) => void;
@@ -109,6 +113,15 @@ export function makeGrpcServer(deps: GrpcServerDeps): GrpcServer {
     },
     reloadSettings: (_call: grpc.ServerUnaryCall<unknown, unknown>, cb: grpc.sendUnaryData<SettingsResult>) => {
       cb(null, deps.onReloadSettings());
+    },
+    // UC-KNOWLEDGE-COMPILE(FR-KB-5): async 컴파일. no-throw(미주입/실패=ok:false+error, RPC 안정). cb 단일호출.
+    compileKnowledge: async (call: grpc.ServerUnaryCall<unknown, unknown>, cb: grpc.sendUnaryData<CompileKnowledgeResult>) => {
+      const adkPath = String((call.request as { adkPath?: string })?.adkPath ?? "");
+      diag.debug?.("grpc CompileKnowledge", { adkPath });
+      const unavailable = (error: string): CompileKnowledgeResult => ({ ok: false, scope: "", sourceCount: 0, cardCount: 0, entityCount: 0, relationCount: 0, error });
+      if (!deps.onCompileKnowledge) { cb(null, unavailable("compile unavailable")); return; }
+      try { cb(null, await deps.onCompileKnowledge(adkPath)); }
+      catch (e) { cb(null, unavailable(e instanceof Error ? e.message : String(e))); }
     },
     diagnostics: (_call: grpc.ServerUnaryCall<unknown, unknown>, cb: grpc.sendUnaryData<DiagnosticsResult>) => {
       cb(null, deps.onDiagnostics ? deps.onDiagnostics() : { version: "", uptimeMs: 0, healthy: true, components: [] }); // 미주입=기본 healthy
