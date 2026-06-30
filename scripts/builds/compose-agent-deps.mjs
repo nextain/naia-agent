@@ -22,6 +22,7 @@ import { makeAdkSkillExecutor, parseSkillMd } from "../../dist/main/adapters/adk
 import { makeFsTools } from "../../dist/main/adapters/fs-tools.js";
 import { makeShellTool } from "../../dist/main/adapters/shell-tool.js";
 import { makeKnowledgeSkillsExecutor } from "../../dist/main/adapters/knowledge-skill.js";
+import { readWorkspaceKnowledgeConfig, isValidKnowledgeScope } from "../../dist/main/adapters/knowledge-compile.js";
 import { pickSpawnableBin, resolveSpawnableBin, resolveFallbackCommand } from "../../dist/main/adapters/subprocess-session.js";
 import { makeOpenMeteoFetchWeather } from "../../dist/main/adapters/openmeteo-weather.js";
 import { makeFileMemoStore } from "../../dist/main/adapters/file-memo-store.js";
@@ -153,11 +154,21 @@ export async function composeAgentRuntimeDeps(o = {}) {
     // ── UC-KNOWLEDGE(K1a): 워크스페이스 지식 풀 도구(read-only skill_knowledge_search/ask). memory(푸시)와 직교한 풀.
     //    backend = naia-kb-compiler openWorkspaceKnowledge(<adkPath>/knowledge/<scope>) — *동적* import(@naia/kb-compiler
     //    미설치/빌드실패/KB부재 시 격리: 지식 도구만 생략, 채팅 무영향). 어댑터(makeKnowledgeSkillsExecutor)는 코어 소유,
-    //    backend 만 외부 엔진 주입(D03 비종속). scope=default(멀티스코프=post-MVP). 파일 부재=빈 KB(ask 기권).
+    //    backend 만 외부 엔진 주입(D03 비종속). **활성 스코프** = 셸 소유 knowledge.json(읽기전용)의 scope —
+    //    컴파일 산출(knowledge/<scope>/kb.json)과 동일 scope 로 읽어 읽기/쓰기 경로 정렬(멀티스코프 V1). 파일 부재=빈 KB(ask 기권).
     if (env.NAIA_KNOWLEDGE !== "off") {
       try {
         const { openWorkspaceKnowledge, toGraphData } = await import("@naia/kb-compiler");
-        const knowledgeDir = env.NAIA_KNOWLEDGE_DIR || join(adkPath, "knowledge", "default");
+        let knowledgeDir = env.NAIA_KNOWLEDGE_DIR;
+        if (!knowledgeDir) {
+          // 활성 스코프 해소: knowledge.json scope(검증) → knowledge/<scope>. 부재/무효 = default.
+          let scope = "default";
+          try {
+            const cfg = await readWorkspaceKnowledgeConfig(adkPath);
+            if (cfg.scope && isValidKnowledgeScope(cfg.scope)) scope = cfg.scope;
+          } catch { /* knowledge.json 부재/깨짐 = default */ }
+          knowledgeDir = join(adkPath, "knowledge", scope);
+        }
         const wk = await openWorkspaceKnowledge(knowledgeDir);
         const backend = { search: (q, k) => wk.service.search(q, k), ask: (q) => wk.service.ask(q), graph: async () => toGraphData(wk.kb) };
         executors.push(makeKnowledgeSkillsExecutor({ backend }));

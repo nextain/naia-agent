@@ -96,4 +96,29 @@ describe("UC-KNOWLEDGE 통합 — compose 가 실 kb-compiler backend 배선(K1a
     const names = deps.toolExecutor.specs().map((s: { name: string }) => s.name);
     expect(names).not.toContain("skill_knowledge_ask");
   });
+
+  it("활성 스코프(멀티스코프 V1) — knowledge.json scope 따라 knowledge/<scope>/kb.json 읽음(default 아님)", async () => {
+    const adk = await mkdtemp(join(tmpdir(), "kb-scope-"));
+    dirs.push(adk);
+    // scope=proj 에만 KB(default 엔 없음) + 셸 소유 knowledge.json{scope:proj}.
+    await mkdir(join(adk, "knowledge", "proj"), { recursive: true });
+    await writeFile(join(adk, "knowledge", "proj", "kb.json"), JSON.stringify(KB), "utf8");
+    await mkdir(join(adk, "naia-settings"), { recursive: true });
+    await writeFile(join(adk, "naia-settings", "knowledge.json"), JSON.stringify({ version: 1, scope: "proj", sources: [] }), "utf8");
+    const deps = await composeAgentRuntimeDeps({ env: baseEnv(adk) });
+    // proj scope 의 KB 를 읽어 근거 답변(default 였으면 부재→기권). 읽기/쓰기 scope 정렬.
+    const r = await deps.toolExecutor.execute({ id: "ts", name: "skill_knowledge_ask", args: { query: "전입신고 필요서류?" } }, {});
+    expect(JSON.parse(r.output).abstained).toBe(false);
+    expect(JSON.parse(r.output).answer).toContain("신분증");
+  });
+
+  it("무효 scope(knowledge.json) → default 폴백(경로탈출 안전)", async () => {
+    const adk = await seededAdk(); // knowledge/default/kb.json 시드
+    await mkdir(join(adk, "naia-settings"), { recursive: true });
+    await writeFile(join(adk, "naia-settings", "knowledge.json"), JSON.stringify({ version: 1, scope: "../../etc", sources: [] }), "utf8");
+    const deps = await composeAgentRuntimeDeps({ env: baseEnv(adk) });
+    // 무효 scope 무시 → default 읽음(시드된 KB) → 근거 답변.
+    const r = await deps.toolExecutor.execute({ id: "ts2", name: "skill_knowledge_ask", args: { query: "전입신고 필요서류?" } }, {});
+    expect(JSON.parse(r.output).abstained).toBe(false);
+  });
 });
