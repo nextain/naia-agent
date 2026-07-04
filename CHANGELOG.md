@@ -8,6 +8,29 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+### fix (core — `<recall>` regen continuation turn: gemini-via-openai-compat empty completion)
+
+`#41 v2` LLM-initiated recall re-generation returned an **empty completion** with
+gemini-3.5-flash via the openai-compat naia gateway. Root cause (bisected against the raw
+gateway, 2026-07-04): after a `<recall>` marker fires, the conversation history ends with the
+assistant's own marker turn; the model — especially under a "emit a standalone marker" system
+persona — stalls in "marker mode" and returns no text on the regen. Confirmed it is **NOT** an
+array-vs-string content wire issue (the SDK collapses single-text content to a string; the raw
+gateway answers the identical shape). Surfaced by the human-like memory bench (Slice HL-1),
+which saw every positive recall probe degenerate to `[agent stopped]`.
+
+- **`packages/core/src/agent.ts`** — after a marker-driven recall pushes hits, append a neutral
+  `RECALL_CONTINUATION` user turn to history before the loop `continue`. This converts the
+  trailing assistant-marker state into a user-terminated state the model answers from; the
+  recalled memory is already in the system context, so the turn only says "answer now, don't
+  re-emit a marker". Language-neutral (model replies in the conversation's language); benign for
+  providers that already regenerate cleanly. Verified: bench positive probe now reaches
+  `used-needs-judge` (memory recalled + used), negative probe `abstained-correctly`.
+- **`packages/runtime/src/__tests__/agent-recall-marker.test.ts`** — new regression test asserts
+  the post-recall regen request carries `[user, assistant(marker), user(continuation)]` (kills a
+  "delete the continuation push" mutation). Existing 3 recall-marker tests unchanged. Full runtime
+  suite 741 pass / 5 skip (0 regression).
+
 ### feat (Slice HL-1 — human-like memory experience bench: live multi-session runner)
 
 인간다움 기억(감정연상·과거취향 = 선택적·적절 회상, 완벽회상 아님)을 라이브 다세션
@@ -35,18 +58,17 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
   (buildTrace 매핑 + isDegenerate + buildTrace→classifyPipeline 종단 경로). 기존
   pipeline.test.ts 9 + 합쳐 21 green, typecheck clean.
 - **`packages/benchmarks/src/index.ts`** — humanlike 코어(types/pipeline/observe/scenarios) barrel export.
-- **Verify (real Gemini, 2026-07-04):** 러너 end-to-end 동작 — PipelineTrace 생성 + 5-버킷
-  분류 산출 확인. 슬라이스 게이트 4건 충족(runnable cmd + unit + real-LLM integration + CHANGELOG).
+- **Verify (real Gemini, 2026-07-04):** 러너 end-to-end 동작. 아래 recall-regen 수정 적용 후 벤치가
+  실제로 판별: 긍정 probe → `used-needs-judge`(naia가 채식 취향을 떠올려 식당 추천에 반영,
+  판정층=Slice 2로 이연), 부정 probe → `abstained-correctly`(애도 맥락에서 취향 회상 안 함).
+  슬라이스 게이트 4건 충족(runnable cmd + unit + real-LLM integration + CHANGELOG).
 
-**⚠ 실측이 드러낸 cross-stack 블로커 (naia-agent core / any-llm gateway, 사람 게이트):**
-naia-gateway(any-llm→Vertex)는 assistant 메시지의 `content`가 **배열(content-parts)** 이면
-거부하고 **문자열**을 요구한다. raw 재현: 동일 메시지에서 `content="..."` → 820자 정상,
-`content=[{type:"text",...}]` → HTTP 500 `Input should be a valid string`. agent 멀티홉 루프는
-hop0 assistant 턴을 content-blocks(배열)로 history에 커밋하므로, `<recall>` 재생성(hop1)에서
-그 배열형 assistant를 되돌려 보내 500 → agent가 삼켜 **빈 응답** → gemini로 memory-grounded
-답변 불가(recall뿐 아니라 tool 포함 모든 멀티홉 영향). 벤치는 이를 `execution-error`로 정직
-보고. 수정 위치(둘 중 하나)는 사람 결정 필요: (a) VercelClient가 single-text assistant content를
-문자열로 collapse, 또는 (b) any-llm Vertex 어댑터가 assistant content-parts 수용.
+**실측이 드러낸 recall-regen 결함 (아래 core 수정으로 해소):** 벤치가 처음엔 모든 긍정 probe에서
+`<recall>` 후 **빈 응답**을 냈다. 정밀 bisect로 root-cause 확정 — **게이트웨이/배열-content 문제가
+아니라**(SDK가 single-text를 문자열로 collapse함을 wire 캡처로 확인, raw 재현도 정상), 마커 발화 후
+history가 assistant-마커 턴으로 끝나는 상태에서 gemini가 regen 시 빈 completion을 반환("marker
+mode"에 갇힘). 지시형 persona(마커만 출력)일수록 재현율↑. bisect: trailing 마커 뒤 user 턴 하나
+추가하면 정상 응답. → `packages/core/src/agent.ts` recall-regen 경로에 continuation 턴 추가로 해소(아래).
 
 ### feat (bench — Agent `forceTextOnLastHop` + VercelClient tool-choice control)
 

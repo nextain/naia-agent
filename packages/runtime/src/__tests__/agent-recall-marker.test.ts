@@ -35,9 +35,10 @@ class RecordingMemory implements MemoryProvider {
   async close(): Promise<void> {}
 }
 
-/** Scripted LLM that ALSO records request.system per stream() call. */
+/** Scripted LLM that ALSO records request.system + request.messages per call. */
 class InspectingMockLLM implements LLMClient {
   systems: string[] = [];
+  messagesPerCall: LLMRequest["messages"][] = [];
   #i = 0;
   constructor(private readonly turns: string[]) {}
   async generate(): Promise<never> {
@@ -46,6 +47,7 @@ class InspectingMockLLM implements LLMClient {
   async *stream(request: LLMRequest): AsyncIterable<LLMStreamChunk> {
     const sys = typeof request.system === "string" ? request.system : JSON.stringify(request.system ?? "");
     this.systems.push(sys);
+    this.messagesPerCall.push(request.messages.map((m) => ({ ...m })));
     const text = this.turns[Math.min(this.#i, this.turns.length - 1)] ?? "";
     this.#i++;
     yield { type: "start", id: `insp-${this.#i}`, model: "insp" };
@@ -100,6 +102,26 @@ describe("Agent 8G text-marker recall (#41 v2)", () => {
     const { assistantText } = await run(mem, llm);
     expect(mem.calls).toEqual(["내 이름이 뭐였지?", "q1", "q2"]); // q3 not actioned
     expect(assistantText).not.toContain("<recall>");
+  });
+
+  it("marker → a continuation user-turn is appended so the model answers (not left on its own marker turn)", async () => {
+    // Some providers (gemini via openai-compat naia gateway) return an EMPTY
+    // completion when asked to regenerate after their own trailing `<recall>`
+    // marker turn. The loop appends a neutral continuation turn so the regen
+    // request ends with a USER turn → the model answers. Kills a "delete the
+    // continuation push" mutation without coupling to the exact wording.
+    const mem = new RecordingMemory();
+    const llm = new InspectingMockLLM(["<recall>내 이름</recall>", "당신의 이름은 Alpha 입니다."]);
+    await run(mem, llm);
+    expect(llm.messagesPerCall.length).toBe(2);
+    // Pre-recall request: just the original user turn.
+    expect(llm.messagesPerCall[0]!.map((m) => m.role)).toEqual(["user"]);
+    // Post-recall regen: user(original) + assistant(marker) + user(continuation).
+    const regen = llm.messagesPerCall[1]!;
+    expect(regen.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
+    const cont = regen[2]!;
+    expect(typeof cont.content === "string" ? cont.content : "").not.toBe("내 이름이 뭐였지?");
+    expect((cont.content as string).length).toBeGreaterThan(0);
   });
 
   it("regression: no marker → no extra recall, text unchanged", async () => {

@@ -171,6 +171,18 @@ export type AgentStreamEvent =
   | { type: "turn.ended"; assistantText: string }
   | { type: "session.ended"; state: SessionState };
 
+/**
+ * Continuation turn appended after an LLM-initiated `<recall>` marker fires
+ * (#41 v2). It converts the trailing assistant-marker state into a state the
+ * model answers from: any recalled memory is already in the system context, so
+ * this only tells the model to answer now and not re-emit a marker. Language-
+ * neutral (the model replies in the conversation's language); safe for models
+ * that already regenerate cleanly. Fixes gemini-via-openai-compat empty regen.
+ */
+const RECALL_CONTINUATION =
+  "The recall you requested is complete; any relevant memory is now in the context above. " +
+  "Answer the user's last message directly using it, and do not emit another recall marker.";
+
 export class Agent {
   readonly #host: HostContext;
   readonly #session: Session;
@@ -381,6 +393,14 @@ export class Agent {
             query: recallQuery.slice(0, 64), hits: more.length,
             hopsLeft: recallHopsRemaining,
           });
+          // The assistant's marker turn is now the last message in history.
+          // When the model is instructed to emit a standalone marker, some
+          // providers (observed: gemini-3.5-flash via the openai-compat naia
+          // gateway) return an EMPTY completion on the regen — the model stays
+          // "in marker mode" after its own trailing marker turn. Append a
+          // neutral continuation turn so the model answers the user's last
+          // message using the freshly-recalled memory instead of stalling.
+          this.#history.push({ role: "user", content: RECALL_CONTINUATION });
           continue;
         }
         // No actionable marker (or budget exhausted): sanitize residue so
