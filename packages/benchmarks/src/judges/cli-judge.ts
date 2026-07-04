@@ -15,7 +15,7 @@ import { spawn } from "node:child_process";
 import type { Judge, JudgeInput, JudgeResult } from "./types.js";
 import { buildJudgePrompt, parseJudgeReply } from "./prompt.js";
 
-interface CliSpec {
+export interface CliSpec {
 	readonly name: string;
 	readonly bin: string;
 	/** Args BEFORE the prompt. Prompt is appended as the final argv. */
@@ -24,7 +24,7 @@ interface CliSpec {
 	readonly env?: Readonly<Record<string, string>>;
 }
 
-const CLI_SPECS: Record<"codex" | "opencode" | "gemini", CliSpec> = {
+export const CLI_SPECS: Record<"codex" | "opencode" | "gemini" | "claude", CliSpec> = {
 	codex: {
 		name: "codex",
 		bin: "codex",
@@ -41,9 +41,17 @@ const CLI_SPECS: Record<"codex" | "opencode" | "gemini", CliSpec> = {
 		leadingArgs: ["--skip-trust", "-p"],
 		env: { GEMINI_CLI_TRUST_WORKSPACE: "true" },
 	},
+	// Claude Code non-interactive print mode. Self-contained text judge (no tools
+	// needed); consumes the Claude subscription so callers gate it
+	// (NAIA_JUDGE_ENSEMBLE).
+	claude: {
+		name: "claude",
+		bin: "claude",
+		leadingArgs: ["-p"],
+	},
 };
 
-async function runCli(spec: CliSpec, prompt: string, timeoutMs: number): Promise<{
+export async function runCli(spec: CliSpec, prompt: string, timeoutMs: number): Promise<{
 	stdout: string;
 	stderr: string;
 	exitCode: number;
@@ -127,3 +135,4 @@ function makeCliJudge(specKey: keyof typeof CLI_SPECS): Judge {
 export const codexJudge = makeCliJudge("codex");
 export const opencodeJudge = makeCliJudge("opencode");
 export const geminiJudge = makeCliJudge("gemini");
+export const claudeJudge = makeCliJudge("claude");

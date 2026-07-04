@@ -52,6 +52,7 @@ import { koIncludes } from "/var/home/luke/alpha-adk/projects/naia-agent/package
 import { WELL_FORMED_MARKER } from "/var/home/luke/alpha-adk/projects/naia-agent/packages/runtime/src/bench/recall-bench-judge.ts";
 import { classifyPipeline, summarize } from "../packages/benchmarks/src/humanlike/pipeline.ts";
 import { buildTrace, isDegenerateResponse } from "../packages/benchmarks/src/humanlike/observe.ts";
+import { judgeSocialQuality, type SocialQualityAggregate } from "../packages/benchmarks/src/humanlike/judge.ts";
 import { HUMANLIKE_SCENARIOS } from "../packages/benchmarks/src/humanlike/scenarios.ts";
 import type { HumanlikeProbe, HumanlikeScenario, PipelineOutcome } from "../packages/benchmarks/src/humanlike/types.ts";
 
@@ -189,11 +190,16 @@ async function runTurn(
 	return { response, markerEmitted: WELL_FORMED_MARKER.test(tee.raw) };
 }
 
+interface JudgedProbe {
+	readonly probeId: string;
+	readonly agg: SocialQualityAggregate;
+}
+
 async function runScenario(
 	scenario: HumanlikeScenario,
 	mainLlm: LLMClient,
 	observed: ObservingMemory,
-): Promise<PipelineOutcome[]> {
+): Promise<{ outcomes: PipelineOutcome[]; judged: JudgedProbe[] }> {
 	console.log(`\n▶ 시나리오 ${scenario.id} (${scenario.family})`);
 
 	// Seed + distractor sessions: replay USER turns; the real agent generates
@@ -208,6 +214,7 @@ async function runScenario(
 
 	// Probes: each in a fresh agent (clean history) against the seeded store.
 	const outcomes: PipelineOutcome[] = [];
+	const needsJudge: { probe: HumanlikeProbe; response: string; recalled: string[] }[] = [];
 	for (const probe of scenario.probes) {
 		const { response, markerEmitted } = await runTurn(mainLlm, observed, probe.triggerText);
 		const trace = buildTrace(
@@ -228,8 +235,46 @@ async function runScenario(
 			: classifyPipeline(trace, probe.polarity);
 		outcomes.push(outcome);
 		reportProbe(probe, trace, outcome, response);
+		if (outcome.bucket === "used-needs-judge") {
+			// Snapshot the ACTUAL retrieved memory now — the spy is reset each turn.
+			needsJudge.push({ probe, response, recalled: observed.markerDrivenHits.map((h) => h.content) });
+		}
 	}
-	return outcomes;
+
+	// Social-quality judge layer — flagship ensemble (codex + claude), scores the
+	// `used-needs-judge` probes only. Opt-in (NAIA_JUDGE_ENSEMBLE=1) to protect
+	// codex/claude CLI credits; without it these probes stay deferred.
+	const judged: JudgedProbe[] = [];
+	if (needsJudge.length > 0 && process.env.NAIA_JUDGE_ENSEMBLE === "1") {
+		console.log(`  ─ 판정 (social-quality 앙상블: codex + claude) ─`);
+		for (const { probe, response, recalled } of needsJudge) {
+			const agg = await judgeSocialQuality({
+				trigger: probe.triggerText,
+				response,
+				expectedMemory: probe.expectedMemorySet,
+				...(recalled.length > 0 ? { recalledMemory: recalled } : {}),
+				...(probe.acceptableStyle ? { acceptableStyle: probe.acceptableStyle } : {}),
+				...(probe.forbiddenRecalls ? { forbiddenRecalls: probe.forbiddenRecalls } : {}),
+			});
+			judged.push({ probeId: probe.id, agg });
+			reportJudge(probe.id, agg);
+		}
+	} else if (needsJudge.length > 0) {
+		console.log(`  ─ ${needsJudge.length} probe deferred to judge (set NAIA_JUDGE_ENSEMBLE=1 to score) ─`);
+	}
+
+	return { outcomes, judged };
+}
+
+function reportJudge(probeId: string, agg: SocialQualityAggregate): void {
+	const a = agg.axes;
+	const verdict = agg.unreliable ? "UNRELIABLE" : agg.pass ? "PASS" : "FAIL";
+	console.log(
+		`  ★ ${probeId} social-quality → ${verdict}  overall=${agg.overall.toFixed(2)}` +
+			`  (적절 ${a.appropriateness} / 자연 ${a.naturalness} / 충실 ${a.faithfulness})` +
+			`  judges=${agg.validCount}✓/${agg.infraErrorCount}✗`,
+	);
+	console.log(`      ${agg.reason.slice(0, 200)}`);
 }
 
 function reportProbe(
@@ -286,8 +331,11 @@ async function main() {
 	);
 
 	const all: PipelineOutcome[] = [];
+	const judgedAll: JudgedProbe[] = [];
 	for (const scenario of HUMANLIKE_SCENARIOS) {
-		all.push(...(await runScenario(scenario, mainLlm, observed)));
+		const r = await runScenario(scenario, mainLlm, observed);
+		all.push(...r.outcomes);
+		judgedAll.push(...r.judged);
 	}
 	await memory.close();
 
@@ -295,6 +343,11 @@ async function main() {
 	console.log(`\n[summary] probes=${s.total}  det-pass=${s.deterministicPass}  det-fail=${s.deterministicFail}  needs-judge=${s.needsJudge}`);
 	console.log(`  buckets: ${JSON.stringify(s.byBucket)}`);
 	if (Object.keys(s.byFailureLayer).length) console.log(`  failure-layers: ${JSON.stringify(s.byFailureLayer)}`);
+	if (judgedAll.length > 0) {
+		const jpass = judgedAll.filter((j) => !j.agg.unreliable && j.agg.pass).length;
+		const junrel = judgedAll.filter((j) => j.agg.unreliable).length;
+		console.log(`  judged (social-quality): ${jpass}/${judgedAll.length} pass` + (junrel ? `, ${junrel} unreliable` : ""));
+	}
 	console.log(
 		`\n✓ 라이브 러너 동작: PipelineTrace 생성 + 5-버킷 분류 완료 (판정 층 = Slice 2).`,
 	);

@@ -40,3 +40,22 @@ export { classifyPipeline, summarize } from "./humanlike/pipeline.js";
 export { buildTrace, isDegenerateResponse } from "./humanlike/observe.js";
 export type { ProbeObservation, Contains } from "./humanlike/observe.js";
 export { HUMANLIKE_SCENARIOS, PREF_VEGETARIAN } from "./humanlike/scenarios.js";
+export {
+	buildSocialQualityPrompt,
+	parseSocialQualityReply,
+	median,
+	medianAxes,
+	aggregateSocialQuality,
+	judgeSocialQuality,
+	defaultSocialQualityJudges,
+	SOCIAL_QUALITY_PASS_THRESHOLD,
+} from "./humanlike/judge.js";
+export type {
+	SocialQualityAxes,
+	SocialQualityVerdict,
+	SocialQualityAggregate,
+	SocialQualityInput,
+	ScoredJudge,
+	ScoredJudgeResult,
+} from "./humanlike/judge.js";
+export { claudeJudge } from "./judges/cli-judge.js";

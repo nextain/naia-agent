@@ -8,6 +8,37 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+### feat (Slice HL-2 — human-like memory bench: social-quality judge layer)
+
+`used-needs-judge` probes (recalled memory actually USED) are now scored by a FLAGSHIP
+ensemble — whether the use was *human-like* is a graded social judgment, not deterministic.
+Each judge rates three axes 0–3 (appropriateness / naturalness / faithfulness); per-axis MEDIAN
+across judges; overall = mean of the three medians; pass at ≥ `SOCIAL_QUALITY_PASS_THRESHOLD`
+(2.0). Panel = **codex (GPT) + claude**; Gemini is excluded — it is the SUT (same-family bias).
+Opt-in via `NAIA_JUDGE_ENSEMBLE=1` (protects codex/claude CLI credits).
+
+- **`packages/benchmarks/src/humanlike/judge.ts`** (new) — pure `buildSocialQualityPrompt` /
+  `parseSocialQualityReply` (strict 4-line format) / `median` / `medianAxes` /
+  `aggregateSocialQuality` (per-axis median, infra-errored judges excluded from the vote,
+  `unreliable` when none scored) + `judgeSocialQuality` (runs the panel) + CLI-backed scored
+  judges reusing the `judges/` spawn primitive.
+- **Faithfulness grounding** — the judge is given the memory the agent **actually recalled**
+  (`recalledMemory` = marker-driven hits), NOT just the scenario anchor, so a response that
+  reflects a genuinely-recalled fact is not mis-scored as fabrication. Confirmed by the live run:
+  without grounding both judges (correctly, given thin input) flagged fabrication → FAIL 1.67;
+  with the actual recalled memory → PASS 2.83.
+- **`packages/benchmarks/src/judges/cli-judge.ts`** — added a `claude` CLI spec (Claude Code
+  `-p` print mode) + `claudeJudge`; exported `runCli` / `CLI_SPECS` / `CliSpec` so the scored
+  judge reuses the spawn primitive (no duplication). Existing binary judges unchanged (12 green).
+- **`examples/humanlike-memory-bench.ts`** — wires the judge: `used-needs-judge` probes are
+  scored when `NAIA_JUDGE_ENSEMBLE=1`, else reported as deferred. Summary adds judged pass count.
+- **`packages/benchmarks/src/humanlike/__tests__/judge.test.ts`** (new) — 13 unit (prompt fields
+  + grounding fallback, strict/lenient parse, median odd/even, aggregate pass/fail/infra/unreliable).
+  benchmarks suite 62 green, typecheck clean.
+- **Verify (real codex + claude, 2026-07-04):** positive probe scored end-to-end → PASS 2.83
+  (적절 3 / 자연 2.5 / 충실 3), both judges valid. Judge layer catches fabrication and rewards
+  faithful, appropriate memory use.
+
 ### fix (core — `<recall>` regen continuation turn: gemini-via-openai-compat empty completion)
 
 `#41 v2` LLM-initiated recall re-generation returned an **empty completion** with
