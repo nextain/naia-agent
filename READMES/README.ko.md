@@ -1,291 +1,125 @@
 [English](../README.md) | [한국어](README.ko.md)
 
-> 사용자 문서 mirror: [`.users/docs/`](../.users/docs/) (다국어). 엔지니어링 문서 (영문 정본) 는 [`docs/`](../docs/).
+> 사용자 문서 mirror: [`.users/docs/`](../.users/docs/) (다국어). 엔지니어링 문서(영문 정본)는 [`docs/`](../docs/). 기여 가이드: [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 # naia-agent
 
-**AI 코딩 에이전트 런타임.** 호스트가 임베드해 AI 코딩 에이전트를 얻는 라이브러리 — 루프, 툴, compaction, 메모리, LLM 라우팅.
+`naia-agent`는 AI 에이전트를 돌리는, 교체 가능한 런타임 엔진입니다. 에이전트를 에이전트답게 만드는 부분 — 대화 루프, 기억 회상과 저장, 토큰 예산 관리, 도구 호출 — 을 직접 소유하고, 제품마다 달라지는 부분(어떤 언어 모델을 쓸지, 어떤 기억 저장소를 쓸지, 사용자에게 어떤 화면을 보여줄지)은 전부 바깥에서 주입받습니다.
+
+게임 엔진을 떠올리면 이해가 쉽습니다. 게임 엔진은 루프와 물리, 에셋 파이프라인을 돌리고, 그림과 레벨과 입력 장치는 개발자가 얹습니다. `naia-agent`는 에이전트 루프를 돌리고, LLM 클라이언트와 기억 백엔드와 호스트 UI는 개발자가 얹습니다. 셋 중 무엇을 바꿔도 루프는 그대로 돕니다.
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](../LICENSE)
 
-> **v0.1.0 — Phase 1 freeze (2026-04-21).** 공개 계약은 이 시점부터 추가만 가능(additive-only)합니다. 형태를 깨는 변경은 MAJOR 버전 상승 + 4주 사전 공지가 필요합니다 ([CHANGELOG.md](../CHANGELOG.md) 참고).
+## 무엇을 하는가
 
-## 철학 — 의존이 아닌 인터페이스
+모든 턴은 같은 흐름을 따르며, 그 흐름은 [`packages/core/src/agent.ts`](../packages/core/src/agent.ts)의 `Agent` 클래스가 이끕니다.
 
-`naia-agent`는 동반 레포들과 런타임 의존이 아니라 **공개된 인터페이스**로 연결됩니다.
+**회상하고, 답하고, 기억한다.** 사용자 메시지가 들어오면 에이전트는 먼저 주입된 기억 프로바이더에게 관련 맥락을 물어, 상위 결과를 시스템 프롬프트에 얹습니다. 도구 루프를 돌려 답을 만든 다음, 사용자 메시지와 답변을 모두 기억에 다시 저장해 다음 턴이 회상할 수 있게 합니다. 기억 저장소 자체는 바깥에 있습니다. 에이전트는 `MemoryProvider` 인터페이스만 알 뿐, 그 뒤에 어떤 데이터베이스가 있는지는 모릅니다.
 
-- **투명함**: 모든 인터페이스는 `@nextain/agent-types`에 명세·문서화·버전 관리됩니다 — 누구나 읽거나 구현할 수 있도록 개방되어 있습니다.
-- **비결속**: 동반 레포(`naia-adk`, `alpha-memory`, 호스트)는 `naia-agent`를 import하지 **않습니다**. 계약을 구현할 뿐입니다. `naia-agent`도 그들을 import하지 않으며 — 의존성 주입으로 구체 구현을 받습니다.
-- **추상화**: 런타임은 어떤 LLM 프로바이더, 어떤 메모리 백엔드, 어떤 스킬 소스가 쓰이는지 전혀 모릅니다. 무엇을 바꿔도 나머지는 그대로입니다.
+**등급과 승인을 갖춘 도구 루프.** 모델은 도구를 호출할 수 있고, 에이전트는 호출을 하나씩 실행해 결과를 되먹인 뒤 모델이 다음 행동을 정하게 합니다(홉 한도까지). 모든 도구는 등급(T0~T3)을 지니므로, 위험한 작업이 실행되기 전에 호스트가 사람의 승인을 요구할 수 있습니다. 도구가 계속 실패하면 에이전트는 홉 예산을 다 쓰는 대신 턴을 멈춥니다.
 
-이는 Ports & Adapters(헥사고날) 아키텍처를 생태계 규모로 적용한 것입니다. 계약을 지키는 한 각 레포는 독립적으로 교체 가능합니다.
+**맥락이 너무 커지면 압축(compaction).** 매 모델 호출 전에 에이전트는 요청 크기를 어림합니다. 토큰 예산을 넘고 기억 프로바이더가 지원하면, 에이전트는 오래된 턴을 요약해 달라고 기억에 요청하고 그 요약을 히스토리에 다시 끼워 넣습니다. 이때 자르는 지점은 항상 턴 경계라, 도구 호출이 짝을 잃는 일이 없습니다. 압축을 하고도 예산이 여전히 한계 근처면, 에이전트는 인수인계(handoff) 뭉치를 내보내 새 세션이 이어받게 할 수 있습니다.
 
-```
-                    defines contracts
- ┌──────────────────────────────────────────┐
- │   @nextain/agent-types (published, public)  │
- │   LLMClient · MemoryProvider ·           │
- │   SkillLoader · ToolExecutor · ...       │
- └───────┬─────────────────┬────────────────┘
-         │ imports only    │ imports only
-         │ types           │ types
- ┌───────▼──────┐    ┌─────▼──────────┐
- │ naia-adk     │    │ alpha-memory   │   implementations
- │ (Skill       │    │ (MemoryProvider│   (no runtime dep
- │  source)     │    │  impl)         │    on naia-agent)
- └──────────────┘    └────────────────┘
+**`<recall>` 재회상 마커.** 작은 로컬 모델은 기억을 더 달라고 네이티브 도구 호출을 내지 못하는 경우가 많습니다. 그래서 에이전트는 모델의 평범한 텍스트에서 `<recall>질의</recall>` 마커도 함께 지켜봅니다. 마커를 보면 다시 한 번 회상을 돌려 모델이 재시도하게 합니다(스스로 무한 반복하지 않도록 깊이를 제한합니다). 남은 마커 찌꺼기는 최종 답변에서 걷어냅니다.
 
- ┌─────────────────────────────────────────────┐
- │ Host (naia-os, CLI, server, 3rd-party app)  │
- │ · constructs concrete implementations       │
- │ · injects them into naia-agent runtime      │
- └─────────────────────────────────────────────┘
-```
+**스킬 디렉터리와 MCP 브리지.** 에이전트는 스킬 디렉터리에서 스킬 정의를 읽어 옵니다(`--skills-dir`). 여기서 가리키는 경로는 스킬 루트 그 자체로, 스킬마다 `<이름>/SKILL.md`를 담은 디렉터리이며 `naia-adk/skills/`가 그 예입니다. 또한 Model Context Protocol(MCP)로 말하는 외부 도구를 다리 놓아 붙일 수 있습니다. 기본 제공 예시 하나는 코드 인텔리전스용 외부 [`codegraph`](https://github.com/colbymchenry/codegraph) 바이너리로 이어지는 브리지로, `--enable-codegraph`로 켭니다. 바이너리나 인덱스가 없으면 에이전트는 이를 건너뛰고 계속 진행합니다.
 
-## 각 레포의 역할
+회상에 대해서는 과장하기 쉬우니 분명히 해 둡니다. **naia-agent에는 검색 증강 생성(RAG) 리트리버가 내장돼 있지 않습니다.** 실제로 있는 것은 (a) 위에서 설명한 외부 `codegraph` 바이너리로 가는 MCP 브리지, 그리고 (b) 지금은 `null`을 돌려주는 예약 스텁 상태인 `rag-retriever` 서비스 백엔드뿐입니다. 회상은 완성된 기능이 아니라 끼워 넣는 자리로 보시면 됩니다.
 
-### naia-os — 호스트 (프론트엔드 + OS 배포)
-- **무엇인가**: Tauri 기반 데스크톱 앱 + Bazzite Linux OS 이미지.
-- **무엇을 소유하나**: UI, 3D VRM 아바타, 사용자 대상 설정, OS 수준 통합(파일 선택기, 알림, OAuth stronghold), API 키 저장, 디바이스 신원, 승인 UI.
-- **naia-agent와의 관계**: *호스트* — `LLMClient`, `MemoryProvider` 등 구체 구현을 생성해 시작 시 `naia-agent`에 주입.
-- **독립성**: naia-agent는 naia-os 없이도 동작합니다(예: CLI나 서버 호스트 안에서). naia-os 역시 같은 stdio 프로토콜을 따르는 한 다른 런타임으로 교체할 수 있습니다.
+## 왜 이렇게 만들었나
 
-### naia-agent — 런타임 엔진 (이 레포)
-- **무엇인가**: 에이전트 루프, 툴 디스패치, 컨텍스트 관리, compaction, 스킬 실행.
-- **무엇을 소유하나**: `@nextain/agent-types` 계약과 그것을 읽는 레퍼런스 구현.
-- **다른 레포와의 관계**: *계약의 소비자* — 인터페이스를 통해서만 호출합니다. `naia-adk`나 `alpha-memory`의 런타임 코드를 import하지 않습니다. 프로바이더·스토리지 백엔드·UI를 직접 알지 못합니다.
-- **독립성**: naia-agent는 Node.js가 도는 곳이면 어디서나 실행됩니다. 의존하는 것은 자신이 공개하는 인터페이스뿐, 그 외엔 없습니다.
+전체 설계는 포트와 어댑터(헥사고날 아키텍처)를 파일이 아니라 레포 단위로 적용한 것입니다. 계약은 의존성이 없는 단일 패키지 `@nextain/agent-types`에 모여 있습니다. 나머지 전부 — LLM 프로바이더, 기억 시스템, 호스트 애플리케이션 — 는 계약을 구현하고 주입됩니다. 어떤 동반 레포도 `naia-agent`를 import하지 않고, 코어 런타임도 그들 중 무엇도 import하지 않습니다. 오직 계약을 통해서만 말합니다(단 하나의 의도된 예외는 번들 커맨드라인 호스트로, 아래에서 다룹니다). 인터페이스를 지키는 한 어느 쪽이든 갈아 끼울 수 있습니다.
 
-### naia-adk — 워크스페이스 포맷 표준
-- **무엇인가**: 도구 비종속 워크스페이스 포맷(디렉터리 레이아웃, 컨텍스트 파일, 스킬 정의). Claude Code, OpenCode, Codex, naia-agent, 향후 도구 등 어떤 AI 코딩 도구든 읽습니다.
-- **무엇을 소유하나**: `.agents/`/`.users/` 디렉터리 컨벤션, `agents-rules.json` 스키마, SKILL.md 포맷, 포크 체인(`naia-adk` → `naia-business-adk` → `{org}-adk` → `{user}-adk`).
-- **naia-agent와의 관계**: *소비되는 포맷*. naia-agent는 naia-adk 포맷을 읽어 스킬을 로드합니다. naia-adk는 naia-agent에 의존하지 않습니다.
-- **독립성**: naia-adk는 Claude Code만, OpenCode만, 또는 임의 조합으로 쓸 수 있습니다 — 런타임 결속 없음.
-
-### alpha-memory — 메모리 구현체
-- **무엇인가**: 중요도 필터링, 지식 그래프 추출, 시간 기반 감쇠를 갖춘 메모리 시스템(episodic, semantic, procedural).
-- **무엇을 소유하나**: 자체 스토리지 스키마, 4-store 아키텍처, 플러그형 벡터 백엔드.
-- **naia-agent와의 관계**: *`MemoryProvider`의 한 구현*. naia-agent는 인터페이스 뒤의 블랙박스로 취급합니다. 다른 메모리 시스템이 같은 인터페이스를 구현해 대체할 수 있습니다.
-- **독립성**: alpha-memory는 `@nextain/naia-memory`로 배포되며 naia-agent만이 아니라 무엇이든 사용할 수 있습니다.
-
-## 아키텍처 (런타임 레이어)
-
-런타임 관심사(루프, 툴)는 I/O 관심사(네트워크, UI)와 레이어로 분리됩니다:
+바로 그 경계가 이 런타임을 이식성 있게, 또 프라이버시를 지키게 만듭니다. 호스트는 클라우드 LLM을 붙일 수도, 같은 기기의 로컬 모델을 붙일 수도 있습니다. 기억은 기기를 떠나지 않는 인프로세스 SQLite 파일을 가리킬 수도, 원격 벡터 저장소를 가리킬 수도 있습니다. 엔진은 알지도, 상관하지도 않습니다. Naia 생태계에서 이것이 핵심입니다. 모델 자체는 흔한 부품이고, 오래가는 가치는 에이전트 계층 — 기억, 맥락, 도구 정책, 그리고 그것들을 엮는 루프 — 에 있습니다.
 
 ```
-[L1] Host               naia-os / CLI / server
-                        Process, I/O, dependency injection           ↑ embeds
-─────────────────────────────────────────────────────────────────────
-[L2] Agent (this repo)  naia-agent
-                        Loop · tools · compaction · hot memory        ↓ calls
-─────────────────────────────────────────────────────────────────────
-[L3] LLM Client         LLMClient interface (+ adapters)
-                        Concrete: Gateway / Direct / Mock             ↓ HTTP
-─────────────────────────────────────────────────────────────────────
-[L4] Routing Gateway    any-llm or equivalent
-                        Provider selection · fallback · auth          ↓
-─────────────────────────────────────────────────────────────────────
-[L5] Providers          Anthropic / OpenAI / Google / local models
+                    계약 정의
+ ┌──────────────────────────────────────────────┐
+ │   @nextain/agent-types  (공개 배포)            │
+ │   LLMClient · MemoryProvider ·                │
+ │   ToolExecutor · SkillLoader · ...            │
+ └───────┬──────────────────────┬───────────────┘
+         │ 구현                  │ 구현
+ ┌───────▼──────┐        ┌───────▼─────────┐
+ │ naia-adk     │        │ naia-memory     │   (naia-agent에
+ │ (스킬        │        │ (MemoryProvider │    런타임 의존
+ │  포맷)       │        │  레퍼런스)      │    없음)
+ └──────────────┘        └─────────────────┘
+
+ ┌──────────────────────────────────────────────┐
+ │ 호스트: naia-os · CLI · 서버 · 서드파티 앱     │
+ │  구체 구현을 생성해 naia-agent 런타임에 주입   │
+ └──────────────────────────────────────────────┘
 ```
 
-에이전트는 주입된 `LLMClient` 인터페이스에만 의존합니다 — 어떤 프로바이더가, 어떤 게이트웨이가, 어떤 네트워크 프로토콜이 호출을 나르는지 전혀 알지 못합니다.
+네 레포의 역할은 깔끔하게 나뉩니다. **naia-os**는 대표 호스트로, UI·3D 아바타·API 키 저장·승인 화면을 소유하는 Tauri 데스크톱 앱입니다. 구현체를 만들어 주입합니다. **naia-agent**(이 레포)는 런타임 엔진이자 공개 계약의 정본입니다. **naia-adk**는 도구 비종속 워크스페이스 포맷(디렉터리 레이아웃, 컨텍스트 파일, 스킬 정의)으로, 어떤 AI 코딩 도구든 읽습니다. **naia-memory**는 레퍼런스 `MemoryProvider`로, 중요도 필터링과 시간 감쇠를 갖춘 에피소드/의미/절차 기억 시스템입니다. 지금은 워크스페이스 로컬 링크(`package.json`의 `file:../naia-memory`, 소스에서 직접 import)로 소비하며, 독립된 `@nextain/naia-memory` 레지스트리 배포는 예정되어 있으나 아직 이루어지지 않았습니다. 옛 문서에서는 *alpha-memory*로 부르기도 합니다.
 
-## 공개되는 인터페이스 (`@nextain/agent-types`)
+한 가지는 분명히 짚어 둡니다. **코어 런타임은 naia-memory를 import하지 않습니다.** `MemoryProvider` 인터페이스로만 말합니다. 예외는 [`bin/naia-agent.ts`](../bin/naia-agent.ts)의 **번들 CLI**입니다. 이쪽은 `@nextain/naia-memory`를 직접 import해서, 호스트가 기억을 손수 엮지 않아도 `pnpm naia-agent --memory`가 바로 동작하게 합니다.
 
-모든 계약은 런타임이 없는 단일 패키지에 들어 있습니다. 누구나 구현할 수 있습니다:
+## 레포 구조
 
-### `LLMClient`
-`naia-agent`가 언어 모델과 대화하는 유일한 통로. 구현체는 프로바이더를 직접(Anthropic/OpenAI/…), 게이트웨이(any-llm)로, 또는 mock(테스트)으로 감쌉니다. 스트리밍, 툴 호출, 프롬프트 캐싱이 모두 계약의 일부입니다.
+런타임은 열여섯 개 패키지로 이루어진 pnpm 워크스페이스입니다. 먼저 만나게 될 것들:
 
-### `MemoryProvider`
-장기 메모리와 세션 로그. `alpha-memory`가 레퍼런스 구현입니다. 다른 것들도 같은 인터페이스를 구현할 수 있습니다 — 로컬 JSON, SQLite, 원격 벡터 DB, 커스텀 스토어.
+- `packages/types` — `@nextain/agent-types`. 런타임 의존이 없는 계약(LLMClient, MemoryProvider, ToolExecutor, SkillLoader, Session, Event 등). 나머지 전부가 이것에 의존합니다.
+- `packages/core` — `@nextain/agent-core`. `Agent` 클래스: 루프, 회상/저장, 압축, 인수인계, 도구 홉 처리. 이 레포의 심장입니다.
+- `packages/runtime` — `@nextain/agent-runtime`. 실전 도구들: 인메모리·목 구현, 도구 실행기, 스킬 로더, MCP 클라이언트, codegraph 브리지, CLI 헬퍼.
+- `packages/cli-app` — `@nextain/agent-cli-app`. `naia-agent` 바이너리 뒤의 REPL(read-eval-print loop)과 명령 배선.
+- `bin/naia-agent.ts` — 호스트 없이 도는 커맨드라인 진입점. `core` + `runtime` + `providers`를 엮고, 영속성을 위해 `naia-memory`를 import할 수 있습니다.
 
-### `SkillLoader`
-워크스페이스(현재는 naia-adk 포맷, 다른 포맷으로 확장 가능)에서 스킬 정의를 읽습니다. 런타임이 디스패치할 수 있는 `SkillDescriptor` 객체를 생성합니다.
+나머지가 그 주변을 채웁니다. `protocol`(호스트↔에이전트 와이어 포맷), `providers`(LLM 클라이언트 — 여러 프로바이더를 아우르는 Vercel AI SDK 기반 클라이언트 + Naia Lab 게이트웨이), `observability`(기본 Logger/Tracer/Meter), `naia-agent`(집약 번들 패키지), `testing`(fixture-replay 하네스), `benchmarks`, `verification`, `workspace`, 그리고 서브 에이전트 어댑터 네 종(`adapter-*` — pi, shell, opencode 두 종). 엔진이 실제로 도는 모습을 가장 명확히 보려면 [`examples/minimal-host.ts`](../examples/minimal-host.ts)를 보세요. 네트워크도 키도 없이 인프로세스 목만으로 도구 호출을 낀 2턴 대화를 끝까지 돌립니다.
 
-### `ToolExecutor`
-개별 툴 호출(파일 I/O, 명령 실행, 네트워크, MCP 프록시)을 실행합니다. 구현체는 tier 정책(T0–T3)과 승인 플로우를 강제합니다.
-
-### 도메인 타입
-`Session`, `Conversation`, `Message`, `ToolCall`, `ToolResult`, `Event`, `CompactionPolicy`, `TokenBudget`, `TierLevel`, `ApprovalRequest`. 구현체 전반에서 안정적입니다.
-
-모든 계약은 오픈소스로 공개됩니다. 숨겨진 확장점도, 비공개 ABI도 없습니다.
-
-## 누가 임베드하는가
-
-- **[naia-os](https://github.com/nextain/naia-os)** — Tauri 데스크톱 앱 (대표 레퍼런스 호스트)
-- **CLI** — `claude-code`, `opencode`, `codex`의 동류
-- **HTTP 서버** — 원격 / 브라우저 / 모바일 클라이언트용
-- **서드파티 앱** — AI 코딩 제품을 만드는 누구든
-
-모든 호스트가 동일한 `naia-agent` 런타임을 소비하므로, 표면이 무엇이든 동작이 일관됩니다.
-
-## 현재 상태 — v0.1.0 (Phase 1 freeze)
-
-**공개된 계약** (이 시점부터 추가만 가능):
-
-- [x] `@nextain/agent-types` 0.1.0 — LLMClient / MemoryProvider / ToolExecutor / ApprovalBroker / HostContext / Event / ErrorEvent / VoiceEvent / Logger / Tracer / Meter / TierLevel / SessionLifecycle
-- [x] `@nextain/agent-protocol` 0.1.0 — StdioFrame wire format
-- [x] `@naia-adk/skill-spec` 0.1.0 — SkillDescriptor / SkillLoader (naia-adk 레포 내)
-- [x] `@nextain/agent-providers` 0.1.0 — AnthropicClient
-- [x] `@nextain/agent-observability` 0.1.0 — ConsoleLogger / NoopTracer / InMemoryMeter
-- [x] `@nextain/agent-core` 0.1.0 — 계약 re-export (런타임 루프 WIP)
-
-**Phase 2 (다음)**:
-
-- [ ] 코어 루프 골격 (Strangler Fig X3)
-- [ ] 툴 실행 런타임 (X2)
-- [ ] Compaction
-- [ ] 스킬 로더 (naia-adk 워크스페이스 읽기) (X4)
-- [ ] MCP 브리지 (X4, #200 연속)
-- [ ] stdio 프로토콜 flip-day (X5)
-- [ ] 레퍼런스 호스트: naia-os 임베드 (X1 프로바이더는 이미 사용 가능)
-- [ ] CLI 호스트
-- [ ] 메신저 (X8)
-
-## CLI 사용 (Slice 3-XR-E/F/G — Task #3)
-
-`naia-agent` 는 호스트 없이 바로 쓸 수 있는 CLI 를 함께 제공합니다. 일상 흐름은 3 명령으로 충분합니다:
-
-```bash
-# 1) 설정 (디스크에 평문 키 없음 — libsecret OS keychain 사용)
-pnpm naia-agent login --adk <naia-adk-path> \
-  --main "openai-compat|http://127.0.0.1:11434/v1|gemma4:31b"
-
-# 2) 확인 (값은 절대 출력 안 함 — apiKeyRef 이름만)
-pnpm naia-agent show
-
-# 3) 채팅
-pnpm naia-agent --no-tools "한국어로 한 문장만 인사해줘"
-```
-
-핵심 플래그:
-
-| 플래그 | 효과 |
-|---|---|
-| `--no-tools` | tool-calling 비활성화 (native function-calling 없는 모델용, 예: `gemma3n:e4b`). |
-| `--enable-file-ops` | `read_file` / `write_file` / `edit_file` / `list_files` 스킬을 `bash` 와 함께 등록 (Slice 3-XR-I). |
-| `--skills-dir <path>` | 외부 ADK skills 로드 (FileSkillLoader, naia-adk / onmam-adk top-level `skills/`). bash + file-ops 와 CompositeToolExecutor로 결합 (Slice 3-XR-J). |
-| `--system "<text>"` | 페르소나 system rider 주입 (naia-os ChatPanel + 호스트 통합에 사용). |
-| `--no-default-system` | 내장 `DEFAULT_SYSTEM_PROMPT` 생략 (소형 모델 도움, #41 v2). |
-| `--memory` | 영속 `LiteMemoryProvider` (SQLite `lite_facts` + `<recall>` 마커 프로토콜). |
-| `--repl` | stdin이 piped 상태여도 REPL 모드 강제 (default: piped = single-shot). 쉘 파이프라인이 다턴 입력 feeding 시 유용 (Slice 3-XR-M). |
-| `--service <manifest>` | 서비스 모드 (manifest 기반 LLM + memory + persona). 지원 backend: `openai-compatible` / `anthropic` / `vertex` / `claude-code` (Claude Code 구독, API 키 X) / `langgraph` (reserve stub) / `rag-retriever` (reserve stub). |
-
-사용자 가이드: [docs/user-guide.md](../docs/user-guide.md). LLM 설정 표준: [docs/llm-config-standard.md](../docs/llm-config-standard.md).
-
-## 평가 & 벤치마크
-
-`naia-agent` 는 자체 블랙박스 시나리오 하네스 + **3-judge ensemble** 을 함께 제공합니다 — 같은 하네스가 Ralph 루프 수렴 (`2-consecutive PASS`) 을 게이트하고서 push 합니다.
-
-| 영역 | 파일 | 상태 |
-|---|---|---|
-| 단위 (사용자 관점, CLI 플래그 메커니즘) | `packages/cli-app/src/__tests__/bin-user-scenarios.test.ts` | **22 active + 2 honest skip** (Slice 3-XR-F) |
-| 통합 (ADK 생태계, LLM-as-judge, Groups A-O+P+K) | `packages/cli-app/src/__tests__/integration-scenarios.test.ts` | **53+ active** (Slice 3-XR-G/I/J/L/M/N/O) |
-| pi 기반 코딩 LIVE (native tool-calling) | Group P | **6 시나리오** (Slice 3-XR-I) |
-| naia-adk 풀셋 라이브 invocation | Group D | **6 시나리오** (Slice 3-XR-J — 3 LIVE + 3 mech, 19/19 system skills) |
-| onmam-adk 도메인 skills | Group G | **3 active + 1 honest defer** (Slice 3-XR-L — 10 skills + wp-archive) |
-| multi-turn REPL + Claude Code 라우팅 | Group M | **2 시나리오** (Slice 3-XR-M — `--repl` + DRYRUN) |
-| cross-OS sanity (Linux side) | Group N | **5 active + 1 honest defer** (Slice 3-XR-N) |
-| Claude Code 하네스 parity ledger | Group O | **7 mechanism + 의도적 차이 ledger** (Slice 3-XR-O) |
-| 3-judge ensemble (GLM HTTP + Claude CLI + Codex CLI) | `packages/cli-app/src/__tests__/lib/llm-judge.ts` | A1/A4/F2 wired (Slice 3-XR-H, `NAIA_JUDGE_ENSEMBLE=1` opt-in) |
-| Tiered conversational recall bench (#41 v2) | `examples/conversational-recall-bench.ts` | judge + harness, tier별 (8G / 24G / 48G) recall 점수 |
-| Tier 비교 보고서 | `.agents/progress/tier-8g-vs-24g-comparison-2026-05-20.md` | 8G `gemma3n:e4b` vs 24G `gemma4:31b` |
-| Cross-OS 호환성 sanity 보고서 | `.agents/progress/cross-os-compat-results-2026-05-20.json` | 4/5 PASS (Linux side) |
-
-커버 그룹 (통합):
-
-- **A** 24G 라이브 (`gemma4:31b`, thinking-mode 억제 = `Answer directly` + `max_tokens≥300`)
-- **B** 코딩 동작 (프롬프트 레벨 read/explain, bug-spot, refactor)
-- **C** tool-calling / pi 루프
-- **D** naia-adk 풀셋 라이브 (`--skills-dir`)
-- **E** business-adk reserve (LangGraph / RAG backend stub graceful)
-- **F** naia-os 페르소나 주입 (`--system`)
-- **G** onmam-adk 도메인 (+ wp-archive)
-- **H** 에러 처리
-- **I** 보안 secret-shape 거절
-- **K** 모델 비교 (e4b vs 31b)
-- **M** multi-turn REPL + Claude Code subscription 라우팅
-- **N** cross-OS sanity
-- **O** Claude Code 하네스 parity ledger
-- **P** pi 기반 코딩 LIVE (write/read/edit/list/bash + composite)
-
-보고서: `.agents/progress/integration-scenarios-{design,report,results}-2026-05-20.{md,json}`. CHANGELOG `[Slice 3-XR-*]` 항목.
-
-## 벤치마크 + 시나리오 직접 실행
-
-```bash
-# 전체 (단위 + 통합; A1/A4/F2 는 단일 GLM judge)
-pnpm test                                                       # 모든 패키지
-pnpm --filter @nextain/agent-cli-app exec vitest run            # cli-app만
-
-# 그룹별
-pnpm --filter @nextain/agent-cli-app exec vitest run -t "Group P"   # pi-coding LIVE
-pnpm --filter @nextain/agent-cli-app exec vitest run -t "Group D"   # naia-adk skills
-pnpm --filter @nextain/agent-cli-app exec vitest run -t "Group G"   # onmam-adk
-pnpm --filter @nextain/agent-cli-app exec vitest run -t "Group M"   # REPL + Claude Code
-pnpm --filter @nextain/agent-cli-app exec vitest run -t "Group N"   # cross-OS sanity
-pnpm --filter @nextain/agent-cli-app exec vitest run -t "Group O"   # parity ledger
-
-# 3-judge ensemble (GLM HTTP + Claude CLI + Codex CLI) — 크레딧 소비!
-#   GLM_API_KEY 필요 + claude/codex CLI 설치 필요.
-NAIA_JUDGE_ENSEMBLE=1 \
-  pnpm --filter @nextain/agent-cli-app exec vitest run -t "A1|A4|F2"
-
-# Claude Code 구독 LIVE (구독 크레딧 소비)
-NAIA_AGENT_CLAUDECODE_LIVE=1 \
-  pnpm --filter @nextain/agent-cli-app exec vitest run -t "M2"
-
-# Tiered recall bench (#41 v2 — 소형 LLM "tiered" recall)
-pnpm exec tsx examples/conversational-recall-bench.ts --help
-```
-
-결과 파일 (machine-readable + 사람용 보고서):
-
-- `.agents/progress/integration-scenarios-results-2026-05-20.json` — 시나리오별 verdict + judge breakdown + observed tail
-- `.agents/progress/integration-scenarios-report-2026-05-20.md` — prose summary
-- `.agents/progress/integration-scenarios-design-2026-05-20.md` — FINAL v3 design (GLM cross-review 2 라운드 후)
-- `.agents/progress/cross-review-glm-2026-05-20.json` — GLM-judge design review
-- `.agents/progress/tier-8g-vs-24g-comparison-2026-05-20.md` — 실측 tier 비교
-- `.agents/progress/cross-os-compat-{sanity,results}-2026-05-20.{md,json}` — cross-OS sanity (4/5 PASS)
-- `.agents/progress/slice-3-xr-h-i-j-l-plan-2026-05-20.md` — slice 순서 + Voice P0c-1/P0c-2 분리
-
-정직 한계:
-
-- 3-judge ensemble 은 **3 시나리오만** wired (A1/A4/F2 — high-judgment). 나머지 50+ 는 단일 GLM (비용 의식).
-- LIVE 시나리오는 `gemma3n:e4b` (8G) + `gemma4:31b` (24G) 가 `http://127.0.0.1:11434` ollama 에 reachable 가정. 없으면 honest skip (results JSON에 기록).
-- `claude` / `codex` CLI 가 ensemble path 에 필요. 미설치 = `infra_error` (real-fail 아님, `lib/llm-judge.ts`).
-- multi-provider ensemble = 사용자 정정 후 추가 (초기 Slice 3-XR-G 단일 GLM 출시 — `feedback_pi_substrate_not_glm_only_2026_05_20`).
-
-## 개발
+## 시작하기
 
 ```bash
 pnpm install
 pnpm build
 ```
 
-워크스페이스 레이아웃:
+CLI를 바로 쓰려면 프로바이더 키를 저장하고 대화를 시작합니다. `login`은 비밀 값을 운영체제 키체인(리눅스 libsecret, macOS Keychain, 윈도우 DPAPI)에 맡기고, 값이 아니라 키 이름만 기록합니다. 비밀 값이 평문 파일에 쓰이거나 화면에 출력되는 일은 없습니다.
 
+```bash
+# 키 저장 (anthropic | openai | glm | vllm | ollama | claude-code)
+pnpm naia-agent login --key anthropic
+
+# 단발 실행
+pnpm naia-agent "tool-hop 루프가 뭔지 두 문장으로 설명해줘."
+
+# 세션 동안 기억 유지 (회상 + <recall> 마커 프로토콜)
+pnpm naia-agent --memory "내 프로젝트 이름은 Nirvana야."
+
+# ADK 스킬 디렉터리에서 스킬 로드 + 파일 조작 활성
+pnpm naia-agent --enable-file-ops --skills-dir path/to/naia-adk/skills "..."
 ```
-naia-agent/
-├── packages/
-│   ├── types/          # @nextain/agent-types — contracts
-│   ├── protocol/       # @nextain/agent-protocol — wire format
-│   ├── core/           # @nextain/agent-core — runtime scaffold
-│   ├── providers/      # @nextain/agent-providers — AnthropicClient
-│   └── observability/  # @nextain/agent-observability — defaults
-├── scripts/smoke-anthropic.ts
-├── package.json        # pnpm workspace root
-└── tsconfig.json       # TypeScript project references
+
+Vertex AI 위의 Anthropic은 사정이 다릅니다. 저장할 키가 없으므로 `login` 프로바이더가 아닙니다. 대신 호스트의 `VERTEX_PROJECT_ID`와 `VERTEX_REGION` 환경 변수를 CLI가 읽어 Vertex 경로로 자동 라우팅합니다.
+
+알아 두면 좋은 플래그: `--no-tools`(도구 호출 끄기, 네이티브 함수 호출이 없는 모델용), `--enable-codegraph [경로]`(codegraph 바이너리가 있으면 브리지), `--system "..."`(페르소나 주입), `--service <manifest>`(매니페스트 기반 LLM + 기억 + 페르소나), `--repl`(대화형 강제). 전체 사용 가이드는 [docs/user-guide.md](../docs/user-guide.md), LLM 설정 표준은 [docs/llm-config-standard.md](../docs/llm-config-standard.md)에 있습니다.
+
+처음 볼 순서: 루프는 [`packages/core/src/agent.ts`](../packages/core/src/agent.ts), 그다음 루프가 의존하는 기억 계약 [`packages/types/src/memory.ts`](../packages/types/src/memory.ts), 이어서 실제 호스트가 전부를 엮는 [`bin/naia-agent.ts`](../bin/naia-agent.ts), 마지막으로 끝까지 돌려 보는 [`examples/minimal-host.ts`](../examples/minimal-host.ts). 기여 규약은 [CONTRIBUTING.md](../CONTRIBUTING.md)에 있습니다.
+
+테스트와 스모크 예제:
+
+```bash
+pnpm test                    # 전 패키지
+pnpm smoke:agent             # examples/minimal-host.ts (목, 네트워크 없음)
+pnpm smoke:naia-memory       # examples/naia-memory-host.ts (SQLite 영속)
 ```
 
-초기 설계 논의는 [Issues](https://github.com/nextain/naia-agent/issues)를 참고하세요.
+## 계약 안정성
 
-## 왜 별도 레포로 뺐나요
+Phase 1은 공개 계약(`@nextain/agent-types`와 와이어 프로토콜)을 2026-04-21에 동결했습니다. 이후로는 추가만 가능하며, 형태를 깨는 변경은 MAJOR 버전 상승과 4주 사전 공지가 필요합니다. Phase 2 — 런타임 본체: 코어 루프, 도구 실행 런타임, 압축, 스킬 로더, MCP 브리지, CLI 호스트 — 는 구현되어 출시된 상태입니다([CHANGELOG.md](../CHANGELOG.md)의 Slice 3-XR-*와 #68 참고).
 
-- **`naia-os`에 두지 않음** — `naia-os`는 프론트엔드 + OS 배포입니다. 런타임을 분리하면 다른 호스트(CLI, 서버, 서드파티 앱)가 같은 엔진을 재사용할 수 있습니다.
-- **`naia-adk`에 두지 않음** — `naia-adk`는 *워크스페이스 포맷*으로, git 레포나 npm 패키지에 가깝습니다: 정적·이식 가능·도구 비종속. 런타임은 그 반대입니다: 상태를 갖고 프로세스에 묶입니다. 둘을 섞으면 "에이전트가 무엇을 작업하는가"와 "무엇이 에이전트를 실행하는가"가 뒤섞입니다.
-- **`claude-code`/`opencode`의 포크가 아님** — 그것들은 완성된 CLI 제품입니다. `naia-agent`는 독립 실행 바이너리가 아니라 임베드되도록 설계된 라이브러리입니다.
+## 로드맵
+
+몇몇 표면은 일부러 스텁으로 두고, 필요할 때 여는 상태입니다.
+
+- **`langgraph`·`rag-retriever` 서비스 백엔드**는 예약되어 있습니다. 매니페스트 enum이 값은 받고 CLI는 우아하게 물러나지만, 실제 구현은 뒤로 미뤄져 있습니다.
+- **음성 파이프라인** 연동은 naia-os / naia-omni 영역입니다. `naia-agent`는 LLM 두뇌 역할만 하고, 오디오 하드웨어·스트리밍 프로토콜·음성 서비스 내부 구현은 담지 않습니다.
+- **opencode ACP 어댑터**는 Phase 2 항목입니다. Phase 1 경로는 `opencode run --format json`을 감쌉니다.
+
+## 왜 별도 레포인가
+
+`naia-agent`가 naia-os 안에 있지 않은 이유는, 독립 런타임이라야 다른 호스트(CLI, 서버, 서드파티 앱)가 같은 엔진을 재사용할 수 있기 때문입니다. naia-adk 안에 있지 않은 이유는, 그쪽은 정적이고 이식 가능한 *워크스페이스 포맷*인 반면 런타임은 상태를 지니고 프로세스에 묶여 있기 때문입니다. 둘을 섞으면 "에이전트가 무엇을 다루는가"와 "무엇이 에이전트를 돌리는가"가 뒤엉킵니다. 또한 `claude-code`나 `opencode`의 포크도 아닙니다. 그것들은 완결된 CLI 제품이고, `naia-agent`는 임베드되도록 설계된 라이브러리입니다.
 
 ## 라이선스
 
@@ -299,5 +133,5 @@ Copyright 2026 Nextain Inc.
 
 - **Naia OS** — [github.com/nextain/naia-os](https://github.com/nextain/naia-os)
 - **Naia ADK** — [github.com/nextain/naia-adk](https://github.com/nextain/naia-adk)
-- **Naia Memory** (legacy: Alpha Memory) — [github.com/nextain/alpha-memory](https://github.com/nextain/alpha-memory)
+- **Naia Memory** — [github.com/nextain/naia-memory](https://github.com/nextain/naia-memory)
 - **Nextain** — [nextain.io](https://nextain.io)
