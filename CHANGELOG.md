@@ -8,6 +8,33 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+### feat (Slice HL-3 — human-like memory bench: emotion-association scenarios)
+
+Extends the scenario set from 1 → 4, covering BOTH product-owner abilities: past-grounded
+PREFERENCE and emotion-based ASSOCIATION. Each scenario keeps the positive + negative(control)
+probe pairing.
+
+- **`packages/benchmarks/src/humanlike/scenarios.ts`** — `EMO_DOG_LOSS` (grief: loss of a
+  companion dog surfaces empathetically when a friend faces the same, but is tone-deaf in a bright
+  puppy-adoption context), `EMO_MARATHON` (triumph: a first marathon finish encourages before a
+  daunting challenge, but must NOT surface when "마라톤" appears only as a traffic annoyance), and a
+  2nd preference `PREF_COFFEE` (caffeine sensitivity). Anchor discipline: e.g. "완주" not "마라톤",
+  so a negative probe merely mentioning a marathon does not trip deterministic containment.
+- **`packages/benchmarks/src/humanlike/__tests__/scenarios.test.ts`** (new) — 5 structural unit
+  tests: ≥2 per family, positive+negative pairing, non-empty anchors, negatives carry
+  forbiddenRecalls, and every expected anchor appears verbatim in the seed text (recallable).
+- **Verify (real Gemini, all 4 scenarios, deterministic):** 8 probes → 4 used-needs-judge, 3
+  abstained-correctly, 1 forced-inappropriate. Findings: (a) preference recall is reliable
+  (positives use the memory, negatives abstain); (b) emotion-association is HARDER for naia —
+  positives varied run-to-run between `not-used` and `used-needs-judge`, and EMO-01's negative
+  consistently surfaced the grief memory in a happy context (a real creepy-DB weakness). The bench
+  discriminates the two abilities as intended.
+- **Calibration notes (honest, deferred):** single-run verdicts are noisy for the harder emotion
+  cases (model non-determinism) — fixture recording / multi-run stabilization is Slice HL-4.
+  Emotion NEGATIVE probes are inherently more borderline than preference negatives (gently naming a
+  loss can read as warm), so the deterministic "surfaced = fail" is stricter there; the pass
+  threshold + whether borderline negatives should route to the judge want tuning with more data.
+
 ### feat (Slice HL-2 — human-like memory bench: social-quality judge layer)
 
 `used-needs-judge` probes (recalled memory actually USED) are now scored by a FLAGSHIP

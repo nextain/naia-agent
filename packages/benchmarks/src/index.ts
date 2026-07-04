@@ -39,7 +39,13 @@ export type {
 export { classifyPipeline, summarize } from "./humanlike/pipeline.js";
 export { buildTrace, isDegenerateResponse } from "./humanlike/observe.js";
 export type { ProbeObservation, Contains } from "./humanlike/observe.js";
-export { HUMANLIKE_SCENARIOS, PREF_VEGETARIAN } from "./humanlike/scenarios.js";
+export {
+	HUMANLIKE_SCENARIOS,
+	PREF_VEGETARIAN,
+	EMO_DOG_LOSS,
+	EMO_MARATHON,
+	PREF_COFFEE,
+} from "./humanlike/scenarios.js";
 export {
 	buildSocialQualityPrompt,
 	parseSocialQualityReply,
