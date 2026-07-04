@@ -8,6 +8,29 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+### feat (Slice HL-4 — human-like memory bench: fixture record/replay + report)
+
+Makes the bench CI-safe: a live run RECORDs its deterministic observations to a JSON fixture, and
+REPLAY re-runs the pure scoring pipeline over that fixture with NO model and NO key (G15: CI
+fixture-only, real-LLM opt-in). A committed fixture pins the scoring behavior on REAL recorded
+Gemini responses — a regression fails if `classifyPipeline` or the degenerate-guard drifts.
+
+- **`packages/benchmarks/src/humanlike/fixture.ts`** (new) — `HumanlikeFixture` / `RecordedProbe`
+  (scenario/probe id + observation + koIncludes-resolved trace + final bucket), `replayProbe` /
+  `replayFixture` (pure: degenerate-guard → classifier, reports any bucket drift), and
+  `renderHumanlikeReport` (per-ability bucket counts + deterministic pass/fail + judged pass rate).
+  Judge scores are non-deterministic + credit-gated, so they are NOT in the deterministic fixture
+  (judge aggregation is unit-tested in judge.test.ts).
+- **`packages/benchmarks/src/humanlike/fixtures/humanlike-v1.fixture.json`** (new) — 8 probes
+  recorded from a real 4-scenario Gemini run (vertexai:gemini-3.5-flash).
+- **`examples/humanlike-memory-bench.ts`** — `HUMANLIKE_RECORD=<path>` writes the fixture; the run
+  now prints a per-ability report. Report rows backfill judged social-quality when the ensemble ran.
+- **`packages/benchmarks/src/humanlike/__tests__/fixture.test.ts`** (new) — 4 unit: replay every
+  recorded probe to its recorded bucket (no drift), polarity↔verdict invariants, report rendering.
+  Runs in CI with no key. benchmarks suite 71 green, typecheck clean.
+- **Note:** multi-run aggregation to stabilize the emotion non-determinism is deferred — it needs a
+  fresh memory store per run; the fixture + report land the CI-regression + reporting value first.
+
 ### feat (Slice HL-3 — human-like memory bench: emotion-association scenarios)
 
 Extends the scenario set from 1 → 4, covering BOTH product-owner abilities: past-grounded

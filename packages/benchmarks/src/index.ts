@@ -65,3 +65,16 @@ export type {
 	ScoredJudgeResult,
 } from "./humanlike/judge.js";
 export { claudeJudge } from "./judges/cli-judge.js";
+export {
+	HUMANLIKE_FIXTURE_VERSION,
+	replayProbe,
+	replayFixture,
+	renderHumanlikeReport,
+} from "./humanlike/fixture.js";
+export type {
+	HumanlikeFixture,
+	RecordedProbe,
+	RecordedTrace,
+	ReplayResult,
+	ReportRow,
+} from "./humanlike/fixture.js";

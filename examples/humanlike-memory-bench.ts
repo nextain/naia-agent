@@ -27,7 +27,7 @@
  * Without HUMANLIKE_LIVE=1 or a key it prints how to run and exits 0 (CI-safe).
  */
 
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -53,6 +53,13 @@ import { WELL_FORMED_MARKER } from "/var/home/luke/alpha-adk/projects/naia-agent
 import { classifyPipeline, summarize } from "../packages/benchmarks/src/humanlike/pipeline.ts";
 import { buildTrace, isDegenerateResponse } from "../packages/benchmarks/src/humanlike/observe.ts";
 import { judgeSocialQuality, type SocialQualityAggregate } from "../packages/benchmarks/src/humanlike/judge.ts";
+import {
+	renderHumanlikeReport,
+	HUMANLIKE_FIXTURE_VERSION,
+	type HumanlikeFixture,
+	type RecordedProbe,
+	type ReportRow,
+} from "../packages/benchmarks/src/humanlike/fixture.ts";
 import { HUMANLIKE_SCENARIOS } from "../packages/benchmarks/src/humanlike/scenarios.ts";
 import type { HumanlikeProbe, HumanlikeScenario, PipelineOutcome } from "../packages/benchmarks/src/humanlike/types.ts";
 
@@ -195,11 +202,13 @@ interface JudgedProbe {
 	readonly agg: SocialQualityAggregate;
 }
 
+type MutableRow = { -readonly [K in keyof ReportRow]: ReportRow[K] };
+
 async function runScenario(
 	scenario: HumanlikeScenario,
 	mainLlm: LLMClient,
 	observed: ObservingMemory,
-): Promise<{ outcomes: PipelineOutcome[]; judged: JudgedProbe[] }> {
+): Promise<{ outcomes: PipelineOutcome[]; judged: JudgedProbe[]; recorded: RecordedProbe[]; rows: ReportRow[] }> {
 	console.log(`\n▶ 시나리오 ${scenario.id} (${scenario.family})`);
 
 	// Seed + distractor sessions: replay USER turns; the real agent generates
@@ -214,19 +223,14 @@ async function runScenario(
 
 	// Probes: each in a fresh agent (clean history) against the seeded store.
 	const outcomes: PipelineOutcome[] = [];
+	const recorded: RecordedProbe[] = [];
+	const rows: MutableRow[] = [];
+	const rowByProbe = new Map<string, MutableRow>();
 	const needsJudge: { probe: HumanlikeProbe; response: string; recalled: string[] }[] = [];
 	for (const probe of scenario.probes) {
 		const { response, markerEmitted } = await runTurn(mainLlm, observed, probe.triggerText);
-		const trace = buildTrace(
-			{
-				probeId: probe.id,
-				markerEmitted,
-				markerDrivenHits: observed.markerDrivenHits.map((h) => h.content),
-				responseText: response,
-			},
-			probe,
-			koIncludes,
-		);
+		const markerDrivenHits = observed.markerDrivenHits.map((h) => h.content);
+		const trace = buildTrace({ probeId: probe.id, markerEmitted, markerDrivenHits, responseText: response }, probe, koIncludes);
 		// Bench-soundness guard: a non-response (empty / agent-stop stub) is an
 		// execution failure, NOT a clean outcome — do not let it false-pass the
 		// classifier (esp. a negative probe → "abstained-correctly").
@@ -235,9 +239,21 @@ async function runScenario(
 			: classifyPipeline(trace, probe.polarity);
 		outcomes.push(outcome);
 		reportProbe(probe, trace, outcome, response);
+		recorded.push({
+			scenarioId: scenario.id,
+			probeId: probe.id,
+			family: probe.family,
+			polarity: probe.polarity,
+			observation: { markerEmitted, markerDrivenHits, responseText: response },
+			trace: { recallAttempted: trace.recallAttempted, targetRetrieved: trace.targetRetrieved, targetUsed: trace.targetUsed, forbiddenSurfaced: trace.forbiddenSurfaced ?? false },
+			bucket: outcome.bucket,
+		});
+		const row: MutableRow = { scenarioId: scenario.id, probeId: probe.id, family: probe.family, polarity: probe.polarity, bucket: outcome.bucket, deterministicPass: outcome.deterministicPass };
+		rows.push(row);
+		rowByProbe.set(probe.id, row);
 		if (outcome.bucket === "used-needs-judge") {
 			// Snapshot the ACTUAL retrieved memory now — the spy is reset each turn.
-			needsJudge.push({ probe, response, recalled: observed.markerDrivenHits.map((h) => h.content) });
+			needsJudge.push({ probe, response, recalled: markerDrivenHits });
 		}
 	}
 
@@ -258,12 +274,17 @@ async function runScenario(
 			});
 			judged.push({ probeId: probe.id, agg });
 			reportJudge(probe.id, agg);
+			const row = rowByProbe.get(probe.id);
+			if (row && !agg.unreliable) {
+				row.judgeOverall = agg.overall;
+				row.judgePass = agg.pass;
+			}
 		}
 	} else if (needsJudge.length > 0) {
 		console.log(`  ─ ${needsJudge.length} probe deferred to judge (set NAIA_JUDGE_ENSEMBLE=1 to score) ─`);
 	}
 
-	return { outcomes, judged };
+	return { outcomes, judged, recorded, rows };
 }
 
 function reportJudge(probeId: string, agg: SocialQualityAggregate): void {
@@ -332,10 +353,14 @@ async function main() {
 
 	const all: PipelineOutcome[] = [];
 	const judgedAll: JudgedProbe[] = [];
+	const recordedAll: RecordedProbe[] = [];
+	const rowsAll: ReportRow[] = [];
 	for (const scenario of HUMANLIKE_SCENARIOS) {
 		const r = await runScenario(scenario, mainLlm, observed);
 		all.push(...r.outcomes);
 		judgedAll.push(...r.judged);
+		recordedAll.push(...r.recorded);
+		rowsAll.push(...r.rows);
 	}
 	await memory.close();
 
@@ -347,6 +372,23 @@ async function main() {
 		const jpass = judgedAll.filter((j) => !j.agg.unreliable && j.agg.pass).length;
 		const junrel = judgedAll.filter((j) => j.agg.unreliable).length;
 		console.log(`  judged (social-quality): ${jpass}/${judgedAll.length} pass` + (junrel ? `, ${junrel} unreliable` : ""));
+	}
+
+	console.log("\n" + renderHumanlikeReport(rowsAll));
+
+	// Fixture recording — HUMANLIKE_RECORD=<path> writes the deterministic
+	// observations for CI replay (no LLM). Judge scores are non-deterministic and
+	// omitted (judge aggregation is unit-tested separately).
+	const recordPath = process.env.HUMANLIKE_RECORD;
+	if (recordPath) {
+		const fixture: HumanlikeFixture = {
+			version: HUMANLIKE_FIXTURE_VERSION,
+			recordedAt: new Date().toISOString(),
+			model: MAIN_MODEL,
+			probes: recordedAll,
+		};
+		writeFileSync(recordPath, JSON.stringify(fixture, null, "\t") + "\n");
+		console.log(`\n[record] fixture written: ${recordPath} (${recordedAll.length} probes)`);
 	}
 	console.log(
 		`\n✓ 라이브 러너 동작: PipelineTrace 생성 + 5-버킷 분류 완료 (판정 층 = Slice 2).`,
