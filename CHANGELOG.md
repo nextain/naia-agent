@@ -8,6 +8,46 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+### feat (Slice HL-1 — human-like memory experience bench: live multi-session runner)
+
+인간다움 기억(감정연상·과거취향 = 선택적·적절 회상, 완벽회상 아님)을 라이브 다세션
+대화로 측정하는 벤치의 첫 수직 슬라이스. 결정론 채점 코어 위에 **라이브 러너 + 취향
+시나리오 1개 + 벤치 건전성 가드**를 얹었다. `.agents/progress/humanlike-memory-experience-bench-2026-07-04.md` 참조.
+
+- **`packages/benchmarks/src/humanlike/observe.ts`** (new) — 순수 관찰→트레이스 매핑.
+  `buildTrace(obs, probe, contains)`: (marker 방출 / marker-driven recall이 반환한 기억 /
+  최종 응답) → 결정론 `PipelineTrace` 3-boolean + `forbiddenSurfaced`. Korean-aware
+  containment는 주입식(런타임 판정기 비의존). `isDegenerateResponse()` — 빈 응답이나
+  `[agent stopped|aborted|halted]` 스텁을 **execution 실패**로 판별해, 무응답이 부정 probe에서
+  `abstained-correctly`로 false-pass 하는 것을 차단(bench 건전성 가드).
+- **`packages/benchmarks/src/humanlike/scenarios.ts`** (new) — `PREF_VEGETARIAN` (PREF-01):
+  seed 2세션(채식 취향 학습) + distractor 1세션 + 긍정 probe(식당 추천→취향 반영 적절) +
+  부정 probe(부고 맥락→취향 회상은 tone-deaf). 부정/대조 probe 필수(creepy DB 보상 방지,
+  flagship 합의).
+- **`examples/humanlike-memory-bench.ts`** (new, runnable) — 라이브 러너.
+  main=`vertexai:gemini-3.5-flash` + 실 embedder=`vertexai:text-multilingual-embedding-002`(768d,
+  게이트웨이 `/v1/embeddings`) + `LiteMemoryProvider`(파일 dbPath, 세션 간 영속, agent 자동
+  encode) + per-turn 격리 recall 스파이(start-of-turn recall 무력화 → marker 경로만 계측) +
+  `TeeLLM` marker 탐지. `classifyPipeline`으로 5-버킷 귀속 후 요약.
+  실행: `HUMANLIKE_LIVE=1 pnpm exec tsx examples/humanlike-memory-bench.ts`
+  (real-Gemini opt-in, `NAIA_PROD_KEY` 필요; 키/게이트 없으면 안내 후 exit 0 = CI-safe).
+- **`packages/benchmarks/src/humanlike/__tests__/observe.test.ts`** (new) — 12 unit
+  (buildTrace 매핑 + isDegenerate + buildTrace→classifyPipeline 종단 경로). 기존
+  pipeline.test.ts 9 + 합쳐 21 green, typecheck clean.
+- **`packages/benchmarks/src/index.ts`** — humanlike 코어(types/pipeline/observe/scenarios) barrel export.
+- **Verify (real Gemini, 2026-07-04):** 러너 end-to-end 동작 — PipelineTrace 생성 + 5-버킷
+  분류 산출 확인. 슬라이스 게이트 4건 충족(runnable cmd + unit + real-LLM integration + CHANGELOG).
+
+**⚠ 실측이 드러낸 cross-stack 블로커 (naia-agent core / any-llm gateway, 사람 게이트):**
+naia-gateway(any-llm→Vertex)는 assistant 메시지의 `content`가 **배열(content-parts)** 이면
+거부하고 **문자열**을 요구한다. raw 재현: 동일 메시지에서 `content="..."` → 820자 정상,
+`content=[{type:"text",...}]` → HTTP 500 `Input should be a valid string`. agent 멀티홉 루프는
+hop0 assistant 턴을 content-blocks(배열)로 history에 커밋하므로, `<recall>` 재생성(hop1)에서
+그 배열형 assistant를 되돌려 보내 500 → agent가 삼켜 **빈 응답** → gemini로 memory-grounded
+답변 불가(recall뿐 아니라 tool 포함 모든 멀티홉 영향). 벤치는 이를 `execution-error`로 정직
+보고. 수정 위치(둘 중 하나)는 사람 결정 필요: (a) VercelClient가 single-text assistant content를
+문자열로 collapse, 또는 (b) any-llm Vertex 어댑터가 assistant content-parts 수용.
+
 ### feat (bench — Agent `forceTextOnLastHop` + VercelClient tool-choice control)
 
 Fixes Suite A tool-use score for small quantized models (Gemma 4 26B AWQ): 28% → 39%.
