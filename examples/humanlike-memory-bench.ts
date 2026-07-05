@@ -48,6 +48,12 @@ import type {
 // examples/conversational-recall-bench.ts) — run under tsx without a dist build.
 import { LiteMemoryProvider } from "/var/home/luke/alpha-adk/projects/naia-memory/src/memory/lite-provider.ts";
 import { OpenAICompatEmbeddingProvider } from "/var/home/luke/alpha-adk/projects/naia-memory/src/memory/embeddings.ts";
+// Salience-aware path (HL-5a): the real MemorySystem+LocalAdapter (importance×0.3
+// + flashbulb-emotion boost + Ebbinghaus strength) vs Lite's pure cosine. These
+// come from the BUILT package (dist) — provider.ts uses value-imports for
+// type-only interfaces, which tsx's isolated transpile can't erase from source.
+import { LocalAdapter, buildLLMFactExtractor, HeuristicContradictionFilter } from "@nextain/naia-memory";
+import { NaiaMemoryProvider } from "/var/home/luke/alpha-adk/projects/naia-memory/dist/memory/provider.js";
 import { koIncludes } from "/var/home/luke/alpha-adk/projects/naia-agent/packages/runtime/src/bench/recall-bench-judge.ts";
 import { WELL_FORMED_MARKER } from "/var/home/luke/alpha-adk/projects/naia-agent/packages/runtime/src/bench/recall-bench-judge.ts";
 import { classifyPipeline, summarize } from "../packages/benchmarks/src/humanlike/pipeline.ts";
@@ -69,6 +75,11 @@ const GATEWAY =
 const MAIN_MODEL = process.env.HUMANLIKE_MAIN_MODEL ?? "vertexai:gemini-3.5-flash";
 const EMBED_MODEL = process.env.HUMANLIKE_EMBED_MODEL ?? "vertexai:text-multilingual-embedding-002";
 const EMBED_DIMS = Number(process.env.HUMANLIKE_EMBED_DIMS ?? 768) | 0;
+// HL-5a: which memory the agent talks to. "lite" = pure cosine (no salience,
+// original bench); "naia" = real MemorySystem+LocalAdapter (importance-weighted
+// recall + flashbulb-emotion boost) with a gemini sub-LLM fact extractor.
+const PROVIDER = (process.env.HUMANLIKE_PROVIDER ?? "lite").toLowerCase();
+const SUB_MODEL = process.env.HUMANLIKE_SUB_MODEL ?? "vertexai:gemini-3.1-flash-lite";
 // CRLF-tolerant: the age-vault key file ships with CRLF line endings.
 const KEY = (process.env.NAIA_PROD_KEY ?? "").trim();
 
@@ -221,6 +232,16 @@ async function runScenario(
 		}
 	}
 
+	// Consolidate the seeded episodes (extract facts, settle importance/strength)
+	// — the realistic post-conversation lifecycle that engages the salience
+	// machinery. No-op for the lite provider.
+	try {
+		const c = await observed.consolidate();
+		if (PROVIDER === "naia") console.log(`  · consolidate: +${c.factsCreated} facts / ${c.factsUpdated} upd / ${c.episodesProcessed} episodes`);
+	} catch (e) {
+		console.log(`  · consolidate error: ${(e as Error).message}`);
+	}
+
 	// Probes: each in a fresh agent (clean history) against the seeded store.
 	const outcomes: PipelineOutcome[] = [];
 	const recorded: RecordedProbe[] = [];
@@ -321,6 +342,29 @@ function reportProbe(
 	console.log(`      응답: ${response.replace(/\s+/g, " ").slice(0, 140)}`);
 }
 
+/** Build the memory the agent talks to. HL-5a isolation toggle: the original
+ *  bench used LiteMemoryProvider (pure cosine, zero salience) — the emotion
+ *  axis had no weight machinery to draw on. "naia" swaps in the real
+ *  MemorySystem+LocalAdapter (importance-weighted recall + flashbulb-emotion
+ *  boost) with a gemini-3.1-flash-lite fact extractor (the sub-LLM the design
+ *  wanted; Lite has no LLM hook). Same MemoryProvider interface → drop-in. */
+function buildBenchMemory(embedder: OpenAICompatEmbeddingProvider): { provider: MemoryProvider; note: string } {
+	if (PROVIDER === "naia") {
+		const storePath = join(mkdtempSync(join(tmpdir(), "humanlike-naia-")), "mem.json");
+		const adapter = new LocalAdapter({ storePath, embeddingProvider: embedder });
+		const factExtractor = buildLLMFactExtractor({ apiKey: KEY, baseURL: `${GATEWAY}/v1/`, model: SUB_MODEL });
+		const provider = new NaiaMemoryProvider({
+			adapter,
+			factExtractor,
+			contradictionFilter: new HeuristicContradictionFilter(),
+		}) as unknown as MemoryProvider;
+		return { provider, note: `naia MemorySystem+LocalAdapter (sub=${SUB_MODEL}, salience-aware)  store=${storePath}` };
+	}
+	const dbPath = join(mkdtempSync(join(tmpdir(), "humanlike-")), "mem.db");
+	const provider = new LiteMemoryProvider({ dbPath, embedder, writesEnabled: true });
+	return { provider, note: `lite (pure cosine, no salience)  db=${dbPath}` };
+}
+
 async function main() {
 	if (process.env.HUMANLIKE_LIVE !== "1" || !KEY) {
 		console.log(
@@ -338,8 +382,7 @@ async function main() {
 	// would double to `/v1/v1/embeddings` → 404). The chat provider below is the
 	// opposite: createOpenAICompatible needs the `/v1` base.
 	const embedder = new OpenAICompatEmbeddingProvider(GATEWAY, KEY, EMBED_MODEL, EMBED_DIMS);
-	const dbPath = join(mkdtempSync(join(tmpdir(), "humanlike-")), "mem.db");
-	const memory = new LiteMemoryProvider({ dbPath, embedder, writesEnabled: true });
+	const { provider: memory, note: providerNote } = buildBenchMemory(embedder);
 	const observed = new ObservingMemory(memory);
 
 	const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
@@ -348,7 +391,8 @@ async function main() {
 
 	console.log(
 		`[bench] human-like memory experience — LIVE\n` +
-			`  gateway=${GATEWAY}  main=${MAIN_MODEL}  embed=${EMBED_MODEL}(${EMBED_DIMS}d)  db=${dbPath}`,
+			`  gateway=${GATEWAY}  main=${MAIN_MODEL}  embed=${EMBED_MODEL}(${EMBED_DIMS}d)\n` +
+			`  memory=${providerNote}`,
 	);
 
 	const all: PipelineOutcome[] = [];
