@@ -75,3 +75,15 @@ EMO-01 seed·consolidate 후 감정 marker 쿼리로 recall 격리(threshold 0.7
 - ⟹ 벤치 한계: retrieved=·이 "memory 실패"인지 "agent가 나쁜 쿼리 생성"인지 구분 못 함(둘 다 retrieval-miss). **마커 쿼리 로깅** 필요.
 
 **수정된 다음 단계**: (a) 러너에 **다회 실행 집계 + 마커 쿼리 로깅** 추가(Slice 4 미룬 것). (b) lite vs naia를 N회씩 공정 비교. (c) 그 데이터로 provider 효과·감정 병목(agent-query vs memory-retrieval vs integration) 규명 후 5b·reaction 신호 방향 확정.
+
+## 5-stab 완료 (2026-07-06) — 인프라 + 그림 재규명
+러너에 (1) 마커 쿼리 로깅 (2) **시나리오별 fresh memory**(기존 공유=cross-scenario 오염 confound였음) (3) 다회 실행(HUMANLIKE_RUNS=N) + probe별 버킷 분포 추가.
+
+**lite RUNS=2 결과 — 병목 재규명:**
+- 마커 쿼리 로깅: agent가 감정 probe에 **좋은 쿼리** 생성("반려동물 이별 위로 키우던 강아지", "이직…과거 면접 경험"). agent-decision은 문제 아님.
+- **retrieved 거의 2/2** — 검색도 문제 아님.
+- positives 대부분 **used-needs-judge**(회상+사용 OK). negatives 대부분 **forced-inappropriate**.
+- ⟹ **진짜 병목 = 선택성(creepy DB)**. fresh memory로 검색이 깨끗해지니 오히려 부적절 맥락에도 기억을 surface. "검색 실패"가 아니라 **"무분별 surface"**.
+- (주: 기존 공유-memory fixture는 negatives가 abstain으로 보였는데, 그건 오염으로 검색이 흐려져서였음. fresh memory가 진짜 그림.)
+
+**함의**: salience-aware provider의 가치 가설이 바뀜 — "검색을 돕는다"가 아니라 **"선택성을 준다"**(high-salience만 surface, 낮은 건 억제)일 때 의미. naia provider가 negatives를 덜 forced하게 만드는지가 핵심 측정. → 다음: lite vs naia N회 비교(선택성=negatives forced율).

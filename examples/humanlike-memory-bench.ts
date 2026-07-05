@@ -179,12 +179,19 @@ function makeHost(llm: LLMClient, memory: MemoryProvider): HostContext {
 	} as HostContext;
 }
 
-/** Drive one user turn through a fresh agent; returns {response, markerEmitted}. */
+/** The recall query the model actually put inside `<recall>…</recall>` (first
+ *  well-formed marker), for diagnosing retrieval-miss (bad query vs bad memory). */
+function extractMarkerQuery(raw: string): string {
+	const m = raw.match(/<recall>\s*([\s\S]{2,256}?)\s*<\/recall>/i);
+	return m ? m[1]!.trim() : "";
+}
+
+/** Drive one user turn through a fresh agent. */
 async function runTurn(
 	mainLlm: LLMClient,
 	observed: ObservingMemory,
 	userText: string,
-): Promise<{ response: string; markerEmitted: boolean }> {
+): Promise<{ response: string; markerEmitted: boolean; markerQuery: string }> {
 	const tee = new TeeLLM(mainLlm);
 	const agent = new Agent({
 		host: makeHost(tee, observed),
@@ -205,7 +212,7 @@ async function runTurn(
 			console.log(`      [debug] hop${i} text=${r.length}: ${r.replace(/\s+/g, " ").slice(0, 160)}`),
 		);
 	}
-	return { response, markerEmitted: WELL_FORMED_MARKER.test(tee.raw) };
+	return { response, markerEmitted: WELL_FORMED_MARKER.test(tee.raw), markerQuery: extractMarkerQuery(tee.raw) };
 }
 
 interface JudgedProbe {
@@ -215,11 +222,20 @@ interface JudgedProbe {
 
 type MutableRow = { -readonly [K in keyof ReportRow]: ReportRow[K] };
 
+interface ProbeStat {
+	readonly probeId: string;
+	readonly family: string;
+	readonly polarity: string;
+	readonly bucket: string;
+	readonly markerQuery: string;
+	readonly targetRetrieved: boolean;
+}
+
 async function runScenario(
 	scenario: HumanlikeScenario,
 	mainLlm: LLMClient,
 	observed: ObservingMemory,
-): Promise<{ outcomes: PipelineOutcome[]; judged: JudgedProbe[]; recorded: RecordedProbe[]; rows: ReportRow[] }> {
+): Promise<{ outcomes: PipelineOutcome[]; judged: JudgedProbe[]; recorded: RecordedProbe[]; rows: ReportRow[]; probeStats: ProbeStat[] }> {
 	console.log(`\n▶ 시나리오 ${scenario.id} (${scenario.family})`);
 
 	// Seed + distractor sessions: replay USER turns; the real agent generates
@@ -246,10 +262,11 @@ async function runScenario(
 	const outcomes: PipelineOutcome[] = [];
 	const recorded: RecordedProbe[] = [];
 	const rows: MutableRow[] = [];
+	const probeStats: ProbeStat[] = [];
 	const rowByProbe = new Map<string, MutableRow>();
 	const needsJudge: { probe: HumanlikeProbe; response: string; recalled: string[] }[] = [];
 	for (const probe of scenario.probes) {
-		const { response, markerEmitted } = await runTurn(mainLlm, observed, probe.triggerText);
+		const { response, markerEmitted, markerQuery } = await runTurn(mainLlm, observed, probe.triggerText);
 		const markerDrivenHits = observed.markerDrivenHits.map((h) => h.content);
 		const trace = buildTrace({ probeId: probe.id, markerEmitted, markerDrivenHits, responseText: response }, probe, koIncludes);
 		// Bench-soundness guard: a non-response (empty / agent-stop stub) is an
@@ -272,6 +289,8 @@ async function runScenario(
 		const row: MutableRow = { scenarioId: scenario.id, probeId: probe.id, family: probe.family, polarity: probe.polarity, bucket: outcome.bucket, deterministicPass: outcome.deterministicPass };
 		rows.push(row);
 		rowByProbe.set(probe.id, row);
+		probeStats.push({ probeId: probe.id, family: probe.family, polarity: probe.polarity, bucket: outcome.bucket, markerQuery, targetRetrieved: trace.targetRetrieved });
+		if (markerQuery) console.log(`      marker-q: "${markerQuery.slice(0, 80)}"`);
 		if (outcome.bucket === "used-needs-judge") {
 			// Snapshot the ACTUAL retrieved memory now — the spy is reset each turn.
 			needsJudge.push({ probe, response, recalled: markerDrivenHits });
@@ -305,7 +324,7 @@ async function runScenario(
 		console.log(`  ─ ${needsJudge.length} probe deferred to judge (set NAIA_JUDGE_ENSEMBLE=1 to score) ─`);
 	}
 
-	return { outcomes, judged, recorded, rows };
+	return { outcomes, judged, recorded, rows, probeStats };
 }
 
 function reportJudge(probeId: string, agg: SocialQualityAggregate): void {
@@ -382,57 +401,83 @@ async function main() {
 	// would double to `/v1/v1/embeddings` → 404). The chat provider below is the
 	// opposite: createOpenAICompatible needs the `/v1` base.
 	const embedder = new OpenAICompatEmbeddingProvider(GATEWAY, KEY, EMBED_MODEL, EMBED_DIMS);
-	const { provider: memory, note: providerNote } = buildBenchMemory(embedder);
-	const observed = new ObservingMemory(memory);
+	const { note: providerNote } = buildBenchMemory(embedder); // note only; providers are built fresh per scenario below
 
 	const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
 	const provider = createOpenAICompatible({ name: "naia-gw", apiKey: KEY, baseURL: `${GATEWAY}/v1` });
 	const mainLlm = new VercelClient(provider.chatModel(MAIN_MODEL), { defaultMaxTokens: 2048 });
 
+	// 5-stab: N runs, FRESH memory per scenario (fixes cross-scenario leak +
+	// gives a fair, noise-averaged comparison). HUMANLIKE_RUNS=N (default 1).
+	const RUNS = Math.max(1, Number(process.env.HUMANLIKE_RUNS ?? 1) | 0);
+
 	console.log(
-		`[bench] human-like memory experience — LIVE\n` +
+		`[bench] human-like memory experience — LIVE (${RUNS} run${RUNS > 1 ? "s" : ""})\n` +
 			`  gateway=${GATEWAY}  main=${MAIN_MODEL}  embed=${EMBED_MODEL}(${EMBED_DIMS}d)\n` +
 			`  memory=${providerNote}`,
 	);
 
-	const all: PipelineOutcome[] = [];
-	const judgedAll: JudgedProbe[] = [];
-	const recordedAll: RecordedProbe[] = [];
-	const rowsAll: ReportRow[] = [];
-	for (const scenario of HUMANLIKE_SCENARIOS) {
-		const r = await runScenario(scenario, mainLlm, observed);
-		all.push(...r.outcomes);
-		judgedAll.push(...r.judged);
-		recordedAll.push(...r.recorded);
-		rowsAll.push(...r.rows);
-	}
-	await memory.close();
+	const dist = new Map<string, { polarity: string; buckets: Record<string, number>; missQueries: string[]; retrieved: number }>();
+	const outcomesRun0: PipelineOutcome[] = [];
+	const judgedRun0: JudgedProbe[] = [];
+	const recordedRun0: RecordedProbe[] = [];
+	const rowsRun0: ReportRow[] = [];
 
-	const s = summarize(all);
-	console.log(`\n[summary] probes=${s.total}  det-pass=${s.deterministicPass}  det-fail=${s.deterministicFail}  needs-judge=${s.needsJudge}`);
+	for (let run = 0; run < RUNS; run++) {
+		if (RUNS > 1) console.log(`\n═══ run ${run + 1}/${RUNS} ═══`);
+		for (const scenario of HUMANLIKE_SCENARIOS) {
+			const { provider: mem } = buildBenchMemory(embedder); // FRESH per scenario
+			const observed = new ObservingMemory(mem);
+			const r = await runScenario(scenario, mainLlm, observed);
+			await mem.close();
+			for (const ps of r.probeStats) {
+				const d = dist.get(ps.probeId) ?? { polarity: ps.polarity, buckets: {}, missQueries: [], retrieved: 0 };
+				d.buckets[ps.bucket] = (d.buckets[ps.bucket] ?? 0) + 1;
+				if (ps.targetRetrieved) d.retrieved++;
+				if ((ps.bucket === "retrieval-miss" || ps.bucket === "no-recall-attempt") && ps.markerQuery) d.missQueries.push(ps.markerQuery);
+				dist.set(ps.probeId, d);
+			}
+			if (run === 0) {
+				outcomesRun0.push(...r.outcomes);
+				judgedRun0.push(...r.judged);
+				recordedRun0.push(...r.recorded);
+				rowsRun0.push(...r.rows);
+			}
+		}
+	}
+
+	const s = summarize(outcomesRun0);
+	console.log(`\n[run 1 summary] probes=${s.total}  det-pass=${s.deterministicPass}  det-fail=${s.deterministicFail}  needs-judge=${s.needsJudge}`);
 	console.log(`  buckets: ${JSON.stringify(s.byBucket)}`);
 	if (Object.keys(s.byFailureLayer).length) console.log(`  failure-layers: ${JSON.stringify(s.byFailureLayer)}`);
-	if (judgedAll.length > 0) {
-		const jpass = judgedAll.filter((j) => !j.agg.unreliable && j.agg.pass).length;
-		const junrel = judgedAll.filter((j) => j.agg.unreliable).length;
-		console.log(`  judged (social-quality): ${jpass}/${judgedAll.length} pass` + (junrel ? `, ${junrel} unreliable` : ""));
+	if (judgedRun0.length > 0) {
+		const jpass = judgedRun0.filter((j) => !j.agg.unreliable && j.agg.pass).length;
+		const junrel = judgedRun0.filter((j) => j.agg.unreliable).length;
+		console.log(`  judged (social-quality): ${jpass}/${judgedRun0.length} pass` + (junrel ? `, ${junrel} unreliable` : ""));
 	}
 
-	console.log("\n" + renderHumanlikeReport(rowsAll));
+	// Multi-run distribution — the fair lite-vs-naia signal + marker-query diagnosis.
+	console.log(`\n[multi-run] ${RUNS} run(s) — per-probe bucket distribution (target retrieved N/${RUNS}):`);
+	for (const [probeId, d] of dist) {
+		const parts = Object.entries(d.buckets).sort((a, b) => b[1] - a[1]).map(([b, c]) => `${b}×${c}`).join(", ");
+		console.log(`  ${probeId} [${d.polarity}]  retrieved ${d.retrieved}/${RUNS}  →  ${parts}`);
+		if (d.missQueries.length) console.log(`      miss marker-q: ${d.missQueries.slice(0, 3).map((q) => `"${q.slice(0, 48)}"`).join(" | ")}`);
+	}
 
-	// Fixture recording — HUMANLIKE_RECORD=<path> writes the deterministic
-	// observations for CI replay (no LLM). Judge scores are non-deterministic and
-	// omitted (judge aggregation is unit-tested separately).
+	console.log("\n" + renderHumanlikeReport(rowsRun0));
+
+	// Fixture recording (run 1) — HUMANLIKE_RECORD=<path> writes deterministic
+	// observations for CI replay (no LLM). Judge scores omitted (unit-tested).
 	const recordPath = process.env.HUMANLIKE_RECORD;
 	if (recordPath) {
 		const fixture: HumanlikeFixture = {
 			version: HUMANLIKE_FIXTURE_VERSION,
 			recordedAt: new Date().toISOString(),
 			model: MAIN_MODEL,
-			probes: recordedAll,
+			probes: recordedRun0,
 		};
 		writeFileSync(recordPath, JSON.stringify(fixture, null, "\t") + "\n");
-		console.log(`\n[record] fixture written: ${recordPath} (${recordedAll.length} probes)`);
+		console.log(`\n[record] fixture written: ${recordPath} (${recordedRun0.length} probes)`);
 	}
 	console.log(
 		`\n✓ 라이브 러너 동작: PipelineTrace 생성 + 5-버킷 분류 완료 (판정 층 = Slice 2).`,
