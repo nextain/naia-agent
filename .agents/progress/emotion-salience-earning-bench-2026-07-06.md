@@ -87,3 +87,28 @@ EMO-01 seed·consolidate 후 감정 marker 쿼리로 recall 격리(threshold 0.7
 - (주: 기존 공유-memory fixture는 negatives가 abstain으로 보였는데, 그건 오염으로 검색이 흐려져서였음. fresh memory가 진짜 그림.)
 
 **함의**: salience-aware provider의 가치 가설이 바뀜 — "검색을 돕는다"가 아니라 **"선택성을 준다"**(high-salience만 surface, 낮은 건 억제)일 때 의미. naia provider가 negatives를 덜 forced하게 만드는지가 핵심 측정. → 다음: lite vs naia N회 비교(선택성=negatives forced율).
+
+## lite vs naia 공정 비교 (RUNS=2, fresh memory) — 단일실행 결론 확정 정정
+| | positives (used) | negatives (abstained=선택성) |
+|---|---|---|
+| lite | 6/8 | 1/8 |
+| **naia (salience)** | **8/8** | **3/8** |
+- **naia(salience-aware)가 둘 다 개선** — 긍정 회상 더 안정(8/8 used), 부정 선택성도 나음(3/8 abstain vs 1/8). **제 초기 단일-실행 "naia 더 나쁨"은 노이즈였음이 확정.**
+- 단 negatives 여전히 대부분 forced(naia 5/8). EMO-01-neg는 양쪽 다 forced×2(최난 부정). 선택성 개선됐으나 미해결 → reaction 신호로 밀 지점.
+
+## 1급 reaction 신호 (naia-memory, 커밋 0a2c667) — 구현·검증 완료
+- `MemoryInput`/`MemoryProviderInput`에 `emotion?`(0..1 반응 valence)·`importance?` 추가. `MemorySystem.encode`서 override+utility 재계산. episode.importance.emotion → fact.maxEmotion(heuristic·LLM extractor 둘 다 전파 확인) → flashbulb recall +0.5.
+- 유닛 4/4(override·utility·clamp·backward-compat). **end-to-end 검증**: emotion=0.95 태그로 동등-관련 기억 recall score 0.30→0.58 + rank #1(무태그 등산 #3로 밀림). dead-flag 아님.
+- 이걸로 **차등 salience → 선택적 회상**이 가능 — 반응한 기억만 우선, flat은 억제.
+
+## 5b salience-earning 데모 (examples/salience-earning-demo.ts)
+반응한 기억(서예, emotion=0.9)을 flat 경쟁 기억들 속에 seed 후 recall(topK=3):
+- reaction off: 서예 #1(0.611) — 내용상 이미 관련 높아 flip은 아니나
+- reaction ON: 서예 #1(**0.961**) — 부스트 명확. (rank flip은 동등-관련 격리서 확인.)
+- 정직한 한계: 데모 내용이 서예를 이미 최관련으로 만들어 flip 미시연. 부스트+격리 flip으로 메커니즘 입증.
+
+## 종합 (2026-07-06, session ed6b7ccc)
+- 5-stab: 병목=**선택성**(검색·agent-query 정상, 부적절 맥락 over-surface)로 재규명.
+- 공정 비교: salience-aware provider가 lite보다 positives·negatives 둘 다 개선(노이즈 정정).
+- 1급 reaction 신호: 구현·검증·커밋(naia-memory 0a2c667) — 차등 salience 레버 확보.
+- 5b: 부스트 입증. 선택성 완전 해결은 미달(negatives 여전히 다수 forced) → **다음: reaction 신호를 벤치 seed에 배선(반응 기억 태그)해 선택성 개선 실측 + 다회(N≥5) 안정화.**
