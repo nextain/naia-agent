@@ -41,10 +41,12 @@ export { buildTrace, isDegenerateResponse } from "./humanlike/observe.js";
 export type { ProbeObservation, Contains } from "./humanlike/observe.js";
 export {
 	HUMANLIKE_SCENARIOS,
+	SALIENCE_SCENARIOS,
 	PREF_VEGETARIAN,
 	EMO_DOG_LOSS,
 	EMO_MARATHON,
 	PREF_COFFEE,
+	SAL_MARATHON,
 } from "./humanlike/scenarios.js";
 export {
 	buildSocialQualityPrompt,

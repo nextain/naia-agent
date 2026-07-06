@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { HUMANLIKE_SCENARIOS } from "../scenarios.js";
+import { HUMANLIKE_SCENARIOS, SALIENCE_SCENARIOS } from "../scenarios.js";
 
 describe("HUMANLIKE_SCENARIOS well-formedness", () => {
 	it("covers both human-like families with ≥2 emotion + ≥2 preference scenarios", () => {
@@ -50,6 +50,30 @@ describe("HUMANLIKE_SCENARIOS well-formedness", () => {
 				for (const anchor of p.expectedMemorySet) {
 					expect(seedText.includes(anchor)).toBe(true);
 				}
+			}
+		}
+	});
+});
+
+describe("SALIENCE_SCENARIOS (HL-5c differential-salience) well-formedness", () => {
+	it("carries reaction emotion tags: a high-emotion reacted memory + lower-emotion flat peers", () => {
+		expect(SALIENCE_SCENARIOS.length).toBeGreaterThanOrEqual(1);
+		for (const s of SALIENCE_SCENARIOS) {
+			const emotions = s.sessions.flatMap((sess) => sess.turns.map((t) => (t as { emotion?: number }).emotion)).filter((e): e is number => e !== undefined);
+			expect(emotions.length).toBeGreaterThan(0);
+			expect(Math.max(...emotions)).toBeGreaterThanOrEqual(0.8); // a reacted-to memory
+			expect(Math.min(...emotions)).toBeLessThan(0.5); // and flat peers
+		}
+	});
+	it("each carries +/- probes, forbiddenRecalls on negatives, and anchors present in seed text", () => {
+		for (const s of SALIENCE_SCENARIOS) {
+			const pol = s.probes.map((p) => p.polarity);
+			expect(pol).toContain("positive");
+			expect(pol).toContain("negative");
+			const seedText = s.sessions.flatMap((sess) => sess.turns.map((t) => t.content)).join(" ");
+			for (const p of s.probes) {
+				for (const a of p.expectedMemorySet) expect(seedText.includes(a)).toBe(true);
+				if (p.polarity === "negative") expect(p.forbiddenRecalls && p.forbiddenRecalls.length > 0).toBe(true);
 			}
 		}
 	});

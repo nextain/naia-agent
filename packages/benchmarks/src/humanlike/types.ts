@@ -47,7 +47,15 @@ export interface HumanlikeProbe {
 export interface HumanlikeSession {
 	readonly index: number;
 	readonly label: string; // e.g. "Session A — 2026-04-15"
-	readonly turns: readonly { readonly role: "user" | "assistant"; readonly content: string }[];
+	readonly turns: readonly {
+		readonly role: "user" | "assistant";
+		readonly content: string;
+		/** REACTION tag (HL-5c) — emotional valence 0..1 (0.5 = neutral). When set
+		 *  and the runner is in direct-seed mode, this user turn is encoded with the
+		 *  naia-memory first-class reaction signal, so reacted-to memories earn higher
+		 *  salience than flat ones. Absent = neutral / heuristic. */
+		readonly emotion?: number;
+	}[];
 }
 
 export interface HumanlikeScenario {

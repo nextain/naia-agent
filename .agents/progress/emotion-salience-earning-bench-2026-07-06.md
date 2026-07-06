@@ -112,3 +112,23 @@ EMO-01 seed·consolidate 후 감정 marker 쿼리로 recall 격리(threshold 0.7
 - 공정 비교: salience-aware provider가 lite보다 positives·negatives 둘 다 개선(노이즈 정정).
 - 1급 reaction 신호: 구현·검증·커밋(naia-memory 0a2c667) — 차등 salience 레버 확보.
 - 5b: 부스트 입증. 선택성 완전 해결은 미달(negatives 여전히 다수 forced) → **다음: reaction 신호를 벤치 seed에 배선(반응 기억 태그)해 선택성 개선 실측 + 다회(N≥5) 안정화.**
+
+## HL-5c 완료 (2026-07-06) — reaction 신호를 벤치 seed 배선 → 선택성 실증
+`SAL_MARATHON` 시나리오(반응한 완주 기억 emotion=0.9 + flat 러닝머신 0.15 + distractor) + runner direct-seed 모드(`HUMANLIKE_DIRECT_SEED=1`, seed를 emotion 태그와 직접 encode) + `HUMANLIKE_REACTION=off` A/B 토글. naia, RUNS=3:
+
+| SAL-01 | reaction ON(태그) | reaction OFF(대조) |
+|---|---|---|
+| 긍정 clean use(flat 미누출) | **2/3** | 1/3 |
+| 부정 abstain(선택성) | **2/3** | **0/3** |
+| 부정 retrieved(flat 억제) | 1/3 | 3/3 |
+
+- **결정적 결과**: 태그 없으면 flat 러닝머신/완주가 부적절 맥락(후배 험담)에 **매번 침범**(neg forced×3, creepy-DB). 차등 salience 태그를 주면 flat이 **억제**돼 abstain 0/3→2/3, retrieved 3/3→1/3.
+- ⟹ **1급 reaction 신호가 선택적 회상을 만든다**를 실증. naia thesis("반응한 것만 공고화→편향") 검증. 선택성 병목의 레버 확인.
+- 소 N(3) 방향성이나 ON/OFF 델타가 커 유의미. 다음 = N≥5 안정화 + judge 층으로 social-quality 정밀화.
+
+## 최종 종합 (2026-07-06, session ed6b7ccc) — 감정 후속 자율 아크 완주
+1. **5-stab**: 병목=선택성 재규명(검색·agent-query 정상). fresh memory confound 해소.
+2. **공정 비교**: salience-aware(naia)>lite 둘 다(단일실행 노이즈 정정).
+3. **1급 reaction 신호**(naia-memory 0a2c667): emotion encode override→flashbulb recall. 유닛4/4+검증.
+4. **5b/5c**: 차등 salience→선택적 회상 실증(neg abstain 0/3→2/3). naia thesis 검증.
+남은: N≥5 안정화, judge 정밀화, 접지된 상태 변조(핸드오프 문서).

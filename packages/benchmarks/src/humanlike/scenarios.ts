@@ -381,3 +381,85 @@ export const HUMANLIKE_SCENARIOS: readonly HumanlikeScenario[] = [
 	EMO_MARATHON,
 	PREF_COFFEE,
 ];
+
+/**
+ * SAL-01 — salience-earning (HL-5c). A reacted-to memory (marathon finish,
+ * emotionally significant — tagged emotion ~0.9) competes with an equally
+ * on-topic FLAT memory (treadmill jogging, mundane — tagged low) + mundane
+ * distractors. The differential-salience test the reaction signal exists for:
+ * the reacted memory should surface (positive), the flat peer should NOT intrude.
+ * Run with direct-seed mode (HUMANLIKE_DIRECT_SEED=1) so the emotion tags apply.
+ */
+export const SAL_MARATHON: HumanlikeScenario = {
+	id: "SAL-01-marathon-salience",
+	family: "emotion-association",
+	notes:
+		"차등 salience 테스트: 반응한 기억(마라톤 완주, emotion 높음)이 동등하게-관련된 flat 기억" +
+		"(러닝머신, emotion 낮음)+distractor 속에서 선택적으로 회상되나. reaction 태그 ON/OFF로 선택성 측정.",
+	sessions: [
+		{
+			index: 0,
+			label: "Session A — 반응한 기억 (마라톤 완주, 감정 높음)",
+			turns: [
+				{
+					role: "user",
+					content:
+						"나 이번에 10년 만에 다시 도전한 마라톤을 완주했어. 결승선 통과하는데 먼저 가신 아버지 생각이 나서 펑펑 울었어. 인생에서 손꼽게 벅찬 순간이었어.",
+					emotion: 0.9,
+				},
+			],
+		},
+		{
+			index: 1,
+			label: "Session B — flat on-topic (러닝머신, 감정 낮음)",
+			turns: [
+				{
+					role: "user",
+					content: "아 그리고 요즘 그냥 심심할 때 헬스장에서 러닝머신도 가볍게 좀 뛰어.",
+					emotion: 0.15,
+				},
+			],
+		},
+		{
+			index: 2,
+			label: "Session C — distractor (무관·flat)",
+			turns: [
+				{ role: "user", content: "점심은 편의점 삼각김밥으로 대충 때웠어.", emotion: 0.2 },
+				{ role: "user", content: "오늘 지하철이 좀 붐볐어.", emotion: 0.2 },
+				{ role: "user", content: "주말에 마트에서 휴지랑 세제 샀어.", emotion: 0.2 },
+			],
+		},
+	],
+	probes: [
+		{
+			id: "SAL-01-pos",
+			family: "emotion-association",
+			polarity: "positive",
+			triggerSessionIndex: 3,
+			triggerText:
+				"나 곧 인생을 건 큰 도전을 앞두고 있는데 자신이 없어서 자꾸 도망치고 싶어져. 무섭다.",
+			triggerCondition:
+				"한계 앞 두려움 → 감정적으로 반응한 '완주' 성취를 떠올려 격려하는 것이 적절. 동시에 무관한 " +
+				"flat 운동 기억(러닝머신)은 끌어오지 않아야 함(선택성).",
+			expectedMemorySet: ["완주"],
+			forbiddenRecalls: ["러닝머신"],
+			acceptableStyle: "감정적으로 반응했던 완주 경험으로 진심 격려. flat 운동 기억은 부적절.",
+		},
+		{
+			id: "SAL-01-neg",
+			family: "emotion-association",
+			polarity: "negative",
+			triggerSessionIndex: 3,
+			triggerText:
+				"우리 팀 후배가 이번 프로젝트도 중간에 포기했더라. 끈기가 없어서 좀 답답해.",
+			triggerCondition:
+				"타인의 포기를 험담하는 맥락. 여기서 사용자의 완주 성취를 끌어와 은근히 우월감을 부추기면 " +
+				"부적절. 인간다운 반응은 중립적 공감이지 자기 성취 자랑이 아님.",
+			expectedMemorySet: ["완주"],
+			forbiddenRecalls: ["완주", "러닝머신"],
+			acceptableStyle: "중립적으로 듣기. 사용자의 완주 성취를 끌어와 비교·과시하지 않는 것이 pass.",
+		},
+	],
+};
+
+export const SALIENCE_SCENARIOS: readonly HumanlikeScenario[] = [SAL_MARATHON];

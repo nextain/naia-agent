@@ -66,7 +66,7 @@ import {
 	type RecordedProbe,
 	type ReportRow,
 } from "../packages/benchmarks/src/humanlike/fixture.ts";
-import { HUMANLIKE_SCENARIOS } from "../packages/benchmarks/src/humanlike/scenarios.ts";
+import { HUMANLIKE_SCENARIOS, SALIENCE_SCENARIOS } from "../packages/benchmarks/src/humanlike/scenarios.ts";
 import type { HumanlikeProbe, HumanlikeScenario, PipelineOutcome } from "../packages/benchmarks/src/humanlike/types.ts";
 
 const GATEWAY =
@@ -80,6 +80,12 @@ const EMBED_DIMS = Number(process.env.HUMANLIKE_EMBED_DIMS ?? 768) | 0;
 // recall + flashbulb-emotion boost) with a gemini sub-LLM fact extractor.
 const PROVIDER = (process.env.HUMANLIKE_PROVIDER ?? "lite").toLowerCase();
 const SUB_MODEL = process.env.HUMANLIKE_SUB_MODEL ?? "vertexai:gemini-3.1-flash-lite";
+// HL-5c: direct-seed mode encodes seed turns straight into memory (with their
+// reaction emotion tag) instead of driving the agent — so differential salience
+// is applied. HUMANLIKE_REACTION=off drops the tags (the A/B control).
+const DIRECT_SEED = process.env.HUMANLIKE_DIRECT_SEED === "1";
+const REACTION_ON = process.env.HUMANLIKE_REACTION !== "off";
+const SCENARIO_SET = (process.env.HUMANLIKE_SCENARIO_SET ?? "humanlike").toLowerCase();
 // CRLF-tolerant: the age-vault key file ships with CRLF line endings.
 const KEY = (process.env.NAIA_PROD_KEY ?? "").trim();
 
@@ -244,7 +250,14 @@ async function runScenario(
 		console.log(`  · seed [${session.label}]`);
 		for (const turn of session.turns) {
 			if (turn.role !== "user") continue;
-			await runTurn(mainLlm, observed, turn.content);
+			if (DIRECT_SEED) {
+				// Encode the seed turn directly, applying its reaction emotion tag
+				// (unless HUMANLIKE_REACTION=off) — differential salience at seed time.
+				const emo = REACTION_ON ? (turn as { emotion?: number }).emotion : undefined;
+				await observed.encode({ content: turn.content, role: "user", ...(emo !== undefined ? { emotion: emo } : {}) } as Parameters<ObservingMemory["encode"]>[0]);
+			} else {
+				await runTurn(mainLlm, observed, turn.content);
+			}
 		}
 	}
 
@@ -414,7 +427,8 @@ async function main() {
 	console.log(
 		`[bench] human-like memory experience — LIVE (${RUNS} run${RUNS > 1 ? "s" : ""})\n` +
 			`  gateway=${GATEWAY}  main=${MAIN_MODEL}  embed=${EMBED_MODEL}(${EMBED_DIMS}d)\n` +
-			`  memory=${providerNote}`,
+			`  memory=${providerNote}\n` +
+			`  set=${SCENARIO_SET}  seed=${DIRECT_SEED ? "direct" : "agent"}  reaction=${DIRECT_SEED ? (REACTION_ON ? "ON" : "off") : "n/a"}`,
 	);
 
 	const dist = new Map<string, { polarity: string; buckets: Record<string, number>; missQueries: string[]; retrieved: number }>();
@@ -423,9 +437,10 @@ async function main() {
 	const recordedRun0: RecordedProbe[] = [];
 	const rowsRun0: ReportRow[] = [];
 
+	const scenarioSet = SCENARIO_SET === "salience" ? SALIENCE_SCENARIOS : HUMANLIKE_SCENARIOS;
 	for (let run = 0; run < RUNS; run++) {
 		if (RUNS > 1) console.log(`\n═══ run ${run + 1}/${RUNS} ═══`);
-		for (const scenario of HUMANLIKE_SCENARIOS) {
+		for (const scenario of scenarioSet) {
 			const { provider: mem } = buildBenchMemory(embedder); // FRESH per scenario
 			const observed = new ObservingMemory(mem);
 			const r = await runScenario(scenario, mainLlm, observed);
