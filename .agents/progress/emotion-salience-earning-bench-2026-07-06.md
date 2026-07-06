@@ -126,6 +126,18 @@ EMO-01 seed·consolidate 후 감정 marker 쿼리로 recall 격리(threshold 0.7
 - ⟹ **1급 reaction 신호가 선택적 회상을 만든다**를 실증. naia thesis("반응한 것만 공고화→편향") 검증. 선택성 병목의 레버 확인.
 - 소 N(3) 방향성이나 ON/OFF 델타가 커 유의미. 다음 = N≥5 안정화 + judge 층으로 social-quality 정밀화.
 
+### ⚠ HL-5c N=5 안정화 (2026-07-06) — RUNS=3 결과 정정 (소표본 노이즈였음)
+| SAL-01 (RUNS=5) | 태그 ON | 태그 OFF |
+|---|---|---|
+| 긍정 clean use | 4/5 | 3/5 |
+| **부정 abstain(선택성)** | **2/5** | **2/5** (차이 없음) |
+| 부정 retrieved(flat 억제) | 4/5 | 5/5 |
+
+- **RUNS=3의 "abstain 2/3 vs 0/3" 극적 결과는 N=5에서 사라짐**(2/5 vs 2/5). 소표본 노이즈였음. Luke의 N≥5 안정화 지시가 과대주장을 잡음.
+- reaction 태그의 실효: flat 약간 억제(retrieved 4/5 vs 5/5), 긍정 소폭 개선(4/5 vs 3/5). **핵심 부정-abstain엔 효과 없음.**
+- **정직한 결론**: 1급 reaction 신호(memory-layer salience)는 선택성에 **불충분**. 부정-forced 실패는 **agent-layer**(부적절 맥락에서 검색된 기억을 쓸지 판단)의 문제. salience는 **양날**: 무게↑→surface↑(긍정 도움, 부적절 부정은 오히려 악화 가능). 태그로 완주를 더 salient하게 하면 험담 맥락서도 더 끌려나옴.
+- ⟹ 선택성 해결 = memory 무게만으론 안 되고 **agent가 회상된 기억의 맥락 적절성을 판단**해야 함. 다음 방향: (a) recall 메타데이터(salience/emotion)를 agent 프롬프트에 노출→agent가 선택 판단 (b) 또는 접지된 상태 변조(맥락이 회상 게이팅). memory-layer만 미는 건 한계.
+
 ## 최종 종합 (2026-07-06, session ed6b7ccc) — 감정 후속 자율 아크 완주
 1. **5-stab**: 병목=선택성 재규명(검색·agent-query 정상). fresh memory confound 해소.
 2. **공정 비교**: salience-aware(naia)>lite 둘 다(단일실행 노이즈 정정).
