@@ -158,3 +158,20 @@ EMO-01 seed·consolidate 후 감정 marker 쿼리로 recall 격리(threshold 0.7
 3. **1급 reaction 신호**(naia-memory 0a2c667): emotion encode override→flashbulb recall. 유닛4/4+검증.
 4. **5b/5c**: 차등 salience→선택적 회상 실증(neg abstain 0/3→2/3). naia thesis 검증.
 남은: N≥5 안정화, judge 정밀화, 접지된 상태 변조(핸드오프 문서).
+
+## 적대 리뷰 + 통합 검증 + 정정 (2026-07-06)
+**적대 리뷰(서브에이전트)가 심각한 결함을 잡음:**
+- 🔴 **Finding 1 (CRITICAL)**: naia-memory `emotion`=**valence**(0.5중립)인데 나·벤치가 **intensity**로 오용. 강한 부정(슬픔 valence 0)은 flashbulb 안 됨. flat 태그 0.15는 arousal 0.7로 **오히려 부스트** → **HL-5c/HL-6 A/B가 confound**(측정이 틀림). ⟹ 그 선택성 결과는 신뢰 불가(필터 접근이 틀렸던 위에 측정도 깨짐).
+- 🟠 Finding 3: override가 disableImportanceGating 불변식 깸. 🟠 Finding 4: null/NaN 미가드→max-arousal. 🟡 6: score>1.
+- ✅ check-out: utility 공식 정확, backward-compat, 격리 latch·앵커 containment OK.
+
+**정정(커밋):**
+- naia-memory `1399032`: Number.isFinite 가드 + disableImportanceGating 불변식 보존 + types/docs에 valence 의미 명시 + `docs/reaction-signal.md`(재료≠필터 SoT 연결). 376 green 회귀0.
+- naia-agent `755b576`: SAL-01 flat/distractor 태그 0.15/0.2→0.5(중립 valence). 라벨 감정강도→감정가. 45 green. **재실행 안 함**(선택성-salience 경로 deprioritized).
+- flashbulb-on-arousal(부정도 flashbulb)는 naia-memory 동작 변경이라 미실행, **미래 fix로 문서화**.
+
+**통합 검증:**
+- naia-agent ↔ naia-memory: build ✓ / core+runtime 741 + benchmarks 73 ✓ / naia-memory-host 스모크(mock, agent+MemorySystem) ✓.
+- naia-os(naia-shell): @nextain/naia-memory 패키지 **미소비**(자체 MemoryPort+in-memory-adapter, #346). 내 변경 영향 없음.
+
+**git**: fetch=동기화 완료. naia-memory 브랜치(feat/memory-bench-harness-and-fixes, origin에 없음)·naia-agent main(origin/main과 unrelated-history) → 강제 merge-in 안전하지 않아 pull 강행 안 함. push=feature 브랜치로.
