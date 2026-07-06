@@ -70,6 +70,10 @@ rubric 도 필요 없음 — baseline 대비 ablation 이 핵심.
   진짜 길들임(일반화 예측)을 구분** — 루크의 과적합 우려에 직접 답. `naia-with-X vs without-X`
   ablation 자체가 baseline. ⚠ **단, 예측=proxy이지 telos 아님**(SoT): 바닥 증거로만, 그게
   naia 라 착각 금지. 절대 rubric 화 금지.
+  - **first-probe 완료(2026-07-06)** = `prediction-anchor-first-probe-2026-07-06.md` +
+    `examples/prediction-anchor-bench.ts`. 결과: A(memory) 3/3 vs B(blind) 1/3 시나리오
+    (held-out·비겹침에서 취향 일반화로 예측 뒤집음 = 과적합 아님). **방향 positive, 앵커 유효**.
+    v2 필요: blind 위치편향 제거·시나리오 10+·자아특이성(A-naia 가 B-사용자 예측 못 하나).
 - **② 쌍-선호 앵커 (인간다움 축, 쉬움).** 같은 대화에서 naia vs baseline(생성 어시스턴트 /
   mem0-backed / reaction-off) 중 "**나를 기억하는 친구 같은 쪽**"을 판정/사람이 고름. 절대 점수
   아닌 A/B 선호 → 검증 쉽고, "옳은가"(도덕) 아닌 "사람 같은가"만 물어 필터 함정 회피.
