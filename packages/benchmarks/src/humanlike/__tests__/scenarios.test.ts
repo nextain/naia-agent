@@ -61,8 +61,8 @@ describe("SALIENCE_SCENARIOS (HL-5c differential-salience) well-formedness", () 
 		for (const s of SALIENCE_SCENARIOS) {
 			const emotions = s.sessions.flatMap((sess) => sess.turns.map((t) => (t as { emotion?: number }).emotion)).filter((e): e is number => e !== undefined);
 			expect(emotions.length).toBeGreaterThan(0);
-			expect(Math.max(...emotions)).toBeGreaterThanOrEqual(0.8); // a reacted-to memory
-			expect(Math.min(...emotions)).toBeLessThan(0.5); // and flat peers
+			expect(Math.max(...emotions)).toBeGreaterThanOrEqual(0.8); // a reacted-to memory (extreme valence)
+			expect(Math.min(...emotions)).toBeLessThanOrEqual(0.5); // and flat/neutral peers (valence ~0.5)
 		}
 	});
 	it("each carries +/- probes, forbiddenRecalls on negatives, and anchors present in seed text", () => {

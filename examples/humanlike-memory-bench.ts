@@ -110,8 +110,8 @@ const SYSTEM =
 	// removed per SoT naia-behavior-emergent-not-filtered.md. naia decides for itself
 	// whether/how to use a memory — material is given, the choice is its cognition.)
 	(EXPOSE_SALIENCE
-		? " 주입되는 각 기억 앞의 [감정강도 N] (0~1)은 그 기억이 사용자에게 얼마나 감정적으로 " +
-			"중요했는지를 나타내는 참고 정보다."
+		? " 주입되는 각 기억 앞의 [감정가 N] (0~1, 0.5=중립·0=강한부정·1=강한긍정)은 그 기억의 " +
+			"감정 결을 나타내는 참고 정보다."
 		: "");
 
 /** Tees the RAW assistant text channel so we can detect a `<recall>` marker —
@@ -175,7 +175,7 @@ class ObservingMemory implements MemoryProvider {
 		if (EXPOSE_SALIENCE) {
 			hits = hits.map((h) => {
 				const emo = (h.metadata as { emotion?: number } | undefined)?.emotion;
-				return emo === undefined ? h : { ...h, content: `[감정강도 ${emo.toFixed(1)}] ${h.content}` };
+				return emo === undefined ? h : { ...h, content: `[감정가 ${emo.toFixed(2)}] ${h.content}` };
 			});
 		}
 		this.markerDrivenHits.push(...hits);

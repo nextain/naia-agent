@@ -415,8 +415,12 @@ export const SAL_MARATHON: HumanlikeScenario = {
 			turns: [
 				{
 					role: "user",
-					content: "아 그리고 요즘 그냥 심심할 때 헬스장에서 러닝머신도 가볍게 좀 뛰어.",
-					emotion: 0.15,
+					// VALENCE, not intensity: a mundane note is NEUTRAL (0.5), so arousal
+					// = |0.5-0.5|*2 = 0 → no salience boost. (Was 0.15 = "very negative",
+					// which paradoxically gave arousal 0.7 and BOOSTED the flat peer —
+					// adversarial-review Finding 1. Corrected but not re-run: the whole
+					// selectivity-via-salience path is deprioritized per the filter=bias SoT.)
+					emotion: 0.5,
 				},
 			],
 		},
@@ -424,9 +428,11 @@ export const SAL_MARATHON: HumanlikeScenario = {
 			index: 2,
 			label: "Session C — distractor (무관·flat)",
 			turns: [
-				{ role: "user", content: "점심은 편의점 삼각김밥으로 대충 때웠어.", emotion: 0.2 },
-				{ role: "user", content: "오늘 지하철이 좀 붐볐어.", emotion: 0.2 },
-				{ role: "user", content: "주말에 마트에서 휴지랑 세제 샀어.", emotion: 0.2 },
+				// Mundane = NEUTRAL valence 0.5 (arousal 0, no boost). Corrected from
+				// 0.2 per adversarial-review Finding 1 (valence, not intensity).
+				{ role: "user", content: "점심은 편의점 삼각김밥으로 대충 때웠어.", emotion: 0.5 },
+				{ role: "user", content: "오늘 지하철이 좀 붐볐어.", emotion: 0.5 },
+				{ role: "user", content: "주말에 마트에서 휴지랑 세제 샀어.", emotion: 0.5 },
 			],
 		},
 	],
