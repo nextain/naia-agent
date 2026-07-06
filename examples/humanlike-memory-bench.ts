@@ -86,6 +86,10 @@ const SUB_MODEL = process.env.HUMANLIKE_SUB_MODEL ?? "vertexai:gemini-3.1-flash-
 const DIRECT_SEED = process.env.HUMANLIKE_DIRECT_SEED === "1";
 const REACTION_ON = process.env.HUMANLIKE_REACTION !== "off";
 const SCENARIO_SET = (process.env.HUMANLIKE_SCENARIO_SET ?? "humanlike").toLowerCase();
+// HL-6: surface each recalled memory's emotional salience to the agent so it can
+// judge contextual appropriateness (the agent-layer selectivity lever the N=5
+// stabilization pointed to — memory-weight alone was insufficient).
+const EXPOSE_SALIENCE = process.env.HUMANLIKE_EXPOSE_SALIENCE === "1";
 // CRLF-tolerant: the age-vault key file ships with CRLF line endings.
 const KEY = (process.env.NAIA_PROD_KEY ?? "").trim();
 
@@ -100,7 +104,13 @@ const SYSTEM =
 	"사용자의 과거 발화·취향·경험이 지금 대화와 관련될 수 있다고 판단되면, 그 턴에는 " +
 	"다른 말은 절대 쓰지 말고 오직 `<recall>검색어</recall>` 한 줄만 출력해. 그러면 다음 턴에 " +
 	"기억이 주입되고, 그때 그 내용을 자연스럽게 녹여 답해. 억지로 끼워 넣지는 마. " +
-	"관련 없으면 마커 없이 그냥 평범하게 답해.";
+	"관련 없으면 마커 없이 그냥 평범하게 답해." +
+	// HL-6 salience-awareness rider (only when exposing salience to the agent).
+	(EXPOSE_SALIENCE
+		? " 주입되는 각 기억 앞의 [감정강도 N] (0~1)은 그 기억이 사용자에게 얼마나 감정적으로 " +
+			"중요한지를 뜻한다. 강도가 높은 기억은 관련될 때 진심으로 떠올려도 좋지만, 강도가 낮거나 " +
+			"지금 대화 맥락(예: 남 얘기, 가벼운 잡담)에 부적절한 기억은 굳이 꺼내지 말고 억제해라."
+		: "");
 
 /** Tees the RAW assistant text channel so we can detect a `<recall>` marker —
  *  exactly what the agent's marker parser acts on (parity with conv-recall bench). */
@@ -156,7 +166,16 @@ class ObservingMemory implements MemoryProvider {
 			this.#firstRecallConsumed = true; // start-of-turn recall → isolated
 			return [];
 		}
-		const hits = await this.inner.recall(q, o);
+		let hits = await this.inner.recall(q, o);
+		// HL-6: prefix each memory with its emotional-salience metadata so the agent
+		// (which otherwise sees only the text) can judge contextual appropriateness.
+		// The anchor stays inside the content, so deterministic containment is intact.
+		if (EXPOSE_SALIENCE) {
+			hits = hits.map((h) => {
+				const emo = (h.metadata as { emotion?: number } | undefined)?.emotion;
+				return emo === undefined ? h : { ...h, content: `[감정강도 ${emo.toFixed(1)}] ${h.content}` };
+			});
+		}
 		this.markerDrivenHits.push(...hits);
 		return hits;
 	}

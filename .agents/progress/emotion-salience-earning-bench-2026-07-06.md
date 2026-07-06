@@ -138,6 +138,20 @@ EMO-01 seed·consolidate 후 감정 marker 쿼리로 recall 격리(threshold 0.7
 - **정직한 결론**: 1급 reaction 신호(memory-layer salience)는 선택성에 **불충분**. 부정-forced 실패는 **agent-layer**(부적절 맥락에서 검색된 기억을 쓸지 판단)의 문제. salience는 **양날**: 무게↑→surface↑(긍정 도움, 부적절 부정은 오히려 악화 가능). 태그로 완주를 더 salient하게 하면 험담 맥락서도 더 끌려나옴.
 - ⟹ 선택성 해결 = memory 무게만으론 안 되고 **agent가 회상된 기억의 맥락 적절성을 판단**해야 함. 다음 방향: (a) recall 메타데이터(salience/emotion)를 agent 프롬프트에 노출→agent가 선택 판단 (b) 또는 접지된 상태 변조(맥락이 회상 게이팅). memory-layer만 미는 건 한계.
 
+## HL-6 (2026-07-06) — recall salience를 agent에 노출 (agent-layer 선택성 레버)
+- naia-memory: `NaiaMemoryProvider.recall`이 `metadata.emotion`(fact.maxEmotion) 노출(커밋 8ce3e35). 벤치: `HUMANLIKE_EXPOSE_SALIENCE=1`서 회상 내용에 `[감정강도 N]` 주석 + SYSTEM 라이더("강도 낮거나 부적절하면 억제"). 검증: 메타데이터 0.9(반응)/0.15(flat) 정상 노출.
+- **A/B (SAL-01, naia, reaction ON, RUNS=5, 노출 ON vs OFF):**
+
+| SAL-01-neg | 노출 ON | 노출 OFF |
+|---|---|---|
+| abstain(선택성) | 2/5 | 0/5 |
+| forced | 3/5 | 5/5 |
+| 긍정 clean use | 4/5 | 4/5 |
+
+- salience 노출로 forced 5/5→3/5(방향성 개선), 긍정 보존(4/5). **그러나** 노출-OFF 자체가 N=5서 흔들림(이전 5c OFF=abstain 2/5, 이번=0/5). ⟹ **방향은 favorable하나 N=5 노이즈를 확실히 넘진 못함.**
+- **정직한 종합**: 3개 레버(reaction 무게·salience 노출) 각각 선택성을 **방향성으로** 미나(flat retrieved↓, forced↓), **N=5에서 어느 것도 단독으로 robust하게 해결 못 함.** 선택성=gemini의 맥락 판단 난제(감정 실린 성취 기억을 험담 맥락서도 꺼내는 경향). 
+- **다음(택1)**: (a) N≥10로 레버 효과 확증 (b) 레버 stack(무게+노출 동시)+강한 프롬프트 (c) 접지된 상태 변조로 맥락 게이팅. 벤치가 "쉬운 승리 없음, 선택성은 진짜 어려움"을 정직히 드러냄 — 자기-엄격성.
+
 ## 최종 종합 (2026-07-06, session ed6b7ccc) — 감정 후속 자율 아크 완주
 1. **5-stab**: 병목=선택성 재규명(검색·agent-query 정상). fresh memory confound 해소.
 2. **공정 비교**: salience-aware(naia)>lite 둘 다(단일실행 노이즈 정정).
