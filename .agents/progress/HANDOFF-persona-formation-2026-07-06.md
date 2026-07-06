@@ -59,6 +59,30 @@ sot: projects/naia-agent/.agents/context/naia-behavior-emergent-not-filtered.md
   옮길 때 **"규칙 매칭 → 사람다움/관계-적합"**으로 갈아끼울 것. (지금 삭제 안 함 = 커밋된 결정론
   코어+테스트 보존, 별도 재설계.)
 
+## 6. 검증 설계 — 상대 앵커 (2026-07-06 논의, "돌려서 결정" 대상)
+절대 "인간다움 점수"를 매기려던 지난 벤치가 필터/편향으로 미끄러진 근본 원인 = **절대 척도**.
+검증을 쉽게(+편향 안 심게) 하려면 축을 **상대/예측**으로 바꾼다. 외부 SOTA 경쟁자도, 절대
+rubric 도 필요 없음 — baseline 대비 ablation 이 핵심.
+
+- **① 예측 앵커 (제일 값짐 · 과적합 해독제 · 우리 KPI).** naia(기억·자아 O) vs memoryless
+  baseline 이 사용자의 **다음 취향·반응을 누가 더 맞히나** (held-out). 객관 숫자 + 이미
+  [[project_naia_cognitive_predictive_entrainment]] KPI. **held-out 이라 과적합(표면 암기)과
+  진짜 길들임(일반화 예측)을 구분** — 루크의 과적합 우려에 직접 답. `naia-with-X vs without-X`
+  ablation 자체가 baseline. ⚠ **단, 예측=proxy이지 telos 아님**(SoT): 바닥 증거로만, 그게
+  naia 라 착각 금지. 절대 rubric 화 금지.
+- **② 쌍-선호 앵커 (인간다움 축, 쉬움).** 같은 대화에서 naia vs baseline(생성 어시스턴트 /
+  mem0-backed / reaction-off) 중 "**나를 기억하는 친구 같은 쪽**"을 판정/사람이 고름. 절대 점수
+  아닌 A/B 선호 → 검증 쉽고, "옳은가"(도덕) 아닌 "사람 같은가"만 물어 필터 함정 회피.
+- **③ 자아-구별 앵커 (persona 형성 전용).** A 사용자의 naia 와 B 사용자의 naia 를 분류기가
+  구별 가능한가 + 각자 일관 = "구분되는 자아 형성"의 객관 증거. morality rubric 없이 측정.
+- **④ 회상 바닥 앵커 (신뢰용, 목표 아님).** LongMemEval/LoCoMo 로 "기본 회상은 남만큼". 우리
+  목표는 아님(과적합 함정) — 대외 신뢰 floor 로만. 흔적: `migration/judge-longmemeval-korean`.
+
+**결론**: "타 기억 대비 우수"라는 절대·경쟁 프레임이 아니라 **ablation + 예측 + 쌍선호**가
+검증을 쉽게 만든다. 특히 ①예측이 객관적·on-KPI·과적합 판별까지 하므로 **다음 실험의 1순위 앵커**.
+persona 형성도 "그 자아가 사용자를 더 잘 예측하나 / baseline 보다 친구 같나 / 구별되나"로
+**검증 가능한 실험**이 됨.
+
 ## 5. 시작 체크리스트 (새 세션)
 1. **SoT `naia-behavior-emergent-not-filtered.md` 정독** (헌장 — 필터=편향, 선택=창발적 사고).
 2. 형제 `emotion-salience-earning-bench-2026-07-06.md` + 이 문서 정독.

@@ -415,6 +415,9 @@ export const SAL_MARATHON: HumanlikeScenario = {
 			turns: [
 				{
 					role: "user",
+					// flat on-topic (running-related but mundane) — a routine treadmill note.
+					content:
+						"오늘은 그냥 동네 헬스장 러닝머신에서 30분 걸었어. 별일 없이 늘 하던 루틴대로 했고 딱히 특별할 건 없었어.",
 					// VALENCE, not intensity: a mundane note is NEUTRAL (0.5), so arousal
 					// = |0.5-0.5|*2 = 0 → no salience boost. (Was 0.15 = "very negative",
 					// which paradoxically gave arousal 0.7 and BOOSTED the flat peer —

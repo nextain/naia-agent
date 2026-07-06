@@ -1,6 +1,22 @@
 import { describe, expect, it } from "vitest";
 import { HUMANLIKE_SCENARIOS, SALIENCE_SCENARIOS } from "../scenarios.js";
 
+describe("scenario turn well-formedness (all families)", () => {
+	// Regression: a valence-fix edit once replaced a turn's `content:` line with a
+	// comment, leaving content undefined → scoreImportance crashed on
+	// `undefined.toLowerCase()` at live-seed time. Every turn must carry text.
+	it("every turn in every scenario has non-empty string content", () => {
+		for (const s of [...HUMANLIKE_SCENARIOS, ...SALIENCE_SCENARIOS]) {
+			for (const sess of s.sessions) {
+				for (const t of sess.turns) {
+					expect(typeof t.content, `${s.id} / ${sess.label}`).toBe("string");
+					expect((t.content ?? "").trim().length, `${s.id} / ${sess.label}`).toBeGreaterThan(0);
+				}
+			}
+		}
+	});
+});
+
 describe("HUMANLIKE_SCENARIOS well-formedness", () => {
 	it("covers both human-like families with ≥2 emotion + ≥2 preference scenarios", () => {
 		const byFamily = (f: string) => HUMANLIKE_SCENARIOS.filter((s) => s.family === f).length;

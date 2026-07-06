@@ -175,3 +175,45 @@ EMO-01 seed·consolidate 후 감정 marker 쿼리로 recall 격리(threshold 0.7
 - naia-os(naia-shell): @nextain/naia-memory 패키지 **미소비**(자체 MemoryPort+in-memory-adapter, #346). 내 변경 영향 없음.
 
 **git**: fetch=동기화 완료. naia-memory 브랜치(feat/memory-bench-harness-and-fixes, origin에 없음)·naia-agent main(origin/main과 unrelated-history) → 강제 merge-in 안전하지 않아 pull 강행 안 함. push=feature 브랜치로.
+
+---
+
+## 재실행 — 정정된 valence 태그 A/B (2026-07-06, 세션 ed6b7ccc)
+이전 세션이 "재실행 안 함"으로 남긴 갭을 닫음. 정정된 valence 태그(flat/distractor=0.5)로
+SAL-01 을 실제 라이브 재실행. **필터 채점이 아니라 재료 관점**으로 읽음(회상 랭크가 감정가에
+따라 갈리나). naia provider(MemorySystem+LocalAdapter, real embeddings, gemini-lite fact
+extractor), direct-seed, N=5, reaction ON vs OFF.
+
+**실행 중 발견·수정한 실제 결함 2건 (재실행이 아니었으면 안 드러났을 것):**
+1. `scenarios.ts` SAL-01 Session B turn 에 **`content` 필드 누락** — 직전 valence-fix 편집 때
+   주석이 `content:` 줄을 덮어써서 `input.content` = undefined → `scoreImportance`가
+   `undefined.toLowerCase()`로 크래시(importance.ts:141). flat on-topic 러닝머신 내용 복원.
+   → 유닛 회귀 가드 추가(`scenarios.test.ts`: 모든 turn 비어있지 않은 content). bench 74 green.
+2. 러너 실행 스크립트 셸 버그(문서화용): 키 파일 CRLF → `. file` 소싱이 `\r`에서 깨짐(프로세스
+   치환으로 CR 제거). `"$@"`로 넘긴 env 할당은 파싱 시점 prefix 로 인식 안 됨 → `env` 로 감쌈.
+
+**결과 (N=5, 정정 태그):**
+| probe | ON (salience 활성) | OFF (control, 태그 없음) |
+|---|---|---|
+| SAL-01-pos [pos] | retrieved **5/5** → used×3, not-used×1, forced-inappropriate×1 | retrieved **5/5** → used×3, forced-inappropriate×2 |
+| SAL-01-neg [neg] | retrieved **3/5** → forced-inappropriate×3, abstained×2 | retrieved **3/5** → forced-inappropriate×3, abstained×2 |
+
+**해석 (정직):**
+- **감정 salience 태그는 회상도 surfacing 결정도 바꾸지 않았다 — ON/OFF 사실상 동일.** retrieved
+  카운트(pos 5/5, neg 3/5) 완전 동일, 버킷 분포도 거의 동일(neg 는 3/2 로 완전 일치).
+- **왜**: 이 시나리오는 salient 기억(마라톤)이 flat peer 사이에 하나뿐이고 probe 가 같은 주제
+  (도전·끈기)라 **의미 관련도(cosine)만으로 이미 5/5 검색됨(포화)**. emotion×0.3 strength 항은
+  경쟁 기억이 있어 tie 를 깨야 할 때만 유효 — 여기선 경쟁이 없어 **salience 가 inert**.
+- **격리 마이크로테스트(emotion=0.95 → recall 0.30→0.58)와 모순 아님**: 거기선 경쟁·동점을
+  인위적으로 만들었고, 실제 시나리오선 병목이 검색이 아니라 관련도 포화 뒤의 **선택**이다.
+- **neg 3/5 surfacing 이 ON/OFF 무관** = 그 선택은 **agent 인지(frozen gemini)의 것**이지
+  메모리 층이 지배하지 않음. → "선택 = agent 층 창발적 사고"([[naia-behavior-emergent-not-filtered]])
+  를 데이터로 확증. 메모리-층 salience 레버로 selectivity 를 풀려는 시도는 **구조적으로 헛다리**.
+- **"forced-inappropriate" 는 결함이 아님**(SoT): neg 응답 실측 = 사용자의 마라톤-끈기 경험을
+  후배의 프로젝트 포기 상황에 연결한 것 — 공유 과거를 현재에 잇는 자연스러운 사람의 수. "부적절"
+  라벨은 설계자-도덕 필터. 이 채점축은 §4(핸드오프) 재설계 대상.
+
+**결론(이번 재실행의 값)**: (a) 정정 태그로 돌려보니 salience material 은 이 벤치에서 **무효과** —
+회상은 관련도 포화, 선택은 agent 인지. (b) 따라서 "감정 기억이 잘 쌓여 선택적으로 나온다"는
+**메모리 층 레버로는 증명 불가**. 다음은 메모리 레버가 아니라 **agent-층/창발(로컬+LoRA) + 검증은
+예측 앵커**(HANDOFF §6). (c) 부수적으로 커밋된 결함 2건 수정 + 회귀 가드.
