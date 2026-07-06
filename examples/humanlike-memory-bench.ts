@@ -105,11 +105,13 @@ const SYSTEM =
 	"다른 말은 절대 쓰지 말고 오직 `<recall>검색어</recall>` 한 줄만 출력해. 그러면 다음 턴에 " +
 	"기억이 주입되고, 그때 그 내용을 자연스럽게 녹여 답해. 억지로 끼워 넣지는 마. " +
 	"관련 없으면 마커 없이 그냥 평범하게 답해." +
-	// HL-6 salience-awareness rider (only when exposing salience to the agent).
+	// HL-6 salience is exposed as INFORMATION only — NOT a suppress directive.
+	// (The earlier rider "부적절한 기억은 억제해라" was a filter = designer-imposed bias;
+	// removed per SoT naia-behavior-emergent-not-filtered.md. naia decides for itself
+	// whether/how to use a memory — material is given, the choice is its cognition.)
 	(EXPOSE_SALIENCE
 		? " 주입되는 각 기억 앞의 [감정강도 N] (0~1)은 그 기억이 사용자에게 얼마나 감정적으로 " +
-			"중요한지를 뜻한다. 강도가 높은 기억은 관련될 때 진심으로 떠올려도 좋지만, 강도가 낮거나 " +
-			"지금 대화 맥락(예: 남 얘기, 가벼운 잡담)에 부적절한 기억은 굳이 꺼내지 말고 억제해라."
+			"중요했는지를 나타내는 참고 정보다."
 		: "");
 
 /** Tees the RAW assistant text channel so we can detect a `<recall>` marker —
