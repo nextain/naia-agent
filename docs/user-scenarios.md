@@ -18,6 +18,7 @@
 | UC-WORKSPACE-CTX | 코어가 워크스페이스 컨텍스트(cwd + 프로젝트 이름 목록)를 system prompt 에 경량 포함 → 에이전트가 자기 워크스페이스를 인식 | `docs/requirements.md` FR-WORKSPACE-1~4 (집약) |
 | UC-FS-TOOLS | 에이전트가 **직접 도구**로 워크스페이스 내 파일을 나열/읽기(기본), opt-in 으로 쓰기/셸 실행 — allow-root sandbox + 민감경로 denylist + realpath 재검증(TOCTOU) + tier 승인 | `docs/requirements.md` FR-FS-1~8 / NFR-SEC (집약) |
 | UC-KNOWLEDGE | 코어가 컴파일된 워크스페이스 지식(KB)을 **풀 도구**(`skill_knowledge_search`/`ask`)로 노출 → 에이전트가 근거 있는 답변·근거 없으면 기권. + **컴파일 트리거**(`CompileKnowledge` RPC, K1b — 소스 폴더→kb.json). memory(푸시)와 분리된 풀(tool) | `docs/requirements.md` FR-KB-1~5 (집약) |
+| UC-HLMEM | 인간유사 기억 **측정**(memory-as-user-model) — 장기기억이 사용자의 held-out 선택을 예측하나(F1 취향), 본인 기억이 예측하고 타인 기억은 오도하나(F2 자아특이성), 감정 salience 가중(F3, P6). vs 완벽회상 아님. 벤치(benchmark/src) 측정, 실행경로 아님 | `docs/progress/99.dev-comm/UC-HLMEM-humanlike-memory-measurement-contract-2026-07-07.md` + `docs/requirements.md` FR-HLMEM-1~7 |
 
 ## UC-MEM-1 (장기기억 회상)
 
@@ -211,10 +212,29 @@ knowledge=WHAT/풀, 안 섞음).
 직교: KB 컴파일/서빙 지능은 외부 엔진(어댑터가 backend 로 주입), 코어는 도구 노출 + 컴파일 트리거. `compose-agent-deps` 가
 실 backend(`openWorkspaceKnowledge`)를 주입(K1a-2), entry 가 컴파일 backend(`makeKbCompilerBackend`)를 주입(K1b). memory(push) 경로와 저장소·주입 모두 분리.
 
+## UC-HLMEM (인간유사 기억 측정 — memory-as-user-model)
+
+권위 계약서: `docs/progress/99.dev-comm/UC-HLMEM-humanlike-memory-measurement-contract-2026-07-07.md`.
+측정 하네스(benchmark/src)이지 런타임 실행경로 아님. 정본 seam 준수(자동 recall·formatRecalledMemory·
+ProviderPort). 옛 `<recall>` 마커·"부적절=실패" 도덕채점 폐기(SoT [[project_naia_behavior_emergent_not_filtered]]).
+
+- **S-HLMEM-F1 (취향 예측)**: 사용자의 과거 취향 발화를 seed(MemoryPort.save)로 저장 → 어휘가 겹치지
+  않는 held-out 상황의 A/B 선택을 예측. matched(기억 주입) vs blind(기억 없음). 기대: 취향이 평균과
+  갈릴 때 matched 가 blind 를 능가(일반화, 암기 아님).
+- **S-HLMEM-F2 (자아특이성)**: 반대 취향 사용자 2인 seed → 각 사용자 선택을 본인 기억(matched)·
+  타인 기억(mismatched)·무기억(blind)으로 예측. 자아특이성=acc(matched)−acc(mismatched); mismatched<blind
+  = 타인 기억이 적극 오도. 옵션 순서 무작위(위치편향 제어).
+- **S-HLMEM-F3 (감정 연상, P6)**: 감정 반응(valence)으로 salience 가중된 회상이 예측에 미치는 영향.
+  MemoryPort/RecalledMemory salience widen(P6) + naia-memory arousal-flashbulb 필요.
+- **결정론/CI**: 라이브 관측을 fixture 로 녹화 → CI 는 파싱·채점 재생(모델·키 無). 라이브=opt-in
+  (`NAIA_PROD_KEY`). exec-error(빈 completion)=infra 실패로 분리(예측실패 아님).
+
 ## Test Coverage Map
 
 | 요구 | 테스트 |
 |------|--------|
+| UC-HLMEM / S-HLMEM-F1·F2 / FR-HLMEM-1~6 (결정론 코어·지표) | `benchmark/src/humanlike/*.test.ts`(fixture-replay: 파싱·trace 분류·predictionAccuracy·selfSpecificity·위치편향 중화) [P3] |
+| UC-HLMEM / FR-HLMEM-7 (라이브 e2e, opt-in) | `benchmark/src/humanlike/live-sut` 실 MemoryPort+ProviderPort 1회 e2e(matched>blind) [P5, NAIA_PROD_KEY 게이트] |
 | UC1 | `src/test/uc1-agent.contract.test.ts`, `uc1-*-provider.contract.test.ts` |
 | UC5 | `src/test/uc5-*.contract.test.ts`, `uc5-tool-loop-stdio.integration.test.ts` |
 | UC-provider-provenance | `src/test/uc-provider-provenance.contract.test.ts`, `uc-keychain-credentials.contract.test.ts` |

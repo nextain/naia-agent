@@ -180,8 +180,28 @@ spec + sandbox 정책(allow-root) + tier(승인)** 를 소유한다.
 
 ## 기타 UC FR
 
+## UC-HLMEM FR/NFR (FR-HLMEM-1 ~ 7) — 인간유사 기억 측정(memory-as-user-model)
+
+권위 계약서: `docs/progress/99.dev-comm/UC-HLMEM-humanlike-memory-measurement-contract-2026-07-07.md`.
+측정 하네스(benchmark/src). 실행경로 아님. 정본 seam 계약 준수.
+
+| ID | 요구 | 상태 |
+|----|------|------|
+| FR-HLMEM-1 | **자동 recall 기준 trace** — 측정은 정본 `MemoryPort.recall`(FR-MEM-1) **자동 회상** 결과로 정의. 모델발화 `<recall>` 마커·"no-recall-attempt/agent-decision" 버킷 없음(정본 대응개념 부재). trace={seedSaved,recallReturnedTarget,memoryInjected,predictionParsed,predictionCorrect,outcome}. | Planned(P3) |
+| FR-HLMEM-2 | **신뢰경계 재사용** — 회상→프롬프트 주입은 domain `formatRecalledMemory()`(FR-MEM-7/8/10, 출처 fail-safe)로만. 벤치 재프레이밍 금지. | Planned(P3/P4) |
+| FR-HLMEM-3 | **실 MemoryPort SUT** — seed=`MemoryPort.save`, 회상=`recall`(makeNaiaMemory project-scoped strict). read-your-writes 준수, recall/save throw=fail-open. 주입 plain fn 금지. | Planned(P4) |
+| FR-HLMEM-4 | **held-out + 위치편향 제어** — probe 어휘가 seed 와 비겹침(일반화 강제). 옵션→A/B 배정 trial 마다 무작위. blind pickedA≈50% 로 편향 중화 확인. | Planned(P3) |
+| FR-HLMEM-5 | **지표** — `predictionAccuracy(condition)`=correct/total; `selfSpecificity`=acc(matched)−acc(mismatched); mismatched<blind=타인기억 적극 오도. 기존 지표(taskAccuracy/factRecall/drift/latency) 직교 보존. | Planned(P3) |
+| FR-HLMEM-6 | **exec-error 분리·CI 결정론** — 빈/축퇴 응답=exec-error(infra 실패, 예측실패 아님). 라이브 관측→fixture 녹화, CI 는 파싱·채점 재생(모델·키 無, G15). | Planned(P3) |
+| FR-HLMEM-7 | **라이브 예측 seam·verified-runtime** — 라이브 예측은 `ProviderPort`/`SubLlmPort` 로만(raw client·`@nextain/agent-*`·naia-memory FS import 금지, import-boundary). opt-in(`NAIA_PROD_KEY`+게이트웨이 max_tokens≥32). "done"=실 e2e matched>blind, 시크릿 미출력. | Planned(P5) |
+
+### NFR
+- NFR-HLMEM-proxy: 예측정확도는 proxy 이지 telos 아님. 절대 rubric·"부적절=실패" 도덕채점 금지(필터=편향, SoT).
+- NFR-HLMEM-salience(P6): F3 감정 family·salience 는 MemoryPort/RecalledMemory widen + naia-memory arousal-flashbulb 선행. valence(0.5 중립) vs intensity 혼동 금지(~0.5 경계 테스트).
+
 | UC | FR 위치 |
 |----|---------|
+| UC-HLMEM | `docs/progress/99.dev-comm/UC-HLMEM-humanlike-memory-measurement-contract-2026-07-07.md` (+ 본 파일 FR-HLMEM-1~7) |
 | UC1 | `docs/progress/99.dev-comm/UC1-agent-horizontal-contract-2026-06-10.md` |
 | UC5 | `docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md` |
 | UC-provider-provenance | `docs/progress/99.dev-comm/UC-provider-provenance-contract-2026-06-12.md` |
