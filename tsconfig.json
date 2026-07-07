@@ -27,6 +27,8 @@
     "src/test/bench-ensemble.contract.test.ts",
     "src/test/bench-recall-judge.contract.test.ts",
     "src/test/bench-runner.contract.test.ts",
-    "src/test/bench-report.contract.test.ts"
+    "src/test/bench-report.contract.test.ts",
+    "src/test/bench-humanlike.contract.test.ts",
+    "src/test/bench-humanlike-purity.contract.test.ts"
   ]
 }
