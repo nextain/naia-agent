@@ -8,6 +8,34 @@ Slice entries (R1+) follow the format: `## [Slice N] — YYYY-MM-DD — short ti
 
 ## [Unreleased]
 
+### feat (HL-5/6 + prediction anchor — memory-as-user-model measurement)
+
+The human-like memory line's measurement program (2026-07-04 → 07-07). Establishes that the
+value of memory is not "perfect recall" but **being a user-specific model that predicts the
+person**, and validates the runners that measure it. All runners are opt-in LIVE (real Gemini via
+gateway, credit-protected) and print how to run without a key (CI-safe).
+
+- **`examples/humanlike-memory-bench.ts`** — emotion/salience A/B. Finding: salience is inert
+  in-scenario (recall is relevance-saturated; the surfacing choice is agent cognition, not the
+  memory layer). Run: `HUMANLIKE_LIVE=1 HUMANLIKE_PROVIDER=naia HUMANLIKE_SCENARIO_SET=salience
+  HUMANLIKE_DIRECT_SEED=1 HUMANLIKE_RUNS=5 pnpm exec tsx examples/humanlike-memory-bench.ts`.
+- **`examples/prediction-anchor-bench.ts`** (v2) — does memory improve held-out user-choice
+  prediction? +56pp over blind (≈chance), option order randomized, held-out (generalization, not
+  memorization). Run: `PREDICT_LIVE=1 PREDICT_RUNS=5 pnpm exec tsx examples/prediction-anchor-bench.ts`.
+- **`examples/prediction-anchor-v3.ts`** — HARD levers (implicit/noise/recency/nuance) +
+  `PREDICT_NOISE=N` retrieval-stress knob. Memory stayed robust (100%); real difficulty axis =
+  preference-vs-default divergence + retrieval starvation, not harder inference.
+- **`examples/prediction-anchor-selfspec.ts`** — self-specificity (the persona measure): predict
+  each user's choice under own memory (matched) vs the OTHER user's memory (mismatched) vs blind.
+  Result: matched 100%, mismatched 0% (below blind) → memory is fully user-specific; the wrong
+  person's memory actively misleads. Run: `PREDICT_LIVE=1 pnpm exec tsx examples/prediction-anchor-selfspec.ts`.
+- **`packages/benchmarks/src/humanlike/scenarios.ts`** — fixed SAL-01 Session B missing `content`
+  (crashed live seed) + regression guard (`scenarios.test.ts`: every turn has non-empty content).
+- Findings: `.agents/progress/{emotion-salience-earning-bench-2026-07-06, prediction-anchor-first-probe-2026-07-06,
+  prediction-anchor-v3-hard-2026-07-07, prediction-anchor-selfspec-2026-07-07}.md`. SoT:
+  `.agents/context/naia-behavior-emergent-not-filtered.md`. Next (gated): apply these metrics to a
+  dream→LoRA emergently-formed self.
+
 ### feat (Slice HL-4 — human-like memory bench: fixture record/replay + report)
 
 Makes the bench CI-safe: a live run RECORDs its deterministic observations to a JSON fixture, and
