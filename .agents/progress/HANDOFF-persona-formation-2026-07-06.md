@@ -79,8 +79,14 @@ rubric 도 필요 없음 — baseline 대비 ablation 이 핵심.
 - **② 쌍-선호 앵커 (인간다움 축, 쉬움).** 같은 대화에서 naia vs baseline(생성 어시스턴트 /
   mem0-backed / reaction-off) 중 "**나를 기억하는 친구 같은 쪽**"을 판정/사람이 고름. 절대 점수
   아닌 A/B 선호 → 검증 쉽고, "옳은가"(도덕) 아닌 "사람 같은가"만 물어 필터 함정 회피.
-- **③ 자아-구별 앵커 (persona 형성 전용).** A 사용자의 naia 와 B 사용자의 naia 를 분류기가
+- **③ 자아-구별/특이성 앵커 (persona 형성 전용).** A 사용자의 naia 와 B 사용자의 naia 를 분류기가
   구별 가능한가 + 각자 일관 = "구분되는 자아 형성"의 객관 증거. morality rubric 없이 측정.
+  - **selfspec probe 완료(2026-07-07)** = `prediction-anchor-selfspec-2026-07-07.md` +
+    `examples/prediction-anchor-selfspec.ts`. 반대취향 쌍 6개, matched(본인 기억) **100%** vs
+    mismatched(상대 기억) **0%**, mismatched<blind 42pp = **틀린 기억이 적극 오도 → 메모리는
+    완전 user-specific**. ⚠ 단 seed 가 명시적이라 이건 **측정 하네스 검증 + 주입-메모리 지배**를
+    증명한 것; **창발 형성된(dream→LoRA) 자아**에 이 지표(matched−mismatched, mismatched<blind)를
+    적용하는 게 본 실험(§1)의 진짜 다음 단계.
 - **④ 회상 바닥 앵커 (신뢰용, 목표 아님).** LongMemEval/LoCoMo 로 "기본 회상은 남만큼". 우리
   목표는 아님(과적합 함정) — 대외 신뢰 floor 로만. 흔적: `migration/judge-longmemeval-korean`.
 
