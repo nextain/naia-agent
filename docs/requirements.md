@@ -187,12 +187,12 @@ spec + sandbox 정책(allow-root) + tier(승인)** 를 소유한다.
 
 | ID | 요구 | 상태 |
 |----|------|------|
-| FR-HLMEM-1 | **자동 recall 기준 trace** — 측정은 정본 `MemoryPort.recall`(FR-MEM-1) **자동 회상** 결과로 정의. 모델발화 `<recall>` 마커·"no-recall-attempt/agent-decision" 버킷 없음(정본 대응개념 부재). trace={seedSaved,recallReturnedTarget,memoryInjected,predictionParsed,predictionCorrect,outcome}. | Planned(P3) |
+| FR-HLMEM-1 | **자동 recall 기준 trace** — 측정은 정본 `MemoryPort.recall`(FR-MEM-1) **자동 회상** 결과로 정의. 모델발화 `<recall>` 마커·"no-recall-attempt/agent-decision" 버킷 없음(정본 대응개념 부재). trace={seedSaved,recallReturnedTarget,memoryInjected,predictionParsed,predictionCorrect,outcome}. | P3 core done / P5 live 대기 |
 | FR-HLMEM-2 | **신뢰경계 재사용** — 회상→프롬프트 주입은 domain `formatRecalledMemory()`(FR-MEM-7/8/10, 출처 fail-safe)로만. 벤치 재프레이밍 금지. | Planned(P3/P4) |
 | FR-HLMEM-3 | **실 MemoryPort SUT** — seed=`MemoryPort.save`, 회상=`recall`(makeNaiaMemory project-scoped strict). read-your-writes 준수, recall/save throw=fail-open. 주입 plain fn 금지. | Planned(P4) |
-| FR-HLMEM-4 | **held-out + 위치편향 제어** — probe 어휘가 seed 와 비겹침(일반화 강제). 옵션→A/B 배정 trial 마다 무작위. blind pickedA≈50% 로 편향 중화 확인. | Planned(P3) |
-| FR-HLMEM-5 | **지표** — `predictionAccuracy(condition)`=correct/total; `selfSpecificity`=acc(matched)−acc(mismatched); mismatched<blind=타인기억 적극 오도. 기존 지표(taskAccuracy/factRecall/drift/latency) 직교 보존. | Planned(P3) |
-| FR-HLMEM-6 | **exec-error 분리·CI 결정론** — 빈/축퇴 응답=exec-error(infra 실패, 예측실패 아님). 라이브 관측→fixture 녹화, CI 는 파싱·채점 재생(모델·키 無, G15). | Planned(P3) |
+| FR-HLMEM-4 | **held-out + 위치편향 제어** — probe 어휘가 seed 와 비겹침(일반화 강제). 옵션→A/B 배정 trial 마다 무작위. blind pickedA≈50% 로 편향 중화 확인. | P3 core done / P5 live 대기 |
+| FR-HLMEM-5 | **지표** — `predictionAccuracy(condition)`=correct/total; `selfSpecificity`=acc(matched)−acc(mismatched); mismatched<blind=타인기억 적극 오도. 기존 지표(taskAccuracy/factRecall/drift/latency) 직교 보존. | P3 core done / P5 live 대기 |
+| FR-HLMEM-6 | **exec-error 분리·CI 결정론** — 빈/축퇴 응답=exec-error(infra 실패, 예측실패 아님). 라이브 관측→fixture 녹화, CI 는 파싱·채점 재생(모델·키 無, G15). | P3 core done / P5 live 대기 |
 | FR-HLMEM-7 | **라이브 예측 seam·verified-runtime** — 라이브 예측은 `ProviderPort`/`SubLlmPort` 로만(raw client·`@nextain/agent-*`·naia-memory FS import 금지, import-boundary). opt-in(`NAIA_PROD_KEY`+게이트웨이 max_tokens≥32). "done"=실 e2e matched>blind, 시크릿 미출력. | Planned(P5) |
 
 ### NFR

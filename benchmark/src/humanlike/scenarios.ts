@@ -1,7 +1,10 @@
 // UC-HLMEM scenarios — F1 preference (1 user) + F2 self-specificity (2 opposite users).
 // Ported from the OLD packages/ bench, re-shaped to the canonical HumanlikeScenario.
-// Held-out: probe vocabulary shares nothing with the seed → correct prediction requires
-// GENERALIZING the preference, not string-matching (overfitting guard, FR-HLMEM-4).
+// Held-out (FR-HLMEM-4, what is actually enforced): the seed states a PREFERENCE, never a
+// stated CHOICE for this situation, and no option text appears VERBATIM in the seed — so the
+// model must apply the preference to a novel situation, not copy a stated choice. (Preference
+// keywords like "채소" may recur — that is fine; option phrasing avoids lexical shortcuts where
+// avoidable, e.g. the coffee/spice options do not reuse "에스프레소"/"마라" from their seeds.)
 import type { HumanlikeScenario } from "./types.js";
 
 /** F1 — single-user preference: correct option = the user's preference-consistent one. */
@@ -52,7 +55,7 @@ export const SELF_SPEC_SCENARIOS: readonly HumanlikeScenario[] = [
     { label: "육식", seed: ["나 고기 없으면 밥이 아니지. 삼겹살에 소고기라면 매일도 먹어.", "채소 위주 식당 가면 늘 뭔가 아쉬워."], favors: "숯불 소고기 구이집" }),
   pair("F2-caffeine", "커피 카페인 음료 취향", "카페에서 음료 하나 고르는데.",
     { label: "카페인민감", seed: ["나 카페인에 민감해서 오후엔 무조건 디카페인만 마셔.", "진한 커피 잘못 마시면 밤에 심장이 두근거려."], favors: "캐모마일 티" },
-    { label: "커피광", seed: ["나 하루에 에스프레소 서너 잔은 기본이야. 진할수록 좋아.", "디카페인은 커피도 아니지."], favors: "에스프레소 더블샷" }),
+    { label: "커피광", seed: ["나 하루에 에스프레소 서너 잔은 기본이야. 진할수록 좋아.", "디카페인은 커피도 아니지."], favors: "콜드브루 더블샷" }),
   pair("F2-chrono", "생활 리듬 아침 밤 시간대 선호", "번개 모임 시간을 정하는데.",
     { label: "아침형", seed: ["나 완전 아침형이야. 밤 10시면 잠들고 새벽에 운동해.", "늦은 밤 약속은 질색이야."], favors: "아침 7시 조깅 모임" },
     { label: "저녁형", seed: ["나 밤에 제일 쌩쌩해. 새벽 2-3시가 골든타임이야.", "아침 일찍은 죽어도 못 일어나."], favors: "밤 11시 심야 상영회" }),
@@ -63,7 +66,7 @@ export const SELF_SPEC_SCENARIOS: readonly HumanlikeScenario[] = [
     { label: "추위질색", seed: ["나 추위를 질색해. 여름이 최고고 겨울 여행은 아예 안 가.", "겨울엔 롱패딩에 핫팩이 필수야."], favors: "여름 남해 해변" },
     { label: "더위질색", seed: ["나 더위를 못 참아. 겨울이 훨씬 좋고 여름엔 축 늘어져.", "시원한 데 가면 살 것 같아."], favors: "겨울 대관령 스키장" }),
   pair("F2-spice", "매운맛 음식 취향", "점심 메뉴를 정하는데.",
-    { label: "매운맛광", seed: ["나 매운 거라면 환장해. 마라탕 불닭 다 좋아.", "안 매우면 밍밍해서 못 먹어."], favors: "얼얼한 마라 훠궈" },
+    { label: "매운맛광", seed: ["나 매운 거라면 환장해. 마라탕 불닭 다 좋아.", "안 매우면 밍밍해서 못 먹어."], favors: "얼큰한 짬뽕탕" },
     { label: "매운맛질색", seed: ["나 매운 거 진짜 못 먹어. 신라면도 물 타서 먹어.", "늘 순한 것만 찾게 돼."], favors: "담백한 콩나물국밥" }),
 ];
 

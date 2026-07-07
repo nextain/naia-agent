@@ -40,6 +40,8 @@ export function replayFixture(fixture: HumanlikeFixture): { results: HumanlikeRe
   return { results, summary: summarize(results) };
 }
 
+const CONDITIONS = new Set<MemoryCondition>(["matched", "mismatched", "blind"]);
+
 export function validateFixture(x: unknown): x is HumanlikeFixture {
   if (typeof x !== "object" || x === null) return false;
   const f = x as Record<string, unknown>;
@@ -47,7 +49,14 @@ export function validateFixture(x: unknown): x is HumanlikeFixture {
   if (!Array.isArray(f.probes)) return false;
   return f.probes.every((p) => {
     const r = p as Record<string, unknown>;
-    return typeof r.scenarioId === "string" && typeof r.condition === "string" &&
-      (r.correctLabel === "A" || r.correctLabel === "B") && typeof r.responseText === "string";
+    return typeof r.scenarioId === "string" &&
+      typeof r.targetUserId === "string" &&
+      // condition MUST be a known enum — a typo would otherwise pass here and then be
+      // silently dropped by statFor (no bucket) → invisible all-zero metrics.
+      CONDITIONS.has(r.condition as MemoryCondition) &&
+      (r.correctLabel === "A" || r.correctLabel === "B") &&
+      typeof r.responseText === "string" &&
+      typeof r.recallReturnedTarget === "boolean" &&
+      typeof r.memoryInjected === "boolean";
   });
 }

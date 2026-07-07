@@ -10,8 +10,12 @@ export interface ConditionStat {
   readonly execError: number;
   /** trials scored (correct+wrong+unparsed); exec-error excluded (infra failure). */
   readonly scored: number;
-  readonly accuracy: number; // correct / scored (0 if scored==0)
-  readonly pickedARate: number; // A-predictions / scored — position-bias telltale (~0.5 = neutral)
+  /** correct / scored, or **null when scored==0** (condition absent/not-measured) so
+   *  a missing baseline is NOT silently treated as accuracy 0 (would inflate deltas). */
+  readonly accuracy: number | null;
+  /** A-predictions / **parsed** (correct+wrong) — position-bias telltale (~0.5 neutral).
+   *  null when no parsed predictions. Denominator excludes unparsed so it reads A/(A+B). */
+  readonly pickedARate: number | null;
 }
 
 function statFor(results: readonly HumanlikeResult[], condition: MemoryCondition): ConditionStat {
@@ -24,31 +28,38 @@ function statFor(results: readonly HumanlikeResult[], condition: MemoryCondition
       case "unparsed": unparsed++; break;
       case "exec-error": execError++; break;
     }
-    if (r.outcome !== "exec-error" && r.trace.predicted === "A") pickedA++;
+    if ((r.outcome === "correct" || r.outcome === "wrong") && r.trace.predicted === "A") pickedA++;
   }
   const scored = correct + wrong + unparsed;
+  const parsed = correct + wrong;
   return {
     condition, correct, wrong, unparsed, execError, scored,
-    accuracy: scored === 0 ? 0 : correct / scored,
-    pickedARate: scored === 0 ? 0 : pickedA / scored,
+    accuracy: scored === 0 ? null : correct / scored,
+    pickedARate: parsed === 0 ? null : pickedA / parsed,
   };
 }
 
-/** Prediction accuracy for one condition = correct / scored (exec-error excluded). */
-export function predictionAccuracy(results: readonly HumanlikeResult[], condition: MemoryCondition): number {
+/** Prediction accuracy for one condition = correct / scored (exec-error excluded).
+ *  null when the condition was never measured (scored==0). */
+export function predictionAccuracy(results: readonly HumanlikeResult[], condition: MemoryCondition): number | null {
   return statFor(results, condition).accuracy;
+}
+
+/** null-safe delta: null if either operand is null (a condition was not measured). */
+function delta(a: number | null, b: number | null): number | null {
+  return a === null || b === null ? null : a - b;
 }
 
 export interface HumanlikeSummary {
   readonly matched: ConditionStat;
   readonly mismatched: ConditionStat;
   readonly blind: ConditionStat;
-  /** memory lift = acc(matched) − acc(blind), in [-1,1]. */
-  readonly memoryLift: number;
-  /** self-specificity = acc(matched) − acc(mismatched). */
-  readonly selfSpecificity: number;
-  /** mismatched below blind (>0 ⇒ wrong-user memory ACTIVELY misleads). */
-  readonly mismatchedBelowBlind: number;
+  /** memory lift = acc(matched) − acc(blind). null if either condition unmeasured. */
+  readonly memoryLift: number | null;
+  /** self-specificity = acc(matched) − acc(mismatched). null if either unmeasured. */
+  readonly selfSpecificity: number | null;
+  /** mismatched below blind (>0 ⇒ wrong-user memory ACTIVELY misleads). null if unmeasured. */
+  readonly mismatchedBelowBlind: number | null;
 }
 
 export function summarize(results: readonly HumanlikeResult[]): HumanlikeSummary {
@@ -57,8 +68,8 @@ export function summarize(results: readonly HumanlikeResult[]): HumanlikeSummary
   const blind = statFor(results, "blind");
   return {
     matched, mismatched, blind,
-    memoryLift: matched.accuracy - blind.accuracy,
-    selfSpecificity: matched.accuracy - mismatched.accuracy,
-    mismatchedBelowBlind: blind.accuracy - mismatched.accuracy,
+    memoryLift: delta(matched.accuracy, blind.accuracy),
+    selfSpecificity: delta(matched.accuracy, mismatched.accuracy),
+    mismatchedBelowBlind: delta(blind.accuracy, mismatched.accuracy),
   };
 }

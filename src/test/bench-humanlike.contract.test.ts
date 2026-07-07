@@ -27,6 +27,14 @@ describe("parsePrediction", () => {
     expect(parsePrediction("음 글쎄 잘 모르겠어")).toBeNull();
     expect(parsePrediction("")).toBeNull();
   });
+  it("word-boundary: a word starting with A/B is not a prediction", () => {
+    expect(parsePrediction("예측: Apple이 좋을 것 같아")).toBeNull(); // not 'A'
+    expect(parsePrediction("예측: Banana 느낌")).toBeNull(); // not 'B'
+  });
+  it("negation: 'B가 아니라 A' resolves to A (the intended answer)", () => {
+    expect(parsePrediction("예측: B가 아니라 A가 맞아")).toBe("A");
+    expect(parsePrediction("예측: A 말고 B")).toBe("B");
+  });
 });
 
 describe("isDegenerateResponse (exec-error guard)", () => {
@@ -56,6 +64,13 @@ describe("assignOptions (position-bias control)", () => {
   });
   it("throws when target has no option pair", () => {
     expect(() => assignOptions(sc, "does-not-exist", true)).toThrow();
+  });
+  it("F1 single-user: '_' sentinel is the distractor, 'u' is placed correctly, '_' rejected as target", () => {
+    const f1 = PREFERENCE_SCENARIOS[0]!; // options: correctFor 'u' + '_'
+    const r = assignOptions(f1, "u", true);
+    expect(r.optA).toBe(f1.options.find((o) => o.correctFor === "u")!.text);
+    expect(r.optB).toBe(f1.options.find((o) => o.correctFor === "_")!.text);
+    expect(() => assignOptions(f1, "_", true)).toThrow();
   });
 });
 
@@ -99,6 +114,21 @@ describe("metrics", () => {
     expect(s.selfSpecificity).toBeCloseTo(1.0);
     expect(s.mismatchedBelowBlind).toBeCloseTo(0.5); // wrong-user memory actively misleads
   });
+  it("partial run: an ABSENT condition → accuracy null, deltas null (not a false +1.0 lift)", () => {
+    const only = [res("matched", "A", "예측: A")]; // no blind / no mismatched measured
+    const s = summarize(only);
+    expect(s.matched.accuracy).toBe(1);
+    expect(s.blind.accuracy).toBeNull();
+    expect(s.mismatched.accuracy).toBeNull();
+    expect(s.memoryLift).toBeNull(); // NOT 1.0 against an unmeasured baseline
+    expect(s.selfSpecificity).toBeNull();
+  });
+  it("pickedARate reads A/(A+B) — unparsed does not dilute the neutrality check", () => {
+    const rs = [res("blind", "A", "예측: A"), res("blind", "A", "예측: B"), res("blind", "A", "몰라 그냥")];
+    // 1 A, 1 B, 1 unparsed → parsed=2 → pickedARate = 1/2 = 0.5 (neutral), NOT 1/3
+    const { blind } = summarize(rs);
+    expect(blind.pickedARate).toBe(0.5);
+  });
 });
 
 describe("scenarios well-formedness", () => {
@@ -109,6 +139,12 @@ describe("scenarios well-formedness", () => {
       const ids = new Set(sc.users.map((u) => u.id));
       expect(sc.options[0]!.correctFor).not.toBe(sc.options[1]!.correctFor);
       for (const o of sc.options) if (o.correctFor !== "_") expect(ids.has(o.correctFor)).toBe(true);
+    }
+  });
+  it("F1 preference: exactly one real-user option + one '_' distractor, real matches the user id", () => {
+    for (const sc of PREFERENCE_SCENARIOS) {
+      const cf = sc.options.map((o) => o.correctFor).sort();
+      expect(cf).toEqual([sc.users[0]!.id, "_"].sort());
     }
   });
   it("held-out: each option text does NOT appear verbatim in any seed (forces generalization)", () => {
@@ -138,5 +174,14 @@ describe("fixture replay (CI, no model)", () => {
     expect(summary.matched.accuracy).toBe(1);
     expect(summary.mismatched.accuracy).toBe(0);
     expect(summary.selfSpecificity).toBe(1);
+  });
+  it("validateFixture REJECTS a typo'd condition / bad label / missing field (no silent all-zero)", () => {
+    const base = { scenarioId: "s", targetUserId: "A", condition: "matched", correctLabel: "A", responseText: "예측: A", recallReturnedTarget: true, memoryInjected: true };
+    const wrap = (p: object) => ({ version: 1 as const, recordedAt: "t", model: "m", probes: [p] });
+    expect(validateFixture(wrap({ ...base, condition: "Matched" }))).toBe(false); // typo → would be silently dropped
+    expect(validateFixture(wrap({ ...base, correctLabel: "C" }))).toBe(false);
+    const { responseText: _drop, ...noResp } = base;
+    expect(validateFixture(wrap(noResp))).toBe(false);
+    expect(validateFixture({ version: 2, recordedAt: "t", model: "m", probes: [] })).toBe(false); // wrong version
   });
 });

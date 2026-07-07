@@ -1,10 +1,16 @@
 // UC-HLMEM parse/assign helpers — pure, deterministic (no side effects, testable).
 import type { HumanlikeScenario } from "./types.js";
 
-/** Parse the forced `예측: A|B` first-line format. null = unparseable. */
+/** Parse the forced `예측: A|B` format. null = unparseable.
+ *  Robust to: a word starting with A/B ("Apple" ≠ A — word-boundary guarded) and a
+ *  negation ("B가 아니라 A" → A). Takes standalone A/B tokens in the ~40 chars after
+ *  the first 예측; a trailing "아니라/말고" negation picks the LAST token. */
 export function parsePrediction(text: string): "A" | "B" | null {
-  const m = text.match(/예측\s*[:：]?\s*\(?\s*([AB])/i);
-  return m ? (m[1]!.toUpperCase() as "A" | "B") : null;
+  const seg = text.match(/예측\s*[:：]?\s*([\s\S]{0,40})/i)?.[1] ?? "";
+  const toks = [...seg.matchAll(/(?<![A-Za-z])([AB])(?![A-Za-z])/gi)].map((m) => m[1]!.toUpperCase());
+  if (toks.length === 0) return null;
+  if (/아니라|말고/.test(seg) && toks.length >= 2) return toks[toks.length - 1] as "A" | "B";
+  return toks[0] as "A" | "B";
 }
 
 /** An empty/degenerate response is an execution/infra failure (e.g. empty live
@@ -35,6 +41,7 @@ export function assignOptions(
   targetUserId: string,
   correctIsA: boolean,
 ): AssignedOptions {
+  if (targetUserId === "_") throw new Error("assignOptions: '_' is the distractor sentinel, not a target user");
   const correct = scenario.options.find((o) => o.correctFor === targetUserId);
   const other = scenario.options.find((o) => o.correctFor !== targetUserId);
   if (!correct || !other) {
