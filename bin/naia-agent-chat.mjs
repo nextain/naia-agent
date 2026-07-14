@@ -220,6 +220,8 @@ async function doChat(args) {
     newRequestId: () => randomUUID(),
     ...(systemPrompt ? { systemPrompt } : {}),
     enableTools: !args.noTools,
+    // UC-THINKING — --no-think/--think. 미지정이면 필드 미전송(모델 기본 유지).
+    ...(args.enableThinking !== undefined ? { enableThinking: args.enableThinking } : {}),
     sessionId: `cli-${randomUUID()}`,
     ...(process.env.NAIA_CHAT_VERBOSE === "1" ? { verbose: true } : {}),
   });

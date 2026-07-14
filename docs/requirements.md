@@ -178,6 +178,39 @@ spec + sandbox 정책(allow-root) + tier(승인)** 를 소유한다.
 - **NFR-SEC-toctou-residual (정직)**: fs-tools 의 validatePath→realpath 재검증과 실제 read/write 사이, 그리고 write 의 부모 검증↔쓰기 사이에 **잔존 TOCTOU race** 가 있다(Node 고수준 path API 는 검증·I/O 가 같은 fd 아님). write 는 추가로 **대상 symlink 거부**(`lstatSync`)로 link-follow 덮어쓰기를 막지만 부모 swap race 는 완전히 닫지 못한다. **완전 방어는 OS-level(O_NOFOLLOW/dir-fd `openat`) 필요·Node 표준 미지원**(난도 높음) → opt-in(기본 off) + 승인 + denylist 로 **완화**. 코드 주석(fs-tools 헤더/`resolveSafe`)에도 정직 표기.
 - **NFR-FS-future-capability**: opt-in 은 현재 env-var 게이트(`NAIA_SHELL_TOOL`) — GLM 지적대로 자식 프로세스 상속으로 약하다. 본 슬라이스의 **핵심 보안은 sandbox/denylist/argv** 이며, **per-request capability**(chat_request 별 capability 토큰으로 도구 활성 범위 제한)는 미래 강화 항목으로 명시한다(코드 주석에도 `@future` 표기).
 
+## UC-THINKING FR/NFR (FR-THINK-1 ~ 4) — 추론(thinking) 모델의 생각 출력 제어
+
+문제: 로컬 추론 모델이 생각(`reasoning`)에 출력 토큰을 다 쓰고 **본문을 한 글자도 못 내는** 일이 발생한다.
+빈 응답의 `finish_reason` 은 `length`(잘림)가 아니라 **`stop`** — 컨텍스트를 키워도 낫지 않는다(16k 재현).
+실측 근거·대안 검토(무엇이 듣고 무엇이 안 듣는지) = `docs/user-scenarios.md` UC-THINKING.
+
+`enableThinking` 은 **이미 전 구간 배선돼 있다** — `ChatRequest`(`domain/chat.ts:61`) → gRPC/protocol →
+`chat-turn-handler.ts:138` → `ProviderConfig.enableThinking`(`domain/chat.ts:10`), 그리고
+**anthropic**(`anthropic-provider.ts:80`)·**ollama native**(`ollama-provider.ts:42`) 어댑터가 소비한다.
+**OpenAI-compat 어댑터만 이를 무시**하고 있었다. 본 UC 는 그 누락을 메운다.
+
+| ID | 요구사항 | 상태 |
+|----|----------|:----:|
+| FR-THINK-1 | OpenAI-compat 어댑터는 `ProviderConfig.enableThinking === false` 일 때 요청 body 에 **`reasoning_effort: "none"`** 을 싣는다. `true`/미지정이면 **아무 것도 싣지 않는다**(추론 모델 기본=생각 켬, 무회귀). | Done |
+| FR-THINK-2 | **로컬 엔진 게이트** — 위 파라미터는 `baseUrl` 이 **loopback/사설망**(로컬 ollama·vLLM)일 때만 붙인다. 판별은 순수 도메인 함수 `isLocalEngineBaseUrl(baseUrl)`(`domain/provider-route.ts`). ⚠️ 셸이 `enableThinking:false` 를 **기본값으로 항상 전송**하므로 게이트가 없으면 gpt-4o·Gemini·GLM 등 **비추론 원격 모델에서 400**. | Done |
+| FR-THINK-3 | 게이트는 **어댑터 생성 시점 주입**(`makeOpenAICompatProvider({ supportsReasoningEffort })`) — provider-resolver 가 baseUrl 을 알고 있으므로 거기서 판별해 넘긴다. 어댑터가 URL 을 스스로 해석하지 않는다(헥사고날: 라우팅 판단=domain, 인스턴스화=adapter). lab-proxy(게이트웨이) 경로는 **false**. | Done |
+| FR-THINK-4 | 무회귀 — 도메인 계약(`ProviderChunk`·`AgentEmit`)·gRPC proto·다른 4개 provider 어댑터를 **변경하지 않는다**. 기존 계약 테스트의 `toEqual` 단언(예: `all-providers-wiring.contract.test.ts:187`)이 그대로 통과해야 한다. | Done |
+
+**검증(2026-07-15)**: `src/test/uc-thinking.contract.test.ts` **11/11 통과**. 전체 스위트 **945 통과·실패 0**
+(회귀 0 — FR-THINK-4 충족). `tsc --noEmit` clean. `check-logging`·`ci-verify-sdlc`·`check-traceability`·
+`check-terminology` 전부 통과. ⚠️ `check-file-anchors` 는 RED 4건이나 **모두 본 변경 이전부터 존재**
+(HEAD stash 재검사로 확인 — `sub-llm-provider.ts`·`cli-chat.ts`·`sub-llm.ts`·`panel-tool-executor.ts`,
+본 변경과 무관·별도 이슈).
+
+### NFR
+- **헥사고날**: `isLocalEngineBaseUrl` = 순수 함수(domain, I/O 0). 어댑터는 주입된 boolean 만 본다.
+- **회귀 안전**: 추가는 요청 body 의 **선택적 필드 1개**뿐. 응답 파싱·스트림·도구 누산기 불변.
+- **정직성**: 로컬 엔진이 미지원 파라미터를 무시한다는 것은 **실측**(ollama 0.32.0). 원격에 대해서는
+  보내지 않음으로써 방어한다 — "무시할 것이다"라고 가정하지 않는다.
+- **범위 밖(별개 결함 #80)**: 컨텍스트 예산이 도구 스키마를 미계상 / `ProviderChunk.finish` 에 잘림 사유 부재 /
+  잘림·빈 응답을 성공으로 오인해 조용히 통과. 셋 다 실재하는 결함이나 **cross-repo wire 변경**(proto `FinishEvent`)
+  을 수반하므로 본 UC 와 분리한다.
+
 ## 기타 UC FR
 
 ## UC-HLMEM FR/NFR (FR-HLMEM-1 ~ 7) — 인간유사 기억 측정(memory-as-user-model)

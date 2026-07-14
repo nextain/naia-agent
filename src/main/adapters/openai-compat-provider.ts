@@ -37,8 +37,11 @@ interface ToolAcc { id?: string; name?: string; args: string; excluded: boolean;
  * baseUrl 예: https://api.z.ai/api/coding/paas/v4 (GLM coding plan). apiKey=Bearer.
  * model(옵션): config.model 이 백엔드 카탈로그에 없을 때 강제. 미지정 시 config.model.
  * auth(옵션): "bearer"(기본, Authorization: Bearer) | "x-anyllm"(naia 게이트웨이 lab-proxy, X-AnyLLM-Key).
+ * supportsReasoningEffort(옵션, UC-THINKING/FR-THINK-3): 백엔드가 `reasoning_effort` 를 받을 수 있는가.
+ *   **resolver 가 판단해 주입한다**(어댑터는 baseUrl 을 스스로 해석하지 않음 — 라우팅 판단=domain).
+ *   true 인 경우에만 `enableThinking===false` 를 wire 로 반영한다. 미지정=false(보수적).
  */
-export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string; model?: string; auth?: "bearer" | "x-anyllm"; fetch?: FetchLike }): ProviderPort {
+export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string; model?: string; auth?: "bearer" | "x-anyllm"; supportsReasoningEffort?: boolean; fetch?: FetchLike }): ProviderPort {
   const doFetch: FetchLike = deps.fetch ?? (globalThis.fetch as unknown as FetchLike);
   const base = deps.baseUrl.replace(/\/+$/, "");
   // ⚠️ x-anyllm(naia lab-proxy): 게이트웨이는 `Bearer <token>` 형식 요구(old lab-proxy.ts 와 동일).
@@ -52,11 +55,21 @@ export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string
       const toolsBody = opts.tools && opts.tools.length > 0
         ? opts.tools.map((s) => ({ type: "function", function: { name: s.name, description: s.description, parameters: s.parameters } }))
         : undefined;
+      // UC-THINKING / FR-THINK-1·2 — 추론 모델이 생각(reasoning)에 출력 토큰을 다 쓰고 **본문을 못 내는**
+      //   현상 차단(실측: 빈 응답의 finish_reason 은 length 가 아니라 stop → 컨텍스트를 키워도 안 낫는다).
+      //   OpenAI-compat wire 에서 듣는 스위치는 `reasoning_effort:"none"` 뿐(think:false·chat_template_kwargs·
+      //   /no_think 전부 무시됨 — 2026-07-14 ollama 0.32.0 실측).
+      //   ⚠️ **로컬 엔진에만**(supportsReasoningEffort) — 셸이 enableThinking:false 를 기본 전송하므로
+      //      게이트 없이 붙이면 gpt-4o 등 비추론 원격 모델이 400 난다(FR-THINK-2).
+      //   enableThinking 이 true/미지정이면 아무 것도 싣지 않는다(무회귀 — 추론 모델 기본=생각 켬).
+      const noThinkBody = deps.supportsReasoningEffort === true && config.enableThinking === false
+        ? { reasoning_effort: "none" as const }
+        : undefined;
 
       const resp = await doFetch(`${base}/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeader },
-        body: JSON.stringify({ model: deps.model ?? config.model, messages: wireMsgs, stream: true, stream_options: { include_usage: true }, ...(toolsBody ? { tools: toolsBody } : {}) }),
+        body: JSON.stringify({ model: deps.model ?? config.model, messages: wireMsgs, stream: true, stream_options: { include_usage: true }, ...(toolsBody ? { tools: toolsBody } : {}), ...(noThinkBody ?? {}) }),
         ...(opts.signal ? { signal: opts.signal } : {}),
       });
       if (!resp.ok || !resp.body) {

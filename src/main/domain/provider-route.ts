@@ -23,6 +23,40 @@ export function resolveProviderRoute(config: ProviderConfig): ProviderRoute {
 	return "native";
 }
 
+/**
+ * UC-THINKING / FR-THINK-2 — baseUrl 이 **로컬 추론 엔진**(ollama·vLLM)인가(순수).
+ *
+ * 왜 필요한가: OpenAI-compat wire 에서 생각(thinking)을 끄는 유일한 스위치가 `reasoning_effort:"none"`
+ * 인데(실측 2026-07-14: `think:false`·`chat_template_kwargs`·`/no_think` 전부 무시됨), 이 파라미터를
+ * **비추론 원격 모델**(gpt-4o 등)에 보내면 **400** 이다. 그런데 naia-os 셸은 `enableThinking:false` 를
+ * **기본값으로 항상 전송**한다 → 게이트가 없으면 클라우드 provider 가 전부 깨진다.
+ *
+ * 판별 기준 = **loopback/사설망**. 로컬 엔진은 미지원 파라미터를 조용히 무시하지만(ollama 0.32.0 실측),
+ * 원격에 대해서는 "무시해 줄 것"이라 가정하지 않고 **보내지 않음으로써** 방어한다.
+ * (naia-settings 문서의 "로컬 Ollama/vLLM = loopback/private baseUrl → 키 불요" 규칙과 같은 축.)
+ *
+ * 파싱 불가/비-http = false(보수적 — 모르면 안 보낸다).
+ */
+export function isLocalEngineBaseUrl(baseUrl: string): boolean {
+	let host: string;
+	try {
+		host = new URL(baseUrl).hostname.toLowerCase();
+	} catch {
+		return false; // URL 로 못 읽으면 원격으로 간주(보수적)
+	}
+	if (host === "localhost" || host === "::1" || host === "[::1]" || host === "0.0.0.0") return true;
+	if (host.endsWith(".local") || host.endsWith(".localhost")) return true;
+
+	const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+	if (!m) return false;
+	const [a, b] = [Number(m[1]), Number(m[2])];
+	if (a === 127) return true;                       // 127.0.0.0/8 loopback
+	if (a === 10) return true;                        // 10.0.0.0/8      (RFC1918)
+	if (a === 192 && b === 168) return true;          // 192.168.0.0/16  (RFC1918)
+	if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12   (RFC1918)
+	return false;
+}
+
 /** Anthropic Messages API baseUrl(host override > 기본). 어댑터가 `${base}/v1/messages` 로 POST. */
 export function anthropicBaseUrl(config: ProviderConfig): string {
 	return config.labGatewayUrl?.replace(/\/+$/, "") || "https://api.anthropic.com";

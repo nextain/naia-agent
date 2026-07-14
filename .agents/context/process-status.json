@@ -9,22 +9,34 @@
   },
 
   "current_work": {
-    "issue": "UC-KNOWLEDGE-knowledge-pull-tool",
-    "title": "K1a — 워크스페이스 지식 풀 도구(skill_knowledge_search/ask) ToolExecutorPort + backend 주입(naia-kb-compiler)",
-    "issue_doc": "../../../.agents/progress/naia-kb-compiler-agent-os-integration-2026-06-29.md",
-    "github_issue": "nextain/naia-kb-compiler#1",
-    "started": "2026-06-30",
-    "last_updated": "2026-06-30T00:00:00Z",
-    "status": "in_progress",
-    "prior_work_note": "직전: #79 단일코어 S1a~S5(persona/workspace-ctx/fs-shell sandbox/env-segments/memory sub-LLM) 커밋 완료(fc2fffe~4005c30) + UC-014 sub-agent roster. K1a 는 그 위에 ToolExecutorPort 에 read-only 지식 도구 그룹 추가(memory 푸시와 직교한 풀). K1a-1=어댑터(KnowledgeBackend 주입)+계약테스트(fake)+게이트(UC-KNOWLEDGE/FR-KB). K1a-2=compose 실 backend(naia-kb-compiler openWorkspaceKnowledge) 배선 + cross-repo 의존(junction+@naia/kb-compiler file:) 후속. 설계SoT=alpha-adk .agents/progress/naia-kb-compiler-agent-os-integration-2026-06-29.md(§13 적대리뷰 3R·V1)."
+    "issue": "UC-THINKING-reasoning-effort-gate",
+    "title": "UC-THINKING — 추론(thinking) 모델이 생각에 출력 토큰을 다 쓰고 본문을 못 내는 현상 차단. OpenAI-compat 어댑터가 enableThinking=false 를 reasoning_effort:\"none\" 으로 wire 반영(로컬 엔진 게이트)",
+    "issue_doc": "../../../.agents/progress/naia-adk-demo-persona-knowledge-2026-07-14.md",
+    "github_issue": "nextain/naia-agent#80",
+    "started": "2026-07-15",
+    "last_updated": "2026-07-15T00:30:00Z",
+    "status": "done",
+    "prior_work_note": "직전: K1a(UC-KNOWLEDGE 지식 풀 도구) P01~P05 완료 — 어댑터+계약테스트 9+통합테스트 5, compose 실 backend(@naia/kb-compiler openWorkspaceKnowledge) 배선. 본 작업은 그 위에서 발견된 별개 결함: 로컬 추론 모델(Qwen3.5/DNA3.0)이 reasoning 블록에 출력 예산을 소진하고 content 를 0자로 끝낸다(빈 응답의 finish_reason=stop — 컨텍스트 16k 로 키워도 재현). 실측(RTX 3080 Ti/ollama 0.32.0/도구 9개): thinking on = 6회 중 2회 빈 답·1회 환각 / thinking off = 0회. enableThinking 은 이미 도메인·gRPC·핸들러·셸에 전 구간 배선돼 있고 anthropic·ollama(native) 어댑터가 소비 중 — OpenAI-compat 만 무시하고 있었다. 컨텍스트 예산 결함(도구 스키마 미계상·finish 에 잘림사유 부재·잘림을 성공으로 오인)은 cross-repo wire(proto FinishEvent) 변경을 수반하므로 #80 에 분리 보존."
   },
 
   "sdlc_gates": {
-    "P01": { "status": "done", "name": "user_scenarios", "deliverable": "UC-KNOWLEDGE(워크스페이스 지식 풀 도구 read-only search/ask) + S-KB-1~4", "ref": "docs/user-scenarios.md" },
-    "P02": { "status": "done", "name": "test_scenarios", "deliverable": "Test Coverage Map: UC-KNOWLEDGE → src/test/uc-knowledge.contract.test.ts(fake backend 결정론, 9 케이스)", "ref": "docs/user-scenarios.md (Test Coverage Map)" },
-    "P03": { "status": "done", "name": "requirements", "deliverable": "FR-KB-1~4 + NFR(헥사고날·읽기전용·memory↔knowledge 분리)", "ref": "docs/requirements.md" },
-    "P04": { "status": "done", "name": "integration_test", "deliverable": "src/test/uc-knowledge.contract.test.ts(9). tsc clean·vitest 무회귀·file-anchors knowledge-skill 등록·check-logging PASS (K1a-1)", "ref": "src/test/uc-knowledge.contract.test.ts" },
-    "P05": { "status": "in_progress", "name": "requirements_complete", "deliverable": "K1a-1(어댑터+계약테스트 9+게이트)+K1a-2(compose 실 backend 배선: @naia/kb-compiler file: 의존+junction+openWorkspaceKnowledge 동적 import→KnowledgeBackend→executors push) 완료. 통합테스트 src/test/uc-knowledge.integration.test.ts(5, 실 KB 근거답변 관통). tsc0·vitest 873pass(회귀0). naia-os 패널(K2)·Playwright UC E2E는 후속", "ref": ".agents/progress/naia-kb-compiler-agent-os-integration-2026-06-29.md" }
+    "P01": { "status": "done", "name": "user_scenarios", "deliverable": "UC-THINKING(추론 모델의 생각 출력 제어) + S-THINK-1~3 + 실측 근거표(thinking on/off × 컨텍스트 4k/16k)", "ref": "docs/user-scenarios.md" },
+    "P02": { "status": "done", "name": "test_scenarios", "deliverable": "Test Coverage Map: UC-THINKING → src/test/uc-thinking.contract.test.ts (요청 body 검증 + isLocalEngineBaseUrl 순수 판별 + resolver 배선)", "ref": "docs/user-scenarios.md (Test Coverage Map)" },
+    "P03": { "status": "done", "name": "requirements", "deliverable": "FR-THINK-1~4 + NFR(헥사고날 순수 판별·회귀 안전·정직성). 범위 밖(#80) 명시", "ref": "docs/requirements.md" },
+    "P04": { "status": "done", "name": "integration_test", "deliverable": "src/test/uc-thinking.contract.test.ts 11/11 PASS. 전체 945 pass·0 fail(회귀 0). tsc --noEmit clean. check-logging·ci-verify-sdlc·check-traceability·check-terminology PASS", "ref": "src/test/uc-thinking.contract.test.ts" },
+    "P05": { "status": "done", "name": "requirements_complete", "deliverable": "FR-THINK-1~4 → Done. 변경: domain/provider-route.ts(isLocalEngineBaseUrl 신규 순수함수) + adapters/openai-compat-provider.ts(supportsReasoningEffort dep + body 선택필드 1개) + adapters/provider-resolver.ts(baseUrl 판별해 주입). 도메인 계약(ProviderChunk/AgentEmit)·gRPC proto·다른 4개 provider 어댑터 무변경", "ref": "docs/requirements.md (UC-THINKING FR/NFR)" }
+  },
+
+  "known_drift": {
+    "_comment": "본 작업과 무관하나 검사에서 검출됨 — HEAD stash 재검사로 사전 존재 확인(2026-07-15). 4건 중 cli-chat.ts 는 본 작업이 수정한 파일이므로 앵커를 채웠다(4→3). 남은 3건은 어느 UC/계약에 속하는지 추측 금지 → 별도 이슈.",
+    "check_file_anchors": [
+      "src/main/adapters/sub-llm-provider.ts — module-manifest.json 앵커 없음 (memory sub-LLM S5 로 추정되나 미확인)",
+      "src/main/ports/sub-llm.ts — module-manifest.json 앵커 없음 (동상)",
+      "src/main/adapters/panel-tool-executor.ts — stale 앵커: contract 문서 부재 (.agents/progress/panel-skill-grpc-port-2026-06-24.md)"
+    ],
+    "resolved_in_this_work": [
+      "src/main/app/cli-chat.ts — 앵커 추가 (layer=app, uc=[UC-CLI, UC-THINKING], contract=UC-cli-orchestration-contract-2026-06-22.md — cli-supervise.ts 형제 파일과 동일 계약)"
+    ]
   },
 
   "resource_registry": {

@@ -19,6 +19,7 @@
 | UC-FS-TOOLS | 에이전트가 **직접 도구**로 워크스페이스 내 파일을 나열/읽기(기본), opt-in 으로 쓰기/셸 실행 — allow-root sandbox + 민감경로 denylist + realpath 재검증(TOCTOU) + tier 승인 | `docs/requirements.md` FR-FS-1~8 / NFR-SEC (집약) |
 | UC-KNOWLEDGE | 코어가 컴파일된 워크스페이스 지식(KB)을 **풀 도구**(`skill_knowledge_search`/`ask`)로 노출 → 에이전트가 근거 있는 답변·근거 없으면 기권. + **컴파일 트리거**(`CompileKnowledge` RPC, K1b — 소스 폴더→kb.json). memory(푸시)와 분리된 풀(tool) | `docs/requirements.md` FR-KB-1~5 (집약) |
 | UC-HLMEM | 인간유사 기억 **측정**(memory-as-user-model) — 장기기억이 사용자의 held-out 선택을 예측하나(F1 취향), 본인 기억이 예측하고 타인 기억은 오도하나(F2 자아특이성), 감정 salience 가중(F3, P6). vs 완벽회상 아님. 벤치(benchmark/src) 측정, 실행경로 아님 | `docs/progress/99.dev-comm/UC-HLMEM-humanlike-memory-measurement-contract-2026-07-07.md` + `docs/requirements.md` FR-HLMEM-1~7 |
+| UC-THINKING | 추론(thinking) 모델의 **생각 출력 제어** — 로컬 추론 모델이 생각에 토큰을 다 써 최종 답변을 못 내는 것을 막는다. `enableThinking=false` 를 OpenAI-compat wire 에도 반영(`reasoning_effort:"none"`), **로컬 엔진에만** 적용(원격 클라우드는 400) | `docs/requirements.md` FR-THINK-1~4 (집약) |
 
 ## UC-MEM-1 (장기기억 회상)
 
@@ -229,6 +230,42 @@ ProviderPort). 옛 `<recall>` 마커·"부적절=실패" 도덕채점 폐기(SoT
 - **결정론/CI**: 라이브 관측을 fixture 로 녹화 → CI 는 파싱·채점 재생(모델·키 無). 라이브=opt-in
   (`NAIA_PROD_KEY`). exec-error(빈 completion)=infra 실패로 분리(예측실패 아님).
 
+## UC-THINKING (추론 모델의 생각 출력 제어)
+
+사용자가 **로컬 추론(thinking) 모델**(Qwen3.5 / DNA3.0 등)로 대화할 때, 모델이 생각(`reasoning`)
+블록에 출력 토큰을 다 써버리고 **최종 답변을 한 글자도 못 내는** 일이 없어야 한다. naia-os 설정의
+"생각 표시" 토글(`enableThinking`)이 **OpenAI-compat wire 에도 반영**되어야 한다.
+
+**근거(실측, 2026-07-14 — RTX 3080 Ti 16GB, ollama 0.32.0, Qwen3.5-9B 계열, 도구 9개):**
+
+| 구성 | 빈 답변 | 틀린 답변 |
+|---|---|---|
+| thinking **on**, 컨텍스트 4k | 2/6 | 0/6 |
+| thinking **on**, 컨텍스트 16k | 1/6 | 1/6 (지식과 다른 시각을 지어냄) |
+| **thinking off**, 컨텍스트 16k | **0/6** | **0/6** |
+
+- 빈 답변의 `finish_reason` 은 `length`(잘림)가 **아니라 `stop`** 이었다 — 모델이 생각을 마친 뒤
+  본문을 시작하지 않고 종료한다. 즉 **컨텍스트를 키워도 낫지 않는다**(16k 에서도 재현).
+- 프롬프트로 억제(페르소나에 "생각 과정을 출력하지 마세요")는 **듣지 않았다**.
+- ollama `/v1` 에서 실제로 듣는 스위치는 **`reasoning_effort:"none"` 하나뿐**이었다
+  (`think:false`·`chat_template_kwargs.enable_thinking:false`·`/no_think` 전부 무시.
+  `/no_think` 는 오히려 마크다운 표를 유발 — 음성 합성 경로에 치명적).
+- 부수 효과: 완성 토큰 115 → 17~34, 응답 2.2s → **0.75s**.
+
+- **S-THINK-1 (도메인 의도 → wire 반영)**: `ProviderConfig.enableThinking === false` 면 OpenAI-compat
+  어댑터가 요청 body 에 `reasoning_effort: "none"` 을 싣는다. `enableThinking` 이 `true`/미지정이면
+  **아무 것도 싣지 않는다**(기존 동작 무회귀 — 추론 모델의 기본은 생각 켬).
+- **S-THINK-2 (로컬 엔진 게이트 — 회귀 방지)**: 이 파라미터는 **로컬 엔진**(baseUrl 이 loopback/사설망)
+  에만 붙인다. ⚠️ naia-os 셸은 `enableThinking:false` 를 **기본값으로 항상 전송**하므로, 게이트가 없으면
+  OpenAI(gpt-4o)·Gemini·GLM 같은 **비추론 원격 모델에 `reasoning_effort` 가 실려 400** 이 난다.
+  로컬 엔진(ollama·vLLM)은 미지원 파라미터를 조용히 무시한다(실측).
+- **S-THINK-3 (기존 provider 무영향)**: anthropic·claude-code·ollama(native) 어댑터는 이미 각자
+  `enableThinking` 을 소비한다(`anthropic-provider.ts:80`, `ollama-provider.ts:42`). 본 UC 는
+  **OpenAI-compat 어댑터의 누락만** 메운다 — 다른 어댑터·도메인 계약·gRPC proto 는 건드리지 않는다.
+
+직교: 컨텍스트 예산(도구 스키마 미계상 / `finish` 에 잘림 사유 부재 / 잘림을 성공으로 오인)은 **별개 결함**
+(#80) 으로 분리 — 본 UC 는 "생각이 답변 예산을 잠식하는" 축만 닫는다.
+
 ## Test Coverage Map
 
 | 요구 | 테스트 |
@@ -244,6 +281,7 @@ ProviderPort). 옛 `<recall>` 마커·"부적절=실패" 도덕채점 폐기(SoT
 | 실 프로세스 lifecycle | `src/test/uc1-memory-process.integration.test.ts`(EOF→drain→close→flush, save 영속) |
 | FR-MEM-12 / S-MEM-SUBLLM (naia sub-LLM 폴백 + graceful degrade, S5) | `src/test/uc-naia-settings-store.contract.test.ts` — describe "naia sub-LLM model 폴백 + graceful degrade (S5/G5)" (naia+모델부재+키존재→기본모델 완전구성·명시모델 우선·키 부재→provider=none 강등(메모리 유지)·vllm baseUrl 누락→none 강등) + `sub-llm-provider.contract.test.ts`(미구성=undefined) |
 | UC-PROV-1 / FR-PROV-1·2·3 | `src/test/all-providers-wiring.contract.test.ts`, `uc1-reload-default-config.contract.test.ts`, `uc-naia-settings-store.contract.test.ts` |
+| UC-THINKING / S-THINK-1·2·3 / FR-THINK-1~4 | `src/test/uc-thinking.contract.test.ts` (요청 body 검증: enableThinking=false+로컬 → `reasoning_effort:"none"` / true·미지정 → 미전송 / **원격 baseUrl → 미전송**(400 회귀 방지) / `isLocalEngineBaseUrl` 순수 판별) |
 | FR-PROV-5 (claude-code SDK 분리) | `src/test/all-providers-wiring.contract.test.ts`(claude-code 케이스 = Agent SDK 라우팅·apiKey 미주입) |
 | FR-MODEL-1 (모델 카탈로그 정합) | `src/test/uc-provider-provenance.contract.test.ts`(cost↔registry 정합·구독 $0), naia-os `src/lib/llm/__tests__/registry.test.ts`(카탈로그 정합·최신화) |
 | UC-CLI / AC3·AC5 (2a 골격) | `src/test/uc-cli-supervisor.contract.test.ts`, `uc-cli-composition.contract.test.ts` (fake 포트 stream-merge·terminal 1회·직교·동시성 — Pass) |
