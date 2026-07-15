@@ -24,6 +24,8 @@ describe("issue #7 — buildEmbeddingProvider: UI embedding 선택 → Embedding
     expect(p?.dims).toBe(384); // all-MiniLM-L6-v2 기본
     expect(buildEmbeddingProvider({ provider: "offline", offlineModel: "all-mpnet-base-v2" })?.dims).toBe(768);
     expect(buildEmbeddingProvider({ provider: "offline", offlineModel: "multilingual-e5-large" })?.dims).toBe(1024);
+    // 다국어(한국어) 경량 — all-MiniLM-L6-v2 와 같은 384d 지만 다국어 학습
+    expect(buildEmbeddingProvider({ provider: "offline", offlineModel: "paraphrase-multilingual-MiniLM-L12-v2" })?.dims).toBe(384);
   });
 
   it("vllm/ollama = OpenAI-compat; baseUrl·model 누락 = fail-closed(throw)", () => {

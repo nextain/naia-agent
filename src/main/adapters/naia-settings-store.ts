@@ -64,7 +64,11 @@ export interface MemoryRuntimeConfig {
 	qdrantApiKey?: string;
 	embedding: {
 		provider: "none" | "offline" | "vllm" | "ollama" | "naia";
-		offlineModel?: "all-MiniLM-L6-v2" | "all-mpnet-base-v2" | "multilingual-e5-large";
+		offlineModel?:
+			| "all-MiniLM-L6-v2"
+			| "all-mpnet-base-v2"
+			| "multilingual-e5-large"
+			| "paraphrase-multilingual-MiniLM-L12-v2";
 		/** naia-embedded 컴퓨트 device(provider="offline"). cpu/gpu/auto. */
 		device?: "cpu" | "gpu" | "auto";
 		baseUrl?: string;
@@ -245,7 +249,7 @@ export function makeNaiaSettingsStore(deps: {
 		const ep = str("memoryEmbeddingProvider");
 		const provider = (["offline", "vllm", "ollama", "naia"] as const).find((p) => p === ep) ?? "none";
 		const om = str("memoryOfflineModel");
-		const offlineModel = (["all-MiniLM-L6-v2", "all-mpnet-base-v2", "multilingual-e5-large"] as const).find((m) => m === om);
+		const offlineModel = (["all-MiniLM-L6-v2", "all-mpnet-base-v2", "multilingual-e5-large", "paraphrase-multilingual-MiniLM-L12-v2"] as const).find((m) => m === om);
 		const dev = str("memoryEmbeddingDevice");
 		const device = (["cpu", "gpu", "auto"] as const).find((d) => d === dev);
 		const embedApiKey = resolveSecret("NAIA_MEMORY_EMBED_API_KEY");

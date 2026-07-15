@@ -128,6 +128,15 @@ describe("loadMemoryConfig — config.json 의 adapter/embedding 선택(issue #7
 		expect(r?.embedding.provider).toBe("offline");
 		expect(r?.embedding.offlineModel).toBe("all-mpnet-base-v2");
 	});
+	it("offline embedding 다국어(한국어) 모델이 검증 allowlist 통과", () => {
+		for (const m of ["multilingual-e5-large", "paraphrase-multilingual-MiniLM-L12-v2"]) {
+			const r = store({ [CONFIG]: JSON.stringify({ provider: "zai", model: "m", memoryEmbeddingProvider: "offline", memoryOfflineModel: m }) }).loadMemoryConfig("/ws");
+			expect(r?.embedding.offlineModel).toBe(m);
+		}
+		// allowlist 밖 문자열은 undefined 로 폴백(안전)
+		const bad = store({ [CONFIG]: JSON.stringify({ provider: "zai", model: "m", memoryEmbeddingProvider: "offline", memoryOfflineModel: "no-such-model" }) }).loadMemoryConfig("/ws");
+		expect(bad?.embedding.offlineModel).toBeUndefined();
+	});
 	it("vllm embedding(baseUrl/model) 매핑", () => {
 		const r = store({ [CONFIG]: JSON.stringify({ provider: "zai", model: "m", memoryEmbeddingProvider: "vllm", memoryEmbeddingBaseUrl: "http://localhost:11434", memoryEmbeddingModel: "nomic-embed-text" }) }).loadMemoryConfig("/ws");
 		expect(r?.embedding.provider).toBe("vllm");

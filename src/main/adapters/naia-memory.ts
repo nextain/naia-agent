@@ -91,8 +91,13 @@ export function buildMemorySummarizer(cfg?: MemoryLlmConfig): CompactionSummariz
 export interface MemoryEmbeddingConfig {
   /** none=키워드-only / offline=로컬 transformers / vllm·ollama=OpenAI-compat / naia=게이트웨이. */
   readonly provider: "none" | "offline" | "vllm" | "ollama" | "naia";
-  /** offline 모델(provider="offline"). 기본 all-MiniLM-L6-v2. */
-  readonly offlineModel?: "all-MiniLM-L6-v2" | "all-mpnet-base-v2" | "multilingual-e5-large";
+  /** offline 모델(provider="offline"). 기본 all-MiniLM-L6-v2.
+   *  다국어(한국어): multilingual-e5-large(1024d) · paraphrase-multilingual-MiniLM-L12-v2(384d, 경량). */
+  readonly offlineModel?:
+    | "all-MiniLM-L6-v2"
+    | "all-mpnet-base-v2"
+    | "multilingual-e5-large"
+    | "paraphrase-multilingual-MiniLM-L12-v2";
   /** naia-embedded 컴퓨트 device(provider="offline" 만 의미). "cpu"=강제CPU / "gpu"=가용시GPU(없으면 CPU 폴백)
    *  / "auto"=자동. 미지정=transformers 기본. issue #7 후속(컴퓨트 선택). */
   readonly device?: "cpu" | "gpu" | "auto";
