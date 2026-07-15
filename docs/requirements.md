@@ -47,9 +47,9 @@
 - memory(push)↔knowledge(pull) 분리 — 매 턴 자동주입 아님(에이전트 판단 호출), 저장소·주입 경로 분리. 조직지식↔개인기억 비혼합.
 - 실 backend(KB 컴파일/검색 품질·`openWorkspaceKnowledge` in-process 배선)=naia-kb-compiler + compose(K1a-2) 책임(본 어댑터 계약 범위 밖, fake 로 계약 검증).
 
-## UC-PROV FR/NFR (FR-PROV-1 ~ 5, FR-MODEL-1)
+## UC-PROV FR/NFR (FR-PROV-1 ~ 6, FR-MODEL-1)
 
-권위 계약·검증: 아래 FR-PROV-1~5·FR-MODEL-1 표 + Test Coverage Map 의 계약 테스트
+권위 계약·검증: 아래 FR-PROV-1~6·FR-MODEL-1 표 + Test Coverage Map 의 계약 테스트
 (`src/test/all-providers-wiring.contract.test.ts` 등). 상세 진행기록은 메인테이너 워크스페이스 보관(repo 외부).
 
 | ID | 요구사항 | 상태 |
@@ -59,6 +59,7 @@
 | FR-PROV-3 | native host-override gating — `naiaGatewayUrl`/`NAIA_ANYLLM_BASE_URL` 는 nextain(lab-proxy) 전용. native provider 는 고정 공개 endpoint(또는 `vllmHost`/`ollamaHost`/`llm.json` baseUrl). config 에 남은 stale `naiaGatewayUrl` 이 native provider 를 오라우팅하지 않도록 게이트. | Done |
 | FR-PROV-4 | anthropic·claude-code-cli 연결 — Anthropic Messages API(`/v1/messages`, `x-api-key`, `anthropic-version`) 전용 어댑터(raw fetch, SSE). claude-code = SDK/API 패러다임(CLI 바이너리 아님). text/tool_use(`input_json_delta`)/usage/thinking 매핑 + tool_result 병합 + prompt caching(`cache_control` on system). 키=`ANTHROPIC_API_KEY`(credentials 포트). 비용 레지스트리에 모델 등재(claude-sonnet-4-6 등). naia-os 전 9 provider 연결 완성. | Done |
 | FR-PROV-5 | claude-code-cli = Claude Agent SDK 분리(2026-06-18) — `claude-code-cli` 는 anthropic(Messages API 직접키)에서 격리된 `claude-code` 라우트로, `@anthropic-ai/claude-agent-sdk` `query()`(로컬 Claude Code 구독 인증)를 사용. **apiKey 불요**(keychain `ANTHROPIC_API_KEY` 매핑 제거 → null), naia-settings `claude-code` 분기는 secret/baseUrl 미주입(구독을 직접키로 오인 금지). 비용 = $0(`SUBSCRIPTION_PROVIDERS` + chat-turn-handler `costProvider` 분기 — 동일 model ID 의 anthropic 직접키와 구별). | Done |
+| FR-PROV-6 | ollama native tool_calls (UC5 §H, 2026-07-15) — `makeOllamaProvider` 가 `opts.tools` 를 native `/api/chat` 로 전송하고 `message.tool_calls`(완성체, arguments=object)를 toolUse chunk 로 파싱, tool-bearing 메시지(assistant.toolCalls·tool role+`tool_name` 복원) 매핑. tools 미지원 모델(400 "does not support tools")은 **tools 제거 1회 재시도**(graceful degrade — 순수 챗 유지). 배경: 시연 프로파일 provider=ollama 전환 시 어댑터가 tools 무시 → 스킬 전멸(회귀). 실측: ollama 0.32.0 + DNA 3.0 9B 왕복 확인. 권위 계약 = `docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md` §H. 적대리뷰 = `.agents/reviews/r-fr-prov-6-ollama-tools-2026-07-15.json` (PASS). | Done |
 | FR-MODEL-1 | 모델 카탈로그 최신화 + registry↔cost 정합(2026-06-18) — registry(naia-os shell)의 native(per-token) provider 모델 ID 전부가 agent `cost.ts` MODEL_PRICING 에 등재되어야 한다(과금 0 회귀 금지; zai/glm 통째 누락이 회귀였음). 모델 ID 는 공식 문서로 확정(환각 금지), default 는 검증된 최신 ID 만 승격. 계약: `uc-provider-provenance` cost↔registry 정합 describe + naia-os `registry.test.ts` 카탈로그 정합. | Done |
 
 ### NFR

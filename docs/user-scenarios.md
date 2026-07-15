@@ -274,6 +274,7 @@ ProviderPort). 옛 `<recall>` 마커·"부적절=실패" 도덕채점 폐기(SoT
 | UC-HLMEM / FR-HLMEM-7 (라이브 e2e, opt-in) | `benchmark/src/humanlike/live-sut` 실 MemoryPort+ProviderPort 1회 e2e(matched>blind) [P5, NAIA_PROD_KEY 게이트] |
 | UC1 | `src/test/uc1-agent.contract.test.ts`, `uc1-*-provider.contract.test.ts` |
 | UC5 | `src/test/uc5-*.contract.test.ts`, `uc5-tool-loop-stdio.integration.test.ts` |
+| UC5 §H / FR-PROV-6 (ollama native tools) | `src/test/uc1-ollama-provider.contract.test.ts` — describe "UC5 §H tools" (tools body 매핑·tool-bearing 메시지 형상·tool_calls→toolUse·id 합성/중복 throw·args 검증·원자성·abort commit-point·degrade 재시도·text-only 회귀 없음) |
 | UC-provider-provenance | `src/test/uc-provider-provenance.contract.test.ts`, `uc-keychain-credentials.contract.test.ts` |
 | UC-MEM-1 / FR-MEM-1·2·4 | `src/test/uc1-memory-stdio.integration.test.ts` (실 stdio 2턴 recall→inject→provider) |
 | FR-MEM-5 격리 / FR-MEM-6 영속·드레인 / FR-MEM-7 bounded / FR-MEM-8 프레이밍 | `uc1-memory-stdio.integration.test.ts`(scope·persist·drain·concurrent·bounded·framing·neutralize) |

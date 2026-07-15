@@ -1,0 +1,30 @@
+{
+  "review_id": "r-fr-prov-6-ollama-tools-2026-07-15",
+  "subject": "FR-PROV-6 / UC5 §H — ollama native provider 실 tool_calls (스킬 회귀 픽스)",
+  "date": "2026-07-15",
+  "reviewer": "독립 적대 서브에이전트 (Claude, 읽기전용 — diff·계약 §C/§H·소비자 chat-turn-handler·도메인 삼자 대조 + 로컬 테스트 재실행)",
+  "scope": [
+    "src/main/adapters/ollama-provider.ts",
+    "src/test/uc1-ollama-provider.contract.test.ts",
+    "docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md §H",
+    "docs/requirements.md FR-PROV-6",
+    "docs/user-scenarios.md coverage map"
+  ],
+  "lenses": ["retry-loop", "generator-finally", "text-only-regression", "tool_calls-parsing-edges", "message-roundtrip", "knowledge-memory-orthogonality", "test-validity"],
+  "verdict_r1": "FINDINGS(6) — CRITICAL 0, MAJOR 0, MINOR 2, NIT 4",
+  "findings": [
+    { "sev": "MINOR", "loc": "ollama-provider.ts readErrorBody", "issue": "!ok 오류본문 읽기에 deadline 없음 — 열린 소켓이 본문 0바이트면 read 영구대기(행 회귀 경로)", "resolution": "FIXED — ERROR_BODY_READ_TIMEOUT_MS(2000) Promise.race deadline + timer unref" },
+    { "sev": "MINOR", "loc": "test (h) 후반", "issue": "tools-미전달 400 미재시도 단언이 /400/ throw 만 확인(호출수 미단언 = 스퓨리어스 재시도 불가시)", "resolution": "FIXED — expect(bodies.length).toBe(1) 추가" },
+    { "sev": "NIT", "loc": "accumulateToolCalls string args", "issue": "공백-only 문자열을 {} 처리 — §C.2 는 정확히 \"\" 만 {}", "resolution": "FIXED — rawArgs === \"\" 정렬 + 공백-only → malformed 테스트 추가" },
+    { "sev": "NIT", "loc": "테스트 매트릭스", "issue": "분산 tool_calls 긍정 케이스·실배열 args·빈문자 name 미테스트", "resolution": "FIXED — (e) 확장 + (e2) 신규" },
+    { "sev": "NIT", "loc": "requirements.md FR-PROV-6", "issue": "Pending 상태 vs 완료 기재 혼재", "resolution": "FIXED — 리뷰 통과 후 Done 승격(P05 게이트 의도적 순서)" },
+    { "sev": "NIT", "loc": "§H 가정 리스크", "issue": "반복 완성체 tool_calls 변종(id-less 재수신 = 조용한 이중 실행 가능) — 0.32.0 실측 '단일 완성체' 가정 의존", "resolution": "RECORDED — 계약 §H 가 실측 가정 명시, 위반 시 nonempty id 는 throw 로 안전. 후속 관찰 항목" }
+  ],
+  "verdict_final": "PASS — MINOR 2 + NIT 3 수정 반영 후 재검증(uc1-ollama-provider 17/17·tsc 0·build 0). NIT 1건은 가정 리스크 기록으로 종결",
+  "verification": {
+    "tests": "uc1-ollama-provider 17/17 (§H 11) · all-providers-wiring 10/10 · 전체 959 pass/0 fail · 직교(knowledge 9 + memory 51 + tool-loop 7 = 67/67)",
+    "typecheck_build": "tsc --noEmit 0 · pnpm build 0 (dist 재빌드 — 데모 소비 경로)",
+    "live_e2e": "실 dist provider + 실 ollama 0.32.0 + DNA 3.0 9B — 2라운드 tool 루프(skill_time toolUse → threadToolRound → 최종답) PASS. 실 셸(tauri:dev)에서 사용자(루크) 라이브 확인: 브라우저 등 스킬 인지 정상",
+    "orthogonality": "diff 접촉 = ollama 어댑터+테스트+문서 3종뿐. memory systemPrompt 주입 경로·knowledge 어댑터·compose-agent-deps 미접촉(렌즈 F 통과)"
+  }
+}

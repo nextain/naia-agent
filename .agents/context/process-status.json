@@ -9,22 +9,22 @@
   },
 
   "current_work": {
-    "issue": "UC-THINKING-reasoning-effort-gate",
-    "title": "UC-THINKING — 추론(thinking) 모델이 생각에 출력 토큰을 다 쓰고 본문을 못 내는 현상 차단. OpenAI-compat 어댑터가 enableThinking=false 를 reasoning_effort:\"none\" 으로 wire 반영(로컬 엔진 게이트)",
-    "issue_doc": "../../../.agents/progress/naia-adk-demo-persona-knowledge-2026-07-14.md",
-    "github_issue": "nextain/naia-agent#80",
+    "issue": "FR-PROV-6-ollama-native-tools",
+    "title": "UC5 §H — ollama native provider 실 tool_calls (스킬 회귀 픽스: 시연 프로파일 provider=ollama 전환 시 어댑터가 opts.tools 무시 → 스킬 전멸)",
+    "issue_doc": "../../../.agents/progress/naia-shell-skills-wiring-fix-2026-07-15.md",
+    "github_issue": null,
     "started": "2026-07-15",
-    "last_updated": "2026-07-15T00:30:00Z",
-    "status": "done",
-    "prior_work_note": "직전: K1a(UC-KNOWLEDGE 지식 풀 도구) P01~P05 완료 — 어댑터+계약테스트 9+통합테스트 5, compose 실 backend(@naia/kb-compiler openWorkspaceKnowledge) 배선. 본 작업은 그 위에서 발견된 별개 결함: 로컬 추론 모델(Qwen3.5/DNA3.0)이 reasoning 블록에 출력 예산을 소진하고 content 를 0자로 끝낸다(빈 응답의 finish_reason=stop — 컨텍스트 16k 로 키워도 재현). 실측(RTX 3080 Ti/ollama 0.32.0/도구 9개): thinking on = 6회 중 2회 빈 답·1회 환각 / thinking off = 0회. enableThinking 은 이미 도메인·gRPC·핸들러·셸에 전 구간 배선돼 있고 anthropic·ollama(native) 어댑터가 소비 중 — OpenAI-compat 만 무시하고 있었다. 컨텍스트 예산 결함(도구 스키마 미계상·finish 에 잘림사유 부재·잘림을 성공으로 오인)은 cross-repo wire(proto FinishEvent) 변경을 수반하므로 #80 에 분리 보존."
+    "last_updated": "2026-07-15T15:00:00Z",
+    "status": "in_progress",
+    "prior_work_note": "직전: UC-THINKING(reasoning_effort 게이트) P01~P05 done — nextain/naia-agent#80 잔여(컨텍스트 예산·FinishEvent)는 이슈 보존. | 본 작업 근본원인: ollama-provider.ts 는 이식 시점부터 tools 미구현(주석 'tools=UC5 후속')인 채, chat-turn-handler 는 provider 무관 tools 전달 — naia(OpenAI-compat) 사용 중엔 미노출, 시연 16GB 프로파일이 provider=ollama 전환하며 스킬 전멸. 실측(ollama 0.32.0 + DNA 3.0 9B): tools 수신·tool_calls 완성체(arguments=object) 반환·tool_name 왕복 전부 정상 → 어댑터만 결선하면 됨. 지식·메모리 직교 확인: uc-knowledge 9 + memory 31+14+6 + tool-loop 7 = 67/67 재실행 GREEN."
   },
 
   "sdlc_gates": {
-    "P01": { "status": "done", "name": "user_scenarios", "deliverable": "UC-THINKING(추론 모델의 생각 출력 제어) + S-THINK-1~3 + 실측 근거표(thinking on/off × 컨텍스트 4k/16k)", "ref": "docs/user-scenarios.md" },
-    "P02": { "status": "done", "name": "test_scenarios", "deliverable": "Test Coverage Map: UC-THINKING → src/test/uc-thinking.contract.test.ts (요청 body 검증 + isLocalEngineBaseUrl 순수 판별 + resolver 배선)", "ref": "docs/user-scenarios.md (Test Coverage Map)" },
-    "P03": { "status": "done", "name": "requirements", "deliverable": "FR-THINK-1~4 + NFR(헥사고날 순수 판별·회귀 안전·정직성). 범위 밖(#80) 명시", "ref": "docs/requirements.md" },
-    "P04": { "status": "done", "name": "integration_test", "deliverable": "src/test/uc-thinking.contract.test.ts 11/11 PASS. 전체 945 pass·0 fail(회귀 0). tsc --noEmit clean. check-logging·ci-verify-sdlc·check-traceability·check-terminology PASS", "ref": "src/test/uc-thinking.contract.test.ts" },
-    "P05": { "status": "done", "name": "requirements_complete", "deliverable": "FR-THINK-1~4 → Done. 변경: domain/provider-route.ts(isLocalEngineBaseUrl 신규 순수함수) + adapters/openai-compat-provider.ts(supportsReasoningEffort dep + body 선택필드 1개) + adapters/provider-resolver.ts(baseUrl 판별해 주입). 도메인 계약(ProviderChunk/AgentEmit)·gRPC proto·다른 4개 provider 어댑터 무변경", "ref": "docs/requirements.md (UC-THINKING FR/NFR)" }
+    "P01": { "status": "done", "name": "user_scenarios", "deliverable": "UC5 계약 §H(slice 1c — ollama native tool_calls) 신설: 실측 근거 + H.1 요청 매핑 + H.2 파싱/finalize/degrade + H.3 불변식", "ref": "docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md §H" },
+    "P02": { "status": "done", "name": "test_scenarios", "deliverable": "Test Coverage Map: UC5 §H / FR-PROV-6 → uc1-ollama-provider.contract.test.ts describe 'UC5 §H tools' (§H.4 케이스 a~h2)", "ref": "docs/user-scenarios.md (Test Coverage Map)" },
+    "P03": { "status": "done", "name": "requirements", "deliverable": "FR-PROV-6 (ollama native tool_calls + graceful degrade)", "ref": "docs/requirements.md (UC-PROV)" },
+    "P04": { "status": "done", "name": "integration_test", "deliverable": "uc1-ollama-provider 16/16(신규 §H 10) + all-providers-wiring 10/10 + 전체 959 pass·0 fail(회귀 0) + 직교 재실행(knowledge/memory/tool-loop 67/67). tsc 0·build 0(dist 재빌드). E2E: 실 dist provider + 실 ollama(DNA 3.0 9B) 2라운드 tool 루프(skill_time 호출→threadToolRound→최종답) PASS", "ref": "src/test/uc1-ollama-provider.contract.test.ts" },
+    "P05": { "status": "in_progress", "name": "requirements_complete", "deliverable": "적대 교차리뷰(DoD) 진행 중 — 통과 시 FR-PROV-6 → Done + .agents/reviews/ 기록", "ref": "docs/requirements.md (FR-PROV-6)" }
   },
 
   "known_drift": {
