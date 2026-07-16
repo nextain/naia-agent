@@ -8,7 +8,11 @@
 import type { ProviderPort, ProviderChatOpts } from "../ports/uc1.js";
 import type { ProviderConfig, ChatMessage, ProviderChunk } from "../domain/chat.js";
 
-const DEFAULT_NUM_CTX = 8192;
+// 16k — 데모 persona(PUSH ~21k자 ≈ 14.5k tok)가 8192 를 넘어 Ollama 400
+// (exceed_context_size_error) 로 전량 거부됐다(2026-07-16 실측). modelfile 의
+// num_ctx(16384) 와 정합. 요청이 명시하는 num_ctx 가 modelfile 값을 덮으므로
+// 기본값도 16k 여야 한다. per-config 조정은 ollamaNumCtx 로.
+const DEFAULT_NUM_CTX = 16384;
 
 type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal }) => Promise<{
   ok: boolean; status: number; statusText: string;

@@ -18,6 +18,17 @@
 
 ## 현재 작업
 
+### 2026-07-16 핫픽스 — ollama DEFAULT_NUM_CTX 8192→16384
+
+시연 persona(21,187자) 요청이 14,460 토큰으로 8192 한도를 넘어 Ollama 가 400
+(`exceed_context_size_error`)으로 전량 거부 — 체감은 "무응답". 요청이 보내는 `num_ctx` 가
+modelfile(16384)을 덮으므로 어댑터 기본값 자체를 16384 로 수정. 검증 = uc1-ollama-provider
+17/17 + dist 재빌드 + 실기 응답 재개. ⚠️ 잔여: 기본 프롬프트 ~14.5k + 도구 + 히스토리로
+여유 ~1.5k 토큰 — 긴 대화는 재초과 가능(후속 = `ollamaNumCtx` 셸 배선 + 히스토리 트리밍).
+트랙 = alpha-adk `.agents/progress/naia-demo-knowledge-persona-clobber-2026-07-16.md` 원인 2.
+
+---
+
 **이슈**: UC-THINKING-reasoning-effort-gate ([nextain/naia-agent#80](https://github.com/nextain/naia-agent/issues/80))
 **제목**: 추론(thinking) 모델이 생각에 출력 토큰을 다 쓰고 본문을 못 내는 현상 차단 — OpenAI-compat 어댑터가
 `enableThinking=false` 를 `reasoning_effort:"none"` 으로 wire 반영(로컬 엔진에만 적용)
