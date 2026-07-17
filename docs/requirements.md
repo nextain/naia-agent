@@ -212,6 +212,32 @@ spec + sandbox 정책(allow-root) + tier(승인)** 를 소유한다.
   잘림·빈 응답을 성공으로 오인해 조용히 통과. 셋 다 실재하는 결함이나 **cross-repo wire 변경**(proto `FinishEvent`)
   을 수반하므로 본 UC 와 분리한다.
 
+## UC-CONTINUE-SPEAKING FR/NFR (FR-CONT-1 ~ 6) — 사용자 요청에 따른 연속 발화
+
+권위 계약서: `docs/progress/99.dev-comm/UC-CONTINUE-SPEAKING-contract-2026-07-16.md`.
+에이전트가 같은 채팅 스트림을 열어 둔 채 provider를 반복 호출한다. 셸의 기존 문장 단위 TTS와
+`cancel_stream(requestId)`을 그대로 사용하며, 별도 셸 상태 머신이나 백그라운드 서비스는 만들지 않는다.
+
+> **2026-07-17 전면 개정** — UC-CONTINUE-SPEAKING 하이브리드 활성화 확정(사용자 결정) + 활동 수명
+> 재범주화 반영. 이전 FR-CONT-1 의 quote 부분문자열 가드는 **폐기**(B1 실측: 활성화 시 모델 quote 는
+> 100% 원문 전체 → 판정 무력. `.agents/progress/issue-82-continuous-speech.md` 참조).
+
+| ID | 요구사항 | 상태 |
+|----|----------|:----:|
+| FR-CONT-1 | **하이브리드 활성화** — `enableTools !== false`인 턴에 제어 도구 `continue_speaking`을 모델에 제공한다. 활성화 신호는 ①(끝을 정하지 않은 연속 발화 요청)+②(부재/수동청취 신호)이며 의미 판정은 모델의 semantic tool 선택이다. 모델은 ① 근거(`userRequestQuote`)와 ② 근거(`awayEvidence`)를 각각 원문 인용으로 전달한다. app 은 quote 내용으로 의미를 재판정하지 않는다(키워드/정규식 금지 불변). **② 근거가 있으면 즉시 활성화, ① 근거만 있으면 활성화하지 않고 확인 질문 경로로 전이**한다. pending 확인 상태(sessionId 결속·TTL)에서 다음 사용자 턴의 긍정 답변만 활성화로 잇고, pending 밖의 긍정 답변·pending 중 무관 답변은 일반 턴이다. 확인 질문은 일반 text 발화다(새 wire 이벤트 없음). 제어 도구 미호출 턴은 기존 단일 응답으로 종료한다. | Pending |
+| FR-CONT-2 | **같은 스트림·맥락** — 활성화 뒤 원래 대화와 활성화/첫 발화 전 다중 도구 루프를 고정 기준점으로 보존하고, 직전 최종 텍스트 1개를 assistant 메시지로, 숨은 진행 지시를 user 역할 메시지로 provider-local 컨텍스트에 붙여 같은 `requestId`에서 다음 호출을 수행한다. 60개 발화를 누적하지 않아 컨텍스트를 유한하게 유지한다. 진행 지시는 wire·transcript·memory의 사용자 발화로 저장하지 않는다. | Pending |
+| FR-CONT-3 | **끼어들기 재사용** — 기존 `onCancel`의 AbortSignal 하나가 provider 스트림과 발화 사이 대기를 모두 취소한다. 사용자가 새로 말하면 셸의 기존 순서대로 현재 `requestId`를 취소한 뒤 새 `requestId`의 턴을 시작한다. 취소 시 기존 계약대로 terminal error=`cancelled`, terminal/usage 각 1회, turn registry 누수 0이며 취소된 턴은 memory/conversationLog에 저장하지 않는다. | Pending |
+| FR-CONT-4 | **유한 안전 경계** — 제어 도구가 활성화된 단조 시각부터 기본 10분/최대 30분, 기본 간격 3초(허용 0~30초), 활성화 뒤 wire에 방출한 첫 최종 발화를 포함해 한 턴 최대 60개 발화다. 대기 전과 대기 직후 `now >= deadline`이면 새 provider 호출 없이 정상 종료한다. 시간·횟수 중 먼저 도달한 경계가 우선한다. `durationMinutes`/`pauseSeconds`의 누락·비수치·비유한 값은 기본값, 유한 범위 밖 값은 각각 1~30분/0~30초로 clamp한다. 고정 60회 상한은 도구 인자로 받지 않는다. 정규화는 no-throw다. | Pending |
+| FR-CONT-5 | **기록·비용 정합(증분 보존, 2026-07-17 개정)** — 모든 내부 provider 호출의 usage를 합산하고 마지막에 `usage` 1회만 방출한다. **완결 방출된 발화는 증분 체크포인트로 보존**되어 활동의 비정상 종료(에러·경계 초과·취소)에도 유실되지 않는다. 취소 시 버려지는 것은 진행 중이던 미완 발화뿐이다. 단일 응답 턴(활동 미활성)은 UC1 의 "취소 턴 무저장" 규칙을 그대로 유지한다. | Pending |
+| FR-CONT-6 | **도구루프 직교·예산 분리(2026-07-17 개정)** — 제어 도구는 app 내부 semantic control로 실행하며 외부 `ToolExecutorPort`에 위임하지 않는다. 활성화 뒤에는 제어 도구를 다시 노출하지 않아 재호출 루프를 막고, 소비 후 재호출은 턴을 죽이지 않고 조용한 거부 result 로 thread 한다. 외부 도구 라운드 예산은 활동 전체 공유가 아니라 **발화 단위**로 리셋해 장기 활동이 턴용 상한으로 중도 사망하지 않게 한다. 같은 라운드의 일반 도구와 기존 승인·timeout·correlation 계약은 그대로 유지한다. | Pending |
+| FR-CONT-7 | **활동 수명 소유(신규 2026-07-17)** — 활성화 이후의 상태(pending 확인·활성·발화 수·deadline)는 턴 지역변수가 아니라 명시적 활동 상태로 관리한다. 상태는 관측 가능해야 하며(diag), 정지는 1급이다. (활동 프리미티브 공통 계약의 첫 소비자 — cron backend·supervisor 정렬은 별도 이슈) | Pending |
+
+### NFR
+- **NFR-CONT-agent-owned**: 반복 제어는 `ChatTurnHandler`가 소유한다. gRPC proto와 naia-shell 변경 0.
+- **NFR-CONT-cancellable**: 발화 사이 대기는 AbortSignal과 race하며 타이머/listener를 항상 정리한다.
+- **NFR-CONT-bounded**: 시간·횟수·간격이 상수 상한으로 제한되어 무한 자율 실행과 무제한 큐 누적을 막는다.
+- **NFR-CONT-deterministic**: 계약테스트는 fake provider, 0초 간격, 주입 가능한 단조 시계로 실제 10분을 기다리지 않고 결정론적으로 검증한다. 로컬 Ollama 검증은 별도 실연동 증거로 남긴다.
+
 ## 기타 UC FR
 
 ## UC-HLMEM FR/NFR (FR-HLMEM-1 ~ 7) — 인간유사 기억 측정(memory-as-user-model)

@@ -1,0 +1,130 @@
+{
+  "id": "CS-KO-01",
+  "version": 2,
+  "p01_authority": "2026-07-17 사용자 확정(하이브리드): 라벨 기준 ①+② 는 docs/user-scenarios.md UC-CONTINUE-SPEAKING S-CONT-1 이 승인한 사양이다 — codex T4-1 순환정의(도구 설명을 라벨 근거로 삼음) 해소. 기대 행동: positive(①+②)=direct activate / ambiguous 중 ①만 충족=ask(확인 질문) / ambiguous 중 직전답변-이어가기·기타=none / negative=none. 러너의 3분류(direct/ask/reject) 확장은 v3 구현 후.",
+  "tool": "continue_speaking",
+  "locale": "ko",
+  "issue": 82,
+  "created": "2026-07-17",
+  "purpose": "UC-015 연속 발화 제어 도구의 도구선택 정확도(오호출률/미호출률) 계측 기반. 2026-07-16~17 의 아키텍처 결정이 N=12(±25pp)·N=2 위에 서 있었고 재현조차 되지 않은 것이 계기다. 설계 선택지 비교와 도구 설명 최적화는 이 코퍼스 위에서만 판정한다.",
+
+  "labeling_criterion": {
+    "positive": "① 개방형(끝을 정하지 않은) 연속 발화 요청 **그리고** ② 사용자가 능동적으로 대화하지 않겠다는 신호(자리 비움·수동 청취·다른 일 병행). 두 조건 **모두** 필요하다.",
+    "negative": "위 두 조건을 함께 만족하지 않는 모든 것. 단발 이야기 요청·상호 대화 제안·'계속해'(직전 답변 이어가기)·정지 요청·일반 질문·어휘만 겹치는 발화를 포함한다.",
+    "ambiguous": "①과 ② 중 하나만 충족. 지표(pass/fail)에서 **제외**하고 분포만 보고한다. 이 버킷을 positive/negative 로 임의 편입해 수치를 만들지 않는다.",
+    "why_two_conditions": "도구 설명 자체가 '자리를 비우는 동안'을 명시한다(chat-turn-handler.ts CONTINUE_SPEAKING_TOOL.description). 즉 '사용자 부재'는 이 도구의 사양이지 내 편의적 해석이 아니다. ②가 없으면 사용자가 앞에 있는 상태에서 10분/60발화가 켜지고, 그건 UC-015 가 의도한 것이 아니다.",
+    "known_dispute": "'계속해.' / '그래서? 계속 말해봐.' 류를 negative 로 둔 것은 **설계 결정**이다(직전 답변의 1회 이어가기 = 기존 일반 응답으로 충분, 라디오 모드 아님). 이 결정을 뒤집으려면 UC-015 본문을 함께 개정해야 한다."
+  },
+
+  "measurement_protocol": {
+    "target": "프로덕션 실물만 측정한다 — 도구 스펙은 `CONTINUE_SPEAKING_TOOL`(chat-turn-handler.ts, 이 목적으로 export), provider 는 `makeOllamaProvider`(dist). 스키마/바디 복사본 금지(고쳐도 계측이 안 따라오는 거짓 결론 방지).",
+    "stochastic": "ollama-provider 가 `temperature: 0.7` 을 하드코딩한다 → 도구 선택은 **본질적으로 확률적**이다. 단발 관측으로 '고쳤다'고 말할 수 없다. 프로브당 runs≥3, 코퍼스 단위 집계로 판정한다.",
+    "metric": "코퍼스 단위 false-call rate = (negative 프로브에서 도구 호출된 콜) / (negative 콜 총계). miss rate = (positive 에서 미호출) / (positive 콜 총계). 프로브 단위 비율은 N 이 작아 CI 가 넓으므로 **진단용으로만** 본다.",
+    "holdout": "split=holdout 은 설명 튜닝 중 **열람·사용 금지**. dev 에서 확정한 뒤 단 한 번 평가한다. 홀드아웃을 보고 튜닝하면 dev 로 강등하고 새 홀드아웃을 만든다."
+  },
+
+  "probes": [
+    { "id": "P-POS-001", "label": "positive", "split": "dev", "utterance": "라디오처럼 뭐라도 계속 이야기해 줘. 난 씻고 올게.", "note": "고정 시연 문장(계약 기준)" },
+    { "id": "P-POS-002", "label": "positive", "split": "dev", "utterance": "책 읽어주는 것처럼 계속 얘기해줄래? 나 누워서 들을게." },
+    { "id": "P-POS-003", "label": "positive", "split": "dev", "utterance": "나 청소하는 동안 멈추지 말고 계속 얘기해줘." },
+    { "id": "P-POS-004", "label": "positive", "split": "dev", "utterance": "나 요리할 건데 그동안 계속 얘기해줘." },
+    { "id": "P-POS-005", "label": "positive", "split": "dev", "utterance": "팟캐스트처럼 계속 떠들어줘. 나 설거지할게." },
+    { "id": "P-POS-006", "label": "positive", "split": "dev", "utterance": "나 스트레칭 좀 할게. 그동안 아무 얘기나 계속 해줘." },
+    { "id": "P-POS-007", "label": "positive", "split": "dev", "utterance": "계속 혼자 말해줄래? 나 짐 좀 챙길게." },
+    { "id": "P-POS-008", "label": "positive", "split": "dev", "utterance": "나 샤워하는 동안 계속 이야기해줘." },
+    { "id": "P-POS-009", "label": "positive", "split": "dev", "utterance": "나 운전 중이야. 심심하니까 계속 얘기해줘.", "note": "부재 아님 + 수동 청취 — ②의 '다른 일 병행' 해석" },
+    { "id": "P-POS-010", "label": "positive", "split": "dev", "utterance": "나 빨래 널 동안 계속 이야기해 줄래?" },
+    { "id": "P-POS-011", "label": "positive", "split": "dev", "utterance": "아무 얘기나 좋으니까 쭉 이어서 얘기해줘. 나 화장할게." },
+    { "id": "P-POS-012", "label": "positive", "split": "dev", "utterance": "계속 떠들어줘. 나 정리 좀 하고 올게." },
+    { "id": "P-POS-013", "label": "positive", "split": "dev", "utterance": "나 밥 먹는 동안 계속 얘기해줘." },
+    { "id": "P-POS-014", "label": "positive", "split": "dev", "utterance": "라디오 틀어놓은 것처럼 계속 말해줘. 나 딴 거 좀 할게." },
+    { "id": "P-POS-015", "label": "positive", "split": "dev", "utterance": "나 잠깐 나갔다 올게. 그동안 계속 이야기하고 있어줘." },
+    { "id": "P-POS-016", "label": "positive", "split": "dev", "utterance": "쉬지 말고 계속 얘기해줘. 나 눈 좀 붙일게." },
+    { "id": "P-POS-017", "label": "positive", "split": "holdout", "utterance": "오디오북처럼 계속 읽어주듯 얘기해줘. 나 눈 감고 들을게." },
+    { "id": "P-POS-018", "label": "positive", "split": "holdout", "utterance": "자장가 대신 계속 얘기해줘. 나 잘 준비할게." },
+    { "id": "P-POS-019", "label": "positive", "split": "holdout", "utterance": "배경음처럼 계속 얘기해줘. 나 공부할 거야." },
+    { "id": "P-POS-020", "label": "positive", "split": "holdout", "utterance": "나 머리 말리는 동안 아무거나 계속 말해줘." },
+    { "id": "P-POS-021", "label": "positive", "split": "holdout", "utterance": "혼자 계속 떠들고 있어. 나 잠깐 통화 좀 하고 올게." },
+    { "id": "P-POS-022", "label": "positive", "split": "holdout", "utterance": "나 짐 정리하는 동안 끊기지 말고 계속 얘기해줄래?" },
+    { "id": "P-POS-023", "label": "positive", "split": "holdout", "utterance": "나 산책 나갈 건데 계속 이야기해줘. 이어폰 끼고 들을게." },
+    { "id": "P-POS-024", "label": "positive", "split": "holdout", "utterance": "그냥 계속 말해줘. 나 듣기만 할게." },
+    { "id": "P-POS-025", "label": "positive", "split": "holdout", "utterance": "나 설거지 끝날 때까지 계속 얘기해주라." },
+
+    { "id": "P-NEG-001", "label": "negative", "split": "dev", "utterance": "오늘 날씨 어때?", "category": "일반질문" },
+    { "id": "P-NEG-002", "label": "negative", "split": "dev", "utterance": "지금 몇 시야?", "category": "일반질문" },
+    { "id": "P-NEG-003", "label": "negative", "split": "dev", "utterance": "3 더하기 5는?", "category": "일반질문" },
+    { "id": "P-NEG-004", "label": "negative", "split": "dev", "utterance": "파이썬 데코레이터 설명해 줘.", "category": "일반질문" },
+    { "id": "P-NEG-005", "label": "negative", "split": "dev", "utterance": "김치찌개 레시피 알려줘.", "category": "일반질문" },
+    { "id": "P-NEG-006", "label": "negative", "split": "dev", "utterance": "내일 일정 뭐 있어?", "category": "일반질문" },
+    { "id": "P-NEG-007", "label": "negative", "split": "dev", "utterance": "이 코드 왜 안 되는지 봐줄래?", "category": "일반질문" },
+    { "id": "P-NEG-008", "label": "negative", "split": "dev", "utterance": "서울에서 부산까지 얼마나 걸려?", "category": "일반질문" },
+
+    { "id": "P-NEG-009", "label": "negative", "split": "dev", "utterance": "계속 이야기해 볼까? 넌 어떤 영화 좋아해?", "category": "어휘함정", "note": "상호 대화 제안 — ② 없음. 구 설명에서 6/12 오호출한 최악 프로브" },
+    { "id": "P-NEG-010", "label": "negative", "split": "dev", "utterance": "요즘 계속 피곤해.", "category": "어휘함정", "note": "'계속'=부사" },
+    { "id": "P-NEG-011", "label": "negative", "split": "dev", "utterance": "계속 실패하는데 어떻게 해?", "category": "어휘함정" },
+    { "id": "P-NEG-012", "label": "negative", "split": "dev", "utterance": "우리 무슨 이야기 하고 있었지?", "category": "어휘함정" },
+    { "id": "P-NEG-013", "label": "negative", "split": "dev", "utterance": "이야기 하나만 해줘.", "category": "어휘함정", "note": "단발 — ① 없음" },
+    { "id": "P-NEG-014", "label": "negative", "split": "dev", "utterance": "짧은 이야기 하나 들려줘.", "category": "어휘함정", "note": "단발 + 명시적 짧음" },
+    { "id": "P-NEG-015", "label": "negative", "split": "dev", "utterance": "그 사람 이야기는 그만하자.", "category": "어휘함정" },
+    { "id": "P-NEG-016", "label": "negative", "split": "dev", "utterance": "얘기가 계속 겉도네.", "category": "어휘함정" },
+    { "id": "P-NEG-017", "label": "negative", "split": "dev", "utterance": "너는 계속 같은 말만 하잖아.", "category": "어휘함정" },
+    { "id": "P-NEG-018", "label": "negative", "split": "dev", "utterance": "라디오에서 그 노래 나왔었지?", "category": "어휘함정", "note": "'라디오' 어휘만 겹침" },
+
+    { "id": "P-NEG-019", "label": "negative", "split": "dev", "utterance": "그만 얘기해.", "category": "정지" },
+    { "id": "P-NEG-020", "label": "negative", "split": "dev", "utterance": "이제 됐어. 그만.", "category": "정지" },
+    { "id": "P-NEG-021", "label": "negative", "split": "dev", "utterance": "조용히 해줘.", "category": "정지" },
+    { "id": "P-NEG-022", "label": "negative", "split": "dev", "utterance": "잠깐 멈춰봐.", "category": "정지" },
+
+    { "id": "P-NEG-023", "label": "negative", "split": "dev", "utterance": "응.", "category": "짧은발화" },
+    { "id": "P-NEG-024", "label": "negative", "split": "dev", "utterance": "고마워.", "category": "짧은발화" },
+    { "id": "P-NEG-025", "label": "negative", "split": "dev", "utterance": "알았어.", "category": "짧은발화" },
+    { "id": "P-NEG-026", "label": "negative", "split": "dev", "utterance": "안녕?", "category": "짧은발화" },
+
+    { "id": "P-NEG-027", "label": "negative", "split": "dev", "utterance": "메모 저장해줘. 제목은 장보기.", "category": "도구요청" },
+    { "id": "P-NEG-028", "label": "negative", "split": "dev", "utterance": "이 파일 좀 읽어줘.", "category": "도구요청" },
+    { "id": "P-NEG-029", "label": "negative", "split": "dev", "utterance": "날씨 확인하고 메모에 적어놔.", "category": "도구요청" },
+
+    { "id": "P-NEG-030", "label": "negative", "split": "dev", "utterance": "나 씻고 올게.", "category": "부재만", "note": "② 만 있고 ① 없음 — 연속 발화 요청이 아니다. 가장 중요한 대조군" },
+    { "id": "P-NEG-031", "label": "negative", "split": "dev", "utterance": "나 잠깐 나갔다 올게.", "category": "부재만" },
+    { "id": "P-NEG-032", "label": "negative", "split": "dev", "utterance": "나 이제 잘게. 잘 자.", "category": "부재만" },
+
+    { "id": "P-NEG-033", "label": "negative", "split": "holdout", "utterance": "환율 지금 얼마야?", "category": "일반질문" },
+    { "id": "P-NEG-034", "label": "negative", "split": "holdout", "utterance": "이 문장 영어로 번역해줘.", "category": "일반질문" },
+    { "id": "P-NEG-035", "label": "negative", "split": "holdout", "utterance": "추천할 만한 책 있어?", "category": "일반질문" },
+    { "id": "P-NEG-036", "label": "negative", "split": "holdout", "utterance": "리액트에서 useEffect 언제 써?", "category": "일반질문" },
+    { "id": "P-NEG-037", "label": "negative", "split": "holdout", "utterance": "어제 뭐라고 했었지?", "category": "일반질문" },
+    { "id": "P-NEG-038", "label": "negative", "split": "holdout", "utterance": "저녁 뭐 먹을까?", "category": "일반질문" },
+
+    { "id": "P-NEG-039", "label": "negative", "split": "holdout", "utterance": "계속 얘기하다 보니 시간 다 갔네.", "category": "어휘함정" },
+    { "id": "P-NEG-040", "label": "negative", "split": "holdout", "utterance": "우리 계속 이렇게 지내자.", "category": "어휘함정" },
+    { "id": "P-NEG-041", "label": "negative", "split": "holdout", "utterance": "그 얘기 계속 들으니까 지겨워.", "category": "어휘함정" },
+    { "id": "P-NEG-042", "label": "negative", "split": "holdout", "utterance": "재미있는 이야기 좀 해봐.", "category": "어휘함정", "note": "단발" },
+    { "id": "P-NEG-043", "label": "negative", "split": "holdout", "utterance": "너랑 얘기하는 거 좋아.", "category": "어휘함정" },
+    { "id": "P-NEG-044", "label": "negative", "split": "holdout", "utterance": "계속 이야기 나눠서 좋았어.", "category": "어휘함정" },
+    { "id": "P-NEG-045", "label": "negative", "split": "holdout", "utterance": "팟캐스트 뭐 듣는 게 좋아?", "category": "어휘함정", "note": "'팟캐스트' 어휘만 겹침" },
+
+    { "id": "P-NEG-046", "label": "negative", "split": "holdout", "utterance": "그만해.", "category": "정지" },
+    { "id": "P-NEG-047", "label": "negative", "split": "holdout", "utterance": "말 좀 줄여줄래?", "category": "정지" },
+
+    { "id": "P-NEG-048", "label": "negative", "split": "holdout", "utterance": "ㅇㅇ", "category": "짧은발화" },
+    { "id": "P-NEG-049", "label": "negative", "split": "holdout", "utterance": "그래?", "category": "짧은발화" },
+    { "id": "P-NEG-050", "label": "negative", "split": "holdout", "utterance": "미안.", "category": "짧은발화" },
+
+    { "id": "P-NEG-051", "label": "negative", "split": "holdout", "utterance": "알람 7시에 맞춰줘.", "category": "도구요청" },
+    { "id": "P-NEG-052", "label": "negative", "split": "holdout", "utterance": "그 노래 틀어줘.", "category": "도구요청" },
+
+    { "id": "P-NEG-053", "label": "negative", "split": "holdout", "utterance": "나 이제 일하러 갈게.", "category": "부재만" },
+    { "id": "P-NEG-054", "label": "negative", "split": "holdout", "utterance": "잠깐 자리 비울게.", "category": "부재만" },
+
+    { "id": "P-AMB-001", "label": "ambiguous", "split": "dev", "utterance": "계속해.", "reason": "① 부분 충족(직전 답변 이어가기) · ② 없음. 라벨 기준상 negative 지만 '계속'만으로 판단되는 최단 케이스라 분리 관측" },
+    { "id": "P-AMB-002", "label": "ambiguous", "split": "dev", "utterance": "그래서? 계속 말해봐.", "reason": "직전 답변 이어가기 · ② 없음" },
+    { "id": "P-AMB-003", "label": "ambiguous", "split": "dev", "utterance": "아까 하던 얘기 계속하자.", "reason": "특정 주제 재개 · ② 없음 · 상호적일 수도" },
+    { "id": "P-AMB-004", "label": "ambiguous", "split": "dev", "utterance": "아무 얘기나 계속 해줘.", "reason": "① 충족 · ② 신호 없음 — 사용자가 앞에 있는데 라디오를 켤 것인가?" },
+    { "id": "P-AMB-005", "label": "ambiguous", "split": "dev", "utterance": "심심한데 얘기 좀 계속 해줄래?", "reason": "① 충족 · ② 모호(심심함 = 능동 대화 의사일 수도)" },
+    { "id": "P-AMB-006", "label": "ambiguous", "split": "dev", "utterance": "잠들 때까지 얘기해줘.", "reason": "① 충족(종료조건 있음) · ② 수동청취. 종료조건을 앱이 알 수 없음" },
+    { "id": "P-AMB-007", "label": "ambiguous", "split": "holdout", "utterance": "더 얘기해줘.", "reason": "① 부분 · ② 없음" },
+    { "id": "P-AMB-008", "label": "ambiguous", "split": "holdout", "utterance": "쭉 얘기해봐.", "reason": "① 충족 · ② 없음" },
+    { "id": "P-AMB-009", "label": "ambiguous", "split": "holdout", "utterance": "나 듣고 있어. 계속.", "reason": "② 수동청취 신호 · ① 개방형인지 불명" },
+    { "id": "P-AMB-010", "label": "ambiguous", "split": "holdout", "utterance": "혼잣말이라도 해봐.", "reason": "① 유사 · ② 없음" }
+  ]
+}

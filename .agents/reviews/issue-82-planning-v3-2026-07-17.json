@@ -1,0 +1,68 @@
+{
+  "review": "issue-82 계약 v3(하이브리드 활성화 + 활동 수명) planning 적대 패널",
+  "date": "2026-07-17",
+  "panel": [
+    { "reviewer": "codex gpt-5.6-sol (reasoning=high, read-only)", "verdict": "FINDINGS(9)", "tokens": 128887 },
+    { "reviewer": "claude general-purpose (구현 실현성·하네스 정합 담당)", "verdict": "FINDINGS(9)" }
+  ],
+  "gate": "2회 연속 CLEAN 미충족 — v3 구현 착수 금지 유지",
+  "convergent_findings": [
+    {
+      "id": "V3-1 awayEvidence 자기보고 미측정 (경첩)",
+      "severity": "HIGH",
+      "both": true,
+      "detail": "app 은 ② 근거 필드의 비어있지-않음만 본다. B1 실측은 구 스키마(awayEvidence 부재) 기준 — 'P(awayEvidence 채움 | ①-only)' 와 필드 인용 충실도는 측정 이력 0. 모델이 옵셔널 필드를 지어 채우면 v1 quote 가드와 구조적으로 같은 붕괴. 설계 채택 여부가 이 실측에 달림",
+      "action": "v3 스키마로 즉시 실측 (계약 재작성 전) — evidence 존재율·충실도 1급 지표"
+    },
+    {
+      "id": "V3-2 pending 창 = 무가드 활성화 창",
+      "severity": "HIGH",
+      "both": true,
+      "detail": "pending 중 도구 재호출 = evidence 불요 활성화. 무관 발화 false-call 기저율 ~10%(B1) → pending 2분 중 '오늘 날씨 어때?' 가 ~10% 확률로 라디오를 켬. 같은 턴 우회도 열림(clarification 라운드에서 제어 도구 은닉 규칙 부재)",
+      "action": "pending 턴 재호출에도 근거 요구(confirmationQuote) + clarification 라운드 제어 도구 은닉 + pending 변별 벤치(B2 확장) + AC"
+    },
+    {
+      "id": "V3-3 증분 체크포인트 ↔ 포트 계약 비양립 + 기억 오염 축 미정",
+      "severity": "HIGH",
+      "both": true,
+      "detail": "MemoryPort.save(user,assistant)=쌍 1회, ConversationLogPort.append=턴 레코드 — 발화별 증분 표현 불가(중복 오염 or 포트 변경 or 신규 포트). 그리고 재범주화 결정 '라디오=대화로그 이상 금지(기억 오염)' 인데 현 코드는 발화 전체를 memory.save — 계약이 저장 대상 축을 침묵",
+      "action": "저장 결정 필요: 활동 발화 = conversationLog 만(증분), memory.save 는 활동 턴에서 호출 안 함(장기기억 응고는 꿈의 몫). 표현 방식(신규 checkpoint 포트 vs append 확장) 계약 명시"
+    },
+    {
+      "id": "V3-4 계약 문서 자기모순 — 검증 가능한 계약이 아님",
+      "severity": "CRITICAL(claude F1) / HIGH(codex F8·F9)",
+      "both": true,
+      "detail": "v3 §6 이 봉인된 v1 §5~9 를 선별 부활(그 §6=취소 무저장이 v3 증분 보존과 정면 충돌, §9 는 폐기된 v2 승인 어휘). AC1~14·매트릭스·Coverage Map·FR-CONT-3 전부 v3 이전 상태. 구현자가 어느 조항을 따를지 결정 불가",
+      "action": "v3.1 을 독립 완결 문서로 전면 재작성(계층 개정 폐기) — codex 의 AC1~18 재작성 표 채택"
+    },
+    {
+      "id": "V3-5 예산 증폭",
+      "severity": "HIGH",
+      "both": true,
+      "detail": "발화별 8라운드 × 60발화 = 최대 480 외부 도구 라운드(+라운드당 call 수 상한 없음, 발화 내 deadline 미검사, pauseSeconds=0 이면 30분이 비용 상한 아님) — 상한이 v1 대비 ~60배인데 계약 미기재",
+      "action": "활동 전체 예산(총 provider 호출·총 tool call·발화 내 deadline 검사) 신설, 소진 시 정상 종료+체크포인트 보존"
+    },
+    {
+      "id": "V3-6 pending 수명 미결정 다발",
+      "severity": "HIGH(codex F3) / MED(claude F5·F6·F7)",
+      "both": true,
+      "detail": "소비 시점 · TTL 시계(continuationClock 명시 필요)·청소 주체(lazy 권장) · cancel 매핑(requestId↔session — 실제로는 pending 시간대에 스트리밍 턴이 없어 죽은 조항) · sessionId 'default' 합류(discord-relay·CLI 가 sessionId 미탑재 → 표면 간 pending 누수) · 동시 요청 CAS · enableTools=false 턴 · 재시작 정책 · 공손 루프(TTL 만료→재요청→또 확인)",
+      "action": "각각 결정론 규칙으로 계약 명시"
+    },
+    {
+      "id": "V3-7 ①-only 이탈 실패 모드 미수용 + field-extraction miss",
+      "severity": "MED",
+      "both": true,
+      "detail": "①-only 사용자가 확인 안 기다리고 떠나면 침묵(안전하나 UC 가치 축소 — 명시 수용 필요). 실제 ①+② 인데 모델이 awayEvidence 추출 실패 → 빈 방에 확인 질문(tool-selection miss 와 별개의 field-extraction miss, 미측정)",
+      "action": "UC 에 수용 가능 실패로 명시 + field fidelity 를 AC9 실연동 행렬에 포함"
+    }
+  ],
+  "survived": [
+    "음성 데드락(v2 기각 1호) 해소 — 확인 질문=일반 text→TTS 낭독, 턴 정상 종료라 STT '응' 이 새 턴으로 도달 (claude 확인: ChatArea.tsx text 경로·isChatRequestActive 미간섭)",
+    "sessionId 결속 셸 정상 경로 생존 (chat_request 마다 localSessionId, 마이크 STT 도 동일 경로)",
+    "최소 변경 구현 경로 존재 — Map<sessionId,Pending> 프라이빗 필드, 신규 import 0, 헥사고날 무위반",
+    "크로스턴 결정론 테스트 표현 가능 (onChatRequest 2회 순차 + 주입 시계)",
+    "canonical ①+②('계속 얘기해줘. 씻고 올게')는 즉시 시작 — v2 의 현존 요구 함정 그 범위에서 해소"
+  ],
+  "codex_ac_rewrite_table": "codex 출력의 AC1~AC18 재작성 표를 v3.1 전면 재작성의 골격으로 채택 (원문 = 세션 로그, 요지: AC6 save-각-1회 폐기→activityId+sequence idempotent checkpoint, AC14 승인 어휘 폐기→허용된 두 전이 밖 활성화 0, 신규 AC15 세션 격리 / AC16 TTL·재시작 / AC17 확인 질문 불응 fallback / AC18 checkpoint 부분 실패 수렴)"
+}

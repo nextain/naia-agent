@@ -20,6 +20,7 @@
 | UC-KNOWLEDGE | 코어가 컴파일된 워크스페이스 지식(KB)을 **풀 도구**(`skill_knowledge_search`/`ask`)로 노출 → 에이전트가 근거 있는 답변·근거 없으면 기권. + **컴파일 트리거**(`CompileKnowledge` RPC, K1b — 소스 폴더→kb.json). memory(푸시)와 분리된 풀(tool) | `docs/requirements.md` FR-KB-1~5 (집약) |
 | UC-HLMEM | 인간유사 기억 **측정**(memory-as-user-model) — 장기기억이 사용자의 held-out 선택을 예측하나(F1 취향), 본인 기억이 예측하고 타인 기억은 오도하나(F2 자아특이성), 감정 salience 가중(F3, P6). vs 완벽회상 아님. 벤치(benchmark/src) 측정, 실행경로 아님 | `docs/progress/99.dev-comm/UC-HLMEM-humanlike-memory-measurement-contract-2026-07-07.md` + `docs/requirements.md` FR-HLMEM-1~7 |
 | UC-THINKING | 추론(thinking) 모델의 **생각 출력 제어** — 로컬 추론 모델이 생각에 토큰을 다 써 최종 답변을 못 내는 것을 막는다. `enableThinking=false` 를 OpenAI-compat wire 에도 반영(`reasoning_effort:"none"`), **로컬 엔진에만** 적용(원격 클라우드는 400) | `docs/requirements.md` FR-THINK-1~4 (집약) |
+| UC-CONTINUE-SPEAKING | 사용자가 명시적으로 요청하면 에이전트가 같은 대화 턴에서 라디오처럼 여러 번 이어 말하고, 사용자의 끼어들기에는 즉시 멈춘다 | `docs/progress/99.dev-comm/UC-CONTINUE-SPEAKING-contract-2026-07-16.md` |
 
 ## UC-MEM-1 (장기기억 회상)
 
@@ -266,6 +267,50 @@ ProviderPort). 옛 `<recall>` 마커·"부적절=실패" 도덕채점 폐기(SoT
 직교: 컨텍스트 예산(도구 스키마 미계상 / `finish` 에 잘림 사유 부재 / 잘림을 성공으로 오인)은 **별개 결함**
 (#80) 으로 분리 — 본 UC 는 "생각이 답변 예산을 잠식하는" 축만 닫는다.
 
+## UC-CONTINUE-SPEAKING (사용자 요청에 따른 연속 발화 — "라디오 모드")
+
+> **2026-07-17 전면 개정.** 근거: (a) quote 가드·승인 게이트 두 활성화 설계의 실측 기각,
+> (b) B1 베이스라인 실측(`.agents/reviews/issue-82-tool-selection-baseline-dev.json`),
+> (c) codex gpt-5.6-sol 크로스리뷰 T1~T4, (d) 사용자 결정: 제품 방향(시연 원오프 아님) + 하이브리드 활성화.
+> 상세 이력 = `.agents/progress/issue-82-continuous-speech.md`.
+
+사용자가 "라디오처럼 계속 이야기해 줘. 난 씻고 올게"처럼 **끝을 정하지 않은 연속 발화를 요청**하면
+에이전트는 첫 답변 하나로 끝내지 않고 짧은 발화를 여러 번 이어 간다. 각 발화는 기존 셸의 문장 단위
+TTS 큐로 재생된다. 사용자에게 이것은 **모드**다(켜져 있음이 인지 가능하고, 끄기가 1급 행위).
+런타임에서 이것은 턴 지역상태가 아니라 **명시적 활동(activity) 수명**으로 관리한다 — 도구 호출은
+활동의 **시작 명령**으로 유지하되, 활성화 이후의 상태·정지·저장·수명은 턴이 아니라 활동이 소유한다
+(활동 프리미티브의 첫 대화형 소비자. 형제 소비자 = 내부 cron(예약)·supervisor(작업)·naia-memory 꿈(인지)).
+
+- **S-CONT-1 (하이브리드 활성화, 2026-07-17 확정)**: 활성화 신호는 두 조건이다 —
+  **① 끝을 정하지 않은 연속 발화 요청** · **② 사용자가 능동 대화하지 않겠다는 신호**(부재·수동 청취·다른 일 병행).
+  - ①+② 모두 → **즉시 시작** ("라디오처럼 계속 얘기해줘. 나 씻고 올게").
+  - **①만** → 시작하지 않고 **대화 내 확인 질문**("계속 이야기해줄까?")을 하며, **다음 사용자 턴의 긍정
+    답변이 pending 확인 상태에서만** 활성화로 이어진다. 앱이 이 상태 전이를 강제한다(pending 은
+    sessionId 에 결속, TTL 만료·취소·무관 답변 처리 규칙은 설계 계약이 정의). 확인 질문은 일반 text
+    발화다 — 새 wire 이벤트·셸 UI 를 만들지 않는다.
+  - 그 외(단발 이야기 요청 · 직전 답변 이어가기("계속해") · 정지 요청 · 일반 질문) → 일반 응답.
+  - 의미 판정(①·② 인식)은 모델의 semantic tool 선택 계약이다. 앱은 언어별 키워드 정규식으로 의미를
+    재추측하지 않으며(불변), 앱이 강제하는 것은 **상태 전이 규칙**뿐이다.
+- **S-CONT-2 (같은 대화 흐름)**: 후속 발화는 원래 사용자 요청과 앞선 발화를 모델 컨텍스트로 이어
+  받아 내용이 연결된다. 내부 진행 지시는 셸 대화 기록·장기기억에 사용자 발화로 노출하지 않는다.
+- **S-CONT-3 (끼어들기·정지 1급)**: 사용자가 말하거나 중지 버튼을 눌러 기존 `cancel_stream(requestId)`을
+  보내면, provider 호출 중이든 발화 사이 대기 중이든 즉시 끝난다. 별도 취소 wire 를 만들지 않는다.
+  활동 중 사용자의 정지 의사("그만 얘기해")는 새 활동을 켜는 신호로 오인되어서는 안 된다(B3 벤치 대상).
+- **S-CONT-4 (유한 안전 경계·예산 분리)**: 기본 10분, 요청 가능 최대 30분, 발화 사이 기본 3초(0~30초),
+  하드 상한 60회. 시간 또는 횟수 상한 도달 시 정상 종료한다. 외부 도구 라운드 예산은 활동 전체가 아니라
+  **발화 단위**로 관리해 장기 활동이 턴용 상한에 의해 중도 사망하지 않는다.
+- **S-CONT-5 (wire·기록)**: 여러 provider 호출의 사용량을 합산해 `usage`와 terminal 을 각각 마지막에
+  한 번만 방출한다. **제어 도구가 호출되지 않은 턴**은 UC1/UC5 동작이 기존과 동일하다(terminal/usage/save
+  각 1회, toolUse/toolResult correlation). 제어 도구가 호출되었으나 활성화로 이어지지 않은 턴(확인 질문
+  경로 포함)은 일반 응답을 끝까지 처리한다.
+- **S-CONT-6 (증분 보존)**: 이미 완결 방출된 발화는 활동이 비정상 종료(에러·경계 초과·취소)해도 유실되지
+  않는다 — 활동 저장은 끝-1회가 아니라 **증분 체크포인트**다. 취소 시 버려지는 것은 진행 중이던 미완
+  발화뿐이다. (UC1 의 "취소 턴 무저장" 규칙은 단일 응답 턴에 유지되며, 완결 발화가 축적되는 활동에는
+  증분 규칙이 우선한다 — 사람이 말하다 끊겨도 이미 한 말은 기억하는 것과 같다.)
+
+**로드맵(본 이슈 범위 밖, 활동 계약에 자리만 예약)**: 앱 재시작 후 활동 재개 · 사용자 지시 없는 선제
+발화 · 여러 세션에 걸친 지속. 배제가 아니라 후속 — 활동 수명 모델이 이들의 전제다.
+
 ## Test Coverage Map
 
 | 요구 | 테스트 |
@@ -283,6 +328,7 @@ ProviderPort). 옛 `<recall>` 마커·"부적절=실패" 도덕채점 폐기(SoT
 | FR-MEM-12 / S-MEM-SUBLLM (naia sub-LLM 폴백 + graceful degrade, S5) | `src/test/uc-naia-settings-store.contract.test.ts` — describe "naia sub-LLM model 폴백 + graceful degrade (S5/G5)" (naia+모델부재+키존재→기본모델 완전구성·명시모델 우선·키 부재→provider=none 강등(메모리 유지)·vllm baseUrl 누락→none 강등) + `sub-llm-provider.contract.test.ts`(미구성=undefined) |
 | UC-PROV-1 / FR-PROV-1·2·3 | `src/test/all-providers-wiring.contract.test.ts`, `uc1-reload-default-config.contract.test.ts`, `uc-naia-settings-store.contract.test.ts` |
 | UC-THINKING / S-THINK-1·2·3 / FR-THINK-1~4 | `src/test/uc-thinking.contract.test.ts` (요청 body 검증: enableThinking=false+로컬 → `reasoning_effort:"none"` / true·미지정 → 미전송 / **원격 baseUrl → 미전송**(400 회귀 방지) / `isLocalEngineBaseUrl` 순수 판별) |
+| UC-CONTINUE-SPEAKING / S-CONT-1~5 / FR-CONT-1~6 | `src/test/uc-continue-speaking.contract.test.ts` (도구 활성화→복수 provider 호출·텍스트 연속 방출 / 사용량·terminal 1회 / 내부 지시 기록 비노출 / 대기·provider 중 취소+취소 턴 저장 0회 / 상한 종료 / 일반 채팅·외부 도구의 기존 terminal·usage·save·correlation 무회귀) + 로컬 Ollama 실연동 고정 시연 프롬프트 2회 연속 활성화 |
 | FR-PROV-5 (claude-code SDK 분리) | `src/test/all-providers-wiring.contract.test.ts`(claude-code 케이스 = Agent SDK 라우팅·apiKey 미주입) |
 | FR-MODEL-1 (모델 카탈로그 정합) | `src/test/uc-provider-provenance.contract.test.ts`(cost↔registry 정합·구독 $0), naia-os `src/lib/llm/__tests__/registry.test.ts`(카탈로그 정합·최신화) |
 | UC-CLI / AC3·AC5 (2a 골격) | `src/test/uc-cli-supervisor.contract.test.ts`, `uc-cli-composition.contract.test.ts` (fake 포트 stream-merge·terminal 1회·직교·동시성 — Pass) |

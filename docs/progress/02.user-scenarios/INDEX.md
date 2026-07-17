@@ -22,5 +22,6 @@
 | UC-012 | 대화 토큰예산 가드 | 사용자가 긴 대화를 이어가도 에이전트가 토큰예산으로 오래된 메시지를 **드롭**해 컨텍스트 초과 없이 응답 (요약형 compaction 아님 — 그건 UC-013) | REQ-009 | Done | TEST-S-012 |
 | UC-013 | 대화 압축(요약) | 사용자가 긴 대화를 이어가도 에이전트가 오래된 맥락을 **버리지 않고 요약(recap)**해 유지하며 응답(naia-memory 위임, 정보보존). 요약은 장기기억에 영속돼 다음 세션에도 이어짐 | REQ-010 | Done | TEST-S-013 |
 | UC-014 | 단독 CLI 오케스트레이션 | 사용자(luke)가 naia-os 없이 터미널에서 naia-agent 를 단독 실행해, agent 가 외부 코딩에이전트(pi/opencode)를 sub-agent 로 spawn·감독하고 워크스페이스 변경·검증을 정직 숫자로 보고. 인터럽트 가능. (코어+composition+단독 CLI bin Done=SPEC-011; naia-os gRPC 호스트만 후속) | REQ-011, REQ-012 | Done | TEST-S-014 |
+| UC-015 | 사용자 요청 연속 발화 | 사용자가 라디오처럼 계속 말해 달라고 요청하면 에이전트가 같은 대화 흐름에서 여러 번 이어 말하고, 끼어들면 즉시 멈춤 | REQ-013 | Approved | TEST-S-015 |
 
 > **상태 의미**: agent 측 Done = 이식+2-AI(또는 self)리뷰+계약테스트 완료. UC-006/008 = agent-local skill 완료, 실 외부서비스(CDP/youtube) runtime = 루크머신. off-scope(UC-memory) = 01 노트.

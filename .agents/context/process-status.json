@@ -9,23 +9,23 @@
   },
 
   "current_work": {
-    "issue": "FR-PROV-6-ollama-native-tools",
-    "title": "UC5 §H — ollama native provider 실 tool_calls (스킬 회귀 픽스: 시연 프로파일 provider=ollama 전환 시 어댑터가 opts.tools 무시 → 스킬 전멸)",
-    "issue_doc": "../../../.agents/progress/naia-shell-skills-wiring-fix-2026-07-15.md",
-    "github_issue": null,
-    "started": "2026-07-15",
-    "last_updated": "2026-07-16T10:20:00+09:00",
+    "issue": "REQ-013-continuous-speech",
+    "title": "UC-015 — 사용자 요청 기반 연속 발화와 기존 끼어들기 보존",
+    "issue_doc": ".agents/progress/issue-82-continuous-speech.md",
+    "github_issue": "https://github.com/nextain/naia-agent/issues/82",
+    "started": "2026-07-16",
+    "last_updated": "2026-07-17T11:00:00+09:00",
     "status": "in_progress",
-    "num_ctx_hotfix": "2026-07-16 ollama-provider DEFAULT_NUM_CTX 8192→16384 (시연장 실측): 시연 persona(21,187자) 요청이 14,460 tok 로 8192 초과 → Ollama 400 exceed_context_size_error 전량 거부(체감=무응답). 요청의 num_ctx 가 modelfile(16384)을 덮으므로 modelfile 로 해결 불가, 셸은 ollamaNumCtx 미전송. 검증 = uc1-ollama-provider 17/17 + pnpm build(dist 정본화) + 실기(16k 로드 후 응답 재개, ollama ps CONTEXT 16384). 잔여 리스크 = 기본 프롬프트 ~14.5k + tools + 히스토리 → 16,384 여유 ~1.5k tok(긴 대화 재초과 가능, DNA GGUF 16k 빌드라 증량 불가). 후속 = ollamaNumCtx 셸→gRPC 배선 + 히스토리 트리밍. 트랙 = alpha-adk .agents/progress/naia-demo-knowledge-persona-clobber-2026-07-16.md 원인 2.",
-    "prior_work_note": "직전: UC-THINKING(reasoning_effort 게이트) P01~P05 done — nextain/naia-agent#80 잔여(컨텍스트 예산·FinishEvent)는 이슈 보존. | 본 작업 근본원인: ollama-provider.ts 는 이식 시점부터 tools 미구현(주석 'tools=UC5 후속')인 채, chat-turn-handler 는 provider 무관 tools 전달 — naia(OpenAI-compat) 사용 중엔 미노출, 시연 16GB 프로파일이 provider=ollama 전환하며 스킬 전멸. 실측(ollama 0.32.0 + DNA 3.0 9B): tools 수신·tool_calls 완성체(arguments=object) 반환·tool_name 왕복 전부 정상 → 어댑터만 결선하면 됨. 지식·메모리 직교 확인: uc-knowledge 9 + memory 31+14+6 + tool-loop 7 = 67/67 재실행 GREEN."
+    "handoff_note": "2026-07-17 핸드오프 커밋 — 활성화 설계 v1(quote 가드)·v2(승인 게이트) 적대 리뷰 기각, v3(하이브리드) 패널 FINDINGS(9)×2 + 경첩 실측 1차 GO(조건부, ②-only 신규 구멍). 재개 절차 = issue_doc 의 '▶ 핸드오프' 절. 구현 착수 금지(2×CLEAN 게이트).",
+    "prior_work_note": "FR-PROV-6 ollama native tools와 DEFAULT_NUM_CTX 16384 변경은 다른 시연 작업의 기존 변경이다. 본 작업은 그 동작을 보존하고 ChatTurnHandler app 계층만 확장한다."
   },
 
   "sdlc_gates": {
-    "P01": { "status": "done", "name": "user_scenarios", "deliverable": "UC5 계약 §H(slice 1c — ollama native tool_calls) 신설: 실측 근거 + H.1 요청 매핑 + H.2 파싱/finalize/degrade + H.3 불변식", "ref": "docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md §H" },
-    "P02": { "status": "done", "name": "test_scenarios", "deliverable": "Test Coverage Map: UC5 §H / FR-PROV-6 → uc1-ollama-provider.contract.test.ts describe 'UC5 §H tools' (§H.4 케이스 a~h2)", "ref": "docs/user-scenarios.md (Test Coverage Map)" },
-    "P03": { "status": "done", "name": "requirements", "deliverable": "FR-PROV-6 (ollama native tool_calls + graceful degrade)", "ref": "docs/requirements.md (UC-PROV)" },
-    "P04": { "status": "done", "name": "integration_test", "deliverable": "uc1-ollama-provider 16/16(신규 §H 10) + all-providers-wiring 10/10 + 전체 959 pass·0 fail(회귀 0) + 직교 재실행(knowledge/memory/tool-loop 67/67). tsc 0·build 0(dist 재빌드). E2E: 실 dist provider + 실 ollama(DNA 3.0 9B) 2라운드 tool 루프(skill_time 호출→threadToolRound→최종답) PASS", "ref": "src/test/uc1-ollama-provider.contract.test.ts" },
-    "P05": { "status": "in_progress", "name": "requirements_complete", "deliverable": "적대 교차리뷰(DoD) 진행 중 — 통과 시 FR-PROV-6 → Done + .agents/reviews/ 기록", "ref": "docs/requirements.md (FR-PROV-6)" }
+    "P01": { "status": "in_progress", "name": "user_scenarios", "deliverable": "UC-CONTINUE-SPEAKING v3 하이브리드로 개정(S-CONT-1~6) — 단 planning 패널 FINDINGS(9)×2 로 산출물 재작성 필요(v3.1 독립 완결 계약). 활성화 조건 하이브리드는 사용자 결정 확정", "ref": "docs/user-scenarios.md; .agents/reviews/issue-82-planning-v3-2026-07-17.json" },
+    "P02": { "status": "pending", "name": "test_scenarios", "deliverable": "v1 기준 매핑은 기각으로 무효 — v3.1 계약 확정 후 재작성(뮤턴트 킬 포함). 계측 기반은 확보: benchmark/corpora/continue-speaking-ko.corpus.json(89) + run-tool-selection-bench.mjs + v3-evidence-probe.mjs", "ref": "docs/user-scenarios.md (Test Coverage Map)" },
+    "P03": { "status": "in_progress", "name": "requirements", "deliverable": "FR-CONT-1~7 v3 개정 반영 — 단 FR-CONT-3 무스코프 문구 충돌 등 패널 지적 잔존, v3.1 과 함께 정리", "ref": "docs/requirements.md; docs/progress/01.requirements/INDEX.md" },
+    "P04": { "status": "pending", "name": "integration_test", "deliverable": "src/test/uc-continue-speaking.contract.test.ts + 로컬 Ollama UC (v3.1 확정 후 재작성)", "ref": "src/test/uc-continue-speaking.contract.test.ts" },
+    "P05": { "status": "pending", "name": "requirements_complete", "deliverable": "development/integration 2회 연속 CLEAN 뒤 상태 Done", "ref": "docs/requirements.md (FR-CONT-1~7)" }
   },
 
   "known_drift": {

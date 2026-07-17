@@ -1,0 +1,46 @@
+{
+  "issue": "https://github.com/nextain/naia-agent/issues/82",
+  "stage": "integration",
+  "acceptance": "AC9",
+  "date": "2026-07-16",
+  "endpoint": "http://127.0.0.1:11434",
+  "model": "dnotitia-dna3.0-9b-q4-16k:latest",
+  "userText": "라디오처럼 뭐라도 계속 이야기해 줘. 난 씻고 올게.",
+  "requiredUtterances": 2,
+  "command": "$env:NAIA_OLLAMA_INTEGRATION='1'; pnpm exec vitest run src/test/uc-continue-speaking.ollama.integration.test.ts",
+  "runs": [
+    {
+      "requestId": "ac9-run-1",
+      "model": "dnotitia-dna3.0-9b-q4-16k:latest",
+      "endpoint": "http://127.0.0.1:11434",
+      "startedAt": "2026-07-16T15:43:50.895Z",
+      "finishedAt": "2026-07-16T15:44:11.326Z",
+      "durationMs": 20431,
+      "activated": true,
+      "utterances": 2,
+      "eventShape": "thinking×234,text×176,thinking×161,text×110,usage,finish",
+      "usageCount": 1,
+      "finishCount": 1,
+      "errorCount": 0,
+      "errors": [],
+      "pass": true
+    },
+    {
+      "requestId": "ac9-run-2",
+      "model": "dnotitia-dna3.0-9b-q4-16k:latest",
+      "endpoint": "http://127.0.0.1:11434",
+      "startedAt": "2026-07-16T15:44:11.327Z",
+      "finishedAt": "2026-07-16T15:44:24.783Z",
+      "durationMs": 13456,
+      "activated": true,
+      "utterances": 2,
+      "eventShape": "thinking×267,text×174,thinking×95,text×161,usage,finish",
+      "usageCount": 1,
+      "finishCount": 1,
+      "errorCount": 0,
+      "errors": [],
+      "pass": true
+    }
+  ],
+  "verdict": "PASS"
+}

@@ -18,6 +18,32 @@
 
 ## 현재 작업
 
+### Issue #82 — 사용자 요청 기반 연속 발화
+
+**이슈**: [nextain/naia-agent#82](https://github.com/nextain/naia-agent/issues/82)
+
+**상태**: in progress — 2026-07-17 핸드오프. 활성화 설계 v1(quote 가드)·v2(승인 게이트) 적대 리뷰
+**기각**, v3(하이브리드) 패널 FINDINGS(9)×2 + 경첩 실측 1차 GO(조건부 — ②-only 신규 구멍).
+**구현 착수 금지**(2회 연속 CLEAN 게이트). 재개 절차 = `.agents/progress/issue-82-continuous-speech.md`
+의 "▶ 핸드오프" 절.
+
+**추적**: REQ-013 → UC-015 → SPEC-012 → TEST-S-015 / TEST-F-012
+
+사용자가 명시적으로 계속 말해 달라고 요청하면 `naia-agent`가 같은 `requestId`의 열린 스트림에서
+여러 발화를 이어간다. 기존 `naia-shell`의 문장 단위 TTS와 `cancel_stream` 끼어들기를 그대로
+재사용하며, 셸과 gRPC proto는 변경하지 않는다.
+
+| 게이트 | 상태 | 산출물 |
+|---|:---:|---|
+| P01 사용자 시나리오 | in progress | UC-CONTINUE-SPEAKING v3 하이브리드 개정(S-CONT-1~6) — 패널 findings 로 v3.1 독립 완결 계약 재작성 필요 |
+| P02 테스트 시나리오 | pending | v1 매핑 무효 — v3.1 확정 후 재작성. 계측 기반 확보(코퍼스 89 + 벤치 러너 + 경첩 프로브) |
+| P03 요구사항 | in progress | FR-CONT-1~7 v3 개정 — 패널 지적 잔존(FR-CONT-3 충돌 등) |
+| P04 통합 테스트 | pending | `src/test/uc-continue-speaking.contract.test.ts` + 로컬 Ollama UC (v3.1 확정 후 재작성) |
+| P05 완료 | pending | 개발·통합 적대 리뷰 각 2회 연속 CLEAN 뒤 Done |
+
+> 아래 내용은 직전 시연 안정화 작업의 보존 기록이다. Issue #82 작업은 기존
+> `ollama-provider.ts`의 기존 시연 안정화 동작을 바꾸지 않는다.
+
 ### 2026-07-16 핫픽스 — ollama DEFAULT_NUM_CTX 8192→16384
 
 시연 persona(21,187자) 요청이 14,460 토큰으로 8192 한도를 넘어 Ollama 가 400

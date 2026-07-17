@@ -1,0 +1,23 @@
+{
+  "issue": "https://github.com/nextain/naia-agent/issues/82",
+  "stage": "planning",
+  "date": "2026-07-16",
+  "req_ids": ["REQ-013", "UC-015", "SPEC-012", "TEST-S-015", "TEST-F-012"],
+  "method": "독립 CLI 적대 리뷰: Claude Code + Codex, 수정 후 2회 연속 합의 CLEAN",
+  "convergence": {
+    "pre_clean_findings_fixed": [
+      "취소 턴 persistence 규칙과 usage→error 순서",
+      "명시 요청 quote 검증과 일반 채팅 음성화 방지",
+      "provider-local 내부 tool-result 완결",
+      "첫 발화 포함 60회와 활성화 시각 deadline 경계",
+      "혼합 다중 도구 루프·승인 거부·timeout 수용 기준",
+      "취소 iterator/timer/listener/registry 정리",
+      "Ollama 고정 모델·문장·명령·두 독립 턴 증적",
+      "AC1~AC13 테스트 매트릭스"
+    ],
+    "clean_run_1": { "claude": "CLEAN", "codex": "CLEAN" },
+    "clean_run_2": { "claude": "CLEAN", "codex": "CLEAN" }
+  },
+  "verdict": "CLEAN",
+  "consecutive_clean_runs": 2
+}

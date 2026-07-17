@@ -26,6 +26,7 @@ scripts/check-traceability.mjs 가 파싱. 상세 = docs/requirements.md, 99.dev
 | REQ-010 | 대화 압축(host-loop) | **정보보존형 compaction 배선** — 예산 압박 시 `naia-memory.compact()` 로 head 요약→systemPrompt 주입, 메시지는 tail 만, recap+anchors `attachHandoff` 로 영속(cross-session). 드롭형(REQ-009)은 폴백. no-throw 격리·deadline·무회귀(미주입=압축 없음) | Done | UC-013 | SPEC-008 | TEST-S-013 |
 | REQ-011 | 단독 CLI 오케스트레이션 | **단독 CLI sub-agent 오케스트레이션** — 외부 코딩에이전트(pi/opencode + roster, claude-code/codex/gemini 선언)를 `SubAgentPort` 로 spawn → 이벤트 스트림 forward + 인터럽트(SIGTERM→유예→SIGKILL). supervisor 가 단일 작업 감독·정직보고 1회. composition `wireSupervisor` 조립. (FR-CLI-1~4) ✅ 코어+composition+**단독 CLI bin 호스트**(SPEC-011) 완성; naia-os gRPC 호스트만 후속(②) | Done | UC-014 | SPEC-009, SPEC-010, SPEC-011 | TEST-S-014 |
 | REQ-012 | 정직보고(workspace+verify) | **정직보고** — `WorkspacePort`(git status 변경 요약) + `VerifierPort`(test/lint/build 러너, **never-throws** AC2) → session_end 후 검증해 filesChanged/검증 수치 리포트. (FR-CLI-5~6) | Done | UC-014 | SPEC-010 | TEST-S-014 |
+| REQ-013 | 연속 발화 | 사용자가 명시적으로 요청하면 같은 채팅 스트림에서 여러 발화를 이어가고 기존 취소로 즉시 중단 | Approved | UC-015 | SPEC-012 | TEST-S-015 |
 
 ## 비기능 요구사항 (NFR → REQ)
 

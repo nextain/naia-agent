@@ -1,0 +1,63 @@
+{
+  "measurement": "issue-82 v3 경첩 실측 — awayEvidence 자기보고 규율 (패널 V3-1 HIGH 대응, 계약 v3.1 재작성 전 go/no-go)",
+  "date": "2026-07-17",
+  "script": "benchmark/v3-evidence-probe.mjs",
+  "model": "dnotitia-dna3.0-9b-q4-16k:latest",
+  "host": "http://127.0.0.1:11434",
+  "runs_per_probe": 6,
+  "schema": "v3-candidate (awayEvidence optional — 스크립트 내 V3_TOOL 정의가 후보 스펙 정본)",
+  "note_environment": "온도 0.7 하드코딩(ollama-provider) = 본질적 확률성. 프로브 30개 × 6회 = 180 시행, provider 오류 0.",
+  "hinge_summary": {
+    "positive": { "probes": 16, "valid": 96, "called": 96, "evidenceFilled": 81, "evidenceFaithful": 77, "reading": "call 100%, evidence 채움 84%, 채움 중 충실 95%" },
+    "one_only_ambiguous": { "probes": 3, "valid": 18, "called": 18, "evidenceFilled": 0, "reading": "①-only 에서 awayEvidence 위조 0/18 — 하이브리드 핵심 규율 성립 (완벽)" },
+    "negative_false_callers": { "probes": 8, "valid": 48, "called": 18, "evidenceFilled": 1, "reading": "false-call 의 17/18 이 evidence 비움 → 확인질문 경로로 안전 강등. 즉시 오활성 = 1/48 ≈ 2% (구 스키마 기저 10% 대비 붕괴)" },
+    "away_only": { "probes": 3, "valid": 18, "called": 11, "evidenceFilled": 11, "reading": "⚠️ 신규 구멍 — ②-only('나 씻고 올게' 등)가 구 스키마 0/15 → 신 스키마 11/18(61%) 호출, evidence 충실 채움 → ① 없는 발화 즉시 활성화" }
+  },
+  "per_probe": [
+    { "id": "P-POS-001", "label": "positive", "call": "6/6", "evid": "6/6", "faith": "5/6", "utterance": "라디오처럼 뭐라도 계속 이야기해 줘. 난 씻고 올게." },
+    { "id": "P-POS-002", "label": "positive", "call": "6/6", "evid": "5/6", "faith": "5/5", "utterance": "책 읽어주는 것처럼 계속 얘기해줄래? 나 누워서 들을게" },
+    { "id": "P-POS-003", "label": "positive", "call": "6/6", "evid": "6/6", "faith": "6/6", "utterance": "나 청소하는 동안 멈추지 말고 계속 얘기해줘." },
+    { "id": "P-POS-004", "label": "positive", "call": "6/6", "evid": "4/6", "faith": "4/4", "utterance": "나 요리할 건데 그동안 계속 얘기해줘." },
+    { "id": "P-POS-005", "label": "positive", "call": "6/6", "evid": "6/6", "faith": "6/6", "utterance": "팟캐스트처럼 계속 떠들어줘. 나 설거지할게." },
+    { "id": "P-POS-006", "label": "positive", "call": "6/6", "evid": "6/6", "faith": "6/6", "utterance": "나 스트레칭 좀 할게. 그동안 아무 얘기나 계속 해줘." },
+    { "id": "P-POS-007", "label": "positive", "call": "6/6", "evid": "6/6", "faith": "5/6", "utterance": "계속 혼자 말해줄래? 나 짐 좀 챙길게." },
+    { "id": "P-POS-008", "label": "positive", "call": "6/6", "evid": "6/6", "faith": "5/6", "utterance": "나 샤워하는 동안 계속 이야기해줘." },
+    { "id": "P-POS-009", "label": "positive", "call": "6/6", "evid": "2/6", "faith": "1/2", "utterance": "나 운전 중이야. 심심하니까 계속 얘기해줘." },
+    { "id": "P-POS-010", "label": "positive", "call": "6/6", "evid": "3/6", "faith": "3/3", "utterance": "나 빨래 널 동안 계속 이야기해 줄래?" },
+    { "id": "P-POS-011", "label": "positive", "call": "6/6", "evid": "6/6", "faith": "6/6", "utterance": "아무 얘기나 좋으니까 쭉 이어서 얘기해줘. 나 화장할게" },
+    { "id": "P-POS-012", "label": "positive", "call": "6/6", "evid": "6/6", "faith": "6/6", "utterance": "계속 떠들어줘. 나 정리 좀 하고 올게." },
+    { "id": "P-POS-013", "label": "positive", "call": "6/6", "evid": "2/6", "faith": "2/2", "utterance": "나 밥 먹는 동안 계속 얘기해줘." },
+    { "id": "P-POS-014", "label": "positive", "call": "6/6", "evid": "6/6", "faith": "6/6", "utterance": "라디오 틀어놓은 것처럼 계속 말해줘. 나 딴 거 좀 할게" },
+    { "id": "P-POS-015", "label": "positive", "call": "6/6", "evid": "5/6", "faith": "5/5", "utterance": "나 잠깐 나갔다 올게. 그동안 계속 이야기하고 있어줘." },
+    { "id": "P-POS-016", "label": "positive", "call": "6/6", "evid": "6/6", "faith": "6/6", "utterance": "쉬지 말고 계속 얘기해줘. 나 눈 좀 붙일게." },
+    { "id": "P-NEG-001", "label": "negative", "call": "3/6", "evid": "0/3", "utterance": "오늘 날씨 어때?" },
+    { "id": "P-NEG-007", "label": "negative", "call": "0/6", "evid": "0/0", "utterance": "이 코드 왜 안 되는지 봐줄래?" },
+    { "id": "P-NEG-009", "label": "negative", "call": "5/6", "evid": "0/5", "utterance": "계속 이야기해 볼까? 넌 어떤 영화 좋아해?" },
+    { "id": "P-NEG-011", "label": "negative", "call": "3/6", "evid": "0/3", "utterance": "계속 실패하는데 어떻게 해?" },
+    { "id": "P-NEG-013", "label": "negative", "call": "1/6", "evid": "0/1", "utterance": "이야기 하나만 해줘." },
+    { "id": "P-NEG-021", "label": "negative", "call": "1/6", "evid": "0/1", "utterance": "조용히 해줘." },
+    { "id": "P-NEG-027", "label": "negative", "call": "3/6", "evid": "0/3", "utterance": "메모 저장해줘. 제목은 장보기." },
+    { "id": "P-NEG-029", "label": "negative", "call": "2/6", "evid": "1/2", "faith": "0/1", "utterance": "날씨 확인하고 메모에 적어놔." },
+    { "id": "P-NEG-030", "label": "negative(②-only)", "call": "6/6", "evid": "6/6", "faith": "6/6", "utterance": "나 씻고 올게." },
+    { "id": "P-NEG-031", "label": "negative(②-only)", "call": "1/6", "evid": "1/1", "faith": "1/1", "utterance": "나 잠깐 나갔다 올게." },
+    { "id": "P-NEG-032", "label": "negative(②-only)", "call": "4/6", "evid": "4/4", "faith": "4/4", "utterance": "나 이제 잘게. 잘 자." },
+    { "id": "P-AMB-004", "label": "ambiguous(①-only)", "call": "6/6", "evid": "0/6", "utterance": "아무 얘기나 계속 해줘." },
+    { "id": "P-AMB-005", "label": "ambiguous(①-only)", "call": "6/6", "evid": "0/6", "utterance": "심심한데 얘기 좀 계속 해줄래?" },
+    { "id": "P-AMB-006", "label": "ambiguous(①-only)", "call": "6/6", "evid": "0/6", "utterance": "잠들 때까지 얘기해줘." }
+  ],
+  "sample_analysis": {
+    "away_only_forgery_pattern": "②-only 호출 샘플에서 userRequestQuote 와 awayEvidence 가 동일 내용(둘 다 원문 전체). 예: P-NEG-030 quote='나 씻고 올게.' evidence='나 씻고 올게.'; P-NEG-032 동일 패턴; P-NEG-031 은 quote='' 사례. 진짜 ①+② positive 는 두 필드가 서로 다른 부분을 인용.",
+    "partial_overlap_caveat": "P-POS-013 evidence='밥 먹는 동안' ⊂ quote — 동일성 검사를 substring 으로 하면 정상 케이스 오탐. 검사는 정규화 후 equality 기반이어야 함.",
+    "unfaithful_evidence_examples": "패러프레이즈('운전 중이라 자리를 비운 상태'), 메타텍스트('...신호가 없음') — faithful 77/81 의 잔여 4건 유형"
+  },
+  "verdict": {
+    "go_no_go": "GO (조건부) — 하이브리드 핵심 규율(①-only 위조 0, false-call 확인질문 강등) 실측 성립. 즉시 오활성 10% → 2%.",
+    "new_hole": "②-only 61% 호출 + 충실 evidence → ① 없는 발화 즉시 활성화. v3.1 계약에 방어 필수.",
+    "candidate_defenses": [
+      "(a) 도구 설명 강화 — ①(계속 말하기 요청)이 없으면 절대 호출 금지 명시 후 재측정",
+      "(b) 구조적 교차 필드 검사 — 정규화 후 quote ≡ evidence (equality, substring 아님) → 즉시 활성 불인정, 확인질문 경로로 강등 (P-NEG-030/032 잡힘, P-POS-013 부분중첩 통과)",
+      "(c) 빈 quote 거부 (P-NEG-031 잡힘)",
+      "미실측 — 다음 세션에서 (a)/(b)/(c) 조합을 ②-only 3프로브 + positive 회귀로 재측정 후 채택"
+    ]
+  }
+}

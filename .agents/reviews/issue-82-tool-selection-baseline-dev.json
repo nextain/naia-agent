@@ -1,0 +1,704 @@
+{
+  "label": "baseline",
+  "split": "dev",
+  "runs": 5,
+  "model": "dnotitia-dna3.0-9b-q4-16k:latest",
+  "descriptionSource": "production",
+  "descriptionSha": null,
+  "falseCallRate": {
+    "probes": 32,
+    "calls": 160,
+    "called": 16,
+    "rate": 0.1,
+    "ci95": [
+      0.06249389743784216,
+      0.156263731882184
+    ]
+  },
+  "missRate": {
+    "probes": 16,
+    "calls": 80,
+    "called": 76,
+    "rate": 0.95,
+    "missed": 4,
+    "ci95": [
+      0.01961323712729557,
+      0.121624525510822
+    ]
+  },
+  "ambiguousCallRate": {
+    "probes": 6,
+    "calls": 30,
+    "called": 18,
+    "rate": 0.6,
+    "ci95": [
+      0.42320052498273836,
+      0.7540960567391659
+    ]
+  },
+  "byCategory": {
+    "일반질문": {
+      "calls": 40,
+      "called": 2,
+      "rate": 0.05
+    },
+    "어휘함정": {
+      "calls": 50,
+      "called": 8,
+      "rate": 0.16
+    },
+    "정지": {
+      "calls": 20,
+      "called": 1,
+      "rate": 0.05
+    },
+    "짧은발화": {
+      "calls": 20,
+      "called": 2,
+      "rate": 0.1
+    },
+    "도구요청": {
+      "calls": 15,
+      "called": 3,
+      "rate": 0.2
+    },
+    "부재만": {
+      "calls": 15,
+      "called": 0,
+      "rate": 0
+    }
+  },
+  "results": [
+    {
+      "id": "P-POS-001",
+      "label": "positive",
+      "category": null,
+      "utterance": "라디오처럼 뭐라도 계속 이야기해 줘. 난 씻고 올게.",
+      "calls": 5,
+      "runs": 5,
+      "quotes": [
+        "\"라디오처럼 뭐라도 계속 이야기해 줘. 난 씻고 올게.\"",
+        "라디오처럼 뭐라도 계속 이야기해 줘. 난 씻고 올게.",
+        "\"라디오처럼 뭐라도 계속 이야기해 줘. 난 씻고 올게.\"",
+        "라디오처럼 뭐라도 계속 이야기해 줘. 난 씻고 올게.",
+        "라디오처럼 뭐라도 계속 이야기해 줘. 난 씻고 올게."
+      ]
+    },
+    {
+      "id": "P-POS-002",
+      "label": "positive",
+      "category": null,
+      "utterance": "책 읽어주는 것처럼 계속 얘기해줄래? 나 누워서 들을게.",
+      "calls": 3,
+      "runs": 5,
+      "quotes": [
+        "책 읽어주는 것처럼 계속 얘기해줄래? 나 누워서 들을게.",
+        "책 읽어주는 것처럼 계속 얘기해줄래? 나 누워서 들을게.",
+        "책 읽어주는 것처럼 계속 얘기해줄래? 나 누워서 들을게."
+      ]
+    },
+    {
+      "id": "P-POS-003",
+      "label": "positive",
+      "category": null,
+      "utterance": "나 청소하는 동안 멈추지 말고 계속 얘기해줘.",
+      "calls": 5,
+      "runs": 5,
+      "quotes": [
+        "나 청소하는 동안 멈추지 말고 계속 얘기해줘.",
+        "청소하는 동안 멈추지 말고 계속 얘기해줘.",
+        "나 청소하는 동안 멈추지 말고 계속 얘기해줘.",
+        "나 청소하는 동안 멈추지 말고 계속 얘기해줘.",
+        "나 청소하는 동안 멈추지 말고 계속 얘기해줘."
+      ]
+    },
+    {
+      "id": "P-POS-004",
+      "label": "positive",
+      "category": null,
+      "utterance": "나 요리할 건데 그동안 계속 얘기해줘.",
+      "calls": 5,
+      "runs": 5,
+      "quotes": [
+        "나 요리할 건데 그동안 계속 얘기해줘.",
+        "나 요리할 건데 그동안 계속 얘기해줘.",
+        "나 요리할 건데 그동안 계속 얘기해줘.",
+        "나 요리할 건데 그동안 계속 얘기해줘.",
+        "나 요리할 건데 그동안 계속 얘기해줘."
+      ]
+    },
+    {
+      "id": "P-POS-005",
+      "label": "positive",
+      "category": null,
+      "utterance": "팟캐스트처럼 계속 떠들어줘. 나 설거지할게.",
+      "calls": 5,
+      "runs": 5,
+      "quotes": [
+        "팟캐스트처럼 계속 떠들어줘. 나 설거지할게.",
+        "팟캐스트처럼 계속 떠들어줘. 나 설거지할게.",
+        "팟캐스트처럼 계속 떠들어줘. 나 설거지할게.",
+        "설거지할게",
+        "팟캐스트처럼 계속 떠들어줘. 나 설거지할게."
+      ]
+    },
+    {
+      "id": "P-POS-006",
+      "label": "positive",
+      "category": null,
+      "utterance": "나 스트레칭 좀 할게. 그동안 아무 얘기나 계속 해줘.",
+      "calls": 4,
+      "runs": 5,
+      "quotes": [
+        "나 스트레칭 좀 할게. 그동안 아무 얘기나 계속 해줘.",
+        "나 스트레칭 좀 할게. 그동안 아무 얘기나 계속 해줘.",
+        "나 스트레칭 좀 할게. 그동안 아무 얘기나 계속 해줘.",
+        "나 스트레칭 좀 할게. 그동안 아무 얘기나 계속 해줘."
+      ]
+    },
+    {
+      "id": "P-POS-007",
+      "label": "positive",
+      "category": null,
+      "utterance": "계속 혼자 말해줄래? 나 짐 좀 챙길게.",
+      "calls": 5,
+      "runs": 5,
+      "quotes": [
+        "계속 혼자 말해줄래? 나 짐 좀 챙길게.",
+        "계속 혼자 말해줄래? 나 짐 좀 챙길게.",
+        "계속 혼자 말해줄래? 나 짐 좀 챙길게.",
+        "계속 혼자 말해줄래? 나 짐 좀 챙길게.",
+        "계속 혼자 말해줄래? 나 짐 좀 챙길게."
+      ]
+    },
+    {
+      "id": "P-POS-008",
+      "label": "positive",
+      "category": null,
+      "utterance": "나 샤워하는 동안 계속 이야기해줘.",
+      "calls": 5,
+      "runs": 5,
+      "quotes": [
+        "샤워하는 동안 계속 이야기해줘",
+        "나 샤워하는 동안 계속 이야기해줘.",
+        "나 샤워하는 동안 계속 이야기해줘.",
+        "나 샤워하는 동안 계속 이야기해줘",
+        "나 샤워하는 동안 계속 이야기해줘."
+      ]
+    },
+    {
+      "id": "P-POS-009",
+      "label": "positive",
+      "category": null,
+      "utterance": "나 운전 중이야. 심심하니까 계속 얘기해줘.",
+      "calls": 5,
+      "runs": 5,
+      "quotes": [
+        "나 운전 중이야. 심심하니까 계속 얘기해줘.",
+        "나 운전 중이야. 심심하니까 계속 얘기해줘.",
+        "나 운전 중이야. 심심하니까 계속 얘기해줘.",
+        "나 운전 중이야. 심심하니까 계속 얘기해줘.",
+        "나 운전 중이야. 심심하니까 계속 얘기해줘."
+      ]
+    },
+    {
+      "id": "P-POS-010",
+      "label": "positive",
+      "category": null,
+      "utterance": "나 빨래 널 동안 계속 이야기해 줄래?",
+      "calls": 4,
+      "runs": 5,
+      "quotes": [
+        "나 빨래 널 동안 계속 이야기해 줄래?",
+        "나 빨래 널 동안 계속 이야기해 줄래?",
+        "나 빨래 널 동안 계속 이야기해 줄래?",
+        "나 빨래 널 동안 계속 이야기해 줄래?"
+      ]
+    },
+    {
+      "id": "P-POS-011",
+      "label": "positive",
+      "category": null,
+      "utterance": "아무 얘기나 좋으니까 쭉 이어서 얘기해줘. 나 화장할게.",
+      "calls": 5,
+      "runs": 5,
+      "quotes": [
+        "아무 얘기나 좋으니까 쭉 이어서 얘기해줘. 나 화장할게.",
+        "아무 얘기나 좋으니까 쭉 이어서 얘기해줘. 나 화장할게.",
+        "아무 얘기나 좋으니까 쭉 이어서 얘기해줘. 나 화장할게.",
+        "아무 얘기나 좋으니까 쭉 이어서 얘기해줘. 나 화장할게.",
+        "아무 얘기나 좋으니까 쭉 이어서 얘기해줘. 나 화장할게."
+      ]
+    },
+    {
+      "id": "P-POS-012",
+      "label": "positive",
+      "category": null,
+      "utterance": "계속 떠들어줘. 나 정리 좀 하고 올게.",
+      "calls": 5,
+      "runs": 5,
+      "quotes": [
+        "계속 떠들어줘. 나 정리 좀 하고 올게.",
+        "\"계속 떠들어줘. 나 정리 좀 하고 올게.\"",
+        "계속 떠들어줘. 나 정리 좀 하고 올게.",
+        "계속 떠들어줘. 나 정리 좀 하고 올게.",
+        "\"계속 떠들어줘. 나 정리 좀 하고 올게.\""
+      ]
+    },
+    {
+      "id": "P-POS-013",
+      "label": "positive",
+      "category": null,
+      "utterance": "나 밥 먹는 동안 계속 얘기해줘.",
+      "calls": 5,
+      "runs": 5,
+      "quotes": [
+        "나 밥 먹는 동안 계속 얘기해줘.",
+        "나 밥 먹는 동안 계속 얘기해줘.",
+        "나 밥 먹는 동안 계속 얘기해줘.",
+        "나 밥 먹는 동안 계속 얘기해줘.",
+        "나 밥 먹는 동안 계속 얘기해줘."
+      ]
+    },
+    {
+      "id": "P-POS-014",
+      "label": "positive",
+      "category": null,
+      "utterance": "라디오 틀어놓은 것처럼 계속 말해줘. 나 딴 거 좀 할게.",
+      "calls": 5,
+      "runs": 5,
+      "quotes": [
+        "\"라디오 틀어놓은 것처럼 계속 말해줘. 나 딴 거 좀 할게.\"",
+        "라디오 틀어놓은 것처럼 계속 말해줘. 나 딴 거 좀 할게.",
+        "라디오 틀어놓은 것처럼 계속 말해줘. 나 딴 거 좀 할게.",
+        "\"라디오 틀어놓은 것처럼 계속 말해줘. 나 딴 거 좀 할게.\"",
+        "라디오 틀어놓은 것처럼 계속 말해줘. 나 딴 거 좀 할게."
+      ]
+    },
+    {
+      "id": "P-POS-015",
+      "label": "positive",
+      "category": null,
+      "utterance": "나 잠깐 나갔다 올게. 그동안 계속 이야기하고 있어줘.",
+      "calls": 5,
+      "runs": 5,
+      "quotes": [
+        "나 잠깐 나갔다 올게. 그동안 계속 이야기하고 있어줘.",
+        "나 잠깐 나갔다 올게. 그동안 계속 이야기하고 있어줘.",
+        "나 잠깐 나갔다 올게. 그동안 계속 이야기하고 있어줘.",
+        "나 잠깐 나갔다 올게. 그동안 계속 이야기하고 있어줘.",
+        "나 잠깐 나갔다 올게. 그동안 계속 이야기하고 있어줘."
+      ]
+    },
+    {
+      "id": "P-POS-016",
+      "label": "positive",
+      "category": null,
+      "utterance": "쉬지 말고 계속 얘기해줘. 나 눈 좀 붙일게.",
+      "calls": 5,
+      "runs": 5,
+      "quotes": [
+        "쉬지 말고 계속 얘기해줘. 나 눈 좀 붙일게.",
+        "쉬지 말고 계속 얘기해줘. 나 눈 좀 붙일게.",
+        "\"쉬지 말고 계속 얘기해줘. 나 눈 좀 붙일게.\"",
+        "쉬지 말고 계속 얘기해줘. 나 눈 좀 붙일게.",
+        "쉬지 말고 계속 얘기해줘. 나 눈 좀 붙일게."
+      ]
+    },
+    {
+      "id": "P-NEG-001",
+      "label": "negative",
+      "category": "일반질문",
+      "utterance": "오늘 날씨 어때?",
+      "calls": 1,
+      "runs": 5,
+      "quotes": [
+        "오늘 날씨 어때?"
+      ]
+    },
+    {
+      "id": "P-NEG-002",
+      "label": "negative",
+      "category": "일반질문",
+      "utterance": "지금 몇 시야?",
+      "calls": 0,
+      "runs": 5,
+      "quotes": []
+    },
+    {
+      "id": "P-NEG-003",
+      "label": "negative",
+      "category": "일반질문",
+      "utterance": "3 더하기 5는?",
+      "calls": 0,
+      "runs": 5,
+      "quotes": []
+    },
+    {
+      "id": "P-NEG-004",
+      "label": "negative",
+      "category": "일반질문",
+      "utterance": "파이썬 데코레이터 설명해 줘.",
+      "calls": 0,
+      "runs": 5,
+      "quotes": []
+    },
+    {
+      "id": "P-NEG-005",
+      "label": "negative",
+      "category": "일반질문",
+      "utterance": "김치찌개 레시피 알려줘.",
+      "calls": 0,
+      "runs": 5,
+      "quotes": []
+    },
+    {
+      "id": "P-NEG-006",
+      "label": "negative",
+      "category": "일반질문",
+      "utterance": "내일 일정 뭐 있어?",
+      "calls": 0,
+      "runs": 5,
+      "quotes": []
+    },
+    {
+      "id": "P-NEG-007",
+      "label": "negative",
+      "category": "일반질문",
+      "utterance": "이 코드 왜 안 되는지 봐줄래?",
+      "calls": 1,
+      "runs": 5,
+      "quotes": [
+        "이 코드 왜 안 되는지 봐줄래?"
+      ]
+    },
+    {
+      "id": "P-NEG-008",
+      "label": "negative",
+      "category": "일반질문",
+      "utterance": "서울에서 부산까지 얼마나 걸려?",
+      "calls": 0,
+      "runs": 5,
+      "quotes": []
+    },
+    {
+      "id": "P-NEG-009",
+      "label": "negative",
+      "category": "어휘함정",
+      "utterance": "계속 이야기해 볼까? 넌 어떤 영화 좋아해?",
+      "calls": 1,
+      "runs": 5,
+      "quotes": [
+        "계속 이야기해 볼까? 넌 어떤 영화 좋아해?"
+      ]
+    },
+    {
+      "id": "P-NEG-010",
+      "label": "negative",
+      "category": "어휘함정",
+      "utterance": "요즘 계속 피곤해.",
+      "calls": 0,
+      "runs": 5,
+      "quotes": []
+    },
+    {
+      "id": "P-NEG-011",
+      "label": "negative",
+      "category": "어휘함정",
+      "utterance": "계속 실패하는데 어떻게 해?",
+      "calls": 2,
+      "runs": 5,
+      "quotes": [
+        "계속 실패하는데 어떻게 해?",
+        "계속 실패하는데 어떻게 해?"
+      ]
+    },
+    {
+      "id": "P-NEG-012",
+      "label": "negative",
+      "category": "어휘함정",
+      "utterance": "우리 무슨 이야기 하고 있었지?",
+      "calls": 1,
+      "runs": 5,
+      "quotes": [
+        "우리 무슨 이야기 하고 있었지?"
+      ]
+    },
+    {
+      "id": "P-NEG-013",
+      "label": "negative",
+      "category": "어휘함정",
+      "utterance": "이야기 하나만 해줘.",
+      "calls": 1,
+      "runs": 5,
+      "quotes": [
+        "이야기 하나만 해줘"
+      ]
+    },
+    {
+      "id": "P-NEG-014",
+      "label": "negative",
+      "category": "어휘함정",
+      "utterance": "짧은 이야기 하나 들려줘.",
+      "calls": 0,
+      "runs": 5,
+      "quotes": []
+    },
+    {
+      "id": "P-NEG-015",
+      "label": "negative",
+      "category": "어휘함정",
+      "utterance": "그 사람 이야기는 그만하자.",
+      "calls": 1,
+      "runs": 5,
+      "quotes": [
+        "그 사람 이야기는 그만하자"
+      ]
+    },
+    {
+      "id": "P-NEG-016",
+      "label": "negative",
+      "category": "어휘함정",
+      "utterance": "얘기가 계속 겉도네.",
+      "calls": 1,
+      "runs": 5,
+      "quotes": [
+        "얘기가 계속 겉도네"
+      ]
+    },
+    {
+      "id": "P-NEG-017",
+      "label": "negative",
+      "category": "어휘함정",
+      "utterance": "너는 계속 같은 말만 하잖아.",
+      "calls": 1,
+      "runs": 5,
+      "quotes": [
+        "\"계속 같은 말만 하잖아.\""
+      ]
+    },
+    {
+      "id": "P-NEG-018",
+      "label": "negative",
+      "category": "어휘함정",
+      "utterance": "라디오에서 그 노래 나왔었지?",
+      "calls": 0,
+      "runs": 5,
+      "quotes": []
+    },
+    {
+      "id": "P-NEG-019",
+      "label": "negative",
+      "category": "정지",
+      "utterance": "그만 얘기해.",
+      "calls": 0,
+      "runs": 5,
+      "quotes": []
+    },
+    {
+      "id": "P-NEG-020",
+      "label": "negative",
+      "category": "정지",
+      "utterance": "이제 됐어. 그만.",
+      "calls": 0,
+      "runs": 5,
+      "quotes": []
+    },
+    {
+      "id": "P-NEG-021",
+      "label": "negative",
+      "category": "정지",
+      "utterance": "조용히 해줘.",
+      "calls": 1,
+      "runs": 5,
+      "quotes": [
+        "조용히 해줘."
+      ]
+    },
+    {
+      "id": "P-NEG-022",
+      "label": "negative",
+      "category": "정지",
+      "utterance": "잠깐 멈춰봐.",
+      "calls": 0,
+      "runs": 5,
+      "quotes": []
+    },
+    {
+      "id": "P-NEG-023",
+      "label": "negative",
+      "category": "짧은발화",
+      "utterance": "응.",
+      "calls": 1,
+      "runs": 5,
+      "quotes": [
+        "응."
+      ]
+    },
+    {
+      "id": "P-NEG-024",
+      "label": "negative",
+      "category": "짧은발화",
+      "utterance": "고마워.",
+      "calls": 0,
+      "runs": 5,
+      "quotes": []
+    },
+    {
+      "id": "P-NEG-025",
+      "label": "negative",
+      "category": "짧은발화",
+      "utterance": "알았어.",
+      "calls": 1,
+      "runs": 5,
+      "quotes": [
+        "알았어."
+      ]
+    },
+    {
+      "id": "P-NEG-026",
+      "label": "negative",
+      "category": "짧은발화",
+      "utterance": "안녕?",
+      "calls": 0,
+      "runs": 5,
+      "quotes": []
+    },
+    {
+      "id": "P-NEG-027",
+      "label": "negative",
+      "category": "도구요청",
+      "utterance": "메모 저장해줘. 제목은 장보기.",
+      "calls": 1,
+      "runs": 5,
+      "quotes": [
+        "메모 저장해줘. 제목은 장보기."
+      ]
+    },
+    {
+      "id": "P-NEG-028",
+      "label": "negative",
+      "category": "도구요청",
+      "utterance": "이 파일 좀 읽어줘.",
+      "calls": 0,
+      "runs": 5,
+      "quotes": []
+    },
+    {
+      "id": "P-NEG-029",
+      "label": "negative",
+      "category": "도구요청",
+      "utterance": "날씨 확인하고 메모에 적어놔.",
+      "calls": 2,
+      "runs": 5,
+      "quotes": [
+        "날씨 확인하고 메모에 적어놔.",
+        "날씨 확인하고 메모에 적어놔."
+      ]
+    },
+    {
+      "id": "P-NEG-030",
+      "label": "negative",
+      "category": "부재만",
+      "utterance": "나 씻고 올게.",
+      "calls": 0,
+      "runs": 5,
+      "quotes": []
+    },
+    {
+      "id": "P-NEG-031",
+      "label": "negative",
+      "category": "부재만",
+      "utterance": "나 잠깐 나갔다 올게.",
+      "calls": 0,
+      "runs": 5,
+      "quotes": []
+    },
+    {
+      "id": "P-NEG-032",
+      "label": "negative",
+      "category": "부재만",
+      "utterance": "나 이제 잘게. 잘 자.",
+      "calls": 0,
+      "runs": 5,
+      "quotes": []
+    },
+    {
+      "id": "P-AMB-001",
+      "label": "ambiguous",
+      "category": null,
+      "utterance": "계속해.",
+      "calls": 1,
+      "runs": 5,
+      "quotes": [
+        "계속해."
+      ]
+    },
+    {
+      "id": "P-AMB-002",
+      "label": "ambiguous",
+      "category": null,
+      "utterance": "그래서? 계속 말해봐.",
+      "calls": 2,
+      "runs": 5,
+      "quotes": [
+        "그래서? 계속 말해봐.",
+        "계속 말해봐."
+      ]
+    },
+    {
+      "id": "P-AMB-003",
+      "label": "ambiguous",
+      "category": null,
+      "utterance": "아까 하던 얘기 계속하자.",
+      "calls": 0,
+      "runs": 5,
+      "quotes": []
+    },
+    {
+      "id": "P-AMB-004",
+      "label": "ambiguous",
+      "category": null,
+      "utterance": "아무 얘기나 계속 해줘.",
+      "calls": 5,
+      "runs": 5,
+      "quotes": [
+        "아무 얘기나 계속 해줘",
+        "아무 얘기나 계속 해줘",
+        "아무 얘기나 계속 해줘",
+        "아무 얘기나 계속 해줘",
+        "아무 얘기나 계속 해줘"
+      ]
+    },
+    {
+      "id": "P-AMB-005",
+      "label": "ambiguous",
+      "category": null,
+      "utterance": "심심한데 얘기 좀 계속 해줄래?",
+      "calls": 5,
+      "runs": 5,
+      "quotes": [
+        "심심한데 얘기 좀 계속 해줄래?",
+        "심심한데 얘기 좀 계속 해줄래?",
+        "심심한데 얘기 좀 계속 해줄래?",
+        "심심한데 얘기 좀 계속 해줄래?",
+        "심심한데 얘기 좀 계속 해줄래?"
+      ]
+    },
+    {
+      "id": "P-AMB-006",
+      "label": "ambiguous",
+      "category": null,
+      "utterance": "잠들 때까지 얘기해줘.",
+      "calls": 5,
+      "runs": 5,
+      "quotes": [
+        "잠들 때까지 얘기해줘.",
+        "잠들 때까지 얘기해줘.",
+        "\"잠들 때까지 얘기해줘\"",
+        "잠들 때까지 얘기해줘.",
+        "잠들 때까지 얘기해줘."
+      ]
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "review": "issue-82 범주 재점검 크로스리뷰 (T1 범주 / T2 얇음·두꺼움 / T3 인간사상·확인질문 / T4 계측)",
+  "date": "2026-07-17",
+  "reviewer": "codex gpt-5.6-sol (reasoning=high, sandbox=read-only, 독립 시각)",
+  "baseline": "HEAD 83f34d2 + 미커밋 워크트리",
+  "verdict": "FINDINGS(6)",
+  "tokens_used": 107215,
+  "theses": {
+    "T1_범주": {
+      "result": "부분 반증 — 핵심('런타임=장기 활동')은 성립, 과잉 주장 2건 기각",
+      "refuted": [
+        "'턴 안의 도구 호출이 아니다' — 도구 호출은 활동의 시작 명령으로 유지 가능. 버릴 것은 '활동 수명을 턴 지역변수에 가두는 것'",
+        "'모든 결함이 범주 오류의 증상' — quote 가드 실패는 범주와 무관한 의도 분류 실패. 끝-1회 저장·도구 cap 은 개별 수정도 가능"
+      ],
+      "refined_thesis": "도구 호출은 활동의 시작 명령으로 유지할 수 있지만, 활성화 이후 상태·정지·저장·수명은 턴이 아니라 명시적 활동 수명으로 관리해야 한다"
+    },
+    "T2_얇음두꺼움": {
+      "result": "반증 성공 — '통합은 두 번째 소비자 때' 유예 조건은 이미 충족 (supervisor=실소비자 2호, cron=명시된 다음 소비자)",
+      "note": "사용자 정정('시연 아님, 제품 방향')과 독립적으로 동일 결론 도달 = 수렴 검증. 단 '거대 공용 실행 엔진 지금 구축'은 아님 — 공통 확정 대상은 activity 의 상태·정지·수명·체크포인트·재개 계약이고 구현은 radio 슬라이스부터",
+      "confirmed": "cron 껍데기 판정 정확 (CronStorePort 인터페이스만, 구현·주입 0건 전수검색 확인)"
+    },
+    "T3_확인질문": {
+      "result": "조건부 성립 — '모델이 알아서 물어본다'가 아니라 'app 이 확인 상태와 전이를 강제한다'가 정확한 형태",
+      "required_design": [
+        "app 상태기계: positive→즉시 시작 / ambiguous→pending_confirmation / negative→일반 응답",
+        "pending_confirmation(sessionId, activityType, expiresAt) — sessionId 는 이미 존재(transcript 저장에 사용)하므로 결속 가능",
+        "다음 턴 '응/아니' 판정은 pending 상태에서만 수행 (임의 '응'과 구분)",
+        "ambiguous 상태에서 모델이 확인 없이 도구 호출 시 활성화로 인정하지 않음 (전이 규칙로 강제)",
+        "P01 에 pending 의 TTL·세션 결속·취소·기타 응답 처리 규칙 필수"
+      ],
+      "insight": "확신/애매 경계는 새 오류원이 맞으나, 오류 제거가 아니라 비용 재배치 문제 — 불확실을 질문으로 보내면 false activation 이 '추가 대화 1회' 비용으로 변환"
+    },
+    "T4_계측": {
+      "result": "원칙 성립, 현 기반은 설계 판정용으로 4건 수정 필요",
+      "findings": [
+        {
+          "id": "T4-1 라벨 순환정의",
+          "detail": "코퍼스 조건 ②(부재/수동청취)의 근거가 구현의 도구 설명 — UC(P01)는 '명시적으로 계속 말해 달라고 요청'만 요구. 권위 방향 역전. P01 에서 조건 ② 승인이 선행돼야 함",
+          "fix": "P01 결정 항목으로 이관"
+        },
+        {
+          "id": "T4-2 ambiguous 제외 ↔ T3 비양립",
+          "detail": "T3 채택 시 ambiguous 의 정답은 '제외'가 아니라 '확인 질문'. 러너는 tool called 여부만 측정 — direct_activate/ask/reject 3분류 지표 필요",
+          "fix": "T3/P01 확정 후 러너 3분류 확장 (TODO 기록)"
+        },
+        {
+          "id": "T4-3 holdout 잠금 우회",
+          "detail": "TS_SPLIT=all 이 ACK 검사를 우회하며 holdout 프로브 포함",
+          "fix": "✅ 2026-07-17 수정 — all 도 TS_HOLDOUT_ACK 요구"
+        },
+        {
+          "id": "T4-4 통계 결함",
+          "detail": "(a) 같은 프로브 반복을 독립 Bernoulli 로 풀링 → 군집효과로 CI 과소폭 (b) provider 오류를 called:false 로 흡수 → 음성 false-call 과소·양성 miss 과대 비대칭 오염. 유효 독립 문장 수는 dev neg 32·pos 16",
+          "fix": "✅ 2026-07-17 부분 수정 — 오류 표본 제외·별도 집계 + probeMeanRate(프로브 계층 평균) 병행 + statsCaveat 명기. 프로브 계층 bootstrap/베타-이항은 후속"
+        }
+      ]
+    }
+  },
+  "note_baseline_run": "수정 전 러너로 측정 중인 베이스라인은 오류 0 이면 수치 동일. 증적 확인 시 오류 유무 검증할 것."
+}

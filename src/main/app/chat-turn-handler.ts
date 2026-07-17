@@ -1,7 +1,7 @@
 // app — UC1 ChatTurnHandler + UC5 도구 실행 루프 (계약 §B.3 + UC5-agent-tool-loop §B.3). 포트만 사용. domain 만.
 // 불변식: usage=terminal 직전 1회(라운드 스냅샷 합)·이후 무방출 / finish XOR error(terminal 래치) / 레지스트리 finally 해제 / emit no-throw.
 import type {
-  ChatRequest, CancelRequest, ApprovalResponse, CredsUpdate, ChatTurnState, ChatMessage, ToolCall, ProviderConfig,
+  ChatRequest, CancelRequest, ApprovalResponse, CredsUpdate, ChatTurnState, ChatMessage, ToolCall, ToolSpec, ProviderConfig,
 } from "../domain/chat.js";
 import { mapProviderChunk, threadToolRound, estimateMessageTokens } from "../domain/chat.js";
 import { calculateCost } from "../domain/cost.js";
@@ -26,6 +26,52 @@ const MEM_SAVE_TIMEOUT_MS = 5000;   // save bound — 무응답 시 finish/drain
 const DEFAULT_COMPACT_THRESHOLD_TOKENS = 4000; // 추정 토큰 이 임계 초과 시 head 요약 시도.
 const DEFAULT_COMPACT_KEEP_TAIL = 6;           // 압축 시 원문 유지할 최근 메시지 수.
 const DEFAULT_COMPACT_TARGET_TOKENS = 1000;    // recap 목표 토큰(요약 예산).
+const CONTINUE_SPEAKING_TOOL_NAME = "continue_speaking";
+const CONTINUE_DEFAULT_DURATION_MINUTES = 10;
+const CONTINUE_MAX_DURATION_MINUTES = 30;
+const CONTINUE_DEFAULT_PAUSE_SECONDS = 3;
+const CONTINUE_MAX_PAUSE_SECONDS = 30;
+const CONTINUE_MAX_UTTERANCES = 60;
+const CONTINUE_TOOL_RESULT_ACTIVATED = "continuous speaking activated";
+const CONTINUE_TOOL_RESULT_REJECTED = "continuous speaking rejected: explicit user request quote is missing or does not match the latest user message";
+
+/** UC-015 제어 도구 스펙. **export 이유 = 계측 드리프트 방지**: `benchmark/run-tool-selection-bench.mjs` 가
+ *  도구 선택률(오호출률)을 잴 때 이 스펙을 **그대로** 쓴다. 복사본을 재면 설명을 고쳐도 계측이 안 따라와
+ *  "고쳤는데 수치가 그대로" 같은 거짓 결론이 난다. 계측 대상 = 프로덕션 실물 1개. */
+export const CONTINUE_SPEAKING_TOOL: ToolSpec = {
+  name: CONTINUE_SPEAKING_TOOL_NAME,
+  description: "사용자가 최신 메시지에서 자리를 비우는 동안 라디오처럼 계속 말해 달라고 명시적으로 요청한 경우에만 호출합니다. 일반 질문에는 절대 호출하지 마세요. userRequestQuote에는 계속 말해 달라는 사용자 원문 부분을 정확히 복사하세요. 이 도구가 활성화되면 같은 응답 스트림에서 짧은 후속 이야기를 스스로 이어갑니다.",
+  parameters: {
+    type: "object",
+    properties: {
+      userRequestQuote: { type: "string", description: "최신 사용자 메시지에서 계속 말해 달라고 요청한 원문 그대로의 인용" },
+      topic: { type: "string", description: "이어 말할 선택 주제" },
+      durationMinutes: { type: "number", minimum: 1, maximum: CONTINUE_MAX_DURATION_MINUTES, default: CONTINUE_DEFAULT_DURATION_MINUTES },
+      pauseSeconds: { type: "number", minimum: 0, maximum: CONTINUE_MAX_PAUSE_SECONDS, default: CONTINUE_DEFAULT_PAUSE_SECONDS },
+    },
+    required: ["userRequestQuote"],
+    additionalProperties: false,
+  },
+};
+
+interface ContinuationClock {
+  now(): number;
+  wait(ms: number, signal: AbortSignal): Promise<boolean>;
+}
+
+interface ContinuationState {
+  readonly deadlineAt: number;
+  readonly pauseMs: number;
+  readonly topic: string;
+  /** 원래 대화 + 내부 control tool-call/result + 첫 발화 전 외부 다중 도구루프 결과. 이후 발화 누적 방지 기준점. */
+  baseMessages?: readonly ChatMessage[];
+  utterances: number;
+}
+
+const DEFAULT_CONTINUATION_CLOCK: ContinuationClock = {
+  now: () => Date.now(),
+  wait: waitForContinuation,
+};
 
 /** 한 provider 호출(라운드)의 결과 — runRound 가 반환, onChatRequest 루프가 해석. */
 interface RoundResult {
@@ -61,6 +107,8 @@ export interface HandlerDeps {
   readonly conversationLog?: ConversationLogPort;                 // FR-CONV.1 — turn 후 verbatim transcript append(전두엽 기록). 미주입=미기록(무회귀).
   readonly personaSource?: PersonaSourcePort;                     // FR-PERSONA-3 — 코어가 워크스페이스 페르소나를 *스스로* 조립(클라가 안 보냄). req.systemPrompt 는 override. 미주입=기존 동작(req.systemPrompt 만, 무회귀).
   readonly workspaceContext?: WorkspaceContextPort;               // FR-WORKSPACE — 코어가 워크스페이스 컨텍스트(cwd+프로젝트 이름)를 *스스로* 조립해 persona 뒤에 append(경량 shallow). 미주입=기존 동작(persona 만, 무회귀). req.systemPrompt override 시 둘 다 무시.
+  /** UC-015 결정론 테스트 seam. 미주입이면 Date.now + abort 가능한 실제 timer. */
+  readonly continuationClock?: ContinuationClock;
 }
 
 export class ChatTurnHandler {
@@ -194,9 +242,15 @@ export class ChatTurnHandler {
       const exec = this.d.toolExecutor;
       // UC5 리뷰 fix: enableTools=false → 도구 미제공(순수 챗), disabledSkills 필터(wire 필드 소비, old 충실).
       const allSpecs = exec?.specs() ?? [];
-      const tools = req.enableTools === false ? [] : allSpecs.filter((s) => !(req.disabledSkills ?? []).includes(s.name));
+      // UC-015: app 소유 semantic control 은 외부 executor 와 이름 충돌하지 않도록 우선한다. enableTools=false 만
+      // 전체 도구를 끈다. 활성화/거부 뒤에는 control 을 다시 노출하지 않아 재호출 루프를 막는다.
+      const externalTools = req.enableTools === false ? [] : allSpecs.filter((s) => s.name !== CONTINUE_SPEAKING_TOOL_NAME && !(req.disabledSkills ?? []).includes(s.name));
+      const tools = req.enableTools === false ? [] : [CONTINUE_SPEAKING_TOOL, ...externalTools];
       let messages: readonly ChatMessage[] = asm.messages;
       let toolRounds = 0;
+      let controlConsumed = false;
+      let continuation: ContinuationState | undefined;
+      const continuationClock = this.d.continuationClock ?? DEFAULT_CONTINUATION_CLOCK;
       const usedCids = new Set<string>(); // turn-unique correlation id (D-I7)
       // tier 조회: name 매치 중 gated(none 아님) 있으면 그 tier(승인필요), 없으면 "none". 미등록=none. (중복 매치=보수적 gated 우선)
       const tierOf = (name: string): string => {
@@ -212,10 +266,27 @@ export class ChatTurnHandler {
       };
 
       const assistantTurnParts: string[] = []; // 턴 전체 assistant 텍스트 누적(도구 라운드 preamble 포함) — save 용
+      const commitCompletedTurn = async (): Promise<void> => {
+        // UC-memory FR-MEM-2: provider 가 최종 응답을 낸 시점 = **커밋 지점**. 연속 발화도 전체를 한 번 저장.
+        if (this.d.memory && currentUserMsg) {
+          try {
+            const saveTimeoutMs = this.d.memoryTimeoutMs ?? MEM_SAVE_TIMEOUT_MS;
+            const ok = await raceTimeout(this.d.memory.save(lastUserText, assistantTurnParts.join("\n")), saveTimeoutMs);
+            if (!ok) this.safeDiag("memory save 시간초과(턴 유지)", new Error(`>${saveTimeoutMs}ms`));
+          } catch (e) { this.safeDiag("memory save 실패(턴 유지)", e); }
+        }
+        if (this.d.conversationLog && currentUserMsg) {
+          try {
+            await this.d.conversationLog.append({ sessionId: req.sessionId ?? "default", userText: lastUserText, assistantText: assistantTurnParts.join("\n") });
+          } catch (e) { this.safeDiag("transcript append 실패(턴 유지)", e); }
+        }
+        terminalFinish();
+      };
       for (;;) {
         if (sawTerminal) break;
         if (signal.aborted) { terminalError("cancelled"); break; }                 // (a) provider 호출 전 가드
-        const round = await this.runRound(providerConfig, messages, memSystemPrompt, tools, signal, emit);
+        const roundTools = controlConsumed ? externalTools : tools;
+        const round = await this.runRound(providerConfig, messages, memSystemPrompt, roundTools, signal, emit);
         if (round.usage) { totalUsage.inputTokens += round.usage.inputTokens; totalUsage.outputTokens += round.usage.outputTokens; } // 라운드 스냅샷 1회 합산
         if (round.aborted) { terminalError("cancelled"); break; }
         if (round.rejected !== undefined) { terminalError(`provider error: ${round.rejected}`); break; }
@@ -223,33 +294,63 @@ export class ChatTurnHandler {
         if (signal.aborted) { terminalError("cancelled"); break; }                  // (b) provider loop 종료 직후 가드(finish 직후 취소 시 finish/cap-error 선방출 차단)
         if (round.text) assistantTurnParts.push(round.text);                        // 이 라운드 assistant 텍스트 누적(도구 라운드 preamble 도 보존)
         if (round.calls.length === 0) {                                             // 최종 응답
-          // UC-memory FR-MEM-2: provider 가 최종 응답을 낸 시점 = **커밋 지점**. 여기서 save → finish.
-          // 취소 의미 불변식: 취소는 커밋 지점 *전*((b) 가드)까지만 인정 — provider 가 최종 답을 낸 뒤
-          // save 중 도착한 취소는 무시하고 턴을 finish 한다(저장됐는데 wire 는 cancelled 인 모순 방지:
-          // "저장된 턴 = finish 된 턴"). assistant 텍스트는 *턴 전체*(도구 라운드 preamble 포함) 누적분.
-          // ⚠️ finish emit *전*에 save await — 클라이언트가 finish 즉시 다음 턴을 보내면 그 recall 이 이
-          // save 보다 먼저 돌아 저장 전 상태를 회상하는 레이스가 생긴다(save→finish→다음 recall 순서 보장).
-          // save 는 deadline 으로 bound — 무응답이어도 finish/drain 이 영구 정지하지 않음(timeout→로그 후 진행).
-          // save 실패/timeout=진단 로그, 턴 유지(FR-MEM-3). save 무방출이라 usage/finish 불변식 무영향.
-          if (this.d.memory && currentUserMsg) {
-            try {
-              const saveTimeoutMs = this.d.memoryTimeoutMs ?? MEM_SAVE_TIMEOUT_MS;
-              const ok = await raceTimeout(this.d.memory.save(lastUserText, assistantTurnParts.join("\n")), saveTimeoutMs);
-              if (!ok) this.safeDiag("memory save 시간초과(턴 유지)", new Error(`>${saveTimeoutMs}ms`));
-            } catch (e) { this.safeDiag("memory save 실패(턴 유지)", e); }
+          // 활성화 뒤 no-more-tool final text 만 발화로 센다. 빈 최종은 기존 단일턴처럼 즉시 커밋해 spin 방지.
+          if (continuation && round.text) {
+            continuation.utterances++;
+            this.d.diag.debug?.("연속 발화 완료", { requestId: req.requestId, utterance: continuation.utterances });
+            if (continuation.utterances >= CONTINUE_MAX_UTTERANCES || continuationClock.now() >= continuation.deadlineAt) {
+              await commitCompletedTurn();
+              break;
+            }
+            const waited = await continuationClock.wait(continuation.pauseMs, signal);
+            if (!waited || signal.aborted) { terminalError("cancelled"); break; }
+            if (continuationClock.now() >= continuation.deadlineAt) {
+              await commitCompletedTurn();
+              break;
+            }
+            // 컨텍스트 폭증 방지: 원래 대화/도구루프 기준점 + 직전 발화 1개만 provider-local 로 유지한다.
+            // 60개 발화를 전부 누적하지 않으면서도 원래 요청과 바로 앞 이야기의 흐름은 보존한다.
+            messages = [
+              ...(continuation.baseMessages ?? messages),
+              { role: "assistant", content: round.text },
+              { role: "user", content: continuationInstruction(continuation.topic) },
+            ];
+            continue;
           }
-          // FR-CONV.1: verbatim transcript append(전두엽이 자기 turn 기록 — naia-memory.save 형제). append=no-throw 격리라
-          // turn/finish/usage 불변식 무영향(save 와 동일 무방출). sessionId 누락="default"(단일 fallback, FR-CONV.2).
-          if (this.d.conversationLog && currentUserMsg) {
-            try {
-              await this.d.conversationLog.append({ sessionId: req.sessionId ?? "default", userText: lastUserText, assistantText: assistantTurnParts.join("\n") });
-            } catch (e) { this.safeDiag("transcript append 실패(턴 유지)", e); }
-          }
-          terminalFinish();
+          await commitCompletedTurn();
           break;
         }
-        if (toolRounds >= MAX_TOOL_ROUNDS) { terminalError("tool loop limit exceeded"); break; } // cap-th 실행 후 재호출이 또 도구 → error(usage 1회, toolUse 미emit=orphan 없음)
-        toolRounds++;
+
+        const alreadyConsumed = controlConsumed;
+        const controlCalls = round.calls.filter((call) => call.name === CONTINUE_SPEAKING_TOOL_NAME);
+        if (alreadyConsumed && controlCalls.length > 0) { terminalError("continue_speaking control repeated after consumption"); break; }
+        const controlResults = new Map<ToolCall, string>();
+        for (const [index, call] of controlCalls.entries()) {
+          if (index > 0) { controlResults.set(call, CONTINUE_TOOL_RESULT_REJECTED); continue; }
+          controlConsumed = true;
+          const normalized = normalizeContinuationArgs(call.args);
+          const explicit = Boolean(currentUserMsg && quoteMatchesUserText(lastUserText, normalized.userRequestQuote));
+          if (!explicit) {
+            controlResults.set(call, CONTINUE_TOOL_RESULT_REJECTED);
+            this.d.diag.debug?.("연속 발화 활성화 거부", { requestId: req.requestId, reason: "explicit quote mismatch" });
+            continue;
+          }
+          continuation = {
+            deadlineAt: continuationClock.now() + normalized.durationMinutes * 60_000,
+            pauseMs: normalized.pauseSeconds * 1000,
+            topic: normalized.topic,
+            baseMessages: undefined,
+            utterances: 0,
+          };
+          controlResults.set(call, CONTINUE_TOOL_RESULT_ACTIVATED);
+          this.d.diag.debug?.("연속 발화 활성화", { requestId: req.requestId, durationMinutes: normalized.durationMinutes, pauseSeconds: normalized.pauseSeconds, topic: normalized.topic || undefined });
+        }
+
+        const externalCalls = round.calls.filter((call) => call.name !== CONTINUE_SPEAKING_TOOL_NAME);
+        if (externalCalls.length > 0) {
+          if (toolRounds >= MAX_TOOL_ROUNDS) { terminalError("tool loop limit exceeded"); break; } // control 은 기존 외부 cap 을 소비하지 않음
+          toolRounds++;
+        }
         const results: { output: string; isError?: boolean }[] = [];
         const threadedCalls: ToolCall[] = []; // cid 로 묶은 calls(threadToolRound·LLM correlation 일관)
         let cancelled = false;
@@ -257,6 +358,11 @@ export class ChatTurnHandler {
           if (signal.aborted) { terminalError("cancelled"); cancelled = true; break; } // (c) 매 call 전 가드(아직 미emit → orphan 없음)
           const cid = turnCid(call.id);                                             // turn-unique correlation id(D-I7)
           threadedCalls.push({ id: cid, name: call.name, args: call.args });
+          if (call.name === CONTINUE_SPEAKING_TOOL_NAME) {
+            // provider-local protocol 완결만 하고 wire/executor/approval 에는 노출하지 않는다.
+            results.push({ output: controlResults.get(call) ?? CONTINUE_TOOL_RESULT_REJECTED, isError: controlResults.get(call) !== CONTINUE_TOOL_RESULT_ACTIVATED });
+            continue;
+          }
           emit({ kind: "toolUse", toolCallId: cid, toolName: call.name, args: call.args }); // emit(cid) — toolResult 와 쌍(I6)
           const tier = tierOf(call.name);
           if (tier !== "none") {                                                    // 승인 게이트(slice 2)
@@ -267,7 +373,7 @@ export class ChatTurnHandler {
             let decision: "approve" | "reject" = "reject";
             // ⚠️ emit·await 를 한 try/finally 로 — emit 이 throw 해도 dispose 항상 호출(보류·listener 누수 방지).
             try {
-              emit({ kind: "approvalRequest", toolCallId: cid, toolName: call.name, tier, args: call.args, description: tools.find((s) => s.name === call.name)?.description ?? "" }); // 등록 후 emit; args/description=승인 페이로드(UC1 리뷰)
+              emit({ kind: "approvalRequest", toolCallId: cid, toolName: call.name, tier, args: call.args, description: externalTools.find((s) => s.name === call.name)?.description ?? "" }); // 등록 후 emit; args/description=승인 페이로드(UC1 리뷰)
               decision = await promise;
             } catch { decision = "reject"; } finally { dispose(); } // abort→catch→(f) cancelled; 비-abort reject=거부
             if (signal.aborted) { terminalError("cancelled"); cancelled = true; break; } // (f) await 후 가드
@@ -303,6 +409,8 @@ export class ChatTurnHandler {
         }
         if (cancelled || sawTerminal) break;
         messages = threadToolRound(messages, round.text, threadedCalls, results);    // assistant(text+cid calls) + tool 메시지들 → 다음 라운드
+        // 첫 no-more-tool 발화 전까지의 기존 다중 도구 루프 전체를 고정 기준점에 포함한다.
+        if (continuation && continuation.utterances === 0) continuation.baseMessages = messages;
       }
     } catch (err) {
       // 루프 밖 예기치 못한 throw(포트 계약 위반 등). abort 면 cancelled.
@@ -332,9 +440,13 @@ export class ChatTurnHandler {
     const it = stream[Symbol.asyncIterator]();
     const closeIt = () => { try { void Promise.resolve(it.return?.()).catch(() => {}); } catch { /* return() 동기 throw 격리(R9) */ } };
     const ABORTED = Symbol("aborted");
+    let abortListener: (() => void) | undefined;
     const abortP: Promise<typeof ABORTED> = new Promise((res) => {
       if (signal.aborted) res(ABORTED);
-      else signal.addEventListener("abort", () => res(ABORTED), { once: true });
+      else {
+        abortListener = () => res(ABORTED);
+        signal.addEventListener("abort", abortListener, { once: true });
+      }
     });
     let text = ""; const calls: ToolCall[] = []; let usage: RoundResult["usage"] = null; let finished = false;
     try {
@@ -353,6 +465,8 @@ export class ChatTurnHandler {
       closeIt();
       if (signal.aborted) return { text, calls, usage, finished: false, aborted: true };
       return { text, calls, usage, finished: false, aborted: false, rejected: errMessage(err) };
+    } finally {
+      if (abortListener) signal.removeEventListener("abort", abortListener);
     }
     return { text, calls, usage, finished, aborted: false };
   }
@@ -380,6 +494,84 @@ export class ChatTurnHandler {
 }
 
 function errMessage(e: unknown): string { return e instanceof Error ? e.message : String(e); }
+
+/** 모델이 quote 를 감쌀 때 쓰는 인용부호쌍(실측 + 흔한 변종). 중첩(예: "「…」")도 벗긴다. */
+const QUOTE_PAIRS: readonly (readonly [string, string])[] = [
+  ['"', '"'], ["'", "'"], ["“", "”"], ["‘", "’"], ["«", "»"], ["「", "」"], ["『", "』"],
+];
+
+/** 감싼 인용부호쌍을 반복 제거. 양끝이 *쌍* 을 이룰 때만 벗긴다(한쪽만 있으면 내용의 일부이므로 보존). */
+function stripEnclosingQuotes(s: string): string {
+  let t = s.trim();
+  for (;;) {
+    const hit = QUOTE_PAIRS.find(([open, close]) => t.length > open.length + close.length && t.startsWith(open) && t.endsWith(close));
+    if (!hit) break;
+    t = t.slice(hit[0].length, t.length - hit[1].length).trim();
+  }
+  return t;
+}
+
+/** NFC + 공백 축약. 표기 차이만 흡수하고 내용은 건드리지 않는다. */
+function normalizeForQuoteMatch(s: string): string { return s.normalize("NFC").replace(/\s+/g, " ").trim(); }
+
+/** UC-015 AC13(2026-07-16 개정): 인용 *형식* 차이는 거부 사유가 아니다.
+ *  근거 = AC9 실측(.agents/reviews/issue-82-ollama-integration-2026-07-16.json): 시연 모델이 quote 를
+ *  인용부호로 감싸 반환하는 경우가 잦고(내용은 글자 그대로 동일) raw includes 가 정상 인용을 거부했다(4/12 → 12/12).
+ *  ⚠️ 완화한 것은 *형식*(감싼 인용부호·공백·유니코드 표기)뿐이다. 내용은 여전히 최신 사용자 원문의 부분문자열이어야
+ *  하므로 "사용자가 하지 않은 말"은 인용부호로 감싸도 거부된다 = 가드 목적(사용자 말 재현 강제) 유지.
+ *  계약이 금지한 "언어별 키워드 정규식으로 의미 재추측"이 아니다 — 의미 판단은 여전히 provider 의 tool 선택 몫. */
+function quoteMatchesUserText(userText: string, quote: string): boolean {
+  const q = normalizeForQuoteMatch(stripEnclosingQuotes(quote));
+  if (q === "") return false; // 빈/공백-only quote = 인용 없음 → 거부
+  return normalizeForQuoteMatch(userText).includes(q);
+}
+
+function normalizeContinuationArgs(value: unknown): {
+  userRequestQuote: string;
+  topic: string;
+  durationMinutes: number;
+  pauseSeconds: number;
+} {
+  const args = value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const quote = typeof args.userRequestQuote === "string" ? args.userRequestQuote : "";
+  const topic = typeof args.topic === "string" ? args.topic.trim().slice(0, 500) : "";
+  return {
+    userRequestQuote: quote,
+    topic,
+    durationMinutes: boundedNumber(args.durationMinutes, CONTINUE_DEFAULT_DURATION_MINUTES, 1, CONTINUE_MAX_DURATION_MINUTES),
+    pauseSeconds: boundedNumber(args.pauseSeconds, CONTINUE_DEFAULT_PAUSE_SECONDS, 0, CONTINUE_MAX_PAUSE_SECONDS),
+  };
+}
+
+function boundedNumber(value: unknown, fallback: number, min: number, max: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, value));
+}
+
+function continuationInstruction(topic: string): string {
+  const topicLine = topic ? ` 선택 주제: ${topic}.` : "";
+  return `[CONTINUE_SPEAKING] 앞선 이야기를 자연스럽게 이어서 새 내용으로 짧게 1~3문단만 말하세요.${topicLine} 사용자는 잠시 자리를 비웠으므로 답을 요구하는 질문으로 끝내지 말고, 이 내부 진행 지시나 제어 기능을 언급하지 마세요.`;
+}
+
+/** 발화 사이 실제 delay. abort 어느 경로든 timer/listener 를 정리하고 false 로 해소한다. */
+function waitForContinuation(ms: number, signal: AbortSignal): Promise<boolean> {
+  if (signal.aborted) return Promise.resolve(false);
+  if (ms <= 0) return Promise.resolve(true);
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const finish = (completed: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+      resolve(completed);
+    };
+    const onAbort = () => finish(false);
+    const timer = setTimeout(() => finish(true), ms);
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) onAbort(); // check-listen-recheck 원자성
+  });
+}
 
 /** p 를 abort + deadline 과 race. abort 또는 timeout 이 먼저면 null(p 는 dangling — void-catch 로
  *  unhandled rejection 방지). p 가 먼저 resolve→값 / reject→전파(호출부 catch 로 진단). 어느 경로든
