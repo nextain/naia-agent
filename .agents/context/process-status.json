@@ -9,23 +9,23 @@
   },
 
   "current_work": {
-    "issue": "REQ-013-continuous-speech",
-    "title": "UC-015 — 사용자 요청 기반 연속 발화와 기존 끼어들기 보존",
-    "issue_doc": ".agents/progress/issue-82-continuous-speech.md",
-    "github_issue": "https://github.com/nextain/naia-agent/issues/82",
+    "issue": "REQ-013-proactive-speech-product-acceptance",
+    "title": "UC-015 — 개인 라디오 DJ와 회사 전시 소개 제품 검증",
+    "issue_doc": ".agents/progress/issue-84-proactive-speech-product-acceptance.md",
+    "github_issue": "https://github.com/nextain/naia-agent/issues/84",
     "started": "2026-07-16",
-    "last_updated": "2026-07-17T11:00:00+09:00",
+    "last_updated": "2026-07-19T01:00:00+09:00",
     "status": "in_progress",
-    "handoff_note": "2026-07-17 핸드오프 커밋 — 활성화 설계 v1(quote 가드)·v2(승인 게이트) 적대 리뷰 기각, v3(하이브리드) 패널 FINDINGS(9)×2 + 경첩 실측 1차 GO(조건부, ②-only 신규 구멍). 재개 절차 = issue_doc 의 '▶ 핸드오프' 절. 구현 착수 금지(2×CLEAN 게이트).",
-    "prior_work_note": "FR-PROV-6 ollama native tools와 DEFAULT_NUM_CTX 16384 변경은 다른 시연 작업의 기존 변경이다. 본 작업은 그 동작을 보존하고 ChatTurnHandler app 계층만 확장한다."
+    "handoff_note": "Issue #82의 두 opt-in profile 기술 slice는 main(8afe8d3)에 병합됐다. 계약/통합 테스트와 실제 Tauri 증적의 경계를 2026-07-19 문서에 교정했다. 실제 audible TTS·live barge-in/제어·장기 선호·날씨 UI·장시간/현장 검증은 follow-up #84.",
+    "prior_work_note": "FR-CONT-1~8 범용 요청형 hardening은 profile slice와 별개로 Pending이다. shell feature 4bb9d2d1, native test d5ed59be."
   },
 
   "sdlc_gates": {
-    "P01": { "status": "in_progress", "name": "user_scenarios", "deliverable": "UC-CONTINUE-SPEAKING v3 하이브리드로 개정(S-CONT-1~6) — 단 planning 패널 FINDINGS(9)×2 로 산출물 재작성 필요(v3.1 독립 완결 계약). 활성화 조건 하이브리드는 사용자 결정 확정", "ref": "docs/user-scenarios.md; .agents/reviews/issue-82-planning-v3-2026-07-17.json" },
-    "P02": { "status": "pending", "name": "test_scenarios", "deliverable": "v1 기준 매핑은 기각으로 무효 — v3.1 계약 확정 후 재작성(뮤턴트 킬 포함). 계측 기반은 확보: benchmark/corpora/continue-speaking-ko.corpus.json(89) + run-tool-selection-bench.mjs + v3-evidence-probe.mjs", "ref": "docs/user-scenarios.md (Test Coverage Map)" },
-    "P03": { "status": "in_progress", "name": "requirements", "deliverable": "FR-CONT-1~7 v3 개정 반영 — 단 FR-CONT-3 무스코프 문구 충돌 등 패널 지적 잔존, v3.1 과 함께 정리", "ref": "docs/requirements.md; docs/progress/01.requirements/INDEX.md" },
-    "P04": { "status": "pending", "name": "integration_test", "deliverable": "src/test/uc-continue-speaking.contract.test.ts + 로컬 Ollama UC (v3.1 확정 후 재작성)", "ref": "src/test/uc-continue-speaking.contract.test.ts" },
-    "P05": { "status": "pending", "name": "requirements_complete", "deliverable": "development/integration 2회 연속 CLEAN 뒤 상태 Done", "ref": "docs/requirements.md (FR-CONT-1~7)" }
+    "P01": { "status": "done", "name": "user_scenarios", "deliverable": "두 profile 시나리오와 실제/계약 검증 경계를 문서화", "ref": "docs/user-scenarios.md (UC-CONTINUE-SPEAKING)" },
+    "P02": { "status": "done", "name": "test_scenarios", "deliverable": "DJ/전시 계약·통합과 shell native Tauri의 서로 다른 검증 범위를 매핑", "ref": "docs/user-scenarios.md (Test Coverage Map)" },
+    "P03": { "status": "done", "name": "requirements", "deliverable": "FR-CONT-MVP-1~8 상태를 Implemented/Partial로 교정", "ref": "docs/requirements.md; docs/progress/01.requirements/INDEX.md" },
+    "P04": { "status": "in_progress", "name": "integration_test", "deliverable": "agent 계약/통합과 shell native 시작 시나리오는 통과. audible TTS·live barge-in/제어·장기/현장 검증이 남음", "ref": "src/test/personal-radio-dj.contract.test.ts; src/test/exhibition-intro.contract.test.ts; nextain/naia-shell#381; nextain/naia-agent#84" },
+    "P05": { "status": "pending", "name": "requirements_complete", "deliverable": "REQ-013 Partial. #84의 product wiring·live acceptance와 문서 재검증 뒤 Done", "ref": "https://github.com/nextain/naia-agent/issues/84" }
   },
 
   "known_drift": {

@@ -585,6 +585,54 @@
         "docs/user-scenarios.md"
       ],
       "note": "K1b 지식 컴파일(쓰기) — makeCompileKnowledge UC(DI·no-throw) + readWorkspaceKnowledgeConfig(셸 소유 knowledge.json 읽기전용, 에이전트 config 쓰기 없음=FR-KB-OS.9 대칭) + makeKbCompilerBackend(실 kb-compiler 오프라인 결정론: Ingest+Markdown extract+WorkspaceStore→knowledge/<scope>/kb.json). gRPC CompileKnowledge RPC(grpc-server onCompileKnowledge) 가 호출. backend 주입(D03 비종속). 읽기(search/ask)=knowledge-skill.ts(K1a)와 직교. 테스트=src/test/uc-knowledge-compile.contract.test.ts·integration.test.ts"
+    },
+    "src/main/ports/speech-activity.ts": {
+      "layer": "ports",
+      "uc": ["UC-015"],
+      "contract": "docs/progress/99.dev-comm/UC-CONTINUE-SPEAKING-contract-2026-07-16.md",
+      "note": "두 opt-in 선제 발화 profile의 닫힌 포트·설정·activity event 계약."
+    },
+    "src/main/app/personal-radio-dj-controller.ts": {
+      "layer": "app",
+      "uc": ["UC-015"],
+      "contract": "docs/progress/99.dev-comm/UC-CONTINUE-SPEAKING-contract-2026-07-16.md",
+      "note": "개인 라디오 DJ idle·BGM·멘트·제어·bounded lease와 race 보상."
+    },
+    "src/main/app/exhibition-intro-controller.ts": {
+      "layer": "app",
+      "uc": ["UC-015"],
+      "contract": "docs/progress/99.dev-comm/UC-CONTINUE-SPEAKING-contract-2026-07-16.md",
+      "note": "전시 KB 소개·기권·비반복 cursor·질문 yield/resume·privacy 경계."
+    },
+    "src/main/app/speech-profile-runtime.ts": {
+      "layer": "app",
+      "uc": ["UC-015"],
+      "contract": "docs/progress/99.dev-comm/UC-CONTINUE-SPEAKING-contract-2026-07-16.md",
+      "note": "profile 선택·session 구독·control/stop·전시 Q&A 결속."
+    },
+    "src/main/adapters/activity-radio-dj-bgm.ts": {
+      "layer": "adapters",
+      "uc": ["UC-015"],
+      "contract": "docs/progress/99.dev-comm/UC-CONTINUE-SPEAKING-contract-2026-07-16.md",
+      "note": "일반 도구를 열지 않는 profile 전용 shell panel BGM 왕복."
+    },
+    "src/main/adapters/activity-speech-egress.ts": {
+      "layer": "adapters",
+      "uc": ["UC-015"],
+      "contract": "docs/progress/99.dev-comm/UC-CONTINUE-SPEAKING-contract-2026-07-16.md",
+      "note": "선제 발화 activity를 session stream AgentEvent로 내보내는 표현 어댑터."
+    },
+    "src/main/adapters/exhibition-knowledge.ts": {
+      "layer": "adapters",
+      "uc": ["UC-015"],
+      "contract": "docs/progress/99.dev-comm/UC-CONTINUE-SPEAKING-contract-2026-07-16.md",
+      "note": "KnowledgeBackend를 전시 profile의 source 필수 read-only 포트로 제한."
+    },
+    "src/main/adapters/radio-dj-runtime.ts": {
+      "layer": "adapters",
+      "uc": ["UC-015"],
+      "contract": "docs/progress/99.dev-comm/UC-CONTINUE-SPEAKING-contract-2026-07-16.md",
+      "note": "DJ clock·시간/날씨 context·결정론 selector·in-process 명시 선호 adapter."
     }
   }
 }

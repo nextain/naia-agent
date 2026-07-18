@@ -18,28 +18,27 @@
 
 ## 현재 작업
 
-### Issue #82 — 사용자 요청 기반 연속 발화
+### Issue #84 — 개인 라디오 DJ와 회사 전시 소개 제품 검증
 
-**이슈**: [nextain/naia-agent#82](https://github.com/nextain/naia-agent/issues/82)
+**이슈**: [nextain/naia-agent#84](https://github.com/nextain/naia-agent/issues/84)
 
-**상태**: in progress — 2026-07-17 핸드오프. 활성화 설계 v1(quote 가드)·v2(승인 게이트) 적대 리뷰
-**기각**, v3(하이브리드) 패널 FINDINGS(9)×2 + 경첩 실측 1차 GO(조건부 — ②-only 신규 구멍).
-**구현 착수 금지**(2회 연속 CLEAN 게이트). 재개 절차 = `.agents/progress/issue-82-continuous-speech.md`
-의 "▶ 핸드오프" 절.
+**상태**: in progress — 두 opt-in profile의 기술 slice는 agent `8afe8d3`, shell `4bb9d2d1`,
+native test `d5ed59be`로 병합됐다. 2026-07-19 문서 검토에서 계약/통합 검증과 실제 Tauri 검증의
+범위를 분리했다. REQ-013은 Partial이며 제품 wiring과 live acceptance를 이 이슈에서 계속한다.
 
 **추적**: REQ-013 → UC-015 → SPEC-012 → TEST-S-015 / TEST-F-012
 
-사용자가 명시적으로 계속 말해 달라고 요청하면 `naia-agent`가 같은 `requestId`의 열린 스트림에서
-여러 발화를 이어간다. 기존 `naia-shell`의 문장 단위 TTS와 `cancel_stream` 끼어들기를 그대로
-재사용하며, 셸과 gRPC proto는 변경하지 않는다.
+개인 라디오 DJ와 회사 전시 소개는 사용자 입력을 기다리지 않고 시작하는 닫힌 profile이다. 계약/통합
+테스트는 DJ 멘트·제어·lease와 전시 yield/resume·stale 폐기를 검증한다. 실제 Tauri 테스트가 증명한
+범위는 profile 저장·복원, DJ 실제 YouTube BGM·첫 결과·stop, 전시 greeting·stop이다.
 
 | 게이트 | 상태 | 산출물 |
 |---|:---:|---|
-| P01 사용자 시나리오 | in progress | UC-CONTINUE-SPEAKING v3 하이브리드 개정(S-CONT-1~6) — 패널 findings 로 v3.1 독립 완결 계약 재작성 필요 |
-| P02 테스트 시나리오 | pending | v1 매핑 무효 — v3.1 확정 후 재작성. 계측 기반 확보(코퍼스 89 + 벤치 러너 + 경첩 프로브) |
-| P03 요구사항 | in progress | FR-CONT-1~7 v3 개정 — 패널 지적 잔존(FR-CONT-3 충돌 등) |
-| P04 통합 테스트 | pending | `src/test/uc-continue-speaking.contract.test.ts` + 로컬 Ollama UC (v3.1 확정 후 재작성) |
-| P05 완료 | pending | 개발·통합 적대 리뷰 각 2회 연속 CLEAN 뒤 Done |
+| P01 사용자 시나리오 | done | 두 profile과 실제/계약 검증 경계 |
+| P02 테스트 시나리오 | done | DJ/전시 계약·통합과 native Tauri 범위 분리 |
+| P03 요구사항 | done | FR-CONT-MVP 상태를 Implemented/Partial로 교정 |
+| P04 통합 테스트 | in progress | 기술 slice 통과; audible TTS·live barge-in/제어·장기/현장 검증이 남음 |
+| P05 완료 | pending | REQ-013 Partial. 제품 wiring·live acceptance 뒤 Done |
 
 > 아래 내용은 직전 시연 안정화 작업의 보존 기록이다. Issue #82 작업은 기존
 > `ollama-provider.ts`의 기존 시연 안정화 동작을 바꾸지 않는다.

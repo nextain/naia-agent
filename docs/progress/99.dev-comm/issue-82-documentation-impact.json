@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "issue": 82,
+  "production_files": [],
+  "targets": {
+    "repository_docs": {
+      "status": "UPDATED",
+      "evidence": [
+        "README.md",
+        "https://github.com/nextain/naia-shell/commit/8c39217d40cde47e3c4113052bbf1a8f5881e4ca"
+      ]
+    },
+    "user_manual": {
+      "status": "UPDATED",
+      "evidence": [
+        "https://github.com/nextain/naia.land/commit/808774f61dc22f32760cb80716a8aab053ad893e"
+      ]
+    },
+    "reusable_learning": {
+      "status": "UPDATED",
+      "evidence": [
+        "https://github.com/luke-n-alpha/alpha-data-private/commit/d5bd1276a47873b968ae50f84fbcd95aca2b827c"
+      ]
+    }
+  }
+}

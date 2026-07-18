@@ -5,9 +5,22 @@ prior_session_id: "08e07adf-cb54-4aab-81af-951410c386b7"
 
 # Issue #82 — 자유 발화와 연속 발화
 
-## 2026-07-18 구현·검증 완료 — 현재 정본
+## 2026-07-19 문서 영향 재검토 — 현재 정본
 
-- 상태: ✅ **두 MVP profile 구현 및 development/integration 적대 리뷰 CLEAN.**
+- 코드 상태: 두 opt-in profile의 기술 slice는 main에 병합됐다(`8afe8d3`).
+- 실제 Tauri 증적: profile 저장·복원, DJ의 실제 YouTube BGM·첫 결과 text·stop,
+  전시 greeting·stop. shell feature=`4bb9d2d1`, native test=`d5ed59be`.
+- 계약/통합 증적: DJ 멘트2·제어·lease/race, 전시 소개3·질문 yield/resume·stale output 폐기.
+- 아직 실제/native로 증명하지 않은 것: audible proactive TTS, live 멘트2, live 질문 끼어들기와
+  모든 제어, 장시간·현장 품질.
+- 아직 production에 연결하지 않은 것: 기분/활동 수집, 사용자용 날씨 위치·동의 UI,
+  명시적 음악 선호의 Naia Memory 영속 handoff. DJ 멘트는 현재 고정 세 문구 순환이다.
+- 결론: “두 profile 코드·계약 구현 완료”와 “개인 라디오/전시 제품 MVP 전체 검증 완료”를 구분한다.
+  후자는 완료가 아니다. 아래 2026-07-18의 `CLEAN`은 당시 검토한 코드/계약 범위를 뜻한다.
+
+## 2026-07-18 구현·계약 검증 완료 — 범위 기록
+
+- 상태: ✅ **두 profile 기술 slice 구현 및 development/integration 적대 리뷰 CLEAN.**
 - 구현:
   - `personal_radio_dj`: 명시적 opt-in, 시간·동의된 최신 날씨·명시적 취향 근거,
     구조화된 YouTube BGM 성공 확인, music-only/talk-less/talk-more/change-vibe/next/stop,

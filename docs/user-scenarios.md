@@ -275,14 +275,15 @@ ProviderPort). 옛 `<recall>` 마커·"부적절=실패" 도덕채점 폐기(SoT
 
 ### MVP-1 개인 라디오 DJ
 
-Luke가 Naia를 켜 두면 Naia는 입력만 기다리지 않는다. 설정된 idle 뒤 현재 시간, 허용된 날씨, Luke가
-말한 기분·활동, 현재 BGM 상태와 출처가 있는 장기 음악 취향을 바탕으로 먼저 음악을 제안한다. 실제
+Luke가 Naia를 켜 두면 Naia는 입력만 기다리지 않는다. 설정된 idle 뒤 현재 시간, 선택적으로 주입된
+날씨, 현재 BGM 상태와 프로세스 안의 명시적 선호를 바탕으로 먼저 음악을 제안한다. 실제
 `skill_youtube_bgm` 재생 성공 뒤 짧은 선곡 이유를 말하고, 음악을 방해하지 않는 간격으로 서로 다른 DJ
 멘트를 이어간다. 긴 유튜브 믹스의 세부 현재 곡은 chapter/tracklist 근거가 없으면 추측하지 않는다.
 
 Luke가 “음악만”, “말 줄여”, “다른 분위기”, “다음 곡”, “그만”이라고 하면 즉시 양보한다. “내가 멈추라고
-할 때까지”는 내부 안전 lease를 갱신해 사용자 관점에서 계속한다. 명시적 좋아요·싫어요만 출처가 있는
-음악 선호 handoff로 통합하고 자동 세션 결과 학습은 telemetry+dream seam 이후로 미룬다.
+할 때까지”는 내부 안전 lease를 갱신해 사용자 관점에서 계속한다. 현재 production 경로는 기분·활동 수집,
+사용자용 날씨 설정, 명시적 좋아요·싫어요의 Naia Memory 영속 handoff를 아직 제공하지 않는다. 활동
+발화나 재생 시간으로 취향을 몰래 추론하지 않는다.
 
 ### MVP-2 회사 전시 행사 소개
 
@@ -353,8 +354,8 @@ detector나 cron 같은 외부 정책이 자유 발화를 시작하면 사용자
 | FR-MEM-12 / S-MEM-SUBLLM (naia sub-LLM 폴백 + graceful degrade, S5) | `src/test/uc-naia-settings-store.contract.test.ts` — describe "naia sub-LLM model 폴백 + graceful degrade (S5/G5)" (naia+모델부재+키존재→기본모델 완전구성·명시모델 우선·키 부재→provider=none 강등(메모리 유지)·vllm baseUrl 누락→none 강등) + `sub-llm-provider.contract.test.ts`(미구성=undefined) |
 | UC-PROV-1 / FR-PROV-1·2·3 | `src/test/all-providers-wiring.contract.test.ts`, `uc1-reload-default-config.contract.test.ts`, `uc-naia-settings-store.contract.test.ts` |
 | UC-THINKING / S-THINK-1·2·3 / FR-THINK-1~4 | `src/test/uc-thinking.contract.test.ts` (요청 body 검증: enableThinking=false+로컬 → `reasoning_effort:"none"` / true·미지정 → 미전송 / **원격 baseUrl → 미전송**(400 회귀 방지) / `isLocalEngineBaseUrl` 순수 판별) |
-| FR-CONT-MVP-1~4 / 개인 라디오 DJ | `src/test/personal-radio-dj.contract.test.ts` (`DJ-01~07`), `src/test/personal-radio-dj-grpc.integration.test.ts` (`DJ-GRPC-01`), shell `continuous-speech.spec.ts` 실제 BGM play/stop |
-| FR-CONT-MVP-1·2·5~8 / 회사 전시 소개 | `src/test/exhibition-intro.contract.test.ts` (`EX-01~06`), shell `ChatArea.activity.test.tsx` + e2e-tauri (`SHELL-01`: unsolicited 표시/TTS·barge-in ordering·stale audio drop) |
+| FR-CONT-MVP-1~4 / 개인 라디오 DJ | 계약/통합: `src/test/personal-radio-dj.contract.test.ts` (`DJ-01~07`), `src/test/personal-radio-dj-grpc.integration.test.ts` (`DJ-GRPC-01`). 실제 Tauri: shell `71-proactive-speech-profiles.spec.ts`의 profile 저장·복원, 실제 YouTube BGM, 첫 결과 text, stop만. |
+| FR-CONT-MVP-1·2·5~8 / 회사 전시 소개 | 계약/통합: `src/test/exhibition-intro.contract.test.ts` (`EX-01~06`)가 소개3·질문 yield/resume·stale 폐기를 검증. 실제 Tauri: shell `71-proactive-speech-profiles.spec.ts`의 무입력 greeting과 stop만. audible TTS·실제 질문 barge-in은 미검증. |
 | UC-CONTINUE-SPEAKING / S-CONT-1~7 / FR-CONT-1~8 | 권위 계약 §10 AC1~18 matrix. `src/test/uc-continue-speaking.contract.test.ts`; `src/test/uc-continue-speaking-grpc.integration.test.ts` (`speech activity subscription lifecycle`, `stop response mapping`, `composition activity drain`); `src/test/conversation-log.{contract,integration}.test.ts`; `src/test/compose-agent-deps.integration.test.ts`; shell `packages/shell/src-tauri/src/agent_grpc.rs` `speech_activity_*` + `packages/shell/e2e-tauri/continuous-speech.spec.ts`; Ollama contract; 모델 패널 JSON |
 | FR-PROV-5 (claude-code SDK 분리) | `src/test/all-providers-wiring.contract.test.ts`(claude-code 케이스 = Agent SDK 라우팅·apiKey 미주입) |
 | FR-MODEL-1 (모델 카탈로그 정합) | `src/test/uc-provider-provenance.contract.test.ts`(cost↔registry 정합·구독 $0), naia-os `src/lib/llm/__tests__/registry.test.ts`(카탈로그 정합·최신화) |
