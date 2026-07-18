@@ -1,5 +1,6 @@
 // composition root — UC1 agent(brain) 와이어링 (계약 §B.5). 단일 root.
 import { ChatTurnHandler, type HandlerDeps } from "../app/chat-turn-handler.js";
+import type { SpeechProfileRuntime } from "../app/speech-profile-runtime.js";
 import { makeFakeProvider } from "../adapters/fake-provider.js";
 import { makeInMemoryApproval } from "../adapters/approval.js";
 import { makeStderrDiagnostic } from "../adapters/diagnostic.js";
@@ -48,6 +49,7 @@ export function wireAgentUC1(opts?: {
   ingress?: AgentIngressPort;      // 비-stdio transport(gRPC) 가 직접 주입 — transport 무지(직교). 미주입+io 시 stdio.
   egress?: AgentEgressPort;        // 동상(gRPC per-request stream 등). 미주입+io 시 stdio.
   diag?: DiagnosticLog;
+  speechProfiles?: SpeechProfileRuntime; // Issue #82 — 검증된 profile-bound Q&A를 ordinary memory/save 전에 처리
 }): { handler: ChatTurnHandler; setDefaultConfig: (config: ProviderConfig | undefined) => void; ingress?: AgentIngressPort; start?: () => void; drain?: () => Promise<void> } {
   // 표준 sink(docs/logging.md). 미주입=no-op write(코어 순수·무소음) — entry 가 process.stderr+debug 게이트 주입. console.* 금지.
   const diag: DiagnosticLog = opts?.diag ?? makeStderrDiagnostic();
@@ -88,7 +90,11 @@ export function wireAgentUC1(opts?: {
     diag.debug?.("ingress route", { kind: req.kind, requestId: "requestId" in req ? req.requestId : undefined, ...(req.kind === "toolRequest" ? { toolName: req.toolName } : {}) });
     switch (req.kind) {
       case "chat": {
-        const p = handler.onChatRequest(req).catch((e) => diag.log("onChatRequest 처리 실패", e)).finally(() => inflight.delete(p));
+        const run = async () => {
+          if (opts?.speechProfiles && await opts.speechProfiles.handleProfileChat(req)) return;
+          await handler.onChatRequest(req);
+        };
+        const p = run().catch((e) => diag.log("onChatRequest 처리 실패", e)).finally(() => inflight.delete(p));
         inflight.add(p);
         break;
       }

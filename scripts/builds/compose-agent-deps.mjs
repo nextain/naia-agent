@@ -95,6 +95,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
   // ── UC5 실 스킬(time/weather/memo + github/obsidian/mcp/notify/adk) — 기본 활성(NAIA_AGENT_SKILLS=off 로 비활성). ──
   // ⚠️ panel(환경 위임)은 여기 미포함 — egress 가 필요해 gRPC host 가 wire 후 합성(브라우저/BGM=셸 소유 환경, E1).
   let toolExecutor, skillsLabel = "off";
+  let knowledgeBackend;
   if (env.NAIA_AGENT_SKILLS !== "off") {
     const memoPath = env.NAIA_MEMO_PATH || join(homedir(), ".naia-agent", "memos.json");
     const memo = makeFileMemoStore({ path: memoPath, dir: dirname(memoPath), fs: nodeFs });
@@ -190,6 +191,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
           ask: async (q) => (await loadKnowledge()).service.ask(q),
           graph: async () => toGraphData((await loadKnowledge()).kb),
         };
+        knowledgeBackend = backend;
         executors.push(makeKnowledgeSkillsExecutor({ backend }));
         skillsLabel += ` + knowledge(${knowledgeDir}, cards=${wk.kb.cards.length}, live-reload)`;
       } catch (e) {
@@ -349,7 +351,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
     settingsStore, settingsResolveSecret, defaultConfig, configLabel,
     engineProfile, engineLabel,
     subLlm, subLlmLabel,
-    toolExecutor, skillsLabel,
+    toolExecutor, skillsLabel, knowledgeBackend,
     memory, memoryLabel,
     conversationLog, transcriptLabel,
     personaSource, personaLabel,

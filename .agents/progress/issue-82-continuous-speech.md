@@ -1,6 +1,67 @@
-# Issue #82 — 사용자 요청 기반 연속 발화
+---
+session_id: "03b17f74-14d6-4390-a3ed-871d373001cf"
+prior_session_id: "08e07adf-cb54-4aab-81af-951410c386b7"
+---
 
-- 상태: 🟡 **v3 하이브리드 — 경첩 실측 1차 완료(GO 조건부, ②-only 신규 구멍). 구현 착수 금지 유지. 2026-07-17 핸드오프 커밋**
+# Issue #82 — 자유 발화와 연속 발화
+
+## 2026-07-18 구현·검증 완료 — 현재 정본
+
+- 상태: ✅ **두 MVP profile 구현 및 development/integration 적대 리뷰 CLEAN.**
+- 구현:
+  - `personal_radio_dj`: 명시적 opt-in, 시간·동의된 최신 날씨·명시적 취향 근거,
+    구조화된 YouTube BGM 성공 확인, music-only/talk-less/talk-more/change-vibe/next/stop,
+    안전 lease 자동 갱신과 늦은 재생 보상.
+  - `exhibition_intro`: 지정 KB의 source 필수 소개, 비반복 cursor, 근거 없을 때 기권,
+    질문 시 단일-use yield/resume binding, Q&A memory/transcript 우회, quiet/restart/stop.
+  - 공통 wire/shell: profile 설정·장기 activity 구독·yield/control/stop RPC,
+    proactive TTS와 panel BGM, ordinary Chat 끼어들기, stale generation 폐기,
+    Live/omni와 activity 음성 lane 상호배제.
+- 적대 리뷰 수렴:
+  - 계획: 개인 DJ CLEAN + 행사 소개 CLEAN.
+  - 개발/통합: profile-session 결속, BGM 3중 식별자, reconnect 종료,
+    single-use yield 순서, TTS TOCTOU, Live 연결 및 mic 권한 경쟁조건을 수정한 뒤
+    개인 DJ **CLEAN**, 행사 소개 **CLEAN**.
+  - OpenRouter/OpenCode `opencode/hy3-free`: agent 범위 CLEAN. shell finding은
+    실제 Rust dispatcher/profile session 배선과 대조해 오탐을 기각했고, 유효했던 reconnect/parser
+    finding은 수정했다.
+- 검증:
+  - naia-agent 전체: **84 files, 1,002 passed, 8 skipped** + TypeScript build PASS.
+  - naia-shell 전체: **110 files, 1,200 passed, 13 skipped** + focused 37 tests +
+    TypeScript/Vite production build PASS.
+  - Rust: `cargo check` PASS (기존 dead-code warning 8건).
+  - import boundary: 새 공유 계약을 `ports/speech-activity.ts`로 이동 후 PASS.
+  - conflict marker 없음, i18n 신규 적용 대상 없음, 신규 비영어 문자열은 발화 명령
+    parser vocabulary이며 사용자 표시 하드코딩이 아님.
+- `manage-skills` 판단: 이번 불변조건은 이 기능의 contract/integration 테스트가 직접 고정한다.
+  워크스페이스 전역의 반복 검증 규칙은 아니므로 새 verify skill을 만들지 않는다.
+
+## 2026-07-18 목표 재정렬 및 planning 수렴 — 구현 전 정본
+
+- 당시 상태: 🟢 **두 MVP profile planning CLEAN. RED 테스트·구현 단계로 전환.**
+- 우선순위:
+  1. `personal_radio_dj` — Luke 개인 라디오 DJ
+  2. `exhibition_intro` — 회사 전시 행사 소개
+- 권위 계약:
+  `docs/progress/99.dev-comm/UC-CONTINUE-SPEAKING-contract-2026-07-16.md` §0
+- 교차 리뷰:
+  - Goal 1 1차 FINDINGS 11건 → 보완 → 잔여 3건 → 보완 → **CLEAN**
+  - Goal 2 1차 FINDINGS 12건 → 보완 → 잔여 3건 → 보완 → **CLEAN**
+- 핵심 확정:
+  - DJ: app-owned idle, 좁은 BGM opt-in, `RadioDjBgmPort`, source/freshness snapshot,
+    app-owned 안전 템플릿, music-only/talk-less/change-vibe/next/stop, bounded auto-renew lease.
+  - 전시: read-only KB port, source 필수/기권, non-repeat cursor, non-terminal yield →
+    profile-bound Q&A → resume, memory/transcript off.
+  - wire: `ConfigureSpeechProfile`, `SubscribeSpeechActivities`,
+    `YieldSpeechActivity`, `StopSpeechActivity`, `activityResume`.
+  - shell: unsolicited activity와 ordinary Chat ref 분리,
+    `interruptTts → yield → Chat`, stale activity audio/text 폐기.
+- 기존 AC1~AC18의 범용 취소·저장소 quarantine·chunk 상한은 후속 hardening이다.
+  DJ-01~07/DJ-GRPC-01과 EX-01~06/SHELL-01이 먼저 구현 게이트다.
+
+아래 2026-07-17 내용은 설계 변화 이력이다. 위 현재 정본과 충돌하면 위 절을 따른다.
+
+- 과거 상태: v3 하이브리드 — 경첩 실측 1차 완료(GO 조건부, ②-only 신규 구멍)
 - v3 패널 증적: `.agents/reviews/issue-82-planning-v3-2026-07-17.json` (수렴 findings 7건 + 생존 5건 + codex AC1~18 재작성 표)
 - 경첩 실측 증적: `.agents/reviews/issue-82-v3-evidence-hinge-2026-07-17.json` + 재실행 스크립트 `benchmark/v3-evidence-probe.mjs`
 - 다음: ① **②-only 방어 2차 실측**(설명 강화 + 구조 검사 인라인 평가 — 아래 "도출된 2중 방어") → ② v3.1 을 **독립 완결 문서**로
@@ -9,11 +70,107 @@
 ## ▶ 핸드오프 — 다른 머신에서 재개 절차 (2026-07-17)
 
 1. **필수 읽기**: `AGENTS.md` → `.agents/context/process-status.json` → 이 파일 전체 → `.agents/reviews/issue-82-planning-v3-2026-07-17.json` → `.agents/reviews/issue-82-v3-evidence-hinge-2026-07-17.json`
-2. **환경**: 로컬 Ollama + `dnotitia-dna3.0-9b-q4-16k:latest` (경첩/벤치 재실행 시 필요. 없으면 `TS_MODEL`/`TS_HOST` env 로 대체 — 단 모델 교체 시 전체 벤치 재실행 의무). `pnpm install && pnpm build` 선행(계측은 dist 정본 import).
+2. **환경** (⚠️ 2026-07-17 후속 세션이 정정 — 근거는 아래 "환경 기술 결함" 절):
+   - **모델 출처 = HuggingFace** (머신에 묶인 자산이 아니다):
+     본체 `dnotitia/DNA3.0-9B` · GGUF `mradermacher/DNA3.0-9B-GGUF` 의 `DNA3.0-9B.Q4_K_M.gguf`.
+     모델명의 `16k` = GGUF 속성이 아니라 **ollama Modelfile 의 `PARAMETER num_ctx 16384`**
+     → 어느 머신에서든 `ollama create` 로 재구성 가능하다.
+   - **기준 수치(B1 베이스라인·경첩 1차)가 나온 머신 = 윈도우 데모기**(RTX 4060 Laptop 8GB, ollama 0.31.1 —
+     증적 = alpha-adk 루트의 `.agents/progress/dna3-local-llm-eval-2026-07-08.md`). 거기의
+     `dnotitia-dna3.0-9b-q4-16k:latest` 는 **자가 변환 GGUF** 다. mradermacher Q4_K_M 은 **다른 빌드** =
+     비트 동일 보장 없음. → 다른 머신에서 재구성하면 **기존 수치와 직접 비교 금지**.
+     본 문서의 "모델 교체 시 벤치 전체 재실행(B1~B5)" 규칙이 그대로 적용된다.
+   - `pnpm install && pnpm build` 선행(계측은 dist 정본 import).
+   - ⚠️ **"로컬 Ollama" 라고 쓰지 말 것** — 이 문서는 크로스머신 재개 문서다. 호스트를 **이름으로** 적는다.
+     (bazzite 개발기 참고: 시스템 `ollama.service` 는 읽기전용 OS 경로에 mkdir 실패로 재시작 루프 = 이 이슈와 무관한 별건 고장.)
 3. **바로 할 일 = 위 "다음" ①**: `benchmark/v3-evidence-probe.mjs` 를 변형해 (a) 설명 강화판 (b) 구조적 교차 필드 검사(정규화 후 quote≡evidence equality → 확인질문 강등) 를 ②-only 3프로브(P-NEG-030/031/032) + positive 16프로브 회귀로 재측정. 목표: ②-only 즉시활성 0, positive evidence 채움율 84% 유지 이상.
 4. **그 다음 v3.1 계약 재작성**: `docs/progress/99.dev-comm/UC-CONTINUE-SPEAKING-contract-2026-07-16.md` 의 계층 개정 구조 폐기, **독립 완결 신문서**로. 골격 = 패널 JSON 의 `codex_ac_rewrite_table` + 수렴 findings V3-1~7 의 action 전부 + 2차 실측으로 닫힌 ②-only 방어 규칙.
 5. **불변 제약**: 헌장 파일 AI 단독 수정 금지 / app 은 의미 재판정 금지(키워드·정규식 금지) / 라디오 발화 = conversationLog 만, `memory.save` 금지(기억 오염 방지) / holdout(코퍼스 split=holdout) 튜닝 중 열람 금지 / 2회 연속 CLEAN 전 구현 착수 금지.
 6. **주의**: `src/main/app/chat-turn-handler.ts` 의 현행 v1 구현(quote 가드)은 **기각 확정** — v3.1 채택 시 교체 대상. `CONTINUE_SPEAKING_TOOL` export 는 계측이 사용하므로 유지.
+
+## ★★★ 2026-07-17 사용자 결정 — 이 절이 이전 전제를 덮어쓴다 (앵커)
+
+인수 세션에서 사용자가 내린 결정. **아래 문서 본문 중 이와 충돌하는 서술은 전부 무효**이며, v3.1 계약 재작성 시 이 절이 기준이다.
+
+| # | 결정 | 무효화되는 기존 서술 |
+|---|---|---|
+| **D1** | **미션 = 자유 발화 + 연속 발화.** "자유 발화"(self-initiated, 사용자 입력 없이 먼저 말 걸기)는 로드맵이 아니라 **이번 미션의 1급 대상**이다. | "범위 밖" 목록의 선제 발화 배제. 활동이 사용자 턴 안에 산다는 가정(턴 감금). |
+| **D2** | **특정 모델에 의존하지 않는다.** `dnotitia-dna3.0-9b-q4-16k` 는 **데모용**(8G 데모박스 RTX 4060 Laptop 물리 한계에 맞춘 선택)이지 제품 기준 상수가 아니다. | "모델 교체 시 벤치 전체 재실행(B1~B5)" 이 **모델=상수** 를 전제로 한 규칙 → 폐기. 대신 **모델 패널 교차**가 기본. v1/v2/v3 판단의 근거 수치가 전부 데모 모델 1개 산이라는 점을 명시할 것. |
+| **D3** | **로컬 머신 = 24GB 티어까지.** 코딩까지 감당하는 더 큰 모델을 상정한다. 8G 데모 모델은 하한 참조점일 뿐. | 8G 데모 모델의 습성(thinking ON 이어야 도구 호출, 오호출 17~50%)을 설계 제약으로 승격한 서술 전부. |
+| **D4** | **GPU 배치 = GPU1 메인 LLM / GPU2 표현(TTS·아바타) + 서브 LLM.** | "단일 GPU 직렬 지형" 전제 → **무효**. 그로부터 도출된 "활동=저순위·선점 필연", "서브 LLM 상시 대화 불가(추론 2배)" 도 재검토 대상. 서브 LLM 은 물리적으로 다른 GPU 에서 **동시 실행 가능**. ⚠️ 단 분리 ≠ 무료 — RAM·swap·PCIe 는 공유(선례: 풀 cascade 2개 = GPU 분리해도 정체). "VRAM 경합 없음"이지 "자원 경합 없음"이 아니다. |
+| **D5** | 라이브 데모 서비스 **중지 허용**(실측을 위해). | GPU 점유로 인한 실측 불가 사유 소멸. |
+
+**미결 (별도 줄기 — 여기서 다루지 않는다)**: 노트북 티어의 **AMD NPU(XDNA) 활용**. 발상 = 데스크톱 2-GPU 분업과 동형으로
+**NPU=메인 LLM / GPU=표현**. 지원 모델·스택(ollama 경로 아님)이 제한적이라 실측 필요. #82 완료 후 별건으로.
+
+### 실측 머신 (bazzite 개발기) — GPU 배분과 복구 절차
+
+RTX 3090 × 2 (각 24GB). **사용자 지시: GPU0 = 다른 세션 자유작업 몫 → 손대지 말 것. GPU1 = 이 작업 재량.**
+
+| GPU | 평상시 점유 | 이 작업 |
+|---|---|---|
+| **0** | 아바타 Ditto TRT 렌더(:8902, 컨테이너 `ditto-trt-stream`) + chrome — 라이브 kiosk-v2 | ⛔ **무단 금지** |
+| **1** | 컨테이너 `naia-omni` (VoxCPM2 7.7G + whisper large-v3 2.2G + llama-server ×2 8.0G ≒ 17.9G) | ✅ 재량 — 실측 위해 중지(사용자 승인) |
+
+**`naia-omni` 중지/복구** — 컨테이너는 `--device nvidia.com/gpu=1` 로 GPU1 에 고정돼 있고, 호스트의 ollama 모델
+디렉터리를 마운트한다 = **모델 스토어를 내 ollama 와 공유**(따로 받을 필요 없음):
+
+- 중지: `podman stop naia-omni` — `restart=unless-stopped` 이라 명시적 stop 후 자동 복귀 없음. `autoremove=false` = 컨테이너 보존.
+- 복구: `podman start naia-omni` (재생성 불필요).
+- ⚠️ 중지 시 **동반 파손**: `naia-voxcpm2-bridge`(:22600→컨테이너) · `naia-cascade`(:8910) · `naia-cascade-event`(:8911) ·
+  `kiosk-v3-tunnel`. 전부 이 컨테이너 의존 → 실측 종료 후 `podman start` 로 함께 복구. GPU0 의 kiosk-v2(:8902) 는 무영향.
+- 내 ollama = 호스트 사용자 설치본(0.24.0) 를 직접 `serve`. **`CUDA_VISIBLE_DEVICES=1` 필수** — 미지정 시 GPU0 침범 위험.
+- ⚠️ 별건 고장: 시스템 `ollama.service` 는 읽기전용 OS 경로에 mkdir 실패로 재시작 루프(28k회). 포트 미점유라 무해하나 정리 대상.
+
+## ★★ 계약 누락 제약 — 메인 LLM 은 **도구 지원 계보**여야 한다 (2026-07-17 실측으로 문서화)
+
+> ⚠️ **이것은 "발견"이 아니다.** 사용자는 이미 알고 있었고, **그래서 Qwen 계열을 썼다**(2026-07-17 사용자 확인).
+> 데모 모델 `dnotitia-dna3.0-9b` 가 도구를 부를 수 있었던 이유도 그것 — **DNA3.0 = Qwen3.5 기반**
+> (증적 = alpha-adk 루트의 `.agents/progress/dna3-local-llm-eval-2026-07-08.md` 사양 절).
+> **문제는 이 제약이 계약·UC·FR 어디에도 적혀 있지 않다는 것이다.** 아는 것과 문서에 있는 것은 다르고,
+> 안 적혀 있으면 다음 읽는 쪽이 추측한다 — 이 세션이 "로컬 Ollama"에서 당한 것과 동일 구조. 그래서 기록한다.
+
+로컬 ollama 실측(raw `/api/chat` + tools 1개, 400 `does not support tools` 판정):
+
+| 모델 | 크기 | 계보 | tools |
+|---|---|:--:|:--:|
+| `qwen3.6:27b` | 17.4G | Qwen (코딩) · **24G 티어** | ✅ |
+| `gemma4:31b-it-q4_K_M` | 19.9G | Gemma · **24G 티어** | ✅ |
+| `gemma4:e4b-it-q8_0` | 11.6G | Gemma 8B | ✅ |
+| `huihui_ai/qwen3-abliterated:8b` | 5.0G | Qwen 8B | ✅ |
+| `goekdenizguelmez/JOSIEFIED-Qwen3:8b` | 5.0G | Qwen 8B | ✅ |
+| **`kanana2`** (카카오) | 18.6G | 한국어 · 24G 티어 | ⛔ |
+| **`exaone45`** (LG) | 20.0G | 한국어 · 24G 티어 | ⛔ |
+| **`HyperCLOVAX-SEED-Think-32B`** (네이버) | 22.8G | 한국어 · 24G 티어 | ⛔ |
+| `kanana-judge` | 18.6G | 한국어 | ⛔ |
+| `gemma-4-26B-A4B` (unsloth) | 15.4G | Gemma MoE | ⛔ |
+
+**설계 함의 (v3.1 계약이 반드시 답해야 함)**: UC-015 의 활성화 판정은 **provider 의 도구 선택에 위임**돼 있다.
+그런데 **국산 24G 티어 3종(kanana2·exaone45·HyperCLOVAX)이 전부 도구 미지원**이다 → 그 모델을 메인 LLM 으로
+쓰면 **UC-015 는 아예 동작하지 않는다**(조용히). 계약은 이 경우를 규정한 적이 없다.
+(ollama 템플릿에 tool 블록이 없다는 뜻이지 모델 자체의 능력 부재라는 뜻은 아니다 — 그러나 우리 배선에서는 결과가 같다.)
+
+**★ 측정 함정 (패널 채점 시 필수)**: `ollama-provider.ts` §H.2 H-I3 은 400 `does not support tools` 를 받으면
+**tools 를 빼고 1회 재시도**한다(순수 챗 graceful degrade). 그러면 `toolUse` 가 영영 안 나와 **`called:false` 로 흡수**되고,
+채점표에서 그 모델은 **"오호출 0% = 완벽"** 으로 뒤집혀 보인다. → `v3-evidence-probe2.mjs` 는 raw 프리플라이트로
+미지원 모델을 **패널에서 배제**하고 `excluded` 로 증적에 남긴다. codex T4-4 가 지적한 "provider 오류의 called:false 흡수"와 동일 계열.
+
+## ⚠️ 환경 기술 결함 — 이 문서가 후속 세션을 드리프트시켰다 (2026-07-17 후속 세션 기록)
+
+핸드오프를 인수한 세션(bazzite 개발기)이 **실측 대신 인프라 고고학에 시간을 썼다**. 원인은 이 문서다.
+
+| # | 결함 | 결과 |
+|---|---|---|
+| 1 | 위 2항이 **"로컬 Ollama"** 라고 적었다 — "로컬"은 머신마다 뜻이 바뀌는 상대어인데, 이 문서의 존재 이유는 **크로스머신 재개**다. 자기모순. | 인수 세션이 localhost:11434 를 찔러 → 죽어 있음 → 서비스 로그 → 모델 스토어 → HDD 전수 검색까지 감. 호스트가 이름으로 적혀 있었으면 첫 curl 에서 멈췄다. |
+| 2 | **모델 출처를 아무 데도 안 적었다.** 실제로는 HuggingFace 공개 자산(`dnotitia/DNA3.0-9B` + `mradermacher/DNA3.0-9B-GGUF`)이다. | 인수 세션이 "이 머신엔 없음 = 구할 수 없음"으로 오판. 사용자가 "허깅페이스에 있는 모델이야"라고 정정해 주고서야 풀림. |
+| 3 | 유일하게 출처를 다룬 문서(alpha-adk `.agents/progress/dna3-local-llm-eval-2026-07-08.md`)가 **"공식 GGUF 없음 → 자가 변환 필요"** 라고 적었는데 **stale**. 2026-07-17 실측: 커뮤니티 GGUF 다수 존재(Q2_K~f16 + imatrix). | 결함 2 를 강화 — "그 머신에서 직접 만든 것"이라는 오판의 근거가 됨. |
+| 4 | **"없으면 `TS_MODEL`/`TS_HOST` 로 대체"** 를 값싼 탈출구처럼 제시했다. 그러나 같은 문서가 "모델 교체 시 벤치 전체(B1~B5) 재실행 의무"를 못박는다. | 대체는 **측정 전체를 무효화**한다 = 값싸지 않다. 두 문장이 서로를 부정. |
+
+**뿌리**: 계약 문서에 **정의되지 않은/상대적인 지시어**를 남기면 다음 읽는 쪽이 **추측으로 메우고**, 추측이 곧 드리프트다
+(같은 계열 = "정의 없는 약어 추측"). **제거 = 이름으로 적기**: 호스트는 머신 이름, 자산은 출처 URI, 값은 절대값.
+
+**본 문서에 적용한 제거**: 2항 전면 재작성(출처·기준 머신·quant 동일성 주의·"로컬" 금지). 결함 3 의 stale 문장은
+alpha-adk 원문에서 정정. **재현 시 주의**: HF Q4_K_M ≠ 윈도우 자가변환 q4 → 재구성 시 베이스라인부터 다시 뜬다.
 
 ## ★ 경첩 실측 1차 (2026-07-17, v3 후보 스키마, 22프로브×6회, 증적 `.agents/reviews/issue-82-v3-evidence-hinge-2026-07-17.json`)
 
@@ -40,7 +197,8 @@ v3 규칙 하 negative 즉시-활성률: 원시 false-call 10% → **~2%**(evide
    (모델 자기보고 두 필드의 구조적 정합 — 의미 재추측 아님)
 2. **설명 강화**: "계속 말해 달라는 요청 자체가 없으면(자리 비움 인사만으로는) 절대 호출 금지" 명시
    → ②-only 호출률 자체를 낮춤. 변수 하나씩: 2차 실측 = 설명 강화 + 전 콜 보존 + 후보 규칙 인라인 평가.
-- session_id: 08e07adf-cb54-4aab-81af-951410c386b7
+- session_id: 03b17f74-14d6-4390-a3ed-871d373001cf (2026-07-17 인수 세션 — 핸드오프 수령)
+- prior_session_id: 08e07adf-cb54-4aab-81af-951410c386b7 (핸드오프 작성 세션, 윈도우 데모기)
 - GitHub: https://github.com/nextain/naia-agent/issues/82
 - 추적: REQ-013 → UC-015 → SPEC-012 → TEST-S-015 / TEST-F-012
 - 경계: naia-agent app 계층. naia-shell·gRPC proto 변경 없음.

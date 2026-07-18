@@ -3,10 +3,23 @@
 // transport-독립 런타임 deps 는 compose-agent-deps.mjs(CLI host 와 공유, NFR-CLI-shared) — 여기선 gRPC server +
 // panel(환경 위임, egress 필요) + 라이브 reload + 종료(drain/flush) 등 **gRPC host 관심사**만 배선.
 import { createInterface } from "node:readline";
+import { randomUUID } from "node:crypto";
 import { wireAgentUC1 } from "../../dist/main/composition/index.js";
 import { makeCompositeToolExecutor } from "../../dist/main/adapters/composite-tool-executor.js";
 import { makePanelToolExecutor } from "../../dist/main/adapters/panel-tool-executor.js";
 import { makeGrpcServer } from "../../dist/main/adapters/grpc/grpc-server.js";
+import { makeActivityRouteRegistry, makeActivitySpeechEgress } from "../../dist/main/adapters/activity-speech-egress.js";
+import { makeActivityRadioDjBgm } from "../../dist/main/adapters/activity-radio-dj-bgm.js";
+import { makeExhibitionKnowledge } from "../../dist/main/adapters/exhibition-knowledge.js";
+import {
+  makeDeterministicRadioDjSelector,
+  makeRadioDjContext,
+  makeRadioDjPreferenceStore,
+  makeSystemProactiveScheduler,
+} from "../../dist/main/adapters/radio-dj-runtime.js";
+import { PersonalRadioDjController } from "../../dist/main/app/personal-radio-dj-controller.js";
+import { ExhibitionIntroController } from "../../dist/main/app/exhibition-intro-controller.js";
+import { SpeechProfileRuntime } from "../../dist/main/app/speech-profile-runtime.js";
 import {
   makeCompileKnowledge,
   makeKbCompilerBackend,
@@ -47,7 +60,7 @@ const deps = await composeAgentRuntimeDeps();
 cleanupFns = deps.cleanupFns;
 const { adkPath, provider, resolver, providerLabel: label, credentials, settingsStore, defaultConfig, configLabel } = deps;
 let { toolExecutor } = deps;
-const { memory, memoryLabel, conversationLog, transcriptLabel, diag, personaSource, workspaceContextSource } = deps;
+const { memory, memoryLabel, conversationLog, transcriptLabel, diag, personaSource, workspaceContextSource, knowledgeBackend } = deps;
 let skillsLabel = deps.skillsLabel;
 
 // ★ 라이브 reload(정본 R1-2 "startup-only 금지"): 사용자가 naia-os 에서 모델/프로바이더 교체 시 OS 가
@@ -66,6 +79,8 @@ const reloadConfigFrom = (path) => {
 // SetWorkspace/ReloadSettings = naia-adk/naia-settings 로딩 결과 반환(저장/불러오기 정본).
 // UC-PANEL(FR-PANEL): panel executor(환경 도구) 콜백은 late-binding — panelExec 는 egress 확보 후(아래) 생성.
 let panelExec;
+let activityBgm;
+let profileRuntime;
 const grpcServer = makeGrpcServer({
   bindAddr: process.env.NAIA_AGENT_GRPC_ADDR || "127.0.0.1:0",
   onSetWorkspace: (wsPath) => {
@@ -81,20 +96,81 @@ const grpcServer = makeGrpcServer({
       backend: makeKbCompilerBackend(),
       diag,
     })(wsPath || currentAdkPath),
-  onRegisterPanelSkills: (panelId, tools) => panelExec?.register(panelId, tools),       // FR-PANEL-1
-  onClearPanelSkills: (panelId) => panelExec?.clear(panelId),                           // FR-PANEL-1
+  onRegisterPanelSkills: (panelId, tools) => {
+    panelExec?.register(panelId, tools);
+    profileRuntime?.capabilitiesChanged();
+  },                                                                                    // FR-PANEL-1
+  onClearPanelSkills: (panelId) => {
+    panelExec?.clear(panelId);
+    profileRuntime?.capabilitiesChanged();
+  },                                                                                    // FR-PANEL-1
   onListSkills: () => toolExecutor?.specs() ?? [],                                      // M2: ListSkills(voice)=composite 전체(builtin+panel, H1 동적 재집계). panel만 반환하던 버그 수정.
-  onPanelToolResult: (requestId, toolCallId, output, success) => panelExec?.resolveResult(requestId, toolCallId, output, success), // FR-PANEL-3 (H2: requestId+toolCallId)
+  onPanelToolResult: (requestId, toolCallId, output, success, activityId) => {
+    panelExec?.resolveResult(requestId, toolCallId, output, success);
+    activityBgm?.resolveResult(requestId, activityId, toolCallId, output, success);
+  },
+  onConfigureSpeechProfile: (profile) => profileRuntime?.configure(profile),
+  onSpeechSubscriberChange: (sessionId, ready) => profileRuntime?.subscriberChanged(sessionId, ready),
+  onYieldSpeechActivity: (sessionId, activityId) => profileRuntime?.yield(sessionId, activityId) ?? { ok: false },
+  onControlSpeechActivity: (sessionId, activityId, action) => profileRuntime?.control(sessionId, activityId, action) ?? false,
+  onStopSpeechActivity: (sessionId, activityId) => profileRuntime?.stop(sessionId, activityId),
   diag,
 });
 // panel executor 생성(egress 확보 후) + builtin 과 composite 합성. panel 도구 execute()=panel_tool_call emit→PanelToolResult 대기(E1, FR-PANEL-2/3).
 panelExec = makePanelToolExecutor({ egress: grpcServer.egress });
 toolExecutor = toolExecutor ? makeCompositeToolExecutor([toolExecutor, panelExec]) : panelExec;
 skillsLabel += " + panel(환경 위임)";
+// Issue #82 proactive profiles — persistent activity stream + 좁은 BGM/KB 포트.
+const activityRoutes = makeActivityRouteRegistry();
+const activitySpeech = makeActivitySpeechEgress(grpcServer.activityEgress, activityRoutes);
+activityBgm = makeActivityRadioDjBgm({
+  wire: grpcServer.activityEgress,
+  routes: activityRoutes,
+  specs: () => toolExecutor?.specs() ?? [],
+});
+const proactiveScheduler = makeSystemProactiveScheduler();
+const preferenceStore = makeRadioDjPreferenceStore();
+const radioContext = makeRadioDjContext({
+  explicitLikes: (sessionId) => preferenceStore.explicitLikes(sessionId),
+  fetchWeather: async (latitude, longitude) => {
+    const url = new URL("https://api.open-meteo.com/v1/forecast");
+    url.searchParams.set("latitude", String(latitude));
+    url.searchParams.set("longitude", String(longitude));
+    url.searchParams.set("current", "temperature_2m,weather_code");
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`weather HTTP ${response.status}`);
+    const body = await response.json();
+    return {
+      tempC: Number(body?.current?.temperature_2m),
+      code: Number(body?.current?.weather_code),
+      observedAt: String(body?.current?.time ?? new Date().toISOString()),
+    };
+  },
+});
+const djController = new PersonalRadioDjController({
+  scheduler: proactiveScheduler,
+  ids: { next: randomUUID },
+  context: radioContext,
+  selector: makeDeterministicRadioDjSelector(),
+  bgm: activityBgm,
+  speech: activitySpeech,
+  preferences: preferenceStore,
+});
+const exhibitionController = new ExhibitionIntroController({
+  scheduler: proactiveScheduler,
+  ids: { activity: randomUUID, resumeToken: randomUUID },
+  knowledge: makeExhibitionKnowledge(knowledgeBackend),
+  speech: activitySpeech,
+});
+profileRuntime = new SpeechProfileRuntime({
+  dj: djController,
+  exhibition: exhibitionController,
+  chatEgress: grpcServer.egress,
+});
 // memory(makeNaiaMemory)는 MemoryPort + CompactionPort 둘 다 구현 → compaction 도 같은 인스턴스 주입(UC-compaction).
 // FR-PERSONA-3: personaSource 주입(코어가 워크스페이스 페르소나 조립). naia-os 는 chat_request 에 systemPrompt 를
 //   실어 보내므로 그 요청은 override 로 동작(당장 동작변화 없음) — 단 코어가 페르소나를 소유하는 단일 경로로 통일.
-const wired = wireAgentUC1({ ingress: grpcServer.ingress, egress: grpcServer.egress, credentials, diag, ...(provider ? { provider } : {}), ...(resolver ? { resolver } : {}), ...(toolExecutor ? { toolExecutor } : {}), ...(memory ? { memory } : {}), ...(memory ? { compaction: memory } : {}), ...(conversationLog ? { conversationLog } : {}), ...(personaSource ? { personaSource } : {}), ...(workspaceContextSource ? { workspaceContext: workspaceContextSource } : {}), ...(defaultConfig ? { defaultConfig } : {}) });
+const wired = wireAgentUC1({ ingress: grpcServer.ingress, egress: grpcServer.egress, speechProfiles: profileRuntime, credentials, diag, ...(provider ? { provider } : {}), ...(resolver ? { resolver } : {}), ...(toolExecutor ? { toolExecutor } : {}), ...(memory ? { memory } : {}), ...(memory ? { compaction: memory } : {}), ...(conversationLog ? { conversationLog } : {}), ...(personaSource ? { personaSource } : {}), ...(workspaceContextSource ? { workspaceContext: workspaceContextSource } : {}), ...(defaultConfig ? { defaultConfig } : {}) });
 applyDefaultConfig = wired.setDefaultConfig; // 라이브 reload 결선 — 이후 SetWorkspace/ReloadSettings 가 활성 config swap
 const { start, drain } = wired;
 start?.(); // ingress.onRequest(route) 등록 — gRPC 핸들러가 도메인 req 를 흘린다

@@ -16,8 +16,14 @@ export interface PbChatRequest {
   enableThinking?: boolean;
   gatewayUrl?: string;
   disabledSkills?: string[];
+  activityResume?: {
+    activityId?: string;
+    profileGeneration?: number | string;
+    yieldGeneration?: number | string;
+    resumeToken?: string;
+  };
 }
-export interface PbCancel { requestId: string }
+export interface PbCancel { requestId: string; activityId?: string }
 export interface PbApproval { requestId: string; toolCallId: string; decision: number | string } // 0/REJECT, 1/APPROVE
 export interface PbCreds { provider: string; apiKey?: string; naiaKey?: string }
 export interface PbToolRequest { requestId: string; toolName: string }
@@ -42,11 +48,23 @@ export function chatRequestToDomain(p: PbChatRequest): Extract<AgentRequest, { k
     ...(p.enableThinking !== undefined ? { enableThinking: p.enableThinking } : {}),
     ...(p.gatewayUrl !== undefined ? { gatewayUrl: p.gatewayUrl } : {}),
     ...(p.disabledSkills !== undefined ? { disabledSkills: p.disabledSkills } : {}),
+    ...(p.activityResume ? {
+      activityResume: {
+        activityId: String(p.activityResume.activityId ?? ""),
+        profileGeneration: Number(p.activityResume.profileGeneration ?? 0),
+        yieldGeneration: Number(p.activityResume.yieldGeneration ?? 0),
+        resumeToken: String(p.activityResume.resumeToken ?? ""),
+      },
+    } : {}),
   };
 }
 
 export function cancelToDomain(p: PbCancel): Extract<AgentRequest, { kind: "cancel" }> {
-  return { kind: "cancel", requestId: String(p.requestId ?? "") };
+  return {
+    kind: "cancel",
+    requestId: String(p.requestId ?? ""),
+    ...(p.activityId ? { activityId: String(p.activityId) } : {}),
+  };
 }
 export function approvalToDomain(p: PbApproval): Extract<AgentRequest, { kind: "approvalResponse" }> {
   const approve = p.decision === 1 || p.decision === "APPROVE" || p.decision === "approve";

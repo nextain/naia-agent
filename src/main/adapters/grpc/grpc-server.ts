@@ -7,6 +7,14 @@ import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import type { AgentRequest, AgentEmit, ToolSpec } from "../../domain/chat.js";
 import type { AgentIngressPort, AgentEgressPort, DiagnosticLog, Unsub } from "../../ports/uc1.js";
+import type {
+  SpeechProfileConfig,
+  YieldSpeechResult,
+} from "../../ports/speech-activity.js";
+export type {
+  SpeechProfileConfig,
+  YieldSpeechResult,
+} from "../../ports/speech-activity.js";
 import {
   chatRequestToDomain, cancelToDomain, approvalToDomain, credsToDomain, toolRequestToDomain,
   emitToProto, type PbChatRequest, type PbCancel, type PbApproval, type PbCreds, type PbToolRequest,
@@ -24,7 +32,6 @@ export interface SettingsResult { loaded: boolean; provider: string; model: stri
 export interface CompileKnowledgeResult { ok: boolean; scope: string; sourceCount: number; cardCount: number; entityCount: number; relationCount: number; error?: string }
 /** F1 rich-health(신규계약 Diagnostics RPC). os InteroceptivePort.diagnostics rich payload. */
 export interface DiagnosticsResult { version: string; uptimeMs: number; healthy: boolean; components: readonly { name: string; healthy: boolean }[] }
-
 export interface GrpcServerDeps {
   bindAddr?: string;                                  // 기본 127.0.0.1:0(임의 포트). entry 가 주소 회수.
   onSetWorkspace: (adkPath: string) => SettingsResult; // naia-adk/naia-settings 로딩 결과(entry 제공)
@@ -36,13 +43,33 @@ export interface GrpcServerDeps {
   onRegisterPanelSkills?: (panelId: string, tools: ToolSpec[]) => void;
   onClearPanelSkills?: (panelId: string) => void;
   onListSkills?: () => readonly ToolSpec[];
-  onPanelToolResult?: (requestId: string, toolCallId: string, output: string, success: boolean) => void;
+  onPanelToolResult?: (
+    requestId: string,
+    toolCallId: string,
+    output: string,
+    success: boolean,
+    activityId?: string,
+  ) => void;
+  onConfigureSpeechProfile?: (profile: SpeechProfileConfig) => void;
+  onSpeechSubscriberChange?: (sessionId: string, ready: boolean) => void;
+  onYieldSpeechActivity?: (sessionId: string, activityId: string) => YieldSpeechResult | Promise<YieldSpeechResult>;
+  onControlSpeechActivity?: (sessionId: string, activityId: string | undefined, action: string) => boolean | Promise<boolean>;
+  onStopSpeechActivity?: (sessionId: string, activityId?: string) => void | Promise<void>;
   diag: DiagnosticLog;
 }
 
 export interface GrpcServer {
   ingress: AgentIngressPort;     // composition 에 주입(transport 무지)
   egress: AgentEgressPort;       // 동상 — emit → 해당 requestId 의 Chat stream 으로 라우팅
+  activityEgress: {
+    emit(
+      sessionId: string,
+      requestId: string,
+      activityId: string,
+      profileGeneration: number,
+      e: AgentEmit,
+    ): void;
+  };
   start: () => Promise<string>;  // 바인딩 주소 반환
   shutdown: () => Promise<void>;
 }
@@ -54,6 +81,8 @@ export function makeGrpcServer(deps: GrpcServerDeps): GrpcServer {
   const safeLog = (m: string, c?: unknown) => { try { diag.log(m, c); } catch { /* egress no-throw 계약 보호 */ } };
   // requestId → 활성 Chat(server-stream) call. emit 라우팅 대상.
   const active = new Map<string, WritableStream>();
+  // sessionId → 장기 proactive activity subscription. activity terminal은 stream을 닫지 않는다.
+  const activitySubscribers = new Map<string, WritableStream>();
   // ingress cb(단일 구독) — RPC 핸들러가 도메인 req 를 이리로 흘린다(stdio onLine 등가).
   let onReq: ((req: AgentRequest) => void) | null = null;
 
@@ -74,6 +103,25 @@ export function makeGrpcServer(deps: GrpcServerDeps): GrpcServer {
       if (e.kind === "finish" || e.kind === "error") {
         active.delete(requestId);
         try { call.end(); } catch { /* 이미 닫힘 */ }
+      }
+    },
+  };
+
+  const activityEgress: GrpcServer["activityEgress"] = {
+    emit(sessionId, requestId, activityId, profileGeneration, e): void {
+      const call = activitySubscribers.get(sessionId);
+      if (!call) {
+        safeLog("grpc activity egress: subscriber 없음(드롭)", { sessionId, requestId, activityId, kind: e.kind });
+        return;
+      }
+      try {
+        call.write({
+          ...emitToProto(requestId, e),
+          activityId,
+          profileGeneration,
+        });
+      } catch (err) {
+        safeLog("grpc activity egress write 실패", { sessionId, activityId, err });
       }
     },
   };
@@ -131,6 +179,148 @@ export function makeGrpcServer(deps: GrpcServerDeps): GrpcServer {
     cancel: unaryHandler((p) => cancelToDomain(p as PbCancel)),
     approvalResponse: unaryHandler((p) => approvalToDomain(p as PbApproval)),
     updateCreds: unaryHandler((p) => credsToDomain(p as PbCreds)),
+    configureSpeechProfile: (
+      call: grpc.ServerUnaryCall<unknown, unknown>,
+      cb: grpc.sendUnaryData<{ ok: boolean }>,
+    ) => {
+      const r = call.request as {
+        sessionId?: string;
+        profile?: string;
+        personalRadioDj?: {
+          idleMs?: number;
+          djIntervalMs?: number;
+          timezone?: string;
+          bgmAutoPlayOptIn?: boolean;
+          weatherLatitude?: number;
+          weatherLongitude?: number;
+          weatherConsented?: boolean;
+        };
+        exhibitionIntro?: {
+          knowledgeScope?: string;
+          idleMs?: number;
+          introIntervalMs?: number;
+        };
+      };
+      const sessionId = String(r.sessionId ?? "").trim();
+      if (!sessionId || !deps.onConfigureSpeechProfile) { cb(null, { ok: false }); return; }
+      if (r.profile === "personalRadioDj" && r.personalRadioDj) {
+        const p = r.personalRadioDj;
+        const weather =
+          p.weatherConsented
+          && Number.isFinite(p.weatherLatitude)
+          && Number.isFinite(p.weatherLongitude)
+            ? {
+                weatherLocation: {
+                  latitude: Number(p.weatherLatitude),
+                  longitude: Number(p.weatherLongitude),
+                  consented: true as const,
+                },
+              }
+            : {};
+        deps.onConfigureSpeechProfile({
+          kind: "personal_radio_dj",
+          config: {
+            sessionId,
+            idleMs: boundedMs(p.idleMs, 60_000),
+            djIntervalMs: boundedMs(p.djIntervalMs, 5 * 60_000),
+            timezone: String(p.timezone ?? "UTC") || "UTC",
+            bgmAutoPlayOptIn: p.bgmAutoPlayOptIn === true,
+            ...weather,
+          },
+        });
+        cb(null, { ok: true });
+        return;
+      }
+      if (r.profile === "exhibitionIntro" && r.exhibitionIntro) {
+        const p = r.exhibitionIntro;
+        const knowledgeScope = String(p.knowledgeScope ?? "").trim();
+        if (!knowledgeScope) { cb(null, { ok: false }); return; }
+        deps.onConfigureSpeechProfile({
+          kind: "exhibition_intro",
+          config: {
+            sessionId,
+            knowledgeScope,
+            idleMs: boundedMs(p.idleMs, 30_000),
+            introIntervalMs: boundedMs(p.introIntervalMs, 15_000),
+          },
+        });
+        cb(null, { ok: true });
+        return;
+      }
+      deps.onConfigureSpeechProfile({ kind: "disabled", sessionId });
+      cb(null, { ok: true });
+    },
+    subscribeSpeechActivities: (call: WritableStream) => {
+      const sessionId = String((call.request as { sessionId?: string })?.sessionId ?? "").trim();
+      if (!sessionId || activitySubscribers.has(sessionId)) {
+        safeLog("grpc activity subscribe 거부", { sessionId, duplicate: activitySubscribers.has(sessionId) });
+        try { call.end(); } catch { /* noop */ }
+        return;
+      }
+      activitySubscribers.set(sessionId, call);
+      deps.onSpeechSubscriberChange?.(sessionId, true);
+      let cleaned = false;
+      const cleanup = () => {
+        if (cleaned) return;
+        cleaned = true;
+        if (activitySubscribers.get(sessionId) === call) activitySubscribers.delete(sessionId);
+        deps.onSpeechSubscriberChange?.(sessionId, false);
+      };
+      call.on("cancelled", cleanup);
+      call.on("close", cleanup);
+      call.on("error", cleanup);
+    },
+    yieldSpeechActivity: async (
+      call: grpc.ServerUnaryCall<unknown, unknown>,
+      cb: grpc.sendUnaryData<{ ok: boolean; resumeToken: string; profileGeneration: number; yieldGeneration: number }>,
+    ) => {
+      const r = call.request as { sessionId?: string; activityId?: string };
+      try {
+        const result = await deps.onYieldSpeechActivity?.(
+          String(r.sessionId ?? ""),
+          String(r.activityId ?? ""),
+        );
+        cb(null, {
+          ok: result?.ok === true && result.binding !== undefined,
+          resumeToken: result?.binding?.resumeToken ?? "",
+          profileGeneration: result?.binding?.profileGeneration ?? 0,
+          yieldGeneration: result?.binding?.yieldGeneration ?? 0,
+        });
+      } catch {
+        cb(null, { ok: false, resumeToken: "", profileGeneration: 0, yieldGeneration: 0 });
+      }
+    },
+    stopSpeechActivity: async (
+      call: grpc.ServerUnaryCall<unknown, unknown>,
+      cb: grpc.sendUnaryData<{ ok: boolean }>,
+    ) => {
+      const r = call.request as { sessionId?: string; activityId?: string };
+      try {
+        await deps.onStopSpeechActivity?.(
+          String(r.sessionId ?? ""),
+          r.activityId ? String(r.activityId) : undefined,
+        );
+        cb(null, { ok: true });
+      } catch {
+        cb(null, { ok: false });
+      }
+    },
+    controlSpeechActivity: async (
+      call: grpc.ServerUnaryCall<unknown, unknown>,
+      cb: grpc.sendUnaryData<{ ok: boolean }>,
+    ) => {
+      const r = call.request as { sessionId?: string; activityId?: string; action?: string };
+      try {
+        const ok = await deps.onControlSpeechActivity?.(
+          String(r.sessionId ?? ""),
+          r.activityId ? String(r.activityId) : undefined,
+          String(r.action ?? ""),
+        );
+        cb(null, { ok: ok === true });
+      } catch {
+        cb(null, { ok: false });
+      }
+    },
     // UC-PANEL(FR-PANEL): 환경 panel skill RPC. parametersJson/tier(int) ↔ domain ToolSpec(parameters/tier:string) 변환.
     registerPanelSkills: (call: grpc.ServerUnaryCall<unknown, unknown>, cb: grpc.sendUnaryData<{ ok: boolean }>) => {
       const r = call.request as { panelId?: string; tools?: { name: string; description: string; parametersJson?: string; tier?: number }[] };
@@ -151,8 +341,14 @@ export function makeGrpcServer(deps: GrpcServerDeps): GrpcServer {
       cb(null, { tools: tools.map((t) => ({ name: t.name, description: t.description, parametersJson: JSON.stringify(t.parameters ?? {}), ...(t.tier != null && t.tier !== "none" ? { tier: 1 } : {}) })) }); // M1: gated→1, none/미설정 생략(Number("ask")=NaN 제거)
     },
     panelToolResult: (call: grpc.ServerUnaryCall<unknown, unknown>, cb: grpc.sendUnaryData<{ ok: boolean }>) => {
-      const r = call.request as { requestId?: string; toolCallId?: string; output?: string; success?: boolean };
-      deps.onPanelToolResult?.(String(r.requestId ?? ""), String(r.toolCallId ?? ""), String(r.output ?? ""), !!r.success); // H2: requestId+toolCallId 복합키
+      const r = call.request as { requestId?: string; toolCallId?: string; output?: string; success?: boolean; activityId?: string };
+      deps.onPanelToolResult?.(
+        String(r.requestId ?? ""),
+        String(r.toolCallId ?? ""),
+        String(r.output ?? ""),
+        !!r.success,
+        r.activityId ? String(r.activityId) : undefined,
+      ); // H2: requestId+toolCallId 복합키
       cb(null, { ok: true });
     },
   };
@@ -162,6 +358,7 @@ export function makeGrpcServer(deps: GrpcServerDeps): GrpcServer {
   return {
     ingress,
     egress,
+    activityEgress,
     start: () =>
       new Promise<string>((resolve, reject) => {
         const pkgDef = protoLoader.loadSync(PROTO_PATH, { keepCase: false, longs: Number, defaults: true, oneofs: true });
@@ -182,8 +379,18 @@ export function makeGrpcServer(deps: GrpcServerDeps): GrpcServer {
       new Promise<void>((resolve) => {
         for (const [, call] of active) { try { call.end(); } catch { /* noop */ } }
         active.clear();
+        for (const [sessionId, call] of activitySubscribers) {
+          try { call.end(); } catch { /* noop */ }
+          deps.onSpeechSubscriberChange?.(sessionId, false);
+        }
+        activitySubscribers.clear();
         if (!server) { resolve(); return; }
         server.tryShutdown(() => resolve());
       }),
   };
+}
+
+function boundedMs(value: unknown, fallback: number): number {
+  const n = typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  return Math.max(0, Math.min(Math.floor(n), 24 * 60 * 60_000));
 }

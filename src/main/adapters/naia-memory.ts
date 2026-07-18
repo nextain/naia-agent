@@ -120,7 +120,13 @@ export function buildEmbeddingProvider(cfg?: MemoryEmbeddingConfig): EmbeddingPr
   if (!cfg || cfg.provider === "none") return undefined;
   switch (cfg.provider) {
     case "offline":
-      return new OfflineEmbeddingProvider(cfg.offlineModel ?? "all-MiniLM-L6-v2", cfg.device);
+      // naia-memory runtime은 임의 Xenova/<modelName> 문자열과 384d fallback을 처리하지만 현재 생성자
+      // declaration union이 paraphrase-multilingual을 아직 누락했다. 이 adapter의 검증된 closed union만
+      // 넘기므로 declaration의 가장 넓은 384d member로 좁혀 타입 드리프트를 격리한다.
+      return new OfflineEmbeddingProvider(
+        (cfg.offlineModel ?? "all-MiniLM-L6-v2") as "all-MiniLM-L6-v2",
+        cfg.device,
+      );
     case "vllm":
     case "ollama": {
       if (!cfg.baseUrl?.trim() || !cfg.model?.trim()) {

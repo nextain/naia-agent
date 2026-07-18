@@ -61,8 +61,15 @@ export interface ChatRequest {
   readonly enableThinking?: boolean; // top-level (agent 가 providerConfig 에 주입)
   readonly gatewayUrl?: string;
   readonly disabledSkills?: readonly string[];
+  /** UC-CONT-MVP-6 — YieldSpeechActivity가 발급한 profile-bound Q&A 결속. app이 검증하기 전에는 권한 없음. */
+  readonly activityResume?: {
+    readonly activityId: string;
+    readonly profileGeneration: number;
+    readonly yieldGeneration: number;
+    readonly resumeToken: string;
+  };
 }
-export interface CancelRequest { readonly kind: "cancel"; readonly requestId: string; }
+export interface CancelRequest { readonly kind: "cancel"; readonly requestId: string; readonly activityId?: string; }
 export interface ApprovalResponse {
   readonly kind: "approvalResponse"; readonly requestId: string;
   readonly toolCallId: string; readonly decision: "approve" | "reject";
