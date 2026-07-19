@@ -26,13 +26,16 @@ export interface ProviderResolverPort {
 }
 
 /** 일반 코드가 provider 호출 전에 처리 위치와 profile을 판정하는 포트. */
+export interface ProcessingAuthorizationInput {
+  readonly processingProfileRef: string;
+  readonly workload: ProcessingWorkload;
+  readonly provider: { readonly provider: string; readonly model: string };
+  readonly sessionId: string;
+}
 export interface ProcessingGuardPort {
-  authorize(input: {
-    readonly processingProfileRef: string;
-    readonly workload: ProcessingWorkload;
-    readonly provider: { readonly provider: string; readonly model: string };
-    readonly sessionId: string;
-  }): ProcessingDisclosure;
+  authorize(input: ProcessingAuthorizationInput): ProcessingDisclosure;
+  /** Classify the full plan, then atomically consume every required one-time consent. */
+  authorizePlan?(inputs: readonly ProcessingAuthorizationInput[]): readonly ProcessingDisclosure[];
 }
 
 /** UC5 도구 실행기(driven). agent 가 등록 도구를 실행. */

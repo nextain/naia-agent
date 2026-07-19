@@ -22,6 +22,11 @@ describe("UC8 youtube_bgm skill", () => {
     const ex = makeYoutubeBgmExecutor();
     const spec = ex.specs().find((s) => s.name === "youtube_bgm");
     expect(spec?.tier).toBe("ask");
+    expect(spec?.processing).toMatchObject({
+      workload: "network_tool",
+      destination: "external_cloud",
+      when: { key: "action", values: ["search"] },
+    });
   });
 
   it("search → MusicSearch + 첫 결과 자동재생", async () => {

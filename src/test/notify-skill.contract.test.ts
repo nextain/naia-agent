@@ -17,7 +17,11 @@ function mk(over: Partial<NotifyDeps> = {}): { deps: NotifyDeps; posts: Array<{ 
 
 describe("notify skill", () => {
   it("tier=ask(외부발신 승인)", () => {
-    expect(makeNotifyExecutor().specs().find((s) => s.name === "notify")?.tier).toBe("ask");
+    const spec = makeNotifyExecutor().specs().find((s) => s.name === "notify");
+    expect(spec?.tier).toBe("ask");
+    expect(spec?.processing).toMatchObject({
+      workload: "network_tool", destination: "external_cloud", provider: "webhook",
+    });
   });
   it("slack → {text} payload POST", async () => {
     const { deps, posts } = mk();

@@ -25,6 +25,11 @@ export interface ToolSpec {
     readonly destination: ProcessingDestination;
     readonly provider: string;
     readonly model: string;
+    /** Optional trusted argument predicate for mixed local/external tools. */
+    readonly when?: {
+      readonly key: string;
+      readonly values: readonly (string | number | boolean)[];
+    };
   };
 }
 export interface ToolCall { readonly id: string; readonly name: string; readonly args: unknown; }

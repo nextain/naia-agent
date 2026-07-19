@@ -203,6 +203,13 @@ export function makeFileDiscordDedupe(options: DiscordDedupeOptions): DiscordDed
         ? { decision: "process" }
         : { decision: "duplicate" };
     },
+    async releaseReservation({ bindingId, messageId, now }) {
+      if (!validIdentity(bindingId, messageId, now)) return false;
+      const existing = find(bindingId, messageId, now);
+      if (!existing || existing.state !== "reserved") return false;
+      const key = keyOf(bindingId, messageId);
+      return persist(entries.filter((entry) => keyOf(entry.bindingId, entry.messageId) !== key));
+    },
     async beginReply({ bindingId, messageId, chunks, now }) {
       if (!validIdentity(bindingId, messageId, now) || !validChunks(chunks)) return false;
       const existing = find(bindingId, messageId, now);

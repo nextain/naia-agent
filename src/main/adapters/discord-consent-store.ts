@@ -65,9 +65,13 @@ export function makeFileDiscordConsentStore(input: {
         && record.expiresAt > (input.now ?? Date.now)());
     },
     claim(consentId) {
-      if (!ID.test(consentId) || consumed.has(consentId) || !ids.has(consentId)) return false;
+      return this.claimMany([consentId]);
+    },
+    claimMany(consentIds) {
+      if (!consentIds.length || consentIds.some((consentId) =>
+        !ID.test(consentId) || consumed.has(consentId) || !ids.has(consentId))) return false;
       const next = new Set(consumed);
-      next.add(consentId);
+      for (const consentId of consentIds) next.add(consentId);
       return persist(next);
     },
   };

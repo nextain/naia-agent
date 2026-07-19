@@ -7,12 +7,8 @@ import {
   decideProcessingPolicy,
   type ProcessingProfile,
 } from "../domain/processing-policy.js";
-import {
-  validateAndClaimConsent,
-  validateProcessingDisclosure,
-  type TrustedConsentRecord,
-} from "../domain/security-wire.js";
-import type { ProcessingGuardPort } from "../ports/uc1.js";
+import { validateProcessingDisclosure, type TrustedConsentRecord } from "../domain/security-wire.js";
+import type { ProcessingAuthorizationInput, ProcessingGuardPort } from "../ports/uc1.js";
 
 export interface TrustedEndpointRecord {
   readonly url?: string;
@@ -41,6 +37,7 @@ export interface TrustedConsentStore {
     readonly sessionId: string;
   }): TrustedConsentRecord | undefined;
   claim(consentId: string): boolean;
+  claimMany(consentIds: readonly string[]): boolean;
 }
 
 /**
@@ -54,8 +51,7 @@ export function makeProcessingGuard(deps: {
   readonly consents?: TrustedConsentStore;
   readonly now?: () => number;
 }): ProcessingGuardPort {
-  return {
-    authorize(input) {
+  const classify = (input: ProcessingAuthorizationInput): ProcessingDisclosure => {
       const profile = deps.profiles.get(input.processingProfileRef);
       if (!profile) throw new Error("processing profile not found");
       const endpoint = deps.endpoints.resolve(input.provider, input.workload);
@@ -86,20 +82,40 @@ export function makeProcessingGuard(deps: {
         ...base,
       });
       if (!validated.ok) throw new Error(validated.error.code);
-      if (policy.decision !== "confirmation_required" || !deps.consents) return base;
+      return base;
+  };
+  const authorizePlan = (inputs: readonly ProcessingAuthorizationInput[]): readonly ProcessingDisclosure[] => {
+    const disclosures = inputs.map(classify);
+    if (!deps.consents) return disclosures;
+    const pending = disclosures
+      .map((disclosure, index) => ({ disclosure, input: inputs[index]!, index }))
+      .filter(({ disclosure }) => disclosure.decision === "confirmation_required");
+    if (!pending.length) return disclosures;
+    const now = (deps.now ?? Date.now)();
+    const consentIds: string[] = [];
+    for (const { disclosure, input } of pending) {
       const consent = deps.consents.find({
         processingProfileRef: input.processingProfileRef,
-        destination,
+        destination: disclosure.destination,
         workload: input.workload,
         sessionId: input.sessionId,
       });
-      const claimed = validateAndClaimConsent({ kind: "processingDisclosure", ...base }, {
-        sessionId: input.sessionId,
-        now: (deps.now ?? Date.now)(),
-        consent,
-        claim: (consentId) => deps.consents!.claim(consentId),
-      });
-      return claimed.ok ? { ...base, decision: "allowed" } : base;
+      if (!consent || consent.expiresAt <= now
+        || consent.processingProfileRef !== input.processingProfileRef
+        || consent.destination !== disclosure.destination
+        || consent.workload !== input.workload
+        || consent.sessionId !== input.sessionId) return disclosures;
+      consentIds.push(consent.consentId);
+    }
+    if (!deps.consents.claimMany([...new Set(consentIds)])) return disclosures;
+    const allowed = new Set(pending.map(({ index }) => index));
+    return disclosures.map((disclosure, index) =>
+      allowed.has(index) ? { ...disclosure, decision: "allowed" } : disclosure);
+  };
+  return {
+    authorize(input) {
+      return authorizePlan([input])[0]!;
     },
+    authorizePlan,
   };
 }

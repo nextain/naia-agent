@@ -36,6 +36,12 @@ describe("makeMcpSkillsExecutor (S25)", () => {
     const ex = await makeMcpSkillsExecutor({ transport: mk({ pages: [{ tools: [tool("echo"), tool("add")] }] }), serverName: "srv" });
     const specs = ex.specs();
     expect(specs.map((s) => s.name)).toEqual(["mcp__srv__echo", "mcp__srv__add"]);
+    expect(specs[0]?.processing).toMatchObject({
+      workload: "network_tool",
+      destination: "external_cloud",
+      provider: "mcp-srv",
+      model: "echo",
+    });
     expect(specs.every((s) => s.tier === "ask")).toBe(true);
   });
   it("(b) execute(prefixed) → 원본 복원·tools/call·text 추출", async () => {

@@ -217,15 +217,22 @@ export class ChatTurnHandler {
           terminalError("processing policy guard is not configured", "PROCESSING_DESTINATION_UNKNOWN");
           return false;
         }
+        const processingProfileRef = req.processing.processingProfileRef;
         const disclosures = [];
         try {
-          for (const operation of operations) {
-            disclosures.push(this.d.processingGuard.authorize({
-              processingProfileRef: req.processing.processingProfileRef,
+          const inputs = operations.map((operation) => ({
+              processingProfileRef,
               workload: operation.workload,
               provider: operation.provider,
               sessionId: req.sessionId ?? "default",
             }));
+          if (inputs.length === 1) disclosures.push(this.d.processingGuard.authorize(inputs[0]!));
+          else {
+            if (!this.d.processingGuard.authorizePlan) {
+              terminalError("atomic processing policy plan is not configured", "PROCESSING_DESTINATION_UNKNOWN");
+              return false;
+            }
+            disclosures.push(...this.d.processingGuard.authorizePlan(inputs));
           }
         } catch {
           terminalError("processing destination could not be classified", "PROCESSING_DESTINATION_UNKNOWN");
@@ -478,7 +485,12 @@ export class ChatTurnHandler {
           try {
             if (exec) {
               const processing = externalTools.find((spec) => spec.name === call.name)?.processing;
-              if (processing && !await authorizeOperation(processing.workload, {
+              const processingApplies = processing && (!processing.when
+                || (call.args !== null && typeof call.args === "object" && !Array.isArray(call.args)
+                  && processing.when.values.includes(
+                    (call.args as Record<string, unknown>)[processing.when.key] as never,
+                  )));
+              if (processingApplies && !await authorizeOperation(processing.workload, {
                 provider: processing.provider,
                 model: processing.model,
               })) return;

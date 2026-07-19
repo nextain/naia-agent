@@ -121,6 +121,15 @@ describe("ChatTurnHandler processing guard", () => {
           processingProfileRef: input.processingProfileRef,
         };
       },
+      authorizePlan: (inputs) => inputs.map((input) => {
+        order.push(`guard:${input.workload}`);
+        return {
+          workload: input.workload,
+          destination: "local_device",
+          decision: "allowed",
+          processingProfileRef: input.processingProfileRef,
+        };
+      }),
     };
     deps.egress.emitCritical = async () => true;
     const memory = {
@@ -170,6 +179,12 @@ describe("ChatTurnHandler processing guard", () => {
         decision: input.workload === "embedding" ? "blocked" : "allowed",
         processingProfileRef: input.processingProfileRef,
       }),
+      authorizePlan: (inputs) => inputs.map((input) => ({
+        workload: input.workload,
+        destination: "external_cloud",
+        decision: input.workload === "embedding" ? "blocked" : "allowed",
+        processingProfileRef: input.processingProfileRef,
+      })),
     };
     const memory: NonNullable<HandlerDeps["memory"]> = {
       recall: async () => ({ facts: [], episodes: [] }),

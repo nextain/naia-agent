@@ -59,6 +59,11 @@ export interface DiscordDedupePort {
     | { readonly decision: "resume_reply"; readonly chunks: readonly string[]; readonly nextChunk: number }
     | { readonly decision: "duplicate" }
   >;
+  releaseReservation?(input: {
+    readonly bindingId: string;
+    readonly messageId: string;
+    readonly now: number;
+  }): Promise<boolean>;
   beginReply(input: {
     readonly bindingId: string;
     readonly messageId: string;

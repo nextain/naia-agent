@@ -38,6 +38,13 @@ const TOOLS: readonly ToolSpec[] = [
       required: ["action"],
     },
     tier: "ask", // 환경 변경 → 승인(UC13)
+    processing: {
+      workload: "network_tool",
+      destination: "external_cloud",
+      provider: "youtube",
+      model: "search",
+      when: { key: "action", values: ["search"] },
+    },
   },
 ];
 

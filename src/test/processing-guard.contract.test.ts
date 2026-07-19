@@ -5,6 +5,35 @@ import type { TrustedConsentRecord } from "../main/domain/security-wire.js";
 const provider = { provider: "openai", model: "gpt" };
 
 describe("trusted processing guard", () => {
+  it("does not consume an earlier consent when a later planned operation lacks consent", () => {
+    const claimMany = vi.fn(() => true);
+    const guard = makeProcessingGuard({
+      profiles: { get: () => "ask_before_external" },
+      endpoints: { resolve: () => ({ url: "https://api.example.com", zone: "unverified" }) },
+      consents: {
+        find: ({ workload }) => workload === "memory_llm" ? {
+          consentId: "consent_memory",
+          processingProfileRef: "profile_1",
+          destination: "external_cloud",
+          workload: "memory_llm",
+          sessionId: "session_1",
+          expiresAt: 2_000,
+        } : undefined,
+        claim: () => true,
+        claimMany,
+      },
+      now: () => 1_000,
+    });
+    const result = guard.authorizePlan!([
+      { processingProfileRef: "profile_1", workload: "memory_llm", provider, sessionId: "session_1" },
+      { processingProfileRef: "profile_1", workload: "embedding", provider, sessionId: "session_1" },
+    ]);
+    expect(result.map((item) => item.decision)).toEqual([
+      "confirmation_required", "confirmation_required",
+    ]);
+    expect(claimMany).not.toHaveBeenCalled();
+  });
+
   it("unverified private-looking endpoint is external and cannot skip confirmation", () => {
     const guard = makeProcessingGuard({
       profiles: { get: () => "ask_before_external" },
@@ -55,7 +84,7 @@ describe("trusted processing guard", () => {
   });
 
   it("external consent is accepted only through bound record lookup and atomic ID claim", () => {
-    const claim = vi.fn(() => true);
+    const claim = vi.fn((_id: string) => true);
     const consent: TrustedConsentRecord = {
       consentId: "consent_1",
       processingProfileRef: "profile_1",
@@ -67,7 +96,7 @@ describe("trusted processing guard", () => {
     const guard = makeProcessingGuard({
       profiles: { get: () => "ask_before_external" },
       endpoints: { resolve: () => ({ url: "https://api.example.com", zone: "unverified" }) },
-      consents: { find: () => consent, claim },
+      consents: { find: () => consent, claim, claimMany: (ids) => ids.every((id) => claim(id)) },
       now: () => 1_000,
     });
     expect(guard.authorize({
@@ -86,7 +115,7 @@ describe("trusted processing guard", () => {
     { sessionId: "other_session" },
     { expiresAt: 1_000 },
   ])("mismatched or expired consent cannot authorize: %o", (patch) => {
-    const claim = vi.fn(() => true);
+    const claim = vi.fn((_id: string) => true);
     const consent: TrustedConsentRecord = {
       consentId: "consent_1",
       processingProfileRef: "profile_1",
@@ -99,7 +128,7 @@ describe("trusted processing guard", () => {
     const guard = makeProcessingGuard({
       profiles: { get: () => "ask_before_external" },
       endpoints: { resolve: () => ({ url: "https://api.example.com", zone: "unverified" }) },
-      consents: { find: () => consent, claim },
+      consents: { find: () => consent, claim, claimMany: (ids) => ids.every((id) => claim(id)) },
       now: () => 1_000,
     });
     expect(guard.authorize({

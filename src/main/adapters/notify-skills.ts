@@ -27,6 +27,12 @@ const TOOLS: readonly ToolSpec[] = [
       required: ["target", "message"],
     },
     tier: "ask", // 외부 발신 → 승인
+    processing: {
+      workload: "network_tool",
+      destination: "external_cloud",
+      provider: "webhook",
+      model: "notify",
+    },
   },
 ];
 

@@ -433,6 +433,18 @@ export class DiscordChannelRuntime {
         now: this.deps.clock.now(),
       });
     } catch { /* fail closed */ }
+    if (!this.isAuthoritative()) {
+      if (reservation.decision === "process") {
+        try {
+          await this.deps.dedupe.releaseReservation?.({
+            bindingId: binding.bindingId,
+            messageId: message.messageId,
+            now: this.deps.clock.now(),
+          });
+        } catch { /* fail closed */ }
+      }
+      return;
+    }
     if (reservation.decision === "resume_reply") {
       await this.sendDurableReply(binding.bindingId, binding.guildId, binding.channelId, message.messageId, reservation.chunks, reservation.nextChunk);
       return;
@@ -501,6 +513,12 @@ export class DiscordChannelRuntime {
   private async handleEmit(requestId: string, event: AgentEmit): Promise<void> {
     const turn = this.active.get(requestId);
     if (!turn || this.stopped) return;
+    if (!this.isAuthoritative()) {
+      this.active.delete(requestId);
+      this.route?.({ kind: "cancel", requestId });
+      await this.recordPartial(turn.bindingId, turn.messageId, 0);
+      return;
+    }
     if (event.kind === "text") {
       const remaining = Math.max(0, this.maxReplyChars - turn.text.length);
       if (remaining) turn.text += event.text.slice(0, remaining);
@@ -514,6 +532,10 @@ export class DiscordChannelRuntime {
       : turn.text;
     if (event.kind === "finish") this.commitHistory(turn);
     const chunks = safeReplyChunks(reply, this.maxReplyChars, this.deps.text.emptyReply());
+    if (!this.isAuthoritative()) {
+      await this.recordPartial(turn.bindingId, turn.messageId, 0);
+      return;
+    }
     let persisted = false;
     try {
       persisted = await this.deps.dedupe.beginReply({
@@ -535,8 +557,9 @@ export class DiscordChannelRuntime {
     event: Extract<AgentEmit, { kind: "processingDisclosure" }>,
   ): Promise<boolean> {
     const connection = this.connection;
-    if (!connection || this.stopped) return false;
+    if (!connection || this.stopped || !this.isAuthoritative()) return false;
     try {
+      if (!this.isAuthoritative()) return false;
       await connection.sendReply({
         channelId: turn.channelId,
         guildId: turn.guildId,
@@ -567,7 +590,10 @@ export class DiscordChannelRuntime {
     let sent = startChunk;
     try {
       for (let index = startChunk; index < chunks.length; index++) {
-        if (this.stopped) return;
+        if (this.stopped || !this.isAuthoritative()) {
+          await this.recordPartial(bindingId, messageId, sent);
+          return;
+        }
         const claimed = await this.deps.dedupe.claimChunk({
           bindingId,
           messageId,
@@ -575,6 +601,10 @@ export class DiscordChannelRuntime {
           now: this.deps.clock.now(),
         });
         if (!claimed) throw new Error("reply_state_failed");
+        if (!this.isAuthoritative()) {
+          await this.recordPartial(bindingId, messageId, sent);
+          return;
+        }
         await connection.sendReply({
           channelId,
           guildId,
@@ -592,18 +622,22 @@ export class DiscordChannelRuntime {
         if (!recorded) throw new Error("reply_state_failed");
       }
     } catch (error) {
-      try {
-        if (await this.deps.dedupe.partial({
-          bindingId,
-          messageId,
-          confirmedChunk: sent,
-          now: this.deps.clock.now(),
-        })) {
-          this.partialReplies++;
-          this.latestPartialConfirmedChunk = sent;
-        }
-      } catch { /* fail closed */ }
+      await this.recordPartial(bindingId, messageId, sent);
       if (!this.stopped) this.diagnostic((error as { code?: string }).code ?? "reply_failed");
     }
+  }
+
+  private async recordPartial(bindingId: string, messageId: string, confirmedChunk: number): Promise<void> {
+    try {
+      if (await this.deps.dedupe.partial({
+        bindingId,
+        messageId,
+        confirmedChunk,
+        now: this.deps.clock.now(),
+      })) {
+        this.partialReplies++;
+        this.latestPartialConfirmedChunk = confirmedChunk;
+      }
+    } catch { /* fail closed */ }
   }
 }

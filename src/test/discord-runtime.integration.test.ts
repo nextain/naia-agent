@@ -145,6 +145,7 @@ function makeHarness(options: {
   maxReplyChars?: number;
   allowedUserIds?: readonly string[];
   authority?: { isActive(): boolean };
+  dedupe?: ReturnType<typeof makeDedupe>;
 } = {}) {
   const gateway = new FakeGateway();
   const sleeps: number[] = [];
@@ -157,7 +158,7 @@ function makeHarness(options: {
   const runtime = new DiscordChannelRuntime({
     gateway,
     token: { load: async () => "discord-bot-token-secret" },
-    dedupe: makeDedupe(),
+    dedupe: options.dedupe ?? makeDedupe(),
     ...(options.authority ? { authority: options.authority } : {}),
     clock: {
       now: () => now,
@@ -235,6 +236,53 @@ describe("T-DISCORD-RT-01/02 — authenticated ingress to existing chat pipeline
     gateway.message({ messageId: "old-generation-message" });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(answerReplies(gateway.connections[0]!)).toHaveLength(1);
+    await runtime.stop();
+  });
+
+  it("releases a reservation when authority changes during reserve", async () => {
+    let active = true;
+    const base = makeDedupe();
+    const releaseReservation = vi.fn(async () => true);
+    const dedupe = {
+      ...base,
+      reserve: async (input: Parameters<typeof base.reserve>[0]) => {
+        const result = await base.reserve(input);
+        active = false;
+        return result;
+      },
+      releaseReservation,
+    };
+    const { gateway, runtime } = makeHarness({
+      authority: { isActive: () => active },
+      dedupe,
+    });
+    await waitFor(() => gateway.handlers.length === 1);
+    gateway.message({ messageId: "authority-flip-after-reserve" });
+    await waitFor(() => releaseReservation.mock.calls.length === 1);
+    expect(answerReplies(gateway.connections[0]!)).toHaveLength(0);
+    await runtime.stop();
+  });
+
+  it("does not send a claimed reply chunk after generation authority changes", async () => {
+    let active = true;
+    const base = makeDedupe();
+    const dedupe = {
+      ...base,
+      claimChunk: async (input: Parameters<typeof base.claimChunk>[0]) => {
+        const result = await base.claimChunk(input);
+        active = false;
+        return result;
+      },
+    };
+    const { gateway, runtime } = makeHarness({
+      authority: { isActive: () => active },
+      dedupe,
+    });
+    await waitFor(() => gateway.handlers.length === 1);
+    gateway.message({ messageId: "authority-flip-before-send" });
+    await waitFor(() => runtime.status().partialReplies === 1);
+    expect(answerReplies(gateway.connections[0]!)).toHaveLength(0);
+    expect(runtime.status().partialReply).toEqual({ confirmedChunk: 0 });
     await runtime.stop();
   });
 

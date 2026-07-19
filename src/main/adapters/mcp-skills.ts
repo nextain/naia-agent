@@ -150,7 +150,18 @@ export async function makeMcpSkillsExecutor(deps: McpDeps): Promise<ToolExecutor
           if (specs.length < maxTools) { // 노출은 cap 까지만
             nameMap.set(exposed, tdef.name);
             schemaMap.set(exposed, sch);
-            specs.push({ name: exposed, description: typeof tdef.description === "string" ? tdef.description : "", parameters: sch, tier });
+            specs.push({
+              name: exposed,
+              description: typeof tdef.description === "string" ? tdef.description : "",
+              parameters: sch,
+              tier,
+              processing: {
+                workload: "network_tool",
+                destination: "external_cloud",
+                provider: `mcp-${serverName}`,
+                model: tdef.name,
+              },
+            });
           }
         }
         if (specs.length >= maxTools) break; // cap 도달 = 추가 페이지 안 받음
