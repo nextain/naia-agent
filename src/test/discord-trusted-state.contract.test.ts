@@ -143,9 +143,9 @@ describe("Discord trusted one-time state", () => {
     expect(standbyProcess.claim("consent_1")).toBe(false);
   });
 
-  it("fails consent commit closed and permits reuse only after the durable reservation expires", () => {
+  it("fails reservation persistence closed and burns a successful reservation until original consent expiry", () => {
     let raw: string | undefined;
-    let writes = 0;
+    let failWrites = true;
     let now = 1_000;
     const store = makeFileDiscordConsentStore({
       path: "/virtual/consents.json",
@@ -161,28 +161,30 @@ describe("Discord trusted one-time state", () => {
       fs: {
         read: () => raw,
         replace: (_path, contents) => {
-          writes++;
-          if (writes === 2) throw new Error("disk full");
+          if (failWrites) throw new Error("disk full");
           raw = contents;
         },
       },
     });
+    expect(store.reserveMany?.(["consent_1"])).toBeUndefined();
+    failWrites = false;
     const reservation = store.reserveMany?.(["consent_1"]);
     expect(reservation).toBeDefined();
-    expect(store.commitReservation?.(reservation!)).toBe(false);
+    expect(store.commitReservation?.(reservation!)).toBe(true);
     expect(store.find({
       processingProfileRef: "profile_1",
       destination: "external_cloud",
       workload: "main_llm",
       sessionId: "session_1",
     })).toBeUndefined();
-    now += 5 * 60_000 + 1;
+    now = 1_000_000;
     expect(store.find({
       processingProfileRef: "profile_1",
       destination: "external_cloud",
       workload: "main_llm",
       sessionId: "session_1",
-    })).toBeDefined();
+    })).toBeUndefined();
+    expect(store.claim("consent_1")).toBe(false);
   });
 
   it("does not return expired consent", () => {

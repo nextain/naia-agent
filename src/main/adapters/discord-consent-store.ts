@@ -117,21 +117,20 @@ export function makeFileDiscordConsentStore(input: {
       !ID.test(consentId) || consumed.has(consentId) || !ids.has(consentId)
       || reservations.some((reservation) => reservation.consentIds.includes(consentId)))) return undefined;
     const reservationId = randomUUID();
+    const reservationExpiry = Math.min(...unique.map((consentId) =>
+      input.records.find((record) => record.consentId === consentId)!.expiresAt));
     return persist(consumed, [...reservations, {
       reservationId,
       consentIds: unique,
-      expiresAt: (input.now ?? Date.now)() + 5 * 60_000,
+      expiresAt: reservationExpiry,
     }])
       ? reservationId : undefined;
   };
   const commitReservation = (reservationId: string): boolean => {
     if (!reload() || !ID.test(reservationId)) return false;
-    const reservation = reservations.find((item) => item.reservationId === reservationId);
-    if (!reservation) return false;
-    const nextConsumed = new Set(consumed);
-    for (const consentId of reservation.consentIds) nextConsumed.add(consentId);
-    const remaining = reservations.filter((item) => item.reservationId !== reservationId);
-    return persist(nextConsumed, remaining);
+    // The durable reservation itself is the terminal one-time burn and remains
+    // unavailable until the original consent expires. No post-disclosure write exists.
+    return reservations.some((item) => item.reservationId === reservationId);
   };
   const rollbackReservation = (reservationId: string): boolean => {
     if (!reload() || !ID.test(reservationId)) return false;

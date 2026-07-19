@@ -109,7 +109,7 @@ describe("ChatTurnHandler processing guard", () => {
     });
   });
 
-  it("does not consume prepared consent when critical disclosure acknowledgement fails", async () => {
+  it("rolls back the durable consent burn when critical disclosure acknowledgement fails", async () => {
     const { deps, chat, request } = fixture("allowed");
     const commit = vi.fn(() => true);
     const rollback = vi.fn(() => true);
@@ -139,13 +139,13 @@ describe("ChatTurnHandler processing guard", () => {
     };
     deps.egress.emitCritical = () => false;
     await new ChatTurnHandler({ ...deps, processingGuard }).onChatRequest(request);
-    expect(commit).not.toHaveBeenCalled();
+    expect(commit).toHaveBeenCalledOnce();
     expect(rollback).toHaveBeenCalledOnce();
     expect(chat).not.toHaveBeenCalled();
   });
 
   it("fails closed with zero provider I/O when consent commit persistence fails", async () => {
-    const { deps, chat, request } = fixture("allowed");
+    const { deps, emits, chat, request } = fixture("allowed");
     const rollback = vi.fn(() => true);
     const processingGuard: ProcessingGuardPort = {
       authorize: completeGuard({ authorize: (input) => ({
@@ -174,6 +174,13 @@ describe("ChatTurnHandler processing guard", () => {
     await new ChatTurnHandler({ ...deps, processingGuard }).onChatRequest(request);
     expect(chat).not.toHaveBeenCalled();
     expect(rollback).not.toHaveBeenCalled();
+    const disclosures = emits.filter((event) => event.kind === "processingDisclosure");
+    expect(disclosures).toHaveLength(1);
+    expect(disclosures[0]).toMatchObject({ decision: "confirmation_required" });
+    expect(emits.at(-1)).toMatchObject({
+      kind: "error",
+      code: "EXTERNAL_PROCESSING_CONFIRMATION_REQUIRED",
+    });
   });
 
   it("awaits the critical delivery acknowledgement before provider I/O", async () => {

@@ -237,6 +237,24 @@ export class ChatTurnHandler {
           return false;
         }
         const blocked = disclosures.find((disclosure) => disclosure.decision !== "allowed");
+        if (!blocked && !commitAuthorization()) {
+          for (const disclosure of disclosures) {
+            const accepted = await this.d.egress.emitCritical?.(
+              req.requestId,
+              { kind: "processingDisclosure", ...disclosure, decision: "confirmation_required" },
+            ) ?? false;
+            if (!accepted) {
+              rollbackAuthorization();
+              terminalError("processing disclosure delivery failed", "PROCESSING_DESTINATION_UNKNOWN");
+              return false;
+            }
+          }
+          terminalError(
+            "EXTERNAL_PROCESSING_CONFIRMATION_REQUIRED",
+            "EXTERNAL_PROCESSING_CONFIRMATION_REQUIRED",
+          );
+          return false;
+        }
         const deliveries = blocked ? [blocked] : disclosures;
         for (const disclosure of deliveries) {
           const accepted = await this.d.egress.emitCritical?.(
@@ -254,10 +272,6 @@ export class ChatTurnHandler {
             ? "EXTERNAL_PROCESSING_FORBIDDEN"
             : "EXTERNAL_PROCESSING_CONFIRMATION_REQUIRED";
           terminalError(code, code);
-          return false;
-        }
-        if (!commitAuthorization()) {
-          terminalError("processing consent could not be committed", "PROCESSING_DESTINATION_UNKNOWN");
           return false;
         }
         return true;
