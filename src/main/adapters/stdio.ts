@@ -4,6 +4,7 @@
 import type { AgentRequest, AgentEmit } from "../domain/chat.js";
 import type { AgentIngressPort, AgentEgressPort, Unsub } from "../ports/uc1.js";
 import { decodeRequest, encodeEmit } from "./protocol.js";
+import { validateSecurityWireRequest, type SecurityWireContext } from "../domain/security-wire.js";
 
 export interface LineIO {
   writeLine(line: string): void;          // egress (stdout). no-throw 책임은 egress 래퍼
@@ -11,12 +12,32 @@ export interface LineIO {
 }
 
 /** 단일 구독 ingress: stdin 줄 → decodeRequest → cb. 미지(null)=무시+log(silent drop 금지). */
-export function makeStdioIngress(io: LineIO, onMalformed?: (line: string) => void): AgentIngressPort {
+export function makeStdioIngress(
+  io: LineIO,
+  onMalformed?: (line: string) => void,
+  resolveTrust?: (req: Extract<AgentRequest, { kind: "chat" }>) => SecurityWireContext,
+): AgentIngressPort {
   return {
     onRequest(cb: (req: AgentRequest) => void): Unsub {
       return io.onLine((line) => {
         const req = decodeRequest(line);
         if (req === null) { onMalformed?.(line); return; } // 미지 type/파싱실패
+        if (req.kind === "chat") {
+          const checked = validateSecurityWireRequest(req, resolveTrust?.(req));
+          if (!checked.ok) {
+            if (checked.requestId) {
+              try {
+                io.writeLine(JSON.stringify({
+                  type: "error",
+                  requestId: checked.requestId,
+                  message: "Request could not be processed.",
+                  code: checked.error.code,
+                }));
+              } catch { /* no-throw */ }
+            } else onMalformed?.("");
+            return;
+          }
+        }
         cb(req);
       });
     },

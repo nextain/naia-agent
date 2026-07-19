@@ -375,3 +375,21 @@ detector나 cron 같은 외부 정책이 자유 발화를 시작하면 사용자
 | UC-KNOWLEDGE / S-KB-5 / FR-KB-5 (컴파일 K1b) | `src/test/uc-knowledge-compile.contract.test.ts` — makeCompileKnowledge(소스→backend·통계 / 소스0·빈adkPath·backend throw·readConfig throw = ok:false no-throw) + readWorkspaceKnowledgeConfig(부재·유효·깨짐). `src/test/uc-knowledge-compile.integration.test.ts` — 실 kb-compiler: 폴더(.md)→compile→knowledge/<scope>/kb.json 영속+sourceUris 보존(cross-repo) |
 
 > UC1/UC5/provider-provenance 의 상세 시나리오·수용기준은 각 계약서 + `docs/acceptance-criteria.md` 참조.
+
+## UC-SECURITY-WIRE-V2 — 처리 위치가 공개되고 동의가 재사용되지 않는다
+
+- 사용자는 로컬·관리형·외부 클라우드 중 실제 처리 위치와 workload를 처리 전에 확인한다.
+- Discord 요청은 저장된 채널 binding과 processing profile이 일치할 때만 수락된다.
+- processing 요청에 비밀키를 직접 넣거나, caller가 `actualDestination`을 주장해도 신뢰 정보로 전달되지 않는다.
+- 외부 처리 동의는 한 번만 원자적으로 소비되고 profile·destination·workload·session·만료시간이 모두 일치해야 한다.
+- 이 안전 경계는 특정 AI 모델이나 클라우드 공급자에 의존하지 않는다.
+
+| 검증 ID | 시나리오 |
+|---------|----------|
+| T-SEC-WIRE-01 | 기존 text 요청은 하위호환으로 통과한다. |
+| T-SEC-WIRE-02 | stdio/gRPC decode가 caller의 `actualDestination`을 폐기한다. |
+| T-SEC-WIRE-03 | Discord의 profile 누락·신뢰 binding 누락·범위 불일치를 거부한다. |
+| T-SEC-WIRE-04 | inline secret과 잘못된 공개 이벤트를 값 반사 없이 거부한다. |
+| T-SEC-WIRE-05 | 공개 이벤트가 downstream 또는 error보다 항상 먼저 계획된다. |
+| T-SEC-WIRE-06 | consent ID 재사용, 만료 경계, destination/session/profile/workload 불일치를 거부한다. |
+| T-SEC-WIRE-07 | proto 필드 번호·enum·오류 코드와 양쪽 codec이 고정 계약을 지킨다. |
