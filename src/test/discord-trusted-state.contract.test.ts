@@ -187,6 +187,44 @@ describe("Discord trusted one-time state", () => {
     expect(store.claim("consent_1")).toBe(false);
   });
 
+  it("keeps a composite burn until the latest constituent consent expires", () => {
+    let now = 50;
+    const path = tempFile("composite-consents.json");
+    const store = makeFileDiscordConsentStore({
+      path,
+      records: [
+        {
+          consentId: "consent_a",
+          processingProfileRef: "profile_1",
+          destination: "external_cloud",
+          workload: "memory_llm",
+          sessionId: "session_1",
+          expiresAt: 100,
+        },
+        {
+          consentId: "consent_b",
+          processingProfileRef: "profile_1",
+          destination: "external_cloud",
+          workload: "embedding",
+          sessionId: "session_1",
+          expiresAt: 200,
+        },
+      ],
+      now: () => now,
+    });
+    const reservation = store.reserveMany?.(["consent_a", "consent_b"]);
+    expect(reservation).toBeDefined();
+    expect(store.commitReservation?.(reservation!)).toBe(true);
+    now = 101;
+    expect(store.find({
+      processingProfileRef: "profile_1",
+      destination: "external_cloud",
+      workload: "embedding",
+      sessionId: "session_1",
+    })).toBeUndefined();
+    expect(store.claim("consent_b")).toBe(false);
+  });
+
   it("does not return expired consent", () => {
     const store = makeFileDiscordConsentStore({
       path: tempFile("consents.json"),

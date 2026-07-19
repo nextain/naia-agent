@@ -117,7 +117,7 @@ export function makeFileDiscordConsentStore(input: {
       !ID.test(consentId) || consumed.has(consentId) || !ids.has(consentId)
       || reservations.some((reservation) => reservation.consentIds.includes(consentId)))) return undefined;
     const reservationId = randomUUID();
-    const reservationExpiry = Math.min(...unique.map((consentId) =>
+    const reservationExpiry = Math.max(...unique.map((consentId) =>
       input.records.find((record) => record.consentId === consentId)!.expiresAt));
     return persist(consumed, [...reservations, {
       reservationId,
