@@ -14,6 +14,10 @@ import type { TrustedConsentStore } from "./processing-guard.js";
 export interface DiscordConsentSeed extends TrustedConsentRecord {
   readonly consumedAt?: never;
 }
+export interface DiscordConsentFs {
+  read(path: string): string | undefined;
+  replace(path: string, contents: string): void;
+}
 interface ConsentReservation {
   readonly reservationId: string;
   readonly consentIds: readonly string[];
@@ -29,6 +33,7 @@ export function makeFileDiscordConsentStore(input: {
   readonly path: string;
   readonly records: readonly DiscordConsentSeed[];
   readonly now?: () => number;
+  readonly fs?: DiscordConsentFs;
 }): TrustedConsentStore {
   if (input.records.length > 256 || input.records.some((record) =>
     !ID.test(record.consentId) || !ID.test(record.processingProfileRef)
@@ -40,9 +45,35 @@ export function makeFileDiscordConsentStore(input: {
   if (ids.size !== input.records.length) throw new Error("DISCORD_CONSENT_CONFIG_INVALID");
   let consumed = new Set<string>();
   let reservations: ConsentReservation[] = [];
+  const fs: DiscordConsentFs = input.fs ?? {
+    read(path) {
+      try { return readFileSync(path, "utf8"); }
+      catch (error) {
+        if ((error as { code?: string }).code === "ENOENT") return undefined;
+        throw error;
+      }
+    },
+    replace(path, contents) {
+      mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+      const temp = `${path}.tmp`;
+      try {
+        writeFileSync(temp, contents, { encoding: "utf8", mode: 0o600 });
+        renameSync(temp, path);
+      } catch (error) {
+        try { rmSync(temp, { force: true }); } catch { /* best effort */ }
+        throw error;
+      }
+    },
+  };
   const reload = (): boolean => {
    try {
-    const parsed = JSON.parse(readFileSync(input.path, "utf8")) as {
+    const raw = fs.read(input.path);
+    if (raw === undefined) {
+      consumed = new Set();
+      reservations = [];
+      return true;
+    }
+    const parsed = JSON.parse(raw) as {
       version?: unknown; consumed?: unknown; reservations?: unknown;
     };
     if (![1, 2].includes(Number(parsed.version))
@@ -60,31 +91,22 @@ export function makeFileDiscordConsentStore(input: {
     reservations = reservations.filter((reservation) =>
       reservation.expiresAt > (input.now ?? Date.now)());
     return true;
-   } catch (error) {
-     if ((error as { code?: string }).code === "ENOENT") {
-       consumed = new Set();
-       reservations = [];
-       return true;
-     }
+   } catch {
      return false;
    }
   };
   if (!reload()) throw new Error("DISCORD_CONSENT_STATE_CORRUPT");
   const persist = (nextConsumed: Set<string>, nextReservations = reservations): boolean => {
-    mkdirSync(dirname(input.path), { recursive: true, mode: 0o700 });
-    const temp = `${input.path}.tmp`;
     try {
-      writeFileSync(temp, JSON.stringify({
+      fs.replace(input.path, JSON.stringify({
         version: 2,
         consumed: [...nextConsumed].sort(),
         reservations: nextReservations,
-      }), { encoding: "utf8", mode: 0o600 });
-      renameSync(temp, input.path);
+      }));
       consumed = nextConsumed;
       reservations = [...nextReservations];
       return true;
     } catch {
-      try { rmSync(temp, { force: true }); } catch { /* best effort */ }
       return false;
     }
   };
@@ -109,10 +131,7 @@ export function makeFileDiscordConsentStore(input: {
     const nextConsumed = new Set(consumed);
     for (const consentId of reservation.consentIds) nextConsumed.add(consentId);
     const remaining = reservations.filter((item) => item.reservationId !== reservationId);
-    // A durable reservation is already exclusive authorization. If final compaction
-    // fails, keep it reserved and still treat the authorization as committed.
-    persist(nextConsumed, remaining);
-    return true;
+    return persist(nextConsumed, remaining);
   };
   const rollbackReservation = (reservationId: string): boolean => {
     if (!reload() || !ID.test(reservationId)) return false;

@@ -144,6 +144,38 @@ describe("ChatTurnHandler processing guard", () => {
     expect(chat).not.toHaveBeenCalled();
   });
 
+  it("fails closed with zero provider I/O when consent commit persistence fails", async () => {
+    const { deps, chat, request } = fixture("allowed");
+    const rollback = vi.fn(() => true);
+    const processingGuard: ProcessingGuardPort = {
+      authorize: completeGuard({ authorize: (input) => ({
+        workload: input.workload,
+        destination: "external_cloud",
+        decision: "allowed",
+        processingProfileRef: input.processingProfileRef,
+      }) }).authorize,
+      authorizePlan: (inputs) => inputs.map((input) => ({
+        workload: input.workload,
+        destination: "external_cloud",
+        decision: "allowed",
+        processingProfileRef: input.processingProfileRef,
+      })),
+      preparePlan: (inputs) => ({
+        disclosures: inputs.map((input) => ({
+          workload: input.workload,
+          destination: "external_cloud",
+          decision: "allowed",
+          processingProfileRef: input.processingProfileRef,
+        })),
+        commit: () => false,
+        rollback,
+      }),
+    };
+    await new ChatTurnHandler({ ...deps, processingGuard }).onChatRequest(request);
+    expect(chat).not.toHaveBeenCalled();
+    expect(rollback).not.toHaveBeenCalled();
+  });
+
   it("awaits the critical delivery acknowledgement before provider I/O", async () => {
     const { deps, chat, request } = fixture("allowed");
     let acknowledge!: (accepted: boolean) => void;
