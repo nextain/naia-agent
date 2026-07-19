@@ -86,6 +86,14 @@
       "contract": "docs/progress/99.dev-comm/UC1-agent-horizontal-contract-2026-06-10.md",
       "note": "ChatMessage·turn 도메인 + S4 EnvironmentSegment 폐쇄 union(avatarEmotion|panel) + ChatRequest.environmentSegments(클라 환경 컨텍스트, 코어가 머지)"
     },
+    "src/main/domain/security-wire.ts": {
+      "layer": "domain",
+      "uc": [
+        "UC-SECURITY-WIRE-V2"
+      ],
+      "contract": "docs/progress/99.dev-comm/SECURITY-WIRE-V2-contract-2026-07-19.md",
+      "note": "processing profile/ref, 처리 위치 disclosure, trusted binding/consent의 AI 비종속 fail-closed 순수 계약"
+    },
     "src/main/ports/uc1.ts": {
       "layer": "ports",
       "uc": [
