@@ -152,6 +152,18 @@ describe("redactSecrets — 알려진 키/토큰 마스킹", () => {
     expect(parsed.password).toBe("[REDACTED]");
     expect(parsed.count).toBe(42); // unquoted 숫자(비-시크릿)는 보존
   });
+
+  it("Discord 봇 토큰 전용 키 이름도 값 형식과 무관하게 마스킹한다", () => {
+    for (const [line, secret] of [
+      ['{"discord_bot_token":"MTIz.fake.signature"}', "MTIz.fake.signature"],
+      ["discordBotToken=opaque-discord-secret", "opaque-discord-secret"],
+      ["botToken=legacy-plaintext-secret", "legacy-plaintext-secret"],
+    ] as const) {
+      const out = redactSecrets(line);
+      expect(out).not.toContain(secret);
+      expect(out).toContain("[REDACTED]");
+    }
+  });
 });
 
 describe("makeStderrDiagnostic — write 직전 시크릿 마스킹(통합)", () => {
