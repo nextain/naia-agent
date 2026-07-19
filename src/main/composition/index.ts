@@ -6,7 +6,7 @@ import { makeInMemoryApproval } from "../adapters/approval.js";
 import { makeStderrDiagnostic } from "../adapters/diagnostic.js";
 import { makeBudgetedConversation } from "../adapters/budgeted-conversation.js";
 import type {
-  ProviderPort, ProviderResolverPort, ConversationPort, CredentialPort, ApprovalPort, AgentIngressPort, AgentEgressPort, DiagnosticLog, ToolExecutorPort, PersonaSourcePort, WorkspaceContextPort,
+  ProviderPort, ProviderResolverPort, ConversationPort, CredentialPort, ApprovalPort, AgentIngressPort, AgentEgressPort, DiagnosticLog, ToolExecutorPort, PersonaSourcePort, WorkspaceContextPort, WireTrustResolverPort, ProviderSessionStorePort, ProcessingPolicyPort,
 } from "../ports/uc1.js";
 import type { MemoryPort } from "../ports/memory.js";
 import type { CompactionPort } from "../ports/compaction.js";
@@ -18,6 +18,11 @@ import { makeGitWorkspace } from "../adapters/workspace-git.js";
 import { makeCommandVerifier, type CommandCheck } from "../adapters/verifier-commands.js";
 import type { SubAgentPort, WorkspacePort, VerifierPort, SupervisorEgressPort } from "../ports/orchestration.js";
 import type { TaskSpec } from "../domain/orchestration.js";
+import { planProcessingOperation, validateWireChatRequest } from "../domain/wire-v1.js";
+import { makeInMemoryProviderSessionStore } from "../domain/wire-v1.js";
+import { runWithProcessingRequestContext } from "../adapters/processing-operation-decorators.js";
+import { makeProcessingRequestContext } from "../adapters/processing-request-context.js";
+import type { ProcessingRequestContext } from "../ports/processing.js";
 
 /** in-memory credential store. */
 export function makeInMemoryCredentials(): CredentialPort {
@@ -26,6 +31,125 @@ export function makeInMemoryCredentials(): CredentialPort {
     update: (provider, secret) => { store.set(provider, secret); },
     get: (provider) => store.get(provider),
   };
+}
+
+export interface TrustedWireHostState {
+  readonly workspace?: string;
+  readonly config?: ProviderConfig;
+  readonly credentialGeneration?: number;
+  readonly allowedKnowledgeScopes?: readonly string[];
+  readonly processingProfiles?: readonly ({
+    readonly kind: "processingDisclosure";
+    readonly processingProfileRef: string;
+  } & import("../domain/chat.js").ProcessingDisclosure)[];
+}
+
+type WireRuntime = {
+  trustResolver: WireTrustResolverPort;
+  providerSessionStore: ProviderSessionStorePort;
+  grounding: NonNullable<HandlerDeps["grounding"]>;
+  processingPolicy: ProcessingPolicyPort;
+};
+
+/** Host 소유 설정 snapshot으로만 provider-session binding을 해석한다. ChatRequest claim은 읽지 않는다. */
+export function makeHostWireRuntime(
+  readTrustedState: () => TrustedWireHostState,
+  adapters: {
+    readonly grounding?: NonNullable<HandlerDeps["grounding"]>;
+    readonly processingPolicy?: ProcessingPolicyPort;
+  } = {},
+): WireRuntime {
+  return {
+    trustResolver: {
+      resolve: () => {
+        let state: TrustedWireHostState;
+        try { state = readTrustedState(); }
+        catch { return { allowedKnowledgeScopes: [] }; }
+        const config = state.config;
+        const credentialGeneration = state.credentialGeneration;
+        if (!state.workspace || !config?.provider || !config.model
+          || typeof credentialGeneration !== "number" || !Number.isSafeInteger(credentialGeneration)
+          || credentialGeneration < 0) {
+          return { allowedKnowledgeScopes: [...(state.allowedKnowledgeScopes ?? [])] };
+        }
+        return {
+          workspace: state.workspace,
+          provider: config.provider,
+          model: config.model,
+          credentialGeneration,
+          allowedKnowledgeScopes: [...(state.allowedKnowledgeScopes ?? [])],
+        };
+      },
+    },
+    providerSessionStore: makeInMemoryProviderSessionStore(),
+    grounding: adapters.grounding ?? { resolve: async () => ({ status: "unavailable", sources: [] }) },
+    processingPolicy: (adapters as { processingPolicy?: ProcessingPolicyPort }).processingPolicy ?? {
+      resolve: (_req, operation) => {
+        let state: TrustedWireHostState;
+        try { state = readTrustedState(); } catch { return undefined; }
+        const profileRef = _req.processing?.processingProfileRef;
+        return state.processingProfiles?.find((profile) =>
+          profile.processingProfileRef === profileRef && profile.workload === operation.workload);
+      },
+    },
+  };
+}
+
+/** Host가 신뢰 설정을 아직 로드하지 못한 부팅 상태의 안전한 배선. */
+export function makeFailClosedWireRuntime(): WireRuntime {
+  return makeHostWireRuntime(() => ({}));
+}
+
+export function makeWireProcessingRequestContext(
+  req: Extract<AgentRequest, { kind: "chat" }>,
+  policy: ProcessingPolicyPort | undefined,
+  egress: AgentEgressPort,
+): ProcessingRequestContext {
+  const requestPolicy = policy?.bind?.(req) ?? policy;
+  return makeProcessingRequestContext(async (operation) => {
+    // T-WIRE-01: legacy text-only requests retain their established behavior.
+    if (!req.processing) return;
+    let disclosure;
+    try {
+      disclosure = requestPolicy?.resolve(req, operation);
+    } catch {
+      throw Object.assign(new Error("Processing destination is unavailable."), {
+        code: "PROCESSING_DESTINATION_UNKNOWN",
+      });
+    }
+    if (!disclosure || disclosure.processingProfileRef !== req.processing.processingProfileRef
+      || disclosure.workload !== operation.workload
+      || (disclosure.provider !== undefined && disclosure.provider !== operation.provider)
+      || (disclosure.model !== undefined && disclosure.model !== operation.model)) {
+      throw Object.assign(new Error("Processing destination is unavailable."), {
+        code: "PROCESSING_DESTINATION_UNKNOWN",
+      });
+    }
+    const { consentRequired: _consentRequired, ...wireDisclosure } = disclosure;
+    const plan = planProcessingOperation(wireDisclosure);
+    if (!plan.ok) throw Object.assign(new Error("Processing disclosure is invalid."), { code: plan.error.code });
+    let disclosed = false;
+    try { disclosed = await egress.emitCritical?.(req.requestId, plan.value.disclosure) === true; }
+    catch { disclosed = false; }
+    if (!disclosed) throw Object.assign(new Error("Processing disclosure could not be delivered."), {
+      code: "PROCESSING_DESTINATION_UNKNOWN",
+    });
+    if (!plan.value.errorCode && disclosure.consentRequired === true && requestPolicy?.claimConsent) {
+      let claimed = false;
+      try { claimed = requestPolicy.claimConsent(req, operation, disclosure); }
+      catch { claimed = false; }
+      if (!claimed) {
+        throw Object.assign(new Error("Processing consent could not be claimed."), {
+          code: "EXTERNAL_PROCESSING_CONFIRMATION_REQUIRED",
+        });
+      }
+    }
+    if (plan.value.errorCode) {
+      throw Object.assign(new Error("Processing policy did not allow this operation."), {
+        code: plan.value.errorCode,
+      });
+    }
+  });
 }
 
 /** UC1 brain 와이어링. provider 미주입=fake(헤드리스). io 주입 시 실 stdio ingress/egress 구독 개시. */
@@ -50,6 +174,23 @@ export function wireAgentUC1(opts?: {
   egress?: AgentEgressPort;        // 동상(gRPC per-request stream 등). 미주입+io 시 stdio.
   diag?: DiagnosticLog;
   speechProfiles?: SpeechProfileRuntime; // Issue #82 — 검증된 profile-bound Q&A를 ordinary memory/save 전에 처리
+  trustResolver?: WireTrustResolverPort;
+  providerSessionStore?: ProviderSessionStorePort;
+  grounding?: HandlerDeps["grounding"];
+  processingPolicy?: ProcessingPolicyPort;
+  /** Always bind per chat request. Legacy requests use an allow-existing-behavior context; no-context background calls remain blocked. */
+  processingRequestContext?: (
+    req: Extract<AgentRequest, { kind: "chat" }>,
+  ) => ProcessingRequestContext;
+  /** Atomically capture all reloadable request dependencies at route admission. */
+  bindRequestRuntime?: (
+    req: Extract<AgentRequest, { kind: "chat" }>,
+  ) => {
+    readonly trustContext: import("../domain/wire-v1.js").WireValidationContext;
+    readonly processingPolicy?: ProcessingPolicyPort;
+    readonly grounding?: HandlerDeps["grounding"];
+    readonly providerConfig?: ProviderConfig;
+  };
 }): { handler: ChatTurnHandler; setDefaultConfig: (config: ProviderConfig | undefined) => void; ingress?: AgentIngressPort; start?: () => void; drain?: () => Promise<void> } {
   // 표준 sink(docs/logging.md). 미주입=no-op write(코어 순수·무소음) — entry 가 process.stderr+debug 게이트 주입. console.* 금지.
   const diag: DiagnosticLog = opts?.diag ?? makeStderrDiagnostic();
@@ -71,6 +212,10 @@ export function wireAgentUC1(opts?: {
     ...(opts?.workspaceContext ? { workspaceContext: opts.workspaceContext } : {}),
     ...(opts?.memoryTimeoutMs !== undefined ? { memoryTimeoutMs: opts.memoryTimeoutMs } : {}),
     ...(opts?.defaultConfig ? { defaultConfig: opts.defaultConfig } : {}),
+    ...(opts?.trustResolver ? { trustResolver: opts.trustResolver } : {}),
+    ...(opts?.providerSessionStore ? { providerSessionStore: opts.providerSessionStore } : {}),
+    ...(opts?.grounding ? { grounding: opts.grounding } : {}),
+    ...(opts?.processingPolicy ? { processingPolicy: opts.processingPolicy } : {}),
     egress: opts?.egress ?? { emit: () => {} }, // transport=gRPC: egress 는 grpc adapter 주입(stdio 제거). 미주입=no-op(헤드리스).
     diag,
   };
@@ -90,10 +235,45 @@ export function wireAgentUC1(opts?: {
     diag.debug?.("ingress route", { kind: req.kind, requestId: "requestId" in req ? req.requestId : undefined, ...(req.kind === "toolRequest" ? { toolName: req.toolName } : {}) });
     switch (req.kind) {
       case "chat": {
-        const run = async () => {
+        let boundRuntime: {
+          readonly trustContext: import("../domain/wire-v1.js").WireValidationContext;
+          readonly processingPolicy?: ProcessingPolicyPort;
+          readonly grounding?: HandlerDeps["grounding"];
+          readonly providerConfig?: ProviderConfig;
+        } | undefined;
+        try { boundRuntime = opts?.bindRequestRuntime?.(req); }
+        catch {
+          deps.egress.emit(req.requestId, { kind: "error", message: "Request could not be processed.", code: "WIRE_SCOPE_FORBIDDEN" });
+          return;
+        }
+        let baseContext;
+        try { baseContext = boundRuntime?.trustContext ?? opts?.trustResolver?.resolve(req) ?? {}; }
+        catch {
+          deps.egress.emit(req.requestId, { kind: "error", message: "Request could not be processed.", code: "WIRE_SCOPE_FORBIDDEN" });
+          return;
+        }
+        const checked = validateWireChatRequest(req, {
+          ...baseContext,
+          ...(req.providerSession?.mode === "resume" ? {
+            providerSessionLookup: opts?.providerSessionStore?.lookup(req.providerSession.providerSessionRef),
+          } : {}),
+        });
+        if (!checked.ok) {
+          if (checked.requestId) deps.egress.emit(checked.requestId, { kind: "error", message: "Request could not be processed.", code: checked.error.code });
+          return;
+        }
+        const execute = async () => {
           if (opts?.speechProfiles && await opts.speechProfiles.handleProfileChat(req)) return;
-          await handler.onChatRequest(req);
+          await handler.onChatRequest(req, {
+            ...(boundRuntime?.providerConfig ? { providerConfig: boundRuntime.providerConfig } : {}),
+            ...(boundRuntime?.grounding ? { grounding: boundRuntime.grounding } : {}),
+          });
         };
+        const run = () => runWithProcessingRequestContext(
+          opts?.processingRequestContext?.(req)
+            ?? makeWireProcessingRequestContext(req, boundRuntime?.processingPolicy ?? opts?.processingPolicy, deps.egress),
+          execute,
+        );
         const p = run().catch((e) => diag.log("onChatRequest 처리 실패", e)).finally(() => inflight.delete(p));
         inflight.add(p);
         break;

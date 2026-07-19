@@ -4,6 +4,7 @@
 import {
   buildLLMFactExtractor,
   buildLLMSummarizer,
+  HeuristicContradictionFilter,
   LocalAdapter,
   MemorySystem,
   NaiaGatewayEmbeddingProvider,
@@ -14,6 +15,10 @@ import type { CompactionSummarizer, EmbeddingProvider, FactExtractor } from "@ne
 import type { ManagedMemoryPort } from "../ports/memory.js";
 import type { CompactionPort, CompactionRequest, CompactionResult, HandoffBlob } from "../ports/compaction.js";
 import type { RecalledMemory } from "../domain/memory.js";
+import {
+  makeProcessingAwareEmbedding,
+  makeProcessingAwareMemoryLlm,
+} from "./processing-operation-decorators.js";
 
 const QUERY_CAP = 4000;   // recall query 입력 상한(embedding 비용 bound).
 const SAVE_CAP = 20000;   // save 원문(턴당, user/assistant 각각) 상한(디스크/flush 비용 bound).
@@ -53,6 +58,8 @@ export interface NaiaMemoryOpts {
   /** 메모리 LLM(사실추출 factExtractor). 미지정/provider="none" = 휴리스틱 추출(기존 동작·무회귀).
    *  지정 시 LLM 기반 atomic 사실추출. compaction summarizer 는 별개(빌더 없음 → 결정론 recap 유지). issue #7. */
   readonly llm?: MemoryLlmConfig;
+  /** Production request path: guard only actual remote embedding/LLM delegates through ALS. */
+  readonly processingAware?: boolean;
 }
 
 /** 메모리 LLM(사실추출) 선택 — os 메모리 UI(memoryLlmProvider 등). baseUrl/apiKey/model 은 provider 별로
@@ -162,11 +169,50 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ManagedMemoryPort & Compac
   const scopeMode = opts.scopeMode ?? "strict"; // project 경계 격리(누설 차단)
   // issue #7: os 메모리 UI 의 adapter/embedding 선택을 런타임에 반영(이전엔 LocalAdapter+키워드-only 하드코딩).
   // embedding 은 adapter 선택과 분리해 빌드(순수). provider 별 필수 누락 = throw(상위 entry 가 catch→기억 없이 격리).
-  const embeddingProvider = buildEmbeddingProvider(opts.embedding);
-  const factExtractor = buildMemoryFactExtractor(opts.llm); // LLM 사실추출(미지정=휴리스틱, 무회귀).
-  const summarizer = buildMemorySummarizer(opts.llm); // LLM compaction recap polish(미지정=결정론, 무회귀).
+  const rawEmbeddingProvider = buildEmbeddingProvider(opts.embedding);
+  const embeddingEndpoint = opts.embedding?.provider === "naia"
+    ? opts.embedding.naiaGatewayUrl
+    : opts.embedding?.baseUrl;
+  const embeddingModel = opts.embedding?.model
+    ?? (opts.embedding?.provider === "naia" ? "naia-embedding" : undefined);
+  const embeddingProvider = opts.processingAware && rawEmbeddingProvider
+    && opts.embedding && !["none", "offline"].includes(opts.embedding.provider)
+    && embeddingEndpoint && embeddingModel
+    ? makeProcessingAwareEmbedding(rawEmbeddingProvider, {
+        provider: opts.embedding.provider,
+        model: embeddingModel,
+        endpointUrl: embeddingEndpoint,
+        endpointZone: "unverified",
+        requiresConsent: !/^https?:\/\/(?:localhost|127\.|\[?::1\]?)/i.test(embeddingEndpoint),
+      })
+    : rawEmbeddingProvider;
+  const rawFactExtractor = buildMemoryFactExtractor(opts.llm);
+  const rawSummarizer = buildMemorySummarizer(opts.llm);
+  const memoryLlmOperation = opts.processingAware && opts.llm && opts.llm.provider !== "none"
+    && opts.llm.baseUrl && opts.llm.model
+    ? {
+        provider: opts.llm.provider,
+        model: opts.llm.model,
+        endpointUrl: opts.llm.baseUrl,
+        endpointZone: "unverified" as const,
+        requiresConsent: !/^https?:\/\/(?:localhost|127\.|\[?::1\]?)/i.test(opts.llm.baseUrl),
+      }
+    : undefined;
+  const factExtractor = rawFactExtractor && memoryLlmOperation
+    ? makeProcessingAwareMemoryLlm(rawFactExtractor, {
+        ...memoryLlmOperation, purpose: "fact_extractor",
+      })
+    : rawFactExtractor;
+  const summarizer = rawSummarizer && memoryLlmOperation
+    ? makeProcessingAwareMemoryLlm(rawSummarizer, {
+        ...memoryLlmOperation, purpose: "summarizer",
+      })
+    : rawSummarizer;
   let sys: MemorySystem;
   if (opts.adapter === "qdrant") {
+    if (opts.processingAware) {
+      throw new Error("PROCESSING_MEMORY_STORE_UNCLASSIFIED");
+    }
     // QdrantAdapter 는 embedding 필수(키워드-only 불가) — fail-closed.
     if (!embeddingProvider) {
       throw new Error("makeNaiaMemory: adapter='qdrant' 는 embedding 이 필수다(provider!='none').");
@@ -183,6 +229,7 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ManagedMemoryPort & Compac
         collectionPrefix: project,
       },
       embeddingProvider,
+      contradictionFilter: new HeuristicContradictionFilter(),
       ...(factExtractor ? { factExtractor } : {}),
       ...(summarizer ? { summarizer } : {}),
     });
@@ -194,6 +241,7 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ManagedMemoryPort & Compac
         ...(opts.storePath ? { storePath: opts.storePath } : {}),
         ...(embeddingProvider ? { embeddingProvider } : {}),
       }),
+      contradictionFilter: new HeuristicContradictionFilter(),
       ...(factExtractor ? { factExtractor } : {}),
       ...(summarizer ? { summarizer } : {}),
     });

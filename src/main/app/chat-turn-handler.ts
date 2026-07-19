@@ -1,13 +1,14 @@
 // app — UC1 ChatTurnHandler + UC5 도구 실행 루프 (계약 §B.3 + UC5-agent-tool-loop §B.3). 포트만 사용. domain 만.
 // 불변식: usage=terminal 직전 1회(라운드 스냅샷 합)·이후 무방출 / finish XOR error(terminal 래치) / 레지스트리 finally 해제 / emit no-throw.
 import type {
-  ChatRequest, CancelRequest, ApprovalResponse, CredsUpdate, ChatTurnState, ChatMessage, ToolCall, ToolSpec, ProviderConfig,
+  ChatRequest, CancelRequest, ApprovalResponse, CredsUpdate, ChatTurnState, ChatMessage, ToolCall, ToolSpec, ProviderConfig, WireErrorCode,
 } from "../domain/chat.js";
 import { mapProviderChunk, threadToolRound, estimateMessageTokens } from "../domain/chat.js";
 import { calculateCost } from "../domain/cost.js";
 import type {
-  ProviderPort, ProviderResolverPort, ConversationPort, CredentialPort, ApprovalPort, AgentEgressPort, DiagnosticLog, ToolExecutorPort, ProviderChatOpts, PersonaSourcePort, WorkspaceContextPort,
+  ProviderPort, ProviderResolverPort, ConversationPort, CredentialPort, ApprovalPort, AgentEgressPort, DiagnosticLog, ToolExecutorPort, ProviderChatOpts, PersonaSourcePort, WorkspaceContextPort, ProcessingPolicyPort,
 } from "../ports/uc1.js";
+import type { ProviderSessionStorePort, WireTrustResolverPort } from "../ports/uc1.js";
 import type { MemoryPort } from "../ports/memory.js";
 import type { CompactionPort } from "../ports/compaction.js";
 import type { ConversationLogPort } from "../ports/conversation-log.js";
@@ -15,6 +16,7 @@ import { formatRecalledMemory } from "../domain/memory.js";
 import { composePersonaPrompt } from "../domain/persona.js";
 import { composeWorkspaceContext } from "../domain/workspace-context.js";
 import { renderEnvironmentSegments } from "../domain/environment-segments.js";
+import { validateGroundingEvent } from "../domain/wire-v1.js";
 
 interface Turn { abort: AbortController; state: ChatTurnState; }
 
@@ -34,6 +36,36 @@ const CONTINUE_MAX_PAUSE_SECONDS = 30;
 const CONTINUE_MAX_UTTERANCES = 60;
 const CONTINUE_TOOL_RESULT_ACTIVATED = "continuous speaking activated";
 const CONTINUE_TOOL_RESULT_REJECTED = "continuous speaking rejected: explicit user request quote is missing or does not match the latest user message";
+const GROUNDING_EVIDENCE_MAX_ITEMS = 8;
+const GROUNDING_EVIDENCE_MAX_EXCERPT = 4_000;
+const GROUNDING_EVIDENCE_MAX_TOTAL = 16_000;
+const UNSAFE_EVIDENCE_CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
+
+type GroundingEvidence = { readonly sourceHandle: string; readonly text: string };
+export interface GroundingPort {
+  bind?(req: ChatRequest): GroundingPort;
+  resolve(req: ChatRequest): Promise<{
+    status: "grounded" | "no_evidence" | "uncompiled" | "unavailable";
+    sources: readonly { title: string; sourceUris: readonly string[] }[];
+    evidence?: readonly GroundingEvidence[];
+  }>;
+}
+function validateGroundingEvidence(evidence: unknown): readonly GroundingEvidence[] | undefined {
+  if (!Array.isArray(evidence) || evidence.length < 1 || evidence.length > GROUNDING_EVIDENCE_MAX_ITEMS) return undefined;
+  const validated: GroundingEvidence[] = [];
+  let total = 0;
+  for (const item of evidence) {
+    if (!item || typeof item !== "object") return undefined;
+    const { sourceHandle, text } = item as { sourceHandle?: unknown; text?: unknown };
+    if (typeof sourceHandle !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(sourceHandle)
+      || typeof text !== "string" || text.trim() !== text || text.length < 1
+      || Array.from(text).length > GROUNDING_EVIDENCE_MAX_EXCERPT || UNSAFE_EVIDENCE_CONTROL.test(text)) return undefined;
+    total += Array.from(text).length;
+    if (total > GROUNDING_EVIDENCE_MAX_TOTAL) return undefined;
+    validated.push({ sourceHandle, text });
+  }
+  return validated;
+}
 
 /** UC-015 제어 도구 스펙. **export 이유 = 계측 드리프트 방지**: `benchmark/run-tool-selection-bench.mjs` 가
  *  도구 선택률(오호출률)을 잴 때 이 스펙을 **그대로** 쓴다. 복사본을 재면 설명을 고쳐도 계측이 안 따라와
@@ -109,6 +141,10 @@ export interface HandlerDeps {
   readonly workspaceContext?: WorkspaceContextPort;               // FR-WORKSPACE — 코어가 워크스페이스 컨텍스트(cwd+프로젝트 이름)를 *스스로* 조립해 persona 뒤에 append(경량 shallow). 미주입=기존 동작(persona 만, 무회귀). req.systemPrompt override 시 둘 다 무시.
   /** UC-015 결정론 테스트 seam. 미주입이면 Date.now + abort 가능한 실제 timer. */
   readonly continuationClock?: ContinuationClock;
+  readonly grounding?: GroundingPort;
+  readonly trustResolver?: WireTrustResolverPort;
+  readonly providerSessionStore?: ProviderSessionStorePort;
+  readonly processingPolicy?: ProcessingPolicyPort;
 }
 
 export class ChatTurnHandler {
@@ -159,12 +195,17 @@ export class ChatTurnHandler {
     }
   }
 
-  async onChatRequest(req: ChatRequest): Promise<void> {
+  async onChatRequest(req: ChatRequest, runtime?: {
+    readonly providerConfig?: ProviderConfig;
+    readonly grounding?: GroundingPort;
+  }): Promise<void> {
     if (this.turns.has(req.requestId)) {
       // 중복=requestId 고유성 불변식 위반(os §B.4.1). wire error emit 금지(기존 활성턴 종료 방지) — 진단 로그만.
       this.d.diag.log("duplicate requestId — 무시", req.requestId);
       return;
     }
+    try { this.d.egress.beginRequest?.(req.requestId); }
+    catch (e) { this.safeDiag("egress beginRequest 실패(턴 유지)", e); }
     const t: Turn = { abort: new AbortController(), state: "streaming" };
     this.turns.set(req.requestId, t);
     const signal = t.abort.signal;
@@ -172,15 +213,82 @@ export class ChatTurnHandler {
     const totalUsage = { inputTokens: 0, outputTokens: 0 };
     const emit = (e: Parameters<AgentEgressPort["emit"]>[1]) => this.d.egress.emit(req.requestId, e); // egress no-throw
     // config 정본: wire provider override > 기동 시 naia-settings 로딩한 defaultConfig(정본 "대화는 메시지만").
-    const activeConfig = req.provider ?? this.activeDefaultConfig;
+    const activeConfig = req.provider ?? runtime?.providerConfig ?? this.activeDefaultConfig;
     const costModel = activeConfig?.model ?? ""; // 미설정 = calculateCost("") = 0(크래시 아님)
     const costProvider = activeConfig?.provider; // 구독형(claude-code-cli) = $0 분기용(동일 model ID anthropic 과 구별).
+    let activeProviderSessionRef: string | undefined;
+    let pendingNewProviderSessionRef: string | undefined;
+    let groundingEvidence: readonly GroundingEvidence[] | undefined;
     // terminal 래치(usage 중복 emit 원천 차단 — 두 종결 모두 이 헬퍼만 사용).
-    const terminalFinish = () => { if (!sawTerminal) { emit({ kind: "usage", ...totalUsage, cost: calculateCost(costModel, totalUsage.inputTokens, totalUsage.outputTokens, costProvider), model: costModel }); emit({ kind: "finish" }); sawTerminal = true; t.state = "finished"; } };
-    const terminalError = (message: string) => { if (!sawTerminal) { emit({ kind: "usage", ...totalUsage, cost: calculateCost(costModel, totalUsage.inputTokens, totalUsage.outputTokens, costProvider), model: costModel }); emit({ kind: "error", message }); sawTerminal = true; t.state = "errored"; } };
-
+    const terminalFinish = () => { if (!sawTerminal) { if (activeProviderSessionRef) this.d.providerSessionStore?.markSuccessful(activeProviderSessionRef); pendingNewProviderSessionRef = undefined; emit({ kind: "usage", ...totalUsage, cost: calculateCost(costModel, totalUsage.inputTokens, totalUsage.outputTokens, costProvider), model: costModel }); emit({ kind: "finish" }); sawTerminal = true; t.state = "finished"; } };
+    const terminalError = (message: string, code?: WireErrorCode) => { if (!sawTerminal) { if (pendingNewProviderSessionRef) { this.d.providerSessionStore?.abandon(pendingNewProviderSessionRef); pendingNewProviderSessionRef = undefined; activeProviderSessionRef = undefined; } emit({ kind: "usage", ...totalUsage, cost: calculateCost(costModel, totalUsage.inputTokens, totalUsage.outputTokens, costProvider), model: costModel }); emit({ kind: "error", message, ...(code ? { code } : {}) }); sawTerminal = true; t.state = "errored"; } };
     try {
       if (!activeConfig) { terminalError("no provider configured — naia-settings/llm.json 도 wire provider 도 없음"); return; }
+      if (req.grounding && req.grounding.policy !== "off") {
+        const groundingBase = runtime?.grounding ?? this.d.grounding;
+        const requestGrounding = groundingBase?.bind?.(req) ?? groundingBase;
+        const grounding = requestGrounding
+          ? await requestGrounding.resolve(req)
+          : { status: "unavailable" as const, sources: [] };
+        const groundingEvent = { kind: "grounding" as const, status: grounding.status, sources: grounding.sources };
+        const checkedGrounding = validateGroundingEvent(groundingEvent, req.channel);
+        if (!checkedGrounding.ok) {
+          terminalError("Grounding evidence is invalid.", checkedGrounding.error.code);
+          return;
+        }
+        emit(checkedGrounding.value as typeof groundingEvent);
+        const evidence = validateGroundingEvidence(grounding.evidence);
+        if (grounding.status === "grounded" && req.grounding.policy === "required" && !evidence) {
+          terminalError("Grounding evidence is unavailable.", "KNOWLEDGE_UNAVAILABLE");
+          return;
+        }
+        groundingEvidence = evidence;
+        if (req.grounding.policy === "required" && grounding.status !== "grounded") {
+          emit({ kind: "error", message: "Grounding evidence is unavailable.", code: grounding.status === "uncompiled" ? "KNOWLEDGE_UNCOMPILED" : "KNOWLEDGE_UNAVAILABLE" });
+          sawTerminal = true;
+          t.state = "errored";
+          return;
+        }
+      }
+      if (req.providerSession) {
+        let context;
+        try { context = this.d.trustResolver?.resolve(req); }
+        catch {
+          terminalError("Provider session binding is unavailable.", "PROVIDER_SESSION_MISMATCH");
+          return;
+        }
+        const store = this.d.providerSessionStore;
+        const credentialGeneration = context?.credentialGeneration;
+        if (!store || !context?.workspace || typeof context.provider !== "string" || !context.model
+          || typeof credentialGeneration !== "number" || !Number.isSafeInteger(credentialGeneration)
+          || credentialGeneration < 0 || !req.sessionId
+          || context.provider !== activeConfig.provider || context.model !== activeConfig.model) {
+          terminalError("Provider session binding is unavailable.", "PROVIDER_SESSION_MISMATCH");
+          return;
+        }
+        const binding = {
+          workspace: context.workspace,
+          sessionId: req.sessionId,
+          channel: req.channel,
+          provider: activeConfig.provider,
+          model: activeConfig.model,
+          credentialGeneration,
+        };
+        if (req.providerSession.mode === "new") {
+          const record = store.start(binding);
+          activeProviderSessionRef = record.providerSessionRef;
+          pendingNewProviderSessionRef = record.providerSessionRef;
+          emit({ kind: "providerSession", sessionId: req.sessionId, providerSessionRef: record.providerSessionRef, state: "started" });
+        } else {
+          const resumed = store.resume(req.providerSession.providerSessionRef, binding);
+          if (!resumed.ok) {
+            terminalError("Provider session could not be resumed.", resumed.error.code);
+            return;
+          }
+          activeProviderSessionRef = resumed.value.providerSessionRef;
+          emit({ kind: "providerSession", sessionId: req.sessionId, providerSessionRef: resumed.value.providerSessionRef, state: "resumed" });
+        }
+      }
       const providerConfig: ProviderConfig = {
         ...activeConfig,
         ...(req.enableThinking !== undefined ? { enableThinking: req.enableThinking } : {}),
@@ -245,8 +353,20 @@ export class ChatTurnHandler {
       // UC-015: app 소유 semantic control 은 외부 executor 와 이름 충돌하지 않도록 우선한다. enableTools=false 만
       // 전체 도구를 끈다. 활성화/거부 뒤에는 control 을 다시 노출하지 않아 재호출 루프를 막는다.
       const externalTools = req.enableTools === false ? [] : allSpecs.filter((s) => s.name !== CONTINUE_SPEAKING_TOOL_NAME && !(req.disabledSkills ?? []).includes(s.name));
-      const tools = req.enableTools === false ? [] : [CONTINUE_SPEAKING_TOOL, ...externalTools];
-      let messages: readonly ChatMessage[] = asm.messages;
+      const tools = req.enableTools === false || groundingEvidence !== undefined
+        ? []
+        : [CONTINUE_SPEAKING_TOOL, ...externalTools];
+      const evidenceMessage: ChatMessage | undefined = groundingEvidence ? {
+        role: "user",
+        content: JSON.stringify({
+          type: "untrusted_grounding_evidence",
+          authority: "data_only",
+          items: groundingEvidence,
+        }),
+      } : undefined;
+      let messages: readonly ChatMessage[] = evidenceMessage && currentUserMsg
+        ? [...asm.messages.slice(0, -1), evidenceMessage, currentUserMsg]
+        : evidenceMessage ? [...asm.messages, evidenceMessage] : asm.messages;
       let toolRounds = 0;
       let controlConsumed = false;
       let continuation: ContinuationState | undefined;
@@ -286,7 +406,7 @@ export class ChatTurnHandler {
         if (sawTerminal) break;
         if (signal.aborted) { terminalError("cancelled"); break; }                 // (a) provider 호출 전 가드
         const roundTools = controlConsumed ? externalTools : tools;
-        const round = await this.runRound(providerConfig, messages, memSystemPrompt, roundTools, signal, emit);
+        const round = await this.runRound(providerConfig, messages, memSystemPrompt, roundTools, signal, emit, req.providerSession);
         if (round.usage) { totalUsage.inputTokens += round.usage.inputTokens; totalUsage.outputTokens += round.usage.outputTokens; } // 라운드 스냅샷 1회 합산
         if (round.aborted) { terminalError("cancelled"); break; }
         if (round.rejected !== undefined) { terminalError(`provider error: ${round.rejected}`); break; }
@@ -318,6 +438,10 @@ export class ChatTurnHandler {
             continue;
           }
           await commitCompletedTurn();
+          break;
+        }
+        if (groundingEvidence !== undefined) {
+          terminalError("Tool calls are disabled while grounded evidence is active.");
           break;
         }
 
@@ -401,6 +525,12 @@ export class ChatTurnHandler {
             }
           } catch (e) {
             if (signal.aborted) { terminalError("cancelled"); cancelled = true; break; } // execute reject + abort = cancelled
+            const processingCode = processingErrorCode(e);
+            if (processingCode) {
+              terminalError(errMessage(e), processingCode);
+              cancelled = true;
+              break;
+            }
             r = { output: errMessage(e), isError: true };                            // 비-abort reject = isError(루프 안정)
           }
           if (signal.aborted) { terminalError("cancelled"); cancelled = true; break; } // (d) execute 직후 가드
@@ -414,10 +544,12 @@ export class ChatTurnHandler {
       }
     } catch (err) {
       // 루프 밖 예기치 못한 throw(포트 계약 위반 등). abort 면 cancelled.
-      terminalError(signal.aborted ? "cancelled" : errMessage(err));
+      terminalError(signal.aborted ? "cancelled" : errMessage(err), processingErrorCode(err));
     } finally {
       if (!sawTerminal) terminalError(signal.aborted ? "cancelled" : "incomplete stream"); // 무-terminal 안전망
       this.turns.delete(req.requestId);                                             // 예외 무관 terminal 해제 보장
+      try { this.d.egress.endRequest?.(req.requestId); }                            // transport request-scoped latch 즉시 정리
+      catch (e) { this.safeDiag("egress endRequest 실패(턴 유지)", e); }
     }
   }
 
@@ -433,10 +565,11 @@ export class ChatTurnHandler {
   private async runRound(
     cfg: ProviderConfig, messages: readonly ChatMessage[], systemPrompt: string | undefined,
     tools: ProviderChatOpts["tools"], signal: AbortSignal, emit: (e: Parameters<AgentEgressPort["emit"]>[1]) => void,
+    providerSession?: ChatRequest["providerSession"],
   ): Promise<RoundResult> {
     // 요청별 provider 해석(resolver 주입 시) — config(provider/model/naiaKey)로 라우팅. 미주입=고정 provider(fallback/테스트).
     const provider = this.d.resolver ? this.d.resolver.resolve(cfg) : this.d.provider;
-    const stream = provider.chat(cfg, messages, { ...(systemPrompt !== undefined ? { systemPrompt } : {}), signal, ...(tools && tools.length ? { tools } : {}) });
+    const stream = provider.chat(cfg, messages, { ...(systemPrompt !== undefined ? { systemPrompt } : {}), signal, ...(tools && tools.length ? { tools } : {}), ...(providerSession ? { providerSession } : {}) });
     const it = stream[Symbol.asyncIterator]();
     const closeIt = () => { try { void Promise.resolve(it.return?.()).catch(() => {}); } catch { /* return() 동기 throw 격리(R9) */ } };
     const ABORTED = Symbol("aborted");
@@ -464,6 +597,7 @@ export class ChatTurnHandler {
     } catch (err) {
       closeIt();
       if (signal.aborted) return { text, calls, usage, finished: false, aborted: true };
+      if (processingErrorCode(err)) throw err;
       return { text, calls, usage, finished: false, aborted: false, rejected: errMessage(err) };
     } finally {
       if (abortListener) signal.removeEventListener("abort", abortListener);
@@ -494,6 +628,13 @@ export class ChatTurnHandler {
 }
 
 function errMessage(e: unknown): string { return e instanceof Error ? e.message : String(e); }
+function processingErrorCode(e: unknown): WireErrorCode | undefined {
+  const code = e && typeof e === "object" ? (e as { code?: unknown }).code : undefined;
+  return code === "PROCESSING_DESTINATION_UNKNOWN"
+    || code === "EXTERNAL_PROCESSING_FORBIDDEN"
+    || code === "EXTERNAL_PROCESSING_CONFIRMATION_REQUIRED"
+    ? code : undefined;
+}
 
 /** 모델이 quote 를 감쌀 때 쓰는 인용부호쌍(실측 + 흔한 변종). 중첩(예: "「…」")도 벗긴다. */
 const QUOTE_PAIRS: readonly (readonly [string, string])[] = [

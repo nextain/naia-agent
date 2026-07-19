@@ -39,7 +39,40 @@ export interface ChatMessage {
   readonly content: string;
   readonly toolCalls?: readonly ToolCall[]; // assistant 전용 — UC5 도구 라운드(없으면 미설정)
   readonly toolCallId?: string;             // tool 전용 — 결과 메시지가 어느 call 에 대응하는지 결속
+  readonly attachments?: readonly AttachmentRef[];
 }
+
+export type ImageMimeType = "image/png" | "image/jpeg" | "image/webp";
+export interface AttachmentRef { readonly id: string; readonly kind: "image"; readonly mimeType: ImageMimeType; readonly sizeBytes: number; readonly localRef: string }
+export type ChannelContext = { readonly kind: "shell" } | { readonly kind: "discord"; readonly bindingId: string; readonly guildId: string; readonly channelId: string; readonly userId: string };
+export interface GroundingRequest { readonly policy: "off" | "available" | "required"; readonly knowledgeScope: string }
+export type ProcessingDestination = "local_device" | "private_managed" | "external_cloud";
+export type ProcessingWorkload = "main_llm" | "sub_llm" | "memory_llm" | "embedding" | "network_tool";
+export type ProcessingDecision = "allowed" | "blocked" | "confirmation_required";
+export interface ProcessingRequest { readonly processingProfileRef: string }
+export interface ProcessingDisclosure {
+  readonly workload: ProcessingWorkload;
+  readonly destination: ProcessingDestination;
+  readonly decision: ProcessingDecision;
+  readonly processingProfileRef: string;
+  readonly provider?: string;
+  readonly model?: string;
+}
+export type ProviderSessionRequest = { readonly mode: "new" } | { readonly mode: "resume"; readonly providerSessionRef: string };
+export interface GroundingSource { readonly title: string; readonly sourceUris: readonly string[] }
+export interface ImageArtifact { readonly id: string; readonly kind: "image"; readonly mimeType: ImageMimeType; readonly sizeBytes: number; readonly localRef: string; readonly name?: string }
+export type WireErrorCode =
+  | "PROVIDER_NOT_INSTALLED" | "PROVIDER_LOGIN_REQUIRED" | "PROVIDER_AUTH_EXPIRED" | "PROVIDER_NETWORK"
+  | "DISCORD_TOKEN_MISSING" | "DISCORD_INTENTS_MISSING" | "DISCORD_NOT_INSTALLED" | "DISCORD_PERMISSION_DENIED" | "DISCORD_RATE_LIMITED"
+  | "ATTACHMENT_UNSUPPORTED_TYPE" | "ATTACHMENT_TOO_LARGE" | "ATTACHMENT_INVALID_REF"
+  | "KNOWLEDGE_UNCOMPILED" | "KNOWLEDGE_UNAVAILABLE" | "WIRE_INVALID_ARGUMENT" | "WIRE_UNSUPPORTED_ENUM"
+  | "WIRE_SCOPE_FORBIDDEN" | "PROVIDER_SESSION_MISMATCH" | "PROVIDER_SESSION_EXPIRED" | "PROVIDER_SESSION_CLOSED"
+  | "PROCESSING_PROFILE_REQUIRED" | "PROCESSING_DESTINATION_UNKNOWN" | "EXTERNAL_PROCESSING_FORBIDDEN"
+  | "EXTERNAL_PROCESSING_CONFIRMATION_REQUIRED";
+export type LlmRole = "main" | "sub" | "memory";
+export type ConfigProvenance = "explicit" | "inherit" | "legacy-inherit" | "default";
+export interface ResolvedConfigValue { readonly value: string; readonly provenance: ConfigProvenance; readonly inheritedFromRole?: LlmRole }
+export interface EffectiveLlmConfig { readonly role: LlmRole; readonly provider: ResolvedConfigValue; readonly model: ResolvedConfigValue; readonly credentialRef?: ResolvedConfigValue }
 
 // ── inbound domain 폐쇄 union (os AgentOutbound 와 1:1) ──
 export interface ChatRequest {
@@ -68,6 +101,10 @@ export interface ChatRequest {
     readonly yieldGeneration: number;
     readonly resumeToken: string;
   };
+  readonly channel?: ChannelContext;
+  readonly grounding?: GroundingRequest;
+  readonly providerSession?: ProviderSessionRequest;
+  readonly processing?: ProcessingRequest;
 }
 export interface CancelRequest { readonly kind: "cancel"; readonly requestId: string; readonly activityId?: string; }
 export interface ApprovalResponse {
@@ -105,8 +142,12 @@ export type AgentEmit =
   | { readonly kind: "tokenWarning"; readonly raw: unknown }
   | { readonly kind: "compacted"; readonly droppedCount: number } // UC-compaction(FR-COMPACT): 예산 압박 시 head 요약 발생 알림(UI 표시용, 비-terminal)
   | { readonly kind: "panelToolCall"; readonly toolCallId: string; readonly toolName: string; readonly args: unknown } // UC-PANEL FR-PANEL-2: 환경 도구(BGM·브라우저·workspace) 위임 — agent 미실행, 셸이 실행(비-terminal)
+  | { readonly kind: "grounding"; readonly status: "grounded" | "no_evidence" | "uncompiled" | "unavailable"; readonly sources: readonly GroundingSource[] }
+  | { readonly kind: "artifact"; readonly artifact: ImageArtifact }
+  | { readonly kind: "providerSession"; readonly sessionId: string; readonly providerSessionRef: string; readonly state: "started" | "resumed" | "closed" }
+  | ({ readonly kind: "processingDisclosure" } & ProcessingDisclosure)
   | { readonly kind: "finish" }
-  | { readonly kind: "error"; readonly message: string };
+  | { readonly kind: "error"; readonly message: string; readonly code?: WireErrorCode };
 
 export function isTerminalEmit(e: AgentEmit): boolean {
   return e.kind === "finish" || e.kind === "error";

@@ -9,8 +9,14 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildEmbeddingProvider, buildMemoryFactExtractor, buildMemorySummarizer, makeNaiaMemory } from "../main/adapters/naia-memory.js";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  delete process.env.GEMINI_API_KEY;
+  delete process.env.VLLM_REASONING_BASE;
+});
 
 describe("issue #7 — buildEmbeddingProvider: UI embedding 선택 → EmbeddingProvider 매핑", () => {
   it("none/미지정 = 키워드-only(undefined)", () => {
@@ -49,6 +55,24 @@ describe("issue #7 — buildEmbeddingProvider: UI embedding 선택 → Embedding
 });
 
 describe("issue #7 — makeNaiaMemory: adapter 선택 + fail-closed 가드", () => {
+  it("pins heuristic contradiction filtering even when external-provider env canaries exist", async () => {
+    process.env.GEMINI_API_KEY = "canary";
+    process.env.VLLM_REASONING_BASE = "https://reasoning.invalid";
+    const fetchSpy = vi.fn(async () => { throw new Error("unguarded fetch"); });
+    vi.stubGlobal("fetch", fetchSpy);
+    const dir = mkdtempSync(join(tmpdir(), "mem-filter-canary-"));
+    const memory = makeNaiaMemory({
+      project: "filter-canary", storePath: join(dir, "s.json"), sessionId: "s1",
+    });
+    try {
+      await memory.save("내 이름은 루크야", "기억할게");
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      await memory.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("local(기본) — embedding 없이 구성(기존 동작 보존, 키워드-only)", () => {
     const dir = mkdtempSync(join(tmpdir(), "mem-adapter-local-"));
     try {
@@ -94,6 +118,16 @@ describe("issue #7 — makeNaiaMemory: adapter 선택 + fail-closed 가드", () 
         embedding: { provider: "offline" },
       }),
     ).toThrow(/qdrantUrl/);
+  });
+
+  it("processing-aware qdrant fails closed until remote memory_store has a policy workload", () => {
+    expect(() => makeNaiaMemory({
+      project: "p",
+      adapter: "qdrant",
+      qdrantUrl: "https://qdrant.example.com",
+      embedding: { provider: "offline" },
+      processingAware: true,
+    })).toThrow("PROCESSING_MEMORY_STORE_UNCLASSIFIED");
   });
 });
 

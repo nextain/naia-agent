@@ -22,6 +22,7 @@ import { makeAdkSkillExecutor, parseSkillMd } from "../../dist/main/adapters/adk
 import { makeFsTools } from "../../dist/main/adapters/fs-tools.js";
 import { makeShellTool } from "../../dist/main/adapters/shell-tool.js";
 import { makeKnowledgeSkillsExecutor } from "../../dist/main/adapters/knowledge-skill.js";
+import { makeReloadableKnowledgeBackend } from "../../dist/main/adapters/reloadable-knowledge-backend.js";
 import { readWorkspaceKnowledgeConfig, isValidKnowledgeScope } from "../../dist/main/adapters/knowledge-compile.js";
 import { pickSpawnableBin, resolveSpawnableBin, resolveFallbackCommand } from "../../dist/main/adapters/subprocess-session.js";
 import { makeOpenMeteoFetchWeather } from "../../dist/main/adapters/openmeteo-weather.js";
@@ -96,6 +97,8 @@ export async function composeAgentRuntimeDeps(o = {}) {
   // ⚠️ panel(환경 위임)은 여기 미포함 — egress 가 필요해 gRPC host 가 wire 후 합성(브라우저/BGM=셸 소유 환경, E1).
   let toolExecutor, skillsLabel = "off";
   let knowledgeBackend;
+  const knowledgeSlot = makeReloadableKnowledgeBackend();
+  let openKnowledgeForWorkspace = async () => undefined;
   if (env.NAIA_AGENT_SKILLS !== "off") {
     const memoPath = env.NAIA_MEMO_PATH || join(homedir(), ".naia-agent", "memos.json");
     const memo = makeFileMemoStore({ path: memoPath, dir: dirname(memoPath), fs: nodeFs });
@@ -160,40 +163,48 @@ export async function composeAgentRuntimeDeps(o = {}) {
     if (env.NAIA_KNOWLEDGE !== "off") {
       try {
         const { openWorkspaceKnowledge, toGraphData } = await import("@naia/kb-compiler");
-        let knowledgeDir = env.NAIA_KNOWLEDGE_DIR;
-        if (!knowledgeDir) {
+        openKnowledgeForWorkspace = async (workspacePath) => {
+          let knowledgeDir = env.NAIA_KNOWLEDGE_DIR;
+          if (!knowledgeDir) {
           // 활성 스코프 해소: knowledge.json scope(검증) → knowledge/<scope>. 부재/무효 = default.
-          let scope = "default";
-          try {
-            const cfg = await readWorkspaceKnowledgeConfig(adkPath);
-            if (cfg.scope && isValidKnowledgeScope(cfg.scope)) scope = cfg.scope;
-          } catch { /* knowledge.json 부재/깨짐 = default */ }
-          knowledgeDir = join(adkPath, "knowledge", scope);
-        }
+            let scope = "default";
+            try {
+              const cfg = await readWorkspaceKnowledgeConfig(workspacePath);
+              if (cfg.scope && isValidKnowledgeScope(cfg.scope)) scope = cfg.scope;
+            } catch { /* knowledge.json 부재/깨짐 = default */ }
+            knowledgeDir = join(workspacePath, "knowledge", scope);
+          }
         // ★ 라이브 리로드(컴파일 후 재시작 불요): kb.json 은 기동 시 1회 인덱싱되므로, "지금 컴파일" 로
         //   파일이 바뀌어도 기존 KB(인덱스)는 stale → AI 가 새 지식을 못 본다. mtime 변화 감지 시 다음 질의에서
         //   재로딩(재인덱싱) = 컴파일 RPC 와 결선 없이 자가교정. 무변화면 캐시 재사용(매 질의 재인덱싱 안 함).
-        const kbFile = join(knowledgeDir, "kb.json");
-        let cached = null;
-        let cachedMtime = -1;
-        const loadKnowledge = async () => {
-          let mtime = 0;
-          try { mtime = nodeFs.statSync(kbFile).mtimeMs; } catch { mtime = 0; } // 부재 = mtime 0(빈 KB)
-          if (cached === null || mtime !== cachedMtime) {
-            cached = await openWorkspaceKnowledge(knowledgeDir);
-            cachedMtime = mtime;
-          }
-          return cached;
+          const kbFile = join(knowledgeDir, "kb.json");
+          let cached = null;
+          let cachedMtime = -1;
+          const loadKnowledge = async () => {
+            let mtime = 0;
+            try { mtime = nodeFs.statSync(kbFile).mtimeMs; } catch { mtime = 0; }
+            if (cached === null || mtime !== cachedMtime) {
+              cached = await openWorkspaceKnowledge(knowledgeDir);
+              cachedMtime = mtime;
+            }
+            return cached;
+          };
+          const wk = await loadKnowledge();
+          return {
+            backend: {
+              search: async (q, k) => (await loadKnowledge()).service.search(q, k),
+              ask: async (q) => (await loadKnowledge()).service.ask(q),
+              graph: async () => toGraphData((await loadKnowledge()).kb),
+            },
+            scope: knowledgeDir.split(/[\\/]/).at(-1),
+            cards: wk.kb.cards.length,
+          };
         };
-        const wk = await loadKnowledge(); // 초기 로드(존재·라벨)
-        const backend = {
-          search: async (q, k) => (await loadKnowledge()).service.search(q, k),
-          ask: async (q) => (await loadKnowledge()).service.ask(q),
-          graph: async () => toGraphData((await loadKnowledge()).kb),
-        };
-        knowledgeBackend = backend;
-        executors.push(makeKnowledgeSkillsExecutor({ backend }));
-        skillsLabel += ` + knowledge(${knowledgeDir}, cards=${wk.kb.cards.length}, live-reload)`;
+        const initialKnowledge = await openKnowledgeForWorkspace(adkPath);
+        knowledgeBackend = initialKnowledge?.backend;
+        knowledgeSlot.swap(knowledgeBackend);
+        executors.push(makeKnowledgeSkillsExecutor({ backend: knowledgeSlot.backend }));
+        skillsLabel += ` + knowledge(scope=${initialKnowledge?.scope}, cards=${initialKnowledge?.cards ?? 0}, live-reload)`;
       } catch (e) {
         process.stderr.write(`[naia-agent] knowledge init 실패(격리, 지식 도구 없이 진행): ${e instanceof Error ? e.message : String(e)}\n`);
       }
@@ -316,7 +327,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
       try { nodeFs.mkdirSync(dirname(storePath), { recursive: true, mode: 0o700 }); } catch { /* best-effort */ }
       const sessionId = env.NAIA_MEMORY_SESSION || `proc-${randomUUID()}`;
       memory = makeNaiaMemory({
-        storePath, project, sessionId,
+        storePath, project, sessionId, processingAware: true,
         ...(memCfg
           ? {
               adapter: memCfg.adapter,
@@ -351,7 +362,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
     settingsStore, settingsResolveSecret, defaultConfig, configLabel,
     engineProfile, engineLabel,
     subLlm, subLlmLabel,
-    toolExecutor, skillsLabel, knowledgeBackend,
+    toolExecutor, skillsLabel, knowledgeBackend: knowledgeSlot.backend, knowledgeSlot, openKnowledgeForWorkspace,
     memory, memoryLabel,
     conversationLog, transcriptLabel,
     personaSource, personaLabel,

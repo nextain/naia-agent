@@ -1,6 +1,7 @@
 // adapters/protocol — wire ↔ domain 변환 (계약 §B.4). 공유 wire(H-agent) conform.
 // os AgentOutbound(wire) → AgentRequest(domain) decode / AgentEmit(domain) → os AgentMessage(wire) encode.
-import type { AgentRequest, AgentEmit, ProviderConfig, ChatMessage, EnvironmentSegment } from "../domain/chat.js";
+import type { AgentRequest, AgentEmit, ProviderConfig, ChatMessage, EnvironmentSegment, ChannelContext, GroundingRequest, ProviderSessionRequest } from "../domain/chat.js";
+import { validateGroundingEvent, validateImageArtifact, validateProcessingDisclosureEvent, validateProviderSessionEvent } from "../domain/wire-v1.js";
 
 /** wire environmentSegments(unknown) → EnvironmentSegment[] 안전 디코드(S4). 화이트리스트(avatarEmotion|panel|responseStyle) 외 드롭.
  *  비배열/잘못된 모양 = []. panel.entries 는 {type:string, data} 만 채택(자유 텍스트 위조 주입 차단 — 코어 domain 이 격리).
@@ -47,6 +48,7 @@ export function decodeRequest(line: string): AgentRequest | null {
       return {
         kind: "chat",
         requestId: str(o["requestId"]),
+        ...(o["sessionId"] !== undefined ? { sessionId: str(o["sessionId"]) } : {}),
         ...(hasProv ? { provider: prov as ProviderConfig } : {}),
         messages: (Array.isArray(o["messages"]) ? o["messages"] : []) as ChatMessage[],
         // ⚠️ systemPrompt override(C2/C1 신뢰모델): wire 의 systemPrompt 는 코어 조립(persona⊕workspace⊕
@@ -60,6 +62,12 @@ export function decodeRequest(line: string): AgentRequest | null {
         ...(o["enableThinking"] !== undefined ? { enableThinking: !!o["enableThinking"] } : {}),
         ...(o["gatewayUrl"] !== undefined ? { gatewayUrl: str(o["gatewayUrl"]) } : {}),
         ...(o["disabledSkills"] !== undefined ? { disabledSkills: o["disabledSkills"] as string[] } : {}),
+        ...(o["channel"] !== undefined ? { channel: o["channel"] as ChannelContext } : {}),
+        ...(o["grounding"] !== undefined ? { grounding: o["grounding"] as GroundingRequest } : {}),
+        ...(o["providerSession"] !== undefined ? { providerSession: o["providerSession"] as ProviderSessionRequest } : {}),
+        ...(o["processing"] && typeof o["processing"] === "object" ? {
+          processing: { processingProfileRef: str((o["processing"] as Record<string, unknown>)["processingProfileRef"]) },
+        } : {}),
       };
     }
     case "cancel_stream":
@@ -77,7 +85,21 @@ export function decodeRequest(line: string): AgentRequest | null {
 }
 
 /** AgentEmit(domain) → os AgentMessage(wire). kind(camel)→type(snake), requestId 결속. */
-export function encodeEmit(requestId: string, e: AgentEmit): Record<string, unknown> {
+export function encodeEmit(requestId: string, e: AgentEmit, channel?: ChannelContext): Record<string, unknown> {
+  if (e.kind === "grounding") {
+    const checked = validateGroundingEvent(e, channel);
+    if (!checked.ok) return { type: "error", requestId, message: "Response could not be encoded.", code: checked.error.code };
+    e = checked.value as AgentEmit;
+  } else if (e.kind === "artifact") {
+    const checked = validateImageArtifact(e.artifact);
+    if (!checked.ok) return { type: "error", requestId, message: "Response could not be encoded.", code: checked.error.code };
+  } else if (e.kind === "providerSession") {
+    const checked = validateProviderSessionEvent(e);
+    if (!checked.ok) return { type: "error", requestId, message: "Response could not be encoded.", code: checked.error.code };
+  } else if (e.kind === "processingDisclosure") {
+    const checked = validateProcessingDisclosureEvent(e);
+    if (!checked.ok) return { type: "error", requestId, message: "Response could not be encoded.", code: checked.error.code };
+  }
   switch (e.kind) {
     case "text": return { type: "text", requestId, text: e.text };
     case "thinking": return { type: "thinking", requestId, text: e.text };
@@ -90,8 +112,17 @@ export function encodeEmit(requestId: string, e: AgentEmit): Record<string, unkn
     case "tokenWarning": return { type: "token_warning", requestId, raw: e.raw };
     case "compacted": return { type: "compacted", requestId, droppedCount: e.droppedCount };
     case "panelToolCall": return { type: "panel_tool_call", requestId, toolCallId: e.toolCallId, toolName: e.toolName, args: e.args }; // UC-PANEL FR-PANEL-2
+    case "grounding": return { type: "grounding", requestId, status: e.status, sources: e.sources };
+    case "artifact": return { type: "artifact", requestId, artifact: e.artifact };
+    case "providerSession": return { type: "provider_session", requestId, sessionId: e.sessionId, providerSessionRef: e.providerSessionRef, state: e.state };
+    case "processingDisclosure": return {
+      type: "processing_disclosure", requestId, workload: e.workload, destination: e.destination,
+      decision: e.decision, processingProfileRef: e.processingProfileRef,
+      ...(e.provider !== undefined ? { provider: e.provider } : {}),
+      ...(e.model !== undefined ? { model: e.model } : {}),
+    };
     case "finish": return { type: "finish", requestId };
-    case "error": return { type: "error", requestId, message: e.message };
+    case "error": return { type: "error", requestId, message: e.message, ...(e.code ? { code: e.code } : {}) };
   }
 }
 

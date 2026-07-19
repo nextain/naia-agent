@@ -4,6 +4,7 @@
 // 미구성(provider="none"/필수필드 누락) = undefined(호출처 폴백). fetch 주입(테스트·node fetch).
 import type { SubLlmPort } from "../ports/sub-llm.js";
 import type { MemoryLlmConfig } from "./naia-memory.js";
+import { ensureCurrentProcessingAuthorized } from "./processing-operation-decorators.js";
 
 export type SubLlmFetch = (
 	url: string,
@@ -24,12 +25,22 @@ export function buildSubLlmProvider(
 	const model = modelRaw;
 	const apiKey = cfg.apiKey ?? "";
 	const fetchFn = deps.fetch;
+	let callSequence = 0;
 
 	async function callOnce(
 		messages: readonly { role: string; content: string }[],
 		signal?: AbortSignal,
 	): Promise<string> {
 		const url = `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
+		await ensureCurrentProcessingAuthorized({
+			operationKey: `sub_llm:call:${++callSequence}`,
+			workload: "sub_llm",
+			provider,
+			model,
+			endpointUrl: baseUrl,
+			endpointZone: "unverified",
+			requiresConsent: !/^https?:\/\/(?:localhost|127\.|\[?::1\]?)/i.test(baseUrl),
+		});
 		const res = await fetchFn(url, {
 			method: "POST",
 			headers: {

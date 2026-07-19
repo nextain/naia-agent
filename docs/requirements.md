@@ -286,3 +286,45 @@ RPC만 추가하며, 별도 셸 반복 상태 머신은 만들지 않는다.
 | UC1 | `docs/progress/99.dev-comm/UC1-agent-horizontal-contract-2026-06-10.md` |
 | UC5 | `docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md` |
 | UC-provider-provenance | `docs/progress/99.dev-comm/UC-provider-provenance-contract-2026-06-12.md` |
+
+## UC-WIRE-V1 FR/NFR (FR-WIRE-01 ~ 16) — 공통 실행 계약
+
+권위 계약서:
+`docs/progress/99.dev-comm/UC-WIRE-V1-contract-2026-07-19.md`.
+
+| ID | 요구사항 | 상태 |
+|----|----------|:----:|
+| FR-WIRE-01 | 신규 필드 없는 기존 text-only stdio/gRPC 요청과 응답은 기존 shape·동작을 유지한다. | Implemented |
+| FR-WIRE-02 | `ChatMessage`는 bytes/path가 아닌 검증된 이미지 `AttachmentRef[]`를 선택적으로 운반한다. | Implemented |
+| FR-WIRE-03 | 요청은 shell/Discord binding/guild/channel/user 격리를 구조화 `ChannelContext`로 운반하고 trusted binding 불일치를 provider 전에 거부한다. | Implemented |
+| FR-WIRE-04 | 요청은 `off/available/required` grounding 정책과 knowledge scope claim을 구조적으로 운반하고 workspace/channel 허용 scope와 대조한다. | Implemented |
+| FR-WIRE-05 | 요청의 로컬 sessionId와 provider session `new/resume` 의미가 `ProviderChatOpts`까지 전달 가능하다. | Implemented |
+| FR-WIRE-06 | 출력 이미지 artifact가 agent stdio/gRPC와 Shell 소비 경계까지 무손실 전달된다. | Implemented |
+| FR-WIRE-07 | grounding status와 bounded source URI가 agent에서 Shell/Discord 소비 경계까지 무손실 전달된다. | Implemented |
+| FR-WIRE-08 | opaque provider session lifecycle이 원시 thread id·credential 노출 없이 전달된다. | Implemented |
+| FR-WIRE-09 | 기존 error message를 보존하면서 안정 error code를 additive로 전달한다. | Implemented |
+| FR-WIRE-10 | `main/sub/memory` 유효 provider/model/credential reference와 각 필드의 provenance를 같은 proto 계약으로 표현한다. | Implemented |
+| FR-WIRE-11 | unknown/UNSPECIFIED enum과 attachment/channel/grounding/ref 불변식 위반은 fallback하지 않고 stdio/gRPC 동일 code 단일 terminal로 fail-closed한다. | Implemented |
+| FR-WIRE-12 | agent proto SoT와 Shell Rust 소비 코드는 같은 #89 commit pair 기준으로 컴파일된다. | Implemented |
+| FR-WIRE-13 | 요청은 opaque processing profile reference만 운반하고 신규 Discord 요청에서는 신뢰 binding의 reference와 일치시킨다. | Implemented |
+| FR-WIRE-14 | 출력은 operation의 처리 종류·실제 위치 분류·판단을 bounded disclosure event로 운반하며 endpoint나 secret을 포함하지 않는다. | Implemented |
+| FR-WIRE-15 | disclosure 성공 전에 downstream을 호출하지 않는 결정론적 순서 seam을 제공한다. | Implemented |
+| FR-WIRE-16 | 확인 필요 외부 처리는 wire 밖의 opaque consent id를 가진 만료·일회성·scope 결속 consent만 인정한다. | Implemented |
+
+### NFR
+
+- **NFR-WIRE-SEC**: 이미지 bytes/base64, raw provider thread id, 비밀
+  credential/token, 검증되지 않은 외부 ref, 원문 지식은 wire·codec 오류·
+  fixture·진단 로그에 넣지 않는다. 검증된 agent-issued opaque ref는 wire에서
+  왕복하지만 오류·진단 로그에서는 실제 값을 가린다. 처리 위치 event에도 raw
+  endpoint, prompt/message/memory 원문, secret, credential 해석값을 넣지 않는다.
+- **NFR-WIRE-BOUND**: 신규 collection/string/size는 명시적 상한이 있으며
+  decode 비용은 입력 크기에 선형이다.
+- **NFR-WIRE-CODEC**: stdio와 gRPC는 같은 domain validator를 공유하고
+  transport별 관대한 fallback을 만들지 않는다.
+- **NFR-WIRE-COMPAT**: 기존 proto 번호와 JSON 필드를 변경·재사용하지 않고
+  선택 필드/새 event만 추가한다.
+- **NFR-WIRE-I18N**: wire는 안정 code만 소유하고 사용자 표시 문구는 Shell
+  i18n이 소유한다.
+- **NFR-WIRE-BUILD**: agent TypeScript와 Shell TypeScript/Rust proto 소비
+  빌드가 모두 성공해야 계약을 동결한다.

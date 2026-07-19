@@ -1,9 +1,14 @@
 // ports — UC1 agent(brain) (계약 §B.2) + UC5 도구(§B.2). domain 만 의존.
 import type {
-  ProviderConfig, ChatMessage, ProviderChunk, AgentEmit, AgentRequest, ToolSpec, ToolCall,
+  ProviderConfig, ChatMessage, ProviderChunk, AgentEmit, AgentRequest, ToolSpec, ToolCall, ProviderSessionRequest, ProcessingDisclosure,
 } from "../domain/chat.js";
+import type {
+  WireValidationContext,
+} from "../domain/wire-v1.js";
+export type { ProviderSessionBinding, ProviderSessionStorePort } from "../domain/wire-v1.js";
 import type { PersonaProfile } from "../domain/persona.js";
 import type { WorkspaceSnapshot } from "../domain/workspace-context.js";
+import type { ProcessingOperation } from "./processing.js";
 
 export type Unsub = () => void;
 
@@ -12,6 +17,9 @@ export interface ProviderChatOpts {
   readonly systemPrompt?: string;
   readonly signal?: AbortSignal;
   readonly tools?: readonly ToolSpec[]; // UC5 — LLM 에 전달할 도구 사양(미지원 provider 는 무시)
+  readonly providerSession?: ProviderSessionRequest;
+  /** 요청 내 실제 provider round 식별자. workload/endpoint 권한은 provider decorator가 소유한다. */
+  readonly processingOperationKey?: string;
 }
 export interface ProviderPort {
   /** LLM 추론 스트림. abort signal 수용. rejection(throw) 전파(error 는 chunk 아님). */
@@ -54,6 +62,29 @@ export interface WorkspaceContextPort {
   snapshot(): WorkspaceSnapshot | undefined;
 }
 
+/** 신뢰 경계가 message claim과 독립적으로 해석한 wire context. */
+export interface WireTrustResolverPort {
+  resolve(req: Extract<AgentRequest, { kind: "chat" }>): WireValidationContext;
+}
+
+/** 실제 operation의 처리 위치·판단을 신뢰 설정에서 해석한다. 요청/모델 출력은 정책 소스가 아니다. */
+export interface ProcessingPolicyPort {
+  /** Freeze trusted policy state for one request before any actual operation starts. */
+  bind?(
+    req: Extract<AgentRequest, { kind: "chat" }>,
+  ): ProcessingPolicyPort;
+  resolve(
+    req: Extract<AgentRequest, { kind: "chat" }>,
+    operation: ProcessingOperation,
+  ): ({ readonly kind: "processingDisclosure"; readonly consentRequired?: boolean } & ProcessingDisclosure) | undefined;
+  /** Called only after the confirmation-required disclosure was durably acknowledged. */
+  claimConsent?(
+    req: Extract<AgentRequest, { kind: "chat" }>,
+    operation: ProcessingOperation,
+    disclosure: ProcessingDisclosure,
+  ): boolean;
+}
+
 export interface CredentialPort {
   /** creds_update 수신 시 갱신. */
   update(provider: string, secret: { apiKey?: string; naiaKey?: string }): void;
@@ -80,8 +111,17 @@ export interface AgentIngressPort {
 
 // ── driven-out (brain→wire) ──
 export interface AgentEgressPort {
+  /** requestId 재사용 시 transport의 이전 terminal latch를 해제한다. 활성 중복은 handler가 이 호출 전에 차단한다. no-throw. */
+  beginRequest?(requestId: string): void;
   /** AgentEmit → wire AgentMessage writeLine. ⚠️ no-throw(실패=로그, throw 금지). */
   emit(requestId: string, e: AgentEmit): void;
+  /** 중요 disclosure가 transport에 기록/flush됐음을 확인한다. 미지원·closed·실패=false. */
+  emitCritical?(
+    requestId: string,
+    e: Extract<AgentEmit, { kind: "processingDisclosure" }>,
+  ): Promise<boolean>;
+  /** turn 종료 시 request-scoped transport 상태를 즉시 정리한다. no-throw. */
+  endRequest?(requestId: string): void;
 }
 
 /** out-of-band 진단(중복 requestId 등 — wire 아님). 표준 로깅 sink(docs/logging.md). console.* 직접 금지(check-logging 강제). */

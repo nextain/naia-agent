@@ -3,11 +3,23 @@
 // transport-독립 런타임 deps 는 compose-agent-deps.mjs(CLI host 와 공유, NFR-CLI-shared) — 여기선 gRPC server +
 // panel(환경 위임, egress 필요) + 라이브 reload + 종료(drain/flush) 등 **gRPC host 관심사**만 배선.
 import { createInterface } from "node:readline";
-import { randomUUID } from "node:crypto";
-import { wireAgentUC1 } from "../../dist/main/composition/index.js";
+import { createHash, randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { makeHostWireRuntime, wireAgentUC1 } from "../../dist/main/composition/index.js";
 import { makeCompositeToolExecutor } from "../../dist/main/adapters/composite-tool-executor.js";
 import { makePanelToolExecutor } from "../../dist/main/adapters/panel-tool-executor.js";
 import { makeGrpcServer } from "../../dist/main/adapters/grpc/grpc-server.js";
+import { makeKnowledgeGrounding } from "../../dist/main/adapters/knowledge-grounding.js";
+import { makeFileConsentStore } from "../../dist/main/adapters/file-consent-store.js";
+import { makeProcessingGuard } from "../../dist/main/adapters/processing-guard.js";
+import { ensureCurrentProcessingAuthorized, makeProcessingAwareProvider, makeProcessingAwareResolver, makeProcessingAwareToolExecutor } from "../../dist/main/adapters/processing-operation-decorators.js";
+import {
+  anthropicBaseUrl,
+  labProxyBaseUrl,
+  nativeBaseUrl,
+  resolveProviderRoute,
+} from "../../dist/main/domain/provider-route.js";
 import { makeActivityRouteRegistry, makeActivitySpeechEgress } from "../../dist/main/adapters/activity-speech-egress.js";
 import { makeActivityRadioDjBgm } from "../../dist/main/adapters/activity-radio-dj-bgm.js";
 import { makeExhibitionKnowledge } from "../../dist/main/adapters/exhibition-knowledge.js";
@@ -60,16 +72,107 @@ const deps = await composeAgentRuntimeDeps();
 cleanupFns = deps.cleanupFns;
 const { adkPath, provider, resolver, providerLabel: label, credentials, settingsStore, defaultConfig, configLabel } = deps;
 let { toolExecutor } = deps;
-const { memory, memoryLabel, conversationLog, transcriptLabel, diag, personaSource, workspaceContextSource, knowledgeBackend } = deps;
+const {
+  memory, memoryLabel, conversationLog, transcriptLabel, diag, personaSource, workspaceContextSource,
+  knowledgeBackend, knowledgeSlot, openKnowledgeForWorkspace,
+} = deps;
 let skillsLabel = deps.skillsLabel;
+const providerEndpoint = (config) => {
+  const route = resolveProviderRoute(config);
+  if (route === "lab-proxy") return labProxyBaseUrl(config);
+  if (route === "ollama") return nativeBaseUrl("ollama", config.ollamaHost);
+  if (route === "anthropic") return anthropicBaseUrl(config);
+  if (route === "claude-code") return "https://api.anthropic.com";
+  return nativeBaseUrl(config.provider, config.labGatewayUrl ?? config.vllmHost);
+};
+const isLoopback = (url) => {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return host === "localhost" || host === "::1" || host === "[::1]" || host === "0.0.0.0"
+      || /^127\./.test(host) || host.endsWith(".localhost");
+  } catch { return false; }
+};
+const processingResolver = resolver ? makeProcessingAwareResolver(resolver, (config) => {
+  const endpointUrl = providerEndpoint(config);
+  return {
+    endpointUrl,
+    endpointZone: "unverified",
+    requiresConsent: !isLoopback(endpointUrl),
+  };
+}) : undefined;
+const processingProvider = provider ? makeProcessingAwareProvider(provider, {
+  endpointUrl: "http://127.0.0.1/fixed-provider",
+  endpointZone: "unverified",
+  requiresConsent: false,
+}) : undefined;
 
 // ★ 라이브 reload(정본 R1-2 "startup-only 금지"): 사용자가 naia-os 에서 모델/프로바이더 교체 시 OS 가
 //   naia-settings(config.json) 갱신 후 SetWorkspace/ReloadSettings 재호출 → 여기서 재로딩해 handler 활성 config 를 swap.
 //   applyDefaultConfig 는 wireAgentUC1 반환(아래)으로 채워진다 — 클로저가 *호출 시점* 값을 보므로 선언 순서 무관.
 let currentAdkPath = adkPath;
+const loadTrustedProcessingProfiles = async (path) => {
+  try {
+    const parsed = JSON.parse(await readFile(join(path, "naia-settings", "processing.json"), "utf8"));
+    if (!parsed || typeof parsed !== "object"
+      || Reflect.ownKeys(parsed).some((key) => !["version", "profiles", "consents"].includes(String(key)))
+      || parsed.version !== 1 || !Array.isArray(parsed.profiles) || parsed.profiles.length > 64
+      || !Array.isArray(parsed.consents ?? []) || (parsed.consents ?? []).length > 256) throw new Error();
+    const profiles = new Map();
+    for (const item of parsed.profiles) {
+      if (!item || typeof item !== "object"
+        || Reflect.ownKeys(item).some((key) => !["processingProfileRef", "profile"].includes(String(key)))
+        || !/^[A-Za-z0-9_-]{1,128}$/.test(item.processingProfileRef)
+        || !["local_only", "cloud_enabled", "ask_before_external"].includes(item.profile)
+        || profiles.has(item.processingProfileRef)) throw new Error();
+      profiles.set(item.processingProfileRef, item.profile);
+    }
+    return { ok: true, value: { profiles, consents: parsed.consents ?? [] } };
+  } catch { return { ok: false }; }
+};
+const initialProcessingConfig = await loadTrustedProcessingProfiles(adkPath);
+const initialTrustedProcessingConfig = initialProcessingConfig.ok
+  ? initialProcessingConfig.value
+  : { profiles: new Map(), consents: [] };
+const makeConsentStore = (path, records) =>
+  records.length ? makeFileConsentStore({
+    path: join(path, "data-private", "processing", "consumed.json"),
+    records,
+  }) : undefined;
+let initialConsentStore;
+try { initialConsentStore = makeConsentStore(adkPath, initialTrustedProcessingConfig.consents); }
+catch { initialConsentStore = undefined; }
+const initialKnowledgeConfig = await readWorkspaceKnowledgeConfig(adkPath);
+let trustedSnapshot = Object.freeze({
+  workspace: adkPath,
+  providerConfig: defaultConfig,
+  credentialGeneration: defaultConfig ? 1 : 0,
+  processingConfig: initialTrustedProcessingConfig,
+  consentStore: initialConsentStore,
+  knowledgeScopes: knowledgeBackend && initialKnowledgeConfig.scope ? [initialKnowledgeConfig.scope] : [],
+  knowledgeBackend: knowledgeSlot.snapshot(),
+});
 let applyDefaultConfig = (_c) => {};
-const reloadConfigFrom = (path) => {
+const reloadConfigFrom = async (path) => {
   const c = path ? (settingsStore.loadMain(path) ?? undefined) : undefined;
+  const processing = await loadTrustedProcessingProfiles(path);
+  if (!c || !processing.ok) return { loaded: false, provider: "", model: "" };
+  try {
+    const knowledge = await openKnowledgeForWorkspace(path);
+    const consentStore = makeConsentStore(path, processing.value.consents);
+    const candidate = Object.freeze({
+      workspace: path,
+      providerConfig: c,
+      credentialGeneration: trustedSnapshot.credentialGeneration + 1,
+      processingConfig: processing.value,
+      consentStore,
+      knowledgeScopes: knowledge?.scope ? [knowledge.scope] : [],
+      knowledgeBackend: knowledge?.backend,
+    });
+    knowledgeSlot.swap(knowledge?.backend);
+    trustedSnapshot = candidate;
+  } catch {
+    return { loaded: false, provider: "", model: "" };
+  }
   applyDefaultConfig(c);
   process.stderr.write(`[naia-agent] settings reload → ${c ? `${c.provider}/${c.model}` : "none"} (adk=${path})\n`);
   return { loaded: !!c, provider: c?.provider ?? "", model: c?.model ?? "" };
@@ -81,6 +184,78 @@ const reloadConfigFrom = (path) => {
 let panelExec;
 let activityBgm;
 let profileRuntime;
+const shellProcessingScope = (snapshot) => `ws_${createHash("sha256")
+  .update(String(snapshot.workspace ?? ""))
+  .digest("base64url")}`;
+const makeBoundProcessingPolicy = (snapshot) => {
+  const processingGuard = makeProcessingGuard({
+    profiles: { get: (ref) => snapshot.processingConfig.profiles.get(ref) },
+    consents: snapshot.consentStore,
+  });
+  return {
+  resolve: (req, operation) => {
+    if (!req.processing) return undefined;
+    const scope = req.channel?.kind === "discord"
+      ? (req.grounding?.knowledgeScope ?? req.channel.bindingId)
+      : shellProcessingScope(snapshot);
+    const disclosure = processingGuard.authorize({
+      scope,
+      processingProfileRef: req.processing.processingProfileRef,
+      workload: operation.workload,
+      provider: { provider: operation.provider ?? "", model: operation.model ?? "" },
+      endpoint: {
+        url: operation.endpointUrl,
+        zone: operation.endpointZone,
+      },
+      sessionId: req.sessionId ?? req.requestId,
+    });
+    return { kind: "processingDisclosure", ...disclosure };
+  },
+  claimConsent: (req, operation, disclosure) => {
+    const scope = req.channel?.kind === "discord"
+      ? (req.grounding?.knowledgeScope ?? req.channel.bindingId)
+      : shellProcessingScope(snapshot);
+    return processingGuard.claimConsent({
+      scope,
+      processingProfileRef: req.processing.processingProfileRef,
+      workload: operation.workload,
+      destination: disclosure.destination,
+      sessionId: req.sessionId ?? req.requestId,
+    });
+  },
+  };
+};
+const processingPolicy = {
+  bind: () => makeBoundProcessingPolicy(trustedSnapshot),
+  resolve: (req, operation) => makeBoundProcessingPolicy(trustedSnapshot).resolve(req, operation),
+  claimConsent: (req, operation, disclosure) =>
+    makeBoundProcessingPolicy(trustedSnapshot).claimConsent(req, operation, disclosure),
+};
+const groundingPolicy = {
+  bind: () => makeKnowledgeGrounding(knowledgeSlot.snapshot()),
+  resolve: (req) => makeKnowledgeGrounding(knowledgeSlot.snapshot()).resolve(req),
+};
+const bindRequestRuntime = () => {
+  const snapshot = trustedSnapshot;
+  return {
+    trustContext: {
+      workspace: snapshot.workspace,
+      provider: snapshot.providerConfig?.provider,
+      model: snapshot.providerConfig?.model,
+      credentialGeneration: snapshot.credentialGeneration,
+      allowedKnowledgeScopes: snapshot.knowledgeScopes,
+    },
+    processingPolicy: makeBoundProcessingPolicy(snapshot),
+    grounding: makeKnowledgeGrounding(snapshot.knowledgeBackend),
+    providerConfig: snapshot.providerConfig,
+  };
+};
+const wireRuntime = makeHostWireRuntime(() => ({
+  workspace: trustedSnapshot.workspace,
+  config: trustedSnapshot.providerConfig,
+  credentialGeneration: trustedSnapshot.credentialGeneration,
+  allowedKnowledgeScopes: trustedSnapshot.knowledgeScopes,
+}), { grounding: groundingPolicy, processingPolicy });
 const grpcServer = makeGrpcServer({
   bindAddr: process.env.NAIA_AGENT_GRPC_ADDR || "127.0.0.1:0",
   onSetWorkspace: (wsPath) => {
@@ -114,11 +289,34 @@ const grpcServer = makeGrpcServer({
   onYieldSpeechActivity: (sessionId, activityId) => profileRuntime?.yield(sessionId, activityId) ?? { ok: false },
   onControlSpeechActivity: (sessionId, activityId, action) => profileRuntime?.control(sessionId, activityId, action) ?? false,
   onStopSpeechActivity: (sessionId, activityId) => profileRuntime?.stop(sessionId, activityId),
+  trustResolver: wireRuntime.trustResolver,
+  providerSessionStore: wireRuntime.providerSessionStore,
   diag,
 });
+const localToolNames = new Set([
+  "get_time", "memo_list", "memo_get", "memo_save",
+  "list_dir", "read_file", "write_file",
+  "obsidian_list_notes", "obsidian_read_note", "obsidian_search",
+  "skill_knowledge_search", "skill_knowledge_ask", "skill_knowledge_graph",
+]);
 // panel executor 생성(egress 확보 후) + builtin 과 composite 합성. panel 도구 execute()=panel_tool_call emit→PanelToolResult 대기(E1, FR-PANEL-2/3).
 panelExec = makePanelToolExecutor({ egress: grpcServer.egress });
 toolExecutor = toolExecutor ? makeCompositeToolExecutor([toolExecutor, panelExec]) : panelExec;
+toolExecutor = makeProcessingAwareToolExecutor(toolExecutor, (call) => {
+  if (localToolNames.has(call.name)) return undefined;
+  const known = call.name === "get_weather"
+    ? { provider: "openmeteo", model: "weather", endpointUrl: "https://api.open-meteo.com" }
+    : call.name.startsWith("github_")
+      ? { provider: "github", model: "rest", endpointUrl: "https://api.github.com" }
+      : { provider: "unclassified-tool", model: "unknown", endpointUrl: "unclassified:" };
+  return {
+    operationKey: "tool:pending",
+    workload: "network_tool",
+    ...known,
+    endpointZone: "unverified",
+    requiresConsent: true,
+  };
+});
 skillsLabel += " + panel(환경 위임)";
 // Issue #82 proactive profiles — persistent activity stream + 좁은 BGM/KB 포트.
 const activityRoutes = makeActivityRouteRegistry();
@@ -133,6 +331,15 @@ const preferenceStore = makeRadioDjPreferenceStore();
 const radioContext = makeRadioDjContext({
   explicitLikes: (sessionId) => preferenceStore.explicitLikes(sessionId),
   fetchWeather: async (latitude, longitude) => {
+    await ensureCurrentProcessingAuthorized({
+      operationKey: `proactive:weather:${latitude}:${longitude}`,
+      workload: "network_tool",
+      provider: "openmeteo",
+      model: "weather",
+      endpointUrl: "https://api.open-meteo.com",
+      endpointZone: "unverified",
+      requiresConsent: true,
+    });
     const url = new URL("https://api.open-meteo.com/v1/forecast");
     url.searchParams.set("latitude", String(latitude));
     url.searchParams.set("longitude", String(longitude));
@@ -159,7 +366,7 @@ const djController = new PersonalRadioDjController({
 const exhibitionController = new ExhibitionIntroController({
   scheduler: proactiveScheduler,
   ids: { activity: randomUUID, resumeToken: randomUUID },
-  knowledge: makeExhibitionKnowledge(knowledgeBackend),
+  knowledge: makeExhibitionKnowledge(knowledgeSlot.backend),
   speech: activitySpeech,
 });
 profileRuntime = new SpeechProfileRuntime({
@@ -170,7 +377,7 @@ profileRuntime = new SpeechProfileRuntime({
 // memory(makeNaiaMemory)는 MemoryPort + CompactionPort 둘 다 구현 → compaction 도 같은 인스턴스 주입(UC-compaction).
 // FR-PERSONA-3: personaSource 주입(코어가 워크스페이스 페르소나 조립). naia-os 는 chat_request 에 systemPrompt 를
 //   실어 보내므로 그 요청은 override 로 동작(당장 동작변화 없음) — 단 코어가 페르소나를 소유하는 단일 경로로 통일.
-const wired = wireAgentUC1({ ingress: grpcServer.ingress, egress: grpcServer.egress, speechProfiles: profileRuntime, credentials, diag, ...(provider ? { provider } : {}), ...(resolver ? { resolver } : {}), ...(toolExecutor ? { toolExecutor } : {}), ...(memory ? { memory } : {}), ...(memory ? { compaction: memory } : {}), ...(conversationLog ? { conversationLog } : {}), ...(personaSource ? { personaSource } : {}), ...(workspaceContextSource ? { workspaceContext: workspaceContextSource } : {}), ...(defaultConfig ? { defaultConfig } : {}) });
+const wired = wireAgentUC1({ ingress: grpcServer.ingress, egress: grpcServer.egress, speechProfiles: profileRuntime, credentials, diag, trustResolver: wireRuntime.trustResolver, providerSessionStore: wireRuntime.providerSessionStore, grounding: wireRuntime.grounding, processingPolicy: wireRuntime.processingPolicy, bindRequestRuntime, ...(processingProvider ? { provider: processingProvider } : {}), ...(processingResolver ? { resolver: processingResolver } : {}), ...(toolExecutor ? { toolExecutor } : {}), ...(memory ? { memory } : {}), ...(memory ? { compaction: memory } : {}), ...(conversationLog ? { conversationLog } : {}), ...(personaSource ? { personaSource } : {}), ...(workspaceContextSource ? { workspaceContext: workspaceContextSource } : {}), ...(defaultConfig ? { defaultConfig } : {}) });
 applyDefaultConfig = wired.setDefaultConfig; // 라이브 reload 결선 — 이후 SetWorkspace/ReloadSettings 가 활성 config swap
 const { start, drain } = wired;
 start?.(); // ingress.onRequest(route) 등록 — gRPC 핸들러가 도메인 req 를 흘린다

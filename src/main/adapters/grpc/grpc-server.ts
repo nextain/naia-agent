@@ -5,8 +5,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
-import type { AgentRequest, AgentEmit, ToolSpec } from "../../domain/chat.js";
-import type { AgentIngressPort, AgentEgressPort, DiagnosticLog, Unsub } from "../../ports/uc1.js";
+import type { AgentRequest, AgentEmit, ToolSpec, EffectiveLlmConfig } from "../../domain/chat.js";
+import { validateWireChatRequest } from "../../domain/wire-v1.js";
+import type { AgentIngressPort, AgentEgressPort, DiagnosticLog, ProviderSessionStorePort, Unsub, WireTrustResolverPort } from "../../ports/uc1.js";
 import type {
   SpeechProfileConfig,
   YieldSpeechResult,
@@ -17,7 +18,7 @@ export type {
 } from "../../ports/speech-activity.js";
 import {
   chatRequestToDomain, cancelToDomain, approvalToDomain, credsToDomain, toolRequestToDomain,
-  emitToProto, type PbChatRequest, type PbCancel, type PbApproval, type PbCreds, type PbToolRequest,
+  emitToProto, settingsResultToProto, type PbChatRequest, type PbCancel, type PbApproval, type PbCreds, type PbToolRequest,
 } from "./grpc-codec.js";
 
 // dist 에는 tsc 가 .proto 를 복사 안 함 → colocated(prod 번들 복사본) 우선, 없으면 src 원본(dev) fallback.
@@ -27,15 +28,15 @@ const PROTO_PATH = [
   join(HERE, "../../../../src/main/adapters/grpc/naia_agent.proto"),
 ].find((p) => existsSync(p)) ?? join(HERE, "naia_agent.proto");
 
-export interface SettingsResult { loaded: boolean; provider: string; model: string }
+export interface SettingsResult { loaded: boolean; provider: string; model: string; effectiveLlmConfigs?: readonly EffectiveLlmConfig[] }
 /** UC-KNOWLEDGE-COMPILE (FR-KB-5) — CompileKnowledge RPC 결과(통계). proto camelCase 동형. */
 export interface CompileKnowledgeResult { ok: boolean; scope: string; sourceCount: number; cardCount: number; entityCount: number; relationCount: number; error?: string }
 /** F1 rich-health(신규계약 Diagnostics RPC). os InteroceptivePort.diagnostics rich payload. */
 export interface DiagnosticsResult { version: string; uptimeMs: number; healthy: boolean; components: readonly { name: string; healthy: boolean }[] }
 export interface GrpcServerDeps {
   bindAddr?: string;                                  // 기본 127.0.0.1:0(임의 포트). entry 가 주소 회수.
-  onSetWorkspace: (adkPath: string) => SettingsResult; // naia-adk/naia-settings 로딩 결과(entry 제공)
-  onReloadSettings: () => SettingsResult;
+  onSetWorkspace: (adkPath: string) => SettingsResult | Promise<SettingsResult>; // async 원자 snapshot load 허용
+  onReloadSettings: () => SettingsResult | Promise<SettingsResult>;
   // UC-KNOWLEDGE-COMPILE(FR-KB-5): 지식 컴파일 트리거(entry 주입, async). 미주입=unavailable(no-op 정직 보고).
   onCompileKnowledge?: (adkPath: string) => Promise<CompileKnowledgeResult>;
   onDiagnostics?: () => DiagnosticsResult;            // F1 rich-health(미주입 시 기본 healthy). Rust os-client=후속.
@@ -56,6 +57,8 @@ export interface GrpcServerDeps {
   onControlSpeechActivity?: (sessionId: string, activityId: string | undefined, action: string) => boolean | Promise<boolean>;
   onStopSpeechActivity?: (sessionId: string, activityId?: string) => void | Promise<void>;
   diag: DiagnosticLog;
+  trustResolver?: WireTrustResolverPort;
+  providerSessionStore?: ProviderSessionStorePort;
 }
 
 export interface GrpcServer {
@@ -81,6 +84,7 @@ export function makeGrpcServer(deps: GrpcServerDeps): GrpcServer {
   const safeLog = (m: string, c?: unknown) => { try { diag.log(m, c); } catch { /* egress no-throw 계약 보호 */ } };
   // requestId → 활성 Chat(server-stream) call. emit 라우팅 대상.
   const active = new Map<string, WritableStream>();
+  const activeChannels = new Map<string, Extract<AgentRequest, { kind: "chat" }>["channel"]>();
   // sessionId → 장기 proactive activity subscription. activity terminal은 stream을 닫지 않는다.
   const activitySubscribers = new Map<string, WritableStream>();
   // ingress cb(단일 구독) — RPC 핸들러가 도메인 req 를 이리로 흘린다(stdio onLine 등가).
@@ -98,12 +102,46 @@ export function makeGrpcServer(deps: GrpcServerDeps): GrpcServer {
     emit(requestId: string, e: AgentEmit): void {
       const call = active.get(requestId);
       if (!call) { safeLog("grpc egress: 활성 stream 없음(드롭)", { requestId, kind: e.kind }); return; }
-      try { call.write(emitToProto(requestId, e)); }
+      let encoded;
+      try {
+        encoded = emitToProto(requestId, e, activeChannels.get(requestId));
+        call.write(encoded);
+      }
       catch (err) { safeLog("grpc egress write 실패", err); }
-      if (e.kind === "finish" || e.kind === "error") {
+      if (e.kind === "finish" || e.kind === "error" || (encoded !== undefined && "error" in encoded)) {
         active.delete(requestId);
+        activeChannels.delete(requestId);
         try { call.end(); } catch { /* 이미 닫힘 */ }
       }
+    },
+    async emitCritical(requestId, e): Promise<boolean> {
+      const call = active.get(requestId);
+      if (!call) return false;
+      let encoded;
+      try { encoded = emitToProto(requestId, e, activeChannels.get(requestId)); }
+      catch (err) { safeLog("grpc critical egress encode 실패", err); return false; }
+      if (!("processingDisclosure" in encoded)) return false;
+      return await new Promise<boolean>((resolveAck) => {
+        let settled = false;
+        const settle = (ok: boolean) => {
+          if (settled) return;
+          settled = true;
+          call.removeListener("close", onClosed);
+          call.removeListener("error", onClosed);
+          call.removeListener("cancelled", onClosed);
+          resolveAck(ok);
+        };
+        const onClosed = () => settle(false);
+        call.once("close", onClosed);
+        call.once("error", onClosed);
+        call.once("cancelled", onClosed);
+        try {
+          call.write(encoded, (error?: Error | null) => settle(!error && active.get(requestId) === call));
+        } catch (err) {
+          safeLog("grpc critical egress write 실패", err);
+          settle(false);
+        }
+      });
     },
   };
 
@@ -129,15 +167,53 @@ export function makeGrpcServer(deps: GrpcServerDeps): GrpcServer {
   // server-stream(Chat/ToolRequest): stream 등록 → 도메인 req 전달(register-before-emit). 클라 취소 시 정리.
   function streamHandler(toDomain: (p: unknown) => AgentRequest & { requestId: string }) {
     return (call: WritableStream) => {
+      const rawRequestId = String((call.request as { requestId?: unknown } | null | undefined)?.requestId ?? "");
+      // 활성 stream 식별은 validation보다 먼저 한다. 중복 invalid 요청도 기존 stream을 탈취/교체할 수 없다.
+      if (rawRequestId && active.has(rawRequestId)) {
+        safeLog("grpc: 중복 requestId 거부", { requestId: rawRequestId });
+        try { call.write(emitToProto(rawRequestId, { kind: "error", message: "Duplicate request id.", code: "WIRE_INVALID_ARGUMENT" })); call.end(); } catch { /* noop */ }
+        return;
+      }
       const req = toDomain(call.request);
+      if (req.kind === "chat") {
+        let baseContext;
+        try { baseContext = deps.trustResolver?.resolve(req) ?? {}; }
+        catch {
+          if (!req.requestId || req.requestId.length > 128 || /[\u0000-\u001f\u007f]/.test(req.requestId)) {
+            call.destroy(Object.assign(new Error("invalid argument"), { code: grpc.status.INVALID_ARGUMENT }));
+            return;
+          }
+          active.set(req.requestId, call);
+          try { call.write(emitToProto(req.requestId, { kind: "error", message: "Request could not be processed.", code: "WIRE_SCOPE_FORBIDDEN" })); call.end(); } catch { /* noop */ }
+          active.delete(req.requestId);
+          return;
+        }
+        const checked = validateWireChatRequest(req, {
+          ...baseContext,
+          ...(req.providerSession?.mode === "resume" ? {
+            providerSessionLookup: deps.providerSessionStore?.lookup(req.providerSession.providerSessionRef),
+          } : {}),
+        });
+        if (!checked.ok) {
+          if (!checked.requestId) {
+            call.destroy(Object.assign(new Error("invalid argument"), { code: grpc.status.INVALID_ARGUMENT }));
+            return;
+          }
+          active.set(checked.requestId, call);
+          try { call.write(emitToProto(checked.requestId, { kind: "error", message: "Request could not be processed.", code: checked.error.code })); call.end(); } catch { /* noop */ }
+          active.delete(checked.requestId);
+          return;
+        }
+      }
       // 중복 requestId 거부 — 덮어쓰면 원 stream 이 영구 누수(codex 지적). 즉시 error + 종료.
       if (active.has(req.requestId)) {
         safeLog("grpc: 중복 requestId 거부", { requestId: req.requestId });
-        try { call.write(emitToProto(req.requestId, { kind: "error", message: `중복 requestId: ${req.requestId}` })); call.end(); } catch { /* noop */ }
+        try { call.write(emitToProto(req.requestId, { kind: "error", message: "Duplicate request id.", code: "WIRE_INVALID_ARGUMENT" })); call.end(); } catch { /* noop */ }
         return;
       }
       active.set(req.requestId, call);
-      call.on("cancelled", () => { active.delete(req.requestId); });
+      if (req.kind === "chat") activeChannels.set(req.requestId, req.channel);
+      call.on("cancelled", () => { active.delete(req.requestId); activeChannels.delete(req.requestId); });
       diag.debug?.("grpc ingress(stream)", { kind: req.kind, requestId: req.requestId });
       onReq?.(req);
     };
@@ -154,13 +230,15 @@ export function makeGrpcServer(deps: GrpcServerDeps): GrpcServer {
   }
 
   const impl = {
-    setWorkspace: (call: grpc.ServerUnaryCall<unknown, unknown>, cb: grpc.sendUnaryData<SettingsResult>) => {
+    setWorkspace: async (call: grpc.ServerUnaryCall<unknown, unknown>, cb: grpc.sendUnaryData<SettingsResult>) => {
       const adkPath = String((call.request as { adkPath?: string })?.adkPath ?? "");
       diag.debug?.("grpc SetWorkspace", { adkPath });
-      cb(null, deps.onSetWorkspace(adkPath));
+      try { cb(null, settingsResultToProto(await deps.onSetWorkspace(adkPath)) as unknown as SettingsResult); }
+      catch { cb(Object.assign(new Error("invalid settings"), { code: grpc.status.INVALID_ARGUMENT }), null); }
     },
-    reloadSettings: (_call: grpc.ServerUnaryCall<unknown, unknown>, cb: grpc.sendUnaryData<SettingsResult>) => {
-      cb(null, deps.onReloadSettings());
+    reloadSettings: async (_call: grpc.ServerUnaryCall<unknown, unknown>, cb: grpc.sendUnaryData<SettingsResult>) => {
+      try { cb(null, settingsResultToProto(await deps.onReloadSettings()) as unknown as SettingsResult); }
+      catch { cb(Object.assign(new Error("invalid settings"), { code: grpc.status.INVALID_ARGUMENT }), null); }
     },
     // UC-KNOWLEDGE-COMPILE(FR-KB-5): async 컴파일. no-throw(미주입/실패=ok:false+error, RPC 안정). cb 단일호출.
     compileKnowledge: async (call: grpc.ServerUnaryCall<unknown, unknown>, cb: grpc.sendUnaryData<CompileKnowledgeResult>) => {
@@ -361,7 +439,7 @@ export function makeGrpcServer(deps: GrpcServerDeps): GrpcServer {
     activityEgress,
     start: () =>
       new Promise<string>((resolve, reject) => {
-        const pkgDef = protoLoader.loadSync(PROTO_PATH, { keepCase: false, longs: Number, defaults: true, oneofs: true });
+        const pkgDef = protoLoader.loadSync(PROTO_PATH, { keepCase: false, longs: Number, enums: String, defaults: true, oneofs: true });
         const proto = grpc.loadPackageDefinition(pkgDef) as unknown as {
           naia: { agent: { v1: { NaiaAgent: { service: grpc.ServiceDefinition } } } };
         };

@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { runWithProcessingRequestContext } from "../main/adapters/processing-operation-decorators.js";
+import { makeProcessingRequestContext } from "../main/adapters/processing-request-context.js";
 import { buildSubLlmProvider } from "../main/adapters/sub-llm-provider.js";
 
 /**
@@ -11,6 +13,8 @@ function makeFetch(impl: (url: string, body: unknown) => { ok: boolean; status: 
 		return { ok: r.ok, status: r.status, text: async () => JSON.stringify(r.payload) };
 	});
 }
+const authorized = <T>(action: () => Promise<T>) =>
+	runWithProcessingRequestContext(makeProcessingRequestContext(async () => {}), action);
 
 describe("buildSubLlmProvider — 구성 해석(미구성=undefined)", () => {
 	it("provider='none' → undefined", () => {
@@ -49,7 +53,7 @@ describe("SubLlmPort.complete — OpenAI-compat 비스트리밍 호출", () => {
 			{ provider: "naia", baseUrl: "https://gw/v1", model: "gemini-3.1-flash-lite", apiKey: "k" },
 			{ fetch: fetchFn },
 		)!;
-		const out = await p.complete("hi", { systemPrompt: "sys" });
+		const out = await authorized(() => p.complete("hi", { systemPrompt: "sys" }));
 		expect(out).toBe("hello back");
 		expect(fetchFn).toHaveBeenCalledWith(
 			"https://gw/v1/chat/completions",
@@ -65,7 +69,7 @@ describe("SubLlmPort.complete — OpenAI-compat 비스트리밍 호출", () => {
 			{ provider: "vllm", baseUrl: "http://x/v1", model: "m" },
 			{ fetch: makeFetch(() => ({ ok: false, status: 500, payload: { error: "boom" } })) },
 		)!;
-		await expect(p.complete("hi")).rejects.toThrow(/HTTP 500/);
+		await expect(authorized(() => p.complete("hi"))).rejects.toThrow(/HTTP 500/);
 	});
 
 	it("후행 슬래시 base URL 정규화", async () => {
@@ -74,7 +78,7 @@ describe("SubLlmPort.complete — OpenAI-compat 비스트리밍 호출", () => {
 			{ provider: "ollama", baseUrl: "http://h:11434/v1///", model: "m" },
 			{ fetch: fetchFn },
 		)!;
-		await p.complete("x");
+		await authorized(() => p.complete("x"));
 		expect((fetchFn.mock.calls[0] as unknown[])[0]).toBe("http://h:11434/v1/chat/completions");
 	});
 });

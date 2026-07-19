@@ -20,6 +20,40 @@
     "prior_work_note": "FR-CONT-1~8 범용 요청형 hardening은 profile slice와 별개로 Pending이다. shell feature 4bb9d2d1, native test d5ed59be."
   },
 
+  "parallel_tracks": [
+    {
+      "id": "jeonju-workshop-session-1",
+      "issue": "nextain/naia-agent#89",
+      "title": "LLM 역할·세션·이미지·채널·grounding 공통 wire 계약",
+      "worktree": "projects/naia-agent-worktrees/issue-89-codex-provider",
+      "owner": "session-1",
+      "status": "freeze_candidate_verified",
+      "started": "2026-07-19",
+      "last_updated": "2026-07-19T20:35:00+09:00",
+      "contract": "docs/progress/99.dev-comm/UC-WIRE-V1-contract-2026-07-19.md",
+      "gates": {
+        "P01": "done",
+        "P02": "done",
+        "P03": "done",
+        "planning_review": "guardian_pass_and_independent_clean",
+        "P04": "done_deterministic_live_skips_recorded",
+        "P05": "done_contract_traceability"
+      }
+    },
+    {
+      "id": "jeonju-workshop-session-2",
+      "issue": "nextain/naia-agent#85,#86",
+      "title": "Discord 개인 서버 연결과 required-grounding",
+      "worktree": "projects/naia-agent-worktrees/issue-85-discord-rag-s2",
+      "owner": "session-2",
+      "status": "post_freeze_integration_required",
+      "started": "2026-07-19",
+      "last_updated": "2026-07-19T16:49:00+09:00",
+      "handoff": "../../../.agents/work/jeonju-naia-workshop-2026-07-28/SESSION-2-HANDOFF.md",
+      "integration_gate": "[CONTRACT FROZEN v1] naia-agent#89"
+    }
+  ],
+
   "sdlc_gates": {
     "P01": { "status": "done", "name": "user_scenarios", "deliverable": "두 profile 시나리오와 실제/계약 검증 경계를 문서화", "ref": "docs/user-scenarios.md (UC-CONTINUE-SPEAKING)" },
     "P02": { "status": "done", "name": "test_scenarios", "deliverable": "DJ/전시 계약·통합과 shell native Tauri의 서로 다른 검증 범위를 매핑", "ref": "docs/user-scenarios.md (Test Coverage Map)" },
@@ -29,14 +63,12 @@
   },
 
   "known_drift": {
-    "_comment": "본 작업과 무관하나 검사에서 검출됨 — HEAD stash 재검사로 사전 존재 확인(2026-07-15). 4건 중 cli-chat.ts 는 본 작업이 수정한 파일이므로 앵커를 채웠다(4→3). 남은 3건은 어느 UC/계약에 속하는지 추측 금지 → 별도 이슈.",
-    "check_file_anchors": [
-      "src/main/adapters/sub-llm-provider.ts — module-manifest.json 앵커 없음 (memory sub-LLM S5 로 추정되나 미확인)",
-      "src/main/ports/sub-llm.ts — module-manifest.json 앵커 없음 (동상)",
-      "src/main/adapters/panel-tool-executor.ts — stale 앵커: contract 문서 부재 (.agents/progress/panel-skill-grpc-port-2026-06-24.md)"
-    ],
+    "_comment": "2026-07-19 #89 동결 후보 검증 중 기존 파일 앵커 드리프트 3건을 정식 계약 문서에 재결속했다. 현재 check-file-anchors 91/91 PASS.",
+    "check_file_anchors": [],
     "resolved_in_this_work": [
-      "src/main/app/cli-chat.ts — 앵커 추가 (layer=app, uc=[UC-CLI, UC-THINKING], contract=UC-cli-orchestration-contract-2026-06-22.md — cli-supervise.ts 형제 파일과 동일 계약)"
+      "src/main/app/cli-chat.ts — 앵커 추가 (layer=app, uc=[UC-CLI, UC-THINKING], contract=UC-cli-orchestration-contract-2026-06-22.md — cli-supervise.ts 형제 파일과 동일 계약)",
+      "src/main/ports/sub-llm.ts·src/main/adapters/sub-llm-provider.ts — FR-MEM-12 계약에 결속",
+      "src/main/adapters/panel-tool-executor.ts — docs/user-scenarios.md UC-PANEL 계약으로 stale 경로 교정"
     ]
   },
 

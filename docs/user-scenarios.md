@@ -373,5 +373,39 @@ detector나 cron 같은 외부 정책이 자유 발화를 시작하면 사용자
 | UC-FS-TOOLS / S-FS-5·6·7 / FR-FS-1·5·6·7·8 (도구 계약) | `src/test/uc-fs-tools.contract.test.ts` — describe "makeFsTools" — read_file/list_dir(허용 성공·거부 isError·throw 안 함), write_file(enableWrite=false→spec 없음·동작 거부, true→동작·승인 tier), 민감경로 실증(`<adk>/naia-settings/.keys/x.dpapi`·`<adk>/data-private/...` read→isError) + describe "makeShellTool" — argv 정상·셸문자열(string) 거부·cwd 탈출 거부·tier shell·no-throw |
 | UC-KNOWLEDGE / S-KB-1~4 / FR-KB-1~4 | `src/test/uc-knowledge.contract.test.ts` — describe "makeKnowledgeSkillsExecutor" (specs 2종·tier 없음 / search JSON hits+sourceUris / k 반영 / ask JSON answer+sources / 근거없음 기권 abstained / backend 미주입 unavailable / 빈·비문자 query·잘못 args isError no-throw / unknown tool / abort reject). fake backend 결정론 |
 | UC-KNOWLEDGE / S-KB-5 / FR-KB-5 (컴파일 K1b) | `src/test/uc-knowledge-compile.contract.test.ts` — makeCompileKnowledge(소스→backend·통계 / 소스0·빈adkPath·backend throw·readConfig throw = ok:false no-throw) + readWorkspaceKnowledgeConfig(부재·유효·깨짐). `src/test/uc-knowledge-compile.integration.test.ts` — 실 kb-compiler: 폴더(.md)→compile→knowledge/<scope>/kb.json 영속+sourceUris 보존(cross-repo) |
+| UC-WIRE-V1 / S-WIRE-01 기존 텍스트 | T-WIRE-01: agent stdio/gRPC legacy fixture, enum/message 부재 무회귀 |
+| UC-WIRE-V1 / S-WIRE-02 provider session | T-WIRE-04·12: 양 transport 왕복, 격리 handle·순서·폐기 |
+| UC-WIRE-V1 / S-WIRE-03 이미지 질문 | T-WIRE-02·08·10·16: attachment 왕복과 MIME/크기/ref/secret/bound 검증 |
+| UC-WIRE-V1 / S-WIRE-04 Discord+RAG | T-WIRE-03·09·11·12·13: binding/scope 왕복, 위조·출처·순서·동일 오류 terminal |
+| UC-WIRE-V1 / S-WIRE-05 구조화 결과 | T-WIRE-05·06·13·15·18: agent codec→Shell Rust/UI, error code/i18n, 양방향 왕복 |
+| UC-WIRE-V1 / S-WIRE-06 LLM 역할 설정 | T-WIRE-07: main/sub/memory 필드별 provenance·유일성·정렬 |
+| UC-WIRE-V1 / S-WIRE-07 처리 위치 공개 | T-WIRE-19·21·22: processing/disclosure 양 transport 왕복, 폐쇄 검증, disclosure 선행 순서 |
+| UC-WIRE-V1 / S-WIRE-08 Discord 처리 profile | T-WIRE-20·23: 신뢰 binding 일치, profile 부재·위조와 consent 만료·재사용 fail-closed |
+| UC-WIRE-V1 / NFR-WIRE-BOUND·COMPAT·BUILD | T-WIRE-14·16·17·18: descriptor 번호 불변, 수치 상한, paired proto build, unknown-field 허용 |
 
 > UC1/UC5/provider-provenance 의 상세 시나리오·수용기준은 각 계약서 + `docs/acceptance-criteria.md` 참조.
+
+## UC-WIRE-V1 — Codex·이미지·Discord·RAG 공통 실행 계약
+
+GitHub `nextain/naia-agent#89`의 선행 계약이다. 기존 텍스트 사용자는 새 필드를
+전혀 보내지 않아도 같은 동작을 유지한다. 새 기능 사용자는 앱 저장소의 opaque
+이미지 reference, shell/Discord 채널·binding 격리, grounding 정책·지식 범위,
+provider session의 새 대화/재개 의미를 구조화 필드로 보낸다.
+
+처리 profile을 선택한 요청은 opaque `processingProfileRef`만 보내고, agent는
+각 실제 operation 직전에 처리 위치를 구조화 event로 공개한다. Discord에서는
+message나 모델 출력이 profile을 고를 수 없고 신뢰 binding과 일치해야 한다.
+
+agent는 본문과 함께 grounding 상태·출처, 이미지 artifact, opaque provider
+session lifecycle, 안정 오류 code를 구조적으로 보낸다. `main/sub/memory`별
+유효 provider/model/credential reference와 설정 출처도 구분하되, 실제 역할
+라우팅은 후속 #88/#384가 구현한다.
+
+bytes/base64, 임의 로컬 경로, raw provider thread id, 비밀 credential/token,
+검증되지 않은 외부 ref, 원문 지식은 wire에 넣지 않는다. 검증된 agent-issued
+opaque ref는 wire에서 왕복하지만 오류·진단 로그에서는 실제 값을 가린다. 요청의
+knowledge scope는 권한이 아니라 claim이며 신뢰 binding/workspace 범위와
+일치해야 한다. unknown enum, 잘못된 MIME·크기·reference·Discord snowflake·
+grounding scope는 기본값으로 완화하지 않고 요청을 거부한다. 상세 타입·수치
+상한·P02 테스트 맵은
+`docs/progress/99.dev-comm/UC-WIRE-V1-contract-2026-07-19.md`가 권위다.

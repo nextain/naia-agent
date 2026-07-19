@@ -86,6 +86,18 @@
       "contract": "docs/progress/99.dev-comm/UC1-agent-horizontal-contract-2026-06-10.md",
       "note": "ChatMessage·turn 도메인 + S4 EnvironmentSegment 폐쇄 union(avatarEmotion|panel) + ChatRequest.environmentSegments(클라 환경 컨텍스트, 코어가 머지)"
     },
+    "src/main/domain/wire-v1.ts": {
+      "layer": "domain",
+      "uc": ["UC-WIRE-V1"],
+      "contract": "docs/progress/99.dev-comm/UC-WIRE-V1-contract-2026-07-19.md",
+      "note": "UC-WIRE-V1 공통 fail-closed validator — bounds, enum presence, channel/binding scope, provider-session binding/TTL, grounding source 검증"
+    },
+    "src/main/domain/processing-policy.ts": {
+      "layer": "domain",
+      "uc": ["UC-WIRE-V1"],
+      "contract": "docs/progress/99.dev-comm/UC-WIRE-V1-contract-2026-07-19.md",
+      "note": "신뢰 endpoint 분류와 local_only/cloud_enabled/ask_before_external 처리정책 행렬"
+    },
     "src/main/ports/uc1.ts": {
       "layer": "ports",
       "uc": [
@@ -95,6 +107,12 @@
       ],
       "contract": "docs/progress/99.dev-comm/UC1-agent-horizontal-contract-2026-06-10.md",
       "note": "ProviderPort·IO·AgentOutbound 포트 + PersonaSourcePort(FR-PERSONA-2) + WorkspaceContextPort(FR-WORKSPACE-2, snapshot)"
+    },
+    "src/main/ports/processing.ts": {
+      "layer": "ports",
+      "uc": ["UC-WIRE-V1"],
+      "contract": "docs/progress/99.dev-comm/UC-WIRE-V1-contract-2026-07-19.md",
+      "note": "실제 호출 어댑터가 신뢰 작업 메타데이터를 선언하는 요청별 ProcessingRequestContext 계약"
     },
     "src/main/app/chat-turn-handler.ts": {
       "layer": "app",
@@ -231,12 +249,28 @@
       "contract": "docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md",
       "note": "도구 executor 합성(first-name-wins)"
     },
+    "src/main/ports/sub-llm.ts": {
+      "layer": "ports",
+      "uc": [
+        "FR-MEM-12"
+      ],
+      "contract": "docs/requirements.md",
+      "note": "주 LLM과 분리된 보조 LLM 비스트리밍 포트. 경량·배치 작업과 메모리 사실 추출/압축 소비 경계."
+    },
+    "src/main/adapters/sub-llm-provider.ts": {
+      "layer": "adapters",
+      "uc": [
+        "FR-MEM-12"
+      ],
+      "contract": "docs/requirements.md",
+      "note": "보조 LLM 설정을 OpenAI 호환 비스트리밍 호출로 연결하는 어댑터. 미구성 시 호출자 정책에 따라 폴백."
+    },
     "src/main/adapters/panel-tool-executor.ts": {
       "layer": "adapters",
       "uc": [
         "UC-PANEL"
       ],
-      "contract": ".agents/progress/panel-skill-grpc-port-2026-06-24.md",
+      "contract": "docs/user-scenarios.md",
       "note": "환경 panel skill executor — execute()=panel_tool_call emit→PanelToolResult 대기(E1 위임, FR-PANEL-1~5)"
     },
     "src/main/adapters/builtin-skills.ts": {
@@ -577,6 +611,39 @@
       ],
       "note": "K1a 워크스페이스 지식 풀 도구 ToolExecutorPort(읽기전용 skill_knowledge_search/ask) — KnowledgeBackend 주입(kb-compiler openWorkspaceKnowledge 등 교체가능, D03). output=JSON(sources/hits 의 sourceUris 보존=근거→원문). tier 없음(읽기전용 무승인, 쓰기/컴파일은 K1b). no-throw·abort 2가드(github-skills 동형). memory(푸시)와 분리된 풀(tool). compose 가 실 backend 주입(K1a-2). 설계SoT=alpha-adk .agents/progress/naia-kb-compiler-agent-os-integration-2026-06-29.md. 테스트=src/test/uc-knowledge.contract.test.ts"
     },
+    "src/main/adapters/knowledge-grounding.ts": {
+      "layer": "adapters",
+      "uc": ["UC-WIRE-V1", "UC-KNOWLEDGE"],
+      "contract": [
+        "docs/requirements.md",
+        "docs/user-scenarios.md"
+      ],
+      "note": "production workspace KnowledgeBackend 검색 결과를 source metadata와 provider-only bounded evidence(sourceHandle,text)로 분리하는 grounding adapter. snippet 원문은 wire source에 포함하지 않음."
+    },
+    "src/main/adapters/processing-guard.ts": {
+      "layer": "adapters",
+      "uc": ["UC-WIRE-V1"],
+      "contract": "docs/progress/99.dev-comm/UC-WIRE-V1-contract-2026-07-19.md",
+      "note": "신뢰 profile/endpoint/consent 저장소만으로 disclosure를 계산하고 일회성 동의를 원자 claim하는 처리정책 가드"
+    },
+    "src/main/adapters/processing-request-context.ts": {
+      "layer": "adapters",
+      "uc": ["UC-WIRE-V1"],
+      "contract": "docs/progress/99.dev-comm/UC-WIRE-V1-contract-2026-07-19.md",
+      "note": "요청별 operationKey Promise 맵으로 동시 호출을 한 번만 승인하고 거부 재시도 우회를 막는 처리 컨텍스트"
+    },
+    "src/main/adapters/processing-operation-decorators.ts": {
+      "layer": "adapters",
+      "uc": ["UC-WIRE-V1"],
+      "contract": "docs/progress/99.dev-comm/UC-WIRE-V1-contract-2026-07-19.md",
+      "note": "AsyncLocalStorage로 요청 처리 컨텍스트를 실제 provider 호출까지 전달하고 외부 background 호출은 fail-closed하는 호출 경계 decorator"
+    },
+    "src/main/adapters/file-consent-store.ts": {
+      "layer": "adapters",
+      "uc": ["UC-WIRE-V1"],
+      "contract": "docs/progress/99.dev-comm/UC-WIRE-V1-contract-2026-07-19.md",
+      "note": "scope/session/profile/destination/workload에 결속된 처리 동의의 파일 기반 일회성 원자 claim 저장소"
+    },
     "src/main/adapters/knowledge-compile.ts": {
       "layer": "adapters",
       "uc": ["UC-KNOWLEDGE"],
@@ -633,6 +700,14 @@
       "uc": ["UC-015"],
       "contract": "docs/progress/99.dev-comm/UC-CONTINUE-SPEAKING-contract-2026-07-16.md",
       "note": "DJ clock·시간/날씨 context·결정론 selector·in-process 명시 선호 adapter."
+    },
+    "src/main/adapters/reloadable-knowledge-backend.ts": {
+      "layer": "adapters",
+      "uc": [
+        "UC-WIRE-V1"
+      ],
+      "contract": "docs/progress/99.dev-comm/UC-WIRE-V1-contract-2026-07-19.md",
+      "note": "워크스페이스 reload 시 KB 포트를 원자 교체하고 진행 요청의 backend snapshot을 고정."
     }
   }
 }
