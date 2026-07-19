@@ -35,7 +35,7 @@ const PREFIX_PATTERNS: readonly RegExp[] = [
 //   sep 은 키의 **닫는 따옴표**(JSON `"access_token":"…"`)를 optional 로 허용(codex R3 — quoted key 우회 방지).
 //   credential 성격 토큰명만 열거(refresh/session/id/access/auth token) — pagination 류(next_token/page_token)는 제외(과마스킹 방지, codex R2·R6).
 const KEY_VALUE_PATTERN =
-  /\b([A-Za-z0-9_.-]*?(?:secret[_-]?access[_-]?key|access[_-]?key|client[_-]?secret|api[_-]?key|apikey|auth[_-]?token|access[_-]?token|refresh[_-]?token|session[_-]?token|id[_-]?token|password|passwd|pwd))(["']?\s*[=:]\s*)("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^\s,;}]+)/gi;
+  /\b([A-Za-z0-9_.-]*?(?:secret[_-]?access[_-]?key|access[_-]?key|client[_-]?secret|api[_-]?key|apikey|discord[_-]?bot[_-]?token|discordBotToken|bot[_-]?token|auth[_-]?token|access[_-]?token|refresh[_-]?token|session[_-]?token|id[_-]?token|password|passwd|pwd))(["']?\s*[=:]\s*)("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^\s,;}]+)/gi;
 // 값이 명백한 비-시크릿(불리언/숫자/null)이면 마스킹 안 함(codex R2#2 — `apikey: null`·`x: false`·`count=42` 보존).
 // ⚠️ **unquoted 만** trivial — quoted 값("123456")은 사용자가 의도적으로 문자열 credential 로 둔 것이라 마스킹(codex R5).
 const TRIVIAL_VALUE = /^(?:true|false|null|none|undefined|\d+)$/i;
