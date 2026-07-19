@@ -6,7 +6,7 @@ import { makeInMemoryApproval } from "../adapters/approval.js";
 import { makeStderrDiagnostic } from "../adapters/diagnostic.js";
 import { makeBudgetedConversation } from "../adapters/budgeted-conversation.js";
 import type {
-  ProviderPort, ProviderResolverPort, ConversationPort, CredentialPort, ApprovalPort, AgentIngressPort, AgentEgressPort, DiagnosticLog, ToolExecutorPort, PersonaSourcePort, WorkspaceContextPort,
+  ProviderPort, ProviderResolverPort, ProcessingGuardPort, ConversationPort, CredentialPort, ApprovalPort, AgentIngressPort, AgentEgressPort, DiagnosticLog, ToolExecutorPort, PersonaSourcePort, WorkspaceContextPort,
 } from "../ports/uc1.js";
 import type { MemoryPort } from "../ports/memory.js";
 import type { CompactionPort } from "../ports/compaction.js";
@@ -32,6 +32,7 @@ export function makeInMemoryCredentials(): CredentialPort {
 export function wireAgentUC1(opts?: {
   provider?: ProviderPort;
   resolver?: ProviderResolverPort; // 요청별 provider 해석(주입 시 우선). 미주입 시 고정 provider.
+  processingGuard?: ProcessingGuardPort; // processing metadata가 있으면 provider 전 fail-closed gate.
   conversation?: ConversationPort;
   credentials?: CredentialPort;
   approval?: ApprovalPort;
@@ -57,6 +58,7 @@ export function wireAgentUC1(opts?: {
   const deps: HandlerDeps = {
     provider: opts?.provider ?? makeFakeProvider(),
     ...(opts?.resolver ? { resolver: opts.resolver } : {}),
+    ...(opts?.processingGuard ? { processingGuard: opts.processingGuard } : {}),
     conversation: opts?.conversation ?? makeBudgetedConversation(),
     credentials: opts?.credentials ?? makeInMemoryCredentials(),
     approval,
