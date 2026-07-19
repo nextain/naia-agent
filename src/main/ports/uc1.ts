@@ -34,8 +34,12 @@ export interface ProcessingAuthorizationInput {
 }
 export interface ProcessingGuardPort {
   authorize(input: ProcessingAuthorizationInput): ProcessingDisclosure;
-  /** Classify the full plan, then atomically consume every required one-time consent. */
-  authorizePlan?(inputs: readonly ProcessingAuthorizationInput[]): readonly ProcessingDisclosure[];
+  authorizePlan(inputs: readonly ProcessingAuthorizationInput[]): readonly ProcessingDisclosure[];
+  /** Prepare without consuming consent; commit is called only after every disclosure is acknowledged. */
+  preparePlan(inputs: readonly ProcessingAuthorizationInput[]): {
+    readonly disclosures: readonly ProcessingDisclosure[];
+    commit(): boolean;
+  };
 }
 
 /** UC5 도구 실행기(driven). agent 가 등록 도구를 실행. */

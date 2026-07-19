@@ -103,6 +103,28 @@ describe("Discord trusted one-time state", () => {
     })).toBeUndefined();
   });
 
+  it("reloads consent state after standby so a second process cannot reuse a consumed id", () => {
+    const path = tempFile("consents.json");
+    const record = {
+      consentId: "consent_1",
+      processingProfileRef: "profile_1",
+      destination: "external_cloud" as const,
+      workload: "main_llm" as const,
+      sessionId: "discord:binding_1:100:200:300",
+      expiresAt: 2_000,
+    };
+    const oldProcess = makeFileDiscordConsentStore({ path, records: [record], now: () => 1_000 });
+    const standbyProcess = makeFileDiscordConsentStore({ path, records: [record], now: () => 1_000 });
+    expect(oldProcess.claim("consent_1")).toBe(true);
+    expect(standbyProcess.find({
+      processingProfileRef: "profile_1",
+      destination: "external_cloud",
+      workload: "main_llm",
+      sessionId: record.sessionId,
+    })).toBeUndefined();
+    expect(standbyProcess.claim("consent_1")).toBe(false);
+  });
+
   it("does not return expired consent", () => {
     const store = makeFileDiscordConsentStore({
       path: tempFile("consents.json"),

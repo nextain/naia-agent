@@ -50,6 +50,8 @@ export interface DiscordBotTokenPort {
 }
 
 export interface DiscordDedupePort {
+  /** Reload the durable snapshot after standby becomes authoritative. */
+  refresh?(): Promise<boolean>;
   reserve(input: {
     readonly bindingId: string;
     readonly messageId: string;

@@ -2,7 +2,18 @@ import { describe, expect, it, vi } from "vitest";
 import { ChatTurnHandler, type HandlerDeps } from "../main/app/chat-turn-handler.js";
 import { makeInMemoryApproval } from "../main/adapters/approval.js";
 import type { AgentEmit, ChatRequest, ProviderChunk } from "../main/domain/chat.js";
-import type { ProviderPort } from "../main/ports/uc1.js";
+import type { ProcessingGuardPort, ProviderPort } from "../main/ports/uc1.js";
+
+function completeGuard(
+  guard: Pick<ProcessingGuardPort, "authorize"> & Partial<Pick<ProcessingGuardPort, "authorizePlan">>,
+): ProcessingGuardPort {
+  const authorizePlan = guard.authorizePlan ?? ((inputs) => inputs.map(guard.authorize));
+  return {
+    authorize: guard.authorize,
+    authorizePlan,
+    preparePlan: (inputs) => ({ disclosures: authorizePlan(inputs), commit: () => true }),
+  };
+}
 
 function fixture(decision: "allowed" | "blocked" | "confirmation_required", withGuard = true) {
   const emits: AgentEmit[] = [];
@@ -29,7 +40,7 @@ function fixture(decision: "allowed" | "blocked" | "confirmation_required", with
     },
     diag: { log: () => {} },
     ...(withGuard ? {
-      processingGuard: {
+      processingGuard: completeGuard({
         authorize: (input) => ({
           workload: input.workload,
           destination: "external_cloud" as const,
@@ -38,7 +49,7 @@ function fixture(decision: "allowed" | "blocked" | "confirmation_required", with
           provider: input.provider.provider,
           model: input.provider.model,
         }),
-      },
+      }),
     } : {}),
   };
   const request: ChatRequest = {
@@ -96,6 +107,38 @@ describe("ChatTurnHandler processing guard", () => {
     });
   });
 
+  it("does not consume prepared consent when critical disclosure acknowledgement fails", async () => {
+    const { deps, chat, request } = fixture("allowed");
+    const commit = vi.fn(() => true);
+    const processingGuard: ProcessingGuardPort = {
+      authorize: (input) => ({
+        workload: input.workload,
+        destination: "external_cloud",
+        decision: "allowed",
+        processingProfileRef: input.processingProfileRef,
+      }),
+      authorizePlan: (inputs) => inputs.map((input) => ({
+        workload: input.workload,
+        destination: "external_cloud",
+        decision: "allowed",
+        processingProfileRef: input.processingProfileRef,
+      })),
+      preparePlan: (inputs) => ({
+        disclosures: inputs.map((input) => ({
+          workload: input.workload,
+          destination: "external_cloud",
+          decision: "allowed",
+          processingProfileRef: input.processingProfileRef,
+        })),
+        commit,
+      }),
+    };
+    deps.egress.emitCritical = () => false;
+    await new ChatTurnHandler({ ...deps, processingGuard }).onChatRequest(request);
+    expect(commit).not.toHaveBeenCalled();
+    expect(chat).not.toHaveBeenCalled();
+  });
+
   it("awaits the critical delivery acknowledgement before provider I/O", async () => {
     const { deps, chat, request } = fixture("allowed");
     let acknowledge!: (accepted: boolean) => void;
@@ -111,7 +154,7 @@ describe("ChatTurnHandler processing guard", () => {
   it("authorizes main, memory LLM, and embedding before memory recall", async () => {
     const { deps, request } = fixture("allowed");
     const order: string[] = [];
-    const processingGuard: NonNullable<HandlerDeps["processingGuard"]> = {
+    const processingGuard: NonNullable<HandlerDeps["processingGuard"]> = completeGuard({
       authorize: (input) => {
         order.push(`guard:${input.workload}`);
         return {
@@ -130,7 +173,7 @@ describe("ChatTurnHandler processing guard", () => {
           processingProfileRef: input.processingProfileRef,
         };
       }),
-    };
+    });
     deps.egress.emitCritical = async () => true;
     const memory = {
       recall: async () => {
@@ -148,7 +191,7 @@ describe("ChatTurnHandler processing guard", () => {
   it("does not disclose compaction when the threshold prevents the operation", async () => {
     const { deps, request } = fixture("allowed");
     const workloads: string[] = [];
-    const processingGuard: NonNullable<HandlerDeps["processingGuard"]> = {
+    const processingGuard: NonNullable<HandlerDeps["processingGuard"]> = completeGuard({
       authorize: (input) => {
         workloads.push(input.workload);
         return {
@@ -158,7 +201,7 @@ describe("ChatTurnHandler processing guard", () => {
           processingProfileRef: input.processingProfileRef,
         };
       },
-    };
+    });
     const compact = vi.fn();
     const compaction: NonNullable<HandlerDeps["compaction"]> = {
       compact,
@@ -172,7 +215,7 @@ describe("ChatTurnHandler processing guard", () => {
   it("does not disclose an allowed save stage when another required stage blocks", async () => {
     const { deps, emits, request } = fixture("allowed");
     const save = vi.fn(async () => {});
-    const processingGuard: NonNullable<HandlerDeps["processingGuard"]> = {
+    const processingGuard: NonNullable<HandlerDeps["processingGuard"]> = completeGuard({
       authorize: (input) => ({
         workload: input.workload,
         destination: "external_cloud",
@@ -185,7 +228,7 @@ describe("ChatTurnHandler processing guard", () => {
         decision: input.workload === "embedding" ? "blocked" : "allowed",
         processingProfileRef: input.processingProfileRef,
       })),
-    };
+    });
     const memory: NonNullable<HandlerDeps["memory"]> = {
       recall: async () => ({ facts: [], episodes: [] }),
       save,
@@ -230,7 +273,7 @@ describe("ChatTurnHandler processing guard", () => {
         yield { kind: "finish" };
       },
     };
-    const processingGuard: NonNullable<HandlerDeps["processingGuard"]> = {
+    const processingGuard: NonNullable<HandlerDeps["processingGuard"]> = completeGuard({
       authorize: (input) => {
         order.push(`guard:${input.workload}:${input.provider.provider}:${input.provider.model}`);
         return {
@@ -240,7 +283,7 @@ describe("ChatTurnHandler processing guard", () => {
           processingProfileRef: input.processingProfileRef,
         };
       },
-    };
+    });
     const toolExecutor = {
       specs: () => [{
         name: "external",

@@ -33,14 +33,22 @@ export function makeFileDiscordConsentStore(input: {
   const ids = new Set(input.records.map((record) => record.consentId));
   if (ids.size !== input.records.length) throw new Error("DISCORD_CONSENT_CONFIG_INVALID");
   let consumed = new Set<string>();
-  try {
+  const reload = (): boolean => {
+   try {
     const parsed = JSON.parse(readFileSync(input.path, "utf8")) as { version?: unknown; consumed?: unknown };
     if (parsed.version !== 1 || !Array.isArray(parsed.consumed) || parsed.consumed.length > 256
       || parsed.consumed.some((id) => typeof id !== "string" || !ID.test(id))) throw new Error();
     consumed = new Set(parsed.consumed);
-  } catch (error) {
-    if ((error as { code?: string }).code !== "ENOENT") throw new Error("DISCORD_CONSENT_STATE_CORRUPT");
-  }
+    return true;
+   } catch (error) {
+     if ((error as { code?: string }).code === "ENOENT") {
+       consumed = new Set();
+       return true;
+     }
+     return false;
+   }
+  };
+  if (!reload()) throw new Error("DISCORD_CONSENT_STATE_CORRUPT");
   const persist = (next: Set<string>): boolean => {
     mkdirSync(dirname(input.path), { recursive: true, mode: 0o700 });
     const temp = `${input.path}.tmp`;
@@ -56,6 +64,7 @@ export function makeFileDiscordConsentStore(input: {
   };
   return {
     find(query) {
+      if (!reload()) return undefined;
       return input.records.find((record) =>
         !consumed.has(record.consentId)
         && record.processingProfileRef === query.processingProfileRef
@@ -68,6 +77,7 @@ export function makeFileDiscordConsentStore(input: {
       return this.claimMany([consentId]);
     },
     claimMany(consentIds) {
+      if (!reload()) return false;
       if (!consentIds.length || consentIds.some((consentId) =>
         !ID.test(consentId) || consumed.has(consentId) || !ids.has(consentId))) return false;
       const next = new Set(consumed);

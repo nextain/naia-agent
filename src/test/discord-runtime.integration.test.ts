@@ -11,6 +11,7 @@ import type {
   DiscordGatewayHandlers,
   DiscordGatewayMessage,
   DiscordGatewayPort,
+  DiscordDedupePort,
 } from "../main/ports/discord.js";
 import type { DiagnosticLog, ProviderPort } from "../main/ports/uc1.js";
 
@@ -145,7 +146,7 @@ function makeHarness(options: {
   maxReplyChars?: number;
   allowedUserIds?: readonly string[];
   authority?: { isActive(): boolean };
-  dedupe?: ReturnType<typeof makeDedupe>;
+  dedupe?: DiscordDedupePort;
 } = {}) {
   const gateway = new FakeGateway();
   const sleeps: number[] = [];
@@ -211,6 +212,25 @@ function makeHarness(options: {
         provider: "fake",
         model: "fake-model",
       }),
+      authorizePlan: (inputs) => inputs.map(({ processingProfileRef, workload }) => ({
+        processingProfileRef,
+        workload,
+        destination: "local_device",
+        decision: "allowed",
+        provider: "fake",
+        model: "fake-model",
+      })),
+      preparePlan: (inputs) => ({
+        disclosures: inputs.map(({ processingProfileRef, workload }) => ({
+          processingProfileRef,
+          workload,
+          destination: "local_device",
+          decision: "allowed",
+          provider: "fake",
+          model: "fake-model",
+        })),
+        commit: () => true,
+      }),
     },
     diag,
   });
@@ -222,7 +242,12 @@ function makeHarness(options: {
 describe("T-DISCORD-RT-01/02 — authenticated ingress to existing chat pipeline", () => {
   it("keeps a connected generation in standby and re-checks authority before consuming ingress", async () => {
     let active = false;
-    const { gateway, runtime } = makeHarness({ authority: { isActive: () => active } });
+    const dedupe = makeDedupe();
+    const refresh = vi.fn(async () => true);
+    const { gateway, runtime } = makeHarness({
+      authority: { isActive: () => active },
+      dedupe: { ...dedupe, refresh },
+    });
     await waitFor(() => gateway.handlers.length === 1);
     expect(runtime.status()).toMatchObject({ state: "ready", authoritative: false });
     gateway.message({ messageId: "standby-message" });
@@ -231,6 +256,7 @@ describe("T-DISCORD-RT-01/02 — authenticated ingress to existing chat pipeline
     active = true;
     gateway.message({ messageId: "active-message" });
     await waitFor(() => answerReplies(gateway.connections[0]!).length === 1);
+    expect(refresh).toHaveBeenCalledOnce();
     expect(answerReplies(gateway.connections[0]!)[0]?.messageId).toBe("active-message");
     active = false;
     gateway.message({ messageId: "old-generation-message" });

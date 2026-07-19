@@ -84,13 +84,13 @@ export function makeProcessingGuard(deps: {
       if (!validated.ok) throw new Error(validated.error.code);
       return base;
   };
-  const authorizePlan = (inputs: readonly ProcessingAuthorizationInput[]): readonly ProcessingDisclosure[] => {
+  const preparePlan = (inputs: readonly ProcessingAuthorizationInput[]) => {
     const disclosures = inputs.map(classify);
-    if (!deps.consents) return disclosures;
+    if (!deps.consents) return { disclosures, commit: () => true };
     const pending = disclosures
       .map((disclosure, index) => ({ disclosure, input: inputs[index]!, index }))
       .filter(({ disclosure }) => disclosure.decision === "confirmation_required");
-    if (!pending.length) return disclosures;
+    if (!pending.length) return { disclosures, commit: () => true };
     const now = (deps.now ?? Date.now)();
     const consentIds: string[] = [];
     for (const { disclosure, input } of pending) {
@@ -104,18 +104,30 @@ export function makeProcessingGuard(deps: {
         || consent.processingProfileRef !== input.processingProfileRef
         || consent.destination !== disclosure.destination
         || consent.workload !== input.workload
-        || consent.sessionId !== input.sessionId) return disclosures;
+        || consent.sessionId !== input.sessionId) {
+        return { disclosures, commit: () => true };
+      }
       consentIds.push(consent.consentId);
     }
-    if (!deps.consents.claimMany([...new Set(consentIds)])) return disclosures;
     const allowed = new Set(pending.map(({ index }) => index));
-    return disclosures.map((disclosure, index) =>
-      allowed.has(index) ? { ...disclosure, decision: "allowed" } : disclosure);
+    return {
+      disclosures: disclosures.map((disclosure, index): ProcessingDisclosure =>
+        allowed.has(index) ? { ...disclosure, decision: "allowed" } : disclosure),
+      commit: () => deps.consents!.claimMany([...new Set(consentIds)]),
+    };
+  };
+  const authorizePlan = (inputs: readonly ProcessingAuthorizationInput[]): readonly ProcessingDisclosure[] => {
+    const prepared = preparePlan(inputs);
+    if (prepared.disclosures.some((disclosure) => disclosure.decision !== "allowed")) {
+      return prepared.disclosures;
+    }
+    return prepared.commit() ? prepared.disclosures : inputs.map(classify);
   };
   return {
     authorize(input) {
       return authorizePlan([input])[0]!;
     },
     authorizePlan,
+    preparePlan,
   };
 }

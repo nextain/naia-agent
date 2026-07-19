@@ -219,6 +219,7 @@ export class ChatTurnHandler {
         }
         const processingProfileRef = req.processing.processingProfileRef;
         const disclosures = [];
+        let commitAuthorization = () => true;
         try {
           const inputs = operations.map((operation) => ({
               processingProfileRef,
@@ -226,14 +227,9 @@ export class ChatTurnHandler {
               provider: operation.provider,
               sessionId: req.sessionId ?? "default",
             }));
-          if (inputs.length === 1) disclosures.push(this.d.processingGuard.authorize(inputs[0]!));
-          else {
-            if (!this.d.processingGuard.authorizePlan) {
-              terminalError("atomic processing policy plan is not configured", "PROCESSING_DESTINATION_UNKNOWN");
-              return false;
-            }
-            disclosures.push(...this.d.processingGuard.authorizePlan(inputs));
-          }
+          const prepared = this.d.processingGuard.preparePlan(inputs);
+          disclosures.push(...prepared.disclosures);
+          commitAuthorization = prepared.commit;
         } catch {
           terminalError("processing destination could not be classified", "PROCESSING_DESTINATION_UNKNOWN");
           return false;
@@ -255,6 +251,10 @@ export class ChatTurnHandler {
             ? "EXTERNAL_PROCESSING_FORBIDDEN"
             : "EXTERNAL_PROCESSING_CONFIRMATION_REQUIRED";
           terminalError(code, code);
+          return false;
+        }
+        if (!commitAuthorization()) {
+          terminalError("processing consent could not be committed", "PROCESSING_DESTINATION_UNKNOWN");
           return false;
         }
         return true;

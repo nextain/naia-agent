@@ -152,6 +152,8 @@ export class DiscordChannelRuntime {
   private state: DiscordRuntimeState = "idle";
   private partialReplies = 0;
   private latestPartialConfirmedChunk?: number;
+  private authorityPrepared: boolean;
+  private authorityRefresh?: Promise<boolean>;
   private readonly registeredUsers = new Map<string, Set<string>>();
 
   private readonly reconnectBaseMs: number;
@@ -172,6 +174,7 @@ export class DiscordChannelRuntime {
     this.maxSessions = this.boundedOption(config.maxSessions, 128, 1, 256);
     this.maxHistoryMessages = this.boundedOption(config.maxHistoryMessages, 20, 2, 40);
     this.maxReplyChars = this.boundedOption(config.maxReplyChars, 12_000, 1, 12_000);
+    this.authorityPrepared = !deps.authority;
     this.ingress = {
       onRequest: (callback) => {
         if (this.route) throw new Error("DISCORD_INGRESS_ALREADY_SUBSCRIBED");
@@ -273,8 +276,33 @@ export class DiscordChannelRuntime {
   }
 
   private isAuthoritative(): boolean {
-    try { return this.deps.authority?.isActive() ?? true; }
+    try {
+      const raw = this.deps.authority?.isActive() ?? true;
+      if (!raw) this.authorityPrepared = false;
+      else if (!this.authorityPrepared) void this.ensureAuthoritative();
+      return raw && this.authorityPrepared;
+    }
     catch { return false; }
+  }
+
+  private async ensureAuthoritative(): Promise<boolean> {
+    let raw = false;
+    try { raw = this.deps.authority?.isActive() ?? true; } catch { return false; }
+    if (!raw) {
+      this.authorityPrepared = false;
+      return false;
+    }
+    if (this.authorityPrepared) return true;
+    if (!this.authorityRefresh) {
+      this.authorityRefresh = (async () => {
+        const refreshed = await (this.deps.dedupe.refresh?.() ?? Promise.resolve(true));
+        let stillActive = false;
+        try { stillActive = this.deps.authority?.isActive() ?? true; } catch { /* fail closed */ }
+        this.authorityPrepared = refreshed && stillActive;
+        return this.authorityPrepared;
+      })().finally(() => { this.authorityRefresh = undefined; });
+    }
+    return this.authorityRefresh;
   }
 
   private async run(): Promise<void> {
@@ -354,7 +382,7 @@ export class DiscordChannelRuntime {
   }
 
   private async handleMessage(message: DiscordGatewayMessage): Promise<void> {
-    if (!this.isAuthoritative()) {
+    if (!await this.ensureAuthoritative()) {
       this.deps.diag.debug?.("discord ingress rejected", { reason: "generation_not_authoritative" });
       return;
     }
@@ -390,7 +418,7 @@ export class DiscordChannelRuntime {
         && message.mentionedUserIds.includes(selfUserId) && this.deps.registration) {
         const code = stripSelfMention(message.content, selfUserId).match(/^register\s+(\S{4,128})$/i)?.[1];
         if (code) {
-          if (!this.isAuthoritative()) return;
+          if (!await this.ensureAuthoritative()) return;
           let claimed = false;
           try {
             claimed = await this.deps.registration.claim({
@@ -425,7 +453,7 @@ export class DiscordChannelRuntime {
       return;
     }
     let reservation: Awaited<ReturnType<DiscordRuntimeDeps["dedupe"]["reserve"]>> = { decision: "duplicate" };
-    if (!this.isAuthoritative()) return;
+    if (!await this.ensureAuthoritative()) return;
     try {
       reservation = await this.deps.dedupe.reserve({
         bindingId: binding.bindingId,
@@ -433,7 +461,7 @@ export class DiscordChannelRuntime {
         now: this.deps.clock.now(),
       });
     } catch { /* fail closed */ }
-    if (!this.isAuthoritative()) {
+    if (!await this.ensureAuthoritative()) {
       if (reservation.decision === "process") {
         try {
           await this.deps.dedupe.releaseReservation?.({
@@ -513,7 +541,7 @@ export class DiscordChannelRuntime {
   private async handleEmit(requestId: string, event: AgentEmit): Promise<void> {
     const turn = this.active.get(requestId);
     if (!turn || this.stopped) return;
-    if (!this.isAuthoritative()) {
+    if (!await this.ensureAuthoritative()) {
       this.active.delete(requestId);
       this.route?.({ kind: "cancel", requestId });
       await this.recordPartial(turn.bindingId, turn.messageId, 0);
@@ -532,7 +560,7 @@ export class DiscordChannelRuntime {
       : turn.text;
     if (event.kind === "finish") this.commitHistory(turn);
     const chunks = safeReplyChunks(reply, this.maxReplyChars, this.deps.text.emptyReply());
-    if (!this.isAuthoritative()) {
+    if (!await this.ensureAuthoritative()) {
       await this.recordPartial(turn.bindingId, turn.messageId, 0);
       return;
     }
@@ -557,9 +585,9 @@ export class DiscordChannelRuntime {
     event: Extract<AgentEmit, { kind: "processingDisclosure" }>,
   ): Promise<boolean> {
     const connection = this.connection;
-    if (!connection || this.stopped || !this.isAuthoritative()) return false;
+    if (!connection || this.stopped || !await this.ensureAuthoritative()) return false;
     try {
-      if (!this.isAuthoritative()) return false;
+      if (!await this.ensureAuthoritative()) return false;
       await connection.sendReply({
         channelId: turn.channelId,
         guildId: turn.guildId,
@@ -590,7 +618,7 @@ export class DiscordChannelRuntime {
     let sent = startChunk;
     try {
       for (let index = startChunk; index < chunks.length; index++) {
-        if (this.stopped || !this.isAuthoritative()) {
+        if (this.stopped || !await this.ensureAuthoritative()) {
           await this.recordPartial(bindingId, messageId, sent);
           return;
         }
@@ -601,7 +629,7 @@ export class DiscordChannelRuntime {
           now: this.deps.clock.now(),
         });
         if (!claimed) throw new Error("reply_state_failed");
-        if (!this.isAuthoritative()) {
+        if (!await this.ensureAuthoritative()) {
           await this.recordPartial(bindingId, messageId, sent);
           return;
         }

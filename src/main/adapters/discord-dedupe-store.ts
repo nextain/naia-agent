@@ -182,6 +182,14 @@ export function makeFileDiscordDedupe(options: DiscordDedupeOptions): DiscordDed
   };
 
   return {
+    async refresh() {
+      try {
+        entries = [...parseDocument(fs.read(options.path), maxEntries)];
+        return true;
+      } catch {
+        return false;
+      }
+    },
     async reserve({ bindingId, messageId, now }) {
       if (!validIdentity(bindingId, messageId, now)) return { decision: "duplicate" };
       const existing = find(bindingId, messageId, now);
