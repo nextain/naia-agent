@@ -11,6 +11,7 @@ import type {
   SpeechProfileConfig,
   YieldSpeechResult,
 } from "../../ports/speech-activity.js";
+import { validateSecurityWireRequest, type SecurityWireContext } from "../../domain/security-wire.js";
 export type {
   SpeechProfileConfig,
   YieldSpeechResult,
@@ -56,6 +57,7 @@ export interface GrpcServerDeps {
   onControlSpeechActivity?: (sessionId: string, activityId: string | undefined, action: string) => boolean | Promise<boolean>;
   onStopSpeechActivity?: (sessionId: string, activityId?: string) => void | Promise<void>;
   diag: DiagnosticLog;
+  resolveSecurityTrust?: (req: Extract<AgentRequest, { kind: "chat" }>) => SecurityWireContext;
 }
 
 export interface GrpcServer {
@@ -130,6 +132,24 @@ export function makeGrpcServer(deps: GrpcServerDeps): GrpcServer {
   function streamHandler(toDomain: (p: unknown) => AgentRequest & { requestId: string }) {
     return (call: WritableStream) => {
       const req = toDomain(call.request);
+      if (req.kind === "chat") {
+        const checked = validateSecurityWireRequest(req, deps.resolveSecurityTrust?.(req));
+        if (!checked.ok) {
+          if (!checked.requestId) {
+            call.destroy(Object.assign(new Error("invalid argument"), { code: grpc.status.INVALID_ARGUMENT }));
+            return;
+          }
+          try {
+            call.write(emitToProto(checked.requestId, {
+              kind: "error",
+              message: "Request could not be processed.",
+              code: checked.error.code,
+            }));
+            call.end();
+          } catch { /* noop */ }
+          return;
+        }
+      }
       // 중복 requestId 거부 — 덮어쓰면 원 stream 이 영구 누수(codex 지적). 즉시 error + 종료.
       if (active.has(req.requestId)) {
         safeLog("grpc: 중복 requestId 거부", { requestId: req.requestId });

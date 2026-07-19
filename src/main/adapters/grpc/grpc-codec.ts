@@ -22,6 +22,11 @@ export interface PbChatRequest {
     yieldGeneration?: number | string;
     resumeToken?: string;
   };
+  channel?: {
+    shell?: object;
+    discord?: { bindingId?: string; guildId?: string; channelId?: string; userId?: string };
+  };
+  processing?: { processingProfileRef?: string; actualDestination?: unknown };
 }
 export interface PbCancel { requestId: string; activityId?: string }
 export interface PbApproval { requestId: string; toolCallId: string; decision: number | string } // 0/REJECT, 1/APPROVE
@@ -55,6 +60,18 @@ export function chatRequestToDomain(p: PbChatRequest): Extract<AgentRequest, { k
         yieldGeneration: Number(p.activityResume.yieldGeneration ?? 0),
         resumeToken: String(p.activityResume.resumeToken ?? ""),
       },
+    } : {}),
+    ...(p.channel?.discord ? {
+      channel: {
+        kind: "discord" as const,
+        bindingId: String(p.channel.discord.bindingId ?? ""),
+        guildId: String(p.channel.discord.guildId ?? ""),
+        channelId: String(p.channel.discord.channelId ?? ""),
+        userId: String(p.channel.discord.userId ?? ""),
+      },
+    } : p.channel?.shell ? { channel: { kind: "shell" as const } } : {}),
+    ...(p.processing ? {
+      processing: { processingProfileRef: String(p.processing.processingProfileRef ?? "") },
     } : {}),
   };
 }
@@ -100,7 +117,22 @@ export function emitToProto(requestId: string, e: AgentEmit): PbAgentEvent {
     case "tokenWarning": return { requestId, tokenWarning: { rawJson: JSON.stringify(e.raw ?? null) } };
     case "compacted": return { requestId, compacted: { droppedCount: e.droppedCount } };
     case "panelToolCall": return { requestId, panelToolCall: { toolCallId: e.toolCallId, toolName: e.toolName, argsJson: JSON.stringify(e.args ?? null) } }; // UC-PANEL FR-PANEL-2
+    case "processingDisclosure": return {
+      requestId,
+      processingDisclosure: {
+        workload: enumUpper(e.workload),
+        destination: enumUpper(e.destination),
+        decision: enumUpper(e.decision),
+        processingProfileRef: e.processingProfileRef,
+        ...(e.provider !== undefined ? { provider: e.provider } : {}),
+        ...(e.model !== undefined ? { model: e.model } : {}),
+      },
+    };
     case "finish": return { requestId, finish: {} };
-    case "error": return { requestId, error: { message: e.message } };
+    case "error": return { requestId, error: { message: e.message, ...(e.code ? { code: e.code } : {}) } };
   }
+}
+
+function enumUpper(value: string): string {
+  return value.toUpperCase();
 }

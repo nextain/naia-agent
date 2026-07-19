@@ -286,3 +286,19 @@ RPC만 추가하며, 별도 셸 반복 상태 머신은 만들지 않는다.
 | UC1 | `docs/progress/99.dev-comm/UC1-agent-horizontal-contract-2026-06-10.md` |
 | UC5 | `docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md` |
 | UC-provider-provenance | `docs/progress/99.dev-comm/UC-provider-provenance-contract-2026-06-12.md` |
+
+## UC-SECURITY-WIRE-V2 FR/NFR — 처리 위치 공개 및 동의 결속
+
+권위 계약서: `docs/progress/99.dev-comm/SECURITY-WIRE-V2-contract-2026-07-19.md`.
+이 절은 wire와 순수 검증 계약만 정의하며 실제 endpoint 분류기·동의 저장소·런타임 도구 집행은 후속 범위다.
+
+| ID | 요구 | 상태 |
+|----|------|------|
+| FR-SEC-WIRE-1 | `ChatRequest.processing`과 `AgentEvent.processing_disclosure`를 하위호환 필드 번호로 추가하고 폐쇄 enum/필드로 검증한다. | In Review |
+| FR-SEC-WIRE-2 | Discord 요청은 신뢰 저장소의 binding·guild·channel·user·processing profile과 모두 일치해야 하며 누락·불일치는 fail-closed 한다. | In Review |
+| FR-SEC-WIRE-3 | 외부 처리 전에 공개 이벤트가 먼저 방출되는 순서를 순수 계획 함수로 고정하고, 차단·추가확인 결정을 코드화한다. | In Review |
+| FR-SEC-WIRE-4 | 동의는 opaque `consentId`를 원자적으로 claim하며 profile·destination·workload·session과 결속하고 `expiresAt <= now`를 거부한다. | In Review |
+
+- **NFR-SEC-WIRE-zero-transit**: processing 요청의 inline `apiKey`/`naiaKey`는 값 반사 없이 경계에서 거부한다.
+- **NFR-SEC-WIRE-ai-independent**: 검증·순서·동의 결속은 모델 호출 없이 결정론적 순수 코드로 동작한다.
+- **NFR-SEC-WIRE-no-promotion**: caller의 `actualDestination` 주장은 신뢰 정보로 승격하지 않고 decode 시 폐기한다.

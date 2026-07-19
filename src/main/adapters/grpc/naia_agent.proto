@@ -70,6 +70,30 @@ message CompileKnowledgeResult {
 }
 
 message Message { string role = 1; string content = 2; optional string tool_call_id = 3; } // role: system|user|assistant|tool (passthrough, protocol.ts 동형)
+message ShellChannel {}
+message DiscordChannel { string binding_id = 1; string guild_id = 2; string channel_id = 3; string user_id = 4; }
+message ChannelContext { oneof channel { ShellChannel shell = 1; DiscordChannel discord = 2; } }
+message ProcessingRequest { string processing_profile_ref = 1; }
+enum ProcessingDestination {
+  PROCESSING_DESTINATION_UNSPECIFIED = 0;
+  LOCAL_DEVICE = 1;
+  PRIVATE_MANAGED = 2;
+  EXTERNAL_CLOUD = 3;
+}
+enum ProcessingWorkload {
+  PROCESSING_WORKLOAD_UNSPECIFIED = 0;
+  MAIN_LLM = 1;
+  SUB_LLM = 2;
+  MEMORY_LLM = 3;
+  EMBEDDING = 4;
+  NETWORK_TOOL = 5;
+}
+enum ProcessingDecision {
+  PROCESSING_DECISION_UNSPECIFIED = 0;
+  ALLOWED = 1;
+  BLOCKED = 2;
+  CONFIRMATION_REQUIRED = 3;
+}
 
 // 현 protocol.ts chat_request 전 필드 보존 (R1-1: enableThinking/gatewayUrl/disabledSkills 누락 금지). provider 제거(정본).
 message ChatRequest {
@@ -85,6 +109,8 @@ message ChatRequest {
   // (proto-loader 가 구조화 값을 Value 로 직렬화하면 객체 유실 — 본 proto 상단 주석 참조). 코어가 화이트리스트 디코드.
   optional string environment_segments_json = 9;
   optional ActivityResume activity_resume = 10; // yield 뒤 profile-bound Q&A 결속
+  optional ChannelContext channel = 11;
+  optional ProcessingRequest processing = 14;
 }
 
 message ActivityResume {
@@ -123,6 +149,7 @@ message AgentEvent {
     ErrorEvent error = 12;
     CompactedEvent compacted = 13;   // UC-compaction(FR-COMPACT): 예산 압박 시 head 요약 발생 알림(비-terminal)
     PanelToolCallEvent panel_tool_call = 14; // UC-PANEL FR-PANEL-2: LLM 이 panel(환경) 도구 호출 → 셸에 위임(agent 미실행)
+    ProcessingDisclosureEvent processing_disclosure = 20;
   }
   optional string activity_id = 15;       // self-init activity correlation
   optional int64 profile_generation = 16; // stale activity text/audio 폐기
@@ -136,7 +163,25 @@ message UsageEvent { int64 input_tokens = 1; int64 output_tokens = 2; optional d
 message LogEntryEvent { string level = 1; string message = 2; }
 message TokenWarningEvent { string raw_json = 1; }
 message FinishEvent {}
-message ErrorEvent { string message = 1; }
+message ProcessingDisclosureEvent {
+  ProcessingWorkload workload = 1;
+  ProcessingDestination destination = 2;
+  ProcessingDecision decision = 3;
+  string processing_profile_ref = 4;
+  optional string provider = 5;
+  optional string model = 6;
+}
+enum WireErrorCode {
+  WIRE_ERROR_CODE_UNSPECIFIED = 0;
+  WIRE_INVALID_ARGUMENT = 15;
+  WIRE_UNSUPPORTED_ENUM = 16;
+  WIRE_SCOPE_FORBIDDEN = 17;
+  PROCESSING_PROFILE_REQUIRED = 21;
+  PROCESSING_DESTINATION_UNKNOWN = 22;
+  EXTERNAL_PROCESSING_FORBIDDEN = 23;
+  EXTERNAL_PROCESSING_CONFIRMATION_REQUIRED = 24;
+}
+message ErrorEvent { string message = 1; optional WireErrorCode code = 2; }
 message CompactedEvent { int64 dropped_count = 1; }
 
 // ── UC-PANEL (FR-PANEL): 환경 panel skill (BGM·브라우저·workspace) ──────────────────

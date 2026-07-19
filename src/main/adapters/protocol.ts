@@ -60,6 +60,12 @@ export function decodeRequest(line: string): AgentRequest | null {
         ...(o["enableThinking"] !== undefined ? { enableThinking: !!o["enableThinking"] } : {}),
         ...(o["gatewayUrl"] !== undefined ? { gatewayUrl: str(o["gatewayUrl"]) } : {}),
         ...(o["disabledSkills"] !== undefined ? { disabledSkills: o["disabledSkills"] as string[] } : {}),
+        ...(decodeChannel(o["channel"]) ? { channel: decodeChannel(o["channel"])! } : {}),
+        ...(o["processing"] && typeof o["processing"] === "object" ? {
+          processing: {
+            processingProfileRef: str((o["processing"] as Record<string, unknown>)["processingProfileRef"]),
+          },
+        } : {}),
       };
     }
     case "cancel_stream":
@@ -90,9 +96,33 @@ export function encodeEmit(requestId: string, e: AgentEmit): Record<string, unkn
     case "tokenWarning": return { type: "token_warning", requestId, raw: e.raw };
     case "compacted": return { type: "compacted", requestId, droppedCount: e.droppedCount };
     case "panelToolCall": return { type: "panel_tool_call", requestId, toolCallId: e.toolCallId, toolName: e.toolName, args: e.args }; // UC-PANEL FR-PANEL-2
+    case "processingDisclosure": return {
+      type: "processing_disclosure",
+      requestId,
+      workload: e.workload,
+      destination: e.destination,
+      decision: e.decision,
+      processingProfileRef: e.processingProfileRef,
+      ...(e.provider !== undefined ? { provider: e.provider } : {}),
+      ...(e.model !== undefined ? { model: e.model } : {}),
+    };
     case "finish": return { type: "finish", requestId };
-    case "error": return { type: "error", requestId, message: e.message };
+    case "error": return { type: "error", requestId, message: e.message, ...(e.code ? { code: e.code } : {}) };
   }
 }
 
 function str(v: unknown): string { return typeof v === "string" ? v : v == null ? "" : String(v); }
+
+function decodeChannel(value: unknown): Extract<AgentRequest, { kind: "chat" }>["channel"] {
+  if (!value || typeof value !== "object") return undefined;
+  const channel = value as Record<string, unknown>;
+  if (channel.kind === "shell") return { kind: "shell" };
+  if (channel.kind !== "discord") return undefined;
+  return {
+    kind: "discord",
+    bindingId: str(channel.bindingId),
+    guildId: str(channel.guildId),
+    channelId: str(channel.channelId),
+    userId: str(channel.userId),
+  };
+}

@@ -41,6 +41,36 @@ export interface ChatMessage {
   readonly toolCallId?: string;             // tool 전용 — 결과 메시지가 어느 call 에 대응하는지 결속
 }
 
+export type ChannelContext =
+  | { readonly kind: "shell" }
+  | {
+      readonly kind: "discord";
+      readonly bindingId: string;
+      readonly guildId: string;
+      readonly channelId: string;
+      readonly userId: string;
+    };
+export type ProcessingDestination = "local_device" | "private_managed" | "external_cloud";
+export type ProcessingWorkload = "main_llm" | "sub_llm" | "memory_llm" | "embedding" | "network_tool";
+export type ProcessingDecision = "allowed" | "blocked" | "confirmation_required";
+export interface ProcessingRequest { readonly processingProfileRef: string }
+export interface ProcessingDisclosure {
+  readonly workload: ProcessingWorkload;
+  readonly destination: ProcessingDestination;
+  readonly decision: ProcessingDecision;
+  readonly processingProfileRef: string;
+  readonly provider?: string;
+  readonly model?: string;
+}
+export type WireErrorCode =
+  | "WIRE_INVALID_ARGUMENT"
+  | "WIRE_UNSUPPORTED_ENUM"
+  | "WIRE_SCOPE_FORBIDDEN"
+  | "PROCESSING_PROFILE_REQUIRED"
+  | "PROCESSING_DESTINATION_UNKNOWN"
+  | "EXTERNAL_PROCESSING_FORBIDDEN"
+  | "EXTERNAL_PROCESSING_CONFIRMATION_REQUIRED";
+
 // ── inbound domain 폐쇄 union (os AgentOutbound 와 1:1) ──
 export interface ChatRequest {
   readonly kind: "chat";
@@ -68,6 +98,8 @@ export interface ChatRequest {
     readonly yieldGeneration: number;
     readonly resumeToken: string;
   };
+  readonly channel?: ChannelContext;
+  readonly processing?: ProcessingRequest;
 }
 export interface CancelRequest { readonly kind: "cancel"; readonly requestId: string; readonly activityId?: string; }
 export interface ApprovalResponse {
@@ -105,8 +137,9 @@ export type AgentEmit =
   | { readonly kind: "tokenWarning"; readonly raw: unknown }
   | { readonly kind: "compacted"; readonly droppedCount: number } // UC-compaction(FR-COMPACT): 예산 압박 시 head 요약 발생 알림(UI 표시용, 비-terminal)
   | { readonly kind: "panelToolCall"; readonly toolCallId: string; readonly toolName: string; readonly args: unknown } // UC-PANEL FR-PANEL-2: 환경 도구(BGM·브라우저·workspace) 위임 — agent 미실행, 셸이 실행(비-terminal)
+  | ({ readonly kind: "processingDisclosure" } & ProcessingDisclosure)
   | { readonly kind: "finish" }
-  | { readonly kind: "error"; readonly message: string };
+  | { readonly kind: "error"; readonly message: string; readonly code?: WireErrorCode };
 
 export function isTerminalEmit(e: AgentEmit): boolean {
   return e.kind === "finish" || e.kind === "error";
