@@ -150,6 +150,7 @@ export class DiscordChannelRuntime {
   private reconfigureRequested = false;
   private generation = 0;
   private state: DiscordRuntimeState = "idle";
+  private partialReplies = 0;
   private readonly registeredUsers = new Map<string, Set<string>>();
 
   private readonly reconnectBaseMs: number;
@@ -196,18 +197,33 @@ export class DiscordChannelRuntime {
     readonly state: DiscordRuntimeState;
     readonly bindingCount: number;
     readonly activeTurns: number;
+    readonly partialReplies: number;
     readonly resumeSupported: true;
   } {
     return {
       state: this.state,
       bindingCount: this.config.bindings.length,
       activeTurns: this.active.size,
+      partialReplies: this.partialReplies,
       resumeSupported: true,
     };
   }
 
-  configure(config: DiscordRuntimeConfig): void {
+  async configure(config: DiscordRuntimeConfig): Promise<void> {
     if (!config.bindings.length || config.bindings.length > 256) throw new Error("DISCORD_BINDINGS_INVALID");
+    const staleTurns = [...this.active.values()];
+    this.active.clear();
+    for (const turn of staleTurns) {
+      this.route?.({ kind: "cancel", requestId: turn.requestId });
+      try {
+        if (await this.deps.dedupe.partial({
+          bindingId: turn.bindingId,
+          messageId: turn.messageId,
+          confirmedChunk: 0,
+          now: this.deps.clock.now(),
+        })) this.partialReplies++;
+      } catch { /* fail closed */ }
+    }
     this.config = config;
     this.reconfigureRequested = true;
     this.generation++;
@@ -555,9 +571,14 @@ export class DiscordChannelRuntime {
         if (!recorded) throw new Error("reply_state_failed");
       }
     } catch (error) {
-      if (sent > startChunk) {
-        try { await this.deps.dedupe.partial({ bindingId, messageId, now: this.deps.clock.now() }); } catch { /* fail closed */ }
-      }
+      try {
+        if (await this.deps.dedupe.partial({
+          bindingId,
+          messageId,
+          confirmedChunk: sent,
+          now: this.deps.clock.now(),
+        })) this.partialReplies++;
+      } catch { /* fail closed */ }
       if (!this.stopped) this.diagnostic((error as { code?: string }).code ?? "reply_failed");
     }
   }

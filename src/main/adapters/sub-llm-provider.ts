@@ -13,7 +13,16 @@ export type SubLlmFetch = (
 /** MemoryLlmConfig → SubLlmPort(또는 undefined=미구성). 순수·테스트 가능. 필수 누락 = undefined(fail-open, 호출처 폴백). */
 export function buildSubLlmProvider(
 	cfg: MemoryLlmConfig | undefined,
-	deps: { fetch: SubLlmFetch },
+	deps: {
+		fetch: SubLlmFetch;
+		/** Must perform trusted classify → disclosure acknowledgement → allow immediately before fetch. */
+		authorizeAndDisclose?: (input: {
+			readonly workload: "sub_llm";
+			readonly provider: string;
+			readonly model: string;
+			readonly endpoint: string;
+		}) => Promise<boolean>;
+	},
 ): SubLlmPort | undefined {
 	if (!cfg || cfg.provider === "none") return undefined;
 	const provider = cfg.provider;
@@ -30,6 +39,14 @@ export function buildSubLlmProvider(
 		signal?: AbortSignal,
 	): Promise<string> {
 		const url = `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
+		if (!deps.authorizeAndDisclose || !await deps.authorizeAndDisclose({
+			workload: "sub_llm",
+			provider,
+			model,
+			endpoint: baseUrl,
+		})) {
+			throw new Error("SUB_LLM_PROCESSING_NOT_AUTHORIZED");
+		}
 		const res = await fetchFn(url, {
 			method: "POST",
 			headers: {

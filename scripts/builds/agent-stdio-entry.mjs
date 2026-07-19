@@ -207,30 +207,63 @@ if (discordToken && discordConfig) {
       profiles: { get: (ref) => discordConfig.processingProfiles?.[ref] },
       endpoints: {
         resolve: (provider, workload) => {
-          if (workload === "memory_llm") {
+          if (workload === "memory_llm" || workload === "sub_llm") {
             const memoryLlm = activeMemoryProcessingConfig?.llm;
-            if (!memoryLlm || memoryLlm.provider === "none") return { url: "unix:/naia-memory-heuristic", zone: "unverified" };
+            if (!memoryLlm || memoryLlm.provider === "none") {
+              return {
+                url: "unix:/naia-memory-heuristic",
+                zone: "unverified",
+                provider: "none",
+                model: "heuristic",
+              };
+            }
             if (!memoryLlm.baseUrl) return undefined;
             return {
               url: memoryLlm.baseUrl,
               zone: isLocalEngineBaseUrl(memoryLlm.baseUrl) ? "private_managed" : "unverified",
+              provider: memoryLlm.provider,
+              model: memoryLlm.model || "unknown",
             };
           }
           if (workload === "embedding") {
             const embedding = activeMemoryProcessingConfig?.embedding;
             if (!embedding || embedding.provider === "none" || embedding.provider === "offline") {
-              return { url: "unix:/naia-memory-embedding", zone: "unverified" };
+              return {
+                url: "unix:/naia-memory-embedding",
+                zone: "unverified",
+                provider: embedding?.provider || "none",
+                model: embedding?.offlineModel || "keyword",
+              };
             }
             const url = embedding.baseUrl || embedding.naiaGatewayUrl;
             if (!url) return undefined;
-            return { url, zone: isLocalEngineBaseUrl(url) ? "private_managed" : "unverified" };
+            return {
+              url,
+              zone: isLocalEngineBaseUrl(url) ? "private_managed" : "unverified",
+              provider: embedding.provider,
+              model: embedding.model || "unknown",
+            };
+          }
+          if (workload === "network_tool") {
+            if (!provider.model || provider.provider !== "tool") return undefined;
+            return {
+              url: "https://network-tool.invalid",
+              zone: "unverified",
+              provider: "tool",
+              model: provider.model,
+            };
           }
           const config = activeProcessingConfig;
           if (!config || config.provider !== provider.provider || config.model !== provider.model) return undefined;
           const url = endpointFor(config);
           const localEngine = isLocalEngineBaseUrl(url);
           const loopback = /^(?:https?:\/\/)?(?:localhost|127\.|\[?::1\]?)/i.test(url);
-          return { url, zone: localEngine && !loopback ? "private_managed" : "unverified" };
+          return {
+            url,
+            zone: localEngine && !loopback ? "private_managed" : "unverified",
+            provider: config.provider,
+            model: config.model,
+          };
         },
       },
       ...(consents ? { consents } : {}),

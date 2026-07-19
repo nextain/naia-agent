@@ -34,6 +34,26 @@ describe("trusted processing guard", () => {
     })).toMatchObject({ destination: "private_managed", decision: "allowed" });
   });
 
+  it("uses trusted effective provider/model labels instead of caller placeholders", () => {
+    const guard = makeProcessingGuard({
+      profiles: { get: () => "cloud_enabled" },
+      endpoints: {
+        resolve: () => ({
+          url: "https://embedding.example.test",
+          zone: "unverified",
+          provider: "vllm",
+          model: "e5-large",
+        }),
+      },
+    });
+    expect(guard.authorize({
+      processingProfileRef: "profile_1",
+      workload: "embedding",
+      provider: { provider: "naia-memory", model: "recall" },
+      sessionId: "session_1",
+    })).toMatchObject({ provider: "vllm", model: "e5-large" });
+  });
+
   it("external consent is accepted only through bound record lookup and atomic ID claim", () => {
     const claim = vi.fn(() => true);
     const consent: TrustedConsentRecord = {

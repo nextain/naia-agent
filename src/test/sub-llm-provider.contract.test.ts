@@ -38,6 +38,7 @@ describe("buildSubLlmProvider — 구성 해석(미구성=undefined)", () => {
 });
 
 describe("SubLlmPort.complete — OpenAI-compat 비스트리밍 호출", () => {
+	const allow = async () => true;
 	it("systemPrompt + prompt → /chat/completions POST, choices[0].message.content 반환", async () => {
 		const fetchFn = makeFetch((_url, body) => {
 			const msgs = (body as { messages: { role: string; content: string }[] }).messages;
@@ -47,7 +48,7 @@ describe("SubLlmPort.complete — OpenAI-compat 비스트리밍 호출", () => {
 		});
 		const p = buildSubLlmProvider(
 			{ provider: "naia", baseUrl: "https://gw/v1", model: "gemini-3.1-flash-lite", apiKey: "k" },
-			{ fetch: fetchFn },
+			{ fetch: fetchFn, authorizeAndDisclose: allow },
 		)!;
 		const out = await p.complete("hi", { systemPrompt: "sys" });
 		expect(out).toBe("hello back");
@@ -63,7 +64,10 @@ describe("SubLlmPort.complete — OpenAI-compat 비스트리밍 호출", () => {
 	it("HTTP 실패 → throw(호출처 폴백 결정)", async () => {
 		const p = buildSubLlmProvider(
 			{ provider: "vllm", baseUrl: "http://x/v1", model: "m" },
-			{ fetch: makeFetch(() => ({ ok: false, status: 500, payload: { error: "boom" } })) },
+			{
+				fetch: makeFetch(() => ({ ok: false, status: 500, payload: { error: "boom" } })),
+				authorizeAndDisclose: allow,
+			},
 		)!;
 		await expect(p.complete("hi")).rejects.toThrow(/HTTP 500/);
 	});
@@ -72,9 +76,19 @@ describe("SubLlmPort.complete — OpenAI-compat 비스트리밍 호출", () => {
 		const fetchFn = makeFetch(() => ({ ok: true, status: 200, payload: { choices: [{ message: { content: "ok" } }] } }));
 		const p = buildSubLlmProvider(
 			{ provider: "ollama", baseUrl: "http://h:11434/v1///", model: "m" },
-			{ fetch: fetchFn },
+			{ fetch: fetchFn, authorizeAndDisclose: allow },
 		)!;
 		await p.complete("x");
 		expect((fetchFn.mock.calls[0] as unknown[])[0]).toBe("http://h:11434/v1/chat/completions");
+	});
+
+	it("authorization/disclosure ack 없이는 fetch를 0회 호출한다", async () => {
+		const fetchFn = makeFetch(() => ({ ok: true, status: 200, payload: {} }));
+		const p = buildSubLlmProvider(
+			{ provider: "naia", baseUrl: "https://gw/v1", model: "small" },
+			{ fetch: fetchFn },
+		)!;
+		await expect(p.complete("secret")).rejects.toThrow("SUB_LLM_PROCESSING_NOT_AUTHORIZED");
+		expect(fetchFn).not.toHaveBeenCalled();
 	});
 });

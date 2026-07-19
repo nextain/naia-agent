@@ -196,7 +196,8 @@ export class ChatTurnHandler {
         ...(this.d.credentials.get(activeConfig.provider) ?? {}),
       };
       const authorizeOperation = async (
-        workload: "main_llm" | "memory_llm" | "embedding",
+        workload: "main_llm" | "sub_llm" | "memory_llm" | "embedding" | "network_tool",
+        effectiveProvider = { provider: activeConfig.provider, model: activeConfig.model },
       ): Promise<boolean> => {
         if (!req.processing) return true;
         if (!this.d.processingGuard) {
@@ -208,7 +209,7 @@ export class ChatTurnHandler {
           disclosure = this.d.processingGuard.authorize({
             processingProfileRef: req.processing.processingProfileRef,
             workload,
-            provider: { provider: activeConfig.provider, model: activeConfig.model },
+            provider: effectiveProvider,
             sessionId: req.sessionId ?? "default",
           });
         } catch {
@@ -232,9 +233,10 @@ export class ChatTurnHandler {
         }
         return true;
       };
-      if (!await authorizeOperation("main_llm")) return;
-      if ((this.d.memory || this.d.compaction)
-        && (!await authorizeOperation("memory_llm") || !await authorizeOperation("embedding"))) return;
+      if (this.d.compaction && !await authorizeOperation("memory_llm", {
+        provider: "naia-memory",
+        model: "compaction",
+      })) return;
       // UC-compaction(FR-COMPACT): assemble 전 예산 압박이면 head 를 memory 가 요약(recap)해 교체(정보보존).
       // 미주입/임계이하/실패 = 원본(budgeted-conversation 이 최종 드롭 가드). recap 은 아래 systemPrompt 에 주입.
       const { messages: preMessages, recap: compactionRecap, droppedCount: compactedCount } = await this.maybeCompact(req, signal);
@@ -279,6 +281,10 @@ export class ChatTurnHandler {
       // 끌어와 무관 정보를 주입하는 것을 *어댑터 구현과 무관하게* 막는다(정책은 app 소유). 어댑터에도
       // 동일 가드(방어 심층).
       if (this.d.memory && currentUserMsg && lastUserText.trim()) {
+        if (!await authorizeOperation("embedding", {
+          provider: "naia-memory",
+          model: "recall",
+        })) return;
         try {
           // recall 을 abort + deadline 과 race — recall 이 멈춰도(취소 또는 무응답) 즉시 풀려 (a) 가드/턴이
           // 진행돼 terminal 이 항상 방출된다. abort/timeout → recalled=null=주입 생략(턴은 채팅 우선 진행).
@@ -318,6 +324,13 @@ export class ChatTurnHandler {
       const commitCompletedTurn = async (): Promise<void> => {
         // UC-memory FR-MEM-2: provider 가 최종 응답을 낸 시점 = **커밋 지점**. 연속 발화도 전체를 한 번 저장.
         if (this.d.memory && currentUserMsg) {
+          if (!await authorizeOperation("memory_llm", {
+            provider: "naia-memory",
+            model: "fact-extraction",
+          }) || !await authorizeOperation("embedding", {
+            provider: "naia-memory",
+            model: "save",
+          })) return;
           try {
             const saveTimeoutMs = this.d.memoryTimeoutMs ?? MEM_SAVE_TIMEOUT_MS;
             const ok = await raceTimeout(this.d.memory.save(lastUserText, assistantTurnParts.join("\n")), saveTimeoutMs);
@@ -334,6 +347,7 @@ export class ChatTurnHandler {
       for (;;) {
         if (sawTerminal) break;
         if (signal.aborted) { terminalError("cancelled"); break; }                 // (a) provider 호출 전 가드
+        if (!await authorizeOperation("main_llm")) break;
         const roundTools = controlConsumed ? externalTools : tools;
         const round = await this.runRound(providerConfig, messages, memSystemPrompt, roundTools, signal, emit);
         if (round.usage) { totalUsage.inputTokens += round.usage.inputTokens; totalUsage.outputTokens += round.usage.outputTokens; } // 라운드 스냅샷 1회 합산
@@ -437,6 +451,10 @@ export class ChatTurnHandler {
           let r: { output: string; isError?: boolean };
           try {
             if (exec) {
+              if (!await authorizeOperation("network_tool", {
+                provider: "tool",
+                model: call.name,
+              })) return;
               // UC5 리뷰 fix(liveness): per-tool deadline race(memory 와 동일). 무응답 도구가 turn 영구 hang 못 하게.
               const res = await raceAbort(exec.execute({ ...call, id: cid }, { signal, requestId: req.requestId }), signal, this.d.toolTimeoutMs ?? TOOL_EXEC_TIMEOUT_MS); // requestId=UC-PANEL: panel 도구가 panel_tool_call 을 이 chat 스트림으로 위임
               if (res === null) {

@@ -17,6 +17,8 @@ import type { ProcessingGuardPort } from "../ports/uc1.js";
 export interface TrustedEndpointRecord {
   readonly url: string;
   readonly zone: "unverified" | "private_managed";
+  readonly provider?: string;
+  readonly model?: string;
 }
 
 export interface ProcessingProfileStore {
@@ -73,8 +75,8 @@ export function makeProcessingGuard(deps: {
         destination,
         decision: policy.decision,
         processingProfileRef: input.processingProfileRef,
-        provider: input.provider.provider,
-        model: input.provider.model,
+        provider: endpoint.provider ?? input.provider.provider,
+        model: endpoint.model ?? input.provider.model,
       };
       const validated = validateProcessingDisclosure({
         kind: "processingDisclosure",

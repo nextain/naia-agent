@@ -78,7 +78,12 @@ export interface DiscordDedupePort {
     readonly now: number;
   }): Promise<boolean>;
   complete(input: { readonly bindingId: string; readonly messageId: string; readonly now: number }): Promise<boolean>;
-  partial(input: { readonly bindingId: string; readonly messageId: string; readonly now: number }): Promise<boolean>;
+  partial(input: {
+    readonly bindingId: string;
+    readonly messageId: string;
+    readonly confirmedChunk: number;
+    readonly now: number;
+  }): Promise<boolean>;
 }
 
 export interface DiscordFriendRegistrationPort {

@@ -105,8 +105,15 @@ function parseDocument(raw: string | undefined, maxEntries: number): readonly De
         || entry.confirmedChunk! > entry.nextChunk!)) {
       throw new Error("DISCORD_DEDUPE_CORRUPT");
     }
-    if (entry.state !== "replying"
+    if (entry.state === "partial"
+      && (!Number.isSafeInteger(entry.confirmedChunk) || entry.confirmedChunk! < 0)) {
+      throw new Error("DISCORD_DEDUPE_CORRUPT");
+    }
+    if (entry.state !== "replying" && entry.state !== "partial"
       && (entry.chunks !== undefined || entry.nextChunk !== undefined || entry.confirmedChunk !== undefined)) {
+      throw new Error("DISCORD_DEDUPE_CORRUPT");
+    }
+    if (entry.state === "partial" && (entry.chunks !== undefined || entry.nextChunk !== undefined)) {
       throw new Error("DISCORD_DEDUPE_CORRUPT");
     }
     seen.add(key);
@@ -117,7 +124,7 @@ function parseDocument(raw: string | undefined, maxEntries: number): readonly De
       state: entry.state as DedupeState,
       ...(entry.state === "replying"
         ? { chunks: [...entry.chunks!], nextChunk: entry.nextChunk!, confirmedChunk: entry.confirmedChunk! }
-        : {}),
+        : entry.state === "partial" ? { confirmedChunk: entry.confirmedChunk! } : {}),
     });
   }
   return entries;
@@ -180,7 +187,13 @@ export function makeFileDiscordDedupe(options: DiscordDedupeOptions): DiscordDed
       const existing = find(bindingId, messageId, now);
       if (existing?.state === "replying") {
         if (existing.nextChunk! > existing.confirmedChunk!) {
-          write({ bindingId, messageId, updatedAt: now, state: "partial" }, now);
+          write({
+            bindingId,
+            messageId,
+            updatedAt: now,
+            state: "partial",
+            confirmedChunk: existing.confirmedChunk!,
+          }, now);
           return { decision: "duplicate" };
         }
         return { decision: "resume_reply", chunks: existing.chunks!, nextChunk: existing.nextChunk! };
@@ -229,11 +242,13 @@ export function makeFileDiscordDedupe(options: DiscordDedupeOptions): DiscordDed
       if (!existing || (existing.state !== "reserved" && existing.state !== "replying")) return false;
       return write({ bindingId, messageId, updatedAt: now, state: "completed" }, now);
     },
-    async partial({ bindingId, messageId, now }) {
-      if (!validIdentity(bindingId, messageId, now)) return false;
+    async partial({ bindingId, messageId, confirmedChunk, now }) {
+      if (!validIdentity(bindingId, messageId, now)
+        || !Number.isSafeInteger(confirmedChunk) || confirmedChunk < 0) return false;
       const existing = find(bindingId, messageId, now);
-      if (!existing || existing.state !== "replying") return false;
-      return write({ bindingId, messageId, updatedAt: now, state: "partial" }, now);
+      if (!existing || (existing.state !== "reserved" && existing.state !== "replying")) return false;
+      if (existing.state === "replying" && confirmedChunk > existing.confirmedChunk!) return false;
+      return write({ bindingId, messageId, updatedAt: now, state: "partial", confirmedChunk }, now);
     },
   };
 }

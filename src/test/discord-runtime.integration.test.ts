@@ -61,8 +61,10 @@ function makeDedupe() {
       return true;
     },
     async complete() { return true; },
-    async partial({ bindingId, messageId }: { bindingId: string; messageId: string; now: number }) {
-      records.set(key(bindingId, messageId), { state: "partial" });
+    async partial({ bindingId, messageId, confirmedChunk }: {
+      bindingId: string; messageId: string; confirmedChunk: number; now: number;
+    }) {
+      records.set(key(bindingId, messageId), { state: "partial", confirmedChunk });
       return true;
     },
   };
@@ -80,8 +82,12 @@ class FakeConnection implements DiscordGatewayConnection {
   readonly replies: { guildId: string; channelId: string; messageId: string; content: string }[] = [];
   closeCount = 0;
   replyGate?: Promise<void>;
+  failOnReplyNumber?: number;
+  private replyAttempts = 0;
   async sendReply(input: { guildId: string; channelId: string; messageId: string; content: string }): Promise<void> {
     await this.replyGate;
+    this.replyAttempts++;
+    if (this.replyAttempts === this.failOnReplyNumber) throw new Error("ambiguous network failure");
     this.replies.push(input);
   }
   close(): void {
@@ -504,7 +510,7 @@ describe("T-DISCORD-RT-05/06 — lifecycle, bounded reply, safe failure", () => 
     runtime.ingress.onRequest(() => {});
     runtime.start();
     await waitFor(() => attempts === 1);
-    runtime.configure({
+    await runtime.configure({
       bindings: [{
         bindingId: "binding_2", guildId: "101", channelId: "201",
         allowedUserIds: ["301"], processingProfileRef: "profile_2",
@@ -514,6 +520,31 @@ describe("T-DISCORD-RT-05/06 — lifecycle, bounded reply, safe failure", () => 
     await waitFor(() => attempts === 2);
     expect(connections[0]!.closeCount).toBe(1);
     expect(runtime.status()).toMatchObject({ state: "ready", bindingCount: 1 });
+    await runtime.stop();
+  });
+
+  it("cancels and removes active turns before switching configuration", async () => {
+    let signal: AbortSignal | undefined;
+    const provider: ProviderPort = {
+      async *chat(_config, _messages, options): AsyncIterable<ProviderChunk> {
+        signal = options.signal;
+        await new Promise<void>((resolve) =>
+          options.signal?.addEventListener("abort", () => resolve(), { once: true }));
+      },
+    };
+    const { gateway, runtime } = makeHarness({ provider });
+    await waitFor(() => gateway.handlers.length === 1);
+    gateway.message();
+    await waitFor(() => signal !== undefined);
+    await runtime.configure({
+      bindings: [{
+        bindingId: "binding_2", guildId: "101", channelId: "201",
+        allowedUserIds: ["301"], processingProfileRef: "profile_2",
+      }],
+    });
+    expect(signal?.aborted).toBe(true);
+    expect(runtime.status()).toMatchObject({ activeTurns: 0, partialReplies: 1 });
+    expect(answerReplies(gateway.connections[0]!)).toHaveLength(0);
     await runtime.stop();
   });
 
@@ -588,6 +619,17 @@ describe("T-DISCORD-RT-05/06 — lifecycle, bounded reply, safe failure", () => 
     expect(JSON.stringify(gateway.connections[0]!.replies)).not.toContain("private-document-text");
     expect(JSON.stringify(logs)).not.toContain("<@999> hello");
     expect(JSON.stringify(logs)).not.toContain("discord-bot-token-secret");
+    await runtime.stop();
+  });
+
+  it("records an ambiguous first answer chunk as partial with zero confirmed chunks", async () => {
+    const { gateway, runtime } = makeHarness();
+    await waitFor(() => gateway.connections.length === 1);
+    gateway.connections[0]!.failOnReplyNumber = 2;
+    gateway.message();
+    await waitFor(() => runtime.status().partialReplies === 1);
+    expect(answerReplies(gateway.connections[0]!)).toHaveLength(0);
+    expect(runtime.status()).toMatchObject({ partialReplies: 1 });
     await runtime.stop();
   });
 });

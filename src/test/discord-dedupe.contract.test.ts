@@ -69,7 +69,9 @@ describe("T-DISCORD-RT-04 — binding-scoped durable reply state", () => {
     await store.beginReply({ bindingId: "binding_1", messageId: "m1", chunks: ["one", "two"], now: 101 });
     await store.claimChunk({ bindingId: "binding_1", messageId: "m1", nextChunk: 1, now: 102 });
     await store.confirmChunk({ bindingId: "binding_1", messageId: "m1", confirmedChunk: 1, now: 102 });
-    expect(await store.partial({ bindingId: "binding_1", messageId: "m1", now: 103 })).toBe(true);
+    expect(await store.partial({
+      bindingId: "binding_1", messageId: "m1", confirmedChunk: 1, now: 103,
+    })).toBe(true);
     expect(await store.reserve(reserve("binding_1", "m1", 104))).toEqual({ decision: "duplicate" });
   });
 

@@ -110,6 +110,22 @@
       "contract": "docs/progress/99.dev-comm/SECURITY-WIRE-V2-contract-2026-07-19.md",
       "note": "trusted profile/endpoint/consent store만으로 main/memory/embedding downstream을 사전 승인하고 disclosure를 생성"
     },
+    "src/main/ports/sub-llm.ts": {
+      "layer": "ports",
+      "uc": [
+        "UC-SECURITY-WIRE-V2"
+      ],
+      "contract": "docs/progress/99.dev-comm/SECURITY-WIRE-V2-contract-2026-07-19.md",
+      "note": "main LLM과 분리된 경량 batch completion 포트"
+    },
+    "src/main/adapters/sub-llm-provider.ts": {
+      "layer": "adapters",
+      "uc": [
+        "UC-SECURITY-WIRE-V2"
+      ],
+      "contract": "docs/progress/99.dev-comm/SECURITY-WIRE-V2-contract-2026-07-19.md",
+      "note": "각 실제 fetch 직전 trusted authorize+critical disclosure ack가 없으면 호출 0으로 fail-closed하는 sub-LLM 어댑터"
+    },
     "src/main/domain/discord-ingress-policy.ts": {
       "layer": "domain",
       "uc": [

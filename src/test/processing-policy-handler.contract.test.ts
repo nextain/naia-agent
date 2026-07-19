@@ -131,15 +131,12 @@ describe("ChatTurnHandler processing guard", () => {
       save: async () => {},
     };
     await new ChatTurnHandler({ ...deps, processingGuard, memory }).onChatRequest(request);
-    expect(order.slice(0, 4)).toEqual([
-      "guard:main_llm",
-      "guard:memory_llm",
-      "guard:embedding",
-      "memory:recall",
-    ]);
+    expect(order.indexOf("guard:embedding")).toBeLessThan(order.indexOf("memory:recall"));
+    expect(order).toContain("guard:main_llm");
+    expect(order).toContain("guard:memory_llm");
   });
 
-  it("authorizes and discloses before the first provider round in a tool loop", async () => {
+  it("authorizes each provider round and tool operation just in time", async () => {
     const { deps, emits, request } = fixture("allowed");
     let rounds = 0;
     const provider: ProviderPort = {
@@ -155,6 +152,6 @@ describe("ChatTurnHandler processing guard", () => {
     };
     await new ChatTurnHandler({ ...deps, provider, toolExecutor }).onChatRequest(request);
     expect(rounds).toBe(2);
-    expect(emits.filter((event) => event.kind === "processingDisclosure")).toHaveLength(1);
+    expect(emits.filter((event) => event.kind === "processingDisclosure")).toHaveLength(3);
   });
 });
