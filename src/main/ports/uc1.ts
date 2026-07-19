@@ -39,6 +39,7 @@ export interface ProcessingGuardPort {
   preparePlan(inputs: readonly ProcessingAuthorizationInput[]): {
     readonly disclosures: readonly ProcessingDisclosure[];
     commit(): boolean;
+    rollback(): boolean;
   };
 }
 

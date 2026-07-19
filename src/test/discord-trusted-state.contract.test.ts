@@ -70,6 +70,24 @@ describe("Discord trusted one-time state", () => {
     })).toBe(false);
   });
 
+  it("reloads registration claims after standby so a one-time code cannot be replayed", async () => {
+    const path = tempFile("registrations.json");
+    const seed = {
+      bindingId: "binding_1",
+      codeHash: hashDiscordRegistrationCode("one-time-code"),
+      expiresAt: 2_000,
+    };
+    const oldProcess = makeFileDiscordRegistration({ path, seeds: [seed] });
+    const standbyProcess = makeFileDiscordRegistration({ path, seeds: [seed] });
+    expect(await oldProcess.claim({
+      bindingId: "binding_1", userId: "300", code: "one-time-code", now: 1_000,
+    })).toBe(true);
+    expect(await standbyProcess.claim({
+      bindingId: "binding_1", userId: "301", code: "one-time-code", now: 1_001,
+    })).toBe(false);
+    expect(await standbyProcess.isRegistered({ bindingId: "binding_1", userId: "300" })).toBe(true);
+  });
+
   it("finds consent only by the full trusted tuple and atomically consumes its id", () => {
     const path = tempFile("consents.json");
     const record = {

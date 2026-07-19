@@ -220,6 +220,7 @@ export class ChatTurnHandler {
         const processingProfileRef = req.processing.processingProfileRef;
         const disclosures = [];
         let commitAuthorization = () => true;
+        let rollbackAuthorization = () => true;
         try {
           const inputs = operations.map((operation) => ({
               processingProfileRef,
@@ -230,6 +231,7 @@ export class ChatTurnHandler {
           const prepared = this.d.processingGuard.preparePlan(inputs);
           disclosures.push(...prepared.disclosures);
           commitAuthorization = prepared.commit;
+          rollbackAuthorization = prepared.rollback;
         } catch {
           terminalError("processing destination could not be classified", "PROCESSING_DESTINATION_UNKNOWN");
           return false;
@@ -242,6 +244,7 @@ export class ChatTurnHandler {
             { kind: "processingDisclosure", ...disclosure },
           ) ?? false;
           if (!accepted) {
+            rollbackAuthorization();
             terminalError("processing disclosure delivery failed", "PROCESSING_DESTINATION_UNKNOWN");
             return false;
           }

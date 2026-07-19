@@ -230,6 +230,7 @@ function makeHarness(options: {
           model: "fake-model",
         })),
         commit: () => true,
+        rollback: () => true,
       }),
     },
     diag,

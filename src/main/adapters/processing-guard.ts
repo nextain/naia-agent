@@ -38,6 +38,9 @@ export interface TrustedConsentStore {
   }): TrustedConsentRecord | undefined;
   claim(consentId: string): boolean;
   claimMany(consentIds: readonly string[]): boolean;
+  reserveMany?(consentIds: readonly string[]): string | undefined;
+  commitReservation?(reservationId: string): boolean;
+  rollbackReservation?(reservationId: string): boolean;
 }
 
 /**
@@ -86,11 +89,11 @@ export function makeProcessingGuard(deps: {
   };
   const preparePlan = (inputs: readonly ProcessingAuthorizationInput[]) => {
     const disclosures = inputs.map(classify);
-    if (!deps.consents) return { disclosures, commit: () => true };
+    if (!deps.consents) return { disclosures, commit: () => true, rollback: () => true };
     const pending = disclosures
       .map((disclosure, index) => ({ disclosure, input: inputs[index]!, index }))
       .filter(({ disclosure }) => disclosure.decision === "confirmation_required");
-    if (!pending.length) return { disclosures, commit: () => true };
+    if (!pending.length) return { disclosures, commit: () => true, rollback: () => true };
     const now = (deps.now ?? Date.now)();
     const consentIds: string[] = [];
     for (const { disclosure, input } of pending) {
@@ -105,15 +108,21 @@ export function makeProcessingGuard(deps: {
         || consent.destination !== disclosure.destination
         || consent.workload !== input.workload
         || consent.sessionId !== input.sessionId) {
-        return { disclosures, commit: () => true };
+        return { disclosures, commit: () => true, rollback: () => true };
       }
       consentIds.push(consent.consentId);
+    }
+    const ids = [...new Set(consentIds)];
+    const reservationId = deps.consents.reserveMany?.(ids);
+    if (!reservationId || !deps.consents.commitReservation || !deps.consents.rollbackReservation) {
+      return { disclosures, commit: () => true, rollback: () => true };
     }
     const allowed = new Set(pending.map(({ index }) => index));
     return {
       disclosures: disclosures.map((disclosure, index): ProcessingDisclosure =>
         allowed.has(index) ? { ...disclosure, decision: "allowed" } : disclosure),
-      commit: () => deps.consents!.claimMany([...new Set(consentIds)]),
+      commit: () => deps.consents!.commitReservation!(reservationId),
+      rollback: () => deps.consents!.rollbackReservation!(reservationId),
     };
   };
   const authorizePlan = (inputs: readonly ProcessingAuthorizationInput[]): readonly ProcessingDisclosure[] => {

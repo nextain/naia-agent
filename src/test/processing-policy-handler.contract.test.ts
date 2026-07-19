@@ -11,7 +11,9 @@ function completeGuard(
   return {
     authorize: guard.authorize,
     authorizePlan,
-    preparePlan: (inputs) => ({ disclosures: authorizePlan(inputs), commit: () => true }),
+    preparePlan: (inputs) => ({
+      disclosures: authorizePlan(inputs), commit: () => true, rollback: () => true,
+    }),
   };
 }
 
@@ -110,6 +112,7 @@ describe("ChatTurnHandler processing guard", () => {
   it("does not consume prepared consent when critical disclosure acknowledgement fails", async () => {
     const { deps, chat, request } = fixture("allowed");
     const commit = vi.fn(() => true);
+    const rollback = vi.fn(() => true);
     const processingGuard: ProcessingGuardPort = {
       authorize: (input) => ({
         workload: input.workload,
@@ -131,11 +134,13 @@ describe("ChatTurnHandler processing guard", () => {
           processingProfileRef: input.processingProfileRef,
         })),
         commit,
+        rollback,
       }),
     };
     deps.egress.emitCritical = () => false;
     await new ChatTurnHandler({ ...deps, processingGuard }).onChatRequest(request);
     expect(commit).not.toHaveBeenCalled();
+    expect(rollback).toHaveBeenCalledOnce();
     expect(chat).not.toHaveBeenCalled();
   });
 

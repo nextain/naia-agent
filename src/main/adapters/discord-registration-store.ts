@@ -41,15 +41,23 @@ export function makeFileDiscordRegistration(input: {
   const seedKeys = new Set(input.seeds.map((seed) => `${seed.bindingId}\u0000${seed.codeHash}`));
   if (seedKeys.size !== input.seeds.length) throw new Error("DISCORD_REGISTRATION_CONFIG_INVALID");
   let claims: Claim[] = [];
-  try {
+  const reload = (): boolean => {
+   try {
     const parsed = JSON.parse(readFileSync(input.path, "utf8")) as { version?: unknown; claims?: unknown };
     if (parsed.version !== 1 || !Array.isArray(parsed.claims) || parsed.claims.length > 256) throw new Error();
     claims = parsed.claims as Claim[];
     if (claims.some((claim) => !ID.test(claim.bindingId) || !HASH.test(claim.codeHash)
       || !ID.test(claim.userId) || !Number.isSafeInteger(claim.claimedAt) || claim.claimedAt < 0)) throw new Error();
-  } catch (error) {
-    if ((error as { code?: string }).code !== "ENOENT") throw new Error("DISCORD_REGISTRATION_STATE_CORRUPT");
-  }
+    return true;
+   } catch (error) {
+     if ((error as { code?: string }).code === "ENOENT") {
+       claims = [];
+       return true;
+     }
+     return false;
+   }
+  };
+  if (!reload()) throw new Error("DISCORD_REGISTRATION_STATE_CORRUPT");
   const persist = (next: readonly Claim[]): boolean => {
     mkdirSync(dirname(input.path), { recursive: true, mode: 0o700 });
     const temp = `${input.path}.tmp`;
@@ -64,11 +72,16 @@ export function makeFileDiscordRegistration(input: {
     }
   };
   return {
+    async refresh() {
+      return reload();
+    },
     async isRegistered({ bindingId, userId }) {
+      if (!reload()) return false;
       return ID.test(bindingId) && ID.test(userId)
         && claims.some((claim) => claim.bindingId === bindingId && claim.userId === userId);
     },
     async claim({ bindingId, userId, code, now }) {
+      if (!reload()) return false;
       if (!ID.test(bindingId) || !ID.test(userId) || code.length < 4 || code.length > 128
         || !Number.isSafeInteger(now) || now < 0) return false;
       const candidateHash = hashDiscordRegistrationCode(code);

@@ -5,6 +5,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { dirname } from "node:path";
 import type { ProcessingWorkload, ProcessingDestination } from "../domain/chat.js";
 import type { TrustedConsentRecord } from "../domain/security-wire.js";
@@ -12,6 +13,11 @@ import type { TrustedConsentStore } from "./processing-guard.js";
 
 export interface DiscordConsentSeed extends TrustedConsentRecord {
   readonly consumedAt?: never;
+}
+interface ConsentReservation {
+  readonly reservationId: string;
+  readonly consentIds: readonly string[];
+  readonly expiresAt: number;
 }
 
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
@@ -33,40 +39,92 @@ export function makeFileDiscordConsentStore(input: {
   const ids = new Set(input.records.map((record) => record.consentId));
   if (ids.size !== input.records.length) throw new Error("DISCORD_CONSENT_CONFIG_INVALID");
   let consumed = new Set<string>();
+  let reservations: ConsentReservation[] = [];
   const reload = (): boolean => {
    try {
-    const parsed = JSON.parse(readFileSync(input.path, "utf8")) as { version?: unknown; consumed?: unknown };
-    if (parsed.version !== 1 || !Array.isArray(parsed.consumed) || parsed.consumed.length > 256
+    const parsed = JSON.parse(readFileSync(input.path, "utf8")) as {
+      version?: unknown; consumed?: unknown; reservations?: unknown;
+    };
+    if (![1, 2].includes(Number(parsed.version))
+      || !Array.isArray(parsed.consumed) || parsed.consumed.length > 256
       || parsed.consumed.some((id) => typeof id !== "string" || !ID.test(id))) throw new Error();
     consumed = new Set(parsed.consumed);
+    reservations = parsed.version === 2 && Array.isArray(parsed.reservations)
+      ? parsed.reservations as ConsentReservation[]
+      : [];
+    if (reservations.length > 256 || reservations.some((reservation) =>
+      !ID.test(reservation.reservationId)
+      || !Array.isArray(reservation.consentIds) || reservation.consentIds.length < 1
+      || reservation.consentIds.some((id) => !ID.test(id))
+      || !Number.isSafeInteger(reservation.expiresAt) || reservation.expiresAt < 1)) throw new Error();
+    reservations = reservations.filter((reservation) =>
+      reservation.expiresAt > (input.now ?? Date.now)());
     return true;
    } catch (error) {
      if ((error as { code?: string }).code === "ENOENT") {
        consumed = new Set();
+       reservations = [];
        return true;
      }
      return false;
    }
   };
   if (!reload()) throw new Error("DISCORD_CONSENT_STATE_CORRUPT");
-  const persist = (next: Set<string>): boolean => {
+  const persist = (nextConsumed: Set<string>, nextReservations = reservations): boolean => {
     mkdirSync(dirname(input.path), { recursive: true, mode: 0o700 });
     const temp = `${input.path}.tmp`;
     try {
-      writeFileSync(temp, JSON.stringify({ version: 1, consumed: [...next].sort() }), { encoding: "utf8", mode: 0o600 });
+      writeFileSync(temp, JSON.stringify({
+        version: 2,
+        consumed: [...nextConsumed].sort(),
+        reservations: nextReservations,
+      }), { encoding: "utf8", mode: 0o600 });
       renameSync(temp, input.path);
-      consumed = next;
+      consumed = nextConsumed;
+      reservations = [...nextReservations];
       return true;
     } catch {
       try { rmSync(temp, { force: true }); } catch { /* best effort */ }
       return false;
     }
   };
+  const reserveMany = (consentIds: readonly string[]): string | undefined => {
+    if (!reload()) return undefined;
+    const unique = [...new Set(consentIds)];
+    if (!unique.length || unique.some((consentId) =>
+      !ID.test(consentId) || consumed.has(consentId) || !ids.has(consentId)
+      || reservations.some((reservation) => reservation.consentIds.includes(consentId)))) return undefined;
+    const reservationId = randomUUID();
+    return persist(consumed, [...reservations, {
+      reservationId,
+      consentIds: unique,
+      expiresAt: (input.now ?? Date.now)() + 5 * 60_000,
+    }])
+      ? reservationId : undefined;
+  };
+  const commitReservation = (reservationId: string): boolean => {
+    if (!reload() || !ID.test(reservationId)) return false;
+    const reservation = reservations.find((item) => item.reservationId === reservationId);
+    if (!reservation) return false;
+    const nextConsumed = new Set(consumed);
+    for (const consentId of reservation.consentIds) nextConsumed.add(consentId);
+    const remaining = reservations.filter((item) => item.reservationId !== reservationId);
+    // A durable reservation is already exclusive authorization. If final compaction
+    // fails, keep it reserved and still treat the authorization as committed.
+    persist(nextConsumed, remaining);
+    return true;
+  };
+  const rollbackReservation = (reservationId: string): boolean => {
+    if (!reload() || !ID.test(reservationId)) return false;
+    if (!reservations.some((item) => item.reservationId === reservationId)) return false;
+    return persist(consumed, reservations.filter((item) => item.reservationId !== reservationId));
+  };
   return {
     find(query) {
       if (!reload()) return undefined;
       return input.records.find((record) =>
         !consumed.has(record.consentId)
+        && !reservations.some((reservation) => reservation.consentIds.includes(record.consentId))
         && record.processingProfileRef === query.processingProfileRef
         && record.destination === query.destination
         && record.workload === query.workload
@@ -77,12 +135,11 @@ export function makeFileDiscordConsentStore(input: {
       return this.claimMany([consentId]);
     },
     claimMany(consentIds) {
-      if (!reload()) return false;
-      if (!consentIds.length || consentIds.some((consentId) =>
-        !ID.test(consentId) || consumed.has(consentId) || !ids.has(consentId))) return false;
-      const next = new Set(consumed);
-      for (const consentId of consentIds) next.add(consentId);
-      return persist(next);
+      const reservationId = reserveMany(consentIds);
+      return reservationId !== undefined && commitReservation(reservationId);
     },
+    reserveMany,
+    commitReservation,
+    rollbackReservation,
   };
 }

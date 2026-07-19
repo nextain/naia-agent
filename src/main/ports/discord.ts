@@ -94,6 +94,8 @@ export interface DiscordDedupePort {
 }
 
 export interface DiscordFriendRegistrationPort {
+  /** Reload claims before a standby generation becomes authoritative. */
+  refresh?(): Promise<boolean>;
   isRegistered(input: { readonly bindingId: string; readonly userId: string }): Promise<boolean>;
   claim(input: {
     readonly bindingId: string;

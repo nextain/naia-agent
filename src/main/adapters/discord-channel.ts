@@ -295,10 +295,13 @@ export class DiscordChannelRuntime {
     if (this.authorityPrepared) return true;
     if (!this.authorityRefresh) {
       this.authorityRefresh = (async () => {
-        const refreshed = await (this.deps.dedupe.refresh?.() ?? Promise.resolve(true));
+        const [dedupeRefreshed, registrationRefreshed] = await Promise.all([
+          this.deps.dedupe.refresh?.() ?? Promise.resolve(true),
+          this.deps.registration?.refresh?.() ?? Promise.resolve(true),
+        ]);
         let stillActive = false;
         try { stillActive = this.deps.authority?.isActive() ?? true; } catch { /* fail closed */ }
-        this.authorityPrepared = refreshed && stillActive;
+        this.authorityPrepared = dedupeRefreshed && registrationRefreshed && stillActive;
         return this.authorityPrepared;
       })().finally(() => { this.authorityRefresh = undefined; });
     }

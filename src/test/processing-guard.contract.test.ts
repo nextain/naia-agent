@@ -96,7 +96,14 @@ describe("trusted processing guard", () => {
     const guard = makeProcessingGuard({
       profiles: { get: () => "ask_before_external" },
       endpoints: { resolve: () => ({ url: "https://api.example.com", zone: "unverified" }) },
-      consents: { find: () => consent, claim, claimMany: (ids) => ids.every((id) => claim(id)) },
+      consents: {
+        find: () => consent,
+        claim,
+        claimMany: (ids) => ids.every((id) => claim(id)),
+        reserveMany: () => "reservation_1",
+        commitReservation: () => claim("consent_1"),
+        rollbackReservation: () => true,
+      },
       now: () => 1_000,
     });
     expect(guard.authorize({
