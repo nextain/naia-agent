@@ -136,7 +136,56 @@ describe("ChatTurnHandler processing guard", () => {
     expect(order).toContain("guard:memory_llm");
   });
 
-  it("authorizes each provider round and tool operation just in time", async () => {
+  it("does not disclose compaction when the threshold prevents the operation", async () => {
+    const { deps, request } = fixture("allowed");
+    const workloads: string[] = [];
+    const processingGuard: NonNullable<HandlerDeps["processingGuard"]> = {
+      authorize: (input) => {
+        workloads.push(input.workload);
+        return {
+          workload: input.workload,
+          destination: "local_device",
+          decision: "allowed",
+          processingProfileRef: input.processingProfileRef,
+        };
+      },
+    };
+    const compact = vi.fn();
+    const compaction: NonNullable<HandlerDeps["compaction"]> = {
+      compact,
+      attachHandoff: async () => {},
+    };
+    await new ChatTurnHandler({ ...deps, processingGuard, compaction }).onChatRequest(request);
+    expect(compact).not.toHaveBeenCalled();
+    expect(workloads).toEqual(["main_llm"]);
+  });
+
+  it("does not disclose an allowed save stage when another required stage blocks", async () => {
+    const { deps, emits, request } = fixture("allowed");
+    const save = vi.fn(async () => {});
+    const processingGuard: NonNullable<HandlerDeps["processingGuard"]> = {
+      authorize: (input) => ({
+        workload: input.workload,
+        destination: "external_cloud",
+        decision: input.workload === "embedding" ? "blocked" : "allowed",
+        processingProfileRef: input.processingProfileRef,
+      }),
+    };
+    const memory: NonNullable<HandlerDeps["memory"]> = {
+      recall: async () => ({ facts: [], episodes: [] }),
+      save,
+    };
+    await new ChatTurnHandler({ ...deps, processingGuard, memory }).onChatRequest({
+      ...request,
+      messages: [{ role: "user", content: "" }],
+    });
+    expect(save).not.toHaveBeenCalled();
+    const disclosures = emits.filter((event) => event.kind === "processingDisclosure");
+    expect(disclosures.map((event) => event.kind === "processingDisclosure" && event.workload))
+      .not.toContain("memory_llm");
+  });
+
+  it("does not classify a local tool as a network operation", async () => {
     const { deps, emits, request } = fixture("allowed");
     let rounds = 0;
     const provider: ProviderPort = {
@@ -152,6 +201,49 @@ describe("ChatTurnHandler processing guard", () => {
     };
     await new ChatTurnHandler({ ...deps, provider, toolExecutor }).onChatRequest(request);
     expect(rounds).toBe(2);
-    expect(emits.filter((event) => event.kind === "processingDisclosure")).toHaveLength(3);
+    expect(emits.filter((event) => event.kind === "processingDisclosure")).toHaveLength(2);
+  });
+
+  it("guards a trusted external tool immediately before execute", async () => {
+    const { deps, request } = fixture("allowed");
+    const order: string[] = [];
+    let rounds = 0;
+    const provider: ProviderPort = {
+      async *chat(): AsyncIterable<ProviderChunk> {
+        rounds++;
+        if (rounds === 1) yield { kind: "toolUse", id: "call_1", name: "external", args: {} };
+        yield { kind: "finish" };
+      },
+    };
+    const processingGuard: NonNullable<HandlerDeps["processingGuard"]> = {
+      authorize: (input) => {
+        order.push(`guard:${input.workload}:${input.provider.provider}:${input.provider.model}`);
+        return {
+          workload: input.workload,
+          destination: "external_cloud",
+          decision: "allowed",
+          processingProfileRef: input.processingProfileRef,
+        };
+      },
+    };
+    const toolExecutor = {
+      specs: () => [{
+        name: "external",
+        description: "external",
+        parameters: {},
+        processing: {
+          workload: "network_tool" as const,
+          destination: "external_cloud" as const,
+          provider: "github",
+          model: "issues-api",
+        },
+      }],
+      execute: async () => {
+        order.push("tool:execute");
+        return { output: "ok" };
+      },
+    };
+    await new ChatTurnHandler({ ...deps, provider, processingGuard, toolExecutor }).onChatRequest(request);
+    expect(order.indexOf("guard:network_tool:github:issues-api")).toBeLessThan(order.indexOf("tool:execute"));
   });
 });

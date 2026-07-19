@@ -14,6 +14,7 @@ import { makeDiscordRuntimeText } from "../../dist/main/adapters/discord-message
 import { makeFileDiscordRegistration } from "../../dist/main/adapters/discord-registration-store.js";
 import { makeFileDiscordConsentStore } from "../../dist/main/adapters/discord-consent-store.js";
 import { makeDiscordStatusFile } from "../../dist/main/adapters/discord-status-file.js";
+import { makeDiscordGenerationAuthority } from "../../dist/main/adapters/discord-generation-authority.js";
 import { makeProcessingGuard } from "../../dist/main/adapters/processing-guard.js";
 import { anthropicBaseUrl, isLocalEngineBaseUrl, labProxyBaseUrl, nativeBaseUrl, resolveProviderRoute } from "../../dist/main/domain/provider-route.js";
 import { makeCompositeToolExecutor } from "../../dist/main/adapters/composite-tool-executor.js";
@@ -97,12 +98,19 @@ if (process.env.NAIA_DISCORD_CONSENTS_JSON) {
 delete process.env.NAIA_DISCORD_CONSENTS_JSON;
 const discordGeneration = process.env.NAIA_DISCORD_GENERATION;
 const discordStatusPath = process.env.NAIA_DISCORD_STATUS_PATH;
+const discordAuthorityPath = process.env.NAIA_DISCORD_AUTHORITY_PATH;
 delete process.env.NAIA_DISCORD_GENERATION;
 delete process.env.NAIA_DISCORD_STATUS_PATH;
+delete process.env.NAIA_DISCORD_AUTHORITY_PATH;
 let discordStatus;
-if (discordGeneration && discordStatusPath) {
+let discordAuthority;
+if (discordGeneration && discordStatusPath && discordAuthorityPath) {
   try {
     discordStatus = makeDiscordStatusFile({ generation: discordGeneration, path: discordStatusPath });
+    discordAuthority = makeDiscordGenerationAuthority({
+      generation: discordGeneration,
+      path: discordAuthorityPath,
+    });
     discordStatus.write("starting");
   } catch {
     discordStatus = undefined;
@@ -169,7 +177,7 @@ const grpcServer = makeGrpcServer({
 let discordRuntime;
 let processingGuard;
 let discordStatusPoll;
-if (discordToken && discordConfig) {
+if (discordToken && discordConfig && discordAuthority) {
   try {
     const dedupePath = process.env.NAIA_DISCORD_DEDUPE_PATH
       || join(currentAdkPath || process.cwd(), "data-private", "discord", "dedupe.json");
@@ -192,6 +200,7 @@ if (discordToken && discordConfig) {
       token: { load: async () => discordToken },
       dedupe: makeFileDiscordDedupe({ path: dedupePath }),
       ...(registration ? { registration } : {}),
+      authority: discordAuthority,
       clock: makeSystemDiscordClock(),
       text: makeDiscordRuntimeText(process.env.NAIA_DISCORD_LOCALE === "en" ? "en" : "ko"),
       diag,
@@ -245,12 +254,16 @@ if (discordToken && discordConfig) {
             };
           }
           if (workload === "network_tool") {
-            if (!provider.model || provider.provider !== "tool") return undefined;
+            const processing = toolExecutor?.specs().find((spec) =>
+              spec.processing?.workload === "network_tool"
+              && spec.processing.provider === provider.provider
+              && spec.processing.model === provider.model)?.processing;
+            if (!processing) return undefined;
             return {
-              url: "https://network-tool.invalid",
+              destination: processing.destination,
               zone: "unverified",
-              provider: "tool",
-              model: provider.model,
+              provider: processing.provider,
+              model: processing.model,
             };
           }
           const config = activeProcessingConfig;
@@ -273,8 +286,11 @@ if (discordToken && discordConfig) {
     try { discordStatus?.write("failed", "configuration_failed"); } catch { /* status observer isolation */ }
   }
 } else if (discordToken || process.env.NAIA_DISCORD_BINDINGS_JSON) {
-  diag.log("discord runtime", { code: discordToken ? "bindings_invalid" : "token_unavailable" });
-  try { discordStatus?.write("failed", discordToken ? "bindings_invalid" : "token_unavailable"); } catch { /* observer isolation */ }
+  const code = !discordToken ? "token_unavailable"
+    : !discordConfig ? "bindings_invalid"
+    : "authority_invalid";
+  diag.log("discord runtime", { code });
+  try { discordStatus?.write("failed", code); } catch { /* observer isolation */ }
 }
 // panel executor 생성(egress 확보 후) + builtin 과 composite 합성. panel 도구 execute()=panel_tool_call emit→PanelToolResult 대기(E1, FR-PANEL-2/3).
 panelExec = makePanelToolExecutor({ egress: grpcServer.egress });
@@ -356,11 +372,20 @@ discordRuntime?.start();
 if (discordRuntime && discordStatus) {
   let previous;
   discordStatusPoll = setInterval(() => {
-    const state = discordRuntime.status().state;
-    const nativeState = state === "ready" ? "ready" : state === "terminal_error" ? "failed" : "starting";
-    if (nativeState === previous) return;
-    previous = nativeState;
-    try { discordStatus.write(nativeState, nativeState === "failed" ? "runtime_terminal" : undefined); }
+    const status = discordRuntime.status();
+    const nativeState = status.state === "ready"
+      ? (status.authoritative ? "ready" : "standby")
+      : status.state === "terminal_error" ? "failed" : "starting";
+    const observation = `${nativeState}:${status.partialReplies}`;
+    if (observation === previous) return;
+    previous = observation;
+    try {
+      discordStatus.write(
+        nativeState,
+        nativeState === "failed" ? "runtime_terminal" : undefined,
+        status.partialReply,
+      );
+    }
     catch { /* native supervisor will time out and reconcile */ }
   }, 50);
 }

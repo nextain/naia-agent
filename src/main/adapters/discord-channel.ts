@@ -151,6 +151,7 @@ export class DiscordChannelRuntime {
   private generation = 0;
   private state: DiscordRuntimeState = "idle";
   private partialReplies = 0;
+  private latestPartialConfirmedChunk?: number;
   private readonly registeredUsers = new Map<string, Set<string>>();
 
   private readonly reconnectBaseMs: number;
@@ -198,6 +199,8 @@ export class DiscordChannelRuntime {
     readonly bindingCount: number;
     readonly activeTurns: number;
     readonly partialReplies: number;
+    readonly partialReply?: { readonly confirmedChunk: number };
+    readonly authoritative: boolean;
     readonly resumeSupported: true;
   } {
     return {
@@ -205,6 +208,10 @@ export class DiscordChannelRuntime {
       bindingCount: this.config.bindings.length,
       activeTurns: this.active.size,
       partialReplies: this.partialReplies,
+      ...(this.latestPartialConfirmedChunk !== undefined
+        ? { partialReply: { confirmedChunk: this.latestPartialConfirmedChunk } }
+        : {}),
+      authoritative: this.isAuthoritative(),
       resumeSupported: true,
     };
   }
@@ -221,7 +228,10 @@ export class DiscordChannelRuntime {
           messageId: turn.messageId,
           confirmedChunk: 0,
           now: this.deps.clock.now(),
-        })) this.partialReplies++;
+        })) {
+          this.partialReplies++;
+          this.latestPartialConfirmedChunk = 0;
+        }
       } catch { /* fail closed */ }
     }
     this.config = config;
@@ -260,6 +270,11 @@ export class DiscordChannelRuntime {
 
   private diagnostic(code: string, extra?: Record<string, unknown>): void {
     try { this.deps.diag.log("discord runtime", { code, ...extra }); } catch { /* observer isolation */ }
+  }
+
+  private isAuthoritative(): boolean {
+    try { return this.deps.authority?.isActive() ?? true; }
+    catch { return false; }
   }
 
   private async run(): Promise<void> {
@@ -339,6 +354,10 @@ export class DiscordChannelRuntime {
   }
 
   private async handleMessage(message: DiscordGatewayMessage): Promise<void> {
+    if (!this.isAuthoritative()) {
+      this.deps.diag.debug?.("discord ingress rejected", { reason: "generation_not_authoritative" });
+      return;
+    }
     const selfUserId = this.selfUserId;
     const binding = this.findBinding(message);
     let registered = binding ? this.registeredUsers.get(binding.bindingId)?.has(message.authorId) === true : false;
@@ -371,6 +390,7 @@ export class DiscordChannelRuntime {
         && message.mentionedUserIds.includes(selfUserId) && this.deps.registration) {
         const code = stripSelfMention(message.content, selfUserId).match(/^register\s+(\S{4,128})$/i)?.[1];
         if (code) {
+          if (!this.isAuthoritative()) return;
           let claimed = false;
           try {
             claimed = await this.deps.registration.claim({
@@ -405,6 +425,7 @@ export class DiscordChannelRuntime {
       return;
     }
     let reservation: Awaited<ReturnType<DiscordRuntimeDeps["dedupe"]["reserve"]>> = { decision: "duplicate" };
+    if (!this.isAuthoritative()) return;
     try {
       reservation = await this.deps.dedupe.reserve({
         bindingId: binding.bindingId,
@@ -577,7 +598,10 @@ export class DiscordChannelRuntime {
           messageId,
           confirmedChunk: sent,
           now: this.deps.clock.now(),
-        })) this.partialReplies++;
+        })) {
+          this.partialReplies++;
+          this.latestPartialConfirmedChunk = sent;
+        }
       } catch { /* fail closed */ }
       if (!this.stopped) this.diagnostic((error as { code?: string }).code ?? "reply_failed");
     }

@@ -15,7 +15,8 @@ import {
 import type { ProcessingGuardPort } from "../ports/uc1.js";
 
 export interface TrustedEndpointRecord {
-  readonly url: string;
+  readonly url?: string;
+  readonly destination?: ProcessingDisclosure["destination"];
   readonly zone: "unverified" | "private_managed";
   readonly provider?: string;
   readonly model?: string;
@@ -59,7 +60,9 @@ export function makeProcessingGuard(deps: {
       if (!profile) throw new Error("processing profile not found");
       const endpoint = deps.endpoints.resolve(input.provider, input.workload);
       if (!endpoint) throw new Error("processing endpoint not found");
-      const classified = classifyProcessingEndpoint(endpoint.url);
+      const classified = endpoint.destination
+        ? { ok: true as const, destination: endpoint.destination }
+        : classifyProcessingEndpoint(endpoint.url);
       if (!classified.ok) throw new Error(classified.code);
       const destination = endpoint.zone === "private_managed"
         && classified.destination === "external_cloud"

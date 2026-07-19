@@ -144,6 +144,7 @@ function makeHarness(options: {
   twoBindings?: boolean;
   maxReplyChars?: number;
   allowedUserIds?: readonly string[];
+  authority?: { isActive(): boolean };
 } = {}) {
   const gateway = new FakeGateway();
   const sleeps: number[] = [];
@@ -157,6 +158,7 @@ function makeHarness(options: {
     gateway,
     token: { load: async () => "discord-bot-token-secret" },
     dedupe: makeDedupe(),
+    ...(options.authority ? { authority: options.authority } : {}),
     clock: {
       now: () => now,
       sleep: async (ms, signal) => {
@@ -217,6 +219,25 @@ function makeHarness(options: {
 }
 
 describe("T-DISCORD-RT-01/02 — authenticated ingress to existing chat pipeline", () => {
+  it("keeps a connected generation in standby and re-checks authority before consuming ingress", async () => {
+    let active = false;
+    const { gateway, runtime } = makeHarness({ authority: { isActive: () => active } });
+    await waitFor(() => gateway.handlers.length === 1);
+    expect(runtime.status()).toMatchObject({ state: "ready", authoritative: false });
+    gateway.message({ messageId: "standby-message" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(gateway.connections[0]?.replies).toHaveLength(0);
+    active = true;
+    gateway.message({ messageId: "active-message" });
+    await waitFor(() => answerReplies(gateway.connections[0]!).length === 1);
+    expect(answerReplies(gateway.connections[0]!)[0]?.messageId).toBe("active-message");
+    active = false;
+    gateway.message({ messageId: "old-generation-message" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(answerReplies(gateway.connections[0]!)).toHaveLength(1);
+    await runtime.stop();
+  });
+
   it("accepts only exact bounded snowflake bindings and rejects duplicate channel tuples", () => {
     const valid = {
       bindings: [{
@@ -629,7 +650,10 @@ describe("T-DISCORD-RT-05/06 — lifecycle, bounded reply, safe failure", () => 
     gateway.message();
     await waitFor(() => runtime.status().partialReplies === 1);
     expect(answerReplies(gateway.connections[0]!)).toHaveLength(0);
-    expect(runtime.status()).toMatchObject({ partialReplies: 1 });
+    expect(runtime.status()).toMatchObject({
+      partialReplies: 1,
+      partialReply: { confirmedChunk: 0 },
+    });
     await runtime.stop();
   });
 });

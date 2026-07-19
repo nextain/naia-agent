@@ -28,6 +28,7 @@ const TOOLS: readonly ToolSpec[] = [
       required: ["cmd"],
     },
     tier: "ask", // 환경 조작 → UC13 승인
+    processing: { workload: "network_tool", destination: "external_cloud", provider: "browser", model: "user-selected-origin" },
   },
 ];
 

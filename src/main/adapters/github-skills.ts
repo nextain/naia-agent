@@ -9,8 +9,8 @@ type FetchLike = (url: string, init: { headers: Record<string, string>; signal?:
 export interface GithubDeps { token?: string; fetch?: FetchLike; baseUrl?: string; }
 
 const TOOLS: readonly ToolSpec[] = [
-  { name: "github_list_issues", description: "repo 이슈 목록(읽기). 인자: {owner, repo, state?:'open'|'closed'|'all'}", parameters: { type: "object", properties: { owner: { type: "string" }, repo: { type: "string" }, state: { type: "string" } }, required: ["owner", "repo"] } },
-  { name: "github_get_issue", description: "이슈 1건 조회(읽기). 인자: {owner, repo, number}", parameters: { type: "object", properties: { owner: { type: "string" }, repo: { type: "string" }, number: { type: "number" } }, required: ["owner", "repo", "number"] } },
+  { name: "github_list_issues", description: "repo 이슈 목록(읽기). 인자: {owner, repo, state?:'open'|'closed'|'all'}", parameters: { type: "object", properties: { owner: { type: "string" }, repo: { type: "string" }, state: { type: "string" } }, required: ["owner", "repo"] }, processing: { workload: "network_tool", destination: "external_cloud", provider: "github", model: "issues-api" } },
+  { name: "github_get_issue", description: "이슈 1건 조회(읽기). 인자: {owner, repo, number}", parameters: { type: "object", properties: { owner: { type: "string" }, repo: { type: "string" }, number: { type: "number" } }, required: ["owner", "repo", "number"] }, processing: { workload: "network_tool", destination: "external_cloud", provider: "github", model: "issues-api" } },
 ];
 
 const ok = (output: string) => ({ output });

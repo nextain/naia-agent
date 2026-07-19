@@ -199,6 +199,14 @@
       "contract": "docs/progress/99.dev-comm/discord-rag-prefreeze-policy-contract-2026-07-19.md",
       "note": "native supervisor용 secret-free generation lifecycle 상태를 0600 atomic rename으로 발행"
     },
+    "src/main/adapters/discord-generation-authority.ts": {
+      "layer": "adapters",
+      "uc": [
+        "UC-DISCORD-RUNTIME"
+      ],
+      "contract": "docs/progress/99.dev-comm/discord-rag-prefreeze-policy-contract-2026-07-19.md",
+      "note": "native가 atomic replace한 strict generation authority를 ingress 소비 직전에 재독해 구·신 프로세스 단일 소비자를 강제"
+    },
     "src/main/adapters/discord-channel.ts": {
       "layer": "adapters",
       "uc": [

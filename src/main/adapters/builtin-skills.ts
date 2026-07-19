@@ -22,7 +22,7 @@ export interface SkillDeps {
 
 const TOOLS: readonly ToolSpec[] = [
   { name: "get_time", description: "현재 시각(ISO/UTC; timezone 주면 해당 지역). 인자: {timezone?}", parameters: { type: "object", properties: { timezone: { type: "string" } } } },
-  { name: "get_weather", description: "위경도 현재 날씨. 인자: {latitude, longitude}", parameters: { type: "object", properties: { latitude: { type: "number" }, longitude: { type: "number" } }, required: ["latitude", "longitude"] } },
+  { name: "get_weather", description: "위경도 현재 날씨. 인자: {latitude, longitude}", parameters: { type: "object", properties: { latitude: { type: "number" }, longitude: { type: "number" } }, required: ["latitude", "longitude"] }, processing: { workload: "network_tool", destination: "external_cloud", provider: "open-meteo", model: "current-weather" } },
   { name: "memo_list", description: "저장된 메모 제목 목록.", parameters: { type: "object", properties: {} } },
   { name: "memo_get", description: "제목으로 메모 내용 조회. 인자: {title}", parameters: { type: "object", properties: { title: { type: "string" } }, required: ["title"] } },
   { name: "memo_save", description: "메모 저장(승인 필요). 인자: {title, content}", parameters: { type: "object", properties: { title: { type: "string" }, content: { type: "string" } }, required: ["title", "content"] }, tier: "ask" },

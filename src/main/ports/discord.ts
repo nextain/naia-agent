@@ -111,11 +111,17 @@ export interface DiscordRuntimeTextPort {
   }): string;
 }
 
+export interface DiscordIngressAuthorityPort {
+  /** Re-read cross-process generation authority. Missing or invalid state is inactive. */
+  isActive(): boolean;
+}
+
 export interface DiscordRuntimeDeps {
   readonly gateway: DiscordGatewayPort;
   readonly token: DiscordBotTokenPort;
   readonly dedupe: DiscordDedupePort;
   readonly registration?: DiscordFriendRegistrationPort;
+  readonly authority?: DiscordIngressAuthorityPort;
   readonly clock: DiscordRuntimeClock;
   readonly text: DiscordRuntimeTextPort;
   readonly diag: DiagnosticLog;

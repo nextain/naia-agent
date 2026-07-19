@@ -10,6 +10,13 @@ describe("T-DISCORD-RT-02/05 — production entry wiring", () => {
     expect(entry).not.toMatch(/writeFile[^\\n]*discordToken/);
     expect(entry).toContain("delete process.env.NAIA_DISCORD_GENERATION");
     expect(entry).toContain("delete process.env.NAIA_DISCORD_STATUS_PATH");
+    expect(entry).toContain("delete process.env.NAIA_DISCORD_AUTHORITY_PATH");
+  });
+
+  it("requires generation authority and exposes standby until this generation is authoritative", () => {
+    expect(entry).toContain("makeDiscordGenerationAuthority");
+    expect(entry).toContain("discordToken && discordConfig && discordAuthority");
+    expect(entry).toContain('status.authoritative ? "ready" : "standby"');
   });
 
   it("routes Discord through the same wireAgentUC1 pipeline without leaking its events to gRPC", () => {

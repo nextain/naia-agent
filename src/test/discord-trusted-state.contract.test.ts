@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -8,6 +8,7 @@ import {
   makeFileDiscordRegistration,
 } from "../main/adapters/discord-registration-store.js";
 import { makeDiscordStatusFile } from "../main/adapters/discord-status-file.js";
+import { makeDiscordGenerationAuthority } from "../main/adapters/discord-generation-authority.js";
 
 const dirs: string[] = [];
 function tempFile(name: string): string {
@@ -20,6 +21,20 @@ afterEach(() => {
 });
 
 describe("Discord trusted one-time state", () => {
+  it("accepts only an exact atomically selected generation and fails closed otherwise", () => {
+    const path = tempFile("authority.json");
+    const authority = makeDiscordGenerationAuthority({ path, generation: "generation_2" });
+    expect(authority.isActive()).toBe(false);
+    writeFileSync(path, JSON.stringify({ version: 1, generation: "generation_1" }));
+    expect(authority.isActive()).toBe(false);
+    writeFileSync(path, JSON.stringify({ version: 1, generation: "generation_2" }));
+    expect(authority.isActive()).toBe(true);
+    writeFileSync(path, JSON.stringify({
+      version: 1, generation: "generation_2", unexpected: true,
+    }));
+    expect(authority.isActive()).toBe(false);
+  });
+
   it("claims a registration code once, before its expiry, without persisting the code", async () => {
     const path = tempFile("registrations.json");
     const seed = {
@@ -121,5 +136,13 @@ describe("Discord trusted one-time state", () => {
     });
     expect(readFileSync(path, "utf8")).not.toMatch(/token|self.?id|endpoint|secret/i);
     expect(() => writer.write("failed", "raw exception text")).toThrow("DISCORD_STATUS_VALUE_INVALID");
+    writer.write("ready", undefined, { confirmedChunk: 1 });
+    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
+      version: 1,
+      generation: "generation_1",
+      state: "ready",
+      partialReply: { confirmedChunk: 1 },
+    });
+    expect(readFileSync(path, "utf8")).not.toMatch(/binding|message|channel|guild/i);
   });
 });

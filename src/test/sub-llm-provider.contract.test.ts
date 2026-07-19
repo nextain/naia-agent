@@ -48,9 +48,9 @@ describe("SubLlmPort.complete — OpenAI-compat 비스트리밍 호출", () => {
 		});
 		const p = buildSubLlmProvider(
 			{ provider: "naia", baseUrl: "https://gw/v1", model: "gemini-3.1-flash-lite", apiKey: "k" },
-			{ fetch: fetchFn, authorizeAndDisclose: allow },
+			{ fetch: fetchFn },
 		)!;
-		const out = await p.complete("hi", { systemPrompt: "sys" });
+		const out = await p.complete("hi", { systemPrompt: "sys", authorizeAndDisclose: allow });
 		expect(out).toBe("hello back");
 		expect(fetchFn).toHaveBeenCalledWith(
 			"https://gw/v1/chat/completions",
@@ -66,19 +66,18 @@ describe("SubLlmPort.complete — OpenAI-compat 비스트리밍 호출", () => {
 			{ provider: "vllm", baseUrl: "http://x/v1", model: "m" },
 			{
 				fetch: makeFetch(() => ({ ok: false, status: 500, payload: { error: "boom" } })),
-				authorizeAndDisclose: allow,
 			},
 		)!;
-		await expect(p.complete("hi")).rejects.toThrow(/HTTP 500/);
+		await expect(p.complete("hi", { authorizeAndDisclose: allow })).rejects.toThrow(/HTTP 500/);
 	});
 
 	it("후행 슬래시 base URL 정규화", async () => {
 		const fetchFn = makeFetch(() => ({ ok: true, status: 200, payload: { choices: [{ message: { content: "ok" } }] } }));
 		const p = buildSubLlmProvider(
 			{ provider: "ollama", baseUrl: "http://h:11434/v1///", model: "m" },
-			{ fetch: fetchFn, authorizeAndDisclose: allow },
+			{ fetch: fetchFn },
 		)!;
-		await p.complete("x");
+		await p.complete("x", { authorizeAndDisclose: allow });
 		expect((fetchFn.mock.calls[0] as unknown[])[0]).toBe("http://h:11434/v1/chat/completions");
 	});
 

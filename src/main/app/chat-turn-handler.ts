@@ -128,7 +128,16 @@ export class ChatTurnHandler {
    *  {messages: 압축 후(tail) 또는 원본, recap: 요약 텍스트(systemPrompt 주입용; ""=압축 안 함)}.
    *  미주입/임계이하/압축실패 = 원본 그대로(드롭형 budgeted-conversation 이 최종 하드 가드). compact/attachHandoff
    *  실패는 격리 — 압축은 turn 을 깨지 않는다(요약 실패 < 대화 중단). */
-  private async maybeCompact(req: ChatRequest, signal: AbortSignal): Promise<{ messages: readonly ChatMessage[]; recap: string; droppedCount: number }> {
+  private async maybeCompact(
+    req: ChatRequest,
+    signal: AbortSignal,
+    beforeCompact?: () => Promise<boolean>,
+  ): Promise<{
+    messages: readonly ChatMessage[];
+    recap: string;
+    droppedCount: number;
+    processingDenied?: true;
+  }> {
     const compaction = this.d.compaction;
     if (!compaction) return { messages: req.messages, recap: "", droppedCount: 0 };
     const est = estimateMessageTokens(req.messages);
@@ -143,6 +152,9 @@ export class ChatTurnHandler {
     while (tailStart < req.messages.length - 1 && req.messages[tailStart]!.role !== "user") tailStart++;
     const keepTail = req.messages.length - tailStart;
     if (keepTail >= req.messages.length) return { messages: req.messages, recap: "", droppedCount: 0 }; // 요약할 head 없음(정렬 후 전부 tail)
+    if (beforeCompact && !await beforeCompact()) {
+      return { messages: req.messages, recap: "", droppedCount: 0, processingDenied: true };
+    }
     try {
       const r = await raceAbort(
         compaction.compact({ messages: req.messages, keepTail, targetTokens: this.d.compactTargetTokens ?? DEFAULT_COMPACT_TARGET_TOKENS }),
@@ -195,37 +207,44 @@ export class ChatTurnHandler {
         ...(req.enableThinking !== undefined ? { enableThinking: req.enableThinking } : {}),
         ...(this.d.credentials.get(activeConfig.provider) ?? {}),
       };
-      const authorizeOperation = async (
-        workload: "main_llm" | "sub_llm" | "memory_llm" | "embedding" | "network_tool",
-        effectiveProvider = { provider: activeConfig.provider, model: activeConfig.model },
-      ): Promise<boolean> => {
+      type PlannedOperation = {
+        workload: "main_llm" | "sub_llm" | "memory_llm" | "embedding" | "network_tool";
+        provider: { provider: string; model: string };
+      };
+      const authorizeOperations = async (operations: readonly PlannedOperation[]): Promise<boolean> => {
         if (!req.processing) return true;
         if (!this.d.processingGuard) {
           terminalError("processing policy guard is not configured", "PROCESSING_DESTINATION_UNKNOWN");
           return false;
         }
-        let disclosure;
+        const disclosures = [];
         try {
-          disclosure = this.d.processingGuard.authorize({
-            processingProfileRef: req.processing.processingProfileRef,
-            workload,
-            provider: effectiveProvider,
-            sessionId: req.sessionId ?? "default",
-          });
+          for (const operation of operations) {
+            disclosures.push(this.d.processingGuard.authorize({
+              processingProfileRef: req.processing.processingProfileRef,
+              workload: operation.workload,
+              provider: operation.provider,
+              sessionId: req.sessionId ?? "default",
+            }));
+          }
         } catch {
           terminalError("processing destination could not be classified", "PROCESSING_DESTINATION_UNKNOWN");
           return false;
         }
-        const disclosureAccepted = await this.d.egress.emitCritical?.(
-          req.requestId,
-          { kind: "processingDisclosure", ...disclosure },
-        ) ?? false;
-        if (!disclosureAccepted) {
-          terminalError("processing disclosure delivery failed", "PROCESSING_DESTINATION_UNKNOWN");
-          return false;
+        const blocked = disclosures.find((disclosure) => disclosure.decision !== "allowed");
+        const deliveries = blocked ? [blocked] : disclosures;
+        for (const disclosure of deliveries) {
+          const accepted = await this.d.egress.emitCritical?.(
+            req.requestId,
+            { kind: "processingDisclosure", ...disclosure },
+          ) ?? false;
+          if (!accepted) {
+            terminalError("processing disclosure delivery failed", "PROCESSING_DESTINATION_UNKNOWN");
+            return false;
+          }
         }
-        if (disclosure.decision !== "allowed") {
-          const code = disclosure.decision === "blocked"
+        if (blocked) {
+          const code = blocked.decision === "blocked"
             ? "EXTERNAL_PROCESSING_FORBIDDEN"
             : "EXTERNAL_PROCESSING_CONFIRMATION_REQUIRED";
           terminalError(code, code);
@@ -233,13 +252,17 @@ export class ChatTurnHandler {
         }
         return true;
       };
-      if (this.d.compaction && !await authorizeOperation("memory_llm", {
-        provider: "naia-memory",
-        model: "compaction",
-      })) return;
+      const authorizeOperation = (
+        workload: PlannedOperation["workload"],
+        provider = { provider: activeConfig.provider, model: activeConfig.model },
+      ) => authorizeOperations([{ workload, provider }]);
       // UC-compaction(FR-COMPACT): assemble 전 예산 압박이면 head 를 memory 가 요약(recap)해 교체(정보보존).
       // 미주입/임계이하/실패 = 원본(budgeted-conversation 이 최종 드롭 가드). recap 은 아래 systemPrompt 에 주입.
-      const { messages: preMessages, recap: compactionRecap, droppedCount: compactedCount } = await this.maybeCompact(req, signal);
+      const compacted = await this.maybeCompact(req, signal, this.d.compaction
+        ? () => authorizeOperation("memory_llm", { provider: "naia-memory", model: "compaction" })
+        : undefined);
+      if (compacted.processingDenied) return;
+      const { messages: preMessages, recap: compactionRecap, droppedCount: compactedCount } = compacted;
       // UC-compaction: 압축 발생 시 wire 로 알림(UI 표시용). 비-terminal·무손실 정보 — usage/finish 불변식 무영향.
       if (compactedCount > 0) emit({ kind: "compacted", droppedCount: compactedCount });
       // FR-PERSONA-3: 코어가 워크스페이스 페르소나를 *스스로* 조립(클라가 안 보냄). personaSource 주입 시
@@ -324,13 +347,16 @@ export class ChatTurnHandler {
       const commitCompletedTurn = async (): Promise<void> => {
         // UC-memory FR-MEM-2: provider 가 최종 응답을 낸 시점 = **커밋 지점**. 연속 발화도 전체를 한 번 저장.
         if (this.d.memory && currentUserMsg) {
-          if (!await authorizeOperation("memory_llm", {
-            provider: "naia-memory",
-            model: "fact-extraction",
-          }) || !await authorizeOperation("embedding", {
-            provider: "naia-memory",
-            model: "save",
-          })) return;
+          if (!await authorizeOperations([
+            {
+              workload: "memory_llm",
+              provider: { provider: "naia-memory", model: "fact-extraction" },
+            },
+            {
+              workload: "embedding",
+              provider: { provider: "naia-memory", model: "save" },
+            },
+          ])) return;
           try {
             const saveTimeoutMs = this.d.memoryTimeoutMs ?? MEM_SAVE_TIMEOUT_MS;
             const ok = await raceTimeout(this.d.memory.save(lastUserText, assistantTurnParts.join("\n")), saveTimeoutMs);
@@ -451,9 +477,10 @@ export class ChatTurnHandler {
           let r: { output: string; isError?: boolean };
           try {
             if (exec) {
-              if (!await authorizeOperation("network_tool", {
-                provider: "tool",
-                model: call.name,
+              const processing = externalTools.find((spec) => spec.name === call.name)?.processing;
+              if (processing && !await authorizeOperation(processing.workload, {
+                provider: processing.provider,
+                model: processing.model,
               })) return;
               // UC5 리뷰 fix(liveness): per-tool deadline race(memory 와 동일). 무응답 도구가 turn 영구 hang 못 하게.
               const res = await raceAbort(exec.execute({ ...call, id: cid }, { signal, requestId: req.requestId }), signal, this.d.toolTimeoutMs ?? TOOL_EXEC_TIMEOUT_MS); // requestId=UC-PANEL: panel 도구가 panel_tool_call 을 이 chat 스트림으로 위임

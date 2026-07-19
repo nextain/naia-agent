@@ -14,7 +14,19 @@ export interface ProviderConfig {
 }
 
 // ── UC5 도구 (계약 §B.1) ──
-export interface ToolSpec { readonly name: string; readonly description: string; readonly parameters: unknown /* JSON schema */; readonly tier?: string /* UC5 slice 2: 미설정/"none"=자동, 그 외=승인 필요 */; }
+export interface ToolSpec {
+  readonly name: string;
+  readonly description: string;
+  readonly parameters: unknown /* JSON schema */;
+  readonly tier?: string /* UC5 slice 2: 미설정/"none"=자동, 그 외=승인 필요 */;
+  /** Trusted executor-owned metadata; provider/model output schemas omit this field. */
+  readonly processing?: {
+    readonly workload: "network_tool";
+    readonly destination: ProcessingDestination;
+    readonly provider: string;
+    readonly model: string;
+  };
+}
 export interface ToolCall { readonly id: string; readonly name: string; readonly args: unknown; }
 
 // ── UC-ENV-SEGMENTS (S4, 계약 C2) — 환경고유 컨텍스트 폐쇄 union ──

@@ -2,7 +2,7 @@
 // memoryLlmProvider(naia/vllm/ollama) → OpenAI-compat /chat/completions 비스트리밍 POST.
 // memory 사실추출·compaction 과 동일 small-LLM 설정을 공유 — 배치(adk)·경량 작업용 first-class 호출 표면.
 // 미구성(provider="none"/필수필드 누락) = undefined(호출처 폴백). fetch 주입(테스트·node fetch).
-import type { SubLlmPort } from "../ports/sub-llm.js";
+import type { SubLlmCallOptions, SubLlmPort } from "../ports/sub-llm.js";
 import type { MemoryLlmConfig } from "./naia-memory.js";
 
 export type SubLlmFetch = (
@@ -15,13 +15,6 @@ export function buildSubLlmProvider(
 	cfg: MemoryLlmConfig | undefined,
 	deps: {
 		fetch: SubLlmFetch;
-		/** Must perform trusted classify → disclosure acknowledgement → allow immediately before fetch. */
-		authorizeAndDisclose?: (input: {
-			readonly workload: "sub_llm";
-			readonly provider: string;
-			readonly model: string;
-			readonly endpoint: string;
-		}) => Promise<boolean>;
 	},
 ): SubLlmPort | undefined {
 	if (!cfg || cfg.provider === "none") return undefined;
@@ -37,9 +30,10 @@ export function buildSubLlmProvider(
 	async function callOnce(
 		messages: readonly { role: string; content: string }[],
 		signal?: AbortSignal,
+		authorizeAndDisclose?: SubLlmCallOptions["authorizeAndDisclose"],
 	): Promise<string> {
 		const url = `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
-		if (!deps.authorizeAndDisclose || !await deps.authorizeAndDisclose({
+		if (!authorizeAndDisclose || !await authorizeAndDisclose({
 			workload: "sub_llm",
 			provider,
 			model,
@@ -80,12 +74,13 @@ export function buildSubLlmProvider(
 			const messages: { role: string; content: string }[] = [];
 			if (opts?.systemPrompt) messages.push({ role: "system", content: opts.systemPrompt });
 			messages.push({ role: "user", content: prompt });
-			return callOnce(messages, opts?.signal);
+			return callOnce(messages, opts?.signal, opts?.authorizeAndDisclose);
 		},
 		async completeMessages(messages, opts) {
 			return callOnce(
 				messages.map((m) => ({ role: m.role, content: m.content })),
 				opts?.signal,
+				opts?.authorizeAndDisclose,
 			);
 		},
 	};
