@@ -302,3 +302,27 @@ RPC만 추가하며, 별도 셸 반복 상태 머신은 만들지 않는다.
 - **NFR-SEC-WIRE-zero-transit**: processing 요청의 inline `apiKey`/`naiaKey`는 값 반사 없이 경계에서 거부한다.
 - **NFR-SEC-WIRE-ai-independent**: 검증·순서·동의 결속은 모델 호출 없이 결정론적 순수 코드로 동작한다.
 - **NFR-SEC-WIRE-no-promotion**: caller의 `actualDestination` 주장은 신뢰 정보로 승격하지 않고 decode 시 폐기한다.
+
+## UC-DISCORD-RUNTIME FR/NFR — 개인 guild bot runtime
+
+연결 이슈: `nextain/naia-agent#85`. #89 security wire와
+`discord-rag-prefreeze-policy-contract-2026-07-19.md`의 승인된 경계를 선행한다.
+
+| ID | 요구 | 상태 |
+|----|------|------|
+| FR-DISCORD-RT-1 | token은 주입 포트로만 받고 Gateway Identify/REST Authorization에 사용하며 일반 설정·wire·로그·dedupe 파일에 저장하지 않는다. | In Review |
+| FR-DISCORD-RT-2 | authenticated Gateway event의 guild/channel/user/message id를 정확한 binding tuple과 대조하고 DM·bot/self·비허용·미호출 메시지는 fail-closed 한다. | In Review |
+| FR-DISCORD-RT-3 | 허용 메시지는 기존 agent ingress로 `ChatRequest`를 보내고 같은 message에 reply한다. session과 bounded history는 binding/guild/channel/user별로 격리한다. | In Review |
+| FR-DISCORD-RT-4 | binding+message id를 bounded durable store의 `reserved→replying(outbox cursor)→completed/partial` 상태로 원자 전이해 reconnect·crash replay와 부분 응답을 정직하게 처리한다. store 손상·쓰기 실패는 fail-closed 한다. | In Review |
+| FR-DISCORD-RT-5 | Gateway close/reconnect는 RESUME 우선과 상한 있는 backoff로 재시도하고 stop은 연결·예약 재시도·REST rate-limit 대기·진행 turn을 정리한다. lifecycle은 비밀 없는 generation status로 native supervisor에 공개한다. | In Review |
+| FR-DISCORD-RT-6 | 응답은 Discord 2,000자 제한과 전체 상한을 지키며 rate limit을 bounded retry한다. 인증·권한·intent·provider 실패는 분류된 진단과 비밀 없는 짧은 사용자 오류로 처리한다. | In Review |
+| FR-DISCORD-RT-7 | 친구 등록은 정확한 binding에서 만료 전 one-time code를 원자 소비하며 평문 code를 저장하지 않는다. 처리 consent는 trusted store의 profile/destination/workload/session 전체 결속과 expiry/one-time 소비를 거친다. | In Review |
+
+- **NFR-DISCORD-RT-local-lifetime**: agent 프로세스가 실행되는 동안만 동작한다. PC
+  종료 뒤 24시간 daemon/cloud relay는 비범위다.
+- **NFR-DISCORD-RT-bounded**: binding, active turn, session history, dedupe entry,
+  reconnect delay, reply chunk/retry 수는 모두 상한을 갖는다.
+- **NFR-DISCORD-RT-zero-content-log**: 기본 진단에는 token, message/response 원문,
+  개인 문서·검색 근거를 기록하지 않고 식별자도 필요한 분류·개수만 남긴다.
+- **NFR-DISCORD-RT-ai-independent**: allowlist, dedupe, lifecycle, 분할, 취소는
+  특정 LLM이나 cloud provider 없이 결정론적으로 검증한다.

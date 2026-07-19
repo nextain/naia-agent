@@ -195,7 +195,9 @@ export class ChatTurnHandler {
         ...(req.enableThinking !== undefined ? { enableThinking: req.enableThinking } : {}),
         ...(this.d.credentials.get(activeConfig.provider) ?? {}),
       };
-      const authorizeMainLlmOperation = (): boolean => {
+      const authorizeOperation = async (
+        workload: "main_llm" | "memory_llm" | "embedding",
+      ): Promise<boolean> => {
         if (!req.processing) return true;
         if (!this.d.processingGuard) {
           terminalError("processing policy guard is not configured", "PROCESSING_DESTINATION_UNKNOWN");
@@ -205,7 +207,7 @@ export class ChatTurnHandler {
         try {
           disclosure = this.d.processingGuard.authorize({
             processingProfileRef: req.processing.processingProfileRef,
-            workload: "main_llm",
+            workload,
             provider: { provider: activeConfig.provider, model: activeConfig.model },
             sessionId: req.sessionId ?? "default",
           });
@@ -213,7 +215,7 @@ export class ChatTurnHandler {
           terminalError("processing destination could not be classified", "PROCESSING_DESTINATION_UNKNOWN");
           return false;
         }
-        const disclosureAccepted = this.d.egress.emitCritical?.(
+        const disclosureAccepted = await this.d.egress.emitCritical?.(
           req.requestId,
           { kind: "processingDisclosure", ...disclosure },
         ) ?? false;
@@ -230,6 +232,9 @@ export class ChatTurnHandler {
         }
         return true;
       };
+      if (!await authorizeOperation("main_llm")) return;
+      if ((this.d.memory || this.d.compaction)
+        && (!await authorizeOperation("memory_llm") || !await authorizeOperation("embedding"))) return;
       // UC-compaction(FR-COMPACT): assemble 전 예산 압박이면 head 를 memory 가 요약(recap)해 교체(정보보존).
       // 미주입/임계이하/실패 = 원본(budgeted-conversation 이 최종 드롭 가드). recap 은 아래 systemPrompt 에 주입.
       const { messages: preMessages, recap: compactionRecap, droppedCount: compactedCount } = await this.maybeCompact(req, signal);
@@ -329,7 +334,6 @@ export class ChatTurnHandler {
       for (;;) {
         if (sawTerminal) break;
         if (signal.aborted) { terminalError("cancelled"); break; }                 // (a) provider 호출 전 가드
-        if (!authorizeMainLlmOperation()) break;
         const roundTools = controlConsumed ? externalTools : tools;
         const round = await this.runRound(providerConfig, messages, memSystemPrompt, roundTools, signal, emit);
         if (round.usage) { totalUsage.inputTokens += round.usage.inputTokens; totalUsage.outputTokens += round.usage.outputTokens; } // 라운드 스냅샷 1회 합산

@@ -393,3 +393,27 @@ detector나 cron 같은 외부 정책이 자유 발화를 시작하면 사용자
 | T-SEC-WIRE-05 | 공개 이벤트가 downstream 또는 error보다 항상 먼저 계획된다. |
 | T-SEC-WIRE-06 | consent ID 재사용, 만료 경계, destination/session/profile/workload 불일치를 거부한다. |
 | T-SEC-WIRE-07 | proto 필드 번호·enum·오류 코드와 양쪽 codec이 고정 계약을 지킨다. |
+
+## UC-DISCORD-RUNTIME — 개인 Discord 서버에서 Naia에게 질문한다
+
+- 사용자는 개인 Discord bot을 지정한 guild/channel에 연결하고, 허용된 사용자가
+  bot mention 또는 bot 응답에 대한 reply로 질문하게 한다.
+- 수신 이벤트는 Discord Gateway가 인증한 식별자로만 판정한다. message 본문이나
+  모델 출력은 guild/channel/user binding과 처리 profile을 바꿀 수 없다.
+- 허용된 질문은 기존 `ChatTurnHandler`에 전달되며, 같은 Discord 메시지에 답한다.
+  guild/channel마다 대화 기록과 session id가 분리된다.
+- 재연결로 같은 binding/message id가 다시 전달되면 durable reply state가 provider
+  재실행을 막고, crash 시에는 저장된 outbox의 아직 보내지 않은 chunk부터 재개한다.
+- 종료 시 Gateway와 진행 중 turn을 취소하고, token·메시지 원문·응답 원문은 기본
+  진단 로그에 남기지 않는다.
+
+| 검증 ID | 시나리오 |
+|---------|----------|
+| T-DISCORD-RT-01 | 정확한 binding의 mention/reply만 ingress하고 DM·bot·self·비허용·일반 대화는 0회 처리한다. |
+| T-DISCORD-RT-02 | 인증 이벤트를 `ChatRequest.channel/processing/sessionId`로 변환하고 같은 message에 안전한 reply를 보낸다. |
+| T-DISCORD-RT-03 | 두 binding/guild/channel/user의 bounded history가 섞이지 않는다. |
+| T-DISCORD-RT-04 | reconnect/crash replay와 같은 id의 다른 binding을 durable outbox 상태로 구분하고 completed/partial을 정직하게 보존한다. |
+| T-DISCORD-RT-05 | Gateway RESUME/backoff, 4013/4014 terminal, stop 중 연결·turn·429 retry 취소, 비밀 없는 generation status를 결정론적으로 검증한다. |
+| T-DISCORD-RT-06 | 2,000자 분할·총 응답 상한·rate limit·권한/intent 오류가 bounded하고 원문·token을 로그에 남기지 않는다. |
+| T-DISCORD-RT-07 | 실제 Discord token을 쓰는 test guild smoke는 별도 opt-in live 검증으로만 수행한다. |
+| T-DISCORD-RT-08 | 친구 code와 처리 consent가 exact scope+expiry+one-time atomic claim을 지키고 평문 code를 저장하지 않는다. |

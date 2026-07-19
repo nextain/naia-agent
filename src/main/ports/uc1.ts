@@ -94,7 +94,7 @@ export interface AgentEgressPort {
   /** AgentEmit → wire AgentMessage writeLine. ⚠️ no-throw(실패=로그, throw 금지). */
   emit(requestId: string, e: AgentEmit): void;
   /** 보안 disclosure처럼 downstream 선행이 필수인 event의 write 수락 여부. */
-  emitCritical?(requestId: string, e: AgentEmit): boolean;
+  emitCritical?(requestId: string, e: AgentEmit): boolean | Promise<boolean>;
 }
 
 /** out-of-band 진단(중복 requestId 등 — wire 아님). 표준 로깅 sink(docs/logging.md). console.* 직접 금지(check-logging 강제). */

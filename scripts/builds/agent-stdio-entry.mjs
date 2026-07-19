@@ -4,7 +4,18 @@
 // panel(환경 위임, egress 필요) + 라이브 reload + 종료(drain/flush) 등 **gRPC host 관심사**만 배선.
 import { createInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import { wireAgentUC1 } from "../../dist/main/composition/index.js";
+import { makeCompositeAgentIngress, makePrefixedAgentEgress } from "../../dist/main/adapters/agent-transport-mux.js";
+import { DiscordChannelRuntime, makeSystemDiscordClock, parseDiscordRuntimeConfig } from "../../dist/main/adapters/discord-channel.js";
+import { makeFileDiscordDedupe } from "../../dist/main/adapters/discord-dedupe-store.js";
+import { makeDiscordGateway } from "../../dist/main/adapters/discord-gateway.js";
+import { makeDiscordRuntimeText } from "../../dist/main/adapters/discord-messages.js";
+import { makeFileDiscordRegistration } from "../../dist/main/adapters/discord-registration-store.js";
+import { makeFileDiscordConsentStore } from "../../dist/main/adapters/discord-consent-store.js";
+import { makeDiscordStatusFile } from "../../dist/main/adapters/discord-status-file.js";
+import { makeProcessingGuard } from "../../dist/main/adapters/processing-guard.js";
+import { anthropicBaseUrl, isLocalEngineBaseUrl, labProxyBaseUrl, nativeBaseUrl, resolveProviderRoute } from "../../dist/main/domain/provider-route.js";
 import { makeCompositeToolExecutor } from "../../dist/main/adapters/composite-tool-executor.js";
 import { makePanelToolExecutor } from "../../dist/main/adapters/panel-tool-executor.js";
 import { makeGrpcServer } from "../../dist/main/adapters/grpc/grpc-server.js";
@@ -63,13 +74,52 @@ let { toolExecutor } = deps;
 const { memory, memoryLabel, conversationLog, transcriptLabel, diag, personaSource, workspaceContextSource, knowledgeBackend } = deps;
 let skillsLabel = deps.skillsLabel;
 
+// 개인 Discord bot credential은 host(Shell keychain)가 process 시작 시 주입한다. 일반 설정/파일에 저장하지 않고
+// 즉시 process.env에서 제거한다. bindings JSON은 비밀이 아니지만 strict parser가 정확한 guild/channel tuple만 채택.
+const discordToken = process.env.NAIA_DISCORD_BOT_TOKEN;
+delete process.env.NAIA_DISCORD_BOT_TOKEN;
+let discordConfig;
+if (process.env.NAIA_DISCORD_BINDINGS_JSON) {
+  try { discordConfig = parseDiscordRuntimeConfig(JSON.parse(process.env.NAIA_DISCORD_BINDINGS_JSON)); }
+  catch { discordConfig = undefined; }
+}
+let discordRegistrationSeeds;
+if (process.env.NAIA_DISCORD_REGISTRATIONS_JSON) {
+  try { discordRegistrationSeeds = JSON.parse(process.env.NAIA_DISCORD_REGISTRATIONS_JSON); }
+  catch { discordRegistrationSeeds = undefined; }
+}
+delete process.env.NAIA_DISCORD_REGISTRATIONS_JSON;
+let discordConsentRecords;
+if (process.env.NAIA_DISCORD_CONSENTS_JSON) {
+  try { discordConsentRecords = JSON.parse(process.env.NAIA_DISCORD_CONSENTS_JSON); }
+  catch { discordConsentRecords = undefined; }
+}
+delete process.env.NAIA_DISCORD_CONSENTS_JSON;
+const discordGeneration = process.env.NAIA_DISCORD_GENERATION;
+const discordStatusPath = process.env.NAIA_DISCORD_STATUS_PATH;
+delete process.env.NAIA_DISCORD_GENERATION;
+delete process.env.NAIA_DISCORD_STATUS_PATH;
+let discordStatus;
+if (discordGeneration && discordStatusPath) {
+  try {
+    discordStatus = makeDiscordStatusFile({ generation: discordGeneration, path: discordStatusPath });
+    discordStatus.write("starting");
+  } catch {
+    discordStatus = undefined;
+  }
+}
+
 // ★ 라이브 reload(정본 R1-2 "startup-only 금지"): 사용자가 naia-os 에서 모델/프로바이더 교체 시 OS 가
 //   naia-settings(config.json) 갱신 후 SetWorkspace/ReloadSettings 재호출 → 여기서 재로딩해 handler 활성 config 를 swap.
 //   applyDefaultConfig 는 wireAgentUC1 반환(아래)으로 채워진다 — 클로저가 *호출 시점* 값을 보므로 선언 순서 무관.
 let currentAdkPath = adkPath;
+let activeProcessingConfig = defaultConfig;
+let activeMemoryProcessingConfig = currentAdkPath ? settingsStore.loadMemoryConfig(currentAdkPath) : null;
 let applyDefaultConfig = (_c) => {};
 const reloadConfigFrom = (path) => {
   const c = path ? (settingsStore.loadMain(path) ?? undefined) : undefined;
+  activeProcessingConfig = c;
+  activeMemoryProcessingConfig = path ? settingsStore.loadMemoryConfig(path) : null;
   applyDefaultConfig(c);
   process.stderr.write(`[naia-agent] settings reload → ${c ? `${c.provider}/${c.model}` : "none"} (adk=${path})\n`);
   return { loaded: !!c, provider: c?.provider ?? "", model: c?.model ?? "" };
@@ -116,6 +166,83 @@ const grpcServer = makeGrpcServer({
   onStopSpeechActivity: (sessionId, activityId) => profileRuntime?.stop(sessionId, activityId),
   diag,
 });
+let discordRuntime;
+let processingGuard;
+let discordStatusPoll;
+if (discordToken && discordConfig) {
+  try {
+    const dedupePath = process.env.NAIA_DISCORD_DEDUPE_PATH
+      || join(currentAdkPath || process.cwd(), "data-private", "discord", "dedupe.json");
+    const registration = Array.isArray(discordRegistrationSeeds) && discordRegistrationSeeds.length
+      ? makeFileDiscordRegistration({
+        path: process.env.NAIA_DISCORD_REGISTRATION_STATE_PATH
+          || join(currentAdkPath || process.cwd(), "data-private", "discord", "registrations.json"),
+        seeds: discordRegistrationSeeds,
+      })
+      : undefined;
+    const consents = Array.isArray(discordConsentRecords) && discordConsentRecords.length
+      ? makeFileDiscordConsentStore({
+        path: process.env.NAIA_DISCORD_CONSENT_STATE_PATH
+          || join(currentAdkPath || process.cwd(), "data-private", "discord", "consents.json"),
+        records: discordConsentRecords,
+      })
+      : undefined;
+    discordRuntime = new DiscordChannelRuntime({
+      gateway: makeDiscordGateway(),
+      token: { load: async () => discordToken },
+      dedupe: makeFileDiscordDedupe({ path: dedupePath }),
+      ...(registration ? { registration } : {}),
+      clock: makeSystemDiscordClock(),
+      text: makeDiscordRuntimeText(process.env.NAIA_DISCORD_LOCALE === "en" ? "en" : "ko"),
+      diag,
+    }, discordConfig);
+    const endpointFor = (config) => {
+      const route = resolveProviderRoute(config);
+      if (route === "lab-proxy") return labProxyBaseUrl(config);
+      if (route === "ollama") return nativeBaseUrl("ollama", config.ollamaHost);
+      if (route === "anthropic" || route === "claude-code") return anthropicBaseUrl(config);
+      return nativeBaseUrl(config.provider, config.labGatewayUrl || config.vllmHost);
+    };
+    processingGuard = makeProcessingGuard({
+      profiles: { get: (ref) => discordConfig.processingProfiles?.[ref] },
+      endpoints: {
+        resolve: (provider, workload) => {
+          if (workload === "memory_llm") {
+            const memoryLlm = activeMemoryProcessingConfig?.llm;
+            if (!memoryLlm || memoryLlm.provider === "none") return { url: "unix:/naia-memory-heuristic", zone: "unverified" };
+            if (!memoryLlm.baseUrl) return undefined;
+            return {
+              url: memoryLlm.baseUrl,
+              zone: isLocalEngineBaseUrl(memoryLlm.baseUrl) ? "private_managed" : "unverified",
+            };
+          }
+          if (workload === "embedding") {
+            const embedding = activeMemoryProcessingConfig?.embedding;
+            if (!embedding || embedding.provider === "none" || embedding.provider === "offline") {
+              return { url: "unix:/naia-memory-embedding", zone: "unverified" };
+            }
+            const url = embedding.baseUrl || embedding.naiaGatewayUrl;
+            if (!url) return undefined;
+            return { url, zone: isLocalEngineBaseUrl(url) ? "private_managed" : "unverified" };
+          }
+          const config = activeProcessingConfig;
+          if (!config || config.provider !== provider.provider || config.model !== provider.model) return undefined;
+          const url = endpointFor(config);
+          const localEngine = isLocalEngineBaseUrl(url);
+          const loopback = /^(?:https?:\/\/)?(?:localhost|127\.|\[?::1\]?)/i.test(url);
+          return { url, zone: localEngine && !loopback ? "private_managed" : "unverified" };
+        },
+      },
+      ...(consents ? { consents } : {}),
+    });
+  } catch {
+    diag.log("discord runtime", { code: "configuration_failed" });
+    try { discordStatus?.write("failed", "configuration_failed"); } catch { /* status observer isolation */ }
+  }
+} else if (discordToken || process.env.NAIA_DISCORD_BINDINGS_JSON) {
+  diag.log("discord runtime", { code: discordToken ? "bindings_invalid" : "token_unavailable" });
+  try { discordStatus?.write("failed", discordToken ? "bindings_invalid" : "token_unavailable"); } catch { /* observer isolation */ }
+}
 // panel executor 생성(egress 확보 후) + builtin 과 composite 합성. panel 도구 execute()=panel_tool_call emit→PanelToolResult 대기(E1, FR-PANEL-2/3).
 panelExec = makePanelToolExecutor({ egress: grpcServer.egress });
 toolExecutor = toolExecutor ? makeCompositeToolExecutor([toolExecutor, panelExec]) : panelExec;
@@ -170,7 +297,13 @@ profileRuntime = new SpeechProfileRuntime({
 // memory(makeNaiaMemory)는 MemoryPort + CompactionPort 둘 다 구현 → compaction 도 같은 인스턴스 주입(UC-compaction).
 // FR-PERSONA-3: personaSource 주입(코어가 워크스페이스 페르소나 조립). naia-os 는 chat_request 에 systemPrompt 를
 //   실어 보내므로 그 요청은 override 로 동작(당장 동작변화 없음) — 단 코어가 페르소나를 소유하는 단일 경로로 통일.
-const wired = wireAgentUC1({ ingress: grpcServer.ingress, egress: grpcServer.egress, speechProfiles: profileRuntime, credentials, diag, ...(provider ? { provider } : {}), ...(resolver ? { resolver } : {}), ...(toolExecutor ? { toolExecutor } : {}), ...(memory ? { memory } : {}), ...(memory ? { compaction: memory } : {}), ...(conversationLog ? { conversationLog } : {}), ...(personaSource ? { personaSource } : {}), ...(workspaceContextSource ? { workspaceContext: workspaceContextSource } : {}), ...(defaultConfig ? { defaultConfig } : {}) });
+const agentIngress = discordRuntime
+  ? makeCompositeAgentIngress([grpcServer.ingress, discordRuntime.ingress])
+  : grpcServer.ingress;
+const agentEgress = discordRuntime
+  ? makePrefixedAgentEgress([{ prefix: "discord:", egress: discordRuntime.egress }], grpcServer.egress)
+  : grpcServer.egress;
+const wired = wireAgentUC1({ ingress: agentIngress, egress: agentEgress, speechProfiles: profileRuntime, credentials, diag, ...(provider ? { provider } : {}), ...(resolver ? { resolver } : {}), ...(processingGuard ? { processingGuard } : {}), ...(toolExecutor ? { toolExecutor } : {}), ...(memory ? { memory } : {}), ...(memory ? { compaction: memory } : {}), ...(conversationLog ? { conversationLog } : {}), ...(personaSource ? { personaSource } : {}), ...(workspaceContextSource ? { workspaceContext: workspaceContextSource } : {}), ...(defaultConfig ? { defaultConfig } : {}) });
 applyDefaultConfig = wired.setDefaultConfig; // 라이브 reload 결선 — 이후 SetWorkspace/ReloadSettings 가 활성 config swap
 const { start, drain } = wired;
 start?.(); // ingress.onRequest(route) 등록 — gRPC 핸들러가 도메인 req 를 흘린다
@@ -186,7 +319,19 @@ try {
 }
 // ⚠️ stdout 한 줄 핸드셰이크(데이터 transport 아님) — Rust 가 이 addr 를 읽어 gRPC connect.
 process.stdout.write(`GRPC_LISTENING ${grpcAddr}\n`);
-process.stderr.write(`[naia-agent] grpc ready @${grpcAddr} (${label} provider, config: ${configLabel}, skills: ${skillsLabel}, memory: ${memoryLabel}, transcript: ${transcriptLabel})\n`);
+discordRuntime?.start();
+if (discordRuntime && discordStatus) {
+  let previous;
+  discordStatusPoll = setInterval(() => {
+    const state = discordRuntime.status().state;
+    const nativeState = state === "ready" ? "ready" : state === "terminal_error" ? "failed" : "starting";
+    if (nativeState === previous) return;
+    previous = nativeState;
+    try { discordStatus.write(nativeState, nativeState === "failed" ? "runtime_terminal" : undefined); }
+    catch { /* native supervisor will time out and reconcile */ }
+  }, 50);
+}
+process.stderr.write(`[naia-agent] grpc ready @${grpcAddr} (${label} provider, config: ${configLabel}, skills: ${skillsLabel}, memory: ${memoryLabel}, transcript: ${transcriptLabel}, discord: ${discordRuntime ? "enabled" : "disabled"})\n`);
 
 // stdin 닫히면 종료 — ⚠️ 순서: (1) drain(in-flight 턴 save 완료 대기) → (2) memory.close()(store flush)
 //   → (3) exit. naia-memory LocalAdapter 는 encode 를 in-memory 버퍼링하고 close() 에서 flush 하므로,
@@ -195,6 +340,9 @@ onShutdown = async () => {
   process.exitCode = 0;
   // ⚠️ 강제 종료 안전망을 *최상단*(await 전)에 설치 — drain/close/flush 어디서 hang 해도 종료를 보장한다.
   setTimeout(() => process.exit(0), 30000);
+  if (discordStatusPoll) clearInterval(discordStatusPoll);
+  try { await discordRuntime?.stop(); } catch { diag.log("discord runtime", { code: "shutdown_failed" }); }
+  try { discordStatus?.write("stopped"); } catch { /* native supervisor reconciles */ }
   try { if (drain) await drain(); } catch (e) { process.stderr.write(`[naia-agent] drain 실패: ${e instanceof Error ? e.message : String(e)}\n`); }
   try { await grpcServer.shutdown(); } catch (e) { process.stderr.write(`[naia-agent] grpc shutdown 실패: ${e instanceof Error ? e.message : String(e)}\n`); }
   // F2: MCP 자식 등 등록된 자원 정리(고아 누적 방지). 각 독립 try — 한 개 실패가 나머지/exit 를 막지 않게.

@@ -94,6 +94,116 @@
       "contract": "docs/progress/99.dev-comm/SECURITY-WIRE-V2-contract-2026-07-19.md",
       "note": "processing profile/ref, 처리 위치 disclosure, trusted binding/consent의 AI 비종속 fail-closed 순수 계약"
     },
+    "src/main/domain/processing-policy.ts": {
+      "layer": "domain",
+      "uc": [
+        "UC-SECURITY-WIRE-V2"
+      ],
+      "contract": "docs/progress/99.dev-comm/SECURITY-WIRE-V2-contract-2026-07-19.md",
+      "note": "endpoint 분류와 local_only/cloud_enabled/ask_before_external 처리 결정을 수행하는 순수 정책"
+    },
+    "src/main/adapters/processing-guard.ts": {
+      "layer": "adapters",
+      "uc": [
+        "UC-SECURITY-WIRE-V2"
+      ],
+      "contract": "docs/progress/99.dev-comm/SECURITY-WIRE-V2-contract-2026-07-19.md",
+      "note": "trusted profile/endpoint/consent store만으로 main/memory/embedding downstream을 사전 승인하고 disclosure를 생성"
+    },
+    "src/main/domain/discord-ingress-policy.ts": {
+      "layer": "domain",
+      "uc": [
+        "UC-DISCORD-RUNTIME"
+      ],
+      "contract": "docs/progress/99.dev-comm/discord-rag-prefreeze-policy-contract-2026-07-19.md",
+      "note": "인증된 Discord event의 ready/self/bot/정확 allowlist/호출 여부를 fail-closed 판정하는 순수 정책"
+    },
+    "src/main/domain/grounding-normalization.ts": {
+      "layer": "domain",
+      "uc": [
+        "UC-DISCORD-GROUNDING"
+      ],
+      "contract": "docs/progress/99.dev-comm/discord-rag-prefreeze-policy-contract-2026-07-19.md",
+      "note": "Discord required-grounding retrieval record와 출처를 bounded 구조로 정규화하는 순수 정책"
+    },
+    "src/main/ports/discord.ts": {
+      "layer": "ports",
+      "uc": [
+        "UC-DISCORD-RUNTIME"
+      ],
+      "contract": "docs/progress/99.dev-comm/discord-rag-prefreeze-policy-contract-2026-07-19.md",
+      "note": "Discord Gateway, token injection, binding-scoped durable reply state, friend registration, deterministic clock 경계"
+    },
+    "src/main/adapters/discord-gateway.ts": {
+      "layer": "adapters",
+      "uc": [
+        "UC-DISCORD-RUNTIME"
+      ],
+      "contract": "docs/progress/99.dev-comm/discord-rag-prefreeze-policy-contract-2026-07-19.md",
+      "note": "Discord Gateway v10 Identify/Resume/heartbeat/event와 abortable REST reply/rate-limit의 token 비저장 어댑터"
+    },
+    "src/main/adapters/discord-messages.ts": {
+      "layer": "adapters",
+      "uc": [
+        "UC-DISCORD-RUNTIME"
+      ],
+      "contract": "docs/progress/99.dev-comm/discord-rag-prefreeze-policy-contract-2026-07-19.md",
+      "note": "Discord 사용자 안전 오류·빈 응답·처리 위치 공개의 en/ko 동형 메시지 카탈로그"
+    },
+    "src/main/adapters/discord-dedupe-store.ts": {
+      "layer": "adapters",
+      "uc": [
+        "UC-DISCORD-RUNTIME"
+      ],
+      "contract": "docs/progress/99.dev-comm/discord-rag-prefreeze-policy-contract-2026-07-19.md",
+      "note": "binding+message별 reserved→replying(outbox cursor)→completed|partial을 원자 저장하는 bounded TTL durable reply state"
+    },
+    "src/main/adapters/discord-registration-store.ts": {
+      "layer": "adapters",
+      "uc": [
+        "UC-DISCORD-RUNTIME"
+      ],
+      "contract": "docs/progress/99.dev-comm/discord-rag-prefreeze-policy-contract-2026-07-19.md",
+      "note": "평문 code를 저장하지 않는 binding-scoped SHA-256 one-time friend registration과 expiry/atomic claim"
+    },
+    "src/main/adapters/discord-consent-store.ts": {
+      "layer": "adapters",
+      "uc": [
+        "UC-DISCORD-RUNTIME",
+        "UC-SECURITY-WIRE-V2"
+      ],
+      "contract": "docs/progress/99.dev-comm/SECURITY-WIRE-V2-contract-2026-07-19.md",
+      "note": "profile+destination+workload+session 전체 결속, expiry, one-time atomic consumption을 강제하는 trusted consent store"
+    },
+    "src/main/adapters/discord-status-file.ts": {
+      "layer": "adapters",
+      "uc": [
+        "UC-DISCORD-RUNTIME"
+      ],
+      "contract": "docs/progress/99.dev-comm/discord-rag-prefreeze-policy-contract-2026-07-19.md",
+      "note": "native supervisor용 secret-free generation lifecycle 상태를 0600 atomic rename으로 발행"
+    },
+    "src/main/adapters/discord-channel.ts": {
+      "layer": "adapters",
+      "uc": [
+        "UC-DISCORD-RUNTIME",
+        "UC-SECURITY-WIRE-V2"
+      ],
+      "contract": [
+        "docs/progress/99.dev-comm/discord-rag-prefreeze-policy-contract-2026-07-19.md",
+        "docs/progress/99.dev-comm/SECURITY-WIRE-V2-contract-2026-07-19.md"
+      ],
+      "note": "정확 binding/등록→security validation→binding durable state→AgentIngress와 user-scoped history/outbox reply/reconnect/status/stop runtime"
+    },
+    "src/main/adapters/agent-transport-mux.ts": {
+      "layer": "adapters",
+      "uc": [
+        "UC-DISCORD-RUNTIME",
+        "UC1"
+      ],
+      "contract": "docs/progress/99.dev-comm/discord-rag-prefreeze-policy-contract-2026-07-19.md",
+      "note": "gRPC와 Discord ingress를 합치고 discord request prefix의 egress만 해당 transport로 격리"
+    },
     "src/main/ports/uc1.ts": {
       "layer": "ports",
       "uc": [

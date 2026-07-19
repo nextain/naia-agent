@@ -96,7 +96,50 @@ describe("ChatTurnHandler processing guard", () => {
     });
   });
 
-  it("authorizes and discloses every provider round in a tool loop", async () => {
+  it("awaits the critical delivery acknowledgement before provider I/O", async () => {
+    const { deps, chat, request } = fixture("allowed");
+    let acknowledge!: (accepted: boolean) => void;
+    deps.egress.emitCritical = () => new Promise<boolean>((resolve) => { acknowledge = resolve; });
+    const pending = new ChatTurnHandler(deps).onChatRequest(request);
+    await Promise.resolve();
+    expect(chat).not.toHaveBeenCalled();
+    acknowledge(true);
+    await pending;
+    expect(chat).toHaveBeenCalledOnce();
+  });
+
+  it("authorizes main, memory LLM, and embedding before memory recall", async () => {
+    const { deps, request } = fixture("allowed");
+    const order: string[] = [];
+    const processingGuard: NonNullable<HandlerDeps["processingGuard"]> = {
+      authorize: (input) => {
+        order.push(`guard:${input.workload}`);
+        return {
+          workload: input.workload,
+          destination: "local_device",
+          decision: "allowed",
+          processingProfileRef: input.processingProfileRef,
+        };
+      },
+    };
+    deps.egress.emitCritical = async () => true;
+    const memory = {
+      recall: async () => {
+        order.push("memory:recall");
+        return { facts: [], episodes: [] };
+      },
+      save: async () => {},
+    };
+    await new ChatTurnHandler({ ...deps, processingGuard, memory }).onChatRequest(request);
+    expect(order.slice(0, 4)).toEqual([
+      "guard:main_llm",
+      "guard:memory_llm",
+      "guard:embedding",
+      "memory:recall",
+    ]);
+  });
+
+  it("authorizes and discloses before the first provider round in a tool loop", async () => {
     const { deps, emits, request } = fixture("allowed");
     let rounds = 0;
     const provider: ProviderPort = {
@@ -112,6 +155,6 @@ describe("ChatTurnHandler processing guard", () => {
     };
     await new ChatTurnHandler({ ...deps, provider, toolExecutor }).onChatRequest(request);
     expect(rounds).toBe(2);
-    expect(emits.filter((event) => event.kind === "processingDisclosure")).toHaveLength(2);
+    expect(emits.filter((event) => event.kind === "processingDisclosure")).toHaveLength(1);
   });
 });
