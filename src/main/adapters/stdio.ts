@@ -46,13 +46,19 @@ export function makeStdioIngress(
 
 /** egress: AgentEmit → encodeEmit → wire JSON-line. ⚠️ no-throw(wire 실패=로그, throw 금지). */
 export function makeStdioEgress(io: LineIO, onWriteError?: (err: unknown) => void): AgentEgressPort {
+  const write = (requestId: string, e: AgentEmit): boolean => {
+    try {
+      io.writeLine(JSON.stringify(encodeEmit(requestId, e)));
+      return true;
+    } catch (err) {
+      try { onWriteError?.(err); } catch { /* observer 격리 */ }
+      return false;
+    }
+  };
   return {
     emit(requestId: string, e: AgentEmit): void {
-      try {
-        io.writeLine(JSON.stringify(encodeEmit(requestId, e)));
-      } catch (err) {
-        try { onWriteError?.(err); } catch { /* observer 격리 */ }
-      }
+      void write(requestId, e);
     },
+    emitCritical: write,
   };
 }

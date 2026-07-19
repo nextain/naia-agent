@@ -1,6 +1,7 @@
 // ports — UC1 agent(brain) (계약 §B.2) + UC5 도구(§B.2). domain 만 의존.
 import type {
   ProviderConfig, ChatMessage, ProviderChunk, AgentEmit, AgentRequest, ToolSpec, ToolCall,
+  ProcessingDisclosure, ProcessingWorkload,
 } from "../domain/chat.js";
 import type { PersonaProfile } from "../domain/persona.js";
 import type { WorkspaceSnapshot } from "../domain/workspace-context.js";
@@ -22,6 +23,16 @@ export interface ProviderPort {
  *  단일 고정 provider 가 아닌 config 기반 라우팅(lab-proxy/native/ollama). old buildProvider 의 포트화. */
 export interface ProviderResolverPort {
   resolve(config: ProviderConfig): ProviderPort;
+}
+
+/** 일반 코드가 provider 호출 전에 처리 위치와 profile을 판정하는 포트. */
+export interface ProcessingGuardPort {
+  authorize(input: {
+    readonly processingProfileRef: string;
+    readonly workload: ProcessingWorkload;
+    readonly provider: { readonly provider: string; readonly model: string };
+    readonly sessionId: string;
+  }): ProcessingDisclosure;
 }
 
 /** UC5 도구 실행기(driven). agent 가 등록 도구를 실행. */
@@ -82,6 +93,8 @@ export interface AgentIngressPort {
 export interface AgentEgressPort {
   /** AgentEmit → wire AgentMessage writeLine. ⚠️ no-throw(실패=로그, throw 금지). */
   emit(requestId: string, e: AgentEmit): void;
+  /** 보안 disclosure처럼 downstream 선행이 필수인 event의 write 수락 여부. */
+  emitCritical?(requestId: string, e: AgentEmit): boolean;
 }
 
 /** out-of-band 진단(중복 requestId 등 — wire 아님). 표준 로깅 sink(docs/logging.md). console.* 직접 금지(check-logging 강제). */

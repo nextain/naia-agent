@@ -1,0 +1,117 @@
+import { describe, expect, it, vi } from "vitest";
+import { ChatTurnHandler, type HandlerDeps } from "../main/app/chat-turn-handler.js";
+import { makeInMemoryApproval } from "../main/adapters/approval.js";
+import type { AgentEmit, ChatRequest, ProviderChunk } from "../main/domain/chat.js";
+import type { ProviderPort } from "../main/ports/uc1.js";
+
+function fixture(decision: "allowed" | "blocked" | "confirmation_required", withGuard = true) {
+  const emits: AgentEmit[] = [];
+  const chat = vi.fn();
+  const provider: ProviderPort = {
+    chat() {
+      chat();
+      return (async function* (): AsyncIterable<ProviderChunk> {
+        yield { kind: "finish" };
+      })();
+    },
+  };
+  const deps: HandlerDeps = {
+    provider,
+    conversation: { assemble: (input) => input },
+    credentials: { get: () => undefined, update: () => {} },
+    approval: makeInMemoryApproval(),
+    egress: {
+      emit: (_requestId, event) => emits.push(event),
+      emitCritical: (_requestId, event) => {
+        emits.push(event);
+        return true;
+      },
+    },
+    diag: { log: () => {} },
+    ...(withGuard ? {
+      processingGuard: {
+        authorize: (input) => ({
+          workload: input.workload,
+          destination: "external_cloud" as const,
+          decision,
+          processingProfileRef: input.processingProfileRef,
+          provider: input.provider.provider,
+          model: input.provider.model,
+        }),
+      },
+    } : {}),
+  };
+  const request: ChatRequest = {
+    kind: "chat",
+    requestId: "request_1",
+    sessionId: "session_1",
+    provider: { provider: "openai", model: "gpt" },
+    messages: [{ role: "user", content: "hello" }],
+    processing: { processingProfileRef: "profile_1" },
+  };
+  return { deps, emits, chat, request };
+}
+
+describe("ChatTurnHandler processing guard", () => {
+  it("emits disclosure before an allowed provider call", async () => {
+    const { deps, emits, chat, request } = fixture("allowed");
+    await new ChatTurnHandler(deps).onChatRequest(request);
+    expect(chat).toHaveBeenCalledOnce();
+    expect(emits.map((event) => event.kind)).toEqual([
+      "processingDisclosure", "usage", "finish",
+    ]);
+  });
+
+  it.each([
+    ["blocked", "EXTERNAL_PROCESSING_FORBIDDEN"],
+    ["confirmation_required", "EXTERNAL_PROCESSING_CONFIRMATION_REQUIRED"],
+  ] as const)("emits disclosure then coded error and makes zero provider calls", async (decision, code) => {
+    const { deps, emits, chat, request } = fixture(decision);
+    await new ChatTurnHandler(deps).onChatRequest(request);
+    expect(chat).not.toHaveBeenCalled();
+    expect(emits.map((event) => event.kind)).toEqual([
+      "processingDisclosure", "usage", "error",
+    ]);
+    expect(emits.at(-1)).toMatchObject({ kind: "error", code });
+  });
+
+  it("fails closed when processing metadata has no guard", async () => {
+    const { deps, emits, chat, request } = fixture("allowed", false);
+    await new ChatTurnHandler(deps).onChatRequest(request);
+    expect(chat).not.toHaveBeenCalled();
+    expect(emits.at(-1)).toMatchObject({
+      kind: "error",
+      code: "PROCESSING_DESTINATION_UNKNOWN",
+    });
+  });
+
+  it("makes zero provider calls when critical disclosure delivery fails", async () => {
+    const { deps, emits, chat, request } = fixture("allowed");
+    deps.egress.emitCritical = () => false;
+    await new ChatTurnHandler(deps).onChatRequest(request);
+    expect(chat).not.toHaveBeenCalled();
+    expect(emits.at(-1)).toMatchObject({
+      kind: "error",
+      code: "PROCESSING_DESTINATION_UNKNOWN",
+    });
+  });
+
+  it("authorizes and discloses every provider round in a tool loop", async () => {
+    const { deps, emits, request } = fixture("allowed");
+    let rounds = 0;
+    const provider: ProviderPort = {
+      async *chat(): AsyncIterable<ProviderChunk> {
+        rounds += 1;
+        if (rounds === 1) yield { kind: "toolUse", id: "call_1", name: "echo", args: {} };
+        yield { kind: "finish" };
+      },
+    };
+    const toolExecutor = {
+      specs: () => [{ name: "echo", description: "echo", parameters: {} }],
+      execute: async () => ({ output: "ok" }),
+    };
+    await new ChatTurnHandler({ ...deps, provider, toolExecutor }).onChatRequest(request);
+    expect(rounds).toBe(2);
+    expect(emits.filter((event) => event.kind === "processingDisclosure")).toHaveLength(2);
+  });
+});

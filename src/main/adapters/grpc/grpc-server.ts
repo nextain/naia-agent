@@ -107,6 +107,20 @@ export function makeGrpcServer(deps: GrpcServerDeps): GrpcServer {
         try { call.end(); } catch { /* 이미 닫힘 */ }
       }
     },
+    emitCritical(requestId: string, e: AgentEmit): boolean {
+      const call = active.get(requestId);
+      if (!call) {
+        safeLog("grpc critical egress: 활성 stream 없음(드롭)", { requestId, kind: e.kind });
+        return false;
+      }
+      try {
+        call.write(emitToProto(requestId, e));
+        return true;
+      } catch (err) {
+        safeLog("grpc critical egress write 실패", err);
+        return false;
+      }
+    },
   };
 
   const activityEgress: GrpcServer["activityEgress"] = {

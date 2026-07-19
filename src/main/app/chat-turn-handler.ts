@@ -1,12 +1,12 @@
 // app — UC1 ChatTurnHandler + UC5 도구 실행 루프 (계약 §B.3 + UC5-agent-tool-loop §B.3). 포트만 사용. domain 만.
 // 불변식: usage=terminal 직전 1회(라운드 스냅샷 합)·이후 무방출 / finish XOR error(terminal 래치) / 레지스트리 finally 해제 / emit no-throw.
 import type {
-  ChatRequest, CancelRequest, ApprovalResponse, CredsUpdate, ChatTurnState, ChatMessage, ToolCall, ToolSpec, ProviderConfig,
+  ChatRequest, CancelRequest, ApprovalResponse, CredsUpdate, ChatTurnState, ChatMessage, ToolCall, ToolSpec, ProviderConfig, WireErrorCode,
 } from "../domain/chat.js";
 import { mapProviderChunk, threadToolRound, estimateMessageTokens } from "../domain/chat.js";
 import { calculateCost } from "../domain/cost.js";
 import type {
-  ProviderPort, ProviderResolverPort, ConversationPort, CredentialPort, ApprovalPort, AgentEgressPort, DiagnosticLog, ToolExecutorPort, ProviderChatOpts, PersonaSourcePort, WorkspaceContextPort,
+  ProviderPort, ProviderResolverPort, ProcessingGuardPort, ConversationPort, CredentialPort, ApprovalPort, AgentEgressPort, DiagnosticLog, ToolExecutorPort, ProviderChatOpts, PersonaSourcePort, WorkspaceContextPort,
 } from "../ports/uc1.js";
 import type { MemoryPort } from "../ports/memory.js";
 import type { CompactionPort } from "../ports/compaction.js";
@@ -88,6 +88,8 @@ export interface HandlerDeps {
   readonly provider: ProviderPort;
   /** 요청별 provider 해석(config 기반 라우팅). 주입 시 runRound 가 resolver.resolve(cfg) 사용. */
   readonly resolver?: ProviderResolverPort;
+  /** 처리 metadata가 있는 요청의 downstream 호출 전 결정론적 정책 gate. */
+  readonly processingGuard?: ProcessingGuardPort;
   readonly conversation: ConversationPort;
   readonly credentials: CredentialPort;
   readonly approval: ApprovalPort;
@@ -177,7 +179,14 @@ export class ChatTurnHandler {
     const costProvider = activeConfig?.provider; // 구독형(claude-code-cli) = $0 분기용(동일 model ID anthropic 과 구별).
     // terminal 래치(usage 중복 emit 원천 차단 — 두 종결 모두 이 헬퍼만 사용).
     const terminalFinish = () => { if (!sawTerminal) { emit({ kind: "usage", ...totalUsage, cost: calculateCost(costModel, totalUsage.inputTokens, totalUsage.outputTokens, costProvider), model: costModel }); emit({ kind: "finish" }); sawTerminal = true; t.state = "finished"; } };
-    const terminalError = (message: string) => { if (!sawTerminal) { emit({ kind: "usage", ...totalUsage, cost: calculateCost(costModel, totalUsage.inputTokens, totalUsage.outputTokens, costProvider), model: costModel }); emit({ kind: "error", message }); sawTerminal = true; t.state = "errored"; } };
+    const terminalError = (message: string, code?: WireErrorCode) => {
+      if (!sawTerminal) {
+        emit({ kind: "usage", ...totalUsage, cost: calculateCost(costModel, totalUsage.inputTokens, totalUsage.outputTokens, costProvider), model: costModel });
+        emit({ kind: "error", message, ...(code ? { code } : {}) });
+        sawTerminal = true;
+        t.state = "errored";
+      }
+    };
 
     try {
       if (!activeConfig) { terminalError("no provider configured — naia-settings/llm.json 도 wire provider 도 없음"); return; }
@@ -185,6 +194,41 @@ export class ChatTurnHandler {
         ...activeConfig,
         ...(req.enableThinking !== undefined ? { enableThinking: req.enableThinking } : {}),
         ...(this.d.credentials.get(activeConfig.provider) ?? {}),
+      };
+      const authorizeMainLlmOperation = (): boolean => {
+        if (!req.processing) return true;
+        if (!this.d.processingGuard) {
+          terminalError("processing policy guard is not configured", "PROCESSING_DESTINATION_UNKNOWN");
+          return false;
+        }
+        let disclosure;
+        try {
+          disclosure = this.d.processingGuard.authorize({
+            processingProfileRef: req.processing.processingProfileRef,
+            workload: "main_llm",
+            provider: { provider: activeConfig.provider, model: activeConfig.model },
+            sessionId: req.sessionId ?? "default",
+          });
+        } catch {
+          terminalError("processing destination could not be classified", "PROCESSING_DESTINATION_UNKNOWN");
+          return false;
+        }
+        const disclosureAccepted = this.d.egress.emitCritical?.(
+          req.requestId,
+          { kind: "processingDisclosure", ...disclosure },
+        ) ?? false;
+        if (!disclosureAccepted) {
+          terminalError("processing disclosure delivery failed", "PROCESSING_DESTINATION_UNKNOWN");
+          return false;
+        }
+        if (disclosure.decision !== "allowed") {
+          const code = disclosure.decision === "blocked"
+            ? "EXTERNAL_PROCESSING_FORBIDDEN"
+            : "EXTERNAL_PROCESSING_CONFIRMATION_REQUIRED";
+          terminalError(code, code);
+          return false;
+        }
+        return true;
       };
       // UC-compaction(FR-COMPACT): assemble 전 예산 압박이면 head 를 memory 가 요약(recap)해 교체(정보보존).
       // 미주입/임계이하/실패 = 원본(budgeted-conversation 이 최종 드롭 가드). recap 은 아래 systemPrompt 에 주입.
@@ -285,6 +329,7 @@ export class ChatTurnHandler {
       for (;;) {
         if (sawTerminal) break;
         if (signal.aborted) { terminalError("cancelled"); break; }                 // (a) provider 호출 전 가드
+        if (!authorizeMainLlmOperation()) break;
         const roundTools = controlConsumed ? externalTools : tools;
         const round = await this.runRound(providerConfig, messages, memSystemPrompt, roundTools, signal, emit);
         if (round.usage) { totalUsage.inputTokens += round.usage.inputTokens; totalUsage.outputTokens += round.usage.outputTokens; } // 라운드 스냅샷 1회 합산
