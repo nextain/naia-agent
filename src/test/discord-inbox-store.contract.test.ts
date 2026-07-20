@@ -46,6 +46,15 @@ describe("FR-DISCORD.5/6 — owner-only inbox cache", () => {
     if (process.platform !== "win32") expect(statSync(path).mode & 0o777).toBe(0o600);
   });
 
+  it("treats replay of the same recordId as an idempotent append", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "naia-discord-inbox-")), "inbox.json");
+    const inbox = makeFileDiscordInbox({ path, generation: "generation_1" });
+    await expect(inbox.append(record(1))).resolves.toBe(true);
+    await expect(inbox.append(record(1))).resolves.toBe(true);
+    expect(JSON.parse(readFileSync(path, "utf8")).channels["binding_1:100:200"])
+      .toEqual([record(1)]);
+  });
+
   it("quarantines corruption and starts an empty future-event cache", async () => {
     const path = join(mkdtempSync(join(tmpdir(), "naia-discord-inbox-")), "inbox.json");
     writeFileSync(path, "{not-json", { mode: 0o600 });

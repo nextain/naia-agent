@@ -5,10 +5,10 @@ describe("T-DISCORD-RT-02/05 — production entry wiring", () => {
   const entry = readFileSync(new URL("../../scripts/builds/agent-stdio-entry.mjs", import.meta.url), "utf8");
 
   it("removes the injected token from process.env and never writes it to config", () => {
-    expect(entry).toContain('process.env.NAIA_DISCORD_TOKEN_STDIN === "1"');
-    expect(entry).toContain('line.startsWith("NAIA_DISCORD_TOKEN ")');
-    expect(entry).toContain("const discordToken = await discordTokenFromStdin");
-    expect(entry).toContain("delete process.env.NAIA_DISCORD_TOKEN_STDIN");
+    expect(entry).toContain('process.env.NAIA_DISCORD_TOKEN_PIPE === "stdin"');
+    expect(entry).toContain("const discordToken = await discordTokenFromSecretPipe");
+    expect(entry).toContain("delete process.env.NAIA_DISCORD_TOKEN_PIPE");
+    expect(entry).not.toContain('line.startsWith("NAIA_DISCORD_TOKEN ")');
     expect(entry).not.toContain("NAIA_DISCORD_BOT_TOKEN");
     expect(entry).not.toMatch(/writeFile[^\\n]*discordToken/);
     expect(entry).toContain("delete process.env.NAIA_DISCORD_GENERATION");

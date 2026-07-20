@@ -2,7 +2,6 @@
 // agent-stdio-entry — new-naia-agent(brain) 를 **gRPC transport** 로 구동하는 진입점(naia-os 가 spawn → connect).
 // transport-독립 런타임 deps 는 compose-agent-deps.mjs(CLI host 와 공유, NFR-CLI-shared) — 여기선 gRPC server +
 // panel(환경 위임, egress 필요) + 라이브 reload + 종료(drain/flush) 등 **gRPC host 관심사**만 배선.
-import { createInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { wireAgentUC1 } from "../../dist/main/composition/index.js";
@@ -40,54 +39,41 @@ import {
 } from "../../dist/main/adapters/knowledge-compile.js";
 import { composeAgentRuntimeDeps } from "./compose-agent-deps.mjs";
 
-// process stdin/stdout → LineIO. ⚠️ readline 은 즉시 시작하지만 라우터/종료 핸들러는 비동기 init(동적
-// import 등) *후* 등록된다 → init 중 도착한 입력·EOF 가 유실되지 않게 **boot 큐 + EOF latch** 로 보존.
-const rl = createInterface({ input: process.stdin });
-const discordTokenFromStdin = process.env.NAIA_DISCORD_TOKEN_STDIN === "1"
+// gRPC host에서 stdin은 일반 명령 transport가 아니다. Shell이 이 자식 전용 익명 파이프에 토큰 원문만
+// 한 번 쓰고 즉시 닫는다. line protocol과 섞지 않으며 argv/env/config 파일에도 토큰을 남기지 않는다.
+const discordTokenFromSecretPipe = process.env.NAIA_DISCORD_TOKEN_PIPE === "stdin"
   ? new Promise((resolve) => {
-    const timer = setTimeout(() => resolve(undefined), 10_000);
-    rl.once("line", (line) => {
+    const chunks = [];
+    let size = 0;
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
-      if (!line.startsWith("NAIA_DISCORD_TOKEN ")) return resolve(undefined);
-      try {
-        const token = Buffer.from(line.slice("NAIA_DISCORD_TOKEN ".length), "base64").toString("utf8");
-        resolve(token.length >= 1 && token.length <= 512 ? token : undefined);
-      } catch {
-        resolve(undefined);
+      process.stdin.removeAllListeners();
+      resolve(value);
+    };
+    const timer = setTimeout(() => finish(undefined), 10_000);
+    process.stdin.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > 512) {
+        finish(undefined);
+        process.stdin.destroy();
+        return;
       }
+      chunks.push(chunk);
     });
+    process.stdin.once("end", () => {
+      const token = Buffer.concat(chunks).toString("utf8");
+      finish(token.length >= 1 && token.length <= 512 ? token : undefined);
+    });
+    process.stdin.once("error", () => finish(undefined));
   })
   : Promise.resolve(undefined);
-let discardDiscordTokenLine = process.env.NAIA_DISCORD_TOKEN_STDIN === "1";
-delete process.env.NAIA_DISCORD_TOKEN_STDIN;
-let lineCb = null;
-const bootQueue = []; // start() 전 도착한 줄 보관(첫 요청 유실 방지)
-const BOOT_QUEUE_MAX = 1000;             // init 중 큐 라인 수 상한
-const BOOT_QUEUE_MAX_BYTES = 8 * 1024 * 1024; // init 중 큐 byte 상한(라인 수만으론 거대 라인 메모리 고갈 못 막음)
-let bootBytes = 0;
-const io = {
-  writeLine: (line) => { process.stdout.write(line + "\n"); },
-  // 구독 시 큐 드레인 후 stdin resume(backpressure 해제) — boot 중 paused 였어도 ready 되면 흐름 재개.
-  onLine: (cb) => { lineCb = cb; for (const l of bootQueue.splice(0)) cb(l); bootBytes = 0; rl.resume(); return () => { lineCb = null; }; },
-};
-// ⚠️ 드롭 대신 **backpressure** — 큐가 상한(라인 수 또는 byte)에 닿으면 stdin 을 pause 한다(요청 무손실 →
-// terminal 불변식 무영향; OS 파이프가 버퍼링, ready 시 resume). 드롭+부분 error 방출은 control frame 오방출·
-// 중복 terminal 위험이라 채택 안 함. (단일 무한 라인은 readline 자체 한계로 agent 전역 이슈, 이 UC 밖.)
-rl.on("line", (l) => {
-  if (discardDiscordTokenLine) {
-    discardDiscordTokenLine = false;
-    return;
-  }
-  if (lineCb) { lineCb(l); return; }
-  bootQueue.push(l); bootBytes += l.length;
-  if (bootQueue.length >= BOOT_QUEUE_MAX || bootBytes >= BOOT_QUEUE_MAX_BYTES) rl.pause();
-});
-// EOF latch — close 가 shutdown 등록 전에 발생하면 보류했다가 등록 시 실행(조기 EOF 에 flush 누락 방지).
+delete process.env.NAIA_DISCORD_TOKEN_PIPE;
 let onShutdown = null;
 // 종료 시 정리할 자원(자식 프로세스·소켓 등) 핸들 — compose 후 deps.cleanupFns 로 교체(최상단 핸들러가 정리, F2).
 let cleanupFns = [];
-// ⚠️ gRPC transport: stdin 은 데이터 채널 아님 → stdin EOF 는 종료 신호가 아니다(서버는 SIGTERM/SIGINT 까지 생존).
-rl.on("close", () => { /* no-op — gRPC 모드: EOF≠shutdown */ });
 
 // ── transport-독립 런타임 deps = 공유 빌더(CLI host 와 literally 동일, NFR-CLI-shared) ──
 const deps = await composeAgentRuntimeDeps();
@@ -97,10 +83,10 @@ let { toolExecutor } = deps;
 const { memory, memoryLabel, conversationLog, transcriptLabel, diag, personaSource, workspaceContextSource, knowledgeBackend } = deps;
 let skillsLabel = deps.skillsLabel;
 
-// 개인 Discord bot credential은 host(Shell keychain)가 시작 직후 stdin one-shot frame으로 주입한다.
+// 개인 Discord bot credential은 host(Shell keychain)가 시작 직후 secret-only 익명 파이프로 주입한다.
 // 환경변수·일반 설정·파일에는 평문 토큰을 두지 않는다. gRPC 모드의 stdin은 데이터 transport가 아니므로
-// 이 첫 frame을 소비한 뒤 EOF가 와도 런타임은 계속 생존한다.
-const discordToken = await discordTokenFromStdin;
+// 토큰 바이트를 소비한 뒤 EOF가 와도 런타임은 계속 생존한다.
+const discordToken = await discordTokenFromSecretPipe;
 let discordConfig;
 if (process.env.NAIA_DISCORD_BINDINGS_JSON) {
   try { discordConfig = parseDiscordRuntimeConfig(JSON.parse(process.env.NAIA_DISCORD_BINDINGS_JSON)); }

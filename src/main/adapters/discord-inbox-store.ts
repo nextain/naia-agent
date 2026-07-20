@@ -139,7 +139,12 @@ export function makeFileDiscordInbox(options: DiscordInboxStoreOptions): Discord
       queue = queue.then(() => {
         const key = channelKey(record);
         const channels = { ...document.channels };
-        const records = [...(channels[key] ?? []), { ...record }];
+        const existing = channels[key] ?? [];
+        if (existing.some((item) => item.recordId === record.recordId)) {
+          result = true;
+          return;
+        }
+        const records = [...existing, { ...record }];
         while (records.length > maxRecords
           || Buffer.byteLength(JSON.stringify(records), "utf8") > maxBytes) {
           records.shift();

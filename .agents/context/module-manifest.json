@@ -199,6 +199,14 @@
       "contract": "docs/progress/99.dev-comm/discord-rag-prefreeze-policy-contract-2026-07-19.md",
       "note": "native supervisor용 secret-free generation lifecycle 상태를 0600 atomic rename으로 발행"
     },
+    "src/main/adapters/discord-inbox-store.ts": {
+      "layer": "adapters",
+      "uc": [
+        "UC-DISCORD-RUNTIME"
+      ],
+      "contract": "docs/progress/99.dev-comm/discord-rag-prefreeze-policy-contract-2026-07-19.md",
+      "note": "정책·중복 제거 통과 메시지만 binding별 owner-only bounded cache에 원자 저장하고 replay recordId를 멱등 처리"
+    },
     "src/main/adapters/discord-generation-authority.ts": {
       "layer": "adapters",
       "uc": [

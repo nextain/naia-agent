@@ -408,21 +408,6 @@ export class DiscordChannelRuntime {
     const allowedUserIds = binding
       ? [...binding.allowedUserIds, ...(registered ? [message.authorId] : [])]
       : [];
-    if (binding && selfUserId && !message.authorIsBot && message.authorId !== selfUserId
-      && allowedUserIds.includes(message.authorId)
-      && message.content.length >= 1 && message.content.length <= MAX_INPUT_CHARS) {
-      await this.recordInbox({
-        recordId: `incoming_${message.messageId}`,
-        direction: "incoming",
-        bindingId: binding.bindingId,
-        guildId: binding.guildId,
-        channelId: binding.channelId,
-        sourceMessageId: message.messageId,
-        authorId: message.authorId,
-        content: message.content,
-        createdAt: this.deps.clock.now(),
-      });
-    }
     const decision = evaluateDiscordIngress({
       readySelfUserId: selfUserId,
       messageId: message.messageId,
@@ -505,6 +490,17 @@ export class DiscordChannelRuntime {
       this.deps.diag.debug?.("discord ingress rejected", { reason: "dedupe_rejected" });
       return;
     }
+    await this.recordInbox({
+      recordId: `incoming_${message.messageId}`,
+      direction: "incoming",
+      bindingId: binding.bindingId,
+      guildId: binding.guildId,
+      channelId: binding.channelId,
+      sourceMessageId: message.messageId,
+      authorId: message.authorId,
+      content: message.content,
+      createdAt: this.deps.clock.now(),
+    });
     const requestId = `${REQUEST_PREFIX}${binding.bindingId}:${message.messageId}`;
     const sessionId = `discord:${binding.bindingId}:${binding.guildId}:${binding.channelId}:${message.authorId}`;
     const previous = this.touchHistory(sessionId);

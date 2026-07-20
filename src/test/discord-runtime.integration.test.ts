@@ -409,7 +409,7 @@ describe("T-DISCORD-RT-01/02 — authenticated ingress to existing chat pipeline
     await paused.runtime.stop();
   });
 
-  it("records allowed incoming messages while paused and confirmed outgoing replies", async () => {
+  it("does not read paused messages and records accepted incoming plus confirmed outgoing replies", async () => {
     const records: DiscordInboxRecord[] = [];
     const inbox: DiscordInboxPort = {
       append: async (record) => {
@@ -420,14 +420,8 @@ describe("T-DISCORD-RT-01/02 — authenticated ingress to existing chat pipeline
     const paused = makeHarness({ participation: "paused", inbox });
     await waitFor(() => paused.gateway.handlers.length === 1);
     paused.gateway.message({ messageId: "paused-message" });
-    await waitFor(() => records.length === 1);
-    expect(records[0]).toMatchObject({
-      recordId: "incoming_paused-message",
-      direction: "incoming",
-      bindingId: "binding_1",
-      channelId: "200",
-      authorId: "300",
-    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(records).toHaveLength(0);
     expect(answerReplies(paused.gateway.connections[0]!)).toHaveLength(0);
     await paused.runtime.stop();
 
