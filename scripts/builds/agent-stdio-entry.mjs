@@ -54,7 +54,7 @@ const { makeCompositeAgentIngress, makePrefixedAgentEgress } =
   await import("../../dist/main/adapters/agent-transport-mux.js");
 const { DiscordChannelRuntime, makeSystemDiscordClock, parseDiscordRuntimeConfig } =
   await import("../../dist/main/adapters/discord-channel.js");
-const { makeFileDiscordDedupe } =
+const { makeFileDiscordDedupe, repairFileDiscordDedupeLock } =
   await import("../../dist/main/adapters/discord-dedupe-store.js");
 const { makeDiscordGateway } =
   await import("../../dist/main/adapters/discord-gateway.js");
@@ -240,6 +240,8 @@ if (discordToken && discordConfig && discordAuthority) {
         records: discordConsentRecords,
       })
       : undefined;
+    // Shell serializes Agent startup; repair is intentionally unavailable to concurrent runtime writers.
+    repairFileDiscordDedupeLock(dedupePath);
     discordRuntime = new DiscordChannelRuntime({
       gateway: makeDiscordGateway(),
       token: { load: async () => discordToken },
