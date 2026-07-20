@@ -3,7 +3,7 @@ import { buildSubLlmProvider } from "../main/adapters/sub-llm-provider.js";
 
 /**
  * Phase 3.2 — SubLlmPort first-class 표면 계약. sub-LLM 배치(adk-batch·경량) 호출.
- * memoryLlmConfig(naia/vllm/ollama) → OpenAI-compat 비스트리밍. 미구성=undefined(호출처 폴백).
+ * 독립 SubLlmConfig → OpenAI-compat 비스트리밍. 미구성=undefined(호출처 폴백).
  */
 function makeFetch(impl: (url: string, body: unknown) => { ok: boolean; status: number; payload: unknown }) {
 	return vi.fn(async (url: string, init: { body: string }) => {
@@ -59,6 +59,28 @@ describe("SubLlmPort.complete — OpenAI-compat 비스트리밍 호출", () => {
 		// authorization header(apiKey 있음).
 		const init = (fetchFn.mock.calls[0] as unknown[])[1] as { headers: Record<string, string> };
 		expect(init.headers.authorization).toBe("Bearer k");
+	});
+
+	it("Naia gateway auth는 Authorization이 아니라 X-AnyLLM-Key를 사용", async () => {
+		const fetchFn = makeFetch(() => ({
+			ok: true,
+			status: 200,
+			payload: { choices: [{ message: { content: "ok" } }] },
+		}));
+		const p = buildSubLlmProvider(
+			{
+				provider: "nextain",
+				baseUrl: "https://api.nextain.io/v1",
+				model: "gemini-3.1-flash-lite",
+				apiKey: "naia-key",
+				auth: "x-anyllm",
+			},
+			{ fetch: fetchFn },
+		)!;
+		await p.complete("hi", { authorizeAndDisclose: allow });
+		const init = (fetchFn.mock.calls[0] as unknown[])[1] as { headers: Record<string, string> };
+		expect(init.headers["X-AnyLLM-Key"]).toBe("Bearer naia-key");
+		expect(init.headers.authorization).toBeUndefined();
 	});
 
 	it("HTTP 실패 → throw(호출처 폴백 결정)", async () => {

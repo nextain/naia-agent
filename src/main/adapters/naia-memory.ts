@@ -61,7 +61,8 @@ export interface NaiaMemoryOpts {
 /** 메모리 LLM(사실추출) 선택 — os 메모리 UI(memoryLlmProvider 등). baseUrl/apiKey/model 은 provider 별로
  *  loadMemoryConfig 가 정규화(naia=게이트웨이, vllm/ollama=로컬). buildMemoryFactExtractor 는 OpenAI-compat 단일 경로. */
 export interface MemoryLlmConfig {
-  readonly provider: "none" | "vllm" | "ollama" | "naia";
+  /** provider 선택은 Agent registry 소유. naia-memory에는 생성된 좁은 포트를 주입하는 방향으로 이행한다. */
+  readonly provider: string;
   /** OpenAI-compat chat/completions base URL(provider!="none" 필수, /chat/completions 제외). */
   readonly baseUrl?: string;
   /** API key(로컬 서버는 빈 값 허용; naia=게이트웨이 키). */
