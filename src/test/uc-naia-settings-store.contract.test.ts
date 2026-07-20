@@ -34,6 +34,10 @@ describe("loadMain — config.json (naia-os 셸 정본 포맷; 키는 키체인=
 		expect(store({ [CONFIG]: JSON.stringify({ provider: "ollama", model: "gemma3:4b", ollamaHost: "http://localhost:11434" }) }).loadMain("/ws"))
 			.toEqual({ provider: "ollama", model: "gemma3:4b", ollamaHost: "http://localhost:11434" });
 	});
+	it("4060 profile Ollama config preserves num_gpu=0", () => {
+		expect(store({ [CONFIG]: JSON.stringify({ provider: "ollama", model: "dna3:latest", ollamaNumGpu: 0 }) }).loadMain("/ws"))
+			.toEqual({ provider: "ollama", model: "dna3:latest", ollamaNumGpu: 0 });
+	});
 	it("★ native provider: config.json naiaGatewayUrl 무시(nextain 전용) — stale 게이트웨이 오라우팅 방지(적대적 리뷰 MEDIUM)", () => {
 		expect(store({ [CONFIG]: JSON.stringify({ provider: "openai", model: "gpt-4o", naiaGatewayUrl: "https://stale-gw/v1" }) }).loadMain("/ws"))
 			.toEqual({ provider: "openai", model: "gpt-4o" }); // labGatewayUrl 미적용 → nativeBaseUrl 기본(api.openai.com)

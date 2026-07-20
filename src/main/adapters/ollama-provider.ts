@@ -102,7 +102,13 @@ export function makeOllamaProvider(deps?: { fetch?: FetchLike }): ProviderPort {
           model: config.model,
           messages: wireMsgs,
           stream: true,
-          options: { temperature: 0.7, num_ctx: config.ollamaNumCtx ?? DEFAULT_NUM_CTX },
+		  options: {
+			temperature: 0.7,
+			num_ctx: config.ollamaNumCtx ?? DEFAULT_NUM_CTX,
+			...(config.ollamaNumGpu !== undefined
+				? { num_gpu: config.ollamaNumGpu }
+				: {}),
+		  },
           ...(includeTools ? { tools: toolsBody } : {}),
         };
         if (config.enableThinking !== undefined) body.think = config.enableThinking; // 명시 시만(미지원 모델 에러 방지)

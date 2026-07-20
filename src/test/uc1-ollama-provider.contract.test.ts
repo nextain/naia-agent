@@ -37,6 +37,13 @@ const cfg: ProviderConfig = { provider: "ollama", model: "gemma4", ollamaHost: "
 async function collect(gen: AsyncIterable<ProviderChunk>) { const out: ProviderChunk[] = []; for await (const c of gen) out.push(c); return out; }
 
 describe("makeOllamaProvider (native /api/chat, mock fetch)", () => {
+	it("forwards a CPU-only Ollama profile as num_gpu=0", async () => {
+		const fetch = mockFetch([JSON.stringify({ done: true }) + "\n"]);
+		await collect(makeOllamaProvider({ fetch: fetch as never }).chat(
+			{ ...cfg, ollamaNumGpu: 0 }, [{ role: "user", content: "hi" }], {},
+		));
+		expect((fetch.bodies[0] as { options: Record<string, unknown> }).options.num_gpu).toBe(0);
+	});
   it("NDJSON content delta → per-chunk text 스트림 + usage + finish", async () => {
     const lines = [
       JSON.stringify({ message: { content: "안녕" } }) + "\n",

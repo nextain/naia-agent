@@ -126,7 +126,7 @@ const NAIA_MEMORY_LLM_DEFAULT_MODEL = "gemini-3.1-flash-lite";
 function assembleConfig(
 	provider: string,
 	model: string,
-	opts: { secret?: string; baseUrl?: string; ollamaHost?: string; vllmHost?: string },
+	opts: { secret?: string; baseUrl?: string; ollamaHost?: string; ollamaNumGpu?: number; vllmHost?: string },
 ): ProviderConfig {
 	const base = { provider, model };
 	const route = resolveProviderRoute(base);
@@ -134,7 +134,11 @@ function assembleConfig(
 		return { ...base, ...(opts.secret ? { naiaKey: opts.secret } : {}), ...(opts.baseUrl ? { labGatewayUrl: opts.baseUrl } : {}) };
 	}
 	if (route === "ollama") {
-		return { ...base, ...(opts.ollamaHost ?? opts.baseUrl ? { ollamaHost: opts.ollamaHost ?? opts.baseUrl } : {}) };
+		return {
+			...base,
+			...(opts.ollamaHost ?? opts.baseUrl ? { ollamaHost: opts.ollamaHost ?? opts.baseUrl } : {}),
+			...(opts.ollamaNumGpu !== undefined ? { ollamaNumGpu: opts.ollamaNumGpu } : {}),
+		};
 	}
 	if (route === "anthropic") {
 		// Messages API(anthropic) — 키는 credentials 포트(키체인 ANTHROPIC_API_KEY)가 chat 시 공급.
@@ -200,6 +204,10 @@ export function makeNaiaSettingsStore(deps: {
 		const model = typeof c["model"] === "string" ? (c["model"] as string) : "";
 		if (!provider || !model) { log("naia-settings.config.incomplete", { file }); return null; }
 		const str = (k: string) => (typeof c[k] === "string" ? (c[k] as string) : undefined);
+		const nonNegativeInt = (k: string) =>
+			typeof c[k] === "number" && Number.isInteger(c[k]) && c[k] >= 0
+				? (c[k] as number)
+				: undefined;
 		// ⚠️ naiaGatewayUrl/NAIA_ANYLLM_BASE_URL = nextain(lab-proxy 게이트웨이) **전용** 필드. native provider(openai/
 		//    gemini/xai/zai 등)엔 적용하면 안 됨 — config 에 stale naiaGatewayUrl 이 남은 채 provider 를 native 로 바꾸면
 		//    그 native 호출이 stale 게이트웨이로 **조용히 오라우팅**(적대적 리뷰 MEDIUM). native 커스텀 host=vllmHost/
@@ -208,6 +216,9 @@ export function makeNaiaSettingsStore(deps: {
 		return assembleConfig(provider, model, {
 			...(baseUrl ? { baseUrl } : {}),
 			...(str("ollamaHost") ? { ollamaHost: str("ollamaHost")! } : {}),
+			...(nonNegativeInt("ollamaNumGpu") !== undefined
+				? { ollamaNumGpu: nonNegativeInt("ollamaNumGpu")! }
+				: {}),
 			...(str("vllmHost") ? { vllmHost: str("vllmHost")! } : {}),
 		});
 	}

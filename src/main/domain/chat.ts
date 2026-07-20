@@ -4,8 +4,10 @@
 export interface ProviderConfig {
   readonly provider: string;
   readonly model: string;
-  readonly ollamaHost?: string;
-  readonly vllmHost?: string;
+	readonly ollamaHost?: string;
+	/** Ollama GPU layer count; 0 keeps the model off the display GPU. */
+	readonly ollamaNumGpu?: number;
+	readonly vllmHost?: string;
   readonly labGatewayUrl?: string;
   readonly enableThinking?: boolean;
   readonly ollamaNumCtx?: number;
