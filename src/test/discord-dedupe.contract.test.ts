@@ -75,6 +75,28 @@ describe("T-DISCORD-RT-04 — binding-scoped durable reply state", () => {
     expect(await store.reserve(reserve("binding_1", "m1", 104))).toEqual({ decision: "duplicate" });
   });
 
+  it("keeps the confirmed cursor monotonic when shutdown records an older partial", async () => {
+    const fs = memoryFs();
+    const store = makeFileDiscordDedupe({ path: "dedupe.json", fs });
+    await store.reserve(reserve("binding_1", "m1", 100));
+    await store.beginReply({ bindingId: "binding_1", messageId: "m1", chunks: ["one", "two"], now: 101 });
+    await store.claimChunk({ bindingId: "binding_1", messageId: "m1", nextChunk: 1, now: 102 });
+    await store.confirmChunk({ bindingId: "binding_1", messageId: "m1", confirmedChunk: 1, now: 103 });
+
+    expect(await store.partial({
+      bindingId: "binding_1", messageId: "m1", confirmedChunk: 0, now: 104,
+    })).toBe(true);
+    expect(await store.partial({
+      bindingId: "binding_1", messageId: "m1", confirmedChunk: 0, now: 105,
+    })).toBe(true);
+
+    expect(JSON.parse(fs.value!).entries[0]).toMatchObject({
+      state: "partial",
+      confirmedChunk: 1,
+    });
+    expect(await store.reserve(reserve("binding_1", "m1", 106))).toEqual({ decision: "duplicate" });
+  });
+
   it("never resends a chunk that was claimed before an ambiguous crash", async () => {
     const fs = memoryFs();
     const store = makeFileDiscordDedupe({ path: "dedupe.json", fs });

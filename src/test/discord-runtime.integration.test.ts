@@ -34,6 +34,9 @@ function makeDedupe() {
   }>();
   const key = (bindingId: string, messageId: string) => `${bindingId}:${messageId}`;
   return {
+    inspect(bindingId: string, messageId: string) {
+      return records.get(key(bindingId, messageId));
+    },
     async reserve({ bindingId, messageId }: { bindingId: string; messageId: string; now: number }) {
       const record = records.get(key(bindingId, messageId));
       if (record?.state === "replying") {
@@ -67,7 +70,12 @@ function makeDedupe() {
     async partial({ bindingId, messageId, confirmedChunk }: {
       bindingId: string; messageId: string; confirmedChunk: number; now: number;
     }) {
-      records.set(key(bindingId, messageId), { state: "partial", confirmedChunk });
+      const record = records.get(key(bindingId, messageId));
+      if (!record || !["reserved", "replying", "partial"].includes(record.state)) return false;
+      records.set(key(bindingId, messageId), {
+        state: "partial",
+        confirmedChunk: Math.max(record.confirmedChunk ?? 0, confirmedChunk),
+      });
       return true;
     },
   };
@@ -404,7 +412,8 @@ describe("T-DISCORD-RT-01/02 — authenticated ingress to existing chat pipeline
     expect(releaseReservation).not.toHaveBeenCalled();
   });
 
-  it("does not regress an already confirmed reply chunk on graceful timeout", async () => {
+  it("does not regress a confirmed reply chunk when authority revocation races shutdown", async () => {
+    let active = true;
     const holdSecondClaim = deferred<void>();
     const base = makeDedupe();
     const claimChunk = vi.fn(async (input: Parameters<typeof base.claimChunk>[0]) => {
@@ -415,6 +424,7 @@ describe("T-DISCORD-RT-01/02 — authenticated ingress to existing chat pipeline
     const { gateway, runtime } = makeHarness({
       gracefulStopTimeoutMs: 10,
       maxReplyChars: 4_000,
+      authority: { isActive: () => active },
       dedupe: { ...base, claimChunk, partial },
       provider: {
         async *chat(): AsyncIterable<ProviderChunk> {
@@ -428,6 +438,7 @@ describe("T-DISCORD-RT-01/02 — authenticated ingress to existing chat pipeline
     await waitFor(() => claimChunk.mock.calls.some(([input]) => input.nextChunk === 2));
     expect(answerReplies(gateway.connections[0]!)).toHaveLength(1);
 
+    active = false;
     const stopping = runtime.gracefulStop();
     await waitFor(() => runtime.status().state === "stopped");
     holdSecondClaim.resolve();
@@ -442,6 +453,10 @@ describe("T-DISCORD-RT-01/02 — authenticated ingress to existing chat pipeline
       messageId: "one-chunk-confirmed",
       confirmedChunk: 0,
     }));
+    expect(base.inspect("binding_1", "one-chunk-confirmed")).toEqual({
+      state: "partial",
+      confirmedChunk: 1,
+    });
   });
 
   it("keeps a connected generation in standby and re-checks authority before consuming ingress", async () => {
@@ -469,28 +484,45 @@ describe("T-DISCORD-RT-01/02 — authenticated ingress to existing chat pipeline
     await runtime.stop();
   });
 
-  it("releases a reservation when authority changes during reserve", async () => {
+  it("persists an accepted reservation when authority revocation races shutdown", async () => {
     let active = true;
     const base = makeDedupe();
+    const reserveEntered = deferred<void>();
+    const releaseReserve = deferred<void>();
+    const partial = vi.fn(base.partial);
     const releaseReservation = vi.fn(async () => true);
     const dedupe = {
       ...base,
       reserve: async (input: Parameters<typeof base.reserve>[0]) => {
         const result = await base.reserve(input);
-        active = false;
+        reserveEntered.resolve();
+        await releaseReserve.promise;
         return result;
       },
+      partial,
       releaseReservation,
     };
     const { gateway, runtime } = makeHarness({
+      gracefulStopTimeoutMs: 10,
       authority: { isActive: () => active },
       dedupe,
     });
     await waitFor(() => gateway.handlers.length === 1);
     gateway.message({ messageId: "authority-flip-after-reserve" });
-    await waitFor(() => releaseReservation.mock.calls.length === 1);
+    await reserveEntered.promise;
+    active = false;
+    const stopping = runtime.gracefulStop();
+    await waitFor(() => runtime.status().state === "stopped");
+    releaseReserve.resolve();
+    await stopping;
+
+    expect(partial).toHaveBeenCalledWith(expect.objectContaining({
+      bindingId: "binding_1",
+      messageId: "authority-flip-after-reserve",
+      confirmedChunk: 0,
+    }));
+    expect(releaseReservation).not.toHaveBeenCalled();
     expect(answerReplies(gateway.connections[0]!)).toHaveLength(0);
-    await runtime.stop();
   });
 
   it("does not send a claimed reply chunk after generation authority changes", async () => {
@@ -1484,17 +1516,18 @@ describe("T-DISCORD-RT-05/06 — lifecycle, bounded reply, safe failure", () => 
     await runtime.stop();
   });
 
-  it("releases a deferred reservation and prevents dispatch after stop", async () => {
+  it("persists a deferred accepted reservation and prevents dispatch after stop", async () => {
     const reservation = deferred<Awaited<ReturnType<DiscordDedupePort["reserve"]>>>();
     const base = makeDedupe();
     const reserve = vi.fn(() => reservation.promise);
+    const partial = vi.fn(base.partial);
     const releaseReservation = vi.fn(async () => true);
     const chat = vi.fn(async function* () {
       yield { kind: "finish" as const };
     });
     const { gateway, runtime } = makeHarness({
       provider: { chat },
-      dedupe: { ...base, reserve, releaseReservation },
+      dedupe: { ...base, reserve, partial, releaseReservation },
     });
     await waitFor(() => gateway.handlers.length === 1);
     gateway.message({ messageId: "old-reservation" });
@@ -1505,10 +1538,12 @@ describe("T-DISCORD-RT-05/06 — lifecycle, bounded reply, safe failure", () => 
     reservation.resolve({ decision: "process" });
     await Promise.all([stopping, concurrentStop]);
 
-    expect(releaseReservation).toHaveBeenCalledWith(expect.objectContaining({
+    expect(partial).toHaveBeenCalledWith(expect.objectContaining({
       bindingId: "binding_1",
       messageId: "old-reservation",
+      confirmedChunk: 0,
     }));
+    expect(releaseReservation).not.toHaveBeenCalled();
     expect(chat).not.toHaveBeenCalled();
     expect(runtime.status().state).toBe("stopped");
   });
@@ -1517,13 +1552,14 @@ describe("T-DISCORD-RT-05/06 — lifecycle, bounded reply, safe failure", () => 
     const inboxAppend = deferred<boolean>();
     const append = vi.fn(() => inboxAppend.promise);
     const base = makeDedupe();
+    const partial = vi.fn(base.partial);
     const releaseReservation = vi.fn(async () => true);
     const chat = vi.fn(async function* () {
       yield { kind: "finish" as const };
     });
     const { gateway, runtime } = makeHarness({
       provider: { chat },
-      dedupe: { ...base, releaseReservation },
+      dedupe: { ...base, partial, releaseReservation },
       inbox: { append },
     });
     await waitFor(() => gateway.handlers.length === 1);
@@ -1539,12 +1575,48 @@ describe("T-DISCORD-RT-05/06 — lifecycle, bounded reply, safe failure", () => 
     inboxAppend.resolve(true);
     await configuring;
 
-    expect(releaseReservation).toHaveBeenCalledWith(expect.objectContaining({
+    expect(partial).toHaveBeenCalledWith(expect.objectContaining({
       bindingId: "binding_1",
       messageId: "old-inbox",
+      confirmedChunk: 0,
     }));
+    expect(releaseReservation).not.toHaveBeenCalled();
     expect(chat).not.toHaveBeenCalled();
     await runtime.stop();
+  });
+
+  it("persists an accepted reservation when authority is revoked during inbox append", async () => {
+    let active = true;
+    const inboxAppend = deferred<boolean>();
+    const append = vi.fn(() => inboxAppend.promise);
+    const base = makeDedupe();
+    const partial = vi.fn(base.partial);
+    const releaseReservation = vi.fn(async () => true);
+    const chat = vi.fn(async function* () {
+      yield { kind: "finish" as const };
+    });
+    const { gateway, runtime } = makeHarness({
+      provider: { chat },
+      authority: { isActive: () => active },
+      dedupe: { ...base, partial, releaseReservation },
+      inbox: { append },
+    });
+    await waitFor(() => gateway.handlers.length === 1);
+    gateway.message({ messageId: "revoked-during-inbox" });
+    await waitFor(() => append.mock.calls.length === 1);
+
+    active = false;
+    inboxAppend.resolve(true);
+    await waitFor(() => partial.mock.calls.length === 1);
+    await runtime.gracefulStop();
+
+    expect(partial).toHaveBeenCalledWith(expect.objectContaining({
+      bindingId: "binding_1",
+      messageId: "revoked-during-inbox",
+      confirmedChunk: 0,
+    }));
+    expect(releaseReservation).not.toHaveBeenCalled();
+    expect(chat).not.toHaveBeenCalled();
   });
 
   it("awaits an old-epoch outgoing inbox task before configure returns", async () => {
