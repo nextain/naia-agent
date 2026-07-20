@@ -168,4 +168,64 @@ describe("UC-memory — 실 프로세스 관통(gRPC 진입점 종료 lifecycle)
     });
     if (process.platform !== "win32") expect(exitCode).toBe(0);
   }, 90000);
+
+  it("인증된 Shutdown RPC만 ACK 후 실 프로세스를 graceful exit 한다", async () => {
+    dir = await mkdtemp(join(tmpdir(), "naia-shutdown-rpc-"));
+    const shutdownNonce = "shutdown-test-nonce-opaque";
+    await mkdir(join(dir, "naia-settings"), { recursive: true });
+    await writeFile(
+      join(dir, "naia-settings", "config.json"),
+      JSON.stringify({ provider: "echo-system", model: "m" }),
+    );
+
+    child = spawn(process.execPath, [entry], {
+      cwd: pkgRoot,
+      env: {
+        ...process.env,
+        AGENT_PROVIDER: "echo-system",
+        NAIA_AGENT_SKILLS: "off",
+        NAIA_ADK_PATH: dir,
+        NAIA_AGENT_SHUTDOWN_NONCE: shutdownNonce,
+      },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let stderr = "";
+    child.stderr!.setEncoding("utf8");
+    child.stderr!.on("data", (chunk: string) => { stderr += chunk; });
+    const addr = await new Promise<string>((resolveAddress, rejectAddress) => {
+      let stdout = "";
+      const timeout = setTimeout(() => rejectAddress(new Error(`GRPC_LISTENING timeout: ${stderr}`)), 60_000);
+      child!.stdout!.setEncoding("utf8");
+      child!.stdout!.on("data", (chunk: string) => {
+        stdout += chunk;
+        const match = stdout.match(/GRPC_LISTENING\s+(\S+)/);
+        if (match) { clearTimeout(timeout); resolveAddress(match[1]); }
+      });
+      child!.once("exit", () => {
+        clearTimeout(timeout);
+        rejectAddress(new Error(`shutdown RPC runtime exited before listen: ${stderr}`));
+      });
+    });
+    const client = makeClient(addr);
+    await expect(new Promise((resolveShutdown, rejectShutdown) => {
+      client.shutdown({ nonce: "wrong-nonce" }, (error: grpc.ServiceError | null, response: unknown) => {
+        if (error) rejectShutdown(error);
+        else resolveShutdown(response);
+      });
+    })).rejects.toMatchObject({ code: grpc.status.UNAUTHENTICATED });
+    expect(child.exitCode).toBeNull();
+
+    const exited = new Promise<number>((resolveExit) => {
+      child!.once("exit", (code) => resolveExit(code ?? -1));
+    });
+    await expect(new Promise((resolveShutdown, rejectShutdown) => {
+      client.shutdown({ nonce: shutdownNonce }, (error: grpc.ServiceError | null, response: unknown) => {
+        if (error) rejectShutdown(error);
+        else resolveShutdown(response);
+      });
+    })).resolves.toMatchObject({ ok: true });
+    expect(await exited).toBe(0);
+    expect(stderr).not.toContain(shutdownNonce);
+    client.close?.();
+  }, 90000);
 });

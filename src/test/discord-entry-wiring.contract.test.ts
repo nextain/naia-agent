@@ -15,6 +15,8 @@ describe("T-DISCORD-RT-02/05 — production entry wiring", () => {
     expect(entry).toContain("delete process.env.NAIA_DISCORD_STATUS_PATH");
     expect(entry).toContain("delete process.env.NAIA_DISCORD_AUTHORITY_PATH");
     expect(entry).toContain("delete process.env.NAIA_DISCORD_INBOX_PATH");
+    expect(entry).toContain("delete process.env.NAIA_AGENT_SHUTDOWN_NONCE");
+    expect(entry).not.toMatch(/(?:stderr|stdout).*shutdownNonce/);
   });
 
   it("closes the one-shot secret pipe before evaluating runtime modules", () => {
@@ -59,11 +61,18 @@ describe("T-DISCORD-RT-02/05 — production entry wiring", () => {
     expect(entry).toContain("...(consents ? { consents } : {})");
   });
 
-  it("starts only after gRPC boot succeeds and stops before draining in-flight turns", () => {
+  it("starts only after gRPC boot succeeds and gracefully drains Discord before shared resources", () => {
     expect(entry.indexOf("discordRuntime?.start()")).toBeGreaterThan(entry.indexOf("await grpcServer.start()"));
-    expect(entry.indexOf("await discordRuntime?.stop()")).toBeLessThan(entry.indexOf("if (drain) await drain()"));
+    expect(entry.indexOf("await discordRuntime?.gracefulStop()")).toBeLessThan(entry.indexOf("if (drain) await drain()"));
     expect(entry).toContain('diag.log("discord runtime", { code: "shutdown_failed" })');
     expect(entry).not.toMatch(/discord shutdown[^\\n]*(?:e\\.message|String\\(e\\))/);
     expect(entry).toContain('discordStatus?.write("stopped")');
+  });
+
+  it("shares one idempotent shutdown promise across authenticated RPC and signals", () => {
+    expect(entry).toContain("shutdownPromise ??= performShutdown()");
+    expect(entry).toContain("onShutdown: () => onShutdown?.()");
+    expect(entry).toContain('process.on("SIGTERM", () => { void onShutdown?.(); })');
+    expect(entry).toContain('process.on("SIGINT", () => { void onShutdown?.(); })');
   });
 });
