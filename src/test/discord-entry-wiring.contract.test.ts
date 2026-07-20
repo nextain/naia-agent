@@ -34,6 +34,7 @@ describe("T-DISCORD-RT-02/05 — production entry wiring", () => {
 
   it("wires the generation-scoped Agent-owned inbox cache", () => {
     expect(entry).toContain("makeFileDiscordInbox");
+    expect(entry).toContain("repairFileDiscordDedupeLock(dedupePath)");
     expect(entry).toContain("discordInboxPath && discordGeneration");
     expect(entry).toContain("inbox: makeFileDiscordInbox");
   });
