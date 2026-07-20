@@ -156,6 +156,7 @@ function makeHarness(options: {
   maxReplyChars?: number;
   allowedUserIds?: readonly string[];
   participation?: "mentions" | "all" | "paused";
+  maxActiveTurns?: number;
   authority?: { isActive(): boolean };
   dedupe?: DiscordDedupePort;
   inbox?: DiscordInboxPort;
@@ -204,6 +205,7 @@ function makeHarness(options: {
     ],
     reconnectBaseMs: 100,
     reconnectMaxMs: 400,
+    ...(options.maxActiveTurns ? { maxActiveTurns: options.maxActiveTurns } : {}),
     ...(options.maxReplyChars ? { maxReplyChars: options.maxReplyChars } : {}),
   });
   const provider = options.provider ?? {
@@ -686,6 +688,47 @@ describe("T-DISCORD-RT-03/04 — history isolation and replay dedupe", () => {
       "answer:first",
       "second",
     ]);
+    await runtime.stop();
+  });
+
+  it("reserves the admission slot before async dedupe work across different sessions", async () => {
+    const firstReserve = deferred<Awaited<ReturnType<DiscordDedupePort["reserve"]>>>();
+    const base = makeDedupe();
+    const reserve = vi.fn(async (input: Parameters<DiscordDedupePort["reserve"]>[0]) => {
+      if (input.messageId === "m-admission-1") return firstReserve.promise;
+      return base.reserve(input);
+    });
+    const chat = vi.fn(async function* () {
+      yield { kind: "text" as const, text: "answer" };
+      yield { kind: "finish" as const };
+    });
+    const { gateway, runtime } = makeHarness({
+      provider: { chat },
+      allowedUserIds: ["300", "302"],
+      maxActiveTurns: 1,
+      dedupe: { ...base, reserve },
+    });
+    await waitFor(() => gateway.handlers.length === 1);
+
+    gateway.message({
+      messageId: "m-admission-1",
+      authorId: "300",
+      content: "<@999> first",
+    });
+    await waitFor(() => reserve.mock.calls.length === 1);
+    gateway.message({
+      messageId: "m-admission-2",
+      authorId: "302",
+      content: "<@999> second",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(reserve).toHaveBeenCalledTimes(1);
+    expect(chat).not.toHaveBeenCalled();
+
+    firstReserve.resolve({ decision: "process" });
+    await waitFor(() => chat.mock.calls.length === 1);
+    await waitFor(() => answerReplies(gateway.connections[0]!).length === 1);
+    expect(answerReplies(gateway.connections[0]!)[0]?.messageId).toBe("m-admission-1");
     await runtime.stop();
   });
 

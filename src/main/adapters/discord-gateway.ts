@@ -46,6 +46,7 @@ const MAX_TOKEN_LENGTH = 512;
 const MAX_REPLY_LENGTH = 2_000;
 const MAX_EVENT_LENGTH = 1_000_000;
 const MAX_MESSAGE_LENGTH = 4_000;
+const MAX_REPLY_RESPONSE_BYTES = 64 * 1_024;
 const SNOWFLAKE = /^\d{1,128}$/;
 const DEFAULT_DISCOVERY_TIMEOUT_MS = 10_000;
 
@@ -113,21 +114,65 @@ async function fetchGatewayUrl(
   }
 }
 
+async function readBoundedResponseText(response: Response, maxBytes: number): Promise<string> {
+  const declaredLength = response.headers.get("content-length");
+  if (declaredLength !== null) {
+    const length = Number(declaredLength);
+    if (!Number.isSafeInteger(length) || length < 0 || length > maxBytes) {
+      throw new DiscordGatewayError("http_error");
+    }
+  }
+  if (!response.body) throw new DiscordGatewayError("http_error");
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const item = await reader.read();
+      if (item.done) break;
+      total += item.value.byteLength;
+      if (total > maxBytes) {
+        void reader.cancel().catch(() => {});
+        throw new DiscordGatewayError("http_error");
+      }
+      chunks.push(item.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    throw new DiscordGatewayError("http_error");
+  }
+}
+
 async function fetchReplyWithTimeout(
   fetchImpl: typeof fetch,
   url: string,
   init: RequestInit,
   timeoutMs: number,
   signal?: AbortSignal,
-): Promise<Response> {
+): Promise<{ readonly response: Response; readonly bodyText?: string }> {
   if (signal?.aborted) throw new DiscordGatewayError("http_error");
   const controller = new AbortController();
   const abort = () => controller.abort();
   signal?.addEventListener("abort", abort, { once: true });
   const timer = setTimeout(abort, timeoutMs);
   try {
-    return await fetchImpl(url, { ...init, signal: controller.signal });
-  } catch {
+    const response = await fetchImpl(url, { ...init, signal: controller.signal });
+    const bodyText = response.ok || response.status === 429
+      ? await readBoundedResponseText(response, MAX_REPLY_RESPONSE_BYTES)
+      : undefined;
+    return { response, ...(bodyText !== undefined ? { bodyText } : {}) };
+  } catch (error) {
+    if (error instanceof DiscordGatewayError) throw error;
     throw new DiscordGatewayError("http_error");
   } finally {
     clearTimeout(timer);
@@ -370,7 +415,7 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
             try {
               if (input.signal?.aborted) throw new DiscordGatewayError("http_error");
               for (let attempt = 0; attempt <= maxRetries; attempt++) {
-                const response = await fetchReplyWithTimeout(
+                const { response, bodyText } = await fetchReplyWithTimeout(
                   fetchImpl,
                   `${apiBase}/channels/${encodeURIComponent(input.channelId)}/messages`,
                   {
@@ -395,7 +440,12 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
                   input.signal,
                 );
                 if (response.ok) {
-                  const body = await response.json() as { id?: unknown };
+                  let body: { id?: unknown };
+                  try {
+                    body = JSON.parse(bodyText ?? "") as { id?: unknown };
+                  } catch {
+                    throw new DiscordGatewayError("http_error");
+                  }
                   const replyMessageId = String(body.id ?? "");
                   if (!SNOWFLAKE.test(replyMessageId)) {
                     throw new DiscordGatewayError("http_error");
@@ -409,7 +459,7 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
                 if (attempt === maxRetries) throw new DiscordGatewayError("rate_limited");
                 let retryAfterMs = 1_000;
                 try {
-                  const rate = await response.json() as { retry_after?: unknown };
+                  const rate = JSON.parse(bodyText ?? "") as { retry_after?: unknown };
                   const seconds = Number(rate.retry_after);
                   if (Number.isFinite(seconds)) {
                     retryAfterMs = Math.min(30_000, Math.max(0, Math.ceil(seconds * 1_000)));

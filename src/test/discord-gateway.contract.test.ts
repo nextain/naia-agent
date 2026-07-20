@@ -30,6 +30,19 @@ function response(status: number, body: unknown): Response {
   });
 }
 
+function stalledBodyResponse(status: number, signal?: AbortSignal): Response {
+  return new Response(new ReadableStream<Uint8Array>({
+    start(controller) {
+      signal?.addEventListener("abort", () => {
+        controller.error(new DOMException("aborted", "AbortError"));
+      }, { once: true });
+    },
+  }), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((done) => { resolve = done; });
@@ -295,32 +308,84 @@ describe("T-DISCORD-RT-02/05/06 — Discord Gateway adapter", () => {
     expect(fetcher).toHaveBeenCalledTimes(4);
   });
 
-  it("times out a stalled reply and releases the connection queue", async () => {
-    vi.useFakeTimers();
+  it.each([200, 429])(
+    "times out a %s reply whose headers arrive but body stalls, then releases the connection queue",
+    async (status) => {
+      vi.useFakeTimers();
+      const socket = new FakeSocket();
+      const fetcher = vi.fn()
+        .mockResolvedValueOnce(response(200, { url: "wss://gateway.discord.test" }))
+        .mockImplementationOnce((_url: string | URL | Request, init?: RequestInit) =>
+          Promise.resolve(stalledBodyResponse(status, init?.signal ?? undefined)))
+        .mockResolvedValueOnce(response(200, { id: "402" }));
+      const connection = await makeDiscordGateway({
+        fetch: fetcher as typeof fetch,
+        socket: () => socket,
+        replyTimeoutMs: 100,
+      }).connect("token", { onReady() {}, onMessage() {} });
+
+      const stalled = connection.sendReply({
+        guildId: "100", channelId: "200", messageId: "400", content: "stalled",
+      });
+      const stalledRejection = expect(stalled).rejects.toMatchObject({ code: "http_error" });
+      const next = connection.sendReply({
+        guildId: "100", channelId: "200", messageId: "401", content: "next",
+      });
+      await vi.advanceTimersByTimeAsync(100);
+      await stalledRejection;
+      await expect(next).resolves.toBe("402");
+      expect(fetcher).toHaveBeenCalledTimes(3);
+    },
+  );
+
+  it("aborts a stalled reply body through the caller signal and releases the connection queue", async () => {
     const socket = new FakeSocket();
     const fetcher = vi.fn()
       .mockResolvedValueOnce(response(200, { url: "wss://gateway.discord.test" }))
       .mockImplementationOnce((_url: string | URL | Request, init?: RequestInit) =>
-        new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener("abort", () =>
-            reject(new DOMException("timed out", "AbortError")), { once: true });
-        }))
+        Promise.resolve(stalledBodyResponse(200, init?.signal ?? undefined)))
       .mockResolvedValueOnce(response(200, { id: "402" }));
     const connection = await makeDiscordGateway({
       fetch: fetcher as typeof fetch,
       socket: () => socket,
-      replyTimeoutMs: 100,
     }).connect("token", { onReady() {}, onMessage() {} });
+    const abort = new AbortController();
 
     const stalled = connection.sendReply({
-      guildId: "100", channelId: "200", messageId: "400", content: "stalled",
+      guildId: "100", channelId: "200", messageId: "400", content: "stalled", signal: abort.signal,
     });
     const stalledRejection = expect(stalled).rejects.toMatchObject({ code: "http_error" });
     const next = connection.sendReply({
       guildId: "100", channelId: "200", messageId: "401", content: "next",
     });
-    await vi.advanceTimersByTimeAsync(100);
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
+    abort.abort();
     await stalledRejection;
+    await expect(next).resolves.toBe("402");
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+
+  it("rejects an oversized chunked reply body and releases the connection queue", async () => {
+    const socket = new FakeSocket();
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(response(200, { url: "wss://gateway.discord.test" }))
+      .mockResolvedValueOnce(new Response(new Uint8Array((64 * 1_024) + 1), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }))
+      .mockResolvedValueOnce(response(200, { id: "402" }));
+    const connection = await makeDiscordGateway({
+      fetch: fetcher as typeof fetch,
+      socket: () => socket,
+    }).connect("token", { onReady() {}, onMessage() {} });
+
+    const oversized = connection.sendReply({
+      guildId: "100", channelId: "200", messageId: "400", content: "oversized",
+    });
+    const next = connection.sendReply({
+      guildId: "100", channelId: "200", messageId: "401", content: "next",
+    });
+    await expect(oversized).rejects.toMatchObject({ code: "http_error" });
     await expect(next).resolves.toBe("402");
     expect(fetcher).toHaveBeenCalledTimes(3);
   });

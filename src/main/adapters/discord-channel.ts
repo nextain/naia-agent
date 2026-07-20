@@ -193,6 +193,7 @@ export class DiscordChannelRuntime {
   private authorityRefresh?: Promise<boolean>;
   private readonly registeredUsers = new Map<string, Set<string>>();
   private readonly sessionTails = new Map<string, Promise<void>>();
+  private admittedMessages = 0;
   private queuedMessages = 0;
 
   private readonly reconnectBaseMs: number;
@@ -307,7 +308,7 @@ export class DiscordChannelRuntime {
   }
 
   async drain(): Promise<void> {
-    while ((this.active.size || this.queuedMessages) && !this.stopped) {
+    while ((this.active.size || this.admittedMessages || this.queuedMessages) && !this.stopped) {
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
   }
@@ -440,20 +441,33 @@ export class DiscordChannelRuntime {
       void this.handleMessage(message).catch(() => this.diagnostic("message_handling_failed"));
       return;
     }
-    if (this.active.size + this.queuedMessages >= this.maxActiveTurns) {
-      this.diagnostic("busy", { activeCount: this.active.size, queuedCount: this.queuedMessages });
+    if (this.active.size + this.admittedMessages >= this.maxActiveTurns) {
+      this.diagnostic("busy", {
+        activeCount: this.active.size,
+        admittedCount: this.admittedMessages,
+        queuedCount: this.queuedMessages,
+      });
       return;
     }
     const sessionId = `discord:${binding.bindingId}:${binding.guildId}:${binding.channelId}:${message.authorId}`;
     const previous = this.sessionTails.get(sessionId) ?? Promise.resolve();
+    let admissionHeld = true;
+    const releaseAdmission = () => {
+      if (!admissionHeld) return;
+      admissionHeld = false;
+      this.admittedMessages--;
+    };
+    this.admittedMessages++;
     this.queuedMessages++;
     const task = previous.then(async () => {
       this.queuedMessages--;
-      if (this.stopped) return;
       try {
-        await this.handleMessage(message);
+        if (this.stopped) return;
+        await this.handleMessage(message, releaseAdmission);
       } catch {
         this.diagnostic("message_handling_failed");
+      } finally {
+        releaseAdmission();
       }
     });
     this.sessionTails.set(sessionId, task);
@@ -462,7 +476,7 @@ export class DiscordChannelRuntime {
     });
   }
 
-  private async handleMessage(message: DiscordGatewayMessage): Promise<void> {
+  private async handleMessage(message: DiscordGatewayMessage, releaseAdmission?: () => void): Promise<void> {
     if (!await this.ensureAuthoritative()) {
       this.deps.diag.debug?.("discord ingress rejected", { reason: "generation_not_authoritative" });
       return;
@@ -523,10 +537,6 @@ export class DiscordChannelRuntime {
     }
     if (!this.route) {
       this.diagnostic("ingress_unavailable");
-      return;
-    }
-    if (this.active.size >= this.maxActiveTurns) {
-      this.diagnostic("busy", { activeCount: this.active.size });
       return;
     }
     const userText = stripSelfMention(message.content, selfUserId);
@@ -600,6 +610,7 @@ export class DiscordChannelRuntime {
     }
     let complete!: () => void;
     const completion = new Promise<void>((resolve) => { complete = resolve; });
+    releaseAdmission?.();
     this.active.set(requestId, {
       requestId,
       sessionId,
