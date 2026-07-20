@@ -4,6 +4,7 @@ import { validateSecurityWireRequest } from "../domain/security-wire.js";
 import type {
   DiscordGatewayConnection,
   DiscordGatewayMessage,
+  DiscordInboxRecord,
   DiscordRuntimeDeps,
 } from "../ports/discord.js";
 import type { AgentEgressPort, AgentIngressPort } from "../ports/uc1.js";
@@ -15,6 +16,7 @@ export interface DiscordChannelBinding {
   readonly channelId: string;
   readonly allowedUserIds: readonly string[];
   readonly processingProfileRef: string;
+  readonly participation: "mentions" | "all" | "paused";
 }
 
 export interface DiscordRuntimeConfig {
@@ -70,6 +72,9 @@ function parseBinding(value: unknown): DiscordChannelBinding | undefined {
     channelId: item.channelId,
     allowedUserIds: [...item.allowedUserIds] as string[],
     processingProfileRef: item.processingProfileRef as string,
+    participation: ["mentions", "all", "paused"].includes(String(item.participation))
+      ? item.participation as DiscordChannelBinding["participation"]
+      : "paused",
   };
 }
 
@@ -403,6 +408,21 @@ export class DiscordChannelRuntime {
     const allowedUserIds = binding
       ? [...binding.allowedUserIds, ...(registered ? [message.authorId] : [])]
       : [];
+    if (binding && selfUserId && !message.authorIsBot && message.authorId !== selfUserId
+      && allowedUserIds.includes(message.authorId)
+      && message.content.length >= 1 && message.content.length <= MAX_INPUT_CHARS) {
+      await this.recordInbox({
+        recordId: `incoming_${message.messageId}`,
+        direction: "incoming",
+        bindingId: binding.bindingId,
+        guildId: binding.guildId,
+        channelId: binding.channelId,
+        sourceMessageId: message.messageId,
+        authorId: message.authorId,
+        content: message.content,
+        createdAt: this.deps.clock.now(),
+      });
+    }
     const decision = evaluateDiscordIngress({
       readySelfUserId: selfUserId,
       messageId: message.messageId,
@@ -415,6 +435,7 @@ export class DiscordChannelRuntime {
       allowedGuildIds: binding ? [binding.guildId] : [],
       allowedChannelIds: binding ? [binding.channelId] : [],
       allowedUserIds,
+      participation: binding?.participation ?? "paused",
     });
     if (!decision.accepted || !binding || !selfUserId) {
       if (binding && selfUserId && !message.authorIsBot && message.authorId !== selfUserId
@@ -651,10 +672,29 @@ export class DiscordChannelRuntime {
           now: this.deps.clock.now(),
         });
         if (!recorded) throw new Error("reply_state_failed");
+        await this.recordInbox({
+          recordId: `outgoing_${messageId}_${index}`,
+          direction: "outgoing",
+          bindingId,
+          guildId,
+          channelId,
+          sourceMessageId: messageId,
+          content: chunks[index]!,
+          createdAt: this.deps.clock.now(),
+        });
       }
     } catch (error) {
       await this.recordPartial(bindingId, messageId, sent);
       if (!this.stopped) this.diagnostic((error as { code?: string }).code ?? "reply_failed");
+    }
+  }
+
+  private async recordInbox(record: DiscordInboxRecord): Promise<void> {
+    if (!this.deps.inbox) return;
+    try {
+      if (!await this.deps.inbox.append(record)) this.diagnostic("inbox_write_rejected");
+    } catch {
+      this.diagnostic("inbox_write_failed");
     }
   }
 

@@ -12,6 +12,8 @@ import type {
   DiscordGatewayMessage,
   DiscordGatewayPort,
   DiscordDedupePort,
+  DiscordInboxPort,
+  DiscordInboxRecord,
 } from "../main/ports/discord.js";
 import type { DiagnosticLog, ProviderPort } from "../main/ports/uc1.js";
 
@@ -145,8 +147,10 @@ function makeHarness(options: {
   twoBindings?: boolean;
   maxReplyChars?: number;
   allowedUserIds?: readonly string[];
+  participation?: "mentions" | "all" | "paused";
   authority?: { isActive(): boolean };
   dedupe?: DiscordDedupePort;
+  inbox?: DiscordInboxPort;
 } = {}) {
   const gateway = new FakeGateway();
   const sleeps: number[] = [];
@@ -160,6 +164,7 @@ function makeHarness(options: {
     gateway,
     token: { load: async () => "discord-bot-token-secret" },
     dedupe: options.dedupe ?? makeDedupe(),
+    ...(options.inbox ? { inbox: options.inbox } : {}),
     ...(options.authority ? { authority: options.authority } : {}),
     clock: {
       now: () => now,
@@ -178,6 +183,7 @@ function makeHarness(options: {
         channelId: "200",
         allowedUserIds: options.allowedUserIds ?? ["300"],
         processingProfileRef: "profile_1",
+        participation: options.participation ?? "mentions",
       },
       ...(options.twoBindings ? [{
         bindingId: "binding_2",
@@ -185,6 +191,7 @@ function makeHarness(options: {
         channelId: "201",
         allowedUserIds: ["301"],
         processingProfileRef: "profile_2",
+        participation: "mentions" as const,
       }] : []),
     ],
     reconnectBaseMs: 100,
@@ -317,11 +324,19 @@ describe("T-DISCORD-RT-01/02 — authenticated ingress to existing chat pipeline
     const valid = {
       bindings: [{
         bindingId: "binding_1", guildId: "100", channelId: "200",
-        allowedUserIds: ["300"], processingProfileRef: "profile_1",
+        allowedUserIds: ["300"], processingProfileRef: "profile_1", participation: "mentions",
       }],
       processingProfiles: { profile_1: "cloud_enabled" },
     };
     expect(parseDiscordRuntimeConfig(valid)).toEqual(valid);
+    expect(parseDiscordRuntimeConfig({
+      ...valid,
+      bindings: [{ ...valid.bindings[0], participation: undefined }],
+    })?.bindings[0]?.participation).toBe("paused");
+    expect(parseDiscordRuntimeConfig({
+      ...valid,
+      bindings: [{ ...valid.bindings[0], participation: "future-rule" }],
+    })?.bindings[0]?.participation).toBe("paused");
     expect(parseDiscordRuntimeConfig({
       bindings: [{ ...valid.bindings[0], guildId: "not-a-snowflake" }],
     })).toBeUndefined();
@@ -343,7 +358,7 @@ describe("T-DISCORD-RT-01/02 — authenticated ingress to existing chat pipeline
     }, {
       bindings: [{
         bindingId: "binding_1", guildId: "100", channelId: "200",
-        allowedUserIds: ["300"], processingProfileRef: "profile_1",
+        allowedUserIds: ["300"], processingProfileRef: "profile_1", participation: "mentions",
       }],
     });
     runtime.ingress.onRequest((request) => requests.push(request));
@@ -368,6 +383,66 @@ describe("T-DISCORD-RT-01/02 — authenticated ingress to existing chat pipeline
       guildId: "100", channelId: "200", messageId: "m-1", content: "answer",
     });
     await runtime.stop();
+  });
+
+  it("applies all and paused participation without weakening allowed-user authority", async () => {
+    const all = makeHarness({ participation: "all" });
+    await waitFor(() => all.gateway.handlers.length === 1);
+    all.gateway.message({ mentionedUserIds: [], replyToAuthorId: undefined });
+    await waitFor(() => answerReplies(all.gateway.connections[0]!).length === 1);
+    expect(answerReplies(all.gateway.connections[0]!)[0]?.content).toBe("answer:hello");
+    all.gateway.message({
+      messageId: "all-denied-user",
+      authorId: "301",
+      mentionedUserIds: [],
+      replyToAuthorId: undefined,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(answerReplies(all.gateway.connections[0]!)).toHaveLength(1);
+    await all.runtime.stop();
+
+    const paused = makeHarness({ participation: "paused" });
+    await waitFor(() => paused.gateway.handlers.length === 1);
+    paused.gateway.message();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(answerReplies(paused.gateway.connections[0]!)).toHaveLength(0);
+    await paused.runtime.stop();
+  });
+
+  it("records allowed incoming messages while paused and confirmed outgoing replies", async () => {
+    const records: DiscordInboxRecord[] = [];
+    const inbox: DiscordInboxPort = {
+      append: async (record) => {
+        records.push(record);
+        return true;
+      },
+    };
+    const paused = makeHarness({ participation: "paused", inbox });
+    await waitFor(() => paused.gateway.handlers.length === 1);
+    paused.gateway.message({ messageId: "paused-message" });
+    await waitFor(() => records.length === 1);
+    expect(records[0]).toMatchObject({
+      recordId: "incoming_paused-message",
+      direction: "incoming",
+      bindingId: "binding_1",
+      channelId: "200",
+      authorId: "300",
+    });
+    expect(answerReplies(paused.gateway.connections[0]!)).toHaveLength(0);
+    await paused.runtime.stop();
+
+    records.length = 0;
+    const active = makeHarness({ inbox });
+    await waitFor(() => active.gateway.handlers.length === 1);
+    active.gateway.message({ messageId: "active-message" });
+    await waitFor(() => records.some((record) => record.direction === "outgoing"));
+    expect(records.map((record) => record.direction)).toEqual(["incoming", "outgoing"]);
+    expect(records[1]).toMatchObject({
+      recordId: "outgoing_active-message_0",
+      sourceMessageId: "active-message",
+      content: "answer:hello",
+    });
+    await active.runtime.stop();
   });
 
   it.each([
@@ -441,7 +516,7 @@ describe("T-DISCORD-RT-01/02 — authenticated ingress to existing chat pipeline
     }, {
       bindings: [{
         bindingId: "binding_1", guildId: "100", channelId: "200",
-        allowedUserIds: ["300"], processingProfileRef: "profile_1",
+        allowedUserIds: ["300"], processingProfileRef: "profile_1", participation: "mentions",
       }],
     });
     runtime.ingress.onRequest((request) => requests.push(request));
@@ -566,7 +641,7 @@ describe("T-DISCORD-RT-05/06 — lifecycle, bounded reply, safe failure", () => 
     }, {
       bindings: [{
         bindingId: "binding_1", guildId: "100", channelId: "200",
-        allowedUserIds: ["300"], processingProfileRef: "profile_1",
+        allowedUserIds: ["300"], processingProfileRef: "profile_1", participation: "mentions",
       }],
       reconnectBaseMs: 100,
       reconnectMaxMs: 250,
@@ -600,7 +675,7 @@ describe("T-DISCORD-RT-05/06 — lifecycle, bounded reply, safe failure", () => 
     }, {
       bindings: [{
         bindingId: "binding_1", guildId: "100", channelId: "200",
-        allowedUserIds: ["300"], processingProfileRef: "profile_1",
+        allowedUserIds: ["300"], processingProfileRef: "profile_1", participation: "mentions",
       }],
     });
     runtime.ingress.onRequest(() => {});
@@ -609,7 +684,7 @@ describe("T-DISCORD-RT-05/06 — lifecycle, bounded reply, safe failure", () => 
     await runtime.configure({
       bindings: [{
         bindingId: "binding_2", guildId: "101", channelId: "201",
-        allowedUserIds: ["301"], processingProfileRef: "profile_2",
+        allowedUserIds: ["301"], processingProfileRef: "profile_2", participation: "mentions",
       }],
     });
     first.resolve(connections[0]!);
@@ -635,7 +710,7 @@ describe("T-DISCORD-RT-05/06 — lifecycle, bounded reply, safe failure", () => 
     await runtime.configure({
       bindings: [{
         bindingId: "binding_2", guildId: "101", channelId: "201",
-        allowedUserIds: ["301"], processingProfileRef: "profile_2",
+        allowedUserIds: ["301"], processingProfileRef: "profile_2", participation: "mentions",
       }],
     });
     expect(signal?.aborted).toBe(true);
@@ -657,7 +732,7 @@ describe("T-DISCORD-RT-05/06 — lifecycle, bounded reply, safe failure", () => 
     }, {
       bindings: [{
         bindingId: "binding_1", guildId: "100", channelId: "200",
-        allowedUserIds: ["300"], processingProfileRef: "profile_1",
+        allowedUserIds: ["300"], processingProfileRef: "profile_1", participation: "mentions",
       }],
     });
     runtime.ingress.onRequest(() => {});

@@ -10,13 +10,15 @@ export interface DiscordIngressPolicyInput {
 	readonly allowedGuildIds: readonly string[];
 	readonly allowedChannelIds: readonly string[];
 	readonly allowedUserIds: readonly string[];
+	readonly participation: "mentions" | "all" | "paused";
 }
 
 export type DiscordIngressDecision =
 	| { readonly accepted: true; readonly messageId: string }
 	| { readonly accepted: false; readonly reason:
 		| "invalid_event" | "pre_ready" | "bot_author" | "self_author"
-		| "guild_denied" | "channel_denied" | "user_denied" | "not_addressed" };
+		| "guild_denied" | "channel_denied" | "user_denied"
+		| "participation_paused" | "not_addressed" };
 
 const MAX_IDENTIFIER_LENGTH = 128;
 const MAX_ALLOWLIST_ENTRIES = 256;
@@ -40,7 +42,8 @@ function isInput(value: unknown): value is DiscordIngressPolicyInput {
 		&& typeof input.authorIsBot === "boolean"
 		&& typeof input.mentionsSelf === "boolean" && typeof input.repliesToSelf === "boolean"
 		&& isStringArray(input.allowedGuildIds) && isStringArray(input.allowedChannelIds)
-		&& isStringArray(input.allowedUserIds);
+		&& isStringArray(input.allowedUserIds)
+		&& ["mentions", "all", "paused"].includes(String(input.participation));
 }
 
 export function evaluateDiscordIngress(value: unknown): DiscordIngressDecision {
@@ -52,7 +55,10 @@ export function evaluateDiscordIngress(value: unknown): DiscordIngressDecision {
 		if (!containsIdentifier(value.allowedGuildIds, value.guildId)) return { accepted: false, reason: "guild_denied" };
 		if (!containsIdentifier(value.allowedChannelIds, value.channelId)) return { accepted: false, reason: "channel_denied" };
 		if (!containsIdentifier(value.allowedUserIds, value.authorId)) return { accepted: false, reason: "user_denied" };
-		if (!value.mentionsSelf && !value.repliesToSelf) return { accepted: false, reason: "not_addressed" };
+		if (value.participation === "paused") return { accepted: false, reason: "participation_paused" };
+		if (value.participation === "mentions" && !value.mentionsSelf && !value.repliesToSelf) {
+			return { accepted: false, reason: "not_addressed" };
+		}
 		return { accepted: true, messageId: value.messageId };
 	} catch {
 		return { accepted: false, reason: "invalid_event" };

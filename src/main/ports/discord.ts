@@ -49,6 +49,22 @@ export interface DiscordBotTokenPort {
   load(): Promise<string | undefined>;
 }
 
+export interface DiscordInboxRecord {
+  readonly recordId: string;
+  readonly direction: "incoming" | "outgoing";
+  readonly bindingId: string;
+  readonly guildId: string;
+  readonly channelId: string;
+  readonly sourceMessageId: string;
+  readonly authorId?: string;
+  readonly content: string;
+  readonly createdAt: number;
+}
+
+export interface DiscordInboxPort {
+  append(record: DiscordInboxRecord): Promise<boolean>;
+}
+
 export interface DiscordDedupePort {
   /** Reload the durable snapshot after standby becomes authoritative. */
   refresh?(): Promise<boolean>;
@@ -130,6 +146,7 @@ export interface DiscordRuntimeDeps {
   readonly token: DiscordBotTokenPort;
   readonly dedupe: DiscordDedupePort;
   readonly registration?: DiscordFriendRegistrationPort;
+  readonly inbox?: DiscordInboxPort;
   readonly authority?: DiscordIngressAuthorityPort;
   readonly clock: DiscordRuntimeClock;
   readonly text: DiscordRuntimeTextPort;

@@ -5,6 +5,7 @@ const allowed: DiscordIngressPolicyInput = {
 	readySelfUserId: "bot-1", messageId: "m-1", guildId: "g-1", channelId: "c-1",
 	authorId: "u-1", authorIsBot: false, mentionsSelf: true, repliesToSelf: false,
 	allowedGuildIds: ["g-1"], allowedChannelIds: ["c-1"], allowedUserIds: ["u-1"],
+	participation: "mentions",
 };
 describe("PROPOSED-REQ-DG-02 partial", () => {
 	it.each([
@@ -14,9 +15,21 @@ describe("PROPOSED-REQ-DG-02 partial", () => {
 		[{ ...allowed, guildId: "g-2" }, "guild_denied"],
 		[{ ...allowed, channelId: "c-2" }, "channel_denied"],
 		[{ ...allowed, authorId: "u-2" }, "user_denied"],
+		[{ ...allowed, participation: "paused" }, "participation_paused"],
 		[{ ...allowed, mentionsSelf: false, repliesToSelf: false }, "not_addressed"],
 	] as const)("fail-closed reason", (input, reason) => {
 		expect(evaluateDiscordIngress(input)).toEqual({ accepted: false, reason });
+	});
+	it("all은 허용 사용자 메시지를 호출 없이 받고 paused는 항상 닫힌다", () => {
+		expect(evaluateDiscordIngress({
+			...allowed, participation: "all", mentionsSelf: false, repliesToSelf: false,
+		})).toEqual({ accepted: true, messageId: "m-1" });
+		expect(evaluateDiscordIngress({
+			...allowed, participation: "all", authorId: "u-2", mentionsSelf: false,
+		})).toEqual({ accepted: false, reason: "user_denied" });
+		expect(evaluateDiscordIngress({
+			...allowed, participation: "paused", repliesToSelf: true,
+		})).toEqual({ accepted: false, reason: "participation_paused" });
 	});
 	it("mention/reply를 허용한다", () => {
 		expect(evaluateDiscordIngress(allowed)).toEqual({ accepted: true, messageId: "m-1" });

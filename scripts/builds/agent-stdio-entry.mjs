@@ -15,6 +15,7 @@ import { makeFileDiscordRegistration } from "../../dist/main/adapters/discord-re
 import { makeFileDiscordConsentStore } from "../../dist/main/adapters/discord-consent-store.js";
 import { makeDiscordStatusFile } from "../../dist/main/adapters/discord-status-file.js";
 import { makeDiscordGenerationAuthority } from "../../dist/main/adapters/discord-generation-authority.js";
+import { makeFileDiscordInbox } from "../../dist/main/adapters/discord-inbox-store.js";
 import { makeProcessingGuard } from "../../dist/main/adapters/processing-guard.js";
 import { anthropicBaseUrl, isLocalEngineBaseUrl, labProxyBaseUrl, nativeBaseUrl, resolveProviderRoute } from "../../dist/main/domain/provider-route.js";
 import { makeCompositeToolExecutor } from "../../dist/main/adapters/composite-tool-executor.js";
@@ -42,6 +43,23 @@ import { composeAgentRuntimeDeps } from "./compose-agent-deps.mjs";
 // process stdin/stdout → LineIO. ⚠️ readline 은 즉시 시작하지만 라우터/종료 핸들러는 비동기 init(동적
 // import 등) *후* 등록된다 → init 중 도착한 입력·EOF 가 유실되지 않게 **boot 큐 + EOF latch** 로 보존.
 const rl = createInterface({ input: process.stdin });
+const discordTokenFromStdin = process.env.NAIA_DISCORD_TOKEN_STDIN === "1"
+  ? new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(undefined), 10_000);
+    rl.once("line", (line) => {
+      clearTimeout(timer);
+      if (!line.startsWith("NAIA_DISCORD_TOKEN ")) return resolve(undefined);
+      try {
+        const token = Buffer.from(line.slice("NAIA_DISCORD_TOKEN ".length), "base64").toString("utf8");
+        resolve(token.length >= 1 && token.length <= 512 ? token : undefined);
+      } catch {
+        resolve(undefined);
+      }
+    });
+  })
+  : Promise.resolve(undefined);
+let discardDiscordTokenLine = process.env.NAIA_DISCORD_TOKEN_STDIN === "1";
+delete process.env.NAIA_DISCORD_TOKEN_STDIN;
 let lineCb = null;
 const bootQueue = []; // start() 전 도착한 줄 보관(첫 요청 유실 방지)
 const BOOT_QUEUE_MAX = 1000;             // init 중 큐 라인 수 상한
@@ -56,6 +74,10 @@ const io = {
 // terminal 불변식 무영향; OS 파이프가 버퍼링, ready 시 resume). 드롭+부분 error 방출은 control frame 오방출·
 // 중복 terminal 위험이라 채택 안 함. (단일 무한 라인은 readline 자체 한계로 agent 전역 이슈, 이 UC 밖.)
 rl.on("line", (l) => {
+  if (discardDiscordTokenLine) {
+    discardDiscordTokenLine = false;
+    return;
+  }
   if (lineCb) { lineCb(l); return; }
   bootQueue.push(l); bootBytes += l.length;
   if (bootQueue.length >= BOOT_QUEUE_MAX || bootBytes >= BOOT_QUEUE_MAX_BYTES) rl.pause();
@@ -75,15 +97,16 @@ let { toolExecutor } = deps;
 const { memory, memoryLabel, conversationLog, transcriptLabel, diag, personaSource, workspaceContextSource, knowledgeBackend } = deps;
 let skillsLabel = deps.skillsLabel;
 
-// 개인 Discord bot credential은 host(Shell keychain)가 process 시작 시 주입한다. 일반 설정/파일에 저장하지 않고
-// 즉시 process.env에서 제거한다. bindings JSON은 비밀이 아니지만 strict parser가 정확한 guild/channel tuple만 채택.
-const discordToken = process.env.NAIA_DISCORD_BOT_TOKEN;
-delete process.env.NAIA_DISCORD_BOT_TOKEN;
+// 개인 Discord bot credential은 host(Shell keychain)가 시작 직후 stdin one-shot frame으로 주입한다.
+// 환경변수·일반 설정·파일에는 평문 토큰을 두지 않는다. gRPC 모드의 stdin은 데이터 transport가 아니므로
+// 이 첫 frame을 소비한 뒤 EOF가 와도 런타임은 계속 생존한다.
+const discordToken = await discordTokenFromStdin;
 let discordConfig;
 if (process.env.NAIA_DISCORD_BINDINGS_JSON) {
   try { discordConfig = parseDiscordRuntimeConfig(JSON.parse(process.env.NAIA_DISCORD_BINDINGS_JSON)); }
   catch { discordConfig = undefined; }
 }
+delete process.env.NAIA_DISCORD_BINDINGS_JSON;
 let discordRegistrationSeeds;
 if (process.env.NAIA_DISCORD_REGISTRATIONS_JSON) {
   try { discordRegistrationSeeds = JSON.parse(process.env.NAIA_DISCORD_REGISTRATIONS_JSON); }
@@ -99,9 +122,11 @@ delete process.env.NAIA_DISCORD_CONSENTS_JSON;
 const discordGeneration = process.env.NAIA_DISCORD_GENERATION;
 const discordStatusPath = process.env.NAIA_DISCORD_STATUS_PATH;
 const discordAuthorityPath = process.env.NAIA_DISCORD_AUTHORITY_PATH;
+const discordInboxPath = process.env.NAIA_DISCORD_INBOX_PATH;
 delete process.env.NAIA_DISCORD_GENERATION;
 delete process.env.NAIA_DISCORD_STATUS_PATH;
 delete process.env.NAIA_DISCORD_AUTHORITY_PATH;
+delete process.env.NAIA_DISCORD_INBOX_PATH;
 let discordStatus;
 let discordAuthority;
 if (discordGeneration && discordStatusPath && discordAuthorityPath) {
@@ -199,6 +224,9 @@ if (discordToken && discordConfig && discordAuthority) {
       gateway: makeDiscordGateway(),
       token: { load: async () => discordToken },
       dedupe: makeFileDiscordDedupe({ path: dedupePath }),
+      ...(discordInboxPath && discordGeneration
+        ? { inbox: makeFileDiscordInbox({ path: discordInboxPath, generation: discordGeneration }) }
+        : {}),
       ...(registration ? { registration } : {}),
       authority: discordAuthority,
       clock: makeSystemDiscordClock(),
