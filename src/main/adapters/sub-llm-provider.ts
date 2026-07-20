@@ -8,6 +8,7 @@ export interface SubLlmConfig {
 	readonly baseUrl?: string;
 	readonly apiKey?: string;
 	readonly model?: string;
+	readonly auth?: "bearer" | "x-anyllm";
 }
 
 export type SubLlmFetch = (
@@ -30,6 +31,7 @@ export function buildSubLlmProvider(
 	const baseUrl = baseUrlRaw;
 	const model = modelRaw;
 	const apiKey = cfg.apiKey ?? "";
+	const auth = cfg.auth ?? "bearer";
 	const fetchFn = deps.fetch;
 
 	async function callOnce(
@@ -50,7 +52,11 @@ export function buildSubLlmProvider(
 			method: "POST",
 			headers: {
 				"content-type": "application/json",
-				...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
+				...(apiKey
+					? auth === "x-anyllm"
+						? { "X-AnyLLM-Key": `Bearer ${apiKey}` }
+						: { authorization: `Bearer ${apiKey}` }
+					: {}),
 			},
 			body: JSON.stringify({ model, messages, stream: false, temperature: 0 }),
 			...(signal ? { signal } : {}),

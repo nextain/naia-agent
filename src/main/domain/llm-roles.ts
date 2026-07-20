@@ -63,7 +63,7 @@ function directSource(selection: LlmRoleSelection | undefined, provenance: Confi
  * 1) 신규 llmRoles 명시 설정/상속
  * 2) 역할별 legacy 설정(main=provider/model, sub=subLlm*, memory=memoryLlm*)
  * 3) 구버전에서 subLlm*이 없고 memoryLlm*만 있으면 sub=memory legacy 상속
- * 4) 신규 memory 미설정은 sub 상속, sub 미설정은 main 상속
+ * 4) 신규 memory 미설정은 sub가 명시된 경우에만 sub 상속
  * 5) 선택적 literal defaults
  */
 export function resolveLlmRoles(input: LlmRolesInput): LlmRolesResolution {
@@ -88,14 +88,6 @@ export function resolveLlmRoles(input: LlmRolesInput): LlmRolesResolution {
         selection: { inherit: "memory" },
         provenance: "legacy-inherit",
         inheritedFromRole: "memory",
-      });
-      continue;
-    }
-    if (role === "sub" && (input.roles?.main || input.legacy?.main)) {
-      sources.set(role, {
-        selection: { inherit: "main" },
-        provenance: "inherit",
-        inheritedFromRole: "main",
       });
       continue;
     }
