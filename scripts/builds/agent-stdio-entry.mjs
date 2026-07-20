@@ -4,6 +4,8 @@
 // panel(환경 위임, egress 필요) + 라이브 reload + 종료(drain/flush) 등 **gRPC host 관심사**만 배선.
 // gRPC host에서 stdin은 일반 명령 transport가 아니다. Shell이 이 자식 전용 익명 파이프에 토큰 원문만
 // 한 번 쓰고 즉시 닫는다. line protocol과 섞지 않으며 argv/env/config 파일에도 토큰을 남기지 않는다.
+const shutdownNonce = process.env.NAIA_AGENT_SHUTDOWN_NONCE;
+delete process.env.NAIA_AGENT_SHUTDOWN_NONCE;
 const discordTokenFromSecretPipe = process.env.NAIA_DISCORD_TOKEN_PIPE === "stdin"
   ? new Promise((resolve) => {
     const chunks = [];
@@ -182,6 +184,8 @@ let activityBgm;
 let profileRuntime;
 const grpcServer = makeGrpcServer({
   bindAddr: process.env.NAIA_AGENT_GRPC_ADDR || "127.0.0.1:0",
+  shutdownNonce,
+  onShutdown: () => onShutdown?.(),
   onSetWorkspace: (wsPath) => {
     if (wsPath) currentAdkPath = wsPath; // OS 가 워크스페이스 경로 주입 → 이후 ReloadSettings 도 이 경로 사용
     return reloadConfigFrom(currentAdkPath);
@@ -438,12 +442,13 @@ process.stderr.write(`[naia-agent] grpc ready @${grpcAddr} (${label} provider, c
 // stdin 닫히면 종료 — ⚠️ 순서: (1) drain(in-flight 턴 save 완료 대기) → (2) memory.close()(store flush)
 //   → (3) exit. naia-memory LocalAdapter 는 encode 를 in-memory 버퍼링하고 close() 에서 flush 하므로,
 //   진행 중 턴을 안 기다리고 닫으면 마지막 턴 save 가 유실된다(EOF-during-turn 레이스). 격리: 실패해도 종료 진행.
-onShutdown = async () => {
+let shutdownPromise;
+const performShutdown = async () => {
   process.exitCode = 0;
   // ⚠️ 강제 종료 안전망을 *최상단*(await 전)에 설치 — drain/close/flush 어디서 hang 해도 종료를 보장한다.
   setTimeout(() => process.exit(0), 30000);
   if (discordStatusPoll) clearInterval(discordStatusPoll);
-  try { await discordRuntime?.stop(); } catch { diag.log("discord runtime", { code: "shutdown_failed" }); }
+  try { await discordRuntime?.gracefulStop(); } catch { diag.log("discord runtime", { code: "shutdown_failed" }); }
   try { discordStatus?.write("stopped"); } catch { /* native supervisor reconciles */ }
   try { if (drain) await drain(); } catch (e) { process.stderr.write(`[naia-agent] drain 실패: ${e instanceof Error ? e.message : String(e)}\n`); }
   try { await grpcServer.shutdown(); } catch (e) { process.stderr.write(`[naia-agent] grpc shutdown 실패: ${e instanceof Error ? e.message : String(e)}\n`); }
@@ -456,9 +461,13 @@ onShutdown = async () => {
   // 파이프로 flush 된 뒤 호출 → 그때 종료(순서 보장). drain/close 가 실패·hang 해도 이 줄에 항상 도달.
   process.stdout.write("", () => process.exit(0));
 };
+onShutdown = () => {
+  shutdownPromise ??= performShutdown();
+  return shutdownPromise;
+};
 // gRPC 서버 종료 = OS(Rust)가 보내는 시그널. drain/flush/grpc-shutdown 수행 후 exit.
-process.on("SIGTERM", () => { if (onShutdown) onShutdown(); });
-process.on("SIGINT", () => { if (onShutdown) onShutdown(); });
+process.on("SIGTERM", () => { void onShutdown?.(); });
+process.on("SIGINT", () => { void onShutdown?.(); });
 // ⚠️ 최후 백스톱(재감사 2026-06-23): 부팅/런타임의 잡히지 않은 reject/throw 가 raw 스택 크래시로 새지 않게 —
 //   정직 메시지 남기고 자원 정리 후 종료. 정상 경로는 각자 try/catch 로 처리되며 여긴 그물망이다.
 process.on("unhandledRejection", (reason) => {

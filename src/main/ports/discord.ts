@@ -155,4 +155,5 @@ export interface DiscordRuntimeDeps {
   readonly clock: DiscordRuntimeClock;
   readonly text: DiscordRuntimeTextPort;
   readonly diag: DiagnosticLog;
+  readonly gracefulStopTimeoutMs?: number;
 }

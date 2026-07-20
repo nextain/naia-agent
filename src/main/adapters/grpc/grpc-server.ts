@@ -1,6 +1,7 @@
 // adapters/grpc/grpc-server — naia_agent.proto 의 gRPC 서버. stdio.ts 와 동형(같은 AgentIngressPort/EgressPort 구현)
 // → composition/도메인 불변(직교). proto↔domain 매핑은 grpc-codec(순수). transport 누수 없음(proto 타입은 이 adapter 안에만).
 import { existsSync } from "node:fs";
+import { timingSafeEqual } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as grpc from "@grpc/grpc-js";
@@ -40,6 +41,8 @@ export interface GrpcServerDeps {
   // UC-KNOWLEDGE-COMPILE(FR-KB-5): 지식 컴파일 트리거(entry 주입, async). 미주입=unavailable(no-op 정직 보고).
   onCompileKnowledge?: (adkPath: string) => Promise<CompileKnowledgeResult>;
   onDiagnostics?: () => DiagnosticsResult;            // F1 rich-health(미주입 시 기본 healthy). Rust os-client=후속.
+  shutdownNonce?: string;
+  onShutdown?: () => void | Promise<void>;
   // UC-PANEL(FR-PANEL): 환경 panel skill RPC → panel-tool-executor 연결(entry 주입). 미주입=panel 미지원(no-op).
   onRegisterPanelSkills?: (panelId: string, tools: ToolSpec[]) => void;
   onClearPanelSkills?: (panelId: string) => void;
@@ -87,6 +90,7 @@ export function makeGrpcServer(deps: GrpcServerDeps): GrpcServer {
   const activitySubscribers = new Map<string, WritableStream>();
   // ingress cb(단일 구독) — RPC 핸들러가 도메인 req 를 이리로 흘린다(stdio onLine 등가).
   let onReq: ((req: AgentRequest) => void) | null = null;
+  let shutdownScheduled = false;
 
   const ingress: AgentIngressPort = {
     onRequest(cb: (req: AgentRequest) => void): Unsub {
@@ -207,6 +211,26 @@ export function makeGrpcServer(deps: GrpcServerDeps): GrpcServer {
     },
     diagnostics: (_call: grpc.ServerUnaryCall<unknown, unknown>, cb: grpc.sendUnaryData<DiagnosticsResult>) => {
       cb(null, deps.onDiagnostics ? deps.onDiagnostics() : { version: "", uptimeMs: 0, healthy: true, components: [] }); // 미주입=기본 healthy
+    },
+    shutdown: (
+      call: grpc.ServerUnaryCall<unknown, unknown>,
+      cb: grpc.sendUnaryData<{ ok: boolean }>,
+    ) => {
+      const supplied = String((call.request as { nonce?: string })?.nonce ?? "");
+      if (!opaqueSecretEqual(deps.shutdownNonce, supplied) || !deps.onShutdown) {
+        cb({ code: grpc.status.UNAUTHENTICATED, message: "unauthenticated" });
+        return;
+      }
+      const schedule = !shutdownScheduled;
+      shutdownScheduled = true;
+      cb(null, { ok: true });
+      if (schedule) {
+        setImmediate(() => {
+          void Promise.resolve()
+            .then(() => deps.onShutdown?.())
+            .catch(() => safeLog("grpc shutdown request failed"));
+        });
+      }
     },
     chat: streamHandler((p) => chatRequestToDomain(p as PbChatRequest)),
     toolRequest: streamHandler((p) => toolRequestToDomain(p as PbToolRequest)),
@@ -422,6 +446,15 @@ export function makeGrpcServer(deps: GrpcServerDeps): GrpcServer {
         server.tryShutdown(() => resolve());
       }),
   };
+}
+
+function opaqueSecretEqual(expected: string | undefined, supplied: string): boolean {
+  if (!expected || !supplied) return false;
+  const expectedBytes = Buffer.from(expected, "utf8");
+  const suppliedBytes = Buffer.from(supplied, "utf8");
+  if (expectedBytes.length < 16 || expectedBytes.length > 512) return false;
+  return expectedBytes.length === suppliedBytes.length
+    && timingSafeEqual(expectedBytes, suppliedBytes);
 }
 
 function boundedMs(value: unknown, fallback: number): number {

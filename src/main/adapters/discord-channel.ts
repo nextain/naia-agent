@@ -187,7 +187,9 @@ export class DiscordChannelRuntime {
   private selfUserId: string | null = null;
   private loop?: Promise<void>;
   private stopPromise?: Promise<void>;
+  private gracefulStopPromise?: Promise<void>;
   private stopped = false;
+  private quiescing = false;
   private reconfigureRequested = false;
   private generation = 0;
   private lifecycleEpoch = 0;
@@ -208,6 +210,8 @@ export class DiscordChannelRuntime {
   private readonly maxSessions: number;
   private readonly maxHistoryMessages: number;
   private readonly maxReplyChars: number;
+  private readonly gracefulStopTimeoutMs: number;
+  private preserveReservationsOnStop = false;
 
   constructor(
     private readonly deps: DiscordRuntimeDeps,
@@ -220,6 +224,12 @@ export class DiscordChannelRuntime {
     this.maxSessions = this.boundedOption(config.maxSessions, 128, 1, 256);
     this.maxHistoryMessages = this.boundedOption(config.maxHistoryMessages, 20, 2, 40);
     this.maxReplyChars = this.boundedOption(config.maxReplyChars, 12_000, 1, 12_000);
+    this.gracefulStopTimeoutMs = this.boundedOption(
+      deps.gracefulStopTimeoutMs,
+      20_000,
+      1,
+      25_000,
+    );
     this.authorityPrepared = !deps.authority;
     this.ingress = {
       onRequest: (callback) => {
@@ -272,7 +282,7 @@ export class DiscordChannelRuntime {
 
   async configure(config: DiscordRuntimeConfig): Promise<void> {
     if (config.bindings.length > 256) throw new Error("DISCORD_BINDINGS_INVALID");
-    if (this.stopped) throw new Error("DISCORD_RUNTIME_STOPPED");
+    if (this.stopped || this.quiescing) throw new Error("DISCORD_RUNTIME_STOPPED");
     this.lifecycleAbort.abort();
     this.lifecycleAbort = new AbortController();
     this.generation++;
@@ -312,6 +322,26 @@ export class DiscordChannelRuntime {
     await this.stopPromise;
   }
 
+  async gracefulStop(): Promise<void> {
+    if (!this.gracefulStopPromise) this.gracefulStopPromise = this.gracefulStopRuntime();
+    await this.gracefulStopPromise;
+  }
+
+  private async gracefulStopRuntime(): Promise<void> {
+    // Reject newly delivered Gateway messages while preserving the current
+    // lifecycle epoch and outbound signal for work admitted before shutdown.
+    this.quiescing = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<false>((resolve) => {
+      timer = setTimeout(() => resolve(false), this.gracefulStopTimeoutMs);
+      timer.unref?.();
+    });
+    const drained = await Promise.race([this.drain().then(() => true as const), timedOut]);
+    if (timer) clearTimeout(timer);
+    this.preserveReservationsOnStop = !drained;
+    await this.stop();
+  }
+
   private async stopRuntime(): Promise<void> {
     this.stopped = true;
     this.generation++;
@@ -327,21 +357,15 @@ export class DiscordChannelRuntime {
       turn.complete();
       this.route?.({ kind: "cancel", requestId: turn.requestId });
     }
-    await Promise.allSettled(staleTurns.map(async (turn) => {
-      try {
-        await this.deps.dedupe.releaseReservation?.({
-          bindingId: turn.bindingId,
-          messageId: turn.messageId,
-          now: this.deps.clock.now(),
-        });
-      } catch { /* reconstructed stores also discard stale reservations */ }
-    }));
+    await Promise.allSettled(staleTurns.map((turn) =>
+      this.finishInterruptedReservation(turn.bindingId, turn.messageId)));
     await Promise.allSettled(staleTasks);
     try { await this.loop; } catch { /* stop is no-throw */ }
   }
 
   async drain(): Promise<void> {
-    while ((this.active.size || this.admittedMessages || this.queuedMessages) && !this.stopped) {
+    while ((this.active.size || this.admittedMessages || this.queuedMessages || this.inFlightTasks.size)
+      && !this.stopped) {
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
   }
@@ -534,7 +558,7 @@ export class DiscordChannelRuntime {
   }
 
   private scheduleMessage(message: DiscordGatewayMessage, lifecycleEpoch: number): void {
-    if (!this.isLifecycleCurrent(lifecycleEpoch)) return;
+    if (this.quiescing || !this.isLifecycleCurrent(lifecycleEpoch)) return;
     const binding = this.findBinding(message);
     if (!binding || message.guildId === null) return;
     if (this.active.size + this.admittedMessages >= this.maxActiveTurns) {
@@ -658,13 +682,7 @@ export class DiscordChannelRuntime {
     } catch { /* fail closed */ }
     if (!await this.ensureAuthoritative() || !this.isLifecycleCurrent(lifecycleEpoch)) {
       if (reservation.decision === "process") {
-        try {
-          await this.deps.dedupe.releaseReservation?.({
-            bindingId: binding.bindingId,
-            messageId: message.messageId,
-            now: this.deps.clock.now(),
-          });
-        } catch { /* fail closed */ }
+        await this.finishInterruptedReservation(binding.bindingId, message.messageId);
       }
       return;
     }
@@ -697,13 +715,7 @@ export class DiscordChannelRuntime {
       createdAt: this.deps.clock.now(),
     });
     if (!this.isLifecycleCurrent(lifecycleEpoch)) {
-      try {
-        await this.deps.dedupe.releaseReservation?.({
-          bindingId: binding.bindingId,
-          messageId: message.messageId,
-          now: this.deps.clock.now(),
-        });
-      } catch { /* fail closed */ }
+      await this.finishInterruptedReservation(binding.bindingId, message.messageId);
       return;
     }
     const requestId = `${REQUEST_PREFIX}${binding.bindingId}:${message.messageId}`;
@@ -753,13 +765,7 @@ export class DiscordChannelRuntime {
     } catch {
       this.active.delete(requestId);
       complete();
-      try {
-        await this.deps.dedupe.releaseReservation?.({
-          bindingId: binding.bindingId,
-          messageId: message.messageId,
-          now: this.deps.clock.now(),
-        });
-      } catch { /* fail closed */ }
+      await this.finishInterruptedReservation(binding.bindingId, message.messageId);
       this.diagnostic("ingress_dispatch_failed");
     }
     await completion;
@@ -956,6 +962,20 @@ export class DiscordChannelRuntime {
         this.partialReplies++;
         this.latestPartialConfirmedChunk = confirmedChunk;
       }
+    } catch { /* fail closed */ }
+  }
+
+  private async finishInterruptedReservation(bindingId: string, messageId: string): Promise<void> {
+    if (this.preserveReservationsOnStop) {
+      await this.recordPartial(bindingId, messageId, 0);
+      return;
+    }
+    try {
+      await this.deps.dedupe.releaseReservation?.({
+        bindingId,
+        messageId,
+        now: this.deps.clock.now(),
+      });
     } catch { /* fail closed */ }
   }
 }

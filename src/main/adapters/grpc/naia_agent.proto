@@ -28,6 +28,7 @@ service NaiaAgent {
   // F1 rich-health(신규계약): agent version/uptime/health. os InteroceptivePort.diagnostics rich payload.
   //   (os-local agentReachable=기본 health; 이 RPC=상세 payload. Rust os-client=후속.)
   rpc Diagnostics(DiagnosticsRequest) returns (DiagnosticsResult);
+  rpc Shutdown(ShutdownRequest) returns (Ack);
 
   // UC-PANEL (FR-PANEL): 환경 panel skill(BGM·브라우저·workspace). 셸이 도구를 등록 → agent 가 LLM 에 노출,
   //   LLM tool call 시 panel_tool_call(AgentEvent) emit → 셸 실행 → PanelToolResult 로 결과 주입(E1: agent 는 환경 미실행).
@@ -45,6 +46,7 @@ service NaiaAgent {
 }
 
 message Ack { bool ok = 1; }
+message ShutdownRequest { string nonce = 1; }
 message DiagnosticsRequest {}
 message DiagnosticsResult { string version = 1; int64 uptime_ms = 2; bool healthy = 3; repeated DiagComponent components = 4; }
 message DiagComponent { string name = 1; bool healthy = 2; }
