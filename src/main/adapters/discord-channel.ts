@@ -81,7 +81,7 @@ function parseBinding(value: unknown): DiscordChannelBinding | undefined {
 export function parseDiscordRuntimeConfig(value: unknown): DiscordRuntimeConfig | undefined {
   if (!value || typeof value !== "object") return undefined;
   const input = value as Record<string, unknown>;
-  if (!Array.isArray(input.bindings) || input.bindings.length < 1 || input.bindings.length > 256) return undefined;
+  if (!Array.isArray(input.bindings) || input.bindings.length > 256) return undefined;
   const bindings = input.bindings.map(parseBinding);
   if (bindings.some((binding) => !binding)) return undefined;
   const keys = new Set<string>();
@@ -172,7 +172,7 @@ export class DiscordChannelRuntime {
     private readonly deps: DiscordRuntimeDeps,
     private config: DiscordRuntimeConfig,
   ) {
-    if (!config.bindings.length || config.bindings.length > 256) throw new Error("DISCORD_BINDINGS_INVALID");
+    if (config.bindings.length > 256) throw new Error("DISCORD_BINDINGS_INVALID");
     this.reconnectBaseMs = this.boundedOption(config.reconnectBaseMs, 1_000, 100, 60_000);
     this.reconnectMaxMs = this.boundedOption(config.reconnectMaxMs, 30_000, this.reconnectBaseMs, 300_000);
     this.maxActiveTurns = this.boundedOption(config.maxActiveTurns, 32, 1, 256);
@@ -225,7 +225,7 @@ export class DiscordChannelRuntime {
   }
 
   async configure(config: DiscordRuntimeConfig): Promise<void> {
-    if (!config.bindings.length || config.bindings.length > 256) throw new Error("DISCORD_BINDINGS_INVALID");
+    if (config.bindings.length > 256) throw new Error("DISCORD_BINDINGS_INVALID");
     const staleTurns = [...this.active.values()];
     this.active.clear();
     for (const turn of staleTurns) {

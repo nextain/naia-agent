@@ -330,6 +330,13 @@ describe("T-DISCORD-RT-01/02 — authenticated ingress to existing chat pipeline
     };
     expect(parseDiscordRuntimeConfig(valid)).toEqual(valid);
     expect(parseDiscordRuntimeConfig({
+      bindings: [],
+      processingProfiles: { profile_1: "local_only" },
+    })).toEqual({
+      bindings: [],
+      processingProfiles: { profile_1: "local_only" },
+    });
+    expect(parseDiscordRuntimeConfig({
       ...valid,
       bindings: [{ ...valid.bindings[0], participation: undefined }],
     })?.bindings[0]?.participation).toBe("paused");
@@ -343,6 +350,32 @@ describe("T-DISCORD-RT-01/02 — authenticated ingress to existing chat pipeline
     expect(parseDiscordRuntimeConfig({
       bindings: [valid.bindings[0], { ...valid.bindings[0], bindingId: "binding_2" }],
     })).toBeUndefined();
+  });
+
+  it("allows an empty binding set while rejecting every inbound channel", async () => {
+    const gateway = new FakeGateway();
+    const requests: AgentRequest[] = [];
+    const runtime = new DiscordChannelRuntime({
+      gateway,
+      token: { load: async () => "token" },
+      dedupe: makeDedupe(),
+      clock: { now: () => 1, sleep: async () => {} },
+      text: testText,
+      diag: { log() {} },
+    }, {
+      bindings: [],
+      processingProfiles: { profile_1: "local_only" },
+    });
+    runtime.ingress.onRequest((request) => requests.push(request));
+
+    runtime.start();
+    await waitFor(() => gateway.handlers.length === 1);
+    gateway.message();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(requests).toEqual([]);
+    expect(runtime.status()).toMatchObject({ state: "ready", bindingCount: 0 });
+    await runtime.stop();
   });
 
   it("dispatches an exact binding with trusted processing metadata and replies to the source message", async () => {
