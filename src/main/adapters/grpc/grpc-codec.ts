@@ -43,7 +43,11 @@ export function chatRequestToDomain(p: PbChatRequest): Extract<AgentRequest, { k
     role: (VALID_ROLES.has(m.role) ? m.role : "user") as ChatMessage["role"],
     content: String(m.content ?? ""),
     ...(m.toolCallId ? { toolCallId: m.toolCallId } : {}),
-    ...(m.attachments !== undefined ? { attachments: m.attachments } : {}),
+    // proto-loader's `defaults: true` materializes an empty repeated field on
+    // every message. Preserve only real attachment payloads; otherwise an
+    // assistant message in the next turn is incorrectly rejected by the wire
+    // validator as a message carrying user-only attachments.
+    ...(Array.isArray(m.attachments) && m.attachments.length > 0 ? { attachments: m.attachments } : {}),
   }));
   return {
     kind: "chat",

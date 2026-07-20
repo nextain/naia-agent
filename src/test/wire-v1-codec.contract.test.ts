@@ -55,6 +55,23 @@ describe("UC-WIRE-V1 inbound codec (T-WIRE-01~04,18)", () => {
     expect(decoded.messages).toEqual([{ role: "user", content: "inspect", attachments: [ATTACHMENT] }]);
   });
 
+  it("T-WIRE-01: proto default empty attachments do not turn assistant history into an attachment message", async () => {
+    const decoded = grpcCodec.chatRequestToDomain({
+      requestId: "grpc-follow-up",
+      messages: [
+        { role: "user", content: "first", attachments: [] },
+        { role: "assistant", content: "reply", attachments: [] },
+        { role: "user", content: "follow up", attachments: [] },
+      ],
+    });
+    expect(decoded.messages).toEqual([
+      { role: "user", content: "first" },
+      { role: "assistant", content: "reply" },
+      { role: "user", content: "follow up" },
+    ]);
+    const { validateWireChatRequest } = await import("../main/domain/wire-v1.js");
+    expect(validateWireChatRequest(decoded)).toMatchObject({ ok: true });
+  });
   it("T-WIRE-03: stdio preserves channel and grounding as structured values", () => {
     const decoded = asRecord(protocol.decodeRequest(JSON.stringify({
       ...LEGACY_STDIO_CHAT,
