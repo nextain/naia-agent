@@ -1,6 +1,6 @@
 // ports/sub-llm — sub-LLM first-class 표면(Phase 3.2). main ProviderPort 와 직교하는
 // 경량·배치용 서브 LLM. 소비처: 기억 사실추출·compaction(naia-memory 내부) + (전방) naia-adk 배치(Phase 5).
-// config(memoryLlmProvider)로 구성 → buildSubLlmProvider 가 인스턴스화. 미구성(provider="none") = undefined(호출처 폴백).
+// 독립 sub 역할 config로 구성 → buildSubLlmProvider 가 인스턴스화. memory 역할 설정과 공유하지 않는다.
 // domain 만 의존(포트 원칙). I/O 0.
 import type { ChatMessage } from "../domain/chat.js";
 

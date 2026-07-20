@@ -51,6 +51,71 @@ describe("loadMain — config.json (naia-os 셸 정본 포맷; 키는 키체인=
 	});
 });
 
+describe("loadLlmRoles — main/sub/memory 독립 설정과 migration", () => {
+	it("구조화 llmRoles를 우선해 3개 effective config를 고정 순서로 반환", () => {
+		const result = store({
+			[CONFIG]: JSON.stringify({
+				provider: "openai",
+				model: "legacy-main",
+				memoryLlmProvider: "ollama",
+				memoryLlmModel: "legacy-memory",
+				llmRoles: {
+					main: { provider: "codex", model: "gpt-5.4" },
+					sub: { provider: "nextain", model: "gemini-3.1-flash-lite", credentialRef: "sub-ref" },
+					memory: { inherit: "sub" },
+				},
+			}),
+		}).loadLlmRoles("/ws");
+		expect(result?.ok).toBe(true);
+		if (!result?.ok) return;
+		expect(result.configs.map((c) => c.role)).toEqual(["main", "sub", "memory"]);
+		expect(result.configs[0].provider.value).toBe("codex");
+		expect(result.configs[1].provider.value).toBe("nextain");
+		expect(result.configs[2].provider).toEqual({
+			value: "nextain",
+			provenance: "inherit",
+			inheritedFromRole: "sub",
+		});
+	});
+
+	it("legacy memoryLlm*은 memory로 보존하고 sub는 legacy-inherit", () => {
+		const result = store({
+			[CONFIG]: JSON.stringify({
+				provider: "codex",
+				model: "gpt-5.4",
+				memoryLlmProvider: "ollama",
+				memoryLlmModel: "gemma3:4b",
+				memoryLlmBaseUrl: "http://localhost:11434/v1",
+			}),
+		}).loadLlmRoles("/ws");
+		expect(result?.ok).toBe(true);
+		if (!result?.ok) return;
+		expect(result.configs[1].provider).toEqual({
+			value: "ollama",
+			provenance: "legacy-inherit",
+			inheritedFromRole: "memory",
+		});
+		expect(result.configs[2].provider).toEqual({ value: "ollama", provenance: "explicit" });
+	});
+
+	it("신규 subLlm*과 memoryLlm*은 서로 독립", () => {
+		const result = store({
+			[CONFIG]: JSON.stringify({
+				provider: "codex",
+				model: "gpt-5.4",
+				subLlmProvider: "nextain",
+				subLlmModel: "small",
+				memoryLlmProvider: "ollama",
+				memoryLlmModel: "memory-local",
+			}),
+		}).loadLlmRoles("/ws");
+		expect(result?.ok).toBe(true);
+		if (!result?.ok) return;
+		expect(result.configs[1].provider.value).toBe("nextain");
+		expect(result.configs[2].provider.value).toBe("ollama");
+	});
+});
+
 describe("loadMain — 우선순위(config.json 정본 우선, llm.json 폴백)", () => {
 	it("config.json 우선: 둘 다 있으면 config.json(naia-os UI 선택) 채택", () => {
 		expect(store({
