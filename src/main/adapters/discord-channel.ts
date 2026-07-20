@@ -211,7 +211,6 @@ export class DiscordChannelRuntime {
   private readonly maxHistoryMessages: number;
   private readonly maxReplyChars: number;
   private readonly gracefulStopTimeoutMs: number;
-  private preserveReservationsOnStop = false;
 
   constructor(
     private readonly deps: DiscordRuntimeDeps,
@@ -336,9 +335,8 @@ export class DiscordChannelRuntime {
       timer = setTimeout(() => resolve(false), this.gracefulStopTimeoutMs);
       timer.unref?.();
     });
-    const drained = await Promise.race([this.drain().then(() => true as const), timedOut]);
+    await Promise.race([this.drain().then(() => true as const), timedOut]);
     if (timer) clearTimeout(timer);
-    this.preserveReservationsOnStop = !drained;
     await this.stop();
   }
 
@@ -714,7 +712,7 @@ export class DiscordChannelRuntime {
       content: message.content,
       createdAt: this.deps.clock.now(),
     });
-    if (!this.isLifecycleCurrent(lifecycleEpoch)) {
+    if (!await this.ensureAuthoritative() || !this.isLifecycleCurrent(lifecycleEpoch)) {
       await this.finishInterruptedReservation(binding.bindingId, message.messageId);
       return;
     }
@@ -739,6 +737,7 @@ export class DiscordChannelRuntime {
       trustedBinding: { ...binding, allowedUserIds },
     });
     if (!checked.ok) {
+      await this.finishInterruptedReservation(binding.bindingId, message.messageId);
       this.diagnostic("security_rejected");
       return;
     }
@@ -960,22 +959,15 @@ export class DiscordChannelRuntime {
         now: this.deps.clock.now(),
       })) {
         this.partialReplies++;
-        this.latestPartialConfirmedChunk = confirmedChunk;
+        this.latestPartialConfirmedChunk = Math.max(
+          this.latestPartialConfirmedChunk ?? 0,
+          confirmedChunk,
+        );
       }
     } catch { /* fail closed */ }
   }
 
   private async finishInterruptedReservation(bindingId: string, messageId: string): Promise<void> {
-    if (this.preserveReservationsOnStop) {
-      await this.recordPartial(bindingId, messageId, 0);
-      return;
-    }
-    try {
-      await this.deps.dedupe.releaseReservation?.({
-        bindingId,
-        messageId,
-        now: this.deps.clock.now(),
-      });
-    } catch { /* fail closed */ }
+    await this.recordPartial(bindingId, messageId, 0);
   }
 }

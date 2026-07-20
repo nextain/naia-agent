@@ -249,9 +249,17 @@ export function makeFileDiscordDedupe(options: DiscordDedupeOptions): DiscordDed
       if (!validIdentity(bindingId, messageId, now)
         || !Number.isSafeInteger(confirmedChunk) || confirmedChunk < 0) return false;
       const existing = find(bindingId, messageId, now);
-      if (!existing || (existing.state !== "reserved" && existing.state !== "replying")) return false;
-      if (existing.state === "replying" && confirmedChunk > existing.confirmedChunk!) return false;
-      return write({ bindingId, messageId, updatedAt: now, state: "partial", confirmedChunk }, now);
+      if (!existing || (existing.state !== "reserved" && existing.state !== "replying"
+        && existing.state !== "partial")) return false;
+      const durableConfirmedChunk = Math.max(existing.confirmedChunk ?? 0, confirmedChunk);
+      if (existing.state === "replying" && durableConfirmedChunk > existing.chunks!.length) return false;
+      return write({
+        bindingId,
+        messageId,
+        updatedAt: now,
+        state: "partial",
+        confirmedChunk: durableConfirmedChunk,
+      }, now);
     },
   };
 }
