@@ -24,6 +24,7 @@ export interface DiscordGatewayAdapterOptions {
   readonly apiBase?: string;
   readonly maxRateLimitRetries?: number;
   readonly discoveryTimeoutMs?: number;
+  readonly replyTimeoutMs?: number;
 }
 
 export class DiscordGatewayError extends Error {
@@ -112,6 +113,28 @@ async function fetchGatewayUrl(
   }
 }
 
+async function fetchReplyWithTimeout(
+  fetchImpl: typeof fetch,
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<Response> {
+  if (signal?.aborted) throw new DiscordGatewayError("http_error");
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  signal?.addEventListener("abort", abort, { once: true });
+  const timer = setTimeout(abort, timeoutMs);
+  try {
+    return await fetchImpl(url, { ...init, signal: controller.signal });
+  } catch {
+    throw new DiscordGatewayError("http_error");
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", abort);
+  }
+}
+
 function parsePayload(data: unknown): { op: number; t?: string; s?: number; d?: unknown } | undefined {
   try {
     const text = typeof data === "string" ? data : String(data);
@@ -185,6 +208,7 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
   const apiBase = options.apiBase ?? "https://discord.com/api/v10";
   const maxRetries = options.maxRateLimitRetries ?? 2;
   const discoveryTimeoutMs = boundedTimeout(options.discoveryTimeoutMs);
+  const replyTimeoutMs = boundedTimeout(options.replyTimeoutMs);
   let sessionId: string | undefined;
   let resumeUrl: string | undefined;
   let resumeSequence: number | null = null;
@@ -346,7 +370,8 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
             try {
               if (input.signal?.aborted) throw new DiscordGatewayError("http_error");
               for (let attempt = 0; attempt <= maxRetries; attempt++) {
-                const response = await fetchImpl(
+                const response = await fetchReplyWithTimeout(
+                  fetchImpl,
                   `${apiBase}/channels/${encodeURIComponent(input.channelId)}/messages`,
                   {
                     method: "POST",
@@ -366,6 +391,8 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
                       allowed_mentions: { parse: [], replied_user: false },
                     }),
                   },
+                  replyTimeoutMs,
+                  input.signal,
                 );
                 if (response.ok) {
                   const body = await response.json() as { id?: unknown };

@@ -295,6 +295,36 @@ describe("T-DISCORD-RT-02/05/06 — Discord Gateway adapter", () => {
     expect(fetcher).toHaveBeenCalledTimes(4);
   });
 
+  it("times out a stalled reply and releases the connection queue", async () => {
+    vi.useFakeTimers();
+    const socket = new FakeSocket();
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(response(200, { url: "wss://gateway.discord.test" }))
+      .mockImplementationOnce((_url: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("timed out", "AbortError")), { once: true });
+        }))
+      .mockResolvedValueOnce(response(200, { id: "402" }));
+    const connection = await makeDiscordGateway({
+      fetch: fetcher as typeof fetch,
+      socket: () => socket,
+      replyTimeoutMs: 100,
+    }).connect("token", { onReady() {}, onMessage() {} });
+
+    const stalled = connection.sendReply({
+      guildId: "100", channelId: "200", messageId: "400", content: "stalled",
+    });
+    const stalledRejection = expect(stalled).rejects.toMatchObject({ code: "http_error" });
+    const next = connection.sendReply({
+      guildId: "100", channelId: "200", messageId: "401", content: "next",
+    });
+    await vi.advanceTimersByTimeAsync(100);
+    await stalledRejection;
+    await expect(next).resolves.toBe("402");
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+
   it("fails closed when Discord omits the created message snowflake", async () => {
     const socket = new FakeSocket();
     const fetcher = vi.fn()
