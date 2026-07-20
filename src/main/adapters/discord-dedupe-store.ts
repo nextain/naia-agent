@@ -1,12 +1,6 @@
-import {
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { dirname } from "node:path";
+import { readFileSync } from "node:fs";
 import type { DiscordDedupePort } from "../ports/discord.js";
+import { replaceOwnerOnlyAtomic } from "./owner-only-atomic-file.js";
 
 type DedupeState = "reserved" | "replying" | "completed" | "partial";
 
@@ -55,15 +49,7 @@ function makeNodeFs(): DiscordDedupeFs {
       }
     },
     replace(path, contents) {
-      mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-      const temp = `${path}.tmp`;
-      try {
-        writeFileSync(temp, contents, { encoding: "utf8", mode: 0o600 });
-        renameSync(temp, path);
-      } catch (error) {
-        try { rmSync(temp, { force: true }); } catch { /* best effort */ }
-        throw error;
-      }
+      replaceOwnerOnlyAtomic(path, contents);
     },
   };
 }

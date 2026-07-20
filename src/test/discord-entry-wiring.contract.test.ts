@@ -17,6 +17,19 @@ describe("T-DISCORD-RT-02/05 — production entry wiring", () => {
     expect(entry).toContain("delete process.env.NAIA_DISCORD_INBOX_PATH");
   });
 
+  it("closes the one-shot secret pipe before evaluating runtime modules", () => {
+    const tokenRead = entry.indexOf(
+      "const discordToken = await discordTokenFromSecretPipe",
+    );
+    const firstRuntimeImport = entry.indexOf(
+      'await import("../../dist/main/',
+    );
+    expect(tokenRead).toBeGreaterThan(0);
+    expect(firstRuntimeImport).toBeGreaterThan(tokenRead);
+    expect(entry).toContain("process.stdin.destroy()");
+    expect(entry).not.toMatch(/^import .*dist\/main/m);
+  });
+
   it("wires the generation-scoped Agent-owned inbox cache", () => {
     expect(entry).toContain("makeFileDiscordInbox");
     expect(entry).toContain("discordInboxPath && discordGeneration");

@@ -1,10 +1,5 @@
-import {
-  mkdirSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { dirname, isAbsolute } from "node:path";
+import { isAbsolute } from "node:path";
+import { replaceOwnerOnlyAtomic } from "./owner-only-atomic-file.js";
 
 export type DiscordNativeStatusState = "starting" | "standby" | "ready" | "failed" | "stopped";
 
@@ -30,21 +25,13 @@ export function makeDiscordStatusFile(input: {
             || partialReply.confirmedChunk < 0 || partialReply.confirmedChunk > 6))) {
         throw new Error("DISCORD_STATUS_VALUE_INVALID");
       }
-      const temp = `${input.path}.tmp`;
-      mkdirSync(dirname(input.path), { recursive: true, mode: 0o700 });
-      try {
-        writeFileSync(temp, JSON.stringify({
-          version: 1,
-          generation: input.generation,
-          state,
-          ...(code ? { code } : {}),
-          ...(partialReply ? { partialReply } : {}),
-        }), { encoding: "utf8", mode: 0o600 });
-        renameSync(temp, input.path);
-      } catch (error) {
-        try { rmSync(temp, { force: true }); } catch { /* best effort */ }
-        throw error;
-      }
+      replaceOwnerOnlyAtomic(input.path, JSON.stringify({
+        version: 1,
+        generation: input.generation,
+        state,
+        ...(code ? { code } : {}),
+        ...(partialReply ? { partialReply } : {}),
+      }));
     },
   };
 }

@@ -1,15 +1,7 @@
-import {
-  closeSync,
-  fsyncSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { dirname, isAbsolute } from "node:path";
+import { readFileSync, renameSync } from "node:fs";
+import { isAbsolute } from "node:path";
 import type { DiscordInboxPort, DiscordInboxRecord } from "../ports/discord.js";
+import { replaceOwnerOnlyAtomic } from "./owner-only-atomic-file.js";
 
 interface DiscordInboxDocument {
   readonly version: 1;
@@ -30,7 +22,6 @@ const MAX_CONTENT_LENGTH = 4_000;
 const DEFAULT_MAX_RECORDS = 200;
 const DEFAULT_MAX_BYTES = 512 * 1_024;
 const MAX_CHANNELS = 256;
-let tempSequence = 0;
 
 function isRecord(value: unknown): value is DiscordInboxRecord {
   if (!value || typeof value !== "object") return false;
@@ -82,31 +73,6 @@ function boundedPositive(value: number | undefined, fallback: number, max: numbe
   return resolved;
 }
 
-function replaceAtomic(path: string, contents: string): void {
-  const directory = dirname(path);
-  mkdirSync(directory, { recursive: true, mode: 0o700 });
-  const temp = `${path}.${process.pid}.${++tempSequence}.tmp`;
-  let descriptor: number | undefined;
-  try {
-    descriptor = openSync(temp, "wx", 0o600);
-    writeFileSync(descriptor, contents, { encoding: "utf8" });
-    fsyncSync(descriptor);
-    closeSync(descriptor);
-    descriptor = undefined;
-    renameSync(temp, path);
-    try {
-      const directoryDescriptor = openSync(directory, "r");
-      try { fsyncSync(directoryDescriptor); } finally { closeSync(directoryDescriptor); }
-    } catch { /* directory fsync is unavailable on some platforms */ }
-  } catch (error) {
-    if (descriptor !== undefined) {
-      try { closeSync(descriptor); } catch { /* best effort */ }
-    }
-    try { rmSync(temp, { force: true }); } catch { /* best effort */ }
-    throw error;
-  }
-}
-
 export function makeFileDiscordInbox(options: DiscordInboxStoreOptions): DiscordInboxPort {
   if (!isAbsolute(options.path) || !ID.test(options.generation)) {
     throw new Error("DISCORD_INBOX_CONFIG_INVALID");
@@ -152,7 +118,7 @@ export function makeFileDiscordInbox(options: DiscordInboxStoreOptions): Discord
         if (!records.length) return;
         channels[key] = records;
         document = { version: 1, generation: options.generation, channels };
-        replaceAtomic(options.path, JSON.stringify(document));
+        replaceOwnerOnlyAtomic(options.path, JSON.stringify(document));
         result = true;
       }).catch(() => { result = false; });
       return queue.then(() => result);

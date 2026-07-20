@@ -2,43 +2,6 @@
 // agent-stdio-entry — new-naia-agent(brain) 를 **gRPC transport** 로 구동하는 진입점(naia-os 가 spawn → connect).
 // transport-독립 런타임 deps 는 compose-agent-deps.mjs(CLI host 와 공유, NFR-CLI-shared) — 여기선 gRPC server +
 // panel(환경 위임, egress 필요) + 라이브 reload + 종료(drain/flush) 등 **gRPC host 관심사**만 배선.
-import { randomUUID } from "node:crypto";
-import { join } from "node:path";
-import { wireAgentUC1 } from "../../dist/main/composition/index.js";
-import { makeCompositeAgentIngress, makePrefixedAgentEgress } from "../../dist/main/adapters/agent-transport-mux.js";
-import { DiscordChannelRuntime, makeSystemDiscordClock, parseDiscordRuntimeConfig } from "../../dist/main/adapters/discord-channel.js";
-import { makeFileDiscordDedupe } from "../../dist/main/adapters/discord-dedupe-store.js";
-import { makeDiscordGateway } from "../../dist/main/adapters/discord-gateway.js";
-import { makeDiscordRuntimeText } from "../../dist/main/adapters/discord-messages.js";
-import { makeFileDiscordRegistration } from "../../dist/main/adapters/discord-registration-store.js";
-import { makeFileDiscordConsentStore } from "../../dist/main/adapters/discord-consent-store.js";
-import { makeDiscordStatusFile } from "../../dist/main/adapters/discord-status-file.js";
-import { makeDiscordGenerationAuthority } from "../../dist/main/adapters/discord-generation-authority.js";
-import { makeFileDiscordInbox } from "../../dist/main/adapters/discord-inbox-store.js";
-import { makeProcessingGuard } from "../../dist/main/adapters/processing-guard.js";
-import { anthropicBaseUrl, isLocalEngineBaseUrl, labProxyBaseUrl, nativeBaseUrl, resolveProviderRoute } from "../../dist/main/domain/provider-route.js";
-import { makeCompositeToolExecutor } from "../../dist/main/adapters/composite-tool-executor.js";
-import { makePanelToolExecutor } from "../../dist/main/adapters/panel-tool-executor.js";
-import { makeGrpcServer } from "../../dist/main/adapters/grpc/grpc-server.js";
-import { makeActivityRouteRegistry, makeActivitySpeechEgress } from "../../dist/main/adapters/activity-speech-egress.js";
-import { makeActivityRadioDjBgm } from "../../dist/main/adapters/activity-radio-dj-bgm.js";
-import { makeExhibitionKnowledge } from "../../dist/main/adapters/exhibition-knowledge.js";
-import {
-  makeDeterministicRadioDjSelector,
-  makeRadioDjContext,
-  makeRadioDjPreferenceStore,
-  makeSystemProactiveScheduler,
-} from "../../dist/main/adapters/radio-dj-runtime.js";
-import { PersonalRadioDjController } from "../../dist/main/app/personal-radio-dj-controller.js";
-import { ExhibitionIntroController } from "../../dist/main/app/exhibition-intro-controller.js";
-import { SpeechProfileRuntime } from "../../dist/main/app/speech-profile-runtime.js";
-import {
-  makeCompileKnowledge,
-  makeKbCompilerBackend,
-  readWorkspaceKnowledgeConfig,
-} from "../../dist/main/adapters/knowledge-compile.js";
-import { composeAgentRuntimeDeps } from "./compose-agent-deps.mjs";
-
 // gRPC host에서 stdin은 일반 명령 transport가 아니다. Shell이 이 자식 전용 익명 파이프에 토큰 원문만
 // 한 번 쓰고 즉시 닫는다. line protocol과 섞지 않으며 argv/env/config 파일에도 토큰을 남기지 않는다.
 const discordTokenFromSecretPipe = process.env.NAIA_DISCORD_TOKEN_PIPE === "stdin"
@@ -51,6 +14,7 @@ const discordTokenFromSecretPipe = process.env.NAIA_DISCORD_TOKEN_PIPE === "stdi
       settled = true;
       clearTimeout(timer);
       process.stdin.removeAllListeners();
+      process.stdin.destroy();
       resolve(value);
     };
     const timer = setTimeout(() => finish(undefined), 10_000);
@@ -75,6 +39,75 @@ let onShutdown = null;
 // 종료 시 정리할 자원(자식 프로세스·소켓 등) 핸들 — compose 후 deps.cleanupFns 로 교체(최상단 핸들러가 정리, F2).
 let cleanupFns = [];
 
+// 개인 Discord bot credential은 host(Shell keychain)가 시작 직후 secret-only 익명 파이프로 주입한다.
+// 환경변수·일반 설정·파일에는 평문 토큰을 두지 않는다. gRPC 모드의 stdin은 데이터 transport가 아니므로
+// 토큰 바이트를 소비한 뒤 EOF가 와도 런타임은 계속 생존한다.
+const discordToken = await discordTokenFromSecretPipe;
+// Secret pipe read/close must finish before any runtime module is evaluated. This keeps
+// provider/tool composition and every later child process outside the secret fd lifetime.
+const { randomUUID } = await import("node:crypto");
+const { join } = await import("node:path");
+const { wireAgentUC1 } = await import("../../dist/main/composition/index.js");
+const { makeCompositeAgentIngress, makePrefixedAgentEgress } =
+  await import("../../dist/main/adapters/agent-transport-mux.js");
+const { DiscordChannelRuntime, makeSystemDiscordClock, parseDiscordRuntimeConfig } =
+  await import("../../dist/main/adapters/discord-channel.js");
+const { makeFileDiscordDedupe } =
+  await import("../../dist/main/adapters/discord-dedupe-store.js");
+const { makeDiscordGateway } =
+  await import("../../dist/main/adapters/discord-gateway.js");
+const { makeDiscordRuntimeText } =
+  await import("../../dist/main/adapters/discord-messages.js");
+const { makeFileDiscordRegistration } =
+  await import("../../dist/main/adapters/discord-registration-store.js");
+const { makeFileDiscordConsentStore } =
+  await import("../../dist/main/adapters/discord-consent-store.js");
+const { makeDiscordStatusFile } =
+  await import("../../dist/main/adapters/discord-status-file.js");
+const { makeDiscordGenerationAuthority } =
+  await import("../../dist/main/adapters/discord-generation-authority.js");
+const { makeFileDiscordInbox } =
+  await import("../../dist/main/adapters/discord-inbox-store.js");
+const { makeProcessingGuard } =
+  await import("../../dist/main/adapters/processing-guard.js");
+const {
+  anthropicBaseUrl,
+  isLocalEngineBaseUrl,
+  labProxyBaseUrl,
+  nativeBaseUrl,
+  resolveProviderRoute,
+} = await import("../../dist/main/domain/provider-route.js");
+const { makeCompositeToolExecutor } =
+  await import("../../dist/main/adapters/composite-tool-executor.js");
+const { makePanelToolExecutor } =
+  await import("../../dist/main/adapters/panel-tool-executor.js");
+const { makeGrpcServer } =
+  await import("../../dist/main/adapters/grpc/grpc-server.js");
+const { makeActivityRouteRegistry, makeActivitySpeechEgress } =
+  await import("../../dist/main/adapters/activity-speech-egress.js");
+const { makeActivityRadioDjBgm } =
+  await import("../../dist/main/adapters/activity-radio-dj-bgm.js");
+const { makeExhibitionKnowledge } =
+  await import("../../dist/main/adapters/exhibition-knowledge.js");
+const {
+  makeDeterministicRadioDjSelector,
+  makeRadioDjContext,
+  makeRadioDjPreferenceStore,
+  makeSystemProactiveScheduler,
+} = await import("../../dist/main/adapters/radio-dj-runtime.js");
+const { PersonalRadioDjController } =
+  await import("../../dist/main/app/personal-radio-dj-controller.js");
+const { ExhibitionIntroController } =
+  await import("../../dist/main/app/exhibition-intro-controller.js");
+const { SpeechProfileRuntime } =
+  await import("../../dist/main/app/speech-profile-runtime.js");
+const {
+  makeCompileKnowledge,
+  makeKbCompilerBackend,
+  readWorkspaceKnowledgeConfig,
+} = await import("../../dist/main/adapters/knowledge-compile.js");
+const { composeAgentRuntimeDeps } = await import("./compose-agent-deps.mjs");
+
 // ── transport-독립 런타임 deps = 공유 빌더(CLI host 와 literally 동일, NFR-CLI-shared) ──
 const deps = await composeAgentRuntimeDeps();
 cleanupFns = deps.cleanupFns;
@@ -83,10 +116,6 @@ let { toolExecutor } = deps;
 const { memory, memoryLabel, conversationLog, transcriptLabel, diag, personaSource, workspaceContextSource, knowledgeBackend } = deps;
 let skillsLabel = deps.skillsLabel;
 
-// 개인 Discord bot credential은 host(Shell keychain)가 시작 직후 secret-only 익명 파이프로 주입한다.
-// 환경변수·일반 설정·파일에는 평문 토큰을 두지 않는다. gRPC 모드의 stdin은 데이터 transport가 아니므로
-// 토큰 바이트를 소비한 뒤 EOF가 와도 런타임은 계속 생존한다.
-const discordToken = await discordTokenFromSecretPipe;
 let discordConfig;
 if (process.env.NAIA_DISCORD_BINDINGS_JSON) {
   try { discordConfig = parseDiscordRuntimeConfig(JSON.parse(process.env.NAIA_DISCORD_BINDINGS_JSON)); }
