@@ -53,6 +53,9 @@ export interface NaiaMemoryOpts {
   /** 메모리 LLM(사실추출 factExtractor). 미지정/provider="none" = 휴리스틱 추출(기존 동작·무회귀).
    *  지정 시 LLM 기반 atomic 사실추출. compaction summarizer 는 별개(빌더 없음 → 결정론 recap 유지). issue #7. */
   readonly llm?: MemoryLlmConfig;
+  /** Agent가 provider/auth를 해석해 만든 좁은 포트. 지정하면 legacy llm config보다 우선한다. */
+  readonly factExtractor?: FactExtractor;
+  readonly summarizer?: CompactionSummarizer;
 }
 
 /** 메모리 LLM(사실추출) 선택 — os 메모리 UI(memoryLlmProvider 등). baseUrl/apiKey/model 은 provider 별로
@@ -163,8 +166,8 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ManagedMemoryPort & Compac
   // issue #7: os 메모리 UI 의 adapter/embedding 선택을 런타임에 반영(이전엔 LocalAdapter+키워드-only 하드코딩).
   // embedding 은 adapter 선택과 분리해 빌드(순수). provider 별 필수 누락 = throw(상위 entry 가 catch→기억 없이 격리).
   const embeddingProvider = buildEmbeddingProvider(opts.embedding);
-  const factExtractor = buildMemoryFactExtractor(opts.llm); // LLM 사실추출(미지정=휴리스틱, 무회귀).
-  const summarizer = buildMemorySummarizer(opts.llm); // LLM compaction recap polish(미지정=결정론, 무회귀).
+  const factExtractor = opts.factExtractor ?? buildMemoryFactExtractor(opts.llm);
+  const summarizer = opts.summarizer ?? buildMemorySummarizer(opts.llm);
   let sys: MemorySystem;
   if (opts.adapter === "qdrant") {
     // QdrantAdapter 는 embedding 필수(키워드-only 불가) — fail-closed.

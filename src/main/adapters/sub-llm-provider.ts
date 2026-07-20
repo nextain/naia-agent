@@ -3,16 +3,21 @@
 // memory 사실추출·compaction 과 동일 small-LLM 설정을 공유 — 배치(adk)·경량 작업용 first-class 호출 표면.
 // 미구성(provider="none"/필수필드 누락) = undefined(호출처 폴백). fetch 주입(테스트·node fetch).
 import type { SubLlmCallOptions, SubLlmPort } from "../ports/sub-llm.js";
-import type { MemoryLlmConfig } from "./naia-memory.js";
+export interface SubLlmConfig {
+	readonly provider: string;
+	readonly baseUrl?: string;
+	readonly apiKey?: string;
+	readonly model?: string;
+}
 
 export type SubLlmFetch = (
 	url: string,
 	init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal },
 ) => Promise<{ ok: boolean; status: number; text: () => Promise<string> }>;
 
-/** MemoryLlmConfig → SubLlmPort(또는 undefined=미구성). 순수·테스트 가능. 필수 누락 = undefined(fail-open, 호출처 폴백). */
+/** 독립 SubLlmConfig → SubLlmPort(또는 undefined=미구성). memory 설정 타입에 의존하지 않는다. */
 export function buildSubLlmProvider(
-	cfg: MemoryLlmConfig | undefined,
+	cfg: SubLlmConfig | undefined,
 	deps: {
 		fetch: SubLlmFetch;
 	},

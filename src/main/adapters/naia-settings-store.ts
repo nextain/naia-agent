@@ -12,6 +12,11 @@
 // 헥사고날: 전역 env 변이 없이 ProviderConfig 반환. fs read 주입(node:fs 직접 import 금지). 평문키 방어(llm.json).
 import type { ProviderConfig } from "../domain/chat.js";
 import { resolveProviderRoute } from "../domain/provider-route.js";
+import {
+	resolveLlmRoles,
+	type LlmRoleSelection,
+	type LlmRolesResolution,
+} from "../domain/llm-roles.js";
 
 /** llm.json/config.json 읽기용 최소 fs. node:fs 를 entry 가 주입, 테스트는 fake. */
 export interface SettingsFsRead {
@@ -110,6 +115,8 @@ export interface NaiaSettingsStore {
 	/** config.json 의 메모리 adapter/embedding 선택(issue #7). 부재/손상/미설정 = null(메모리 기본=local+키워드-only). */
 	loadMemoryConfig(adkPath: string): MemoryRuntimeConfig | null;
 	loadEngineProfile(adkPath: string): EngineProfileConfig | null;
+	/** 구조화 llmRoles + legacy 필드를 main/sub/memory effective config/provenance로 해석한다. */
+	loadLlmRoles(adkPath: string): LlmRolesResolution | null;
 }
 
 const KNOWN_VERSION = 1;
@@ -148,6 +155,10 @@ function assembleConfig(
 	if (route === "claude-code") {
 		// claude-code-cli — Claude Agent SDK(로컬 구독 인증). 키·baseUrl 불요(SDK 가 CLI 프로세스로 인증/전송).
 		// ⚠️ secret/baseUrl 을 실으면 안 됨 — apiKey 가 있으면 구독 아닌 직접 키 과금 패러다임으로 오해될 수 있음. {provider,model}만.
+		return { ...base };
+	}
+	if (route === "codex") {
+		// codex — 로컬 app-server가 Codex 로그인을 사용. token/apiKey/baseUrl은 설정에 복사하지 않는다.
 		return { ...base };
 	}
 	// native 직결 — 키는 credentials 포트(키체인)가 공급. llm.json apiKeyRef 가 있으면 그 secret 도 채움.
@@ -250,6 +261,84 @@ export function makeNaiaSettingsStore(deps: {
 		};
 	}
 
+	function roleSelection(value: unknown): LlmRoleSelection | undefined {
+		if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+		if (roleHasPlaintextSecret(value)) return undefined;
+		const role = value as Record<string, unknown>;
+		const str = (key: string) => typeof role[key] === "string" ? (role[key] as string) : undefined;
+		const inherit = (["main", "sub", "memory"] as const).find((candidate) => candidate === str("inherit"));
+		const selection: LlmRoleSelection = {
+			...(str("provider") ? { provider: str("provider") } : {}),
+			...(str("model") ? { model: str("model") } : {}),
+			...(str("baseUrl") ? { baseUrl: str("baseUrl") } : {}),
+			...(str("credentialRef") ? { credentialRef: str("credentialRef") } : {}),
+			...(inherit ? { inherit } : {}),
+		};
+		return Object.keys(selection).length ? selection : undefined;
+	}
+
+	function fromConfigJsonLlmRoles(file: string): LlmRolesResolution | null {
+		const c = readJson<Record<string, unknown>>(file);
+		if (!c || typeof c !== "object") return null;
+		const str = (key: string) => typeof c[key] === "string" ? (c[key] as string) : undefined;
+		const structured = c["llmRoles"] && typeof c["llmRoles"] === "object" && !Array.isArray(c["llmRoles"])
+			? c["llmRoles"] as Record<string, unknown>
+			: undefined;
+		const mainRole = roleSelection(structured?.["main"]);
+		const subRole = roleSelection(structured?.["sub"]);
+		const memoryRole = roleSelection(structured?.["memory"]);
+		const roles = {
+			...(mainRole ? { main: mainRole } : {}),
+			...(subRole ? { sub: subRole } : {}),
+			...(memoryRole ? { memory: memoryRole } : {}),
+		};
+		const providerSelection = (prefix: "" | "subLlm" | "memoryLlm"): LlmRoleSelection | undefined => {
+			const provider = str(prefix ? `${prefix}Provider` : "provider");
+			const model = str(prefix ? `${prefix}Model` : "model");
+			if (!provider || provider === "none") return undefined;
+			const baseUrl = prefix ? str(`${prefix}BaseUrl`) : undefined;
+			const credentialRef = prefix ? str(`${prefix}CredentialRef`) : undefined;
+			return {
+				provider,
+				...(model ? { model } : {}),
+				...(baseUrl ? { baseUrl } : {}),
+				...(credentialRef ? { credentialRef } : {}),
+			};
+		};
+		const legacyMain = providerSelection("");
+		const legacySub = providerSelection("subLlm");
+		const legacyMemory = providerSelection("memoryLlm");
+		const legacy = {
+			...(legacyMain ? { main: legacyMain } : {}),
+			...(legacySub ? { sub: legacySub } : {}),
+			...(legacyMemory ? { memory: legacyMemory } : {}),
+		};
+		if (!Object.keys(roles).length && !Object.keys(legacy).length) return null;
+		return resolveLlmRoles({ roles, legacy });
+	}
+
+	function fromLlmJsonLlmRoles(file: string): LlmRolesResolution | null {
+		const parsed = readJson<LLMSettings>(file);
+		if (!parsed || typeof parsed !== "object") return null;
+		for (const role of [parsed.main, parsed.sub, parsed.embedded]) {
+			if (roleHasPlaintextSecret(role)) {
+				log("naia-settings.secret.plaintext_suspected", { file, role: "llmRoles" });
+				return null;
+			}
+		}
+		const main = roleSelection(parsed.main);
+		const sub = roleSelection(parsed.sub);
+		const memory = roleSelection(parsed.embedded);
+		if (!main && !sub && !memory) return null;
+		return resolveLlmRoles({
+			roles: {
+				...(main ? { main } : {}),
+				...(sub ? { sub } : {}),
+				...(memory ? { memory } : {}),
+			},
+		});
+	}
+
 	/** (issue #7) config.json → MemoryRuntimeConfig. 비밀(*ApiKey/naiaKey)은 strip 되므로 env/키체인(resolveSecret)
 	 *  best-effort(로컬 서버=빈 값 허용). 부재/손상 = null(메모리 기본 local+키워드-only). */
 	function fromConfigJsonMemory(file: string): MemoryRuntimeConfig | null {
@@ -343,6 +432,11 @@ export function makeNaiaSettingsStore(deps: {
 			if (!adkPath) return null;
 			const dir = `${adkPath.replace(/\/+$/, "")}/naia-settings`;
 			return fromConfigJsonEngineProfile(`${dir}/config.json`);
+		},
+		loadLlmRoles(adkPath) {
+			if (!adkPath) return null;
+			const dir = `${adkPath.replace(/\/+$/, "")}/naia-settings`;
+			return fromConfigJsonLlmRoles(`${dir}/config.json`) ?? fromLlmJsonLlmRoles(`${dir}/llm.json`);
 		},
 	};
 }

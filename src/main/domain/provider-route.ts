@@ -3,7 +3,7 @@
 // 첫 흐름(provider 출처)은 lab-proxy / native / ollama 만. local-live(naia-omni)·claude-cli·nextain-error 는 후속.
 import type { ProviderConfig } from "./chat.js";
 
-export type ProviderRoute = "lab-proxy" | "ollama" | "anthropic" | "claude-code" | "native";
+export type ProviderRoute = "lab-proxy" | "ollama" | "anthropic" | "claude-code" | "codex" | "native";
 
 /**
  * **provider 타입**으로 라우팅(루크 정정 2026-06-12 — naiaKey 유무 아님):
@@ -19,6 +19,7 @@ export function resolveProviderRoute(config: ProviderConfig): ProviderRoute {
 	if (config.provider === "nextain") return "lab-proxy";
 	if (config.provider === "ollama") return "ollama";
 	if (config.provider === "claude-code-cli") return "claude-code"; // Agent SDK(구독 인증) — anthropic 보다 먼저 peel
+	if (config.provider === "codex") return "codex"; // app-server(로컬 Codex 로그인) — OpenAI API-key route 와 분리
 	if (config.provider === "anthropic") return "anthropic"; // Messages API(직접 키)
 	return "native";
 }
