@@ -14,6 +14,7 @@ export interface DiscordInboxStoreOptions {
   readonly generation: string;
   readonly maxRecordsPerChannel?: number;
   readonly maxBytesPerChannel?: number;
+  readonly replaceAtomic?: (path: string, contents: string) => void;
 }
 
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
@@ -79,6 +80,7 @@ export function makeFileDiscordInbox(options: DiscordInboxStoreOptions): Discord
   }
   const maxRecords = boundedPositive(options.maxRecordsPerChannel, DEFAULT_MAX_RECORDS, 10_000);
   const maxBytes = boundedPositive(options.maxBytesPerChannel, DEFAULT_MAX_BYTES, 16 * 1_024 * 1_024);
+  const replaceAtomic = options.replaceAtomic ?? replaceOwnerOnlyAtomic;
   let document: DiscordInboxDocument = { version: 1, generation: options.generation, channels: {} };
   let initializationFailed = false;
   try {
@@ -117,8 +119,13 @@ export function makeFileDiscordInbox(options: DiscordInboxStoreOptions): Discord
         }
         if (!records.length) return;
         channels[key] = records;
-        document = { version: 1, generation: options.generation, channels };
-        replaceOwnerOnlyAtomic(options.path, JSON.stringify(document));
+        const nextDocument: DiscordInboxDocument = {
+          version: 1,
+          generation: options.generation,
+          channels,
+        };
+        replaceAtomic(options.path, JSON.stringify(nextDocument));
+        document = nextDocument;
         result = true;
       }).catch(() => { result = false; });
       return queue.then(() => result);

@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { makeFileDiscordInbox } from "../main/adapters/discord-inbox-store.js";
+import { replaceOwnerOnlyAtomic } from "../main/adapters/owner-only-atomic-file.js";
 
 function record(index: number) {
   return {
@@ -53,6 +54,32 @@ describe("FR-DISCORD.5/6 — owner-only inbox cache", () => {
     await expect(inbox.append(record(1))).resolves.toBe(true);
     expect(JSON.parse(readFileSync(path, "utf8")).channels["binding_1:100:200"])
       .toEqual([record(1)]);
+  });
+
+  it("retries the same record after an atomic replace failure without a phantom commit", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "naia-discord-inbox-")), "inbox.json");
+    let attempts = 0;
+    const inbox = makeFileDiscordInbox({
+      path,
+      generation: "generation_1",
+      replaceAtomic(target, contents) {
+        attempts += 1;
+        if (attempts === 1) throw new Error("simulated replace failure");
+        replaceOwnerOnlyAtomic(target, contents);
+      },
+    });
+
+    await expect(inbox.append(record(1))).resolves.toBe(false);
+    await expect(inbox.append(record(1))).resolves.toBe(true);
+
+    expect(attempts).toBe(2);
+    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
+      version: 1,
+      generation: "generation_1",
+      channels: {
+        "binding_1:100:200": [record(1)],
+      },
+    });
   });
 
   it("quarantines corruption and starts an empty future-event cache", async () => {
