@@ -93,6 +93,55 @@ describe("T-DISCORD-RT-02/05/06 — Discord Gateway adapter", () => {
     expect(socket.closes.at(-1)?.code).toBe(4_000);
   });
 
+  it("answers a server opcode 1 heartbeat request immediately with the latest sequence", async () => {
+    const socket = new FakeSocket();
+    const connection = await makeDiscordGateway({
+      fetch: vi.fn(async () => response(200, { url: "wss://gateway.discord.test" })) as typeof fetch,
+      socket: () => socket,
+    }).connect("token", { onReady() {}, onMessage() {} });
+    socket.payload({ op: 10, d: { heartbeat_interval: 1_000 } });
+    socket.payload({ op: 0, t: "READY", s: 7, d: { user: { id: "999" } } });
+    socket.payload({ op: 1, d: null });
+    expect(JSON.parse(socket.sent.at(-1)!)).toEqual({ op: 1, d: 7 });
+    connection.close();
+  });
+
+  it("aborts a pending Gateway discovery request through the connect signal", async () => {
+    const aborted = deferred<void>();
+    const fetcher = vi.fn((_url: string | URL | Request, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          aborted.resolve();
+          reject(new DOMException("aborted", "AbortError"));
+        }, { once: true });
+      }));
+    const controller = new AbortController();
+    const connecting = makeDiscordGateway({ fetch: fetcher as typeof fetch }).connect(
+      "token",
+      { onReady() {}, onMessage() {} },
+      { signal: controller.signal },
+    );
+    controller.abort();
+    await aborted.promise;
+    await expect(connecting).rejects.toMatchObject({ code: "gateway_unavailable" });
+  });
+
+  it("bounds a stalled Gateway discovery request with an adapter timeout", async () => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn((_url: string | URL | Request, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () =>
+          reject(new DOMException("timed out", "AbortError")), { once: true });
+      }));
+    const connecting = makeDiscordGateway({
+      fetch: fetcher as typeof fetch,
+      discoveryTimeoutMs: 100,
+    }).connect("token", { onReady() {}, onMessage() {} });
+    const rejected = expect(connecting).rejects.toMatchObject({ code: "gateway_unavailable" });
+    await vi.advanceTimersByTimeAsync(100);
+    await rejected;
+  });
+
   it("classifies discovery authentication failure without reflecting the response", async () => {
     const fetcher = vi.fn(async () => response(401, { token: "must-not-reflect" }));
     await expect(makeDiscordGateway({ fetch: fetcher as typeof fetch }).connect(
@@ -216,6 +265,34 @@ describe("T-DISCORD-RT-02/05/06 — Discord Gateway adapter", () => {
     pendingSleep.resolve();
     await Promise.resolve();
     expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("serializes concurrent replies behind a connection-scoped 429 wait", async () => {
+    const socket = new FakeSocket();
+    const wait = deferred<void>();
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(response(200, { url: "wss://gateway.discord.test" }))
+      .mockResolvedValueOnce(response(429, { retry_after: 1, global: true }))
+      .mockResolvedValueOnce(response(200, { id: "401" }))
+      .mockResolvedValueOnce(response(200, { id: "402" }));
+    const connection = await makeDiscordGateway({
+      fetch: fetcher as typeof fetch,
+      socket: () => socket,
+      sleep: () => wait.promise,
+    }).connect("token", { onReady() {}, onMessage() {} });
+
+    const first = connection.sendReply({
+      guildId: "100", channelId: "200", messageId: "400", content: "first",
+    });
+    const second = connection.sendReply({
+      guildId: "100", channelId: "200", messageId: "401", content: "second",
+    });
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
+    await Promise.resolve();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    wait.resolve();
+    await expect(Promise.all([first, second])).resolves.toEqual(["401", "402"]);
+    expect(fetcher).toHaveBeenCalledTimes(4);
   });
 
   it("fails closed when Discord omits the created message snowflake", async () => {

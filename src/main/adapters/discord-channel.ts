@@ -38,6 +38,8 @@ interface ActiveTurn {
   readonly messageId: string;
   readonly bindingId: string;
   readonly userText: string;
+  readonly complete: () => void;
+  readonly completion: Promise<void>;
   text: string;
 }
 
@@ -47,6 +49,17 @@ const CONTROL = /[\u0000-\u001f\u007f]/;
 const REQUEST_PREFIX = "discord:";
 const REPLY_CHUNK = 2_000;
 const MAX_INPUT_CHARS = 4_000;
+const CONFIG_KEYS = new Set(["version", "generation", "bindings", "processingProfiles"]);
+const BINDING_KEYS = new Set([
+  "bindingId",
+  "guildId",
+  "guildName",
+  "channelId",
+  "channelName",
+  "allowedUserIds",
+  "processingProfileRef",
+  "participation",
+]);
 type DiscordRuntimeState = "idle" | "connecting" | "ready" | "backoff" | "stopped" | "terminal_error";
 
 function isBounded(value: unknown, max: number): value is string {
@@ -54,12 +67,19 @@ function isBounded(value: unknown, max: number): value is string {
     && value.length >= 1 && value.length <= max && !CONTROL.test(value);
 }
 
+function hasOnlyKeys(value: Record<string, unknown>, allowed: ReadonlySet<string>): boolean {
+  return Object.keys(value).every((key) => allowed.has(key));
+}
+
 function parseBinding(value: unknown): DiscordChannelBinding | undefined {
   if (!value || typeof value !== "object") return undefined;
   const item = value as Record<string, unknown>;
-  if (!ID.test(String(item.bindingId ?? ""))
+  if (!hasOnlyKeys(item, BINDING_KEYS)
+    || !ID.test(String(item.bindingId ?? ""))
     || !isBounded(item.guildId, 128) || !SNOWFLAKE.test(item.guildId)
     || !isBounded(item.channelId, 128) || !SNOWFLAKE.test(item.channelId)
+    || (item.guildName !== undefined && item.guildName !== null && !isBounded(item.guildName, 100))
+    || (item.channelName !== undefined && item.channelName !== null && !isBounded(item.channelName, 100))
     || !ID.test(String(item.processingProfileRef ?? ""))
     || !Array.isArray(item.allowedUserIds)
     || item.allowedUserIds.length < 1 || item.allowedUserIds.length > 256
@@ -81,15 +101,19 @@ function parseBinding(value: unknown): DiscordChannelBinding | undefined {
 export function parseDiscordRuntimeConfig(value: unknown): DiscordRuntimeConfig | undefined {
   if (!value || typeof value !== "object") return undefined;
   const input = value as Record<string, unknown>;
-  if (input.version !== 1) return undefined;
+  if (!hasOnlyKeys(input, CONFIG_KEYS) || input.version !== 1) return undefined;
+  if (input.generation !== undefined
+    && (!Number.isSafeInteger(input.generation) || Number(input.generation) < 1)) return undefined;
   if (!Array.isArray(input.bindings) || input.bindings.length > 256) return undefined;
   const bindings = input.bindings.map(parseBinding);
   if (bindings.some((binding) => !binding)) return undefined;
-  const keys = new Set<string>();
+  const tupleKeys = new Set<string>();
+  const bindingIds = new Set<string>();
   for (const binding of bindings as DiscordChannelBinding[]) {
     const key = `${binding.guildId}\u0000${binding.channelId}`;
-    if (keys.has(key)) return undefined;
-    keys.add(key);
+    if (tupleKeys.has(key) || bindingIds.has(binding.bindingId)) return undefined;
+    tupleKeys.add(key);
+    bindingIds.add(binding.bindingId);
   }
   if (!input.processingProfiles || typeof input.processingProfiles !== "object"
     || Array.isArray(input.processingProfiles)) return undefined;
@@ -131,15 +155,22 @@ function stripSelfMention(content: string, selfUserId: string): string {
 }
 
 function safeReplyChunks(text: string, maxReplyChars: number, emptyReply: string): readonly string[] {
-  let bounded = text.trim();
-  if (!bounded) bounded = emptyReply;
-  if (bounded.length > maxReplyChars) bounded = `${bounded.slice(0, Math.max(0, maxReplyChars - 1))}…`;
+  let codePoints = Array.from(text.trim());
+  if (!codePoints.length) codePoints = Array.from(emptyReply);
+  if (codePoints.length > maxReplyChars) {
+    codePoints = [...codePoints.slice(0, Math.max(0, maxReplyChars - 1)), "…"];
+  }
   const chunks: string[] = [];
-  while (bounded.length) {
-    chunks.push(bounded.slice(0, REPLY_CHUNK));
-    bounded = bounded.slice(REPLY_CHUNK);
+  for (let index = 0; index < codePoints.length; index += REPLY_CHUNK) {
+    chunks.push(codePoints.slice(index, index + REPLY_CHUNK).join(""));
   }
   return chunks;
+}
+
+function appendCodePoints(current: string, incoming: string, maxChars: number): string {
+  const remaining = Math.max(0, maxChars - Array.from(current).length);
+  if (!remaining) return current;
+  return current + Array.from(incoming).slice(0, remaining).join("");
 }
 
 export class DiscordChannelRuntime {
@@ -161,6 +192,8 @@ export class DiscordChannelRuntime {
   private authorityPrepared: boolean;
   private authorityRefresh?: Promise<boolean>;
   private readonly registeredUsers = new Map<string, Set<string>>();
+  private readonly sessionTails = new Map<string, Promise<void>>();
+  private queuedMessages = 0;
 
   private readonly reconnectBaseMs: number;
   private readonly reconnectMaxMs: number;
@@ -230,6 +263,7 @@ export class DiscordChannelRuntime {
     const staleTurns = [...this.active.values()];
     this.active.clear();
     for (const turn of staleTurns) {
+      turn.complete();
       this.route?.({ kind: "cancel", requestId: turn.requestId });
       try {
         if (await this.deps.dedupe.partial({
@@ -259,6 +293,7 @@ export class DiscordChannelRuntime {
     const staleTurns = [...this.active.values()];
     this.active.clear();
     for (const turn of staleTurns) {
+      turn.complete();
       this.route?.({ kind: "cancel", requestId: turn.requestId });
       try {
         await this.deps.dedupe.releaseReservation?.({
@@ -272,7 +307,7 @@ export class DiscordChannelRuntime {
   }
 
   async drain(): Promise<void> {
-    while (this.active.size && !this.stopped) {
+    while ((this.active.size || this.queuedMessages) && !this.stopped) {
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
   }
@@ -347,9 +382,9 @@ export class DiscordChannelRuntime {
           },
           onMessage: (message) => {
             if (this.stopped || generation !== this.generation) return;
-            void this.handleMessage(message);
+            this.scheduleMessage(message);
           },
-        });
+        }, { signal: this.abort.signal });
         if (this.stopped || generation !== this.generation) {
           connection.close();
           if (!this.stopped) {
@@ -385,6 +420,7 @@ export class DiscordChannelRuntime {
         }
         this.diagnostic("connect_failed");
       }
+      if (this.stopped) return;
       if (becameReady) attempt = 0;
       this.state = "backoff";
       const delay = Math.min(this.reconnectMaxMs, this.reconnectBaseMs * (2 ** Math.min(attempt++, 16)));
@@ -396,6 +432,34 @@ export class DiscordChannelRuntime {
     if (message.guildId === null) return undefined;
     return this.config.bindings.find((binding) =>
       binding.guildId === message.guildId && binding.channelId === message.channelId);
+  }
+
+  private scheduleMessage(message: DiscordGatewayMessage): void {
+    const binding = this.findBinding(message);
+    if (!binding || message.guildId === null) {
+      void this.handleMessage(message).catch(() => this.diagnostic("message_handling_failed"));
+      return;
+    }
+    if (this.active.size + this.queuedMessages >= this.maxActiveTurns) {
+      this.diagnostic("busy", { activeCount: this.active.size, queuedCount: this.queuedMessages });
+      return;
+    }
+    const sessionId = `discord:${binding.bindingId}:${binding.guildId}:${binding.channelId}:${message.authorId}`;
+    const previous = this.sessionTails.get(sessionId) ?? Promise.resolve();
+    this.queuedMessages++;
+    const task = previous.then(async () => {
+      this.queuedMessages--;
+      if (this.stopped) return;
+      try {
+        await this.handleMessage(message);
+      } catch {
+        this.diagnostic("message_handling_failed");
+      }
+    });
+    this.sessionTails.set(sessionId, task);
+    void task.then(() => {
+      if (this.sessionTails.get(sessionId) === task) this.sessionTails.delete(sessionId);
+    });
   }
 
   private async handleMessage(message: DiscordGatewayMessage): Promise<void> {
@@ -534,6 +598,8 @@ export class DiscordChannelRuntime {
       this.diagnostic("security_rejected");
       return;
     }
+    let complete!: () => void;
+    const completion = new Promise<void>((resolve) => { complete = resolve; });
     this.active.set(requestId, {
       requestId,
       sessionId,
@@ -542,10 +608,26 @@ export class DiscordChannelRuntime {
       messageId: message.messageId,
       bindingId: binding.bindingId,
       userText,
+      complete,
+      completion,
       text: "",
     });
     this.deps.diag.debug?.("discord dispatch", { activeCount: this.active.size, historyCount: previous.length });
-    this.route(checked.value);
+    try {
+      this.route(checked.value);
+    } catch {
+      this.active.delete(requestId);
+      complete();
+      try {
+        await this.deps.dedupe.releaseReservation?.({
+          bindingId: binding.bindingId,
+          messageId: message.messageId,
+          now: this.deps.clock.now(),
+        });
+      } catch { /* fail closed */ }
+      this.diagnostic("ingress_dispatch_failed");
+    }
+    await completion;
   }
 
   private touchHistory(sessionId: string): readonly ChatMessage[] {
@@ -572,13 +654,13 @@ export class DiscordChannelRuntime {
     if (!turn || this.stopped) return;
     if (!await this.ensureAuthoritative()) {
       this.active.delete(requestId);
+      turn.complete();
       this.route?.({ kind: "cancel", requestId });
       await this.recordPartial(turn.bindingId, turn.messageId, 0);
       return;
     }
     if (event.kind === "text") {
-      const remaining = Math.max(0, this.maxReplyChars - turn.text.length);
-      if (remaining) turn.text += event.text.slice(0, remaining);
+      turn.text = appendCodePoints(turn.text, event.text, this.maxReplyChars);
       return;
     }
     if (event.kind === "processingDisclosure") return;
@@ -588,6 +670,7 @@ export class DiscordChannelRuntime {
       ? this.deps.text.failureReply()
       : turn.text;
     if (event.kind === "finish") this.commitHistory(turn);
+    turn.complete();
     const chunks = safeReplyChunks(reply, this.maxReplyChars, this.deps.text.emptyReply());
     if (!await this.ensureAuthoritative()) {
       await this.recordPartial(turn.bindingId, turn.messageId, 0);

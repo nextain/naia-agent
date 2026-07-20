@@ -23,6 +23,7 @@ export interface DiscordGatewayAdapterOptions {
   readonly sleep?: (ms: number) => Promise<void>;
   readonly apiBase?: string;
   readonly maxRateLimitRetries?: number;
+  readonly discoveryTimeoutMs?: number;
 }
 
 export class DiscordGatewayError extends Error {
@@ -45,6 +46,71 @@ const MAX_REPLY_LENGTH = 2_000;
 const MAX_EVENT_LENGTH = 1_000_000;
 const MAX_MESSAGE_LENGTH = 4_000;
 const SNOWFLAKE = /^\d{1,128}$/;
+const DEFAULT_DISCOVERY_TIMEOUT_MS = 10_000;
+
+function boundedTimeout(value: number | undefined): number {
+  const timeout = value ?? DEFAULT_DISCOVERY_TIMEOUT_MS;
+  if (!Number.isSafeInteger(timeout) || timeout < 100 || timeout > 30_000) {
+    throw new DiscordGatewayError("gateway_unavailable");
+  }
+  return timeout;
+}
+
+async function abortableSleep(
+  sleep: (ms: number) => Promise<void>,
+  ms: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (signal?.aborted) throw new DiscordGatewayError("http_error");
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const finish = (action: () => void) => {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener("abort", onAbort);
+      action();
+    };
+    const onAbort = () => finish(() => reject(new DiscordGatewayError("http_error")));
+    signal?.addEventListener("abort", onAbort, { once: true });
+    void sleep(ms).then(
+      () => finish(resolve),
+      () => finish(() => reject(new DiscordGatewayError("http_error"))),
+    );
+  });
+}
+
+async function fetchGatewayUrl(
+  fetchImpl: typeof fetch,
+  apiBase: string,
+  token: string,
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<string> {
+  if (signal?.aborted) throw new DiscordGatewayError("gateway_unavailable");
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  signal?.addEventListener("abort", abort, { once: true });
+  const timer = setTimeout(abort, timeoutMs);
+  try {
+    const discovery = await fetchImpl(`${apiBase}/gateway/bot`, {
+      headers: { authorization: `Bot ${token}` },
+      signal: controller.signal,
+    });
+    if (discovery.status === 401) throw new DiscordGatewayError("auth_failed");
+    if (!discovery.ok) throw new DiscordGatewayError("gateway_unavailable");
+    const body = await discovery.json() as { url?: unknown };
+    if (typeof body.url !== "string" || !body.url.startsWith("wss://")) {
+      throw new DiscordGatewayError("gateway_unavailable");
+    }
+    return body.url;
+  } catch (error) {
+    if (error instanceof DiscordGatewayError) throw error;
+    throw new DiscordGatewayError("gateway_unavailable");
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", abort);
+  }
+}
 
 function parsePayload(data: unknown): { op: number; t?: string; s?: number; d?: unknown } | undefined {
   try {
@@ -118,34 +184,33 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
   const sleep = options.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
   const apiBase = options.apiBase ?? "https://discord.com/api/v10";
   const maxRetries = options.maxRateLimitRetries ?? 2;
+  const discoveryTimeoutMs = boundedTimeout(options.discoveryTimeoutMs);
   let sessionId: string | undefined;
   let resumeUrl: string | undefined;
   let resumeSequence: number | null = null;
   let resumedSelfUserId: string | undefined;
 
   return {
-    async connect(token, handlers) {
+    async connect(token, handlers, connectOptions) {
       if (typeof token !== "string" || token.length < 1 || token.length > MAX_TOKEN_LENGTH) {
         throw new DiscordGatewayError("auth_failed");
       }
       let gatewayUrl = resumeUrl;
       if (!gatewayUrl) {
-        const discovery = await fetchImpl(`${apiBase}/gateway/bot`, {
-          headers: { authorization: `Bot ${token}` },
-        });
-        if (discovery.status === 401) throw new DiscordGatewayError("auth_failed");
-        if (!discovery.ok) throw new DiscordGatewayError("gateway_unavailable");
-        const body = await discovery.json() as { url?: unknown };
-        if (typeof body.url !== "string" || !body.url.startsWith("wss://")) {
-          throw new DiscordGatewayError("gateway_unavailable");
-        }
-        gatewayUrl = body.url;
+        gatewayUrl = await fetchGatewayUrl(
+          fetchImpl,
+          apiBase,
+          token,
+          discoveryTimeoutMs,
+          connectOptions?.signal,
+        );
       }
 
       const socket = socketFactory(`${gatewayUrl}?v=10&encoding=json`);
       let sequence: number | null = null;
       let heartbeat: ReturnType<typeof setInterval> | undefined;
       let awaitingHeartbeatAck = false;
+      let replyQueue: Promise<void> = Promise.resolve();
       let settled = false;
       let resolveClosed!: (value: DiscordGatewayClose) => void;
       const closed = new Promise<DiscordGatewayClose>((resolve) => { resolveClosed = resolve; });
@@ -198,6 +263,11 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
         }
         if (payload.op === 11) {
           awaitingHeartbeatAck = false;
+          return;
+        }
+        if (payload.op === 1) {
+          awaitingHeartbeatAck = true;
+          send({ op: 1, d: sequence });
           return;
         }
         if (payload.op === 7 || payload.op === 9) {
@@ -261,69 +331,72 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
           }
         },
         async sendReply(input) {
-          if (!input.content || input.content.length > MAX_REPLY_LENGTH
+          if (!input.content || Array.from(input.content).length > MAX_REPLY_LENGTH
             || !SNOWFLAKE.test(input.channelId) || !SNOWFLAKE.test(input.guildId)
             || !SNOWFLAKE.test(input.messageId)) {
             throw new DiscordGatewayError("invalid_reply");
           }
-          for (let attempt = 0; attempt <= maxRetries; attempt++) {
-            const response = await fetchImpl(
-              `${apiBase}/channels/${encodeURIComponent(input.channelId)}/messages`,
-              {
-                method: "POST",
-                headers: {
-                  authorization: `Bot ${token}`,
-                  "content-type": "application/json",
-                },
-                signal: input.signal,
-                body: JSON.stringify({
-                  content: input.content,
-                  message_reference: {
-                    message_id: input.messageId,
-                    channel_id: input.channelId,
-                    guild_id: input.guildId,
-                    fail_if_not_exists: false,
-                  },
-                  allowed_mentions: { parse: [], replied_user: false },
-                }),
-              },
-            );
-            if (response.ok) {
-              const body = await response.json() as { id?: unknown };
-              const replyMessageId = String(body.id ?? "");
-              if (!SNOWFLAKE.test(replyMessageId)) {
-                throw new DiscordGatewayError("http_error");
-              }
-              return replyMessageId;
-            }
-            if (response.status === 401) throw new DiscordGatewayError("auth_failed");
-            if (response.status === 403) throw new DiscordGatewayError("permission_denied");
-            if (response.status !== 429) throw new DiscordGatewayError("http_error");
-            if (attempt === maxRetries) throw new DiscordGatewayError("rate_limited");
-            let retryAfterMs = 1_000;
+          let resolveReply!: (value: string) => void;
+          let rejectReply!: (error: unknown) => void;
+          const result = new Promise<string>((resolve, reject) => {
+            resolveReply = resolve;
+            rejectReply = reject;
+          });
+          const queued = replyQueue.then(async () => {
             try {
-              const rate = await response.json() as { retry_after?: unknown };
-              const seconds = Number(rate.retry_after);
-              if (Number.isFinite(seconds)) retryAfterMs = Math.min(30_000, Math.max(0, Math.ceil(seconds * 1_000)));
-            } catch { /* fixed bounded fallback */ }
-            if (input.signal?.aborted) throw new DiscordGatewayError("http_error");
-            await new Promise<void>((resolve, reject) => {
-              let settledSleep = false;
-              const finish = (action: () => void) => {
-                if (settledSleep) return;
-                settledSleep = true;
-                input.signal?.removeEventListener("abort", onAbort);
-                action();
-              };
-              const onAbort = () => finish(() => reject(new DiscordGatewayError("http_error")));
-              input.signal?.addEventListener("abort", onAbort, { once: true });
-              void sleep(retryAfterMs).then(
-                () => finish(resolve),
-                () => finish(() => reject(new DiscordGatewayError("http_error"))),
-              );
-            });
-          }
-          throw new DiscordGatewayError("rate_limited");
+              if (input.signal?.aborted) throw new DiscordGatewayError("http_error");
+              for (let attempt = 0; attempt <= maxRetries; attempt++) {
+                const response = await fetchImpl(
+                  `${apiBase}/channels/${encodeURIComponent(input.channelId)}/messages`,
+                  {
+                    method: "POST",
+                    headers: {
+                      authorization: `Bot ${token}`,
+                      "content-type": "application/json",
+                    },
+                    signal: input.signal,
+                    body: JSON.stringify({
+                      content: input.content,
+                      message_reference: {
+                        message_id: input.messageId,
+                        channel_id: input.channelId,
+                        guild_id: input.guildId,
+                        fail_if_not_exists: false,
+                      },
+                      allowed_mentions: { parse: [], replied_user: false },
+                    }),
+                  },
+                );
+                if (response.ok) {
+                  const body = await response.json() as { id?: unknown };
+                  const replyMessageId = String(body.id ?? "");
+                  if (!SNOWFLAKE.test(replyMessageId)) {
+                    throw new DiscordGatewayError("http_error");
+                  }
+                  resolveReply(replyMessageId);
+                  return;
+                }
+                if (response.status === 401) throw new DiscordGatewayError("auth_failed");
+                if (response.status === 403) throw new DiscordGatewayError("permission_denied");
+                if (response.status !== 429) throw new DiscordGatewayError("http_error");
+                if (attempt === maxRetries) throw new DiscordGatewayError("rate_limited");
+                let retryAfterMs = 1_000;
+                try {
+                  const rate = await response.json() as { retry_after?: unknown };
+                  const seconds = Number(rate.retry_after);
+                  if (Number.isFinite(seconds)) {
+                    retryAfterMs = Math.min(30_000, Math.max(0, Math.ceil(seconds * 1_000)));
+                  }
+                } catch { /* fixed bounded fallback */ }
+                await abortableSleep(sleep, retryAfterMs, input.signal);
+              }
+              throw new DiscordGatewayError("rate_limited");
+            } catch (error) {
+              rejectReply(error);
+            }
+          });
+          replyQueue = queued.catch(() => {});
+          return result;
         },
       };
       return connection;

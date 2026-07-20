@@ -328,7 +328,7 @@ describe("T-DISCORD-RT-01/02 — authenticated ingress to existing chat pipeline
     await runtime.stop();
   });
 
-  it("accepts only exact bounded snowflake bindings and rejects duplicate channel tuples", () => {
+  it("accepts only the strict manifest schema and rejects duplicate identities", () => {
     const valid = {
       version: 1,
       bindings: [{
@@ -351,6 +351,11 @@ describe("T-DISCORD-RT-01/02 — authenticated ingress to existing chat pipeline
     });
     expect(parseDiscordRuntimeConfig({
       ...valid,
+      generation: 1,
+      bindings: [{ ...valid.bindings[0], guildName: null, channelName: null }],
+    })).toBeDefined();
+    expect(parseDiscordRuntimeConfig({
+      ...valid,
       bindings: [{ ...valid.bindings[0], participation: undefined }],
     })?.bindings[0]?.participation).toBe("paused");
     expect(parseDiscordRuntimeConfig({
@@ -371,6 +376,21 @@ describe("T-DISCORD-RT-01/02 — authenticated ingress to existing chat pipeline
       version: 1,
       bindings: [valid.bindings[0], { ...valid.bindings[0], bindingId: "binding_2" }],
       processingProfiles: valid.processingProfiles,
+    })).toBeUndefined();
+    expect(parseDiscordRuntimeConfig({
+      ...valid,
+      unexpected: true,
+    })).toBeUndefined();
+    expect(parseDiscordRuntimeConfig({
+      ...valid,
+      bindings: [{ ...valid.bindings[0], token: "must-not-cross" }],
+    })).toBeUndefined();
+    expect(parseDiscordRuntimeConfig({
+      ...valid,
+      bindings: [
+        valid.bindings[0],
+        { ...valid.bindings[0], guildId: "101", channelId: "201" },
+      ],
     })).toBeUndefined();
   });
 
@@ -639,6 +659,36 @@ describe("T-DISCORD-RT-03/04 — history isolation and replay dedupe", () => {
     await runtime.stop();
   });
 
+  it("dispatches same-session messages in arrival order after prior history commit", async () => {
+    const firstTurn = deferred<void>();
+    const captures: ChatMessage[][] = [];
+    let calls = 0;
+    const provider: ProviderPort = {
+      async *chat(_config, messages): AsyncIterable<ProviderChunk> {
+        calls++;
+        captures.push([...messages]);
+        if (calls === 1) await firstTurn.promise;
+        yield { kind: "text", text: `answer:${messages.at(-1)?.content}` };
+        yield { kind: "finish" };
+      },
+    };
+    const { gateway, runtime } = makeHarness({ provider });
+    await waitFor(() => gateway.handlers.length === 1);
+    gateway.message({ messageId: "m-order-1", content: "<@999> first" });
+    await waitFor(() => captures.length === 1);
+    gateway.message({ messageId: "m-order-2", content: "<@999> second" });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(captures).toHaveLength(1);
+    firstTurn.resolve();
+    await waitFor(() => captures.length === 2);
+    expect(captures[1]!.map((message) => message.content)).toEqual([
+      "first",
+      "answer:first",
+      "second",
+    ]);
+    await runtime.stop();
+  });
+
   it("does not dispatch or reply twice after reconnect replay", async () => {
     const calls: string[] = [];
     const provider: ProviderPort = {
@@ -744,6 +794,42 @@ describe("T-DISCORD-RT-05/06 — lifecycle, bounded reply, safe failure", () => 
     await runtime.stop();
   });
 
+  it("aborts and awaits a pending Gateway discovery connect on stop", async () => {
+    let connectSignal: AbortSignal | undefined;
+    let aborted = false;
+    const gateway: DiscordGatewayPort = {
+      async connect(_token, _handlers, options) {
+        connectSignal = options?.signal;
+        return new Promise<DiscordGatewayConnection>((_resolve, reject) => {
+          options?.signal?.addEventListener("abort", () => {
+            aborted = true;
+            reject(new Error("aborted"));
+          }, { once: true });
+        });
+      },
+    };
+    const runtime = new DiscordChannelRuntime({
+      gateway,
+      token: { load: async () => "token" },
+      dedupe: makeDedupe(),
+      clock: { now: () => 1, sleep: async () => {} },
+      text: testText,
+      diag: { log() {} },
+    }, {
+      bindings: [{
+        bindingId: "binding_1", guildId: "100", channelId: "200",
+        allowedUserIds: ["300"], processingProfileRef: "profile_1", participation: "mentions",
+      }],
+    });
+    runtime.ingress.onRequest(() => {});
+    runtime.start();
+    await waitFor(() => connectSignal !== undefined);
+    await runtime.stop();
+    expect(connectSignal?.aborted).toBe(true);
+    expect(aborted).toBe(true);
+    expect(runtime.status().state).toBe("stopped");
+  });
+
   it("cancels and removes active turns before switching configuration", async () => {
     let signal: AbortSignal | undefined;
     const provider: ProviderPort = {
@@ -823,6 +909,24 @@ describe("T-DISCORD-RT-05/06 — lifecycle, bounded reply, safe failure", () => 
     gateway.message();
     await waitFor(() => answerReplies(gateway.connections[0]!).length === 3);
     expect(answerReplies(gateway.connections[0]!).map((reply) => reply.content.length)).toEqual([2_000, 2_000, 500]);
+    await runtime.stop();
+  });
+
+  it("splits replies on Unicode code-point boundaries without breaking emoji", async () => {
+    const provider: ProviderPort = {
+      async *chat(): AsyncIterable<ProviderChunk> {
+        yield { kind: "text", text: `${"x".repeat(1_999)}😀y` };
+        yield { kind: "finish" };
+      },
+    };
+    const { gateway, runtime } = makeHarness({ provider, maxReplyChars: 2_001 });
+    await waitFor(() => gateway.handlers.length === 1);
+    gateway.message();
+    await waitFor(() => answerReplies(gateway.connections[0]!).length === 2);
+    const replies = answerReplies(gateway.connections[0]!).map((reply) => reply.content);
+    expect(replies.map((reply) => Array.from(reply).length)).toEqual([2_000, 1]);
+    expect(replies[0]!.endsWith("😀")).toBe(true);
+    expect(replies.join("")).toBe(`${"x".repeat(1_999)}😀y`);
     await runtime.stop();
   });
 

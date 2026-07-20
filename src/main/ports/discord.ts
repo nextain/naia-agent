@@ -42,7 +42,11 @@ export interface DiscordGatewayHandlers {
 }
 
 export interface DiscordGatewayPort {
-  connect(token: string, handlers: DiscordGatewayHandlers): Promise<DiscordGatewayConnection>;
+  connect(
+    token: string,
+    handlers: DiscordGatewayHandlers,
+    options?: { readonly signal?: AbortSignal },
+  ): Promise<DiscordGatewayConnection>;
 }
 
 export interface DiscordBotTokenPort {
