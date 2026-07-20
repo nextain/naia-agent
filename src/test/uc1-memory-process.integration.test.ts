@@ -110,4 +110,62 @@ describe("UC-memory — 실 프로세스 관통(gRPC 진입점 종료 lifecycle)
       expect(await readFile(storePath, "utf8")).toContain(SECRET);
     }
   }, 90000);
+
+  it("Discord secret-only stdin pipe를 닫은 뒤에만 gRPC runtime을 시작한다", async () => {
+    dir = await mkdtemp(join(tmpdir(), "naia-discord-pipe-"));
+    const token = "discord.canary-token";
+    await mkdir(join(dir, "naia-settings"), { recursive: true });
+    await writeFile(
+      join(dir, "naia-settings", "config.json"),
+      JSON.stringify({ provider: "echo-system", model: "m" }),
+    );
+
+    child = spawn(process.execPath, [entry], {
+      cwd: pkgRoot,
+      env: {
+        ...process.env,
+        AGENT_PROVIDER: "echo-system",
+        NAIA_AGENT_SKILLS: "off",
+        NAIA_ADK_PATH: dir,
+        NAIA_DISCORD_TOKEN_PIPE: "stdin",
+      },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let stderr = "";
+    child.stderr!.setEncoding("utf8");
+    child.stderr!.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+    child.stdin!.end(token);
+
+    const addr = await new Promise<string>((resolveAddress, rejectAddress) => {
+      let stdout = "";
+      const timeout = setTimeout(
+        () => rejectAddress(new Error(`GRPC_LISTENING timeout: ${stderr}`)),
+        60_000,
+      );
+      child!.stdout!.setEncoding("utf8");
+      child!.stdout!.on("data", (chunk: string) => {
+        stdout += chunk;
+        const match = stdout.match(/GRPC_LISTENING\s+(\S+)/);
+        if (match) {
+          clearTimeout(timeout);
+          resolveAddress(match[1]);
+        }
+      });
+      child!.once("exit", () => {
+        clearTimeout(timeout);
+        rejectAddress(new Error(`secret pipe runtime exited: ${stderr}`));
+      });
+    });
+
+    expect(addr).toMatch(/^127\.0\.0\.1:\d+$/);
+    expect(child.exitCode).toBeNull();
+    expect(stderr).not.toContain(token);
+    const exitCode = await new Promise<number>((resolveExit) => {
+      child!.once("exit", (code) => resolveExit(code ?? -1));
+      child!.kill(process.platform === "win32" ? "SIGKILL" : "SIGTERM");
+    });
+    if (process.platform !== "win32") expect(exitCode).toBe(0);
+  }, 90000);
 });
