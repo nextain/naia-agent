@@ -1,6 +1,10 @@
 // emitToProto 필드 보존 — UC1 리뷰 HIGH fix 의 agent+proto 측 lock(도구결과/승인 페이로드 cross-repo 전송).
 import { describe, it, expect } from "vitest";
-import { emitToProto, credsToDomain } from "../main/adapters/grpc/grpc-codec.js";
+import {
+  chatRequestToDomain,
+  credsToDomain,
+  emitToProto,
+} from "../main/adapters/grpc/grpc-codec.js";
 import type { AgentEmit } from "../main/domain/chat.js";
 
 describe("emitToProto — UC1 필드 보존(agent→gRPC)", () => {
@@ -36,5 +40,72 @@ describe("credsToDomain — creds presence(빈=unset vs omit=fallback) lock", ()
     const d = credsToDomain({ provider: "nextain", naiaKey: "" } as never);
     expect("naiaKey" in d.secret).toBe(true);
     expect(d.secret.naiaKey).toBe("");
+  });
+});
+
+describe("UC-WIRE-V1 paired shell contract", () => {
+  it("preserves Discord channel, attachments, grounding, provider session, and processing", () => {
+    const request = chatRequestToDomain({
+      requestId: "req_1",
+      messages: [{
+        role: "user",
+        content: "image",
+        attachments: [{
+          id: "img_1",
+          kind: "image",
+          mimeType: "image/png",
+          sizeBytes: 12,
+          localRef: "local_1",
+        }],
+      }],
+      channel: {
+        discord: {
+          bindingId: "binding_1",
+          guildId: "100",
+          channelId: "200",
+          userId: "300",
+        },
+      },
+      grounding: { policy: "REQUIRED", knowledgeScope: "workspace" },
+      providerSession: { mode: "RESUME", providerSessionRef: "provider_ref_1" },
+      processing: { processingProfileRef: "default" },
+    });
+    expect(request).toMatchObject({
+      channel: {
+        kind: "discord",
+        bindingId: "binding_1",
+        guildId: "100",
+        channelId: "200",
+        userId: "300",
+      },
+      grounding: { policy: "required", knowledgeScope: "workspace" },
+      providerSession: { mode: "resume", providerSessionRef: "provider_ref_1" },
+      processing: { processingProfileRef: "default" },
+    });
+    expect(request.messages[0]?.attachments?.[0]?.localRef).toBe("local_1");
+  });
+
+  it("encodes grounding, artifact, and provider-session events without flattening", () => {
+    expect(emitToProto("req_1", {
+      kind: "grounding",
+      status: "grounded",
+      sources: [{ title: "KB", sourceUris: ["kb://workspace"] }],
+    }).grounding).toMatchObject({ status: "GROUNDED" });
+    expect(emitToProto("req_1", {
+      kind: "artifact",
+      artifact: {
+        id: "img_1",
+        kind: "image",
+        mimeType: "image/png",
+        sizeBytes: 12,
+        localRef: "local_1",
+      },
+    }).artifact).toBeDefined();
+    expect(emitToProto("req_1", {
+      kind: "providerSession",
+      sessionId: "session_1",
+      providerSessionRef: "provider_ref_1",
+      state: "resumed",
+    }).providerSession).toMatchObject({ state: "RESUMED" });
   });
 });

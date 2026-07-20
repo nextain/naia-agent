@@ -8,7 +8,18 @@ import { decodeEnvironmentSegments } from "../protocol.js";
 export interface PbChatRequest {
   requestId: string;
   sessionId?: string;
-  messages: { role: string; content: string; toolCallId?: string }[];
+  messages: {
+    role: string;
+    content: string;
+    toolCallId?: string;
+    attachments?: {
+      id: string;
+      kind: "image";
+      mimeType: "image/png" | "image/jpeg" | "image/webp";
+      sizeBytes: number;
+      localRef: string;
+    }[];
+  }[];
   systemPrompt?: string;
   /** S4 — 클라 환경 세그먼트(아바타 감정·패널). proto `environment_segments_json` = JSON 문자열(args_json 동형, 무손실). */
   environmentSegmentsJson?: string;
@@ -26,6 +37,8 @@ export interface PbChatRequest {
     shell?: object;
     discord?: { bindingId?: string; guildId?: string; channelId?: string; userId?: string };
   };
+  grounding?: { policy?: number | string; knowledgeScope?: string };
+  providerSession?: { mode?: number | string; providerSessionRef?: string };
   processing?: { processingProfileRef?: string; actualDestination?: unknown };
 }
 export interface PbCancel { requestId: string; activityId?: string }
@@ -41,6 +54,7 @@ export function chatRequestToDomain(p: PbChatRequest): Extract<AgentRequest, { k
     role: (VALID_ROLES.has(m.role) ? m.role : "user") as ChatMessage["role"],
     content: String(m.content ?? ""),
     ...(m.toolCallId ? { toolCallId: m.toolCallId } : {}),
+    ...(m.attachments !== undefined ? { attachments: m.attachments } : {}),
   }));
   return {
     kind: "chat",
@@ -70,6 +84,26 @@ export function chatRequestToDomain(p: PbChatRequest): Extract<AgentRequest, { k
         userId: String(p.channel.discord.userId ?? ""),
       },
     } : p.channel?.shell ? { channel: { kind: "shell" as const } } : {}),
+    ...(p.grounding ? {
+      grounding: {
+        policy: enumText(p.grounding.policy, {
+          1: "off",
+          2: "available",
+          3: "required",
+        }) as "off" | "available" | "required",
+        knowledgeScope: String(p.grounding.knowledgeScope ?? ""),
+      },
+    } : {}),
+    ...(p.providerSession ? {
+      providerSession: p.providerSession.mode === 2
+        || p.providerSession.mode === "RESUME"
+        || p.providerSession.mode === "resume"
+        ? {
+            mode: "resume" as const,
+            providerSessionRef: String(p.providerSession.providerSessionRef ?? ""),
+          }
+        : { mode: "new" as const },
+    } : {}),
     ...(p.processing ? {
       processing: { processingProfileRef: String(p.processing.processingProfileRef ?? "") },
     } : {}),
@@ -117,6 +151,16 @@ export function emitToProto(requestId: string, e: AgentEmit): PbAgentEvent {
     case "tokenWarning": return { requestId, tokenWarning: { rawJson: JSON.stringify(e.raw ?? null) } };
     case "compacted": return { requestId, compacted: { droppedCount: e.droppedCount } };
     case "panelToolCall": return { requestId, panelToolCall: { toolCallId: e.toolCallId, toolName: e.toolName, argsJson: JSON.stringify(e.args ?? null) } }; // UC-PANEL FR-PANEL-2
+    case "grounding": return { requestId, grounding: { status: enumUpper(e.status), sources: e.sources } };
+    case "artifact": return { requestId, artifact: { artifact: e.artifact } };
+    case "providerSession": return {
+      requestId,
+      providerSession: {
+        sessionId: e.sessionId,
+        providerSessionRef: e.providerSessionRef,
+        state: enumUpper(e.state),
+      },
+    };
     case "processingDisclosure": return {
       requestId,
       processingDisclosure: {
@@ -135,4 +179,9 @@ export function emitToProto(requestId: string, e: AgentEmit): PbAgentEvent {
 
 function enumUpper(value: string): string {
   return value.toUpperCase();
+}
+
+function enumText(value: unknown, numeric: Readonly<Record<number, string>>): string {
+  if (typeof value === "number") return numeric[value] ?? "";
+  return String(value ?? "").toLowerCase().replaceAll("_", "-");
 }

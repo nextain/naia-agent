@@ -54,6 +54,42 @@ describe("protocol (wire conform — os AgentOutbound↔AgentMessage)", () => {
     expect(encodeEmit("r1", { kind: "toolUse", toolCallId: "t", toolName: "n", args: {} })).toEqual({ type: "tool_use", requestId: "r1", toolCallId: "t", toolName: "n", args: {} });
     expect(encodeEmit("r1", { kind: "finish" })).toEqual({ type: "finish", requestId: "r1" });
   });
+  it("UC-WIRE-V1 확장 필드를 stdio 경계에서 보존", () => {
+    const d = decodeRequest(JSON.stringify({
+      type: "chat_request",
+      requestId: "r1",
+      messages: [{
+        role: "user",
+        content: "image",
+        attachments: [{
+          id: "img_1",
+          kind: "image",
+          mimeType: "image/png",
+          sizeBytes: 12,
+          localRef: "local_1",
+        }],
+      }],
+      grounding: { policy: "required", knowledgeScope: "workspace" },
+      providerSession: { mode: "resume", providerSessionRef: "provider_ref_1" },
+      processing: { processingProfileRef: "profile_1" },
+    })) as ChatRequest;
+    expect(d.messages[0]?.attachments?.[0]?.localRef).toBe("local_1");
+    expect(d.grounding).toEqual({ policy: "required", knowledgeScope: "workspace" });
+    expect(d.providerSession).toEqual({ mode: "resume", providerSessionRef: "provider_ref_1" });
+    expect(d.processing).toEqual({ processingProfileRef: "profile_1" });
+
+    expect(encodeEmit("r1", {
+      kind: "grounding",
+      status: "grounded",
+      sources: [{ title: "KB", sourceUris: ["kb://workspace"] }],
+    })).toMatchObject({ type: "grounding", status: "grounded" });
+    expect(encodeEmit("r1", {
+      kind: "providerSession",
+      sessionId: "session_1",
+      providerSessionRef: "provider_ref_1",
+      state: "resumed",
+    })).toMatchObject({ type: "provider_session", state: "resumed" });
+  });
   it("decode 시 enableThinking top-level 보존", () => {
     const d = decodeRequest('{"type":"chat_request","requestId":"r1","provider":{"provider":"o","model":"m"},"messages":[],"enableThinking":true}');
     expect((d as ChatRequest).enableThinking).toBe(true);

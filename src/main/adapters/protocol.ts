@@ -1,6 +1,14 @@
 // adapters/protocol — wire ↔ domain 변환 (계약 §B.4). 공유 wire(H-agent) conform.
 // os AgentOutbound(wire) → AgentRequest(domain) decode / AgentEmit(domain) → os AgentMessage(wire) encode.
-import type { AgentRequest, AgentEmit, ProviderConfig, ChatMessage, EnvironmentSegment } from "../domain/chat.js";
+import type {
+  AgentRequest,
+  AgentEmit,
+  ProviderConfig,
+  ChatMessage,
+  EnvironmentSegment,
+  GroundingRequest,
+  ProviderSessionRequest,
+} from "../domain/chat.js";
 
 /** wire environmentSegments(unknown) → EnvironmentSegment[] 안전 디코드(S4). 화이트리스트(avatarEmotion|panel|responseStyle) 외 드롭.
  *  비배열/잘못된 모양 = []. panel.entries 는 {type:string, data} 만 채택(자유 텍스트 위조 주입 차단 — 코어 domain 이 격리).
@@ -61,6 +69,12 @@ export function decodeRequest(line: string): AgentRequest | null {
         ...(o["gatewayUrl"] !== undefined ? { gatewayUrl: str(o["gatewayUrl"]) } : {}),
         ...(o["disabledSkills"] !== undefined ? { disabledSkills: o["disabledSkills"] as string[] } : {}),
         ...(decodeChannel(o["channel"]) ? { channel: decodeChannel(o["channel"])! } : {}),
+        ...(o["grounding"] && typeof o["grounding"] === "object"
+          ? { grounding: o["grounding"] as GroundingRequest }
+          : {}),
+        ...(o["providerSession"] && typeof o["providerSession"] === "object"
+          ? { providerSession: o["providerSession"] as ProviderSessionRequest }
+          : {}),
         ...(o["processing"] && typeof o["processing"] === "object" ? {
           processing: {
             processingProfileRef: str((o["processing"] as Record<string, unknown>)["processingProfileRef"]),
@@ -96,6 +110,15 @@ export function encodeEmit(requestId: string, e: AgentEmit): Record<string, unkn
     case "tokenWarning": return { type: "token_warning", requestId, raw: e.raw };
     case "compacted": return { type: "compacted", requestId, droppedCount: e.droppedCount };
     case "panelToolCall": return { type: "panel_tool_call", requestId, toolCallId: e.toolCallId, toolName: e.toolName, args: e.args }; // UC-PANEL FR-PANEL-2
+    case "grounding": return { type: "grounding", requestId, status: e.status, sources: e.sources };
+    case "artifact": return { type: "artifact", requestId, artifact: e.artifact };
+    case "providerSession": return {
+      type: "provider_session",
+      requestId,
+      sessionId: e.sessionId,
+      providerSessionRef: e.providerSessionRef,
+      state: e.state,
+    };
     case "processingDisclosure": return {
       type: "processing_disclosure",
       requestId,

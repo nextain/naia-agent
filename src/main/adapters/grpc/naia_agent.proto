@@ -55,7 +55,12 @@ message SetWorkspaceResult {
   bool loaded = 1;            // naia-adk 에서 provider/model 로딩 성공?
   string provider = 2;
   string model = 3;
+  repeated EffectiveLlmConfig effective_llm_configs = 4;
 }
+enum ConfigProvenance { CONFIG_PROVENANCE_UNSPECIFIED = 0; EXPLICIT = 1; INHERIT = 2; LEGACY_INHERIT = 3; DEFAULT = 4; }
+enum LlmRole { LLM_ROLE_UNSPECIFIED = 0; MAIN = 1; SUB = 2; MEMORY = 3; }
+message ResolvedConfigValue { string value = 1; ConfigProvenance provenance = 2; optional LlmRole inherited_from_role = 3; }
+message EffectiveLlmConfig { LlmRole role = 1; ResolvedConfigValue provider = 2; ResolvedConfigValue model = 3; optional ResolvedConfigValue credential_ref = 4; }
 
 // UC-KNOWLEDGE-COMPILE (FR-KB-5): 컴파일 트리거 + 통계. adk_path 미지정 시 현 워크스페이스 사용(entry).
 message CompileKnowledgeRequest { string adk_path = 1; }
@@ -69,10 +74,20 @@ message CompileKnowledgeResult {
   optional string error = 7;  // 실패 사유(정직 표기 — 셸이 표시)
 }
 
-message Message { string role = 1; string content = 2; optional string tool_call_id = 3; } // role: system|user|assistant|tool (passthrough, protocol.ts 동형)
+message Message {
+  string role = 1;
+  string content = 2;
+  optional string tool_call_id = 3;
+  repeated AttachmentRef attachments = 4;
+}
+message AttachmentRef { string id = 1; string kind = 2; string mime_type = 3; int64 size_bytes = 4; string local_ref = 5; }
 message ShellChannel {}
 message DiscordChannel { string binding_id = 1; string guild_id = 2; string channel_id = 3; string user_id = 4; }
 message ChannelContext { oneof channel { ShellChannel shell = 1; DiscordChannel discord = 2; } }
+enum GroundingPolicy { GROUNDING_POLICY_UNSPECIFIED = 0; OFF = 1; AVAILABLE = 2; REQUIRED = 3; }
+message GroundingRequest { GroundingPolicy policy = 1; string knowledge_scope = 2; }
+enum ProviderSessionMode { PROVIDER_SESSION_MODE_UNSPECIFIED = 0; NEW = 1; RESUME = 2; }
+message ProviderSessionRequest { ProviderSessionMode mode = 1; optional string provider_session_ref = 2; }
 message ProcessingRequest { string processing_profile_ref = 1; }
 enum ProcessingDestination {
   PROCESSING_DESTINATION_UNSPECIFIED = 0;
@@ -110,6 +125,8 @@ message ChatRequest {
   optional string environment_segments_json = 9;
   optional ActivityResume activity_resume = 10; // yield 뒤 profile-bound Q&A 결속
   optional ChannelContext channel = 11;
+  optional GroundingRequest grounding = 12;
+  optional ProviderSessionRequest provider_session = 13;
   optional ProcessingRequest processing = 14;
 }
 
@@ -149,6 +166,9 @@ message AgentEvent {
     ErrorEvent error = 12;
     CompactedEvent compacted = 13;   // UC-compaction(FR-COMPACT): 예산 압박 시 head 요약 발생 알림(비-terminal)
     PanelToolCallEvent panel_tool_call = 14; // UC-PANEL FR-PANEL-2: LLM 이 panel(환경) 도구 호출 → 셸에 위임(agent 미실행)
+    GroundingEvent grounding = 17;
+    ArtifactEvent artifact = 18;
+    ProviderSessionEvent provider_session = 19;
     ProcessingDisclosureEvent processing_disclosure = 20;
   }
   optional string activity_id = 15;       // self-init activity correlation
@@ -163,6 +183,13 @@ message UsageEvent { int64 input_tokens = 1; int64 output_tokens = 2; optional d
 message LogEntryEvent { string level = 1; string message = 2; }
 message TokenWarningEvent { string raw_json = 1; }
 message FinishEvent {}
+enum GroundingStatus { GROUNDING_STATUS_UNSPECIFIED = 0; GROUNDED = 1; NO_EVIDENCE = 2; UNCOMPILED = 3; UNAVAILABLE = 4; }
+message GroundingSource { string title = 1; repeated string source_uris = 2; }
+message GroundingEvent { GroundingStatus status = 1; repeated GroundingSource sources = 2; }
+message ImageArtifact { string id = 1; string kind = 2; string mime_type = 3; int64 size_bytes = 4; string local_ref = 5; optional string name = 6; }
+message ArtifactEvent { ImageArtifact artifact = 1; }
+enum ProviderSessionState { PROVIDER_SESSION_STATE_UNSPECIFIED = 0; STARTED = 1; RESUMED = 2; CLOSED = 3; }
+message ProviderSessionEvent { string session_id = 1; string provider_session_ref = 2; ProviderSessionState state = 3; }
 message ProcessingDisclosureEvent {
   ProcessingWorkload workload = 1;
   ProcessingDestination destination = 2;
@@ -173,13 +200,13 @@ message ProcessingDisclosureEvent {
 }
 enum WireErrorCode {
   WIRE_ERROR_CODE_UNSPECIFIED = 0;
-  WIRE_INVALID_ARGUMENT = 15;
-  WIRE_UNSUPPORTED_ENUM = 16;
-  WIRE_SCOPE_FORBIDDEN = 17;
-  PROCESSING_PROFILE_REQUIRED = 21;
-  PROCESSING_DESTINATION_UNKNOWN = 22;
-  EXTERNAL_PROCESSING_FORBIDDEN = 23;
-  EXTERNAL_PROCESSING_CONFIRMATION_REQUIRED = 24;
+  PROVIDER_NOT_INSTALLED = 1; PROVIDER_LOGIN_REQUIRED = 2; PROVIDER_AUTH_EXPIRED = 3; PROVIDER_NETWORK = 4;
+  DISCORD_TOKEN_MISSING = 5; DISCORD_INTENTS_MISSING = 6; DISCORD_NOT_INSTALLED = 7; DISCORD_PERMISSION_DENIED = 8; DISCORD_RATE_LIMITED = 9;
+  ATTACHMENT_UNSUPPORTED_TYPE = 10; ATTACHMENT_TOO_LARGE = 11; ATTACHMENT_INVALID_REF = 12;
+  KNOWLEDGE_UNCOMPILED = 13; KNOWLEDGE_UNAVAILABLE = 14; WIRE_INVALID_ARGUMENT = 15; WIRE_UNSUPPORTED_ENUM = 16;
+  WIRE_SCOPE_FORBIDDEN = 17; PROVIDER_SESSION_MISMATCH = 18; PROVIDER_SESSION_EXPIRED = 19; PROVIDER_SESSION_CLOSED = 20;
+  PROCESSING_PROFILE_REQUIRED = 21; PROCESSING_DESTINATION_UNKNOWN = 22;
+  EXTERNAL_PROCESSING_FORBIDDEN = 23; EXTERNAL_PROCESSING_CONFIRMATION_REQUIRED = 24;
 }
 message ErrorEvent { string message = 1; optional WireErrorCode code = 2; }
 message CompactedEvent { int64 dropped_count = 1; }
