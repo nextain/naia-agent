@@ -24,6 +24,7 @@
 | SPEC-010 | UC-014 | **오케스트레이션 어댑터(메커니즘)** — `subprocess-session.ts`(공유 머신: stdout 줄→이벤트·session_end 1회·SIGTERM→500ms→SIGKILL·64MiB/late/lineToEvent-throw 가드) + `subagent-{pi,opencode-cli,shell,roster}.ts`(NDJSON→event·bin resolve·honest-unsupported AC6) + `verifier-commands.ts`(never-throws AC2 러너) + `workspace-git.ts`(git porcelain 폴링·classify·C-quoting 디코드). 적대 게이트 통과 — 파서throw·64MiB좀비·cancel비멱등·한글경로 수정. child_process adapters 격리 | agent | Done | TEST-F-010 |
 | SPEC-011 | UC-014 | **UC-CLI host 진입점(S2 supervisor mode CLI)** — `bin/naia-agent-run.mjs`(host 셸: process I/O·SIGINT→AbortController cancel·platform shell 매핑 `/bin/sh -c`·`cmd /c`·egress→stdout/stderr) + `app/cli-supervise.ts`(순수: argv 파싱·이벤트/정직리포트 렌더·exit code 0/2/3 S4, Node 무의존) + package.json `bin`. ③ '🔌 배선대기'의 host측 완성 — naia-os 없이 단독 실행 가능. e2e 검증(shell 성공=0·실패=3·미지원 정직=3·검증실패=2·usage=64). | agent | Done | TEST-F-011 |
 | SPEC-012 | UC-015 | **두 opt-in 선제 발화 profile** — app-owned DJ·전시 controller, session activity stream, bounded lease, shell BGM/표현·yield/control/stop. 범용 요청형 hardening은 후속 | agent | Partial | TEST-F-012 |
+| SPEC-013 | UC-016 | **Discord Gateway channel runtime** — strict binding manifest/generation authority, one-shot token bootstrap, ingress policy·binding/user session isolation, bounded inbox, durable reply cursor/dedupe, reconnect/rate-limit/cancel, lifecycle epoch drain, expiring binding-scoped trust | agent | Done | TEST-F-013 |
 
 ## 비고
 - SPEC-002 = 도구루프 + 9개 agent-local skill 묶음(개별 skill = TEST-F-002 의 test_ref 군). external(브라우저 CDP·youtube)만 루크머신 runtime.
