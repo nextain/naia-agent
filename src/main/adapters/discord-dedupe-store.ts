@@ -124,7 +124,8 @@ export function makeFileDiscordDedupe(options: DiscordDedupeOptions): DiscordDed
     throw new Error("DISCORD_DEDUPE_CONFIG_INVALID");
   }
   const fs = options.fs ?? makeNodeFs();
-  let entries = [...parseDocument(fs.read(options.path), maxEntries)];
+  let entries = [...parseDocument(fs.read(options.path), maxEntries)]
+    .filter((entry) => entry.state !== "reserved");
 
   const keyOf = (bindingId: string, messageId: string) => `${bindingId}\u0000${messageId}`;
   const validIdentity = (bindingId: string, messageId: string, now: number) =>
@@ -170,7 +171,8 @@ export function makeFileDiscordDedupe(options: DiscordDedupeOptions): DiscordDed
   return {
     async refresh() {
       try {
-        entries = [...parseDocument(fs.read(options.path), maxEntries)];
+        entries = [...parseDocument(fs.read(options.path), maxEntries)]
+          .filter((entry) => entry.state !== "reserved");
         return true;
       } catch {
         return false;

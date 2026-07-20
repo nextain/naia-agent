@@ -15,13 +15,13 @@ function memoryFs(initial?: string): DiscordDedupeFs & { value?: string } {
 const reserve = (bindingId: string, messageId: string, now: number) => ({ bindingId, messageId, now });
 
 describe("T-DISCORD-RT-04 — binding-scoped durable reply state", () => {
-  it("persists a reservation and rejects it after reconstruction", async () => {
+  it("rejects a live duplicate but releases an unfinished reservation after reconstruction", async () => {
     const fs = memoryFs();
     const first = makeFileDiscordDedupe({ path: "dedupe.json", fs, maxEntries: 4, ttlMs: 1_000 });
     expect(await first.reserve(reserve("binding_1", "message_1", 100))).toEqual({ decision: "process" });
     expect(await first.reserve(reserve("binding_1", "message_1", 101))).toEqual({ decision: "duplicate" });
     const reconstructed = makeFileDiscordDedupe({ path: "dedupe.json", fs, maxEntries: 4, ttlMs: 1_000 });
-    expect(await reconstructed.reserve(reserve("binding_1", "message_1", 102))).toEqual({ decision: "duplicate" });
+    expect(await reconstructed.reserve(reserve("binding_1", "message_1", 102))).toEqual({ decision: "process" });
   });
 
   it("does not collide when two trusted bindings use the same message id", async () => {

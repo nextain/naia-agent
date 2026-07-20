@@ -32,7 +32,7 @@ export interface DiscordGatewayConnection {
     readonly messageId: string;
     readonly content: string;
     readonly signal?: AbortSignal;
-  }): Promise<void>;
+  }): Promise<string>;
   close(): void;
 }
 

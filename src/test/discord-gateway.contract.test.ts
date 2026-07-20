@@ -176,13 +176,15 @@ describe("T-DISCORD-RT-02/05/06 — Discord Gateway adapter", () => {
     const fetcher = vi.fn()
       .mockResolvedValueOnce(response(200, { url: "wss://gateway.discord.test" }))
       .mockResolvedValueOnce(response(429, { retry_after: 0.25 }))
-      .mockResolvedValueOnce(response(200, { id: "reply-1" }));
+      .mockResolvedValueOnce(response(200, { id: "401" }));
     const connection = await makeDiscordGateway({
       fetch: fetcher as typeof fetch,
       socket: () => socket,
       sleep: async (ms) => { sleeps.push(ms); },
     }).connect("token", { onReady() {}, onMessage() {} });
-    await connection.sendReply({ guildId: "100", channelId: "200", messageId: "400", content: "answer" });
+    await expect(connection.sendReply({
+      guildId: "100", channelId: "200", messageId: "400", content: "answer",
+    })).resolves.toBe("401");
     expect(sleeps).toEqual([250]);
     const request = fetcher.mock.calls[1]!;
     expect(request[0]).toContain("/channels/200/messages");
@@ -214,6 +216,21 @@ describe("T-DISCORD-RT-02/05/06 — Discord Gateway adapter", () => {
     pendingSleep.resolve();
     await Promise.resolve();
     expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails closed when Discord omits the created message snowflake", async () => {
+    const socket = new FakeSocket();
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(response(200, { url: "wss://gateway.discord.test" }))
+      .mockResolvedValueOnce(response(200, { id: "not-a-snowflake" }));
+    const connection = await makeDiscordGateway({
+      fetch: fetcher as typeof fetch,
+      socket: () => socket,
+    }).connect("token", { onReady() {}, onMessage() {} });
+
+    await expect(connection.sendReply({
+      guildId: "100", channelId: "200", messageId: "400", content: "answer",
+    })).rejects.toMatchObject({ code: "http_error" });
   });
 
   it.each([

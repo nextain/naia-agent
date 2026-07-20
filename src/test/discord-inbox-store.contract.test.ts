@@ -90,6 +90,29 @@ describe("FR-DISCORD.5/6 — owner-only inbox cache", () => {
     expect(JSON.parse(readFileSync(path, "utf8")).channels["binding_1:100:200"]).toEqual([record(1)]);
   });
 
+  it("quarantines a loaded channel that exceeds configured record bounds", async () => {
+    const root = mkdtempSync(join(tmpdir(), "naia-discord-inbox-"));
+    const path = join(root, "inbox.json");
+    writeFileSync(path, JSON.stringify({
+      version: 1,
+      generation: "generation_1",
+      channels: {
+        "binding_1:100:200": [record(1), record(2)],
+      },
+    }), { mode: 0o600 });
+    const inbox = makeFileDiscordInbox({
+      path,
+      generation: "generation_1",
+      maxRecordsPerChannel: 1,
+    });
+
+    await expect(inbox.append(record(3))).resolves.toBe(true);
+    expect(JSON.parse(readFileSync(path, "utf8")).channels["binding_1:100:200"])
+      .toEqual([record(3)]);
+    expect(readdirSync(root).some((name) => name.startsWith("inbox.json.corrupt-")))
+      .toBe(true);
+  });
+
   it("rejects malformed records without writing content", async () => {
     const path = join(mkdtempSync(join(tmpdir(), "naia-discord-inbox-")), "inbox.json");
     const inbox = makeFileDiscordInbox({ path, generation: "generation_1" });

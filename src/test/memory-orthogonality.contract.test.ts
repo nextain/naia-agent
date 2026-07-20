@@ -65,6 +65,36 @@ describe("naia-memory × ChatTurnHandler 직교 UC 통합 (Goal2 A)", () => {
     expect(saved[0].a).toContain("응답");
   });
 
+  it("Discord 채널 턴은 개인 장기기억을 recall하거나 save하지 않는다", async () => {
+    const { provider, seen } = capturingProvider();
+    let recalls = 0;
+    let saves = 0;
+    const memory: MemoryPort = {
+      recall: async () => {
+        recalls += 1;
+        return { facts: ["PRIVATE_FACT"], episodes: [] };
+      },
+      save: async () => {
+        saves += 1;
+      },
+    };
+    const { deps } = harness({ provider, memory });
+
+    await new ChatTurnHandler(deps).onChatRequest(req({
+      channel: {
+        kind: "discord",
+        bindingId: "binding_1",
+        guildId: "100",
+        channelId: "200",
+        userId: "300",
+      },
+    }));
+
+    expect(recalls).toBe(0);
+    expect(saves).toBe(0);
+    expect(seen[0]).toBeUndefined();
+  });
+
   it("직교 memory ⊥ chat: recall throw 해도 턴 finish(주입 생략)", async () => {
     const { provider, seen } = capturingProvider();
     const memory: MemoryPort = { recall: async () => { throw new Error("recall down"); }, save: async () => {} };

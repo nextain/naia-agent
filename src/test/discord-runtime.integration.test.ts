@@ -82,16 +82,24 @@ function deferred<T>() {
 class FakeConnection implements DiscordGatewayConnection {
   private readonly done = deferred<DiscordGatewayClose>();
   readonly closed = this.done.promise;
-  readonly replies: { guildId: string; channelId: string; messageId: string; content: string }[] = [];
+  readonly replies: {
+    guildId: string;
+    channelId: string;
+    messageId: string;
+    content: string;
+    replyMessageId: string;
+  }[] = [];
   closeCount = 0;
   replyGate?: Promise<void>;
   failOnReplyNumber?: number;
   private replyAttempts = 0;
-  async sendReply(input: { guildId: string; channelId: string; messageId: string; content: string }): Promise<void> {
+  async sendReply(input: { guildId: string; channelId: string; messageId: string; content: string }): Promise<string> {
     await this.replyGate;
     this.replyAttempts++;
     if (this.replyAttempts === this.failOnReplyNumber) throw new Error("ambiguous network failure");
-    this.replies.push(input);
+    const replyMessageId = String(400_000 + this.replyAttempts);
+    this.replies.push({ ...input, replyMessageId });
+    return replyMessageId;
   }
   close(): void {
     this.closeCount++;
@@ -322,14 +330,19 @@ describe("T-DISCORD-RT-01/02 — authenticated ingress to existing chat pipeline
 
   it("accepts only exact bounded snowflake bindings and rejects duplicate channel tuples", () => {
     const valid = {
+      version: 1,
       bindings: [{
         bindingId: "binding_1", guildId: "100", channelId: "200",
         allowedUserIds: ["300"], processingProfileRef: "profile_1", participation: "mentions",
       }],
       processingProfiles: { profile_1: "cloud_enabled" },
     };
-    expect(parseDiscordRuntimeConfig(valid)).toEqual(valid);
+    expect(parseDiscordRuntimeConfig(valid)).toEqual({
+      bindings: valid.bindings,
+      processingProfiles: valid.processingProfiles,
+    });
     expect(parseDiscordRuntimeConfig({
+      version: 1,
       bindings: [],
       processingProfiles: { profile_1: "local_only" },
     })).toEqual({
@@ -345,10 +358,19 @@ describe("T-DISCORD-RT-01/02 — authenticated ingress to existing chat pipeline
       bindings: [{ ...valid.bindings[0], participation: "future-rule" }],
     })?.bindings[0]?.participation).toBe("paused");
     expect(parseDiscordRuntimeConfig({
-      bindings: [{ ...valid.bindings[0], guildId: "not-a-snowflake" }],
+      version: 2,
+      bindings: [],
+      processingProfiles: { profile_1: "local_only" },
     })).toBeUndefined();
     expect(parseDiscordRuntimeConfig({
+      version: 1,
+      bindings: [{ ...valid.bindings[0], guildId: "not-a-snowflake" }],
+      processingProfiles: valid.processingProfiles,
+    })).toBeUndefined();
+    expect(parseDiscordRuntimeConfig({
+      version: 1,
       bindings: [valid.bindings[0], { ...valid.bindings[0], bindingId: "binding_2" }],
+      processingProfiles: valid.processingProfiles,
     })).toBeUndefined();
   });
 
@@ -464,9 +486,10 @@ describe("T-DISCORD-RT-01/02 — authenticated ingress to existing chat pipeline
     active.gateway.message({ messageId: "active-message" });
     await waitFor(() => records.some((record) => record.direction === "outgoing"));
     expect(records.map((record) => record.direction)).toEqual(["incoming", "outgoing"]);
+    const answer = answerReplies(active.gateway.connections[0]!)[0]!;
     expect(records[1]).toMatchObject({
-      recordId: "outgoing_active-message_0",
-      sourceMessageId: "active-message",
+      recordId: `outgoing_${answer.replyMessageId}`,
+      sourceMessageId: answer.replyMessageId,
       content: "answer:hello",
     });
     await active.runtime.stop();

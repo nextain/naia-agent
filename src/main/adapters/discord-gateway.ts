@@ -288,7 +288,14 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
                 }),
               },
             );
-            if (response.ok) return;
+            if (response.ok) {
+              const body = await response.json() as { id?: unknown };
+              const replyMessageId = String(body.id ?? "");
+              if (!SNOWFLAKE.test(replyMessageId)) {
+                throw new DiscordGatewayError("http_error");
+              }
+              return replyMessageId;
+            }
             if (response.status === 401) throw new DiscordGatewayError("auth_failed");
             if (response.status === 403) throw new DiscordGatewayError("permission_denied");
             if (response.status !== 429) throw new DiscordGatewayError("http_error");
@@ -316,6 +323,7 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
               );
             });
           }
+          throw new DiscordGatewayError("rate_limited");
         },
       };
       return connection;

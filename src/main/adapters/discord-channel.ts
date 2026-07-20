@@ -81,6 +81,7 @@ function parseBinding(value: unknown): DiscordChannelBinding | undefined {
 export function parseDiscordRuntimeConfig(value: unknown): DiscordRuntimeConfig | undefined {
   if (!value || typeof value !== "object") return undefined;
   const input = value as Record<string, unknown>;
+  if (input.version !== 1) return undefined;
   if (!Array.isArray(input.bindings) || input.bindings.length > 256) return undefined;
   const bindings = input.bindings.map(parseBinding);
   if (bindings.some((binding) => !binding)) return undefined;
@@ -255,10 +256,18 @@ export class DiscordChannelRuntime {
     this.state = "stopped";
     this.abort.abort();
     this.connection?.close();
-    for (const requestId of this.active.keys()) {
-      this.route?.({ kind: "cancel", requestId });
-    }
+    const staleTurns = [...this.active.values()];
     this.active.clear();
+    for (const turn of staleTurns) {
+      this.route?.({ kind: "cancel", requestId: turn.requestId });
+      try {
+        await this.deps.dedupe.releaseReservation?.({
+          bindingId: turn.bindingId,
+          messageId: turn.messageId,
+          now: this.deps.clock.now(),
+        });
+      } catch { /* reconstructed stores also discard stale reservations */ }
+    }
     try { await this.loop; } catch { /* stop is no-throw */ }
   }
 
@@ -653,7 +662,7 @@ export class DiscordChannelRuntime {
           await this.recordPartial(bindingId, messageId, sent);
           return;
         }
-        await connection.sendReply({
+        const replyMessageId = await connection.sendReply({
           channelId,
           guildId,
           messageId,
@@ -669,12 +678,12 @@ export class DiscordChannelRuntime {
         });
         if (!recorded) throw new Error("reply_state_failed");
         await this.recordInbox({
-          recordId: `outgoing_${messageId}_${index}`,
+          recordId: `outgoing_${replyMessageId}`,
           direction: "outgoing",
           bindingId,
           guildId,
           channelId,
-          sourceMessageId: messageId,
+          sourceMessageId: replyMessageId,
           content: chunks[index]!,
           createdAt: this.deps.clock.now(),
         });

@@ -42,6 +42,14 @@ describe("T-DISCORD-RT-02/05 — production entry wiring", () => {
     expect(entry).toContain('status.authoritative ? "ready" : "standby"');
   });
 
+  it("reports a missing one-shot token even after deleting the bindings environment value", () => {
+    expect(entry).toContain(
+      "const discordBindingsProvided = Boolean(process.env.NAIA_DISCORD_BINDINGS_JSON)",
+    );
+    expect(entry).toContain("discordToken || discordBindingsProvided");
+    expect(entry).toContain('"token_unavailable"');
+  });
+
   it("routes Discord through the same wireAgentUC1 pipeline without leaking its events to gRPC", () => {
     expect(entry).toContain("makeCompositeAgentIngress([grpcServer.ingress, discordRuntime.ingress])");
     expect(entry).toContain('makePrefixedAgentEgress([{ prefix: "discord:", egress: discordRuntime.egress }], grpcServer.egress)');

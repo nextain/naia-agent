@@ -117,6 +117,7 @@ const { memory, memoryLabel, conversationLog, transcriptLabel, diag, personaSour
 let skillsLabel = deps.skillsLabel;
 
 let discordConfig;
+const discordBindingsProvided = Boolean(process.env.NAIA_DISCORD_BINDINGS_JSON);
 if (process.env.NAIA_DISCORD_BINDINGS_JSON) {
   try { discordConfig = parseDiscordRuntimeConfig(JSON.parse(process.env.NAIA_DISCORD_BINDINGS_JSON)); }
   catch { discordConfig = undefined; }
@@ -328,7 +329,7 @@ if (discordToken && discordConfig && discordAuthority) {
     diag.log("discord runtime", { code: "configuration_failed" });
     try { discordStatus?.write("failed", "configuration_failed"); } catch { /* status observer isolation */ }
   }
-} else if (discordToken || process.env.NAIA_DISCORD_BINDINGS_JSON) {
+} else if (discordToken || discordBindingsProvided) {
   const code = !discordToken ? "token_unavailable"
     : !discordConfig ? "bindings_invalid"
     : "authority_invalid";

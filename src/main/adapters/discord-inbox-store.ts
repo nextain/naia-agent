@@ -1,4 +1,4 @@
-import { readFileSync, renameSync } from "node:fs";
+import { closeSync, openSync, readSync, renameSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import type { DiscordInboxPort, DiscordInboxRecord } from "../ports/discord.js";
 import { replaceOwnerOnlyAtomic } from "./owner-only-atomic-file.js";
@@ -23,6 +23,7 @@ const MAX_CONTENT_LENGTH = 4_000;
 const DEFAULT_MAX_RECORDS = 200;
 const DEFAULT_MAX_BYTES = 512 * 1_024;
 const MAX_CHANNELS = 256;
+const MAX_FILE_BYTES = 16 * 1_024 * 1_024;
 
 function isRecord(value: unknown): value is DiscordInboxRecord {
   if (!value || typeof value !== "object") return false;
@@ -45,7 +46,29 @@ function channelKey(record: Pick<DiscordInboxRecord, "bindingId" | "guildId" | "
   return `${record.bindingId}:${record.guildId}:${record.channelId}`;
 }
 
-function parseDocument(raw: string, generation: string): DiscordInboxDocument {
+function readBoundedFile(path: string): string {
+  const handle = openSync(path, "r");
+  try {
+    const bytes = Buffer.allocUnsafe(MAX_FILE_BYTES + 1);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const count = readSync(handle, bytes, offset, bytes.length - offset, null);
+      if (count === 0) break;
+      offset += count;
+    }
+    if (offset > MAX_FILE_BYTES) throw new Error("DISCORD_INBOX_CORRUPT");
+    return bytes.subarray(0, offset).toString("utf8");
+  } finally {
+    closeSync(handle);
+  }
+}
+
+function parseDocument(
+  raw: string,
+  generation: string,
+  maxRecords: number,
+  maxBytes: number,
+): DiscordInboxDocument {
   let value: unknown;
   try { value = JSON.parse(raw); } catch { throw new Error("DISCORD_INBOX_CORRUPT"); }
   if (!value || typeof value !== "object") throw new Error("DISCORD_INBOX_CORRUPT");
@@ -59,6 +82,8 @@ function parseDocument(raw: string, generation: string): DiscordInboxDocument {
   for (const [key, records] of Object.entries(document.channels)) {
     if (!/^[A-Za-z0-9_-]{1,128}:\d{1,128}:\d{1,128}$/.test(key)
       || !Array.isArray(records) || !records.every(isRecord)
+      || records.length > maxRecords
+      || Buffer.byteLength(JSON.stringify(records), "utf8") > maxBytes
       || records.some((record) => channelKey(record) !== key)) {
       throw new Error("DISCORD_INBOX_CORRUPT");
     }
@@ -84,7 +109,12 @@ export function makeFileDiscordInbox(options: DiscordInboxStoreOptions): Discord
   let document: DiscordInboxDocument = { version: 1, generation: options.generation, channels: {} };
   let initializationFailed = false;
   try {
-    document = parseDocument(readFileSync(options.path, "utf8"), options.generation);
+    document = parseDocument(
+      readBoundedFile(options.path),
+      options.generation,
+      maxRecords,
+      maxBytes,
+    );
   } catch (error) {
     const code = (error as { code?: string }).code;
     const message = (error as { message?: string }).message;
