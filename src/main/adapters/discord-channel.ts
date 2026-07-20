@@ -34,6 +34,7 @@ interface ActiveTurn {
   readonly requestId: string;
   readonly sessionId: string;
   readonly lifecycleEpoch: number;
+  readonly outboundSignal: AbortSignal;
   readonly guildId: string;
   readonly channelId: string;
   readonly messageId: string;
@@ -179,6 +180,7 @@ export class DiscordChannelRuntime {
   readonly egress: AgentEgressPort;
   private route?: (request: AgentRequest) => void;
   private readonly abort = new AbortController();
+  private lifecycleAbort = new AbortController();
   private readonly active = new Map<string, ActiveTurn>();
   private readonly histories = new Map<string, ChatMessage[]>();
   private connection?: DiscordGatewayConnection;
@@ -271,10 +273,13 @@ export class DiscordChannelRuntime {
   async configure(config: DiscordRuntimeConfig): Promise<void> {
     if (config.bindings.length > 256) throw new Error("DISCORD_BINDINGS_INVALID");
     if (this.stopped) throw new Error("DISCORD_RUNTIME_STOPPED");
+    this.lifecycleAbort.abort();
+    this.lifecycleAbort = new AbortController();
     this.generation++;
     this.lifecycleEpoch++;
+    this.authorityPrepared = !this.deps.authority;
     this.config = config;
-    this.reconfigureRequested = true;
+    this.reconfigureRequested = this.loop !== undefined;
     this.selfUserId = null;
     this.registeredUsers.clear();
     this.histories.clear();
@@ -312,6 +317,7 @@ export class DiscordChannelRuntime {
     this.generation++;
     this.lifecycleEpoch++;
     this.state = "stopped";
+    this.lifecycleAbort.abort();
     this.abort.abort();
     this.connection?.close();
     const staleTasks = [...this.inFlightTasks];
@@ -366,6 +372,10 @@ export class DiscordChannelRuntime {
   }
 
   private isAuthoritative(): boolean {
+    if (this.stopped) {
+      this.authorityPrepared = false;
+      return false;
+    }
     try {
       const raw = this.deps.authority?.isActive() ?? true;
       if (!raw) this.authorityPrepared = false;
@@ -376,6 +386,10 @@ export class DiscordChannelRuntime {
   }
 
   private async ensureAuthoritative(): Promise<boolean> {
+    if (this.stopped) {
+      this.authorityPrepared = false;
+      return false;
+    }
     let raw = false;
     try { raw = this.deps.authority?.isActive() ?? true; } catch { return false; }
     if (!raw) {
@@ -384,16 +398,30 @@ export class DiscordChannelRuntime {
     }
     if (this.authorityPrepared) return true;
     if (!this.authorityRefresh) {
-      this.authorityRefresh = (async () => {
-        const [dedupeRefreshed, registrationRefreshed] = await Promise.all([
-          this.deps.dedupe.refresh?.() ?? Promise.resolve(true),
-          this.deps.registration?.refresh?.() ?? Promise.resolve(true),
-        ]);
-        let stillActive = false;
-        try { stillActive = this.deps.authority?.isActive() ?? true; } catch { /* fail closed */ }
-        this.authorityPrepared = dedupeRefreshed && registrationRefreshed && stillActive;
-        return this.authorityPrepared;
-      })().finally(() => { this.authorityRefresh = undefined; });
+      const lifecycleEpoch = this.lifecycleEpoch;
+      const refresh = (async () => {
+        try {
+          const [dedupeRefreshed, registrationRefreshed] = await Promise.all([
+            this.deps.dedupe.refresh?.() ?? Promise.resolve(true),
+            this.deps.registration?.refresh?.() ?? Promise.resolve(true),
+          ]);
+          let stillActive = false;
+          try { stillActive = this.deps.authority?.isActive() ?? true; } catch { /* fail closed */ }
+          this.authorityPrepared = dedupeRefreshed
+            && registrationRefreshed
+            && stillActive
+            && this.isLifecycleCurrent(lifecycleEpoch);
+          return this.authorityPrepared;
+        } catch {
+          this.authorityPrepared = false;
+          return false;
+        }
+      })();
+      const tracked = refresh.finally(() => {
+        if (this.authorityRefresh === tracked) this.authorityRefresh = undefined;
+      });
+      this.authorityRefresh = tracked;
+      this.trackTask(tracked);
     }
     return this.authorityRefresh;
   }
@@ -411,6 +439,10 @@ export class DiscordChannelRuntime {
       }
       const generation = ++this.generation;
       const lifecycleEpoch = this.lifecycleEpoch;
+      const iterationSignal = AbortSignal.any([
+        this.abort.signal,
+        this.lifecycleAbort.signal,
+      ]);
       let becameReady = false;
       try {
         const connection = await this.deps.gateway.connect(token, {
@@ -426,7 +458,7 @@ export class DiscordChannelRuntime {
             if (this.stopped || generation !== this.generation) return;
             this.scheduleMessage(message, lifecycleEpoch);
           },
-        }, { signal: this.abort.signal });
+        }, { signal: iterationSignal });
         if (this.stopped || generation !== this.generation) {
           connection.close();
           if (!this.stopped) {
@@ -454,6 +486,14 @@ export class DiscordChannelRuntime {
         }
         this.diagnostic(closed.code);
       } catch (error) {
+        if (!this.isLifecycleCurrent(lifecycleEpoch)) {
+          if (!this.stopped) {
+            this.reconfigureRequested = false;
+            attempt = 0;
+            continue;
+          }
+          return;
+        }
         const code = (error as { code?: unknown }).code;
         if (code === "auth_failed" || code === "intent_missing") {
           this.state = "terminal_error";
@@ -462,11 +502,28 @@ export class DiscordChannelRuntime {
         }
         this.diagnostic("connect_failed");
       }
+      if (!this.isLifecycleCurrent(lifecycleEpoch)) {
+        if (!this.stopped) {
+          this.reconfigureRequested = false;
+          attempt = 0;
+          continue;
+        }
+        return;
+      }
       if (this.stopped) return;
       if (becameReady) attempt = 0;
       this.state = "backoff";
       const delay = Math.min(this.reconnectMaxMs, this.reconnectBaseMs * (2 ** Math.min(attempt++, 16)));
-      try { await this.deps.clock.sleep(delay, this.abort.signal); } catch { return; }
+      try {
+        await this.deps.clock.sleep(delay, iterationSignal);
+      } catch {
+        if (!this.isLifecycleCurrent(lifecycleEpoch) && !this.stopped) {
+          this.reconfigureRequested = false;
+          attempt = 0;
+          continue;
+        }
+        return;
+      }
     }
   }
 
@@ -620,6 +677,7 @@ export class DiscordChannelRuntime {
         reservation.chunks,
         reservation.nextChunk,
         lifecycleEpoch,
+        this.lifecycleAbort.signal,
       );
       return;
     }
@@ -679,6 +737,7 @@ export class DiscordChannelRuntime {
       requestId,
       sessionId,
       lifecycleEpoch,
+      outboundSignal: this.lifecycleAbort.signal,
       guildId: binding.guildId,
       channelId: binding.channelId,
       messageId: message.messageId,
@@ -778,6 +837,7 @@ export class DiscordChannelRuntime {
       chunks,
       0,
       turn.lifecycleEpoch,
+      turn.outboundSignal,
     );
   }
 
@@ -796,7 +856,7 @@ export class DiscordChannelRuntime {
         guildId: turn.guildId,
         messageId: turn.messageId,
         content: this.deps.text.processingDisclosure(event),
-        signal: this.abort.signal,
+        signal: turn.outboundSignal,
       });
       return this.isLifecycleCurrent(turn.lifecycleEpoch);
     } catch {
@@ -813,6 +873,7 @@ export class DiscordChannelRuntime {
     chunks: readonly string[],
     startChunk: number,
     lifecycleEpoch?: number,
+    outboundSignal: AbortSignal = this.lifecycleAbort.signal,
   ): Promise<void> {
     const connection = this.connection;
     if (!connection) {
@@ -844,7 +905,7 @@ export class DiscordChannelRuntime {
           guildId,
           messageId,
           content: chunks[index]!,
-          signal: this.abort.signal,
+          signal: outboundSignal,
         });
         sent = index + 1;
         const recorded = await this.deps.dedupe.confirmChunk({

@@ -91,11 +91,37 @@ class FakeConnection implements DiscordGatewayConnection {
   }[] = [];
   closeCount = 0;
   replyGate?: Promise<void>;
+  rateLimitGate?: Promise<void>;
   failOnReplyNumber?: number;
-  private replyAttempts = 0;
-  async sendReply(input: { guildId: string; channelId: string; messageId: string; content: string }): Promise<string> {
+  replyAttempts = 0;
+  async sendReply(input: {
+    guildId: string;
+    channelId: string;
+    messageId: string;
+    content: string;
+    signal?: AbortSignal;
+  }): Promise<string> {
     await this.replyGate;
     this.replyAttempts++;
+    if (this.rateLimitGate) {
+      const gate = this.rateLimitGate;
+      await new Promise<void>((resolve, reject) => {
+        if (input.signal?.aborted) {
+          reject(new Error("aborted"));
+          return;
+        }
+        const onAbort = () => {
+          input.signal?.removeEventListener("abort", onAbort);
+          reject(new Error("aborted"));
+        };
+        input.signal?.addEventListener("abort", onAbort, { once: true });
+        void gate.then(() => {
+          input.signal?.removeEventListener("abort", onAbort);
+          resolve();
+        });
+      });
+      this.replyAttempts++;
+    }
     if (this.replyAttempts === this.failOnReplyNumber) throw new Error("ambiguous network failure");
     const replyMessageId = String(400_000 + this.replyAttempts);
     this.replies.push({ ...input, replyMessageId });
@@ -868,6 +894,153 @@ describe("T-DISCORD-RT-05/06 — lifecycle, bounded reply, safe failure", () => 
     await runtime.stop();
   });
 
+  it("aborts a pending connect and immediately reconnects with the new configuration", async () => {
+    const connections = [new FakeConnection(), new FakeConnection()];
+    const signals: AbortSignal[] = [];
+    let attempts = 0;
+    const gateway: DiscordGatewayPort = {
+      async connect(_token, handlers, options) {
+        attempts++;
+        signals.push(options!.signal!);
+        if (attempts === 1) {
+          return new Promise<DiscordGatewayConnection>((_resolve, reject) => {
+            options?.signal?.addEventListener("abort", () => reject(new Error("aborted")), {
+              once: true,
+            });
+          });
+        }
+        handlers.onReady("999");
+        return connections[1]!;
+      },
+    };
+    const sleep = vi.fn(async () => {});
+    const runtime = new DiscordChannelRuntime({
+      gateway,
+      token: { load: async () => "token" },
+      dedupe: makeDedupe(),
+      clock: { now: () => 1, sleep },
+      text: testText,
+      diag: { log() {} },
+    }, {
+      bindings: [{
+        bindingId: "binding_1", guildId: "100", channelId: "200",
+        allowedUserIds: ["300"], processingProfileRef: "profile_1", participation: "mentions",
+      }],
+    });
+    runtime.ingress.onRequest(() => {});
+    runtime.start();
+    await waitFor(() => attempts === 1);
+
+    await runtime.configure({
+      bindings: [{
+        bindingId: "binding_2", guildId: "101", channelId: "201",
+        allowedUserIds: ["301"], processingProfileRef: "profile_2", participation: "mentions",
+      }],
+    });
+    await waitFor(() => attempts === 2);
+    expect(signals[0]?.aborted).toBe(true);
+    expect(signals[1]?.aborted).toBe(false);
+    expect(sleep).not.toHaveBeenCalled();
+    expect(runtime.status()).toMatchObject({ state: "ready", bindingCount: 1 });
+    await runtime.stop();
+  });
+
+  it("aborts backoff and reconnects without waiting after configure", async () => {
+    const backoffStarted = deferred<void>();
+    const connection = new FakeConnection();
+    let attempts = 0;
+    let backoffSignal: AbortSignal | undefined;
+    const gateway: DiscordGatewayPort = {
+      async connect(_token, handlers) {
+        attempts++;
+        if (attempts === 1) throw new Error("network");
+        handlers.onReady("999");
+        return connection;
+      },
+    };
+    const runtime = new DiscordChannelRuntime({
+      gateway,
+      token: { load: async () => "token" },
+      dedupe: makeDedupe(),
+      clock: {
+        now: () => 1,
+        sleep: async (_ms, signal) => {
+          backoffSignal = signal;
+          backoffStarted.resolve();
+          await new Promise<void>((_resolve, reject) =>
+            signal.addEventListener("abort", () => reject(new Error("aborted")), {
+              once: true,
+            }));
+        },
+      },
+      text: testText,
+      diag: { log() {} },
+    }, {
+      bindings: [{
+        bindingId: "binding_1", guildId: "100", channelId: "200",
+        allowedUserIds: ["300"], processingProfileRef: "profile_1", participation: "mentions",
+      }],
+    });
+    runtime.ingress.onRequest(() => {});
+    runtime.start();
+    await backoffStarted.promise;
+
+    await runtime.configure({
+      bindings: [{
+        bindingId: "binding_2", guildId: "101", channelId: "201",
+        allowedUserIds: ["301"], processingProfileRef: "profile_2", participation: "mentions",
+      }],
+    });
+    await waitFor(() => attempts === 2);
+    expect(backoffSignal?.aborted).toBe(true);
+    expect(runtime.status()).toMatchObject({ state: "ready", bindingCount: 1 });
+    await runtime.stop();
+  });
+
+  it("uses a fresh lifecycle signal before start without skipping the first normal reconnect backoff", async () => {
+    const connectSignals: AbortSignal[] = [];
+    const connections = [new FakeConnection(), new FakeConnection()];
+    const sleeps: number[] = [];
+    let attempts = 0;
+    const gateway: DiscordGatewayPort = {
+      async connect(_token, handlers, options) {
+        connectSignals.push(options!.signal!);
+        handlers.onReady("999");
+        return connections[attempts++]!;
+      },
+    };
+    const runtime = new DiscordChannelRuntime({
+      gateway,
+      token: { load: async () => "token" },
+      dedupe: makeDedupe(),
+      clock: { now: () => 1, sleep: async (ms) => { sleeps.push(ms); } },
+      text: testText,
+      diag: { log() {} },
+    }, {
+      bindings: [{
+        bindingId: "binding_1", guildId: "100", channelId: "200",
+        allowedUserIds: ["300"], processingProfileRef: "profile_1", participation: "mentions",
+      }],
+    });
+    runtime.ingress.onRequest(() => {});
+    await runtime.configure({
+      bindings: [{
+        bindingId: "binding_2", guildId: "101", channelId: "201",
+        allowedUserIds: ["301"], processingProfileRef: "profile_2", participation: "mentions",
+      }],
+    });
+    runtime.start();
+    await waitFor(() => attempts === 1);
+    expect(connectSignals[0]?.aborted).toBe(false);
+    expect(runtime.status()).toMatchObject({ state: "ready", bindingCount: 1 });
+
+    connections[0]!.disconnect({ code: "network_error", retryable: true });
+    await waitFor(() => attempts === 2);
+    expect(sleeps).toEqual([1_000]);
+    expect(connectSignals[1]?.aborted).toBe(false);
+    await runtime.stop();
+  });
+
   it("aborts and awaits a pending Gateway discovery connect on stop", async () => {
     let connectSignal: AbortSignal | undefined;
     let aborted = false;
@@ -956,6 +1129,117 @@ describe("T-DISCORD-RT-05/06 — lifecycle, bounded reply, safe failure", () => 
 
     expect(chat).not.toHaveBeenCalled();
     expect(runtime.status()).toMatchObject({ bindingCount: 1, activeTurns: 0 });
+    await runtime.stop();
+  });
+
+  it("tracks a status-triggered authority refresh and fails closed when refresh rejects", async () => {
+    const base = makeDedupe();
+    const refresh = vi.fn(async () => {
+      throw new Error("refresh failed");
+    });
+    const { runtime } = makeHarness({
+      authority: { isActive: () => true },
+      dedupe: { ...base, refresh },
+    });
+
+    expect(runtime.status().authoritative).toBe(false);
+    await waitFor(() => refresh.mock.calls.length === 1);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(runtime.status().authoritative).toBe(false);
+    await runtime.stop();
+  });
+
+  it("awaits a status-triggered authority refresh before configure returns", async () => {
+    const authorityRefresh = deferred<boolean>();
+    const base = makeDedupe();
+    const refresh = vi.fn(() => authorityRefresh.promise);
+    const { runtime } = makeHarness({
+      authority: { isActive: () => true },
+      dedupe: { ...base, refresh },
+    });
+    expect(runtime.status().authoritative).toBe(false);
+    await waitFor(() => refresh.mock.calls.length === 1);
+
+    let configured = false;
+    const configuring = runtime.configure({
+      bindings: [{
+        bindingId: "binding_2", guildId: "101", channelId: "201",
+        allowedUserIds: ["301"], processingProfileRef: "profile_2", participation: "mentions",
+      }],
+    }).then(() => { configured = true; });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(configured).toBe(false);
+
+    authorityRefresh.resolve(true);
+    await configuring;
+    expect(configured).toBe(true);
+    expect(runtime.status().authoritative).toBe(false);
+    await runtime.stop();
+  });
+
+  it("awaits a status-triggered authority refresh before stop returns", async () => {
+    const authorityRefresh = deferred<boolean>();
+    const base = makeDedupe();
+    const refresh = vi.fn(() => authorityRefresh.promise);
+    const { runtime } = makeHarness({
+      authority: { isActive: () => true },
+      dedupe: { ...base, refresh },
+    });
+    expect(runtime.status().authoritative).toBe(false);
+    await waitFor(() => refresh.mock.calls.length === 1);
+
+    let stopped = false;
+    const stopping = runtime.stop().then(() => { stopped = true; });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(stopped).toBe(false);
+
+    authorityRefresh.resolve(true);
+    await stopping;
+    expect(stopped).toBe(true);
+    expect(runtime.status()).toMatchObject({ state: "stopped", authoritative: false });
+  });
+
+  it("keeps authority false after stop without restarting refresh from status", async () => {
+    const base = makeDedupe();
+    const refresh = vi.fn(async () => true);
+    const { runtime } = makeHarness({
+      authority: { isActive: () => true },
+      dedupe: { ...base, refresh },
+    });
+
+    await runtime.stop();
+    expect(runtime.status().authoritative).toBe(false);
+    expect(runtime.status().authoritative).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("aborts an old lifecycle reply retry before reconfiguration can send it", async () => {
+    const retry = deferred<void>();
+    const { gateway, runtime } = makeHarness();
+    await waitFor(() => gateway.connections.length === 1);
+    gateway.connections[0]!.rateLimitGate = retry.promise;
+    gateway.message({ messageId: "old-reply-retry" });
+    await waitFor(() => gateway.connections[0]!.replyAttempts === 1);
+
+    await runtime.configure({
+      bindings: [{
+        bindingId: "binding_2", guildId: "101", channelId: "201",
+        allowedUserIds: ["301"], processingProfileRef: "profile_2", participation: "mentions",
+      }],
+    });
+    expect(gateway.connections[0]!.replyAttempts).toBe(1);
+    expect(answerReplies(gateway.connections[0]!)).toHaveLength(0);
+    expect(runtime.status()).toMatchObject({
+      activeTurns: 0,
+      partialReplies: 1,
+      partialReply: { confirmedChunk: 0 },
+    });
+
+    retry.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(gateway.connections[0]!.replyAttempts).toBe(1);
+    expect(answerReplies(gateway.connections[0]!)).toHaveLength(0);
     await runtime.stop();
   });
 
