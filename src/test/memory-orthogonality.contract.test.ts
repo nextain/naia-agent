@@ -69,6 +69,7 @@ describe("naia-memory × ChatTurnHandler 직교 UC 통합 (Goal2 A)", () => {
     const { provider, seen } = capturingProvider();
     let recalls = 0;
     let saves = 0;
+    let transcriptAppends = 0;
     const memory: MemoryPort = {
       recall: async () => {
         recalls += 1;
@@ -78,7 +79,15 @@ describe("naia-memory × ChatTurnHandler 직교 UC 통합 (Goal2 A)", () => {
         saves += 1;
       },
     };
-    const { deps } = harness({ provider, memory });
+    const { deps } = harness({
+      provider,
+      memory,
+      conversationLog: {
+        append: async () => {
+          transcriptAppends += 1;
+        },
+      },
+    });
 
     await new ChatTurnHandler(deps).onChatRequest(req({
       channel: {
@@ -92,6 +101,7 @@ describe("naia-memory × ChatTurnHandler 직교 UC 통합 (Goal2 A)", () => {
 
     expect(recalls).toBe(0);
     expect(saves).toBe(0);
+    expect(transcriptAppends).toBe(0);
     expect(seen[0]).toBeUndefined();
   });
 

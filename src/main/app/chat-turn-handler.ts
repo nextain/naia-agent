@@ -323,7 +323,7 @@ export class ChatTurnHandler {
       const lastMsg = req.messages.length ? req.messages[req.messages.length - 1] : undefined;
       const currentUserMsg = lastMsg?.role === "user" ? lastMsg : undefined;
       const lastUserText = currentUserMsg?.content ?? "";
-      const privateMemoryAllowed = req.channel?.kind !== "discord";
+      const privatePersistenceAllowed = req.channel?.kind !== "discord";
       // compaction recap → systemPrompt 주입(leading assistant 메시지 회피, recall 과 동일 패턴). recall 은 이 뒤에 append.
       let memSystemPrompt = compactionRecap
         ? (asm.systemPrompt ? `${asm.systemPrompt}\n\n## 이전 대화 요약(compacted)\n${compactionRecap}` : `## 이전 대화 요약(compacted)\n${compactionRecap}`)
@@ -331,7 +331,7 @@ export class ChatTurnHandler {
       // FR-MEM-1a: 빈/공백 query 는 app 계층에서 단락(recall 미호출) — 빈 query 가 전체/임의 top-K 를
       // 끌어와 무관 정보를 주입하는 것을 *어댑터 구현과 무관하게* 막는다(정책은 app 소유). 어댑터에도
       // 동일 가드(방어 심층).
-      if (privateMemoryAllowed && this.d.memory && currentUserMsg && lastUserText.trim()) {
+      if (privatePersistenceAllowed && this.d.memory && currentUserMsg && lastUserText.trim()) {
         if (!await authorizeOperation("embedding", {
           provider: "naia-memory",
           model: "recall",
@@ -374,7 +374,7 @@ export class ChatTurnHandler {
       const assistantTurnParts: string[] = []; // 턴 전체 assistant 텍스트 누적(도구 라운드 preamble 포함) — save 용
       const commitCompletedTurn = async (): Promise<void> => {
         // UC-memory FR-MEM-2: provider 가 최종 응답을 낸 시점 = **커밋 지점**. 연속 발화도 전체를 한 번 저장.
-        if (privateMemoryAllowed && this.d.memory && currentUserMsg) {
+        if (privatePersistenceAllowed && this.d.memory && currentUserMsg) {
           if (!await authorizeOperations([
             {
               workload: "memory_llm",
@@ -391,7 +391,7 @@ export class ChatTurnHandler {
             if (!ok) this.safeDiag("memory save 시간초과(턴 유지)", new Error(`>${saveTimeoutMs}ms`));
           } catch (e) { this.safeDiag("memory save 실패(턴 유지)", e); }
         }
-        if (this.d.conversationLog && currentUserMsg) {
+        if (privatePersistenceAllowed && this.d.conversationLog && currentUserMsg) {
           try {
             await this.d.conversationLog.append({ sessionId: req.sessionId ?? "default", userText: lastUserText, assistantText: assistantTurnParts.join("\n") });
           } catch (e) { this.safeDiag("transcript append 실패(턴 유지)", e); }
