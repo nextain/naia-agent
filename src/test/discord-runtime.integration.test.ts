@@ -668,6 +668,87 @@ describe("T-DISCORD-RT-03/04 — history isolation and replay dedupe", () => {
     await runtime.stop();
   });
 
+  it("routes overlapping channel turns independently when they complete out of order", async () => {
+    const firstTurn = deferred<void>();
+    const secondTurn = deferred<void>();
+    const gates = new Map([
+      ["channel-one", firstTurn],
+      ["channel-two", secondTurn],
+    ]);
+    const captures: { current: string; messages: ChatMessage[] }[] = [];
+    const provider: ProviderPort = {
+      async *chat(_config, messages): AsyncIterable<ProviderChunk> {
+        const current = messages.at(-1)?.content ?? "";
+        captures.push({ current, messages: [...messages] });
+        const gate = gates.get(current);
+        if (gate) await gate.promise;
+        yield { kind: "text", text: `answer:${current}` };
+        yield { kind: "finish" };
+      },
+    };
+    const { gateway, runtime } = makeHarness({ provider, twoBindings: true });
+    await waitFor(() => gateway.handlers.length === 1);
+
+    gateway.message({ messageId: "m-overlap-a", content: "<@999> channel-one" });
+    gateway.message({
+      messageId: "m-overlap-b",
+      guildId: "101",
+      channelId: "201",
+      authorId: "301",
+      content: "<@999> channel-two",
+    });
+    await waitFor(() => captures.length === 2);
+    expect(answerReplies(gateway.connections[0]!)).toHaveLength(0);
+
+    secondTurn.resolve();
+    await waitFor(() => answerReplies(gateway.connections[0]!).length === 1);
+    expect(answerReplies(gateway.connections[0]!)[0]).toMatchObject({
+      guildId: "101",
+      channelId: "201",
+      messageId: "m-overlap-b",
+      content: "answer:channel-two",
+    });
+
+    firstTurn.resolve();
+    await waitFor(() => answerReplies(gateway.connections[0]!).length === 2);
+    expect(answerReplies(gateway.connections[0]!)[1]).toMatchObject({
+      guildId: "100",
+      channelId: "200",
+      messageId: "m-overlap-a",
+      content: "answer:channel-one",
+    });
+
+    gateway.message({
+      messageId: "m-overlap-a-next",
+      content: "<@999> channel-one-next",
+    });
+    await waitFor(() => captures.some(({ current }) => current === "channel-one-next"));
+    await waitFor(() => answerReplies(gateway.connections[0]!).length === 3);
+    gateway.message({
+      messageId: "m-overlap-b-next",
+      guildId: "101",
+      channelId: "201",
+      authorId: "301",
+      content: "<@999> channel-two-next",
+    });
+    await waitFor(() => captures.some(({ current }) => current === "channel-two-next"));
+    await waitFor(() => answerReplies(gateway.connections[0]!).length === 4);
+
+    const firstHistory = captures.find(({ current }) => current === "channel-one-next");
+    const secondHistory = captures.find(({ current }) => current === "channel-two-next");
+    expect(firstHistory?.messages.map((message) => message.content)).toEqual([
+      "channel-one",
+      "answer:channel-one",
+      "channel-one-next",
+    ]);
+    expect(secondHistory?.messages.map((message) => message.content)).toEqual([
+      "channel-two",
+      "answer:channel-two",
+      "channel-two-next",
+    ]);
+    await runtime.stop();
+  });
+
   it("isolates history between two allowed users in the same channel", async () => {
     const captures: ChatMessage[][] = [];
     const provider: ProviderPort = {
