@@ -732,6 +732,37 @@ describe("T-DISCORD-RT-03/04 — history isolation and replay dedupe", () => {
     await runtime.stop();
   });
 
+  it("drops unbound guild and DM events before async authority admission work", async () => {
+    const refresh = vi.fn(async () => true);
+    const chat = vi.fn(async function* () {
+      yield { kind: "finish" as const };
+    });
+    const base = makeDedupe();
+    const { gateway, runtime, logs } = makeHarness({
+      provider: { chat },
+      authority: { isActive: () => true },
+      dedupe: { ...base, refresh },
+      maxActiveTurns: 1,
+    });
+    await waitFor(() => gateway.handlers.length === 1);
+    const logCountBeforeFlood = logs.length;
+
+    for (let index = 0; index < 100; index++) {
+      gateway.message({
+        messageId: `unbound-${index}`,
+        guildId: index % 2 === 0 ? "101" : null,
+        channelId: "201",
+      });
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(refresh).not.toHaveBeenCalled();
+    expect(chat).not.toHaveBeenCalled();
+    expect(runtime.status().activeTurns).toBe(0);
+    expect(logs).toHaveLength(logCountBeforeFlood);
+    await runtime.stop();
+  });
+
   it("does not dispatch or reply twice after reconnect replay", async () => {
     const calls: string[] = [];
     const provider: ProviderPort = {
@@ -896,6 +927,183 @@ describe("T-DISCORD-RT-05/06 — lifecycle, bounded reply, safe failure", () => 
     expect(runtime.status()).toMatchObject({ activeTurns: 0, partialReplies: 1 });
     expect(answerReplies(gateway.connections[0]!)).toHaveLength(0);
     await runtime.stop();
+  });
+
+  it("invalidates and drains deferred authority preparation before reconfiguration", async () => {
+    const authorityRefresh = deferred<boolean>();
+    const refresh = vi.fn(() => authorityRefresh.promise);
+    const chat = vi.fn(async function* () {
+      yield { kind: "finish" as const };
+    });
+    const base = makeDedupe();
+    const { gateway, runtime } = makeHarness({
+      provider: { chat },
+      authority: { isActive: () => true },
+      dedupe: { ...base, refresh },
+    });
+    await waitFor(() => gateway.handlers.length === 1);
+    gateway.message({ messageId: "old-authority" });
+    await waitFor(() => refresh.mock.calls.length === 1);
+
+    const configuring = runtime.configure({
+      bindings: [{
+        bindingId: "binding_2", guildId: "101", channelId: "201",
+        allowedUserIds: ["301"], processingProfileRef: "profile_2", participation: "mentions",
+      }],
+    });
+    authorityRefresh.resolve(true);
+    await configuring;
+
+    expect(chat).not.toHaveBeenCalled();
+    expect(runtime.status()).toMatchObject({ bindingCount: 1, activeTurns: 0 });
+    await runtime.stop();
+  });
+
+  it("releases a deferred reservation and prevents dispatch after stop", async () => {
+    const reservation = deferred<Awaited<ReturnType<DiscordDedupePort["reserve"]>>>();
+    const base = makeDedupe();
+    const reserve = vi.fn(() => reservation.promise);
+    const releaseReservation = vi.fn(async () => true);
+    const chat = vi.fn(async function* () {
+      yield { kind: "finish" as const };
+    });
+    const { gateway, runtime } = makeHarness({
+      provider: { chat },
+      dedupe: { ...base, reserve, releaseReservation },
+    });
+    await waitFor(() => gateway.handlers.length === 1);
+    gateway.message({ messageId: "old-reservation" });
+    await waitFor(() => reserve.mock.calls.length === 1);
+
+    const stopping = runtime.stop();
+    const concurrentStop = runtime.stop();
+    reservation.resolve({ decision: "process" });
+    await Promise.all([stopping, concurrentStop]);
+
+    expect(releaseReservation).toHaveBeenCalledWith(expect.objectContaining({
+      bindingId: "binding_1",
+      messageId: "old-reservation",
+    }));
+    expect(chat).not.toHaveBeenCalled();
+    expect(runtime.status().state).toBe("stopped");
+  });
+
+  it("drains a deferred inbox append without dispatching an obsolete binding", async () => {
+    const inboxAppend = deferred<boolean>();
+    const append = vi.fn(() => inboxAppend.promise);
+    const base = makeDedupe();
+    const releaseReservation = vi.fn(async () => true);
+    const chat = vi.fn(async function* () {
+      yield { kind: "finish" as const };
+    });
+    const { gateway, runtime } = makeHarness({
+      provider: { chat },
+      dedupe: { ...base, releaseReservation },
+      inbox: { append },
+    });
+    await waitFor(() => gateway.handlers.length === 1);
+    gateway.message({ messageId: "old-inbox" });
+    await waitFor(() => append.mock.calls.length === 1);
+
+    const configuring = runtime.configure({
+      bindings: [{
+        bindingId: "binding_2", guildId: "101", channelId: "201",
+        allowedUserIds: ["301"], processingProfileRef: "profile_2", participation: "mentions",
+      }],
+    });
+    inboxAppend.resolve(true);
+    await configuring;
+
+    expect(releaseReservation).toHaveBeenCalledWith(expect.objectContaining({
+      bindingId: "binding_1",
+      messageId: "old-inbox",
+    }));
+    expect(chat).not.toHaveBeenCalled();
+    await runtime.stop();
+  });
+
+  it("awaits an old-epoch outgoing inbox task before configure returns", async () => {
+    const outgoingAppend = deferred<boolean>();
+    const append = vi.fn((record: DiscordInboxRecord) =>
+      record.direction === "outgoing" ? outgoingAppend.promise : Promise.resolve(true));
+    const { gateway, runtime } = makeHarness({ inbox: { append } });
+    await waitFor(() => gateway.handlers.length === 1);
+    gateway.message({ messageId: "old-outgoing" });
+    await waitFor(() => append.mock.calls.some(([record]) => record.direction === "outgoing"));
+
+    let configured = false;
+    const configuring = runtime.configure({
+      bindings: [{
+        bindingId: "binding_2", guildId: "101", channelId: "201",
+        allowedUserIds: ["301"], processingProfileRef: "profile_2", participation: "mentions",
+      }],
+    }).then(() => { configured = true; });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(configured).toBe(false);
+
+    outgoingAppend.resolve(true);
+    await configuring;
+    expect(configured).toBe(true);
+    await runtime.stop();
+  });
+
+  it("keeps the latest configuration when overlapping reconfigurations drain out of order", async () => {
+    const reservation = deferred<Awaited<ReturnType<DiscordDedupePort["reserve"]>>>();
+    const base = makeDedupe();
+    const reserve = vi.fn((input: Parameters<DiscordDedupePort["reserve"]>[0]) =>
+      input.messageId === "old-overlap" ? reservation.promise : base.reserve(input));
+    const { gateway, runtime } = makeHarness({ dedupe: { ...base, reserve } });
+    await waitFor(() => gateway.handlers.length === 1);
+    gateway.message({ messageId: "old-overlap" });
+    await waitFor(() => reserve.mock.calls.length === 1);
+
+    const first = runtime.configure({
+      bindings: [{
+        bindingId: "binding_2", guildId: "101", channelId: "201",
+        allowedUserIds: ["301"], processingProfileRef: "profile_2", participation: "mentions",
+      }],
+    });
+    const second = runtime.configure({
+      bindings: [{
+        bindingId: "binding_3", guildId: "102", channelId: "202",
+        allowedUserIds: ["302"], processingProfileRef: "profile_3", participation: "mentions",
+      }],
+    });
+    reservation.resolve({ decision: "duplicate" });
+    await Promise.all([second, first]);
+    await waitFor(() => gateway.handlers.length >= 2);
+
+    gateway.message({
+      messageId: "latest-binding",
+      guildId: "102",
+      channelId: "202",
+      authorId: "302",
+    });
+    await waitFor(() => answerReplies(gateway.connections.at(-1)!).length === 1);
+    expect(answerReplies(gateway.connections.at(-1)!)[0]?.messageId).toBe("latest-binding");
+    await runtime.stop();
+  });
+
+  it("rejects configure without mutating state once stop has started or completed", async () => {
+    const { gateway, runtime } = makeHarness();
+    await waitFor(() => gateway.handlers.length === 1);
+    const stopping = runtime.stop();
+    const stoppedConfig = {
+      bindings: [{
+        bindingId: "binding_stale", guildId: "101", channelId: "201",
+        allowedUserIds: ["301"], processingProfileRef: "profile_stale", participation: "mentions" as const,
+      }],
+    };
+
+    await expect(runtime.configure(stoppedConfig)).rejects.toThrow("DISCORD_RUNTIME_STOPPED");
+    await stopping;
+    await expect(runtime.configure(stoppedConfig)).rejects.toThrow("DISCORD_RUNTIME_STOPPED");
+    expect(runtime.status()).toMatchObject({
+      state: "stopped",
+      bindingCount: 1,
+      activeTurns: 0,
+    });
+    expect(gateway.handlers).toHaveLength(1);
   });
 
   it("does not connect when the injected token is absent", async () => {

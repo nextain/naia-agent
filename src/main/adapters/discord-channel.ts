@@ -33,6 +33,7 @@ export interface DiscordRuntimeConfig {
 interface ActiveTurn {
   readonly requestId: string;
   readonly sessionId: string;
+  readonly lifecycleEpoch: number;
   readonly guildId: string;
   readonly channelId: string;
   readonly messageId: string;
@@ -183,9 +184,11 @@ export class DiscordChannelRuntime {
   private connection?: DiscordGatewayConnection;
   private selfUserId: string | null = null;
   private loop?: Promise<void>;
+  private stopPromise?: Promise<void>;
   private stopped = false;
   private reconfigureRequested = false;
   private generation = 0;
+  private lifecycleEpoch = 0;
   private state: DiscordRuntimeState = "idle";
   private partialReplies = 0;
   private latestPartialConfirmedChunk?: number;
@@ -193,6 +196,7 @@ export class DiscordChannelRuntime {
   private authorityRefresh?: Promise<boolean>;
   private readonly registeredUsers = new Map<string, Set<string>>();
   private readonly sessionTails = new Map<string, Promise<void>>();
+  private readonly inFlightTasks = new Set<Promise<unknown>>();
   private admittedMessages = 0;
   private queuedMessages = 0;
 
@@ -223,11 +227,16 @@ export class DiscordChannelRuntime {
       },
     };
     this.egress = {
-      emit: (requestId, event) => { void this.handleEmit(requestId, event); },
+      emit: (requestId, event) => {
+        void this.trackTask(
+          this.handleEmit(requestId, event)
+            .catch(() => this.diagnostic("egress_handling_failed")),
+        );
+      },
       emitCritical: (requestId, event) => {
         const turn = this.active.get(requestId);
         if (!turn || this.stopped || event.kind !== "processingDisclosure") return false;
-        return this.deliverDisclosure(turn, event);
+        return this.trackTask(this.deliverDisclosure(turn, event));
       },
     };
   }
@@ -261,11 +270,23 @@ export class DiscordChannelRuntime {
 
   async configure(config: DiscordRuntimeConfig): Promise<void> {
     if (config.bindings.length > 256) throw new Error("DISCORD_BINDINGS_INVALID");
+    if (this.stopped) throw new Error("DISCORD_RUNTIME_STOPPED");
+    this.generation++;
+    this.lifecycleEpoch++;
+    this.config = config;
+    this.reconfigureRequested = true;
+    this.selfUserId = null;
+    this.registeredUsers.clear();
+    this.histories.clear();
+    this.connection?.close();
+    const staleTasks = [...this.inFlightTasks];
     const staleTurns = [...this.active.values()];
     this.active.clear();
     for (const turn of staleTurns) {
       turn.complete();
       this.route?.({ kind: "cancel", requestId: turn.requestId });
+    }
+    await Promise.allSettled(staleTurns.map(async (turn) => {
       try {
         if (await this.deps.dedupe.partial({
           bindingId: turn.bindingId,
@@ -277,25 +298,30 @@ export class DiscordChannelRuntime {
           this.latestPartialConfirmedChunk = 0;
         }
       } catch { /* fail closed */ }
-    }
-    this.config = config;
-    this.reconfigureRequested = true;
-    this.generation++;
-    this.selfUserId = null;
-    this.connection?.close();
+    }));
+    await Promise.allSettled(staleTasks);
   }
 
   async stop(): Promise<void> {
-    if (this.stopped) return;
+    if (!this.stopPromise) this.stopPromise = this.stopRuntime();
+    await this.stopPromise;
+  }
+
+  private async stopRuntime(): Promise<void> {
     this.stopped = true;
+    this.generation++;
+    this.lifecycleEpoch++;
     this.state = "stopped";
     this.abort.abort();
     this.connection?.close();
+    const staleTasks = [...this.inFlightTasks];
     const staleTurns = [...this.active.values()];
     this.active.clear();
     for (const turn of staleTurns) {
       turn.complete();
       this.route?.({ kind: "cancel", requestId: turn.requestId });
+    }
+    await Promise.allSettled(staleTurns.map(async (turn) => {
       try {
         await this.deps.dedupe.releaseReservation?.({
           bindingId: turn.bindingId,
@@ -303,7 +329,8 @@ export class DiscordChannelRuntime {
           now: this.deps.clock.now(),
         });
       } catch { /* reconstructed stores also discard stale reservations */ }
-    }
+    }));
+    await Promise.allSettled(staleTasks);
     try { await this.loop; } catch { /* stop is no-throw */ }
   }
 
@@ -323,6 +350,19 @@ export class DiscordChannelRuntime {
 
   private diagnostic(code: string, extra?: Record<string, unknown>): void {
     try { this.deps.diag.log("discord runtime", { code, ...extra }); } catch { /* observer isolation */ }
+  }
+
+  private trackTask<T>(task: Promise<T>): Promise<T> {
+    this.inFlightTasks.add(task);
+    void task.then(
+      () => this.inFlightTasks.delete(task),
+      () => this.inFlightTasks.delete(task),
+    );
+    return task;
+  }
+
+  private isLifecycleCurrent(lifecycleEpoch: number): boolean {
+    return !this.stopped && lifecycleEpoch === this.lifecycleEpoch;
   }
 
   private isAuthoritative(): boolean {
@@ -370,6 +410,7 @@ export class DiscordChannelRuntime {
         return;
       }
       const generation = ++this.generation;
+      const lifecycleEpoch = this.lifecycleEpoch;
       let becameReady = false;
       try {
         const connection = await this.deps.gateway.connect(token, {
@@ -383,7 +424,7 @@ export class DiscordChannelRuntime {
           },
           onMessage: (message) => {
             if (this.stopped || generation !== this.generation) return;
-            this.scheduleMessage(message);
+            this.scheduleMessage(message, lifecycleEpoch);
           },
         }, { signal: this.abort.signal });
         if (this.stopped || generation !== this.generation) {
@@ -435,12 +476,10 @@ export class DiscordChannelRuntime {
       binding.guildId === message.guildId && binding.channelId === message.channelId);
   }
 
-  private scheduleMessage(message: DiscordGatewayMessage): void {
+  private scheduleMessage(message: DiscordGatewayMessage, lifecycleEpoch: number): void {
+    if (!this.isLifecycleCurrent(lifecycleEpoch)) return;
     const binding = this.findBinding(message);
-    if (!binding || message.guildId === null) {
-      void this.handleMessage(message).catch(() => this.diagnostic("message_handling_failed"));
-      return;
-    }
+    if (!binding || message.guildId === null) return;
     if (this.active.size + this.admittedMessages >= this.maxActiveTurns) {
       this.diagnostic("busy", {
         activeCount: this.active.size,
@@ -462,27 +501,33 @@ export class DiscordChannelRuntime {
     const task = previous.then(async () => {
       this.queuedMessages--;
       try {
-        if (this.stopped) return;
-        await this.handleMessage(message, releaseAdmission);
+        if (!this.isLifecycleCurrent(lifecycleEpoch)) return;
+        await this.handleMessage(message, binding, lifecycleEpoch, releaseAdmission);
       } catch {
         this.diagnostic("message_handling_failed");
       } finally {
         releaseAdmission();
       }
     });
+    this.trackTask(task);
     this.sessionTails.set(sessionId, task);
     void task.then(() => {
       if (this.sessionTails.get(sessionId) === task) this.sessionTails.delete(sessionId);
     });
   }
 
-  private async handleMessage(message: DiscordGatewayMessage, releaseAdmission?: () => void): Promise<void> {
+  private async handleMessage(
+    message: DiscordGatewayMessage,
+    binding: DiscordChannelBinding | undefined,
+    lifecycleEpoch: number,
+    releaseAdmission: () => void,
+  ): Promise<void> {
     if (!await this.ensureAuthoritative()) {
       this.deps.diag.debug?.("discord ingress rejected", { reason: "generation_not_authoritative" });
       return;
     }
+    if (!this.isLifecycleCurrent(lifecycleEpoch)) return;
     const selfUserId = this.selfUserId;
-    const binding = this.findBinding(message);
     let registered = binding ? this.registeredUsers.get(binding.bindingId)?.has(message.authorId) === true : false;
     if (!registered && binding && this.deps.registration) {
       try {
@@ -492,6 +537,7 @@ export class DiscordChannelRuntime {
         });
       } catch { /* fail closed */ }
     }
+    if (!this.isLifecycleCurrent(lifecycleEpoch)) return;
     const allowedUserIds = binding
       ? [...binding.allowedUserIds, ...(registered ? [message.authorId] : [])]
       : [];
@@ -514,7 +560,7 @@ export class DiscordChannelRuntime {
         && message.mentionedUserIds.includes(selfUserId) && this.deps.registration) {
         const code = stripSelfMention(message.content, selfUserId).match(/^register\s+(\S{4,128})$/i)?.[1];
         if (code) {
-          if (!await this.ensureAuthoritative()) return;
+          if (!await this.ensureAuthoritative() || !this.isLifecycleCurrent(lifecycleEpoch)) return;
           let claimed = false;
           try {
             claimed = await this.deps.registration.claim({
@@ -524,7 +570,7 @@ export class DiscordChannelRuntime {
               now: this.deps.clock.now(),
             });
           } catch { /* fail closed */ }
-          if (claimed && !this.stopped) {
+          if (claimed && this.isLifecycleCurrent(lifecycleEpoch)) {
             const users = this.registeredUsers.get(binding.bindingId) ?? new Set<string>();
             users.add(message.authorId);
             this.registeredUsers.set(binding.bindingId, users);
@@ -545,7 +591,7 @@ export class DiscordChannelRuntime {
       return;
     }
     let reservation: Awaited<ReturnType<DiscordRuntimeDeps["dedupe"]["reserve"]>> = { decision: "duplicate" };
-    if (!await this.ensureAuthoritative()) return;
+    if (!await this.ensureAuthoritative() || !this.isLifecycleCurrent(lifecycleEpoch)) return;
     try {
       reservation = await this.deps.dedupe.reserve({
         bindingId: binding.bindingId,
@@ -553,7 +599,7 @@ export class DiscordChannelRuntime {
         now: this.deps.clock.now(),
       });
     } catch { /* fail closed */ }
-    if (!await this.ensureAuthoritative()) {
+    if (!await this.ensureAuthoritative() || !this.isLifecycleCurrent(lifecycleEpoch)) {
       if (reservation.decision === "process") {
         try {
           await this.deps.dedupe.releaseReservation?.({
@@ -566,10 +612,18 @@ export class DiscordChannelRuntime {
       return;
     }
     if (reservation.decision === "resume_reply") {
-      await this.sendDurableReply(binding.bindingId, binding.guildId, binding.channelId, message.messageId, reservation.chunks, reservation.nextChunk);
+      await this.sendDurableReply(
+        binding.bindingId,
+        binding.guildId,
+        binding.channelId,
+        message.messageId,
+        reservation.chunks,
+        reservation.nextChunk,
+        lifecycleEpoch,
+      );
       return;
     }
-    if (reservation.decision !== "process" || this.stopped) {
+    if (reservation.decision !== "process" || !this.isLifecycleCurrent(lifecycleEpoch)) {
       this.deps.diag.debug?.("discord ingress rejected", { reason: "dedupe_rejected" });
       return;
     }
@@ -584,6 +638,16 @@ export class DiscordChannelRuntime {
       content: message.content,
       createdAt: this.deps.clock.now(),
     });
+    if (!this.isLifecycleCurrent(lifecycleEpoch)) {
+      try {
+        await this.deps.dedupe.releaseReservation?.({
+          bindingId: binding.bindingId,
+          messageId: message.messageId,
+          now: this.deps.clock.now(),
+        });
+      } catch { /* fail closed */ }
+      return;
+    }
     const requestId = `${REQUEST_PREFIX}${binding.bindingId}:${message.messageId}`;
     const sessionId = `discord:${binding.bindingId}:${binding.guildId}:${binding.channelId}:${message.authorId}`;
     const previous = this.touchHistory(sessionId);
@@ -610,10 +674,11 @@ export class DiscordChannelRuntime {
     }
     let complete!: () => void;
     const completion = new Promise<void>((resolve) => { complete = resolve; });
-    releaseAdmission?.();
+    releaseAdmission();
     this.active.set(requestId, {
       requestId,
       sessionId,
+      lifecycleEpoch,
       guildId: binding.guildId,
       channelId: binding.channelId,
       messageId: message.messageId,
@@ -662,7 +727,7 @@ export class DiscordChannelRuntime {
 
   private async handleEmit(requestId: string, event: AgentEmit): Promise<void> {
     const turn = this.active.get(requestId);
-    if (!turn || this.stopped) return;
+    if (!turn || !this.isLifecycleCurrent(turn.lifecycleEpoch)) return;
     if (!await this.ensureAuthoritative()) {
       this.active.delete(requestId);
       turn.complete();
@@ -670,6 +735,7 @@ export class DiscordChannelRuntime {
       await this.recordPartial(turn.bindingId, turn.messageId, 0);
       return;
     }
+    if (!this.isLifecycleCurrent(turn.lifecycleEpoch)) return;
     if (event.kind === "text") {
       turn.text = appendCodePoints(turn.text, event.text, this.maxReplyChars);
       return;
@@ -683,7 +749,7 @@ export class DiscordChannelRuntime {
     if (event.kind === "finish") this.commitHistory(turn);
     turn.complete();
     const chunks = safeReplyChunks(reply, this.maxReplyChars, this.deps.text.emptyReply());
-    if (!await this.ensureAuthoritative()) {
+    if (!await this.ensureAuthoritative() || !this.isLifecycleCurrent(turn.lifecycleEpoch)) {
       await this.recordPartial(turn.bindingId, turn.messageId, 0);
       return;
     }
@@ -700,7 +766,19 @@ export class DiscordChannelRuntime {
       this.diagnostic("reply_state_failed");
       return;
     }
-    await this.sendDurableReply(turn.bindingId, turn.guildId, turn.channelId, turn.messageId, chunks, 0);
+    if (!this.isLifecycleCurrent(turn.lifecycleEpoch)) {
+      await this.recordPartial(turn.bindingId, turn.messageId, 0);
+      return;
+    }
+    await this.sendDurableReply(
+      turn.bindingId,
+      turn.guildId,
+      turn.channelId,
+      turn.messageId,
+      chunks,
+      0,
+      turn.lifecycleEpoch,
+    );
   }
 
   private async deliverDisclosure(
@@ -708,9 +786,11 @@ export class DiscordChannelRuntime {
     event: Extract<AgentEmit, { kind: "processingDisclosure" }>,
   ): Promise<boolean> {
     const connection = this.connection;
-    if (!connection || this.stopped || !await this.ensureAuthoritative()) return false;
+    if (!connection || !this.isLifecycleCurrent(turn.lifecycleEpoch)
+      || !await this.ensureAuthoritative()
+      || !this.isLifecycleCurrent(turn.lifecycleEpoch)) return false;
     try {
-      if (!await this.ensureAuthoritative()) return false;
+      if (!await this.ensureAuthoritative() || !this.isLifecycleCurrent(turn.lifecycleEpoch)) return false;
       await connection.sendReply({
         channelId: turn.channelId,
         guildId: turn.guildId,
@@ -718,7 +798,7 @@ export class DiscordChannelRuntime {
         content: this.deps.text.processingDisclosure(event),
         signal: this.abort.signal,
       });
-      return !this.stopped;
+      return this.isLifecycleCurrent(turn.lifecycleEpoch);
     } catch {
       this.diagnostic("disclosure_delivery_failed");
       return false;
@@ -732,6 +812,7 @@ export class DiscordChannelRuntime {
     messageId: string,
     chunks: readonly string[],
     startChunk: number,
+    lifecycleEpoch?: number,
   ): Promise<void> {
     const connection = this.connection;
     if (!connection) {
@@ -741,7 +822,8 @@ export class DiscordChannelRuntime {
     let sent = startChunk;
     try {
       for (let index = startChunk; index < chunks.length; index++) {
-        if (this.stopped || !await this.ensureAuthoritative()) {
+        if ((lifecycleEpoch !== undefined && !this.isLifecycleCurrent(lifecycleEpoch))
+          || this.stopped || !await this.ensureAuthoritative()) {
           await this.recordPartial(bindingId, messageId, sent);
           return;
         }
@@ -752,7 +834,8 @@ export class DiscordChannelRuntime {
           now: this.deps.clock.now(),
         });
         if (!claimed) throw new Error("reply_state_failed");
-        if (!await this.ensureAuthoritative()) {
+        if (!await this.ensureAuthoritative()
+          || (lifecycleEpoch !== undefined && !this.isLifecycleCurrent(lifecycleEpoch))) {
           await this.recordPartial(bindingId, messageId, sent);
           return;
         }
@@ -771,6 +854,10 @@ export class DiscordChannelRuntime {
           now: this.deps.clock.now(),
         });
         if (!recorded) throw new Error("reply_state_failed");
+        if (lifecycleEpoch !== undefined && !this.isLifecycleCurrent(lifecycleEpoch)) {
+          await this.recordPartial(bindingId, messageId, sent);
+          return;
+        }
         await this.recordInbox({
           recordId: `outgoing_${replyMessageId}`,
           direction: "outgoing",
