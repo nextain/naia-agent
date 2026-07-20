@@ -67,6 +67,8 @@ export interface MemoryLlmConfig {
   readonly baseUrl?: string;
   /** API key(로컬 서버는 빈 값 허용; naia=게이트웨이 키). */
   readonly apiKey?: string;
+  /** OpenAI 호환 전송 인증. Naia/AnyLLM gateway는 x-anyllm, 나머지는 bearer. */
+  readonly auth?: "bearer" | "x-anyllm";
   /** 모델명(provider!="none" 필수). */
   readonly model?: string;
 }
@@ -78,7 +80,13 @@ export function buildMemoryFactExtractor(cfg?: MemoryLlmConfig): FactExtractor |
   if (!cfg.baseUrl?.trim() || !cfg.model?.trim()) {
     throw new Error(`memory llm(${cfg.provider}): baseUrl·model 은 필수다.`);
   }
-  return buildLLMFactExtractor({ apiKey: cfg.apiKey ?? "", baseURL: cfg.baseUrl, model: cfg.model });
+  const options = {
+    apiKey: cfg.apiKey ?? "",
+    baseURL: cfg.baseUrl,
+    model: cfg.model,
+    ...(cfg.auth ? { auth: cfg.auth } : {}),
+  } as Parameters<typeof buildLLMFactExtractor>[0] & { auth?: "bearer" | "x-anyllm" };
+  return buildLLMFactExtractor(options);
 }
 
 /** MemoryLlmConfig → CompactionSummarizer(또는 undefined=결정론 recap). factExtractor 와 같은 small-LLM 설정
@@ -88,7 +96,13 @@ export function buildMemorySummarizer(cfg?: MemoryLlmConfig): CompactionSummariz
   if (!cfg.baseUrl?.trim() || !cfg.model?.trim()) {
     throw new Error(`memory llm(${cfg.provider}): baseUrl·model 은 필수다(summarizer).`);
   }
-  return buildLLMSummarizer({ apiKey: cfg.apiKey ?? "", baseURL: cfg.baseUrl, model: cfg.model });
+  const options = {
+    apiKey: cfg.apiKey ?? "",
+    baseURL: cfg.baseUrl,
+    model: cfg.model,
+    ...(cfg.auth ? { auth: cfg.auth } : {}),
+  } as Parameters<typeof buildLLMSummarizer>[0] & { auth?: "bearer" | "x-anyllm" };
+  return buildLLMSummarizer(options);
 }
 
 /** 임베딩 provider 선택 — os 메모리 UI(memoryEmbeddingProvider 등)에서 유도. */
