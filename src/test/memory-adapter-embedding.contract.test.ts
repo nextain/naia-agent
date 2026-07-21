@@ -9,8 +9,10 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildEmbeddingProvider, buildMemoryFactExtractor, buildMemorySummarizer, makeNaiaMemory } from "../main/adapters/naia-memory.js";
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("issue #7 — buildEmbeddingProvider: UI embedding 선택 → EmbeddingProvider 매핑", () => {
   it("none/미지정 = 키워드-only(undefined)", () => {
@@ -110,6 +112,29 @@ describe("issue #7 — buildMemoryFactExtractor: UI LLM 선택 → FactExtractor
     expect(() => buildMemoryFactExtractor({ provider: "vllm", model: "x" })).toThrow(/baseUrl/);
     expect(() => buildMemoryFactExtractor({ provider: "ollama", baseUrl: "http://x" })).toThrow(/model/);
   });
+
+  it("naia는 X-AnyLLM-Key, 그 밖의 OpenAI 호환 provider는 bearer를 기본 선택한다", async () => {
+    const captured: HeadersInit[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      captured.push(init?.headers ?? {});
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"1":[]}' } }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }));
+    const episode = {
+      id: "e1", content: "기억", summary: "", timestamp: 1,
+      importance: { importance: 0, surprise: 0, emotion: 0, utility: 0 },
+      encodingContext: { project: "p" }, consolidated: false,
+      recallCount: 0, lastAccessed: 1, strength: 1,
+    };
+    await buildMemoryFactExtractor({ provider: "naia", baseUrl: "https://gw", apiKey: "n-key", model: "m" })!([episode]);
+    await buildMemoryFactExtractor({ provider: "vllm", baseUrl: "https://provider", apiKey: "b-key", model: "m" })!([episode]);
+    expect(new Headers(captured[0]).get("X-AnyLLM-Key")).toBe("Bearer n-key");
+    expect(new Headers(captured[0]).get("Authorization")).toBeNull();
+    expect(new Headers(captured[1]).get("Authorization")).toBe("Bearer b-key");
+    expect(new Headers(captured[1]).get("X-AnyLLM-Key")).toBeNull();
+  });
 });
 
 describe("issue #7 후속 — embedding device(gpu/cpu) 선택(naia-embedded 컴퓨트)", () => {
@@ -131,6 +156,24 @@ describe("buildMemorySummarizer: small LLM 선택 → CompactionSummarizer 매�
     expect(typeof buildMemorySummarizer({ provider: "naia", baseUrl: "https://gw", model: "vertexai:gemini" })).toBe("function");
     expect(() => buildMemorySummarizer({ provider: "vllm", model: "x" })).toThrow(/baseUrl/);
     expect(() => buildMemorySummarizer({ provider: "ollama", baseUrl: "http://x" })).toThrow(/model/);
+  });
+
+  it("summarizer도 naia와 일반 provider의 인증 헤더를 분리한다", async () => {
+    const captured: HeadersInit[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      captured.push(init?.headers ?? {});
+      return new Response(JSON.stringify({ choices: [{ message: { content: "요약" } }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }));
+    const input = { messages: [{ role: "user", content: "기억" }], seedSummary: "", keepTail: 0, targetTokens: 100 };
+    await buildMemorySummarizer({ provider: "naia", baseUrl: "https://gw", apiKey: "n-key", model: "m" })!(input);
+    await buildMemorySummarizer({ provider: "ollama", baseUrl: "https://provider", apiKey: "b-key", model: "m" })!(input);
+    expect(new Headers(captured[0]).get("X-AnyLLM-Key")).toBe("Bearer n-key");
+    expect(new Headers(captured[0]).get("Authorization")).toBeNull();
+    expect(new Headers(captured[1]).get("Authorization")).toBe("Bearer b-key");
+    expect(new Headers(captured[1]).get("X-AnyLLM-Key")).toBeNull();
   });
 
   it("실패(비-OK/네트워크) 시 seedSummary 폴백(무손실)", async () => {

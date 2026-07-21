@@ -84,7 +84,7 @@ export function buildMemoryFactExtractor(cfg?: MemoryLlmConfig): FactExtractor |
     apiKey: cfg.apiKey ?? "",
     baseURL: cfg.baseUrl,
     model: cfg.model,
-    ...(cfg.auth ? { auth: cfg.auth } : {}),
+    auth: cfg.auth ?? (cfg.provider === "naia" || cfg.provider === "nextain" ? "x-anyllm" : "bearer"),
   } as Parameters<typeof buildLLMFactExtractor>[0] & { auth?: "bearer" | "x-anyllm" };
   return buildLLMFactExtractor(options);
 }
@@ -100,7 +100,7 @@ export function buildMemorySummarizer(cfg?: MemoryLlmConfig): CompactionSummariz
     apiKey: cfg.apiKey ?? "",
     baseURL: cfg.baseUrl,
     model: cfg.model,
-    ...(cfg.auth ? { auth: cfg.auth } : {}),
+    auth: cfg.auth ?? (cfg.provider === "naia" || cfg.provider === "nextain" ? "x-anyllm" : "bearer"),
   } as Parameters<typeof buildLLMSummarizer>[0] & { auth?: "bearer" | "x-anyllm" };
   return buildLLMSummarizer(options);
 }
