@@ -166,6 +166,9 @@ message CodingJob {
   optional string error = 8;
   optional string model = 9;
   bool resumable = 10;
+  // The owner-visible task is required for Shell reconciliation after restart.
+  // It is never forwarded to a different job or workspace.
+  string task = 11;
 }
 message StartCodingJobRequest { string workspace_path = 1; string task = 2; optional string model = 3; }
 message GetCodingJobRequest { string job_id = 1; }

@@ -99,6 +99,7 @@ export function makeGrpcServer(deps: GrpcServerDeps): GrpcServer {
     branch: job.branch, state: codingJobState(job.state), createdAt: job.createdAt,
     updatedAt: job.updatedAt, ...(job.error ? { error: job.error } : {}),
     ...(job.model ? { model: job.model } : {}), resumable: job.checkpoint !== undefined,
+    task: job.task,
   });
   const codingJobError = (cb: grpc.sendUnaryData<unknown>, error: unknown) => {
     const code = error instanceof CodingJobNotFoundError ? grpc.status.NOT_FOUND
