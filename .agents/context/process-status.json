@@ -14,8 +14,22 @@
     "issue_doc": "docs/progress/99.dev-comm/discord-rag-prefreeze-policy-contract-2026-07-19.md",
     "github_issue": "https://github.com/nextain/naia-agent/issues/87",
     "started": "2026-07-20",
-    "last_updated": "2026-07-21T10:30:00+09:00",
+    "last_updated": "2026-07-21T21:10:12+09:00",
     "status": "done",
+    "windows_runtime_acceptance": {
+      "date": "2026-07-21",
+      "source_commit": "d9cfd38",
+      "change": "Windows global npm Codex uses codex.cmd through cmd.exe; POSIX keeps the codex executable.",
+      "verified": [
+        "pnpm build",
+        "79 targeted Codex, LLM-role, and Discord contract/integration tests",
+        "real signed-in Codex app-server response with completed and usage events",
+        "Shell Discord Playwright scenario: 3 passed"
+      ],
+      "runtime": "naia-agent restarted from the new build and listening on 127.0.0.1:50051.",
+      "known_limit": "Windows Tauri WebDriver cannot create a WebView2 session (DevToolsActivePort), so the live Shell Codex UI E2E remains blocked before application code runs.",
+      "full_suite_note": "The full agent suite still has pre-existing Windows portability failures outside this Codex change (Discord lock/path, gRPC proto path, and memory-header cases)."
+    },
     "handoff_note": "Codex app-server 동적 도구 호출, handled 단일 실행, desktop Codex-only/workspace-bound 위임, Discord 비밀 없는 직렬 진행 메시지와 실제 Codex dynamic-tool smoke를 구현·검증했다.",
     "prior_work_note": "REQ-013 선제 발화와 REQ-014 Discord runtime은 보존됐다. 실제 Discord 자격증명 2채널·OS credential store·현장 리허설은 운영 인수 범위다."
   },

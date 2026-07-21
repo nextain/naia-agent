@@ -1,6 +1,13 @@
 # 프로세스 현황
 
 > **SoT**: `.agents/context/process-status.json`
+
+## Windows runtime acceptance — 2026-07-21
+
+- Source commit: `d9cfd38` — Windows npm-installed Codex now runs through `codex.cmd` and `cmd.exe`; POSIX keeps `codex`.
+- Verified: agent build, 79 Codex/LLM-role/Discord related tests, real signed-in `codex app-server` response with usage, and the Shell Discord Playwright scenario (3 passed).
+- Runtime: the agent was restarted from the new build and is listening on `127.0.0.1:50051`.
+- Known limit: Windows Tauri WebDriver cannot create a WebView2 session (`DevToolsActivePort`), so live Shell Codex UI E2E is blocked before application code runs. The full agent suite also has unrelated pre-existing Windows portability failures; see the JSON SoT for categories.
 > 세션 시작/종료 시 SoT JSON과 이 파일을 동기화.
 
 ---
