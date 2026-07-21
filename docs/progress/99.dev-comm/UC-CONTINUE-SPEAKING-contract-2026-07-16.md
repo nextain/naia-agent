@@ -1,12 +1,58 @@
 # UC-CONTINUE-SPEAKING v3.1 계약 — 자유 발화와 연속 발화
 
 - 날짜: 2026-07-18
-- 상태: ✅ DJ/전시 MVP 구현·통합 적대검토 CLEAN — 전체 테스트·빌드 검증 완료
+- 상태: DJ/전시 기술 MVP와 #84 제품 수용(PA-DJ/PA-EX) 구현·검증 완료
 - GitHub Issue: https://github.com/nextain/naia-agent/issues/82
 - 추적: REQ-013 → UC-015 → SPEC-012 → TEST-S-015 / TEST-F-012
 - 구현 경계: `naia-agent` app·port·gRPC proto/adapter/composition + `naia-shell` activity stream 구독·정지 배선.
 
 ## 0. 2026-07-18 목표 재정렬 — 이 절이 MVP 우선순위의 정본
+
+### 2026-07-20 제품 수용 부속 계약 (#84)
+
+2026-07-21 완료: exact preference index와 durable/idempotent Memory handoff, 60분 날씨·6시간
+명시 mood freshness, file-backed 설정과 동의 철회, profile ACK + activity subscription epoch fence,
+browser/synthesized TTS, 닫힌 DJ 제어 6종, 전시 yield/Q&A/resume가 GREEN이다. 전체 unit/integration,
+Playwright 7건, 실제 Tauri 설정 재수화 1건, Rust build/check를 통과했고 독립 적대 리뷰는 같은 diff에서
+연속 CLEAN 2회로 수렴했다.
+
+아래 항목은 구현된 MVP를 제품으로 닫는 V-model 추적 계약이다. 상세 검증표는
+`.agents/progress/issue-84-proactive-speech-product-acceptance.md`의 `PA-DJ-*`/`PA-EX-*`를 정본으로 한다.
+
+- 명시적 음악 취향은 schema `naia.dj.preference.v1`의
+  `sentiment(like|dislike|forget)·subject·subjectKey·sessionId·requestId·statedAt·source=explicit_user_turn`
+  을 보존해 현재 workspace/project로 격리된 Naia Memory에 저장한다. 단일 agent process는 단일 사용자
+  workspace라는 기존 MemoryPort 경계를 따른다. `subjectKey`는 NFKC→trim→연속 공백 1개→locale-independent
+  lower-case이며 500 code point 상한이다. index가 atomic 증가시키는 `sequence`를 각 record에 부여하고
+  최신값은 `(sequence, requestId)` 오름차순 total order의 마지막 값이다. `statedAt`은 provenance일 뿐
+  순서 판정에 쓰지 않는다. 손상 record는 버리며 동일 record는 dedupe한다. dislike는 추천에서 빼고 forget은 해당
+  subject의 like/dislike를 모두 무효화한다. 정본 활성 상태는 semantic top-K가 아니라 workspace-local
+  keyed durable index(`subjectKey → latest record`)가 소유한다. Naia Memory save는 provenance handoff와
+  일반 회상용 복제이며 추천 활성화 판단에 단독 사용하지 않는다. index가 없거나 손상됐으면 semantic memory의
+  과거 like를 복구해 활성화하지 않는 fail-closed다. 단일 atomic index commit은 active record와 같은
+  idempotency key의 memory-outbox 항목을 함께 기록한다. 그 commit 성공이 사용자 명령 성공 경계다.
+  worker는 outbox를 `MemoryPort.save` 뒤에만 제거하며 실패·crash면 다음 시작에 재시도한다. 중복 save는
+  idempotency key를 가진 동일 v1 record라 회상 codec이 dedupe한다. index commit 실패면 Memory 호출 0이고
+  활성 상태도 불변이다. fault-injection은 commit 전/후와 Memory 성공 전/후 네 경계를 모두 검증한다.
+  DJ 활동 발화·재생 시간·자동 추론은 저장하지 않는다.
+- 명시적 기분·활동은 `DJ 상태: <사용자 원문>`만 수용한다. 현재 profile의 같은 session에만 저장하고 6시간
+  freshness 뒤 생략한다. 일반 대화를 감정 분류기로 추론하지 않는다.
+- 명령은 ordinary chat 중 `DJ 좋아요:`, `DJ 싫어요:`, `DJ 취향 삭제:`, `DJ 상태:`의 닫힌 형식만 선처리한다. 빈 subject,
+  500 code point 초과분, profile/session 불일치는 fail-closed한다.
+- 이 prefix들은 사용자 의미를 추론하는 키워드 판정이 아니라 명시적 구조 명령 문법이다. 명령을 소비하면
+  일반 provider·conversation transcript·ordinary `memory.save` 호출은 각각 0회이고 구조화 preference
+  store만 1회 호출한다. forget 뒤 raw 명령 원문이 일반 memory 회상으로 취향을 되살리는 경로는 없다.
+- DJ 멘트는 유한 문장 조각을 grounded context로 조립하되 최근 6개의 완성 문장과 같은 문장을 내보내지 않는다.
+  근거가 없는 weather/mood/preference/현재 곡 슬롯은 렌더하지 않는다.
+- shell 설정은 profile·idle·멘트 간격·timezone·BGM opt-in·날씨 동의·위도·경도·전시 knowledgeScope를
+  사용자가 편집하고 file-backed UI config에 저장한다. timezone은 `Intl.DateTimeFormat`으로 유효해야 하며,
+  좌표는 유한수·위도 -90..90·경도 -180..180의 완전한 쌍이어야 한다. `weatherConsented !== true`이면 저장된
+  좌표가 있어도 agent RPC로 전달하지 않고, 동의 철회 시 persisted 좌표도 지운다. 빈/잘못된 knowledgeScope는
+  전시 profile 시작을 fail-closed한다.
+- 지원 TTS 경로별로 browser-TTS는 `speechSynthesis.speak`, 합성 TTS는 audio queue의 `play` 시작을 각각
+  검증한다. 끼어들기 수용 순서는 250ms 안에 `interruptTts` 호출 → activity control/yield 요청이며,
+  이후 이전 `(activityId, profileGeneration)`의 text/audio 재생은 0회다.
+  물리 스피커 음질은 자동 테스트 결과로 주장하지 않는다.
 
 이 문서는 계획 리뷰 중 범용 활동 런타임과 운영 안정화로 과도하게 확장되었다. 사용자가 원한 핵심은
 “입력을 기다리지 않고 먼저 관심을 끌며, 상황에 맞게 말을 이어가고, 사람의 반응에 양보했다가 복귀하는
@@ -15,9 +61,9 @@ Naia”다. 따라서 아래 두 목표의 실제 동작을 먼저 증명한다.
 
 ### 목표 1 — 개인 라디오 DJ (P0, Luke 개인 사용)
 
-Naia가 시간·날씨·사용자가 말한 기분과 활동·현재 환경·Naia Memory의 장기 취향을 근거로 유튜브 음악이나
-긴 믹스를 먼저 제안하고, 기존 `skill_youtube_bgm`으로 실제 재생하며, 음악을 방해하지 않는 짧은 DJ 멘트를
-이어간다.
+Naia가 시간·날씨·사용자가 말한 기분과 활동·현재 환경·workspace-local exact index의 명시적 취향을
+근거로 유튜브 음악이나 긴 믹스를 먼저 제안하고, 기존 `skill_youtube_bgm`으로 실제 재생하며, 음악을
+방해하지 않는 짧은 DJ 멘트를 이어간다. Naia Memory는 활성 취향 정본이 아니라 provenance handoff다.
 
 필수 행동:
 
@@ -259,7 +305,8 @@ Naia가 사용자의 명시적 요청에 따라 라디오처럼 여러 발화를
 - presence/camera 기반 감지와 cron 정책(단, MVP의 주입 가능한 단순 idle trigger는 범위 안)
 - 앱 재시작 뒤 활동 자동 재개
 - 여러 프로세스나 여러 기기 사이 활동 이전
-- 별도 라디오 설정 UI와 셸 내부 반복 상태 기계
+- #84 제품 수용에 필요한 profile·간격·날씨·전시 KB 설정 UI는 범위 안이다. 별도 선곡 편집기·방송국
+  관리 화면과 셸 내부 반복 상태 기계는 범위 밖이다.
 
 자유 발화 자체는 범위 밖이 아니다. 외부 정책이 `startSelfInitiatedSpeech`를 호출하면 사용자 요청 경로와
 동일한 활동 런타임에서 실행되어야 한다.
@@ -277,7 +324,8 @@ Naia가 사용자의 명시적 요청에 따라 라디오처럼 여러 발화를
 
 불변식:
 
-1. 앱은 한국어·영어 키워드나 정규식으로 사용자의 의미를 재판정하지 않는다.
+1. requested-continuation admission에서 앱은 한국어·영어 키워드나 정규식으로 사용자 의미를 재판정하지
+   않는다. #84의 닫힌 `DJ ...:` 구조 명령 문법은 이 의미 추론 금지와 별개다.
 2. 모델의 자기보고를 그대로 신뢰하지 않고, 원문 충실도와 서로 다른 두 근거라는 구조만 검사한다.
 3. 활동 발화는 `memory.save`에 쓰지 않는다. 장기기억 선별과 통합은 꿈(dream) 경로의 책임이다.
 4. pending과 active 상태는 반드시 `sessionId`에 결속한다. 빈 `sessionId`로 교차 턴 상태를 만들지 않는다.
@@ -839,7 +887,8 @@ diagnostics?(): {
   1:1을 검증
 - 형제 `naia-shell`의 Rust `agent_grpc` contract/live test와 `packages/shell/e2e-tauri`에서 실제
   subscribe → 기존 `agent_response`/TTS 소비 → received requestId+activityId cancel/새 사용자 턴 barge-in → terminal,
-  stop/disconnect·중복 session 구독 정리를 검증한다. 셸 P01~P03 추적은 UC15/FR-CONT-SHELL.1~6이다.
+  stop/disconnect·중복 session 구독 정리를 검증한다. 셸 P01~P03 추적은 기술 MVP
+  UC15/FR-CONT-SHELL.1~7과 #84 제품 수용 FR-CONT-SHELL.8~9다.
 
 AC→FR→테스트 단언:
 

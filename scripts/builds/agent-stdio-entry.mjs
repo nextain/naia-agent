@@ -25,6 +25,7 @@ import { makeActivityRadioDjBgm } from "../../dist/main/adapters/activity-radio-
 import { makeExhibitionKnowledge } from "../../dist/main/adapters/exhibition-knowledge.js";
 import {
   makeDeterministicRadioDjSelector,
+  makeFileRadioDjPreferencePersistence,
   makeRadioDjContext,
   makeRadioDjPreferenceStore,
   makeSystemProactiveScheduler,
@@ -305,9 +306,23 @@ activityBgm = makeActivityRadioDjBgm({
   specs: () => toolExecutor?.specs() ?? [],
 });
 const proactiveScheduler = makeSystemProactiveScheduler();
-const preferenceStore = makeRadioDjPreferenceStore();
+const preferenceStore = makeRadioDjPreferenceStore({
+  ...(memory ? { memory } : {}),
+  ...(currentAdkPath ? {
+    persistence: makeFileRadioDjPreferencePersistence(
+      join(currentAdkPath, "naia-settings", "dj-preferences.json"),
+    ),
+  } : {}),
+});
+void preferenceStore.flushOutbox().catch((error) => {
+  logger.warn("DJ preference outbox recovery deferred", {
+    error: error instanceof Error ? error.message : String(error),
+  });
+});
 const radioContext = makeRadioDjContext({
-  explicitLikes: (sessionId) => preferenceStore.explicitLikes(sessionId),
+  explicitLikes: () => preferenceStore.explicitLikes(),
+  explicitMood: (sessionId) => preferenceStore.explicitMood(sessionId),
+  recordMood: (input) => preferenceStore.recordMood(input),
   fetchWeather: async (latitude, longitude) => {
     const url = new URL("https://api.open-meteo.com/v1/forecast");
     url.searchParams.set("latitude", String(latitude));

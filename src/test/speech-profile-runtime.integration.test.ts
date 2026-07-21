@@ -7,6 +7,111 @@ import type { AgentEmit, AgentRequest } from "../main/domain/chat.js";
 import type { AgentIngressPort } from "../main/ports/uc1.js";
 
 describe("EX-06 profile-bound Q&A privacy integration", () => {
+  it("accepts explicit DJ preference and mood commands without ordinary memory or provider calls", async () => {
+    const dj = {
+      configure: vi.fn(),
+      setSubscriberReady: vi.fn(),
+      recordExplicitPreference: vi.fn(async () => undefined),
+      recordExplicitMood: vi.fn(),
+    };
+    const profiles = new SpeechProfileRuntime({
+      dj: dj as never,
+      exhibition: { configure: vi.fn(), setSubscriberReady: vi.fn() } as never,
+      chatEgress: { emit: vi.fn() },
+    });
+    profiles.configure({
+      kind: "personal_radio_dj",
+      config: {
+        sessionId: "s1",
+        idleMs: 1,
+        djIntervalMs: 1,
+        timezone: "UTC",
+        bgmAutoPlayOptIn: true,
+      },
+    });
+    let route: ((request: AgentRequest) => void) | undefined;
+    const memory = {
+      recall: vi.fn(async () => ({ facts: [], episodes: [] })),
+      save: vi.fn(async () => undefined),
+    };
+    const conversationLog = { append: vi.fn(async () => undefined) };
+    const providerCalls = vi.fn();
+    const wired = wireAgentUC1({
+      ingress: { onRequest: (cb) => { route = cb; return () => {}; } },
+      egress: { emit: vi.fn() },
+      speechProfiles: profiles,
+      provider: {
+        chat: async function* () {
+          providerCalls();
+          yield { kind: "text" as const, text: "ordinary" };
+          yield { kind: "finish" as const };
+        },
+      },
+      memory,
+      conversationLog,
+    });
+    wired.start?.();
+    const commands = [
+      ["DJ 좋아요: 재즈", "like"],
+      ["DJ 싫어요: 트로트", "dislike"],
+      ["DJ 취향 삭제: 재즈", "forget"],
+      ["DJ 상태: 집중해서 문서를 쓰는 중", "mood"],
+    ] as const;
+    for (const [content] of commands) {
+      route?.({
+        kind: "chat",
+        requestId: `r${content.length}`,
+        sessionId: "s1",
+        messages: [{ role: "user", content }],
+      });
+    }
+    await wired.drain?.();
+    expect(dj.recordExplicitPreference).toHaveBeenCalledTimes(3);
+    expect(dj.recordExplicitMood).toHaveBeenCalledTimes(1);
+    expect(memory.recall).not.toHaveBeenCalled();
+    expect(memory.save).not.toHaveBeenCalled();
+    expect(conversationLog.append).not.toHaveBeenCalled();
+    expect(providerCalls).not.toHaveBeenCalled();
+
+    route?.({
+      kind: "chat",
+      requestId: "ordinary",
+      sessionId: "s1",
+      provider: { provider: "fake", model: "m" },
+      messages: [{ role: "user", content: "DJ 좋아요 재즈" }],
+    });
+    await wired.drain?.();
+    expect(providerCalls).toHaveBeenCalledTimes(1);
+    expect(memory.recall).toHaveBeenCalledTimes(1);
+    expect(memory.save).toHaveBeenCalledTimes(1);
+    expect(conversationLog.append).toHaveBeenCalled();
+    expect(dj.recordExplicitPreference).toHaveBeenCalledTimes(3);
+
+    for (const content of ["DJ 좋아요:", `DJ 상태: ${"가".repeat(501)}`]) {
+      route?.({
+        kind: "chat",
+        requestId: `invalid-${content.length}`,
+        sessionId: "s1",
+        provider: { provider: "fake", model: "m" },
+        messages: [{ role: "user", content }],
+      });
+    }
+    await wired.drain?.();
+    expect(dj.recordExplicitPreference).toHaveBeenCalledTimes(3);
+    expect(dj.recordExplicitMood).toHaveBeenCalledTimes(1);
+    expect(providerCalls).toHaveBeenCalledTimes(3);
+    route?.({
+      kind: "chat",
+      requestId: "wrong-session",
+      sessionId: "s2",
+      provider: { provider: "fake", model: "m" },
+      messages: [{ role: "user", content: "DJ 좋아요: 클래식" }],
+    });
+    await wired.drain?.();
+    expect(dj.recordExplicitPreference).toHaveBeenCalledTimes(3);
+    expect(providerCalls).toHaveBeenCalledTimes(4);
+  });
+
   it("구독이 profile configure보다 먼저 열려도 controller를 ready로 만든다", () => {
     const dj = { configure: vi.fn(), setSubscriberReady: vi.fn() };
     const exhibition = { configure: vi.fn(), setSubscriberReady: vi.fn() };
@@ -29,7 +134,7 @@ describe("EX-06 profile-bound Q&A privacy integration", () => {
     expect(dj.setSubscriberReady).toHaveBeenCalledWith(true);
   });
 
-  it("검증된 activityResume은 KB controller로 처리하고 memory/transcript를 0회 호출한다", async () => {
+  it("PA-EX-01/02 routes a yielded question to grounded KB with memory and transcript off", async () => {
     let route: ((request: AgentRequest) => void) | undefined;
     const ingress: AgentIngressPort = {
       onRequest: (cb) => { route = cb; return () => {}; },
