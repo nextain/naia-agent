@@ -1,5 +1,67 @@
 # User Scenarios (P01) + Test Coverage Map
 
+## UC-JEONJU-COURSE — Discord에서 안전하게 첫 정적 페이지를 완성한다
+
+이 시나리오의 정본은 `data-private/naia-discord-codex-workshop-jeonju/00-workshop-map.md`부터
+`08-revise-and-redeploy.md`, `appendix-c-instructor-runbook.md`까지다. 이 수업은 Naia
+확장 개발이나 일반적인 자율 코딩을 가르치지 않는다. 학생이 고른 **깨끗한 GitHub
+수업 저장소**에서 `index.html`과 `hero.svg`만 만들고, 학생이 직접 두 번 commit/push하는
+경로만 제품 완료 범위다.
+
+### UC-JEONJU-01 — 수업 시작 전 준비 확인
+
+1. 학생은 Shell에서 Codex 로그인 상태와 선택한 수업 저장소를 확인한다.
+2. 시스템은 로그인 식별자·인증 파일·긴 로컬 경로를 화면이나 대화에 노출하지 않고,
+   `ready | not-installed | login-required | error`의 안전한 상태만 보인다.
+3. 학생은 읽기 전용 요청으로 저장소 이름과 파일 수를 확인한다. 이 요청은 파일을
+   변경하지 않아야 한다.
+
+### UC-JEONJU-02 — 개인 Discord 경계와 `get_time` 증적
+
+1. 학생은 OS 보안 입력을 통해 개인 bot token을 저장하고, 자신의 guild/channel/user와
+   mention/reply-only 정책을 선택한다.
+2. 허용된 Discord 메시지 `@Naia ... get_time ... Asia/Seoul`만 agent ingress로 들어간다.
+3. Discord 답변은 모델 문장과 분리된 구조화 실행 기록으로 `get_time`, 성공 여부,
+   Asia/Seoul 시각을 남긴다. 단순한 모델 자기보고는 성공이 아니다.
+4. 비허용 guild/channel/user의 메시지와 일반 대화는 0회 처리한다.
+
+### UC-JEONJU-03 — 첫 제작 요청과 학생 저장소 결과
+
+1. 허용된 학생이 Discord에서 교재의 첫 제작 요청을 보낸다.
+2. Naia는 **접수됨 → 작업 중 → 완료/실패**를 같은 Discord 흐름에 보이고, Codex에는
+   학생이 선택한 수업 저장소만 쓰기 권한으로 넘긴다.
+3. Codex가 끝난 뒤 Naia는 학생 저장소에서 변경을 검사한다. 첫 요청의 성공은
+   `index.html`, `hero.svg` 두 파일만 새로 만들고, `index.html`이 `./hero.svg`를 참조하며,
+   외부 라이브러리/빌드 도구/commit/push/Pages 변경이 없을 때만 선언할 수 있다.
+4. 학생은 Shell의 로컬 미리보기에서 제목·SVG·앵커 버튼·모바일 폭을 확인한 뒤,
+   직접 `git add`, `commit`, `push`한다. Naia/Codex는 이 외부 변경을 실행하지 않는다.
+
+### UC-JEONJU-04 — 두 번째 Discord 수정과 재확인
+
+1. 같은 허용 Discord 흐름에서 학생은 제목을 `전주에서 만든 나의 AI 페이지`로,
+   SVG 주색을 `#7C3AED`로 바꾸라고 요청한다.
+2. Naia는 같은 학생 저장소에서만 수정하고, 새 파일·commit·push 없이 변경 파일과
+   검사 결과를 보고한다.
+3. 학생은 `git diff`를 확인한 뒤 두 번째 commit/push를 직접 수행하고 같은 GitHub Pages
+   주소에서 바뀐 제목과 색을 확인한다.
+
+### UC-JEONJU-05 — 실패와 중단을 정직하게 남긴다
+
+- Codex 미설치/로그인 필요, Discord 보안 입력 취소, binding 불일치, dirty 저장소,
+  허용 루트 이탈, 시간초과·학생 취소는 작업 성공으로 바뀌지 않는다.
+- 실패/중단 보고는 비밀·prompt·Codex 원문 출력 없이 어느 단계에서 멈췄는지만 보인다.
+- Discord가 막히면 로컬 Naia 대화로 수업을 이어갈 수 있으나, Discord 경로와 실제
+  `get_time` 실행 기록은 **미검증**으로 남긴다.
+
+### Test Coverage Map — UC-JEONJU-COURSE (P02)
+
+| Test ID | 검증 | 증적 |
+|---|---|---|
+| TEST-JEONJU-01 | selected-workspace 요청은 명시 모드일 때만 허용하며, Git root·clean 상태·선택 경로 일치가 아니면 Codex를 시작하지 않는다. | `src/test/jeonju-course-selected-workspace.contract.test.ts` |
+| TEST-JEONJU-02 | 실행 전후 변경은 `index.html`, `hero.svg`만 허용하고 HEAD/remote는 바뀌지 않는다. 위반·취소·시간초과는 성공으로 보고하지 않는다. | `src/test/jeonju-course-selected-workspace.contract.test.ts` |
+| TEST-JEONJU-03 | Discord 허용 ingress에서 `get_time`의 실행 중/성공 기록과 최종 답변이 같은 reply 흐름에 직렬화된다. | `src/test/discord-runtime.integration.test.ts` |
+| TEST-JEONJU-04 | Shell은 학생이 선택한 저장소를 명시적으로 전달하고, 실제 Tauri Playwright에서 첫 요청→작업 중→두 파일 검사→두 번째 수정까지 보인다. | Shell `packages/shell/e2e/jeonju-course-workflow.spec.ts` |
+
 ## UC-CODING-JOB — independent Codex coding workers
 
 A desktop can start more than one coding task without treating a chat turn as

@@ -332,6 +332,18 @@ RPC만 추가하며, 별도 셸 반복 상태 머신은 만들지 않는다.
 
 ## UC-CODING-JOB requirements
 
+## UC-JEONJU-COURSE requirements
+
+| ID | Requirement | Status |
+|---|---|---|
+| FR-JEONJU-1 | `selected-workspace` is an explicit coding-job execution mode. It is never inferred for the existing isolated-worktree/default job mode. | Pending |
+| FR-JEONJU-2 | Before Codex starts, the selected path must resolve to the approved Git root, have no uncommitted changes, and be inside the host-approved workspace boundary. | Pending |
+| FR-JEONJU-3 | The course mode permits only `index.html` and `hero.svg` to be added or changed. It verifies `./hero.svg`, the requested title/color contract, and reports a failure instead of a false completion on any extra change. | Pending |
+| FR-JEONJU-4 | Course mode snapshots HEAD and remote before execution and rejects a job whose execution changed commit history or remote configuration. Codex does not receive authority to commit, push, or alter Pages settings. | Pending |
+| FR-JEONJU-5 | A cancelled, timed-out, dirty, out-of-root, or validation-failed job reports its exact safe phase and never emits a completed course result. | Pending |
+| NFR-JEONJU-1 | The user-visible Discord lifecycle is received → running → completed/failed, without prompt, token, raw Codex output, or absolute-path disclosure. | Pending |
+| NFR-JEONJU-2 | The Shell supplies selected-workspace mode and selected Git root as explicit structured data; a model cannot select or override this path. | Pending |
+
 | ID | Requirement | Status |
 |---|---|---|
 | FR-CW-1 | Coding jobs have durable ids, a constrained state machine, and owner-only persisted records. | In review |
