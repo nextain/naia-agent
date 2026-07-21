@@ -71,6 +71,13 @@ describe("T-DISCORD-RT-02/05 — production entry wiring", () => {
     expect(entry).toContain('allowedAgents: ["codex"]');
     expect(entry.indexOf("let currentAdkPath = adkPath")).toBeLessThan(entry.indexOf("makeDelegateAgentSkill({"));
     expect(entry.indexOf("makeDelegateAgentSkill")).toBeLessThan(entry.indexOf("wireAgentUC1({ ingress: agentIngress"));
+
+    const setWorkspaceStart = entry.indexOf("onSetWorkspace: (wsPath) => {");
+    const setWorkspaceEnd = entry.indexOf("onReloadSettings:", setWorkspaceStart);
+    const setWorkspaceBody = entry.slice(setWorkspaceStart, setWorkspaceEnd);
+    expect(setWorkspaceStart).toBeGreaterThan(0);
+    expect(setWorkspaceBody).toContain("if (wsPath) currentAdkPath = wsPath");
+    expect(setWorkspaceBody).toContain("return reloadConfigFrom(currentAdkPath)");
   });
 
   it("starts only after gRPC boot succeeds and gracefully drains Discord before shared resources", () => {
