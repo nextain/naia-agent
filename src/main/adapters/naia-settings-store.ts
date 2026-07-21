@@ -211,10 +211,17 @@ export function makeNaiaSettingsStore(deps: {
 	function fromConfigJson(file: string): ProviderConfig | null {
 		const c = readJson<Record<string, unknown>>(file);
 		if (!c || typeof c !== "object") return null;
-		const provider = typeof c["provider"] === "string" ? (c["provider"] as string).toLowerCase() : "";
-		const model = typeof c["model"] === "string" ? (c["model"] as string) : "";
-		if (!provider || !model) { log("naia-settings.config.incomplete", { file }); return null; }
 		const str = (k: string) => (typeof c[k] === "string" ? (c[k] as string) : undefined);
+		const structured = c["llmRoles"] && typeof c["llmRoles"] === "object" && !Array.isArray(c["llmRoles"])
+			? c["llmRoles"] as Record<string, unknown>
+			: undefined;
+		const structuredMain = roleSelection(structured?.["main"]);
+		// llmRoles.main is the product SoT. The top-level provider/model remain a
+		// compatibility mirror so old shell and CLI releases still start.
+		const provider = (structuredMain?.provider ?? str("provider") ?? "").toLowerCase();
+		const model = structuredMain?.model ?? str("model") ?? "";
+		if (!provider || !model || structuredMain?.inherit) { log("naia-settings.config.incomplete", { file }); return null; }
+		const mainSecret = structuredMain?.credentialRef ? resolveSecret(structuredMain.credentialRef) : undefined;
 		const nonNegativeInt = (k: string) =>
 			typeof c[k] === "number" && Number.isInteger(c[k]) && c[k] >= 0
 				? (c[k] as number)
@@ -223,8 +230,9 @@ export function makeNaiaSettingsStore(deps: {
 		//    gemini/xai/zai 등)엔 적용하면 안 됨 — config 에 stale naiaGatewayUrl 이 남은 채 provider 를 native 로 바꾸면
 		//    그 native 호출이 stale 게이트웨이로 **조용히 오라우팅**(적대적 리뷰 MEDIUM). native 커스텀 host=vllmHost/
 		//    ollamaHost 전용 필드 또는 llm.json baseUrl(CLI). nextain 이 아니면 baseUrl 미적용.
-		const baseUrl = provider === "nextain" ? (str("naiaGatewayUrl") ?? str("NAIA_ANYLLM_BASE_URL")) : undefined;
+		const baseUrl = structuredMain?.baseUrl ?? (provider === "nextain" ? (str("naiaGatewayUrl") ?? str("NAIA_ANYLLM_BASE_URL")) : undefined);
 		return assembleConfig(provider, model, {
+			...(mainSecret ? { secret: mainSecret } : {}),
 			...(baseUrl ? { baseUrl } : {}),
 			...(str("ollamaHost") ? { ollamaHost: str("ollamaHost")! } : {}),
 			...(nonNegativeInt("ollamaNumGpu") !== undefined

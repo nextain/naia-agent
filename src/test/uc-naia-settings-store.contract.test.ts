@@ -52,6 +52,21 @@ describe("loadMain — config.json (naia-os 셸 정본 포맷; 키는 키체인=
 });
 
 describe("loadLlmRoles — main/sub/memory 독립 설정과 migration", () => {
+	it("구조화 main은 legacy provider/model보다 실제 채팅 기본 설정에서 우선한다", () => {
+		const settings = store({
+			[CONFIG]: JSON.stringify({
+				provider: "ollama",
+				model: "stale-model",
+				llmRoles: {
+					main: { provider: "codex", model: "gpt-5.4" },
+					sub: { inherit: "main" },
+					memory: { inherit: "main" },
+				},
+			}),
+		});
+		expect(settings.loadMain("/ws")).toEqual({ provider: "codex", model: "gpt-5.4" });
+	});
+
 	it("구조화 llmRoles를 우선해 3개 effective config를 고정 순서로 반환", () => {
 		const result = store({
 			[CONFIG]: JSON.stringify({

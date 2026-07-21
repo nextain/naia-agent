@@ -91,11 +91,19 @@ export function resolveLlmRoles(input: LlmRolesInput): LlmRolesResolution {
       });
       continue;
     }
-    if (role === "memory" && (input.roles?.sub || input.legacy?.sub || input.legacy?.memory || sources.has("sub"))) {
+    if (role === "sub" && sources.has("main")) {
       sources.set(role, {
-        selection: { inherit: "sub" },
+        selection: { inherit: "main" },
         provenance: "inherit",
-        inheritedFromRole: "sub",
+        inheritedFromRole: "main",
+      });
+      continue;
+    }
+    if (role === "memory" && sources.has("main")) {
+      sources.set(role, {
+        selection: { inherit: "main" },
+        provenance: "inherit",
+        inheritedFromRole: "main",
       });
       continue;
     }
