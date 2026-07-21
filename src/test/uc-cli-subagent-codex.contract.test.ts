@@ -71,6 +71,7 @@ describe("subagent-codex 어댑터 계약 (SPEC-010 확장, fake child)", () => 
       "--ephemeral",
       "--skip-git-repo-check",
       "--model", "gpt-5",
+      "--cd", "/tmp/w",
       "hi",
     ]);
     expect(f.spawnArgs.cwd).toBe("/tmp/w");
@@ -86,6 +87,7 @@ describe("subagent-codex 어댑터 계약 (SPEC-010 확장, fake child)", () => 
       "--sandbox", "workspace-write",
       "--config", 'approval_policy="never"',
       "--ephemeral",
+      "--cd", "/tmp/w",
       "hi",
     ]);
   });

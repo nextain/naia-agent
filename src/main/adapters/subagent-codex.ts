@@ -155,6 +155,10 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
       ];
       if (skipGit) args.push("--skip-git-repo-check");
       if (model) args.push("--model", model);
+      // `cwd` governs the child process, but Codex has its own workspace-root
+      // resolver. Pass the documented flag as well so a hosted/parent process
+      // cannot silently select its own repository as the edit root.
+      args.push("--cd", task.workdir);
       // Keep the free-form request as the final positional argument.  Current
       // Codex CLI releases parse exec options before its optional prompt;
       // placing a multi-word task first can be interpreted as a command.
