@@ -106,6 +106,7 @@ describe("Codex app-server main provider", () => {
   it("현재 app-server 동적 도구 RPC 계약으로 호출 결과를 같은 turn에 응답한다", async () => {
     const requests: Array<{ method: string; params: unknown }> = [];
     const responses: Array<{ id: number | string; result: unknown }> = [];
+    let executions = 0;
     let closed = false;
     const peer: RpcPeer = {
       async request(method, params) {
@@ -119,6 +120,11 @@ describe("Codex app-server main provider", () => {
       notifications() {
         return (async function* () {
           yield { id: 77, method: "item/tool/call", params: {
+            threadId: "thread-1", turnId: "turn-1", callId: "call-77",
+            namespace: "dynamic", tool: "get_time", arguments: { timezone: "Asia/Seoul" },
+          } };
+          // app-server/transport retry: JSON-RPC id는 다르지만 callId+입력은 동일.
+          yield { id: 78, method: "item/tool/call", params: {
             threadId: "thread-1", turnId: "turn-1", callId: "call-77",
             namespace: "dynamic", tool: "get_time", arguments: { timezone: "Asia/Seoul" },
           } };
@@ -136,7 +142,10 @@ describe("Codex app-server main provider", () => {
         { name: "get_time", description: "현재 시각", parameters: { type: "object" }, tier: "none" },
         { name: "network", description: "외부 호출", parameters: { type: "object" }, tier: "network" },
       ],
-      executeTool: async (call) => ({ output: call.name === "get_time" ? "10:30" : "unexpected" }),
+      executeTool: async (call) => {
+        executions += 1;
+        return { output: call.name === "get_time" ? "10:30" : "unexpected" };
+      },
     }, async () => peer)) events.push(event);
 
     expect(requests[0]).toMatchObject({ method: "initialize", params: { capabilities: { experimentalApi: true } } });
@@ -145,9 +154,11 @@ describe("Codex app-server main provider", () => {
       params: { dynamicTools: [{ type: "function", name: "get_time", inputSchema: { type: "object" } }] },
     });
     expect(JSON.stringify(requests[1])).not.toContain("network");
-    expect(responses).toEqual([{ id: 77, result: {
-      contentItems: [{ type: "inputText", text: "10:30" }], success: true,
-    } }]);
+    expect(responses).toEqual([
+      { id: 77, result: { contentItems: [{ type: "inputText", text: "10:30" }], success: true } },
+      { id: 78, result: { contentItems: [{ type: "inputText", text: "10:30" }], success: true } },
+    ]);
+    expect(executions).toBe(1);
     expect(events).toEqual([
       { kind: "toolUse", id: "call-77", name: "get_time", args: { timezone: "Asia/Seoul" } },
       { kind: "toolResult", id: "call-77", name: "get_time", output: "10:30", success: true },

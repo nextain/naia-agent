@@ -262,6 +262,10 @@ export async function* runCodexAppServerTurn(
   let turnId = "";
   let completed = false;
   let lastUsage: { inputTokens: number; outputTokens: number } | undefined;
+  const completedDynamicCalls = new Map<string, {
+    readonly signature: string;
+    readonly result: { output: string; isError?: boolean };
+  }>();
   const abort = () => {
     if (threadId && turnId) void peer.request("turn/interrupt", { threadId, turnId }).catch(() => {});
   };
@@ -314,6 +318,18 @@ export async function* runCodexAppServerTurn(
         const id = typeof params["callId"] === "string" ? params["callId"] : String(message.id);
         const name = typeof params["tool"] === "string" ? params["tool"] : "";
         const args = params["arguments"] ?? {};
+        const signature = JSON.stringify({ name, args });
+        const prior = completedDynamicCalls.get(id);
+        if (prior) {
+          const result = prior.signature === signature
+            ? prior.result
+            : { output: `dynamic tool call '${id}' was replayed with different input`, isError: true };
+          peer.respond(message.id, {
+            contentItems: [{ type: "inputText", text: result.output }],
+            success: !result.isError,
+          });
+          continue;
+        }
         yield { kind: "toolUse", id, name, args };
         let result: { output: string; isError?: boolean };
         if (!name || !advertised.has(name) || !input.executeTool) {
@@ -325,6 +341,7 @@ export async function* runCodexAppServerTurn(
             result = { output: error instanceof Error ? error.message : String(error), isError: true };
           }
         }
+        completedDynamicCalls.set(id, { signature, result });
         peer.respond(message.id, {
           contentItems: [{ type: "inputText", text: result.output }],
           success: !result.isError,

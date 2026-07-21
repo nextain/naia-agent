@@ -44,6 +44,7 @@ interface ActiveTurn {
   readonly completion: Promise<void>;
   emitTail: Promise<void>;
   text: string;
+  readonly toolRecords: string[];
 }
 
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
@@ -183,6 +184,17 @@ function toolProgressMessage(
   const tool = TOOL_PROGRESS_NAME.test(event.toolName) ? event.toolName : "tool";
   const state = event.kind === "toolUse" ? "running" : event.success ? "succeeded" : "failed";
   return `TOOL_PROGRESS state=${state} tool=${tool}`;
+}
+
+function durableToolRecord(event: Extract<AgentEmit, { kind: "toolResult" }>): string {
+  const tool = TOOL_PROGRESS_NAME.test(event.toolName) ? event.toolName : "tool";
+  const state = event.success ? "succeeded" : "failed";
+  if (tool === "get_time" && event.success
+    && event.output.length <= 96
+    && /^\d{4}-\d{2}-\d{2}(?:T| )[A-Za-z0-9_+:/(). -]+$/.test(event.output)) {
+    return `TOOL_RECORD state=${state} tool=${tool} value=${event.output}`;
+  }
+  return `TOOL_RECORD state=${state} tool=${tool}`;
 }
 
 export class DiscordChannelRuntime {
@@ -771,6 +783,7 @@ export class DiscordChannelRuntime {
       completion,
       emitTail: Promise.resolve(),
       text: "",
+      toolRecords: [],
     });
     this.deps.diag.debug?.("discord dispatch", { activeCount: this.active.size, historyCount: previous.length });
     try {
@@ -819,15 +832,19 @@ export class DiscordChannelRuntime {
       return;
     }
     if (event.kind === "toolUse" || event.kind === "toolResult") {
+      if (event.kind === "toolResult") turn.toolRecords.push(durableToolRecord(event));
       await this.deliverToolProgress(turn, event);
       return;
     }
     if (event.kind === "processingDisclosure") return;
     if (event.kind !== "finish" && event.kind !== "error") return;
     this.active.delete(requestId);
-    const reply = event.kind === "error"
+    const replyText = event.kind === "error"
       ? this.deps.text.failureReply()
       : turn.text;
+    const reply = turn.toolRecords.length
+      ? `${turn.toolRecords.join("\n")}\n\n${replyText}`
+      : replyText;
     if (event.kind === "finish") this.commitHistory(turn);
     turn.complete();
     const chunks = safeReplyChunks(reply, this.maxReplyChars, this.deps.text.emptyReply());

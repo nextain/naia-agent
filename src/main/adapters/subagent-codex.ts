@@ -4,8 +4,10 @@
 // 세션 머신(스트림·cancel·가드)은 공유 subprocess-session 에. 여기엔 codex 고유의 (1) bin 해석 (2) args
 // (3) line parser 만. bin 미해결/ENOENT = 정직한 session_end{ok:false}(throw 금지, AC6). spawnFn 주입 seam.
 //
-// ⚠️ codex `exec` 는 `-a/--ask-for-approval`(TUI 용) 미지원 — exec 는 본래 non-interactive. 승인 정책은
-//    sandbox/approval config(-c) 로, 또는 본 어댑터에 추가 옵션으로 확장 가능(현재 최소).
+// ⚠️ codex `exec` 는 `-a/--ask-for-approval`(TUI 용) 미지원 — exec 는 본래 non-interactive.
+//    위임 실행은 사용자 전역 config가 경계를 넓히지 못하게 `--ignore-user-config` +
+//    `--sandbox workspace-write` + approval_policy=never를 매번 명시한다. cwd는 host가
+//    realpath로 ADK 아래임을 검증하므로 Codex OS sandbox의 쓰기 root도 그 범위 안으로 고정된다.
 //
 // codex JSONL 은 item.completed = **완료 snapshot** 만 내보냄(start/end 경계 없음). 그래서 도구 항목은
 // tool_use_end{ok:true}(완료됨) 로 표현한다(시작 경계가 없는 codex 포맷의 정직한 단일 표현). terminal
@@ -127,8 +129,16 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
         return endedSession(`codex unavailable: ${(e as Error).message}`);
       }
       const model = opts.model ?? task.model;
-      // exec <prompt> --json [--skip-git-repo-check] [--model X]
-      const args: string[] = ["exec", task.prompt, "--json"];
+      // exec <prompt> --json --ignore-user-config --sandbox workspace-write
+      //   -c approval_policy="never" --ephemeral [--skip-git-repo-check] [--model X]
+      // Global config/add-dir 상속을 끊고 non-interactive workspace 경계를 fail-closed로 고정.
+      const args: string[] = [
+        "exec", task.prompt, "--json",
+        "--ignore-user-config",
+        "--sandbox", "workspace-write",
+        "--config", 'approval_policy="never"',
+        "--ephemeral",
+      ];
       if (skipGit) args.push("--skip-git-repo-check");
       if (model) args.push("--model", model);
       return spawnSubprocessSession({

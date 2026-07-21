@@ -57,9 +57,20 @@ describe("delegate-agent-skill 계약 (메인 LLM → sub-agent 위임 도구)",
 
   it("workdir 인자 전달 → runner 에 그대로", async () => {
     const fr = fakeRunner();
-    const ex = makeDelegateAgentSkill({ run: fr.run, defaultWorkdir: "/ws" });
+    const ex = makeDelegateAgentSkill({ run: fr.run, defaultWorkdir: "/ws", allowWorkdirOverride: true });
     await ex.execute(call({ agent: "opencode", task: "x", workdir: "/custom" }), {});
     expect(fr.calls[0].task.workdir).toBe("/custom");
+  });
+
+  it("기본은 host가 선택한 단일 workspace로 고정하고 model의 workdir override를 거부한다", async () => {
+    const fr = fakeRunner();
+    const ex = makeDelegateAgentSkill({ run: fr.run, defaultWorkdir: "/selected/repo" });
+    const spec = ex.specs()[0].parameters as { properties: Record<string, unknown> };
+    expect(spec.properties).not.toHaveProperty("workdir");
+    const result = await ex.execute(call({ agent: "codex", task: "x", workdir: "/selected/other" }), {});
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain("workdir override");
+    expect(fr.calls).toHaveLength(0);
   });
 
   it("검증 실패 보고 → verification=fail(체크명 표시)", async () => {
@@ -110,7 +121,7 @@ describe("delegate-agent-skill 계약 (메인 LLM → sub-agent 위임 도구)",
     symlinkSync(outside, join(root, "escape"));
     const fr = fakeRunner();
     const ex = makeDelegateAgentSkill({
-      run: fr.run, defaultWorkdir: root, allowedWorkdirRoot: root, allowedAgents: ["codex"],
+      run: fr.run, defaultWorkdir: root, allowedWorkdirRoot: root, allowedAgents: ["codex"], allowWorkdirOverride: true,
     });
     expect((await ex.execute(call({ agent: "codex", task: "ok", workdir: inside }), {})).isError).toBeUndefined();
     expect((await ex.execute(call({ agent: "codex", task: "ok", workdir: "project" }), {})).isError).toBeUndefined();

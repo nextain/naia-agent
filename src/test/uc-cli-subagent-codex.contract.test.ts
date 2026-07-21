@@ -58,12 +58,20 @@ describe("subagent-codex 어댑터 계약 (SPEC-010 확장, fake child)", () => 
     expect((events[3] as Extract<SubAgentEvent, { kind: "session_end" }>).ok).toBe(true);
   });
 
-  it("args 정합: exec <prompt> --json --skip-git-repo-check (+model)", () => {
+  it("args 정합: 전역 config를 무시하고 workspace-write/never/ephemeral 경계를 강제한다", () => {
     const f = fakeNdjson();
     const port = makeCodexSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn, model: "gpt-5" });
     port.spawn({ prompt: "hi", workdir: "/tmp/w" });
     expect(f.spawnArgs.command).toBe("codex");
-    expect(f.spawnArgs.args).toEqual(["exec", "hi", "--json", "--skip-git-repo-check", "--model", "gpt-5"]);
+    expect(f.spawnArgs.args).toEqual([
+      "exec", "hi", "--json",
+      "--ignore-user-config",
+      "--sandbox", "workspace-write",
+      "--config", 'approval_policy="never"',
+      "--ephemeral",
+      "--skip-git-repo-check",
+      "--model", "gpt-5",
+    ]);
     expect(f.spawnArgs.cwd).toBe("/tmp/w");
   });
 
@@ -71,7 +79,13 @@ describe("subagent-codex 어댑터 계약 (SPEC-010 확장, fake child)", () => 
     const f = fakeNdjson();
     const port = makeCodexSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn, skipGitRepoCheck: false });
     port.spawn({ prompt: "hi", workdir: "/tmp/w" });
-    expect(f.spawnArgs.args).toEqual(["exec", "hi", "--json"]);
+    expect(f.spawnArgs.args).toEqual([
+      "exec", "hi", "--json",
+      "--ignore-user-config",
+      "--sandbox", "workspace-write",
+      "--config", 'approval_policy="never"',
+      "--ephemeral",
+    ]);
   });
 
   it("malformed NDJSON 관용 (crash 없이 드롭) + file_change → tool_use_end", async () => {

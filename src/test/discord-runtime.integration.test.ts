@@ -329,12 +329,42 @@ describe("T-DISCORD-RT-01/02 — authenticated ingress to existing chat pipeline
     expect(answerReplies(gateway.connections[0]!).map((reply) => reply.content)).toEqual([
       "TOOL_PROGRESS state=running tool=workspace_search",
       "TOOL_PROGRESS state=succeeded tool=workspace_search",
-      "safe final answer",
+      "TOOL_RECORD state=succeeded tool=workspace_search\n\nsafe final answer",
     ]);
     expect(JSON.stringify(gateway.connections[0]!.replies)).not.toContain("private-query");
     expect(JSON.stringify(gateway.connections[0]!.replies)).not.toContain("private-result");
     expect(JSON.stringify(gateway.connections[0]!.replies)).not.toContain("call-secret-id");
     expect(dedupe.inspect("binding_1", "tool-progress-success")).toEqual({ state: "completed" });
+    await runtime.stop();
+  });
+
+  it("persists a structured get_time success record with a bounded safe timestamp in the durable reply", async () => {
+    let round = 0;
+    const dedupe = makeDedupe();
+    const provider: ProviderPort = {
+      async *chat(): AsyncIterable<ProviderChunk> {
+        if (round++ === 0) {
+          yield { kind: "toolUse", id: "time-1", name: "get_time", args: { timezone: "Asia/Seoul" } };
+          yield { kind: "finish" };
+          return;
+        }
+        yield { kind: "text", text: "한국 현재 시각입니다." };
+        yield { kind: "finish" };
+      },
+    };
+    const toolExecutor: ToolExecutorPort = {
+      specs: () => [{ name: "get_time", description: "time", parameters: {} }],
+      execute: async () => ({ output: "2026-07-21 11:15:30 (Asia/Seoul)" }),
+    };
+    const { gateway, runtime } = makeHarness({ provider, toolExecutor, dedupe });
+    await waitFor(() => gateway.handlers.length === 1);
+    gateway.message({ messageId: "get-time-record" });
+    await waitFor(() => answerReplies(gateway.connections[0]!).length === 3);
+
+    expect(answerReplies(gateway.connections[0]!).at(-1)?.content).toBe(
+      "TOOL_RECORD state=succeeded tool=get_time value=2026-07-21 11:15:30 (Asia/Seoul)\n\n한국 현재 시각입니다.",
+    );
+    expect(dedupe.inspect("binding_1", "get-time-record")).toEqual({ state: "completed" });
     await runtime.stop();
   });
 
@@ -363,7 +393,7 @@ describe("T-DISCORD-RT-01/02 — authenticated ingress to existing chat pipeline
     expect(answerReplies(gateway.connections[0]!).map((reply) => reply.content)).toEqual([
       "TOOL_PROGRESS state=running tool=tool",
       "TOOL_PROGRESS state=failed tool=tool",
-      "recovered",
+      "TOOL_RECORD state=failed tool=tool\n\nrecovered",
     ]);
     expect(JSON.stringify(gateway.connections[0]!.replies)).not.toContain("sensitive failure detail");
     expect(JSON.stringify(gateway.connections[0]!.replies)).not.toContain("@everyone");

@@ -335,8 +335,8 @@ RPC만 추가하며, 별도 셸 반복 상태 머신은 만들지 않는다.
 | FR-CODEX-1 | Codex provider는 API key를 복사하지 않고 로컬 로그인과 app-server를 사용하며 현재 protocol의 experimental dynamic tool 계약을 따른다. | Done |
 | FR-CODEX-2 | `tier=none`이고 외부 처리 metadata가 없는 등록 도구만 app-server에 광고하고, server tool request에 같은 call id의 결과를 응답한다. | Done |
 | FR-CODEX-3 | provider-native 도구 실행은 toolUse/toolResult로 관측되되 기존 handler가 두 번 실행하지 않는다. | Done |
-| FR-CODEX-4 | desktop/Discord host의 `delegate_agent`는 Codex만 허용하고 작업 경로를 ADK 실경로 아래로 제한한다. | Done |
+| FR-CODEX-4 | desktop/Discord host의 `delegate_agent`는 Codex만 허용하고 host가 선택한 단일 workspace 실경로에 고정하며 model의 workdir override를 거부한다. child Codex는 전역 config를 무시하고 `workspace-write` OS sandbox를 강제한다. | Done |
 | FR-CODEX-5 | Discord는 도구 시작·성공·실패를 원래 reply에 직렬 전송하되 args/output/call id와 mention 가능한 도구명을 반사하지 않는다. | Done |
 
 - **NFR-CODEX-approval-boundary**: 승인 필요 또는 외부 처리 도구는 provider-native 즉시 실행 경로에 들어가지 않는다.
-- **NFR-CODEX-workspace-boundary**: `..`뿐 아니라 심볼릭 링크를 통한 workspace 탈출도 거부한다.
+- **NFR-CODEX-workspace-boundary**: `..`·심볼릭 링크 cwd 탈출을 거부하고, 전역 `add-dir`·sandbox 설정을 상속하지 않으며 child Codex 실행을 검증된 workspace 쓰기 경계로 제한한다.

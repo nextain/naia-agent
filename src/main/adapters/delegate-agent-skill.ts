@@ -36,6 +36,8 @@ export interface DelegateAgentDeps {
   readonly allowedAgents?: readonly string[];
   /** 지정 시 workdir는 이 실경로 아래로 제한한다(심볼릭 링크 탈출 포함 차단). */
   readonly allowedWorkdirRoot?: string;
+  /** 외부 요청이 workdir를 바꾸게 할지. 기본 false = host가 선택한 단일 workspace에 고정. */
+  readonly allowWorkdirOverride?: boolean;
 }
 
 /** roster 전체 agent(문서용 enum — host 가 화이트리스트 좁힐 수도). */
@@ -64,7 +66,9 @@ export function makeDelegateAgentSkill(deps: DelegateAgentDeps): ToolExecutorPor
         properties: {
           agent: { type: "string", enum: [...allowed], description: "부릴 sub-agent" },
           task: { type: "string", description: "sub-agent 에게 줄 작업 지시" },
-          workdir: { type: "string", description: "작업 디렉터리(기본: 현재 워크스페이스)" },
+          ...(deps.allowWorkdirOverride
+            ? { workdir: { type: "string", description: "작업 디렉터리(기본: 현재 워크스페이스)" } }
+            : {}),
         },
         required: ["agent", "task"],
       },
@@ -77,7 +81,11 @@ export function makeDelegateAgentSkill(deps: DelegateAgentDeps): ToolExecutorPor
     async execute(call, opts) {
       const agent = readArg(call, "agent");
       const task = readArg(call, "task");
-      let workdir = readArg(call, "workdir") ?? deps.defaultWorkdir;
+      const requestedWorkdir = readArg(call, "workdir");
+      if (requestedWorkdir !== undefined && !deps.allowWorkdirOverride) {
+        return { output: "delegate_agent: workdir override는 허용되지 않습니다", isError: true };
+      }
+      let workdir = requestedWorkdir ?? deps.defaultWorkdir;
       if (!agent) return { output: "delegate_agent: 'agent' 인자 누락", isError: true };
       if (!allowed.includes(agent)) return { output: `delegate_agent: 지원 안 하는 agent '${agent}' (가능: ${allowed.join(", ")})`, isError: true };
       if (!task) return { output: "delegate_agent: 'task' 인자 누락", isError: true };
