@@ -5,12 +5,14 @@
 // app-server JSONL 프로토콜은 이 파일 안에 격리하고 ProviderPort에는 정규화 chunk만 노출한다.
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { ProviderChatOpts, ProviderPort } from "../ports/uc1.js";
-import type { ChatMessage, ProviderChunk, ProviderConfig } from "../domain/chat.js";
+import type { ChatMessage, ProviderChunk, ProviderConfig, ToolCall, ToolSpec } from "../domain/chat.js";
 
 export type CodexTurnEvent =
   | { readonly kind: "text"; readonly text: string }
   | { readonly kind: "thinking"; readonly text: string }
   | { readonly kind: "usage"; readonly inputTokens: number; readonly outputTokens: number }
+  | { readonly kind: "toolUse"; readonly id: string; readonly name: string; readonly args: unknown }
+  | { readonly kind: "toolResult"; readonly id: string; readonly name: string; readonly output: string; readonly success: boolean }
   | { readonly kind: "completed" };
 
 export interface CodexTurnInput {
@@ -18,6 +20,8 @@ export interface CodexTurnInput {
   readonly prompt: string;
   readonly systemPrompt?: string;
   readonly signal?: AbortSignal;
+  readonly tools?: readonly ToolSpec[];
+  readonly executeTool?: (call: ToolCall) => Promise<{ output: string; isError?: boolean }>;
 }
 
 export type CodexRunTurn = (input: CodexTurnInput) => AsyncIterable<CodexTurnEvent>;
@@ -103,11 +107,17 @@ export function makeCodexAppServerProvider(deps?: {
         prompt: folded.prompt,
         ...(systemPrompt ? { systemPrompt } : {}),
         ...(opts.signal ? { signal: opts.signal } : {}),
+        ...(opts.tools ? { tools: opts.tools } : {}),
+        ...(opts.executeTool ? { executeTool: opts.executeTool } : {}),
       })) {
         if (event.kind === "text") yield { kind: "text", text: event.text };
         else if (event.kind === "thinking") yield { kind: "thinking", text: event.text };
         else if (event.kind === "usage") {
           yield { kind: "usage", inputTokens: event.inputTokens, outputTokens: event.outputTokens };
+        } else if (event.kind === "toolUse") {
+          yield { kind: "toolUse", id: event.id, name: event.name, args: event.args, handled: true };
+        } else if (event.kind === "toolResult") {
+          yield { kind: "toolResult", id: event.id, name: event.name, output: event.output, success: event.success, handled: true };
         } else {
           yield { kind: "finish" };
         }
@@ -124,9 +134,10 @@ interface RpcMessage {
   readonly params?: unknown;
 }
 
-interface RpcPeer {
+export interface RpcPeer {
   request(method: string, params: unknown): Promise<unknown>;
   notify(method: string, params?: unknown): void;
+  respond(id: number | string, result: unknown): void;
   notifications(): AsyncIterable<RpcMessage>;
   close(): void;
 }
@@ -206,6 +217,9 @@ export async function makeCodexRpcPeer(
     notify(method, params) {
       write(params === undefined ? { method } : { method, params });
     },
+    respond(id, result) {
+      write({ id, result });
+    },
     notifications() {
       return {
         [Symbol.asyncIterator]() {
@@ -235,8 +249,11 @@ export async function makeCodexRpcPeer(
  * Naia가 대화 transcript를 전달하므로 app-server 자체 영속 thread에 의존하지 않으며,
  * read-only + approval never로 Naia 채팅이 사용자 파일을 변경하지 못하게 한다.
  */
-export async function* runCodexAppServerTurn(input: CodexTurnInput): AsyncIterable<CodexTurnEvent> {
-  const peer = await makeCodexRpcPeer();
+export async function* runCodexAppServerTurn(
+  input: CodexTurnInput,
+  peerFactory: () => Promise<RpcPeer> = makeCodexRpcPeer,
+): AsyncIterable<CodexTurnEvent> {
+  const peer = await peerFactory();
   if (input.signal?.aborted) {
     peer.close();
     return;
@@ -252,10 +269,23 @@ export async function* runCodexAppServerTurn(input: CodexTurnInput): AsyncIterab
   try {
     await peer.request("initialize", {
       clientInfo: { name: "naia-agent", title: "Naia Agent", version: "0.1.0" },
-      capabilities: null,
+      capabilities: { experimentalApi: true },
     });
     peer.notify("initialized");
     const { tmpdir } = await import("node:os");
+    // app-server 동적 도구는 한 RPC 안에서 즉시 결과를 돌려줘야 한다. 승인/외부처리 도구는
+    // ChatTurnHandler의 기존 게이트를 우회할 수 있으므로 자동승인 로컬 도구만 광고한다.
+    const dynamicTools = (input.tools ?? [])
+      // continue_speaking은 ChatTurnHandler가 인용 검증/상태 전이를 소유하는 내부 제어 도구다.
+      // app-server 안에서 선실행하면 그 검증을 우회하므로 외부 executor 도구만 native 실행한다.
+      .filter((tool) => tool.name !== "continue_speaking" && (tool.tier === undefined || tool.tier === "none") && tool.processing === undefined)
+      .map((tool) => ({
+        type: "function" as const,
+        name: tool.name,
+        description: tool.description,
+        inputSchema: tool.parameters,
+      }));
+    const advertised = new Set(dynamicTools.map((tool) => tool.name));
     const started = await peer.request("thread/start", {
       model: input.model,
       // 앱 채팅은 코딩 workspace가 아니다. 임시 디렉터리에서 시작해 주변 AGENTS.md/소스가
@@ -264,6 +294,7 @@ export async function* runCodexAppServerTurn(input: CodexTurnInput): AsyncIterab
       approvalPolicy: "never",
       sandbox: "read-only",
       ephemeral: true,
+      ...(dynamicTools.length ? { dynamicTools } : {}),
       ...(input.systemPrompt ? { baseInstructions: input.systemPrompt } : {}),
     }) as { thread?: { id?: string } };
     threadId = started.thread?.id ?? "";
@@ -279,7 +310,27 @@ export async function* runCodexAppServerTurn(input: CodexTurnInput): AsyncIterab
     for await (const message of peer.notifications()) {
       const params = (message.params ?? {}) as Record<string, unknown>;
       if (params["threadId"] !== threadId) continue;
-      if (message.method === "item/agentMessage/delta" && params["turnId"] === turnId) {
+      if (message.method === "item/tool/call" && params["turnId"] === turnId && message.id !== undefined) {
+        const id = typeof params["callId"] === "string" ? params["callId"] : String(message.id);
+        const name = typeof params["tool"] === "string" ? params["tool"] : "";
+        const args = params["arguments"] ?? {};
+        yield { kind: "toolUse", id, name, args };
+        let result: { output: string; isError?: boolean };
+        if (!name || !advertised.has(name) || !input.executeTool) {
+          result = { output: `dynamic tool '${name || "unknown"}' is unavailable`, isError: true };
+        } else {
+          try {
+            result = await input.executeTool({ id, name, args });
+          } catch (error) {
+            result = { output: error instanceof Error ? error.message : String(error), isError: true };
+          }
+        }
+        peer.respond(message.id, {
+          contentItems: [{ type: "inputText", text: result.output }],
+          success: !result.isError,
+        });
+        yield { kind: "toolResult", id, name, output: result.output, success: !result.isError };
+      } else if (message.method === "item/agentMessage/delta" && params["turnId"] === turnId) {
         const delta = params["delta"];
         if (typeof delta === "string" && delta) yield { kind: "text", text: delta };
       } else if (message.method === "item/reasoning/summaryTextDelta" && params["turnId"] === turnId) {

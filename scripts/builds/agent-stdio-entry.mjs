@@ -49,7 +49,7 @@ const discordToken = await discordTokenFromSecretPipe;
 // provider/tool composition and every later child process outside the secret fd lifetime.
 const { randomUUID } = await import("node:crypto");
 const { join } = await import("node:path");
-const { wireAgentUC1 } = await import("../../dist/main/composition/index.js");
+const { wireAgentUC1, wireSupervisor } = await import("../../dist/main/composition/index.js");
 const { makeCompositeAgentIngress, makePrefixedAgentEgress } =
   await import("../../dist/main/adapters/agent-transport-mux.js");
 const { DiscordChannelRuntime, makeSystemDiscordClock, parseDiscordRuntimeConfig } =
@@ -83,6 +83,8 @@ const { makeCompositeToolExecutor } =
   await import("../../dist/main/adapters/composite-tool-executor.js");
 const { makePanelToolExecutor } =
   await import("../../dist/main/adapters/panel-tool-executor.js");
+const { makeDelegateAgentSkill } =
+  await import("../../dist/main/adapters/delegate-agent-skill.js");
 const { makeGrpcServer } =
   await import("../../dist/main/adapters/grpc/grpc-server.js");
 const { makeActivityRouteRegistry, makeActivitySpeechEgress } =
@@ -118,6 +120,24 @@ const { adkPath, provider, resolver, providerLabel: label, credentials, settings
 let { toolExecutor } = deps;
 const { memory, memoryLabel, conversationLog, transcriptLabel, diag, personaSource, workspaceContextSource, knowledgeBackend } = deps;
 let skillsLabel = deps.skillsLabel;
+
+// 전주대 Discord/Codex 실습 경로: 신뢰된 채널의 메인 모델이 별도 터미널 Codex를 위임할 수 있다.
+// 실행 에이전트와 작업 경로를 모두 좁혀 임의 agent 선택 및 워크스페이스 밖 쓰기를 차단한다.
+if (adkPath) {
+  const delegateRun = async (agent, task, signal, egress) => {
+    const supervisor = wireSupervisor({ subAgentName: agent, subAgentOpts: {}, diag });
+    await supervisor.run(task, signal, egress);
+  };
+  const delegateExec = makeDelegateAgentSkill({
+    run: delegateRun,
+    defaultWorkdir: adkPath,
+    allowedWorkdirRoot: adkPath,
+    allowedAgents: ["codex"],
+    diag,
+  });
+  toolExecutor = toolExecutor ? makeCompositeToolExecutor([delegateExec, toolExecutor]) : delegateExec;
+  skillsLabel += " + delegate(codex/workspace-bound)";
+}
 
 let discordConfig;
 const discordBindingsProvided = Boolean(process.env.NAIA_DISCORD_BINDINGS_JSON);

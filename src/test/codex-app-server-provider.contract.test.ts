@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   checkCodexPreflight,
   makeCodexAppServerProvider,
+  runCodexAppServerTurn,
   type CodexRunTurn,
   type CodexTurnInput,
+  type RpcPeer,
 } from "../main/adapters/codex-app-server-provider.js";
 import { makeProviderResolver } from "../main/adapters/provider-resolver.js";
 import { resolveProviderRoute } from "../main/domain/provider-route.js";
@@ -69,6 +71,90 @@ describe("Codex app-server main provider", () => {
     const chunks = await collect(resolver.resolve(config).chat(config, [{ role: "user", content: "hi" }], {}));
     expect(fetchCalls).toBe(0);
     expect(chunks).toEqual([{ kind: "text", text: "ok" }, { kind: "finish" }]);
+  });
+
+  it("자동승인 도구만 app-server에 광고하고 native 실행 이벤트를 재실행 없이 정규화한다", async () => {
+    let captured: CodexTurnInput | undefined;
+    const runTurn: CodexRunTurn = (input) => {
+      captured = input;
+      return (async function* () {
+        yield { kind: "toolUse", id: "call-1", name: "get_time", args: { timezone: "Asia/Seoul" } } as const;
+        yield { kind: "toolResult", id: "call-1", name: "get_time", output: "10:30", success: true } as const;
+        yield { kind: "text", text: "현재 시각은 10:30입니다." } as const;
+        yield { kind: "completed" } as const;
+      })();
+    };
+    const executeTool = async () => ({ output: "10:30" });
+    const provider = makeCodexAppServerProvider({ runTurn });
+    const tools = [{ name: "get_time", description: "현재 시각", parameters: { type: "object" }, tier: "none" }] as const;
+    const chunks = await collect(provider.chat(
+      { provider: "codex", model: "gpt-5.4" },
+      [{ role: "user", content: "몇 시야?" }],
+      { tools, executeTool },
+    ));
+
+    expect(captured?.tools).toBe(tools);
+    expect(captured?.executeTool).toBe(executeTool);
+    expect(chunks).toEqual([
+      { kind: "toolUse", id: "call-1", name: "get_time", args: { timezone: "Asia/Seoul" }, handled: true },
+      { kind: "toolResult", id: "call-1", name: "get_time", output: "10:30", success: true, handled: true },
+      { kind: "text", text: "현재 시각은 10:30입니다." },
+      { kind: "finish" },
+    ]);
+  });
+
+  it("현재 app-server 동적 도구 RPC 계약으로 호출 결과를 같은 turn에 응답한다", async () => {
+    const requests: Array<{ method: string; params: unknown }> = [];
+    const responses: Array<{ id: number | string; result: unknown }> = [];
+    let closed = false;
+    const peer: RpcPeer = {
+      async request(method, params) {
+        requests.push({ method, params });
+        if (method === "thread/start") return { thread: { id: "thread-1" } };
+        if (method === "turn/start") return { turn: { id: "turn-1" } };
+        return {};
+      },
+      notify() {},
+      respond(id, result) { responses.push({ id, result }); },
+      notifications() {
+        return (async function* () {
+          yield { id: 77, method: "item/tool/call", params: {
+            threadId: "thread-1", turnId: "turn-1", callId: "call-77",
+            namespace: "dynamic", tool: "get_time", arguments: { timezone: "Asia/Seoul" },
+          } };
+          yield { method: "item/agentMessage/delta", params: { threadId: "thread-1", turnId: "turn-1", delta: "지금은 10:30입니다." } };
+          yield { method: "turn/completed", params: { threadId: "thread-1", turn: { id: "turn-1", status: "completed" } } };
+        })();
+      },
+      close() { closed = true; },
+    };
+    const events = [];
+    for await (const event of runCodexAppServerTurn({
+      model: "gpt-5.4",
+      prompt: "몇 시야?",
+      tools: [
+        { name: "get_time", description: "현재 시각", parameters: { type: "object" }, tier: "none" },
+        { name: "network", description: "외부 호출", parameters: { type: "object" }, tier: "network" },
+      ],
+      executeTool: async (call) => ({ output: call.name === "get_time" ? "10:30" : "unexpected" }),
+    }, async () => peer)) events.push(event);
+
+    expect(requests[0]).toMatchObject({ method: "initialize", params: { capabilities: { experimentalApi: true } } });
+    expect(requests[1]).toMatchObject({
+      method: "thread/start",
+      params: { dynamicTools: [{ type: "function", name: "get_time", inputSchema: { type: "object" } }] },
+    });
+    expect(JSON.stringify(requests[1])).not.toContain("network");
+    expect(responses).toEqual([{ id: 77, result: {
+      contentItems: [{ type: "inputText", text: "10:30" }], success: true,
+    } }]);
+    expect(events).toEqual([
+      { kind: "toolUse", id: "call-77", name: "get_time", args: { timezone: "Asia/Seoul" } },
+      { kind: "toolResult", id: "call-77", name: "get_time", output: "10:30", success: true },
+      { kind: "text", text: "지금은 10:30입니다." },
+      { kind: "completed" },
+    ]);
+    expect(closed).toBe(true);
   });
 
   it("CLI preflight가 설치/로그인 상태를 token 노출 없이 분류한다", async () => {

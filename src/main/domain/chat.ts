@@ -181,7 +181,8 @@ export type AgentRequest = ChatRequest | CancelRequest | ApprovalResponse | Cred
 export type ProviderChunk =
   | { readonly kind: "text"; readonly text: string }
   | { readonly kind: "thinking"; readonly text: string }
-  | { readonly kind: "toolUse"; readonly id: string; readonly name: string; readonly args: unknown }
+  | { readonly kind: "toolUse"; readonly id: string; readonly name: string; readonly args: unknown; readonly handled?: boolean }
+  | { readonly kind: "toolResult"; readonly id: string; readonly name: string; readonly output: string; readonly success: boolean; readonly handled: true }
   | { readonly kind: "usage"; readonly inputTokens: number; readonly outputTokens: number }
   | { readonly kind: "finish" };
 
@@ -224,6 +225,7 @@ export function mapProviderChunk(c: Exclude<ProviderChunk, { kind: "usage" }>): 
     case "text": return { kind: "text", text: c.text };
     case "thinking": return { kind: "thinking", text: c.text };
     case "toolUse": return { kind: "toolUse", toolCallId: c.id, toolName: c.name, args: c.args };
+    case "toolResult": return { kind: "toolResult", toolCallId: c.id, toolName: c.name, output: c.output, success: c.success };
     case "finish": return { kind: "finish" };
   }
 }

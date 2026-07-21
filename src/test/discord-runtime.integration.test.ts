@@ -15,7 +15,7 @@ import type {
   DiscordInboxPort,
   DiscordInboxRecord,
 } from "../main/ports/discord.js";
-import type { DiagnosticLog, ProviderPort } from "../main/ports/uc1.js";
+import type { DiagnosticLog, ProviderPort, ToolExecutorPort } from "../main/ports/uc1.js";
 
 const testText = {
   emptyReply: () => "EMPTY",
@@ -195,6 +195,7 @@ function makeHarness(options: {
   dedupe?: DiscordDedupePort;
   inbox?: DiscordInboxPort;
   gracefulStopTimeoutMs?: number;
+  toolExecutor?: ToolExecutorPort;
 } = {}) {
   const gateway = new FakeGateway();
   const sleeps: number[] = [];
@@ -288,6 +289,7 @@ function makeHarness(options: {
         rollback: () => true,
       }),
     },
+    ...(options.toolExecutor ? { toolExecutor: options.toolExecutor } : {}),
     diag,
   });
   wired.start?.();
@@ -296,6 +298,78 @@ function makeHarness(options: {
 }
 
 describe("T-DISCORD-RT-01/02 — authenticated ingress to existing chat pipeline", () => {
+  it("delivers ordered structured tool progress without exposing arguments or results", async () => {
+    let round = 0;
+    const dedupe = makeDedupe();
+    const provider: ProviderPort = {
+      async *chat(): AsyncIterable<ProviderChunk> {
+        if (round++ === 0) {
+          yield {
+            kind: "toolUse",
+            id: "call-secret-id",
+            name: "workspace_search",
+            args: { query: "private-query sk-secret" },
+          };
+          yield { kind: "finish" };
+          return;
+        }
+        yield { kind: "text", text: "safe final answer" };
+        yield { kind: "finish" };
+      },
+    };
+    const toolExecutor: ToolExecutorPort = {
+      specs: () => [{ name: "workspace_search", description: "search", parameters: {} }],
+      execute: async () => ({ output: "private-result bearer-secret" }),
+    };
+    const { gateway, runtime } = makeHarness({ provider, toolExecutor, dedupe });
+    await waitFor(() => gateway.handlers.length === 1);
+    gateway.message({ messageId: "tool-progress-success" });
+    await waitFor(() => answerReplies(gateway.connections[0]!).length === 3);
+
+    expect(answerReplies(gateway.connections[0]!).map((reply) => reply.content)).toEqual([
+      "TOOL_PROGRESS state=running tool=workspace_search",
+      "TOOL_PROGRESS state=succeeded tool=workspace_search",
+      "safe final answer",
+    ]);
+    expect(JSON.stringify(gateway.connections[0]!.replies)).not.toContain("private-query");
+    expect(JSON.stringify(gateway.connections[0]!.replies)).not.toContain("private-result");
+    expect(JSON.stringify(gateway.connections[0]!.replies)).not.toContain("call-secret-id");
+    expect(dedupe.inspect("binding_1", "tool-progress-success")).toEqual({ state: "completed" });
+    await runtime.stop();
+  });
+
+  it("reports a failed tool result and still preserves the final terminal reply", async () => {
+    let round = 0;
+    const provider: ProviderPort = {
+      async *chat(): AsyncIterable<ProviderChunk> {
+        if (round++ === 0) {
+          yield { kind: "toolUse", id: "failed-call", name: "@everyone\nunsafe", args: {} };
+          yield { kind: "finish" };
+          return;
+        }
+        yield { kind: "text", text: "recovered" };
+        yield { kind: "finish" };
+      },
+    };
+    const toolExecutor: ToolExecutorPort = {
+      specs: () => [{ name: "@everyone\nunsafe", description: "fails safely", parameters: {} }],
+      execute: async () => ({ output: "sensitive failure detail", isError: true }),
+    };
+    const { gateway, runtime } = makeHarness({ provider, toolExecutor });
+    await waitFor(() => gateway.handlers.length === 1);
+    gateway.message({ messageId: "tool-progress-failure" });
+    await waitFor(() => answerReplies(gateway.connections[0]!).length === 3);
+
+    expect(answerReplies(gateway.connections[0]!).map((reply) => reply.content)).toEqual([
+      "TOOL_PROGRESS state=running tool=tool",
+      "TOOL_PROGRESS state=failed tool=tool",
+      "recovered",
+    ]);
+    expect(JSON.stringify(gateway.connections[0]!.replies)).not.toContain("sensitive failure detail");
+    expect(JSON.stringify(gateway.connections[0]!.replies)).not.toContain("@everyone");
+    await runtime.stop();
+  });
+
   it("graceful shutdown rejects new ingress but lets an admitted turn persist and send", async () => {
     const entered = deferred<void>();
     const release = deferred<void>();

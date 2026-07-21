@@ -62,6 +62,14 @@ describe("T-DISCORD-RT-02/05 — production entry wiring", () => {
     expect(entry).toContain("...(consents ? { consents } : {})");
   });
 
+  it("wires the Codex delegate into the desktop host with workspace and agent allowlists", () => {
+    expect(entry).toContain("makeDelegateAgentSkill");
+    expect(entry).toContain("wireSupervisor({ subAgentName: agent");
+    expect(entry).toContain("allowedWorkdirRoot: adkPath");
+    expect(entry).toContain('allowedAgents: ["codex"]');
+    expect(entry.indexOf("makeDelegateAgentSkill")).toBeLessThan(entry.indexOf("wireAgentUC1({ ingress: agentIngress"));
+  });
+
   it("starts only after gRPC boot succeeds and gracefully drains Discord before shared resources", () => {
     expect(entry.indexOf("discordRuntime?.start()")).toBeGreaterThan(entry.indexOf("await grpcServer.start()"));
     expect(entry.indexOf("await discordRuntime?.gracefulStop()")).toBeLessThan(entry.indexOf("if (drain) await drain()"));

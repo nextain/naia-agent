@@ -403,7 +403,7 @@ export class ChatTurnHandler {
         if (signal.aborted) { terminalError("cancelled"); break; }                 // (a) provider 호출 전 가드
         if (!await authorizeOperation("main_llm")) break;
         const roundTools = controlConsumed ? externalTools : tools;
-        const round = await this.runRound(providerConfig, messages, memSystemPrompt, roundTools, signal, emit);
+        const round = await this.runRound(providerConfig, messages, memSystemPrompt, roundTools, signal, emit, req.requestId);
         if (round.usage) { totalUsage.inputTokens += round.usage.inputTokens; totalUsage.outputTokens += round.usage.outputTokens; } // 라운드 스냅샷 1회 합산
         if (round.aborted) { terminalError("cancelled"); break; }
         if (round.rejected !== undefined) { terminalError(`provider error: ${round.rejected}`); break; }
@@ -560,10 +560,29 @@ export class ChatTurnHandler {
   private async runRound(
     cfg: ProviderConfig, messages: readonly ChatMessage[], systemPrompt: string | undefined,
     tools: ProviderChatOpts["tools"], signal: AbortSignal, emit: (e: Parameters<AgentEgressPort["emit"]>[1]) => void,
+    requestId: string,
   ): Promise<RoundResult> {
     // 요청별 provider 해석(resolver 주입 시) — config(provider/model/naiaKey)로 라우팅. 미주입=고정 provider(fallback/테스트).
     const provider = this.d.resolver ? this.d.resolver.resolve(cfg) : this.d.provider;
-    const stream = provider.chat(cfg, messages, { ...(systemPrompt !== undefined ? { systemPrompt } : {}), signal, ...(tools && tools.length ? { tools } : {}) });
+    const executeTool = this.d.toolExecutor
+      ? async (call: ToolCall): Promise<{ output: string; isError?: boolean }> => {
+          const allowed = tools?.some((spec) => spec.name === call.name && (spec.tier === undefined || spec.tier === "none") && spec.processing === undefined);
+          if (!allowed) return { output: `provider-native tool '${call.name}' is not authorized`, isError: true };
+          try {
+            const result = await raceAbort(this.d.toolExecutor!.execute(call, { signal, requestId }), signal, this.d.toolTimeoutMs ?? TOOL_EXEC_TIMEOUT_MS);
+            return result ?? { output: `tool '${call.name}' timed out`, isError: true };
+          } catch (error) {
+            if (signal.aborted) throw error;
+            return { output: errMessage(error), isError: true };
+          }
+        }
+      : undefined;
+    const stream = provider.chat(cfg, messages, {
+      ...(systemPrompt !== undefined ? { systemPrompt } : {}),
+      signal,
+      ...(tools && tools.length ? { tools } : {}),
+      ...(executeTool ? { executeTool } : {}),
+    });
     const it = stream[Symbol.asyncIterator]();
     const closeIt = () => { try { void Promise.resolve(it.return?.()).catch(() => {}); } catch { /* return() 동기 throw 격리(R9) */ } };
     const ABORTED = Symbol("aborted");
@@ -584,7 +603,8 @@ export class ChatTurnHandler {
         const chunk = r.value;
         if (chunk.kind === "usage") { usage = { inputTokens: chunk.inputTokens, outputTokens: chunk.outputTokens }; } // 마지막 스냅샷 채택(델타 아님)
         else if (chunk.kind === "finish") { finished = true; closeIt(); break; }     // 라운드 종료자=finish 1회; 이후 chunk 무시
-        else if (chunk.kind === "toolUse") { calls.push({ id: chunk.id, name: chunk.name, args: chunk.args }); } // ⚠️ 버퍼링(emit 보류)
+        else if (chunk.kind === "toolUse" && !chunk.handled) { calls.push({ id: chunk.id, name: chunk.name, args: chunk.args }); } // ⚠️ 버퍼링(emit 보류)
+        else if (chunk.kind === "toolUse" || chunk.kind === "toolResult") { emit(mapProviderChunk(chunk)); } // provider-native 실행은 이미 완료/진행 중 — 재실행 금지
         else if (chunk.kind === "text") { text += chunk.text; emit(mapProviderChunk(chunk)); } // 즉시 표시 + history 누적
         else { emit(mapProviderChunk(chunk)); }                                      // thinking — 즉시 표시(history 누적 안 함)
       }

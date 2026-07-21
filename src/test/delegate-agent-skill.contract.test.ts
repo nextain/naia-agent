@@ -4,6 +4,9 @@ import { describe, it, expect } from "vitest";
 import { makeDelegateAgentSkill, type DelegateRunner } from "../main/adapters/delegate-agent-skill.js";
 import type { SubAgentEvent, SupervisorReport, TaskSpec } from "../main/domain/orchestration.js";
 import type { ToolCall } from "../main/domain/chat.js";
+import { mkdtempSync, mkdirSync, symlinkSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 const fullReport = (over: Partial<SupervisorReport> = {}): SupervisorReport => ({
   filesChanged: 1,
@@ -95,6 +98,26 @@ describe("delegate-agent-skill 계약 (메인 LLM → sub-agent 위임 도구)",
     expect(ok.isError).toBeUndefined();
     const no = await ex.execute(call({ agent: "codex", task: "x" }), {});
     expect(no.isError).toBe(true);
+  });
+
+  it("allowedWorkdirRoot 밖 경로와 symlink 탈출을 거부한다", async () => {
+    const base = mkdtempSync(join(tmpdir(), "naia-delegate-"));
+    const root = join(base, "workspace");
+    const inside = join(root, "project");
+    const outside = join(base, "outside");
+    mkdirSync(inside, { recursive: true });
+    mkdirSync(outside);
+    symlinkSync(outside, join(root, "escape"));
+    const fr = fakeRunner();
+    const ex = makeDelegateAgentSkill({
+      run: fr.run, defaultWorkdir: root, allowedWorkdirRoot: root, allowedAgents: ["codex"],
+    });
+    expect((await ex.execute(call({ agent: "codex", task: "ok", workdir: inside }), {})).isError).toBeUndefined();
+    expect((await ex.execute(call({ agent: "codex", task: "ok", workdir: "project" }), {})).isError).toBeUndefined();
+    expect((await ex.execute(call({ agent: "codex", task: "no", workdir: outside }), {})).isError).toBe(true);
+    expect((await ex.execute(call({ agent: "codex", task: "no", workdir: join(root, "escape") }), {})).isError).toBe(true);
+    expect(fr.calls).toHaveLength(2);
+    expect(fr.calls[1]?.task.workdir).toBe(inside);
   });
 
   it("abort signal → 중단 결과(러너 미호출)", async () => {

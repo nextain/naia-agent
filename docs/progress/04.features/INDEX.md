@@ -25,6 +25,7 @@
 | SPEC-011 | UC-014 | **UC-CLI host 진입점(S2 supervisor mode CLI)** — `bin/naia-agent-run.mjs`(host 셸: process I/O·SIGINT→AbortController cancel·platform shell 매핑 `/bin/sh -c`·`cmd /c`·egress→stdout/stderr) + `app/cli-supervise.ts`(순수: argv 파싱·이벤트/정직리포트 렌더·exit code 0/2/3 S4, Node 무의존) + package.json `bin`. ③ '🔌 배선대기'의 host측 완성 — naia-os 없이 단독 실행 가능. e2e 검증(shell 성공=0·실패=3·미지원 정직=3·검증실패=2·usage=64). | agent | Done | TEST-F-011 |
 | SPEC-012 | UC-015 | **두 opt-in 선제 발화 profile** — app-owned DJ·전시 controller, session activity stream, bounded renewable lease, exact preference index+durable outbox, grounded 전시 Q&A, shell 설정·TTS·yield/control/stop·subscription epoch fence. 범용 요청형 hardening은 후속 | agent+shell | Done | TEST-F-012 |
 | SPEC-013 | UC-016 | **Discord Gateway channel runtime** — strict binding manifest/generation authority, one-shot token bootstrap, ingress policy·binding/user session isolation, bounded inbox, durable reply cursor/dedupe, reconnect/rate-limit/cancel, nonce 인증 supervisor shutdown과 bounded graceful drain/partial fallback, expiring binding-scoped trust | agent | Done | TEST-F-013 |
+| SPEC-014 | UC-017 | **Codex 역할·도구 위임** — app-server `dynamicTools`/`item/tool/call` 즉시 응답, provider-native handled event, 승인·외부처리 도구 제외, desktop `delegate_agent`의 Codex-only+realpath workspace 경계, Discord 직렬 진행 egress | agent | Done | TEST-F-014 |
 
 ## 비고
 - SPEC-002 = 도구루프 + 9개 agent-local skill 묶음(개별 skill = TEST-F-002 의 test_ref 군). external(브라우저 CDP·youtube)만 루크머신 runtime.

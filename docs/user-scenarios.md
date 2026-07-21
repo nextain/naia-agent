@@ -337,6 +337,22 @@ detector나 cron 같은 외부 정책이 자유 발화를 시작하면 사용자
 범위 밖은 앱 재시작 후 자동 재개, 여러 프로세스/기기 사이 활동 이전, 별도 라디오 설정 UI다. 자유 발화
 전달을 위한 session activity stream과 stop RPC는 범위에 포함한다.
 
+## UC-CODEX-DELEGATION — Codex로 답하고 별도 터미널 Codex에 위임한다
+
+- 사용자는 Shell에서 Codex를 main provider로 선택하고 로컬 로그인으로 답을 받는다.
+- Codex가 시간 같은 자동승인 로컬 도구를 선택하면 app-server가 같은 turn 안에서 실행 결과를 받아 답을 이어간다.
+- 신뢰된 Discord 채널에서 코딩 작업을 요청하면 main provider는 workspace 안에서만 별도 Codex 세션에 위임한다.
+- 사용자는 같은 Discord reply에서 도구 시작·성공·실패를 보며, 내부 인자·출력·call id나 mention 문자열은 노출되지 않는다.
+- 승인 필요 도구와 외부 처리 도구는 이 즉시 실행 경로에서 제외된다.
+
+| 검증 ID | 시나리오 |
+|---------|----------|
+| T-CODEX-01 | current app-server `dynamicTools`와 `item/tool/call` 요청/응답 형상을 고정한다. |
+| T-CODEX-02 | handled tool 이벤트를 한 번만 실행하고 같은 id의 toolUse/toolResult를 방출한다. |
+| T-CODEX-03 | 승인·외부처리·내부 연속발화 제어 도구를 native 광고에서 제외한다. |
+| T-CODEX-04 | desktop entry가 Codex-only delegate를 구성하고 realpath workspace 탈출을 거부한다. |
+| T-CODEX-05 | Discord 진행 메시지가 직렬·bounded·비밀 없음이며 final reply/dedupe를 깨지 않는다. |
+
 ## Test Coverage Map
 
 | 요구 | 테스트 |

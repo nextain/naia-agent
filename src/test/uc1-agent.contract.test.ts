@@ -103,6 +103,34 @@ describe("ChatTurnHandler (turn 파이프라인)", () => {
     expect(emits.map((x) => x.e.kind)).toEqual(["text", "usage", "finish"]); // usage 는 finish 직전 1회
     expect(emits.every((x) => x.requestId === "r1")).toBe(true);
   });
+  it("provider-native 도구는 즉시 실행하고 handled 이벤트를 한 번만 내보낸다", async () => {
+    const { deps, emits } = capture();
+    let executions = 0;
+    const toolExecutor = {
+      specs: () => [{ name: "get_time", description: "현재 시각", parameters: { type: "object" }, tier: "none" }],
+      async execute(call: { id: string; name: string; args: unknown }) {
+        executions++;
+        expect(call.name).toBe("get_time");
+        return { output: "10:30" };
+      },
+    };
+    const native: ProviderPort = {
+      async *chat(_c, _m, opts): AsyncIterable<ProviderChunk> {
+        const call = { id: "native-1", name: "get_time", args: {} };
+        yield { kind: "toolUse", ...call, handled: true };
+        const result = await opts.executeTool!(call);
+        yield { kind: "toolResult", ...call, output: result.output, success: !result.isError, handled: true };
+        yield { kind: "text", text: "현재 10:30입니다." };
+        yield { kind: "finish" };
+      },
+    };
+    await new ChatTurnHandler({ ...deps, provider: native, toolExecutor }).onChatRequest(req());
+    expect(executions).toBe(1);
+    expect(emits.map(({ e }) => e.kind)).toEqual(["toolUse", "toolResult", "text", "usage", "finish"]);
+    expect(emits.find(({ e }) => e.kind === "toolResult")?.e).toMatchObject({
+      toolCallId: "native-1", toolName: "get_time", output: "10:30", success: true,
+    });
+  });
   it("provider rejection → usage→error(terminal), 레지스트리 해제", async () => {
     const { deps, emits } = capture();
     const failing: ProviderPort = { async *chat(_c: ProviderConfig, _m: readonly ChatMessage[], _o: ProviderChatOpts): AsyncIterable<ProviderChunk> { throw new Error("LLM down"); } };

@@ -42,6 +42,7 @@ interface ActiveTurn {
   readonly userText: string;
   readonly complete: () => void;
   readonly completion: Promise<void>;
+  emitTail: Promise<void>;
   text: string;
 }
 
@@ -51,6 +52,7 @@ const CONTROL = /[\u0000-\u001f\u007f]/;
 const REQUEST_PREFIX = "discord:";
 const REPLY_CHUNK = 2_000;
 const MAX_INPUT_CHARS = 4_000;
+const TOOL_PROGRESS_NAME = /^[A-Za-z0-9_.:-]{1,64}$/;
 const CONFIG_KEYS = new Set(["version", "generation", "bindings", "processingProfiles"]);
 const BINDING_KEYS = new Set([
   "bindingId",
@@ -175,6 +177,14 @@ function appendCodePoints(current: string, incoming: string, maxChars: number): 
   return current + Array.from(incoming).slice(0, remaining).join("");
 }
 
+function toolProgressMessage(
+  event: Extract<AgentEmit, { kind: "toolUse" | "toolResult" }>,
+): string {
+  const tool = TOOL_PROGRESS_NAME.test(event.toolName) ? event.toolName : "tool";
+  const state = event.kind === "toolUse" ? "running" : event.success ? "succeeded" : "failed";
+  return `TOOL_PROGRESS state=${state} tool=${tool}`;
+}
+
 export class DiscordChannelRuntime {
   readonly ingress: AgentIngressPort;
   readonly egress: AgentEgressPort;
@@ -239,10 +249,13 @@ export class DiscordChannelRuntime {
     };
     this.egress = {
       emit: (requestId, event) => {
-        void this.trackTask(
-          this.handleEmit(requestId, event)
-            .catch(() => this.diagnostic("egress_handling_failed")),
-        );
+        const turn = this.active.get(requestId);
+        if (!turn) return;
+        const handling = turn.emitTail
+          .then(() => this.handleEmit(requestId, event))
+          .catch(() => this.diagnostic("egress_handling_failed"));
+        turn.emitTail = handling;
+        void this.trackTask(handling);
       },
       emitCritical: (requestId, event) => {
         const turn = this.active.get(requestId);
@@ -756,6 +769,7 @@ export class DiscordChannelRuntime {
       userText,
       complete,
       completion,
+      emitTail: Promise.resolve(),
       text: "",
     });
     this.deps.diag.debug?.("discord dispatch", { activeCount: this.active.size, historyCount: previous.length });
@@ -802,6 +816,10 @@ export class DiscordChannelRuntime {
     if (!this.isLifecycleCurrent(turn.lifecycleEpoch)) return;
     if (event.kind === "text") {
       turn.text = appendCodePoints(turn.text, event.text, this.maxReplyChars);
+      return;
+    }
+    if (event.kind === "toolUse" || event.kind === "toolResult") {
+      await this.deliverToolProgress(turn, event);
       return;
     }
     if (event.kind === "processingDisclosure") return;
@@ -866,6 +884,29 @@ export class DiscordChannelRuntime {
       return this.isLifecycleCurrent(turn.lifecycleEpoch);
     } catch {
       this.diagnostic("disclosure_delivery_failed");
+      return false;
+    }
+  }
+
+  private async deliverToolProgress(
+    turn: ActiveTurn,
+    event: Extract<AgentEmit, { kind: "toolUse" | "toolResult" }>,
+  ): Promise<boolean> {
+    const connection = this.connection;
+    if (!connection || !this.isLifecycleCurrent(turn.lifecycleEpoch)
+      || !await this.ensureAuthoritative()
+      || !this.isLifecycleCurrent(turn.lifecycleEpoch)) return false;
+    try {
+      await connection.sendReply({
+        channelId: turn.channelId,
+        guildId: turn.guildId,
+        messageId: turn.messageId,
+        content: toolProgressMessage(event),
+        signal: turn.outboundSignal,
+      });
+      return this.isLifecycleCurrent(turn.lifecycleEpoch);
+    } catch {
+      this.diagnostic("tool_progress_delivery_failed");
       return false;
     }
   }

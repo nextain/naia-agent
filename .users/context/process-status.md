@@ -18,27 +18,26 @@
 
 ## 현재 작업
 
-### Issue #84 — 개인 라디오 DJ와 회사 전시 소개 제품 검증
+### Issue #87 — Codex main provider·동적 도구·Discord 터미널 위임
 
-**이슈**: [nextain/naia-agent#84](https://github.com/nextain/naia-agent/issues/84)
+**이슈**: [nextain/naia-agent#87](https://github.com/nextain/naia-agent/issues/87)
 
-**상태**: done — exact preference index와 durable Memory outbox, 8개 grounded DJ 멘트,
-8시간 lease, 전시 yield/Q&A/resume privacy, file-backed 설정, TTS 두 경로와 6종 제어 Playwright,
-실제 Tauri 설정 재수화를 검증했다. 물리 음질·현장 선호도는 별도 운영 관찰 범위다.
+**상태**: done — Codex app-server 동적 도구, handled 단일 실행, desktop의 Codex-only/workspace-bound
+위임, Discord의 비밀 없는 직렬 진행 메시지와 실제 Codex tool smoke를 검증했다.
 
-**추적**: REQ-013 → UC-015 → SPEC-012 → TEST-S-015 / TEST-F-012
+**추적**: REQ-015 → UC-017 → SPEC-014 → TEST-S-017 / TEST-F-014
 
-개인 라디오 DJ와 회사 전시 소개는 사용자 입력을 기다리지 않고 시작하는 닫힌 profile이다. 계약/통합
-테스트는 DJ 멘트·제어·lease와 전시 yield/resume·stale 폐기를 검증한다. 실제 Tauri 테스트가 증명한
-범위는 profile 저장·복원, DJ 실제 YouTube BGM·첫 결과·stop, 전시 greeting·stop이다.
+main Codex는 현재 app-server protocol의 동적 도구 요청에 즉시 결과를 돌려 답변을 이어간다. 별도
+터미널 위임은 Codex와 현재 ADK 실경로로 제한하며, Discord에는 인자·출력 없이 상태만 보낸다.
+실제 Discord 2채널 자격증명과 OS credential-store는 운영 인수 범위로 남긴다.
 
 | 게이트 | 상태 | 산출물 |
 |---|:---:|---|
-| P01 사용자 시나리오 | done | 두 profile과 실제/계약 검증 경계 |
-| P02 테스트 시나리오 | done | DJ/전시 계약·통합과 native Tauri 범위 분리 |
-| P03 요구사항 | done | FR-CONT-MVP 상태를 Implemented/Partial로 교정 |
-| P04 통합 테스트 | done | agent 제품·race·8시간 lease, shell 회귀·Playwright 7건, 실제 Tauri 설정 재수화, Rust build/check |
-| P05 완료 | done | REQ-013 자동 제품 수용 범위 Done; 물리 음질·현장 선호도는 운영 관찰로 분리 |
+| P01 사용자 시나리오 | done | Codex main/sub 역할과 Discord 진행 관찰 |
+| P02 테스트 시나리오 | done | dynamic RPC·단일 실행·경로 경계·진행 egress 계약 |
+| P03 요구사항 | done | FR-CODEX-1~5와 보안 NFR |
+| P04 통합 테스트 | done | 계약/통합 회귀와 실제 Codex dynamic-tool smoke |
+| P05 완료 | done | REQ-015 자동 검증 범위 Done; 실제 자격증명은 운영 인수 |
 
 > 아래 내용은 직전 시연 안정화 작업의 보존 기록이다. Issue #82 작업은 기존
 > `ollama-provider.ts`의 기존 시연 안정화 동작을 바꾸지 않는다.

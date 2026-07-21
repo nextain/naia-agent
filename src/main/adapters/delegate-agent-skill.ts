@@ -14,6 +14,8 @@ import type { ToolSpec, ToolCall } from "../domain/chat.js";
 import type { TaskSpec, SupervisorReport } from "../domain/orchestration.js";
 import type { SupervisorEgressPort } from "../ports/orchestration.js";
 import { isAborted } from "./signal-util.js";
+import { realpathSync } from "node:fs";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 
 /** host 가 주입하는 supervisor runner — agent 이름별로 roster+supervisor 를 조립해 1작업 구동.
  *  adapter 는 composition 을 모르므로(import-boundary), 이 함수로 캡슐화해 받는다. */
@@ -32,6 +34,8 @@ export interface DelegateAgentDeps {
   readonly diag?: DiagnosticLog;
   /** 허용 agent 화이트리스트(미주입 = roster 전체). */
   readonly allowedAgents?: readonly string[];
+  /** 지정 시 workdir는 이 실경로 아래로 제한한다(심볼릭 링크 탈출 포함 차단). */
+  readonly allowedWorkdirRoot?: string;
 }
 
 /** roster 전체 agent(문서용 enum — host 가 화이트리스트 좁힐 수도). */
@@ -73,10 +77,23 @@ export function makeDelegateAgentSkill(deps: DelegateAgentDeps): ToolExecutorPor
     async execute(call, opts) {
       const agent = readArg(call, "agent");
       const task = readArg(call, "task");
-      const workdir = readArg(call, "workdir") ?? deps.defaultWorkdir;
+      let workdir = readArg(call, "workdir") ?? deps.defaultWorkdir;
       if (!agent) return { output: "delegate_agent: 'agent' 인자 누락", isError: true };
       if (!allowed.includes(agent)) return { output: `delegate_agent: 지원 안 하는 agent '${agent}' (가능: ${allowed.join(", ")})`, isError: true };
       if (!task) return { output: "delegate_agent: 'task' 인자 누락", isError: true };
+      if (deps.allowedWorkdirRoot) {
+        try {
+          const root = realpathSync(deps.allowedWorkdirRoot);
+          if (!isAbsolute(workdir)) workdir = resolve(root, workdir);
+          workdir = realpathSync(workdir);
+          const rel = relative(root, workdir);
+          if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+            return { output: `delegate_agent: workdir가 허용 워크스페이스 밖입니다`, isError: true };
+          }
+        } catch {
+          return { output: "delegate_agent: workdir 실경로를 확인할 수 없습니다", isError: true };
+        }
+      }
       if (isAborted(opts.signal)) return { output: "delegate_agent: 중단됨(abort)" };
 
       let text = "";

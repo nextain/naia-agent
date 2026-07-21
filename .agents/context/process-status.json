@@ -9,23 +9,23 @@
   },
 
   "current_work": {
-    "issue": "REQ-013-proactive-speech-product-acceptance",
-    "title": "UC-015 — 개인 라디오 DJ와 회사 전시 소개 제품 검증",
-    "issue_doc": ".agents/progress/issue-84-proactive-speech-product-acceptance.md",
-    "github_issue": "https://github.com/nextain/naia-agent/issues/84",
-    "started": "2026-07-16",
-    "last_updated": "2026-07-21T09:45:00+09:00",
+    "issue": "REQ-015-codex-discord-delegation",
+    "title": "UC-017 — Codex main provider·동적 도구·Discord 터미널 위임",
+    "issue_doc": "docs/progress/99.dev-comm/discord-rag-prefreeze-policy-contract-2026-07-19.md",
+    "github_issue": "https://github.com/nextain/naia-agent/issues/87",
+    "started": "2026-07-20",
+    "last_updated": "2026-07-21T10:30:00+09:00",
     "status": "done",
-    "handoff_note": "Issue #84의 제품 자동 수용 범위가 구현·검증됐다. exact preference index와 durable Memory outbox, 8개 grounded DJ 멘트, 8시간 lease, 전시 yield/Q&A/resume privacy, file-backed 설정, TTS 두 경로와 6종 제어 Playwright, 실제 Tauri 설정 재수화를 포함한다. 물리 음질·현장 선호도와 실제 Discord 자격증명 인수는 별도 운영 관찰 범위다.",
-    "prior_work_note": "FR-CONT-1~8 범용 요청형 hardening은 profile slice와 별개로 Pending이다. shell feature 4bb9d2d1, native test d5ed59be."
+    "handoff_note": "Codex app-server 동적 도구 호출, handled 단일 실행, desktop Codex-only/workspace-bound 위임, Discord 비밀 없는 직렬 진행 메시지와 실제 Codex dynamic-tool smoke를 구현·검증했다.",
+    "prior_work_note": "REQ-013 선제 발화와 REQ-014 Discord runtime은 보존됐다. 실제 Discord 자격증명 2채널·OS credential store·현장 리허설은 운영 인수 범위다."
   },
 
   "sdlc_gates": {
-    "P01": { "status": "done", "name": "user_scenarios", "deliverable": "두 profile 시나리오와 실제/계약 검증 경계를 문서화", "ref": "docs/user-scenarios.md (UC-CONTINUE-SPEAKING)" },
-    "P02": { "status": "done", "name": "test_scenarios", "deliverable": "DJ/전시 계약·통합과 shell native Tauri의 서로 다른 검증 범위를 매핑", "ref": "docs/user-scenarios.md (Test Coverage Map)" },
-    "P03": { "status": "done", "name": "requirements", "deliverable": "FR-CONT-MVP-1~8 상태를 Implemented/Partial로 교정", "ref": "docs/requirements.md; docs/progress/01.requirements/INDEX.md" },
-    "P04": { "status": "done", "name": "integration_test", "deliverable": "agent 제품·race·8시간 lease 계약, shell 전체 회귀와 Playwright 7건, 실제 Tauri 설정 재수화, Rust build/check 통과", "ref": ".agents/progress/issue-84-proactive-speech-product-acceptance.md" },
-    "P05": { "status": "done", "name": "requirements_complete", "deliverable": "REQ-013의 자동 제품 수용 범위 Done. 물리 음질·현장 선호도는 운영 관찰로 분리", "ref": ".agents/progress/issue-84-proactive-speech-product-acceptance.md" }
+    "P01": { "status": "done", "name": "user_scenarios", "deliverable": "Codex main/sub 역할과 Discord 진행 관찰 시나리오", "ref": "docs/user-scenarios.md (UC-CODEX-DELEGATION)" },
+    "P02": { "status": "done", "name": "test_scenarios", "deliverable": "dynamic RPC·단일 실행·경로 경계·진행 egress 계약", "ref": "docs/progress/03.uc-tests/INDEX.md (TEST-S-017)" },
+    "P03": { "status": "done", "name": "requirements", "deliverable": "FR-CODEX-1~5와 두 NFR 경계", "ref": "docs/requirements.md; docs/progress/01.requirements/INDEX.md" },
+    "P04": { "status": "done", "name": "integration_test", "deliverable": "계약/통합 전체 회귀와 실제 Codex dynamic-tool smoke", "ref": "docs/progress/05.features-tests/INDEX.md (TEST-F-014)" },
+    "P05": { "status": "done", "name": "requirements_complete", "deliverable": "REQ-015 자동 검증 범위 Done; 실제 Discord 자격증명은 운영 인수로 분리", "ref": "docs/progress/01.requirements/INDEX.md (REQ-015)" }
   },
 
   "known_drift": {
