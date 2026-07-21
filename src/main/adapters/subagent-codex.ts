@@ -129,11 +129,11 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
         return endedSession(`codex unavailable: ${(e as Error).message}`);
       }
       const model = opts.model ?? task.model;
-      // exec <prompt> --json --ignore-user-config --sandbox workspace-write
+      // exec --json --ignore-user-config --sandbox workspace-write <prompt>
       //   -c approval_policy="never" --ephemeral [--skip-git-repo-check] [--model X]
       // Global config/add-dir 상속을 끊고 non-interactive workspace 경계를 fail-closed로 고정.
       const args: string[] = [
-        "exec", task.prompt, "--json",
+        "exec", "--json",
         "--ignore-user-config",
         "--sandbox", "workspace-write",
         "--config", 'approval_policy="never"',
@@ -141,6 +141,10 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
       ];
       if (skipGit) args.push("--skip-git-repo-check");
       if (model) args.push("--model", model);
+      // Keep the free-form request as the final positional argument.  Current
+      // Codex CLI releases parse exec options before its optional prompt;
+      // placing a multi-word task first can be interpreted as a command.
+      args.push(task.prompt);
       return spawnSubprocessSession({
         spawnFn, bin, args, cwd: task.workdir, hardKillMs, lineToEvent: codexLineToEvent, label: "codex",
       });

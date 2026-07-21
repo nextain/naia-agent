@@ -64,13 +64,14 @@ describe("subagent-codex 어댑터 계약 (SPEC-010 확장, fake child)", () => 
     port.spawn({ prompt: "hi", workdir: "/tmp/w" });
     expect(f.spawnArgs.command).toBe("codex");
     expect(f.spawnArgs.args).toEqual([
-      "exec", "hi", "--json",
+      "exec", "--json",
       "--ignore-user-config",
       "--sandbox", "workspace-write",
       "--config", 'approval_policy="never"',
       "--ephemeral",
       "--skip-git-repo-check",
       "--model", "gpt-5",
+      "hi",
     ]);
     expect(f.spawnArgs.cwd).toBe("/tmp/w");
   });
@@ -80,11 +81,12 @@ describe("subagent-codex 어댑터 계약 (SPEC-010 확장, fake child)", () => 
     const port = makeCodexSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn, skipGitRepoCheck: false });
     port.spawn({ prompt: "hi", workdir: "/tmp/w" });
     expect(f.spawnArgs.args).toEqual([
-      "exec", "hi", "--json",
+      "exec", "--json",
       "--ignore-user-config",
       "--sandbox", "workspace-write",
       "--config", 'approval_policy="never"',
       "--ephemeral",
+      "hi",
     ]);
   });
 

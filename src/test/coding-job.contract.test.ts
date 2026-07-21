@@ -147,6 +147,26 @@ describe("UC-CW durable coding jobs", () => {
     expect(service.get(first.jobId).state).toBe("cancelled");
   });
 
+  it("Codex course runner requires edits to both approved files before reporting success", () => {
+    let prompt = "";
+    const runner = makeCodexCodingJobRunner({
+      spawn(task) {
+        prompt = task.prompt;
+        return { events: (async function* () { yield { kind: "session_end" as const, ok: false, reason: "not run" }; })(), cancel: async () => {} };
+      },
+    });
+    runner.start({
+      job: {
+        jobId: "course_runner", workspacePath: "/course", worktreePath: "/course", branch: "selected-workspace", leaseId: "lease",
+        task: "Create the two course files", executionMode: "selected_workspace", allowedFiles: ["index.html", "hero.svg"], state: "running", createdAt: "now", updatedAt: "now",
+      },
+      terminal: () => {},
+    });
+    expect(prompt).toContain("first inspect index.html and hero.svg");
+    expect(prompt).toContain("material uncommitted edit to both approved files");
+    expect(prompt).toContain("Do not report success unless both files are edited");
+  });
+
   it("rejects workspace escapes and gives each job an exclusive generated lease", () => {
     const temp = mkdtempSync(join(tmpdir(), "naia-coding-job-"));
     const root = join(temp, "root"); const source = join(root, "repo"); const outside = join(temp, "outside");
