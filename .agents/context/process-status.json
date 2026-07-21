@@ -14,9 +14,9 @@
     "issue_doc": ".agents/progress/issue-84-proactive-speech-product-acceptance.md",
     "github_issue": "https://github.com/nextain/naia-agent/issues/84",
     "started": "2026-07-16",
-    "last_updated": "2026-07-19T01:00:00+09:00",
-    "status": "in_progress",
-    "handoff_note": "Issue #82의 두 opt-in profile 기술 slice는 main(8afe8d3)에 병합됐다. 계약/통합 테스트와 실제 Tauri 증적의 경계를 2026-07-19 문서에 교정했다. 실제 audible TTS·live barge-in/제어·장기 선호·날씨 UI·장시간/현장 검증은 follow-up #84.",
+    "last_updated": "2026-07-21T09:45:00+09:00",
+    "status": "done",
+    "handoff_note": "Issue #84의 제품 자동 수용 범위가 구현·검증됐다. exact preference index와 durable Memory outbox, 8개 grounded DJ 멘트, 8시간 lease, 전시 yield/Q&A/resume privacy, file-backed 설정, TTS 두 경로와 6종 제어 Playwright, 실제 Tauri 설정 재수화를 포함한다. 물리 음질·현장 선호도와 실제 Discord 자격증명 인수는 별도 운영 관찰 범위다.",
     "prior_work_note": "FR-CONT-1~8 범용 요청형 hardening은 profile slice와 별개로 Pending이다. shell feature 4bb9d2d1, native test d5ed59be."
   },
 
@@ -24,8 +24,8 @@
     "P01": { "status": "done", "name": "user_scenarios", "deliverable": "두 profile 시나리오와 실제/계약 검증 경계를 문서화", "ref": "docs/user-scenarios.md (UC-CONTINUE-SPEAKING)" },
     "P02": { "status": "done", "name": "test_scenarios", "deliverable": "DJ/전시 계약·통합과 shell native Tauri의 서로 다른 검증 범위를 매핑", "ref": "docs/user-scenarios.md (Test Coverage Map)" },
     "P03": { "status": "done", "name": "requirements", "deliverable": "FR-CONT-MVP-1~8 상태를 Implemented/Partial로 교정", "ref": "docs/requirements.md; docs/progress/01.requirements/INDEX.md" },
-    "P04": { "status": "in_progress", "name": "integration_test", "deliverable": "agent 계약/통합과 shell native 시작 시나리오는 통과. audible TTS·live barge-in/제어·장기/현장 검증이 남음", "ref": "src/test/personal-radio-dj.contract.test.ts; src/test/exhibition-intro.contract.test.ts; nextain/naia-shell#381; nextain/naia-agent#84" },
-    "P05": { "status": "pending", "name": "requirements_complete", "deliverable": "REQ-013 Partial. #84의 product wiring·live acceptance와 문서 재검증 뒤 Done", "ref": "https://github.com/nextain/naia-agent/issues/84" }
+    "P04": { "status": "done", "name": "integration_test", "deliverable": "agent 제품·race·8시간 lease 계약, shell 전체 회귀와 Playwright 7건, 실제 Tauri 설정 재수화, Rust build/check 통과", "ref": ".agents/progress/issue-84-proactive-speech-product-acceptance.md" },
+    "P05": { "status": "done", "name": "requirements_complete", "deliverable": "REQ-013의 자동 제품 수용 범위 Done. 물리 음질·현장 선호도는 운영 관찰로 분리", "ref": ".agents/progress/issue-84-proactive-speech-product-acceptance.md" }
   },
 
   "known_drift": {

@@ -26,7 +26,7 @@ scripts/check-traceability.mjs 가 파싱. 상세 = docs/requirements.md, 99.dev
 | REQ-010 | 대화 압축(host-loop) | **정보보존형 compaction 배선** — 예산 압박 시 `naia-memory.compact()` 로 head 요약→systemPrompt 주입, 메시지는 tail 만, recap+anchors `attachHandoff` 로 영속(cross-session). 드롭형(REQ-009)은 폴백. no-throw 격리·deadline·무회귀(미주입=압축 없음) | Done | UC-013 | SPEC-008 | TEST-S-013 |
 | REQ-011 | 단독 CLI 오케스트레이션 | **단독 CLI sub-agent 오케스트레이션** — 외부 코딩에이전트(pi/opencode + roster, claude-code/codex/gemini 선언)를 `SubAgentPort` 로 spawn → 이벤트 스트림 forward + 인터럽트(SIGTERM→유예→SIGKILL). supervisor 가 단일 작업 감독·정직보고 1회. composition `wireSupervisor` 조립. (FR-CLI-1~4) ✅ 코어+composition+**단독 CLI bin 호스트**(SPEC-011) 완성; naia-os gRPC 호스트만 후속(②) | Done | UC-014 | SPEC-009, SPEC-010, SPEC-011 | TEST-S-014 |
 | REQ-012 | 정직보고(workspace+verify) | **정직보고** — `WorkspacePort`(git status 변경 요약) + `VerifierPort`(test/lint/build 러너, **never-throws** AC2) → session_end 후 검증해 filesChanged/검증 수치 리포트. (FR-CLI-5~6) | Done | UC-014 | SPEC-010 | TEST-S-014 |
-| REQ-013 | 선제·연속 발화 | 두 opt-in profile(DJ·전시)의 app-owned 활동과 shell 전달. 코드·계약 구현, 실제 Tauri는 시작/BGM 또는 greeting/stop까지만; 범용 요청형 hardening·장기 선호·현장 검증은 후속 | Partial | UC-015 | SPEC-012 | TEST-S-015 |
+| REQ-013 | 선제·연속 발화 | 두 opt-in profile(DJ·전시)의 app-owned 활동과 shell 전달. exact 명시 선호·8개 grounded 멘트·8시간 lease·전시 privacy/yield/resume·file-backed 설정·TTS 두 경로·6종 제어·stale fence를 자동 수용. 물리 음질·현장 선호도는 운영 관찰 | Done | UC-015 | SPEC-012 | TEST-S-015 |
 | REQ-014 | Discord 채널 runtime | **Discord Gateway 채널 runtime** — one-shot token injection, 정확한 binding/사용자/참여 정책, 채널별 Agent ingress·기록 격리, durable dedupe, RESUME/reconnect·bounded reply/rate-limit, binding-scoped trust (FR-DISCORD-RT-1~7). 자동화 구현 완료, 실제 bot 인수 대기 | In-progress | UC-016 | SPEC-013 | TEST-S-016 |
 
 ## 비기능 요구사항 (NFR → REQ)

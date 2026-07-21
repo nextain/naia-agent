@@ -277,7 +277,13 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ManagedMemoryPort & Compac
           ? { idempotencyKey: `${opts.idempotencyKey}:assistant` }
           : {}),
       }, { project, sessionId });
-      if (opts?.durable) await sys.flush();
+      if (opts?.durable) {
+        const flush = (sys as MemorySystem & { flush?: () => Promise<void> }).flush;
+        if (typeof flush !== "function") {
+          throw new Error("naia-memory durable flush is unavailable");
+        }
+        await flush.call(sys);
+      }
     },
 
     async close(): Promise<void> {
