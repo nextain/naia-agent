@@ -73,6 +73,30 @@ describe("delegate-agent-skill 계약 (메인 LLM → sub-agent 위임 도구)",
     expect(fr.calls).toHaveLength(0);
   });
 
+  it("host가 workspace를 바꾸면 다음 위임부터 기본 경로와 허용 루트를 함께 갱신한다", async () => {
+    const base = mkdtempSync(join(tmpdir(), "naia-delegate-dynamic-"));
+    const first = join(base, "first");
+    const second = join(base, "second");
+    mkdirSync(first);
+    mkdirSync(second);
+    let selected = first;
+    const fr = fakeRunner();
+    const ex = makeDelegateAgentSkill({
+      run: fr.run,
+      defaultWorkdir: first,
+      allowedWorkdirRoot: first,
+      resolveDefaultWorkdir: () => selected,
+      resolveAllowedWorkdirRoot: () => selected,
+      allowedAgents: ["codex"],
+    });
+
+    await ex.execute(call({ agent: "codex", task: "first task" }), {});
+    selected = second;
+    await ex.execute(call({ agent: "codex", task: "second task" }), {});
+
+    expect(fr.calls.map(({ task }) => task.workdir)).toEqual([first, second]);
+  });
+
   it("검증 실패 보고 → verification=fail(체크명 표시)", async () => {
     const fr = fakeRunner({ report: fullReport({ sessionOk: false, verification: { ok: false, checks: [{ name: "test", pass: false }] } }) });
     const ex = makeDelegateAgentSkill({ run: fr.run, defaultWorkdir: "/ws" });

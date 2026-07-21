@@ -120,6 +120,7 @@ const { adkPath, provider, resolver, providerLabel: label, credentials, settings
 let { toolExecutor } = deps;
 const { memory, memoryLabel, conversationLog, transcriptLabel, diag, personaSource, workspaceContextSource, knowledgeBackend } = deps;
 let skillsLabel = deps.skillsLabel;
+let currentAdkPath = adkPath;
 
 // 전주대 Discord/Codex 실습 경로: 신뢰된 채널의 메인 모델이 별도 터미널 Codex를 위임할 수 있다.
 // 실행 에이전트와 작업 경로를 모두 좁혀 임의 agent 선택 및 워크스페이스 밖 쓰기를 차단한다.
@@ -132,6 +133,8 @@ if (adkPath) {
     run: delegateRun,
     defaultWorkdir: adkPath,
     allowedWorkdirRoot: adkPath,
+    resolveDefaultWorkdir: () => currentAdkPath,
+    resolveAllowedWorkdirRoot: () => currentAdkPath,
     allowedAgents: ["codex"],
     diag,
   });
@@ -184,7 +187,6 @@ if (discordGeneration && discordStatusPath && discordAuthorityPath) {
 // ★ 라이브 reload(정본 R1-2 "startup-only 금지"): 사용자가 naia-os 에서 모델/프로바이더 교체 시 OS 가
 //   naia-settings(config.json) 갱신 후 SetWorkspace/ReloadSettings 재호출 → 여기서 재로딩해 handler 활성 config 를 swap.
 //   applyDefaultConfig 는 wireAgentUC1 반환(아래)으로 채워진다 — 클로저가 *호출 시점* 값을 보므로 선언 순서 무관.
-let currentAdkPath = adkPath;
 let activeProcessingConfig = defaultConfig;
 let activeMemoryProcessingConfig = currentAdkPath ? settingsStore.loadMemoryConfig(currentAdkPath) : null;
 let applyDefaultConfig = (_c) => {};

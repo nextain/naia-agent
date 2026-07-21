@@ -66,7 +66,10 @@ describe("T-DISCORD-RT-02/05 — production entry wiring", () => {
     expect(entry).toContain("makeDelegateAgentSkill");
     expect(entry).toContain("wireSupervisor({ subAgentName: agent");
     expect(entry).toContain("allowedWorkdirRoot: adkPath");
+    expect(entry).toContain("resolveDefaultWorkdir: () => currentAdkPath");
+    expect(entry).toContain("resolveAllowedWorkdirRoot: () => currentAdkPath");
     expect(entry).toContain('allowedAgents: ["codex"]');
+    expect(entry.indexOf("let currentAdkPath = adkPath")).toBeLessThan(entry.indexOf("makeDelegateAgentSkill({"));
     expect(entry.indexOf("makeDelegateAgentSkill")).toBeLessThan(entry.indexOf("wireAgentUC1({ ingress: agentIngress"));
   });
 

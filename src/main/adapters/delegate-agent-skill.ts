@@ -31,11 +31,15 @@ export interface DelegateAgentDeps {
   readonly run: DelegateRunner;
   /** workdir 미지정 시 기본 작업 디렉터리. */
   readonly defaultWorkdir: string;
+  /** host가 런타임에 workspace를 바꾸는 경우 호출 시점의 기본 경로를 반환한다. */
+  readonly resolveDefaultWorkdir?: () => string;
   readonly diag?: DiagnosticLog;
   /** 허용 agent 화이트리스트(미주입 = roster 전체). */
   readonly allowedAgents?: readonly string[];
   /** 지정 시 workdir는 이 실경로 아래로 제한한다(심볼릭 링크 탈출 포함 차단). */
   readonly allowedWorkdirRoot?: string;
+  /** host가 런타임에 workspace를 바꾸는 경우 호출 시점의 허용 루트를 반환한다. */
+  readonly resolveAllowedWorkdirRoot?: () => string;
   /** 외부 요청이 workdir를 바꾸게 할지. 기본 false = host가 선택한 단일 workspace에 고정. */
   readonly allowWorkdirOverride?: boolean;
 }
@@ -85,13 +89,15 @@ export function makeDelegateAgentSkill(deps: DelegateAgentDeps): ToolExecutorPor
       if (requestedWorkdir !== undefined && !deps.allowWorkdirOverride) {
         return { output: "delegate_agent: workdir override는 허용되지 않습니다", isError: true };
       }
-      let workdir = requestedWorkdir ?? deps.defaultWorkdir;
+      const defaultWorkdir = deps.resolveDefaultWorkdir?.() ?? deps.defaultWorkdir;
+      const allowedWorkdirRoot = deps.resolveAllowedWorkdirRoot?.() ?? deps.allowedWorkdirRoot;
+      let workdir = requestedWorkdir ?? defaultWorkdir;
       if (!agent) return { output: "delegate_agent: 'agent' 인자 누락", isError: true };
       if (!allowed.includes(agent)) return { output: `delegate_agent: 지원 안 하는 agent '${agent}' (가능: ${allowed.join(", ")})`, isError: true };
       if (!task) return { output: "delegate_agent: 'task' 인자 누락", isError: true };
-      if (deps.allowedWorkdirRoot) {
+      if (allowedWorkdirRoot) {
         try {
-          const root = realpathSync(deps.allowedWorkdirRoot);
+          const root = realpathSync(allowedWorkdirRoot);
           if (!isAbsolute(workdir)) workdir = resolve(root, workdir);
           workdir = realpathSync(workdir);
           const rel = relative(root, workdir);
