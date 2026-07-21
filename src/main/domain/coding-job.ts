@@ -1,0 +1,57 @@
+export const codingJobStates = [
+  "queued", "running", "cancelling", "cancelled", "completed", "failed",
+] as const;
+
+export type CodingJobState = (typeof codingJobStates)[number];
+
+export interface CodingJobCheckpoint {
+  readonly runner: "codex";
+  readonly threadId: string;
+}
+
+export interface CodingJob {
+  readonly jobId: string;
+  readonly workspacePath: string;
+  readonly worktreePath: string;
+  readonly branch: string;
+  readonly leaseId: string;
+  readonly task: string;
+  readonly model?: string;
+  readonly state: CodingJobState;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly error?: string;
+  readonly checkpoint?: CodingJobCheckpoint;
+}
+
+export class CodingJobNotFoundError extends Error {}
+export class CodingJobResumeUnavailableError extends Error {}
+
+export class CodingJobTransitionError extends Error {
+  constructor(readonly jobId: string, readonly from: CodingJobState, readonly to: CodingJobState) {
+    super(`invalid coding job transition: ${from} -> ${to}`);
+  }
+}
+
+const allowed: Readonly<Record<CodingJobState, readonly CodingJobState[]>> = {
+  queued: ["running", "cancelling", "failed"],
+  running: ["cancelling", "completed", "failed"],
+  cancelling: ["cancelled", "failed"],
+  cancelled: [],
+  completed: [],
+  failed: [],
+};
+
+export function transitionCodingJob(
+  job: CodingJob,
+  to: CodingJobState,
+  now: string,
+  error?: string,
+): CodingJob {
+  if (!allowed[job.state].includes(to)) throw new CodingJobTransitionError(job.jobId, job.state, to);
+  return { ...job, state: to, updatedAt: now, ...(error ? { error } : {}) };
+}
+
+export function isCodingJobTerminal(state: CodingJobState): boolean {
+  return state === "cancelled" || state === "completed" || state === "failed";
+}

@@ -20,6 +20,13 @@ service NaiaAgent {
   rpc Chat(ChatRequest) returns (stream AgentEvent);
 
   rpc Cancel(CancelRequest) returns (Ack);
+  // Durable, isolated Codex coding workers.  These are intentionally separate
+  // from Chat/Cancel request ids and do not claim resume without a checkpoint.
+  rpc StartCodingJob(StartCodingJobRequest) returns (CodingJob);
+  rpc GetCodingJob(GetCodingJobRequest) returns (CodingJob);
+  rpc ListCodingJobs(ListCodingJobsRequest) returns (CodingJobList);
+  rpc CancelCodingJob(CancelCodingJobRequest) returns (CodingJob);
+  rpc ResumeCodingJob(ResumeCodingJobRequest) returns (CodingJob);
   rpc ApprovalResponse(ApprovalResponseRequest) returns (Ack);
   rpc UpdateCreds(CredsUpdate) returns (Ack);          // 키체인 overlay(런타임 우선)
   // 구 standalone tool_request — new-core 미지원: 즉시 error 이벤트(셸 120s 행 방지). (R1-4)
@@ -139,6 +146,33 @@ message ActivityResume {
   string resume_token = 4;
 }
 message CancelRequest { string request_id = 1; optional string activity_id = 2; }
+enum CodingJobState {
+  CODING_JOB_STATE_UNSPECIFIED = 0;
+  QUEUED = 1;
+  RUNNING = 2;
+  CANCELLING = 3;
+  CANCELLED = 4;
+  COMPLETED = 5;
+  FAILED = 6;
+}
+message CodingJob {
+  string job_id = 1;
+  string workspace_path = 2;
+  string worktree_path = 3;
+  string branch = 4;
+  CodingJobState state = 5;
+  string created_at = 6;
+  string updated_at = 7;
+  optional string error = 8;
+  optional string model = 9;
+  bool resumable = 10;
+}
+message StartCodingJobRequest { string workspace_path = 1; string task = 2; optional string model = 3; }
+message GetCodingJobRequest { string job_id = 1; }
+message ListCodingJobsRequest { optional string workspace_path = 1; }
+message CodingJobList { repeated CodingJob jobs = 1; }
+message CancelCodingJobRequest { string job_id = 1; }
+message ResumeCodingJobRequest { string job_id = 1; }
 message ApprovalResponseRequest {
   string request_id = 1; string tool_call_id = 2;
   enum Decision { REJECT = 0; APPROVE = 1; }

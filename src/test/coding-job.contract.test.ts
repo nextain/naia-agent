@@ -1,0 +1,142 @@
+import { describe, expect, it } from "vitest";
+import { CodingJobService, CodingJobResumeUnavailableError } from "../main/app/coding-job-service.js";
+import { decodeCodingJobStdio, dispatchCodingJobStdio } from "../main/adapters/coding-job-stdio.js";
+import { makeCodexCodingJobRunner } from "../main/adapters/coding-job-codex-runner.js";
+import { makeGitCodingJobWorktrees } from "../main/adapters/coding-job-worktree.js";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import type { CodingJob } from "../main/domain/coding-job.js";
+import { transitionCodingJob } from "../main/domain/coding-job.js";
+import type { CodingJobRunnerPort, CodingJobStore, CodingJobWorktreePort } from "../main/ports/coding-job.js";
+import type { SubAgentPort } from "../main/ports/orchestration.js";
+
+function fixture() {
+  const jobs = new Map<string, CodingJob>();
+  const released: string[] = [];
+  const cancelled: string[] = [];
+  const terminals = new Map<string, (r: { ok: boolean; reason?: string }) => void>();
+  const store: CodingJobStore = {
+    get: (id) => jobs.get(id), list: (workspace) => [...jobs.values()].filter((j) => !workspace || j.workspacePath === workspace), save: (job) => jobs.set(job.jobId, job),
+  };
+  const worktrees: CodingJobWorktreePort = {
+    allocate: ({ jobId, workspacePath }) => ({ workspacePath: `/root/${workspacePath}`, worktreePath: `/work/${jobId}`, branch: `naia/coding-job/${jobId}`, leaseId: `lease-${jobId}`, release: () => { released.push(jobId); } }),
+  };
+  const runner: CodingJobRunnerPort = {
+    start: ({ job, terminal }) => { terminals.set(job.jobId, terminal); return { cancel: async () => { cancelled.push(job.jobId); } }; },
+  };
+  let n = 0;
+  const service = new CodingJobService({ store, worktrees, runner, ids: () => `job_${++n}abcdef`, now: () => "2026-07-22T00:00:00.000Z" });
+  return { service, jobs, released, cancelled, terminals };
+}
+
+describe("UC-CW durable coding jobs", () => {
+  it("creates isolated concurrent worktrees and durable running jobs", () => {
+    const f = fixture();
+    const first = f.service.start({ workspacePath: "alpha", task: "one" });
+    const second = f.service.start({ workspacePath: "alpha", task: "two" });
+    expect(first.state).toBe("running");
+    expect(second.state).toBe("running");
+    expect(first.worktreePath).not.toBe(second.worktreePath);
+    expect(first.branch).not.toBe(second.branch);
+    expect(f.service.list("/root/alpha")).toHaveLength(2);
+  });
+
+  it("cancels only the requested job and keeps terminal state immutable", async () => {
+    const f = fixture();
+    const first = f.service.start({ workspacePath: "alpha", task: "one" });
+    const second = f.service.start({ workspacePath: "alpha", task: "two" });
+    await f.service.cancel(first.jobId);
+    expect(f.cancelled).toEqual([first.jobId]);
+    expect(f.service.get(first.jobId).state).toBe("cancelled");
+    f.terminals.get(first.jobId)?.({ ok: true });
+    expect(f.service.get(first.jobId).state).toBe("cancelled");
+    expect(f.service.get(second.jobId).state).toBe("running");
+    expect(f.released).toEqual([first.jobId]);
+  });
+
+  it("does not claim a resume without a persisted runner checkpoint", () => {
+    const f = fixture();
+    const job = f.service.start({ workspacePath: "alpha", task: "one" });
+    expect(() => f.service.resume(job.jobId)).toThrow(CodingJobResumeUnavailableError);
+  });
+
+  it("rejects invalid terminal transitions", () => {
+    const f = fixture();
+    const job = f.service.start({ workspacePath: "alpha", task: "one" });
+    const complete = transitionCodingJob(f.service.get(job.jobId), "completed", "later");
+    expect(() => transitionCodingJob(complete, "running", "later2")).toThrow("invalid coding job transition");
+  });
+
+  it("has explicit JSON-line stdio command and precondition response", async () => {
+    const f = fixture();
+    const start = decodeCodingJobStdio('{"command":"coding_job.start","workspacePath":"alpha","task":"one"}');
+    expect(start).not.toBeNull();
+    const started = await dispatchCodingJobStdio(f.service, start!);
+    expect(started.ok).toBe(true);
+    const jobId = ((started.job as CodingJob).jobId);
+    const resumed = await dispatchCodingJobStdio(f.service, { command: "coding_job.resume", jobId });
+    expect(resumed).toMatchObject({ ok: false, code: "FAILED_PRECONDITION" });
+  });
+
+  it("records runner spawn failure as durable failed rather than running", () => {
+    const f = fixture();
+    const failing: CodingJobRunnerPort = { start: () => { throw new Error("codex executable unavailable"); } };
+    const service = new CodingJobService({
+      store: { get: (id) => f.jobs.get(id), list: () => [...f.jobs.values()], save: (job) => f.jobs.set(job.jobId, job) },
+      worktrees: { allocate: ({ jobId, workspacePath }) => ({ workspacePath, worktreePath: `/work/${jobId}`, branch: `naia/coding-job/${jobId}`, leaseId: `lease-${jobId}`, release: () => { f.released.push(jobId); } }) },
+      runner: failing, ids: () => "job_spawnfailure", now: () => "now",
+    });
+    const job = service.start({ workspacePath: "alpha", task: "one" });
+    expect(job).toMatchObject({ state: "failed", error: "codex executable unavailable" });
+    expect(service.get(job.jobId)).toMatchObject({ state: "failed", error: "codex executable unavailable" });
+  });
+
+  it("Codex runner persists its session failure and cancellation stays with its child", async () => {
+    const cancelled: string[] = [];
+    const spawned: string[] = [];
+    const terminals: (() => void)[] = [];
+    const subAgent: SubAgentPort = {
+      spawn(task) {
+        spawned.push(task.workdir);
+        let finish: ((value: IteratorResult<{ kind: "session_end"; ok: boolean; reason?: string }>) => void) | undefined;
+        const events: AsyncIterable<{ kind: "session_end"; ok: boolean; reason?: string }> = {
+          [Symbol.asyncIterator]() { return { next: () => new Promise((resolve) => { finish = resolve; }) }; },
+        };
+        terminals.push(() => finish?.({ value: { kind: "session_end", ok: false, reason: "codex missing" }, done: false }));
+        return { events, cancel: async () => { cancelled.push(task.workdir); } };
+      },
+    };
+    const jobs = new Map<string, CodingJob>(); let n = 0;
+    const service = new CodingJobService({
+      store: { get: (id) => jobs.get(id), list: () => [...jobs.values()], save: (job) => jobs.set(job.jobId, job) },
+      worktrees: { allocate: ({ jobId, workspacePath }) => ({ workspacePath, worktreePath: `/work/${jobId}`, branch: `naia/coding-job/${jobId}`, leaseId: `lease-${jobId}`, release: () => {} }) },
+      runner: makeCodexCodingJobRunner(subAgent), ids: () => `job_runner_${++n}`, now: () => "now",
+    });
+    const first = service.start({ workspacePath: "alpha", task: "one" });
+    const second = service.start({ workspacePath: "alpha", task: "two" });
+    expect(spawned).toEqual([first.worktreePath, second.worktreePath]);
+    await service.cancel(first.jobId);
+    expect(cancelled).toEqual([first.worktreePath]);
+    terminals[1]?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(service.get(second.jobId)).toMatchObject({ state: "failed", error: "codex missing" });
+    expect(service.get(first.jobId).state).toBe("cancelled");
+  });
+
+  it("rejects workspace escapes and gives each job an exclusive generated lease", () => {
+    const temp = mkdtempSync(join(tmpdir(), "naia-coding-job-"));
+    const root = join(temp, "root"); const source = join(root, "repo"); const outside = join(temp, "outside");
+    mkdirSync(source, { recursive: true }); mkdirSync(outside, { recursive: true });
+    const calls: string[][] = [];
+    const worktrees = makeGitCodingJobWorktrees({ allowedWorkspaceRoot: root, worktreeRoot: join(temp, "managed"), git: (args) => { calls.push([...args]); } });
+    try {
+      const allocation = worktrees.allocate({ jobId: "job_abcdef", workspacePath: source });
+      expect(allocation.branch).toBe("naia/coding-job/job_abcdef");
+      expect(calls).toContainEqual(["worktree", "add", "--no-track", "-b", allocation.branch, allocation.worktreePath, "HEAD"]);
+      expect(() => worktrees.allocate({ jobId: "job_abcdef", workspacePath: source })).toThrow("unavailable");
+      expect(() => worktrees.allocate({ jobId: "job_escape", workspacePath: outside })).toThrow("outside configured root");
+      allocation.release();
+    } finally { rmSync(temp, { recursive: true, force: true }); }
+  });
+});

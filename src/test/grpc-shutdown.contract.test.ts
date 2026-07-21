@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
+import { fileURLToPath } from "node:url";
 import { makeGrpcServer, type GrpcServer } from "../main/adapters/grpc/grpc-server.js";
 
-const PROTO = new URL("../main/adapters/grpc/naia_agent.proto", import.meta.url).pathname;
+const PROTO = fileURLToPath(new URL("../main/adapters/grpc/naia_agent.proto", import.meta.url));
 
 function makeClient(addr: string): grpc.Client & {
   shutdown(

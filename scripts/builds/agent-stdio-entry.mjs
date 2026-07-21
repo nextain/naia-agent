@@ -87,6 +87,16 @@ const { makeDelegateAgentSkill } =
   await import("../../dist/main/adapters/delegate-agent-skill.js");
 const { makeGrpcServer } =
   await import("../../dist/main/adapters/grpc/grpc-server.js");
+const { CodingJobService } =
+  await import("../../dist/main/app/coding-job-service.js");
+const { makeOwnerOnlyCodingJobStore, defaultCodingJobStatePath } =
+  await import("../../dist/main/adapters/coding-job-store.js");
+const { makeGitCodingJobWorktrees } =
+  await import("../../dist/main/adapters/coding-job-worktree.js");
+const { makeCodexCodingJobRunner } =
+  await import("../../dist/main/adapters/coding-job-codex-runner.js");
+const { selectSubAgent } =
+  await import("../../dist/main/adapters/subagent-roster.js");
 const { makeActivityRouteRegistry, makeActivitySpeechEgress } =
   await import("../../dist/main/adapters/activity-speech-egress.js");
 const { makeActivityRadioDjBgm } =
@@ -121,6 +131,17 @@ let { toolExecutor } = deps;
 const { memory, memoryLabel, conversationLog, transcriptLabel, diag, personaSource, workspaceContextSource, knowledgeBackend } = deps;
 let skillsLabel = deps.skillsLabel;
 let currentAdkPath = adkPath;
+// Coding jobs own an isolated Git worktree instead of sharing a chat delegate's
+// cwd. The Codex CLI runner is intentionally ephemeral, so Resume is exposed
+// but returns FAILED_PRECONDITION until a checkpoint-capable runner is added.
+const codingJobs = adkPath ? new CodingJobService({
+  store: makeOwnerOnlyCodingJobStore(defaultCodingJobStatePath(adkPath)),
+  worktrees: makeGitCodingJobWorktrees({
+    allowedWorkspaceRoot: adkPath,
+    worktreeRoot: join(adkPath, "data-private", "coding-jobs", "worktrees"),
+  }),
+  runner: makeCodexCodingJobRunner(selectSubAgent("codex")),
+}) : undefined;
 
 // 전주대 Discord/Codex 실습 경로: 신뢰된 채널의 메인 모델이 별도 터미널 Codex를 위임할 수 있다.
 // 실행 에이전트와 작업 경로를 모두 좁혀 임의 agent 선택 및 워크스페이스 밖 쓰기를 차단한다.
@@ -214,6 +235,7 @@ const grpcServer = makeGrpcServer({
     return reloadConfigFrom(currentAdkPath);
   },
   onReloadSettings: () => reloadConfigFrom(currentAdkPath),
+  ...(codingJobs ? { codingJobs } : {}),
   // UC-KNOWLEDGE-COMPILE(FR-KB-5): "지금 컴파일" → 등록 소스 폴더(naia-settings/knowledge.json) → kb.json.
   //   config 읽기=셸 소유 정본(에이전트 읽기전용), 실 backend=kb-compiler(오프라인 결정론). adk_path 미지정=현 워크스페이스.
   onCompileKnowledge: (wsPath) =>

@@ -1,5 +1,21 @@
 # User Scenarios (P01) + Test Coverage Map
 
+## UC-CODING-JOB — independent Codex coding workers
+
+A desktop can start more than one coding task without treating a chat turn as
+the worker lifetime. Each task receives a durable job id, a generated branch,
+an isolated worktree, and an exclusive lease before Codex can write.
+
+| Verification ID | Scenario |
+|---|---|
+| T-CW-01 | Start persists `queued`, allocates an isolated worktree/branch/lease, then enters `running`. |
+| T-CW-02 | Concurrent jobs for one source workspace have different worktrees, branches, leases, runner handles and cancellation scope. |
+| T-CW-03 | Get/List read durable state after service reconstruction, independent of a chat request id. |
+| T-CW-04 | Cancel is targeted and idempotent; only the selected job reaches one `cancelled` terminal state. |
+| T-CW-05 | Resume without a durable runner checkpoint fails precondition rather than claiming a false continuation. |
+| T-CW-06 | Terminal states are immutable and invalid transitions are rejected. |
+| T-CW-07 | Caller paths are canonicalized under the configured root; caller-controlled branch/worktree paths and lease collisions are rejected. |
+
 정본 사용자 시나리오 인덱스. 각 UC 의 권위 계약서는 `docs/progress/99.dev-comm/UC*-contract*.md` 이며,
 이 문서는 그 UC 목록과 테스트 커버리지 맵을 집약한다(SDLC P01 산출물).
 

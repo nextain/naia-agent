@@ -330,6 +330,18 @@ RPC만 추가하며, 별도 셸 반복 상태 머신은 만들지 않는다.
 
 ## UC-CODEX-DELEGATION FR/NFR — Codex main provider와 터미널 위임
 
+## UC-CODING-JOB requirements
+
+| ID | Requirement | Status |
+|---|---|---|
+| FR-CW-1 | Coding jobs have durable ids, a constrained state machine, and owner-only persisted records. | In review |
+| FR-CW-2 | A job receives a canonical source workspace, unique managed worktree, generated branch, and exclusive lease before runner start. | In review |
+| FR-CW-3 | Start/Get/List/Cancel/Resume are available through gRPC and the JSON-line stdio codec. | In review |
+| FR-CW-4 | Targeted cancellation is idempotent and cannot cross job boundaries; a terminal state cannot be overwritten. | In review |
+| FR-CW-5 | Resume requires an actual durable checkpoint; a no-checkpoint Codex CLI job returns a precondition error. | In review |
+| NFR-CW-1 | Caller-controlled paths, branches, worktree locations, and leases are not trusted. | In review |
+| NFR-CW-2 | A restart preserves status but does not claim a lost process is still running. | In review |
+
 | ID | 요구사항 | 상태 |
 |----|----------|:----:|
 | FR-CODEX-1 | Codex provider는 API key를 복사하지 않고 로컬 로그인과 app-server를 사용하며 현재 protocol의 experimental dynamic tool 계약을 따른다. | Done |

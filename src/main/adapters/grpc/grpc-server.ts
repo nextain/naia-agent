@@ -7,6 +7,13 @@ import { fileURLToPath } from "node:url";
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import type { AgentRequest, AgentEmit, ToolSpec } from "../../domain/chat.js";
+import {
+  CodingJobNotFoundError,
+  CodingJobResumeUnavailableError,
+  type CodingJob,
+  type CodingJobState,
+} from "../../domain/coding-job.js";
+import type { CodingJobControlPort } from "../../ports/coding-job.js";
 import type { AgentIngressPort, AgentEgressPort, DiagnosticLog, Unsub } from "../../ports/uc1.js";
 import type {
   SpeechProfileConfig,
@@ -40,6 +47,7 @@ export interface GrpcServerDeps {
   onReloadSettings: () => SettingsResult;
   // UC-KNOWLEDGE-COMPILE(FR-KB-5): 지식 컴파일 트리거(entry 주입, async). 미주입=unavailable(no-op 정직 보고).
   onCompileKnowledge?: (adkPath: string) => Promise<CompileKnowledgeResult>;
+  codingJobs?: CodingJobControlPort;
   onDiagnostics?: () => DiagnosticsResult;            // F1 rich-health(미주입 시 기본 healthy). Rust os-client=후속.
   shutdownNonce?: string;
   onShutdown?: () => void | Promise<void>;
@@ -83,6 +91,21 @@ type WritableStream = grpc.ServerWritableStream<unknown, unknown>;
 
 export function makeGrpcServer(deps: GrpcServerDeps): GrpcServer {
   const { diag } = deps;
+  const codingJobState = (state: CodingJobState): number => ({
+    queued: 1, running: 2, cancelling: 3, cancelled: 4, completed: 5, failed: 6,
+  })[state];
+  const codingJobToProto = (job: CodingJob) => ({
+    jobId: job.jobId, workspacePath: job.workspacePath, worktreePath: job.worktreePath,
+    branch: job.branch, state: codingJobState(job.state), createdAt: job.createdAt,
+    updatedAt: job.updatedAt, ...(job.error ? { error: job.error } : {}),
+    ...(job.model ? { model: job.model } : {}), resumable: job.checkpoint !== undefined,
+  });
+  const codingJobError = (cb: grpc.sendUnaryData<unknown>, error: unknown) => {
+    const code = error instanceof CodingJobNotFoundError ? grpc.status.NOT_FOUND
+      : error instanceof CodingJobResumeUnavailableError ? grpc.status.FAILED_PRECONDITION
+      : grpc.status.INVALID_ARGUMENT;
+    cb({ code, message: error instanceof Error ? error.message : String(error) });
+  };
   const safeLog = (m: string, c?: unknown) => { try { diag.log(m, c); } catch { /* egress no-throw 계약 보호 */ } };
   // requestId → 활성 Chat(server-stream) call. emit 라우팅 대상.
   const active = new Map<string, WritableStream>();
@@ -208,6 +231,36 @@ export function makeGrpcServer(deps: GrpcServerDeps): GrpcServer {
       if (!deps.onCompileKnowledge) { cb(null, unavailable("compile unavailable")); return; }
       try { cb(null, await deps.onCompileKnowledge(adkPath)); }
       catch (e) { cb(null, unavailable(e instanceof Error ? e.message : String(e))); }
+    },
+    startCodingJob: (call: grpc.ServerUnaryCall<unknown, unknown>, cb: grpc.sendUnaryData<unknown>) => {
+      if (!deps.codingJobs) { cb({ code: grpc.status.UNIMPLEMENTED, message: "coding jobs unavailable" }); return; }
+      const r = call.request as { workspacePath?: string; task?: string; model?: string };
+      try {
+        cb(null, codingJobToProto(deps.codingJobs.start({
+          workspacePath: String(r.workspacePath ?? ""), task: String(r.task ?? ""),
+          ...(typeof r.model === "string" && r.model ? { model: r.model } : {}),
+        })));
+      } catch (error) { codingJobError(cb, error); }
+    },
+    getCodingJob: (call: grpc.ServerUnaryCall<unknown, unknown>, cb: grpc.sendUnaryData<unknown>) => {
+      if (!deps.codingJobs) { cb({ code: grpc.status.UNIMPLEMENTED, message: "coding jobs unavailable" }); return; }
+      try { cb(null, codingJobToProto(deps.codingJobs.get(String((call.request as { jobId?: string }).jobId ?? "")))); }
+      catch (error) { codingJobError(cb, error); }
+    },
+    listCodingJobs: (call: grpc.ServerUnaryCall<unknown, unknown>, cb: grpc.sendUnaryData<unknown>) => {
+      if (!deps.codingJobs) { cb({ code: grpc.status.UNIMPLEMENTED, message: "coding jobs unavailable" }); return; }
+      const workspacePath = (call.request as { workspacePath?: string }).workspacePath;
+      cb(null, { jobs: deps.codingJobs.list(workspacePath || undefined).map(codingJobToProto) });
+    },
+    cancelCodingJob: async (call: grpc.ServerUnaryCall<unknown, unknown>, cb: grpc.sendUnaryData<unknown>) => {
+      if (!deps.codingJobs) { cb({ code: grpc.status.UNIMPLEMENTED, message: "coding jobs unavailable" }); return; }
+      try { cb(null, codingJobToProto(await deps.codingJobs.cancel(String((call.request as { jobId?: string }).jobId ?? "")))); }
+      catch (error) { codingJobError(cb, error); }
+    },
+    resumeCodingJob: (call: grpc.ServerUnaryCall<unknown, unknown>, cb: grpc.sendUnaryData<unknown>) => {
+      if (!deps.codingJobs) { cb({ code: grpc.status.UNIMPLEMENTED, message: "coding jobs unavailable" }); return; }
+      try { cb(null, codingJobToProto(deps.codingJobs.resume(String((call.request as { jobId?: string }).jobId ?? "")))); }
+      catch (error) { codingJobError(cb, error); }
     },
     diagnostics: (_call: grpc.ServerUnaryCall<unknown, unknown>, cb: grpc.sendUnaryData<DiagnosticsResult>) => {
       cb(null, deps.onDiagnostics ? deps.onDiagnostics() : { version: "", uptimeMs: 0, healthy: true, components: [] }); // 미주입=기본 healthy
