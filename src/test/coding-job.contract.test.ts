@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { CodingJob } from "../main/domain/coding-job.js";
 import { transitionCodingJob } from "../main/domain/coding-job.js";
-import type { CodingJobRunnerPort, CodingJobStore, CodingJobWorktreePort } from "../main/ports/coding-job.js";
+import type { CodingJobRunnerPort, CodingJobStore, CodingJobWorktreePort, SelectedWorkspaceCodingPort } from "../main/ports/coding-job.js";
 import type { SubAgentPort } from "../main/ports/orchestration.js";
 
 function fixture() {
@@ -90,6 +90,29 @@ describe("UC-CW durable coding jobs", () => {
     const job = service.start({ workspacePath: "alpha", task: "one" });
     expect(job).toMatchObject({ state: "failed", error: "codex executable unavailable" });
     expect(service.get(job.jobId)).toMatchObject({ state: "failed", error: "codex executable unavailable" });
+  });
+
+  it("uses selected workspace only when explicitly requested and fails closed on post-run verification", () => {
+    const f = fixture();
+    const prepared: string[] = [];
+    const selectedWorkspace: SelectedWorkspaceCodingPort = {
+      prepare: ({ jobId, workspacePath, allowedFiles }) => {
+        prepared.push(`${workspacePath}:${allowedFiles.join(",")}`);
+        return { workspacePath: "/student/repo", worktreePath: "/student/repo", branch: "selected-workspace", leaseId: `selected-${jobId}`, release: () => { f.released.push(jobId); } };
+      },
+      verify: () => ({ ok: false, summary: "unexpected_file; changes were preserved for manual review" }),
+    };
+    const service = new CodingJobService({
+      store: { get: (id) => f.jobs.get(id), list: () => [...f.jobs.values()], save: (job) => f.jobs.set(job.jobId, job) },
+      worktrees: { allocate: () => { throw new Error("isolated worktree must not be used"); } },
+      runner: { start: ({ job, terminal }) => { f.terminals.set(job.jobId, terminal); return { cancel: async () => {} }; } },
+      selectedWorkspace, ids: () => "job_selected", now: () => "now",
+    });
+    const job = service.start({ workspacePath: "/student/repo", task: "edit course", executionMode: "selected_workspace", allowedFiles: ["index.html", "hero.svg"] });
+    expect(prepared).toEqual(["/student/repo:index.html,hero.svg"]);
+    expect(job).toMatchObject({ executionMode: "selected_workspace", worktreePath: "/student/repo" });
+    f.terminals.get(job.jobId)?.({ ok: true });
+    expect(service.get(job.jobId)).toMatchObject({ state: "failed", verificationSummary: "unexpected_file; changes were preserved for manual review" });
   });
 
   it("Codex runner persists its session failure and cancellation stays with its child", async () => {

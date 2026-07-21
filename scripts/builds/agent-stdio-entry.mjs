@@ -93,6 +93,8 @@ const { makeOwnerOnlyCodingJobStore, defaultCodingJobStatePath } =
   await import("../../dist/main/adapters/coding-job-store.js");
 const { makeGitCodingJobWorktrees } =
   await import("../../dist/main/adapters/coding-job-worktree.js");
+const { makeSelectedWorkspaceCoding } =
+  await import("../../dist/main/adapters/selected-workspace-coding.js");
 const { makeCodexCodingJobRunner } =
   await import("../../dist/main/adapters/coding-job-codex-runner.js");
 const { selectSubAgent } =
@@ -140,6 +142,7 @@ const codingJobs = adkPath ? new CodingJobService({
     allowedWorkspaceRoot: adkPath,
     worktreeRoot: join(adkPath, "data-private", "coding-jobs", "worktrees"),
   }),
+  selectedWorkspace: makeSelectedWorkspaceCoding(),
   runner: makeCodexCodingJobRunner(selectSubAgent("codex")),
 }) : undefined;
 

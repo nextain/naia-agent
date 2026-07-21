@@ -3,6 +3,7 @@ export const codingJobStates = [
 ] as const;
 
 export type CodingJobState = (typeof codingJobStates)[number];
+export type CodingJobExecutionMode = "isolated_worktree" | "selected_workspace";
 
 export interface CodingJobCheckpoint {
   readonly runner: "codex";
@@ -16,6 +17,11 @@ export interface CodingJob {
   readonly branch: string;
   readonly leaseId: string;
   readonly task: string;
+  // Optional only for durable records written before execution modes existed.
+  // New jobs always persist this as `isolated_worktree` or `selected_workspace`.
+  readonly executionMode?: CodingJobExecutionMode;
+  readonly allowedFiles?: readonly string[];
+  readonly verificationSummary?: string;
   readonly model?: string;
   readonly state: CodingJobState;
   readonly createdAt: string;

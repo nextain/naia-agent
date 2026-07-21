@@ -155,6 +155,11 @@ enum CodingJobState {
   COMPLETED = 5;
   FAILED = 6;
 }
+enum CodingJobExecutionMode {
+  CODING_JOB_EXECUTION_MODE_UNSPECIFIED = 0;
+  ISOLATED_WORKTREE = 1;
+  SELECTED_WORKSPACE = 2;
+}
 message CodingJob {
   string job_id = 1;
   string workspace_path = 2;
@@ -169,8 +174,18 @@ message CodingJob {
   // The owner-visible task is required for Shell reconciliation after restart.
   // It is never forwarded to a different job or workspace.
   string task = 11;
+  CodingJobExecutionMode execution_mode = 12;
+  repeated string allowed_files = 13;
+  optional string verification_summary = 14;
 }
-message StartCodingJobRequest { string workspace_path = 1; string task = 2; optional string model = 3; }
+message StartCodingJobRequest {
+  string workspace_path = 1;
+  string task = 2;
+  optional string model = 3;
+  // Shell sets SELECTED_WORKSPACE only for its fixed, reviewed course preset.
+  CodingJobExecutionMode execution_mode = 4;
+  repeated string allowed_files = 5;
+}
 message GetCodingJobRequest { string job_id = 1; }
 message ListCodingJobsRequest { optional string workspace_path = 1; }
 message CodingJobList { repeated CodingJob jobs = 1; }

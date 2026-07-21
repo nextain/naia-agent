@@ -5,13 +5,14 @@ import {
   type CodingJob,
 } from "../domain/coding-job.js";
 import { isCodingJobTerminal, transitionCodingJob } from "../domain/coding-job.js";
-import type { CodingJobAllocation, CodingJobControlPort, CodingJobRunnerPort, CodingJobStore, CodingJobWorktreePort } from "../ports/coding-job.js";
+import type { CodingJobAllocation, CodingJobControlPort, CodingJobRunnerPort, CodingJobStore, CodingJobWorktreePort, SelectedWorkspaceCodingPort } from "../ports/coding-job.js";
 export { CodingJobNotFoundError, CodingJobResumeUnavailableError } from "../domain/coding-job.js";
 
 export interface CodingJobServiceDeps {
   readonly store: CodingJobStore;
   readonly worktrees: CodingJobWorktreePort;
   readonly runner: CodingJobRunnerPort;
+  readonly selectedWorkspace?: SelectedWorkspaceCodingPort;
   readonly now?: () => string;
   readonly ids?: () => string;
 }
@@ -25,15 +26,19 @@ export class CodingJobService implements CodingJobControlPort {
     this.#ids = d.ids ?? randomUUID;
   }
 
-  start(input: { workspacePath: string; task: string; model?: string }): CodingJob {
+  start(input: { workspacePath: string; task: string; model?: string; executionMode?: "isolated_worktree" | "selected_workspace"; allowedFiles?: readonly string[] }): CodingJob {
     if (!input.task.trim()) throw new Error("coding job task is required");
+    const executionMode = input.executionMode ?? "isolated_worktree";
+    if (executionMode === "selected_workspace" && (!input.allowedFiles?.length || !this.d.selectedWorkspace)) throw new Error("selected workspace mode is unavailable");
     const jobId = this.#ids();
-    const allocation = this.d.worktrees.allocate({ jobId, workspacePath: input.workspacePath });
+    const allocation = executionMode === "selected_workspace"
+      ? this.d.selectedWorkspace!.prepare({ jobId, workspacePath: input.workspacePath, allowedFiles: input.allowedFiles! })
+      : this.d.worktrees.allocate({ jobId, workspacePath: input.workspacePath });
     const now = this.#now();
     let job: CodingJob = {
       jobId, workspacePath: allocation.workspacePath, worktreePath: allocation.worktreePath,
       branch: allocation.branch, leaseId: allocation.leaseId, task: input.task, ...(input.model ? { model: input.model } : {}),
-      state: "queued", createdAt: now, updatedAt: now,
+      state: "queued", executionMode, ...(executionMode === "selected_workspace" ? { allowedFiles: [...input.allowedFiles!] } : {}), createdAt: now, updatedAt: now,
     };
     this.d.store.save(job);
     try {
@@ -83,9 +88,22 @@ export class CodingJobService implements CodingJobControlPort {
   #terminal(jobId: string, ok: boolean, reason?: string): CodingJob {
     const current = this.get(jobId);
     if (isCodingJobTerminal(current.state)) return current;
+    let verification: { ok: boolean; summary: string } | undefined;
+    if (ok && current.executionMode === "selected_workspace") {
+      try {
+        verification = this.d.selectedWorkspace?.verify({ job: current });
+      } catch (error) {
+        verification = {
+          ok: false,
+          summary: `selected workspace verification could not run: ${error instanceof Error ? error.message : String(error)}`,
+        };
+      }
+    }
+    const verified = verification?.ok ?? ok;
+    const terminalReason = verification && !verification.ok ? verification.summary : reason;
     const next = current.state === "cancelling"
       ? transitionCodingJob(current, "cancelled", this.#now(), reason)
-      : transitionCodingJob(current, ok ? "completed" : "failed", this.#now(), reason);
+      : { ...transitionCodingJob(current, verified ? "completed" : "failed", this.#now(), terminalReason), ...(verification ? { verificationSummary: verification.summary } : {}) };
     this.d.store.save(next);
     const active = this.#active.get(jobId);
     this.#active.delete(jobId);

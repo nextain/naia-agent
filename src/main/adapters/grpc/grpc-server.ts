@@ -94,12 +94,15 @@ export function makeGrpcServer(deps: GrpcServerDeps): GrpcServer {
   const codingJobState = (state: CodingJobState): number => ({
     queued: 1, running: 2, cancelling: 3, cancelled: 4, completed: 5, failed: 6,
   })[state];
+  const codingJobExecutionMode = (mode: CodingJob["executionMode"]): number => mode === "selected_workspace" ? 2 : 1;
   const codingJobToProto = (job: CodingJob) => ({
     jobId: job.jobId, workspacePath: job.workspacePath, worktreePath: job.worktreePath,
     branch: job.branch, state: codingJobState(job.state), createdAt: job.createdAt,
     updatedAt: job.updatedAt, ...(job.error ? { error: job.error } : {}),
     ...(job.model ? { model: job.model } : {}), resumable: job.checkpoint !== undefined,
-    task: job.task,
+    task: job.task, executionMode: codingJobExecutionMode(job.executionMode),
+    allowedFiles: job.allowedFiles ?? [],
+    ...(job.verificationSummary ? { verificationSummary: job.verificationSummary } : {}),
   });
   const codingJobError = (cb: grpc.sendUnaryData<unknown>, error: unknown) => {
     const code = error instanceof CodingJobNotFoundError ? grpc.status.NOT_FOUND
@@ -235,11 +238,24 @@ export function makeGrpcServer(deps: GrpcServerDeps): GrpcServer {
     },
     startCodingJob: (call: grpc.ServerUnaryCall<unknown, unknown>, cb: grpc.sendUnaryData<unknown>) => {
       if (!deps.codingJobs) { cb({ code: grpc.status.UNIMPLEMENTED, message: "coding jobs unavailable" }); return; }
-      const r = call.request as { workspacePath?: string; task?: string; model?: string };
+      const r = call.request as {
+        workspacePath?: string; task?: string; model?: string;
+        executionMode?: number | string; allowedFiles?: unknown;
+      };
+      const executionMode = r.executionMode === 2 || r.executionMode === "SELECTED_WORKSPACE"
+        ? "selected_workspace" as const
+        : r.executionMode === 0 || r.executionMode === "CODING_JOB_EXECUTION_MODE_UNSPECIFIED" || r.executionMode === undefined
+          ? undefined
+          : r.executionMode === 1 || r.executionMode === "ISOLATED_WORKTREE"
+            ? "isolated_worktree" as const
+            : "invalid" as const;
       try {
+        if (executionMode === "invalid") throw new Error("invalid coding job execution mode");
         cb(null, codingJobToProto(deps.codingJobs.start({
           workspacePath: String(r.workspacePath ?? ""), task: String(r.task ?? ""),
           ...(typeof r.model === "string" && r.model ? { model: r.model } : {}),
+          ...(executionMode ? { executionMode } : {}),
+          ...(Array.isArray(r.allowedFiles) ? { allowedFiles: r.allowedFiles.filter((file): file is string => typeof file === "string") } : {}),
         })));
       } catch (error) { codingJobError(cb, error); }
     },

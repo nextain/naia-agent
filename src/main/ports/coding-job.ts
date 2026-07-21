@@ -1,7 +1,7 @@
 import type { CodingJob } from "../domain/coding-job.js";
 
 export interface CodingJobControlPort {
-  start(input: { workspacePath: string; task: string; model?: string }): CodingJob;
+  start(input: { workspacePath: string; task: string; model?: string; executionMode?: "isolated_worktree" | "selected_workspace"; allowedFiles?: readonly string[] }): CodingJob;
   get(jobId: string): CodingJob;
   list(workspacePath?: string): readonly CodingJob[];
   cancel(jobId: string): Promise<CodingJob>;
@@ -24,6 +24,12 @@ export interface CodingJobAllocation {
 
 export interface CodingJobWorktreePort {
   allocate(input: { jobId: string; workspacePath: string }): CodingJobAllocation;
+}
+
+/** Separate opt-in path for the workshop's direct student-repository mode. */
+export interface SelectedWorkspaceCodingPort {
+  prepare(input: { readonly jobId: string; readonly workspacePath: string; readonly allowedFiles: readonly string[] }): CodingJobAllocation;
+  verify(input: { readonly job: CodingJob }): { readonly ok: boolean; readonly summary: string };
 }
 
 export interface CodingJobRun {

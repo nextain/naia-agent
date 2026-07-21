@@ -11,7 +11,11 @@ export function makeOwnerOnlyCodingJobStore(path: string): CodingJobStore {
     if (!existsSync(path)) return [];
     try {
       const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<PersistedJobs>;
-      return Array.isArray(parsed.jobs) ? [...parsed.jobs] : [];
+      // Version 1 records predate executionMode.  Treat them as the established
+      // isolated-worktree behavior rather than rejecting a user's job history.
+      return Array.isArray(parsed.jobs)
+        ? parsed.jobs.map((job) => ({ ...job, executionMode: job.executionMode ?? "isolated_worktree" }))
+        : [];
     } catch {
       // A corrupted durable state must not be silently overwritten by an empty list.
       throw new Error("coding job state is unreadable");

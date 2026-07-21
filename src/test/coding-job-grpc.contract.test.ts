@@ -18,6 +18,10 @@ function service(): CodingJobService {
   return new CodingJobService({
     store: { get: (key) => jobs.get(key), list: () => [...jobs.values()], save: (job) => jobs.set(job.jobId, job) },
     worktrees: { allocate: ({ jobId, workspacePath }) => ({ workspacePath, worktreePath: `/work/${jobId}`, branch: `naia/coding-job/${jobId}`, leaseId: `lease-${jobId}`, release: () => {} }) },
+    selectedWorkspace: {
+      prepare: ({ jobId, workspacePath }) => ({ workspacePath, worktreePath: workspacePath, branch: "selected-workspace", leaseId: `selected-${jobId}`, release: () => {} }),
+      verify: () => ({ ok: true, summary: "verified" }),
+    },
     runner: { start: () => ({ cancel: async () => {} }) },
     ids: () => `job_grpc_${++id}`, now: () => "now",
   });
@@ -42,5 +46,9 @@ describe("UC-CW gRPC contract", () => {
     await expect(call(client, "listCodingJobs", {})).resolves.toMatchObject({ jobs: [{ jobId: started.jobId }] });
     await expect(call(client, "cancelCodingJob", { jobId: started.jobId })).resolves.toMatchObject({ state: 4 });
     await expect(call(client, "resumeCodingJob", { jobId: started.jobId })).rejects.toMatchObject({ code: grpc.status.FAILED_PRECONDITION });
+    const selected = await call(client, "startCodingJob", {
+      workspacePath: "/student/repo", task: "edit course", executionMode: 2, allowedFiles: ["index.html", "hero.svg"],
+    });
+    expect(selected).toMatchObject({ executionMode: 2, allowedFiles: ["index.html", "hero.svg"], worktreePath: "/student/repo" });
   });
 });
