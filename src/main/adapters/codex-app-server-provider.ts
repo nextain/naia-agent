@@ -32,6 +32,11 @@ export type CodexPreflightStatus =
 
 type RunCodexStatus = () => Promise<{ readonly code: number; readonly stdout: string; readonly stderr: string }>;
 
+/** Global npm installs expose `codex.cmd` on Windows. */
+export function codexExecutable(platform = process.platform): string {
+  return platform === "win32" ? "codex.cmd" : "codex";
+}
+
 /** token/auth.json을 읽지 않고 Codex CLI의 안정 명령만으로 설치·로그인 상태를 확인한다. */
 export async function checkCodexPreflight(run?: RunCodexStatus): Promise<CodexPreflightStatus> {
   const execute = run ?? defaultRunCodexStatus;
@@ -53,7 +58,15 @@ export async function checkCodexPreflight(run?: RunCodexStatus): Promise<CodexPr
 async function defaultRunCodexStatus(): Promise<{ code: number; stdout: string; stderr: string }> {
   const { spawn } = await import("node:child_process");
   return new Promise((resolve, reject) => {
-    const child = spawn("codex", ["login", "status"], { stdio: ["ignore", "pipe", "pipe"], env: process.env });
+    const child = process.platform === "win32"
+      ? spawn(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", `${codexExecutable()} login status`], {
+        stdio: ["ignore", "pipe", "pipe"],
+        env: process.env,
+      })
+      : spawn(codexExecutable(), ["login", "status"], {
+        stdio: ["ignore", "pipe", "pipe"],
+        env: process.env,
+      });
     let stdout = "";
     let stderr = "";
     child.stdout.setEncoding("utf8");
@@ -146,7 +159,13 @@ type SpawnCodex = () => Promise<ChildProcessWithoutNullStreams>;
 
 async function defaultSpawnCodex(): Promise<ChildProcessWithoutNullStreams> {
   const { spawn } = await import("node:child_process");
-  return spawn("codex", ["app-server"], {
+  if (process.platform === "win32") {
+    return spawn(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", `${codexExecutable()} app-server`], {
+      stdio: ["pipe", "pipe", "pipe"],
+      env: process.env,
+    });
+  }
+  return spawn(codexExecutable(), ["app-server"], {
     stdio: ["pipe", "pipe", "pipe"],
     env: process.env,
   });

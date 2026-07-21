@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   checkCodexPreflight,
+  codexExecutable,
   makeCodexAppServerProvider,
   runCodexAppServerTurn,
   type CodexRunTurn,
@@ -18,6 +19,12 @@ async function collect(stream: AsyncIterable<ProviderChunk>): Promise<ProviderCh
 }
 
 describe("Codex app-server main provider", () => {
+  it("uses the Windows npm command shim while preserving the POSIX executable", () => {
+    expect(codexExecutable("win32")).toBe("codex.cmd");
+    expect(codexExecutable("linux")).toBe("codex");
+    expect(codexExecutable("darwin")).toBe("codex");
+  });
+
   it("codex는 OpenAI API-key native가 아닌 전용 route다", () => {
     expect(resolveProviderRoute({ provider: "codex", model: "gpt-5.4" })).toBe("codex");
   });
