@@ -23,7 +23,11 @@ export interface MemoryPort {
   recall(query: string): Promise<RecalledMemory>;
 
   /** 턴 후: 그 턴의 user 발화 + assistant 응답을 장기기억에 저장. */
-  save(userText: string, assistantText: string): Promise<void>;
+  save(
+    userText: string,
+    assistantText: string,
+    opts?: { idempotencyKey?: string; durable?: boolean },
+  ): Promise<void>;
 }
 
 /** lifecycle 을 가진 MemoryPort — 진입점이 종료 시 flush 를 위해 close() 를 호출한다(FR-MEM-6). 핸들러는

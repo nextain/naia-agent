@@ -36,7 +36,10 @@ export type PersonalRadioDjState =
 interface DjDeps {
   readonly scheduler: ProactiveScheduler;
   readonly ids: { next(): string };
-  readonly context: { snapshot(config: PersonalRadioDjConfig): Promise<DjContextSnapshot> };
+  readonly context: {
+    snapshot(config: PersonalRadioDjConfig): Promise<DjContextSnapshot>;
+    recordMood?: (input: { sessionId: string; quote: string; statedAt: string }) => void;
+  };
   readonly selector: {
     select(
       snapshot: DjContextSnapshot,
@@ -47,7 +50,7 @@ interface DjDeps {
   readonly speech: RadioDjSpeechPort;
   readonly preferences: {
     handoff(signal: {
-      readonly sentiment: "like" | "dislike";
+      readonly sentiment: "like" | "dislike" | "forget";
       readonly subject: string;
       readonly sessionId: string;
       readonly requestId: string;
@@ -225,7 +228,7 @@ export class PersonalRadioDjController {
   }
 
   async recordExplicitPreference(
-    sentiment: "like" | "dislike",
+    sentiment: "like" | "dislike" | "forget",
     subject: string,
     provenance: { readonly requestId: string; readonly statedAt?: string },
   ): Promise<void> {
@@ -239,6 +242,20 @@ export class PersonalRadioDjController {
       requestId: provenance.requestId,
       statedAt: provenance.statedAt ?? new Date(this.d.scheduler.now()).toISOString(),
       source: "explicit_user_turn",
+    });
+  }
+
+  recordExplicitMood(
+    quote: string,
+    provenance: { readonly requestId: string; readonly statedAt?: string },
+  ): void {
+    if (!this.config || !provenance.requestId.trim()) return;
+    const normalized = [...quote.trim()].slice(0, MAX_PREFERENCE_CODEPOINTS).join("");
+    if (!normalized) return;
+    this.d.context.recordMood?.({
+      sessionId: this.config.sessionId,
+      quote: normalized,
+      statedAt: provenance.statedAt ?? new Date(this.d.scheduler.now()).toISOString(),
     });
   }
 
@@ -547,6 +564,11 @@ function renderDjComment(
     "음악은 그대로 이어둘게요. 편하게 듣고 계세요.",
     groundedReason,
     "필요하면 음악만 들려 달라고 말해 주세요.",
+    "지금 재생 흐름은 그대로 유지하고 있어요.",
+    "말을 줄이고 싶으면 언제든 알려 주세요.",
+    "다른 분위기가 필요하면 바로 바꿔 드릴게요.",
+    "다음 곡이 필요하면 짧게 말씀해 주세요.",
+    "음악 사이 여백을 지키며 곁에 있을게요.",
   ];
   return variants[index % variants.length]!;
 }

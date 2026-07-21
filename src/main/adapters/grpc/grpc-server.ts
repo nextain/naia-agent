@@ -267,6 +267,10 @@ export function makeGrpcServer(deps: GrpcServerDeps): GrpcServer {
           p.weatherConsented
           && Number.isFinite(p.weatherLatitude)
           && Number.isFinite(p.weatherLongitude)
+          && Number(p.weatherLatitude) >= -90
+          && Number(p.weatherLatitude) <= 90
+          && Number(p.weatherLongitude) >= -180
+          && Number(p.weatherLongitude) <= 180
             ? {
                 weatherLocation: {
                   latitude: Number(p.weatherLatitude),

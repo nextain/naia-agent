@@ -136,10 +136,15 @@ describe("exhibition intro MVP contract", () => {
     expect(h.spoken.length).toBeGreaterThan(count);
   });
 
-  it("EX-06: controller surface에는 memory/transcript 의존성이 없다", () => {
+  it("PA-EX-02 keeps exhibition memory, transcript, raw-content logs and telemetry producers off", () => {
     const h = harness();
-    expect(Object.keys(h.controller.dependencies())).not.toContain("memory");
-    expect(Object.keys(h.controller.dependencies())).not.toContain("conversationLog");
+    expect(Object.keys(h.controller.dependencies())).not.toEqual(expect.arrayContaining([
+      "memory",
+      "conversationLog",
+      "rawContentLog",
+      "diagnosticLog",
+      "telemetry",
+    ]));
   });
 
   it("EX-04/05 race: yield 중 늦게 완료된 소개는 완료 처리하지 않고 다음 항목으로 복귀한다", async () => {

@@ -30,6 +30,9 @@ class ManualScheduler implements ProactiveScheduler {
       await due.run();
     }
   }
+  pendingCount(): number {
+    return this.jobs.filter((job) => !job.cancelled).length;
+  }
 }
 
 function harness(overrides: {
@@ -40,6 +43,7 @@ function harness(overrides: {
   snapshot?: DjContextSnapshot;
   selectorReason?: "time" | "weather" | "mood" | "preference" | "generic";
   lease?: { durationMs: number; maxUtterances: number };
+  djIntervalMs?: number;
 } = {}) {
   const scheduler = new ManualScheduler();
   const spoken: string[] = [];
@@ -95,7 +99,7 @@ function harness(overrides: {
   controller.configure({
     sessionId: "agent:main:main",
     idleMs: 1_000,
-    djIntervalMs: 500,
+    djIntervalMs: overrides.djIntervalMs ?? 500,
     timezone: "Asia/Seoul",
     bgmAutoPlayOptIn: overrides.optIn ?? true,
   });
@@ -163,6 +167,21 @@ describe("personal radio DJ MVP contract", () => {
     expect(h.spoken).toHaveLength(count);
   });
 
+  it("PA-DJ-03 emits eight grounded non-repeating remarks", async () => {
+    const h = harness();
+    await h.scheduler.advance(1_000);
+    await h.scheduler.advance(4_000);
+    const remarks = h.spoken.slice(1);
+    expect(remarks).toHaveLength(8);
+    expect(new Set(remarks).size).toBe(8);
+    expect(remarks).not.toEqual(expect.arrayContaining([
+      expect.stringMatching(/현재 곡|트랙명|기온|습도/),
+    ]));
+    for (let index = 6; index < remarks.length; index++) {
+      expect(remarks.slice(index - 6, index)).not.toContain(remarks[index]);
+    }
+  });
+
   it("DJ-06: talk-less/change-vibe/next fallback이 닫힌 BGM 경로만 사용한다", async () => {
     const h = harness();
     await h.scheduler.advance(1_000);
@@ -217,6 +236,29 @@ describe("personal radio DJ MVP contract", () => {
     expect(h.controller.stats().leaseRenewals).toBeGreaterThanOrEqual(2);
     expect(h.controller.state()).toBe("music_only");
     expect(h.bgmCalls).not.toContain("stop");
+  });
+
+  it("PA-DJ-06 survives an eight-hour bounded lease soak and terminal stop", async () => {
+    const thirtyMinutes = 30 * 60 * 1_000;
+    const h = harness({
+      djIntervalMs: thirtyMinutes,
+      lease: { durationMs: thirtyMinutes, maxUtterances: 1_000_000 },
+    });
+    await h.scheduler.advance(1_000);
+    await h.scheduler.advance(8 * 60 * 60 * 1_000);
+    expect(h.controller.stats().leaseRenewals).toBeGreaterThanOrEqual(16);
+    expect(h.controller.stats().controllerStarts).toBe(1);
+    expect(h.bgmCalls.filter((call) => call.startsWith("play:"))).toHaveLength(1);
+    expect(h.scheduler.pendingCount()).toBeLessThanOrEqual(2);
+
+    const spokenBeforeStop = h.spoken.length;
+    const playsBeforeStop = h.bgmCalls.filter((call) => call.startsWith("play:")).length;
+    await h.controller.control({ kind: "stop" });
+    await h.scheduler.advance(thirtyMinutes);
+    expect(h.spoken).toHaveLength(spokenBeforeStop);
+    expect(h.bgmCalls.filter((call) => call.startsWith("play:"))).toHaveLength(playsBeforeStop);
+    expect(h.scheduler.pendingCount()).toBe(0);
+    expect(h.controller.state()).toBe("stopped");
   });
 
   it("DJ-06 race: stop 중 늦은 play 성공은 보상 stop되고 발화가 되살아나지 않는다", async () => {

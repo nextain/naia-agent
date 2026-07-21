@@ -100,6 +100,37 @@ export class SpeechProfileRuntime {
    * 이 경로는 controller의 read-only KB만 사용하므로 MemoryPort/ConversationLogPort에 닿지 않는다.
    */
   async handleProfileChat(req: ChatRequest): Promise<boolean> {
+    if (
+      this.activeKind === "personal_radio_dj"
+      && req.sessionId === this.activeSessionId
+    ) {
+      const last = req.messages.at(-1);
+      if (last?.role === "user") {
+        const command = parseDjStructuredCommand(last.content);
+        if (command) {
+          if (command.kind === "mood") {
+            this.d.dj.recordExplicitMood(command.subject, { requestId: req.requestId });
+          } else {
+            await this.d.dj.recordExplicitPreference(command.kind, command.subject, {
+              requestId: req.requestId,
+            });
+          }
+          this.d.chatEgress.emit(req.requestId, {
+            kind: "text",
+            text: `✓ ${command.subject}`,
+          });
+          this.d.chatEgress.emit(req.requestId, {
+            kind: "usage",
+            inputTokens: 0,
+            outputTokens: 0,
+            cost: 0,
+            model: "radio-dj-control",
+          });
+          this.d.chatEgress.emit(req.requestId, { kind: "finish" });
+          return true;
+        }
+      }
+    }
     const resume = req.activityResume;
     if (
       this.activeKind !== "exhibition_intro"
@@ -142,4 +173,21 @@ export class SpeechProfileRuntime {
     }
     return true;
   }
+}
+
+function parseDjStructuredCommand(
+  content: string,
+): { kind: "like" | "dislike" | "forget" | "mood"; subject: string } | undefined {
+  const match = /^DJ\s+(좋아요|싫어요|취향\s*삭제|상태)\s*:\s*(.*)$/u.exec(content.trim());
+  if (!match) return undefined;
+  const subject = match[2]?.trim() ?? "";
+  if (!subject || [...subject].length > 500) return undefined;
+  const kind = match[1] === "좋아요"
+    ? "like"
+    : match[1] === "싫어요"
+      ? "dislike"
+      : match[1]?.startsWith("취향")
+        ? "forget"
+        : "mood";
+  return { kind, subject };
 }

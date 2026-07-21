@@ -256,11 +256,28 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ManagedMemoryPort & Compac
       return { facts, episodes, reflections };
     },
 
-    async save(userText: string, assistantText: string): Promise<void> {
+    async save(
+      userText: string,
+      assistantText: string,
+      opts?: { idempotencyKey?: string; durable?: boolean },
+    ): Promise<void> {
       await ready; // adapter init 완료 보장.
       // 저장 원문도 상한(턴당) — 거대 턴이 embedding/디스크/flush 시간을 폭증시키는 것 차단. 초과분 절단 표식.
-      await sys.encode({ content: capInput(userText, SAVE_CAP), role: "user" }, { project, sessionId });
-      await sys.encode({ content: capInput(assistantText, SAVE_CAP), role: "assistant" }, { project, sessionId });
+      await sys.encode({
+        content: capInput(userText, SAVE_CAP),
+        role: "user",
+        ...(opts?.idempotencyKey
+          ? { idempotencyKey: `${opts.idempotencyKey}:user` }
+          : {}),
+      }, { project, sessionId });
+      await sys.encode({
+        content: capInput(assistantText, SAVE_CAP),
+        role: "assistant",
+        ...(opts?.idempotencyKey
+          ? { idempotencyKey: `${opts.idempotencyKey}:assistant` }
+          : {}),
+      }, { project, sessionId });
+      if (opts?.durable) await sys.flush();
     },
 
     async close(): Promise<void> {

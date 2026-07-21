@@ -221,16 +221,17 @@ spec + sandbox 정책(allow-root) + tier(승인)** 를 소유한다.
 |----|--------------|:----:|
 | FR-CONT-MVP-1 | **두 profile만 지원** — `personal_radio_dj | exhibition_intro`. 범용 활동 profile은 후속이다. | Implemented |
 | FR-CONT-MVP-2 | **무입력 선제 시작** — 주입 가능한 idle clock 뒤 app 계층이 먼저 attract 발화를 시작한다. shell 반복 루프는 만들지 않는다. | Implemented |
-| FR-CONT-MVP-3 | **개인 라디오 DJ** — 현재 구현은 시간·선택적으로 주입된 날씨·현재 BGM·프로세스 안의 명시적 선호를 조립해 추천하고, BGM 성공 뒤에만 재생을 확정해 말한다. 긴 믹스의 현재 곡은 chapter/tracklist 근거 없이는 추측하지 않는다. 기분/활동 수집, 사용자용 날씨 설정, Naia Memory 장기 선호 연결은 후속이다. | Partial |
-| FR-CONT-MVP-4 | **DJ 제어** — 서로 다른 DJ 멘트 2회 이상을 음악을 방해하지 않는 간격으로 제공하고 music-only/말 줄여/다른 분위기/다음 곡/stop을 반영한다. until-stopped는 내부 bounded lease를 자동 갱신한다. | Implemented |
+| FR-CONT-MVP-3 | **개인 라디오 DJ** — 시간·동의한 최신 날씨·같은 세션의 명시적 기분/활동·현재 BGM·workspace-local exact preference index의 명시적 선호를 조립해 추천하고, BGM 성공 뒤에만 재생을 확정해 말한다. Naia Memory는 durable provenance handoff 대상이며 활성 조회 정본이 아니다. 긴 믹스의 현재 곡은 chapter/tracklist 근거 없이는 추측하지 않는다. 제품 수용 추적은 PA-DJ-01~04다. | Done |
+| FR-CONT-MVP-4 | **DJ 제어** — grounded DJ 멘트 8회·최근 6문장 반복 0, music-only/말 줄여/말 늘려/다른 분위기/다음 곡/stop, 8시간 bounded lease를 PA-DJ-03/05B/06으로 검증한다. | Done |
 | FR-CONT-MVP-5 | **전시 소개** — KB에 근거한 회사·제품·전시 소개 3개를 연속 중복 없이 먼저 말하고, 근거 없이는 추측하지 않는다. | Implemented |
-| FR-CONT-MVP-6 | **양보와 복귀** — 관람객/사용자 입력이 현재 발화와 TTS를 중단하고, 답변 뒤 아직 수행 중인 profile의 다음 미소개 항목으로 복귀한다. quiet/stop은 복귀하지 않는다. | Implemented |
-| FR-CONT-MVP-7 | **기억·개인정보** — 활동 발화·수동 청취·재생 시간으로 취향을 추론하지 않고, 전시 activity/Q&A는 memory recall/save와 영속 transcript를 기본 사용하지 않는다. 명시적 DJ 선호의 production handoff와 Naia Memory 영속 연결은 아직 없고 테스트용 in-process adapter만 있다. | Partial |
-| FR-CONT-MVP-8 | **실제 증적** — 계약/통합 테스트는 DJ 멘트2·제어·lease/race와 전시 소개3·질문 yield/resume·stale 폐기를 검증한다. 실제 Tauri 테스트는 profile 저장·복원, DJ의 실제 YouTube BGM·첫 결과·stop, 전시 첫 greeting·stop만 검증한다. audible TTS, live 멘트2/끼어들기/모든 제어, 장시간·현장 품질은 아직 실제 증적이 없다. | Partial |
+| FR-CONT-MVP-6 | **양보와 복귀** — 관람객/사용자 입력이 현재 발화와 TTS를 중단하고, 답변 뒤 아직 수행 중인 profile의 다음 미소개 항목으로 복귀한다. quiet/stop은 복귀하지 않는다. profile stream epoch로 이전 출력은 폐기하되 yield/resume의 같은 activity는 유지한다. | Done |
+| FR-CONT-MVP-7 | **기억·개인정보** — 활동 발화·수동 청취·재생 시간으로 취향을 추론하지 않고, 전시 activity/Q&A는 memory recall/save와 영속 transcript를 기본 사용하지 않는다. 명시적 DJ 선호만 provenance와 durable/idempotent handoff하며 최신 dislike는 같은 subject의 like를 무효화한다(PA-DJ-01, PA-EX-02). | Done |
+| FR-CONT-MVP-8 | **실제 증적** — 전체 계약/통합 테스트와 Playwright 7건이 TTS 두 경로·제어 6종·250ms interrupt·stale 폐기·전시 yield/resume를 검증하고, 실제 Tauri WebDriver가 file-backed 설정 저장·cache-clear 재수화·동의 철회를 검증한다. 물리 음질·현장 선호도는 자동 완료 판정 밖의 운영 관찰 항목이다. | Done |
 
-현재 DJ 멘트는 안전하게 고정된 세 문구를 순환한다. 이는 중복 방지 계약을 검증하기 위한 첫 slice이며,
-상황에 맞춘 자유로운 DJ 진행이나 실제 라디오 수준의 장시간 품질을 뜻하지 않는다. 날씨도 내부 설정 seam만
-있고 일반 사용자가 위치·동의를 설정하는 UI는 없다.
+현재 DJ 멘트는 근거 유무를 확인하는 8개 bounded variant를 순환하며 최근 6문장 반복을 피한다.
+설정 UI는 profile/idle/interval/timezone/BGM/weather/좌표/knowledge scope를 파일에 저장하고 복원하며,
+날씨 위치는 명시 동의가 있을 때만 저장·전달한다. 자유 생성형 라디오 진행이나 물리 음질·현장 선호도는
+자동 완료 판정이 아니라 운영 관찰 범위다.
 
 ### 운영 안정화 요구사항
 
