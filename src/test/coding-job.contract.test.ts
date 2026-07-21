@@ -111,8 +111,11 @@ describe("UC-CW durable coding jobs", () => {
     const job = service.start({ workspacePath: "/student/repo", task: "edit course", executionMode: "selected_workspace", allowedFiles: ["index.html", "hero.svg"] });
     expect(prepared).toEqual(["/student/repo:index.html,hero.svg"]);
     expect(job).toMatchObject({ executionMode: "selected_workspace", worktreePath: "/student/repo" });
-    f.terminals.get(job.jobId)?.({ ok: true });
-    expect(service.get(job.jobId)).toMatchObject({ state: "failed", verificationSummary: "unexpected_file; changes were preserved for manual review" });
+    f.terminals.get(job.jobId)?.({ ok: true, reason: "codex process exit=0; stderr=none; parsed_events=planning,session_end" });
+    expect(service.get(job.jobId)).toMatchObject({
+      state: "failed",
+      verificationSummary: "unexpected_file; changes were preserved for manual review; runner: codex process exit=0; stderr=none; parsed_events=planning,session_end",
+    });
   });
 
   it("Codex runner persists its session failure and cancellation stays with its child", async () => {
@@ -143,7 +146,10 @@ describe("UC-CW durable coding jobs", () => {
     expect(cancelled).toEqual([first.worktreePath]);
     terminals[1]?.();
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(service.get(second.jobId)).toMatchObject({ state: "failed", error: "codex missing" });
+    expect(service.get(second.jobId)).toMatchObject({
+      state: "failed",
+      error: "codex missing; parsed_events=session_end; agent_message=none",
+    });
     expect(service.get(first.jobId).state).toBe("cancelled");
   });
 

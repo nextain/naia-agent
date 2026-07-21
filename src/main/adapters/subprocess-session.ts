@@ -118,6 +118,8 @@ export interface SpawnSessionSpec {
   readonly lineToEvent: LineToEvent;
   /** 미가용/실패 메시지 prefix(예: "pi unavailable", "opencode unavailable"). */
   readonly label: string;
+  /** Opt-in, redacted process-exit facts for a user-visible runner diagnostic. */
+  readonly diagnostics?: boolean;
   /** 단일 줄 상한(테스트 override). 기본 64MiB. 초과 시 child kill + fail-safe 종료. */
   readonly maxLineBytes?: number;
 }
@@ -131,7 +133,7 @@ export function spawnSubprocessSession(spec: SpawnSessionSpec): SubAgentSession 
   } catch (e) {
     return endedSession(`${spec.label} unavailable: ${(e as Error).message}`);
   }
-  return new SubprocessSession(child, spec.hardKillMs, spec.lineToEvent, spec.label, spec.maxLineBytes ?? MAX_LINE_BYTES);
+  return new SubprocessSession(child, spec.hardKillMs, spec.lineToEvent, spec.label, spec.maxLineBytes ?? MAX_LINE_BYTES, spec.diagnostics === true);
 }
 
 /** 이미 종료된 세션(즉시 session_end{ok:false}) — bin 미해결/spawn 동기실패용 정직 응답. terminal 정확히 1회. */
@@ -165,22 +167,26 @@ class SubprocessSession implements SubAgentSession {
   readonly #lineToEvent: LineToEvent;
   readonly #label: string;
   readonly #maxLineBytes: number;
+  readonly #diagnostics: boolean;
   #queue: SubAgentEvent[] = [];
   #waiters: Array<(r: IteratorResult<SubAgentEvent>) => void> = [];
   #ended = false;
   #stdoutBuf = "";
+  #stderrBytes = 0;
+  #stderrText = "";
   #closeListeners: Array<() => void> = [];
   #cancelPromise: Promise<void> | undefined; // 진행 중 취소(멱등 — 적대리뷰 P3)
 
-  constructor(child: ChildProcess, hardKillMs: number, lineToEvent: LineToEvent, label: string, maxLineBytes: number) {
+  constructor(child: ChildProcess, hardKillMs: number, lineToEvent: LineToEvent, label: string, maxLineBytes: number, diagnostics: boolean) {
     this.#child = child;
     this.#hardKillMs = hardKillMs;
     this.#lineToEvent = lineToEvent;
     this.#label = label;
     this.#maxLineBytes = maxLineBytes;
+    this.#diagnostics = diagnostics;
 
     child.stdout?.on("data", (chunk: Buffer) => this.#onStdout(chunk));
-    child.stderr?.on("data", () => {}); // 진행/디버그 출력은 무시(text 아님).
+    child.stderr?.on("data", (chunk: Buffer) => this.#onStderr(chunk));
 
     // spawn 비동기 실패(ENOENT 등) → 정직한 비정상 종료. close 없어도 여기서 종결.
     child.on("error", (err: Error) => this.#emitEnd(false, `${label} unavailable: ${err.message}`));
@@ -192,9 +198,10 @@ class SubprocessSession implements SubAgentSession {
         this.#processLine(this.#stdoutBuf);
         this.#stdoutBuf = "";
       }
-      if (signal === "SIGKILL" || signal === "SIGTERM") this.#emitEnd(false, `cancelled (${signal})`);
-      else if (code === 0) this.#emitEnd(true);
-      else this.#emitEnd(false, `exit code ${code}`);
+      const processFact = this.#diagnostics ? this.#processFact(code, signal) : undefined;
+      if (signal === "SIGKILL" || signal === "SIGTERM") this.#emitEnd(false, [`cancelled (${signal})`, processFact].filter(Boolean).join("; "));
+      else if (code === 0) this.#emitEnd(true, processFact);
+      else this.#emitEnd(false, [`exit code ${code}`, processFact].filter(Boolean).join("; "));
     });
 
     const self = this;
@@ -228,6 +235,21 @@ class SubprocessSession implements SubAgentSession {
     }
   }
 
+  #onStderr(chunk: Buffer): void {
+    if (!this.#diagnostics || this.#ended) return;
+    this.#stderrBytes += chunk.length;
+    // Keep a bounded local sample solely to classify known CLI failures. The
+    // raw output is never emitted: it can contain prompt echoes or credentials.
+    if (this.#stderrText.length < 4096) {
+      this.#stderrText += chunk.toString("utf8").slice(0, 4096 - this.#stderrText.length);
+    }
+  }
+
+  #processFact(code: number | null, signal: NodeJS.Signals | null): string {
+    const exit = signal ? `signal=${signal}` : `exit=${code ?? "unknown"}`;
+    return `${this.#label} process ${exit}; stderr=${classifyStderr(this.#stderrText, this.#stderrBytes)}`;
+  }
+
   #processLine(line: string): void {
     let e: SubAgentEvent | null;
     try {
@@ -235,7 +257,8 @@ class SubprocessSession implements SubAgentSession {
     } catch {
       return; // 파서 throw = 해석불가 줄(드롭). 머신 불변식 보호 — session_end 는 close 가 보장(적대리뷰 P1).
     }
-    if (e) this.#emit(e);
+    if (e?.kind === "session_end") this.#emitEnd(e.ok, e.reason);
+    else if (e) this.#emit(e);
   }
 
   /** session_end 정확히 1회 — 이후 emit/late stdout 무시(드롭/중복 0). waiter drain + cancel 대기자 해제. */
@@ -281,4 +304,16 @@ class SubprocessSession implements SubAgentSession {
       }); // close 가 먼저 오면 즉시 해제
     });
   }
+}
+
+/** Never expose raw child stderr to users: only a small, action-oriented class. */
+function classifyStderr(stderr: string, bytes: number): string {
+  if (bytes === 0) return "none";
+  const text = stderr.toLowerCase();
+  if (/auth|login|credential|unauthori[sz]ed/.test(text)) return "authentication";
+  if (/unknown option|unexpected argument|usage:\s*codex/.test(text)) return "argument_parse";
+  if (/model.+(not found|unavailable)|unknown model/.test(text)) return "model";
+  if (/permission|access denied|sandbox/.test(text)) return "permission";
+  if (/rate.?limit|quota/.test(text)) return "rate_limited";
+  return "present";
 }

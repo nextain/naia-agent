@@ -78,7 +78,16 @@ export function resolveCodexBin(): ResolvedBin {
 //   그 외(reasoning/item.created 등)            → 무시
 
 interface RawCodexItem { type?: string; text?: string; [k: string]: unknown }
-interface RawCodexEvent { type?: string; item?: RawCodexItem; [k: string]: unknown }
+interface RawCodexEvent { type?: string; item?: RawCodexItem; error?: unknown; message?: unknown; [k: string]: unknown }
+
+function codexFailureClass(raw: RawCodexEvent): string {
+  const text = JSON.stringify(raw.error ?? raw.message ?? "").toLowerCase();
+  if (/auth|login|credential|api.?key|unauthori[sz]ed/.test(text)) return "authentication";
+  if (/model.+(not found|unavailable)|unknown model/.test(text)) return "model";
+  if (/permission|access denied|sandbox/.test(text)) return "permission";
+  if (/rate.?limit|quota/.test(text)) return "rate_limited";
+  return "unspecified";
+}
 
 /** 단일 JSONL 줄 → SubAgentEvent 0~1개. malformed/빈줄/무관 type = null(드롭, no crash). */
 export function codexLineToEvent(line: string): SubAgentEvent | null {
@@ -95,6 +104,11 @@ export function codexLineToEvent(line: string): SubAgentEvent | null {
   switch (raw.type) {
     case "thread.started":
       return { kind: "planning" };
+    case "turn.failed":
+    case "error":
+      // Codex may report a structured failure on stdout and still close with
+      // code zero. Preserve only a redacted category, never raw prompt data.
+      return { kind: "session_end", ok: false, reason: `codex ${raw.type}: ${codexFailureClass(raw)}` };
     case "item.completed": {
       const item = raw.item;
       if (!item || typeof item.type !== "string") return null;
@@ -146,7 +160,7 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
       // placing a multi-word task first can be interpreted as a command.
       args.push(task.prompt);
       return spawnSubprocessSession({
-        spawnFn, bin, args, cwd: task.workdir, hardKillMs, lineToEvent: codexLineToEvent, label: "codex",
+        spawnFn, bin, args, cwd: task.workdir, hardKillMs, lineToEvent: codexLineToEvent, label: "codex", diagnostics: true,
       });
     },
   };

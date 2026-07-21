@@ -15,8 +15,16 @@ export function makeCodexCodingJobRunner(subAgent: SubAgentPort): CodingJobRunne
       const session = subAgent.spawn({ prompt: `${job.task}${selectedWorkspaceBoundary}`, workdir: job.worktreePath, ...(job.model ? { model: job.model } : {}) });
       void (async () => {
         try {
+          const eventKinds: string[] = [];
+          let agentMessageClass = "none";
           for await (const event of session.events) {
-            if (event.kind === "session_end") queueMicrotask(() => terminal({ ok: event.ok, ...(event.reason ? { reason: event.reason } : {}) }));
+            eventKinds.push(event.kind);
+            if (event.kind === "text_delta") agentMessageClass = classifyAgentMessage(event.text);
+            if (event.kind === "session_end") {
+              const parsed = `parsed_events=${eventKinds.join(",") || "none"}; agent_message=${agentMessageClass}`;
+              const reason = event.reason ? `${event.reason}; ${parsed}` : parsed;
+              queueMicrotask(() => terminal({ ok: event.ok, reason }));
+            }
           }
         } catch (error) {
           queueMicrotask(() => terminal({ ok: false, reason: error instanceof Error ? error.message : String(error) }));
@@ -25,4 +33,13 @@ export function makeCodexCodingJobRunner(subAgent: SubAgentPort): CodingJobRunne
       return { cancel: (reason) => session.cancel(reason) };
     },
   };
+}
+
+/** A safe category for the model's own final text; never persist its raw text. */
+function classifyAgentMessage(text: string): string {
+  const lower = text.toLowerCase();
+  if (/auth|login|credential|unauthori[sz]ed/.test(lower)) return "authentication";
+  if (/cannot|can't|unable|not able|refus|blocked|permission/.test(lower)) return "blocked";
+  if (/edit|changed|updated|created|wrote/.test(lower)) return "reported_edit";
+  return "present";
 }

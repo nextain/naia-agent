@@ -151,6 +151,8 @@ describe("subagent-codex 어댑터 계약 (SPEC-010 확장, fake child)", () => 
     expect(codexLineToEvent('{"type":"thread.started","thread_id":"x"}')).toEqual({ kind: "planning" });
     expect(codexLineToEvent('{"type":"item.completed","item":{"type":"agent_message","text":"OK"}}')).toEqual({ kind: "text_delta", text: "OK" });
     expect(codexLineToEvent('{"type":"item.completed","item":{"type":"command_execution","command":["ls"]}}')).toEqual({ kind: "tool_use_end", tool: "command_execution", ok: true });
+    expect(codexLineToEvent('{"type":"turn.failed","error":{"message":"invalid api key sk-secret"}}'))
+      .toEqual({ kind: "session_end", ok: false, reason: "codex turn.failed: authentication" });
     expect(codexLineToEvent("")).toBeNull();
     expect(codexLineToEvent('{"type":"turn.completed","usage":{}}')).toBeNull(); // terminal=close → 무시
     expect(codexLineToEvent('{"type":"item.completed","item":{"type":"agent_message","text":""}}')).toBeNull(); // 빈 텍스트=드롭

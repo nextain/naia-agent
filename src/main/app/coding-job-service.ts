@@ -100,10 +100,15 @@ export class CodingJobService implements CodingJobControlPort {
       }
     }
     const verified = verification?.ok ?? ok;
-    const terminalReason = verification && !verification.ok ? verification.summary : reason;
+    // The selected-workspace guard remains authoritative, but do not erase the
+    // bounded runner diagnostic that distinguishes a no-op from a CLI failure.
+    const verificationSummary = verification && !verification.ok && reason
+      ? `${verification.summary}; runner: ${reason}`
+      : verification?.summary;
+    const terminalReason = verification && !verification.ok ? verificationSummary : reason;
     const next = current.state === "cancelling"
       ? transitionCodingJob(current, "cancelled", this.#now(), reason)
-      : { ...transitionCodingJob(current, verified ? "completed" : "failed", this.#now(), terminalReason), ...(verification ? { verificationSummary: verification.summary } : {}) };
+      : { ...transitionCodingJob(current, verified ? "completed" : "failed", this.#now(), terminalReason), ...(verificationSummary ? { verificationSummary } : {}) };
     this.d.store.save(next);
     const active = this.#active.get(jobId);
     this.#active.delete(jobId);
