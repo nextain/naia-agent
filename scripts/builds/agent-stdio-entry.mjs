@@ -48,6 +48,7 @@ const discordToken = await discordTokenFromSecretPipe;
 // Secret pipe read/close must finish before any runtime module is evaluated. This keeps
 // provider/tool composition and every later child process outside the secret fd lifetime.
 const { randomUUID } = await import("node:crypto");
+const { readFileSync } = await import("node:fs");
 const { join } = await import("node:path");
 const { wireAgentUC1, wireSupervisor } = await import("../../dist/main/composition/index.js");
 const { makeCompositeAgentIngress, makePrefixedAgentEgress } =
@@ -136,8 +137,15 @@ const { memory, memoryLabel, conversationLog, transcriptLabel, diag, personaSour
 let skillsLabel = deps.skillsLabel;
 let currentAdkPath = adkPath;
 let jeonjuCourseConfig;
-if (process.env.NAIA_JEONJU_COURSE_TARGET_JSON) {
-  try { jeonjuCourseConfig = parseJeonjuDiscordCourseConfig(JSON.parse(process.env.NAIA_JEONJU_COURSE_TARGET_JSON)); }
+const courseTargetRaw = process.env.NAIA_JEONJU_COURSE_TARGET_JSON
+  ?? (() => {
+    if (!adkPath) return undefined;
+    try { return readFileSync(join(adkPath, "naia-settings", "jeonju-discord-course.json"), "utf8"); }
+    catch { return undefined; }
+  })();
+const jeonjuCourseTargetProvided = Boolean(courseTargetRaw);
+if (jeonjuCourseTargetProvided) {
+  try { jeonjuCourseConfig = parseJeonjuDiscordCourseConfig(JSON.parse(courseTargetRaw)); }
   catch { jeonjuCourseConfig = undefined; }
 }
 delete process.env.NAIA_JEONJU_COURSE_TARGET_JSON;
@@ -146,6 +154,18 @@ delete process.env.NAIA_JEONJU_COURSE_TARGET_JSON;
 // but returns FAILED_PRECONDITION until a checkpoint-capable runner is added.
 let courseService;
 let discordRuntime;
+const invalidCourseCommand = jeonjuCourseTargetProvided && !jeonjuCourseConfig
+  ? {
+    start: (input) => {
+      diag.log("discord course", { code: "course_target_invalid" });
+      void discordRuntime?.sendCourseLifecycle({
+        bindingId: input.bindingId, guildId: input.guildId, channelId: input.channelId,
+        sourceMessageId: input.sourceMessageId, state: "failed",
+      });
+      return true;
+    },
+  }
+  : undefined;
 const codingJobs = adkPath ? new CodingJobService({
   store: makeOwnerOnlyCodingJobStore(defaultCodingJobStatePath(adkPath)),
   worktrees: makeGitCodingJobWorktrees({
@@ -160,7 +180,7 @@ if (codingJobs && jeonjuCourseConfig) {
   courseService = new JeonjuDiscordCourseService({
     codingJobs,
     config: jeonjuCourseConfig,
-    status: { send: async (event) => { await discordRuntime?.sendCourseLifecycle(event); } },
+    status: { send: async (event) => (await discordRuntime?.sendCourseLifecycle(event)) ?? false },
   });
 }
 
@@ -319,7 +339,7 @@ if (discordToken && discordConfig && discordAuthority) {
       clock: makeSystemDiscordClock(),
       text: makeDiscordRuntimeText(process.env.NAIA_DISCORD_LOCALE === "en" ? "en" : "ko"),
       diag,
-      ...(courseService ? { courseCommand: courseService } : {}),
+      ...((courseService ?? invalidCourseCommand) ? { courseCommand: courseService ?? invalidCourseCommand } : {}),
     }, discordConfig);
     const endpointFor = (config) => {
       const route = resolveProviderRoute(config);
@@ -499,6 +519,7 @@ try {
 // ⚠️ stdout 한 줄 핸드셰이크(데이터 transport 아님) — Rust 가 이 addr 를 읽어 gRPC connect.
 process.stdout.write(`GRPC_LISTENING ${grpcAddr}\n`);
 discordRuntime?.start();
+courseService?.restore();
 if (discordRuntime && discordStatus) {
   let previous;
   discordStatusPoll = setInterval(() => {

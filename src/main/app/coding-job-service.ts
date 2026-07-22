@@ -27,7 +27,7 @@ export class CodingJobService implements CodingJobControlPort {
     this.#ids = d.ids ?? randomUUID;
   }
 
-  start(input: { workspacePath: string; task: string; model?: string; executionMode?: "isolated_worktree" | "selected_workspace"; allowedFiles?: readonly string[] }): CodingJob {
+  start(input: { workspacePath: string; task: string; model?: string; executionMode?: "isolated_worktree" | "selected_workspace"; allowedFiles?: readonly string[]; courseReply?: import("../domain/coding-job.js").CodingJobCourseReply }): CodingJob {
     if (!input.task.trim()) throw new Error("coding job task is required");
     const executionMode = input.executionMode ?? "isolated_worktree";
     if (executionMode === "selected_workspace" && (!input.allowedFiles?.length || !this.d.selectedWorkspace)) throw new Error("selected workspace mode is unavailable");
@@ -39,22 +39,23 @@ export class CodingJobService implements CodingJobControlPort {
     let job: CodingJob = {
       jobId, workspacePath: allocation.workspacePath, worktreePath: allocation.worktreePath,
       branch: allocation.branch, leaseId: allocation.leaseId, task: input.task, ...(input.model ? { model: input.model } : {}),
-      state: "queued", executionMode, ...(executionMode === "selected_workspace" ? { allowedFiles: [...input.allowedFiles!] } : {}), createdAt: now, updatedAt: now,
+      state: "queued", executionMode, ...(executionMode === "selected_workspace" ? { allowedFiles: [...input.allowedFiles!] } : {}), ...(input.courseReply ? { courseReply: input.courseReply } : {}), createdAt: now, updatedAt: now,
     };
     this.d.store.save(job);
     this.#reportCourseLifecycle(job);
     try {
       let cancel = async (_reason: string): Promise<void> => {};
       this.#active.set(jobId, { allocation, cancel: (reason) => cancel(reason) });
-      const run = this.d.runner.start({ job, terminal: (result) => this.#terminal(jobId, result.ok, result.reason, result.patch) });
-      cancel = (reason) => run.cancel(reason);
-      // A job is running only after the runner has successfully spawned.  A
-      // spawn error leaves a durable failed record rather than a false running
-      // status.
+      // Runners are provider-neutral and may synchronously call terminal()
+      // while start() is still on the stack. Persist running before handing
+      // them the callback so a terminal transition cannot be overwritten by a
+      // stale queued object after start() returns.
       job = transitionCodingJob(job, "running", this.#now());
       this.d.store.save(job);
       this.#reportCourseLifecycle(job);
-      return job;
+      const run = this.d.runner.start({ job, terminal: (result) => this.#terminal(jobId, result.ok, result.reason, result.patch) });
+      cancel = (reason) => run.cancel(reason);
+      return this.d.store.get(jobId) ?? job;
     } catch (error) {
       const current = this.d.store.get(jobId) ?? job;
       if (isCodingJobTerminal(current.state)) return current;
@@ -126,7 +127,7 @@ export class CodingJobService implements CodingJobControlPort {
   }
 
   #reportCourseLifecycle(job: CodingJob): void {
-    if (job.executionMode !== "selected_workspace") return;
+    if (job.executionMode !== "selected_workspace" || !job.courseReply) return;
     const state = codingJobCourseLifecycleState(job.state);
     if (!state) return;
     try {

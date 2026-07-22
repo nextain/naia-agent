@@ -44,7 +44,8 @@ export interface DiscordCourseLifecycleDelivery {
 }
 
 export interface DiscordCourseStatusPort {
-  send(input: DiscordCourseLifecycleDelivery): Promise<void>;
+  /** false means delivery remains pending and the bridge must retry/recover. */
+  send(input: DiscordCourseLifecycleDelivery): Promise<boolean>;
 }
 
 export type DiscordGatewayCloseCode =

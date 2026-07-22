@@ -113,7 +113,7 @@ describe("UC-CW durable coding jobs", () => {
       now: () => "now",
     });
 
-    const job = service.start({ workspacePath: "/private/student/repo", task: "private course prompt", executionMode: "selected_workspace", allowedFiles: ["index.html", "hero.svg"] });
+    const job = service.start({ workspacePath: "/private/student/repo", task: "private course prompt", executionMode: "selected_workspace", allowedFiles: ["index.html", "hero.svg"], courseReply: { bindingId: "course_binding", guildId: "100", channelId: "200", sourceMessageId: "300" } });
     f.terminals.get(job.jobId)?.({ ok: true, patch: { version: 1, files: [{ path: "index.html", content: "<img src=\"./hero.svg\">" }] } });
     // A duplicate runner callback must not emit a second terminal status.
     f.terminals.get(job.jobId)?.({ ok: true });
@@ -143,8 +143,27 @@ describe("UC-CW durable coding jobs", () => {
       now: () => "now",
     });
 
-    expect(service.start({ workspacePath: "/private/student/repo", task: "private task", executionMode: "selected_workspace", allowedFiles: ["index.html", "hero.svg"] }).state).toBe("failed");
-    expect(states).toEqual(["received", "failed"]);
+    expect(service.start({ workspacePath: "/private/student/repo", task: "private task", executionMode: "selected_workspace", allowedFiles: ["index.html", "hero.svg"], courseReply: { bindingId: "course_binding", guildId: "100", channelId: "200", sourceMessageId: "300" } }).state).toBe("failed");
+    expect(states).toEqual(["received", "running", "failed"]);
+  });
+
+  it("cannot overwrite a synchronous terminal callback with a stale running state", () => {
+    const f = fixture();
+    const states: string[] = [];
+    const service = new CodingJobService({
+      store: { get: (id) => f.jobs.get(id), list: () => [...f.jobs.values()], save: (job) => f.jobs.set(job.jobId, job) },
+      worktrees: { allocate: ({ jobId, workspacePath }) => ({ workspacePath, worktreePath: `/work/${jobId}`, branch: "selected", leaseId: jobId, release: () => {} }) },
+      selectedWorkspace: {
+        prepare: ({ jobId, workspacePath }) => ({ workspacePath, worktreePath: workspacePath, branch: "selected", leaseId: jobId, release: () => {} }),
+        apply: () => ({ ok: true, summary: "applied" }), verify: () => ({ ok: true, summary: "verified" }),
+      },
+      runner: { start: ({ terminal }) => { terminal({ ok: true, patch: { version: 1, files: [{ path: "index.html", content: "<img src=\"./hero.svg\">" }] } }); return { cancel: async () => {} }; } },
+      courseLifecycle: { report: ({ state }) => states.push(state) }, ids: () => "job_sync", now: () => "now",
+    });
+    const job = service.start({ workspacePath: "/student", task: "course", executionMode: "selected_workspace", allowedFiles: ["index.html", "hero.svg"], courseReply: { bindingId: "course_binding", guildId: "100", channelId: "200", sourceMessageId: "300" } });
+    expect(job.state).toBe("completed");
+    expect(service.get(job.jobId).state).toBe("completed");
+    expect(states).toEqual(["received", "running", "completed"]);
   });
 
   it("does not send ordinary isolated-worktree jobs to the course chat bridge", () => {

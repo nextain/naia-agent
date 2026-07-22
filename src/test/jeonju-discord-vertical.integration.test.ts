@@ -57,6 +57,7 @@ function waitFor(check: () => boolean): Promise<void> {
 describe("UC-JEONJU vertical Discord acceptance", () => {
   it("runs get_time, starts only the host-selected course target, and replies with safe lifecycle states", async () => {
     const gateway = new FakeGateway();
+    const courseDedupeIds: string[] = [];
     const jobs = new Map<string, CodingJob>();
     let terminal: ((result: { ok: boolean; reason?: string; patch?: JeonjuCoursePatch }) => void) | undefined;
     const prepared: unknown[] = [];
@@ -89,7 +90,10 @@ describe("UC-JEONJU vertical Discord acceptance", () => {
       gateway,
       token: { load: async () => "secret" },
       dedupe: {
-        reserve: async () => ({ decision: "process" as const }),
+        reserve: async ({ messageId }) => {
+          if (/^course_(received|running|completed|failed)_/.test(messageId)) courseDedupeIds.push(messageId);
+          return { decision: "process" as const };
+        },
         beginReply: async () => true,
         claimChunk: async () => true,
         confirmChunk: async () => true,
@@ -149,7 +153,7 @@ describe("UC-JEONJU vertical Discord acceptance", () => {
       "TOOL_RECORD state=succeeded tool=get_time value=2026-07-22 14:31:00 (Asia/Seoul)\n\n현재 시각입니다.",
     );
 
-    gateway.message("course", "<@999> /course 제목을 전주에서 만든 나의 AI 페이지로 바꿔줘");
+    gateway.message("course_source", "<@999> /course 제목을 전주에서 만든 나의 AI 페이지로 바꿔줘");
     await waitFor(() => gateway.connection.replies.length === 5);
     expect(prepared).toEqual([{
       jobId: "job_vertical",
@@ -163,6 +167,10 @@ describe("UC-JEONJU vertical Discord acceptance", () => {
       "수업 작업을 진행하고 있습니다.",
       "수업 작업이 완료되었습니다. Shell에서 결과를 확인해 주세요.",
     ]);
+    expect(courseDedupeIds).toHaveLength(3);
+    expect(new Set(courseDedupeIds).size).toBe(3);
+    expect(courseDedupeIds.every((id) => /^course_(received|running|completed)_[a-f0-9]{32}$/.test(id))).toBe(true);
+    expect(JSON.stringify(courseDedupeIds)).not.toContain("course_source");
     const publicEvidence = JSON.stringify(gateway.connection.replies);
     expect(publicEvidence).not.toContain("student-page");
     expect(publicEvidence).not.toContain("D:/alpha-adk");

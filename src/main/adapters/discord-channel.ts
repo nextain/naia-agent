@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { AgentEmit, AgentRequest, ChatMessage } from "../domain/chat.js";
 import { evaluateDiscordIngress } from "../domain/discord-ingress-policy.js";
 import { validateSecurityWireRequest } from "../domain/security-wire.js";
@@ -62,6 +63,12 @@ const COURSE_STATUS_TEXT: Readonly<Record<DiscordCourseLifecycleDelivery["state"
   completed: "수업 작업이 완료되었습니다. Shell에서 결과를 확인해 주세요.",
   failed: "수업 작업을 완료하지 못했습니다. Shell에서 작업 상태를 확인해 주세요.",
 };
+
+function courseDedupeId(input: DiscordCourseLifecycleDelivery): string {
+  // The persistent dedupe store permits only bounded opaque identifiers. Hash
+  // the source id rather than reflecting an untrusted Gateway identifier.
+  return `course_${input.state}_${createHash("sha256").update(input.sourceMessageId).digest("hex").slice(0, 32)}`;
+}
 const CONFIG_KEYS = new Set(["version", "generation", "bindings", "processingProfiles"]);
 const BINDING_KEYS = new Set([
   "bindingId",
@@ -295,36 +302,39 @@ export class DiscordChannelRuntime {
    * binding and only emits one of four fixed messages, so job details cannot
    * be reflected into Discord.
    */
-  async sendCourseLifecycle(input: DiscordCourseLifecycleDelivery): Promise<void> {
+  async sendCourseLifecycle(input: DiscordCourseLifecycleDelivery): Promise<boolean> {
     const binding = this.config.bindings.find((candidate) =>
       candidate.bindingId === input.bindingId
       && candidate.guildId === input.guildId
       && candidate.channelId === input.channelId);
     const connection = this.connection;
     if (!binding || !connection || !this.isLifecycleCurrent(this.lifecycleEpoch)
-      || !await this.ensureAuthoritative()) return;
+      || !await this.ensureAuthoritative()) return false;
     const content = COURSE_STATUS_TEXT[input.state];
-    if (!content) return;
+    if (!content) return false;
+    const durableMessageId = courseDedupeId(input);
     try {
-      const replyMessageId = await connection.sendReply({
-        guildId: input.guildId,
-        channelId: input.channelId,
-        messageId: input.sourceMessageId,
-        content,
-        signal: this.lifecycleAbort.signal,
-      });
-      await this.recordInbox({
-        recordId: `outgoing_${replyMessageId}`,
-        direction: "outgoing",
+      const reservation = await this.deps.dedupe.reserve({
         bindingId: input.bindingId,
-        guildId: input.guildId,
-        channelId: input.channelId,
-        sourceMessageId: replyMessageId,
-        content,
-        createdAt: this.deps.clock.now(),
+        messageId: durableMessageId,
+        now: this.deps.clock.now(),
       });
+      if (reservation.decision === "duplicate") return true;
+      const chunks = reservation.decision === "resume_reply" ? reservation.chunks : [content];
+      const startChunk = reservation.decision === "resume_reply" ? reservation.nextChunk : 0;
+      if (reservation.decision === "process" && !await this.deps.dedupe.beginReply({
+        bindingId: input.bindingId,
+        messageId: durableMessageId,
+        chunks,
+        now: this.deps.clock.now(),
+      })) return false;
+      return await this.sendDurableReply(
+        input.bindingId, input.guildId, input.channelId, input.sourceMessageId,
+        chunks, startChunk, this.lifecycleEpoch, this.lifecycleAbort.signal, durableMessageId,
+      );
     } catch {
       this.diagnostic("course_status_reply_failed");
+      return false;
     }
   }
 
@@ -1002,36 +1012,37 @@ export class DiscordChannelRuntime {
     startChunk: number,
     lifecycleEpoch?: number,
     outboundSignal: AbortSignal = this.lifecycleAbort.signal,
-  ): Promise<void> {
+    durableMessageId: string = messageId,
+  ): Promise<boolean> {
     const connection = this.connection;
     if (!connection) {
       this.diagnostic("reply_connection_unavailable");
-      return;
+      return false;
     }
     let sent = startChunk;
     try {
       for (let index = startChunk; index < chunks.length; index++) {
         if ((lifecycleEpoch !== undefined && !this.isLifecycleCurrent(lifecycleEpoch))
           || this.stopped || !await this.ensureAuthoritative()) {
-          await this.recordPartial(bindingId, messageId, sent);
-          return;
+          await this.recordPartial(bindingId, durableMessageId, sent);
+          return false;
         }
         const claimed = await this.deps.dedupe.claimChunk({
           bindingId,
-          messageId,
+          messageId: durableMessageId,
           nextChunk: index + 1,
           now: this.deps.clock.now(),
         });
         if (!claimed) throw new Error("reply_state_failed");
         if (!await this.ensureAuthoritative()
           || (lifecycleEpoch !== undefined && !this.isLifecycleCurrent(lifecycleEpoch))) {
-          await this.recordPartial(bindingId, messageId, sent);
-          return;
+          await this.recordPartial(bindingId, durableMessageId, sent);
+          return false;
         }
         const replyMessageId = await connection.sendReply({
           channelId,
           guildId,
-          messageId,
+          messageId: durableMessageId,
           content: chunks[index]!,
           signal: outboundSignal,
         });
@@ -1044,8 +1055,8 @@ export class DiscordChannelRuntime {
         });
         if (!recorded) throw new Error("reply_state_failed");
         if (lifecycleEpoch !== undefined && !this.isLifecycleCurrent(lifecycleEpoch)) {
-          await this.recordPartial(bindingId, messageId, sent);
-          return;
+          await this.recordPartial(bindingId, durableMessageId, sent);
+          return false;
         }
         await this.recordInbox({
           recordId: `outgoing_${replyMessageId}`,
@@ -1059,9 +1070,11 @@ export class DiscordChannelRuntime {
         });
       }
     } catch (error) {
-      await this.recordPartial(bindingId, messageId, sent);
+      await this.recordPartial(bindingId, durableMessageId, sent);
       if (!this.stopped) this.diagnostic((error as { code?: string }).code ?? "reply_failed");
+      return false;
     }
+    return true;
   }
 
   private async recordInbox(record: DiscordInboxRecord): Promise<void> {

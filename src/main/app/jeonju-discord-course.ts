@@ -5,7 +5,7 @@ import type {
   DiscordCourseLifecycleDelivery,
   DiscordCourseStatusPort,
 } from "../ports/discord.js";
-import type { CodingJobCourseLifecycleState } from "../domain/coding-job.js";
+import { codingJobCourseLifecycleState, type CodingJobCourseLifecycleState, type CodingJobCourseReply } from "../domain/coding-job.js";
 
 const COURSE_FILES = ["index.html", "hero.svg"] as const;
 const MAX_TASK_CHARS = 4_000;
@@ -48,9 +48,8 @@ function isSafeTask(value: string): boolean {
  * original Discord message.
  */
 export class JeonjuDiscordCourseService implements DiscordCourseCommandPort, CodingJobCourseLifecyclePort {
-  readonly #deliveries = new Map<string, Omit<DiscordCourseLifecycleDelivery, "state">>();
-  readonly #pending = new Map<string, CodingJobCourseLifecycleState[]>();
   readonly #tails = new Map<string, Promise<void>>();
+  readonly #pending = new Map<string, { readonly delivery: CodingJobCourseReply; readonly state: CodingJobCourseLifecycleState }>();
 
   constructor(
     private readonly deps: {
@@ -69,47 +68,77 @@ export class JeonjuDiscordCourseService implements DiscordCourseCommandPort, Cod
       sourceMessageId: input.sourceMessageId,
     } as const;
     try {
-      const job = this.deps.codingJobs.start({
+      this.deps.codingJobs.start({
         workspacePath: this.deps.config.workspacePath,
         task: input.task,
         executionMode: "selected_workspace",
         allowedFiles: this.deps.config.allowedFiles,
+        courseReply: delivery,
       });
-      this.#deliveries.set(job.jobId, delivery);
-      for (const state of this.#pending.get(job.jobId) ?? []) this.#enqueue(job.jobId, delivery, state);
-      this.#pending.delete(job.jobId);
     } catch {
-      this.#send(delivery, "failed");
+      this.#queueExternalFailure(delivery);
     }
     return true;
   }
 
   report(input: { readonly jobId: string; readonly state: CodingJobCourseLifecycleState }): void {
-    const delivery = this.#deliveries.get(input.jobId);
-    if (!delivery) {
-      const states = this.#pending.get(input.jobId) ?? [];
-      states.push(input.state);
-      this.#pending.set(input.jobId, states);
-      return;
-    }
+    const delivery = this.#courseReply(input.jobId);
+    if (!delivery) return;
     this.#enqueue(input.jobId, delivery, input.state);
+  }
+
+  /** Rehydrates unsent course state after a process restart or Gateway reconnect. */
+  restore(): void {
+    for (const job of this.deps.codingJobs.list()) {
+      if (!job.courseReply) continue;
+      const state = codingJobCourseLifecycleState(job.state);
+      if (state) this.#enqueue(job.jobId, job.courseReply, state);
+    }
   }
 
   #enqueue(jobId: string, delivery: Omit<DiscordCourseLifecycleDelivery, "state">, state: CodingJobCourseLifecycleState): void {
     const next = (this.#tails.get(jobId) ?? Promise.resolve())
-      .then(() => this.#send(delivery, state))
-      .catch(() => undefined);
+      .then(async () => {
+        if (await this.#send(delivery, state)) {
+          this.#pending.delete(jobId);
+          return;
+        }
+        this.#pending.set(jobId, { delivery, state });
+        this.#scheduleRetry(jobId);
+      })
+      .catch(() => {
+        this.#pending.set(jobId, { delivery, state });
+        this.#scheduleRetry(jobId);
+    });
     this.#tails.set(jobId, next);
     if (state === "completed" || state === "failed") {
-      void next.finally(() => {
-        if (this.#tails.get(jobId) === next) this.#tails.delete(jobId);
-        this.#deliveries.delete(jobId);
-        this.#pending.delete(jobId);
+      void next.then(() => {
+        if (!this.#pending.has(jobId) && this.#tails.get(jobId) === next) this.#tails.delete(jobId);
       });
     }
   }
 
-  #send(delivery: Omit<DiscordCourseLifecycleDelivery, "state">, state: CodingJobCourseLifecycleState): Promise<void> {
+  #courseReply(jobId: string): CodingJobCourseReply | undefined {
+    try { return this.deps.codingJobs.get(jobId).courseReply; } catch { return undefined; }
+  }
+
+  #queueExternalFailure(delivery: CodingJobCourseReply): void {
+    const jobId = `failed_${delivery.sourceMessageId}`;
+    this.#enqueue(jobId, delivery, "failed");
+  }
+
+  #scheduleRetry(jobId: string): void {
+    const pending = this.#pending.get(jobId);
+    if (!pending) return;
+    const timer = setTimeout(() => {
+      this.#tails.delete(jobId);
+      const latest = this.#pending.get(jobId);
+      if (latest) this.#enqueue(jobId, latest.delivery, latest.state);
+    }, 1_000);
+    timer.unref?.();
+  }
+
+  #send(delivery: Omit<DiscordCourseLifecycleDelivery, "state">, state: CodingJobCourseLifecycleState): Promise<boolean> {
     return this.deps.status.send({ ...delivery, state });
   }
 }

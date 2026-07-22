@@ -1,4 +1,4 @@
-import type { CodingJob, CodingJobCourseLifecycleState } from "../domain/coding-job.js";
+import type { CodingJob, CodingJobCourseLifecycleState, CodingJobCourseReply } from "../domain/coding-job.js";
 import type { JeonjuCoursePatch } from "../domain/jeonju-course.js";
 
 /**
@@ -15,7 +15,7 @@ export interface CodingJobCourseLifecyclePort {
 }
 
 export interface CodingJobControlPort {
-  start(input: { workspacePath: string; task: string; model?: string; executionMode?: "isolated_worktree" | "selected_workspace"; allowedFiles?: readonly string[] }): CodingJob;
+  start(input: { workspacePath: string; task: string; model?: string; executionMode?: "isolated_worktree" | "selected_workspace"; allowedFiles?: readonly string[]; courseReply?: CodingJobCourseReply }): CodingJob;
   get(jobId: string): CodingJob;
   list(workspacePath?: string): readonly CodingJob[];
   cancel(jobId: string): Promise<CodingJob>;

@@ -5,6 +5,14 @@ export const codingJobStates = [
 export type CodingJobState = (typeof codingJobStates)[number];
 export type CodingJobExecutionMode = "isolated_worktree" | "selected_workspace";
 
+/** Durable, non-secret correlation for a host-owned course chat reply. */
+export interface CodingJobCourseReply {
+  readonly bindingId: string;
+  readonly guildId: string;
+  readonly channelId: string;
+  readonly sourceMessageId: string;
+}
+
 /**
  * The only lifecycle states a remote course channel may show.  It deliberately
  * excludes task text, paths, runner output, and verification diagnostics.
@@ -46,6 +54,8 @@ export interface CodingJob {
   // New jobs always persist this as `isolated_worktree` or `selected_workspace`.
   readonly executionMode?: CodingJobExecutionMode;
   readonly allowedFiles?: readonly string[];
+  /** Present only for an explicitly accepted course channel command. */
+  readonly courseReply?: CodingJobCourseReply;
   readonly verificationSummary?: string;
   readonly model?: string;
   readonly state: CodingJobState;
