@@ -221,7 +221,7 @@ describe("UC-CW durable coding jobs", () => {
     expect(service.get(first.jobId).state).toBe("cancelled");
   });
 
-  it("Codex course runner requires edits to both approved files before reporting success", () => {
+  it("Codex course runner permits a focused revision while keeping the approved-file boundary", () => {
     let prompt = "";
     const runner = makeCodexCodingJobRunner({
       spawn(task) {
@@ -237,8 +237,9 @@ describe("UC-CW durable coding jobs", () => {
       terminal: () => {},
     });
     expect(prompt).toContain("first inspect index.html and hero.svg");
-    expect(prompt).toContain("material uncommitted edit to both approved files");
-    expect(prompt).toContain("Do not report success unless both files are edited");
+    expect(prompt).toContain("requested material uncommitted edit to one or more approved files");
+    expect(prompt).toContain("Do not report success unless every requested change is written");
+    expect(prompt).toContain("Edit only the approved files");
   });
 
   it("rejects workspace escapes and gives each job an exclusive generated lease", () => {

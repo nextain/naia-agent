@@ -27,6 +27,9 @@ export function checkJeonjuWorkspaceFinish(
   if (before.head !== after.head) return { ok: false, reason: "history_changed" };
   if (before.remote !== after.remote) return { ok: false, reason: "remote_changed" };
   if (after.changedFiles.some((file) => !JEONJU_ALLOWED_FILES.includes(file as JeonjuAllowedFile))) return { ok: false, reason: "unexpected_file" };
-  if (!after.changedFiles.includes("index.html") || !after.changedFiles.includes("hero.svg")) return { ok: false, reason: "missing_required_file" };
-  return contents["index.html"]?.includes("./hero.svg") ? { ok: true } : { ok: false, reason: "invalid_hero_reference" };
+  // The first build normally changes both files, while a later lesson revision
+  // may legitimately change only index.html.  The fixed file set is an upper
+  // boundary, not a requirement to churn both files on every request.
+  if (after.changedFiles.length === 0 || !contents["index.html"] || !contents["hero.svg"]) return { ok: false, reason: "missing_required_file" };
+  return contents["index.html"].includes("./hero.svg") ? { ok: true } : { ok: false, reason: "invalid_hero_reference" };
 }
