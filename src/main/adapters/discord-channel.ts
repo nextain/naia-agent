@@ -4,6 +4,7 @@ import { validateSecurityWireRequest } from "../domain/security-wire.js";
 import type {
   DiscordGatewayConnection,
   DiscordGatewayMessage,
+  DiscordCourseLifecycleDelivery,
   DiscordInboxRecord,
   DiscordRuntimeDeps,
 } from "../ports/discord.js";
@@ -54,6 +55,13 @@ const REQUEST_PREFIX = "discord:";
 const REPLY_CHUNK = 2_000;
 const MAX_INPUT_CHARS = 4_000;
 const TOOL_PROGRESS_NAME = /^[A-Za-z0-9_.:-]{1,64}$/;
+const COURSE_COMMAND = /^\/course\s+(.+)$/s;
+const COURSE_STATUS_TEXT: Readonly<Record<DiscordCourseLifecycleDelivery["state"], string>> = {
+  received: "수업 작업을 접수했습니다.",
+  running: "수업 작업을 진행하고 있습니다.",
+  completed: "수업 작업이 완료되었습니다. Shell에서 결과를 확인해 주세요.",
+  failed: "수업 작업을 완료하지 못했습니다. Shell에서 작업 상태를 확인해 주세요.",
+};
 const CONFIG_KEYS = new Set(["version", "generation", "bindings", "processingProfiles"]);
 const BINDING_KEYS = new Set([
   "bindingId",
@@ -280,6 +288,44 @@ export class DiscordChannelRuntime {
   start(): void {
     if (this.loop || this.stopped) return;
     this.loop = this.run();
+  }
+
+  /**
+   * Host-owned lifecycle bridge entry.  The runtime re-checks the configured
+   * binding and only emits one of four fixed messages, so job details cannot
+   * be reflected into Discord.
+   */
+  async sendCourseLifecycle(input: DiscordCourseLifecycleDelivery): Promise<void> {
+    const binding = this.config.bindings.find((candidate) =>
+      candidate.bindingId === input.bindingId
+      && candidate.guildId === input.guildId
+      && candidate.channelId === input.channelId);
+    const connection = this.connection;
+    if (!binding || !connection || !this.isLifecycleCurrent(this.lifecycleEpoch)
+      || !await this.ensureAuthoritative()) return;
+    const content = COURSE_STATUS_TEXT[input.state];
+    if (!content) return;
+    try {
+      const replyMessageId = await connection.sendReply({
+        guildId: input.guildId,
+        channelId: input.channelId,
+        messageId: input.sourceMessageId,
+        content,
+        signal: this.lifecycleAbort.signal,
+      });
+      await this.recordInbox({
+        recordId: `outgoing_${replyMessageId}`,
+        direction: "outgoing",
+        bindingId: input.bindingId,
+        guildId: input.guildId,
+        channelId: input.channelId,
+        sourceMessageId: replyMessageId,
+        content,
+        createdAt: this.deps.clock.now(),
+      });
+    } catch {
+      this.diagnostic("course_status_reply_failed");
+    }
   }
 
   status(): {
@@ -685,10 +731,6 @@ export class DiscordChannelRuntime {
       this.deps.diag.debug?.("discord ingress rejected", { reason: decision.accepted ? "binding_missing" : decision.reason });
       return;
     }
-    if (!this.route) {
-      this.diagnostic("ingress_unavailable");
-      return;
-    }
     const userText = stripSelfMention(message.content, selfUserId);
     if (!userText || userText.length > MAX_INPUT_CHARS) {
       this.deps.diag.debug?.("discord ingress rejected", { reason: "invalid_content" });
@@ -739,6 +781,29 @@ export class DiscordChannelRuntime {
     });
     if (!await this.ensureAuthoritative() || !this.isLifecycleCurrent(lifecycleEpoch)) {
       await this.finishInterruptedReservation(binding.bindingId, message.messageId);
+      return;
+    }
+    const courseTask = userText.match(COURSE_COMMAND)?.[1]?.trim();
+    if (courseTask && this.deps.courseCommand?.start({
+      bindingId: binding.bindingId,
+      guildId: binding.guildId,
+      channelId: binding.channelId,
+      sourceMessageId: message.messageId,
+      authorId: message.authorId,
+      task: courseTask,
+    })) {
+      try {
+        await this.deps.dedupe.complete({
+          bindingId: binding.bindingId,
+          messageId: message.messageId,
+          now: this.deps.clock.now(),
+        });
+      } catch { this.diagnostic("course_command_state_failed"); }
+      return;
+    }
+    if (!this.route) {
+      await this.finishInterruptedReservation(binding.bindingId, message.messageId);
+      this.diagnostic("ingress_unavailable");
       return;
     }
     const requestId = `${REQUEST_PREFIX}${binding.bindingId}:${message.messageId}`;

@@ -31,7 +31,7 @@ For the direct course repository route, the selected coding brain is a read-only
 
 ### UC-JEONJU-03 — 첫 제작 요청과 학생 저장소 결과
 
-1. 허용된 학생이 Discord에서 교재의 첫 제작 요청을 보낸다.
+1. 수업 시작 전에 Shell host가 선택한 학생 Git 저장소와 고정 파일 경계(`index.html`, `hero.svg`)를 versioned course target으로 설정한다. 허용된 학생은 Discord에서 명시적 `/course <교재의 첫 제작 요청>`을 보낸다. 일반 대화, 모델 출력, Discord 본문에 든 경로/파일명은 이 target을 바꾸지 못한다.
 2. Naia는 **접수됨 → 작업 중 → 완료/실패**를 같은 Discord 흐름에 보이고, Codex에는
    학생이 선택한 수업 저장소만 쓰기 권한으로 넘긴다.
    Naia ADK 경로는 설정·기술·작업 상태를 위한 제어 루트이며, 실행 대상은 별도로
@@ -67,7 +67,7 @@ For the direct course repository route, the selected coding brain is a read-only
 |---|---|---|
 | TEST-JEONJU-01 | selected-workspace 요청은 명시 모드일 때만 허용하며, Git root·clean 상태·선택 경로 일치가 아니면 Codex를 시작하지 않는다. | `src/test/jeonju-course-selected-workspace.contract.test.ts` |
 | TEST-JEONJU-02 | 실행 전후 변경은 `index.html`, `hero.svg`만 허용하고 HEAD/remote는 바뀌지 않는다. 위반·취소·시간초과는 성공으로 보고하지 않는다. | `src/test/jeonju-course-selected-workspace.contract.test.ts` |
-| TEST-JEONJU-03 | Discord 허용 ingress에서 `get_time`의 실행 중/성공 기록과 최종 답변이 같은 reply 흐름에 직렬화된다. 수업 코딩 작업은 비밀·경로 없는 `received → running → completed/failed` 상태를 각 durable 전이마다 한 번만 외부 bridge에 준다. | `src/test/discord-runtime.integration.test.ts`, `src/test/coding-job.contract.test.ts` |
+| TEST-JEONJU-03 | Discord 허용 ingress에서 `get_time`의 실행 중/성공 기록과 최종 답변이 같은 reply 흐름에 직렬화된다. 이어지는 명시적 `/course`는 host가 고정한 target으로만 작업을 시작하고, 비밀·경로 없는 `received → running → completed/failed` 상태를 같은 Discord reply 흐름으로 보낸다. | `src/test/jeonju-discord-vertical.integration.test.ts` |
 | TEST-JEONJU-04 | Shell은 학생이 선택한 저장소를 명시적으로 전달하고, 실제 Tauri Playwright에서 첫 요청→작업 중→두 파일 검사→두 번째 수정까지 보인다. | Shell `packages/shell/e2e/jeonju-course-workflow.spec.ts` |
 | TEST-JEONJU-05 | 선택한 수업 저장소가 Naia ADK 제어 루트 또는 그 하위 Git 루트일 때만 직접 실행을 허용하고, 형제·외부 경로는 Codex 시작 전에 거부한다. | `src/test/selected-workspace-coding.contract.test.ts` + Shell native guidance E2E |
 

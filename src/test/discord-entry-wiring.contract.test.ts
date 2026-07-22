@@ -15,6 +15,7 @@ describe("T-DISCORD-RT-02/05 — production entry wiring", () => {
     expect(entry).toContain("delete process.env.NAIA_DISCORD_STATUS_PATH");
     expect(entry).toContain("delete process.env.NAIA_DISCORD_AUTHORITY_PATH");
     expect(entry).toContain("delete process.env.NAIA_DISCORD_INBOX_PATH");
+    expect(entry).toContain("delete process.env.NAIA_JEONJU_COURSE_TARGET_JSON");
     expect(entry).toContain("delete process.env.NAIA_AGENT_SHUTDOWN_NONCE");
     expect(entry).not.toMatch(/(?:stderr|stdout).*shutdownNonce/);
   });
@@ -60,6 +61,14 @@ describe("T-DISCORD-RT-02/05 — production entry wiring", () => {
     expect(entry).toContain("makeProcessingGuard({");
     expect(entry).toContain("...(processingGuard ? { processingGuard } : {})");
     expect(entry).toContain("...(consents ? { consents } : {})");
+  });
+
+  it("wires an explicit host-configured course target without giving Discord a path override", () => {
+    expect(entry).toContain("parseJeonjuDiscordCourseConfig");
+    expect(entry).toContain("new JeonjuDiscordCourseService");
+    expect(entry).toContain("courseLifecycle: { report: (event) => courseService?.report(event) }");
+    expect(entry).toContain("...(courseService ? { courseCommand: courseService } : {})");
+    expect(entry).not.toContain("NAIA_JEONJU_COURSE_TARGET_PATH");
   });
 
   it("wires the Codex delegate into the desktop host with workspace and agent allowlists", () => {

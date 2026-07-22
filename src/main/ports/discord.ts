@@ -1,4 +1,5 @@
 import type { DiagnosticLog } from "./uc1.js";
+import type { CodingJobCourseLifecycleState } from "../domain/coding-job.js";
 
 export interface DiscordGatewayMessage {
   readonly messageId: string;
@@ -9,6 +10,41 @@ export interface DiscordGatewayMessage {
   readonly content: string;
   readonly mentionedUserIds: readonly string[];
   readonly replyToAuthorId?: string;
+}
+
+/**
+ * Trusted metadata copied from an already-authorized Gateway message.  A
+ * course command never receives a filesystem path, allowed-file list, prompt
+ * history, or model output from Discord.
+ */
+export interface DiscordCourseCommand {
+  readonly bindingId: string;
+  readonly guildId: string;
+  readonly channelId: string;
+  readonly sourceMessageId: string;
+  readonly authorId: string;
+  readonly task: string;
+}
+
+/** Host-owned course command handler. Returning true consumes the message. */
+export interface DiscordCourseCommandPort {
+  start(input: DiscordCourseCommand): boolean;
+}
+
+/**
+ * Safe status envelope for a course command.  The lifecycle deliberately
+ * contains no path, prompt, model output, job diagnostic, or token data.
+ */
+export interface DiscordCourseLifecycleDelivery {
+  readonly bindingId: string;
+  readonly guildId: string;
+  readonly channelId: string;
+  readonly sourceMessageId: string;
+  readonly state: CodingJobCourseLifecycleState;
+}
+
+export interface DiscordCourseStatusPort {
+  send(input: DiscordCourseLifecycleDelivery): Promise<void>;
 }
 
 export type DiscordGatewayCloseCode =
@@ -155,5 +191,7 @@ export interface DiscordRuntimeDeps {
   readonly clock: DiscordRuntimeClock;
   readonly text: DiscordRuntimeTextPort;
   readonly diag: DiagnosticLog;
+  /** Optional explicit /course command route. It is evaluated only after normal Gateway authorization. */
+  readonly courseCommand?: DiscordCourseCommandPort;
   readonly gracefulStopTimeoutMs?: number;
 }

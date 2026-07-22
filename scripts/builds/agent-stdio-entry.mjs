@@ -97,6 +97,8 @@ const { makeSelectedWorkspaceCoding } =
   await import("../../dist/main/adapters/selected-workspace-coding.js");
 const { makeCodexCodingJobRunner } =
   await import("../../dist/main/adapters/coding-job-codex-runner.js");
+const { JeonjuDiscordCourseService, parseJeonjuDiscordCourseConfig } =
+  await import("../../dist/main/app/jeonju-discord-course.js");
 const { selectSubAgent } =
   await import("../../dist/main/adapters/subagent-roster.js");
 const { makeActivityRouteRegistry, makeActivitySpeechEgress } =
@@ -133,9 +135,17 @@ let { toolExecutor } = deps;
 const { memory, memoryLabel, conversationLog, transcriptLabel, diag, personaSource, workspaceContextSource, knowledgeBackend } = deps;
 let skillsLabel = deps.skillsLabel;
 let currentAdkPath = adkPath;
+let jeonjuCourseConfig;
+if (process.env.NAIA_JEONJU_COURSE_TARGET_JSON) {
+  try { jeonjuCourseConfig = parseJeonjuDiscordCourseConfig(JSON.parse(process.env.NAIA_JEONJU_COURSE_TARGET_JSON)); }
+  catch { jeonjuCourseConfig = undefined; }
+}
+delete process.env.NAIA_JEONJU_COURSE_TARGET_JSON;
 // Coding jobs own an isolated Git worktree instead of sharing a chat delegate's
 // cwd. The Codex CLI runner is intentionally ephemeral, so Resume is exposed
 // but returns FAILED_PRECONDITION until a checkpoint-capable runner is added.
+let courseService;
+let discordRuntime;
 const codingJobs = adkPath ? new CodingJobService({
   store: makeOwnerOnlyCodingJobStore(defaultCodingJobStatePath(adkPath)),
   worktrees: makeGitCodingJobWorktrees({
@@ -144,7 +154,15 @@ const codingJobs = adkPath ? new CodingJobService({
   }),
   selectedWorkspace: makeSelectedWorkspaceCoding({ allowedWorkspaceRoot: adkPath }),
   runner: makeCodexCodingJobRunner(selectSubAgent("codex")),
+  ...(jeonjuCourseConfig ? { courseLifecycle: { report: (event) => courseService?.report(event) } } : {}),
 }) : undefined;
+if (codingJobs && jeonjuCourseConfig) {
+  courseService = new JeonjuDiscordCourseService({
+    codingJobs,
+    config: jeonjuCourseConfig,
+    status: { send: async (event) => { await discordRuntime?.sendCourseLifecycle(event); } },
+  });
+}
 
 // 전주대 Discord/Codex 실습 경로: 신뢰된 채널의 메인 모델이 별도 터미널 Codex를 위임할 수 있다.
 // 실행 에이전트와 작업 경로를 모두 좁혀 임의 agent 선택 및 워크스페이스 밖 쓰기를 차단한다.
@@ -267,7 +285,6 @@ const grpcServer = makeGrpcServer({
   onStopSpeechActivity: (sessionId, activityId) => profileRuntime?.stop(sessionId, activityId),
   diag,
 });
-let discordRuntime;
 let processingGuard;
 let discordStatusPoll;
 if (discordToken && discordConfig && discordAuthority) {
@@ -302,6 +319,7 @@ if (discordToken && discordConfig && discordAuthority) {
       clock: makeSystemDiscordClock(),
       text: makeDiscordRuntimeText(process.env.NAIA_DISCORD_LOCALE === "en" ? "en" : "ko"),
       diag,
+      ...(courseService ? { courseCommand: courseService } : {}),
     }, discordConfig);
     const endpointFor = (config) => {
       const route = resolveProviderRoute(config);
