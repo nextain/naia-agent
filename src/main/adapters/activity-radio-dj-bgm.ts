@@ -34,6 +34,7 @@ export function makeActivityRadioDjBgm(deps: {
   const timeoutMs = deps.timeoutMs ?? 50_000;
   const pending = new Map<string, {
     activityId: string;
+    action: string;
     settle: (result: { ok: boolean; data?: StructuredResult; reason?: string }) => void;
   }>();
   let sequence = 0;
@@ -68,7 +69,7 @@ export function makeActivityRadioDjBgm(deps: {
         resolve(result);
       };
       const timer = setTimeout(() => settle({ ok: false, reason: "panel BGM timeout" }), timeoutMs);
-      pending.set(key, { activityId: opts.activityId, settle });
+      pending.set(key, { activityId: opts.activityId, action, settle });
       if (opts.signal?.aborted) { settle({ ok: false, reason: "cancelled" }); return; }
       // emit 이후 abort는 결과를 기다린다. 늦은 play 성공을 controller가 stop 보상해야 하기 때문이다.
       deps.wire.emit(
@@ -93,6 +94,7 @@ export function makeActivityRadioDjBgm(deps: {
       const videoId = result.data?.videoId?.trim();
       const title = result.data?.title?.trim();
       if (!result.ok || !videoId || !title) return { ok: false, reason: result.reason ?? "invalid BGM result" };
+      if (nowPlaying?.videoId === videoId) return { ok: false, reason: "duplicate_track" };
       nowPlaying = { videoId, title };
       return { ok: true, videoId, title };
     },
@@ -102,8 +104,10 @@ export function makeActivityRadioDjBgm(deps: {
       if (!result.ok) return { ok: false, reason: result.reason ?? "next failed" };
       const videoId = result.data?.videoId?.trim();
       const title = result.data?.title?.trim();
-      if (videoId && title) nowPlaying = { videoId, title };
-      return { ok: true, ...(videoId ? { videoId } : {}), ...(title ? { title } : {}) };
+      if (!videoId || !title) return { ok: false, reason: "next track metadata missing" };
+      if (nowPlaying?.videoId === videoId) return { ok: false, reason: "duplicate_track" };
+      nowPlaying = { videoId, title };
+      return { ok: true, videoId, title };
     },
     async stop(opts) {
       const result = await call("stop", {}, opts);
@@ -121,7 +125,15 @@ export function makeActivityRadioDjBgm(deps: {
       }
       try {
         const data = JSON.parse(output) as StructuredResult;
-        entry.settle({ ok: data.ok !== false, data, ...(data.reason ? { reason: data.reason } : {}) });
+        if (data.action !== entry.action) {
+          entry.settle({ ok: false, reason: "BGM action mismatch" });
+          return;
+        }
+        if (data.ok !== true) {
+          entry.settle({ ok: false, data, reason: data.reason ?? "BGM action rejected" });
+          return;
+        }
+        entry.settle({ ok: true, data, ...(data.reason ? { reason: data.reason } : {}) });
       } catch {
         entry.settle({ ok: false, reason: "BGM result is not structured JSON" });
       }

@@ -183,13 +183,16 @@ export class PersonalRadioDjController {
       case "next": {
         if (this.d.bgm.capabilities().next) {
           let next;
+          let previous: { videoId: string; title: string } | undefined;
           try {
+            previous = await this.d.bgm.status();
             next = await this.d.bgm.next({
               requestId,
               activityId,
               signal: this.activityAbort?.signal,
             });
           } catch {
+            await this.replaceSelection(true, generation, operationEpoch);
             return;
           }
           if (!this.isOperationCurrent(generation, activityId, operationEpoch)) {
@@ -198,8 +201,19 @@ export class PersonalRadioDjController {
             }
             return;
           }
-          if (next.ok && next.title) {
+          // A tool dispatch is not a track transition.  Announce only the exact
+          // Player-accepted next track, and never narrate the same track as new.
+          if (
+            next.ok
+            && next.videoId
+            && next.title
+            && next.videoId !== previous?.videoId
+          ) {
             await this.speak(renderPlayIntro(next.title));
+          } else {
+            // Native next can be unavailable (empty/one-item queue) or reject a
+            // duplicate.  Select a new track instead of claiming that it changed.
+            await this.replaceSelection(true, generation, operationEpoch);
           }
         } else {
           await this.replaceSelection(true, generation, operationEpoch);

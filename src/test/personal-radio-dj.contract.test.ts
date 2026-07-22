@@ -44,6 +44,10 @@ function harness(overrides: {
   selectorReason?: "time" | "weather" | "mood" | "preference" | "generic";
   lease?: { durationMs: number; maxUtterances: number };
   djIntervalMs?: number;
+  currentBgm?: { videoId: string; title: string };
+  nextResult?:
+    | { ok: true; videoId: string; title: string }
+    | { ok: false; reason: string };
 } = {}) {
   const scheduler = new ManualScheduler();
   const spoken: string[] = [];
@@ -58,16 +62,16 @@ function harness(overrides: {
   }[] = [];
   const selectedSnapshots: DjContextSnapshot[] = [];
   const bgm: RadioDjBgmPort = {
-    capabilities: () => ({ ready: overrides.bgmReady ?? true, next: false }),
+    capabilities: () => ({ ready: overrides.bgmReady ?? true, next: overrides.nextResult !== undefined }),
     searchAndPlay: vi.fn(async (query) => {
       bgmCalls.push(`play:${query}`);
       return overrides.playOk === false
         ? { ok: false as const, reason: "not found" }
         : { ok: true as const, videoId: "v1", title: "집중할 때 듣는 긴 재즈 믹스" };
     }),
-    next: vi.fn(async () => ({ ok: false as const, reason: "unsupported" })),
+    next: vi.fn(async () => overrides.nextResult ?? ({ ok: false as const, reason: "unsupported" })),
     stop: vi.fn(async () => { bgmCalls.push("stop"); return { ok: true }; }),
-    status: vi.fn(async () => undefined),
+    status: vi.fn(async () => overrides.currentBgm),
   };
   const controller = new PersonalRadioDjController({
     scheduler,
@@ -194,6 +198,26 @@ describe("personal radio DJ MVP contract", () => {
       "play:저녁 집중 재즈 믹스",
       "play:저녁 집중 재즈 믹스",
     ]);
+  });
+
+  it("DJ-06: next는 player가 확인한 다른 영상 제목만 말하고, 중복 결과는 새 선곡으로 되돌린다", async () => {
+    const changed = harness({
+      currentBgm: { videoId: "v1", title: "처음 영상" },
+      nextResult: { ok: true, videoId: "v2", title: "확인된 다음 영상" },
+    });
+    await changed.scheduler.advance(1_000);
+    await changed.controller.control({ kind: "next" });
+    expect(changed.spoken.at(-1)).toContain("확인된 다음 영상");
+
+    const duplicate = harness({
+      currentBgm: { videoId: "v1", title: "처음 영상" },
+      nextResult: { ok: true, videoId: "v1", title: "말하면 안 되는 중복 제목" },
+    });
+    await duplicate.scheduler.advance(1_000);
+    const playsBefore = duplicate.bgmCalls.filter((call) => call.startsWith("play:")).length;
+    await duplicate.controller.control({ kind: "next" });
+    expect(duplicate.spoken.join(" ")).not.toContain("말하면 안 되는 중복 제목");
+    expect(duplicate.bgmCalls.filter((call) => call.startsWith("play:")).length).toBe(playsBefore + 1);
   });
 
   it("DJ-06: 사용자가 계속 이야기하라고 하면 music-only에서 DJ 멘트를 재개한다", async () => {
