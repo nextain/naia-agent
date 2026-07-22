@@ -38,8 +38,9 @@ export interface SubAgentCodexOptions {
 
 /**
  * A Naia-owned worker must never join a parent Codex app-server thread or
- * inherit that host's sandbox policy. The worker's own CLI arguments remain
- * the authority for its workspace-write/approval boundary.
+ * inherit its thread identity. Its own CLI arguments define the requested
+ * workspace-write/approval boundary, but an outer OS sandbox remains
+ * authoritative and cannot be widened by a child process.
  */
 function codexWorkerEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env };
