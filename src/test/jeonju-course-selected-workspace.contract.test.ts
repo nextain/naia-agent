@@ -14,6 +14,7 @@ describe("UC-JEONJU selected-workspace policy", () => {
     const after = { ...clean, changedFiles: ["index.html", "hero.svg"] };
     expect(checkJeonjuWorkspaceFinish(clean, after, { "index.html": '<img src="./hero.svg">', "hero.svg": "<svg/>" })).toEqual({ ok: true });
     expect(checkJeonjuWorkspaceFinish(clean, { ...clean, changedFiles: ["index.html"] }, { "index.html": '<img src="./hero.svg"><section>revised</section>', "hero.svg": "<svg/>" })).toEqual({ ok: true });
+    expect(checkJeonjuWorkspaceFinish(clean, { ...clean, changedFiles: ["hero.svg"] }, { "index.html": '<img src="./hero.svg">', "hero.svg": "<svg><rect fill=\"#7C3AED\"/></svg>" })).toEqual({ ok: true });
     expect(checkJeonjuWorkspaceFinish(clean, { ...after, changedFiles: [...after.changedFiles, "package.json"] }, { "index.html": '<img src="./hero.svg">', "hero.svg": "<svg/>" })).toMatchObject({ ok: false, reason: "unexpected_file" });
     expect(checkJeonjuWorkspaceFinish(clean, { ...after, head: "changed" }, { "index.html": '<img src="./hero.svg">', "hero.svg": "<svg/>" })).toMatchObject({ ok: false, reason: "history_changed" });
     expect(checkJeonjuWorkspaceFinish(clean, { ...after, remote: "changed" }, { "index.html": '<img src="./hero.svg">', "hero.svg": "<svg/>" })).toMatchObject({ ok: false, reason: "remote_changed" });
