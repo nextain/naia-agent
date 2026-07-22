@@ -59,7 +59,7 @@
 |---|---|---|
 | TEST-JEONJU-01 | selected-workspace 요청은 명시 모드일 때만 허용하며, Git root·clean 상태·선택 경로 일치가 아니면 Codex를 시작하지 않는다. | `src/test/jeonju-course-selected-workspace.contract.test.ts` |
 | TEST-JEONJU-02 | 실행 전후 변경은 `index.html`, `hero.svg`만 허용하고 HEAD/remote는 바뀌지 않는다. 위반·취소·시간초과는 성공으로 보고하지 않는다. | `src/test/jeonju-course-selected-workspace.contract.test.ts` |
-| TEST-JEONJU-03 | Discord 허용 ingress에서 `get_time`의 실행 중/성공 기록과 최종 답변이 같은 reply 흐름에 직렬화된다. | `src/test/discord-runtime.integration.test.ts` |
+| TEST-JEONJU-03 | Discord 허용 ingress에서 `get_time`의 실행 중/성공 기록과 최종 답변이 같은 reply 흐름에 직렬화된다. 수업 코딩 작업은 비밀·경로 없는 `received → running → completed/failed` 상태를 각 durable 전이마다 한 번만 외부 bridge에 준다. | `src/test/discord-runtime.integration.test.ts`, `src/test/coding-job.contract.test.ts` |
 | TEST-JEONJU-04 | Shell은 학생이 선택한 저장소를 명시적으로 전달하고, 실제 Tauri Playwright에서 첫 요청→작업 중→두 파일 검사→두 번째 수정까지 보인다. | Shell `packages/shell/e2e/jeonju-course-workflow.spec.ts` |
 
 ## UC-CODING-JOB — independent Codex coding workers

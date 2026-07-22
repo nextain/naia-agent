@@ -341,7 +341,7 @@ RPC만 추가하며, 별도 셸 반복 상태 머신은 만들지 않는다.
 | FR-JEONJU-3 | The course mode permits only `index.html` and `hero.svg` to be added or changed. It verifies `./hero.svg`, the requested title/color contract, and reports a failure instead of a false completion on any extra change. | Pending |
 | FR-JEONJU-4 | Course mode snapshots HEAD and remote before execution and rejects a job whose execution changed commit history or remote configuration. Codex does not receive authority to commit, push, or alter Pages settings. | Pending |
 | FR-JEONJU-5 | A cancelled, timed-out, dirty, out-of-root, or validation-failed job reports its exact safe phase and never emits a completed course result. | Pending |
-| NFR-JEONJU-1 | The user-visible Discord lifecycle is received → running → completed/failed, without prompt, token, raw Codex output, or absolute-path disclosure. | Pending |
+| NFR-JEONJU-1 | The user-visible Discord lifecycle is received → running → completed/failed, without prompt, token, raw Codex output, or absolute-path disclosure. The coding-job boundary emits each durable course lifecycle transition once to a host-owned Discord bridge; live bot delivery remains an operational acceptance test. | In Review |
 | NFR-JEONJU-2 | The Shell supplies selected-workspace mode and selected Git root as explicit structured data; a model cannot select or override this path. | Pending |
 
 | ID | Requirement | Status |
