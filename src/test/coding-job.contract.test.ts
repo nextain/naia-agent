@@ -7,6 +7,7 @@ import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { CodingJob } from "../main/domain/coding-job.js";
+import type { JeonjuCoursePatch } from "../main/domain/jeonju-course.js";
 import { transitionCodingJob } from "../main/domain/coding-job.js";
 import type { CodingJobCourseLifecyclePort, CodingJobRunnerPort, CodingJobStore, CodingJobWorktreePort, SelectedWorkspaceCodingPort } from "../main/ports/coding-job.js";
 import type { SubAgentPort } from "../main/ports/orchestration.js";
@@ -15,7 +16,7 @@ function fixture() {
   const jobs = new Map<string, CodingJob>();
   const released: string[] = [];
   const cancelled: string[] = [];
-  const terminals = new Map<string, (r: { ok: boolean; reason?: string }) => void>();
+  const terminals = new Map<string, (r: { ok: boolean; reason?: string; patch?: JeonjuCoursePatch }) => void>();
   const store: CodingJobStore = {
     get: (id) => jobs.get(id), list: (workspace) => [...jobs.values()].filter((j) => !workspace || j.workspacePath === workspace), save: (job) => jobs.set(job.jobId, job),
   };
@@ -103,6 +104,7 @@ describe("UC-CW durable coding jobs", () => {
       worktrees: { allocate: ({ jobId, workspacePath }) => ({ workspacePath, worktreePath: `/work/${jobId}`, branch: `naia/coding-job/${jobId}`, leaseId: `lease-${jobId}`, release: () => {} }) },
       selectedWorkspace: {
         prepare: ({ jobId, workspacePath }) => ({ workspacePath, worktreePath: workspacePath, branch: "selected-workspace", leaseId: `selected-${jobId}`, release: () => {} }),
+        apply: () => ({ ok: true, summary: "applied" }),
         verify: () => ({ ok: true, summary: "verified" }),
       },
       runner: { start: ({ job, terminal }) => { f.terminals.set(job.jobId, terminal); return { cancel: async () => {} }; } },
@@ -112,7 +114,7 @@ describe("UC-CW durable coding jobs", () => {
     });
 
     const job = service.start({ workspacePath: "/private/student/repo", task: "private course prompt", executionMode: "selected_workspace", allowedFiles: ["index.html", "hero.svg"] });
-    f.terminals.get(job.jobId)?.({ ok: true });
+    f.terminals.get(job.jobId)?.({ ok: true, patch: { version: 1, files: [{ path: "index.html", content: "<img src=\"./hero.svg\">" }] } });
     // A duplicate runner callback must not emit a second terminal status.
     f.terminals.get(job.jobId)?.({ ok: true });
 
@@ -132,6 +134,7 @@ describe("UC-CW durable coding jobs", () => {
       worktrees: { allocate: ({ jobId, workspacePath }) => ({ workspacePath, worktreePath: `/work/${jobId}`, branch: `naia/coding-job/${jobId}`, leaseId: `lease-${jobId}`, release: () => {} }) },
       selectedWorkspace: {
         prepare: ({ jobId, workspacePath }) => ({ workspacePath, worktreePath: workspacePath, branch: "selected-workspace", leaseId: `selected-${jobId}`, release: () => {} }),
+        apply: () => ({ ok: true, summary: "applied" }),
         verify: () => ({ ok: true, summary: "verified" }),
       },
       runner: { start: () => { throw new Error("private runner detail"); } },
@@ -168,6 +171,7 @@ describe("UC-CW durable coding jobs", () => {
         prepared.push(`${workspacePath}:${allowedFiles.join(",")}`);
         return { workspacePath: "/student/repo", worktreePath: "/student/repo", branch: "selected-workspace", leaseId: `selected-${jobId}`, release: () => { f.released.push(jobId); } };
       },
+      apply: () => ({ ok: true, summary: "applied" }),
       verify: () => ({ ok: false, summary: "unexpected_file; changes were preserved for manual review" }),
     };
     const service = new CodingJobService({
@@ -179,7 +183,7 @@ describe("UC-CW durable coding jobs", () => {
     const job = service.start({ workspacePath: "/student/repo", task: "edit course", executionMode: "selected_workspace", allowedFiles: ["index.html", "hero.svg"] });
     expect(prepared).toEqual(["/student/repo:index.html,hero.svg"]);
     expect(job).toMatchObject({ executionMode: "selected_workspace", worktreePath: "/student/repo" });
-    f.terminals.get(job.jobId)?.({ ok: true, reason: "codex process exit=0; stderr=none; parsed_events=planning,session_end" });
+    f.terminals.get(job.jobId)?.({ ok: true, reason: "codex process exit=0; stderr=none; parsed_events=planning,session_end", patch: { version: 1, files: [{ path: "index.html", content: "<img src=\"./hero.svg\">" }] } });
     expect(service.get(job.jobId)).toMatchObject({
       state: "failed",
       verificationSummary: "unexpected_file; changes were preserved for manual review; runner: codex process exit=0; stderr=none; parsed_events=planning,session_end",
@@ -221,7 +225,7 @@ describe("UC-CW durable coding jobs", () => {
     expect(service.get(first.jobId).state).toBe("cancelled");
   });
 
-  it("Codex course runner permits a focused revision while keeping the approved-file boundary", () => {
+  it("Codex course runner requests a read-only structured proposal before Naia applies it", () => {
     let prompt = "";
     const runner = makeCodexCodingJobRunner({
       spawn(task) {
@@ -236,10 +240,39 @@ describe("UC-CW durable coding jobs", () => {
       },
       terminal: () => {},
     });
-    expect(prompt).toContain("first inspect index.html and hero.svg");
-    expect(prompt).toContain("requested material uncommitted edit to one or more approved files");
-    expect(prompt).toContain("Do not report success unless every requested change is written");
-    expect(prompt).toContain("Edit only the approved files");
+    expect(prompt).toContain("Course proposal contract: inspect only");
+    expect(prompt).toContain("Return exactly one JSON object");
+    expect(prompt).toContain("Naia validates, applies, and verifies");
+    expect(prompt).toContain("index.html and hero.svg");
+  });
+
+  it("turns only a valid read-only provider response into a Naia-applicable proposal", async () => {
+    let access: string | undefined;
+    const runner = makeCodexCodingJobRunner({
+      spawn(task) {
+        access = task.filesystemAccess;
+        return {
+          events: (async function* () {
+            yield { kind: "text_delta" as const, text: "I will inspect the existing SVG first." };
+            yield { kind: "tool_use_end" as const, tool: "command_execution", ok: true };
+            yield { kind: "text_delta" as const, text: JSON.stringify({ version: 1, files: [{ path: "hero.svg", content: "<svg/>" }] }) };
+            yield { kind: "session_end" as const, ok: true };
+          })(),
+          cancel: async () => {},
+        };
+      },
+    });
+    const result = await new Promise<{ ok: boolean; reason?: string; patch?: JeonjuCoursePatch }>((resolve) => {
+      runner.start({
+        job: {
+          jobId: "course_proposal", workspacePath: "/course", worktreePath: "/course", branch: "selected-workspace", leaseId: "lease",
+          task: "revise hero", executionMode: "selected_workspace", allowedFiles: ["index.html", "hero.svg"], state: "running", createdAt: "now", updatedAt: "now",
+        },
+        terminal: resolve,
+      });
+    });
+    expect(access).toBe("read_only");
+    expect(result).toMatchObject({ ok: true, patch: { files: [{ path: "hero.svg", content: "<svg/>" }] } });
   });
 
   it("rejects workspace escapes and gives each job an exclusive generated lease", () => {

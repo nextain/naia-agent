@@ -1,4 +1,5 @@
 import type { CodingJob, CodingJobCourseLifecycleState } from "../domain/coding-job.js";
+import type { JeonjuCoursePatch } from "../domain/jeonju-course.js";
 
 /**
  * Optional host-owned bridge for a course chat channel.  The service only
@@ -42,6 +43,7 @@ export interface CodingJobWorktreePort {
 /** Separate opt-in path for the workshop's direct student-repository mode. */
 export interface SelectedWorkspaceCodingPort {
   prepare(input: { readonly jobId: string; readonly workspacePath: string; readonly allowedFiles: readonly string[] }): CodingJobAllocation;
+  apply(input: { readonly job: CodingJob; readonly patch: JeonjuCoursePatch }): { readonly ok: boolean; readonly summary: string };
   verify(input: { readonly job: CodingJob }): { readonly ok: boolean; readonly summary: string };
 }
 
@@ -52,6 +54,6 @@ export interface CodingJobRun {
 export interface CodingJobRunnerPort {
   start(input: {
     readonly job: CodingJob;
-    terminal(result: { ok: boolean; reason?: string }): void;
+    terminal(result: { ok: boolean; reason?: string; patch?: JeonjuCoursePatch }): void;
   }): CodingJobRun;
 }

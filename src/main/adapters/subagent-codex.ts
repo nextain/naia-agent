@@ -156,13 +156,14 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
         return endedSession(`codex unavailable: ${(e as Error).message}`);
       }
       const model = opts.model ?? task.model;
-      // exec --json --ignore-user-config --sandbox workspace-write <prompt>
+      const sandbox = task.filesystemAccess === "read_only" ? "read-only" : "workspace-write";
+      // exec --json --ignore-user-config --sandbox <semantic task boundary> <prompt>
       //   -c approval_policy="never" --ephemeral [--skip-git-repo-check] [--model X]
       // Global config/add-dir 상속을 끊고 non-interactive workspace 경계를 fail-closed로 고정.
       const args: string[] = [
         "exec", "--json",
         "--ignore-user-config",
-        "--sandbox", "workspace-write",
+        "--sandbox", sandbox,
         "--config", 'approval_policy="never"',
         "--ephemeral",
       ];

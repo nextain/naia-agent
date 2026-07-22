@@ -46,7 +46,7 @@ export class CodingJobService implements CodingJobControlPort {
     try {
       let cancel = async (_reason: string): Promise<void> => {};
       this.#active.set(jobId, { allocation, cancel: (reason) => cancel(reason) });
-      const run = this.d.runner.start({ job, terminal: (result) => this.#terminal(jobId, result.ok, result.reason) });
+      const run = this.d.runner.start({ job, terminal: (result) => this.#terminal(jobId, result.ok, result.reason, result.patch) });
       cancel = (reason) => run.cancel(reason);
       // A job is running only after the runner has successfully spawned.  A
       // spawn error leaves a durable failed record rather than a false running
@@ -88,13 +88,18 @@ export class CodingJobService implements CodingJobControlPort {
     throw new CodingJobResumeUnavailableError("runner checkpoint resume is not implemented");
   }
 
-  #terminal(jobId: string, ok: boolean, reason?: string): CodingJob {
+  #terminal(jobId: string, ok: boolean, reason?: string, patch?: import("../domain/jeonju-course.js").JeonjuCoursePatch): CodingJob {
     const current = this.get(jobId);
     if (isCodingJobTerminal(current.state)) return current;
     let verification: { ok: boolean; summary: string } | undefined;
     if (ok && current.executionMode === "selected_workspace") {
       try {
-        verification = this.d.selectedWorkspace?.verify({ job: current });
+        const applied = patch
+          ? this.d.selectedWorkspace?.apply({ job: current, patch })
+          : { ok: false, summary: "course proposal missing; no proposal was applied" };
+        verification = applied?.ok
+          ? this.d.selectedWorkspace?.verify({ job: current })
+          : applied;
       } catch (error) {
         verification = {
           ok: false,

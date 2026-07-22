@@ -77,6 +77,14 @@ describe("subagent-codex 어댑터 계약 (SPEC-010 확장, fake child)", () => 
     expect(f.spawnArgs.cwd).toBe("/tmp/w");
   });
 
+  it("uses the provider-neutral read-only capability when Naia requests a proposal worker", () => {
+    const f = fakeNdjson();
+    const port = makeCodexSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn });
+    port.spawn({ prompt: "proposal", workdir: "/tmp/course", filesystemAccess: "read_only" });
+    expect(f.spawnArgs.args).toContain("read-only");
+    expect(f.spawnArgs.args).not.toContain("workspace-write");
+  });
+
   it("skipGitRepoCheck=false 옵션 → --skip-git-repo-check 생략", () => {
     const f = fakeNdjson();
     const port = makeCodexSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn, skipGitRepoCheck: false });

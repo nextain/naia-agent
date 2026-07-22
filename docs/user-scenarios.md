@@ -2,6 +2,10 @@
 
 ## UC-JEONJU-COURSE — Discord에서 안전하게 첫 정적 페이지를 완성한다
 
+### Provider-neutral proposal/apply boundary
+
+For the direct course repository route, the selected coding brain is a read-only proposal producer. It may be Codex, a model authenticated through the user's Naia account, or a later compatible provider. It returns one exact versioned JSON object containing complete replacement contents for a nonempty subset of `index.html` and `hero.svg`. Naia alone validates that proposal, applies it to the leased clean Git root, and verifies the file, Git-history, and remote boundaries. Invalid, absent, or failed proposals never become a completed course result; the student repository is preserved for review.
+
 이 시나리오의 정본은 `data-private/naia-discord-codex-workshop-jeonju/00-workshop-map.md`부터
 `08-revise-and-redeploy.md`, `appendix-c-instructor-runbook.md`까지다. 이 수업은 Naia
 확장 개발이나 일반적인 자율 코딩을 가르치지 않는다. 학생이 고른 **깨끗한 GitHub

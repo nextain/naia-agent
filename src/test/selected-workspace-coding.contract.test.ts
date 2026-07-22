@@ -36,10 +36,14 @@ describe("UC-JEONJU selected workspace adapter", () => {
       git(repo, ["add", "index.html", "hero.svg"]); git(repo, ["commit", "-m", "initial"]); git(repo, ["remote", "add", "origin", "https://example.test/course.git"]);
       const selected = makeSelectedWorkspaceCoding();
       const allocation = selected.prepare({ jobId: "course-job", workspacePath: repo, allowedFiles: ["index.html", "hero.svg"] });
-      writeFileSync(join(repo, "index.html"), '<img src="./hero.svg"><h1>Naia</h1>'); writeFileSync(join(repo, "hero.svg"), "<svg><rect/></svg>");
-      expect(selected.verify({ job: { jobId: "course-job", workspacePath: allocation.workspacePath, worktreePath: allocation.worktreePath, branch: allocation.branch, leaseId: allocation.leaseId, task: "course", executionMode: "selected_workspace", allowedFiles: ["index.html", "hero.svg"], state: "running", createdAt: "now", updatedAt: "now" } })).toMatchObject({ ok: true });
+      const job = { jobId: "course-job", workspacePath: allocation.workspacePath, worktreePath: allocation.worktreePath, branch: allocation.branch, leaseId: allocation.leaseId, task: "course", executionMode: "selected_workspace" as const, allowedFiles: ["index.html", "hero.svg"], state: "running" as const, createdAt: "now", updatedAt: "now" };
+      expect(selected.apply({ job, patch: { version: 1, files: [
+        { path: "index.html", content: '<img src="./hero.svg"><h1>Naia</h1>' },
+        { path: "hero.svg", content: "<svg><rect/></svg>" },
+      ] } })).toMatchObject({ ok: true });
+      expect(selected.verify({ job })).toMatchObject({ ok: true });
       writeFileSync(join(repo, "package.json"), "{}");
-      expect(selected.verify({ job: { jobId: "course-job", workspacePath: allocation.workspacePath, worktreePath: allocation.worktreePath, branch: allocation.branch, leaseId: allocation.leaseId, task: "course", executionMode: "selected_workspace", allowedFiles: ["index.html", "hero.svg"], state: "running", createdAt: "now", updatedAt: "now" } })).toMatchObject({ ok: false, summary: expect.stringContaining("unexpected_file") });
+      expect(selected.verify({ job })).toMatchObject({ ok: false, summary: expect.stringContaining("unexpected_file") });
       expect(() => selected.prepare({ jobId: "bad", workspacePath: repo, allowedFiles: ["index.html", "index.html"] })).toThrow("exactly index.html and hero.svg");
       allocation.release();
     } finally { rmSync(repo, { recursive: true, force: true }); }

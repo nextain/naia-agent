@@ -12,6 +12,12 @@ export interface TaskSpec {
   readonly workdir: string;
   /** 어느 모델로 구동할지(옵셔널 힌트). 미설정 = adapter 기본. roster 선택(AC6)은 2b. */
   readonly model?: string;
+  /**
+   * The supervisor chooses this semantic capability, never a provider-specific
+   * flag.  Proposal workers receive read-only access; a Naia-owned adapter
+   * applies an accepted proposal afterwards.
+   */
+  readonly filesystemAccess?: "read_only" | "workspace_write";
 }
 
 /**
