@@ -87,7 +87,7 @@ export function resolveCodexBin(): ResolvedBin {
 //   {"type":"item.completed","item":{"type":"agent_message","text":..}} → text_delta
 //   {"type":"item.completed","item":{"type":"command_execution"|"file_change"|"file_edit"|...}}
 //                                               → tool_use_end{ok:true}(완료 snapshot, 경계 없음)
-//   {"type":"turn.completed","usage":{...}}     → 무시(terminal=close)
+//   {"type":"turn.completed","usage":{...}}     → logical success terminal (bounded child teardown)
 //   그 외(reasoning/item.created 등)            → 무시
 
 interface RawCodexItem { type?: string; text?: string; [k: string]: unknown }
@@ -117,6 +117,11 @@ export function codexLineToEvent(line: string): SubAgentEvent | null {
   switch (raw.type) {
     case "thread.started":
       return { kind: "planning" };
+    case "turn.completed":
+      // `codex exec --ephemeral` may remain alive waiting on stdin even though
+      // the one requested turn is complete. The shared session adapter tears
+      // down this Codex child after forwarding the logical terminal event.
+      return { kind: "session_end", ok: true, reason: "codex turn.completed" };
     case "turn.failed":
     case "error":
       // Codex may report a structured failure on stdout and still close with
@@ -137,7 +142,7 @@ export function codexLineToEvent(line: string): SubAgentEvent | null {
       return null; // reasoning 등 = 무시.
     }
     default:
-      return null; // turn.started/turn.completed/turn.failed/error 등 = 무시(terminal=close).
+      return null; // turn.started and unknown events are non-terminal.
   }
 }
 
@@ -179,6 +184,7 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
       args.push(task.prompt);
       return spawnSubprocessSession({
         spawnFn, bin, args, cwd: task.workdir, env: codexWorkerEnv(), hardKillMs, lineToEvent: codexLineToEvent, label: "codex", diagnostics: true,
+        terminateOnProtocolEnd: true,
       });
     },
   };

@@ -355,8 +355,10 @@ RPC만 추가하며, 별도 셸 반복 상태 머신은 만들지 않는다.
 | FR-CW-3 | Start/Get/List/Cancel/Resume are available through gRPC and the JSON-line stdio codec. | In review |
 | FR-CW-4 | Targeted cancellation is idempotent and cannot cross job boundaries; a terminal state cannot be overwritten. | In review |
 | FR-CW-5 | Resume requires an actual durable checkpoint; a no-checkpoint Codex CLI job returns a precondition error. | In review |
+| FR-CW-6 | A Codex worker treats its JSONL `turn.completed` event as the logical completion boundary. It emits one terminal result without waiting indefinitely for an otherwise idle CLI process, and terminates that child through the bounded adapter cancellation path. | Pending |
 | NFR-CW-1 | Caller-controlled paths, branches, worktree locations, and leases are not trusted. | In review |
 | NFR-CW-2 | A restart preserves status but does not claim a lost process is still running. | In review |
+| NFR-CW-3 | Protocol completion, subprocess close, parser failure, and cancellation are race-safe: exactly one terminal event is exposed and a logically-complete child cannot remain orphaned. | Pending |
 
 | ID | 요구사항 | 상태 |
 |----|----------|:----:|

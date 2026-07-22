@@ -25,6 +25,7 @@ function fakeNdjson() {
   return {
     spawnFn,
     line: (s: string) => stdoutCb?.(Buffer.from(s + "\n", "utf8")),
+    chunk: (s: string) => stdoutCb?.(Buffer.from(s, "utf8")),
     close: (code: number | null, signal: NodeJS.Signals | null = null) => handlers.close?.(code, signal),
     emitError: (msg: string) => handlers.error?.(new Error(msg)),
     get killSignals() { return killSignals; },
@@ -160,6 +161,31 @@ describe("subagent-codex 어댑터 계약 (SPEC-010 확장, fake child)", () => 
     expect(end.reason).toContain("codex unavailable");
   });
 
+  it("turn.completed closes the logical job and reaps an idle Codex child", async () => {
+    const f = fakeNdjson();
+    const port = makeCodexSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn, hardKillDeadlineMs: 15 });
+    const session = port.spawn({ prompt: "proposal", workdir: "/tmp/course", filesystemAccess: "read_only" });
+    f.line('{"type":"item.completed","item":{"type":"agent_message","text":"proposal"}}');
+    f.line('{"type":"turn.completed","usage":{}}');
+    const events = await drain(session.events);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(events.map((event) => event.kind)).toEqual(["text_delta", "session_end"]);
+    expect((events.at(-1) as Extract<SubAgentEvent, { kind: "session_end" }>).ok).toBe(true);
+    expect(f.killSignals).toEqual(["SIGTERM", "SIGKILL"]);
+  });
+
+  it("ignores duplicate logical terminal events in one stdout chunk", async () => {
+    const f = fakeNdjson();
+    const port = makeCodexSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn, hardKillDeadlineMs: 15 });
+    const session = port.spawn({ prompt: "proposal", workdir: "/tmp/course", filesystemAccess: "read_only" });
+    f.chunk('{"type":"turn.completed"}' + "\n" + '{"type":"turn.completed"}' + "\n");
+    const events = await drain(session.events);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(events).toHaveLength(1);
+    expect((events[0] as Extract<SubAgentEvent, { kind: "session_end" }>).ok).toBe(true);
+    expect(f.killSignals).toEqual(["SIGTERM", "SIGKILL"]);
+  });
+
   it("AC1 — cancel(): SIGTERM 무시 → 유예 후 SIGKILL → session_end 1회", async () => {
     const f = fakeNdjson();
     const port = makeCodexSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn, hardKillDeadlineMs: 60 });
@@ -182,7 +208,7 @@ describe("subagent-codex 어댑터 계약 (SPEC-010 확장, fake child)", () => 
     expect(codexLineToEvent('{"type":"turn.failed","error":{"message":"invalid api key sk-secret"}}'))
       .toEqual({ kind: "session_end", ok: false, reason: "codex turn.failed: authentication" });
     expect(codexLineToEvent("")).toBeNull();
-    expect(codexLineToEvent('{"type":"turn.completed","usage":{}}')).toBeNull(); // terminal=close → 무시
+    expect(codexLineToEvent('{"type":"turn.completed","usage":{}}')).toEqual({ kind: "session_end", ok: true, reason: "codex turn.completed" });
     expect(codexLineToEvent('{"type":"item.completed","item":{"type":"agent_message","text":""}}')).toBeNull(); // 빈 텍스트=드롭
   });
 });

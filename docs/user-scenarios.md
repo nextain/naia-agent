@@ -86,6 +86,8 @@ an isolated worktree, and an exclusive lease before Codex can write.
 | T-CW-05 | Resume without a durable runner checkpoint fails precondition rather than claiming a false continuation. |
 | T-CW-06 | Terminal states are immutable and invalid transitions are rejected. |
 | T-CW-07 | Caller paths are canonicalized under the configured root; caller-controlled branch/worktree paths and lease collisions are rejected. |
+| T-CW-08 | A Codex JSONL `turn.completed` closes a proposal job even when the CLI process remains alive; the adapter terminates that child and emits exactly one terminal result. |
+| T-CW-09 | An agent message without `turn.completed` cannot be treated as a successful protocol completion; `turn.failed` remains a failed terminal result. |
 
 정본 사용자 시나리오 인덱스. 각 UC 의 권위 계약서는 `docs/progress/99.dev-comm/UC*-contract*.md` 이며,
 이 문서는 그 UC 목록과 테스트 커버리지 맵을 집약한다(SDLC P01 산출물).
