@@ -1,4 +1,17 @@
-import type { CodingJob } from "../domain/coding-job.js";
+import type { CodingJob, CodingJobCourseLifecycleState } from "../domain/coding-job.js";
+
+/**
+ * Optional host-owned bridge for a course chat channel.  The service only
+ * supplies a stable job id and a safe lifecycle state; the bridge must keep
+ * the Discord binding/message association and delivery dedupe outside the
+ * coding-job record.
+ */
+export interface CodingJobCourseLifecyclePort {
+  report(input: {
+    readonly jobId: string;
+    readonly state: CodingJobCourseLifecycleState;
+  }): void;
+}
 
 export interface CodingJobControlPort {
   start(input: { workspacePath: string; task: string; model?: string; executionMode?: "isolated_worktree" | "selected_workspace"; allowedFiles?: readonly string[] }): CodingJob;

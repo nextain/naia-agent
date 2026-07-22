@@ -4,8 +4,8 @@ import {
   CodingJobResumeUnavailableError,
   type CodingJob,
 } from "../domain/coding-job.js";
-import { isCodingJobTerminal, transitionCodingJob } from "../domain/coding-job.js";
-import type { CodingJobAllocation, CodingJobControlPort, CodingJobRunnerPort, CodingJobStore, CodingJobWorktreePort, SelectedWorkspaceCodingPort } from "../ports/coding-job.js";
+import { codingJobCourseLifecycleState, isCodingJobTerminal, transitionCodingJob } from "../domain/coding-job.js";
+import type { CodingJobAllocation, CodingJobControlPort, CodingJobCourseLifecyclePort, CodingJobRunnerPort, CodingJobStore, CodingJobWorktreePort, SelectedWorkspaceCodingPort } from "../ports/coding-job.js";
 export { CodingJobNotFoundError, CodingJobResumeUnavailableError } from "../domain/coding-job.js";
 
 export interface CodingJobServiceDeps {
@@ -13,6 +13,7 @@ export interface CodingJobServiceDeps {
   readonly worktrees: CodingJobWorktreePort;
   readonly runner: CodingJobRunnerPort;
   readonly selectedWorkspace?: SelectedWorkspaceCodingPort;
+  readonly courseLifecycle?: CodingJobCourseLifecyclePort;
   readonly now?: () => string;
   readonly ids?: () => string;
 }
@@ -41,6 +42,7 @@ export class CodingJobService implements CodingJobControlPort {
       state: "queued", executionMode, ...(executionMode === "selected_workspace" ? { allowedFiles: [...input.allowedFiles!] } : {}), createdAt: now, updatedAt: now,
     };
     this.d.store.save(job);
+    this.#reportCourseLifecycle(job);
     try {
       let cancel = async (_reason: string): Promise<void> => {};
       this.#active.set(jobId, { allocation, cancel: (reason) => cancel(reason) });
@@ -51,12 +53,13 @@ export class CodingJobService implements CodingJobControlPort {
       // status.
       job = transitionCodingJob(job, "running", this.#now());
       this.d.store.save(job);
+      this.#reportCourseLifecycle(job);
       return job;
     } catch (error) {
       const current = this.d.store.get(jobId) ?? job;
       if (isCodingJobTerminal(current.state)) return current;
       const failed = transitionCodingJob(current, "failed", this.#now(), error instanceof Error ? error.message : String(error));
-      this.d.store.save(failed); this.#active.delete(jobId); allocation.release();
+      this.d.store.save(failed); this.#reportCourseLifecycle(failed); this.#active.delete(jobId); allocation.release();
       return failed;
     }
   }
@@ -110,9 +113,21 @@ export class CodingJobService implements CodingJobControlPort {
       ? transitionCodingJob(current, "cancelled", this.#now(), reason)
       : { ...transitionCodingJob(current, verified ? "completed" : "failed", this.#now(), terminalReason), ...(verificationSummary ? { verificationSummary } : {}) };
     this.d.store.save(next);
+    this.#reportCourseLifecycle(next);
     const active = this.#active.get(jobId);
     this.#active.delete(jobId);
     active?.allocation.release();
     return next;
+  }
+
+  #reportCourseLifecycle(job: CodingJob): void {
+    if (job.executionMode !== "selected_workspace") return;
+    const state = codingJobCourseLifecycleState(job.state);
+    if (!state) return;
+    try {
+      this.d.courseLifecycle?.report({ jobId: job.jobId, state });
+    } catch {
+      // A chat status observer must not affect the durable job state.
+    }
   }
 }

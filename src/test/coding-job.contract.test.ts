@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { CodingJob } from "../main/domain/coding-job.js";
 import { transitionCodingJob } from "../main/domain/coding-job.js";
-import type { CodingJobRunnerPort, CodingJobStore, CodingJobWorktreePort, SelectedWorkspaceCodingPort } from "../main/ports/coding-job.js";
+import type { CodingJobCourseLifecyclePort, CodingJobRunnerPort, CodingJobStore, CodingJobWorktreePort, SelectedWorkspaceCodingPort } from "../main/ports/coding-job.js";
 import type { SubAgentPort } from "../main/ports/orchestration.js";
 
 function fixture() {
@@ -90,6 +90,74 @@ describe("UC-CW durable coding jobs", () => {
     const job = service.start({ workspacePath: "alpha", task: "one" });
     expect(job).toMatchObject({ state: "failed", error: "codex executable unavailable" });
     expect(service.get(job.jobId)).toMatchObject({ state: "failed", error: "codex executable unavailable" });
+  });
+
+  it("reports the course lifecycle once per durable state without exposing task or path details", () => {
+    const f = fixture();
+    const events: Array<{ jobId: string; state: string }> = [];
+    const courseLifecycle: CodingJobCourseLifecyclePort = {
+      report: (event) => events.push(event),
+    };
+    const service = new CodingJobService({
+      store: { get: (id) => f.jobs.get(id), list: () => [...f.jobs.values()], save: (job) => f.jobs.set(job.jobId, job) },
+      worktrees: { allocate: ({ jobId, workspacePath }) => ({ workspacePath, worktreePath: `/work/${jobId}`, branch: `naia/coding-job/${jobId}`, leaseId: `lease-${jobId}`, release: () => {} }) },
+      selectedWorkspace: {
+        prepare: ({ jobId, workspacePath }) => ({ workspacePath, worktreePath: workspacePath, branch: "selected-workspace", leaseId: `selected-${jobId}`, release: () => {} }),
+        verify: () => ({ ok: true, summary: "verified" }),
+      },
+      runner: { start: ({ job, terminal }) => { f.terminals.set(job.jobId, terminal); return { cancel: async () => {} }; } },
+      courseLifecycle,
+      ids: () => "job_lifecycle",
+      now: () => "now",
+    });
+
+    const job = service.start({ workspacePath: "/private/student/repo", task: "private course prompt", executionMode: "selected_workspace", allowedFiles: ["index.html", "hero.svg"] });
+    f.terminals.get(job.jobId)?.({ ok: true });
+    // A duplicate runner callback must not emit a second terminal status.
+    f.terminals.get(job.jobId)?.({ ok: true });
+
+    expect(events).toEqual([
+      { jobId: "job_lifecycle", state: "received" },
+      { jobId: "job_lifecycle", state: "running" },
+      { jobId: "job_lifecycle", state: "completed" },
+    ]);
+    expect(JSON.stringify(events)).not.toContain("private");
+  });
+
+  it("reports a failed terminal state once when the runner cannot start", () => {
+    const f = fixture();
+    const states: string[] = [];
+    const service = new CodingJobService({
+      store: { get: (id) => f.jobs.get(id), list: () => [...f.jobs.values()], save: (job) => f.jobs.set(job.jobId, job) },
+      worktrees: { allocate: ({ jobId, workspacePath }) => ({ workspacePath, worktreePath: `/work/${jobId}`, branch: `naia/coding-job/${jobId}`, leaseId: `lease-${jobId}`, release: () => {} }) },
+      selectedWorkspace: {
+        prepare: ({ jobId, workspacePath }) => ({ workspacePath, worktreePath: workspacePath, branch: "selected-workspace", leaseId: `selected-${jobId}`, release: () => {} }),
+        verify: () => ({ ok: true, summary: "verified" }),
+      },
+      runner: { start: () => { throw new Error("private runner detail"); } },
+      courseLifecycle: { report: ({ state }) => states.push(state) },
+      ids: () => "job_start_failure",
+      now: () => "now",
+    });
+
+    expect(service.start({ workspacePath: "/private/student/repo", task: "private task", executionMode: "selected_workspace", allowedFiles: ["index.html", "hero.svg"] }).state).toBe("failed");
+    expect(states).toEqual(["received", "failed"]);
+  });
+
+  it("does not send ordinary isolated-worktree jobs to the course chat bridge", () => {
+    const f = fixture();
+    const states: string[] = [];
+    const service = new CodingJobService({
+      store: { get: (id) => f.jobs.get(id), list: () => [...f.jobs.values()], save: (job) => f.jobs.set(job.jobId, job) },
+      worktrees: { allocate: ({ jobId, workspacePath }) => ({ workspacePath, worktreePath: `/work/${jobId}`, branch: `naia/coding-job/${jobId}`, leaseId: `lease-${jobId}`, release: () => {} }) },
+      runner: { start: () => ({ cancel: async () => {} }) },
+      courseLifecycle: { report: ({ state }) => states.push(state) },
+      ids: () => "job_private_worker",
+      now: () => "now",
+    });
+
+    expect(service.start({ workspacePath: "/private/other-project", task: "private task" }).state).toBe("running");
+    expect(states).toEqual([]);
   });
 
   it("uses selected workspace only when explicitly requested and fails closed on post-run verification", () => {

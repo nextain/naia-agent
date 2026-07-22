@@ -5,6 +5,31 @@ export const codingJobStates = [
 export type CodingJobState = (typeof codingJobStates)[number];
 export type CodingJobExecutionMode = "isolated_worktree" | "selected_workspace";
 
+/**
+ * The only lifecycle states a remote course channel may show.  It deliberately
+ * excludes task text, paths, runner output, and verification diagnostics.
+ */
+export type CodingJobCourseLifecycleState = "received" | "running" | "completed" | "failed";
+
+export function codingJobCourseLifecycleState(
+  state: CodingJobState,
+): CodingJobCourseLifecycleState | undefined {
+  switch (state) {
+    case "queued":
+      return "received";
+    case "running":
+      return "running";
+    case "completed":
+      return "completed";
+    case "cancelling":
+    case "cancelled":
+    case "failed":
+      return "failed";
+    default:
+      return undefined;
+  }
+}
+
 export interface CodingJobCheckpoint {
   readonly runner: "codex";
   readonly threadId: string;
