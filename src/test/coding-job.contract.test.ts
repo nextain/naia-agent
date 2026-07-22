@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { CodingJobService, CodingJobResumeUnavailableError } from "../main/app/coding-job-service.js";
 import { decodeCodingJobStdio, dispatchCodingJobStdio } from "../main/adapters/coding-job-stdio.js";
 import { makeCodexCodingJobRunner } from "../main/adapters/coding-job-codex-runner.js";
@@ -308,5 +308,46 @@ describe("UC-CW durable coding jobs", () => {
       expect(() => worktrees.allocate({ jobId: "job_escape", workspacePath: outside })).toThrow("outside configured root");
       allocation.release();
     } finally { rmSync(temp, { recursive: true, force: true }); }
+  });
+  it("marks durable nonterminal work as failed when the Agent starts after a restart", () => {
+    const f = fixture();
+    const orphan = f.service.start({ workspacePath: "alpha", task: "one" });
+    const recovered = new CodingJobService({
+      store: { get: (id) => f.jobs.get(id), list: () => [...f.jobs.values()], save: (job) => f.jobs.set(job.jobId, job) },
+      worktrees: { allocate: () => { throw new Error("recovery must not allocate a new worktree"); } },
+      runner: { start: () => { throw new Error("recovery must not run a job"); } },
+      now: () => "after-restart",
+    });
+    expect(recovered.get(orphan.jobId)).toMatchObject({
+      state: "failed",
+      error: "agent restarted before the coding job reached a terminal state",
+      updatedAt: "after-restart",
+    });
+  });
+
+  it("cancels and terminalizes a Codex session that emits no terminal event before its deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      let cancellation = "";
+      const runner = makeCodexCodingJobRunner({
+        spawn() {
+          return {
+            events: { [Symbol.asyncIterator]: async function* () { await new Promise<void>(() => {}); } },
+            cancel: async (reason) => { cancellation = reason; },
+          };
+        },
+      }, { executionTimeoutMs: 5 });
+      const result = new Promise<{ ok: boolean; reason?: string }>((resolve) => {
+        runner.start({
+          job: { jobId: "deadline", workspacePath: "/work", worktreePath: "/work", branch: "branch", leaseId: "lease", task: "one", state: "running", createdAt: "now", updatedAt: "now" },
+          terminal: resolve,
+        });
+      });
+      await vi.advanceTimersByTimeAsync(5);
+      await expect(result).resolves.toMatchObject({ ok: false, reason: "Codex execution exceeded 5ms without a terminal event" });
+      expect(cancellation).toBe("execution deadline exceeded");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

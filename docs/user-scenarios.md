@@ -88,6 +88,8 @@ an isolated worktree, and an exclusive lease before Codex can write.
 | T-CW-07 | Caller paths are canonicalized under the configured root; caller-controlled branch/worktree paths and lease collisions are rejected. |
 | T-CW-08 | A Codex JSONL `turn.completed` closes a proposal job even when the CLI process remains alive; the adapter terminates that child and emits exactly one terminal result. |
 | T-CW-09 | An agent message without `turn.completed` cannot be treated as a successful protocol completion; `turn.failed` remains a failed terminal result. |
+| T-CW-10 | A Codex session that emits no terminal event by its bounded execution deadline is cancelled and recorded as one failed terminal job. |
+| T-CW-11 | On Agent startup, durable queued/running/cancelling jobs from a prior process are marked failed rather than displayed as still active. |
 
 정본 사용자 시나리오 인덱스. 각 UC 의 권위 계약서는 `docs/progress/99.dev-comm/UC*-contract*.md` 이며,
 이 문서는 그 UC 목록과 테스트 커버리지 맵을 집약한다(SDLC P01 산출물).

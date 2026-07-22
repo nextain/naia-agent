@@ -359,6 +359,8 @@ RPC만 추가하며, 별도 셸 반복 상태 머신은 만들지 않는다.
 | NFR-CW-1 | Caller-controlled paths, branches, worktree locations, and leases are not trusted. | In review |
 | NFR-CW-2 | A restart preserves status but does not claim a lost process is still running. | In review |
 | NFR-CW-3 | Protocol completion, subprocess close, parser failure, and cancellation are race-safe: exactly one terminal event is exposed and a logically-complete child cannot remain orphaned. | Pending |
+| FR-CW-7 | A Codex coding session has a bounded execution deadline. If no terminal protocol event arrives, Naia cancels the child and persists one failed terminal result. | Pending |
+| NFR-CW-4 | Agent startup recovers every durable nonterminal coding job to an honest failed terminal state; no previous-process job may remain indefinitely running. | Pending |
 
 | ID | 요구사항 | 상태 |
 |----|----------|:----:|

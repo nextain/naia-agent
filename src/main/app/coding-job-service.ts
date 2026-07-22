@@ -25,6 +25,7 @@ export class CodingJobService implements CodingJobControlPort {
   constructor(private readonly d: CodingJobServiceDeps) {
     this.#now = d.now ?? (() => new Date().toISOString());
     this.#ids = d.ids ?? randomUUID;
+    this.#recoverInterruptedJobs();
   }
 
   start(input: { workspacePath: string; task: string; model?: string; executionMode?: "isolated_worktree" | "selected_workspace"; allowedFiles?: readonly string[]; courseReply?: import("../domain/coding-job.js").CodingJobCourseReply }): CodingJob {
@@ -126,6 +127,19 @@ export class CodingJobService implements CodingJobControlPort {
     return next;
   }
 
+  #recoverInterruptedJobs(): void {
+    for (const job of this.d.store.list()) {
+      if (isCodingJobTerminal(job.state)) continue;
+      const failed = transitionCodingJob(
+        job,
+        "failed",
+        this.#now(),
+        "agent restarted before the coding job reached a terminal state",
+      );
+      this.d.store.save(failed);
+      this.#reportCourseLifecycle(failed);
+    }
+  }
   #reportCourseLifecycle(job: CodingJob): void {
     if (job.executionMode !== "selected_workspace" || !job.courseReply) return;
     const state = codingJobCourseLifecycleState(job.state);
