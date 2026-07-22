@@ -1,6 +1,15 @@
 # 프로세스 현황
 
+<!-- src-sha: b661704eb8c4be1a -->
+
 > **SoT**: `.agents/context/process-status.json`
+
+## Jeonju course vertical acceptance — 2026-07-22
+
+- Agent: `288d6e2`; paired Shell: `dc5a5c5b`.
+- Shell saves one strict Discord course target at the ADK control root. The next Agent startup reads that target and permits only `index.html` and `hero.svg` in the selected student workspace.
+- Evidence: 89 focused Agent tests; isolated Gateway integration for `get_time` and authorized `/course` lifecycle; paired native Tauri E2E for target save, initial task, revision, and the student Git boundary.
+- Final adversarial review found no P0/P1 issue. A live Discord network smoke is still a separate credentialed operational check and is not claimed as automated acceptance.
 
 ## Windows runtime acceptance — 2026-07-21
 

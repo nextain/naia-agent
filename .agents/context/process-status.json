@@ -14,7 +14,7 @@
     "issue_doc": "docs/progress/99.dev-comm/discord-rag-prefreeze-policy-contract-2026-07-19.md",
     "github_issue": "https://github.com/nextain/naia-agent/issues/87",
     "started": "2026-07-20",
-    "last_updated": "2026-07-21T21:10:12+09:00",
+    "last_updated": "2026-07-22T15:20:00+09:00",
     "status": "done",
     "windows_runtime_acceptance": {
       "date": "2026-07-21",
@@ -29,6 +29,19 @@
       "runtime": "naia-agent restarted from the new build and listening on 127.0.0.1:50051.",
       "known_limit": "Windows Tauri WebDriver cannot create a WebView2 session (DevToolsActivePort), so the live Shell Codex UI E2E remains blocked before application code runs.",
       "full_suite_note": "The full agent suite still has pre-existing Windows portability failures outside this Codex change (Discord lock/path, gRPC proto path, and memory-header cases)."
+    },
+    "jeonju_course_vertical_acceptance": {
+      "date": "2026-07-22",
+      "agent_commit": "288d6e2e329e854ec11f3bea6390b3086b66288a",
+      "shell_commit": "dc5a5c5b",
+      "contract": "Shell persists one strict Discord course target at the ADK control root; the next Agent start loads it and accepts only the fixed index.html and hero.svg selected-workspace boundary.",
+      "verified": [
+        "89 targeted Agent tests including Discord lifecycle partial-retry and target-file strict-load coverage",
+        "isolated Gateway integration: get_time, authorized /course, received/running/completed lifecycle, durable dedupe, and source-message reply targeting",
+        "paired native Tauri Shell E2E: saved target UI, initial course task, revision task, and student Git boundary"
+      ],
+      "review": "Final adversarial review found no remaining P0/P1 issue.",
+      "operational_boundary": "The external Discord bot network smoke remains an opt-in credentialed operation; it was not represented as a completed automated test."
     },
     "handoff_note": "Codex app-server 동적 도구 호출, handled 단일 실행, desktop Codex-only/workspace-bound 위임, Discord 비밀 없는 직렬 진행 메시지와 실제 Codex dynamic-tool smoke를 구현·검증했다.",
     "prior_work_note": "REQ-013 선제 발화와 REQ-014 Discord runtime은 보존됐다. 실제 Discord 자격증명 2채널·OS credential store·현장 리허설은 운영 인수 범위다."
