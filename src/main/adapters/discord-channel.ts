@@ -1042,14 +1042,16 @@ export class DiscordChannelRuntime {
         const replyMessageId = await connection.sendReply({
           channelId,
           guildId,
-          messageId: durableMessageId,
+          // Gateway reply threading always targets the original Discord
+          // snowflake. The synthetic ID is exclusively the durable outbox key.
+          messageId,
           content: chunks[index]!,
           signal: outboundSignal,
         });
         sent = index + 1;
         const recorded = await this.deps.dedupe.confirmChunk({
           bindingId,
-          messageId,
+          messageId: durableMessageId,
           confirmedChunk: sent,
           now: this.deps.clock.now(),
         });

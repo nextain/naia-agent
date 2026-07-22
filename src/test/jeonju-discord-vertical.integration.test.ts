@@ -19,7 +19,10 @@ class FakeConnection implements DiscordGatewayConnection {
   readonly #done = deferred<DiscordGatewayClose>();
   readonly closed = this.#done.promise;
   readonly replies: string[] = [];
+  readonly replyTargets: string[] = [];
   async sendReply(input: { guildId: string; channelId: string; messageId: string; content: string }): Promise<string> {
+    if (!/^\d+$/.test(input.messageId)) throw new Error("invalid_reply");
+    this.replyTargets.push(input.messageId);
     this.replies.push(input.content);
     return `reply_${this.replies.length}`;
   }
@@ -147,13 +150,13 @@ describe("UC-JEONJU vertical Discord acceptance", () => {
     runtime.start();
     await waitFor(() => gateway.handlers !== undefined);
 
-    gateway.message("time", "<@999> get_time Asia/Seoul");
+    gateway.message("4001", "<@999> get_time Asia/Seoul");
     await waitFor(() => gateway.connection.replies.length === 3);
     expect(gateway.connection.replies.at(-1)).toBe(
       "TOOL_RECORD state=succeeded tool=get_time value=2026-07-22 14:31:00 (Asia/Seoul)\n\n현재 시각입니다.",
     );
 
-    gateway.message("course_source", "<@999> /course 제목을 전주에서 만든 나의 AI 페이지로 바꿔줘");
+    gateway.message("4002", "<@999> /course 제목을 전주에서 만든 나의 AI 페이지로 바꿔줘");
     await waitFor(() => gateway.connection.replies.length === 5);
     expect(prepared).toEqual([{
       jobId: "job_vertical",
@@ -170,7 +173,7 @@ describe("UC-JEONJU vertical Discord acceptance", () => {
     expect(courseDedupeIds).toHaveLength(3);
     expect(new Set(courseDedupeIds).size).toBe(3);
     expect(courseDedupeIds.every((id) => /^course_(received|running|completed)_[a-f0-9]{32}$/.test(id))).toBe(true);
-    expect(JSON.stringify(courseDedupeIds)).not.toContain("course_source");
+    expect(gateway.connection.replyTargets.slice(3)).toEqual(["4002", "4002", "4002"]);
     const publicEvidence = JSON.stringify(gateway.connection.replies);
     expect(publicEvidence).not.toContain("student-page");
     expect(publicEvidence).not.toContain("D:/alpha-adk");
