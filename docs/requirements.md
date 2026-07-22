@@ -338,6 +338,7 @@ RPC만 추가하며, 별도 셸 반복 상태 머신은 만들지 않는다.
 |---|---|---|
 | FR-JEONJU-1 | `selected-workspace` is an explicit coding-job execution mode. It is never inferred for the existing isolated-worktree/default job mode. | Pending |
 | FR-JEONJU-2 | Before Codex starts, the selected path must resolve to the approved Git root, have no uncommitted changes, and be inside the host-approved workspace boundary. | Pending |
+| FR-JEONJU-2a | The configured Naia ADK path is the control root, not an implicit broad Codex write target. A direct course target must resolve to that root or a descendant Git root, and the Codex child receives the selected target as its working directory. | Pending |
 | FR-JEONJU-3 | The course mode permits only `index.html` and `hero.svg` to be added or changed. It verifies `./hero.svg`, the requested title/color contract, and reports a failure instead of a false completion on any extra change. | Pending |
 | FR-JEONJU-4 | Course mode snapshots HEAD and remote before execution and rejects a job whose execution changed commit history or remote configuration. Codex does not receive authority to commit, push, or alter Pages settings. | Pending |
 | FR-JEONJU-5 | A cancelled, timed-out, dirty, out-of-root, or validation-failed job reports its exact safe phase and never emits a completed course result. | Pending |

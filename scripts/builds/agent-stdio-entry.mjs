@@ -142,7 +142,7 @@ const codingJobs = adkPath ? new CodingJobService({
     allowedWorkspaceRoot: adkPath,
     worktreeRoot: join(adkPath, "data-private", "coding-jobs", "worktrees"),
   }),
-  selectedWorkspace: makeSelectedWorkspaceCoding(),
+  selectedWorkspace: makeSelectedWorkspaceCoding({ allowedWorkspaceRoot: adkPath }),
   runner: makeCodexCodingJobRunner(selectSubAgent("codex")),
 }) : undefined;
 

@@ -30,6 +30,10 @@
 1. 허용된 학생이 Discord에서 교재의 첫 제작 요청을 보낸다.
 2. Naia는 **접수됨 → 작업 중 → 완료/실패**를 같은 Discord 흐름에 보이고, Codex에는
    학생이 선택한 수업 저장소만 쓰기 권한으로 넘긴다.
+   Naia ADK 경로는 설정·기술·작업 상태를 위한 제어 루트이며, 실행 대상은 별도로
+   선택한 Git 루트다. 기본 대상은 `naia-adk/projects/<project>`이고 ADK 루트 자체는
+   명시적인 ADK 유지보수 요청에서만 선택한다. 수업 대상은 제어 루트 자체 또는 그
+   하위 경로여야 하며, Codex는 그 대상에서만 실행한다.
 3. Codex가 끝난 뒤 Naia는 학생 저장소에서 변경을 검사한다. 첫 요청의 성공은
    `index.html`, `hero.svg` 두 파일만 새로 만들고, `index.html`이 `./hero.svg`를 참조하며,
    외부 라이브러리/빌드 도구/commit/push/Pages 변경이 없을 때만 선언할 수 있다.
@@ -61,6 +65,7 @@
 | TEST-JEONJU-02 | 실행 전후 변경은 `index.html`, `hero.svg`만 허용하고 HEAD/remote는 바뀌지 않는다. 위반·취소·시간초과는 성공으로 보고하지 않는다. | `src/test/jeonju-course-selected-workspace.contract.test.ts` |
 | TEST-JEONJU-03 | Discord 허용 ingress에서 `get_time`의 실행 중/성공 기록과 최종 답변이 같은 reply 흐름에 직렬화된다. 수업 코딩 작업은 비밀·경로 없는 `received → running → completed/failed` 상태를 각 durable 전이마다 한 번만 외부 bridge에 준다. | `src/test/discord-runtime.integration.test.ts`, `src/test/coding-job.contract.test.ts` |
 | TEST-JEONJU-04 | Shell은 학생이 선택한 저장소를 명시적으로 전달하고, 실제 Tauri Playwright에서 첫 요청→작업 중→두 파일 검사→두 번째 수정까지 보인다. | Shell `packages/shell/e2e/jeonju-course-workflow.spec.ts` |
+| TEST-JEONJU-05 | 선택한 수업 저장소가 Naia ADK 제어 루트 또는 그 하위 Git 루트일 때만 직접 실행을 허용하고, 형제·외부 경로는 Codex 시작 전에 거부한다. | `src/test/selected-workspace-coding.contract.test.ts` + Shell native guidance E2E |
 
 ## UC-CODING-JOB — independent Codex coding workers
 

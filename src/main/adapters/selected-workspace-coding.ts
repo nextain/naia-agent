@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFileSync, realpathSync } from "node:fs";
-import { resolve } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
 import {
   JEONJU_ALLOWED_FILES,
   checkJeonjuWorkspaceFinish,
@@ -39,13 +39,21 @@ function snapshot(workspacePath: string, git: Git): JeonjuWorkspaceSnapshot {
   };
 }
 
+function isAtOrBelow(root: string, candidate: string): boolean {
+  const pathFromRoot = relative(root, candidate);
+  return pathFromRoot === "" || (!pathFromRoot.startsWith("..") && !isAbsolute(pathFromRoot));
+}
+
 /**
  * Direct student-repository execution is deliberately separate from normal
  * coding-job worktrees. It leases one clean Git root, and never resets it:
  * rejected changes are preserved for the student to inspect and clean up.
  */
-export function makeSelectedWorkspaceCoding(input: { readonly git?: Git } = {}): SelectedWorkspaceCodingPort {
+export function makeSelectedWorkspaceCoding(input: { readonly git?: Git; readonly allowedWorkspaceRoot?: string } = {}): SelectedWorkspaceCodingPort {
   const git = input.git ?? ((args, cwd) => execFileSync("git", [...args], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
+  const allowedWorkspaceRoot = input.allowedWorkspaceRoot
+    ? realpathSync(input.allowedWorkspaceRoot)
+    : undefined;
   const leases = new Map<string, Lease>();
   const activeWorkspace = new Map<string, string>();
 
@@ -53,6 +61,9 @@ export function makeSelectedWorkspaceCoding(input: { readonly git?: Git } = {}):
     prepare({ jobId, workspacePath, allowedFiles }): CodingJobAllocation {
       if (!sameFiles(allowedFiles)) throw new Error("selected workspace allows exactly index.html and hero.svg");
       const source = realpathSync(workspacePath);
+      if (allowedWorkspaceRoot && !isAtOrBelow(allowedWorkspaceRoot, source)) {
+        throw new Error("selected workspace is outside the configured ADK root");
+      }
       const before = snapshot(source, git);
       const start = checkJeonjuWorkspaceStart(source, before);
       if (!start.ok) throw new Error(start.reason);
