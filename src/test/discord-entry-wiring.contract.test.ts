@@ -65,7 +65,7 @@ describe("T-DISCORD-RT-02/05 — production entry wiring", () => {
 
   it("wires an explicit host-configured course target without giving Discord a path override", () => {
     expect(entry).toContain("parseJeonjuDiscordCourseConfig");
-    expect(entry).toContain('"naia-settings", "jeonju-discord-course.json"');
+    expect(entry).toContain('loadJeonjuCourseTargetRaw');
     expect(entry).toContain("new JeonjuDiscordCourseService");
     expect(entry).toContain("courseLifecycle: { report: (event) => courseService?.report(event) }");
     expect(entry).toContain("courseCommand: courseService ?? invalidCourseCommand");

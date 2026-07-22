@@ -148,6 +148,22 @@ export interface DiscordDedupePort {
     readonly confirmedChunk: number;
     readonly now: number;
   }): Promise<boolean>;
+  /**
+   * Reclaim an interrupted outbox reply without re-running ingress.  This is
+   * intentionally separate from `reserve`: a normal inbound-message partial
+   * remains terminal for deduplication, while a host-owned fixed lifecycle
+   * message can be retried from its durable confirmed cursor.
+   */
+  resumePartialReply?(input: {
+    readonly bindingId: string;
+    readonly messageId: string;
+    readonly chunks: readonly string[];
+    readonly now: number;
+  }): Promise<
+    | { readonly decision: "resumed"; readonly nextChunk: number }
+    | { readonly decision: "not_partial" }
+    | { readonly decision: "failed" }
+  >;
 }
 
 export interface DiscordFriendRegistrationPort {

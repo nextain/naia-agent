@@ -50,6 +50,7 @@ const discordToken = await discordTokenFromSecretPipe;
 const { randomUUID } = await import("node:crypto");
 const { readFileSync } = await import("node:fs");
 const { join } = await import("node:path");
+const { loadJeonjuCourseTargetRaw } = await import("./jeonju-course-target-config.mjs");
 const { wireAgentUC1, wireSupervisor } = await import("../../dist/main/composition/index.js");
 const { makeCompositeAgentIngress, makePrefixedAgentEgress } =
   await import("../../dist/main/adapters/agent-transport-mux.js");
@@ -137,13 +138,10 @@ const { memory, memoryLabel, conversationLog, transcriptLabel, diag, personaSour
 let skillsLabel = deps.skillsLabel;
 let currentAdkPath = adkPath;
 let jeonjuCourseConfig;
-const courseTargetRaw = process.env.NAIA_JEONJU_COURSE_TARGET_JSON
-  ?? (() => {
-    if (!adkPath) return undefined;
-    try { return readFileSync(join(adkPath, "naia-settings", "jeonju-discord-course.json"), "utf8"); }
-    catch { return undefined; }
-  })();
-const jeonjuCourseTargetProvided = Boolean(courseTargetRaw);
+const { raw: courseTargetRaw, provided: jeonjuCourseTargetProvided } = loadJeonjuCourseTargetRaw({
+  adkPath,
+  readFile: readFileSync,
+});
 if (jeonjuCourseTargetProvided) {
   try { jeonjuCourseConfig = parseJeonjuDiscordCourseConfig(JSON.parse(courseTargetRaw)); }
   catch { jeonjuCourseConfig = undefined; }

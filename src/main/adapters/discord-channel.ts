@@ -319,7 +319,27 @@ export class DiscordChannelRuntime {
         messageId: durableMessageId,
         now: this.deps.clock.now(),
       });
-      if (reservation.decision === "duplicate") return true;
+      if (reservation.decision === "duplicate") {
+        const resumed = await this.deps.dedupe.resumePartialReply?.({
+          bindingId: input.bindingId,
+          messageId: durableMessageId,
+          chunks: [content],
+          now: this.deps.clock.now(),
+        });
+        // A duplicate can be a completed lifecycle, but an adapter that
+        // cannot tell that apart from a durable partial must not turn the
+        // course bridge's retry queue into a false success.
+        if (!resumed) {
+          this.diagnostic("course_partial_retry_unavailable");
+          return false;
+        }
+        if (resumed.decision === "not_partial") return true;
+        if (resumed.decision === "failed") return false;
+        return await this.sendDurableReply(
+          input.bindingId, input.guildId, input.channelId, input.sourceMessageId,
+          [content], resumed.nextChunk, this.lifecycleEpoch, this.lifecycleAbort.signal, durableMessageId,
+        );
+      }
       const chunks = reservation.decision === "resume_reply" ? reservation.chunks : [content];
       const startChunk = reservation.decision === "resume_reply" ? reservation.nextChunk : 0;
       if (reservation.decision === "process" && !await this.deps.dedupe.beginReply({
@@ -1019,12 +1039,15 @@ export class DiscordChannelRuntime {
       this.diagnostic("reply_connection_unavailable");
       return false;
     }
-    let sent = startChunk;
+    // Persist only Discord replies whose outbox confirmation completed.  A
+    // network/recording failure after sendReply is ambiguous, so its chunk
+    // remains eligible for the host lifecycle retry path.
+    let confirmed = startChunk;
     try {
       for (let index = startChunk; index < chunks.length; index++) {
         if ((lifecycleEpoch !== undefined && !this.isLifecycleCurrent(lifecycleEpoch))
           || this.stopped || !await this.ensureAuthoritative()) {
-          await this.recordPartial(bindingId, durableMessageId, sent);
+          await this.recordPartial(bindingId, durableMessageId, confirmed);
           return false;
         }
         const claimed = await this.deps.dedupe.claimChunk({
@@ -1036,7 +1059,7 @@ export class DiscordChannelRuntime {
         if (!claimed) throw new Error("reply_state_failed");
         if (!await this.ensureAuthoritative()
           || (lifecycleEpoch !== undefined && !this.isLifecycleCurrent(lifecycleEpoch))) {
-          await this.recordPartial(bindingId, durableMessageId, sent);
+          await this.recordPartial(bindingId, durableMessageId, confirmed);
           return false;
         }
         const replyMessageId = await connection.sendReply({
@@ -1048,16 +1071,16 @@ export class DiscordChannelRuntime {
           content: chunks[index]!,
           signal: outboundSignal,
         });
-        sent = index + 1;
         const recorded = await this.deps.dedupe.confirmChunk({
           bindingId,
           messageId: durableMessageId,
-          confirmedChunk: sent,
+          confirmedChunk: index + 1,
           now: this.deps.clock.now(),
         });
         if (!recorded) throw new Error("reply_state_failed");
+        confirmed = index + 1;
         if (lifecycleEpoch !== undefined && !this.isLifecycleCurrent(lifecycleEpoch)) {
-          await this.recordPartial(bindingId, durableMessageId, sent);
+          await this.recordPartial(bindingId, durableMessageId, confirmed);
           return false;
         }
         await this.recordInbox({
@@ -1072,7 +1095,7 @@ export class DiscordChannelRuntime {
         });
       }
     } catch (error) {
-      await this.recordPartial(bindingId, durableMessageId, sent);
+      await this.recordPartial(bindingId, durableMessageId, confirmed);
       if (!this.stopped) this.diagnostic((error as { code?: string }).code ?? "reply_failed");
       return false;
     }

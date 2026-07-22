@@ -252,6 +252,35 @@ describe("T-DISCORD-RT-04 — binding-scoped durable reply state", () => {
     expect(await store.reserve(reserve("binding_1", "m1", 104))).toEqual({ decision: "duplicate" });
   });
 
+  it("reclaims only an explicit host lifecycle partial from its confirmed cursor", async () => {
+    const fs = memoryFs();
+    const store = makeFileDiscordDedupe({ path: "dedupe.json", fs });
+    await store.reserve(reserve("binding_1", "course_received_abc", 100));
+    await store.beginReply({
+      bindingId: "binding_1", messageId: "course_received_abc", chunks: ["received"], now: 101,
+    });
+    await store.claimChunk({
+      bindingId: "binding_1", messageId: "course_received_abc", nextChunk: 1, now: 102,
+    });
+    expect(await store.partial({
+      bindingId: "binding_1", messageId: "course_received_abc", confirmedChunk: 0, now: 103,
+    })).toBe(true);
+
+    // The generic reservation remains a duplicate: it must never re-run an
+    // inbound model turn. A host lifecycle sender explicitly opts into retry.
+    expect(await store.reserve(reserve("binding_1", "course_received_abc", 104))).toEqual({ decision: "duplicate" });
+    expect(await store.resumePartialReply?.({
+      bindingId: "binding_1", messageId: "course_received_abc", chunks: ["received"], now: 105,
+    })).toEqual({ decision: "resumed", nextChunk: 0 });
+    expect(await store.claimChunk({
+      bindingId: "binding_1", messageId: "course_received_abc", nextChunk: 1, now: 106,
+    })).toBe(true);
+    expect(await store.confirmChunk({
+      bindingId: "binding_1", messageId: "course_received_abc", confirmedChunk: 1, now: 106,
+    })).toBe(true);
+    expect(await store.reserve(reserve("binding_1", "course_received_abc", 107))).toEqual({ decision: "duplicate" });
+  });
+
   it("keeps the confirmed cursor monotonic when shutdown records an older partial", async () => {
     const fs = memoryFs();
     const store = makeFileDiscordDedupe({ path: "dedupe.json", fs });
