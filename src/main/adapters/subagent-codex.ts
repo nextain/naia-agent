@@ -36,6 +36,18 @@ export interface SubAgentCodexOptions {
   readonly spawnFn?: SpawnFn;
 }
 
+/**
+ * A Naia-owned worker must never join a parent Codex app-server thread or
+ * inherit that host's sandbox policy. The worker's own CLI arguments remain
+ * the authority for its workspace-write/approval boundary.
+ */
+function codexWorkerEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  delete env.CODEX_THREAD_ID;
+  delete env.CODEX_PERMISSION_PROFILE;
+  return env;
+}
+
 // ── bin resolution (동형 패턴: env 절대경로 검증 → PATH → npx fallback) ────────
 
 function validateCodexBin(raw: string | undefined): string | undefined {
@@ -164,7 +176,7 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
       // placing a multi-word task first can be interpreted as a command.
       args.push(task.prompt);
       return spawnSubprocessSession({
-        spawnFn, bin, args, cwd: task.workdir, hardKillMs, lineToEvent: codexLineToEvent, label: "codex", diagnostics: true,
+        spawnFn, bin, args, cwd: task.workdir, env: codexWorkerEnv(), hardKillMs, lineToEvent: codexLineToEvent, label: "codex", diagnostics: true,
       });
     },
   };

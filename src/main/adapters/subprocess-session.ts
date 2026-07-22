@@ -19,7 +19,7 @@ const MAX_LINE_BYTES = 64 * 1024 * 1024; // 단일 줄 상한(>64MiB = 비정상
 export type SpawnFn = (
   command: string,
   args: readonly string[],
-  opts: { cwd: string; stdio: ["ignore", "pipe", "pipe"] },
+  opts: { cwd: string; stdio: ["ignore", "pipe", "pipe"]; env?: NodeJS.ProcessEnv },
 ) => ChildProcess;
 
 export const defaultSpawn: SpawnFn = (command, args, o) => spawn(command, [...args], o);
@@ -114,6 +114,8 @@ export interface SpawnSessionSpec {
   /** prefixArgs 뒤에 붙는 어댑터 인자(bin.prefixArgs 는 자동 prepend). */
   readonly args: readonly string[];
   readonly cwd: string;
+  /** Optional child-only environment. Adapters use this to avoid inheriting a host CLI session. */
+  readonly env?: NodeJS.ProcessEnv;
   readonly hardKillMs: number;
   readonly lineToEvent: LineToEvent;
   /** 미가용/실패 메시지 prefix(예: "pi unavailable", "opencode unavailable"). */
@@ -129,7 +131,11 @@ export function spawnSubprocessSession(spec: SpawnSessionSpec): SubAgentSession 
   const fullArgs = [...spec.bin.prefixArgs, ...spec.args];
   let child: ChildProcess;
   try {
-    child = spec.spawnFn(spec.bin.command, fullArgs, { cwd: spec.cwd, stdio: ["ignore", "pipe", "pipe"] });
+    child = spec.spawnFn(spec.bin.command, fullArgs, {
+      cwd: spec.cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+      ...(spec.env ? { env: spec.env } : {}),
+    });
   } catch (e) {
     return endedSession(`${spec.label} unavailable: ${(e as Error).message}`);
   }

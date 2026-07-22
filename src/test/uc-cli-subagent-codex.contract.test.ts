@@ -11,9 +11,9 @@ function fakeNdjson() {
   let stdoutCb: ((b: Buffer) => void) | undefined;
   const handlers: Record<string, (...a: unknown[]) => void> = {};
   const killSignals: Array<string | number> = [];
-  let spawnArgs: { command: string; args: readonly string[]; cwd: string } | undefined;
+  let spawnArgs: { command: string; args: readonly string[]; cwd: string; env?: NodeJS.ProcessEnv } | undefined;
   const spawnFn: SpawnFn = (command, args, o) => {
-    spawnArgs = { command, args, cwd: o.cwd };
+    spawnArgs = { command, args, cwd: o.cwd, env: o.env };
     const child = {
       stdout: { on: (_e: string, cb: (b: Buffer) => void) => { stdoutCb = cb; } },
       stderr: { on: () => {} },
@@ -90,6 +90,24 @@ describe("subagent-codex 어댑터 계약 (SPEC-010 확장, fake child)", () => 
       "--cd", "/tmp/w",
       "hi",
     ]);
+  });
+
+  it("does not inherit a parent Codex thread or its sandbox policy", () => {
+    const priorThread = process.env.CODEX_THREAD_ID;
+    const priorProfile = process.env.CODEX_PERMISSION_PROFILE;
+    process.env.CODEX_THREAD_ID = "parent-thread";
+    process.env.CODEX_PERMISSION_PROFILE = "read-only";
+    try {
+      const f = fakeNdjson();
+      makeCodexSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn }).spawn({ prompt: "hi", workdir: "/tmp/w" });
+      expect(f.spawnArgs.env?.CODEX_THREAD_ID).toBeUndefined();
+      expect(f.spawnArgs.env?.CODEX_PERMISSION_PROFILE).toBeUndefined();
+    } finally {
+      if (priorThread === undefined) delete process.env.CODEX_THREAD_ID;
+      else process.env.CODEX_THREAD_ID = priorThread;
+      if (priorProfile === undefined) delete process.env.CODEX_PERMISSION_PROFILE;
+      else process.env.CODEX_PERMISSION_PROFILE = priorProfile;
+    }
   });
 
   it("malformed NDJSON 관용 (crash 없이 드롭) + file_change → tool_use_end", async () => {
