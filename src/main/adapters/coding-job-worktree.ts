@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, openSync, closeSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, closeSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { basename, join, relative, resolve } from "node:path";
 import type { CodingJobAllocation, CodingJobWorktreePort } from "../ports/coding-job.js";
@@ -23,6 +23,20 @@ export function makeGitCodingJobWorktrees(input: {
   const managedRoot = resolve(input.worktreeRoot);
   const git = input.git ?? ((args, cwd) => { execFileSync("git", [...args], { cwd, stdio: "ignore" }); });
   return {
+    recover(job) {
+      const safeId = safeSegment(job.jobId);
+      const source = realpathSync(job.workspacePath);
+      const expectedWorktree = resolve(managedRoot, `${basename(source)}-${safeId}`);
+      if (!contained(allowedRoot, source) || resolve(job.worktreePath) !== expectedWorktree) return false;
+      const leasePath = join(managedRoot, `.lease-${safeId}.json`);
+      if (!existsSync(leasePath)) return false;
+      try {
+        const lease = JSON.parse(readFileSync(leasePath, "utf8")) as { jobId?: string; leaseId?: string; workspacePath?: string };
+        if (lease.jobId !== safeId || lease.leaseId !== job.leaseId || lease.workspacePath !== source) return false;
+        rmSync(leasePath, { force: true });
+        return true;
+      } catch { return false; }
+    },
     allocate({ jobId, workspacePath }): CodingJobAllocation {
       const safeId = safeSegment(jobId);
       const source = realpathSync(workspacePath);

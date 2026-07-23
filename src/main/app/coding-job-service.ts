@@ -130,11 +130,14 @@ export class CodingJobService implements CodingJobControlPort {
   #recoverInterruptedJobs(): void {
     for (const job of this.d.store.list()) {
       if (isCodingJobTerminal(job.state)) continue;
+      const recoveredLease = job.executionMode !== "isolated_worktree" || this.d.worktrees.recover?.(job) === true;
       const failed = transitionCodingJob(
         job,
         "failed",
         this.#now(),
-        "agent restarted before the coding job reached a terminal state",
+        recoveredLease
+          ? "agent restarted before the coding job reached a terminal state"
+          : "agent restarted before the coding job reached a terminal state; managed lease was retained for safety",
       );
       this.d.store.save(failed);
       this.#reportCourseLifecycle(failed);

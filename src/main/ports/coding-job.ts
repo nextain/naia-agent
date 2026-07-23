@@ -38,6 +38,8 @@ export interface CodingJobAllocation {
 
 export interface CodingJobWorktreePort {
   allocate(input: { jobId: string; workspacePath: string }): CodingJobAllocation;
+  /** Releases only the validated durable lease left by a prior Agent process. */
+  recover?(input: Pick<CodingJob, "jobId" | "workspacePath" | "worktreePath" | "leaseId">): boolean;
 }
 
 /** Separate opt-in path for the workshop's direct student-repository mode. */

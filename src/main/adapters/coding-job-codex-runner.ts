@@ -37,8 +37,14 @@ export function makeCodexCodingJobRunner(
         queueMicrotask(() => terminal(result));
       };
       deadline = setTimeout(() => {
-        void session.cancel("execution deadline exceeded");
-        finish({ ok: false, reason: `Codex execution exceeded ${executionTimeoutMs}ms without a terminal event` });
+        void (async () => {
+          try {
+            await session.cancel("execution deadline exceeded");
+            finish({ ok: false, reason: `Codex execution exceeded ${executionTimeoutMs}ms without a terminal event` });
+          } catch {
+            // Do not release the worktree lease while child termination is unconfirmed.
+          }
+        })();
       }, executionTimeoutMs);
       void (async () => {
         try {

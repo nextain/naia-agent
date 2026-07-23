@@ -21,6 +21,7 @@ function fixture() {
     get: (id) => jobs.get(id), list: (workspace) => [...jobs.values()].filter((j) => !workspace || j.workspacePath === workspace), save: (job) => jobs.set(job.jobId, job),
   };
   const worktrees: CodingJobWorktreePort = {
+    recover: () => true,
     allocate: ({ jobId, workspacePath }) => ({ workspacePath: `/root/${workspacePath}`, worktreePath: `/work/${jobId}`, branch: `naia/coding-job/${jobId}`, leaseId: `lease-${jobId}`, release: () => { released.push(jobId); } }),
   };
   const runner: CodingJobRunnerPort = {
@@ -314,7 +315,7 @@ describe("UC-CW durable coding jobs", () => {
     const orphan = f.service.start({ workspacePath: "alpha", task: "one" });
     const recovered = new CodingJobService({
       store: { get: (id) => f.jobs.get(id), list: () => [...f.jobs.values()], save: (job) => f.jobs.set(job.jobId, job) },
-      worktrees: { allocate: () => { throw new Error("recovery must not allocate a new worktree"); } },
+      worktrees: { recover: () => true, allocate: () => { throw new Error("recovery must not allocate a new worktree"); } },
       runner: { start: () => { throw new Error("recovery must not run a job"); } },
       now: () => "after-restart",
     });
