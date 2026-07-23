@@ -56,6 +56,6 @@ export interface CodingJobRun {
 export interface CodingJobRunnerPort {
   start(input: {
     readonly job: CodingJob;
-    terminal(result: { ok: boolean; reason?: string; patch?: JeonjuCoursePatch }): void;
+    terminal(result: { ok: boolean; reason?: string; patch?: JeonjuCoursePatch; releaseLease?: boolean }): void;
   }): CodingJobRun;
 }

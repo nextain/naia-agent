@@ -30,7 +30,7 @@ export function makeCodexCodingJobRunner(
       const session = subAgent.spawn({ prompt: `${job.task}${selectedWorkspaceBoundary}`, workdir: job.worktreePath, ...(job.model ? { model: job.model } : {}), ...(job.executionMode === "selected_workspace" ? { filesystemAccess: "read_only" as const } : {}) });
       let deadline: ReturnType<typeof setTimeout> | undefined;
       let terminalEmitted = false;
-      const finish = (result: { ok: boolean; reason?: string; patch?: import("../domain/jeonju-course.js").JeonjuCoursePatch }) => {
+      const finish = (result: { ok: boolean; reason?: string; patch?: import("../domain/jeonju-course.js").JeonjuCoursePatch; releaseLease?: boolean }) => {
         if (terminalEmitted) return;
         terminalEmitted = true;
         if (deadline) clearTimeout(deadline);

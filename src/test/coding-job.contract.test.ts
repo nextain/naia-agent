@@ -16,7 +16,7 @@ function fixture() {
   const jobs = new Map<string, CodingJob>();
   const released: string[] = [];
   const cancelled: string[] = [];
-  const terminals = new Map<string, (r: { ok: boolean; reason?: string; patch?: JeonjuCoursePatch }) => void>();
+  const terminals = new Map<string, (r: { ok: boolean; reason?: string; patch?: JeonjuCoursePatch; releaseLease?: boolean }) => void>();
   const store: CodingJobStore = {
     get: (id) => jobs.get(id), list: (workspace) => [...jobs.values()].filter((j) => !workspace || j.workspacePath === workspace), save: (job) => jobs.set(job.jobId, job),
   };
@@ -57,6 +57,13 @@ describe("UC-CW durable coding jobs", () => {
     expect(f.released).toEqual([first.jobId]);
   });
 
+  it("persists an unconfirmed timeout failure without releasing the active worktree lease", () => {
+    const f = fixture();
+    const job = f.service.start({ workspacePath: "alpha", task: "one" });
+    f.terminals.get(job.jobId)?.({ ok: false, reason: "deadline cancellation not confirmed", releaseLease: false });
+    expect(f.service.get(job.jobId)).toMatchObject({ state: "failed", error: "deadline cancellation not confirmed" });
+    expect(f.released).toEqual([]);
+  });
   it("does not claim a resume without a persisted runner checkpoint", () => {
     const f = fixture();
     const job = f.service.start({ workspacePath: "alpha", task: "one" });

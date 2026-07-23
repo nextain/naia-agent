@@ -54,7 +54,7 @@ export class CodingJobService implements CodingJobControlPort {
       job = transitionCodingJob(job, "running", this.#now());
       this.d.store.save(job);
       this.#reportCourseLifecycle(job);
-      const run = this.d.runner.start({ job, terminal: (result) => this.#terminal(jobId, result.ok, result.reason, result.patch) });
+      const run = this.d.runner.start({ job, terminal: (result) => this.#terminal(jobId, result.ok, result.reason, result.patch, result.releaseLease) });
       cancel = (reason) => run.cancel(reason);
       return this.d.store.get(jobId) ?? job;
     } catch (error) {
@@ -90,7 +90,7 @@ export class CodingJobService implements CodingJobControlPort {
     throw new CodingJobResumeUnavailableError("runner checkpoint resume is not implemented");
   }
 
-  #terminal(jobId: string, ok: boolean, reason?: string, patch?: import("../domain/jeonju-course.js").JeonjuCoursePatch): CodingJob {
+  #terminal(jobId: string, ok: boolean, reason?: string, patch?: import("../domain/jeonju-course.js").JeonjuCoursePatch, releaseLease = true): CodingJob {
     const current = this.get(jobId);
     if (isCodingJobTerminal(current.state)) return current;
     let verification: { ok: boolean; summary: string } | undefined;
@@ -123,7 +123,7 @@ export class CodingJobService implements CodingJobControlPort {
     this.#reportCourseLifecycle(next);
     const active = this.#active.get(jobId);
     this.#active.delete(jobId);
-    active?.allocation.release();
+    if (releaseLease) active?.allocation.release();
     return next;
   }
 
