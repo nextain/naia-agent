@@ -314,6 +314,11 @@ describe("UC-CW durable coding jobs", () => {
       expect(calls).toContainEqual(["worktree", "add", "--no-track", "-b", allocation.branch, allocation.worktreePath, "HEAD"]);
       expect(() => worktrees.allocate({ jobId: "job_abcdef", workspacePath: source })).toThrow("unavailable");
       expect(() => worktrees.allocate({ jobId: "job_escape", workspacePath: outside })).toThrow("outside configured root");
+      const recoverable = worktrees.allocate({ jobId: "recover_job", workspacePath: source });
+      const recover = worktrees.recover;
+      expect(recover?.({ jobId: "recover_job", workspacePath: source, worktreePath: recoverable.worktreePath, leaseId: "wrong-lease" })).toBe(false);
+      expect(recover?.({ jobId: "recover_job", workspacePath: source, worktreePath: recoverable.worktreePath, leaseId: recoverable.leaseId })).toBe(true);
+      expect(recover?.({ jobId: "recover_job", workspacePath: source, worktreePath: recoverable.worktreePath, leaseId: recoverable.leaseId })).toBe(false);
       allocation.release();
     } finally { rmSync(temp, { recursive: true, force: true }); }
   });
@@ -359,6 +364,29 @@ describe("UC-CW durable coding jobs", () => {
     }
   });
 
+  it("terminalizes without releasing the lease when deadline cancellation never confirms", async () => {
+    vi.useFakeTimers();
+    try {
+      const runner = makeCodexCodingJobRunner({
+        spawn() {
+          return {
+            events: { [Symbol.asyncIterator]: async function* () { await new Promise<void>(() => {}); } },
+            cancel: async () => await new Promise<void>(() => {}),
+          };
+        },
+      }, { executionTimeoutMs: 5, cancellationConfirmationTimeoutMs: 5 });
+      const result = new Promise<{ ok: boolean; reason?: string; releaseLease?: boolean }>((resolve) => {
+        runner.start({
+          job: { jobId: "deadline-pending", workspacePath: "/work", worktreePath: "/work", branch: "branch", leaseId: "lease", task: "one", state: "running", createdAt: "now", updatedAt: "now" },
+          terminal: resolve,
+        });
+      });
+      await vi.advanceTimersByTimeAsync(10);
+      await expect(result).resolves.toMatchObject({ ok: false, releaseLease: false, reason: "Codex deadline cancellation was not confirmed: cancellation confirmation exceeded 5ms" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("reports a failed terminal result without releasing a lease when deadline cancellation is rejected", async () => {
     vi.useFakeTimers();
     try {

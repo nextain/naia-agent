@@ -3,10 +3,13 @@ import type { SubAgentPort } from "../ports/orchestration.js";
 import { parseJeonjuCoursePatch } from "../domain/jeonju-course.js";
 
 const DEFAULT_EXECUTION_TIMEOUT_MS = 15 * 60_000;
+const DEFAULT_CANCELLATION_CONFIRMATION_TIMEOUT_MS = 10_000;
 
 export interface CodexCodingJobRunnerOptions {
   /** Bounded execution avoids a durable `running` job when a CLI stops emitting events. */
   readonly executionTimeoutMs?: number;
+  /** A stuck cancellation is terminally unsafe: preserve the lease for explicit recovery. */
+  readonly cancellationConfirmationTimeoutMs?: number;
 }
 
 /**
@@ -19,8 +22,12 @@ export function makeCodexCodingJobRunner(
   options: CodexCodingJobRunnerOptions = {},
 ): CodingJobRunnerPort {
   const executionTimeoutMs = options.executionTimeoutMs ?? DEFAULT_EXECUTION_TIMEOUT_MS;
+  const cancellationConfirmationTimeoutMs = options.cancellationConfirmationTimeoutMs ?? DEFAULT_CANCELLATION_CONFIRMATION_TIMEOUT_MS;
   if (!Number.isFinite(executionTimeoutMs) || executionTimeoutMs <= 0) {
     throw new Error("Codex coding job execution timeout must be positive");
+  }
+  if (!Number.isFinite(cancellationConfirmationTimeoutMs) || cancellationConfirmationTimeoutMs <= 0) {
+    throw new Error("Codex coding job cancellation confirmation timeout must be positive");
   }
   return {
     start({ job, terminal }) {
@@ -39,7 +46,7 @@ export function makeCodexCodingJobRunner(
       deadline = setTimeout(() => {
         void (async () => {
           try {
-            await session.cancel("execution deadline exceeded");
+            await confirmCancellation(session.cancel("execution deadline exceeded"), cancellationConfirmationTimeoutMs);
             finish({ ok: false, reason: `Codex execution exceeded ${executionTimeoutMs}ms without a terminal event` });
           } catch (error) {
             finish({ ok: false, reason: `Codex deadline cancellation was not confirmed: ${error instanceof Error ? error.message : String(error)}`, releaseLease: false });
@@ -79,7 +86,20 @@ export function makeCodexCodingJobRunner(
   };
 }
 
-/** A safe category for the model's own final text; never persist its raw text. */
+
+async function confirmCancellation(cancellation: Promise<void>, timeoutMs: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      cancellation,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`cancellation confirmation exceeded ${timeoutMs}ms`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}/** A safe category for the model's own final text; never persist its raw text. */
 function classifyAgentMessage(text: string): string {
   const lower = text.toLowerCase();
   if (/auth|login|credential|unauthori[sz]ed/.test(lower)) return "authentication";
