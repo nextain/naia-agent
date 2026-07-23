@@ -41,8 +41,8 @@ export function makeCodexCodingJobRunner(
           try {
             await session.cancel("execution deadline exceeded");
             finish({ ok: false, reason: `Codex execution exceeded ${executionTimeoutMs}ms without a terminal event` });
-          } catch {
-            // Do not release the worktree lease while child termination is unconfirmed.
+          } catch (error) {
+            finish({ ok: false, reason: `Codex deadline cancellation was not confirmed: ${error instanceof Error ? error.message : String(error)}`, releaseLease: false });
           }
         })();
       }, executionTimeoutMs);

@@ -358,4 +358,28 @@ describe("UC-CW durable coding jobs", () => {
       vi.useRealTimers();
     }
   });
+
+  it("reports a failed terminal result without releasing a lease when deadline cancellation is rejected", async () => {
+    vi.useFakeTimers();
+    try {
+      const runner = makeCodexCodingJobRunner({
+        spawn() {
+          return {
+            events: { [Symbol.asyncIterator]: async function* () { await new Promise<void>(() => {}); } },
+            cancel: async () => { throw new Error("kill denied"); },
+          };
+        },
+      }, { executionTimeoutMs: 5 });
+      const result = new Promise<{ ok: boolean; reason?: string; releaseLease?: boolean }>((resolve) => {
+        runner.start({
+          job: { jobId: "deadline-rejected", workspacePath: "/work", worktreePath: "/work", branch: "branch", leaseId: "lease", task: "one", state: "running", createdAt: "now", updatedAt: "now" },
+          terminal: resolve,
+        });
+      });
+      await vi.advanceTimersByTimeAsync(5);
+      await expect(result).resolves.toMatchObject({ ok: false, releaseLease: false, reason: "Codex deadline cancellation was not confirmed: kill denied" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
