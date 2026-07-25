@@ -19,7 +19,7 @@ const MAX_LINE_BYTES = 64 * 1024 * 1024; // 단일 줄 상한(>64MiB = 비정상
 export type SpawnFn = (
   command: string,
   args: readonly string[],
-  opts: { cwd: string; stdio: ["ignore", "pipe", "pipe"] },
+  opts: { cwd: string; stdio: ["ignore", "pipe", "pipe"]; env?: NodeJS.ProcessEnv },
 ) => ChildProcess;
 
 export const defaultSpawn: SpawnFn = (command, args, o) => spawn(command, [...args], o);
@@ -114,12 +114,16 @@ export interface SpawnSessionSpec {
   /** prefixArgs 뒤에 붙는 어댑터 인자(bin.prefixArgs 는 자동 prepend). */
   readonly args: readonly string[];
   readonly cwd: string;
+  /** Optional child-only environment. Adapters use this to avoid inheriting a host CLI session. */
+  readonly env?: NodeJS.ProcessEnv;
   readonly hardKillMs: number;
   readonly lineToEvent: LineToEvent;
   /** 미가용/실패 메시지 prefix(예: "pi unavailable", "opencode unavailable"). */
   readonly label: string;
   /** Opt-in, redacted process-exit facts for a user-visible runner diagnostic. */
   readonly diagnostics?: boolean;
+  /** A protocol-native terminal event has completed the logical request; stop an idle child with the same bounded SIGTERM/SIGKILL policy. */
+  readonly terminateOnProtocolEnd?: boolean;
   /** 단일 줄 상한(테스트 override). 기본 64MiB. 초과 시 child kill + fail-safe 종료. */
   readonly maxLineBytes?: number;
 }
@@ -129,11 +133,15 @@ export function spawnSubprocessSession(spec: SpawnSessionSpec): SubAgentSession 
   const fullArgs = [...spec.bin.prefixArgs, ...spec.args];
   let child: ChildProcess;
   try {
-    child = spec.spawnFn(spec.bin.command, fullArgs, { cwd: spec.cwd, stdio: ["ignore", "pipe", "pipe"] });
+    child = spec.spawnFn(spec.bin.command, fullArgs, {
+      cwd: spec.cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+      ...(spec.env ? { env: spec.env } : {}),
+    });
   } catch (e) {
     return endedSession(`${spec.label} unavailable: ${(e as Error).message}`);
   }
-  return new SubprocessSession(child, spec.hardKillMs, spec.lineToEvent, spec.label, spec.maxLineBytes ?? MAX_LINE_BYTES, spec.diagnostics === true);
+  return new SubprocessSession(child, spec.hardKillMs, spec.lineToEvent, spec.label, spec.maxLineBytes ?? MAX_LINE_BYTES, spec.diagnostics === true, spec.terminateOnProtocolEnd === true);
 }
 
 /** 이미 종료된 세션(즉시 session_end{ok:false}) — bin 미해결/spawn 동기실패용 정직 응답. terminal 정확히 1회. */
@@ -168,6 +176,8 @@ class SubprocessSession implements SubAgentSession {
   readonly #label: string;
   readonly #maxLineBytes: number;
   readonly #diagnostics: boolean;
+  readonly #terminateOnProtocolEnd: boolean;
+  #protocolTerminateTimer: ReturnType<typeof setTimeout> | undefined;
   #queue: SubAgentEvent[] = [];
   #waiters: Array<(r: IteratorResult<SubAgentEvent>) => void> = [];
   #ended = false;
@@ -177,13 +187,14 @@ class SubprocessSession implements SubAgentSession {
   #closeListeners: Array<() => void> = [];
   #cancelPromise: Promise<void> | undefined; // 진행 중 취소(멱등 — 적대리뷰 P3)
 
-  constructor(child: ChildProcess, hardKillMs: number, lineToEvent: LineToEvent, label: string, maxLineBytes: number, diagnostics: boolean) {
+  constructor(child: ChildProcess, hardKillMs: number, lineToEvent: LineToEvent, label: string, maxLineBytes: number, diagnostics: boolean, terminateOnProtocolEnd: boolean) {
     this.#child = child;
     this.#hardKillMs = hardKillMs;
     this.#lineToEvent = lineToEvent;
     this.#label = label;
     this.#maxLineBytes = maxLineBytes;
     this.#diagnostics = diagnostics;
+    this.#terminateOnProtocolEnd = terminateOnProtocolEnd;
 
     child.stdout?.on("data", (chunk: Buffer) => this.#onStdout(chunk));
     child.stderr?.on("data", (chunk: Buffer) => this.#onStderr(chunk));
@@ -193,6 +204,7 @@ class SubprocessSession implements SubAgentSession {
 
     // 종료 → session_end. 잔여 partial 줄 flush. SIGTERM/SIGKILL=취소, code 0=성공, 그 외=실패.
     child.on("close", (code: number | null, signal: NodeJS.Signals | null) => {
+      this.#clearProtocolTermination();
       if (this.#ended) return; // 이미 종료(error/maxline 가드) → 추가 파싱/종료 안 함(적대리뷰 R3)
       if (this.#stdoutBuf.length > 0) {
         this.#processLine(this.#stdoutBuf);
@@ -251,14 +263,19 @@ class SubprocessSession implements SubAgentSession {
   }
 
   #processLine(line: string): void {
+    // A single stdout chunk can contain multiple newline-delimited protocol events.
+    // Once one is terminal, do not send a second OS signal for a later line in that same chunk.
+    if (this.#ended) return;
     let e: SubAgentEvent | null;
     try {
       e = this.#lineToEvent(line);
     } catch {
       return; // 파서 throw = 해석불가 줄(드롭). 머신 불변식 보호 — session_end 는 close 가 보장(적대리뷰 P1).
     }
-    if (e?.kind === "session_end") this.#emitEnd(e.ok, e.reason);
-    else if (e) this.#emit(e);
+    if (e?.kind === "session_end") {
+      this.#emitEnd(e.ok, e.reason);
+      if (this.#terminateOnProtocolEnd) this.#terminateProtocolCompletedChild();
+    } else if (e) this.#emit(e);
   }
 
   /** session_end 정확히 1회 — 이후 emit/late stdout 무시(드롭/중복 0). waiter drain + cancel 대기자 해제. */
@@ -268,6 +285,23 @@ class SubprocessSession implements SubAgentSession {
     this.#ended = true;
     this.#drainWaiters();
     for (const cb of this.#closeListeners.splice(0)) cb();
+  }
+
+  /** Stop a child that has logically completed but has not exited. This deliberately does not call cancel(): the terminal is already visible, while the OS child still needs bounded reaping. */
+  #terminateProtocolCompletedChild(): void {
+    const alive = this.#child.kill("SIGTERM");
+    if (!alive) return;
+    this.#protocolTerminateTimer = setTimeout(() => {
+      this.#protocolTerminateTimer = undefined;
+      this.#child.kill("SIGKILL");
+    }, this.#hardKillMs);
+  }
+
+  #clearProtocolTermination(): void {
+    if (this.#protocolTerminateTimer !== undefined) {
+      clearTimeout(this.#protocolTerminateTimer);
+      this.#protocolTerminateTimer = undefined;
+    }
   }
 
   #emit(e: SubAgentEvent): void {

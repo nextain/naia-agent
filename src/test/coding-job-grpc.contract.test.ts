@@ -20,6 +20,7 @@ function service(): CodingJobService {
     worktrees: { allocate: ({ jobId, workspacePath }) => ({ workspacePath, worktreePath: `/work/${jobId}`, branch: `naia/coding-job/${jobId}`, leaseId: `lease-${jobId}`, release: () => {} }) },
     selectedWorkspace: {
       prepare: ({ jobId, workspacePath }) => ({ workspacePath, worktreePath: workspacePath, branch: "selected-workspace", leaseId: `selected-${jobId}`, release: () => {} }),
+      apply: () => ({ ok: true, summary: "applied" }),
       verify: () => ({ ok: true, summary: "verified" }),
     },
     runner: { start: () => ({ cancel: async () => {} }) },

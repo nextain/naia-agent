@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { CodingJobService, CodingJobResumeUnavailableError } from "../main/app/coding-job-service.js";
 import { decodeCodingJobStdio, dispatchCodingJobStdio } from "../main/adapters/coding-job-stdio.js";
 import { makeCodexCodingJobRunner } from "../main/adapters/coding-job-codex-runner.js";
@@ -7,19 +7,21 @@ import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { CodingJob } from "../main/domain/coding-job.js";
+import type { JeonjuCoursePatch } from "../main/domain/jeonju-course.js";
 import { transitionCodingJob } from "../main/domain/coding-job.js";
-import type { CodingJobRunnerPort, CodingJobStore, CodingJobWorktreePort, SelectedWorkspaceCodingPort } from "../main/ports/coding-job.js";
+import type { CodingJobCourseLifecyclePort, CodingJobRunnerPort, CodingJobStore, CodingJobWorktreePort, SelectedWorkspaceCodingPort } from "../main/ports/coding-job.js";
 import type { SubAgentPort } from "../main/ports/orchestration.js";
 
 function fixture() {
   const jobs = new Map<string, CodingJob>();
   const released: string[] = [];
   const cancelled: string[] = [];
-  const terminals = new Map<string, (r: { ok: boolean; reason?: string }) => void>();
+  const terminals = new Map<string, (r: { ok: boolean; reason?: string; patch?: JeonjuCoursePatch; releaseLease?: boolean }) => void>();
   const store: CodingJobStore = {
     get: (id) => jobs.get(id), list: (workspace) => [...jobs.values()].filter((j) => !workspace || j.workspacePath === workspace), save: (job) => jobs.set(job.jobId, job),
   };
   const worktrees: CodingJobWorktreePort = {
+    recover: () => true,
     allocate: ({ jobId, workspacePath }) => ({ workspacePath: `/root/${workspacePath}`, worktreePath: `/work/${jobId}`, branch: `naia/coding-job/${jobId}`, leaseId: `lease-${jobId}`, release: () => { released.push(jobId); } }),
   };
   const runner: CodingJobRunnerPort = {
@@ -55,6 +57,13 @@ describe("UC-CW durable coding jobs", () => {
     expect(f.released).toEqual([first.jobId]);
   });
 
+  it("persists an unconfirmed timeout failure without releasing the active worktree lease", () => {
+    const f = fixture();
+    const job = f.service.start({ workspacePath: "alpha", task: "one" });
+    f.terminals.get(job.jobId)?.({ ok: false, reason: "deadline cancellation not confirmed", releaseLease: false });
+    expect(f.service.get(job.jobId)).toMatchObject({ state: "failed", error: "deadline cancellation not confirmed" });
+    expect(f.released).toEqual([]);
+  });
   it("does not claim a resume without a persisted runner checkpoint", () => {
     const f = fixture();
     const job = f.service.start({ workspacePath: "alpha", task: "one" });
@@ -92,6 +101,95 @@ describe("UC-CW durable coding jobs", () => {
     expect(service.get(job.jobId)).toMatchObject({ state: "failed", error: "codex executable unavailable" });
   });
 
+  it("reports the course lifecycle once per durable state without exposing task or path details", () => {
+    const f = fixture();
+    const events: Array<{ jobId: string; state: string }> = [];
+    const courseLifecycle: CodingJobCourseLifecyclePort = {
+      report: (event) => events.push(event),
+    };
+    const service = new CodingJobService({
+      store: { get: (id) => f.jobs.get(id), list: () => [...f.jobs.values()], save: (job) => f.jobs.set(job.jobId, job) },
+      worktrees: { allocate: ({ jobId, workspacePath }) => ({ workspacePath, worktreePath: `/work/${jobId}`, branch: `naia/coding-job/${jobId}`, leaseId: `lease-${jobId}`, release: () => {} }) },
+      selectedWorkspace: {
+        prepare: ({ jobId, workspacePath }) => ({ workspacePath, worktreePath: workspacePath, branch: "selected-workspace", leaseId: `selected-${jobId}`, release: () => {} }),
+        apply: () => ({ ok: true, summary: "applied" }),
+        verify: () => ({ ok: true, summary: "verified" }),
+      },
+      runner: { start: ({ job, terminal }) => { f.terminals.set(job.jobId, terminal); return { cancel: async () => {} }; } },
+      courseLifecycle,
+      ids: () => "job_lifecycle",
+      now: () => "now",
+    });
+
+    const job = service.start({ workspacePath: "/private/student/repo", task: "private course prompt", executionMode: "selected_workspace", allowedFiles: ["index.html", "hero.svg"], courseReply: { bindingId: "course_binding", guildId: "100", channelId: "200", sourceMessageId: "300" } });
+    f.terminals.get(job.jobId)?.({ ok: true, patch: { version: 1, files: [{ path: "index.html", content: "<img src=\"./hero.svg\">" }] } });
+    // A duplicate runner callback must not emit a second terminal status.
+    f.terminals.get(job.jobId)?.({ ok: true });
+
+    expect(events).toEqual([
+      { jobId: "job_lifecycle", state: "received" },
+      { jobId: "job_lifecycle", state: "running" },
+      { jobId: "job_lifecycle", state: "completed" },
+    ]);
+    expect(JSON.stringify(events)).not.toContain("private");
+  });
+
+  it("reports a failed terminal state once when the runner cannot start", () => {
+    const f = fixture();
+    const states: string[] = [];
+    const service = new CodingJobService({
+      store: { get: (id) => f.jobs.get(id), list: () => [...f.jobs.values()], save: (job) => f.jobs.set(job.jobId, job) },
+      worktrees: { allocate: ({ jobId, workspacePath }) => ({ workspacePath, worktreePath: `/work/${jobId}`, branch: `naia/coding-job/${jobId}`, leaseId: `lease-${jobId}`, release: () => {} }) },
+      selectedWorkspace: {
+        prepare: ({ jobId, workspacePath }) => ({ workspacePath, worktreePath: workspacePath, branch: "selected-workspace", leaseId: `selected-${jobId}`, release: () => {} }),
+        apply: () => ({ ok: true, summary: "applied" }),
+        verify: () => ({ ok: true, summary: "verified" }),
+      },
+      runner: { start: () => { throw new Error("private runner detail"); } },
+      courseLifecycle: { report: ({ state }) => states.push(state) },
+      ids: () => "job_start_failure",
+      now: () => "now",
+    });
+
+    expect(service.start({ workspacePath: "/private/student/repo", task: "private task", executionMode: "selected_workspace", allowedFiles: ["index.html", "hero.svg"], courseReply: { bindingId: "course_binding", guildId: "100", channelId: "200", sourceMessageId: "300" } }).state).toBe("failed");
+    expect(states).toEqual(["received", "running", "failed"]);
+  });
+
+  it("cannot overwrite a synchronous terminal callback with a stale running state", () => {
+    const f = fixture();
+    const states: string[] = [];
+    const service = new CodingJobService({
+      store: { get: (id) => f.jobs.get(id), list: () => [...f.jobs.values()], save: (job) => f.jobs.set(job.jobId, job) },
+      worktrees: { allocate: ({ jobId, workspacePath }) => ({ workspacePath, worktreePath: `/work/${jobId}`, branch: "selected", leaseId: jobId, release: () => {} }) },
+      selectedWorkspace: {
+        prepare: ({ jobId, workspacePath }) => ({ workspacePath, worktreePath: workspacePath, branch: "selected", leaseId: jobId, release: () => {} }),
+        apply: () => ({ ok: true, summary: "applied" }), verify: () => ({ ok: true, summary: "verified" }),
+      },
+      runner: { start: ({ terminal }) => { terminal({ ok: true, patch: { version: 1, files: [{ path: "index.html", content: "<img src=\"./hero.svg\">" }] } }); return { cancel: async () => {} }; } },
+      courseLifecycle: { report: ({ state }) => states.push(state) }, ids: () => "job_sync", now: () => "now",
+    });
+    const job = service.start({ workspacePath: "/student", task: "course", executionMode: "selected_workspace", allowedFiles: ["index.html", "hero.svg"], courseReply: { bindingId: "course_binding", guildId: "100", channelId: "200", sourceMessageId: "300" } });
+    expect(job.state).toBe("completed");
+    expect(service.get(job.jobId).state).toBe("completed");
+    expect(states).toEqual(["received", "running", "completed"]);
+  });
+
+  it("does not send ordinary isolated-worktree jobs to the course chat bridge", () => {
+    const f = fixture();
+    const states: string[] = [];
+    const service = new CodingJobService({
+      store: { get: (id) => f.jobs.get(id), list: () => [...f.jobs.values()], save: (job) => f.jobs.set(job.jobId, job) },
+      worktrees: { allocate: ({ jobId, workspacePath }) => ({ workspacePath, worktreePath: `/work/${jobId}`, branch: `naia/coding-job/${jobId}`, leaseId: `lease-${jobId}`, release: () => {} }) },
+      runner: { start: () => ({ cancel: async () => {} }) },
+      courseLifecycle: { report: ({ state }) => states.push(state) },
+      ids: () => "job_private_worker",
+      now: () => "now",
+    });
+
+    expect(service.start({ workspacePath: "/private/other-project", task: "private task" }).state).toBe("running");
+    expect(states).toEqual([]);
+  });
+
   it("uses selected workspace only when explicitly requested and fails closed on post-run verification", () => {
     const f = fixture();
     const prepared: string[] = [];
@@ -100,6 +198,7 @@ describe("UC-CW durable coding jobs", () => {
         prepared.push(`${workspacePath}:${allowedFiles.join(",")}`);
         return { workspacePath: "/student/repo", worktreePath: "/student/repo", branch: "selected-workspace", leaseId: `selected-${jobId}`, release: () => { f.released.push(jobId); } };
       },
+      apply: () => ({ ok: true, summary: "applied" }),
       verify: () => ({ ok: false, summary: "unexpected_file; changes were preserved for manual review" }),
     };
     const service = new CodingJobService({
@@ -111,7 +210,7 @@ describe("UC-CW durable coding jobs", () => {
     const job = service.start({ workspacePath: "/student/repo", task: "edit course", executionMode: "selected_workspace", allowedFiles: ["index.html", "hero.svg"] });
     expect(prepared).toEqual(["/student/repo:index.html,hero.svg"]);
     expect(job).toMatchObject({ executionMode: "selected_workspace", worktreePath: "/student/repo" });
-    f.terminals.get(job.jobId)?.({ ok: true, reason: "codex process exit=0; stderr=none; parsed_events=planning,session_end" });
+    f.terminals.get(job.jobId)?.({ ok: true, reason: "codex process exit=0; stderr=none; parsed_events=planning,session_end", patch: { version: 1, files: [{ path: "index.html", content: "<img src=\"./hero.svg\">" }] } });
     expect(service.get(job.jobId)).toMatchObject({
       state: "failed",
       verificationSummary: "unexpected_file; changes were preserved for manual review; runner: codex process exit=0; stderr=none; parsed_events=planning,session_end",
@@ -153,7 +252,7 @@ describe("UC-CW durable coding jobs", () => {
     expect(service.get(first.jobId).state).toBe("cancelled");
   });
 
-  it("Codex course runner requires edits to both approved files before reporting success", () => {
+  it("Codex course runner requests a read-only structured proposal before Naia applies it", () => {
     let prompt = "";
     const runner = makeCodexCodingJobRunner({
       spawn(task) {
@@ -168,9 +267,39 @@ describe("UC-CW durable coding jobs", () => {
       },
       terminal: () => {},
     });
-    expect(prompt).toContain("first inspect index.html and hero.svg");
-    expect(prompt).toContain("material uncommitted edit to both approved files");
-    expect(prompt).toContain("Do not report success unless both files are edited");
+    expect(prompt).toContain("Course proposal contract: inspect only");
+    expect(prompt).toContain("Return exactly one JSON object");
+    expect(prompt).toContain("Naia validates, applies, and verifies");
+    expect(prompt).toContain("index.html and hero.svg");
+  });
+
+  it("turns only a valid read-only provider response into a Naia-applicable proposal", async () => {
+    let access: string | undefined;
+    const runner = makeCodexCodingJobRunner({
+      spawn(task) {
+        access = task.filesystemAccess;
+        return {
+          events: (async function* () {
+            yield { kind: "text_delta" as const, text: "I will inspect the existing SVG first." };
+            yield { kind: "tool_use_end" as const, tool: "command_execution", ok: true };
+            yield { kind: "text_delta" as const, text: JSON.stringify({ version: 1, files: [{ path: "hero.svg", content: "<svg/>" }] }) };
+            yield { kind: "session_end" as const, ok: true };
+          })(),
+          cancel: async () => {},
+        };
+      },
+    });
+    const result = await new Promise<{ ok: boolean; reason?: string; patch?: JeonjuCoursePatch }>((resolve) => {
+      runner.start({
+        job: {
+          jobId: "course_proposal", workspacePath: "/course", worktreePath: "/course", branch: "selected-workspace", leaseId: "lease",
+          task: "revise hero", executionMode: "selected_workspace", allowedFiles: ["index.html", "hero.svg"], state: "running", createdAt: "now", updatedAt: "now",
+        },
+        terminal: resolve,
+      });
+    });
+    expect(access).toBe("read_only");
+    expect(result).toMatchObject({ ok: true, patch: { files: [{ path: "hero.svg", content: "<svg/>" }] } });
   });
 
   it("rejects workspace escapes and gives each job an exclusive generated lease", () => {
@@ -185,7 +314,100 @@ describe("UC-CW durable coding jobs", () => {
       expect(calls).toContainEqual(["worktree", "add", "--no-track", "-b", allocation.branch, allocation.worktreePath, "HEAD"]);
       expect(() => worktrees.allocate({ jobId: "job_abcdef", workspacePath: source })).toThrow("unavailable");
       expect(() => worktrees.allocate({ jobId: "job_escape", workspacePath: outside })).toThrow("outside configured root");
+      const recoverable = worktrees.allocate({ jobId: "recover_job", workspacePath: source });
+      const recover = worktrees.recover;
+      expect(recover?.({ jobId: "recover_job", workspacePath: source, worktreePath: recoverable.worktreePath, leaseId: "wrong-lease" })).toBe(false);
+      expect(recover?.({ jobId: "recover_job", workspacePath: source, worktreePath: recoverable.worktreePath, leaseId: recoverable.leaseId })).toBe(true);
+      expect(recover?.({ jobId: "recover_job", workspacePath: source, worktreePath: recoverable.worktreePath, leaseId: recoverable.leaseId })).toBe(false);
       allocation.release();
     } finally { rmSync(temp, { recursive: true, force: true }); }
+  });
+  it("marks durable nonterminal work as failed when the Agent starts after a restart", () => {
+    const f = fixture();
+    const orphan = f.service.start({ workspacePath: "alpha", task: "one" });
+    const recovered = new CodingJobService({
+      store: { get: (id) => f.jobs.get(id), list: () => [...f.jobs.values()], save: (job) => f.jobs.set(job.jobId, job) },
+      worktrees: { recover: () => true, allocate: () => { throw new Error("recovery must not allocate a new worktree"); } },
+      runner: { start: () => { throw new Error("recovery must not run a job"); } },
+      now: () => "after-restart",
+    });
+    expect(recovered.get(orphan.jobId)).toMatchObject({
+      state: "failed",
+      error: "agent restarted before the coding job reached a terminal state",
+      updatedAt: "after-restart",
+    });
+  });
+
+  it("cancels and terminalizes a Codex session that emits no terminal event before its deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      let cancellation = "";
+      const runner = makeCodexCodingJobRunner({
+        spawn() {
+          return {
+            events: { [Symbol.asyncIterator]: async function* () { await new Promise<void>(() => {}); } },
+            cancel: async (reason) => { cancellation = reason; },
+          };
+        },
+      }, { executionTimeoutMs: 5 });
+      const result = new Promise<{ ok: boolean; reason?: string }>((resolve) => {
+        runner.start({
+          job: { jobId: "deadline", workspacePath: "/work", worktreePath: "/work", branch: "branch", leaseId: "lease", task: "one", state: "running", createdAt: "now", updatedAt: "now" },
+          terminal: resolve,
+        });
+      });
+      await vi.advanceTimersByTimeAsync(5);
+      await expect(result).resolves.toMatchObject({ ok: false, reason: "Codex execution exceeded 5ms without a terminal event" });
+      expect(cancellation).toBe("execution deadline exceeded");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("terminalizes without releasing the lease when deadline cancellation never confirms", async () => {
+    vi.useFakeTimers();
+    try {
+      const runner = makeCodexCodingJobRunner({
+        spawn() {
+          return {
+            events: { [Symbol.asyncIterator]: async function* () { await new Promise<void>(() => {}); } },
+            cancel: async () => await new Promise<void>(() => {}),
+          };
+        },
+      }, { executionTimeoutMs: 5, cancellationConfirmationTimeoutMs: 5 });
+      const result = new Promise<{ ok: boolean; reason?: string; releaseLease?: boolean }>((resolve) => {
+        runner.start({
+          job: { jobId: "deadline-pending", workspacePath: "/work", worktreePath: "/work", branch: "branch", leaseId: "lease", task: "one", state: "running", createdAt: "now", updatedAt: "now" },
+          terminal: resolve,
+        });
+      });
+      await vi.advanceTimersByTimeAsync(10);
+      await expect(result).resolves.toMatchObject({ ok: false, releaseLease: false, reason: "Codex deadline cancellation was not confirmed: cancellation confirmation exceeded 5ms" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("reports a failed terminal result without releasing a lease when deadline cancellation is rejected", async () => {
+    vi.useFakeTimers();
+    try {
+      const runner = makeCodexCodingJobRunner({
+        spawn() {
+          return {
+            events: { [Symbol.asyncIterator]: async function* () { await new Promise<void>(() => {}); } },
+            cancel: async () => { throw new Error("kill denied"); },
+          };
+        },
+      }, { executionTimeoutMs: 5 });
+      const result = new Promise<{ ok: boolean; reason?: string; releaseLease?: boolean }>((resolve) => {
+        runner.start({
+          job: { jobId: "deadline-rejected", workspacePath: "/work", worktreePath: "/work", branch: "branch", leaseId: "lease", task: "one", state: "running", createdAt: "now", updatedAt: "now" },
+          terminal: resolve,
+        });
+      });
+      await vi.advanceTimersByTimeAsync(5);
+      await expect(result).resolves.toMatchObject({ ok: false, releaseLease: false, reason: "Codex deadline cancellation was not confirmed: kill denied" });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

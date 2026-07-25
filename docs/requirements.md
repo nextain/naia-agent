@@ -338,10 +338,14 @@ RPC만 추가하며, 별도 셸 반복 상태 머신은 만들지 않는다.
 |---|---|---|
 | FR-JEONJU-1 | `selected-workspace` is an explicit coding-job execution mode. It is never inferred for the existing isolated-worktree/default job mode. | Pending |
 | FR-JEONJU-2 | Before Codex starts, the selected path must resolve to the approved Git root, have no uncommitted changes, and be inside the host-approved workspace boundary. | Pending |
+| FR-JEONJU-2a | The configured Naia ADK path is the control root, not an implicit broad Codex write target. A direct course target must resolve to that root or a descendant Git root, and the Codex child receives the selected target as its working directory. | Pending |
 | FR-JEONJU-3 | The course mode permits only `index.html` and `hero.svg` to be added or changed. It verifies `./hero.svg`, the requested title/color contract, and reports a failure instead of a false completion on any extra change. | Pending |
 | FR-JEONJU-4 | Course mode snapshots HEAD and remote before execution and rejects a job whose execution changed commit history or remote configuration. Codex does not receive authority to commit, push, or alter Pages settings. | Pending |
 | FR-JEONJU-5 | A cancelled, timed-out, dirty, out-of-root, or validation-failed job reports its exact safe phase and never emits a completed course result. | Pending |
-| NFR-JEONJU-1 | The user-visible Discord lifecycle is received → running → completed/failed, without prompt, token, raw Codex output, or absolute-path disclosure. | Pending |
+| FR-JEONJU-6 | A course worker is a provider-neutral proposal producer. Codex, a Naia-account model, or another compatible provider may produce the same versioned replacement-file JSON; no provider receives course write authority. | Pending |
+| FR-JEONJU-7 | Naia parses the exact proposal schema, revalidates its fixed file boundary at the privileged apply boundary, writes only an accepted proposal, then verifies Git history, remote, changed files, and the hero reference before completion. Missing or invalid proposals leave no completed result. | Pending |
+| FR-JEONJU-8 | A Discord course request is recognized only as an already-authorized explicit `/course <task>` command. Its host-owned, versioned target configuration contains one selected Git root and exactly `index.html`/`hero.svg`; Discord content, chat history, and the model cannot supply or override either value. | In Review |
+| NFR-JEONJU-1 | The user-visible Discord lifecycle is received → running → completed/failed, without prompt, token, raw Codex output, or absolute-path disclosure. The coding-job boundary emits each durable course lifecycle transition once to a host-owned Discord bridge; live bot delivery remains an operational acceptance test. | In Review |
 | NFR-JEONJU-2 | The Shell supplies selected-workspace mode and selected Git root as explicit structured data; a model cannot select or override this path. | Pending |
 
 | ID | Requirement | Status |
@@ -351,8 +355,12 @@ RPC만 추가하며, 별도 셸 반복 상태 머신은 만들지 않는다.
 | FR-CW-3 | Start/Get/List/Cancel/Resume are available through gRPC and the JSON-line stdio codec. | In review |
 | FR-CW-4 | Targeted cancellation is idempotent and cannot cross job boundaries; a terminal state cannot be overwritten. | In review |
 | FR-CW-5 | Resume requires an actual durable checkpoint; a no-checkpoint Codex CLI job returns a precondition error. | In review |
+| FR-CW-6 | A Codex worker treats its JSONL `turn.completed` event as the logical completion boundary. It emits one terminal result without waiting indefinitely for an otherwise idle CLI process, and terminates that child through the bounded adapter cancellation path. | Pending |
 | NFR-CW-1 | Caller-controlled paths, branches, worktree locations, and leases are not trusted. | In review |
 | NFR-CW-2 | A restart preserves status but does not claim a lost process is still running. | In review |
+| NFR-CW-3 | Protocol completion, subprocess close, parser failure, and cancellation are race-safe: exactly one terminal event is exposed and a logically-complete child cannot remain orphaned. | Pending |
+| FR-CW-7 | A Codex coding session has a bounded execution deadline. If no terminal protocol event arrives, Naia cancels the child and persists one failed terminal result. | Pending |
+| NFR-CW-4 | Agent startup recovers every durable nonterminal coding job to an honest failed terminal state; no previous-process job may remain indefinitely running. | Pending |
 
 | ID | 요구사항 | 상태 |
 |----|----------|:----:|

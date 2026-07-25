@@ -5,13 +5,19 @@
  * 어떤 검출기도 tsc 를 안 돌려 미감지였던 갭 차단. pre-commit + cron(verify-watch) 공용.
  * 검사: agent src tsc(테스트-타입 노이즈 제외). exit 1 = src 컴파일 깨짐(RED).
  */
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const localTsc = resolve(ROOT, "node_modules", "typescript", "bin", "tsc");
+if (!existsSync(localTsc)) {
+  console.error("[compile-integrity] RED — local TypeScript is unavailable; run pnpm install before committing.");
+  process.exit(1);
+}
 try {
-	execSync("npx tsc -p tsconfig.json --noEmit", { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+	execFileSync(process.execPath, [localTsc, "-p", "tsconfig.json", "--noEmit"], { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 	console.log("[compile-integrity] ✅ PASS — agent src 컴파일 무결.");
 	process.exit(0);
 } catch (e) {

@@ -70,4 +70,48 @@ describe("DJ-GRPC-01 activity panel BGM correlation", () => {
     bgm.resolveResult("r", activityId, toolCallId, "재생: 제목", true);
     await expect(play).resolves.toMatchObject({ ok: false });
   });
+
+  it("DJ-GRPC-02: 요청 action과 다른 결과 또는 같은 영상은 다음 곡으로 인정하지 않는다", async () => {
+    const routes = makeActivityRouteRegistry();
+    routes.set({ sessionId: "s", requestId: "r", activityId: "a", profileGeneration: 1 });
+    const calls: { toolCallId: string; action: string }[] = [];
+    const bgm = makeActivityRadioDjBgm({
+      routes,
+      wire: {
+        emit: (_s, _r, _a, _g, event) => {
+          if (event.kind === "panelToolCall") {
+            calls.push({
+              toolCallId: event.toolCallId,
+              action: String((event.args as { action?: unknown }).action),
+            });
+          }
+        },
+      },
+      specs: () => [{
+        name: "skill_youtube_bgm",
+        description: "",
+        parameters: { type: "object", properties: { action: { enum: ["play", "next", "stop"] } } },
+      }],
+    });
+
+    const first = bgm.searchAndPlay("첫 곡", { requestId: "r", activityId: "a" });
+    bgm.resolveResult("r", "a", calls[0]!.toolCallId, JSON.stringify({
+      ok: true, action: "play", videoId: "v1", title: "첫 영상",
+    }), true);
+    await expect(first).resolves.toMatchObject({ ok: true, videoId: "v1" });
+
+    const wrongAction = bgm.next({ requestId: "r", activityId: "a" });
+    bgm.resolveResult("r", "a", calls[1]!.toolCallId, JSON.stringify({
+      ok: true, action: "play", videoId: "v2", title: "다른 영상",
+    }), true);
+    await expect(wrongAction).resolves.toEqual({ ok: false, reason: "BGM action mismatch" });
+    await expect(bgm.status()).resolves.toEqual({ videoId: "v1", title: "첫 영상" });
+
+    const duplicate = bgm.searchAndPlay("같은 곡", { requestId: "r", activityId: "a" });
+    bgm.resolveResult("r", "a", calls[2]!.toolCallId, JSON.stringify({
+      ok: true, action: "play", videoId: "v1", title: "첫 영상",
+    }), true);
+    await expect(duplicate).resolves.toEqual({ ok: false, reason: "duplicate_track" });
+    await expect(bgm.status()).resolves.toEqual({ videoId: "v1", title: "첫 영상" });
+  });
 });

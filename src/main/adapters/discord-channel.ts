@@ -1,9 +1,11 @@
+import { createHash } from "node:crypto";
 import type { AgentEmit, AgentRequest, ChatMessage } from "../domain/chat.js";
 import { evaluateDiscordIngress } from "../domain/discord-ingress-policy.js";
 import { validateSecurityWireRequest } from "../domain/security-wire.js";
 import type {
   DiscordGatewayConnection,
   DiscordGatewayMessage,
+  DiscordCourseLifecycleDelivery,
   DiscordInboxRecord,
   DiscordRuntimeDeps,
 } from "../ports/discord.js";
@@ -54,6 +56,19 @@ const REQUEST_PREFIX = "discord:";
 const REPLY_CHUNK = 2_000;
 const MAX_INPUT_CHARS = 4_000;
 const TOOL_PROGRESS_NAME = /^[A-Za-z0-9_.:-]{1,64}$/;
+const COURSE_COMMAND = /^\/course\s+(.+)$/s;
+const COURSE_STATUS_TEXT: Readonly<Record<DiscordCourseLifecycleDelivery["state"], string>> = {
+  received: "수업 작업을 접수했습니다.",
+  running: "수업 작업을 진행하고 있습니다.",
+  completed: "수업 작업이 완료되었습니다. Shell에서 결과를 확인해 주세요.",
+  failed: "수업 작업을 완료하지 못했습니다. Shell에서 작업 상태를 확인해 주세요.",
+};
+
+function courseDedupeId(input: DiscordCourseLifecycleDelivery): string {
+  // The persistent dedupe store permits only bounded opaque identifiers. Hash
+  // the source id rather than reflecting an untrusted Gateway identifier.
+  return `course_${input.state}_${createHash("sha256").update(input.sourceMessageId).digest("hex").slice(0, 32)}`;
+}
 const CONFIG_KEYS = new Set(["version", "generation", "bindings", "processingProfiles"]);
 const BINDING_KEYS = new Set([
   "bindingId",
@@ -280,6 +295,67 @@ export class DiscordChannelRuntime {
   start(): void {
     if (this.loop || this.stopped) return;
     this.loop = this.run();
+  }
+
+  /**
+   * Host-owned lifecycle bridge entry.  The runtime re-checks the configured
+   * binding and only emits one of four fixed messages, so job details cannot
+   * be reflected into Discord.
+   */
+  async sendCourseLifecycle(input: DiscordCourseLifecycleDelivery): Promise<boolean> {
+    const binding = this.config.bindings.find((candidate) =>
+      candidate.bindingId === input.bindingId
+      && candidate.guildId === input.guildId
+      && candidate.channelId === input.channelId);
+    const connection = this.connection;
+    if (!binding || !connection || !this.isLifecycleCurrent(this.lifecycleEpoch)
+      || !await this.ensureAuthoritative()) return false;
+    const content = COURSE_STATUS_TEXT[input.state];
+    if (!content) return false;
+    const durableMessageId = courseDedupeId(input);
+    try {
+      const reservation = await this.deps.dedupe.reserve({
+        bindingId: input.bindingId,
+        messageId: durableMessageId,
+        now: this.deps.clock.now(),
+      });
+      if (reservation.decision === "duplicate") {
+        const resumed = await this.deps.dedupe.resumePartialReply?.({
+          bindingId: input.bindingId,
+          messageId: durableMessageId,
+          chunks: [content],
+          now: this.deps.clock.now(),
+        });
+        // A duplicate can be a completed lifecycle, but an adapter that
+        // cannot tell that apart from a durable partial must not turn the
+        // course bridge's retry queue into a false success.
+        if (!resumed) {
+          this.diagnostic("course_partial_retry_unavailable");
+          return false;
+        }
+        if (resumed.decision === "not_partial") return true;
+        if (resumed.decision === "failed") return false;
+        return await this.sendDurableReply(
+          input.bindingId, input.guildId, input.channelId, input.sourceMessageId,
+          [content], resumed.nextChunk, this.lifecycleEpoch, this.lifecycleAbort.signal, durableMessageId,
+        );
+      }
+      const chunks = reservation.decision === "resume_reply" ? reservation.chunks : [content];
+      const startChunk = reservation.decision === "resume_reply" ? reservation.nextChunk : 0;
+      if (reservation.decision === "process" && !await this.deps.dedupe.beginReply({
+        bindingId: input.bindingId,
+        messageId: durableMessageId,
+        chunks,
+        now: this.deps.clock.now(),
+      })) return false;
+      return await this.sendDurableReply(
+        input.bindingId, input.guildId, input.channelId, input.sourceMessageId,
+        chunks, startChunk, this.lifecycleEpoch, this.lifecycleAbort.signal, durableMessageId,
+      );
+    } catch {
+      this.diagnostic("course_status_reply_failed");
+      return false;
+    }
   }
 
   status(): {
@@ -685,10 +761,6 @@ export class DiscordChannelRuntime {
       this.deps.diag.debug?.("discord ingress rejected", { reason: decision.accepted ? "binding_missing" : decision.reason });
       return;
     }
-    if (!this.route) {
-      this.diagnostic("ingress_unavailable");
-      return;
-    }
     const userText = stripSelfMention(message.content, selfUserId);
     if (!userText || userText.length > MAX_INPUT_CHARS) {
       this.deps.diag.debug?.("discord ingress rejected", { reason: "invalid_content" });
@@ -739,6 +811,29 @@ export class DiscordChannelRuntime {
     });
     if (!await this.ensureAuthoritative() || !this.isLifecycleCurrent(lifecycleEpoch)) {
       await this.finishInterruptedReservation(binding.bindingId, message.messageId);
+      return;
+    }
+    const courseTask = userText.match(COURSE_COMMAND)?.[1]?.trim();
+    if (courseTask && this.deps.courseCommand?.start({
+      bindingId: binding.bindingId,
+      guildId: binding.guildId,
+      channelId: binding.channelId,
+      sourceMessageId: message.messageId,
+      authorId: message.authorId,
+      task: courseTask,
+    })) {
+      try {
+        await this.deps.dedupe.complete({
+          bindingId: binding.bindingId,
+          messageId: message.messageId,
+          now: this.deps.clock.now(),
+        });
+      } catch { this.diagnostic("course_command_state_failed"); }
+      return;
+    }
+    if (!this.route) {
+      await this.finishInterruptedReservation(binding.bindingId, message.messageId);
+      this.diagnostic("ingress_unavailable");
       return;
     }
     const requestId = `${REQUEST_PREFIX}${binding.bindingId}:${message.messageId}`;
@@ -937,50 +1032,56 @@ export class DiscordChannelRuntime {
     startChunk: number,
     lifecycleEpoch?: number,
     outboundSignal: AbortSignal = this.lifecycleAbort.signal,
-  ): Promise<void> {
+    durableMessageId: string = messageId,
+  ): Promise<boolean> {
     const connection = this.connection;
     if (!connection) {
       this.diagnostic("reply_connection_unavailable");
-      return;
+      return false;
     }
-    let sent = startChunk;
+    // Persist only Discord replies whose outbox confirmation completed.  A
+    // network/recording failure after sendReply is ambiguous, so its chunk
+    // remains eligible for the host lifecycle retry path.
+    let confirmed = startChunk;
     try {
       for (let index = startChunk; index < chunks.length; index++) {
         if ((lifecycleEpoch !== undefined && !this.isLifecycleCurrent(lifecycleEpoch))
           || this.stopped || !await this.ensureAuthoritative()) {
-          await this.recordPartial(bindingId, messageId, sent);
-          return;
+          await this.recordPartial(bindingId, durableMessageId, confirmed);
+          return false;
         }
         const claimed = await this.deps.dedupe.claimChunk({
           bindingId,
-          messageId,
+          messageId: durableMessageId,
           nextChunk: index + 1,
           now: this.deps.clock.now(),
         });
         if (!claimed) throw new Error("reply_state_failed");
         if (!await this.ensureAuthoritative()
           || (lifecycleEpoch !== undefined && !this.isLifecycleCurrent(lifecycleEpoch))) {
-          await this.recordPartial(bindingId, messageId, sent);
-          return;
+          await this.recordPartial(bindingId, durableMessageId, confirmed);
+          return false;
         }
         const replyMessageId = await connection.sendReply({
           channelId,
           guildId,
+          // Gateway reply threading always targets the original Discord
+          // snowflake. The synthetic ID is exclusively the durable outbox key.
           messageId,
           content: chunks[index]!,
           signal: outboundSignal,
         });
-        sent = index + 1;
         const recorded = await this.deps.dedupe.confirmChunk({
           bindingId,
-          messageId,
-          confirmedChunk: sent,
+          messageId: durableMessageId,
+          confirmedChunk: index + 1,
           now: this.deps.clock.now(),
         });
         if (!recorded) throw new Error("reply_state_failed");
+        confirmed = index + 1;
         if (lifecycleEpoch !== undefined && !this.isLifecycleCurrent(lifecycleEpoch)) {
-          await this.recordPartial(bindingId, messageId, sent);
-          return;
+          await this.recordPartial(bindingId, durableMessageId, confirmed);
+          return false;
         }
         await this.recordInbox({
           recordId: `outgoing_${replyMessageId}`,
@@ -994,9 +1095,11 @@ export class DiscordChannelRuntime {
         });
       }
     } catch (error) {
-      await this.recordPartial(bindingId, messageId, sent);
+      await this.recordPartial(bindingId, durableMessageId, confirmed);
       if (!this.stopped) this.diagnostic((error as { code?: string }).code ?? "reply_failed");
+      return false;
     }
+    return true;
   }
 
   private async recordInbox(record: DiscordInboxRecord): Promise<void> {

@@ -4,8 +4,8 @@ import {
   CodingJobResumeUnavailableError,
   type CodingJob,
 } from "../domain/coding-job.js";
-import { isCodingJobTerminal, transitionCodingJob } from "../domain/coding-job.js";
-import type { CodingJobAllocation, CodingJobControlPort, CodingJobRunnerPort, CodingJobStore, CodingJobWorktreePort, SelectedWorkspaceCodingPort } from "../ports/coding-job.js";
+import { codingJobCourseLifecycleState, isCodingJobTerminal, transitionCodingJob } from "../domain/coding-job.js";
+import type { CodingJobAllocation, CodingJobControlPort, CodingJobCourseLifecyclePort, CodingJobRunnerPort, CodingJobStore, CodingJobWorktreePort, SelectedWorkspaceCodingPort } from "../ports/coding-job.js";
 export { CodingJobNotFoundError, CodingJobResumeUnavailableError } from "../domain/coding-job.js";
 
 export interface CodingJobServiceDeps {
@@ -13,6 +13,7 @@ export interface CodingJobServiceDeps {
   readonly worktrees: CodingJobWorktreePort;
   readonly runner: CodingJobRunnerPort;
   readonly selectedWorkspace?: SelectedWorkspaceCodingPort;
+  readonly courseLifecycle?: CodingJobCourseLifecyclePort;
   readonly now?: () => string;
   readonly ids?: () => string;
 }
@@ -24,9 +25,10 @@ export class CodingJobService implements CodingJobControlPort {
   constructor(private readonly d: CodingJobServiceDeps) {
     this.#now = d.now ?? (() => new Date().toISOString());
     this.#ids = d.ids ?? randomUUID;
+    this.#recoverInterruptedJobs();
   }
 
-  start(input: { workspacePath: string; task: string; model?: string; executionMode?: "isolated_worktree" | "selected_workspace"; allowedFiles?: readonly string[] }): CodingJob {
+  start(input: { workspacePath: string; task: string; model?: string; executionMode?: "isolated_worktree" | "selected_workspace"; allowedFiles?: readonly string[]; courseReply?: import("../domain/coding-job.js").CodingJobCourseReply }): CodingJob {
     if (!input.task.trim()) throw new Error("coding job task is required");
     const executionMode = input.executionMode ?? "isolated_worktree";
     if (executionMode === "selected_workspace" && (!input.allowedFiles?.length || !this.d.selectedWorkspace)) throw new Error("selected workspace mode is unavailable");
@@ -38,25 +40,28 @@ export class CodingJobService implements CodingJobControlPort {
     let job: CodingJob = {
       jobId, workspacePath: allocation.workspacePath, worktreePath: allocation.worktreePath,
       branch: allocation.branch, leaseId: allocation.leaseId, task: input.task, ...(input.model ? { model: input.model } : {}),
-      state: "queued", executionMode, ...(executionMode === "selected_workspace" ? { allowedFiles: [...input.allowedFiles!] } : {}), createdAt: now, updatedAt: now,
+      state: "queued", executionMode, ...(executionMode === "selected_workspace" ? { allowedFiles: [...input.allowedFiles!] } : {}), ...(input.courseReply ? { courseReply: input.courseReply } : {}), createdAt: now, updatedAt: now,
     };
     this.d.store.save(job);
+    this.#reportCourseLifecycle(job);
     try {
       let cancel = async (_reason: string): Promise<void> => {};
       this.#active.set(jobId, { allocation, cancel: (reason) => cancel(reason) });
-      const run = this.d.runner.start({ job, terminal: (result) => this.#terminal(jobId, result.ok, result.reason) });
-      cancel = (reason) => run.cancel(reason);
-      // A job is running only after the runner has successfully spawned.  A
-      // spawn error leaves a durable failed record rather than a false running
-      // status.
+      // Runners are provider-neutral and may synchronously call terminal()
+      // while start() is still on the stack. Persist running before handing
+      // them the callback so a terminal transition cannot be overwritten by a
+      // stale queued object after start() returns.
       job = transitionCodingJob(job, "running", this.#now());
       this.d.store.save(job);
-      return job;
+      this.#reportCourseLifecycle(job);
+      const run = this.d.runner.start({ job, terminal: (result) => this.#terminal(jobId, result.ok, result.reason, result.patch, result.releaseLease) });
+      cancel = (reason) => run.cancel(reason);
+      return this.d.store.get(jobId) ?? job;
     } catch (error) {
       const current = this.d.store.get(jobId) ?? job;
       if (isCodingJobTerminal(current.state)) return current;
       const failed = transitionCodingJob(current, "failed", this.#now(), error instanceof Error ? error.message : String(error));
-      this.d.store.save(failed); this.#active.delete(jobId); allocation.release();
+      this.d.store.save(failed); this.#reportCourseLifecycle(failed); this.#active.delete(jobId); allocation.release();
       return failed;
     }
   }
@@ -85,13 +90,18 @@ export class CodingJobService implements CodingJobControlPort {
     throw new CodingJobResumeUnavailableError("runner checkpoint resume is not implemented");
   }
 
-  #terminal(jobId: string, ok: boolean, reason?: string): CodingJob {
+  #terminal(jobId: string, ok: boolean, reason?: string, patch?: import("../domain/jeonju-course.js").JeonjuCoursePatch, releaseLease = true): CodingJob {
     const current = this.get(jobId);
     if (isCodingJobTerminal(current.state)) return current;
     let verification: { ok: boolean; summary: string } | undefined;
     if (ok && current.executionMode === "selected_workspace") {
       try {
-        verification = this.d.selectedWorkspace?.verify({ job: current });
+        const applied = patch
+          ? this.d.selectedWorkspace?.apply({ job: current, patch })
+          : { ok: false, summary: "course proposal missing; no proposal was applied" };
+        verification = applied?.ok
+          ? this.d.selectedWorkspace?.verify({ job: current })
+          : applied;
       } catch (error) {
         verification = {
           ok: false,
@@ -110,9 +120,37 @@ export class CodingJobService implements CodingJobControlPort {
       ? transitionCodingJob(current, "cancelled", this.#now(), reason)
       : { ...transitionCodingJob(current, verified ? "completed" : "failed", this.#now(), terminalReason), ...(verificationSummary ? { verificationSummary } : {}) };
     this.d.store.save(next);
+    this.#reportCourseLifecycle(next);
     const active = this.#active.get(jobId);
     this.#active.delete(jobId);
-    active?.allocation.release();
+    if (releaseLease) active?.allocation.release();
     return next;
+  }
+
+  #recoverInterruptedJobs(): void {
+    for (const job of this.d.store.list()) {
+      if (isCodingJobTerminal(job.state)) continue;
+      const recoveredLease = job.executionMode !== "isolated_worktree" || this.d.worktrees.recover?.(job) === true;
+      const failed = transitionCodingJob(
+        job,
+        "failed",
+        this.#now(),
+        recoveredLease
+          ? "agent restarted before the coding job reached a terminal state"
+          : "agent restarted before the coding job reached a terminal state; managed lease was retained for safety",
+      );
+      this.d.store.save(failed);
+      this.#reportCourseLifecycle(failed);
+    }
+  }
+  #reportCourseLifecycle(job: CodingJob): void {
+    if (job.executionMode !== "selected_workspace" || !job.courseReply) return;
+    const state = codingJobCourseLifecycleState(job.state);
+    if (!state) return;
+    try {
+      this.d.courseLifecycle?.report({ jobId: job.jobId, state });
+    } catch {
+      // A chat status observer must not affect the durable job state.
+    }
   }
 }

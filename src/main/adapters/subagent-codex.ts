@@ -36,6 +36,19 @@ export interface SubAgentCodexOptions {
   readonly spawnFn?: SpawnFn;
 }
 
+/**
+ * A Naia-owned worker must never join a parent Codex app-server thread or
+ * inherit its thread identity. Its own CLI arguments define the requested
+ * workspace-write/approval boundary, but an outer OS sandbox remains
+ * authoritative and cannot be widened by a child process.
+ */
+function codexWorkerEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  delete env.CODEX_THREAD_ID;
+  delete env.CODEX_PERMISSION_PROFILE;
+  return env;
+}
+
 // ── bin resolution (동형 패턴: env 절대경로 검증 → PATH → npx fallback) ────────
 
 function validateCodexBin(raw: string | undefined): string | undefined {
@@ -74,7 +87,7 @@ export function resolveCodexBin(): ResolvedBin {
 //   {"type":"item.completed","item":{"type":"agent_message","text":..}} → text_delta
 //   {"type":"item.completed","item":{"type":"command_execution"|"file_change"|"file_edit"|...}}
 //                                               → tool_use_end{ok:true}(완료 snapshot, 경계 없음)
-//   {"type":"turn.completed","usage":{...}}     → 무시(terminal=close)
+//   {"type":"turn.completed","usage":{...}}     → logical success terminal (bounded child teardown)
 //   그 외(reasoning/item.created 등)            → 무시
 
 interface RawCodexItem { type?: string; text?: string; [k: string]: unknown }
@@ -104,6 +117,11 @@ export function codexLineToEvent(line: string): SubAgentEvent | null {
   switch (raw.type) {
     case "thread.started":
       return { kind: "planning" };
+    case "turn.completed":
+      // `codex exec --ephemeral` may remain alive waiting on stdin even though
+      // the one requested turn is complete. The shared session adapter tears
+      // down this Codex child after forwarding the logical terminal event.
+      return { kind: "session_end", ok: true, reason: "codex turn.completed" };
     case "turn.failed":
     case "error":
       // Codex may report a structured failure on stdout and still close with
@@ -124,7 +142,7 @@ export function codexLineToEvent(line: string): SubAgentEvent | null {
       return null; // reasoning 등 = 무시.
     }
     default:
-      return null; // turn.started/turn.completed/turn.failed/error 등 = 무시(terminal=close).
+      return null; // turn.started and unknown events are non-terminal.
   }
 }
 
@@ -143,13 +161,14 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
         return endedSession(`codex unavailable: ${(e as Error).message}`);
       }
       const model = opts.model ?? task.model;
-      // exec --json --ignore-user-config --sandbox workspace-write <prompt>
+      const sandbox = task.filesystemAccess === "read_only" ? "read-only" : "workspace-write";
+      // exec --json --ignore-user-config --sandbox <semantic task boundary> <prompt>
       //   -c approval_policy="never" --ephemeral [--skip-git-repo-check] [--model X]
       // Global config/add-dir 상속을 끊고 non-interactive workspace 경계를 fail-closed로 고정.
       const args: string[] = [
         "exec", "--json",
         "--ignore-user-config",
-        "--sandbox", "workspace-write",
+        "--sandbox", sandbox,
         "--config", 'approval_policy="never"',
         "--ephemeral",
       ];
@@ -164,7 +183,8 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
       // placing a multi-word task first can be interpreted as a command.
       args.push(task.prompt);
       return spawnSubprocessSession({
-        spawnFn, bin, args, cwd: task.workdir, hardKillMs, lineToEvent: codexLineToEvent, label: "codex", diagnostics: true,
+        spawnFn, bin, args, cwd: task.workdir, env: codexWorkerEnv(), hardKillMs, lineToEvent: codexLineToEvent, label: "codex", diagnostics: true,
+        terminateOnProtocolEnd: true,
       });
     },
   };

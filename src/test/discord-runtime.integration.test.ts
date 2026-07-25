@@ -78,6 +78,17 @@ function makeDedupe() {
       });
       return true;
     },
+    async resumePartialReply({ bindingId, messageId, chunks }: {
+      bindingId: string; messageId: string; chunks: readonly string[]; now: number;
+    }) {
+      const record = records.get(key(bindingId, messageId));
+      if (!record || record.state !== "partial") return { decision: "not_partial" as const };
+      const nextChunk = record.confirmedChunk ?? 0;
+      records.set(key(bindingId, messageId), {
+        state: "replying", chunks, nextChunk, confirmedChunk: nextChunk,
+      });
+      return { decision: "resumed" as const, nextChunk };
+    },
   };
 }
 
@@ -1910,6 +1921,64 @@ describe("T-DISCORD-RT-05/06 — lifecycle, bounded reply, safe failure", () => 
       partialReplies: 1,
       partialReply: { confirmedChunk: 0 },
     });
+    await runtime.stop();
+  });
+
+  it("retries a fixed course lifecycle after its durable outbox becomes partial", async () => {
+    const base = makeDedupe();
+    let failConfirmation = true;
+    const confirmChunk = vi.fn(async (input: Parameters<typeof base.confirmChunk>[0]) => {
+      if (failConfirmation) {
+        failConfirmation = false;
+        return false;
+      }
+      return base.confirmChunk(input);
+    });
+    const resumePartialReply = vi.fn(base.resumePartialReply);
+    const { gateway, runtime } = makeHarness({
+      dedupe: { ...base, confirmChunk, resumePartialReply },
+    });
+    await waitFor(() => gateway.connections.length === 1);
+    const lifecycle = {
+      bindingId: "binding_1", guildId: "100", channelId: "200", sourceMessageId: "4002", state: "received" as const,
+    };
+
+    expect(await runtime.sendCourseLifecycle(lifecycle)).toBe(false);
+    expect(await runtime.sendCourseLifecycle(lifecycle)).toBe(true);
+    expect(resumePartialReply).toHaveBeenCalledWith(expect.objectContaining({
+      bindingId: "binding_1", chunks: [expect.any(String)],
+    }));
+    expect(gateway.connections[0]!.replies).toHaveLength(2);
+    expect(gateway.connections[0]!.replies.every((reply) => reply.messageId === "4002")).toBe(true);
+    await runtime.stop();
+  });
+
+  it("does not treat a partial course lifecycle as delivered when its dedupe adapter cannot resume it", async () => {
+    const base = makeDedupe();
+    const { resumePartialReply: _unsupported, ...withoutResume } = base;
+    let failConfirmation = true;
+    const { gateway, runtime, logs } = makeHarness({
+      dedupe: {
+        ...withoutResume,
+        confirmChunk: async (input: Parameters<typeof base.confirmChunk>[0]) => {
+          if (failConfirmation) {
+            failConfirmation = false;
+            return false;
+          }
+          return base.confirmChunk(input);
+        },
+      },
+    });
+    await waitFor(() => gateway.connections.length === 1);
+    const lifecycle = {
+      bindingId: "binding_1", guildId: "100", channelId: "200", sourceMessageId: "4002", state: "received" as const,
+    };
+
+    expect(await runtime.sendCourseLifecycle(lifecycle)).toBe(false);
+    expect(await runtime.sendCourseLifecycle(lifecycle)).toBe(false);
+    expect(logs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ context: { code: "course_partial_retry_unavailable" } }),
+    ]));
     await runtime.stop();
   });
 });

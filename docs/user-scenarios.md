@@ -2,6 +2,10 @@
 
 ## UC-JEONJU-COURSE — Discord에서 안전하게 첫 정적 페이지를 완성한다
 
+### Provider-neutral proposal/apply boundary
+
+For the direct course repository route, the selected coding brain is a read-only proposal producer. It may be Codex, a model authenticated through the user's Naia account, or a later compatible provider. It returns one exact versioned JSON object containing complete replacement contents for a nonempty subset of `index.html` and `hero.svg`. Naia alone validates that proposal, applies it to the leased clean Git root, and verifies the file, Git-history, and remote boundaries. Invalid, absent, or failed proposals never become a completed course result; the student repository is preserved for review.
+
 이 시나리오의 정본은 `data-private/naia-discord-codex-workshop-jeonju/00-workshop-map.md`부터
 `08-revise-and-redeploy.md`, `appendix-c-instructor-runbook.md`까지다. 이 수업은 Naia
 확장 개발이나 일반적인 자율 코딩을 가르치지 않는다. 학생이 고른 **깨끗한 GitHub
@@ -27,9 +31,13 @@
 
 ### UC-JEONJU-03 — 첫 제작 요청과 학생 저장소 결과
 
-1. 허용된 학생이 Discord에서 교재의 첫 제작 요청을 보낸다.
+1. 수업 시작 전에 Shell host가 선택한 학생 Git 저장소와 고정 파일 경계(`index.html`, `hero.svg`)를 versioned course target으로 설정한다. 허용된 학생은 Discord에서 명시적 `/course <교재의 첫 제작 요청>`을 보낸다. 일반 대화, 모델 출력, Discord 본문에 든 경로/파일명은 이 target을 바꾸지 못한다.
 2. Naia는 **접수됨 → 작업 중 → 완료/실패**를 같은 Discord 흐름에 보이고, Codex에는
    학생이 선택한 수업 저장소만 쓰기 권한으로 넘긴다.
+   Naia ADK 경로는 설정·기술·작업 상태를 위한 제어 루트이며, 실행 대상은 별도로
+   선택한 Git 루트다. 기본 대상은 `naia-adk/projects/<project>`이고 ADK 루트 자체는
+   명시적인 ADK 유지보수 요청에서만 선택한다. 수업 대상은 제어 루트 자체 또는 그
+   하위 경로여야 하며, Codex는 그 대상에서만 실행한다.
 3. Codex가 끝난 뒤 Naia는 학생 저장소에서 변경을 검사한다. 첫 요청의 성공은
    `index.html`, `hero.svg` 두 파일만 새로 만들고, `index.html`이 `./hero.svg`를 참조하며,
    외부 라이브러리/빌드 도구/commit/push/Pages 변경이 없을 때만 선언할 수 있다.
@@ -59,8 +67,9 @@
 |---|---|---|
 | TEST-JEONJU-01 | selected-workspace 요청은 명시 모드일 때만 허용하며, Git root·clean 상태·선택 경로 일치가 아니면 Codex를 시작하지 않는다. | `src/test/jeonju-course-selected-workspace.contract.test.ts` |
 | TEST-JEONJU-02 | 실행 전후 변경은 `index.html`, `hero.svg`만 허용하고 HEAD/remote는 바뀌지 않는다. 위반·취소·시간초과는 성공으로 보고하지 않는다. | `src/test/jeonju-course-selected-workspace.contract.test.ts` |
-| TEST-JEONJU-03 | Discord 허용 ingress에서 `get_time`의 실행 중/성공 기록과 최종 답변이 같은 reply 흐름에 직렬화된다. | `src/test/discord-runtime.integration.test.ts` |
+| TEST-JEONJU-03 | Discord 허용 ingress에서 `get_time`의 실행 중/성공 기록과 최종 답변이 같은 reply 흐름에 직렬화된다. 이어지는 명시적 `/course`는 host가 고정한 target으로만 작업을 시작하고, 비밀·경로 없는 `received → running → completed/failed` 상태를 같은 Discord reply 흐름으로 보낸다. | `src/test/jeonju-discord-vertical.integration.test.ts` |
 | TEST-JEONJU-04 | Shell은 학생이 선택한 저장소를 명시적으로 전달하고, 실제 Tauri Playwright에서 첫 요청→작업 중→두 파일 검사→두 번째 수정까지 보인다. | Shell `packages/shell/e2e/jeonju-course-workflow.spec.ts` |
+| TEST-JEONJU-05 | 선택한 수업 저장소가 Naia ADK 제어 루트 또는 그 하위 Git 루트일 때만 직접 실행을 허용하고, 형제·외부 경로는 Codex 시작 전에 거부한다. | `src/test/selected-workspace-coding.contract.test.ts` + Shell native guidance E2E |
 
 ## UC-CODING-JOB — independent Codex coding workers
 
@@ -77,6 +86,10 @@ an isolated worktree, and an exclusive lease before Codex can write.
 | T-CW-05 | Resume without a durable runner checkpoint fails precondition rather than claiming a false continuation. |
 | T-CW-06 | Terminal states are immutable and invalid transitions are rejected. |
 | T-CW-07 | Caller paths are canonicalized under the configured root; caller-controlled branch/worktree paths and lease collisions are rejected. |
+| T-CW-08 | A Codex JSONL `turn.completed` closes a proposal job even when the CLI process remains alive; the adapter terminates that child and emits exactly one terminal result. |
+| T-CW-09 | An agent message without `turn.completed` cannot be treated as a successful protocol completion; `turn.failed` remains a failed terminal result. |
+| T-CW-10 | A Codex session that emits no terminal event by its bounded execution deadline is cancelled and recorded as one failed terminal job. |
+| T-CW-11 | On Agent startup, durable queued/running/cancelling jobs from a prior process are marked failed rather than displayed as still active. |
 
 정본 사용자 시나리오 인덱스. 각 UC 의 권위 계약서는 `docs/progress/99.dev-comm/UC*-contract*.md` 이며,
 이 문서는 그 UC 목록과 테스트 커버리지 맵을 집약한다(SDLC P01 산출물).

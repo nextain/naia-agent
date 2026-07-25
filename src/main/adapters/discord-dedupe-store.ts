@@ -231,7 +231,8 @@ export function makeFileDiscordDedupe(options: DiscordDedupeOptions): DiscordDed
           && (candidate.state === "reserved" || candidate.state === "replying" || candidate.updatedAt >= cutoff));
         if (entry.state === "reserved") {
           if (current) throw new Error("DISCORD_DEDUPE_CONFLICT");
-        } else if (!current || current.owner !== entry.owner) {
+        } else if (!current || (current.owner !== entry.owner
+          && !(entry.state === "replying" && current.state === "partial"))) {
           throw new Error("DISCORD_DEDUPE_CONFLICT");
         }
         let durable = entry;
@@ -242,7 +243,12 @@ export function makeFileDiscordDedupe(options: DiscordDedupeOptions): DiscordDed
             throw new Error("DISCORD_DEDUPE_CONFLICT");
           }
         }
-        if (entry.state === "replying" && current && current.state !== "reserved" && current.state !== "replying") {
+        if (entry.state === "replying" && current && current.state !== "reserved"
+          && current.state !== "replying" && current.state !== "partial") {
+          throw new Error("DISCORD_DEDUPE_CONFLICT");
+        }
+        if (entry.state === "replying" && current?.state === "partial"
+          && (entry.nextChunk !== current.confirmedChunk || entry.confirmedChunk !== current.confirmedChunk)) {
           throw new Error("DISCORD_DEDUPE_CONFLICT");
         }
         if (entry.state === "partial") {
@@ -382,6 +388,26 @@ export function makeFileDiscordDedupe(options: DiscordDedupeOptions): DiscordDed
         owner: existing.owner,
         confirmedChunk: durableConfirmedChunk,
       }, now);
+    },
+    async resumePartialReply({ bindingId, messageId, chunks, now }) {
+      if (!validIdentity(bindingId, messageId, now) || !validChunks(chunks)) {
+        return { decision: "failed" as const };
+      }
+      const existing = find(bindingId, messageId, now);
+      if (!existing || existing.state !== "partial") return { decision: "not_partial" as const };
+      const confirmedChunk = existing.confirmedChunk ?? 0;
+      if (confirmedChunk > chunks.length) return { decision: "failed" as const };
+      if (!write({
+        bindingId,
+        messageId,
+        updatedAt: now,
+        state: "replying",
+        owner,
+        chunks: [...chunks],
+        nextChunk: confirmedChunk,
+        confirmedChunk,
+      }, now)) return { decision: "failed" as const };
+      return { decision: "resumed" as const, nextChunk: confirmedChunk };
     },
   };
 }
