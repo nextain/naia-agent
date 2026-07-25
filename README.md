@@ -3,21 +3,21 @@
 **한 줄로**: 당신이 맡긴 일을 여러 AI(코딩 AI·대화 모델)에게 시키고 감독해 대신 처리하는
 백그라운드 일꾼입니다. 끝나면 "파일 몇 개 바꿨고 테스트는 통과/실패" 같은 **정직한 결과**를 보고합니다.
 
-예를 들어 naia-os 데스크톱 앱이 "이 버그 고쳐줘"를 보내면, naia-agent 가 적절한 코딩 AI 프로그램을
+예를 들어 naia-shell 데스크톱 앱이 "이 버그 고쳐줘"를 보내면, naia-agent 가 적절한 코딩 AI 프로그램을
 실행해(spawn) 작업을 시키고, 워크스페이스 변경을 지켜본 뒤 test/lint/build 를 돌려 **꾸미지 않은
 숫자**로 답을 돌려줍니다.
 
-> 직접 켜는 앱이 아니라, 다른 프로그램(주로 naia-os 데스크톱 셸)이 뒤에서 띄워 쓰는 **헤드리스(화면 없는)
+> 직접 켜는 앱이 아니라, 다른 프로그램(주로 naia-shell 데스크톱 셸)이 뒤에서 띄워 쓰는 **헤드리스(화면 없는)
 > 처리 엔진**입니다. 낯선 용어가 나오면 → [용어 사전](docs/glossary.md).
 
 <details>
 <summary>기술 요약 (개발자용)</summary>
 
-naia 생태계의 "뇌" 런타임이자 sub-agent 오케스트레이터. 셸(naia-os)이 메시지를 던지면 agent 가 대화를
+naia 생태계의 "뇌" 런타임이자 sub-agent 오케스트레이터. 셸(naia-shell)이 메시지를 던지면 agent 가 대화를
 조립하고 LLM provider 를 호출하고 도구를 실행해 응답을 스트리밍한다 — 나아가 외부 코딩 에이전트
 (pi · opencode · claude-code 등)를 **sub-agent 로 spawn·감독**하고, 워크스페이스 변경을 관찰하고
 검증(test/lint/build)해 **정직한 숫자 리포트**를 낸다. 단말에서 외부·로컬 LLM 을 잇는 오케스트레이터
-클라이언트(내부 코드네임 "Hermes")이자 naia-os 워크스페이스·naia-adk 와 연계해 일하는 에이전트.
+클라이언트(내부 코드네임 "Hermes")이자 naia-shell 워크스페이스·naia-adk 와 연계해 일하는 에이전트.
 헥사고날 아키텍처로 깨끗하게 재구축(clean rebuild)된 코어.
 </details>
 
@@ -26,7 +26,7 @@ naia 생태계의 "뇌" 런타임이자 sub-agent 오케스트레이터. 셸(nai
 ## naia-agent 란?
 
 naia-agent 는 **LLM 대화·도구 실행을 담당하는 헤드리스(GUI 없는) 처리 런타임**이다.
-사용자가 직접 실행하는 앱이 아니라, **호스트(naia-os 데스크톱 셸 등)가 띄워서
+사용자가 직접 실행하는 앱이 아니라, **호스트(naia-shell 데스크톱 셸 등)가 띄워서
 gRPC 로 말을 거는 백엔드**다.
 
 대화 한 턴의 흐름:
@@ -59,16 +59,16 @@ agent 가 기동 시 로딩한 설정(naia-adk 의 naia-settings)대로 알아�
 | **cron(예약) 스킬** | schedule/list/cancel 어댑터·계약테스트 존재. **진입점 미배선(dormant)** — **agent 소관**(스케줄러 자체를 agent가 자체 주입) + 트리거 시 shell notify 경로 신설 시 배선. 소유권 확정 = agent(상세 `.agents/progress/naia-agent-skill-role-reassignment-2026-06-29.md` GAP-1) | 🔜 dormant |
 | **provider 출처·자격증명** | naia-settings/키체인 기반 provider·키 결정, 라이브 reload(앱 재시작 없이 모델 교체), 키는 OS 키체인(평문 미보존) | ✅ |
 | **진단(Diagnostics) RPC** | provider/연결/상태 rich health 를 gRPC 로 보고 | ✅ |
-| **브라우저 스킬** | cmd 화이트리스트 + 주입 CLI(navigate/click/fill) 어댑터·계약테스트 존재. **진입점 미배선(dormant)** — **host 종속**: CLI 호스트=외부 브라우저 열기(`xdg-open`/`start`) 단순 spawn / 데스크톱(naia-os)=셸 사이드카 소유. 소유권 확정(상세 `naia-agent-skill-role-reassignment-2026-06-29.md` GAP-2) | 🔜 dormant |
+| **브라우저 스킬** | cmd 화이트리스트 + 주입 CLI(navigate/click/fill) 어댑터·계약테스트 존재. **진입점 미배선(dormant)** — **host 종속**: CLI 호스트=외부 브라우저 열기(`xdg-open`/`start`) 단순 spawn / 데스크톱(naia-shell)=셸 사이드카 소유. 소유권 확정(상세 `naia-agent-skill-role-reassignment-2026-06-29.md` GAP-2) | 🔜 dormant |
 | **BGM·선제 발화** | 일반 youtube BGM 스킬 어댑터는 독립 진입점이 아직 dormant다. 다만 opt-in `personal_radio_dj` profile은 좁은 shell BGM port로 실제 재생하고, `exhibition_intro`는 지정 KB 소개를 먼저 시작한다. 계약 테스트 범위와 실제 Tauri 검증 범위는 `docs/requirements.md`에 구분한다. | ✅ profile slice / 🔜 general skill |
 | **대화 토큰예산 가드** | 긴 대화를 provider 컨텍스트 예산 안으로 조립(최신 우선·오래된 것 **드롭**·tool 라운드 원자·systemPrompt 보존). ⚠️정보보존형 compaction(요약)은 naia-memory 책임 — agent 위임은 진행 예정(agent#3) | ✅(가드) |
 | **장기기억·RAG 연동** | `@nextain/naia-memory` recall/save 배선 — 진입점 default-on(`NAIA_AGENT_MEMORY=off` 로 비활성), FR-MEM-1~11 계약테스트 통과(`docs/requirements.md`). 실 backend 성숙도(원격/qdrant/임베딩 품질)는 naia-memory 책임 | ✅ |
-| **sub-agent 오케스트레이션** | 외부 코딩 에이전트(pi · opencode-cli + roster, claude-code/codex/gemini 선언)를 `SubAgentPort` 로 spawn → 이벤트 스트림 forward + 인터럽트(SIGTERM→유예→SIGKILL). supervisor 가 단일 작업 감독. **단독 CLI(`naia-agent run`)로 실행 가능** — naia-os gRPC 호스트 배선은 후속(②) | ✅ CLI |
+| **sub-agent 오케스트레이션** | 외부 코딩 에이전트(pi · opencode-cli + roster, claude-code/codex/gemini 선언)를 `SubAgentPort` 로 spawn → 이벤트 스트림 forward + 인터럽트(SIGTERM→유예→SIGKILL). supervisor 가 단일 작업 감독. **단독 CLI(`naia-agent run`)로 실행 가능** — naia-shell gRPC 호스트 배선은 후속(②) | ✅ CLI |
 | **정직보고(workspace+verify)** | `WorkspacePort`(git 변경 요약) + `VerifierPort`(test/lint/build 러너, never-throws) → session_end 후 검증해 filesChanged/검증 결과 숫자 리포트 + exit code(0/2/3). 단독 CLI 로 실행(↑) | ✅ CLI |
-| **레퍼런스 호스트** | naia-os 임베드(✅) · **단독 CLI 호스트**(✅ `bin/naia-agent-run.mjs`, S2 supervisor mode) · naia-os gRPC 오케스트레이션 배선(②, naia-os 워크스페이스 작업 후) · 메신저 봇 | 🔜 일부 계획 |
+| **레퍼런스 호스트** | **단독 CLI 호스트**(✅ `bin/naia-agent-run.mjs`, S2 supervisor mode) · naia-shell의 agent spawn/stdio entry 연동(✅) · naia-shell gRPC 오케스트레이션 배선(②, naia-shell 워크스페이스 작업 후) · 메신저 봇 | 🔜 일부 계획 |
 
 > ✅ = main 에 구현+계약테스트 통과 + **진입점(`scripts/builds/agent-stdio-entry.mjs`) 배선**(호스트가 실제 호출).
-> ✅ CLI = **단독 CLI(`naia-agent run`)로 지금 실행 가능**(아래 "빠른 시작 › 단독 CLI"). 코어+composition+계약테스트+e2e 완료. naia-os gRPC 호스트 배선(②)은 naia-os 워크스페이스 작업 후.
+> ✅ CLI = **단독 CLI(`naia-agent run`)로 지금 실행 가능**(아래 "빠른 시작 › 단독 CLI"). 코어+composition+계약테스트+e2e 완료. naia-shell gRPC 호스트 배선(②)은 naia-shell 워크스페이스 작업 후.
 > 🔜 dormant = 어댑터·계약테스트는 있으나 진입점에 미배선(설계상 환경=셸 사이드카 소유 또는 외부 store 미주입).
 > 🔜 일부 계획 = 설계됐고 일부 코드 존재, 통합 진행 중.
 > 정확한 추적은 `docs/progress/`(V모델 레지스트리)와 `docs/requirements.md` 참조.
@@ -77,12 +77,12 @@ agent 가 기동 시 로딩한 설정(naia-adk 의 naia-settings)대로 알아�
 
 ## 생태계에서의 위치
 
-naia-agent 는 **5개 레포**가 맞물린 naia 생태계의 **처리 계층**이다.
+naia-agent 는 naia-shell·naia-agent·naia-memory·naia-kb-compiler·naia-adk 5개 레포가 맞물린 Naia Visual Agent 스택의 **처리 계층**이다. 사용자가 만나는 표면은 naia-shell이고, naia-agent는 그 뒤에서 provider 호출, 도구 실행, 하위 에이전트 감독을 맡는다.
 
 ```
 ┌───────────────┐   gRPC    ┌───────────────┐  recall/save  ┌────────────────┐
 │  naia-shell   │ ────────▶ │  naia-agent   │ ────────────▶ │  naia-memory   │
-│ (데스크톱 셸)  │ ◀──────── │   (이 레포)    │ ◀──────────── │  (인지 기억)    │
+│ (비주얼 셸)    │ ◀──────── │   (이 레포)    │ ◀──────────── │  (인지 기억)    │
 │  UI·음성·아바타 │  스트림    │  뇌/처리       │               │  장기기억·회상   │
 └───────────────┘           └───┬───────┬───┘               └────────────────┘
                                 │       │ search/ask  ┌──────────────────┐
@@ -96,7 +96,8 @@ naia-agent 는 **5개 레포**가 맞물린 naia 생태계의 **처리 계층**�
 
 | 레포 | 책임 (경계) |
 |------|------------|
-| **naia-shell** (구 naia-os) | 사용자가 보는 셸. agent 를 spawn 하고 gRPC 로 대화를 주고받는다. UI·음성·아바타 렌더. |
+| **naia-shell** | 사용자가 보는 셸. agent 를 spawn 하고 gRPC 로 대화를 주고받는다. UI·음성·아바타 렌더. |
+| **naia-os** | naia-shell 스택을 담는 Bazzite/titanoboa 기반 배포판/ISO 계층. |
 | **naia-agent** (이 레포) | **뇌.** provider 호출 · 도구 실행 · 대화 조립(recall→assemble→provider→tool-loop→save). |
 | **naia-memory** | **장기기억**(누구 — push). agent 가 recall(회수)/save(저장)로 연동. 매 턴 자동 주입. |
 | **naia-kb-compiler** | **지식**(무엇 — pull). 자료를 오프라인 결정론으로 컴파일(`kb.json`) + 검색/질의응답. agent 가 `KnowledgeBackend` 포트로 주입해 `skill_knowledge_search`/`ask` 도구로 노출. |
@@ -106,8 +107,7 @@ naia-agent 는 **5개 레포**가 맞물린 naia 생태계의 **처리 계층**�
 > 상세 = `docs/user-scenarios.md` UC-KNOWLEDGE.
 
 **결합 방식 = 인터페이스, 런타임 의존 아님.** 레포들은 published 계약(gRPC proto,
-설정 포맷)으로 맞물릴 뿐 서로의 코드를 임베드하지 않는다. agent 의 호스트는 naia-os
-가 아니어도 된다(같은 gRPC 계약을 말하는 어떤 호스트든 가능).
+설정 포맷)으로 맞물릴 뿐 서로의 코드를 임베드하지 않는다. agent 의 호스트는 naia-shell이 아니어도 된다(같은 gRPC 계약을 말하는 어떤 호스트든 가능).
 
 ---
 
@@ -130,7 +130,7 @@ naia-agent 는 **5개 레포**가 맞물린 naia 생태계의 **처리 계층**�
 - **transport 직교**: `adapters/grpc/`(운영) 와 `adapters/stdio.ts`(테스트 in-process)가
   같은 Ingress/Egress 포트를 구현 → 도메인 코드 변경 없이 전송 방식 교체.
 - 상세: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). 전체 생태계 사상(2축·인지 계층)은
-  [naia-os](https://github.com/nextain/naia-os) 측 아키텍처 문서 참조.
+  [naia-shell (repo: naia-os)](https://github.com/nextain/naia-os) 측 아키텍처 문서 참조.
 
 ---
 
@@ -193,7 +193,7 @@ pnpm start                  # = node scripts/builds/agent-stdio-entry.mjs
 기동하면 agent 는 호스트의 `SetWorkspace(adkPath)` 로 naia-adk 설정을 로딩해
 provider/model 을 구성하고, `Chat(server-stream)` 으로 대화를 처리한다.
 
-### 단독 CLI — 오케스트레이션 실행 (naia-os 없이)
+### 단독 CLI — 오케스트레이션 실행 (naia-shell 없이)
 
 `pnpm build` 후, 터미널에서 직접 작업을 시킨다(S2 supervisor mode). 외부 코딩 에이전트(또는 셸)를
 sub-agent 로 spawn → (옵션)워크스페이스 감시 + (옵션)검증 → **정직한 숫자 리포트**.
@@ -222,7 +222,7 @@ sub-agent 의 원출력(stdout·stderr 합쳐 transcript)과 진행 이벤트·�
 즉 `... --json 2>/dev/null | jq` 가 깨지지 않는다. `--watch` 의 변경 수치는 작업 시작 시점(baseline) 대비 **델타**
 (작업 전부터 dirty 였던 파일은 제외)이며 폴 간격마다 샘플한다(빠른 작업은 변경이 안 잡힐 수 있음 → `--check` 권장).
 
-> naia-os 와 함께 쓰는 전체 데스크톱 경험은 [naia-os](https://github.com/nextain/naia-os) README 참조.
+> naia-shell과 함께 쓰는 전체 데스크톱 경험은 [naia-os](https://github.com/nextain/naia-os) README 참조.
 
 ---
 
@@ -277,7 +277,7 @@ naia-agent/
 
 ## 링크
 
-- **naia-os** (셸) — [github.com/nextain/naia-os](https://github.com/nextain/naia-os)
+- **naia-shell (repo: naia-os)** (비주얼 셸 코드베이스 + 배포판 비전) — [github.com/nextain/naia-os](https://github.com/nextain/naia-os)
 - **naia-memory** (장기기억) — [github.com/nextain/naia-memory](https://github.com/nextain/naia-memory)
 - **naia-adk** (워크스페이스) — [github.com/nextain/naia-adk](https://github.com/nextain/naia-adk)
 - **Nextain** — [nextain.io](https://nextain.io)

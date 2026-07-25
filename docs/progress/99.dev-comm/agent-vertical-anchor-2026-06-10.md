@@ -81,12 +81,12 @@ os `uc1-trace-harness` 의 `AGENT_CMD=node ../new-naia-agent/scripts/builds/agen
 
 ---
 ## 🎉🎉 실 LLM end-to-end 성공 (2026-06-10) — 진짜 채팅
-GPU1 naia-omni 정지(루크 승인) → host ollama(GPU1) gemma4:e4b-it-q8_0 → **shell-compat → os core → 실 new-naia-agent(AGENT_PROVIDER=ollama) → 실 gemma4** 1턴:
+GPU1 naia-omni 정지(루크 승인) → host ollama(GPU1) local chat model → **shell-compat → os core → 실 new-naia-agent(AGENT_PROVIDER=ollama) → 실 local model** 1턴:
 - 입력 "한국어로 자기소개" → 한국어 474자 스트리밍 응답, usage(i28/o791), 12.2s, exit 0. **fake 아님 = 실 LLM 추론.**
 - naia-admin(GPU0) 무접촉 보존. naia-omni(GPU1)=정지 상태(루크 것, 복원은 루크 관리).
 → 이식 UC1 수직(육체 os + 뇌 agent + 실 provider)이 **진짜 채팅을 낸다**. 남은 건 라이브 Tauri 앱 결선(B0 import 교체 + B3)뿐.
 
 ## 🎉 실 LLM 2종 PASS (2026-06-10) — 로컬 + 클라우드
-- **ollama gemma4**(로컬 GPU, ollama-provider, 2-clean) — 한국어 474자 스트리밍.
+- **ollama local model**(로컬 GPU, ollama-provider, 2-clean) — 한국어 474자 스트리밍.
 - **GLM z.ai coding**(클라우드, openai-compat-provider, 2-clean, GPU 0, data-private GLM_KEY) — 한국어 응답.
 → 같은 ProviderPort 인터페이스로 로컬/클라우드 LLM 교체 가능(AGENT_PROVIDER=ollama|glm). naia-omni 는 GPU1 복원 완료(LLM 테스트는 GLM 으로 GPU 무경합).
