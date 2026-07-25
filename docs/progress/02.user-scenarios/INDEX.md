@@ -25,5 +25,6 @@
 | UC-015 | 선제·연속 발화 | 개인 라디오 DJ와 회사 전시 소개가 무입력으로 시작하고 사용자 제어에 양보. grounded 추천·지속 lease·명시 선호·전시 Q&A privacy와 TTS/제어/stale 경계를 자동 수용 | REQ-013 | Done | TEST-S-015 |
 | UC-016 | Discord 실시간 채널 대화 | 허용된 Discord 채널의 메시지를 Agent가 지속 연결로 받아 같은 채널에 응답하고, 재연결·중복·권한 변경·동시 채널에도 격리된 상태를 유지. 결정론적 자동화 완료, 실제 Discord 운영자 인수 대기 | REQ-014 | In-progress | TEST-S-016 |
 | UC-017 | Codex main/sub 역할 분리 | 사용자가 Codex를 main provider로 선택해 시간 등 로컬 도구를 호출하고, 신뢰된 Discord 채널에서 별도 터미널 Codex에게 워크스페이스 안 작업을 위임하며 시작·성공·실패 진행 상태를 확인 | REQ-015 | Done | TEST-S-017 |
+| UC-018 | Discord 유휴 세션 회전 | Gateway는 모델 호출 없이 대기하고, 같은 사용자·binding의 최근 임시 대화만 30분 기본 유휴시간 전까지 재사용하며 경계 이후 새 문맥으로 전환 | REQ-016 | Done | TEST-S-018 |
 
 > **상태 의미**: agent 측 Done = 이식+2-AI(또는 self)리뷰+계약테스트 완료. UC-006/008 = agent-local skill 완료, 실 외부서비스(CDP/youtube) runtime = 루크머신. off-scope(UC-memory) = 01 노트.

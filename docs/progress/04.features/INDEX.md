@@ -27,6 +27,8 @@
 | SPEC-013 | UC-016 | **Discord Gateway channel runtime** — strict binding manifest/generation authority, one-shot token bootstrap, ingress policy·binding/user session isolation, bounded inbox, durable reply cursor/dedupe, reconnect/rate-limit/cancel, nonce 인증 supervisor shutdown과 bounded graceful drain/partial fallback, expiring binding-scoped trust | agent | Done | TEST-F-013 |
 | SPEC-014 | UC-017 | **Codex 역할·도구 위임** — app-server `dynamicTools`/`item/tool/call` 즉시 응답, provider-native handled event, 승인·외부처리 도구 제외, desktop `delegate_agent`의 Codex-only+realpath 검증+`workspace-write` OS sandbox, Discord 직렬 진행 egress | agent | Done | TEST-F-014 |
 
+| SPEC-015 | UC-018 | **Discord 유휴 세션 회전** — Gateway 대기와 provider 실행 분리, 사용자·binding별 last-active 추적, 설정 가능한 30분 기본 timeout, 경계 시 임시 history 제거, 식별자·원문 없는 진단 | agent | Done | TEST-F-015 |
+
 ## 비고
 - SPEC-002 = 도구루프 + 9개 agent-local skill 묶음(개별 skill = TEST-F-002 의 test_ref 군). external(브라우저 CDP·youtube)만 루크머신 runtime.
 - off-scope: UC-memory 어댑터(`@nextain/naia-memory` 연동, ports/memory) = 본 추적 제외(다른 세션, 01 노트).

@@ -202,6 +202,7 @@ function makeHarness(options: {
   allowedUserIds?: readonly string[];
   participation?: "mentions" | "all" | "paused";
   maxActiveTurns?: number;
+  sessionIdleTimeoutMs?: number;
   authority?: { isActive(): boolean };
   dedupe?: DiscordDedupePort;
   inbox?: DiscordInboxPort;
@@ -256,6 +257,9 @@ function makeHarness(options: {
     reconnectBaseMs: 100,
     reconnectMaxMs: 400,
     ...(options.maxActiveTurns ? { maxActiveTurns: options.maxActiveTurns } : {}),
+    ...(options.sessionIdleTimeoutMs
+      ? { sessionIdleTimeoutMs: options.sessionIdleTimeoutMs }
+      : {}),
     ...(options.maxReplyChars ? { maxReplyChars: options.maxReplyChars } : {}),
   });
   const provider = options.provider ?? {
@@ -687,8 +691,17 @@ describe("T-DISCORD-RT-01/02 — authenticated ingress to existing chat pipeline
     expect(parseDiscordRuntimeConfig({
       ...valid,
       generation: 1,
+      sessionIdleTimeoutMs: 1_000,
       bindings: [{ ...valid.bindings[0], guildName: null, channelName: null }],
-    })).toBeDefined();
+    })).toMatchObject({ sessionIdleTimeoutMs: 1_000 });
+    expect(parseDiscordRuntimeConfig({
+      ...valid,
+      sessionIdleTimeoutMs: 999,
+    })).toBeUndefined();
+    expect(parseDiscordRuntimeConfig({
+      ...valid,
+      sessionIdleTimeoutMs: 86_400_001,
+    })).toBeUndefined();
     expect(parseDiscordRuntimeConfig({
       ...valid,
       bindings: [{ ...valid.bindings[0], participation: undefined }],
@@ -950,6 +963,117 @@ describe("T-DISCORD-RT-01/02 — authenticated ingress to existing chat pipeline
 });
 
 describe("T-DISCORD-RT-03/04 — history isolation and replay dedupe", () => {
+  it("uses the 30 minute production idle timeout by default", async () => {
+    const captures: ChatMessage[][] = [];
+    const provider: ProviderPort = {
+      async *chat(_config, messages): AsyncIterable<ProviderChunk> {
+        captures.push([...messages]);
+        yield { kind: "text", text: `answer:${messages.at(-1)?.content}` };
+        yield { kind: "finish" };
+      },
+    };
+    const { gateway, runtime, setNow } = makeHarness({ provider });
+    await waitFor(() => gateway.handlers.length === 1);
+
+    gateway.message({ messageId: "default-idle-1", content: "<@999> one" });
+    await waitFor(() => answerReplies(gateway.connections[0]!).length === 1);
+    setNow(1_801_000);
+    gateway.message({ messageId: "default-idle-2", content: "<@999> two" });
+    await waitFor(() => answerReplies(gateway.connections[0]!).length === 2);
+
+    expect(captures[1]!.map((message) => message.content)).toEqual(["two"]);
+    await runtime.stop();
+  });
+
+  it("rotates transient history at the injected idle timeout without a model heartbeat", async () => {
+    const captures: ChatMessage[][] = [];
+    const provider: ProviderPort = {
+      async *chat(_config, messages): AsyncIterable<ProviderChunk> {
+        captures.push([...messages]);
+        yield { kind: "text", text: `answer:${messages.at(-1)?.content}` };
+        yield { kind: "finish" };
+      },
+    };
+    const { gateway, runtime, setNow, logs } = makeHarness({
+      provider,
+      sessionIdleTimeoutMs: 1_000,
+    });
+    await waitFor(() => gateway.handlers.length === 1);
+
+    gateway.message({ messageId: "idle-1", content: "<@999> one" });
+    await waitFor(() => answerReplies(gateway.connections[0]!).length === 1);
+    setNow(1_999);
+    gateway.message({ messageId: "idle-2", content: "<@999> two" });
+    await waitFor(() => answerReplies(gateway.connections[0]!).length === 2);
+    expect(captures[1]!.map((message) => message.content)).toEqual([
+      "one",
+      "answer:one",
+      "two",
+    ]);
+
+    const callsBeforeIdle = captures.length;
+    setNow(2_999);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(captures).toHaveLength(callsBeforeIdle);
+
+    gateway.message({ messageId: "idle-3", content: "<@999> three" });
+    await waitFor(() => answerReplies(gateway.connections[0]!).length === 3);
+    expect(captures[2]!.map((message) => message.content)).toEqual(["three"]);
+    expect(logs).toContainEqual({
+      message: "discord session history rotated",
+      context: { reason: "idle_timeout", previousMessageCount: 4 },
+    });
+    await runtime.stop();
+  });
+
+  it("keeps idle timers independent across bindings", async () => {
+    const captures: { current: string; messages: ChatMessage[] }[] = [];
+    const provider: ProviderPort = {
+      async *chat(_config, messages): AsyncIterable<ProviderChunk> {
+        const current = messages.at(-1)?.content ?? "";
+        captures.push({ current, messages: [...messages] });
+        yield { kind: "text", text: `answer:${current}` };
+        yield { kind: "finish" };
+      },
+    };
+    const { gateway, runtime, setNow } = makeHarness({
+      provider,
+      twoBindings: true,
+      sessionIdleTimeoutMs: 1_000,
+    });
+    await waitFor(() => gateway.handlers.length === 1);
+
+    gateway.message({ messageId: "timer-a-1", content: "<@999> a-one" });
+    await waitFor(() => answerReplies(gateway.connections[0]!).length === 1);
+    gateway.message({
+      messageId: "timer-b-1",
+      guildId: "101",
+      channelId: "201",
+      authorId: "301",
+      content: "<@999> b-one",
+    });
+    await waitFor(() => answerReplies(gateway.connections[0]!).length === 2);
+
+    setNow(1_999);
+    gateway.message({ messageId: "timer-a-2", content: "<@999> a-two" });
+    await waitFor(() => answerReplies(gateway.connections[0]!).length === 3);
+    setNow(2_000);
+    gateway.message({
+      messageId: "timer-b-2",
+      guildId: "101",
+      channelId: "201",
+      authorId: "301",
+      content: "<@999> b-two",
+    });
+    await waitFor(() => answerReplies(gateway.connections[0]!).length === 4);
+
+    expect(captures.find(({ current }) => current === "a-two")?.messages
+      .map((message) => message.content)).toEqual(["a-one", "answer:a-one", "a-two"]);
+    expect(captures.find(({ current }) => current === "b-two")?.messages
+      .map((message) => message.content)).toEqual(["b-two"]);
+    await runtime.stop();
+  });
+
   it("keeps bounded histories isolated per guild/channel", async () => {
     const captures: ChatMessage[][] = [];
     const provider: ProviderPort = {

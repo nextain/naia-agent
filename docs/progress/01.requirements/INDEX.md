@@ -34,6 +34,7 @@ scripts/check-traceability.mjs 가 파싱. 상세 = docs/requirements.md, 99.dev
 
 | ID | 영역 | 요구사항 | 상태 | UC | SPEC | TEST |
 |---|---|---|---|---|---|---|
+| REQ-016 | Discord 유휴 세션 회전 | Gateway는 모델 호출 없이 대기하고, 사용자·binding별 임시 대화는 30분 기본 유휴시간 전까지만 재사용하며 경계 이후 새 문맥으로 전환한다 | Done | UC-018 | SPEC-015 | TEST-S-018 |
 | REQ-101 | NFR-기반 | substrate-agnostic 포트(core 도메인은 transport 무지) + 헥사고날 직교 | Done | — | — | TEST-S-101 |
 | REQ-102 | NFR-보안 | 키체인 자격증명(secret 평문 미보존) + provider 전환 시 stale 키 clear | Done | — | — | TEST-S-003 |
 

@@ -370,5 +370,16 @@ RPC만 추가하며, 별도 셸 반복 상태 머신은 만들지 않는다.
 | FR-CODEX-4 | desktop/Discord host의 `delegate_agent`는 Codex만 허용하고 host가 선택한 단일 workspace 실경로에 고정하며 model의 workdir override를 거부한다. child Codex는 전역 config를 무시하고 `workspace-write` OS sandbox를 강제한다. | Done |
 | FR-CODEX-5 | Discord는 도구 시작·성공·실패를 원래 reply에 직렬 전송하되 args/output/call id와 mention 가능한 도구명을 반사하지 않는다. | Done |
 
+## UC-DISCORD-SESSION-ROTATION FR/NFR
+
+| ID | 요구사항 | 상태 |
+|----|----------|:----:|
+| FR-DISCORD-SESSION-1 | Discord runtime은 사용자·binding별 최근 대화의 마지막 활동 시각을 분리해 관리하고, 설정된 유휴시간 미만에서만 이전 임시 기록을 다음 요청에 포함한다. | Done |
+| FR-DISCORD-SESSION-2 | 유휴시간과 같거나 지나면 이전 임시 기록을 제거하고 새 사용자 메시지만 전달한다. 운영 기본값은 30분이며 1초 이상 24시간 이하의 host 설정만 허용한다. | Done |
+| FR-DISCORD-SESSION-3 | 유휴 대기는 provider 호출을 만들지 않으며, 회전 진단에는 사유와 이전 메시지 수만 남기고 메시지 원문·사용자·채널·세션 식별자를 남기지 않는다. | Done |
+
+- **NFR-DISCORD-SESSION-deterministic**: 테스트는 실제 시간 대기 없이 주입된 clock과 짧은 timeout으로 경계값을 재현한다.
+- **NFR-DISCORD-SESSION-bounded**: 회전 후에도 기존 session 수와 메시지 수 상한을 유지하고 timestamp 항목을 함께 제거한다.
+
 - **NFR-CODEX-approval-boundary**: 승인 필요 또는 외부 처리 도구는 provider-native 즉시 실행 경로에 들어가지 않는다.
 - **NFR-CODEX-workspace-boundary**: `..`·심볼릭 링크 cwd 탈출을 거부하고, 전역 `add-dir`·sandbox 설정을 상속하지 않으며 child Codex 실행을 검증된 workspace 쓰기 경계로 제한한다.

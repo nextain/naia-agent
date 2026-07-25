@@ -29,6 +29,7 @@ export interface DiscordRuntimeConfig {
   readonly maxActiveTurns?: number;
   readonly maxSessions?: number;
   readonly maxHistoryMessages?: number;
+  readonly sessionIdleTimeoutMs?: number;
   readonly maxReplyChars?: number;
 }
 
@@ -69,7 +70,13 @@ function courseDedupeId(input: DiscordCourseLifecycleDelivery): string {
   // the source id rather than reflecting an untrusted Gateway identifier.
   return `course_${input.state}_${createHash("sha256").update(input.sourceMessageId).digest("hex").slice(0, 32)}`;
 }
-const CONFIG_KEYS = new Set(["version", "generation", "bindings", "processingProfiles"]);
+const CONFIG_KEYS = new Set([
+  "version",
+  "generation",
+  "bindings",
+  "processingProfiles",
+  "sessionIdleTimeoutMs",
+]);
 const BINDING_KEYS = new Set([
   "bindingId",
   "guildId",
@@ -124,6 +131,10 @@ export function parseDiscordRuntimeConfig(value: unknown): DiscordRuntimeConfig 
   if (!hasOnlyKeys(input, CONFIG_KEYS) || input.version !== 1) return undefined;
   if (input.generation !== undefined
     && (!Number.isSafeInteger(input.generation) || Number(input.generation) < 1)) return undefined;
+  if (input.sessionIdleTimeoutMs !== undefined
+    && (!Number.isSafeInteger(input.sessionIdleTimeoutMs)
+      || Number(input.sessionIdleTimeoutMs) < 1_000
+      || Number(input.sessionIdleTimeoutMs) > 86_400_000)) return undefined;
   if (!Array.isArray(input.bindings) || input.bindings.length > 256) return undefined;
   const bindings = input.bindings.map(parseBinding);
   if (bindings.some((binding) => !binding)) return undefined;
@@ -148,6 +159,9 @@ export function parseDiscordRuntimeConfig(value: unknown): DiscordRuntimeConfig 
   return {
     bindings: bindings as DiscordChannelBinding[],
     processingProfiles: processingProfiles as Record<string, ProcessingProfile>,
+    ...(input.sessionIdleTimeoutMs !== undefined
+      ? { sessionIdleTimeoutMs: Number(input.sessionIdleTimeoutMs) }
+      : {}),
   };
 }
 
@@ -220,6 +234,7 @@ export class DiscordChannelRuntime {
   private lifecycleAbort = new AbortController();
   private readonly active = new Map<string, ActiveTurn>();
   private readonly histories = new Map<string, ChatMessage[]>();
+  private readonly historyTouchedAt = new Map<string, number>();
   private connection?: DiscordGatewayConnection;
   private selfUserId: string | null = null;
   private loop?: Promise<void>;
@@ -246,6 +261,7 @@ export class DiscordChannelRuntime {
   private readonly maxActiveTurns: number;
   private readonly maxSessions: number;
   private readonly maxHistoryMessages: number;
+  private sessionIdleTimeoutMs: number;
   private readonly maxReplyChars: number;
   private readonly gracefulStopTimeoutMs: number;
 
@@ -259,6 +275,12 @@ export class DiscordChannelRuntime {
     this.maxActiveTurns = this.boundedOption(config.maxActiveTurns, 32, 1, 256);
     this.maxSessions = this.boundedOption(config.maxSessions, 128, 1, 256);
     this.maxHistoryMessages = this.boundedOption(config.maxHistoryMessages, 20, 2, 40);
+    this.sessionIdleTimeoutMs = this.boundedOption(
+      config.sessionIdleTimeoutMs,
+      30 * 60_000,
+      1_000,
+      86_400_000,
+    );
     this.maxReplyChars = this.boundedOption(config.maxReplyChars, 12_000, 1, 12_000);
     this.gracefulStopTimeoutMs = this.boundedOption(
       deps.gracefulStopTimeoutMs,
@@ -389,10 +411,17 @@ export class DiscordChannelRuntime {
     this.lifecycleEpoch++;
     this.authorityPrepared = !this.deps.authority;
     this.config = config;
+    this.sessionIdleTimeoutMs = this.boundedOption(
+      config.sessionIdleTimeoutMs,
+      30 * 60_000,
+      1_000,
+      86_400_000,
+    );
     this.reconfigureRequested = this.loop !== undefined;
     this.selfUserId = null;
     this.registeredUsers.clear();
     this.histories.clear();
+    this.historyTouchedAt.clear();
     this.connection?.close();
     const staleTasks = [...this.inFlightTasks];
     const staleTurns = [...this.active.values()];
@@ -838,7 +867,7 @@ export class DiscordChannelRuntime {
     }
     const requestId = `${REQUEST_PREFIX}${binding.bindingId}:${message.messageId}`;
     const sessionId = `discord:${binding.bindingId}:${binding.guildId}:${binding.channelId}:${message.authorId}`;
-    const previous = this.touchHistory(sessionId);
+    const previous = this.touchHistory(sessionId, this.deps.clock.now());
     const request = {
       kind: "chat" as const,
       requestId,
@@ -892,20 +921,39 @@ export class DiscordChannelRuntime {
     await completion;
   }
 
-  private touchHistory(sessionId: string): readonly ChatMessage[] {
-    const history = this.histories.get(sessionId) ?? [];
+  private touchHistory(
+    sessionId: string,
+    now: number,
+    rotateExpired = true,
+  ): readonly ChatMessage[] {
+    const lastTouchedAt = this.historyTouchedAt.get(sessionId);
+    const expired = rotateExpired
+      && lastTouchedAt !== undefined
+      && now >= lastTouchedAt
+      && now - lastTouchedAt >= this.sessionIdleTimeoutMs;
+    const history = expired ? [] : this.histories.get(sessionId) ?? [];
+    if (expired) {
+      const previousMessageCount = this.histories.get(sessionId)?.length ?? 0;
+      this.histories.delete(sessionId);
+      this.deps.diag.debug?.("discord session history rotated", {
+        reason: "idle_timeout",
+        previousMessageCount,
+      });
+    }
     if (this.histories.has(sessionId)) this.histories.delete(sessionId);
     this.histories.set(sessionId, history);
+    this.historyTouchedAt.set(sessionId, now);
     while (this.histories.size > this.maxSessions) {
       const oldest = this.histories.keys().next().value as string | undefined;
       if (oldest === undefined) break;
       this.histories.delete(oldest);
+      this.historyTouchedAt.delete(oldest);
     }
     return history;
   }
 
   private commitHistory(turn: ActiveTurn): void {
-    const history = [...this.touchHistory(turn.sessionId),
+    const history = [...this.touchHistory(turn.sessionId, this.deps.clock.now(), false),
       { role: "user" as const, content: turn.userText },
       { role: "assistant" as const, content: turn.text }];
     this.histories.set(turn.sessionId, history.slice(-this.maxHistoryMessages));

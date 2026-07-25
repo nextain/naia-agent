@@ -444,6 +444,19 @@ detector나 cron 같은 외부 정책이 자유 발화를 시작하면 사용자
 | T-CODEX-04 | desktop entry가 Codex-only delegate를 구성하고 realpath workspace 탈출을 거부한다. |
 | T-CODEX-05 | Discord 진행 메시지가 직렬·bounded·비밀 없음이며 final reply/dedupe를 깨지 않는다. |
 
+## UC-DISCORD-SESSION-ROTATION — 오래 쉰 Discord 대화를 새 문맥으로 전환한다
+
+- Discord Gateway는 모델 호출 없이 계속 메시지를 기다린다.
+- 같은 사용자·채널의 다음 메시지가 유휴시간 제한 전이면 상한이 있는 최근 대화를 함께 전달한다.
+- 제한 시각과 같거나 지나면 runtime은 이전 임시 대화를 버리고 새 사용자 메시지만 전달한다.
+- 회전은 다른 사용자·채널의 기록과 시각에 영향을 주지 않는다.
+- 운영 기본 제한은 30분이며, 테스트는 짧은 제한과 가짜 시계를 주입해 실제 대기 없이 검증한다.
+
+| 검증 ID | 시나리오 |
+|---------|----------|
+| T-DISCORD-SESSION-01 | 제한 직전 메시지는 최근 대화를 받고 제한 시각의 메시지는 새 문맥으로 시작한다. |
+| T-DISCORD-SESSION-02 | 대기만으로 provider가 호출되지 않고 회전 로그에 메시지 원문·세션 식별자가 없다. |
+
 ## Test Coverage Map
 
 | 요구 | 테스트 |

@@ -105,7 +105,10 @@ function makeNodeFs(): DiscordDedupeFs {
         renameSync(candidate, lockPath);
       } catch (error) {
         rmSync(candidate, { recursive: true, force: true });
-        if (new Set(["EEXIST", "ENOTEMPTY", "EACCES"]).has((error as { code?: string }).code ?? "")) {
+        // Windows reports replacing an existing lock directory as EPERM rather
+        // than EEXIST/ENOTEMPTY. This is the same contention state, not a
+        // filesystem permission escalation.
+        if (new Set(["EEXIST", "ENOTEMPTY", "EACCES", "EPERM"]).has((error as { code?: string }).code ?? "")) {
           throw new Error("DISCORD_DEDUPE_BUSY");
         }
         throw error;
