@@ -27,6 +27,8 @@
 | TEST-F-013 | SPEC-013 | Gateway opcode/heartbeat/reconnect, entry wiring, ingress Cartesian policy, messages/chunk/rate-limit, inbox bounds, trusted state, durable dedupe, configure/stop lifecycle·동시 채널 격리, 인증 Shutdown ACK/idempotence, in-flight drain 및 timeout partial 계약/통합 | `src/test/discord-gateway.contract.test.ts`, `discord-entry-wiring.contract.test.ts`, `grpc-shutdown.contract.test.ts`, `discord-ingress-policy.contract.test.ts`, `discord-messages.contract.test.ts`, `discord-inbox-store.contract.test.ts`, `discord-trusted-state.contract.test.ts`, `discord-dedupe.contract.test.ts`, `discord-dedupe-process.integration.test.ts`, `discord-runtime.integration.test.ts`, `uc1-memory-process.integration.test.ts` | Pass |
 | TEST-F-014 | SPEC-014 | app-server 현재 스키마의 동적 도구 광고·server request 응답, 동일 callId replay 단일 실행, desktop Codex 위임 allowlist·고정 workspace·realpath·구성 무시·OS sandbox, Discord 진행 이벤트의 안전 이름·직렬 순서와 durable `get_time` 시각 증거·final dedupe 보존 | `src/test/codex-app-server-provider.contract.test.ts`, `uc1-agent.contract.test.ts`, `delegate-agent-skill.contract.test.ts`, `uc-cli-subagent-codex.contract.test.ts`, `discord-entry-wiring.contract.test.ts`, `discord-runtime.integration.test.ts` | Pass |
 
+| TEST-F-015 | SPEC-015 | 짧은 주입 timeout과 가짜 clock으로 history 유지/회전 경계, idle provider 호출 0, bounded 진단을 검증 | `src/test/discord-runtime.integration.test.ts` | Pass |
+
 ## 비고
 - off-scope UC-memory 테스트(`uc1-memory-stdio.integration.test.ts`, `uc1-memory-process.integration.test.ts`)는 본 추적 제외(01 노트). agent 전체 vitest 에는 포함(583 pass / 5 skip, 2026-06-23).
 - 유닛테스트 깊이: 마크다운은 TEST-F(통합/계약)까지. `@spec SPEC-###` 태그 backfill = 후속.
