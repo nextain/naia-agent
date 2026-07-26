@@ -20,6 +20,7 @@ import type { DiagnosticLog, ProviderPort, ToolExecutorPort } from "../main/port
 const testText = {
   emptyReply: () => "EMPTY",
   failureReply: () => "FAILED",
+  courseLifecycle: (state: string) => "COURSE " + state,
   processingDisclosure: ({ workload, destination, decision }: {
     workload: string; destination: string; decision: string;
   }) => `PROCESSING ${workload} ${destination} ${decision}`,

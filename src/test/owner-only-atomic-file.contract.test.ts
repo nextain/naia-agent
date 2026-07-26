@@ -6,7 +6,7 @@ import {
   statSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   replaceOwnerOnlyAtomic,
@@ -86,13 +86,16 @@ describe("Discord owner-only atomic file replacement", () => {
 
   it("uses a distinct exclusive temporary path for independent writers", () => {
     const fs = recordingFs({ ids: ["writer-a", "writer-b"] });
-    replaceOwnerOnlyAtomic("/trusted/status.json", "first", fs);
-    replaceOwnerOnlyAtomic("/trusted/status.json", "second", fs);
+    const target = join("trusted", "status.json");
+    replaceOwnerOnlyAtomic(target, "first", fs);
+    replaceOwnerOnlyAtomic(target, "second", fs);
 
     expect(fs.replacements).toHaveLength(2);
     expect(new Set(fs.replacements).size).toBe(2);
-    expect(fs.replacements[0]).toMatch(/\/trusted\/\.status\.json\.\d+\.writer-a\.tmp$/);
-    expect(fs.replacements[1]).toMatch(/\/trusted\/\.status\.json\.\d+\.writer-b\.tmp$/);
+    expect(fs.replacements).toEqual([
+      join(dirname(target), "." + basename(target) + "." + process.pid + ".writer-a.tmp"),
+      join(dirname(target), "." + basename(target) + "." + process.pid + ".writer-b.tmp"),
+    ]);
   });
 
   it("syncs and closes the owner-only file before publishing it", () => {
@@ -111,7 +114,9 @@ describe("Discord owner-only atomic file replacement", () => {
       const fs = recordingFs({ failAt });
       expect(() => replaceOwnerOnlyAtomic("/trusted/state.json", "contents", fs))
         .toThrow(`${failAt} failed`);
-      expect(fs.calls.some((call) => call.startsWith("remove:/trusted/.state.json."))).toBe(true);
+      const opened = fs.calls.find((call) => call.startsWith("open:"));
+      expect(opened).toBeDefined();
+      expect(fs.calls).toContain("remove:" + opened!.slice("open:".length));
       if (failAt !== "replace") {
         expect(fs.calls.some((call) => call === "close:17")).toBe(true);
       }

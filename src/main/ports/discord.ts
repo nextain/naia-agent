@@ -186,6 +186,7 @@ export interface DiscordRuntimeClock {
 export interface DiscordRuntimeTextPort {
   emptyReply(): string;
   failureReply(): string;
+  courseLifecycle(state: CodingJobCourseLifecycleState): string;
   processingDisclosure(input: {
     readonly workload: string;
     readonly destination: string;

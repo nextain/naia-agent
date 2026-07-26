@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CodingJobService } from "../main/app/coding-job-service.js";
 import { JeonjuDiscordCourseService, parseJeonjuDiscordCourseConfig } from "../main/app/jeonju-discord-course.js";
 import { DiscordChannelRuntime } from "../main/adapters/discord-channel.js";
+import { makeDiscordRuntimeText } from "../main/adapters/discord-messages.js";
 import { wireAgentUC1 } from "../main/composition/index.js";
 import type { JeonjuCoursePatch } from "../main/domain/jeonju-course.js";
 import type { CodingJob } from "../main/domain/coding-job.js";
@@ -104,7 +105,7 @@ describe("UC-JEONJU vertical Discord acceptance", () => {
         partial: async () => true,
       },
       clock: { now: () => 1, sleep: async () => {} },
-      text: { emptyReply: () => "EMPTY", failureReply: () => "FAILED", processingDisclosure: () => "PROCESSING" },
+      text: makeDiscordRuntimeText("ko"),
       diag: { log: () => {}, debug: () => {} } satisfies DiagnosticLog,
       courseCommand: {
         start: (input) => course.start(input),

@@ -58,12 +58,6 @@ const REPLY_CHUNK = 2_000;
 const MAX_INPUT_CHARS = 4_000;
 const TOOL_PROGRESS_NAME = /^[A-Za-z0-9_.:-]{1,64}$/;
 const COURSE_COMMAND = /^\/course\s+(.+)$/s;
-const COURSE_STATUS_TEXT: Readonly<Record<DiscordCourseLifecycleDelivery["state"], string>> = {
-  received: "수업 작업을 접수했습니다.",
-  running: "수업 작업을 진행하고 있습니다.",
-  completed: "수업 작업이 완료되었습니다. Shell에서 결과를 확인해 주세요.",
-  failed: "수업 작업을 완료하지 못했습니다. Shell에서 작업 상태를 확인해 주세요.",
-};
 
 function courseDedupeId(input: DiscordCourseLifecycleDelivery): string {
   // The persistent dedupe store permits only bounded opaque identifiers. Hash
@@ -332,7 +326,7 @@ export class DiscordChannelRuntime {
     const connection = this.connection;
     if (!binding || !connection || !this.isLifecycleCurrent(this.lifecycleEpoch)
       || !await this.ensureAuthoritative()) return false;
-    const content = COURSE_STATUS_TEXT[input.state];
+    const content = this.deps.text.courseLifecycle(input.state);
     if (!content) return false;
     const durableMessageId = courseDedupeId(input);
     try {
