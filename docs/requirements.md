@@ -383,3 +383,123 @@ RPC만 추가하며, 별도 셸 반복 상태 머신은 만들지 않는다.
 
 - **NFR-CODEX-approval-boundary**: 승인 필요 또는 외부 처리 도구는 provider-native 즉시 실행 경로에 들어가지 않는다.
 - **NFR-CODEX-workspace-boundary**: `..`·심볼릭 링크 cwd 탈출을 거부하고, 전역 `add-dir`·sandbox 설정을 상속하지 않으며 child Codex 실행을 검증된 workspace 쓰기 경계로 제한한다.
+
+## UC-019 FR/NFR — durable scheduled delivery
+
+- **FR-OUTBOUND-1**: Discord Bot delivery supports approved DM and guild-channel destinations independently of a source-message reply; every request disables all mentions.
+- **FR-OUTBOUND-2**: Shell-owned policy selects destination and workspace-relative attachments. Deterministic checks reject arbitrary users/channels, `data-private`, secret paths, and over-limit files.
+- **FR-OUTBOUND-3**: Agent tools provide direct delivery and schedule create/list/pause/cancel. Create/change is `ask`; an already approved recurring task uses its stored grant.
+- **FR-SCHEDULE-1**: schedule, next run, stable occurrence key, outbox, and result history persist atomically and recover on restart.
+- **FR-SCHEDULE-2**: support `at`, `every`, and timezone-aware cron with bounded retry/backoff and default late-run behavior `skip`.
+- **FR-SCHEDULE-3**: separate `ScheduledTaskRunnerPort` from `DeliveryPort`. First acceptance runs the active main provider with Codex configured; PI is a later compatible adapter.
+- **NFR-OUTBOUND-security**: no bot token, prompt, attachment content, or recipient message text is placed in diagnostic logs; policy/path decisions are deterministic, not LLM decisions.
+- **NFR-OUTBOUND-delivery**: ambiguous network outcomes are honestly recorded; durable outbox/idempotency prevents claiming a duplicate send as success.
+- **NFR-SCHEDULE-provider-neutral**: persisted schedules have no Codex/PI-specific schema fields.
+
+## UC-020 FR/NFR ? Pi-only three-tier role execution
+
+- **FR-PI-ROLE-1**: Agent resolves the four stored LLM roles `main`, `sub`, `memory`, and `expert`; `expert/main/sub` are the development tiers while `memory` remains orthogonal.
+- **FR-PI-ROLE-2**: A Shell/Agent development task selects `expert`, `main`, or `sub` and creates a supervised Pi session using its resolved provider/model.
+- **FR-PI-ROLE-3**: This route permits only Codex and Claude provider selections and fails closed for unknown, incomplete, or OpenCode selections before spawn.
+- **NFR-PI-ROLE-1**: Pi receives no credential material; credential references remain opaque configuration metadata.
+- **NFR-PI-ROLE-2**: Agent preserves Supervisor cancellation/event/report semantics for every Pi role session.
+
+## UC-021 FR/NFR — AnyLLM-backed Naia providers
+
+| ID | Requirement | Status |
+|---|---|---|
+| FR-ANYLLM-1 | naia-agent is the sole source of truth for the versioned provider union catalog and persisted provider selection. The union preserves native providers and adds AnyLLM entries; duplicate provider IDs, incompatible versions, or conflicting mappings fail closed. | Pending |
+| FR-ANYLLM-2 | Provider selection is an Agent-owned versioned record with `scope_type` (`user` or `workspace`), tenant, user, optional workspace, catalog version, provider/model selection, credential reference, pricebook version, and monotonically increasing revision. Workspace scope overrides user scope only for that workspace. | Pending |
+| FR-ANYLLM-3 | A selection read/write RPC carries authenticated actor, tenant, user, workspace and granted permissions. Update requires matching expected revision CAS; unauthorized, cross-tenant, cross-user, cross-workspace, and stale-revision writes fail without changing state. | Pending |
+| FR-ANYLLM-4 | Shell reads and writes selection only through Agent RPC. `config.json` is an atomic one-way compatibility projection written by Agent. Normal projection edits are never ingested; recovery is allowed only as an explicit validated migration when the authoritative store is absent, and stale/conflicting projections fail closed. | Pending |
+| FR-ANYLLM-5 | A successful selection change applies to new turns only. Every admitted turn pins catalog, selection revision, alias mapping, credential version, Claude allowlist version and pricebook version through terminal completion, cancellation, or reconciliation. | Pending |
+| FR-ANYLLM-6 | Alias `anyllm-openrouter-hy3` is an immutable catalog entry that resolves only to gateway model `openrouter:tencent/hy3`. Settings, request data, Gateway configuration, redirects and retries cannot replace its upstream provider or model. | Pending |
+| FR-ANYLLM-7 | Alias `anyllm-claude` accepts only exact membership in `claude-allowlist.v1`. Each allowed client model maps to the single immutable `anthropic:<same-model>` gateway entry; malformed, unknown, disabled, downgraded, or version-incompatible entries fail closed without model/provider fallback. | Pending |
+| FR-ANYLLM-8 | Agent and AnyLLM Gateway exchange `naia-anyllm-provider.v1`. Requests bind contract/catalog/allowlist/pricebook versions and immutable alias mapping. Gateway independently validates all bindings, the Claude allowlist, no-Azure rule and no-fallback rule rather than trusting Agent validation. | Pending |
+| FR-ANYLLM-9 | Agent connects only to an administrator-configured exact HTTPS-origin allowlist. HTTP is rejected, redirects are not followed, and authorization or credential material is never forwarded to a different origin. | Pending |
+| FR-ANYLLM-10 | The client contract contains only the opaque `NAIA_ANYLLM_API_KEY` credential reference/version. It is bound to tenant, alias, budget and user/workspace scope. OpenRouter/Anthropic keys remain Gateway-only; scope mismatch, budget mismatch, revocation and replaced credential versions fail closed. | Pending |
+| FR-ANYLLM-11 | Credential rotation creates a new version and atomically revokes or expires the old version according to Gateway policy. Catalog/settings RPC, Shell IPC, diagnostics, logs, traces, errors and redirect handling redact both upstream secrets and client credential values. | Pending |
+| FR-ANYLLM-12 | One logical turn has a stable opaque `client_request_id`; each transport execution has a unique `attempt_id`. Both identifiers are 128-bit-or-more CSPRNG values encoded as lowercase UUIDv4 (`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`). Gateway atomically deduplicates by `(tenant_id, client_request_id)` and stores an immutable canonical request fingerprint over tenant, authenticated actor, effective scope, pinned selection/catalog/alias/credential/allowlist/pricebook versions, model, and canonical request body. A replay with the same identifier but a different fingerprint is rejected as `REQUEST_ID_REUSE_MISMATCH`, creates no attempt, and cannot read, attach to, or settle another logical request. | Pending |
+| FR-ANYLLM-13 | Stream disconnect after possible acceptance is `REQUEST_RECONCILIATION_REQUIRED`. Agent queries Gateway state and does not resubmit a billable request until a terminal result is known. Disconnect-before-accept, explicit retry, idempotent cancel and already-terminal cancel have distinct recorded outcomes. | Pending |
+| FR-ANYLLM-14 | Gateway owns a versioned pricebook whose entries carry ISO 4217 currency, currency minor-unit exponent and canonical decimal-string input/output rates. All calculations use decimal arithmetic; binary floating point is forbidden. | Pending |
+| FR-ANYLLM-15 | Gateway computes exact billed decimal cost as exact upstream decimal cost multiplied by `1.1`. At terminal settlement, upstream and billed decimal amounts are each converted once to integer minor units using round-half-even and bound to request, attempt set, usage, pricebook version, currency and terminal status. | Pending |
+| FR-ANYLLM-16 | Gateway is the sole authority for upstream and billed amounts and emits at most one terminal settlement per logical request. Agent and Shell display the attested amounts but never derive or overwrite them. Missing, malformed, negative, non-finite, wrong-currency, or unknown-version price data produces no billable settlement. | Pending |
+| NFR-ANYLLM-1 | Catalog merge, scope precedence, CAS, alias/model resolution, allowlist checking, retry/reconciliation and settlement are deterministic and fail closed. | Pending |
+| NFR-ANYLLM-2 | Azure-hosted HY3 is out of scope. Agent and Gateway add no Azure provider, alias, implicit route or fallback path, including during downgrade or upstream failure. | Pending |
+| NFR-ANYLLM-3 | Canonical public error codes are stable across Agent RPC and Gateway responses; messages may change but must not contain credentials, raw authorization context, tenant secrets, upstream response bodies or redirect targets with query data. | Pending |
+
+### Versioned Claude allowlist grammar
+
+`claude-allowlist.v1` is canonical UTF-8 JSON parsed with duplicate member
+names rejected at every depth. It is a closed object: every listed object has
+exactly the listed fields, no extension fields, no `null`, no coercion, and no
+unknown JSON value types. Agent and Gateway validate this same grammar before
+they use or pin a revision; parse or canonicalization failure is fail-closed.
+
+```text
+{
+  "schema_version": "claude-allowlist.v1",
+  "revision": <REVISION>,
+  "entries": [
+    {
+      "client_model": <CLAUDE_MODEL_ID>,
+      "gateway_model": <GATEWAY_MODEL>,
+      "enabled": true,
+      "min_gateway_contract": "naia-anyllm-provider.v1"
+    }
+  ]
+}
+
+REVISION = /^(?:[1-9][0-9]{0,18})$/
+CLAUDE_MODEL_ID = /^claude-[a-z0-9]+(?:-[a-z0-9]+)*-[0-9]{8}$/
+GATEWAY_MODEL = /^anthropic:(claude-[a-z0-9]+(?:-[a-z0-9]+)*-[0-9]{8})$/,
+where capture group 1 is byte-for-byte equal to `client_model`.
+
+The top level has exactly `schema_version`, `revision`, and `entries` in that
+canonical key order. `schema_version` and `min_gateway_contract` are exact
+strings; `revision`, `client_model`, and `gateway_model` are strings matching
+the expressions above; `enabled` is the JSON boolean `true`; `entries` is a
+non-empty array of closed entry objects in bytewise `client_model` order.
+```
+
+Entries are unique by `client_model`, sorted by bytewise model ID for canonical
+serialization, and immutable within a revision. Removing, disabling, or
+remapping an entry requires a higher revision. If Agent or Gateway cannot parse
+the schema, meet `min_gateway_contract`, or obtain the pinned revision, the
+Claude entry remains visible as unavailable and new turns are rejected. It is
+never widened, remapped to another Claude model, downgraded to an older
+allowlist, or routed to another provider.
+
+### Canonical error codes
+
+The Agent and Gateway preserve these codes end to end:
+
+- `PROVIDER_CATALOG_VERSION_UNSUPPORTED`
+- `PROVIDER_CATALOG_COLLISION`
+- `PROVIDER_SELECTION_REVISION_CONFLICT`
+- `PROVIDER_SELECTION_UNAUTHORIZED`
+- `PROVIDER_ALIAS_UNKNOWN`
+- `PROVIDER_MODEL_NOT_ALLOWED`
+- `GATEWAY_CONTRACT_VERSION_UNSUPPORTED`
+- `GATEWAY_ENDPOINT_NOT_ALLOWED`
+- `GATEWAY_MAPPING_MISMATCH`
+- `CLAUDE_ALLOWLIST_VERSION_UNSUPPORTED`
+- `PRICEBOOK_VERSION_UNSUPPORTED`
+- `PRICE_UNAVAILABLE`
+- `CREDENTIAL_SCOPE_MISMATCH`
+- `CREDENTIAL_REVOKED`
+- `BUDGET_EXCEEDED`
+- `REQUEST_RECONCILIATION_REQUIRED`
+- `REQUEST_ID_REUSE_MISMATCH`
+- `REQUEST_CANCELLED`
+- `UPSTREAM_UNAVAILABLE`
+
+## REQ-019 — Durable issue supervisor
+
+- **FR-SUPERVISOR-1**: The Agent persists issue runs, append-only events, attempts, leases, and dispatch outbox records in SQLite. Creating an attempt and its execute command is one transaction.
+- **FR-SUPERVISOR-2**: Dispatch uses a stable idempotency key. Startup recovery replays an unacknowledged dispatch with that same key, and worker acknowledgement is persisted before the command is considered delivered.
+- **FR-SUPERVISOR-3**: Heartbeat and completion validate run, attempt, execution ID, lease token, state, and an unexpired lease on every event. Expired attempts transition to timeout and create a new attempt only after bounded exponential backoff.
+- **FR-SUPERVISOR-4**: Active runs persist `next_report_at`; one progress-report outbox command becomes due at each ten-minute boundary and advances the next durable boundary.
+- **NFR-SUPERVISOR-1**: Closing the initiating caller does not cancel an accepted run. Restarting the Agent reconciles persisted outbox state before dispatch, without requiring Shell UI availability.
+- **Scope**: This requirement is the Agent-side P0 vertical slice. Production host activation/accepted-run ingress, Shell RPC/UI, real worker adapter, and full ADK stage receipt evaluation are follow-up integration work; caller-disconnect survival is not yet a product acceptance claim.
+- **Status**: In progress.

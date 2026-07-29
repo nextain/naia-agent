@@ -1,7 +1,7 @@
 // domain/llm-roles — main/sub/memory 역할별 설정 해석과 provenance.
 // I/O·provider 생성·비밀 해석 없음. 신규 구조화 설정과 legacy 필드를 한 경계에서 정규화한다.
 
-export type LlmRole = "main" | "sub" | "memory";
+export type LlmRole = "main" | "sub" | "memory" | "expert";
 export type ConfigProvenance = "explicit" | "inherit" | "legacy-inherit" | "default";
 
 export interface ResolvedConfigValue {
@@ -38,7 +38,7 @@ export interface LlmRolesInput {
 }
 
 export type LlmRolesResolution =
-  | { readonly ok: true; readonly configs: readonly [EffectiveLlmConfig, EffectiveLlmConfig, EffectiveLlmConfig] }
+  | { readonly ok: true; readonly configs: readonly [EffectiveLlmConfig, EffectiveLlmConfig, EffectiveLlmConfig, EffectiveLlmConfig] }
   | { readonly ok: false; readonly role: LlmRole; readonly reason: "missing" | "incomplete" | "cycle" | "invalid-inherit" };
 
 interface Source {
@@ -47,7 +47,8 @@ interface Source {
   readonly inheritedFromRole?: LlmRole;
 }
 
-const ORDER: readonly LlmRole[] = ["main", "sub", "memory"];
+// Keep the legacy main/sub/memory indices stable; expert is an added development tier.
+const ORDER: readonly LlmRole[] = ["main", "sub", "memory", "expert"];
 const clean = (value: string | undefined): string | undefined => {
   const normalized = value?.trim();
   return normalized ? normalized : undefined;
@@ -78,7 +79,7 @@ export function resolveLlmRoles(input: LlmRolesInput): LlmRolesResolution {
       });
       continue;
     }
-    const legacy = input.legacy?.[role];
+    const legacy = role === "expert" ? undefined : input.legacy?.[role];
     if (legacy) {
       sources.set(role, directSource(legacy, "explicit")!);
       continue;
@@ -99,7 +100,17 @@ export function resolveLlmRoles(input: LlmRolesInput): LlmRolesResolution {
       });
       continue;
     }
-    if (role === "memory" && sources.has("main")) {
+    // Memory is a functional consumer, not a fourth development tier. When
+    // no explicit memory override exists, it follows the resolved sub profile.
+    if (role === "memory" && sources.has("sub")) {
+      sources.set(role, {
+        selection: { inherit: "sub" },
+        provenance: "inherit",
+        inheritedFromRole: "sub",
+      });
+      continue;
+    }
+    if (role === "expert" && sources.has("main")) {
       sources.set(role, {
         selection: { inherit: "main" },
         provenance: "inherit",
@@ -178,6 +189,6 @@ export function resolveLlmRoles(input: LlmRolesInput): LlmRolesResolution {
   }
   return {
     ok: true,
-    configs: configs as unknown as readonly [EffectiveLlmConfig, EffectiveLlmConfig, EffectiveLlmConfig],
+    configs: configs as unknown as readonly [EffectiveLlmConfig, EffectiveLlmConfig, EffectiveLlmConfig, EffectiveLlmConfig],
   };
 }

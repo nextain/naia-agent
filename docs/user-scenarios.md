@@ -457,6 +457,89 @@ detector나 cron 같은 외부 정책이 자유 발화를 시작하면 사용자
 | T-DISCORD-SESSION-01 | 제한 직전 메시지는 최근 대화를 받고 제한 시각의 메시지는 새 문맥으로 시작한다. |
 | T-DISCORD-SESSION-02 | 대기만으로 provider가 호출되지 않고 회전 로그에 메시지 원문·세션 식별자가 없다. |
 
+## UC-021 AnyLLM-backed Naia providers
+
+The user configures Naia providers through naia-agent. The Agent owns a
+versioned union catalog and a versioned provider-selection record at user or
+workspace scope. Every selection update carries the caller's tenant, user,
+workspace, and authorization context plus the revision that the caller read;
+the Agent applies it only if authorization and revision compare-and-swap (CAS)
+both succeed. A workspace selection overrides the user's default only inside
+that workspace. A changed selection applies to new turns only. An active turn
+keeps its pinned catalog, selection, credential, allowlist, and pricebook
+versions until it reaches a terminal outcome.
+
+The Shell consumes the Agent catalog/settings RPC and sends CAS updates through
+that RPC. It does not maintain an independent provider catalog, write
+`config.json`, store provider credentials, calculate prices, or choose a
+fallback. `config.json` is an Agent-written, one-way compatibility projection
+for legacy readers. A normal write to that projection cannot change the Agent
+record. The Agent may recover from it only through an explicit, validated
+migration when the authoritative store is absent; a stale revision or a
+projection that conflicts with existing state is rejected and reported.
+
+The union catalog preserves native Agent providers and adds the following
+AnyLLM aliases. Provider IDs must be unique across both sets; a collision or an
+incompatible catalog version fails closed instead of replacing either entry:
+
+- `anyllm-openrouter-hy3` is fixed to the gateway model
+  `openrouter:tencent/hy3`.
+- `anyllm-claude` accepts only a model in the exact, versioned Claude allowlist
+  and maps that model to the corresponding immutable `anthropic:<model>` entry.
+
+Agent and AnyLLM Gateway exchange the versioned `naia-anyllm-provider.v1`
+contract. The Agent calls only an administrator-configured HTTPS origin in its
+endpoint allowlist, does not follow redirects, and never forwards a credential
+to another origin. The Gateway independently verifies the contract version,
+alias mapping, Claude allowlist entry, tenant/alias/budget credential binding,
+and the prohibition on Azure HY3 and fallback routing. An Agent catalog entry
+is not authority for the Gateway to skip those checks.
+
+The client holds only `NAIA_ANYLLM_API_KEY`. Upstream OpenRouter and Anthropic
+keys remain inside the AnyLLM Gateway and are never returned through settings,
+catalog, diagnostics, logs, Shell IPC, redirects, or error payloads. The client
+credential is an opaque versioned reference bound to tenant, alias, budget,
+user/workspace scope, and revocation state. Rotation issues a new credential
+version; a revoked or mismatched version fails closed.
+
+The Agent assigns one stable `client_request_id` to a logical turn and a new
+`attempt_id` to each transport attempt. Stream reconnect, disconnect, retry,
+and cancel retain the logical identifier. If a disconnect occurs after the
+Gateway may have accepted the request, the Agent treats the result as ambiguous
+and reconciles by `client_request_id`; it does not submit another billable
+request until the Gateway reports a terminal outcome. Cancellation is
+idempotent and does not convert an already settled request into a refund or a
+new attempt.
+
+The Gateway is the only authority for upstream price and billed price. A
+versioned pricebook uses ISO 4217 currency, decimal-string rates, and the
+currency's declared minor-unit exponent. It computes with decimal arithmetic,
+calculates billed decimal cost as upstream decimal cost multiplied by `1.1`,
+and rounds each terminal ledger amount to minor units once with
+round-half-even. The terminal settlement binds request, attempts, usage,
+pricebook version, currency, upstream decimal/minor cost, billed decimal/minor
+cost, and status. Missing or invalid price data produces no billable settlement.
+Azure-hosted HY3 and every implicit fallback path are explicitly outside this
+issue.
+
+| Verification ID | Scenario |
+|---|---|
+| T-ANYLLM-01 | The provider catalog contains exactly the supported aliases and hides all upstream credentials. |
+| T-ANYLLM-02 | `anyllm-openrouter-hy3` always resolves to `openrouter:tencent/hy3`; caller model overrides are rejected. |
+| T-ANYLLM-03 | `anyllm-claude` accepts only allowlisted models and maps each accepted value to `anthropic:<model>`; unknown values fail closed. |
+| T-ANYLLM-04 | Provider settings persist and reload through naia-agent RPC, and Shell uses that RPC result rather than an independent catalog. |
+| T-ANYLLM-05 | The only client credential reference is `NAIA_ANYLLM_API_KEY`; no OpenRouter or Anthropic credential is emitted or persisted on the client side. |
+| T-ANYLLM-06 | Usage records preserve upstream cost and billed cost at 1.1x; a missing/invalid price creates no billable record. |
+| T-ANYLLM-07 | Azure HY3 cannot be selected from this alias set. |
+| T-ANYLLM-08 | User/workspace selection updates require authorization context and matching revision CAS; a successful change affects new turns but not an active turn's pinned snapshot. |
+| T-ANYLLM-09 | Shell operates through RPC only; `config.json` is a one-way Agent projection, explicit empty-store recovery is validated, and stale/conflicting projection writes cannot replace authoritative state. |
+| T-ANYLLM-10 | The Agent and Gateway reject an unsupported contract/catalog/allowlist version, endpoint outside the TLS allowlist, alias collision, mapping mismatch, redirect, Azure route, or fallback route. |
+| T-ANYLLM-11 | The Gateway independently enforces the immutable HY3 mapping and exact Claude allowlist entry even when an Agent request claims that it was already validated. |
+| T-ANYLLM-12 | Stable logical request ID, unique attempt IDs, ambiguous-disconnect reconciliation, retry, stream cancellation, and terminal settlement prevent duplicate execution or billing. |
+| T-ANYLLM-13 | Credentials are bound to tenant, alias, budget and selected scope; mismatch, revocation, and pre-rotation versions fail closed without secret-bearing diagnostics or redirect forwarding. |
+| T-ANYLLM-14 | The versioned pricebook uses decimal rates, ISO currency/minor units and round-half-even once at terminal settlement; only the Gateway supplies authoritative upstream and 1.1x billed amounts. |
+| T-ANYLLM-15 | An unsupported or downgraded Claude allowlist is disabled without remapping to a broader/older model or provider fallback. |
+
 ## Test Coverage Map
 
 | 요구 | 테스트 |
@@ -537,3 +620,43 @@ detector나 cron 같은 외부 정책이 자유 발화를 시작하면 사용자
 | T-DISCORD-RT-06 | 2,000자 분할·총 응답 상한·rate limit·권한/intent 오류가 bounded하고 원문·token을 로그에 남기지 않는다. |
 | T-DISCORD-RT-07 | 실제 Discord token을 쓰는 test guild smoke는 별도 opt-in live 검증으로만 수행한다. |
 | T-DISCORD-RT-08 | 친구 code와 처리 consent가 exact scope+expiry+one-time atomic claim을 지키고 평문 code를 저장하지 않는다. |
+
+## UC-019 — Approved outbound delivery and scheduled reports
+
+- A user can ask Naia to send a completed work result to an approved Discord DM or bound channel. The model cannot invent a recipient: Shell-owned policy supplies the destination id.
+- A user can create an `at`, `every`, or timezone-aware cron report from Shell. The schedule, stable occurrence id, outbox, retry result, and history recover across restart; late runs default to `skip`.
+- Codex is the first end-to-end runner. The task schema contains no Codex/PI-specific field, so PI can later implement the same runner contract without a migration.
+- Radio DJ/exhibition proactive speech remains a cancellable profile-session timer. It is not durable cron and has no authority to externally deliver messages.
+
+| Verification | Acceptance |
+|---|---|
+| T-OUTBOUND-01 | Allow only approved DM/channel destinations, workspace-safe attachments, and no mentions. |
+| T-OUTBOUND-02 | Direct `discord_send` is visible in the chat approval/result flow and is not restricted to a reply source. |
+| T-SCHEDULE-01 | Persistent schedule/outbox/retry/misfire behavior survives restart without duplicate delivery. |
+| T-SCHEDULE-02 | Codex produces one periodic report per occurrence; PI remains a deferred compatible runner. |
+| T-SCHEDULE-03 | Shell clearly separates inbound Discord conversation from outbound policy, schedule controls, and delivery history. |
+
+## UC-020 ? Three-tier development role delegated through Pi
+
+Naia Agent reads Shell's `expert`, `main`, and `sub` profile metadata from the active ADK configuration. For a requested role it resolves inheritance, accepts only Codex or Claude providers for this Pi path, and starts a Pi sub-agent with the resolved provider/model. The Supervisor remains responsible for cancellation, event forwarding, and final report.
+
+OpenCode is intentionally not a candidate, fallback, command, or diagnostic label for this Shell/Agent route. A malformed role or unsupported provider fails closed before Pi spawn.
+
+### Test Coverage Map
+
+| Scenario | Contract test |
+|---|---|
+| explicit/inherited expert/main/sub resolves | `llm-roles.contract.test.ts` |
+
+## UC-022 — Durable issue supervisor runtime
+
+The Agent-side runtime persists the run, events, worker attempt lease, and transactional dispatch outbox, then resumes pending dispatch after runtime restart with the same execution idempotency key. Every worker event uses supervisor-owned time and is rejected after lease expiry. A timed-out attempt enters bounded exponential backoff before a new execution ID is dispatched. While the run remains active, every ten-minute progress-report boundary is persisted. The production Agent host still needs to activate this composition and expose accepted-run ingress before Shell disconnect survival is a product claim.
+
+### Test Coverage Map
+
+| Scenario | Contract/integration test |
+|---|---|
+| interrupted dispatch is recovered after SQLite reopen and a deduplicating fake worker applies one effect | `durable-supervisor.integration.test.ts` |
+| stale heartbeat/completion are rejected and timeout observes retry backoff | `durable-supervisor.integration.test.ts` |
+| every missed ten-minute report boundary survives SQLite reopen | `durable-supervisor.integration.test.ts` |
+| production composition performs startup recovery and owns a cancellable periodic pump | `durable-supervisor.integration.test.ts` |

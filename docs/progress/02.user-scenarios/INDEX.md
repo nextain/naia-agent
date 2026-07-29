@@ -26,5 +26,8 @@
 | UC-016 | Discord 실시간 채널 대화 | 허용된 Discord 채널의 메시지를 Agent가 지속 연결로 받아 같은 채널에 응답하고, 재연결·중복·권한 변경·동시 채널에도 격리된 상태를 유지. 결정론적 자동화 완료, 실제 Discord 운영자 인수 대기 | REQ-014 | In-progress | TEST-S-016 |
 | UC-017 | Codex main/sub 역할 분리 | 사용자가 Codex를 main provider로 선택해 시간 등 로컬 도구를 호출하고, 신뢰된 Discord 채널에서 별도 터미널 Codex에게 워크스페이스 안 작업을 위임하며 시작·성공·실패 진행 상태를 확인 | REQ-015 | Done | TEST-S-017 |
 | UC-018 | Discord 유휴 세션 회전 | Gateway는 모델 호출 없이 대기하고, 같은 사용자·binding의 최근 임시 대화만 30분 기본 유휴시간 전까지 재사용하며 경계 이후 새 문맥으로 전환 | REQ-016 | Done | TEST-S-018 |
+| UC-019 | Agent outbound delivery and scheduled reports | Agent sends approved results/files and durable periodic reports to a DM or bound channel; Codex is the first verified runner and PI is a deferred compatible runner. | REQ-017 | In-progress | TEST-S-019 |
+| UC-021 | AnyLLM-backed Naia providers | Agent owns a versioned native+AnyLLM catalog and authorized user/workspace selection; Shell is RPC-only, Gateway independently enforces immutable HY3/versioned Claude routes, scoped credentials, idempotent reconciliation and authoritative decimal 1.1x settlement. | REQ-018 | Pending | TEST-S-021 |
+| UC-022 | Durable issue supervisor | Agent-side runtime safely reopens SQLite, recovers dispatch, rejects stale worker events with a trusted clock, retries timeout with backoff, and persists every ten-minute report boundary. Production host ingress/activation remains pending. | REQ-019 | In-progress | TEST-S-022 |
 
 > **상태 의미**: agent 측 Done = 이식+2-AI(또는 self)리뷰+계약테스트 완료. UC-006/008 = agent-local skill 완료, 실 외부서비스(CDP/youtube) runtime = 루크머신. off-scope(UC-memory) = 01 노트.

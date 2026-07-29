@@ -28,11 +28,18 @@
     "@grpc/proto-loader": "^0.8.1",
     "@naia/kb-compiler": "file:../../naia-kb-compiler",
     "@nextain/naia-memory": "file:../../naia-memory",
+    "better-sqlite3": "^12.10.0",
     "js-yaml": "^4.2.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/js-yaml": "^4.0.9",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3"
+    ]
   }
 }

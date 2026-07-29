@@ -159,3 +159,8 @@ modelfile(16384)을 덮으므로 어댑터 기본값 자체를 16384 로 수정.
 - [ ] `last_updated` 갱신
 - [ ] 이 파일 동기화
 - [ ] `process-status.json` 커밋에 포함
+## Current work — UC-019 durable outbound delivery and scheduled reports
+
+This work keeps the existing in-memory proactive-speech timer separate from a durable scheduler. The durable path will send approved work results and periodic reports through Discord DM or an approved server channel, preserve run/outbox history across restart, and expose policy/status in Naia Shell. Codex is the first end-to-end runner; PI remains a compatible second-phase provider.
+
+Trace: `REQ-017 → UC-019 → TEST-S-019 → SPEC-016 → TEST-F-016`.

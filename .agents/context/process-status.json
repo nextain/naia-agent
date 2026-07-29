@@ -9,13 +9,13 @@
   },
 
   "current_work": {
-    "issue": "REQ-015-codex-discord-delegation",
+    "issue": "REQ-017-durable-outbound-delivery",
     "title": "UC-017 — Codex main provider·동적 도구·Discord 터미널 위임",
-    "issue_doc": "docs/progress/99.dev-comm/discord-rag-prefreeze-policy-contract-2026-07-19.md",
-    "github_issue": "https://github.com/nextain/naia-agent/issues/87",
-    "started": "2026-07-20",
-    "last_updated": "2026-07-21T21:10:12+09:00",
-    "status": "done",
+    "issue_doc": "docs/progress/99.dev-comm/agent-outbound-delivery-2026-07-25.md",
+    "github_issue": null,
+    "started": "2026-07-25",
+    "last_updated": "2026-07-25T00:00:00+09:00",
+    "status": "in_progress",
     "windows_runtime_acceptance": {
       "date": "2026-07-21",
       "source_commit": "d9cfd38",

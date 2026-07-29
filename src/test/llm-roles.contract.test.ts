@@ -1,10 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { resolveLlmRoles } from "../main/domain/llm-roles.js";
+import { makePiRoleSupervisorRunner } from "../main/adapters/pi-role-runner.js";
 
 describe("main/sub/memory 역할 해석", () => {
   it("세 역할을 서로 다른 provider/model로 독립 해석한다", () => {
     const result = resolveLlmRoles({
       roles: {
+        expert: { provider: "anthropic", model: "claude-opus-4-8" },
         main: { provider: "codex", model: "gpt-5.4" },
         sub: { provider: "naia", model: "gemini-3.1-flash-lite", credentialRef: "sub-key" },
         memory: { provider: "ollama", model: "qwen3:4b", baseUrl: "http://localhost:11434/v1" },
@@ -16,6 +18,7 @@ describe("main/sub/memory 역할 해석", () => {
       ["main", "codex", "gpt-5.4"],
       ["sub", "naia", "gemini-3.1-flash-lite"],
       ["memory", "ollama", "qwen3:4b"],
+      ["expert", "anthropic", "claude-opus-4-8"],
     ]);
     expect(result.configs.every((c) => c.provider.provenance === "explicit")).toBe(true);
   });
@@ -68,7 +71,8 @@ describe("main/sub/memory 역할 해석", () => {
 		])).toEqual([
 			["main", "ollama", "explicit", undefined],
 			["sub", "ollama", "inherit", "main"],
-			["memory", "ollama", "inherit", "main"],
+			["memory", "ollama", "inherit", "sub"],
+			["expert", "ollama", "inherit", "main"],
 		]);
 	});
 
@@ -103,5 +107,34 @@ describe("main/sub/memory 역할 해석", () => {
         memory: { inherit: "sub" },
       },
     })).toEqual({ ok: false, role: "main", reason: "cycle" });
+  });
+
+  it("configured development roles invoke Pi directly and invalid providers fail closed", async () => {
+    const valid = resolveLlmRoles({
+      roles: {
+        expert: { provider: "anthropic", model: "claude-opus-4-8" },
+        main: { provider: "codex", model: "gpt-5.4" },
+        sub: { provider: "claude-code-cli", model: "claude-sonnet-4-6" },
+        memory: { inherit: "sub" },
+      },
+    });
+    const supervise = vi.fn(async () => {});
+    const runner = makePiRoleSupervisorRunner(valid, supervise);
+    const egress = { event: vi.fn(), report: vi.fn() };
+    await expect(runner("expert", { prompt: "inspect", workdir: "D:/workspace" }, new AbortController().signal, egress)).resolves.toEqual({ ok: true });
+    expect(supervise).toHaveBeenCalledTimes(1);
+
+    const invalid = resolveLlmRoles({
+      roles: {
+        main: { provider: "opencode", model: "not-allowed" },
+        sub: { inherit: "main" },
+        memory: { inherit: "sub" },
+      },
+    });
+    const failClosed = makePiRoleSupervisorRunner(invalid, supervise);
+    await expect(failClosed("main", { prompt: "inspect", workdir: "D:/workspace" }, new AbortController().signal, egress)).resolves.toMatchObject({ ok: false, reason: expect.stringContaining("not permitted") });
+    expect(supervise).toHaveBeenCalledTimes(1);
+    expect(egress.event).toHaveBeenCalledWith(expect.objectContaining({ kind: "session_end", ok: false }));
+    expect(egress.report).toHaveBeenCalledWith(expect.objectContaining({ sessionOk: false }));
   });
 });

@@ -72,13 +72,14 @@ describe("T-DISCORD-RT-02/05 — production entry wiring", () => {
     expect(entry).not.toContain("NAIA_JEONJU_COURSE_TARGET_PATH");
   });
 
-  it("wires the Codex delegate into the desktop host with workspace and agent allowlists", () => {
+  it("wires configured Pi roles into the desktop host with workspace and role allowlists", () => {
     expect(entry).toContain("makeDelegateAgentSkill");
+    expect(entry).toContain("makePiRoleSupervisorRunner");
     expect(entry).toContain("wireSupervisor({ subAgentName: agent");
     expect(entry).toContain("allowedWorkdirRoot: adkPath");
     expect(entry).toContain("resolveDefaultWorkdir: () => currentAdkPath");
     expect(entry).toContain("resolveAllowedWorkdirRoot: () => currentAdkPath");
-    expect(entry).toContain('allowedAgents: ["codex"]');
+    expect(entry).toContain('allowedAgents: ["expert", "main", "sub"]');
     expect(entry.indexOf("let currentAdkPath = adkPath")).toBeLessThan(entry.indexOf("makeDelegateAgentSkill({"));
     expect(entry.indexOf("makeDelegateAgentSkill")).toBeLessThan(entry.indexOf("wireAgentUC1({ ingress: agentIngress"));
 

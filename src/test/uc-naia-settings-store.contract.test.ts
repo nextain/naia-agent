@@ -83,7 +83,7 @@ describe("loadLlmRoles — main/sub/memory 독립 설정과 migration", () => {
 		}).loadLlmRoles("/ws");
 		expect(result?.ok).toBe(true);
 		if (!result?.ok) return;
-		expect(result.configs.map((c) => c.role)).toEqual(["main", "sub", "memory"]);
+		expect(result.configs.map((c) => c.role)).toEqual(["main", "sub", "memory", "expert"]);
 		expect(result.configs[0].provider.value).toBe("codex");
 		expect(result.configs[1].provider.value).toBe("nextain");
 		expect(result.configs[2].provider).toEqual({

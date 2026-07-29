@@ -274,7 +274,7 @@ export function makeNaiaSettingsStore(deps: {
 		if (roleHasPlaintextSecret(value)) return undefined;
 		const role = value as Record<string, unknown>;
 		const str = (key: string) => typeof role[key] === "string" ? (role[key] as string) : undefined;
-		const inherit = (["main", "sub", "memory"] as const).find((candidate) => candidate === str("inherit"));
+		const inherit = (["main", "sub", "memory", "expert"] as const).find((candidate) => candidate === str("inherit"));
 		const selection: LlmRoleSelection = {
 			...(str("provider") ? { provider: str("provider") } : {}),
 			...(str("model") ? { model: str("model") } : {}),
@@ -293,9 +293,11 @@ export function makeNaiaSettingsStore(deps: {
 			? c["llmRoles"] as Record<string, unknown>
 			: undefined;
 		const mainRole = roleSelection(structured?.["main"]);
+		const expertRole = roleSelection(structured?.["expert"]);
 		const subRole = roleSelection(structured?.["sub"]);
 		const memoryRole = roleSelection(structured?.["memory"]);
 		const roles = {
+			...(expertRole ? { expert: expertRole } : {}),
 			...(mainRole ? { main: mainRole } : {}),
 			...(subRole ? { sub: subRole } : {}),
 			...(memoryRole ? { memory: memoryRole } : {}),

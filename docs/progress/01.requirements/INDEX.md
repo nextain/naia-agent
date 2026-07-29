@@ -29,6 +29,9 @@ scripts/check-traceability.mjs 가 파싱. 상세 = docs/requirements.md, 99.dev
 | REQ-013 | 선제·연속 발화 | 두 opt-in profile(DJ·전시)의 app-owned 활동과 shell 전달. exact 명시 선호·8개 grounded 멘트·8시간 lease·전시 privacy/yield/resume·file-backed 설정·TTS 두 경로·6종 제어·stale fence를 자동 수용. 물리 음질·현장 선호도는 운영 관찰 | Done | UC-015 | SPEC-012 | TEST-S-015 |
 | REQ-014 | Discord 채널 runtime | **Discord Gateway 채널 runtime** — one-shot token injection, 정확한 binding/사용자/참여 정책, 채널별 Agent ingress·기록 격리, durable dedupe, RESUME/reconnect·bounded reply/rate-limit, binding-scoped trust (FR-DISCORD-RT-1~7). 자동화 구현 완료, 실제 bot 인수 대기 | In-progress | UC-016 | SPEC-013 | TEST-S-016 |
 | REQ-015 | Codex 역할·도구 위임 | 로컬 Codex 로그인 기반 main provider가 자동승인 로컬 도구를 app-server 동적 도구 RPC로 실행하고, 데스크톱/Discord host가 워크스페이스에 고정된 Codex sub-agent 위임과 비밀 없는 진행 이벤트를 제공 | Done | UC-017 | SPEC-014 | TEST-S-017 |
+| REQ-017 | Durable outbound delivery and schedules | Approved Discord DM/channel delivery, workspace-bound attachments, persistent `at/every/cron` schedule, retry/outbox and provider-neutral runner. Codex is first acceptance; PI is deferred. | In-progress | UC-019 | SPEC-016 | TEST-S-019 |
+| REQ-018 | AnyLLM-backed Naia providers | Agent-owned versioned union catalog and user/workspace selection with authz+revision CAS; Shell RPC-only with one-way compatibility projection; immutable HY3 and versioned Claude routes under an independently enforced Gateway contract; scoped credentials, request reconciliation, and Gateway-only decimal 1.1x terminal settlement. Azure and fallback routes are excluded. | Pending | UC-021 | SPEC-017 | TEST-S-021 |
+| REQ-019 | Durable issue supervisor | SQLite run/event/attempt/lease/outbox persistence, transactional dispatch, stable execution idempotency and acknowledgement, lease validation on every worker event, timeout backoff, startup recovery, and persisted ten-minute reporting. | In-progress | UC-022 | SPEC-018 | TEST-S-022 |
 
 ## 비기능 요구사항 (NFR → REQ)
 

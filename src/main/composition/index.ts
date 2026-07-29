@@ -154,3 +154,6 @@ export function wireSupervisor(opts?: {
     },
   };
 }
+
+export { wireDurableSupervisorRuntime } from "./durable-supervisor.js";
+export type { DurableSupervisorRuntimeOptions } from "./durable-supervisor.js";

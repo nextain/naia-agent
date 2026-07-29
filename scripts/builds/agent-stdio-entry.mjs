@@ -60,6 +60,14 @@ const { makeFileDiscordDedupe, repairFileDiscordDedupeLock } =
   await import("../../dist/main/adapters/discord-dedupe-store.js");
 const { makeDiscordGateway } =
   await import("../../dist/main/adapters/discord-gateway.js");
+const { makeDiscordOutbound, parseDiscordOutboundPolicy } =
+  await import("../../dist/main/adapters/discord-outbound.js");
+const { makeDiscordOutboundExecutor } =
+  await import("../../dist/main/adapters/discord-outbound-skill.js");
+const { ScheduledTaskRuntime, makeFileScheduledTaskStore } =
+  await import("../../dist/main/adapters/scheduled-task-runtime.js");
+const { makeScheduledTaskExecutor } =
+  await import("../../dist/main/adapters/scheduled-task-skill.js");
 const { makeDiscordRuntimeText } =
   await import("../../dist/main/adapters/discord-messages.js");
 const { makeFileDiscordRegistration } =
@@ -103,6 +111,8 @@ const { JeonjuDiscordCourseService, parseJeonjuDiscordCourseConfig } =
   await import("../../dist/main/app/jeonju-discord-course.js");
 const { selectSubAgent } =
   await import("../../dist/main/adapters/subagent-roster.js");
+const { makePiRoleSupervisorRunner } =
+  await import("../../dist/main/adapters/pi-role-runner.js");
 const { makeActivityRouteRegistry, makeActivitySpeechEgress } =
   await import("../../dist/main/adapters/activity-speech-egress.js");
 const { makeActivityRadioDjBgm } =
@@ -133,6 +143,7 @@ const { composeAgentRuntimeDeps } = await import("./compose-agent-deps.mjs");
 const deps = await composeAgentRuntimeDeps();
 cleanupFns = deps.cleanupFns;
 const { adkPath, provider, resolver, providerLabel: label, credentials, settingsStore, defaultConfig, configLabel } = deps;
+const { llmRoles } = deps;
 let { toolExecutor } = deps;
 const { memory, memoryLabel, conversationLog, transcriptLabel, diag, personaSource, workspaceContextSource, knowledgeBackend } = deps;
 let skillsLabel = deps.skillsLabel;
@@ -185,7 +196,15 @@ if (codingJobs && jeonjuCourseConfig) {
 // 전주대 Discord/Codex 실습 경로: 신뢰된 채널의 메인 모델이 별도 터미널 Codex를 위임할 수 있다.
 // 실행 에이전트와 작업 경로를 모두 좁혀 임의 agent 선택 및 워크스페이스 밖 쓰기를 차단한다.
 if (adkPath) {
+  const runConfiguredPiRole = makePiRoleSupervisorRunner(
+    llmRoles ?? null,
+    (subAgent, task, signal, egress) => wireSupervisor({ subAgent, diag }).run(task, signal, egress),
+  );
   const delegateRun = async (agent, task, signal, egress) => {
+    if (agent === "expert" || agent === "main" || agent === "sub") {
+      await runConfiguredPiRole(agent, task, signal, egress);
+      return;
+    }
     const supervisor = wireSupervisor({ subAgentName: agent, subAgentOpts: {}, diag });
     await supervisor.run(task, signal, egress);
   };
@@ -195,11 +214,11 @@ if (adkPath) {
     allowedWorkdirRoot: adkPath,
     resolveDefaultWorkdir: () => currentAdkPath,
     resolveAllowedWorkdirRoot: () => currentAdkPath,
-    allowedAgents: ["codex"],
+    allowedAgents: ["expert", "main", "sub"],
     diag,
   });
   toolExecutor = toolExecutor ? makeCompositeToolExecutor([delegateExec, toolExecutor]) : delegateExec;
-  skillsLabel += " + delegate(codex/workspace-bound)";
+  skillsLabel += " + delegate(Pi:expert/main/sub, workspace-bound)";
 }
 
 let discordConfig;
@@ -209,6 +228,13 @@ if (process.env.NAIA_DISCORD_BINDINGS_JSON) {
   catch { discordConfig = undefined; }
 }
 delete process.env.NAIA_DISCORD_BINDINGS_JSON;
+let discordOutboundPolicy;
+const discordOutboundPolicyProvided = Boolean(process.env.NAIA_DISCORD_OUTBOUND_JSON);
+if (process.env.NAIA_DISCORD_OUTBOUND_JSON) {
+  try { discordOutboundPolicy = parseDiscordOutboundPolicy(JSON.parse(process.env.NAIA_DISCORD_OUTBOUND_JSON)); }
+  catch { discordOutboundPolicy = undefined; }
+}
+delete process.env.NAIA_DISCORD_OUTBOUND_JSON;
 let discordRegistrationSeeds;
 if (process.env.NAIA_DISCORD_REGISTRATIONS_JSON) {
   try { discordRegistrationSeeds = JSON.parse(process.env.NAIA_DISCORD_REGISTRATIONS_JSON); }
@@ -231,6 +257,7 @@ delete process.env.NAIA_DISCORD_AUTHORITY_PATH;
 delete process.env.NAIA_DISCORD_INBOX_PATH;
 let discordStatus;
 let discordAuthority;
+let discordOutbound;
 if (discordGeneration && discordStatusPath && discordAuthorityPath) {
   try {
     discordStatus = makeDiscordStatusFile({ generation: discordGeneration, path: discordStatusPath });
@@ -427,6 +454,61 @@ if (discordToken && discordConfig && discordAuthority) {
   try { discordStatus?.write("failed", code); } catch { /* observer isolation */ }
 }
 // panel executor 생성(egress 확보 후) + builtin 과 composite 합성. panel 도구 execute()=panel_tool_call emit→PanelToolResult 대기(E1, FR-PANEL-2/3).
+// Direct result delivery is intentionally independent of Gateway ingress/reply.
+// Its allowlisted destination policy arrives from Shell separately from bindings,
+// and the Bot token remains only in this entry process.
+if (discordToken && discordOutboundPolicy) {
+  try {
+    discordOutbound = makeDiscordOutbound({ token: discordToken, policy: discordOutboundPolicy });
+  } catch {
+    diag.log("discord outbound", { code: "configuration_failed" });
+  }
+} else if (discordOutboundPolicyProvided) {
+  diag.log("discord outbound", { code: !discordToken ? "token_unavailable" : "policy_invalid" });
+}
+const discordOutboundExec = makeDiscordOutboundExecutor({
+  ...(discordOutbound ? { delivery: discordOutbound } : {}),
+  workspace: () => currentAdkPath,
+  destinationIds: () => discordOutboundPolicy?.destinations.map((destination) => destination.id) ?? [],
+});
+if (discordOutboundExec.specs().length) {
+  toolExecutor = toolExecutor ? makeCompositeToolExecutor([toolExecutor, discordOutboundExec]) : discordOutboundExec;
+  skillsLabel += " + discord_send";
+}
+let scheduledTaskRuntime;
+if (discordOutbound && currentAdkPath) {
+  const reportRunner = {
+    run: async ({ prompt }) => {
+      const config = activeProcessingConfig;
+      if (!config) throw new Error("main_provider_unavailable");
+      const activeProvider = resolver ? resolver.resolve(config) : provider;
+      if (!activeProvider) throw new Error("main_provider_unavailable");
+      let content = "";
+      for await (const chunk of activeProvider.chat(config, [{ role: "user", content: prompt }], {})) {
+        if (chunk.kind === "text") content += chunk.text;
+      }
+      content = Array.from(content.trim()).slice(0, 2_000).join("");
+      if (!content) throw new Error("empty_report");
+      return content;
+    },
+  };
+  scheduledTaskRuntime = new ScheduledTaskRuntime({
+    store: makeFileScheduledTaskStore(join(currentAdkPath, "naia-settings", "scheduled-tasks.json")),
+    runner: reportRunner,
+    delivery: discordOutbound,
+    ids: randomUUID,
+  });
+  const poll = () => { void scheduledTaskRuntime.runDue().catch(() => diag.log("scheduled report", { code: "run_failed" })); };
+  poll();
+  const timer = setInterval(poll, 15_000);
+  timer.unref?.();
+  cleanupFns.push(() => clearInterval(timer));
+}
+const scheduledTaskExec = makeScheduledTaskExecutor(scheduledTaskRuntime);
+if (scheduledTaskExec.specs().length) {
+  toolExecutor = toolExecutor ? makeCompositeToolExecutor([toolExecutor, scheduledTaskExec]) : scheduledTaskExec;
+  skillsLabel += " + scheduled_report";
+}
 panelExec = makePanelToolExecutor({ egress: grpcServer.egress });
 toolExecutor = toolExecutor ? makeCompositeToolExecutor([toolExecutor, panelExec]) : panelExec;
 skillsLabel += " + panel(환경 위임)";
