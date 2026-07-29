@@ -136,6 +136,22 @@ memory 가 **전체 OFF 되지 않고** sub-LLM 만 생략한 채 동작한다 �
 재호출 → 활성 `defaultConfig` swap). 모든 naia-os 프로바이더(nextain/gemini/openai/xai/zai/
 ollama/vllm)가 연결된다. anthropic/claude-code-cli 도 연결됨(FR-PROV-4/5 — claude-code 는 Claude Agent SDK 구독 인증, apiKey 불요. requirements.md 참조).
 
+## UC-GATEWAY-COST — 게이트웨이 고객 과금 메타데이터 보존
+
+Naia 계정(`provider=nextain`) 호출은 versioned billing 계약에 따라 non-stream으로 수행한다.
+Agent는 요청 최상위에 round별 고유 `gateway_request_id`와 `gateway_attempt`를 싣는다. HTTP 응답 전
+fetch rejection/connection reset 같은 transport failure만 같은 ID의 attempt를 증가시켜 한 번 재시도하고,
+HTTP 5xx 응답은 재시도하지 않는다. Gateway 응답 최상위 snake_case 7필드
+(`customer_cost`, `price_version_id`, `currency`, `settlement_status`, `gateway_request_id`,
+`gateway_attempt`, `billing_status`)를 round별 `BillingReceipt`로 보존하여 Shell까지 배열 그대로
+전달한다. Agent는 hosted 경로에서 로컬 모델 가격표로 비용을 다시 계산하거나 가산하지 않으며,
+여러 provider round의 고객가는 BigInt 기반 고정소수점으로만 합산한다. 모든 round의 receipt가
+완전하고 고유하며 동일 가격 버전·통화를 유지하고, receipt 합계가 terminal exact 합계와 같아야
+성공한다. usage/receipt 누락·반쪽/손상 필드·공백/중복 ID·버전/통화/합계 불일치는
+`BILLING_INTEGRITY` 오류로 종료한다. 기존 Shell 표시 호환을 위한 `cost` number는 표시용
+alias일 뿐 금융 정본이 아니다. API-key/BYO provider는 기존 로컬 추정 경로를 유지하고
+`billingStatus=estimated`로 구분한다.
+
 ## UC-CLI (naia-agent 단독 CLI 오케스트레이션)
 
 사용자(luke)가 **naia-os 없이** 터미널에서 `naia-agent`를 단독 실행해 실제 작업을 시킨다. naia-agent는
@@ -562,6 +578,7 @@ issue.
 | UC-CONTINUE-SPEAKING / S-CONT-1~7 / FR-CONT-1~8 | 권위 계약 §10 AC1~18 matrix. `src/test/uc-continue-speaking.contract.test.ts`; `src/test/uc-continue-speaking-grpc.integration.test.ts` (`speech activity subscription lifecycle`, `stop response mapping`, `composition activity drain`); `src/test/conversation-log.{contract,integration}.test.ts`; `src/test/compose-agent-deps.integration.test.ts`; shell `packages/shell/src-tauri/src/agent_grpc.rs` `speech_activity_*` + `packages/shell/e2e-tauri/continuous-speech.spec.ts`; Ollama contract; 모델 패널 JSON |
 | FR-PROV-5 (claude-code SDK 분리) | `src/test/all-providers-wiring.contract.test.ts`(claude-code 케이스 = Agent SDK 라우팅·apiKey 미주입) |
 | FR-MODEL-1 (모델 카탈로그 정합) | `src/test/uc-provider-provenance.contract.test.ts`(cost↔registry 정합·구독 $0), naia-os `src/lib/llm/__tests__/registry.test.ts`(카탈로그 정합·최신화) |
+| UC-GATEWAY-COST / FR-PROV-7·8 | `src/test/gateway-cost-contract.test.ts` — 실제 Gateway non-stream outbound body·최상위 snake_case 7필드 fixture·round 고유 ID·HTTP 응답 전 fetch rejection 재시도 attempt·HTTP 5xx 무재시도·exact decimal receipt 합계·공백/중복 ID 실패·실 protobuf receipt 배열 serialize/deserialize·BYO 경계; Shell consumer 계약은 paired `naia-shell` 테스트로 검증 |
 | UC-CLI / AC3·AC5 (2a 골격) | `src/test/uc-cli-supervisor.contract.test.ts`, `uc-cli-composition.contract.test.ts` (fake 포트 stream-merge·terminal 1회·직교·동시성 — Pass) |
 | UC-CLI / AC1·AC6 (2b 실 어댑터) | `src/test/uc-cli-subagent-{pi,opencode,roster,shell}.contract.test.ts`, `subprocess-session.contract.test.ts` (NDJSON→event·SIGTERM→SIGKILL·honest-unsupported — Pass) |
 | UC-CLI / AC2·AC4 (2c 정직보고) | `src/test/uc-cli-verifier.contract.test.ts`, `uc-cli-workspace.contract.test.ts`, `uc-cli-supervisor-real-verifier.integration.test.ts` (never-throws·git classify·실 verify — Pass) |

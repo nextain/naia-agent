@@ -21,6 +21,20 @@ function captureFetch(sink: { body?: Record<string, unknown> }) {
   const lines = ['data: {"choices":[{"delta":{"content":"ok"}}]}\n', "data: [DONE]\n"];
   return async (_url: string, init: { body: string }) => {
     sink.body = JSON.parse(init.body) as Record<string, unknown>;
+    if (sink.body.stream === false) {
+      const payload = enc.encode(JSON.stringify({
+        choices: [{ message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+        customer_cost: "0.00000000", price_version_id: "pv-test", currency: "USD",
+        settlement_status: "settled", gateway_request_id: sink.body.gateway_request_id,
+        gateway_attempt: sink.body.gateway_attempt, billing_status: "settled",
+      }));
+      let sent = false;
+      return { ok: true, status: 200, statusText: "OK", body: { getReader: () => ({
+        read: async () => sent ? { done: true } : (sent = true, { done: false, value: payload }),
+        async cancel() {},
+      }) } };
+    }
     let i = 0;
     const reader = {
       async read() { return i >= lines.length ? { done: true } : { done: false, value: enc.encode(lines[i++]!) }; },
@@ -164,7 +178,7 @@ describe("UC-THINKING — S-THINK-3 / FR-THINK-3 (resolver 가 판단해 주입)
     const sink: { body?: Record<string, unknown> } = {};
     const resolver = makeProviderResolver({ fetch: captureFetch(sink) as never });
     const cfg: ProviderConfig = { provider: "nextain", model: "auto", naiaKey: "k", enableThinking: false };
-    await drain(resolver.resolve(cfg).chat(cfg, [{ role: "user", content: "hi" }], {}));
+    await drain(resolver.resolve(cfg).chat(cfg, [{ role: "user", content: "hi" }], { gatewayRequestId: "thinking-test:round:1", gatewayAttempt: 1 }));
     expect(sink.body!).not.toHaveProperty("reasoning_effort");
   });
 });

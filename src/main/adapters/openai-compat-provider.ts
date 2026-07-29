@@ -4,6 +4,7 @@
 // apiKey/baseUrl=주입(키는 wire 아님, env/CredentialPort). 실 검증=클라우드(GPU 불요).
 import type { ProviderPort, ProviderChatOpts } from "../ports/uc1.js";
 import type { ProviderConfig, ChatMessage, ProviderChunk } from "../domain/chat.js";
+import { isCustomerCostDecimal } from "../domain/chat.js";
 
 type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal }) => Promise<{
   ok: boolean; status: number; statusText: string;
@@ -32,6 +33,11 @@ function toWireMessages(systemPrompt: string | undefined, messages: readonly Cha
 }
 
 interface ToolAcc { id?: string; name?: string; args: string; excluded: boolean; conflict: boolean; }
+
+// Versioned Gateway billing reserves against an explicit output ceiling before
+// invoking the provider. Keep this aligned with the existing Anthropic adapter
+// ceiling so hosted requests are bounded without silently shrinking responses.
+const HOSTED_MAX_OUTPUT_TOKENS = 16000;
 
 /**
  * baseUrl 예: https://api.z.ai/api/coding/paas/v4 (GLM coding plan). apiKey=Bearer.
@@ -65,6 +71,90 @@ export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string
       const noThinkBody = deps.supportsReasoningEffort === true && config.enableThinking === false
         ? { reasoning_effort: "none" as const }
         : undefined;
+
+      // Versioned Gateway billing is atomic and therefore non-stream. The complete seven-field
+      // billing tuple is top-level on the JSON response, not nested under OpenAI usage.
+      if (config.provider === "nextain") {
+        if (!opts.gatewayRequestId?.trim() || !Number.isSafeInteger(opts.gatewayAttempt) || (opts.gatewayAttempt ?? 0) < 1) {
+          throw new Error("hosted billing requires a round-scoped gateway request binding");
+        }
+        const readJson = async (body: NonNullable<Awaited<ReturnType<FetchLike>>["body"]>): Promise<unknown> => {
+          const reader = body.getReader();
+          const decoder = new TextDecoder();
+          let raw = "";
+          try {
+            for (;;) {
+              const next = await reader.read();
+              if (next.done) break;
+              if (next.value) raw += decoder.decode(next.value, { stream: true });
+            }
+            raw += decoder.decode();
+          } finally {
+            try { await reader.cancel?.(); } catch { /* 격리 */ }
+          }
+          return JSON.parse(raw);
+        };
+        const firstAttempt = opts.gatewayAttempt!;
+        for (let retry = 0; retry < 2; retry++) {
+          const gatewayAttempt = firstAttempt + retry;
+          let response: Awaited<ReturnType<FetchLike>>;
+          try {
+            response = await doFetch(`${base}/chat/completions`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", ...authHeader },
+              body: JSON.stringify({
+                model: deps.model ?? config.model, messages: wireMsgs, stream: false,
+                max_tokens: HOSTED_MAX_OUTPUT_TOKENS,
+                gateway_request_id: opts.gatewayRequestId, gateway_attempt: gatewayAttempt,
+                ...(toolsBody ? { tools: toolsBody } : {}), ...(noThinkBody ?? {}),
+              }),
+              ...(opts.signal ? { signal: opts.signal } : {}),
+            });
+          } catch (error) {
+            if (retry === 0 && !opts.signal?.aborted) continue;
+            throw error;
+          }
+          if (!response.ok || !response.body) {
+            if (response.body) { try { await readJson(response.body); } catch { /* 오류 본문 소비만 */ } }
+            throw new Error(`OpenAI-compat ${base} failed: ${response.status} ${response.statusText}`);
+          }
+          const payload = await readJson(response.body);
+          if (!payload || typeof payload !== "object") throw new Error("hosted Gateway returned invalid JSON");
+          const value = payload as Record<string, unknown>;
+          const usage = value.usage && typeof value.usage === "object" ? value.usage as Record<string, unknown> : {};
+          const inputTokens = typeof usage.prompt_tokens === "number" ? usage.prompt_tokens : 0;
+          const outputTokens = typeof usage.completion_tokens === "number" ? usage.completion_tokens : 0;
+          const customerCost = isCustomerCostDecimal(value.customer_cost) ? value.customer_cost : undefined;
+          const priceVersionId = typeof value.price_version_id === "string" && value.price_version_id.trim() ? value.price_version_id : undefined;
+          const currency = typeof value.currency === "string" && /^[A-Z]{3}$/.test(value.currency) ? value.currency : undefined;
+          const requestId = typeof value.gateway_request_id === "string" && value.gateway_request_id.trim() ? value.gateway_request_id : undefined;
+          const responseAttempt = typeof value.gateway_attempt === "number" && Number.isSafeInteger(value.gateway_attempt) && value.gateway_attempt > 0 ? value.gateway_attempt : undefined;
+          const settled = value.settlement_status === "settled" && value.billing_status === "settled";
+          const bindingMatches = requestId === opts.gatewayRequestId && responseAttempt === gatewayAttempt;
+          const billingReceipt = customerCost !== undefined && priceVersionId !== undefined && currency !== undefined && requestId !== undefined && responseAttempt !== undefined && settled && bindingMatches
+            ? { requestId, attempt: responseAttempt, priceVersionId, currency, customerCost, status: "settled" as const }
+            : undefined;
+          const choices = Array.isArray(value.choices) ? value.choices : [];
+          const message = choices[0] && typeof choices[0] === "object" && (choices[0] as Record<string, unknown>).message && typeof (choices[0] as Record<string, unknown>).message === "object"
+            ? (choices[0] as Record<string, unknown>).message as Record<string, unknown>
+            : {};
+          if (typeof message.content === "string" && message.content) yield { kind: "text", text: message.content };
+          if (Array.isArray(message.tool_calls)) {
+            for (const rawCall of message.tool_calls) {
+              if (!rawCall || typeof rawCall !== "object") throw new Error("invalid hosted tool call");
+              const call = rawCall as Record<string, unknown>;
+              const fn = call.function && typeof call.function === "object" ? call.function as Record<string, unknown> : {};
+              if (typeof call.id !== "string" || !call.id || typeof fn.name !== "string" || !fn.name) throw new Error("invalid hosted tool call");
+              const args = typeof fn.arguments === "string" ? JSON.parse(fn.arguments) : fn.arguments ?? {};
+              if (!args || typeof args !== "object" || Array.isArray(args)) throw new Error("invalid hosted tool arguments");
+              yield { kind: "toolUse", id: call.id, name: fn.name, args };
+            }
+          }
+          yield { kind: "usage", inputTokens, outputTokens, ...(billingReceipt ? { billingReceipt } : {}) };
+          yield { kind: "finish" };
+          return;
+        }
+      }
 
       const resp = await doFetch(`${base}/chat/completions`, {
         method: "POST",
@@ -124,7 +214,10 @@ export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string
             }
           }
         }
-        if (o.usage) { inTok = o.usage.prompt_tokens ?? inTok; outTok = o.usage.completion_tokens ?? outTok; } // 호출 누계 스냅샷
+        if (o.usage) {
+          inTok = o.usage.prompt_tokens ?? inTok;
+          outTok = o.usage.completion_tokens ?? outTok;
+        } // 호출 누계 스냅샷
         return out;
       };
 
@@ -164,7 +257,11 @@ export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string
           built.push({ id, name: a.name, args });
         }
         for (const b of built) yield { kind: "toolUse", id: b.id, name: b.name, args: b.args };
-        if (inTok > 0 || outTok > 0) yield { kind: "usage", inputTokens: inTok, outputTokens: outTok };
+        if (inTok > 0 || outTok > 0) yield {
+          kind: "usage",
+          inputTokens: inTok,
+          outputTokens: outTok,
+        };
         yield { kind: "finish" };
       };
 

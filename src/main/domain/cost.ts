@@ -2,7 +2,7 @@
 // 순수 함수. model 미등록 = 0(크래시 아님 — 셸 formatCost 가 0 도 안전 렌더).
 export const MODEL_PRICING: Record<string, { input: number; output: number }> = {
 	// Gemini 3.x
-	"gemini-3.5-flash": { input: 1.65, output: 9.9 },
+	"gemini-3.6-flash": { input: 1.5, output: 7.5 },
 	"gemini-3-pro-preview": { input: 2.0, output: 12.0 },
 	"gemini-3.1-pro-preview": { input: 2.0, output: 12.0 },
 	"gemini-3.1-flash-lite": { input: 0.25, output: 1.5 },

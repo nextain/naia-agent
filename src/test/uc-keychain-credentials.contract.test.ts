@@ -77,9 +77,10 @@ describe("wire-through: 키체인 naiaKey → resolver → lab-proxy (라이브 
   }
   function sseFetch(box: { url?: string; headers?: Record<string, string> }) {
     const enc = new TextEncoder();
-    const lines = ['data: {"choices":[{"delta":{"content":"안녕"}}]}\n', 'data: {"choices":[{"delta":{}}],"usage":{"prompt_tokens":3,"completion_tokens":4}}\n', "data: [DONE]\n"];
-    return async (url: string, init: { headers: Record<string, string> }) => {
+    return async (url: string, init: { headers: Record<string, string>; body: string }) => {
       box.url = url; box.headers = init.headers;
+      const request = JSON.parse(init.body) as { gateway_request_id: string; gateway_attempt: number };
+      const lines = [JSON.stringify({ choices: [{ message: { role: "assistant", content: "안녕" } }], usage: { prompt_tokens: 3, completion_tokens: 4 }, customer_cost: "0.000111", price_version_id: "pv-keychain", currency: "USD", settlement_status: "settled", gateway_request_id: request.gateway_request_id, gateway_attempt: request.gateway_attempt, billing_status: "settled" })];
       let i = 0;
       const reader = { read: async () => (i < lines.length ? { done: false, value: enc.encode(lines[i++]) } : { done: true }), cancel() {} };
       return { ok: true, status: 200, statusText: "OK", body: { getReader: () => reader } };

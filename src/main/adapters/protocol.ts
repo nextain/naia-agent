@@ -105,7 +105,14 @@ export function encodeEmit(requestId: string, e: AgentEmit): Record<string, unkn
     case "toolResult": return { type: "tool_result", requestId, toolCallId: e.toolCallId, output: e.output, toolName: e.toolName, success: e.success }; // UC1 리뷰: success/toolName
     case "approvalRequest": return { type: "approval_request", requestId, toolCallId: e.toolCallId, toolName: e.toolName, tier: e.tier, args: e.args, description: e.description }; // UC1 리뷰: args/description
     case "gatewayApprovalRequest": return { type: "gateway_approval_request", requestId, toolCallId: e.toolCallId, toolName: e.toolName, args: e.args };
-    case "usage": return { type: "usage", requestId, inputTokens: e.inputTokens, outputTokens: e.outputTokens, ...(e.cost !== undefined ? { cost: e.cost } : {}), ...(e.model !== undefined ? { model: e.model } : {}) };
+    case "usage": return {
+      type: "usage", requestId, inputTokens: e.inputTokens, outputTokens: e.outputTokens,
+      ...(e.cost !== undefined ? { cost: e.cost } : {}),
+      ...(e.customerCost !== undefined ? { customerCost: e.customerCost } : {}),
+      ...(e.billingReceipts !== undefined ? { billingReceipts: e.billingReceipts.map((receipt) => ({ ...receipt })) } : {}),
+      ...(e.billingStatus !== undefined ? { billingStatus: e.billingStatus } : {}),
+      ...(e.model !== undefined ? { model: e.model } : {}),
+    };
     case "logEntry": return { type: "log_entry", requestId, level: e.level, message: e.message };
     case "tokenWarning": return { type: "token_warning", requestId, raw: e.raw };
     case "compacted": return { type: "compacted", requestId, droppedCount: e.droppedCount };

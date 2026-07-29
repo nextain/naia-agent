@@ -128,7 +128,43 @@ export type WireErrorCode =
   | "PROCESSING_PROFILE_REQUIRED"
   | "PROCESSING_DESTINATION_UNKNOWN"
   | "EXTERNAL_PROCESSING_FORBIDDEN"
-  | "EXTERNAL_PROCESSING_CONFIRMATION_REQUIRED";
+  | "EXTERNAL_PROCESSING_CONFIRMATION_REQUIRED"
+  | "BILLING_INTEGRITY";
+
+export type BillingStatus = "confirmed" | "estimated" | "unavailable" | "error";
+export interface BillingReceipt {
+  readonly requestId: string;
+  readonly attempt: number;
+  readonly customerCost: string;
+  readonly priceVersionId: string;
+  readonly currency: string;
+  readonly status: "settled";
+}
+
+/** PostgreSQL Numeric(24,8) 비음수 범위와 같은 bounded exact decimal 계약. */
+export function isCustomerCostDecimal(value: unknown): value is string {
+  return typeof value === "string" && /^(?:0|[1-9]\d{0,15})(?:\.\d{1,8})?$/.test(value);
+}
+
+/** 부동소수점을 거치지 않는 합산. Numeric(24,8) overflow는 undefined로 fail-closed한다. */
+export function addCustomerCostDecimals(left: string, right: string): string | undefined {
+  if (!isCustomerCostDecimal(left) || !isCustomerCostDecimal(right)) return undefined;
+  const [leftWhole = "0", leftFraction = ""] = left.split(".");
+  const [rightWhole = "0", rightFraction = ""] = right.split(".");
+  const scale = Math.max(leftFraction.length, rightFraction.length);
+  const leftUnits = BigInt(leftWhole + leftFraction.padEnd(scale, "0"));
+  const rightUnits = BigInt(rightWhole + rightFraction.padEnd(scale, "0"));
+  const digits = (leftUnits + rightUnits).toString().padStart(scale + 1, "0");
+  const result = scale === 0 ? digits : `${digits.slice(0, -scale)}.${digits.slice(-scale)}`;
+  return isCustomerCostDecimal(result) ? result : undefined;
+}
+
+/** 구 Shell 표시 전용 alias. 금융 정본으로 사용 금지. */
+export function legacyCustomerCostAlias(value: string): number | undefined {
+  if (!isCustomerCostDecimal(value)) return undefined;
+  const alias = Number(value);
+  return Number.isFinite(alias) && alias >= 0 ? alias : undefined;
+}
 
 // ── inbound domain 폐쇄 union (os AgentOutbound 와 1:1) ──
 export interface ChatRequest {
@@ -183,7 +219,7 @@ export type ProviderChunk =
   | { readonly kind: "thinking"; readonly text: string }
   | { readonly kind: "toolUse"; readonly id: string; readonly name: string; readonly args: unknown; readonly handled?: boolean }
   | { readonly kind: "toolResult"; readonly id: string; readonly name: string; readonly output: string; readonly success: boolean; readonly handled: true }
-  | { readonly kind: "usage"; readonly inputTokens: number; readonly outputTokens: number }
+  | { readonly kind: "usage"; readonly inputTokens: number; readonly outputTokens: number; readonly billingReceipt?: BillingReceipt }
   | { readonly kind: "finish" };
 
 // ── egress 가 wire 로 내보낼 chat-turn domain chunk (os chat-turn AgentMessage 의 domain 표현, 폐쇄) ──
@@ -194,7 +230,7 @@ export type AgentEmit =
   | { readonly kind: "toolResult"; readonly toolCallId: string; readonly output: string; readonly toolName: string; readonly success: boolean } // UC1 리뷰: success/toolName 보존
   | { readonly kind: "approvalRequest"; readonly toolCallId: string; readonly toolName: string; readonly tier: string; readonly args: unknown; readonly description: string } // UC5 방출 + UC1 리뷰(args/description)
   | { readonly kind: "gatewayApprovalRequest"; readonly toolCallId: string; readonly toolName: string; readonly args: unknown } // UC5 방출
-  | { readonly kind: "usage"; readonly inputTokens: number; readonly outputTokens: number; readonly cost?: number; readonly model?: string }
+  | { readonly kind: "usage"; readonly inputTokens: number; readonly outputTokens: number; readonly cost?: number; readonly customerCost?: string; readonly billingStatus?: BillingStatus; readonly billingReceipts?: readonly BillingReceipt[]; readonly model?: string }
   | { readonly kind: "logEntry"; readonly level: string; readonly message: string }
   | { readonly kind: "tokenWarning"; readonly raw: unknown }
   | { readonly kind: "compacted"; readonly droppedCount: number } // UC-compaction(FR-COMPACT): 예산 압박 시 head 요약 발생 알림(UI 표시용, 비-terminal)

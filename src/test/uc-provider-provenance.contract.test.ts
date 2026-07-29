@@ -73,7 +73,7 @@ describe("cost 과금 0 회귀 방지 (native 모델 = MODEL_PRICING 키 — os 
   const REGISTRY_PRICED_MODELS = [
     "claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5-20251001",                      // anthropic
     "gpt-5.5", "gpt-5.4", "gpt-4.1", "gpt-4.1-mini", "o4-mini", "gpt-4o", // openai (gpt-5.2/5.1 = deprecated 회색지대 제거 2026-06-18)
-    "gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-3.1-pro-preview",                      // gemini(native)
+    "gemini-3.6-flash", "gemini-3.1-flash-lite", "gemini-3.1-pro-preview",                      // gemini(native)
     "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash",
     "grok-4.3", "grok-4", "grok-4.1-fast", "grok-code-fast-1", "grok-3-mini",                   // xai
     "glm-5.2", "glm-5.1", "glm-5-turbo", "glm-4.7", "glm-4.5-air",                              // zai
@@ -100,8 +100,20 @@ describe("makeProviderResolver (요청별 transport)", () => {
   // 첫 fetch 호출의 url+headers 포착(transport 도달 확인). 스트림은 즉시 done.
   function capture() {
     const box: { url?: string; headers?: Record<string, string> } = {};
-    const fetch = async (url: string, init: { headers: Record<string, string> }) => {
+    const fetch = async (url: string, init: { headers: Record<string, string>; body: string }) => {
       box.url = url; box.headers = init.headers;
+      const request = JSON.parse(init.body) as { stream?: boolean; gateway_request_id?: string; gateway_attempt?: number };
+      if (request.stream === false) {
+        const payload = new TextEncoder().encode(JSON.stringify({
+          choices: [{ message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+          customer_cost: "0.00000000", price_version_id: "pv-test", currency: "USD",
+          settlement_status: "settled", gateway_request_id: request.gateway_request_id,
+          gateway_attempt: request.gateway_attempt, billing_status: "settled",
+        }));
+        let sent = false;
+        return { ok: true, status: 200, statusText: "OK", body: { getReader: () => ({ read: async () => sent ? { done: true } : (sent = true, { done: false, value: payload }), cancel() {} }) } };
+      }
       return { ok: true, status: 200, statusText: "OK", body: { getReader: () => ({ read: async () => ({ done: true }), cancel() {} }) } };
     };
     return { fetch, box };
@@ -111,7 +123,7 @@ describe("makeProviderResolver (요청별 transport)", () => {
     const { fetch, box } = capture();
     const r = makeProviderResolver({ fetch: fetch as never });
     const nx = cfg({ provider: "nextain", naiaKey: "naia-XYZ" });
-    await collect(r.resolve(nx).chat(nx, [], {}));
+    await collect(r.resolve(nx).chat(nx, [], { gatewayRequestId: "provider-test:round:1", gatewayAttempt: 1 }));
     expect(box.url).toBe("https://api.nextain.io/v1/chat/completions");
     expect(box.headers?.["X-AnyLLM-Key"]).toBe("Bearer naia-XYZ");
     expect(box.headers?.Authorization).toBeUndefined();
@@ -158,16 +170,13 @@ describe("usage cost 방출 (크래시 회귀 방지 — formatCost(undefined))"
 });
 
 describe("canonical 흐름 wire 관통 (config provider → resolver → transport → cost → wire)", () => {
-  // SSE 스트림 mock(content + usage) — 실 네트워크 없이 openai-compat transport 구동.
+  // 실제 versioned Gateway non-stream 최상위 billing tuple mock.
   function sseFetch(box: { url?: string; headers?: Record<string, string> }) {
     const enc = new TextEncoder();
-    const lines = [
-      'data: {"choices":[{"delta":{"content":"안녕하세요"}}]}\n',
-      'data: {"choices":[{"delta":{}}],"usage":{"prompt_tokens":5,"completion_tokens":7}}\n',
-      "data: [DONE]\n",
-    ];
-    return async (url: string, init: { headers: Record<string, string> }) => {
+    return async (url: string, init: { headers: Record<string, string>; body: string }) => {
       box.url = url; box.headers = init.headers;
+      const request = JSON.parse(init.body) as { gateway_request_id: string; gateway_attempt: number };
+      const lines = [JSON.stringify({ choices: [{ message: { role: "assistant", content: "안녕하세요" } }], usage: { prompt_tokens: 5, completion_tokens: 7 }, customer_cost: "0.000123", price_version_id: "pv-contract", currency: "USD", settlement_status: "settled", gateway_request_id: request.gateway_request_id, gateway_attempt: request.gateway_attempt, billing_status: "settled" })];
       let i = 0;
       const reader = { read: async () => (i < lines.length ? { done: false, value: enc.encode(lines[i++]) } : { done: true }), cancel() {} };
       return { ok: true, status: 200, statusText: "OK", body: { getReader: () => reader } };
@@ -192,12 +201,14 @@ describe("canonical 흐름 wire 관통 (config provider → resolver → transpo
     // transport 도달: nextain(naia 계정) → lab-proxy 라우팅(api.nextain.io/v1 + X-AnyLLM-Key Bearer)
     expect(box.url).toBe("https://api.nextain.io/v1/chat/completions");
     expect(box.headers?.["X-AnyLLM-Key"]).toBe("Bearer naia-XYZ");
-    // wire 시퀀스 + usage 에 cost·model(셸 formatCost 크래시 회귀 방지)
+    // wire 시퀀스 + Gateway 권위 customer_cost/price_version_id 무손실
     expect(msgs.map((m) => m["type"])).toEqual(["text", "usage", "finish"]);
     const usage = msgs.find((m) => m["type"] === "usage");
     expect(usage?.["model"]).toBe("gemini-2.5-flash");
-    expect(typeof usage?.["cost"]).toBe("number");
-    expect(usage?.["cost"]).toBeCloseTo(calculateCost("gemini-2.5-flash", 5, 7), 9);
+    expect(usage?.["cost"]).toBe(0.000123);
+    expect(usage?.["customerCost"]).toBe("0.000123");
+    expect(usage?.["billingStatus"]).toBe("confirmed");
+    expect(usage?.["billingReceipts"]).toEqual([expect.objectContaining({ requestId: "w1:round:1", priceVersionId: "pv-contract" })]);
     expect(msgs.every((m) => m["requestId"] === "w1")).toBe(true);
   });
 });
@@ -205,9 +216,12 @@ describe("canonical 흐름 wire 관통 (config provider → resolver → transpo
 describe("config 정본 fallback (정본: 대화는 메시지만 — wire provider 없으면 기동 defaultConfig 사용)", () => {
   function sseFetch(box: { url?: string; headers?: Record<string, string> }) {
     const enc = new TextEncoder();
-    const lines = ['data: {"choices":[{"delta":{"content":"안녕"}}]}\n', 'data: {"choices":[{"delta":{}}],"usage":{"prompt_tokens":3,"completion_tokens":4}}\n', "data: [DONE]\n"];
-    return async (url: string, init: { headers: Record<string, string> }) => {
+    return async (url: string, init: { headers: Record<string, string>; body: string }) => {
       box.url = url; box.headers = init.headers;
+      const request = JSON.parse(init.body) as { stream: boolean; gateway_request_id?: string; gateway_attempt?: number };
+      const lines = request.stream
+        ? ['data: {"choices":[{"delta":{"content":"안녕"}}]}\n', 'data: {"choices":[{"delta":{}}],"usage":{"prompt_tokens":3,"completion_tokens":4}}\n', "data: [DONE]\n"]
+        : [JSON.stringify({ choices: [{ message: { role: "assistant", content: "안녕" } }], usage: { prompt_tokens: 3, completion_tokens: 4 }, customer_cost: "0.000111", price_version_id: "pv-fallback", currency: "USD", settlement_status: "settled", gateway_request_id: request.gateway_request_id, gateway_attempt: request.gateway_attempt, billing_status: "settled" })];
       let i = 0;
       const reader = { read: async () => (i < lines.length ? { done: false, value: enc.encode(lines[i++]) } : { done: true }), cancel() {} };
       return { ok: true, status: 200, statusText: "OK", body: { getReader: () => reader } };

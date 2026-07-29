@@ -30,7 +30,7 @@ const PROBES: Probe[] = [
   { env: "OPENAI_API_KEY", url: "https://api.openai.com/v1/models", headers: (k) => ({ Authorization: `Bearer ${k}` }), expected: ["gpt-5.5", "gpt-5.4", "gpt-4o"] },
   { env: "XAI_API_KEY", url: "https://api.x.ai/v1/models", headers: (k) => ({ Authorization: `Bearer ${k}` }), expected: ["grok-4.3", "grok-3-mini"] },
   { env: "GLM_API_KEY", url: "https://api.z.ai/api/coding/paas/v4/models", headers: (k) => ({ Authorization: `Bearer ${k}` }), expected: ["glm-5.2", "glm-5.1"] },
-  { env: "GEMINI_API_KEY", url: "https://generativelanguage.googleapis.com/v1beta/openai/models", headers: (k) => ({ Authorization: `Bearer ${k}` }), expected: ["gemini-3.5-flash", "gemini-2.5-flash"], pick: geminiStyle },
+  { env: "GEMINI_API_KEY", url: "https://generativelanguage.googleapis.com/v1beta/openai/models", headers: (k) => ({ Authorization: `Bearer ${k}` }), expected: ["gemini-3.6-flash", "gemini-2.5-flash"], pick: geminiStyle },
   { env: "ANTHROPIC_API_KEY", url: "https://api.anthropic.com/v1/models", headers: (k) => ({ "x-api-key": k, "anthropic-version": "2023-06-01" }), expected: ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"] },
 ];
 

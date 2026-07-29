@@ -27,9 +27,21 @@ function load(cfg: Record<string, unknown>): ProviderConfig {
 /** 첫 fetch 의 url/headers 포착(transport 도달 + endpoint 확인). 스트림 즉시 done. */
 function capture() {
 	const box: { url?: string; headers?: Record<string, string> } = {};
-	const fetch = async (url: string, init: { headers: Record<string, string> }) => {
+	const fetch = async (url: string, init: { headers: Record<string, string>; body: string }) => {
 		box.url = url;
 		box.headers = init.headers;
+		const request = JSON.parse(init.body) as { stream?: boolean; gateway_request_id?: string; gateway_attempt?: number };
+		if (request.stream === false) {
+			const bytes = new TextEncoder().encode(JSON.stringify({
+				choices: [{ message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+				usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+				customer_cost: "0.00000000", price_version_id: "pv-test", currency: "USD",
+				settlement_status: "settled", gateway_request_id: request.gateway_request_id,
+				gateway_attempt: request.gateway_attempt, billing_status: "settled",
+			}));
+			let sent = false;
+			return { ok: true, status: 200, statusText: "OK", body: { getReader: () => ({ read: async () => sent ? { done: true } : (sent = true, { done: false, value: bytes }), cancel() {} }) } };
+		}
 		return { ok: true, status: 200, statusText: "OK", body: { getReader: () => ({ read: async () => ({ done: true }), cancel() {} }) } };
 	};
 	return { fetch, box };
@@ -105,7 +117,9 @@ describe("all-providers wiring — naia-os 프로바이더 전수 (config.json �
 			const { fetch, box } = capture();
 			const resolver = makeProviderResolver({ fetch: fetch as never });
 			const cfg = withKey(load(c.cfg), c.key);
-			await collect(resolver.resolve(cfg).chat(cfg, [], {}));
+			await collect(resolver.resolve(cfg).chat(cfg, [], c.auth === "x-anyllm"
+				? { gatewayRequestId: "wiring-test:round:1", gatewayAttempt: 1 }
+				: {}));
 			expect(box.url).toBe(c.url);
 			if (c.auth === "x-anyllm") {
 				expect(box.headers?.["X-AnyLLM-Key"]).toBe(`Bearer ${c.key.naiaKey}`);

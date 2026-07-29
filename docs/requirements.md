@@ -47,9 +47,9 @@
 - memory(push)↔knowledge(pull) 분리 — 매 턴 자동주입 아님(에이전트 판단 호출), 저장소·주입 경로 분리. 조직지식↔개인기억 비혼합.
 - 실 backend(KB 컴파일/검색 품질·`openWorkspaceKnowledge` in-process 배선)=naia-kb-compiler + compose(K1a-2) 책임(본 어댑터 계약 범위 밖, fake 로 계약 검증).
 
-## UC-PROV FR/NFR (FR-PROV-1 ~ 6, FR-MODEL-1)
+## UC-PROV FR/NFR (FR-PROV-1 ~ 8, FR-MODEL-1)
 
-권위 계약·검증: 아래 FR-PROV-1~6·FR-MODEL-1 표 + Test Coverage Map 의 계약 테스트
+권위 계약·검증: 아래 FR-PROV-1~8·FR-MODEL-1 표 + Test Coverage Map 의 계약 테스트
 (`src/test/all-providers-wiring.contract.test.ts` 등). 상세 진행기록은 메인테이너 워크스페이스 보관(repo 외부).
 
 | ID | 요구사항 | 상태 |
@@ -60,10 +60,13 @@
 | FR-PROV-4 | anthropic·claude-code-cli 연결 — Anthropic Messages API(`/v1/messages`, `x-api-key`, `anthropic-version`) 전용 어댑터(raw fetch, SSE). claude-code = SDK/API 패러다임(CLI 바이너리 아님). text/tool_use(`input_json_delta`)/usage/thinking 매핑 + tool_result 병합 + prompt caching(`cache_control` on system). 키=`ANTHROPIC_API_KEY`(credentials 포트). 비용 레지스트리에 모델 등재(claude-sonnet-4-6 등). naia-os 전 9 provider 연결 완성. | Done |
 | FR-PROV-5 | claude-code-cli = Claude Agent SDK 분리(2026-06-18) — `claude-code-cli` 는 anthropic(Messages API 직접키)에서 격리된 `claude-code` 라우트로, `@anthropic-ai/claude-agent-sdk` `query()`(로컬 Claude Code 구독 인증)를 사용. **apiKey 불요**(keychain `ANTHROPIC_API_KEY` 매핑 제거 → null), naia-settings `claude-code` 분기는 secret/baseUrl 미주입(구독을 직접키로 오인 금지). 비용 = $0(`SUBSCRIPTION_PROVIDERS` + chat-turn-handler `costProvider` 분기 — 동일 model ID 의 anthropic 직접키와 구별). | Done |
 | FR-PROV-6 | ollama native tool_calls (UC5 §H, 2026-07-15) — `makeOllamaProvider` 가 `opts.tools` 를 native `/api/chat` 로 전송하고 `message.tool_calls`(완성체, arguments=object)를 toolUse chunk 로 파싱, tool-bearing 메시지(assistant.toolCalls·tool role+`tool_name` 복원) 매핑. tools 미지원 모델(400 "does not support tools")은 **tools 제거 1회 재시도**(graceful degrade — 순수 챗 유지). 배경: 시연 프로파일 provider=ollama 전환 시 어댑터가 tools 무시 → 스킬 전멸(회귀). 실측: ollama 0.32.0 + DNA 3.0 9B 왕복 확인. 권위 계약 = `docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md` §H. 적대리뷰 = `.agents/reviews/r-fr-prov-6-ollama-tools-2026-07-15.json` (PASS). | Done |
+| FR-PROV-7 | **Gateway 고객가 정본 보존** — `provider=nextain` 호출은 versioned billing의 실제 계약대로 `stream=false`이며, 요청 최상위에 `gateway_request_id`·`gateway_attempt`를 보낸다. 응답 최상위의 snake_case 7필드(`customer_cost`, `price_version_id`, `currency`, `settlement_status`, `gateway_request_id`, `gateway_attempt`, `billing_status`)를 검증해 round별 `BillingReceipt`로 정규화한다. 각 provider round는 고유 request ID를 사용한다. HTTP 응답 전 fetch rejection/connection reset 같은 transport failure만 동일 ID와 증가한 attempt로 한 번 재시도하며, HTTP 5xx 응답은 재시도하지 않는다. ChatTurnHandler는 hosted 경로에서 `calculateCost`를 호출하지 않고 BigInt 고정소수점으로 receipt 금액을 합산한다. terminal `customerCost` string이 금융 정본이며 `cost` number는 구 Shell 표시 호환 alias일 뿐이다. | In Review |
+| FR-PROV-8 | **과금 무결성 상태기계/BYO 경계** — hosted의 성공한 모든 provider round는 usage와 완전한 receipt를 보내야 하며, terminal은 모든 round의 `BillingReceipt[]`를 보존한다. usage/receipt 누락·반쪽/손상 필드·공백 ID·중복 round ID·가격 버전/통화/요청 결속 불일치·미정산 상태·receipt 합계 불일치는 terminal usage의 `billingStatus=error`, 안전한 legacy `cost`, 이어지는 `BILLING_INTEGRITY` error로 종료하고 finish를 금지한다. zero-token receipt도 usage를 방출한다. native/API-key provider는 로컬 추정 `cost`와 `billingStatus=estimated`만 사용한다. stdio/gRPC/Shell은 exact string과 receipt 배열을 무손실 전달하며 protobuf field 5는 string이다. | In Review |
 | FR-MODEL-1 | 모델 카탈로그 최신화 + registry↔cost 정합(2026-06-18) — registry(naia-os shell)의 native(per-token) provider 모델 ID 전부가 agent `cost.ts` MODEL_PRICING 에 등재되어야 한다(과금 0 회귀 금지; zai/glm 통째 누락이 회귀였음). 모델 ID 는 공식 문서로 확정(환각 금지), default 는 검증된 최신 ID 만 승격. 계약: `uc-provider-provenance` cost↔registry 정합 describe + naia-os `registry.test.ts` 카탈로그 정합. | Done |
 
 ### NFR
 - 직교(orthogonality): transport=gRPC adapter only(domain unaware). provider-wiring 경로가 도메인 계층을 인지하지 않음 — 어댑터/설정 경계만 통과.
+- NFR-PROV-cost-authority: hosted 고객 과금은 Gateway만 권위가 있다. Agent/Shell의 모델 가격표는 Gateway 고객가의 fallback이나 두 번째 가산에 사용할 수 없고, 부동소수점 값은 금융 정본·합산 입력으로 사용할 수 없다.
 
 ## UC-CLI FR/NFR (FR-CLI-1 ~ 6) — 단독 CLI 오케스트레이션
 

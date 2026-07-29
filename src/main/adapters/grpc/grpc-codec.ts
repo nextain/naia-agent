@@ -146,7 +146,14 @@ export function emitToProto(requestId: string, e: AgentEmit): PbAgentEvent {
     case "toolResult": return { requestId, toolResult: { toolCallId: e.toolCallId, output: e.output, toolName: e.toolName, success: e.success } };
     case "approvalRequest": return { requestId, approvalRequest: { toolCallId: e.toolCallId, toolName: e.toolName, tier: e.tier, argsJson: JSON.stringify(e.args ?? null), description: e.description } };
     case "gatewayApprovalRequest": return { requestId, gatewayApprovalRequest: { toolCallId: e.toolCallId, toolName: e.toolName, argsJson: JSON.stringify(e.args ?? null) } };
-    case "usage": return { requestId, usage: { inputTokens: e.inputTokens, outputTokens: e.outputTokens, ...(e.cost !== undefined ? { cost: e.cost } : {}), ...(e.model !== undefined ? { model: e.model } : {}) } };
+    case "usage": return { requestId, usage: {
+      inputTokens: e.inputTokens, outputTokens: e.outputTokens,
+      ...(e.cost !== undefined ? { cost: e.cost } : {}),
+      ...(e.customerCost !== undefined ? { customerCost: e.customerCost } : {}),
+      ...(e.billingReceipts !== undefined ? { billingReceipts: e.billingReceipts.map((receipt) => ({ ...receipt, status: "BILLING_RECEIPT_SETTLED" })) } : {}),
+      ...(e.billingStatus !== undefined ? { billingStatus: `BILLING_${e.billingStatus.toUpperCase()}` } : {}),
+      ...(e.model !== undefined ? { model: e.model } : {}),
+    } };
     case "logEntry": return { requestId, logEntry: { level: e.level, message: e.message } };
     case "tokenWarning": return { requestId, tokenWarning: { rawJson: JSON.stringify(e.raw ?? null) } };
     case "compacted": return { requestId, compacted: { droppedCount: e.droppedCount } };

@@ -233,7 +233,34 @@ message ToolUseEvent { string tool_call_id = 1; string tool_name = 2; string arg
 message ToolResultEvent { string tool_call_id = 1; string output = 2; string tool_name = 3; bool success = 4; } // UC1 리뷰: success/toolName 보존(os ChatPanel chunk.success)
 message ApprovalRequestEvent { string tool_call_id = 1; string tool_name = 2; int32 tier = 3; string args_json = 4; string description = 5; } // UC1 리뷰: args/description(blind approval 방지)
 message GatewayApprovalRequestEvent { string tool_call_id = 1; string tool_name = 2; string args_json = 3; }
-message UsageEvent { int64 input_tokens = 1; int64 output_tokens = 2; optional double cost = 3; optional string model = 4; }
+message UsageEvent {
+  int64 input_tokens = 1;
+  int64 output_tokens = 2;
+  optional double cost = 3;
+  optional string model = 4;
+  optional string customer_cost = 5; // exact decimal 금융 정본; cost(double)는 legacy 표시 alias
+  optional BillingStatus billing_status = 11;
+  repeated BillingReceipt billing_receipts = 12;
+}
+message BillingReceipt {
+  string request_id = 1;
+  int32 attempt = 2;
+  string price_version_id = 3;
+  string currency = 4;
+  string customer_cost = 5;
+  BillingReceiptStatus status = 6;
+}
+enum BillingReceiptStatus {
+  BILLING_RECEIPT_UNSPECIFIED = 0;
+  BILLING_RECEIPT_SETTLED = 1;
+}
+enum BillingStatus {
+  BILLING_STATUS_UNSPECIFIED = 0;
+  BILLING_CONFIRMED = 1;
+  BILLING_ESTIMATED = 2;
+  BILLING_UNAVAILABLE = 3;
+  BILLING_ERROR = 4;
+}
 message LogEntryEvent { string level = 1; string message = 2; }
 message TokenWarningEvent { string raw_json = 1; }
 message FinishEvent {}
@@ -261,6 +288,7 @@ enum WireErrorCode {
   WIRE_SCOPE_FORBIDDEN = 17; PROVIDER_SESSION_MISMATCH = 18; PROVIDER_SESSION_EXPIRED = 19; PROVIDER_SESSION_CLOSED = 20;
   PROCESSING_PROFILE_REQUIRED = 21; PROCESSING_DESTINATION_UNKNOWN = 22;
   EXTERNAL_PROCESSING_FORBIDDEN = 23; EXTERNAL_PROCESSING_CONFIRMATION_REQUIRED = 24;
+  BILLING_INTEGRITY = 25;
 }
 message ErrorEvent { string message = 1; optional WireErrorCode code = 2; }
 message CompactedEvent { int64 dropped_count = 1; }
