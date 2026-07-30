@@ -2,6 +2,15 @@
 
 > **SoT**: `.agents/context/process-status.json`
 
+## Naia 계정 Pi 모델 — 2026-07-30 (#93)
+
+- 범위: Codex 또는 사용자가 동일한 `naia-agent run --agent pi` CLI로 `grok-4.3` 코딩과 명시적 `--no-tools`의 `deepseek-v4-pro` 분석을 실행한다.
+- 경로: Pi 0.83.0 → `provider=naia` → any-llm → Azure. 직접 xAI/DeepSeek/Azure 키와 OpenCode fallback은 사용하지 않는다.
+- 검증: Agent 전체 1,376개 테스트, 실제 Pi controlled integration, TypeScript build. 모델 증거·secret-free config·DeepSeek 이중 guard·canonical billing 계약을 포함한다.
+- 매뉴얼: `docs/naia-account-pi-manual.md`.
+- 운영 경계: 실제 Naia/Azure 자격증명·승인된 deployment/가격이 없어 live route와 credit 차감은 `OPERATIONAL_UNVERIFIED`이며 성공으로 간주하지 않는다.
+- 후속 범위: Shell Coding Workers/Pi lifecycle/Workspace 코딩 UX는 이번 변경에 포함하지 않는다.
+
 ## Windows runtime acceptance — 2026-07-21
 
 - Source commit: `d9cfd38` — Windows npm-installed Codex now runs through `codex.cmd` and `cmd.exe`; POSIX keeps `codex`.

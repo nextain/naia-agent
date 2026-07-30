@@ -6,6 +6,9 @@
 // 순수 로직(argv 파싱·이벤트/리포트 렌더·exit code)은 dist/main/app/cli-supervise. 여기선 process I/O·
 // SIGINT·platform shell 매핑만 배선(host 관심사). 오케스트레이션 코어는 wireSupervisor(composition).
 import process from "node:process";
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import {
   parseSuperviseArgs,
   renderEvent,
@@ -13,6 +16,21 @@ import {
   reportExitCode,
 } from "../dist/main/app/cli-supervise.js";
 import { wireSupervisor } from "../dist/main/composition/index.js";
+
+// Standalone runs share the same Naia login store as naia-agent-chat.
+try {
+  const text = readFileSync(join(homedir(), ".naia-agent", ".env"), "utf8");
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const eq = line.indexOf("=");
+    if (eq <= 0) continue;
+    const key = line.slice(0, eq).trim();
+    let value = line.slice(eq + 1).trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) value = value.slice(1, -1);
+    if (process.env[key] === undefined) process.env[key] = value;
+  }
+} catch { /* login file is optional; the adapter reports a precise missing-key error */ }
 
 const argv = process.argv.slice(2);
 // "run" 서브커맨드는 관용(생략 가능 — 첫 토큰이 프롬프트/옵션이면 바로 supervise).
@@ -39,6 +57,9 @@ const shellOpts =
       ? { shell: { command: "cmd", args: (t) => ["/c", t.prompt] } }
       : { shell: { command: "/bin/sh", args: (t) => ["-c", t.prompt] } }
     : undefined;
+const subAgentOpts = shellOpts ?? (a.agent === "pi" ? {
+  pi: { ...(a.model ? { model: a.model } : {}), noTools: a.noTools },
+} : undefined);
 
 const controller = new AbortController();
 let interrupted = false;
@@ -85,7 +106,7 @@ const egress = {
 
 const sup = wireSupervisor({
   subAgentName: a.agent,
-  ...(shellOpts ? { subAgentOpts: shellOpts } : {}),
+  ...(subAgentOpts ? { subAgentOpts } : {}),
   ...(a.watch ? { watchWorkspace: true } : {}),
   ...(a.pollMs !== undefined ? { pollMs: a.pollMs } : {}),
   ...(a.checks.length > 0 ? { verifierChecks: a.checks } : {}),

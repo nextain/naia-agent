@@ -15,6 +15,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "pretest": "pnpm build",
     "start": "node scripts/builds/agent-stdio-entry.mjs",
     "supervise": "node bin/naia-agent-run.mjs",
     "chat": "node bin/naia-agent-chat.mjs",
@@ -24,6 +25,7 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.179",
+    "@earendil-works/pi-coding-agent": "0.83.0",
     "@grpc/grpc-js": "^1.14.4",
     "@grpc/proto-loader": "^0.8.1",
     "@naia/kb-compiler": "file:../../naia-kb-compiler",

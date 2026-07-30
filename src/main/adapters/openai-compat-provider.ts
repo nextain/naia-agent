@@ -41,7 +41,7 @@ interface ToolAcc { id?: string; name?: string; args: string; excluded: boolean;
  *   **resolver 가 판단해 주입한다**(어댑터는 baseUrl 을 스스로 해석하지 않음 — 라우팅 판단=domain).
  *   true 인 경우에만 `enableThinking===false` 를 wire 로 반영한다. 미지정=false(보수적).
  */
-export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string; model?: string; auth?: "bearer" | "x-anyllm"; supportsReasoningEffort?: boolean; fetch?: FetchLike }): ProviderPort {
+export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string; model?: string; auth?: "bearer" | "x-anyllm"; supportsReasoningEffort?: boolean; supportsTools?: boolean; fetch?: FetchLike }): ProviderPort {
   const doFetch: FetchLike = deps.fetch ?? (globalThis.fetch as unknown as FetchLike);
   const base = deps.baseUrl.replace(/\/+$/, "");
   // ⚠️ x-anyllm(naia lab-proxy): 게이트웨이는 `Bearer <token>` 형식 요구(old lab-proxy.ts 와 동일).
@@ -52,7 +52,7 @@ export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string
   return {
     async *chat(config: ProviderConfig, messages: readonly ChatMessage[], opts: ProviderChatOpts): AsyncIterable<ProviderChunk> {
       const wireMsgs = toWireMessages(opts.systemPrompt, messages); // tool 메시지 toolCallId 누락 시 throw(§C.1)
-      const toolsBody = opts.tools && opts.tools.length > 0
+      const toolsBody = deps.supportsTools !== false && opts.tools && opts.tools.length > 0
         ? opts.tools.map((s) => ({ type: "function", function: { name: s.name, description: s.description, parameters: s.parameters } }))
         : undefined;
       // UC-THINKING / FR-THINK-1·2 — 추론 모델이 생각(reasoning)에 출력 토큰을 다 쓰고 **본문을 못 내는**

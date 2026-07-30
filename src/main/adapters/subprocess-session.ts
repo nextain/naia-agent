@@ -106,7 +106,7 @@ export function resolveFallbackCommand(command: string): ResolvedBin {
 }
 
 /** 단일 stdout 줄 → SubAgentEvent 0~1개(malformed/무관 = null 드롭). 어댑터별 파서. */
-export type LineToEvent = (line: string) => SubAgentEvent | null;
+export type LineToEvent = (line: string) => SubAgentEvent | readonly SubAgentEvent[] | null;
 
 export interface SpawnSessionSpec {
   readonly spawnFn: SpawnFn;
@@ -266,16 +266,21 @@ class SubprocessSession implements SubAgentSession {
     // A single stdout chunk can contain multiple newline-delimited protocol events.
     // Once one is terminal, do not send a second OS signal for a later line in that same chunk.
     if (this.#ended) return;
-    let e: SubAgentEvent | null;
+    let parsed: SubAgentEvent | readonly SubAgentEvent[] | null;
     try {
-      e = this.#lineToEvent(line);
+      parsed = this.#lineToEvent(line);
     } catch {
       return; // 파서 throw = 해석불가 줄(드롭). 머신 불변식 보호 — session_end 는 close 가 보장(적대리뷰 P1).
     }
-    if (e?.kind === "session_end") {
-      this.#emitEnd(e.ok, e.reason);
-      if (this.#terminateOnProtocolEnd) this.#terminateProtocolCompletedChild();
-    } else if (e) this.#emit(e);
+    const events = parsed === null ? [] : Array.isArray(parsed) ? parsed : [parsed as SubAgentEvent];
+    for (const e of events) {
+      if (e.kind === "session_end") {
+        this.#emitEnd(e.ok, e.reason);
+        if (this.#terminateOnProtocolEnd) this.#terminateProtocolCompletedChild();
+        break;
+      }
+      this.#emit(e);
+    }
   }
 
   /** session_end 정확히 1회 — 이후 emit/late stdout 무시(드롭/중복 0). waiter drain + cancel 대기자 해제. */

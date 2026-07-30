@@ -46,8 +46,8 @@ describe("subagent-pi 어댑터 계약 (2b, fake child)", () => {
     const port = makePiSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn });
     const session = port.spawn({ prompt: "X 함수 추가해", workdir: "/tmp/w" });
     f.line('{"type":"session_start"}');
-    f.line('{"type":"tool_call","toolName":"edit_file"}');
-    f.line('{"type":"tool_result","toolName":"edit_file","isError":false}');
+    f.line('{"type":"tool_execution_start","toolCallId":"c1","toolName":"edit_file","args":{}}');
+    f.line('{"type":"tool_execution_end","toolCallId":"c1","toolName":"edit_file","result":{},"isError":false}');
     f.line('{"type":"message_end","message":{"content":[{"type":"text","text":"작업 완료"}]}}');
     f.close(0);
     const events = await drain(session.events);
@@ -127,8 +127,8 @@ describe("subagent-pi 어댑터 계약 (2b, fake child)", () => {
 
   // stub-detector: piLineToEvent 가 실제 매핑(항상참/no-op 아님)
   it("stub-detector — piLineToEvent 가 type 별 정확 매핑(빈/무관=null)", () => {
-    expect(piLineToEvent('{"type":"tool_call","toolName":"bash"}')).toEqual({ kind: "tool_use_start", tool: "bash" });
-    expect(piLineToEvent('{"type":"tool_result","toolName":"bash","isError":true}')).toEqual({ kind: "tool_use_end", tool: "bash", ok: false });
+    expect(piLineToEvent('{"type":"tool_execution_start","toolCallId":"c1","toolName":"bash","args":{}}')).toEqual({ kind: "tool_use_start", tool: "bash" });
+    expect(piLineToEvent('{"type":"tool_execution_end","toolCallId":"c1","toolName":"bash","result":{},"isError":true}')).toEqual({ kind: "tool_use_end", tool: "bash", ok: false });
     expect(piLineToEvent("")).toBeNull();
     expect(piLineToEvent('{"type":"message_end","message":{"content":[]}}')).toBeNull(); // 빈 텍스트=드롭
   });

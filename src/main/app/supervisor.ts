@@ -15,7 +15,7 @@
 //   (I3) verifier 가 throw/hang(reject) 해도 supervisor 는 throw 하지 않고 ok:false 리포트로 흡수(AC2 — never-throws 래핑).
 //   (I4) emit(event/report) 은 no-throw 로 호출(egress 가 throw 해도 supervisor 진행) — diag 로 흡수.
 import type {
-  TaskSpec, SubAgentEvent, WorkspaceChange, VerificationReport, SupervisorReport,
+  TaskSpec, SubAgentEvent, SubAgentModelEvidence, WorkspaceChange, VerificationReport, SupervisorReport,
 } from "../domain/orchestration.js";
 import { emptyVerification, diffWorkspaceChange } from "../domain/orchestration.js";
 import type {
@@ -46,6 +46,7 @@ interface AttemptResult {
   readonly realSessionEnd: boolean;
   /** 이 시도의 terminal session_end(실제 or 합성). runAttempt 는 **forward 하지 않고** 반환만 — run 이 최종 시도 1회만 forward(I1b). */
   readonly endEvent: SubAgentEvent;
+  readonly modelEvidence?: SubAgentModelEvidence;
 }
 
 /** verifier wall-clock 마감(ms) — never-throws 계약을 보강하는 *liveness* 가드. verifier 가 hang 해도
@@ -104,6 +105,7 @@ export class Supervisor {
       deletions: changes ? changes.deleted.length : 0,
       verification: result?.verification ?? { ok: false, checks: [{ name: "supervisor", pass: false, details: "attempt 결과 없음(치명 오류)" }] },
       sessionOk: result?.sessionOk ?? false,
+      ...(result?.modelEvidence ? { modelEvidence: result.modelEvidence } : {}),
     };
     this.safeReport(report);
   }
@@ -140,6 +142,7 @@ export class Supervisor {
     let baselineWorkspace: WorkspaceChange | undefined; // 감시 시작 dirty baseline(작업 전 dirty 를 "바꿈"으로 안 셈, P2).
     let sessionOk = false;
     let verification: VerificationReport = emptyVerification();
+    let modelEvidence: SubAgentModelEvidence | undefined;
     // terminal session_end(실제 or 합성) — runAttempt 는 forward 안 하고 반환(run 이 최종 1회 forward, I1b). 기본=안전망.
     let endEvent: SubAgentEvent = { kind: "session_end", ok: false, reason: "no session_end observed" };
 
@@ -174,6 +177,7 @@ export class Supervisor {
             realSessionEnd = true; // 실제 종료 관측 — 자식이 스스로 끝남(finally cancel 불요)
             break;
           }
+          if (t.e.kind === "model_evidence") modelEvidence = t.e.evidence;
           // 비-terminal sub-agent 이벤트 forward(인과 순서 보존, AC3). emit no-throw 흡수.
           this.safeEvent(t.e);
         }
@@ -210,7 +214,7 @@ export class Supervisor {
       //   완료된 세션에 대한 stale-cancel 방지. (abort 가 이미 fire 됐으면 once 로 자동 제거됨 → 무해 중복 호출.)
       signal.removeEventListener("abort", onAbort);
     }
-    return { sessionOk, verification, latestWorkspace, baselineWorkspace, realSessionEnd, endEvent };
+    return { sessionOk, verification, latestWorkspace, baselineWorkspace, realSessionEnd, endEvent, ...(modelEvidence ? { modelEvidence } : {}) };
   }
 
   /** verifier 미주입=검증 생략(ok:true 중립). 주입 시 verify 를 deadline 과 race + try/catch 로 감싸 never-throws 보장(AC2). */

@@ -65,7 +65,7 @@
 ### NFR
 - 직교(orthogonality): transport=gRPC adapter only(domain unaware). provider-wiring 경로가 도메인 계층을 인지하지 않음 — 어댑터/설정 경계만 통과.
 
-## UC-CLI FR/NFR (FR-CLI-1 ~ 6) — 단독 CLI 오케스트레이션
+## UC-CLI FR/NFR (FR-CLI-1 ~ 13) — 단독 CLI 오케스트레이션
 
 권위 계약서: `docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md`.
 컷오버 누락 역량(구 `backup/main-2026-06-22` 보존)의 신 헥사고날 arch 편입. 단계 2a→2c, naia-os 배선=후속.
@@ -80,6 +80,11 @@
 | FR-CLI-6 | **WorkspacePort** — 파일 변경 요약 스트림(added/modified/deleted + 수치). domain 은 git diff 포맷 모름(adapter=chokidar+git). | Done |
 | FR-CLI-7 | **CLI 대화 host (S1 멀티턴 REPL)** — `naia-agent chat` 가 stdio/readline **AgentIngressPort/AgentEgressPort** 어댑터를 gRPC 와 **동일 `wireAgentUC1`** 에 주입. 매 입력이 누적 history 와 함께 `ChatRequest` → 맥락 유지 멀티턴. emit(text)→stdout 스트리밍, finish→assistant 턴 history append+재프롬프트, error→격리(턴만 실패·루프 생존), Ctrl+C=현재 턴 cancel. | Done |
 | FR-CLI-8 | **CLI 로그인 (S1 자격증명)** — `naia-agent login --provider <p> [--key <k>\|stdin]` → 자격증명 영속(홈 `.naia-agent/.env` 0600, 옛 CLI 호환·크로스플랫폼; Linux 추가 secret-tool). chat host 기동 시 로드 → resolver/credentials 포트가 읽어 provider 연결(키 인자 없이 대화). | Done |
+| FR-CLI-9 | **Naia account Pi provider** — `run --agent pi --model grok-4.3`와 `deepseek-v4-pro` 분석 실행은 저장된 `NAIA_API_KEY`와 Naia gateway만 사용한다. Pi 설정에는 환경변수 참조만 기록하고 direct Azure/xAI/DeepSeek key 및 OpenCode fallback을 금지한다. | Done (#93; live Azure는 `OPERATIONAL_UNVERIFIED`) |
+| FR-CLI-10 | **모델 능력 fail-closed** — Grok은 tool coding 허용. DeepSeek-V4-Pro는 명시적 `--no-tools` 분석만 허용하고 생략 시 Pi spawn 전에 실패한다. Gateway는 `tools`가 있는 DeepSeek 요청을 upstream 0-call/HTTP 400으로 독립 거부한다. | Done (#93) |
+| FR-CLI-11 | **동일 CLI 표면** — Codex가 자식 프로세스로 호출한 경우와 사용자가 직접 호출한 경우 provider/model/workdir/terminal report가 동일하다. | Done (#93) |
+| FR-CLI-12 | **격리 환경·고정 Pi·canonical identity** — 고정 버전 Pi는 격리 config와 Naia key/필수 env만 받고 direct-provider secret을 상속하지 않는다. gateway usage/billing key는 `azure:<exact-model>`이며 Azure client cache는 모델별 endpoint를 혼용하지 않는다. | Done (#93; live 청구는 `OPERATIONAL_UNVERIFIED`) |
+| FR-CLI-13 | **실행 가능한 매뉴얼** — `docs/naia-account-pi-manual.md`의 clean-HOME 명령, exit code, model/usage/diff/verifier 판정을 자동 실행 가능한 acceptance로 유지한다. | Done (#93) |
 
 ### NFR
 - **직교**: domain/app 이 subprocess/git/transport 미import(`import-boundary.contract.test.ts` green). fake 포트로 supervisor 결정론 검증.
@@ -87,6 +92,7 @@
 - **결정론 계약**: stream-merge·interrupt·infra 처리를 fake 어댑터로 계약테스트(실 subprocess 무의존).
 - **로깅**: src 표준 로깅(DiagnosticLog 포트)만, console.* 금지(F-LOG-3).
 - **NFR-SEC-1 (로그 시크릿 마스킹)**: DiagnosticLog sink 가 write 직전 `adapters/redact.ts`(`redactSecrets`)로 알려진 키·토큰(sk-/AIza/ghp/xox/AKIA/gw/JWT + apiKey/password/token 키문맥)을 `[REDACTED]` 마스킹 — 평문 자격증명의 stderr 누출 방지(best-effort defense-in-depth, 1차 방어=로그금지 규율). 검증 `redact.contract.test.ts`(26 케이스, codex 적대 7R). 재감사 2026-06-23.
+- **NFR-NAIA-PI**: 모델/가격/크레딧/실 upstream의 권위는 gateway이며 Agent는 이를 복제하지 않는다. 단일 실행 결과로 비용 절감을 약속하지 않고 tokens/time/rework를 기록한다.
 
 ## UC-PANEL FR/NFR (FR-PANEL-1 ~ 5) — 환경 panel skill (BGM·브라우저·workspace)
 

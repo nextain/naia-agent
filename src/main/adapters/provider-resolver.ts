@@ -56,6 +56,7 @@ export function makeProviderResolver(deps?: ProviderResolverDeps): ProviderResol
 						auth: "x-anyllm",
 						model: config.model,
 						supportsReasoningEffort: false,
+						supportsTools: config.model !== "deepseek-v4-pro",
 						...(f ? { fetch: f } : {}),
 					});
 				}

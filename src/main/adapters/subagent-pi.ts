@@ -15,6 +15,9 @@ import { fileURLToPath } from "node:url";
 import type { TaskSpec, SubAgentEvent } from "../domain/orchestration.js";
 import type { SubAgentPort, SubAgentSession } from "../ports/orchestration.js";
 import {
+  NAIA_PI_PROVIDER, buildNaiaPiChildEnv, ensureNaiaPiConfig, isNaiaPiModel,
+} from "./naia-pi-provider.js";
+import {
   DEFAULT_HARD_KILL_DEADLINE_MS, defaultSpawn, spawnSubprocessSession, endedSession,
   type SpawnFn, type ResolvedBin, pickSpawnableBin, resolveSpawnableBin, resolveFallbackCommand,
 } from "./subprocess-session.js";
@@ -26,6 +29,9 @@ export interface SubAgentPiOptions {
   readonly provider?: string;
   /** --model 로 전달(옵셔널). TaskSpec.model 보다 우선(어댑터 고정 모델). */
   readonly model?: string;
+  readonly noTools?: boolean;
+  readonly env?: NodeJS.ProcessEnv;
+  readonly piConfigDir?: string;
   /** hard-kill 유예(ms) override. 기본 500. 테스트가 단축. */
   readonly hardKillDeadlineMs?: number;
   /** bin 해석 주입(테스트/override). 미주입 = resolvePiBin(env→node_modules→PATH→npx). */
@@ -51,7 +57,9 @@ function validatePiBin(raw: string | undefined): string | undefined {
 function findPiInNodeModules(): string | null {
   const thisDir = dirname(fileURLToPath(import.meta.url));
   const candidates = [
+    resolve(thisDir, "../../../node_modules/.bin/pi.cmd"),
     resolve(thisDir, "../../../node_modules/.bin/pi"),
+    resolve(thisDir, "../../../../node_modules/.bin/pi.cmd"),
     resolve(thisDir, "../../../../node_modules/.bin/pi"),
   ];
   for (const c of candidates) if (existsSync(c)) return c;
@@ -74,18 +82,24 @@ export function resolvePiBin(): ResolvedBin {
   const validated = validatePiBin(process.env["PI_BIN"]);
   if (validated) return { command: validated, prefixArgs: [] };
   const inNodeModules = findPiInNodeModules();
-  if (inNodeModules) return { command: inNodeModules, prefixArgs: [] };
+  if (inNodeModules) return resolveSpawnableBin(inNodeModules);
   const inPath = findPiInPath();
   if (inPath) return resolveSpawnableBin(inPath);
   const fb = resolveFallbackCommand("npx");
-  return { command: fb.command, prefixArgs: [...fb.prefixArgs, "--yes", "@earendil-works/pi-coding-agent"] }; // 미설치 시 첫 사용에 설치.
+  return { command: fb.command, prefixArgs: [...fb.prefixArgs, "--yes", "@earendil-works/pi-coding-agent@0.83.0"] };
 }
 
 // ── pi NDJSON 파싱 (구 adapter-pi/event-parser.ts 의 필요 부분만) ─────────────
 
 interface RawPiEvent {
   type?: string;
-  message?: { content?: Array<{ type?: string; text?: string }> };
+  message?: {
+    role?: string;
+    content?: Array<{ type?: string; text?: string }>;
+    provider?: string;
+    model?: string;
+    usage?: { input?: number; output?: number; totalTokens?: number; cost?: { total?: number } };
+  };
   toolName?: string;
   isError?: boolean;
   [key: string]: unknown;
@@ -103,34 +117,63 @@ function extractMessageText(message: RawPiEvent["message"]): string {
 
 /** 단일 NDJSON 줄 → SubAgentEvent 0~1개. malformed/빈줄/무관 type = null(드롭, no crash). */
 export function piLineToEvent(line: string): SubAgentEvent | null {
+  const events = piLineToEvents(line);
+  return events.length > 0 ? events[0]! : null;
+}
+
+/** A Pi message_end carries both visible text and the provider/model/usage evidence. */
+export function piLineToEvents(
+  line: string,
+  expected?: { provider: string; model: string },
+): readonly SubAgentEvent[] {
   const trimmed = line.trim();
-  if (trimmed.length === 0) return null;
+  if (trimmed.length === 0) return [];
   let raw: RawPiEvent;
   try {
     raw = JSON.parse(trimmed) as RawPiEvent;
   } catch {
-    return null; // malformed JSON 관용(crash 금지)
+    return [];
   }
-  if (typeof raw.type !== "string") return null;
+  if (typeof raw.type !== "string") return [];
 
   switch (raw.type) {
     case "session_start":
     case "agent_start":
-      return { kind: "planning" }; // 계획/진행 표지(2a 별 kind 없음 → planning).
+      return [{ kind: "planning" }];
     case "message_end": {
+      if (raw.message?.role === "user" || raw.message?.role === "toolResult") return [];
       const text = extractMessageText(raw.message);
-      return text.length > 0 ? { kind: "text_delta", text } : null;
+      const events: SubAgentEvent[] = [];
+      if (text.length > 0) events.push({ kind: "text_delta", text });
+      const m = raw.message;
+      if (m && typeof m.provider === "string" && typeof m.model === "string" && m.usage) {
+        const evidence = {
+          provider: m.provider,
+          selectedModel: m.model,
+          inputTokens: Number(m.usage.input ?? 0),
+          outputTokens: Number(m.usage.output ?? 0),
+          totalTokens: Number(m.usage.totalTokens ?? 0),
+          ...(typeof m.usage.cost?.total === "number" ? { piEstimatedCost: m.usage.cost.total } : {}),
+        };
+        events.push({ kind: "model_evidence", evidence });
+        if (expected && (m.provider !== expected.provider || m.model !== expected.model)) {
+          events.push({ kind: "session_end", ok: false, reason: `pi model mismatch: expected ${expected.provider}/${expected.model}, Pi reported ${m.provider}/${m.model}` });
+        }
+      } else if (expected) {
+        events.push({ kind: "session_end", ok: false, reason: "pi model evidence missing from message_end" });
+      }
+      return events;
     }
-    case "tool_call": {
+    case "tool_execution_start": {
       const tool = typeof raw.toolName === "string" ? raw.toolName : "unknown";
-      return { kind: "tool_use_start", tool };
+      return [{ kind: "tool_use_start", tool }];
     }
-    case "tool_result": {
+    case "tool_execution_end": {
       const tool = typeof raw.toolName === "string" ? raw.toolName : "unknown";
-      return { kind: "tool_use_end", tool, ok: raw.isError !== true }; // 구 toolUseId/elapsedMs 는 2a 비범위 드롭.
+      return [{ kind: "tool_use_end", tool, ok: raw.isError !== true }];
     }
     default:
-      return null; // turn_start/turn_end/agent_end/message_start/compaction_* 등 = 2a 대응 kind 없음 → 드롭.
+      return [];
   }
 }
 
@@ -141,6 +184,30 @@ export function makePiSubAgent(opts: SubAgentPiOptions = {}): SubAgentPort {
   const resolveBin = opts.resolveBin ?? resolvePiBin;
   return {
     spawn(task: TaskSpec): SubAgentSession {
+      const sourceEnv = opts.env ?? process.env;
+      const model = opts.model ?? task.model;
+      const naiaModel = isNaiaPiModel(model);
+      const provider = opts.provider ?? (naiaModel ? NAIA_PI_PROVIDER : undefined);
+      if (naiaModel && provider !== NAIA_PI_PROVIDER) {
+        return endedSession(`Naia model '${model}' cannot use direct provider '${provider}'`);
+      }
+      if (model === "deepseek-v4-pro" && opts.noTools !== true) {
+        return endedSession("deepseek-v4-pro is analysis-only; rerun with --no-tools");
+      }
+      let childEnv: NodeJS.ProcessEnv | undefined;
+      if (naiaModel) {
+        const key = (sourceEnv["NAIA_API_KEY"] ?? sourceEnv["NAIA_ANYLLM_API_KEY"])?.trim();
+        if (!key) return endedSession("NAIA_API_KEY is required; run 'naia-agent login --provider naia'");
+        try {
+          const configDir = ensureNaiaPiConfig({
+            ...(opts.piConfigDir ? { dir: opts.piConfigDir } : {}),
+            baseUrl: sourceEnv["NAIA_ANYLLM_BASE_URL"] ?? sourceEnv["NAIA_GATEWAY_URL"],
+          });
+          childEnv = buildNaiaPiChildEnv(sourceEnv, configDir, key);
+        } catch (e) {
+          return endedSession(`naia pi configuration failed: ${(e as Error).message}`);
+        }
+      }
       // bin 해석(PI_BIN 부적합 등) 실패는 throw 가 아니라 정직한 session_end{ok:false}(AC6).
       let bin: ResolvedBin;
       try {
@@ -148,12 +215,14 @@ export function makePiSubAgent(opts: SubAgentPiOptions = {}): SubAgentPort {
       } catch (e) {
         return endedSession(`pi unavailable: ${(e as Error).message}`);
       }
-      const model = opts.model ?? task.model;
       const args: string[] = ["-p", task.prompt, "--mode", "json", "--no-session"];
-      if (opts.provider) args.push("--provider", opts.provider);
+      if (provider) args.push("--provider", provider);
       if (model) args.push("--model", model);
+      if (opts.noTools === true) args.push("--no-tools");
       return spawnSubprocessSession({
-        spawnFn, bin, args, cwd: task.workdir, hardKillMs, lineToEvent: piLineToEvent, label: "pi",
+        spawnFn, bin, args, cwd: task.workdir, ...(childEnv ? { env: childEnv } : {}), hardKillMs,
+        lineToEvent: naiaModel ? (line) => piLineToEvents(line, { provider: NAIA_PI_PROVIDER, model }) : piLineToEvent,
+        label: "pi", diagnostics: true,
       });
     },
   };
