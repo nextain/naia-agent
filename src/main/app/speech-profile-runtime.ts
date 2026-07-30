@@ -55,6 +55,14 @@ export class SpeechProfileRuntime {
 
   yield(sessionId: string, activityId: string): YieldSpeechResult {
     if (
+      this.activeKind === "personal_radio_dj"
+      && sessionId === this.activeSessionId
+      && activityId === this.d.dj.currentActivityId()
+    ) {
+      const binding = this.d.dj.yieldForUserTurn();
+      return binding ? { ok: true, binding } : { ok: false };
+    }
+    if (
       this.activeKind !== "exhibition_intro"
       || sessionId !== this.activeSessionId
       || activityId !== this.d.exhibition.currentActivityId()
@@ -81,6 +89,7 @@ export class SpeechProfileRuntime {
     if (sessionId !== this.activeSessionId) return false;
     if (this.activeKind === "personal_radio_dj") {
       if (activityId && activityId !== this.d.dj.currentActivityId()) return false;
+
       if (!["music_only", "talk_less", "talk_more", "change_vibe", "next", "stop"].includes(action)) return false;
       await this.d.dj.control({ kind: action as "music_only" | "talk_less" | "talk_more" | "change_vibe" | "next" | "stop" });
       return true;
@@ -93,6 +102,14 @@ export class SpeechProfileRuntime {
     else if (action === "stop") this.d.exhibition.stop();
     else return false;
     return true;
+  }
+
+  resumeAfterChat(binding: ExhibitionResumeBinding): void {
+    if (
+      this.activeKind !== "personal_radio_dj"
+      || binding.sessionId !== this.activeSessionId
+    ) return;
+    this.d.dj.resumeAfterUserTurn(binding);
   }
 
   /**

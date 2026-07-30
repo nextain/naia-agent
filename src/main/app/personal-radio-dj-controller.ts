@@ -2,6 +2,7 @@
 // 개인 DJ의 닫힌 상태와 정책만 소유한다. 범용 tool executor를 열지 않고 좁은 BGM/context/speech 포트만 사용한다.
 import type {
   DjContextSnapshot,
+  ExhibitionResumeBinding,
   PersonalRadioDjConfig,
   ProactiveScheduler,
   RadioDjBgmPort,
@@ -85,6 +86,7 @@ export class PersonalRadioDjController {
   private preserveLatePlaybackEpochs = new Set<number>();
   private intervalMs = 0;
   private commentIndex = 0;
+  private yieldGeneration = 0;
   private lastSnapshot?: DjContextSnapshot;
   private lastReason: "time" | "weather" | "mood" | "preference" | "generic" = "generic";
   private activityAbort?: AbortController;
@@ -137,6 +139,41 @@ export class PersonalRadioDjController {
     this.armIdle();
   }
 
+  /** User chat/STT owns the voice lane; music keeps playing while DJ speech yields. */
+  yieldForUserTurn(): ExhibitionResumeBinding | undefined {
+    if (
+      !this.config
+      || !this.activityId
+      || !["playing", "dj_speaking"].includes(this.currentState)
+    ) return undefined;
+    this.cancelFlow();
+    this.operationEpoch++;
+    this.d.speech.interrupt(this.activityId);
+    this.currentState = "yielded";
+    const yieldGeneration = ++this.yieldGeneration;
+    return {
+      sessionId: this.config.sessionId,
+      activityId: this.activityId,
+      profileGeneration: this.generation,
+      yieldGeneration,
+      resumeToken: `radio:${this.activityId}:${this.generation}:${yieldGeneration}`,
+    };
+  }
+
+  resumeAfterUserTurn(binding: ExhibitionResumeBinding): boolean {
+    if (binding.activityId !== this.activityId || this.currentState !== "yielded") return false;
+    const expectedToken = `radio:${this.activityId}:${this.generation}:${this.yieldGeneration}`;
+    if (
+      binding.sessionId !== this.config?.sessionId
+      || binding.profileGeneration !== this.generation
+      || binding.yieldGeneration !== this.yieldGeneration
+      || binding.resumeToken !== expectedToken
+    ) return false;
+    this.currentState = "dj_speaking";
+    this.scheduleComment();
+    return true;
+  }
+
   async control(control: RadioDjControl): Promise<void> {
     if (!this.config || !this.activityId || !this.requestId) return;
     const generation = this.generation;
@@ -183,7 +220,7 @@ export class PersonalRadioDjController {
       case "next": {
         if (this.d.bgm.capabilities().next) {
           let next;
-          let previous: { videoId: string; title: string } | undefined;
+          let previous: Awaited<ReturnType<RadioDjBgmPort["status"]>>;
           try {
             previous = await this.d.bgm.status();
             next = await this.d.bgm.next({
@@ -207,7 +244,7 @@ export class PersonalRadioDjController {
             next.ok
             && next.videoId
             && next.title
-            && next.videoId !== previous?.videoId
+            && next.videoId !== previous?.track?.videoId
           ) {
             await this.speak(renderPlayIntro(next.title));
           } else {
@@ -410,7 +447,7 @@ export class PersonalRadioDjController {
 
   private freshSnapshot(
     raw: DjContextSnapshot,
-    live: { videoId: string; title: string } | undefined,
+    live: Awaited<ReturnType<RadioDjBgmPort["status"]>>,
   ): DjContextSnapshot {
     const now = this.d.scheduler.now();
     const weatherAt = raw.weather ? Date.parse(raw.weather.observedAt) : Number.NaN;
@@ -428,23 +465,48 @@ export class PersonalRadioDjController {
       localTime: raw.localTime,
       ...(weatherFresh ? { weather: raw.weather } : {}),
       ...(moodFresh ? { moodActivity: raw.moodActivity } : {}),
-      ...(live ? { nowPlaying: { ...live, source: "bgm-player" as const } } : {}),
+      ...(live?.track ? { nowPlaying: { ...live.track, source: "bgm-player" as const } } : {}),
       preferences: raw.preferences.filter((p) => p.confidence === "explicit"),
     };
   }
 
   private scheduleComment(): void {
-    if (!this.config || this.currentState !== "dj_speaking" || this.cancelFlowTimer) return;
+    const operationEpoch = this.operationEpoch;
+    if (!this.config || !this.activityId || this.currentState !== "dj_speaking" || this.cancelFlowTimer) return;
     const generation = this.generation;
-    this.cancelFlowTimer = this.d.scheduler.schedule(this.intervalMs, async () => {
-      this.cancelFlowTimer = undefined;
-      if (generation !== this.generation || this.currentState !== "dj_speaking") return;
+    const activityId = this.activityId;
+    let cancelTimer: (() => void) | undefined;
+    let fired = false;
+    cancelTimer = this.d.scheduler.schedule(this.intervalMs, async () => {
+      fired = true;
+      if (this.cancelFlowTimer === cancelTimer) this.cancelFlowTimer = undefined;
+      if (!this.isOperationCurrent(generation, activityId, operationEpoch) || this.currentState !== "dj_speaking") return;
+      let live: Awaited<ReturnType<RadioDjBgmPort["status"]>>;
+      try {
+        live = await this.d.bgm.status();
+      } catch {
+        live = undefined;
+      }
+      if (!this.isOperationCurrent(generation, activityId, operationEpoch) || this.currentState !== "dj_speaking") return;
+      if (live && ["ended", "error", "timeout"].includes(live.status)) {
+        await this.replaceSelection(true, generation, operationEpoch);
+        return;
+      }
+      if (!live || live.status !== "playing") {
+        this.scheduleComment();
+        return;
+      }
+      if (live.track && this.lastSnapshot) {
+        this.lastSnapshot = { ...this.lastSnapshot, nowPlaying: { ...live.track, source: "bgm-player" } };
+      }
+      if (!this.isOperationCurrent(generation, activityId, operationEpoch) || this.currentState !== "dj_speaking") return;
       await this.speak(renderDjComment(this.commentIndex++, this.lastSnapshot, this.lastReason));
-      if (generation !== this.generation || this.currentState !== "dj_speaking") return;
+      if (!this.isOperationCurrent(generation, activityId, operationEpoch) || this.currentState !== "dj_speaking") return;
       if (generation === this.generation && this.currentState === "dj_speaking") {
         this.scheduleComment();
       }
     });
+    if (!fired) this.cancelFlowTimer = cancelTimer;
   }
 
   private async speak(text: string): Promise<"completed" | "cancelled"> {

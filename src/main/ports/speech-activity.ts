@@ -37,6 +37,14 @@ export interface PersonalRadioDjConfig {
   readonly bgmAutoPlayOptIn: boolean;
 }
 
+export interface RadioDjPlaybackState {
+  readonly status: "requested" | "loading" | "playing" | "paused" | "ended" | "error" | "timeout";
+  readonly playbackId?: string;
+  readonly sequence?: number;
+  readonly track?: { readonly videoId: string; readonly title: string };
+  readonly reason?: string;
+}
+
 export interface RadioDjBgmPort {
   capabilities(): { readonly ready: boolean; readonly next: boolean };
   searchAndPlay(
@@ -51,7 +59,7 @@ export interface RadioDjBgmPort {
     | { readonly ok: false; readonly reason: string }
   >;
   stop(opts: { readonly requestId: string; readonly activityId: string }): Promise<{ readonly ok: boolean }>;
-  status(): Promise<{ readonly videoId: string; readonly title: string } | undefined>;
+  status(): Promise<RadioDjPlaybackState | undefined>;
 }
 
 export interface ActivitySpeechPort {

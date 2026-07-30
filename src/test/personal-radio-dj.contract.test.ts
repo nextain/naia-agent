@@ -51,6 +51,7 @@ function harness(overrides: {
 } = {}) {
   const scheduler = new ManualScheduler();
   const spoken: string[] = [];
+  const speechInterrupts = vi.fn();
   const bgmCalls: string[] = [];
   const preferenceHandoffs: {
     sentiment: "like" | "dislike";
@@ -71,7 +72,11 @@ function harness(overrides: {
     }),
     next: vi.fn(async () => overrides.nextResult ?? ({ ok: false as const, reason: "unsupported" })),
     stop: vi.fn(async () => { bgmCalls.push("stop"); return { ok: true }; }),
-    status: vi.fn(async () => overrides.currentBgm),
+    status: vi.fn(async () => ({
+      status: "playing" as const,
+      playbackId: "bgm-playback-1",
+      track: overrides.currentBgm ?? { videoId: "v1", title: "집중할 때 듣는 긴 재즈 믹스" },
+    })),
   };
   const controller = new PersonalRadioDjController({
     scheduler,
@@ -92,7 +97,7 @@ function harness(overrides: {
     speech: {
       open: vi.fn(),
       speak: vi.fn(async ({ text }) => { spoken.push(text); return "completed" as const; }),
-      interrupt: vi.fn(),
+      interrupt: speechInterrupts,
       close: vi.fn(),
     },
     preferences: {
@@ -108,7 +113,7 @@ function harness(overrides: {
     bgmAutoPlayOptIn: overrides.optIn ?? true,
   });
   controller.setSubscriberReady(overrides.subscriberReady ?? true);
-  return { controller, scheduler, spoken, bgmCalls, preferenceHandoffs, selectedSnapshots, bgm };
+  return { controller, scheduler, spoken, bgmCalls, preferenceHandoffs, selectedSnapshots, bgm, speechInterrupts };
 }
 
 describe("personal radio DJ MVP contract", () => {
@@ -169,6 +174,29 @@ describe("personal radio DJ MVP contract", () => {
     expect(h.bgmCalls).toContain("stop");
     await h.scheduler.advance(60_000);
     expect(h.spoken).toHaveLength(count);
+  });
+
+  it("PA-DJ-05C: STT/채팅 끼어들기 동안 DJ 멘트만 양보하고 일반 턴 뒤 재개한다", async () => {
+    const h = harness();
+    await h.scheduler.advance(1_000);
+    const spokenBeforeYield = h.spoken.length;
+
+    const binding = h.controller.yieldForUserTurn();
+    expect(binding).toMatchObject({ activityId: "activity-dj-1" });
+    expect(h.controller.state()).toBe("yielded");
+    expect(h.speechInterrupts).toHaveBeenCalledWith("activity-dj-1");
+    await h.scheduler.advance(5_000);
+    expect(h.spoken).toHaveLength(spokenBeforeYield);
+
+    if (!binding) throw new Error("yield binding missing");
+    expect(h.controller.resumeAfterUserTurn({
+      ...binding,
+      yieldGeneration: binding.yieldGeneration + 1,
+    })).toBe(false);
+    expect(h.controller.resumeAfterUserTurn(binding)).toBe(true);
+    await h.scheduler.advance(500);
+    expect(h.spoken).toHaveLength(spokenBeforeYield + 1);
+    expect(h.bgmCalls).not.toContain("stop");
   });
 
   it("PA-DJ-03 emits eight grounded non-repeating remarks", async () => {

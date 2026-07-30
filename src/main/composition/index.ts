@@ -93,8 +93,17 @@ export function wireAgentUC1(opts?: {
     switch (req.kind) {
       case "chat": {
         const run = async () => {
-          if (opts?.speechProfiles && await opts.speechProfiles.handleProfileChat(req)) return;
-          await handler.onChatRequest(req);
+          try {
+            if (opts?.speechProfiles && await opts.speechProfiles.handleProfileChat(req)) return;
+            await handler.onChatRequest(req);
+          } finally {
+            if (req.activityResume) {
+              opts?.speechProfiles?.resumeAfterChat({
+                sessionId: req.sessionId ?? "",
+                ...req.activityResume,
+              });
+            }
+          }
         };
         const p = run().catch((e) => diag.log("onChatRequest 처리 실패", e)).finally(() => inflight.delete(p));
         inflight.add(p);
