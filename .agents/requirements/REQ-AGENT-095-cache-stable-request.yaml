@@ -1,0 +1,42 @@
+id: REQ-AGENT-095
+title: Naia GPT-5.6 cache-stable request sharding
+title_ko: Naia GPT-5.6 캐시 안정 요청
+product: naia-agent
+module: provider-adapter
+status: verified
+source: issue
+priority: high
+created: 2026-07-31
+updated: 2026-07-31
+issue_url: https://github.com/nextain/naia-agent/issues/95
+
+description: |
+  For Naia-account GPT-5.6 chat traffic, send a deterministic non-secret cache
+  shard derived from model and stable system prefix. The AnyLLM gateway combines
+  it with authenticated user identity. Pi remains limited to the already agreed
+  Grok/DeepSeek standalone model set and receives a safe gateway fallback key.
+
+acceptance_criteria:
+  - Same Naia GPT-5.6 model and exact UTF-8 system-prefix bytes produce the same prompt_cache_key; no whitespace or Unicode normalization may merge prefixes that Azure would treat as different.
+  - A different model or system prefix produces a different key.
+  - Native and unrelated Naia models receive no cache-specific request field.
+  - Existing CLI, Pi, Shell and canonical provider/model contracts remain unchanged.
+  - Pi's standalone allowlist remains exactly Grok 4.3 and DeepSeek V4 Pro; contract tests assert neither receives a GPT-5.6 cache field or model-list expansion.
+  - Gateway integration demonstrates write-then-read usage without exposing account or workspace identifiers.
+
+trace:
+  code:
+    - { path: src/main/adapters/openai-compat-provider.ts, symbol: makeOpenAICompatProvider, coverage: verified }
+    - { path: src/main/adapters/provider-resolver.ts, symbol: makeProviderResolver, coverage: verified }
+  tests:
+    - { path: src/test/naia-prompt-cache.contract.test.ts, symbol: prompt cache key contract, coverage: verified }
+    - { path: src/test/uc-naia-pi-provider.contract.test.ts, symbol: Pi model isolation contract, coverage: verified }
+  reviews:
+    planning: paired AnyLLM .agents/reviews/issue-52-95-planning-2026-07-31.json
+    development: paired AnyLLM .agents/reviews/issue-52-95-final-2026-07-31.json
+    test: paired AnyLLM .agents/reviews/issue-52-95-final-2026-07-31.json
+    integration: paired AnyLLM .agents/reviews/issue-52-95-final-2026-07-31.json
+
+decisions:
+  - Do not expand standalone Pi beyond Grok 4.3 and DeepSeek V4 Pro in this issue.
+  - Client keys are routing hints only; authenticated isolation remains gateway-owned.

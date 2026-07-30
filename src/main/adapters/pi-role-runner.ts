@@ -11,11 +11,13 @@ export type PiRoleFactoryResult =
   | { readonly ok: true; readonly role: PiDevelopmentRole; readonly agent: SubAgentPort }
   | { readonly ok: false; readonly reason: string };
 
-function piProvider(provider: string): "openai" | "anthropic" | undefined {
+function piProvider(provider: string): "openai" | "anthropic" | "naia" | undefined {
   switch (provider) {
     case "codex": return "openai";
     case "claude-code-cli":
     case "anthropic": return "anthropic";
+    case "nextain":
+    case "naia": return "naia";
     default: return undefined;
   }
 }

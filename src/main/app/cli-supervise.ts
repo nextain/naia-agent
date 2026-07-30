@@ -19,6 +19,7 @@ export interface SuperviseArgs {
   readonly workdir: string;
   readonly agent: string;
   readonly model?: string;
+  readonly noTools: boolean;
   readonly watch: boolean;
   readonly pollMs?: number;
   readonly checks: readonly ParsedCheck[];
@@ -36,6 +37,7 @@ const USAGE = `naia-agent run <task> [options]
   --workdir <dir>     작업 디렉터리(기본: 현재 디렉터리)
   --agent <name>      sub-agent (shell | pi | opencode | claude-code | codex | gemini, 기본: shell)
   --model <id>        모델 힌트(옵션)
+  --no-tools          도구를 끄고 분석 전용으로 실행(DeepSeek V4 Pro 필수)
   --watch             워크스페이스 변경 감시(git status 폴링). 변경 수치는 폴 간격마다 샘플 —
                       폴 간격보다 빨리 끝나는 작업은 변경이 안 잡힐 수 있음(권위적 결과는 --check 사용).
   --poll <ms>         감시 폴링 간격(ms)
@@ -59,6 +61,7 @@ export function parseSuperviseArgs(argv: readonly string[]): ParseResult {
   let workdir = ".";
   let agent = "shell";
   let model: string | undefined;
+  let noTools = false;
   let watch = false;
   let pollMs: number | undefined;
   let json = false;
@@ -91,6 +94,9 @@ export function parseSuperviseArgs(argv: readonly string[]): ParseResult {
       }
       case "--watch":
         watch = true;
+        break;
+      case "--no-tools":
+        noTools = true;
         break;
       case "--poll": {
         const v = argv[++i];
@@ -135,6 +141,7 @@ export function parseSuperviseArgs(argv: readonly string[]): ParseResult {
       workdir,
       agent,
       ...(model !== undefined ? { model } : {}),
+      noTools,
       watch,
       ...(pollMs !== undefined ? { pollMs } : {}),
       checks,
@@ -154,6 +161,10 @@ export function renderEvent(e: SubAgentEvent): string | null {
       return `· 도구 ${e.tool} ${e.ok ? "완료" : "실패"}`;
     case "text_delta":
       return null;
+    case "model_evidence": {
+      const x = e.evidence;
+      return `· Pi 모델: ${x.provider}/${x.selectedModel}, tokens=${x.totalTokens}`;
+    }
     case "session_end":
       return `· 세션 종료 (${e.ok ? "성공" : "실패"})${e.reason ? `: ${e.reason}` : ""}`;
   }
@@ -165,6 +176,10 @@ export function renderReport(r: SupervisorReport): string {
   lines.push("── 결과 (정직 보고) ──");
   lines.push(`변경 파일: ${r.filesChanged}  (+${r.additions} / -${r.deletions})`);
   lines.push(`sub-agent 세션: ${r.sessionOk ? "성공" : "실패"}`);
+  if (r.modelEvidence) {
+    const x = r.modelEvidence;
+    lines.push(`Pi 모델 증거: ${x.provider}/${x.selectedModel}, input=${x.inputTokens}, output=${x.outputTokens}, total=${x.totalTokens}${x.piEstimatedCost !== undefined ? `, Pi 추정비용=$${x.piEstimatedCost}` : ""}`);
+  }
   if (r.verification.checks.length === 0) {
     lines.push("검증: 미수행(검증 명령 없음)");
   } else {

@@ -88,6 +88,13 @@ const tools = [{ name: "echo", description: "echo it", parameters: { type: "obje
 const tu = (out: ProviderChunk[]) => out.filter((c) => c.kind === "toolUse") as Extract<ProviderChunk, { kind: "toolUse" }>[];
 
 describe("§C slice 1b — tool_calls 재조립", () => {
+  it("DeepSeek ordinary-chat policy omits tools instead of sending an unsupported request", async () => {
+    const { fetch, box } = captureStream(["data: [DONE]\n"]);
+    const provider = makeOpenAICompatProvider({ baseUrl: "https://x", apiKey: "k", supportsTools: false, fetch: fetch as never });
+    await collect(provider.chat({ provider: "nextain", model: "deepseek-v4-pro" }, [{ role: "user", content: "review" }], { tools }));
+    expect(box.body?.tools).toBeUndefined();
+  });
+
   it("(a) tools 전달 → body.tools 매핑 / (g) assistant(toolCalls)+tool 메시지 매핑(content null·tool_call_id)", async () => {
     const { fetch, box } = captureStream(["data: [DONE]\n"]);
     await collect(provF(fetch).chat(cfg, [

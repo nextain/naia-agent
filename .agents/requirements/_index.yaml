@@ -1,0 +1,7 @@
+version: 1
+updated: 2026-07-31
+requirements:
+  - id: REQ-AGENT-095
+    title: Naia GPT-5.6 cache-stable request sharding
+    status: active
+    issue: https://github.com/nextain/naia-agent/issues/95

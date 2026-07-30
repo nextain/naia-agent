@@ -30,8 +30,19 @@ export type SubAgentEvent =
   | { readonly kind: "tool_use_start"; readonly tool: string }
   | { readonly kind: "tool_use_end"; readonly tool: string; readonly ok: boolean }
   | { readonly kind: "text_delta"; readonly text: string }
+  | { readonly kind: "model_evidence"; readonly evidence: SubAgentModelEvidence }
   /** terminal — 세션당 정확히 1회. ok=false = 실패/취소/비정상종료. reason = 사람이 읽는 사유(opaque). */
   | { readonly kind: "session_end"; readonly ok: boolean; readonly reason?: string };
+
+export interface SubAgentModelEvidence {
+  readonly provider: string;
+  /** Model reported by Pi's AssistantMessage. Pi 0.83 does not expose the HTTP response model separately. */
+  readonly selectedModel: string;
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly totalTokens: number;
+  readonly piEstimatedCost?: number;
+}
 
 /** 워크스페이스 변경 요약(semantic) — 구 WorkspaceChange 스트림의 *집계 스냅샷*. 어떤 파일이
  *  추가/수정/삭제됐는지 경로 + 수치만(diff 포맷·git 메커니즘은 adapter). 2c 에서 실 어댑터가 채움. */
@@ -57,6 +68,7 @@ export interface SupervisorReport {
   readonly verification: VerificationReport;
   /** sub-agent session_end.ok — 검증과 **독립**(세션 실패해도 verify 는 돈다, AC4). */
   readonly sessionOk: boolean;
+  readonly modelEvidence?: SubAgentModelEvidence;
 }
 
 /** 검증 미수행(verifier 미주입) 시의 중립 리포트 — ok=true(검증을 안 했을 뿐 실패 아님), checks 빈 배열. 순수. */

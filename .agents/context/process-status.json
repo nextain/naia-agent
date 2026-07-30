@@ -9,13 +9,13 @@
   },
 
   "current_work": {
-    "issue": "REQ-017-durable-outbound-delivery",
-    "title": "UC-017 — Codex main provider·동적 도구·Discord 터미널 위임",
-    "issue_doc": "docs/progress/99.dev-comm/agent-outbound-delivery-2026-07-25.md",
-    "github_issue": null,
-    "started": "2026-07-25",
-    "last_updated": "2026-07-25T00:00:00+09:00",
-    "status": "in_progress",
+    "issue": "REQ-NAIA-PI-001..007",
+    "title": "Codex/standalone CLI → Pi → Naia account → Azure models",
+    "issue_doc": "docs/progress/99.dev-comm/naia-account-pi-azure-contract-2026-07-30.md",
+    "github_issue": "https://github.com/nextain/naia-agent/issues/93",
+    "started": "2026-07-30",
+    "last_updated": "2026-07-30T22:50:00+09:00",
+    "status": "done",
     "windows_runtime_acceptance": {
       "date": "2026-07-21",
       "source_commit": "d9cfd38",
@@ -30,16 +30,16 @@
       "known_limit": "Windows Tauri WebDriver cannot create a WebView2 session (DevToolsActivePort), so the live Shell Codex UI E2E remains blocked before application code runs.",
       "full_suite_note": "The full agent suite still has pre-existing Windows portability failures outside this Codex change (Discord lock/path, gRPC proto path, and memory-header cases)."
     },
-    "handoff_note": "Codex app-server 동적 도구 호출, handled 단일 실행, desktop Codex-only/workspace-bound 위임, Discord 비밀 없는 직렬 진행 메시지와 실제 Codex dynamic-tool smoke를 구현·검증했다.",
+    "handoff_note": "이번 slice는 Codex 또는 standalone naia-agent CLI가 Pi를 통해 Naia 계정의 grok-4.3/deepseek-v4-pro를 사용하는 경로다. Shell coding은 다음 Workspace 작업으로 defer. 실제 Azure route와 usage/cost/credit는 자격증명·Docker 부재로 OPERATIONAL_UNVERIFIED다.",
     "prior_work_note": "REQ-013 선제 발화와 REQ-014 Discord runtime은 보존됐다. 실제 Discord 자격증명 2채널·OS credential store·현장 리허설은 운영 인수 범위다."
   },
 
   "sdlc_gates": {
-    "P01": { "status": "done", "name": "user_scenarios", "deliverable": "Codex main/sub 역할과 Discord 진행 관찰 시나리오", "ref": "docs/user-scenarios.md (UC-CODEX-DELEGATION)" },
-    "P02": { "status": "done", "name": "test_scenarios", "deliverable": "dynamic RPC·단일 실행·경로 경계·진행 egress 계약", "ref": "docs/progress/03.uc-tests/INDEX.md (TEST-S-017)" },
-    "P03": { "status": "done", "name": "requirements", "deliverable": "FR-CODEX-1~5와 두 NFR 경계", "ref": "docs/requirements.md; docs/progress/01.requirements/INDEX.md" },
-    "P04": { "status": "done", "name": "integration_test", "deliverable": "계약/통합 전체 회귀와 실제 Codex dynamic-tool smoke", "ref": "docs/progress/05.features-tests/INDEX.md (TEST-F-014)" },
-    "P05": { "status": "done", "name": "requirements_complete", "deliverable": "REQ-015 자동 검증 범위 Done; 실제 Discord 자격증명은 운영 인수로 분리", "ref": "docs/progress/01.requirements/INDEX.md (REQ-015)" }
+    "P01": { "status": "done", "name": "user_scenarios", "deliverable": "Codex/standalone CLI와 Grok coding·DeepSeek analysis 시나리오", "ref": "docs/user-scenarios.md (UC-NAIA-PI)" },
+    "P02": { "status": "done", "name": "test_scenarios", "deliverable": "REQ-NAIA-PI-001..007별 unit/contract/process/live/manual 검증표", "ref": "docs/progress/99.dev-comm/naia-account-pi-azure-contract-2026-07-30.md" },
+    "P03": { "status": "done", "name": "requirements", "deliverable": "FR-CLI-9~11 + NFR-NAIA-PI", "ref": "docs/requirements.md; GitHub #93" },
+    "P04": { "status": "done", "name": "integration_test", "deliverable": "Agent full suite + actual CLI/real Pi controlled integration + any-llm route guards + Shell paired contracts + manual acceptance", "ref": "docs/progress/99.dev-comm/naia-account-pi-azure-contract-2026-07-30.md; docs/naia-account-pi-manual.md" },
+    "P05": { "status": "done", "name": "requirements_complete", "deliverable": "REQ-NAIA-PI-001..007 non-live trace complete; live Azure/credit explicitly OPERATIONAL_UNVERIFIED", "ref": "GitHub #93 implementation evidence" }
   },
 
   "known_drift": {
