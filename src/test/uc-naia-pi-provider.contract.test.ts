@@ -25,11 +25,18 @@ describe("UC-NAIA-PI provider isolation", () => {
     const text = readFileSync(join(dir, "models.json"), "utf8");
     expect(text).toContain('"grok-4.3"');
     expect(text).toContain('"deepseek-v4-pro"');
+    expect(text).not.toContain('"gpt-5.6-sol"');
+    expect(text).not.toContain('"gpt-5.6-luna"');
+    expect(text).not.toContain("prompt_cache_key");
     expect(text).toContain('"X-AnyLLM-Key": "Bearer $NAIA_API_KEY"');
     expect(text).not.toContain("naia-secret-value");
     expect(buildNaiaPiModelsConfig("https://gateway.example")).toMatchObject({
       providers: { naia: { baseUrl: "https://gateway.example/v1", authHeader: false } },
     });
+    const models = (buildNaiaPiModelsConfig("https://gateway.example") as {
+      providers: { naia: { models: Array<{ id: string }> } };
+    }).providers.naia.models.map(({ id }) => id);
+    expect(models).toEqual(["grok-4.3", "deepseek-v4-pro"]);
   });
 
   it("child env keeps runtime values and Naia auth but drops global Pi/direct-provider secrets", () => {

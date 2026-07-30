@@ -223,3 +223,57 @@ Known limitations:
 - Azure 모델 수명 주기: <https://learn.microsoft.com/en-gb/azure/foundry/concepts/model-lifecycle-retirement>
 - Azure Grok 4.3 catalog: <https://ai.azure.com/catalog/models/grok-4.3>
 - Pi custom model/provider 설정: <https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md>
+
+## 부록 A. GPT-5.6 캐시 쓰기/읽기 검증
+
+이 부록은 Pi 단독 모델 범위를 넓히지 않는다. Pi 단독 실행은 계속
+`grok-4.3`, `deepseek-v4-pro`만 사용한다. Sol/Luna는 naia-agent 일반 채팅
+또는 naia-shell이 Naia 계정으로 호출할 때 적용되며, AnyLLM gateway가
+사용자 격리와 실제 과금을 소유한다.
+
+### 계약
+
+- Agent는 Naia 경로의 `gpt-5.6-sol`/`gpt-5.6-luna`에만 모델과 정확한
+  UTF-8 system prefix로 만든 비밀 없는 client shard를 보낸다.
+- Gateway는 shard를 그대로 신뢰하지 않고
+  `HMAC-SHA256(jwt_secret, authenticated-user + model + shard)`로 다시 만든다.
+- `P=prompt_tokens`, `R=cached_tokens`, `W=cache_write_tokens`, `U=P-R-W`다.
+  방어 정규화 후 `U`, `W`, `R`은 겹치지 않으며 합이 `P`다.
+- cache write 고객 단가는 Sol `$6.875/M`, Luna `$1.375/M`이다. 이는
+  공식 입력 단가 × `1.25` × Naia `1.1`이며 마진은 한 번만 붙는다.
+- Azure가 write 필드를 생략하면 Gateway는 토큰을 추정하지 않는다.
+
+### 자동 검증
+
+```powershell
+cd D:\alpha-adk\projects\project-any-llm-worktrees\issue-49-azure-naia-models
+uv run pytest -q `
+  tests\unit\test_cache_write_pricing_init.py `
+  tests\unit\test_cache_write_migration.py `
+  tests\unit\providers\test_azure_provider.py `
+  tests\gateway\test_naia_azure_models.py
+
+cd D:\alpha-adk\projects\naia-agent-worktrees\issue-93-azure-naia-models
+pnpm exec vitest run `
+  src/test/naia-prompt-cache.contract.test.ts `
+  src/test/uc-naia-pi-provider.contract.test.ts
+```
+
+### 기존 배포 라이브 검증
+
+새 자원을 만들지 않고 `gpt-5-6-sol`, `gpt-5-6-luna` 기존 배포만 쓴다.
+각 모델에 system prefix `stable-naia-prefix `를 1,600회 반복하고 같은
+`prompt_cache_key=naia-cache-contract-probe-v1`, 최대 출력 8로 두 번 보낸다.
+
+합격 증거:
+
+1. 첫 응답 모델은 `gpt-5.6-*-2026-07-09`이고 `cache_write_tokens > 0`이다.
+2. 두 번째 응답은 같은 snapshot이고 `cached_tokens > 0`이다.
+3. 첫 요청의 write와 두 번째 요청의 read는 각각 UsageLog에 보존된다.
+4. `ordinary + write + read == prompt_tokens`이고 해당 단가로 계산한 cost와
+   같은 usage ID의 credit 차감이 일치한다.
+5. 로그·응답·cache key에 사용자 ID, Naia key, Azure key가 나타나지 않는다.
+
+라이브 응답이 write 필드를 주지 않는 Azure 버전에서는 write를 0으로
+꾸며 합격시키지 않는다. 이 경우 `write-unreported`로 기록하고 Azure 비용
+명세와 대조할 때까지 정확한 write 과금 검증은 `OPERATIONAL_UNVERIFIED`다.

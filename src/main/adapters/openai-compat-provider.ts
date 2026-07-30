@@ -4,6 +4,7 @@
 // apiKey/baseUrl=주입(키는 wire 아님, env/CredentialPort). 실 검증=클라우드(GPU 불요).
 import type { ProviderPort, ProviderChatOpts } from "../ports/uc1.js";
 import type { ProviderConfig, ChatMessage, ProviderChunk } from "../domain/chat.js";
+import { createHash } from "node:crypto";
 
 type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal }) => Promise<{
   ok: boolean; status: number; statusText: string;
@@ -41,7 +42,14 @@ interface ToolAcc { id?: string; name?: string; args: string; excluded: boolean;
  *   **resolver 가 판단해 주입한다**(어댑터는 baseUrl 을 스스로 해석하지 않음 — 라우팅 판단=domain).
  *   true 인 경우에만 `enableThinking===false` 를 wire 로 반영한다. 미지정=false(보수적).
  */
-export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string; model?: string; auth?: "bearer" | "x-anyllm"; supportsReasoningEffort?: boolean; supportsTools?: boolean; fetch?: FetchLike }): ProviderPort {
+export function buildPromptCacheShard(model: string, systemPrompt: string | undefined): string {
+  // Hash exact UTF-8 bytes. Normalizing whitespace or Unicode could merge two
+  // prefixes that Azure itself treats as different cache entries.
+  const input = JSON.stringify([model, systemPrompt ?? ""]);
+  return `agent-${createHash("sha256").update(input, "utf8").digest("hex")}`;
+}
+
+export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string; model?: string; auth?: "bearer" | "x-anyllm"; supportsReasoningEffort?: boolean; supportsTools?: boolean; promptCacheShard?: boolean; fetch?: FetchLike }): ProviderPort {
   const doFetch: FetchLike = deps.fetch ?? (globalThis.fetch as unknown as FetchLike);
   const base = deps.baseUrl.replace(/\/+$/, "");
   // ⚠️ x-anyllm(naia lab-proxy): 게이트웨이는 `Bearer <token>` 형식 요구(old lab-proxy.ts 와 동일).
@@ -65,11 +73,15 @@ export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string
       const noThinkBody = deps.supportsReasoningEffort === true && config.enableThinking === false
         ? { reasoning_effort: "none" as const }
         : undefined;
+      const requestModel = deps.model ?? config.model;
+      const promptCacheBody = deps.promptCacheShard === true
+        ? { prompt_cache_key: buildPromptCacheShard(requestModel, opts.systemPrompt) }
+        : undefined;
 
       const resp = await doFetch(`${base}/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeader },
-        body: JSON.stringify({ model: deps.model ?? config.model, messages: wireMsgs, stream: true, stream_options: { include_usage: true }, ...(toolsBody ? { tools: toolsBody } : {}), ...(noThinkBody ?? {}) }),
+        body: JSON.stringify({ model: requestModel, messages: wireMsgs, stream: true, stream_options: { include_usage: true }, ...(toolsBody ? { tools: toolsBody } : {}), ...(noThinkBody ?? {}), ...(promptCacheBody ?? {}) }),
         ...(opts.signal ? { signal: opts.signal } : {}),
       });
       if (!resp.ok || !resp.body) {

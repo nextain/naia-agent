@@ -57,6 +57,7 @@ export function makeProviderResolver(deps?: ProviderResolverDeps): ProviderResol
 						model: config.model,
 						supportsReasoningEffort: false,
 						supportsTools: config.model !== "deepseek-v4-pro",
+						promptCacheShard: config.model === "gpt-5.6-sol" || config.model === "gpt-5.6-luna",
 						...(f ? { fetch: f } : {}),
 					});
 				}
