@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { CodingJobService } from "../main/app/coding-job-service.js";
 import { JeonjuDiscordCourseService, parseJeonjuDiscordCourseConfig } from "../main/app/jeonju-discord-course.js";
 import { DiscordChannelRuntime } from "../main/adapters/discord-channel.js";
@@ -6,7 +6,7 @@ import { makeDiscordRuntimeText } from "../main/adapters/discord-messages.js";
 import { wireAgentUC1 } from "../main/composition/index.js";
 import type { JeonjuCoursePatch } from "../main/domain/jeonju-course.js";
 import type { CodingJob } from "../main/domain/coding-job.js";
-import type { CodingJobRunnerPort, CodingJobStore, CodingJobWorktreePort, SelectedWorkspaceCodingPort } from "../main/ports/coding-job.js";
+import type { CodingJobControlPort, CodingJobRunnerPort, CodingJobStore, CodingJobWorktreePort, SelectedWorkspaceCodingPort } from "../main/ports/coding-job.js";
 import type { DiscordGatewayClose, DiscordGatewayConnection, DiscordGatewayHandlers, DiscordGatewayPort } from "../main/ports/discord.js";
 import type { DiagnosticLog, ProviderPort, ToolExecutorPort } from "../main/ports/uc1.js";
 
@@ -186,5 +186,28 @@ describe("UC-JEONJU vertical Discord acceptance", () => {
     expect(parseJeonjuDiscordCourseConfig({ version: 1, workspacePath: "/safe", allowedFiles: ["index.html"] })).toBeUndefined();
     expect(parseJeonjuDiscordCourseConfig({ version: 1, workspacePath: "/safe", allowedFiles: ["index.html", "hero.svg", "extra.js"] })).toBeUndefined();
     expect(parseJeonjuDiscordCourseConfig({ version: 1, workspacePath: "/safe", allowedFiles: ["index.html", "hero.svg"], extra: true })).toBeUndefined();
+  });
+
+  it("quarantines stale ambiguous lifecycle delivery instead of retrying every second", async () => {
+    const delivery = {
+      bindingId: "binding_1", guildId: "100", channelId: "200", sourceMessageId: "4002",
+    } as const;
+    const send = vi.fn(async () => "reconciliation_required" as const);
+    const codingJobs = {
+      get: () => ({ courseReply: delivery } as CodingJob),
+      list: () => [],
+    } as unknown as CodingJobControlPort;
+    const course = new JeonjuDiscordCourseService({
+      codingJobs,
+      config: { workspacePath: "/selected", allowedFiles: ["index.html", "hero.svg"] },
+      status: { send },
+    });
+
+    course.report({ jobId: "job_reconcile", state: "running" });
+    await waitFor(() => course.reconciliationRequired().length === 1);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(course.reconciliationRequired()).toEqual([{
+      jobId: "job_reconcile", delivery, state: "running",
+    }]);
   });
 });

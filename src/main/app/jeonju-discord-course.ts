@@ -50,6 +50,11 @@ function isSafeTask(value: string): boolean {
 export class JeonjuDiscordCourseService implements DiscordCourseCommandPort, CodingJobCourseLifecyclePort {
   readonly #tails = new Map<string, Promise<void>>();
   readonly #pending = new Map<string, { readonly delivery: CodingJobCourseReply; readonly state: CodingJobCourseLifecycleState }>();
+  readonly #reconciliation = new Map<string, {
+    readonly jobId: string;
+    readonly delivery: CodingJobCourseReply;
+    readonly state: CodingJobCourseLifecycleState;
+  }>();
 
   constructor(
     private readonly deps: {
@@ -96,11 +101,28 @@ export class JeonjuDiscordCourseService implements DiscordCourseCommandPort, Cod
     }
   }
 
+  /** Durable dedupe remains the source of truth; this exposes items intentionally removed from automatic retry. */
+  reconciliationRequired(): readonly {
+    readonly jobId: string;
+    readonly delivery: CodingJobCourseReply;
+    readonly state: CodingJobCourseLifecycleState;
+  }[] {
+    return [...this.#reconciliation.values()];
+  }
+
   #enqueue(jobId: string, delivery: Omit<DiscordCourseLifecycleDelivery, "state">, state: CodingJobCourseLifecycleState): void {
     const next = (this.#tails.get(jobId) ?? Promise.resolve())
       .then(async () => {
-        if (await this.#send(delivery, state)) {
+        const result = await this.#send(delivery, state);
+        const reconciliationKey = `${jobId}:${state}`;
+        if (result === "delivered") {
           this.#pending.delete(jobId);
+          this.#reconciliation.delete(reconciliationKey);
+          return;
+        }
+        if (result === "reconciliation_required") {
+          this.#pending.delete(jobId);
+          this.#reconciliation.set(reconciliationKey, { jobId, delivery, state });
           return;
         }
         this.#pending.set(jobId, { delivery, state });
@@ -138,7 +160,10 @@ export class JeonjuDiscordCourseService implements DiscordCourseCommandPort, Cod
     timer.unref?.();
   }
 
-  #send(delivery: Omit<DiscordCourseLifecycleDelivery, "state">, state: CodingJobCourseLifecycleState): Promise<boolean> {
+  #send(
+    delivery: Omit<DiscordCourseLifecycleDelivery, "state">,
+    state: CodingJobCourseLifecycleState,
+  ): ReturnType<DiscordCourseStatusPort["send"]> {
     return this.deps.status.send({ ...delivery, state });
   }
 }

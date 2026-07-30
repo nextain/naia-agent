@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type {
   DiscordGatewayClose,
   DiscordGatewayConnection,
@@ -46,6 +47,8 @@ const MAX_TOKEN_LENGTH = 512;
 const MAX_REPLY_LENGTH = 2_000;
 const MAX_EVENT_LENGTH = 1_000_000;
 const MAX_MESSAGE_LENGTH = 4_000;
+const MAX_PENDING_MESSAGES = 256;
+const MAX_IDEMPOTENCY_KEY_LENGTH = 512;
 const MAX_REPLY_RESPONSE_BYTES = 64 * 1_024;
 const SNOWFLAKE = /^\d{1,128}$/;
 const DEFAULT_DISCOVERY_TIMEOUT_MS = 10_000;
@@ -278,7 +281,11 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
       const socket = socketFactory(`${gatewayUrl}?v=10&encoding=json`);
       let sequence: number | null = null;
       let heartbeat: ReturnType<typeof setInterval> | undefined;
+      let reconnectFallback: ReturnType<typeof setTimeout> | undefined;
       let awaitingHeartbeatAck = false;
+      let reconnectRequested = false;
+      let authenticated = false;
+      const pendingMessages: DiscordGatewayMessage[] = [];
       let replyQueue: Promise<void> = Promise.resolve();
       let settled = false;
       let resolveClosed!: (value: DiscordGatewayClose) => void;
@@ -287,14 +294,31 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
         if (settled) return;
         settled = true;
         if (heartbeat !== undefined) clearInterval(heartbeat);
+        if (reconnectFallback !== undefined) clearTimeout(reconnectFallback);
         resolveClosed(reason);
       };
       const send = (payload: unknown) => {
         if (socket.readyState === 1) socket.send(JSON.stringify(payload));
       };
+      const becomeReady = (selfUserId: string) => {
+        authenticated = true;
+        handlers.onReady(selfUserId);
+        for (const message of pendingMessages.splice(0)) handlers.onMessage(message);
+      };
       const requestReconnect = () => {
-        try { socket.close(4_000, "reconnect"); } catch { /* close event settles */ }
-        settle({ code: "reconnect_requested", retryable: true });
+        if (reconnectRequested || settled) return;
+        reconnectRequested = true;
+        if (sequence !== null) resumeSequence = sequence;
+        // Do not resolve `closed` until the old socket has actually closed.
+        // Resolving first lets the runtime open a replacement while Discord
+        // still considers this connection active, which can cause an opcode-7
+        // reconnect loop. The timeout is only a bounded fallback for broken
+        // WebSocket implementations that never emit `close`.
+        reconnectFallback = setTimeout(() => {
+          settle({ code: "reconnect_requested", retryable: true });
+        }, 5_000);
+        try { socket.close(1_000, "reconnect"); }
+        catch { settle({ code: "reconnect_requested", retryable: true }); }
       };
 
       socket.addEventListener("message", (event) => {
@@ -356,7 +380,7 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
             session_id?: unknown;
             resume_gateway_url?: unknown;
           } | undefined;
-          if (typeof ready?.user?.id === "string") handlers.onReady(ready.user.id);
+          if (typeof ready?.user?.id === "string") becomeReady(ready.user.id);
           if (typeof ready?.user?.id === "string"
             && typeof ready.session_id === "string"
             && typeof ready.resume_gateway_url === "string"
@@ -370,12 +394,14 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
         }
         if (payload.t === "RESUMED") {
           resumeSequence = sequence;
-          if (resumedSelfUserId) handlers.onReady(resumedSelfUserId);
+          if (resumedSelfUserId) becomeReady(resumedSelfUserId);
           return;
         }
         if (payload.t === "MESSAGE_CREATE") {
           const message = asMessage(payload.d);
-          if (message) handlers.onMessage(message);
+          if (!message) return;
+          if (authenticated) handlers.onMessage(message);
+          else if (pendingMessages.length < MAX_PENDING_MESSAGES) pendingMessages.push(message);
         }
       });
       socket.addEventListener("close", (event) => {
@@ -387,7 +413,9 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
         } else if (sequence !== null) {
           resumeSequence = sequence;
         }
-        settle(closeReason(event.code));
+        settle(reconnectRequested
+          ? { code: "reconnect_requested", retryable: true }
+          : closeReason(event.code));
       });
       socket.addEventListener("error", () => settle({ code: "network_error", retryable: true }));
 
@@ -402,9 +430,16 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
         async sendReply(input) {
           if (!input.content || Array.from(input.content).length > MAX_REPLY_LENGTH
             || !SNOWFLAKE.test(input.channelId) || !SNOWFLAKE.test(input.guildId)
-            || !SNOWFLAKE.test(input.messageId)) {
+            || !SNOWFLAKE.test(input.messageId)
+            || (input.idempotencyKey !== undefined
+              && (input.idempotencyKey.length < 1
+                || input.idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH
+                || /[\u0000-\u001f\u007f]/.test(input.idempotencyKey)))) {
             throw new DiscordGatewayError("invalid_reply");
           }
+          const nonce = input.idempotencyKey === undefined
+            ? undefined
+            : createHash("sha256").update(input.idempotencyKey).digest("hex").slice(0, 24);
           let resolveReply!: (value: string) => void;
           let rejectReply!: (error: unknown) => void;
           const result = new Promise<string>((resolve, reject) => {
@@ -415,39 +450,56 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
             try {
               if (input.signal?.aborted) throw new DiscordGatewayError("http_error");
               for (let attempt = 0; attempt <= maxRetries; attempt++) {
-                const { response, bodyText } = await fetchReplyWithTimeout(
-                  fetchImpl,
-                  `${apiBase}/channels/${encodeURIComponent(input.channelId)}/messages`,
-                  {
-                    method: "POST",
-                    headers: {
-                      authorization: `Bot ${token}`,
-                      "content-type": "application/json",
-                    },
-                    signal: input.signal,
-                    body: JSON.stringify({
-                      content: input.content,
-                      message_reference: {
-                        message_id: input.messageId,
-                        channel_id: input.channelId,
-                        guild_id: input.guildId,
-                        fail_if_not_exists: false,
+                let reply: Awaited<ReturnType<typeof fetchReplyWithTimeout>>;
+                try {
+                  reply = await fetchReplyWithTimeout(
+                    fetchImpl,
+                    `${apiBase}/channels/${encodeURIComponent(input.channelId)}/messages`,
+                    {
+                      method: "POST",
+                      headers: {
+                        authorization: `Bot ${token}`,
+                        "content-type": "application/json",
                       },
-                      allowed_mentions: { parse: [], replied_user: false },
-                    }),
-                  },
-                  replyTimeoutMs,
-                  input.signal,
-                );
+                      signal: input.signal,
+                      body: JSON.stringify({
+                        content: input.content,
+                        message_reference: {
+                          message_id: input.messageId,
+                          channel_id: input.channelId,
+                          guild_id: input.guildId,
+                          fail_if_not_exists: false,
+                        },
+                        allowed_mentions: { parse: [], replied_user: false },
+                        ...(nonce ? { nonce, enforce_nonce: true } : {}),
+                      }),
+                    },
+                    replyTimeoutMs,
+                    input.signal,
+                  );
+                } catch (error) {
+                  if (!nonce || attempt === maxRetries || input.signal?.aborted) throw error;
+                  await abortableSleep(sleep, Math.min(2_000, 250 * (2 ** attempt)), input.signal);
+                  continue;
+                }
+                const { response, bodyText } = reply;
                 if (response.ok) {
                   let body: { id?: unknown };
                   try {
                     body = JSON.parse(bodyText ?? "") as { id?: unknown };
                   } catch {
+                    if (nonce && attempt < maxRetries) {
+                      await abortableSleep(sleep, Math.min(2_000, 250 * (2 ** attempt)), input.signal);
+                      continue;
+                    }
                     throw new DiscordGatewayError("http_error");
                   }
                   const replyMessageId = String(body.id ?? "");
                   if (!SNOWFLAKE.test(replyMessageId)) {
+                    if (nonce && attempt < maxRetries) {
+                      await abortableSleep(sleep, Math.min(2_000, 250 * (2 ** attempt)), input.signal);
+                      continue;
+                    }
                     throw new DiscordGatewayError("http_error");
                   }
                   resolveReply(replyMessageId);
@@ -455,7 +507,13 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
                 }
                 if (response.status === 401) throw new DiscordGatewayError("auth_failed");
                 if (response.status === 403) throw new DiscordGatewayError("permission_denied");
-                if (response.status !== 429) throw new DiscordGatewayError("http_error");
+                if (response.status !== 429) {
+                  if (nonce && response.status >= 500 && attempt < maxRetries) {
+                    await abortableSleep(sleep, Math.min(2_000, 250 * (2 ** attempt)), input.signal);
+                    continue;
+                  }
+                  throw new DiscordGatewayError("http_error");
+                }
                 if (attempt === maxRetries) throw new DiscordGatewayError("rate_limited");
                 let retryAfterMs = 1_000;
                 try {
