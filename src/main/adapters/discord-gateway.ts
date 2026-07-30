@@ -278,7 +278,9 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
       const socket = socketFactory(`${gatewayUrl}?v=10&encoding=json`);
       let sequence: number | null = null;
       let heartbeat: ReturnType<typeof setInterval> | undefined;
+      let reconnectFallback: ReturnType<typeof setTimeout> | undefined;
       let awaitingHeartbeatAck = false;
+      let reconnectRequested = false;
       let replyQueue: Promise<void> = Promise.resolve();
       let settled = false;
       let resolveClosed!: (value: DiscordGatewayClose) => void;
@@ -287,14 +289,26 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
         if (settled) return;
         settled = true;
         if (heartbeat !== undefined) clearInterval(heartbeat);
+        if (reconnectFallback !== undefined) clearTimeout(reconnectFallback);
         resolveClosed(reason);
       };
       const send = (payload: unknown) => {
         if (socket.readyState === 1) socket.send(JSON.stringify(payload));
       };
       const requestReconnect = () => {
-        try { socket.close(4_000, "reconnect"); } catch { /* close event settles */ }
-        settle({ code: "reconnect_requested", retryable: true });
+        if (reconnectRequested || settled) return;
+        reconnectRequested = true;
+        if (sequence !== null) resumeSequence = sequence;
+        // Do not resolve `closed` until the old socket has actually closed.
+        // Resolving first lets the runtime open a replacement while Discord
+        // still considers this connection active, which can cause an opcode-7
+        // reconnect loop. The timeout is only a bounded fallback for broken
+        // WebSocket implementations that never emit `close`.
+        reconnectFallback = setTimeout(() => {
+          settle({ code: "reconnect_requested", retryable: true });
+        }, 5_000);
+        try { socket.close(1_000, "reconnect"); }
+        catch { settle({ code: "reconnect_requested", retryable: true }); }
       };
 
       socket.addEventListener("message", (event) => {
@@ -387,7 +401,9 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
         } else if (sequence !== null) {
           resumeSequence = sequence;
         }
-        settle(closeReason(event.code));
+        settle(reconnectRequested
+          ? { code: "reconnect_requested", retryable: true }
+          : closeReason(event.code));
       });
       socket.addEventListener("error", () => settle({ code: "network_error", retryable: true }));
 

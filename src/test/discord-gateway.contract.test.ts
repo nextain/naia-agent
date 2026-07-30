@@ -102,8 +102,52 @@ describe("T-DISCORD-RT-02/05/06 — Discord Gateway adapter", () => {
     const connection = await gateway.connect("token", { onReady() {}, onMessage() {} });
     socket.payload({ op: 10, d: { heartbeat_interval: 250 } });
     await vi.advanceTimersByTimeAsync(500);
+    let closed = false;
+    void connection.closed.then(() => { closed = true; });
+    await Promise.resolve();
+    expect(closed).toBe(false);
+    expect(socket.closes.at(-1)?.code).toBe(1_000);
+    socket.emit("close", { code: 1_000 });
     await expect(connection.closed).resolves.toEqual({ code: "reconnect_requested", retryable: true });
-    expect(socket.closes.at(-1)?.code).toBe(4_000);
+  });
+
+  it("waits for the old socket to close before allowing an opcode-7 reconnect", async () => {
+    vi.useFakeTimers();
+    const sockets = [new FakeSocket(), new FakeSocket()];
+    const gateway = makeDiscordGateway({
+      fetch: vi.fn(async () => response(200, { url: "wss://gateway.discord.test" })) as typeof fetch,
+      socket: () => sockets.shift()!,
+    });
+    const firstSocket = sockets[0]!;
+    const first = await gateway.connect("token", { onReady() {}, onMessage() {} });
+    firstSocket.payload({ op: 10, d: { heartbeat_interval: 1_000 } });
+    firstSocket.payload({
+      op: 0,
+      t: "READY",
+      s: 7,
+      d: {
+        user: { id: "999" },
+        session_id: "session-1",
+        resume_gateway_url: "wss://resume.discord.test",
+      },
+    });
+    firstSocket.payload({ op: 7, d: null });
+
+    let closed = false;
+    void first.closed.then(() => { closed = true; });
+    await Promise.resolve();
+    expect(closed).toBe(false);
+    expect(firstSocket.closes).toEqual([{ code: 1_000, reason: "reconnect" }]);
+
+    firstSocket.emit("close", { code: 1_000 });
+    await expect(first.closed).resolves.toEqual({ code: "reconnect_requested", retryable: true });
+    const secondSocket = sockets[0]!;
+    await gateway.connect("token", { onReady() {}, onMessage() {} });
+    secondSocket.payload({ op: 10, d: { heartbeat_interval: 1_000 } });
+    expect(JSON.parse(secondSocket.sent[0]!)).toEqual({
+      op: 6,
+      d: { token: "token", session_id: "session-1", seq: 7 },
+    });
   });
 
   it("answers a server opcode 1 heartbeat request immediately with the latest sequence", async () => {
