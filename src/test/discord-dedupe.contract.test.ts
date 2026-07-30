@@ -281,6 +281,138 @@ describe("T-DISCORD-RT-04 — binding-scoped durable reply state", () => {
     expect(await store.reserve(reserve("binding_1", "course_received_abc", 107))).toEqual({ decision: "duplicate" });
   });
 
+  it("stops replaying an ambiguous lifecycle reply after the conservative nonce window", async () => {
+    const fs = memoryFs();
+    const store = makeFileDiscordDedupe({ path: "dedupe.json", fs, nonceReplayWindowMs: 60 });
+    await store.reserve(reserve("binding_1", "course_received_stale", 100));
+    await store.beginReply({
+      bindingId: "binding_1", messageId: "course_received_stale", chunks: ["received"], now: 101,
+    });
+    await store.claimChunk({
+      bindingId: "binding_1", messageId: "course_received_stale", nextChunk: 1, now: 102,
+    });
+    await store.partial({
+      bindingId: "binding_1", messageId: "course_received_stale", confirmedChunk: 0, now: 103,
+    });
+
+    expect(await store.resumePartialReply?.({
+      bindingId: "binding_1", messageId: "course_received_stale", chunks: ["received"], now: 162,
+    })).toEqual({ decision: "resumed", nextChunk: 0 });
+    await store.partial({
+      bindingId: "binding_1", messageId: "course_received_stale", confirmedChunk: 0, now: 163,
+    });
+    expect(await store.resumePartialReply?.({
+      bindingId: "binding_1", messageId: "course_received_stale", chunks: ["received"], now: 164,
+    })).toEqual({ decision: "reconciliation_required" });
+    expect(JSON.parse(fs.value!).entries[0]).toMatchObject({
+      state: "partial",
+      ambiguousSinceAt: 102,
+    });
+  });
+
+  it("keeps stale partials fail-closed beyond TTL and treats legacy ambiguity as unknown", async () => {
+    const fs = memoryFs();
+    const store = makeFileDiscordDedupe({
+      path: "dedupe.json", fs, ttlMs: 10, nonceReplayWindowMs: 60,
+    });
+    await store.reserve(reserve("binding_1", "course_received_ttl", 100));
+    await store.beginReply({
+      bindingId: "binding_1", messageId: "course_received_ttl", chunks: ["received"], now: 101,
+    });
+    await store.claimChunk({
+      bindingId: "binding_1", messageId: "course_received_ttl", nextChunk: 1, now: 102,
+    });
+    await store.partial({
+      bindingId: "binding_1", messageId: "course_received_ttl", confirmedChunk: 0, now: 103,
+    });
+    expect(await store.reserve(reserve("binding_1", "course_received_ttl", 1_000)))
+      .toEqual({ decision: "duplicate" });
+    expect(await store.resumePartialReply?.({
+      bindingId: "binding_1", messageId: "course_received_ttl", chunks: ["received"], now: 1_000,
+    })).toEqual({ decision: "reconciliation_required" });
+
+    const legacy = memoryFs(JSON.stringify({
+      version: 2,
+      entries: [{
+        bindingId: "binding_1", messageId: "course_received_legacy", updatedAt: 100,
+        state: "partial", confirmedChunk: 0,
+      }],
+    }));
+    const migrated = makeFileDiscordDedupe({ path: "dedupe.json", fs: legacy });
+    expect(await migrated.resumePartialReply?.({
+      bindingId: "binding_1", messageId: "course_received_legacy", chunks: ["received"], now: 101,
+    })).toEqual({ decision: "reconciliation_required" });
+    expect(await migrated.partial({
+      bindingId: "binding_1", messageId: "course_received_legacy", confirmedChunk: 0, now: 102,
+    })).toBe(true);
+    expect(await migrated.resumePartialReply?.({
+      bindingId: "binding_1", messageId: "course_received_legacy", chunks: ["received"], now: 103,
+    })).toEqual({ decision: "reconciliation_required" });
+  });
+
+  it("fails closed when the wall clock moves behind the first ambiguous send", async () => {
+    const fs = memoryFs();
+    const store = makeFileDiscordDedupe({ path: "dedupe.json", fs, nonceReplayWindowMs: 60 });
+    await store.reserve(reserve("binding_1", "course_received_clock", 100));
+    await store.beginReply({
+      bindingId: "binding_1", messageId: "course_received_clock", chunks: ["received"], now: 101,
+    });
+    await store.claimChunk({
+      bindingId: "binding_1", messageId: "course_received_clock", nextChunk: 1, now: 102,
+    });
+    await store.partial({
+      bindingId: "binding_1", messageId: "course_received_clock", confirmedChunk: 0, now: 103,
+    });
+    expect(await store.resumePartialReply?.({
+      bindingId: "binding_1", messageId: "course_received_clock", chunks: ["received"], now: 101,
+    })).toEqual({ decision: "reconciliation_required" });
+  });
+
+  it("keeps a clock-rollback partial parseable while preserving the future ambiguity anchor", async () => {
+    const fs = memoryFs();
+    const store = makeFileDiscordDedupe({ path: "dedupe.json", fs, nonceReplayWindowMs: 60 });
+    await store.reserve(reserve("binding_1", "course_received_clock_write", 100));
+    await store.beginReply({
+      bindingId: "binding_1", messageId: "course_received_clock_write", chunks: ["received"], now: 101,
+    });
+    await store.claimChunk({
+      bindingId: "binding_1", messageId: "course_received_clock_write", nextChunk: 1, now: 102,
+    });
+    expect(await store.partial({
+      bindingId: "binding_1", messageId: "course_received_clock_write", confirmedChunk: 0, now: 101,
+    })).toBe(true);
+
+    const reconstructed = makeFileDiscordDedupe({ path: "dedupe.json", fs, nonceReplayWindowMs: 60 });
+    expect(JSON.parse(fs.value!).entries[0]).toMatchObject({ updatedAt: 102, ambiguousSinceAt: 102 });
+    expect(await reconstructed.resumePartialReply?.({
+      bindingId: "binding_1", messageId: "course_received_clock_write", chunks: ["received"], now: 101,
+    })).toEqual({ decision: "reconciliation_required" });
+  });
+
+  it("prevents a stale process cache from replacing a pinned ambiguous partial after TTL", async () => {
+    const fs = memoryFs();
+    const stale = makeFileDiscordDedupe({ path: "dedupe.json", fs, ttlMs: 10 });
+    const writer = makeFileDiscordDedupe({ path: "dedupe.json", fs, ttlMs: 10 });
+    await writer.reserve(reserve("binding_1", "course_received_race", 100));
+    await writer.beginReply({
+      bindingId: "binding_1", messageId: "course_received_race", chunks: ["received"], now: 101,
+    });
+    await writer.claimChunk({
+      bindingId: "binding_1", messageId: "course_received_race", nextChunk: 1, now: 102,
+    });
+    await writer.partial({
+      bindingId: "binding_1", messageId: "course_received_race", confirmedChunk: 0, now: 103,
+    });
+
+    expect(await stale.reserve(reserve("binding_1", "course_received_race", 1_000)))
+      .toEqual({ decision: "duplicate" });
+    expect(JSON.parse(fs.value!).entries[0]).toMatchObject({
+      messageId: "course_received_race",
+      state: "partial",
+      ambiguousSinceAt: 102,
+    });
+  });
+
   it("keeps the confirmed cursor monotonic when shutdown records an older partial", async () => {
     const fs = memoryFs();
     const store = makeFileDiscordDedupe({ path: "dedupe.json", fs });
@@ -303,15 +435,41 @@ describe("T-DISCORD-RT-04 — binding-scoped durable reply state", () => {
     expect(await store.reserve(reserve("binding_1", "m1", 106))).toEqual({ decision: "duplicate" });
   });
 
-  it("never resends a chunk that was claimed before an ambiguous crash", async () => {
+  it("resumes a newly nonce-protected chunk after an ambiguous crash within the replay window", async () => {
     const fs = memoryFs();
     const store = makeFileDiscordDedupe({ path: "dedupe.json", fs });
     await store.reserve(reserve("binding_1", "m1", 100));
     await store.beginReply({ bindingId: "binding_1", messageId: "m1", chunks: ["uncertain"], now: 101 });
     await store.claimChunk({ bindingId: "binding_1", messageId: "m1", nextChunk: 1, now: 102 });
     const reconstructed = makeFileDiscordDedupe({ path: "dedupe.json", fs });
-    expect(await reconstructed.reserve(reserve("binding_1", "m1", 103))).toEqual({ decision: "duplicate" });
-    expect(JSON.parse(fs.value!).entries[0].state).toBe("partial");
+    expect(await reconstructed.reserve(reserve("binding_1", "m1", 103))).toEqual({
+      decision: "resume_reply", chunks: ["uncertain"], nextChunk: 0,
+    });
+    expect(JSON.parse(fs.value!).entries[0]).toMatchObject({
+      state: "replying", nextChunk: 0, confirmedChunk: 0, ambiguousSinceAt: 102,
+    });
+    expect(await reconstructed.claimChunk({
+      bindingId: "binding_1", messageId: "m1", nextChunk: 1, now: 104,
+    })).toBe(true);
+  });
+
+  it("keeps a recovered replying record parseable if the clock rolls back before reclaim", async () => {
+    const fs = memoryFs();
+    const store = makeFileDiscordDedupe({ path: "dedupe.json", fs });
+    await store.reserve(reserve("binding_1", "rollback_reclaim", 100));
+    await store.beginReply({
+      bindingId: "binding_1", messageId: "rollback_reclaim", chunks: ["uncertain"], now: 101,
+    });
+    await store.claimChunk({ bindingId: "binding_1", messageId: "rollback_reclaim", nextChunk: 1, now: 102 });
+    const reconstructed = makeFileDiscordDedupe({ path: "dedupe.json", fs });
+    expect(await reconstructed.reserve(reserve("binding_1", "rollback_reclaim", 103))).toMatchObject({
+      decision: "resume_reply", nextChunk: 0,
+    });
+    expect(await reconstructed.claimChunk({
+      bindingId: "binding_1", messageId: "rollback_reclaim", nextChunk: 1, now: 101,
+    })).toBe(true);
+    expect(JSON.parse(fs.value!).entries[0]).toMatchObject({ updatedAt: 103, ambiguousSinceAt: 102 });
+    expect(() => makeFileDiscordDedupe({ path: "dedupe.json", fs })).not.toThrow();
   });
 
   it("does not prune in-progress reservations or outboxes at capacity", async () => {

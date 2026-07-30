@@ -44,9 +44,10 @@ export interface DiscordCourseLifecycleDelivery {
 }
 
 export interface DiscordCourseStatusPort {
-  /** false means delivery remains pending and the bridge must retry/recover. */
-  send(input: DiscordCourseLifecycleDelivery): Promise<boolean>;
+  send(input: DiscordCourseLifecycleDelivery): Promise<DiscordCourseStatusResult>;
 }
+
+export type DiscordCourseStatusResult = "delivered" | "retry" | "reconciliation_required";
 
 export type DiscordGatewayCloseCode =
   | "closed"
@@ -68,6 +69,8 @@ export interface DiscordGatewayConnection {
     readonly guildId: string;
     readonly messageId: string;
     readonly content: string;
+    /** Stable logical delivery key. The adapter hashes it into a Discord nonce. */
+    readonly idempotencyKey?: string;
     readonly signal?: AbortSignal;
   }): Promise<string>;
   close(): void;
@@ -162,6 +165,7 @@ export interface DiscordDedupePort {
   }): Promise<
     | { readonly decision: "resumed"; readonly nextChunk: number }
     | { readonly decision: "not_partial" }
+    | { readonly decision: "reconciliation_required" }
     | { readonly decision: "failed" }
   >;
 }

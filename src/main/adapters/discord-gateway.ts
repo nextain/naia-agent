@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type {
   DiscordGatewayClose,
   DiscordGatewayConnection,
@@ -47,6 +48,7 @@ const MAX_REPLY_LENGTH = 2_000;
 const MAX_EVENT_LENGTH = 1_000_000;
 const MAX_MESSAGE_LENGTH = 4_000;
 const MAX_PENDING_MESSAGES = 256;
+const MAX_IDEMPOTENCY_KEY_LENGTH = 512;
 const MAX_REPLY_RESPONSE_BYTES = 64 * 1_024;
 const SNOWFLAKE = /^\d{1,128}$/;
 const DEFAULT_DISCOVERY_TIMEOUT_MS = 10_000;
@@ -428,9 +430,16 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
         async sendReply(input) {
           if (!input.content || Array.from(input.content).length > MAX_REPLY_LENGTH
             || !SNOWFLAKE.test(input.channelId) || !SNOWFLAKE.test(input.guildId)
-            || !SNOWFLAKE.test(input.messageId)) {
+            || !SNOWFLAKE.test(input.messageId)
+            || (input.idempotencyKey !== undefined
+              && (input.idempotencyKey.length < 1
+                || input.idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH
+                || /[\u0000-\u001f\u007f]/.test(input.idempotencyKey)))) {
             throw new DiscordGatewayError("invalid_reply");
           }
+          const nonce = input.idempotencyKey === undefined
+            ? undefined
+            : createHash("sha256").update(input.idempotencyKey).digest("hex").slice(0, 24);
           let resolveReply!: (value: string) => void;
           let rejectReply!: (error: unknown) => void;
           const result = new Promise<string>((resolve, reject) => {
@@ -441,39 +450,56 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
             try {
               if (input.signal?.aborted) throw new DiscordGatewayError("http_error");
               for (let attempt = 0; attempt <= maxRetries; attempt++) {
-                const { response, bodyText } = await fetchReplyWithTimeout(
-                  fetchImpl,
-                  `${apiBase}/channels/${encodeURIComponent(input.channelId)}/messages`,
-                  {
-                    method: "POST",
-                    headers: {
-                      authorization: `Bot ${token}`,
-                      "content-type": "application/json",
-                    },
-                    signal: input.signal,
-                    body: JSON.stringify({
-                      content: input.content,
-                      message_reference: {
-                        message_id: input.messageId,
-                        channel_id: input.channelId,
-                        guild_id: input.guildId,
-                        fail_if_not_exists: false,
+                let reply: Awaited<ReturnType<typeof fetchReplyWithTimeout>>;
+                try {
+                  reply = await fetchReplyWithTimeout(
+                    fetchImpl,
+                    `${apiBase}/channels/${encodeURIComponent(input.channelId)}/messages`,
+                    {
+                      method: "POST",
+                      headers: {
+                        authorization: `Bot ${token}`,
+                        "content-type": "application/json",
                       },
-                      allowed_mentions: { parse: [], replied_user: false },
-                    }),
-                  },
-                  replyTimeoutMs,
-                  input.signal,
-                );
+                      signal: input.signal,
+                      body: JSON.stringify({
+                        content: input.content,
+                        message_reference: {
+                          message_id: input.messageId,
+                          channel_id: input.channelId,
+                          guild_id: input.guildId,
+                          fail_if_not_exists: false,
+                        },
+                        allowed_mentions: { parse: [], replied_user: false },
+                        ...(nonce ? { nonce, enforce_nonce: true } : {}),
+                      }),
+                    },
+                    replyTimeoutMs,
+                    input.signal,
+                  );
+                } catch (error) {
+                  if (!nonce || attempt === maxRetries || input.signal?.aborted) throw error;
+                  await abortableSleep(sleep, Math.min(2_000, 250 * (2 ** attempt)), input.signal);
+                  continue;
+                }
+                const { response, bodyText } = reply;
                 if (response.ok) {
                   let body: { id?: unknown };
                   try {
                     body = JSON.parse(bodyText ?? "") as { id?: unknown };
                   } catch {
+                    if (nonce && attempt < maxRetries) {
+                      await abortableSleep(sleep, Math.min(2_000, 250 * (2 ** attempt)), input.signal);
+                      continue;
+                    }
                     throw new DiscordGatewayError("http_error");
                   }
                   const replyMessageId = String(body.id ?? "");
                   if (!SNOWFLAKE.test(replyMessageId)) {
+                    if (nonce && attempt < maxRetries) {
+                      await abortableSleep(sleep, Math.min(2_000, 250 * (2 ** attempt)), input.signal);
+                      continue;
+                    }
                     throw new DiscordGatewayError("http_error");
                   }
                   resolveReply(replyMessageId);
@@ -481,7 +507,13 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
                 }
                 if (response.status === 401) throw new DiscordGatewayError("auth_failed");
                 if (response.status === 403) throw new DiscordGatewayError("permission_denied");
-                if (response.status !== 429) throw new DiscordGatewayError("http_error");
+                if (response.status !== 429) {
+                  if (nonce && response.status >= 500 && attempt < maxRetries) {
+                    await abortableSleep(sleep, Math.min(2_000, 250 * (2 ** attempt)), input.signal);
+                    continue;
+                  }
+                  throw new DiscordGatewayError("http_error");
+                }
                 if (attempt === maxRetries) throw new DiscordGatewayError("rate_limited");
                 let retryAfterMs = 1_000;
                 try {

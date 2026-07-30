@@ -15,6 +15,10 @@ interface DedupeEntry {
   readonly chunks?: readonly string[];
   readonly nextChunk?: number;
   readonly confirmedChunk?: number;
+  /** First uncertain Discord POST time. Kept across retries so the nonce safety window cannot reset. */
+  readonly ambiguousSinceAt?: number;
+  /** Present on new-format in-flight records; absent means a legacy partial whose send state is unknown. */
+  readonly ambiguityKnown?: true;
 }
 
 interface DedupeDocument {
@@ -32,6 +36,7 @@ export interface DiscordDedupeOptions {
   readonly path: string;
   readonly maxEntries?: number;
   readonly ttlMs?: number;
+  readonly nonceReplayWindowMs?: number;
   readonly fs?: DiscordDedupeFs;
 }
 
@@ -39,6 +44,7 @@ const ID = /^[A-Za-z0-9_-]{1,128}$/;
 const STATES = new Set<DedupeState>(["reserved", "replying", "completed", "partial"]);
 const DEFAULT_MAX_ENTRIES = 4_096;
 const DEFAULT_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
+const DEFAULT_NONCE_REPLAY_WINDOW_MS = 60_000;
 const MAX_CHUNKS = 6;
 const MAX_CHUNK_LENGTH = 2_000;
 
@@ -153,6 +159,10 @@ function parseDocument(raw: string | undefined, maxEntries: number): readonly De
       || typeof entry.messageId !== "string" || !ID.test(entry.messageId)
       || (entry.owner !== undefined && (typeof entry.owner !== "string" || !ID.test(entry.owner)))
       || !Number.isSafeInteger(entry.updatedAt) || entry.updatedAt! < 0
+      || (entry.ambiguousSinceAt !== undefined
+        && (!Number.isSafeInteger(entry.ambiguousSinceAt) || entry.ambiguousSinceAt! < 0
+          || entry.ambiguousSinceAt! > entry.updatedAt!))
+      || (entry.ambiguityKnown !== undefined && entry.ambiguityKnown !== true)
       || !STATES.has(entry.state as DedupeState) || seen.has(key)) {
       throw new Error("DISCORD_DEDUPE_CORRUPT");
     }
@@ -168,7 +178,8 @@ function parseDocument(raw: string | undefined, maxEntries: number): readonly De
       throw new Error("DISCORD_DEDUPE_CORRUPT");
     }
     if (entry.state !== "replying" && entry.state !== "partial"
-      && (entry.chunks !== undefined || entry.nextChunk !== undefined || entry.confirmedChunk !== undefined)) {
+      && (entry.chunks !== undefined || entry.nextChunk !== undefined || entry.confirmedChunk !== undefined
+        || entry.ambiguousSinceAt !== undefined || entry.ambiguityKnown !== undefined)) {
       throw new Error("DISCORD_DEDUPE_CORRUPT");
     }
     if (entry.state === "partial" && (entry.chunks !== undefined || entry.nextChunk !== undefined)) {
@@ -181,6 +192,8 @@ function parseDocument(raw: string | undefined, maxEntries: number): readonly De
       updatedAt: entry.updatedAt!,
       state: entry.state as DedupeState,
       ...(entry.owner === undefined ? {} : { owner: entry.owner }),
+      ...(entry.ambiguousSinceAt === undefined ? {} : { ambiguousSinceAt: entry.ambiguousSinceAt }),
+      ...(entry.ambiguityKnown === undefined ? {} : { ambiguityKnown: true }),
       ...(entry.state === "replying"
         ? { chunks: [...entry.chunks!], nextChunk: entry.nextChunk!, confirmedChunk: entry.confirmedChunk! }
         : entry.state === "partial" ? { confirmedChunk: entry.confirmedChunk! } : {}),
@@ -192,8 +205,10 @@ function parseDocument(raw: string | undefined, maxEntries: number): readonly De
 export function makeFileDiscordDedupe(options: DiscordDedupeOptions): DiscordDedupePort {
   const maxEntries = options.maxEntries ?? DEFAULT_MAX_ENTRIES;
   const ttlMs = options.ttlMs ?? DEFAULT_TTL_MS;
+  const nonceReplayWindowMs = options.nonceReplayWindowMs ?? DEFAULT_NONCE_REPLAY_WINDOW_MS;
   if (!Number.isSafeInteger(maxEntries) || maxEntries < 1 || maxEntries > 100_000
-    || !Number.isSafeInteger(ttlMs) || ttlMs < 1) {
+    || !Number.isSafeInteger(ttlMs) || ttlMs < 1
+    || !Number.isSafeInteger(nonceReplayWindowMs) || nonceReplayWindowMs < 1) {
     throw new Error("DISCORD_DEDUPE_CONFIG_INVALID");
   }
   const fs = options.fs ?? makeNodeFs();
@@ -212,6 +227,7 @@ export function makeFileDiscordDedupe(options: DiscordDedupeOptions): DiscordDed
             state: "partial",
             owner,
             confirmedChunk: 0,
+            ambiguityKnown: true,
           }
         : entry.state === "replying" ? { ...entry, owner }
         : entry);
@@ -222,6 +238,10 @@ export function makeFileDiscordDedupe(options: DiscordDedupeOptions): DiscordDed
   let entries = load();
 
   const keyOf = (bindingId: string, messageId: string) => `${bindingId}\u0000${messageId}`;
+  const isPinnedPartial = (entry: DedupeEntry) => entry.state === "partial"
+    && (entry.ambiguousSinceAt !== undefined || entry.ambiguityKnown !== true);
+  const isCurrent = (entry: DedupeEntry, cutoff: number) => entry.state === "reserved"
+    || entry.state === "replying" || isPinnedPartial(entry) || entry.updatedAt >= cutoff;
   const validIdentity = (bindingId: string, messageId: string, now: number) =>
     ID.test(bindingId) && ID.test(messageId) && Number.isSafeInteger(now) && now >= 0;
   const write = (entry: DedupeEntry, now: number): boolean => {
@@ -231,7 +251,7 @@ export function makeFileDiscordDedupe(options: DiscordDedupeOptions): DiscordDed
         const latest = [...parseDocument(fs.read(options.path), maxEntries)];
         const key = keyOf(entry.bindingId, entry.messageId);
         const current = latest.find((candidate) => keyOf(candidate.bindingId, candidate.messageId) === key
-          && (candidate.state === "reserved" || candidate.state === "replying" || candidate.updatedAt >= cutoff));
+          && isCurrent(candidate, cutoff));
         if (entry.state === "reserved") {
           if (current) throw new Error("DISCORD_DEDUPE_CONFLICT");
         } else if (!current || (current.owner !== entry.owner
@@ -240,8 +260,14 @@ export function makeFileDiscordDedupe(options: DiscordDedupeOptions): DiscordDed
         }
         let durable = entry;
         if (entry.state === "replying" && current?.state === "replying") {
+          const recoveringAmbiguousChunk = current.nextChunk === current.confirmedChunk! + 1
+            && entry.nextChunk === current.confirmedChunk
+            && entry.confirmedChunk === current.confirmedChunk
+            && entry.ambiguousSinceAt === (current.ambiguousSinceAt ?? current.updatedAt)
+            && entry.ambiguityKnown === true;
           if (JSON.stringify(current.chunks) !== JSON.stringify(entry.chunks)
-            || !((entry.nextChunk === current.nextChunk! + 1 && entry.confirmedChunk === current.confirmedChunk)
+            || !(recoveringAmbiguousChunk
+              || (entry.nextChunk === current.nextChunk! + 1 && entry.confirmedChunk === current.confirmedChunk)
               || (entry.nextChunk === current.nextChunk && entry.confirmedChunk === current.confirmedChunk! + 1))) {
             throw new Error("DISCORD_DEDUPE_CONFLICT");
           }
@@ -256,11 +282,27 @@ export function makeFileDiscordDedupe(options: DiscordDedupeOptions): DiscordDed
         }
         if (entry.state === "partial") {
           if (current?.state === "completed") throw new Error("DISCORD_DEDUPE_CONFLICT");
-          durable = { ...entry, confirmedChunk: Math.max(current?.confirmedChunk ?? 0, entry.confirmedChunk ?? 0) };
+          const durableAmbiguityKnown = current?.state === "partial"
+            ? current.ambiguityKnown
+            : entry.ambiguityKnown;
+          const durableAmbiguousSinceAt = current?.ambiguousSinceAt ?? entry.ambiguousSinceAt;
+          const { ambiguityKnown: _entryAmbiguityKnown, ...partialEntry } = entry;
+          durable = {
+            ...partialEntry,
+            updatedAt: Math.max(partialEntry.updatedAt, durableAmbiguousSinceAt ?? 0),
+            confirmedChunk: Math.max(current?.confirmedChunk ?? 0, entry.confirmedChunk ?? 0),
+            ...(durableAmbiguousSinceAt === undefined ? {} : { ambiguousSinceAt: durableAmbiguousSinceAt }),
+            ...(durableAmbiguityKnown === undefined ? {} : { ambiguityKnown: true as const }),
+          };
         }
         const others = latest.filter((candidate) => keyOf(candidate.bindingId, candidate.messageId) !== key);
-        const active = others.filter((candidate) => candidate.state === "reserved" || candidate.state === "replying"
-          || (candidate.state === "partial" && candidate.updatedAt >= cutoff));
+        // A partial can represent a Discord POST whose response was lost. It
+        // must remain fail-closed until explicit reconciliation, even after
+        // the ordinary completed-entry TTL.
+        const active = others.filter((candidate) => candidate.state === "reserved"
+          || candidate.state === "replying"
+          || (candidate.state === "partial"
+            && (isPinnedPartial(candidate) || candidate.updatedAt >= cutoff)));
         const terminal = others.filter((candidate) => candidate.state === "completed" && candidate.updatedAt >= cutoff)
           .sort((a, b) => b.updatedAt - a.updatedAt)
           .slice(0, Math.max(0, maxEntries - active.length - 1));
@@ -279,8 +321,7 @@ export function makeFileDiscordDedupe(options: DiscordDedupeOptions): DiscordDed
     const cutoff = Math.max(0, now - ttlMs);
     const key = keyOf(bindingId, messageId);
     return entries.find((entry) =>
-      keyOf(entry.bindingId, entry.messageId) === key
-      && (entry.state === "reserved" || entry.state === "replying" || entry.updatedAt >= cutoff));
+      keyOf(entry.bindingId, entry.messageId) === key && isCurrent(entry, cutoff));
   };
 
   return {
@@ -297,13 +338,30 @@ export function makeFileDiscordDedupe(options: DiscordDedupeOptions): DiscordDed
       const existing = find(bindingId, messageId, now);
       if (existing?.state === "replying") {
         if (existing.nextChunk! > existing.confirmedChunk!) {
+          const ambiguousSinceAt = existing.ambiguousSinceAt ?? existing.updatedAt;
+          if (existing.ambiguityKnown === true
+            && now >= ambiguousSinceAt && now - ambiguousSinceAt <= nonceReplayWindowMs) {
+            const recovered = write({
+              ...existing,
+              owner,
+              updatedAt: Math.max(now, ambiguousSinceAt),
+              nextChunk: existing.confirmedChunk!,
+              ambiguousSinceAt,
+              ambiguityKnown: true,
+            }, now);
+            return recovered
+              ? { decision: "resume_reply" as const, chunks: existing.chunks!, nextChunk: existing.confirmedChunk! }
+              : { decision: "duplicate" as const };
+          }
           write({
             bindingId,
             messageId,
-            updatedAt: now,
+            updatedAt: Math.max(now, ambiguousSinceAt),
             state: "partial",
             owner: existing.owner,
             confirmedChunk: existing.confirmedChunk!,
+            ambiguousSinceAt,
+            ...(existing.ambiguityKnown === true ? { ambiguityKnown: true as const } : {}),
           }, now);
           return { decision: "duplicate" };
         }
@@ -348,6 +406,7 @@ export function makeFileDiscordDedupe(options: DiscordDedupeOptions): DiscordDed
         chunks: [...chunks],
         nextChunk: 0,
         confirmedChunk: 0,
+        ambiguityKnown: true,
       }, now);
     },
     async claimChunk({ bindingId, messageId, nextChunk, now }) {
@@ -356,7 +415,11 @@ export function makeFileDiscordDedupe(options: DiscordDedupeOptions): DiscordDed
       if (!existing || existing.state !== "replying" || !existing.chunks
         || nextChunk !== existing.nextChunk! + 1 || nextChunk > existing.chunks.length
         || existing.nextChunk !== existing.confirmedChunk) return false;
-      return write({ ...existing, updatedAt: now, nextChunk }, now);
+      return write({
+        ...existing,
+        updatedAt: Math.max(now, existing.updatedAt, existing.ambiguousSinceAt ?? 0),
+        nextChunk,
+      }, now);
     },
     async confirmChunk({ bindingId, messageId, confirmedChunk, now }) {
       if (!validIdentity(bindingId, messageId, now) || !Number.isSafeInteger(confirmedChunk)) return false;
@@ -367,7 +430,12 @@ export function makeFileDiscordDedupe(options: DiscordDedupeOptions): DiscordDed
       if (confirmedChunk === existing.chunks.length) {
         return write({ bindingId, messageId, updatedAt: now, state: "completed", owner: existing.owner }, now);
       }
-      return write({ ...existing, updatedAt: now, confirmedChunk }, now);
+      const {
+        ambiguousSinceAt: _confirmedAmbiguity,
+        ambiguityKnown: _confirmedKnowledge,
+        ...confirmed
+      } = existing;
+      return write({ ...confirmed, updatedAt: now, confirmedChunk }, now);
     },
     async complete({ bindingId, messageId, now }) {
       if (!validIdentity(bindingId, messageId, now)) return false;
@@ -383,6 +451,9 @@ export function makeFileDiscordDedupe(options: DiscordDedupeOptions): DiscordDed
         && existing.state !== "partial")) return false;
       const durableConfirmedChunk = Math.max(existing.confirmedChunk ?? 0, confirmedChunk);
       if (existing.state === "replying" && durableConfirmedChunk > existing.chunks!.length) return false;
+      const ambiguousSinceAt = existing.ambiguousSinceAt
+        ?? (existing.state === "replying" && existing.nextChunk! > existing.confirmedChunk!
+          ? existing.updatedAt : undefined);
       return write({
         bindingId,
         messageId,
@@ -390,6 +461,8 @@ export function makeFileDiscordDedupe(options: DiscordDedupeOptions): DiscordDed
         state: "partial",
         owner: existing.owner,
         confirmedChunk: durableConfirmedChunk,
+        ...(ambiguousSinceAt === undefined ? {} : { ambiguousSinceAt }),
+        ambiguityKnown: true,
       }, now);
     },
     async resumePartialReply({ bindingId, messageId, chunks, now }) {
@@ -398,6 +471,11 @@ export function makeFileDiscordDedupe(options: DiscordDedupeOptions): DiscordDed
       }
       const existing = find(bindingId, messageId, now);
       if (!existing || existing.state !== "partial") return { decision: "not_partial" as const };
+      if (existing.ambiguityKnown !== true
+        || (existing.ambiguousSinceAt !== undefined
+          && (now < existing.ambiguousSinceAt || now - existing.ambiguousSinceAt > nonceReplayWindowMs))) {
+        return { decision: "reconciliation_required" as const };
+      }
       const confirmedChunk = existing.confirmedChunk ?? 0;
       if (confirmedChunk > chunks.length) return { decision: "failed" as const };
       if (!write({
@@ -409,6 +487,8 @@ export function makeFileDiscordDedupe(options: DiscordDedupeOptions): DiscordDed
         chunks: [...chunks],
         nextChunk: confirmedChunk,
         confirmedChunk,
+        ...(existing.ambiguousSinceAt === undefined ? {} : { ambiguousSinceAt: existing.ambiguousSinceAt }),
+        ambiguityKnown: true,
       }, now)) return { decision: "failed" as const };
       return { decision: "resumed" as const, nextChunk: confirmedChunk };
     },

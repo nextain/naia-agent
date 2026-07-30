@@ -293,6 +293,7 @@ describe("T-DISCORD-RT-02/05/06 — Discord Gateway adapter", () => {
     }).connect("token", { onReady() {}, onMessage() {} });
     await expect(connection.sendReply({
       guildId: "100", channelId: "200", messageId: "400", content: "answer",
+      idempotencyKey: "reply:binding:400:0",
     })).resolves.toBe("401");
     expect(sleeps).toEqual([250]);
     const request = fetcher.mock.calls[1]!;
@@ -301,7 +302,57 @@ describe("T-DISCORD-RT-02/05/06 — Discord Gateway adapter", () => {
       content: "answer",
       message_reference: { message_id: "400", channel_id: "200", guild_id: "100", fail_if_not_exists: false },
       allowed_mentions: { parse: [], replied_user: false },
+      nonce: expect.stringMatching(/^[0-9a-f]{24}$/),
+      enforce_nonce: true,
     });
+  });
+
+  it("retries an ambiguous transport failure only with a stable enforced nonce", async () => {
+    const socket = new FakeSocket();
+    const sleeps: number[] = [];
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(response(200, { url: "wss://gateway.discord.test" }))
+      .mockRejectedValueOnce(new TypeError("network failed"))
+      .mockResolvedValueOnce(response(200, { id: "402" }));
+    const connection = await makeDiscordGateway({
+      fetch: fetcher as typeof fetch,
+      socket: () => socket,
+      sleep: async (ms) => { sleeps.push(ms); },
+    }).connect("token", { onReady() {}, onMessage() {} });
+    await expect(connection.sendReply({
+      guildId: "100",
+      channelId: "200",
+      messageId: "400",
+      content: "answer",
+      idempotencyKey: "reply:binding:400:0",
+    })).resolves.toBe("402");
+    expect(sleeps).toEqual([250]);
+    const firstBody = JSON.parse(fetcher.mock.calls[1]![1]!.body as string);
+    const secondBody = JSON.parse(fetcher.mock.calls[2]![1]!.body as string);
+    expect(firstBody.nonce).toMatch(/^[0-9a-f]{24}$/);
+    expect(secondBody).toMatchObject({ nonce: firstBody.nonce, enforce_nonce: true });
+  });
+
+  it("retries a successful response with an invalid message id using the same nonce", async () => {
+    const socket = new FakeSocket();
+    const sleeps: number[] = [];
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(response(200, { url: "wss://gateway.discord.test" }))
+      .mockResolvedValueOnce(response(200, { id: "not-a-snowflake" }))
+      .mockResolvedValueOnce(response(200, { id: "403" }));
+    const connection = await makeDiscordGateway({
+      fetch: fetcher as typeof fetch,
+      socket: () => socket,
+      sleep: async (ms) => { sleeps.push(ms); },
+    }).connect("token", { onReady() {}, onMessage() {} });
+    await expect(connection.sendReply({
+      guildId: "100", channelId: "200", messageId: "400", content: "answer",
+      idempotencyKey: "reply:binding:400:0",
+    })).resolves.toBe("403");
+    const firstBody = JSON.parse(fetcher.mock.calls[1]![1]!.body as string);
+    const secondBody = JSON.parse(fetcher.mock.calls[2]![1]!.body as string);
+    expect(sleeps).toEqual([250]);
+    expect(secondBody).toMatchObject({ nonce: firstBody.nonce, enforce_nonce: true });
   });
 
   it("does not retry a rate-limited reply after abort", async () => {
