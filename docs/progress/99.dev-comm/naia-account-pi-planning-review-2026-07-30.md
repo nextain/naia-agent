@@ -1,8 +1,8 @@
 # Planning review — Naia account Pi/Azure
 
-Stage: planning  
-Reviewers: independent reviewer A and B (external CLI reviewers were unavailable)  
-Rounds: 3 document revisions  
+Stage: planning
+Reviewers: independent reviewer A and B (external CLI reviewers were unavailable)
+Rounds: 3 document revisions
 Result: plan corrected; implementation blockers enumerated
 
 ## Evidence ledger
