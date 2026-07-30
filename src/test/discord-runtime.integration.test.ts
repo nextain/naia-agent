@@ -2068,8 +2068,8 @@ describe("T-DISCORD-RT-05/06 — lifecycle, bounded reply, safe failure", () => 
       bindingId: "binding_1", guildId: "100", channelId: "200", sourceMessageId: "4002", state: "received" as const,
     };
 
-    expect(await runtime.sendCourseLifecycle(lifecycle)).toBe(false);
-    expect(await runtime.sendCourseLifecycle(lifecycle)).toBe(true);
+    expect(await runtime.sendCourseLifecycle(lifecycle)).toBe("retry");
+    expect(await runtime.sendCourseLifecycle(lifecycle)).toBe("delivered");
     expect(resumePartialReply).toHaveBeenCalledWith(expect.objectContaining({
       bindingId: "binding_1", chunks: [expect.any(String)],
     }));
@@ -2099,10 +2099,27 @@ describe("T-DISCORD-RT-05/06 — lifecycle, bounded reply, safe failure", () => 
       bindingId: "binding_1", guildId: "100", channelId: "200", sourceMessageId: "4002", state: "received" as const,
     };
 
-    expect(await runtime.sendCourseLifecycle(lifecycle)).toBe(false);
-    expect(await runtime.sendCourseLifecycle(lifecycle)).toBe(false);
+    expect(await runtime.sendCourseLifecycle(lifecycle)).toBe("retry");
+    expect(await runtime.sendCourseLifecycle(lifecycle)).toBe("retry");
     expect(logs).toEqual(expect.arrayContaining([
       expect.objectContaining({ context: { code: "course_partial_retry_unavailable" } }),
+    ]));
+    await runtime.stop();
+  });
+
+  it("surfaces stale ambiguous lifecycle delivery for reconciliation without sending again", async () => {
+    const base = makeDedupe();
+    const resumePartialReply = vi.fn(async () => ({ decision: "reconciliation_required" as const }));
+    const { gateway, runtime, logs } = makeHarness({
+      dedupe: { ...base, reserve: async () => ({ decision: "duplicate" as const }), resumePartialReply },
+    });
+    await waitFor(() => gateway.connections.length === 1);
+    expect(await runtime.sendCourseLifecycle({
+      bindingId: "binding_1", guildId: "100", channelId: "200", sourceMessageId: "4002", state: "received",
+    })).toBe("reconciliation_required");
+    expect(gateway.connections[0]!.replies).toHaveLength(0);
+    expect(logs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ context: { code: "course_reply_reconciliation_required" } }),
     ]));
     await runtime.stop();
   });

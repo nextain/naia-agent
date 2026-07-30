@@ -48,6 +48,7 @@ interface ActiveTurn {
   emitTail: Promise<void>;
   text: string;
   readonly toolRecords: string[];
+  deliverySequence: number;
 }
 
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
@@ -318,16 +319,18 @@ export class DiscordChannelRuntime {
    * binding and only emits one of four fixed messages, so job details cannot
    * be reflected into Discord.
    */
-  async sendCourseLifecycle(input: DiscordCourseLifecycleDelivery): Promise<boolean> {
+  async sendCourseLifecycle(input: DiscordCourseLifecycleDelivery): Promise<
+    "delivered" | "retry" | "reconciliation_required"
+  > {
     const binding = this.config.bindings.find((candidate) =>
       candidate.bindingId === input.bindingId
       && candidate.guildId === input.guildId
       && candidate.channelId === input.channelId);
     const connection = this.connection;
     if (!binding || !connection || !this.isLifecycleCurrent(this.lifecycleEpoch)
-      || !await this.ensureAuthoritative()) return false;
+      || !await this.ensureAuthoritative()) return "retry";
     const content = this.deps.text.courseLifecycle(input.state);
-    if (!content) return false;
+    if (!content) return "retry";
     const durableMessageId = courseDedupeId(input);
     try {
       const reservation = await this.deps.dedupe.reserve({
@@ -347,14 +350,18 @@ export class DiscordChannelRuntime {
         // course bridge's retry queue into a false success.
         if (!resumed) {
           this.diagnostic("course_partial_retry_unavailable");
-          return false;
+          return "retry";
         }
-        if (resumed.decision === "not_partial") return true;
-        if (resumed.decision === "failed") return false;
+        if (resumed.decision === "not_partial") return "delivered";
+        if (resumed.decision === "reconciliation_required") {
+          this.diagnostic("course_reply_reconciliation_required");
+          return "reconciliation_required";
+        }
+        if (resumed.decision === "failed") return "retry";
         return await this.sendDurableReply(
           input.bindingId, input.guildId, input.channelId, input.sourceMessageId,
           [content], resumed.nextChunk, this.lifecycleEpoch, this.lifecycleAbort.signal, durableMessageId,
-        );
+        ) ? "delivered" : "retry";
       }
       const chunks = reservation.decision === "resume_reply" ? reservation.chunks : [content];
       const startChunk = reservation.decision === "resume_reply" ? reservation.nextChunk : 0;
@@ -363,14 +370,14 @@ export class DiscordChannelRuntime {
         messageId: durableMessageId,
         chunks,
         now: this.deps.clock.now(),
-      })) return false;
+      })) return "retry";
       return await this.sendDurableReply(
         input.bindingId, input.guildId, input.channelId, input.sourceMessageId,
         chunks, startChunk, this.lifecycleEpoch, this.lifecycleAbort.signal, durableMessageId,
-      );
+      ) ? "delivered" : "retry";
     } catch {
       this.diagnostic("course_status_reply_failed");
-      return false;
+      return "retry";
     }
   }
 
@@ -902,6 +909,7 @@ export class DiscordChannelRuntime {
       emitTail: Promise.resolve(),
       text: "",
       toolRecords: [],
+      deliverySequence: 0,
     });
     this.deps.diag.debug?.("discord dispatch", { activeCount: this.active.size, historyCount: previous.length });
     try {
@@ -1028,11 +1036,13 @@ export class DiscordChannelRuntime {
       || !this.isLifecycleCurrent(turn.lifecycleEpoch)) return false;
     try {
       if (!await this.ensureAuthoritative() || !this.isLifecycleCurrent(turn.lifecycleEpoch)) return false;
+      const deliverySequence = turn.deliverySequence++;
       await connection.sendReply({
         channelId: turn.channelId,
         guildId: turn.guildId,
         messageId: turn.messageId,
         content: this.deps.text.processingDisclosure(event),
+        idempotencyKey: `event:${turn.bindingId}:${turn.messageId}:${deliverySequence}`,
         signal: turn.outboundSignal,
       });
       return this.isLifecycleCurrent(turn.lifecycleEpoch);
@@ -1051,11 +1061,13 @@ export class DiscordChannelRuntime {
       || !await this.ensureAuthoritative()
       || !this.isLifecycleCurrent(turn.lifecycleEpoch)) return false;
     try {
+      const deliverySequence = turn.deliverySequence++;
       await connection.sendReply({
         channelId: turn.channelId,
         guildId: turn.guildId,
         messageId: turn.messageId,
         content: toolProgressMessage(event),
+        idempotencyKey: `event:${turn.bindingId}:${turn.messageId}:${deliverySequence}`,
         signal: turn.outboundSignal,
       });
       return this.isLifecycleCurrent(turn.lifecycleEpoch);
@@ -1111,6 +1123,7 @@ export class DiscordChannelRuntime {
           // snowflake. The synthetic ID is exclusively the durable outbox key.
           messageId,
           content: chunks[index]!,
+          idempotencyKey: `reply:${bindingId}:${durableMessageId}:${index}`,
           signal: outboundSignal,
         });
         const recorded = await this.deps.dedupe.confirmChunk({
