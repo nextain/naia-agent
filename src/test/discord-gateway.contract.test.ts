@@ -260,17 +260,20 @@ describe("T-DISCORD-RT-02/05/06 — Discord Gateway adapter", () => {
       d: { token: "token", session_id: "session-1", seq: 7 },
     });
     expect(fetcher).toHaveBeenCalledTimes(1);
-    secondSocket.payload({ op: 0, t: "RESUMED", s: 8, d: {} });
+    // Discord may replay dispatches immediately around RESUME. They must not
+    // reach the runtime before the authenticated session is restored.
     secondSocket.payload({
       op: 0,
       t: "MESSAGE_CREATE",
-      s: 9,
+      s: 8,
       d: {
         id: "401", guild_id: "100", channel_id: "200", content: "<@999> after resume",
         author: { id: "300", bot: false },
         mentions: [{ id: "999" }],
       },
     });
+    expect(resumedMessage).not.toHaveBeenCalled();
+    secondSocket.payload({ op: 0, t: "RESUMED", s: 9, d: {} });
     expect(resumedReady).toHaveBeenCalledWith("999");
     expect(resumedMessage).toHaveBeenCalledTimes(1);
     second.close();

@@ -46,6 +46,7 @@ const MAX_TOKEN_LENGTH = 512;
 const MAX_REPLY_LENGTH = 2_000;
 const MAX_EVENT_LENGTH = 1_000_000;
 const MAX_MESSAGE_LENGTH = 4_000;
+const MAX_PENDING_MESSAGES = 256;
 const MAX_REPLY_RESPONSE_BYTES = 64 * 1_024;
 const SNOWFLAKE = /^\d{1,128}$/;
 const DEFAULT_DISCOVERY_TIMEOUT_MS = 10_000;
@@ -281,6 +282,8 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
       let reconnectFallback: ReturnType<typeof setTimeout> | undefined;
       let awaitingHeartbeatAck = false;
       let reconnectRequested = false;
+      let authenticated = false;
+      const pendingMessages: DiscordGatewayMessage[] = [];
       let replyQueue: Promise<void> = Promise.resolve();
       let settled = false;
       let resolveClosed!: (value: DiscordGatewayClose) => void;
@@ -294,6 +297,11 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
       };
       const send = (payload: unknown) => {
         if (socket.readyState === 1) socket.send(JSON.stringify(payload));
+      };
+      const becomeReady = (selfUserId: string) => {
+        authenticated = true;
+        handlers.onReady(selfUserId);
+        for (const message of pendingMessages.splice(0)) handlers.onMessage(message);
       };
       const requestReconnect = () => {
         if (reconnectRequested || settled) return;
@@ -370,7 +378,7 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
             session_id?: unknown;
             resume_gateway_url?: unknown;
           } | undefined;
-          if (typeof ready?.user?.id === "string") handlers.onReady(ready.user.id);
+          if (typeof ready?.user?.id === "string") becomeReady(ready.user.id);
           if (typeof ready?.user?.id === "string"
             && typeof ready.session_id === "string"
             && typeof ready.resume_gateway_url === "string"
@@ -384,12 +392,14 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
         }
         if (payload.t === "RESUMED") {
           resumeSequence = sequence;
-          if (resumedSelfUserId) handlers.onReady(resumedSelfUserId);
+          if (resumedSelfUserId) becomeReady(resumedSelfUserId);
           return;
         }
         if (payload.t === "MESSAGE_CREATE") {
           const message = asMessage(payload.d);
-          if (message) handlers.onMessage(message);
+          if (!message) return;
+          if (authenticated) handlers.onMessage(message);
+          else if (pendingMessages.length < MAX_PENDING_MESSAGES) pendingMessages.push(message);
         }
       });
       socket.addEventListener("close", (event) => {
