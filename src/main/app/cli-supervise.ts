@@ -77,19 +77,19 @@ export function parseSuperviseArgs(argv: readonly string[]): ParseResult {
         return { ok: false, error: USAGE, help: true };
       case "--workdir": {
         const v = argv[++i];
-        if (v === undefined) return { ok: false, error: "--workdir 값 누락" };
+        if (v === undefined || v.startsWith("-")) return { ok: false, error: "--workdir 값 누락" };
         workdir = v;
         break;
       }
       case "--agent": {
         const v = argv[++i];
-        if (v === undefined) return { ok: false, error: "--agent 값 누락" };
+        if (v === undefined || v.startsWith("-")) return { ok: false, error: "--agent 값 누락" };
         agent = v;
         break;
       }
       case "--model": {
         const v = argv[++i];
-        if (v === undefined) return { ok: false, error: "--model 값 누락" };
+        if (v === undefined || v.startsWith("-")) return { ok: false, error: "--model 값 누락" };
         model = v;
         break;
       }
@@ -116,7 +116,7 @@ export function parseSuperviseArgs(argv: readonly string[]): ParseResult {
         break;
       case "--check": {
         const v = argv[++i];
-        if (v === undefined) return { ok: false, error: "--check 값 누락" };
+        if (v === undefined || v.startsWith("-")) return { ok: false, error: "--check 값 누락" };
         const eq = v.indexOf("=");
         if (eq <= 0) return { ok: false, error: `--check 형식은 name=command (받음: ${v})` };
         const name = v.slice(0, eq);

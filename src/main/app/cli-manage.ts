@@ -206,7 +206,10 @@ export function setCliConfigValue(config: CliGlobalConfig, key: CliConfigKey, ra
   | { readonly ok: false; readonly error: string } {
   const value = raw.trim();
   if (!value) return { ok: false, error: `${key} 값은 비울 수 없습니다` };
-  if (key === "workspace") return { ok: true, config: { ...config, adkPath: value } };
+  if (key === "workspace") {
+    if (value.startsWith("-")) return { ok: false, error: "workspace는 옵션 형태일 수 없습니다" };
+    return { ok: true, config: { ...config, adkPath: value } };
+  }
   const coding = { ...(config.coding ?? {}) };
   if (key === "coding.tools") {
     const bool = parseBoolean(value);
@@ -218,6 +221,7 @@ export function setCliConfigValue(config: CliGlobalConfig, key: CliConfigKey, ra
     }
     coding.agent = value;
   } else {
+    if (value.startsWith("-")) return { ok: false, error: "coding.model은 옵션 형태일 수 없습니다" };
     coding.model = value;
   }
   return { ok: true, config: { ...config, coding } };
@@ -247,15 +251,49 @@ export function serializeCliConfig(config: CliGlobalConfig): string {
 /** Explicit argv always wins over stored defaults. */
 export function applyCodingDefaults(argv: readonly string[], config: CliGlobalConfig): string[] {
   const out = [...argv];
-  const has = (name: string) => out.includes(name);
+  let explicitAgent: string | undefined;
+  let explicitModel: string | undefined;
+  let hasAgent = false;
+  let hasModel = false;
+  let hasTools = false;
+  let malformed = false;
+  const valueOptions = new Set(["--agent", "--model", "--workdir", "--poll", "--check"]);
+  for (let i = 0; i < out.length; i++) {
+    const token = out[i];
+    if (token === "--tools" || token === "--no-tools") {
+      hasTools = true;
+      continue;
+    }
+    if (token !== undefined && valueOptions.has(token)) {
+      const value = out[++i];
+      if (value === undefined || value.startsWith("-")) {
+        malformed = true;
+        break;
+      }
+      if (token === "--agent") { hasAgent = true; explicitAgent = value; }
+      if (token === "--model") { hasModel = true; explicitModel = value; }
+      continue;
+    }
+    if (token?.startsWith("-") && token !== "--watch" && token !== "--json") {
+      malformed = true;
+      break;
+    }
+  }
+  // Appended defaults must never turn malformed argv into another valid invocation.
+  // Preserve it verbatim so the downstream parser owns the error and exit code.
+  if (malformed) return out;
   const coding = config.coding;
-  const explicitAgentAt = out.indexOf("--agent");
-  const explicitAgent = explicitAgentAt >= 0 ? out[explicitAgentAt + 1] : undefined;
-  if (coding?.agent && !has("--agent")) out.push("--agent", coding.agent);
-  // Stored model belongs to the stored agent. `--agent codex` must not inherit Pi's grok model.
-  if (coding?.model && !has("--model") && (!explicitAgent || explicitAgent === coding.agent)) out.push("--model", coding.model);
-  if (coding?.tools === false && !has("--tools") && !has("--no-tools")) out.push("--no-tools");
-  if (coding?.tools === true && !has("--tools") && !has("--no-tools")) out.push("--tools");
+  const matchesStoredAgent = !explicitAgent || explicitAgent === coding?.agent;
+  const matchesStoredModel = !explicitModel || explicitModel === coding?.model;
+  if (coding?.agent && !hasAgent) out.push("--agent", coding.agent);
+  // Stored model/tools are one tuple with the stored agent. Explicitly selecting another
+  // agent or model must not inherit Pi/Grok capability defaults. The downstream parser is
+  // last-option-wins, so repeated value options use their final occurrence here as well.
+  if (coding?.model && !hasModel && matchesStoredAgent) out.push("--model", coding.model);
+  const mayApplyStoredTools = matchesStoredAgent && matchesStoredModel
+    && !hasTools;
+  if (coding?.tools === false && mayApplyStoredTools) out.push("--no-tools");
+  if (coding?.tools === true && mayApplyStoredTools) out.push("--tools");
   return out;
 }
 

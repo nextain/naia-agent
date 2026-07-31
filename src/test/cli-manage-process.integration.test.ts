@@ -118,6 +118,7 @@ describe("TEST-S-020 isolated HOME management flow", () => {
     expect(run(env, ["config", "set", "workspace", workspace]).status).toBe(0);
     expect(run(env, ["config", "set", "coding.agent", "pi"]).status).toBe(0);
     expect(run(env, ["config", "set", "coding.model", "grok-4.3"]).status).toBe(0);
+    expect(run(env, ["config", "set", "coding.tools", "false"]).status).toBe(0);
     const task = process.platform === "win32" ? "exit /b 0" : "true";
     const result = run(env, ["run", task, "--agent", "shell", "--json"]);
     expect(result.status).toBe(0);

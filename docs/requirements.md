@@ -90,7 +90,7 @@
 | FR-CLI-16 | **모델 카탈로그** — `models [provider] [--json]`이 모델 ID, provider, 용도, 도구 지원을 안정된 형식으로 보여 준다. Naia catalog 장애 시 검증된 Pi 내장 목록으로 제한적으로 fallback하고 그 출처를 표시한다. | Done (#97) |
 | FR-CLI-17 | **자가 진단** — `doctor [--json]`가 계정, workspace, naia-settings, Pi 설치/config, gateway/catalog 준비 상태를 component별 pass/warn/fail로 보고하며 secret을 노출하지 않는다. | Done (#97) |
 | FR-CLI-18 | **세션 관리·재개** — `session list|show|resume`이 기존 workspace transcript를 안전하게 읽는다. 손상 줄은 격리하고 경로 탈출 ID를 거부하며, 5 MiB/최근 400 message로 제한하고 show는 secret redaction한다. resume은 완결 turn만 같은 session ID로 이어 간다. | Done (#97) |
-| FR-CLI-19 | **코딩 기본값** — 저장된 `coding.agent/model/tools`를 `run` 기본값으로 적용하되 명시 argv가 우선한다. DeepSeek analysis-only guard와 Pi model evidence는 그대로 유지한다. | Done (#97) |
+| FR-CLI-19 | **코딩 기본값** — 저장된 `coding.agent/model/tools`는 하나의 결속된 기본값 묶음이다. 명시 argv가 우선하며, 다른 agent 또는 model을 명시하면 저장된 model/tools를 상속하지 않는다. 반복 value option은 downstream parser와 같이 마지막 값을 기준으로 판정한다. DeepSeek analysis-only guard와 Pi model evidence는 그대로 유지한다. | Done (#97, #99) |
 | FR-CLI-20 | **자동화 가능한 표면** — 관리 명령의 JSON schema와 exit code가 안정적이며, 격리 HOME process test에서 Codex-child 호출과 직접 호출이 동일하게 동작한다. | Done (#97) |
 
 ### NFR

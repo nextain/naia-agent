@@ -9,13 +9,13 @@
   },
 
   "current_work": {
-    "issue": "REQ-020",
-    "title": "First-class naia-agent CLI account, config, model, doctor and session management",
-    "issue_doc": ".agents/progress/issue-97-first-class-cli.md",
-    "github_issue": "https://github.com/nextain/naia-agent/issues/97",
+    "issue": "REQ-020 / #99",
+    "title": "Bind stored CLI agent, model and tools defaults",
+    "issue_doc": ".agents/progress/issue-99-cli-default-binding.md",
+    "github_issue": "https://github.com/nextain/naia-agent/issues/99",
     "started": "2026-07-31",
-    "last_updated": "2026-07-31T13:00:11+09:00",
-    "status": "done",
+    "last_updated": "2026-07-31T14:57:00+09:00",
+    "status": "in_progress",
     "windows_runtime_acceptance": {
       "date": "2026-07-21",
       "source_commit": "d9cfd38",
@@ -30,16 +30,16 @@
       "known_limit": "Windows Tauri WebDriver cannot create a WebView2 session (DevToolsActivePort), so the live Shell Codex UI E2E remains blocked before application code runs.",
       "full_suite_note": "The full agent suite still has pre-existing Windows portability failures outside this Codex change (Discord lock/path, gRPC proto path, and memory-header cases)."
     },
-    "handoff_note": "Issue #97은 naia-agent 자체 CLI를 계정·설정·모델·진단·세션 관리와 Pi coding 기본값을 갖춘 first-class 표면으로 만든다. Shell coding Workspace는 제외하고 기존 Naia/Pi 경로와 transcript/naia-settings 정본을 재사용한다.",
+    "handoff_note": "Issue #99는 #98 사후 적대 리뷰에서 합의된 CLI 기본값 누출을 수정한다. 저장 agent/model/tools는 하나의 묶음이며 명시적으로 다른 agent/model에 전파되지 않는다.",
     "prior_work_note": "REQ-013 선제 발화와 REQ-014 Discord runtime은 보존됐다. 실제 Discord 자격증명 2채널·OS credential store·현장 리허설은 운영 인수 범위다."
   },
 
   "sdlc_gates": {
-    "P01": { "status": "done", "name": "user_scenarios", "deliverable": "UC-023 account→config→models→doctor→session→Pi coding happy/failure paths", "ref": "docs/user-scenarios.md (UC-CLI-MANAGE); .agents/progress/issue-97-first-class-cli.md" },
-    "P02": { "status": "done", "name": "test_scenarios", "deliverable": "UC23/FE19/process/regression coverage map", "ref": ".agents/progress/issue-97-first-class-cli.md" },
-    "P03": { "status": "done", "name": "requirements", "deliverable": "FR-CLI-14~20, SPEC-019 and ownership/SoT boundary", "ref": "docs/requirements.md; GitHub #97" },
-    "P04": { "status": "done", "name": "integration_test", "deliverable": "128 files / 1424 tests pass; isolated HOME DPAPI process integration; real Naia DeepSeek smoke; manual reader test", "ref": ".agents/progress/issue-97-first-class-cli.md; docs/naia-agent-cli-manual.md" },
-    "P05": { "status": "done", "name": "requirements_complete", "deliverable": "REQ-020 → UC-023 → SPEC-019 → TEST-S-020 / TEST-F-019 closed with executable and live evidence", "ref": "GitHub #97; docs/naia-agent-cli-manual.md" }
+    "P01": { "status": "done", "name": "user_scenarios", "deliverable": "explicit agent/model must not inherit another stored tuple", "ref": ".agents/progress/issue-99-cli-default-binding.md" },
+    "P02": { "status": "done", "name": "test_scenarios", "deliverable": "tuple mismatch, explicit override and repeated-option coverage", "ref": ".agents/progress/issue-99-cli-default-binding.md" },
+    "P03": { "status": "done", "name": "requirements", "deliverable": "FR-CLI-19 tuple binding clarification", "ref": "docs/requirements.md; GitHub #99" },
+    "P04": { "status": "pending", "name": "integration_test", "deliverable": "targeted + full suite + installed CLI smoke", "ref": ".agents/progress/issue-99-cli-default-binding.md" },
+    "P05": { "status": "pending", "name": "requirements_complete", "deliverable": "consensus finding closed with executable evidence", "ref": "GitHub #99" }
   },
 
   "known_drift": {
