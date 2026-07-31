@@ -7,6 +7,8 @@ import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import {
+  allowLegacyCredentialFallback,
+  WINDOWS_DPAPI_TIMEOUT_MS,
   credentialNameForProvider,
   parseCliConfig,
   removeEnvLines,
@@ -88,7 +90,7 @@ function readDpapi(workspace, name) {
   if (!fs.existsSync(file)) return undefined;
   const script = "Add-Type -AssemblyName System.Security; [Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect([IO.File]::ReadAllBytes($env:DPAPI_FILE), $null, [Security.Cryptography.DataProtectionScope]::CurrentUser))";
   const result = spawnSync("powershell", ["-NoProfile", "-Command", script], {
-    encoding: "utf8", timeout: 8000, env: { ...process.env, DPAPI_FILE: file },
+    encoding: "utf8", timeout: WINDOWS_DPAPI_TIMEOUT_MS, env: { ...process.env, DPAPI_FILE: file },
   });
   if (result.error || result.status !== 0) return undefined;
   return (result.stdout ?? "").replace(/\r?\n$/, "") || undefined;
@@ -100,7 +102,7 @@ function writeDpapi(workspace, name, secret) {
   const temp = join(dirname(target), `.${name}.${process.pid}.${randomUUID()}.tmp`);
   const script = "Add-Type -AssemblyName System.Security; $v=[Console]::In.ReadToEnd(); $b=[Text.Encoding]::UTF8.GetBytes($v); $p=[Security.Cryptography.ProtectedData]::Protect($b,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser); [IO.File]::WriteAllBytes($env:DPAPI_FILE,$p)";
   const result = spawnSync("powershell", ["-NoProfile", "-Command", script], {
-    input: secret, encoding: "utf8", timeout: 8000, env: { ...process.env, DPAPI_FILE: temp },
+    input: secret, encoding: "utf8", timeout: WINDOWS_DPAPI_TIMEOUT_MS, env: { ...process.env, DPAPI_FILE: temp },
   });
   if (result.error || result.status !== 0 || !fs.existsSync(temp)) {
     try { if (fs.existsSync(temp)) fs.unlinkSync(temp); } catch { /* best effort */ }
@@ -128,9 +130,14 @@ export function readCredential(provider, config = readCliConfig()) {
     if (process.env[alias]) return { present: true, source: "environment", value: process.env[alias], name };
   }
   const workspace = resolveWorkspace(config);
+  const secureFile = process.platform === "win32" ? dpapiPath(workspace, name) : undefined;
+  const secureCredentialExists = Boolean(secureFile && fs.existsSync(secureFile));
   const stored = process.platform === "win32" ? readDpapi(workspace, name)
     : process.platform === "linux" ? secretToolRead(name) : undefined;
   if (stored) return { present: true, source: process.platform === "win32" ? "dpapi" : "secret-tool", value: stored, name };
+  // A present secure credential is authoritative. If it cannot be decrypted,
+  // fail closed instead of silently selecting an older plaintext migration key.
+  if (!allowLegacyCredentialFallback(secureCredentialExists)) return { present: false, source: "dpapi-error", name };
   const legacy = parseLegacyEnv();
   for (const alias of aliases) {
     if (legacy.has(alias)) return { present: true, source: "legacy-env", value: legacy.get(alias), name };

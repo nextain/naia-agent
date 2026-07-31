@@ -73,6 +73,14 @@ export function credentialNameForProvider(provider: string): string | null {
   return PROVIDER_CREDENTIAL[provider.trim().toLowerCase()] ?? null;
 }
 
+/** Windows PowerShell may cold-start slowly while loading System.Security. */
+export const WINDOWS_DPAPI_TIMEOUT_MS = 20_000;
+
+/** A secure-store entry is authoritative even when its current read fails. */
+export function allowLegacyCredentialFallback(secureCredentialExists: boolean): boolean {
+  return !secureCredentialExists;
+}
+
 function valueAfter(argv: readonly string[], index: number, flag: string): string | ManageParseResult {
   const value = argv[index + 1];
   return value === undefined || value.startsWith("--")

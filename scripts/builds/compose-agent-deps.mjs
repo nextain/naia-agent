@@ -5,6 +5,7 @@
 //   toolExecutor(builtin+composite, **panel 제외**=gRPC 전용) · memory(naia-memory) · conversationLog(transcript) · diag.
 // transport(stdin/stdout/readline/grpc)·panel(환경 위임, egress 필요)·shutdown 은 각 host 의 관심사 → 여기 없음.
 import { createInterface } from "node:readline";
+import { WINDOWS_DPAPI_TIMEOUT_MS } from "../../dist/main/app/cli-manage.js";
 import { makeProviderResolver } from "../../dist/main/adapters/provider-resolver.js";
 import { makeFakeProvider, makeSystemEchoProvider } from "../../dist/main/adapters/fake-provider.js";
 import { makeKeychainCredentials } from "../../dist/main/adapters/keychain-secret-store.js";
@@ -272,7 +273,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
     if (dpapiCache.has(name)) return dpapiCache.get(name);
     const file = join(adkPath, "naia-settings", ".keys", `${name}.dpapi`);
     if (!nodeFs.existsSync(file)) { dpapiCache.set(name, undefined); return undefined; }
-    const r = spawnSync("powershell", ["-NoProfile", "-Command", "Add-Type -AssemblyName System.Security; [Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect([IO.File]::ReadAllBytes($env:DPAPI_FILE), $null, [Security.Cryptography.DataProtectionScope]::CurrentUser))"], { encoding: "utf8", timeout: 8000, env: { ...env, DPAPI_FILE: file } });
+    const r = spawnSync("powershell", ["-NoProfile", "-Command", "Add-Type -AssemblyName System.Security; [Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect([IO.File]::ReadAllBytes($env:DPAPI_FILE), $null, [Security.Cryptography.DataProtectionScope]::CurrentUser))"], { encoding: "utf8", timeout: WINDOWS_DPAPI_TIMEOUT_MS, env: { ...env, DPAPI_FILE: file } });
     const out = (!r.error && r.status === 0) ? (r.stdout ?? "").replace(/\r?\n$/, "") : undefined;
     const v = out && out.length > 0 ? out : undefined;
     dpapiCache.set(name, v);

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   FALLBACK_NAIA_MODELS,
   applyCodingDefaults,
+  allowLegacyCredentialFallback,
   credentialNameForProvider,
   getCliConfigValue,
   isSafeSessionId,
@@ -13,6 +14,7 @@ import {
   removeEnvLines,
   resetCliConfigValue,
   setCliConfigValue,
+  WINDOWS_DPAPI_TIMEOUT_MS,
 } from "../main/app/cli-manage.js";
 import { makeReplConversation } from "../main/app/cli-chat.js";
 
@@ -46,6 +48,14 @@ describe("SPEC-019 management command grammar", () => {
     ["doctor", "--bad"],
   ])("rejects malformed argv: %s", (...argv) => {
     expect(parseManageArgs(argv).ok).toBe(false);
+  });
+});
+
+describe("SPEC-019 secure credential precedence", () => {
+  it("allows slow Windows DPAPI startup without falling back to a stale legacy key", () => {
+    expect(WINDOWS_DPAPI_TIMEOUT_MS).toBeGreaterThanOrEqual(15_000);
+    expect(allowLegacyCredentialFallback(true)).toBe(false);
+    expect(allowLegacyCredentialFallback(false)).toBe(true);
   });
 });
 
