@@ -4,11 +4,11 @@
 
 ## CLI 기본값 결속 — 2026-07-31 (#99)
 
-- 상태: 진행 중
+- 상태: 완료 — PR #100 병합 및 전역 CLI 배포·실계정 DeepSeek 검증 완료
 - 원인: 저장된 Pi `coding.tools`가 명시적으로 선택한 다른 agent/model로 누출됨.
 - 적대 리뷰: GPT-5.6 Sol과 Claude Opus가 독립 재현. DeepSeek 보안 지적은 코드 근거로 판정.
 - 추적: 기존 `REQ-020 → UC-023 → SPEC-019 → TEST-S-020 / TEST-F-019`의 결함 수정.
-- 상세: `.agents/progress/issue-99-cli-default-binding.md`.
+- 상세: `.agents/progress/archive/2026-07/issue-99-cli-default-binding.md`.
 
 ## First-class naia-agent CLI — 2026-07-31 (#97)
 

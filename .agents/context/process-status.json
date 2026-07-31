@@ -11,11 +11,11 @@
   "current_work": {
     "issue": "REQ-020 / #99",
     "title": "Bind stored CLI agent, model and tools defaults",
-    "issue_doc": ".agents/progress/issue-99-cli-default-binding.md",
+    "issue_doc": ".agents/progress/archive/2026-07/issue-99-cli-default-binding.md",
     "github_issue": "https://github.com/nextain/naia-agent/issues/99",
     "started": "2026-07-31",
-    "last_updated": "2026-07-31T14:57:00+09:00",
-    "status": "in_progress",
+    "last_updated": "2026-07-31T15:03:00+09:00",
+    "status": "done",
     "windows_runtime_acceptance": {
       "date": "2026-07-21",
       "source_commit": "d9cfd38",
@@ -35,11 +35,11 @@
   },
 
   "sdlc_gates": {
-    "P01": { "status": "done", "name": "user_scenarios", "deliverable": "explicit agent/model must not inherit another stored tuple", "ref": ".agents/progress/issue-99-cli-default-binding.md" },
-    "P02": { "status": "done", "name": "test_scenarios", "deliverable": "tuple mismatch, explicit override and repeated-option coverage", "ref": ".agents/progress/issue-99-cli-default-binding.md" },
+    "P01": { "status": "done", "name": "user_scenarios", "deliverable": "explicit agent/model must not inherit another stored tuple", "ref": ".agents/progress/archive/2026-07/issue-99-cli-default-binding.md" },
+    "P02": { "status": "done", "name": "test_scenarios", "deliverable": "tuple mismatch, explicit override and repeated-option coverage", "ref": ".agents/progress/archive/2026-07/issue-99-cli-default-binding.md" },
     "P03": { "status": "done", "name": "requirements", "deliverable": "FR-CLI-19 tuple binding clarification", "ref": "docs/requirements.md; GitHub #99" },
-    "P04": { "status": "pending", "name": "integration_test", "deliverable": "targeted + full suite + installed CLI smoke", "ref": ".agents/progress/issue-99-cli-default-binding.md" },
-    "P05": { "status": "pending", "name": "requirements_complete", "deliverable": "consensus finding closed with executable evidence", "ref": "GitHub #99" }
+    "P04": { "status": "done", "name": "integration_test", "deliverable": "targeted + serialized full suite + installed CLI DeepSeek smoke", "ref": ".agents/reviews/issue-99-cli-default-binding-2026-07-31.json" },
+    "P05": { "status": "done", "name": "requirements_complete", "deliverable": "PR #100 merged; consensus findings closed with executable evidence", "ref": "GitHub #99; PR #100" }
   },
 
   "known_drift": {

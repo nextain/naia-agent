@@ -51,7 +51,7 @@
     "traceability": "REQ 22, UC 17, TEST-S 19, SPEC 19, TEST-F 19; dead-link 0, orphan 0",
     "policy": "terminology, logging, compile-integrity, CI contract tests, doc graph, conflict markers, and git diff checks passed",
     "ci_baseline": "code-gates stops at the pre-existing duplicate pnpm version declaration; OSS readiness reports the unchanged 18-item repository baseline",
-    "installed_cli": "pending merge/deploy smoke"
+    "installed_cli": "global naia-agent.cmd -> merged main; auth DPAPI pass; doctor ready=true; dangling --agent exit=64; Pi/DeepSeek returned ISSUE99_OK with provider=naia, selectedModel=deepseek-v4-pro, totalTokens=7550, exit=0"
   },
   "verify_implementation": {
     "verify_conflict_markers": "PASS",
@@ -63,5 +63,5 @@
     "result": "NO_CHANGE",
     "reason": "The change adds executable CLI parser contracts, not a reusable cross-project verification rule; existing build/conflict/i18n verification remains sufficient."
   },
-  "verdict": "READY_FOR_MERGE_PENDING_INSTALLED_CLI_SMOKE"
+  "verdict": "SHIP"
 }
