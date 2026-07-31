@@ -8,7 +8,7 @@
 - 경로: Pi 0.83.0 → `provider=naia` → any-llm → Azure. 직접 xAI/DeepSeek/Azure 키와 OpenCode fallback은 사용하지 않는다.
 - 검증: Agent 전체 1,376개 테스트, 실제 Pi controlled integration, TypeScript build. 모델 증거·secret-free config·DeepSeek 이중 guard·canonical billing 계약을 포함한다.
 - 매뉴얼: `docs/naia-account-pi-manual.md`.
-- 운영 경계: 실제 Naia/Azure 자격증명·승인된 deployment/가격이 없어 live route와 credit 차감은 `OPERATIONAL_UNVERIFIED`이며 성공으로 간주하지 않는다.
+- 운영 검증: 2026-07-31 운영 Azure에서 DeepSeek 분석과 Grok 파일 생성이 exit 0, `provider=naia`, non-zero token evidence로 통과했다. UsageLog의 Azure 모델·토큰·비용과 계정 spend 차감도 일치했다.
 - 후속 범위: Shell Coding Workers/Pi lifecycle/Workspace 코딩 UX는 이번 변경에 포함하지 않는다.
 
 ## Windows runtime acceptance — 2026-07-21
