@@ -50,6 +50,7 @@
     "parallel_run_note": "The default parallel full run had one Windows DPAPI process exit 78; that test passed alone and in the serialized full suite, identifying test-resource contention rather than a product regression.",
     "traceability": "REQ 22, UC 17, TEST-S 19, SPEC 19, TEST-F 19; dead-link 0, orphan 0",
     "policy": "terminology, logging, compile-integrity, CI contract tests, doc graph, conflict markers, and git diff checks passed",
+    "ci_baseline": "code-gates stops at the pre-existing duplicate pnpm version declaration; OSS readiness reports the unchanged 18-item repository baseline",
     "installed_cli": "pending merge/deploy smoke"
   },
   "verify_implementation": {

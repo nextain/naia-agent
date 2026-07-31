@@ -58,4 +58,7 @@ rejects option-shaped workspace values so both boundaries enforce the same contr
   in the serialized full suite, confirming process-resource contention rather than a regression.
 - Policy: traceability dead-link/orphan 0; terminology, logging, compile integrity, CI contracts,
   document graph, conflict markers, and diff checks passed.
+- PR CI baseline: `code-gates` fails before tests because the workflow specifies pnpm `10` while
+  `packageManager` specifies `pnpm@10.33.0`; OSS readiness reports the unchanged 18-item repository
+  baseline. These failures are outside the #99 diff and are recorded rather than represented as clean.
 - Installed CLI smoke: pending
