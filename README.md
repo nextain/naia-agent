@@ -7,8 +7,8 @@
 실행해(spawn) 작업을 시키고, 워크스페이스 변경을 지켜본 뒤 test/lint/build 를 돌려 **꾸미지 않은
 숫자**로 답을 돌려줍니다.
 
-> 직접 켜는 앱이 아니라, 다른 프로그램(주로 naia-shell 데스크톱 셸)이 뒤에서 띄워 쓰는 **헤드리스(화면 없는)
-> 처리 엔진**입니다. 낯선 용어가 나오면 → [용어 사전](docs/glossary.md).
+> naia-shell이 뒤에서 띄우는 **헤드리스(화면 없는) 처리 엔진**이면서, 사용자가 터미널에서
+> 직접 실행할 수 있는 first-class CLI입니다. 낯선 용어가 나오면 → [용어 사전](docs/glossary.md).
 
 <details>
 <summary>기술 요약 (개발자용)</summary>
@@ -26,8 +26,8 @@ naia 생태계의 "뇌" 런타임이자 sub-agent 오케스트레이터. 셸(nai
 ## naia-agent 란?
 
 naia-agent 는 **LLM 대화·도구 실행을 담당하는 헤드리스(GUI 없는) 처리 런타임**이다.
-사용자가 직접 실행하는 앱이 아니라, **호스트(naia-shell 데스크톱 셸 등)가 띄워서
-gRPC 로 말을 거는 백엔드**다.
+호스트(naia-shell 데스크톱 셸 등)가 gRPC로 사용할 수도 있고, 사용자가 `naia-agent`
+CLI에서 계정·설정·모델·진단·세션을 관리하고 Pi 코딩 작업을 직접 실행할 수도 있다.
 
 대화 한 턴의 흐름:
 
@@ -135,6 +135,20 @@ naia-agent 는 naia-shell·naia-agent·naia-memory·naia-kb-compiler·naia-adk 5
 ---
 
 ## 빠른 시작
+
+설치된 CLI를 바로 쓸 때:
+
+```powershell
+naia-agent auth status
+naia-agent config set workspace D:\alpha-adk
+naia-agent config set coding.agent pi
+naia-agent config set coding.model grok-4.3
+naia-agent config set coding.tools true
+naia-agent doctor
+naia-agent run "작업 지시" --workdir D:\path\to\repo --json
+```
+
+계정·모델·세션·검증 절차는 [naia-agent CLI 매뉴얼](docs/naia-agent-cli-manual.md)을 따른다.
 
 > **사전 요구: `naia-memory` 와 `naia-kb-compiler` 를 아래 레이아웃으로 함께 clone.**
 > **왜 이렇게?** naia-agent 의 `package.json` 은 옆 레포 **둘**을 로컬 폴더에서 바로 가져오도록 적혀 있다

@@ -29,5 +29,6 @@
 | UC-019 | Agent outbound delivery and scheduled reports | Agent sends approved results/files and durable periodic reports to a DM or bound channel; Codex is the first verified runner and PI is a deferred compatible runner. | REQ-017 | In-progress | TEST-S-019 |
 | UC-021 | AnyLLM-backed Naia providers | Agent owns a versioned native+AnyLLM catalog and authorized user/workspace selection; Shell is RPC-only, Gateway independently enforces immutable HY3/versioned Claude routes, scoped credentials, idempotent reconciliation and authoritative decimal 1.1x settlement. | REQ-018 | Pending | TEST-S-021 |
 | UC-022 | Durable issue supervisor | Agent-side runtime safely reopens SQLite, recovers dispatch, rejects stale worker events with a trusted clock, retries timeout with backoff, and persists every ten-minute report boundary. Production host ingress/activation remains pending. | REQ-019 | In-progress | TEST-S-022 |
+| UC-023 | First-class naia-agent CLI | 사용자가 계정·설정·모델·진단·세션을 한 CLI에서 관리하고 저장된 Pi/Grok 기본값으로 직접 또는 Codex 자식 프로세스에서 동일하게 코딩 실행 | REQ-020 | Done | TEST-S-020 |
 
 > **상태 의미**: agent 측 Done = 이식+2-AI(또는 self)리뷰+계약테스트 완료. UC-006/008 = agent-local skill 완료, 실 외부서비스(CDP/youtube) runtime = 루크머신. off-scope(UC-memory) = 01 노트.

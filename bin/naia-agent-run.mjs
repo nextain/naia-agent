@@ -6,35 +6,21 @@
 // 순수 로직(argv 파싱·이벤트/리포트 렌더·exit code)은 dist/main/app/cli-supervise. 여기선 process I/O·
 // SIGINT·platform shell 매핑만 배선(host 관심사). 오케스트레이션 코어는 wireSupervisor(composition).
 import process from "node:process";
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import {
   parseSuperviseArgs,
   renderEvent,
   renderReport,
   reportExitCode,
 } from "../dist/main/app/cli-supervise.js";
+import { applyCodingDefaults } from "../dist/main/app/cli-manage.js";
 import { wireSupervisor } from "../dist/main/composition/index.js";
-
-// Standalone runs share the same Naia login store as naia-agent-chat.
-try {
-  const text = readFileSync(join(homedir(), ".naia-agent", ".env"), "utf8");
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line || line.startsWith("#")) continue;
-    const eq = line.indexOf("=");
-    if (eq <= 0) continue;
-    const key = line.slice(0, eq).trim();
-    let value = line.slice(eq + 1).trim();
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) value = value.slice(1, -1);
-    if (process.env[key] === undefined) process.env[key] = value;
-  }
-} catch { /* login file is optional; the adapter reports a precise missing-key error */ }
+import { loadCredentialIntoProcess, readCliConfig } from "./naia-agent-runtime.mjs";
 
 const argv = process.argv.slice(2);
 // "run" 서브커맨드는 관용(생략 가능 — 첫 토큰이 프롬프트/옵션이면 바로 supervise).
-const rest = argv[0] === "run" ? argv.slice(1) : argv;
+const rawRest = argv[0] === "run" ? argv.slice(1) : argv;
+const cliConfig = readCliConfig();
+const rest = applyCodingDefaults(rawRest, cliConfig);
 
 const parsed = parseSuperviseArgs(rest);
 if (!parsed.ok) {
@@ -48,6 +34,7 @@ if (!parsed.ok) {
 }
 const a = parsed.args;
 const workdir = a.workdir === "." ? process.cwd() : a.workdir;
+if (a.agent === "pi") loadCredentialIntoProcess("naia", cliConfig);
 
 // shell sub-agent 는 command 가 필요(roster 계약) — host 가 platform 셸을 주입(`/bin/sh -c <prompt>` / `cmd /c`).
 // pi/opencode 는 roster 기본(미주입). 미지/deferred 이름은 supervisor 가 정직 unsupported 로 표면화(AC6).

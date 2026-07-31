@@ -31,6 +31,8 @@
 | TEST-S-021 | UC-021, REQ-018 | versioned union catalog; authorized user/workspace selection CAS and new-turn pinning; Shell RPC-only projection/recovery; independent Gateway version/TLS/mapping/allowlist/no-fallback validation; scoped credential lifecycle; request/attempt retry, cancel and ambiguous reconcile; decimal pricebook and exactly-once terminal 1.1x settlement; canonical error codes | contract + cross-repo integration | `src/test/anyllm-provider-catalog.contract.test.ts`, `src/test/anyllm-provider-settings.grpc.integration.test.ts`, `src/test/anyllm-request-reconciliation.contract.test.ts`, `src/test/anyllm-usage-billing.contract.test.ts`; AnyLLM Gateway contract suite | Pending |
 | TEST-S-101 | REQ-101 | 헥사고날 직교 — 도메인/ports/app 이 transport/adapter/메커니즘(child_process·git·net) 미import(레이어 방향 + 메커니즘 누수 0) | 계약 | `src/test/import-boundary.contract.test.ts` | Pass |
 
+| TEST-S-020 | UC-023 | isolated HOME에서 auth→config→models→doctor→session→run 기본값/override 전체 흐름과 실제 Naia 계정 Pi model evidence를 검증 | process integration + live smoke | `src/test/cli-manage-process.integration.test.ts`; `docs/naia-agent-cli-manual.md` | Pass |
+
 ## 비고
 - Pass = `npx vitest run` 기준(2026-06-23 agent 583 pass / 5 skip 확인). external(UC-006 CDP/UC-008 youtube) 실 서비스 runtime = 루크머신(계약·skill 로직만 자율 검증).
 - off-scope UC-memory 테스트(`uc1-memory-stdio.integration.test.ts` 등)는 본 추적 제외(01 노트).

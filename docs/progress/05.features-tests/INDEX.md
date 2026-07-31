@@ -32,6 +32,8 @@
 | TEST-F-017 | SPEC-017 | Contract and cross-repo integration matrix: catalog union/collision/version; selection authz/CAS/scope/new-turn snapshot and projection recovery; Gateway contract/TLS/redirect/mapping/Claude downgrade/no-Azure/no-fallback; credential binding/rotation/revocation/redaction; stable request plus unique attempts across retry, stream disconnect, cancel and reconcile; decimal pricebook currency/rounding and exactly-once authoritative terminal settlement; canonical errors. | Agent `src/test/anyllm-provider-*.test.ts` plus AnyLLM Gateway provider/billing suites and Shell RPC consumer tests | Pending |
 | TEST-F-018 | SPEC-018 | SQLite crash-window reopen and deduplicating fake-worker effect; supervisor-clock expired lease rejection; timeout-to-backoff retry; all missed ten-minute boundaries; composition startup recovery and timer ownership. Production host/disconnect E2E remains pending. | `src/test/durable-supervisor.integration.test.ts` | P0 slice Pass; host E2E pending |
 
+| TEST-F-019 | SPEC-019 | management parser/config allowlist와 타입, credential upsert/remove/redaction, catalog fallback/capability, doctor component status, safe session list/show/resume, run default precedence를 계약·process test로 검증 | `src/test/cli-manage.contract.test.ts`, `src/test/cli-manage-process.integration.test.ts`, `src/test/uc-cli-host-entry.contract.test.ts` | Pass |
+
 ## 비고
 - off-scope UC-memory 테스트(`uc1-memory-stdio.integration.test.ts`, `uc1-memory-process.integration.test.ts`)는 본 추적 제외(01 노트). agent 전체 vitest 에는 포함(583 pass / 5 skip, 2026-06-23).
 - 유닛테스트 깊이: 마크다운은 TEST-F(통합/계약)까지. `@spec SPEC-###` 태그 backfill = 후속.

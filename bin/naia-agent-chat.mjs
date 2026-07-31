@@ -10,32 +10,19 @@ import { homedir } from "node:os";
 import { join, dirname, isAbsolute } from "node:path";
 import { randomUUID } from "node:crypto";
 import {
-  parseChatArgs, makeReplConversation, chooseProviderConfig, upsertEnvLine, apiKeyEnvFor, CHAT_USAGE,
-  resolveAdkPath, setGlobalConfigAdk, readGlobalConfigAdk,
+  parseChatArgs, makeReplConversation, chooseProviderConfig, apiKeyEnvFor, CHAT_USAGE,
+  resolveAdkPath, readGlobalConfigAdk,
 } from "../dist/main/app/cli-chat.js";
+import { parseTranscript, SESSION_FILE_MAX_BYTES } from "../dist/main/app/cli-manage.js";
 import { wireAgentUC1, wireSupervisor } from "../dist/main/composition/index.js";
 import { makeCompositeToolExecutor } from "../dist/main/adapters/composite-tool-executor.js";
 import { makeDelegateAgentSkill } from "../dist/main/adapters/delegate-agent-skill.js";
 import { composeAgentRuntimeDeps } from "../scripts/builds/compose-agent-deps.mjs";
+import {
+  loadCredentialIntoProcess, readGlobalConfig, readCredential, writeGlobalConfig, writeCredential,
+} from "./naia-agent-runtime.mjs";
 
-const ENV_PATH = join(homedir(), ".naia-agent", ".env");
 const GLOBAL_CONFIG_PATH = join(homedir(), ".naia-agent", "config.json"); // 단일 device 워크스페이스 고정(1기기=1설정)
-
-// ~/.naia-agent/.env → process.env(기존 값 우선, 미설정만 채움). dotenv 무의존 미니 파서.
-function loadEnvFile() {
-  let text;
-  try { text = nodeFs.readFileSync(ENV_PATH, "utf8"); } catch { return; }
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line || line.startsWith("#")) continue;
-    const eq = line.indexOf("=");
-    if (eq <= 0) continue;
-    const k = line.slice(0, eq).trim();
-    let v = line.slice(eq + 1).trim();
-    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
-    if (process.env[k] === undefined) process.env[k] = v;
-  }
-}
 
 async function readLineFromStdin(promptText) {
   const rl = createInterface({ input: process.stdin, output: process.stderr });
@@ -43,21 +30,51 @@ async function readLineFromStdin(promptText) {
   finally { rl.close(); }
 }
 
+async function readSecretFromStdin(promptText) {
+  if (!process.stdin.isTTY || typeof process.stdin.setRawMode !== "function") {
+    if (!process.stdin.isTTY) {
+      let data = "";
+      process.stdin.setEncoding("utf8");
+      for await (const chunk of process.stdin) data += chunk;
+      return data.replace(/\r?\n$/, "");
+    }
+    process.stderr.write("현재 터미널은 hidden input을 지원하지 않습니다. stdin 또는 --key를 사용하세요.\n");
+    return "";
+  }
+  process.stderr.write(promptText);
+  process.stdin.setRawMode(true);
+  process.stdin.resume();
+  process.stdin.setEncoding("utf8");
+  return await new Promise((resolve) => {
+    let value = "";
+    const cleanup = () => {
+      process.stdin.off("data", onData);
+      process.stdin.setRawMode(false);
+      process.stdin.pause();
+      process.stderr.write("\n");
+    };
+    const onData = (chunk) => {
+      for (const ch of chunk) {
+        if (ch === "\r" || ch === "\n") { cleanup(); resolve(value); return; }
+        if (ch === "\u0003") { cleanup(); process.exit(130); }
+        if (ch === "\u007f" || ch === "\b") { value = value.slice(0, -1); continue; }
+        if (ch >= " ") value += ch;
+      }
+    };
+    process.stdin.on("data", onData);
+  });
+}
+
 async function doLogin(args) {
   const envName = apiKeyEnvFor(args.provider);
   if (!envName) { process.stderr.write(`알 수 없는 provider: ${args.provider}\n`); process.exit(64); }
   let key = args.key;
-  if (key === undefined) key = (await readLineFromStdin(`${args.provider} API 키 입력(⚠️ 입력값이 화면에 표시됨): `)).trim();
+  if (key === undefined) key = (await readSecretFromStdin(`${args.provider} API 키: `)).trim();
+  else process.stderr.write("경고: --key 값은 셸 히스토리나 프로세스 목록에 노출될 수 있습니다.\n");
   if (!key) { process.stderr.write("키가 비어 있습니다 — 저장하지 않음.\n"); process.exit(64); }
-  let existing = "";
-  try { existing = nodeFs.readFileSync(ENV_PATH, "utf8"); } catch { /* 신규 */ }
-  const next = upsertEnvLine(existing, envName, key);
-  nodeFs.mkdirSync(dirname(ENV_PATH), { recursive: true, mode: 0o700 });
-  nodeFs.writeFileSync(ENV_PATH, next, { mode: 0o600 });
-  try { nodeFs.chmodSync(ENV_PATH, 0o600); } catch { /* best-effort(Windows 무시) */ }
-  // ⚠️ POSIX mode 0600 은 Windows/NTFS 에서 적용되지 않는다(파일 보호는 OS ACL 의존) — 정직하게 표기(적대리뷰 M3).
-  const permNote = process.platform === "win32" ? "Windows: 권한은 OS ACL 의존, POSIX 0600 미적용" : "mode 0600";
-  process.stderr.write(`✓ ${args.provider} 키 저장 → ${ENV_PATH} (${envName}, ${permNote})\n  이제 'naia-agent-chat' 로 대화하세요.\n`);
+  const saved = writeCredential(args.provider, key);
+  if (!saved.ok) { process.stderr.write(`${saved.error}\n`); process.exit(78); }
+  process.stderr.write(`✓ ${args.provider} 키를 OS credential store에 저장했습니다 (${saved.name}).\n  이제 'naia-agent-chat' 로 대화하세요.\n`);
   process.exit(0);
 }
 
@@ -67,10 +84,7 @@ async function doWorkspace(args) {
   if (args.workspacePath) {
     const ws = args.workspacePath;
     if (!isAbsolute(ws)) { process.stderr.write("워크스페이스 경로는 절대경로여야 합니다.\n"); process.exit(64); }
-    let existing = "";
-    try { existing = nodeFs.readFileSync(GLOBAL_CONFIG_PATH, "utf8"); } catch { /* 신규 */ }
-    nodeFs.writeFileSync(GLOBAL_CONFIG_PATH, setGlobalConfigAdk(existing, ws), { mode: 0o600 });
-    try { nodeFs.chmodSync(GLOBAL_CONFIG_PATH, 0o600); } catch { /* Windows 무시 */ }
+    writeGlobalConfig({ ...readGlobalConfig(), adkPath: ws });
     process.stderr.write(`✓ 전역 워크스페이스 = ${ws}\n  (${GLOBAL_CONFIG_PATH}) — 이후 모든 CLI 실행이 이 워크스페이스의 naia-settings 에서 LLM/설정을 로딩.\n`);
     process.exit(0);
   }
@@ -127,34 +141,31 @@ async function ensureOnboarded(args) {
     let ws = (await readLineFromStdin(`워크스페이스 경로 (기본 ${defaultPath}): `)).trim();
     if (!ws) ws = defaultPath;
     if (!isAbsolute(ws)) { process.stderr.write("절대경로가 아닙니다 — 종료.\n"); return false; }
-    nodeFs.mkdirSync(dirname(GLOBAL_CONFIG_PATH), { recursive: true, mode: 0o700 });
-    let existing = ""; try { existing = nodeFs.readFileSync(GLOBAL_CONFIG_PATH, "utf8"); } catch { /* 신규 */ }
-    nodeFs.writeFileSync(GLOBAL_CONFIG_PATH, setGlobalConfigAdk(existing, ws), { mode: 0o600 });
-    try { nodeFs.chmodSync(GLOBAL_CONFIG_PATH, 0o600); } catch { /* Windows 무시 */ }
+    writeGlobalConfig({ ...readGlobalConfig(), adkPath: ws });
     process.stderr.write(`✓ 워크스페이스 저장 = ${ws}\n`);
     globalAdk = ws;
   }
   const adkPath = args.workspace || process.env.NAIA_ADK_PATH || globalAdk || defaultPath;
 
   // (2) provider/키 갭 — 워크스페이스 config + 로그인 키 어느 쪽도 없을 때만
-  loadEnvFile();
   const chosen = chooseProviderConfig({
     argProvider: args.provider,
     argModel: args.model,
     defaultConfig: lightweightDefaultConfig(adkPath),
     envKey: (n) => process.env[n],
   });
-  if (!chosen.ok) {
+  const chosenNeedsKey = chosen.ok && ["nextain", "naia", "anthropic", "openai", "glm", "zai", "gemini", "xai"].includes(chosen.config.provider)
+    && !readCredential(chosen.config.provider).present;
+  if (!chosen.ok || chosenNeedsKey) {
     process.stdout.write("\n[온보딩] LLM provider 가 없습니다. provider 와 API 키를 입력하세요.\n");
     const provider = (await readLineFromStdin("provider (glm/gemini/anthropic/openai/nextain): ")).trim().toLowerCase();
     if (!apiKeyEnvFor(provider)) { process.stderr.write(`알 수 없는 provider '${provider}' — 종료.\n`); return false; }
-    const key = (await readLineFromStdin(`${provider} API 키 (화면에 표시됨): `)).trim();
+    const key = (await readSecretFromStdin(`${provider} API 키: `)).trim();
     if (!key) { process.stderr.write("키가 비어 있습니다 — 종료.\n"); return false; }
-    nodeFs.mkdirSync(dirname(ENV_PATH), { recursive: true, mode: 0o700 });
-    let envExisting = ""; try { envExisting = nodeFs.readFileSync(ENV_PATH, "utf8"); } catch { /* 신규 */ }
-    nodeFs.writeFileSync(ENV_PATH, upsertEnvLine(envExisting, apiKeyEnvFor(provider), key), { mode: 0o600 });
-    try { nodeFs.chmodSync(ENV_PATH, 0o600); } catch { /* Windows 무시 */ }
-    process.stderr.write(`✓ ${provider} 키 저장 → ${ENV_PATH}\n`);
+    const saved = writeCredential(provider, key);
+    if (!saved.ok) { process.stderr.write(`${saved.error}\n`); return false; }
+    loadCredentialIntoProcess(provider);
+    process.stderr.write(`✓ ${provider} 키를 OS credential store에 저장했습니다\n`);
   }
   return true;
 }
@@ -164,6 +175,11 @@ async function doChat(args) {
   // config > 기본)은 composeAgentRuntimeDeps 가 **단일 해석**(중복 하드코딩 제거). 결과 deps.adkPath 로
   // LLM/스킬/기억의 workspace-의존 로딩. 단일 device workspace(1기기=1설정).
   if (args.workspace) process.env.NAIA_ADK_PATH = args.workspace;
+  // Load before composition so keychain and legacy-read compatibility feed the same shared deps in REPL and --once.
+  // OS credential > legacy .env; the legacy file is never bulk-preloaded ahead of the keychain.
+  for (const provider of ["naia", "nextain", "anthropic", "openai", "glm", "zai", "gemini", "xai", "vertex"]) {
+    loadCredentialIntoProcess(provider);
+  }
 
   // 온보딩(값 있으면 로딩, 없으면 인터랙티브 온보딩) — REPL 모드만. --once(파이프/스크립트)는 묻지 않고 에러.
   if (!args.once) {
@@ -192,6 +208,8 @@ async function doChat(args) {
     toolExecutor = makeCompositeToolExecutor([delegateExec, toolExecutor]);
   }
 
+  const selectedProvider = args.provider ?? deps.defaultConfig?.provider;
+  if (selectedProvider) loadCredentialIntoProcess(selectedProvider);
   const chosen = chooseProviderConfig({
     argProvider: args.provider,
     argModel: args.model,
@@ -215,6 +233,23 @@ async function doChat(args) {
   // FR-PERSONA-3: 페르소나 조립은 **코어(ChatTurnHandler)가 personaSource 로 스스로 수행** — host 는 보내지 않는다.
   // systemPrompt 는 순수 override(--system) 뿐. 없으면 미설정 → 코어가 워크스페이스 페르소나(Alpha)를 조립.
   const systemPrompt = args.systemPrompt;
+  let initialHistory;
+  if (args.resume) {
+    const transcriptPath = join(adkPath, "conversations", `${args.resume}.jsonl`);
+    try {
+      const stat = nodeFs.statSync(transcriptPath);
+      if (!stat.isFile() || stat.size > SESSION_FILE_MAX_BYTES) throw new Error("session 파일이 없거나 크기 상한을 초과했습니다");
+      const raw = nodeFs.readFileSync(transcriptPath);
+      if (raw.byteLength > SESSION_FILE_MAX_BYTES) throw new Error("session 파일이 크기 상한을 초과했습니다");
+      const parsedTranscript = parseTranscript(raw.toString("utf8"));
+      initialHistory = parsedTranscript.messages;
+      if (!initialHistory.length) throw new Error("복원할 완결 turn이 없습니다");
+      process.stderr.write(`[naia-agent-chat] session=${args.resume}, restored=${initialHistory.length}, skipped=${parsedTranscript.skipped}\n`);
+    } catch (error) {
+      process.stderr.write(`session resume 실패: ${error instanceof Error ? error.message : String(error)}\n`);
+      cleanup(); process.exit(66);
+    }
+  }
   const repl = makeReplConversation({
     io,
     newRequestId: () => randomUUID(),
@@ -222,7 +257,8 @@ async function doChat(args) {
     enableTools: !args.noTools,
     // UC-THINKING — --no-think/--think. 미지정이면 필드 미전송(모델 기본 유지).
     ...(args.enableThinking !== undefined ? { enableThinking: args.enableThinking } : {}),
-    sessionId: `cli-${randomUUID()}`,
+    sessionId: args.resume ?? `cli-${randomUUID()}`,
+    ...(initialHistory ? { initialHistory } : {}),
     ...(process.env.NAIA_CHAT_VERBOSE === "1" ? { verbose: true } : {}),
   });
 
@@ -301,7 +337,6 @@ if (!parsed.ok) {
   process.stderr.write((parsed.error ?? "인자 오류") + "\n");
   process.exit(64);
 }
-loadEnvFile();
 if (parsed.args.mode === "login") await doLogin(parsed.args);
 else if (parsed.args.mode === "workspace") await doWorkspace(parsed.args);
 else await doChat(parsed.args);

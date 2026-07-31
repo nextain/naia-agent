@@ -4,18 +4,21 @@
 //   naia-agent run <task> [...]      sub-agent 감독 — naia-agent-run.mjs
 //   naia-agent workspace [<path>]    워크스페이스 설정/조회
 //   naia-agent login --provider <p>  provider 키 저장
+//   naia-agent auth|config|models|doctor|session ...  first-class CLI 관리
 //   naia-agent -h | --help           이 도움말
 //
 // 각 서브호스트는 self-contained → 디스패처는 stdio 를 inherit 한 자식으로 위임(중복 로직 없음).
 // 'run' 만 run-host 로, 그 외(chat/workspace/login/flags/기본)는 chat-host 로 라우팅.
 import process from "node:process";
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CHAT = join(HERE, "naia-agent-chat.mjs");
 const RUN = join(HERE, "naia-agent-run.mjs");
+const MANAGE = join(HERE, "naia-agent-manage.mjs");
 
 const HELP = `naia-agent — naia 단일 CLI (naia-os 없이 독립 실행)
 
@@ -25,7 +28,12 @@ const HELP = `naia-agent — naia 단일 CLI (naia-os 없이 독립 실행)
   naia-agent run <task> [--agent <name>] [--model <id>] [--no-tools] [--workdir <dir>] [--check <n=cmd>] [--watch] [--json]
                      sub-agent(gemini/opencode/pi/...) 감독 + 정직 보고
   naia-agent workspace [<path>]   워크스페이스 설정(전역 고정)/조회 — 1기기=1설정
-  naia-agent login --provider <p> [--key <v>]   provider API 키 저장
+  naia-agent auth status|login|logout [...]      OS credential store 계정 관리
+  naia-agent config list|get|set|reset [...]     workspace·코딩 기본값 관리
+  naia-agent models [provider] [--json]          모델/도구 지원 목록
+  naia-agent doctor [--json]                     계정·workspace·Pi·gateway 진단
+  naia-agent session list|show|resume [...]      기존 대화 세션 관리
+  naia-agent login --provider <p> [--key <v>]    auth login 호환 alias
   naia-agent -h | --help          이 도움말
 
 첫 실행 시 워크스페이스·provider 가 없으면 인터랙티브 온보딩이 채웁니다(값 있으면 자동 로딩).
@@ -34,14 +42,24 @@ const HELP = `naia-agent — naia 단일 CLI (naia-os 없이 독립 실행)
 
 const sub = process.argv[2];
 
+if (sub === "-V" || sub === "--version") {
+  const pkg = JSON.parse(readFileSync(join(HERE, "..", "package.json"), "utf8"));
+  process.stdout.write(`${pkg.version}\n`);
+  process.exit(0);
+}
+
 if (sub === "-h" || sub === "--help" || sub === "help") {
   process.stdout.write(HELP);
   process.exit(0);
 }
 
-// run → run-host(naia-agent-run.mjs). 그 외(기본/chat/workspace/login/flags) → chat-host.
-const target = sub === "run" ? RUN : CHAT;
-const args = sub === "run" ? process.argv.slice(3) : process.argv.slice(2);
+const manageCommands = new Set(["auth", "config", "models", "doctor", "session"]);
+const target = sub === "run" ? RUN : (sub === "login" || manageCommands.has(sub) ? MANAGE : CHAT);
+const args = sub === "run"
+  ? process.argv.slice(3)
+  : sub === "login"
+    ? ["auth", "login", ...process.argv.slice(3)]
+    : process.argv.slice(2);
 
 const child = spawn(process.execPath, [target, ...args], { stdio: "inherit" });
 child.on("exit", (code, signal) => {

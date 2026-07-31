@@ -32,6 +32,7 @@ scripts/check-traceability.mjs 가 파싱. 상세 = docs/requirements.md, 99.dev
 | REQ-017 | Durable outbound delivery and schedules | Approved Discord DM/channel delivery, workspace-bound attachments, persistent `at/every/cron` schedule, retry/outbox and provider-neutral runner. Codex is first acceptance; PI is deferred. | In-progress | UC-019 | SPEC-016 | TEST-S-019 |
 | REQ-018 | AnyLLM-backed Naia providers | Agent-owned versioned union catalog and user/workspace selection with authz+revision CAS; Shell RPC-only with one-way compatibility projection; immutable HY3 and versioned Claude routes under an independently enforced Gateway contract; scoped credentials, request reconciliation, and Gateway-only decimal 1.1x terminal settlement. Azure and fallback routes are excluded. | Pending | UC-021 | SPEC-017 | TEST-S-021 |
 | REQ-019 | Durable issue supervisor | SQLite run/event/attempt/lease/outbox persistence, transactional dispatch, stable execution idempotency and acknowledgement, lease validation on every worker event, timeout backoff, startup recovery, and persisted ten-minute reporting. | In-progress | UC-022 | SPEC-018 | TEST-S-022 |
+| REQ-020 | First-class naia-agent CLI | Naia 계정 auth, allowlisted CLI config, model catalog, doctor, 기존 transcript session resume, Pi coding defaults를 secret-free·자동화 가능한 단일 CLI로 제공 | Done | UC-023 | SPEC-019 | TEST-S-020 |
 
 ## 비기능 요구사항 (NFR → REQ)
 

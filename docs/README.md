@@ -10,6 +10,9 @@
 - [위협 모델](./threat-model.md) — 보안 경계, 시크릿 격리(T3), 추적 금지 경로
 - [LLM 역할 분담](./llm-roles.md) — 작은(라이트) 모델 ↔ 큰 모델 분담, 단일 CLI 어댑터, 검출 계층
 - [합격 기준](./acceptance-criteria.md) — 계약 구체화 + 검증이 게이트를 대체(게이트키퍼 제거). 완료증거 등급(강/약/없음)
+- [naia-agent CLI 매뉴얼](./naia-agent-cli-manual.md) — 계정·설정·모델·진단·세션·Pi 코딩과 실행 검증
+- [Naia 계정 Pi 모델 매뉴얼](./naia-account-pi-manual.md) — Grok/DeepSeek 모델 경로와 운영 증거
+- [요구사항](./requirements.md) · [사용자 시나리오](./user-scenarios.md) — REQ/UC/FR 정본
 
 ## 작업 기록 (progress/)
 
