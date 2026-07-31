@@ -61,4 +61,8 @@ rejects option-shaped workspace values so both boundaries enforce the same contr
 - PR CI baseline: `code-gates` fails before tests because the workflow specifies pnpm `10` while
   `packageManager` specifies `pnpm@10.33.0`; OSS readiness reports the unchanged 18-item repository
   baseline. These failures are outside the #99 diff and are recorded rather than represented as clean.
-- Installed CLI smoke: pending
+- Delivery: PR #100 squash-merged as `cf7b0c8`; global `naia-agent.cmd` points to the merged
+  `D:\alpha-adk\projects\naia-agent` source and that source was rebuilt.
+- Installed CLI smoke: Naia DPAPI account authenticated; doctor `ready=true`; dangling `--agent`
+  rejected with exit 64; Pi + `deepseek-v4-pro --no-tools` returned `ISSUE99_OK` with
+  `provider=naia`, `selectedModel=deepseek-v4-pro`, 7,550 total tokens, and exit 0.
