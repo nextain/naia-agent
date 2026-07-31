@@ -113,6 +113,11 @@ describe("parseSuperviseArgs — 정직한 에러(throw 없음)", () => {
   it("값이 필요한 플래그의 값 누락 = 에러", () => {
     expect(parseSuperviseArgs(["t", "--workdir"]).ok).toBe(false);
     expect(parseSuperviseArgs(["t", "--agent"]).ok).toBe(false);
+    expect(parseSuperviseArgs(["t", "--agent", "--model", "x"]).ok).toBe(false);
+    expect(parseSuperviseArgs(["t", "--model", "--tools"]).ok).toBe(false);
+    expect(parseSuperviseArgs(["t", "--model", "-h"]).ok).toBe(false);
+    expect(parseSuperviseArgs(["t", "--workdir", "--json"]).ok).toBe(false);
+    expect(parseSuperviseArgs(["t", "--check", "--watch"]).ok).toBe(false);
   });
 });
 
