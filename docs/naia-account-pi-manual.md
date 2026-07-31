@@ -277,3 +277,41 @@ pnpm exec vitest run `
 라이브 응답이 write 필드를 주지 않는 Azure 버전에서는 write를 0으로
 꾸며 합격시키지 않는다. 이 경우 `write-unreported`로 기록하고 Azure 비용
 명세와 대조할 때까지 정확한 write 과금 검증은 `OPERATIONAL_UNVERIFIED`다.
+
+## 10. 운영 검증 기록 — 2026-07-31
+
+이 절은 위 매뉴얼의 최종 판정 양식을 실제 운영 환경에서 수행한 기록이다.
+
+```text
+Agent build: PASS
+Agent UC/Feature tests: PASS — 126 files, 1,391 tests (9 skipped)
+Agent real-Pi controlled integration: PASS
+Shell core build: PASS
+Shell production build: PASS
+Shell catalog/selection tests: PASS — 105 tests
+AnyLLM Azure route tests: PASS — 85 focused tests
+Live Naia/Azure smoke: PASS
+Selected/reported model evidence: PASS
+Gateway usage/cost/credit evidence: PASS
+Known limitations: claude-opus-5 quota_blocked; Azure가 cache_write_tokens를 보고하지 않는 응답의 write 과금은 미추정
+```
+
+실제 명령과 판정:
+
+- DeepSeek: `run --agent pi --model deepseek-v4-pro --no-tools --json`이 exit 0,
+  `provider=naia`, `totalTokens=7620`, 요청한 정확 응답을 반환했다.
+- Grok: `run --agent pi --model grok-4.3 --check "content=findstr NAIA_GROK_OK naia-smoke.txt" --json`이
+  exit 0, `sessionOk=true`, `provider=naia`, `totalTokens=6188`로 끝났고 파일 바이트는
+  정확히 `NAIA_GROK_OK\n`이었다.
+- Grok 도구 스트림의 종료 청크에 `finish_reason=tool_calls`, prompt/completion/total,
+  `cached_tokens=128`, 계산 비용이 함께 포함됐다. 따라서 Pi 모델 증거와 gateway
+  스트리밍 과금이 같은 사용량을 본다.
+- 운영 UsageLog에는 `provider=azure`, `grok-4.3`과 `deepseek-v4-pro`, 0보다 큰 토큰과
+  비용이 저장됐다.
+- 별도 DeepSeek 8토큰 호출에서 계정 누적 spend가 `$0.00001914` 증가했다. 이는
+  6 input 토큰과 2 output 토큰에 승인된 1.1배 고객 단가를 적용한 값과 일치한다.
+
+배포 정본은 AnyLLM merge commit `6abb91d`, ACR immutable digest
+`sha256:ae7c3545ac5b28dd39681ed3aada3d5ad24cda8e0adde9c8b88e70e2e0b501cc`다.
+개발·운영 VM 모두 `serve --config /app/config.yml`, `8080:8080`, 포트 8080
+헬스체크 계약으로 실행됐으며 운영 공개 `/health`와 모델 카탈로그가 정상이다.
