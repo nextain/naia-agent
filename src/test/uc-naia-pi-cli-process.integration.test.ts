@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
@@ -78,9 +78,16 @@ describe("UC-NAIA-PI actual CLI process and stored login", () => {
     delete env.NAIA_API_KEY;
     delete env.NAIA_ANYLLM_API_KEY;
 
-    const login = await run(process.execPath, [cli, "login", "--provider", "naia", "--key", "stored-test-key"], env);
-    expect(login.code).toBe(0);
-    expect(readFileSync(join(home, ".naia-agent", ".env"), "utf8")).toContain("NAIA_API_KEY=stored-test-key");
+    if (process.platform === "win32") {
+      const login = await run(process.execPath, [cli, "login", "--provider", "naia", "--key", "stored-test-key"], env);
+      expect(login.code).toBe(0);
+      const blob = readFileSync(join(home, "naia-adk", "naia-settings", ".keys", "NAIA_ANYLLM_API_KEY.dpapi"));
+      expect(blob.toString("utf8")).not.toContain("stored-test-key");
+    } else {
+      // Cross-platform process test keeps legacy read compatibility; secure secret-tool write is host-specific.
+      mkdirSync(join(home, ".naia-agent"), { recursive: true });
+      writeFileSync(join(home, ".naia-agent", ".env"), "NAIA_API_KEY=stored-test-key\n", { mode: 0o600 });
+    }
 
     const args = [cli, "run", "Return a short controlled answer.", "--agent", "pi", "--model", "grok-4.3", "--workdir", workdir, "--json"];
     const direct = await run(process.execPath, args, env);

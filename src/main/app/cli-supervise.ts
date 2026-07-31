@@ -37,6 +37,7 @@ const USAGE = `naia-agent run <task> [options]
   --workdir <dir>     작업 디렉터리(기본: 현재 디렉터리)
   --agent <name>      sub-agent (shell | pi | opencode | claude-code | codex | gemini, 기본: shell)
   --model <id>        모델 힌트(옵션)
+  --tools             저장된 tools=false 기본값을 이번 실행에서 명시적으로 켬
   --no-tools          도구를 끄고 분석 전용으로 실행(DeepSeek V4 Pro 필수)
   --watch             워크스페이스 변경 감시(git status 폴링). 변경 수치는 폴 간격마다 샘플 —
                       폴 간격보다 빨리 끝나는 작업은 변경이 안 잡힐 수 있음(권위적 결과는 --check 사용).
@@ -97,6 +98,9 @@ export function parseSuperviseArgs(argv: readonly string[]): ParseResult {
         break;
       case "--no-tools":
         noTools = true;
+        break;
+      case "--tools":
+        noTools = false;
         break;
       case "--poll": {
         const v = argv[++i];

@@ -65,7 +65,7 @@
 ### NFR
 - 직교(orthogonality): transport=gRPC adapter only(domain unaware). provider-wiring 경로가 도메인 계층을 인지하지 않음 — 어댑터/설정 경계만 통과.
 
-## UC-CLI FR/NFR (FR-CLI-1 ~ 13) — 단독 CLI 오케스트레이션
+## UC-CLI FR/NFR (FR-CLI-1 ~ 20) — 단독 CLI 오케스트레이션
 
 권위 계약서: `docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md`.
 컷오버 누락 역량(구 `backup/main-2026-06-22` 보존)의 신 헥사고날 arch 편입. 단계 2a→2c, naia-os 배선=후속.
@@ -85,10 +85,19 @@
 | FR-CLI-11 | **동일 CLI 표면** — Codex가 자식 프로세스로 호출한 경우와 사용자가 직접 호출한 경우 provider/model/workdir/terminal report가 동일하다. | Done (#93) |
 | FR-CLI-12 | **격리 환경·고정 Pi·canonical identity** — 고정 버전 Pi는 격리 config와 Naia key/필수 env만 받고 direct-provider secret을 상속하지 않는다. gateway usage/billing key는 `azure:<exact-model>`이며 Azure client cache는 모델별 endpoint를 혼용하지 않는다. | Done (#93; live 청구는 `OPERATIONAL_UNVERIFIED`) |
 | FR-CLI-13 | **실행 가능한 매뉴얼** — `docs/naia-account-pi-manual.md`의 clean-HOME 명령, exit code, model/usage/diff/verifier 판정을 자동 실행 가능한 acceptance로 유지한다. | Done (#93) |
+| FR-CLI-14 | **계정 명령군** — `auth status|login|logout`이 provider별 로그인 상태를 관리한다. TTY 입력은 화면에 표시하지 않고 Windows DPAPI/Linux secret-tool에 저장한다(평문 fallback 금지). status/JSON/오류에는 키 값을 출력하지 않는다. 기존 `login`은 호환 alias이고 `.env`는 읽기·마이그레이션만 한다. | Done (#97) |
+| FR-CLI-15 | **CLI 설정 명령군** — `config list|get|set|reset`이 `workspace`, `coding.agent`, `coding.model`, `coding.tools` allowlist만 관리한다. 전역 config는 workspace 포인터만, `coding.*`는 현재 workspace의 `naia-settings/cli.json`에 둔다. LLM 정본을 복제하거나 secret을 저장하지 않는다. | Done (#97) |
+| FR-CLI-16 | **모델 카탈로그** — `models [provider] [--json]`이 모델 ID, provider, 용도, 도구 지원을 안정된 형식으로 보여 준다. Naia catalog 장애 시 검증된 Pi 내장 목록으로 제한적으로 fallback하고 그 출처를 표시한다. | Done (#97) |
+| FR-CLI-17 | **자가 진단** — `doctor [--json]`가 계정, workspace, naia-settings, Pi 설치/config, gateway/catalog 준비 상태를 component별 pass/warn/fail로 보고하며 secret을 노출하지 않는다. | Done (#97) |
+| FR-CLI-18 | **세션 관리·재개** — `session list|show|resume`이 기존 workspace transcript를 안전하게 읽는다. 손상 줄은 격리하고 경로 탈출 ID를 거부하며, 5 MiB/최근 400 message로 제한하고 show는 secret redaction한다. resume은 완결 turn만 같은 session ID로 이어 간다. | Done (#97) |
+| FR-CLI-19 | **코딩 기본값** — 저장된 `coding.agent/model/tools`를 `run` 기본값으로 적용하되 명시 argv가 우선한다. DeepSeek analysis-only guard와 Pi model evidence는 그대로 유지한다. | Done (#97) |
+| FR-CLI-20 | **자동화 가능한 표면** — 관리 명령의 JSON schema와 exit code가 안정적이며, 격리 HOME process test에서 Codex-child 호출과 직접 호출이 동일하게 동작한다. | Done (#97) |
 
 ### NFR
 - **직교**: domain/app 이 subprocess/git/transport 미import(`import-boundary.contract.test.ts` green). fake 포트로 supervisor 결정론 검증.
 - **NFR-CLI-shared (단일 파이프라인 — 병렬 금지)**: CLI 대화 host 와 gRPC host(naia-os 경로)는 **동일 deps 빌더 `scripts/builds/compose-agent-deps.mjs` + 동일 `wireAgentUC1`** 공유 — provider resolver·credentials·naia-settings·toolExecutor·memory·conversationLog 가 literally 같은 어댑터. CLI 는 transport(stdio ingress/egress)만 다름. 별도 대화 엔진/도구루프/creds 경로 신설 금지(검증: 두 host 가 같은 `compose-agent-deps` 를 import).
+- **NFR-CLI-secret**: 계정·설정·진단·세션 출력과 오류는 credential 원문을 포함하지 않는다. config command는 credential key를 허용하지 않는다.
+- **NFR-CLI-SoT**: CLI 전역 config는 실행 기본값만 소유한다. workspace provider/model/persona/skill 정본은 계속 `naia-settings`이며, session 정본은 기존 `conversations/*.jsonl`이다.
 - **결정론 계약**: stream-merge·interrupt·infra 처리를 fake 어댑터로 계약테스트(실 subprocess 무의존).
 - **로깅**: src 표준 로깅(DiagnosticLog 포트)만, console.* 금지(F-LOG-3).
 - **NFR-SEC-1 (로그 시크릿 마스킹)**: DiagnosticLog sink 가 write 직전 `adapters/redact.ts`(`redactSecrets`)로 알려진 키·토큰(sk-/AIza/ghp/xox/AKIA/gw/JWT + apiKey/password/token 키문맥)을 `[REDACTED]` 마스킹 — 평문 자격증명의 stderr 누출 방지(best-effort defense-in-depth, 1차 방어=로그금지 규율). 검증 `redact.contract.test.ts`(26 케이스, codex 적대 7R). 재감사 2026-06-23.

@@ -633,6 +633,12 @@
       "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
       "note": "UC-CLI chat mode 의 순수 로직 — parseChatArgs(argv→ChatArgs) + makeReplConversation(AgentIngress/EgressPort + host측 멀티턴 history). process/Node 의존 0(bin/naia-agent-chat.mjs 가 I/O 주입). UC-THINKING: --no-think/--think → ChatRequest.enableThinking (CLI 로 추론 제어·검증 가능하게 하는 표면 — 없으면 레포 자체 검증 도구로 추론 결함을 재현 못 함)."
     },
+    "src/main/app/cli-manage.ts": {
+      "layer": "app",
+      "uc": ["UC-023"],
+      "contract": ".agents/progress/issue-97-first-class-cli.md",
+      "note": "SPEC-019 first-class CLI 순수 정책 — auth/config/models/doctor/session argv, allowlisted config, credential text migration, catalog normalization, bounded complete-turn transcript resume, run default precedence."
+    },
     "src/main/adapters/subprocess-session.ts": {
       "layer": "adapters",
       "uc": ["UC-014"],

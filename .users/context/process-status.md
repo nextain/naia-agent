@@ -2,6 +2,18 @@
 
 > **SoT**: `.agents/context/process-status.json`
 
+## First-class naia-agent CLI — 2026-07-31 (#97)
+
+- 상태: 완료
+- 범위: `auth`, `config`, `models`, `doctor`, `session`과 Pi 코딩 기본값.
+- 정본 경계: 전역 CLI는 workspace 위치만, coding 기본값은 workspace `naia-settings/cli.json`에 둔다. LLM 설정은 `naia-settings`,
+  transcript는 기존 `conversations/*.jsonl`을 그대로 사용한다.
+- 추적: `REQ-020 → UC-023 → SPEC-019 → TEST-S-020 / TEST-F-019`.
+- 완료 증거: 빌드 포함 128개 파일·1,424개 테스트 통과, 격리 HOME의 DPAPI 계정/설정/세션 process integration,
+  실제 Naia 계정 `deepseek-v4-pro` 호출의 provider/model/token 증거, 정책·추적성 게이트 통과.
+- 운영 참고: `/v1/models`가 빈 카탈로그를 반환해 현재 `models`/`doctor`는 출처를 명시한 내장 목록 fallback 경고를 낸다.
+- 상세: `.agents/progress/issue-97-first-class-cli.md`.
+
 ## Naia 계정 Pi 모델 — 2026-07-30 (#93)
 
 - 범위: Codex 또는 사용자가 동일한 `naia-agent run --agent pi` CLI로 `grok-4.3` 코딩과 명시적 `--no-tools`의 `deepseek-v4-pro` 분석을 실행한다.

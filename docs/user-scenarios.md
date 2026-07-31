@@ -154,6 +154,25 @@ naia-os gRPC 배선은 후속 phase(naia-os 워크스페이스 작업 후).
 - **S-CLI-LOGIN (키 로그인)**: `naia-agent login --provider <p> --key <k>`(또는 stdin 프롬프트) → 자격증명 저장(홈 `.naia-agent/.env` 0600) → 이후 키 인자 없이 `chat` 가능. resolver/credentials 포트가 저장 키를 읽어 provider 연결.
 - 직교(병렬 금지): CLI 는 gRPC host(`agent-stdio-entry`)와 **같은 deps 빌더(`compose-agent-deps`) + 같은 `wireAgentUC1`** 를 호출, ingress/egress 만 stdio/readline 어댑터. 별도 대화 엔진/도구루프/creds 경로 신설 금지.
 
+### UC-CLI-MANAGE (독립 CLI 계정·설정·모델·진단·세션)
+
+사용자는 Claude Code/OpenCode/Codex처럼 `naia-agent` 한 명령에서 로그인 상태, 코딩 기본값,
+사용 가능한 Naia 모델, 실행 준비 상태와 이전 세션을 관리한다. `auth login` 후 `coding.agent=pi`,
+`coding.model=grok-4.3`을 저장하면 `naia-agent run "<작업>"`만으로 Naia 계정 코딩을 실행한다.
+Codex가 같은 명령을 자식 프로세스로 호출해도 provider/model/workdir/terminal report가 같다.
+
+- **S-CLI-M1 계정**: `auth status|login|logout`; TTY key 입력은 hidden, 상태·오류·JSON은 secret-free.
+- **S-CLI-M2 설정**: `config list|get|set|reset`; workspace와 coding 기본값 allowlist만 소유하고
+  workspace `naia-settings`를 복제하지 않는다.
+- **S-CLI-M3 모델·진단**: `models`는 capability와 catalog source를, `doctor`는 component별
+  pass/warn/fail과 해결 힌트를 낸다.
+- **S-CLI-M4 세션**: 기존 `<workspace>/conversations/*.jsonl`을 list/show하고 완결된 turn을
+  같은 ID로 resume한다. 새 session DB를 만들지 않는다.
+- **S-CLI-M5 실행 기본값**: 명시 argv > 저장 coding 기본값. DeepSeek는 계속 `--no-tools`
+  필수이고 Grok은 Pi tool coding을 사용한다.
+
+상세 계약과 경계는 `.agents/progress/issue-97-first-class-cli.md`다.
+
 ## UC-PANEL (환경 panel skill — BGM·브라우저·workspace 대화 도구)
 
 사용자가 채팅으로 "음악 틀어줘"·"이 페이지 열어줘" 등 **환경 도구**(BGM·브라우저·workspace)를 시킨다.
@@ -584,6 +603,7 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 | V모델: UC-CLI = UC-014 (REQ-011·012 → SPEC-009·010 → TEST-F-009·010), TEST-S-014 | `docs/progress/{01..05}/INDEX.md` (orphan 0) |
 | UC-CLI / S-CLI-CHAT·S-CLI-LOGIN (S1 대화·로그인) / FR-CLI-7·8 | `src/test/cli-chat.contract.test.ts`(멀티턴 history 누적·emit→stdout·finish 재프롬프트·error 격리·login 파싱→.env 기록) + bin 실행 검증(fake provider 2턴 맥락 유지) |
 | UC-NAIA-PI / FR-CLI-9~13 | `src/test/uc-naia-pi-provider.contract.test.ts`, `uc-naia-pi-controlled.integration.test.ts`, `uc-cli-host-entry.contract.test.ts`, `uc-cli-subagent-pi.contract.test.ts`, `cli-chat.contract.test.ts` — secret-free config, exact host/spawn, stored-login env contract, 실제 Pi 0.83 Grok 도구 실행, DeepSeek analysis/tool-negative, model evidence |
+| UC-CLI-MANAGE / FR-CLI-14~20 | `src/test/cli-manage.contract.test.ts`, `src/test/cli-manage-process.integration.test.ts`, `src/test/uc-cli-host-entry.contract.test.ts` — auth/config/models/doctor/session, isolated HOME, run defaults/override, secret redaction, resume, DeepSeek guard — Pass |
 | UC-PANEL / S-PANEL-1·2·3 / FR-PANEL-1~5 | `src/test/uc-panel-skill.contract.test.ts` (등록→노출·tool call→panel_tool_call emit·result→주입·timeout/취소·동시성·builtin 무회귀) [예정] |
 | UC-PERSONA-CLI / S-PERSONA-1·2 / FR-PERSONA-1·2 | `src/test/uc-persona-compose.contract.test.ts` — describe "composePersonaPrompt" (full Alpha profile→prefix·존댓말·루크·마스터·Korean 포함, emotion-tag 제외 단언) + describe "Golden case D (CLI/no avatar)" (빈 profile→"", prefix-only→base only) + describe "PersonaSourcePort (fake fs)" (실 config.json shape→매핑 PersonaProfile, 파일부재→undefined) |
 | UC-PERSONA-CLI / S-PERSONA-3 / FR-PERSONA-3 (코어 조립 + override) | `src/test/uc-persona-handler.contract.test.ts` — fake provider 가 받은 systemPrompt 를 캡처: (a) `req.systemPrompt` 없음 + personaSource 주입 → provider 가 코어 조립 persona(알파 prefix) 수신, (b) `req.systemPrompt` 있음 → 그 override 가 쓰이고 코어 조립 무시, (c) personaSource 미주입 → `req.systemPrompt` 만(무회귀) |
