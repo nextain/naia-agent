@@ -178,5 +178,9 @@ evidence gate를 수행해 다음 finding을 수용했다.
   `check-canon-conformance` reports 57 pre-existing scope entries. The new `cli-manage.ts` is present in the module
   manifest under UC-023/SPEC-019 and appears in neither failure list. These unrelated ownership records were not
   guessed or bulk-rewritten.
+- PR #98 preflight: the protected context change uses the user-authorized `charter-approved` label. The remaining
+  GitHub failures happen before this feature's tests: `pnpm/action-setup` receives both workflow `version: 10` and
+  `packageManager: pnpm@10.33.0`, while OSS readiness reports 18 unchanged baseline paths/URLs. The PR diff contains
+  none of the reported OSS files; local build, full test suite, and targeted policy gates remain the merge evidence.
 - P04 integration: done
 - P05 completion: done
