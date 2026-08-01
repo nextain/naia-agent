@@ -81,6 +81,8 @@ hard gate.
 - A paid actor result rejected after strict JSON/policy validation carries its already completed receipt
   across the port boundary and terminates as `failed`. Missing or internally invalid receipt evidence
   terminates immediately as `outcome_unknown`; neither path remains stranded in a running state.
+- A thrown verifier or invalid verifier receipt also terminalizes as `outcome_unknown` with unavailable
+  cost evidence; restart never blindly replays an unacknowledged verification boundary.
 - Codex actor children receive an explicit non-secret environment allowlist. Parent thread identity,
   provider/API keys, repository tokens, and unrelated host credentials are not inherited by workers.
 - The paid runner is opt-in and runs one frozen paired coding case only. It writes owner-only JSON and
@@ -96,7 +98,7 @@ hard gate.
   declared cost scope into the result. Inputs above 272,000 tokens retain usage evidence but monetary
   cost becomes unavailable, which blocks a savings claim until a long-context rule is frozen.
 - Full regression excluding two baseline environment-sensitive process tests: 130 files passed, 3
-  skipped; 1,477 tests passed, 9 skipped. The unchanged baseline failures are the management-doctor
+  skipped; 1,479 tests passed, 9 skipped. The unchanged baseline failures are the management-doctor
   status expectation and nested-ADK credential discovery in the Pi CLI process test. No credential
   value is retained in this document or benchmark artifact.
 - Repository gates: compile, logging, traceability, terminology, and new-file anchors pass. The global

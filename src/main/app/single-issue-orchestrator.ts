@@ -281,22 +281,26 @@ export class SingleIssueOrchestrator {
       }
 
       if (issue.state === "verifying") {
-        const verification = await this.d.verifier.verify({
-          issueId,
-          idempotencyKey: `${issue.issueId}:verify:1`,
-          worktreePath: issue.worker!.worktreePath,
-          acceptanceChecks: issue.plan!.acceptanceChecks,
-          signal,
-        });
-        assertReceipt(verification.receipt, "verifier", `${issue.issueId}:verify:1`);
-        assertIndependent(issue.receipts, verification.receipt);
-        issue = this.save(issue, {
-          ...issue,
-          state: "reporting",
-          verification,
-          receipts: appendReceipt(issue.receipts, verification.receipt),
-          updatedAt: this.#now(),
-        }, verification.ok ? "verification_passed" : "verification_failed", { checkCount: verification.checks.length });
+        try {
+          const verification = await this.d.verifier.verify({
+            issueId,
+            idempotencyKey: `${issue.issueId}:verify:1`,
+            worktreePath: issue.worker!.worktreePath,
+            acceptanceChecks: issue.plan!.acceptanceChecks,
+            signal,
+          });
+          assertReceipt(verification.receipt, "verifier", `${issue.issueId}:verify:1`);
+          assertIndependent(issue.receipts, verification.receipt);
+          issue = this.save(issue, {
+            ...issue,
+            state: "reporting",
+            verification,
+            receipts: appendReceipt(issue.receipts, verification.receipt),
+            updatedAt: this.#now(),
+          }, verification.ok ? "verification_passed" : "verification_failed", { checkCount: verification.checks.length });
+        } catch (error) {
+          return this.markUnknown(issue, `verifier_call_or_receipt_unavailable:${errorName(error)}`);
+        }
         continue;
       }
 

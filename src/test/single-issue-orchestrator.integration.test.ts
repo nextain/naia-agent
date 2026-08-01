@@ -43,7 +43,7 @@ function request(requestId = "request-1", text = "Fix the parser and run its tes
   };
 }
 
-function harness(options: { chat?: boolean; question?: boolean; multipleQuestions?: boolean; workerThrows?: boolean; unavailableCost?: boolean; badFacingBinding?: boolean; verificationFails?: boolean; workerProfile?: string; malformedReceipt?: "cached" | "cost" | "unavailable"; rejectedActorResult?: boolean; rejectedWorkerResult?: boolean } = {}) {
+function harness(options: { chat?: boolean; question?: boolean; multipleQuestions?: boolean; workerThrows?: boolean; unavailableCost?: boolean; badFacingBinding?: boolean; verificationFails?: boolean; verifierThrows?: boolean; badVerifierReceipt?: boolean; workerProfile?: string; malformedReceipt?: "cached" | "cost" | "unavailable"; rejectedActorResult?: boolean; rejectedWorkerResult?: boolean } = {}) {
   const root = mkdtempSync(join(tmpdir(), "single-issue-")); roots.push(root);
   const store = new SqliteIssueOrchestrationStore(join(root, "issues.db"));
   const calls = { facing: 0, moderator: 0, worker: 0, verifier: 0, reporter: 0 };
@@ -97,7 +97,12 @@ function harness(options: { chat?: boolean; question?: boolean; multipleQuestion
     } },
     verifier: { async verify(input) {
       calls.verifier += 1; actor += 1;
-      return { ok: !options.verificationFails, checks: [{ name: "parser tests pass", pass: !options.verificationFails }], receipt: receipt("verifier", input.idempotencyKey, actor) };
+      if (options.verifierThrows) throw new Error("verifier transport failed");
+      return {
+        ok: !options.verificationFails,
+        checks: [{ name: "parser tests pass", pass: !options.verificationFails }],
+        receipt: receipt("verifier", options.badVerifierReceipt ? "wrong:verify:key" : input.idempotencyKey, actor),
+      };
     } },
     reporter: { async report(input) {
       calls.reporter += 1; actor += 1;
@@ -467,6 +472,16 @@ describe("UC-ORCH-001 single issue", () => {
       naiaCommentary: "all checks passed",
       changedFiles: ["src/parser.ts"], verificationPassed: false,
     });
+    h.store.close();
+  });
+
+  it.each(["throws", "bad-receipt"] as const)("terminalizes an unavailable verifier outcome when it %s", async (failure) => {
+    const h = harness({ verifierThrows: failure === "throws", badVerifierReceipt: failure === "bad-receipt" });
+    const report = await h.orchestrator.start(request(`request-verifier-${failure}`));
+    expect(report).toMatchObject({ state: "outcome_unknown", totalCost: { state: "unavailable" } });
+    expect(h.calls.reporter).toBe(0);
+    expect(h.store.events("issue-0001").at(-1)?.type).toBe("actor_outcome_unknown");
+    expect(h.orchestrator.snapshot("issue-0001").state).toBe("outcome_unknown");
     h.store.close();
   });
 
