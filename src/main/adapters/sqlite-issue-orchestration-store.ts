@@ -12,6 +12,7 @@ export class IssueStoreExecutionClaimError extends Error {}
 export class IssueStoreImmutableFieldError extends Error {}
 export class IssueStoreTerminalMutationError extends Error {}
 export class IssueStoreCancellationWindowError extends Error {}
+export class IssueStoreSnapshotContractError extends Error {}
 
 export class SqliteIssueOrchestrationStore implements IssueOrchestrationStore {
   readonly #db: Database.Database;
@@ -82,7 +83,7 @@ export class SqliteIssueOrchestrationStore implements IssueOrchestrationStore {
     return this.transaction(() => {
       const established = this.#db.prepare("SELECT snapshot_json FROM issue_orchestration_snapshots WHERE request_id=?")
         .get(request.requestId) as Row | undefined;
-      if (established) return { snapshot: JSON.parse(String(established.snapshot_json)) as IssueSnapshot, created: false };
+      if (established) return { snapshot: parsePersistedSnapshot(established.snapshot_json), created: false };
       this.#db.prepare(`INSERT INTO issue_orchestration_snapshots
         (issue_id, request_id, request_digest, version, state, snapshot_json, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
@@ -96,12 +97,12 @@ export class SqliteIssueOrchestrationStore implements IssueOrchestrationStore {
 
   get(issueId: string): IssueSnapshot | undefined {
     const row = this.#db.prepare("SELECT snapshot_json FROM issue_orchestration_snapshots WHERE issue_id=?").get(issueId) as Row | undefined;
-    return row ? JSON.parse(String(row.snapshot_json)) as IssueSnapshot : undefined;
+    return row ? parsePersistedSnapshot(row.snapshot_json) : undefined;
   }
 
   getByRequestId(requestId: string): IssueSnapshot | undefined {
     const row = this.#db.prepare("SELECT snapshot_json FROM issue_orchestration_snapshots WHERE request_id=?").get(requestId) as Row | undefined;
-    return row ? JSON.parse(String(row.snapshot_json)) as IssueSnapshot : undefined;
+    return row ? parsePersistedSnapshot(row.snapshot_json) : undefined;
   }
 
   tryAcquireExecution(issueId: string, ownerId: string, nowMs: number, expiresAtMs: number): boolean {
@@ -130,7 +131,7 @@ export class SqliteIssueOrchestrationStore implements IssueOrchestrationStore {
       const row = this.#db.prepare("SELECT snapshot_json FROM issue_orchestration_snapshots WHERE issue_id=?")
         .get(issueId) as Row | undefined;
       if (!row) throw new Error(`unknown issue: ${issueId}`);
-      const current = JSON.parse(String(row.snapshot_json)) as IssueSnapshot;
+      const current = parsePersistedSnapshot(row.snapshot_json);
       if (isIssueTerminal(current.state) || current.cancellationRequestedAt) return current;
       if (["worker_running", "verifying", "reporting", "reporter_running"].includes(current.state)) {
         throw new IssueStoreCancellationWindowError("issue has already dispatched its worker");
@@ -161,7 +162,7 @@ export class SqliteIssueOrchestrationStore implements IssueOrchestrationStore {
       if (!currentRow) {
         throw new IssueStoreConcurrencyError("issue snapshot changed concurrently");
       }
-      const current = JSON.parse(String(currentRow.snapshot_json)) as IssueSnapshot;
+      const current = parsePersistedSnapshot(currentRow.snapshot_json);
       if (Number(currentRow.version) !== input.expectedVersion) {
         if (current.cancellationRequestedAt && !input.snapshot.cancellationRequestedAt) return current;
         throw new IssueStoreConcurrencyError("issue snapshot changed concurrently");
@@ -237,6 +238,19 @@ function sanitizeForPersistence<T>(value: T): T {
       .map(([key, item]) => [key, sanitizeForPersistence(item)])) as T;
   }
   return value;
+}
+
+function parsePersistedSnapshot(value: unknown): IssueSnapshot {
+  const parsed = JSON.parse(String(value)) as Partial<IssueSnapshot>;
+  const obligations = parsed.requiredObligations;
+  if (!Array.isArray(obligations)
+    || obligations.some((item) => typeof item !== "string" || !item.trim())
+    || new Set(obligations).size !== obligations.length) {
+    throw new IssueStoreSnapshotContractError(
+      "persisted issue snapshot lacks a valid required-obligations contract; refusing restart dispatch",
+    );
+  }
+  return parsed as IssueSnapshot;
 }
 
 function withSqliteBusyRetry<T>(operation: () => T, timeoutMs = 5_000): T {

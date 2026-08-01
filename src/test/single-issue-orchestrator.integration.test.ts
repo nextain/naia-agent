@@ -2,11 +2,13 @@ import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Worker } from "node:worker_threads";
+import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
 import { SingleIssueOrchestrator, IssueQuestionMismatchError, IssueRequestConflictError } from "../main/app/single-issue-orchestrator.js";
 import {
   IssueStoreImmutableFieldError,
   IssueStoreExecutionClaimError,
+  IssueStoreSnapshotContractError,
   IssueStoreTerminalMutationError,
   SqliteIssueOrchestrationStore,
 } from "../main/adapters/sqlite-issue-orchestration-store.js";
@@ -642,6 +644,30 @@ describe("UC-ORCH-001 single issue", () => {
     expect(await restarted.resume("issue-0001")).toMatchObject({ state: "outcome_unknown" });
     expect({ executeCalls, reconcileCalls }).toEqual({ executeCalls: 0, reconcileCalls: 1 });
     expect(reopened.events("issue-0001").at(-1)?.type).toBe("worker_outcome_unknown");
+    reopened.close();
+  });
+
+  it("fails closed before actor dispatch when a legacy snapshot lacks the obligation contract", async () => {
+    const h = harness();
+    h.store.create(request("request-legacy-obligations"), {
+      issueId: "issue-0001", requestDigest: "legacy-digest", now: "2026-08-01T00:00:00Z",
+    });
+    const dbPath = join(h.root, "issues.db");
+    h.store.close();
+
+    const db = new Database(dbPath);
+    const row = db.prepare("SELECT snapshot_json FROM issue_orchestration_snapshots WHERE issue_id=?")
+      .get("issue-0001") as { snapshot_json: string };
+    const legacy = JSON.parse(row.snapshot_json) as Record<string, unknown>;
+    delete legacy.requiredObligations;
+    db.prepare("UPDATE issue_orchestration_snapshots SET snapshot_json=? WHERE issue_id=?")
+      .run(JSON.stringify(legacy), "issue-0001");
+    db.close();
+
+    const reopened = new SqliteIssueOrchestrationStore(dbPath);
+    const restarted = new SingleIssueOrchestrator({ ...h.deps, store: reopened });
+    await expect(restarted.resume("issue-0001")).rejects.toBeInstanceOf(IssueStoreSnapshotContractError);
+    expect(h.calls).toEqual({ facing: 0, moderator: 0, worker: 0, verifier: 0, reporter: 0 });
     reopened.close();
   });
 
