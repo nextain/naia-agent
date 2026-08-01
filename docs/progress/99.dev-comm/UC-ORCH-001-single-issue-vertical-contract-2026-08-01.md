@@ -88,6 +88,9 @@ hard gate.
   completion may call it; a restarted boundary without exact reconciliation becomes `outcome_unknown`.
 - Codex actor children receive an explicit non-secret environment allowlist. Parent thread identity,
   provider/API keys, repository tokens, and unrelated host credentials are not inherited by workers.
+- The retained built-in Pi adapter assigns distinct adapter-owned session/execution ids per spawn and
+  carries them with Pi-reported provider/model/usage evidence, so the same provider-neutral JSON actor
+  ports can use Pi without fabricating provider identity.
 - The paid runner is opt-in and runs one frozen paired coding case only. It writes owner-only JSON and
   fixes the paid call count at eight, requires explicit observed-spend/per-call reservation thresholds
   plus per-actor time limits, and permits a numeric savings comparison only when both compositions pass
@@ -101,7 +104,7 @@ hard gate.
   declared cost scope into the result. Inputs above 272,000 tokens retain usage evidence but monetary
   cost becomes unavailable, which blocks a savings claim until a long-context rule is frozen.
 - Full regression excluding two baseline environment-sensitive process tests: 130 files passed, 3
-  skipped; 1,482 tests passed, 9 skipped. The unchanged baseline failures are the management-doctor
+  skipped; 1,483 tests passed, 9 skipped. The unchanged baseline failures are the management-doctor
   status expectation and nested-ADK credential discovery in the Pi CLI process test. No credential
   value is retained in this document or benchmark artifact.
 - Repository gates: compile, logging, traceability, terminology, and new-file anchors pass. The global

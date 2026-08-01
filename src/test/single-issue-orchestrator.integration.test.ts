@@ -291,9 +291,9 @@ describe("UC-ORCH-001 single issue", () => {
       });
       worker.on("message", (message: { kind: string; value?: { created: boolean; issueId: string; digest: string; error?: string } }) => {
         if (message.kind === "ready") readyResolve();
-        if (message.kind === "result") resultResolve(message.value!);
+        if (message.kind === "result") { readyResolve(); resultResolve(message.value!); }
       });
-      worker.once("error", (error) => resultResolve({ created: false, issueId: "", digest: "", error: error.message }));
+      worker.once("error", (error) => { readyResolve(); resultResolve({ created: false, issueId: "", digest: "", error: error.message }); });
       return { ready, result };
     };
     const first = spawn("issue-thread-1");

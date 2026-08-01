@@ -3,6 +3,7 @@
 import { describe, it, expect } from "vitest";
 import type { ChildProcess } from "node:child_process";
 import { makePiSubAgent, piLineToEvent, type SpawnFn, type ResolvedBin } from "../main/adapters/subagent-pi.js";
+import { makeSubAgentNaiaFacing } from "../main/adapters/subagent-issue-actors.js";
 import type { SubAgentEvent } from "../main/domain/orchestration.js";
 
 const fixedBin = (): ResolvedBin => ({ command: "pi", prefixArgs: [] });
@@ -66,6 +67,38 @@ describe("subagent-pi 어댑터 계약 (2b, fake child)", () => {
     expect(f.spawnArgs.command).toBe("pi");
     expect(f.spawnArgs.args).toEqual(["-p", "hi", "--mode", "json", "--no-session", "--provider", "anthropic", "--model", "claude-sonnet-4-6"]);
     expect(f.spawnArgs.cwd).toBe("/tmp/w");
+  });
+
+  it("provides adapter-owned identities for a Pi-backed JSON actor receipt", async () => {
+    const f = fakeNdjson();
+    const pi = makePiSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn, provider: "anthropic", model: "claude-sonnet-4-6" });
+    const facing = makeSubAgentNaiaFacing({
+      subAgent: pi,
+      binding: { provider: "anthropic", model: "claude-sonnet-4-6" },
+      workdir: "/tmp/w", diag: { log() {}, debug() {} },
+    });
+    const result = facing.classify({
+      requestId: "request-pi-facing", idempotencyKey: "issue:pi:facing", text: "fix it",
+      signal: new AbortController().signal,
+    });
+    f.line(JSON.stringify({
+      type: "message_end",
+      message: {
+        role: "assistant", provider: "anthropic", model: "claude-sonnet-4-6",
+        content: [{ type: "text", text: '{"kind":"work","obligations":["fix it"]}' }],
+        usage: { input: 10, output: 4, totalTokens: 14, cost: { total: 0.01 } },
+      },
+    }));
+    f.close(0);
+    const classified = await result;
+    expect(classified.classification).toEqual({ kind: "work", obligations: ["fix it"] });
+    expect(classified.receipt).toMatchObject({
+      role: "naia", provider: "anthropic", model: "claude-sonnet-4-6",
+      tokenCountsAvailable: true, inputTokens: 10, outputTokens: 4,
+      sessionId: expect.any(String), executionId: expect.any(String),
+      cost: { state: "unavailable" },
+    });
+    expect(classified.receipt.sessionId).not.toBe(classified.receipt.executionId);
   });
 
   it("malformed/partial NDJSON 관용 (crash 없이 드롭, 정상 줄만 이벤트)", async () => {

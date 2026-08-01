@@ -19,7 +19,8 @@ export class SqliteIssueOrchestrationStore implements IssueOrchestrationStore {
   constructor(path: string) {
     this.#path = path;
     this.#db = new Database(path);
-    this.#db.exec("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;");
+    this.#db.pragma("busy_timeout = 5000");
+    this.#db.exec("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;");
     this.#db.exec(`
       CREATE TABLE IF NOT EXISTS issue_orchestration_snapshots (
         issue_id TEXT PRIMARY KEY,

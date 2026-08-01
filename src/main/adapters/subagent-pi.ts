@@ -9,6 +9,7 @@
 //   - 구 redactString(@nextain/agent-observability) 제거 — 2a 비범위(시크릿 리댁션은 후속).
 //   - 구 SpawnContext(signal/health/capabilities) 제거 — 취소는 cancel() 단일 경로. 구 Promise<Session> → 동기 반환(포트 계약).
 import { execSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -125,6 +126,7 @@ export function piLineToEvent(line: string): SubAgentEvent | null {
 export function piLineToEvents(
   line: string,
   expected?: { provider: string; model: string },
+  identity?: { sessionId: string; executionId: string },
 ): readonly SubAgentEvent[] {
   const trimmed = line.trim();
   if (trimmed.length === 0) return [];
@@ -156,6 +158,7 @@ export function piLineToEvents(
           inputTokens: usage?.inputTokens ?? 0,
           outputTokens: usage?.outputTokens ?? 0,
           totalTokens: usage?.totalTokens ?? 0,
+          ...(identity ?? {}),
           ...(usage && typeof m.usage.cost?.total === "number" && Number.isFinite(m.usage.cost.total) && m.usage.cost.total >= 0
             ? { piEstimatedCost: m.usage.cost.total } : {}),
         };
@@ -232,9 +235,11 @@ export function makePiSubAgent(opts: SubAgentPiOptions = {}): SubAgentPort {
       if (provider) args.push("--provider", provider);
       if (model) args.push("--model", model);
       if (opts.noTools === true) args.push("--no-tools");
+      const identity = { sessionId: randomUUID(), executionId: randomUUID() };
+      const expected = provider && model ? { provider, model } : undefined;
       return spawnSubprocessSession({
         spawnFn, bin, args, cwd: task.workdir, ...(childEnv ? { env: childEnv } : {}), hardKillMs,
-        lineToEvent: naiaModel ? (line) => piLineToEvents(line, { provider: NAIA_PI_PROVIDER, model }) : piLineToEvent,
+        lineToEvent: (line) => piLineToEvents(line, expected, identity),
         label: "pi", diagnostics: true,
       });
     },
