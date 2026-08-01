@@ -306,13 +306,18 @@ export class SingleIssueOrchestrator {
           });
           assertReceipt(verification.receipt, "verifier", `${issue.issueId}:verify:1`);
           assertIndependent(issue.receipts, verification.receipt);
+          const requiredChecks = issue.plan!.acceptanceChecks;
+          const verificationAccepted = verification.ok
+            && sameStrings(verification.checks.map((check) => check.name), requiredChecks)
+            && verification.checks.every((check) => check.pass);
+          const validatedVerification = { ...verification, ok: verificationAccepted };
           issue = this.save(issue, {
             ...issue,
             state: "reporting",
-            verification,
+            verification: validatedVerification,
             receipts: appendReceipt(issue.receipts, verification.receipt),
             updatedAt: this.#now(),
-          }, verification.ok ? "verification_passed" : "verification_failed", { checkCount: verification.checks.length });
+          }, verificationAccepted ? "verification_passed" : "verification_failed", { checkCount: verification.checks.length });
         } catch (error) {
           return this.markUnknown(issue, `verifier_call_or_receipt_unavailable:${errorName(error)}`);
         }

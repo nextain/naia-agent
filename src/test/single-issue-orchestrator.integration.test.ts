@@ -46,7 +46,7 @@ function request(requestId = "request-1", text = "Fix the parser and run its tes
   };
 }
 
-function harness(options: { chat?: boolean; droppedObligation?: boolean; question?: boolean; multipleQuestions?: boolean; workerThrows?: boolean; unavailableCost?: boolean; badFacingBinding?: boolean; verificationFails?: boolean; verifierThrows?: boolean; badVerifierReceipt?: boolean; workerProfile?: string; malformedReceipt?: "cached" | "cost" | "unavailable"; rejectedActorResult?: boolean; rejectedWorkerResult?: boolean; contradictoryReporter?: boolean } = {}) {
+function harness(options: { chat?: boolean; droppedObligation?: boolean; question?: boolean; multipleQuestions?: boolean; workerThrows?: boolean; unavailableCost?: boolean; badFacingBinding?: boolean; verificationFails?: boolean; verifierOmitsChecks?: boolean; verifierThrows?: boolean; badVerifierReceipt?: boolean; workerProfile?: string; malformedReceipt?: "cached" | "cost" | "unavailable"; rejectedActorResult?: boolean; rejectedWorkerResult?: boolean; contradictoryReporter?: boolean } = {}) {
   const root = mkdtempSync(join(tmpdir(), "single-issue-")); roots.push(root);
   const store = new SqliteIssueOrchestrationStore(join(root, "issues.db"));
   const calls = { facing: 0, moderator: 0, worker: 0, verifier: 0, reporter: 0 };
@@ -105,13 +105,13 @@ function harness(options: { chat?: boolean; droppedObligation?: boolean; questio
       if (options.verifierThrows) throw new Error("verifier transport failed");
       return {
         ok: !options.verificationFails,
-        checks: [{ name: "parser tests pass", pass: !options.verificationFails }],
+        checks: options.verifierOmitsChecks ? [] : [{ name: "parser tests pass", pass: !options.verificationFails }],
         receipt: receipt("verifier", options.badVerifierReceipt ? "wrong:verify:key" : input.idempotencyKey, actor),
       };
     } },
     reporter: { async report(input) {
       calls.reporter += 1; actor += 1;
-      expect(input.events.map((event) => event.type)).toContain(options.verificationFails ? "verification_failed" : "verification_passed");
+      expect(input.events.map((event) => event.type)).toContain(options.verificationFails || options.verifierOmitsChecks ? "verification_failed" : "verification_passed");
       const terminal = input.issue.state as "completed" | "failed";
       return {
         report: options.contradictoryReporter
@@ -523,6 +523,15 @@ describe("UC-ORCH-001 single issue", () => {
     expect(report).toMatchObject({ state: "failed", totalCost: { state: "measured", usd: 0.03 } });
     expect(h.orchestrator.snapshot("issue-0001").receipts.map((item) => item.role)).toEqual(["naia", "moderator", "worker"]);
     expect(h.store.events("issue-0001").at(-1)?.type).toBe("actor_result_rejected");
+    h.store.close();
+  });
+
+  it("fails verification when a port omits the declared acceptance check despite ok=true", async () => {
+    const h = harness({ verifierOmitsChecks: true });
+    const report = await h.orchestrator.start(request("request-verifier-omits-checks"));
+    expect(report).toMatchObject({ state: "failed", verificationPassed: false, totalCost: { state: "measured" } });
+    expect(h.orchestrator.snapshot("issue-0001").verification).toMatchObject({ ok: false, checks: [] });
+    expect(h.store.events("issue-0001").map((event) => event.type)).toContain("verification_failed");
     h.store.close();
   });
 
