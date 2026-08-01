@@ -198,6 +198,7 @@ async function runJson(options: JsonActorOptions, role: ActorReceipt["role"], id
     throw new Error(`${role} actor binding mismatch`);
   }
   const completedAt = now();
+  const usageAvailable = evidence.usageAvailable === true;
   const receipt: ActorReceipt = {
     role,
     provider: evidence.provider,
@@ -206,13 +207,13 @@ async function runJson(options: JsonActorOptions, role: ActorReceipt["role"], id
     sessionId: evidence.sessionId,
     executionId: evidence.executionId,
     idempotencyKey,
-    tokenCountsAvailable: evidence.usageAvailable !== false,
-    inputTokens: evidence.inputTokens,
-    cachedInputTokens: evidence.cachedInputTokens ?? 0,
-    outputTokens: evidence.outputTokens,
+    tokenCountsAvailable: usageAvailable,
+    inputTokens: usageAvailable ? evidence.inputTokens : 0,
+    cachedInputTokens: usageAvailable ? evidence.cachedInputTokens ?? 0 : 0,
+    outputTokens: usageAvailable ? evidence.outputTokens : 0,
     latencyMs: Math.max(0, completedAt - startedAt),
     ...(evidence.modelEvidenceSource ? { modelEvidenceSource: evidence.modelEvidenceSource } : {}),
-    cost: evidence.measuredCostUsd !== undefined
+    cost: usageAvailable && evidence.measuredCostUsd !== undefined
       ? { state: "measured", usd: evidence.measuredCostUsd, source: "subagent_usage_and_pinned_price" }
       : { state: "unavailable", reason: "actor adapter did not receive priced usage" },
   };

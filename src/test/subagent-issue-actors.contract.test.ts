@@ -28,6 +28,7 @@ function actor(text: string, model = "gpt-5.6-luna"): SubAgentPort {
             cachedInputTokens: 5,
             outputTokens: 7,
             totalTokens: 27,
+            usageAvailable: true,
             sessionId: `session-${call}`,
             executionId: `execution-${call}`,
             measuredCostUsd: 0.002,
@@ -72,6 +73,25 @@ describe("UC-ORCH-001 sub-agent issue actors", () => {
     const error = await facing.classify({ requestId: "r", idempotencyKey: "k", text: "x", signal: signal() }).catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(IssueActorResultError);
     expect(error).toMatchObject({ message: expect.stringContaining("schema mismatch"), receipt: { role: "naia", idempotencyKey: "k", cost: { state: "measured" } } });
+  });
+
+  it("treats omitted usage availability as unavailable even when a zero measured cost is present", async () => {
+    const omittedUsage: SubAgentPort = { spawn() { return {
+      events: (async function* () {
+        yield { kind: "text_delta", text: '{"kind":"work","obligations":["fix"]}' } as const;
+        yield { kind: "session_end", ok: true, evidence: {
+          provider: "openai-codex", selectedModel: "gpt-5.6-luna", reasoningEffort: "low",
+          inputTokens: 0, outputTokens: 0, totalTokens: 0, sessionId: "session-omitted", executionId: "execution-omitted",
+          measuredCostUsd: 0,
+        } } as const;
+      })(), async cancel() {},
+    }; } };
+    const facing = makeSubAgentNaiaFacing({ subAgent: omittedUsage, binding, workdir: "/workspace", diag });
+    const result = await facing.classify({ requestId: "r", idempotencyKey: "k", text: "fix", signal: signal() });
+    expect(result.receipt).toMatchObject({
+      tokenCountsAvailable: false, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0,
+      cost: { state: "unavailable" },
+    });
   });
 
   it("grounds reporter fields in persisted evidence and prices deterministic verification at zero", async () => {

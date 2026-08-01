@@ -55,13 +55,13 @@ export function makeSupervisedIssueWorker(options: SupervisedIssueWorkerOptions)
         sessionId: evidence.sessionId,
         executionId: evidence.executionId,
         idempotencyKey: input.dispatchId,
-        tokenCountsAvailable: evidence.usageAvailable !== false,
-        inputTokens: evidence?.inputTokens ?? 0,
-        cachedInputTokens: evidence?.cachedInputTokens ?? 0,
-        outputTokens: evidence?.outputTokens ?? 0,
+        tokenCountsAvailable: evidence.usageAvailable === true,
+        inputTokens: evidence.usageAvailable === true ? evidence.inputTokens : 0,
+        cachedInputTokens: evidence.usageAvailable === true ? evidence.cachedInputTokens ?? 0 : 0,
+        outputTokens: evidence.usageAvailable === true ? evidence.outputTokens : 0,
         latencyMs: Math.max(0, finishedAt - startedAt),
         ...(evidence.modelEvidenceSource ? { modelEvidenceSource: evidence.modelEvidenceSource } : {}),
-        cost: evidence?.measuredCostUsd !== undefined
+        cost: evidence.usageAvailable === true && evidence.measuredCostUsd !== undefined
           ? { state: "measured", usd: evidence.measuredCostUsd, source: "codex_usage_and_pinned_price" }
           : { state: "unavailable", reason: "worker adapter did not receive priced usage" },
       };

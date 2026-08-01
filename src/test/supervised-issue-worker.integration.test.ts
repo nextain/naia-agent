@@ -9,6 +9,7 @@ async function* events(): AsyncIterable<SubAgentEvent> {
     provider: "openai-codex", selectedModel: "gpt-5.6-terra", inputTokens: 100,
     reasoningEffort: "medium",
     cachedInputTokens: 40, outputTokens: 20, totalTokens: 120,
+    usageAvailable: true,
     sessionId: "codex-thread-1", executionId: "codex-execution-1", measuredCostUsd: 0.0004,
   } };
 }
@@ -50,6 +51,24 @@ describe("UC-ORCH-001 supervised worker adapter", () => {
       task: "fix", profileId: "balanced", acceptanceChecks: ["test"], signal: new AbortController().signal,
       binding: { provider: "openai-codex", model: "gpt-5.6-terra", reasoningEffort: "medium" },
     })).rejects.toThrow("worker receipt evidence unavailable");
+  });
+
+  it("does not turn omitted worker usage availability into measured zero cost", async () => {
+    const worker = makeSupervisedIssueWorker({
+      worktrees: { allocate() { return { workspacePath: "/repo", worktreePath: "/managed/issue", branch: "naia/issue", leaseId: "lease", release() {} }; } },
+      subAgent: { spawn() { return { events: (async function* () { yield { kind: "session_end", ok: true, evidence: {
+        provider: "openai-codex", selectedModel: "gpt-5.6-terra", reasoningEffort: "medium",
+        inputTokens: 0, outputTokens: 0, totalTokens: 0, sessionId: "session-omitted", executionId: "execution-omitted",
+        measuredCostUsd: 0,
+      } } as const; })(), async cancel() {} }; } },
+      diag: { log() {}, debug() {} }, changedFiles: () => [],
+    });
+    const result = await worker.execute({
+      issueId: "issue-0004", dispatchId: "issue-0004:dispatch:1", workspacePath: "/repo",
+      task: "fix", profileId: "balanced", acceptanceChecks: ["test"], signal: new AbortController().signal,
+      binding: { provider: "openai-codex", model: "gpt-5.6-terra", reasoningEffort: "medium" },
+    });
+    expect(result.receipt).toMatchObject({ tokenCountsAvailable: false, inputTokens: 0, outputTokens: 0, cost: { state: "unavailable" } });
   });
 
   it("carries the completed paid receipt when model-binding policy rejects the result", async () => {

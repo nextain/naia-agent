@@ -72,7 +72,9 @@ hard gate.
   labels this as adapter-request evidence because Codex JSONL does not independently report its backend
   model routing. The benchmark therefore gates `profile_request_exact`, not provider-observed identity.
   Missing, malformed, or internally inconsistent usage is marked unavailable and cannot become a
-  measured zero-cost receipt or an apparently available zero-token count.
+  measured zero-cost receipt or an apparently available zero-token count. Availability is opt-in:
+  only explicit `usageAvailable: true` permits token and monetary measurement for both JSON actors
+  and the supervised worker.
 - Deterministic coverage includes chat isolation, exact question binding, duplicate/reopen behavior,
   simultaneous cross-thread creation, concurrent cross-instance delivery, execution-claim
   expiry/fencing, stable dispatch assignment,
@@ -98,7 +100,7 @@ hard gate.
   declared cost scope into the result. Inputs above 272,000 tokens retain usage evidence but monetary
   cost becomes unavailable, which blocks a savings claim until a long-context rule is frozen.
 - Full regression excluding two baseline environment-sensitive process tests: 130 files passed, 3
-  skipped; 1,479 tests passed, 9 skipped. The unchanged baseline failures are the management-doctor
+  skipped; 1,481 tests passed, 9 skipped. The unchanged baseline failures are the management-doctor
   status expectation and nested-ADK credential discovery in the Pi CLI process test. No credential
   value is retained in this document or benchmark artifact.
 - Repository gates: compile, logging, traceability, terminology, and new-file anchors pass. The global
