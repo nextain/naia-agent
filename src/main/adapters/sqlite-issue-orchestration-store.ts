@@ -49,7 +49,16 @@ export class SqliteIssueOrchestrationStore implements IssueOrchestrationStore {
   }
 
   create(request: IssueStartRequest, input: { readonly issueId: string; readonly requestDigest: string; readonly now: string }): IssueSnapshot {
-    const snapshot = sanitizeForPersistence<IssueSnapshot>({
+    const result = this.createOrGet(request, input);
+    if (!result.created) throw new IssueStoreConcurrencyError("request id already exists");
+    return result.snapshot;
+  }
+
+  createOrGet(request: IssueStartRequest, input: { readonly issueId: string; readonly requestDigest: string; readonly now: string }): {
+    readonly snapshot: IssueSnapshot;
+    readonly created: boolean;
+  } {
+    const candidate = sanitizeForPersistence<IssueSnapshot>({
       version: 1,
       requestId: request.requestId,
       requestDigest: input.requestDigest,
@@ -65,16 +74,19 @@ export class SqliteIssueOrchestrationStore implements IssueOrchestrationStore {
       createdAt: input.now,
       updatedAt: input.now,
     });
-    this.transaction(() => {
+    return this.transaction(() => {
+      const established = this.#db.prepare("SELECT snapshot_json FROM issue_orchestration_snapshots WHERE request_id=?")
+        .get(request.requestId) as Row | undefined;
+      if (established) return { snapshot: JSON.parse(String(established.snapshot_json)) as IssueSnapshot, created: false };
       this.#db.prepare(`INSERT INTO issue_orchestration_snapshots
         (issue_id, request_id, request_digest, version, state, snapshot_json, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
-        snapshot.issueId, snapshot.requestId, snapshot.requestDigest, snapshot.version, snapshot.state,
-        JSON.stringify(snapshot), snapshot.createdAt, snapshot.updatedAt,
+        candidate.issueId, candidate.requestId, candidate.requestDigest, candidate.version, candidate.state,
+        JSON.stringify(candidate), candidate.createdAt, candidate.updatedAt,
       );
-      this.insertEvent(snapshot, 1, "issue_accepted", { requestDigest: snapshot.requestDigest });
+      this.insertEvent(candidate, 1, "issue_accepted", { requestDigest: candidate.requestDigest });
+      return { snapshot: candidate, created: true };
     });
-    return snapshot;
   }
 
   get(issueId: string): IssueSnapshot | undefined {

@@ -70,6 +70,10 @@ export interface NaiaIssueReporterPort {
 
 export interface IssueOrchestrationStore {
   create(request: IssueStartRequest, input: { readonly issueId: string; readonly requestDigest: string; readonly now: string }): IssueSnapshot;
+  createOrGet(request: IssueStartRequest, input: { readonly issueId: string; readonly requestDigest: string; readonly now: string }): {
+    readonly snapshot: IssueSnapshot;
+    readonly created: boolean;
+  };
   get(issueId: string): IssueSnapshot | undefined;
   getByRequestId(requestId: string): IssueSnapshot | undefined;
   /** Atomically acquires an expiring cross-process execution claim for one issue. */

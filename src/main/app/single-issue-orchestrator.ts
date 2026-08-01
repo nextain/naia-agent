@@ -74,10 +74,10 @@ export class SingleIssueOrchestrator {
   }
 
   private async startOnce(request: IssueStartRequest, requestDigest: string, signal: AbortSignal): Promise<IssueReport> {
-    const existing = this.d.store.getByRequestId(request.requestId);
-    if (existing && existing.requestDigest !== requestDigest) throw new IssueRequestConflictError("request id was reused with different content");
-    const issue = existing ?? this.d.store.create(request, { issueId: this.#ids(), requestDigest, now: this.#now() });
-    this.debug("start", { issueId: issue.issueId, state: issue.state, repeated: Boolean(existing) });
+    const established = this.d.store.createOrGet(request, { issueId: this.#ids(), requestDigest, now: this.#now() });
+    const issue = established.snapshot;
+    if (issue.requestDigest !== requestDigest) throw new IssueRequestConflictError("request id was reused with different content");
+    this.debug("start", { issueId: issue.issueId, state: issue.state, repeated: !established.created });
     return this.resume(issue.issueId, signal);
   }
 

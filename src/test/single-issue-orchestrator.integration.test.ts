@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Worker } from "node:worker_threads";
 import { afterEach, describe, expect, it } from "vitest";
 import { SingleIssueOrchestrator, IssueQuestionMismatchError, IssueRequestConflictError } from "../main/app/single-issue-orchestrator.js";
 import {
@@ -250,6 +251,56 @@ describe("UC-ORCH-001 single issue", () => {
     expect(h.calls).toEqual({ facing: 1, moderator: 1, worker: 1, verifier: 1, reporter: 1 });
     secondStore.close();
     h.store.close();
+  });
+
+  it("atomically establishes one issue when two worker threads race request creation", async () => {
+    const root = mkdtempSync(join(tmpdir(), "single-issue-create-race-")); roots.push(root);
+    const dbPath = join(root, "issues.db");
+    const barrier = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 2);
+    const moduleUrl = new URL("../../dist/main/adapters/sqlite-issue-orchestration-store.js", import.meta.url).href;
+    const workerSource = `
+      const { parentPort, workerData } = require("node:worker_threads");
+      (async () => {
+        const { SqliteIssueOrchestrationStore } = await import(workerData.moduleUrl);
+        const store = new SqliteIssueOrchestrationStore(workerData.dbPath);
+        const view = new Int32Array(workerData.barrier);
+        Atomics.add(view, 0, 1);
+        parentPort.postMessage({ kind: "ready" });
+        while (Atomics.load(view, 1) === 0) Atomics.wait(view, 1, 0);
+        try {
+          const result = store.createOrGet(workerData.request, workerData.input);
+          parentPort.postMessage({ kind: "result", value: { created: result.created, issueId: result.snapshot.issueId, digest: result.snapshot.requestDigest } });
+        } catch (error) {
+          parentPort.postMessage({ kind: "result", value: { error: error instanceof Error ? error.message : String(error) } });
+        } finally { store.close(); }
+      })().catch((error) => parentPort.postMessage({ kind: "result", value: { error: String(error) } }));
+    `;
+    const spawn = (issueId: string) => {
+      let readyResolve!: () => void;
+      let resultResolve!: (value: { created: boolean; issueId: string; digest: string; error?: string }) => void;
+      const ready = new Promise<void>((resolve) => { readyResolve = resolve; });
+      const result = new Promise<{ created: boolean; issueId: string; digest: string; error?: string }>((resolve) => { resultResolve = resolve; });
+      const worker = new Worker(workerSource, {
+        eval: true,
+        workerData: { moduleUrl, dbPath, barrier, request: request("request-create-race"), input: { issueId, requestDigest: "same-digest", now: "2026-08-01T00:00:00Z" } },
+      });
+      worker.on("message", (message: { kind: string; value?: { created: boolean; issueId: string; digest: string; error?: string } }) => {
+        if (message.kind === "ready") readyResolve();
+        if (message.kind === "result") resultResolve(message.value!);
+      });
+      worker.once("error", (error) => resultResolve({ created: false, issueId: "", digest: "", error: error.message }));
+      return { ready, result };
+    };
+    const first = spawn("issue-thread-1");
+    const second = spawn("issue-thread-2");
+    await Promise.all([first.ready, second.ready]);
+    Atomics.store(new Int32Array(barrier), 1, 1);
+    Atomics.notify(new Int32Array(barrier), 1, 2);
+    const results = await Promise.all([first.result, second.result]);
+    expect(results.every((result) => !result.error)).toBe(true);
+    expect(results.map((result) => result.created).sort()).toEqual([false, true]);
+    expect(new Set(results.map((result) => result.issueId)).size).toBe(1);
+    expect(results.every((result) => result.digest === "same-digest")).toBe(true);
   });
 
   it("expires execution claims atomically and fences stale owners from saving", () => {

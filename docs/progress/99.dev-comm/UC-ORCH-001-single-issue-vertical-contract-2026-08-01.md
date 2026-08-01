@@ -21,7 +21,8 @@ Every transition appends an event in the same SQLite transaction as the current 
 ## Identity and retry
 
 - `request_id` binds the exact request text, workspace, Naia/moderator bindings, and worker-profile map
-  digest. Reusing the id with any drift is rejected.
+  digest. SQLite establishes it with atomic create-or-get across processes; reusing the id with any
+  drift is rejected.
 - `issue_id` is stable for the accepted request.
 - facing, moderator, worker, verifier, and reporter each expose session and execution identities.
 - `dispatch_id` is the worker idempotency key and is stable across restart/retry.
@@ -71,7 +72,8 @@ hard gate.
   Missing, malformed, or internally inconsistent usage is marked unavailable and cannot become a
   measured zero-cost receipt or an apparently available zero-token count.
 - Deterministic coverage includes chat isolation, exact question binding, duplicate/reopen behavior,
-  concurrent cross-instance delivery, execution-claim expiry/fencing, stable dispatch assignment,
+  simultaneous cross-thread creation, concurrent cross-instance delivery, execution-claim
+  expiry/fencing, stable dispatch assignment,
   unreconciled restart, cancellation, transport loss, unavailable cost, strict actor schemas, layer
   boundaries, worktree composition, and the benchmark claim gate.
 - A paid actor result rejected after strict JSON/policy validation carries its already completed receipt
@@ -86,7 +88,7 @@ hard gate.
   labels this limitation explicitly instead of claiming a hard credit ceiling. Its observed-spend ledger
   is behaviorally tested and carries a completed receipt even when a per-call reservation is exceeded.
 - Full regression excluding two baseline environment-sensitive process tests: 130 files passed, 3
-  skipped; 1,469 tests passed, 9 skipped. The unchanged baseline failures are the management-doctor
+  skipped; 1,470 tests passed, 9 skipped. The unchanged baseline failures are the management-doctor
   status expectation and nested-ADK credential discovery in the Pi CLI process test. No credential
   value is retained in this document or benchmark artifact.
 - Repository gates: compile, logging, traceability, terminology, and new-file anchors pass. The global
