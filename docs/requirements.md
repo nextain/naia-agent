@@ -557,4 +557,8 @@ The Agent and Gateway preserve these codes end to end:
 - **NFR-ORCH-004**: The frozen benchmark compares the complete Luna-proxy composition with an all-Sol
   control on identical cases and forbids a savings claim when quality, receipt completeness, or any
   hard gate fails.
-- **Status**: Implemented; final exact-revision benchmark and two-Clean integration review pending.
+- **Scope note**: This slice is a library/composition and benchmark path. Production chat/CLI ingress
+  activation and naia-shell RPC/UI are later integration work; they are not claimed by REQ-021.
+  Codex CLI receipts prove the exact requested model/profile arguments, not provider-internal backend
+  routing, because its JSONL protocol does not expose an independently observed backend model id.
+- **Status**: Implemented behind ports; final exact-revision benchmark and two-Clean integration review pending.

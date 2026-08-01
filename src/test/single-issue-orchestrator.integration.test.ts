@@ -21,6 +21,7 @@ function receipt(role: ActorReceipt["role"], key: string, n: number, usd = 0.01)
     ...((role === "naia" || role === "reporter") ? { reasoningEffort: "low" }
       : role === "moderator" ? { reasoningEffort: "high" } : role === "worker" ? { reasoningEffort: "medium" } : {}),
     sessionId: `${role}-session-${n}`, executionId: `${role}-execution-${n}`, idempotencyKey: key,
+    tokenCountsAvailable: true,
     inputTokens: 10, cachedInputTokens: 2, outputTokens: 4, latencyMs: 5,
     cost: { state: "measured", usd, source: "fixture" },
   };

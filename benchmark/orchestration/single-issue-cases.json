@@ -31,7 +31,7 @@
     "obligations_preserved",
     "independent_actor_identities",
     "stable_dispatch_id",
-    "profile_binding_exact",
+    "profile_request_exact",
     "all_required_receipts_measured"
   ],
   "cases": [

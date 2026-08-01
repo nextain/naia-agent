@@ -13,6 +13,7 @@ export function identitiesIndependent(receipts: readonly ActorReceipt[]): boolea
 export function measuredRoles(receipts: readonly ActorReceipt[], requiredRoles: readonly string[]): boolean {
   return requiredRoles.every((role) => {
     const matches = receipts.filter((item) => item.role === role);
-    return matches.length > 0 && matches.every((item) => item.cost.state === "measured" && Number.isFinite(item.cost.usd));
+    return matches.length > 0 && matches.every((item) => item.tokenCountsAvailable
+      && item.cost.state === "measured" && Number.isFinite(item.cost.usd));
   });
 }

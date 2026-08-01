@@ -36,8 +36,9 @@ export type SubAgentEvent =
 
 export interface SubAgentModelEvidence {
   readonly provider: string;
-  /** Model reported by Pi's AssistantMessage. Pi 0.83 does not expose the HTTP response model separately. */
+  /** Selected model identifier. Consult modelEvidenceSource before treating it as provider-observed. */
   readonly selectedModel: string;
+  readonly modelEvidenceSource?: "provider_reported" | "adapter_requested";
   readonly reasoningEffort?: string;
   readonly inputTokens: number;
   readonly outputTokens: number;

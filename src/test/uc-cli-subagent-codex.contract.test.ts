@@ -203,7 +203,7 @@ describe("subagent-codex 어댑터 계약 (SPEC-010 확장, fake child)", () => 
       const session = port.spawn({ prompt: "p", workdir: "/tmp/w" });
       f.line(terminal);
       const [end] = await drain(session.events) as Extract<SubAgentEvent, { kind: "session_end" }>[];
-      expect(end.evidence).toMatchObject({ usageAvailable: false });
+      expect(end.evidence).toMatchObject({ usageAvailable: false, modelEvidenceSource: "adapter_requested" });
       expect(end.evidence?.measuredCostUsd).toBeUndefined();
     }
   });

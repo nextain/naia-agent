@@ -5,7 +5,7 @@ import { orderedObligationsEqual } from "../main/domain/orchestration-benchmark.
 
 interface RouteRun {
   readonly hardGates: Readonly<Record<string, boolean>>;
-  readonly receipts: readonly { readonly role: string; readonly cost: { readonly state: string; readonly usd?: number } }[];
+  readonly receipts: readonly { readonly role: string; tokenCountsAvailable: boolean; readonly cost: { readonly state: string; readonly usd?: number } }[];
 }
 
 const corpusPath = fileURLToPath(new URL("../../benchmark/orchestration/single-issue-cases.json", import.meta.url));
@@ -23,7 +23,8 @@ function evaluateClaim(candidate: RouteRun, control: RouteRun, requiredRoles: re
   const routePasses = (run: RouteRun) => hardGates.every((gate) => run.hardGates[gate] === true);
   const complete = (run: RouteRun) => requiredRoles.every((role) => {
     const receipts = run.receipts.filter((receipt) => receipt.role === role);
-    return receipts.length > 0 && receipts.every((receipt) => receipt.cost.state === "measured" && Number.isFinite(receipt.cost.usd));
+    return receipts.length > 0 && receipts.every((receipt) => receipt.tokenCountsAvailable
+      && receipt.cost.state === "measured" && Number.isFinite(receipt.cost.usd));
   });
   if (!routePasses(candidate) || !routePasses(control) || !complete(candidate) || !complete(control)) {
     return { claimAllowed: false, savingsUsd: null };
@@ -35,7 +36,7 @@ function evaluateClaim(candidate: RouteRun, control: RouteRun, requiredRoles: re
 function passingRun(costPerRole: number): RouteRun {
   return {
     hardGates: Object.fromEntries(corpus.hardGates.map((gate) => [gate, true])),
-    receipts: corpus.requiredReceiptRoles.map((role) => ({ role, cost: { state: "measured", usd: costPerRole } })),
+    receipts: corpus.requiredReceiptRoles.map((role) => ({ role, tokenCountsAvailable: true, cost: { state: "measured", usd: costPerRole } })),
   };
 }
 
@@ -48,7 +49,7 @@ describe("UC-ORCH-001 frozen composition benchmark", () => {
     expect(new Set(corpus.cases.map((item) => item.id)).size).toBe(corpus.cases.length);
     expect(corpus.cases.filter((item) => item.kind === "live-paired")).toHaveLength(1);
     expect(corpus.requiredReceiptRoles).toEqual(["naia", "moderator", "worker", "verifier", "reporter"]);
-    expect(corpus.hardGates).toContain("profile_binding_exact");
+    expect(corpus.hardGates).toContain("profile_request_exact");
   });
 
   it("allows a numeric comparison only after both routes pass every hard gate with measured receipts", () => {
@@ -66,6 +67,10 @@ describe("UC-ORCH-001 frozen composition benchmark", () => {
     (worker.cost as { state: string; usd?: number }).state = "unavailable";
     delete (worker.cost as { state: string; usd?: number }).usd;
     expect(evaluateClaim(missingCost, passingRun(0.02), corpus.requiredReceiptRoles, corpus.hardGates)).toEqual({ claimAllowed: false, savingsUsd: null });
+
+    const missingTokens = passingRun(0.01);
+    missingTokens.receipts.find((receipt) => receipt.role === "worker")!.tokenCountsAvailable = false;
+    expect(evaluateClaim(missingTokens, passingRun(0.02), corpus.requiredReceiptRoles, corpus.hardGates)).toEqual({ claimAllowed: false, savingsUsd: null });
   });
 
   it("uses the runner's exact ordered obligation predicate and rejects contradictory substrings", () => {

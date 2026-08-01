@@ -61,9 +61,11 @@ hard gate.
   request text is redacted before SQLite persistence and actor relay.
 - Codex `turn.completed` evidence now survives the shared subprocess terminal path, including thread,
   execution, cached-input, output, and priced-usage fields. Requested model and role bindings fail
-  closed on provider/model/reasoning mismatch; reasoning effort is pinned separately from model id.
+  closed on adapter request drift; reasoning effort is pinned separately from model id. The receipt
+  labels this as adapter-request evidence because Codex JSONL does not independently report its backend
+  model routing. The benchmark therefore gates `profile_request_exact`, not provider-observed identity.
   Missing, malformed, or internally inconsistent usage is marked unavailable and cannot become a
-  measured zero-cost receipt.
+  measured zero-cost receipt or an apparently available zero-token count.
 - Deterministic coverage includes chat isolation, exact question binding, duplicate/reopen behavior,
   unreconciled restart, cancellation, transport loss, unavailable cost, strict actor schemas, layer
   boundaries, worktree composition, and the benchmark claim gate.
@@ -78,3 +80,6 @@ hard gate.
   value is retained in this document or benchmark artifact.
 - Repository gates: compile, logging, traceability, terminology, and new-file anchors pass. The global
   file-anchor command still reports the same 29 pre-existing drift entries recorded in process-status.
+- Production chat/CLI ingress activation is deliberately not claimed in this slice. The new path is
+  exercised as a provider-neutral composition/library and through the opt-in paired runner; host ingress
+  and naia-shell wiring remain later integration work.

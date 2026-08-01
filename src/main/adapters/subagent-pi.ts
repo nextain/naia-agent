@@ -150,6 +150,8 @@ export function piLineToEvents(
         const evidence = {
           provider: m.provider,
           selectedModel: m.model,
+          modelEvidenceSource: "provider_reported" as const,
+          usageAvailable: true,
           inputTokens: Number(m.usage.input ?? 0),
           outputTokens: Number(m.usage.output ?? 0),
           totalTokens: Number(m.usage.totalTokens ?? 0),

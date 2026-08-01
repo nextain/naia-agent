@@ -116,10 +116,11 @@ async function runRoute(routeId, route) {
       obligations_preserved: orderedObligationsEqual(issue.classification?.obligations, pairedCase.obligations),
       independent_actor_identities: identitiesIndependent(issue.receipts),
       stable_dispatch_id: Boolean(issue.dispatchId) && eventTypes.filter((type) => type === "worker_dispatched").length === 1,
-      profile_binding_exact: issue.plan?.workerProfile === route.workerProfile
+      profile_request_exact: issue.plan?.workerProfile === route.workerProfile
         && issue.worker?.receipt.provider === "openai-codex"
         && issue.worker.receipt.model === workerModel
-        && issue.worker.receipt.reasoningEffort === route.workerReasoning,
+        && issue.worker.receipt.reasoningEffort === route.workerReasoning
+        && issue.worker.receipt.modelEvidenceSource === "adapter_requested",
       all_required_receipts_measured: measuredRoles(issue.receipts, corpus.requiredReceiptRoles),
     };
     return { routeId, bindings: { naia: facingBinding, moderator: moderatorBinding, worker: { provider: "openai-codex", model: workerModel, reasoningEffort: route.workerReasoning, profile: route.workerProfile }, reporter: { provider: "openai-codex", model: route.reporter, reasoningEffort: route.reporterReasoning } }, report, hardGates, receipts: issue.receipts, eventTypes };

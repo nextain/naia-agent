@@ -35,10 +35,12 @@ export interface ActorReceipt {
   readonly sessionId: string;
   readonly executionId: string;
   readonly idempotencyKey: string;
+  readonly tokenCountsAvailable: boolean;
   readonly inputTokens: number;
   readonly cachedInputTokens: number;
   readonly outputTokens: number;
   readonly latencyMs: number;
+  readonly modelEvidenceSource?: "provider_reported" | "adapter_requested";
   readonly cost: CostEvidence;
 }
 
