@@ -518,3 +518,43 @@ The Agent and Gateway preserve these codes end to end:
 - **NFR-SUPERVISOR-1**: Closing the initiating caller does not cancel an accepted run. Restarting the Agent reconciles persisted outbox state before dispatch, without requiring Shell UI availability.
 - **Scope**: This requirement is the Agent-side P0 vertical slice. Production host activation/accepted-run ingress, Shell RPC/UI, real worker adapter, and full ADK stage receipt evaluation are follow-up integration work; caller-disconnect survival is not yet a product acceptance claim.
 - **Status**: In progress.
+
+## REQ-021 — Single-issue moderated coding vertical
+
+- **FR-ORCH-001**: The Naia-facing actor classifies `chat` versus `work`; chat invokes neither
+  moderator nor worker, while work persists the original request and ordered obligations before
+  another actor is called.
+- **FR-ORCH-002**: Work uses a separate development-moderator session and execution. Its persisted
+  plan contains a bounded worker task, role-profile id, acceptance checks, and zero or more blocking
+  questions. The facing, moderator, and worker identities must not be equal.
+- **FR-ORCH-003**: Each accepted request has stable request, issue, dispatch, actor-session, and
+  execution ids. Reusing a request id with different content fails closed; retrying identical input
+  returns the same issue and does not repeat an acknowledged worker effect.
+- **FR-ORCH-004**: A blocking moderator question is stored and returned byte-for-byte. Only an answer
+  bound to the same issue and question id resumes planning; unrelated answers are rejected.
+- **FR-ORCH-005**: The worker port receives one pinned role profile, managed-worktree path, exact task,
+  acceptance checks, and stable dispatch idempotency key. The first real adapter is Codex; OpenCode
+  and naia-agent worker adapters are not dependencies of this slice.
+- **FR-ORCH-006**: Verification is a separate persisted stage after worker completion. Completion
+  requires worker success and every declared verification check passing.
+- **FR-ORCH-007**: Naia's final report is derived only from persisted issue events and receipts. It
+  preserves `failed`, `cancelled`, `awaiting_user`, and `outcome_unknown` without rewriting them as
+  success.
+- **FR-ORCH-008**: Restart resumes the last incomplete stage. Replayed actor calls reuse their stable
+  idempotency keys; a worker transport loss after dispatch becomes `outcome_unknown` unless the
+  adapter can reconcile the exact dispatch.
+- **FR-ORCH-009**: Every actor call persists provider, model, role, session id, execution id, token
+  counts, latency, and cost state. Total issue accounting includes Naia, moderator, worker,
+  verification, retries, and reporting; unavailable cost remains unavailable.
+- **FR-ORCH-010**: Cancellation before dispatch is idempotent and prevents worker execution. A
+  terminal issue cannot be overwritten by a later actor response.
+- **NFR-ORCH-001**: SQLite state and append-only events are owner-local, transactionally updated, and
+  contain no provider credential or raw secret.
+- **NFR-ORCH-002**: Actor ports are model/provider neutral. GPT-5.6 Luna is only the first weak-local
+  proxy and must be explicitly enabled; the default worker profile remains independently selected.
+- **NFR-ORCH-003**: Deterministic tests inject clock, ids, actor results, restart, duplicate delivery,
+  and transport loss without paid model calls.
+- **NFR-ORCH-004**: The frozen benchmark compares the complete Luna-proxy composition with an all-Sol
+  control on identical cases and forbids a savings claim when quality, receipt completeness, or any
+  hard gate fails.
+- **Status**: Implemented; final exact-revision benchmark and two-Clean integration review pending.

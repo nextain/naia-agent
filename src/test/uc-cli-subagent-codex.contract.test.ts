@@ -48,7 +48,7 @@ describe("subagent-codex 어댑터 계약 (SPEC-010 확장, fake child)", () => 
     f.line('{"type":"turn.started"}');                                              // 무시
     f.line('{"type":"item.completed","item":{"id":"i0","type":"agent_message","text":"시작"}}');
     f.line('{"type":"item.completed","item":{"id":"i1","type":"command_execution","command":["ls"]}}');
-    f.line('{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}'); // 무시(terminal=close)
+    f.line('{"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":4,"output_tokens":2}}');
     f.close(0);
     const events = await drain(session.events);
 
@@ -57,6 +57,10 @@ describe("subagent-codex 어댑터 계약 (SPEC-010 확장, fake child)", () => 
     expect((events[2] as Extract<SubAgentEvent, { kind: "tool_use_end" }>).tool).toBe("command_execution");
     expect((events[2] as Extract<SubAgentEvent, { kind: "tool_use_end" }>).ok).toBe(true);
     expect((events[3] as Extract<SubAgentEvent, { kind: "session_end" }>).ok).toBe(true);
+    expect((events[3] as Extract<SubAgentEvent, { kind: "session_end" }>).evidence).toMatchObject({
+      provider: "openai-codex", selectedModel: "codex-default", sessionId: "th_1",
+      inputTokens: 10, cachedInputTokens: 4, outputTokens: 2,
+    });
   });
 
   it("args 정합: 전역 config를 무시하고 workspace-write/never/ephemeral 경계를 강제한다", () => {
@@ -76,6 +80,13 @@ describe("subagent-codex 어댑터 계약 (SPEC-010 확장, fake child)", () => 
       "hi",
     ]);
     expect(f.spawnArgs.cwd).toBe("/tmp/w");
+  });
+
+  it("pins role-profile reasoning effort independently from the model id", () => {
+    const f = fakeNdjson();
+    const port = makeCodexSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn, model: "gpt-5.6-luna", reasoningEffort: "low" });
+    port.spawn({ prompt: "hi", workdir: "/tmp/w" });
+    expect(f.spawnArgs.args).toContain("model_reasoning_effort=\"low\"");
   });
 
   it("uses the provider-neutral read-only capability when Naia requests a proposal worker", () => {
@@ -166,11 +177,15 @@ describe("subagent-codex 어댑터 계약 (SPEC-010 확장, fake child)", () => 
     const port = makeCodexSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn, hardKillDeadlineMs: 15 });
     const session = port.spawn({ prompt: "proposal", workdir: "/tmp/course", filesystemAccess: "read_only" });
     f.line('{"type":"item.completed","item":{"type":"agent_message","text":"proposal"}}');
-    f.line('{"type":"turn.completed","usage":{}}');
+    f.line('{"type":"thread.started","thread_id":"thread-priced"}');
+    f.line('{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":10}}');
     const events = await drain(session.events);
     await new Promise((resolve) => setTimeout(resolve, 30));
-    expect(events.map((event) => event.kind)).toEqual(["text_delta", "session_end"]);
+    expect(events.map((event) => event.kind)).toEqual(["text_delta", "planning", "session_end"]);
     expect((events.at(-1) as Extract<SubAgentEvent, { kind: "session_end" }>).ok).toBe(true);
+    expect((events.at(-1) as Extract<SubAgentEvent, { kind: "session_end" }>).evidence).toMatchObject({
+      sessionId: "thread-priced", inputTokens: 100, cachedInputTokens: 40, outputTokens: 10,
+    });
     expect(f.killSignals).toEqual(["SIGTERM", "SIGKILL"]);
   });
 

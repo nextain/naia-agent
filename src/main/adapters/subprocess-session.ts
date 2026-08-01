@@ -9,7 +9,7 @@
 import { spawn, execSync, type ChildProcess } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, isAbsolute } from "node:path";
-import type { SubAgentEvent } from "../domain/orchestration.js";
+import type { SubAgentEvent, SubAgentModelEvidence } from "../domain/orchestration.js";
 import type { SubAgentSession } from "../ports/orchestration.js";
 
 export const DEFAULT_HARD_KILL_DEADLINE_MS = 500; // 구 contract C12 — SIGTERM 후 이 유예 내 미종료 시 SIGKILL.
@@ -275,7 +275,7 @@ class SubprocessSession implements SubAgentSession {
     const events = parsed === null ? [] : Array.isArray(parsed) ? parsed : [parsed as SubAgentEvent];
     for (const e of events) {
       if (e.kind === "session_end") {
-        this.#emitEnd(e.ok, e.reason);
+        this.#emitEnd(e.ok, e.reason, e.evidence);
         if (this.#terminateOnProtocolEnd) this.#terminateProtocolCompletedChild();
         break;
       }
@@ -284,9 +284,14 @@ class SubprocessSession implements SubAgentSession {
   }
 
   /** session_end 정확히 1회 — 이후 emit/late stdout 무시(드롭/중복 0). waiter drain + cancel 대기자 해제. */
-  #emitEnd(ok: boolean, reason?: string): void {
+  #emitEnd(ok: boolean, reason?: string, evidence?: SubAgentModelEvidence): void {
     if (this.#ended) return;
-    this.#emit(reason !== undefined ? { kind: "session_end", ok, reason } : { kind: "session_end", ok });
+    this.#emit({
+      kind: "session_end",
+      ok,
+      ...(reason !== undefined ? { reason } : {}),
+      ...(evidence !== undefined ? { evidence } : {}),
+    });
     this.#ended = true;
     this.#drainWaiters();
     for (const cb of this.#closeListeners.splice(0)) cb();

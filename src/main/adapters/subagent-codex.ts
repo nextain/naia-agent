@@ -16,6 +16,7 @@
 // RT-verified(2026-06-29): thread.started/turn.started/item.completed(agent_message/command_execution)/
 // turn.completed 이벤트 shape + `exec --json -a never` 거부(`-a` 미지원) 실측.
 import { execSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { isAbsolute } from "node:path";
 import type { TaskSpec, SubAgentEvent } from "../domain/orchestration.js";
 import type { SubAgentPort, SubAgentSession } from "../ports/orchestration.js";
@@ -29,11 +30,18 @@ export type { SpawnFn, ResolvedBin };
 export interface SubAgentCodexOptions {
   /** -m/--model 로 전달(옵셔널). TaskSpec.model 보다 우선. */
   readonly model?: string;
+  /** Codex CLI model_reasoning_effort. Kept separate from the model id so role profiles remain explicit. */
+  readonly reasoningEffort?: "low" | "medium" | "high" | "xhigh";
   /** --skip-git-repo-check(기본 true — sub-agent 가 비-git workdir 도 동작하도록). */
   readonly skipGitRepoCheck?: boolean;
   readonly hardKillDeadlineMs?: number;
   readonly resolveBin?: () => ResolvedBin;
   readonly spawnFn?: SpawnFn;
+  readonly priceUsdPerMillion?: {
+    readonly uncachedInput: number;
+    readonly cachedInput: number;
+    readonly output: number;
+  };
 }
 
 /**
@@ -91,7 +99,15 @@ export function resolveCodexBin(): ResolvedBin {
 //   그 외(reasoning/item.created 등)            → 무시
 
 interface RawCodexItem { type?: string; text?: string; [k: string]: unknown }
-interface RawCodexEvent { type?: string; item?: RawCodexItem; error?: unknown; message?: unknown; [k: string]: unknown }
+interface RawCodexEvent {
+  type?: string;
+  item?: RawCodexItem;
+  error?: unknown;
+  message?: unknown;
+  thread_id?: unknown;
+  usage?: { input_tokens?: unknown; cached_input_tokens?: unknown; output_tokens?: unknown };
+  [k: string]: unknown;
+}
 
 function codexFailureClass(raw: RawCodexEvent): string {
   const text = JSON.stringify(raw.error ?? raw.message ?? "").toLowerCase();
@@ -161,6 +177,33 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
         return endedSession(`codex unavailable: ${(e as Error).message}`);
       }
       const model = opts.model ?? task.model;
+      const executionId = randomUUID();
+      let threadId: string | undefined;
+      const lineToEvent = (line: string): SubAgentEvent | null => {
+        let raw: RawCodexEvent | undefined;
+        try { raw = JSON.parse(line) as RawCodexEvent; } catch { /* base parser handles malformed input */ }
+        if (raw?.type === "thread.started" && typeof raw.thread_id === "string") threadId = raw.thread_id;
+        if (raw?.type === "turn.completed") {
+          const inputTokens = nonnegative(raw.usage?.input_tokens);
+          const cachedInputTokens = nonnegative(raw.usage?.cached_input_tokens);
+          const outputTokens = nonnegative(raw.usage?.output_tokens);
+          const measuredCostUsd = opts.priceUsdPerMillion
+            ? ((Math.max(0, inputTokens - cachedInputTokens) * opts.priceUsdPerMillion.uncachedInput)
+              + (cachedInputTokens * opts.priceUsdPerMillion.cachedInput)
+              + (outputTokens * opts.priceUsdPerMillion.output)) / 1_000_000
+            : undefined;
+          return {
+            kind: "session_end", ok: true, reason: "codex turn.completed",
+            evidence: {
+              provider: "openai-codex", selectedModel: model ?? "codex-default",
+              inputTokens, cachedInputTokens, outputTokens, totalTokens: inputTokens + outputTokens,
+              sessionId: threadId ?? executionId, executionId,
+              ...(measuredCostUsd !== undefined ? { measuredCostUsd } : {}),
+            },
+          };
+        }
+        return codexLineToEvent(line);
+      };
       const sandbox = task.filesystemAccess === "read_only" ? "read-only" : "workspace-write";
       // exec --json --ignore-user-config --sandbox <semantic task boundary> <prompt>
       //   -c approval_policy="never" --ephemeral [--skip-git-repo-check] [--model X]
@@ -174,6 +217,7 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
       ];
       if (skipGit) args.push("--skip-git-repo-check");
       if (model) args.push("--model", model);
+      if (opts.reasoningEffort) args.push("--config", `model_reasoning_effort=${JSON.stringify(opts.reasoningEffort)}`);
       // `cwd` governs the child process, but Codex has its own workspace-root
       // resolver. Pass the documented flag as well so a hosted/parent process
       // cannot silently select its own repository as the edit root.
@@ -183,9 +227,14 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
       // placing a multi-word task first can be interpreted as a command.
       args.push(task.prompt);
       return spawnSubprocessSession({
-        spawnFn, bin, args, cwd: task.workdir, env: codexWorkerEnv(), hardKillMs, lineToEvent: codexLineToEvent, label: "codex", diagnostics: true,
+        spawnFn, bin, args, cwd: task.workdir, env: codexWorkerEnv(), hardKillMs, lineToEvent, label: "codex", diagnostics: true,
         terminateOnProtocolEnd: true,
       });
     },
   };
+}
+
+function nonnegative(value: unknown): number {
+  const number = Number(value ?? 0);
+  return Number.isFinite(number) && number >= 0 ? number : 0;
 }

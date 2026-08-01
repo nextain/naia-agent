@@ -32,7 +32,7 @@ export type SubAgentEvent =
   | { readonly kind: "text_delta"; readonly text: string }
   | { readonly kind: "model_evidence"; readonly evidence: SubAgentModelEvidence }
   /** terminal — 세션당 정확히 1회. ok=false = 실패/취소/비정상종료. reason = 사람이 읽는 사유(opaque). */
-  | { readonly kind: "session_end"; readonly ok: boolean; readonly reason?: string };
+  | { readonly kind: "session_end"; readonly ok: boolean; readonly reason?: string; readonly evidence?: SubAgentModelEvidence };
 
 export interface SubAgentModelEvidence {
   readonly provider: string;
@@ -41,7 +41,11 @@ export interface SubAgentModelEvidence {
   readonly inputTokens: number;
   readonly outputTokens: number;
   readonly totalTokens: number;
+  readonly cachedInputTokens?: number;
   readonly piEstimatedCost?: number;
+  readonly sessionId?: string;
+  readonly executionId?: string;
+  readonly measuredCostUsd?: number;
 }
 
 /** 워크스페이스 변경 요약(semantic) — 구 WorkspaceChange 스트림의 *집계 스냅샷*. 어떤 파일이

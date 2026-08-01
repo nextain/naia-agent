@@ -792,6 +792,42 @@
       "contract": "docs/progress/99.dev-comm/UC-CONTINUE-SPEAKING-contract-2026-07-16.md",
       "note": "KnowledgeBackend를 전시 profile의 source 필수 read-only 포트로 제한."
     },
+    "src/main/domain/issue-orchestration.ts": {
+      "layer": "domain",
+      "uc": ["UC-ORCH-001"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-001-single-issue-vertical-contract-2026-08-01.md",
+      "note": "Single-issue state, actor receipts, stable identity, cost accounting, and evidence-grounded report types."
+    },
+    "src/main/ports/issue-orchestration.ts": {
+      "layer": "ports",
+      "uc": ["UC-ORCH-001"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-001-single-issue-vertical-contract-2026-08-01.md",
+      "note": "Provider-neutral facing, moderator, worker, verifier, reporter, and durable issue-store boundaries."
+    },
+    "src/main/app/single-issue-orchestrator.ts": {
+      "layer": "app",
+      "uc": ["UC-ORCH-001"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-001-single-issue-vertical-contract-2026-08-01.md",
+      "note": "Restart-safe Luna-proxy to moderator to one worker to verification to grounded-report stage machine."
+    },
+    "src/main/adapters/sqlite-issue-orchestration-store.ts": {
+      "layer": "adapters",
+      "uc": ["UC-ORCH-001"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-001-single-issue-vertical-contract-2026-08-01.md",
+      "note": "Owner-local SQLite snapshot plus append-only event store with optimistic version and request-id conflict protection."
+    },
+    "src/main/composition/supervised-issue-worker.ts": {
+      "layer": "composition",
+      "uc": ["UC-ORCH-001"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-001-single-issue-vertical-contract-2026-08-01.md",
+      "note": "Managed worktree composition that wires the existing Supervisor, Codex SubAgentPort, workspace observer, and verifier behind IssueWorkerPort."
+    },
+    "src/main/adapters/subagent-issue-actors.ts": {
+      "layer": "adapters",
+      "uc": ["UC-ORCH-001"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-001-single-issue-vertical-contract-2026-08-01.md",
+      "note": "Strict JSON adapters for separate Naia-facing, development-moderator, and grounded-reporter SubAgentPort sessions with usage receipts."
+    },
     "src/main/adapters/radio-dj-runtime.ts": {
       "layer": "adapters",
       "uc": ["UC-015"],

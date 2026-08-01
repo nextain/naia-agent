@@ -701,3 +701,35 @@ The Agent-side runtime persists the run, events, worker attempt lease, and trans
 | stale heartbeat/completion are rejected and timeout observes retry backoff | `durable-supervisor.integration.test.ts` |
 | every missed ten-minute report boundary survives SQLite reopen | `durable-supervisor.integration.test.ts` |
 | production composition performs startup recovery and owns a cancellable periodic pump | `durable-supervisor.integration.test.ts` |
+
+## UC-ORCH-001 — Naia delegates one coding issue through a moderator
+
+A user can keep chatting with Naia and assign a bounded coding task without treating the
+Naia-facing model as the coding expert. Naia classifies chat versus work and preserves every
+explicit obligation. For work, a separate Sol-class development moderator produces the worker
+task, profile, acceptance checks, and any blocking question. One isolated issue owns stable issue,
+dispatch, actor-session, and execution identities. A Codex worker edits only its managed worktree,
+verification runs after the worker stops, and Naia reports only persisted events and receipts.
+
+If the Agent restarts, the same request and dispatch identifiers resume from the last persisted
+stage. A repeated request never creates a second issue or worker effect. A lost worker response is
+reported as `outcome_unknown`, not upgraded to failure or success. A user can cancel before
+dispatch, and a moderator question is preserved byte-for-byte until the matching answer arrives.
+Chat-only input creates no coding dispatch and invokes neither the moderator nor worker; the durable
+routing record exists only to make the facing-model call idempotent and auditable.
+
+The first product slice uses GPT-5.6 Luna as a proxy for a weaker 24GB local Naia model, GPT-5.6
+Sol as development moderator, and one Codex worker selected by a pinned role profile. OpenCode and
+naia-agent-as-worker are outside this slice and are not runtime dependencies.
+
+### Test Coverage Map
+
+| Scenario | Contract/integration test |
+|---|---|
+| chat stays conversational and invokes no moderator or worker | `single-issue-orchestrator.integration.test.ts` |
+| work obligations, actor identities, profile, verification, and grounded report survive end to end | `single-issue-orchestrator.integration.test.ts` |
+| moderator question and exact answer resume the same issue | `single-issue-orchestrator.integration.test.ts` |
+| duplicate request and restart replay use the same issue/dispatch and worker effect once | `single-issue-orchestrator.integration.test.ts` |
+| cancellation and lost worker response remain honest terminal states | `single-issue-orchestrator.integration.test.ts` |
+| managed worktree, real Codex protocol receipt, and verifier compose behind the worker port | `supervised-issue-worker.integration.test.ts` |
+| Luna-proxy and all-Sol runs use the same frozen cases and account for every actor receipt | `single-issue-benchmark.contract.test.ts` |
