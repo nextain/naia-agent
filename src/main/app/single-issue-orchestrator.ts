@@ -360,16 +360,21 @@ export class SingleIssueOrchestrator {
     const controller = new AbortController();
     const executionSignal = AbortSignal.any([signal, controller.signal]);
     let claimLost = false;
+    const abandonClaim = () => {
+      claimLost = true;
+      if (this.#executionOwners.get(issueId) === ownerId) this.#executionOwners.delete(issueId);
+      controller.abort(new Error("issue execution claim lost"));
+    };
     const heartbeat = setInterval(() => {
       try {
         if (!this.d.store.renewExecution(issueId, ownerId, this.#clockMs() + this.#executionLeaseMs)) {
-          claimLost = true;
-          controller.abort(new Error("issue execution claim lost"));
+          abandonClaim();
           return;
         }
         if (this.d.store.get(issueId)?.cancellationRequestedAt) controller.abort(new Error("issue cancellation requested"));
       } catch (error) {
         this.debug("execution-lease-renewal-failed", { issueId, category: errorName(error) });
+        abandonClaim();
       }
     }, Math.max(25, Math.min(500, Math.floor(this.#executionLeaseMs / 3))));
     heartbeat.unref?.();

@@ -286,6 +286,35 @@ describe("UC-ORCH-001 single issue", () => {
     h.store.close();
   });
 
+  it("treats a renewal exception as claim loss and suppresses every later local save", async () => {
+    const h = harness();
+    let releaseFacing!: () => void;
+    let enteredResolve!: () => void;
+    const entered = new Promise<void>((resolve) => { enteredResolve = resolve; });
+    const gate = new Promise<void>((resolve) => { releaseFacing = resolve; });
+    const classify = h.deps.facing.classify.bind(h.deps.facing);
+    const store = new Proxy(h.store, {
+      get(target, property) {
+        if (property === "renewExecution") return () => { throw new Error("sqlite busy during renewal"); };
+        const value = Reflect.get(target, property, target) as unknown;
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }) as SingleIssueOrchestratorDeps["store"];
+    const orchestrator = new SingleIssueOrchestrator({
+      ...h.deps,
+      store,
+      executionLeaseMs: 10,
+      facing: { async classify(input) { enteredResolve(); await gate; return classify(input); } },
+    });
+    const running = orchestrator.start(request("request-renewal-error"));
+    await entered;
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    releaseFacing();
+    await expect(running).resolves.toMatchObject({ state: "outcome_unknown", totalCost: { state: "unavailable" } });
+    expect(h.calls.worker).toBe(0);
+    h.store.close();
+  });
+
   it("atomically establishes one issue when two worker threads race request creation", async () => {
     const root = mkdtempSync(join(tmpdir(), "single-issue-create-race-")); roots.push(root);
     const dbPath = join(root, "issues.db");
