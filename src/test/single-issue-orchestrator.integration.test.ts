@@ -11,8 +11,13 @@ const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 function receipt(role: ActorReceipt["role"], key: string, n: number, usd = 0.01): ActorReceipt {
+  const binding = role === "moderator"
+    ? { provider: "openai-codex", model: "gpt-5.6-sol" }
+    : role === "naia" || role === "reporter"
+      ? { provider: "openai-codex", model: "gpt-5.6-luna" }
+      : { provider: "fixture", model: "fixture-model" };
   return {
-    role, provider: role === "moderator" ? "openai-codex" : "fixture", model: role === "moderator" ? "gpt-5.6-sol" : "fixture-model",
+    role, ...binding,
     sessionId: `${role}-session-${n}`, executionId: `${role}-execution-${n}`, idempotencyKey: key,
     inputTokens: 10, cachedInputTokens: 2, outputTokens: 4, latencyMs: 5,
     cost: { state: "measured", usd, source: "fixture" },
@@ -27,7 +32,7 @@ function request(requestId = "request-1", text = "Fix the parser and run its tes
   };
 }
 
-function harness(options: { chat?: boolean; question?: boolean; workerThrows?: boolean; unavailableCost?: boolean } = {}) {
+function harness(options: { chat?: boolean; question?: boolean; workerThrows?: boolean; unavailableCost?: boolean; badFacingBinding?: boolean } = {}) {
   const root = mkdtempSync(join(tmpdir(), "single-issue-")); roots.push(root);
   const store = new SqliteIssueOrchestrationStore(join(root, "issues.db"));
   const calls = { facing: 0, moderator: 0, worker: 0, verifier: 0, reporter: 0 };
@@ -42,7 +47,9 @@ function harness(options: { chat?: boolean; question?: boolean; workerThrows?: b
         classification: options.chat
           ? { kind: "chat", obligations: [], chatReply: "hello" }
           : { kind: "work", obligations: ["fix parser", "run tests"] },
-        receipt: receipt("naia", input.idempotencyKey, actor),
+        receipt: options.badFacingBinding
+          ? { ...receipt("naia", input.idempotencyKey, actor), model: "gpt-5.6-sol" }
+          : receipt("naia", input.idempotencyKey, actor),
       };
     } },
     moderator: { async plan(input) {
@@ -86,6 +93,13 @@ describe("UC-ORCH-001 single issue", () => {
     const report = await h.orchestrator.start(request("chat-1", "오늘 어때?"));
     expect(report).toMatchObject({ state: "chat", summary: "hello", changedFiles: [] });
     expect(h.calls).toEqual({ facing: 1, moderator: 0, worker: 0, verifier: 0, reporter: 0 });
+    h.store.close();
+  });
+
+  it("fails closed when an actor receipt does not match its persisted binding", async () => {
+    const h = harness({ badFacingBinding: true });
+    await expect(h.orchestrator.start(request("bad-binding"))).rejects.toThrow("invalid naia binding receipt");
+    expect(h.calls.moderator).toBe(0);
     h.store.close();
   });
 

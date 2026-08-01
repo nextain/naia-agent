@@ -84,4 +84,10 @@ describe("UC-ORCH-001 sub-agent issue actors", () => {
     const verified = await verifier.verify({ issueId: "i", idempotencyKey: "i:verify", worktreePath: "/managed/i", acceptanceChecks: ["test"] });
     expect(verified).toMatchObject({ ok: false, receipt: { role: "verifier", provider: "deterministic", latencyMs: 5, cost: { state: "measured", usd: 0 } } });
   });
+
+  it("fails verification when a declared acceptance check was not executed", async () => {
+    const verifier = makeIssueVerifierAdapter({ async verify() { return { ok: true, checks: [{ name: "different check", pass: true }] }; } });
+    const result = await verifier.verify({ issueId: "i", idempotencyKey: "i:verify", worktreePath: "/managed/i", acceptanceChecks: ["required check"] });
+    expect(result).toMatchObject({ ok: false, checks: [{ name: "required check", pass: false, details: "declared acceptance check was not executed" }] });
+  });
 });

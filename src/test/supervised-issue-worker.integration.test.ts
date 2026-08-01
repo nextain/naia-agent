@@ -36,4 +36,16 @@ describe("UC-ORCH-001 supervised worker adapter", () => {
     } });
     expect(await worker.reconcile?.(input.dispatchId)).toEqual(first);
   });
+
+  it("never fabricates worker identity when the provider omits model evidence", async () => {
+    const worker = makeSupervisedIssueWorker({
+      worktrees: { allocate() { return { workspacePath: "/repo", worktreePath: "/managed/issue", branch: "naia/issue", leaseId: "lease", release() {} }; } },
+      subAgent: { spawn() { return { events: (async function* () { yield { kind: "session_end", ok: true } as const; })(), async cancel() {} }; } },
+      diag: { log() {}, debug() {} }, resolveModel: () => "gpt-5.6-terra", changedFiles: () => [],
+    });
+    await expect(worker.execute({
+      issueId: "issue-0002", dispatchId: "issue-0002:dispatch:1", workspacePath: "/repo",
+      task: "fix", profileId: "balanced", acceptanceChecks: ["test"], signal: new AbortController().signal,
+    })).rejects.toThrow("worker receipt evidence unavailable");
+  });
 });

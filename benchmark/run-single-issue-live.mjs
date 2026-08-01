@@ -64,16 +64,20 @@ async function runRoute(routeId, route) {
     { name: "only math.mjs changed", command: "sh", args: ["-c", "test \"$(git status --porcelain | cut -c4-)\" = math.mjs"] },
   ] });
   const workerModel = routeId === "allSol" ? "gpt-5.6-sol" : (process.env.NAIA_ORCH_WORKER_MODEL ?? "gpt-5.6-terra");
+  const resolveWorkerModel = (profileId) => {
+    if (profileId !== route.workerProfile) throw new Error(`benchmark worker profile mismatch: expected ${route.workerProfile}, got ${profileId}`);
+    return workerModel;
+  };
   const facingBinding = { provider: "openai-codex", model: route.naia, reasoningEffort: route.naiaReasoning };
   const moderatorBinding = { provider: "openai-codex", model: route.moderator, reasoningEffort: route.moderatorReasoning };
   const orchestrator = new SingleIssueOrchestrator({
     store,
     facing: makeSubAgentNaiaFacing({ subAgent: priced(route.naia, route.naiaReasoning), binding: facingBinding, workdir: repo, diag }),
-    moderator: makeSubAgentDevelopmentModerator({ subAgent: priced(route.moderator, route.moderatorReasoning), binding: moderatorBinding, workdir: repo, diag }),
+    moderator: makeSubAgentDevelopmentModerator({ subAgent: priced(route.moderator, route.moderatorReasoning), binding: moderatorBinding, allowedWorkerProfiles: [route.workerProfile], workdir: repo, diag }),
     worker: makeSupervisedIssueWorker({
       worktrees: makeGitCodingJobWorktrees({ allowedWorkspaceRoot: tempRoot, worktreeRoot }),
       subAgent: priced(workerModel, route.workerReasoning), diag,
-      resolveModel: () => workerModel,
+      resolveModel: resolveWorkerModel,
     }),
     verifier: makeIssueVerifierAdapter(verifier),
     reporter: makeSubAgentNaiaReporter({ subAgent: priced(route.reporter, route.reporterReasoning), binding: { provider: "openai-codex", model: route.reporter, reasoningEffort: route.reporterReasoning }, workdir: repo, diag }),
@@ -94,6 +98,7 @@ async function runRoute(routeId, route) {
       obligations_preserved: pairedCase.obligations.every((needle) => issue.classification?.obligations.some((item) => item.toLowerCase().includes(needle.toLowerCase()))),
       independent_actor_identities: identitiesIndependent(issue.receipts),
       stable_dispatch_id: Boolean(issue.dispatchId) && eventTypes.filter((type) => type === "worker_dispatched").length === 1,
+      profile_binding_exact: issue.plan?.workerProfile === route.workerProfile && issue.worker?.receipt.model === workerModel,
       all_required_receipts_measured: measuredRoles(issue.receipts),
     };
     return { routeId, bindings: { naia: facingBinding, moderator: moderatorBinding, worker: { provider: "openai-codex", model: workerModel, reasoningEffort: route.workerReasoning, profile: route.workerProfile }, reporter: { provider: "openai-codex", model: route.reporter, reasoningEffort: route.reporterReasoning } }, report, hardGates, receipts: issue.receipts, eventTypes };

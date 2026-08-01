@@ -86,7 +86,7 @@ export class SingleIssueOrchestrator {
           idempotencyKey: `${issue.issueId}:facing:classify`,
           text: issue.originalText,
         });
-        assertReceipt(result.receipt, "naia");
+        assertReceipt(result.receipt, "naia", `${issue.issueId}:facing:classify`, issue.naiaBinding);
         issue = this.save(issue, {
           ...issue,
           state: result.classification.kind === "chat" ? "reporting" : "classified",
@@ -118,8 +118,9 @@ export class SingleIssueOrchestrator {
           obligations: issue.classification?.obligations ?? [],
           answers: issue.answers,
         });
-        assertReceipt(result.receipt, "moderator");
+        assertReceipt(result.receipt, "moderator", `${issue.issueId}:moderator:${issue.answers.length}`, issue.moderatorBinding);
         assertIndependent(issue.receipts, result.receipt);
+        assertPlan(result.plan);
         const unanswered = result.plan.questions.filter((question) => !issue.answers.some((answer) => answer.questionId === question.questionId));
         const nextState = unanswered.length > 0 ? "awaiting_user" : "dispatch_ready";
         issue = this.save(issue, {
@@ -159,7 +160,7 @@ export class SingleIssueOrchestrator {
             issue = this.save(issue, { ...issue, state: "outcome_unknown", updatedAt: this.#now() }, "worker_outcome_unknown", { category: "unreconciled_restart" });
             return this.grounded(issue);
           }
-          assertReceipt(worker.receipt, "worker");
+          assertReceipt(worker.receipt, "worker", issue.dispatchId!);
           assertIndependent(issue.receipts, worker.receipt);
           issue = this.save(issue, {
             ...issue,
@@ -182,7 +183,7 @@ export class SingleIssueOrchestrator {
           worktreePath: issue.worker!.worktreePath,
           acceptanceChecks: issue.plan!.acceptanceChecks,
         });
-        assertReceipt(verification.receipt, "verifier");
+        assertReceipt(verification.receipt, "verifier", `${issue.issueId}:verify:1`);
         assertIndependent(issue.receipts, verification.receipt);
         issue = this.save(issue, {
           ...issue,
@@ -201,7 +202,7 @@ export class SingleIssueOrchestrator {
           issue: { ...issue, state: terminal }, events: this.d.store.events(issueId),
           idempotencyKey: `${issue.issueId}:report:1`,
         });
-        assertReceipt(result.receipt, "reporter");
+        assertReceipt(result.receipt, "reporter", `${issue.issueId}:report:1`, issue.naiaBinding);
         assertIndependent(issue.receipts, result.receipt);
         const receipts = appendReceipt(issue.receipts, result.receipt);
         const report: IssueReport = { ...result.report, issueId, state: terminal, totalCost: totalIssueCost(receipts) };
@@ -255,10 +256,20 @@ function validateStart(request: IssueStartRequest): void {
 function digest(value: string): string { return createHash("sha256").update(value, "utf8").digest("hex"); }
 function errorName(error: unknown): string { return error instanceof Error ? error.name : "unknown"; }
 
-function assertReceipt(receipt: ActorReceipt, role: ActorReceipt["role"]): void {
-  if (receipt.role !== role || !receipt.sessionId || !receipt.executionId || !receipt.idempotencyKey) throw new Error(`invalid ${role} receipt`);
+function assertReceipt(receipt: ActorReceipt, role: ActorReceipt["role"], expectedKey: string, binding?: { provider: string; model: string }): void {
+  if (receipt.role !== role || !receipt.sessionId || !receipt.executionId || receipt.idempotencyKey !== expectedKey) throw new Error(`invalid ${role} receipt`);
+  if (binding && (receipt.provider !== binding.provider || receipt.model !== binding.model)) throw new Error(`invalid ${role} binding receipt`);
   for (const value of [receipt.inputTokens, receipt.cachedInputTokens, receipt.outputTokens, receipt.latencyMs]) {
     if (!Number.isFinite(value) || value < 0) throw new Error(`invalid ${role} receipt accounting`);
+  }
+}
+
+function assertPlan(plan: import("../domain/issue-orchestration.js").ModeratorPlan): void {
+  if (!plan.workerTask.trim() || !plan.workerProfile.trim() || plan.acceptanceChecks.length === 0
+    || plan.acceptanceChecks.some((check) => !check.trim())) throw new Error("invalid moderator plan");
+  const questionIds = plan.questions.map((question) => question.questionId);
+  if (plan.questions.some((question) => !question.questionId.trim() || !question.text.trim()) || new Set(questionIds).size !== questionIds.length) {
+    throw new Error("invalid moderator questions");
   }
 }
 

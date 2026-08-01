@@ -47,6 +47,7 @@ describe("UC-ORCH-001 frozen composition benchmark", () => {
     expect(new Set(corpus.cases.map((item) => item.id)).size).toBe(corpus.cases.length);
     expect(corpus.cases.filter((item) => item.kind === "live-paired")).toHaveLength(1);
     expect(corpus.requiredReceiptRoles).toEqual(["naia", "moderator", "worker", "verifier", "reporter"]);
+    expect(corpus.hardGates).toContain("profile_binding_exact");
   });
 
   it("allows a numeric comparison only after both routes pass every hard gate with measured receipts", () => {

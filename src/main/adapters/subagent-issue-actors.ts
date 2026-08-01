@@ -21,6 +21,7 @@ interface JsonActorOptions {
   readonly workdir: string;
   readonly diag: DiagnosticLog;
   readonly nowMs?: () => number;
+  readonly allowedWorkerProfiles?: readonly string[];
 }
 
 export function makeSubAgentNaiaFacing(options: JsonActorOptions): NaiaFacingPort {
@@ -47,18 +48,22 @@ export function makeSubAgentNaiaFacing(options: JsonActorOptions): NaiaFacingPor
 export function makeSubAgentDevelopmentModerator(options: JsonActorOptions): DevelopmentModeratorPort {
   return {
     async plan(input) {
+      const allowedProfiles = options.allowedWorkerProfiles ?? ["control", "balanced", "economy"];
+      if (allowedProfiles.length === 0 || allowedProfiles.some((profile) => !profile.trim())) throw new Error("moderator worker profile policy missing");
       const prompt = [
         "You are the separate senior development moderator. Do not implement.",
         "Produce one bounded worker task, a stable role profile, exact acceptance checks, and only truly blocking questions.",
-        "Return JSON only: {\"workerTask\":\"...\",\"workerProfile\":\"control|balanced|economy\",\"acceptanceChecks\":[\"...\"],\"questions\":[{\"questionId\":\"q-...\",\"text\":\"...\"}]}.",
+        `Allowed worker profiles (choose exactly one): ${JSON.stringify(allowedProfiles)}.`,
+        "Return JSON only: {\"workerTask\":\"...\",\"workerProfile\":\"...\",\"acceptanceChecks\":[\"...\"],\"questions\":[{\"questionId\":\"q-...\",\"text\":\"...\"}]}.",
         `Original request: ${JSON.stringify(input.originalText)}`,
         `Obligations: ${JSON.stringify(input.obligations)}`,
         `Bound answers: ${JSON.stringify(input.answers)}`,
       ].join("\n");
       const result = await runJson(options, "moderator", input.idempotencyKey, prompt);
       const value = result.value;
-      if (typeof value.workerTask !== "string" || !["control", "balanced", "economy"].includes(String(value.workerProfile))
-        || !Array.isArray(value.acceptanceChecks) || value.acceptanceChecks.some((item) => typeof item !== "string")
+      if (typeof value.workerTask !== "string" || !allowedProfiles.includes(String(value.workerProfile))
+        || !Array.isArray(value.acceptanceChecks) || value.acceptanceChecks.length === 0
+        || value.acceptanceChecks.some((item) => typeof item !== "string" || !item.trim())
         || !Array.isArray(value.questions)) throw new Error("moderator plan schema mismatch");
       const questions = value.questions.map((question) => {
         if (!question || typeof question !== "object") throw new Error("moderator question schema mismatch");
@@ -111,8 +116,14 @@ export function makeIssueVerifierAdapter(verifier: VerifierPort, nowMs: () => nu
     async verify(input) {
       const startedAt = nowMs();
       const verification = await verifier.verify(input.worktreePath);
+      const checks = input.acceptanceChecks.map((name) => {
+        const actual = verification.checks.find((check) => check.name === name);
+        return actual ?? { name, pass: false, details: "declared acceptance check was not executed" };
+      });
+      const ok = input.acceptanceChecks.length > 0 && verification.ok && checks.every((check) => check.pass);
       return {
-        ...verification,
+        ok,
+        checks,
         receipt: {
           role: "verifier", provider: "deterministic", model: "command-verifier",
           sessionId: randomUUID(), executionId: randomUUID(), idempotencyKey: input.idempotencyKey,

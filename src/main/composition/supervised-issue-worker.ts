@@ -47,13 +47,14 @@ export function makeSupervisedIssueWorker(options: SupervisedIssueWorkerOptions)
       const finishedAt = (options.nowMs ?? Date.now)();
       const evidence = report?.modelEvidence;
       const expectedModel = options.resolveModel(input.profileId);
-      if (evidence && evidence.selectedModel !== expectedModel) throw new Error("worker model binding mismatch");
+      if (!evidence?.sessionId || !evidence.executionId || !evidence.provider || !evidence.selectedModel) throw new Error("worker receipt evidence unavailable");
+      if (evidence.selectedModel !== expectedModel) throw new Error("worker model binding mismatch");
       const receipt: ActorReceipt = {
         role: "worker",
-        provider: evidence?.provider ?? "unknown",
-        model: evidence?.selectedModel ?? expectedModel,
-        sessionId: evidence?.sessionId ?? `${input.dispatchId}:session-unavailable`,
-        executionId: evidence?.executionId ?? `${input.dispatchId}:execution-unavailable`,
+        provider: evidence.provider,
+        model: evidence.selectedModel,
+        sessionId: evidence.sessionId,
+        executionId: evidence.executionId,
         idempotencyKey: input.dispatchId,
         inputTokens: evidence?.inputTokens ?? 0,
         cachedInputTokens: evidence?.cachedInputTokens ?? 0,
