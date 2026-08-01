@@ -256,6 +256,7 @@ export class SingleIssueOrchestrator {
               dispatchId: issue.dispatchId!,
               workspacePath: issue.workspacePath,
               task: issue.plan!.workerTask,
+              obligations: issue.requiredObligations,
               profileId: issue.plan!.workerProfile,
               binding: issue.workerBinding!,
               acceptanceChecks: issue.plan!.acceptanceChecks,

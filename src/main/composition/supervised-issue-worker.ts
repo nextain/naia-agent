@@ -35,7 +35,7 @@ export function makeSupervisedIssueWorker(options: SupervisedIssueWorkerOptions)
       });
       try {
         await supervisor.run({
-          prompt: workerPrompt(input.task, input.acceptanceChecks),
+          prompt: workerPrompt(input.task, input.obligations, input.acceptanceChecks),
           workdir: allocation.worktreePath,
           model: input.binding.model,
           filesystemAccess: "workspace_write",
@@ -84,8 +84,9 @@ export function makeSupervisedIssueWorker(options: SupervisedIssueWorkerOptions)
   };
 }
 
-function workerPrompt(task: string, checks: readonly string[]): string {
-  return `${task}\n\nAcceptance checks (all required):\n${checks.map((check) => `- ${check}`).join("\n")}`;
+function workerPrompt(task: string, obligations: readonly string[], checks: readonly string[]): string {
+  return `${task}\n\nOriginal obligations (all required, preserve in order):\n${obligations.map((item) => `- ${item}`).join("\n")}`
+    + `\n\nAcceptance checks (all required):\n${checks.map((check) => `- ${check}`).join("\n")}`;
 }
 
 function safeJobId(issueId: string): string {

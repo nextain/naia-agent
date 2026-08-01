@@ -45,6 +45,7 @@ export interface IssueWorkerPort {
     readonly dispatchId: string;
     readonly workspacePath: string;
     readonly task: string;
+    readonly obligations: readonly string[];
     readonly profileId: string;
     readonly binding: ActorBinding;
     readonly acceptanceChecks: readonly string[];

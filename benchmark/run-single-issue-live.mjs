@@ -90,14 +90,20 @@ async function runRoute(routeId, route) {
   if (!prices[workerModel]) throw new Error(`frozen worker model has no pinned price: ${workerModel}`);
   const facingBinding = { provider: "openai-codex", model: route.naia, reasoningEffort: route.naiaReasoning };
   const moderatorBinding = { provider: "openai-codex", model: route.moderator, reasoningEffort: route.moderatorReasoning };
+  let dispatchedObligations;
+  const supervisedWorker = makeSupervisedIssueWorker({
+    worktrees: makeGitCodingJobWorktrees({ allowedWorkspaceRoot: tempRoot, worktreeRoot }),
+    subAgent: priced(workerModel, route.workerReasoning), diag,
+  });
+  const observedWorker = {
+    async execute(input) { dispatchedObligations = [...input.obligations]; return supervisedWorker.execute(input); },
+    async reconcile(dispatchId) { return supervisedWorker.reconcile?.(dispatchId); },
+  };
   const orchestrator = new SingleIssueOrchestrator({
     store,
     facing: budgeted(makeSubAgentNaiaFacing({ subAgent: priced(route.naia, route.naiaReasoning), binding: facingBinding, timeoutMs: actorTimeoutMs, workdir: repo, diag }), "classify"),
     moderator: budgeted(makeSubAgentDevelopmentModerator({ subAgent: priced(route.moderator, route.moderatorReasoning), binding: moderatorBinding, allowedWorkerProfiles: [route.workerProfile], allowedAcceptanceChecks: pairedCase.acceptanceChecks, timeoutMs: actorTimeoutMs, workdir: repo, diag }), "plan"),
-    worker: budgeted(makeSupervisedIssueWorker({
-      worktrees: makeGitCodingJobWorktrees({ allowedWorkspaceRoot: tempRoot, worktreeRoot }),
-      subAgent: priced(workerModel, route.workerReasoning), diag,
-    }), "execute"),
+    worker: budgeted(observedWorker, "execute"),
     verifier: budgeted(makeIssueVerifierAdapter(verifier), "verify", false),
     reporter: budgeted(makeSubAgentNaiaReporter({ subAgent: priced(route.reporter, route.reporterReasoning), binding: { provider: "openai-codex", model: route.reporter, reasoningEffort: route.reporterReasoning }, timeoutMs: actorTimeoutMs, workdir: repo, diag }), "report"),
   });
@@ -116,7 +122,8 @@ async function runRoute(routeId, route) {
     const hardGates = {
       terminal_completed: report.state === "completed",
       all_acceptance_checks_pass: report.verificationPassed === true && issue.verification?.checks.every((check) => check.pass) === true,
-      obligations_preserved: orderedObligationsEqual(issue.classification?.obligations, pairedCase.obligations),
+      obligations_preserved: orderedObligationsEqual(issue.classification?.obligations, pairedCase.obligations)
+        && orderedObligationsEqual(dispatchedObligations, pairedCase.obligations),
       independent_actor_identities: identitiesIndependent(issue.receipts),
       stable_dispatch_id: Boolean(issue.dispatchId) && eventTypes.filter((type) => type === "worker_dispatched").length === 1,
       profile_request_exact: issue.plan?.workerProfile === route.workerProfile
@@ -126,7 +133,7 @@ async function runRoute(routeId, route) {
         && issue.worker.receipt.modelEvidenceSource === "adapter_requested",
       all_required_receipts_measured: measuredRoles(issue.receipts, corpus.requiredReceiptRoles),
     };
-    return { routeId, bindings: { naia: facingBinding, moderator: moderatorBinding, worker: { provider: "openai-codex", model: workerModel, reasoningEffort: route.workerReasoning, profile: route.workerProfile }, reporter: { provider: "openai-codex", model: route.reporter, reasoningEffort: route.reporterReasoning } }, report, hardGates, receipts: issue.receipts, eventTypes };
+    return { routeId, bindings: { naia: facingBinding, moderator: moderatorBinding, worker: { provider: "openai-codex", model: workerModel, reasoningEffort: route.workerReasoning, profile: route.workerProfile }, reporter: { provider: "openai-codex", model: route.reporter, reasoningEffort: route.reporterReasoning } }, report, hardGates, receipts: issue.receipts, eventTypes, dispatchedObligations };
   } finally { store.close(); }
 }
 

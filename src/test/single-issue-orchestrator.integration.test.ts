@@ -49,6 +49,7 @@ function harness(options: { chat?: boolean; droppedObligation?: boolean; questio
   const store = new SqliteIssueOrchestrationStore(join(root, "issues.db"));
   const calls = { facing: 0, moderator: 0, worker: 0, verifier: 0, reporter: 0 };
   let seenFacingText = "";
+  let seenWorkerObligations: readonly string[] = [];
   let actor = 0;
   const deps: SingleIssueOrchestratorDeps = {
     store,
@@ -86,6 +87,7 @@ function harness(options: { chat?: boolean; droppedObligation?: boolean; questio
     } },
     worker: { async execute(input) {
       calls.worker += 1; actor += 1;
+      seenWorkerObligations = input.obligations;
       if (options.workerThrows) throw new Error("transport disappeared after dispatch");
       if (options.rejectedWorkerResult) throw new IssueActorResultError("worker policy rejected", receipt("worker", input.dispatchId, actor));
       return {
@@ -118,7 +120,7 @@ function harness(options: { chat?: boolean; droppedObligation?: boolean; questio
       };
     } },
   };
-  return { root, store, calls, get seenFacingText() { return seenFacingText; }, orchestrator: new SingleIssueOrchestrator(deps), deps };
+  return { root, store, calls, get seenFacingText() { return seenFacingText; }, get seenWorkerObligations() { return seenWorkerObligations; }, orchestrator: new SingleIssueOrchestrator(deps), deps };
 }
 
 describe("UC-ORCH-001 single issue", () => {
@@ -155,6 +157,7 @@ describe("UC-ORCH-001 single issue", () => {
     expect(report.totalCost).toMatchObject({ state: "measured", usd: 0.05 });
     const snapshot = h.orchestrator.snapshot("issue-0001");
     expect(snapshot.classification?.obligations).toEqual(["fix parser", "run tests"]);
+    expect(h.seenWorkerObligations).toEqual(["fix parser", "run tests"]);
     expect(new Set(snapshot.receipts.map((item) => item.sessionId)).size).toBe(5);
     expect(h.store.events(snapshot.issueId).map((event) => event.type)).toEqual([
       "issue_accepted", "facing_dispatched", "request_classified", "moderator_requested", "moderator_dispatched",

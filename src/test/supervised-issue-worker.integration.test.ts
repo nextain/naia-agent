@@ -17,22 +17,24 @@ async function* events(): AsyncIterable<SubAgentEvent> {
 describe("UC-ORCH-001 supervised worker adapter", () => {
   it("composes managed worktree, supervisor, receipt, and dispatch dedupe before issue verification", async () => {
     let allocations = 0;
+    let spawnedPrompt = "";
     const worker = makeSupervisedIssueWorker({
       worktrees: { allocate() { allocations += 1; return { workspacePath: "/repo", worktreePath: "/managed/issue", branch: "naia/issue", leaseId: "lease", release() {} }; } },
-      subAgent: { spawn() { return { events: events(), async cancel() {} }; } },
+      subAgent: { spawn(task) { spawnedPrompt = task.prompt; return { events: events(), async cancel() {} }; } },
       diag: { log() {}, debug() {} },
       changedFiles: () => ["src/parser.ts"],
       nowMs: (() => { let now = 100; return () => now += 10; })(),
     });
     const input = {
       issueId: "issue-0001", dispatchId: "issue-0001:dispatch:1", workspacePath: "/repo",
-      task: "fix parser", profileId: "balanced", acceptanceChecks: ["test"], signal: new AbortController().signal,
+      task: "fix parser", obligations: ["fix parser", "run tests"], profileId: "balanced", acceptanceChecks: ["test"], signal: new AbortController().signal,
       binding: { provider: "openai-codex", model: "gpt-5.6-terra", reasoningEffort: "medium" },
     };
     const first = await worker.execute(input);
     const duplicate = await worker.execute(input);
     expect(duplicate).toEqual(first);
     expect(allocations).toBe(1);
+    expect(spawnedPrompt).toContain("Original obligations (all required, preserve in order):\n- fix parser\n- run tests");
     expect(first).toMatchObject({ ok: true, summary: "session=true; issue verification pending", changedFiles: ["src/parser.ts"], receipt: {
       provider: "openai-codex", model: "gpt-5.6-terra", sessionId: "codex-thread-1",
       executionId: "codex-execution-1", cost: { state: "measured", usd: 0.0004 },
@@ -48,7 +50,7 @@ describe("UC-ORCH-001 supervised worker adapter", () => {
     });
     await expect(worker.execute({
       issueId: "issue-0002", dispatchId: "issue-0002:dispatch:1", workspacePath: "/repo",
-      task: "fix", profileId: "balanced", acceptanceChecks: ["test"], signal: new AbortController().signal,
+      task: "fix", obligations: ["fix"], profileId: "balanced", acceptanceChecks: ["test"], signal: new AbortController().signal,
       binding: { provider: "openai-codex", model: "gpt-5.6-terra", reasoningEffort: "medium" },
     })).rejects.toThrow("worker receipt evidence unavailable");
   });
@@ -65,7 +67,7 @@ describe("UC-ORCH-001 supervised worker adapter", () => {
     });
     const result = await worker.execute({
       issueId: "issue-0004", dispatchId: "issue-0004:dispatch:1", workspacePath: "/repo",
-      task: "fix", profileId: "balanced", acceptanceChecks: ["test"], signal: new AbortController().signal,
+      task: "fix", obligations: ["fix"], profileId: "balanced", acceptanceChecks: ["test"], signal: new AbortController().signal,
       binding: { provider: "openai-codex", model: "gpt-5.6-terra", reasoningEffort: "medium" },
     });
     expect(result.receipt).toMatchObject({ tokenCountsAvailable: false, inputTokens: 0, outputTokens: 0, cost: { state: "unavailable" } });
@@ -79,7 +81,7 @@ describe("UC-ORCH-001 supervised worker adapter", () => {
     });
     const error = await worker.execute({
       issueId: "issue-0003", dispatchId: "issue-0003:dispatch:1", workspacePath: "/repo",
-      task: "fix", profileId: "balanced", acceptanceChecks: ["test"], signal: new AbortController().signal,
+      task: "fix", obligations: ["fix"], profileId: "balanced", acceptanceChecks: ["test"], signal: new AbortController().signal,
       binding: { provider: "openai-codex", model: "gpt-5.6-sol", reasoningEffort: "medium" },
     }).catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(IssueActorResultError);
