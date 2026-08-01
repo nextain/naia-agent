@@ -1,12 +1,14 @@
 import { chmodSync } from "node:fs";
 import Database from "better-sqlite3";
-import type { IssueEvent, IssueSnapshot, IssueStartRequest } from "../domain/issue-orchestration.js";
+import { isIssueTerminal, type IssueEvent, type IssueSnapshot, type IssueStartRequest } from "../domain/issue-orchestration.js";
 import type { IssueOrchestrationStore } from "../ports/issue-orchestration.js";
 import { redactSecrets } from "./redact.js";
 
 type Row = Record<string, unknown>;
 
 export class IssueStoreConcurrencyError extends Error {}
+export class IssueStoreImmutableFieldError extends Error {}
+export class IssueStoreTerminalMutationError extends Error {}
 
 export class SqliteIssueOrchestrationStore implements IssueOrchestrationStore {
   readonly #db: Database.Database;
@@ -86,8 +88,16 @@ export class SqliteIssueOrchestrationStore implements IssueOrchestrationStore {
     readonly payload?: Readonly<Record<string, unknown>>;
   }): IssueSnapshot {
     return this.transaction(() => {
+      const currentRow = this.#db.prepare("SELECT snapshot_json, version FROM issue_orchestration_snapshots WHERE issue_id=?")
+        .get(input.snapshot.issueId) as Row | undefined;
+      if (!currentRow || Number(currentRow.version) !== input.expectedVersion) {
+        throw new IssueStoreConcurrencyError("issue snapshot changed concurrently");
+      }
+      const current = JSON.parse(String(currentRow.snapshot_json)) as IssueSnapshot;
       const version = input.expectedVersion + 1;
       const snapshot = sanitizeForPersistence<IssueSnapshot>({ ...input.snapshot, version });
+      assertImmutableFields(current, snapshot);
+      if (isIssueTerminal(current.state)) throw new IssueStoreTerminalMutationError("terminal issue snapshots are immutable");
       const changed = this.#db.prepare(`UPDATE issue_orchestration_snapshots
         SET version=?, state=?, snapshot_json=?, updated_at=? WHERE issue_id=? AND version=?`).run(
         version, snapshot.state, JSON.stringify(snapshot), snapshot.updatedAt, snapshot.issueId, input.expectedVersion,
@@ -146,4 +156,30 @@ function sanitizeForPersistence<T>(value: T): T {
       .map(([key, item]) => [key, sanitizeForPersistence(item)])) as T;
   }
   return value;
+}
+
+function assertImmutableFields(current: IssueSnapshot, candidate: IssueSnapshot): void {
+  const immutable = (snapshot: IssueSnapshot) => ({
+    requestId: snapshot.requestId,
+    requestDigest: snapshot.requestDigest,
+    issueId: snapshot.issueId,
+    originalText: snapshot.originalText,
+    workspacePath: snapshot.workspacePath,
+    naiaBinding: snapshot.naiaBinding,
+    moderatorBinding: snapshot.moderatorBinding,
+    workerProfiles: snapshot.workerProfiles,
+    createdAt: snapshot.createdAt,
+  });
+  if (stableJson(immutable(current)) !== stableJson(immutable(candidate))) {
+    throw new IssueStoreImmutableFieldError("immutable issue identity or request fields changed");
+  }
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>).sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
 }

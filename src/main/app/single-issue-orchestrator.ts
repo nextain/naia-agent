@@ -36,6 +36,7 @@ export class IssueQuestionMismatchError extends Error {}
 export class SingleIssueOrchestrator {
   readonly #now: () => string;
   readonly #ids: () => string;
+  readonly #activeStarts = new Map<string, { readonly requestDigest: string; readonly run: Promise<IssueReport> }>();
 
   constructor(private readonly d: SingleIssueOrchestratorDeps) {
     this.#now = d.now ?? (() => new Date().toISOString());
@@ -45,6 +46,21 @@ export class SingleIssueOrchestrator {
   async start(request: IssueStartRequest, signal: AbortSignal = new AbortController().signal): Promise<IssueReport> {
     validateStart(request);
     const requestDigest = digest(requestFingerprint(request));
+    const active = this.#activeStarts.get(request.requestId);
+    if (active) {
+      if (active.requestDigest !== requestDigest) throw new IssueRequestConflictError("request id was reused with different content");
+      return active.run;
+    }
+    const run = this.startOnce(request, requestDigest, signal);
+    this.#activeStarts.set(request.requestId, { requestDigest, run });
+    try {
+      return await run;
+    } finally {
+      if (this.#activeStarts.get(request.requestId)?.run === run) this.#activeStarts.delete(request.requestId);
+    }
+  }
+
+  private async startOnce(request: IssueStartRequest, requestDigest: string, signal: AbortSignal): Promise<IssueReport> {
     const existing = this.d.store.getByRequestId(request.requestId);
     if (existing && existing.requestDigest !== requestDigest) throw new IssueRequestConflictError("request id was reused with different content");
     const issue = existing ?? this.d.store.create(request, { issueId: this.#ids(), requestDigest, now: this.#now() });

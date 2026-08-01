@@ -6,6 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SingleIssueOrchestrator } from "../dist/main/app/single-issue-orchestrator.js";
 import { SqliteIssueOrchestrationStore } from "../dist/main/adapters/sqlite-issue-orchestration-store.js";
+import { IssueActorResultError } from "../dist/main/ports/issue-orchestration.js";
 import { makeCodexSubAgent } from "../dist/main/adapters/subagent-codex.js";
 import { makeSubAgentDevelopmentModerator, makeSubAgentNaiaFacing, makeSubAgentNaiaReporter, makeIssueVerifierAdapter } from "../dist/main/adapters/subagent-issue-actors.js";
 import { makeSupervisedIssueWorker } from "../dist/main/composition/supervised-issue-worker.js";
@@ -55,6 +56,16 @@ function fixture(routeId) {
   return repo;
 }
 function priced(model, reasoningEffort) { return makeCodexSubAgent({ model, reasoningEffort, priceUsdPerMillion: prices[model] }); }
+function chargeMeasuredReceipt(receipt, method, paid) {
+  if (!receipt || receipt.cost.state !== "measured") throw new Error(`benchmark ${method} cost unavailable`);
+  const receiptKey = `${receipt.role}:${receipt.idempotencyKey}:${receipt.executionId}`;
+  if (!chargedReceipts.has(receiptKey)) {
+    chargedReceipts.add(receiptKey);
+    observedSpendUsd += receipt.cost.usd;
+  }
+  if (paid && receipt.cost.usd > reservedCallUsd) throw new Error(`benchmark ${method} exceeded its reserved call budget`);
+  if (observedSpendUsd > maxUsd) throw new Error(`benchmark observed-spend threshold exceeded after ${method}`);
+}
 function budgeted(port, method, paid = true) {
   return {
     ...port,
@@ -62,17 +73,14 @@ function budgeted(port, method, paid = true) {
       if (paid && paidCalls >= maxPaidCalls) throw new Error(`benchmark paid-call limit reached before ${method}`);
       if (paid && observedSpendUsd + reservedCallUsd > maxUsd) throw new Error(`benchmark reserved call budget unavailable before ${method}`);
       if (paid) paidCalls += 1;
-      const result = await port[method](input);
-      const receipt = result.receipt;
-      if (!receipt || receipt.cost.state !== "measured") throw new Error(`benchmark ${method} cost unavailable`);
-      const receiptKey = `${receipt.role}:${receipt.idempotencyKey}:${receipt.executionId}`;
-      if (!chargedReceipts.has(receiptKey)) {
-        chargedReceipts.add(receiptKey);
-        observedSpendUsd += receipt.cost.usd;
+      try {
+        const result = await port[method](input);
+        chargeMeasuredReceipt(result.receipt, method, paid);
+        return result;
+      } catch (error) {
+        if (paid && error instanceof IssueActorResultError) chargeMeasuredReceipt(error.receipt, method, paid);
+        throw error;
       }
-      if (paid && receipt.cost.usd > reservedCallUsd) throw new Error(`benchmark ${method} exceeded its reserved call budget`);
-      if (observedSpendUsd > maxUsd) throw new Error(`benchmark observed-spend threshold exceeded after ${method}`);
-      return result;
     },
   };
 }

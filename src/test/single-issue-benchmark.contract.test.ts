@@ -9,6 +9,7 @@ interface RouteRun {
 }
 
 const corpusPath = fileURLToPath(new URL("../../benchmark/orchestration/single-issue-cases.json", import.meta.url));
+const runnerPath = fileURLToPath(new URL("../../benchmark/run-single-issue-live.mjs", import.meta.url));
 const corpus = JSON.parse(readFileSync(corpusPath, "utf8")) as {
   schemaVersion: number;
   benchmarkId: string;
@@ -78,5 +79,11 @@ describe("UC-ORCH-001 frozen composition benchmark", () => {
     expect(orderedObligationsEqual([...expected], expected)).toBe(true);
     expect(orderedObligationsEqual(["fix add()", "pass the frozen Node test", "do not change only math.mjs"], expected)).toBe(false);
     expect(orderedObligationsEqual([...expected].reverse(), expected)).toBe(false);
+  });
+
+  it("charges a paid receipt even when strict actor-result validation rejects the payload", () => {
+    const runner = readFileSync(runnerPath, "utf8");
+    expect(runner).toContain("error instanceof IssueActorResultError");
+    expect(runner).toContain("chargeMeasuredReceipt(error.receipt, method, paid)");
   });
 });

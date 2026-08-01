@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { SingleIssueOrchestrator, IssueQuestionMismatchError, IssueRequestConflictError } from "../main/app/single-issue-orchestrator.js";
-import { SqliteIssueOrchestrationStore } from "../main/adapters/sqlite-issue-orchestration-store.js";
+import {
+  IssueStoreImmutableFieldError,
+  IssueStoreTerminalMutationError,
+  SqliteIssueOrchestrationStore,
+} from "../main/adapters/sqlite-issue-orchestration-store.js";
 import type { ActorReceipt, IssueStartRequest } from "../main/domain/issue-orchestration.js";
 import type { SingleIssueOrchestratorDeps } from "../main/app/single-issue-orchestrator.js";
 import { IssueActorResultError } from "../main/ports/issue-orchestration.js";
@@ -205,6 +209,44 @@ describe("UC-ORCH-001 single issue", () => {
     })).rejects.toBeInstanceOf(IssueRequestConflictError);
     await expect(resumed.start(request("request-1", "different task"))).rejects.toBeInstanceOf(IssueRequestConflictError);
     reopened.close();
+  });
+
+  it("coalesces concurrent starts for one request before persistence or actor dispatch", async () => {
+    const h = harness();
+    let releaseFacing!: () => void;
+    const gate = new Promise<void>((resolve) => { releaseFacing = resolve; });
+    const classify = h.deps.facing.classify.bind(h.deps.facing);
+    const orchestrator = new SingleIssueOrchestrator({
+      ...h.deps,
+      facing: { async classify(input) { await gate; return classify(input); } },
+    });
+    const first = orchestrator.start(request("request-concurrent"));
+    const second = orchestrator.start(request("request-concurrent"));
+    await expect(orchestrator.start(request("request-concurrent", "different task")))
+      .rejects.toBeInstanceOf(IssueRequestConflictError);
+    releaseFacing();
+    expect(await Promise.all([first, second])).toEqual([await first, await first]);
+    expect(h.calls).toEqual({ facing: 1, moderator: 1, worker: 1, verifier: 1, reporter: 1 });
+    h.store.close();
+  });
+
+  it("rejects immutable identity drift and every post-terminal snapshot mutation", async () => {
+    const h = harness({ question: true });
+    await h.orchestrator.start(request("request-immutable"));
+    const pending = h.orchestrator.snapshot("issue-0001");
+    expect(() => h.store.save({
+      expectedVersion: pending.version,
+      snapshot: { ...pending, requestDigest: "changed", updatedAt: "2026-08-01T00:02:00Z" },
+      eventType: "invalid_identity_change",
+    })).toThrow(IssueStoreImmutableFieldError);
+    const done = await h.orchestrator.answer("issue-0001", "q-1", "JSON parser");
+    const terminal = h.orchestrator.snapshot(done.issueId!);
+    expect(() => h.store.save({
+      expectedVersion: terminal.version,
+      snapshot: { ...terminal, updatedAt: "2026-08-01T00:03:00Z" },
+      eventType: "invalid_terminal_change",
+    })).toThrow(IssueStoreTerminalMutationError);
+    h.store.close();
   });
 
   it("treats worker-profile map key order as semantically identical", async () => {
