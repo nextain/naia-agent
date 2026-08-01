@@ -109,7 +109,7 @@ hard gate.
   declared cost scope into the result. Inputs above 272,000 tokens retain usage evidence but monetary
   cost becomes unavailable, which blocks a savings claim until a long-context rule is frozen.
 - Full regression excluding two baseline environment-sensitive process tests: 130 files passed, 3
-  skipped; 1,485 tests passed, 9 skipped. The unchanged baseline failures are the management-doctor
+  skipped; 1,489 tests passed, 9 skipped. The unchanged baseline failures are the management-doctor
   status expectation and nested-ADK credential discovery in the Pi CLI process test. No credential
   value is retained in this document or benchmark artifact.
 - Repository gates: compile, logging, traceability, terminology, and new-file anchors pass. The global
@@ -117,3 +117,29 @@ hard gate.
 - Production chat/CLI ingress activation is deliberately not claimed in this slice. The new path is
   exercised as a provider-neutral composition/library and through the opt-in paired runner; host ingress
   and naia-shell wiring remain later integration work.
+
+## Final benchmark and review evidence
+
+- The first live run (`single-issue-live-1785613592742.json`, SHA-256
+  `fb928fab061ed2f2161aff8234f111a289c7a3d5d3455e0ccfc43f5c7990d84e`) is retained as rejected
+  counterevidence: its structured fields passed the old gates while both model narratives incorrectly
+  said verification remained pending. It is not a cost-claim source.
+- A later exact-source run (`single-issue-live-1785618174141.json`, SHA-256
+  `09cd79c26a28af342b45fff661cdd419dc81cf58ddafacf120b29d32e3eb435d`) is retained as rejected
+  budget counterevidence. The all-Sol worker cost USD 0.208281 and exceeded the configured USD 0.20
+  per-call reservation. The run stopped after seven paid calls, prohibited the comparison claim, and
+  still persisted USD 0.352556 of observed spend. The reservation is a harness stop rule, not a
+  provider-side hard dollar ceiling.
+- The accepted exact-source run (`single-issue-live-1785618341008.json`, SHA-256
+  `31777f13074d7ff5410c4db6919ba709e381073bda03818cabc33b01f5e3056c`) binds to implementation
+  revision `ca6b6232ba1ce590581cc890aa949ac2b22d9cbd` and passed every hard gate. The per-call
+  reservation was raised to USD 0.30 while the USD 1.60 observed-spend threshold, eight-call limit,
+  corpus, prompts, models, and verification remained unchanged. Luna-proxy composition cost was
+  USD 0.100968 versus USD 0.327040 for all-Sol, a measured difference of USD 0.226072 for this one
+  frozen case. Both reports expose the same evidence-bound commentary:
+  `Completed. Changed files: math.mjs. Verification: passed.` This is one paired observation, not a
+  general model-quality or invoice claim.
+- Full regression excluding the two documented environment-sensitive baseline process tests passed:
+  130 files, 1,489 tests, 9 skipped. Build, logging, traceability, terminology, root structure, and
+  SDLC self-tests passed. The global file-anchor result remains the same 29 pre-existing entries.
+- The review ledger is `.agents/reviews/r-req-021-single-issue-vertical-2026-08-02.json`.

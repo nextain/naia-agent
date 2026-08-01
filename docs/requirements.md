@@ -561,4 +561,7 @@ The Agent and Gateway preserve these codes end to end:
   activation and naia-shell RPC/UI are later integration work; they are not claimed by REQ-021.
   Codex CLI receipts prove the exact requested model/profile arguments, not provider-internal backend
   routing, because its JSONL protocol does not expose an independently observed backend model id.
-- **Status**: Implemented behind ports; final exact-revision benchmark and two-Clean integration review pending.
+- **Status**: Done for the declared library/composition and paired-benchmark scope. Evidence:
+  `benchmark/results/single-issue-live-1785618341008.json` (source revision `ca6b623`) and
+  `.agents/reviews/r-req-021-single-issue-vertical-2026-08-02.json`. Production ingress and
+  naia-shell integration remain the explicitly deferred next phase.

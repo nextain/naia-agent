@@ -14,12 +14,13 @@
     "issue_doc": "docs/progress/99.dev-comm/UC-ORCH-001-single-issue-vertical-contract-2026-08-01.md",
     "github_issue": null,
     "started": "2026-08-01",
-    "last_updated": "2026-08-02T00:29:00+09:00",
-    "status": "in_progress",
+    "last_updated": "2026-08-02T06:16:49+09:00",
+    "status": "complete",
     "branch": "feat/naia-single-issue-vertical",
     "baseline": "c424be65d22891f0f158395428d915031cf8e412",
+    "implementation_revision": "ca6b6232ba1ce590581cc890aa949ac2b22d9cbd",
     "handoff_note": "Naia-facing Luna proxy -> Sol development moderator -> one isolated issue -> one Codex worker -> verification -> evidence-grounded Naia report.",
-    "baseline_verification": "build passed; feature-relevant tests 68/68 passed after review fixes; full regression excluding two known baseline process tests passed 1459 with 9 skipped; compile/logging/traceability/terminology pass; global file-anchor gate retains the same 29 pre-existing drift entries"
+    "baseline_verification": "build passed; full regression excluding two known baseline process tests passed 1489 with 9 skipped; compile/logging/traceability/terminology/root-structure/SDLC pass; accepted paired live benchmark passed every hard gate at source ca6b623; global file-anchor gate retains the same 29 pre-existing drift entries"
   },
 
   "sdlc_gates": {
@@ -27,7 +28,7 @@
     "P02": { "status": "done", "name": "test_scenarios", "deliverable": "seven deterministic, real-adapter, and benchmark scenarios", "ref": "docs/user-scenarios.md#test-coverage-map" },
     "P03": { "status": "done", "name": "requirements", "deliverable": "FR-ORCH-001~010 and NFR-ORCH-001~004", "ref": "docs/requirements.md#req-021--single-issue-moderated-coding-vertical" },
     "P04": { "status": "done", "name": "integration_test", "deliverable": "state-machine, restart, actor, worktree, receipt, layer, and benchmark claim-gate tests", "ref": "src/test/single-issue-*.test.ts" },
-    "P05": { "status": "pending", "name": "requirements_complete", "deliverable": "requirements status, independent reviews, reproducible receipts", "ref": "REQ-021" }
+    "P05": { "status": "done", "name": "requirements_complete", "deliverable": "Done status, review ledger, two rejected counterexamples, and accepted reproducible live receipts", "ref": ".agents/reviews/r-req-021-single-issue-vertical-2026-08-02.json" }
   },
 
   "known_drift": {
