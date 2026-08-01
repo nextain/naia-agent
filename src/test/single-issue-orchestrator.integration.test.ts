@@ -6,6 +6,7 @@ import { SingleIssueOrchestrator, IssueQuestionMismatchError, IssueRequestConfli
 import { SqliteIssueOrchestrationStore } from "../main/adapters/sqlite-issue-orchestration-store.js";
 import type { ActorReceipt, IssueStartRequest } from "../main/domain/issue-orchestration.js";
 import type { SingleIssueOrchestratorDeps } from "../main/app/single-issue-orchestrator.js";
+import { IssueActorResultError } from "../main/ports/issue-orchestration.js";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -36,7 +37,7 @@ function request(requestId = "request-1", text = "Fix the parser and run its tes
   };
 }
 
-function harness(options: { chat?: boolean; question?: boolean; multipleQuestions?: boolean; workerThrows?: boolean; unavailableCost?: boolean; badFacingBinding?: boolean; verificationFails?: boolean; workerProfile?: string; malformedReceipt?: "cached" | "cost" | "unavailable" } = {}) {
+function harness(options: { chat?: boolean; question?: boolean; multipleQuestions?: boolean; workerThrows?: boolean; unavailableCost?: boolean; badFacingBinding?: boolean; verificationFails?: boolean; workerProfile?: string; malformedReceipt?: "cached" | "cost" | "unavailable"; rejectedActorResult?: boolean } = {}) {
   const root = mkdtempSync(join(tmpdir(), "single-issue-")); roots.push(root);
   const store = new SqliteIssueOrchestrationStore(join(root, "issues.db"));
   const calls = { facing: 0, moderator: 0, worker: 0, verifier: 0, reporter: 0 };
@@ -64,6 +65,7 @@ function harness(options: { chat?: boolean; question?: boolean; multipleQuestion
         ? [{ questionId: "q-1", text: "Which parser?" }, ...(options.multipleQuestions ? [{ questionId: "q-2", text: "Which test?" }] : [])]
         : [];
       const moderatorReceipt = receipt("moderator", input.idempotencyKey, actor);
+      if (options.rejectedActorResult) throw new IssueActorResultError("moderator JSON rejected", moderatorReceipt);
       return {
         plan: { workerTask: "Fix src/parser.ts", workerProfile: options.workerProfile ?? "balanced", acceptanceChecks: ["parser tests pass"], questions },
         receipt: options.malformedReceipt === "cached"
@@ -123,7 +125,8 @@ describe("UC-ORCH-001 single issue", () => {
 
   it("fails closed when an actor receipt does not match its persisted binding", async () => {
     const h = harness({ badFacingBinding: true });
-    await expect(h.orchestrator.start(request("bad-binding"))).rejects.toThrow("invalid naia binding receipt");
+    const report = await h.orchestrator.start(request("bad-binding"));
+    expect(report).toMatchObject({ state: "outcome_unknown", totalCost: { state: "unavailable" } });
     expect(h.calls.moderator).toBe(0);
     h.store.close();
   });
@@ -172,7 +175,18 @@ describe("UC-ORCH-001 single issue", () => {
 
   it.each(["cached", "cost", "unavailable"] as const)("rejects internally inconsistent %s receipts", async (malformedReceipt) => {
     const h = harness({ malformedReceipt });
-    await expect(h.orchestrator.start(request(`request-bad-receipt-${malformedReceipt}`))).rejects.toThrow(/receipt/);
+    const report = await h.orchestrator.start(request(`request-bad-receipt-${malformedReceipt}`));
+    expect(report).toMatchObject({ state: "outcome_unknown", totalCost: { state: "unavailable" } });
+    expect(h.orchestrator.snapshot("issue-0001").receipts.map((item) => item.role)).toEqual(["naia"]);
+    h.store.close();
+  });
+
+  it("persists a completed paid receipt when strict actor-result validation rejects the payload", async () => {
+    const h = harness({ rejectedActorResult: true });
+    const report = await h.orchestrator.start(request("request-rejected-actor-result"));
+    expect(report).toMatchObject({ state: "failed", totalCost: { state: "measured", usd: 0.02 } });
+    expect(h.orchestrator.snapshot("issue-0001").receipts.map((item) => item.role)).toEqual(["naia", "moderator"]);
+    expect(h.store.events("issue-0001").at(-1)?.type).toBe("actor_result_rejected");
     h.store.close();
   });
 

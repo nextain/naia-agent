@@ -6,11 +6,12 @@ import type {
   IssueReport,
   ModeratorPlan,
 } from "../domain/issue-orchestration.js";
-import type {
-  DevelopmentModeratorPort,
-  IssueVerifierPort,
-  NaiaFacingPort,
-  NaiaIssueReporterPort,
+import {
+  IssueActorResultError,
+  type DevelopmentModeratorPort,
+  type IssueVerifierPort,
+  type NaiaFacingPort,
+  type NaiaIssueReporterPort,
 } from "../ports/issue-orchestration.js";
 import type { SubAgentPort, VerifierPort } from "../ports/orchestration.js";
 import type { DiagnosticLog } from "../ports/uc1.js";
@@ -38,19 +39,21 @@ export function makeSubAgentNaiaFacing(options: JsonActorOptions): NaiaFacingPor
         `Input: ${JSON.stringify(input.text)}`,
       ].join("\n");
       const result = await runJson(options, "naia", input.idempotencyKey, prompt);
-      const kind = result.value.kind === "chat" ? "chat" : result.value.kind === "work" ? "work" : undefined;
-      if (!kind || !Array.isArray(result.value.obligations) || result.value.obligations.some((item) => typeof item !== "string")) throw new Error("Naia classification schema mismatch");
-      const obligations = result.value.obligations as string[];
-      if (kind === "work" && options.requiredObligations
-        && (obligations.length !== options.requiredObligations.length
-          || options.requiredObligations.some((item, index) => obligations[index] !== item))) {
-        throw new Error("Naia obligation binding mismatch");
-      }
-      const classification: IssueClassification = {
-        kind, obligations,
-        ...(typeof result.value.chatReply === "string" ? { chatReply: result.value.chatReply } : {}),
-      };
-      return { classification, receipt: result.receipt };
+      return withReceipt(result.receipt, () => {
+        const kind = result.value.kind === "chat" ? "chat" : result.value.kind === "work" ? "work" : undefined;
+        if (!kind || !Array.isArray(result.value.obligations) || result.value.obligations.some((item) => typeof item !== "string")) throw new Error("Naia classification schema mismatch");
+        const obligations = result.value.obligations as string[];
+        if (kind === "work" && options.requiredObligations
+          && (obligations.length !== options.requiredObligations.length
+            || options.requiredObligations.some((item, index) => obligations[index] !== item))) {
+          throw new Error("Naia obligation binding mismatch");
+        }
+        const classification: IssueClassification = {
+          kind, obligations,
+          ...(typeof result.value.chatReply === "string" ? { chatReply: result.value.chatReply } : {}),
+        };
+        return { classification, receipt: result.receipt };
+      });
     },
   };
 }
@@ -74,28 +77,30 @@ export function makeSubAgentDevelopmentModerator(options: JsonActorOptions): Dev
         `Bound answers: ${JSON.stringify(input.answers)}`,
       ].join("\n");
       const result = await runJson(options, "moderator", input.idempotencyKey, prompt);
-      const value = result.value;
-      if (typeof value.workerTask !== "string" || !allowedProfiles.includes(String(value.workerProfile))
-        || !Array.isArray(value.acceptanceChecks) || value.acceptanceChecks.length === 0
-        || value.acceptanceChecks.some((item) => typeof item !== "string" || !item.trim())
-        || !Array.isArray(value.questions)) throw new Error("moderator plan schema mismatch");
-      if (new Set(value.acceptanceChecks as string[]).size !== allowedChecks.length
-        || allowedChecks.some((check) => !(value.acceptanceChecks as string[]).includes(check))) {
-        throw new Error("moderator acceptance check binding mismatch");
-      }
-      const questions = value.questions.map((question) => {
-        if (!question || typeof question !== "object") throw new Error("moderator question schema mismatch");
-        const candidate = question as Record<string, unknown>;
-        if (typeof candidate.questionId !== "string" || typeof candidate.text !== "string") throw new Error("moderator question schema mismatch");
-        return { questionId: candidate.questionId, text: candidate.text };
+      return withReceipt(result.receipt, () => {
+        const value = result.value;
+        if (typeof value.workerTask !== "string" || !allowedProfiles.includes(String(value.workerProfile))
+          || !Array.isArray(value.acceptanceChecks) || value.acceptanceChecks.length === 0
+          || value.acceptanceChecks.some((item) => typeof item !== "string" || !item.trim())
+          || !Array.isArray(value.questions)) throw new Error("moderator plan schema mismatch");
+        if (new Set(value.acceptanceChecks as string[]).size !== allowedChecks.length
+          || allowedChecks.some((check) => !(value.acceptanceChecks as string[]).includes(check))) {
+          throw new Error("moderator acceptance check binding mismatch");
+        }
+        const questions = value.questions.map((question) => {
+          if (!question || typeof question !== "object") throw new Error("moderator question schema mismatch");
+          const candidate = question as Record<string, unknown>;
+          if (typeof candidate.questionId !== "string" || typeof candidate.text !== "string") throw new Error("moderator question schema mismatch");
+          return { questionId: candidate.questionId, text: candidate.text };
+        });
+        const plan: ModeratorPlan = {
+          workerTask: value.workerTask,
+          workerProfile: String(value.workerProfile),
+          acceptanceChecks: value.acceptanceChecks as string[],
+          questions,
+        };
+        return { plan, receipt: result.receipt };
       });
-      const plan: ModeratorPlan = {
-        workerTask: value.workerTask,
-        workerProfile: String(value.workerProfile),
-        acceptanceChecks: value.acceptanceChecks as string[],
-        questions,
-      };
-      return { plan, receipt: result.receipt };
     },
   };
 }
@@ -116,15 +121,17 @@ export function makeSubAgentNaiaReporter(options: JsonActorOptions): NaiaIssueRe
         `Evidence: ${JSON.stringify(evidence)}`,
       ].join("\n");
       const result = await runJson(options, "reporter", input.idempotencyKey, prompt);
-      if (typeof result.value.summary !== "string") throw new Error("Naia report schema mismatch");
-      const report: Omit<IssueReport, "totalCost"> = {
-        state: input.issue.state as "completed" | "failed" | "cancelled" | "outcome_unknown",
-        summary: result.value.summary,
-        issueId: input.issue.issueId,
-        changedFiles: input.issue.worker?.changedFiles ?? [],
-        verificationPassed: input.issue.verification?.ok ?? null,
-      };
-      return { report, receipt: result.receipt };
+      return withReceipt(result.receipt, () => {
+        if (typeof result.value.summary !== "string") throw new Error("Naia report schema mismatch");
+        const report: Omit<IssueReport, "totalCost"> = {
+          state: input.issue.state as "completed" | "failed" | "cancelled" | "outcome_unknown",
+          summary: result.value.summary,
+          issueId: input.issue.issueId,
+          changedFiles: input.issue.worker?.changedFiles ?? [],
+          verificationPassed: input.issue.verification?.ok ?? null,
+        };
+        return { report, receipt: result.receipt };
+      });
     },
   };
 }
@@ -204,7 +211,14 @@ async function runJson(options: JsonActorOptions, role: ActorReceipt["role"], id
       ? { state: "measured", usd: evidence.measuredCostUsd, source: "subagent_usage_and_pinned_price" }
       : { state: "unavailable", reason: "actor adapter did not receive priced usage" },
   };
-  return { value: parseJsonObject(text), receipt };
+  return withReceipt(receipt, () => ({ value: parseJsonObject(text), receipt }));
+}
+
+function withReceipt<T>(receipt: ActorReceipt, operation: () => T): T {
+  try { return operation(); } catch (error) {
+    if (error instanceof IssueActorResultError) throw error;
+    throw new IssueActorResultError(error instanceof Error ? error.message : "actor result rejected", receipt);
+  }
 }
 
 function parseJsonObject(text: string): Record<string, unknown> {

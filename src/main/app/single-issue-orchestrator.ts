@@ -15,6 +15,7 @@ import type {
   NaiaFacingPort,
   NaiaIssueReporterPort,
 } from "../ports/issue-orchestration.js";
+import { IssueActorResultError } from "../ports/issue-orchestration.js";
 import type { DiagnosticLog } from "../ports/uc1.js";
 
 export interface SingleIssueOrchestratorDeps {
@@ -93,12 +94,13 @@ export class SingleIssueOrchestrator {
 
       if (issue.state === "classifying") {
         if (!facingDispatchedInThisCall) return this.markUnknown(issue, "unreconciled_facing_restart");
-        const result = await this.d.facing.classify({
-          requestId: issue.requestId,
-          idempotencyKey: `${issue.issueId}:facing:classify`,
-          text: issue.originalText,
-        });
-        assertReceipt(result.receipt, "naia", `${issue.issueId}:facing:classify`, issue.naiaBinding);
+        const key = `${issue.issueId}:facing:classify`;
+        let result: Awaited<ReturnType<NaiaFacingPort["classify"]>> | undefined;
+        try {
+          result = await this.d.facing.classify({ requestId: issue.requestId, idempotencyKey: key, text: issue.originalText });
+          assertReceipt(result.receipt, "naia", key, issue.naiaBinding);
+        } catch (error) { return this.actorFailure(issue, "naia", key, issue.naiaBinding, error, result?.receipt); }
+        if (!result) return this.markUnknown(issue, "facing_result_unavailable");
         if (result.classification.kind === "chat") {
           const receipts = appendReceipt(issue.receipts, result.receipt);
           const report: IssueReport = {
@@ -133,15 +135,17 @@ export class SingleIssueOrchestrator {
 
       if (issue.state === "moderator_running") {
         if (!moderatorDispatchedInThisCall) return this.markUnknown(issue, "unreconciled_moderator_restart");
-        const result = await this.d.moderator.plan({
-          issueId,
-          idempotencyKey: `${issue.issueId}:moderator:${issue.answers.length}`,
-          originalText: issue.originalText,
-          obligations: issue.classification?.obligations ?? [],
-          answers: issue.answers,
-        });
-        assertReceipt(result.receipt, "moderator", `${issue.issueId}:moderator:${issue.answers.length}`, issue.moderatorBinding);
-        assertIndependent(issue.receipts, result.receipt);
+        const key = `${issue.issueId}:moderator:${issue.answers.length}`;
+        let result: Awaited<ReturnType<DevelopmentModeratorPort["plan"]>> | undefined;
+        try {
+          result = await this.d.moderator.plan({
+            issueId, idempotencyKey: key, originalText: issue.originalText,
+            obligations: issue.classification?.obligations ?? [], answers: issue.answers,
+          });
+          assertReceipt(result.receipt, "moderator", key, issue.moderatorBinding);
+          assertIndependent(issue.receipts, result.receipt);
+        } catch (error) { return this.actorFailure(issue, "moderator", key, issue.moderatorBinding, error, result?.receipt); }
+        if (!result) return this.markUnknown(issue, "moderator_result_unavailable");
         const moderatorReceipts = appendReceipt(issue.receipts, result.receipt);
         try { assertPlan(result.plan); } catch (error) {
           issue = this.save(issue, {
@@ -242,12 +246,16 @@ export class SingleIssueOrchestrator {
         if (!reporterDispatchedInThisCall) return this.markUnknown(issue, "unreconciled_reporter_restart");
         const terminal = issue.classification?.kind === "chat" ? "completed"
           : issue.worker?.ok !== true || issue.verification?.ok !== true ? "failed" : "completed";
-        const result = await this.d.reporter.report({
-          issue: { ...issue, state: terminal }, events: this.d.store.events(issueId),
-          idempotencyKey: `${issue.issueId}:report:1`,
-        });
-        assertReceipt(result.receipt, "reporter", `${issue.issueId}:report:1`, issue.naiaBinding);
-        assertIndependent(issue.receipts, result.receipt);
+        const key = `${issue.issueId}:report:1`;
+        let result: Awaited<ReturnType<NaiaIssueReporterPort["report"]>> | undefined;
+        try {
+          result = await this.d.reporter.report({
+            issue: { ...issue, state: terminal }, events: this.d.store.events(issueId), idempotencyKey: key,
+          });
+          assertReceipt(result.receipt, "reporter", key, issue.naiaBinding);
+          assertIndependent(issue.receipts, result.receipt);
+        } catch (error) { return this.actorFailure(issue, "reporter", key, issue.naiaBinding, error, result?.receipt); }
+        if (!result) return this.markUnknown(issue, "reporter_result_unavailable");
         const receipts = appendReceipt(issue.receipts, result.receipt);
         const report: IssueReport = {
           issueId,
@@ -298,6 +306,21 @@ export class SingleIssueOrchestrator {
 
   private markUnknown(issue: IssueSnapshot, category: string): IssueReport {
     return this.grounded(this.save(issue, { ...issue, state: "outcome_unknown", updatedAt: this.#now() }, "actor_outcome_unknown", { category }));
+  }
+
+  private actorFailure(issue: IssueSnapshot, role: ActorReceipt["role"], key: string, binding: { provider: string; model: string; reasoningEffort?: string }, error: unknown, candidate?: ActorReceipt): IssueReport {
+    const receipt = error instanceof IssueActorResultError ? error.receipt : candidate;
+    try {
+      if (!receipt) throw new Error("receipt unavailable");
+      assertReceipt(receipt, role, key, binding);
+      assertIndependent(issue.receipts, receipt);
+      const failed = this.save(issue, {
+        ...issue, state: "failed", receipts: appendReceipt(issue.receipts, receipt), updatedAt: this.#now(),
+      }, "actor_result_rejected", { role, category: errorName(error) });
+      return this.grounded(failed);
+    } catch {
+      return this.markUnknown(issue, `${role}_call_or_receipt_unavailable`);
+    }
   }
 
   private debug(stage: string, context: Readonly<Record<string, unknown>>): void {

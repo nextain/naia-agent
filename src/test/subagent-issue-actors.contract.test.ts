@@ -7,6 +7,7 @@ import {
 } from "../main/adapters/subagent-issue-actors.js";
 import type { SubAgentEvent } from "../main/domain/orchestration.js";
 import type { SubAgentPort } from "../main/ports/orchestration.js";
+import { IssueActorResultError } from "../main/ports/issue-orchestration.js";
 
 function actor(text: string, model = "gpt-5.6-luna"): SubAgentPort {
   let call = 0;
@@ -67,7 +68,9 @@ describe("UC-ORCH-001 sub-agent issue actors", () => {
 
   it("rejects malformed actor output instead of guessing", async () => {
     const facing = makeSubAgentNaiaFacing({ subAgent: actor('{"kind":"maybe","obligations":[]}'), binding, workdir: "/workspace", diag });
-    await expect(facing.classify({ requestId: "r", idempotencyKey: "k", text: "x" })).rejects.toThrow("schema mismatch");
+    const error = await facing.classify({ requestId: "r", idempotencyKey: "k", text: "x" }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(IssueActorResultError);
+    expect(error).toMatchObject({ message: expect.stringContaining("schema mismatch"), receipt: { role: "naia", idempotencyKey: "k", cost: { state: "measured" } } });
   });
 
   it("grounds reporter fields in persisted evidence and prices deterministic verification at zero", async () => {
