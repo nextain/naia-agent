@@ -553,6 +553,39 @@ describe("UC-ORCH-001 single issue", () => {
     reopened.close();
   });
 
+  it("does not replay verification after restart without exact reconciliation", async () => {
+    const h = harness({ question: true });
+    await h.orchestrator.start(request("request-verifier-restart"));
+    const pending = h.orchestrator.snapshot("issue-0001");
+    h.store.save({
+      expectedVersion: pending.version,
+      snapshot: {
+        ...pending,
+        state: "verifying",
+        dispatchId: "issue-0001:dispatch:1",
+        plan: { workerTask: "fix", workerProfile: "balanced", acceptanceChecks: ["parser tests pass"], questions: [] },
+        worker: {
+          ok: true, summary: "done", worktreePath: "/managed/issue-0001", changedFiles: ["src/parser.ts"],
+          receipt: receipt("worker", "issue-0001:dispatch:1", 10),
+        },
+        updatedAt: "2026-08-01T00:01:00Z",
+      },
+      eventType: "verification_dispatched_fixture",
+    });
+    h.store.close();
+    const reopened = new SqliteIssueOrchestrationStore(join(h.root, "issues.db"));
+    let verifierCalls = 0;
+    const restarted = new SingleIssueOrchestrator({
+      ...h.deps,
+      store: reopened,
+      verifier: { async verify() { verifierCalls += 1; throw new Error("must not replay"); } },
+    });
+    expect(await restarted.resume("issue-0001")).toMatchObject({ state: "outcome_unknown", totalCost: { state: "unavailable" } });
+    expect(verifierCalls).toBe(0);
+    expect(reopened.events("issue-0001").at(-1)?.type).toBe("actor_outcome_unknown");
+    reopened.close();
+  });
+
   it("does not replay an unreconciled paid actor and marks partial cost unavailable", async () => {
     const h = harness();
     const accepted = h.store.create(request("request-facing-crash"), {

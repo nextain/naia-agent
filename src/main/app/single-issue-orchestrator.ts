@@ -115,6 +115,7 @@ export class SingleIssueOrchestrator {
     let facingDispatchedInThisCall = false;
     let moderatorDispatchedInThisCall = false;
     let dispatchedInThisCall = false;
+    let verifierDispatchedInThisCall = false;
     let reporterDispatchedInThisCall = false;
     for (;;) {
       this.debug("resume-stage", { issueId, state: issue.state });
@@ -263,6 +264,7 @@ export class SingleIssueOrchestrator {
             receipts: appendReceipt(issue.receipts, worker.receipt),
             updatedAt: this.#now(),
           }, worker.ok ? "worker_completed" : "worker_failed", { changedFiles: worker.changedFiles.length });
+          verifierDispatchedInThisCall = worker.ok;
         } catch (error) {
           if (error instanceof IssueActorResultError) {
             try {
@@ -281,6 +283,7 @@ export class SingleIssueOrchestrator {
       }
 
       if (issue.state === "verifying") {
+        if (!verifierDispatchedInThisCall) return this.markUnknown(issue, "unreconciled_verifier_restart");
         try {
           const verification = await this.d.verifier.verify({
             issueId,
