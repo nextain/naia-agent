@@ -426,7 +426,10 @@ export class SingleIssueOrchestrator {
       : undefined;
     return {
       state: issue.state === "awaiting_user" ? "awaiting_user" : issue.state as "failed" | "cancelled" | "outcome_unknown",
-      summary: question?.text ?? issue.worker?.summary ?? issue.state,
+      summary: question?.text
+        ?? (issue.state === "failed" && issue.verification ? groundedIssueSummary(issue, "failed") : undefined)
+        ?? issue.worker?.summary
+        ?? issue.state,
       issueId: issue.issueId,
       ...(question ? { question } : {}),
       changedFiles: issue.worker?.changedFiles ?? [],

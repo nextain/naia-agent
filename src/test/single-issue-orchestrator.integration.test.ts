@@ -542,7 +542,9 @@ describe("UC-ORCH-001 single issue", () => {
   it("rejects reporter prose or fields that contradict persisted evidence", async () => {
     const h = harness({ contradictoryReporter: true });
     const report = await h.orchestrator.start(request("request-contradictory-report"));
-    expect(report).toMatchObject({ state: "failed", summary: "parser fixed", verificationPassed: true });
+    expect(report).toMatchObject({
+      state: "failed", summary: "state=failed; changedFiles=1; verification=passed", verificationPassed: true,
+    });
     expect(report).not.toHaveProperty("naiaCommentary");
     expect(h.store.events("issue-0001").at(-1)?.type).toBe("actor_result_rejected");
     expect(h.orchestrator.snapshot("issue-0001").receipts.at(-1)?.role).toBe("reporter");

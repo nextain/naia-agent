@@ -109,7 +109,10 @@ export function makeSubAgentDevelopmentModerator(options: JsonActorOptions): Dev
 export function makeSubAgentNaiaReporter(options: JsonActorOptions): NaiaIssueReporterPort {
   return {
     async report(input) {
-      const terminal = input.issue.state as "completed" | "failed";
+      if (input.issue.state !== "completed" && input.issue.state !== "failed") {
+        throw new Error("Naia reporter requires a completed or failed issue");
+      }
+      const terminal = input.issue.state;
       const expectedSummary = groundedIssueCommentary(input.issue, terminal);
       const evidence = {
         state: input.issue.state,

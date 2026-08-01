@@ -65,7 +65,7 @@ export interface IssueVerifierPort {
 
 export interface NaiaIssueReporterPort {
   report(input: {
-    readonly issue: IssueSnapshot;
+    readonly issue: IssueSnapshot & { readonly state: "completed" | "failed" };
     readonly events: readonly IssueEvent[];
     readonly idempotencyKey: string;
     readonly signal: AbortSignal;

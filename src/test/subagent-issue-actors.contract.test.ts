@@ -112,6 +112,11 @@ describe("UC-ORCH-001 sub-agent issue actors", () => {
     await expect(contradicted.report({ issue, events: [], idempotencyKey: "i:report:bad", signal: signal() }))
       .rejects.toMatchObject({ message: expect.stringContaining("evidence binding mismatch"), receipt: { role: "reporter" } });
 
+    await expect(reporter.report({
+      issue: { ...issue, state: "outcome_unknown" } as never,
+      events: [], idempotencyKey: "i:report:invalid-state", signal: signal(),
+    })).rejects.toThrow("requires a completed or failed issue");
+
     const verifier = makeIssueVerifierAdapter({ async verify() { return { ok: false, checks: [{ name: "test", pass: false }] }; } }, (() => { let n = 10; return () => n += 5; })());
     const verified = await verifier.verify({ issueId: "i", idempotencyKey: "i:verify", worktreePath: "/managed/i", acceptanceChecks: ["test"], signal: signal() });
     expect(verified).toMatchObject({ ok: false, receipt: { role: "verifier", provider: "deterministic", latencyMs: 5, cost: { state: "measured", usd: 0 } } });
