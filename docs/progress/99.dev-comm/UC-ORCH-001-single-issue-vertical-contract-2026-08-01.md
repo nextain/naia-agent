@@ -11,8 +11,9 @@ multi-worker collaboration, multiple concurrent issues, and naia-shell UI are la
 
 ## State machine
 
-`accepted → classified → planning → awaiting_user | dispatch_ready → worker_running →
-verifying → reporting → completed | failed | cancelled | outcome_unknown`
+`accepted → classifying → classified → planning → moderator_running → awaiting_user |
+dispatch_ready → worker_running → verifying → reporting → reporter_running → completed | failed |
+cancelled | outcome_unknown`
 
 Terminal states are immutable. `awaiting_user` resumes only with the exact pending question id.
 Every transition appends an event in the same SQLite transaction as the current snapshot.
@@ -25,6 +26,9 @@ Every transition appends an event in the same SQLite transaction as the current 
 - `dispatch_id` is the worker idempotency key and is stable across restart/retry.
 - an acknowledged actor result is never called again; an unacknowledged worker transport loss is
   `outcome_unknown` unless exact dispatch reconciliation proves a terminal result.
+- every paid actor has a persisted running boundary before invocation. Restart at that boundary never
+  blindly repeats the call; without exact reconciliation it becomes `outcome_unknown` and cost remains
+  unavailable.
 
 ## Receipt and report
 
@@ -58,7 +62,8 @@ hard gate.
   unreconciled restart, cancellation, transport loss, unavailable cost, strict actor schemas, layer
   boundaries, worktree composition, and the benchmark claim gate.
 - The paid runner is opt-in and runs one frozen paired coding case only. It writes owner-only JSON and
-  permits a numeric savings comparison only when both compositions pass every quality and receipt gate.
+  requires explicit observed-spend and per-actor time limits, and permits a numeric savings comparison
+  only when both compositions pass every quality and receipt gate.
 - Full regression excluding two baseline environment-sensitive process tests: 130 files passed, 3
   skipped; 1,437 tests passed, 9 skipped. The unchanged baseline failures are the management-doctor
   status expectation and nested-ADK credential discovery in the Pi CLI process test. No credential

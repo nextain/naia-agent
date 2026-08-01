@@ -56,6 +56,7 @@ describe("UC-ORCH-001 sub-agent issue actors", () => {
     const moderator = makeSubAgentDevelopmentModerator({
       subAgent: actor('{"workerTask":"Fix src/parser.ts","workerProfile":"balanced","acceptanceChecks":["node --test passes"],"questions":[]}', "gpt-5.6-sol"),
       binding: { provider: "openai-codex", model: "gpt-5.6-sol", reasoningEffort: "high" },
+      allowedAcceptanceChecks: ["node --test passes"],
       workdir: "/workspace", diag,
     });
     const planned = await moderator.plan({ issueId: "i", idempotencyKey: "i:moderator", originalText: "fix it", obligations: classified.classification.obligations, answers: [] });

@@ -21,6 +21,10 @@ const here = dirname(fileURLToPath(import.meta.url));
 const corpus = JSON.parse(readFileSync(join(here, "orchestration", "single-issue-cases.json"), "utf8"));
 const pairedCase = corpus.cases.find((item) => item.kind === "live-paired");
 if (!pairedCase) throw new Error("frozen paired case missing");
+const maxUsd = Number(process.env.NAIA_ORCH_MAX_USD);
+const actorTimeoutMs = Number(process.env.NAIA_ORCH_MAX_ACTOR_MS ?? 120_000);
+if (!Number.isFinite(maxUsd) || maxUsd <= 0) throw new Error("NAIA_ORCH_MAX_USD must be an explicit positive observed-spend stop threshold");
+if (!Number.isFinite(actorTimeoutMs) || actorTimeoutMs <= 0) throw new Error("NAIA_ORCH_MAX_ACTOR_MS must be positive");
 
 const prices = {
   "gpt-5.6-sol": { uncachedInput: 5, cachedInput: 0.5, output: 30 },
@@ -29,6 +33,8 @@ const prices = {
 };
 const diag = { log(message, detail) { console.error(`[diag] ${message}`, detail ?? ""); }, debug() {} };
 const tempRoot = mkdtempSync(join(tmpdir(), "naia-orch-live-"));
+let observedSpendUsd = 0;
+const chargedReceipts = new Set();
 
 function git(args, cwd) { execFileSync("git", args, { cwd, stdio: "ignore" }); }
 function fixture(routeId) {
@@ -44,6 +50,24 @@ function fixture(routeId) {
   return repo;
 }
 function priced(model, reasoningEffort) { return makeCodexSubAgent({ model, reasoningEffort, priceUsdPerMillion: prices[model] }); }
+function budgeted(port, method) {
+  return {
+    ...port,
+    async [method](input) {
+      if (observedSpendUsd >= maxUsd) throw new Error(`benchmark observed-spend threshold reached before ${method}`);
+      const result = await port[method](input);
+      const receipt = result.receipt;
+      if (!receipt || receipt.cost.state !== "measured") throw new Error(`benchmark ${method} cost unavailable`);
+      const receiptKey = `${receipt.role}:${receipt.idempotencyKey}:${receipt.executionId}`;
+      if (!chargedReceipts.has(receiptKey)) {
+        chargedReceipts.add(receiptKey);
+        observedSpendUsd += receipt.cost.usd;
+      }
+      if (observedSpendUsd > maxUsd) throw new Error(`benchmark observed-spend threshold exceeded after ${method}`);
+      return result;
+    },
+  };
+}
 function identitiesIndependent(receipts) {
   return new Set(receipts.map((item) => item.sessionId)).size === receipts.length
     && new Set(receipts.map((item) => item.executionId)).size === receipts.length;
@@ -72,15 +96,15 @@ async function runRoute(routeId, route) {
   const moderatorBinding = { provider: "openai-codex", model: route.moderator, reasoningEffort: route.moderatorReasoning };
   const orchestrator = new SingleIssueOrchestrator({
     store,
-    facing: makeSubAgentNaiaFacing({ subAgent: priced(route.naia, route.naiaReasoning), binding: facingBinding, workdir: repo, diag }),
-    moderator: makeSubAgentDevelopmentModerator({ subAgent: priced(route.moderator, route.moderatorReasoning), binding: moderatorBinding, allowedWorkerProfiles: [route.workerProfile], workdir: repo, diag }),
-    worker: makeSupervisedIssueWorker({
+    facing: budgeted(makeSubAgentNaiaFacing({ subAgent: priced(route.naia, route.naiaReasoning), binding: facingBinding, timeoutMs: actorTimeoutMs, workdir: repo, diag }), "classify"),
+    moderator: budgeted(makeSubAgentDevelopmentModerator({ subAgent: priced(route.moderator, route.moderatorReasoning), binding: moderatorBinding, allowedWorkerProfiles: [route.workerProfile], allowedAcceptanceChecks: pairedCase.acceptanceChecks, timeoutMs: actorTimeoutMs, workdir: repo, diag }), "plan"),
+    worker: budgeted(makeSupervisedIssueWorker({
       worktrees: makeGitCodingJobWorktrees({ allowedWorkspaceRoot: tempRoot, worktreeRoot }),
       subAgent: priced(workerModel, route.workerReasoning), diag,
       resolveModel: resolveWorkerModel,
-    }),
-    verifier: makeIssueVerifierAdapter(verifier),
-    reporter: makeSubAgentNaiaReporter({ subAgent: priced(route.reporter, route.reporterReasoning), binding: { provider: "openai-codex", model: route.reporter, reasoningEffort: route.reporterReasoning }, workdir: repo, diag }),
+    }), "execute"),
+    verifier: budgeted(makeIssueVerifierAdapter(verifier), "verify"),
+    reporter: budgeted(makeSubAgentNaiaReporter({ subAgent: priced(route.reporter, route.reporterReasoning), binding: { provider: "openai-codex", model: route.reporter, reasoningEffort: route.reporterReasoning }, timeoutMs: actorTimeoutMs, workdir: repo, diag }), "report"),
   });
   try {
     const report = await orchestrator.start({
@@ -114,7 +138,7 @@ try {
   const comparison = bothPass
     ? { claimAllowed: true, lunaProxyUsd: cost(lunaProxy), allSolUsd: cost(allSol), savingsUsd: cost(allSol) - cost(lunaProxy) }
     : { claimAllowed: false, lunaProxyUsd: null, allSolUsd: null, savingsUsd: null, reason: "quality or receipt hard gate failed" };
-  const result = { schemaVersion: 1, benchmarkId: corpus.benchmarkId, caseId: pairedCase.id, executedAt: new Date().toISOString(), corpus, runs: { lunaProxy, allSol }, comparison };
+  const result = { schemaVersion: 1, benchmarkId: corpus.benchmarkId, caseId: pairedCase.id, executedAt: new Date().toISOString(), budget: { maxObservedSpendUsd: maxUsd, actorTimeoutMs, observedSpendUsd }, corpus, runs: { lunaProxy, allSol }, comparison };
   const output = resolve(process.env.NAIA_ORCH_OUT ?? join(here, "results", `single-issue-live-${Date.now()}.json`));
   mkdirSync(dirname(output), { recursive: true });
   writeFileSync(output, `${JSON.stringify(result, null, 2)}\n`, { mode: 0o600 });

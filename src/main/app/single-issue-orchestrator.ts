@@ -74,13 +74,23 @@ export class SingleIssueOrchestrator {
 
   async resume(issueId: string, signal: AbortSignal = new AbortController().signal): Promise<IssueReport> {
     let issue = this.required(issueId);
+    let facingDispatchedInThisCall = false;
+    let moderatorDispatchedInThisCall = false;
     let dispatchedInThisCall = false;
+    let reporterDispatchedInThisCall = false;
     for (;;) {
       this.debug("resume-stage", { issueId, state: issue.state });
       if (isIssueTerminal(issue.state)) return this.grounded(issue);
       if (issue.state === "awaiting_user") return this.grounded(issue);
 
       if (issue.state === "accepted") {
+        issue = this.save(issue, { ...issue, state: "classifying", updatedAt: this.#now() }, "facing_dispatched");
+        facingDispatchedInThisCall = true;
+        continue;
+      }
+
+      if (issue.state === "classifying") {
+        if (!facingDispatchedInThisCall) return this.markUnknown(issue, "unreconciled_facing_restart");
         const result = await this.d.facing.classify({
           requestId: issue.requestId,
           idempotencyKey: `${issue.issueId}:facing:classify`,
@@ -111,6 +121,13 @@ export class SingleIssueOrchestrator {
       }
 
       if (issue.state === "planning") {
+        issue = this.save(issue, { ...issue, state: "moderator_running", updatedAt: this.#now() }, "moderator_dispatched");
+        moderatorDispatchedInThisCall = true;
+        continue;
+      }
+
+      if (issue.state === "moderator_running") {
+        if (!moderatorDispatchedInThisCall) return this.markUnknown(issue, "unreconciled_moderator_restart");
         const result = await this.d.moderator.plan({
           issueId,
           idempotencyKey: `${issue.issueId}:moderator:${issue.answers.length}`,
@@ -196,6 +213,13 @@ export class SingleIssueOrchestrator {
       }
 
       if (issue.state === "reporting") {
+        issue = this.save(issue, { ...issue, state: "reporter_running", updatedAt: this.#now() }, "reporter_dispatched");
+        reporterDispatchedInThisCall = true;
+        continue;
+      }
+
+      if (issue.state === "reporter_running") {
+        if (!reporterDispatchedInThisCall) return this.markUnknown(issue, "unreconciled_reporter_restart");
         const terminal = issue.classification?.kind === "chat" ? "completed"
           : issue.worker?.ok !== true || issue.verification?.ok !== true ? "failed" : "completed";
         const result = await this.d.reporter.report({
@@ -238,8 +262,14 @@ export class SingleIssueOrchestrator {
       ...(question ? { question } : {}),
       changedFiles: issue.worker?.changedFiles ?? [],
       verificationPassed: issue.verification?.ok ?? null,
-      totalCost: totalIssueCost(issue.receipts),
+      totalCost: issue.state === "outcome_unknown"
+        ? { state: "unavailable", reason: "an in-flight actor outcome or cost could not be reconciled" }
+        : totalIssueCost(issue.receipts),
     };
+  }
+
+  private markUnknown(issue: IssueSnapshot, category: string): IssueReport {
+    return this.grounded(this.save(issue, { ...issue, state: "outcome_unknown", updatedAt: this.#now() }, "actor_outcome_unknown", { category }));
   }
 
   private debug(stage: string, context: Readonly<Record<string, unknown>>): void {

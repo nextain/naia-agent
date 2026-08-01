@@ -112,8 +112,8 @@ describe("UC-ORCH-001 single issue", () => {
     expect(snapshot.classification?.obligations).toEqual(["fix parser", "run tests"]);
     expect(new Set(snapshot.receipts.map((item) => item.sessionId)).size).toBe(5);
     expect(h.store.events(snapshot.issueId).map((event) => event.type)).toEqual([
-      "issue_accepted", "request_classified", "moderator_requested", "plan_ready", "worker_dispatched",
-      "worker_completed", "verification_passed", "issue_reported",
+      "issue_accepted", "facing_dispatched", "request_classified", "moderator_requested", "moderator_dispatched",
+      "plan_ready", "worker_dispatched", "worker_completed", "verification_passed", "reporter_dispatched", "issue_reported",
     ]);
     if (process.platform !== "win32") {
       for (const suffix of ["", "-wal", "-shm"]) expect(statSync(join(h.root, `issues.db${suffix}`)).mode & 0o777).toBe(0o600);
@@ -207,5 +207,21 @@ describe("UC-ORCH-001 single issue", () => {
     expect({ executeCalls, reconcileCalls }).toEqual({ executeCalls: 0, reconcileCalls: 1 });
     expect(reopened.events("issue-0001").at(-1)?.type).toBe("worker_outcome_unknown");
     reopened.close();
+  });
+
+  it("does not replay an unreconciled paid actor and marks partial cost unavailable", async () => {
+    const h = harness();
+    const accepted = h.store.create(request("request-facing-crash"), {
+      issueId: "issue-0001", requestDigest: "digest", now: "2026-08-01T00:00:00Z",
+    });
+    h.store.save({
+      expectedVersion: accepted.version,
+      snapshot: { ...accepted, state: "classifying", updatedAt: "2026-08-01T00:00:01Z" },
+      eventType: "facing_dispatched",
+    });
+    const report = await h.orchestrator.resume("issue-0001");
+    expect(report).toMatchObject({ state: "outcome_unknown", totalCost: { state: "unavailable" } });
+    expect(h.calls.facing).toBe(0);
+    h.store.close();
   });
 });

@@ -22,6 +22,8 @@ interface JsonActorOptions {
   readonly diag: DiagnosticLog;
   readonly nowMs?: () => number;
   readonly allowedWorkerProfiles?: readonly string[];
+  readonly allowedAcceptanceChecks?: readonly string[];
+  readonly timeoutMs?: number;
 }
 
 export function makeSubAgentNaiaFacing(options: JsonActorOptions): NaiaFacingPort {
@@ -50,10 +52,13 @@ export function makeSubAgentDevelopmentModerator(options: JsonActorOptions): Dev
     async plan(input) {
       const allowedProfiles = options.allowedWorkerProfiles ?? ["control", "balanced", "economy"];
       if (allowedProfiles.length === 0 || allowedProfiles.some((profile) => !profile.trim())) throw new Error("moderator worker profile policy missing");
+      const allowedChecks = options.allowedAcceptanceChecks;
+      if (!allowedChecks || allowedChecks.length === 0 || allowedChecks.some((check) => !check.trim())) throw new Error("moderator acceptance check policy missing");
       const prompt = [
         "You are the separate senior development moderator. Do not implement.",
         "Produce one bounded worker task, a stable role profile, exact acceptance checks, and only truly blocking questions.",
         `Allowed worker profiles (choose exactly one): ${JSON.stringify(allowedProfiles)}.`,
+        `Required acceptance checks (return these exact strings once each): ${JSON.stringify(allowedChecks)}.`,
         "Return JSON only: {\"workerTask\":\"...\",\"workerProfile\":\"...\",\"acceptanceChecks\":[\"...\"],\"questions\":[{\"questionId\":\"q-...\",\"text\":\"...\"}]}.",
         `Original request: ${JSON.stringify(input.originalText)}`,
         `Obligations: ${JSON.stringify(input.obligations)}`,
@@ -65,6 +70,10 @@ export function makeSubAgentDevelopmentModerator(options: JsonActorOptions): Dev
         || !Array.isArray(value.acceptanceChecks) || value.acceptanceChecks.length === 0
         || value.acceptanceChecks.some((item) => typeof item !== "string" || !item.trim())
         || !Array.isArray(value.questions)) throw new Error("moderator plan schema mismatch");
+      if (new Set(value.acceptanceChecks as string[]).size !== allowedChecks.length
+        || allowedChecks.some((check) => !(value.acceptanceChecks as string[]).includes(check))) {
+        throw new Error("moderator acceptance check binding mismatch");
+      }
       const questions = value.questions.map((question) => {
         if (!question || typeof question !== "object") throw new Error("moderator question schema mismatch");
         const candidate = question as Record<string, unknown>;
@@ -142,16 +151,25 @@ async function runJson(options: JsonActorOptions, role: ActorReceipt["role"], id
 }> {
   const now = options.nowMs ?? Date.now;
   const startedAt = now();
+  const timeoutMs = options.timeoutMs ?? 120_000;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error(`${role} actor timeout policy invalid`);
   options.diag.debug?.("[SubAgentIssueActor] start", { at: startedAt, role, idempotencyKey, model: options.binding.model });
   const session = options.subAgent.spawn({ prompt, workdir: options.workdir, model: options.binding.model, filesystemAccess: "read_only" });
   let text = "";
   let evidence: import("../domain/orchestration.js").SubAgentModelEvidence | undefined;
   let ok = false;
-  for await (const event of session.events) {
-    if (event.kind === "text_delta") text += event.text;
-    if (event.kind === "model_evidence") evidence = event.evidence;
-    if (event.kind === "session_end") { ok = event.ok; evidence = event.evidence ?? evidence; break; }
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; void session.cancel(`${role} actor timeout`); }, timeoutMs);
+  try {
+    for await (const event of session.events) {
+      if (event.kind === "text_delta") text += event.text;
+      if (event.kind === "model_evidence") evidence = event.evidence;
+      if (event.kind === "session_end") { ok = event.ok; evidence = event.evidence ?? evidence; break; }
+    }
+  } finally {
+    clearTimeout(timer);
   }
+  if (timedOut) throw new Error(`${role} actor timed out`);
   if (!ok) throw new Error(`${role} actor did not complete`);
   if (!evidence?.sessionId || !evidence.executionId) throw new Error(`${role} actor receipt identity unavailable`);
   if (evidence.provider !== options.binding.provider || evidence.selectedModel !== options.binding.model) {
