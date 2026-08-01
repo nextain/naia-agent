@@ -145,10 +145,10 @@ export class SingleIssueOrchestrator {
           });
           assertReceipt(result.receipt, "naia", key, issue.naiaBinding);
         } catch (error) {
-          const cancelled = this.cancelAfterActor(issueId, "naia", key, issue.naiaBinding, error instanceof IssueActorResultError ? error.receipt : result?.receipt);
+          const cancelled = this.cancelAfterActor(issueId, "naia", key, error instanceof IssueActorResultError ? error.receipt : result?.receipt);
           return cancelled ?? this.actorFailure(issue, "naia", key, issue.naiaBinding, error, result?.receipt);
         }
-        const cancelled = this.cancelAfterActor(issueId, "naia", key, issue.naiaBinding, result?.receipt);
+        const cancelled = this.cancelAfterActor(issueId, "naia", key, result?.receipt);
         if (cancelled) return cancelled;
         if (!result) return this.markUnknown(issue, "facing_result_unavailable");
         if ((result.classification.kind === "work" && issue.requiredObligations.length === 0)
@@ -202,10 +202,10 @@ export class SingleIssueOrchestrator {
           assertReceipt(result.receipt, "moderator", key, issue.moderatorBinding);
           assertIndependent(issue.receipts, result.receipt);
         } catch (error) {
-          const cancelled = this.cancelAfterActor(issueId, "moderator", key, issue.moderatorBinding, error instanceof IssueActorResultError ? error.receipt : result?.receipt);
+          const cancelled = this.cancelAfterActor(issueId, "moderator", key, error instanceof IssueActorResultError ? error.receipt : result?.receipt);
           return cancelled ?? this.actorFailure(issue, "moderator", key, issue.moderatorBinding, error, result?.receipt);
         }
-        const cancelled = this.cancelAfterActor(issueId, "moderator", key, issue.moderatorBinding, result?.receipt);
+        const cancelled = this.cancelAfterActor(issueId, "moderator", key, result?.receipt);
         if (cancelled) return cancelled;
         if (!result) return this.markUnknown(issue, "moderator_result_unavailable");
         const moderatorReceipts = appendReceipt(issue.receipts, result.receipt);
@@ -458,23 +458,23 @@ export class SingleIssueOrchestrator {
     const receipt = error instanceof IssueActorResultError ? error.receipt : candidate;
     try {
       if (!receipt) throw new Error("receipt unavailable");
-      assertReceipt(receipt, role, key, binding);
+      assertReceipt(receipt, role, key);
       assertIndependent(issue.receipts, receipt);
       const failed = this.save(issue, {
         ...issue, state: "failed", receipts: appendReceipt(issue.receipts, receipt), updatedAt: this.#now(),
-      }, "actor_result_rejected", { role, category: errorName(error) });
+      }, "actor_result_rejected", { role, category: errorName(error), bindingDrift: !receiptMatchesBinding(receipt, binding) });
       return this.grounded(failed);
     } catch {
       return this.markUnknown(issue, `${role}_call_or_receipt_unavailable`);
     }
   }
 
-  private cancelAfterActor(issueId: string, role: ActorReceipt["role"], key: string, binding: { provider: string; model: string; reasoningEffort?: string }, candidate?: ActorReceipt): IssueReport | undefined {
+  private cancelAfterActor(issueId: string, role: ActorReceipt["role"], key: string, candidate?: ActorReceipt): IssueReport | undefined {
     const latest = this.required(issueId);
     if (!latest.cancellationRequestedAt) return undefined;
     if (!candidate) return this.terminalizeCancellation(latest, true);
     try {
-      assertReceipt(candidate, role, key, binding);
+      assertReceipt(candidate, role, key);
       assertIndependent(latest.receipts, candidate);
       return this.terminalizeCancellation({ ...latest, receipts: appendReceipt(latest.receipts, candidate) }, false);
     } catch {
@@ -546,8 +546,8 @@ function requestFingerprint(request: IssueStartRequest): string {
 
 function assertReceipt(receipt: ActorReceipt, role: ActorReceipt["role"], expectedKey: string, binding?: { provider: string; model: string; reasoningEffort?: string }): void {
   if (receipt.role !== role || !receipt.sessionId || !receipt.executionId || receipt.idempotencyKey !== expectedKey) throw new Error(`invalid ${role} receipt`);
-  if (binding && (receipt.provider !== binding.provider || receipt.model !== binding.model)) throw new Error(`invalid ${role} binding receipt`);
-  if (binding?.reasoningEffort && receipt.reasoningEffort !== binding.reasoningEffort) throw new Error(`invalid ${role} reasoning receipt`);
+  if (!validBinding(receipt)) throw new Error(`invalid ${role} receipt binding evidence`);
+  if (binding && !receiptMatchesBinding(receipt, binding)) throw new Error(`invalid ${role} binding receipt`);
   for (const value of [receipt.inputTokens, receipt.cachedInputTokens, receipt.outputTokens]) {
     if (!Number.isSafeInteger(value) || value < 0) throw new Error(`invalid ${role} receipt accounting`);
   }
@@ -559,6 +559,11 @@ function assertReceipt(receipt: ActorReceipt, role: ActorReceipt["role"], expect
     throw new Error(`invalid ${role} measured cost receipt`);
   }
   if (receipt.cost.state === "unavailable" && !receipt.cost.reason.trim()) throw new Error(`invalid ${role} unavailable cost receipt`);
+}
+
+function receiptMatchesBinding(receipt: ActorReceipt, binding: { provider: string; model: string; reasoningEffort?: string }): boolean {
+  return receipt.provider === binding.provider && receipt.model === binding.model
+    && (binding.reasoningEffort === undefined || receipt.reasoningEffort === binding.reasoningEffort);
 }
 
 function sameStrings(left: readonly string[], right: readonly string[]): boolean {

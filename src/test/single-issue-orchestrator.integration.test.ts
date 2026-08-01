@@ -144,11 +144,15 @@ describe("UC-ORCH-001 single issue", () => {
     h.store.close();
   });
 
-  it("fails closed when an actor receipt does not match its persisted binding", async () => {
+  it("fails closed but preserves observed spend when an actor receipt does not match its persisted binding", async () => {
     const h = harness({ badFacingBinding: true });
     const report = await h.orchestrator.start(request("bad-binding"));
-    expect(report).toMatchObject({ state: "outcome_unknown", totalCost: { state: "unavailable" } });
+    expect(report).toMatchObject({ state: "failed", totalCost: { state: "measured", usd: 0.01 } });
     expect(h.calls.moderator).toBe(0);
+    expect(h.orchestrator.snapshot("issue-0001").receipts).toHaveLength(1);
+    expect(h.store.events("issue-0001").at(-1)).toMatchObject({
+      type: "actor_result_rejected", payload: { role: "naia", bindingDrift: true },
+    });
     h.store.close();
   });
 
