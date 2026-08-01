@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "benchmarkId": "UC-ORCH-001-2026-08-01",
   "caseId": "bounded-parser-fix",
-  "executedAt": "2026-08-01T21:05:41.008Z",
+  "executedAt": "2026-08-01T21:31:25.488Z",
   "priceSnapshot": {
     "id": "PRICE-OPENAI-2026-07-29",
     "sha256": "36ff2bca30e2823cddda6b207bdf68b3bb15700c5fdc4e0e67792bda44bc6626",
@@ -22,7 +22,7 @@
     "actorTimeoutMs": 120000,
     "maxPaidCalls": 8,
     "paidCalls": 8,
-    "observedSpendUsd": 0.42800800000000006,
+    "observedSpendUsd": 0.3640905,
     "hardProviderDollarCeiling": false
   },
   "corpus": {
@@ -155,7 +155,7 @@
         }
       },
       "report": {
-        "issueId": "0cbdc057-0f62-4db7-8be4-1578743f8ba8",
+        "issueId": "24afc696-92c1-40d8-8e2e-b35ca90fae25",
         "state": "completed",
         "summary": "state=completed; changedFiles=1; verification=passed",
         "naiaCommentary": "Completed. Changed files: math.mjs. Verification: passed.",
@@ -165,7 +165,7 @@
         "verificationPassed": true,
         "totalCost": {
           "state": "measured",
-          "usd": 0.10096800000000002,
+          "usd": 0.1153415,
           "source": "sum_of_persisted_actor_receipts"
         }
       },
@@ -184,18 +184,18 @@
           "provider": "openai-codex",
           "model": "gpt-5.6-luna",
           "reasoningEffort": "low",
-          "sessionId": "019fbf23-ce48-71f3-9544-b387f58a5c4b",
-          "executionId": "02656625-54eb-40ff-941d-d9c7600f15b3",
-          "idempotencyKey": "0cbdc057-0f62-4db7-8be4-1578743f8ba8:facing:classify",
+          "sessionId": "019fbf3b-83b0-77b0-95c8-e8d67d6bd99c",
+          "executionId": "45814d4c-a61e-421a-98bc-3118c7c7ca23",
+          "idempotencyKey": "24afc696-92c1-40d8-8e2e-b35ca90fae25:facing:classify",
           "tokenCountsAvailable": true,
-          "inputTokens": 12180,
+          "inputTokens": 12178,
           "cachedInputTokens": 8960,
-          "outputTokens": 63,
-          "latencyMs": 4799,
+          "outputTokens": 30,
+          "latencyMs": 5169,
           "modelEvidenceSource": "adapter_requested",
           "cost": {
             "state": "measured",
-            "usd": 0.004494,
+            "usd": 0.004294,
             "source": "subagent_usage_and_pinned_price"
           }
         },
@@ -204,18 +204,18 @@
           "provider": "openai-codex",
           "model": "gpt-5.6-sol",
           "reasoningEffort": "high",
-          "sessionId": "019fbf23-e0fd-7a51-af85-7a6f7a287ff6",
-          "executionId": "210f74d8-ba51-448a-b7c5-40233420ed00",
-          "idempotencyKey": "0cbdc057-0f62-4db7-8be4-1578743f8ba8:moderator:0",
+          "sessionId": "019fbf3b-9788-73f1-bb6f-a6fa5c09ff7b",
+          "executionId": "54f4cb4e-2506-4adc-93c8-a43bf35dae41",
+          "idempotencyKey": "24afc696-92c1-40d8-8e2e-b35ca90fae25:moderator:0",
           "tokenCountsAvailable": true,
-          "inputTokens": 13639,
+          "inputTokens": 13637,
           "cachedInputTokens": 9984,
           "outputTokens": 74,
-          "latencyMs": 5552,
+          "latencyMs": 5595,
           "modelEvidenceSource": "adapter_requested",
           "cost": {
             "state": "measured",
-            "usd": 0.025487,
+            "usd": 0.025477,
             "source": "subagent_usage_and_pinned_price"
           }
         },
@@ -224,18 +224,18 @@
           "provider": "openai-codex",
           "model": "gpt-5.6-terra",
           "reasoningEffort": "medium",
-          "sessionId": "019fbf23-f6b2-74b2-846e-dab6dd908f99",
-          "executionId": "76e45f19-8c18-48eb-b92c-7ddffbf5c25f",
-          "idempotencyKey": "0cbdc057-0f62-4db7-8be4-1578743f8ba8:dispatch:1",
+          "sessionId": "019fbf3b-ad93-72a1-b95d-007e8f631c5c",
+          "executionId": "e05a691a-1b67-4dbc-8af6-c6aa25fe06a8",
+          "idempotencyKey": "24afc696-92c1-40d8-8e2e-b35ca90fae25:dispatch:1",
           "tokenCountsAvailable": true,
-          "inputTokens": 99152,
-          "cachedInputTokens": 88576,
-          "outputTokens": 1211,
-          "latencyMs": 34417,
+          "inputTokens": 111129,
+          "cachedInputTokens": 95488,
+          "outputTokens": 1224,
+          "latencyMs": 37200,
           "modelEvidenceSource": "adapter_requested",
           "cost": {
             "state": "measured",
-            "usd": 0.066749,
+            "usd": 0.0813345,
             "source": "codex_usage_and_pinned_price"
           }
         },
@@ -243,14 +243,14 @@
           "role": "verifier",
           "provider": "deterministic",
           "model": "command-verifier",
-          "sessionId": "3515ae76-4465-4ca2-9b5c-b2160cef9a8d",
-          "executionId": "0af0c93f-bdd9-403a-9a73-1d6dd61ca1cc",
-          "idempotencyKey": "0cbdc057-0f62-4db7-8be4-1578743f8ba8:verify:1",
+          "sessionId": "b3e0d4ab-08bc-4864-a471-53c3a6b16382",
+          "executionId": "e8b9be6e-b0e2-4ec6-b8a5-194ab061d5fc",
+          "idempotencyKey": "24afc696-92c1-40d8-8e2e-b35ca90fae25:verify:1",
           "tokenCountsAvailable": true,
           "inputTokens": 0,
           "cachedInputTokens": 0,
           "outputTokens": 0,
-          "latencyMs": 142,
+          "latencyMs": 161,
           "cost": {
             "state": "measured",
             "usd": 0,
@@ -262,18 +262,18 @@
           "provider": "openai-codex",
           "model": "gpt-5.6-luna",
           "reasoningEffort": "low",
-          "sessionId": "019fbf24-7dbe-7241-86b1-d206527944f6",
-          "executionId": "50b1e2d9-8666-49bc-abb3-13b6b8d5d44e",
-          "idempotencyKey": "0cbdc057-0f62-4db7-8be4-1578743f8ba8:report:1",
+          "sessionId": "019fbf3c-3fa2-7ea3-a879-a0a6fcc59042",
+          "executionId": "e249a5e0-333f-427f-bcba-b69bf749331f",
+          "idempotencyKey": "24afc696-92c1-40d8-8e2e-b35ca90fae25:report:1",
           "tokenCountsAvailable": true,
-          "inputTokens": 12176,
+          "inputTokens": 12174,
           "cachedInputTokens": 8960,
           "outputTokens": 21,
-          "latencyMs": 4001,
+          "latencyMs": 4133,
           "modelEvidenceSource": "adapter_requested",
           "cost": {
             "state": "measured",
-            "usd": 0.004238,
+            "usd": 0.004236,
             "source": "subagent_usage_and_pinned_price"
           }
         }
@@ -323,7 +323,7 @@
         }
       },
       "report": {
-        "issueId": "3de520a2-56e3-46f5-8bc7-2bede19ba7a6",
+        "issueId": "48bc9c85-206f-4f80-9029-67aac49b521b",
         "state": "completed",
         "summary": "state=completed; changedFiles=1; verification=passed",
         "naiaCommentary": "Completed. Changed files: math.mjs. Verification: passed.",
@@ -333,7 +333,7 @@
         "verificationPassed": true,
         "totalCost": {
           "state": "measured",
-          "usd": 0.32704,
+          "usd": 0.248749,
           "source": "sum_of_persisted_actor_receipts"
         }
       },
@@ -352,18 +352,18 @@
           "provider": "openai-codex",
           "model": "gpt-5.6-sol",
           "reasoningEffort": "low",
-          "sessionId": "019fbf24-8d7c-7851-a691-9b458cdd3840",
-          "executionId": "b2cd6234-f048-4315-8cee-099f0252e1ed",
-          "idempotencyKey": "3de520a2-56e3-46f5-8bc7-2bede19ba7a6:facing:classify",
+          "sessionId": "019fbf3c-4fdd-7562-ad37-f57c0869b73b",
+          "executionId": "2db8a5e0-03a1-4a0f-91f8-17c8efb8298c",
+          "idempotencyKey": "48bc9c85-206f-4f80-9029-67aac49b521b:facing:classify",
           "tokenCountsAvailable": true,
-          "inputTokens": 13601,
-          "cachedInputTokens": 13056,
+          "inputTokens": 13599,
+          "cachedInputTokens": 9984,
           "outputTokens": 30,
-          "latencyMs": 6343,
+          "latencyMs": 4948,
           "modelEvidenceSource": "adapter_requested",
           "cost": {
             "state": "measured",
-            "usd": 0.010153,
+            "usd": 0.023967,
             "source": "subagent_usage_and_pinned_price"
           }
         },
@@ -372,18 +372,18 @@
           "provider": "openai-codex",
           "model": "gpt-5.6-sol",
           "reasoningEffort": "high",
-          "sessionId": "019fbf24-a638-7f40-8fe4-ad535153e7a5",
-          "executionId": "c1c5a8d1-93d9-49da-90fb-47db26865f54",
-          "idempotencyKey": "3de520a2-56e3-46f5-8bc7-2bede19ba7a6:moderator:0",
+          "sessionId": "019fbf3c-6332-7d80-b4f7-c7d8bd195e5b",
+          "executionId": "ec04dc6a-863d-461f-8812-98cd2055d83c",
+          "idempotencyKey": "48bc9c85-206f-4f80-9029-67aac49b521b:moderator:0",
           "tokenCountsAvailable": true,
-          "inputTokens": 13637,
+          "inputTokens": 13635,
           "cachedInputTokens": 9984,
-          "outputTokens": 96,
-          "latencyMs": 6210,
+          "outputTokens": 74,
+          "latencyMs": 7836,
           "modelEvidenceSource": "adapter_requested",
           "cost": {
             "state": "measured",
-            "usd": 0.026137,
+            "usd": 0.025467,
             "source": "subagent_usage_and_pinned_price"
           }
         },
@@ -392,18 +392,18 @@
           "provider": "openai-codex",
           "model": "gpt-5.6-sol",
           "reasoningEffort": "high",
-          "sessionId": "019fbf24-be81-7341-9fc3-b29d6ffbf4e6",
-          "executionId": "df0ec52d-563c-4d3d-9c42-499467818da3",
-          "idempotencyKey": "3de520a2-56e3-46f5-8bc7-2bede19ba7a6:dispatch:1",
+          "sessionId": "019fbf3c-8193-76b0-872c-9dab6b46affe",
+          "executionId": "39a63850-967b-466c-baa3-ff273b7d5266",
+          "idempotencyKey": "48bc9c85-206f-4f80-9029-67aac49b521b:dispatch:1",
           "tokenCountsAvailable": true,
-          "inputTokens": 178917,
-          "cachedInputTokens": 148736,
-          "outputTokens": 1393,
-          "latencyMs": 51371,
+          "inputTokens": 113136,
+          "cachedInputTokens": 93696,
+          "outputTokens": 1053,
+          "latencyMs": 39443,
           "modelEvidenceSource": "adapter_requested",
           "cost": {
             "state": "measured",
-            "usd": 0.267063,
+            "usd": 0.175638,
             "source": "codex_usage_and_pinned_price"
           }
         },
@@ -411,14 +411,14 @@
           "role": "verifier",
           "provider": "deterministic",
           "model": "command-verifier",
-          "sessionId": "47703da9-1ff3-48a5-b073-ff374417aaf5",
-          "executionId": "bf33d411-d5c7-4836-bb0d-4572cd32d477",
-          "idempotencyKey": "3de520a2-56e3-46f5-8bc7-2bede19ba7a6:verify:1",
+          "sessionId": "b8bed8b9-989e-4ab5-a356-648b16232651",
+          "executionId": "e0061f17-f9ce-4a92-9520-fbc68b08a703",
+          "idempotencyKey": "48bc9c85-206f-4f80-9029-67aac49b521b:verify:1",
           "tokenCountsAvailable": true,
           "inputTokens": 0,
           "cachedInputTokens": 0,
           "outputTokens": 0,
-          "latencyMs": 140,
+          "latencyMs": 165,
           "cost": {
             "state": "measured",
             "usd": 0,
@@ -430,18 +430,18 @@
           "provider": "openai-codex",
           "model": "gpt-5.6-sol",
           "reasoningEffort": "low",
-          "sessionId": "019fbf25-87b9-7f32-bd12-f0a885cc088c",
-          "executionId": "803d6e7f-cfbc-42e8-ab8b-d1bb6fce11d9",
-          "idempotencyKey": "3de520a2-56e3-46f5-8bc7-2bede19ba7a6:report:1",
+          "sessionId": "019fbf3d-1c96-72a1-baaf-d9f70963ef33",
+          "executionId": "edef54a5-b5f9-4a7e-af83-cc41d7a67214",
+          "idempotencyKey": "48bc9c85-206f-4f80-9029-67aac49b521b:report:1",
           "tokenCountsAvailable": true,
-          "inputTokens": 13597,
+          "inputTokens": 13595,
           "cachedInputTokens": 9984,
           "outputTokens": 21,
-          "latencyMs": 5592,
+          "latencyMs": 4792,
           "modelEvidenceSource": "adapter_requested",
           "cost": {
             "state": "measured",
-            "usd": 0.023687,
+            "usd": 0.023677,
             "source": "subagent_usage_and_pinned_price"
           }
         }
@@ -468,8 +468,8 @@
   },
   "comparison": {
     "claimAllowed": true,
-    "lunaProxyUsd": 0.10096800000000002,
-    "allSolUsd": 0.32704,
-    "savingsUsd": 0.226072
+    "lunaProxyUsd": 0.1153415,
+    "allSolUsd": 0.248749,
+    "savingsUsd": 0.1334075
   }
 }

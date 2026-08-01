@@ -3,7 +3,7 @@
   "use_case": "UC-ORCH-001",
   "branch": "feat/naia-single-issue-vertical",
   "baseline_revision": "c424be65d22891f0f158395428d915031cf8e412",
-  "implementation_revision": "ca6b6232ba1ce590581cc890aa949ac2b22d9cbd",
+  "implementation_revision": "d0bbbe04353f50d969af16e4ea541ebd11ae862c",
   "charter": {
     "path": "/var/home/luke/alpha-adk-worktrees/naia-orchestration-sot/.agents/context/naia-development-orchestration.yaml",
     "sha256": "3707ebf9a593caf0c86eef8a6faa75bd271f2e6c990f3f125521a82dfbe7f8e5",
@@ -51,6 +51,9 @@
       "reject legacy snapshots lacking the obligation contract before actor dispatch",
       "construct paid receipts before rejecting provider, model, or reasoning drift",
       "persist structurally valid rejected receipts even when their binding differs",
+      "reject duplicate or reordered moderator acceptance checks",
+      "preserve Pi model and usage evidence when a provider/model mismatch ends the session as failed",
+      "revalidate every declared acceptance check in the core orchestrator before completion",
       "commit the exact accepted benchmark evidence and this review ledger before declaring Done"
     ],
     "targeted_clean": [
@@ -60,8 +63,28 @@
         "reasoning": "low",
         "scope": "rejected actor receipt persistence and binding enforcement",
         "output_sha256": "3cd9f2deeca40eda019f1a09d644ea46325d24e02924b56281f543374cb09207"
+      },
+      {
+        "revision": "a80ac68",
+        "model": "gpt-5.6-terra",
+        "reasoning": "low",
+        "scope": "exact acceptance checks and Pi failed-session receipt preservation",
+        "output_sha256": "508c3b9ca0c2cd3f1bc08e541eaea34d2ae52860b483787b169566536f0a1780"
+      },
+      {
+        "revision": "d0bbbe0",
+        "model": "gpt-5.6-terra",
+        "reasoning": "low",
+        "scope": "core verification completeness",
+        "output_sha256": "508c3b9ca0c2cd3f1bc08e541eaea34d2ae52860b483787b169566536f0a1780"
       }
     ],
+    "prebenchmark_code_clean": {
+      "revision": "d0bbbe04353f50d969af16e4ea541ebd11ae862c",
+      "model": "gpt-5.6-terra",
+      "reasoning": "medium",
+      "output_sha256": "508c3b9ca0c2cd3f1bc08e541eaea34d2ae52860b483787b169566536f0a1780"
+    },
     "integration_clean_before_evidence_commit": [
       {
         "revision": "ca6b6232ba1ce590581cc890aa949ac2b22d9cbd",
@@ -96,14 +119,14 @@
         "reason": "all-Sol worker exceeded the USD 0.20 per-call reservation; claim was forbidden and USD 0.352556 observed spend was retained"
       },
       {
-        "path": "benchmark/results/single-issue-live-1785618341008.json",
-        "sha256": "31777f13074d7ff5410c4db6919ba709e381073bda03818cabc33b01f5e3056c",
+        "path": "benchmark/results/single-issue-live-1785619885488.json",
+        "sha256": "dd636efc7a8bd92010adadaf860cb0663b62fcb619e6dd773e9e30b465ed46c5",
         "status": "accepted",
-        "source_revision": "ca6b6232ba1ce590581cc890aa949ac2b22d9cbd",
-        "luna_proxy_usd": 0.10096800000000002,
-        "all_sol_usd": 0.32704,
-        "savings_usd": 0.226072,
-        "observed_spend_usd": 0.42800800000000006,
+        "source_revision": "d0bbbe04353f50d969af16e4ea541ebd11ae862c",
+        "luna_proxy_usd": 0.1153415,
+        "all_sol_usd": 0.248749,
+        "savings_usd": 0.1334075,
+        "observed_spend_usd": 0.3640905,
         "all_hard_gates": true,
         "hard_provider_dollar_ceiling": false
       }
@@ -111,7 +134,7 @@
   },
   "verification": {
     "build": "PASS",
-    "full_regression": "130 files passed; 1489 tests passed; 9 opt-in tests skipped; two documented environment-sensitive baseline process tests excluded",
+    "full_regression": "130 files passed; 1491 tests passed; 9 opt-in tests skipped; two documented environment-sensitive baseline process tests excluded",
     "targeted": "sub-agent actor and single-issue integration suites passed after the final receipt fixes",
     "artifact_permissions": "0600",
     "artifact_secret_scan": "PASS",

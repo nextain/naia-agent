@@ -562,6 +562,6 @@ The Agent and Gateway preserve these codes end to end:
   Codex CLI receipts prove the exact requested model/profile arguments, not provider-internal backend
   routing, because its JSONL protocol does not expose an independently observed backend model id.
 - **Status**: Done for the declared library/composition and paired-benchmark scope. Evidence:
-  `benchmark/results/single-issue-live-1785618341008.json` (source revision `ca6b623`) and
+  `benchmark/results/single-issue-live-1785619885488.json` (source revision `d0bbbe0`) and
   `.agents/reviews/r-req-021-single-issue-vertical-2026-08-02.json`. Production ingress and
   naia-shell integration remain the explicitly deferred next phase.
