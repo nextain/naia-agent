@@ -380,10 +380,9 @@ export class PersonalRadioDjController {
     if (!played.ok) {
       await this.speak("지금은 조건에 맞는 음악을 재생하지 못했어요.");
       if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
-      this.currentState = "idle";
-      this.cancelLease();
-      this.d.speech.close(activityId, "finished");
-      this.armIdle();
+      // A player timeout is recoverable. Keep the long-lived activity route so
+      // `next` / `change_vibe` can retry instead of ACKing against a stale ID.
+      this.currentState = "music_only";
       return;
     }
     this.currentState = "playing";
