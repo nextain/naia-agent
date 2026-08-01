@@ -199,9 +199,6 @@ async function runJson(options: JsonActorOptions, role: ActorReceipt["role"], id
   if (signal.aborted && !ok) throw new Error(`${role} actor cancelled`);
   if (!ok) throw new Error(`${role} actor did not complete`);
   if (!evidence?.sessionId || !evidence.executionId) throw new Error(`${role} actor receipt identity unavailable`);
-  if (evidence.provider !== options.binding.provider || evidence.selectedModel !== options.binding.model) {
-    throw new Error(`${role} actor binding mismatch`);
-  }
   const completedAt = now();
   const usageAvailable = evidence.usageAvailable === true;
   const receipt: ActorReceipt = {
@@ -222,6 +219,10 @@ async function runJson(options: JsonActorOptions, role: ActorReceipt["role"], id
       ? { state: "measured", usd: evidence.measuredCostUsd, source: "subagent_usage_and_pinned_price" }
       : { state: "unavailable", reason: "actor adapter did not receive priced usage" },
   };
+  if (evidence.provider !== options.binding.provider || evidence.selectedModel !== options.binding.model
+    || evidence.reasoningEffort !== options.binding.reasoningEffort) {
+    throw new IssueActorResultError(`${role} actor binding mismatch`, receipt);
+  }
   return withReceipt(receipt, () => ({ value: parseJsonObject(text), receipt }));
 }
 

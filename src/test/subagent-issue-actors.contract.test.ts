@@ -103,6 +103,24 @@ describe("UC-ORCH-001 sub-agent issue actors", () => {
     });
   });
 
+  it("attaches the completed paid receipt when actor binding evidence drifts", async () => {
+    const facing = makeSubAgentNaiaFacing({
+      subAgent: actor('{"kind":"work","obligations":["fix"]}', "gpt-5.6-sol"),
+      binding, workdir: "/workspace", diag,
+    });
+    const error = await facing.classify({
+      requestId: "r", idempotencyKey: "k:binding-drift", text: "fix", requiredObligations: ["fix"], signal: signal(),
+    }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(IssueActorResultError);
+    expect(error).toMatchObject({
+      message: expect.stringContaining("binding mismatch"),
+      receipt: {
+        role: "naia", provider: "openai-codex", model: "gpt-5.6-sol", reasoningEffort: "high",
+        idempotencyKey: "k:binding-drift", cost: { state: "measured", usd: 0.002 },
+      },
+    });
+  });
+
   it("grounds reporter fields in persisted evidence and prices deterministic verification at zero", async () => {
     const issue = {
       version: 1, requestId: "r", requestDigest: "d", issueId: "i", originalText: "fix", requiredObligations: ["fix"], workspacePath: "/workspace",
