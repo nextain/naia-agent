@@ -57,8 +57,10 @@ hard gate.
 - The provider-neutral state machine, SQLite snapshot/event store, strict JSON actors, managed-worktree
   worker composition, separate verifier, and grounded reporter are implemented behind ports.
 - Provider output may choose conversational execution, but terminal state, changed files, verification,
-  and summary claims are reconstructed deterministically from the persisted snapshot. Credential-shaped
-  request text is redacted before SQLite persistence and actor relay.
+  and authoritative summary claims are reconstructed deterministically from the persisted snapshot.
+  Naia's evidence-fed narrative is retained separately as non-authoritative commentary, so the paid
+  reporter contributes to the user report without controlling terminal facts. Credential-shaped request
+  text is redacted before SQLite persistence and actor relay.
 - Codex `turn.completed` evidence now survives the shared subprocess terminal path, including thread,
   execution, cached-input, output, and priced-usage fields. Requested model and role bindings fail
   closed on adapter request drift; reasoning effort is pinned separately from model id. The receipt

@@ -79,6 +79,8 @@ export interface IssueVerification {
 export interface IssueReport {
   readonly state: IssueTerminalState | "awaiting_user" | "chat";
   readonly summary: string;
+  /** Naia-authored narrative from durable evidence; never authoritative for state or verification. */
+  readonly naiaCommentary?: string;
   readonly issueId?: string;
   readonly question?: ModeratorQuestion;
   readonly changedFiles: readonly string[];

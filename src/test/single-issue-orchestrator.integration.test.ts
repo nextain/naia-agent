@@ -36,10 +36,11 @@ function request(requestId = "request-1", text = "Fix the parser and run its tes
   };
 }
 
-function harness(options: { chat?: boolean; question?: boolean; workerThrows?: boolean; unavailableCost?: boolean; badFacingBinding?: boolean; verificationFails?: boolean; workerProfile?: string } = {}) {
+function harness(options: { chat?: boolean; question?: boolean; multipleQuestions?: boolean; workerThrows?: boolean; unavailableCost?: boolean; badFacingBinding?: boolean; verificationFails?: boolean; workerProfile?: string; malformedReceipt?: "cached" | "cost" | "unavailable" } = {}) {
   const root = mkdtempSync(join(tmpdir(), "single-issue-")); roots.push(root);
   const store = new SqliteIssueOrchestrationStore(join(root, "issues.db"));
   const calls = { facing: 0, moderator: 0, worker: 0, verifier: 0, reporter: 0 };
+  let seenFacingText = "";
   let actor = 0;
   const deps: SingleIssueOrchestratorDeps = {
     store,
@@ -47,6 +48,7 @@ function harness(options: { chat?: boolean; question?: boolean; workerThrows?: b
     now: (() => { let n = 0; return () => `2026-08-01T00:00:${String(n++).padStart(2, "0")}Z`; })(),
     facing: { async classify(input) {
       calls.facing += 1; actor += 1;
+      seenFacingText = input.text;
       return {
         classification: options.chat
           ? { kind: "chat", obligations: [], chatReply: "hello" }
@@ -58,10 +60,19 @@ function harness(options: { chat?: boolean; question?: boolean; workerThrows?: b
     } },
     moderator: { async plan(input) {
       calls.moderator += 1; actor += 1;
-      const questions = options.question && input.answers.length === 0 ? [{ questionId: "q-1", text: "Which parser?" }] : [];
+      const questions = options.question
+        ? [{ questionId: "q-1", text: "Which parser?" }, ...(options.multipleQuestions ? [{ questionId: "q-2", text: "Which test?" }] : [])]
+        : [];
+      const moderatorReceipt = receipt("moderator", input.idempotencyKey, actor);
       return {
         plan: { workerTask: "Fix src/parser.ts", workerProfile: options.workerProfile ?? "balanced", acceptanceChecks: ["parser tests pass"], questions },
-        receipt: receipt("moderator", input.idempotencyKey, actor),
+        receipt: options.malformedReceipt === "cached"
+          ? { ...moderatorReceipt, cachedInputTokens: moderatorReceipt.inputTokens + 1 }
+          : options.malformedReceipt === "cost"
+            ? { ...moderatorReceipt, cost: { state: "measured", usd: Number.NaN, source: "fixture" } }
+            : options.malformedReceipt === "unavailable"
+              ? { ...moderatorReceipt, tokenCountsAvailable: false }
+              : moderatorReceipt,
       };
     } },
     worker: { async execute(input) {
@@ -88,7 +99,7 @@ function harness(options: { chat?: boolean; question?: boolean; workerThrows?: b
       };
     } },
   };
-  return { root, store, calls, orchestrator: new SingleIssueOrchestrator(deps), deps };
+  return { root, store, calls, get seenFacingText() { return seenFacingText; }, orchestrator: new SingleIssueOrchestrator(deps), deps };
 }
 
 describe("UC-ORCH-001 single issue", () => {
@@ -143,6 +154,25 @@ describe("UC-ORCH-001 single issue", () => {
     const done = await h.orchestrator.answer("issue-0001", "q-1", "The JSON parser");
     expect(done.state).toBe("completed");
     expect(h.orchestrator.snapshot("issue-0001").answers).toEqual([{ questionId: "q-1", text: "The JSON parser" }]);
+    h.store.close();
+  });
+
+  it("accepts moderator questions only in their presented order", async () => {
+    const h = harness({ question: true, multipleQuestions: true });
+    const first = await h.orchestrator.start(request("request-question-order"));
+    expect(first.question?.questionId).toBe("q-1");
+    await expect(h.orchestrator.answer("issue-0001", "q-2", "unit test"))
+      .rejects.toBeInstanceOf(IssueQuestionMismatchError);
+    const second = await h.orchestrator.answer("issue-0001", "q-1", "JSON parser");
+    expect(second).toMatchObject({ state: "awaiting_user", question: { questionId: "q-2" } });
+    const done = await h.orchestrator.answer("issue-0001", "q-2", "unit test");
+    expect(done.state).toBe("completed");
+    h.store.close();
+  });
+
+  it.each(["cached", "cost", "unavailable"] as const)("rejects internally inconsistent %s receipts", async (malformedReceipt) => {
+    const h = harness({ malformedReceipt });
+    await expect(h.orchestrator.start(request(`request-bad-receipt-${malformedReceipt}`))).rejects.toThrow(/receipt/);
     h.store.close();
   });
 
@@ -219,6 +249,7 @@ describe("UC-ORCH-001 single issue", () => {
     const report = await h.orchestrator.start(request("request-failed-report"));
     expect(report).toMatchObject({
       state: "failed", summary: "state=failed; changedFiles=1; verification=failed",
+      naiaCommentary: "all checks passed",
       changedFiles: ["src/parser.ts"], verificationPassed: false,
     });
     h.store.close();
@@ -227,6 +258,7 @@ describe("UC-ORCH-001 single issue", () => {
   it("redacts credential-shaped text before durable persistence", async () => {
     const h = harness({ chat: true });
     await h.orchestrator.start(request("request-secret", "rotate api_key=super-secret-value-now"));
+    expect(h.seenFacingText).toBe("rotate api_key=[REDACTED]");
     const serialized = JSON.stringify(h.orchestrator.snapshot("issue-0001"));
     expect(serialized).not.toContain("super-secret-value-now");
     expect(serialized).toContain("[REDACTED]");

@@ -53,8 +53,8 @@ export class SingleIssueOrchestrator {
 
   async answer(issueId: string, questionId: string, answer: string, signal: AbortSignal = new AbortController().signal): Promise<IssueReport> {
     const issue = this.required(issueId);
-    const pending = issue.plan?.questions.find((question) => question.questionId === questionId);
-    if (issue.state !== "awaiting_user" || !pending || !answer.trim()) throw new IssueQuestionMismatchError("answer does not match the pending issue question");
+    const pending = issue.plan?.questions.find((question) => !issue.answers.some((prior) => prior.questionId === question.questionId));
+    if (issue.state !== "awaiting_user" || pending?.questionId !== questionId || !answer.trim()) throw new IssueQuestionMismatchError("answer does not match the pending issue question");
     const updated = this.save(issue, {
       ...issue,
       state: "planning",
@@ -253,6 +253,7 @@ export class SingleIssueOrchestrator {
           issueId,
           state: terminal,
           summary: groundedSummary(issue, terminal),
+          ...(result.report.summary.trim() ? { naiaCommentary: result.report.summary.trim() } : {}),
           changedFiles: issue.worker?.changedFiles ?? [],
           verificationPassed: issue.verification?.ok ?? null,
           totalCost: totalIssueCost(receipts),
@@ -353,9 +354,17 @@ function assertReceipt(receipt: ActorReceipt, role: ActorReceipt["role"], expect
   if (receipt.role !== role || !receipt.sessionId || !receipt.executionId || receipt.idempotencyKey !== expectedKey) throw new Error(`invalid ${role} receipt`);
   if (binding && (receipt.provider !== binding.provider || receipt.model !== binding.model)) throw new Error(`invalid ${role} binding receipt`);
   if (binding?.reasoningEffort && receipt.reasoningEffort !== binding.reasoningEffort) throw new Error(`invalid ${role} reasoning receipt`);
-  for (const value of [receipt.inputTokens, receipt.cachedInputTokens, receipt.outputTokens, receipt.latencyMs]) {
-    if (!Number.isFinite(value) || value < 0) throw new Error(`invalid ${role} receipt accounting`);
+  for (const value of [receipt.inputTokens, receipt.cachedInputTokens, receipt.outputTokens]) {
+    if (!Number.isSafeInteger(value) || value < 0) throw new Error(`invalid ${role} receipt accounting`);
   }
+  if (!Number.isFinite(receipt.latencyMs) || receipt.latencyMs < 0 || receipt.cachedInputTokens > receipt.inputTokens) throw new Error(`invalid ${role} receipt accounting`);
+  if (!receipt.tokenCountsAvailable && (receipt.inputTokens !== 0 || receipt.cachedInputTokens !== 0 || receipt.outputTokens !== 0 || receipt.cost.state === "measured")) {
+    throw new Error(`invalid ${role} unavailable usage receipt`);
+  }
+  if (receipt.cost.state === "measured" && (!Number.isFinite(receipt.cost.usd) || receipt.cost.usd < 0 || !receipt.cost.source.trim())) {
+    throw new Error(`invalid ${role} measured cost receipt`);
+  }
+  if (receipt.cost.state === "unavailable" && !receipt.cost.reason.trim()) throw new Error(`invalid ${role} unavailable cost receipt`);
 }
 
 function assertPlan(plan: import("../domain/issue-orchestration.js").ModeratorPlan): void {
