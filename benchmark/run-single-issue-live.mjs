@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -38,6 +38,8 @@ const diag = { log(message, detail) { console.error(`[diag] ${message}`, detail 
 const tempRoot = mkdtempSync(join(tmpdir(), "naia-orch-live-"));
 let observedSpendUsd = 0;
 const chargedReceipts = new Set();
+const maxPaidCalls = 8;
+let paidCalls = 0;
 
 function git(args, cwd) { execFileSync("git", args, { cwd, stdio: "ignore" }); }
 function fixture(routeId) {
@@ -57,7 +59,9 @@ function budgeted(port, method, paid = true) {
   return {
     ...port,
     async [method](input) {
+      if (paid && paidCalls >= maxPaidCalls) throw new Error(`benchmark paid-call limit reached before ${method}`);
       if (paid && observedSpendUsd + reservedCallUsd > maxUsd) throw new Error(`benchmark reserved call budget unavailable before ${method}`);
+      if (paid) paidCalls += 1;
       const result = await port[method](input);
       const receipt = result.receipt;
       if (!receipt || receipt.cost.state !== "measured") throw new Error(`benchmark ${method} cost unavailable`);
@@ -86,7 +90,7 @@ async function runRoute(routeId, route) {
   const moderatorBinding = { provider: "openai-codex", model: route.moderator, reasoningEffort: route.moderatorReasoning };
   const orchestrator = new SingleIssueOrchestrator({
     store,
-    facing: budgeted(makeSubAgentNaiaFacing({ subAgent: priced(route.naia, route.naiaReasoning), binding: facingBinding, timeoutMs: actorTimeoutMs, workdir: repo, diag }), "classify"),
+    facing: budgeted(makeSubAgentNaiaFacing({ subAgent: priced(route.naia, route.naiaReasoning), binding: facingBinding, requiredObligations: pairedCase.obligations, timeoutMs: actorTimeoutMs, workdir: repo, diag }), "classify"),
     moderator: budgeted(makeSubAgentDevelopmentModerator({ subAgent: priced(route.moderator, route.moderatorReasoning), binding: moderatorBinding, allowedWorkerProfiles: [route.workerProfile], allowedAcceptanceChecks: pairedCase.acceptanceChecks, timeoutMs: actorTimeoutMs, workdir: repo, diag }), "plan"),
     worker: budgeted(makeSupervisedIssueWorker({
       worktrees: makeGitCodingJobWorktrees({ allowedWorkspaceRoot: tempRoot, worktreeRoot }),
@@ -131,10 +135,11 @@ try {
   const comparison = bothPass
     ? { claimAllowed: true, lunaProxyUsd: cost(lunaProxy), allSolUsd: cost(allSol), savingsUsd: cost(allSol) - cost(lunaProxy) }
     : { claimAllowed: false, lunaProxyUsd: null, allSolUsd: null, savingsUsd: null, reason: "quality or receipt hard gate failed" };
-  const result = { schemaVersion: 1, benchmarkId: corpus.benchmarkId, caseId: pairedCase.id, executedAt: new Date().toISOString(), budget: { maxObservedSpendUsd: maxUsd, reservedCallUsd, actorTimeoutMs, observedSpendUsd }, corpus, runs: { lunaProxy, allSol }, comparison };
+  const result = { schemaVersion: 1, benchmarkId: corpus.benchmarkId, caseId: pairedCase.id, executedAt: new Date().toISOString(), budget: { observedSpendStopThresholdUsd: maxUsd, reservedCallUsd, actorTimeoutMs, maxPaidCalls, paidCalls, observedSpendUsd, hardProviderDollarCeiling: false }, corpus, runs: { lunaProxy, allSol }, comparison };
   const output = resolve(process.env.NAIA_ORCH_OUT ?? join(here, "results", `single-issue-live-${Date.now()}.json`));
   mkdirSync(dirname(output), { recursive: true });
   writeFileSync(output, `${JSON.stringify(result, null, 2)}\n`, { mode: 0o600 });
+  chmodSync(output, 0o600);
   console.log(JSON.stringify({ output, comparison, hardGates: { lunaProxy: lunaProxy.hardGates, allSol: allSol.hardGates } }, null, 2));
   if (!bothPass) process.exitCode = 1;
 } finally {

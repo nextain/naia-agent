@@ -24,6 +24,7 @@ interface JsonActorOptions {
   readonly allowedWorkerProfiles?: readonly string[];
   readonly allowedAcceptanceChecks?: readonly string[];
   readonly timeoutMs?: number;
+  readonly requiredObligations?: readonly string[];
 }
 
 export function makeSubAgentNaiaFacing(options: JsonActorOptions): NaiaFacingPort {
@@ -32,14 +33,21 @@ export function makeSubAgentNaiaFacing(options: JsonActorOptions): NaiaFacingPor
       const prompt = [
         "You are Naia's low-cost conversational front layer, not a coding planner.",
         "Classify the input as chat or work and preserve every explicit work obligation verbatim, in source order.",
+        ...(options.requiredObligations ? [`For this frozen case, return this exact ordered obligation array for work: ${JSON.stringify(options.requiredObligations)}.`] : []),
         "Return JSON only: {\"kind\":\"chat|work\",\"obligations\":[\"...\"],\"chatReply\":\"... optional for chat\"}.",
         `Input: ${JSON.stringify(input.text)}`,
       ].join("\n");
       const result = await runJson(options, "naia", input.idempotencyKey, prompt);
       const kind = result.value.kind === "chat" ? "chat" : result.value.kind === "work" ? "work" : undefined;
       if (!kind || !Array.isArray(result.value.obligations) || result.value.obligations.some((item) => typeof item !== "string")) throw new Error("Naia classification schema mismatch");
+      const obligations = result.value.obligations as string[];
+      if (kind === "work" && options.requiredObligations
+        && (obligations.length !== options.requiredObligations.length
+          || options.requiredObligations.some((item, index) => obligations[index] !== item))) {
+        throw new Error("Naia obligation binding mismatch");
+      }
       const classification: IssueClassification = {
-        kind, obligations: result.value.obligations as string[],
+        kind, obligations,
         ...(typeof result.value.chatReply === "string" ? { chatReply: result.value.chatReply } : {}),
       };
       return { classification, receipt: result.receipt };

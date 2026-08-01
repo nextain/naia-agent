@@ -14,12 +14,12 @@
     "issue_doc": "docs/progress/99.dev-comm/UC-ORCH-001-single-issue-vertical-contract-2026-08-01.md",
     "github_issue": null,
     "started": "2026-08-01",
-    "last_updated": "2026-08-01T22:00:00+09:00",
+    "last_updated": "2026-08-01T23:25:00+09:00",
     "status": "in_progress",
     "branch": "feat/naia-single-issue-vertical",
     "baseline": "c424be65d22891f0f158395428d915031cf8e412",
     "handoff_note": "Naia-facing Luna proxy -> Sol development moderator -> one isolated issue -> one Codex worker -> verification -> evidence-grounded Naia report.",
-    "baseline_verification": "build passed; feature-relevant tests 50/50 passed after review fixes; full regression excluding two known baseline process tests passed 1437 with 9 skipped; compile/logging/traceability/terminology pass; global file-anchor gate retains the same 29 pre-existing drift entries"
+    "baseline_verification": "build passed; feature-relevant tests 54/54 passed after review fixes; full regression excluding two known baseline process tests passed 1451 with 9 skipped; compile/logging/traceability/terminology pass; global file-anchor gate retains the same 29 pre-existing drift entries"
   },
 
   "sdlc_gates": {

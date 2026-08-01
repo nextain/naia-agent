@@ -43,13 +43,7 @@ export class SingleIssueOrchestrator {
 
   async start(request: IssueStartRequest, signal: AbortSignal = new AbortController().signal): Promise<IssueReport> {
     validateStart(request);
-    const requestDigest = digest(JSON.stringify({
-      text: request.text,
-      workspacePath: request.workspacePath,
-      naiaBinding: request.naiaBinding,
-      moderatorBinding: request.moderatorBinding,
-      workerProfiles: request.workerProfiles,
-    }));
+    const requestDigest = digest(requestFingerprint(request));
     const existing = this.d.store.getByRequestId(request.requestId);
     if (existing && existing.requestDigest !== requestDigest) throw new IssueRequestConflictError("request id was reused with different content");
     const issue = existing ?? this.d.store.create(request, { issueId: this.#ids(), requestDigest, now: this.#now() });
@@ -148,9 +142,20 @@ export class SingleIssueOrchestrator {
         });
         assertReceipt(result.receipt, "moderator", `${issue.issueId}:moderator:${issue.answers.length}`, issue.moderatorBinding);
         assertIndependent(issue.receipts, result.receipt);
-        assertPlan(result.plan);
+        const moderatorReceipts = appendReceipt(issue.receipts, result.receipt);
+        try { assertPlan(result.plan); } catch (error) {
+          issue = this.save(issue, {
+            ...issue, state: "failed", plan: result.plan, receipts: moderatorReceipts, updatedAt: this.#now(),
+          }, "moderator_plan_rejected", { category: errorName(error) });
+          return this.grounded(issue);
+        }
         const workerBinding = issue.workerProfiles[result.plan.workerProfile];
-        if (!workerBinding) throw new Error("moderator selected an unavailable worker profile");
+        if (!workerBinding) {
+          issue = this.save(issue, {
+            ...issue, state: "failed", plan: result.plan, receipts: moderatorReceipts, updatedAt: this.#now(),
+          }, "moderator_profile_rejected", { profileId: result.plan.workerProfile });
+          return this.grounded(issue);
+        }
         const unanswered = result.plan.questions.filter((question) => !issue.answers.some((answer) => answer.questionId === question.questionId));
         const nextState = unanswered.length > 0 ? "awaiting_user" : "dispatch_ready";
         issue = this.save(issue, {
@@ -159,7 +164,7 @@ export class SingleIssueOrchestrator {
           plan: result.plan,
           workerBinding,
           dispatchId: nextState === "dispatch_ready" ? issue.dispatchId ?? `${issue.issueId}:dispatch:1` : issue.dispatchId,
-          receipts: appendReceipt(issue.receipts, result.receipt),
+          receipts: moderatorReceipts,
           updatedAt: this.#now(),
         }, nextState === "awaiting_user" ? "moderator_question" : "plan_ready", {
           questionCount: unanswered.length, profileId: result.plan.workerProfile,
@@ -244,7 +249,14 @@ export class SingleIssueOrchestrator {
         assertReceipt(result.receipt, "reporter", `${issue.issueId}:report:1`, issue.naiaBinding);
         assertIndependent(issue.receipts, result.receipt);
         const receipts = appendReceipt(issue.receipts, result.receipt);
-        const report: IssueReport = { ...result.report, issueId, state: terminal, totalCost: totalIssueCost(receipts) };
+        const report: IssueReport = {
+          issueId,
+          state: terminal,
+          summary: groundedSummary(issue, terminal),
+          changedFiles: issue.worker?.changedFiles ?? [],
+          verificationPassed: issue.verification?.ok ?? null,
+          totalCost: totalIssueCost(receipts),
+        };
         issue = this.save(issue, { ...issue, state: terminal, report, receipts, updatedAt: this.#now() }, "issue_reported", { terminal });
         return report;
       }
@@ -307,6 +319,26 @@ function validateStart(request: IssueStartRequest): void {
 
 function digest(value: string): string { return createHash("sha256").update(value, "utf8").digest("hex"); }
 function errorName(error: unknown): string { return error instanceof Error ? error.name : "unknown"; }
+
+function requestFingerprint(request: IssueStartRequest): string {
+  const binding = (value: { provider: string; model: string; reasoningEffort?: string }) => ({
+    provider: value.provider, model: value.model, reasoningEffort: value.reasoningEffort ?? null,
+  });
+  return JSON.stringify({
+    text: request.text,
+    workspacePath: request.workspacePath,
+    naiaBinding: binding(request.naiaBinding),
+    moderatorBinding: binding(request.moderatorBinding),
+    workerProfiles: Object.fromEntries(Object.entries(request.workerProfiles).sort(([left], [right]) => left.localeCompare(right))
+      .map(([profileId, value]) => [profileId, binding(value)])),
+  });
+}
+
+function groundedSummary(issue: IssueSnapshot, terminal: "completed" | "failed"): string {
+  const files = issue.worker?.changedFiles.length ?? 0;
+  const verification = issue.verification?.ok === true ? "passed" : issue.verification?.ok === false ? "failed" : "not-run";
+  return `state=${terminal}; changedFiles=${files}; verification=${verification}`;
+}
 
 function assertReceipt(receipt: ActorReceipt, role: ActorReceipt["role"], expectedKey: string, binding?: { provider: string; model: string; reasoningEffort?: string }): void {
   if (receipt.role !== role || !receipt.sessionId || !receipt.executionId || receipt.idempotencyKey !== expectedKey) throw new Error(`invalid ${role} receipt`);

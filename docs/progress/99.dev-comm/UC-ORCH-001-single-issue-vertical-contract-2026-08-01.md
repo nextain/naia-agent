@@ -56,6 +56,9 @@ hard gate.
 
 - The provider-neutral state machine, SQLite snapshot/event store, strict JSON actors, managed-worktree
   worker composition, separate verifier, and grounded reporter are implemented behind ports.
+- Provider output may choose conversational execution, but terminal state, changed files, verification,
+  and summary claims are reconstructed deterministically from the persisted snapshot. Credential-shaped
+  request text is redacted before SQLite persistence and actor relay.
 - Codex `turn.completed` evidence now survives the shared subprocess terminal path, including thread,
   execution, cached-input, output, and priced-usage fields. Requested model and role bindings fail
   closed on provider/model/reasoning mismatch; reasoning effort is pinned separately from model id.
@@ -63,10 +66,12 @@ hard gate.
   unreconciled restart, cancellation, transport loss, unavailable cost, strict actor schemas, layer
   boundaries, worktree composition, and the benchmark claim gate.
 - The paid runner is opt-in and runs one frozen paired coding case only. It writes owner-only JSON and
-  requires explicit total and per-call reserved budgets plus per-actor time limits, and permits a
-  numeric savings comparison only when both compositions pass every quality and receipt gate.
+  fixes the paid call count at eight, requires explicit observed-spend/per-call reservation thresholds
+  plus per-actor time limits, and permits a numeric savings comparison only when both compositions pass
+  every quality and receipt gate. Codex CLI exposes no provider-side token/dollar ceiling, so the runner
+  labels this limitation explicitly instead of claiming a hard credit ceiling.
 - Full regression excluding two baseline environment-sensitive process tests: 130 files passed, 3
-  skipped; 1,437 tests passed, 9 skipped. The unchanged baseline failures are the management-doctor
+  skipped; 1,451 tests passed, 9 skipped. The unchanged baseline failures are the management-doctor
   status expectation and nested-ADK credential discovery in the Pi CLI process test. No credential
   value is retained in this document or benchmark artifact.
 - Repository gates: compile, logging, traceability, terminology, and new-file anchors pass. The global

@@ -2,6 +2,7 @@ import { chmodSync } from "node:fs";
 import Database from "better-sqlite3";
 import type { IssueEvent, IssueSnapshot, IssueStartRequest } from "../domain/issue-orchestration.js";
 import type { IssueOrchestrationStore } from "../ports/issue-orchestration.js";
+import { redactSecrets } from "./redact.js";
 
 type Row = Record<string, unknown>;
 
@@ -45,7 +46,7 @@ export class SqliteIssueOrchestrationStore implements IssueOrchestrationStore {
       requestId: request.requestId,
       requestDigest: input.requestDigest,
       issueId: input.issueId,
-      originalText: request.text,
+      originalText: redactSecrets(request.text),
       workspacePath: request.workspacePath,
       state: "accepted",
       naiaBinding: request.naiaBinding,

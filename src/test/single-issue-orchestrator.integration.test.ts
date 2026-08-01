@@ -35,7 +35,7 @@ function request(requestId = "request-1", text = "Fix the parser and run its tes
   };
 }
 
-function harness(options: { chat?: boolean; question?: boolean; workerThrows?: boolean; unavailableCost?: boolean; badFacingBinding?: boolean } = {}) {
+function harness(options: { chat?: boolean; question?: boolean; workerThrows?: boolean; unavailableCost?: boolean; badFacingBinding?: boolean; verificationFails?: boolean; workerProfile?: string } = {}) {
   const root = mkdtempSync(join(tmpdir(), "single-issue-")); roots.push(root);
   const store = new SqliteIssueOrchestrationStore(join(root, "issues.db"));
   const calls = { facing: 0, moderator: 0, worker: 0, verifier: 0, reporter: 0 };
@@ -59,7 +59,7 @@ function harness(options: { chat?: boolean; question?: boolean; workerThrows?: b
       calls.moderator += 1; actor += 1;
       const questions = options.question && input.answers.length === 0 ? [{ questionId: "q-1", text: "Which parser?" }] : [];
       return {
-        plan: { workerTask: "Fix src/parser.ts", workerProfile: "balanced", acceptanceChecks: ["parser tests pass"], questions },
+        plan: { workerTask: "Fix src/parser.ts", workerProfile: options.workerProfile ?? "balanced", acceptanceChecks: ["parser tests pass"], questions },
         receipt: receipt("moderator", input.idempotencyKey, actor),
       };
     } },
@@ -76,13 +76,13 @@ function harness(options: { chat?: boolean; question?: boolean; workerThrows?: b
     } },
     verifier: { async verify(input) {
       calls.verifier += 1; actor += 1;
-      return { ok: true, checks: [{ name: "parser tests pass", pass: true }], receipt: receipt("verifier", input.idempotencyKey, actor) };
+      return { ok: !options.verificationFails, checks: [{ name: "parser tests pass", pass: !options.verificationFails }], receipt: receipt("verifier", input.idempotencyKey, actor) };
     } },
     reporter: { async report(input) {
       calls.reporter += 1; actor += 1;
-      expect(input.events.map((event) => event.type)).toContain("verification_passed");
+      expect(input.events.map((event) => event.type)).toContain(options.verificationFails ? "verification_failed" : "verification_passed");
       return {
-        report: { state: "completed", summary: "1 file changed; verification passed", issueId: input.issue.issueId, changedFiles: ["src/parser.ts"], verificationPassed: true },
+        report: { state: "completed", summary: "all checks passed", issueId: input.issue.issueId, changedFiles: ["fake-success.ts"], verificationPassed: true },
         receipt: receipt("reporter", input.idempotencyKey, actor),
       };
     } },
@@ -109,7 +109,7 @@ describe("UC-ORCH-001 single issue", () => {
   it("preserves obligations, independent identities, verification, and grounded cost", async () => {
     const h = harness();
     const report = await h.orchestrator.start(request());
-    expect(report).toMatchObject({ state: "completed", changedFiles: ["src/parser.ts"], verificationPassed: true });
+    expect(report).toMatchObject({ state: "completed", summary: "state=completed; changedFiles=1; verification=passed", changedFiles: ["src/parser.ts"], verificationPassed: true });
     expect(report.totalCost).toMatchObject({ state: "measured", usd: 0.05 });
     const snapshot = h.orchestrator.snapshot("issue-0001");
     expect(snapshot.classification?.obligations).toEqual(["fix parser", "run tests"]);
@@ -152,6 +152,39 @@ describe("UC-ORCH-001 single issue", () => {
     reopened.close();
   });
 
+  it("treats worker-profile map key order as semantically identical", async () => {
+    const h = harness();
+    const firstRequest = {
+      ...request("request-profile-order"),
+      workerProfiles: {
+        balanced: { provider: "fixture", model: "fixture-model", reasoningEffort: "medium" },
+        economy: { provider: "fixture", model: "economy-model", reasoningEffort: "low" },
+      },
+    };
+    const first = await h.orchestrator.start(firstRequest);
+    const repeated = await h.orchestrator.start({
+      ...firstRequest,
+      workerProfiles: {
+        economy: firstRequest.workerProfiles.economy,
+        balanced: firstRequest.workerProfiles.balanced,
+      },
+    });
+    expect(repeated).toEqual(first);
+    expect(h.calls.worker).toBe(1);
+    h.store.close();
+  });
+
+  it("persists a paid moderator receipt before rejecting an unavailable profile", async () => {
+    const h = harness({ workerProfile: "not-configured" });
+    const report = await h.orchestrator.start(request("request-profile-rejected"));
+    expect(report).toMatchObject({ state: "failed", totalCost: { state: "measured", usd: 0.02 } });
+    const snapshot = h.orchestrator.snapshot("issue-0001");
+    expect(snapshot.receipts.map((item) => item.role)).toEqual(["naia", "moderator"]);
+    expect(h.store.events("issue-0001").at(-1)?.type).toBe("moderator_profile_rejected");
+    expect(h.calls.worker).toBe(0);
+    h.store.close();
+  });
+
   it("keeps cancellation and lost worker response honest and propagates unavailable cost", async () => {
     const question = harness({ question: true });
     const pending = await question.orchestrator.start(request());
@@ -168,6 +201,25 @@ describe("UC-ORCH-001 single issue", () => {
     const report = await cost.orchestrator.start(request("request-cost"));
     expect(report.totalCost).toMatchObject({ state: "unavailable" });
     cost.store.close();
+  });
+
+  it("overrides a contradictory reporter response with persisted failure evidence", async () => {
+    const h = harness({ verificationFails: true });
+    const report = await h.orchestrator.start(request("request-failed-report"));
+    expect(report).toMatchObject({
+      state: "failed", summary: "state=failed; changedFiles=1; verification=failed",
+      changedFiles: ["src/parser.ts"], verificationPassed: false,
+    });
+    h.store.close();
+  });
+
+  it("redacts credential-shaped text before durable persistence", async () => {
+    const h = harness({ chat: true });
+    await h.orchestrator.start(request("request-secret", "rotate api_key=super-secret-value-now"));
+    const serialized = JSON.stringify(h.orchestrator.snapshot("issue-0001"));
+    expect(serialized).not.toContain("super-secret-value-now");
+    expect(serialized).toContain("[REDACTED]");
+    h.store.close();
   });
 
   it("does not re-execute an unreconciled worker after process restart", async () => {
