@@ -72,11 +72,17 @@ export interface IssueOrchestrationStore {
   create(request: IssueStartRequest, input: { readonly issueId: string; readonly requestDigest: string; readonly now: string }): IssueSnapshot;
   get(issueId: string): IssueSnapshot | undefined;
   getByRequestId(requestId: string): IssueSnapshot | undefined;
+  /** Atomically acquires an expiring cross-process execution claim for one issue. */
+  tryAcquireExecution(issueId: string, ownerId: string, nowMs: number, expiresAtMs: number): boolean;
+  renewExecution(issueId: string, ownerId: string, expiresAtMs: number): boolean;
+  releaseExecution(issueId: string, ownerId: string): void;
   save(input: {
     readonly expectedVersion: number;
     readonly snapshot: IssueSnapshot;
     readonly eventType: string;
     readonly payload?: Readonly<Record<string, unknown>>;
+    readonly executionOwnerId?: string;
+    readonly executionNowMs?: number;
   }): IssueSnapshot;
   events(issueId: string): readonly IssueEvent[];
   close(): void;

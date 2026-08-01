@@ -130,6 +130,34 @@ describe("subagent-codex 어댑터 계약 (SPEC-010 확장, fake child)", () => 
     }
   });
 
+  it("passes only a minimal non-secret environment to the Codex child", () => {
+    const prior = {
+      OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+      AWS_SECRET_ACCESS_KEY: process.env.AWS_SECRET_ACCESS_KEY,
+      GH_TOKEN: process.env.GH_TOKEN,
+      NPM_TOKEN: process.env.NPM_TOKEN,
+    };
+    process.env.OPENAI_API_KEY = "openai-secret";
+    process.env.AWS_SECRET_ACCESS_KEY = "aws-secret";
+    process.env.GH_TOKEN = "github-secret";
+    process.env.NPM_TOKEN = "npm-secret";
+    try {
+      const f = fakeNdjson();
+      makeCodexSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn }).spawn({ prompt: "hi", workdir: "/tmp/w" });
+      expect(f.spawnArgs.env?.PATH).toBe(process.env.PATH);
+      expect(f.spawnArgs.env?.HOME).toBe(process.env.HOME);
+      expect(f.spawnArgs.env?.OPENAI_API_KEY).toBeUndefined();
+      expect(f.spawnArgs.env?.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+      expect(f.spawnArgs.env?.GH_TOKEN).toBeUndefined();
+      expect(f.spawnArgs.env?.NPM_TOKEN).toBeUndefined();
+    } finally {
+      for (const [key, value] of Object.entries(prior)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+
   it("malformed NDJSON 관용 (crash 없이 드롭) + file_change → tool_use_end", async () => {
     const f = fakeNdjson();
     const port = makeCodexSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn });

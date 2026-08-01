@@ -7,6 +7,7 @@ import { redactSecrets } from "./redact.js";
 type Row = Record<string, unknown>;
 
 export class IssueStoreConcurrencyError extends Error {}
+export class IssueStoreExecutionClaimError extends Error {}
 export class IssueStoreImmutableFieldError extends Error {}
 export class IssueStoreTerminalMutationError extends Error {}
 
@@ -37,6 +38,11 @@ export class SqliteIssueOrchestrationStore implements IssueOrchestrationStore {
         payload_json TEXT NOT NULL,
         created_at TEXT NOT NULL,
         PRIMARY KEY(issue_id, sequence)
+      );
+      CREATE TABLE IF NOT EXISTS issue_orchestration_execution_claims (
+        issue_id TEXT PRIMARY KEY REFERENCES issue_orchestration_snapshots(issue_id),
+        owner_id TEXT NOT NULL,
+        expires_at_ms INTEGER NOT NULL
       );
     `);
     this.chmodPrivateFiles();
@@ -81,11 +87,34 @@ export class SqliteIssueOrchestrationStore implements IssueOrchestrationStore {
     return row ? JSON.parse(String(row.snapshot_json)) as IssueSnapshot : undefined;
   }
 
+  tryAcquireExecution(issueId: string, ownerId: string, nowMs: number, expiresAtMs: number): boolean {
+    return this.transaction(() => {
+      const changed = this.#db.prepare(`INSERT INTO issue_orchestration_execution_claims (issue_id, owner_id, expires_at_ms)
+        VALUES (?, ?, ?)
+        ON CONFLICT(issue_id) DO UPDATE SET owner_id=excluded.owner_id, expires_at_ms=excluded.expires_at_ms
+        WHERE issue_orchestration_execution_claims.owner_id=excluded.owner_id
+          OR issue_orchestration_execution_claims.expires_at_ms<=?`).run(issueId, ownerId, expiresAtMs, nowMs);
+      return Number(changed.changes) === 1;
+    });
+  }
+
+  renewExecution(issueId: string, ownerId: string, expiresAtMs: number): boolean {
+    const changed = this.#db.prepare(`UPDATE issue_orchestration_execution_claims SET expires_at_ms=?
+      WHERE issue_id=? AND owner_id=?`).run(expiresAtMs, issueId, ownerId);
+    return Number(changed.changes) === 1;
+  }
+
+  releaseExecution(issueId: string, ownerId: string): void {
+    this.#db.prepare("DELETE FROM issue_orchestration_execution_claims WHERE issue_id=? AND owner_id=?").run(issueId, ownerId);
+  }
+
   save(input: {
     readonly expectedVersion: number;
     readonly snapshot: IssueSnapshot;
     readonly eventType: string;
     readonly payload?: Readonly<Record<string, unknown>>;
+    readonly executionOwnerId?: string;
+    readonly executionNowMs?: number;
   }): IssueSnapshot {
     return this.transaction(() => {
       const currentRow = this.#db.prepare("SELECT snapshot_json, version FROM issue_orchestration_snapshots WHERE issue_id=?")
@@ -94,6 +123,15 @@ export class SqliteIssueOrchestrationStore implements IssueOrchestrationStore {
         throw new IssueStoreConcurrencyError("issue snapshot changed concurrently");
       }
       const current = JSON.parse(String(currentRow.snapshot_json)) as IssueSnapshot;
+      const claim = this.#db.prepare(`SELECT owner_id, expires_at_ms FROM issue_orchestration_execution_claims
+        WHERE issue_id=?`).get(input.snapshot.issueId) as Row | undefined;
+      if (claim && (!input.executionOwnerId || String(claim.owner_id) !== input.executionOwnerId
+        || Number(claim.expires_at_ms) <= (input.executionNowMs ?? Date.now()))) {
+        throw new IssueStoreExecutionClaimError("issue execution claim is missing, expired, or owned by another process");
+      }
+      if (!claim && input.executionOwnerId) {
+        throw new IssueStoreExecutionClaimError("issue execution claim is missing, expired, or owned by another process");
+      }
       const version = input.expectedVersion + 1;
       const snapshot = sanitizeForPersistence<IssueSnapshot>({ ...input.snapshot, version });
       assertImmutableFields(current, snapshot);
@@ -172,6 +210,9 @@ function assertImmutableFields(current: IssueSnapshot, candidate: IssueSnapshot)
   });
   if (stableJson(immutable(current)) !== stableJson(immutable(candidate))) {
     throw new IssueStoreImmutableFieldError("immutable issue identity or request fields changed");
+  }
+  if (current.dispatchId && candidate.dispatchId !== current.dispatchId) {
+    throw new IssueStoreImmutableFieldError("dispatch id changed after being assigned");
   }
 }
 

@@ -2,6 +2,9 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { orderedObligationsEqual } from "../main/domain/orchestration-benchmark.js";
+import { makeBudgetedActorPort, ObservedSpendBudget } from "../main/app/observed-spend-budget.js";
+import { IssueActorResultError } from "../main/ports/issue-orchestration.js";
+import type { ActorReceipt } from "../main/domain/issue-orchestration.js";
 
 interface RouteRun {
   readonly hardGates: Readonly<Record<string, boolean>>;
@@ -9,7 +12,6 @@ interface RouteRun {
 }
 
 const corpusPath = fileURLToPath(new URL("../../benchmark/orchestration/single-issue-cases.json", import.meta.url));
-const runnerPath = fileURLToPath(new URL("../../benchmark/run-single-issue-live.mjs", import.meta.url));
 const corpus = JSON.parse(readFileSync(corpusPath, "utf8")) as {
   schemaVersion: number;
   benchmarkId: string;
@@ -81,9 +83,33 @@ describe("UC-ORCH-001 frozen composition benchmark", () => {
     expect(orderedObligationsEqual([...expected].reverse(), expected)).toBe(false);
   });
 
-  it("charges a paid receipt even when strict actor-result validation rejects the payload", () => {
-    const runner = readFileSync(runnerPath, "utf8");
-    expect(runner).toContain("error instanceof IssueActorResultError");
-    expect(runner).toContain("chargeMeasuredReceipt(error.receipt, method, paid)");
+  it("behaviorally charges and deduplicates a paid receipt when actor-result validation rejects the payload", async () => {
+    const paidReceipt: ActorReceipt = {
+      role: "moderator", provider: "fixture", model: "fixture-model", sessionId: "session-1", executionId: "execution-1",
+      idempotencyKey: "issue:moderator:0", tokenCountsAvailable: true, inputTokens: 10, cachedInputTokens: 0,
+      outputTokens: 2, latencyMs: 1, cost: { state: "measured", usd: 0.1, source: "fixture" },
+    };
+    const budget = new ObservedSpendBudget(1, 0.2, 2);
+    const actor = makeBudgetedActorPort({ async plan(): Promise<never> {
+      throw new IssueActorResultError("invalid actor JSON", paidReceipt);
+    } }, "plan", budget);
+    await expect(actor.plan()).rejects.toBeInstanceOf(IssueActorResultError);
+    await expect(actor.plan()).rejects.toBeInstanceOf(IssueActorResultError);
+    expect(budget.paidCalls).toBe(2);
+    expect(budget.observedSpendUsd).toBe(0.1);
+  });
+
+  it("returns a receipt-carrying rejection after a completed call exceeds its reservation", async () => {
+    const paidReceipt: ActorReceipt = {
+      role: "worker", provider: "fixture", model: "fixture-model", sessionId: "session-2", executionId: "execution-2",
+      idempotencyKey: "issue:dispatch:1", tokenCountsAvailable: true, inputTokens: 10, cachedInputTokens: 0,
+      outputTokens: 2, latencyMs: 1, cost: { state: "measured", usd: 0.25, source: "fixture" },
+    };
+    const budget = new ObservedSpendBudget(1, 0.2, 1);
+    const actor = makeBudgetedActorPort({ async execute() { return { receipt: paidReceipt }; } }, "execute", budget);
+    const error = await actor.execute().catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(IssueActorResultError);
+    expect((error as IssueActorResultError).receipt).toBe(paidReceipt);
+    expect(budget.observedSpendUsd).toBe(0.25);
   });
 });

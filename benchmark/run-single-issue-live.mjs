@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SingleIssueOrchestrator } from "../dist/main/app/single-issue-orchestrator.js";
+import { makeBudgetedActorPort, ObservedSpendBudget } from "../dist/main/app/observed-spend-budget.js";
 import { SqliteIssueOrchestrationStore } from "../dist/main/adapters/sqlite-issue-orchestration-store.js";
-import { IssueActorResultError } from "../dist/main/ports/issue-orchestration.js";
 import { makeCodexSubAgent } from "../dist/main/adapters/subagent-codex.js";
 import { makeSubAgentDevelopmentModerator, makeSubAgentNaiaFacing, makeSubAgentNaiaReporter, makeIssueVerifierAdapter } from "../dist/main/adapters/subagent-issue-actors.js";
 import { makeSupervisedIssueWorker } from "../dist/main/composition/supervised-issue-worker.js";
@@ -37,10 +37,8 @@ const prices = {
 };
 const diag = { log(message, detail) { console.error(`[diag] ${message}`, detail ?? ""); }, debug() {} };
 const tempRoot = mkdtempSync(join(tmpdir(), "naia-orch-live-"));
-let observedSpendUsd = 0;
-const chargedReceipts = new Set();
 const maxPaidCalls = 8;
-let paidCalls = 0;
+const spendBudget = new ObservedSpendBudget(maxUsd, reservedCallUsd, maxPaidCalls);
 
 function git(args, cwd) { execFileSync("git", args, { cwd, stdio: "ignore" }); }
 function fixture(routeId) {
@@ -56,33 +54,8 @@ function fixture(routeId) {
   return repo;
 }
 function priced(model, reasoningEffort) { return makeCodexSubAgent({ model, reasoningEffort, priceUsdPerMillion: prices[model] }); }
-function chargeMeasuredReceipt(receipt, method, paid) {
-  if (!receipt || receipt.cost.state !== "measured") throw new Error(`benchmark ${method} cost unavailable`);
-  const receiptKey = `${receipt.role}:${receipt.idempotencyKey}:${receipt.executionId}`;
-  if (!chargedReceipts.has(receiptKey)) {
-    chargedReceipts.add(receiptKey);
-    observedSpendUsd += receipt.cost.usd;
-  }
-  if (paid && receipt.cost.usd > reservedCallUsd) throw new Error(`benchmark ${method} exceeded its reserved call budget`);
-  if (observedSpendUsd > maxUsd) throw new Error(`benchmark observed-spend threshold exceeded after ${method}`);
-}
 function budgeted(port, method, paid = true) {
-  return {
-    ...port,
-    async [method](input) {
-      if (paid && paidCalls >= maxPaidCalls) throw new Error(`benchmark paid-call limit reached before ${method}`);
-      if (paid && observedSpendUsd + reservedCallUsd > maxUsd) throw new Error(`benchmark reserved call budget unavailable before ${method}`);
-      if (paid) paidCalls += 1;
-      try {
-        const result = await port[method](input);
-        chargeMeasuredReceipt(result.receipt, method, paid);
-        return result;
-      } catch (error) {
-        if (paid && error instanceof IssueActorResultError) chargeMeasuredReceipt(error.receipt, method, paid);
-        throw error;
-      }
-    },
-  };
+  return makeBudgetedActorPort(port, method, spendBudget, paid);
 }
 
 async function runRoute(routeId, route) {
@@ -144,7 +117,7 @@ try {
   const comparison = bothPass
     ? { claimAllowed: true, lunaProxyUsd: cost(lunaProxy), allSolUsd: cost(allSol), savingsUsd: cost(allSol) - cost(lunaProxy) }
     : { claimAllowed: false, lunaProxyUsd: null, allSolUsd: null, savingsUsd: null, reason: "quality or receipt hard gate failed" };
-  const result = { schemaVersion: 1, benchmarkId: corpus.benchmarkId, caseId: pairedCase.id, executedAt: new Date().toISOString(), budget: { observedSpendStopThresholdUsd: maxUsd, reservedCallUsd, actorTimeoutMs, maxPaidCalls, paidCalls, observedSpendUsd, hardProviderDollarCeiling: false }, corpus, runs: { lunaProxy, allSol }, comparison };
+  const result = { schemaVersion: 1, benchmarkId: corpus.benchmarkId, caseId: pairedCase.id, executedAt: new Date().toISOString(), budget: { observedSpendStopThresholdUsd: maxUsd, reservedCallUsd, actorTimeoutMs, maxPaidCalls, paidCalls: spendBudget.paidCalls, observedSpendUsd: spendBudget.observedSpendUsd, hardProviderDollarCeiling: false }, corpus, runs: { lunaProxy, allSol }, comparison };
   const output = resolve(process.env.NAIA_ORCH_OUT ?? join(here, "results", `single-issue-live-${Date.now()}.json`));
   mkdirSync(dirname(output), { recursive: true });
   writeFileSync(output, `${JSON.stringify(result, null, 2)}\n`, { mode: 0o600 });

@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import type { ActorReceipt, WorkerResult } from "../domain/issue-orchestration.js";
 import { Supervisor } from "../app/supervisor.js";
 import type { CodingJobWorktreePort } from "../ports/coding-job.js";
-import type { IssueWorkerPort } from "../ports/issue-orchestration.js";
+import { IssueActorResultError, type IssueWorkerPort } from "../ports/issue-orchestration.js";
 import type { SubAgentPort, WorkspacePort } from "../ports/orchestration.js";
 import type { DiagnosticLog } from "../ports/uc1.js";
 
@@ -47,8 +47,6 @@ export function makeSupervisedIssueWorker(options: SupervisedIssueWorkerOptions)
       const evidence = report?.modelEvidence;
       const expectedBinding = input.binding;
       if (!evidence?.sessionId || !evidence.executionId || !evidence.provider || !evidence.selectedModel) throw new Error("worker receipt evidence unavailable");
-      if (evidence.provider !== expectedBinding.provider || evidence.selectedModel !== expectedBinding.model
-        || evidence.reasoningEffort !== expectedBinding.reasoningEffort) throw new Error("worker model binding mismatch");
       const receipt: ActorReceipt = {
         role: "worker",
         provider: evidence.provider,
@@ -67,6 +65,10 @@ export function makeSupervisedIssueWorker(options: SupervisedIssueWorkerOptions)
           ? { state: "measured", usd: evidence.measuredCostUsd, source: "codex_usage_and_pinned_price" }
           : { state: "unavailable", reason: "worker adapter did not receive priced usage" },
       };
+      if (evidence.provider !== expectedBinding.provider || evidence.selectedModel !== expectedBinding.model
+        || evidence.reasoningEffort !== expectedBinding.reasoningEffort) {
+        throw new IssueActorResultError("worker model binding mismatch", receipt);
+      }
       const changedFiles = [...(options.changedFiles ?? gitChangedFiles)(allocation.worktreePath)].sort();
       const result: WorkerResult = {
         ok: Boolean(report?.sessionOk),

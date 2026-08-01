@@ -816,11 +816,17 @@
       "contract": "docs/progress/99.dev-comm/UC-ORCH-001-single-issue-vertical-contract-2026-08-01.md",
       "note": "Restart-safe Luna-proxy to moderator to one worker to verification to grounded-report stage machine."
     },
+    "src/main/app/observed-spend-budget.ts": {
+      "layer": "app",
+      "uc": ["UC-ORCH-001"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-001-single-issue-vertical-contract-2026-08-01.md",
+      "note": "Behaviorally testable paid-call reservation and deduplicated observed-spend ledger that preserves receipt-carrying rejections."
+    },
     "src/main/adapters/sqlite-issue-orchestration-store.ts": {
       "layer": "adapters",
       "uc": ["UC-ORCH-001"],
       "contract": "docs/progress/99.dev-comm/UC-ORCH-001-single-issue-vertical-contract-2026-08-01.md",
-      "note": "Owner-local SQLite snapshot plus append-only event store with optimistic version and request-id conflict protection."
+      "note": "Owner-local SQLite snapshot plus append-only event store with optimistic version, terminal immutability, and expiring cross-process execution claims."
     },
     "src/main/composition/supervised-issue-worker.ts": {
       "layer": "composition",

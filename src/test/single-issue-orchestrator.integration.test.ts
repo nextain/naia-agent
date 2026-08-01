@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { SingleIssueOrchestrator, IssueQuestionMismatchError, IssueRequestConflictError } from "../main/app/single-issue-orchestrator.js";
 import {
   IssueStoreImmutableFieldError,
+  IssueStoreExecutionClaimError,
   IssueStoreTerminalMutationError,
   SqliteIssueOrchestrationStore,
 } from "../main/adapters/sqlite-issue-orchestration-store.js";
@@ -41,7 +42,7 @@ function request(requestId = "request-1", text = "Fix the parser and run its tes
   };
 }
 
-function harness(options: { chat?: boolean; question?: boolean; multipleQuestions?: boolean; workerThrows?: boolean; unavailableCost?: boolean; badFacingBinding?: boolean; verificationFails?: boolean; workerProfile?: string; malformedReceipt?: "cached" | "cost" | "unavailable"; rejectedActorResult?: boolean } = {}) {
+function harness(options: { chat?: boolean; question?: boolean; multipleQuestions?: boolean; workerThrows?: boolean; unavailableCost?: boolean; badFacingBinding?: boolean; verificationFails?: boolean; workerProfile?: string; malformedReceipt?: "cached" | "cost" | "unavailable"; rejectedActorResult?: boolean; rejectedWorkerResult?: boolean } = {}) {
   const root = mkdtempSync(join(tmpdir(), "single-issue-")); roots.push(root);
   const store = new SqliteIssueOrchestrationStore(join(root, "issues.db"));
   const calls = { facing: 0, moderator: 0, worker: 0, verifier: 0, reporter: 0 };
@@ -84,6 +85,7 @@ function harness(options: { chat?: boolean; question?: boolean; multipleQuestion
     worker: { async execute(input) {
       calls.worker += 1; actor += 1;
       if (options.workerThrows) throw new Error("transport disappeared after dispatch");
+      if (options.rejectedWorkerResult) throw new IssueActorResultError("worker policy rejected", receipt("worker", input.dispatchId, actor));
       return {
         ok: true, summary: "parser fixed", worktreePath: "/managed/issue-0001", changedFiles: ["src/parser.ts"],
         receipt: {
@@ -230,6 +232,46 @@ describe("UC-ORCH-001 single issue", () => {
     h.store.close();
   });
 
+  it("joins an active durable execution claim across orchestrator instances", async () => {
+    const h = harness();
+    const secondStore = new SqliteIssueOrchestrationStore(join(h.root, "issues.db"));
+    let releaseFacing!: () => void;
+    const gate = new Promise<void>((resolve) => { releaseFacing = resolve; });
+    const classify = h.deps.facing.classify.bind(h.deps.facing);
+    const gatedFacing = { async classify(input: Parameters<typeof classify>[0]) { await gate; return classify(input); } };
+    const firstOrchestrator = new SingleIssueOrchestrator({ ...h.deps, store: h.store, facing: gatedFacing });
+    const secondOrchestrator = new SingleIssueOrchestrator({ ...h.deps, store: secondStore, facing: gatedFacing });
+    const first = firstOrchestrator.start(request("request-cross-instance"));
+    const joined = secondOrchestrator.start(request("request-cross-instance"));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    releaseFacing();
+    const [firstReport, joinedReport] = await Promise.all([first, joined]);
+    expect(joinedReport).toEqual(firstReport);
+    expect(h.calls).toEqual({ facing: 1, moderator: 1, worker: 1, verifier: 1, reporter: 1 });
+    secondStore.close();
+    h.store.close();
+  });
+
+  it("expires execution claims atomically and fences stale owners from saving", () => {
+    const h = harness();
+    const accepted = h.store.create(request("request-lease-expiry"), {
+      issueId: "issue-0001", requestDigest: "digest", now: "2026-08-01T00:00:00Z",
+    });
+    expect(h.store.tryAcquireExecution("issue-0001", "owner-1", 100, 200)).toBe(true);
+    expect(h.store.tryAcquireExecution("issue-0001", "owner-2", 150, 250)).toBe(false);
+    expect(h.store.tryAcquireExecution("issue-0001", "owner-2", 201, 300)).toBe(true);
+    expect(h.store.renewExecution("issue-0001", "owner-1", 400)).toBe(false);
+    expect(() => h.store.save({
+      expectedVersion: accepted.version,
+      snapshot: { ...accepted, state: "classifying", updatedAt: "2026-08-01T00:00:01Z" },
+      eventType: "stale_owner_write",
+      executionOwnerId: "owner-1",
+      executionNowMs: 202,
+    })).toThrow(IssueStoreExecutionClaimError);
+    h.store.releaseExecution("issue-0001", "owner-2");
+    h.store.close();
+  });
+
   it("rejects immutable identity drift and every post-terminal snapshot mutation", async () => {
     const h = harness({ question: true });
     await h.orchestrator.start(request("request-immutable"));
@@ -246,6 +288,23 @@ describe("UC-ORCH-001 single issue", () => {
       snapshot: { ...terminal, updatedAt: "2026-08-01T00:03:00Z" },
       eventType: "invalid_terminal_change",
     })).toThrow(IssueStoreTerminalMutationError);
+    h.store.close();
+  });
+
+  it("allows dispatch id assignment exactly once and rejects later drift", async () => {
+    const h = harness({ question: true });
+    await h.orchestrator.start(request("request-dispatch-stable"));
+    const pending = h.orchestrator.snapshot("issue-0001");
+    const assigned = h.store.save({
+      expectedVersion: pending.version,
+      snapshot: { ...pending, dispatchId: "issue-0001:dispatch:1", updatedAt: "2026-08-01T00:02:00Z" },
+      eventType: "dispatch_assigned_fixture",
+    });
+    expect(() => h.store.save({
+      expectedVersion: assigned.version,
+      snapshot: { ...assigned, dispatchId: "issue-0001:dispatch:2", updatedAt: "2026-08-01T00:03:00Z" },
+      eventType: "dispatch_changed_fixture",
+    })).toThrow(IssueStoreImmutableFieldError);
     h.store.close();
   });
 
@@ -298,6 +357,15 @@ describe("UC-ORCH-001 single issue", () => {
     const report = await cost.orchestrator.start(request("request-cost"));
     expect(report.totalCost).toMatchObject({ state: "unavailable" });
     cost.store.close();
+  });
+
+  it("persists a paid worker receipt when post-call policy rejects its result", async () => {
+    const h = harness({ rejectedWorkerResult: true });
+    const report = await h.orchestrator.start(request("request-worker-result-rejected"));
+    expect(report).toMatchObject({ state: "failed", totalCost: { state: "measured", usd: 0.03 } });
+    expect(h.orchestrator.snapshot("issue-0001").receipts.map((item) => item.role)).toEqual(["naia", "moderator", "worker"]);
+    expect(h.store.events("issue-0001").at(-1)?.type).toBe("actor_result_rejected");
+    h.store.close();
   });
 
   it("overrides a contradictory reporter response with persisted failure evidence", async () => {

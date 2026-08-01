@@ -27,6 +27,10 @@ export interface SingleIssueOrchestratorDeps {
   readonly reporter: NaiaIssueReporterPort;
   readonly now?: () => string;
   readonly ids?: () => string;
+  readonly ownerIds?: () => string;
+  readonly clockMs?: () => number;
+  readonly executionLeaseMs?: number;
+  readonly executionPollMs?: number;
   readonly diag?: DiagnosticLog;
 }
 
@@ -36,11 +40,20 @@ export class IssueQuestionMismatchError extends Error {}
 export class SingleIssueOrchestrator {
   readonly #now: () => string;
   readonly #ids: () => string;
+  readonly #ownerIds: () => string;
+  readonly #clockMs: () => number;
+  readonly #executionLeaseMs: number;
+  readonly #executionPollMs: number;
+  readonly #executionOwners = new Map<string, string>();
   readonly #activeStarts = new Map<string, { readonly requestDigest: string; readonly run: Promise<IssueReport> }>();
 
   constructor(private readonly d: SingleIssueOrchestratorDeps) {
     this.#now = d.now ?? (() => new Date().toISOString());
     this.#ids = d.ids ?? randomUUID;
+    this.#ownerIds = d.ownerIds ?? randomUUID;
+    this.#clockMs = d.clockMs ?? Date.now;
+    this.#executionLeaseMs = d.executionLeaseMs ?? 30_000;
+    this.#executionPollMs = d.executionPollMs ?? 25;
   }
 
   async start(request: IssueStartRequest, signal: AbortSignal = new AbortController().signal): Promise<IssueReport> {
@@ -69,16 +82,18 @@ export class SingleIssueOrchestrator {
   }
 
   async answer(issueId: string, questionId: string, answer: string, signal: AbortSignal = new AbortController().signal): Promise<IssueReport> {
-    const issue = this.required(issueId);
-    const pending = issue.plan?.questions.find((question) => !issue.answers.some((prior) => prior.questionId === question.questionId));
-    if (issue.state !== "awaiting_user" || pending?.questionId !== questionId || !answer.trim()) throw new IssueQuestionMismatchError("answer does not match the pending issue question");
-    const updated = this.save(issue, {
-      ...issue,
-      state: "planning",
-      answers: [...issue.answers, { questionId, text: answer }],
-      updatedAt: this.#now(),
-    }, "question_answered", { questionId });
-    return this.resume(updated.issueId, signal);
+    return this.withExecutionClaim(issueId, signal, async () => {
+      const issue = this.required(issueId);
+      const pending = issue.plan?.questions.find((question) => !issue.answers.some((prior) => prior.questionId === question.questionId));
+      if (issue.state !== "awaiting_user" || pending?.questionId !== questionId || !answer.trim()) throw new IssueQuestionMismatchError("answer does not match the pending issue question");
+      const updated = this.save(issue, {
+        ...issue,
+        state: "planning",
+        answers: [...issue.answers, { questionId, text: answer }],
+        updatedAt: this.#now(),
+      }, "question_answered", { questionId });
+      return this.runStages(updated.issueId, signal);
+    }, false);
   }
 
   cancel(issueId: string): IssueReport {
@@ -92,6 +107,10 @@ export class SingleIssueOrchestrator {
   }
 
   async resume(issueId: string, signal: AbortSignal = new AbortController().signal): Promise<IssueReport> {
+    return this.withExecutionClaim(issueId, signal, () => this.runStages(issueId, signal));
+  }
+
+  private async runStages(issueId: string, signal: AbortSignal): Promise<IssueReport> {
     let issue = this.required(issueId);
     let facingDispatchedInThisCall = false;
     let moderatorDispatchedInThisCall = false;
@@ -227,6 +246,16 @@ export class SingleIssueOrchestrator {
             updatedAt: this.#now(),
           }, worker.ok ? "worker_completed" : "worker_failed", { changedFiles: worker.changedFiles.length });
         } catch (error) {
+          if (error instanceof IssueActorResultError) {
+            try {
+              assertReceipt(error.receipt, "worker", issue.dispatchId!);
+              assertIndependent(issue.receipts, error.receipt);
+            } catch { return this.markUnknown(issue, "worker_rejected_receipt_invalid"); }
+            issue = this.save(issue, {
+              ...issue, state: "failed", receipts: appendReceipt(issue.receipts, error.receipt), updatedAt: this.#now(),
+            }, "actor_result_rejected", { role: "worker", category: errorName(error) });
+            return this.grounded(issue);
+          }
           issue = this.save(issue, { ...issue, state: "outcome_unknown", updatedAt: this.#now() }, "worker_outcome_unknown", { category: errorName(error) });
           return this.grounded(issue);
         }
@@ -292,6 +321,33 @@ export class SingleIssueOrchestrator {
 
   snapshot(issueId: string): IssueSnapshot { return this.required(issueId); }
 
+  private async withExecutionClaim(issueId: string, signal: AbortSignal, operation: () => Promise<IssueReport>, stopAtAwaiting = true): Promise<IssueReport> {
+    const ownerId = this.#ownerIds();
+    for (;;) {
+      const current = this.required(issueId);
+      if (isIssueTerminal(current.state) || (stopAtAwaiting && current.state === "awaiting_user")) return this.grounded(current);
+      const nowMs = this.#clockMs();
+      if (this.d.store.tryAcquireExecution(issueId, ownerId, nowMs, nowMs + this.#executionLeaseMs)) break;
+      await waitForExecution(this.#executionPollMs, signal);
+    }
+    const heartbeat = setInterval(() => {
+      try {
+        this.d.store.renewExecution(issueId, ownerId, this.#clockMs() + this.#executionLeaseMs);
+      } catch (error) {
+        this.debug("execution-lease-renewal-failed", { issueId, category: errorName(error) });
+      }
+    }, Math.max(10, Math.floor(this.#executionLeaseMs / 3)));
+    heartbeat.unref?.();
+    this.#executionOwners.set(issueId, ownerId);
+    try {
+      return await operation();
+    } finally {
+      clearInterval(heartbeat);
+      if (this.#executionOwners.get(issueId) === ownerId) this.#executionOwners.delete(issueId);
+      this.d.store.releaseExecution(issueId, ownerId);
+    }
+  }
+
   private required(issueId: string): IssueSnapshot {
     const issue = this.d.store.get(issueId);
     if (!issue) throw new Error(`unknown issue: ${issueId}`);
@@ -299,7 +355,11 @@ export class SingleIssueOrchestrator {
   }
 
   private save(previous: IssueSnapshot, next: IssueSnapshot, eventType: string, payload: Readonly<Record<string, unknown>> = {}): IssueSnapshot {
-    return this.d.store.save({ expectedVersion: previous.version, snapshot: next, eventType, payload });
+    const executionOwnerId = this.#executionOwners.get(previous.issueId);
+    return this.d.store.save({
+      expectedVersion: previous.version, snapshot: next, eventType, payload,
+      ...(executionOwnerId ? { executionOwnerId, executionNowMs: this.#clockMs() } : {}),
+    });
   }
 
   private grounded(issue: IssueSnapshot): IssueReport {
@@ -426,4 +486,14 @@ function appendReceipt(receipts: readonly ActorReceipt[], next: ActorReceipt): r
   if (!prior) return [...receipts, next];
   if (JSON.stringify(prior) !== JSON.stringify(next)) throw new Error("idempotency receipt mismatch");
   return receipts;
+}
+
+function waitForExecution(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.reject(signal.reason ?? new Error("execution wait aborted"));
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(done, ms);
+    function done(): void { signal.removeEventListener("abort", aborted); resolve(); }
+    function aborted(): void { clearTimeout(timer); reject(signal.reason ?? new Error("execution wait aborted")); }
+    signal.addEventListener("abort", aborted, { once: true });
+  });
 }

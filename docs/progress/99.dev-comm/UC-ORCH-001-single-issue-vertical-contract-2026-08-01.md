@@ -25,6 +25,8 @@ Every transition appends an event in the same SQLite transaction as the current 
 - `issue_id` is stable for the accepted request.
 - facing, moderator, worker, verifier, and reporter each expose session and execution identities.
 - `dispatch_id` is the worker idempotency key and is stable across restart/retry.
+- an expiring SQLite execution claim serializes stage advancement across Agent processes. A live peer
+  is observed rather than misclassified as a crash; stale owners are fenced from snapshot writes.
 - an acknowledged actor result is never called again; an unacknowledged worker transport loss is
   `outcome_unknown` unless exact dispatch reconciliation proves a terminal result.
 - every paid actor has a persisted running boundary before invocation. Restart at that boundary never
@@ -69,18 +71,22 @@ hard gate.
   Missing, malformed, or internally inconsistent usage is marked unavailable and cannot become a
   measured zero-cost receipt or an apparently available zero-token count.
 - Deterministic coverage includes chat isolation, exact question binding, duplicate/reopen behavior,
+  concurrent cross-instance delivery, execution-claim expiry/fencing, stable dispatch assignment,
   unreconciled restart, cancellation, transport loss, unavailable cost, strict actor schemas, layer
   boundaries, worktree composition, and the benchmark claim gate.
 - A paid actor result rejected after strict JSON/policy validation carries its already completed receipt
   across the port boundary and terminates as `failed`. Missing or internally invalid receipt evidence
   terminates immediately as `outcome_unknown`; neither path remains stranded in a running state.
+- Codex actor children receive an explicit non-secret environment allowlist. Parent thread identity,
+  provider/API keys, repository tokens, and unrelated host credentials are not inherited by workers.
 - The paid runner is opt-in and runs one frozen paired coding case only. It writes owner-only JSON and
   fixes the paid call count at eight, requires explicit observed-spend/per-call reservation thresholds
   plus per-actor time limits, and permits a numeric savings comparison only when both compositions pass
   every quality and receipt gate. Codex CLI exposes no provider-side token/dollar ceiling, so the runner
-  labels this limitation explicitly instead of claiming a hard credit ceiling.
+  labels this limitation explicitly instead of claiming a hard credit ceiling. Its observed-spend ledger
+  is behaviorally tested and carries a completed receipt even when a per-call reservation is exceeded.
 - Full regression excluding two baseline environment-sensitive process tests: 130 files passed, 3
-  skipped; 1,459 tests passed, 9 skipped. The unchanged baseline failures are the management-doctor
+  skipped; 1,469 tests passed, 9 skipped. The unchanged baseline failures are the management-doctor
   status expectation and nested-ADK credential discovery in the Pi CLI process test. No credential
   value is retained in this document or benchmark artifact.
 - Repository gates: compile, logging, traceability, terminology, and new-file anchors pass. The global

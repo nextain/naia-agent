@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { makeSupervisedIssueWorker } from "../main/composition/supervised-issue-worker.js";
 import type { SubAgentEvent } from "../main/domain/orchestration.js";
+import { IssueActorResultError } from "../main/ports/issue-orchestration.js";
 
 async function* events(): AsyncIterable<SubAgentEvent> {
   yield { kind: "planning" };
@@ -49,5 +50,20 @@ describe("UC-ORCH-001 supervised worker adapter", () => {
       task: "fix", profileId: "balanced", acceptanceChecks: ["test"], signal: new AbortController().signal,
       binding: { provider: "openai-codex", model: "gpt-5.6-terra", reasoningEffort: "medium" },
     })).rejects.toThrow("worker receipt evidence unavailable");
+  });
+
+  it("carries the completed paid receipt when model-binding policy rejects the result", async () => {
+    const worker = makeSupervisedIssueWorker({
+      worktrees: { allocate() { return { workspacePath: "/repo", worktreePath: "/managed/issue", branch: "naia/issue", leaseId: "lease", release() {} }; } },
+      subAgent: { spawn() { return { events: events(), async cancel() {} }; } },
+      diag: { log() {}, debug() {} }, changedFiles: () => [],
+    });
+    const error = await worker.execute({
+      issueId: "issue-0003", dispatchId: "issue-0003:dispatch:1", workspacePath: "/repo",
+      task: "fix", profileId: "balanced", acceptanceChecks: ["test"], signal: new AbortController().signal,
+      binding: { provider: "openai-codex", model: "gpt-5.6-sol", reasoningEffort: "medium" },
+    }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(IssueActorResultError);
+    expect((error as IssueActorResultError).receipt).toMatchObject({ role: "worker", model: "gpt-5.6-terra", cost: { state: "measured" } });
   });
 });
