@@ -222,6 +222,19 @@ describe("UC-ORCH-001 single issue", () => {
     h.store.close();
   });
 
+  it("redacts a credential-shaped moderator answer before persistence and relay", async () => {
+    const h = harness({ question: true });
+    await h.orchestrator.start(request("request-secret-answer"));
+    await h.orchestrator.answer("issue-0001", "q-1", "use api_key=answer-secret-value-now");
+    const dbPath = join(h.root, "issues.db");
+    h.store.close();
+    const reopened = new SqliteIssueOrchestrationStore(dbPath);
+    const serialized = JSON.stringify(reopened.get("issue-0001"));
+    expect(serialized).not.toContain("answer-secret-value-now");
+    expect(serialized).toContain("api_key=[REDACTED]");
+    reopened.close();
+  });
+
   it("does not re-execute an unreconciled worker after process restart", async () => {
     const h = harness({ question: true });
     await h.orchestrator.start(request("request-restart"));

@@ -43,6 +43,8 @@ export interface SubAgentModelEvidence {
   readonly outputTokens: number;
   readonly totalTokens: number;
   readonly cachedInputTokens?: number;
+  /** False when a terminal provider event omitted or malformed its usage object. */
+  readonly usageAvailable?: boolean;
   readonly piEstimatedCost?: number;
   readonly sessionId?: string;
   readonly executionId?: string;

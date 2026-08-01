@@ -189,6 +189,25 @@ describe("subagent-codex 어댑터 계약 (SPEC-010 확장, fake child)", () => 
     expect(f.killSignals).toEqual(["SIGTERM", "SIGKILL"]);
   });
 
+  it("does not price an omitted or malformed usage object as measured zero", async () => {
+    for (const terminal of [
+      '{"type":"turn.completed"}',
+      '{"type":"turn.completed","usage":{"input_tokens":"10","cached_input_tokens":0,"output_tokens":1}}',
+      '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":2,"output_tokens":0}}',
+    ]) {
+      const f = fakeNdjson();
+      const port = makeCodexSubAgent({
+        resolveBin: fixedBin, spawnFn: f.spawnFn, hardKillDeadlineMs: 5,
+        priceUsdPerMillion: { uncachedInput: 1, cachedInput: 1, output: 1 },
+      });
+      const session = port.spawn({ prompt: "p", workdir: "/tmp/w" });
+      f.line(terminal);
+      const [end] = await drain(session.events) as Extract<SubAgentEvent, { kind: "session_end" }>[];
+      expect(end.evidence).toMatchObject({ usageAvailable: false });
+      expect(end.evidence?.measuredCostUsd).toBeUndefined();
+    }
+  });
+
   it("ignores duplicate logical terminal events in one stdout chunk", async () => {
     const f = fakeNdjson();
     const port = makeCodexSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn, hardKillDeadlineMs: 15 });

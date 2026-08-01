@@ -184,10 +184,11 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
         try { raw = JSON.parse(line) as RawCodexEvent; } catch { /* base parser handles malformed input */ }
         if (raw?.type === "thread.started" && typeof raw.thread_id === "string") threadId = raw.thread_id;
         if (raw?.type === "turn.completed") {
-          const inputTokens = nonnegative(raw.usage?.input_tokens);
-          const cachedInputTokens = nonnegative(raw.usage?.cached_input_tokens);
-          const outputTokens = nonnegative(raw.usage?.output_tokens);
-          const measuredCostUsd = opts.priceUsdPerMillion
+          const usage = validUsage(raw.usage);
+          const inputTokens = usage?.inputTokens ?? 0;
+          const cachedInputTokens = usage?.cachedInputTokens ?? 0;
+          const outputTokens = usage?.outputTokens ?? 0;
+          const measuredCostUsd = opts.priceUsdPerMillion && usage
             ? ((Math.max(0, inputTokens - cachedInputTokens) * opts.priceUsdPerMillion.uncachedInput)
               + (cachedInputTokens * opts.priceUsdPerMillion.cachedInput)
               + (outputTokens * opts.priceUsdPerMillion.output)) / 1_000_000
@@ -198,6 +199,7 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
               provider: "openai-codex", selectedModel: model ?? "codex-default",
               ...(opts.reasoningEffort ? { reasoningEffort: opts.reasoningEffort } : {}),
               inputTokens, cachedInputTokens, outputTokens, totalTokens: inputTokens + outputTokens,
+              usageAvailable: Boolean(usage),
               sessionId: threadId ?? executionId, executionId,
               ...(measuredCostUsd !== undefined ? { measuredCostUsd } : {}),
             },
@@ -235,7 +237,11 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
   };
 }
 
-function nonnegative(value: unknown): number {
-  const number = Number(value ?? 0);
-  return Number.isFinite(number) && number >= 0 ? number : 0;
+function validUsage(value: RawCodexEvent["usage"]): { inputTokens: number; cachedInputTokens: number; outputTokens: number } | undefined {
+  if (!value) return undefined;
+  const fields = [value.input_tokens, value.cached_input_tokens, value.output_tokens];
+  if (fields.some((field) => typeof field !== "number" || !Number.isSafeInteger(field) || field < 0)) return undefined;
+  const [inputTokens, cachedInputTokens, outputTokens] = fields as number[];
+  if (cachedInputTokens > inputTokens) return undefined;
+  return { inputTokens, cachedInputTokens, outputTokens };
 }

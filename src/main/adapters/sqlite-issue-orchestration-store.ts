@@ -41,12 +41,12 @@ export class SqliteIssueOrchestrationStore implements IssueOrchestrationStore {
   }
 
   create(request: IssueStartRequest, input: { readonly issueId: string; readonly requestDigest: string; readonly now: string }): IssueSnapshot {
-    const snapshot: IssueSnapshot = {
+    const snapshot = sanitizeForPersistence<IssueSnapshot>({
       version: 1,
       requestId: request.requestId,
       requestDigest: input.requestDigest,
       issueId: input.issueId,
-      originalText: redactSecrets(request.text),
+      originalText: request.text,
       workspacePath: request.workspacePath,
       state: "accepted",
       naiaBinding: request.naiaBinding,
@@ -56,7 +56,7 @@ export class SqliteIssueOrchestrationStore implements IssueOrchestrationStore {
       receipts: [],
       createdAt: input.now,
       updatedAt: input.now,
-    };
+    });
     this.transaction(() => {
       this.#db.prepare(`INSERT INTO issue_orchestration_snapshots
         (issue_id, request_id, request_digest, version, state, snapshot_json, created_at, updated_at)
@@ -87,7 +87,7 @@ export class SqliteIssueOrchestrationStore implements IssueOrchestrationStore {
   }): IssueSnapshot {
     return this.transaction(() => {
       const version = input.expectedVersion + 1;
-      const snapshot: IssueSnapshot = { ...input.snapshot, version };
+      const snapshot = sanitizeForPersistence<IssueSnapshot>({ ...input.snapshot, version });
       const changed = this.#db.prepare(`UPDATE issue_orchestration_snapshots
         SET version=?, state=?, snapshot_json=?, updated_at=? WHERE issue_id=? AND version=?`).run(
         version, snapshot.state, JSON.stringify(snapshot), snapshot.updatedAt, snapshot.issueId, input.expectedVersion,
@@ -114,7 +114,7 @@ export class SqliteIssueOrchestrationStore implements IssueOrchestrationStore {
   private insertEvent(snapshot: IssueSnapshot, sequence: number, type: string, payload: Readonly<Record<string, unknown>>): void {
     this.#db.prepare(`INSERT INTO issue_orchestration_events
       (issue_id, sequence, event_type, state, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`).run(
-      snapshot.issueId, sequence, type, snapshot.state, JSON.stringify(payload), snapshot.updatedAt,
+      snapshot.issueId, sequence, type, snapshot.state, JSON.stringify(sanitizeForPersistence(payload)), snapshot.updatedAt,
     );
   }
 
@@ -136,4 +136,14 @@ export class SqliteIssueOrchestrationStore implements IssueOrchestrationStore {
       try { chmodSync(path, 0o600); } catch { /* Windows or a not-yet-created SQLite sidecar. */ }
     }
   }
+}
+
+function sanitizeForPersistence<T>(value: T): T {
+  if (typeof value === "string") return redactSecrets(value) as T;
+  if (Array.isArray(value)) return value.map((item) => sanitizeForPersistence(item)) as T;
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+      .map(([key, item]) => [key, sanitizeForPersistence(item)])) as T;
+  }
+  return value;
 }

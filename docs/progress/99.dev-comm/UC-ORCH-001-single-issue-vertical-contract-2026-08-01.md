@@ -62,6 +62,8 @@ hard gate.
 - Codex `turn.completed` evidence now survives the shared subprocess terminal path, including thread,
   execution, cached-input, output, and priced-usage fields. Requested model and role bindings fail
   closed on provider/model/reasoning mismatch; reasoning effort is pinned separately from model id.
+  Missing, malformed, or internally inconsistent usage is marked unavailable and cannot become a
+  measured zero-cost receipt.
 - Deterministic coverage includes chat isolation, exact question binding, duplicate/reopen behavior,
   unreconciled restart, cancellation, transport loss, unavailable cost, strict actor schemas, layer
   boundaries, worktree composition, and the benchmark claim gate.
