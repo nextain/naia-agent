@@ -10,7 +10,7 @@ import {
   IssueStoreTerminalMutationError,
   SqliteIssueOrchestrationStore,
 } from "../main/adapters/sqlite-issue-orchestration-store.js";
-import type { ActorReceipt, IssueStartRequest } from "../main/domain/issue-orchestration.js";
+import { groundedIssueCommentary, type ActorReceipt, type IssueStartRequest } from "../main/domain/issue-orchestration.js";
 import type { SingleIssueOrchestratorDeps } from "../main/app/single-issue-orchestrator.js";
 import { IssueActorResultError } from "../main/ports/issue-orchestration.js";
 
@@ -43,7 +43,7 @@ function request(requestId = "request-1", text = "Fix the parser and run its tes
   };
 }
 
-function harness(options: { chat?: boolean; question?: boolean; multipleQuestions?: boolean; workerThrows?: boolean; unavailableCost?: boolean; badFacingBinding?: boolean; verificationFails?: boolean; verifierThrows?: boolean; badVerifierReceipt?: boolean; workerProfile?: string; malformedReceipt?: "cached" | "cost" | "unavailable"; rejectedActorResult?: boolean; rejectedWorkerResult?: boolean } = {}) {
+function harness(options: { chat?: boolean; question?: boolean; multipleQuestions?: boolean; workerThrows?: boolean; unavailableCost?: boolean; badFacingBinding?: boolean; verificationFails?: boolean; verifierThrows?: boolean; badVerifierReceipt?: boolean; workerProfile?: string; malformedReceipt?: "cached" | "cost" | "unavailable"; rejectedActorResult?: boolean; rejectedWorkerResult?: boolean; contradictoryReporter?: boolean } = {}) {
   const root = mkdtempSync(join(tmpdir(), "single-issue-")); roots.push(root);
   const store = new SqliteIssueOrchestrationStore(join(root, "issues.db"));
   const calls = { facing: 0, moderator: 0, worker: 0, verifier: 0, reporter: 0 };
@@ -107,8 +107,12 @@ function harness(options: { chat?: boolean; question?: boolean; multipleQuestion
     reporter: { async report(input) {
       calls.reporter += 1; actor += 1;
       expect(input.events.map((event) => event.type)).toContain(options.verificationFails ? "verification_failed" : "verification_passed");
+      const terminal = input.issue.state as "completed" | "failed";
       return {
-        report: { state: "completed", summary: "all checks passed", issueId: input.issue.issueId, changedFiles: ["fake-success.ts"], verificationPassed: true },
+        report: options.contradictoryReporter
+          ? { state: "completed", summary: "verification remains pending", issueId: input.issue.issueId, changedFiles: ["fake-success.ts"], verificationPassed: false }
+          : { state: terminal, summary: groundedIssueCommentary(input.issue, terminal), issueId: input.issue.issueId,
+              changedFiles: input.issue.worker?.changedFiles ?? [], verificationPassed: input.issue.verification?.ok ?? null },
         receipt: receipt("reporter", input.idempotencyKey, actor),
       };
     } },
@@ -524,14 +528,24 @@ describe("UC-ORCH-001 single issue", () => {
     h.store.close();
   });
 
-  it("overrides a contradictory reporter response with persisted failure evidence", async () => {
+  it("binds user-facing commentary exactly to persisted failure evidence", async () => {
     const h = harness({ verificationFails: true });
     const report = await h.orchestrator.start(request("request-failed-report"));
     expect(report).toMatchObject({
       state: "failed", summary: "state=failed; changedFiles=1; verification=failed",
-      naiaCommentary: "all checks passed",
+      naiaCommentary: "Failed. Changed files: src/parser.ts. Verification: failed.",
       changedFiles: ["src/parser.ts"], verificationPassed: false,
     });
+    h.store.close();
+  });
+
+  it("rejects reporter prose or fields that contradict persisted evidence", async () => {
+    const h = harness({ contradictoryReporter: true });
+    const report = await h.orchestrator.start(request("request-contradictory-report"));
+    expect(report).toMatchObject({ state: "failed", summary: "parser fixed", verificationPassed: true });
+    expect(report).not.toHaveProperty("naiaCommentary");
+    expect(h.store.events("issue-0001").at(-1)?.type).toBe("actor_result_rejected");
+    expect(h.orchestrator.snapshot("issue-0001").receipts.at(-1)?.role).toBe("reporter");
     h.store.close();
   });
 

@@ -6,6 +6,7 @@ import type {
   IssueReport,
   ModeratorPlan,
 } from "../domain/issue-orchestration.js";
+import { groundedIssueCommentary } from "../domain/issue-orchestration.js";
 import {
   IssueActorResultError,
   type DevelopmentModeratorPort,
@@ -108,6 +109,8 @@ export function makeSubAgentDevelopmentModerator(options: JsonActorOptions): Dev
 export function makeSubAgentNaiaReporter(options: JsonActorOptions): NaiaIssueReporterPort {
   return {
     async report(input) {
+      const terminal = input.issue.state as "completed" | "failed";
+      const expectedSummary = groundedIssueCommentary(input.issue, terminal);
       const evidence = {
         state: input.issue.state,
         changedFiles: input.issue.worker?.changedFiles ?? [],
@@ -117,15 +120,15 @@ export function makeSubAgentNaiaReporter(options: JsonActorOptions): NaiaIssueRe
       };
       const prompt = [
         "You are Naia's user-facing reporter. Summarize only the supplied durable evidence. Do not upgrade unknown, failed, or cancelled state.",
-        "Return JSON only: {\"summary\":\"...\"}.",
+        `Return this exact JSON value without changing any text: ${JSON.stringify({ summary: expectedSummary })}.`,
         `Evidence: ${JSON.stringify(evidence)}`,
       ].join("\n");
       const result = await runJson(options, "reporter", input.idempotencyKey, prompt, input.signal);
       return withReceipt(result.receipt, () => {
-        if (typeof result.value.summary !== "string") throw new Error("Naia report schema mismatch");
+        if (result.value.summary !== expectedSummary) throw new Error("Naia report evidence binding mismatch");
         const report: Omit<IssueReport, "totalCost"> = {
-          state: input.issue.state as "completed" | "failed" | "cancelled" | "outcome_unknown",
-          summary: result.value.summary,
+          state: terminal,
+          summary: expectedSummary,
           issueId: input.issue.issueId,
           changedFiles: input.issue.worker?.changedFiles ?? [],
           verificationPassed: input.issue.verification?.ok ?? null,

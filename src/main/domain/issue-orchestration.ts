@@ -148,3 +148,16 @@ export function totalIssueCost(receipts: readonly ActorReceipt[]): CostEvidence 
   const usd = receipts.reduce((sum, receipt) => sum + (receipt.cost.state === "measured" ? receipt.cost.usd : 0), 0);
   return { state: "measured", usd, source: "sum_of_persisted_actor_receipts" };
 }
+
+export function groundedIssueSummary(issue: IssueSnapshot, terminal: "completed" | "failed"): string {
+  const files = issue.worker?.changedFiles.length ?? 0;
+  const verification = issue.verification?.ok === true ? "passed" : issue.verification?.ok === false ? "failed" : "not-run";
+  return `state=${terminal}; changedFiles=${files}; verification=${verification}`;
+}
+
+export function groundedIssueCommentary(issue: IssueSnapshot, terminal: "completed" | "failed"): string {
+  const changedFiles = issue.worker?.changedFiles ?? [];
+  const files = changedFiles.length > 0 ? changedFiles.join(", ") : "none";
+  const verification = issue.verification?.ok === true ? "passed" : issue.verification?.ok === false ? "failed" : "not run";
+  return `${terminal === "completed" ? "Completed" : "Failed"}. Changed files: ${files}. Verification: ${verification}.`;
+}

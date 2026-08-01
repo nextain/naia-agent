@@ -6,6 +6,7 @@ import {
   makeSubAgentNaiaReporter,
 } from "../main/adapters/subagent-issue-actors.js";
 import type { SubAgentEvent } from "../main/domain/orchestration.js";
+import { groundedIssueCommentary } from "../main/domain/issue-orchestration.js";
 import type { SubAgentPort } from "../main/ports/orchestration.js";
 import { IssueActorResultError } from "../main/ports/issue-orchestration.js";
 
@@ -95,7 +96,6 @@ describe("UC-ORCH-001 sub-agent issue actors", () => {
   });
 
   it("grounds reporter fields in persisted evidence and prices deterministic verification at zero", async () => {
-    const reporter = makeSubAgentNaiaReporter({ subAgent: actor('{"summary":"verified parser fix"}'), binding, workdir: "/workspace", diag });
     const issue = {
       version: 1, requestId: "r", requestDigest: "d", issueId: "i", originalText: "fix", workspacePath: "/workspace",
       state: "completed" as const, naiaBinding: binding, moderatorBinding: binding, workerProfiles: {}, answers: [], receipts: [],
@@ -103,8 +103,14 @@ describe("UC-ORCH-001 sub-agent issue actors", () => {
       verification: { ok: true, checks: [{ name: "test", pass: true }], receipt: undefined as never },
       createdAt: "2026-08-01T00:00:00Z", updatedAt: "2026-08-01T00:00:01Z",
     };
+    const expectedSummary = groundedIssueCommentary(issue, "completed");
+    const reporter = makeSubAgentNaiaReporter({ subAgent: actor(JSON.stringify({ summary: expectedSummary })), binding, workdir: "/workspace", diag });
     const reported = await reporter.report({ issue, events: [], idempotencyKey: "i:report", signal: signal() });
-    expect(reported.report).toMatchObject({ state: "completed", summary: "verified parser fix", changedFiles: ["src/parser.ts"], verificationPassed: true });
+    expect(reported.report).toMatchObject({ state: "completed", summary: expectedSummary, changedFiles: ["src/parser.ts"], verificationPassed: true });
+
+    const contradicted = makeSubAgentNaiaReporter({ subAgent: actor('{"summary":"verification remains pending"}'), binding, workdir: "/workspace", diag });
+    await expect(contradicted.report({ issue, events: [], idempotencyKey: "i:report:bad", signal: signal() }))
+      .rejects.toMatchObject({ message: expect.stringContaining("evidence binding mismatch"), receipt: { role: "reporter" } });
 
     const verifier = makeIssueVerifierAdapter({ async verify() { return { ok: false, checks: [{ name: "test", pass: false }] }; } }, (() => { let n = 10; return () => n += 5; })());
     const verified = await verifier.verify({ issueId: "i", idempotencyKey: "i:verify", worktreePath: "/managed/i", acceptanceChecks: ["test"], signal: signal() });

@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
+  groundedIssueCommentary,
+  groundedIssueSummary,
   isIssueTerminal,
   totalIssueCost,
   type ActorReceipt,
@@ -327,12 +329,20 @@ export class SingleIssueOrchestrator {
           assertIndependent(issue.receipts, result.receipt);
         } catch (error) { return this.actorFailure(issue, "reporter", key, issue.naiaBinding, error, result?.receipt); }
         if (!result) return this.markUnknown(issue, "reporter_result_unavailable");
+        const expectedCommentary = groundedIssueCommentary(issue, terminal);
+        if (result.report.state !== terminal || result.report.issueId !== issueId
+          || result.report.summary !== expectedCommentary
+          || result.report.verificationPassed !== (issue.verification?.ok ?? null)
+          || !sameStrings(result.report.changedFiles, issue.worker?.changedFiles ?? [])) {
+          return this.actorFailure(issue, "reporter", key, issue.naiaBinding,
+            new IssueActorResultError("reporter evidence binding mismatch", result.receipt));
+        }
         const receipts = appendReceipt(issue.receipts, result.receipt);
         const report: IssueReport = {
           issueId,
           state: terminal,
-          summary: groundedSummary(issue, terminal),
-          ...(result.report.summary.trim() ? { naiaCommentary: result.report.summary.trim() } : {}),
+          summary: groundedIssueSummary(issue, terminal),
+          naiaCommentary: expectedCommentary,
           changedFiles: issue.worker?.changedFiles ?? [],
           verificationPassed: issue.verification?.ok ?? null,
           totalCost: totalIssueCost(receipts),
@@ -515,12 +525,6 @@ function requestFingerprint(request: IssueStartRequest): string {
   });
 }
 
-function groundedSummary(issue: IssueSnapshot, terminal: "completed" | "failed"): string {
-  const files = issue.worker?.changedFiles.length ?? 0;
-  const verification = issue.verification?.ok === true ? "passed" : issue.verification?.ok === false ? "failed" : "not-run";
-  return `state=${terminal}; changedFiles=${files}; verification=${verification}`;
-}
-
 function assertReceipt(receipt: ActorReceipt, role: ActorReceipt["role"], expectedKey: string, binding?: { provider: string; model: string; reasoningEffort?: string }): void {
   if (receipt.role !== role || !receipt.sessionId || !receipt.executionId || receipt.idempotencyKey !== expectedKey) throw new Error(`invalid ${role} receipt`);
   if (binding && (receipt.provider !== binding.provider || receipt.model !== binding.model)) throw new Error(`invalid ${role} binding receipt`);
@@ -536,6 +540,10 @@ function assertReceipt(receipt: ActorReceipt, role: ActorReceipt["role"], expect
     throw new Error(`invalid ${role} measured cost receipt`);
   }
   if (receipt.cost.state === "unavailable" && !receipt.cost.reason.trim()) throw new Error(`invalid ${role} unavailable cost receipt`);
+}
+
+function sameStrings(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 function assertPlan(plan: import("../domain/issue-orchestration.js").ModeratorPlan): void {
