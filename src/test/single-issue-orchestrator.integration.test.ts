@@ -258,6 +258,34 @@ describe("UC-ORCH-001 single issue", () => {
     h.store.close();
   });
 
+  it("abandons a lost lease and joins the successor instead of rejecting after a fenced save", async () => {
+    const h = harness();
+    const secondStore = new SqliteIssueOrchestrationStore(join(h.root, "issues.db"));
+    let releaseFacing!: () => void;
+    let enteredResolve!: () => void;
+    const entered = new Promise<void>((resolve) => { enteredResolve = resolve; });
+    const gate = new Promise<void>((resolve) => { releaseFacing = resolve; });
+    const classify = h.deps.facing.classify.bind(h.deps.facing);
+    const gatedFacing = { async classify(input: Parameters<typeof classify>[0]) { enteredResolve(); await gate; return classify(input); } };
+    const firstOrchestrator = new SingleIssueOrchestrator({
+      ...h.deps, store: h.store, facing: gatedFacing, executionLeaseMs: 10, executionPollMs: 5,
+    });
+    const successor = new SingleIssueOrchestrator({
+      ...h.deps, store: secondStore, facing: gatedFacing, executionLeaseMs: 10, executionPollMs: 5,
+    });
+    const first = firstOrchestrator.start(request("request-expired-lease"));
+    await entered;
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    const successorReport = await successor.start(request("request-expired-lease"));
+    expect(successorReport.state).toBe("outcome_unknown");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    releaseFacing();
+    await expect(first).resolves.toEqual(successorReport);
+    expect(h.calls.worker).toBe(0);
+    secondStore.close();
+    h.store.close();
+  });
+
   it("atomically establishes one issue when two worker threads race request creation", async () => {
     const root = mkdtempSync(join(tmpdir(), "single-issue-create-race-")); roots.push(root);
     const dbPath = join(root, "issues.db");

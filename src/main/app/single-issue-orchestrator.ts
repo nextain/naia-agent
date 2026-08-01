@@ -359,9 +359,14 @@ export class SingleIssueOrchestrator {
     }
     const controller = new AbortController();
     const executionSignal = AbortSignal.any([signal, controller.signal]);
+    let claimLost = false;
     const heartbeat = setInterval(() => {
       try {
-        this.d.store.renewExecution(issueId, ownerId, this.#clockMs() + this.#executionLeaseMs);
+        if (!this.d.store.renewExecution(issueId, ownerId, this.#clockMs() + this.#executionLeaseMs)) {
+          claimLost = true;
+          controller.abort(new Error("issue execution claim lost"));
+          return;
+        }
         if (this.d.store.get(issueId)?.cancellationRequestedAt) controller.abort(new Error("issue cancellation requested"));
       } catch (error) {
         this.debug("execution-lease-renewal-failed", { issueId, category: errorName(error) });
@@ -371,13 +376,17 @@ export class SingleIssueOrchestrator {
     this.#executionOwners.set(issueId, ownerId);
     this.#executionControllers.set(issueId, controller);
     try {
-      return await operation(executionSignal);
+      const report = await operation(executionSignal);
+      if (!claimLost) return report;
+    } catch (error) {
+      if (!claimLost) throw error;
     } finally {
       clearInterval(heartbeat);
       if (this.#executionOwners.get(issueId) === ownerId) this.#executionOwners.delete(issueId);
       if (this.#executionControllers.get(issueId) === controller) this.#executionControllers.delete(issueId);
       this.d.store.releaseExecution(issueId, ownerId);
     }
+    return this.resume(issueId, signal);
   }
 
   private required(issueId: string): IssueSnapshot {

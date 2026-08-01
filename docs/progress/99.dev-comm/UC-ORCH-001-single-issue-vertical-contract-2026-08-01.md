@@ -30,6 +30,8 @@ session, is observed by a peer process through the execution heartbeat, and fenc
 - `dispatch_id` is the worker idempotency key and is stable across restart/retry.
 - an expiring SQLite execution claim serializes stage advancement across Agent processes. A live peer
   is observed rather than misclassified as a crash; stale owners are fenced from snapshot writes.
+  Failed lease renewal aborts the stale local actor, suppresses further writes, and rejoins the
+  successor's latest grounded state instead of leaking a fenced-save exception.
 - an acknowledged actor result is never called again; an unacknowledged worker transport loss is
   `outcome_unknown` unless exact dispatch reconciliation proves a terminal result.
 - every paid actor has a persisted running boundary before invocation. Restart at that boundary never
@@ -104,7 +106,7 @@ hard gate.
   declared cost scope into the result. Inputs above 272,000 tokens retain usage evidence but monetary
   cost becomes unavailable, which blocks a savings claim until a long-context rule is frozen.
 - Full regression excluding two baseline environment-sensitive process tests: 130 files passed, 3
-  skipped; 1,483 tests passed, 9 skipped. The unchanged baseline failures are the management-doctor
+  skipped; 1,484 tests passed, 9 skipped. The unchanged baseline failures are the management-doctor
   status expectation and nested-ADK credential discovery in the Pi CLI process test. No credential
   value is retained in this document or benchmark artifact.
 - Repository gates: compile, logging, traceability, terminology, and new-file anchors pass. The global
