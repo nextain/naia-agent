@@ -43,7 +43,13 @@ export class SingleIssueOrchestrator {
 
   async start(request: IssueStartRequest, signal: AbortSignal = new AbortController().signal): Promise<IssueReport> {
     validateStart(request);
-    const requestDigest = digest(request.text);
+    const requestDigest = digest(JSON.stringify({
+      text: request.text,
+      workspacePath: request.workspacePath,
+      naiaBinding: request.naiaBinding,
+      moderatorBinding: request.moderatorBinding,
+      workerProfiles: request.workerProfiles,
+    }));
     const existing = this.d.store.getByRequestId(request.requestId);
     if (existing && existing.requestDigest !== requestDigest) throw new IssueRequestConflictError("request id was reused with different content");
     const issue = existing ?? this.d.store.create(request, { issueId: this.#ids(), requestDigest, now: this.#now() });
@@ -67,7 +73,9 @@ export class SingleIssueOrchestrator {
   cancel(issueId: string): IssueReport {
     const issue = this.required(issueId);
     if (isIssueTerminal(issue.state)) return this.grounded(issue);
-    if (["worker_running", "verifying", "reporting"].includes(issue.state)) throw new Error("in-flight issue cancellation requires the worker lifecycle adapter");
+    if (["classifying", "moderator_running", "worker_running", "verifying", "reporting", "reporter_running"].includes(issue.state)) {
+      throw new Error("in-flight issue cancellation requires the actor lifecycle adapter");
+    }
     const cancelled = this.save(issue, { ...issue, state: "cancelled", updatedAt: this.#now() }, "issue_cancelled");
     return this.grounded(cancelled);
   }
@@ -97,21 +105,24 @@ export class SingleIssueOrchestrator {
           text: issue.originalText,
         });
         assertReceipt(result.receipt, "naia", `${issue.issueId}:facing:classify`, issue.naiaBinding);
+        if (result.classification.kind === "chat") {
+          const receipts = appendReceipt(issue.receipts, result.receipt);
+          const report: IssueReport = {
+            state: "chat", summary: result.classification.chatReply ?? "", changedFiles: [],
+            verificationPassed: null, totalCost: totalIssueCost(receipts),
+          };
+          issue = this.save(issue, {
+            ...issue, state: "completed", classification: result.classification, receipts, report, updatedAt: this.#now(),
+          }, "chat_completed", { kind: "chat", obligationCount: 0 });
+          return report;
+        }
         issue = this.save(issue, {
           ...issue,
-          state: result.classification.kind === "chat" ? "reporting" : "classified",
+          state: "classified",
           classification: result.classification,
           receipts: appendReceipt(issue.receipts, result.receipt),
           updatedAt: this.#now(),
         }, "request_classified", { kind: result.classification.kind, obligationCount: result.classification.obligations.length });
-        if (result.classification.kind === "chat") {
-          const report: IssueReport = {
-            state: "chat", summary: result.classification.chatReply ?? "", changedFiles: [],
-            verificationPassed: null, totalCost: totalIssueCost(issue.receipts),
-          };
-          issue = this.save(issue, { ...issue, state: "completed", report, updatedAt: this.#now() }, "chat_completed");
-          return report;
-        }
         continue;
       }
 
@@ -138,12 +149,15 @@ export class SingleIssueOrchestrator {
         assertReceipt(result.receipt, "moderator", `${issue.issueId}:moderator:${issue.answers.length}`, issue.moderatorBinding);
         assertIndependent(issue.receipts, result.receipt);
         assertPlan(result.plan);
+        const workerBinding = issue.workerProfiles[result.plan.workerProfile];
+        if (!workerBinding) throw new Error("moderator selected an unavailable worker profile");
         const unanswered = result.plan.questions.filter((question) => !issue.answers.some((answer) => answer.questionId === question.questionId));
         const nextState = unanswered.length > 0 ? "awaiting_user" : "dispatch_ready";
         issue = this.save(issue, {
           ...issue,
           state: nextState,
           plan: result.plan,
+          workerBinding,
           dispatchId: nextState === "dispatch_ready" ? issue.dispatchId ?? `${issue.issueId}:dispatch:1` : issue.dispatchId,
           receipts: appendReceipt(issue.receipts, result.receipt),
           updatedAt: this.#now(),
@@ -169,6 +183,7 @@ export class SingleIssueOrchestrator {
               workspacePath: issue.workspacePath,
               task: issue.plan!.workerTask,
               profileId: issue.plan!.workerProfile,
+              binding: issue.workerBinding!,
               acceptanceChecks: issue.plan!.acceptanceChecks,
               signal,
             })
@@ -177,7 +192,7 @@ export class SingleIssueOrchestrator {
             issue = this.save(issue, { ...issue, state: "outcome_unknown", updatedAt: this.#now() }, "worker_outcome_unknown", { category: "unreconciled_restart" });
             return this.grounded(issue);
           }
-          assertReceipt(worker.receipt, "worker", issue.dispatchId!);
+          assertReceipt(worker.receipt, "worker", issue.dispatchId!, issue.workerBinding);
           assertIndependent(issue.receipts, worker.receipt);
           issue = this.save(issue, {
             ...issue,
@@ -281,14 +296,22 @@ function validateStart(request: IssueStartRequest): void {
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(request.requestId)) throw new Error("invalid request id");
   if (!request.text.trim()) throw new Error("request text is required");
   if (!request.workspacePath.trim()) throw new Error("workspace path is required");
+  const profiles = Object.entries(request.workerProfiles);
+  if (profiles.length === 0) throw new Error("at least one worker profile is required");
+  for (const [profileId, binding] of profiles) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(profileId) || !binding.provider.trim() || !binding.model.trim()) {
+      throw new Error("invalid worker profile binding");
+    }
+  }
 }
 
 function digest(value: string): string { return createHash("sha256").update(value, "utf8").digest("hex"); }
 function errorName(error: unknown): string { return error instanceof Error ? error.name : "unknown"; }
 
-function assertReceipt(receipt: ActorReceipt, role: ActorReceipt["role"], expectedKey: string, binding?: { provider: string; model: string }): void {
+function assertReceipt(receipt: ActorReceipt, role: ActorReceipt["role"], expectedKey: string, binding?: { provider: string; model: string; reasoningEffort?: string }): void {
   if (receipt.role !== role || !receipt.sessionId || !receipt.executionId || receipt.idempotencyKey !== expectedKey) throw new Error(`invalid ${role} receipt`);
   if (binding && (receipt.provider !== binding.provider || receipt.model !== binding.model)) throw new Error(`invalid ${role} binding receipt`);
+  if (binding?.reasoningEffort && receipt.reasoningEffort !== binding.reasoningEffort) throw new Error(`invalid ${role} reasoning receipt`);
   for (const value of [receipt.inputTokens, receipt.cachedInputTokens, receipt.outputTokens, receipt.latencyMs]) {
     if (!Number.isFinite(value) || value < 0) throw new Error(`invalid ${role} receipt accounting`);
   }

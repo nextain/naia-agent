@@ -50,6 +50,7 @@ export class SqliteIssueOrchestrationStore implements IssueOrchestrationStore {
       state: "accepted",
       naiaBinding: request.naiaBinding,
       moderatorBinding: request.moderatorBinding,
+      workerProfiles: request.workerProfiles,
       answers: [],
       receipts: [],
       createdAt: input.now,

@@ -31,7 +31,7 @@ export function makeSubAgentNaiaFacing(options: JsonActorOptions): NaiaFacingPor
     async classify(input) {
       const prompt = [
         "You are Naia's low-cost conversational front layer, not a coding planner.",
-        "Classify the input as chat or work and preserve every explicit work obligation verbatim or as an atomic equivalent.",
+        "Classify the input as chat or work and preserve every explicit work obligation verbatim, in source order.",
         "Return JSON only: {\"kind\":\"chat|work\",\"obligations\":[\"...\"],\"chatReply\":\"... optional for chat\"}.",
         `Input: ${JSON.stringify(input.text)}`,
       ].join("\n");
@@ -53,7 +53,8 @@ export function makeSubAgentDevelopmentModerator(options: JsonActorOptions): Dev
       const allowedProfiles = options.allowedWorkerProfiles ?? ["control", "balanced", "economy"];
       if (allowedProfiles.length === 0 || allowedProfiles.some((profile) => !profile.trim())) throw new Error("moderator worker profile policy missing");
       const allowedChecks = options.allowedAcceptanceChecks;
-      if (!allowedChecks || allowedChecks.length === 0 || allowedChecks.some((check) => !check.trim())) throw new Error("moderator acceptance check policy missing");
+      if (!allowedChecks || allowedChecks.length === 0 || allowedChecks.some((check) => !check.trim())
+        || new Set(allowedChecks).size !== allowedChecks.length) throw new Error("moderator acceptance check policy missing");
       const prompt = [
         "You are the separate senior development moderator. Do not implement.",
         "Produce one bounded worker task, a stable role profile, exact acceptance checks, and only truly blocking questions.",
@@ -180,6 +181,7 @@ async function runJson(options: JsonActorOptions, role: ActorReceipt["role"], id
     role,
     provider: evidence.provider,
     model: evidence.selectedModel,
+    ...(evidence.reasoningEffort ? { reasoningEffort: evidence.reasoningEffort } : {}),
     sessionId: evidence.sessionId,
     executionId: evidence.executionId,
     idempotencyKey,

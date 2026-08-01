@@ -38,6 +38,7 @@ export interface SubAgentModelEvidence {
   readonly provider: string;
   /** Model reported by Pi's AssistantMessage. Pi 0.83 does not expose the HTTP response model separately. */
   readonly selectedModel: string;
+  readonly reasoningEffort?: string;
   readonly inputTokens: number;
   readonly outputTokens: number;
   readonly totalTokens: number;

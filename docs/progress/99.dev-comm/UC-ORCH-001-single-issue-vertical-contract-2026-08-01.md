@@ -20,7 +20,8 @@ Every transition appends an event in the same SQLite transaction as the current 
 
 ## Identity and retry
 
-- `request_id` binds the exact original text digest. Same id plus different text is rejected.
+- `request_id` binds the exact request text, workspace, Naia/moderator bindings, and worker-profile map
+  digest. Reusing the id with any drift is rejected.
 - `issue_id` is stable for the accepted request.
 - facing, moderator, worker, verifier, and reporter each expose session and execution identities.
 - `dispatch_id` is the worker idempotency key and is stable across restart/retry.
@@ -57,13 +58,13 @@ hard gate.
   worker composition, separate verifier, and grounded reporter are implemented behind ports.
 - Codex `turn.completed` evidence now survives the shared subprocess terminal path, including thread,
   execution, cached-input, output, and priced-usage fields. Requested model and role bindings fail
-  closed on mismatch; reasoning effort is pinned separately from model id.
+  closed on provider/model/reasoning mismatch; reasoning effort is pinned separately from model id.
 - Deterministic coverage includes chat isolation, exact question binding, duplicate/reopen behavior,
   unreconciled restart, cancellation, transport loss, unavailable cost, strict actor schemas, layer
   boundaries, worktree composition, and the benchmark claim gate.
 - The paid runner is opt-in and runs one frozen paired coding case only. It writes owner-only JSON and
-  requires explicit observed-spend and per-actor time limits, and permits a numeric savings comparison
-  only when both compositions pass every quality and receipt gate.
+  requires explicit total and per-call reserved budgets plus per-actor time limits, and permits a
+  numeric savings comparison only when both compositions pass every quality and receipt gate.
 - Full regression excluding two baseline environment-sensitive process tests: 130 files passed, 3
   skipped; 1,437 tests passed, 9 skipped. The unchanged baseline failures are the management-doctor
   status expectation and nested-ADK credential discovery in the Pi CLI process test. No credential

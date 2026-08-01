@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { orderedObligationsEqual } from "../main/domain/orchestration-benchmark.js";
 
 interface RouteRun {
   readonly hardGates: Readonly<Record<string, boolean>>;
@@ -65,5 +66,12 @@ describe("UC-ORCH-001 frozen composition benchmark", () => {
     (worker.cost as { state: string; usd?: number }).state = "unavailable";
     delete (worker.cost as { state: string; usd?: number }).usd;
     expect(evaluateClaim(missingCost, passingRun(0.02), corpus.requiredReceiptRoles, corpus.hardGates)).toEqual({ claimAllowed: false, savingsUsd: null });
+  });
+
+  it("uses the runner's exact ordered obligation predicate and rejects contradictory substrings", () => {
+    const expected = ["fix add()", "pass the frozen Node test", "change only math.mjs"];
+    expect(orderedObligationsEqual([...expected], expected)).toBe(true);
+    expect(orderedObligationsEqual(["fix add()", "pass the frozen Node test", "do not change only math.mjs"], expected)).toBe(false);
+    expect(orderedObligationsEqual([...expected].reverse(), expected)).toBe(false);
   });
 });

@@ -31,6 +31,7 @@ export interface ActorReceipt {
   readonly role: "naia" | "moderator" | "worker" | "verifier" | "reporter";
   readonly provider: string;
   readonly model: string;
+  readonly reasoningEffort?: string;
   readonly sessionId: string;
   readonly executionId: string;
   readonly idempotencyKey: string;
@@ -98,6 +99,8 @@ export interface IssueSnapshot {
   readonly state: IssueState;
   readonly naiaBinding: ActorBinding;
   readonly moderatorBinding: ActorBinding;
+  readonly workerProfiles: Readonly<Record<string, ActorBinding>>;
+  readonly workerBinding?: ActorBinding;
   readonly classification?: IssueClassification;
   readonly plan?: ModeratorPlan;
   readonly answers: readonly IssueAnswer[];
@@ -125,6 +128,7 @@ export interface IssueStartRequest {
   readonly workspacePath: string;
   readonly naiaBinding: ActorBinding;
   readonly moderatorBinding: ActorBinding;
+  readonly workerProfiles: Readonly<Record<string, ActorBinding>>;
 }
 
 export function isIssueTerminal(state: IssueState): state is IssueTerminalState {

@@ -11,6 +11,7 @@ import { makeSubAgentDevelopmentModerator, makeSubAgentNaiaFacing, makeSubAgentN
 import { makeSupervisedIssueWorker } from "../dist/main/composition/supervised-issue-worker.js";
 import { makeGitCodingJobWorktrees } from "../dist/main/adapters/coding-job-worktree.js";
 import { makeCommandVerifier } from "../dist/main/adapters/verifier-commands.js";
+import { identitiesIndependent, measuredRoles, orderedObligationsEqual } from "../dist/main/domain/orchestration-benchmark.js";
 
 if (process.env.NAIA_ORCH_LIVE !== "1") {
   console.error("Paid live benchmark is opt-in. Set NAIA_ORCH_LIVE=1 after reviewing the frozen corpus.");
@@ -22,8 +23,10 @@ const corpus = JSON.parse(readFileSync(join(here, "orchestration", "single-issue
 const pairedCase = corpus.cases.find((item) => item.kind === "live-paired");
 if (!pairedCase) throw new Error("frozen paired case missing");
 const maxUsd = Number(process.env.NAIA_ORCH_MAX_USD);
+const reservedCallUsd = Number(process.env.NAIA_ORCH_RESERVED_CALL_USD);
 const actorTimeoutMs = Number(process.env.NAIA_ORCH_MAX_ACTOR_MS ?? 120_000);
 if (!Number.isFinite(maxUsd) || maxUsd <= 0) throw new Error("NAIA_ORCH_MAX_USD must be an explicit positive observed-spend stop threshold");
+if (!Number.isFinite(reservedCallUsd) || reservedCallUsd <= 0 || reservedCallUsd > maxUsd) throw new Error("NAIA_ORCH_RESERVED_CALL_USD must be positive and no greater than NAIA_ORCH_MAX_USD");
 if (!Number.isFinite(actorTimeoutMs) || actorTimeoutMs <= 0) throw new Error("NAIA_ORCH_MAX_ACTOR_MS must be positive");
 
 const prices = {
@@ -50,11 +53,11 @@ function fixture(routeId) {
   return repo;
 }
 function priced(model, reasoningEffort) { return makeCodexSubAgent({ model, reasoningEffort, priceUsdPerMillion: prices[model] }); }
-function budgeted(port, method) {
+function budgeted(port, method, paid = true) {
   return {
     ...port,
     async [method](input) {
-      if (observedSpendUsd >= maxUsd) throw new Error(`benchmark observed-spend threshold reached before ${method}`);
+      if (paid && observedSpendUsd + reservedCallUsd > maxUsd) throw new Error(`benchmark reserved call budget unavailable before ${method}`);
       const result = await port[method](input);
       const receipt = result.receipt;
       if (!receipt || receipt.cost.state !== "measured") throw new Error(`benchmark ${method} cost unavailable`);
@@ -63,20 +66,11 @@ function budgeted(port, method) {
         chargedReceipts.add(receiptKey);
         observedSpendUsd += receipt.cost.usd;
       }
+      if (paid && receipt.cost.usd > reservedCallUsd) throw new Error(`benchmark ${method} exceeded its reserved call budget`);
       if (observedSpendUsd > maxUsd) throw new Error(`benchmark observed-spend threshold exceeded after ${method}`);
       return result;
     },
   };
-}
-function identitiesIndependent(receipts) {
-  return new Set(receipts.map((item) => item.sessionId)).size === receipts.length
-    && new Set(receipts.map((item) => item.executionId)).size === receipts.length;
-}
-function measuredRoles(receipts) {
-  return corpus.requiredReceiptRoles.every((role) => {
-    const matches = receipts.filter((item) => item.role === role);
-    return matches.length > 0 && matches.every((item) => item.cost.state === "measured");
-  });
 }
 
 async function runRoute(routeId, route) {
@@ -88,10 +82,6 @@ async function runRoute(routeId, route) {
     { name: "only math.mjs changed", command: "sh", args: ["-c", "test \"$(git status --porcelain | cut -c4-)\" = math.mjs"] },
   ] });
   const workerModel = routeId === "allSol" ? "gpt-5.6-sol" : (process.env.NAIA_ORCH_WORKER_MODEL ?? "gpt-5.6-terra");
-  const resolveWorkerModel = (profileId) => {
-    if (profileId !== route.workerProfile) throw new Error(`benchmark worker profile mismatch: expected ${route.workerProfile}, got ${profileId}`);
-    return workerModel;
-  };
   const facingBinding = { provider: "openai-codex", model: route.naia, reasoningEffort: route.naiaReasoning };
   const moderatorBinding = { provider: "openai-codex", model: route.moderator, reasoningEffort: route.moderatorReasoning };
   const orchestrator = new SingleIssueOrchestrator({
@@ -101,9 +91,8 @@ async function runRoute(routeId, route) {
     worker: budgeted(makeSupervisedIssueWorker({
       worktrees: makeGitCodingJobWorktrees({ allowedWorkspaceRoot: tempRoot, worktreeRoot }),
       subAgent: priced(workerModel, route.workerReasoning), diag,
-      resolveModel: resolveWorkerModel,
     }), "execute"),
-    verifier: budgeted(makeIssueVerifierAdapter(verifier), "verify"),
+    verifier: budgeted(makeIssueVerifierAdapter(verifier), "verify", false),
     reporter: budgeted(makeSubAgentNaiaReporter({ subAgent: priced(route.reporter, route.reporterReasoning), binding: { provider: "openai-codex", model: route.reporter, reasoningEffort: route.reporterReasoning }, timeoutMs: actorTimeoutMs, workdir: repo, diag }), "report"),
   });
   try {
@@ -113,17 +102,21 @@ async function runRoute(routeId, route) {
       workspacePath: repo,
       naiaBinding: facingBinding,
       moderatorBinding,
+      workerProfiles: { [route.workerProfile]: { provider: "openai-codex", model: workerModel, reasoningEffort: route.workerReasoning } },
     });
     const issue = orchestrator.snapshot(report.issueId);
     const eventTypes = store.events(issue.issueId).map((event) => event.type);
     const hardGates = {
       terminal_completed: report.state === "completed",
       all_acceptance_checks_pass: report.verificationPassed === true && issue.verification?.checks.every((check) => check.pass) === true,
-      obligations_preserved: pairedCase.obligations.every((needle) => issue.classification?.obligations.some((item) => item.toLowerCase().includes(needle.toLowerCase()))),
+      obligations_preserved: orderedObligationsEqual(issue.classification?.obligations, pairedCase.obligations),
       independent_actor_identities: identitiesIndependent(issue.receipts),
       stable_dispatch_id: Boolean(issue.dispatchId) && eventTypes.filter((type) => type === "worker_dispatched").length === 1,
-      profile_binding_exact: issue.plan?.workerProfile === route.workerProfile && issue.worker?.receipt.model === workerModel,
-      all_required_receipts_measured: measuredRoles(issue.receipts),
+      profile_binding_exact: issue.plan?.workerProfile === route.workerProfile
+        && issue.worker?.receipt.provider === "openai-codex"
+        && issue.worker.receipt.model === workerModel
+        && issue.worker.receipt.reasoningEffort === route.workerReasoning,
+      all_required_receipts_measured: measuredRoles(issue.receipts, corpus.requiredReceiptRoles),
     };
     return { routeId, bindings: { naia: facingBinding, moderator: moderatorBinding, worker: { provider: "openai-codex", model: workerModel, reasoningEffort: route.workerReasoning, profile: route.workerProfile }, reporter: { provider: "openai-codex", model: route.reporter, reasoningEffort: route.reporterReasoning } }, report, hardGates, receipts: issue.receipts, eventTypes };
   } finally { store.close(); }
@@ -138,7 +131,7 @@ try {
   const comparison = bothPass
     ? { claimAllowed: true, lunaProxyUsd: cost(lunaProxy), allSolUsd: cost(allSol), savingsUsd: cost(allSol) - cost(lunaProxy) }
     : { claimAllowed: false, lunaProxyUsd: null, allSolUsd: null, savingsUsd: null, reason: "quality or receipt hard gate failed" };
-  const result = { schemaVersion: 1, benchmarkId: corpus.benchmarkId, caseId: pairedCase.id, executedAt: new Date().toISOString(), budget: { maxObservedSpendUsd: maxUsd, actorTimeoutMs, observedSpendUsd }, corpus, runs: { lunaProxy, allSol }, comparison };
+  const result = { schemaVersion: 1, benchmarkId: corpus.benchmarkId, caseId: pairedCase.id, executedAt: new Date().toISOString(), budget: { maxObservedSpendUsd: maxUsd, reservedCallUsd, actorTimeoutMs, observedSpendUsd }, corpus, runs: { lunaProxy, allSol }, comparison };
   const output = resolve(process.env.NAIA_ORCH_OUT ?? join(here, "results", `single-issue-live-${Date.now()}.json`));
   mkdirSync(dirname(output), { recursive: true });
   writeFileSync(output, `${JSON.stringify(result, null, 2)}\n`, { mode: 0o600 });

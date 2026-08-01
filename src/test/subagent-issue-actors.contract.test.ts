@@ -22,6 +22,7 @@ function actor(text: string, model = "gpt-5.6-luna"): SubAgentPort {
           evidence: {
             provider: "openai-codex",
             selectedModel: model,
+            reasoningEffort: model === "gpt-5.6-sol" ? "high" : "low",
             inputTokens: 20,
             cachedInputTokens: 5,
             outputTokens: 7,
@@ -73,7 +74,7 @@ describe("UC-ORCH-001 sub-agent issue actors", () => {
     const reporter = makeSubAgentNaiaReporter({ subAgent: actor('{"summary":"verified parser fix"}'), binding, workdir: "/workspace", diag });
     const issue = {
       version: 1, requestId: "r", requestDigest: "d", issueId: "i", originalText: "fix", workspacePath: "/workspace",
-      state: "completed" as const, naiaBinding: binding, moderatorBinding: binding, answers: [], receipts: [],
+      state: "completed" as const, naiaBinding: binding, moderatorBinding: binding, workerProfiles: {}, answers: [], receipts: [],
       worker: { ok: true, summary: "done", worktreePath: "/managed/i", changedFiles: ["src/parser.ts"], receipt: undefined as never },
       verification: { ok: true, checks: [{ name: "test", pass: true }], receipt: undefined as never },
       createdAt: "2026-08-01T00:00:00Z", updatedAt: "2026-08-01T00:00:01Z",
@@ -90,5 +91,33 @@ describe("UC-ORCH-001 sub-agent issue actors", () => {
     const verifier = makeIssueVerifierAdapter({ async verify() { return { ok: true, checks: [{ name: "different check", pass: true }] }; } });
     const result = await verifier.verify({ issueId: "i", idempotencyKey: "i:verify", worktreePath: "/managed/i", acceptanceChecks: ["required check"] });
     expect(result).toMatchObject({ ok: false, checks: [{ name: "required check", pass: false, details: "declared acceptance check was not executed" }] });
+  });
+
+  it("requires canonical acceptance-check policy and rejects model drift from it", async () => {
+    const withoutPolicy = makeSubAgentDevelopmentModerator({
+      subAgent: actor('{"workerTask":"fix","workerProfile":"balanced","acceptanceChecks":["test"],"questions":[]}', "gpt-5.6-sol"),
+      binding: { provider: "openai-codex", model: "gpt-5.6-sol", reasoningEffort: "high" }, workdir: "/workspace", diag,
+    });
+    await expect(withoutPolicy.plan({ issueId: "i", idempotencyKey: "k", originalText: "fix", obligations: ["fix"], answers: [] }))
+      .rejects.toThrow("acceptance check policy missing");
+
+    const drifted = makeSubAgentDevelopmentModerator({
+      subAgent: actor('{"workerTask":"fix","workerProfile":"balanced","acceptanceChecks":["different"],"questions":[]}', "gpt-5.6-sol"),
+      binding: { provider: "openai-codex", model: "gpt-5.6-sol", reasoningEffort: "high" },
+      allowedAcceptanceChecks: ["required"], workdir: "/workspace", diag,
+    });
+    await expect(drifted.plan({ issueId: "i", idempotencyKey: "k", originalText: "fix", obligations: ["fix"], answers: [] }))
+      .rejects.toThrow("acceptance check binding mismatch");
+  });
+
+  it("bounds a silent paid actor with the configured timeout", async () => {
+    let cancelled = 0;
+    const silent: SubAgentPort = { spawn() { return {
+      events: (async function* () { await new Promise((resolve) => setTimeout(resolve, 25)); yield { kind: "session_end", ok: false } as const; })(),
+      async cancel() { cancelled += 1; },
+    }; } };
+    const facing = makeSubAgentNaiaFacing({ subAgent: silent, binding, timeoutMs: 5, workdir: "/workspace", diag });
+    await expect(facing.classify({ requestId: "r", idempotencyKey: "k", text: "fix" })).rejects.toThrow("actor timed out");
+    expect(cancelled).toBe(1);
   });
 });

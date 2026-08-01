@@ -196,6 +196,7 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
             kind: "session_end", ok: true, reason: "codex turn.completed",
             evidence: {
               provider: "openai-codex", selectedModel: model ?? "codex-default",
+              ...(opts.reasoningEffort ? { reasoningEffort: opts.reasoningEffort } : {}),
               inputTokens, cachedInputTokens, outputTokens, totalTokens: inputTokens + outputTokens,
               sessionId: threadId ?? executionId, executionId,
               ...(measuredCostUsd !== undefined ? { measuredCostUsd } : {}),

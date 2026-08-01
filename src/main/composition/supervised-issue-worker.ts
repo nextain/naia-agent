@@ -11,7 +11,6 @@ export interface SupervisedIssueWorkerOptions {
   readonly subAgent: SubAgentPort;
   readonly workspace?: WorkspacePort;
   readonly diag: DiagnosticLog;
-  readonly resolveModel: (profileId: string) => string;
   readonly nowMs?: () => number;
   readonly changedFiles?: (worktreePath: string) => readonly string[];
 }
@@ -38,7 +37,7 @@ export function makeSupervisedIssueWorker(options: SupervisedIssueWorkerOptions)
         await supervisor.run({
           prompt: workerPrompt(input.task, input.acceptanceChecks),
           workdir: allocation.worktreePath,
-          model: options.resolveModel(input.profileId),
+          model: input.binding.model,
           filesystemAccess: "workspace_write",
         }, input.signal);
       } finally {
@@ -46,13 +45,15 @@ export function makeSupervisedIssueWorker(options: SupervisedIssueWorkerOptions)
       }
       const finishedAt = (options.nowMs ?? Date.now)();
       const evidence = report?.modelEvidence;
-      const expectedModel = options.resolveModel(input.profileId);
+      const expectedBinding = input.binding;
       if (!evidence?.sessionId || !evidence.executionId || !evidence.provider || !evidence.selectedModel) throw new Error("worker receipt evidence unavailable");
-      if (evidence.selectedModel !== expectedModel) throw new Error("worker model binding mismatch");
+      if (evidence.provider !== expectedBinding.provider || evidence.selectedModel !== expectedBinding.model
+        || evidence.reasoningEffort !== expectedBinding.reasoningEffort) throw new Error("worker model binding mismatch");
       const receipt: ActorReceipt = {
         role: "worker",
         provider: evidence.provider,
         model: evidence.selectedModel,
+        ...(evidence.reasoningEffort ? { reasoningEffort: evidence.reasoningEffort } : {}),
         sessionId: evidence.sessionId,
         executionId: evidence.executionId,
         idempotencyKey: input.dispatchId,

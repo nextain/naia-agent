@@ -1,4 +1,5 @@
 import type {
+  ActorBinding,
   ActorReceipt,
   IssueAnswer,
   IssueClassification,
@@ -37,6 +38,7 @@ export interface IssueWorkerPort {
     readonly workspacePath: string;
     readonly task: string;
     readonly profileId: string;
+    readonly binding: ActorBinding;
     readonly acceptanceChecks: readonly string[];
     readonly signal: AbortSignal;
   }): Promise<WorkerResult>;

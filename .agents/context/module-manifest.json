@@ -798,6 +798,12 @@
       "contract": "docs/progress/99.dev-comm/UC-ORCH-001-single-issue-vertical-contract-2026-08-01.md",
       "note": "Single-issue state, actor receipts, stable identity, cost accounting, and evidence-grounded report types."
     },
+    "src/main/domain/orchestration-benchmark.ts": {
+      "layer": "domain",
+      "uc": ["UC-ORCH-001"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-001-single-issue-vertical-contract-2026-08-01.md",
+      "note": "Pure hard-gate predicates shared by the paid runner and deterministic benchmark tests."
+    },
     "src/main/ports/issue-orchestration.ts": {
       "layer": "ports",
       "uc": ["UC-ORCH-001"],

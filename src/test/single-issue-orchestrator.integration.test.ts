@@ -18,6 +18,8 @@ function receipt(role: ActorReceipt["role"], key: string, n: number, usd = 0.01)
       : { provider: "fixture", model: "fixture-model" };
   return {
     role, ...binding,
+    ...((role === "naia" || role === "reporter") ? { reasoningEffort: "low" }
+      : role === "moderator" ? { reasoningEffort: "high" } : role === "worker" ? { reasoningEffort: "medium" } : {}),
     sessionId: `${role}-session-${n}`, executionId: `${role}-execution-${n}`, idempotencyKey: key,
     inputTokens: 10, cachedInputTokens: 2, outputTokens: 4, latencyMs: 5,
     cost: { state: "measured", usd, source: "fixture" },
@@ -29,6 +31,7 @@ function request(requestId = "request-1", text = "Fix the parser and run its tes
     requestId, text, workspacePath: "/workspace/project",
     naiaBinding: { provider: "openai-codex", model: "gpt-5.6-luna", reasoningEffort: "low" },
     moderatorBinding: { provider: "openai-codex", model: "gpt-5.6-sol", reasoningEffort: "high" },
+    workerProfiles: { balanced: { provider: "fixture", model: "fixture-model", reasoningEffort: "medium" } },
   };
 }
 
@@ -142,6 +145,9 @@ describe("UC-ORCH-001 single issue", () => {
     const reopened = new SqliteIssueOrchestrationStore(join(h.root, "issues.db"));
     const resumed = new SingleIssueOrchestrator({ ...h.deps, store: reopened });
     expect(await resumed.start(request())).toEqual(first);
+    await expect(resumed.start({
+      ...request(), workerProfiles: { economy: { provider: "fixture", model: "cheaper-model", reasoningEffort: "low" } },
+    })).rejects.toBeInstanceOf(IssueRequestConflictError);
     await expect(resumed.start(request("request-1", "different task"))).rejects.toBeInstanceOf(IssueRequestConflictError);
     reopened.close();
   });
@@ -222,6 +228,35 @@ describe("UC-ORCH-001 single issue", () => {
     const report = await h.orchestrator.resume("issue-0001");
     expect(report).toMatchObject({ state: "outcome_unknown", totalCost: { state: "unavailable" } });
     expect(h.calls.facing).toBe(0);
+    h.store.close();
+  });
+
+  it.each(["moderator_running", "reporter_running"] as const)("does not replay %s after restart", async (state) => {
+    const h = harness();
+    const accepted = h.store.create(request(`request-${state}`), {
+      issueId: "issue-0001", requestDigest: "digest", now: "2026-08-01T00:00:00Z",
+    });
+    h.store.save({
+      expectedVersion: accepted.version,
+      snapshot: { ...accepted, state, updatedAt: "2026-08-01T00:00:01Z" },
+      eventType: `${state}_fixture`,
+    });
+    expect(await h.orchestrator.resume("issue-0001")).toMatchObject({ state: "outcome_unknown", totalCost: { state: "unavailable" } });
+    expect(h.calls).toEqual({ facing: 0, moderator: 0, worker: 0, verifier: 0, reporter: 0 });
+    h.store.close();
+  });
+
+  it("rejects cancellation while any paid actor is in flight", () => {
+    const h = harness();
+    const accepted = h.store.create(request("request-cancel-race"), {
+      issueId: "issue-0001", requestDigest: "digest", now: "2026-08-01T00:00:00Z",
+    });
+    h.store.save({
+      expectedVersion: accepted.version,
+      snapshot: { ...accepted, state: "reporter_running", updatedAt: "2026-08-01T00:00:01Z" },
+      eventType: "reporter_dispatched",
+    });
+    expect(() => h.orchestrator.cancel("issue-0001")).toThrow("actor lifecycle adapter");
     h.store.close();
   });
 });
