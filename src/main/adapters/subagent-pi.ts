@@ -147,15 +147,17 @@ export function piLineToEvents(
       if (text.length > 0) events.push({ kind: "text_delta", text });
       const m = raw.message;
       if (m && typeof m.provider === "string" && typeof m.model === "string" && m.usage) {
+        const usage = validPiUsage(m.usage);
         const evidence = {
           provider: m.provider,
           selectedModel: m.model,
           modelEvidenceSource: "provider_reported" as const,
-          usageAvailable: true,
-          inputTokens: Number(m.usage.input ?? 0),
-          outputTokens: Number(m.usage.output ?? 0),
-          totalTokens: Number(m.usage.totalTokens ?? 0),
-          ...(typeof m.usage.cost?.total === "number" ? { piEstimatedCost: m.usage.cost.total } : {}),
+          usageAvailable: Boolean(usage),
+          inputTokens: usage?.inputTokens ?? 0,
+          outputTokens: usage?.outputTokens ?? 0,
+          totalTokens: usage?.totalTokens ?? 0,
+          ...(usage && typeof m.usage.cost?.total === "number" && Number.isFinite(m.usage.cost.total) && m.usage.cost.total >= 0
+            ? { piEstimatedCost: m.usage.cost.total } : {}),
         };
         events.push({ kind: "model_evidence", evidence });
         if (expected && (m.provider !== expected.provider || m.model !== expected.model)) {
@@ -177,6 +179,15 @@ export function piLineToEvents(
     default:
       return [];
   }
+}
+
+function validPiUsage(value: NonNullable<RawPiEvent["message"]>["usage"]): { inputTokens: number; outputTokens: number; totalTokens: number } | undefined {
+  if (!value) return undefined;
+  const fields = [value.input, value.output, value.totalTokens];
+  if (fields.some((field) => typeof field !== "number" || !Number.isSafeInteger(field) || field < 0)) return undefined;
+  const [inputTokens, outputTokens, totalTokens] = fields as number[];
+  if (totalTokens < inputTokens + outputTokens) return undefined;
+  return { inputTokens, outputTokens, totalTokens };
 }
 
 /** SubAgentPort 의 pi 구현. pi CLI 1회 실행을 sub-agent 세션으로 spawn. */

@@ -308,13 +308,22 @@ function validateStart(request: IssueStartRequest): void {
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(request.requestId)) throw new Error("invalid request id");
   if (!request.text.trim()) throw new Error("request text is required");
   if (!request.workspacePath.trim()) throw new Error("workspace path is required");
+  if (!validBinding(request.naiaBinding) || !validBinding(request.moderatorBinding)) {
+    throw new Error("invalid facing or moderator binding");
+  }
   const profiles = Object.entries(request.workerProfiles);
   if (profiles.length === 0) throw new Error("at least one worker profile is required");
   for (const [profileId, binding] of profiles) {
-    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(profileId) || !binding.provider.trim() || !binding.model.trim()) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(profileId) || !validBinding(binding)) {
       throw new Error("invalid worker profile binding");
     }
   }
+}
+
+function validBinding(binding: { provider: string; model: string; reasoningEffort?: string }): boolean {
+  const concrete = (value: string) => value.length > 0 && value === value.trim() && value.length <= 128 && !/[\u0000-\u001f\u007f]/u.test(value);
+  return concrete(binding.provider) && concrete(binding.model)
+    && (binding.reasoningEffort === undefined || ["low", "medium", "high", "xhigh"].includes(binding.reasoningEffort));
 }
 
 function digest(value: string): string { return createHash("sha256").update(value, "utf8").digest("hex"); }

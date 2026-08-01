@@ -92,6 +92,16 @@ function harness(options: { chat?: boolean; question?: boolean; workerThrows?: b
 }
 
 describe("UC-ORCH-001 single issue", () => {
+  it("rejects empty or unsupported facing and moderator bindings before persistence", async () => {
+    const h = harness();
+    await expect(h.orchestrator.start({ ...request("bad-facing"), naiaBinding: { provider: "", model: "" } }))
+      .rejects.toThrow("invalid facing or moderator binding");
+    await expect(h.orchestrator.start({ ...request("bad-moderator"), moderatorBinding: { provider: "openai-codex", model: "gpt-5.6-sol", reasoningEffort: "extreme" } }))
+      .rejects.toThrow("invalid facing or moderator binding");
+    expect(() => h.orchestrator.snapshot("issue-0001")).toThrow("unknown issue");
+    h.store.close();
+  });
+
   it("keeps chat out of moderator and worker paths", async () => {
     const h = harness({ chat: true });
     const report = await h.orchestrator.start(request("chat-1", "오늘 어때?"));

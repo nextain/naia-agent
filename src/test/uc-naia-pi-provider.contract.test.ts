@@ -101,12 +101,24 @@ describe("UC-NAIA-PI provider isolation", () => {
       type: "message_end",
       message: { role: "assistant", provider: "naia", model: "grok-4.3", content: [], usage: { input: 3, output: 4, totalTokens: 7, cost: { total: 0.01 } } },
     }), { provider: "naia", model: "grok-4.3" });
-    expect(ok).toEqual([{ kind: "model_evidence", evidence: { provider: "naia", selectedModel: "grok-4.3", inputTokens: 3, outputTokens: 4, totalTokens: 7, piEstimatedCost: 0.01 } }]);
+    expect(ok).toEqual([{ kind: "model_evidence", evidence: {
+      provider: "naia", selectedModel: "grok-4.3", modelEvidenceSource: "provider_reported",
+      usageAvailable: true, inputTokens: 3, outputTokens: 4, totalTokens: 7, piEstimatedCost: 0.01,
+    } }]);
 
     const mismatch = piLineToEvents(JSON.stringify({
       type: "message_end",
       message: { provider: "naia", model: "other", content: [], usage: { input: 1, output: 1, totalTokens: 2 } },
     }), { provider: "naia", model: "grok-4.3" });
     expect(mismatch.at(-1)).toMatchObject({ kind: "session_end", ok: false });
+
+    const malformed = piLineToEvents(JSON.stringify({
+      type: "message_end",
+      message: { provider: "naia", model: "grok-4.3", content: [], usage: { input: "3", output: 4, totalTokens: 7 } },
+    }), { provider: "naia", model: "grok-4.3" });
+    expect(malformed).toEqual([{ kind: "model_evidence", evidence: {
+      provider: "naia", selectedModel: "grok-4.3", modelEvidenceSource: "provider_reported",
+      usageAvailable: false, inputTokens: 0, outputTokens: 0, totalTokens: 0,
+    } }]);
   });
 });
