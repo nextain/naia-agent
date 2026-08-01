@@ -82,7 +82,7 @@ export interface IssueOrchestrationStore {
   getByRequestId(requestId: string): IssueSnapshot | undefined;
   /** Atomically acquires an expiring cross-process execution claim for one issue. */
   tryAcquireExecution(issueId: string, ownerId: string, nowMs: number, expiresAtMs: number): boolean;
-  renewExecution(issueId: string, ownerId: string, expiresAtMs: number): boolean;
+  renewExecution(issueId: string, ownerId: string, nowMs: number, expiresAtMs: number): boolean;
   releaseExecution(issueId: string, ownerId: string): void;
   requestCancellation(issueId: string, now: string): IssueSnapshot;
   save(input: {

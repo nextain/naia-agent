@@ -367,7 +367,8 @@ export class SingleIssueOrchestrator {
     };
     const heartbeat = setInterval(() => {
       try {
-        if (!this.d.store.renewExecution(issueId, ownerId, this.#clockMs() + this.#executionLeaseMs)) {
+        const heartbeatAt = this.#clockMs();
+        if (!this.d.store.renewExecution(issueId, ownerId, heartbeatAt, heartbeatAt + this.#executionLeaseMs)) {
           abandonClaim();
           return;
         }

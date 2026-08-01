@@ -32,7 +32,8 @@ session, is observed by a peer process through the execution heartbeat, and fenc
   is observed rather than misclassified as a crash; stale owners are fenced from snapshot writes.
   A false or thrown lease renewal aborts the stale local actor, removes its local write authority,
   suppresses further writes even if the actor ignores abort, and rejoins the successor's latest
-  grounded state instead of leaking a fenced-save exception.
+  grounded state instead of leaking a fenced-save exception. SQLite renewal requires the prior lease
+  to still be unexpired, so a paused owner cannot resurrect itself even before a successor acquires it.
 - an acknowledged actor result is never called again; an unacknowledged worker transport loss is
   `outcome_unknown` unless exact dispatch reconciliation proves a terminal result.
 - every paid actor has a persisted running boundary before invocation. Restart at that boundary never

@@ -5,6 +5,7 @@ import type { IssueOrchestrationStore } from "../ports/issue-orchestration.js";
 import { redactSecrets } from "./redact.js";
 
 type Row = Record<string, unknown>;
+const SQLITE_BUSY_RETRY_VIEW = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
 
 export class IssueStoreConcurrencyError extends Error {}
 export class IssueStoreExecutionClaimError extends Error {}
@@ -20,8 +21,9 @@ export class SqliteIssueOrchestrationStore implements IssueOrchestrationStore {
     this.#path = path;
     this.#db = new Database(path);
     this.#db.pragma("busy_timeout = 5000");
-    this.#db.exec("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;");
-    this.#db.exec(`
+    withSqliteBusyRetry(() => this.#db.pragma("journal_mode = WAL"));
+    this.#db.pragma("foreign_keys = ON");
+    withSqliteBusyRetry(() => this.#db.exec(`
       CREATE TABLE IF NOT EXISTS issue_orchestration_snapshots (
         issue_id TEXT PRIMARY KEY,
         request_id TEXT NOT NULL UNIQUE,
@@ -46,7 +48,7 @@ export class SqliteIssueOrchestrationStore implements IssueOrchestrationStore {
         owner_id TEXT NOT NULL,
         expires_at_ms INTEGER NOT NULL
       );
-    `);
+    `));
     this.chmodPrivateFiles();
   }
 
@@ -112,9 +114,9 @@ export class SqliteIssueOrchestrationStore implements IssueOrchestrationStore {
     });
   }
 
-  renewExecution(issueId: string, ownerId: string, expiresAtMs: number): boolean {
+  renewExecution(issueId: string, ownerId: string, nowMs: number, expiresAtMs: number): boolean {
     const changed = this.#db.prepare(`UPDATE issue_orchestration_execution_claims SET expires_at_ms=?
-      WHERE issue_id=? AND owner_id=?`).run(expiresAtMs, issueId, ownerId);
+      WHERE issue_id=? AND owner_id=? AND expires_at_ms>?`).run(expiresAtMs, issueId, ownerId, nowMs);
     return Number(changed.changes) === 1;
   }
 
@@ -234,6 +236,19 @@ function sanitizeForPersistence<T>(value: T): T {
       .map(([key, item]) => [key, sanitizeForPersistence(item)])) as T;
   }
   return value;
+}
+
+function withSqliteBusyRetry<T>(operation: () => T, timeoutMs = 5_000): T {
+  const deadline = Date.now() + timeoutMs;
+  while (true) {
+    try {
+      return operation();
+    } catch (error) {
+      const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+      if (!code.startsWith("SQLITE_BUSY") || Date.now() >= deadline) throw error;
+      Atomics.wait(SQLITE_BUSY_RETRY_VIEW, 0, 0, 10);
+    }
+  }
 }
 
 function assertImmutableFields(current: IssueSnapshot, candidate: IssueSnapshot): void {

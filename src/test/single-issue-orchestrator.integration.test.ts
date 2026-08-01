@@ -335,7 +335,9 @@ describe("UC-ORCH-001 single issue", () => {
         } catch (error) {
           parentPort.postMessage({ kind: "result", value: { error: error instanceof Error ? error.message : String(error) } });
         } finally { store.close(); }
-      })().catch((error) => parentPort.postMessage({ kind: "result", value: { error: String(error) } }));
+      })().catch((error) => parentPort.postMessage({ kind: "result", value: {
+        error: error instanceof Error ? (error.stack ?? error.message) : String(error),
+      } }));
     `;
     const spawn = (issueId: string) => {
       let readyResolve!: () => void;
@@ -359,7 +361,7 @@ describe("UC-ORCH-001 single issue", () => {
     Atomics.store(new Int32Array(barrier), 1, 1);
     Atomics.notify(new Int32Array(barrier), 1, 2);
     const results = await Promise.all([first.result, second.result]);
-    expect(results.every((result) => !result.error)).toBe(true);
+    expect(results.every((result) => !result.error), JSON.stringify(results)).toBe(true);
     expect(results.map((result) => result.created).sort()).toEqual([false, true]);
     expect(new Set(results.map((result) => result.issueId)).size).toBe(1);
     expect(results.every((result) => result.digest === "same-digest")).toBe(true);
@@ -372,8 +374,9 @@ describe("UC-ORCH-001 single issue", () => {
     });
     expect(h.store.tryAcquireExecution("issue-0001", "owner-1", 100, 200)).toBe(true);
     expect(h.store.tryAcquireExecution("issue-0001", "owner-2", 150, 250)).toBe(false);
+    expect(h.store.renewExecution("issue-0001", "owner-1", 201, 400)).toBe(false);
     expect(h.store.tryAcquireExecution("issue-0001", "owner-2", 201, 300)).toBe(true);
-    expect(h.store.renewExecution("issue-0001", "owner-1", 400)).toBe(false);
+    expect(h.store.renewExecution("issue-0001", "owner-1", 202, 400)).toBe(false);
     expect(() => h.store.save({
       expectedVersion: accepted.version,
       snapshot: { ...accepted, state: "classifying", updatedAt: "2026-08-01T00:00:01Z" },
