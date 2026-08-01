@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { orderedObligationsEqual } from "../main/domain/orchestration-benchmark.js";
@@ -12,6 +13,7 @@ interface RouteRun {
 }
 
 const corpusPath = fileURLToPath(new URL("../../benchmark/orchestration/single-issue-cases.json", import.meta.url));
+const runnerPath = fileURLToPath(new URL("../../benchmark/run-single-issue-live.mjs", import.meta.url));
 const corpus = JSON.parse(readFileSync(corpusPath, "utf8")) as {
   schemaVersion: number;
   benchmarkId: string;
@@ -47,8 +49,8 @@ describe("UC-ORCH-001 frozen composition benchmark", () => {
   it("pins two complete routes and unique cases including one paired live coding case", () => {
     expect(corpus.schemaVersion).toBe(1);
     expect(Object.keys(corpus.routes).sort()).toEqual(["allSol", "lunaProxy"]);
-    expect(corpus.routes.lunaProxy).toMatchObject({ naia: "gpt-5.6-luna", naiaReasoning: "low", moderator: "gpt-5.6-sol", moderatorReasoning: "high", workerReasoning: "medium", reporter: "gpt-5.6-luna", reporterReasoning: "low" });
-    expect(corpus.routes.allSol).toMatchObject({ naia: "gpt-5.6-sol", naiaReasoning: "low", moderator: "gpt-5.6-sol", moderatorReasoning: "high", workerReasoning: "high", reporter: "gpt-5.6-sol", reporterReasoning: "low" });
+    expect(corpus.routes.lunaProxy).toMatchObject({ naia: "gpt-5.6-luna", naiaReasoning: "low", moderator: "gpt-5.6-sol", moderatorReasoning: "high", worker: "gpt-5.6-terra", workerReasoning: "medium", reporter: "gpt-5.6-luna", reporterReasoning: "low" });
+    expect(corpus.routes.allSol).toMatchObject({ naia: "gpt-5.6-sol", naiaReasoning: "low", moderator: "gpt-5.6-sol", moderatorReasoning: "high", worker: "gpt-5.6-sol", workerReasoning: "high", reporter: "gpt-5.6-sol", reporterReasoning: "low" });
     expect(new Set(corpus.cases.map((item) => item.id)).size).toBe(corpus.cases.length);
     expect(corpus.cases.filter((item) => item.kind === "live-paired")).toHaveLength(1);
     expect(corpus.requiredReceiptRoles).toEqual(["naia", "moderator", "worker", "verifier", "reporter"]);
@@ -111,5 +113,20 @@ describe("UC-ORCH-001 frozen composition benchmark", () => {
     expect(error).toBeInstanceOf(IssueActorResultError);
     expect((error as IssueActorResultError).receipt).toBe(paidReceipt);
     expect(budget.observedSpendUsd).toBe(0.25);
+  });
+
+  it("rejects a runtime worker-model override before any paid benchmark call", () => {
+    const run = spawnSync(process.execPath, [runnerPath], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        NAIA_ORCH_LIVE: "1",
+        NAIA_ORCH_MAX_USD: "1",
+        NAIA_ORCH_RESERVED_CALL_USD: "0.1",
+        NAIA_ORCH_WORKER_MODEL: "gpt-5.6-luna",
+      },
+    });
+    expect(run.status).not.toBe(0);
+    expect(run.stderr).toContain("worker bindings are frozen in the corpus");
   });
 });

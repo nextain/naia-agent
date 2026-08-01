@@ -10,6 +10,7 @@ export class IssueStoreConcurrencyError extends Error {}
 export class IssueStoreExecutionClaimError extends Error {}
 export class IssueStoreImmutableFieldError extends Error {}
 export class IssueStoreTerminalMutationError extends Error {}
+export class IssueStoreCancellationWindowError extends Error {}
 
 export class SqliteIssueOrchestrationStore implements IssueOrchestrationStore {
   readonly #db: Database.Database;
@@ -120,6 +121,28 @@ export class SqliteIssueOrchestrationStore implements IssueOrchestrationStore {
     this.#db.prepare("DELETE FROM issue_orchestration_execution_claims WHERE issue_id=? AND owner_id=?").run(issueId, ownerId);
   }
 
+  requestCancellation(issueId: string, now: string): IssueSnapshot {
+    return this.transaction(() => {
+      const row = this.#db.prepare("SELECT snapshot_json FROM issue_orchestration_snapshots WHERE issue_id=?")
+        .get(issueId) as Row | undefined;
+      if (!row) throw new Error(`unknown issue: ${issueId}`);
+      const current = JSON.parse(String(row.snapshot_json)) as IssueSnapshot;
+      if (isIssueTerminal(current.state) || current.cancellationRequestedAt) return current;
+      if (["worker_running", "verifying", "reporting", "reporter_running"].includes(current.state)) {
+        throw new IssueStoreCancellationWindowError("issue has already dispatched its worker");
+      }
+      const snapshot = sanitizeForPersistence<IssueSnapshot>({
+        ...current, version: current.version + 1, cancellationRequestedAt: now, updatedAt: now,
+      });
+      this.#db.prepare(`UPDATE issue_orchestration_snapshots SET version=?, snapshot_json=?, updated_at=?
+        WHERE issue_id=? AND version=?`).run(snapshot.version, JSON.stringify(snapshot), snapshot.updatedAt, issueId, current.version);
+      const event = this.#db.prepare("SELECT COALESCE(MAX(sequence), 0) AS sequence FROM issue_orchestration_events WHERE issue_id=?")
+        .get(issueId) as Row;
+      this.insertEvent(snapshot, Number(event.sequence) + 1, "cancellation_requested", {});
+      return snapshot;
+    });
+  }
+
   save(input: {
     readonly expectedVersion: number;
     readonly snapshot: IssueSnapshot;
@@ -131,10 +154,14 @@ export class SqliteIssueOrchestrationStore implements IssueOrchestrationStore {
     return this.transaction(() => {
       const currentRow = this.#db.prepare("SELECT snapshot_json, version FROM issue_orchestration_snapshots WHERE issue_id=?")
         .get(input.snapshot.issueId) as Row | undefined;
-      if (!currentRow || Number(currentRow.version) !== input.expectedVersion) {
+      if (!currentRow) {
         throw new IssueStoreConcurrencyError("issue snapshot changed concurrently");
       }
       const current = JSON.parse(String(currentRow.snapshot_json)) as IssueSnapshot;
+      if (Number(currentRow.version) !== input.expectedVersion) {
+        if (current.cancellationRequestedAt && !input.snapshot.cancellationRequestedAt) return current;
+        throw new IssueStoreConcurrencyError("issue snapshot changed concurrently");
+      }
       const claim = this.#db.prepare(`SELECT owner_id, expires_at_ms FROM issue_orchestration_execution_claims
         WHERE issue_id=?`).get(input.snapshot.issueId) as Row | undefined;
       if (claim && (!input.executionOwnerId || String(claim.owner_id) !== input.executionOwnerId
@@ -225,6 +252,9 @@ function assertImmutableFields(current: IssueSnapshot, candidate: IssueSnapshot)
   }
   if (current.dispatchId && candidate.dispatchId !== current.dispatchId) {
     throw new IssueStoreImmutableFieldError("dispatch id changed after being assigned");
+  }
+  if (current.cancellationRequestedAt && candidate.cancellationRequestedAt !== current.cancellationRequestedAt) {
+    throw new IssueStoreImmutableFieldError("cancellation request changed after being recorded");
   }
 }
 

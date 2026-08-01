@@ -323,6 +323,22 @@ describe("UC-ORCH-001 single issue", () => {
     h.store.close();
   });
 
+  it("lets a durable cancellation request win over a stale pre-dispatch transition", () => {
+    const h = harness();
+    const accepted = h.store.create(request("request-cancel-save-race"), {
+      issueId: "issue-0001", requestDigest: "digest", now: "2026-08-01T00:00:00Z",
+    });
+    const requested = h.store.requestCancellation("issue-0001", "2026-08-01T00:00:01Z");
+    const staleSave = h.store.save({
+      expectedVersion: accepted.version,
+      snapshot: { ...accepted, state: "classifying", updatedAt: "2026-08-01T00:00:02Z" },
+      eventType: "facing_dispatched",
+    });
+    expect(staleSave).toEqual(requested);
+    expect(h.store.events("issue-0001").map((event) => event.type)).toEqual(["issue_accepted", "cancellation_requested"]);
+    h.store.close();
+  });
+
   it("rejects immutable identity drift and every post-terminal snapshot mutation", async () => {
     const h = harness({ question: true });
     await h.orchestrator.start(request("request-immutable"));
@@ -395,7 +411,7 @@ describe("UC-ORCH-001 single issue", () => {
   it("keeps cancellation and lost worker response honest and propagates unavailable cost", async () => {
     const question = harness({ question: true });
     const pending = await question.orchestrator.start(request());
-    expect(question.orchestrator.cancel(pending.issueId!)).toMatchObject({ state: "cancelled" });
+    expect(await question.orchestrator.cancel(pending.issueId!)).toMatchObject({ state: "cancelled" });
     expect(question.calls.worker).toBe(0);
     question.store.close();
 
@@ -416,6 +432,30 @@ describe("UC-ORCH-001 single issue", () => {
     expect(report).toMatchObject({ state: "failed", totalCost: { state: "measured", usd: 0.03 } });
     expect(h.orchestrator.snapshot("issue-0001").receipts.map((item) => item.role)).toEqual(["naia", "moderator", "worker"]);
     expect(h.store.events("issue-0001").at(-1)?.type).toBe("actor_result_rejected");
+    h.store.close();
+  });
+
+  it.each(["facing", "moderator"] as const)("cancels a slow pre-dispatch %s actor and fences its late path", async (stage) => {
+    const h = harness();
+    let enteredResolve!: () => void;
+    const entered = new Promise<void>((resolve) => { enteredResolve = resolve; });
+    const blocked = async (input: { signal: AbortSignal }): Promise<never> => {
+      enteredResolve();
+      return new Promise((_, reject) => input.signal.addEventListener("abort", () => reject(new Error("actor aborted")), { once: true }));
+    };
+    const orchestrator = new SingleIssueOrchestrator({
+      ...h.deps,
+      ...(stage === "facing" ? { facing: { classify: blocked } } : {}),
+      ...(stage === "moderator" ? { moderator: { plan: blocked } } : {}),
+    });
+    const running = orchestrator.start(request(`request-cancel-${stage}`));
+    await entered;
+    const cancelled = await orchestrator.cancel("issue-0001");
+    expect(cancelled).toMatchObject({ state: "cancelled", totalCost: { state: "unavailable" } });
+    expect(await running).toEqual(cancelled);
+    expect(h.calls.worker).toBe(0);
+    expect(h.store.events("issue-0001").map((event) => event.type)).toContain("cancellation_requested");
+    expect(h.store.events("issue-0001").at(-1)?.type).toBe("issue_cancelled");
     h.store.close();
   });
 
@@ -529,7 +569,7 @@ describe("UC-ORCH-001 single issue", () => {
     h.store.close();
   });
 
-  it("rejects cancellation while any paid actor is in flight", () => {
+  it("rejects cancellation after worker dispatch", async () => {
     const h = harness();
     const accepted = h.store.create(request("request-cancel-race"), {
       issueId: "issue-0001", requestDigest: "digest", now: "2026-08-01T00:00:00Z",
@@ -539,7 +579,7 @@ describe("UC-ORCH-001 single issue", () => {
       snapshot: { ...accepted, state: "reporter_running", updatedAt: "2026-08-01T00:00:01Z" },
       eventType: "reporter_dispatched",
     });
-    expect(() => h.orchestrator.cancel("issue-0001")).toThrow("actor lifecycle adapter");
+    await expect(h.orchestrator.cancel("issue-0001")).rejects.toThrow("already dispatched");
     h.store.close();
   });
 });

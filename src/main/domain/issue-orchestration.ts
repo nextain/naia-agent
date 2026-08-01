@@ -101,6 +101,7 @@ export interface IssueSnapshot {
   readonly originalText: string;
   readonly workspacePath: string;
   readonly state: IssueState;
+  readonly cancellationRequestedAt?: string;
   readonly naiaBinding: ActorBinding;
   readonly moderatorBinding: ActorBinding;
   readonly workerProfiles: Readonly<Record<string, ActorBinding>>;

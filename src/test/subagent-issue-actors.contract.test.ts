@@ -44,6 +44,7 @@ function actor(text: string, model = "gpt-5.6-luna"): SubAgentPort {
 
 const diag = { log() {}, debug() {} };
 const binding = { provider: "openai-codex", model: "gpt-5.6-luna", reasoningEffort: "low" };
+const signal = () => new AbortController().signal;
 
 describe("UC-ORCH-001 sub-agent issue actors", () => {
   it("strictly maps facing and moderator JSON into durable contracts", async () => {
@@ -51,7 +52,7 @@ describe("UC-ORCH-001 sub-agent issue actors", () => {
       subAgent: actor('{"kind":"work","obligations":["fix parser","run tests"]}'),
       binding, workdir: "/workspace", diag,
     });
-    const classified = await facing.classify({ requestId: "r-1", idempotencyKey: "i:facing", text: "fix it" });
+    const classified = await facing.classify({ requestId: "r-1", idempotencyKey: "i:facing", text: "fix it", signal: signal() });
     expect(classified.classification).toEqual({ kind: "work", obligations: ["fix parser", "run tests"] });
     expect(classified.receipt).toMatchObject({ role: "naia", model: "gpt-5.6-luna", cost: { state: "measured" } });
 
@@ -61,14 +62,14 @@ describe("UC-ORCH-001 sub-agent issue actors", () => {
       allowedAcceptanceChecks: ["node --test passes"],
       workdir: "/workspace", diag,
     });
-    const planned = await moderator.plan({ issueId: "i", idempotencyKey: "i:moderator", originalText: "fix it", obligations: classified.classification.obligations, answers: [] });
+    const planned = await moderator.plan({ issueId: "i", idempotencyKey: "i:moderator", originalText: "fix it", obligations: classified.classification.obligations, answers: [], signal: signal() });
     expect(planned.plan).toEqual({ workerTask: "Fix src/parser.ts", workerProfile: "balanced", acceptanceChecks: ["node --test passes"], questions: [] });
     expect(planned.receipt).toMatchObject({ role: "moderator", model: "gpt-5.6-sol" });
   });
 
   it("rejects malformed actor output instead of guessing", async () => {
     const facing = makeSubAgentNaiaFacing({ subAgent: actor('{"kind":"maybe","obligations":[]}'), binding, workdir: "/workspace", diag });
-    const error = await facing.classify({ requestId: "r", idempotencyKey: "k", text: "x" }).catch((caught: unknown) => caught);
+    const error = await facing.classify({ requestId: "r", idempotencyKey: "k", text: "x", signal: signal() }).catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(IssueActorResultError);
     expect(error).toMatchObject({ message: expect.stringContaining("schema mismatch"), receipt: { role: "naia", idempotencyKey: "k", cost: { state: "measured" } } });
   });
@@ -82,17 +83,17 @@ describe("UC-ORCH-001 sub-agent issue actors", () => {
       verification: { ok: true, checks: [{ name: "test", pass: true }], receipt: undefined as never },
       createdAt: "2026-08-01T00:00:00Z", updatedAt: "2026-08-01T00:00:01Z",
     };
-    const reported = await reporter.report({ issue, events: [], idempotencyKey: "i:report" });
+    const reported = await reporter.report({ issue, events: [], idempotencyKey: "i:report", signal: signal() });
     expect(reported.report).toMatchObject({ state: "completed", summary: "verified parser fix", changedFiles: ["src/parser.ts"], verificationPassed: true });
 
     const verifier = makeIssueVerifierAdapter({ async verify() { return { ok: false, checks: [{ name: "test", pass: false }] }; } }, (() => { let n = 10; return () => n += 5; })());
-    const verified = await verifier.verify({ issueId: "i", idempotencyKey: "i:verify", worktreePath: "/managed/i", acceptanceChecks: ["test"] });
+    const verified = await verifier.verify({ issueId: "i", idempotencyKey: "i:verify", worktreePath: "/managed/i", acceptanceChecks: ["test"], signal: signal() });
     expect(verified).toMatchObject({ ok: false, receipt: { role: "verifier", provider: "deterministic", latencyMs: 5, cost: { state: "measured", usd: 0 } } });
   });
 
   it("fails verification when a declared acceptance check was not executed", async () => {
     const verifier = makeIssueVerifierAdapter({ async verify() { return { ok: true, checks: [{ name: "different check", pass: true }] }; } });
-    const result = await verifier.verify({ issueId: "i", idempotencyKey: "i:verify", worktreePath: "/managed/i", acceptanceChecks: ["required check"] });
+    const result = await verifier.verify({ issueId: "i", idempotencyKey: "i:verify", worktreePath: "/managed/i", acceptanceChecks: ["required check"], signal: signal() });
     expect(result).toMatchObject({ ok: false, checks: [{ name: "required check", pass: false, details: "declared acceptance check was not executed" }] });
   });
 
@@ -101,7 +102,7 @@ describe("UC-ORCH-001 sub-agent issue actors", () => {
       subAgent: actor('{"workerTask":"fix","workerProfile":"balanced","acceptanceChecks":["test"],"questions":[]}', "gpt-5.6-sol"),
       binding: { provider: "openai-codex", model: "gpt-5.6-sol", reasoningEffort: "high" }, workdir: "/workspace", diag,
     });
-    await expect(withoutPolicy.plan({ issueId: "i", idempotencyKey: "k", originalText: "fix", obligations: ["fix"], answers: [] }))
+    await expect(withoutPolicy.plan({ issueId: "i", idempotencyKey: "k", originalText: "fix", obligations: ["fix"], answers: [], signal: signal() }))
       .rejects.toThrow("acceptance check policy missing");
 
     const drifted = makeSubAgentDevelopmentModerator({
@@ -109,7 +110,7 @@ describe("UC-ORCH-001 sub-agent issue actors", () => {
       binding: { provider: "openai-codex", model: "gpt-5.6-sol", reasoningEffort: "high" },
       allowedAcceptanceChecks: ["required"], workdir: "/workspace", diag,
     });
-    await expect(drifted.plan({ issueId: "i", idempotencyKey: "k", originalText: "fix", obligations: ["fix"], answers: [] }))
+    await expect(drifted.plan({ issueId: "i", idempotencyKey: "k", originalText: "fix", obligations: ["fix"], answers: [], signal: signal() }))
       .rejects.toThrow("acceptance check binding mismatch");
   });
 
@@ -120,7 +121,23 @@ describe("UC-ORCH-001 sub-agent issue actors", () => {
       async cancel() { cancelled += 1; },
     }; } };
     const facing = makeSubAgentNaiaFacing({ subAgent: silent, binding, timeoutMs: 5, workdir: "/workspace", diag });
-    await expect(facing.classify({ requestId: "r", idempotencyKey: "k", text: "fix" })).rejects.toThrow("actor timed out");
+    await expect(facing.classify({ requestId: "r", idempotencyKey: "k", text: "fix", signal: signal() })).rejects.toThrow("actor timed out");
+    expect(cancelled).toBe(1);
+  });
+
+  it("cancels the underlying sub-agent session when the orchestration signal aborts", async () => {
+    let release!: () => void;
+    let cancelled = 0;
+    const waiting: SubAgentPort = { spawn() { return {
+      events: (async function* () { await new Promise<void>((resolve) => { release = resolve; }); yield { kind: "session_end", ok: false } as const; })(),
+      async cancel() { cancelled += 1; release(); },
+    }; } };
+    const controller = new AbortController();
+    const facing = makeSubAgentNaiaFacing({ subAgent: waiting, binding, workdir: "/workspace", diag });
+    const result = facing.classify({ requestId: "r", idempotencyKey: "k", text: "fix", signal: controller.signal });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    controller.abort();
+    await expect(result).rejects.toThrow("actor cancelled");
     expect(cancelled).toBe(1);
   });
 });

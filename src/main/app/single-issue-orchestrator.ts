@@ -45,6 +45,7 @@ export class SingleIssueOrchestrator {
   readonly #executionLeaseMs: number;
   readonly #executionPollMs: number;
   readonly #executionOwners = new Map<string, string>();
+  readonly #executionControllers = new Map<string, AbortController>();
   readonly #activeStarts = new Map<string, { readonly requestDigest: string; readonly run: Promise<IssueReport> }>();
 
   constructor(private readonly d: SingleIssueOrchestratorDeps) {
@@ -82,7 +83,7 @@ export class SingleIssueOrchestrator {
   }
 
   async answer(issueId: string, questionId: string, answer: string, signal: AbortSignal = new AbortController().signal): Promise<IssueReport> {
-    return this.withExecutionClaim(issueId, signal, async () => {
+    return this.withExecutionClaim(issueId, signal, async (executionSignal) => {
       const issue = this.required(issueId);
       const pending = issue.plan?.questions.find((question) => !issue.answers.some((prior) => prior.questionId === question.questionId));
       if (issue.state !== "awaiting_user" || pending?.questionId !== questionId || !answer.trim()) throw new IssueQuestionMismatchError("answer does not match the pending issue question");
@@ -92,22 +93,21 @@ export class SingleIssueOrchestrator {
         answers: [...issue.answers, { questionId, text: answer }],
         updatedAt: this.#now(),
       }, "question_answered", { questionId });
-      return this.runStages(updated.issueId, signal);
+      return this.runStages(updated.issueId, executionSignal);
     }, false);
   }
 
-  cancel(issueId: string): IssueReport {
+  async cancel(issueId: string, signal: AbortSignal = new AbortController().signal): Promise<IssueReport> {
     const issue = this.required(issueId);
     if (isIssueTerminal(issue.state)) return this.grounded(issue);
-    if (["classifying", "moderator_running", "worker_running", "verifying", "reporting", "reporter_running"].includes(issue.state)) {
-      throw new Error("in-flight issue cancellation requires the actor lifecycle adapter");
-    }
-    const cancelled = this.save(issue, { ...issue, state: "cancelled", updatedAt: this.#now() }, "issue_cancelled");
-    return this.grounded(cancelled);
+    const requested = this.d.store.requestCancellation(issueId, this.#now());
+    this.#executionControllers.get(issueId)?.abort(new Error("issue cancellation requested"));
+    if (isIssueTerminal(requested.state)) return this.grounded(requested);
+    return this.resume(issueId, signal);
   }
 
   async resume(issueId: string, signal: AbortSignal = new AbortController().signal): Promise<IssueReport> {
-    return this.withExecutionClaim(issueId, signal, () => this.runStages(issueId, signal));
+    return this.withExecutionClaim(issueId, signal, (executionSignal) => this.runStages(issueId, executionSignal));
   }
 
   private async runStages(issueId: string, signal: AbortSignal): Promise<IssueReport> {
@@ -119,6 +119,10 @@ export class SingleIssueOrchestrator {
     for (;;) {
       this.debug("resume-stage", { issueId, state: issue.state });
       if (isIssueTerminal(issue.state)) return this.grounded(issue);
+      if (issue.cancellationRequestedAt) {
+        const actorWasInFlight = ["classifying", "moderator_running"].includes(issue.state);
+        return this.terminalizeCancellation(issue, actorWasInFlight);
+      }
       if (issue.state === "awaiting_user") return this.grounded(issue);
 
       if (issue.state === "accepted") {
@@ -132,9 +136,14 @@ export class SingleIssueOrchestrator {
         const key = `${issue.issueId}:facing:classify`;
         let result: Awaited<ReturnType<NaiaFacingPort["classify"]>> | undefined;
         try {
-          result = await this.d.facing.classify({ requestId: issue.requestId, idempotencyKey: key, text: issue.originalText });
+          result = await this.d.facing.classify({ requestId: issue.requestId, idempotencyKey: key, text: issue.originalText, signal });
           assertReceipt(result.receipt, "naia", key, issue.naiaBinding);
-        } catch (error) { return this.actorFailure(issue, "naia", key, issue.naiaBinding, error, result?.receipt); }
+        } catch (error) {
+          const cancelled = this.cancelAfterActor(issueId, "naia", key, issue.naiaBinding, error instanceof IssueActorResultError ? error.receipt : result?.receipt);
+          return cancelled ?? this.actorFailure(issue, "naia", key, issue.naiaBinding, error, result?.receipt);
+        }
+        const cancelled = this.cancelAfterActor(issueId, "naia", key, issue.naiaBinding, result?.receipt);
+        if (cancelled) return cancelled;
         if (!result) return this.markUnknown(issue, "facing_result_unavailable");
         if (result.classification.kind === "chat") {
           const receipts = appendReceipt(issue.receipts, result.receipt);
@@ -176,10 +185,16 @@ export class SingleIssueOrchestrator {
           result = await this.d.moderator.plan({
             issueId, idempotencyKey: key, originalText: issue.originalText,
             obligations: issue.classification?.obligations ?? [], answers: issue.answers,
+            signal,
           });
           assertReceipt(result.receipt, "moderator", key, issue.moderatorBinding);
           assertIndependent(issue.receipts, result.receipt);
-        } catch (error) { return this.actorFailure(issue, "moderator", key, issue.moderatorBinding, error, result?.receipt); }
+        } catch (error) {
+          const cancelled = this.cancelAfterActor(issueId, "moderator", key, issue.moderatorBinding, error instanceof IssueActorResultError ? error.receipt : result?.receipt);
+          return cancelled ?? this.actorFailure(issue, "moderator", key, issue.moderatorBinding, error, result?.receipt);
+        }
+        const cancelled = this.cancelAfterActor(issueId, "moderator", key, issue.moderatorBinding, result?.receipt);
+        if (cancelled) return cancelled;
         if (!result) return this.markUnknown(issue, "moderator_result_unavailable");
         const moderatorReceipts = appendReceipt(issue.receipts, result.receipt);
         try { assertPlan(result.plan); } catch (error) {
@@ -212,7 +227,10 @@ export class SingleIssueOrchestrator {
       }
 
       if (issue.state === "dispatch_ready") {
-        if (signal.aborted) return this.cancel(issueId);
+        if (signal.aborted) {
+          issue = this.d.store.requestCancellation(issueId, this.#now());
+          return this.terminalizeCancellation(issue, false);
+        }
         issue = this.save(issue, { ...issue, state: "worker_running", updatedAt: this.#now() }, "worker_dispatched", { dispatchId: issue.dispatchId! });
         dispatchedInThisCall = true;
         continue;
@@ -268,6 +286,7 @@ export class SingleIssueOrchestrator {
           idempotencyKey: `${issue.issueId}:verify:1`,
           worktreePath: issue.worker!.worktreePath,
           acceptanceChecks: issue.plan!.acceptanceChecks,
+          signal,
         });
         assertReceipt(verification.receipt, "verifier", `${issue.issueId}:verify:1`);
         assertIndependent(issue.receipts, verification.receipt);
@@ -295,7 +314,7 @@ export class SingleIssueOrchestrator {
         let result: Awaited<ReturnType<NaiaIssueReporterPort["report"]>> | undefined;
         try {
           result = await this.d.reporter.report({
-            issue: { ...issue, state: terminal }, events: this.d.store.events(issueId), idempotencyKey: key,
+            issue: { ...issue, state: terminal }, events: this.d.store.events(issueId), idempotencyKey: key, signal,
           });
           assertReceipt(result.receipt, "reporter", key, issue.naiaBinding);
           assertIndependent(issue.receipts, result.receipt);
@@ -321,29 +340,35 @@ export class SingleIssueOrchestrator {
 
   snapshot(issueId: string): IssueSnapshot { return this.required(issueId); }
 
-  private async withExecutionClaim(issueId: string, signal: AbortSignal, operation: () => Promise<IssueReport>, stopAtAwaiting = true): Promise<IssueReport> {
+  private async withExecutionClaim(issueId: string, signal: AbortSignal, operation: (executionSignal: AbortSignal) => Promise<IssueReport>, stopAtAwaiting = true): Promise<IssueReport> {
     const ownerId = this.#ownerIds();
     for (;;) {
       const current = this.required(issueId);
-      if (isIssueTerminal(current.state) || (stopAtAwaiting && current.state === "awaiting_user")) return this.grounded(current);
+      if (isIssueTerminal(current.state)
+        || (stopAtAwaiting && current.state === "awaiting_user" && !current.cancellationRequestedAt)) return this.grounded(current);
       const nowMs = this.#clockMs();
       if (this.d.store.tryAcquireExecution(issueId, ownerId, nowMs, nowMs + this.#executionLeaseMs)) break;
       await waitForExecution(this.#executionPollMs, signal);
     }
+    const controller = new AbortController();
+    const executionSignal = AbortSignal.any([signal, controller.signal]);
     const heartbeat = setInterval(() => {
       try {
         this.d.store.renewExecution(issueId, ownerId, this.#clockMs() + this.#executionLeaseMs);
+        if (this.d.store.get(issueId)?.cancellationRequestedAt) controller.abort(new Error("issue cancellation requested"));
       } catch (error) {
         this.debug("execution-lease-renewal-failed", { issueId, category: errorName(error) });
       }
-    }, Math.max(10, Math.floor(this.#executionLeaseMs / 3)));
+    }, Math.max(25, Math.min(500, Math.floor(this.#executionLeaseMs / 3))));
     heartbeat.unref?.();
     this.#executionOwners.set(issueId, ownerId);
+    this.#executionControllers.set(issueId, controller);
     try {
-      return await operation();
+      return await operation(executionSignal);
     } finally {
       clearInterval(heartbeat);
       if (this.#executionOwners.get(issueId) === ownerId) this.#executionOwners.delete(issueId);
+      if (this.#executionControllers.get(issueId) === controller) this.#executionControllers.delete(issueId);
       this.d.store.releaseExecution(issueId, ownerId);
     }
   }
@@ -397,6 +422,31 @@ export class SingleIssueOrchestrator {
     } catch {
       return this.markUnknown(issue, `${role}_call_or_receipt_unavailable`);
     }
+  }
+
+  private cancelAfterActor(issueId: string, role: ActorReceipt["role"], key: string, binding: { provider: string; model: string; reasoningEffort?: string }, candidate?: ActorReceipt): IssueReport | undefined {
+    const latest = this.required(issueId);
+    if (!latest.cancellationRequestedAt) return undefined;
+    if (!candidate) return this.terminalizeCancellation(latest, true);
+    try {
+      assertReceipt(candidate, role, key, binding);
+      assertIndependent(latest.receipts, candidate);
+      return this.terminalizeCancellation({ ...latest, receipts: appendReceipt(latest.receipts, candidate) }, false);
+    } catch {
+      return this.terminalizeCancellation(latest, true);
+    }
+  }
+
+  private terminalizeCancellation(issue: IssueSnapshot, costIncomplete: boolean): IssueReport {
+    const totalCost = costIncomplete
+      ? { state: "unavailable" as const, reason: "cancelled while an actor outcome or cost was in flight" }
+      : totalIssueCost(issue.receipts);
+    const report: IssueReport = {
+      issueId: issue.issueId, state: "cancelled", summary: "cancelled",
+      changedFiles: issue.worker?.changedFiles ?? [], verificationPassed: issue.verification?.ok ?? null, totalCost,
+    };
+    const cancelled = this.save(issue, { ...issue, state: "cancelled", report, updatedAt: this.#now() }, "issue_cancelled");
+    return this.grounded(cancelled);
   }
 
   private debug(stage: string, context: Readonly<Record<string, unknown>>): void {

@@ -29,6 +29,7 @@ const actorTimeoutMs = Number(process.env.NAIA_ORCH_MAX_ACTOR_MS ?? 120_000);
 if (!Number.isFinite(maxUsd) || maxUsd <= 0) throw new Error("NAIA_ORCH_MAX_USD must be an explicit positive observed-spend stop threshold");
 if (!Number.isFinite(reservedCallUsd) || reservedCallUsd <= 0 || reservedCallUsd > maxUsd) throw new Error("NAIA_ORCH_RESERVED_CALL_USD must be positive and no greater than NAIA_ORCH_MAX_USD");
 if (!Number.isFinite(actorTimeoutMs) || actorTimeoutMs <= 0) throw new Error("NAIA_ORCH_MAX_ACTOR_MS must be positive");
+if (process.env.NAIA_ORCH_WORKER_MODEL !== undefined) throw new Error("NAIA_ORCH_WORKER_MODEL is forbidden: worker bindings are frozen in the corpus");
 
 const prices = {
   "gpt-5.6-sol": { uncachedInput: 5, cachedInput: 0.5, output: 30 },
@@ -66,7 +67,8 @@ async function runRoute(routeId, route) {
     { name: "node --test math.test.mjs passes", command: process.execPath, args: ["--test", "math.test.mjs"] },
     { name: "only math.mjs changed", command: "sh", args: ["-c", "test \"$(git status --porcelain | cut -c4-)\" = math.mjs"] },
   ] });
-  const workerModel = routeId === "allSol" ? "gpt-5.6-sol" : (process.env.NAIA_ORCH_WORKER_MODEL ?? "gpt-5.6-terra");
+  const workerModel = route.worker;
+  if (!prices[workerModel]) throw new Error(`frozen worker model has no pinned price: ${workerModel}`);
   const facingBinding = { provider: "openai-codex", model: route.naia, reasoningEffort: route.naiaReasoning };
   const moderatorBinding = { provider: "openai-codex", model: route.moderator, reasoningEffort: route.moderatorReasoning };
   const orchestrator = new SingleIssueOrchestrator({

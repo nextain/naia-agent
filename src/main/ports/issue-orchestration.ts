@@ -22,6 +22,7 @@ export interface NaiaFacingPort {
     readonly requestId: string;
     readonly idempotencyKey: string;
     readonly text: string;
+    readonly signal: AbortSignal;
   }): Promise<{ readonly classification: IssueClassification; readonly receipt: ActorReceipt }>;
 }
 
@@ -32,6 +33,7 @@ export interface DevelopmentModeratorPort {
     readonly originalText: string;
     readonly obligations: readonly string[];
     readonly answers: readonly IssueAnswer[];
+    readonly signal: AbortSignal;
   }): Promise<{ readonly plan: ModeratorPlan; readonly receipt: ActorReceipt }>;
 }
 
@@ -55,6 +57,7 @@ export interface IssueVerifierPort {
   verify(input: {
     readonly issueId: string;
     readonly idempotencyKey: string;
+    readonly signal: AbortSignal;
     readonly worktreePath: string;
     readonly acceptanceChecks: readonly string[];
   }): Promise<IssueVerification>;
@@ -65,6 +68,7 @@ export interface NaiaIssueReporterPort {
     readonly issue: IssueSnapshot;
     readonly events: readonly IssueEvent[];
     readonly idempotencyKey: string;
+    readonly signal: AbortSignal;
   }): Promise<{ readonly report: Omit<IssueReport, "totalCost">; readonly receipt: ActorReceipt }>;
 }
 
@@ -80,6 +84,7 @@ export interface IssueOrchestrationStore {
   tryAcquireExecution(issueId: string, ownerId: string, nowMs: number, expiresAtMs: number): boolean;
   renewExecution(issueId: string, ownerId: string, expiresAtMs: number): boolean;
   releaseExecution(issueId: string, ownerId: string): void;
+  requestCancellation(issueId: string, now: string): IssueSnapshot;
   save(input: {
     readonly expectedVersion: number;
     readonly snapshot: IssueSnapshot;

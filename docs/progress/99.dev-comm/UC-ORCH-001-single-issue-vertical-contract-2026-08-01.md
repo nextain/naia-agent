@@ -17,6 +17,8 @@ cancelled | outcome_unknown`
 
 Terminal states are immutable. `awaiting_user` resumes only with the exact pending question id.
 Every transition appends an event in the same SQLite transaction as the current snapshot.
+Cancellation before worker dispatch is a durable request: it aborts an in-process facing/moderator
+session, is observed by a peer process through the execution heartbeat, and fences late stage writes.
 
 ## Identity and retry
 
@@ -87,8 +89,10 @@ hard gate.
   every quality and receipt gate. Codex CLI exposes no provider-side token/dollar ceiling, so the runner
   labels this limitation explicitly instead of claiming a hard credit ceiling. Its observed-spend ledger
   is behaviorally tested and carries a completed receipt even when a per-call reservation is exceeded.
+  The corpus pins each route's worker provider/model/reasoning binding; runtime model overrides are
+  rejected before any paid call.
 - Full regression excluding two baseline environment-sensitive process tests: 130 files passed, 3
-  skipped; 1,470 tests passed, 9 skipped. The unchanged baseline failures are the management-doctor
+  skipped; 1,475 tests passed, 9 skipped. The unchanged baseline failures are the management-doctor
   status expectation and nested-ADK credential discovery in the Pi CLI process test. No credential
   value is retained in this document or benchmark artifact.
 - Repository gates: compile, logging, traceability, terminology, and new-file anchors pass. The global

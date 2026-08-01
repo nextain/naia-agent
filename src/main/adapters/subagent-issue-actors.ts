@@ -38,7 +38,7 @@ export function makeSubAgentNaiaFacing(options: JsonActorOptions): NaiaFacingPor
         "Return JSON only: {\"kind\":\"chat|work\",\"obligations\":[\"...\"],\"chatReply\":\"... optional for chat\"}.",
         `Input: ${JSON.stringify(input.text)}`,
       ].join("\n");
-      const result = await runJson(options, "naia", input.idempotencyKey, prompt);
+      const result = await runJson(options, "naia", input.idempotencyKey, prompt, input.signal);
       return withReceipt(result.receipt, () => {
         const kind = result.value.kind === "chat" ? "chat" : result.value.kind === "work" ? "work" : undefined;
         if (!kind || !Array.isArray(result.value.obligations) || result.value.obligations.some((item) => typeof item !== "string")) throw new Error("Naia classification schema mismatch");
@@ -76,7 +76,7 @@ export function makeSubAgentDevelopmentModerator(options: JsonActorOptions): Dev
         `Obligations: ${JSON.stringify(input.obligations)}`,
         `Bound answers: ${JSON.stringify(input.answers)}`,
       ].join("\n");
-      const result = await runJson(options, "moderator", input.idempotencyKey, prompt);
+      const result = await runJson(options, "moderator", input.idempotencyKey, prompt, input.signal);
       return withReceipt(result.receipt, () => {
         const value = result.value;
         if (typeof value.workerTask !== "string" || !allowedProfiles.includes(String(value.workerProfile))
@@ -120,7 +120,7 @@ export function makeSubAgentNaiaReporter(options: JsonActorOptions): NaiaIssueRe
         "Return JSON only: {\"summary\":\"...\"}.",
         `Evidence: ${JSON.stringify(evidence)}`,
       ].join("\n");
-      const result = await runJson(options, "reporter", input.idempotencyKey, prompt);
+      const result = await runJson(options, "reporter", input.idempotencyKey, prompt, input.signal);
       return withReceipt(result.receipt, () => {
         if (typeof result.value.summary !== "string") throw new Error("Naia report schema mismatch");
         const report: Omit<IssueReport, "totalCost"> = {
@@ -162,7 +162,7 @@ export function makeIssueVerifierAdapter(verifier: VerifierPort, nowMs: () => nu
   };
 }
 
-async function runJson(options: JsonActorOptions, role: ActorReceipt["role"], idempotencyKey: string, prompt: string): Promise<{
+async function runJson(options: JsonActorOptions, role: ActorReceipt["role"], idempotencyKey: string, prompt: string, signal: AbortSignal): Promise<{
   readonly value: Record<string, unknown>;
   readonly receipt: ActorReceipt;
 }> {
@@ -177,6 +177,9 @@ async function runJson(options: JsonActorOptions, role: ActorReceipt["role"], id
   let ok = false;
   let timedOut = false;
   const timer = setTimeout(() => { timedOut = true; void session.cancel(`${role} actor timeout`); }, timeoutMs);
+  const abort = () => { void session.cancel(`${role} actor cancelled`); };
+  signal.addEventListener("abort", abort, { once: true });
+  if (signal.aborted) abort();
   try {
     for await (const event of session.events) {
       if (event.kind === "text_delta") text += event.text;
@@ -185,8 +188,10 @@ async function runJson(options: JsonActorOptions, role: ActorReceipt["role"], id
     }
   } finally {
     clearTimeout(timer);
+    signal.removeEventListener("abort", abort);
   }
   if (timedOut) throw new Error(`${role} actor timed out`);
+  if (signal.aborted && !ok) throw new Error(`${role} actor cancelled`);
   if (!ok) throw new Error(`${role} actor did not complete`);
   if (!evidence?.sessionId || !evidence.executionId) throw new Error(`${role} actor receipt identity unavailable`);
   if (evidence.provider !== options.binding.provider || evidence.selectedModel !== options.binding.model) {

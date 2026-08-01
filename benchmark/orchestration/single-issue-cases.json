@@ -9,6 +9,7 @@
       "moderator": "gpt-5.6-sol",
       "moderatorReasoning": "high",
       "workerProfile": "balanced",
+      "worker": "gpt-5.6-terra",
       "workerReasoning": "medium",
       "reporter": "gpt-5.6-luna",
       "reporterReasoning": "low"
@@ -19,6 +20,7 @@
       "moderator": "gpt-5.6-sol",
       "moderatorReasoning": "high",
       "workerProfile": "control",
+      "worker": "gpt-5.6-sol",
       "workerReasoning": "high",
       "reporter": "gpt-5.6-sol",
       "reporterReasoning": "low"

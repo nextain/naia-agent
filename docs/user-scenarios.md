@@ -731,6 +731,7 @@ naia-agent-as-worker are outside this slice and are not runtime dependencies.
 | moderator question and exact answer resume the same issue | `single-issue-orchestrator.integration.test.ts` |
 | duplicate request and restart replay use the same issue/dispatch and worker effect once | `single-issue-orchestrator.integration.test.ts` |
 | concurrent Agent processes join an expiring SQLite execution claim and stale owners cannot write | `single-issue-orchestrator.integration.test.ts` |
-| cancellation and lost worker response remain honest terminal states | `single-issue-orchestrator.integration.test.ts` |
+| durable cancellation aborts slow facing/moderator work before dispatch and late paths cannot start a worker | `single-issue-orchestrator.integration.test.ts`, `subagent-issue-actors.contract.test.ts` |
+| post-dispatch cancellation is rejected and lost worker response remains an honest terminal state | `single-issue-orchestrator.integration.test.ts` |
 | managed worktree, real Codex protocol receipt, and verifier compose behind the worker port | `supervised-issue-worker.integration.test.ts` |
 | Luna-proxy and all-Sol runs use the same frozen cases and behaviorally account for rejected/excess actor receipts | `single-issue-benchmark.contract.test.ts` |
