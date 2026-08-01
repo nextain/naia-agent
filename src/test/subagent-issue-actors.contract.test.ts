@@ -169,6 +169,14 @@ describe("UC-ORCH-001 sub-agent issue actors", () => {
     });
     await expect(drifted.plan({ issueId: "i", idempotencyKey: "k", originalText: "fix", obligations: ["fix"], answers: [], signal: signal() }))
       .rejects.toThrow("acceptance check binding mismatch");
+
+    const duplicated = makeSubAgentDevelopmentModerator({
+      subAgent: actor('{"workerTask":"fix","workerProfile":"balanced","acceptanceChecks":["check A","check A","check B"],"questions":[]}', "gpt-5.6-sol"),
+      binding: { provider: "openai-codex", model: "gpt-5.6-sol", reasoningEffort: "high" },
+      allowedAcceptanceChecks: ["check A", "check B"], workdir: "/workspace", diag,
+    });
+    await expect(duplicated.plan({ issueId: "i", idempotencyKey: "k:duplicate", originalText: "fix", obligations: ["fix"], answers: [], signal: signal() }))
+      .rejects.toMatchObject({ message: expect.stringContaining("acceptance check binding mismatch"), receipt: { role: "moderator" } });
   });
 
   it("bounds a silent paid actor with the configured timeout", async () => {

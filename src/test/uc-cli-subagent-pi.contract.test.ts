@@ -5,6 +5,7 @@ import type { ChildProcess } from "node:child_process";
 import { makePiSubAgent, piLineToEvent, type SpawnFn, type ResolvedBin } from "../main/adapters/subagent-pi.js";
 import { makeSubAgentNaiaFacing } from "../main/adapters/subagent-issue-actors.js";
 import type { SubAgentEvent } from "../main/domain/orchestration.js";
+import { IssueActorResultError } from "../main/ports/issue-orchestration.js";
 
 const fixedBin = (): ResolvedBin => ({ command: "pi", prefixArgs: [] });
 
@@ -99,6 +100,36 @@ describe("subagent-pi 어댑터 계약 (2b, fake child)", () => {
       cost: { state: "unavailable" },
     });
     expect(classified.receipt.sessionId).not.toBe(classified.receipt.executionId);
+  });
+
+  it("preserves Pi usage evidence when provider/model drift ends the paid actor as failed", async () => {
+    const f = fakeNdjson();
+    const pi = makePiSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn, provider: "anthropic", model: "claude-sonnet-4-6" });
+    const facing = makeSubAgentNaiaFacing({
+      subAgent: pi, binding: { provider: "anthropic", model: "claude-sonnet-4-6" },
+      workdir: "/tmp/w", diag: { log() {}, debug() {} },
+    });
+    const result = facing.classify({
+      requestId: "request-pi-drift", idempotencyKey: "issue:pi:drift", text: "fix it", requiredObligations: ["fix it"],
+      signal: new AbortController().signal,
+    });
+    f.line(JSON.stringify({
+      type: "message_end",
+      message: {
+        role: "assistant", provider: "openai", model: "unexpected-model",
+        content: [{ type: "text", text: '{"kind":"work","obligations":["fix it"]}' }],
+        usage: { input: 10, output: 4, totalTokens: 14, cost: { total: 0.01 } },
+      },
+    }));
+    const error = await result.catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(IssueActorResultError);
+    expect(error).toMatchObject({
+      message: expect.stringContaining("did not complete"),
+      receipt: {
+        role: "naia", provider: "openai", model: "unexpected-model", idempotencyKey: "issue:pi:drift",
+        tokenCountsAvailable: true, inputTokens: 10, outputTokens: 4, cost: { state: "unavailable" },
+      },
+    });
   });
 
   it("malformed/partial NDJSON 관용 (crash 없이 드롭, 정상 줄만 이벤트)", async () => {

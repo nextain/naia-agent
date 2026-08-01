@@ -83,8 +83,7 @@ export function makeSubAgentDevelopmentModerator(options: JsonActorOptions): Dev
           || !Array.isArray(value.acceptanceChecks) || value.acceptanceChecks.length === 0
           || value.acceptanceChecks.some((item) => typeof item !== "string" || !item.trim())
           || !Array.isArray(value.questions)) throw new Error("moderator plan schema mismatch");
-        if (new Set(value.acceptanceChecks as string[]).size !== allowedChecks.length
-          || allowedChecks.some((check) => !(value.acceptanceChecks as string[]).includes(check))) {
+        if (!sameStrings(value.acceptanceChecks as string[], allowedChecks)) {
           throw new Error("moderator acceptance check binding mismatch");
         }
         const questions = value.questions.map((question) => {
@@ -197,7 +196,6 @@ async function runJson(options: JsonActorOptions, role: ActorReceipt["role"], id
   }
   if (timedOut) throw new Error(`${role} actor timed out`);
   if (signal.aborted && !ok) throw new Error(`${role} actor cancelled`);
-  if (!ok) throw new Error(`${role} actor did not complete`);
   if (!evidence?.sessionId || !evidence.executionId) throw new Error(`${role} actor receipt identity unavailable`);
   const completedAt = now();
   const usageAvailable = evidence.usageAvailable === true;
@@ -219,6 +217,7 @@ async function runJson(options: JsonActorOptions, role: ActorReceipt["role"], id
       ? { state: "measured", usd: evidence.measuredCostUsd, source: "subagent_usage_and_pinned_price" }
       : { state: "unavailable", reason: "actor adapter did not receive priced usage" },
   };
+  if (!ok) throw new IssueActorResultError(`${role} actor did not complete`, receipt);
   if (evidence.provider !== options.binding.provider || evidence.selectedModel !== options.binding.model
     || evidence.reasoningEffort !== options.binding.reasoningEffort) {
     throw new IssueActorResultError(`${role} actor binding mismatch`, receipt);
