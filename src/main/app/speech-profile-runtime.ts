@@ -86,22 +86,28 @@ export class SpeechProfileRuntime {
   }
 
   async control(sessionId: string, activityId: string | undefined, action: string): Promise<boolean> {
-    if (sessionId !== this.activeSessionId) return false;
+    if (!this.canControl(sessionId, activityId, action)) return false;
     if (this.activeKind === "personal_radio_dj") {
-      if (activityId && activityId !== this.d.dj.currentActivityId()) return false;
-
-      if (!["music_only", "talk_less", "talk_more", "change_vibe", "next", "stop"].includes(action)) return false;
       await this.d.dj.control({ kind: action as "music_only" | "talk_less" | "talk_more" | "change_vibe" | "next" | "stop" });
       return true;
     }
-    if (this.activeKind !== "exhibition_intro") return false;
-    if (activityId && activityId !== this.d.exhibition.currentActivityId()) return false;
     if (action === "quiet") this.d.exhibition.quiet();
     else if (action === "resume") this.d.exhibition.resume();
     else if (action === "restart") this.d.exhibition.restart();
     else if (action === "stop") this.d.exhibition.stop();
     else return false;
     return true;
+  }
+
+  canControl(sessionId: string, activityId: string | undefined, action: string): boolean {
+    if (sessionId !== this.activeSessionId) return false;
+    if (this.activeKind === "personal_radio_dj") {
+      return (!activityId || activityId === this.d.dj.currentActivityId())
+        && ["music_only", "talk_less", "talk_more", "change_vibe", "next", "stop"].includes(action);
+    }
+    if (this.activeKind !== "exhibition_intro") return false;
+    return (!activityId || activityId === this.d.exhibition.currentActivityId())
+      && ["quiet", "resume", "restart", "stop"].includes(action);
   }
 
   resumeAfterChat(binding: ExhibitionResumeBinding): void {

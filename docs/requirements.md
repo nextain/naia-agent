@@ -237,7 +237,7 @@ spec + sandbox 정책(allow-root) + tier(승인)** 를 소유한다.
 | FR-CONT-MVP-1 | **두 profile만 지원** — `personal_radio_dj | exhibition_intro`. 범용 활동 profile은 후속이다. | Implemented |
 | FR-CONT-MVP-2 | **무입력 선제 시작** — 주입 가능한 idle clock 뒤 app 계층이 먼저 attract 발화를 시작한다. shell 반복 루프는 만들지 않는다. | Implemented |
 | FR-CONT-MVP-3 | **개인 라디오 DJ** — 시간·동의한 최신 날씨·같은 세션의 명시적 기분/활동·현재 BGM·workspace-local exact preference index의 명시적 선호를 조립해 추천하고, BGM 성공 뒤에만 재생을 확정해 말한다. Naia Memory는 durable provenance handoff 대상이며 활성 조회 정본이 아니다. 긴 믹스의 현재 곡은 chapter/tracklist 근거 없이는 추측하지 않는다. 제품 수용 추적은 PA-DJ-01~04다. | Done |
-| FR-CONT-MVP-4 | **DJ 제어** — grounded DJ 멘트 8회·최근 6문장 반복 0, music-only/말 줄여/말 늘려/다른 분위기/다음 곡/stop, 8시간 bounded lease를 PA-DJ-03/05B/06으로 검증한다. | Done |
+| FR-CONT-MVP-4 | **DJ 제어** — grounded DJ 멘트 8회·최근 6문장 반복 0, music-only/말 줄여/말 늘려/다른 분위기/다음 곡/stop, 8시간 bounded lease를 PA-DJ-03/05B/06으로 검증한다. 패널 왕복이 필요한 제어는 유효성을 먼저 판정해 RPC를 ACK한 뒤 실행하여 Shell→agent dispatcher를 점유하지 않는다(#103). | Done |
 | FR-CONT-MVP-5 | **전시 소개** — KB에 근거한 회사·제품·전시 소개 3개를 연속 중복 없이 먼저 말하고, 근거 없이는 추측하지 않는다. | Implemented |
 | FR-CONT-MVP-6 | **양보와 복귀** — 관람객/사용자 입력이 현재 발화와 TTS를 중단하고, 답변 뒤 아직 수행 중인 profile의 다음 미소개 항목으로 복귀한다. quiet/stop은 복귀하지 않는다. profile stream epoch로 이전 출력은 폐기하되 yield/resume의 같은 activity는 유지한다. | Done |
 | FR-CONT-MVP-7 | **기억·개인정보** — 활동 발화·수동 청취·재생 시간으로 취향을 추론하지 않고, 전시 activity/Q&A는 memory recall/save와 영속 transcript를 기본 사용하지 않는다. 명시적 DJ 선호만 provenance와 durable/idempotent handoff하며 최신 dislike는 같은 subject의 like를 무효화한다(PA-DJ-01, PA-EX-02). | Done |

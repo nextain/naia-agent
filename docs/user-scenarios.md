@@ -443,6 +443,10 @@ detector나 cron 같은 외부 정책이 자유 발화를 시작하면 사용자
   writer를 격리해 뒤늦은 파일 순서 역전을 막는다.
 - **S-CONT-7 (wire·회귀)**: 모든 provider usage를 합산해 마지막 한 번만 방출하고 terminal도 한 번만
   방출한다. 제어 도구 미호출 일반 채팅과 기존 외부 도구 턴의 correlation·저장 계약은 바뀌지 않는다.
+- **S-CONT-8 (제어 ACK와 패널 왕복 분리)**: `change_vibe`·`next`처럼 Shell 패널 도구 결과가 필요한
+  제어는 session/activity/action을 동기 검증해 먼저 ACK하고, 긴 제어 작업은 그 뒤 비동기로 진행한다.
+  제어 RPC가 패널 결과를 기다리며 Shell→agent dispatcher를 점유해서는 안 된다. 잘못된 session,
+  activity 또는 action은 false ACK이며 작업을 시작하지 않는다.
 
 범위 밖은 앱 재시작 후 자동 재개, 여러 프로세스/기기 사이 활동 이전, 별도 라디오 설정 UI다. 자유 발화
 전달을 위한 session activity stream과 stop RPC는 범위에 포함한다.
@@ -592,7 +596,7 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 | FR-MEM-12 / S-MEM-SUBLLM (naia sub-LLM 폴백 + graceful degrade, S5) | `src/test/uc-naia-settings-store.contract.test.ts` — describe "naia sub-LLM model 폴백 + graceful degrade (S5/G5)" (naia+모델부재+키존재→기본모델 완전구성·명시모델 우선·키 부재→provider=none 강등(메모리 유지)·vllm baseUrl 누락→none 강등) + `sub-llm-provider.contract.test.ts`(미구성=undefined) |
 | UC-PROV-1 / FR-PROV-1·2·3 | `src/test/all-providers-wiring.contract.test.ts`, `uc1-reload-default-config.contract.test.ts`, `uc-naia-settings-store.contract.test.ts` |
 | UC-THINKING / S-THINK-1·2·3 / FR-THINK-1~4 | `src/test/uc-thinking.contract.test.ts` (요청 body 검증: enableThinking=false+로컬 → `reasoning_effort:"none"` / true·미지정 → 미전송 / **원격 baseUrl → 미전송**(400 회귀 방지) / `isLocalEngineBaseUrl` 순수 판별) |
-| FR-CONT-MVP-1~4 / 개인 라디오 DJ | 계약/통합: `src/test/personal-radio-dj.contract.test.ts` (`DJ-01~07`), `src/test/personal-radio-dj-grpc.integration.test.ts` (`DJ-GRPC-01`). 실제 Tauri: shell `71-proactive-speech-profiles.spec.ts`의 profile 저장·복원, 실제 YouTube BGM, 첫 결과 text, stop만. |
+| FR-CONT-MVP-1~4 / 개인 라디오 DJ | 계약/통합: `src/test/personal-radio-dj.contract.test.ts` (`DJ-01~07`), `src/test/speech-profile-runtime.integration.test.ts`(제어 사전 검증), `src/test/grpc-shutdown.contract.test.ts`(제어 ACK가 긴 작업을 기다리지 않음). 실제 Tauri: shell `71-proactive-speech-profiles.spec.ts`의 profile 저장·복원과 `94-avatar-4060-facade.spec.ts`의 A→B 교체·TRT 발화·끼어들기. |
 | FR-CONT-MVP-1·2·5~8 / 회사 전시 소개 | 계약/통합: `src/test/exhibition-intro.contract.test.ts` (`EX-01~06`)가 소개3·질문 yield/resume·stale 폐기를 검증. 실제 Tauri: shell `71-proactive-speech-profiles.spec.ts`의 무입력 greeting과 stop만. audible TTS·실제 질문 barge-in은 미검증. |
 | UC-CONTINUE-SPEAKING / S-CONT-1~7 / FR-CONT-1~8 | 권위 계약 §10 AC1~18 matrix. `src/test/uc-continue-speaking.contract.test.ts`; `src/test/uc-continue-speaking-grpc.integration.test.ts` (`speech activity subscription lifecycle`, `stop response mapping`, `composition activity drain`); `src/test/conversation-log.{contract,integration}.test.ts`; `src/test/compose-agent-deps.integration.test.ts`; shell `packages/shell/src-tauri/src/agent_grpc.rs` `speech_activity_*` + `packages/shell/e2e-tauri/continuous-speech.spec.ts`; Ollama contract; 모델 패널 JSON |
 | FR-PROV-5 (claude-code SDK 분리) | `src/test/all-providers-wiring.contract.test.ts`(claude-code 케이스 = Agent SDK 라우팅·apiKey 미주입) |

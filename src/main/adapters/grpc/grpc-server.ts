@@ -65,6 +65,7 @@ export interface GrpcServerDeps {
   onConfigureSpeechProfile?: (profile: SpeechProfileConfig) => void;
   onSpeechSubscriberChange?: (sessionId: string, ready: boolean) => void;
   onYieldSpeechActivity?: (sessionId: string, activityId: string) => YieldSpeechResult | Promise<YieldSpeechResult>;
+  onCanControlSpeechActivity?: (sessionId: string, activityId: string | undefined, action: string) => boolean;
   onControlSpeechActivity?: (sessionId: string, activityId: string | undefined, action: string) => boolean | Promise<boolean>;
   onStopSpeechActivity?: (sessionId: string, activityId?: string) => void | Promise<void>;
   diag: DiagnosticLog;
@@ -442,11 +443,27 @@ export function makeGrpcServer(deps: GrpcServerDeps): GrpcServer {
       cb: grpc.sendUnaryData<{ ok: boolean }>,
     ) => {
       const r = call.request as { sessionId?: string; activityId?: string; action?: string };
+      const sessionId = String(r.sessionId ?? "");
+      const activityId = r.activityId ? String(r.activityId) : undefined;
+      const action = String(r.action ?? "");
       try {
+        if (deps.onCanControlSpeechActivity) {
+          if (!deps.onCanControlSpeechActivity(sessionId, activityId, action)) {
+            cb(null, { ok: false });
+            return;
+          }
+          // ACK before the long control flow. change_vibe/next must receive
+          // panel_tool_result messages through the same Shell dispatcher.
+          cb(null, { ok: true });
+          void Promise.resolve(
+            deps.onControlSpeechActivity?.(sessionId, activityId, action),
+          ).catch(() => {});
+          return;
+        }
         const ok = await deps.onControlSpeechActivity?.(
-          String(r.sessionId ?? ""),
-          r.activityId ? String(r.activityId) : undefined,
-          String(r.action ?? ""),
+          sessionId,
+          activityId,
+          action,
         );
         cb(null, { ok: ok === true });
       } catch {

@@ -7,7 +7,35 @@ import type { AgentEmit, AgentRequest } from "../main/domain/chat.js";
 import type { AgentIngressPort } from "../main/ports/uc1.js";
 
 describe("EX-06 profile-bound Q&A privacy integration", () => {
-  it("accepts explicit DJ preference and mood commands without ordinary memory or provider calls", async () => {
+	it("validates a radio control before starting its asynchronous work", () => {
+		const dj = {
+			configure: vi.fn(),
+			setSubscriberReady: vi.fn(),
+			currentActivityId: () => "radio-1",
+		};
+		const profiles = new SpeechProfileRuntime({
+			dj: dj as never,
+			exhibition: { configure: vi.fn(), setSubscriberReady: vi.fn() } as never,
+			chatEgress: { emit: vi.fn() },
+		});
+		profiles.configure({
+			kind: "personal_radio_dj",
+			config: {
+				sessionId: "s1",
+				idleMs: 1,
+				djIntervalMs: 1,
+				timezone: "UTC",
+				bgmAutoPlayOptIn: true,
+			},
+		});
+
+		expect(profiles.canControl("s1", "radio-1", "change_vibe")).toBe(true);
+		expect(profiles.canControl("wrong", "radio-1", "change_vibe")).toBe(false);
+		expect(profiles.canControl("s1", "stale", "change_vibe")).toBe(false);
+		expect(profiles.canControl("s1", "radio-1", "dance")).toBe(false);
+	});
+
+	it("accepts explicit DJ preference and mood commands without ordinary memory or provider calls", async () => {
     const dj = {
       configure: vi.fn(),
       setSubscriberReady: vi.fn(),

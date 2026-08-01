@@ -326,6 +326,7 @@ const grpcServer = makeGrpcServer({
   onConfigureSpeechProfile: (profile) => profileRuntime?.configure(profile),
   onSpeechSubscriberChange: (sessionId, ready) => profileRuntime?.subscriberChanged(sessionId, ready),
   onYieldSpeechActivity: (sessionId, activityId) => profileRuntime?.yield(sessionId, activityId) ?? { ok: false },
+  onCanControlSpeechActivity: (sessionId, activityId, action) => profileRuntime?.canControl(sessionId, activityId, action) ?? false,
   onControlSpeechActivity: (sessionId, activityId, action) => profileRuntime?.control(sessionId, activityId, action) ?? false,
   onStopSpeechActivity: (sessionId, activityId) => profileRuntime?.stop(sessionId, activityId),
   diag,
