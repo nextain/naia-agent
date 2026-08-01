@@ -139,7 +139,10 @@ export class SingleIssueOrchestrator {
         const key = `${issue.issueId}:facing:classify`;
         let result: Awaited<ReturnType<NaiaFacingPort["classify"]>> | undefined;
         try {
-          result = await this.d.facing.classify({ requestId: issue.requestId, idempotencyKey: key, text: issue.originalText, signal });
+          result = await this.d.facing.classify({
+            requestId: issue.requestId, idempotencyKey: key, text: issue.originalText,
+            requiredObligations: issue.requiredObligations, signal,
+          });
           assertReceipt(result.receipt, "naia", key, issue.naiaBinding);
         } catch (error) {
           const cancelled = this.cancelAfterActor(issueId, "naia", key, issue.naiaBinding, error instanceof IssueActorResultError ? error.receipt : result?.receipt);
@@ -148,6 +151,12 @@ export class SingleIssueOrchestrator {
         const cancelled = this.cancelAfterActor(issueId, "naia", key, issue.naiaBinding, result?.receipt);
         if (cancelled) return cancelled;
         if (!result) return this.markUnknown(issue, "facing_result_unavailable");
+        if ((result.classification.kind === "work" && issue.requiredObligations.length === 0)
+          || (result.classification.kind === "chat" && issue.requiredObligations.length !== 0)
+          || !sameStrings(result.classification.obligations, issue.requiredObligations)) {
+          return this.actorFailure(issue, "naia", key, issue.naiaBinding,
+            new IssueActorResultError("facing obligation binding mismatch", result.receipt));
+        }
         if (result.classification.kind === "chat") {
           const receipts = appendReceipt(issue.receipts, result.receipt);
           const report: IssueReport = {
@@ -492,6 +501,11 @@ export class SingleIssueOrchestrator {
 function validateStart(request: IssueStartRequest): void {
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(request.requestId)) throw new Error("invalid request id");
   if (!request.text.trim()) throw new Error("request text is required");
+  if (!Array.isArray(request.requiredObligations)
+    || request.requiredObligations.some((item) => typeof item !== "string" || !item.trim())
+    || new Set(request.requiredObligations).size !== request.requiredObligations.length) {
+    throw new Error("invalid required obligations");
+  }
   if (!request.workspacePath.trim()) throw new Error("workspace path is required");
   if (!validBinding(request.naiaBinding) || !validBinding(request.moderatorBinding)) {
     throw new Error("invalid facing or moderator binding");
@@ -520,6 +534,7 @@ function requestFingerprint(request: IssueStartRequest): string {
   });
   return JSON.stringify({
     text: request.text,
+    requiredObligations: request.requiredObligations,
     workspacePath: request.workspacePath,
     naiaBinding: binding(request.naiaBinding),
     moderatorBinding: binding(request.moderatorBinding),

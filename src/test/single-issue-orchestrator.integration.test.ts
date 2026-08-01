@@ -34,16 +34,17 @@ function receipt(role: ActorReceipt["role"], key: string, n: number, usd = 0.01)
   };
 }
 
-function request(requestId = "request-1", text = "Fix the parser and run its tests"): IssueStartRequest {
+function request(requestId = "request-1", text = "Fix the parser and run its tests",
+  requiredObligations: readonly string[] = ["fix parser", "run tests"]): IssueStartRequest {
   return {
-    requestId, text, workspacePath: "/workspace/project",
+    requestId, text, requiredObligations, workspacePath: "/workspace/project",
     naiaBinding: { provider: "openai-codex", model: "gpt-5.6-luna", reasoningEffort: "low" },
     moderatorBinding: { provider: "openai-codex", model: "gpt-5.6-sol", reasoningEffort: "high" },
     workerProfiles: { balanced: { provider: "fixture", model: "fixture-model", reasoningEffort: "medium" } },
   };
 }
 
-function harness(options: { chat?: boolean; question?: boolean; multipleQuestions?: boolean; workerThrows?: boolean; unavailableCost?: boolean; badFacingBinding?: boolean; verificationFails?: boolean; verifierThrows?: boolean; badVerifierReceipt?: boolean; workerProfile?: string; malformedReceipt?: "cached" | "cost" | "unavailable"; rejectedActorResult?: boolean; rejectedWorkerResult?: boolean; contradictoryReporter?: boolean } = {}) {
+function harness(options: { chat?: boolean; droppedObligation?: boolean; question?: boolean; multipleQuestions?: boolean; workerThrows?: boolean; unavailableCost?: boolean; badFacingBinding?: boolean; verificationFails?: boolean; verifierThrows?: boolean; badVerifierReceipt?: boolean; workerProfile?: string; malformedReceipt?: "cached" | "cost" | "unavailable"; rejectedActorResult?: boolean; rejectedWorkerResult?: boolean; contradictoryReporter?: boolean } = {}) {
   const root = mkdtempSync(join(tmpdir(), "single-issue-")); roots.push(root);
   const store = new SqliteIssueOrchestrationStore(join(root, "issues.db"));
   const calls = { facing: 0, moderator: 0, worker: 0, verifier: 0, reporter: 0 };
@@ -59,7 +60,7 @@ function harness(options: { chat?: boolean; question?: boolean; multipleQuestion
       return {
         classification: options.chat
           ? { kind: "chat", obligations: [], chatReply: "hello" }
-          : { kind: "work", obligations: ["fix parser", "run tests"] },
+          : { kind: "work", obligations: options.droppedObligation ? ["fix parser"] : ["fix parser", "run tests"] },
         receipt: options.badFacingBinding
           ? { ...receipt("naia", input.idempotencyKey, actor), model: "gpt-5.6-sol" }
           : receipt("naia", input.idempotencyKey, actor),
@@ -133,7 +134,7 @@ describe("UC-ORCH-001 single issue", () => {
 
   it("keeps chat out of moderator and worker paths", async () => {
     const h = harness({ chat: true });
-    const report = await h.orchestrator.start(request("chat-1", "오늘 어때?"));
+    const report = await h.orchestrator.start(request("chat-1", "오늘 어때?", []));
     expect(report).toMatchObject({ state: "chat", summary: "hello", changedFiles: [] });
     expect(h.calls).toEqual({ facing: 1, moderator: 0, worker: 0, verifier: 0, reporter: 0 });
     h.store.close();
@@ -162,6 +163,16 @@ describe("UC-ORCH-001 single issue", () => {
     if (process.platform !== "win32") {
       for (const suffix of ["", "-wal", "-shm"]) expect(statSync(join(h.root, `issues.db${suffix}`)).mode & 0o777).toBe(0o600);
     }
+    h.store.close();
+  });
+
+  it("rejects a work classification that drops an intake-authoritative obligation", async () => {
+    const h = harness({ droppedObligation: true });
+    const report = await h.orchestrator.start(request("request-dropped-obligation"));
+    expect(report).toMatchObject({ state: "failed" });
+    expect(h.calls.moderator).toBe(0);
+    expect(h.store.events("issue-0001").at(-1)?.type).toBe("actor_result_rejected");
+    expect(h.orchestrator.snapshot("issue-0001").requiredObligations).toEqual(["fix parser", "run tests"]);
     h.store.close();
   });
 
@@ -219,6 +230,8 @@ describe("UC-ORCH-001 single issue", () => {
     await expect(resumed.start({
       ...request(), workerProfiles: { economy: { provider: "fixture", model: "cheaper-model", reasoningEffort: "low" } },
     })).rejects.toBeInstanceOf(IssueRequestConflictError);
+    await expect(resumed.start({ ...request(), requiredObligations: ["fix parser"] }))
+      .rejects.toBeInstanceOf(IssueRequestConflictError);
     await expect(resumed.start(request("request-1", "different task"))).rejects.toBeInstanceOf(IssueRequestConflictError);
     reopened.close();
   });

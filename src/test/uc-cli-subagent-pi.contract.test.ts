@@ -78,7 +78,7 @@ describe("subagent-pi 어댑터 계약 (2b, fake child)", () => {
       workdir: "/tmp/w", diag: { log() {}, debug() {} },
     });
     const result = facing.classify({
-      requestId: "request-pi-facing", idempotencyKey: "issue:pi:facing", text: "fix it",
+      requestId: "request-pi-facing", idempotencyKey: "issue:pi:facing", text: "fix it", requiredObligations: ["fix it"],
       signal: new AbortController().signal,
     });
     f.line(JSON.stringify({

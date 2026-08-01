@@ -26,7 +26,6 @@ interface JsonActorOptions {
   readonly allowedWorkerProfiles?: readonly string[];
   readonly allowedAcceptanceChecks?: readonly string[];
   readonly timeoutMs?: number;
-  readonly requiredObligations?: readonly string[];
 }
 
 export function makeSubAgentNaiaFacing(options: JsonActorOptions): NaiaFacingPort {
@@ -35,7 +34,7 @@ export function makeSubAgentNaiaFacing(options: JsonActorOptions): NaiaFacingPor
       const prompt = [
         "You are Naia's low-cost conversational front layer, not a coding planner.",
         "Classify the input as chat or work and preserve every explicit work obligation verbatim, in source order.",
-        ...(options.requiredObligations ? [`For this frozen case, return this exact ordered obligation array for work: ${JSON.stringify(options.requiredObligations)}.`] : []),
+        `For work, return this exact ordered obligation array: ${JSON.stringify(input.requiredObligations)}. Chat is valid only when this array is empty.`,
         "Return JSON only: {\"kind\":\"chat|work\",\"obligations\":[\"...\"],\"chatReply\":\"... optional for chat\"}.",
         `Input: ${JSON.stringify(input.text)}`,
       ].join("\n");
@@ -44,9 +43,9 @@ export function makeSubAgentNaiaFacing(options: JsonActorOptions): NaiaFacingPor
         const kind = result.value.kind === "chat" ? "chat" : result.value.kind === "work" ? "work" : undefined;
         if (!kind || !Array.isArray(result.value.obligations) || result.value.obligations.some((item) => typeof item !== "string")) throw new Error("Naia classification schema mismatch");
         const obligations = result.value.obligations as string[];
-        if (kind === "work" && options.requiredObligations
-          && (obligations.length !== options.requiredObligations.length
-            || options.requiredObligations.some((item, index) => obligations[index] !== item))) {
+        if ((kind === "work" && input.requiredObligations.length === 0)
+          || (kind === "chat" && input.requiredObligations.length !== 0)
+          || !sameStrings(obligations, input.requiredObligations)) {
           throw new Error("Naia obligation binding mismatch");
         }
         const classification: IssueClassification = {
@@ -239,4 +238,8 @@ function parseJsonObject(text: string): Record<string, unknown> {
   const value = JSON.parse(candidate) as unknown;
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("actor JSON object required");
   return value as Record<string, unknown>;
+}
+
+function sameStrings(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }

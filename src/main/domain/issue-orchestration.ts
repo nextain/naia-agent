@@ -99,6 +99,7 @@ export interface IssueSnapshot {
   readonly requestDigest: string;
   readonly issueId: string;
   readonly originalText: string;
+  readonly requiredObligations: readonly string[];
   readonly workspacePath: string;
   readonly state: IssueState;
   readonly cancellationRequestedAt?: string;
@@ -130,6 +131,8 @@ export interface IssueEvent {
 export interface IssueStartRequest {
   readonly requestId: string;
   readonly text: string;
+  /** Intake-authoritative ordered obligations. Chat uses an empty array; work must be non-empty. */
+  readonly requiredObligations: readonly string[];
   readonly workspacePath: string;
   readonly naiaBinding: ActorBinding;
   readonly moderatorBinding: ActorBinding;

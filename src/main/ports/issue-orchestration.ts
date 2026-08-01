@@ -22,6 +22,7 @@ export interface NaiaFacingPort {
     readonly requestId: string;
     readonly idempotencyKey: string;
     readonly text: string;
+    readonly requiredObligations: readonly string[];
     readonly signal: AbortSignal;
   }): Promise<{ readonly classification: IssueClassification; readonly receipt: ActorReceipt }>;
 }

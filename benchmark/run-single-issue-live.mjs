@@ -92,7 +92,7 @@ async function runRoute(routeId, route) {
   const moderatorBinding = { provider: "openai-codex", model: route.moderator, reasoningEffort: route.moderatorReasoning };
   const orchestrator = new SingleIssueOrchestrator({
     store,
-    facing: budgeted(makeSubAgentNaiaFacing({ subAgent: priced(route.naia, route.naiaReasoning), binding: facingBinding, requiredObligations: pairedCase.obligations, timeoutMs: actorTimeoutMs, workdir: repo, diag }), "classify"),
+    facing: budgeted(makeSubAgentNaiaFacing({ subAgent: priced(route.naia, route.naiaReasoning), binding: facingBinding, timeoutMs: actorTimeoutMs, workdir: repo, diag }), "classify"),
     moderator: budgeted(makeSubAgentDevelopmentModerator({ subAgent: priced(route.moderator, route.moderatorReasoning), binding: moderatorBinding, allowedWorkerProfiles: [route.workerProfile], allowedAcceptanceChecks: pairedCase.acceptanceChecks, timeoutMs: actorTimeoutMs, workdir: repo, diag }), "plan"),
     worker: budgeted(makeSupervisedIssueWorker({
       worktrees: makeGitCodingJobWorktrees({ allowedWorkspaceRoot: tempRoot, worktreeRoot }),
@@ -105,6 +105,7 @@ async function runRoute(routeId, route) {
     const report = await orchestrator.start({
       requestId: `${corpus.benchmarkId}:${pairedCase.id}:${routeId}`,
       text: `${pairedCase.request}\nRequired obligations: ${pairedCase.obligations.join("; ")}\nAcceptance checks: ${pairedCase.acceptanceChecks.join("; ")}`,
+      requiredObligations: pairedCase.obligations,
       workspacePath: repo,
       naiaBinding: facingBinding,
       moderatorBinding,

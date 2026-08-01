@@ -54,7 +54,7 @@ describe("UC-ORCH-001 sub-agent issue actors", () => {
       subAgent: actor('{"kind":"work","obligations":["fix parser","run tests"]}'),
       binding, workdir: "/workspace", diag,
     });
-    const classified = await facing.classify({ requestId: "r-1", idempotencyKey: "i:facing", text: "fix it", signal: signal() });
+    const classified = await facing.classify({ requestId: "r-1", idempotencyKey: "i:facing", text: "fix it", requiredObligations: ["fix parser", "run tests"], signal: signal() });
     expect(classified.classification).toEqual({ kind: "work", obligations: ["fix parser", "run tests"] });
     expect(classified.receipt).toMatchObject({ role: "naia", model: "gpt-5.6-luna", cost: { state: "measured" } });
 
@@ -71,9 +71,17 @@ describe("UC-ORCH-001 sub-agent issue actors", () => {
 
   it("rejects malformed actor output instead of guessing", async () => {
     const facing = makeSubAgentNaiaFacing({ subAgent: actor('{"kind":"maybe","obligations":[]}'), binding, workdir: "/workspace", diag });
-    const error = await facing.classify({ requestId: "r", idempotencyKey: "k", text: "x", signal: signal() }).catch((caught: unknown) => caught);
+    const error = await facing.classify({ requestId: "r", idempotencyKey: "k", text: "x", requiredObligations: [], signal: signal() }).catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(IssueActorResultError);
     expect(error).toMatchObject({ message: expect.stringContaining("schema mismatch"), receipt: { role: "naia", idempotencyKey: "k", cost: { state: "measured" } } });
+
+    const dropped = makeSubAgentNaiaFacing({
+      subAgent: actor('{"kind":"work","obligations":["fix parser"]}'), binding, workdir: "/workspace", diag,
+    });
+    await expect(dropped.classify({
+      requestId: "r", idempotencyKey: "k:dropped", text: "fix parser and run tests",
+      requiredObligations: ["fix parser", "run tests"], signal: signal(),
+    })).rejects.toThrow("obligation binding mismatch");
   });
 
   it("treats omitted usage availability as unavailable even when a zero measured cost is present", async () => {
@@ -88,7 +96,7 @@ describe("UC-ORCH-001 sub-agent issue actors", () => {
       })(), async cancel() {},
     }; } };
     const facing = makeSubAgentNaiaFacing({ subAgent: omittedUsage, binding, workdir: "/workspace", diag });
-    const result = await facing.classify({ requestId: "r", idempotencyKey: "k", text: "fix", signal: signal() });
+    const result = await facing.classify({ requestId: "r", idempotencyKey: "k", text: "fix", requiredObligations: ["fix"], signal: signal() });
     expect(result.receipt).toMatchObject({
       tokenCountsAvailable: false, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0,
       cost: { state: "unavailable" },
@@ -97,7 +105,7 @@ describe("UC-ORCH-001 sub-agent issue actors", () => {
 
   it("grounds reporter fields in persisted evidence and prices deterministic verification at zero", async () => {
     const issue = {
-      version: 1, requestId: "r", requestDigest: "d", issueId: "i", originalText: "fix", workspacePath: "/workspace",
+      version: 1, requestId: "r", requestDigest: "d", issueId: "i", originalText: "fix", requiredObligations: ["fix"], workspacePath: "/workspace",
       state: "completed" as const, naiaBinding: binding, moderatorBinding: binding, workerProfiles: {}, answers: [], receipts: [],
       worker: { ok: true, summary: "done", worktreePath: "/managed/i", changedFiles: ["src/parser.ts"], receipt: undefined as never },
       verification: { ok: true, checks: [{ name: "test", pass: true }], receipt: undefined as never },
@@ -152,7 +160,7 @@ describe("UC-ORCH-001 sub-agent issue actors", () => {
       async cancel() { cancelled += 1; },
     }; } };
     const facing = makeSubAgentNaiaFacing({ subAgent: silent, binding, timeoutMs: 5, workdir: "/workspace", diag });
-    await expect(facing.classify({ requestId: "r", idempotencyKey: "k", text: "fix", signal: signal() })).rejects.toThrow("actor timed out");
+    await expect(facing.classify({ requestId: "r", idempotencyKey: "k", text: "fix", requiredObligations: ["fix"], signal: signal() })).rejects.toThrow("actor timed out");
     expect(cancelled).toBe(1);
   });
 
@@ -165,7 +173,7 @@ describe("UC-ORCH-001 sub-agent issue actors", () => {
     }; } };
     const controller = new AbortController();
     const facing = makeSubAgentNaiaFacing({ subAgent: waiting, binding, workdir: "/workspace", diag });
-    const result = facing.classify({ requestId: "r", idempotencyKey: "k", text: "fix", signal: controller.signal });
+    const result = facing.classify({ requestId: "r", idempotencyKey: "k", text: "fix", requiredObligations: ["fix"], signal: controller.signal });
     await new Promise((resolve) => setTimeout(resolve, 0));
     controller.abort();
     await expect(result).rejects.toThrow("actor cancelled");
