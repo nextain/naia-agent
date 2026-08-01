@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -21,6 +22,20 @@ if (process.env.NAIA_ORCH_LIVE !== "1") {
 
 const here = dirname(fileURLToPath(import.meta.url));
 const corpus = JSON.parse(readFileSync(join(here, "orchestration", "single-issue-cases.json"), "utf8"));
+const priceSnapshotPath = join(here, "orchestration", "openai-price-snapshot-2026-07-29.json");
+const priceSnapshotBytes = readFileSync(priceSnapshotPath);
+const priceSnapshot = JSON.parse(priceSnapshotBytes.toString("utf8"));
+const priceSnapshotSha256 = createHash("sha256").update(priceSnapshotBytes).digest("hex");
+const expectedPriceSnapshotSha256 = "36ff2bca30e2823cddda6b207bdf68b3bb15700c5fdc4e0e67792bda44bc6626";
+if (priceSnapshotSha256 !== expectedPriceSnapshotSha256 || priceSnapshot.id !== "PRICE-OPENAI-2026-07-29"
+  || priceSnapshot.currency !== "USD" || priceSnapshot.token_unit !== 1_000_000
+  || !priceSnapshot.captured_at || !priceSnapshot.normalization_method || !corpus.costScope) {
+  throw new Error("frozen price snapshot identity or monetary metadata mismatch");
+}
+const maximumPricedInputTokens = priceSnapshot.applicability?.maximum_input_tokens_without_frozen_long_context_rule;
+if (!Number.isSafeInteger(maximumPricedInputTokens) || maximumPricedInputTokens <= 0) {
+  throw new Error("frozen price snapshot applicability is unavailable");
+}
 const pairedCase = corpus.cases.find((item) => item.kind === "live-paired");
 if (!pairedCase) throw new Error("frozen paired case missing");
 const maxUsd = Number(process.env.NAIA_ORCH_MAX_USD);
@@ -31,11 +46,11 @@ if (!Number.isFinite(reservedCallUsd) || reservedCallUsd <= 0 || reservedCallUsd
 if (!Number.isFinite(actorTimeoutMs) || actorTimeoutMs <= 0) throw new Error("NAIA_ORCH_MAX_ACTOR_MS must be positive");
 if (process.env.NAIA_ORCH_WORKER_MODEL !== undefined) throw new Error("NAIA_ORCH_WORKER_MODEL is forbidden: worker bindings are frozen in the corpus");
 
-const prices = {
-  "gpt-5.6-sol": { uncachedInput: 5, cachedInput: 0.5, output: 30 },
-  "gpt-5.6-terra": { uncachedInput: 2.5, cachedInput: 0.25, output: 15 },
-  "gpt-5.6-luna": { uncachedInput: 1, cachedInput: 0.1, output: 6 }
-};
+const prices = Object.fromEntries(Object.entries(priceSnapshot.models).map(([model, value]) => [model, {
+  uncachedInput: value.api_usd_per_million.uncached_input,
+  cachedInput: value.api_usd_per_million.cached_input,
+  output: value.api_usd_per_million.output,
+}]));
 const diag = { log(message, detail) { console.error(`[diag] ${message}`, detail ?? ""); }, debug() {} };
 const tempRoot = mkdtempSync(join(tmpdir(), "naia-orch-live-"));
 const maxPaidCalls = 8;
@@ -54,7 +69,11 @@ function fixture(routeId) {
   git(["commit", "-m", "frozen fixture"], repo);
   return repo;
 }
-function priced(model, reasoningEffort) { return makeCodexSubAgent({ model, reasoningEffort, priceUsdPerMillion: prices[model] }); }
+function priced(model, reasoningEffort) {
+  const price = prices[model];
+  if (!price) throw new Error(`model missing from frozen price snapshot: ${model}`);
+  return makeCodexSubAgent({ model, reasoningEffort, priceUsdPerMillion: price, maximumPricedInputTokens });
+}
 function budgeted(port, method, paid = true) {
   return makeBudgetedActorPort(port, method, spendBudget, paid);
 }
@@ -119,7 +138,17 @@ try {
   const comparison = bothPass
     ? { claimAllowed: true, lunaProxyUsd: cost(lunaProxy), allSolUsd: cost(allSol), savingsUsd: cost(allSol) - cost(lunaProxy) }
     : { claimAllowed: false, lunaProxyUsd: null, allSolUsd: null, savingsUsd: null, reason: "quality or receipt hard gate failed" };
-  const result = { schemaVersion: 1, benchmarkId: corpus.benchmarkId, caseId: pairedCase.id, executedAt: new Date().toISOString(), budget: { observedSpendStopThresholdUsd: maxUsd, reservedCallUsd, actorTimeoutMs, maxPaidCalls, paidCalls: spendBudget.paidCalls, observedSpendUsd: spendBudget.observedSpendUsd, hardProviderDollarCeiling: false }, corpus, runs: { lunaProxy, allSol }, comparison };
+  const result = {
+    schemaVersion: 1, benchmarkId: corpus.benchmarkId, caseId: pairedCase.id, executedAt: new Date().toISOString(),
+    priceSnapshot: {
+      id: priceSnapshot.id, sha256: priceSnapshotSha256, capturedAt: priceSnapshot.captured_at,
+      currency: priceSnapshot.currency, tokenUnit: priceSnapshot.token_unit,
+      normalizationMethod: priceSnapshot.normalization_method, applicability: priceSnapshot.applicability,
+      costScope: corpus.costScope,
+    },
+    budget: { observedSpendStopThresholdUsd: maxUsd, reservedCallUsd, actorTimeoutMs, maxPaidCalls, paidCalls: spendBudget.paidCalls, observedSpendUsd: spendBudget.observedSpendUsd, hardProviderDollarCeiling: false },
+    corpus, runs: { lunaProxy, allSol }, comparison,
+  };
   const output = resolve(process.env.NAIA_ORCH_OUT ?? join(here, "results", `single-issue-live-${Date.now()}.json`));
   mkdirSync(dirname(output), { recursive: true });
   writeFileSync(output, `${JSON.stringify(result, null, 2)}\n`, { mode: 0o600 });

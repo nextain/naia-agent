@@ -90,9 +90,13 @@ hard gate.
   labels this limitation explicitly instead of claiming a hard credit ceiling. Its observed-spend ledger
   is behaviorally tested and carries a completed receipt even when a per-call reservation is exceeded.
   The corpus pins each route's worker provider/model/reasoning binding; runtime model overrides are
-  rejected before any paid call.
+  rejected before any paid call. The runner loads the workspace's frozen 2026-07-29 OpenAI price
+  snapshot byte-for-byte, verifies SHA-256 `36ff2bca30e2823cddda6b207bdf68b3bb15700c5fdc4e0e67792bda44bc6626`,
+  and writes its id, capture time, currency, token unit, normalization method, applicability, and
+  declared cost scope into the result. Inputs above 272,000 tokens retain usage evidence but monetary
+  cost becomes unavailable, which blocks a savings claim until a long-context rule is frozen.
 - Full regression excluding two baseline environment-sensitive process tests: 130 files passed, 3
-  skipped; 1,475 tests passed, 9 skipped. The unchanged baseline failures are the management-doctor
+  skipped; 1,477 tests passed, 9 skipped. The unchanged baseline failures are the management-doctor
   status expectation and nested-ADK credential discovery in the Pi CLI process test. No credential
   value is retained in this document or benchmark artifact.
 - Repository gates: compile, logging, traceability, terminology, and new-file anchors pass. The global

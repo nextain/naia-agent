@@ -42,6 +42,8 @@ export interface SubAgentCodexOptions {
     readonly cachedInput: number;
     readonly output: number;
   };
+  /** Maximum input-token count to which the pinned price snapshot applies. */
+  readonly maximumPricedInputTokens?: number;
 }
 
 /**
@@ -198,6 +200,7 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
           const cachedInputTokens = usage?.cachedInputTokens ?? 0;
           const outputTokens = usage?.outputTokens ?? 0;
           const measuredCostUsd = opts.priceUsdPerMillion && usage
+            && (opts.maximumPricedInputTokens === undefined || inputTokens <= opts.maximumPricedInputTokens)
             ? ((Math.max(0, inputTokens - cachedInputTokens) * opts.priceUsdPerMillion.uncachedInput)
               + (cachedInputTokens * opts.priceUsdPerMillion.cachedInput)
               + (outputTokens * opts.priceUsdPerMillion.output)) / 1_000_000

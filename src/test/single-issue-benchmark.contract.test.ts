@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { orderedObligationsEqual } from "../main/domain/orchestration-benchmark.js";
@@ -14,6 +15,7 @@ interface RouteRun {
 
 const corpusPath = fileURLToPath(new URL("../../benchmark/orchestration/single-issue-cases.json", import.meta.url));
 const runnerPath = fileURLToPath(new URL("../../benchmark/run-single-issue-live.mjs", import.meta.url));
+const priceSnapshotPath = fileURLToPath(new URL("../../benchmark/orchestration/openai-price-snapshot-2026-07-29.json", import.meta.url));
 const corpus = JSON.parse(readFileSync(corpusPath, "utf8")) as {
   schemaVersion: number;
   benchmarkId: string;
@@ -55,6 +57,17 @@ describe("UC-ORCH-001 frozen composition benchmark", () => {
     expect(corpus.cases.filter((item) => item.kind === "live-paired")).toHaveLength(1);
     expect(corpus.requiredReceiptRoles).toEqual(["naia", "moderator", "worker", "verifier", "reporter"]);
     expect(corpus.hardGates).toContain("profile_request_exact");
+  });
+
+  it("pins the immutable monetary snapshot and complete comparison cost scope", () => {
+    const bytes = readFileSync(priceSnapshotPath);
+    const snapshot = JSON.parse(bytes.toString("utf8")) as Record<string, unknown>;
+    expect(createHash("sha256").update(bytes).digest("hex")).toBe("36ff2bca30e2823cddda6b207bdf68b3bb15700c5fdc4e0e67792bda44bc6626");
+    expect(snapshot).toMatchObject({
+      id: "PRICE-OPENAI-2026-07-29", captured_at: "2026-07-29T15:48:42Z", currency: "USD", token_unit: 1_000_000,
+      applicability: { maximum_input_tokens_without_frozen_long_context_rule: 272_000 },
+    });
+    expect((corpus as typeof corpus & { costScope: string }).costScope).toContain("Complete issue marginal API-equivalent USD");
   });
 
   it("allows a numeric comparison only after both routes pass every hard gate with measured receipts", () => {

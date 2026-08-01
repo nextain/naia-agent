@@ -1,0 +1,29 @@
+{
+  "id": "PRICE-OPENAI-2026-07-29",
+  "captured_at": "2026-07-29T15:48:42Z",
+  "currency": "USD",
+  "token_unit": 1000000,
+  "normalization_method": "API-equivalent USD and Codex credit rate-card estimates computed from the exact CLI usage receipt; they are analytical normalization values, not an invoice or a hard spending cap.",
+  "applicability": {
+    "maximum_input_tokens_without_frozen_long_context_rule": 272000,
+    "above_threshold": "monetary and quota normalization are unavailable until a current long-context surcharge rule is separately frozen"
+  },
+  "sources": [
+    "https://developers.openai.com/api/docs/models",
+    "https://help.openai.com/en/articles/20001106-codex-rate-card"
+  ],
+  "models": {
+    "gpt-5.6-sol": {
+      "api_usd_per_million": {"uncached_input": 5, "cached_input": 0.5, "output": 30},
+      "codex_credits_per_million": {"uncached_input": 125, "cached_input": 12.5, "output": 750}
+    },
+    "gpt-5.6-terra": {
+      "api_usd_per_million": {"uncached_input": 2.5, "cached_input": 0.25, "output": 15},
+      "codex_credits_per_million": {"uncached_input": 62.5, "cached_input": 6.25, "output": 375}
+    },
+    "gpt-5.6-luna": {
+      "api_usd_per_million": {"uncached_input": 1, "cached_input": 0.1, "output": 6},
+      "codex_credits_per_million": {"uncached_input": 25, "cached_input": 2.5, "output": 150}
+    }
+  }
+}

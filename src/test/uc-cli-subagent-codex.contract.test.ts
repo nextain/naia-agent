@@ -236,6 +236,23 @@ describe("subagent-codex 어댑터 계약 (SPEC-010 확장, fake child)", () => 
     }
   });
 
+  it("marks monetary cost unavailable above the frozen long-context applicability threshold", async () => {
+    for (const [inputTokens, measured] of [[272_000, true], [272_001, false]] as const) {
+      const f = fakeNdjson();
+      const port = makeCodexSubAgent({
+        resolveBin: fixedBin, spawnFn: f.spawnFn, hardKillDeadlineMs: 5,
+        priceUsdPerMillion: { uncachedInput: 1, cachedInput: 0.1, output: 6 },
+        maximumPricedInputTokens: 272_000,
+      });
+      const session = port.spawn({ prompt: "p", workdir: "/tmp/w" });
+      f.line(`{"type":"turn.completed","usage":{"input_tokens":${inputTokens},"cached_input_tokens":0,"output_tokens":1}}`);
+      const [end] = await drain(session.events) as Extract<SubAgentEvent, { kind: "session_end" }>[];
+      expect(end.evidence?.usageAvailable).toBe(true);
+      if (measured) expect(end.evidence?.measuredCostUsd).toBeTypeOf("number");
+      else expect(end.evidence?.measuredCostUsd).toBeUndefined();
+    }
+  });
+
   it("ignores duplicate logical terminal events in one stdout chunk", async () => {
     const f = fakeNdjson();
     const port = makeCodexSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn, hardKillDeadlineMs: 15 });
