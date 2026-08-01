@@ -19,7 +19,7 @@
     "branch": "feat/naia-single-issue-vertical",
     "baseline": "c424be65d22891f0f158395428d915031cf8e412",
     "handoff_note": "Naia-facing Luna proxy -> Sol development moderator -> one isolated issue -> one Codex worker -> verification -> evidence-grounded Naia report.",
-    "baseline_verification": "build passed; feature-relevant tests 67/67 passed after review fixes; full regression excluding two known baseline process tests passed 1454 with 9 skipped before the latest four focused cases; compile/logging/traceability/terminology pass; global file-anchor gate retains the same 29 pre-existing drift entries"
+    "baseline_verification": "build passed; feature-relevant tests 67/67 passed after review fixes; full regression excluding two known baseline process tests passed 1458 with 9 skipped; compile/logging/traceability/terminology pass; global file-anchor gate retains the same 29 pre-existing drift entries"
   },
 
   "sdlc_gates": {
