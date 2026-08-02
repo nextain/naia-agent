@@ -166,3 +166,4 @@ export function wireSupervisor(opts?: {
 
 export { wireDurableSupervisorRuntime } from "./durable-supervisor.js";
 export type { DurableSupervisorRuntimeOptions } from "./durable-supervisor.js";
+export { makeIssueWorkerRouter, makeProfiledIssueWorker } from "./profiled-issue-worker.js";

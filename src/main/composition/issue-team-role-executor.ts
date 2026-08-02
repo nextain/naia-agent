@@ -67,11 +67,13 @@ export function makeIssueTeamRoleExecutor(options: IssueTeamRoleExecutorOptions)
   };
 }
 
-export function composeIssueTeamAgents(profile: IssueTeamProfile, environment: {
+export interface IssueTeamAgentEnvironment {
   readonly codex?: Omit<SubAgentCodexOptions, "model" | "reasoningEffort">;
   readonly opencode?: Omit<SubAgentOpencodeOptions, "model" | "provider">;
   readonly pi?: Omit<SubAgentPiOptions, "model" | "provider">;
-} = {}): Readonly<Record<string, { readonly agentKind: import("../domain/issue-team.js").IssueTeamAgentKind; readonly adapter: SubAgentPort }>> {
+}
+
+export function composeIssueTeamAgents(profile: IssueTeamProfile, environment: IssueTeamAgentEnvironment = {}): Readonly<Record<string, { readonly agentKind: import("../domain/issue-team.js").IssueTeamAgentKind; readonly adapter: SubAgentPort }>> {
   assertIssueTeamProfile(profile);
   return Object.fromEntries(Object.values(profile.roles).map((declared) => {
     const agent = declared.agentKind === "codex"
@@ -84,9 +86,12 @@ export function composeIssueTeamAgents(profile: IssueTeamProfile, environment: {
 }
 
 function rolePrompt(input: Parameters<IssueTeamRoleExecutorPort["execute"]>[0]): string {
-  return `You are the ${input.roleProfile.filesystemAccess === "workspace_write" ? "implementation" : "read-only"} role for one coding issue.\n`
+  const role = roleFromStep(input.stepId);
+  const decisions = { explorer: "proceed", implementer: "implemented", tester: "pass|fail", reviewer: "clean|changes_requested" } as const;
+  return `You are the ${role} ${input.roleProfile.filesystemAccess === "workspace_write" ? "implementation" : "read-only"} role for one coding issue.\n`
     + `Task: ${input.task}\nContext JSON: ${input.context}\n`
-    + "Return exactly one JSON object: {\"version\":1,\"role\":\"explorer|implementer|tester|reviewer\",\"decision\":\"role-valid decision\",\"summary\":\"...\",\"findings\":[{\"code\":\"...\",\"message\":\"...\"}]}";
+    + `Return exactly one JSON object with role \"${role}\" and decision \"${decisions[role]}\": `
+    + "{\"version\":1,\"role\":\"...\",\"decision\":\"...\",\"summary\":\"...\",\"findings\":[{\"code\":\"...\",\"message\":\"...\"}]}";
 }
 function roleFromStep(stepId: string): import("../domain/issue-team.js").IssueTeamRole {
   for (const role of ["explorer", "implementer", "tester", "reviewer"] as const) if (stepId.includes(`:${role}:`)) return role;

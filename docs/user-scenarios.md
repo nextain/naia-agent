@@ -800,6 +800,7 @@ Discord ingress, terminal/file-opening UX, and naia-shell visualization.
 | Scenario | Contract/integration test |
 |---|---|
 | declared roles run in order in one worktree, with write access only for the implementer | `issue-team-worker.integration.test.ts` |
+| the production mixed catalog routes legacy and team profiles into their concrete workers | `profiled-issue-worker.integration.test.ts` |
 | tester/reviewer findings cause bounded repair and two consecutive clean passes | `issue-team-worker.integration.test.ts` |
 | every Codex/OpenCode/Pi attempt preserves distinct identity, binding, usage, and cost evidence | `issue-team-role-executor.integration.test.ts`, `single-issue-team-verifier.integration.test.ts` |
 | duplicate dispatch returns one persisted result and does not repeat a role effect | `issue-team-worker.integration.test.ts` |

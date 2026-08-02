@@ -906,6 +906,12 @@
       "contract": "docs/progress/99.dev-comm/UC-ORCH-003-issue-team-contract-2026-08-02.md",
       "note": "Predeclared Codex/OpenCode/Pi profile selection through Supervisor with bounded JSON and honest per-role receipts."
     },
+    "src/main/composition/profiled-issue-worker.ts": {
+      "layer": "composition",
+      "uc": ["UC-ORCH-003"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-003-issue-team-contract-2026-08-02.md",
+      "note": "Production mixed-catalog router and factory that select legacy or durable team workers from the immutable moderator-selected profile."
+    },
     "src/main/adapters/radio-dj-runtime.ts": {
       "layer": "adapters",
       "uc": ["UC-015"],

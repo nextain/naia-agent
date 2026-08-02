@@ -4,6 +4,7 @@ export interface IssueTeamBenchmarkObservation {
   readonly adapterReadOnlyEnforced: boolean;
   readonly roleExecutorBoundaryPreserved: boolean;
   readonly parentProjectionValidated: boolean;
+  readonly productionRouterWired: boolean;
   readonly repairCycles: number;
   readonly cleanCycles: number;
   readonly duplicateRoleEffects: number;
@@ -22,6 +23,7 @@ export function evaluateIssueTeamBenchmark(input: IssueTeamBenchmarkObservation)
     adapterBoundary: input.adapterReadOnlyEnforced,
     compositionBoundary: input.roleExecutorBoundaryPreserved,
     parentBoundary: input.parentProjectionValidated,
+    productionRouting: input.productionRouterWired,
     convergence: input.repairCycles === 1 && input.cleanCycles === 2,
     duplicateDispatch: input.duplicateRoleEffects === 0,
     recovery: input.unknownInflightRecovery,

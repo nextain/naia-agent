@@ -18,6 +18,7 @@ const trackedInputs = ["benchmark/run-issue-team-deterministic.mjs", "benchmark/
   "src/main/adapters/subagent-opencode-cli.ts", "src/main/adapters/subagent-codex.ts", "src/main/domain/issue-team.ts",
   "src/main/domain/issue-team-benchmark.ts", "src/main/ports/issue-team.ts", "src/main/composition/supervised-issue-worker.ts",
   "src/main/composition/issue-team-role-executor.ts", "src/main/app/single-issue-orchestrator.ts",
+  "src/main/composition/profiled-issue-worker.ts",
   "src/main/adapters/sqlite-issue-orchestration-store.ts", "src/main/domain/issue-orchestration.ts", "src/main/ports/issue-orchestration.ts",
   "package.json", "pnpm-lock.yaml", "tsconfig.json"];
 execFileSync("git", ["merge-base", "--is-ancestor", sourceRevision, "HEAD"], { cwd: repositoryRoot });
@@ -36,6 +37,7 @@ const { makeCodexSubAgent } = await import(pathToFileURL(join(distRoot, "main/ad
 const { makeIssueTeamRoleExecutor } = await import(pathToFileURL(join(distRoot, "main/composition/issue-team-role-executor.js")));
 const { SingleIssueOrchestrator } = await import(pathToFileURL(join(distRoot, "main/app/single-issue-orchestrator.js")));
 const { SqliteIssueOrchestrationStore } = await import(pathToFileURL(join(distRoot, "main/adapters/sqlite-issue-orchestration-store.js")));
+const { makeIssueWorkerRouter } = await import(pathToFileURL(join(distRoot, "main/composition/profiled-issue-worker.js")));
 const root = mkdtempSync(join(tmpdir(), "naia-issue-team-benchmark-"));
 const profile = { kind: "team", maxRepairCycles: 2, requiredCleanCycles: 2, roles: Object.fromEntries(
   ["explorer", "implementer", "tester", "reviewer"].map((role) => [role, { agentProfileId: `${role}-profile`,
@@ -86,12 +88,13 @@ try {
   const adapterReadOnlyEnforced = await observeAdapterReadOnlyBoundary(makePiSubAgent, makeOpencodeSubAgent, makeCodexSubAgent);
   const roleExecutorBoundaryPreserved = await observeRoleExecutorBoundary(makeIssueTeamRoleExecutor);
   const parentProjectionValidated = await observeParentProjectionBoundary(SingleIssueOrchestrator, SqliteIssueOrchestrationStore, join(root, "parent.db"));
+  const productionRouterWired = await observeProductionRouter(makeIssueWorkerRouter);
   const receipts = completed.receipts ?? [];
   const expectedCostUsd = receipts.length * corpus.costPerAttemptUsd;
   const observedCostUsd = receipts.reduce((sum, item) => sum + (item.cost.state === "measured" ? item.cost.usd : 0), 0);
   const observation = { roleOrderMatches: JSON.stringify(seen.map((item) => item.role)) === JSON.stringify(corpus.expectedOrder),
     writeBoundaryViolations: seen.filter((item) => (item.role === "implementer") !== (item.access === "workspace_write")).length,
-    adapterReadOnlyEnforced, roleExecutorBoundaryPreserved, parentProjectionValidated,
+    adapterReadOnlyEnforced, roleExecutorBoundaryPreserved, parentProjectionValidated, productionRouterWired,
     repairCycles: completed.team?.repairCycles ?? -1, cleanCycles: completed.team?.cleanCycles ?? -1,
     duplicateRoleEffects: effects - effectsAfterFirst, unknownInflightRecovery: unknownInflightRecovery && failedReadyRecovery, legacyProfilePreserved, receiptCount: receipts.length,
     distinctReceiptIdentities: new Set(receipts.flatMap((item) => [item.sessionId, item.executionId])).size / 2,
@@ -100,7 +103,7 @@ try {
   const runtimeModules = ["main/app/issue-team-worker.js", "main/adapters/sqlite-issue-team-store.js", "main/adapters/subagent-pi.js",
     "main/adapters/subagent-opencode-cli.js", "main/adapters/subagent-codex.js", "main/domain/issue-team-benchmark.js",
     "main/composition/supervised-issue-worker.js", "main/composition/issue-team-role-executor.js", "main/app/single-issue-orchestrator.js",
-    "main/adapters/sqlite-issue-orchestration-store.js"];
+    "main/adapters/sqlite-issue-orchestration-store.js", "main/composition/profiled-issue-worker.js"];
   const output = { schemaVersion: corpus.schemaVersion, benchmarkId: corpus.benchmarkId, sourceRevision, paidCalls: 0, observation,
     evidence: { trackedInputs: Object.fromEntries(trackedInputs.map((path) => [path, sha256(join(repositoryRoot, path))])),
       runtimeModules: Object.fromEntries(runtimeModules.map((path) => [`dist/${path}`, sha256(join(distRoot, path))])) }, ...evaluation };
@@ -163,6 +166,15 @@ async function observeParentProjectionBoundary(Orchestrator, Store, path) {
   const report = await orchestrator.start({ requestId: "parent-request", text: "fix", requiredObligations: ["fix"], workspacePath: "/benchmark/repo",
     naiaBinding: { provider: "naia", model: "luna" }, moderatorBinding: { provider: "codex", model: "sol" }, workerProfiles: { "benchmark-team": profile } });
   parentStore.close(); return report.state === "outcome_unknown";
+}
+async function observeProductionRouter(makeRouter) {
+  let legacyCalls = 0; let teamCalls = 0;
+  const legacyResult = { route: "legacy" }; const teamResult = { route: "team" };
+  const router = makeRouter({ legacy: { async execute() { legacyCalls += 1; return legacyResult; } },
+    team: { async execute() { teamCalls += 1; return teamResult; } } });
+  const legacy = await router.execute({ ...input, profile: { provider: "legacy", model: "legacy" }, binding: { provider: "legacy", model: "legacy" } });
+  const selectedTeam = await router.execute(input);
+  return legacy === legacyResult && selectedTeam === teamResult && legacyCalls === 1 && teamCalls === 1;
 }
 function captureSpawn() {
   const capture = { calls: 0, args: undefined, spawnFn(command, args) { capture.calls += 1; capture.args = [...args];
