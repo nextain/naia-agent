@@ -152,6 +152,19 @@ export class SqliteMultiIssueSessionStore implements MultiIssueSessionStore {
     this.#db.prepare("DELETE FROM multi_issue_scheduler_lease WHERE singleton=1 AND owner_id=?").run(ownerId);
   }
 
+  releaseSchedulerIfIdle(ownerId: string, nowMs: number, aggregateThresholdUsd?: number): boolean {
+    return this.transaction(() => {
+      if (!this.schedulerOwned(ownerId, nowMs)) return true;
+      const sessions = this.list();
+      const ready = sessions.filter((session) => session.state === "queued")
+        .sort((left, right) => priorityNumber(left.readyPriority) - priorityNumber(right.readyPriority)
+          || left.readySequence - right.readySequence || left.sessionId.localeCompare(right.sessionId))[0];
+      if (ready && canAdmit(ready, sessions, aggregateThresholdUsd)) return false;
+      this.#db.prepare("DELETE FROM multi_issue_scheduler_lease WHERE singleton=1 AND owner_id=?").run(ownerId);
+      return true;
+    });
+  }
+
   recoverRunning(ownerId: string, nowMs: number, now: string): number {
     return this.transaction(() => {
       this.assertScheduler(ownerId, nowMs);
@@ -310,6 +323,22 @@ function validateSubmission(submission: MultiIssueSubmission): void {
 
 function validSourceId(value: string): boolean {
   return value.length > 0 && value === value.trim() && value.length <= 256 && !/[\u0000-\u001f\u007f]/u.test(value);
+}
+
+function canAdmit(candidate: ManagedIssueSession, sessions: readonly ManagedIssueSession[], threshold: number | undefined): boolean {
+  if (threshold === undefined) return true;
+  if (candidate.reservationUsd === undefined) return false;
+  let committed = candidate.reservationUsd;
+  for (const session of sessions) {
+    if (isManagedSessionTerminal(session.state)) {
+      if (!session.report || session.report.totalCost.state === "unavailable") return false;
+      committed += session.report.totalCost.usd;
+    } else if (session.state === "running") {
+      if (session.reservationUsd === undefined) return false;
+      committed += session.reservationUsd;
+    }
+  }
+  return committed <= threshold;
 }
 
 function sanitize<T>(value: T): T {

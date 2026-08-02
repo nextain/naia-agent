@@ -171,7 +171,7 @@ export class SingleIssueOrchestrator {
           const receipts = appendReceipt(issue.receipts, result.receipt);
           const report: IssueReport = {
             state: "chat", summary: result.classification.chatReply ?? "", changedFiles: [],
-            verificationPassed: null, totalCost: totalIssueCost(receipts),
+            issueId: issue.issueId, verificationPassed: null, totalCost: totalIssueCost(receipts),
           };
           issue = this.save(issue, {
             ...issue, state: "completed", classification: result.classification, receipts, report, updatedAt: this.#now(),

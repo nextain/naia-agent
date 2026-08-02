@@ -164,6 +164,7 @@ export class MultiIssueSessionManager implements MultiIssueSessionCommands, Mult
       }
     }, Math.max(25, Math.min(500, Math.floor(this.#leaseMs / 3))));
     heartbeat.unref?.();
+    let released = false;
     try {
       this.d.store.recoverRunning(this.#ownerId, this.#clockMs(), this.#now());
       const active = new Set<Promise<void>>();
@@ -182,12 +183,16 @@ export class MultiIssueSessionManager implements MultiIssueSessionCommands, Mult
             .finally(() => { controllers.delete(controller); active.delete(execution); });
           active.add(execution);
         }
-        if (active.size === 0) return;
+        if (active.size === 0) {
+          released = this.d.store.releaseSchedulerIfIdle(this.#ownerId, this.#clockMs(), this.d.aggregateThresholdUsd);
+          if (released) return;
+          continue;
+        }
         await Promise.race(active);
       }
     } finally {
       clearInterval(heartbeat);
-      this.d.store.releaseScheduler(this.#ownerId);
+      if (!released) this.d.store.releaseScheduler(this.#ownerId);
     }
   }
 
@@ -208,6 +213,16 @@ export class MultiIssueSessionManager implements MultiIssueSessionCommands, Mult
         changedFiles: [],
         verificationPassed: null,
         totalCost: { state: "unavailable", reason: `single-issue port error: ${errorName(error)}` },
+      };
+    }
+    if (report.issueId !== session.issueId) {
+      report = {
+        state: "outcome_unknown",
+        summary: "single-issue report identity could not be reconciled",
+        issueId: session.issueId,
+        changedFiles: [],
+        verificationPassed: null,
+        totalCost: { state: "unavailable", reason: "single-issue report issue id was missing or mismatched" },
       };
     }
     if (signal.aborted) return;

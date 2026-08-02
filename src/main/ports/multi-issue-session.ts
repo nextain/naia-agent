@@ -23,6 +23,8 @@ export interface MultiIssueSessionStore {
   tryAcquireScheduler(ownerId: string, nowMs: number, expiresAtMs: number): boolean;
   renewScheduler(ownerId: string, nowMs: number, expiresAtMs: number): boolean;
   releaseScheduler(ownerId: string): void;
+  /** Atomically releases only when no ready work exists; false keeps ownership so the caller rechecks. */
+  releaseSchedulerIfIdle(ownerId: string, nowMs: number, aggregateThresholdUsd?: number): boolean;
   recoverRunning(ownerId: string, nowMs: number, now: string): number;
   claimReady(input: {
     readonly ownerId: string;

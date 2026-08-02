@@ -188,6 +188,17 @@ describe("UC-ORCH-002 multi-issue session manager", () => {
     other.close(); h.store.close();
   });
 
+  it("atomically keeps scheduler ownership when ready work arrives before idle release", async () => {
+    const h = harness();
+    expect(h.store.tryAcquireScheduler("idle-owner", 1_000, 2_000)).toBe(true);
+    await h.manager.submit(submission("wake-up"));
+    expect(h.store.releaseSchedulerIfIdle("idle-owner", 1_001)).toBe(false);
+    expect(h.store.claimReady({ ownerId: "idle-owner", nowMs: 1_001, now: "2026-08-02T00:00:00Z", limit: 1 }))
+      .toHaveLength(1);
+    h.store.releaseScheduler("idle-owner");
+    h.store.close();
+  });
+
   it("recovers an expired manager process without duplicating the issue effect", async () => {
     const root = mkdtempSync(join(tmpdir(), "multi-issue-recovery-")); roots.push(root);
     const path = join(root, "sessions.db");
@@ -249,6 +260,19 @@ describe("UC-ORCH-002 multi-issue session manager", () => {
     const portfolio = h.manager.portfolio();
     expect(portfolio.sessions[0]?.source).toEqual({ kind: "discord", sourceId: "source-discord-task", actorId: "user-1" });
     expect(portfolio.totalCost).toEqual({ state: "measured", usd: 0.1, source: "sum_of_managed_session_reports" });
+    h.store.close();
+  });
+
+  it("rejects a missing or sibling issue report as outcome unknown", async () => {
+    const h = harness();
+    h.issues.outcomes.set("issue-bound", report("issue-sibling"));
+    const session = await h.manager.submit(submission("bound"));
+    await h.manager.pump();
+    expect(h.manager.get(session.sessionId)).toMatchObject({
+      issueId: "issue-bound",
+      state: "outcome_unknown",
+      report: { issueId: "issue-bound", totalCost: { state: "unavailable" } },
+    });
     h.store.close();
   });
 });
