@@ -34,4 +34,14 @@ describe("REQ-023 profiled role executor", () => {
       roleProfile: { agentProfileId: "pi", agentKind: "codex", binding: { provider: "pi", model: "pi-model" }, filesystemAccess: "read_only" }, signal: new AbortController().signal }))
       .rejects.toThrow("undeclared issue-team agent profile");
   });
+
+  it("keeps the dispatched role on paid evidence when model JSON claims another role", async () => {
+    const executor = makeIssueTeamRoleExecutor({ agents: { codex: { agentKind: "codex", adapter: agent("codex", "codex-model", "wrong-role-session") } },
+      diag: { log() {}, debug() {} } });
+    const output = await executor.execute({ issueId: "issue", dispatchId: "dispatch", stepId: "dispatch:reviewer:1", worktreePath: "/repo", task: "review", context: "{}",
+      roleProfile: { agentProfileId: "codex", agentKind: "codex", binding: { provider: "codex", model: "codex-model" }, filesystemAccess: "read_only" },
+      signal: new AbortController().signal });
+    expect(output.result.role).toBe("explorer");
+    expect(output.receipt).toMatchObject({ workerRole: "reviewer", sessionId: "wrong-role-session", executionId: "wrong-role-session-execution" });
+  });
 });

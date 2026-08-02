@@ -62,7 +62,7 @@ export function makeIssueTeamRoleExecutor(options: IssueTeamRoleExecutorOptions)
       let result: IssueTeamRoleResult;
       try { result = JSON.parse(text) as IssueTeamRoleResult; }
       catch { throw new IssueActorResultError("role output was not one JSON object", receipt); }
-      return { result, receipt: { ...receipt, workerRole: result.role } };
+      return { result, receipt };
     },
   };
 }
