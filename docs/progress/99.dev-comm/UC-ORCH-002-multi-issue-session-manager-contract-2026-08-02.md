@@ -99,16 +99,24 @@ The final source revision requires two consecutive independent Clean reviews bef
   issue snapshots/receipts. It schedules through only the neutral single-issue execution port.
 - SQLite owns monotonic ready order, recovery priority, append-only manager events, one expiring
   database-wide scheduler lease, unexpired renewal, and fenced claim/settle writes.
-- Nine deterministic integration scenarios cover identity-before-actor, replay conflict (including
+- Eleven deterministic integration scenarios cover identity-before-actor, replay conflict (including
   source/reservation drift), work-conserving bounded FIFO, waiting/answer/cancel isolation, cancellation
-  from waiting, lease expiry/fencing, two-manager recovery with one idempotent effect, exact budget
-  admission, and transport-neutral grounded visibility.
+  from waiting, lease expiry/fencing, atomic idle-release wakeup, two-manager recovery with one
+  idempotent effect, exact budget admission, transport-neutral grounded visibility, and mismatched
+  issue-report rejection.
 - The layer contract rejects Discord, Shell, provider SDK, and Codex-protocol imports from the manager
   domain/port/app modules.
-- `uc-orch-002-deterministic-v1` makes zero paid calls and passes completion, isolation, fairness,
-  concurrency, restart, visibility, and cost-accounting gates. Seven counterexamples each prove that
-  one failed gate prohibits the claim.
-- The focused TypeScript build and 60 affected/new tests pass. The full suite reached 1,512 passes and
+- `uc-orch-002-deterministic-v1` runs the built manager, two SQLite stores, and deterministic execution
+  port; it makes zero paid calls and derives passing completion, isolation, fairness, concurrency,
+  restart, visibility, and cost-accounting observations. Seven counterexamples each prove that one
+  failed gate prohibits the claim. Exact artifact:
+  `benchmark/results/multi-issue-deterministic-b462d9d.json`, source `b462d9d7b6511df00ad5dab936674569645fc2d8`,
+  SHA-256 `03210e8430875dba7252673d4198f3ca8acf157e4563267500371ccaef0b994c`.
+- The focused TypeScript build and 62 affected/new tests pass. The full suite reached 1,512 passes and
   10 skips; its two failures are the same documented environment-sensitive baselines: management
   doctor status expectation and nested-ADK credential discovery in the Pi CLI process test. No new
   multi-session test failed.
+- Excluding exactly those two baseline process files, the complete regression passes: 133 test files,
+  1,512 tests passed, and 9 skipped. Compile, logging, traceability, terminology, root structure,
+  SDLC, charter, completion, and structure gates pass. File-anchor remains the baseline 29 and canon
+  conformance returns to the baseline 57 after registering user-directed UC-ORCH-001/002.

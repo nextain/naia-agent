@@ -1,0 +1,72 @@
+{
+  "schemaVersion": "1.0",
+  "benchmarkId": "uc-orch-002-deterministic-v1",
+  "sourceRevision": "b462d9d7b6511df00ad5dab936674569645fc2d8",
+  "paidCalls": 0,
+  "observation": {
+    "submitted": 4,
+    "terminal": 4,
+    "identityLeakCount": 0,
+    "expectedStartOrder": [
+      "issue-a",
+      "issue-b",
+      "issue-c",
+      "issue-d"
+    ],
+    "observedStartOrder": [
+      "issue-a",
+      "issue-b",
+      "issue-c",
+      "issue-d"
+    ],
+    "configuredConcurrency": 2,
+    "maximumObservedConcurrency": 2,
+    "restartDuplicateEffects": 0,
+    "visibilityCountMatches": true,
+    "allCostsMeasured": true,
+    "expectedCostUsd": 0.4,
+    "observedCostUsd": 0.4
+  },
+  "evidence": {
+    "sessionStates": [
+      {
+        "sessionId": "session-1",
+        "issueId": "issue-a",
+        "state": "completed"
+      },
+      {
+        "sessionId": "session-2",
+        "issueId": "issue-b",
+        "state": "completed"
+      },
+      {
+        "sessionId": "session-3",
+        "issueId": "issue-c",
+        "state": "completed"
+      },
+      {
+        "sessionId": "session-4",
+        "issueId": "issue-d",
+        "state": "completed"
+      }
+    ],
+    "restart": {
+      "starts": [
+        "issue-restart",
+        "issue-restart"
+      ],
+      "effectApplications": 1,
+      "finalState": "completed"
+    }
+  },
+  "gates": {
+    "completion": true,
+    "isolation": true,
+    "fairness": true,
+    "concurrency": true,
+    "restart": true,
+    "visibility": true,
+    "costAccounting": true
+  },
+  "claimAllowed": true
+}

@@ -14,11 +14,11 @@
     "issue_doc": "docs/progress/99.dev-comm/UC-ORCH-002-multi-issue-session-manager-contract-2026-08-02.md",
     "github_issue": null,
     "started": "2026-08-02",
-    "last_updated": "2026-08-02T10:23:43+09:00",
+    "last_updated": "2026-08-02T10:54:00+09:00",
     "status": "in_progress",
     "branch": "feat/naia-multi-issue-session-manager",
     "baseline": "57b096a8e6d7d369a7433d2f49d09e9efd393e24",
-    "implementation_revision": null,
+    "implementation_revision": "b462d9d7b6511df00ad5dab936674569645fc2d8",
     "handoff_note": "Naia durably queues, schedules, isolates, and observes multiple REQ-021 sessions with bounded concurrency; OpenCode collaboration, Discord ingress, and naia-shell UI remain later adapters.",
     "baseline_verification": "REQ-021 branch final: build passed; full regression excluding two known baseline process tests passed 1491 with 9 skipped; compile/logging/traceability/terminology/root-structure/SDLC pass; accepted paired live benchmark passed every hard gate at source d0bbbe0; global file-anchor gate retains the same 29 pre-existing drift entries"
   },
@@ -27,7 +27,7 @@
     "P01": { "status": "done", "name": "user_scenarios", "deliverable": "UC-ORCH-002", "ref": "docs/user-scenarios.md" },
     "P02": { "status": "done", "name": "test_scenarios", "deliverable": "ten deterministic identity, scheduling, isolation, cross-process recovery, budget, layer-boundary, visibility, and benchmark scenarios", "ref": "docs/user-scenarios.md#uc-orch-002--naia-manages-multiple-coding-issues-as-visible-independent-sessions" },
     "P03": { "status": "done", "name": "requirements", "deliverable": "FR-MULTI-001~010 and NFR-MULTI-001~004", "ref": "docs/requirements.md#req-022--multi-issue-session-management-vertical" },
-    "P04": { "status": "done", "name": "integration_test", "deliverable": "leased multi-session manager, SQLite store, additive REQ-021 ensure boundary, nine integration scenarios, layer gate, and zero-paid-call benchmark", "ref": "src/test/multi-issue-*.test.ts" },
+    "P04": { "status": "done", "name": "integration_test", "deliverable": "leased multi-session manager, SQLite store, additive REQ-021 ensure boundary, eleven integration scenarios, layer gate, and implementation-derived zero-paid-call benchmark", "ref": "src/test/multi-issue-*.test.ts" },
     "P05": { "status": "pending", "name": "requirements_complete", "deliverable": "full verification and two consecutive Clean reviews on the final source revision", "ref": ".agents/reviews/r-req-022-multi-issue-session-manager-2026-08-02.json" }
   },
 
@@ -40,7 +40,8 @@
     ],
     "check_canon_conformance": [
       "기존 module-manifest 항목의 unknown/out-of-scope 총 57건",
-      "UC-023 / src/main/app/cli-manage.ts 위반 0건"
+      "UC-023 / src/main/app/cli-manage.ts 위반 0건",
+      "UC-ORCH-001/002는 사용자 명시 지시와 orchestration SoT 근거로 canon 등록되어 위반 0건"
     ],
     "resolved_in_this_work": [
       "src/main/app/cli-chat.ts — 앵커 추가 (layer=app, uc=[UC-CLI, UC-THINKING], contract=UC-cli-orchestration-contract-2026-06-22.md — cli-supervise.ts 형제 파일과 동일 계약)"
