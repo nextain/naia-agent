@@ -1,11 +1,12 @@
 {
   "schemaVersion": 1,
   "benchmarkId": "naia-issue-team-deterministic-v1",
-  "sourceRevision": "41f099f087d903a23252d73c9efafe67639f518a",
+  "sourceRevision": "f458c96dd06a2edae56e90e7e596acec3b10d451",
   "paidCalls": 0,
   "observation": {
     "roleOrderMatches": true,
     "writeBoundaryViolations": 0,
+    "adapterReadOnlyEnforced": true,
     "repairCycles": 1,
     "cleanCycles": 2,
     "duplicateRoleEffects": 0,
@@ -19,12 +20,14 @@
   },
   "evidence": {
     "trackedInputs": {
-      "benchmark/run-issue-team-deterministic.mjs": "287082aea893d98a2cec7b1952823cee38f145f71e62bb920623bbb91ad0058c",
+      "benchmark/run-issue-team-deterministic.mjs": "9f5105aa569edfffa0e47b43dcfa9ea812450a4f0a1c01994bfd2aae7e34ab5f",
       "benchmark/orchestration/issue-team-deterministic.json": "d2ea0595cdf2b1de2546249aef38ff6fc7cf64ac511ceab1a468791056895d19",
-      "src/main/app/issue-team-worker.ts": "a2c1c2e0cb55004fd66deffe022a14d38bffd56f4ba2deb40bf317508e585442",
+      "src/main/app/issue-team-worker.ts": "adbbf730d0a7da506ad11589688b82b34cb6bb3c98b9d4b0054bac1e24e92ff9",
       "src/main/adapters/sqlite-issue-team-store.ts": "6e604d24435d9e8de1135547fd60e730a543e6cbc1b32bc98bb054e41ce2951c",
+      "src/main/adapters/subagent-pi.ts": "9ac4c839ba6b272cfaf1583d98589023b66479ed83052c54c440312e90938485",
+      "src/main/adapters/subagent-opencode-cli.ts": "fc4a6a058623c27af393849f08c1ab8d7fc15f618a5579b569b891105d750685",
       "src/main/domain/issue-team.ts": "0b7c6accf6f42ca12a93e711450ff61b367083f26cbda79e3796d2ef049e5c3e",
-      "src/main/domain/issue-team-benchmark.ts": "9442c43a85fb0f9fbaecc751d5069c737c0ef91b1ead387ec7f8d5b9ca2dca66",
+      "src/main/domain/issue-team-benchmark.ts": "40951397b92b124c0d75234ecc4850cf68172778b15645b5953d8795a987fa91",
       "src/main/ports/issue-team.ts": "e91ad06b36c866be0fab931c6647166fe6f5d9f9fac3282e54e57993001872d3",
       "src/main/composition/supervised-issue-worker.ts": "11d1f057efb85abab40f3e55c83fcc52288d0dd750d5ad8461a8028524e064fa",
       "package.json": "639720e1b4893055f4c7943cce93fa271569cf82546b98a6d2538a31fe9e049a",
@@ -32,15 +35,18 @@
       "tsconfig.json": "38204ea85e3c37122c6a44fc86255d6e2d653fd549facb84f5a91ddda743f5d2"
     },
     "runtimeModules": {
-      "dist/main/app/issue-team-worker.js": "235257c810d7f648d10038255987941a8ea7a0bada74d6536668b1026b31d80e",
+      "dist/main/app/issue-team-worker.js": "67eaffffd41457de9720d303fb115cfdc46353397ea8acf3004928095e6f9a30",
       "dist/main/adapters/sqlite-issue-team-store.js": "5de30dd40d3b7e94adcba686228276ef257a0d9dfcbacb7e57de8800b8b710c8",
-      "dist/main/domain/issue-team-benchmark.js": "5a5ca651eb6415305174e6b4029e8f04953cb0ba7420d6734c36cf0298122c4d",
+      "dist/main/adapters/subagent-pi.js": "c85ff2c08fe5c7e58f0d0bd35c4ba3c777e59babce561fafeb3b6b919c61db2d",
+      "dist/main/adapters/subagent-opencode-cli.js": "bdd6be03752bec1b093eb9f8b743e3c83da04507f850e37af13228e4bd59cfaf",
+      "dist/main/domain/issue-team-benchmark.js": "7c5fc57e56def229758d11682e58c3332c7c0e14b15277a4fc3423487ce776a6",
       "dist/main/composition/supervised-issue-worker.js": "a54406d9a68cfbf44079b6167d00e0f8fd2d465f660eb8f762152cec8ef92f27"
     }
   },
   "gates": {
     "ordering": true,
     "writeBoundary": true,
+    "adapterBoundary": true,
     "convergence": true,
     "duplicateDispatch": true,
     "recovery": true,
