@@ -569,9 +569,10 @@ The Agent and Gateway preserve these codes end to end:
 ## REQ-022 — Multi-issue session management vertical
 
 - **FR-MULTI-001**: Intake persists one session record per accepted request before scheduling. The
-  record binds stable session/request/issue identity, exact request digest, workspace, ordered
-  obligations, actor bindings, and adapter-neutral source kind/source id. Identical replay returns the
-  same session; reuse with different bound content fails closed.
+  record binds stable session/request identity, exact request digest, workspace, ordered obligations,
+  actor bindings, and adapter-neutral source kind/source id. The issue id is linked atomically on the
+  first `REQ-021` start result and is immutable afterward. Identical replay returns the same session;
+  reuse with different bound content fails closed.
 - **FR-MULTI-002**: A durable scheduler admits queued sessions in FIFO order among equal-priority
   ready records and runs no more than the configured positive concurrency limit. A waiting-for-user,
   failed, cancelled, or unknown session does not consume a running slot after its execution settles.
@@ -599,13 +600,17 @@ The Agent and Gateway preserve these codes end to end:
   changed files, or cost availability.
 - **FR-MULTI-010**: Source metadata and query/command boundaries support later local, Discord, and
   naia-shell adapters without importing those transports into the manager. This requirement activates
-  none of those production ingress or UI paths.
+  none of those production ingress or UI paths. The neutral DTOs contain source kind/id and actor id
+  for provenance, but authorization remains the responsibility of the future ingress adapter.
 - **NFR-MULTI-001**: The manager owns an owner-local SQLite store with transactional session updates,
   deterministic queue sequence, terminal immutability, and no provider credentials or raw secrets.
+  One expiring database-wide scheduler-owner lease serializes admission across Agent processes;
+  renewal requires an unexpired prior lease and every scheduler lifecycle write is owner-fenced.
 - **NFR-MULTI-002**: Tests inject clock, ids, the single-issue execution port, restart, cancellation,
   and failures. The default contract and benchmark suite makes no paid model call.
 - **NFR-MULTI-003**: Concurrency is bounded and configurable; invalid limits fail at construction.
-  Scheduler progress and lifecycle transitions use the project `DiagnosticLog` boundary.
+  The bound is database-global because only the current scheduler owner may admit work. Scheduler
+  progress and lifecycle transitions use the project `DiagnosticLog` boundary.
 - **NFR-MULTI-004**: A frozen benchmark must gate completion, isolation, FIFO fairness, maximum observed
   concurrency, restart safety, visibility consistency, and cost accounting. A score or efficiency
   claim is forbidden when any hard gate fails.

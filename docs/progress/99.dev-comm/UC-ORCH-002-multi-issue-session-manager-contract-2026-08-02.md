@@ -34,6 +34,9 @@ does not infer stage transitions from prose; it maps the durable `REQ-021` repor
 
 - The manager depends on a provider-neutral single-issue execution port with start, resume, answer,
   cancel, and snapshot access. `SingleIssueOrchestrator` is the first adapter.
+- Neutral intake, answer, cancel, list, get, and portfolio DTOs carry source kind/id and actor id as
+  provenance. They do not grant transport authorization; future ingress adapters must authorize before
+  calling these application ports.
 - A separate SQLite session store owns queue order, source metadata, manager lifecycle, stable issue
   linkage, and manager events. It does not duplicate actor receipts or the issue state machine.
 - Queries compose session rows with issue evidence. Aggregate cost is measured only when all selected
@@ -44,9 +47,13 @@ does not infer stage transitions from prose; it maps the durable `REQ-021` repor
 
 - `request_id` and its full bound digest preserve `REQ-021` conflict semantics.
 - `session_id` is the stable management identity exposed to future ingress/UI adapters.
-- `issue_id` is linked once established and never replaced.
-- A process-local in-flight map prevents duplicate execution in one manager. Cross-process issue
-  execution remains fenced by the `REQ-021` SQLite execution claim.
+- `issue_id` does not exist at intake because `REQ-021` allocates it on start. The manager atomically
+  links the returned id on first execution and rejects every attempted replacement.
+- One expiring database-wide scheduler-owner lease serializes admission across Agent processes. Its
+  renewal requires the previous lease to remain unexpired, and every scheduler lifecycle write is
+  fenced by owner id and current time. A process-local in-flight map is only an optimization.
+- The active owner admits at most the configured number of sessions across that database. Per-issue
+  execution remains independently fenced by the `REQ-021` SQLite execution claim.
 - On startup, `queued` records are eligible in original order. Previously `running` records retain
   their issue identity and use resume/reconciliation; they are never re-intaken as new work.
 
@@ -63,8 +70,10 @@ availability derived from persisted records. A future Naia narrative is commenta
 ## Verification plan
 
 Deterministic integration tests will cover bounded concurrency, FIFO fairness, duplicate/conflicting
-intake, waiting/failure/cancellation isolation, answer binding, slot release on every outcome, restart
-recovery, durable list/get visibility, source metadata, and cost aggregation. A frozen no-network
+intake, waiting/failure/cancellation isolation, answer binding, slot release on every outcome, a
+two-process scheduler lease/expiry/fencing race, restart recovery, durable list/get visibility, source
+metadata, and cost aggregation. A source-import contract test will keep the manager domain/application
+layers independent of Discord, Shell, Codex protocol, and model SDKs. A frozen no-network
 benchmark workload will score completion, isolation, fairness, maximum concurrency, recovery,
 visibility, and accounting; every category is a hard gate.
 
