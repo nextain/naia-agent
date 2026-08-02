@@ -24,16 +24,20 @@ The manager lifecycle is intentionally smaller than the issue state machine:
 `outcome_unknown`. Chat-only classification also settles without creating coding work. The manager
 does not infer stage transitions from prose; it maps the durable `REQ-021` report/snapshot.
 
-- Intake durably assigns a monotonic queue sequence and stable session identity.
-- The scheduler admits FIFO-ready records up to a positive concurrency limit.
-- `awaiting_user` releases its slot. A matching answer returns only that session to ready work.
+- Intake durably assigns a monotonic ready sequence and stable session identity.
+- Before actor execution, the manager calls an additive `REQ-021` ensure operation that atomically
+  creates-or-gets the issue without invoking an actor, then immutably links its id to the session.
+- The scheduler admits FIFO-ready records up to a positive concurrency limit. Recovery work has higher
+  priority than new/answered work; FIFO is preserved inside each priority class.
+- `awaiting_user` releases its slot. A matching answer assigns a new ready sequence to only that session.
 - Cancellation targets one session and is idempotent.
 - Every settled or thrown execution releases its slot and triggers another scheduling pass.
 
 ## Ports and ownership
 
-- The manager depends on a provider-neutral single-issue execution port with start, resume, answer,
-  cancel, and snapshot access. `SingleIssueOrchestrator` is the first adapter.
+- The manager depends on a provider-neutral single-issue execution port with ensure, resume, answer,
+  cancel, and snapshot access. `SingleIssueOrchestrator.ensure()` is an additive create-or-get boundary;
+  `start()` remains a compatibility convenience that composes ensure plus resume.
 - Neutral intake, answer, cancel, list, get, and portfolio DTOs carry source kind/id and actor id as
   provenance. They do not grant transport authorization; future ingress adapters must authorize before
   calling these application ports.
@@ -47,8 +51,8 @@ does not infer stage transitions from prose; it maps the durable `REQ-021` repor
 
 - `request_id` and its full bound digest preserve `REQ-021` conflict semantics.
 - `session_id` is the stable management identity exposed to future ingress/UI adapters.
-- `issue_id` does not exist at intake because `REQ-021` allocates it on start. The manager atomically
-  links the returned id on first execution and rejects every attempted replacement.
+- `issue_id` does not exist at intake. `REQ-021` allocates it through `ensure()` before any actor call;
+  the manager atomically links the returned id before resume and rejects every attempted replacement.
 - One expiring database-wide scheduler-owner lease serializes admission across Agent processes. Its
   renewal requires the previous lease to remain unexpired, and every scheduler lifecycle write is
   fenced by owner id and current time. A process-local in-flight map is only an optimization.
@@ -59,10 +63,16 @@ does not infer stage transitions from prose; it maps the durable `REQ-021` repor
 
 ## Budget and evidence semantics
 
-Per-session reservations and an aggregate observed-spend threshold are optional harness policies.
-They can stop further admission based on complete persisted observations, but cannot guarantee a
-provider-side dollar ceiling for a call already in flight. Receipts are counted once by stable
-session/receipt identity. Unknown cost blocks a numeric aggregate claim.
+Per-admission reservations and an aggregate observed-spend threshold are optional harness policies.
+When the threshold is enabled, every candidate must declare a reservation. Admission requires:
+
+`settled measured cost + active reservations + candidate reservation <= threshold`
+
+Any unavailable cost among included settled/running sessions blocks further admission until resolved.
+Without a threshold, a reservation is advisory and unavailable cost does not block scheduling.
+Completion replaces the active reservation with measured cost exactly once by session identity;
+unavailable cost and reservation overruns are persisted honestly. None of these rules guarantees a
+provider-side dollar ceiling for a call already in flight.
 
 The portfolio view exposes counts, queue order, session states, last update, outcomes, and cost
 availability derived from persisted records. A future Naia narrative is commentary only.
@@ -71,8 +81,9 @@ availability derived from persisted records. A future Naia narrative is commenta
 
 Deterministic integration tests will cover bounded concurrency, FIFO fairness, duplicate/conflicting
 intake, waiting/failure/cancellation isolation, answer binding, slot release on every outcome, a
-two-process scheduler lease/expiry/fencing race, restart recovery, durable list/get visibility, source
-metadata, and cost aggregation. A source-import contract test will keep the manager domain/application
+two-process scheduler lease/expiry/fencing race, issue ensure/link before actor execution, competing
+answered/new ready ordering, restart recovery, durable list/get visibility, source metadata, and the
+exact budget admission predicate including unavailable cost. A source-import contract test will keep the manager domain/application
 layers independent of Discord, Shell, Codex protocol, and model SDKs. A frozen no-network
 benchmark workload will score completion, isolation, fairness, maximum concurrency, recovery,
 visibility, and accounting; every category is a hard gate.

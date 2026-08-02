@@ -762,9 +762,11 @@ ingress, terminal/file-opening UX, and naia-shell UI are later adapters. This sl
 |---|---|
 | bounded FIFO scheduling starts at most the configured number and eventually runs every ready issue | `multi-issue-session-manager.integration.test.ts` |
 | duplicate intake returns the same session while conflicting request content fails closed | `multi-issue-session-manager.integration.test.ts` |
+| issue identity is durably ensured and linked before actor execution, including cancellation/restart in that boundary | `multi-issue-session-manager.integration.test.ts` |
 | one issue waiting, failing, or being cancelled does not block or overwrite another issue | `multi-issue-session-manager.integration.test.ts` |
 | list/get expose durable per-session state and evidence-grounded aggregate counts/cost | `multi-issue-session-manager.integration.test.ts` |
 | two manager processes share one expiring scheduler-owner lease, preserve the global limit/FIFO order, and recover without duplicate worker effect | `multi-issue-session-manager.integration.test.ts` |
 | source metadata accepts local and future adapter identifiers without activating Discord or Shell | `multi-issue-session-manager.integration.test.ts` |
 | manager domain/app modules remain free of Discord, Shell, Codex-protocol, and model-SDK imports | `multi-issue-layer-boundary.contract.test.ts` |
+| aggregate admission accounts for settled cost and active reservations and blocks on unavailable cost only when a threshold is enabled | `multi-issue-session-manager.integration.test.ts` |
 | a frozen deterministic workload scores completion, isolation, fairness, concurrency, restart, visibility, and cost accounting without paid calls | `multi-issue-benchmark.contract.test.ts` |

@@ -570,11 +570,14 @@ The Agent and Gateway preserve these codes end to end:
 
 - **FR-MULTI-001**: Intake persists one session record per accepted request before scheduling. The
   record binds stable session/request identity, exact request digest, workspace, ordered obligations,
-  actor bindings, and adapter-neutral source kind/source id. The issue id is linked atomically on the
-  first `REQ-021` start result and is immutable afterward. Identical replay returns the same session;
-  reuse with different bound content fails closed.
+  actor bindings, and adapter-neutral source kind/source id. Before admission, an additive `REQ-021`
+  ensure operation atomically creates-or-gets the issue and returns its stable id without invoking an
+  actor; the manager then links that id immutably before execution. Identical replay returns the same
+  session; reuse with different bound content fails closed.
 - **FR-MULTI-002**: A durable scheduler admits queued sessions in FIFO order among equal-priority
-  ready records and runs no more than the configured positive concurrency limit. A waiting-for-user,
+  ready records using a persisted `ready_sequence` assigned whenever a session enters ready state.
+  Restart reconciliation has higher priority than new/answered ready work; each class remains FIFO.
+  The scheduler runs no more than the configured positive concurrency limit. A waiting-for-user,
   failed, cancelled, or unknown session does not consume a running slot after its execution settles.
 - **FR-MULTI-003**: Every admitted session executes only through the `REQ-021` single-issue port. The
   manager does not reimplement model planning, worker dispatch, verification, or reporting and does
@@ -591,10 +594,14 @@ The Agent and Gateway preserve these codes end to end:
 - **FR-MULTI-007**: A settled execution always releases its scheduler slot and prompts another pump,
   including `awaiting_user`, `failed`, `cancelled`, `outcome_unknown`, thrown adapter errors, and
   process-local abort. No ready session can starve behind a settled predecessor.
-- **FR-MULTI-008**: Each session carries an optional observed-spend reservation and the manager has an
-  optional aggregate observed-spend threshold. Measured costs are summed once by stable receipt/session
-  identity; unavailable cost remains unavailable. These are harness stop rules, not provider-enforced
-  credit ceilings.
+- **FR-MULTI-008**: Each session carries an optional per-admission observed-spend reservation and the
+  manager has an optional aggregate observed-spend threshold. When the aggregate threshold is enabled,
+  a candidate must declare a reservation and admission is allowed only when `settled measured cost +
+  active reservations + candidate reservation <= threshold`; any unavailable included cost blocks new
+  admission. Without an aggregate threshold reservations are advisory and never block. Completed
+  measured costs replace their active reservation and are summed once by stable session identity.
+  Overrun is persisted honestly but cannot undo an in-flight call. These are harness stop rules, not
+  provider-enforced credit ceilings.
 - **FR-MULTI-009**: The portfolio summary is deterministic and evidence-grounded. Model-authored prose
   may explain persisted facts but cannot authoritatively change session state, counts, verification,
   changed files, or cost availability.
