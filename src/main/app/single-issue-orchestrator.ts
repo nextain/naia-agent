@@ -305,6 +305,9 @@ export class SingleIssueOrchestrator {
           if (error instanceof IssueActorResultError) {
             try {
               const rejectedReceipts = error.receipts ?? [error.receipt];
+              if (!rejectedReceipts.some((receipt) => JSON.stringify(receipt) === JSON.stringify(error.receipt))) {
+                throw new Error("rejected worker receipt missing from collection");
+              }
               const lead = rejectedReceipts.find((receipt) => receipt.workerRole === "implementer") ?? error.receipt;
               assertWorkerReceipts(rejectedReceipts, lead, issue.dispatchId!, issue.workerProfile!, false);
               for (const receipt of rejectedReceipts) assertIndependent(issue.receipts, receipt);

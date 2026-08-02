@@ -29,13 +29,16 @@ export function makeIssueTeamWorker(options: IssueTeamWorkerOptions): IssueWorke
     let snapshot = options.store.get(input.dispatchId);
     if (!snapshot) {
       allocation = options.worktrees.allocate({ jobId: safeJobId(input.issueId), workspacePath: input.workspacePath });
-      const stored = options.store.createOrGet({
-        version: 1, dispatchId: input.dispatchId, fingerprint, issueId: input.issueId, profileId: input.profileId,
-        profileDigest, state: "ready", nextRole: "explorer", attemptNo: 0,
-        allocation: { workspacePath: allocation.workspacePath, worktreePath: allocation.worktreePath,
-          branch: allocation.branch, leaseId: allocation.leaseId },
-        cleanCycles: 0, repairCycles: 0, outcomes: [], receipts: [],
-      });
+      let stored: ReturnType<IssueTeamStore["createOrGet"]>;
+      try {
+        stored = options.store.createOrGet({
+          version: 1, dispatchId: input.dispatchId, fingerprint, issueId: input.issueId, profileId: input.profileId,
+          profileDigest, state: "ready", nextRole: "explorer", attemptNo: 0,
+          allocation: { workspacePath: allocation.workspacePath, worktreePath: allocation.worktreePath,
+            branch: allocation.branch, leaseId: allocation.leaseId },
+          cleanCycles: 0, repairCycles: 0, outcomes: [], receipts: [],
+        });
+      } catch (error) { allocation.release(); throw error; }
       snapshot = stored.snapshot;
       if (!stored.created) { allocation.release(); allocation = undefined; }
     } else if (snapshot.fingerprint !== fingerprint) throw new Error("team dispatch fingerprint mismatch");

@@ -99,6 +99,16 @@ describe("REQ-023 durable issue-team worker", () => {
     durable.close();
   });
 
+  it("releases a new allocation when durable dispatch creation conflicts", async () => {
+    let releases = 0;
+    const conflicting: IssueTeamStore = { get: () => undefined, createOrGet() { throw new Error("team dispatch fingerprint mismatch"); },
+      save() { throw new Error("must not save"); }, close() {} };
+    const worker = makeIssueTeamWorker({ store: conflicting, worktrees: { allocate() { return { workspacePath: "/repo", worktreePath: "/managed/team",
+      branch: "naia/team", leaseId: "lease", release() { releases += 1; } }; } }, roles: { async execute() { throw new Error("must not execute"); } } });
+    await expect(worker.execute(input())).rejects.toThrow("fingerprint mismatch");
+    expect(releases).toBe(1);
+  });
+
   it("fails closed when a ready restart cannot recover its managed worktree", async () => {
     const root = mkdtempSync(join(tmpdir(), "issue-team-")); roots.push(root);
     const durable = new SqliteIssueTeamStore(join(root, "team.db"));
