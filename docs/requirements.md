@@ -699,4 +699,8 @@ The Agent and Gateway preserve these codes end to end:
   two consecutive external Clean reviews, each explicitly bound to the orchestration SoT hash. The
   benchmark artifact binds its reproducible source commit; the review log binds the later unchanged
   candidate that contains that artifact (an artifact cannot embed the hash of its own containing commit).
-- **Status**: Pending.
+- **Status**: Done for the declared Agent-side composition, durable recovery, and deterministic
+  no-paid benchmark scope. Evidence: `benchmark/results/issue-team-deterministic.json` and
+  `.agents/reviews/r-req-023-issue-team-orchestration-2026-08-02.json`. Actual Discord ingress and
+  authorization, naia-shell UI, live paid multi-provider E2E, and a real 24GB local Naia model remain
+  explicitly outside this completed requirement.
