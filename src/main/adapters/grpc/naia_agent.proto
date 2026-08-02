@@ -65,6 +65,10 @@ message SetWorkspaceResult {
   string provider = 2;
   string model = 3;
   repeated EffectiveLlmConfig effective_llm_configs = 4;
+  bool memory_reloaded = 5;
+  bool memory_retained = 6;
+  string memory_status = 7;
+  string memory_error = 8;
 }
 enum ConfigProvenance { CONFIG_PROVENANCE_UNSPECIFIED = 0; EXPLICIT = 1; INHERIT = 2; LEGACY_INHERIT = 3; DEFAULT = 4; }
 enum LlmRole { LLM_ROLE_UNSPECIFIED = 0; MAIN = 1; SUB = 2; MEMORY = 3; }

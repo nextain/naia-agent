@@ -164,7 +164,12 @@ export function buildEmbeddingProvider(cfg?: MemoryEmbeddingConfig): EmbeddingPr
 }
 
 /** MemoryPort 어댑터 + lifecycle close. */
-export function makeNaiaMemory(opts: NaiaMemoryOpts): ManagedMemoryPort & CompactionPort {
+export interface ReadyManagedMemoryPort extends ManagedMemoryPort, CompactionPort {
+  ready(): Promise<void>;
+  flush(): Promise<void>;
+}
+
+export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
   const project = opts.project;
   // 타입(required string)만으론 ""·공백을 못 막는다 → 생성 경계에서 fail-closed(빈 project 가 backend
   // global/기본 scope 로 축약돼 격리를 우회하는 것 차단, FR-MEM-5/9).
@@ -222,6 +227,16 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ManagedMemoryPort & Compac
   ready.catch(() => {}); // floating unhandledRejection 차단 — 실패는 첫 작업의 await ready 에서 표면화(호출측 격리).
 
   return {
+    async ready(): Promise<void> {
+      await ready;
+    },
+
+    async flush(): Promise<void> {
+      await ready;
+      const flush = (sys as MemorySystem & { flush?: () => Promise<void> }).flush;
+      if (typeof flush === "function") await flush.call(sys);
+    },
+
     async recall(query: string): Promise<RecalledMemory> {
       // 빈/공백 query = 회상 신호 없음 → backend 호출 없이 빈 결과(empty query 가 전체/임의 top-K 를
       // 끌어와 무관한 민감정보를 빈 턴에 주입하는 것 방지). FR-MEM-1 의 "content='' 도 정상 입력"은

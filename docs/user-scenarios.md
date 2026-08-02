@@ -129,6 +129,15 @@ memory 가 **전체 OFF 되지 않고** sub-LLM 만 생략한 채 동작한다 �
 유지되고 LLM 기반 사실추출/요약만 비활성(graceful degrade). memory 격리 키는 워크스페이스 UUID 라
 페르소나 userName(S1b)을 옮겨도 기억 정체성이 갈라지지 않는다.
 
+### S-MEM-RELOAD (메모리 설정 라이브 교체 — #106)
+
+사용자가 실행 중인 Shell에서 memory adapter·embedding·memory LLM 역할을 바꾸고 설정을 다시 불러오면,
+agent는 `llmRoles`와 memory 설정을 다시 읽어 실제 recall/save·fact extractor·summarizer 인스턴스를
+교체한다. 진행 중인 메모리 호출은 끝까지 완료되고, 기존 store는 flush된 뒤 새 인스턴스가 같은 데이터를
+읽는다. 새 설정이 불완전하거나 backend 초기화가 실패하면 기존 인스턴스와 현재 workspace를 유지하며
+RPC 결과에 유지 여부와 오류 진단을 반환한다. 따라서 실패한 `SetWorkspace`가 이전 workspace의 기억을
+새 workspace 대화에 노출하지 않는다.
+
 ## UC-PROV-1 (provider/model 라이브 교체)
 
 사용자가 naia-os 설정에서 텍스트 모델/프로바이더를 바꾸면, agent 재기동 없이 **다음 대화
@@ -604,6 +613,7 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 | FR-MEM-3 fault-injection(불변식) | `uc1-memory-stdio.integration.test.ts`(recall/save throw·hang → finish 1회·error 없음·usage 1회) |
 | 실 프로세스 lifecycle | `src/test/uc1-memory-process.integration.test.ts`(EOF→drain→close→flush, save 영속) |
 | FR-MEM-12 / S-MEM-SUBLLM (naia sub-LLM 폴백 + graceful degrade, S5) | `src/test/uc-naia-settings-store.contract.test.ts` — describe "naia sub-LLM model 폴백 + graceful degrade (S5/G5)" (naia+모델부재+키존재→기본모델 완전구성·명시모델 우선·키 부재→provider=none 강등(메모리 유지)·vllm baseUrl 누락→none 강등) + `sub-llm-provider.contract.test.ts`(미구성=undefined) |
+| FR-MEM-13 / S-MEM-RELOAD | `src/test/reloadable-memory.contract.test.ts`(in-flight 대기·flush/build/close 순서·실패 시 기존 인스턴스 유지), `src/test/memory-settings-reload.contract.test.ts`(실 config 재독·불완전 llmRoles 유지·정상 교체 후 데이터 보존), `discord-entry-wiring.contract.test.ts`·`grpc-shutdown.contract.test.ts`(비동기 SetWorkspace/ReloadSettings·lifecycle 회귀) |
 | UC-PROV-1 / FR-PROV-1·2·3 | `src/test/all-providers-wiring.contract.test.ts`, `uc1-reload-default-config.contract.test.ts`, `uc-naia-settings-store.contract.test.ts` |
 | UC-THINKING / S-THINK-1·2·3 / FR-THINK-1~4 | `src/test/uc-thinking.contract.test.ts` (요청 body 검증: enableThinking=false+로컬 → `reasoning_effort:"none"` / true·미지정 → 미전송 / **원격 baseUrl → 미전송**(400 회귀 방지) / `isLocalEngineBaseUrl` 순수 판별) |
 | FR-CONT-MVP-1~4 / 개인 라디오 DJ | 계약/통합: `src/test/personal-radio-dj.contract.test.ts` (`DJ-01~07`), `src/test/speech-profile-runtime.integration.test.ts`(제어 사전 검증), `src/test/grpc-shutdown.contract.test.ts`(제어 ACK가 긴 작업을 기다리지 않음). 실제 Tauri: shell `71-proactive-speech-profiles.spec.ts`의 profile 저장·복원과 `94-avatar-4060-facade.spec.ts`의 A→B 교체·TRT 발화·끼어들기. |

@@ -9,13 +9,13 @@
   },
 
   "current_work": {
-    "issue": "REQ-020 / #99",
-    "title": "Bind stored CLI agent, model and tools defaults",
-    "issue_doc": ".agents/progress/archive/2026-07/issue-99-cli-default-binding.md",
-    "github_issue": "https://github.com/nextain/naia-agent/issues/99",
-    "started": "2026-07-31",
-    "last_updated": "2026-07-31T15:03:00+09:00",
-    "status": "done",
+    "issue": "FR-MEM-13 / #106",
+    "title": "Reload live memory configuration and safely replace MemoryPort",
+    "issue_doc": ".agents/progress/issue-106-memory-live-reload.md",
+    "github_issue": "https://github.com/nextain/naia-agent/issues/106",
+    "started": "2026-08-03",
+    "last_updated": "2026-08-03T01:02:00+09:00",
+    "status": "implemented_uncommitted",
     "windows_runtime_acceptance": {
       "date": "2026-07-21",
       "source_commit": "d9cfd38",
@@ -35,11 +35,11 @@
   },
 
   "sdlc_gates": {
-    "P01": { "status": "done", "name": "user_scenarios", "deliverable": "explicit agent/model must not inherit another stored tuple", "ref": ".agents/progress/archive/2026-07/issue-99-cli-default-binding.md" },
-    "P02": { "status": "done", "name": "test_scenarios", "deliverable": "tuple mismatch, explicit override and repeated-option coverage", "ref": ".agents/progress/archive/2026-07/issue-99-cli-default-binding.md" },
-    "P03": { "status": "done", "name": "requirements", "deliverable": "FR-CLI-19 tuple binding clarification", "ref": "docs/requirements.md; GitHub #99" },
-    "P04": { "status": "done", "name": "integration_test", "deliverable": "targeted + serialized full suite + installed CLI DeepSeek smoke", "ref": ".agents/reviews/issue-99-cli-default-binding-2026-07-31.json" },
-    "P05": { "status": "done", "name": "requirements_complete", "deliverable": "PR #100 merged; consensus findings closed with executable evidence", "ref": "GitHub #99; PR #100" }
+    "P01": { "status": "done", "name": "user_scenarios", "deliverable": "live memory swap, in-flight drain, failed replacement retention, workspace isolation", "ref": "docs/user-scenarios.md; .agents/progress/issue-106-memory-live-reload.md" },
+    "P02": { "status": "done", "name": "test_scenarios", "deliverable": "swap ordering, failure retention, config reread, persistence and async gRPC coverage", "ref": "src/test/reloadable-memory.contract.test.ts; src/test/memory-settings-reload.contract.test.ts" },
+    "P03": { "status": "done", "name": "requirements", "deliverable": "FR-MEM-13 live replacement and diagnostic contract", "ref": "docs/requirements.md; GitHub #106" },
+    "P04": { "status": "done", "name": "integration_test", "deliverable": "build plus 74 memory tests and 57 reload/roles/gRPC tests", "ref": ".agents/progress/issue-106-memory-live-reload.md" },
+    "P05": { "status": "pending", "name": "requirements_complete", "deliverable": "implementation verified; commit/push pending parent task", "ref": "GitHub #106" }
   },
 
   "known_drift": {

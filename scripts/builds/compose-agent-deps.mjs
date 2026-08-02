@@ -297,7 +297,6 @@ export async function composeAgentRuntimeDeps(o = {}) {
     return effective ? resolveRoleRuntimeConfig(effective, settingsResolveSecret) : undefined;
   };
   const subRoleRuntime = resolveRole("sub");
-  const memoryRoleRuntime = resolveRole("memory");
   const roleLabel = llmRoles?.ok
     ? `roles(${llmRoles.configs.map((cfg) => `${cfg.role}=${cfg.provider.value}/${cfg.model.value}:${cfg.provider.provenance}`).join(",")})`
     : llmRoles
@@ -309,8 +308,6 @@ export async function composeAgentRuntimeDeps(o = {}) {
   const engineLabel = engineProfile
     ? `engine(main=${engineProfile.mainProvider}/${engineProfile.mainModel}, sub=${engineProfile.subProvider}, embed=${engineProfile.embeddingProvider}, tier=${engineProfile.localGpuTier})`
     : `engine(none)`;
-  // adapter/embedding은 memory config가 계속 소유. memory LLM은 memoryRoleRuntime이 별도로 공급한다.
-  const memCfg = settingsStore.loadMemoryConfig(adkPath);
   const subLlm = subRoleRuntime?.ok
     ? buildSubLlmProvider(subRoleRuntime.config, { fetch: async (url, init) => fetch(url, init) })
     : undefined;
@@ -322,34 +319,87 @@ export async function composeAgentRuntimeDeps(o = {}) {
 
   // ── 장기기억(naia-memory) — 기본 활성(NAIA_AGENT_MEMORY=off 로 비활성). 초기화 실패=격리(기억 없이 진행). ──
   let memory, memoryLabel = "off";
+  let reloadMemory = async () => ({ ok: true, reloaded: false, retained: false, status: "off" });
   if (env.NAIA_AGENT_MEMORY !== "off") {
     try {
       const { makeNaiaMemory } = await import("../../dist/main/adapters/naia-memory.js");
+      const { makeReloadableMemory } = await import("../../dist/main/adapters/reloadable-memory.js");
       const { resolveWorkspaceId, storeDirKey } = await import("../../dist/main/adapters/workspace-project.js");
-      const project = env.NAIA_MEMORY_PROJECT || resolveWorkspaceId(adkPath, {
-        readFile: (p) => nodeFs.readFileSync(p, "utf8"),
-        writeFileExclusive: (p, d) => nodeFs.writeFileSync(p, d, { flag: "wx", mode: 0o600 }),
-        mkdir: (p) => nodeFs.mkdirSync(p, { recursive: true, mode: 0o700 }),
-        isDirectory: (p) => { try { return nodeFs.statSync(p).isDirectory(); } catch { return false; } },
-        randomUUID,
-      });
-      const storeBase = env.NAIA_MEMORY_DIR || join(homedir(), ".naia-agent", "memory");
-      const storePath = env.NAIA_MEMORY_STORE || join(storeBase, storeDirKey(project), "store.json");
-      try { nodeFs.mkdirSync(dirname(storePath), { recursive: true, mode: 0o700 }); } catch { /* best-effort */ }
-      const sessionId = env.NAIA_MEMORY_SESSION || `proc-${randomUUID()}`;
-      memory = makeNaiaMemory({
-        storePath, project, sessionId,
-        ...(memCfg
-          ? {
-              adapter: memCfg.adapter,
-              ...(memCfg.qdrantUrl ? { qdrantUrl: memCfg.qdrantUrl } : {}),
-              ...(memCfg.qdrantApiKey ? { qdrantApiKey: memCfg.qdrantApiKey } : {}),
-              embedding: memCfg.embedding,
-            }
-          : {}),
-        ...(memoryRoleRuntime?.ok ? { llm: memoryRoleRuntime.config } : {}),
-      });
-      memoryLabel = `naia-memory(${storePath}, project=${project}, adapter=${memCfg?.adapter ?? "local"}, embed=${memCfg?.embedding.provider ?? "none"}, llm=${memoryRoleRuntime?.ok ? memoryRoleRuntime.config.provider : "none"})`;
+      memory = makeReloadableMemory();
+
+      const buildMemory = async (workspacePath) => {
+        const nextMemCfg = settingsStore.loadMemoryConfig(workspacePath);
+        const nextRoles = settingsStore.loadLlmRoles(workspacePath);
+        if (nextRoles && !nextRoles.ok) {
+          throw new Error(`invalid llmRoles(${nextRoles.role}/${nextRoles.reason})`);
+        }
+        const nextRoleConfigs = nextRoles?.ok ? nextRoles.configs : [];
+        const effectiveMemoryRole = nextRoleConfigs.find((cfg) => cfg.role === "memory");
+        const nextMemoryRuntime = effectiveMemoryRole
+          ? resolveRoleRuntimeConfig(effectiveMemoryRole, settingsResolveSecret)
+          : undefined;
+        const project = env.NAIA_MEMORY_PROJECT || resolveWorkspaceId(workspacePath, {
+          readFile: (p) => nodeFs.readFileSync(p, "utf8"),
+          writeFileExclusive: (p, d) => nodeFs.writeFileSync(p, d, { flag: "wx", mode: 0o600 }),
+          mkdir: (p) => nodeFs.mkdirSync(p, { recursive: true, mode: 0o700 }),
+          isDirectory: (p) => { try { return nodeFs.statSync(p).isDirectory(); } catch { return false; } },
+          randomUUID,
+        });
+        const storeBase = env.NAIA_MEMORY_DIR || join(homedir(), ".naia-agent", "memory");
+        const storePath = env.NAIA_MEMORY_STORE || join(storeBase, storeDirKey(project), "store.json");
+        try { nodeFs.mkdirSync(dirname(storePath), { recursive: true, mode: 0o700 }); } catch { /* best-effort */ }
+        const sessionId = env.NAIA_MEMORY_SESSION || `proc-${randomUUID()}`;
+        const next = makeNaiaMemory({
+          storePath, project, sessionId,
+          ...(nextMemCfg
+            ? {
+                adapter: nextMemCfg.adapter,
+                ...(nextMemCfg.qdrantUrl ? { qdrantUrl: nextMemCfg.qdrantUrl } : {}),
+                ...(nextMemCfg.qdrantApiKey ? { qdrantApiKey: nextMemCfg.qdrantApiKey } : {}),
+                embedding: nextMemCfg.embedding,
+              }
+            : {}),
+          ...(nextMemoryRuntime?.ok ? { llm: nextMemoryRuntime.config } : {}),
+        });
+        try {
+          await next.ready();
+        } catch (error) {
+          await next.close().catch(() => undefined);
+          throw error;
+        }
+        const label = `naia-memory(${storePath}, project=${project}, adapter=${nextMemCfg?.adapter ?? "local"}, embed=${nextMemCfg?.embedding.provider ?? "none"}, llm=${nextMemoryRuntime?.ok ? nextMemoryRuntime.config.provider : "none"})`;
+        return { next, label };
+      };
+
+      let reloadQueue = Promise.resolve();
+      reloadMemory = (workspacePath) => {
+        const run = reloadQueue.then(async () => {
+          try {
+            let built;
+            const replacement = await memory.reconfigure(async () => {
+              built = await buildMemory(workspacePath);
+              return built.next;
+            });
+            memoryLabel = built.label;
+            return {
+              ok: true,
+              reloaded: replacement.replaced,
+              retained: false,
+              status: built.label,
+              ...(replacement.closeError ? { warning: `previous memory close failed: ${replacement.closeError}` } : {}),
+            };
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            return { ok: false, reloaded: false, retained: memory.hasActive(), status: memoryLabel, error: message };
+          }
+        });
+        reloadQueue = run.then(() => undefined, () => undefined);
+        return run;
+      };
+      const initial = await reloadMemory(adkPath);
+      if (!initial.ok) {
+        process.stderr.write(`[naia-agent] memory init failed (isolated, continuing without memory): ${initial.error}\n`);
+      }
     } catch (e) {
       process.stderr.write(`[naia-agent] memory init 실패(격리, 기억 없이 진행): ${e instanceof Error ? e.message : String(e)}\n`);
     }
@@ -374,7 +424,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
     engineProfile, engineLabel, llmRoles, roleLabel,
     subLlm, subLlmLabel,
     toolExecutor, skillsLabel, knowledgeBackend,
-    memory, memoryLabel,
+    memory, memoryLabel, reloadMemory,
     conversationLog, transcriptLabel,
     personaSource, personaLabel,
     workspaceContextSource, wsLabel,

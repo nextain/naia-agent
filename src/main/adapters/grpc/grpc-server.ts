@@ -36,15 +36,23 @@ const PROTO_PATH = [
   join(HERE, "../../../../src/main/adapters/grpc/naia_agent.proto"),
 ].find((p) => existsSync(p)) ?? join(HERE, "naia_agent.proto");
 
-export interface SettingsResult { loaded: boolean; provider: string; model: string }
+export interface SettingsResult {
+  loaded: boolean;
+  provider: string;
+  model: string;
+  memoryReloaded?: boolean;
+  memoryRetained?: boolean;
+  memoryStatus?: string;
+  memoryError?: string;
+}
 /** UC-KNOWLEDGE-COMPILE (FR-KB-5) — CompileKnowledge RPC 결과(통계). proto camelCase 동형. */
 export interface CompileKnowledgeResult { ok: boolean; scope: string; sourceCount: number; cardCount: number; entityCount: number; relationCount: number; error?: string }
 /** F1 rich-health(신규계약 Diagnostics RPC). os InteroceptivePort.diagnostics rich payload. */
 export interface DiagnosticsResult { version: string; uptimeMs: number; healthy: boolean; components: readonly { name: string; healthy: boolean }[] }
 export interface GrpcServerDeps {
   bindAddr?: string;                                  // 기본 127.0.0.1:0(임의 포트). entry 가 주소 회수.
-  onSetWorkspace: (adkPath: string) => SettingsResult; // naia-adk/naia-settings 로딩 결과(entry 제공)
-  onReloadSettings: () => SettingsResult;
+  onSetWorkspace: (adkPath: string) => SettingsResult | Promise<SettingsResult>; // naia-adk/naia-settings 로딩 결과(entry 제공)
+  onReloadSettings: () => SettingsResult | Promise<SettingsResult>;
   // UC-KNOWLEDGE-COMPILE(FR-KB-5): 지식 컴파일 트리거(entry 주입, async). 미주입=unavailable(no-op 정직 보고).
   onCompileKnowledge?: (adkPath: string) => Promise<CompileKnowledgeResult>;
   codingJobs?: CodingJobControlPort;
@@ -220,13 +228,15 @@ export function makeGrpcServer(deps: GrpcServerDeps): GrpcServer {
   }
 
   const impl = {
-    setWorkspace: (call: grpc.ServerUnaryCall<unknown, unknown>, cb: grpc.sendUnaryData<SettingsResult>) => {
+    setWorkspace: async (call: grpc.ServerUnaryCall<unknown, unknown>, cb: grpc.sendUnaryData<SettingsResult>) => {
       const adkPath = String((call.request as { adkPath?: string })?.adkPath ?? "");
       diag.debug?.("grpc SetWorkspace", { adkPath });
-      cb(null, deps.onSetWorkspace(adkPath));
+      try { cb(null, await deps.onSetWorkspace(adkPath)); }
+      catch (error) { cb({ code: grpc.status.INTERNAL, message: error instanceof Error ? error.message : String(error) }); }
     },
-    reloadSettings: (_call: grpc.ServerUnaryCall<unknown, unknown>, cb: grpc.sendUnaryData<SettingsResult>) => {
-      cb(null, deps.onReloadSettings());
+    reloadSettings: async (_call: grpc.ServerUnaryCall<unknown, unknown>, cb: grpc.sendUnaryData<SettingsResult>) => {
+      try { cb(null, await deps.onReloadSettings()); }
+      catch (error) { cb({ code: grpc.status.INTERNAL, message: error instanceof Error ? error.message : String(error) }); }
     },
     // UC-KNOWLEDGE-COMPILE(FR-KB-5): async 컴파일. no-throw(미주입/실패=ok:false+error, RPC 안정). cb 단일호출.
     compileKnowledge: async (call: grpc.ServerUnaryCall<unknown, unknown>, cb: grpc.sendUnaryData<CompileKnowledgeResult>) => {

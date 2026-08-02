@@ -2,6 +2,16 @@
 
 > **SoT**: `.agents/context/process-status.json`
 
+## Memory live reload — 2026-08-03 (#106)
+
+- 상태: 구현·검증 완료, 상위 작업의 commit/push 대기.
+- 요구사항: `FR-MEM-13`; 시나리오: `S-MEM-RELOAD`.
+- 동작: ReloadSettings/SetWorkspace가 llmRoles와 memory 설정을 다시 읽고 실제 MemoryPort를 안전하게 교체한다.
+- 안전 순서: 진행 중 호출 종료 → flush → 신규 ready → 원자 교체 → 기존 close.
+- 실패: 기존 memory를 유지하고 RPC 진단을 반환한다. 실패한 workspace 변경은 이전 workspace를 유지한다.
+- 증거: build 통과, memory 관련 74/74, reload/roles/gRPC 57/57, 최종 회귀 묶음 통과.
+- 상세: `.agents/progress/issue-106-memory-live-reload.md`.
+
 ## CLI 기본값 결속 — 2026-07-31 (#99)
 
 - 상태: 완료 — PR #100 병합 및 전역 CLI 배포·실계정 DeepSeek 검증 완료

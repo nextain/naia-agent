@@ -145,7 +145,7 @@ cleanupFns = deps.cleanupFns;
 const { adkPath, provider, resolver, providerLabel: label, credentials, settingsStore, defaultConfig, configLabel } = deps;
 const { llmRoles } = deps;
 let { toolExecutor } = deps;
-const { memory, memoryLabel, conversationLog, transcriptLabel, diag, personaSource, workspaceContextSource, knowledgeBackend } = deps;
+const { memory, memoryLabel, reloadMemory, conversationLog, transcriptLabel, diag, personaSource, workspaceContextSource, knowledgeBackend } = deps;
 let skillsLabel = deps.skillsLabel;
 let currentAdkPath = adkPath;
 let jeonjuCourseConfig;
@@ -277,13 +277,27 @@ if (discordGeneration && discordStatusPath && discordAuthorityPath) {
 let activeProcessingConfig = defaultConfig;
 let activeMemoryProcessingConfig = currentAdkPath ? settingsStore.loadMemoryConfig(currentAdkPath) : null;
 let applyDefaultConfig = (_c) => {};
-const reloadConfigFrom = (path) => {
+const reloadConfigFrom = async (path, atomicWorkspace = false) => {
   const c = path ? (settingsStore.loadMain(path) ?? undefined) : undefined;
-  activeProcessingConfig = c;
-  activeMemoryProcessingConfig = path ? settingsStore.loadMemoryConfig(path) : null;
-  applyDefaultConfig(c);
-  process.stderr.write(`[naia-agent] settings reload → ${c ? `${c.provider}/${c.model}` : "none"} (adk=${path})\n`);
-  return { loaded: !!c, provider: c?.provider ?? "", model: c?.model ?? "" };
+  const memoryResult = path && reloadMemory
+    ? await reloadMemory(path)
+    : { ok: true, reloaded: false, retained: false, status: "off" };
+  const committed = !atomicWorkspace || memoryResult.ok;
+  if (committed) {
+    activeProcessingConfig = c;
+    applyDefaultConfig(c);
+  }
+  if (memoryResult.ok) activeMemoryProcessingConfig = path ? settingsStore.loadMemoryConfig(path) : null;
+  process.stderr.write(`[naia-agent] settings reload → ${c ? `${c.provider}/${c.model}` : "none"} (adk=${path}, committed=${committed}, memory=${memoryResult.ok ? memoryResult.status : `retained:${memoryResult.error}`})\n`);
+  return {
+    loaded: !!c && committed,
+    provider: c?.provider ?? "",
+    model: c?.model ?? "",
+    memoryReloaded: memoryResult.reloaded,
+    memoryRetained: memoryResult.retained,
+    memoryStatus: memoryResult.status,
+    memoryError: memoryResult.error ?? memoryResult.warning ?? "",
+  };
 };
 
 // 정본 transport = gRPC (naia-os --gRPC--> naia-agent). os(Rust)가 이 서버에 connect. data 채널은 gRPC 단일.
@@ -296,9 +310,12 @@ const grpcServer = makeGrpcServer({
   bindAddr: process.env.NAIA_AGENT_GRPC_ADDR || "127.0.0.1:0",
   shutdownNonce,
   onShutdown: () => onShutdown?.(),
-  onSetWorkspace: (wsPath) => {
+  onSetWorkspace: async (wsPath) => {
+    const previousAdkPath = currentAdkPath;
     if (wsPath) currentAdkPath = wsPath; // OS 가 워크스페이스 경로 주입 → 이후 ReloadSettings 도 이 경로 사용
-    return reloadConfigFrom(currentAdkPath);
+    const result = await reloadConfigFrom(currentAdkPath, true);
+    if (!result.memoryReloaded && result.memoryError) currentAdkPath = previousAdkPath;
+    return result;
   },
   onReloadSettings: () => reloadConfigFrom(currentAdkPath),
   ...(codingJobs ? { codingJobs } : {}),
