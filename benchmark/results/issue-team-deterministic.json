@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "benchmarkId": "naia-issue-team-deterministic-v1",
-  "sourceRevision": "b24aa5ba33eb414a6f6e80406dea46acf7633b5e",
+  "sourceRevision": "03974a62a79341bf8c6d2709a468e45b06eedb51",
   "paidCalls": 0,
   "observation": {
     "roleOrderMatches": true,
@@ -9,6 +9,7 @@
     "adapterReadOnlyEnforced": true,
     "roleExecutorBoundaryPreserved": true,
     "parentProjectionValidated": true,
+    "productionRouterWired": true,
     "repairCycles": 1,
     "cleanCycles": 2,
     "duplicateRoleEffects": 0,
@@ -22,7 +23,7 @@
   },
   "evidence": {
     "trackedInputs": {
-      "benchmark/run-issue-team-deterministic.mjs": "aae0b72984651ffb50f9b79449320951ac60a030a771209d5ab8909f5aba7998",
+      "benchmark/run-issue-team-deterministic.mjs": "08e572ef14e762dc7b9b087283b4ea4a61330a157033fdedee395301bb6617c1",
       "benchmark/orchestration/issue-team-deterministic.json": "d2ea0595cdf2b1de2546249aef38ff6fc7cf64ac511ceab1a468791056895d19",
       "src/main/app/issue-team-worker.ts": "eb6b148a9d5221273025c3e05492ff8a99acffcb3db45a0d52bd002a6a647e1c",
       "src/main/adapters/sqlite-issue-team-store.ts": "6e604d24435d9e8de1135547fd60e730a543e6cbc1b32bc98bb054e41ce2951c",
@@ -30,11 +31,12 @@
       "src/main/adapters/subagent-opencode-cli.ts": "fc4a6a058623c27af393849f08c1ab8d7fc15f618a5579b569b891105d750685",
       "src/main/adapters/subagent-codex.ts": "80c2daa77ec6e74bf6a83c3521b6afae905b1b288a76d8ae4d790b24d5beb769",
       "src/main/domain/issue-team.ts": "5827850712c209fb64d4f5d5370e3d3e2828c0e272097a5d8a497aa2e04a5bd3",
-      "src/main/domain/issue-team-benchmark.ts": "07e0fa9c0c30eb96d674002165b4a1cfb01d6b7acc5e5ae8e7f2fa6a0442a788",
+      "src/main/domain/issue-team-benchmark.ts": "0a3962b98680a8a0cd505341c8251818a4cfacffee2f559217678f7e0c7ea2c6",
       "src/main/ports/issue-team.ts": "e91ad06b36c866be0fab931c6647166fe6f5d9f9fac3282e54e57993001872d3",
       "src/main/composition/supervised-issue-worker.ts": "11d1f057efb85abab40f3e55c83fcc52288d0dd750d5ad8461a8028524e064fa",
-      "src/main/composition/issue-team-role-executor.ts": "11e87be01b2dbd6706c80e739164af88e44c49bad2736353e6a657a50a774e86",
+      "src/main/composition/issue-team-role-executor.ts": "f524c7c6c152493721c380131bf9d4747247967c4a0571abf406c1f89b8c1382",
       "src/main/app/single-issue-orchestrator.ts": "ba92e54be4719f247893b83058f4cb9705cdc15243ecc9fa1613f4d65ea06342",
+      "src/main/composition/profiled-issue-worker.ts": "c7cd6af88189dcd77eea87ab2927686ee9bd0ac7599d36fced276e27835f4779",
       "src/main/adapters/sqlite-issue-orchestration-store.ts": "cef7d66cd2f01305450ef4361296845c48d503cf796d5c08773ba5b530ce3de1",
       "src/main/domain/issue-orchestration.ts": "f80f8fbe3103bf177e067f2e9da1fe9ed41d3e98e9ce4f274e740986e660eff6",
       "src/main/ports/issue-orchestration.ts": "397638793a4b184130e70ee6901b8c86cf18b3114a823463bfd96c9b3bce85cb",
@@ -48,11 +50,12 @@
       "dist/main/adapters/subagent-pi.js": "c85ff2c08fe5c7e58f0d0bd35c4ba3c777e59babce561fafeb3b6b919c61db2d",
       "dist/main/adapters/subagent-opencode-cli.js": "bdd6be03752bec1b093eb9f8b743e3c83da04507f850e37af13228e4bd59cfaf",
       "dist/main/adapters/subagent-codex.js": "f90e2eed70f54bf23a6507a87df0c732a93327eb94a9b10a25d097766b55baeb",
-      "dist/main/domain/issue-team-benchmark.js": "57978dcd9e20290774b62a362c564d02147165b65f61894beb7b092f0457d299",
+      "dist/main/domain/issue-team-benchmark.js": "b53713e9859c3f11f9f53e5645de4d7ce7e105155d6959ecf1d6ab5628df03cf",
       "dist/main/composition/supervised-issue-worker.js": "a54406d9a68cfbf44079b6167d00e0f8fd2d465f660eb8f762152cec8ef92f27",
-      "dist/main/composition/issue-team-role-executor.js": "108e1af8b8085b40d4c637ff8e2c4bea2f01946e89d5aeaa6b0db8245c73cac3",
+      "dist/main/composition/issue-team-role-executor.js": "efc28bbf4fbe845238178ddc02ee1e7d72f70d4f36a18f75ef24d01f02e961c0",
       "dist/main/app/single-issue-orchestrator.js": "61d5afc6a7b247439a0931d90aec1e723ca678a74b04ffc595522a5490971b17",
-      "dist/main/adapters/sqlite-issue-orchestration-store.js": "b5b2c4e86052149925f342b3578db061cd5580ac68a6e5530dbd3715d087fff9"
+      "dist/main/adapters/sqlite-issue-orchestration-store.js": "b5b2c4e86052149925f342b3578db061cd5580ac68a6e5530dbd3715d087fff9",
+      "dist/main/composition/profiled-issue-worker.js": "c49deb5bf45da358feee2b807fe3b9e7149e44c254a436484c93a0e1f8335bbf"
     }
   },
   "gates": {
@@ -61,6 +64,7 @@
     "adapterBoundary": true,
     "compositionBoundary": true,
     "parentBoundary": true,
+    "productionRouting": true,
     "convergence": true,
     "duplicateDispatch": true,
     "recovery": true,
