@@ -285,13 +285,15 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
           ? { idempotencyKey: `${opts.idempotencyKey}:user` }
           : {}),
       }, { project, sessionId });
-      await sys.encode({
-        content: capInput(assistantText, SAVE_CAP),
-        role: "assistant",
-        ...(opts?.idempotencyKey
-          ? { idempotencyKey: `${opts.idempotencyKey}:assistant` }
-          : {}),
-      }, { project, sessionId });
+      if (assistantText.trim()) {
+        await sys.encode({
+          content: capInput(assistantText, SAVE_CAP),
+          role: "assistant",
+          ...(opts?.idempotencyKey
+            ? { idempotencyKey: `${opts.idempotencyKey}:assistant` }
+            : {}),
+        }, { project, sessionId });
+      }
       if (opts?.durable) {
         const flush = (sys as MemorySystem & { flush?: () => Promise<void> }).flush;
         if (typeof flush !== "function") {

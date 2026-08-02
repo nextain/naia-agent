@@ -35,3 +35,11 @@ MemoryPort, fact extractor, summarizer를 실제 교체한다.
 ## Status (P05)
 
 Implemented and verified on 2026-08-03. Commit/push는 상위 작업자가 수행하도록 의도적으로 남겨 두었다.
+
+## Follow-up verification (2026-08-03)
+
+- Identical workspace + resolved memory config + `llmRoles` reloads are fingerprinted; 12 repeated startup reloads are no-ops while the active memory is healthy.
+- A failed replacement still retains the active instance and its data; a different workspace still triggers a real replacement.
+- The diagnostic `echo-system` provider persists the real user episode but not its recursive `SYSTEM_ECHO` assistant payload.
+- Local episodic recall combines embedding and length-normalized lexical relevance, keeping an exact compact episode in top-5 against 12 broad high-strength noise episodes.
+- Verification: naia-memory full suite 400/400; naia-agent memory/gRPC/Discord suite 85/85; both builds pass; `git diff --check` and conflict-marker scan pass.

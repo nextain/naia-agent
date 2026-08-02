@@ -35,9 +35,9 @@ import { makeWorkspaceContextStore } from "../../dist/main/adapters/workspace-co
 // 나 try/catch 에 도달 못 하고 프로세스가 죽어 메모리 비활성 채팅(FR-MEM-3)·초기화 격리 계약이 깨진다.
 import * as nodeFs from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 /**
  * transport-독립 런타임 deps 조립(async — memory 동적 import + MCP init 때문).
@@ -327,9 +327,33 @@ export async function composeAgentRuntimeDeps(o = {}) {
       const { resolveWorkspaceId, storeDirKey } = await import("../../dist/main/adapters/workspace-project.js");
       memory = makeReloadableMemory();
 
-      const buildMemory = async (workspacePath) => {
-        const nextMemCfg = settingsStore.loadMemoryConfig(workspacePath);
-        const nextRoles = settingsStore.loadLlmRoles(workspacePath);
+      const stableJson = (value) => {
+        if (value === undefined) return "undefined";
+        if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+        if (value && typeof value === "object") {
+          return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
+        }
+        return JSON.stringify(value);
+      };
+
+      const loadMemorySnapshot = (workspacePath) => {
+        const memoryConfig = settingsStore.loadMemoryConfig(workspacePath);
+        const roles = settingsStore.loadLlmRoles(workspacePath);
+        const absoluteWorkspace = resolve(workspacePath);
+        const workspaceKey = process.platform === "win32" ? absoluteWorkspace.toLowerCase() : absoluteWorkspace;
+        // Hash instead of retaining/logging a canonical string that may contain
+        // resolved API keys from loadMemoryConfig.
+        const fingerprint = createHash("sha256")
+          .update(workspaceKey)
+          .update("\0")
+          .update(stableJson({ memoryConfig, roles }))
+          .digest("hex");
+        return { memoryConfig, roles, fingerprint };
+      };
+
+      const buildMemory = async (workspacePath, snapshot) => {
+        const nextMemCfg = snapshot.memoryConfig;
+        const nextRoles = snapshot.roles;
         if (nextRoles && !nextRoles.ok) {
           throw new Error(`invalid llmRoles(${nextRoles.role}/${nextRoles.reason})`);
         }
@@ -368,19 +392,25 @@ export async function composeAgentRuntimeDeps(o = {}) {
           throw error;
         }
         const label = `naia-memory(${storePath}, project=${project}, adapter=${nextMemCfg?.adapter ?? "local"}, embed=${nextMemCfg?.embedding.provider ?? "none"}, llm=${nextMemoryRuntime?.ok ? nextMemoryRuntime.config.provider : "none"})`;
-        return { next, label };
+        return { next, label, fingerprint: snapshot.fingerprint };
       };
 
       let reloadQueue = Promise.resolve();
+      let activeMemoryFingerprint;
       reloadMemory = (workspacePath) => {
         const run = reloadQueue.then(async () => {
           try {
+            const snapshot = loadMemorySnapshot(workspacePath);
+            if (memory.hasActive() && snapshot.fingerprint === activeMemoryFingerprint) {
+              return { ok: true, reloaded: false, retained: false, status: memoryLabel };
+            }
             let built;
             const replacement = await memory.reconfigure(async () => {
-              built = await buildMemory(workspacePath);
+              built = await buildMemory(workspacePath, snapshot);
               return built.next;
             });
             memoryLabel = built.label;
+            activeMemoryFingerprint = built.fingerprint;
             return {
               ok: true,
               reloaded: replacement.replaced,

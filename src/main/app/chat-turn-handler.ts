@@ -387,7 +387,15 @@ export class ChatTurnHandler {
           ])) return;
           try {
             const saveTimeoutMs = this.d.memoryTimeoutMs ?? MEM_SAVE_TIMEOUT_MS;
-            const ok = await raceTimeout(this.d.memory.save(lastUserText, assistantTurnParts.join("\n")), saveTimeoutMs);
+            // echo-system is a diagnostic provider that deliberately returns
+            // the complete system prompt. Persisting that synthetic response
+            // recursively stores recalled memory and grows SYSTEM_ECHO noise on
+            // every turn. Keep the real user episode, but omit this test-only
+            // assistant payload from long-term memory.
+            const assistantMemoryText = providerConfig.provider === "echo-system"
+              ? ""
+              : assistantTurnParts.join("\n");
+            const ok = await raceTimeout(this.d.memory.save(lastUserText, assistantMemoryText), saveTimeoutMs);
             if (!ok) this.safeDiag("memory save 시간초과(턴 유지)", new Error(`>${saveTimeoutMs}ms`));
           } catch (e) { this.safeDiag("memory save 실패(턴 유지)", e); }
         }

@@ -20,6 +20,7 @@ describe("memory settings reload wiring", () => {
     expect(compose).toContain("settingsStore.loadMemoryConfig(workspacePath)");
     expect(compose).toContain("settingsStore.loadLlmRoles(workspacePath)");
     expect(compose).toContain("memory.reconfigure(async () =>");
+    expect(compose).toContain("snapshot.fingerprint === activeMemoryFingerprint");
   });
 
   it("keeps the live backend on invalid llmRoles and preserves data across a valid swap", async () => {
@@ -35,6 +36,7 @@ describe("memory settings reload wiring", () => {
         ...process.env,
         NAIA_ADK_PATH: adk,
         NAIA_MEMORY_STORE: storePath,
+        NAIA_MEMORY_PROJECT: "reload-contract",
         NAIA_AGENT_SKILLS: "off",
         NAIA_AGENT_TRANSCRIPT: "off",
         AGENT_PROVIDER: "fake",
@@ -42,6 +44,15 @@ describe("memory settings reload wiring", () => {
     });
     expect(deps.memory.hasActive()).toBe(true);
     await deps.memory.save("reload-canary", "remembered");
+
+    for (let i = 0; i < 12; i++) {
+      await expect(deps.reloadMemory(adk)).resolves.toMatchObject({
+        ok: true,
+        reloaded: false,
+        retained: false,
+      });
+    }
+    expect((await deps.memory.recall("reload-canary")).episodes.length).toBeGreaterThan(0);
 
     await writeFile(configPath, JSON.stringify({
       provider: "fake",
@@ -52,8 +63,10 @@ describe("memory settings reload wiring", () => {
     expect(failed).toMatchObject({ ok: false, reloaded: false, retained: true });
     expect((await deps.memory.recall("reload-canary")).episodes.length).toBeGreaterThan(0);
 
-    await writeFile(configPath, JSON.stringify({ provider: "fake", model: "test", memoryAdapter: "local" }), "utf8");
-    const succeeded = await deps.reloadMemory(adk);
+    const nextAdk = join(adk, "next-workspace");
+    await mkdir(join(nextAdk, "naia-settings"), { recursive: true });
+    await writeFile(join(nextAdk, "naia-settings", "config.json"), JSON.stringify({ provider: "fake", model: "test" }), "utf8");
+    const succeeded = await deps.reloadMemory(nextAdk);
     expect(succeeded).toMatchObject({ ok: true, reloaded: true, retained: false });
     expect((await deps.memory.recall("reload-canary")).episodes.length).toBeGreaterThan(0);
     await deps.memory.close();
