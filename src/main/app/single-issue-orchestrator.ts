@@ -600,6 +600,7 @@ function assertWorkerReceipts(receipts: readonly ActorReceipt[], lead: ActorRece
     return;
   }
   const roles = new Set(receipts.map((receipt) => receipt.workerRole));
+  if ((workerOk || receipts.length > 1) && lead.workerRole !== "implementer") throw new Error("team lead receipt must be the implementer");
   for (const receipt of receipts) {
     if (!receipt.workerRole || !receipt.agentProfileId || !receipt.agentKind) throw new Error("incomplete team worker receipt");
     const declared = profile.roles[receipt.workerRole];

@@ -11,7 +11,7 @@ import { makePiSubAgent, type SubAgentPiOptions } from "../adapters/subagent-pi.
 import { assertIssueTeamProfile, type IssueTeamProfile } from "../domain/issue-team.js";
 
 export interface IssueTeamRoleExecutorOptions {
-  readonly agents: Readonly<Record<string, SubAgentPort>>;
+  readonly agents: Readonly<Record<string, { readonly agentKind: import("../domain/issue-team.js").IssueTeamAgentKind; readonly adapter: SubAgentPort }>>;
   readonly diag: DiagnosticLog;
   readonly nowMs?: () => number;
 }
@@ -19,12 +19,12 @@ export interface IssueTeamRoleExecutorOptions {
 export function makeIssueTeamRoleExecutor(options: IssueTeamRoleExecutorOptions): IssueTeamRoleExecutorPort {
   return {
     async execute(input) {
-      const subAgent = options.agents[input.roleProfile.agentProfileId];
-      if (!subAgent) throw new Error(`undeclared issue-team agent profile: ${input.roleProfile.agentProfileId}`);
+      const selected = options.agents[input.roleProfile.agentProfileId];
+      if (!selected || selected.agentKind !== input.roleProfile.agentKind) throw new Error(`undeclared issue-team agent profile: ${input.roleProfile.agentProfileId}`);
       const startedAt = (options.nowMs ?? Date.now)();
       let text = ""; let overflow = false; let report: import("../domain/orchestration.js").SupervisorReport | undefined;
       const supervisor = new Supervisor({
-        subAgent, diag: options.diag,
+        subAgent: selected.adapter, diag: options.diag,
         egress: {
           event(event) {
             if (event.kind !== "text_delta" || overflow) return;
@@ -71,7 +71,7 @@ export function composeIssueTeamAgents(profile: IssueTeamProfile, environment: {
   readonly codex?: Omit<SubAgentCodexOptions, "model" | "reasoningEffort">;
   readonly opencode?: Omit<SubAgentOpencodeOptions, "model" | "provider">;
   readonly pi?: Omit<SubAgentPiOptions, "model" | "provider">;
-} = {}): Readonly<Record<string, SubAgentPort>> {
+} = {}): Readonly<Record<string, { readonly agentKind: import("../domain/issue-team.js").IssueTeamAgentKind; readonly adapter: SubAgentPort }>> {
   assertIssueTeamProfile(profile);
   return Object.fromEntries(Object.values(profile.roles).map((declared) => {
     const agent = declared.agentKind === "codex"
@@ -79,7 +79,7 @@ export function composeIssueTeamAgents(profile: IssueTeamProfile, environment: {
       : declared.agentKind === "opencode"
         ? makeOpencodeSubAgent({ ...environment.opencode, model: declared.binding.model, provider: declared.binding.provider })
         : makePiSubAgent({ ...environment.pi, model: declared.binding.model, provider: declared.binding.provider });
-    return [declared.agentProfileId, agent];
+    return [declared.agentProfileId, { agentKind: declared.agentKind, adapter: agent }];
   }));
 }
 

@@ -14,7 +14,7 @@ function agent(provider: string, model: string, session: string): SubAgentPort {
 
 describe("REQ-023 profiled role executor", () => {
   it("selects only declared Codex/OpenCode/Pi profiles and preserves honest evidence", async () => {
-    const executor = makeIssueTeamRoleExecutor({ agents: { codex: agent("codex", "codex-model", "s1"), opencode: agent("opencode", "opencode-model", "s2"), pi: agent("pi", "pi-model", "s3") },
+    const executor = makeIssueTeamRoleExecutor({ agents: { codex: { agentKind: "codex", adapter: agent("codex", "codex-model", "s1") }, opencode: { agentKind: "opencode", adapter: agent("opencode", "opencode-model", "s2") }, pi: { agentKind: "pi", adapter: agent("pi", "pi-model", "s3") } },
       diag: { log() {}, debug() {} }, nowMs: (() => { let n = 0; return () => ++n; })() });
     const cases = [
       ["explorer", "codex", "codex", "codex-model", "read_only"],
@@ -29,6 +29,9 @@ describe("REQ-023 profiled role executor", () => {
     }
     await expect(executor.execute({ issueId: "issue", dispatchId: "dispatch", stepId: "dispatch:reviewer:1", worktreePath: "/repo", task: "fix", context: "{}",
       roleProfile: { agentProfileId: "missing", agentKind: "codex", binding: { provider: "codex", model: "codex-model" }, filesystemAccess: "read_only" }, signal: new AbortController().signal }))
+      .rejects.toThrow("undeclared issue-team agent profile");
+    await expect(executor.execute({ issueId: "issue", dispatchId: "dispatch", stepId: "dispatch:reviewer:1", worktreePath: "/repo", task: "fix", context: "{}",
+      roleProfile: { agentProfileId: "pi", agentKind: "codex", binding: { provider: "pi", model: "pi-model" }, filesystemAccess: "read_only" }, signal: new AbortController().signal }))
       .rejects.toThrow("undeclared issue-team agent profile");
   });
 });

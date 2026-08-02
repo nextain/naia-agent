@@ -6,7 +6,7 @@ import {
 } from "../domain/issue-team.js";
 import type { CodingJobAllocation, CodingJobWorktreePort } from "../ports/coding-job.js";
 import type { IssueTeamRoleExecutorPort, IssueTeamStore } from "../ports/issue-team.js";
-import type { IssueWorkerPort } from "../ports/issue-orchestration.js";
+import { IssueActorResultError, type IssueWorkerPort } from "../ports/issue-orchestration.js";
 import type { DiagnosticLog } from "../ports/uc1.js";
 
 export interface IssueTeamWorkerOptions {
@@ -55,9 +55,10 @@ export function makeIssueTeamWorker(options: IssueTeamWorkerOptions): IssueWorke
         const executed = await options.roles.execute({ issueId: input.issueId, dispatchId: input.dispatchId, stepId,
           worktreePath: snapshot.allocation.worktreePath, task: input.task, context: roleContext(input, snapshot),
           roleProfile: profile.roles[role], signal: input.signal });
-        assertRoleResult(executed.result, role);
         assertRoleReceipt(executed.receipt, stepId, role, profile);
         assertDistinct(snapshot.receipts, executed.receipt);
+        try { assertRoleResult(executed.result, role); }
+        catch { throw new IssueActorResultError("issue-team role result rejected", executed.receipt); }
         const outcomes = [...snapshot.outcomes, executed.result];
         const receipts = [...snapshot.receipts, executed.receipt];
         const transition = nextTransition(role, executed.result, snapshot.cleanCycles, snapshot.repairCycles, profile);
@@ -85,6 +86,15 @@ export function makeIssueTeamWorker(options: IssueTeamWorkerOptions): IssueWorke
         } });
       }
     } catch (error) {
+      if (error instanceof IssueActorResultError && snapshot.state === "running" && snapshot.activeStepId) {
+        try {
+          assertRoleReceipt(error.receipt, snapshot.activeStepId, snapshot.nextRole, profile);
+          assertDistinct(snapshot.receipts, error.receipt);
+          snapshot = options.store.save({ expectedVersion: snapshot.version, eventType: "role_failed", snapshot: {
+            ...snapshot, state: "failed", activeStepId: undefined, receipts: [...snapshot.receipts, error.receipt],
+          } });
+        } catch { /* Invalid or concurrently changed evidence stays running/unknown. */ }
+      }
       allocation?.release();
       throw error;
     }

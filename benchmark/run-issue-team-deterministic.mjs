@@ -15,7 +15,8 @@ const sourceRevision = sourceIndex >= 0 ? process.argv[sourceIndex + 1] : execFi
 if (!/^[0-9a-f]{40}$/u.test(sourceRevision ?? "")) throw new Error("source revision must be a full commit hash");
 const trackedInputs = ["benchmark/run-issue-team-deterministic.mjs", "benchmark/orchestration/issue-team-deterministic.json",
   "src/main/app/issue-team-worker.ts", "src/main/adapters/sqlite-issue-team-store.ts", "src/main/domain/issue-team.ts",
-  "src/main/domain/issue-team-benchmark.ts", "src/main/ports/issue-team.ts", "package.json", "pnpm-lock.yaml", "tsconfig.json"];
+  "src/main/domain/issue-team-benchmark.ts", "src/main/ports/issue-team.ts", "src/main/composition/supervised-issue-worker.ts",
+  "package.json", "pnpm-lock.yaml", "tsconfig.json"];
 execFileSync("git", ["merge-base", "--is-ancestor", sourceRevision, "HEAD"], { cwd: repositoryRoot });
 execFileSync("git", ["diff", "--quiet", sourceRevision, "HEAD", "--", ...trackedInputs], { cwd: repositoryRoot });
 execFileSync("git", ["diff", "--quiet", "--", ...trackedInputs], { cwd: repositoryRoot });
@@ -25,6 +26,7 @@ const distRoot = distIndex >= 0 ? resolve(process.argv[distIndex + 1] ?? "") : j
 const { makeIssueTeamWorker } = await import(pathToFileURL(join(distRoot, "main/app/issue-team-worker.js")));
 const { SqliteIssueTeamStore } = await import(pathToFileURL(join(distRoot, "main/adapters/sqlite-issue-team-store.js")));
 const { evaluateIssueTeamBenchmark } = await import(pathToFileURL(join(distRoot, "main/domain/issue-team-benchmark.js")));
+const { makeSupervisedIssueWorker } = await import(pathToFileURL(join(distRoot, "main/composition/supervised-issue-worker.js")));
 const root = mkdtempSync(join(tmpdir(), "naia-issue-team-benchmark-"));
 const profile = { kind: "team", maxRepairCycles: 2, requiredCleanCycles: 2, roles: Object.fromEntries(
   ["explorer", "implementer", "tester", "reviewer"].map((role) => [role, { agentProfileId: `${role}-profile`,
@@ -43,6 +45,16 @@ const worker = makeIssueTeamWorker({ store, worktrees: fixtureWorktrees(), chang
 
 try {
   const completed = await worker.execute(input); const effectsAfterFirst = effects; await worker.execute(input);
+  const legacyBinding = { provider: "legacy-provider", model: "legacy-model" };
+  const legacyWorker = makeSupervisedIssueWorker({ worktrees: fixtureWorktrees(), diag: { log() {}, debug() {} }, changedFiles: () => [],
+    subAgent: { spawn() { return { async cancel() {}, events: (async function* () { yield { kind: "session_end", ok: true, evidence: {
+      provider: legacyBinding.provider, selectedModel: legacyBinding.model, modelEvidenceSource: "adapter_requested",
+      inputTokens: 1, outputTokens: 1, totalTokens: 2, usageAvailable: true, measuredCostUsd: 0.001,
+      sessionId: "legacy-session", executionId: "legacy-execution" } }; })() }; } } });
+  const legacy = await legacyWorker.execute({ issueId: "legacy-issue", dispatchId: "legacy-issue:dispatch:1", workspacePath: "/benchmark/repo",
+    task: "legacy", obligations: ["legacy"], profileId: "legacy", profile: legacyBinding, binding: legacyBinding,
+    acceptanceChecks: ["legacy check"], signal: new AbortController().signal });
+  const legacyProfilePreserved = legacy.ok && legacy.receipt.idempotencyKey === "legacy-issue:dispatch:1" && legacy.receipts === undefined;
   const recoveryStore = new SqliteIssueTeamStore(join(root, "recovery.db")); let release;
   const gate = new Promise((resolveGate) => { release = resolveGate; });
   const interruptedWorker = makeIssueTeamWorker({ store: recoveryStore, worktrees: fixtureWorktrees(), roles: { async execute() { await gate; throw new Error("interrupted fixture"); } } });
@@ -56,11 +68,11 @@ try {
   const observation = { roleOrderMatches: JSON.stringify(seen.map((item) => item.role)) === JSON.stringify(corpus.expectedOrder),
     writeBoundaryViolations: seen.filter((item) => (item.role === "implementer") !== (item.access === "workspace_write")).length,
     repairCycles: completed.team?.repairCycles ?? -1, cleanCycles: completed.team?.cleanCycles ?? -1,
-    duplicateRoleEffects: effects - effectsAfterFirst, unknownInflightRecovery, receiptCount: receipts.length,
+    duplicateRoleEffects: effects - effectsAfterFirst, unknownInflightRecovery, legacyProfilePreserved, receiptCount: receipts.length,
     distinctReceiptIdentities: new Set(receipts.flatMap((item) => [item.sessionId, item.executionId])).size / 2,
     allCostsMeasured: receipts.every((item) => item.cost.state === "measured"), expectedCostUsd, observedCostUsd };
   const evaluation = evaluateIssueTeamBenchmark(observation);
-  const runtimeModules = ["main/app/issue-team-worker.js", "main/adapters/sqlite-issue-team-store.js", "main/domain/issue-team-benchmark.js"];
+  const runtimeModules = ["main/app/issue-team-worker.js", "main/adapters/sqlite-issue-team-store.js", "main/domain/issue-team-benchmark.js", "main/composition/supervised-issue-worker.js"];
   const output = { schemaVersion: corpus.schemaVersion, benchmarkId: corpus.benchmarkId, sourceRevision, paidCalls: 0, observation,
     evidence: { trackedInputs: Object.fromEntries(trackedInputs.map((path) => [path, sha256(join(repositoryRoot, path))])),
       runtimeModules: Object.fromEntries(runtimeModules.map((path) => [`dist/${path}`, sha256(join(distRoot, path))])) }, ...evaluation };

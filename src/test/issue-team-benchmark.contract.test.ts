@@ -25,12 +25,13 @@ function observation(): IssueTeamBenchmarkObservation {
 describe("REQ-023 deterministic issue-team benchmark", () => {
   it("replays the real SQLite state machine with no paid call", () => {
     expect(observation()).toMatchObject({ roleOrderMatches: true, writeBoundaryViolations: 0, repairCycles: 1, cleanCycles: 2,
-      duplicateRoleEffects: 0, unknownInflightRecovery: true, receiptCount: 8, distinctReceiptIdentities: 8 });
+      duplicateRoleEffects: 0, unknownInflightRecovery: true, legacyProfilePreserved: true, receiptCount: 8, distinctReceiptIdentities: 8 });
   });
   it.each([
     ["ordering", { roleOrderMatches: false }], ["writeBoundary", { writeBoundaryViolations: 1 }],
     ["convergence", { cleanCycles: 1 }], ["duplicateDispatch", { duplicateRoleEffects: 1 }],
     ["recovery", { unknownInflightRecovery: false }], ["receiptIsolation", { distinctReceiptIdentities: 7 }],
+    ["legacyPreservation", { legacyProfilePreserved: false }],
     ["costAccounting", { observedCostUsd: 0.007 }],
   ] as const)("rejects a %s counterexample", (gate, patch) => {
     const evaluated = evaluateIssueTeamBenchmark({ ...observation(), ...patch }); expect(evaluated.gates[gate]).toBe(false); expect(evaluated.claimAllowed).toBe(false);

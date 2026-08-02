@@ -72,4 +72,25 @@ describe("REQ-023 parent issue verification boundary", () => {
     expect(orchestrator.snapshot("issue-1").receipts.at(-1)).toMatchObject({ workerRole: "explorer", idempotencyKey: rejected.idempotencyKey });
     store.close();
   });
+
+  it("rejects a team aggregate whose legacy lead receipt is not the implementer", async () => {
+    const root = mkdtempSync(join(tmpdir(), "issue-team-lead-")); roots.push(root);
+    const store = new SqliteIssueOrchestrationStore(join(root, "issues.db")); let n = 0;
+    const receipts = (["explorer", "implementer", "tester", "reviewer"] as const).map((role, index) => {
+      const selected = team.roles[role]; return { ...actor("worker", `issue-1:dispatch:1:${role}:${index + 1}`, 30 + index, selected.binding.provider, selected.binding.model),
+        workerRole: role, agentProfileId: selected.agentProfileId, agentKind: selected.agentKind };
+    });
+    const orchestrator = new SingleIssueOrchestrator({ store, ids: () => "issue-1", now: () => "2026-08-02T00:00:00Z",
+      facing: { async classify(input) { return { classification: { kind: "work", obligations: input.requiredObligations }, receipt: actor("naia", input.idempotencyKey, ++n, "naia", "luna") }; } },
+      moderator: { async plan(input) { return { plan: { workerTask: "fix", workerProfile: "team", acceptanceChecks: ["check"], questions: [] }, receipt: actor("moderator", input.idempotencyKey, ++n, "codex", "sol") }; } },
+      worker: { async execute() { return { ok: true, summary: "invalid lead", worktreePath: "/managed/team", changedFiles: [], receipt: receipts[0]!, receipts,
+        team: { profileId: "team", profileDigest: "digest", cleanCycles: 1, repairCycles: 0, outcomes: [] } }; } },
+      verifier: { async verify() { throw new Error("must not verify"); } }, reporter: { async report() { throw new Error("must not report"); } },
+    });
+    const report = await orchestrator.start({ requestId: "request-lead", text: "fix", requiredObligations: ["fix"], workspacePath: "/repo",
+      naiaBinding: { provider: "naia", model: "luna" }, moderatorBinding: { provider: "codex", model: "sol" }, workerProfiles: { team } });
+    expect(report.state).toBe("outcome_unknown");
+    expect(orchestrator.snapshot("issue-1").receipts.filter((item) => item.role === "worker")).toHaveLength(0);
+    store.close();
+  });
 });

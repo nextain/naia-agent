@@ -82,7 +82,7 @@ describe("REQ-023 durable issue-team worker", () => {
       roles: { async execute(value) { return { result: result("tester", "pass"), receipt: receipt("explorer", value.stepId, 1) }; } } });
     await expect(worker.execute({ ...input(), profile: bad })).rejects.toThrow("filesystem access");
     await expect(worker.execute(input())).rejects.toThrow("role result");
-    expect(store.get(input().dispatchId)?.state).toBe("running");
+    expect(store.get(input().dispatchId)).toMatchObject({ state: "failed", receipts: [{ workerRole: "explorer" }] });
     store.close();
   });
 });

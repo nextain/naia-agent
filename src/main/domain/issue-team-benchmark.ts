@@ -5,6 +5,7 @@ export interface IssueTeamBenchmarkObservation {
   readonly cleanCycles: number;
   readonly duplicateRoleEffects: number;
   readonly unknownInflightRecovery: boolean;
+  readonly legacyProfilePreserved: boolean;
   readonly receiptCount: number;
   readonly distinctReceiptIdentities: number;
   readonly allCostsMeasured: boolean;
@@ -18,6 +19,7 @@ export function evaluateIssueTeamBenchmark(input: IssueTeamBenchmarkObservation)
     convergence: input.repairCycles === 1 && input.cleanCycles === 2,
     duplicateDispatch: input.duplicateRoleEffects === 0,
     recovery: input.unknownInflightRecovery,
+    legacyPreservation: input.legacyProfilePreserved,
     receiptIsolation: input.receiptCount > 0 && input.distinctReceiptIdentities === input.receiptCount,
     costAccounting: input.allCostsMeasured && Number.isFinite(input.expectedCostUsd) && Number.isFinite(input.observedCostUsd)
       && Math.abs(input.expectedCostUsd - input.observedCostUsd) < 1e-9,
