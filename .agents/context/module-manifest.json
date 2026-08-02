@@ -840,6 +840,36 @@
       "contract": "docs/progress/99.dev-comm/UC-ORCH-001-single-issue-vertical-contract-2026-08-01.md",
       "note": "Strict JSON adapters for separate Naia-facing, development-moderator, and grounded-reporter SubAgentPort sessions with usage receipts."
     },
+    "src/main/domain/multi-issue-session.ts": {
+      "layer": "domain",
+      "uc": ["UC-ORCH-002"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-002-multi-issue-session-manager-contract-2026-08-02.md",
+      "note": "Transport-neutral managed-session lifecycle, provenance, portfolio, and budget evidence types."
+    },
+    "src/main/domain/multi-issue-benchmark.ts": {
+      "layer": "domain",
+      "uc": ["UC-ORCH-002"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-002-multi-issue-session-manager-contract-2026-08-02.md",
+      "note": "Pure deterministic hard gates for completion, isolation, FIFO, concurrency, recovery, visibility, and cost accounting."
+    },
+    "src/main/ports/multi-issue-session.ts": {
+      "layer": "ports",
+      "uc": ["UC-ORCH-002"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-002-multi-issue-session-manager-contract-2026-08-02.md",
+      "note": "Neutral session command/query, durable store, and REQ-021 execution boundaries for future ingress adapters."
+    },
+    "src/main/app/multi-issue-session-manager.ts": {
+      "layer": "app",
+      "uc": ["UC-ORCH-002"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-002-multi-issue-session-manager-contract-2026-08-02.md",
+      "note": "Database-global leased scheduler for bounded multi-issue admission, isolated commands, recovery, and grounded portfolio queries."
+    },
+    "src/main/adapters/sqlite-multi-issue-session-store.ts": {
+      "layer": "adapters",
+      "uc": ["UC-ORCH-002"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-002-multi-issue-session-manager-contract-2026-08-02.md",
+      "note": "Owner-local SQLite queue, source metadata, ready order, scheduler lease, fenced lifecycle, and session events."
+    },
     "src/main/adapters/radio-dj-runtime.ts": {
       "layer": "adapters",
       "uc": ["UC-015"],

@@ -59,6 +59,17 @@ export class SingleIssueOrchestrator {
     this.#executionPollMs = d.executionPollMs ?? 25;
   }
 
+  /** Establishes stable request/issue identity without invoking any actor. */
+  ensure(request: IssueStartRequest): IssueSnapshot {
+    validateStart(request);
+    const requestDigest = digest(requestFingerprint(request));
+    const established = this.d.store.createOrGet(request, { issueId: this.#ids(), requestDigest, now: this.#now() });
+    if (established.snapshot.requestDigest !== requestDigest) {
+      throw new IssueRequestConflictError("request id was reused with different content");
+    }
+    return established.snapshot;
+  }
+
   async start(request: IssueStartRequest, signal: AbortSignal = new AbortController().signal): Promise<IssueReport> {
     validateStart(request);
     const requestDigest = digest(requestFingerprint(request));
@@ -77,10 +88,9 @@ export class SingleIssueOrchestrator {
   }
 
   private async startOnce(request: IssueStartRequest, requestDigest: string, signal: AbortSignal): Promise<IssueReport> {
-    const established = this.d.store.createOrGet(request, { issueId: this.#ids(), requestDigest, now: this.#now() });
-    const issue = established.snapshot;
+    const issue = this.ensure(request);
     if (issue.requestDigest !== requestDigest) throw new IssueRequestConflictError("request id was reused with different content");
-    this.debug("start", { issueId: issue.issueId, state: issue.state, repeated: !established.created });
+    this.debug("start", { issueId: issue.issueId, state: issue.state });
     return this.resume(issue.issueId, signal);
   }
 

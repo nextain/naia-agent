@@ -90,3 +90,25 @@ visibility, and accounting; every category is a hard gate.
 
 Implementation review and final integration review reread the orchestration charter and this contract.
 The final source revision requires two consecutive independent Clean reviews before completion.
+
+## P04 implementation evidence
+
+- `SingleIssueOrchestrator.ensure()` establishes the durable request/issue identity without invoking
+  Naia, moderator, worker, verifier, or reporter. Existing `start()` composes ensure plus resume.
+- The manager persists transport-neutral provenance and session lifecycle separately from REQ-021
+  issue snapshots/receipts. It schedules through only the neutral single-issue execution port.
+- SQLite owns monotonic ready order, recovery priority, append-only manager events, one expiring
+  database-wide scheduler lease, unexpired renewal, and fenced claim/settle writes.
+- Nine deterministic integration scenarios cover identity-before-actor, replay conflict (including
+  source/reservation drift), work-conserving bounded FIFO, waiting/answer/cancel isolation, cancellation
+  from waiting, lease expiry/fencing, two-manager recovery with one idempotent effect, exact budget
+  admission, and transport-neutral grounded visibility.
+- The layer contract rejects Discord, Shell, provider SDK, and Codex-protocol imports from the manager
+  domain/port/app modules.
+- `uc-orch-002-deterministic-v1` makes zero paid calls and passes completion, isolation, fairness,
+  concurrency, restart, visibility, and cost-accounting gates. Seven counterexamples each prove that
+  one failed gate prohibits the claim.
+- The focused TypeScript build and 60 affected/new tests pass. The full suite reached 1,512 passes and
+  10 skips; its two failures are the same documented environment-sensitive baselines: management
+  doctor status expectation and nested-ADK credential discovery in the Pi CLI process test. No new
+  multi-session test failed.

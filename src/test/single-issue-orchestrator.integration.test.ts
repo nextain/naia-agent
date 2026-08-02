@@ -126,6 +126,15 @@ function harness(options: { chat?: boolean; droppedObligation?: boolean; questio
 }
 
 describe("UC-ORCH-001 single issue", () => {
+  it("ensures stable issue identity without invoking an actor", () => {
+    const h = harness();
+    const ensured = h.orchestrator.ensure(request("ensure-only"));
+    expect(ensured).toMatchObject({ issueId: "issue-0001", requestId: "ensure-only", state: "accepted" });
+    expect(h.calls).toEqual({ facing: 0, moderator: 0, worker: 0, verifier: 0, reporter: 0 });
+    expect(h.store.events(ensured.issueId).map((event) => event.type)).toEqual(["issue_accepted"]);
+    h.store.close();
+  });
+
   it("rejects empty or unsupported facing and moderator bindings before persistence", async () => {
     const h = harness();
     await expect(h.orchestrator.start({ ...request("bad-facing"), naiaBinding: { provider: "", model: "" } }))

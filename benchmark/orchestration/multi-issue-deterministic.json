@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "1.0",
+  "benchmarkId": "uc-orch-002-deterministic-v1",
+  "paidCalls": 0,
+  "observation": {
+    "submitted": 4,
+    "terminal": 4,
+    "identityLeakCount": 0,
+    "expectedStartOrder": ["issue-a", "issue-b", "issue-c", "issue-d"],
+    "observedStartOrder": ["issue-a", "issue-b", "issue-c", "issue-d"],
+    "configuredConcurrency": 2,
+    "maximumObservedConcurrency": 2,
+    "restartDuplicateEffects": 0,
+    "visibilityCountMatches": true,
+    "allCostsMeasured": true,
+    "expectedCostUsd": 0.4,
+    "observedCostUsd": 0.4
+  }
+}
