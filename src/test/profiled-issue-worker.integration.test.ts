@@ -41,6 +41,16 @@ describe("REQ-023 production profiled issue worker composition", () => {
       expect(completed).toMatchObject({ ok: true, changedFiles: ["src/fix.ts"], team: { cleanCycles: 1, repairCycles: 0 } });
       expect(completed.receipts?.map((receipt) => receipt.workerRole)).toEqual(["explorer", "implementer", "tester", "reviewer"]);
       expect(await worker.recover?.(input("team", "team", team))).toEqual(completed);
+
+      const alteredTeam = { ...team, maxRepairCycles: 2 };
+      await expect(worker.execute(input("altered", "team", alteredTeam))).rejects.toThrow("does not match declared catalog");
+      await expect(worker.recover?.(input("altered", "team", alteredTeam))).rejects.toThrow("does not match declared catalog");
+      await expect(worker.execute(input("unknown", "missing", team))).rejects.toThrow("does not match declared catalog");
+      expect(allocations).toBe(1);
+
+      const alteredLegacy = { ...legacyProfile, model: "undeclared-model" };
+      await expect(worker.execute(input("altered-legacy", "legacy", alteredLegacy))).rejects.toThrow("does not match declared catalog");
+      expect(legacyCalls).toBe(1);
       store.close();
     } finally { rmSync(root, { recursive: true, force: true }); }
   });

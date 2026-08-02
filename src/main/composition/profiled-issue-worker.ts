@@ -1,5 +1,5 @@
 import { makeIssueTeamWorker, type IssueTeamWorkerOptions } from "../app/issue-team-worker.js";
-import { isIssueTeamProfile, type WorkerProfile } from "../domain/issue-team.js";
+import { canonicalWorkerProfile, isIssueTeamProfile, type WorkerProfile } from "../domain/issue-team.js";
 import type { CodingJobWorktreePort } from "../ports/coding-job.js";
 import type { IssueTeamStore } from "../ports/issue-team.js";
 import type { IssueWorkerPort } from "../ports/issue-orchestration.js";
@@ -45,5 +45,17 @@ export function makeProfiledIssueWorker(options: {
   const roles = makeIssueTeamRoleExecutor({ agents, diag: options.diag, ...(options.nowMs ? { nowMs: options.nowMs } : {}) });
   const team = makeIssueTeamWorker({ store: options.store, worktrees: options.worktrees, roles,
     ...(options.diag ? { diag: options.diag } : {}), ...(options.changedFiles ? { changedFiles: options.changedFiles } : {}) });
-  return makeIssueWorkerRouter({ legacy: options.legacy, team });
+  const router = makeIssueWorkerRouter({ legacy: options.legacy, team });
+  const assertCatalogBinding = (request: Parameters<IssueWorkerPort["execute"]>[0]) => {
+    const declared = options.profiles[request.profileId];
+    if (!declared || !request.profile
+      || canonicalWorkerProfile(declared) !== canonicalWorkerProfile(request.profile)) {
+      throw new Error(`worker profile does not match declared catalog: ${request.profileId}`);
+    }
+  };
+  return {
+    async execute(request) { assertCatalogBinding(request); return router.execute(request); },
+    async recover(request) { assertCatalogBinding(request); return router.recover?.(request); },
+    async reconcile(dispatchId) { return router.reconcile?.(dispatchId); },
+  };
 }

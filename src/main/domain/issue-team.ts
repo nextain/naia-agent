@@ -99,6 +99,11 @@ export function canonicalIssueTeamProfile(profile: IssueTeamProfile): string {
   return stableJson(profile);
 }
 
+/** Stable bytes for binding every worker request to its predeclared catalog entry. */
+export function canonicalWorkerProfile(profile: WorkerProfile): string {
+  return stableJson(profile);
+}
+
 function stableJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
   if (value && typeof value === "object") {
