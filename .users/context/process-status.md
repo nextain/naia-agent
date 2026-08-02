@@ -4,7 +4,7 @@
 
 ## 다중 이슈 세션 관리 수직 구조 — 2026-08-02
 
-- 상태: P01~P04 완료, P05 통합 검증·2회 Clean 전 (`REQ-022 / UC-ORCH-002`)
+- 상태: 선언한 Agent 라이브러리·결정론 벤치 범위 P01~P05 완료 (`REQ-022 / UC-ORCH-002`)
 - 브랜치: `feat/naia-multi-issue-session-manager`
 - 기준: 완료된 단일 이슈 수직 구조 `57b096a`
 - 목표: Naia가 여러 코딩 이슈를 영속 큐에 넣고, 제한된 동시성으로 독립 실행하며,
@@ -14,7 +14,7 @@
 - P04: 완료 — SQLite 세션 저장소, 전역 scheduler-owner lease가 지키는 bounded FIFO 스케줄러,
   actor 호출 전 issue ensure/link, REQ-021 실행 포트, 11개 통합 시나리오, 레이어 경계와
   실제 manager·SQLite에서 관측값을 산출하는 무과금 벤치.
-- P05: 대기 — 전체 게이트 및 최종 소스 기준 독립 Clean 2회.
+- P05: 완료 — 전체 게이트, 검토 원장, 최종 후보 커밋 기준 독립 Clean 2회.
 - 명시적 후속 범위: OpenCode/naia-agent 작업자 협업, Discord 입력, 터미널·파일 열기,
   naia-shell 가시화. 현재 단계는 이들이 붙을 중립 source/query 경계만 보존하며 활성화를 주장하지 않는다.
 - 비용 정책: 기본 검증과 벤치는 무과금이다. 합계 한도를 켜면 완료 실측액 + 실행 중 예약액 +

@@ -517,7 +517,11 @@ The Agent and Gateway preserve these codes end to end:
 - **FR-SUPERVISOR-4**: Active runs persist `next_report_at`; one progress-report outbox command becomes due at each ten-minute boundary and advances the next durable boundary.
 - **NFR-SUPERVISOR-1**: Closing the initiating caller does not cancel an accepted run. Restarting the Agent reconciles persisted outbox state before dispatch, without requiring Shell UI availability.
 - **Scope**: This requirement is the Agent-side P0 vertical slice. Production host activation/accepted-run ingress, Shell RPC/UI, real worker adapter, and full ADK stage receipt evaluation are follow-up integration work; caller-disconnect survival is not yet a product acceptance claim.
-- **Status**: In progress.
+- **Status**: Done for the declared Agent-side library and deterministic benchmark scope. Evidence:
+  `benchmark/results/multi-issue-deterministic.json` (implementation source `bd770dc9`) and
+  `.agents/reviews/r-req-022-multi-issue-session-manager-2026-08-02.json`. OpenCode/naia-agent worker
+  collaboration, production Discord ingress, terminal/file opening, and naia-shell UI remain deferred
+  and are not completion claims of REQ-022.
 
 ## REQ-021 — Single-issue moderated coding vertical
 

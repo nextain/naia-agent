@@ -1,6 +1,6 @@
 # UC-ORCH-002 multi-issue session manager contract
 
-Status: frozen before implementation
+Status: done for the declared Agent-side library and deterministic benchmark scope
 
 ## Product boundary
 
@@ -109,9 +109,11 @@ The final source revision requires two consecutive independent Clean reviews bef
 - `uc-orch-002-deterministic-v1` runs the built manager, two SQLite stores, and deterministic execution
   port; it makes zero paid calls and derives passing completion, isolation, fairness, concurrency,
   restart, visibility, and cost-accounting observations. Seven counterexamples each prove that one
-  failed gate prohibits the claim. Exact artifact:
-  `benchmark/results/multi-issue-deterministic-b462d9d.json`, source `b462d9d7b6511df00ad5dab936674569645fc2d8`,
-  SHA-256 `03210e8430875dba7252673d4198f3ca8acf157e4563267500371ccaef0b994c`.
+  failed gate prohibits the claim. The runner rejects committed and uncommitted input drift, records
+  every tracked input and imported runtime-module SHA, and the contract test rebuilds into an isolated
+  output directory before byte-comparing the reproduced result. Exact artifact:
+  `benchmark/results/multi-issue-deterministic.json`, source `bd770dc91f8766abd04c690199420c475623302a`,
+  SHA-256 `106013c77676e05cd2fa1b9dd174fa71fcfdffff2cf1f112942c080ed9ad3507`.
 - The focused TypeScript build and 62 affected/new tests pass. The full suite reached 1,512 passes and
   10 skips; its two failures are the same documented environment-sensitive baselines: management
   doctor status expectation and nested-ADK credential discovery in the Pi CLI process test. No new
@@ -120,3 +122,6 @@ The final source revision requires two consecutive independent Clean reviews bef
   1,512 tests passed, and 9 skipped. Compile, logging, traceability, terminology, root structure,
   SDLC, charter, completion, and structure gates pass. File-anchor remains the baseline 29 and canon
   conformance returns to the baseline 57 after registering user-directed UC-ORCH-001/002.
+- Review history and final convergence protocol are recorded in
+  `.agents/reviews/r-req-022-multi-issue-session-manager-2026-08-02.json`. Production ingress/UI and
+  multi-agent worker collaboration remain deferred exactly as declared in the product boundary.

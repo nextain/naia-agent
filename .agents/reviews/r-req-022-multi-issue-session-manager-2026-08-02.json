@@ -1,0 +1,76 @@
+{
+  "schema_version": "1.0",
+  "requirement": "REQ-022",
+  "use_case": "UC-ORCH-002",
+  "charter": {
+    "path": "/var/home/luke/alpha-adk-worktrees/naia-orchestration-sot/.agents/context/naia-development-orchestration.yaml",
+    "sha256": "3707ebf9a593caf0c86eef8a6faa75bd271f2e6c990f3f125521a82dfbe7f8e5"
+  },
+  "baseline_revision": "57b096a8e6d7d369a7433d2f49d09e9efd393e24",
+  "implementation_revision": "bd770dc91f8766abd04c690199420c475623302a",
+  "benchmark": {
+    "path": "benchmark/results/multi-issue-deterministic.json",
+    "sha256": "106013c77676e05cd2fa1b9dd174fa71fcfdffff2cf1f112942c080ed9ad3507",
+    "paid_calls": 0,
+    "claim_allowed": true,
+    "source_and_runtime_hashes_recorded": true,
+    "isolated_build_byte_reproduction": true
+  },
+  "review_history": [
+    {
+      "stage": "planning",
+      "result": "findings_fixed",
+      "evidence_sha256": "e12bbe6e12f23f2d7f6d24a13d64003f33fe526ade2a146fac4f0602f4298441",
+      "accepted_findings": ["issue identity timing", "global scheduler ownership", "transport boundary", "ready ordering", "budget predicate"]
+    },
+    {
+      "stage": "planning_convergence",
+      "source_revision": "2ecc3546c539a18a974f4585d423468c87797e40",
+      "result": "clean",
+      "evidence_sha256": "2f90f79b47e1a8b7c36f9d558274ed7fd6375294d3dd7cc7c3276f6ea52f7cdd"
+    },
+    {
+      "stage": "development",
+      "result": "findings_fixed",
+      "evidence_sha256": "dec428bb825a1430786b2f6e98cf624522f14a4036dbd3f409e54c7c47bc736b",
+      "accepted_findings": ["cross-process lost wakeup", "fixture-only benchmark", "report issue identity mismatch"]
+    },
+    {
+      "stage": "development_convergence",
+      "source_revision": "b462d9d7b6511df00ad5dab936674569645fc2d8",
+      "result": "clean_with_charter_lookup_limitation",
+      "evidence_sha256": "d36d6717ed7363096cda146a2d5208f7830f74ac3c12d9880da388cbee18d728",
+      "counts_toward_final_convergence": false
+    },
+    {
+      "stage": "integration",
+      "result": "finding_fixed",
+      "evidence_sha256": "a52673f28dfd541e4545ce904641cf032d2def3ddf3107bcd8de9c8d7e0f8370",
+      "accepted_findings": ["stale dist could be labeled with source HEAD"]
+    },
+    {
+      "stage": "provenance",
+      "result": "findings_fixed",
+      "evidence_sha256": "90871e430774b78c7f124d891cdf6833eef0edf507619ee0a05bb7fbb06308ab",
+      "accepted_findings": ["transitive redact module omitted", "working tree drift unchecked", "test did not isolate build"]
+    },
+    {
+      "stage": "provenance_convergence",
+      "source_revision": "bd770dc91f8766abd04c690199420c475623302a",
+      "result": "clean",
+      "evidence_sha256": "67c0fc6959e08571343acaa36d2125082dc8dc816f9a932187de367ded112db8"
+    }
+  ],
+  "verification": {
+    "focused": "62 passed",
+    "full_excluding_two_documented_baseline_process_files": "133 files passed; 1512 tests passed; 9 skipped",
+    "gates_passed": ["compile", "logging", "traceability", "terminology", "root_structure", "sdlc", "charter", "completion", "structure"],
+    "unchanged_global_drift": { "file_anchors": 29, "canon_conformance": 57 }
+  },
+  "final_convergence": {
+    "required": "two consecutive Clean reviews on the unchanged final candidate commit",
+    "reviewers": ["gpt-5.6-terra medium", "gpt-5.6-terra low focused"],
+    "external_evidence_paths": ["/tmp/naia-multi-final-review-1.log", "/tmp/naia-multi-final-review-2.log"],
+    "change_resets_count": true
+  }
+}
