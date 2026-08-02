@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "benchmarkId": "naia-issue-team-deterministic-v1",
-  "sourceRevision": "6cea326a608fa2650194beb947496510b20d1d25",
+  "sourceRevision": "dc6fa16f26c8ee337f399f9b8592b3721351cd63",
   "paidCalls": 0,
   "observation": {
     "roleOrderMatches": true,
@@ -33,7 +33,7 @@
       "src/main/domain/issue-team-benchmark.ts": "07e0fa9c0c30eb96d674002165b4a1cfb01d6b7acc5e5ae8e7f2fa6a0442a788",
       "src/main/ports/issue-team.ts": "e91ad06b36c866be0fab931c6647166fe6f5d9f9fac3282e54e57993001872d3",
       "src/main/composition/supervised-issue-worker.ts": "11d1f057efb85abab40f3e55c83fcc52288d0dd750d5ad8461a8028524e064fa",
-      "src/main/composition/issue-team-role-executor.ts": "fe3f785cb55b7aca11ca3ebac26edfa373afea674c983d288064936b10faf4be",
+      "src/main/composition/issue-team-role-executor.ts": "11e87be01b2dbd6706c80e739164af88e44c49bad2736353e6a657a50a774e86",
       "src/main/app/single-issue-orchestrator.ts": "20d0bae7107b6e10aae5d4e4270b7b3588bd9df0476453a3ed3935a3629e1a23",
       "src/main/adapters/sqlite-issue-orchestration-store.ts": "cef7d66cd2f01305450ef4361296845c48d503cf796d5c08773ba5b530ce3de1",
       "src/main/domain/issue-orchestration.ts": "f80f8fbe3103bf177e067f2e9da1fe9ed41d3e98e9ce4f274e740986e660eff6",
@@ -50,7 +50,7 @@
       "dist/main/adapters/subagent-codex.js": "f90e2eed70f54bf23a6507a87df0c732a93327eb94a9b10a25d097766b55baeb",
       "dist/main/domain/issue-team-benchmark.js": "57978dcd9e20290774b62a362c564d02147165b65f61894beb7b092f0457d299",
       "dist/main/composition/supervised-issue-worker.js": "a54406d9a68cfbf44079b6167d00e0f8fd2d465f660eb8f762152cec8ef92f27",
-      "dist/main/composition/issue-team-role-executor.js": "1be06477c3575b6e90c88e6af352db04795f2cc3bf704e13e1bd3fb83af14004",
+      "dist/main/composition/issue-team-role-executor.js": "108e1af8b8085b40d4c637ff8e2c4bea2f01946e89d5aeaa6b0db8245c73cac3",
       "dist/main/app/single-issue-orchestrator.js": "0424922f2f2c005875fb2e9eb3d52214b39f2d904bfde83f5a462111845e9dc9",
       "dist/main/adapters/sqlite-issue-orchestration-store.js": "b5b2c4e86052149925f342b3578db061cd5580ac68a6e5530dbd3715d087fff9"
     }
