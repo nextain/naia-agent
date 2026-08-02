@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "benchmarkId": "naia-issue-team-deterministic-v1",
+  "sourceRevision": "b7e2d45ce3cb7f5aad6fd15ad3bdca1233a0c13a",
+  "paidCalls": 0,
+  "observation": {
+    "roleOrderMatches": true,
+    "writeBoundaryViolations": 0,
+    "repairCycles": 1,
+    "cleanCycles": 2,
+    "duplicateRoleEffects": 0,
+    "unknownInflightRecovery": true,
+    "receiptCount": 8,
+    "distinctReceiptIdentities": 8,
+    "allCostsMeasured": true,
+    "expectedCostUsd": 0.008,
+    "observedCostUsd": 0.008
+  },
+  "evidence": {
+    "trackedInputs": {
+      "benchmark/run-issue-team-deterministic.mjs": "7d7ceacb023efdea8574bcdc77062756417b0a3b17e8362875e4feb985c8e09b",
+      "benchmark/orchestration/issue-team-deterministic.json": "d2ea0595cdf2b1de2546249aef38ff6fc7cf64ac511ceab1a468791056895d19",
+      "src/main/app/issue-team-worker.ts": "c3ef864379ea1da51497cc2e873ebe0dee8e0f25ff55da852add11f88f720aa5",
+      "src/main/adapters/sqlite-issue-team-store.ts": "6e604d24435d9e8de1135547fd60e730a543e6cbc1b32bc98bb054e41ce2951c",
+      "src/main/domain/issue-team.ts": "0b7c6accf6f42ca12a93e711450ff61b367083f26cbda79e3796d2ef049e5c3e",
+      "src/main/domain/issue-team-benchmark.ts": "dc13287128a29d5bb0201ebe2d43c0cc4a5dc3b6012fe46d1294c30278c85243",
+      "src/main/ports/issue-team.ts": "e91ad06b36c866be0fab931c6647166fe6f5d9f9fac3282e54e57993001872d3",
+      "package.json": "639720e1b4893055f4c7943cce93fa271569cf82546b98a6d2538a31fe9e049a",
+      "pnpm-lock.yaml": "9634967eeab33d2d1382fed3e452c47fc695328b33177b3eea0084cba0c69ed7",
+      "tsconfig.json": "38204ea85e3c37122c6a44fc86255d6e2d653fd549facb84f5a91ddda743f5d2"
+    },
+    "runtimeModules": {
+      "dist/main/app/issue-team-worker.js": "44799c94966303fda9b80ff7bb229f3ecb818a397a9c9853a2f835c2093b54eb",
+      "dist/main/adapters/sqlite-issue-team-store.js": "5de30dd40d3b7e94adcba686228276ef257a0d9dfcbacb7e57de8800b8b710c8",
+      "dist/main/domain/issue-team-benchmark.js": "bde2cee038579888356cc9c9afd81b5ba1ba28c407d2a73a63383b9a0ff52b8e"
+    }
+  },
+  "gates": {
+    "ordering": true,
+    "writeBoundary": true,
+    "convergence": true,
+    "duplicateDispatch": true,
+    "recovery": true,
+    "receiptIsolation": true,
+    "costAccounting": true
+  },
+  "claimAllowed": true
+}
