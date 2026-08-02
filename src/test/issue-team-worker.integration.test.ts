@@ -138,4 +138,19 @@ describe("REQ-023 durable issue-team worker", () => {
     expect(store.get(input().dispatchId)).toMatchObject({ state: "failed", receipts: [{ workerRole: "explorer" }] });
     store.close();
   });
+
+  it("rejects non-string finding fields and exposes all prior paid receipts to the parent", async () => {
+    const root = mkdtempSync(join(tmpdir(), "issue-team-")); roots.push(root);
+    const store = new SqliteIssueTeamStore(join(root, "team.db")); let n = 0;
+    const worker = makeIssueTeamWorker({ store, worktrees: { allocate() { return { workspacePath: "/repo", worktreePath: "/managed/team", branch: "naia/team", leaseId: "lease", release() {} }; } },
+      roles: { async execute(value) { const role = (["explorer", "implementer", "tester"] as const)[n]!; n += 1;
+        const valid = role === "explorer" ? result(role, "proceed") : role === "implementer" ? result(role, "implemented")
+          : { version: 1, role, decision: "fail", summary: "bad finding", findings: [{ code: 7, message: "numeric" }] } as unknown as IssueTeamRoleResult;
+        return { result: valid, receipt: receipt(role, value.stepId, n) }; } } });
+    const error = await worker.execute(input()).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).toMatchObject({ receipts: [{ workerRole: "explorer" }, { workerRole: "implementer" }, { workerRole: "tester" }] });
+    expect(store.get(input().dispatchId)?.receipts).toHaveLength(3);
+    store.close();
+  });
 });

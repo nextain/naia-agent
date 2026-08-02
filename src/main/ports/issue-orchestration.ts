@@ -14,7 +14,7 @@ import type {
 
 /** A paid actor completed and produced a trustworthy receipt, but its semantic result was rejected. */
 export class IssueActorResultError extends Error {
-  constructor(message: string, readonly receipt: ActorReceipt) { super(message); this.name = "IssueActorResultError"; }
+  constructor(message: string, readonly receipt: ActorReceipt, readonly receipts?: readonly ActorReceipt[]) { super(message); this.name = "IssueActorResultError"; }
 }
 
 export interface NaiaFacingPort {

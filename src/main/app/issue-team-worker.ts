@@ -89,6 +89,7 @@ export function makeIssueTeamWorker(options: IssueTeamWorkerOptions): IssueWorke
         } });
       }
     } catch (error) {
+      let propagated = error;
       if (error instanceof IssueActorResultError && snapshot.state === "running" && snapshot.activeStepId) {
         try {
           assertRoleReceipt(error.receipt, snapshot.activeStepId, snapshot.nextRole, profile);
@@ -96,10 +97,11 @@ export function makeIssueTeamWorker(options: IssueTeamWorkerOptions): IssueWorke
           snapshot = options.store.save({ expectedVersion: snapshot.version, eventType: "role_failed", snapshot: {
             ...snapshot, state: "failed", activeStepId: undefined, receipts: [...snapshot.receipts, error.receipt],
           } });
+          propagated = new IssueActorResultError(error.message, error.receipt, snapshot.receipts);
         } catch { /* Invalid or concurrently changed evidence stays running/unknown. */ }
       }
       allocation?.release();
-      throw error;
+      throw propagated;
     }
   };
   return {
@@ -136,7 +138,8 @@ function assertRoleResult(result: IssueTeamRoleResult, role: IssueTeamRole): voi
     || Object.keys(result).some((key) => !["version", "role", "decision", "summary", "findings"].includes(key))) throw new Error("invalid issue-team role result");
   const codes = new Set<string>();
   for (const finding of result.findings) {
-    if (!finding.code || finding.code.length > 80 || Buffer.byteLength(finding.message, "utf8") > 2 * 1024
+    if (typeof finding.code !== "string" || !finding.code || finding.code.length > 80 || typeof finding.message !== "string"
+      || Buffer.byteLength(finding.message, "utf8") > 2 * 1024
       || Object.keys(finding).some((key) => !["code", "message"].includes(key)) || codes.has(finding.code)) throw new Error("invalid issue-team finding");
     codes.add(finding.code);
   }

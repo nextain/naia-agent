@@ -304,12 +304,14 @@ export class SingleIssueOrchestrator {
         } catch (error) {
           if (error instanceof IssueActorResultError) {
             try {
-              assertWorkerReceipts([error.receipt], error.receipt, issue.dispatchId!, issue.workerProfile!, false);
-              assertIndependent(issue.receipts, error.receipt);
+              const rejectedReceipts = error.receipts ?? [error.receipt];
+              const lead = rejectedReceipts.find((receipt) => receipt.workerRole === "implementer") ?? error.receipt;
+              assertWorkerReceipts(rejectedReceipts, lead, issue.dispatchId!, issue.workerProfile!, false);
+              for (const receipt of rejectedReceipts) assertIndependent(issue.receipts, receipt);
+              issue = this.save(issue, {
+                ...issue, state: "failed", receipts: appendReceipts(issue.receipts, rejectedReceipts), updatedAt: this.#now(),
+              }, "actor_result_rejected", { role: "worker", category: errorName(error) });
             } catch { return this.markUnknown(issue, "worker_rejected_receipt_invalid"); }
-            issue = this.save(issue, {
-              ...issue, state: "failed", receipts: appendReceipt(issue.receipts, error.receipt), updatedAt: this.#now(),
-            }, "actor_result_rejected", { role: "worker", category: errorName(error) });
             return this.grounded(issue);
           }
           issue = this.save(issue, { ...issue, state: "outcome_unknown", updatedAt: this.#now() }, "worker_outcome_unknown", { category: errorName(error) });
