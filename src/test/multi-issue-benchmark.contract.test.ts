@@ -1,17 +1,25 @@
+import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { evaluateMultiIssueBenchmark, type MultiIssueBenchmarkObservation } from "../main/domain/multi-issue-benchmark.js";
 
 const runnerPath = fileURLToPath(new URL("../../benchmark/run-multi-issue-deterministic.mjs", import.meta.url));
+const artifactPath = fileURLToPath(new URL("../../benchmark/results/multi-issue-deterministic.json", import.meta.url));
+let cachedObservation: MultiIssueBenchmarkObservation | undefined;
 
 function actualObservation(): MultiIssueBenchmarkObservation {
-  const run = spawnSync(process.execPath, [runnerPath], { encoding: "utf8" });
+  if (cachedObservation) return cachedObservation;
+  const artifactBytes = readFileSync(artifactPath, "utf8");
+  const artifact = JSON.parse(artifactBytes) as { sourceRevision: string };
+  const run = spawnSync(process.execPath, [runnerPath, "--source-revision", artifact.sourceRevision], { encoding: "utf8" });
   expect(run.status, run.stderr).toBe(0);
+  expect(run.stdout).toBe(artifactBytes);
   const result = JSON.parse(run.stdout) as { paidCalls: number; claimAllowed: boolean; observation: MultiIssueBenchmarkObservation };
   expect(result.paidCalls).toBe(0);
   expect(result.claimAllowed).toBe(true);
-  return result.observation;
+  cachedObservation = result.observation;
+  return cachedObservation;
 }
 
 describe("UC-ORCH-002 deterministic benchmark claim gates", () => {

@@ -13,7 +13,28 @@ const corpusPath = fileURLToPath(new URL("./orchestration/multi-issue-determinis
 const corpus = JSON.parse(readFileSync(corpusPath, "utf8"));
 if (corpus.paidCalls !== 0) throw new Error("deterministic benchmark must make zero paid calls");
 const root = mkdtempSync(join(tmpdir(), "naia-multi-benchmark-"));
-const sourceRevision = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8", cwd: fileURLToPath(new URL("..", import.meta.url)) }).trim();
+const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
+const sourceArgument = process.argv.indexOf("--source-revision");
+const sourceRevision = sourceArgument >= 0 ? process.argv[sourceArgument + 1] : execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8", cwd: repositoryRoot }).trim();
+if (!sourceRevision || !/^[0-9a-f]{40}$/u.test(sourceRevision)) throw new Error("source revision must be a full commit hash");
+execFileSync("git", ["merge-base", "--is-ancestor", sourceRevision, "HEAD"], { cwd: repositoryRoot });
+const trackedInputs = [
+  "benchmark/run-multi-issue-deterministic.mjs",
+  "benchmark/orchestration/multi-issue-deterministic.json",
+  "src/main/adapters/sqlite-multi-issue-session-store.ts",
+  "src/main/app/multi-issue-session-manager.ts",
+  "src/main/domain/multi-issue-benchmark.ts",
+  "src/main/domain/multi-issue-session.ts",
+  "src/main/ports/multi-issue-session.ts",
+  "package.json", "pnpm-lock.yaml", "tsconfig.json"
+];
+execFileSync("git", ["diff", "--quiet", sourceRevision, "HEAD", "--", ...trackedInputs], { cwd: repositoryRoot });
+const runtimeModules = [
+  "dist/main/adapters/sqlite-multi-issue-session-store.js",
+  "dist/main/app/multi-issue-session-manager.js",
+  "dist/main/domain/multi-issue-benchmark.js",
+  "dist/main/domain/multi-issue-session.js"
+];
 
 class DeterministicIssues {
   snapshots = new Map();
@@ -138,7 +159,11 @@ try {
   const evaluation = evaluateMultiIssueBenchmark(observation);
   const result = { schemaVersion: corpus.schemaVersion, benchmarkId: corpus.benchmarkId, sourceRevision, paidCalls: 0, observation,
     evidence: { sessionStates: portfolio.sessions.map(({ sessionId, issueId, state }) => ({ sessionId, issueId, state })),
-      restart: { starts: restartIssues.starts, effectApplications: restartIssues.effectApplications, finalState: recoveredSession.state } },
+      restart: { starts: restartIssues.starts, effectApplications: restartIssues.effectApplications, finalState: recoveredSession.state },
+      provenance: {
+        trackedInputs: Object.fromEntries(trackedInputs.map((path) => [path, sha256(join(repositoryRoot, path))])),
+        runtimeModules: Object.fromEntries(runtimeModules.map((path) => [path, sha256(join(repositoryRoot, path))]))
+      } },
     ...evaluation };
   const serialized = `${JSON.stringify(result, null, 2)}\n`;
   const outputIndex = process.argv.indexOf("--output");
@@ -154,3 +179,5 @@ try {
 } finally {
   rmSync(root, { recursive: true, force: true });
 }
+
+function sha256(path) { return createHash("sha256").update(readFileSync(path)).digest("hex"); }
