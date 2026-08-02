@@ -84,6 +84,7 @@ export class PersonalRadioDjController {
   private generation = 0;
   private operationEpoch = 0;
   private preserveLatePlaybackEpochs = new Set<number>();
+  private replacementInFlight: Promise<void> | undefined;
   private intervalMs = 0;
   private commentIndex = 0;
   private yieldGeneration = 0;
@@ -264,6 +265,7 @@ export class PersonalRadioDjController {
 
   async stop(): Promise<void> {
     this.cancelScheduled();
+    this.replacementInFlight = undefined;
     this.preserveLatePlaybackEpochs.clear();
     this.generation++;
     this.operationEpoch++;
@@ -398,7 +400,21 @@ export class PersonalRadioDjController {
     this.scheduleComment();
   }
 
-  private async replaceSelection(changeVibe: boolean, generation: number, operationEpoch: number): Promise<void> {
+  private replaceSelection(changeVibe: boolean, generation: number, operationEpoch: number): Promise<void> {
+    if (this.replacementInFlight) return this.replacementInFlight;
+    const attempt = this.runReplacementSelection(changeVibe, generation, operationEpoch);
+    const tracked = attempt.finally(() => {
+      if (this.replacementInFlight === tracked) this.replacementInFlight = undefined;
+    });
+    this.replacementInFlight = tracked;
+    return tracked;
+  }
+
+  private async runReplacementSelection(
+    changeVibe: boolean,
+    generation: number,
+    operationEpoch: number,
+  ): Promise<void> {
     if (!this.config || !this.activityId || !this.requestId) return;
     const activityId = this.activityId;
     const requestId = this.requestId;
@@ -422,7 +438,7 @@ export class PersonalRadioDjController {
         signal: this.activityAbort?.signal,
       });
     } catch {
-      await this.failAndResumeComments(generation, activityId, operationEpoch, "다른 분위기의 음악을 준비하지 못했어요.");
+      await this.failAndWaitForUserRetry(generation, activityId, operationEpoch, "다른 분위기의 음악을 준비하지 못했어요.");
       return;
     }
     if (!this.isOperationCurrent(generation, activityId, operationEpoch)) {
@@ -434,8 +450,7 @@ export class PersonalRadioDjController {
     if (!played.ok) {
       await this.speak("다른 분위기의 음악을 찾지 못했어요.");
       if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
-      this.currentState = "dj_speaking";
-      this.scheduleComment();
+      this.currentState = "music_only";
       return;
     }
     await this.speak(renderPlayIntro(played.title));
@@ -580,6 +595,7 @@ export class PersonalRadioDjController {
 
   private deactivateCurrent(): void {
     this.cancelScheduled();
+    this.replacementInFlight = undefined;
     this.preserveLatePlaybackEpochs.clear();
     this.operationEpoch++;
     this.activityAbort?.abort();
@@ -607,12 +623,16 @@ export class PersonalRadioDjController {
     this.armIdle();
   }
 
-  private async failAndResumeComments(generation: number, activityId: string, operationEpoch: number, text: string): Promise<void> {
+  private async failAndWaitForUserRetry(
+    generation: number,
+    activityId: string,
+    operationEpoch: number,
+    text: string,
+  ): Promise<void> {
     if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
     try { await this.speak(text); } catch { /* no-throw activity boundary */ }
     if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
-    this.currentState = "dj_speaking";
-    this.scheduleComment();
+    this.currentState = "music_only";
   }
 
 }

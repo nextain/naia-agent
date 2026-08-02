@@ -245,6 +245,33 @@ describe("personal radio DJ MVP contract", () => {
     expect(h.speechClose).not.toHaveBeenCalled();
   });
 
+  it("DJ-06 recovery: 교체 실패는 안내 한 번 뒤 멈추고 동시 요청과 타이머가 재시도하지 않는다", async () => {
+    const h = harness();
+    await h.scheduler.advance(1_000);
+    let resolveReplacement!: (value: { ok: false; reason: string }) => void;
+    vi.mocked(h.bgm.searchAndPlay).mockImplementationOnce(
+      () => new Promise((resolve) => { resolveReplacement = resolve; }),
+    );
+
+    const next = h.controller.control({ kind: "next" });
+    const vibe = h.controller.control({ kind: "change_vibe" });
+    for (let i = 0; i < 10 && !resolveReplacement; i++) await Promise.resolve();
+    expect(resolveReplacement).toBeTypeOf("function");
+    expect(vi.mocked(h.bgm.searchAndPlay)).toHaveBeenCalledTimes(2);
+
+    resolveReplacement({ ok: false, reason: "iframe_playing_not_observed" });
+    await Promise.all([next, vibe]);
+    expect(h.controller.state()).toBe("music_only");
+    expect(h.spoken.filter((text) => text === "다른 분위기의 음악을 찾지 못했어요.")).toHaveLength(1);
+
+    const attemptsAfterFailure = vi.mocked(h.bgm.searchAndPlay).mock.calls.length;
+    const speechAfterFailure = h.spoken.length;
+    await h.scheduler.advance(60 * 60 * 1_000);
+    expect(vi.mocked(h.bgm.searchAndPlay)).toHaveBeenCalledTimes(attemptsAfterFailure);
+    expect(h.spoken).toHaveLength(speechAfterFailure);
+    expect(h.scheduler.pendingCount()).toBeLessThanOrEqual(1);
+  });
+
   it("DJ-06: next는 player가 확인한 다른 영상 제목만 말하고, 중복 결과는 새 선곡으로 되돌린다", async () => {
     const changed = harness({
       currentBgm: { videoId: "v1", title: "처음 영상" },
