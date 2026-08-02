@@ -6,6 +6,7 @@ import { SqliteIssueOrchestrationStore } from "../main/adapters/sqlite-issue-orc
 import { SingleIssueOrchestrator } from "../main/app/single-issue-orchestrator.js";
 import { groundedIssueCommentary, type ActorReceipt } from "../main/domain/issue-orchestration.js";
 import type { IssueTeamProfile, IssueTeamRole } from "../main/domain/issue-team.js";
+import { IssueActorResultError } from "../main/ports/issue-orchestration.js";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -49,6 +50,26 @@ describe("REQ-023 parent issue verification boundary", () => {
     const snapshot = orchestrator.snapshot("issue-1");
     expect(snapshot.receipts.filter((item) => item.role === "worker")).toHaveLength(4);
     expect(snapshot.receipts.map((item) => item.workerRole).filter(Boolean)).toEqual(["explorer", "implementer", "tester", "reviewer"]);
+    store.close();
+  });
+
+  it("preserves a paid team-role receipt when structured role output is rejected", async () => {
+    const root = mkdtempSync(join(tmpdir(), "issue-team-rejected-")); roots.push(root);
+    const store = new SqliteIssueOrchestrationStore(join(root, "issues.db")); let n = 0;
+    const selected = team.roles.explorer;
+    const rejected = { ...actor("worker", "issue-1:dispatch:1:explorer:1", 20, selected.binding.provider, selected.binding.model),
+      workerRole: "explorer" as const, agentProfileId: selected.agentProfileId, agentKind: selected.agentKind };
+    const orchestrator = new SingleIssueOrchestrator({ store, ids: () => "issue-1", now: () => "2026-08-02T00:00:00Z",
+      facing: { async classify(input) { return { classification: { kind: "work", obligations: input.requiredObligations }, receipt: actor("naia", input.idempotencyKey, ++n, "naia", "luna") }; } },
+      moderator: { async plan(input) { return { plan: { workerTask: "fix", workerProfile: "team", acceptanceChecks: ["check"], questions: [] }, receipt: actor("moderator", input.idempotencyKey, ++n, "codex", "sol") }; } },
+      worker: { async execute() { throw new IssueActorResultError("malformed explorer JSON", rejected); } },
+      verifier: { async verify() { throw new Error("must not verify"); } },
+      reporter: { async report() { throw new Error("must not report"); } },
+    });
+    const report = await orchestrator.start({ requestId: "request-rejected", text: "fix", requiredObligations: ["fix"], workspacePath: "/repo",
+      naiaBinding: { provider: "naia", model: "luna" }, moderatorBinding: { provider: "codex", model: "sol" }, workerProfiles: { team } });
+    expect(report).toMatchObject({ state: "failed", totalCost: { state: "measured", usd: 0.03 } });
+    expect(orchestrator.snapshot("issue-1").receipts.at(-1)).toMatchObject({ workerRole: "explorer", idempotencyKey: rejected.idempotencyKey });
     store.close();
   });
 });

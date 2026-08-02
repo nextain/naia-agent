@@ -302,7 +302,7 @@ export class SingleIssueOrchestrator {
         } catch (error) {
           if (error instanceof IssueActorResultError) {
             try {
-              assertReceipt(error.receipt, "worker", issue.dispatchId!);
+              assertWorkerReceipts([error.receipt], error.receipt, issue.dispatchId!, issue.workerProfile!, false);
               assertIndependent(issue.receipts, error.receipt);
             } catch { return this.markUnknown(issue, "worker_rejected_receipt_invalid"); }
             issue = this.save(issue, {
