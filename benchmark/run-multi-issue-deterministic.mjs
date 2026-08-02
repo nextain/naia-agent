@@ -3,16 +3,12 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { SqliteMultiIssueSessionStore } from "../dist/main/adapters/sqlite-multi-issue-session-store.js";
-import { MultiIssueSessionManager } from "../dist/main/app/multi-issue-session-manager.js";
-import { evaluateMultiIssueBenchmark } from "../dist/main/domain/multi-issue-benchmark.js";
+import { join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const corpusPath = fileURLToPath(new URL("./orchestration/multi-issue-deterministic.json", import.meta.url));
 const corpus = JSON.parse(readFileSync(corpusPath, "utf8"));
 if (corpus.paidCalls !== 0) throw new Error("deterministic benchmark must make zero paid calls");
-const root = mkdtempSync(join(tmpdir(), "naia-multi-benchmark-"));
 const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
 const sourceArgument = process.argv.indexOf("--source-revision");
 const sourceRevision = sourceArgument >= 0 ? process.argv[sourceArgument + 1] : execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8", cwd: repositoryRoot }).trim();
@@ -22,6 +18,7 @@ const trackedInputs = [
   "benchmark/run-multi-issue-deterministic.mjs",
   "benchmark/orchestration/multi-issue-deterministic.json",
   "src/main/adapters/sqlite-multi-issue-session-store.ts",
+  "src/main/adapters/redact.ts",
   "src/main/app/multi-issue-session-manager.ts",
   "src/main/domain/multi-issue-benchmark.ts",
   "src/main/domain/multi-issue-session.ts",
@@ -29,12 +26,21 @@ const trackedInputs = [
   "package.json", "pnpm-lock.yaml", "tsconfig.json"
 ];
 execFileSync("git", ["diff", "--quiet", sourceRevision, "HEAD", "--", ...trackedInputs], { cwd: repositoryRoot });
+execFileSync("git", ["diff", "--quiet", "--", ...trackedInputs], { cwd: repositoryRoot });
+execFileSync("git", ["diff", "--cached", "--quiet", "--", ...trackedInputs], { cwd: repositoryRoot });
+const distArgument = process.argv.indexOf("--dist-dir");
+const distRoot = distArgument >= 0 ? resolve(process.argv[distArgument + 1] ?? "") : join(repositoryRoot, "dist");
 const runtimeModules = [
-  "dist/main/adapters/sqlite-multi-issue-session-store.js",
-  "dist/main/app/multi-issue-session-manager.js",
-  "dist/main/domain/multi-issue-benchmark.js",
-  "dist/main/domain/multi-issue-session.js"
+  "main/adapters/sqlite-multi-issue-session-store.js",
+  "main/adapters/redact.js",
+  "main/app/multi-issue-session-manager.js",
+  "main/domain/multi-issue-benchmark.js",
+  "main/domain/multi-issue-session.js"
 ];
+const { SqliteMultiIssueSessionStore } = await import(pathToFileURL(join(distRoot, "main/adapters/sqlite-multi-issue-session-store.js")));
+const { MultiIssueSessionManager } = await import(pathToFileURL(join(distRoot, "main/app/multi-issue-session-manager.js")));
+const { evaluateMultiIssueBenchmark } = await import(pathToFileURL(join(distRoot, "main/domain/multi-issue-benchmark.js")));
+const root = mkdtempSync(join(tmpdir(), "naia-multi-benchmark-"));
 
 class DeterministicIssues {
   snapshots = new Map();
@@ -162,7 +168,7 @@ try {
       restart: { starts: restartIssues.starts, effectApplications: restartIssues.effectApplications, finalState: recoveredSession.state },
       provenance: {
         trackedInputs: Object.fromEntries(trackedInputs.map((path) => [path, sha256(join(repositoryRoot, path))])),
-        runtimeModules: Object.fromEntries(runtimeModules.map((path) => [path, sha256(join(repositoryRoot, path))]))
+        runtimeModules: Object.fromEntries(runtimeModules.map((path) => [`dist/${path}`, sha256(join(distRoot, path))]))
       } },
     ...evaluation };
   const serialized = `${JSON.stringify(result, null, 2)}\n`;
