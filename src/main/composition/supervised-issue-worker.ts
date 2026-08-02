@@ -19,6 +19,7 @@ export function makeSupervisedIssueWorker(options: SupervisedIssueWorkerOptions)
   const completed = new Map<string, WorkerResult>();
   return {
     async execute(input): Promise<WorkerResult> {
+      if (!input.binding) throw new Error("legacy worker binding is required");
       const prior = completed.get(input.dispatchId);
       if (prior) return prior;
       const startedAt = (options.nowMs ?? Date.now)();

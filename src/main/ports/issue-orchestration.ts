@@ -47,12 +47,15 @@ export interface IssueWorkerPort {
     readonly task: string;
     readonly obligations: readonly string[];
     readonly profileId: string;
-    readonly binding: ActorBinding;
+    readonly profile?: import("../domain/issue-team.js").WorkerProfile;
+    readonly binding?: ActorBinding;
     readonly acceptanceChecks: readonly string[];
     readonly signal: AbortSignal;
   }): Promise<WorkerResult>;
   /** Returns an exact persisted result for a prior dispatch, or undefined when its outcome cannot be proven. */
   reconcile?(dispatchId: string): Promise<WorkerResult | undefined>;
+  /** A durable worker may resume only a proven undispatched step; undefined means outcome unknown. */
+  recover?(input: Parameters<IssueWorkerPort["execute"]>[0]): Promise<WorkerResult | undefined>;
 }
 
 export interface IssueVerifierPort {

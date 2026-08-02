@@ -5,7 +5,7 @@
     "UC11", "UC12", "UC12-min", "UC12a", "UC13", "UC13a", "UC14",
     "UC-provider-provenance",
     "UC-PERSONA-CLI", "UC-WORKSPACE-CTX", "UC-FS-TOOLS", "UC-ENV-SEGMENTS", "UC-KNOWLEDGE",
-    "UC-023", "UC-ORCH-001", "UC-ORCH-002"
+    "UC-023", "UC-ORCH-001", "UC-ORCH-002", "UC-ORCH-003"
   ],
   "in_scope_source": {
     "UC1": "old user-scenarios.md:16 텍스트 대화",
@@ -33,7 +33,8 @@
     "UC-KNOWLEDGE": "사용자 명시 지시(2026-06-29~30 'naia-kb-compiler와 naia-agent·naia-adk 연계 및 naia-os 연동' 통합 작업) + 설계 SoT(alpha-adk .agents/progress/naia-kb-compiler-agent-os-integration-2026-06-29.md, 적대리뷰 3R·V1) + 에픽 nextain/naia-kb-compiler#1. 코어가 컴파일된 워크스페이스 KB(naia-kb-compiler)를 read-only 풀 도구(skill_knowledge_search/ask)로 노출 — memory(푸시)와 직교한 풀. ToolExecutorPort 도구 그룹(UC5 동족, 외부 엔진 backend 주입). AI 신조 아님=루크 지시 통합. K1a-1=어댑터+계약테스트, K1a-2=compose 실 backend(openWorkspaceKnowledge)+cross-repo 배선 후속.",
     "UC-023": "사용자 명시 지시(2026-07-31): naia-agent 자체 CLI의 설정·계정 관리·모델·진단·세션 기능을 Claude Code/OpenCode/Codex처럼 기획·개발하고 UC/FE/통합 테스트까지 완료. GitHub #97, REQ-020, .agents/progress/issue-97-first-class-cli.md.",
     "UC-ORCH-001": "사용자 명시 지시(2026-08-01): Naia(24GB 로컬 대역 Luna) → Sol 개발 모더레이터 → 격리 이슈 1 → 역할별 Codex 작업자 → 검증·근거 보고의 첫 수직 구조. 외부 SoT alpha-adk naia-development-orchestration.yaml S1~S3 및 REQ-021.",
-    "UC-ORCH-002": "사용자 명시 지시(2026-08-02): Naia가 다중 이슈를 독립 세션으로 생성·배정·감시하고 정한 모델 프로파일로 처리하며, 다중 세션 가시성을 제공하는 다음 단계. 외부 SoT alpha-adk naia-development-orchestration.yaml issue_sessions/S5 및 REQ-022. Discord ingress·naia-shell UI 활성화는 후속 단계."
+    "UC-ORCH-002": "사용자 명시 지시(2026-08-02): Naia가 다중 이슈를 독립 세션으로 생성·배정·감시하고 정한 모델 프로파일로 처리하며, 다중 세션 가시성을 제공하는 다음 단계. 외부 SoT alpha-adk naia-development-orchestration.yaml issue_sessions/S5 및 REQ-022. Discord ingress·naia-shell UI 활성화는 후속 단계.",
+    "UC-ORCH-003": "사용자 명시 지시(2026-08-02): Discord 실제 ingress 전까지 한 이슈 내부의 explorer/implementer/tester/reviewer 협업과 Codex/OpenCode/naia-agent(Pi) 역할 프로파일 결합을 구현·검증. 외부 SoT alpha-adk naia-development-orchestration.yaml S4 및 S5 adapter portion."
   },
   "out_of_scope_uc": {
     "UC-memory": "메모리 연결(naia-memory ↔ new-naia-agent)=다른 세션 소유. 앵커: '이 goal로 끌어오지 말 것, 새로 짓거나 고치지 말 것, gRPC=memory-side 선행'. 여기서 만들면 드리프트.",

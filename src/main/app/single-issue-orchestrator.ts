@@ -19,6 +19,7 @@ import type {
 } from "../ports/issue-orchestration.js";
 import { IssueActorResultError } from "../ports/issue-orchestration.js";
 import type { DiagnosticLog } from "../ports/uc1.js";
+import { assertIssueTeamProfile, isActorBinding, type WorkerProfile } from "../domain/issue-team.js";
 
 export interface SingleIssueOrchestratorDeps {
   readonly store: IssueOrchestrationStore;
@@ -225,8 +226,8 @@ export class SingleIssueOrchestrator {
           }, "moderator_plan_rejected", { category: errorName(error) });
           return this.grounded(issue);
         }
-        const workerBinding = issue.workerProfiles[result.plan.workerProfile];
-        if (!workerBinding) {
+        const workerProfile = issue.workerProfiles[result.plan.workerProfile];
+        if (!workerProfile) {
           issue = this.save(issue, {
             ...issue, state: "failed", plan: result.plan, receipts: moderatorReceipts, updatedAt: this.#now(),
           }, "moderator_profile_rejected", { profileId: result.plan.workerProfile });
@@ -238,7 +239,8 @@ export class SingleIssueOrchestrator {
           ...issue,
           state: nextState,
           plan: result.plan,
-          workerBinding,
+          workerProfile,
+          ...(isActorBinding(workerProfile) ? { workerBinding: workerProfile } : {}),
           dispatchId: nextState === "dispatch_ready" ? issue.dispatchId ?? `${issue.issueId}:dispatch:1` : issue.dispatchId,
           receipts: moderatorReceipts,
           updatedAt: this.#now(),
@@ -268,22 +270,32 @@ export class SingleIssueOrchestrator {
               task: issue.plan!.workerTask,
               obligations: issue.requiredObligations,
               profileId: issue.plan!.workerProfile,
-              binding: issue.workerBinding!,
+              profile: issue.workerProfile!,
+              ...(issue.workerBinding ? { binding: issue.workerBinding } : {}),
               acceptanceChecks: issue.plan!.acceptanceChecks,
               signal,
             })
-            : await this.d.worker.reconcile?.(issue.dispatchId!);
+            : this.d.worker.recover
+              ? await this.d.worker.recover({
+                issueId, dispatchId: issue.dispatchId!, workspacePath: issue.workspacePath,
+                task: issue.plan!.workerTask, obligations: issue.requiredObligations,
+                profileId: issue.plan!.workerProfile, profile: issue.workerProfile!,
+                ...(issue.workerBinding ? { binding: issue.workerBinding } : {}),
+                acceptanceChecks: issue.plan!.acceptanceChecks, signal,
+              })
+              : await this.d.worker.reconcile?.(issue.dispatchId!);
           if (!worker) {
             issue = this.save(issue, { ...issue, state: "outcome_unknown", updatedAt: this.#now() }, "worker_outcome_unknown", { category: "unreconciled_restart" });
             return this.grounded(issue);
           }
-          assertReceipt(worker.receipt, "worker", issue.dispatchId!, issue.workerBinding);
-          assertIndependent(issue.receipts, worker.receipt);
+          const workerReceipts = worker.receipts ?? [worker.receipt];
+          assertWorkerReceipts(workerReceipts, worker.receipt, issue.dispatchId!, issue.workerProfile!, worker.ok);
+          for (const receipt of workerReceipts) assertIndependent(issue.receipts, receipt);
           issue = this.save(issue, {
             ...issue,
             state: worker.ok ? "verifying" : "reporting",
             worker,
-            receipts: appendReceipt(issue.receipts, worker.receipt),
+            receipts: appendReceipts(issue.receipts, workerReceipts),
             updatedAt: this.#now(),
           }, worker.ok ? "worker_completed" : "worker_failed", { changedFiles: worker.changedFiles.length });
           verifierDispatchedInThisCall = worker.ok;
@@ -528,10 +540,13 @@ function validateStart(request: IssueStartRequest): void {
   }
   const profiles = Object.entries(request.workerProfiles);
   if (profiles.length === 0) throw new Error("at least one worker profile is required");
-  for (const [profileId, binding] of profiles) {
-    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(profileId) || !validBinding(binding)) {
+  for (const [profileId, profile] of profiles) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(profileId)) {
       throw new Error("invalid worker profile binding");
     }
+    if (isActorBinding(profile)) {
+      if (!validBinding(profile)) throw new Error("invalid worker profile binding");
+    } else assertIssueTeamProfile(profile);
   }
 }
 
@@ -555,8 +570,44 @@ function requestFingerprint(request: IssueStartRequest): string {
     naiaBinding: binding(request.naiaBinding),
     moderatorBinding: binding(request.moderatorBinding),
     workerProfiles: Object.fromEntries(Object.entries(request.workerProfiles).sort(([left], [right]) => left.localeCompare(right))
-      .map(([profileId, value]) => [profileId, binding(value)])),
+      .map(([profileId, value]) => [profileId, workerProfileFingerprint(value)])),
   });
+}
+
+function workerProfileFingerprint(value: WorkerProfile): unknown {
+  if (isActorBinding(value)) return { kind: "legacy", provider: value.provider, model: value.model, reasoningEffort: value.reasoningEffort ?? null };
+  return {
+    kind: "team", maxRepairCycles: value.maxRepairCycles, requiredCleanCycles: value.requiredCleanCycles,
+    roles: Object.fromEntries(Object.entries(value.roles).sort(([a], [b]) => a.localeCompare(b)).map(([role, declared]) => [role, {
+      agentProfileId: declared.agentProfileId, agentKind: declared.agentKind, filesystemAccess: declared.filesystemAccess,
+      provider: declared.binding.provider, model: declared.binding.model, reasoningEffort: declared.binding.reasoningEffort ?? null,
+    }])),
+  };
+}
+
+function assertWorkerReceipts(receipts: readonly ActorReceipt[], lead: ActorReceipt, dispatchId: string, profile: WorkerProfile, workerOk: boolean): void {
+  if (receipts.length === 0 || !receipts.some((receipt) => receipt.idempotencyKey === lead.idempotencyKey
+    && JSON.stringify(receipt) === JSON.stringify(lead))) throw new Error("invalid worker receipt collection");
+  const sessions = new Set<string>(); const executions = new Set<string>(); const keys = new Set<string>();
+  for (const receipt of receipts) {
+    assertReceipt(receipt, "worker", receipt.idempotencyKey);
+    if (!receipt.idempotencyKey.startsWith(`${dispatchId}:`) && receipt.idempotencyKey !== dispatchId) throw new Error("invalid worker attempt key");
+    if (sessions.has(receipt.sessionId) || executions.has(receipt.executionId) || keys.has(receipt.idempotencyKey)) throw new Error("duplicate worker receipt identity");
+    sessions.add(receipt.sessionId); executions.add(receipt.executionId); keys.add(receipt.idempotencyKey);
+  }
+  if (isActorBinding(profile)) {
+    if (receipts.length !== 1 || !receiptMatchesBinding(lead, profile)) throw new Error("invalid legacy worker receipt");
+    return;
+  }
+  const roles = new Set(receipts.map((receipt) => receipt.workerRole));
+  for (const receipt of receipts) {
+    if (!receipt.workerRole || !receipt.agentProfileId || !receipt.agentKind) throw new Error("incomplete team worker receipt");
+    const declared = profile.roles[receipt.workerRole];
+    if (receipt.agentProfileId !== declared.agentProfileId || receipt.agentKind !== declared.agentKind || !receiptMatchesBinding(receipt, declared.binding)) {
+      throw new Error("team worker receipt profile mismatch");
+    }
+  }
+  if (workerOk) for (const role of ["explorer", "implementer", "tester", "reviewer"] as const) if (!roles.has(role)) throw new Error(`missing ${role} worker receipt`);
 }
 
 function assertReceipt(receipt: ActorReceipt, role: ActorReceipt["role"], expectedKey: string, binding?: { provider: string; model: string; reasoningEffort?: string }): void {
@@ -605,6 +656,10 @@ function appendReceipt(receipts: readonly ActorReceipt[], next: ActorReceipt): r
   if (!prior) return [...receipts, next];
   if (JSON.stringify(prior) !== JSON.stringify(next)) throw new Error("idempotency receipt mismatch");
   return receipts;
+}
+
+function appendReceipts(receipts: readonly ActorReceipt[], additions: readonly ActorReceipt[]): readonly ActorReceipt[] {
+  return additions.reduce<readonly ActorReceipt[]>((all, receipt) => appendReceipt(all, receipt), receipts);
 }
 
 function waitForExecution(ms: number, signal: AbortSignal): Promise<void> {

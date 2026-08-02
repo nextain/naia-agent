@@ -1,0 +1,54 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { SqliteIssueOrchestrationStore } from "../main/adapters/sqlite-issue-orchestration-store.js";
+import { SingleIssueOrchestrator } from "../main/app/single-issue-orchestrator.js";
+import { groundedIssueCommentary, type ActorReceipt } from "../main/domain/issue-orchestration.js";
+import type { IssueTeamProfile, IssueTeamRole } from "../main/domain/issue-team.js";
+
+const roots: string[] = [];
+afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+
+function actor(role: ActorReceipt["role"], key: string, n: number, provider: string, model: string): ActorReceipt {
+  return { role, provider, model, sessionId: `actor-session-${n}`, executionId: `actor-execution-${n}`, idempotencyKey: key,
+    tokenCountsAvailable: true, inputTokens: 10, cachedInputTokens: 0, outputTokens: 3, latencyMs: 1,
+    cost: { state: "measured", usd: 0.01, source: "fixture" } };
+}
+const team: IssueTeamProfile = { kind: "team", maxRepairCycles: 1, requiredCleanCycles: 1, roles: {
+  explorer: declared("explorer", "codex", "read_only"), implementer: declared("implementer", "opencode", "workspace_write"),
+  tester: declared("tester", "pi", "read_only"), reviewer: declared("reviewer", "codex", "read_only"),
+} };
+function declared(role: IssueTeamRole, agentKind: "codex" | "opencode" | "pi", filesystemAccess: "read_only" | "workspace_write") {
+  return { agentProfileId: `${role}-profile`, agentKind, filesystemAccess, binding: { provider: `${agentKind}-provider`, model: `${agentKind}-model` } } as const;
+}
+
+describe("REQ-023 parent issue verification boundary", () => {
+  it("persists all team receipts but fails a clean team when the independent verifier fails", async () => {
+    const root = mkdtempSync(join(tmpdir(), "issue-team-parent-")); roots.push(root);
+    const store = new SqliteIssueOrchestrationStore(join(root, "issues.db")); let n = 0;
+    const roleReceipts = (["explorer", "implementer", "tester", "reviewer"] as const).map((role, index) => {
+      const selected = team.roles[role];
+      return { ...actor("worker", `issue-1:dispatch:1:${role}:${index + 1}`, 10 + index, selected.binding.provider, selected.binding.model),
+        workerRole: role, agentProfileId: selected.agentProfileId, agentKind: selected.agentKind };
+    });
+    const lead = roleReceipts[1]!;
+    const orchestrator = new SingleIssueOrchestrator({ store, ids: () => "issue-1", now: () => "2026-08-02T00:00:00Z",
+      facing: { async classify(input) { return { classification: { kind: "work", obligations: input.requiredObligations }, receipt: actor("naia", input.idempotencyKey, ++n, "naia", "luna") }; } },
+      moderator: { async plan(input) { return { plan: { workerTask: "fix", workerProfile: "team", acceptanceChecks: ["real check"], questions: [] }, receipt: actor("moderator", input.idempotencyKey, ++n, "codex", "sol") }; } },
+      worker: { async execute() { return { ok: true, summary: "clean", worktreePath: "/managed/team", changedFiles: ["src/fix.ts"], receipt: lead, receipts: roleReceipts,
+        team: { profileId: "team", profileDigest: "digest", cleanCycles: 1, repairCycles: 0, outcomes: [] } }; } },
+      verifier: { async verify(input) { return { ok: false, checks: [{ name: "real check", pass: false }], receipt: actor("verifier", input.idempotencyKey, ++n, "verify", "deterministic") }; } },
+      reporter: { async report(input) { const state = input.issue.state; return { report: { state, issueId: input.issue.issueId,
+        summary: groundedIssueCommentary(input.issue, state), changedFiles: input.issue.worker?.changedFiles ?? [], verificationPassed: false },
+        receipt: actor("reporter", input.idempotencyKey, ++n, "naia", "luna") }; } },
+    });
+    const report = await orchestrator.start({ requestId: "request-team", text: "fix", requiredObligations: ["fix"], workspacePath: "/repo",
+      naiaBinding: { provider: "naia", model: "luna" }, moderatorBinding: { provider: "codex", model: "sol" }, workerProfiles: { team } });
+    expect(report).toMatchObject({ state: "failed", verificationPassed: false, totalCost: { state: "measured", usd: 0.08 } });
+    const snapshot = orchestrator.snapshot("issue-1");
+    expect(snapshot.receipts.filter((item) => item.role === "worker")).toHaveLength(4);
+    expect(snapshot.receipts.map((item) => item.workerRole).filter(Boolean)).toEqual(["explorer", "implementer", "tester", "reviewer"]);
+    store.close();
+  });
+});

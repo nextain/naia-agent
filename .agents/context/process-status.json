@@ -9,26 +9,26 @@
   },
 
   "current_work": {
-    "issue": "REQ-022 / UC-ORCH-002",
-    "title": "Multi-issue session management vertical",
-    "issue_doc": "docs/progress/99.dev-comm/UC-ORCH-002-multi-issue-session-manager-contract-2026-08-02.md",
+    "issue": "REQ-023 / UC-ORCH-003",
+    "title": "Profiled multi-agent collaboration inside one issue",
+    "issue_doc": "docs/progress/99.dev-comm/UC-ORCH-003-issue-team-contract-2026-08-02.md",
     "github_issue": null,
     "started": "2026-08-02",
-    "last_updated": "2026-08-02T11:23:52+09:00",
-    "status": "complete",
-    "branch": "feat/naia-multi-issue-session-manager",
-    "baseline": "57b096a8e6d7d369a7433d2f49d09e9efd393e24",
-    "implementation_revision": "bd770dc91f8766abd04c690199420c475623302a",
-    "handoff_note": "Naia durably queues, schedules, isolates, and observes multiple REQ-021 sessions with bounded concurrency; OpenCode collaboration, Discord ingress, and naia-shell UI remain later adapters.",
-    "baseline_verification": "REQ-021 branch final: build passed; full regression excluding two known baseline process tests passed 1491 with 9 skipped; compile/logging/traceability/terminology/root-structure/SDLC pass; accepted paired live benchmark passed every hard gate at source d0bbbe0; global file-anchor gate retains the same 29 pre-existing drift entries"
+    "last_updated": "2026-08-02T21:35:00+09:00",
+    "status": "development",
+    "branch": "feat/naia-issue-team-orchestration",
+    "baseline": "56af76284bd5bbb78400be7827a717cb75dc14b3",
+    "implementation_revision": null,
+    "handoff_note": "Implement S4 issue-team collaboration and the remaining S5 Codex/OpenCode/built-in-Pi adapter composition; stop before actual Discord ingress and naia-shell UI.",
+    "baseline_verification": "REQ-022 final branch: structure and charter gates pass. Full baseline rerun: 133 files passed, 1515 tests passed, 10 skipped; the same two documented environment-sensitive process tests fail (doctor status expectation and nested stored-login credential selection/timeout)."
   },
 
   "sdlc_gates": {
-    "P01": { "status": "done", "name": "user_scenarios", "deliverable": "UC-ORCH-002", "ref": "docs/user-scenarios.md" },
-    "P02": { "status": "done", "name": "test_scenarios", "deliverable": "ten deterministic identity, scheduling, isolation, cross-process recovery, budget, layer-boundary, visibility, and benchmark scenarios", "ref": "docs/user-scenarios.md#uc-orch-002--naia-manages-multiple-coding-issues-as-visible-independent-sessions" },
-    "P03": { "status": "done", "name": "requirements", "deliverable": "FR-MULTI-001~010 and NFR-MULTI-001~004", "ref": "docs/requirements.md#req-022--multi-issue-session-management-vertical" },
-    "P04": { "status": "done", "name": "integration_test", "deliverable": "leased multi-session manager, SQLite store, additive REQ-021 ensure boundary, eleven integration scenarios, layer gate, and implementation-derived zero-paid-call benchmark", "ref": "src/test/multi-issue-*.test.ts" },
-    "P05": { "status": "done", "name": "requirements_complete", "deliverable": "implementation-derived artifact, full verification, review ledger, and two consecutive external Clean reviews on the unchanged final candidate", "ref": ".agents/reviews/r-req-022-multi-issue-session-manager-2026-08-02.json" }
+    "P01": { "status": "done", "name": "user_scenarios", "deliverable": "UC-ORCH-003", "ref": "docs/user-scenarios.md#uc-orch-003--one-issue-is-solved-by-a-profiled-coding-agent-team" },
+    "P02": { "status": "done", "name": "test_scenarios", "deliverable": "role order/write boundary, repair convergence, receipts, duplicate/restart, fail-closed profiles, layer boundary, and benchmark scenarios", "ref": "docs/user-scenarios.md#uc-orch-003--one-issue-is-solved-by-a-profiled-coding-agent-team" },
+    "P03": { "status": "done", "name": "requirements", "deliverable": "FR-TEAM-001~011 and NFR-TEAM-001~005", "ref": "docs/requirements.md#req-023--profiled-multi-agent-collaboration-inside-one-issue" },
+    "P04": { "status": "done", "name": "integration_test", "deliverable": "SQLite role loop, adapter profiles, parent verifier, profile and layer contracts pass", "ref": "src/test/issue-team-*.test.ts" },
+    "P05": { "status": "pending", "name": "requirements_complete", "deliverable": null, "ref": null }
   },
 
   "known_drift": {

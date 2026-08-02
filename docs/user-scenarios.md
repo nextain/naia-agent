@@ -770,3 +770,42 @@ ingress, terminal/file-opening UX, and naia-shell UI are later adapters. This sl
 | manager domain/app modules remain free of Discord, Shell, Codex-protocol, and model-SDK imports | `multi-issue-layer-boundary.contract.test.ts` |
 | aggregate admission accounts for settled cost and active reservations and blocks on unavailable cost only when a threshold is enabled | `multi-issue-session-manager.integration.test.ts` |
 | a frozen deterministic workload scores completion, isolation, fairness, concurrency, restart, visibility, and cost accounting without paid calls | `multi-issue-benchmark.contract.test.ts` |
+
+## UC-ORCH-003 — One issue is solved by a profiled coding-agent team
+
+After the development moderator selects a declared worker profile, Naia can run one issue through
+separate explorer, implementer, tester, and reviewer sessions in the same managed worktree. Each
+role is pinned to an independently declared Codex, OpenCode, or naia-agent Pi profile. The facing
+model and moderator cannot invent an adapter, model, role, or filesystem capability at runtime.
+
+Only the implementer may receive workspace-write access. Explorer, tester, and reviewer sessions
+are read-only and pass bounded, structured findings to the next role. Failed tests or review
+findings return to the implementer through a configurable, bounded repair loop. Completion requires
+the configured number of consecutive clean tester/reviewer passes plus the existing issue-level
+verifier. A model-authored claim cannot replace either check.
+
+Every role attempt has its own session, execution, idempotency, model, usage, and cost evidence.
+The issue report includes all role receipts without merging their identities or hiding unavailable
+cost. A restart after a durably completed role resumes the next undispatched role; a restart that
+finds an unacknowledged in-flight role reports `outcome_unknown` instead of blindly repeating a
+possibly mutating agent. Duplicate dispatch returns the same persisted team result.
+
+The production composition uses the existing Codex, OpenCode, and built-in Pi adapters. Pi may use
+the user's Naia account through the existing Naia gateway contract; OpenCode is an optional worker,
+not a fallback and not a dependency of the basic Codex path. This stage deliberately stops before
+Discord ingress, terminal/file-opening UX, and naia-shell visualization.
+
+### Test Coverage Map
+
+| Scenario | Contract/integration test |
+|---|---|
+| declared roles run in order in one worktree, with write access only for the implementer | `issue-team-worker.integration.test.ts` |
+| tester/reviewer findings cause bounded repair and two consecutive clean passes | `issue-team-worker.integration.test.ts` |
+| every Codex/OpenCode/Pi attempt preserves distinct identity, binding, usage, and cost evidence | `issue-team-role-executor.integration.test.ts`, `single-issue-team-receipts.integration.test.ts` |
+| duplicate dispatch returns one persisted result and does not repeat a role effect | `issue-team-worker.integration.test.ts` |
+| restart after an acknowledged role resumes safely, while an in-flight unknown role is never replayed | `issue-team-worker.integration.test.ts` |
+| undeclared profiles, adapters, roles, model mismatches, malformed results, and excess loop bounds fail closed | `issue-team-worker.integration.test.ts`, `issue-team-profile.contract.test.ts` |
+| OpenCode emits honest adapter-requested identity evidence without fabricating provider usage | `uc-cli-subagent-opencode.contract.test.ts` |
+| a clean team result still fails the issue when the independent acceptance-check verifier fails | `single-issue-team-verifier.integration.test.ts` |
+| app/domain/port layers remain free of Discord, Shell, provider SDK, and subprocess imports | `issue-team-layer-boundary.contract.test.ts` |
+| a frozen no-paid-call workload gates ordering, isolation, recovery, loop convergence, receipt coverage, and cost accounting | `issue-team-benchmark.contract.test.ts` |

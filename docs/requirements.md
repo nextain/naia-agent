@@ -629,4 +629,68 @@ The Agent and Gateway preserve these codes end to end:
   benchmark. Each issue still uses Luna-proxy → Sol moderator → one Codex worker from `REQ-021`.
   Multi-agent worker collaboration (OpenCode/naia-agent), Discord ingress, terminal/file opening, and
   naia-shell visualization are explicitly deferred adapter/product stages.
-- **Status**: In progress.
+- **Status**: Done for the declared Agent-side library and deterministic benchmark scope. Evidence:
+  `benchmark/results/multi-issue-deterministic.json` and
+  `.agents/reviews/r-req-022-multi-issue-session-manager-2026-08-02.json`.
+
+## REQ-023 — Profiled multi-agent collaboration inside one issue
+
+- **FR-TEAM-001**: A worker profile is either one legacy actor binding or a team profile containing
+  exactly one explorer, implementer, tester, and reviewer role. Every team role declares a stable
+  agent-profile id, adapter kind (`codex`, `opencode`, or `pi`), provider/model binding, and semantic
+  filesystem capability. Role names and profile ids are unique; only the implementer can request
+  workspace write. Unknown or malformed profiles fail before a role session starts.
+- **FR-TEAM-002**: One team dispatch owns one managed worktree. The normal order is explorer →
+  implementer → tester → reviewer. Structured explorer findings are supplied to implementation;
+  tester and reviewer findings are supplied to repair. Role output is bounded and schema-validated
+  before it can affect the next prompt or terminal decision. Immutable safety bounds are 64 KiB
+  collected output, 8 KiB summary, 32 findings, 80-character finding code, and 2 KiB finding message.
+  Unknown fields, duplicate codes, role/decision mismatch, or exceeded bounds reject the result and
+  raw output is never persisted.
+- **FR-TEAM-003**: A failed tester or `changes_requested` reviewer starts another implementer →
+  tester → reviewer cycle while the configured repair limit remains. Success requires the configured
+  positive number of consecutive clean tester/reviewer cycles. Repair and clean-pass bounds are
+  explicit profile settings, not an arbitrary two-minute wall-clock ceiling.
+- **FR-TEAM-004**: Every role attempt records role, agent-profile id, adapter kind, provider, model,
+  reasoning effort when present, session id, execution id, stable attempt idempotency key, token
+  availability/counts, latency, and cost state. Distinct role attempts cannot share session or
+  execution identity. Issue total cost sums every persisted role receipt once and remains unavailable
+  if any included paid-role cost is unavailable.
+- **FR-TEAM-005**: Team progress is durable. A duplicate team dispatch with identical profile/task
+  returns the persisted run/result. Restart after a completed role resumes only an undispatched role
+  with the same worktree and stable step identity. Claiming a role attempt and acknowledging its
+  validated result are separate durable transitions guarded by optimistic version checks; the stable
+  attempt idempotency key is stored at claim time. An unacknowledged in-flight role is not replayed;
+  recovery returns unknown so the parent issue becomes `outcome_unknown`.
+- **FR-TEAM-006**: The team worker implements the existing `IssueWorkerPort`; facing, moderator,
+  multi-session scheduling, issue verification, and reporting do not import a coding-agent protocol.
+  Legacy single-Codex profiles remain compatible.
+- **FR-TEAM-007**: The concrete role executor selects only a predeclared Codex, OpenCode, or built-in
+  Pi adapter. Missing adapters fail honestly. OpenCode never becomes an implicit fallback. Pi's Naia
+  account path reuses the existing secret-free gateway configuration and never copies credentials
+  into team state, prompts, receipts, or logs.
+- **FR-TEAM-008**: OpenCode provides adapter-requested model identity with unique session/execution
+  ids when its protocol does not provide independently observed identity or priced usage. Such a
+  receipt marks usage/cost unavailable and cannot be presented as provider-observed or measured zero.
+- **FR-TEAM-009**: Final issue verification remains a separate stage after team success. A clean
+  reviewer result cannot complete the issue when the declared issue-level acceptance checks fail.
+- **FR-TEAM-010**: The deterministic benchmark covers role order, write boundary, repair convergence,
+  duplicate dispatch, safe restart, unknown in-flight recovery, identity isolation, receipt/cost
+  completeness, and legacy-profile preservation without a paid provider call.
+- **FR-TEAM-011**: `WorkerResult.receipt` remains the lead implementer receipt for legacy callers.
+  A team result also carries every role receipt exactly once and a bounded team summary. The parent
+  issue validates each receipt against the immutable profile, persists all receipts in the existing
+  issue snapshot, rejects duplicate identities, and computes aggregate cost there. The team store
+  cannot independently author issue accounting or the user-facing terminal state.
+- **NFR-TEAM-001**: Team snapshots and append-only events are owner-local SQLite data with optimistic
+  version checks, terminal immutability, bounded text/findings, and no credentials or raw model stream.
+- **NFR-TEAM-002**: Domain, port, and application modules import no Discord, naia-shell, model SDK,
+  child-process, Git, or SQLite mechanism. Mechanisms remain in adapters/composition.
+- **NFR-TEAM-003**: Diagnostic events use the project logging port and expose stable ids, role, state,
+  and counts only; prompts, credentials, raw output, and absolute paths are not logged.
+- **NFR-TEAM-004**: Discord ingress, Discord authorization, terminal/file-opening UX, naia-shell UI,
+  SSH/mobile federation, automatic merge selection, and replacing Luna with a real 24GB local model
+  are outside this requirement and must not be claimed as active.
+- **NFR-TEAM-005**: Completion evidence records the unchanged candidate Git tree/commit identity and
+  two consecutive external Clean reviews, each explicitly bound to the orchestration SoT hash.
+- **Status**: Pending.

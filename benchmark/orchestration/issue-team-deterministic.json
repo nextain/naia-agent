@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "benchmarkId": "naia-issue-team-deterministic-v1",
+  "paidCalls": 0,
+  "expectedOrder": ["explorer", "implementer", "tester", "implementer", "tester", "reviewer", "tester", "reviewer"],
+  "decisions": ["proceed", "implemented", "fail", "implemented", "pass", "clean", "pass", "clean"],
+  "expectedRepairCycles": 1,
+  "expectedCleanCycles": 2,
+  "costPerAttemptUsd": 0.001
+}

@@ -653,8 +653,8 @@
     },
     "src/main/adapters/subagent-opencode-cli.ts": {
       "layer": "adapters",
-      "uc": ["UC-014"],
-      "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
+      "uc": ["UC-014", "UC-ORCH-003"],
+      "contract": ["docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md", "docs/progress/99.dev-comm/UC-ORCH-003-issue-team-contract-2026-08-02.md"],
       "note": "opencode SubAgentPort — opencode run --format json NDJSON→event·bin resolve·honest-unsupported. SPEC-010."
     },
     "src/main/adapters/subagent-shell.ts": {
@@ -794,8 +794,8 @@
     },
     "src/main/domain/issue-orchestration.ts": {
       "layer": "domain",
-      "uc": ["UC-ORCH-001"],
-      "contract": "docs/progress/99.dev-comm/UC-ORCH-001-single-issue-vertical-contract-2026-08-01.md",
+      "uc": ["UC-ORCH-001", "UC-ORCH-003"],
+      "contract": ["docs/progress/99.dev-comm/UC-ORCH-001-single-issue-vertical-contract-2026-08-01.md", "docs/progress/99.dev-comm/UC-ORCH-003-issue-team-contract-2026-08-02.md"],
       "note": "Single-issue state, actor receipts, stable identity, cost accounting, and evidence-grounded report types."
     },
     "src/main/domain/orchestration-benchmark.ts": {
@@ -806,14 +806,14 @@
     },
     "src/main/ports/issue-orchestration.ts": {
       "layer": "ports",
-      "uc": ["UC-ORCH-001"],
-      "contract": "docs/progress/99.dev-comm/UC-ORCH-001-single-issue-vertical-contract-2026-08-01.md",
+      "uc": ["UC-ORCH-001", "UC-ORCH-003"],
+      "contract": ["docs/progress/99.dev-comm/UC-ORCH-001-single-issue-vertical-contract-2026-08-01.md", "docs/progress/99.dev-comm/UC-ORCH-003-issue-team-contract-2026-08-02.md"],
       "note": "Provider-neutral facing, moderator, worker, verifier, reporter, and durable issue-store boundaries."
     },
     "src/main/app/single-issue-orchestrator.ts": {
       "layer": "app",
-      "uc": ["UC-ORCH-001"],
-      "contract": "docs/progress/99.dev-comm/UC-ORCH-001-single-issue-vertical-contract-2026-08-01.md",
+      "uc": ["UC-ORCH-001", "UC-ORCH-003"],
+      "contract": ["docs/progress/99.dev-comm/UC-ORCH-001-single-issue-vertical-contract-2026-08-01.md", "docs/progress/99.dev-comm/UC-ORCH-003-issue-team-contract-2026-08-02.md"],
       "note": "Restart-safe Luna-proxy to moderator to one worker to verification to grounded-report stage machine."
     },
     "src/main/app/observed-spend-budget.ts": {
@@ -869,6 +869,42 @@
       "uc": ["UC-ORCH-002"],
       "contract": "docs/progress/99.dev-comm/UC-ORCH-002-multi-issue-session-manager-contract-2026-08-02.md",
       "note": "Owner-local SQLite queue, source metadata, ready order, scheduler lease, fenced lifecycle, and session events."
+    },
+    "src/main/domain/issue-team.ts": {
+      "layer": "domain",
+      "uc": ["UC-ORCH-003"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-003-issue-team-contract-2026-08-02.md",
+      "note": "Fixed four-role team profile, bounded structured results, durable run projection, and worker-profile union."
+    },
+    "src/main/domain/issue-team-benchmark.ts": {
+      "layer": "domain",
+      "uc": ["UC-ORCH-003"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-003-issue-team-contract-2026-08-02.md",
+      "note": "Pure hard gates for ordering, write isolation, convergence, restart safety, receipt identity, and complete cost."
+    },
+    "src/main/ports/issue-team.ts": {
+      "layer": "ports",
+      "uc": ["UC-ORCH-003"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-003-issue-team-contract-2026-08-02.md",
+      "note": "Provider-neutral structured role executor and durable issue-team store boundaries."
+    },
+    "src/main/app/issue-team-worker.ts": {
+      "layer": "app",
+      "uc": ["UC-ORCH-003"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-003-issue-team-contract-2026-08-02.md",
+      "note": "Durable four-role worker state machine with bounded repairs, consecutive clean cycles, and unknown in-flight recovery."
+    },
+    "src/main/adapters/sqlite-issue-team-store.ts": {
+      "layer": "adapters",
+      "uc": ["UC-ORCH-003"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-003-issue-team-contract-2026-08-02.md",
+      "note": "Owner-local team snapshots and append-only transitions with optimistic version and terminal immutability."
+    },
+    "src/main/composition/issue-team-role-executor.ts": {
+      "layer": "composition",
+      "uc": ["UC-ORCH-003"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-003-issue-team-contract-2026-08-02.md",
+      "note": "Predeclared Codex/OpenCode/Pi profile selection through Supervisor with bounded JSON and honest per-role receipts."
     },
     "src/main/adapters/radio-dj-runtime.ts": {
       "layer": "adapters",

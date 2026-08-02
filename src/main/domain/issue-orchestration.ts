@@ -42,6 +42,9 @@ export interface ActorReceipt {
   readonly latencyMs: number;
   readonly modelEvidenceSource?: "provider_reported" | "adapter_requested";
   readonly cost: CostEvidence;
+  readonly workerRole?: import("./issue-team.js").IssueTeamRole;
+  readonly agentProfileId?: string;
+  readonly agentKind?: import("./issue-team.js").IssueTeamAgentKind;
 }
 
 export interface IssueClassification {
@@ -68,6 +71,8 @@ export interface WorkerResult {
   readonly worktreePath: string;
   readonly changedFiles: readonly string[];
   readonly receipt: ActorReceipt;
+  readonly receipts?: readonly ActorReceipt[];
+  readonly team?: import("./issue-team.js").IssueTeamProjection;
 }
 
 export interface IssueVerification {
@@ -105,7 +110,8 @@ export interface IssueSnapshot {
   readonly cancellationRequestedAt?: string;
   readonly naiaBinding: ActorBinding;
   readonly moderatorBinding: ActorBinding;
-  readonly workerProfiles: Readonly<Record<string, ActorBinding>>;
+  readonly workerProfiles: Readonly<Record<string, import("./issue-team.js").WorkerProfile>>;
+  readonly workerProfile?: import("./issue-team.js").WorkerProfile;
   readonly workerBinding?: ActorBinding;
   readonly classification?: IssueClassification;
   readonly plan?: ModeratorPlan;
@@ -136,7 +142,7 @@ export interface IssueStartRequest {
   readonly workspacePath: string;
   readonly naiaBinding: ActorBinding;
   readonly moderatorBinding: ActorBinding;
-  readonly workerProfiles: Readonly<Record<string, ActorBinding>>;
+  readonly workerProfiles: Readonly<Record<string, import("./issue-team.js").WorkerProfile>>;
 }
 
 export function isIssueTerminal(state: IssueState): state is IssueTerminalState {

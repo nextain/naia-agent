@@ -2,6 +2,20 @@
 
 > **SoT**: `.agents/context/process-status.json`
 
+## 이슈 내부 역할별 코딩 에이전트 협업 — 2026-08-02
+
+- 상태: P01~P04 완료, 핵심 역할 상태기계·SQLite·Codex/OpenCode/Pi 조합 통과; 벤치마크 정본·최종 재검토 진행 중 (`REQ-023 / UC-ORCH-003`)
+- 브랜치: `feat/naia-issue-team-orchestration`
+- 기준: 다중 이슈 세션 관리자 최종 커밋 `56af762`
+- 목표: 한 이슈를 explorer → implementer → tester → reviewer 역할로 분리하고,
+  Codex·OpenCode·내장 Pi(naia 계정 가능)를 선언된 모델 프로파일대로 결합한다.
+- 불변식: 구현자만 worktree 쓰기 가능, 모든 역할의 세션·실행·비용 영수증 분리,
+  테스트/리뷰 실패 시 제한된 수정 루프, 확인 못 한 재시작 결과는 재실행하지 않고 unknown 처리.
+- 범위 밖: Discord 실제 입력, Discord 권한 처리, naia-shell UI, 터미널·파일 열기,
+  SSH/mobile 및 실제 24GB 로컬 모델 교체.
+- 기준선 검증: 구조·헌장 통과. 전체 테스트 1,515개 통과·10개 건너뜀. 기존 환경 의존
+  프로세스 테스트 2건(doctor 기대값, 격리 로그인 자격증명 선택/timeout)은 동일하게 실패.
+
 ## 다중 이슈 세션 관리 수직 구조 — 2026-08-02
 
 - 상태: 선언한 Agent 라이브러리·결정론 벤치 범위 P01~P05 완료 (`REQ-022 / UC-ORCH-002`)
