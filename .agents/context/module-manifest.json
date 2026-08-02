@@ -647,9 +647,9 @@
     },
     "src/main/adapters/subagent-pi.ts": {
       "layer": "adapters",
-      "uc": ["UC-014"],
-      "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
-      "note": "pi 코딩에이전트 SubAgentPort — pi NDJSON→event·bin resolve(PI_BIN→node_modules→PATH→npx)·honest-unsupported. SPEC-010."
+      "uc": ["UC-014", "UC-ORCH-003"],
+      "contract": ["docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md", "docs/progress/99.dev-comm/UC-ORCH-003-issue-team-contract-2026-08-02.md"],
+      "note": "pi 코딩에이전트 SubAgentPort — pi NDJSON→event·bin resolve(PI_BIN→node_modules→PATH→npx)·honest-unsupported와 팀 역할의 명시적 read/grep/find/ls 읽기 전용 도구 경계. SPEC-010."
     },
     "src/main/adapters/subagent-opencode-cli.ts": {
       "layer": "adapters",
@@ -671,9 +671,9 @@
     },
     "src/main/adapters/subagent-codex.ts": {
       "layer": "adapters",
-      "uc": ["UC-014"],
-      "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
-      "note": "codex SubAgentPort — codex exec --json NDJSON→event(item.completed agent_message→text·command_execution/file_change→tool_use)·bin resolve(CODEX_BIN→PATH→npx). RT-verified. SPEC-010. 진행=naia-agent-subagent-adapters-2026-06-29.md"
+      "uc": ["UC-014", "UC-ORCH-003"],
+      "contract": ["docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md", "docs/progress/99.dev-comm/UC-ORCH-003-issue-team-contract-2026-08-02.md"],
+      "note": "codex SubAgentPort — codex exec --json NDJSON→event(item.completed agent_message→text·command_execution/file_change→tool_use)·bin resolve(CODEX_BIN→PATH→npx), 팀 역할의 sandbox/workspace-root 경계. RT-verified. SPEC-010. 진행=naia-agent-subagent-adapters-2026-06-29.md"
     },
     "src/main/adapters/subagent-gemini.ts": {
       "layer": "adapters",
