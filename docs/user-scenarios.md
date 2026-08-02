@@ -735,3 +735,35 @@ naia-agent-as-worker are outside this slice and are not runtime dependencies.
 | post-dispatch cancellation is rejected and lost worker response remains an honest terminal state | `single-issue-orchestrator.integration.test.ts` |
 | managed worktree, real Codex protocol receipt, and verifier compose behind the worker port | `supervised-issue-worker.integration.test.ts` |
 | Luna-proxy and all-Sol runs use the same frozen cases and behaviorally account for rejected/excess actor receipts | `single-issue-benchmark.contract.test.ts` |
+
+## UC-ORCH-002 — Naia manages multiple coding issues as visible independent sessions
+
+A user can hand Naia several bounded coding issues without opening and manually tracking one coding
+tool per issue. Naia accepts each issue into a durable queue, assigns it a stable session identity,
+and runs it through the existing moderated single-issue vertical. A bounded scheduler starts no more
+than the configured number of issues at once and preserves FIFO order among equally ready work.
+
+Each issue remains isolated: its workspace, actor sessions, receipts, cancellation, question, failure,
+and terminal outcome cannot mutate or block another issue. The user can list all sessions, inspect one
+session, answer its exact pending question, or cancel only that session. After Agent restart, persisted
+queued work is schedulable again while already-started work is reconciled through the single-issue
+orchestrator instead of being blindly duplicated.
+
+Naia's portfolio view is computed from persisted snapshots and receipts. It exposes queue/running/
+waiting/terminal counts, per-session state and last update, and measured aggregate cost only when every
+included issue has complete cost evidence. The first slice uses the existing Luna-proxy → Sol moderator
+→ one Codex worker composition for every issue. OpenCode and naia-agent worker collaboration, Discord
+ingress, terminal/file-opening UX, and naia-shell UI are later adapters. This slice preserves neutral
+`source` metadata and read/query ports for those adapters but does not claim that they are activated.
+
+### Test Coverage Map
+
+| Scenario | Contract/integration test |
+|---|---|
+| bounded FIFO scheduling starts at most the configured number and eventually runs every ready issue | `multi-issue-session-manager.integration.test.ts` |
+| duplicate intake returns the same session while conflicting request content fails closed | `multi-issue-session-manager.integration.test.ts` |
+| one issue waiting, failing, or being cancelled does not block or overwrite another issue | `multi-issue-session-manager.integration.test.ts` |
+| list/get expose durable per-session state and evidence-grounded aggregate counts/cost | `multi-issue-session-manager.integration.test.ts` |
+| restart requeues never-started work and reconciles started work without duplicate worker effect | `multi-issue-session-manager.integration.test.ts` |
+| source metadata accepts local and future adapter identifiers without activating Discord or Shell | `multi-issue-session-manager.integration.test.ts` |
+| a frozen deterministic workload scores completion, isolation, fairness, concurrency, restart, visibility, and cost accounting without paid calls | `multi-issue-benchmark.contract.test.ts` |

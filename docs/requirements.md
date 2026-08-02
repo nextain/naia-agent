@@ -565,3 +565,52 @@ The Agent and Gateway preserve these codes end to end:
   `benchmark/results/single-issue-live-1785619885488.json` (source revision `d0bbbe0`) and
   `.agents/reviews/r-req-021-single-issue-vertical-2026-08-02.json`. Production ingress and
   naia-shell integration remain the explicitly deferred next phase.
+
+## REQ-022 — Multi-issue session management vertical
+
+- **FR-MULTI-001**: Intake persists one session record per accepted request before scheduling. The
+  record binds stable session/request/issue identity, exact request digest, workspace, ordered
+  obligations, actor bindings, and adapter-neutral source kind/source id. Identical replay returns the
+  same session; reuse with different bound content fails closed.
+- **FR-MULTI-002**: A durable scheduler admits queued sessions in FIFO order among equal-priority
+  ready records and runs no more than the configured positive concurrency limit. A waiting-for-user,
+  failed, cancelled, or unknown session does not consume a running slot after its execution settles.
+- **FR-MULTI-003**: Every admitted session executes only through the `REQ-021` single-issue port. The
+  manager does not reimplement model planning, worker dispatch, verification, or reporting and does
+  not allow the Naia-facing model to select an undeclared worker profile.
+- **FR-MULTI-004**: List and get queries return durable per-session identity, source, workspace,
+  lifecycle state, queue order, issue id when established, last update, and grounded outcome fields.
+  Aggregate visibility derives state counts and cost solely from persisted session/issue evidence.
+- **FR-MULTI-005**: Answer and cancellation commands are bound to one session. An answer must match
+  that issue's exact pending question. Cancellation is idempotent and cannot cancel, reorder, or
+  overwrite any sibling session.
+- **FR-MULTI-006**: Startup recovery makes never-started queued sessions schedulable and hands every
+  previously started nonterminal issue back to the single-issue reconciler with its stable identity.
+  It never creates a replacement request or claims success for an unreconciled outcome.
+- **FR-MULTI-007**: A settled execution always releases its scheduler slot and prompts another pump,
+  including `awaiting_user`, `failed`, `cancelled`, `outcome_unknown`, thrown adapter errors, and
+  process-local abort. No ready session can starve behind a settled predecessor.
+- **FR-MULTI-008**: Each session carries an optional observed-spend reservation and the manager has an
+  optional aggregate observed-spend threshold. Measured costs are summed once by stable receipt/session
+  identity; unavailable cost remains unavailable. These are harness stop rules, not provider-enforced
+  credit ceilings.
+- **FR-MULTI-009**: The portfolio summary is deterministic and evidence-grounded. Model-authored prose
+  may explain persisted facts but cannot authoritatively change session state, counts, verification,
+  changed files, or cost availability.
+- **FR-MULTI-010**: Source metadata and query/command boundaries support later local, Discord, and
+  naia-shell adapters without importing those transports into the manager. This requirement activates
+  none of those production ingress or UI paths.
+- **NFR-MULTI-001**: The manager owns an owner-local SQLite store with transactional session updates,
+  deterministic queue sequence, terminal immutability, and no provider credentials or raw secrets.
+- **NFR-MULTI-002**: Tests inject clock, ids, the single-issue execution port, restart, cancellation,
+  and failures. The default contract and benchmark suite makes no paid model call.
+- **NFR-MULTI-003**: Concurrency is bounded and configurable; invalid limits fail at construction.
+  Scheduler progress and lifecycle transitions use the project `DiagnosticLog` boundary.
+- **NFR-MULTI-004**: A frozen benchmark must gate completion, isolation, FIFO fairness, maximum observed
+  concurrency, restart safety, visibility consistency, and cost accounting. A score or efficiency
+  claim is forbidden when any hard gate fails.
+- **Scope note**: This slice is the Agent-side multi-session management library and deterministic
+  benchmark. Each issue still uses Luna-proxy → Sol moderator → one Codex worker from `REQ-021`.
+  Multi-agent worker collaboration (OpenCode/naia-agent), Discord ingress, terminal/file opening, and
+  naia-shell visualization are explicitly deferred adapter/product stages.
+- **Status**: In progress.
