@@ -28,6 +28,7 @@ describe("REQ-023 deterministic issue-team benchmark", () => {
       roleExecutorBoundaryPreserved: true, parentProjectionValidated: true, repairCycles: 1, cleanCycles: 2,
       productionRouterWired: true,
       duplicateRoleEffects: 0, unknownInflightRecovery: true, legacyProfilePreserved: true, receiptCount: 8, distinctReceiptIdentities: 8 });
+    expect(observation().rejectedFailureRecovered).toBe(true);
   });
   it.each([
     ["ordering", { roleOrderMatches: false }], ["writeBoundary", { writeBoundaryViolations: 1 }],
@@ -35,7 +36,7 @@ describe("REQ-023 deterministic issue-team benchmark", () => {
     ["compositionBoundary", { roleExecutorBoundaryPreserved: false }], ["parentBoundary", { parentProjectionValidated: false }],
     ["productionRouting", { productionRouterWired: false }],
     ["convergence", { cleanCycles: 1 }], ["duplicateDispatch", { duplicateRoleEffects: 1 }],
-    ["recovery", { unknownInflightRecovery: false }], ["receiptIsolation", { distinctReceiptIdentities: 7 }],
+    ["recovery", { unknownInflightRecovery: false }], ["recovery", { rejectedFailureRecovered: false }], ["receiptIsolation", { distinctReceiptIdentities: 7 }],
     ["legacyPreservation", { legacyProfilePreserved: false }],
     ["costAccounting", { observedCostUsd: 0.007 }],
   ] as const)("rejects a %s counterexample", (gate, patch) => {

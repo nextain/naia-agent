@@ -161,6 +161,9 @@ describe("REQ-023 durable issue-team worker", () => {
     expect(error).toBeInstanceOf(Error);
     expect(error).toMatchObject({ receipts: [{ workerRole: "explorer" }, { workerRole: "implementer" }, { workerRole: "tester" }] });
     expect(store.get(input().dispatchId)?.receipts).toHaveLength(3);
+    const recovered = await worker.recover?.(input()).catch((caught: unknown) => caught);
+    expect(recovered).toMatchObject({ message: "persisted issue-team role failure",
+      receipts: [{ workerRole: "explorer" }, { workerRole: "implementer" }, { workerRole: "tester" }] });
     store.close();
   });
 });

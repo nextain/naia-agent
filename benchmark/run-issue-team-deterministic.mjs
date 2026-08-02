@@ -85,6 +85,15 @@ try {
   const failedRecoveryWorker = makeIssueTeamWorker({ store: readyRecoveryStore,
     worktrees: { ...fixtureWorktrees(), recover() { return false; } }, roles: { async execute() { resumedRoleCalls += 1; throw new Error("unexpected dispatch"); } } });
   const failedReadyRecovery = await failedRecoveryWorker.recover?.(readyInput) === undefined && resumedRoleCalls === 0;
+  const rejectedStore = new SqliteIssueTeamStore(join(root, "rejected-recovery.db"));
+  const rejectedInput = { ...input, dispatchId: "benchmark-rejected-recovery:dispatch:1" };
+  const rejectedWorker = makeIssueTeamWorker({ store: rejectedStore, worktrees: fixtureWorktrees(), roles: { async execute(value) {
+    return { result: { version: 1, role: "explorer", decision: "proceed", summary: "bad", findings: [{ code: 7, message: "numeric" }] },
+      receipt: receipt("explorer", value.stepId, 102) };
+  } } });
+  await rejectedWorker.execute(rejectedInput).catch(() => undefined);
+  const recoveredFailure = await rejectedWorker.recover?.(rejectedInput).catch((error) => error);
+  const rejectedFailureRecovered = recoveredFailure?.receipts?.length === 1 && recoveredFailure.receipt?.workerRole === "explorer";
   const adapterReadOnlyEnforced = await observeAdapterReadOnlyBoundary(makePiSubAgent, makeOpencodeSubAgent, makeCodexSubAgent);
   const roleExecutorBoundaryPreserved = await observeRoleExecutorBoundary(makeIssueTeamRoleExecutor);
   const parentProjectionValidated = await observeParentProjectionBoundary(SingleIssueOrchestrator, SqliteIssueOrchestrationStore, join(root, "parent.db"));
@@ -96,7 +105,8 @@ try {
     writeBoundaryViolations: seen.filter((item) => (item.role === "implementer") !== (item.access === "workspace_write")).length,
     adapterReadOnlyEnforced, roleExecutorBoundaryPreserved, parentProjectionValidated, productionRouterWired,
     repairCycles: completed.team?.repairCycles ?? -1, cleanCycles: completed.team?.cleanCycles ?? -1,
-    duplicateRoleEffects: effects - effectsAfterFirst, unknownInflightRecovery: unknownInflightRecovery && failedReadyRecovery, legacyProfilePreserved, receiptCount: receipts.length,
+    duplicateRoleEffects: effects - effectsAfterFirst, unknownInflightRecovery: unknownInflightRecovery && failedReadyRecovery,
+    rejectedFailureRecovered, legacyProfilePreserved, receiptCount: receipts.length,
     distinctReceiptIdentities: new Set(receipts.flatMap((item) => [item.sessionId, item.executionId])).size / 2,
     allCostsMeasured: receipts.every((item) => item.cost.state === "measured"), expectedCostUsd, observedCostUsd };
   const evaluation = evaluateIssueTeamBenchmark(observation);
@@ -111,7 +121,7 @@ try {
   const outputIndex = process.argv.indexOf("--output");
   if (outputIndex >= 0) { const path = process.argv[outputIndex + 1]; if (!path) throw new Error("--output requires a path"); writeFileSync(path, serialized, { mode: 0o600 }); try { chmodSync(path, 0o600); } catch {} }
   process.stdout.write(serialized); if (!evaluation.claimAllowed) process.exitCode = 1;
-  recoveryStore.close(); readyRecoveryStore.close();
+  recoveryStore.close(); readyRecoveryStore.close(); rejectedStore.close();
 } finally { store.close(); rmSync(root, { recursive: true, force: true }); }
 
 function fixtureWorktrees() { return { allocate() { return { workspacePath: "/benchmark/repo", worktreePath: "/benchmark/worktree", branch: "naia/benchmark", leaseId: "lease", release() {} }; }, recover() { return true; } }; }

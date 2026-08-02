@@ -42,7 +42,13 @@ export function makeIssueTeamWorker(options: IssueTeamWorkerOptions): IssueWorke
       snapshot = stored.snapshot;
       if (!stored.created) { allocation.release(); allocation = undefined; }
     } else if (snapshot.fingerprint !== fingerprint) throw new Error("team dispatch fingerprint mismatch");
-    if (snapshot.state === "completed" || snapshot.state === "failed") return snapshot.result;
+    if (snapshot.state === "completed") return snapshot.result;
+    if (snapshot.state === "failed") {
+      if (snapshot.result) return snapshot.result;
+      const rejected = snapshot.receipts.at(-1);
+      if (rejected) throw new IssueActorResultError("persisted issue-team role failure", rejected, snapshot.receipts);
+      return undefined;
+    }
     if (snapshot.state === "running") return recovery ? undefined : Promise.reject(new Error("team role outcome is unknown"));
     if (recovery) {
       const recovered = options.worktrees.recover?.({ jobId: safeJobId(input.issueId), workspacePath: snapshot.allocation.workspacePath,
@@ -110,7 +116,13 @@ export function makeIssueTeamWorker(options: IssueTeamWorkerOptions): IssueWorke
   return {
     async execute(input) { const result = await run(input, false); if (!result) throw new Error("team result unavailable"); return result; },
     async recover(input) { return run(input, true); },
-    async reconcile(dispatchId) { const snapshot = options.store.get(dispatchId); return snapshot?.result; },
+    async reconcile(dispatchId) {
+      const snapshot = options.store.get(dispatchId);
+      if (snapshot?.state === "failed" && !snapshot.result && snapshot.receipts.length > 0) {
+        throw new IssueActorResultError("persisted issue-team role failure", snapshot.receipts.at(-1)!, snapshot.receipts);
+      }
+      return snapshot?.result;
+    },
   };
 }
 
