@@ -235,6 +235,7 @@ export function makePiSubAgent(opts: SubAgentPiOptions = {}): SubAgentPort {
       if (provider) args.push("--provider", provider);
       if (model) args.push("--model", model);
       if (opts.noTools === true) args.push("--no-tools");
+      else if (task.filesystemAccess === "read_only") args.push("--tools", "read,grep,find,ls");
       const identity = { sessionId: randomUUID(), executionId: randomUUID() };
       const expected = provider && model ? { provider, model } : undefined;
       return spawnSubprocessSession({

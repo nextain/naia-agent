@@ -668,15 +668,19 @@ The Agent and Gateway preserve these codes end to end:
 - **FR-TEAM-007**: The concrete role executor selects only a predeclared Codex, OpenCode, or built-in
   Pi adapter. Missing adapters fail honestly. OpenCode never becomes an implicit fallback. Pi's Naia
   account path reuses the existing secret-free gateway configuration and never copies credentials
-  into team state, prompts, receipts, or logs.
+  into team state, prompts, receipts, or logs. Every adapter must enforce the requested semantic
+  filesystem capability itself. Pi read-only roles receive only its read/grep/find/list tool set;
+  OpenCode read-only roles fail closed until an isolated permission profile can be proven, while its
+  workspace-write implementer role remains supported.
 - **FR-TEAM-008**: OpenCode provides adapter-requested model identity with unique session/execution
   ids when its protocol does not provide independently observed identity or priced usage. Such a
   receipt marks usage/cost unavailable and cannot be presented as provider-observed or measured zero.
 - **FR-TEAM-009**: Final issue verification remains a separate stage after team success. A clean
   reviewer result cannot complete the issue when the declared issue-level acceptance checks fail.
-- **FR-TEAM-010**: The deterministic benchmark covers role order, write boundary, repair convergence,
-  duplicate dispatch, safe restart, unknown in-flight recovery, identity isolation, receipt/cost
-  completeness, and legacy-profile preservation without a paid provider call.
+- **FR-TEAM-010**: The deterministic benchmark covers role order, declared and adapter-enforced write
+  boundaries, repair convergence, duplicate dispatch, safe restart including failed worktree recovery,
+  unknown in-flight recovery, identity isolation, receipt/cost completeness, and legacy-profile
+  preservation without a paid provider call.
 - **FR-TEAM-011**: `WorkerResult.receipt` remains the lead implementer receipt for legacy callers.
   A team result also carries every role receipt exactly once and a bounded team summary. The parent
   issue validates each receipt against the immutable profile, persists all receipts in the existing

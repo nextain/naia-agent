@@ -104,6 +104,9 @@ export function makeOpencodeSubAgent(opts: SubAgentOpencodeOptions = {}): SubAge
   const resolveBin = opts.resolveBin ?? resolveOpencodeBin;
   return {
     spawn(task: TaskSpec): SubAgentSession {
+      if (task.filesystemAccess === "read_only") {
+        return endedSession("opencode read-only execution is unavailable; refusing an unconfined role session");
+      }
       let bin: ResolvedBin;
       try {
         bin = resolveBin();

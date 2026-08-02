@@ -6,6 +6,7 @@ import { makeIssueTeamWorker } from "../main/app/issue-team-worker.js";
 import { SqliteIssueTeamStore } from "../main/adapters/sqlite-issue-team-store.js";
 import type { ActorReceipt } from "../main/domain/issue-orchestration.js";
 import type { IssueTeamProfile, IssueTeamRole, IssueTeamRoleResult } from "../main/domain/issue-team.js";
+import type { IssueTeamStore } from "../main/ports/issue-team.js";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -72,6 +73,34 @@ describe("REQ-023 durable issue-team worker", () => {
     expect(await reopened.recover?.(input())).toBeUndefined();
     resolve(); await expect(active).rejects.toThrow();
     store.close();
+  });
+
+  it("fails closed when a ready restart cannot recover its managed worktree", async () => {
+    const root = mkdtempSync(join(tmpdir(), "issue-team-")); roots.push(root);
+    const durable = new SqliteIssueTeamStore(join(root, "team.db"));
+    const crashAfterAcknowledge: IssueTeamStore = {
+      createOrGet: (snapshot) => durable.createOrGet(snapshot),
+      get: (dispatchId) => durable.get(dispatchId),
+      save(value) {
+        const saved = durable.save(value);
+        if (value.eventType === "role_acknowledged") throw new Error("simulated process crash");
+        return saved;
+      },
+      close: () => durable.close(),
+    };
+    const allocation = { workspacePath: "/repo", worktreePath: "/managed/team", branch: "naia/team", leaseId: "lease-1", release() {} };
+    const first = makeIssueTeamWorker({ store: crashAfterAcknowledge, worktrees: { allocate: () => allocation },
+      roles: { async execute(value) { return { result: result("explorer", "proceed"), receipt: receipt("explorer", value.stepId, 1) }; } } });
+    await expect(first.execute(input())).rejects.toThrow("simulated process crash");
+    expect(durable.get(input().dispatchId)).toMatchObject({ state: "ready", nextRole: "implementer" });
+    let roleCalls = 0; let recoverCalls = 0;
+    const reopened = makeIssueTeamWorker({ store: durable, worktrees: { allocate: () => allocation, recover() { recoverCalls += 1; return false; } },
+      roles: { async execute() { roleCalls += 1; throw new Error("must not dispatch without a recovered worktree"); } } });
+    expect(await reopened.recover?.(input())).toBeUndefined();
+    expect(recoverCalls).toBe(1);
+    expect(roleCalls).toBe(0);
+    expect(durable.get(input().dispatchId)).toMatchObject({ state: "ready", nextRole: "implementer" });
+    durable.close();
   });
 
   it("rejects malformed profiles and role/decision drift before acknowledging a result", async () => {

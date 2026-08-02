@@ -40,8 +40,9 @@ export function makeIssueTeamWorker(options: IssueTeamWorkerOptions): IssueWorke
     if (snapshot.state === "completed" || snapshot.state === "failed") return snapshot.result;
     if (snapshot.state === "running") return recovery ? undefined : Promise.reject(new Error("team role outcome is unknown"));
     if (recovery) {
-      options.worktrees.recover?.({ jobId: safeJobId(input.issueId), workspacePath: snapshot.allocation.workspacePath,
+      const recovered = options.worktrees.recover?.({ jobId: safeJobId(input.issueId), workspacePath: snapshot.allocation.workspacePath,
         worktreePath: snapshot.allocation.worktreePath, leaseId: snapshot.allocation.leaseId });
+      if (recovered !== true) return undefined;
     }
     try {
       for (;;) {

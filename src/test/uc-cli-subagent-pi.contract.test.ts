@@ -70,6 +70,15 @@ describe("subagent-pi 어댑터 계약 (2b, fake child)", () => {
     expect(f.spawnArgs.cwd).toBe("/tmp/w");
   });
 
+  it("read-only capability is enforced with Pi's non-writing tool allowlist", () => {
+    const f = fakeNdjson();
+    const port = makePiSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn });
+    port.spawn({ prompt: "inspect", workdir: "/tmp/w", filesystemAccess: "read_only" });
+    expect(f.spawnArgs.args).toContain("--tools");
+    expect(f.spawnArgs.args).toContain("read,grep,find,ls");
+    expect(f.spawnArgs.args).not.toContain("--no-tools");
+  });
+
   it("provides adapter-owned identities for a Pi-backed JSON actor receipt", async () => {
     const f = fakeNdjson();
     const pi = makePiSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn, provider: "anthropic", model: "claude-sonnet-4-6" });
