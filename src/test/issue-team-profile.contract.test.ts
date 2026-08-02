@@ -15,5 +15,11 @@ describe("REQ-023 issue-team profile contract", () => {
   it("bounds repair and clean-cycle policy independently of wall time", () => {
     expect(() => assertIssueTeamProfile({ ...valid(), maxRepairCycles: 33 })).toThrow("loop bounds");
     expect(() => assertIssueTeamProfile({ ...valid(), requiredCleanCycles: 0 })).toThrow("loop bounds");
+    expect(() => assertIssueTeamProfile({ ...valid(), roles: { ...valid().roles, explorer: { ...valid().roles.explorer,
+      binding: { ...valid().roles.explorer.binding, provider: " codex" } } } })).toThrow("explorer profile");
+    expect(() => assertIssueTeamProfile({ ...valid(), roles: { ...valid().roles, tester: { ...valid().roles.tester,
+      binding: { ...valid().roles.tester.binding, model: "pi\u0000model" } } } })).toThrow("tester profile");
+    expect(() => assertIssueTeamProfile({ ...valid(), roles: { ...valid().roles, reviewer: { ...valid().roles.reviewer,
+      binding: { ...valid().roles.reviewer.binding, reasoningEffort: "extreme" } } } })).toThrow("reviewer profile");
   });
 });

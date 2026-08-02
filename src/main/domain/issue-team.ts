@@ -75,11 +75,15 @@ export function assertIssueTeamProfile(profile: IssueTeamProfile): void {
     throw new Error("invalid issue-team loop bounds");
   }
   const ids = new Set<string>();
+  const concrete = (value: string) => value.length > 0 && value.length <= 128 && value === value.trim() && !/[\u0000-\u001f\u007f]/u.test(value);
   for (const role of ISSUE_TEAM_ROLES) {
     const declared = profile.roles[role];
     if (!declared || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(declared.agentProfileId)
       || !(["codex", "opencode", "pi"] as const).includes(declared.agentKind)
-      || !declared.binding.provider.trim() || !declared.binding.model.trim()) throw new Error(`invalid issue-team ${role} profile`);
+      || !concrete(declared.binding.provider) || !concrete(declared.binding.model)
+      || (declared.binding.reasoningEffort !== undefined && !["low", "medium", "high", "xhigh"].includes(declared.binding.reasoningEffort))) {
+      throw new Error(`invalid issue-team ${role} profile`);
+    }
     if (ids.has(declared.agentProfileId)) throw new Error("duplicate issue-team agent profile id");
     ids.add(declared.agentProfileId);
     const expected = role === "implementer" ? "workspace_write" : "read_only";

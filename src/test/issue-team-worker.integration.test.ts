@@ -75,6 +75,30 @@ describe("REQ-023 durable issue-team worker", () => {
     store.close();
   });
 
+  it("releases a losing allocation when a stale first-read races an existing dispatch", async () => {
+    const root = mkdtempSync(join(tmpdir(), "issue-team-")); roots.push(root);
+    const durable = new SqliteIssueTeamStore(join(root, "team.db"));
+    let resolve!: () => void; const gate = new Promise<void>((done) => { resolve = done; });
+    let allocations = 0; const released: number[] = [];
+    const worktrees = { allocate() { const id = ++allocations; return { workspacePath: "/repo", worktreePath: `/managed/team-${id}`,
+      branch: `naia/team-${id}`, leaseId: `lease-${id}`, release() { released.push(id); } }; } };
+    const first = makeIssueTeamWorker({ store: durable, worktrees, roles: { async execute(value) { await gate;
+      return { result: result("explorer", "proceed"), receipt: receipt("explorer", value.stepId, 1) }; } } });
+    const active = first.execute(input());
+    await new Promise((done) => setTimeout(done, 5));
+    let stale = true;
+    const staleStore: IssueTeamStore = { createOrGet: (snapshot) => durable.createOrGet(snapshot),
+      get(dispatchId) { if (stale) { stale = false; return undefined; } return durable.get(dispatchId); },
+      save: (value) => durable.save(value), close() {} };
+    const duplicate = makeIssueTeamWorker({ store: staleStore, worktrees,
+      roles: { async execute() { throw new Error("duplicate must not dispatch"); } } });
+    await expect(duplicate.execute(input())).rejects.toThrow("outcome is unknown");
+    expect(released).toEqual([2]);
+    resolve(); await expect(active).rejects.toThrow();
+    expect(released).toContain(1);
+    durable.close();
+  });
+
   it("fails closed when a ready restart cannot recover its managed worktree", async () => {
     const root = mkdtempSync(join(tmpdir(), "issue-team-")); roots.push(root);
     const durable = new SqliteIssueTeamStore(join(root, "team.db"));
