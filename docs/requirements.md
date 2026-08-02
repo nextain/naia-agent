@@ -696,5 +696,7 @@ The Agent and Gateway preserve these codes end to end:
   SSH/mobile federation, automatic merge selection, and replacing Luna with a real 24GB local model
   are outside this requirement and must not be claimed as active.
 - **NFR-TEAM-005**: Completion evidence records the unchanged candidate Git tree/commit identity and
-  two consecutive external Clean reviews, each explicitly bound to the orchestration SoT hash.
+  two consecutive external Clean reviews, each explicitly bound to the orchestration SoT hash. The
+  benchmark artifact binds its reproducible source commit; the review log binds the later unchanged
+  candidate that contains that artifact (an artifact cannot embed the hash of its own containing commit).
 - **Status**: Pending.

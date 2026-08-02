@@ -8,6 +8,7 @@ import {
   type IssueReport,
   type IssueSnapshot,
   type IssueStartRequest,
+  type WorkerResult,
 } from "../domain/issue-orchestration.js";
 import type {
   DevelopmentModeratorPort,
@@ -19,7 +20,7 @@ import type {
 } from "../ports/issue-orchestration.js";
 import { IssueActorResultError } from "../ports/issue-orchestration.js";
 import type { DiagnosticLog } from "../ports/uc1.js";
-import { assertIssueTeamProfile, isActorBinding, type WorkerProfile } from "../domain/issue-team.js";
+import { assertIssueTeamProfile, canonicalIssueTeamProfile, isActorBinding, type IssueTeamProfile, type WorkerProfile } from "../domain/issue-team.js";
 
 export interface SingleIssueOrchestratorDeps {
   readonly store: IssueOrchestrationStore;
@@ -289,6 +290,7 @@ export class SingleIssueOrchestrator {
             return this.grounded(issue);
           }
           const workerReceipts = worker.receipts ?? [worker.receipt];
+          assertWorkerTeam(worker, issue.plan!.workerProfile, issue.workerProfile!);
           assertWorkerReceipts(workerReceipts, worker.receipt, issue.dispatchId!, issue.workerProfile!, worker.ok);
           for (const receipt of workerReceipts) assertIndependent(issue.receipts, receipt);
           issue = this.save(issue, {
@@ -609,6 +611,47 @@ function assertWorkerReceipts(receipts: readonly ActorReceipt[], lead: ActorRece
     }
   }
   if (workerOk) for (const role of ["explorer", "implementer", "tester", "reviewer"] as const) if (!roles.has(role)) throw new Error(`missing ${role} worker receipt`);
+}
+
+function assertWorkerTeam(worker: WorkerResult, profileId: string, profile: WorkerProfile): void {
+  if (isActorBinding(profile)) {
+    if (worker.team !== undefined) throw new Error("legacy worker cannot return a team projection");
+    return;
+  }
+  const team = worker.team;
+  if (!team || team.profileId !== profileId || team.profileDigest !== digest(canonicalIssueTeamProfile(profile))
+    || !Number.isSafeInteger(team.cleanCycles) || team.cleanCycles < 0 || team.cleanCycles > profile.requiredCleanCycles
+    || !Number.isSafeInteger(team.repairCycles) || team.repairCycles < 0 || team.repairCycles > profile.maxRepairCycles
+    || !Array.isArray(team.outcomes) || team.outcomes.length !== (worker.receipts?.length ?? 0)
+    || Object.keys(team).some((key) => !["profileId", "profileDigest", "cleanCycles", "repairCycles", "outcomes"].includes(key))) {
+    throw new Error("invalid worker team projection");
+  }
+  const receipts = worker.receipts ?? [];
+  for (let index = 0; index < team.outcomes.length; index += 1) {
+    const outcome = team.outcomes[index]!;
+    const receipt = receipts[index];
+    if (!receipt || receipt.workerRole !== outcome.role) throw new Error("worker team outcome/receipt mismatch");
+    assertTeamOutcome(outcome, profile);
+  }
+  const last = team.outcomes.at(-1);
+  if (worker.ok && (team.cleanCycles !== profile.requiredCleanCycles || last?.role !== "reviewer" || last.decision !== "clean")) {
+    throw new Error("invalid successful worker team projection");
+  }
+  if (!worker.ok && team.repairCycles !== profile.maxRepairCycles) throw new Error("invalid failed worker team projection");
+}
+
+function assertTeamOutcome(outcome: import("../domain/issue-team.js").IssueTeamRoleResult, profile: IssueTeamProfile): void {
+  const decisions = { explorer: ["proceed"], implementer: ["implemented"], tester: ["pass", "fail"], reviewer: ["clean", "changes_requested"] } as const;
+  if (outcome.version !== 1 || !Object.hasOwn(profile.roles, outcome.role) || !(decisions[outcome.role] as readonly string[]).includes(outcome.decision)
+    || typeof outcome.summary !== "string" || Buffer.byteLength(outcome.summary, "utf8") > 8 * 1024 || !Array.isArray(outcome.findings) || outcome.findings.length > 32
+    || Object.keys(outcome).some((key) => !["version", "role", "decision", "summary", "findings"].includes(key))) throw new Error("invalid worker team outcome");
+  const codes = new Set<string>();
+  for (const finding of outcome.findings) {
+    if (!finding || typeof finding.code !== "string" || !finding.code || finding.code.length > 80 || codes.has(finding.code)
+      || typeof finding.message !== "string" || Buffer.byteLength(finding.message, "utf8") > 2 * 1024
+      || Object.keys(finding).some((key) => !["code", "message"].includes(key))) throw new Error("invalid worker team finding");
+    codes.add(finding.code);
+  }
 }
 
 function assertReceipt(receipt: ActorReceipt, role: ActorReceipt["role"], expectedKey: string, binding?: { provider: string; model: string; reasoningEffort?: string }): void {

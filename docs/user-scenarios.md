@@ -801,7 +801,7 @@ Discord ingress, terminal/file-opening UX, and naia-shell visualization.
 |---|---|
 | declared roles run in order in one worktree, with write access only for the implementer | `issue-team-worker.integration.test.ts` |
 | tester/reviewer findings cause bounded repair and two consecutive clean passes | `issue-team-worker.integration.test.ts` |
-| every Codex/OpenCode/Pi attempt preserves distinct identity, binding, usage, and cost evidence | `issue-team-role-executor.integration.test.ts`, `single-issue-team-receipts.integration.test.ts` |
+| every Codex/OpenCode/Pi attempt preserves distinct identity, binding, usage, and cost evidence | `issue-team-role-executor.integration.test.ts`, `single-issue-team-verifier.integration.test.ts` |
 | duplicate dispatch returns one persisted result and does not repeat a role effect | `issue-team-worker.integration.test.ts` |
 | restart after an acknowledged role resumes safely, while an in-flight unknown role is never replayed | `issue-team-worker.integration.test.ts` |
 | undeclared profiles, adapters, roles, model mismatches, malformed results, and excess loop bounds fail closed | `issue-team-worker.integration.test.ts`, `issue-team-profile.contract.test.ts` |

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { ActorReceipt, WorkerResult } from "../domain/issue-orchestration.js";
 import {
-  assertIssueTeamProfile, isIssueTeamProfile, type IssueTeamProfile, type IssueTeamRole,
+  assertIssueTeamProfile, canonicalIssueTeamProfile, isIssueTeamProfile, type IssueTeamProfile, type IssueTeamRole,
   type IssueTeamRoleResult, type IssueTeamRunSnapshot,
 } from "../domain/issue-team.js";
 import type { CodingJobAllocation, CodingJobWorktreePort } from "../ports/coding-job.js";
@@ -22,7 +22,7 @@ export function makeIssueTeamWorker(options: IssueTeamWorkerOptions): IssueWorke
     if (!input.profile || !isIssueTeamProfile(input.profile)) throw new Error("issue-team profile is required");
     const profile = input.profile;
     assertIssueTeamProfile(profile);
-    const profileDigest = digest(stableJson(profile));
+    const profileDigest = digest(canonicalIssueTeamProfile(profile));
     const fingerprint = digest(stableJson({ issueId: input.issueId, workspacePath: input.workspacePath, task: input.task,
       obligations: input.obligations, acceptanceChecks: input.acceptanceChecks, profileId: input.profileId, profileDigest }));
     let allocation: CodingJobAllocation | undefined;

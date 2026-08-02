@@ -24,12 +24,14 @@ function observation(): IssueTeamBenchmarkObservation {
 }
 describe("REQ-023 deterministic issue-team benchmark", () => {
   it("replays the real SQLite state machine with no paid call", () => {
-    expect(observation()).toMatchObject({ roleOrderMatches: true, writeBoundaryViolations: 0, adapterReadOnlyEnforced: true, repairCycles: 1, cleanCycles: 2,
+    expect(observation()).toMatchObject({ roleOrderMatches: true, writeBoundaryViolations: 0, adapterReadOnlyEnforced: true,
+      roleExecutorBoundaryPreserved: true, parentProjectionValidated: true, repairCycles: 1, cleanCycles: 2,
       duplicateRoleEffects: 0, unknownInflightRecovery: true, legacyProfilePreserved: true, receiptCount: 8, distinctReceiptIdentities: 8 });
   });
   it.each([
     ["ordering", { roleOrderMatches: false }], ["writeBoundary", { writeBoundaryViolations: 1 }],
     ["adapterBoundary", { adapterReadOnlyEnforced: false }],
+    ["compositionBoundary", { roleExecutorBoundaryPreserved: false }], ["parentBoundary", { parentProjectionValidated: false }],
     ["convergence", { cleanCycles: 1 }], ["duplicateDispatch", { duplicateRoleEffects: 1 }],
     ["recovery", { unknownInflightRecovery: false }], ["receiptIsolation", { distinctReceiptIdentities: 7 }],
     ["legacyPreservation", { legacyProfilePreserved: false }],
