@@ -16,8 +16,9 @@ import {
 } from "../ports/issue-orchestration.js";
 import type { SubAgentPort, VerifierPort } from "../ports/orchestration.js";
 import type { DiagnosticLog } from "../ports/uc1.js";
+import type { PaidCallAllowance, PaidCallBudgetPort } from "../ports/paid-call-budget.js";
 
-interface JsonActorOptions {
+export interface JsonActorOptions {
   readonly subAgent: SubAgentPort;
   readonly binding: ActorBinding;
   readonly workdir: string;
@@ -26,6 +27,8 @@ interface JsonActorOptions {
   readonly allowedWorkerProfiles?: readonly string[];
   readonly allowedAcceptanceChecks?: readonly string[];
   readonly timeoutMs?: number;
+  readonly budget?: PaidCallBudgetPort;
+  readonly callAllowance?: PaidCallAllowance;
 }
 
 export function makeSubAgentNaiaFacing(options: JsonActorOptions): NaiaFacingPort {
@@ -174,6 +177,12 @@ async function runJson(options: JsonActorOptions, role: ActorReceipt["role"], id
   const startedAt = now();
   const timeoutMs = options.timeoutMs ?? 120_000;
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error(`${role} actor timeout policy invalid`);
+  if (options.budget) {
+    if (!options.callAllowance) throw new Error(`${role} paid-call allowance missing`);
+    options.budget.reserve({ idempotencyKey, expectedProvider: options.binding.provider,
+      expectedModel: options.binding.model, ...(options.binding.reasoningEffort
+        ? { expectedReasoningEffort: options.binding.reasoningEffort } : {}), ...options.callAllowance });
+  }
   options.diag.debug?.("[SubAgentIssueActor] start", { at: startedAt, role, idempotencyKey, model: options.binding.model });
   const session = options.subAgent.spawn({ prompt, workdir: options.workdir, model: options.binding.model, filesystemAccess: "read_only" });
   let text = "";
@@ -213,15 +222,19 @@ async function runJson(options: JsonActorOptions, role: ActorReceipt["role"], id
     outputTokens: usageAvailable ? evidence.outputTokens : 0,
     latencyMs: Math.max(0, completedAt - startedAt),
     ...(evidence.modelEvidenceSource ? { modelEvidenceSource: evidence.modelEvidenceSource } : {}),
+    ...(evidence.piEstimatedCost !== undefined
+      ? { estimatedCostUsd: evidence.piEstimatedCost, estimatedCostSource: "pi_catalog" as const } : {}),
     cost: usageAvailable && evidence.measuredCostUsd !== undefined
       ? { state: "measured", usd: evidence.measuredCostUsd, source: "subagent_usage_and_pinned_price" }
       : { state: "unavailable", reason: "actor adapter did not receive priced usage" },
   };
-  if (!ok) throw new IssueActorResultError(`${role} actor did not complete`, receipt);
   if (evidence.provider !== options.binding.provider || evidence.selectedModel !== options.binding.model
     || evidence.reasoningEffort !== options.binding.reasoningEffort) {
     throw new IssueActorResultError(`${role} actor binding mismatch`, receipt);
   }
+  try { options.budget?.settle(idempotencyKey, receipt); }
+  catch (error) { throw new IssueActorResultError(error instanceof Error ? error.message : "paid-call settlement failed", receipt); }
+  if (!ok) throw new IssueActorResultError(`${role} actor did not complete`, receipt);
   return withReceipt(receipt, () => ({ value: parseJsonObject(text), receipt }));
 }
 

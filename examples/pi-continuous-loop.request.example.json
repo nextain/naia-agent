@@ -1,0 +1,12 @@
+{
+  "requestId": "example-fix-001",
+  "text": "Fix the failing parser test without changing public behavior.",
+  "requiredObligations": [
+    "Fix the failing parser test",
+    "Preserve public behavior",
+    "Run the declared acceptance checks"
+  ],
+  "workspacePath": "/absolute/path/containing/projects/target-repository",
+  "sourceId": "local-example",
+  "actorId": "local-user"
+}

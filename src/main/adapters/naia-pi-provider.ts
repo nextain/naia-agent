@@ -17,7 +17,8 @@ export function normalizeNaiaGatewayBaseUrl(raw: string | undefined): string {
 }
 
 /** Pi custom-provider configuration. It contains environment references only, never a Naia key. */
-export function buildNaiaPiModelsConfig(baseUrl?: string): Record<string, unknown> {
+export function buildNaiaPiModelsConfig(baseUrl?: string, maxTokens?: number): Record<string, unknown> {
+  if (maxTokens !== undefined && (!Number.isSafeInteger(maxTokens) || maxTokens <= 0)) throw new Error("Pi maxTokens must be positive");
   return {
     providers: {
       [NAIA_PI_PROVIDER]: {
@@ -28,20 +29,20 @@ export function buildNaiaPiModelsConfig(baseUrl?: string): Record<string, unknow
         headers: { "X-AnyLLM-Key": "Bearer $NAIA_API_KEY" },
         compat: { supportsDeveloperRole: false, supportsReasoningEffort: false },
         models: [
-          { id: "grok-4.3", name: "Grok 4.3 (Naia / Azure)", reasoning: false, input: ["text"], contextWindow: 200000 },
-          { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro (Naia / Azure, no tools)", reasoning: false, input: ["text"], contextWindow: 1000000 },
+          { id: "grok-4.3", name: "Grok 4.3 (Naia / Azure)", reasoning: false, input: ["text"], contextWindow: 200000, ...(maxTokens ? { maxTokens } : {}) },
+          { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro (Naia / Azure, no tools)", reasoning: false, input: ["text"], contextWindow: 1000000, ...(maxTokens ? { maxTokens } : {}) },
         ],
       },
     },
   };
 }
 
-export function ensureNaiaPiConfig(opts: { dir?: string; baseUrl?: string } = {}): string {
+export function ensureNaiaPiConfig(opts: { dir?: string; baseUrl?: string; maxTokens?: number } = {}): string {
   const dir = opts.dir ?? join(homedir(), ".naia-agent", "pi");
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const target = join(dir, "models.json");
   const temp = join(dir, `.models.${process.pid}.${randomUUID()}.tmp`);
-  writeFileSync(temp, `${JSON.stringify(buildNaiaPiModelsConfig(opts.baseUrl), null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+  writeFileSync(temp, `${JSON.stringify(buildNaiaPiModelsConfig(opts.baseUrl, opts.maxTokens), null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
   renameSync(temp, target);
   return dir;
 }

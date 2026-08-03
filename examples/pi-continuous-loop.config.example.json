@@ -1,0 +1,33 @@
+{
+  "stateDir": "/absolute/private/path/naia-loop-state",
+  "workspaceRoot": "/absolute/path/containing/projects",
+  "worktreeRoot": "/absolute/private/path/naia-loop-worktrees",
+  "facing": { "provider": "naia", "model": "deepseek-v4-pro" },
+  "moderator": { "provider": "naia", "model": "deepseek-v4-pro" },
+  "reporter": { "provider": "naia", "model": "deepseek-v4-pro" },
+  "roles": {
+    "explorer": { "provider": "naia", "model": "deepseek-v4-pro" },
+    "implementer": { "provider": "naia", "model": "grok-4.3" },
+    "tester": { "provider": "naia", "model": "deepseek-v4-pro" },
+    "reviewer": { "provider": "naia", "model": "deepseek-v4-pro" }
+  },
+  "profileId": "azure-economy-pi",
+  "maxRepairCycles": 2,
+  "requiredCleanCycles": 2,
+  "acceptanceChecks": [
+    { "name": "build", "command": "pnpm", "args": ["build"] },
+    { "name": "test", "command": "pnpm", "args": ["test"] }
+  ],
+  "concurrency": 2,
+  "budget": {
+    "maxPaidCalls": 20,
+    "maxUsd": 0.5,
+    "maxInputTokens": 100000,
+    "maxOutputTokens": 30000
+  },
+  "callAllowance": {
+    "reservedUsd": 0.025,
+    "reservedInputTokens": 5000,
+    "reservedOutputTokens": 1500
+  }
+}

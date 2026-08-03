@@ -8,7 +8,7 @@ import {
   buildNaiaPiModelsConfig,
   ensureNaiaPiConfig,
 } from "../main/adapters/naia-pi-provider.js";
-import { makePiSubAgent, piLineToEvents, type SpawnFn } from "../main/adapters/subagent-pi.js";
+import { makeCumulativePiLineParser, makePiSubAgent, piLineToEvents, type SpawnFn } from "../main/adapters/subagent-pi.js";
 
 const tempDirs: string[] = [];
 const tempDir = (): string => {
@@ -32,6 +32,9 @@ describe("UC-NAIA-PI provider isolation", () => {
     expect(text).not.toContain("naia-secret-value");
     expect(buildNaiaPiModelsConfig("https://gateway.example")).toMatchObject({
       providers: { naia: { baseUrl: "https://gateway.example/v1", authHeader: false } },
+    });
+    expect(buildNaiaPiModelsConfig("https://gateway.example", 321)).toMatchObject({
+      providers: { naia: { models: [{ maxTokens: 321 }, { maxTokens: 321 }] } },
     });
     const models = (buildNaiaPiModelsConfig("https://gateway.example") as {
       providers: { naia: { models: Array<{ id: string }> } };
@@ -103,7 +106,8 @@ describe("UC-NAIA-PI provider isolation", () => {
     }), { provider: "naia", model: "grok-4.3" });
     expect(ok).toEqual([{ kind: "model_evidence", evidence: {
       provider: "naia", selectedModel: "grok-4.3", modelEvidenceSource: "provider_reported",
-      usageAvailable: true, inputTokens: 3, outputTokens: 4, totalTokens: 7, piEstimatedCost: 0.01,
+      usageAvailable: true, inputTokens: 3, cachedInputTokens: 0, outputTokens: 4, totalTokens: 7,
+      piEstimatedCost: 0.01,
     } }]);
 
     const mismatch = piLineToEvents(JSON.stringify({
@@ -118,7 +122,18 @@ describe("UC-NAIA-PI provider isolation", () => {
     }), { provider: "naia", model: "grok-4.3" });
     expect(malformed).toEqual([{ kind: "model_evidence", evidence: {
       provider: "naia", selectedModel: "grok-4.3", modelEvidenceSource: "provider_reported",
-      usageAvailable: false, inputTokens: 0, outputTokens: 0, totalTokens: 0,
+      usageAvailable: false, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, totalTokens: 0,
     } }]);
+  });
+
+  it("accumulates every assistant turn including cache usage and priced cost", () => {
+    const parse = makeCumulativePiLineParser({ provider: "naia", model: "grok-4.3" });
+    parse(JSON.stringify({ type: "message_end", message: { provider: "naia", model: "grok-4.3", content: [],
+      usage: { input: 3, cacheRead: 5, cacheWrite: 2, output: 4, totalTokens: 14, cost: { total: 0.01 } } } }));
+    const second = parse(JSON.stringify({ type: "message_end", message: { provider: "naia", model: "grok-4.3", content: [],
+      usage: { input: 7, cacheRead: 11, cacheWrite: 3, output: 6, totalTokens: 27, cost: { total: 0.02 } } } }));
+    expect(second).toEqual([{ kind: "model_evidence", evidence: expect.objectContaining({
+      inputTokens: 15, cachedInputTokens: 16, outputTokens: 10, totalTokens: 41, piEstimatedCost: 0.03,
+    }) }]);
   });
 });

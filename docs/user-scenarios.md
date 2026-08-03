@@ -815,3 +815,25 @@ Discord ingress, terminal/file-opening UX, and naia-shell visualization.
 | a clean team result still fails the issue when the independent acceptance-check verifier fails | `single-issue-team-verifier.integration.test.ts` |
 | app/domain/port layers remain free of Discord, Shell, provider SDK, and subprocess imports | `issue-team-layer-boundary.contract.test.ts` |
 | a frozen no-paid-call workload gates ordering, isolation, recovery, loop convergence, receipt coverage, and cost accounting | `issue-team-benchmark.contract.test.ts` |
+## UC-ORCH-004 — One Naia Agent session continuously manages Pi coding sessions
+
+The user starts Naia Agent without naia-shell, submits several repository issues, and keeps using
+the same durable session manager to inspect, answer, cancel, and resume them. Each issue runs through
+the existing moderator and bounded explorer/implementer/tester/reviewer loop, but every authored
+role uses built-in Pi. OpenCode is not installed or started on this path.
+
+Before each paid model attempt, Naia Agent durably reserves calls, dollars, input tokens, and output
+tokens. Restart cannot erase the budget or cause an unresolved paid attempt to be repeated. Complete
+provider evidence settles the reservation; missing or conflicting evidence stops the affected work
+honestly. The loop has no arbitrary two-minute ceiling and stops only at explicit contract bounds.
+
+### Test Coverage Map
+
+| Scenario | Contract/integration test |
+|---|---|
+| independent SQLite connections serialize reservations and enforce all four aggregate limits | `sqlite-paid-call-budget.integration.test.ts` |
+| restart preserves settled and unresolved allowance; duplicate/conflicting receipts are deterministic | `sqlite-paid-call-budget.integration.test.ts` |
+| the shared actor path and role executor reserve before spawn and settle bound evidence | `pi-continuous-loop.integration.test.ts` |
+| the Pi-only transitive TypeScript import closure has no OpenCode adapter edge | `pi-continuous-loop.contract.test.ts`, `pi-continuous-loop-benchmark.contract.test.ts` |
+| the command backend reopens the same durable control state; one NDJSON session accepts multiple starts and surfaces background pump failure; every command that pumps work, including cancel, restores the Naia credential first | `pi-continuous-loop-cli.integration.test.ts`, `pi-continuous-loop.contract.test.ts` |
+| frozen zero-paid benchmark executes two managed issues through the real Pi-only composition with injected provider/worktree/verifier effects, binds current TypeScript to the exact executed JavaScript, mutation-tests forbidden import/executable patterns, and covers paid-attempt settlement, repair, verification failure, duplicate submission, restart, unresolved calls, drift, receipt conflict, and budget gates | `pi-continuous-loop-benchmark.contract.test.ts` |

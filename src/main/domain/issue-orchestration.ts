@@ -42,6 +42,9 @@ export interface ActorReceipt {
   readonly latencyMs: number;
   readonly modelEvidenceSource?: "provider_reported" | "adapter_requested";
   readonly cost: CostEvidence;
+  /** Pi-local priced-usage estimate; operational budgeting only, never a provider invoice claim. */
+  readonly estimatedCostUsd?: number;
+  readonly estimatedCostSource?: "pi_catalog";
   readonly workerRole?: import("./issue-team.js").IssueTeamRole;
   readonly agentProfileId?: string;
   readonly agentKind?: import("./issue-team.js").IssueTeamAgentKind;

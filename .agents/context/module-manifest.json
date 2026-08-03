@@ -1,6 +1,36 @@
 {
   "_doc": "파일단위 계약 앵커 (드리프트 자동차단). src/main 의 모든 .ts 는 여기 {layer, uc, contract} 와 함께 등록돼야 한다. 미등록 파일 = 미계약 코드 = RED (scripts/check-file-anchors.mjs). 계약 먼저, 코드 나중 — 새 파일 추가 전 이 manifest 에 앵커 선언. layer ∈ {domain,ports,app,adapters,composition}. contract = docs/progress 의 계약 문서.",
   "files": {
+    "src/main/ports/paid-call-budget.ts": {
+      "layer": "ports",
+      "uc": ["UC-ORCH-004"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-004-pi-continuous-loop-contract-2026-08-04.md",
+      "note": "Provider-neutral durable pre-call reservation and receipt-settlement boundary."
+    },
+    "src/main/adapters/sqlite-paid-call-budget.ts": {
+      "layer": "adapters",
+      "uc": ["UC-ORCH-004"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-004-pi-continuous-loop-contract-2026-08-04.md",
+      "note": "Cross-process SQLite paid-call ledger with fail-closed unresolved reservations."
+    },
+    "src/main/composition/pi-continuous-loop.ts": {
+      "layer": "composition",
+      "uc": ["UC-ORCH-004"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-004-pi-continuous-loop-contract-2026-08-04.md",
+      "note": "Standalone Pi-only multi-session composition; deliberately has no OpenCode import edge."
+    },
+    "src/main/composition/pi-continuous-loop-control.ts": {
+      "layer": "composition",
+      "uc": ["UC-ORCH-004"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-004-pi-continuous-loop-contract-2026-08-04.md",
+      "note": "Persistent NDJSON control session for one durable Pi-only loop instance."
+    },
+    "src/main/composition/mixed-issue-team-agents.ts": {
+      "layer": "composition",
+      "uc": ["UC-ORCH-003"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-003-issue-team-contract-2026-08-02.md",
+      "note": "Legacy mixed Codex/OpenCode/Pi adapter catalog, isolated from the Pi-only runtime graph."
+    },
     "src/main/ports/compaction.ts": {
       "layer": "ports",
       "uc": [
@@ -647,9 +677,15 @@
     },
     "src/main/adapters/subagent-pi.ts": {
       "layer": "adapters",
-      "uc": ["UC-014", "UC-ORCH-003"],
-      "contract": ["docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md", "docs/progress/99.dev-comm/UC-ORCH-003-issue-team-contract-2026-08-02.md"],
-      "note": "pi 코딩에이전트 SubAgentPort — pi NDJSON→event·bin resolve(PI_BIN→node_modules→PATH→npx)·honest-unsupported와 팀 역할의 명시적 read/grep/find/ls 읽기 전용 도구 경계. SPEC-010."
+      "uc": ["UC-014", "UC-ORCH-003", "UC-ORCH-004"],
+      "contract": ["docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md", "docs/progress/99.dev-comm/UC-ORCH-003-issue-team-contract-2026-08-02.md", "docs/progress/99.dev-comm/UC-ORCH-004-pi-continuous-loop-contract-2026-08-04.md"],
+      "note": "pi 코딩에이전트 SubAgentPort — Pi NDJSON 누적 usage/priced-cost evidence, bin resolve, honest unsupported, read-only tool boundary."
+    },
+    "src/main/adapters/naia-pi-provider.ts": {
+      "layer": "adapters",
+      "uc": ["UC-016", "UC-ORCH-004"],
+      "contract": ["docs/progress/99.dev-comm/naia-account-pi-azure-contract-2026-07-30.md", "docs/progress/99.dev-comm/UC-ORCH-004-pi-continuous-loop-contract-2026-08-04.md"],
+      "note": "Naia-account Pi catalog and secret-free provider config, including per-response output ceiling."
     },
     "src/main/adapters/subagent-opencode-cli.ts": {
       "layer": "adapters",

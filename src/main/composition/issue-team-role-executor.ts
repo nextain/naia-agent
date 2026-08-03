@@ -5,15 +5,14 @@ import type { IssueTeamRoleExecutorPort } from "../ports/issue-team.js";
 import { IssueActorResultError } from "../ports/issue-orchestration.js";
 import type { SubAgentPort } from "../ports/orchestration.js";
 import type { DiagnosticLog } from "../ports/uc1.js";
-import { makeCodexSubAgent, type SubAgentCodexOptions } from "../adapters/subagent-codex.js";
-import { makeOpencodeSubAgent, type SubAgentOpencodeOptions } from "../adapters/subagent-opencode-cli.js";
-import { makePiSubAgent, type SubAgentPiOptions } from "../adapters/subagent-pi.js";
-import { assertIssueTeamProfile, type IssueTeamProfile } from "../domain/issue-team.js";
+import type { PaidCallAllowance, PaidCallBudgetPort } from "../ports/paid-call-budget.js";
 
 export interface IssueTeamRoleExecutorOptions {
   readonly agents: Readonly<Record<string, { readonly agentKind: import("../domain/issue-team.js").IssueTeamAgentKind; readonly adapter: SubAgentPort }>>;
   readonly diag: DiagnosticLog;
   readonly nowMs?: () => number;
+  readonly budget?: PaidCallBudgetPort;
+  readonly callAllowance?: PaidCallAllowance;
 }
 
 export function makeIssueTeamRoleExecutor(options: IssueTeamRoleExecutorOptions): IssueTeamRoleExecutorPort {
@@ -22,6 +21,13 @@ export function makeIssueTeamRoleExecutor(options: IssueTeamRoleExecutorOptions)
       const selected = options.agents[input.roleProfile.agentProfileId];
       if (!selected || selected.agentKind !== input.roleProfile.agentKind) throw new Error(`undeclared issue-team agent profile: ${input.roleProfile.agentProfileId}`);
       const startedAt = (options.nowMs ?? Date.now)();
+      if (options.budget) {
+        if (!options.callAllowance) throw new Error("issue-team paid-call allowance missing");
+        options.budget.reserve({ idempotencyKey: input.stepId,
+          expectedProvider: input.roleProfile.binding.provider, expectedModel: input.roleProfile.binding.model,
+          ...(input.roleProfile.binding.reasoningEffort
+            ? { expectedReasoningEffort: input.roleProfile.binding.reasoningEffort } : {}), ...options.callAllowance });
+      }
       let text = ""; let overflow = false; let report: import("../domain/orchestration.js").SupervisorReport | undefined;
       const supervisor = new Supervisor({
         subAgent: selected.adapter, diag: options.diag,
@@ -50,6 +56,8 @@ export function makeIssueTeamRoleExecutor(options: IssueTeamRoleExecutorOptions)
         outputTokens: evidence.usageAvailable === true ? evidence.outputTokens : 0,
         latencyMs: Math.max(0, (options.nowMs ?? Date.now)() - startedAt),
         ...(evidence.modelEvidenceSource ? { modelEvidenceSource: evidence.modelEvidenceSource } : {}),
+        ...(evidence.piEstimatedCost !== undefined
+          ? { estimatedCostUsd: evidence.piEstimatedCost, estimatedCostSource: "pi_catalog" as const } : {}),
         cost: evidence.usageAvailable === true && evidence.measuredCostUsd !== undefined
           ? { state: "measured", usd: evidence.measuredCostUsd, source: "role_adapter_priced_usage" }
           : { state: "unavailable", reason: "role adapter did not receive priced usage" },
@@ -58,6 +66,8 @@ export function makeIssueTeamRoleExecutor(options: IssueTeamRoleExecutorOptions)
         || (input.roleProfile.binding.reasoningEffort !== undefined && evidence.reasoningEffort !== input.roleProfile.binding.reasoningEffort)) {
         throw new IssueActorResultError("role model binding mismatch", receipt);
       }
+      try { options.budget?.settle(input.stepId, receipt); }
+      catch (error) { throw new IssueActorResultError(error instanceof Error ? error.message : "paid-call settlement failed", receipt); }
       if (!report?.sessionOk || overflow) throw new IssueActorResultError(overflow ? "role output exceeded 64 KiB" : "role session failed", receipt);
       let result: IssueTeamRoleResult;
       try { result = JSON.parse(text) as IssueTeamRoleResult; }
@@ -65,24 +75,6 @@ export function makeIssueTeamRoleExecutor(options: IssueTeamRoleExecutorOptions)
       return { result, receipt };
     },
   };
-}
-
-export interface IssueTeamAgentEnvironment {
-  readonly codex?: Omit<SubAgentCodexOptions, "model" | "reasoningEffort">;
-  readonly opencode?: Omit<SubAgentOpencodeOptions, "model" | "provider">;
-  readonly pi?: Omit<SubAgentPiOptions, "model" | "provider">;
-}
-
-export function composeIssueTeamAgents(profile: IssueTeamProfile, environment: IssueTeamAgentEnvironment = {}): Readonly<Record<string, { readonly agentKind: import("../domain/issue-team.js").IssueTeamAgentKind; readonly adapter: SubAgentPort }>> {
-  assertIssueTeamProfile(profile);
-  return Object.fromEntries(Object.values(profile.roles).map((declared) => {
-    const agent = declared.agentKind === "codex"
-      ? makeCodexSubAgent({ ...environment.codex, model: declared.binding.model, ...(declared.binding.reasoningEffort ? { reasoningEffort: declared.binding.reasoningEffort as SubAgentCodexOptions["reasoningEffort"] } : {}) })
-      : declared.agentKind === "opencode"
-        ? makeOpencodeSubAgent({ ...environment.opencode, model: declared.binding.model, provider: declared.binding.provider })
-        : makePiSubAgent({ ...environment.pi, model: declared.binding.model, provider: declared.binding.provider });
-    return [declared.agentProfileId, { agentKind: declared.agentKind, adapter: agent }];
-  }));
 }
 
 function rolePrompt(input: Parameters<IssueTeamRoleExecutorPort["execute"]>[0]): string {

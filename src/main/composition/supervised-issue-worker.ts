@@ -95,7 +95,7 @@ function safeJobId(issueId: string): string {
   return normalized.length >= 6 ? normalized.slice(0, 120) : `issue-${normalized.padEnd(6, "0")}`;
 }
 
-function gitChangedFiles(worktreePath: string): readonly string[] {
+export function gitChangedFiles(worktreePath: string): readonly string[] {
   try {
     return execFileSync("git", ["status", "--porcelain=v1", "--untracked-files=all"], {
       cwd: worktreePath, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"],

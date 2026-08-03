@@ -209,6 +209,29 @@ provider/model 을 구성하고, `Chat(server-stream)` 으로 대화를 처리�
 
 ### 단독 CLI — 오케스트레이션 실행 (naia-shell 없이)
 
+내장 Pi만으로 여러 코딩 이슈를 영속 관리하는 경로는 `naia-agent loop --help`를 사용한다.
+이 경로는 OpenCode를 설치·호출·fallback하지 않으며, SQLite에 호출 수·USD·입력/출력 토큰을
+호출 전에 예약하므로 재시작 뒤에도 미결 유료 호출을 반복하지 않는다. Discord ingress와
+naia-shell 표시는 후속 어댑터 범위다.
+
+```bash
+cp examples/pi-continuous-loop.config.example.json /private/path/loop.json
+# 절대경로와 한도를 편집한 뒤:
+naia-agent loop serve --config /private/path/loop.json
+# 또는 1회 명령:
+naia-agent loop start --config /private/path/loop.json \
+  --request examples/pi-continuous-loop.request.example.json
+naia-agent loop list --config /private/path/loop.json
+naia-agent loop budget --config /private/path/loop.json
+```
+
+`serve`는 프로세스를 유지하며 stdin의 NDJSON 요청(`{ "id": "...", "command": "list" }`)을
+같은 세션 관리자에 연결한다. `start`, `answer`, `cancel`은 작업을 예약하고 백그라운드 pump를
+깨우므로 한 제어 세션에서 여러 이슈를 겹쳐 실행·조회할 수 있다.
+
+예시의 DeepSeek 역할은 분석 전용(`--no-tools`)이고 구현은 도구 사용 가능한 Grok 역할이다.
+공개 Azure 표에 숫자 가격이 보이지 않으므로 예시 한도는 가격 주장이 아닌 보수적 운영 상한이다.
+
 `pnpm build` 후, 터미널에서 직접 작업을 시킨다(S2 supervisor mode). 외부 코딩 에이전트(또는 셸)를
 sub-agent 로 spawn → (옵션)워크스페이스 감시 + (옵션)검증 → **정직한 숫자 리포트**.
 

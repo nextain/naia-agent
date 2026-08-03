@@ -4,9 +4,8 @@ import type { CodingJobWorktreePort } from "../ports/coding-job.js";
 import type { IssueTeamStore } from "../ports/issue-team.js";
 import type { IssueWorkerPort } from "../ports/issue-orchestration.js";
 import type { DiagnosticLog } from "../ports/uc1.js";
-import {
-  composeIssueTeamAgents, makeIssueTeamRoleExecutor, type IssueTeamAgentEnvironment,
-} from "./issue-team-role-executor.js";
+import { makeIssueTeamRoleExecutor } from "./issue-team-role-executor.js";
+import { composeIssueTeamAgents, type IssueTeamAgentEnvironment } from "./mixed-issue-team-agents.js";
 
 export function makeIssueWorkerRouter(input: { readonly legacy: IssueWorkerPort; readonly team: IssueWorkerPort }): IssueWorkerPort {
   const selected = (request: Parameters<IssueWorkerPort["execute"]>[0]) => request.profile && isIssueTeamProfile(request.profile) ? input.team : input.legacy;

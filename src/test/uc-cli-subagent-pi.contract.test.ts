@@ -133,7 +133,7 @@ describe("subagent-pi 어댑터 계약 (2b, fake child)", () => {
     const error = await result.catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(IssueActorResultError);
     expect(error).toMatchObject({
-      message: expect.stringContaining("did not complete"),
+      message: expect.stringContaining("binding mismatch"),
       receipt: {
         role: "naia", provider: "openai", model: "unexpected-model", idempotencyKey: "issue:pi:drift",
         tokenCountsAvailable: true, inputTokens: 10, outputTokens: 4, cost: { state: "unavailable" },

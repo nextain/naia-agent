@@ -12,7 +12,8 @@
     "naia-agent": "bin/naia-agent.mjs",
     "naia-agent-chat": "bin/naia-agent-chat.mjs",
     "naia-agent-run": "bin/naia-agent-run.mjs",
-    "naia-agent-manage": "bin/naia-agent-manage.mjs"
+    "naia-agent-manage": "bin/naia-agent-manage.mjs",
+    "naia-agent-loop": "bin/naia-agent-loop.mjs"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -24,7 +25,10 @@
     "test:watch": "vitest",
     "test:report": "vitest run --reporter=verbose",
     "benchmark:single-issue:live": "pnpm build && node benchmark/run-single-issue-live.mjs",
-    "benchmark:multi-issue:deterministic": "pnpm build && node benchmark/run-multi-issue-deterministic.mjs --output benchmark/results/multi-issue-deterministic.json"
+    "benchmark:multi-issue:deterministic": "pnpm build && node benchmark/run-multi-issue-deterministic.mjs --output benchmark/results/multi-issue-deterministic.json",
+    "loop": "node bin/naia-agent-loop.mjs",
+    "benchmark:pi-loop:deterministic": "pnpm build && node benchmark/run-pi-continuous-loop-deterministic.mjs --output benchmark/results/pi-continuous-loop-deterministic.json",
+    "benchmark:pi-loop:live-smoke": "pnpm build && node benchmark/run-pi-continuous-loop-live.mjs"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.179",

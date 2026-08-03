@@ -704,3 +704,42 @@ The Agent and Gateway preserve these codes end to end:
   `.agents/reviews/r-req-023-issue-team-orchestration-2026-08-02.json`. Actual Discord ingress and
   authorization, naia-shell UI, live paid multi-provider E2E, and a real 24GB local Naia model remain
   explicitly outside this completed requirement.
+## REQ-024 — Pi-only continuous coding loop and durable paid-call budget
+
+- **FR-LOOP-001**: A standalone Agent composition runs the existing multi-session → single-issue →
+  profiled-team stack with built-in Pi for every model-authored role. This path neither imports,
+  invokes, nor falls back to OpenCode; legacy mixed profiles remain separate compatibility code.
+- **FR-LOOP-002**: Every paid actor attempt reserves one stable idempotency key, USD allowance,
+  input-token allowance, and output-token allowance in SQLite before provider execution. The ledger
+  atomically enforces total paid-call, USD, input-token, and output-token limits across processes.
+  These are conservative admission and next-call stop rules; a provider can overrun one in-flight
+  reservation, which is recorded and fails the issue after the response rather than being hidden.
+- **FR-LOOP-003**: A provider-model receipt settles its reservation exactly once. Settlement requires
+  complete provider-reported token usage and either measured billing cost or Pi-priced usage explicitly
+  labeled as an estimate. Estimated cost can enforce operational admission but cannot support a live
+  Azure savings claim. Duplicate settlement is idempotent
+  only for the byte-identical receipt; conflicting evidence fails closed.
+- **FR-LOOP-004**: A reservation left active by crash or transport loss remains charged at its
+  reserved allowance and is never silently replayed. Operators can inspect it as unresolved; only
+  explicit reconciliation with bound receipt evidence may settle it.
+- **FR-LOOP-005**: A foreground NDJSON control session plus one-shot commands expose session
+  start/list/show/answer/cancel/pump and budget visibility without naia-shell. State survives restart
+  and reuses exact question binding, scheduler leases, managed worktrees, the role loop, verification,
+  and grounded reporting.
+- **FR-LOOP-006**: A frozen deterministic benchmark uses zero paid calls and covers multiple issues,
+  restart, duplicate commands, repair, budget exhaustion, unresolved reservations, and receipt
+  conflict. It hashes the exact JavaScript closure it executes, requires byte-exact current TypeScript
+  emission, and mutation-tests static/dynamic/CommonJS import plus direct/aliased/fallback executable
+  edges while allowing compatibility-only type labels. The opt-in one-call Azure/Naia-gateway script is only a bounded route/receipt smoke and
+  cannot claim cost efficiency. The active cost-efficiency completion gate remains unavailable until
+  candidate/control runs over identical cases expose complete provider-priced receipts; it is not
+  satisfied or deferred by the smoke.
+- **NFR-LOOP-001**: Default benchmark limits are deliberately small; there is no two-minute product
+  loop ceiling. Termination comes from repair/clean bounds, cancellation, verification, provider
+  failure, or durable budget exhaustion.
+- **NFR-LOOP-002**: SQLite state is owner-local mode 0600 and stores no credential, prompt stream,
+  or raw model output. Logs use `DiagnosticLog` and never expose those values.
+- **NFR-LOOP-003**: Discord ingress and naia-shell UI remain outside this requirement. Source
+  metadata stays adapter-neutral for their later attachment.
+- **Status**: In progress. Completion requires reproducible benchmark evidence and two consecutive
+  clean adversarial reviews on one unchanged candidate.

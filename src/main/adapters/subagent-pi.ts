@@ -33,6 +33,8 @@ export interface SubAgentPiOptions {
   readonly noTools?: boolean;
   readonly env?: NodeJS.ProcessEnv;
   readonly piConfigDir?: string;
+  /** Provider-enforced maximum output tokens per model response when using the Naia custom catalog. */
+  readonly maxOutputTokens?: number;
   /** hard-kill 유예(ms) override. 기본 500. 테스트가 단축. */
   readonly hardKillDeadlineMs?: number;
   /** bin 해석 주입(테스트/override). 미주입 = resolvePiBin(env→node_modules→PATH→npx). */
@@ -99,7 +101,7 @@ interface RawPiEvent {
     content?: Array<{ type?: string; text?: string }>;
     provider?: string;
     model?: string;
-    usage?: { input?: number; output?: number; totalTokens?: number; cost?: { total?: number } };
+    usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; totalTokens?: number; cost?: { total?: number } };
   };
   toolName?: string;
   isError?: boolean;
@@ -156,6 +158,7 @@ export function piLineToEvents(
           modelEvidenceSource: "provider_reported" as const,
           usageAvailable: Boolean(usage),
           inputTokens: usage?.inputTokens ?? 0,
+          cachedInputTokens: usage?.cachedInputTokens ?? 0,
           outputTokens: usage?.outputTokens ?? 0,
           totalTokens: usage?.totalTokens ?? 0,
           ...(identity ?? {}),
@@ -184,13 +187,32 @@ export function piLineToEvents(
   }
 }
 
-function validPiUsage(value: NonNullable<RawPiEvent["message"]>["usage"]): { inputTokens: number; outputTokens: number; totalTokens: number } | undefined {
+function validPiUsage(value: NonNullable<RawPiEvent["message"]>["usage"]): { inputTokens: number; cachedInputTokens: number; outputTokens: number; totalTokens: number } | undefined {
   if (!value) return undefined;
-  const fields = [value.input, value.output, value.totalTokens];
+  const fields = [value.input, value.output, value.totalTokens, value.cacheRead ?? 0, value.cacheWrite ?? 0];
   if (fields.some((field) => typeof field !== "number" || !Number.isSafeInteger(field) || field < 0)) return undefined;
-  const [inputTokens, outputTokens, totalTokens] = fields as number[];
-  if (totalTokens < inputTokens + outputTokens) return undefined;
-  return { inputTokens, outputTokens, totalTokens };
+  const [input, outputTokens, totalTokens, cacheRead, cacheWrite] = fields as number[];
+  if (totalTokens < input + outputTokens + cacheRead + cacheWrite) return undefined;
+  return { inputTokens: input + cacheWrite, cachedInputTokens: cacheRead, outputTokens, totalTokens };
+}
+
+export function makeCumulativePiLineParser(
+  expected?: { provider: string; model: string }, identity?: { sessionId: string; executionId: string },
+): (line: string) => readonly SubAgentEvent[] {
+  let inputTokens = 0; let cachedInputTokens = 0; let outputTokens = 0; let totalTokens = 0;
+  let estimatedCost = 0; let usageComplete = true; let pricedComplete = true;
+  return (line) => piLineToEvents(line, expected, identity).map((event) => {
+    if (event.kind !== "model_evidence") return event;
+    const current = event.evidence;
+    usageComplete &&= current.usageAvailable === true;
+    pricedComplete &&= current.piEstimatedCost !== undefined;
+    inputTokens += current.inputTokens; cachedInputTokens += current.cachedInputTokens ?? 0;
+    outputTokens += current.outputTokens; totalTokens += current.totalTokens;
+    estimatedCost += current.piEstimatedCost ?? 0;
+    return { kind: "model_evidence" as const, evidence: { ...current,
+      usageAvailable: usageComplete, inputTokens, cachedInputTokens, outputTokens, totalTokens,
+      ...(pricedComplete ? { piEstimatedCost: estimatedCost } : {}) } };
+  });
 }
 
 /** SubAgentPort 의 pi 구현. pi CLI 1회 실행을 sub-agent 세션으로 spawn. */
@@ -218,6 +240,7 @@ export function makePiSubAgent(opts: SubAgentPiOptions = {}): SubAgentPort {
           const configDir = ensureNaiaPiConfig({
             ...(opts.piConfigDir ? { dir: opts.piConfigDir } : {}),
             baseUrl: sourceEnv["NAIA_ANYLLM_BASE_URL"] ?? sourceEnv["NAIA_GATEWAY_URL"],
+            ...(opts.maxOutputTokens ? { maxTokens: opts.maxOutputTokens } : {}),
           });
           childEnv = buildNaiaPiChildEnv(sourceEnv, configDir, key);
         } catch (e) {
@@ -238,9 +261,10 @@ export function makePiSubAgent(opts: SubAgentPiOptions = {}): SubAgentPort {
       else if (task.filesystemAccess === "read_only") args.push("--tools", "read,grep,find,ls");
       const identity = { sessionId: randomUUID(), executionId: randomUUID() };
       const expected = provider && model ? { provider, model } : undefined;
+      const lineToEvent = makeCumulativePiLineParser(expected, identity);
       return spawnSubprocessSession({
         spawnFn, bin, args, cwd: task.workdir, ...(childEnv ? { env: childEnv } : {}), hardKillMs,
-        lineToEvent: (line) => piLineToEvents(line, expected, identity),
+        lineToEvent,
         label: "pi", diagnostics: true,
       });
     },
