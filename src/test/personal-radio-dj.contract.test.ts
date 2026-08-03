@@ -52,6 +52,7 @@ function harness(overrides: {
   const scheduler = new ManualScheduler();
   const spoken: string[] = [];
   const speechInterrupts = vi.fn();
+  const speechClose = vi.fn();
   const bgmCalls: string[] = [];
   const preferenceHandoffs: {
     sentiment: "like" | "dislike";
@@ -98,7 +99,7 @@ function harness(overrides: {
       open: vi.fn(),
       speak: vi.fn(async ({ text }) => { spoken.push(text); return "completed" as const; }),
       interrupt: speechInterrupts,
-      close: vi.fn(),
+      close: speechClose,
     },
     preferences: {
       handoff: vi.fn(async (signal) => { preferenceHandoffs.push(signal); }),
@@ -113,7 +114,7 @@ function harness(overrides: {
     bgmAutoPlayOptIn: overrides.optIn ?? true,
   });
   controller.setSubscriberReady(overrides.subscriberReady ?? true);
-  return { controller, scheduler, spoken, bgmCalls, preferenceHandoffs, selectedSnapshots, bgm, speechInterrupts };
+  return { controller, scheduler, spoken, bgmCalls, preferenceHandoffs, selectedSnapshots, bgm, speechInterrupts, speechClose };
 }
 
 describe("personal radio DJ MVP contract", () => {
@@ -226,6 +227,22 @@ describe("personal radio DJ MVP contract", () => {
       "play:저녁 집중 재즈 믹스",
       "play:저녁 집중 재즈 믹스",
     ]);
+  });
+
+  it("DJ-06 recovery: 첫 재생 실패 뒤 같은 activity에서 다음 곡을 다시 선곡한다", async () => {
+    const h = harness();
+    vi.mocked(h.bgm.searchAndPlay)
+      .mockResolvedValueOnce({ ok: false, reason: "iframe_playing_not_observed" })
+      .mockResolvedValueOnce({ ok: true, videoId: "v2", title: "복구된 다음 영상" });
+
+    await h.scheduler.advance(1_000);
+    expect(h.controller.state()).toBe("music_only");
+    expect(h.speechClose).not.toHaveBeenCalled();
+
+    await h.controller.control({ kind: "next" });
+    expect(h.controller.state()).toBe("dj_speaking");
+    expect(h.spoken.at(-1)).toContain("복구된 다음 영상");
+    expect(h.speechClose).not.toHaveBeenCalled();
   });
 
   it("DJ-06: next는 player가 확인한 다른 영상 제목만 말하고, 중복 결과는 새 선곡으로 되돌린다", async () => {
