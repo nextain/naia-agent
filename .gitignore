@@ -33,6 +33,9 @@ pnpm-debug.log*
 # AI 작업 임시물 + 주기 검증 러너 산출물 (로그/상태/PID — 추적 제외)
 .agents/work/
 
+# Ephemeral approval marker created by the local push guard.
+.claude/git-push-approved.marker
+
 # Editor
 .vscode/
 .idea/
