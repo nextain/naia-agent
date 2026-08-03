@@ -12,7 +12,9 @@ function fake() {
   let stdoutCb: ((b: Buffer) => void) | undefined;
   const handlers: Record<string, (...a: unknown[]) => void> = {};
   const killSignals: Array<string | number> = [];
-  const spawnFn: SpawnFn = () => {
+  let lastOptions: Parameters<SpawnFn>[2] | undefined;
+  const spawnFn: SpawnFn = (_command, _args, options) => {
+    lastOptions = options;
     const child = {
       stdout: { on: (_e: string, cb: (b: Buffer) => void) => { stdoutCb = cb; } },
       stderr: { on: () => {} },
@@ -27,6 +29,7 @@ function fake() {
     close: (code: number | null, signal: NodeJS.Signals | null = null) => handlers.close?.(code, signal),
     emitError: (msg: string) => handlers.error?.(new Error(msg)),
     get killSignals() { return killSignals; },
+    get lastOptions() { return lastOptions; },
   };
 }
 async function drain(events: AsyncIterable<SubAgentEvent>): Promise<SubAgentEvent[]> {
@@ -40,6 +43,14 @@ function mk(f: ReturnType<typeof fake>, opts: { lineToEvent?: LineToEvent; maxLi
 }
 
 describe("subprocess-session 공유 머신 계약 (2b)", () => {
+	it("Windows GUI host에서 자식 콘솔을 숨긴다", async () => {
+		const f = fake();
+		const s = mk(f);
+		expect(f.lastOptions?.windowsHide).toBe(true);
+		f.close(0);
+		await drain(s.events);
+	});
+
   it("CRLF 정규화 — 후행 \\r 가 텍스트로 새지 않음(적대리뷰 P2)", async () => {
     const f = fake();
     const s = mk(f);

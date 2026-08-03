@@ -61,7 +61,7 @@ const args = sub === "run"
     ? ["auth", "login", ...process.argv.slice(3)]
     : process.argv.slice(2);
 
-const child = spawn(process.execPath, [target, ...args], { stdio: "inherit" });
+const child = spawn(process.execPath, [target, ...args], { stdio: "inherit", windowsHide: true });
 child.on("exit", (code, signal) => {
   if (signal) process.kill(process.pid, signal);
   process.exit(code ?? 0);

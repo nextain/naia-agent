@@ -163,6 +163,13 @@ naia-os gRPC 배선은 후속 phase(naia-os 워크스페이스 작업 후).
 - **S-CLI-CHAT (멀티턴 REPL)**: `naia-agent chat` → 터미널 readline 루프. 매 입력이 누적 history(이전 user/assistant 턴)와 함께 `ChatRequest` 로 들어가 **맥락 유지 멀티턴**. provider·도구·기억·대화조립 = naia-os gRPC 경로와 **동일 `wireAgentUC1` 코어**(transport만 stdio). emit(text)→stdout 스트리밍, finish→assistant 턴 history append+재프롬프트, Ctrl+C=현재 턴 취소.
 - **S-CLI-LOGIN (키 로그인)**: `naia-agent login --provider <p> --key <k>`(또는 stdin 프롬프트) → 자격증명 저장(홈 `.naia-agent/.env` 0600) → 이후 키 인자 없이 `chat` 가능. resolver/credentials 포트가 저장 키를 읽어 provider 연결.
 - 직교(병렬 금지): CLI 는 gRPC host(`agent-stdio-entry`)와 **같은 deps 빌더(`compose-agent-deps`) + 같은 `wireAgentUC1`** 를 호출, ingress/egress 만 stdio/readline 어댑터. 별도 대화 엔진/도구루프/creds 경로 신설 금지.
+- **S-CLI-WINDOWS-HEADLESS**: Windows 데스크톱 Shell이 Agent를 호스트할 때 Agent가 실행하는 PowerShell, Git, MCP, 검증기와 하위 AI 도구는 백그라운드 프로세스로 생성되어 검은 콘솔 창을 띄우지 않는다. 사용자가 직접 연 터미널에서 실행하는 CLI의 stdout/stderr 계약은 그대로 유지한다.
+
+### Test Coverage Map — Windows headless subprocesses
+
+| Test ID | 검증 | 증적 |
+|---|---|---|
+| TEST-CLI-WINDOWS-HEADLESS-01 | 공용 sub-agent·검증기 spawn 옵션이 `windowsHide:true`를 전달하고, Codex/PowerShell/MCP/도구 실행 경로도 같은 정책을 사용한다. | `src/test/subprocess-session.contract.test.ts`, `src/test/uc-cli-verifier.contract.test.ts`, `src/test/uc-cli-subagent-shell.contract.test.ts`, 소스 계약 검사 |
 
 ### UC-CLI-MANAGE (독립 CLI 계정·설정·모델·진단·세션)
 

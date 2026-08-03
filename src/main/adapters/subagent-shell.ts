@@ -20,7 +20,7 @@ const HARD_KILL_DEADLINE_MS = 500; // 구 contract C12 / P0-7 — SIGTERM 후 �
 
 /** spawn 시그니처(node:child_process.spawn 의 우리가 쓰는 부분). 기본 = 실 spawn; 테스트가 관측용 wrapper 주입.
  *  이 codebase 의 어댑터 IO-주입 패턴(FsLike/LineChannel/now)과 동형 — 메커니즘은 adapter 안, 단위 테스트 가능. */
-export type SpawnFn = (command: string, args: readonly string[], opts: { cwd: string; stdio: ["ignore", "pipe", "pipe"] }) => ChildProcess;
+export type SpawnFn = (command: string, args: readonly string[], opts: { cwd: string; stdio: ["ignore", "pipe", "pipe"]; windowsHide?: boolean }) => ChildProcess;
 
 export interface SubAgentShellOptions {
   /** spawn 할 실행 파일(예: "node", "/usr/bin/echo"). */
@@ -42,7 +42,7 @@ export function makeShellSubAgent(opts: SubAgentShellOptions): SubAgentPort {
   return {
     spawn(task: TaskSpec): SubAgentSession {
       const args = opts.args ? opts.args(task) : [task.prompt];
-      const child = spawnFn(opts.command, args, { cwd: task.workdir, stdio: ["ignore", "pipe", "pipe"] });
+      const child = spawnFn(opts.command, args, { cwd: task.workdir, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
       return new ShellSession(child, hardKillMs);
     },
   };

@@ -229,7 +229,7 @@ async function doSession(args) {
     return;
   }
   // Resume is delegated to the existing chat host and therefore uses the same composeAgentRuntimeDeps + wireAgentUC1.
-  const child = spawn(process.execPath, [CHAT, "chat", "--resume", args.sessionId], { stdio: "inherit" });
+  const child = spawn(process.execPath, [CHAT, "chat", "--resume", args.sessionId], { stdio: "inherit", windowsHide: true });
   await new Promise((resolve) => {
     child.on("exit", (code, signal) => {
       if (signal) process.kill(process.pid, signal);

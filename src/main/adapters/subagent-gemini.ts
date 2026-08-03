@@ -49,7 +49,7 @@ function validateGeminiBin(raw: string | undefined): string | undefined {
 function findGeminiInPath(): string | null {
   const cmd = process.platform === "win32" ? `where gemini` : `which gemini`;
   try {
-    const result = execSync(cmd, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    const result = execSync(cmd, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true }).trim();
     return pickSpawnableBin(result.split(/\r?\n/));
   } catch {
     return null;

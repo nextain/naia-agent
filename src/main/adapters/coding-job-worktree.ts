@@ -21,7 +21,7 @@ export function makeGitCodingJobWorktrees(input: {
 }): CodingJobWorktreePort {
   const allowedRoot = realpathSync(input.allowedWorkspaceRoot);
   const managedRoot = resolve(input.worktreeRoot);
-  const git = input.git ?? ((args, cwd) => { execFileSync("git", [...args], { cwd, stdio: "ignore" }); });
+  const git = input.git ?? ((args, cwd) => { execFileSync("git", [...args], { cwd, stdio: "ignore", windowsHide: true }); });
   return {
     recover(job) {
       const safeId = safeSegment(job.jobId);

@@ -70,7 +70,7 @@ function findPiInNodeModules(): string | null {
 function findPiInPath(): string | null {
   const cmd = process.platform === "win32" ? `where pi` : `which pi`;
   try {
-    const result = execSync(cmd, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    const result = execSync(cmd, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true }).trim();
     return pickSpawnableBin(result.split(/\r?\n/));
   } catch {
     return null;

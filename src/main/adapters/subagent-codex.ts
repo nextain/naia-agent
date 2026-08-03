@@ -64,7 +64,7 @@ function validateCodexBin(raw: string | undefined): string | undefined {
 function findCodexInPath(): string | null {
   const cmd = process.platform === "win32" ? `where codex` : `which codex`;
   try {
-    const result = execSync(cmd, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    const result = execSync(cmd, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true }).trim();
     return pickSpawnableBin(result.split(/\r?\n/));
   } catch {
     return null;

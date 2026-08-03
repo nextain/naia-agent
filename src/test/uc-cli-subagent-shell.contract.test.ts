@@ -16,6 +16,21 @@ async function drain(events: AsyncIterable<SubAgentEvent>): Promise<SubAgentEven
 }
 
 describe("subagent-shell 어댑터 계약 (2a, 실 자식 프로세스)", () => {
+	it("Windows GUI host에서 셸 자식 콘솔을 숨긴다", async () => {
+		let windowsHide: boolean | undefined;
+		const observingSpawn: SpawnFn = (command, args, options) => {
+			windowsHide = options.windowsHide;
+			return spawn(command, [...args], options);
+		};
+		const port = makeShellSubAgent({
+			command: NODE,
+			args: () => ["-e", "process.exit(0)"],
+			spawnFn: observingSpawn,
+		});
+		await drain(port.spawn({ prompt: "x", workdir: process.cwd() }).events);
+		expect(windowsHide).toBe(true);
+	});
+
   it("빠른 명령: stdout → text_delta, code 0 → session_end{ok:true} (terminal 1회)", async () => {
     const port = makeShellSubAgent({ command: NODE, args: () => ["-e", "process.stdout.write('hi')"] });
     const session = port.spawn({ prompt: "ignored", workdir: process.cwd() });

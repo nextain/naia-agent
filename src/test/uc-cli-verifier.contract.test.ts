@@ -53,6 +53,17 @@ function fakeSpawn(spec: FakeChildSpec, killLog?: string[]): SpawnFn {
 const check = (name: string): CommandCheck => ({ name, command: "x", args: [] });
 
 describe("UC-CLI verifier-commands 어댑터 계약 (2c, fake spawn — never-throws)", () => {
+	it("Windows GUI host에서 검증기 콘솔을 숨긴다", async () => {
+		let windowsHide: boolean | undefined;
+		const spawnFn: SpawnFn = (command, args, options) => {
+			windowsHide = options.windowsHide;
+			return fakeSpawn({ code: 0 })(command, args, options);
+		};
+		const v = makeCommandVerifier({ checks: [check("test")], spawnFn });
+		expect((await v.verify("/w")).ok).toBe(true);
+		expect(windowsHide).toBe(true);
+	});
+
   it("통과 check(exit 0) → pass:true", async () => {
     const v = makeCommandVerifier({ checks: [check("test")], spawnFn: fakeSpawn({ code: 0 }) });
     const r = await v.verify("/w");

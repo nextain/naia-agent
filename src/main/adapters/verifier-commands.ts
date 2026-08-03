@@ -27,7 +27,7 @@ export interface CommandCheck {
 export type SpawnFn = (
   command: string,
   args: readonly string[],
-  opts: { cwd: string; stdio: ["ignore", "pipe", "pipe"] },
+  opts: { cwd: string; stdio: ["ignore", "pipe", "pipe"]; windowsHide?: boolean },
 ) => ChildProcess;
 
 const defaultSpawn: SpawnFn = (command, args, o) => spawn(command, [...args], o);
@@ -131,7 +131,7 @@ function runCommand(
   return new Promise<CommandResult>((resolve) => {
     let child: ChildProcess;
     try {
-      child = spawnFn(command, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+      child = spawnFn(command, args, { cwd, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     } catch (e) {
       // 동기 spawn throw(드묾) → 정직한 실패(never-throws — resolve, reject 아님).
       resolve({ code: null, stdout: "", stderr: "", timedOut: false, spawnError: errMessage(e) });

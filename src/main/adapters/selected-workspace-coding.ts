@@ -51,7 +51,7 @@ function isAtOrBelow(root: string, candidate: string): boolean {
  * rejected changes are preserved for the student to inspect and clean up.
  */
 export function makeSelectedWorkspaceCoding(input: { readonly git?: Git; readonly allowedWorkspaceRoot?: string } = {}): SelectedWorkspaceCodingPort {
-  const git = input.git ?? ((args, cwd) => execFileSync("git", [...args], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
+  const git = input.git ?? ((args, cwd) => execFileSync("git", [...args], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true }));
   const allowedWorkspaceRoot = input.allowedWorkspaceRoot
     ? realpathSync(input.allowedWorkspaceRoot)
     : undefined;

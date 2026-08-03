@@ -100,6 +100,7 @@
 - **NFR-CLI-shared (단일 파이프라인 — 병렬 금지)**: CLI 대화 host 와 gRPC host(naia-os 경로)는 **동일 deps 빌더 `scripts/builds/compose-agent-deps.mjs` + 동일 `wireAgentUC1`** 공유 — provider resolver·credentials·naia-settings·toolExecutor·memory·conversationLog 가 literally 같은 어댑터. CLI 는 transport(stdio ingress/egress)만 다름. 별도 대화 엔진/도구루프/creds 경로 신설 금지(검증: 두 host 가 같은 `compose-agent-deps` 를 import).
 - **NFR-CLI-secret**: 계정·설정·진단·세션 출력과 오류는 credential 원문을 포함하지 않는다. config command는 credential key를 허용하지 않는다.
 - **NFR-CLI-SoT**: CLI 전역 config는 실행 기본값만 소유한다. workspace provider/model/persona/skill 정본은 계속 `naia-settings`이며, session 정본은 기존 `conversations/*.jsonl`이다.
+- **NFR-CLI-WINDOWS-HEADLESS**: Windows GUI 호스트에서 Agent가 시작하는 모든 비대화형 자식 프로세스는 Node `windowsHide:true`를 사용한다. 명시적인 사용자 터미널 세션은 숨기지 않으며, 파이프·종료·취소 계약은 바꾸지 않는다.
 - **결정론 계약**: stream-merge·interrupt·infra 처리를 fake 어댑터로 계약테스트(실 subprocess 무의존).
 - **로깅**: src 표준 로깅(DiagnosticLog 포트)만, console.* 금지(F-LOG-3).
 - **NFR-SEC-1 (로그 시크릿 마스킹)**: DiagnosticLog sink 가 write 직전 `adapters/redact.ts`(`redactSecrets`)로 알려진 키·토큰(sk-/AIza/ghp/xox/AKIA/gw/JWT + apiKey/password/token 키문맥)을 `[REDACTED]` 마스킹 — 평문 자격증명의 stderr 누출 방지(best-effort defense-in-depth, 1차 방어=로그금지 규율). 검증 `redact.contract.test.ts`(26 케이스, codex 적대 7R). 재감사 2026-06-23.

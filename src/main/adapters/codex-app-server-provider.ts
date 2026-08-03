@@ -62,10 +62,12 @@ async function defaultRunCodexStatus(): Promise<{ code: number; stdout: string; 
       ? spawn(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", `${codexExecutable()} login status`], {
         stdio: ["ignore", "pipe", "pipe"],
         env: process.env,
+        windowsHide: true,
       })
       : spawn(codexExecutable(), ["login", "status"], {
         stdio: ["ignore", "pipe", "pipe"],
         env: process.env,
+        windowsHide: true,
       });
     let stdout = "";
     let stderr = "";
@@ -163,11 +165,13 @@ async function defaultSpawnCodex(): Promise<ChildProcessWithoutNullStreams> {
     return spawn(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", `${codexExecutable()} app-server`], {
       stdio: ["pipe", "pipe", "pipe"],
       env: process.env,
+      windowsHide: true,
     });
   }
   return spawn(codexExecutable(), ["app-server"], {
     stdio: ["pipe", "pipe", "pipe"],
     env: process.env,
+    windowsHide: true,
   });
 }
 

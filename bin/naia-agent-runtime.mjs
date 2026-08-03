@@ -90,7 +90,7 @@ function readDpapi(workspace, name) {
   if (!fs.existsSync(file)) return undefined;
   const script = "Add-Type -AssemblyName System.Security; [Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect([IO.File]::ReadAllBytes($env:DPAPI_FILE), $null, [Security.Cryptography.DataProtectionScope]::CurrentUser))";
   const result = spawnSync("powershell", ["-NoProfile", "-Command", script], {
-    encoding: "utf8", timeout: WINDOWS_DPAPI_TIMEOUT_MS, env: { ...process.env, DPAPI_FILE: file },
+    encoding: "utf8", timeout: WINDOWS_DPAPI_TIMEOUT_MS, env: { ...process.env, DPAPI_FILE: file }, windowsHide: true,
   });
   if (result.error || result.status !== 0) return undefined;
   return (result.stdout ?? "").replace(/\r?\n$/, "") || undefined;
@@ -102,7 +102,7 @@ function writeDpapi(workspace, name, secret) {
   const temp = join(dirname(target), `.${name}.${process.pid}.${randomUUID()}.tmp`);
   const script = "Add-Type -AssemblyName System.Security; $v=[Console]::In.ReadToEnd(); $b=[Text.Encoding]::UTF8.GetBytes($v); $p=[Security.Cryptography.ProtectedData]::Protect($b,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser); [IO.File]::WriteAllBytes($env:DPAPI_FILE,$p)";
   const result = spawnSync("powershell", ["-NoProfile", "-Command", script], {
-    input: secret, encoding: "utf8", timeout: WINDOWS_DPAPI_TIMEOUT_MS, env: { ...process.env, DPAPI_FILE: temp },
+    input: secret, encoding: "utf8", timeout: WINDOWS_DPAPI_TIMEOUT_MS, env: { ...process.env, DPAPI_FILE: temp }, windowsHide: true,
   });
   if (result.error || result.status !== 0 || !fs.existsSync(temp)) {
     try { if (fs.existsSync(temp)) fs.unlinkSync(temp); } catch { /* best effort */ }

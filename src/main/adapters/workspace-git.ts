@@ -22,7 +22,7 @@ export type GitRunner = (workdir: string, args: readonly string[]) => Promise<st
 
 const defaultGitRunner: GitRunner = (workdir, args) =>
   new Promise<string>((resolve) => {
-    execFile("git", [...args], { cwd: workdir, maxBuffer: MAX_BUFFER }, (err, stdout) => {
+    execFile("git", [...args], { cwd: workdir, maxBuffer: MAX_BUFFER, windowsHide: true }, (err, stdout) => {
       // git 실패(비-repo, 권한, 비-0 exit) = 빈 출력으로 흡수(throw 아님 — 폴링이 계속 돈다).
       if (err) { resolve(""); return; }
       resolve(stdout);

@@ -19,7 +19,7 @@ const MAX_LINE_BYTES = 64 * 1024 * 1024; // 단일 줄 상한(>64MiB = 비정상
 export type SpawnFn = (
   command: string,
   args: readonly string[],
-  opts: { cwd: string; stdio: ["ignore", "pipe", "pipe"]; env?: NodeJS.ProcessEnv },
+  opts: { cwd: string; stdio: ["ignore", "pipe", "pipe"]; env?: NodeJS.ProcessEnv; windowsHide?: boolean },
 ) => ChildProcess;
 
 export const defaultSpawn: SpawnFn = (command, args, o) => spawn(command, [...args], o);
@@ -95,7 +95,7 @@ export function resolveSpawnableBin(picked: string): ResolvedBin {
 export function resolveFallbackCommand(command: string): ResolvedBin {
   if (process.platform === "win32" && !/\.[a-z0-9]+$/i.test(command)) {
     try {
-      const r = execSync(`where ${command}`, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+      const r = execSync(`where ${command}`, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true }).trim();
       const picked = pickSpawnableBin(r.split(/\r?\n/));
       if (picked) return resolveSpawnableBin(picked);
     } catch {
@@ -137,6 +137,7 @@ export function spawnSubprocessSession(spec: SpawnSessionSpec): SubAgentSession 
       cwd: spec.cwd,
       stdio: ["ignore", "pipe", "pipe"],
       ...(spec.env ? { env: spec.env } : {}),
+      windowsHide: true,
     });
   } catch (e) {
     return endedSession(`${spec.label} unavailable: ${(e as Error).message}`);

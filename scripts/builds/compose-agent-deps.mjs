@@ -123,7 +123,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
             bin = resolveSpawnableBin(argv[0]); // 경로 포함 = 직접(Windows shim 해석만)
           } else {
             const where = process.platform === "win32" ? "where" : "which";
-            const r = spawnSync(where, [argv[0]], { encoding: "utf8", timeout: 5000 });
+            const r = spawnSync(where, [argv[0]], { encoding: "utf8", timeout: 5000, windowsHide: true });
             const picked = (r.status === 0 && r.stdout) ? pickSpawnableBin(r.stdout.split(/\r?\n/)) : null;
             bin = picked ? resolveSpawnableBin(picked) : resolveFallbackCommand(argv[0]);
           }
@@ -132,7 +132,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
         let child;
         try {
           // ⚠️ shell:false(기본) — 셸 보간/주입 차단. cwd=검증된 절대경로. stdin 무시.
-          child = spawn(bin.command, fullArgs, { cwd: opts.cwd, stdio: ["ignore", "pipe", "pipe"], shell: false });
+          child = spawn(bin.command, fullArgs, { cwd: opts.cwd, stdio: ["ignore", "pipe", "pipe"], shell: false, windowsHide: true });
         } catch (e) { resolve({ stdout: "", stderr: `spawn failed: ${e instanceof Error ? e.message : String(e)}`, code: null }); return; }
         let out = "", errOut = "", bytes = 0, settled = false;
         const cap = (s, chunk) => { const c = chunk.toString("utf8"); bytes += c.length; return bytes > opts.maxBytes ? s : s + c; };
@@ -210,7 +210,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
       try {
         const parts = mcpCmd.trim().split(/\s+/);
         const mcpName = env.NAIA_MCP_NAME || "mcp";
-        const child = spawn(parts[0], parts.slice(1), { stdio: ["pipe", "pipe", "inherit"] });
+        const child = spawn(parts[0], parts.slice(1), { stdio: ["pipe", "pipe", "inherit"], windowsHide: true });
         const mrl = createInterface({ input: child.stdout });
         let mcb = null;
         mrl.on("line", (l) => mcb?.(l));
@@ -260,7 +260,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
   //    macOS=미지원(후속). creds_update 는 런타임 overlay 로 우선. ──
   const C_ENV = { ...env, LC_ALL: "C", LANG: "C", LANGUAGE: "C" };
   const secretToolRead = (name) => {
-    const r = spawnSync("secret-tool", ["lookup", "service", "naia-agent", "account", name], { encoding: "utf8", timeout: 5000, env: C_ENV });
+    const r = spawnSync("secret-tool", ["lookup", "service", "naia-agent", "account", name], { encoding: "utf8", timeout: 5000, env: C_ENV, windowsHide: true });
     if (r.error || r.status !== 0) return undefined;
     const out = r.stdout ?? "";
     return out.length > 0 ? out.replace(/\n$/, "") : undefined;
@@ -273,7 +273,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
     if (dpapiCache.has(name)) return dpapiCache.get(name);
     const file = join(adkPath, "naia-settings", ".keys", `${name}.dpapi`);
     if (!nodeFs.existsSync(file)) { dpapiCache.set(name, undefined); return undefined; }
-    const r = spawnSync("powershell", ["-NoProfile", "-Command", "Add-Type -AssemblyName System.Security; [Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect([IO.File]::ReadAllBytes($env:DPAPI_FILE), $null, [Security.Cryptography.DataProtectionScope]::CurrentUser))"], { encoding: "utf8", timeout: WINDOWS_DPAPI_TIMEOUT_MS, env: { ...env, DPAPI_FILE: file } });
+    const r = spawnSync("powershell", ["-NoProfile", "-Command", "Add-Type -AssemblyName System.Security; [Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect([IO.File]::ReadAllBytes($env:DPAPI_FILE), $null, [Security.Cryptography.DataProtectionScope]::CurrentUser))"], { encoding: "utf8", timeout: WINDOWS_DPAPI_TIMEOUT_MS, env: { ...env, DPAPI_FILE: file }, windowsHide: true });
     const out = (!r.error && r.status === 0) ? (r.stdout ?? "").replace(/\r?\n$/, "") : undefined;
     const v = out && out.length > 0 ? out : undefined;
     dpapiCache.set(name, v);

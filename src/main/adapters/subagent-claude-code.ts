@@ -51,7 +51,7 @@ function validateClaudeCodeBin(raw: string | undefined): string | undefined {
 function findClaudeCodeInPath(): string | null {
   const cmd = process.platform === "win32" ? `where claude` : `which claude`;
   try {
-    const result = execSync(cmd, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    const result = execSync(cmd, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true }).trim();
     return pickSpawnableBin(result.split(/\r?\n/));
   } catch {
     return null;
