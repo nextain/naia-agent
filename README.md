@@ -232,6 +232,14 @@ naia-agent loop budget --config /private/path/loop.json
 예시의 DeepSeek 역할은 분석 전용(`--no-tools`)이고 구현은 도구 사용 가능한 Grok 역할이다.
 공개 Azure 표에 숫자 가격이 보이지 않으므로 예시 한도는 가격 주장이 아닌 보수적 운영 상한이다.
 
+비용 비교 계약은 `benchmark/orchestration/pi-cost-comparison.json`에 고정되어 있다. 빌드 후
+`node benchmark/analyze-pi-cost-comparison.mjs --evidence <provider-bound.json>`으로 판정한다.
+동일 과제·동일 호출수·체크포인트 재개·결정론 검증을 모두 통과하고, 각 호출이 gateway request
+ID와 price version에 결박된 실제 customer billing 영수증을 가져야만 절감 판정을 허용한다.
+증거 없이 실행하면 유료 호출 0건의 `unavailable`을 반환하며 Pi 추정가나 시간창 로그 차액은
+비용 효율 증명으로 취급하지 않는다. 현재는 gateway 서명 export와 harness journal 검증기가
+없으므로, 사람이 만든 JSON이 구조상 절감으로 보여도 최종 상태와 claim은 항상 `unavailable`/`false`다.
+
 `pnpm build` 후, 터미널에서 직접 작업을 시킨다(S2 supervisor mode). 외부 코딩 에이전트(또는 셸)를
 sub-agent 로 spawn → (옵션)워크스페이스 감시 + (옵션)검증 → **정직한 숫자 리포트**.
 

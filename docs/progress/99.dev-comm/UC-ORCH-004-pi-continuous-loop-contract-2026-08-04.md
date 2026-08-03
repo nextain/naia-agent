@@ -29,6 +29,12 @@ replace Codex or Claude capability, and not an OpenCode wrapper.
   route/receipt smoke;
 - an explicit unavailable result—not a completion claim—until identical candidate/control cases
   expose authoritative provider-priced receipts for the cost-efficiency gate;
+- a frozen paired case with equal paid-call denominators, deterministic file/Git scoring, checkpoint
+  reopen, a combined 20-call/$0.50 ceiling, and a 10% minimum saving. Its pure decision gate rejects
+  missing/extra/unsettled receipts, estimate-only cost, route/token drift, and any receipt lacking
+  execution ID ↔ gateway request ID ↔ price-version binding. It also enforces the combined caps and
+  exact per-role attempt counts, rejects cross-arm execution/gateway identity reuse, and requires
+  both arms to bind the same frozen starting-worktree digest and model-specific price versions;
 - two clean review-pass cycles against an unchanged candidate.
 
 ## Azure model qualification boundary
@@ -40,3 +46,14 @@ substituted into this implementation. The deterministic profile uses the deploye
 DeepSeek route for read-only roles and the tool-capable Grok route for implementation. A Flash live
 comparison requires an explicit gateway catalog/credential activation and complete priced receipts;
 the public Azure pricing table does not currently expose numeric Flash rates without account context.
+
+## Current exact-receipt blocker
+
+The current AnyLLM profile log exposes model, tokens, and customer cost, but not a value that binds the
+row to Pi's local execution ID. Its legacy streaming accounting path also does not return a versioned
+gateway request/price receipt through Pi's `message_end`. A before/after profile-log delta would be
+vulnerable to concurrent account use, so it is explicitly rejected. Until a request-correlated
+versioned receipt reaches the Pi event, the paid comparison exits unavailable with zero calls when
+evidence is absent; this is a missing integration capability, not a successful cost result.
+Self-asserted JSON is only structurally inspected: without authenticated gateway export and a
+verified harness journal, the analyzer always returns `unavailable` with claims disabled.

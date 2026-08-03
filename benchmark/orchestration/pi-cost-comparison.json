@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "benchmarkId": "pi-cost-comparison-v1",
+  "scope": "frozen paired engineering case only",
+  "task": {
+    "id": "write-export",
+    "request": "Create src/answer.js exporting const answer = 42 and do not modify any other tracked file.",
+    "obligations": [
+      "src/answer.js exists",
+      "src/answer.js exports const answer = 42",
+      "no other tracked file changes"
+    ]
+  },
+  "taskDigest": "sha256:41146f2d5d5f6b25a074af017980abb72e94e0837ea9b3dbb0fd780f44e13f42",
+  "baselineDigest": null,
+  "minimumSavingsRatio": 0.1,
+  "quality": {
+    "scorerId": "deterministic-file-and-git-checks",
+    "requiredChecks": ["file-content", "changed-files"],
+    "allowedChangedFiles": ["src/answer.js"],
+    "candidateMustBeNonInferior": true
+  },
+  "routePolicy": {
+    "candidate": {
+      "provider": "naia",
+      "roleModels": {
+        "facing": "deepseek-v4-pro",
+        "moderator": "deepseek-v4-pro",
+        "explorer": "deepseek-v4-pro",
+        "implementer": "grok-4.3",
+        "tester": "deepseek-v4-pro",
+        "reviewer": "deepseek-v4-pro",
+        "reporter": "deepseek-v4-pro"
+      },
+      "description": "DeepSeek analysis/front/review roles and Grok writing implementer"
+    },
+    "control": {
+      "provider": "naia",
+      "roleModels": {
+        "facing": "grok-4.3",
+        "moderator": "grok-4.3",
+        "explorer": "grok-4.3",
+        "implementer": "grok-4.3",
+        "tester": "grok-4.3",
+        "reviewer": "grok-4.3",
+        "reporter": "grok-4.3"
+      },
+      "description": "Grok for every paid role"
+    }
+  },
+  "expectedRoleCounts": {
+    "facing": 1,
+    "moderator": 1,
+    "explorer": 1,
+    "implementer": 1,
+    "tester": 2,
+    "reviewer": 2,
+    "reporter": 1
+  },
+  "budget": {
+    "maximumCombinedPaidCalls": 20,
+    "maximumCombinedUsd": 0.5,
+    "maximumInputTokens": 80000,
+    "maximumOutputTokens": 10000
+  },
+  "receiptAuthority": {
+    "source": "gateway_versioned_customer_billing",
+    "authentication": {
+      "gatewaySigningKeyId": null,
+      "harnessJournalKeyId": null,
+      "status": "unavailable"
+    },
+    "priceVersionByModel": {
+      "deepseek-v4-pro": null,
+      "grok-4.3": null
+    },
+    "requires": ["executionId", "gatewayRequestId", "priceVersionId", "settlementStatus", "provider", "model", "inputTokens", "outputTokens", "customerCostUsd"],
+    "rejects": ["pi_catalog_estimate", "time_window_aggregate", "unbound_profile_log"]
+  }
+}

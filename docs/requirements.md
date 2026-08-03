@@ -734,6 +734,19 @@ The Agent and Gateway preserve these codes end to end:
   cannot claim cost efficiency. The active cost-efficiency completion gate remains unavailable until
   candidate/control runs over identical cases expose complete provider-priced receipts; it is not
   satisfied or deferred by the smoke.
+- **FR-LOOP-007**: The frozen paid comparison uses the same task, deterministic file/Git scorer,
+  paid-call denominator, checkpoint-reopen step, and a combined 20-call/$0.50 ceiling for candidate
+  and control. A savings decision requires candidate quality non-inferiority and at least 10% lower
+  customer cost. Every cost row must be settled gateway versioned-customer-billing evidence bound by
+  local execution ID, gateway request ID, price version, exact route, and exact token counts. Pi
+  catalog estimates, profile time-window deltas, unbound logs, missing rows, extra rows, route drift,
+  unresolved reservations, and unsigned self-asserted JSON make the result unavailable rather than
+  cheaper. Combined call/USD/token ceilings and the exact per-role attempt topology are enforced by
+  the analyzer. A future claim additionally requires authenticated gateway export and harness-journal
+  verification; until both authorities are implemented, even structurally lower cost remains
+  `unavailable` and `costEfficiencyClaimAllowed=false`. Both arms must reopen the same contract-pinned
+  baseline digest, and every model must use its contract-pinned price version; an unpinned baseline or
+  price version also makes the comparison unavailable.
 - **NFR-LOOP-001**: Default benchmark limits are deliberately small; there is no two-minute product
   loop ceiling. Termination comes from repair/clean bounds, cancellation, verification, provider
   failure, or durable budget exhaustion.
@@ -742,4 +755,8 @@ The Agent and Gateway preserve these codes end to end:
 - **NFR-LOOP-003**: Discord ingress and naia-shell UI remain outside this requirement. Source
   metadata stays adapter-neutral for their later attachment.
 - **Status**: In progress. Completion requires reproducible benchmark evidence and two consecutive
-  clean adversarial reviews on one unchanged candidate.
+  clean adversarial reviews on one unchanged candidate. The decision contract is implemented, but
+  this candidate cannot yet execute the paid comparison: no Naia credential is available and the
+  current Pi streaming path does not expose the gateway request/price-version receipt needed for
+  exact cost correlation. No gateway signing key or authenticated harness-journal verifier is bound,
+  so a hand-authored evidence file can never become a completion claim.
