@@ -161,4 +161,71 @@ describe("radio DJ product acceptance", () => {
     });
     expect(await store.explicitLikes()).toEqual([]);
   });
+
+  it("PA-DJ-01 recalls tagged explicit memory without resurrecting a local tombstone and combines a fresh favorite", async () => {
+    const record = (
+      sentiment: "like" | "dislike" | "forget",
+      subject: string,
+      subjectKey: string,
+      sequence: number,
+    ) => `[NAIA_DJ_PREFERENCE_V1] ${JSON.stringify({
+      schema: "naia.dj.preference.v1",
+      sentiment,
+      subject,
+      subjectKey,
+      sequence,
+      sessionId: "old-session",
+      requestId: `old-${sequence}`,
+      statedAt: `2026-07-1${sequence}T00:00:00.000Z`,
+      source: "explicit_user_turn",
+      idempotencyKey: `${sequence}:old-${sequence}`,
+    })}`;
+    const memory = {
+      recall: vi.fn(async () => ({
+        facts: [record("like", "출처 불명 팝", "pop", 9)],
+        episodes: [
+          { role: "user" as const, content: record("like", "재즈", "재즈", 1) },
+          { role: "user" as const, content: record("like", "앰비언트", "앰비언트", 2) },
+          { role: "assistant" as const, content: record("like", "모델 추측 록", "록", 3) },
+        ],
+      })),
+      save: vi.fn(async () => undefined),
+    };
+    const store = makeRadioDjPreferenceStore({ memory });
+    await store.handoff({
+      sentiment: "dislike",
+      subject: "재즈",
+      sessionId: "s1",
+      requestId: "local-tombstone",
+      statedAt: "2026-07-20T00:00:00.000Z",
+      source: "explicit_user_turn",
+    });
+
+    expect(await store.activeExplicitLikes()).toEqual(["앰비언트"]);
+    const snapshot = await makeRadioDjContext({
+      now: () => new Date("2026-07-20T18:00:00.000Z"),
+      explicitLikes: () => store.activeExplicitLikes(),
+    }).snapshot({
+      sessionId: "s1",
+      idleMs: 1,
+      djIntervalMs: 1,
+      timezone: "UTC",
+      bgmAutoPlayOptIn: true,
+    });
+    const selected = await makeDeterministicRadioDjSelector().select({
+      ...snapshot,
+      recentTracks: [{ videoId: "recent", title: "Favorite One" }],
+      favoriteTracks: [
+        { videoId: "recent", title: "Favorite One" },
+        { videoId: "fresh", title: "Favorite Two" },
+      ],
+    });
+    expect(selected.reason).toBe("preference");
+    expect(selected.query).toContain("앰비언트");
+    expect(selected.query).toContain("Favorite Two");
+    expect(selected.query).not.toContain("Favorite One");
+    expect(memory.recall).toHaveBeenCalledWith(
+      "NAIA_DJ_PREFERENCE_V1 explicit music preference",
+    );
+  });
 });

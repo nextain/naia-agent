@@ -79,6 +79,18 @@ describe("makeAnthropicProvider — Messages API SSE", () => {
     expect(box.body?.system).toBeUndefined(); // systemPrompt 없으면 system 생략
   });
 
+  it("FR-PANEL-6: inline image → Anthropic base64 image source block", async () => {
+    const box: { body?: Record<string, unknown> } = {};
+    const p = makeAnthropicProvider({ baseUrl: "https://api.anthropic.com", apiKey: "K", fetch: sseFetch(['data: {"type":"message_stop"}\n'], box) as never });
+    await collect(p.chat(cfg, [{
+      role: "user", content: "Screenshot", inlineImages: [{ mimeType: "image/png", data: "iVBORw0KGgo=" }],
+    }], {}));
+    expect(box.body?.messages).toEqual([{ role: "user", content: [
+      { type: "text", text: "Screenshot" },
+      { type: "image", source: { type: "base64", media_type: "image/png", data: "iVBORw0KGgo=" } },
+    ] }]);
+  });
+
   it("error 이벤트 → throw(handler catch=error 방출)", async () => {
     const box: { url?: string; headers?: Record<string, string>; body?: Record<string, unknown> } = {};
     const p = makeAnthropicProvider({ baseUrl: "https://api.anthropic.com", apiKey: "K", fetch: sseFetch(['data: {"type":"error","error":{"type":"overloaded_error"}}\n'], box) as never });

@@ -1,7 +1,7 @@
 // app — UC1 ChatTurnHandler + UC5 도구 실행 루프 (계약 §B.3 + UC5-agent-tool-loop §B.3). 포트만 사용. domain 만.
 // 불변식: usage=terminal 직전 1회(라운드 스냅샷 합)·이후 무방출 / finish XOR error(terminal 래치) / 레지스트리 finally 해제 / emit no-throw.
 import type {
-  ChatRequest, CancelRequest, ApprovalResponse, CredsUpdate, ChatTurnState, ChatMessage, ToolCall, ToolSpec, ProviderConfig, WireErrorCode,
+  ChatRequest, CancelRequest, ApprovalResponse, CredsUpdate, ChatTurnState, ChatMessage, ToolCall, ToolSpec, ProviderConfig, WireErrorCode, ToolExecutionResult,
 } from "../domain/chat.js";
 import { mapProviderChunk, threadToolRound, estimateMessageTokens } from "../domain/chat.js";
 import { calculateCost } from "../domain/cost.js";
@@ -476,7 +476,7 @@ export class ChatTurnHandler {
           if (toolRounds >= MAX_TOOL_ROUNDS) { terminalError("tool loop limit exceeded"); break; } // control 은 기존 외부 cap 을 소비하지 않음
           toolRounds++;
         }
-        const results: { output: string; isError?: boolean }[] = [];
+        const results: ToolExecutionResult[] = [];
         const threadedCalls: ToolCall[] = []; // cid 로 묶은 calls(threadToolRound·LLM correlation 일관)
         let cancelled = false;
         for (const call of round.calls) {                                           // cap 통과 — 이제 toolUse emit 안전
@@ -510,7 +510,7 @@ export class ChatTurnHandler {
             }
           }
           // approve 또는 비-gated → 실행:
-          let r: { output: string; isError?: boolean };
+          let r: ToolExecutionResult;
           try {
             if (exec) {
               const processing = externalTools.find((spec) => spec.name === call.name)?.processing;
@@ -573,7 +573,7 @@ export class ChatTurnHandler {
     // 요청별 provider 해석(resolver 주입 시) — config(provider/model/naiaKey)로 라우팅. 미주입=고정 provider(fallback/테스트).
     const provider = this.d.resolver ? this.d.resolver.resolve(cfg) : this.d.provider;
     const executeTool = this.d.toolExecutor
-      ? async (call: ToolCall): Promise<{ output: string; isError?: boolean }> => {
+      ? async (call: ToolCall): Promise<ToolExecutionResult> => {
           const allowed = tools?.some((spec) => spec.name === call.name && (spec.tier === undefined || spec.tier === "none") && spec.processing === undefined);
           if (!allowed) return { output: `provider-native tool '${call.name}' is not authorized`, isError: true };
           try {

@@ -553,7 +553,7 @@ void preferenceStore.flushOutbox().catch((error) => {
   });
 });
 const radioContext = makeRadioDjContext({
-  explicitLikes: () => preferenceStore.explicitLikes(),
+  explicitLikes: () => preferenceStore.activeExplicitLikes(),
   explicitMood: (sessionId) => preferenceStore.explicitMood(sessionId),
   recordMood: (input) => preferenceStore.recordMood(input),
   fetchWeather: async (latitude, longitude) => {

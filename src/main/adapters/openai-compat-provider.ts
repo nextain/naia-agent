@@ -26,7 +26,16 @@ function toWireMessages(systemPrompt: string | undefined, messages: readonly Cha
       if (!m.toolCallId) throw new Error("tool message missing toolCallId"); // §C.1 — skip 금지(대응 깨짐)
       wire.push({ role: "tool", tool_call_id: m.toolCallId, content: m.content });
     } else {
-      wire.push({ role: m.role, content: m.content });
+      const content = m.inlineImages?.length
+        ? [
+            ...(m.content ? [{ type: "text", text: m.content }] : []),
+            ...m.inlineImages.map((image) => ({
+              type: "image_url",
+              image_url: { url: `data:${image.mimeType};base64,${image.data}`, detail: "auto" },
+            })),
+          ]
+        : m.content;
+      wire.push({ role: m.role, content });
     }
   }
   return wire;

@@ -38,7 +38,7 @@ describe("DJ-GRPC-01 activity panel BGM correlation", () => {
       event: {
         kind: "panelToolCall",
         toolName: "skill_youtube_bgm",
-        args: { action: "play", query: "저녁 재즈" },
+        args: { action: "play", query: "저녁 재즈", mode: "radio_dj" },
       },
     });
     const toolCallId = (emitted[0]!.event as { toolCallId: string }).toolCallId;
@@ -74,6 +74,11 @@ describe("DJ-GRPC-01 activity panel BGM correlation", () => {
           freshUntil: Date.now() + 5_000,
         },
         currentTrack: { videoId: "v1", title: "긴 재즈 믹스" },
+        recentTracks: [
+          { videoId: "old-1", title: "어제 들은 재즈" },
+          { videoId: "", title: "invalid" },
+        ],
+        favoriteTracks: [{ videoId: "fav-1", title: "저장한 로파이" }],
         announceTrack: true,
       }),
       true,
@@ -91,11 +96,18 @@ describe("DJ-GRPC-01 activity panel BGM correlation", () => {
         action: "status",
         playback: { playbackId: "bgm-playback-1", sequence: 3, status: "ended" },
         currentTrack: null,
+        recentTracks: [{ videoId: "old-1", title: "어제 들은 재즈" }],
+        favoriteTracks: [{ videoId: "fav-1", title: "저장한 로파이" }],
         announceTrack: false,
       }),
       true,
     );
-    await expect(endedStatus).resolves.toMatchObject({ status: "ended", playbackId: "bgm-playback-1" });
+    await expect(endedStatus).resolves.toMatchObject({
+      status: "ended",
+      playbackId: "bgm-playback-1",
+      recentTracks: [{ videoId: "old-1", title: "어제 들은 재즈" }],
+      favoriteTracks: [{ videoId: "fav-1", title: "저장한 로파이" }],
+    });
   });
 
   it.each([undefined, "other"])("plain text/누락·다른 activity(%s) result는 성공으로 파싱하지 않는다", async (activityId) => {

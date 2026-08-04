@@ -13,6 +13,7 @@ function fakeEgress() {
 }
 
 describe("panel-tool-executor (UC-PANEL FR-PANEL)", () => {
+  const ONE_PIXEL_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=";
   it("FR-PANEL-1: register → specs 노출, clear → 제거", () => {
     const { egress } = fakeEgress();
     const p = makePanelToolExecutor({ egress });
@@ -41,6 +42,25 @@ describe("panel-tool-executor (UC-PANEL FR-PANEL)", () => {
     const resP = p.execute({ id: "tc2", name: "x", args: {} }, { requestId: "r" });
     p.resolveResult("r", "tc2", "boom", false);
     await expect(resP).resolves.toEqual({ output: "boom", isError: true });
+  });
+
+  it("FR-PANEL-6: screenshot data URI → bounded inline image, base64 text는 결과에서 제거", async () => {
+    const { egress } = fakeEgress();
+    const p = makePanelToolExecutor({ egress });
+    const resP = p.execute({ id: "shot", name: "skill_tab_screenshot", args: {} }, { requestId: "r" });
+    p.resolveResult("r", "shot", `data:image/png;base64,${ONE_PIXEL_PNG}`, true);
+    await expect(resP).resolves.toEqual({
+      output: "Panel screenshot captured and attached as an inline image.",
+      images: [{ mimeType: "image/png", data: ONE_PIXEL_PNG }],
+    });
+  });
+
+  it("FR-PANEL-6: MIME signature 불일치 screenshot은 fail closed", async () => {
+    const { egress } = fakeEgress();
+    const p = makePanelToolExecutor({ egress });
+    const resP = p.execute({ id: "shot-bad", name: "skill_tab_screenshot", args: {} }, { requestId: "r" });
+    p.resolveResult("r", "shot-bad", "data:image/png;base64,QUFBQQ==", true);
+    await expect(resP).resolves.toMatchObject({ isError: true, output: expect.stringContaining("invalid or too large") });
   });
 
   it("requestId 없으면 no-throw error(비-chat 경로 방어) — emit 안 함", async () => {
