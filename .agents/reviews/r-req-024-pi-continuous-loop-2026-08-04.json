@@ -4,7 +4,7 @@
   "use_case": "UC-ORCH-004",
   "charter": {
     "path": ".agents/session-contracts/naia-agent-pi-continuous-loop-2026-08-04.json",
-    "sha256": "e9bdb58c10f92cb8c4630cf410231b7a57fca2d4ce94fb4f1162c6dcf978cfe9"
+    "sha256": "52defb07624b72f0c71f68ae9014cff7fc055ec67d2c70987b9d4c1023a2107d"
   },
   "scope": {
     "included": [
@@ -12,10 +12,12 @@
       "actor-attempt and gateway-request pre-call budgets",
       "request-correlated versioned billing receipts",
       "zero-paid deterministic benchmark",
-      "fail-closed paired live cost runner"
+      "fail-closed paired live cost runner",
+      "Discord-hosted Pi expert/main/sub role delegation with live settings reload and sub-LLM processing policy",
+      "GPU1-only user-owned Qwen 24GB provider and pinned three-layer live qualification"
     ],
     "excluded": [
-      "Discord ingress",
+      "live Discord bot/token smoke and enrollment",
       "naia-shell UI integration",
       "public cost-efficiency claim without authenticated gateway and harness attestations"
     ]
@@ -36,21 +38,85 @@
         "post-claim module and SQLite setup failures needed to become durable unavailable results",
         "mandatory budget binding needed an execution-local bounded default to preserve the public Naia Pi CLI and mixed-team routes",
         "paired benchmark checkpoint reopen needed an actual independent process boundary instead of two same-process hashes",
-        "retry after a settled over-allowance response needed rejection before a duplicate paid gateway effect"
+        "retry after a settled over-allowance response needed rejection before a duplicate paid gateway effect",
+        "Discord role delegation captured startup-only role settings instead of reloading them",
+        "the delegated Pi sub-LLM call had no role-specific processing authorization or disclosure",
+        "settings reload could race authorization and spawn unless the approved processing plan was pinned",
+        "Codex app-server hid processing-aware tools and needed the same guarded native callback path",
+        "Codex roles incorrectly mapped to Pi's OpenAI API-key provider instead of openai-codex OAuth",
+        "Naia role children needed keychain-backed child-only credentials and analysis-only tool disabling"
+      ]
+    },
+    {
+      "stage": "integration",
+      "result": "findings_fixed_review_restart_required",
+      "accepted_findings": [
+        "the Pi 0.83 extension loader rewrote a narrow pi-ai import through the broad compatibility entrypoint",
+        "the local live runner could overwrite an existing canonical result",
+        "Git and runtime inspection trusted caller PATH and inherited environment",
+        "the serving image and model snapshot were not reproducibly pinned",
+        "the review record referenced an obsolete session-contract file digest"
+      ]
+    },
+    {
+      "stage": "integration",
+      "result": "findings_fixed_review_restart_required",
+      "accepted_findings": [
+        "account-backed Pi children inherited unrelated parent credentials instead of a minimal allowlisted environment",
+        "GPU1 binding did not prove the container itself saw exactly one GPU with the expected host UUID",
+        "the native-tool gate accepted a declared write attempt without requiring a successful implementer write event"
+      ]
+    },
+    {
+      "stage": "integration",
+      "result": "findings_fixed_review_restart_required",
+      "accepted_findings": [
+        "the review receipt and progress record prematurely marked all of REQ-024 complete before post-record review and while authenticated live-pair prerequisites remained",
+        "the completion claim contradicted the in-progress requirement SoT and the drift-prevention handoff report"
       ]
     }
   ],
   "verification": {
     "typescript": "passed",
-    "focused": "85 passed",
+    "focused": "49/49 Pi billing, cost-contract, controlled-Gateway, user-owned-provider, role-loop, and composition tests passed on the final candidate; TypeScript build passed",
     "deterministic_benchmark": "all hard gates true; paidCalls=0; exact source/dist closure; no OpenCode runtime edge",
     "live_cost_preflight": "unavailable; paidCalls=0; gatewayCalls=0 when explicit confirmation or prerequisites are absent",
-    "broader_regression": "132 passed; process-spawn and localhost-listen cases are blocked by the current sandbox with EPERM",
+    "local_model_live": "completed in 228680ms on GPU1 only; the non-privileged container exposed exactly one GPU whose UUID matched host GPU1; 40015-token prompt; 9 model calls; successful implementer write; 2 clean cycles; 0 repairs; all ten gates true; canonical SHA-256 add53801bb06859f2fff52f41d2b350bf24c41358d4e694aaac32a32ef57513d",
+    "broader_regression": "147 files and 1649 tests passed; 24 tests failed and 10 skipped. Twenty-two failures are old benchmark source-revision guards correctly rejecting the intentionally dirty candidate. The remaining two are pre-existing host keychain contamination: isolated-HOME doctor sees a real stored key, and a CLI process receives that key instead of its fixture key and times out. One resulting unhandled assertion was reported. No changed-path functional test failed.",
     "traceability": "dead-link=0; orphan=0",
-    "known_repository_baseline": "canon-scope and file-anchor checks retain unrelated pre-existing drift outside REQ-024"
+    "known_repository_baseline": "canon-scope and file-anchor checks retain unrelated pre-existing drift outside REQ-024; root context-translation remains blocked by the pre-existing parse_cli_route guard mismatch"
   },
   "final_convergence": {
     "required": "two consecutive Clean integration reviews on one unchanged candidate",
-    "status": "pending"
+    "status": "pending_operational_prerequisites",
+    "completed_subscope": {
+      "name": "GPU1 user-owned local-model three-layer qualification",
+      "status": "complete",
+      "evidence_sha256": "add53801bb06859f2fff52f41d2b350bf24c41358d4e694aaac32a32ef57513d"
+    },
+    "reviewed_candidate_before_record_update": {
+      "complexity_sha256": "sha256:3042f4945d2f1a0dc341901b8f0ef2b1ecbf02863c1df5b0a757b58e8228e53a",
+      "repository_changed_set_sha256": "sha256:57e26e29613e5438a0415c671c19840da6f73c4bcda6c7812f4d17d39f65e736",
+      "source_changed_set_sha256": "sha256:de60c37a8040ae6e9f0a2a5740cc029d1b404b514f0e926bf707503e75d0befb"
+    },
+    "rounds": [
+      {
+        "round": 1,
+        "correctness": "Clean",
+        "traceability": "Clean",
+        "fast_regression": "Clean"
+      },
+      {
+        "round": 2,
+        "correctness": "Clean",
+        "traceability": "Clean",
+        "fast_regression": "Clean"
+      }
+    ],
+    "remaining": [
+      "authenticated live paired run with pinned price versions and external harness-journal key identity",
+      "Codex account login live smoke and the separately scoped Discord ingress/naia-shell integration work"
+    ],
+    "claim_boundary": "Clean code review and the completed GPU1 qualification do not make the whole REQ-024 or branch merge-ready while the listed operational prerequisites remain."
   }
 }

@@ -13,6 +13,7 @@ import { SqliteMultiIssueSessionStore } from "../adapters/sqlite-multi-issue-ses
 import { SqlitePaidCallBudget } from "../adapters/sqlite-paid-call-budget.js";
 import { initializeGatewayRequestBudget } from "../adapters/naia-pi-versioned-billing.js";
 import { isNaiaPiAnalysisOnlyModel, isNaiaPiModel, NAIA_PI_PROVIDER } from "../adapters/naia-pi-provider.js";
+import { isUserOwnedPiBinding } from "../adapters/user-owned-pi-provider.js";
 import { makeCommandVerifier, type CommandCheck } from "../adapters/verifier-commands.js";
 import { makeIssueTeamWorker } from "../app/issue-team-worker.js";
 import { MultiIssueSessionManager } from "../app/multi-issue-session-manager.js";
@@ -131,8 +132,9 @@ export function makePiContinuousLoop(config: PiContinuousLoopConfig, runtime: Pi
 
 function validateConfig(config: PiContinuousLoopConfig): void {
   const bindings = [config.facing, config.moderator, config.reporter, ...Object.values(config.roles)];
-  if (bindings.some((binding) => binding.provider !== NAIA_PI_PROVIDER || !isNaiaPiModel(binding.model))) {
-    throw new Error("Pi continuous-loop bindings must use an active Naia Pi catalog model");
+  if (bindings.some((binding) => !((binding.provider === NAIA_PI_PROVIDER && isNaiaPiModel(binding.model))
+    || isUserOwnedPiBinding(config.pi?.userOwnedProvider, binding)))) {
+    throw new Error("Pi continuous-loop bindings must use an active Naia or declared user-owned Pi catalog model");
   }
   if (bindings.some((binding) => binding.reasoningEffort !== undefined)) {
     throw new Error("Pi continuous-loop bindings do not support reasoningEffort");

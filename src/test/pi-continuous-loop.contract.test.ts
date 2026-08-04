@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { makePiContinuousLoop, makePiOnlyTeamProfile } from "../main/composition/pi-continuous-loop.js";
@@ -29,7 +30,26 @@ describe("Pi-only continuous loop contract", () => {
       requiredCleanCycles: 1, acceptanceChecks: [], concurrency: 1,
       budget: { maxPaidCalls: 1, maxUsd: 1, maxInputTokens: 1, maxOutputTokens: 1 },
       callAllowance: { reservedUsd: 1, reservedInputTokens: 1, reservedOutputTokens: 1 } } as const;
-    expect(() => makePiContinuousLoop(invalid)).toThrow(/active Naia Pi catalog/u);
+    expect(() => makePiContinuousLoop(invalid)).toThrow(/active Naia or declared user-owned Pi catalog/u);
+  });
+
+  it("accepts only explicitly declared user-owned loopback bindings", () => {
+    const localBinding = { provider: "local-vllm", model: "naia-0.9-coding-24g" } as const;
+    const root = resolve(process.cwd()); const state = mkdtempSync(resolve(tmpdir(), "naia-local-loop-"));
+    const config = { stateDir: state, workspaceRoot: root,
+      worktreeRoot: resolve(state, "worktrees"), facing: localBinding,
+      moderator: localBinding, reporter: localBinding, roles: { explorer: localBinding, implementer: localBinding,
+        tester: localBinding, reviewer: localBinding }, profileId: "local", maxRepairCycles: 1,
+      requiredCleanCycles: 1, acceptanceChecks: [{ name: "test", command: "true", args: [] }], concurrency: 1,
+      budget: { maxPaidCalls: 20, maxUsd: 1, maxInputTokens: 100_000, maxOutputTokens: 20_000 },
+      callAllowance: { reservedUsd: 0.01, reservedInputTokens: 8_000, reservedOutputTokens: 1_000 },
+      pi: { userOwnedProvider: { id: "local-vllm", baseUrl: "http://127.0.0.1:8000/v1",
+        models: [{ id: "naia-0.9-coding-24g", contextWindow: 65_536, maxTokens: 4_096 }] } } } as const;
+    const runtime = { makeSubAgent: () => ({ spawn: () => { throw new Error("not called during composition"); } }),
+      worktrees: {} as never, verifier: {} as never };
+    const loop = makePiContinuousLoop(config, runtime);
+    try { expect(loop.profile.roles.implementer.binding).toEqual(localBinding); }
+    finally { loop.close(); rmSync(state, { recursive: true, force: true }); }
   });
 
   it("has no OpenCode import, invocation, or fallback edge", () => {

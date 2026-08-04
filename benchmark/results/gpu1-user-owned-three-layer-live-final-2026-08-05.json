@@ -1,0 +1,2306 @@
+{
+  "schemaVersion": 2,
+  "benchmarkId": "gpu1-user-owned-three-layer-v1",
+  "startedAt": "2026-08-04T18:33:20.066Z",
+  "completedAt": "2026-08-04T18:37:08.746Z",
+  "elapsedMs": 228680,
+  "endpoint": {
+    "provider": "local-vllm",
+    "model": "naia-0.9-coding-24g",
+    "servedRoot": "cyankiwi/Qwen3.6-27B-AWQ-INT4",
+    "maxModelLen": 65536,
+    "gpu": 1,
+    "contextEvidence": "endpoint_reported"
+  },
+  "runtime": {
+    "container": {
+      "name": "naia-coding-64k-gpu1-pinned",
+      "id": "e1c61142aa09c18aff04fc0205b6a396538b61a45524f0d83e7ca69d4f9ee2f1",
+      "image": "docker.io/vllm/vllm-openai:latest",
+      "imageId": "2497255b1272ba3ae9581acd51349f840038f228d0709cd9f6a142d39008d290",
+      "imageDigest": "sha256:a230095847e93bd4df9888b33dab956fa9504537b828a23657d2b26fed57b5c9",
+      "repoDigests": [
+        "docker.io/vllm/vllm-openai@sha256:4ac9b7c6dabc3ec762c0edef4e9245abe98373844da91cc53ee42e5c58280c5b",
+        "docker.io/vllm/vllm-openai@sha256:a230095847e93bd4df9888b33dab956fa9504537b828a23657d2b26fed57b5c9"
+      ],
+      "privileged": false,
+      "gpuDevices": [
+        "/dev/nvidia1"
+      ],
+      "command": [
+        "cyankiwi/Qwen3.6-27B-AWQ-INT4",
+        "--revision",
+        "e5cc0400fb2403c437c2c40a7c52fb5ae93fda18",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--quantization",
+        "compressed-tensors",
+        "--dtype",
+        "float16",
+        "--max-model-len",
+        "65536",
+        "--max-num-batched-tokens",
+        "2048",
+        "--gpu-memory-utilization",
+        "0.97",
+        "--kv-cache-dtype",
+        "fp8",
+        "--enforce-eager",
+        "--language-model-only",
+        "--enable-auto-tool-choice",
+        "--tool-call-parser",
+        "qwen3_coder",
+        "--reasoning-parser",
+        "qwen3",
+        "--default-chat-template-kwargs",
+        "{\"enable_thinking\":false}",
+        "--served-model-name",
+        "naia-0.9-coding-24g",
+        "--trust-remote-code"
+      ]
+    },
+    "endpointBinding": {
+      "bound": true,
+      "host": "127.0.0.1",
+      "hostPort": 8000,
+      "containerPort": 8000,
+      "listenerPid": 727021,
+      "networkNamespace": "/run/user/1000/netns/netns-3ea614d2-c817-2c66-c383-e3b674d9b3db"
+    },
+    "server": {
+      "implementation": "vllm",
+      "version": "0.21.0",
+      "servedRoot": "cyankiwi/Qwen3.6-27B-AWQ-INT4"
+    },
+    "model": {
+      "repository": "cyankiwi/Qwen3.6-27B-AWQ-INT4",
+      "snapshotRevision": "e5cc0400fb2403c437c2c40a7c52fb5ae93fda18",
+      "snapshotManifestDigest": "470b8c41dd0e081c2ff76c7b59fde266c875906942dc5ae4c33e89e3ec2df3c6",
+      "snapshotFileCount": 14,
+      "snapshotBytes": 20467159060
+    },
+    "gpu": {
+      "index": 1,
+      "uuid": "GPU-d584beef-b086-bdff-b43c-c31a1b56a611",
+      "name": "NVIDIA GeForce RTX 3090",
+      "memoryUsedMiB": 23818,
+      "memoryTotalMiB": 24576,
+      "containerVisible": [
+        {
+          "index": 0,
+          "uuid": "GPU-d584beef-b086-bdff-b43c-c31a1b56a611",
+          "name": "NVIDIA GeForce RTX 3090",
+          "memoryUsedMiB": 23818,
+          "memoryTotalMiB": 24576
+        }
+      ]
+    }
+  },
+  "contextProbe": {
+    "requestedRepeatedTerms": 40000,
+    "promptTokens": 40015,
+    "completionTokens": 1,
+    "responseModel": "naia-0.9-coding-24g",
+    "responseId": "chatcmpl-a1749d73e36b65d8"
+  },
+  "executionBinding": {
+    "sourceTreeDigest": "2d25b4f4b9f2c012a169aa16735e07d915222bfb9a4c412dd1cf3b30611d4a85",
+    "distConformance": {
+      "exact": true,
+      "mismatches": [],
+      "executedArtifacts": {
+        "main/adapters/coding-job-worktree.js": "77d00446c65cb10ed95414c922994fea25a89a0f6f4c240260162a5f3135d2ca",
+        "main/adapters/diagnostic.js": "d6c1e2dba260af680a14da7a9dff24d8d07e880e8b6db84573bde0d5419484b0",
+        "main/adapters/naia-pi-provider.js": "2d0835c82d289c7edba4828326a64f7f03fa672fc82390a760355c8613c47c8b",
+        "main/adapters/naia-pi-versioned-billing.js": "e72c8ab053a5c2cf695d43348f213d807d3485a829f03f6cc5555ff666e0f855",
+        "main/adapters/redact.js": "968af5ffe51b75d1da6e674b010dc8a502eaa5bf5a146971b1e493311fcbbd5d",
+        "main/adapters/sqlite-issue-orchestration-store.js": "b5b2c4e86052149925f342b3578db061cd5580ac68a6e5530dbd3715d087fff9",
+        "main/adapters/sqlite-issue-team-store.js": "5de30dd40d3b7e94adcba686228276ef257a0d9dfcbacb7e57de8800b8b710c8",
+        "main/adapters/sqlite-multi-issue-session-store.js": "431c1337a5f8e31d810c221dc8f5cb9e2edcc0d9a40b37f6f7b53f506d49b155",
+        "main/adapters/sqlite-paid-call-budget.js": "dcced52cb92f291e09768605087490a1500944731b26897eb6fd2f7ded1922fe",
+        "main/adapters/subagent-issue-actors.js": "b4ce17932517815b9d42bc24a9a9d1973f50f60774412edb52c5bae45e8f03e4",
+        "main/adapters/subagent-pi.js": "6f821022ef6fea0a7b41c8bf475e443d90da20443869ac610f961c188ff74a80",
+        "main/adapters/subprocess-session.js": "216beff3f48bca1a27b905e123b4dc7ff041783b2940aa6f1ea3f33f5ad7d7e1",
+        "main/adapters/user-owned-pi-provider.js": "bf9a8cf251b2b84b2376679b8eec45d649ff18d5d467fa9939fc22013759f052",
+        "main/adapters/verifier-commands.js": "6074fdf5b2f506e276c9417216f9deaaea9dfd037bf7859b1dc3ec510fff2829",
+        "main/app/issue-team-worker.js": "93b3a9e73c67d60d96c20c9abc2cbfc2af87b6747eeffdf2683f93eefa9215f9",
+        "main/app/multi-issue-session-manager.js": "e1f2584afad2f3c48e9605afc6f5cb22a7385b06311378a31f30fbb0d6e216b1",
+        "main/app/single-issue-orchestrator.js": "61d5afc6a7b247439a0931d90aec1e723ca678a74b04ffc595522a5490971b17",
+        "main/app/supervisor.js": "fa644504cbe3ea4c4ea08af5f81439295e9e7cb42d105255bb5741490726ed00",
+        "main/composition/issue-team-role-executor.js": "a2ef31c7598ad21d5946f240f9f670bd13e9826a6caa2fc1b4871a88e5d2b447",
+        "main/composition/pi-continuous-loop.js": "2721a8288361c6289d2c5d89dbf6a604ba1af6ae189ea552725d801dd8cd1d9f",
+        "main/composition/supervised-issue-worker.js": "b3bb1a7ab249633c487d016d44a5019b5e02b399f1dd07a550c5e8a92d243d02",
+        "main/domain/chat.js": "f434c39eec4a815ba6ff8c55e4f014107c0aee56aeb66b3b217f126063e7c39c",
+        "main/domain/coding-job.js": "70535bf508c3b3ba3d8f7652bc46a6ee568f144318ff4c755f243737729a18b1",
+        "main/domain/issue-orchestration.js": "283abb82ccf5ab375a53e143711f954bc464225d9342d388e3e85edd518be1ed",
+        "main/domain/issue-team.js": "4959ad34152d2f4952f4f92eb2105bb4fe301409725f8a06f8248a426321895a",
+        "main/domain/jeonju-course.js": "9e896846d63017e295dc3fa572e066571f561e442491d4ea41191d1c84e75f73",
+        "main/domain/multi-issue-session.js": "a527f67db282daca56ae51cd520e8ede25666caf6ab2fa76a71138489982d04c",
+        "main/domain/orchestration.js": "b81d71651937138627db83e89960cf9c903270491288a445b6192ee9aa1405eb",
+        "main/domain/persona.js": "f39d1563096c0204185ed5a22a847dc80df930a91f25534f29edacae32d18df1",
+        "main/domain/workspace-context.js": "8cff1cdfd3deab451e81011f2f978bb30590aa9e63a5e23515ebd25058d24736",
+        "main/ports/coding-job.js": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881",
+        "main/ports/issue-orchestration.js": "7a2b07a4c3efc3b0261a8691f3881a18dbe0fb99268febf4e1f1ecc6f4267c65",
+        "main/ports/issue-team.js": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881",
+        "main/ports/multi-issue-session.js": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881",
+        "main/ports/orchestration.js": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881",
+        "main/ports/paid-call-budget.js": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881",
+        "main/ports/uc1.js": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881"
+      }
+    },
+    "piExecutable": {
+      "path": "node_modules/@earendil-works/pi-coding-agent/dist/cli.js",
+      "sha256": "af302f231437eaf6f37691bce4b34234fcb626bcb5eb3910d4fc3f6519bf78ca"
+    },
+    "trustedExecutables": {
+      "git": {
+        "path": "/usr/bin/git",
+        "sha256": "7ee6a69463c82250c493620e45deb16351fd13d62f0c19758344d16957e215e8"
+      },
+      "podman": {
+        "path": "/usr/bin/podman",
+        "sha256": "5d649020471e81fe719eb5d0041f821f890cf2c54ac6b028b49570a1b1c582d9"
+      },
+      "nvidia-smi": {
+        "path": "/usr/bin/nvidia-smi",
+        "sha256": "20f889e4468cd4d6fc6e79be1113b98ce4152d0da08fa709156cf870c1a9290d"
+      },
+      "ss": {
+        "path": "/usr/bin/ss",
+        "sha256": "0018609721656ac8162c677d65d91b8e96ba7902b620884ea5a7348985dee71d"
+      }
+    }
+  },
+  "nativeProtocol": [
+    {
+      "responseId": "chatcmpl-a4f9b5742b8503e1",
+      "model": "naia-0.9-coding-24g",
+      "finishReason": "tool_calls",
+      "declaredTools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "name": "ls",
+      "arguments": {}
+    },
+    {
+      "responseId": "chatcmpl-95465f87ea26ea91",
+      "model": "naia-0.9-coding-24g",
+      "finishReason": "tool_calls",
+      "declaredTools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "name": "read",
+      "arguments": {
+        "path": "package.json"
+      }
+    },
+    {
+      "responseId": "chatcmpl-98e28a3926aa0f44",
+      "model": "naia-0.9-coding-24g",
+      "finishReason": "tool_calls",
+      "declaredTools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "name": "ls",
+      "arguments": {
+        "path": "/var/home/luke/.cache/naia-request-contract-tmp/naia-user-owned-three-layer-tXs66g/worktrees/source-9ead673d-8efe-454a-a5da-4dd01191adda"
+      }
+    },
+    {
+      "responseId": "chatcmpl-98e28a3926aa0f44",
+      "model": "naia-0.9-coding-24g",
+      "finishReason": "tool_calls",
+      "declaredTools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "name": "find",
+      "arguments": {
+        "path": "/var/home/luke/.cache/naia-request-contract-tmp/naia-user-owned-three-layer-tXs66g/worktrees/source-9ead673d-8efe-454a-a5da-4dd01191adda",
+        "pattern": "src/**"
+      }
+    },
+    {
+      "responseId": "chatcmpl-b3c72928c0f5ba0e",
+      "model": "naia-0.9-coding-24g",
+      "finishReason": "tool_calls",
+      "declaredTools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "name": "read",
+      "arguments": {
+        "path": "/var/home/luke/.cache/naia-request-contract-tmp/naia-user-owned-three-layer-tXs66g/worktrees/source-9ead673d-8efe-454a-a5da-4dd01191adda/package.json"
+      }
+    },
+    {
+      "responseId": "chatcmpl-94aa23f8c610693e",
+      "model": "naia-0.9-coding-24g",
+      "finishReason": "tool_calls",
+      "declaredTools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "name": "execute",
+      "arguments": {
+        "command": "[redacted:165]"
+      }
+    },
+    {
+      "responseId": "chatcmpl-b1f2c95c8cdc3349",
+      "model": "naia-0.9-coding-24g",
+      "finishReason": "tool_calls",
+      "declaredTools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "name": "find",
+      "arguments": {
+        "path": "/var/home/luke/.cache/naia-request-contract-tmp/naia-user-owned-three-layer-tXs66g/worktrees/source-9ead673d-8efe-454a-a5da-4dd01191adda",
+        "pattern": "**/*"
+      }
+    },
+    {
+      "responseId": "chatcmpl-8bd3dd56c6ff5aab",
+      "model": "naia-0.9-coding-24g",
+      "finishReason": "tool_calls",
+      "declaredTools": [
+        "read",
+        "write",
+        "edit",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "name": "write",
+      "arguments": {
+        "path": "src/answer.js",
+        "contentSha256": "a2098bd92b10bf8b816d24b7556b1ce8c49a879d130489065ef1051c17e042f6"
+      }
+    },
+    {
+      "responseId": "chatcmpl-a122aad26602a492",
+      "model": "naia-0.9-coding-24g",
+      "finishReason": "tool_calls",
+      "declaredTools": [
+        "read",
+        "write",
+        "edit",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "name": "read",
+      "arguments": {
+        "path": "src/answer.js"
+      }
+    },
+    {
+      "responseId": "chatcmpl-ba55e8c0796b8f9b",
+      "model": "naia-0.9-coding-24g",
+      "finishReason": "tool_calls",
+      "declaredTools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "name": "read",
+      "arguments": {
+        "path": "src/answer.js"
+      }
+    },
+    {
+      "responseId": "chatcmpl-ba55e8c0796b8f9b",
+      "model": "naia-0.9-coding-24g",
+      "finishReason": "tool_calls",
+      "declaredTools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "name": "ls",
+      "arguments": {
+        "path": "src"
+      }
+    },
+    {
+      "responseId": "chatcmpl-a2d5242bbb8c7d38",
+      "model": "naia-0.9-coding-24g",
+      "finishReason": "tool_calls",
+      "declaredTools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "name": "find",
+      "arguments": {
+        "pattern": "**/*",
+        "path": "/var/home/luke/.cache/naia-request-contract-tmp/naia-user-owned-three-layer-tXs66g/worktrees/source-9ead673d-8efe-454a-a5da-4dd01191adda"
+      }
+    },
+    {
+      "responseId": "chatcmpl-bc6c8cdaa2ada1fd",
+      "model": "naia-0.9-coding-24g",
+      "finishReason": "tool_calls",
+      "declaredTools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "name": "grep",
+      "arguments": {
+        "pattern": ".",
+        "path": "src/answer.js",
+        "literal": true
+      }
+    },
+    {
+      "responseId": "chatcmpl-8ccd5c7ea8dcc159",
+      "model": "naia-0.9-coding-24g",
+      "finishReason": "tool_calls",
+      "declaredTools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "name": "ls",
+      "arguments": {
+        "path": "."
+      }
+    },
+    {
+      "responseId": "chatcmpl-b4129bcf5c94083e",
+      "model": "naia-0.9-coding-24g",
+      "finishReason": "tool_calls",
+      "declaredTools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "name": "find",
+      "arguments": {
+        "pattern": "src/answer.js"
+      }
+    },
+    {
+      "responseId": "chatcmpl-b4129bcf5c94083e",
+      "model": "naia-0.9-coding-24g",
+      "finishReason": "tool_calls",
+      "declaredTools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "name": "ls",
+      "arguments": {
+        "path": "/var/home/luke/.cache/naia-request-contract-tmp/naia-user-owned-three-layer-tXs66g/worktrees/source-9ead673d-8efe-454a-a5da-4dd01191adda"
+      }
+    },
+    {
+      "responseId": "chatcmpl-a7968bf50fe74ad2",
+      "model": "naia-0.9-coding-24g",
+      "finishReason": "tool_calls",
+      "declaredTools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "name": "read",
+      "arguments": {
+        "path": "src/answer.js"
+      }
+    },
+    {
+      "responseId": "chatcmpl-8626e6ad1a64ff75",
+      "model": "naia-0.9-coding-24g",
+      "finishReason": "tool_calls",
+      "declaredTools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "name": "grep",
+      "arguments": {
+        "pattern": ".",
+        "path": "src/answer.js",
+        "literal": true
+      }
+    },
+    {
+      "responseId": "chatcmpl-a68a5be13377b9a7",
+      "model": "naia-0.9-coding-24g",
+      "finishReason": "tool_calls",
+      "declaredTools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "name": "find",
+      "arguments": {
+        "pattern": "**/*"
+      }
+    },
+    {
+      "responseId": "chatcmpl-b23a66fcf7a32c25",
+      "model": "naia-0.9-coding-24g",
+      "finishReason": "tool_calls",
+      "declaredTools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "name": "answer",
+      "arguments": {}
+    },
+    {
+      "responseId": "chatcmpl-8769c8db7ca71c5f",
+      "model": "naia-0.9-coding-24g",
+      "finishReason": "tool_calls",
+      "declaredTools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "name": "find",
+      "arguments": {
+        "pattern": "src/answer.js"
+      }
+    },
+    {
+      "responseId": "chatcmpl-8769c8db7ca71c5f",
+      "model": "naia-0.9-coding-24g",
+      "finishReason": "tool_calls",
+      "declaredTools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "name": "ls",
+      "arguments": {
+        "path": "/var/home/luke/.cache/naia-request-contract-tmp/naia-user-owned-three-layer-tXs66g/worktrees/source-9ead673d-8efe-454a-a5da-4dd01191adda"
+      }
+    },
+    {
+      "responseId": "chatcmpl-bee0de79212ace65",
+      "model": "naia-0.9-coding-24g",
+      "finishReason": "tool_calls",
+      "declaredTools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "name": "read",
+      "arguments": {
+        "path": "/var/home/luke/.cache/naia-request-contract-tmp/naia-user-owned-three-layer-tXs66g/worktrees/source-9ead673d-8efe-454a-a5da-4dd01191adda/src/answer.js"
+      }
+    },
+    {
+      "responseId": "chatcmpl-8150dc1fd1a1030c",
+      "model": "naia-0.9-coding-24g",
+      "finishReason": "tool_calls",
+      "declaredTools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "name": "ls",
+      "arguments": {
+        "path": "/var/home/luke/.cache/naia-request-contract-tmp/naia-user-owned-three-layer-tXs66g/worktrees/source-9ead673d-8efe-454a-a5da-4dd01191adda/src"
+      }
+    },
+    {
+      "responseId": "chatcmpl-9e2e7f69ca2d1a0d",
+      "model": "naia-0.9-coding-24g",
+      "finishReason": "tool_calls",
+      "declaredTools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "name": "read",
+      "arguments": {
+        "path": "/var/home/luke/.cache/naia-request-contract-tmp/naia-user-owned-three-layer-tXs66g/worktrees/source-9ead673d-8efe-454a-a5da-4dd01191adda/package.json"
+      }
+    },
+    {
+      "responseId": "chatcmpl-adb70f82fd7671cd",
+      "model": "naia-0.9-coding-24g",
+      "finishReason": "tool_calls",
+      "declaredTools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "name": "find",
+      "arguments": {
+        "pattern": "**/*",
+        "path": "/var/home/luke/.cache/naia-request-contract-tmp/naia-user-owned-three-layer-tXs66g/worktrees/source-9ead673d-8efe-454a-a5da-4dd01191adda"
+      }
+    },
+    {
+      "responseId": "chatcmpl-adb70f82fd7671cd",
+      "model": "naia-0.9-coding-24g",
+      "finishReason": "tool_calls",
+      "declaredTools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "name": "read",
+      "arguments": {
+        "path": "/var/home/luke/.cache/naia-request-contract-tmp/naia-user-owned-three-layer-tXs66g/worktrees/source-9ead673d-8efe-454a-a5da-4dd01191adda/src/answer.js"
+      }
+    },
+    {
+      "responseId": "chatcmpl-83f3fde7d1aafea5",
+      "model": "naia-0.9-coding-24g",
+      "finishReason": "tool_calls",
+      "declaredTools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "name": "grep",
+      "arguments": {
+        "pattern": ".",
+        "path": "/var/home/luke/.cache/naia-request-contract-tmp/naia-user-owned-three-layer-tXs66g/worktrees/source-9ead673d-8efe-454a-a5da-4dd01191adda/src/answer.js",
+        "literal": false
+      }
+    },
+    {
+      "responseId": "chatcmpl-83f3fde7d1aafea5",
+      "model": "naia-0.9-coding-24g",
+      "finishReason": "tool_calls",
+      "declaredTools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "name": "read",
+      "arguments": {
+        "path": "/var/home/luke/.cache/naia-request-contract-tmp/naia-user-owned-three-layer-tXs66g/worktrees/source-9ead673d-8efe-454a-a5da-4dd01191adda/package.json"
+      }
+    },
+    {
+      "responseId": "chatcmpl-9a870a3ffd361979",
+      "model": "naia-0.9-coding-24g",
+      "finishReason": "tool_calls",
+      "declaredTools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "name": "write_file",
+      "arguments": {
+        "path": "/var/home/luke/.cache/naia-request-contract-tmp/naia-user-owned-three-layer-tXs66g/worktrees/source-9ead673d-8efe-454a-a5da-4dd01191adda/.session/result.json",
+        "contents": "[redacted:505]"
+      }
+    }
+  ],
+  "status": "completed",
+  "issueState": "completed",
+  "session": {
+    "version": 3,
+    "sessionId": "1d2f83c7-3804-4d71-b5e1-7a309bbbe9c9",
+    "requestId": "gpu1-user-owned-three-layer-v1",
+    "requestDigest": "4953baa06bf884b4d9c0eeefae2aebfcdc3b4c721e97ba458cfa4e0c964d02fa",
+    "issueId": "9ead673d-8efe-454a-a5da-4dd01191adda",
+    "workspacePath": "/var/home/luke/.cache/naia-request-contract-tmp/naia-user-owned-three-layer-tXs66g/source",
+    "source": {
+      "kind": "local",
+      "sourceId": "gpu1-user-owned-three-layer-v1",
+      "actorId": "benchmark"
+    },
+    "state": "completed",
+    "readyPriority": "normal",
+    "readySequence": 1,
+    "cancellationRequested": false,
+    "createdAt": "2026-08-04T18:33:58.212Z",
+    "updatedAt": "2026-08-04T18:37:08.732Z",
+    "report": {
+      "issueId": "9ead673d-8efe-454a-a5da-4dd01191adda",
+      "state": "completed",
+      "summary": "state=completed; changedFiles=1; verification=passed",
+      "naiaCommentary": "Completed. Changed files: src/answer.js. Verification: passed.",
+      "changedFiles": [
+        "src/answer.js"
+      ],
+      "verificationPassed": true,
+      "totalCost": {
+        "state": "unavailable",
+        "reason": "incomplete naia cost: actor adapter did not receive priced usage"
+      }
+    }
+  },
+  "issue": {
+    "version": 11,
+    "requestId": "gpu1-user-owned-three-layer-v1",
+    "requestDigest": "4953baa06bf884b4d9c0eeefae2aebfcdc3b4c721e97ba458cfa4e0c964d02fa",
+    "issueId": "9ead673d-8efe-454a-a5da-4dd01191adda",
+    "originalText": "Create src/answer.js whose exact trimmed bytes are `export const answer = 42;` and do not modify any other tracked file.",
+    "requiredObligations": [
+      "src/answer.js exists",
+      "src/answer.js exact trimmed bytes are `export const answer = 42;`",
+      "no other tracked file changes"
+    ],
+    "workspacePath": "/var/home/luke/.cache/naia-request-contract-tmp/naia-user-owned-three-layer-tXs66g/source",
+    "state": "completed",
+    "naiaBinding": {
+      "provider": "local-vllm",
+      "model": "naia-0.9-coding-24g"
+    },
+    "moderatorBinding": {
+      "provider": "local-vllm",
+      "model": "naia-0.9-coding-24g"
+    },
+    "workerProfiles": {
+      "user-owned-local-pi": {
+        "kind": "team",
+        "roles": {
+          "explorer": {
+            "agentProfileId": "pi-explorer",
+            "agentKind": "pi",
+            "binding": {
+              "provider": "local-vllm",
+              "model": "naia-0.9-coding-24g"
+            },
+            "filesystemAccess": "read_only"
+          },
+          "implementer": {
+            "agentProfileId": "pi-implementer",
+            "agentKind": "pi",
+            "binding": {
+              "provider": "local-vllm",
+              "model": "naia-0.9-coding-24g"
+            },
+            "filesystemAccess": "workspace_write"
+          },
+          "tester": {
+            "agentProfileId": "pi-tester",
+            "agentKind": "pi",
+            "binding": {
+              "provider": "local-vllm",
+              "model": "naia-0.9-coding-24g"
+            },
+            "filesystemAccess": "read_only"
+          },
+          "reviewer": {
+            "agentProfileId": "pi-reviewer",
+            "agentKind": "pi",
+            "binding": {
+              "provider": "local-vllm",
+              "model": "naia-0.9-coding-24g"
+            },
+            "filesystemAccess": "read_only"
+          }
+        },
+        "maxRepairCycles": 1,
+        "requiredCleanCycles": 2
+      }
+    },
+    "answers": [],
+    "receipts": [
+      {
+        "role": "naia",
+        "provider": "local-vllm",
+        "model": "naia-0.9-coding-24g",
+        "sessionId": "35274859-4392-409c-96ea-488330e13114",
+        "executionId": "e7f4d2ce-cb76-49c7-969c-ff4c1c2b2b65",
+        "idempotencyKey": "9ead673d-8efe-454a-a5da-4dd01191adda:facing:classify",
+        "tokenCountsAvailable": true,
+        "inputTokens": 1872,
+        "cachedInputTokens": 0,
+        "outputTokens": 67,
+        "latencyMs": 3775,
+        "modelEvidenceSource": "provider_reported",
+        "estimatedCostUsd": 0,
+        "estimatedCostSource": "pi_catalog",
+        "cost": {
+          "state": "unavailable",
+          "reason": "actor adapter did not receive priced usage"
+        }
+      },
+      {
+        "role": "moderator",
+        "provider": "local-vllm",
+        "model": "naia-0.9-coding-24g",
+        "sessionId": "755c682c-032f-4a17-b37d-4daf5620ba4c",
+        "executionId": "d192c9dd-eb90-433b-89d7-bdc9374a345b",
+        "idempotencyKey": "9ead673d-8efe-454a-a5da-4dd01191adda:moderator:0",
+        "tokenCountsAvailable": true,
+        "inputTokens": 5860,
+        "cachedInputTokens": 0,
+        "outputTokens": 116,
+        "latencyMs": 8245,
+        "modelEvidenceSource": "provider_reported",
+        "estimatedCostUsd": 0,
+        "estimatedCostSource": "pi_catalog",
+        "cost": {
+          "state": "unavailable",
+          "reason": "actor adapter did not receive priced usage"
+        }
+      },
+      {
+        "role": "worker",
+        "workerRole": "explorer",
+        "agentProfileId": "pi-explorer",
+        "agentKind": "pi",
+        "provider": "local-vllm",
+        "model": "naia-0.9-coding-24g",
+        "sessionId": "6af60e4d-8304-43d0-af1f-9ee835e41254",
+        "executionId": "f542956a-7649-4c42-9c4f-b16e893fafea",
+        "idempotencyKey": "9ead673d-8efe-454a-a5da-4dd01191adda:dispatch:1:explorer:1",
+        "tokenCountsAvailable": true,
+        "inputTokens": 11370,
+        "cachedInputTokens": 0,
+        "outputTokens": 756,
+        "latencyMs": 31849,
+        "modelEvidenceSource": "provider_reported",
+        "estimatedCostUsd": 0,
+        "estimatedCostSource": "pi_catalog",
+        "cost": {
+          "state": "unavailable",
+          "reason": "role adapter did not receive priced usage"
+        }
+      },
+      {
+        "role": "worker",
+        "workerRole": "implementer",
+        "agentProfileId": "pi-implementer",
+        "agentKind": "pi",
+        "provider": "local-vllm",
+        "model": "naia-0.9-coding-24g",
+        "sessionId": "1ca9a8dc-0410-4312-81ac-5bc92bde7473",
+        "executionId": "b0b8c870-33f0-42f5-9513-ac3bb3493be1",
+        "idempotencyKey": "9ead673d-8efe-454a-a5da-4dd01191adda:dispatch:1:implementer:2",
+        "tokenCountsAvailable": true,
+        "inputTokens": 8140,
+        "cachedInputTokens": 0,
+        "outputTokens": 213,
+        "latencyMs": 12886,
+        "modelEvidenceSource": "provider_reported",
+        "estimatedCostUsd": 0,
+        "estimatedCostSource": "pi_catalog",
+        "cost": {
+          "state": "unavailable",
+          "reason": "role adapter did not receive priced usage"
+        }
+      },
+      {
+        "role": "worker",
+        "workerRole": "tester",
+        "agentProfileId": "pi-tester",
+        "agentKind": "pi",
+        "provider": "local-vllm",
+        "model": "naia-0.9-coding-24g",
+        "sessionId": "d993b8c1-dc1f-4c98-9523-d77a60f22214",
+        "executionId": "09d356f3-fd74-42dc-9bc4-7404f17f03ff",
+        "idempotencyKey": "9ead673d-8efe-454a-a5da-4dd01191adda:dispatch:1:tester:3",
+        "tokenCountsAvailable": true,
+        "inputTokens": 12079,
+        "cachedInputTokens": 0,
+        "outputTokens": 564,
+        "latencyMs": 25952,
+        "modelEvidenceSource": "provider_reported",
+        "estimatedCostUsd": 0,
+        "estimatedCostSource": "pi_catalog",
+        "cost": {
+          "state": "unavailable",
+          "reason": "role adapter did not receive priced usage"
+        }
+      },
+      {
+        "role": "worker",
+        "workerRole": "reviewer",
+        "agentProfileId": "pi-reviewer",
+        "agentKind": "pi",
+        "provider": "local-vllm",
+        "model": "naia-0.9-coding-24g",
+        "sessionId": "85e0d952-3253-4bc2-a39f-16ab291c94ee",
+        "executionId": "2454211f-0034-4bcf-ac1f-012ae99e7b37",
+        "idempotencyKey": "9ead673d-8efe-454a-a5da-4dd01191adda:dispatch:1:reviewer:4",
+        "tokenCountsAvailable": true,
+        "inputTokens": 15387,
+        "cachedInputTokens": 0,
+        "outputTokens": 645,
+        "latencyMs": 41564,
+        "modelEvidenceSource": "provider_reported",
+        "estimatedCostUsd": 0,
+        "estimatedCostSource": "pi_catalog",
+        "cost": {
+          "state": "unavailable",
+          "reason": "role adapter did not receive priced usage"
+        }
+      },
+      {
+        "role": "worker",
+        "workerRole": "tester",
+        "agentProfileId": "pi-tester",
+        "agentKind": "pi",
+        "provider": "local-vllm",
+        "model": "naia-0.9-coding-24g",
+        "sessionId": "fa242aa4-b676-4a3d-a1eb-565a027b8fbe",
+        "executionId": "7cc1743d-b5bc-492e-90ec-af7637754406",
+        "idempotencyKey": "9ead673d-8efe-454a-a5da-4dd01191adda:dispatch:1:tester:5",
+        "tokenCountsAvailable": true,
+        "inputTokens": 13578,
+        "cachedInputTokens": 0,
+        "outputTokens": 675,
+        "latencyMs": 30117,
+        "modelEvidenceSource": "provider_reported",
+        "estimatedCostUsd": 0,
+        "estimatedCostSource": "pi_catalog",
+        "cost": {
+          "state": "unavailable",
+          "reason": "role adapter did not receive priced usage"
+        }
+      },
+      {
+        "role": "worker",
+        "workerRole": "reviewer",
+        "agentProfileId": "pi-reviewer",
+        "agentKind": "pi",
+        "provider": "local-vllm",
+        "model": "naia-0.9-coding-24g",
+        "sessionId": "b467948f-2ffc-4e0e-bede-58018f078dc4",
+        "executionId": "bbfee2f2-d96e-41cb-9b82-f7a307108852",
+        "idempotencyKey": "9ead673d-8efe-454a-a5da-4dd01191adda:dispatch:1:reviewer:6",
+        "tokenCountsAvailable": true,
+        "inputTokens": 11713,
+        "cachedInputTokens": 0,
+        "outputTokens": 862,
+        "latencyMs": 33483,
+        "modelEvidenceSource": "provider_reported",
+        "estimatedCostUsd": 0,
+        "estimatedCostSource": "pi_catalog",
+        "cost": {
+          "state": "unavailable",
+          "reason": "role adapter did not receive priced usage"
+        }
+      },
+      {
+        "role": "verifier",
+        "provider": "deterministic",
+        "model": "command-verifier",
+        "sessionId": "91b0e439-8660-42db-b83b-fbf5d9b53a18",
+        "executionId": "354ca04a-f46c-44d2-8a08-5b64cf70afe7",
+        "idempotencyKey": "9ead673d-8efe-454a-a5da-4dd01191adda:verify:1",
+        "tokenCountsAvailable": true,
+        "inputTokens": 0,
+        "cachedInputTokens": 0,
+        "outputTokens": 0,
+        "latencyMs": 60,
+        "cost": {
+          "state": "measured",
+          "usd": 0,
+          "source": "local_deterministic_verifier"
+        }
+      },
+      {
+        "role": "reporter",
+        "provider": "local-vllm",
+        "model": "naia-0.9-coding-24g",
+        "sessionId": "81ed6ed1-1272-456d-b267-efabe9555f33",
+        "executionId": "3d2cdd9e-56d8-44e0-b8e4-0f58c9283448",
+        "idempotencyKey": "9ead673d-8efe-454a-a5da-4dd01191adda:report:1",
+        "tokenCountsAvailable": true,
+        "inputTokens": 1869,
+        "cachedInputTokens": 0,
+        "outputTokens": 19,
+        "latencyMs": 2551,
+        "modelEvidenceSource": "provider_reported",
+        "estimatedCostUsd": 0,
+        "estimatedCostSource": "pi_catalog",
+        "cost": {
+          "state": "unavailable",
+          "reason": "actor adapter did not receive priced usage"
+        }
+      }
+    ],
+    "createdAt": "2026-08-04T18:33:58.211Z",
+    "updatedAt": "2026-08-04T18:37:08.731Z",
+    "classification": {
+      "kind": "work",
+      "obligations": [
+        "src/answer.js exists",
+        "src/answer.js exact trimmed bytes are `export const answer = 42;`",
+        "no other tracked file changes"
+      ]
+    },
+    "plan": {
+      "workerTask": "Create src/answer.js with exact content `export const answer = 42;` and ensure no other tracked files are modified.",
+      "workerProfile": "user-owned-local-pi",
+      "acceptanceChecks": [
+        "file-content",
+        "changed-files"
+      ],
+      "questions": []
+    },
+    "workerProfile": {
+      "kind": "team",
+      "roles": {
+        "explorer": {
+          "agentProfileId": "pi-explorer",
+          "agentKind": "pi",
+          "binding": {
+            "provider": "local-vllm",
+            "model": "naia-0.9-coding-24g"
+          },
+          "filesystemAccess": "read_only"
+        },
+        "implementer": {
+          "agentProfileId": "pi-implementer",
+          "agentKind": "pi",
+          "binding": {
+            "provider": "local-vllm",
+            "model": "naia-0.9-coding-24g"
+          },
+          "filesystemAccess": "workspace_write"
+        },
+        "tester": {
+          "agentProfileId": "pi-tester",
+          "agentKind": "pi",
+          "binding": {
+            "provider": "local-vllm",
+            "model": "naia-0.9-coding-24g"
+          },
+          "filesystemAccess": "read_only"
+        },
+        "reviewer": {
+          "agentProfileId": "pi-reviewer",
+          "agentKind": "pi",
+          "binding": {
+            "provider": "local-vllm",
+            "model": "naia-0.9-coding-24g"
+          },
+          "filesystemAccess": "read_only"
+        }
+      },
+      "maxRepairCycles": 1,
+      "requiredCleanCycles": 2
+    },
+    "dispatchId": "9ead673d-8efe-454a-a5da-4dd01191adda:dispatch:1",
+    "worker": {
+      "ok": true,
+      "summary": "issue team converged; issue verification pending",
+      "worktreePath": "/var/home/luke/.cache/naia-request-contract-tmp/naia-user-owned-three-layer-tXs66g/worktrees/source-9ead673d-8efe-454a-a5da-4dd01191adda",
+      "changedFiles": [
+        "src/answer.js"
+      ],
+      "receipt": {
+        "role": "worker",
+        "workerRole": "implementer",
+        "agentProfileId": "pi-implementer",
+        "agentKind": "pi",
+        "provider": "local-vllm",
+        "model": "naia-0.9-coding-24g",
+        "sessionId": "1ca9a8dc-0410-4312-81ac-5bc92bde7473",
+        "executionId": "b0b8c870-33f0-42f5-9513-ac3bb3493be1",
+        "idempotencyKey": "9ead673d-8efe-454a-a5da-4dd01191adda:dispatch:1:implementer:2",
+        "tokenCountsAvailable": true,
+        "inputTokens": 8140,
+        "cachedInputTokens": 0,
+        "outputTokens": 213,
+        "latencyMs": 12886,
+        "modelEvidenceSource": "provider_reported",
+        "estimatedCostUsd": 0,
+        "estimatedCostSource": "pi_catalog",
+        "cost": {
+          "state": "unavailable",
+          "reason": "role adapter did not receive priced usage"
+        }
+      },
+      "receipts": [
+        {
+          "role": "worker",
+          "workerRole": "explorer",
+          "agentProfileId": "pi-explorer",
+          "agentKind": "pi",
+          "provider": "local-vllm",
+          "model": "naia-0.9-coding-24g",
+          "sessionId": "6af60e4d-8304-43d0-af1f-9ee835e41254",
+          "executionId": "f542956a-7649-4c42-9c4f-b16e893fafea",
+          "idempotencyKey": "9ead673d-8efe-454a-a5da-4dd01191adda:dispatch:1:explorer:1",
+          "tokenCountsAvailable": true,
+          "inputTokens": 11370,
+          "cachedInputTokens": 0,
+          "outputTokens": 756,
+          "latencyMs": 31849,
+          "modelEvidenceSource": "provider_reported",
+          "estimatedCostUsd": 0,
+          "estimatedCostSource": "pi_catalog",
+          "cost": {
+            "state": "unavailable",
+            "reason": "role adapter did not receive priced usage"
+          }
+        },
+        {
+          "role": "worker",
+          "workerRole": "implementer",
+          "agentProfileId": "pi-implementer",
+          "agentKind": "pi",
+          "provider": "local-vllm",
+          "model": "naia-0.9-coding-24g",
+          "sessionId": "1ca9a8dc-0410-4312-81ac-5bc92bde7473",
+          "executionId": "b0b8c870-33f0-42f5-9513-ac3bb3493be1",
+          "idempotencyKey": "9ead673d-8efe-454a-a5da-4dd01191adda:dispatch:1:implementer:2",
+          "tokenCountsAvailable": true,
+          "inputTokens": 8140,
+          "cachedInputTokens": 0,
+          "outputTokens": 213,
+          "latencyMs": 12886,
+          "modelEvidenceSource": "provider_reported",
+          "estimatedCostUsd": 0,
+          "estimatedCostSource": "pi_catalog",
+          "cost": {
+            "state": "unavailable",
+            "reason": "role adapter did not receive priced usage"
+          }
+        },
+        {
+          "role": "worker",
+          "workerRole": "tester",
+          "agentProfileId": "pi-tester",
+          "agentKind": "pi",
+          "provider": "local-vllm",
+          "model": "naia-0.9-coding-24g",
+          "sessionId": "d993b8c1-dc1f-4c98-9523-d77a60f22214",
+          "executionId": "09d356f3-fd74-42dc-9bc4-7404f17f03ff",
+          "idempotencyKey": "9ead673d-8efe-454a-a5da-4dd01191adda:dispatch:1:tester:3",
+          "tokenCountsAvailable": true,
+          "inputTokens": 12079,
+          "cachedInputTokens": 0,
+          "outputTokens": 564,
+          "latencyMs": 25952,
+          "modelEvidenceSource": "provider_reported",
+          "estimatedCostUsd": 0,
+          "estimatedCostSource": "pi_catalog",
+          "cost": {
+            "state": "unavailable",
+            "reason": "role adapter did not receive priced usage"
+          }
+        },
+        {
+          "role": "worker",
+          "workerRole": "reviewer",
+          "agentProfileId": "pi-reviewer",
+          "agentKind": "pi",
+          "provider": "local-vllm",
+          "model": "naia-0.9-coding-24g",
+          "sessionId": "85e0d952-3253-4bc2-a39f-16ab291c94ee",
+          "executionId": "2454211f-0034-4bcf-ac1f-012ae99e7b37",
+          "idempotencyKey": "9ead673d-8efe-454a-a5da-4dd01191adda:dispatch:1:reviewer:4",
+          "tokenCountsAvailable": true,
+          "inputTokens": 15387,
+          "cachedInputTokens": 0,
+          "outputTokens": 645,
+          "latencyMs": 41564,
+          "modelEvidenceSource": "provider_reported",
+          "estimatedCostUsd": 0,
+          "estimatedCostSource": "pi_catalog",
+          "cost": {
+            "state": "unavailable",
+            "reason": "role adapter did not receive priced usage"
+          }
+        },
+        {
+          "role": "worker",
+          "workerRole": "tester",
+          "agentProfileId": "pi-tester",
+          "agentKind": "pi",
+          "provider": "local-vllm",
+          "model": "naia-0.9-coding-24g",
+          "sessionId": "fa242aa4-b676-4a3d-a1eb-565a027b8fbe",
+          "executionId": "7cc1743d-b5bc-492e-90ec-af7637754406",
+          "idempotencyKey": "9ead673d-8efe-454a-a5da-4dd01191adda:dispatch:1:tester:5",
+          "tokenCountsAvailable": true,
+          "inputTokens": 13578,
+          "cachedInputTokens": 0,
+          "outputTokens": 675,
+          "latencyMs": 30117,
+          "modelEvidenceSource": "provider_reported",
+          "estimatedCostUsd": 0,
+          "estimatedCostSource": "pi_catalog",
+          "cost": {
+            "state": "unavailable",
+            "reason": "role adapter did not receive priced usage"
+          }
+        },
+        {
+          "role": "worker",
+          "workerRole": "reviewer",
+          "agentProfileId": "pi-reviewer",
+          "agentKind": "pi",
+          "provider": "local-vllm",
+          "model": "naia-0.9-coding-24g",
+          "sessionId": "b467948f-2ffc-4e0e-bede-58018f078dc4",
+          "executionId": "bbfee2f2-d96e-41cb-9b82-f7a307108852",
+          "idempotencyKey": "9ead673d-8efe-454a-a5da-4dd01191adda:dispatch:1:reviewer:6",
+          "tokenCountsAvailable": true,
+          "inputTokens": 11713,
+          "cachedInputTokens": 0,
+          "outputTokens": 862,
+          "latencyMs": 33483,
+          "modelEvidenceSource": "provider_reported",
+          "estimatedCostUsd": 0,
+          "estimatedCostSource": "pi_catalog",
+          "cost": {
+            "state": "unavailable",
+            "reason": "role adapter did not receive priced usage"
+          }
+        }
+      ],
+      "team": {
+        "profileId": "user-owned-local-pi",
+        "profileDigest": "f2a1bbda8d6909c151c80f9cafb73193c42af6b05a61a425516c62a54e7a6b3f",
+        "cleanCycles": 2,
+        "repairCycles": 0,
+        "outcomes": [
+          {
+            "version": 1,
+            "role": "explorer",
+            "decision": "proceed",
+            "summary": "Worktree is clean with only package.json as a tracked file. No src/ directory or src/answer.js exists yet. The next role can create src/answer.js with exact content `export const answer = 42;` without modifying any other tracked files.",
+            "findings": [
+              {
+                "code": "file-content",
+                "message": "src/answer.js does not exist yet; needs to be created with content `export const answer = 42;`"
+              },
+              {
+                "code": "changed-files",
+                "message": "Only package.json is tracked; no other tracked files will be modified by creating src/answer.js"
+              }
+            ]
+          },
+          {
+            "version": 1,
+            "role": "implementer",
+            "decision": "implemented",
+            "summary": "Created src/answer.js with exact content `export const answer = 42;`. No other tracked files were modified.",
+            "findings": [
+              {
+                "code": "file-content",
+                "message": "src/answer.js exists with exact trimmed bytes `export const answer = 42;`"
+              },
+              {
+                "code": "changed-files",
+                "message": "No other tracked files were modified"
+              }
+            ]
+          },
+          {
+            "version": 1,
+            "role": "tester",
+            "decision": "pass",
+            "summary": "src/answer.js exists with exact content `export const answer = 42;`. No other tracked files were modified — only package.json was pre-existing, and src/answer.js was added.",
+            "findings": [
+              {
+                "code": "file-content",
+                "message": "src/answer.js exists with exact trimmed bytes `export const answer = 42;`"
+              },
+              {
+                "code": "changed-files",
+                "message": "No other tracked files were modified; only src/answer.js was created"
+              }
+            ]
+          },
+          {
+            "version": 1,
+            "role": "reviewer",
+            "decision": "clean",
+            "summary": "All obligations met: src/answer.js exists with exact content `export const answer = 42;`. Only package.json and src/answer.js are present — no other tracked files were modified.",
+            "findings": [
+              {
+                "code": "file-content",
+                "message": "src/answer.js exists with exact trimmed bytes `export const answer = 42;`"
+              },
+              {
+                "code": "changed-files",
+                "message": "No other tracked files were modified; only src/answer.js was created alongside pre-existing package.json"
+              }
+            ]
+          },
+          {
+            "version": 1,
+            "role": "tester",
+            "decision": "pass",
+            "summary": "src/answer.js exists with exact content `export const answer = 42;`. No other tracked files were modified — only package.json was pre-existing, and src/answer.js was added.",
+            "findings": [
+              {
+                "code": "file-content",
+                "message": "src/answer.js exists with exact trimmed bytes `export const answer = 42;`"
+              },
+              {
+                "code": "changed-files",
+                "message": "No other tracked files were modified; only src/answer.js was created alongside pre-existing package.json"
+              }
+            ]
+          },
+          {
+            "version": 1,
+            "role": "reviewer",
+            "decision": "clean",
+            "summary": "All obligations met: src/answer.js exists with exact content `export const answer = 42;`. Only package.json and src/answer.js are present — no other tracked files were modified.",
+            "findings": [
+              {
+                "code": "file-content",
+                "message": "src/answer.js exists with exact trimmed bytes `export const answer = 42;`"
+              },
+              {
+                "code": "changed-files",
+                "message": "No other tracked files were modified; only src/answer.js was created alongside pre-existing package.json"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "verification": {
+      "ok": true,
+      "checks": [
+        {
+          "name": "file-content",
+          "pass": true
+        },
+        {
+          "name": "changed-files",
+          "pass": true
+        }
+      ],
+      "receipt": {
+        "role": "verifier",
+        "provider": "deterministic",
+        "model": "command-verifier",
+        "sessionId": "91b0e439-8660-42db-b83b-fbf5d9b53a18",
+        "executionId": "354ca04a-f46c-44d2-8a08-5b64cf70afe7",
+        "idempotencyKey": "9ead673d-8efe-454a-a5da-4dd01191adda:verify:1",
+        "tokenCountsAvailable": true,
+        "inputTokens": 0,
+        "cachedInputTokens": 0,
+        "outputTokens": 0,
+        "latencyMs": 60,
+        "cost": {
+          "state": "measured",
+          "usd": 0,
+          "source": "local_deterministic_verifier"
+        }
+      }
+    },
+    "report": {
+      "issueId": "9ead673d-8efe-454a-a5da-4dd01191adda",
+      "state": "completed",
+      "summary": "state=completed; changedFiles=1; verification=passed",
+      "naiaCommentary": "Completed. Changed files: src/answer.js. Verification: passed.",
+      "changedFiles": [
+        "src/answer.js"
+      ],
+      "verificationPassed": true,
+      "totalCost": {
+        "state": "unavailable",
+        "reason": "incomplete naia cost: actor adapter did not receive priced usage"
+      }
+    }
+  },
+  "answer": "export const answer = 42;",
+  "changedFiles": [
+    "?? src/answer.js"
+  ],
+  "verification": {
+    "ok": true,
+    "checks": [
+      {
+        "name": "file-content",
+        "pass": true
+      },
+      {
+        "name": "changed-files",
+        "pass": true
+      }
+    ],
+    "receipt": {
+      "role": "verifier",
+      "provider": "deterministic",
+      "model": "command-verifier",
+      "sessionId": "91b0e439-8660-42db-b83b-fbf5d9b53a18",
+      "executionId": "354ca04a-f46c-44d2-8a08-5b64cf70afe7",
+      "idempotencyKey": "9ead673d-8efe-454a-a5da-4dd01191adda:verify:1",
+      "tokenCountsAvailable": true,
+      "inputTokens": 0,
+      "cachedInputTokens": 0,
+      "outputTokens": 0,
+      "latencyMs": 60,
+      "cost": {
+        "state": "measured",
+        "usd": 0,
+        "source": "local_deterministic_verifier"
+      }
+    }
+  },
+  "team": {
+    "profileId": "user-owned-local-pi",
+    "profileDigest": "f2a1bbda8d6909c151c80f9cafb73193c42af6b05a61a425516c62a54e7a6b3f",
+    "cleanCycles": 2,
+    "repairCycles": 0,
+    "outcomes": [
+      {
+        "version": 1,
+        "role": "explorer",
+        "decision": "proceed",
+        "summary": "Worktree is clean with only package.json as a tracked file. No src/ directory or src/answer.js exists yet. The next role can create src/answer.js with exact content `export const answer = 42;` without modifying any other tracked files.",
+        "findings": [
+          {
+            "code": "file-content",
+            "message": "src/answer.js does not exist yet; needs to be created with content `export const answer = 42;`"
+          },
+          {
+            "code": "changed-files",
+            "message": "Only package.json is tracked; no other tracked files will be modified by creating src/answer.js"
+          }
+        ]
+      },
+      {
+        "version": 1,
+        "role": "implementer",
+        "decision": "implemented",
+        "summary": "Created src/answer.js with exact content `export const answer = 42;`. No other tracked files were modified.",
+        "findings": [
+          {
+            "code": "file-content",
+            "message": "src/answer.js exists with exact trimmed bytes `export const answer = 42;`"
+          },
+          {
+            "code": "changed-files",
+            "message": "No other tracked files were modified"
+          }
+        ]
+      },
+      {
+        "version": 1,
+        "role": "tester",
+        "decision": "pass",
+        "summary": "src/answer.js exists with exact content `export const answer = 42;`. No other tracked files were modified — only package.json was pre-existing, and src/answer.js was added.",
+        "findings": [
+          {
+            "code": "file-content",
+            "message": "src/answer.js exists with exact trimmed bytes `export const answer = 42;`"
+          },
+          {
+            "code": "changed-files",
+            "message": "No other tracked files were modified; only src/answer.js was created"
+          }
+        ]
+      },
+      {
+        "version": 1,
+        "role": "reviewer",
+        "decision": "clean",
+        "summary": "All obligations met: src/answer.js exists with exact content `export const answer = 42;`. Only package.json and src/answer.js are present — no other tracked files were modified.",
+        "findings": [
+          {
+            "code": "file-content",
+            "message": "src/answer.js exists with exact trimmed bytes `export const answer = 42;`"
+          },
+          {
+            "code": "changed-files",
+            "message": "No other tracked files were modified; only src/answer.js was created alongside pre-existing package.json"
+          }
+        ]
+      },
+      {
+        "version": 1,
+        "role": "tester",
+        "decision": "pass",
+        "summary": "src/answer.js exists with exact content `export const answer = 42;`. No other tracked files were modified — only package.json was pre-existing, and src/answer.js was added.",
+        "findings": [
+          {
+            "code": "file-content",
+            "message": "src/answer.js exists with exact trimmed bytes `export const answer = 42;`"
+          },
+          {
+            "code": "changed-files",
+            "message": "No other tracked files were modified; only src/answer.js was created alongside pre-existing package.json"
+          }
+        ]
+      },
+      {
+        "version": 1,
+        "role": "reviewer",
+        "decision": "clean",
+        "summary": "All obligations met: src/answer.js exists with exact content `export const answer = 42;`. Only package.json and src/answer.js are present — no other tracked files were modified.",
+        "findings": [
+          {
+            "code": "file-content",
+            "message": "src/answer.js exists with exact trimmed bytes `export const answer = 42;`"
+          },
+          {
+            "code": "changed-files",
+            "message": "No other tracked files were modified; only src/answer.js was created alongside pre-existing package.json"
+          }
+        ]
+      }
+    ]
+  },
+  "transcripts": [
+    {
+      "role": "facing",
+      "write": false,
+      "text": "```json\n{\n  \"kind\": \"work\",\n  \"obligations\": [\n    \"src/answer.js exists\",\n    \"src/answer.js exact trimmed bytes are `export const answer = 42;`\",\n    \"no other tracked file changes\"\n  ]\n}\n```",
+      "events": [
+        {
+          "kind": "planning"
+        },
+        {
+          "kind": "text_delta"
+        },
+        {
+          "kind": "model_evidence"
+        },
+        {
+          "kind": "session_end"
+        }
+      ]
+    },
+    {
+      "role": "moderator",
+      "write": false,
+      "text": "```json\n{\n  \"workerTask\": \"Create src/answer.js with exact content `export const answer = 42;` and ensure no other tracked files are modified.\",\n  \"workerProfile\": \"user-owned-local-pi\",\n  \"acceptanceChecks\": [\"file-content\", \"changed-files\"],\n  \"questions\": []\n}\n```",
+      "events": [
+        {
+          "kind": "planning"
+        },
+        {
+          "kind": "model_evidence"
+        },
+        {
+          "kind": "tool_use_start",
+          "tool": "ls"
+        },
+        {
+          "kind": "tool_use_end",
+          "tool": "ls",
+          "ok": true
+        },
+        {
+          "kind": "model_evidence"
+        },
+        {
+          "kind": "tool_use_start",
+          "tool": "read"
+        },
+        {
+          "kind": "tool_use_end",
+          "tool": "read",
+          "ok": true
+        },
+        {
+          "kind": "text_delta"
+        },
+        {
+          "kind": "model_evidence"
+        },
+        {
+          "kind": "session_end"
+        }
+      ]
+    },
+    {
+      "role": "explorer",
+      "write": false,
+      "text": "I'll inspect the worktree to understand the current state before proceeding.\n\nThe worktree is clean with only `.git` and `package.json`. There is no `src/` directory yet, and no `src/answer.js` exists. The task is to create `src/answer.js` with exact content `export const answer = 42;` without modifying any other tracked files. The current state is ready for the next role to create the file.\n\nThe worktree contains only `package.json` as a tracked file. No `src/` directory exists yet. The task can proceed — the next role will create `src/answer.js` with the required content, and since no other tracked files need to be modified, the obligation of \"no other tracked file changes\" is maintainable.\n\n```json\n{\"version\":1,\"role\":\"explorer\",\"decision\":\"proceed\",\"summary\":\"Worktree is clean with only package.json as a tracked file. No src/ directory or src/answer.js exists yet. The next role can create src/answer.js with exact content `export const answer = 42;` without modifying any other tracked files.\",\"findings\":[{\"code\":\"file-content\",\"message\":\"src/answer.js does not exist yet; needs to be created with content `export const answer = 42;`\"},{\"code\":\"changed-files\",\"message\":\"Only package.json is tracked; no other tracked files will be modified by creating src/answer.js\"}]}\n```",
+      "events": [
+        {
+          "kind": "planning"
+        },
+        {
+          "kind": "text_delta"
+        },
+        {
+          "kind": "model_evidence"
+        },
+        {
+          "kind": "tool_use_start",
+          "tool": "ls"
+        },
+        {
+          "kind": "tool_use_start",
+          "tool": "find"
+        },
+        {
+          "kind": "tool_use_end",
+          "tool": "ls",
+          "ok": true
+        },
+        {
+          "kind": "tool_use_end",
+          "tool": "find",
+          "ok": true
+        },
+        {
+          "kind": "model_evidence"
+        },
+        {
+          "kind": "tool_use_start",
+          "tool": "read"
+        },
+        {
+          "kind": "tool_use_end",
+          "tool": "read",
+          "ok": true
+        },
+        {
+          "kind": "text_delta"
+        },
+        {
+          "kind": "model_evidence"
+        },
+        {
+          "kind": "tool_use_start",
+          "tool": "execute"
+        },
+        {
+          "kind": "tool_use_end",
+          "tool": "execute",
+          "ok": false
+        },
+        {
+          "kind": "model_evidence"
+        },
+        {
+          "kind": "tool_use_start",
+          "tool": "find"
+        },
+        {
+          "kind": "tool_use_end",
+          "tool": "find",
+          "ok": true
+        },
+        {
+          "kind": "text_delta"
+        },
+        {
+          "kind": "model_evidence"
+        },
+        {
+          "kind": "session_end"
+        }
+      ]
+    },
+    {
+      "role": "implementer",
+      "write": true,
+      "text": "I'll create the file with the exact requested content.\n\nLet me verify the content is exact:\n\nThe file `src/answer.js` exists with the exact content `export const answer = 42;`. No other tracked files were modified.\n\n{\"version\":1,\"role\":\"implementer\",\"decision\":\"implemented\",\"summary\":\"Created src/answer.js with exact content `export const answer = 42;`. No other tracked files were modified.\",\"findings\":[{\"code\":\"file-content\",\"message\":\"src/answer.js exists with exact trimmed bytes `export const answer = 42;`\"},{\"code\":\"changed-files\",\"message\":\"No other tracked files were modified\"}]}",
+      "events": [
+        {
+          "kind": "planning"
+        },
+        {
+          "kind": "text_delta"
+        },
+        {
+          "kind": "model_evidence"
+        },
+        {
+          "kind": "tool_use_start",
+          "tool": "write"
+        },
+        {
+          "kind": "tool_use_end",
+          "tool": "write",
+          "ok": true
+        },
+        {
+          "kind": "text_delta"
+        },
+        {
+          "kind": "model_evidence"
+        },
+        {
+          "kind": "tool_use_start",
+          "tool": "read"
+        },
+        {
+          "kind": "tool_use_end",
+          "tool": "read",
+          "ok": true
+        },
+        {
+          "kind": "text_delta"
+        },
+        {
+          "kind": "model_evidence"
+        },
+        {
+          "kind": "session_end"
+        }
+      ]
+    },
+    {
+      "role": "tester",
+      "write": false,
+      "text": "I need to verify the two acceptance criteria: file content and no other tracked file changes.\n\nThe file exists with the expected content. Now I need to verify that the trimmed bytes are exactly `export const answer = 42;` and check for any other tracked file changes.\n\nLet me verify the exact content more carefully by checking if there's a trailing newline or any extra characters:\n\nThe file content from `read` shows `export const answer = 42;` which matches the required exact trimmed bytes. The workspace contains only:\n- `.git` (directory)\n- `package.json` (pre-existing tracked file)\n- `src/answer.js` (new file we're verifying)\n\nNo other tracked files have been modified — only `src/answer.js` was added.\n\nAll checks pass:\n1. **file-content**: `src/answer.js` exists with exact content `export const answer = 42;`\n2. **changed-files**: Only `src/answer.js` was created; `package.json` (the only pre-existing tracked file) is unmodified.\n\n{\"version\":1,\"role\":\"tester\",\"decision\":\"pass\",\"summary\":\"src/answer.js exists with exact content `export const answer = 42;`. No other tracked files were modified — only package.json was pre-existing, and src/answer.js was added.\",\"findings\":[{\"code\":\"file-content\",\"message\":\"src/answer.js exists with exact trimmed bytes `export const answer = 42;`\"},{\"code\":\"changed-files\",\"message\":\"No other tracked files were modified; only src/answer.js was created\"}]}",
+      "events": [
+        {
+          "kind": "planning"
+        },
+        {
+          "kind": "text_delta"
+        },
+        {
+          "kind": "model_evidence"
+        },
+        {
+          "kind": "tool_use_start",
+          "tool": "read"
+        },
+        {
+          "kind": "tool_use_start",
+          "tool": "ls"
+        },
+        {
+          "kind": "tool_use_end",
+          "tool": "ls",
+          "ok": true
+        },
+        {
+          "kind": "tool_use_end",
+          "tool": "read",
+          "ok": true
+        },
+        {
+          "kind": "text_delta"
+        },
+        {
+          "kind": "model_evidence"
+        },
+        {
+          "kind": "tool_use_start",
+          "tool": "find"
+        },
+        {
+          "kind": "tool_use_end",
+          "tool": "find",
+          "ok": true
+        },
+        {
+          "kind": "text_delta"
+        },
+        {
+          "kind": "model_evidence"
+        },
+        {
+          "kind": "tool_use_start",
+          "tool": "grep"
+        },
+        {
+          "kind": "tool_use_end",
+          "tool": "grep",
+          "ok": true
+        },
+        {
+          "kind": "text_delta"
+        },
+        {
+          "kind": "model_evidence"
+        },
+        {
+          "kind": "tool_use_start",
+          "tool": "ls"
+        },
+        {
+          "kind": "tool_use_end",
+          "tool": "ls",
+          "ok": true
+        },
+        {
+          "kind": "text_delta"
+        },
+        {
+          "kind": "model_evidence"
+        },
+        {
+          "kind": "session_end"
+        }
+      ]
+    },
+    {
+      "role": "reviewer",
+      "write": false,
+      "text": "I'll review the current state of the worktree by checking what actually exists.\n\nGood, `src/answer.js` exists. Now let me verify its exact content:\n\nThe file content is exactly `export const answer = 42;` with a trailing newline (standard for text files). Let me verify there are no other tracked file changes by checking git status:\n\nLet me also confirm the only tracked files are `package.json` and `src/answer.js`:\n\nAll obligations verified:\n\n1. **`src/answer.js` exists** — confirmed.\n2. **Exact trimmed bytes are `export const answer = 42;`** — confirmed, the file contains exactly that single line.\n3. **No other tracked file changes** — confirmed, only `package.json` (pre-existing) and `src/answer.js` (newly created) exist.\n\n{\"version\":1,\"role\":\"reviewer\",\"decision\":\"clean\",\"summary\":\"All obligations met: src/answer.js exists with exact content `export const answer = 42;`. Only package.json and src/answer.js are present — no other tracked files were modified.\",\"findings\":[{\"code\":\"file-content\",\"message\":\"src/answer.js exists with exact trimmed bytes `export const answer = 42;`\"},{\"code\":\"changed-files\",\"message\":\"No other tracked files were modified; only src/answer.js was created alongside pre-existing package.json\"}]}",
+      "events": [
+        {
+          "kind": "planning"
+        },
+        {
+          "kind": "text_delta"
+        },
+        {
+          "kind": "model_evidence"
+        },
+        {
+          "kind": "tool_use_start",
+          "tool": "find"
+        },
+        {
+          "kind": "tool_use_start",
+          "tool": "ls"
+        },
+        {
+          "kind": "tool_use_end",
+          "tool": "ls",
+          "ok": true
+        },
+        {
+          "kind": "tool_use_end",
+          "tool": "find",
+          "ok": true
+        },
+        {
+          "kind": "text_delta"
+        },
+        {
+          "kind": "model_evidence"
+        },
+        {
+          "kind": "tool_use_start",
+          "tool": "read"
+        },
+        {
+          "kind": "tool_use_end",
+          "tool": "read",
+          "ok": true
+        },
+        {
+          "kind": "text_delta"
+        },
+        {
+          "kind": "model_evidence"
+        },
+        {
+          "kind": "tool_use_start",
+          "tool": "grep"
+        },
+        {
+          "kind": "tool_use_end",
+          "tool": "grep",
+          "ok": true
+        },
+        {
+          "kind": "text_delta"
+        },
+        {
+          "kind": "model_evidence"
+        },
+        {
+          "kind": "tool_use_start",
+          "tool": "find"
+        },
+        {
+          "kind": "tool_use_end",
+          "tool": "find",
+          "ok": true
+        },
+        {
+          "kind": "model_evidence"
+        },
+        {
+          "kind": "planning"
+        },
+        {
+          "kind": "text_delta"
+        },
+        {
+          "kind": "model_evidence"
+        },
+        {
+          "kind": "tool_use_start",
+          "tool": "answer"
+        },
+        {
+          "kind": "tool_use_end",
+          "tool": "answer",
+          "ok": false
+        },
+        {
+          "kind": "text_delta"
+        },
+        {
+          "kind": "model_evidence"
+        },
+        {
+          "kind": "session_end"
+        }
+      ]
+    },
+    {
+      "role": "tester",
+      "write": false,
+      "text": "I need to verify the current state of the worktree by checking if `src/answer.js` exists with the exact required content and that no other tracked files were modified.\n\nGood, `src/answer.js` exists. Now let me read its exact content:\n\nThe file contains exactly `export const answer = 42;`. Now let me verify no other tracked files were modified by checking the git status:\n\nThe `src/` directory contains only `answer.js`. The top-level has only `.git`, `package.json`, and `src/`. No other tracked files were modified. All obligations are met:\n\n1. **file-content**: `src/answer.js` exists with exact trimmed bytes `export const answer = 42;`\n2. **changed-files**: No other tracked files were modified — only `src/answer.js` was created alongside pre-existing `package.json`\n\nAll checks pass. Here is my verdict:\n\n{\"version\":1,\"role\":\"tester\",\"decision\":\"pass\",\"summary\":\"src/answer.js exists with exact content `export const answer = 42;`. No other tracked files were modified — only package.json was pre-existing, and src/answer.js was added.\",\"findings\":[{\"code\":\"file-content\",\"message\":\"src/answer.js exists with exact trimmed bytes `export const answer = 42;`\"},{\"code\":\"changed-files\",\"message\":\"No other tracked files were modified; only src/answer.js was created alongside pre-existing package.json\"}]}",
+      "events": [
+        {
+          "kind": "planning"
+        },
+        {
+          "kind": "text_delta"
+        },
+        {
+          "kind": "model_evidence"
+        },
+        {
+          "kind": "tool_use_start",
+          "tool": "find"
+        },
+        {
+          "kind": "tool_use_start",
+          "tool": "ls"
+        },
+        {
+          "kind": "tool_use_end",
+          "tool": "ls",
+          "ok": true
+        },
+        {
+          "kind": "tool_use_end",
+          "tool": "find",
+          "ok": true
+        },
+        {
+          "kind": "text_delta"
+        },
+        {
+          "kind": "model_evidence"
+        },
+        {
+          "kind": "tool_use_start",
+          "tool": "read"
+        },
+        {
+          "kind": "tool_use_end",
+          "tool": "read",
+          "ok": true
+        },
+        {
+          "kind": "text_delta"
+        },
+        {
+          "kind": "model_evidence"
+        },
+        {
+          "kind": "tool_use_start",
+          "tool": "ls"
+        },
+        {
+          "kind": "tool_use_end",
+          "tool": "ls",
+          "ok": true
+        },
+        {
+          "kind": "text_delta"
+        },
+        {
+          "kind": "model_evidence"
+        },
+        {
+          "kind": "tool_use_start",
+          "tool": "read"
+        },
+        {
+          "kind": "tool_use_end",
+          "tool": "read",
+          "ok": true
+        },
+        {
+          "kind": "text_delta"
+        },
+        {
+          "kind": "model_evidence"
+        },
+        {
+          "kind": "session_end"
+        }
+      ]
+    },
+    {
+      "role": "reviewer",
+      "write": false,
+      "text": "I need to verify the current state of the worktree by checking if `src/answer.js` exists with the exact required content and ensuring no other tracked files were modified.\n\nLet me verify the exact content more carefully and check for any trailing whitespace or newline issues:\n\nThe file `src/answer.js` exists with content `export const answer = 42;` (single line, no extra content). The only other files in the worktree are `.git` and `package.json`, both pre-existing. No other tracked files were modified.\n\nAll three obligations are satisfied:\n1. `src/answer.js` exists ✓\n2. Exact trimmed bytes are `export const answer = 42;` ✓\n3. No other tracked file changes ✓\n\n{\"version\":1,\"role\":\"reviewer\",\"decision\":\"clean\",\"summary\":\"All obligations met: src/answer.js exists with exact content `export const answer = 42;`. Only package.json and src/answer.js are present — no other tracked files were modified.\",\"findings\":[{\"code\":\"file-content\",\"message\":\"src/answer.js exists with exact trimmed bytes `export const answer = 42;`\"},{\"code\":\"changed-files\",\"message\":\"No other tracked files were modified; only src/answer.js was created alongside pre-existing package.json\"}]}",
+      "events": [
+        {
+          "kind": "planning"
+        },
+        {
+          "kind": "text_delta"
+        },
+        {
+          "kind": "model_evidence"
+        },
+        {
+          "kind": "tool_use_start",
+          "tool": "find"
+        },
+        {
+          "kind": "tool_use_start",
+          "tool": "read"
+        },
+        {
+          "kind": "tool_use_end",
+          "tool": "read",
+          "ok": true
+        },
+        {
+          "kind": "tool_use_end",
+          "tool": "find",
+          "ok": true
+        },
+        {
+          "kind": "text_delta"
+        },
+        {
+          "kind": "model_evidence"
+        },
+        {
+          "kind": "tool_use_start",
+          "tool": "grep"
+        },
+        {
+          "kind": "tool_use_start",
+          "tool": "read"
+        },
+        {
+          "kind": "tool_use_end",
+          "tool": "read",
+          "ok": true
+        },
+        {
+          "kind": "tool_use_end",
+          "tool": "grep",
+          "ok": true
+        },
+        {
+          "kind": "text_delta"
+        },
+        {
+          "kind": "model_evidence"
+        },
+        {
+          "kind": "tool_use_start",
+          "tool": "write_file"
+        },
+        {
+          "kind": "tool_use_end",
+          "tool": "write_file",
+          "ok": false
+        },
+        {
+          "kind": "text_delta"
+        },
+        {
+          "kind": "model_evidence"
+        },
+        {
+          "kind": "session_end"
+        }
+      ]
+    },
+    {
+      "role": "reporter",
+      "write": false,
+      "text": "{\"summary\":\"Completed. Changed files: src/answer.js. Verification: passed.\"}",
+      "events": [
+        {
+          "kind": "planning"
+        },
+        {
+          "kind": "text_delta"
+        },
+        {
+          "kind": "model_evidence"
+        },
+        {
+          "kind": "session_end"
+        }
+      ]
+    }
+  ],
+  "receipts": [
+    {
+      "role": "naia",
+      "provider": "local-vllm",
+      "model": "naia-0.9-coding-24g",
+      "sessionId": "35274859-4392-409c-96ea-488330e13114",
+      "executionId": "e7f4d2ce-cb76-49c7-969c-ff4c1c2b2b65",
+      "idempotencyKey": "9ead673d-8efe-454a-a5da-4dd01191adda:facing:classify",
+      "tokenCountsAvailable": true,
+      "inputTokens": 1872,
+      "cachedInputTokens": 0,
+      "outputTokens": 67,
+      "latencyMs": 3775,
+      "modelEvidenceSource": "provider_reported",
+      "estimatedCostUsd": 0,
+      "estimatedCostSource": "pi_catalog",
+      "cost": {
+        "state": "unavailable",
+        "reason": "actor adapter did not receive priced usage"
+      }
+    },
+    {
+      "role": "moderator",
+      "provider": "local-vllm",
+      "model": "naia-0.9-coding-24g",
+      "sessionId": "755c682c-032f-4a17-b37d-4daf5620ba4c",
+      "executionId": "d192c9dd-eb90-433b-89d7-bdc9374a345b",
+      "idempotencyKey": "9ead673d-8efe-454a-a5da-4dd01191adda:moderator:0",
+      "tokenCountsAvailable": true,
+      "inputTokens": 5860,
+      "cachedInputTokens": 0,
+      "outputTokens": 116,
+      "latencyMs": 8245,
+      "modelEvidenceSource": "provider_reported",
+      "estimatedCostUsd": 0,
+      "estimatedCostSource": "pi_catalog",
+      "cost": {
+        "state": "unavailable",
+        "reason": "actor adapter did not receive priced usage"
+      }
+    },
+    {
+      "role": "worker",
+      "workerRole": "explorer",
+      "agentProfileId": "pi-explorer",
+      "agentKind": "pi",
+      "provider": "local-vllm",
+      "model": "naia-0.9-coding-24g",
+      "sessionId": "6af60e4d-8304-43d0-af1f-9ee835e41254",
+      "executionId": "f542956a-7649-4c42-9c4f-b16e893fafea",
+      "idempotencyKey": "9ead673d-8efe-454a-a5da-4dd01191adda:dispatch:1:explorer:1",
+      "tokenCountsAvailable": true,
+      "inputTokens": 11370,
+      "cachedInputTokens": 0,
+      "outputTokens": 756,
+      "latencyMs": 31849,
+      "modelEvidenceSource": "provider_reported",
+      "estimatedCostUsd": 0,
+      "estimatedCostSource": "pi_catalog",
+      "cost": {
+        "state": "unavailable",
+        "reason": "role adapter did not receive priced usage"
+      }
+    },
+    {
+      "role": "worker",
+      "workerRole": "implementer",
+      "agentProfileId": "pi-implementer",
+      "agentKind": "pi",
+      "provider": "local-vllm",
+      "model": "naia-0.9-coding-24g",
+      "sessionId": "1ca9a8dc-0410-4312-81ac-5bc92bde7473",
+      "executionId": "b0b8c870-33f0-42f5-9513-ac3bb3493be1",
+      "idempotencyKey": "9ead673d-8efe-454a-a5da-4dd01191adda:dispatch:1:implementer:2",
+      "tokenCountsAvailable": true,
+      "inputTokens": 8140,
+      "cachedInputTokens": 0,
+      "outputTokens": 213,
+      "latencyMs": 12886,
+      "modelEvidenceSource": "provider_reported",
+      "estimatedCostUsd": 0,
+      "estimatedCostSource": "pi_catalog",
+      "cost": {
+        "state": "unavailable",
+        "reason": "role adapter did not receive priced usage"
+      }
+    },
+    {
+      "role": "worker",
+      "workerRole": "tester",
+      "agentProfileId": "pi-tester",
+      "agentKind": "pi",
+      "provider": "local-vllm",
+      "model": "naia-0.9-coding-24g",
+      "sessionId": "d993b8c1-dc1f-4c98-9523-d77a60f22214",
+      "executionId": "09d356f3-fd74-42dc-9bc4-7404f17f03ff",
+      "idempotencyKey": "9ead673d-8efe-454a-a5da-4dd01191adda:dispatch:1:tester:3",
+      "tokenCountsAvailable": true,
+      "inputTokens": 12079,
+      "cachedInputTokens": 0,
+      "outputTokens": 564,
+      "latencyMs": 25952,
+      "modelEvidenceSource": "provider_reported",
+      "estimatedCostUsd": 0,
+      "estimatedCostSource": "pi_catalog",
+      "cost": {
+        "state": "unavailable",
+        "reason": "role adapter did not receive priced usage"
+      }
+    },
+    {
+      "role": "worker",
+      "workerRole": "reviewer",
+      "agentProfileId": "pi-reviewer",
+      "agentKind": "pi",
+      "provider": "local-vllm",
+      "model": "naia-0.9-coding-24g",
+      "sessionId": "85e0d952-3253-4bc2-a39f-16ab291c94ee",
+      "executionId": "2454211f-0034-4bcf-ac1f-012ae99e7b37",
+      "idempotencyKey": "9ead673d-8efe-454a-a5da-4dd01191adda:dispatch:1:reviewer:4",
+      "tokenCountsAvailable": true,
+      "inputTokens": 15387,
+      "cachedInputTokens": 0,
+      "outputTokens": 645,
+      "latencyMs": 41564,
+      "modelEvidenceSource": "provider_reported",
+      "estimatedCostUsd": 0,
+      "estimatedCostSource": "pi_catalog",
+      "cost": {
+        "state": "unavailable",
+        "reason": "role adapter did not receive priced usage"
+      }
+    },
+    {
+      "role": "worker",
+      "workerRole": "tester",
+      "agentProfileId": "pi-tester",
+      "agentKind": "pi",
+      "provider": "local-vllm",
+      "model": "naia-0.9-coding-24g",
+      "sessionId": "fa242aa4-b676-4a3d-a1eb-565a027b8fbe",
+      "executionId": "7cc1743d-b5bc-492e-90ec-af7637754406",
+      "idempotencyKey": "9ead673d-8efe-454a-a5da-4dd01191adda:dispatch:1:tester:5",
+      "tokenCountsAvailable": true,
+      "inputTokens": 13578,
+      "cachedInputTokens": 0,
+      "outputTokens": 675,
+      "latencyMs": 30117,
+      "modelEvidenceSource": "provider_reported",
+      "estimatedCostUsd": 0,
+      "estimatedCostSource": "pi_catalog",
+      "cost": {
+        "state": "unavailable",
+        "reason": "role adapter did not receive priced usage"
+      }
+    },
+    {
+      "role": "worker",
+      "workerRole": "reviewer",
+      "agentProfileId": "pi-reviewer",
+      "agentKind": "pi",
+      "provider": "local-vllm",
+      "model": "naia-0.9-coding-24g",
+      "sessionId": "b467948f-2ffc-4e0e-bede-58018f078dc4",
+      "executionId": "bbfee2f2-d96e-41cb-9b82-f7a307108852",
+      "idempotencyKey": "9ead673d-8efe-454a-a5da-4dd01191adda:dispatch:1:reviewer:6",
+      "tokenCountsAvailable": true,
+      "inputTokens": 11713,
+      "cachedInputTokens": 0,
+      "outputTokens": 862,
+      "latencyMs": 33483,
+      "modelEvidenceSource": "provider_reported",
+      "estimatedCostUsd": 0,
+      "estimatedCostSource": "pi_catalog",
+      "cost": {
+        "state": "unavailable",
+        "reason": "role adapter did not receive priced usage"
+      }
+    },
+    {
+      "role": "verifier",
+      "provider": "deterministic",
+      "model": "command-verifier",
+      "sessionId": "91b0e439-8660-42db-b83b-fbf5d9b53a18",
+      "executionId": "354ca04a-f46c-44d2-8a08-5b64cf70afe7",
+      "idempotencyKey": "9ead673d-8efe-454a-a5da-4dd01191adda:verify:1",
+      "tokenCountsAvailable": true,
+      "inputTokens": 0,
+      "cachedInputTokens": 0,
+      "outputTokens": 0,
+      "latencyMs": 60,
+      "cost": {
+        "state": "measured",
+        "usd": 0,
+        "source": "local_deterministic_verifier"
+      }
+    },
+    {
+      "role": "reporter",
+      "provider": "local-vllm",
+      "model": "naia-0.9-coding-24g",
+      "sessionId": "81ed6ed1-1272-456d-b267-efabe9555f33",
+      "executionId": "3d2cdd9e-56d8-44e0-b8e4-0f58c9283448",
+      "idempotencyKey": "9ead673d-8efe-454a-a5da-4dd01191adda:report:1",
+      "tokenCountsAvailable": true,
+      "inputTokens": 1869,
+      "cachedInputTokens": 0,
+      "outputTokens": 19,
+      "latencyMs": 2551,
+      "modelEvidenceSource": "provider_reported",
+      "estimatedCostUsd": 0,
+      "estimatedCostSource": "pi_catalog",
+      "cost": {
+        "state": "unavailable",
+        "reason": "actor adapter did not receive priced usage"
+      }
+    }
+  ],
+  "budget": {
+    "maxPaidCalls": 12,
+    "maxUsd": 0.12,
+    "maxInputTokens": 384000,
+    "maxOutputTokens": 24000,
+    "paidCalls": 9,
+    "activeReservations": 0,
+    "chargedUsd": 0,
+    "chargedInputTokens": 81868,
+    "chargedOutputTokens": 3917,
+    "costBasis": "estimated"
+  },
+  "gates": {
+    "completed": true,
+    "exactArtifact": true,
+    "onlyAllowedFile": true,
+    "allActorsLocal": true,
+    "providerCostNotFaked": true,
+    "contextAtLeast32K": true,
+    "sourceDistExact": true,
+    "gpuBound": true,
+    "runtimeModelBound": true,
+    "nativeToolProtocol": true
+  }
+}

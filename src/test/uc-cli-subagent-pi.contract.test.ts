@@ -14,9 +14,9 @@ function fakeNdjson() {
   let stdoutCb: ((b: Buffer) => void) | undefined;
   const handlers: Record<string, (...a: unknown[]) => void> = {};
   const killSignals: Array<string | number> = [];
-  let spawnArgs: { command: string; args: readonly string[]; cwd: string } | undefined;
+  let spawnArgs: { command: string; args: readonly string[]; cwd: string; env?: NodeJS.ProcessEnv } | undefined;
   const spawnFn: SpawnFn = (command, args, o) => {
-    spawnArgs = { command, args, cwd: o.cwd };
+    spawnArgs = { command, args, cwd: o.cwd, env: o.env };
     const child = {
       stdout: { on: (_e: string, cb: (b: Buffer) => void) => { stdoutCb = cb; } },
       stderr: { on: () => {} },
@@ -68,6 +68,18 @@ describe("subagent-pi 어댑터 계약 (2b, fake child)", () => {
     expect(f.spawnArgs.command).toBe("pi");
     expect(f.spawnArgs.args).toEqual(["-p", "hi", "--mode", "json", "--no-session", "--provider", "anthropic", "--model", "claude-sonnet-4-6"]);
     expect(f.spawnArgs.cwd).toBe("/tmp/w");
+  });
+
+  it("isolates account-provider children from unrelated parent credentials", () => {
+    const f = fakeNdjson();
+    const port = makePiSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn, provider: "openai-codex", model: "codex-model",
+      env: { HOME: "/account-home", PATH: "/bin", DISCORD_BOT_TOKEN: "must-not-leak",
+        NAIA_API_KEY: "must-not-leak", ANTHROPIC_API_KEY: "must-not-leak" } });
+    port.spawn({ prompt: "hi", workdir: "/tmp/w" });
+    expect(f.spawnArgs.env).toMatchObject({ HOME: "/account-home", PATH: "/bin" });
+    expect(f.spawnArgs.env).not.toHaveProperty("DISCORD_BOT_TOKEN");
+    expect(f.spawnArgs.env).not.toHaveProperty("NAIA_API_KEY");
+    expect(f.spawnArgs.env).not.toHaveProperty("ANTHROPIC_API_KEY");
   });
 
   it("read-only capability is enforced with Pi's non-writing tool allowlist", () => {

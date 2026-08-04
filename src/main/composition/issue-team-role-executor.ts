@@ -28,14 +28,20 @@ export function makeIssueTeamRoleExecutor(options: IssueTeamRoleExecutorOptions)
           ...(input.roleProfile.binding.reasoningEffort
             ? { expectedReasoningEffort: input.roleProfile.binding.reasoningEffort } : {}), ...options.callAllowance });
       }
-      let text = ""; let overflow = false; let report: import("../domain/orchestration.js").SupervisorReport | undefined;
+      let text = ""; let pendingText = ""; let overflow = false;
+      let report: import("../domain/orchestration.js").SupervisorReport | undefined;
       const supervisor = new Supervisor({
         subAgent: selected.adapter, diag: options.diag,
         egress: {
           event(event) {
-            if (event.kind !== "text_delta" || overflow) return;
-            if (Buffer.byteLength(text, "utf8") + Buffer.byteLength(event.text, "utf8") > 64 * 1024) { overflow = true; return; }
-            text += event.text;
+            if (event.kind === "text_delta" && !overflow) {
+              if (Buffer.byteLength(pendingText, "utf8") + Buffer.byteLength(event.text, "utf8") > 64 * 1024) { overflow = true; return; }
+              pendingText += event.text;
+            } else if (event.kind === "model_evidence" && pendingText.length > 0) {
+              // Pi emits one model_evidence after each assistant message. Tool-using agents may narrate before
+              // a tool call; only the final assistant message is the role-result contract payload.
+              text = pendingText; pendingText = "";
+            }
           },
           report(value) { report = value; },
         },
@@ -70,21 +76,49 @@ export function makeIssueTeamRoleExecutor(options: IssueTeamRoleExecutorOptions)
       }
       try { options.budget?.settle(input.stepId, receipt); }
       catch (error) { throw new IssueActorResultError(error instanceof Error ? error.message : "paid-call settlement failed", receipt); }
-      if (!report?.sessionOk || overflow) throw new IssueActorResultError(overflow ? "role output exceeded 64 KiB" : "role session failed", receipt);
+      if (pendingText.length > 0) text = pendingText;
+      if (!report?.sessionOk || overflow) throw new IssueActorResultError(overflow ? "role assistant message exceeded 64 KiB" : "role session failed", receipt);
       let result: IssueTeamRoleResult;
-      try { result = JSON.parse(text) as IssueTeamRoleResult; }
+      try { result = parseRoleResult(text); }
       catch { throw new IssueActorResultError("role output was not one JSON object", receipt); }
       return { result, receipt };
     },
   };
 }
 
+function parseRoleResult(text: string): IssueTeamRoleResult {
+  const fenced = [...text.matchAll(/```(?:json)?\s*([\s\S]*?)```/giu)];
+  if (fenced.length > 1) throw new Error("one role JSON object is required");
+  const candidates = fenced.length === 1 ? [fenced[0]![1]!.trim()] : jsonObjectSuffixes(text.trim());
+  const parsed: unknown[] = [];
+  for (const candidate of candidates) {
+    try { parsed.push(JSON.parse(candidate)); } catch { /* candidate was not a complete JSON suffix */ }
+  }
+  if (parsed.length !== 1 || !parsed[0] || typeof parsed[0] !== "object" || Array.isArray(parsed[0])) {
+    throw new Error("one role JSON object is required");
+  }
+  return parsed[0] as IssueTeamRoleResult;
+}
+
+function jsonObjectSuffixes(text: string): string[] {
+  const candidates: string[] = [];
+  for (let index = text.indexOf("{"); index >= 0; index = text.indexOf("{", index + 1)) candidates.push(text.slice(index));
+  return candidates;
+}
+
 function rolePrompt(input: Parameters<IssueTeamRoleExecutorPort["execute"]>[0]): string {
   const role = roleFromStep(input.stepId);
-  const decisions = { explorer: "proceed", implementer: "implemented", tester: "pass|fail", reviewer: "clean|changes_requested" } as const;
+  const decisions = { explorer: ["proceed"], implementer: ["implemented"], tester: ["pass", "fail"],
+    reviewer: ["clean", "changes_requested"] } as const;
+  const action = role === "implementer"
+    ? "Use the available filesystem tools to perform the task. Treat exact syntax, exact bytes, paths, and negative constraints in the obligations as authoritative; do not substitute a merely equivalent implementation. Return implemented only after the requested artifact exists in the worktree."
+    : role === "explorer"
+      ? "Inspect the worktree with read-only tools before returning proceed."
+      : "Inspect the current worktree with read-only tools and ground the decision in what actually exists; do not trust a prior role's claim or accept a merely equivalent implementation when an obligation specifies exact syntax, exact bytes, a path, or a negative constraint.";
   return `You are the ${role} ${input.roleProfile.filesystemAccess === "workspace_write" ? "implementation" : "read-only"} role for one coding issue.\n`
+    + `${action}\n`
     + `Task: ${input.task}\nContext JSON: ${input.context}\n`
-    + `Return exactly one JSON object with role \"${role}\" and decision \"${decisions[role]}\": `
+    + `After tool use, return exactly one JSON object with role \"${role}\" and decision chosen from ${JSON.stringify(decisions[role])}: `
     + "{\"version\":1,\"role\":\"...\",\"decision\":\"...\",\"summary\":\"...\",\"findings\":[{\"code\":\"...\",\"message\":\"...\"}]}";
 }
 function roleFromStep(stepId: string): import("../domain/issue-team.js").IssueTeamRole {

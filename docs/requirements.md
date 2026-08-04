@@ -382,7 +382,7 @@ RPC만 추가하며, 별도 셸 반복 상태 머신은 만들지 않는다.
 | FR-CODEX-1 | Codex provider는 API key를 복사하지 않고 로컬 로그인과 app-server를 사용하며 현재 protocol의 experimental dynamic tool 계약을 따른다. | Done |
 | FR-CODEX-2 | `tier=none`이고 외부 처리 metadata가 없는 등록 도구만 app-server에 광고하고, server tool request에 같은 call id의 결과를 응답한다. | Done |
 | FR-CODEX-3 | provider-native 도구 실행은 toolUse/toolResult로 관측되되 기존 handler가 두 번 실행하지 않는다. | Done |
-| FR-CODEX-4 | desktop/Discord host의 `delegate_agent`는 Codex만 허용하고 host가 선택한 단일 workspace 실경로에 고정하며 model의 workdir override를 거부한다. child Codex는 전역 config를 무시하고 `workspace-write` OS sandbox를 강제한다. | Done |
+| FR-CODEX-4 | desktop/Discord host의 `delegate_agent`는 설정된 `expert/main/sub` 역할만 허용하고 host가 선택한 단일 workspace 실경로에 고정하며 model의 workdir override를 거부한다. Codex 역할은 Pi의 `openai-codex` 계정/OAuth provider로 실행하고 OpenAI API-key 경로나 임의 roster/OpenCode fallback은 허용하지 않는다. | Done |
 | FR-CODEX-5 | Discord는 도구 시작·성공·실패를 원래 reply에 직렬 전송하되 args/output/call id와 mention 가능한 도구명을 반사하지 않는다. | Done |
 
 ## UC-DISCORD-SESSION-ROTATION FR/NFR
@@ -415,9 +415,15 @@ RPC만 추가하며, 별도 셸 반복 상태 머신은 만들지 않는다.
 
 - **FR-PI-ROLE-1**: Agent resolves the four stored LLM roles `main`, `sub`, `memory`, and `expert`; `expert/main/sub` are the development tiers while `memory` remains orthogonal.
 - **FR-PI-ROLE-2**: A Shell/Agent development task selects `expert`, `main`, or `sub` and creates a supervised Pi session using its resolved provider/model.
-- **FR-PI-ROLE-3**: This route permits only Codex and Claude provider selections and fails closed for unknown, incomplete, or OpenCode selections before spawn.
-- **NFR-PI-ROLE-1**: Pi receives no credential material; credential references remain opaque configuration metadata.
+- **FR-PI-ROLE-3**: This route permits only Pi-supported account providers (`codex`, `claude-code-cli`/`anthropic`, `nextain`/`naia`) and fails closed for unknown, incomplete, local OpenAI-compatible, or OpenCode selections before spawn.
+- **FR-PI-ROLE-4**: Workspace selection or settings reload replaces the role resolution used by the next delegation; an already captured startup profile must never be reused. If a role changes after processing authorization but before spawn, the mismatched delegation fails without a provider call.
+- **FR-PI-ROLE-5**: Naia-account roles accept only the Agent-owned Pi model catalog, receive the OS-keychain credential through a child-only environment at spawn time, and run catalogued analysis-only models with Pi tools disabled.
+- **NFR-PI-ROLE-1**: Every Pi child receives an allowlisted process environment. Account providers retain
+  only the OS paths needed to read their own subscription state; unrelated provider, Discord, and Naia
+  credentials are removed. A Naia-account child receives only its exact child-scoped Naia key and billing
+  bindings; credential references remain opaque configuration metadata.
 - **NFR-PI-ROLE-2**: Agent preserves Supervisor cancellation/event/report semantics for every Pi role session.
+- **NFR-PI-ROLE-3**: A Discord-originated role delegation declares the selected role's provider/model as a separate `sub_llm` operation. The trusted channel processing profile must authorize and disclose it before Pi starts; missing or unclassifiable metadata fails closed.
 
 ## UC-021 FR/NFR — AnyLLM-backed Naia providers
 
@@ -812,6 +818,17 @@ The Agent and Gateway preserve these codes end to end:
   path normalization before checking the target; Pi's absolute-path-capable built-ins
   therefore cannot read secrets or replace benchmark/runtime files outside that worktree. No shell or
   alternate network-capable tool can bypass the billed fetch and shared request ledger.
+- **FR-LOOP-010**: A user-owned Pi provider is an explicit, credential-free, loopback-only
+  OpenAI-compatible binding whose provider ID cannot collide with a cloud provider. A local-model
+  qualification run binds the current TypeScript import closure to the exact executed JavaScript,
+  the Pi executable hash, pinned external executable paths/hashes, endpoint model/root, serving version
+  and command, immutable container image identity, Hugging Face snapshot revision and file-manifest digest,
+  container network namespace and loopback port, one declared GPU device and its UUID/memory telemetry,
+  an actual >=32K prompt, and redacted native tool-call protocol evidence. Existing result paths are
+  preserved fail-closed. It completes only after the ordinary facing → moderator
+  → explorer/implementer/tester/reviewer(two clean cycles) → deterministic verifier → reporter path
+  succeeds. Provider price is unavailable unless a real provider or operating-cost receipt exists;
+  a zero Pi catalog price is never reported as measured zero cost.
 - **NFR-LOOP-001**: Default benchmark limits are deliberately small; there is no two-minute product
   loop ceiling. Termination comes from repair/clean bounds, cancellation, verification, provider
   failure, or durable budget exhaustion.
@@ -819,6 +836,10 @@ The Agent and Gateway preserve these codes end to end:
   or raw model output. Logs use `DiagnosticLog` and never expose those values.
 - **NFR-LOOP-003**: Discord ingress and naia-shell UI remain outside this requirement. Source
   metadata stays adapter-neutral for their later attachment.
+- **NFR-LOOP-004**: The 24GiB local-model profile is a user-owned assistant/worker option, not a
+  Codex/Claude replacement claim. GPU0 is outside the qualification run; the canonical live run uses
+  GPU1 only. Candidates that merely fit memory but do not expose native tools fail the prerequisite
+  gate and are not run through the 3-layer completion loop.
 - **Status**: In progress. Completion requires reproducible benchmark evidence and two consecutive
   clean adversarial reviews on one unchanged candidate. The decision contract is implemented. Exact
   request-correlated operational receipt transport is specified by FR-LOOP-008, while a live paired

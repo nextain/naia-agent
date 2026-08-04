@@ -13,6 +13,30 @@ function agent(provider: string, model: string, session: string): SubAgentPort {
 }
 
 describe("REQ-023 profiled role executor", () => {
+  it("presents decisions as choices and requires evidence-grounded tool use", async () => {
+    let prompt = "";
+    const adapter: SubAgentPort = { spawn(task) { prompt = task.prompt; return { async cancel() {}, events: (async function* () {
+      yield { kind: "text_delta", text: "I will inspect first." } as const;
+      yield { kind: "model_evidence", evidence: { provider: "local-vllm", selectedModel: "local-model",
+        modelEvidenceSource: "provider_reported", inputTokens: 1, outputTokens: 1, totalTokens: 2,
+        usageAvailable: true, piEstimatedCost: 0, sessionId: "s", executionId: "e" } } as const;
+      yield { kind: "text_delta", text: `Inspection complete.\n\n${JSON.stringify({ version: 1, role: "tester", decision: "pass", summary: "checked", findings: [] })}` } as const;
+      yield { kind: "session_end", ok: true, evidence: { provider: "local-vllm", selectedModel: "local-model",
+        modelEvidenceSource: "provider_reported", inputTokens: 1, outputTokens: 1, totalTokens: 2,
+        usageAvailable: true, piEstimatedCost: 0, sessionId: "s", executionId: "e" } } as const;
+    })() }; } };
+    const executor = makeIssueTeamRoleExecutor({ agents: { tester: { agentKind: "pi", adapter } },
+      diag: { log() {}, debug() {} } });
+    await executor.execute({ issueId: "issue", dispatchId: "dispatch", stepId: "dispatch:tester:1",
+      worktreePath: "/repo", task: "test", context: "{}", roleProfile: { agentProfileId: "tester", agentKind: "pi",
+        binding: { provider: "local-vllm", model: "local-model" }, filesystemAccess: "read_only" },
+      signal: new AbortController().signal });
+    expect(prompt).toContain('decision chosen from ["pass","fail"]');
+    expect(prompt).toContain("ground the decision in what actually exists");
+    expect(prompt).toContain("do not trust a prior role's claim or accept a merely equivalent implementation");
+    expect(prompt).not.toContain('decision "pass|fail"');
+  });
+
   it("selects only declared Codex/OpenCode/Pi profiles and preserves honest evidence", async () => {
     const executor = makeIssueTeamRoleExecutor({ agents: { codex: { agentKind: "codex", adapter: agent("codex", "codex-model", "s1") }, opencode: { agentKind: "opencode", adapter: agent("opencode", "opencode-model", "s2") }, pi: { agentKind: "pi", adapter: agent("pi", "pi-model", "s3") } },
       diag: { log() {}, debug() {} }, nowMs: (() => { let n = 0; return () => ++n; })() });

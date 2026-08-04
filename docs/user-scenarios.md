@@ -684,15 +684,19 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 
 ## UC-020 ? Three-tier development role delegated through Pi
 
-Naia Agent reads Shell's `expert`, `main`, and `sub` profile metadata from the active ADK configuration. For a requested role it resolves inheritance, accepts only Codex or Claude providers for this Pi path, and starts a Pi sub-agent with the resolved provider/model. The Supervisor remains responsible for cancellation, event forwarding, and final report.
+Naia Agent reads Shell's `expert`, `main`, and `sub` profile metadata from the active ADK configuration. For a requested role it resolves inheritance, accepts Pi-supported Codex, Claude, or Naia-account providers, and starts a Pi sub-agent with the resolved provider/model. The Supervisor remains responsible for cancellation, event forwarding, and final report. Workspace selection and settings reload apply to the next delegation without restarting Agent.
 
 OpenCode is intentionally not a candidate, fallback, command, or diagnostic label for this Shell/Agent route. A malformed role or unsupported provider fails closed before Pi spawn.
+
+When the request originates from Discord, the selected role is also a trusted `sub_llm` processing operation. Its provider/model must be authorized and disclosed by the binding's processing profile before the delegated Pi session starts.
 
 ### Test Coverage Map
 
 | Scenario | Contract test |
 |---|---|
 | explicit/inherited expert/main/sub resolves | `llm-roles.contract.test.ts` |
+| settings reload is observed by the next role invocation | `llm-roles.contract.test.ts`, `discord-entry-wiring.contract.test.ts` |
+| selected Discord role is authorized as `sub_llm` before execution | `processing-policy-handler.contract.test.ts`, `delegate-agent-skill.contract.test.ts` |
 
 ## UC-022 — Durable issue supervisor runtime
 
@@ -839,3 +843,4 @@ honestly. The loop has no arbitrary two-minute ceiling and stops only at explici
 | frozen zero-paid benchmark executes two managed issues through the real Pi-only composition with injected provider/worktree/verifier effects, binds current TypeScript to the exact executed JavaScript, mutation-tests forbidden import/executable patterns, and covers paid-attempt settlement, repair, verification failure, duplicate submission, restart, unresolved calls, drift, receipt conflict, and budget gates | `pi-continuous-loop-benchmark.contract.test.ts` |
 | paired cost evidence permits a bounded internal savings claim only for equal tasks and actor-attempt topology, restored checkpoints, deterministic quality non-inferiority, every exact settled gateway customer-billing request, and an external-key HMAC over the complete evidence; tool-loop request-count differences remain measured rather than being confused with role counts, while estimates, window aggregates, contamination, route/token/cost drift, missing authority, post-attestation mutation, or unresolved calls fail closed; the unsigned gateway response is not presented as a third-party audit | `pi-cost-comparison.contract.test.ts`, `pi-cost-comparison-runner.contract.test.ts`, `benchmark/orchestration/pi-cost-comparison.json` |
 | the Naia-only Pi provider converts each tool-loop request to atomic non-streaming gateway billing, binds it to a parent-owned execution identity, reserves a shared durable request allowance before network I/O, persists an owner-only receipt journal, and reconstructs Pi-compatible SSE without losing text, tool calls, or usage; missing, malformed, unsettled, route-drifted, over-budget, duplicate, or tampered evidence never becomes measured cost | `naia-pi-versioned-billing.contract.test.ts`, `uc-naia-pi-provider.contract.test.ts` |
+| a user-owned local Pi binding is credential-free and loopback-only, while its GPU1 qualification binds source/dist/Pi and external-executable hashes, immutable serving image and model snapshot, container endpoint and GPU telemetry, a real >=32K prompt, native tool protocol, two clean cycles, and deterministic file verification without inventing provider cost | `user-owned-pi-provider.contract.test.ts`, `pi-continuous-loop.contract.test.ts`, `issue-team-role-executor.integration.test.ts`, `benchmark/run-user-owned-three-layer-live.mjs`, `benchmark/results/gpu1-user-owned-three-layer-live-final-2026-08-05.json` |

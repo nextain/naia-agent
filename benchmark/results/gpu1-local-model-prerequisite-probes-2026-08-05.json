@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "benchmarkId": "gpu1-local-model-prerequisite-probes-2026-08-05",
+  "gpu": 1,
+  "policy": {
+    "memoryLimitGiB": 24,
+    "minimumRuntimeContext": 32768,
+    "nativeToolCallingRequiredBeforeThreeLayerRun": true,
+    "failedPrerequisiteIsNotAThreeLayerModelFailure": true
+  },
+  "evidenceBoundary": "Only the Qwen entry points to a self-contained executable live receipt. EXAONE and DNA entries preserve exploratory operator observations without raw-response or command attestation; they may fail closed but cannot qualify or rank a model.",
+  "candidates": [
+    {
+      "id": "qwen3.6-27b-awq-int4",
+      "artifact": "cyankiwi/Qwen3.6-27B-AWQ-INT4",
+      "serving": "vLLM 0.21",
+      "runtimeContext": 65536,
+      "observedGpuMemoryMiB": 23818,
+      "nativeToolCalling": "pass",
+      "threeLayer": "pass",
+      "evidence": "gpu1-user-owned-three-layer-live-final-2026-08-05.json",
+      "evidenceSha256": "add53801bb06859f2fff52f41d2b350bf24c41358d4e694aaac32a32ef57513d"
+    },
+    {
+      "id": "exaone-4.5-33b-q4-k-m",
+      "evidenceLevel": "operator_observation_unattested",
+      "qualificationUse": "exclusion_only",
+      "artifactBytes": 20047839424,
+      "servingProbes": [
+        {
+          "serving": "vLLM 0.21 / Transformers 5.8.1",
+          "result": "startup_failed",
+          "reason": "installed serving stack did not expose Exaone4_5_ImageProcessor"
+        },
+        {
+          "serving": "Ollama 0.24",
+          "runtimeContext": 32768,
+          "reportedCapabilities": [
+            "completion"
+          ],
+          "nativeToolRequest": "http_400_does_not_support_tools"
+        }
+      ],
+      "nativeToolCalling": "prerequisite_failed",
+      "threeLayer": "not_run",
+      "productConstraint": "noncommercial_without_separate_license"
+    },
+    {
+      "id": "dna3.0-9b-i1-q4-k-m",
+      "evidenceLevel": "operator_observation_unattested",
+      "qualificationUse": "exclusion_only",
+      "artifactBytes": 5780091296,
+      "artifactSha256": "6c0146615879ec5eece3a1d7dacb0f0c37490a2d82ba801fe065920b869ebfb4",
+      "serving": "Ollama 0.24",
+      "runtimeContext": 32768,
+      "reportedCapabilities": [
+        "completion"
+      ],
+      "nativeToolRequest": "http_400_does_not_support_tools",
+      "officialToolTemplateAvailable": true,
+      "quantizedArtifactPreservedToolTemplate": false,
+      "nativeToolCalling": "prerequisite_failed",
+      "threeLayer": "not_run"
+    },
+    {
+      "id": "deepseek-v4-flash",
+      "evidenceLevel": "published_metadata",
+      "parameterCount": "284B total / 13B active",
+      "publishedSmallestQuantizedRangeGiB": "60-63",
+      "fits24GiB": false,
+      "nativeToolCalling": "not_run",
+      "threeLayer": "not_run",
+      "evidenceKind": "published_model_and_quantization_metadata"
+    }
+  ]
+}

@@ -16,23 +16,26 @@ export interface ProviderConfig {
 }
 
 // ── UC5 도구 (계약 §B.1) ──
+export interface ToolProcessing {
+  readonly workload: Extract<ProcessingWorkload, "network_tool" | "sub_llm">;
+  readonly destination: ProcessingDestination;
+  readonly provider: string;
+  readonly model: string;
+  /** Optional trusted argument predicate for mixed local/external tools. */
+  readonly when?: {
+    readonly key: string;
+    readonly values: readonly (string | number | boolean)[];
+  };
+}
+
 export interface ToolSpec {
   readonly name: string;
   readonly description: string;
   readonly parameters: unknown /* JSON schema */;
   readonly tier?: string /* UC5 slice 2: 미설정/"none"=자동, 그 외=승인 필요 */;
   /** Trusted executor-owned metadata; provider/model output schemas omit this field. */
-  readonly processing?: {
-    readonly workload: "network_tool";
-    readonly destination: ProcessingDestination;
-    readonly provider: string;
-    readonly model: string;
-    /** Optional trusted argument predicate for mixed local/external tools. */
-    readonly when?: {
-      readonly key: string;
-      readonly values: readonly (string | number | boolean)[];
-    };
-  };
+  /** A tool may have role-specific processing plans selected by trusted arguments. */
+  readonly processing?: ToolProcessing | readonly ToolProcessing[];
 }
 export interface ToolCall { readonly id: string; readonly name: string; readonly args: unknown; }
 

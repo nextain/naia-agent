@@ -62,8 +62,8 @@
     }
   },
   "trustedRuntimeClosure": {
-    "fileCount": 3653,
-    "manifestDigest": "sha256:8ecd8b7c7f0f4dc8f13641a4792d3506170ae1f677a00564f38ffc2cbd74c027"
+    "fileCount": 3654,
+    "manifestDigest": "sha256:0fc1fc84fe3a17da35dbc23514c1446c3f7438a960e69e5455799d14d440fd37"
   },
   "minimumSavingsBasisPoints": 1000,
   "quality": {

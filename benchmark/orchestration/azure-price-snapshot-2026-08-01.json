@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "snapshotId": "azure-korea-central-model-prices-2026-08-04",
+  "currency": "USD",
+  "unit": "per_1m_tokens",
+  "region": "Korea Central",
+  "retrievedAt": "2026-08-04",
+  "source": "Azure Retail Prices API",
+  "query": "https://prices.azure.com/api/retail/prices?api-version=2023-01-01-preview&$filter=armRegionName%20eq%20'koreacentral'%20and%20contains(skuName,%20'<MODEL>')",
+  "models": {
+    "azure:DeepSeek-V4-Flash": {
+      "input": "0.19",
+      "cachedInput": "0.028",
+      "output": "0.51",
+      "meters": {
+        "input": { "meterId": "8ef423d6-d080-596c-8f3d-5acaad190154", "skuName": "V4 Flash Inp glbl", "retailPricePer1K": "0.00019", "effectiveStartDate": "2026-05-01T00:00:00Z" },
+        "cachedInput": { "meterId": "4bc60834-bb9c-5ba9-8633-4fce6bef2ebf", "skuName": "V4 Flash cached glbl", "retailPricePer1K": "0.000028", "effectiveStartDate": "2026-07-01T00:00:00Z" },
+        "output": { "meterId": "fda23d8b-af4f-5e63-b719-8112058f54f0", "skuName": "V4 Flash Outp glbl", "retailPricePer1K": "0.00051", "effectiveStartDate": "2026-05-01T00:00:00Z" }
+      }
+    },
+    "azure:grok-4.3": {
+      "input": "1.25",
+      "cachedInput": "1.25",
+      "output": "2.50",
+      "pricingProxy": "Azure Retail Prices API has no Grok 4.3 meter as of retrieval; the deployed gateway rate matches Grok 4.2 Global input/output meters. Cached input conservatively uses the normal input rate because no separate cached meter was returned.",
+      "meters": {
+        "input": { "meterId": "6d4ecd4b-3420-5333-bfdc-6683f18e27ef", "skuName": "Grok 4.2 Inp glbl", "retailPricePer1K": "0.00125", "effectiveStartDate": "2026-05-01T00:00:00Z" },
+        "output": { "meterId": "f474eca8-070b-5624-b4f7-0ff68098d402", "skuName": "Grok 4.2 Outp glbl", "retailPricePer1K": "0.0025", "effectiveStartDate": "2026-05-01T00:00:00Z" }
+      }
+    }
+  },
+  "gateway": {
+    "customerMarkupMultiplier": "1.10",
+    "azureBaseFromCustomerReceipt": "customer_cost / 1.10"
+  },
+  "claimBoundary": "This snapshot supports Azure rate-card normalization only. DeepSeek V4 Flash is directly meter-bound. Grok 4.3 uses the deployed gateway's rate, which matches the listed Grok 4.2 Global meters; it is a pricing proxy until Azure publishes a Grok 4.3 meter or a bill export binds the deployment."
+}

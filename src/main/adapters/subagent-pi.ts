@@ -16,8 +16,12 @@ import { fileURLToPath } from "node:url";
 import type { TaskSpec, SubAgentEvent } from "../domain/orchestration.js";
 import type { SubAgentPort, SubAgentSession } from "../ports/orchestration.js";
 import {
-  NAIA_PI_PROVIDER, buildNaiaPiChildEnv, ensureNaiaPiConfig, isNaiaPiAnalysisOnlyModel, isNaiaPiModel,
+  NAIA_PI_PROVIDER, buildIsolatedPiChildEnv, buildNaiaPiChildEnv, ensureNaiaPiConfig,
+  isNaiaPiAnalysisOnlyModel, isNaiaPiModel,
 } from "./naia-pi-provider.js";
+import {
+  buildUserOwnedPiChildEnv, ensureUserOwnedPiConfig, isUserOwnedPiBinding, type UserOwnedPiProvider,
+} from "./user-owned-pi-provider.js";
 import { initializeNaiaPiReceiptJournal, readNaiaPiReceiptJournal,
   type GatewayRequestBudgetPolicy } from "./naia-pi-versioned-billing.js";
 import {
@@ -41,6 +45,8 @@ export interface SubAgentPiOptions {
   readonly piConfigDir?: string;
   /** Provider-enforced maximum output tokens per model response when using the Naia custom catalog. */
   readonly maxOutputTokens?: number;
+  /** Explicit loopback-only user-owned OpenAI-compatible provider catalog. */
+  readonly userOwnedProvider?: UserOwnedPiProvider;
   /** Optional shared durable request-level ceiling, enforced inside the Naia billing fetch before network I/O. */
   readonly gatewayBudget?: { readonly path: string; readonly policy: GatewayRequestBudgetPolicy };
   /** hard-kill 유예(ms) override. 기본 500. 테스트가 단축. */
@@ -275,6 +281,8 @@ export function makePiSubAgent(opts: SubAgentPiOptions = {}): SubAgentPort {
       const model = opts.model ?? task.model;
       const naiaModel = isNaiaPiModel(model);
       const provider = opts.provider ?? (naiaModel ? NAIA_PI_PROVIDER : undefined);
+      const userOwnedModel = provider && model
+        ? isUserOwnedPiBinding(opts.userOwnedProvider, { provider, model }) : false;
       const identity = { sessionId: randomUUID(), executionId: randomUUID() };
       if (naiaModel && provider !== NAIA_PI_PROVIDER) {
         return endedSession(`Naia model '${model}' cannot use direct provider '${provider}'`);
@@ -282,7 +290,10 @@ export function makePiSubAgent(opts: SubAgentPiOptions = {}): SubAgentPort {
       if (isNaiaPiAnalysisOnlyModel(model) && opts.noTools !== true) {
         return endedSession(`${model} is analysis-only; rerun with --no-tools`);
       }
-      let childEnv: NodeJS.ProcessEnv | undefined;
+      if (opts.userOwnedProvider && provider === opts.userOwnedProvider.id && !userOwnedModel) {
+        return endedSession(`user-owned Pi model '${model ?? ""}' is not in the declared local catalog`);
+      }
+      let childEnv = buildIsolatedPiChildEnv(sourceEnv, opts.piConfigDir);
       let receiptPath: string | undefined;
       if (naiaModel) {
         const key = (sourceEnv["NAIA_API_KEY"] ?? sourceEnv["NAIA_ANYLLM_API_KEY"])?.trim();
@@ -306,6 +317,13 @@ export function makePiSubAgent(opts: SubAgentPiOptions = {}): SubAgentPort {
             receiptPath, gatewayBudget });
         } catch (e) {
           return endedSession(`naia pi configuration failed: ${(e as Error).message}`);
+        }
+      } else if (userOwnedModel) {
+        try {
+          const configDir = ensureUserOwnedPiConfig(opts.userOwnedProvider!, opts.piConfigDir);
+          childEnv = buildUserOwnedPiChildEnv(sourceEnv, configDir);
+        } catch (e) {
+          return endedSession(`user-owned pi configuration failed: ${(e as Error).message}`);
         }
       }
       // bin 해석(PI_BIN 부적합 등) 실패는 throw 가 아니라 정직한 session_end{ok:false}(AC6).
@@ -334,7 +352,7 @@ export function makePiSubAgent(opts: SubAgentPiOptions = {}): SubAgentPort {
       const expected = provider && model ? { provider, model } : undefined;
       const lineToEvent = makeCumulativePiLineParser(expected, identity, receiptPath);
       return spawnSubprocessSession({
-        spawnFn, bin, args, cwd: task.workdir, ...(childEnv ? { env: childEnv } : {}), hardKillMs,
+        spawnFn, bin, args, cwd: task.workdir, env: childEnv, hardKillMs,
         lineToEvent,
         label: "pi", diagnostics: true,
       });

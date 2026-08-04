@@ -1,0 +1,73 @@
+{
+  "schema_version": "1.0",
+  "id": "naia-agent-pi-continuous-loop-2026-08-04",
+  "status": "active",
+  "project_root": ".",
+  "goal": "Naia가 사용자와 대화하는 비서로서 다중 이슈·다중 세션을 관리하고 Codex·Claude·OpenCode·naia-agent 역할 에이전트에 작업을 위임하는 지속 오케스트레이션을 구현한다. Pi는 OpenCode 추가 설치 없이 naia-agent 역할을 수행하는 진입장벽 완화 수단이며, 클라우드 또는 사용자 소유 24GB 로컬 메인 모델과 Codex 구독/비구독 실행 경로를 비용·성능·증거 기준으로 검증한다.",
+  "scope": [
+    "origin/main을 feat/naia-issue-team-orchestration에 통합하고 기존 단계별 구현을 보존한다.",
+    "Pi 내장 경로만으로 단일·다중 이슈의 지속 실행과 재개를 제공한다.",
+    "체크포인트, 실행 lease, 중복 방지, 검증, 제한된 수리 루프, 비용·호출·토큰 예산을 fail-closed로 검증한다.",
+    "저가 Azure 모델 프로파일을 고정 사례로 평가하고 공급자 영수증이 있는 주장만 비용 증거로 채택한다.",
+    "메인 Discord Gateway가 호출하는 expert/main/sub Pi 역할은 활성 모델 설정과 처리정책을 매 호출 시점에 따르며, 워크스페이스 변경·설정 재로딩 뒤 stale 프로파일로 실행되지 않게 한다.",
+    "GPU1 단일 24GB에서 사용자 소유 로컬 모델의 장문 컨텍스트·툴콜을 검증하고 3레이어 Pi 연속 루프에 정식 provider/model 계약으로 연결한다.",
+    "클라우드 메인/사용자 소유 메인과 Codex 구독/비구독 하위 실행을 서로 다른 제품 경로로 유지하며 비용 증거를 혼합하지 않는다."
+  ],
+  "non_goals": [
+    "Discord bot 등록·토큰 주입·Gateway wire protocol·채널 authorization 변경",
+    "naia-shell UI 통합",
+    "OpenCode 설치나 실행을 Pi-only 경로의 전제 또는 fallback으로 사용",
+    "실제 Azure 영수증 없이 현재 비용 절감을 주장",
+    "naia-agent가 Codex나 Claude 자체의 코딩 성능을 대체한다고 주장",
+    "사용자 소유 로컬 메인 모델이 Codex·Claude의 코딩 성능을 대체하거나 능가한다고 주장",
+    "GPU0의 실행 중 워크로드 변경"
+  ],
+  "success_criteria": [
+    "naia-agent의 명시적 Pi-only 진입점이 OpenCode 바이너리·패키지 없이 작업을 시작하고 재개한다.",
+    "지속 상태가 요청·이슈·단계·attempt·idempotency·검증·비용 증거를 보존하고 재시작 후 중복 유료 호출 없이 이어진다.",
+    "검증 실패는 제한된 수리 루프로만 재진입하고 상한 도달 또는 증거 불명은 정직한 terminal 실패가 된다.",
+    "호출 수·입출력 토큰·USD 예산이 호출 전 예약과 호출 후 영수증으로 검증되며 미확인 소비는 성공이나 0비용으로 처리되지 않는다.",
+    "고정된 적정 규모 벤치마크가 정상·재시작·중복·검증 실패·예산 초과·드리프트 사례를 포함한다.",
+    "Azure 실호출은 정확한 provider/model/usage/비용 영수증을 남기고, 자격증명 부재 시 live 비용 결론만 unavailable로 남는다.",
+    "관련 단위·통합·구조·전체 테스트와 적대리뷰 2회 연속 Clean이 통과한다.",
+    "Discord Gateway의 역할 위임은 활성 expert/main/sub 설정을 매 호출에 해석하고, 별도 sub-LLM 호출을 해당 채널의 processing profile로 실행 전에 fail-closed 승인·공개한다.",
+    "Discord ingress·재연결·dedupe·reply·authorization의 기존 제품 동작은 보존된다.",
+    "GPU1의 Qwen3.6-27B 4-bit가 최소 32K 이상 컨텍스트에서 thinking 비활성 툴콜과 실제 3레이어 역할 흐름을 완료한다.",
+    "로컬 추론은 Azure 공급자 영수증이나 허위 0달러 비용으로 기록하지 않고 토큰·지연·GPU 자원 증거와 클라우드 비용 비발생을 구분한다."
+  ],
+  "allowed_paths": [".agents/**", ".claude/**", ".github/**", ".users/**", "about-docs/**", "benchmark/**", "bin/**", "docs/**", "examples/**", "packages/**", "quarantine/**", "scripts/**", "src/**", "node_modules/**", "AGENTS.md", "CLAUDE.md", "GEMINI.md", "OPENCODE.md", "CODEX.md", ".gitignore", ".gitmodules", "LICENSE", "CONTEXT-LICENSE", "package.json", "pnpm-workspace.yaml", "pnpm-lock.yaml", "tsconfig.json", "tsconfig.base.json", "vitest.config.ts", "README.md", "README.template.md", "CHANGELOG.md", "review-pass.yaml", ".env.example"],
+  "target_ownership": [".agents/**", ".claude/**", ".github/**", ".users/**", "about-docs/**", "benchmark/**", "bin/**", "docs/**", "examples/**", "packages/**", "quarantine/**", "scripts/**", "src/**", "node_modules/**", "AGENTS.md", "CLAUDE.md", "GEMINI.md", "OPENCODE.md", "CODEX.md", ".gitignore", ".gitmodules", "LICENSE", "CONTEXT-LICENSE", "package.json", "pnpm-workspace.yaml", "pnpm-lock.yaml", "tsconfig.json", "tsconfig.base.json", "vitest.config.ts", "README.md", "README.template.md", "CHANGELOG.md", "review-pass.yaml", ".env.example"],
+  "audiences": ["naia-agent 사용자", "Naia 개발자", "하네스 검토자"],
+  "source_refs": [
+    "사용자 활성 목표: OpenCode 비의존 naia-agent 단독 지속 코딩 루프와 체크포인트·재개·검증·비용 예산·저가 Azure 벤치마크",
+    "사용자 정정: Naia의 핵심은 여러 프로젝트와 코딩 도구를 관리하는 비서이며 Codex/Claude 자체를 이기는 완전한 코딩도구가 아님",
+    "사용자 지시: Discord 실제 ingress는 후속으로 미루고 현재 하네스 작업에서는 제외",
+    "사용자 후속 지시: 메인 Discord Gateway 업데이트와 병합 적합성을 확인하고 Discord 서브에이전트가 설정된 역할 프로파일대로 동작하도록 검토·수정",
+    "사용자 후속 지시: 메인 비서는 클라우드 또는 사용자 소유 모델, 2·3레이어는 Codex 구독 또는 비구독 경로로 구분하고 비구독 실제 비교선은 전부 Azure 모델로 구성",
+    "사용자 후속 지시: DeepSeek V4 Flash 양자화, 최신 EXAONE·Qwen·DNA의 24GB 적합성과 툴콜·3레이어 벤치를 GPU1에서 검증"
+  ],
+  "allowed_shell_commands": [
+    "git merge origin/main",
+    "pnpm build",
+    "pnpm test",
+    "bash scripts/enforce-root-structure.sh",
+    "node --test src/test/ci-verify-*.test.mjs",
+    "pnpm exec vitest run src/test/single-issue-orchestrator.integration.test.ts src/test/multi-issue-session-manager.integration.test.ts src/test/issue-team-worker.integration.test.ts src/test/issue-team-role-executor.integration.test.ts src/test/single-issue-team-verifier.integration.test.ts src/test/issue-team-benchmark.contract.test.ts src/test/multi-issue-benchmark.contract.test.ts src/test/single-issue-benchmark.contract.test.ts src/test/uc-cli-subagent-pi.contract.test.ts",
+    "node benchmark/run-single-issue-live.mjs",
+    "node benchmark/run-multi-issue-deterministic.mjs",
+    "node benchmark/run-issue-team-deterministic.mjs",
+    "git add .agents/context/module-manifest.json .agents/reviews docs benchmark package.json pnpm-lock.yaml src bin scripts README.md",
+    "git commit -m feat(orchestration): add Pi-only durable coding loop benchmark",
+    "git push -u origin feat/naia-issue-team-orchestration",
+    "ln -s ../naia-multi-issue-session-manager/node_modules node_modules",
+    "unlink node_modules",
+    "node node_modules/typescript/bin/tsc -b",
+    "node node_modules/vitest/vitest.mjs run src/test/single-issue-orchestrator.integration.test.ts src/test/multi-issue-session-manager.integration.test.ts src/test/issue-team-worker.integration.test.ts src/test/issue-team-role-executor.integration.test.ts src/test/single-issue-team-verifier.integration.test.ts src/test/issue-team-benchmark.contract.test.ts src/test/multi-issue-benchmark.contract.test.ts src/test/single-issue-benchmark.contract.test.ts src/test/uc-cli-subagent-pi.contract.test.ts",
+    "podman stop naia-coding",
+    "podman run GPU1-only local model benchmark containers",
+    "curl http://127.0.0.1:8000/v1/models and /v1/chat/completions"
+  ],
+  "session_bindings": [{"session_id": "019fb8d5-7b1a-7fd2-99c4-837a2d701c10", "contract_digest": "9b5c606d58fecf96cf01626f87205566d629ad97f4e59cd52b14b991178f558b"}],
+  "progress_file": ".agents/progress/naia-agent-pi-continuous-loop-2026-08-04.json",
+  "contract_digest": "9b5c606d58fecf96cf01626f87205566d629ad97f4e59cd52b14b991178f558b"
+}

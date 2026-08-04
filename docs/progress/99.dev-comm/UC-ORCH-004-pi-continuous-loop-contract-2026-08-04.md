@@ -25,6 +25,10 @@ replace Codex or Claude capability, and not an OpenCode wrapper.
 10. Actor attempts and billable gateway requests have separate durable ceilings. Every new logical
     gateway request reserves calls, USD, input, and output allowances before network I/O; retries reuse
     that reservation. Every paid benchmark path requires a durable output and preserves partial evidence.
+11. User-owned local providers are separate loopback-only Pi catalogs. Qualification binds the exact
+    source/dist/Pi executable, serving container and endpoint, GPU1 telemetry, a real >=32K request,
+    native tool calls, two clean cycles, and deterministic verification. Memory fit or chat completion
+    alone is not a 3-layer pass, and local provider cost remains unavailable without a real receipt.
 
 ## Evidence plan
 
@@ -49,6 +53,8 @@ replace Codex or Claude capability, and not an OpenCode wrapper.
   verifies an HMAC key identity pinned before any paid call. Tampering, omission, replay under a
   different contract, a missing key, or a wrong key fails closed;
 - two clean review-pass cycles against an unchanged candidate.
+- one GPU1 live qualification artifact plus fail-closed prerequisite probes for local candidates;
+  unattested exploratory probes may exclude a candidate but cannot promote one.
 
 ## Azure model qualification boundary
 

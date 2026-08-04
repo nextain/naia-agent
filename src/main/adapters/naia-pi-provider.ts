@@ -60,13 +60,19 @@ const CHILD_ENV_ALLOWLIST = [
   "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy",
 ] as const;
 
+/** Build a provider-isolated Pi environment without inheriting unrelated credentials. */
+export function buildIsolatedPiChildEnv(source: NodeJS.ProcessEnv, configDir?: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const key of CHILD_ENV_ALLOWLIST) if (source[key] !== undefined) env[key] = source[key];
+  if (configDir) env["PI_CODING_AGENT_DIR"] = configDir;
+  return env;
+}
+
 /** Build a child-only environment that cannot inherit unrelated provider credentials or global Pi routing. */
 export function buildNaiaPiChildEnv(source: NodeJS.ProcessEnv, configDir: string, naiaApiKey: string,
   billing?: { readonly executionId: string; readonly receiptPath: string;
     readonly gatewayBudget: { readonly path: string; readonly policy: GatewayRequestBudgetPolicy } }): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {};
-  for (const key of CHILD_ENV_ALLOWLIST) if (source[key] !== undefined) env[key] = source[key];
-  env["PI_CODING_AGENT_DIR"] = configDir;
+  const env = buildIsolatedPiChildEnv(source, configDir);
   env["NAIA_API_KEY"] = naiaApiKey;
   if (billing) {
     env["NAIA_PI_EXECUTION_ID"] = billing.executionId;

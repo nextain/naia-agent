@@ -52,7 +52,12 @@ export interface ToolExecutorPort {
   specs(): readonly ToolSpec[];
   /** ⚠️ no-throw 책임: 미등록/실행실패/타임아웃 = { output, isError:true } 반환(throw 금지 — 루프 안정·LLM 복구). abort 시에만 reject 허용(루프가 cancelled 처리).
    *  requestId = UC-PANEL: panel(환경) 도구가 panel_tool_call 을 어느 chat 스트림으로 emit 할지 식별(셸 위임). builtin 도구는 무시. */
-  execute(call: ToolCall, opts: { signal?: AbortSignal; requestId?: string }): Promise<{ output: string; isError?: boolean }>;
+  execute(call: ToolCall, opts: {
+    signal?: AbortSignal;
+    requestId?: string;
+    /** Handler가 정책 승인에 사용한 trusted plan. 동적 executor는 실행 직전 동일성을 검증한다. */
+    authorizedProcessing?: readonly import("../domain/chat.js").ToolProcessing[];
+  }): Promise<{ output: string; isError?: boolean }>;
 }
 
 export interface ConversationPort {

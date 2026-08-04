@@ -31,7 +31,7 @@ export function makeCompositeToolExecutor(executors: readonly ToolExecutorPort[]
   };
   return {
     specs: () => resolve().merged,
-    execute(call: ToolCall, opts: { signal?: AbortSignal; requestId?: string }): Promise<{ output: string; isError?: boolean }> {
+    execute(call: ToolCall, opts: Parameters<ToolExecutorPort["execute"]>[1]): Promise<{ output: string; isError?: boolean }> {
       const ex = resolve().owner.get(call.name);
       if (!ex) return Promise.resolve({ output: `unknown tool: ${call.name}`, isError: true }); // no-throw
       return ex.execute(call, opts); // 위임(child 의 no-throw/abort 계약 그대로 전파). requestId=panel 위임용(builtin 무시).

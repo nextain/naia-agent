@@ -1,4 +1,22 @@
-import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
+import { realpathSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
+
+// Pi 0.83's extension loader aliases static pi-ai package imports to its broad
+// compatibility entrypoint. Resolve the installed sibling package from Pi's
+// pinned CLI entrypoint, then let native ESM load only the narrow API module.
+// Keep the exported subpath visible so the trusted-runtime contract can audit
+// the intended dependency: @earendil-works/pi-ai/api/openai-completions.lazy
+const piEntrypoint = realpathSync(process.argv[1]);
+const piAiApiPath = realpathSync(join(
+  dirname(dirname(piEntrypoint)),
+  "..",
+  "pi-ai",
+  "dist",
+  "api",
+  "openai-completions.lazy.js",
+));
+const { openAICompletionsApi } = await import(pathToFileURL(piAiApiPath).href);
 import { makeNaiaVersionedBillingFetch } from "../../dist/main/adapters/naia-pi-versioned-billing.js";
 import { WORKSPACE_PATH_TOOLS, workspaceToolPathViolation } from "./workspace-tool-boundary.mjs";
 

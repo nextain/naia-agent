@@ -110,7 +110,7 @@ describe("Codex app-server main provider", () => {
     ]);
   });
 
-  it("현재 app-server 동적 도구 RPC 계약으로 호출 결과를 같은 turn에 응답한다", async () => {
+  it("현재 app-server 동적 도구 RPC 계약으로 로컬·처리정책 도구 결과를 같은 turn에 응답한다", async () => {
     const requests: Array<{ method: string; params: unknown }> = [];
     const responses: Array<{ id: number | string; result: unknown }> = [];
     let executions = 0;
@@ -147,6 +147,9 @@ describe("Codex app-server main provider", () => {
       prompt: "몇 시야?",
       tools: [
         { name: "get_time", description: "현재 시각", parameters: { type: "object" }, tier: "none" },
+        { name: "delegate_agent", description: "역할 위임", parameters: { type: "object" }, tier: "none", processing: {
+          workload: "sub_llm", destination: "external_cloud", provider: "codex", model: "luna",
+        } },
         { name: "network", description: "외부 호출", parameters: { type: "object" }, tier: "network" },
       ],
       executeTool: async (call) => {
@@ -158,7 +161,10 @@ describe("Codex app-server main provider", () => {
     expect(requests[0]).toMatchObject({ method: "initialize", params: { capabilities: { experimentalApi: true } } });
     expect(requests[1]).toMatchObject({
       method: "thread/start",
-      params: { dynamicTools: [{ type: "function", name: "get_time", inputSchema: { type: "object" } }] },
+      params: { dynamicTools: [
+        { type: "function", name: "get_time", inputSchema: { type: "object" } },
+        { type: "function", name: "delegate_agent", inputSchema: { type: "object" } },
+      ] },
     });
     expect(JSON.stringify(requests[1])).not.toContain("network");
     expect(responses).toEqual([
