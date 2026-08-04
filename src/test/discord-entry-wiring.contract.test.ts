@@ -72,6 +72,11 @@ describe("T-DISCORD-RT-02/05 — production entry wiring", () => {
     expect(entry).not.toContain("NAIA_JEONJU_COURSE_TARGET_PATH");
   });
 
+  it("keeps a fresh desktop install bootable before a workspace exists", () => {
+    expect(entry).toContain('const { existsSync, readFileSync } = await import("node:fs")');
+    expect(entry).toContain("adkPath && existsSync(adkPath) ? new CodingJobService");
+  });
+
   it("wires configured Pi roles into the desktop host with workspace and role allowlists", () => {
     expect(entry).toContain("makeDelegateAgentSkill");
     expect(entry).toContain("makePiRoleSupervisorRunner");

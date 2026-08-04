@@ -48,7 +48,7 @@ const discordToken = await discordTokenFromSecretPipe;
 // Secret pipe read/close must finish before any runtime module is evaluated. This keeps
 // provider/tool composition and every later child process outside the secret fd lifetime.
 const { randomUUID } = await import("node:crypto");
-const { readFileSync } = await import("node:fs");
+const { existsSync, readFileSync } = await import("node:fs");
 const { join } = await import("node:path");
 const { loadJeonjuCourseTargetRaw } = await import("./jeonju-course-target-config.mjs");
 const { wireAgentUC1, wireSupervisor } = await import("../../dist/main/composition/index.js");
@@ -175,7 +175,10 @@ const invalidCourseCommand = jeonjuCourseTargetProvided && !jeonjuCourseConfig
     },
   }
   : undefined;
-const codingJobs = adkPath ? new CodingJobService({
+// A fresh desktop install has not selected or created a workspace yet. Keep
+// chat/gRPC boot available in that state; the Git worktree adapter requires an
+// existing root because it canonicalizes the path during construction.
+const codingJobs = adkPath && existsSync(adkPath) ? new CodingJobService({
   store: makeOwnerOnlyCodingJobStore(defaultCodingJobStatePath(adkPath)),
   worktrees: makeGitCodingJobWorktrees({
     allowedWorkspaceRoot: adkPath,
