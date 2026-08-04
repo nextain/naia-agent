@@ -12,6 +12,7 @@
 - Focused Agent contract/integration run: 10 files, 106 tests passed. The run covered the changed Radio controller, Shell panel adapter, preference/memory acceptance, panel screenshot parser, and OpenAI-compatible, Anthropic, and Ollama image mappings.
 - `pnpm build`: passed.
 - Pre-commit compile-integrity and standard-logging gates: passed.
+- Independent read-only review: `opencode/nemotron-3-ultra-free` (OpenRouter `nvidia/nemotron-3-ultra-550b-a55b:free`, 2026-08-05) inspected the Agent composition, controller races, Shell BGM adapter, preference recall, panel image parser, provider mappings, and focused tests. Verdict `CLEAN`: all six acceptance criteria passed, with no critical/high/medium findings and five non-blocking defensive/cosmetic low notes. The reviewer could not initially open the NUL-delimited panel executor through its normal reader, then read it through a text command before issuing the verdict.
 - Full Agent run: 1,434 passed, 10 skipped, 12 failed. The remaining failures were reproduced outside this change boundary and are environment/baseline failures in unavailable KB compiler dist imports, external-state memory reload, the current CLI credential fixture, and one CLI timeout; no completion claim uses that run as a green gate.
 
 Shell-side paired and long-running evidence is recorded in the `nextain/naia-shell` #414 worktree and issue handoff. The Shell music-surface capture producer is not part of this Agent change; this change only makes a valid panel image actually reach supported multimodal providers.
