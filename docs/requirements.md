@@ -239,15 +239,15 @@ spec + sandbox 정책(allow-root) + tier(승인)** 를 소유한다.
 |----|--------------|:----:|
 | FR-CONT-MVP-1 | **두 profile만 지원** — `personal_radio_dj | exhibition_intro`. 범용 활동 profile은 후속이다. | Implemented |
 | FR-CONT-MVP-2 | **무입력 선제 시작** — 주입 가능한 idle clock 뒤 app 계층이 먼저 attract 발화를 시작한다. shell 반복 루프는 만들지 않는다. | Implemented |
-| FR-CONT-MVP-3 | **개인 라디오 DJ** — 시간·동의한 최신 날씨·같은 세션의 명시적 기분/활동·현재 BGM·Shell 최근곡/즐겨찾기·workspace-local exact preference index와 Naia Memory에서 회상한 명시적 DJ preference record를 조립해 추천하고, BGM 성공 뒤에만 재생을 확정해 말한다. 로컬 exact index의 dislike/forget은 Memory의 오래된 like를 차단하고, 활동 발화·재생 시간·출처 불명 memory는 취향으로 승격하지 않는다. 긴 믹스의 현재 곡은 chapter/tracklist 근거 없이는 추측하지 않는다. 제품 수용 추적은 PA-DJ-01~04다. | Pending (#414) |
+| FR-CONT-MVP-3 | **개인 라디오 DJ** — 시간·동의한 최신 날씨·같은 세션의 명시적 기분/활동·현재 BGM·Shell 최근곡/즐겨찾기·workspace-local exact preference index와 Naia Memory에서 회상한 명시적 DJ preference record를 조립해 추천하고, BGM 성공 뒤에만 재생을 확정해 말한다. 로컬 exact index의 dislike/forget은 Memory의 오래된 like를 차단하고, 활동 발화·재생 시간·출처 불명 memory는 취향으로 승격하지 않는다. 긴 믹스의 현재 곡은 chapter/tracklist 근거 없이는 추측하지 않는다. 제품 수용 추적은 PA-DJ-01~04다. | Done |
 | FR-CONT-MVP-4 | **DJ 제어** — grounded DJ 멘트 8회·최근 6문장 반복 0, music-only/말 줄여/말 늘려/다른 분위기/다음 곡/stop, 8시간 bounded lease를 PA-DJ-03/05B/06으로 검증한다. 패널 왕복이 필요한 제어는 유효성을 먼저 판정해 RPC를 ACK한 뒤 실행하여 Shell→agent dispatcher를 점유하지 않는다(#103). 첫 선곡 또는 교체 선곡의 재생 확인 실패는 프로필 종료가 아니라 복구 가능한 `music_only` 상태이며, 같은 activity에서 `다음 곡`/`다른 분위기`로 사용자가 다시 요청할 때만 한 번 재시도한다. 실패 뒤 자동 선곡·DJ 타이머를 예약하지 않으며 동시 교체 요청은 single-flight로 합친다(#105). 라우트 종료는 명시적 stop, 프로필 비활성화, subscriber 상실에만 수행한다. | Done |
 | FR-CONT-MVP-5 | **전시 소개** — KB에 근거한 회사·제품·전시 소개 3개를 연속 중복 없이 먼저 말하고, 근거 없이는 추측하지 않는다. | Implemented |
 | FR-CONT-MVP-6 | **양보와 복귀** — 관람객/사용자 입력이 현재 발화와 TTS를 중단하고, 답변 뒤 아직 수행 중인 profile의 다음 미소개 항목으로 복귀한다. quiet/stop은 복귀하지 않는다. profile stream epoch로 이전 출력은 폐기하되 yield/resume의 같은 activity는 유지한다. | Done |
 | FR-CONT-MVP-7 | **기억·개인정보** — 활동 발화·수동 청취·재생 시간으로 취향을 추론하지 않고, 전시 activity/Q&A는 memory recall/save와 영속 transcript를 기본 사용하지 않는다. 명시적 DJ 선호만 provenance와 durable/idempotent handoff하며 최신 dislike는 같은 subject의 like를 무효화한다(PA-DJ-01, PA-EX-02). | Done |
 | FR-CONT-MVP-8 | **실제 증적** — 전체 계약/통합 테스트와 Playwright 7건이 TTS 두 경로·제어 6종·250ms interrupt·stale 폐기·전시 yield/resume를 검증하고, 실제 Tauri WebDriver가 file-backed 설정 저장·cache-clear 재수화·동의 철회를 검증한다. 물리 음질·현장 선호도는 자동 완료 판정 밖의 운영 관찰 항목이다. | Done |
-| FR-CONT-MVP-9 | **종료 기반 동적 선곡** — Player의 실제 `ended` 관측 뒤 짧은 전환 멘트를 먼저 완료하고 같은 activity에서 `skill_youtube_bgm {action:"play", mode:"radio_dj"}`로 다음 검색을 요청한다. Shell은 최근곡을 제외하고, Agent는 명시 선호와 최근에 재생하지 않은 즐겨찾기를 검색 힌트로 결합한다. 새 곡 제목은 상관된 `playing` 관측 뒤에만 말한다. | Pending (#414) |
+| FR-CONT-MVP-9 | **종료 기반 동적 선곡** — Player의 실제 `ended` 관측 뒤 짧은 전환 멘트를 먼저 완료하고 같은 activity에서 `skill_youtube_bgm {action:"play", mode:"radio_dj"}`로 다음 검색을 요청한다. Shell은 최근곡을 제외하고, Agent는 명시 선호와 최근에 재생하지 않은 즐겨찾기를 검색 힌트로 결합한다. 새 곡 제목은 상관된 `playing` 관측 뒤에만 말한다. | Done |
 
-| FR-PANEL-6 | **화면 캡처의 실제 multimodal 전달** — `skill_tab_screenshot`의 bounded PNG/JPEG/WebP data URI를 panel executor가 base64 로그/텍스트에서 분리하고 도구 결과 결속 뒤 inline image로 보존한다. OpenAI-compatible·Anthropic·Ollama adapter는 각 provider의 image content 형식으로 전달하며, 미지원 provider는 이미지를 보았다고 표현하지 않는다. 손상·과대 data URI는 일반 오류 결과로 fail-closed한다. | Pending (#414) |
+| FR-PANEL-6 | **화면 캡처의 실제 multimodal 전달** — `skill_tab_screenshot`의 bounded PNG/JPEG/WebP data URI를 panel executor가 base64 로그/텍스트에서 분리하고 도구 결과 결속 뒤 inline image로 보존한다. OpenAI-compatible·Anthropic·Ollama adapter는 각 provider의 image content 형식으로 전달하며, 미지원 provider는 이미지를 보았다고 표현하지 않는다. 손상·과대 data URI는 일반 오류 결과로 fail-closed한다. | Done |
 
 현재 DJ 멘트는 근거 유무를 확인하는 8개 bounded variant를 순환하며 최근 6문장 반복을 피한다.
 설정 UI는 profile/idle/interval/timezone/BGM/weather/좌표/knowledge scope를 파일에 저장하고 복원하며,
