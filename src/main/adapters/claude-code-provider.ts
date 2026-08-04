@@ -70,6 +70,7 @@ function foldMessages(messages: readonly ChatMessage[]): { system: string; promp
       continue;
     }
     lines.push(`User: ${m.content}`); // user
+    if (m.inlineImages?.length) lines.push("[Inline image omitted: this provider adapter does not support image input.]");
   }
   return { system, prompt: lines.join("\n\n") };
 }

@@ -1,6 +1,6 @@
 // UC1 agent(brain) 계약 테스트 (P02). fake ProviderPort → ChatTurnHandler → egress 캡처.
 import { describe, it, expect } from "vitest";
-import { mapProviderChunk, isTerminalEmit, type AgentEmit, type ChatRequest } from "../main/domain/chat.js";
+import { mapProviderChunk, isTerminalEmit, parseInlineImageDataUri, threadToolRound, type AgentEmit, type ChatRequest } from "../main/domain/chat.js";
 import { ChatTurnHandler, type HandlerDeps } from "../main/app/chat-turn-handler.js";
 import { decodeRequest, encodeEmit } from "../main/adapters/protocol.js";
 import { makeFakeProvider } from "../main/adapters/fake-provider.js";
@@ -27,6 +27,7 @@ const req = (o: Partial<ChatRequest> = {}): ChatRequest => ({
 });
 
 describe("domain (agent UC1)", () => {
+  const ONE_PIXEL_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=";
   it("mapProviderChunk: toolUse id→toolCallId, name→toolName", () => {
     expect(mapProviderChunk({ kind: "toolUse", id: "x", name: "n", args: {} })).toEqual({ kind: "toolUse", toolCallId: "x", toolName: "n", args: {} });
     expect(mapProviderChunk({ kind: "text", text: "a" })).toEqual({ kind: "text", text: "a" });
@@ -36,6 +37,19 @@ describe("domain (agent UC1)", () => {
     expect(isTerminalEmit({ kind: "finish" })).toBe(true);
     expect(isTerminalEmit({ kind: "error", message: "e" })).toBe(true);
     expect(isTerminalEmit({ kind: "text", text: "a" })).toBe(false);
+  });
+  it("FR-PANEL-6: image parser bounds/signature + tool round image threading", () => {
+    const image = parseInlineImageDataUri(`data:image/png;base64,${ONE_PIXEL_PNG}`);
+    expect(image).toEqual({ mimeType: "image/png", data: ONE_PIXEL_PNG });
+    expect(parseInlineImageDataUri("data:image/png;base64,QUFBQQ==")).toBeUndefined();
+    expect(parseInlineImageDataUri(`data:image/png;base64,iVBORw0KGgoA${"A".repeat(11_184_800)}`)).toBeUndefined();
+    expect(threadToolRound([], "", [{ id: "c1", name: "skill_tab_screenshot", args: {} }], [
+      { output: "attached", images: [image!] },
+    ])).toEqual([
+      { role: "assistant", content: "", toolCalls: [{ id: "c1", name: "skill_tab_screenshot", args: {} }] },
+      { role: "tool", toolCallId: "c1", content: "attached" },
+      { role: "user", content: "Image returned by tool skill_tab_screenshot.", inlineImages: [image] },
+    ]);
   });
 });
 

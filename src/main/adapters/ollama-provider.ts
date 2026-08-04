@@ -53,7 +53,11 @@ function toOllamaMessages(messages: readonly ChatMessage[], systemPrompt?: strin
         ...(toolName !== undefined ? { tool_name: toolName } : {}), // 맵 미스 = 생략(degrade — 정상 경로 threadToolRound 는 항상 히트)
       });
     } else {
-      out.push({ role: m.role, content: m.content });
+      out.push({
+        role: m.role,
+        content: m.content,
+        ...(m.inlineImages?.length ? { images: m.inlineImages.map((image) => image.data) } : {}),
+      });
     }
   }
   return out;

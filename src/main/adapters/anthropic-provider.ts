@@ -47,7 +47,12 @@ function buildAnthropicMessages(messages: readonly ChatMessage[]): { system: str
       wire.push({ role: "assistant", content: content.length ? content : [{ type: "text", text: " " }] });
       continue;
     }
-    wire.push({ role: "user", content: [{ type: "text", text: m.content }] }); // user
+    const content: Array<Record<string, unknown>> = [];
+    if (m.content) content.push({ type: "text", text: m.content });
+    for (const image of m.inlineImages ?? []) {
+      content.push({ type: "image", source: { type: "base64", media_type: image.mimeType, data: image.data } });
+    }
+    wire.push({ role: "user", content: content.length ? content : [{ type: "text", text: " " }] }); // user
   }
   return { system, wire };
 }

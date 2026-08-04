@@ -1,7 +1,7 @@
 // ports — UC1 agent(brain) (계약 §B.2) + UC5 도구(§B.2). domain 만 의존.
 import type {
   ProviderConfig, ChatMessage, ProviderChunk, AgentEmit, AgentRequest, ToolSpec, ToolCall,
-  ProcessingDisclosure, ProcessingWorkload,
+  ProcessingDisclosure, ProcessingWorkload, ToolExecutionResult,
 } from "../domain/chat.js";
 import type { PersonaProfile } from "../domain/persona.js";
 import type { WorkspaceSnapshot } from "../domain/workspace-context.js";
@@ -15,7 +15,7 @@ export interface ProviderChatOpts {
   readonly tools?: readonly ToolSpec[]; // UC5 — LLM 에 전달할 도구 사양(미지원 provider 는 무시)
   /** Provider-native 도구 호출(app-server 등)이 응답을 계속하려면 즉시 실행 결과가 필요할 때 사용한다.
    *  provider는 자신이 실제로 광고한 자동승인 도구만 호출해야 하며, handled chunk로 실행 사실을 알린다. */
-  readonly executeTool?: (call: ToolCall) => Promise<{ output: string; isError?: boolean }>;
+  readonly executeTool?: (call: ToolCall) => Promise<ToolExecutionResult>;
 }
 export interface ProviderPort {
   /** LLM 추론 스트림. abort signal 수용. rejection(throw) 전파(error 는 chunk 아님). */
@@ -52,7 +52,7 @@ export interface ToolExecutorPort {
   specs(): readonly ToolSpec[];
   /** ⚠️ no-throw 책임: 미등록/실행실패/타임아웃 = { output, isError:true } 반환(throw 금지 — 루프 안정·LLM 복구). abort 시에만 reject 허용(루프가 cancelled 처리).
    *  requestId = UC-PANEL: panel(환경) 도구가 panel_tool_call 을 어느 chat 스트림으로 emit 할지 식별(셸 위임). builtin 도구는 무시. */
-  execute(call: ToolCall, opts: { signal?: AbortSignal; requestId?: string }): Promise<{ output: string; isError?: boolean }>;
+  execute(call: ToolCall, opts: { signal?: AbortSignal; requestId?: string }): Promise<ToolExecutionResult>;
 }
 
 export interface ConversationPort {

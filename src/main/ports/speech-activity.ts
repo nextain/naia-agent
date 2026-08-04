@@ -26,6 +26,8 @@ export interface DjContextSnapshot {
     readonly source: "user-memory";
     readonly confidence: "explicit";
   }[];
+  readonly recentTracks?: readonly { readonly videoId: string; readonly title: string }[];
+  readonly favoriteTracks?: readonly { readonly videoId: string; readonly title: string }[];
 }
 
 export interface PersonalRadioDjConfig {
@@ -43,6 +45,8 @@ export interface RadioDjPlaybackState {
   readonly sequence?: number;
   readonly track?: { readonly videoId: string; readonly title: string };
   readonly reason?: string;
+  readonly recentTracks?: readonly { readonly videoId: string; readonly title: string }[];
+  readonly favoriteTracks?: readonly { readonly videoId: string; readonly title: string }[];
 }
 
 export interface RadioDjBgmPort {

@@ -59,9 +59,43 @@ export interface ChatMessage {
   readonly toolCalls?: readonly ToolCall[]; // assistant 전용 — UC5 도구 라운드(없으면 미설정)
   readonly toolCallId?: string;             // tool 전용 — 결과 메시지가 어느 call 에 대응하는지 결속
   readonly attachments?: readonly AttachmentRef[];
+  /** Tool-produced image bytes that are safe to send directly to a vision-capable provider. */
+  readonly inlineImages?: readonly InlineImage[];
 }
 
 export type ImageMimeType = "image/png" | "image/jpeg" | "image/webp";
+export interface InlineImage {
+  readonly mimeType: ImageMimeType;
+  readonly data: string;
+}
+export interface ToolExecutionResult {
+  readonly output: string;
+  readonly isError?: boolean;
+  readonly images?: readonly InlineImage[];
+}
+
+const MAX_INLINE_IMAGE_BYTES = 8 * 1024 * 1024;
+
+/** Accept only bounded, canonical base64 image data URIs. Invalid payloads fail closed. */
+export function parseInlineImageDataUri(value: string): InlineImage | undefined {
+  const match = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/]+={0,2})$/.exec(value);
+  if (!match) return undefined;
+  const data = match[2]!;
+  if (data.length % 4 !== 0) return undefined;
+  const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
+  const sizeBytes = (data.length / 4) * 3 - padding;
+  if (sizeBytes <= 0 || sizeBytes > MAX_INLINE_IMAGE_BYTES) return undefined;
+  let bytes: string;
+  try { bytes = globalThis.atob(data); } catch { return undefined; }
+  const mimeType = match[1] as ImageMimeType;
+  const hasExpectedSignature = mimeType === "image/png"
+    ? bytes.length >= 8 && bytes.charCodeAt(0) === 0x89 && bytes.slice(1, 8) === "PNG\r\n\x1a\n"
+    : mimeType === "image/jpeg"
+      ? bytes.length >= 3 && bytes.charCodeAt(0) === 0xff && bytes.charCodeAt(1) === 0xd8 && bytes.charCodeAt(2) === 0xff
+      : bytes.length >= 12 && bytes.slice(0, 4) === "RIFF" && bytes.slice(8, 12) === "WEBP";
+  if (!hasExpectedSignature) return undefined;
+  return { mimeType, data };
+}
 export interface AttachmentRef {
   readonly id: string;
   readonly kind: "image";
@@ -239,11 +273,20 @@ export function threadToolRound(
   messages: readonly ChatMessage[],
   roundText: string,
   calls: readonly ToolCall[],
-  results: readonly { readonly output: string }[],
+  results: readonly ToolExecutionResult[],
 ): readonly ChatMessage[] {
   const assistant: ChatMessage = { role: "assistant", content: roundText, toolCalls: calls };
   const toolMsgs: ChatMessage[] = calls.map((c, i) => ({ role: "tool", toolCallId: c.id, content: results[i]?.output ?? "" }));
-  return [...messages, assistant, ...toolMsgs];
+  const imageMessages: ChatMessage[] = [];
+  for (const [index, result] of results.entries()) {
+    if (!result.images?.length) continue;
+    imageMessages.push({
+      role: "user",
+      content: `Image returned by tool ${calls[index]?.name ?? "unknown"}.`,
+      inlineImages: result.images,
+    });
+  }
+  return [...messages, assistant, ...toolMsgs, ...imageMessages];
 }
 
 /** 휴리스틱 토큰 추정(≈4 char/token, 메시지당 framing 16자) — 압축 트리거 판단용(정확 토크나이저 불요).

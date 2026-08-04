@@ -403,7 +403,9 @@ ProviderPort). 옛 `<recall>` 마커·"부적절=실패" 도덕채점 폐기(SoT
 ### MVP-1 개인 라디오 DJ
 
 Luke가 Naia를 켜 두면 Naia는 입력만 기다리지 않는다. 설정된 idle 뒤 현재 시간, 선택적으로 주입된
-날씨, 현재 BGM 상태와 프로세스 안의 명시적 선호를 바탕으로 먼저 음악을 제안한다. 실제
+날씨, 현재 BGM 상태, Shell의 최근 재생·즐겨찾기와 workspace-local exact index 및 Naia Memory에서
+회상한 명시적 선호를 함께 바탕으로 먼저 음악을 제안한다. 로컬 dislike/forget tombstone은 오래된
+Memory like를 항상 이기며, 출처가 명시된 DJ preference record만 추천 입력으로 인정한다. 실제
 `skill_youtube_bgm` 재생 성공 뒤 짧은 선곡 이유를 말하고, 음악을 방해하지 않는 간격으로 서로 다른 DJ
 멘트를 이어간다. 긴 유튜브 믹스의 세부 현재 곡은 chapter/tracklist 근거가 없으면 추측하지 않는다.
 
@@ -416,6 +418,15 @@ Luke가 “음악만”, “말 줄여”, “다른 분위기”, “다음 곡
 끝나지 않는다. 실패 안내 뒤 `music_only`로 남아 있고, Luke가 “다음 곡” 또는 “다른 분위기”라고
 말하면 같은 activity와 제어 경로에서 다시 선곡한다. 명시적 stop, 프로필 비활성화, subscriber
 상실만 activity 라우트를 닫는다.
+
+현재 곡의 실제 `ended` 관측 뒤에는 짧은 전환 멘트를 먼저 말하고, 같은 activity에서 `mode=radio_dj`로
+다음 검색을 요청한다. 검색어는 명시적 선호와 최근에 재생하지 않은 즐겨찾기 힌트를 결합하며, 실제
+`playing` 영수증을 확인한 다음에만 새 영상 제목을 소개한다.
+
+패널의 `skill_tab_screenshot` 결과가 PNG/JPEG/WebP data URI이면 Agent는 이를 로그용 base64 문자열로
+재주입하지 않고 bounded inline image로 분리한다. 도구 결과 결속을 유지한 뒤 멀티모달 provider에는
+실제 이미지 content block으로 전달하고, 이미지 입력을 지원하지 않는 provider에서는 이미지가 보였다고
+가정하지 않는다.
 
 교체 선곡도 실패하면 실패 안내를 그 요청에 대해 한 번만 말하고 `music_only`에 머문다. 플레이어
 상태가 계속 timeout/error여도 자동 선곡이나 DJ 멘트 타이머를 다시 예약하지 않는다. 사용자가 다시
@@ -625,7 +636,8 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 | FR-MEM-14 / 진단 provider 기억 오염 방지 | `src/test/echo-system-memory-persistence.contract.test.ts`(실 user episode는 저장하고 `SYSTEM_ECHO` 및 빈 assistant episode는 저장하지 않음) |
 | UC-PROV-1 / FR-PROV-1·2·3 | `src/test/all-providers-wiring.contract.test.ts`, `uc1-reload-default-config.contract.test.ts`, `uc-naia-settings-store.contract.test.ts` |
 | UC-THINKING / S-THINK-1·2·3 / FR-THINK-1~4 | `src/test/uc-thinking.contract.test.ts` (요청 body 검증: enableThinking=false+로컬 → `reasoning_effort:"none"` / true·미지정 → 미전송 / **원격 baseUrl → 미전송**(400 회귀 방지) / `isLocalEngineBaseUrl` 순수 판별) |
-| FR-CONT-MVP-1~4 / 개인 라디오 DJ | 계약/통합: `src/test/personal-radio-dj.contract.test.ts` (`DJ-01~07`), `src/test/speech-profile-runtime.integration.test.ts`(제어 사전 검증), `src/test/grpc-shutdown.contract.test.ts`(제어 ACK가 긴 작업을 기다리지 않음). 실제 Tauri: shell `71-proactive-speech-profiles.spec.ts`의 profile 저장·복원과 `94-avatar-4060-facade.spec.ts`의 A→B 교체·TRT 발화·끼어들기. |
+| FR-CONT-MVP-1~4·9 / 개인 라디오 DJ | 계약/통합: `src/test/personal-radio-dj.contract.test.ts` (`DJ-01~08`: ended 전환 멘트→radio 검색 포함), `src/test/activity-radio-dj-bgm.contract.test.ts`(`mode=radio_dj`, 최근곡·즐겨찾기 status), `src/test/radio-dj-product-acceptance.contract.test.ts`(local tombstone 우선 Naia Memory recall), `src/test/speech-profile-runtime.integration.test.ts`(제어 사전 검증), `src/test/grpc-shutdown.contract.test.ts`(제어 ACK가 긴 작업을 기다리지 않음). 실제 Tauri: shell `71-proactive-speech-profiles.spec.ts`의 profile 저장·복원과 `94-avatar-4060-facade.spec.ts`의 A→B 교체·TRT 발화·끼어들기. |
+| FR-PANEL-6 / 패널 screenshot multimodal 전달 | `src/test/uc-panel-skill.contract.test.ts`의 bounded data URI 추출·실패 격리, provider 계약 테스트의 OpenAI/Anthropic/Ollama image block 매핑, Shell `capture.rs`·`tab-skills.ts` 실제 PNG 반환 경로 |
 | FR-CONT-MVP-1·2·5~8 / 회사 전시 소개 | 계약/통합: `src/test/exhibition-intro.contract.test.ts` (`EX-01~06`)가 소개3·질문 yield/resume·stale 폐기를 검증. 실제 Tauri: shell `71-proactive-speech-profiles.spec.ts`의 무입력 greeting과 stop만. audible TTS·실제 질문 barge-in은 미검증. |
 | UC-CONTINUE-SPEAKING / S-CONT-1~7 / FR-CONT-1~8 | 권위 계약 §10 AC1~18 matrix. `src/test/uc-continue-speaking.contract.test.ts`; `src/test/uc-continue-speaking-grpc.integration.test.ts` (`speech activity subscription lifecycle`, `stop response mapping`, `composition activity drain`); `src/test/conversation-log.{contract,integration}.test.ts`; `src/test/compose-agent-deps.integration.test.ts`; shell `packages/shell/src-tauri/src/agent_grpc.rs` `speech_activity_*` + `packages/shell/e2e-tauri/continuous-speech.spec.ts`; Ollama contract; 모델 패널 JSON |
 | FR-PROV-5 (claude-code SDK 분리) | `src/test/all-providers-wiring.contract.test.ts`(claude-code 케이스 = Agent SDK 라우팅·apiKey 미주입) |

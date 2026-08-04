@@ -41,7 +41,7 @@ function harness(overrides: {
   bgmReady?: boolean;
   playOk?: boolean;
   snapshot?: DjContextSnapshot;
-  selectorReason?: "time" | "weather" | "mood" | "preference" | "generic";
+  selectorReason?: "time" | "weather" | "mood" | "preference" | "favorite" | "generic";
   lease?: { durationMs: number; maxUtterances: number };
   djIntervalMs?: number;
   currentBgm?: { videoId: string; title: string };
@@ -51,6 +51,7 @@ function harness(overrides: {
 } = {}) {
   const scheduler = new ManualScheduler();
   const spoken: string[] = [];
+  const timeline: string[] = [];
   const speechInterrupts = vi.fn();
   const speechClose = vi.fn();
   const bgmCalls: string[] = [];
@@ -67,6 +68,7 @@ function harness(overrides: {
     capabilities: () => ({ ready: overrides.bgmReady ?? true, next: overrides.nextResult !== undefined }),
     searchAndPlay: vi.fn(async (query) => {
       bgmCalls.push(`play:${query}`);
+      timeline.push(`play:${query}`);
       return overrides.playOk === false
         ? { ok: false as const, reason: "not found" }
         : { ok: true as const, videoId: "v1", title: "집중할 때 듣는 긴 재즈 믹스" };
@@ -97,7 +99,7 @@ function harness(overrides: {
     bgm,
     speech: {
       open: vi.fn(),
-      speak: vi.fn(async ({ text }) => { spoken.push(text); return "completed" as const; }),
+      speak: vi.fn(async ({ text }) => { spoken.push(text); timeline.push(`speak:${text}`); return "completed" as const; }),
       interrupt: speechInterrupts,
       close: speechClose,
     },
@@ -114,7 +116,7 @@ function harness(overrides: {
     bgmAutoPlayOptIn: overrides.optIn ?? true,
   });
   controller.setSubscriberReady(overrides.subscriberReady ?? true);
-  return { controller, scheduler, spoken, bgmCalls, preferenceHandoffs, selectedSnapshots, bgm, speechInterrupts, speechClose };
+  return { controller, scheduler, spoken, timeline, bgmCalls, preferenceHandoffs, selectedSnapshots, bgm, speechInterrupts, speechClose };
 }
 
 describe("personal radio DJ MVP contract", () => {
@@ -300,6 +302,34 @@ describe("personal radio DJ MVP contract", () => {
     await h.controller.control({ kind: "talk_more" });
     await h.scheduler.advance(500);
     expect(h.spoken.length).toBeGreaterThan(count);
+  });
+
+  it("DJ-08: 실제 ended 뒤 짧은 전환 멘트를 마친 다음 동적 검색하고 새 재생을 소개한다", async () => {
+    const h = harness();
+    await h.scheduler.advance(1_000);
+    vi.mocked(h.bgm.status)
+      .mockResolvedValueOnce({ status: "ended", playbackId: "bgm-playback-1" })
+      .mockResolvedValueOnce({
+        status: "ended",
+        playbackId: "bgm-playback-1",
+        recentTracks: [{ videoId: "v1", title: "첫 곡" }],
+        favoriteTracks: [{ videoId: "fav-2", title: "저장한 로파이" }],
+      });
+
+    await h.scheduler.advance(500);
+
+    const transitionIndex = h.timeline.findIndex((event) =>
+      event.includes("한 곡이 마무리됐어요"));
+    const replacementIndex = h.timeline.findIndex(
+      (event, index) => index > 0 && event.startsWith("play:"),
+    );
+    expect(transitionIndex).toBeGreaterThan(0);
+    expect(replacementIndex).toBeGreaterThan(transitionIndex);
+    expect(h.spoken.at(-1)).toContain("재생 중이에요");
+    expect(h.selectedSnapshots.at(-1)).toMatchObject({
+      recentTracks: [{ videoId: "v1", title: "첫 곡" }],
+      favoriteTracks: [{ videoId: "fav-2", title: "저장한 로파이" }],
+    });
   });
 
   it("DJ-07: lease 두 번을 갱신해도 controller/BGM은 하나이며 명시적 좋아요만 provenance handoff한다", async () => {

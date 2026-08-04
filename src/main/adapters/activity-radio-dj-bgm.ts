@@ -24,6 +24,8 @@ type StructuredResult = {
   title?: string;
   selected?: Track;
   currentTrack?: Track | null;
+  recentTracks?: Track[];
+  favoriteTracks?: Track[];
   announceTrack?: boolean;
   playback?: {
     playbackId?: string;
@@ -35,17 +37,33 @@ type StructuredResult = {
   reason?: string;
 };
 
+function boundedTracks(values: Track[] | undefined, limit: number) {
+  if (!Array.isArray(values)) return undefined;
+  const tracks = values
+    .flatMap((value) => {
+      const videoId = value?.videoId?.trim();
+      const title = value?.title?.trim();
+      return videoId && title ? [{ videoId, title }] : [];
+    })
+    .slice(0, limit);
+  return tracks.length ? tracks : undefined;
+}
+
 function observedState(data: StructuredResult | undefined): RadioDjPlaybackState | undefined {
   const playback = data?.playback;
   if (!data || !playback?.status) return undefined;
   const videoId = data.currentTrack?.videoId?.trim();
   const title = data.currentTrack?.title?.trim();
+  const recentTracks = boundedTracks(data.recentTracks, 20);
+  const favoriteTracks = boundedTracks(data.favoriteTracks, 10);
   return {
     status: playback.status,
     ...(playback.playbackId ? { playbackId: playback.playbackId } : {}),
     ...(Number.isSafeInteger(playback.sequence) ? { sequence: playback.sequence } : {}),
     ...(videoId && title && data.announceTrack === true ? { track: { videoId, title } } : {}),
     ...(playback.reason ? { reason: playback.reason } : {}),
+    ...(recentTracks ? { recentTracks } : {}),
+    ...(favoriteTracks ? { favoriteTracks } : {}),
   };
 }
 
@@ -136,7 +154,7 @@ export function makeActivityRadioDjBgm(deps: {
     }),
     async searchAndPlay(query, opts) {
       lastRoute = { requestId: opts.requestId, activityId: opts.activityId };
-      const result = await call("play", { query }, opts);
+      const result = await call("play", { query, mode: "radio_dj" }, opts);
       const selectedVideoId = result.data?.selected?.videoId?.trim();
       const selectedTitle = result.data?.selected?.title?.trim();
       const playbackId = result.data?.playback?.playbackId;

@@ -45,7 +45,7 @@ interface DjDeps {
     select(
       snapshot: DjContextSnapshot,
       opts?: { readonly changeVibe?: boolean },
-    ): Promise<{ readonly query: string; readonly reason: "time" | "weather" | "mood" | "preference" | "generic" }>;
+    ): Promise<{ readonly query: string; readonly reason: "time" | "weather" | "mood" | "preference" | "favorite" | "generic" }>;
   };
   readonly bgm: RadioDjBgmPort;
   readonly speech: RadioDjSpeechPort;
@@ -89,7 +89,7 @@ export class PersonalRadioDjController {
   private commentIndex = 0;
   private yieldGeneration = 0;
   private lastSnapshot?: DjContextSnapshot;
-  private lastReason: "time" | "weather" | "mood" | "preference" | "generic" = "generic";
+  private lastReason: "time" | "weather" | "mood" | "preference" | "favorite" | "generic" = "generic";
   private activityAbort?: AbortController;
   private leaseUtterances = 0;
   private leaseRenewals = 0;
@@ -414,6 +414,7 @@ export class PersonalRadioDjController {
     changeVibe: boolean,
     generation: number,
     operationEpoch: number,
+    transitionText?: string,
   ): Promise<void> {
     if (!this.config || !this.activityId || !this.requestId) return;
     const activityId = this.activityId;
@@ -421,6 +422,10 @@ export class PersonalRadioDjController {
     this.cancelFlow();
     this.d.speech.interrupt(activityId);
     this.currentState = "selecting";
+    if (transitionText) {
+      try { await this.speak(transitionText); } catch { /* transition speech is best-effort */ }
+      if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+    }
     let played: Awaited<ReturnType<RadioDjBgmPort["searchAndPlay"]>>;
     try {
       const raw = await this.d.context.snapshot(this.config);
@@ -481,6 +486,8 @@ export class PersonalRadioDjController {
       ...(moodFresh ? { moodActivity: raw.moodActivity } : {}),
       ...(live?.track ? { nowPlaying: { ...live.track, source: "bgm-player" as const } } : {}),
       preferences: raw.preferences.filter((p) => p.confidence === "explicit"),
+      ...(live?.recentTracks ? { recentTracks: live.recentTracks } : {}),
+      ...(live?.favoriteTracks ? { favoriteTracks: live.favoriteTracks } : {}),
     };
   }
 
@@ -503,7 +510,11 @@ export class PersonalRadioDjController {
       }
       if (!this.isOperationCurrent(generation, activityId, operationEpoch) || this.currentState !== "dj_speaking") return;
       if (live && ["ended", "error", "timeout"].includes(live.status)) {
-        await this.replaceSelection(true, generation, operationEpoch);
+        if (live.status === "ended") {
+          await this.replaceSelectionAfterTrackEnd(generation, operationEpoch);
+        } else {
+          await this.replaceSelection(true, generation, operationEpoch);
+        }
         return;
       }
       if (!live || live.status !== "playing") {
@@ -635,6 +646,24 @@ export class PersonalRadioDjController {
     this.currentState = "music_only";
   }
 
+  private replaceSelectionAfterTrackEnd(
+    generation: number,
+    operationEpoch: number,
+  ): Promise<void> {
+    if (this.replacementInFlight) return this.replacementInFlight;
+    const attempt = this.runReplacementSelection(
+      true,
+      generation,
+      operationEpoch,
+      "한 곡이 마무리됐어요. 다음 분위기를 이어서 골라볼게요.",
+    );
+    const tracked = attempt.finally(() => {
+      if (this.replacementInFlight === tracked) this.replacementInFlight = undefined;
+    });
+    this.replacementInFlight = tracked;
+    return tracked;
+  }
+
 }
 
 function renderPlayIntro(videoTitle: string): string {
@@ -645,11 +674,13 @@ function renderPlayIntro(videoTitle: string): string {
 function renderDjComment(
   index: number,
   snapshot: DjContextSnapshot | undefined,
-  reason: "time" | "weather" | "mood" | "preference" | "generic",
+  reason: "time" | "weather" | "mood" | "preference" | "favorite" | "generic",
 ): string {
   const groundedReason =
     reason === "preference" && snapshot?.preferences.length
       ? "말해 준 음악 취향을 참고해 이 분위기를 골랐어요."
+      : reason === "favorite" && snapshot?.favoriteTracks?.length
+        ? "저장해 둔 즐겨찾기와 최근 재생 흐름을 참고해 골랐어요."
       : reason === "weather" && snapshot?.weather
         ? "최근 확인된 날씨와 어울리는 흐름으로 골랐어요."
         : reason === "mood" && snapshot?.moodActivity
@@ -669,11 +700,12 @@ function renderDjComment(
 }
 
 function sourceExists(
-  reason: "time" | "weather" | "mood" | "preference" | "generic",
+  reason: "time" | "weather" | "mood" | "preference" | "favorite" | "generic",
   snapshot: DjContextSnapshot,
 ): boolean {
   if (reason === "weather") return snapshot.weather !== undefined;
   if (reason === "mood") return snapshot.moodActivity !== undefined;
   if (reason === "preference") return snapshot.preferences.length > 0;
+  if (reason === "favorite") return Boolean(snapshot.favoriteTracks?.length);
   return true;
 }

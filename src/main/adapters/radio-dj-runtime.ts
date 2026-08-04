@@ -158,6 +158,20 @@ function memoryPayload(record: RadioDjPreferenceRecord): string {
   return `[NAIA_DJ_PREFERENCE_V1] ${JSON.stringify(record)}`;
 }
 
+function recalledPreferenceRecords(content: string): RadioDjPreferenceRecord[] {
+  const records: RadioDjPreferenceRecord[] = [];
+  const pattern = /\[NAIA_DJ_PREFERENCE_V1\]\s*(\{[^\r\n]*\})/gu;
+  for (const match of content.matchAll(pattern)) {
+    try {
+      const value = JSON.parse(match[1] ?? "");
+      if (validRecord(value)) records.push(value);
+    } catch {
+      // Truncated or malformed memory excerpts are never promoted to preferences.
+    }
+  }
+  return records;
+}
+
 export function makeRadioDjPreferenceStore(opts: {
   persistence?: RadioDjPreferencePersistence;
   memory?: MemoryPort;
@@ -235,6 +249,44 @@ export function makeRadioDjPreferenceStore(opts: {
         .filter((record) => record.sentiment === "like")
         .sort((a, b) => a.sequence - b.sequence)
         .map((record) => record.subject);
+    },
+    async activeExplicitLikes(): Promise<string[]> {
+      const document = await load();
+      const localRecords = Object.values(document.records);
+      const localKnown = new Set(localRecords.map((record) => record.subjectKey));
+      const localLikes = localRecords
+        .filter((record) => record.sentiment === "like")
+        .sort((a, b) => a.sequence - b.sequence)
+        .map((record) => record.subject);
+      if (!opts.memory) return localLikes;
+
+      try {
+        const recalled = await opts.memory.recall(
+          "NAIA_DJ_PREFERENCE_V1 explicit music preference",
+        );
+        const candidates = recalled.episodes
+          .filter((episode) => episode.role === "user")
+          .flatMap((episode) => recalledPreferenceRecords(episode.content));
+        const latest = new Map<string, RadioDjPreferenceRecord>();
+        for (const candidate of candidates) {
+          if (localKnown.has(candidate.subjectKey)) continue;
+          const previous = latest.get(candidate.subjectKey);
+          const previousAt = previous ? Date.parse(previous.statedAt) : Number.NEGATIVE_INFINITY;
+          const candidateAt = Date.parse(candidate.statedAt);
+          if (
+            !previous
+            || (Number.isFinite(candidateAt) && candidateAt > previousAt)
+            || (candidateAt === previousAt && candidate.sequence > previous.sequence)
+          ) latest.set(candidate.subjectKey, candidate);
+        }
+        const recalledLikes = [...latest.values()]
+          .filter((record) => record.sentiment === "like")
+          .sort((a, b) => a.sequence - b.sequence)
+          .map((record) => record.subject);
+        return [...new Set([...localLikes, ...recalledLikes])];
+      } catch {
+        return localLikes;
+      }
     },
     recordMood(input: { sessionId: string; quote: string; statedAt: string }): void {
       const quote = [...input.quote.trim()].slice(0, 500).join("");
@@ -331,8 +383,19 @@ export function makeDeterministicRadioDjSelector() {
     async select(snapshot: DjContextSnapshot, opts?: { changeVibe?: boolean }) {
       const hour = localHour(snapshot.localTime.iso, snapshot.localTime.timezone);
       const timeBand = hour < 6 ? "새벽" : hour < 12 ? "아침" : hour < 18 ? "오후" : "저녁";
+      const recentTitles = new Set(
+        (snapshot.recentTracks ?? []).map((track) => normalizedTrackTitle(track.title)),
+      );
+      const favorite = (snapshot.favoriteTracks ?? []).find(
+        (track) => !recentTitles.has(normalizedTrackTitle(track.title)),
+      );
+      const preference = snapshot.preferences[0]?.text;
       if (opts?.changeVibe) {
-        return { query: `${timeBand} 새로운 분위기 음악 믹스`, reason: "time" as const };
+        const hint = [preference, favorite?.title].filter(Boolean).join(" ");
+        return {
+          query: `${timeBand} ${hint ? `${hint} 취향을 살린 ` : ""}새로운 분위기 음악 믹스`,
+          reason: preference ? "preference" as const : favorite ? "favorite" as const : "time" as const,
+        };
       }
       if (snapshot.moodActivity) {
         const mood = snapshot.moodActivity.quote
@@ -346,10 +409,11 @@ export function makeDeterministicRadioDjSelector() {
           reason: "mood" as const,
         };
       }
-      if (snapshot.preferences[0]) {
+      if (preference || favorite) {
+        const hint = [preference, favorite?.title].filter(Boolean).join(" ");
         return {
-          query: `${timeBand} ${snapshot.preferences[0].text} 긴 음악 믹스`,
-          reason: "preference" as const,
+          query: `${timeBand} ${hint}와 비슷하지만 새로운 긴 음악 믹스`,
+          reason: preference ? "preference" as const : "favorite" as const,
         };
       }
       if (snapshot.weather) {
@@ -361,6 +425,14 @@ export function makeDeterministicRadioDjSelector() {
       return { query: `${timeBand} 편안한 BGM 긴 믹스`, reason: "time" as const };
     },
   };
+}
+
+function normalizedTrackTitle(title: string): string {
+  return title
+    .normalize("NFKC")
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
 }
 
 function localHour(iso: string, timezone: string): number {

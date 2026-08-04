@@ -37,6 +37,13 @@ const cfg: ProviderConfig = { provider: "ollama", model: "gemma4", ollamaHost: "
 async function collect(gen: AsyncIterable<ProviderChunk>) { const out: ProviderChunk[] = []; for await (const c of gen) out.push(c); return out; }
 
 describe("makeOllamaProvider (native /api/chat, mock fetch)", () => {
+	it("FR-PANEL-6: inline image → Ollama native images[]", async () => {
+		const fetch = mockFetch([JSON.stringify({ done: true }) + "\n"]);
+		await collect(makeOllamaProvider({ fetch: fetch as never }).chat(cfg, [{
+			role: "user", content: "Screenshot", inlineImages: [{ mimeType: "image/png", data: "iVBORw0KGgo=" }],
+		}], {}));
+		expect((fetch.bodies[0] as { messages: unknown[] }).messages[0]).toEqual({ role: "user", content: "Screenshot", images: ["iVBORw0KGgo="] });
+	});
 	it("forwards a CPU-only Ollama profile as num_gpu=0", async () => {
 		const fetch = mockFetch([JSON.stringify({ done: true }) + "\n"]);
 		await collect(makeOllamaProvider({ fetch: fetch as never }).chat(
