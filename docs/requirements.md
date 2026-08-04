@@ -735,18 +735,45 @@ The Agent and Gateway preserve these codes end to end:
   candidate/control runs over identical cases expose complete provider-priced receipts; it is not
   satisfied or deferred by the smoke.
 - **FR-LOOP-007**: The frozen paid comparison uses the same task, deterministic file/Git scorer,
-  paid-call denominator, checkpoint-reopen step, and a combined 20-call/$0.50 ceiling for candidate
+  actor-attempt topology, and a checkpoint-reopen step in which a separate Node process reopens and
+  hashes the frozen Git worktree before any paid call. It also enforces combined 20-actor-attempt/60-gateway-call/$0.50 ceilings for candidate
   and control. A savings decision requires candidate quality non-inferiority and at least 10% lower
   customer cost. Every cost row must be settled gateway versioned-customer-billing evidence bound by
   local execution ID, gateway request ID, price version, exact route, and exact token counts. Pi
   catalog estimates, profile time-window deltas, unbound logs, missing rows, extra rows, route drift,
   unresolved reservations, and unsigned self-asserted JSON make the result unavailable rather than
   cheaper. Combined call/USD/token ceilings and the exact per-role attempt topology are enforced by
-  the analyzer. A future claim additionally requires authenticated gateway export and harness-journal
+  the analyzer. Actor attempts and billable gateway requests are distinct: both arms must run the
+  same declared role-attempt topology, while every tool-loop request is counted and differing request
+  counts remain part of the observed efficiency result. A future claim additionally requires authenticated gateway export and harness-journal
   verification; until both authorities are implemented, even structurally lower cost remains
   `unavailable` and `costEfficiencyClaimAllowed=false`. Both arms must reopen the same contract-pinned
   baseline digest, and every model must use its contract-pinned price version; an unpinned baseline or
   price version also makes the comparison unavailable.
+- **FR-LOOP-008**: The Naia Pi adapter loads an Agent-owned provider extension only for the Naia
+  gateway route. For every logical provider turn the extension sends the OpenAI-compatible request
+  with `stream=false`, one parent-bound gateway request ID, and a positive attempt number. Before
+  network I/O, a shared SQLite ledger durably reserves one request plus conservative USD/input/output
+  allowances; retry of the same canonical request reuses that reservation, while a new request beyond
+  any ceiling is rejected before `fetch`. The extension validates
+  the returned route, settled versioned-customer-billing fields, exact token usage, and nonnegative
+  customer cost; atomically appends the result to an owner-only receipt journal; and converts the
+  ordinary completion back to Pi-compatible SSE so Pi retains its native text/tool loop. The parent
+  accepts measured cost only when the journal execution identity, ordered local request identities,
+  gateway identities, provider/model, token totals, settlement state, and file integrity all match.
+  The extension fails before provider I/O when its gateway-budget binding is absent. The common Naia
+  Pi subprocess factory always supplies one: continuous-loop and benchmark callers inject their shared
+  contract policy, while legacy CLI/mixed-team callers receive an execution-local durable default capped
+  at 8 gateway calls, $0.20, 32,000 input tokens, and eight reserved output allowances. Thus budgeting
+  is not an optional adapter mode and existing public Pi CLI routing remains usable. Legacy/direct
+  providers never load this extension. This receipt is operational settlement evidence,
+  not a cryptographic savings attestation; FR-LOOP-007 still requires an authenticated gateway export
+  and verified harness journal before enabling a public cost-efficiency claim.
+- **FR-LOOP-009**: Every paid benchmark runner requires an explicit durable output path before network
+  I/O. The paired runner writes running and per-arm checkpoints outside the evidence directory; the
+  one-call smoke writes a running checkpoint before its call. Both preserve receipt and gateway-budget
+  databases after success or failure and emit an honest partial-paid `unavailable` record on exceptions.
+  Neither runner deletes or overwrites the only copy of paid-call evidence.
 - **NFR-LOOP-001**: Default benchmark limits are deliberately small; there is no two-minute product
   loop ceiling. Termination comes from repair/clean bounds, cancellation, verification, provider
   failure, or durable budget exhaustion.
@@ -755,8 +782,7 @@ The Agent and Gateway preserve these codes end to end:
 - **NFR-LOOP-003**: Discord ingress and naia-shell UI remain outside this requirement. Source
   metadata stays adapter-neutral for their later attachment.
 - **Status**: In progress. Completion requires reproducible benchmark evidence and two consecutive
-  clean adversarial reviews on one unchanged candidate. The decision contract is implemented, but
-  this candidate cannot yet execute the paid comparison: no Naia credential is available and the
-  current Pi streaming path does not expose the gateway request/price-version receipt needed for
-  exact cost correlation. No gateway signing key or authenticated harness-journal verifier is bound,
-  so a hand-authored evidence file can never become a completion claim.
+  clean adversarial reviews on one unchanged candidate. The decision contract is implemented. Exact
+  request-correlated operational receipt transport is specified by FR-LOOP-008, while a live paired
+  run still requires a Naia credential, pinned baseline/price versions, authenticated gateway export,
+  and a verified harness journal. A hand-authored evidence file can never become a completion claim.

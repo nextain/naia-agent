@@ -16,6 +16,10 @@ const tempDir = (): string => {
   tempDirs.push(dir);
   return dir;
 };
+const gatewayBudget = (dir: string) => ({ path: join(dir, "gateway.db"), policy: {
+  maxGatewayCalls: 4, maxUsd: 0.2, maxInputTokens: 16_000, maxOutputTokens: 2_000,
+  requestAllowance: { reservedUsd: 0.05, reservedInputTokens: 4_000, reservedOutputTokens: 500 },
+} });
 afterEach(() => { for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
 describe("UC-NAIA-PI provider isolation", () => {
@@ -59,15 +63,24 @@ describe("UC-NAIA-PI provider isolation", () => {
       captured = { args, env: options.env };
       return { stdout: { on() {} }, stderr: { on() {} }, on() { return this; }, kill() { return false; } } as unknown as ChildProcess;
     };
+    const configDir = tempDir();
     makePiSubAgent({
       resolveBin: () => ({ command: "pi", prefixArgs: [] }), spawnFn,
       env: { PATH: "bin", NAIA_API_KEY: "naia-secret-value", OPENAI_API_KEY: "must-not-leak" },
-      piConfigDir: tempDir(),
+      piConfigDir: configDir,
     }).spawn({ prompt: "fix it", workdir: ".", model: "grok-4.3" });
-    expect(captured?.args).toEqual(["-p", "fix it", "--mode", "json", "--no-session", "--provider", "naia", "--model", "grok-4.3"]);
+    expect(captured?.args).toEqual(["-p", "fix it", "--mode", "json", "--no-session",
+      "--no-extensions", "--extension", expect.stringContaining("naia-versioned-billing-extension.mjs"),
+      "--provider", "naia", "--model", "grok-4.3"]);
     expect(captured?.env?.NAIA_API_KEY).toBe("naia-secret-value");
     expect(captured?.env?.OPENAI_API_KEY).toBeUndefined();
     expect(captured?.env?.PI_CODING_AGENT_DIR).toBeTruthy();
+    expect(captured?.env?.NAIA_PI_EXECUTION_ID).toMatch(/^[0-9a-f-]{36}$/u);
+    expect(captured?.env?.NAIA_PI_RECEIPT_PATH).toContain("receipts");
+    expect(captured?.env?.NAIA_PI_GATEWAY_BUDGET_PATH).toContain("gateway-budgets");
+    expect(JSON.parse(captured?.env?.NAIA_PI_GATEWAY_BUDGET_POLICY ?? "{}")).toMatchObject({
+      maxGatewayCalls: 8, maxUsd: 0.2, maxInputTokens: 32_000,
+    });
   });
 
   it("fails before spawn when auth is missing, direct routing is requested, or DeepSeek lacks --no-tools", async () => {
@@ -92,9 +105,10 @@ describe("UC-NAIA-PI provider isolation", () => {
       args = next;
       return { stdout: { on() {} }, stderr: { on() {} }, on() { return this; }, kill() { return false; } } as unknown as ChildProcess;
     };
+    const configDir = tempDir();
     makePiSubAgent({
       resolveBin: () => ({ command: "pi", prefixArgs: [] }), spawnFn, noTools: true,
-      env: { NAIA_API_KEY: "k" }, piConfigDir: tempDir(),
+      env: { NAIA_API_KEY: "k" }, piConfigDir: configDir, gatewayBudget: gatewayBudget(configDir),
     }).spawn({ prompt: "review", workdir: ".", model: "deepseek-v4-pro" });
     expect(args).toContain("--no-tools");
   });

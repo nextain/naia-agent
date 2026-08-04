@@ -11,6 +11,7 @@ import { SqliteIssueOrchestrationStore } from "../adapters/sqlite-issue-orchestr
 import { SqliteIssueTeamStore } from "../adapters/sqlite-issue-team-store.js";
 import { SqliteMultiIssueSessionStore } from "../adapters/sqlite-multi-issue-session-store.js";
 import { SqlitePaidCallBudget } from "../adapters/sqlite-paid-call-budget.js";
+import { initializeGatewayRequestBudget } from "../adapters/naia-pi-versioned-billing.js";
 import { isNaiaPiModel, NAIA_PI_PROVIDER } from "../adapters/naia-pi-provider.js";
 import { makeCommandVerifier, type CommandCheck } from "../adapters/verifier-commands.js";
 import { makeIssueTeamWorker } from "../app/issue-team-worker.js";
@@ -83,10 +84,16 @@ export function makePiContinuousLoop(config: PiContinuousLoopConfig, runtime: Pi
     const issueStore = new SqliteIssueOrchestrationStore(join(stateDir, "issues.db")); opened.push(issueStore);
     const teamStore = new SqliteIssueTeamStore(join(stateDir, "teams.db")); opened.push(teamStore);
     const sessionStore = new SqliteMultiIssueSessionStore(join(stateDir, "sessions.db")); opened.push(sessionStore);
+    const gatewayBudget = config.pi?.gatewayBudget ?? { path: join(stateDir, "gateway-requests.db"),
+      policy: { maxGatewayCalls: config.budget.maxPaidCalls, maxUsd: config.budget.maxUsd,
+        maxInputTokens: config.budget.maxInputTokens, maxOutputTokens: config.budget.maxOutputTokens,
+        requestAllowance: config.callAllowance } };
+    initializeGatewayRequestBudget(gatewayBudget.path, gatewayBudget.policy);
     const profile = makePiOnlyTeamProfile(config);
     const pi = (binding: ActorBinding, write = false) => runtime.makeSubAgent?.(binding, write) ?? makePiSubAgent({ ...config.pi,
       provider: binding.provider, model: binding.model,
       maxOutputTokens: config.callAllowance.reservedOutputTokens,
+      gatewayBudget,
       ...(binding.model === "deepseek-v4-pro" && !write ? { noTools: true } : {}) });
     const actor = (binding: ActorBinding) => ({ subAgent: pi(binding), binding,
       workdir: realpathSync(config.workspaceRoot), diag, budget, callAllowance: config.callAllowance });

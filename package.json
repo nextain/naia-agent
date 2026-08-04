@@ -29,6 +29,7 @@
     "loop": "node bin/naia-agent-loop.mjs",
     "benchmark:pi-loop:deterministic": "pnpm build && node benchmark/run-pi-continuous-loop-deterministic.mjs --output benchmark/results/pi-continuous-loop-deterministic.json",
     "benchmark:pi-loop:live-smoke": "pnpm build && node benchmark/run-pi-continuous-loop-live.mjs",
+    "benchmark:pi-loop:cost-live": "pnpm build && node benchmark/run-pi-cost-comparison-live.mjs",
     "benchmark:pi-loop:cost": "pnpm build && node benchmark/analyze-pi-cost-comparison.mjs"
   },
   "dependencies": {

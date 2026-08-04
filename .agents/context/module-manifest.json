@@ -1,6 +1,12 @@
 {
   "_doc": "파일단위 계약 앵커 (드리프트 자동차단). src/main 의 모든 .ts 는 여기 {layer, uc, contract} 와 함께 등록돼야 한다. 미등록 파일 = 미계약 코드 = RED (scripts/check-file-anchors.mjs). 계약 먼저, 코드 나중 — 새 파일 추가 전 이 manifest 에 앵커 선언. layer ∈ {domain,ports,app,adapters,composition}. contract = docs/progress 의 계약 문서.",
   "files": {
+    "src/main/adapters/naia-pi-versioned-billing.ts": {
+      "layer": "adapters",
+      "uc": ["UC-ORCH-004"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-004-pi-continuous-loop-contract-2026-08-04.md",
+      "note": "Atomic non-streaming Naia gateway billing bridge, shared durable request-level pre-call budget, owner-only receipt journal, and Pi-compatible SSE reconstruction."
+    },
     "src/main/benchmark/pi-cost-comparison.ts": {
       "layer": "domain",
       "uc": ["UC-ORCH-004"],

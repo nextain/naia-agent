@@ -1,0 +1,56 @@
+{
+  "schema_version": "1.0",
+  "requirement": "REQ-024",
+  "use_case": "UC-ORCH-004",
+  "charter": {
+    "path": ".agents/session-contracts/naia-agent-pi-continuous-loop-2026-08-04.json",
+    "sha256": "e9bdb58c10f92cb8c4630cf410231b7a57fca2d4ce94fb4f1162c6dcf978cfe9"
+  },
+  "scope": {
+    "included": [
+      "Pi-only durable multi-issue coding loop",
+      "actor-attempt and gateway-request pre-call budgets",
+      "request-correlated versioned billing receipts",
+      "zero-paid deterministic benchmark",
+      "fail-closed paired live cost runner"
+    ],
+    "excluded": [
+      "Discord ingress",
+      "naia-shell UI integration",
+      "public cost-efficiency claim without authenticated gateway and harness attestations"
+    ]
+  },
+  "review_history": [
+    {
+      "stage": "integration",
+      "result": "findings_fixed",
+      "accepted_findings": [
+        "gateway tool-loop requests needed a shared durable pre-fetch budget",
+        "gateway response model drift needed exact rejection",
+        "the real Pi compatibility tool loop needed receipt-consumption coverage",
+        "paid comparison failures needed durable partial output and retained artifacts",
+        "over-allowance actual usage needed to commit before the work failed",
+        "the one-call paid smoke needed the same durable evidence preservation boundary",
+        "paid runner output ownership needed collision-first checks and exclusive creation",
+        "Naia billing extension budget binding needed to be mandatory on every invocation",
+        "post-claim module and SQLite setup failures needed to become durable unavailable results",
+        "mandatory budget binding needed an execution-local bounded default to preserve the public Naia Pi CLI and mixed-team routes",
+        "paired benchmark checkpoint reopen needed an actual independent process boundary instead of two same-process hashes",
+        "retry after a settled over-allowance response needed rejection before a duplicate paid gateway effect"
+      ]
+    }
+  ],
+  "verification": {
+    "typescript": "passed",
+    "focused": "85 passed",
+    "deterministic_benchmark": "all hard gates true; paidCalls=0; exact source/dist closure; no OpenCode runtime edge",
+    "live_cost_preflight": "unavailable; paidCalls=0; gatewayCalls=0 when explicit confirmation or prerequisites are absent",
+    "broader_regression": "132 passed; process-spawn and localhost-listen cases are blocked by the current sandbox with EPERM",
+    "traceability": "dead-link=0; orphan=0",
+    "known_repository_baseline": "canon-scope and file-anchor checks retain unrelated pre-existing drift outside REQ-024"
+  },
+  "final_convergence": {
+    "required": "two consecutive Clean integration reviews on one unchanged candidate",
+    "status": "pending"
+  }
+}

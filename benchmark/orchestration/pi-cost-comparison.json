@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "benchmarkId": "pi-cost-comparison-v1",
   "scope": "frozen paired engineering case only",
   "task": {
@@ -12,7 +12,7 @@
     ]
   },
   "taskDigest": "sha256:41146f2d5d5f6b25a074af017980abb72e94e0837ea9b3dbb0fd780f44e13f42",
-  "baselineDigest": null,
+  "baselineDigest": "sha256:ad7aee3aee25b556a9e152c21a1c2978cc65ae9f163bf0c29160c0b372665c64",
   "minimumSavingsRatio": 0.1,
   "quality": {
     "scorerId": "deterministic-file-and-git-checks",
@@ -58,7 +58,8 @@
     "reporter": 1
   },
   "budget": {
-    "maximumCombinedPaidCalls": 20,
+    "maximumCombinedActorAttempts": 20,
+    "maximumCombinedGatewayCalls": 60,
     "maximumCombinedUsd": 0.5,
     "maximumInputTokens": 80000,
     "maximumOutputTokens": 10000

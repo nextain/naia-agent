@@ -58,8 +58,10 @@ export function makeIssueTeamRoleExecutor(options: IssueTeamRoleExecutorOptions)
         ...(evidence.modelEvidenceSource ? { modelEvidenceSource: evidence.modelEvidenceSource } : {}),
         ...(evidence.piEstimatedCost !== undefined
           ? { estimatedCostUsd: evidence.piEstimatedCost, estimatedCostSource: "pi_catalog" as const } : {}),
+        ...(evidence.gatewayBillingReceipts ? { gatewayBillingReceipts: evidence.gatewayBillingReceipts } : {}),
         cost: evidence.usageAvailable === true && evidence.measuredCostUsd !== undefined
-          ? { state: "measured", usd: evidence.measuredCostUsd, source: "role_adapter_priced_usage" }
+          ? { state: "measured", usd: evidence.measuredCostUsd, source: evidence.gatewayBillingReceipts
+            ? "gateway_versioned_customer_billing" : "role_adapter_priced_usage" }
           : { state: "unavailable", reason: "role adapter did not receive priced usage" },
       };
       if (evidence.provider !== input.roleProfile.binding.provider || evidence.selectedModel !== input.roleProfile.binding.model

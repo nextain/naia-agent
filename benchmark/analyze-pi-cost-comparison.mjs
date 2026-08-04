@@ -8,7 +8,7 @@ const actualDigest = `sha256:${createHash("sha256").update(JSON.stringify(contra
 if (actualDigest !== contract.taskDigest) throw new Error("frozen benchmark task digest mismatch");
 const evidenceIndex = process.argv.indexOf("--evidence");
 if (evidenceIndex < 0 || !process.argv[evidenceIndex + 1]) {
-  process.stdout.write(`${JSON.stringify({ schemaVersion: 1, benchmarkId: contract.benchmarkId,
+  process.stdout.write(`${JSON.stringify({ schemaVersion: contract.schemaVersion, benchmarkId: contract.benchmarkId,
     status: "unavailable", paidCalls: 0, costEfficiencyClaimAllowed: false,
     reason: "exact paired execution evidence was not supplied",
     requiredReceiptSource: contract.receiptAuthority.source,
@@ -30,6 +30,7 @@ evidence.priceVersionPolicy = contract.receiptAuthority.priceVersionByModel;
 const { analyzePiCostComparison } = await import("../dist/main/benchmark/pi-cost-comparison.js");
 const result = analyzePiCostComparison(evidence);
 process.stdout.write(`${JSON.stringify({ ...result, contract: { taskDigest: contract.taskDigest,
-  maximumCombinedPaidCalls: contract.budget.maximumCombinedPaidCalls,
+    maximumCombinedActorAttempts: contract.budget.maximumCombinedActorAttempts,
+    maximumCombinedGatewayCalls: contract.budget.maximumCombinedGatewayCalls,
   maximumCombinedUsd: contract.budget.maximumCombinedUsd } }, null, 2)}\n`);
 if (result.status === "unavailable") process.exitCode = 2;

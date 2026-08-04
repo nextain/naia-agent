@@ -111,6 +111,9 @@ export class SqlitePaidCallBudget implements PaidCallBudgetPort {
     if (receipt.cost.state !== "measured" && receipt.estimatedCostSource !== "pi_catalog") {
       throw new PaidCallReceiptUnavailableError("estimated cost requires Pi catalog provenance");
     }
+    if (receipt.cost.state === "measured" && receipt.cost.source === "gateway_versioned_customer_billing") {
+      assertGatewayBillingEvidence(receipt);
+    }
     const receiptDigest = digest(stableJson(receipt));
     let exceeded = false;
     this.transaction(() => {
@@ -182,6 +185,45 @@ export class SqlitePaidCallBudget implements PaidCallBudgetPort {
     for (const file of [this.path, `${this.path}-wal`, `${this.path}-shm`]) {
       try { chmodSync(file, 0o600); } catch { /* Windows or sidecar not created yet. */ }
     }
+  }
+}
+
+function assertGatewayBillingEvidence(receipt: ActorReceipt): void {
+  if (receipt.cost.state !== "measured") {
+    throw new PaidCallReceiptUnavailableError("gateway measured cost is unavailable");
+  }
+  const rows = receipt.gatewayBillingReceipts;
+  if (!rows?.length) throw new PaidCallReceiptUnavailableError("gateway measured cost requires request receipts");
+  const localIds = new Set<string>(); const gatewayIds = new Set<string>();
+  let input = 0; let cached = 0; let output = 0; let costUnits = 0n;
+  rows.forEach((row, index) => {
+    if (row.source !== "gateway_versioned_customer_billing" || row.executionId !== receipt.executionId
+      || row.provider !== receipt.provider || row.model !== receipt.model || row.settlementStatus !== "settled"
+      || row.localRequestId !== `${receipt.executionId}:call:${index + 1}`
+      || !row.gatewayRequestId || !row.priceVersionId || row.currency !== "USD"
+      || !Number.isSafeInteger(row.gatewayAttempt) || row.gatewayAttempt < 1
+      || localIds.has(row.localRequestId) || gatewayIds.has(row.gatewayRequestId)) {
+      throw new PaidCallReceiptConflictError("gateway request receipt binding mismatch");
+    }
+    localIds.add(row.localRequestId); gatewayIds.add(row.gatewayRequestId);
+    for (const value of [row.inputTokens, row.cachedInputTokens, row.outputTokens, row.totalTokens]) {
+      if (!nonNegativeInt(value)) throw new PaidCallReceiptUnavailableError("gateway request token evidence invalid");
+    }
+    if (row.totalTokens < row.inputTokens + row.cachedInputTokens + row.outputTokens) {
+      throw new PaidCallReceiptConflictError("gateway request token totals mismatch");
+    }
+    if (!/^(?:0|[1-9]\d*)(?:\.\d{1,8})?$/u.test(row.customerCostDecimal)
+      || Number(row.customerCostDecimal) !== row.customerCostUsd) {
+      throw new PaidCallReceiptUnavailableError("gateway request customer cost invalid");
+    }
+    const [whole, fraction = ""] = row.customerCostDecimal.split(".");
+    costUnits += BigInt(whole!) * 100_000_000n + BigInt(fraction.padEnd(8, "0"));
+    input += row.inputTokens; cached += row.cachedInputTokens; output += row.outputTokens;
+  });
+  if (![input, cached, output].every(Number.isSafeInteger) || costUnits > BigInt(Number.MAX_SAFE_INTEGER)
+    || input !== receipt.inputTokens || cached !== receipt.cachedInputTokens || output !== receipt.outputTokens
+    || Number(costUnits) / 100_000_000 !== receipt.cost.usd) {
+    throw new PaidCallReceiptConflictError("gateway receipt aggregate mismatch");
   }
 }
 

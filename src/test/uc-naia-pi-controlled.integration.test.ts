@@ -16,18 +16,20 @@ async function bodyOf(req: IncomingMessage): Promise<Record<string, unknown>> {
   return JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
 }
 
-function sendEvents(res: ServerResponse, events: Record<string, unknown>[]): void {
-  res.writeHead(200, { "Content-Type": "text/event-stream" });
-  for (const event of events) res.write(`data: ${JSON.stringify(event)}\n\n`);
-  res.end("data: [DONE]\n\n");
+function sendCompletion(res: ServerResponse, request: Record<string, unknown>, model: string,
+  message: Record<string, unknown>, finishReason: string, usage: Record<string, number>): void {
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ id: "chatcmpl-controlled", object: "chat.completion", created: 1, model,
+    choices: [{ index: 0, message: { role: "assistant", ...message }, finish_reason: finishReason }], usage,
+    customer_cost: "0.00001000", price_version_id: "controlled-price-v1", currency: "USD",
+    settlement_status: "settled", billing_status: "settled",
+    gateway_request_id: request.gateway_request_id, gateway_attempt: request.gateway_attempt }));
 }
 
-function chunk(model: string, delta: Record<string, unknown>, finish_reason: string | null = null, usage?: Record<string, number>): Record<string, unknown> {
-  return {
-    id: "chatcmpl-controlled", object: "chat.completion.chunk", created: 1, model,
-    choices: [{ index: 0, delta, finish_reason }], ...(usage ? { usage } : {}),
-  };
-}
+const gatewayBudget = (dir: string, maxGatewayCalls: number) => ({ path: join(dir, "gateway.db"), policy: {
+  maxGatewayCalls, maxUsd: 0.1, maxInputTokens: 8_000, maxOutputTokens: 1_000,
+  requestAllowance: { reservedUsd: 0.05, reservedInputTokens: 4_000, reservedOutputTokens: 500 },
+} });
 
 async function collect(events: AsyncIterable<SubAgentEvent>): Promise<SubAgentEvent[]> {
   const out: SubAgentEvent[] = [];
@@ -44,17 +46,16 @@ describe("UC-NAIA-PI controlled Agent -> real Pi -> Naia-compatible gateway", ()
       expect(req.url).toBe("/v1/chat/completions");
       expect(req.headers["x-anyllm-key"]).toBe("Bearer controlled-key");
       expect(body.model).toBe("grok-4.3");
+      expect(body.stream).toBe(false);
       if (calls === 1) {
         expect(Array.isArray(body.tools)).toBe(true);
-        sendEvents(res, [
-          chunk("grok-4.3", { role: "assistant", tool_calls: [{ index: 0, id: "call_write", type: "function", function: { name: "write", arguments: JSON.stringify({ path: "proof.txt", content: "made by grok" }) } }] }),
-          chunk("grok-4.3", {}, "tool_calls", { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 }),
-        ]);
+        sendCompletion(res, body, "grok-4.3", { content: null,
+          tool_calls: [{ id: "call_write", type: "function", function: { name: "write",
+            arguments: JSON.stringify({ path: "proof.txt", content: "made by grok" }) } }] },
+        "tool_calls", { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 });
       } else {
-        sendEvents(res, [
-          chunk("grok-4.3", { role: "assistant", content: "done" }),
-          chunk("grok-4.3", {}, "stop", { prompt_tokens: 20, completion_tokens: 2, total_tokens: 22 }),
-        ]);
+        sendCompletion(res, body, "grok-4.3", { content: "done" }, "stop",
+          { prompt_tokens: 20, completion_tokens: 2, total_tokens: 22 });
       }
     });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -62,9 +63,10 @@ describe("UC-NAIA-PI controlled Agent -> real Pi -> Naia-compatible gateway", ()
       const address = server.address();
       if (!address || typeof address === "string") throw new Error("missing server address");
       const workdir = makeTemp();
+      const configDir = makeTemp();
       const session = makePiSubAgent({
         env: { ...process.env, NAIA_API_KEY: "controlled-key", NAIA_ANYLLM_BASE_URL: `http://127.0.0.1:${address.port}` },
-        piConfigDir: makeTemp(),
+        piConfigDir: configDir, gatewayBudget: gatewayBudget(configDir, 2),
       }).spawn({ prompt: "Create proof.txt with the requested content.", workdir, model: "grok-4.3" });
       const events = await collect(session.events);
       expect(events.at(-1), JSON.stringify(events)).toMatchObject({ kind: "session_end", ok: true });
@@ -84,19 +86,19 @@ describe("UC-NAIA-PI controlled Agent -> real Pi -> Naia-compatible gateway", ()
       const body = await bodyOf(req);
       expect(body.model).toBe("deepseek-v4-pro");
       expect(body.tools).toBeUndefined();
-      sendEvents(res, [
-        chunk("deepseek-v4-pro", { role: "assistant", content: "review ok" }),
-        chunk("deepseek-v4-pro", {}, "stop", { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 }),
-      ]);
+      expect(body.stream).toBe(false);
+      sendCompletion(res, body, "deepseek-v4-pro", { content: "review ok" }, "stop",
+        { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 });
     });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     try {
       const address = server.address();
       if (!address || typeof address === "string") throw new Error("missing server address");
+      const configDir = makeTemp();
       const session = makePiSubAgent({
         noTools: true,
         env: { ...process.env, NAIA_API_KEY: "controlled-key", NAIA_ANYLLM_BASE_URL: `http://127.0.0.1:${address.port}` },
-        piConfigDir: makeTemp(),
+        piConfigDir: configDir, gatewayBudget: gatewayBudget(configDir, 1),
       }).spawn({ prompt: "Review this text.", workdir: makeTemp(), model: "deepseek-v4-pro" });
       const events = await collect(session.events);
       expect(events.at(-1), JSON.stringify(events)).toMatchObject({ kind: "session_end", ok: true });

@@ -1,8 +1,15 @@
-export interface PiCostCall {
+import type { ActorReceipt } from "../domain/issue-orchestration.js";
+
+export interface PiActorAttempt {
   readonly executionId: string;
   readonly role: string;
   readonly provider: string;
   readonly model: string;
+}
+
+export interface PiCostCall extends PiActorAttempt {
+  /** Parent actor execution that caused this request. */
+  readonly actorExecutionId: string;
   readonly inputTokens: number;
   readonly outputTokens: number;
 }
@@ -22,13 +29,14 @@ export interface PiCostArmEvidence {
   readonly scorerId: string;
   readonly checks: readonly { readonly name: string; readonly pass: boolean }[];
   readonly changedFiles: readonly string[];
+  readonly actorAttempts: readonly PiActorAttempt[];
   readonly calls: readonly PiCostCall[];
   readonly receipts: readonly PiGatewayCostReceipt[];
   readonly localBudget: { readonly paidCalls: number; readonly activeReservations: number };
 }
 
 export interface PiCostComparisonEvidence {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly benchmarkId: string;
   readonly taskDigest: string;
   readonly baselineDigest: string;
@@ -44,7 +52,8 @@ export interface PiCostComparisonEvidence {
     readonly allowedChangedFiles: readonly string[];
   };
   readonly budgetPolicy: {
-    readonly maximumCombinedPaidCalls: number;
+    readonly maximumCombinedActorAttempts: number;
+    readonly maximumCombinedGatewayCalls: number;
     readonly maximumCombinedUsd: number;
     readonly maximumInputTokens: number;
     readonly maximumOutputTokens: number;
@@ -59,7 +68,8 @@ interface ArmSummary {
   readonly qualityScore: number;
   readonly verificationPassed: boolean;
   readonly checkpointRestored: boolean;
-  readonly callCount: number;
+  readonly actorAttemptCount: number;
+  readonly gatewayCallCount: number;
   readonly inputTokens: number;
   readonly outputTokens: number;
   readonly costUsd: number;
@@ -68,7 +78,7 @@ interface ArmSummary {
 }
 
 export interface PiCostComparisonResult {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly benchmarkId: string;
   readonly status: "unavailable";
   readonly structuralOutcome: "candidate_lower_cost" | "not_better" | "invalid";
@@ -83,6 +93,30 @@ export interface PiCostComparisonResult {
   readonly problems: readonly string[];
 }
 
+/** Converts durable actor attempts plus their nested request receipts into the paired-benchmark rows. */
+export function actorReceiptsToPiCostRows(receipts: readonly ActorReceipt[]): {
+  readonly actorAttempts: readonly PiActorAttempt[];
+  readonly calls: readonly PiCostCall[];
+  readonly receipts: readonly PiGatewayCostReceipt[];
+} {
+  const actorAttempts: PiActorAttempt[] = []; const calls: PiCostCall[] = []; const gatewayReceipts: PiGatewayCostReceipt[] = [];
+  for (const actor of receipts) {
+    if (!actor.gatewayBillingReceipts?.length) continue;
+    const role = actor.workerRole ?? (actor.role === "naia" ? "facing" : actor.role);
+    actorAttempts.push({ executionId: actor.executionId, role, provider: actor.provider, model: actor.model });
+    for (const row of actor.gatewayBillingReceipts) {
+      const call: PiCostCall = { executionId: row.localRequestId, actorExecutionId: actor.executionId,
+        role, provider: actor.provider, model: actor.model,
+        inputTokens: row.inputTokens + row.cachedInputTokens, outputTokens: row.outputTokens };
+      calls.push(call);
+      gatewayReceipts.push({ ...call, gatewayRequestId: row.gatewayRequestId,
+        priceVersionId: row.priceVersionId, source: row.source, settlementStatus: row.settlementStatus,
+        customerCostUsd: row.customerCostUsd });
+    }
+  }
+  return { actorAttempts, calls, receipts: gatewayReceipts };
+}
+
 /**
  * Structurally checks paired evidence. It cannot issue a savings proof until a future adapter
  * cryptographically verifies both the gateway billing export and the harness journal.
@@ -91,7 +125,7 @@ export function analyzePiCostComparison(raw: unknown): PiCostComparisonResult {
   if (!isRecord(raw)) return unavailable("unknown", ["comparison evidence must be an object"]);
   const input = raw as Partial<PiCostComparisonEvidence>;
   const problems: string[] = [];
-  if (input.schemaVersion !== 1) problems.push("unsupported schemaVersion");
+  if (input.schemaVersion !== 2) problems.push("unsupported schemaVersion");
   if (typeof input.benchmarkId !== "string" || !input.benchmarkId) problems.push("benchmarkId missing");
   if (typeof input.taskDigest !== "string" || !input.taskDigest) problems.push("taskDigest missing");
   if (typeof input.baselineDigest !== "string" || !input.baselineDigest) problems.push("baselineDigest missing");
@@ -105,7 +139,6 @@ export function analyzePiCostComparison(raw: unknown): PiCostComparisonResult {
   const control = validateArm("control", input.control, input.taskDigest, input.baselineDigest,
     input.routePolicy?.control, qualityPolicy, input.expectedRoleCounts, input.priceVersionPolicy, problems);
   if (candidate && control) {
-    if (candidate.callCount !== control.callCount) problems.push("paired arms have different paid-call denominators");
     rejectSharedIds(candidate.executionIds, control.executionIds, "execution", problems);
     rejectSharedIds(candidate.gatewayRequestIds, control.gatewayRequestIds, "gateway request", problems);
     validateCombinedBudget(candidate, control, input.budgetPolicy, problems);
@@ -118,7 +151,7 @@ export function analyzePiCostComparison(raw: unknown): PiCostComparisonResult {
   const savingsUsd = control.costUsd - candidate.costUsd;
   const savingsRatio = control.costUsd === 0 ? 0 : savingsUsd / control.costUsd;
   const costImproved = savingsUsd > 0 && savingsRatio >= input.minimumSavingsRatio;
-  return { schemaVersion: 1, benchmarkId: input.benchmarkId!, status: "unavailable",
+  return { schemaVersion: 2, benchmarkId: input.benchmarkId!, status: "unavailable",
     structuralOutcome: qualityNonInferior && costImproved ? "candidate_lower_cost" : "not_better",
     scope: "frozen paired engineering case only", costEfficiencyClaimAllowed: false,
     qualityNonInferior, costImproved, minimumSavingsRatio: input.minimumSavingsRatio,
@@ -151,8 +184,10 @@ function validateArm(name: string, rawArm: unknown, taskDigest: string | undefin
   if (!qualityPolicy || !changedFiles || !sameStrings(changedFiles, qualityPolicy.allowedChangedFiles)) {
     problems.push(`${name} changed-file boundary mismatch`);
   }
+  const actorAttempts = Array.isArray(arm.actorAttempts) ? arm.actorAttempts : undefined;
   const calls = Array.isArray(arm.calls) ? arm.calls : undefined;
   const receiptsInput = Array.isArray(arm.receipts) ? arm.receipts : undefined;
+  if (!actorAttempts?.length) { problems.push(`${name} actor attempts missing`); return undefined; }
   if (!calls?.length) { problems.push(`${name} calls missing`); return undefined; }
   if (!receiptsInput) { problems.push(`${name} receipts missing`); return undefined; }
   if (!routePolicy?.provider || !isRecord(routePolicy.roleModels) || Object.keys(routePolicy.roleModels).length === 0) {
@@ -163,6 +198,17 @@ function validateArm(name: string, rawArm: unknown, taskDigest: string | undefin
   const pinnedPrices = validStringRecord(priceVersionPolicy) ? priceVersionPolicy : {};
   if (Object.keys(pinnedPrices).length === 0) problems.push(`${name} price-version policy invalid`);
 
+  const actors = new Map<string, PiActorAttempt>(); const roleCounts: Record<string, number> = {};
+  for (const item of actorAttempts) {
+    if (!isRecord(item) || !nonempty(item.executionId) || actors.has(String(item.executionId))) {
+      problems.push(`${name} duplicate or missing actor identity`); continue;
+    }
+    const actor = item as unknown as PiActorAttempt;
+    actors.set(actor.executionId, actor); roleCounts[actor.role] = (roleCounts[actor.role] ?? 0) + 1;
+    if (actor.provider !== routePolicy?.provider || routePolicy?.roleModels[actor.role] !== actor.model) {
+      problems.push(`${name} undeclared actor route ${String(actor.role)}:${String(actor.provider)}/${String(actor.model)}`);
+    }
+  }
   const receipts = new Map<string, PiGatewayCostReceipt>();
   const gatewayIds = new Set<string>();
   for (const item of receiptsInput) {
@@ -174,13 +220,17 @@ function validateArm(name: string, rawArm: unknown, taskDigest: string | undefin
     } else gatewayIds.add(receipt.gatewayRequestId);
     receipts.set(receipt.executionId, receipt);
   }
-  const callIds = new Set<string>(); const roleCounts: Record<string, number> = {};
+  const callIds = new Set<string>();
   let costUsd = 0; let inputTokens = 0; let outputTokens = 0;
   for (const item of calls) {
     if (!isRecord(item) || !nonempty(item.executionId)) { problems.push(`${name} duplicate or missing call identity`); continue; }
     const call = item as unknown as PiCostCall;
     if (callIds.has(call.executionId)) { problems.push(`${name} duplicate or missing call identity`); continue; }
-    callIds.add(call.executionId); roleCounts[call.role] = (roleCounts[call.role] ?? 0) + 1;
+    callIds.add(call.executionId);
+    const actor = actors.get(call.actorExecutionId);
+    if (!actor || actor.role !== call.role || actor.provider !== call.provider || actor.model !== call.model) {
+      problems.push(`${name} gateway call actor binding mismatch`);
+    }
     if (call.provider !== routePolicy?.provider || routePolicy?.roleModels[call.role] !== call.model) {
       problems.push(`${name} undeclared route ${String(call.role)}:${String(call.provider)}/${String(call.model)}`);
     }
@@ -191,7 +241,8 @@ function validateArm(name: string, rawArm: unknown, taskDigest: string | undefin
       problems.push(`${name} receipt price version mismatch`);
     }
     if (receipt.settlementStatus !== "settled") problems.push(`${name} receipt is not settled`);
-    if (receipt.role !== call.role || receipt.provider !== call.provider || receipt.model !== call.model) problems.push(`${name} receipt route mismatch`);
+    if (receipt.actorExecutionId !== call.actorExecutionId || receipt.role !== call.role
+      || receipt.provider !== call.provider || receipt.model !== call.model) problems.push(`${name} receipt route mismatch`);
     for (const [field, value] of [["inputTokens", receipt.inputTokens], ["outputTokens", receipt.outputTokens],
       ["customerCostUsd", receipt.customerCostUsd]] as const) if (!finiteNonnegative(value)) problems.push(`${name} receipt ${field} invalid`);
     if (!safeToken(call.inputTokens) || !safeToken(call.outputTokens)
@@ -202,22 +253,26 @@ function validateArm(name: string, rawArm: unknown, taskDigest: string | undefin
   for (const [role, count] of Object.entries(roleCountPolicy)) if (roleCounts[role] !== count) problems.push(`${name} role denominator mismatch: ${role}`);
   for (const role of Object.keys(roleCounts)) if (!(role in roleCountPolicy)) problems.push(`${name} undeclared role denominator: ${role}`);
   for (const id of receipts.keys()) if (!callIds.has(id)) problems.push(`${name} unbound receipt ${id}`);
-  if (!isRecord(arm.localBudget) || arm.localBudget.activeReservations !== 0 || arm.localBudget.paidCalls !== calls.length) {
+  if (!isRecord(arm.localBudget) || arm.localBudget.activeReservations !== 0
+    || arm.localBudget.paidCalls !== actorAttempts.length) {
     problems.push(`${name} local budget denominator mismatch`);
   }
   return { status: String(arm.status), qualityScore: verificationPassed ? 1 : 0, verificationPassed,
-    checkpointRestored, callCount: calls.length, inputTokens, outputTokens, costUsd,
-    executionIds: [...callIds], gatewayRequestIds: [...gatewayIds] };
+    checkpointRestored, actorAttemptCount: actorAttempts.length, gatewayCallCount: calls.length,
+    inputTokens, outputTokens, costUsd,
+    executionIds: [...actors.keys(), ...callIds], gatewayRequestIds: [...gatewayIds] };
 }
 
 function validateCombinedBudget(candidate: ArmSummary, control: ArmSummary,
   policy: PiCostComparisonEvidence["budgetPolicy"] | undefined, problems: string[]): void {
-  if (!policy || !Number.isSafeInteger(policy.maximumCombinedPaidCalls) || policy.maximumCombinedPaidCalls <= 0
+  if (!policy || !Number.isSafeInteger(policy.maximumCombinedActorAttempts) || policy.maximumCombinedActorAttempts <= 0
+    || !Number.isSafeInteger(policy.maximumCombinedGatewayCalls) || policy.maximumCombinedGatewayCalls <= 0
     || !finitePositive(policy.maximumCombinedUsd) || !Number.isSafeInteger(policy.maximumInputTokens) || policy.maximumInputTokens <= 0
     || !Number.isSafeInteger(policy.maximumOutputTokens) || policy.maximumOutputTokens <= 0) {
     problems.push("combined budget policy invalid"); return;
   }
-  if (candidate.callCount + control.callCount > policy.maximumCombinedPaidCalls) problems.push("combined paid-call cap exceeded");
+  if (candidate.actorAttemptCount + control.actorAttemptCount > policy.maximumCombinedActorAttempts) problems.push("combined actor-attempt cap exceeded");
+  if (candidate.gatewayCallCount + control.gatewayCallCount > policy.maximumCombinedGatewayCalls) problems.push("combined gateway-call cap exceeded");
   if (candidate.costUsd + control.costUsd > policy.maximumCombinedUsd) problems.push("combined USD cap exceeded");
   if (candidate.inputTokens + control.inputTokens > policy.maximumInputTokens) problems.push("combined input-token cap exceeded");
   if (candidate.outputTokens + control.outputTokens > policy.maximumOutputTokens) problems.push("combined output-token cap exceeded");
@@ -246,7 +301,7 @@ function finitePositive(value: unknown): value is number { return finiteNonnegat
 function safeToken(value: unknown): value is number { return typeof value === "number" && Number.isSafeInteger(value) && value >= 0; }
 
 function unavailable(benchmarkId: unknown, problems: readonly string[]): PiCostComparisonResult {
-  return { schemaVersion: 1, benchmarkId: typeof benchmarkId === "string" && benchmarkId ? benchmarkId : "unknown",
+  return { schemaVersion: 2, benchmarkId: typeof benchmarkId === "string" && benchmarkId ? benchmarkId : "unknown",
     status: "unavailable", structuralOutcome: "invalid", scope: "frozen paired engineering case only",
     costEfficiencyClaimAllowed: false, qualityNonInferior: false, costImproved: false, problems };
 }

@@ -11,13 +11,15 @@
 import { execSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { TaskSpec, SubAgentEvent } from "../domain/orchestration.js";
 import type { SubAgentPort, SubAgentSession } from "../ports/orchestration.js";
 import {
   NAIA_PI_PROVIDER, buildNaiaPiChildEnv, ensureNaiaPiConfig, isNaiaPiModel,
 } from "./naia-pi-provider.js";
+import { initializeNaiaPiReceiptJournal, readNaiaPiReceiptJournal,
+  type GatewayRequestBudgetPolicy } from "./naia-pi-versioned-billing.js";
 import {
   DEFAULT_HARD_KILL_DEADLINE_MS, defaultSpawn, spawnSubprocessSession, endedSession,
   type SpawnFn, type ResolvedBin, pickSpawnableBin, resolveSpawnableBin, resolveFallbackCommand,
@@ -35,6 +37,8 @@ export interface SubAgentPiOptions {
   readonly piConfigDir?: string;
   /** Provider-enforced maximum output tokens per model response when using the Naia custom catalog. */
   readonly maxOutputTokens?: number;
+  /** Optional shared durable request-level ceiling, enforced inside the Naia billing fetch before network I/O. */
+  readonly gatewayBudget?: { readonly path: string; readonly policy: GatewayRequestBudgetPolicy };
   /** hard-kill 유예(ms) override. 기본 500. 테스트가 단축. */
   readonly hardKillDeadlineMs?: number;
   /** bin 해석 주입(테스트/override). 미주입 = resolvePiBin(env→node_modules→PATH→npx). */
@@ -198,21 +202,60 @@ function validPiUsage(value: NonNullable<RawPiEvent["message"]>["usage"]): { inp
 
 export function makeCumulativePiLineParser(
   expected?: { provider: string; model: string }, identity?: { sessionId: string; executionId: string },
+  receiptPath?: string,
 ): (line: string) => readonly SubAgentEvent[] {
   let inputTokens = 0; let cachedInputTokens = 0; let outputTokens = 0; let totalTokens = 0;
   let estimatedCost = 0; let usageComplete = true; let pricedComplete = true;
-  return (line) => piLineToEvents(line, expected, identity).map((event) => {
-    if (event.kind !== "model_evidence") return event;
-    const current = event.evidence;
-    usageComplete &&= current.usageAvailable === true;
-    pricedComplete &&= current.piEstimatedCost !== undefined;
-    inputTokens += current.inputTokens; cachedInputTokens += current.cachedInputTokens ?? 0;
-    outputTokens += current.outputTokens; totalTokens += current.totalTokens;
-    estimatedCost += current.piEstimatedCost ?? 0;
-    return { kind: "model_evidence" as const, evidence: { ...current,
-      usageAvailable: usageComplete, inputTokens, cachedInputTokens, outputTokens, totalTokens,
-      ...(pricedComplete ? { piEstimatedCost: estimatedCost } : {}) } };
-  });
+  let providerTurns = 0;
+  return (line) => {
+    const output: SubAgentEvent[] = [];
+    for (const event of piLineToEvents(line, expected, identity)) {
+      if (event.kind !== "model_evidence") { output.push(event); continue; }
+      const current = event.evidence;
+      providerTurns += 1;
+      let gatewayBillingReceipts = current.gatewayBillingReceipts;
+      let measuredCostUsd = current.measuredCostUsd;
+      if (receiptPath && identity && expected?.provider === NAIA_PI_PROVIDER) {
+        try {
+          const journal = readNaiaPiReceiptJournal(receiptPath, identity.executionId);
+          if (journal.entries.length !== providerTurns) throw new Error("receipt count does not match Pi provider turns");
+          const latest = journal.entries.at(-1)!.receipt;
+          if (latest.provider !== expected.provider || latest.model !== expected.model
+            || latest.inputTokens + latest.cachedInputTokens !== current.inputTokens + (current.cachedInputTokens ?? 0)
+            || latest.outputTokens !== current.outputTokens || latest.totalTokens !== current.totalTokens) {
+            throw new Error("receipt route or token usage does not match Pi message evidence");
+          }
+          gatewayBillingReceipts = journal.entries.map((entry) => entry.receipt);
+          measuredCostUsd = sumGatewayCustomerCost(gatewayBillingReceipts);
+        } catch (error) {
+          output.push(event, { kind: "session_end", ok: false,
+            reason: `Naia Pi billing receipt unavailable: ${error instanceof Error ? error.message : String(error)}` });
+          continue;
+        }
+      }
+      usageComplete &&= current.usageAvailable === true;
+      pricedComplete &&= current.piEstimatedCost !== undefined;
+      inputTokens += current.inputTokens; cachedInputTokens += current.cachedInputTokens ?? 0;
+      outputTokens += current.outputTokens; totalTokens += current.totalTokens;
+      estimatedCost += current.piEstimatedCost ?? 0;
+      output.push({ kind: "model_evidence", evidence: { ...current,
+        usageAvailable: usageComplete, inputTokens, cachedInputTokens, outputTokens, totalTokens,
+        ...(pricedComplete ? { piEstimatedCost: estimatedCost } : {}),
+        ...(measuredCostUsd !== undefined ? { measuredCostUsd } : {}),
+        ...(gatewayBillingReceipts ? { gatewayBillingReceipts } : {}) } });
+    }
+    return output;
+  };
+}
+
+function sumGatewayCustomerCost(receipts: readonly import("../domain/orchestration.js").GatewayBillingReceipt[]): number {
+  let units = 0n;
+  for (const receipt of receipts) {
+    const [whole, fraction = ""] = receipt.customerCostDecimal.split(".");
+    units += BigInt(whole!) * 100_000_000n + BigInt(fraction.padEnd(8, "0"));
+  }
+  if (units > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error("gateway customer-cost aggregate exceeds safe range");
+  return Number(units) / 100_000_000;
 }
 
 /** SubAgentPort 의 pi 구현. pi CLI 1회 실행을 sub-agent 세션으로 spawn. */
@@ -226,6 +269,7 @@ export function makePiSubAgent(opts: SubAgentPiOptions = {}): SubAgentPort {
       const model = opts.model ?? task.model;
       const naiaModel = isNaiaPiModel(model);
       const provider = opts.provider ?? (naiaModel ? NAIA_PI_PROVIDER : undefined);
+      const identity = { sessionId: randomUUID(), executionId: randomUUID() };
       if (naiaModel && provider !== NAIA_PI_PROVIDER) {
         return endedSession(`Naia model '${model}' cannot use direct provider '${provider}'`);
       }
@@ -233,6 +277,7 @@ export function makePiSubAgent(opts: SubAgentPiOptions = {}): SubAgentPort {
         return endedSession("deepseek-v4-pro is analysis-only; rerun with --no-tools");
       }
       let childEnv: NodeJS.ProcessEnv | undefined;
+      let receiptPath: string | undefined;
       if (naiaModel) {
         const key = (sourceEnv["NAIA_API_KEY"] ?? sourceEnv["NAIA_ANYLLM_API_KEY"])?.trim();
         if (!key) return endedSession("NAIA_API_KEY is required; run 'naia-agent login --provider naia'");
@@ -242,7 +287,17 @@ export function makePiSubAgent(opts: SubAgentPiOptions = {}): SubAgentPort {
             baseUrl: sourceEnv["NAIA_ANYLLM_BASE_URL"] ?? sourceEnv["NAIA_GATEWAY_URL"],
             ...(opts.maxOutputTokens ? { maxTokens: opts.maxOutputTokens } : {}),
           });
-          childEnv = buildNaiaPiChildEnv(sourceEnv, configDir, key);
+          const reservedOutputTokens = opts.maxOutputTokens ?? 4_096;
+          const gatewayBudget = opts.gatewayBudget ?? {
+            path: join(configDir, "gateway-budgets", `${identity.executionId}.db`),
+            policy: { maxGatewayCalls: 8, maxUsd: 0.2, maxInputTokens: 32_000,
+              maxOutputTokens: reservedOutputTokens * 8,
+              requestAllowance: { reservedUsd: 0.025, reservedInputTokens: 4_000, reservedOutputTokens } },
+          };
+          receiptPath = join(configDir, "receipts", `${identity.executionId}.json`);
+          initializeNaiaPiReceiptJournal(receiptPath, identity.executionId);
+          childEnv = buildNaiaPiChildEnv(sourceEnv, configDir, key, { executionId: identity.executionId,
+            receiptPath, gatewayBudget });
         } catch (e) {
           return endedSession(`naia pi configuration failed: ${(e as Error).message}`);
         }
@@ -255,13 +310,17 @@ export function makePiSubAgent(opts: SubAgentPiOptions = {}): SubAgentPort {
         return endedSession(`pi unavailable: ${(e as Error).message}`);
       }
       const args: string[] = ["-p", task.prompt, "--mode", "json", "--no-session"];
+      if (naiaModel) {
+        const extension = resolve(dirname(fileURLToPath(import.meta.url)), "../../../scripts/pi/naia-versioned-billing-extension.mjs");
+        if (!existsSync(extension)) return endedSession("Naia Pi billing extension is unavailable; run the packaged Agent build");
+        args.push("--no-extensions", "--extension", extension);
+      }
       if (provider) args.push("--provider", provider);
       if (model) args.push("--model", model);
       if (opts.noTools === true) args.push("--no-tools");
       else if (task.filesystemAccess === "read_only") args.push("--tools", "read,grep,find,ls");
-      const identity = { sessionId: randomUUID(), executionId: randomUUID() };
       const expected = provider && model ? { provider, model } : undefined;
-      const lineToEvent = makeCumulativePiLineParser(expected, identity);
+      const lineToEvent = makeCumulativePiLineParser(expected, identity, receiptPath);
       return spawnSubprocessSession({
         spawnFn, bin, args, cwd: task.workdir, ...(childEnv ? { env: childEnv } : {}), hardKillMs,
         lineToEvent,

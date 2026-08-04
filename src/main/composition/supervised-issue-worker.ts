@@ -62,8 +62,10 @@ export function makeSupervisedIssueWorker(options: SupervisedIssueWorkerOptions)
         outputTokens: evidence.usageAvailable === true ? evidence.outputTokens : 0,
         latencyMs: Math.max(0, finishedAt - startedAt),
         ...(evidence.modelEvidenceSource ? { modelEvidenceSource: evidence.modelEvidenceSource } : {}),
+        ...(evidence.gatewayBillingReceipts ? { gatewayBillingReceipts: evidence.gatewayBillingReceipts } : {}),
         cost: evidence.usageAvailable === true && evidence.measuredCostUsd !== undefined
-          ? { state: "measured", usd: evidence.measuredCostUsd, source: "codex_usage_and_pinned_price" }
+          ? { state: "measured", usd: evidence.measuredCostUsd, source: evidence.gatewayBillingReceipts
+            ? "gateway_versioned_customer_billing" : "codex_usage_and_pinned_price" }
           : { state: "unavailable", reason: "worker adapter did not receive priced usage" },
       };
       if (evidence.provider !== expectedBinding.provider || evidence.selectedModel !== expectedBinding.model

@@ -28,6 +28,18 @@ function receipt(key: string, usd = 0.2, inputTokens = 200, outputTokens = 100):
     cachedInputTokens: 0, outputTokens, latencyMs: 1, modelEvidenceSource: "provider_reported",
     cost: { state: "measured", usd, source: "fixture" } };
 }
+function gatewayReceipt(key: string): ActorReceipt {
+  const base = receipt(key);
+  return { ...base,
+    cost: { state: "measured", usd: 0.2, source: "gateway_versioned_customer_billing" },
+    gatewayBillingReceipts: [{ source: "gateway_versioned_customer_billing",
+      executionId: base.executionId, localRequestId: `${base.executionId}:call:1`,
+      gatewayRequestId: `gateway-${key}`, gatewayAttempt: 1, provider: base.provider, model: base.model,
+      inputTokens: 200, cachedInputTokens: 0, outputTokens: 100, totalTokens: 300,
+      customerCostDecimal: "0.20000000", customerCostUsd: 0.2, priceVersionId: "price-v1",
+      currency: "USD", settlementStatus: "settled" }],
+  };
+}
 
 describe("SQLite paid-call budget", () => {
   it("persists settled and unresolved charges across restart", () => {
@@ -73,6 +85,25 @@ describe("SQLite paid-call budget", () => {
     expect(() => budget.settle("a", missing)).toThrow(PaidCallReceiptUnavailableError);
     expect(budget.snapshot()).toMatchObject({ activeReservations: 1, chargedUsd: 0.4 });
     budget.close();
+  });
+
+  it("settles exact gateway rows and rejects route, token, or aggregate drift", () => {
+    const { budget } = create(); budget.reserve(reservation("a"));
+    budget.settle("a", gatewayReceipt("a"));
+    expect(budget.snapshot()).toMatchObject({ activeReservations: 0, chargedUsd: 0.2, costBasis: "measured" });
+    budget.close();
+
+    for (const mutate of [
+      (value: ActorReceipt) => ({ ...value, gatewayBillingReceipts: value.gatewayBillingReceipts?.map((row) => ({ ...row, gatewayRequestId: "" })) }),
+      (value: ActorReceipt) => ({ ...value, gatewayBillingReceipts: value.gatewayBillingReceipts?.map((row) => ({ ...row, outputTokens: 99 })) }),
+      (value: ActorReceipt) => ({ ...value, cost: { state: "measured" as const, usd: 0.3, source: "gateway_versioned_customer_billing" } }),
+    ]) {
+      const next = create(); next.budget.reserve(reservation("b"));
+      expect(() => next.budget.settle("b", mutate(gatewayReceipt("b"))))
+        .toThrow(/gateway/u);
+      expect(next.budget.snapshot().activeReservations).toBe(1);
+      next.budget.close();
+    }
   });
 
   it("binds an existing database to one immutable policy", () => {

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { GatewayRequestBudgetPolicy } from "./naia-pi-versioned-billing.js";
 
 export const NAIA_PI_PROVIDER = "naia";
 export const NAIA_PI_MODELS = ["grok-4.3", "deepseek-v4-pro"] as const;
@@ -54,10 +55,18 @@ const CHILD_ENV_ALLOWLIST = [
 ] as const;
 
 /** Build a child-only environment that cannot inherit unrelated provider credentials or global Pi routing. */
-export function buildNaiaPiChildEnv(source: NodeJS.ProcessEnv, configDir: string, naiaApiKey: string): NodeJS.ProcessEnv {
+export function buildNaiaPiChildEnv(source: NodeJS.ProcessEnv, configDir: string, naiaApiKey: string,
+  billing?: { readonly executionId: string; readonly receiptPath: string;
+    readonly gatewayBudget: { readonly path: string; readonly policy: GatewayRequestBudgetPolicy } }): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const key of CHILD_ENV_ALLOWLIST) if (source[key] !== undefined) env[key] = source[key];
   env["PI_CODING_AGENT_DIR"] = configDir;
   env["NAIA_API_KEY"] = naiaApiKey;
+  if (billing) {
+    env["NAIA_PI_EXECUTION_ID"] = billing.executionId;
+    env["NAIA_PI_RECEIPT_PATH"] = billing.receiptPath;
+    env["NAIA_PI_GATEWAY_BUDGET_PATH"] = billing.gatewayBudget.path;
+    env["NAIA_PI_GATEWAY_BUDGET_POLICY"] = JSON.stringify(billing.gatewayBudget.policy);
+  }
   return env;
 }

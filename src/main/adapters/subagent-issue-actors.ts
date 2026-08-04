@@ -224,8 +224,10 @@ async function runJson(options: JsonActorOptions, role: ActorReceipt["role"], id
     ...(evidence.modelEvidenceSource ? { modelEvidenceSource: evidence.modelEvidenceSource } : {}),
     ...(evidence.piEstimatedCost !== undefined
       ? { estimatedCostUsd: evidence.piEstimatedCost, estimatedCostSource: "pi_catalog" as const } : {}),
+    ...(evidence.gatewayBillingReceipts ? { gatewayBillingReceipts: evidence.gatewayBillingReceipts } : {}),
     cost: usageAvailable && evidence.measuredCostUsd !== undefined
-      ? { state: "measured", usd: evidence.measuredCostUsd, source: "subagent_usage_and_pinned_price" }
+      ? { state: "measured", usd: evidence.measuredCostUsd, source: evidence.gatewayBillingReceipts
+        ? "gateway_versioned_customer_billing" : "subagent_usage_and_pinned_price" }
       : { state: "unavailable", reason: "actor adapter did not receive priced usage" },
   };
   if (evidence.provider !== options.binding.provider || evidence.selectedModel !== options.binding.model

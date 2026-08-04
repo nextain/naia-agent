@@ -45,6 +45,8 @@ export interface ActorReceipt {
   /** Pi-local priced-usage estimate; operational budgeting only, never a provider invoice claim. */
   readonly estimatedCostUsd?: number;
   readonly estimatedCostSource?: "pi_catalog";
+  /** Exact request-level gateway settlement evidence retained for audit/benchmark extraction. */
+  readonly gatewayBillingReceipts?: readonly import("./orchestration.js").GatewayBillingReceipt[];
   readonly workerRole?: import("./issue-team.js").IssueTeamRole;
   readonly agentProfileId?: string;
   readonly agentKind?: import("./issue-team.js").IssueTeamAgentKind;

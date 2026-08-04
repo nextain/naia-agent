@@ -61,5 +61,13 @@ describe("Pi-only continuous loop contract", () => {
     const live = readFileSync(new URL("../../benchmark/run-pi-continuous-loop-live.mjs", import.meta.url), "utf8");
     expect(live).not.toContain(".pathname");
     expect(live).toContain("import(new URL(");
+    expect(live).toContain("durable --output path is required for paid smoke");
+    expect(live).toContain("initializeGatewayRequestBudget");
+    expect(live).toContain('status: "unavailable"');
+    expect(live).not.toContain("rmSync(root");
+    const guardedSetup = live.indexOf("try {", live.indexOf("let budget; let billing"));
+    expect(guardedSetup).toBeGreaterThan(0);
+    expect(live.indexOf('await import(new URL("adapters/subagent-pi.js"', guardedSetup)).toBeGreaterThan(guardedSetup);
+    expect(live.indexOf("initializeGatewayRequestBudget", guardedSetup)).toBeGreaterThan(guardedSetup);
   });
 });

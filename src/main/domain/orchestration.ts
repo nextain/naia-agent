@@ -50,6 +50,29 @@ export interface SubAgentModelEvidence {
   readonly sessionId?: string;
   readonly executionId?: string;
   readonly measuredCostUsd?: number;
+  /** Request-level atomic gateway receipts. Operational evidence; not an independent attestation. */
+  readonly gatewayBillingReceipts?: readonly GatewayBillingReceipt[];
+}
+
+export interface GatewayBillingReceipt {
+  readonly source: "gateway_versioned_customer_billing";
+  readonly executionId: string;
+  readonly localRequestId: string;
+  readonly gatewayRequestId: string;
+  readonly gatewayAttempt: number;
+  readonly provider: string;
+  readonly model: string;
+  readonly responseModel?: string;
+  readonly responseId?: string;
+  readonly inputTokens: number;
+  readonly cachedInputTokens: number;
+  readonly outputTokens: number;
+  readonly totalTokens: number;
+  readonly customerCostDecimal: string;
+  readonly customerCostUsd: number;
+  readonly priceVersionId: string;
+  readonly currency: string;
+  readonly settlementStatus: "settled";
 }
 
 /** 워크스페이스 변경 요약(semantic) — 구 WorkspaceChange 스트림의 *집계 스냅샷*. 어떤 파일이
