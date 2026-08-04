@@ -754,6 +754,10 @@ The Agent and Gateway preserve these codes end to end:
   accepts only a separate pins file bound to its benchmark and task digests for price versions, key ID,
   and the absolute Git executable path/digest;
   the immutable contract must also pin the SHA-256 of that exact pins file before any paid call.
+  A deterministic preparation command creates a pins file and a derived contract without network or
+  paid calls; the derived contract is accepted only when every field except `pinsDigest` is structurally
+  equal under canonical JSON comparison to the repository contract. Runner and analyzer must consume the same derived
+  contract and pins pair.
   Missing authority, a wrong key, post-run mutation, omitted or replayed rows,
   and a changed contract binding make the result `unavailable`. A valid attestation may enable
   `costEfficiencyClaimAllowed` only inside this frozen paired-engineering-case scope. The gateway

@@ -86,6 +86,9 @@ frozen task contract; an arbitrary caller-supplied pins file has no authority.
 It enables a claim only for the frozen internal case after that verification. The current gateway
 response remains unsigned, so this does not establish a provider-issued public attestation. Live
 evidence remains unavailable until the credential, model price-version IDs, and HMAC key ID are pinned.
+`prepare-pi-cost-pins.mjs` creates the exact pins file and a derived contract with zero network and paid
+calls. The derived loader permits only `pinsDigest` to differ from repository SoT, and both live runner
+and analyzer consume the same `--contract`/`--pins` pair.
 The HMAC key is removed from all model, verifier, digest, and Git child environments; benchmark Git also
 ignores system/global configuration and uses an isolated empty hook path.
 The pinned file additionally binds an absolute Git executable and SHA-256. The runner rechecks that binary

@@ -232,9 +232,31 @@ naia-agent loop budget --config /private/path/loop.json
 예시의 DeepSeek 역할은 분석 전용(`--no-tools`)이고 구현은 도구 사용 가능한 Grok 역할이다.
 공개 Azure 표에 숫자 가격이 보이지 않으므로 예시 한도는 가격 주장이 아닌 보수적 운영 상한이다.
 
-비용 비교 계약은 `benchmark/orchestration/pi-cost-comparison.json`에 고정되어 있다. 빌드 후
-가격 버전, HMAC 키 ID, 절대 Git 경로와 Git 바이너리 SHA-256을 담은 별도 pins 파일을 준비하고 그 파일 전체의 SHA-256을 정본 계약에 먼저 고정한 뒤
-`node benchmark/analyze-pi-cost-comparison.mjs --pins <pins.json> --evidence <provider-bound.json>`으로 판정한다.
+비용 비교 계약은 `benchmark/orchestration/pi-cost-comparison.json`에 고정되어 있다. 실제 호출 전에
+외부 HMAC 키와 Naia gateway에서 확인한 정확한 price-version ID를 사용해 pins와 파생 계약을 만든다.
+
+```bash
+NAIA_BENCHMARK_JOURNAL_KEY='<32바이트 이상 외부 키>' \
+node benchmark/prepare-pi-cost-pins.mjs \
+  --git /usr/bin/git \
+  --price-version deepseek-v4-flash=<gateway-price-version-id> \
+  --price-version grok-4.3=<gateway-price-version-id> \
+  --output-pins /private/pi-cost-pins.json \
+  --output-contract /private/pi-cost-contract.json
+```
+
+준비 명령은 유료 호출을 하지 않고 pins 전체 SHA-256을 `pinsDigest`로 결박한 파생 계약을 생성한다.
+파생 계약은 정본에서 `pinsDigest`만 달라질 수 있다. 이후 이 두 파일을 같은 실행과 분석에 사용한다.
+
+```bash
+NAIA_PI_COST_CONFIRM=1 NAIA_API_KEY='<key>' NAIA_BENCHMARK_JOURNAL_KEY='<same-key>' \
+node benchmark/run-pi-cost-comparison-live.mjs \
+  --contract /private/pi-cost-contract.json --pins /private/pi-cost-pins.json \
+  --confirm-paid-comparison --output /private/pi-cost-result.json
+NAIA_BENCHMARK_JOURNAL_KEY='<same-key>' node benchmark/analyze-pi-cost-comparison.mjs \
+  --contract /private/pi-cost-contract.json --pins /private/pi-cost-pins.json \
+  --evidence /private/pi-cost-result.json
+```
 동일 과제·동일 역할 시도 구조·체크포인트 재개·결정론 검증을 모두 통과하고, 각 실제 도구 루프 호출이 gateway request
 ID와 price version에 결박된 실제 customer billing 영수증을 가져야만 절감 판정을 허용한다.
 증거 없이 실행하면 유료 호출 0건의 `unavailable`을 반환하며 Pi 추정가나 시간창 로그 차액은

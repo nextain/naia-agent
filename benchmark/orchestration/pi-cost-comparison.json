@@ -25,6 +25,8 @@
     "benchmark/analyze-pi-cost-comparison.mjs",
     "benchmark/pi-cost-runtime-trust.mjs",
     "benchmark/pi-cost-git-isolation.mjs",
+    "benchmark/pi-cost-contract.mjs",
+    "benchmark/prepare-pi-cost-pins.mjs",
     "benchmark/digest-tree.mjs",
     "scripts/pi/naia-versioned-billing-extension.mjs",
     "scripts/pi/workspace-tool-boundary.mjs",
@@ -60,8 +62,8 @@
     }
   },
   "trustedRuntimeClosure": {
-    "fileCount": 3651,
-    "manifestDigest": "sha256:215a473123790efa6b403bcee5de0b119888b04be729c298816a40dce9345479"
+    "fileCount": 3653,
+    "manifestDigest": "sha256:8ecd8b7c7f0f4dc8f13641a4792d3506170ae1f677a00564f38ffc2cbd74c027"
   },
   "minimumSavingsBasisPoints": 1000,
   "quality": {

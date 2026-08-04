@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "benchmarkId": "pi-continuous-loop-deterministic-v1",
-  "sourceTreeDigest": "6d7cf1c5d481f0706fb13053aac926d17ca14dfeee5e7910c7cf2cd39a015208",
+  "sourceTreeDigest": "ec6b9661c470ab8a652bab6f0ad4b992665a6ed510a65cf1f42d2db59565c59b",
   "executionTreeDigest": "6799b10d43e1897d64f56cf33b03c638876eabaf8f143c1cd2adf5753a807d96",
   "paidCalls": 0,
   "gates": {
@@ -314,7 +314,7 @@
     "trackedInputs": {
       "benchmark/orchestration/pi-continuous-loop-deterministic.json": "c60d467ef1cb5f3359cb054b8e794df1bacd0618295fcea7f2331918d53dcc4e",
       "benchmark/run-pi-continuous-loop-deterministic.mjs": "667609b0170e08016f06ffe7591989ddef5f75fb94a6db4d6eff604cb1e87193",
-      "package.json": "b979b44c2934a183601e8ea46dd64146fda1fda53b682ecdbfdda0454bb64110",
+      "package.json": "a3e758ab75c8e3c9514b726d0fe576c671a7c69e880b9500767ae3dac75717d4",
       "pnpm-lock.yaml": "1a1852e1492d2f5643662470b81695d90952c0f1703f0ccedd1db08eb84b44a7",
       "src/main/adapters/coding-job-worktree.ts": "4d81139293c3ec1d97b9a45aefe07e0d6a4f6b09ab716b880d967950092785b8",
       "src/main/adapters/diagnostic.ts": "aa961b9fea24ff3ad7f8782b6ba893e656ec46576bd04b2d2ec0ee1e635d2159",

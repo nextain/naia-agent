@@ -6,16 +6,13 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 import { installBenchmarkProcessIsolation, makeBenchmarkGitInvocation,
   withoutBenchmarkCredentials, withoutBenchmarkIntegrityKey } from "./pi-cost-git-isolation.mjs";
+import { loadPiCostContract } from "./pi-cost-contract.mjs";
 import { assertTrustedRuntimeFileSetUnchanged, assertTrustedRuntimeUnchanged, captureTrustedRuntimeDigests, collectTrustedRuntimeFiles,
   collectTrustedExecutableFiles, collectTrustedPackageFiles, trustedRuntimeManifestDigest } from "./pi-cost-runtime-trust.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
-const baseContract = JSON.parse(readFileSync(new URL("./orchestration/pi-cost-comparison.json", import.meta.url), "utf8"));
-const pinsIndex = process.argv.indexOf("--pins");
-if (pinsIndex >= 0 && (!process.argv[pinsIndex + 1] || process.argv[pinsIndex + 1].startsWith("--"))) {
-  throw new Error("--pins requires a path");
-}
-const contract = applyPins(baseContract, pinsIndex >= 0 ? resolve(process.argv[pinsIndex + 1]) : undefined);
+const contract = loadPiCostContract(process.argv.slice(2),
+  new URL("./orchestration/pi-cost-comparison.json", import.meta.url));
 const fixture = fileURLToPath(new URL("./fixtures/pi-cost-comparison/base", import.meta.url));
 const outputIndex = process.argv.indexOf("--output");
 const outputArgument = outputIndex >= 0 ? process.argv[outputIndex + 1] : undefined;
@@ -320,29 +317,6 @@ function sortJson(value) {
   if (value && typeof value === "object") return Object.fromEntries(Object.keys(value).sort()
     .map((key) => [key, sortJson(value[key])]));
   return value;
-}
-function applyPins(base, path) {
-  if (!path) return base;
-  const rawPins = readFileSync(path, "utf8"); const pins = JSON.parse(rawPins);
-  const actualPinsDigest = `sha256:${createHash("sha256").update(rawPins).digest("hex")}`;
-  const expectedModels = Object.keys(base.receiptAuthority.priceVersionByModel).sort();
-  const actualModels = pins.priceVersionByModel && typeof pins.priceVersionByModel === "object"
-    ? Object.keys(pins.priceVersionByModel).sort() : [];
-  if (pins.schemaVersion !== 1 || pins.benchmarkId !== base.benchmarkId || pins.taskDigest !== base.taskDigest
-    || typeof base.receiptAuthority.authentication.pinsDigest !== "string"
-    || base.receiptAuthority.authentication.pinsDigest !== actualPinsDigest
-    || typeof pins.harnessJournalKeyId !== "string" || !pins.harnessJournalKeyId
-    || typeof pins.gitExecutablePath !== "string" || !pins.gitExecutablePath
-    || !/^sha256:[0-9a-f]{64}$/u.test(pins.gitExecutableDigest)
-    || !sameStrings(actualModels, expectedModels)
-    || Object.values(pins.priceVersionByModel).some((value) => typeof value !== "string" || !value)) {
-    throw new Error("benchmark pins are not bound to the frozen contract");
-  }
-  return { ...base, executionAuthority: { ...base.executionAuthority,
-    git: { path: pins.gitExecutablePath, digest: pins.gitExecutableDigest, source: "contract-bound-pins" } },
-    receiptAuthority: { ...base.receiptAuthority,
-    authentication: { ...base.receiptAuthority.authentication, harnessJournalKeyId: pins.harnessJournalKeyId,
-      status: "journal_key_pinned" }, priceVersionByModel: pins.priceVersionByModel } };
 }
 function writePayload(payload) {
   const serialized = `${JSON.stringify(payload, null, 2)}\n`;

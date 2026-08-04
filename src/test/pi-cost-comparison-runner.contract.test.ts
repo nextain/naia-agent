@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { delimiter, join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 import { attestPiCostEvidence, piCostIntegrityKeyId } from "../main/adapters/pi-cost-attestation.js";
 
@@ -11,6 +11,7 @@ const runnerPath = join(root, "benchmark/run-pi-cost-comparison-live.mjs");
 const contractPath = join(root, "benchmark/orchestration/pi-cost-comparison.json");
 const fixturePath = join(root, "benchmark/fixtures/pi-cost-comparison/base");
 const digestRunnerPath = join(root, "benchmark/digest-tree.mjs");
+const preparePinsPath = join(root, "benchmark/prepare-pi-cost-pins.mjs");
 
 describe("Pi live cost-comparison runner", () => {
   it("pins the exact frozen fixture and task before any paid arm", () => {
@@ -29,7 +30,8 @@ describe("Pi live cost-comparison runner", () => {
     expect(contract.executionAuthority.git).toMatchObject({ path: null, digest: null, source: "contract-bound-pins" });
     expect(contract.trustedRuntimeArtifacts).toEqual(expect.arrayContaining([
       "benchmark/run-pi-cost-comparison-live.mjs", "benchmark/analyze-pi-cost-comparison.mjs",
-      "benchmark/pi-cost-runtime-trust.mjs", "benchmark/pi-cost-git-isolation.mjs",
+      "benchmark/pi-cost-runtime-trust.mjs", "benchmark/pi-cost-git-isolation.mjs", "benchmark/pi-cost-contract.mjs",
+      "benchmark/prepare-pi-cost-pins.mjs",
       "benchmark/digest-tree.mjs", "scripts/pi/naia-versioned-billing-extension.mjs",
       "scripts/pi/workspace-tool-boundary.mjs", "package.json", "pnpm-lock.yaml",
     ]));
@@ -59,7 +61,9 @@ describe("Pi live cost-comparison runner", () => {
     expect(source).toContain("delete process.env.NAIA_BENCHMARK_JOURNAL_KEY");
     expect(source).toContain("delete process.env.PI_BIN");
     expect(source).toContain("env: withoutBenchmarkIntegrityKey(process.env)");
-    expect(source).toContain("base.receiptAuthority.authentication.pinsDigest !== actualPinsDigest");
+    const contractSource = readFileSync(join(root, "benchmark/pi-cost-contract.mjs"), "utf8");
+    expect(contractSource).toContain("base.receiptAuthority.authentication.pinsDigest !== actualPinsDigest");
+    expect(contractSource).toContain("derived benchmark contract may only bind pinsDigest");
     expect(source.indexOf("attestationModule = await import")).toBeLessThan(source.indexOf('candidate = await runArm'));
     expect(source).toContain("assertTrustedRuntimeUnchanged(trustedRuntimeFiles, trustedRuntimeDigests)");
     expect(source).toContain("built benchmark runtime does not match the frozen trusted closure");
@@ -120,6 +124,43 @@ describe("Pi live cost-comparison runner", () => {
     } finally { rmSync(temporary, { recursive: true, force: true }); }
   });
 
+  it("prepares an exact pins/derived-contract pair without any paid or gateway call", async () => {
+    const temporary = mkdtempSync(join(tmpdir(), "pi-cost-prepare-test-"));
+    const gitName = process.platform === "win32" ? "git.exe" : "git";
+    const gitPath = process.env.PATH?.split(delimiter).map((entry) => join(entry, gitName)).find(existsSync);
+    expect(gitPath).toBeTruthy();
+    try {
+      const pinsPath = join(temporary, "pins.json"); const derivedPath = join(temporary, "contract.json");
+      const env = { PATH: process.env.PATH, TEST_JOURNAL_KEY: "test-journal-integrity-key-000000000000000000" };
+      const args = [preparePinsPath, "--git", realpathSync(gitPath!),
+        "--price-version", "deepseek-v4-flash=price-flash-test",
+        "--price-version", "grok-4.3=price-grok-test", "--journal-key-env", "TEST_JOURNAL_KEY",
+        "--output-pins", pinsPath, "--output-contract", derivedPath];
+      const run = spawnSync(process.execPath, args, { cwd: root, env, encoding: "utf8" });
+      expect(run.status, run.stderr).toBe(0);
+      expect(existsSync(pinsPath)).toBe(true); expect(existsSync(derivedPath)).toBe(true);
+      expect(readFileSync(preparePinsPath, "utf8")).toContain('status: "prepared", paidCalls: 0, gatewayCalls: 0');
+      const pinsBytes = readFileSync(pinsPath, "utf8"); const pins = JSON.parse(pinsBytes);
+      const derived = JSON.parse(readFileSync(derivedPath, "utf8"));
+      expect(derived.receiptAuthority.authentication.pinsDigest)
+        .toBe(`sha256:${createHash("sha256").update(pinsBytes).digest("hex")}`);
+      expect(pins).toMatchObject({ gitExecutablePath: realpathSync(gitPath!),
+        priceVersionByModel: { "deepseek-v4-flash": "price-flash-test", "grok-4.3": "price-grok-test" } });
+      // @ts-expect-error Production benchmark helpers are intentionally plain ESM.
+      const { loadPiCostContract } = await import("../../benchmark/pi-cost-contract.mjs");
+      expect(loadPiCostContract(["--contract", derivedPath, "--pins", pinsPath], contractPath))
+        .toMatchObject({ executionAuthority: { git: { path: realpathSync(gitPath!) } },
+          receiptAuthority: { priceVersionByModel: pins.priceVersionByModel } });
+      const repeated = spawnSync(process.execPath, args, { cwd: root, env, encoding: "utf8" });
+      expect(repeated.status).not.toBe(0);
+      expect(repeated.stderr).toMatch(/already exists/u);
+      const drifted = structuredClone(derived); drifted.minimumSavingsBasisPoints += 1;
+      const driftedPath = join(temporary, "drifted.json"); writeFileSync(driftedPath, JSON.stringify(drifted));
+      expect(() => loadPiCostContract(["--contract", driftedPath], contractPath))
+        .toThrow(/may only bind pinsDigest/u);
+    } finally { rmSync(temporary, { recursive: true, force: true }); }
+  });
+
   it("runs the production analyzer handler with a valid, wrong, and missing external journal key", async () => {
     const temporary = mkdtempSync(join(tmpdir(), "pi-cost-analyzer-test-"));
     const key = "offline-analyzer-integration-key-000000000000000000";
@@ -157,7 +198,8 @@ describe("Pi live cost-comparison runner", () => {
       const evidence = { ...unsigned, attestation: attestPiCostEvidence(unsigned,
         { integrityKey: key, expectedKeyId: pins.harnessJournalKeyId }) };
       const pinsPath = join(temporary, "pins.json"); const evidencePath = join(temporary, "evidence.json");
-      const pinsBytes = JSON.stringify(pins); writeFileSync(pinsPath, pinsBytes); writeFileSync(evidencePath, JSON.stringify(evidence));
+      const pinsBytes = JSON.stringify(pins); writeFileSync(pinsPath, pinsBytes);
+      writeFileSync(evidencePath, JSON.stringify({ evidence, result: { ignoredAnalyzerEnvelopeField: true } }));
       const testContract = structuredClone(contract);
       testContract.receiptAuthority.authentication.pinsDigest =
         `sha256:${createHash("sha256").update(pinsBytes).digest("hex")}`;
