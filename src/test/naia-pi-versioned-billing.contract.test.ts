@@ -8,6 +8,7 @@ import {
   initializeNaiaPiReceiptJournal,
   makeNaiaVersionedBillingFetch,
   readGatewayRequestBudget,
+  readGatewayRequestBudgetEvidence,
   readNaiaPiReceiptJournal,
 } from "../main/adapters/naia-pi-versioned-billing.js";
 import { makeCumulativePiLineParser } from "../main/adapters/subagent-pi.js";
@@ -202,6 +203,11 @@ describe("FR-LOOP-008 Naia Pi atomic versioned billing bridge", () => {
     expect(effects).toBe(1);
     expect(readGatewayRequestBudget(budgetPath, policy)).toMatchObject({ gatewayCalls: 1,
       activeReservations: 0, chargedUsd: 0.00001234, chargedInputTokens: 12, chargedOutputTokens: 4 });
+    expect(readGatewayRequestBudgetEvidence(budgetPath, policy)).toMatchObject({
+      rows: [{ requestId: `naia-pi-${EXECUTION}-1`, status: "settled", actualCostDecimal: "0.00001234",
+        actualInputTokens: 12, actualOutputTokens: 4, receiptDigest: expect.stringMatching(/^sha256:/u) }],
+      snapshot: { gatewayCalls: 1, activeReservations: 0, chargedUsdDecimal: "0.00001234" },
+    });
   });
 
   it("retains the exact paid receipt when actual usage exceeds its conservative reservation", async () => {
@@ -224,7 +230,7 @@ describe("FR-LOOP-008 Naia Pi atomic versioned billing bridge", () => {
     expect(effects).toBe(1);
   });
 
-  it("is consumed by the real Pi OpenAI compatibility API across a tool turn and final turn", async () => {
+  it("is consumed by the exact Pi OpenAI completion API across a tool turn and final turn", async () => {
     const journalPath = tempJournal(); let turn = 0;
     const delegate: typeof fetch = async (_input, init) => {
       turn += 1; const sent = JSON.parse(String(init?.body)) as { gateway_request_id: string; gateway_attempt: number };
@@ -237,8 +243,9 @@ describe("FR-LOOP-008 Naia Pi atomic versioned billing bridge", () => {
     };
     const bridged = billingFetch(journalPath, delegate);
     const piAgentEntry = realpathSync(join(process.cwd(), "node_modules/@earendil-works/pi-coding-agent/dist/index.js"));
-    const compatUrl = pathToFileURL(realpathSync(join(dirname(dirname(piAgentEntry)), "../pi-ai/dist/compat.js"))).href;
-    const { openAICompletionsApi } = await import(compatUrl) as { openAICompletionsApi(): any };
+    const apiUrl = pathToFileURL(realpathSync(join(dirname(dirname(piAgentEntry)),
+      "../pi-ai/dist/api/openai-completions.lazy.js"))).href;
+    const { openAICompletionsApi } = await import(apiUrl) as { openAICompletionsApi(): any };
     const api = openAICompletionsApi();
     const model = { id: "grok-4.3", name: "Grok", api: "openai-completions", provider: "naia",
       baseUrl: "https://gateway.example/v1", reasoning: false, input: ["text"],

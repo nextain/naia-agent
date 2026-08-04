@@ -62,6 +62,20 @@ export interface GatewayRequestBudgetSnapshot {
   readonly chargedOutputTokens: number;
 }
 
+export interface GatewayRequestBudgetEvidenceRow {
+  readonly requestId: string;
+  readonly status: "active" | "settled";
+  readonly actualCostDecimal?: string;
+  readonly actualInputTokens?: number;
+  readonly actualOutputTokens?: number;
+  readonly receiptDigest?: string;
+}
+
+export interface GatewayRequestBudgetEvidence {
+  readonly rows: readonly GatewayRequestBudgetEvidenceRow[];
+  readonly snapshot: GatewayRequestBudgetSnapshot & { readonly chargedUsdDecimal: string };
+}
+
 const INITIAL_DIGEST_PREFIX = "naia-pi-receipt-journal-v1";
 const MONEY = /^(?:0|[1-9]\d*)(?:\.\d{1,8})?$/u;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -185,6 +199,41 @@ export function readGatewayRequestBudget(path: string, policy: GatewayRequestBud
   try { return gatewayBudgetSnapshot(db); } finally { db.close(); }
 }
 
+/** Returns the complete durable request ledger, sorted for deterministic benchmark attestation. */
+export function readGatewayRequestBudgetEvidence(path: string,
+  policy: GatewayRequestBudgetPolicy): GatewayRequestBudgetEvidence {
+  const db = openGatewayBudget(path, policy);
+  try {
+    const rows = db.prepare(`SELECT request_id,status,actual_cost_units,actual_input_tokens,
+      actual_output_tokens,receipt_digest FROM gateway_request_reservations ORDER BY request_id`).all() as Record<string, unknown>[];
+    const evidenceRows = rows.map((row): GatewayRequestBudgetEvidenceRow => {
+      if (typeof row.request_id !== "string" || (row.status !== "active" && row.status !== "settled")) {
+        throw new Error("gateway request ledger row malformed");
+      }
+      if (row.status === "active") return { requestId: row.request_id, status: "active" };
+      if (!Number.isSafeInteger(row.actual_cost_units) || Number(row.actual_cost_units) < 0
+        || !Number.isSafeInteger(row.actual_input_tokens) || Number(row.actual_input_tokens) < 0
+        || !Number.isSafeInteger(row.actual_output_tokens) || Number(row.actual_output_tokens) < 0
+        || typeof row.receipt_digest !== "string" || !row.receipt_digest) {
+        throw new Error("settled gateway request ledger row malformed");
+      }
+      return { requestId: row.request_id, status: "settled",
+        actualCostDecimal: moneyDecimal(Number(row.actual_cost_units)),
+        actualInputTokens: Number(row.actual_input_tokens), actualOutputTokens: Number(row.actual_output_tokens),
+        receiptDigest: row.receipt_digest };
+    });
+    const snapshot = gatewayBudgetSnapshot(db);
+    const chargedUnits = evidenceRows.reduce((sum, row) => row.status === "settled"
+      ? sum + moneyUnits(row.actualCostDecimal!) : sum, 0);
+    return { rows: evidenceRows, snapshot: { ...snapshot, chargedUsdDecimal: moneyDecimal(chargedUnits) } };
+  } finally { db.close(); }
+}
+
+/** Digest used by the durable gateway ledger to bind a settled journal receipt. */
+export function naiaPiGatewayReceiptDigest(receipt: NaiaPiGatewayBillingReceipt): string {
+  return sha256(stableJson({ ...receipt, gatewayAttempt: undefined, responseId: undefined }));
+}
+
 function reserveGatewayRequest(path: string, policy: GatewayRequestBudgetPolicy, requestId: string, requestDigest: string): void {
   const db = openGatewayBudget(path, policy);
   try {
@@ -214,7 +263,7 @@ function reserveGatewayRequest(path: string, policy: GatewayRequestBudgetPolicy,
 function settleGatewayRequest(path: string, policy: GatewayRequestBudgetPolicy, requestId: string,
   receipt: NaiaPiGatewayBillingReceipt): void {
   const db = openGatewayBudget(path, policy);
-  const receiptDigest = sha256(stableJson({ ...receipt, gatewayAttempt: undefined, responseId: undefined }));
+  const receiptDigest = naiaPiGatewayReceiptDigest(receipt);
   try {
     const exceeded = immediate(db, () => {
       const prior = db.prepare("SELECT * FROM gateway_request_reservations WHERE request_id=?")
@@ -286,6 +335,11 @@ function moneyUnits(value: string): number {
   const units = BigInt(whole!) * 100_000_000n + BigInt(fraction.padEnd(8, "0"));
   if (units > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error("gateway budget amount exceeds safe range");
   return Number(units);
+}
+function moneyDecimal(units: number): string {
+  if (!Number.isSafeInteger(units) || units < 0) throw new Error("gateway budget amount invalid");
+  const whole = Math.floor(units / 100_000_000); const fraction = String(units % 100_000_000).padStart(8, "0");
+  return `${whole}.${fraction}`;
 }
 function positiveMoney(value: unknown): value is number { return typeof value === "number" && Number.isFinite(value) && value > 0 && value <= 90_000_000; }
 function positiveInt(value: unknown): value is number { return typeof value === "number" && Number.isSafeInteger(value) && value > 0; }

@@ -7,9 +7,9 @@ const binding = (model: string) => ({ provider: "naia", model });
 
 describe("Pi-only continuous loop contract", () => {
   it("pins all authored team roles to built-in Pi with one writing role", () => {
-    const profile = makePiOnlyTeamProfile({ roles: { explorer: binding("deepseek-v4-pro"),
-      implementer: binding("grok-4.3"), tester: binding("deepseek-v4-pro"),
-      reviewer: binding("deepseek-v4-pro") }, maxRepairCycles: 2, requiredCleanCycles: 2 });
+    const profile = makePiOnlyTeamProfile({ roles: { explorer: binding("deepseek-v4-flash"),
+      implementer: binding("grok-4.3"), tester: binding("deepseek-v4-flash"),
+      reviewer: binding("deepseek-v4-flash") }, maxRepairCycles: 2, requiredCleanCycles: 2 });
     expect(Object.values(profile.roles).map((role) => role.agentKind)).toEqual(["pi", "pi", "pi", "pi"]);
     expect(Object.values(profile.roles).filter((role) => role.filesystemAccess === "workspace_write"))
       .toEqual([profile.roles.implementer]);
@@ -17,7 +17,7 @@ describe("Pi-only continuous loop contract", () => {
 
   it("rejects an analysis-only model as implementer", () => {
     expect(() => makePiOnlyTeamProfile({ roles: { explorer: binding("grok-4.3"),
-      implementer: binding("deepseek-v4-pro"), tester: binding("grok-4.3"), reviewer: binding("grok-4.3") },
+      implementer: binding("deepseek-v4-flash"), tester: binding("grok-4.3"), reviewer: binding("grok-4.3") },
       maxRepairCycles: 1, requiredCleanCycles: 1 })).toThrow(/analysis-only/u);
   });
 

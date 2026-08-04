@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import type { TaskSpec, SubAgentEvent } from "../domain/orchestration.js";
 import type { SubAgentPort, SubAgentSession } from "../ports/orchestration.js";
 import {
-  NAIA_PI_PROVIDER, buildNaiaPiChildEnv, ensureNaiaPiConfig, isNaiaPiModel,
+  NAIA_PI_PROVIDER, buildNaiaPiChildEnv, ensureNaiaPiConfig, isNaiaPiAnalysisOnlyModel, isNaiaPiModel,
 } from "./naia-pi-provider.js";
 import { initializeNaiaPiReceiptJournal, readNaiaPiReceiptJournal,
   type GatewayRequestBudgetPolicy } from "./naia-pi-versioned-billing.js";
@@ -33,6 +33,10 @@ export interface SubAgentPiOptions {
   /** --model 로 전달(옵셔널). TaskSpec.model 보다 우선(어댑터 고정 모델). */
   readonly model?: string;
   readonly noTools?: boolean;
+  /** Explicit Pi built-in tool allowlist. Use this to exclude shell access from credential-bearing runs. */
+  readonly toolAllowlist?: readonly ("read" | "write" | "edit" | "grep" | "find" | "ls")[];
+  /** Synchronous integrity gate executed immediately before every Pi child spawn. */
+  readonly beforeSpawn?: () => void;
   readonly env?: NodeJS.ProcessEnv;
   readonly piConfigDir?: string;
   /** Provider-enforced maximum output tokens per model response when using the Naia custom catalog. */
@@ -265,6 +269,8 @@ export function makePiSubAgent(opts: SubAgentPiOptions = {}): SubAgentPort {
   const resolveBin = opts.resolveBin ?? resolvePiBin;
   return {
     spawn(task: TaskSpec): SubAgentSession {
+      try { opts.beforeSpawn?.(); }
+      catch (error) { return endedSession(`Pi pre-spawn integrity gate failed: ${(error as Error).message}`); }
       const sourceEnv = opts.env ?? process.env;
       const model = opts.model ?? task.model;
       const naiaModel = isNaiaPiModel(model);
@@ -273,8 +279,8 @@ export function makePiSubAgent(opts: SubAgentPiOptions = {}): SubAgentPort {
       if (naiaModel && provider !== NAIA_PI_PROVIDER) {
         return endedSession(`Naia model '${model}' cannot use direct provider '${provider}'`);
       }
-      if (model === "deepseek-v4-pro" && opts.noTools !== true) {
-        return endedSession("deepseek-v4-pro is analysis-only; rerun with --no-tools");
+      if (isNaiaPiAnalysisOnlyModel(model) && opts.noTools !== true) {
+        return endedSession(`${model} is analysis-only; rerun with --no-tools`);
       }
       let childEnv: NodeJS.ProcessEnv | undefined;
       let receiptPath: string | undefined;
@@ -319,6 +325,12 @@ export function makePiSubAgent(opts: SubAgentPiOptions = {}): SubAgentPort {
       if (model) args.push("--model", model);
       if (opts.noTools === true) args.push("--no-tools");
       else if (task.filesystemAccess === "read_only") args.push("--tools", "read,grep,find,ls");
+      else if (opts.toolAllowlist) {
+        if (opts.toolAllowlist.length === 0 || new Set(opts.toolAllowlist).size !== opts.toolAllowlist.length) {
+          return endedSession("Pi tool allowlist must be nonempty and unique");
+        }
+        args.push("--tools", opts.toolAllowlist.join(","));
+      }
       const expected = provider && model ? { provider, model } : undefined;
       const lineToEvent = makeCumulativePiLineParser(expected, identity, receiptPath);
       return spawnSubprocessSession({

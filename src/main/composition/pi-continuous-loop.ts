@@ -12,7 +12,7 @@ import { SqliteIssueTeamStore } from "../adapters/sqlite-issue-team-store.js";
 import { SqliteMultiIssueSessionStore } from "../adapters/sqlite-multi-issue-session-store.js";
 import { SqlitePaidCallBudget } from "../adapters/sqlite-paid-call-budget.js";
 import { initializeGatewayRequestBudget } from "../adapters/naia-pi-versioned-billing.js";
-import { isNaiaPiModel, NAIA_PI_PROVIDER } from "../adapters/naia-pi-provider.js";
+import { isNaiaPiAnalysisOnlyModel, isNaiaPiModel, NAIA_PI_PROVIDER } from "../adapters/naia-pi-provider.js";
 import { makeCommandVerifier, type CommandCheck } from "../adapters/verifier-commands.js";
 import { makeIssueTeamWorker } from "../app/issue-team-worker.js";
 import { MultiIssueSessionManager } from "../app/multi-issue-session-manager.js";
@@ -61,8 +61,8 @@ export interface PiContinuousLoopRuntimeOverrides {
 
 export function makePiOnlyTeamProfile(config: Pick<PiContinuousLoopConfig,
   "roles" | "maxRepairCycles" | "requiredCleanCycles">): IssueTeamProfile {
-  if (config.roles.implementer.model === "deepseek-v4-pro") {
-    throw new Error("analysis-only deepseek-v4-pro cannot be the writing implementer");
+  if (isNaiaPiAnalysisOnlyModel(config.roles.implementer.model)) {
+    throw new Error(`analysis-only ${config.roles.implementer.model} cannot be the writing implementer`);
   }
   const role = (name: IssueTeamRole) => ({ agentProfileId: `pi-${name}`, agentKind: "pi" as const,
     binding: config.roles[name], filesystemAccess: name === "implementer" ? "workspace_write" as const : "read_only" as const });
@@ -94,7 +94,7 @@ export function makePiContinuousLoop(config: PiContinuousLoopConfig, runtime: Pi
       provider: binding.provider, model: binding.model,
       maxOutputTokens: config.callAllowance.reservedOutputTokens,
       gatewayBudget,
-      ...(binding.model === "deepseek-v4-pro" && !write ? { noTools: true } : {}) });
+      ...(isNaiaPiAnalysisOnlyModel(binding.model) && !write ? { noTools: true } : {}) });
     const actor = (binding: ActorBinding) => ({ subAgent: pi(binding), binding,
       workdir: realpathSync(config.workspaceRoot), diag, budget, callAllowance: config.callAllowance });
     const agents = Object.fromEntries((Object.keys(profile.roles) as IssueTeamRole[]).map((name) => {

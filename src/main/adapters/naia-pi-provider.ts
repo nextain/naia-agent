@@ -5,11 +5,16 @@ import { join } from "node:path";
 import type { GatewayRequestBudgetPolicy } from "./naia-pi-versioned-billing.js";
 
 export const NAIA_PI_PROVIDER = "naia";
-export const NAIA_PI_MODELS = ["grok-4.3", "deepseek-v4-pro"] as const;
+export const NAIA_PI_MODELS = ["grok-4.3", "deepseek-v4-flash", "deepseek-v4-pro"] as const;
 export type NaiaPiModel = (typeof NAIA_PI_MODELS)[number];
+export const NAIA_PI_ANALYSIS_ONLY_MODELS: readonly NaiaPiModel[] = ["deepseek-v4-flash", "deepseek-v4-pro"];
 
 export function isNaiaPiModel(model: string | undefined): model is NaiaPiModel {
   return typeof model === "string" && (NAIA_PI_MODELS as readonly string[]).includes(model.toLowerCase());
+}
+
+export function isNaiaPiAnalysisOnlyModel(model: string | undefined): model is NaiaPiModel {
+  return isNaiaPiModel(model) && NAIA_PI_ANALYSIS_ONLY_MODELS.includes(model.toLowerCase() as NaiaPiModel);
 }
 
 export function normalizeNaiaGatewayBaseUrl(raw: string | undefined): string {
@@ -31,6 +36,7 @@ export function buildNaiaPiModelsConfig(baseUrl?: string, maxTokens?: number): R
         compat: { supportsDeveloperRole: false, supportsReasoningEffort: false },
         models: [
           { id: "grok-4.3", name: "Grok 4.3 (Naia / Azure)", reasoning: false, input: ["text"], contextWindow: 200000, ...(maxTokens ? { maxTokens } : {}) },
+          { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash (Naia / Azure, no tools)", reasoning: false, input: ["text"], contextWindow: 128000, ...(maxTokens ? { maxTokens } : {}) },
           { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro (Naia / Azure, no tools)", reasoning: false, input: ["text"], contextWindow: 1000000, ...(maxTokens ? { maxTokens } : {}) },
         ],
       },

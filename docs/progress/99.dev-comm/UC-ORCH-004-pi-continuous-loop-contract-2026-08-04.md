@@ -19,8 +19,9 @@ replace Codex or Claude capability, and not an OpenCode wrapper.
 7. Discord ingress and naia-shell presentation are later adapters.
 8. Atomic gateway billing is adapted only on the Naia route. The parent owns the execution identity
    and accepts measured cost only from an ordered, owner-only, request-correlated receipt journal.
-9. A locally correlated gateway receipt is sufficient for operational budget settlement, but not for
-   a public savings claim without independent gateway and harness attestations.
+9. A locally correlated gateway receipt is sufficient for operational budget settlement. A bounded
+   internal comparison additionally requires an external-key HMAC over the complete evidence; the
+   unsigned gateway response is never represented as a transferable public audit.
 10. Actor attempts and billable gateway requests have separate durable ceilings. Every new logical
     gateway request reserves calls, USD, input, and output allowances before network I/O; retries reuse
     that reservation. Every paid benchmark path requires a durable output and preserves partial evidence.
@@ -43,19 +44,20 @@ replace Codex or Claude capability, and not an OpenCode wrapper.
   Its pure decision gate rejects
   missing/extra/unsettled receipts, estimate-only cost, route/token drift, and any receipt lacking
   execution ID ↔ gateway request ID ↔ price-version binding. It also enforces the combined caps and
-  exact per-role attempt counts, rejects cross-arm execution/gateway identity reuse, and requires
-  both arms to bind the same frozen starting-worktree digest and model-specific price versions;
+  exact per-role attempt counts, rejects cross-arm execution/gateway identity reuse, requires
+  both arms to bind the same frozen starting-worktree digest and model-specific price versions, and
+  verifies an HMAC key identity pinned before any paid call. Tampering, omission, replay under a
+  different contract, a missing key, or a wrong key fails closed;
 - two clean review-pass cycles against an unchanged candidate.
 
 ## Azure model qualification boundary
 
-Microsoft's current Foundry catalog lists `DeepSeek-V4-Flash` and confirms that it has no tool
-calling. The workspace routing SoT still marks that binding inactive, and the Naia Pi gateway
-catalog currently exposes only `deepseek-v4-pro` and `grok-4.3`. Therefore Flash is not silently
-substituted into this implementation. The deterministic profile uses the deployed analysis-only
-DeepSeek route for read-only roles and the tool-capable Grok route for implementation. A Flash live
-comparison requires an explicit gateway catalog/credential activation and complete priced receipts;
-the public Azure pricing table does not currently expose numeric Flash rates without account context.
+The local gateway candidate now exposes the Azure deployment alias
+`DeepSeek-V4-Flash → deepseek-v4-flash`, and the Agent treats Flash and Pro as analysis-only models.
+The paid candidate profile uses the lower-cost Flash route for facing/read-only roles and the
+tool-capable Grok route for implementation; the control keeps Grok for every role. This is a routing
+contract, not a price claim. A live comparison still requires the deployed gateway catalog, credential,
+and complete price-versioned receipts because no numeric Flash rate is inferred from model metadata.
 
 ## Exact-receipt integration boundary
 
@@ -75,7 +77,30 @@ bounded to 8 gateway calls, $0.20, 32,000 input tokens, and eight output allowan
 extension invocation can reach provider I/O without a ledger.
 
 This closes exact local request correlation for operational budget settlement without changing the
-gateway. It does not solve independent attestation: the child process can write its own journal and
-the current gateway response is unsigned. Self-asserted JSON is therefore only structurally inspected;
-without authenticated gateway export and a verified harness journal, the analyzer always returns
-`unavailable` with claims disabled.
+gateway. The paired analyzer now verifies an external-key HMAC over all contract bindings, arm
+denominators, quality results, request-correlated receipts, independently reread receipt-journal heads,
+the complete per-arm shared-ledger delta, exact decimal costs, and budget evidence. Savings thresholds
+and the combined USD cap are decided with integer fixed-point arithmetic. Price and HMAC identities are
+supplied through a benchmark/task-bound pins file whose exact SHA-256 must first be anchored in the
+frozen task contract; an arbitrary caller-supplied pins file has no authority.
+It enables a claim only for the frozen internal case after that verification. The current gateway
+response remains unsigned, so this does not establish a provider-issued public attestation. Live
+evidence remains unavailable until the credential, model price-version IDs, and HMAC key ID are pinned.
+The HMAC key is removed from all model, verifier, digest, and Git child environments; benchmark Git also
+ignores system/global configuration and uses an isolated empty hook path.
+The pinned file additionally binds an absolute Git executable and SHA-256. The runner rechecks that binary
+before every use, injects it into worktree and changed-file operations, replaces the benchmark verifier's
+Git subprocess with the same trusted boundary, and removes provider credentials from Git and digest child
+environments.
+The frozen comparison contract pins a manifest digest for the runner, analyzer, integrity helpers,
+complete transitive local runtime closure, the separately loaded Pi billing extension, its narrow direct `pi-ai` OpenAI-completion dependency
+closure, package/lock files, and the workspace-local Pi executable's full statically reachable package
+graph. Inherited `PI_BIN` is ignored.
+Critical entry modules are preloaded before model execution and the complete closure is rehashed before
+every actor spawn and after each arm, preventing an arm from replacing signer, billing, or provider code
+before a credential-bearing child or the parent can use it. Benchmark writers use a shell-free Pi tool
+allowlist, and read-only roles are intersected to read-only tools, so the child has no alternate network
+execution path around the ledger.
+The same extension blocks `read`, `write`, `edit`, `grep`, `find`, and `ls` paths that leave the actor's
+real worktree or traverse a symbolic link outside it, including absolute paths and paths whose leading
+`@` Pi strips before execution.

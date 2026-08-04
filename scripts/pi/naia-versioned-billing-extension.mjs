@@ -1,5 +1,6 @@
-import { openAICompletionsApi } from "@earendil-works/pi-ai/compat";
+import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { makeNaiaVersionedBillingFetch } from "../../dist/main/adapters/naia-pi-versioned-billing.js";
+import { WORKSPACE_PATH_TOOLS, workspaceToolPathViolation } from "./workspace-tool-boundary.mjs";
 
 export default function registerNaiaVersionedBilling(pi) {
   const executionId = process.env.NAIA_PI_EXECUTION_ID;
@@ -11,6 +12,15 @@ export default function registerNaiaVersionedBilling(pi) {
   const gatewayBudget = { path: gatewayBudgetPath, policy: JSON.parse(gatewayBudgetPolicy) };
   const billedFetch = makeNaiaVersionedBillingFetch({ executionId, journalPath, gatewayBudget });
   const api = openAICompletionsApi();
+  pi.on("tool_call", (event, ctx) => {
+    if (!WORKSPACE_PATH_TOOLS.has(event.toolName)) return undefined;
+    try {
+      const violation = workspaceToolPathViolation(ctx.cwd, event.input);
+      return violation ? { block: true, reason: violation } : undefined;
+    } catch (error) {
+      return { block: true, reason: `workspace boundary check failed: ${error instanceof Error ? error.message : String(error)}` };
+    }
+  });
   pi.registerProvider("naia", {
     api: "openai-completions",
     streamSimple(model, context, options) {

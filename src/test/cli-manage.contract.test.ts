@@ -138,14 +138,16 @@ describe("SPEC-019 credential text policy", () => {
 describe("SPEC-019 model catalog truthfulness", () => {
   it("normalizes live OpenAI-shaped catalog and marks DeepSeek analysis-only", () => {
     expect(normalizeModelCatalog({ data: [
+      { id: "deepseek-v4-flash", owned_by: "azure", name: "DeepSeek Flash" },
       { id: "deepseek-v4-pro", owned_by: "azure", name: "DeepSeek" },
       { id: "grok-4.3", owned_by: "azure", supports_tools: true },
       { id: "grok-4.3", owned_by: "duplicate" },
     ] })).toEqual([
+      { provider: "azure", id: "deepseek-v4-flash", label: "DeepSeek Flash", tools: false, use: "analysis" },
       { provider: "azure", id: "deepseek-v4-pro", label: "DeepSeek", tools: false, use: "analysis" },
       { provider: "azure", id: "grok-4.3", label: "grok-4.3", tools: true, use: "coding" },
     ]);
-    expect(FALLBACK_NAIA_MODELS.map((x) => x.id)).toEqual(["grok-4.3", "deepseek-v4-pro"]);
+    expect(FALLBACK_NAIA_MODELS.map((x) => x.id)).toEqual(["grok-4.3", "deepseek-v4-flash", "deepseek-v4-pro"]);
     expect(normalizeModelCatalog({ bad: true })).toEqual([]);
   });
 });

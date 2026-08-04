@@ -80,8 +80,8 @@
 | FR-CLI-6 | **WorkspacePort** — 파일 변경 요약 스트림(added/modified/deleted + 수치). domain 은 git diff 포맷 모름(adapter=chokidar+git). | Done |
 | FR-CLI-7 | **CLI 대화 host (S1 멀티턴 REPL)** — `naia-agent chat` 가 stdio/readline **AgentIngressPort/AgentEgressPort** 어댑터를 gRPC 와 **동일 `wireAgentUC1`** 에 주입. 매 입력이 누적 history 와 함께 `ChatRequest` → 맥락 유지 멀티턴. emit(text)→stdout 스트리밍, finish→assistant 턴 history append+재프롬프트, error→격리(턴만 실패·루프 생존), Ctrl+C=현재 턴 cancel. | Done |
 | FR-CLI-8 | **CLI 로그인 (S1 자격증명)** — `naia-agent login --provider <p> [--key <k>\|stdin]` → 자격증명 영속(홈 `.naia-agent/.env` 0600, 옛 CLI 호환·크로스플랫폼; Linux 추가 secret-tool). chat host 기동 시 로드 → resolver/credentials 포트가 읽어 provider 연결(키 인자 없이 대화). | Done |
-| FR-CLI-9 | **Naia account Pi provider** — `run --agent pi --model grok-4.3`와 `deepseek-v4-pro` 분석 실행은 저장된 `NAIA_API_KEY`와 Naia gateway만 사용한다. Pi 설정에는 환경변수 참조만 기록하고 direct Azure/xAI/DeepSeek key 및 OpenCode fallback을 금지한다. | Done (#93; live Azure는 `OPERATIONAL_UNVERIFIED`) |
-| FR-CLI-10 | **모델 능력 fail-closed** — Grok은 tool coding 허용. DeepSeek-V4-Pro는 명시적 `--no-tools` 분석만 허용하고 생략 시 Pi spawn 전에 실패한다. Gateway는 `tools`가 있는 DeepSeek 요청을 upstream 0-call/HTTP 400으로 독립 거부한다. | Done (#93) |
+| FR-CLI-9 | **Naia account Pi provider** — `run --agent pi --model grok-4.3`와 `deepseek-v4-flash`/`deepseek-v4-pro` 분석 실행은 저장된 `NAIA_API_KEY`와 Naia gateway만 사용한다. Pi 설정에는 환경변수 참조만 기록하고 direct Azure/xAI/DeepSeek key 및 OpenCode fallback을 금지한다. | Done (#93; Flash 확장 UC-ORCH-004, live Azure는 `OPERATIONAL_UNVERIFIED`) |
+| FR-CLI-10 | **모델 능력 fail-closed** — Grok은 tool coding 허용. DeepSeek-V4-Flash/Pro는 명시적 `--no-tools` 분석만 허용하고 생략 시 Pi spawn 전에 실패한다. 이 Agent 계약은 gateway가 별도 서버 가드를 제공한다고 주장하지 않는다. | Done (#93; Flash 확장 UC-ORCH-004) |
 | FR-CLI-11 | **동일 CLI 표면** — Codex가 자식 프로세스로 호출한 경우와 사용자가 직접 호출한 경우 provider/model/workdir/terminal report가 동일하다. | Done (#93) |
 | FR-CLI-12 | **격리 환경·고정 Pi·canonical identity** — 고정 버전 Pi는 격리 config와 Naia key/필수 env만 받고 direct-provider secret을 상속하지 않는다. gateway usage/billing key는 `azure:<exact-model>`이며 Azure client cache는 모델별 endpoint를 혼용하지 않는다. | Done (#93; live 청구는 `OPERATIONAL_UNVERIFIED`) |
 | FR-CLI-13 | **실행 가능한 매뉴얼** — `docs/naia-account-pi-manual.md`의 clean-HOME 명령, exit code, model/usage/diff/verifier 판정을 자동 실행 가능한 acceptance로 유지한다. | Done (#93) |
@@ -737,7 +737,8 @@ The Agent and Gateway preserve these codes end to end:
 - **FR-LOOP-007**: The frozen paid comparison uses the same task, deterministic file/Git scorer,
   actor-attempt topology, and a checkpoint-reopen step in which a separate Node process reopens and
   hashes the frozen Git worktree before any paid call. It also enforces combined 20-actor-attempt/60-gateway-call/$0.50 ceilings for candidate
-  and control. A savings decision requires candidate quality non-inferiority and at least 10% lower
+  and control. USD caps use exact 8-decimal integers, and the 10% savings threshold uses integer basis
+  points rather than floating-point comparison. A savings decision requires candidate quality non-inferiority and at least 10% lower
   customer cost. Every cost row must be settled gateway versioned-customer-billing evidence bound by
   local execution ID, gateway request ID, price version, exact route, and exact token counts. Pi
   catalog estimates, profile time-window deltas, unbound logs, missing rows, extra rows, route drift,
@@ -745,9 +746,19 @@ The Agent and Gateway preserve these codes end to end:
   cheaper. Combined call/USD/token ceilings and the exact per-role attempt topology are enforced by
   the analyzer. Actor attempts and billable gateway requests are distinct: both arms must run the
   same declared role-attempt topology, while every tool-loop request is counted and differing request
-  counts remain part of the observed efficiency result. A future claim additionally requires authenticated gateway export and harness-journal
-  verification; until both authorities are implemented, even structurally lower cost remains
-  `unavailable` and `costEfficiencyClaimAllowed=false`. Both arms must reopen the same contract-pinned
+  counts remain part of the observed efficiency result. The analyzer verifies an HMAC-SHA256
+  attestation over the complete paired evidence with an external key whose public digest is pinned.
+  The evidence contains the independently reread hash-chain receipt journals plus the complete per-arm
+  delta from the shared SQLite gateway ledger; their ordered identities, exact settled totals, receipt
+  digests, and zero active-reservation count must equal the submitted rows. The immutable task contract
+  accepts only a separate pins file bound to its benchmark and task digests for price versions, key ID,
+  and the absolute Git executable path/digest;
+  the immutable contract must also pin the SHA-256 of that exact pins file before any paid call.
+  Missing authority, a wrong key, post-run mutation, omitted or replayed rows,
+  and a changed contract binding make the result `unavailable`. A valid attestation may enable
+  `costEfficiencyClaimAllowed` only inside this frozen paired-engineering-case scope. The gateway
+  response is API-key/TLS authenticated and request-correlated but not server-signed, so this is not
+  a transferable third-party audit or a general model-superiority claim. Both arms must reopen the same contract-pinned
   baseline digest, and every model must use its contract-pinned price version; an unpinned baseline or
   price version also makes the comparison unavailable.
 - **FR-LOOP-008**: The Naia Pi adapter loads an Agent-owned provider extension only for the Naia
@@ -766,14 +777,37 @@ The Agent and Gateway preserve these codes end to end:
   contract policy, while legacy CLI/mixed-team callers receive an execution-local durable default capped
   at 8 gateway calls, $0.20, 32,000 input tokens, and eight reserved output allowances. Thus budgeting
   is not an optional adapter mode and existing public Pi CLI routing remains usable. Legacy/direct
-  providers never load this extension. This receipt is operational settlement evidence,
-  not a cryptographic savings attestation; FR-LOOP-007 still requires an authenticated gateway export
-  and verified harness journal before enabling a public cost-efficiency claim.
+  providers never load this extension. This receipt is operational settlement evidence. FR-LOOP-007
+  separately binds the complete paired result with an external-key HMAC; the distinction between that
+  internal integrity claim and an unavailable gateway server signature remains explicit.
 - **FR-LOOP-009**: Every paid benchmark runner requires an explicit durable output path before network
   I/O. The paired runner writes running and per-arm checkpoints outside the evidence directory; the
   one-call smoke writes a running checkpoint before its call. Both preserve receipt and gateway-budget
   databases after success or failure and emit an honest partial-paid `unavailable` record on exceptions.
-  Neither runner deletes or overwrites the only copy of paid-call evidence.
+  Neither runner deletes or overwrites the only copy of paid-call evidence. The paired runner removes
+  its HMAC integrity key from the process environment immediately after loading it, strips it from every
+  child environment, and runs benchmark Git with system/global configuration disabled plus an isolated
+  empty hooks path so a model-controlled global hook cannot capture the attestation authority. This
+  process-level isolation covers transitive worktree and verifier Git calls as well as the runner's own
+  Git wrapper. The external Git executable path and SHA-256 are contract-bound through the anchored pins
+  file, rechecked before each Git use, and every Git/digest child receives an environment with provider
+  credentials removed. Worktree allocation, changed-file scoring, and verification use that same injected
+  Git boundary rather than caller `PATH`. The runner, analyzer, digest/Git/integrity helpers, full transitive local ESM closure,
+  the Pi billing extension, the exact direct
+  `pi-ai` OpenAI-completion closure and its `openai`/`partial-json` dependencies, package/lock files,
+  and the workspace-local Pi executable's full statically reachable package graph are captured in one
+  contract-pinned manifest digest. The
+  broad compatibility entrypoint is not used. An inherited `PI_BIN` override is removed. Signer,
+  analyzer, billing, loop, and scorer entry modules are preloaded before the first model arm, and the
+  complete closure is rehashed immediately before every actor spawn and after each arm. Any replacement
+  fails before a credential-bearing child, another arm, or a signature is accepted. Because Pi itself
+  needs the Naia credential, paid comparison writers receive an explicit shell-free built-in tool
+  allowlist (`read,write,edit,grep,find,ls`); read-only actors are intersected down to
+  `read,grep,find,ls`. The billing extension blocks every file-tool target outside the assigned real
+  workspace and rejects symbolic-link escape before tool execution. The guard mirrors Pi's leading-`@`
+  path normalization before checking the target; Pi's absolute-path-capable built-ins
+  therefore cannot read secrets or replace benchmark/runtime files outside that worktree. No shell or
+  alternate network-capable tool can bypass the billed fetch and shared request ledger.
 - **NFR-LOOP-001**: Default benchmark limits are deliberately small; there is no two-minute product
   loop ceiling. Termination comes from repair/clean bounds, cancellation, verification, provider
   failure, or durable budget exhaustion.
@@ -784,5 +818,6 @@ The Agent and Gateway preserve these codes end to end:
 - **Status**: In progress. Completion requires reproducible benchmark evidence and two consecutive
   clean adversarial reviews on one unchanged candidate. The decision contract is implemented. Exact
   request-correlated operational receipt transport is specified by FR-LOOP-008, while a live paired
-  run still requires a Naia credential, pinned baseline/price versions, authenticated gateway export,
-  and a verified harness journal. A hand-authored evidence file can never become a completion claim.
+  run still requires a Naia credential, pinned price versions, and a pinned external harness-journal
+  key identity. The baseline is already pinned. A hand-authored or unsigned evidence file can never
+  become a completion claim, and the current gateway does not provide a server signature.

@@ -13,6 +13,12 @@
       "contract": "docs/progress/99.dev-comm/UC-ORCH-004-pi-continuous-loop-contract-2026-08-04.md",
       "note": "Pure fail-closed decision contract for exact provider-priced paired Pi routing evidence."
     },
+    "src/main/adapters/pi-cost-attestation.ts": {
+      "layer": "adapters",
+      "uc": ["UC-ORCH-004"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-004-pi-continuous-loop-contract-2026-08-04.md",
+      "note": "External-key HMAC adapter for canonical paired-cost evidence; secrets remain outside serialized artifacts."
+    },
     "src/main/ports/paid-call-budget.ts": {
       "layer": "ports",
       "uc": ["UC-ORCH-004"],

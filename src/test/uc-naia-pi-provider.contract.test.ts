@@ -28,6 +28,7 @@ describe("UC-NAIA-PI provider isolation", () => {
     ensureNaiaPiConfig({ dir, baseUrl: "https://gateway.example/v1/" });
     const text = readFileSync(join(dir, "models.json"), "utf8");
     expect(text).toContain('"grok-4.3"');
+    expect(text).toContain('"deepseek-v4-flash"');
     expect(text).toContain('"deepseek-v4-pro"');
     expect(text).not.toContain('"gpt-5.6-sol"');
     expect(text).not.toContain('"gpt-5.6-luna"');
@@ -38,12 +39,12 @@ describe("UC-NAIA-PI provider isolation", () => {
       providers: { naia: { baseUrl: "https://gateway.example/v1", authHeader: false } },
     });
     expect(buildNaiaPiModelsConfig("https://gateway.example", 321)).toMatchObject({
-      providers: { naia: { models: [{ maxTokens: 321 }, { maxTokens: 321 }] } },
+      providers: { naia: { models: [{ maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }] } },
     });
     const models = (buildNaiaPiModelsConfig("https://gateway.example") as {
       providers: { naia: { models: Array<{ id: string }> } };
     }).providers.naia.models.map(({ id }) => id);
-    expect(models).toEqual(["grok-4.3", "deepseek-v4-pro"]);
+    expect(models).toEqual(["grok-4.3", "deepseek-v4-flash", "deepseek-v4-pro"]);
   });
 
   it("child env keeps runtime values and Naia auth but drops global Pi/direct-provider secrets", () => {
@@ -89,8 +90,9 @@ describe("UC-NAIA-PI provider isolation", () => {
     const base = { resolveBin: () => ({ command: "pi", prefixArgs: [] }), spawnFn, piConfigDir: tempDir() };
     const missing = makePiSubAgent({ ...base, env: {} }).spawn({ prompt: "p", workdir: ".", model: "grok-4.3" });
     const direct = makePiSubAgent({ ...base, provider: "xai", env: { NAIA_API_KEY: "k" } }).spawn({ prompt: "p", workdir: ".", model: "grok-4.3" });
-    const tools = makePiSubAgent({ ...base, env: { NAIA_API_KEY: "k" } }).spawn({ prompt: "p", workdir: ".", model: "deepseek-v4-pro" });
-    for (const session of [missing, direct, tools]) {
+    const flashTools = makePiSubAgent({ ...base, env: { NAIA_API_KEY: "k" } }).spawn({ prompt: "p", workdir: ".", model: "deepseek-v4-flash" });
+    const proTools = makePiSubAgent({ ...base, env: { NAIA_API_KEY: "k" } }).spawn({ prompt: "p", workdir: ".", model: "deepseek-v4-pro" });
+    for (const session of [missing, direct, flashTools, proTools]) {
       const events = [];
       for await (const event of session.events) events.push(event);
       expect(events).toHaveLength(1);
@@ -109,8 +111,54 @@ describe("UC-NAIA-PI provider isolation", () => {
     makePiSubAgent({
       resolveBin: () => ({ command: "pi", prefixArgs: [] }), spawnFn, noTools: true,
       env: { NAIA_API_KEY: "k" }, piConfigDir: configDir, gatewayBudget: gatewayBudget(configDir),
-    }).spawn({ prompt: "review", workdir: ".", model: "deepseek-v4-pro" });
+    }).spawn({ prompt: "review", workdir: ".", model: "deepseek-v4-flash" });
     expect(args).toContain("--no-tools");
+  });
+
+  it("supports a credential-bearing writer without exposing a shell or network-capable tool", () => {
+    let args: readonly string[] = [];
+    const spawnFn: SpawnFn = (_command, next) => { args = next;
+      return { stdout: { on() {} }, stderr: { on() {} }, on() { return this; }, kill() { return false; } } as unknown as ChildProcess; };
+    const configDir = tempDir();
+    makePiSubAgent({ resolveBin: () => ({ command: "pi", prefixArgs: [] }), spawnFn,
+      env: { NAIA_API_KEY: "credential-visible-only-to-pi-provider" }, piConfigDir: configDir,
+      gatewayBudget: gatewayBudget(configDir), toolAllowlist: ["read", "write", "edit", "grep", "find", "ls"] })
+      .spawn({ prompt: "write", workdir: ".", model: "grok-4.3", filesystemAccess: "workspace_write" });
+    expect(args).toContain("--tools");
+    expect(args).toContain("read,write,edit,grep,find,ls");
+    expect(args.join(",")).not.toMatch(/bash|shell|curl|wget/u);
+  });
+
+  it("intersects a shared writer allowlist with a read-only task boundary", () => {
+    let args: readonly string[] = [];
+    const spawnFn: SpawnFn = (_command, next) => { args = next;
+      return { stdout: { on() {} }, stderr: { on() {} }, on() { return this; }, kill() { return false; } } as unknown as ChildProcess; };
+    const configDir = tempDir();
+    makePiSubAgent({ resolveBin: () => ({ command: "pi", prefixArgs: [] }), spawnFn,
+      env: { NAIA_API_KEY: "credential-visible-only-to-pi-provider" }, piConfigDir: configDir,
+      gatewayBudget: gatewayBudget(configDir), toolAllowlist: ["read", "write", "edit", "grep", "find", "ls"] })
+      .spawn({ prompt: "review", workdir: ".", model: "grok-4.3", filesystemAccess: "read_only" });
+    expect(args).toContain("--tools");
+    expect(args).toContain("read,grep,find,ls");
+    expect(args.join(",")).not.toMatch(/write|edit|bash|shell/u);
+  });
+
+  it("runs the integrity gate for every spawn and fails before creating a child", async () => {
+    let gates = 0; let spawns = 0;
+    const configDir = tempDir();
+    const adapter = makePiSubAgent({ resolveBin: () => ({ command: "pi", prefixArgs: [] }),
+      spawnFn: () => { spawns += 1; throw new Error("must not spawn"); }, beforeSpawn: () => {
+        gates += 1; if (gates === 2) throw new Error("runtime changed");
+      }, env: { NAIA_API_KEY: "k" }, piConfigDir: configDir, gatewayBudget: gatewayBudget(configDir) });
+    const first = adapter.spawn({ prompt: "one", workdir: ".", model: "grok-4.3" });
+    expect(() => first).not.toThrow();
+    const second = adapter.spawn({ prompt: "two", workdir: ".", model: "grok-4.3" });
+    const events = [];
+    for await (const event of second.events) events.push(event);
+    expect(gates).toBe(2);
+    expect(spawns).toBe(1);
+    expect(events).toEqual([{ kind: "session_end", ok: false,
+      reason: "Pi pre-spawn integrity gate failed: runtime changed" }]);
   });
 
   it("emits Pi-reported provider/model/usage evidence and fails on Pi model mismatch", () => {

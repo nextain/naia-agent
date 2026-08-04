@@ -47,12 +47,12 @@ try {
   budget = new SqlitePaidCallBudget(join(root, "budget.db"),
     { maxPaidCalls: 1, maxUsd: 0.05, maxInputTokens: 4_000, maxOutputTokens: 256 });
   const idempotencyKey = "pi-loop-live:analysis:1";
-  budget.reserve({ idempotencyKey, expectedProvider: "naia", expectedModel: "deepseek-v4-pro",
+  budget.reserve({ idempotencyKey, expectedProvider: "naia", expectedModel: "deepseek-v4-flash",
     reservedUsd: 0.05, reservedInputTokens: 4_000, reservedOutputTokens: 256 });
-  const session = makePiSubAgent({ provider: "naia", model: "deepseek-v4-pro", noTools: true,
+  const session = makePiSubAgent({ provider: "naia", model: "deepseek-v4-flash", noTools: true,
     maxOutputTokens: 256, env: process.env, piConfigDir: join(root, "pi"), gatewayBudget })
     .spawn({ prompt: "Return exactly this JSON and nothing else: {\"status\":\"ok\"}", workdir: root,
-      model: "deepseek-v4-pro", filesystemAccess: "read_only" });
+      model: "deepseek-v4-flash", filesystemAccess: "read_only" });
   let evidence; let ok = false;
   for await (const event of session.events) {
     if (event.kind === "model_evidence") evidence = event.evidence;

@@ -13,7 +13,57 @@
   },
   "taskDigest": "sha256:41146f2d5d5f6b25a074af017980abb72e94e0837ea9b3dbb0fd780f44e13f42",
   "baselineDigest": "sha256:ad7aee3aee25b556a9e152c21a1c2978cc65ae9f163bf0c29160c0b372665c64",
-  "minimumSavingsRatio": 0.1,
+  "trustedRuntimeModules": [
+    "adapters/naia-pi-versioned-billing.js",
+    "adapters/pi-cost-attestation.js",
+    "benchmark/pi-cost-comparison.js",
+    "composition/pi-continuous-loop.js",
+    "composition/supervised-issue-worker.js"
+  ],
+  "trustedRuntimeArtifacts": [
+    "benchmark/run-pi-cost-comparison-live.mjs",
+    "benchmark/analyze-pi-cost-comparison.mjs",
+    "benchmark/pi-cost-runtime-trust.mjs",
+    "benchmark/pi-cost-git-isolation.mjs",
+    "benchmark/digest-tree.mjs",
+    "scripts/pi/naia-versioned-billing-extension.mjs",
+    "scripts/pi/workspace-tool-boundary.mjs",
+    "package.json",
+    "pnpm-lock.yaml"
+  ],
+  "trustedRuntimePackages": [
+    {
+      "name": "@earendil-works/pi-ai",
+      "version": "0.83.0",
+      "modules": ["dist/api/openai-completions.lazy.js"]
+    },
+    {
+      "name": "openai",
+      "version": "6.26.0",
+      "resolveFrom": "@earendil-works/pi-ai",
+      "modules": ["index.mjs"]
+    },
+    {
+      "name": "partial-json",
+      "version": "0.1.7",
+      "resolveFrom": "@earendil-works/pi-ai",
+      "modules": ["dist/index.js"]
+    }
+  ],
+  "trustedRuntimeExecutables": ["pi"],
+  "trustedExternalExecutables": ["git"],
+  "executionAuthority": {
+    "git": {
+      "path": null,
+      "digest": null,
+      "source": "contract-bound-pins"
+    }
+  },
+  "trustedRuntimeClosure": {
+    "fileCount": 3651,
+    "manifestDigest": "sha256:215a473123790efa6b403bcee5de0b119888b04be729c298816a40dce9345479"
+  },
+  "minimumSavingsBasisPoints": 1000,
   "quality": {
     "scorerId": "deterministic-file-and-git-checks",
     "requiredChecks": ["file-content", "changed-files"],
@@ -24,15 +74,15 @@
     "candidate": {
       "provider": "naia",
       "roleModels": {
-        "facing": "deepseek-v4-pro",
-        "moderator": "deepseek-v4-pro",
-        "explorer": "deepseek-v4-pro",
+        "facing": "deepseek-v4-flash",
+        "moderator": "deepseek-v4-flash",
+        "explorer": "deepseek-v4-flash",
         "implementer": "grok-4.3",
-        "tester": "deepseek-v4-pro",
-        "reviewer": "deepseek-v4-pro",
-        "reporter": "deepseek-v4-pro"
+        "tester": "deepseek-v4-flash",
+        "reviewer": "deepseek-v4-flash",
+        "reporter": "deepseek-v4-flash"
       },
-      "description": "DeepSeek analysis/front/review roles and Grok writing implementer"
+      "description": "Low-cost DeepSeek V4 Flash analysis/front/review roles and Grok writing implementer"
     },
     "control": {
       "provider": "naia",
@@ -60,22 +110,25 @@
   "budget": {
     "maximumCombinedActorAttempts": 20,
     "maximumCombinedGatewayCalls": 60,
-    "maximumCombinedUsd": 0.5,
+    "maximumCombinedUsdDecimal": "0.50000000",
     "maximumInputTokens": 80000,
     "maximumOutputTokens": 10000
   },
   "receiptAuthority": {
     "source": "gateway_versioned_customer_billing",
     "authentication": {
+      "gatewayReceiptChannel": "api_key_authenticated_https_response",
       "gatewaySigningKeyId": null,
       "harnessJournalKeyId": null,
-      "status": "unavailable"
+      "pinsDigest": null,
+      "status": "journal_key_unpinned",
+      "claimBoundary": "HMAC proves the captured request-correlated evidence was not changed; the gateway response is not server-signed"
     },
     "priceVersionByModel": {
-      "deepseek-v4-pro": null,
+      "deepseek-v4-flash": null,
       "grok-4.3": null
     },
-    "requires": ["executionId", "gatewayRequestId", "priceVersionId", "settlementStatus", "provider", "model", "inputTokens", "outputTokens", "customerCostUsd"],
+    "requires": ["executionId", "gatewayRequestId", "priceVersionId", "settlementStatus", "provider", "model", "inputTokens", "outputTokens", "customerCostDecimal", "customerCostUsd"],
     "rejects": ["pi_catalog_estimate", "time_window_aggregate", "unbound_profile_log"]
   }
 }
