@@ -9,7 +9,7 @@
 
 ## Verification
 
-- Focused Agent contract/integration run: 10 files, 112 tests passed. The run covered the changed Radio controller, Shell panel adapter, preference/memory acceptance, panel screenshot parser, and OpenAI-compatible, Anthropic, and Ollama image mappings.
+- Focused Agent contract/integration run: 10 files, 106 tests passed. The run covered the changed Radio controller, Shell panel adapter, preference/memory acceptance, panel screenshot parser, and OpenAI-compatible, Anthropic, and Ollama image mappings.
 - `pnpm build`: passed.
 - Pre-commit compile-integrity and standard-logging gates: passed.
 - Full Agent run: 1,434 passed, 10 skipped, 12 failed. The remaining failures were reproduced outside this change boundary and are environment/baseline failures in unavailable KB compiler dist imports, external-state memory reload, the current CLI credential fixture, and one CLI timeout; no completion claim uses that run as a green gate.
