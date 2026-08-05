@@ -1,7 +1,9 @@
 {
   "schemaVersion": 1,
   "benchmarkId": "mixed-issue-team-live-v1",
-  "status": "passed",
+  "status": "superseded_invalid",
+  "reason": "The SQLite JavaScript/native runtime closure and canonical per-run anti-replay binding were not yet sealed.",
+  "supersededBy": ".agents/reviews/r-mixed-issue-team-live-v9-2026-08-06.json",
   "paidCalls": 4,
   "maximumPaidCalls": 7,
   "profile": {
@@ -59,7 +61,7 @@
   },
   "assertions": {
     "exactArtifacts": true,
-    "evidenceComplete": true,
+    "evidenceComplete": false,
     "mixedAppsObserved": true,
     "roleKinds": {
       "explorer": "claude-code",
@@ -203,7 +205,7 @@
     }
   },
   "artifactRoot": ".agents/reviews/r-mixed-issue-team-live-v8-2026-08-06.json.artifacts",
-  "claimAllowed": true,
+  "claimAllowed": false,
   "embeddedEvidence": {
     "sourceCommit": "28dfd9069e84f1d613fe73f2138f5f6b7bb1ad5e",
     "sourceTree": "f1183328c520582fd87880955188922baa98cca5",
