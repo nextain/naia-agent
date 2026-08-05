@@ -92,6 +92,9 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
       runs = database.prepare("SELECT dispatch_id,version,fingerprint,state,snapshot_json FROM issue_team_runs").all();
       events = database.prepare("SELECT dispatch_id,sequence,event_type,state FROM issue_team_events ORDER BY dispatch_id,sequence").all();
     } finally { database.close(); }
+    if (sha256(readFileSync(`/proc/self/fd/${databaseFd}`)) !== sqliteFiles[0].sha256) {
+      throw new Error("SQLite evidence changed while its durable state was queried");
+    }
     assertPathMatchesFileDescriptor(databasePath, databaseIdentity);
   } finally { closeSync(databaseFd); }
   if (runs.length !== 1) throw new Error("live evidence must contain exactly one durable team run");
@@ -134,15 +137,22 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
       && value.executionId && value.provider && value.model),
     mixedAppsObserved: new Set(projected.map((value) => value.agentKind)).size === 3, roleKinds };
   const claimScope = { sessionIdentity: "provider_reported", modelIdentity: "adapter_requested_not_provider_observed",
-    capability: "mixed_adapter_execution" };
+    capability: "mixed_adapter_execution", verificationPortability: "clean_checkout_after_locked_install_and_build" };
   const expectedRoleSequence = coreResult.repairCycles === 0
     ? ["explorer", "implementer", "tester", "reviewer"]
     : coreResult.repairCycles === 1
       ? ["explorer", "implementer", "tester", "implementer", "tester", "reviewer"] : undefined;
+  const expectedDecisionSequence = coreResult.repairCycles === 0
+    ? ["explorer:proceed", "implementer:implemented", "tester:pass", "reviewer:clean"]
+    : coreResult.repairCycles === 1
+      ? ["explorer:proceed", "implementer:implemented", "tester:fail", "implementer:implemented",
+        "tester:pass", "reviewer:clean"] : undefined;
   if (receipt.schemaVersion !== 1 || receipt.benchmarkId !== "mixed-issue-team-live-v1"
     || receipt.maximumPaidCalls !== 7 || receipt.paidCalls !== projected.length
     || coreResult.ok !== true || !expectedRoleSequence
     || JSON.stringify(projected.map((value) => value.workerRole)) !== JSON.stringify(expectedRoleSequence)
+    || !expectedDecisionSequence || JSON.stringify(snapshot.outcomes?.map((value) => `${value.role}:${value.decision}`))
+      !== JSON.stringify(expectedDecisionSequence)
     || JSON.stringify(coreResult.changedFiles) !== JSON.stringify(["result.txt"])
     || coreResult.cleanCycles !== 1
     || coreAssertions.evidenceComplete !== true || coreAssertions.mixedAppsObserved !== true
@@ -168,6 +178,9 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
       || JSON.stringify(receipt.assertions) !== JSON.stringify(expectedAssertions)) {
       throw new Error("sealed receipt evidence does not match the immutable execution artifacts");
     }
+    if (expectedArtifactRoot.startsWith(".agents/reviews/")) {
+      assertTrackedEvidence(repositoryRoot, receiptPath, artifactRoot);
+    }
     return receipt;
   }
   if (receipt.embeddedEvidence !== undefined) throw new Error("receipt is already sealed; use sealed verification mode");
@@ -189,7 +202,7 @@ function validateExecutionEvidence(value, repositoryRoot, sourceCommit, requireC
     || value.runtimeBuild.tsconfigSha256 !== sha256(execFileSync("git", ["show", `${sourceCommit}:tsconfig.json`], { cwd: repositoryRoot }))) {
     throw new Error("execution evidence is not bound to the declared source commit");
   }
-  validateExecutableEvidence(value.executables, true);
+  validateExecutableEvidence(value.executables, repositoryRoot);
   const currentBenchmarkSha256 = sha256(readFileSync(join(repositoryRoot, "benchmark/run-mixed-issue-team-live.mjs")));
   const currentSealerSha256 = sha256(readFileSync(join(repositoryRoot, "benchmark/seal-mixed-issue-team-live.mjs")));
   if (currentBenchmarkSha256 !== value.benchmarkScriptSha256 || currentSealerSha256 !== value.sealerSha256
@@ -231,7 +244,7 @@ function captureCodexPackageClosures(entryPath) {
   return output;
 }
 
-function validateExecutableEvidence(value, compareCurrent) {
+function validateExecutableEvidence(value, cwd) {
   if (!value || Object.keys(value).sort().join(",") !== "claude,codex,node,opencode") {
     throw new Error("coding executable evidence is incomplete");
   }
@@ -240,12 +253,17 @@ function validateExecutableEvidence(value, compareCurrent) {
     if (executable?.command !== command || !isAbsolute(executable.path)
       || !/^[0-9a-f]{64}$/u.test(executable.sha256) || typeof executable.version !== "string"
       || !executable.version || executable.version.length > 512) throw new Error("coding executable evidence is invalid");
-    if (compareCurrent && (realpathSync(executable.path) !== executable.path
-      || sha256(readFileSync(executable.path)) !== executable.sha256)) {
+    const currentPath = command === "node" ? realpathSync(process.execPath)
+      : realpathSync(process.env[{ claude: "CLAUDE_BIN", opencode: "OPENCODE_BIN", codex: "CODEX_BIN" }[command]]
+        || execFileSync(process.platform === "win32" ? "where" : "which", [command],
+          { cwd, encoding: "utf8" }).trim().split(/\r?\n/u)[0]);
+    const currentVersion = command === "node" ? process.version
+      : execFileSync(currentPath, ["--version"], { cwd, encoding: "utf8", timeout: 15_000 }).trim();
+    if (sha256(readFileSync(currentPath)) !== executable.sha256 || currentVersion !== executable.version) {
       throw new Error(`coding executable changed during live run: ${command}`);
     }
     if (command === "codex" && JSON.stringify(executable.packageClosures)
-      !== JSON.stringify(captureCodexPackageClosures(executable.path))) {
+      !== JSON.stringify(captureCodexPackageClosures(currentPath))) {
       throw new Error("Codex native package closure changed during live run");
     }
   }
@@ -369,6 +387,15 @@ function assertPathMatchesFileDescriptor(path, descriptorIdentity) {
     || current.ino !== descriptorIdentity.ino) {
     throw new Error("evidence file changed during descriptor-backed verification");
   }
+}
+
+function assertTrackedEvidence(repositoryRoot, receiptPath, artifactRoot) {
+  const paths = [receiptPath, join(artifactRoot, "team.db"), join(artifactRoot, "fixture/result.txt"),
+    join(artifactRoot, "fixture/seed.txt")].map((path) => relative(repositoryRoot, path).split("\\").join("/"));
+  for (const path of paths) execFileSync("git", ["ls-files", "--error-unmatch", path],
+    { cwd: repositoryRoot, stdio: "ignore" });
+  execFileSync("git", ["diff", "--quiet", "HEAD", "--", ...paths], { cwd: repositoryRoot });
+  execFileSync("git", ["diff", "--cached", "--quiet", "HEAD", "--", ...paths], { cwd: repositoryRoot });
 }
 
 function writeJsonAtomic(path, value) {

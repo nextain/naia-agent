@@ -50,6 +50,7 @@ describe("mixed issue-team paid live benchmark contract", () => {
     expect(sealer).toContain("sqliteClosure: captureSqliteClosure()");
     expect(source).toContain("const runId = randomUUID()");
     expect(source).toContain('modelIdentity: "adapter_requested_not_provider_observed"');
+    expect(source).toContain('verificationPortability: "clean_checkout_after_locked_install_and_build"');
     expect(sealer).toContain("artifact binding does not match its execution path");
     expect(sealer).toContain('execFileSync("git", ["diff", "--quiet", "HEAD", "--"]');
     expect(sealer).toContain("current benchmark source or execution runtime closure does not match the live run");
@@ -99,12 +100,16 @@ describe("mixed issue-team paid live benchmark contract", () => {
       const snapshotReceipts = receipts.map((receipt) => ({ role: "worker",
         agentProfileId: profile.roles[receipt.workerRole as keyof typeof profile.roles].agentProfileId,
         idempotencyKey: `${dispatchId}:${receipt.workerRole}:1`, latencyMs: 1, ...receipt }));
+      const decisions = ["proceed", "implemented", "fail", "implemented", "pass", "clean"] as const;
+      const outcomes = roleOrder.map((role, index) => ({ version: 1, role, decision: decisions[index],
+        summary: `${role} fixture outcome`, findings: [] }));
       const stableJson = (value: unknown): string => Array.isArray(value) ? `[${value.map(stableJson).join(",")}]`
         : value && typeof value === "object" ? `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b))
           .map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`).join(",")}}` : JSON.stringify(value);
       const profileDigest = createHash("sha256").update(stableJson(profile)).digest("hex");
       const snapshot = { version: 13, dispatchId, issueId: runBinding, fingerprint: "fingerprint", state: "completed",
         profileDigest, cleanCycles: 1, repairCycles: 1, receipts: snapshotReceipts,
+        outcomes,
         allocation: { workspacePath: join(executionArtifactRoot, "fixture"),
           worktreePath: join(executionArtifactRoot, "fixture") },
         result: { ok: true, changedFiles: ["result.txt"] } };
@@ -135,7 +140,8 @@ describe("mixed issue-team paid live benchmark contract", () => {
       const executionEvidence = JSON.parse(captured.stdout);
       const original = { schemaVersion: 1, benchmarkId: "mixed-issue-team-live-v1", status: "passed", runId,
         paidCalls: 6, maximumPaidCalls: 7, profile, claimScope: { sessionIdentity: "provider_reported",
-          modelIdentity: "adapter_requested_not_provider_observed", capability: "mixed_adapter_execution" },
+          modelIdentity: "adapter_requested_not_provider_observed", capability: "mixed_adapter_execution",
+          verificationPortability: "clean_checkout_after_locked_install_and_build" },
         result: { ok: true, changedFiles: ["result.txt"], cleanCycles: 1, repairCycles: 1 },
         assertions: { exactArtifacts: true, evidenceComplete: true, mixedAppsObserved: true,
           roleKinds: { explorer: "claude-code", implementer: "opencode", tester: "codex", reviewer: "codex" } },
@@ -219,6 +225,18 @@ describe("mixed issue-team paid live benchmark contract", () => {
       restoredDatabase.prepare("UPDATE issue_team_runs SET snapshot_json=?").run(JSON.stringify(snapshot));
       restoredDatabase.close();
       writeFileSync(receiptPath, JSON.stringify(original));
+      const outcomeSnapshot = structuredClone(snapshot); outcomeSnapshot.outcomes[2].decision = "pass";
+      const outcomeDatabase = new Database(join(artifactRoot, "team.db"));
+      outcomeDatabase.prepare("UPDATE issue_team_runs SET snapshot_json=?").run(JSON.stringify(outcomeSnapshot));
+      outcomeDatabase.close();
+      const outcomeTamper = spawnSync(process.execPath,
+        [sealerPath, "--receipt", receiptPath, "--source-commit", sourceCommit, "--seal-unsealed"],
+        { cwd: repositoryRoot, encoding: "utf8" });
+      expect(outcomeTamper.status).not.toBe(0);
+      expect(outcomeTamper.stderr).toContain("receipt summary does not match");
+      const outcomeRestore = new Database(join(artifactRoot, "team.db"));
+      outcomeRestore.prepare("UPDATE issue_team_runs SET snapshot_json=?").run(JSON.stringify(snapshot));
+      outcomeRestore.close();
       const tamperedDatabase = new Database(join(artifactRoot, "team.db"));
       tamperedDatabase.prepare("UPDATE issue_team_events SET state='ready' WHERE sequence=2").run(); tamperedDatabase.close();
       const eventTamper = spawnSync(process.execPath,

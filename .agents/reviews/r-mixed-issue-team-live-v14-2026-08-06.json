@@ -1,7 +1,9 @@
 {
   "schemaVersion": 1,
   "benchmarkId": "mixed-issue-team-live-v1",
-  "status": "passed",
+  "status": "superseded_invalid",
+  "reason": "The verifier did not yet require tracked clean evidence, post-query DB byte stability, portable executable resolution, or exact outcome decisions.",
+  "supersededBy": ".agents/reviews/r-mixed-issue-team-live-v15-2026-08-06.json",
   "runId": "ba4de3a9-d6c0-4a1f-854f-ab2eb622f193",
   "paidCalls": 4,
   "claimScope": {
@@ -65,7 +67,7 @@
   },
   "assertions": {
     "exactArtifacts": true,
-    "evidenceComplete": true,
+    "evidenceComplete": false,
     "mixedAppsObserved": true,
     "roleKinds": {
       "explorer": "claude-code",
@@ -215,7 +217,7 @@
   "artifactRoot": ".agents/reviews/r-mixed-issue-team-live-v14-2026-08-06.json.artifacts",
   "artifactBindingPath": ".agents/reviews/r-mixed-issue-team-live-v14-2026-08-06.json.artifacts",
   "executionArtifactRoot": "/var/home/luke/alpha-adk/worktrees/naia-agent-req-062/.agents/reviews/r-mixed-issue-team-live-v14-2026-08-06.json.artifacts",
-  "claimAllowed": true,
+  "claimAllowed": false,
   "embeddedEvidence": {
     "sourceCommit": "04ac74b5a222123cf0336043693700ce21ce57d6",
     "sourceTree": "3a7c908d369032b0e96b8412f0444b6b2c670337",
