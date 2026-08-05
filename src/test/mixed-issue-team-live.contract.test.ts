@@ -69,6 +69,10 @@ describe("mixed issue-team paid live benchmark contract", () => {
   it("seals matching durable evidence and rejects a tampered receipt", () => {
     const workRoot = join(repositoryRoot, ".agents/work"); mkdirSync(workRoot, { recursive: true });
     const root = mkdtempSync(join(workRoot, "mixed-live-sealer-"));
+    const executableEnvironmentNames = ["CLAUDE_BIN", "OPENCODE_BIN", "CODEX_BIN"] as const;
+    const previousExecutableEnvironment = Object.fromEntries(
+      executableEnvironmentNames.map((name) => [name, process.env[name]]),
+    );
     try {
       const receiptPath = join(root, "receipt.json");
       const artifactRoot = `${receiptPath}.artifacts`; const fixtureRoot = join(artifactRoot, "fixture");
@@ -133,6 +137,7 @@ describe("mixed issue-team paid live benchmark contract", () => {
         const path = join(fakeBin, command); writeFileSync(path, `#!/bin/sh\necho ${command}-test-version\n`); chmodSync(path, 0o700);
         executableEnvironment[environmentName] = path;
       }
+      Object.assign(process.env, executableEnvironment);
       const captured = spawnSync(process.execPath,
         [sealerPath, "--capture-execution-evidence", "--repository-root", repositoryRoot],
         { cwd: repositoryRoot, encoding: "utf8", env: { ...process.env, ...executableEnvironment } });
@@ -244,6 +249,12 @@ describe("mixed issue-team paid live benchmark contract", () => {
         { cwd: repositoryRoot, encoding: "utf8" });
       expect(eventTamper.status).not.toBe(0);
       expect(eventTamper.stderr).toContain("SQLite event history is inconsistent");
-    } finally { rmSync(root, { recursive: true, force: true }); }
+    } finally {
+      for (const name of executableEnvironmentNames) {
+        const previous = previousExecutableEnvironment[name];
+        if (previous === undefined) delete process.env[name]; else process.env[name] = previous;
+      }
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
