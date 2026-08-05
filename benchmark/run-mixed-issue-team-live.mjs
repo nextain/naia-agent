@@ -59,7 +59,8 @@ let paidCalls = 0;
 const rawAgents = composeIssueTeamAgents(profile, {
   claudeCode: { skipPermissions: true, resolveBin: () => ({ command: executionEvidence.executables.claude.path, prefixArgs: [] }) },
   opencode: { skipPermissions: true, resolveBin: () => ({ command: executionEvidence.executables.opencode.path, prefixArgs: [] }) },
-  codex: { skipGitRepoCheck: true, resolveBin: () => ({ command: executionEvidence.executables.codex.path, prefixArgs: [] }) },
+  codex: { skipGitRepoCheck: true, resolveBin: () => ({ command: executionEvidence.executables.node.path,
+    prefixArgs: [executionEvidence.executables.codex.path] }) },
 });
 const agents = Object.fromEntries(Object.entries(rawAgents).map(([id, selected]) => [id, {
   ...selected,
@@ -96,6 +97,7 @@ try {
   const roleKinds = Object.fromEntries(receipts.map((receipt) => [receipt.workerRole, receipt.agentKind]));
   const evidenceComplete = receipts.length >= 4 && receipts.every((receipt) => receipt.sessionId
     && receipt.sessionEvidenceSource === "provider_reported"
+    && ["provider_reported", "adapter_requested"].includes(receipt.modelEvidenceSource)
     && receipt.executionId && receipt.provider && receipt.model);
   const exactArtifacts = resultBytes === "NAIA_MIXED_TEAM_OK\n" && seedBytes === "SEED_MUST_STAY\n"
     && JSON.stringify(files) === JSON.stringify(["result.txt", "seed.txt"]);
@@ -108,6 +110,7 @@ try {
     receipts: receipts.map((receipt) => ({ workerRole: receipt.workerRole, agentKind: receipt.agentKind,
       provider: receipt.provider, model: receipt.model, reasoningEffort: receipt.reasoningEffort,
       sessionId: receipt.sessionId, sessionEvidenceSource: receipt.sessionEvidenceSource,
+      modelEvidenceSource: receipt.modelEvidenceSource,
       executionId: receipt.executionId,
       tokenCountsAvailable: receipt.tokenCountsAvailable, inputTokens: receipt.inputTokens,
       cachedInputTokens: receipt.cachedInputTokens, outputTokens: receipt.outputTokens, cost: receipt.cost })),

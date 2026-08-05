@@ -19,6 +19,7 @@ export function captureMixedLiveExecutionEvidence(repositoryRoot) {
   const compilerPath = join(repositoryRoot, "node_modules/typescript/bin/tsc");
   execFileSync(process.execPath, [compilerPath, "-p", join(repositoryRoot, "tsconfig.json")], { cwd: repositoryRoot, stdio: "pipe" });
   const executables = {
+    node: captureNodeExecutable(),
     claude: captureExecutable(repositoryRoot, "claude", "CLAUDE_BIN"),
     opencode: captureExecutable(repositoryRoot, "opencode", "OPENCODE_BIN"),
     codex: captureExecutable(repositoryRoot, "codex", "CODEX_BIN"),
@@ -83,7 +84,9 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
     cleanCycles: snapshot.cleanCycles, repairCycles: snapshot.repairCycles };
   const coreAssertions = { exactArtifacts: true,
     evidenceComplete: projected.length >= 4 && projected.every((value) => value.sessionId
-      && value.sessionEvidenceSource === "provider_reported" && value.executionId && value.provider && value.model),
+      && value.sessionEvidenceSource === "provider_reported"
+      && ["provider_reported", "adapter_requested"].includes(value.modelEvidenceSource)
+      && value.executionId && value.provider && value.model),
     mixedAppsObserved: new Set(projected.map((value) => value.agentKind)).size === 3, roleKinds };
   if (receipt.schemaVersion !== 1 || receipt.benchmarkId !== "mixed-issue-team-live-v1"
     || receipt.maximumPaidCalls !== 7 || receipt.paidCalls !== projected.length
@@ -132,14 +135,30 @@ function captureExecutable(cwd, command, environmentName) {
   if (!stat.isFile()) throw new Error(`${command} executable is not a regular file`);
   const version = execFileSync(path, ["--version"], { cwd, encoding: "utf8", timeout: 15_000 }).trim();
   if (!version || version.length > 512) throw new Error(`${command} version evidence is invalid`);
-  return { command, path, sha256: sha256(readFileSync(path)), version };
+  const packageClosures = command === "codex" ? captureCodexPackageClosures(path) : {};
+  return { command, path, sha256: sha256(readFileSync(path)), version, packageClosures };
+}
+
+function captureNodeExecutable() {
+  const path = realpathSync(process.execPath);
+  return { command: "node", path, sha256: sha256(readFileSync(path)), version: process.version, packageClosures: {} };
+}
+
+function captureCodexPackageClosures(entryPath) {
+  const packageRoot = dirname(dirname(entryPath)); const scopeRoot = join(packageRoot, "node_modules/@openai");
+  const output = {};
+  for (const name of readdirSync(scopeRoot).filter((value) => value.startsWith("codex-")).sort()) {
+    const path = join(scopeRoot, name); if (statSync(path).isDirectory()) output[name] = digestDirectory(path);
+  }
+  if (Object.keys(output).length !== 1) throw new Error("Codex native package closure is ambiguous or unavailable");
+  return output;
 }
 
 function validateExecutableEvidence(value, compareCurrent) {
-  if (!value || Object.keys(value).sort().join(",") !== "claude,codex,opencode") {
+  if (!value || Object.keys(value).sort().join(",") !== "claude,codex,node,opencode") {
     throw new Error("coding executable evidence is incomplete");
   }
-  for (const command of ["claude", "opencode", "codex"]) {
+  for (const command of ["node", "claude", "opencode", "codex"]) {
     const executable = value[command];
     if (executable?.command !== command || !isAbsolute(executable.path)
       || !/^[0-9a-f]{64}$/u.test(executable.sha256) || typeof executable.version !== "string"
@@ -147,6 +166,10 @@ function validateExecutableEvidence(value, compareCurrent) {
     if (compareCurrent && (realpathSync(executable.path) !== executable.path
       || sha256(readFileSync(executable.path)) !== executable.sha256)) {
       throw new Error(`coding executable changed during live run: ${command}`);
+    }
+    if (command === "codex" && JSON.stringify(executable.packageClosures)
+      !== JSON.stringify(captureCodexPackageClosures(executable.path))) {
+      throw new Error("Codex native package closure changed during live run");
     }
   }
 }
@@ -172,7 +195,8 @@ function validateDurableRun(run, snapshot, events) {
 function projectReceipt(value) {
   return { workerRole: value.workerRole, agentKind: value.agentKind, provider: value.provider, model: value.model,
     ...(value.reasoningEffort ? { reasoningEffort: value.reasoningEffort } : {}), sessionId: value.sessionId,
-    sessionEvidenceSource: value.sessionEvidenceSource, executionId: value.executionId,
+    sessionEvidenceSource: value.sessionEvidenceSource, modelEvidenceSource: value.modelEvidenceSource,
+    executionId: value.executionId,
     tokenCountsAvailable: value.tokenCountsAvailable, inputTokens: value.inputTokens,
     cachedInputTokens: value.cachedInputTokens, outputTokens: value.outputTokens, cost: value.cost };
 }

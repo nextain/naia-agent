@@ -1,7 +1,9 @@
 {
   "schemaVersion": 1,
   "benchmarkId": "mixed-issue-team-live-v1",
-  "status": "passed",
+  "status": "superseded_invalid",
+  "reason": "CLI entry files were bound, but the Codex Node runtime/native package closure and honest modelEvidenceSource projection were not yet included.",
+  "supersededBy": ".agents/reviews/r-mixed-issue-team-live-v6-2026-08-06.json",
   "paidCalls": 4,
   "maximumPaidCalls": 7,
   "profile": {
@@ -59,7 +61,7 @@
   },
   "assertions": {
     "exactArtifacts": true,
-    "evidenceComplete": true,
+    "evidenceComplete": false,
     "mixedAppsObserved": true,
     "roleKinds": {
       "explorer": "claude-code",
@@ -180,7 +182,7 @@
     }
   },
   "artifactRoot": ".agents/reviews/r-mixed-issue-team-live-v5-2026-08-06.json.artifacts",
-  "claimAllowed": true,
+  "claimAllowed": false,
   "embeddedEvidence": {
     "sourceCommit": "82412fd5453626a45bae33abe53db765d706126a",
     "sourceTree": "7d067bc3409ed1cd0436c66cfdecc3b9c7731818",

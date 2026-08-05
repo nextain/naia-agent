@@ -52,6 +52,9 @@ describe("mixed issue-team paid live benchmark contract", () => {
     expect(source).toContain("executionEvidence.executables.claude.path");
     expect(source).toContain("executionEvidence.executables.opencode.path");
     expect(source).toContain("executionEvidence.executables.codex.path");
+    expect(source).toContain("executionEvidence.executables.node.path");
+    expect(sealer).toContain("Codex native package closure changed during live run");
+    expect(source).toContain("modelEvidenceSource: receipt.modelEvidenceSource");
     expect(sealer).toContain("SQLite event history is inconsistent with the completed run");
   });
 
@@ -65,11 +68,12 @@ describe("mixed issue-team paid live benchmark contract", () => {
       writeFileSync(join(fixtureRoot, "result.txt"), "NAIA_MIXED_TEAM_OK\n");
       writeFileSync(join(fixtureRoot, "seed.txt"), "SEED_MUST_STAY\n");
       const roleReceipt = { workerRole: "explorer", agentKind: "claude-code", provider: "claude-code", model: "sonnet",
-        sessionId: "provider-session", sessionEvidenceSource: "provider_reported", executionId: "execution",
+        sessionId: "provider-session", sessionEvidenceSource: "provider_reported", modelEvidenceSource: "adapter_requested",
+        executionId: "execution",
         tokenCountsAvailable: true, inputTokens: 1, cachedInputTokens: 2, outputTokens: 3,
         cost: { state: "unavailable", reason: "not priced" } };
       const snapshotReceipt = { role: "worker", agentProfileId: "claude-explorer", idempotencyKey: "dispatch:explorer:1",
-        latencyMs: 1, modelEvidenceSource: "adapter_requested", ...roleReceipt };
+        latencyMs: 1, ...roleReceipt };
       const profile = { kind: "team", maxRepairCycles: 1, requiredCleanCycles: 1, roles: {
         explorer: { agentProfileId: "claude-explorer", agentKind: "claude-code",
           binding: { provider: "claude-code", model: "sonnet" }, filesystemAccess: "read_only" },
@@ -92,6 +96,8 @@ describe("mixed issue-team paid live benchmark contract", () => {
       database.close();
       const sealerPath = join(repositoryRoot, "benchmark/seal-mixed-issue-team-live.mjs");
       const fakeBin = join(root, "bin"); mkdirSync(fakeBin);
+      const fakeCodexPackage = join(root, "node_modules/@openai/codex-linux-test");
+      mkdirSync(fakeCodexPackage, { recursive: true }); writeFileSync(join(fakeCodexPackage, "native"), "bound-native-fixture");
       const executableEnvironment: Record<string, string> = {};
       for (const [command, environmentName] of [["claude", "CLAUDE_BIN"], ["opencode", "OPENCODE_BIN"], ["codex", "CODEX_BIN"]]) {
         const path = join(fakeBin, command); writeFileSync(path, `#!/bin/sh\necho ${command}-test-version\n`); chmodSync(path, 0o700);
