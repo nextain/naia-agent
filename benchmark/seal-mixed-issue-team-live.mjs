@@ -49,6 +49,7 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
   const receiptParentPath = dirname(receiptPath);
   const receiptParentFd = openPathFromRepository(repositoryRoot, receiptParentPath, "directory");
   const receiptParentIdentity = fstatSync(receiptParentFd);
+  try {
   const receiptFd = openChildNoFollow(receiptParentFd, basename(receiptPath), "file", constants.O_RDONLY);
   const receiptBytes = readFileSync(receiptFd); closeSync(receiptFd);
   const receipt = JSON.parse(receiptBytes.toString("utf8"));
@@ -58,8 +59,8 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
   validateExecutionEvidence(receipt.executionEvidence, repositoryRoot, sourceCommit, requireCurrentSourceMatch);
 
   const artifactRoot = `${receiptPath}.artifacts`;
-  const databasePath = join(artifactRoot, "team.db");
   const artifactFd = openChildNoFollow(receiptParentFd, basename(artifactRoot), "directory", constants.O_RDONLY);
+  try {
   const artifactIdentity = fstatSync(artifactFd);
   const artifactFdPath = `/proc/self/fd/${artifactFd}`;
   const expectedArtifactRoot = relative(repositoryRoot, artifactRoot).split("\\").join("/");
@@ -74,8 +75,7 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
     throw new Error("SQLite evidence contains an unexpected journal or sidecar");
   }
   for (const name of initialSqliteNames) {
-    const fd = openChildNoFollow(artifactFd, name, "file", constants.O_RDONLY);
-    const bytes = readFileSync(fd); closeSync(fd);
+    const bytes = readChildNoFollow(artifactFd, name);
     if (name === "team.db-wal" && bytes.length !== 0) {
       throw new Error("SQLite WAL must be checkpointed and empty before sealing");
     }
@@ -122,15 +122,15 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
     }
   }
 
-  const fixtureRoot = join(artifactRoot, "fixture");
   const fixtureFd = openChildNoFollow(artifactFd, "fixture", "directory", constants.O_RDONLY);
   const fixtureFdPath = `/proc/self/fd/${fixtureFd}`;
-  const fixture = readdirSync(fixtureFdPath).sort().map((name) => {
-    const fd = openChildNoFollow(fixtureFd, name, "file", constants.O_RDONLY);
-    const bytes = readFileSync(fd); closeSync(fd);
-    return { path: name, byteLength: bytes.length, sha256: sha256(bytes), hex: bytes.toString("hex") };
-  });
-  closeSync(fixtureFd);
+  let fixture;
+  try {
+    fixture = readdirSync(fixtureFdPath).sort().map((name) => {
+      const bytes = readChildNoFollow(fixtureFd, name);
+      return { path: name, byteLength: bytes.length, sha256: sha256(bytes), hex: bytes.toString("hex") };
+    });
+  } finally { closeSync(fixtureFd); }
   if (JSON.stringify(fixture.map(({ path }) => path)) !== JSON.stringify(["result.txt", "seed.txt"])
     || fixture[0].hex !== Buffer.from("NAIA_MIXED_TEAM_OK\n").toString("hex")
     || fixture[1].hex !== Buffer.from("SEED_MUST_STAY\n").toString("hex")) {
@@ -196,15 +196,15 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
     if (expectedArtifactRoot.startsWith(".agents/reviews/")) {
       assertTrackedEvidence(repositoryRoot, receiptPath, artifactRoot, receiptBytes, databaseBytes, fixture);
     }
-    closeSync(artifactFd); closeSync(receiptParentFd);
     return receipt;
   }
   if (receipt.embeddedEvidence !== undefined) throw new Error("receipt is already sealed; use sealed verification mode");
   const sealed = { ...receipt, artifactRoot: expectedArtifactRoot, embeddedEvidence: expectedEmbeddedEvidence,
     assertions: expectedAssertions };
   writeJsonAtomicAt(receiptParentFd, basename(receiptPath), sealed);
-  closeSync(artifactFd); closeSync(receiptParentFd);
   return sealed;
+  } finally { closeSync(artifactFd); }
+  } finally { closeSync(receiptParentFd); }
 }
 
 function validateExecutionEvidence(value, repositoryRoot, sourceCommit, requireCurrentSourceMatch) {
@@ -431,6 +431,11 @@ function openChildNoFollow(parentFd, name, expectedKind, flags) {
   const stat = fstatSync(fd); const valid = expectedKind === "file" ? stat.isFile() : stat.isDirectory();
   if (!valid) { closeSync(fd); throw new Error(`evidence path is not a regular ${expectedKind}`); }
   return fd;
+}
+
+function readChildNoFollow(parentFd, name) {
+  const fd = openChildNoFollow(parentFd, name, "file", constants.O_RDONLY);
+  try { return readFileSync(fd); } finally { closeSync(fd); }
 }
 
 function normalizeSqliteToDeleteJournal(path) {
