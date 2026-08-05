@@ -46,8 +46,12 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
   const receiptPath = resolve(inputPath);
   if (!sourceCommit || !/^[0-9a-f]{40}$/u.test(sourceCommit)) throw new Error("source commit must be full 40-hex");
   const repositoryRoot = git(dirname(receiptPath), ["rev-parse", "--show-toplevel"]);
-  assertNoSymlinkPath(repositoryRoot, receiptPath, "file");
-  const receipt = JSON.parse(readRegularFileNoFollow(receiptPath).toString("utf8"));
+  const receiptParentPath = dirname(receiptPath);
+  const receiptParentFd = openPathFromRepository(repositoryRoot, receiptParentPath, "directory");
+  const receiptParentIdentity = fstatSync(receiptParentFd);
+  const receiptFd = openChildNoFollow(receiptParentFd, basename(receiptPath), "file", constants.O_RDONLY);
+  const receiptBytes = readFileSync(receiptFd); closeSync(receiptFd);
+  const receipt = JSON.parse(receiptBytes.toString("utf8"));
   if (receipt.status !== "passed" || receipt.claimAllowed !== true || !Array.isArray(receipt.receipts)) {
     throw new Error("only a passed, claim-allowed mixed-team receipt can be sealed");
   }
@@ -55,33 +59,34 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
 
   const artifactRoot = `${receiptPath}.artifacts`;
   const databasePath = join(artifactRoot, "team.db");
-  assertNoSymlinkPath(repositoryRoot, artifactRoot, "directory");
-  assertNoSymlinkPath(repositoryRoot, databasePath, "file");
-  const artifactIdentity = directoryIdentity(artifactRoot);
+  const artifactFd = openChildNoFollow(receiptParentFd, basename(artifactRoot), "directory", constants.O_RDONLY);
+  const artifactIdentity = fstatSync(artifactFd);
+  const artifactFdPath = `/proc/self/fd/${artifactFd}`;
   const expectedArtifactRoot = relative(repositoryRoot, artifactRoot).split("\\").join("/");
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(receipt.runId)
     || receipt.artifactBindingPath !== expectedArtifactRoot || !isAbsolute(receipt.executionArtifactRoot)
-    || (!verifyExistingSeal && receipt.executionArtifactRoot !== realpathSync(artifactRoot))) {
+    || (!verifyExistingSeal && receipt.executionArtifactRoot !== realpathSync(artifactFdPath))) {
     throw new Error("live evidence run ID or artifact binding does not match its execution path");
   }
-  const initialSqliteNames = readdirSync(artifactRoot).filter((name) => name.startsWith("team.db")).sort();
+  const initialSqliteNames = readdirSync(artifactFdPath).filter((name) => name.startsWith("team.db")).sort();
   if (!initialSqliteNames.includes("team.db")
     || initialSqliteNames.some((name) => !["team.db", "team.db-shm", "team.db-wal"].includes(name))) {
     throw new Error("SQLite evidence contains an unexpected journal or sidecar");
   }
   for (const name of initialSqliteNames) {
-    const path = join(artifactRoot, name); assertNoSymlinkPath(repositoryRoot, path, "file");
-    if (name === "team.db-wal" && readRegularFileNoFollow(path).length !== 0) {
+    const fd = openChildNoFollow(artifactFd, name, "file", constants.O_RDONLY);
+    const bytes = readFileSync(fd); closeSync(fd);
+    if (name === "team.db-wal" && bytes.length !== 0) {
       throw new Error("SQLite WAL must be checkpointed and empty before sealing");
     }
   }
-  if (!verifyExistingSeal) normalizeSqliteToDeleteJournal(databasePath);
-  const sqliteNames = readdirSync(artifactRoot).filter((name) => name.startsWith("team.db")).sort();
+  if (!verifyExistingSeal) normalizeSqliteToDeleteJournal(join(artifactFdPath, "team.db"));
+  const sqliteNames = readdirSync(artifactFdPath).filter((name) => name.startsWith("team.db")).sort();
   if (JSON.stringify(sqliteNames) !== JSON.stringify(["team.db"])) {
     throw new Error("SQLite evidence is not a checkpointed self-contained database");
   }
   if (process.platform !== "linux") throw new Error("secure descriptor-backed SQLite evidence verification requires Linux");
-  const databaseFd = openRegularFileNoFollow(databasePath);
+  const databaseFd = openChildNoFollow(artifactFd, "team.db", "file", constants.O_RDONLY);
   const databaseIdentity = fstatSync(databaseFd);
   const databaseBytes = readFileSync(databaseFd);
   const sqliteFiles = [{ path: "team.db", byteLength: databaseBytes.length, sha256: sha256(databaseBytes) }];
@@ -95,7 +100,7 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
     if (sha256(readFileSync(`/proc/self/fd/${databaseFd}`)) !== sqliteFiles[0].sha256) {
       throw new Error("SQLite evidence changed while its durable state was queried");
     }
-    assertPathMatchesFileDescriptor(databasePath, databaseIdentity);
+    assertChildMatchesDescriptor(artifactFd, "team.db", databaseIdentity, "file");
   } finally { closeSync(databaseFd); }
   if (runs.length !== 1) throw new Error("live evidence must contain exactly one durable team run");
   const run = runs[0]; const snapshot = JSON.parse(String(run.snapshot_json));
@@ -118,12 +123,14 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
   }
 
   const fixtureRoot = join(artifactRoot, "fixture");
-  assertNoSymlinkPath(repositoryRoot, fixtureRoot, "directory");
-  const fixture = readdirSync(fixtureRoot).sort().map((name) => {
-    const path = join(fixtureRoot, name); assertNoSymlinkPath(repositoryRoot, path, "file");
-    const bytes = readRegularFileNoFollow(path);
+  const fixtureFd = openChildNoFollow(artifactFd, "fixture", "directory", constants.O_RDONLY);
+  const fixtureFdPath = `/proc/self/fd/${fixtureFd}`;
+  const fixture = readdirSync(fixtureFdPath).sort().map((name) => {
+    const fd = openChildNoFollow(fixtureFd, name, "file", constants.O_RDONLY);
+    const bytes = readFileSync(fd); closeSync(fd);
     return { path: name, byteLength: bytes.length, sha256: sha256(bytes), hex: bytes.toString("hex") };
   });
+  closeSync(fixtureFd);
   if (JSON.stringify(fixture.map(({ path }) => path)) !== JSON.stringify(["result.txt", "seed.txt"])
     || fixture[0].hex !== Buffer.from("NAIA_MIXED_TEAM_OK\n").toString("hex")
     || fixture[1].hex !== Buffer.from("SEED_MUST_STAY\n").toString("hex")) {
@@ -138,7 +145,8 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
       && ["provider_reported", "adapter_requested"].includes(value.modelEvidenceSource)
       && value.executionId && value.provider && value.model),
     mixedAppsObserved: new Set(projected.map((value) => value.agentKind)).size === 3, roleKinds };
-  const claimScope = { sessionIdentity: "provider_reported", modelIdentity: "adapter_requested_not_provider_observed",
+  const claimScope = { sessionIdentity: "provider_reported", providerIdentity: "adapter_declared_not_provider_observed",
+    modelIdentity: "adapter_requested_not_provider_observed",
     capability: "mixed_adapter_execution", verificationPortability: "clean_checkout_after_locked_install_and_build" };
   const convergencePaths = coreResult.repairCycles === 0 ? [{
     roles: ["explorer", "implementer", "tester", "reviewer"],
@@ -177,7 +185,8 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
     sqliteSha256: sqliteFiles.find((value) => value.path === "team.db").sha256,
     durableRun, durableRunSha256: sha256(Buffer.from(JSON.stringify(durableRun))), events, fixture };
   const expectedAssertions = { ...coreAssertions, durableEvidenceEmbedded: true, receiptMatchesDurableSnapshot: true };
-  assertSameDirectory(artifactRoot, artifactIdentity);
+  assertChildMatchesDescriptor(receiptParentFd, basename(artifactRoot), artifactIdentity, "directory");
+  assertPathMatchesDescriptor(receiptParentPath, receiptParentIdentity, "directory");
   if (verifyExistingSeal) {
     if (!receipt.embeddedEvidence || receipt.artifactRoot !== expectedArtifactRoot
       || JSON.stringify(receipt.embeddedEvidence) !== JSON.stringify(expectedEmbeddedEvidence)
@@ -185,14 +194,16 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
       throw new Error("sealed receipt evidence does not match the immutable execution artifacts");
     }
     if (expectedArtifactRoot.startsWith(".agents/reviews/")) {
-      assertTrackedEvidence(repositoryRoot, receiptPath, artifactRoot);
+      assertTrackedEvidence(repositoryRoot, receiptPath, artifactRoot, receiptBytes, databaseBytes, fixture);
     }
+    closeSync(artifactFd); closeSync(receiptParentFd);
     return receipt;
   }
   if (receipt.embeddedEvidence !== undefined) throw new Error("receipt is already sealed; use sealed verification mode");
   const sealed = { ...receipt, artifactRoot: expectedArtifactRoot, embeddedEvidence: expectedEmbeddedEvidence,
     assertions: expectedAssertions };
-  writeJsonAtomic(receiptPath, sealed);
+  writeJsonAtomicAt(receiptParentFd, basename(receiptPath), sealed);
+  closeSync(artifactFd); closeSync(receiptParentFd);
   return sealed;
 }
 
@@ -385,32 +396,41 @@ function digestDirectory(root) {
   return { fileCount: entries.length, manifestSha256: sha256(Buffer.from(JSON.stringify(entries))) };
 }
 
-function assertNoSymlinkPath(repositoryRoot, targetPath, expectedKind) {
+function openPathFromRepository(repositoryRoot, targetPath, expectedKind) {
   const root = resolve(repositoryRoot); const target = resolve(targetPath); const pathFromRoot = relative(root, target);
   if (!pathFromRoot || pathFromRoot.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)
     || pathFromRoot === ".." || isAbsolute(pathFromRoot)) {
     throw new Error("evidence path must be inside the repository");
   }
-  let cursor = root;
-  for (const part of pathFromRoot.split(/[\\/]/u)) {
-    cursor = join(cursor, part); const stat = lstatSync(cursor);
-    if (stat.isSymbolicLink()) throw new Error("evidence path contains a symbolic link");
-    if (cursor !== target && !stat.isDirectory()) throw new Error("evidence path parent is not a directory");
-    if (cursor === target && (expectedKind === "file" ? !stat.isFile() : !stat.isDirectory())) {
-      throw new Error(`evidence path is not a regular ${expectedKind}`);
+  let fd = openSync(root, constants.O_RDONLY | constants.O_DIRECTORY | (constants.O_NOFOLLOW ?? 0));
+  try {
+    const parts = pathFromRoot.split(/[\\/]/u);
+    for (let index = 0; index < parts.length; index += 1) {
+      const next = openChildNoFollow(fd, parts[index], index === parts.length - 1 ? expectedKind : "directory",
+        constants.O_RDONLY);
+      closeSync(fd); fd = next;
     }
+    return fd;
+  } catch (error) {
+    closeSync(fd); throw error;
   }
 }
 
-function openRegularFileNoFollow(path) {
-  const fd = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
-  if (!fstatSync(fd).isFile()) { closeSync(fd); throw new Error("evidence path is not a regular file"); }
+function openChildNoFollow(parentFd, name, expectedKind, flags) {
+  if (!name || name === "." || name === ".." || name.includes("/") || name.includes("\\")) {
+    throw new Error("evidence child name is invalid");
+  }
+  const directoryFlag = expectedKind === "directory" ? constants.O_DIRECTORY : 0;
+  let fd;
+  try {
+    fd = openSync(`/proc/self/fd/${parentFd}/${name}`, flags | directoryFlag | (constants.O_NOFOLLOW ?? 0));
+  } catch (error) {
+    if (["ELOOP", "ENOTDIR"].includes(error?.code)) throw new Error("evidence path contains a symbolic link");
+    throw error;
+  }
+  const stat = fstatSync(fd); const valid = expectedKind === "file" ? stat.isFile() : stat.isDirectory();
+  if (!valid) { closeSync(fd); throw new Error(`evidence path is not a regular ${expectedKind}`); }
   return fd;
-}
-
-function readRegularFileNoFollow(path) {
-  const fd = openRegularFileNoFollow(path);
-  try { return readFileSync(fd); } finally { closeSync(fd); }
 }
 
 function normalizeSqliteToDeleteJournal(path) {
@@ -428,38 +448,45 @@ function normalizeSqliteToDeleteJournal(path) {
   } finally { closeSync(fd); }
 }
 
-function directoryIdentity(path) {
-  const stat = lstatSync(path);
-  if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error("evidence directory is not a regular directory");
-  return { realpath: realpathSync(path), dev: stat.dev, ino: stat.ino };
+function assertChildMatchesDescriptor(parentFd, name, descriptorIdentity, expectedKind) {
+  const fd = openChildNoFollow(parentFd, name, expectedKind, constants.O_RDONLY);
+  try {
+    const current = fstatSync(fd);
+    if (current.dev !== descriptorIdentity.dev || current.ino !== descriptorIdentity.ino) {
+      throw new Error("evidence entry changed during descriptor-backed verification");
+    }
+  } finally { closeSync(fd); }
 }
 
-function assertSameDirectory(path, identity) {
-  const current = directoryIdentity(path);
-  if (current.realpath !== identity.realpath || current.dev !== identity.dev || current.ino !== identity.ino) {
-    throw new Error("evidence directory changed during verification");
-  }
+function assertPathMatchesDescriptor(path, descriptorIdentity, expectedKind) {
+  const fd = openSync(path, constants.O_RDONLY
+    | (expectedKind === "directory" ? constants.O_DIRECTORY : 0) | (constants.O_NOFOLLOW ?? 0));
+  try {
+    const current = fstatSync(fd); const kindMatches = expectedKind === "file" ? current.isFile() : current.isDirectory();
+    if (!kindMatches || current.dev !== descriptorIdentity.dev || current.ino !== descriptorIdentity.ino) {
+      throw new Error("evidence path changed during descriptor-backed verification");
+    }
+  } finally { closeSync(fd); }
 }
 
-function assertPathMatchesFileDescriptor(path, descriptorIdentity) {
-  const current = lstatSync(path);
-  if (!current.isFile() || current.isSymbolicLink() || current.dev !== descriptorIdentity.dev
-    || current.ino !== descriptorIdentity.ino) {
-    throw new Error("evidence file changed during descriptor-backed verification");
-  }
-}
-
-function assertTrackedEvidence(repositoryRoot, receiptPath, artifactRoot) {
+function assertTrackedEvidence(repositoryRoot, receiptPath, artifactRoot, receiptBytes, databaseBytes, fixture) {
   const paths = [receiptPath, join(artifactRoot, "team.db"), join(artifactRoot, "fixture/result.txt"),
     join(artifactRoot, "fixture/seed.txt")].map((path) => relative(repositoryRoot, path).split("\\").join("/"));
   for (const path of paths) execFileSync("git", ["ls-files", "--error-unmatch", path],
     { cwd: repositoryRoot, stdio: "ignore" });
+  const expected = [receiptBytes, databaseBytes, ...fixture.map((value) => Buffer.from(value.hex, "hex"))];
+  for (let index = 0; index < paths.length; index += 1) {
+    if (!execFileSync("git", ["show", `HEAD:${paths[index]}`], { cwd: repositoryRoot }).equals(expected[index])) {
+      throw new Error("tracked evidence bytes do not match immutable HEAD");
+    }
+  }
   execFileSync("git", ["diff", "--quiet", "HEAD", "--", ...paths], { cwd: repositoryRoot });
   execFileSync("git", ["diff", "--cached", "--quiet", "HEAD", "--", ...paths], { cwd: repositoryRoot });
 }
 
-function writeJsonAtomic(path, value) {
-  const temporary = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`);
+function writeJsonAtomicAt(parentFd, name, value) {
+  const parent = `/proc/self/fd/${parentFd}`; const path = join(parent, name);
+  const temporary = join(parent, `.${name}.${randomUUID()}.tmp`);
   let fd;
   try {
     fd = openSync(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0), 0o600);

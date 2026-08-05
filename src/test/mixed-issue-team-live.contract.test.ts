@@ -50,6 +50,7 @@ describe("mixed issue-team paid live benchmark contract", () => {
     expect(sealer).toContain("sqliteClosure: captureSqliteClosure()");
     expect(source).toContain("const runId = randomUUID()");
     expect(source).toContain('modelIdentity: "adapter_requested_not_provider_observed"');
+    expect(source).toContain('providerIdentity: "adapter_declared_not_provider_observed"');
     expect(source).toContain('verificationPortability: "clean_checkout_after_locked_install_and_build"');
     expect(sealer).toContain("artifact binding does not match its execution path");
     expect(sealer).toContain('execFileSync("git", ["diff", "--quiet", "HEAD", "--"]');
@@ -145,6 +146,7 @@ describe("mixed issue-team paid live benchmark contract", () => {
       const executionEvidence = JSON.parse(captured.stdout);
       const original = { schemaVersion: 1, benchmarkId: "mixed-issue-team-live-v1", status: "passed", runId,
         paidCalls: 7, maximumPaidCalls: 7, profile, claimScope: { sessionIdentity: "provider_reported",
+          providerIdentity: "adapter_declared_not_provider_observed",
           modelIdentity: "adapter_requested_not_provider_observed", capability: "mixed_adapter_execution",
           verificationPortability: "clean_checkout_after_locked_install_and_build" },
         result: { ok: true, changedFiles: ["result.txt"], cleanCycles: 1, repairCycles: 1 },

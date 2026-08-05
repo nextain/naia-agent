@@ -1,7 +1,9 @@
 {
   "schemaVersion": 1,
   "benchmarkId": "mixed-issue-team-live-v1",
-  "status": "passed",
+  "status": "superseded_invalid",
+  "invalidReason": "Reviewer found parent-path TOCTOU exposure and unqualified adapter-declared provider identity.",
+  "supersededBy": "r-mixed-issue-team-live-v18-2026-08-06.json",
   "runId": "be5a29e8-7e95-4416-a557-c3e94b12f6da",
   "paidCalls": 4,
   "claimScope": {
@@ -216,7 +218,7 @@
   "artifactRoot": ".agents/reviews/r-mixed-issue-team-live-v17-2026-08-06.json.artifacts",
   "artifactBindingPath": ".agents/reviews/r-mixed-issue-team-live-v17-2026-08-06.json.artifacts",
   "executionArtifactRoot": "/var/home/luke/alpha-adk/worktrees/naia-agent-req-062/.agents/reviews/r-mixed-issue-team-live-v17-2026-08-06.json.artifacts",
-  "claimAllowed": true,
+  "claimAllowed": false,
   "embeddedEvidence": {
     "sourceCommit": "c15addeb743bae20daf6d6ab855cab68b5e737d3",
     "sourceTree": "5d8de8aca183be97c2216a479689626c04637f33",
