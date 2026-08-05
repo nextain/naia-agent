@@ -171,6 +171,16 @@ describe("mixed issue-team paid live benchmark contract", () => {
         executionEvidence, claimAllowed: false, receipts };
       Object.assign(original, { artifactBindingPath, executionArtifactRoot });
       writeFileSync(receiptPath, JSON.stringify(original));
+      const decoyClaude = join(fakeBin, "claude-decoy");
+      cpSync(executableEnvironment.CLAUDE_BIN, decoyClaude); chmodSync(decoyClaude, 0o700);
+      const retargeted = spawnSync(process.execPath,
+        [sealerPath, "--receipt", receiptPath, "--source-commit",
+          execFileSync("git", ["rev-parse", "HEAD"], { cwd: repositoryRoot, encoding: "utf8" }).trim(),
+          "--seal-unsealed"],
+        { cwd: repositoryRoot, encoding: "utf8",
+          env: { ...process.env, ...executableEnvironment, CLAUDE_BIN: decoyClaude } });
+      expect(retargeted.status).not.toBe(0);
+      expect(retargeted.stderr).toContain("coding executable resolved path changed: claude");
       const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repositoryRoot, encoding: "utf8" }).trim();
       const raced = spawnSync(process.execPath, ["--input-type=module", "-e",
         `import { writeFileSync } from "node:fs";
@@ -181,6 +191,7 @@ describe("mixed issue-team paid live benchmark contract", () => {
       { cwd: repositoryRoot, encoding: "utf8", env: { ...process.env, ...executableEnvironment } });
       expect(raced.status).not.toBe(0);
       expect(raced.stderr).toContain("fixture evidence changed before the sealing commit point");
+      expect(JSON.parse(readFileSync(receiptPath, "utf8"))).toMatchObject({ claimAllowed: false });
       writeFileSync(join(fixtureRoot, "result.txt"), "NAIA_MIXED_TEAM_OK\n");
       const receiptRaced = spawnSync(process.execPath, ["--input-type=module", "-e",
         `import { writeFileSync } from "node:fs";

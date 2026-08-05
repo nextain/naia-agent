@@ -138,13 +138,14 @@ function validateExecutableEvidence(value, cwd) {
       : realpathSync(process.env[{ claude: "CLAUDE_BIN", opencode: "OPENCODE_BIN", codex: "CODEX_BIN" }[command]]
         || execFileSync(process.platform === "win32" ? "where" : "which", [command],
           { cwd, encoding: "utf8" }).trim().split(/\r?\n/u)[0]);
+    if (currentPath !== executable.path) throw new Error(`coding executable resolved path changed: ${command}`);
     const currentVersion = command === "node" ? process.version
-      : execFileSync(currentPath, ["--version"], { cwd, encoding: "utf8", timeout: 15_000 }).trim();
-    if (sha256(readFileSync(currentPath)) !== executable.sha256 || currentVersion !== executable.version) {
+      : execFileSync(executable.path, ["--version"], { cwd, encoding: "utf8", timeout: 15_000 }).trim();
+    if (sha256(readFileSync(executable.path)) !== executable.sha256 || currentVersion !== executable.version) {
       throw new Error(`coding executable changed during live run: ${command}`);
     }
     if (command === "codex" && JSON.stringify(executable.packageClosures)
-      !== JSON.stringify(captureCodexPackageClosures(currentPath))) {
+      !== JSON.stringify(captureCodexPackageClosures(executable.path))) {
       throw new Error("Codex native package closure changed during live run");
     }
   }

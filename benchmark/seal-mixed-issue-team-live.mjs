@@ -189,10 +189,10 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
   if (receipt.embeddedEvidence !== undefined) throw new Error("receipt is already sealed; use sealed verification mode");
   const sealed = { ...receipt, claimAllowed: true, artifactRoot: expectedArtifactRoot,
     embeddedEvidence: expectedEmbeddedEvidence, assertions: expectedAssertions };
+  // This descriptor-backed write is the publication commit point. All fallible
+  // artifact/path validation must stay above it so a reported sealing failure
+  // can never leave a pathname-reachable claimable receipt behind.
   writeJsonBoundFile(receiptParentFd, basename(receiptPath), receiptFd, receiptIdentity, receiptBytes, sealed);
-  assertArtifactSnapshot(artifactFd, databaseIdentity, sqliteFiles[0].sha256, fixture);
-  assertChildMatchesDescriptor(receiptParentFd, basename(artifactRoot), artifactIdentity, "directory");
-  assertPathMatchesDescriptor(receiptParentPath, receiptParentIdentity, "directory");
   return sealed;
   } finally { closeSync(artifactFd); }
   } finally { if (ownsReceiptFd) closeSync(receiptFd); }
