@@ -48,7 +48,7 @@ describe("subagent-opencode-cli 어댑터 계약 (2b, fake child)", () => {
     f.line('{"type":"text","part":{"text":"분석 중"}}');
     f.line('{"type":"tool_use","part":{"tool":"edit","state":{"status":"running"}}}');
     f.line('{"type":"tool_use","part":{"tool":"edit","state":{"status":"completed"}}}');
-    f.line('{"type":"step_finish","sessionID":"ses_real","part":{"tokens":{"total":45,"input":10,"output":5,"reasoning":2,"cache":{"read":28,"write":0}},"cost":0}}');
+    f.line('{"type":"step_finish","sessionID":"ses_real","part":{"tokens":{"total":48,"input":10,"output":5,"reasoning":2,"cache":{"read":28,"write":3}},"cost":0}}');
     f.close(0);
     const events = await drain(session.events);
 
@@ -60,7 +60,7 @@ describe("subagent-opencode-cli 어댑터 계약 (2b, fake child)", () => {
     expect((events[4] as Extract<SubAgentEvent, { kind: "session_end" }>).evidence).toMatchObject({
       provider: "opencode", selectedModel: "opencode-default", sessionId: "ses_real",
       sessionEvidenceSource: "provider_reported",
-      inputTokens: 10, cachedInputTokens: 28, outputTokens: 7, totalTokens: 45,
+      inputTokens: 13, cachedInputTokens: 28, outputTokens: 7, totalTokens: 48,
       usageAvailable: true, modelEvidenceSource: "adapter_requested",
     });
     expect((events[4] as Extract<SubAgentEvent, { kind: "session_end" }>).evidence?.measuredCostUsd).toBeUndefined();

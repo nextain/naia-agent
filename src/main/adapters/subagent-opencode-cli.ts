@@ -120,7 +120,9 @@ export function makeOpencodeLineParser(
     try { raw = JSON.parse(line.trim()) as RawOpencodeEvent; } catch { return null; }
     if (raw.type !== "step_finish" || !validTokens(raw.part?.tokens)) return null;
     const tokens = raw.part.tokens;
-    uncachedInput += tokens.input;
+    // Cache writes are newly processed input (and may be billed at a creation
+    // rate); cache reads remain the disjoint cached-input partition.
+    uncachedInput += tokens.input + (tokens.cache?.write ?? 0);
     cachedInput += tokens.cache?.read ?? 0;
     // Azure/OpenAI separates reasoning from visible output, but both are billed
     // completion tokens. Normalize them into the domain output count.
