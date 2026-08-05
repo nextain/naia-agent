@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import Database from "better-sqlite3";
@@ -18,6 +18,11 @@ export function captureMixedLiveExecutionEvidence(repositoryRoot) {
   }
   const compilerPath = join(repositoryRoot, "node_modules/typescript/bin/tsc");
   execFileSync(process.execPath, [compilerPath, "-p", join(repositoryRoot, "tsconfig.json")], { cwd: repositoryRoot, stdio: "pipe" });
+  const executables = {
+    claude: captureExecutable(repositoryRoot, "claude", "CLAUDE_BIN"),
+    opencode: captureExecutable(repositoryRoot, "opencode", "OPENCODE_BIN"),
+    codex: captureExecutable(repositoryRoot, "codex", "CODEX_BIN"),
+  };
   return {
     sourceCommit,
     sourceTree: git(repositoryRoot, ["rev-parse", `${sourceCommit}^{tree}`]),
@@ -25,6 +30,7 @@ export function captureMixedLiveExecutionEvidence(repositoryRoot) {
     sealerSha256: sha256(execFileSync("git", ["show", `${sourceCommit}:benchmark/seal-mixed-issue-team-live.mjs`], { cwd: repositoryRoot })),
     runtimeBuild: { completed: true, compilerSha256: sha256(readFileSync(compilerPath)),
       tsconfigSha256: sha256(execFileSync("git", ["show", `${sourceCommit}:tsconfig.json`], { cwd: repositoryRoot })) },
+    executables,
     runtimeClosure: digestDirectory(join(repositoryRoot, "dist/main")),
   };
 }
@@ -107,11 +113,40 @@ function validateExecutionEvidence(value, repositoryRoot, sourceCommit, requireC
     || value.runtimeBuild.tsconfigSha256 !== sha256(execFileSync("git", ["show", `${sourceCommit}:tsconfig.json`], { cwd: repositoryRoot }))) {
     throw new Error("execution evidence is not bound to the declared source commit");
   }
+  validateExecutableEvidence(value.executables, requireCurrentSourceMatch);
   if (requireCurrentSourceMatch) {
     execFileSync("git", ["diff", "--quiet", sourceCommit, "--"], { cwd: repositoryRoot });
     execFileSync("git", ["diff", "--cached", "--quiet", sourceCommit, "--"], { cwd: repositoryRoot });
     if (JSON.stringify(value.runtimeClosure) !== JSON.stringify(digestDirectory(join(repositoryRoot, "dist/main")))) {
       throw new Error("execution runtime closure changed before evidence sealing");
+    }
+  }
+}
+
+function captureExecutable(cwd, command, environmentName) {
+  const configured = process.env[environmentName]?.trim();
+  const discovered = configured || execFileSync(process.platform === "win32" ? "where" : "which", [command],
+    { cwd, encoding: "utf8" }).trim().split(/\r?\n/u)[0];
+  if (!isAbsolute(discovered)) throw new Error(`${environmentName} must resolve to an absolute executable path`);
+  const path = realpathSync(discovered); const stat = statSync(path);
+  if (!stat.isFile()) throw new Error(`${command} executable is not a regular file`);
+  const version = execFileSync(path, ["--version"], { cwd, encoding: "utf8", timeout: 15_000 }).trim();
+  if (!version || version.length > 512) throw new Error(`${command} version evidence is invalid`);
+  return { command, path, sha256: sha256(readFileSync(path)), version };
+}
+
+function validateExecutableEvidence(value, compareCurrent) {
+  if (!value || Object.keys(value).sort().join(",") !== "claude,codex,opencode") {
+    throw new Error("coding executable evidence is incomplete");
+  }
+  for (const command of ["claude", "opencode", "codex"]) {
+    const executable = value[command];
+    if (executable?.command !== command || !isAbsolute(executable.path)
+      || !/^[0-9a-f]{64}$/u.test(executable.sha256) || typeof executable.version !== "string"
+      || !executable.version || executable.version.length > 512) throw new Error("coding executable evidence is invalid");
+    if (compareCurrent && (realpathSync(executable.path) !== executable.path
+      || sha256(readFileSync(executable.path)) !== executable.sha256)) {
+      throw new Error(`coding executable changed during live run: ${command}`);
     }
   }
 }

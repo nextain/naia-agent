@@ -1,6 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
@@ -48,6 +48,10 @@ describe("mixed issue-team paid live benchmark contract", () => {
     expect(sealer).toContain('execFileSync(process.execPath, [compilerPath, "-p"');
     expect(sealer).toContain('execFileSync("git", ["diff", "--quiet", "HEAD", "--"]');
     expect(sealer).toContain("execution runtime closure changed before evidence sealing");
+    expect(sealer).toContain("coding executable changed during live run");
+    expect(source).toContain("executionEvidence.executables.claude.path");
+    expect(source).toContain("executionEvidence.executables.opencode.path");
+    expect(source).toContain("executionEvidence.executables.codex.path");
     expect(sealer).toContain("SQLite event history is inconsistent with the completed run");
   });
 
@@ -87,8 +91,15 @@ describe("mixed issue-team paid live benchmark contract", () => {
       insertEvent.run("dispatch", 3, "team_completed", "completed");
       database.close();
       const sealerPath = join(repositoryRoot, "benchmark/seal-mixed-issue-team-live.mjs");
+      const fakeBin = join(root, "bin"); mkdirSync(fakeBin);
+      const executableEnvironment: Record<string, string> = {};
+      for (const [command, environmentName] of [["claude", "CLAUDE_BIN"], ["opencode", "OPENCODE_BIN"], ["codex", "CODEX_BIN"]]) {
+        const path = join(fakeBin, command); writeFileSync(path, `#!/bin/sh\necho ${command}-test-version\n`); chmodSync(path, 0o700);
+        executableEnvironment[environmentName] = path;
+      }
       const captured = spawnSync(process.execPath,
-        [sealerPath, "--capture-execution-evidence", "--repository-root", repositoryRoot], { cwd: repositoryRoot, encoding: "utf8" });
+        [sealerPath, "--capture-execution-evidence", "--repository-root", repositoryRoot],
+        { cwd: repositoryRoot, encoding: "utf8", env: { ...process.env, ...executableEnvironment } });
       expect(captured.status, captured.stderr).toBe(0);
       const executionEvidence = JSON.parse(captured.stdout);
       const original = { schemaVersion: 1, benchmarkId: "mixed-issue-team-live-v1", status: "passed",
@@ -111,6 +122,7 @@ describe("mixed issue-team paid live benchmark contract", () => {
         { name: "result", mutate: (value: any) => { value.result.cleanCycles = 2; }, message: "receipt summary" },
         { name: "assertions", mutate: (value: any) => { value.assertions.exactArtifacts = false; }, message: "receipt summary" },
         { name: "source binding", mutate: (value: any) => { value.executionEvidence.sourceTree = "0".repeat(40); }, message: "execution evidence" },
+        { name: "executable binding", mutate: (value: any) => { value.executionEvidence.executables.codex.sha256 = "0".repeat(64); }, message: "coding executable" },
       ];
       for (const candidate of tamperedCases) {
         const value = structuredClone(original); candidate.mutate(value); writeFileSync(receiptPath, JSON.stringify(value));

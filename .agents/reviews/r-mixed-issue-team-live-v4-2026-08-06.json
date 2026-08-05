@@ -1,7 +1,9 @@
 {
   "schemaVersion": 1,
   "benchmarkId": "mixed-issue-team-live-v1",
-  "status": "passed",
+  "status": "superseded_invalid",
+  "reason": "The source and rebuilt dist were bound, but the resolved Claude, OpenCode, and Codex executable identities were not.",
+  "supersededBy": ".agents/reviews/r-mixed-issue-team-live-v5-2026-08-06.json",
   "paidCalls": 4,
   "maximumPaidCalls": 7,
   "profile": {
@@ -59,7 +61,7 @@
   },
   "assertions": {
     "exactArtifacts": true,
-    "evidenceComplete": true,
+    "evidenceComplete": false,
     "mixedAppsObserved": true,
     "roleKinds": {
       "explorer": "claude-code",
@@ -160,7 +162,7 @@
     }
   },
   "artifactRoot": ".agents/reviews/r-mixed-issue-team-live-v4-2026-08-06.json.artifacts",
-  "claimAllowed": true,
+  "claimAllowed": false,
   "embeddedEvidence": {
     "sourceCommit": "c96f0bf8d3d5d59e362fabaee116615bdbf874f2",
     "sourceTree": "c15e04380d1e7a4e8e51b93eec724a1e887dd155",

@@ -57,9 +57,9 @@ const profile = { kind: "team", maxRepairCycles: 1, requiredCleanCycles: 1, role
 
 let paidCalls = 0;
 const rawAgents = composeIssueTeamAgents(profile, {
-  claudeCode: { skipPermissions: true },
-  opencode: { skipPermissions: true },
-  codex: { skipGitRepoCheck: true },
+  claudeCode: { skipPermissions: true, resolveBin: () => ({ command: executionEvidence.executables.claude.path, prefixArgs: [] }) },
+  opencode: { skipPermissions: true, resolveBin: () => ({ command: executionEvidence.executables.opencode.path, prefixArgs: [] }) },
+  codex: { skipGitRepoCheck: true, resolveBin: () => ({ command: executionEvidence.executables.codex.path, prefixArgs: [] }) },
 });
 const agents = Object.fromEntries(Object.entries(rawAgents).map(([id, selected]) => [id, {
   ...selected,
