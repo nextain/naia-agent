@@ -820,7 +820,7 @@ ingress, terminal/file-opening UX, and naia-shell UI are later adapters. This sl
 
 After the development moderator selects a declared worker profile, Naia can run one issue through
 separate explorer, implementer, tester, and reviewer sessions in the same managed worktree. Each
-role is pinned to an independently declared Codex, OpenCode, or naia-agent Pi profile. The facing
+role is pinned to an independently declared Codex, Claude Code, OpenCode, or naia-agent Pi profile. The facing
 model and moderator cannot invent an adapter, model, role, or filesystem capability at runtime.
 
 Only the implementer may receive workspace-write access. Explorer, tester, and reviewer sessions
@@ -835,7 +835,7 @@ cost. A restart after a durably completed role resumes the next undispatched rol
 finds an unacknowledged in-flight role reports `outcome_unknown` instead of blindly repeating a
 possibly mutating agent. Duplicate dispatch returns the same persisted team result.
 
-The production composition uses the existing Codex, OpenCode, and built-in Pi adapters. Pi may use
+The production composition uses the existing Codex, Claude Code, OpenCode, and built-in Pi adapters. Pi may use
 the user's Naia account through the existing Naia gateway contract; OpenCode is an optional worker,
 not a fallback and not a dependency of the basic Codex path. This stage deliberately stops before
 Discord ingress, terminal/file-opening UX, and naia-shell visualization.
@@ -848,6 +848,7 @@ Discord ingress, terminal/file-opening UX, and naia-shell visualization.
 | the production mixed catalog routes legacy and team profiles into their concrete workers | `profiled-issue-worker.integration.test.ts` |
 | tester/reviewer findings cause bounded repair and two consecutive clean passes | `issue-team-worker.integration.test.ts` |
 | every Codex/OpenCode/Pi attempt preserves distinct identity, binding, usage, and cost evidence | `issue-team-role-executor.integration.test.ts`, `single-issue-team-verifier.integration.test.ts` |
+| Claude Code is accepted and composed through the same explicit worker-kind catalog without fallback | `issue-team-profile.contract.test.ts`, `uc-cli-subagent-claude-code.contract.test.ts` |
 | duplicate dispatch returns one persisted result and does not repeat a role effect | `issue-team-worker.integration.test.ts` |
 | restart after an acknowledged role resumes safely, while an in-flight unknown role is never replayed | `issue-team-worker.integration.test.ts` |
 | undeclared profiles, adapters, roles, model mismatches, malformed results, and excess loop bounds fail closed | `issue-team-worker.integration.test.ts`, `issue-team-profile.contract.test.ts` |
@@ -883,3 +884,29 @@ honestly. The loop has no arbitrary two-minute ceiling and stops only at explici
 | paired cost evidence permits a bounded internal savings claim only for equal tasks and actor-attempt topology, restored checkpoints, deterministic quality non-inferiority, every exact settled gateway customer-billing request, and an external-key HMAC over the complete evidence; tool-loop request-count differences remain measured rather than being confused with role counts, while estimates, window aggregates, contamination, route/token/cost drift, missing authority, post-attestation mutation, or unresolved calls fail closed; the unsigned gateway response is not presented as a third-party audit | `pi-cost-comparison.contract.test.ts`, `pi-cost-comparison-runner.contract.test.ts`, `benchmark/orchestration/pi-cost-comparison.json` |
 | the Naia-only Pi provider converts each tool-loop request to atomic non-streaming gateway billing, binds it to a parent-owned execution identity, reserves a shared durable request allowance before network I/O, persists an owner-only receipt journal, and reconstructs Pi-compatible SSE without losing text, tool calls, or usage; missing, malformed, unsettled, route-drifted, over-budget, duplicate, or tampered evidence never becomes measured cost | `naia-pi-versioned-billing.contract.test.ts`, `uc-naia-pi-provider.contract.test.ts` |
 | a user-owned local Pi binding is credential-free and loopback-only, while its GPU1 qualification binds source/dist/Pi and external-executable hashes, immutable serving image and model snapshot, container endpoint and GPU telemetry, a real >=32K prompt, native tool protocol, two clean cycles, and deterministic file verification without inventing provider cost | `user-owned-pi-provider.contract.test.ts`, `pi-continuous-loop.contract.test.ts`, `issue-team-role-executor.integration.test.ts`, `benchmark/run-user-owned-three-layer-live.mjs`, `benchmark/results/gpu1-user-owned-three-layer-live-final-2026-08-05.json` |
+## UC-ORCH-005 — Naia chats and controls durable coding workers
+
+The user starts one Naia CLI conversation with the ordinary persona, long-term memory, workspace
+context, and compiled-knowledge tools. In that conversation the user can assign a coding task and
+receive a stable session id immediately, continue chatting, then list, inspect, answer, or cancel the
+task without opening the worker application as the control plane.
+
+The coding-session tools bind the trusted workspace and declared worker profiles supplied by the
+host. The Naia-facing model cannot invent a provider, model, adapter, fallback, worktree, or filesystem
+capability. Codex, Claude Code, OpenCode, and Pi are explicit compatible worker kinds; each still needs
+its own live installation/authentication/capability probe before parity is claimed.
+
+Naia reports only durable lifecycle projections and grounded results. Worker raw prompts, secrets,
+private chain-of-thought, and unrestricted command output are neither required for monitoring nor
+stored in the projection. Persona, memory, and knowledge remain with Naia and are not silently copied
+into worker context.
+
+### Test Coverage Map
+
+| Scenario | Contract/integration test |
+|---|---|
+| start returns a trusted, redacted durable session projection without awaiting worker completion | `coding-session-skill.contract.test.ts` |
+| list/show/answer/cancel preserve exact session and question identity and never throw through chat | `coding-session-skill.contract.test.ts` |
+| SQLite reopen preserves the created session and cancellation state without a paid call | `coding-session-skill.integration.test.ts` |
+| optional CLI coding configuration composes the tools beside ordinary persona/memory/knowledge chat | `cli-chat.contract.test.ts`, `uc-cli-host-entry.contract.test.ts` |
+| Claude Code is accepted by the same declared team adapter-kind contract as Codex/OpenCode/Pi | `issue-team-profile.contract.test.ts` |

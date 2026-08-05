@@ -22,6 +22,9 @@ function sandbox() {
     HOME: root,
     APPDATA: join(root, "AppData", "Roaming"),
     LOCALAPPDATA: join(root, "AppData", "Local"),
+    // HOME does not isolate Linux Secret Service: it is reached through the user's DBus session.
+    // Force credential lookup to fail closed so this process test cannot inherit the developer's login.
+    DBUS_SESSION_BUS_ADDRESS: `unix:path=${join(root, "no-session-bus")}`,
     NAIA_ADK_PATH: "",
     NAIA_API_KEY: "",
     NAIA_ANYLLM_API_KEY: "",

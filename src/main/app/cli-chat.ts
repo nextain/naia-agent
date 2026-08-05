@@ -40,6 +40,7 @@ export interface ChatArgs {
   readonly model?: string;
   readonly workspace?: string;     // --workspace <path> : 이번 실행만 적용(per-invocation override)
   readonly resume?: string;        // 기존 conversations/<id>.jsonl 완결 turn 복원
+  readonly codingConfig?: string;  // durable coding-session composition config(JSON), opt-in
   // login
   readonly key?: string;
   // workspace
@@ -62,7 +63,7 @@ export const CHAT_USAGE = `naia-agent chat — naia-agent 단독 대화(멀티�
   naia-agent-chat [chat] [--system <prompt>] [--once <message>] [--no-tools]
                           [--no-think | --think]
                           [--provider <p>] [--model <id>] [--workspace <ws>]
-                          [--resume <session-id>]
+                          [--resume <session-id>] [--coding-config <json>]
   naia-agent-chat login --provider <p> [--key <value>]        # 없으면 stdin 으로 키 입력
   naia-agent-chat workspace [<path>]                          # <path>: 전역 워크스페이스 저장 / 없음: 현재 값 출력
 
@@ -92,6 +93,7 @@ export const CHAT_USAGE = `naia-agent chat — naia-agent 단독 대화(멀티�
   --model <id>    모델 강제
   --workspace <w> 워크스페이스(ADK) 경로 — 이번 실행만 적용(전역 저장 안 함)
   --resume <id>   기존 CLI 대화 세션의 완결 turn을 복원해 같은 id로 이어감
+  --coding-config <json>  persona·memory·KB 대화에 durable coding-session 도구를 추가
   --key <v>       (login) ⚠️ argv 는 ps/셸 히스토리에 노출됨 — 생략 시 stdin 입력 권장
   -h, --help      이 도움말`;
 
@@ -120,6 +122,7 @@ export function parseChatArgs(argv: readonly string[]): ParseResult {
   let workspace: string | undefined;
   let key: string | undefined;
   let resume: string | undefined;
+  let codingConfig: string | undefined;
 
   for (let i = 0; i < a.length; i++) {
     const t = a[i];
@@ -146,6 +149,11 @@ export function parseChatArgs(argv: readonly string[]): ParseResult {
         if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(v)) return { ok: false, error: "안전하지 않은 session id" };
         resume = v; break;
       }
+      case "--coding-config": {
+        const v = needsValue();
+        if (v === undefined) return { ok: false, error: `${t} 에 값이 필요합니다` };
+        codingConfig = v; break;
+      }
       default: return { ok: false, error: `알 수 없는 인자: ${t}\n\n${CHAT_USAGE}` };
     }
   }
@@ -167,6 +175,7 @@ export function parseChatArgs(argv: readonly string[]): ParseResult {
       ...(model !== undefined ? { model } : {}),
       ...(workspace !== undefined ? { workspace } : {}),
       ...(resume !== undefined ? { resume } : {}),
+      ...(codingConfig !== undefined ? { codingConfig } : {}),
     },
   };
 }

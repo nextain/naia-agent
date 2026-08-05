@@ -25,7 +25,8 @@ const HELP = `naia-agent — naia 단일 CLI (naia-os 없이 독립 실행)
 
 사용법:
   naia-agent [chat] [--provider <p>] [--model <id>] [--system <p>] [--no-tools]
-                     [--workspace <ws>] [--once <msg>]      대화(기본, 멀티턴 REPL)
+                     [--workspace <ws>] [--once <msg>] [--coding-config <json>]
+                     대화(기본) + 선택적 durable 코딩 총괄 도구
   naia-agent run <task> [--agent <name>] [--model <id>] [--no-tools] [--workdir <dir>] [--check <n=cmd>] [--watch] [--json]
                      sub-agent(gemini/opencode/pi/...) 감독 + 정직 보고
   naia-agent loop <serve|start|list|show|answer|cancel|pump|budget|reservations> --config <json> [...]

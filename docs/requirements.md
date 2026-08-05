@@ -649,7 +649,7 @@ The Agent and Gateway preserve these codes end to end:
 
 - **FR-TEAM-001**: A worker profile is either one legacy actor binding or a team profile containing
   exactly one explorer, implementer, tester, and reviewer role. Every team role declares a stable
-  agent-profile id, adapter kind (`codex`, `opencode`, or `pi`), provider/model binding, and semantic
+  agent-profile id, adapter kind (`codex`, `claude-code`, `opencode`, or `pi`), provider/model binding, and semantic
   filesystem capability. Role names and profile ids are unique; only the implementer can request
   workspace write. Unknown or malformed profiles fail before a role session starts.
 - **FR-TEAM-002**: One team dispatch owns one managed worktree. The normal order is explorer →
@@ -864,3 +864,29 @@ The Agent and Gateway preserve these codes end to end:
   run still requires a Naia credential, pinned price versions, and a pinned external harness-journal
   key identity. The baseline is already pinned. A hand-authored or unsigned evidence file can never
   become a completion claim, and the current gateway does not provide a server signature.
+## REQ-025 — Naia coding orchestration assistant
+
+- **FR-ASSIST-001**: The ordinary Naia conversation runtime exposes durable coding-session start,
+  list, show, exact-question answer, and cancellation tools without replacing persona, memory,
+  workspace context, or knowledge tools.
+- **FR-ASSIST-002**: Starting a task returns a stable safe session projection without waiting for
+  worker completion. Tool execution never embeds a coding-client protocol in the chat handler.
+- **FR-ASSIST-003**: Workspace, Naia/moderator bindings, worker profiles, and capabilities come only
+  from trusted runtime configuration. Tool arguments cannot select an undeclared profile, provider,
+  model, workspace, or filesystem authority.
+- **FR-ASSIST-004**: The worker-profile contract represents Codex, Claude Code, OpenCode, and Pi as
+  explicit adapter kinds. Missing installation, authentication, or capability fails honestly; there
+  is no implicit client fallback.
+- **FR-ASSIST-005**: Safe projections include session/issue identity, state, timestamps, grounded
+  question/result, changed files, verification, and cost availability. They exclude raw prompts,
+  secrets, private chain-of-thought, unrestricted command output, and raw model transcripts.
+- **FR-ASSIST-006**: Persona, memory, workspace context, and compiled knowledge remain Naia-facing
+  dependencies. They are not copied into worker state or worker prompts except where a separately
+  declared bounded task source explicitly authorizes content.
+- **NFR-ASSIST-001**: Invalid arguments, unknown sessions, background pump failure, cancellation,
+  restart, and `outcome_unknown` preserve existing no-throw and durable semantics.
+- **NFR-ASSIST-002**: P0 deterministic tests make no paid model call and preserve existing chat,
+  Discord, Codex workshop, and Pi-loop entrypoints.
+- **Scope**: P0 ends at the `naia-agent` CLI composition. Naia Shell UI/transport and Discord
+  attachment consume the same control boundary in later missions.
+- **Status**: In progress. Tracking: nextain/naia-agent#107.

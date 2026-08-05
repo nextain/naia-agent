@@ -19,6 +19,12 @@ describe("parseChatArgs", () => {
     expect(r.ok).toBe(true);
     expect(r.args).toMatchObject({ mode: "chat", systemPrompt: "너는 비서", once: "안녕", noTools: true, provider: "anthropic", model: "claude-x" });
   });
+  it("durable coding config를 기존 chat 옵션과 함께 파싱한다", () => {
+    const r = parseChatArgs(["chat", "--coding-config", "assistant-loop.json", "--provider", "anthropic"]);
+    expect(r.ok).toBe(true);
+    expect(r.args).toMatchObject({ mode: "chat", codingConfig: "assistant-loop.json", provider: "anthropic" });
+    expect(parseChatArgs(["chat", "--coding-config"]).ok).toBe(false);
+  });
   it("login 모드 — provider 필수", () => {
     expect(parseChatArgs(["login"]).ok).toBe(false);
     const r = parseChatArgs(["login", "--provider", "anthropic", "--key", "sk-x"]);

@@ -2,7 +2,7 @@ import type { ActorBinding, ActorReceipt, WorkerResult } from "./issue-orchestra
 
 export const ISSUE_TEAM_ROLES = ["explorer", "implementer", "tester", "reviewer"] as const;
 export type IssueTeamRole = typeof ISSUE_TEAM_ROLES[number];
-export type IssueTeamAgentKind = "codex" | "opencode" | "pi";
+export type IssueTeamAgentKind = "codex" | "claude-code" | "opencode" | "pi";
 export type IssueTeamFilesystemAccess = "read_only" | "workspace_write";
 
 export interface IssueTeamRoleProfile {
@@ -79,7 +79,7 @@ export function assertIssueTeamProfile(profile: IssueTeamProfile): void {
   for (const role of ISSUE_TEAM_ROLES) {
     const declared = profile.roles[role];
     if (!declared || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(declared.agentProfileId)
-      || !(["codex", "opencode", "pi"] as const).includes(declared.agentKind)
+      || !(["codex", "claude-code", "opencode", "pi"] as const).includes(declared.agentKind)
       || !concrete(declared.binding.provider) || !concrete(declared.binding.model)
       || (declared.binding.reasoningEffort !== undefined && !["low", "medium", "high", "xhigh"].includes(declared.binding.reasoningEffort))) {
       throw new Error(`invalid issue-team ${role} profile`);
