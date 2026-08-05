@@ -103,6 +103,12 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
     mixedAppsObserved: new Set(projected.map((value) => value.agentKind)).size === 3, roleKinds };
   if (receipt.schemaVersion !== 1 || receipt.benchmarkId !== "mixed-issue-team-live-v1"
     || receipt.maximumPaidCalls !== 7 || receipt.paidCalls !== projected.length
+    || projected.length !== 4 || coreResult.ok !== true
+    || JSON.stringify(coreResult.changedFiles) !== JSON.stringify(["result.txt"])
+    || coreResult.cleanCycles !== 1 || coreResult.repairCycles !== 0
+    || coreAssertions.evidenceComplete !== true || coreAssertions.mixedAppsObserved !== true
+    || JSON.stringify(coreAssertions.roleKinds) !== JSON.stringify({ explorer: "claude-code",
+      implementer: "opencode", tester: "codex", reviewer: "codex" })
     || JSON.stringify(receipt.result) !== JSON.stringify(coreResult)
     || JSON.stringify(pickCoreAssertions(receipt.assertions)) !== JSON.stringify(coreAssertions)) {
     throw new Error("receipt summary does not match durable state and exact fixture evidence");
@@ -132,12 +138,16 @@ function validateExecutionEvidence(value, repositoryRoot, sourceCommit, requireC
     throw new Error("execution evidence is not bound to the declared source commit");
   }
   validateExecutableEvidence(value.executables, true);
+  const currentBenchmarkSha256 = sha256(readFileSync(join(repositoryRoot, "benchmark/run-mixed-issue-team-live.mjs")));
+  const currentSealerSha256 = sha256(readFileSync(join(repositoryRoot, "benchmark/seal-mixed-issue-team-live.mjs")));
+  if (currentBenchmarkSha256 !== value.benchmarkScriptSha256 || currentSealerSha256 !== value.sealerSha256
+    || JSON.stringify(value.runtimeClosure) !== JSON.stringify(digestDirectory(join(repositoryRoot, "dist/main")))) {
+    throw new Error("current benchmark source or execution runtime closure does not match the live run");
+  }
   if (requireCurrentSourceMatch) {
-    execFileSync("git", ["diff", "--quiet", sourceCommit, "--"], { cwd: repositoryRoot });
-    execFileSync("git", ["diff", "--cached", "--quiet", sourceCommit, "--"], { cwd: repositoryRoot });
-    if (JSON.stringify(value.runtimeClosure) !== JSON.stringify(digestDirectory(join(repositoryRoot, "dist/main")))) {
-      throw new Error("execution runtime closure changed before evidence sealing");
-    }
+    const executionPaths = ["src/main", "benchmark", "tsconfig.json", "package.json", "pnpm-lock.yaml"];
+    execFileSync("git", ["diff", "--quiet", sourceCommit, "--", ...executionPaths], { cwd: repositoryRoot });
+    execFileSync("git", ["diff", "--cached", "--quiet", sourceCommit, "--", ...executionPaths], { cwd: repositoryRoot });
   }
 }
 
@@ -281,5 +291,5 @@ if (process.argv[1] && resolve(process.argv[1]) === scriptPath) {
   const receiptPath = receiptIndex >= 0 ? process.argv[receiptIndex + 1] : undefined;
   const sourceCommit = sourceIndex >= 0 ? process.argv[sourceIndex + 1] : undefined;
   if (!receiptPath || !sourceCommit) throw new Error("usage: seal-mixed-issue-team-live.mjs --receipt <path> --source-commit <commit>");
-  sealMixedIssueTeamLive({ receiptPath, sourceCommit });
+  sealMixedIssueTeamLive({ receiptPath, sourceCommit, requireCurrentSourceMatch: true });
 }

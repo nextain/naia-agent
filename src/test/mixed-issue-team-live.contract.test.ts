@@ -51,7 +51,8 @@ describe("mixed issue-team paid live benchmark contract", () => {
     expect(source).toContain("const runId = randomUUID()");
     expect(sealer).toContain("canonical artifact root does not match its original execution path");
     expect(sealer).toContain('execFileSync("git", ["diff", "--quiet", "HEAD", "--"]');
-    expect(sealer).toContain("execution runtime closure changed before evidence sealing");
+    expect(sealer).toContain("current benchmark source or execution runtime closure does not match the live run");
+    expect(sealer).toContain("sealMixedIssueTeamLive({ receiptPath, sourceCommit, requireCurrentSourceMatch: true })");
     expect(sealer).toContain("coding executable changed during live run");
     expect(source).toContain("executionEvidence.executables.claude.path");
     expect(source).toContain("executionEvidence.executables.opencode.path");
@@ -74,32 +75,43 @@ describe("mixed issue-team paid live benchmark contract", () => {
       const runBinding = createHash("sha256").update(`${runId}\0${canonicalArtifactRoot}`).digest("hex");
       writeFileSync(join(fixtureRoot, "result.txt"), "NAIA_MIXED_TEAM_OK\n");
       writeFileSync(join(fixtureRoot, "seed.txt"), "SEED_MUST_STAY\n");
-      const roleReceipt = { workerRole: "explorer", agentKind: "claude-code", provider: "claude-code", model: "sonnet",
-        sessionId: "provider-session", sessionEvidenceSource: "provider_reported", modelEvidenceSource: "adapter_requested",
-        executionId: "execution",
-        tokenCountsAvailable: true, inputTokens: 1, cachedInputTokens: 2, outputTokens: 3,
-        cost: { state: "unavailable", reason: "not priced" } };
-      const snapshotReceipt = { role: "worker", agentProfileId: "claude-explorer", idempotencyKey: "dispatch:explorer:1",
-        latencyMs: 1, ...roleReceipt };
       const profile = { kind: "team", maxRepairCycles: 1, requiredCleanCycles: 1, roles: {
         explorer: { agentProfileId: "claude-explorer", agentKind: "claude-code",
           binding: { provider: "claude-code", model: "sonnet" }, filesystemAccess: "read_only" },
+        implementer: { agentProfileId: "opencode-implementer", agentKind: "opencode",
+          binding: { provider: "opencode", model: "opencode/deepseek-v4-flash-free" }, filesystemAccess: "workspace_write" },
+        tester: { agentProfileId: "codex-tester", agentKind: "codex",
+          binding: { provider: "openai-codex", model: "gpt-5.3-codex-spark", reasoningEffort: "low" }, filesystemAccess: "read_only" },
+        reviewer: { agentProfileId: "codex-reviewer", agentKind: "codex",
+          binding: { provider: "openai-codex", model: "gpt-5.3-codex-spark", reasoningEffort: "low" }, filesystemAccess: "read_only" },
       } };
+      const receipts = Object.entries(profile.roles).map(([workerRole, role], index) => ({ workerRole,
+        agentKind: role.agentKind, provider: role.binding.provider, model: role.binding.model,
+        ...("reasoningEffort" in role.binding ? { reasoningEffort: role.binding.reasoningEffort } : {}),
+        sessionId: `provider-session-${index}`, sessionEvidenceSource: "provider_reported",
+        modelEvidenceSource: "adapter_requested", executionId: `execution-${index}`,
+        tokenCountsAvailable: true, inputTokens: index + 1, cachedInputTokens: index + 2, outputTokens: index + 3,
+        cost: { state: "unavailable", reason: "not priced" } }));
+      const snapshotReceipts = receipts.map((receipt) => ({ role: "worker",
+        agentProfileId: profile.roles[receipt.workerRole as keyof typeof profile.roles].agentProfileId,
+        idempotencyKey: `${dispatchId}:${receipt.workerRole}:1`, latencyMs: 1, ...receipt }));
       const stableJson = (value: unknown): string => Array.isArray(value) ? `[${value.map(stableJson).join(",")}]`
         : value && typeof value === "object" ? `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b))
           .map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`).join(",")}}` : JSON.stringify(value);
       const profileDigest = createHash("sha256").update(stableJson(profile)).digest("hex");
-      const snapshot = { version: 3, dispatchId, issueId: runBinding, fingerprint: "fingerprint", state: "completed",
-        profileDigest, cleanCycles: 1, repairCycles: 0, receipts: [snapshotReceipt],
+      const snapshot = { version: 9, dispatchId, issueId: runBinding, fingerprint: "fingerprint", state: "completed",
+        profileDigest, cleanCycles: 1, repairCycles: 0, receipts: snapshotReceipts,
         result: { ok: true, changedFiles: ["result.txt"] } };
       const database = new Database(join(artifactRoot, "team.db"));
       database.exec("CREATE TABLE issue_team_runs(dispatch_id TEXT,version INTEGER,fingerprint TEXT,state TEXT,snapshot_json TEXT);"
         + "CREATE TABLE issue_team_events(dispatch_id TEXT,sequence INTEGER,event_type TEXT,state TEXT);");
-      database.prepare("INSERT INTO issue_team_runs VALUES(?,?,?,?,?)").run(dispatchId, 3, "fingerprint", "completed", JSON.stringify(snapshot));
+      database.prepare("INSERT INTO issue_team_runs VALUES(?,?,?,?,?)").run(dispatchId, 9, "fingerprint", "completed", JSON.stringify(snapshot));
       const insertEvent = database.prepare("INSERT INTO issue_team_events VALUES(?,?,?,?)");
-      insertEvent.run(dispatchId, 1, "team_created", "ready");
-      insertEvent.run(dispatchId, 2, "role_claimed", "running");
-      insertEvent.run(dispatchId, 3, "team_completed", "completed");
+      for (let sequence = 1; sequence <= 9; sequence += 1) {
+        insertEvent.run(dispatchId, sequence, sequence === 1 ? "team_created" : sequence === 9 ? "team_completed"
+          : sequence % 2 === 0 ? "role_claimed" : "role_acknowledged",
+        sequence === 9 ? "completed" : sequence % 2 === 0 ? "running" : "ready");
+      }
       database.close();
       const sealerPath = join(repositoryRoot, "benchmark/seal-mixed-issue-team-live.mjs");
       const fakeBin = join(root, "bin"); mkdirSync(fakeBin);
@@ -116,10 +128,11 @@ describe("mixed issue-team paid live benchmark contract", () => {
       expect(captured.status, captured.stderr).toBe(0);
       const executionEvidence = JSON.parse(captured.stdout);
       const original = { schemaVersion: 1, benchmarkId: "mixed-issue-team-live-v1", status: "passed", runId,
-        paidCalls: 1, maximumPaidCalls: 7, profile,
+        paidCalls: 4, maximumPaidCalls: 7, profile,
         result: { ok: true, changedFiles: ["result.txt"], cleanCycles: 1, repairCycles: 0 },
-        assertions: { exactArtifacts: true, evidenceComplete: false, mixedAppsObserved: false,
-          roleKinds: { explorer: "claude-code" } }, executionEvidence, claimAllowed: true, receipts: [roleReceipt] };
+        assertions: { exactArtifacts: true, evidenceComplete: true, mixedAppsObserved: true,
+          roleKinds: { explorer: "claude-code", implementer: "opencode", tester: "codex", reviewer: "codex" } },
+        executionEvidence, claimAllowed: true, receipts };
       Object.assign(original, { canonicalArtifactRoot });
       writeFileSync(receiptPath, JSON.stringify(original));
       const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repositoryRoot, encoding: "utf8" }).trim();
@@ -162,6 +175,20 @@ describe("mixed issue-team paid live benchmark contract", () => {
       expect(symlinkedArtifact.status).not.toBe(0);
       expect(symlinkedArtifact.stderr).toContain("evidence path contains a symbolic link");
       rmSync(resultPath); writeFileSync(resultPath, "NAIA_MIXED_TEAM_OK\n"); rmSync(symlinkTarget);
+      writeFileSync(receiptPath, JSON.stringify(original));
+      const falseSnapshot = structuredClone(snapshot); falseSnapshot.result.ok = false;
+      const falsePassDatabase = new Database(join(artifactRoot, "team.db"));
+      falsePassDatabase.prepare("UPDATE issue_team_runs SET snapshot_json=?").run(JSON.stringify(falseSnapshot));
+      falsePassDatabase.close();
+      const falsePassReceipt = structuredClone(original); falsePassReceipt.result.ok = false;
+      writeFileSync(receiptPath, JSON.stringify(falsePassReceipt));
+      const falsePass = spawnSync(process.execPath,
+        [sealerPath, "--receipt", receiptPath, "--source-commit", sourceCommit], { cwd: repositoryRoot, encoding: "utf8" });
+      expect(falsePass.status).not.toBe(0);
+      expect(falsePass.stderr).toContain("receipt summary does not match");
+      const restoredDatabase = new Database(join(artifactRoot, "team.db"));
+      restoredDatabase.prepare("UPDATE issue_team_runs SET snapshot_json=?").run(JSON.stringify(snapshot));
+      restoredDatabase.close();
       writeFileSync(receiptPath, JSON.stringify(original));
       const tamperedDatabase = new Database(join(artifactRoot, "team.db"));
       tamperedDatabase.prepare("UPDATE issue_team_events SET state='ready' WHERE sequence=2").run(); tamperedDatabase.close();
