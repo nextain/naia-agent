@@ -3,13 +3,16 @@ import { lstatSync, readFileSync, readdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join, relative } from "node:path";
 
-export function digestDirectory(root) {
+export function digestDirectory(root, { excludePrefixes = [] } = {}) {
   const entries = [];
   const visit = (directory) => {
     for (const name of readdirSync(directory).sort()) {
-      const path = join(directory, name); const stat = lstatSync(path);
+      const path = join(directory, name);
+      const relativePath = relative(root, path).split("\\").join("/");
+      if (excludePrefixes.some((prefix) => relativePath === prefix || relativePath.startsWith(`${prefix}/`))) continue;
+      const stat = lstatSync(path);
       if (stat.isDirectory()) visit(path);
-      else if (stat.isFile()) entries.push([relative(root, path).split("\\").join("/"), sha256(readFileSync(path))]);
+      else if (stat.isFile()) entries.push([relativePath, sha256(readFileSync(path))]);
       else throw new Error("runtime closure contains a non-regular entry");
     }
   };

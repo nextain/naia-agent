@@ -152,5 +152,9 @@ function validateExecutableEvidence(value, cwd) {
 }
 
 function captureSqliteClosure() {
-  return digestDirectory(dirname(require.resolve("better-sqlite3/package.json")));
+  // pnpm generates this install-only shim with checkout-absolute NODE_PATHs.
+  // better-sqlite3 never loads it at runtime; package JS and better_sqlite3.node
+  // remain hash-bound and portable across clean checkout paths.
+  return digestDirectory(dirname(require.resolve("better-sqlite3/package.json")),
+    { excludePrefixes: ["node_modules/.bin"] });
 }
