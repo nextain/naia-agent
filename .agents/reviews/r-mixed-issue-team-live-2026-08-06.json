@@ -1,0 +1,158 @@
+{
+  "schemaVersion": 1,
+  "benchmarkId": "mixed-issue-team-live-v1",
+  "status": "passed",
+  "paidCalls": 4,
+  "maximumPaidCalls": 7,
+  "profile": {
+    "kind": "team",
+    "maxRepairCycles": 1,
+    "requiredCleanCycles": 1,
+    "roles": {
+      "explorer": {
+        "agentProfileId": "claude-explorer",
+        "agentKind": "claude-code",
+        "binding": {
+          "provider": "claude-code",
+          "model": "sonnet"
+        },
+        "filesystemAccess": "read_only"
+      },
+      "implementer": {
+        "agentProfileId": "opencode-implementer",
+        "agentKind": "opencode",
+        "binding": {
+          "provider": "opencode",
+          "model": "opencode/deepseek-v4-flash-free"
+        },
+        "filesystemAccess": "workspace_write"
+      },
+      "tester": {
+        "agentProfileId": "codex-tester",
+        "agentKind": "codex",
+        "binding": {
+          "provider": "openai-codex",
+          "model": "gpt-5.3-codex-spark",
+          "reasoningEffort": "low"
+        },
+        "filesystemAccess": "read_only"
+      },
+      "reviewer": {
+        "agentProfileId": "codex-reviewer",
+        "agentKind": "codex",
+        "binding": {
+          "provider": "openai-codex",
+          "model": "gpt-5.3-codex-spark",
+          "reasoningEffort": "low"
+        },
+        "filesystemAccess": "read_only"
+      }
+    }
+  },
+  "result": {
+    "ok": true,
+    "changedFiles": [
+      "result.txt"
+    ],
+    "cleanCycles": 1,
+    "repairCycles": 0
+  },
+  "assertions": {
+    "exactArtifacts": true,
+    "evidenceComplete": true,
+    "mixedAppsObserved": true,
+    "roleKinds": {
+      "explorer": "claude-code",
+      "implementer": "opencode",
+      "tester": "codex",
+      "reviewer": "codex"
+    }
+  },
+  "receipts": [
+    {
+      "workerRole": "explorer",
+      "agentKind": "claude-code",
+      "provider": "claude-code",
+      "model": "sonnet",
+      "sessionId": "0c694b57-c101-499e-8964-bfe55791dcfe",
+      "executionId": "fceedccf-409c-44ea-98bb-8ae752a3bacb",
+      "tokenCountsAvailable": true,
+      "inputTokens": 27045,
+      "cachedInputTokens": 24177,
+      "outputTokens": 424,
+      "cost": {
+        "state": "measured",
+        "usd": 0.0316701,
+        "source": "role_adapter_priced_usage"
+      }
+    },
+    {
+      "workerRole": "implementer",
+      "agentKind": "opencode",
+      "provider": "opencode",
+      "model": "opencode/deepseek-v4-flash-free",
+      "sessionId": "ses_02cae9f3fffeOwu4hDhroo7bCa",
+      "executionId": "711c709e-0ae9-4f82-a693-2b3a1e7ab2b1",
+      "tokenCountsAvailable": true,
+      "inputTokens": 31058,
+      "cachedInputTokens": 13824,
+      "outputTokens": 314,
+      "cost": {
+        "state": "unavailable",
+        "reason": "role adapter did not receive priced usage"
+      }
+    },
+    {
+      "workerRole": "tester",
+      "agentKind": "codex",
+      "provider": "openai-codex",
+      "model": "gpt-5.3-codex-spark",
+      "reasoningEffort": "low",
+      "sessionId": "019fd351-ba51-7cb1-9b79-7e0ff20d7d72",
+      "executionId": "3b299a1d-98ce-4708-9641-00d186a6e1c3",
+      "tokenCountsAvailable": true,
+      "inputTokens": 26173,
+      "cachedInputTokens": 16384,
+      "outputTokens": 847,
+      "cost": {
+        "state": "unavailable",
+        "reason": "role adapter did not receive priced usage"
+      }
+    },
+    {
+      "workerRole": "reviewer",
+      "agentKind": "codex",
+      "provider": "openai-codex",
+      "model": "gpt-5.3-codex-spark",
+      "reasoningEffort": "low",
+      "sessionId": "019fd351-efa4-7d42-a058-237c9a511a49",
+      "executionId": "ce50362b-666d-4d07-a5e6-6a0c51482544",
+      "tokenCountsAvailable": true,
+      "inputTokens": 134000,
+      "cachedInputTokens": 118272,
+      "outputTokens": 1929,
+      "cost": {
+        "state": "unavailable",
+        "reason": "role adapter did not receive priced usage"
+      }
+    }
+  ],
+  "diagnostics": [],
+  "routeTrials": {
+    "azureFoundryNano": {
+      "model": "azure-foundry/gpt-5-4-nano",
+      "attempts": 2,
+      "result": "failed_closed",
+      "observedStage": "opencode implementer",
+      "deadlineMsOnBoundedAttempt": 180000,
+      "reason": "role session failed before an implementation receipt was produced"
+    },
+    "openCodeFreeControl": {
+      "model": "opencode/deepseek-v4-flash-free",
+      "attempts": 1,
+      "result": "passed"
+    }
+  },
+  "artifactRoot": "/var/home/luke/alpha-adk/worktrees/naia-agent-req-062/.agents/reviews/r-mixed-issue-team-live-2026-08-06.json.artifacts",
+  "claimAllowed": true
+}

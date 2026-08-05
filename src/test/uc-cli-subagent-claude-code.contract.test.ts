@@ -70,6 +70,48 @@ describe("subagent-claude-code 어댑터 계약 (SPEC-010 확장, fake child)", 
     expect(f.spawnArgs.cwd).toBe("/tmp/w");
   });
 
+  it("read_only 역할은 사용자 훅과 쓰기 도구를 차단한 Claude 안전 모드로 실행한다", () => {
+    const f = fakeNdjson();
+    const port = makeClaudeCodeSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn, model: "sonnet", skipPermissions: true });
+    port.spawn({ prompt: "inspect", workdir: "/tmp/w", filesystemAccess: "read_only" });
+    expect(f.spawnArgs.args).toEqual([
+      "-p", "inspect", "--output-format", "stream-json", "--verbose", "--model", "sonnet",
+      "--safe-mode", "--permission-mode", "dontAsk", "--tools", "Read,Grep,Glob",
+    ]);
+    expect(f.spawnArgs.args).not.toContain("--dangerously-skip-permissions");
+  });
+
+  it("실측 result 이벤트의 세션·사용량·비용을 terminal 영수증으로 보존한다", async () => {
+    const f = fakeNdjson();
+    const port = makeClaudeCodeSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn, model: "sonnet", provider: "claude-code" });
+    const session = port.spawn({ prompt: "inspect", workdir: "/tmp/w", filesystemAccess: "read_only" });
+    f.line('{"type":"system","subtype":"init","session_id":"claude-session","model":"claude-sonnet-5"}');
+    f.line('{"type":"result","subtype":"success","is_error":false,"session_id":"claude-session","total_cost_usd":0.1721916,"usage":{"input_tokens":2,"cache_creation_input_tokens":27852,"cache_read_input_tokens":15912,"output_tokens":20}}');
+    f.close(0);
+    const events = await drain(session.events);
+    const end = events.at(-1) as Extract<SubAgentEvent, { kind: "session_end" }>;
+    expect(end.evidence).toMatchObject({
+      provider: "claude-code", selectedModel: "sonnet", modelEvidenceSource: "adapter_requested",
+      sessionId: "claude-session", inputTokens: 43766, cachedInputTokens: 15912,
+      outputTokens: 20, totalTokens: 43786, usageAvailable: true,
+      measuredCostUsd: 0.1721916,
+    });
+    expect(end.evidence?.executionId).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it("malformed Claude usage와 0 비용은 측정 영수증으로 승격하지 않는다", async () => {
+    const f = fakeNdjson();
+    const port = makeClaudeCodeSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn, model: "sonnet" });
+    const session = port.spawn({ prompt: "inspect", workdir: "/tmp/w", filesystemAccess: "read_only" });
+    f.line('{"type":"result","is_error":false,"session_id":"bad-session","total_cost_usd":0,"usage":{"input_tokens":-1,"output_tokens":4}}');
+    f.close(0);
+    const events = await drain(session.events);
+    const end = events.at(-1) as Extract<SubAgentEvent, { kind: "session_end" }>;
+    expect(end.evidence).toMatchObject({ usageAvailable: false, inputTokens: 0, outputTokens: 0, totalTokens: 0 });
+    expect(end.evidence?.sessionId).toBe("bad-session");
+    expect(end.evidence?.measuredCostUsd).toBeUndefined();
+  });
+
   it("tool_result is_error=true → tool_use_end{ok:false}", async () => {
     const f = fakeNdjson();
     const port = makeClaudeCodeSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn });

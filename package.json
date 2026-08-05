@@ -31,7 +31,8 @@
     "benchmark:pi-loop:live-smoke": "pnpm build && node benchmark/run-pi-continuous-loop-live.mjs",
     "benchmark:pi-loop:cost-prepare": "node benchmark/prepare-pi-cost-pins.mjs",
     "benchmark:pi-loop:cost-live": "pnpm build && node benchmark/run-pi-cost-comparison-live.mjs",
-    "benchmark:pi-loop:cost": "pnpm build && node benchmark/analyze-pi-cost-comparison.mjs"
+    "benchmark:pi-loop:cost": "pnpm build && node benchmark/analyze-pi-cost-comparison.mjs",
+    "benchmark:issue-team:mixed-live": "pnpm build && node benchmark/run-mixed-issue-team-live.mjs"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.179",

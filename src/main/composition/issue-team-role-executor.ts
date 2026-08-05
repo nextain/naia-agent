@@ -13,6 +13,8 @@ export interface IssueTeamRoleExecutorOptions {
   readonly nowMs?: () => number;
   readonly budget?: PaidCallBudgetPort;
   readonly callAllowance?: PaidCallAllowance;
+  /** Per-role liveness bound. The adapter receives a semantic cancel and performs bounded process teardown. */
+  readonly roleDeadlineMs?: number;
 }
 
 export function makeIssueTeamRoleExecutor(options: IssueTeamRoleExecutorOptions): IssueTeamRoleExecutorPort {
@@ -46,8 +48,19 @@ export function makeIssueTeamRoleExecutor(options: IssueTeamRoleExecutorOptions)
           report(value) { report = value; },
         },
       });
-      await supervisor.run({ prompt: rolePrompt(input), workdir: input.worktreePath,
-        model: input.roleProfile.binding.model, filesystemAccess: input.roleProfile.filesystemAccess }, input.signal);
+      const deadlineMs = validDeadline(options.roleDeadlineMs) ? options.roleDeadlineMs : 5 * 60_000;
+      const roleAbort = new AbortController();
+      const forwardAbort = () => roleAbort.abort(input.signal.reason);
+      if (input.signal.aborted) forwardAbort();
+      else input.signal.addEventListener("abort", forwardAbort, { once: true });
+      const deadline = setTimeout(() => roleAbort.abort(new Error(`issue-team role deadline exceeded: ${deadlineMs}ms`)), deadlineMs);
+      try {
+        await supervisor.run({ prompt: rolePrompt(input), workdir: input.worktreePath,
+          model: input.roleProfile.binding.model, filesystemAccess: input.roleProfile.filesystemAccess }, roleAbort.signal);
+      } finally {
+        clearTimeout(deadline);
+        input.signal.removeEventListener("abort", forwardAbort);
+      }
       const evidence = report?.modelEvidence;
       if (!evidence?.provider || !evidence.selectedModel || !evidence.sessionId || !evidence.executionId) throw new Error("role receipt evidence unavailable");
       const receipt: ActorReceipt = {
@@ -84,6 +97,10 @@ export function makeIssueTeamRoleExecutor(options: IssueTeamRoleExecutorOptions)
       return { result, receipt };
     },
   };
+}
+
+function validDeadline(value: number | undefined): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 && value <= 30 * 60_000;
 }
 
 function parseRoleResult(text: string): IssueTeamRoleResult {

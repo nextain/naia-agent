@@ -13,6 +13,29 @@ function agent(provider: string, model: string, session: string): SubAgentPort {
 }
 
 describe("REQ-023 profiled role executor", () => {
+  it("cancels a stalled role at the configured deadline instead of waiting forever", async () => {
+    let cancelled = false;
+    let release: (() => void) | undefined;
+    const adapter: SubAgentPort = { spawn() { return {
+      async cancel() { cancelled = true; release?.(); },
+      events: (async function* () {
+        await new Promise<void>((resolve) => { release = resolve; });
+        yield { kind: "session_end", ok: false, reason: "cancelled", evidence: {
+          provider: "claude-code", selectedModel: "sonnet", modelEvidenceSource: "adapter_requested",
+          inputTokens: 0, outputTokens: 0, totalTokens: 0, usageAvailable: false,
+          sessionId: "timeout-session", executionId: "timeout-execution",
+        } } as const;
+      })(),
+    }; } };
+    const executor = makeIssueTeamRoleExecutor({ agents: { explorer: { agentKind: "claude-code", adapter } },
+      diag: { log() {}, debug() {} }, roleDeadlineMs: 20 });
+    await expect(executor.execute({ issueId: "issue", dispatchId: "dispatch", stepId: "dispatch:explorer:1",
+      worktreePath: "/repo", task: "inspect", context: "{}", roleProfile: { agentProfileId: "explorer",
+        agentKind: "claude-code", binding: { provider: "claude-code", model: "sonnet" }, filesystemAccess: "read_only" },
+      signal: new AbortController().signal })).rejects.toThrow("role session failed");
+    expect(cancelled).toBe(true);
+  });
+
   it("presents decisions as choices and requires evidence-grounded tool use", async () => {
     let prompt = "";
     const adapter: SubAgentPort = { spawn(task) { prompt = task.prompt; return { async cancel() {}, events: (async function* () {

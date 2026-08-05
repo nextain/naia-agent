@@ -15,8 +15,9 @@
 // RT-verified(2026-06-29, claude 2.1.156): init/assistant(text·tool_use)/user(tool_result)/result(is_error)
 // 이벤트 shape 실측. 단 rate_limit(weekly) hit 로 본문 생성은 못했으나 shape 는 전부 확보됨.
 import { execSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { isAbsolute } from "node:path";
-import type { TaskSpec, SubAgentEvent } from "../domain/orchestration.js";
+import type { SubAgentModelEvidence, TaskSpec, SubAgentEvent } from "../domain/orchestration.js";
 import type { SubAgentPort, SubAgentSession } from "../ports/orchestration.js";
 import {
   DEFAULT_HARD_KILL_DEADLINE_MS, defaultSpawn, spawnSubprocessSession, endedSession,
@@ -28,6 +29,8 @@ export type { SpawnFn, ResolvedBin };
 export interface SubAgentClaudeCodeOptions {
   /** --model 로 전달(옵셔널). TaskSpec.model 보다 우선(어댑터 고정 모델). */
   readonly model?: string;
+  /** Honest requested provider label; Claude stream identity remains separately observable in its raw event. */
+  readonly provider?: string;
   /** --dangerously-skip-permissions(기본 false). sub-agent 자율 구동 시 true 권장. */
   readonly skipPermissions?: boolean;
   readonly hardKillDeadlineMs?: number;
@@ -83,6 +86,14 @@ interface RawUserMessage { content?: Array<{ type?: string; tool_use_id?: string
 interface RawClaudeEvent {
   type?: string;
   subtype?: string;
+  session_id?: string;
+  total_cost_usd?: number;
+  usage?: {
+    input_tokens?: number;
+    cache_creation_input_tokens?: number;
+    cache_read_input_tokens?: number;
+    output_tokens?: number;
+  };
   message?: RawAssistantMessage | RawUserMessage;
   [k: string]: unknown;
 }
@@ -101,8 +112,12 @@ function extractAssistantText(msg: RawAssistantMessage | undefined): string {
  * claude stream-json 용 **상태ful** line parser(spawn 마다 1개 생성). id→name 맵으로 tool_use_start 의 name 을
  * tool_use_end 에 복원. terminal(session_end) 은 반환하지 않는다(close 가 단일 발생). malformed/무관 type = null 드롭.
  */
-export function createClaudeLineParser(): LineToEvent {
+export function createClaudeLineParser(
+  base?: SubAgentModelEvidence,
+  onEvidence?: (evidence: SubAgentModelEvidence) => void,
+): LineToEvent {
   const toolNames = new Map<string, string>(); // tool_use_id → name
+  let evidence = base;
   return (line: string): SubAgentEvent | null => {
     const trimmed = line.trim();
     if (trimmed.length === 0) return null;
@@ -113,6 +128,12 @@ export function createClaudeLineParser(): LineToEvent {
       return null; // malformed JSON 관용.
     }
     if (typeof raw.type !== "string") return null;
+
+    const reportedSessionId = nonemptyString(raw.session_id);
+    if (evidence && reportedSessionId) {
+      evidence = { ...evidence, sessionId: reportedSessionId };
+      onEvidence?.(evidence);
+    }
 
     switch (raw.type) {
       case "system":
@@ -137,8 +158,31 @@ export function createClaudeLineParser(): LineToEvent {
         toolNames.delete(tr.tool_use_id);
         return { kind: "tool_use_end", tool: name, ok: tr.is_error !== true };
       }
+      case "result": {
+        if (!evidence || !validClaudeUsage(raw.usage)) return null;
+        const usage = raw.usage;
+        const inputTokens = usage.input_tokens
+          + (usage.cache_creation_input_tokens ?? 0)
+          + (usage.cache_read_input_tokens ?? 0);
+        const outputTokens = usage.output_tokens;
+        const totalTokens = inputTokens + outputTokens;
+        if (!Number.isSafeInteger(inputTokens) || !Number.isSafeInteger(totalTokens)) return null;
+        const measuredCostUsd = positiveFinite(raw.total_cost_usd) ? raw.total_cost_usd : undefined;
+        evidence = {
+          ...evidence,
+          inputTokens,
+          cachedInputTokens: usage.cache_read_input_tokens ?? 0,
+          outputTokens,
+          totalTokens,
+          usageAvailable: true,
+          ...(reportedSessionId ? { sessionId: reportedSessionId } : {}),
+          ...(measuredCostUsd !== undefined ? { measuredCostUsd } : {}),
+        };
+        onEvidence?.(evidence);
+        return null;
+      }
       default:
-        return null; // result/stream_event/rate_limit_event 등 = 무시.
+        return null; // stream_event/rate_limit_event 등 = 무시.
     }
   };
 }
@@ -160,11 +204,62 @@ export function makeClaudeCodeSubAgent(opts: SubAgentClaudeCodeOptions = {}): Su
       // -p <prompt> --output-format stream-json --verbose [--model X] [--dangerously-skip-permissions]
       const args: string[] = ["-p", task.prompt, "--output-format", "stream-json", "--verbose"];
       if (model) args.push("--model", model);
-      if (opts.skipPermissions) args.push("--dangerously-skip-permissions");
-      return spawnSubprocessSession({
+      if (task.filesystemAccess === "read_only") {
+        // Fail closed: project/user hooks can execute arbitrary commands, so a
+        // read-only role must not inherit them.  The tool allowlist is the
+        // capability boundary; permission prompts are disabled for headless use.
+        args.push("--safe-mode", "--permission-mode", "dontAsk", "--tools", "Read,Grep,Glob");
+      } else if (opts.skipPermissions) {
+        args.push("--dangerously-skip-permissions");
+      }
+      let evidence: SubAgentModelEvidence = {
+        provider: opts.provider ?? "claude-code",
+        selectedModel: model ?? "claude-default",
+        modelEvidenceSource: "adapter_requested",
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        cachedInputTokens: 0,
+        usageAvailable: false,
+        sessionId: randomUUID(),
+        executionId: randomUUID(),
+      };
+      const session = spawnSubprocessSession({
         spawnFn, bin, args, cwd: task.workdir, hardKillMs,
-        lineToEvent: createClaudeLineParser(), label: "claude-code",
+        lineToEvent: createClaudeLineParser(evidence, (next) => { evidence = next; }), label: "claude-code",
       });
+      return withRequestedEvidence(session, () => evidence);
     },
   };
+}
+
+function withRequestedEvidence(session: SubAgentSession, evidence: () => SubAgentModelEvidence): SubAgentSession {
+  return {
+    async cancel(reason) { await session.cancel(reason); },
+    events: {
+      async *[Symbol.asyncIterator]() {
+        for await (const event of session.events) {
+          yield event.kind === "session_end" ? { ...event, evidence: evidence() } : event;
+        }
+      },
+    },
+  };
+}
+
+function validClaudeUsage(usage: RawClaudeEvent["usage"]): usage is Required<Pick<NonNullable<RawClaudeEvent["usage"]>, "input_tokens" | "output_tokens">> & NonNullable<RawClaudeEvent["usage"]> {
+  if (!usage || !nonnegativeInt(usage.input_tokens) || !nonnegativeInt(usage.output_tokens)) return false;
+  return (usage.cache_creation_input_tokens === undefined || nonnegativeInt(usage.cache_creation_input_tokens))
+    && (usage.cache_read_input_tokens === undefined || nonnegativeInt(usage.cache_read_input_tokens));
+}
+
+function nonnegativeInt(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function positiveFinite(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+function nonemptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
 }

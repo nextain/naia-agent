@@ -7,7 +7,7 @@ import type { SubAgentPort } from "../ports/orchestration.js";
 
 export interface IssueTeamAgentEnvironment {
   readonly codex?: Omit<SubAgentCodexOptions, "model" | "reasoningEffort">;
-  readonly claudeCode?: Omit<SubAgentClaudeCodeOptions, "model">;
+  readonly claudeCode?: Omit<SubAgentClaudeCodeOptions, "model" | "provider">;
   readonly opencode?: Omit<SubAgentOpencodeOptions, "model" | "provider">;
   readonly pi?: Omit<SubAgentPiOptions, "model" | "provider">;
 }
@@ -20,7 +20,7 @@ Readonly<Record<string, { readonly agentKind: import("../domain/issue-team.js").
       ? makeCodexSubAgent({ ...environment.codex, model: declared.binding.model,
         ...(declared.binding.reasoningEffort ? { reasoningEffort: declared.binding.reasoningEffort as SubAgentCodexOptions["reasoningEffort"] } : {}) })
       : declared.agentKind === "claude-code"
-        ? makeClaudeCodeSubAgent({ ...environment.claudeCode, model: declared.binding.model })
+        ? makeClaudeCodeSubAgent({ ...environment.claudeCode, model: declared.binding.model, provider: declared.binding.provider })
       : declared.agentKind === "opencode"
         ? makeOpencodeSubAgent({ ...environment.opencode, model: declared.binding.model, provider: declared.binding.provider })
         : makePiSubAgent({ ...environment.pi, model: declared.binding.model, provider: declared.binding.provider });
