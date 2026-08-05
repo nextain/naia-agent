@@ -44,6 +44,8 @@ describe("mixed issue-team paid live benchmark contract", () => {
     expect(sealer).toContain("receiptMatchesDurableSnapshot: true");
     expect(source).toContain("captureMixedLiveExecutionEvidence(repositoryRoot)");
     expect(source).toContain("sealMixedIssueTeamLive({ receiptPath: outputPath");
+    expect(source).toContain("requireCurrentSourceMatch: true");
+    expect(sealer).toContain('execFileSync(process.execPath, [compilerPath, "-p"');
     expect(sealer).toContain('execFileSync("git", ["diff", "--quiet", "HEAD", "--"]');
     expect(sealer).toContain("execution runtime closure changed before evidence sealing");
     expect(sealer).toContain("SQLite event history is inconsistent with the completed run");

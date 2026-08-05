@@ -16,16 +16,20 @@ export function captureMixedLiveExecutionEvidence(repositoryRoot) {
   for (const path of ["benchmark/run-mixed-issue-team-live.mjs", "benchmark/seal-mixed-issue-team-live.mjs"]) {
     execFileSync("git", ["ls-files", "--error-unmatch", path], { cwd: repositoryRoot, stdio: "ignore" });
   }
+  const compilerPath = join(repositoryRoot, "node_modules/typescript/bin/tsc");
+  execFileSync(process.execPath, [compilerPath, "-p", join(repositoryRoot, "tsconfig.json")], { cwd: repositoryRoot, stdio: "pipe" });
   return {
     sourceCommit,
     sourceTree: git(repositoryRoot, ["rev-parse", `${sourceCommit}^{tree}`]),
     benchmarkScriptSha256: sha256(execFileSync("git", ["show", `${sourceCommit}:benchmark/run-mixed-issue-team-live.mjs`], { cwd: repositoryRoot })),
     sealerSha256: sha256(execFileSync("git", ["show", `${sourceCommit}:benchmark/seal-mixed-issue-team-live.mjs`], { cwd: repositoryRoot })),
+    runtimeBuild: { completed: true, compilerSha256: sha256(readFileSync(compilerPath)),
+      tsconfigSha256: sha256(execFileSync("git", ["show", `${sourceCommit}:tsconfig.json`], { cwd: repositoryRoot })) },
     runtimeClosure: digestDirectory(join(repositoryRoot, "dist/main")),
   };
 }
 
-export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit }) {
+export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, requireCurrentSourceMatch = false }) {
   const receiptPath = resolve(inputPath);
   if (!sourceCommit || !/^[0-9a-f]{40}$/u.test(sourceCommit)) throw new Error("source commit must be full 40-hex");
   const repositoryRoot = git(dirname(receiptPath), ["rev-parse", "--show-toplevel"]);
@@ -33,7 +37,7 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit })
   if (receipt.status !== "passed" || receipt.claimAllowed !== true || !Array.isArray(receipt.receipts)) {
     throw new Error("only a passed, claim-allowed mixed-team receipt can be sealed");
   }
-  validateExecutionEvidence(receipt.executionEvidence, repositoryRoot, sourceCommit);
+  validateExecutionEvidence(receipt.executionEvidence, repositoryRoot, sourceCommit, requireCurrentSourceMatch);
 
   const artifactRoot = `${receiptPath}.artifacts`;
   const databasePath = join(artifactRoot, "team.db");
@@ -93,17 +97,22 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit })
   return receipt;
 }
 
-function validateExecutionEvidence(value, repositoryRoot, sourceCommit) {
+function validateExecutionEvidence(value, repositoryRoot, sourceCommit, requireCurrentSourceMatch) {
+  const compilerPath = join(repositoryRoot, "node_modules/typescript/bin/tsc");
   if (!value || value.sourceCommit !== sourceCommit
     || value.sourceTree !== git(repositoryRoot, ["rev-parse", `${sourceCommit}^{tree}`])
     || value.benchmarkScriptSha256 !== sha256(execFileSync("git", ["show", `${sourceCommit}:benchmark/run-mixed-issue-team-live.mjs`], { cwd: repositoryRoot }))
-    || value.sealerSha256 !== sha256(execFileSync("git", ["show", `${sourceCommit}:benchmark/seal-mixed-issue-team-live.mjs`], { cwd: repositoryRoot }))) {
+    || value.sealerSha256 !== sha256(execFileSync("git", ["show", `${sourceCommit}:benchmark/seal-mixed-issue-team-live.mjs`], { cwd: repositoryRoot }))
+    || value.runtimeBuild?.completed !== true || value.runtimeBuild.compilerSha256 !== sha256(readFileSync(compilerPath))
+    || value.runtimeBuild.tsconfigSha256 !== sha256(execFileSync("git", ["show", `${sourceCommit}:tsconfig.json`], { cwd: repositoryRoot }))) {
     throw new Error("execution evidence is not bound to the declared source commit");
   }
-  execFileSync("git", ["diff", "--quiet", sourceCommit, "--"], { cwd: repositoryRoot });
-  execFileSync("git", ["diff", "--cached", "--quiet", sourceCommit, "--"], { cwd: repositoryRoot });
-  if (JSON.stringify(value.runtimeClosure) !== JSON.stringify(digestDirectory(join(repositoryRoot, "dist/main")))) {
-    throw new Error("execution runtime closure changed before evidence sealing");
+  if (requireCurrentSourceMatch) {
+    execFileSync("git", ["diff", "--quiet", sourceCommit, "--"], { cwd: repositoryRoot });
+    execFileSync("git", ["diff", "--cached", "--quiet", sourceCommit, "--"], { cwd: repositoryRoot });
+    if (JSON.stringify(value.runtimeClosure) !== JSON.stringify(digestDirectory(join(repositoryRoot, "dist/main")))) {
+      throw new Error("execution runtime closure changed before evidence sealing");
+    }
   }
 }
 

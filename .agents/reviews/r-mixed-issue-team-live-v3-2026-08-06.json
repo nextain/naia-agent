@@ -1,7 +1,9 @@
 {
   "schemaVersion": 1,
   "benchmarkId": "mixed-issue-team-live-v1",
-  "status": "passed",
+  "status": "superseded_invalid",
+  "reason": "The runtime closure was hashed but the runner did not itself rebuild that closure from the bound source before execution.",
+  "supersededBy": ".agents/reviews/r-mixed-issue-team-live-v4-2026-08-06.json",
   "paidCalls": 4,
   "maximumPaidCalls": 7,
   "profile": {
@@ -59,7 +61,7 @@
   },
   "assertions": {
     "exactArtifacts": true,
-    "evidenceComplete": true,
+    "evidenceComplete": false,
     "mixedAppsObserved": true,
     "roleKinds": {
       "explorer": "claude-code",
@@ -155,7 +157,7 @@
     }
   },
   "artifactRoot": ".agents/reviews/r-mixed-issue-team-live-v3-2026-08-06.json.artifacts",
-  "claimAllowed": true,
+  "claimAllowed": false,
   "embeddedEvidence": {
     "sourceCommit": "549f8b081d952cff061b62183fc34bb60739fe0c",
     "sourceTree": "d5ad631a8d1c6833295fb534cc07fecab6a77c14",

@@ -122,5 +122,6 @@ try {
 }
 writeFileSync(outputPath, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
 const sealed = payload.claimAllowed
-  ? sealMixedIssueTeamLive({ receiptPath: outputPath, sourceCommit: executionEvidence.sourceCommit }) : payload;
+  ? sealMixedIssueTeamLive({ receiptPath: outputPath, sourceCommit: executionEvidence.sourceCommit,
+    requireCurrentSourceMatch: true }) : payload;
 process.stdout.write(`${JSON.stringify(sealed, null, 2)}\n`);
