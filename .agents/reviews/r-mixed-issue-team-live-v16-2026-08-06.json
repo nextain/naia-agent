@@ -1,0 +1,752 @@
+{
+  "schemaVersion": 1,
+  "benchmarkId": "mixed-issue-team-live-v1",
+  "status": "passed",
+  "runId": "4e588234-4b0d-4fe0-9f65-e7de1bcd4389",
+  "paidCalls": 4,
+  "claimScope": {
+    "sessionIdentity": "provider_reported",
+    "modelIdentity": "adapter_requested_not_provider_observed",
+    "capability": "mixed_adapter_execution",
+    "verificationPortability": "clean_checkout_after_locked_install_and_build"
+  },
+  "maximumPaidCalls": 7,
+  "profile": {
+    "kind": "team",
+    "maxRepairCycles": 1,
+    "requiredCleanCycles": 1,
+    "roles": {
+      "explorer": {
+        "agentProfileId": "claude-explorer",
+        "agentKind": "claude-code",
+        "binding": {
+          "provider": "claude-code",
+          "model": "sonnet"
+        },
+        "filesystemAccess": "read_only"
+      },
+      "implementer": {
+        "agentProfileId": "opencode-implementer",
+        "agentKind": "opencode",
+        "binding": {
+          "provider": "opencode",
+          "model": "opencode/deepseek-v4-flash-free"
+        },
+        "filesystemAccess": "workspace_write"
+      },
+      "tester": {
+        "agentProfileId": "codex-tester",
+        "agentKind": "codex",
+        "binding": {
+          "provider": "openai-codex",
+          "model": "gpt-5.3-codex-spark",
+          "reasoningEffort": "low"
+        },
+        "filesystemAccess": "read_only"
+      },
+      "reviewer": {
+        "agentProfileId": "codex-reviewer",
+        "agentKind": "codex",
+        "binding": {
+          "provider": "openai-codex",
+          "model": "gpt-5.3-codex-spark",
+          "reasoningEffort": "low"
+        },
+        "filesystemAccess": "read_only"
+      }
+    }
+  },
+  "result": {
+    "ok": true,
+    "changedFiles": [
+      "result.txt"
+    ],
+    "cleanCycles": 1,
+    "repairCycles": 0
+  },
+  "assertions": {
+    "exactArtifacts": true,
+    "evidenceComplete": true,
+    "mixedAppsObserved": true,
+    "roleKinds": {
+      "explorer": "claude-code",
+      "implementer": "opencode",
+      "tester": "codex",
+      "reviewer": "codex"
+    },
+    "durableEvidenceEmbedded": true,
+    "receiptMatchesDurableSnapshot": true
+  },
+  "receipts": [
+    {
+      "workerRole": "explorer",
+      "agentKind": "claude-code",
+      "provider": "claude-code",
+      "model": "sonnet",
+      "sessionId": "a4db1577-b24e-4947-a038-e4b0de2f1b9f",
+      "sessionEvidenceSource": "provider_reported",
+      "modelEvidenceSource": "adapter_requested",
+      "executionId": "e8983069-3065-4cee-8c1c-74c9fc478e6f",
+      "tokenCountsAvailable": true,
+      "inputTokens": 2825,
+      "cachedInputTokens": 32325,
+      "outputTokens": 708,
+      "cost": {
+        "state": "measured",
+        "usd": 0.0380905,
+        "source": "role_adapter_priced_usage"
+      }
+    },
+    {
+      "workerRole": "implementer",
+      "agentKind": "opencode",
+      "provider": "opencode",
+      "model": "opencode/deepseek-v4-flash-free",
+      "sessionId": "ses_02bfbad49ffeCKSeEQhdFpEXQW",
+      "sessionEvidenceSource": "provider_reported",
+      "modelEvidenceSource": "adapter_requested",
+      "executionId": "16482f1a-6560-4a7c-af89-fd4c1871a6eb",
+      "tokenCountsAvailable": true,
+      "inputTokens": 17145,
+      "cachedInputTokens": 13952,
+      "outputTokens": 444,
+      "cost": {
+        "state": "unavailable",
+        "reason": "role adapter did not receive priced usage"
+      }
+    },
+    {
+      "workerRole": "tester",
+      "agentKind": "codex",
+      "provider": "openai-codex",
+      "model": "gpt-5.3-codex-spark",
+      "reasoningEffort": "low",
+      "sessionId": "019fd404-a78f-7062-990c-c39c860815c0",
+      "sessionEvidenceSource": "provider_reported",
+      "modelEvidenceSource": "adapter_requested",
+      "executionId": "6e3bcb4b-3847-416d-9eff-c9713a4ce2c6",
+      "tokenCountsAvailable": true,
+      "inputTokens": 10469,
+      "cachedInputTokens": 30336,
+      "outputTokens": 1460,
+      "cost": {
+        "state": "unavailable",
+        "reason": "role adapter did not receive priced usage"
+      }
+    },
+    {
+      "workerRole": "reviewer",
+      "agentKind": "codex",
+      "provider": "openai-codex",
+      "model": "gpt-5.3-codex-spark",
+      "reasoningEffort": "low",
+      "sessionId": "019fd404-cad9-7ed2-92db-a6d6de8106a5",
+      "sessionEvidenceSource": "provider_reported",
+      "modelEvidenceSource": "adapter_requested",
+      "executionId": "e625ee97-4c27-4133-b110-d5a9d084cc48",
+      "tokenCountsAvailable": true,
+      "inputTokens": 5888,
+      "cachedInputTokens": 38016,
+      "outputTokens": 867,
+      "cost": {
+        "state": "unavailable",
+        "reason": "role adapter did not receive priced usage"
+      }
+    }
+  ],
+  "diagnostics": [],
+  "executionEvidence": {
+    "sourceCommit": "81d9f600d4e22fd3d8733e7d0eb7a86b04847a27",
+    "sourceTree": "235bf33547c0f7c0aa5a90a51bc1ea1aaaf466d7",
+    "benchmarkScriptSha256": "c53837ddaedd8f48eeb5ba409fbf91f309e962a86e59714bc8c8fea0f20c9314",
+    "sealerSha256": "326b10e8b73b65a93b0697f91bb9d947edbf47481be474b0713ed99d022ead30",
+    "runtimeBuild": {
+      "completed": true,
+      "compilerSha256": "8d5fa5bd883fec0979fc2004f1fe1d99aef40570155d550eadc0b03b55513bf0",
+      "compilerClosure": {
+        "fileCount": 132,
+        "manifestSha256": "7e02162c902e5c29ec19fefc573ad55b8ed15fcbda940e737f297c53e9c41f54"
+      },
+      "sqliteClosure": {
+        "fileCount": 51,
+        "manifestSha256": "5cf2e9ce54a23145d495b8f9693e638fd60c2abf5db13b0c5d30a05fc4500de0"
+      },
+      "tsconfigSha256": "38204ea85e3c37122c6a44fc86255d6e2d653fd549facb84f5a91ddda743f5d2"
+    },
+    "executables": {
+      "node": {
+        "command": "node",
+        "path": "/var/home/linuxbrew/.linuxbrew/Cellar/node/26.3.0/bin/node",
+        "sha256": "3297f0f12e2bcba7734cb7efa8094b1cf57744380885b71895f075d283af025c",
+        "version": "v26.3.0",
+        "packageClosures": {}
+      },
+      "claude": {
+        "command": "claude",
+        "path": "/var/home/luke/.local/share/claude/versions/2.1.220",
+        "sha256": "674f61f20ff306f3100cf9200e4c36c4b70278b5bef2884549819b942a89c863",
+        "version": "2.1.220 (Claude Code)",
+        "packageClosures": {}
+      },
+      "opencode": {
+        "command": "opencode",
+        "path": "/var/home/linuxbrew/.linuxbrew/lib/node_modules/opencode-ai/bin/opencode.exe",
+        "sha256": "bcebc898d22419417b8dbec0f5e3f00f5b67b5a38c1de37c77c699d0e31fe0dd",
+        "version": "1.18.13",
+        "packageClosures": {}
+      },
+      "codex": {
+        "command": "codex",
+        "path": "/var/home/linuxbrew/.linuxbrew/lib/node_modules/@openai/codex/bin/codex.js",
+        "sha256": "134063e133f0b4244fa3b251acf973d4fe4b4aeeacbdc135211bf480f59f1477",
+        "version": "codex-cli 0.146.0",
+        "packageClosures": {
+          "codex-linux-x64": {
+            "fileCount": 8,
+            "manifestSha256": "24b73092f2a69eaaa6da80ff1b90be0a719db6035575cef9ada6f17dc10b6e86"
+          }
+        }
+      }
+    },
+    "runtimeClosure": {
+      "fileCount": 318,
+      "manifestSha256": "7084ff42fd224df35a4551216f75f2999b3ce5c2a481e879e4a36617ada664cf"
+    }
+  },
+  "artifactRoot": ".agents/reviews/r-mixed-issue-team-live-v16-2026-08-06.json.artifacts",
+  "artifactBindingPath": ".agents/reviews/r-mixed-issue-team-live-v16-2026-08-06.json.artifacts",
+  "executionArtifactRoot": "/var/home/luke/alpha-adk/worktrees/naia-agent-req-062/.agents/reviews/r-mixed-issue-team-live-v16-2026-08-06.json.artifacts",
+  "claimAllowed": true,
+  "embeddedEvidence": {
+    "sourceCommit": "81d9f600d4e22fd3d8733e7d0eb7a86b04847a27",
+    "sourceTree": "235bf33547c0f7c0aa5a90a51bc1ea1aaaf466d7",
+    "benchmarkScriptSha256": "c53837ddaedd8f48eeb5ba409fbf91f309e962a86e59714bc8c8fea0f20c9314",
+    "sealerSha256": "326b10e8b73b65a93b0697f91bb9d947edbf47481be474b0713ed99d022ead30",
+    "runtimeBuild": {
+      "completed": true,
+      "compilerSha256": "8d5fa5bd883fec0979fc2004f1fe1d99aef40570155d550eadc0b03b55513bf0",
+      "compilerClosure": {
+        "fileCount": 132,
+        "manifestSha256": "7e02162c902e5c29ec19fefc573ad55b8ed15fcbda940e737f297c53e9c41f54"
+      },
+      "sqliteClosure": {
+        "fileCount": 51,
+        "manifestSha256": "5cf2e9ce54a23145d495b8f9693e638fd60c2abf5db13b0c5d30a05fc4500de0"
+      },
+      "tsconfigSha256": "38204ea85e3c37122c6a44fc86255d6e2d653fd549facb84f5a91ddda743f5d2"
+    },
+    "executables": {
+      "node": {
+        "command": "node",
+        "path": "/var/home/linuxbrew/.linuxbrew/Cellar/node/26.3.0/bin/node",
+        "sha256": "3297f0f12e2bcba7734cb7efa8094b1cf57744380885b71895f075d283af025c",
+        "version": "v26.3.0",
+        "packageClosures": {}
+      },
+      "claude": {
+        "command": "claude",
+        "path": "/var/home/luke/.local/share/claude/versions/2.1.220",
+        "sha256": "674f61f20ff306f3100cf9200e4c36c4b70278b5bef2884549819b942a89c863",
+        "version": "2.1.220 (Claude Code)",
+        "packageClosures": {}
+      },
+      "opencode": {
+        "command": "opencode",
+        "path": "/var/home/linuxbrew/.linuxbrew/lib/node_modules/opencode-ai/bin/opencode.exe",
+        "sha256": "bcebc898d22419417b8dbec0f5e3f00f5b67b5a38c1de37c77c699d0e31fe0dd",
+        "version": "1.18.13",
+        "packageClosures": {}
+      },
+      "codex": {
+        "command": "codex",
+        "path": "/var/home/linuxbrew/.linuxbrew/lib/node_modules/@openai/codex/bin/codex.js",
+        "sha256": "134063e133f0b4244fa3b251acf973d4fe4b4aeeacbdc135211bf480f59f1477",
+        "version": "codex-cli 0.146.0",
+        "packageClosures": {
+          "codex-linux-x64": {
+            "fileCount": 8,
+            "manifestSha256": "24b73092f2a69eaaa6da80ff1b90be0a719db6035575cef9ada6f17dc10b6e86"
+          }
+        }
+      }
+    },
+    "runtimeClosure": {
+      "fileCount": 318,
+      "manifestSha256": "7084ff42fd224df35a4551216f75f2999b3ce5c2a481e879e4a36617ada664cf"
+    },
+    "sqliteFiles": [
+      {
+        "path": "team.db",
+        "byteLength": 32768,
+        "sha256": "ab55672378932a995b268f2c8c458454f02c180fbff4554cab4522527b88f4a2"
+      }
+    ],
+    "sqliteSha256": "ab55672378932a995b268f2c8c458454f02c180fbff4554cab4522527b88f4a2",
+    "durableRun": {
+      "dispatchId": "4e588234-4b0d-4fe0-9f65-e7de1bcd4389:dispatch:1",
+      "version": 9,
+      "fingerprint": "7779e70cba028b8ed0afae7391f4df8445d3cb3fb66c0c348c658484ae2e01ef",
+      "state": "completed",
+      "normalizedSnapshot": {
+        "version": 9,
+        "dispatchId": "4e588234-4b0d-4fe0-9f65-e7de1bcd4389:dispatch:1",
+        "fingerprint": "7779e70cba028b8ed0afae7391f4df8445d3cb3fb66c0c348c658484ae2e01ef",
+        "issueId": "053e9bf6fa34634f5f65a503dfa534e2d01e735e15a66e37eec1435a05e88218",
+        "profileId": "mixed-live-balanced",
+        "profileDigest": "328fae9099aa1a8758570d6053765e4c754a2aab86339882766329b40b391724",
+        "state": "completed",
+        "nextRole": "reviewer",
+        "attemptNo": 4,
+        "allocation": {
+          "workspacePath": "$ARTIFACT_ROOT/fixture",
+          "worktreePath": "$ARTIFACT_ROOT/fixture",
+          "branch": "live-fixture",
+          "leaseId": "live-fixture-lease"
+        },
+        "cleanCycles": 1,
+        "repairCycles": 0,
+        "outcomes": [
+          {
+            "version": 1,
+            "role": "explorer",
+            "decision": "proceed",
+            "summary": "fixture 디렉터리에는 seed.txt(내용: SEED_MUST_STAY)만 존재하며 result.txt는 아직 없음. 계획대로 result.txt를 새로 생성하고 seed.txt는 건드리지 않으면 됨.",
+            "findings": [
+              {
+                "code": "seed_present",
+                "message": "seed.txt가 존재하며 내용은 'SEED_MUST_STAY\\n'이고 수정하면 안 됨."
+              },
+              {
+                "code": "result_missing",
+                "message": "result.txt는 아직 존재하지 않으므로 새로 생성해야 함."
+              }
+            ]
+          },
+          {
+            "version": 1,
+            "role": "implementer",
+            "decision": "implemented",
+            "summary": "result.txt를 NAIA_MIXED_TEAM_OK\\n 정확한 바이트로 생성했고 seed.txt는 그대로 유지됨을 확인함.",
+            "findings": [
+              {
+                "code": "result_created",
+                "message": "result.txt 존재, 바이트가 정확히 NAIA_MIXED_TEAM_OK\\n (od로 검증)."
+              },
+              {
+                "code": "seed_unchanged",
+                "message": "seed.txt는 SEED_MUST_STAY\\n 그대로이며 수정하지 않음."
+              }
+            ]
+          },
+          {
+            "version": 1,
+            "role": "tester",
+            "decision": "pass",
+            "summary": "Verified fixture files by reading exact bytes: result.txt contains the required UTF-8 bytes and seed.txt remains unchanged.",
+            "findings": [
+              {
+                "code": "result_txt_exact_bytes",
+                "message": "`result.txt` exists and contains exact bytes `4e 41 49 41 5f 4d 49 58 45 44 5f 54 45 41 4d 5f 4f 4b 0a`, i.e. `NAIA_MIXED_TEAM_OK\\n`."
+              },
+              {
+                "code": "seed_txt_unchanged",
+                "message": "`seed.txt` exists and contains `53 45 45 44 5f 4d 55 53 54 5f 53 54 41 59 0a` (`SEED_MUST_STAY\\n`), matching the required baseline value."
+              },
+              {
+                "code": "directory_scope",
+                "message": "Directory listing contains only `seed.txt` and `result.txt` in this fixture path, with no additional files observed."
+              }
+            ]
+          },
+          {
+            "version": 1,
+            "role": "reviewer",
+            "decision": "clean",
+            "summary": "Verified fixture bytes and file set exactly match obligations: `result.txt` contains the required payload and newline, and `seed.txt` remains unchanged.",
+            "findings": [
+              {
+                "code": "result_bytes_exact",
+                "message": "`result.txt` exists and its bytes are `4e 41 49 41 5f 4d 49 58 45 44 5f 54 45 41 4d 5f 4f 4b 0a`, i.e., `NAIA_MIXED_TEAM_OK\\n`."
+              },
+              {
+                "code": "seed_bytes_unchanged",
+                "message": "`seed.txt` exists and its bytes are `53 45 45 44 5f 4d 55 53 54 5f 53 54 41 59 0a`, i.e., `SEED_MUST_STAY\\n`, unchanged."
+              },
+              {
+                "code": "scope_no_extra_files",
+                "message": "Fixture directory contains only `seed.txt` and `result.txt`; no additional files were created."
+              }
+            ]
+          }
+        ],
+        "receipts": [
+          {
+            "role": "worker",
+            "workerRole": "explorer",
+            "agentProfileId": "claude-explorer",
+            "agentKind": "claude-code",
+            "provider": "claude-code",
+            "model": "sonnet",
+            "sessionId": "a4db1577-b24e-4947-a038-e4b0de2f1b9f",
+            "executionId": "e8983069-3065-4cee-8c1c-74c9fc478e6f",
+            "idempotencyKey": "4e588234-4b0d-4fe0-9f65-e7de1bcd4389:dispatch:1:explorer:1",
+            "sessionEvidenceSource": "provider_reported",
+            "tokenCountsAvailable": true,
+            "inputTokens": 2825,
+            "cachedInputTokens": 32325,
+            "outputTokens": 708,
+            "latencyMs": 14525,
+            "modelEvidenceSource": "adapter_requested",
+            "cost": {
+              "state": "measured",
+              "usd": 0.0380905,
+              "source": "role_adapter_priced_usage"
+            }
+          },
+          {
+            "role": "worker",
+            "workerRole": "implementer",
+            "agentProfileId": "opencode-implementer",
+            "agentKind": "opencode",
+            "provider": "opencode",
+            "model": "opencode/deepseek-v4-flash-free",
+            "sessionId": "ses_02bfbad49ffeCKSeEQhdFpEXQW",
+            "executionId": "16482f1a-6560-4a7c-af89-fd4c1871a6eb",
+            "idempotencyKey": "4e588234-4b0d-4fe0-9f65-e7de1bcd4389:dispatch:1:implementer:2",
+            "sessionEvidenceSource": "provider_reported",
+            "tokenCountsAvailable": true,
+            "inputTokens": 17145,
+            "cachedInputTokens": 13952,
+            "outputTokens": 444,
+            "latencyMs": 22056,
+            "modelEvidenceSource": "adapter_requested",
+            "cost": {
+              "state": "unavailable",
+              "reason": "role adapter did not receive priced usage"
+            }
+          },
+          {
+            "role": "worker",
+            "workerRole": "tester",
+            "agentProfileId": "codex-tester",
+            "agentKind": "codex",
+            "provider": "openai-codex",
+            "model": "gpt-5.3-codex-spark",
+            "reasoningEffort": "low",
+            "sessionId": "019fd404-a78f-7062-990c-c39c860815c0",
+            "executionId": "6e3bcb4b-3847-416d-9eff-c9713a4ce2c6",
+            "idempotencyKey": "4e588234-4b0d-4fe0-9f65-e7de1bcd4389:dispatch:1:tester:3",
+            "sessionEvidenceSource": "provider_reported",
+            "tokenCountsAvailable": true,
+            "inputTokens": 10469,
+            "cachedInputTokens": 30336,
+            "outputTokens": 1460,
+            "latencyMs": 9045,
+            "modelEvidenceSource": "adapter_requested",
+            "cost": {
+              "state": "unavailable",
+              "reason": "role adapter did not receive priced usage"
+            }
+          },
+          {
+            "role": "worker",
+            "workerRole": "reviewer",
+            "agentProfileId": "codex-reviewer",
+            "agentKind": "codex",
+            "provider": "openai-codex",
+            "model": "gpt-5.3-codex-spark",
+            "reasoningEffort": "low",
+            "sessionId": "019fd404-cad9-7ed2-92db-a6d6de8106a5",
+            "executionId": "e625ee97-4c27-4133-b110-d5a9d084cc48",
+            "idempotencyKey": "4e588234-4b0d-4fe0-9f65-e7de1bcd4389:dispatch:1:reviewer:4",
+            "sessionEvidenceSource": "provider_reported",
+            "tokenCountsAvailable": true,
+            "inputTokens": 5888,
+            "cachedInputTokens": 38016,
+            "outputTokens": 867,
+            "latencyMs": 7399,
+            "modelEvidenceSource": "adapter_requested",
+            "cost": {
+              "state": "unavailable",
+              "reason": "role adapter did not receive priced usage"
+            }
+          }
+        ],
+        "result": {
+          "ok": true,
+          "summary": "issue team converged; issue verification pending",
+          "worktreePath": "$ARTIFACT_ROOT/fixture",
+          "changedFiles": [
+            "result.txt"
+          ],
+          "receipt": {
+            "role": "worker",
+            "workerRole": "implementer",
+            "agentProfileId": "opencode-implementer",
+            "agentKind": "opencode",
+            "provider": "opencode",
+            "model": "opencode/deepseek-v4-flash-free",
+            "sessionId": "ses_02bfbad49ffeCKSeEQhdFpEXQW",
+            "executionId": "16482f1a-6560-4a7c-af89-fd4c1871a6eb",
+            "idempotencyKey": "4e588234-4b0d-4fe0-9f65-e7de1bcd4389:dispatch:1:implementer:2",
+            "sessionEvidenceSource": "provider_reported",
+            "tokenCountsAvailable": true,
+            "inputTokens": 17145,
+            "cachedInputTokens": 13952,
+            "outputTokens": 444,
+            "latencyMs": 22056,
+            "modelEvidenceSource": "adapter_requested",
+            "cost": {
+              "state": "unavailable",
+              "reason": "role adapter did not receive priced usage"
+            }
+          },
+          "receipts": [
+            {
+              "role": "worker",
+              "workerRole": "explorer",
+              "agentProfileId": "claude-explorer",
+              "agentKind": "claude-code",
+              "provider": "claude-code",
+              "model": "sonnet",
+              "sessionId": "a4db1577-b24e-4947-a038-e4b0de2f1b9f",
+              "executionId": "e8983069-3065-4cee-8c1c-74c9fc478e6f",
+              "idempotencyKey": "4e588234-4b0d-4fe0-9f65-e7de1bcd4389:dispatch:1:explorer:1",
+              "sessionEvidenceSource": "provider_reported",
+              "tokenCountsAvailable": true,
+              "inputTokens": 2825,
+              "cachedInputTokens": 32325,
+              "outputTokens": 708,
+              "latencyMs": 14525,
+              "modelEvidenceSource": "adapter_requested",
+              "cost": {
+                "state": "measured",
+                "usd": 0.0380905,
+                "source": "role_adapter_priced_usage"
+              }
+            },
+            {
+              "role": "worker",
+              "workerRole": "implementer",
+              "agentProfileId": "opencode-implementer",
+              "agentKind": "opencode",
+              "provider": "opencode",
+              "model": "opencode/deepseek-v4-flash-free",
+              "sessionId": "ses_02bfbad49ffeCKSeEQhdFpEXQW",
+              "executionId": "16482f1a-6560-4a7c-af89-fd4c1871a6eb",
+              "idempotencyKey": "4e588234-4b0d-4fe0-9f65-e7de1bcd4389:dispatch:1:implementer:2",
+              "sessionEvidenceSource": "provider_reported",
+              "tokenCountsAvailable": true,
+              "inputTokens": 17145,
+              "cachedInputTokens": 13952,
+              "outputTokens": 444,
+              "latencyMs": 22056,
+              "modelEvidenceSource": "adapter_requested",
+              "cost": {
+                "state": "unavailable",
+                "reason": "role adapter did not receive priced usage"
+              }
+            },
+            {
+              "role": "worker",
+              "workerRole": "tester",
+              "agentProfileId": "codex-tester",
+              "agentKind": "codex",
+              "provider": "openai-codex",
+              "model": "gpt-5.3-codex-spark",
+              "reasoningEffort": "low",
+              "sessionId": "019fd404-a78f-7062-990c-c39c860815c0",
+              "executionId": "6e3bcb4b-3847-416d-9eff-c9713a4ce2c6",
+              "idempotencyKey": "4e588234-4b0d-4fe0-9f65-e7de1bcd4389:dispatch:1:tester:3",
+              "sessionEvidenceSource": "provider_reported",
+              "tokenCountsAvailable": true,
+              "inputTokens": 10469,
+              "cachedInputTokens": 30336,
+              "outputTokens": 1460,
+              "latencyMs": 9045,
+              "modelEvidenceSource": "adapter_requested",
+              "cost": {
+                "state": "unavailable",
+                "reason": "role adapter did not receive priced usage"
+              }
+            },
+            {
+              "role": "worker",
+              "workerRole": "reviewer",
+              "agentProfileId": "codex-reviewer",
+              "agentKind": "codex",
+              "provider": "openai-codex",
+              "model": "gpt-5.3-codex-spark",
+              "reasoningEffort": "low",
+              "sessionId": "019fd404-cad9-7ed2-92db-a6d6de8106a5",
+              "executionId": "e625ee97-4c27-4133-b110-d5a9d084cc48",
+              "idempotencyKey": "4e588234-4b0d-4fe0-9f65-e7de1bcd4389:dispatch:1:reviewer:4",
+              "sessionEvidenceSource": "provider_reported",
+              "tokenCountsAvailable": true,
+              "inputTokens": 5888,
+              "cachedInputTokens": 38016,
+              "outputTokens": 867,
+              "latencyMs": 7399,
+              "modelEvidenceSource": "adapter_requested",
+              "cost": {
+                "state": "unavailable",
+                "reason": "role adapter did not receive priced usage"
+              }
+            }
+          ],
+          "team": {
+            "profileId": "mixed-live-balanced",
+            "profileDigest": "328fae9099aa1a8758570d6053765e4c754a2aab86339882766329b40b391724",
+            "cleanCycles": 1,
+            "repairCycles": 0,
+            "outcomes": [
+              {
+                "version": 1,
+                "role": "explorer",
+                "decision": "proceed",
+                "summary": "fixture 디렉터리에는 seed.txt(내용: SEED_MUST_STAY)만 존재하며 result.txt는 아직 없음. 계획대로 result.txt를 새로 생성하고 seed.txt는 건드리지 않으면 됨.",
+                "findings": [
+                  {
+                    "code": "seed_present",
+                    "message": "seed.txt가 존재하며 내용은 'SEED_MUST_STAY\\n'이고 수정하면 안 됨."
+                  },
+                  {
+                    "code": "result_missing",
+                    "message": "result.txt는 아직 존재하지 않으므로 새로 생성해야 함."
+                  }
+                ]
+              },
+              {
+                "version": 1,
+                "role": "implementer",
+                "decision": "implemented",
+                "summary": "result.txt를 NAIA_MIXED_TEAM_OK\\n 정확한 바이트로 생성했고 seed.txt는 그대로 유지됨을 확인함.",
+                "findings": [
+                  {
+                    "code": "result_created",
+                    "message": "result.txt 존재, 바이트가 정확히 NAIA_MIXED_TEAM_OK\\n (od로 검증)."
+                  },
+                  {
+                    "code": "seed_unchanged",
+                    "message": "seed.txt는 SEED_MUST_STAY\\n 그대로이며 수정하지 않음."
+                  }
+                ]
+              },
+              {
+                "version": 1,
+                "role": "tester",
+                "decision": "pass",
+                "summary": "Verified fixture files by reading exact bytes: result.txt contains the required UTF-8 bytes and seed.txt remains unchanged.",
+                "findings": [
+                  {
+                    "code": "result_txt_exact_bytes",
+                    "message": "`result.txt` exists and contains exact bytes `4e 41 49 41 5f 4d 49 58 45 44 5f 54 45 41 4d 5f 4f 4b 0a`, i.e. `NAIA_MIXED_TEAM_OK\\n`."
+                  },
+                  {
+                    "code": "seed_txt_unchanged",
+                    "message": "`seed.txt` exists and contains `53 45 45 44 5f 4d 55 53 54 5f 53 54 41 59 0a` (`SEED_MUST_STAY\\n`), matching the required baseline value."
+                  },
+                  {
+                    "code": "directory_scope",
+                    "message": "Directory listing contains only `seed.txt` and `result.txt` in this fixture path, with no additional files observed."
+                  }
+                ]
+              },
+              {
+                "version": 1,
+                "role": "reviewer",
+                "decision": "clean",
+                "summary": "Verified fixture bytes and file set exactly match obligations: `result.txt` contains the required payload and newline, and `seed.txt` remains unchanged.",
+                "findings": [
+                  {
+                    "code": "result_bytes_exact",
+                    "message": "`result.txt` exists and its bytes are `4e 41 49 41 5f 4d 49 58 45 44 5f 54 45 41 4d 5f 4f 4b 0a`, i.e., `NAIA_MIXED_TEAM_OK\\n`."
+                  },
+                  {
+                    "code": "seed_bytes_unchanged",
+                    "message": "`seed.txt` exists and its bytes are `53 45 45 44 5f 4d 55 53 54 5f 53 54 41 59 0a`, i.e., `SEED_MUST_STAY\\n`, unchanged."
+                  },
+                  {
+                    "code": "scope_no_extra_files",
+                    "message": "Fixture directory contains only `seed.txt` and `result.txt`; no additional files were created."
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    "durableRunSha256": "c4cdb5134b9d9d5647526d6b4cbe48f64bd38a12546134ddaee0c0840761b0a9",
+    "events": [
+      {
+        "dispatch_id": "4e588234-4b0d-4fe0-9f65-e7de1bcd4389:dispatch:1",
+        "sequence": 1,
+        "event_type": "team_created",
+        "state": "ready"
+      },
+      {
+        "dispatch_id": "4e588234-4b0d-4fe0-9f65-e7de1bcd4389:dispatch:1",
+        "sequence": 2,
+        "event_type": "role_claimed",
+        "state": "running"
+      },
+      {
+        "dispatch_id": "4e588234-4b0d-4fe0-9f65-e7de1bcd4389:dispatch:1",
+        "sequence": 3,
+        "event_type": "role_acknowledged",
+        "state": "ready"
+      },
+      {
+        "dispatch_id": "4e588234-4b0d-4fe0-9f65-e7de1bcd4389:dispatch:1",
+        "sequence": 4,
+        "event_type": "role_claimed",
+        "state": "running"
+      },
+      {
+        "dispatch_id": "4e588234-4b0d-4fe0-9f65-e7de1bcd4389:dispatch:1",
+        "sequence": 5,
+        "event_type": "role_acknowledged",
+        "state": "ready"
+      },
+      {
+        "dispatch_id": "4e588234-4b0d-4fe0-9f65-e7de1bcd4389:dispatch:1",
+        "sequence": 6,
+        "event_type": "role_claimed",
+        "state": "running"
+      },
+      {
+        "dispatch_id": "4e588234-4b0d-4fe0-9f65-e7de1bcd4389:dispatch:1",
+        "sequence": 7,
+        "event_type": "role_acknowledged",
+        "state": "ready"
+      },
+      {
+        "dispatch_id": "4e588234-4b0d-4fe0-9f65-e7de1bcd4389:dispatch:1",
+        "sequence": 8,
+        "event_type": "role_claimed",
+        "state": "running"
+      },
+      {
+        "dispatch_id": "4e588234-4b0d-4fe0-9f65-e7de1bcd4389:dispatch:1",
+        "sequence": 9,
+        "event_type": "team_completed",
+        "state": "completed"
+      }
+    ],
+    "fixture": [
+      {
+        "path": "result.txt",
+        "byteLength": 19,
+        "sha256": "12d6d20273f2f714f28ff3fd53f09825e0e755dfe88346b0a3ef4af8748e3c4e",
+        "hex": "4e4149415f4d495845445f5445414d5f4f4b0a"
+      },
+      {
+        "path": "seed.txt",
+        "byteLength": 15,
+        "sha256": "6ddf6e382af70a562f9b8c9afec0f0f8604ee26470f7bd0f7af02ba74fe6ceb2",
+        "hex": "534545445f4d5553545f535441590a"
+      }
+    ]
+  }
+}
