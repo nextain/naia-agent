@@ -1,7 +1,9 @@
 {
   "schemaVersion": 1,
   "benchmarkId": "mixed-issue-team-live-v1",
-  "status": "passed",
+  "status": "superseded_invalid",
+  "reason": "The TypeScript launcher was bound, but its transitive compiler package closure was not yet hashed.",
+  "supersededBy": ".agents/reviews/r-mixed-issue-team-live-v7-2026-08-06.json",
   "paidCalls": 4,
   "maximumPaidCalls": 7,
   "profile": {
@@ -59,7 +61,7 @@
   },
   "assertions": {
     "exactArtifacts": true,
-    "evidenceComplete": true,
+    "evidenceComplete": false,
     "mixedAppsObserved": true,
     "roleKinds": {
       "explorer": "claude-code",
@@ -199,7 +201,7 @@
     }
   },
   "artifactRoot": ".agents/reviews/r-mixed-issue-team-live-v6-2026-08-06.json.artifacts",
-  "claimAllowed": true,
+  "claimAllowed": false,
   "embeddedEvidence": {
     "sourceCommit": "8853874826595e45faa4725f03467dc146fa48cf",
     "sourceTree": "776fa4e265ecc92fa433351d36d25cfb1ea9b370",

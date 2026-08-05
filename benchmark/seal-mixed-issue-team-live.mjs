@@ -30,6 +30,7 @@ export function captureMixedLiveExecutionEvidence(repositoryRoot) {
     benchmarkScriptSha256: sha256(execFileSync("git", ["show", `${sourceCommit}:benchmark/run-mixed-issue-team-live.mjs`], { cwd: repositoryRoot })),
     sealerSha256: sha256(execFileSync("git", ["show", `${sourceCommit}:benchmark/seal-mixed-issue-team-live.mjs`], { cwd: repositoryRoot })),
     runtimeBuild: { completed: true, compilerSha256: sha256(readFileSync(compilerPath)),
+      compilerClosure: digestDirectory(dirname(dirname(compilerPath))),
       tsconfigSha256: sha256(execFileSync("git", ["show", `${sourceCommit}:tsconfig.json`], { cwd: repositoryRoot })) },
     executables,
     runtimeClosure: digestDirectory(join(repositoryRoot, "dist/main")),
@@ -113,6 +114,7 @@ function validateExecutionEvidence(value, repositoryRoot, sourceCommit, requireC
     || value.benchmarkScriptSha256 !== sha256(execFileSync("git", ["show", `${sourceCommit}:benchmark/run-mixed-issue-team-live.mjs`], { cwd: repositoryRoot }))
     || value.sealerSha256 !== sha256(execFileSync("git", ["show", `${sourceCommit}:benchmark/seal-mixed-issue-team-live.mjs`], { cwd: repositoryRoot }))
     || value.runtimeBuild?.completed !== true || value.runtimeBuild.compilerSha256 !== sha256(readFileSync(compilerPath))
+    || JSON.stringify(value.runtimeBuild.compilerClosure) !== JSON.stringify(digestDirectory(dirname(dirname(compilerPath))))
     || value.runtimeBuild.tsconfigSha256 !== sha256(execFileSync("git", ["show", `${sourceCommit}:tsconfig.json`], { cwd: repositoryRoot }))) {
     throw new Error("execution evidence is not bound to the declared source commit");
   }

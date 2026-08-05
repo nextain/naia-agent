@@ -46,6 +46,7 @@ describe("mixed issue-team paid live benchmark contract", () => {
     expect(source).toContain("sealMixedIssueTeamLive({ receiptPath: outputPath");
     expect(source).toContain("requireCurrentSourceMatch: true");
     expect(sealer).toContain('execFileSync(process.execPath, [compilerPath, "-p"');
+    expect(sealer).toContain("compilerClosure: digestDirectory(dirname(dirname(compilerPath)))");
     expect(sealer).toContain('execFileSync("git", ["diff", "--quiet", "HEAD", "--"]');
     expect(sealer).toContain("execution runtime closure changed before evidence sealing");
     expect(sealer).toContain("coding executable changed during live run");
@@ -128,6 +129,7 @@ describe("mixed issue-team paid live benchmark contract", () => {
         { name: "result", mutate: (value: any) => { value.result.cleanCycles = 2; }, message: "receipt summary" },
         { name: "assertions", mutate: (value: any) => { value.assertions.exactArtifacts = false; }, message: "receipt summary" },
         { name: "source binding", mutate: (value: any) => { value.executionEvidence.sourceTree = "0".repeat(40); }, message: "execution evidence" },
+        { name: "compiler closure", mutate: (value: any) => { value.executionEvidence.runtimeBuild.compilerClosure.manifestSha256 = "0".repeat(64); }, message: "execution evidence" },
         { name: "executable binding", mutate: (value: any) => { value.executionEvidence.executables.codex.sha256 = "0".repeat(64); }, message: "coding executable" },
       ];
       for (const candidate of tamperedCases) {
