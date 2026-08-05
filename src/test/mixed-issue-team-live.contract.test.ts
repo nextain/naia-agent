@@ -38,38 +38,48 @@ describe("mixed issue-team paid live benchmark contract", () => {
 
   it("has a deterministic sealer for tracked source, durable state, and exact fixture evidence", () => {
     const sealer = readFileSync(new URL("../../benchmark/seal-mixed-issue-team-live.mjs", import.meta.url), "utf8");
-    expect(sealer).toContain('git", ["show", `${sourceCommit}:benchmark/run-mixed-issue-team-live.mjs`]');
+    const evidence = readFileSync(new URL("../../benchmark/mixed-live-execution-evidence.mjs", import.meta.url), "utf8");
+    const durable = readFileSync(new URL("../../benchmark/mixed-live-durable-validation.mjs", import.meta.url), "utf8");
+    const secureFiles = readFileSync(new URL("../../benchmark/mixed-live-secure-files.mjs", import.meta.url), "utf8");
+    expect(evidence).toContain('execFileSync("git", ["show", `${sourceCommit}:${path}`]');
+    for (const path of ["mixed-live-durable-validation.mjs", "mixed-live-execution-evidence.mjs",
+      "mixed-live-seal-utils.mjs", "mixed-live-secure-files.mjs"]) {
+      expect(evidence).toContain(`benchmark/${path}`);
+    }
+    expect(evidence).toContain("supportModuleSha256: Object.fromEntries");
+    expect(evidence).toContain("currentSupportModules");
+    expect(evidence).toContain("JSON.stringify(currentSupportModules) !== JSON.stringify(value.supportModuleSha256)");
     expect(sealer).toContain("receipt projection does not match the durable SQLite snapshot");
     expect(sealer).toContain("durableEvidenceEmbedded: true");
     expect(sealer).toContain("receiptMatchesDurableSnapshot: true");
     expect(source).toContain("captureMixedLiveExecutionEvidence(repositoryRoot)");
     expect(source).toContain("sealMixedIssueTeamLive({ receiptPath: outputPath");
     expect(source).toContain("requireCurrentSourceMatch: true");
-    expect(sealer).toContain('execFileSync(process.execPath, [compilerPath, "-p"');
-    expect(sealer).toContain("compilerClosure: digestDirectory(dirname(dirname(compilerPath)))");
-    expect(sealer).toContain("sqliteClosure: captureSqliteClosure()");
+    expect(evidence).toContain('execFileSync(process.execPath, [compilerPath, "-p"');
+    expect(evidence).toContain("compilerClosure: digestDirectory(dirname(dirname(compilerPath)))");
+    expect(evidence).toContain("sqliteClosure: captureSqliteClosure()");
     expect(source).toContain("const runId = randomUUID()");
     expect(source).toContain('modelIdentity: "adapter_requested_not_provider_observed"');
     expect(source).toContain('providerIdentity: "adapter_declared_not_provider_observed"');
     expect(source).toContain('verificationPortability: "linux_clean_checkout_after_locked_install_and_build"');
     expect(sealer).toContain("artifact binding does not match its execution path");
-    expect(sealer).toContain('execFileSync("git", ["diff", "--quiet", "HEAD", "--"]');
-    expect(sealer).toContain("current benchmark source or execution runtime closure does not match the live run");
+    expect(evidence).toContain('execFileSync("git", ["diff", "--quiet", "HEAD", "--"]');
+    expect(evidence).toContain("current benchmark source or execution runtime closure does not match the live run");
     expect(sealer).toContain("requireCurrentSourceMatch: true,");
     expect(sealer).toContain("verifyExistingSeal: verifySealed");
-    expect(sealer).toContain("coding executable changed during live run");
+    expect(evidence).toContain("coding executable changed during live run");
     expect(source).toContain("executionEvidence.executables.claude.path");
     expect(source).toContain("executionEvidence.executables.opencode.path");
     expect(source).toContain("executionEvidence.executables.codex.path");
     expect(source).toContain("executionEvidence.executables.node.path");
-    expect(sealer).toContain("Codex native package closure changed during live run");
+    expect(evidence).toContain("Codex native package closure changed during live run");
     expect(source).toContain("modelEvidenceSource: receipt.modelEvidenceSource");
-    expect(sealer).toContain("SQLite event history is inconsistent with the completed run");
+    expect(durable).toContain("SQLite event history is inconsistent with the completed run");
+    expect(secureFiles).toContain("fixture evidence changed before the sealing commit point");
   });
 
   it("seals matching durable evidence and rejects a tampered receipt", () => {
-    const workRoot = join(repositoryRoot, ".agents/work"); mkdirSync(workRoot, { recursive: true });
-    const root = mkdtempSync(join(workRoot, "mixed-live-sealer-"));
+    const root = mkdtempSync(join(repositoryRoot, "benchmark/.tmp-mixed-live-sealer-"));
     const executableEnvironmentNames = ["CLAUDE_BIN", "OPENCODE_BIN", "CODEX_BIN"] as const;
     const previousExecutableEnvironment = Object.fromEntries(
       executableEnvironmentNames.map((name) => [name, process.env[name]]),
@@ -210,6 +220,9 @@ describe("mixed issue-team paid live benchmark contract", () => {
         { name: "assertions", mutate: (value: any) => { value.assertions.exactArtifacts = false; }, message: "receipt summary" },
         { name: "source binding", mutate: (value: any) => { value.executionEvidence.sourceTree = "0".repeat(40); }, message: "execution evidence" },
         { name: "compiler closure", mutate: (value: any) => { value.executionEvidence.runtimeBuild.compilerClosure.manifestSha256 = "0".repeat(64); }, message: "execution evidence" },
+        { name: "support module binding", mutate: (value: any) => {
+          value.executionEvidence.supportModuleSha256["benchmark/mixed-live-secure-files.mjs"] = "0".repeat(64);
+        }, message: "execution evidence" },
         { name: "executable binding", mutate: (value: any) => { value.executionEvidence.executables.codex.sha256 = "0".repeat(64); }, message: "coding executable" },
       ];
       for (const candidate of tamperedCases) {

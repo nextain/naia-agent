@@ -1,7 +1,9 @@
 {
   "schemaVersion": 1,
   "benchmarkId": "mixed-issue-team-live-v1",
-  "status": "passed",
+  "status": "superseded_invalid",
+  "invalidReason": "Sealer source was decomposed into separately hash-bound support modules to satisfy the mandatory complexity gate.",
+  "supersededBy": "r-mixed-issue-team-live-v19-2026-08-06.json",
   "runId": "77324922-cfc1-4f76-8471-b4d0d0d3da53",
   "paidCalls": 6,
   "claimScope": {
@@ -254,7 +256,7 @@
   "artifactRoot": ".agents/reviews/r-mixed-issue-team-live-v18-2026-08-06.json.artifacts",
   "artifactBindingPath": ".agents/reviews/r-mixed-issue-team-live-v18-2026-08-06.json.artifacts",
   "executionArtifactRoot": "/var/home/luke/alpha-adk/worktrees/naia-agent-req-062/.agents/reviews/r-mixed-issue-team-live-v18-2026-08-06.json.artifacts",
-  "claimAllowed": true,
+  "claimAllowed": false,
   "embeddedEvidence": {
     "sourceCommit": "c8de965e7a494d3903d1b9fea9a296425cff043e",
     "sourceTree": "448d3836ad3198846d627bc3398f54b5571bd783",
