@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { makeIssueTeamRoleExecutor } from "../main/composition/issue-team-role-executor.js";
+import { DEFAULT_ISSUE_TEAM_ROLE_DEADLINE_MS, makeIssueTeamRoleExecutor } from "../main/composition/issue-team-role-executor.js";
 import type { SubAgentPort } from "../main/ports/orchestration.js";
 
 function agent(provider: string, model: string, session: string): SubAgentPort {
@@ -13,6 +13,10 @@ function agent(provider: string, model: string, session: string): SubAgentPort {
 }
 
 describe("REQ-023 profiled role executor", () => {
+  it("publishes the documented five-minute default role deadline", () => {
+    expect(DEFAULT_ISSUE_TEAM_ROLE_DEADLINE_MS).toBe(5 * 60_000);
+  });
+
   it("cancels a stalled role at the configured deadline instead of waiting forever", async () => {
     let cancelled = false;
     let release: (() => void) | undefined;

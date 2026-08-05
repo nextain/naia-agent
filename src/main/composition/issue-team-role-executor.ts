@@ -17,6 +17,9 @@ export interface IssueTeamRoleExecutorOptions {
   readonly roleDeadlineMs?: number;
 }
 
+/** Default liveness bound for one authored team role; callers may explicitly lower it for live profiles or tests. */
+export const DEFAULT_ISSUE_TEAM_ROLE_DEADLINE_MS = 5 * 60_000;
+
 export function makeIssueTeamRoleExecutor(options: IssueTeamRoleExecutorOptions): IssueTeamRoleExecutorPort {
   return {
     async execute(input) {
@@ -48,7 +51,7 @@ export function makeIssueTeamRoleExecutor(options: IssueTeamRoleExecutorOptions)
           report(value) { report = value; },
         },
       });
-      const deadlineMs = validDeadline(options.roleDeadlineMs) ? options.roleDeadlineMs : 5 * 60_000;
+      const deadlineMs = validDeadline(options.roleDeadlineMs) ? options.roleDeadlineMs : DEFAULT_ISSUE_TEAM_ROLE_DEADLINE_MS;
       const roleAbort = new AbortController();
       const forwardAbort = () => roleAbort.abort(input.signal.reason);
       if (input.signal.aborted) forwardAbort();

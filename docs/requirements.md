@@ -704,6 +704,9 @@ The Agent and Gateway preserve these codes end to end:
   child-process, Git, or SQLite mechanism. Mechanisms remain in adapters/composition.
 - **NFR-TEAM-003**: Diagnostic events use the project logging port and expose stable ids, role, state,
   and counts only; prompts, credentials, raw output, and absolute paths are not logged.
+- **NFR-TEAM-003A**: Every authored role has a five-minute default liveness deadline, configurable by
+  composition from 1 ms through 30 minutes. Deadline expiry aborts the role through the same semantic
+  cancellation path as a parent cancellation; live benchmark compositions declare their shorter bound.
 - **NFR-TEAM-004**: Discord ingress, Discord authorization, terminal/file-opening UX, naia-shell UI,
   SSH/mobile federation, automatic merge selection, and replacing Luna with a real 24GB local model
   are outside this requirement and must not be claimed as active.
