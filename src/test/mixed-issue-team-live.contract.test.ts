@@ -101,9 +101,9 @@ describe("mixed issue-team paid live benchmark contract", () => {
         modelEvidenceSource: "adapter_requested", executionId: `execution-${index}`,
         tokenCountsAvailable: true, inputTokens: index + 1, cachedInputTokens: index + 2, outputTokens: index + 3,
         cost: { state: "unavailable", reason: "not priced" } }; });
-      const snapshotReceipts = receipts.map((receipt) => ({ role: "worker",
+      const snapshotReceipts = receipts.map((receipt, index) => ({ role: "worker",
         agentProfileId: profile.roles[receipt.workerRole as keyof typeof profile.roles].agentProfileId,
-        idempotencyKey: `${dispatchId}:${receipt.workerRole}:1`, latencyMs: 1, ...receipt }));
+        idempotencyKey: `${dispatchId}:${receipt.workerRole}:${index + 1}`, latencyMs: 1, ...receipt }));
       const decisions = ["proceed", "implemented", "pass", "changes_requested", "implemented", "pass", "clean"] as const;
       const outcomes = roleOrder.map((role, index) => ({ version: 1, role, decision: decisions[index],
         summary: `${role} fixture outcome`, findings: [] }));
