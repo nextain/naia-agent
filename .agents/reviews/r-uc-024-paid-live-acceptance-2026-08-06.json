@@ -111,7 +111,7 @@
     "build": "pass",
     "structure": "pass",
     "ci_contracts": "23 passed",
-    "vitest": "1711 passed, 10 skipped, 0 failed",
+    "vitest": "1713 passed, 10 skipped, 0 failed",
     "gateway_focused_tests": "85 passed; Docker-backed model route test not executed because this host has no Docker socket",
     "gateway_lint": "unavailable: ruff executable is not installed in the gateway environment"
   },
