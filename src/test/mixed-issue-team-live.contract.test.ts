@@ -49,10 +49,12 @@ describe("mixed issue-team paid live benchmark contract", () => {
     expect(sealer).toContain("compilerClosure: digestDirectory(dirname(dirname(compilerPath)))");
     expect(sealer).toContain("sqliteClosure: captureSqliteClosure()");
     expect(source).toContain("const runId = randomUUID()");
+    expect(source).toContain('modelIdentity: "adapter_requested_not_provider_observed"');
     expect(sealer).toContain("canonical artifact root does not match its original execution path");
     expect(sealer).toContain('execFileSync("git", ["diff", "--quiet", "HEAD", "--"]');
     expect(sealer).toContain("current benchmark source or execution runtime closure does not match the live run");
-    expect(sealer).toContain("sealMixedIssueTeamLive({ receiptPath, sourceCommit, requireCurrentSourceMatch: true })");
+    expect(sealer).toContain("requireCurrentSourceMatch: true,");
+    expect(sealer).toContain("verifyExistingSeal: verifySealed");
     expect(sealer).toContain("coding executable changed during live run");
     expect(source).toContain("executionEvidence.executables.claude.path");
     expect(source).toContain("executionEvidence.executables.opencode.path");
@@ -128,7 +130,8 @@ describe("mixed issue-team paid live benchmark contract", () => {
       expect(captured.status, captured.stderr).toBe(0);
       const executionEvidence = JSON.parse(captured.stdout);
       const original = { schemaVersion: 1, benchmarkId: "mixed-issue-team-live-v1", status: "passed", runId,
-        paidCalls: 4, maximumPaidCalls: 7, profile,
+        paidCalls: 4, maximumPaidCalls: 7, profile, claimScope: { sessionIdentity: "provider_reported",
+          modelIdentity: "adapter_requested_not_provider_observed", capability: "mixed_adapter_execution" },
         result: { ok: true, changedFiles: ["result.txt"], cleanCycles: 1, repairCycles: 0 },
         assertions: { exactArtifacts: true, evidenceComplete: true, mixedAppsObserved: true,
           roleKinds: { explorer: "claude-code", implementer: "opencode", tester: "codex", reviewer: "codex" } },
@@ -136,19 +139,30 @@ describe("mixed issue-team paid live benchmark contract", () => {
       Object.assign(original, { canonicalArtifactRoot });
       writeFileSync(receiptPath, JSON.stringify(original));
       const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repositoryRoot, encoding: "utf8" }).trim();
-      const sealed = spawnSync(process.execPath, [sealerPath, "--receipt", receiptPath, "--source-commit", sourceCommit], { cwd: repositoryRoot, encoding: "utf8" });
+      const sealed = spawnSync(process.execPath,
+        [sealerPath, "--receipt", receiptPath, "--source-commit", sourceCommit, "--seal-unsealed"],
+        { cwd: repositoryRoot, encoding: "utf8" });
       expect(sealed.status, sealed.stderr).toBe(0);
       const parsed = JSON.parse(readFileSync(receiptPath, "utf8"));
       expect(parsed).toMatchObject({ artifactRoot: expect.stringContaining("receipt.json.artifacts"),
         assertions: { durableEvidenceEmbedded: true, receiptMatchesDurableSnapshot: true },
         embeddedEvidence: { sourceCommit, durableRun: { state: "completed" } } });
+      const embeddedTamper = structuredClone(parsed); embeddedTamper.embeddedEvidence.fixture[0].hex = "00";
+      writeFileSync(receiptPath, JSON.stringify(embeddedTamper));
+      const embeddedTampered = spawnSync(process.execPath,
+        [sealerPath, "--receipt", receiptPath, "--source-commit", sourceCommit, "--verify-sealed"],
+        { cwd: repositoryRoot, encoding: "utf8" });
+      expect(embeddedTampered.status).not.toBe(0);
+      expect(embeddedTampered.stderr).toContain("sealed receipt evidence does not match");
+      writeFileSync(receiptPath, JSON.stringify(parsed));
       const replayPath = join(root, "replayed.json");
       cpSync(artifactRoot, `${replayPath}.artifacts`, { recursive: true });
       const replayValue = structuredClone(parsed);
       replayValue.canonicalArtifactRoot = realpathSync(`${replayPath}.artifacts`);
       writeFileSync(replayPath, JSON.stringify(replayValue));
       const replayed = spawnSync(process.execPath,
-        [sealerPath, "--receipt", replayPath, "--source-commit", sourceCommit], { cwd: repositoryRoot, encoding: "utf8" });
+        [sealerPath, "--receipt", replayPath, "--source-commit", sourceCommit, "--verify-sealed"],
+        { cwd: repositoryRoot, encoding: "utf8" });
       expect(replayed.status).not.toBe(0);
       expect(replayed.stderr).toContain("durable run binding does not match");
       const tamperedCases = [
@@ -163,7 +177,9 @@ describe("mixed issue-team paid live benchmark contract", () => {
       ];
       for (const candidate of tamperedCases) {
         const value = structuredClone(original); candidate.mutate(value); writeFileSync(receiptPath, JSON.stringify(value));
-        const tampered = spawnSync(process.execPath, [sealerPath, "--receipt", receiptPath, "--source-commit", sourceCommit], { cwd: repositoryRoot, encoding: "utf8" });
+        const tampered = spawnSync(process.execPath,
+          [sealerPath, "--receipt", receiptPath, "--source-commit", sourceCommit, "--seal-unsealed"],
+          { cwd: repositoryRoot, encoding: "utf8" });
         expect(tampered.status, candidate.name).not.toBe(0);
         expect(tampered.stderr, candidate.name).toContain(candidate.message);
       }
@@ -171,11 +187,19 @@ describe("mixed issue-team paid live benchmark contract", () => {
       writeFileSync(symlinkTarget, "NAIA_MIXED_TEAM_OK\n"); rmSync(resultPath);
       symlinkSync(symlinkTarget, resultPath); writeFileSync(receiptPath, JSON.stringify(original));
       const symlinkedArtifact = spawnSync(process.execPath,
-        [sealerPath, "--receipt", receiptPath, "--source-commit", sourceCommit], { cwd: repositoryRoot, encoding: "utf8" });
+        [sealerPath, "--receipt", receiptPath, "--source-commit", sourceCommit, "--seal-unsealed"],
+        { cwd: repositoryRoot, encoding: "utf8" });
       expect(symlinkedArtifact.status).not.toBe(0);
       expect(symlinkedArtifact.stderr).toContain("evidence path contains a symbolic link");
       rmSync(resultPath); writeFileSync(resultPath, "NAIA_MIXED_TEAM_OK\n"); rmSync(symlinkTarget);
       writeFileSync(receiptPath, JSON.stringify(original));
+      writeFileSync(join(artifactRoot, "team.db-wal"), "uncheckpointed");
+      const uncheckpointed = spawnSync(process.execPath,
+        [sealerPath, "--receipt", receiptPath, "--source-commit", sourceCommit, "--seal-unsealed"],
+        { cwd: repositoryRoot, encoding: "utf8" });
+      expect(uncheckpointed.status).not.toBe(0);
+      expect(uncheckpointed.stderr).toContain("WAL must be checkpointed and empty");
+      rmSync(join(artifactRoot, "team.db-wal"));
       const falseSnapshot = structuredClone(snapshot); falseSnapshot.result.ok = false;
       const falsePassDatabase = new Database(join(artifactRoot, "team.db"));
       falsePassDatabase.prepare("UPDATE issue_team_runs SET snapshot_json=?").run(JSON.stringify(falseSnapshot));
@@ -183,7 +207,8 @@ describe("mixed issue-team paid live benchmark contract", () => {
       const falsePassReceipt = structuredClone(original); falsePassReceipt.result.ok = false;
       writeFileSync(receiptPath, JSON.stringify(falsePassReceipt));
       const falsePass = spawnSync(process.execPath,
-        [sealerPath, "--receipt", receiptPath, "--source-commit", sourceCommit], { cwd: repositoryRoot, encoding: "utf8" });
+        [sealerPath, "--receipt", receiptPath, "--source-commit", sourceCommit, "--seal-unsealed"],
+        { cwd: repositoryRoot, encoding: "utf8" });
       expect(falsePass.status).not.toBe(0);
       expect(falsePass.stderr).toContain("receipt summary does not match");
       const restoredDatabase = new Database(join(artifactRoot, "team.db"));
@@ -192,7 +217,9 @@ describe("mixed issue-team paid live benchmark contract", () => {
       writeFileSync(receiptPath, JSON.stringify(original));
       const tamperedDatabase = new Database(join(artifactRoot, "team.db"));
       tamperedDatabase.prepare("UPDATE issue_team_events SET state='ready' WHERE sequence=2").run(); tamperedDatabase.close();
-      const eventTamper = spawnSync(process.execPath, [sealerPath, "--receipt", receiptPath, "--source-commit", sourceCommit], { cwd: repositoryRoot, encoding: "utf8" });
+      const eventTamper = spawnSync(process.execPath,
+        [sealerPath, "--receipt", receiptPath, "--source-commit", sourceCommit, "--seal-unsealed"],
+        { cwd: repositoryRoot, encoding: "utf8" });
       expect(eventTamper.status).not.toBe(0);
       expect(eventTamper.stderr).toContain("SQLite event history is inconsistent");
     } finally { rmSync(root, { recursive: true, force: true }); }

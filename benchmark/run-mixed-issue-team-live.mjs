@@ -32,8 +32,10 @@ const artifactRoot = `${outputPath}.artifacts`;
 mkdirSync(artifactRoot, { recursive: false, mode: 0o700 });
 const canonicalArtifactRoot = realpathSync(artifactRoot);
 const runBinding = createHash("sha256").update(`${runId}\0${canonicalArtifactRoot}`).digest("hex");
+const claimScope = { sessionIdentity: "provider_reported", modelIdentity: "adapter_requested_not_provider_observed",
+  capability: "mixed_adapter_execution" };
 writeFileSync(outputPath, `${JSON.stringify({ schemaVersion: 1, benchmarkId, status: "running",
-  runId, paidCalls: 0, maximumPaidCalls: 7, artifactRoot, canonicalArtifactRoot }, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+  runId, paidCalls: 0, maximumPaidCalls: 7, artifactRoot, canonicalArtifactRoot, claimScope }, null, 2)}\n`, { mode: 0o600, flag: "wx" });
 const fixtureRoot = join(artifactRoot, "fixture");
 mkdirSync(fixtureRoot, { mode: 0o700 });
 writeFileSync(join(fixtureRoot, "seed.txt"), "SEED_MUST_STAY\n", { mode: 0o600 });
@@ -107,7 +109,7 @@ try {
     && JSON.stringify(files) === JSON.stringify(["result.txt", "seed.txt"]);
   const mixedAppsObserved = new Set(receipts.map((receipt) => receipt.agentKind)).size === 3;
   const passed = result.ok && result.team?.cleanCycles === 1 && exactArtifacts && evidenceComplete && mixedAppsObserved;
-  payload = { schemaVersion: 1, benchmarkId, status: passed ? "passed" : "failed", runId, paidCalls,
+  payload = { schemaVersion: 1, benchmarkId, status: passed ? "passed" : "failed", runId, paidCalls, claimScope,
     maximumPaidCalls: 7, profile, result: { ok: result.ok, changedFiles: result.changedFiles,
       cleanCycles: result.team?.cleanCycles, repairCycles: result.team?.repairCycles },
     assertions: { exactArtifacts, evidenceComplete, mixedAppsObserved, roleKinds },

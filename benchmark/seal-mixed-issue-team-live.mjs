@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-import { createHash } from "node:crypto";
-import { lstatSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, readdirSync, realpathSync,
+  renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import Database from "better-sqlite3";
@@ -40,12 +41,13 @@ export function captureMixedLiveExecutionEvidence(repositoryRoot) {
   };
 }
 
-export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, requireCurrentSourceMatch = false }) {
+export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, requireCurrentSourceMatch = false,
+  verifyExistingSeal = false }) {
   const receiptPath = resolve(inputPath);
   if (!sourceCommit || !/^[0-9a-f]{40}$/u.test(sourceCommit)) throw new Error("source commit must be full 40-hex");
   const repositoryRoot = git(dirname(receiptPath), ["rev-parse", "--show-toplevel"]);
   assertNoSymlinkPath(repositoryRoot, receiptPath, "file");
-  const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
+  const receipt = JSON.parse(readRegularFileNoFollow(receiptPath).toString("utf8"));
   if (receipt.status !== "passed" || receipt.claimAllowed !== true || !Array.isArray(receipt.receipts)) {
     throw new Error("only a passed, claim-allowed mixed-team receipt can be sealed");
   }
@@ -55,14 +57,31 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
   const databasePath = join(artifactRoot, "team.db");
   assertNoSymlinkPath(repositoryRoot, artifactRoot, "directory");
   assertNoSymlinkPath(repositoryRoot, databasePath, "file");
+  const artifactIdentity = directoryIdentity(artifactRoot);
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(receipt.runId)
     || receipt.canonicalArtifactRoot !== realpathSync(artifactRoot)) {
     throw new Error("live evidence run ID or canonical artifact root does not match its original execution path");
   }
-  const database = new Database(databasePath, { readonly: true, fileMustExist: true });
-  const runs = database.prepare("SELECT dispatch_id,version,fingerprint,state,snapshot_json FROM issue_team_runs").all();
-  const events = database.prepare("SELECT dispatch_id,sequence,event_type,state FROM issue_team_events ORDER BY dispatch_id,sequence").all();
-  database.close();
+  const sqliteNames = readdirSync(artifactRoot).filter((name) => name.startsWith("team.db")).sort();
+  if (!sqliteNames.includes("team.db") || sqliteNames.some((name) => !["team.db", "team.db-shm", "team.db-wal"].includes(name))) {
+    throw new Error("SQLite evidence contains an unexpected journal or sidecar");
+  }
+  const sqliteFiles = sqliteNames.map((name) => {
+    const path = join(artifactRoot, name); assertNoSymlinkPath(repositoryRoot, path, "file");
+    const bytes = readRegularFileNoFollow(path);
+    if (name === "team.db-wal" && bytes.length !== 0) throw new Error("SQLite WAL must be checkpointed and empty before sealing");
+    return { path: name, byteLength: bytes.length, sha256: sha256(bytes) };
+  });
+  if (process.platform !== "linux") throw new Error("secure descriptor-backed SQLite evidence verification requires Linux");
+  const databaseFd = openRegularFileNoFollow(databasePath);
+  let runs; let events;
+  try {
+    const database = new Database(`/proc/self/fd/${databaseFd}`, { readonly: true, fileMustExist: true });
+    try {
+      runs = database.prepare("SELECT dispatch_id,version,fingerprint,state,snapshot_json FROM issue_team_runs").all();
+      events = database.prepare("SELECT dispatch_id,sequence,event_type,state FROM issue_team_events ORDER BY dispatch_id,sequence").all();
+    } finally { database.close(); }
+  } finally { closeSync(databaseFd); }
   if (runs.length !== 1) throw new Error("live evidence must contain exactly one durable team run");
   const run = runs[0]; const snapshot = JSON.parse(String(run.snapshot_json));
   validateDurableRun(run, snapshot, events, receipt.runId, receipt.canonicalArtifactRoot);
@@ -84,7 +103,7 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
   assertNoSymlinkPath(repositoryRoot, fixtureRoot, "directory");
   const fixture = readdirSync(fixtureRoot).sort().map((name) => {
     const path = join(fixtureRoot, name); assertNoSymlinkPath(repositoryRoot, path, "file");
-    const bytes = readFileSync(path);
+    const bytes = readRegularFileNoFollow(path);
     return { path: name, byteLength: bytes.length, sha256: sha256(bytes), hex: bytes.toString("hex") };
   });
   if (JSON.stringify(fixture.map(({ path }) => path)) !== JSON.stringify(["result.txt", "seed.txt"])
@@ -101,12 +120,15 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
       && ["provider_reported", "adapter_requested"].includes(value.modelEvidenceSource)
       && value.executionId && value.provider && value.model),
     mixedAppsObserved: new Set(projected.map((value) => value.agentKind)).size === 3, roleKinds };
+  const claimScope = { sessionIdentity: "provider_reported", modelIdentity: "adapter_requested_not_provider_observed",
+    capability: "mixed_adapter_execution" };
   if (receipt.schemaVersion !== 1 || receipt.benchmarkId !== "mixed-issue-team-live-v1"
     || receipt.maximumPaidCalls !== 7 || receipt.paidCalls !== projected.length
     || projected.length !== 4 || coreResult.ok !== true
     || JSON.stringify(coreResult.changedFiles) !== JSON.stringify(["result.txt"])
     || coreResult.cleanCycles !== 1 || coreResult.repairCycles !== 0
     || coreAssertions.evidenceComplete !== true || coreAssertions.mixedAppsObserved !== true
+    || JSON.stringify(receipt.claimScope) !== JSON.stringify(claimScope)
     || JSON.stringify(coreAssertions.roleKinds) !== JSON.stringify({ explorer: "claude-code",
       implementer: "opencode", tester: "codex", reviewer: "codex" })
     || JSON.stringify(receipt.result) !== JSON.stringify(coreResult)
@@ -117,12 +139,25 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
   const normalizedSnapshot = JSON.parse(JSON.stringify(snapshot).split(artifactRoot).join("$ARTIFACT_ROOT"));
   const durableRun = { dispatchId: run.dispatch_id, version: run.version, fingerprint: run.fingerprint,
     state: run.state, normalizedSnapshot };
-  receipt.artifactRoot = relative(repositoryRoot, artifactRoot).split("\\").join("/");
-  receipt.embeddedEvidence = { ...receipt.executionEvidence, sqliteSha256: sha256(readFileSync(databasePath)),
+  const expectedArtifactRoot = relative(repositoryRoot, artifactRoot).split("\\").join("/");
+  const expectedEmbeddedEvidence = { ...receipt.executionEvidence, sqliteFiles,
+    sqliteSha256: sqliteFiles.find((value) => value.path === "team.db").sha256,
     durableRun, durableRunSha256: sha256(Buffer.from(JSON.stringify(durableRun))), events, fixture };
-  receipt.assertions = { ...coreAssertions, durableEvidenceEmbedded: true, receiptMatchesDurableSnapshot: true };
-  writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600 });
-  return receipt;
+  const expectedAssertions = { ...coreAssertions, durableEvidenceEmbedded: true, receiptMatchesDurableSnapshot: true };
+  assertSameDirectory(artifactRoot, artifactIdentity);
+  if (verifyExistingSeal) {
+    if (!receipt.embeddedEvidence || receipt.artifactRoot !== expectedArtifactRoot
+      || JSON.stringify(receipt.embeddedEvidence) !== JSON.stringify(expectedEmbeddedEvidence)
+      || JSON.stringify(receipt.assertions) !== JSON.stringify(expectedAssertions)) {
+      throw new Error("sealed receipt evidence does not match the immutable execution artifacts");
+    }
+    return receipt;
+  }
+  if (receipt.embeddedEvidence !== undefined) throw new Error("receipt is already sealed; use sealed verification mode");
+  const sealed = { ...receipt, artifactRoot: expectedArtifactRoot, embeddedEvidence: expectedEmbeddedEvidence,
+    assertions: expectedAssertions };
+  writeJsonAtomic(receiptPath, sealed);
+  return sealed;
 }
 
 function validateExecutionEvidence(value, repositoryRoot, sourceCommit, requireCurrentSourceMatch) {
@@ -271,6 +306,43 @@ function assertNoSymlinkPath(repositoryRoot, targetPath, expectedKind) {
   }
 }
 
+function openRegularFileNoFollow(path) {
+  const fd = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  if (!fstatSync(fd).isFile()) { closeSync(fd); throw new Error("evidence path is not a regular file"); }
+  return fd;
+}
+
+function readRegularFileNoFollow(path) {
+  const fd = openRegularFileNoFollow(path);
+  try { return readFileSync(fd); } finally { closeSync(fd); }
+}
+
+function directoryIdentity(path) {
+  const stat = lstatSync(path);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error("evidence directory is not a regular directory");
+  return { realpath: realpathSync(path), dev: stat.dev, ino: stat.ino };
+}
+
+function assertSameDirectory(path, identity) {
+  const current = directoryIdentity(path);
+  if (current.realpath !== identity.realpath || current.dev !== identity.dev || current.ino !== identity.ino) {
+    throw new Error("evidence directory changed during verification");
+  }
+}
+
+function writeJsonAtomic(path, value) {
+  const temporary = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`);
+  let fd;
+  try {
+    fd = openSync(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0), 0o600);
+    writeFileSync(fd, `${JSON.stringify(value, null, 2)}\n`); closeSync(fd); fd = undefined;
+    renameSync(temporary, path);
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+    try { unlinkSync(temporary); } catch { /* renamed or never created */ }
+  }
+}
+
 function stableJson(value) {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
   if (value && typeof value === "object") return `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b))
@@ -290,6 +362,10 @@ if (process.argv[1] && resolve(process.argv[1]) === scriptPath) {
   const receiptIndex = process.argv.indexOf("--receipt"); const sourceIndex = process.argv.indexOf("--source-commit");
   const receiptPath = receiptIndex >= 0 ? process.argv[receiptIndex + 1] : undefined;
   const sourceCommit = sourceIndex >= 0 ? process.argv[sourceIndex + 1] : undefined;
-  if (!receiptPath || !sourceCommit) throw new Error("usage: seal-mixed-issue-team-live.mjs --receipt <path> --source-commit <commit>");
-  sealMixedIssueTeamLive({ receiptPath, sourceCommit, requireCurrentSourceMatch: true });
+  const sealUnsealed = process.argv.includes("--seal-unsealed"); const verifySealed = process.argv.includes("--verify-sealed");
+  if (!receiptPath || !sourceCommit || sealUnsealed === verifySealed) {
+    throw new Error("usage: seal-mixed-issue-team-live.mjs --receipt <path> --source-commit <commit> (--seal-unsealed|--verify-sealed)");
+  }
+  sealMixedIssueTeamLive({ receiptPath, sourceCommit, requireCurrentSourceMatch: true,
+    verifyExistingSeal: verifySealed });
 }
