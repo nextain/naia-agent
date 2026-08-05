@@ -40,6 +40,14 @@ describe("memory settings reload wiring", () => {
         NAIA_AGENT_SKILLS: "off",
         NAIA_AGENT_TRANSCRIPT: "off",
         AGENT_PROVIDER: "fake",
+        // Keep this deterministic and independent of a developer's transient
+        // secret-tool/keychain state; these providers are intentionally unused.
+        NAIA_MEMORY_EMBED_API_KEY: "",
+        NAIA_MEMORY_QDRANT_API_KEY: "",
+        NAIA_ANYLLM_API_KEY: "",
+        NAIA_KEY: "",
+        naiaKey: "",
+        NAIA_MEMORY_LLM_API_KEY: "",
       },
     });
     expect(deps.memory.hasActive()).toBe(true);
