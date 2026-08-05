@@ -39,6 +39,10 @@
 - OpenRouter fallback: `openrouter/inclusionai/ling-3.0-flash:free` passed the
   readiness probe, then inspected the requested implementation and tests, but
   did not return a final verdict before timeout.
+- Two narrower retries on the same model also produced no verdict: the first
+  requested disallowed `/tmp` access and exited; the second stayed inside the
+  repository and inspected the relevant composition and contracts, but reached
+  the 120-second review timeout before emitting its required verdict.
 
 No independent reviewer returned a complete CLEAN/NEEDS_CHANGES verdict. This
 checkpoint therefore remains **REVIEW_ONLY** and must not be represented as
