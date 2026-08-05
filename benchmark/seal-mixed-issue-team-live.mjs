@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import Database from "better-sqlite3";
 
 const scriptPath = fileURLToPath(import.meta.url);
+const require = createRequire(import.meta.url);
 
 export function captureMixedLiveExecutionEvidence(repositoryRoot) {
   const sourceCommit = git(repositoryRoot, ["rev-parse", "HEAD"]);
@@ -31,6 +33,7 @@ export function captureMixedLiveExecutionEvidence(repositoryRoot) {
     sealerSha256: sha256(execFileSync("git", ["show", `${sourceCommit}:benchmark/seal-mixed-issue-team-live.mjs`], { cwd: repositoryRoot })),
     runtimeBuild: { completed: true, compilerSha256: sha256(readFileSync(compilerPath)),
       compilerClosure: digestDirectory(dirname(dirname(compilerPath))),
+      sqliteClosure: captureSqliteClosure(),
       tsconfigSha256: sha256(execFileSync("git", ["show", `${sourceCommit}:tsconfig.json`], { cwd: repositoryRoot })) },
     executables,
     runtimeClosure: digestDirectory(join(repositoryRoot, "dist/main")),
@@ -52,13 +55,17 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
   const databasePath = join(artifactRoot, "team.db");
   assertNoSymlinkPath(repositoryRoot, artifactRoot, "directory");
   assertNoSymlinkPath(repositoryRoot, databasePath, "file");
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(receipt.runId)
+    || receipt.canonicalArtifactRoot !== realpathSync(artifactRoot)) {
+    throw new Error("live evidence run ID or canonical artifact root does not match its original execution path");
+  }
   const database = new Database(databasePath, { readonly: true, fileMustExist: true });
   const runs = database.prepare("SELECT dispatch_id,version,fingerprint,state,snapshot_json FROM issue_team_runs").all();
   const events = database.prepare("SELECT dispatch_id,sequence,event_type,state FROM issue_team_events ORDER BY dispatch_id,sequence").all();
   database.close();
   if (runs.length !== 1) throw new Error("live evidence must contain exactly one durable team run");
   const run = runs[0]; const snapshot = JSON.parse(String(run.snapshot_json));
-  validateDurableRun(run, snapshot, events);
+  validateDurableRun(run, snapshot, events, receipt.runId, receipt.canonicalArtifactRoot);
   const projected = snapshot.receipts.map(projectReceipt);
   if (JSON.stringify(projected) !== JSON.stringify(receipt.receipts)) {
     throw new Error("receipt projection does not match the durable SQLite snapshot");
@@ -120,6 +127,7 @@ function validateExecutionEvidence(value, repositoryRoot, sourceCommit, requireC
     || value.sealerSha256 !== sha256(execFileSync("git", ["show", `${sourceCommit}:benchmark/seal-mixed-issue-team-live.mjs`], { cwd: repositoryRoot }))
     || value.runtimeBuild?.completed !== true || value.runtimeBuild.compilerSha256 !== sha256(readFileSync(compilerPath))
     || JSON.stringify(value.runtimeBuild.compilerClosure) !== JSON.stringify(digestDirectory(dirname(dirname(compilerPath))))
+    || JSON.stringify(value.runtimeBuild.sqliteClosure) !== JSON.stringify(captureSqliteClosure())
     || value.runtimeBuild.tsconfigSha256 !== sha256(execFileSync("git", ["show", `${sourceCommit}:tsconfig.json`], { cwd: repositoryRoot }))) {
     throw new Error("execution evidence is not bound to the declared source commit");
   }
@@ -181,9 +189,14 @@ function validateExecutableEvidence(value, compareCurrent) {
   }
 }
 
-function validateDurableRun(run, snapshot, events) {
-  if (run.dispatch_id !== snapshot.dispatchId || run.version !== snapshot.version
-    || run.fingerprint !== snapshot.fingerprint || run.state !== snapshot.state || run.state !== "completed"
+function validateDurableRun(run, snapshot, events, runId, canonicalArtifactRoot) {
+  const expectedIssueId = sha256(Buffer.from(`${runId}\0${canonicalArtifactRoot}`));
+  if (run.dispatch_id !== `${runId}:dispatch:1` || run.dispatch_id !== snapshot.dispatchId
+    || snapshot.issueId !== expectedIssueId) {
+    throw new Error("durable run binding does not match the execution run ID and canonical artifact root");
+  }
+  if (run.version !== snapshot.version || run.fingerprint !== snapshot.fingerprint
+    || run.state !== snapshot.state || run.state !== "completed"
     || events.length !== snapshot.version || snapshot.version !== snapshot.receipts.length * 2 + 1) {
     throw new Error("SQLite run columns, snapshot, and event cardinality are inconsistent");
   }
@@ -197,6 +210,10 @@ function validateDurableRun(run, snapshot, events) {
       throw new Error("SQLite event history is inconsistent with the completed run");
     }
   }
+}
+
+function captureSqliteClosure() {
+  return digestDirectory(dirname(require.resolve("better-sqlite3/package.json")));
 }
 
 function projectReceipt(value) {

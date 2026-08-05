@@ -1,6 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
@@ -47,6 +47,9 @@ describe("mixed issue-team paid live benchmark contract", () => {
     expect(source).toContain("requireCurrentSourceMatch: true");
     expect(sealer).toContain('execFileSync(process.execPath, [compilerPath, "-p"');
     expect(sealer).toContain("compilerClosure: digestDirectory(dirname(dirname(compilerPath)))");
+    expect(sealer).toContain("sqliteClosure: captureSqliteClosure()");
+    expect(source).toContain("const runId = randomUUID()");
+    expect(sealer).toContain("canonical artifact root does not match its original execution path");
     expect(sealer).toContain('execFileSync("git", ["diff", "--quiet", "HEAD", "--"]');
     expect(sealer).toContain("execution runtime closure changed before evidence sealing");
     expect(sealer).toContain("coding executable changed during live run");
@@ -66,6 +69,9 @@ describe("mixed issue-team paid live benchmark contract", () => {
       const receiptPath = join(root, "receipt.json");
       const artifactRoot = `${receiptPath}.artifacts`; const fixtureRoot = join(artifactRoot, "fixture");
       mkdirSync(fixtureRoot, { recursive: true });
+      const runId = "12345678-1234-4123-8123-123456789abc"; const dispatchId = `${runId}:dispatch:1`;
+      const canonicalArtifactRoot = realpathSync(artifactRoot);
+      const runBinding = createHash("sha256").update(`${runId}\0${canonicalArtifactRoot}`).digest("hex");
       writeFileSync(join(fixtureRoot, "result.txt"), "NAIA_MIXED_TEAM_OK\n");
       writeFileSync(join(fixtureRoot, "seed.txt"), "SEED_MUST_STAY\n");
       const roleReceipt = { workerRole: "explorer", agentKind: "claude-code", provider: "claude-code", model: "sonnet",
@@ -83,17 +89,17 @@ describe("mixed issue-team paid live benchmark contract", () => {
         : value && typeof value === "object" ? `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b))
           .map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`).join(",")}}` : JSON.stringify(value);
       const profileDigest = createHash("sha256").update(stableJson(profile)).digest("hex");
-      const snapshot = { version: 3, dispatchId: "dispatch", fingerprint: "fingerprint", state: "completed",
+      const snapshot = { version: 3, dispatchId, issueId: runBinding, fingerprint: "fingerprint", state: "completed",
         profileDigest, cleanCycles: 1, repairCycles: 0, receipts: [snapshotReceipt],
         result: { ok: true, changedFiles: ["result.txt"] } };
       const database = new Database(join(artifactRoot, "team.db"));
       database.exec("CREATE TABLE issue_team_runs(dispatch_id TEXT,version INTEGER,fingerprint TEXT,state TEXT,snapshot_json TEXT);"
         + "CREATE TABLE issue_team_events(dispatch_id TEXT,sequence INTEGER,event_type TEXT,state TEXT);");
-      database.prepare("INSERT INTO issue_team_runs VALUES(?,?,?,?,?)").run("dispatch", 3, "fingerprint", "completed", JSON.stringify(snapshot));
+      database.prepare("INSERT INTO issue_team_runs VALUES(?,?,?,?,?)").run(dispatchId, 3, "fingerprint", "completed", JSON.stringify(snapshot));
       const insertEvent = database.prepare("INSERT INTO issue_team_events VALUES(?,?,?,?)");
-      insertEvent.run("dispatch", 1, "team_created", "ready");
-      insertEvent.run("dispatch", 2, "role_claimed", "running");
-      insertEvent.run("dispatch", 3, "team_completed", "completed");
+      insertEvent.run(dispatchId, 1, "team_created", "ready");
+      insertEvent.run(dispatchId, 2, "role_claimed", "running");
+      insertEvent.run(dispatchId, 3, "team_completed", "completed");
       database.close();
       const sealerPath = join(repositoryRoot, "benchmark/seal-mixed-issue-team-live.mjs");
       const fakeBin = join(root, "bin"); mkdirSync(fakeBin);
@@ -109,11 +115,12 @@ describe("mixed issue-team paid live benchmark contract", () => {
         { cwd: repositoryRoot, encoding: "utf8", env: { ...process.env, ...executableEnvironment } });
       expect(captured.status, captured.stderr).toBe(0);
       const executionEvidence = JSON.parse(captured.stdout);
-      const original = { schemaVersion: 1, benchmarkId: "mixed-issue-team-live-v1", status: "passed",
+      const original = { schemaVersion: 1, benchmarkId: "mixed-issue-team-live-v1", status: "passed", runId,
         paidCalls: 1, maximumPaidCalls: 7, profile,
         result: { ok: true, changedFiles: ["result.txt"], cleanCycles: 1, repairCycles: 0 },
         assertions: { exactArtifacts: true, evidenceComplete: false, mixedAppsObserved: false,
           roleKinds: { explorer: "claude-code" } }, executionEvidence, claimAllowed: true, receipts: [roleReceipt] };
+      Object.assign(original, { canonicalArtifactRoot });
       writeFileSync(receiptPath, JSON.stringify(original));
       const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repositoryRoot, encoding: "utf8" }).trim();
       const sealed = spawnSync(process.execPath, [sealerPath, "--receipt", receiptPath, "--source-commit", sourceCommit], { cwd: repositoryRoot, encoding: "utf8" });
@@ -122,6 +129,15 @@ describe("mixed issue-team paid live benchmark contract", () => {
       expect(parsed).toMatchObject({ artifactRoot: expect.stringContaining("receipt.json.artifacts"),
         assertions: { durableEvidenceEmbedded: true, receiptMatchesDurableSnapshot: true },
         embeddedEvidence: { sourceCommit, durableRun: { state: "completed" } } });
+      const replayPath = join(root, "replayed.json");
+      cpSync(artifactRoot, `${replayPath}.artifacts`, { recursive: true });
+      const replayValue = structuredClone(parsed);
+      replayValue.canonicalArtifactRoot = realpathSync(`${replayPath}.artifacts`);
+      writeFileSync(replayPath, JSON.stringify(replayValue));
+      const replayed = spawnSync(process.execPath,
+        [sealerPath, "--receipt", replayPath, "--source-commit", sourceCommit], { cwd: repositoryRoot, encoding: "utf8" });
+      expect(replayed.status).not.toBe(0);
+      expect(replayed.stderr).toContain("durable run binding does not match");
       const tamperedCases = [
         { name: "receipt", mutate: (value: any) => { value.receipts[0].inputTokens = 999; }, message: "receipt projection" },
         { name: "paid calls", mutate: (value: any) => { value.paidCalls = 2; }, message: "receipt summary" },

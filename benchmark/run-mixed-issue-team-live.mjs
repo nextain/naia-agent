@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { captureMixedLiveExecutionEvidence, sealMixedIssueTeamLive } from "./seal-mixed-issue-team-live.mjs";
@@ -25,11 +26,14 @@ if (reason) {
   process.exit(0);
 }
 const executionEvidence = captureMixedLiveExecutionEvidence(repositoryRoot);
+const runId = randomUUID();
 
 const artifactRoot = `${outputPath}.artifacts`;
 mkdirSync(artifactRoot, { recursive: false, mode: 0o700 });
+const canonicalArtifactRoot = realpathSync(artifactRoot);
+const runBinding = createHash("sha256").update(`${runId}\0${canonicalArtifactRoot}`).digest("hex");
 writeFileSync(outputPath, `${JSON.stringify({ schemaVersion: 1, benchmarkId, status: "running",
-  paidCalls: 0, maximumPaidCalls: 7, artifactRoot }, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+  runId, paidCalls: 0, maximumPaidCalls: 7, artifactRoot, canonicalArtifactRoot }, null, 2)}\n`, { mode: 0o600, flag: "wx" });
 const fixtureRoot = join(artifactRoot, "fixture");
 mkdirSync(fixtureRoot, { mode: 0o700 });
 writeFileSync(join(fixtureRoot, "seed.txt"), "SEED_MUST_STAY\n", { mode: 0o600 });
@@ -86,7 +90,7 @@ let payload;
 try {
   const task = "Create result.txt with the exact UTF-8 bytes NAIA_MIXED_TEAM_OK followed by one LF. "
     + "Do not modify seed.txt or create any other file.";
-  const result = await worker.execute({ issueId: "mixed-live-001", dispatchId: "mixed-live-001:dispatch:1",
+  const result = await worker.execute({ issueId: runBinding, dispatchId: `${runId}:dispatch:1`,
     workspacePath: fixtureRoot, task, obligations: ["result.txt bytes equal NAIA_MIXED_TEAM_OK\\n", "seed.txt remains unchanged"],
     acceptanceChecks: ["read result.txt and compare exact bytes", "read seed.txt and compare exact bytes"],
     profileId: "mixed-live-balanced", profile, signal: new AbortController().signal });
@@ -103,7 +107,7 @@ try {
     && JSON.stringify(files) === JSON.stringify(["result.txt", "seed.txt"]);
   const mixedAppsObserved = new Set(receipts.map((receipt) => receipt.agentKind)).size === 3;
   const passed = result.ok && result.team?.cleanCycles === 1 && exactArtifacts && evidenceComplete && mixedAppsObserved;
-  payload = { schemaVersion: 1, benchmarkId, status: passed ? "passed" : "failed", paidCalls,
+  payload = { schemaVersion: 1, benchmarkId, status: passed ? "passed" : "failed", runId, paidCalls,
     maximumPaidCalls: 7, profile, result: { ok: result.ok, changedFiles: result.changedFiles,
       cleanCycles: result.team?.cleanCycles, repairCycles: result.team?.repairCycles },
     assertions: { exactArtifacts, evidenceComplete, mixedAppsObserved, roleKinds },
@@ -114,11 +118,12 @@ try {
       executionId: receipt.executionId,
       tokenCountsAvailable: receipt.tokenCountsAvailable, inputTokens: receipt.inputTokens,
       cachedInputTokens: receipt.cachedInputTokens, outputTokens: receipt.outputTokens, cost: receipt.cost })),
-    diagnostics, executionEvidence, artifactRoot, claimAllowed: passed };
+    diagnostics, executionEvidence, artifactRoot, canonicalArtifactRoot, claimAllowed: passed };
   if (!passed) process.exitCode = 2;
 } catch (error) {
-  payload = { schemaVersion: 1, benchmarkId, status: "failed", paidCalls, maximumPaidCalls: 7,
-    reason: error instanceof Error ? error.message : String(error), diagnostics, artifactRoot, claimAllowed: false };
+  payload = { schemaVersion: 1, benchmarkId, status: "failed", runId, paidCalls, maximumPaidCalls: 7,
+    reason: error instanceof Error ? error.message : String(error), diagnostics, artifactRoot, canonicalArtifactRoot,
+    claimAllowed: false };
   process.exitCode = 2;
 } finally {
   store.close();
