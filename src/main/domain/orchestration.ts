@@ -40,9 +40,11 @@ export interface SubAgentModelEvidence {
   readonly selectedModel: string;
   readonly modelEvidenceSource?: "provider_reported" | "adapter_requested";
   readonly reasoningEffort?: string;
+  /** Non-cached input tokens. cachedInputTokens is a disjoint partition. */
   readonly inputTokens: number;
   readonly outputTokens: number;
   readonly totalTokens: number;
+  /** Cache-read input tokens, disjoint from inputTokens. */
   readonly cachedInputTokens?: number;
   /** False when a terminal provider event omitted or malformed its usage object. */
   readonly usageAvailable?: boolean;

@@ -200,8 +200,8 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
           const cachedInputTokens = usage?.cachedInputTokens ?? 0;
           const outputTokens = usage?.outputTokens ?? 0;
           const measuredCostUsd = opts.priceUsdPerMillion && usage
-            && (opts.maximumPricedInputTokens === undefined || inputTokens <= opts.maximumPricedInputTokens)
-            ? ((Math.max(0, inputTokens - cachedInputTokens) * opts.priceUsdPerMillion.uncachedInput)
+            && (opts.maximumPricedInputTokens === undefined || inputTokens + cachedInputTokens <= opts.maximumPricedInputTokens)
+            ? ((inputTokens * opts.priceUsdPerMillion.uncachedInput)
               + (cachedInputTokens * opts.priceUsdPerMillion.cachedInput)
               + (outputTokens * opts.priceUsdPerMillion.output)) / 1_000_000
             : undefined;
@@ -211,7 +211,7 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
               provider: "openai-codex", selectedModel: model ?? "codex-default",
               modelEvidenceSource: "adapter_requested",
               ...(opts.reasoningEffort ? { reasoningEffort: opts.reasoningEffort } : {}),
-              inputTokens, cachedInputTokens, outputTokens, totalTokens: inputTokens + outputTokens,
+              inputTokens, cachedInputTokens, outputTokens, totalTokens: inputTokens + cachedInputTokens + outputTokens,
               usageAvailable: Boolean(usage),
               sessionId: threadId ?? executionId,
               sessionEvidenceSource: threadId ? "provider_reported" : "adapter_generated",
@@ -256,7 +256,7 @@ function validUsage(value: RawCodexEvent["usage"]): { inputTokens: number; cache
   if (!value) return undefined;
   const fields = [value.input_tokens, value.cached_input_tokens, value.output_tokens];
   if (fields.some((field) => typeof field !== "number" || !Number.isSafeInteger(field) || field < 0)) return undefined;
-  const [inputTokens, cachedInputTokens, outputTokens] = fields as number[];
-  if (cachedInputTokens > inputTokens) return undefined;
-  return { inputTokens, cachedInputTokens, outputTokens };
+  const [totalInputTokens, cachedInputTokens, outputTokens] = fields as number[];
+  if (cachedInputTokens > totalInputTokens) return undefined;
+  return { inputTokens: totalInputTokens - cachedInputTokens, cachedInputTokens, outputTokens };
 }

@@ -93,7 +93,7 @@ describe("subagent-claude-code 어댑터 계약 (SPEC-010 확장, fake child)", 
     expect(end.evidence).toMatchObject({
       provider: "claude-code", selectedModel: "sonnet", modelEvidenceSource: "adapter_requested",
       sessionId: "claude-session", sessionEvidenceSource: "provider_reported",
-      inputTokens: 43766, cachedInputTokens: 15912,
+      inputTokens: 27854, cachedInputTokens: 15912,
       outputTokens: 20, totalTokens: 43786, usageAvailable: true,
       measuredCostUsd: 0.1721916,
     });

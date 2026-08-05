@@ -161,17 +161,16 @@ export function createClaudeLineParser(
       case "result": {
         if (!evidence || !validClaudeUsage(raw.usage)) return null;
         const usage = raw.usage;
-        const inputTokens = usage.input_tokens
-          + (usage.cache_creation_input_tokens ?? 0)
-          + (usage.cache_read_input_tokens ?? 0);
+        const inputTokens = usage.input_tokens + (usage.cache_creation_input_tokens ?? 0);
+        const cachedInputTokens = usage.cache_read_input_tokens ?? 0;
         const outputTokens = usage.output_tokens;
-        const totalTokens = inputTokens + outputTokens;
+        const totalTokens = inputTokens + cachedInputTokens + outputTokens;
         if (!Number.isSafeInteger(inputTokens) || !Number.isSafeInteger(totalTokens)) return null;
         const measuredCostUsd = positiveFinite(raw.total_cost_usd) ? raw.total_cost_usd : undefined;
         evidence = {
           ...evidence,
           inputTokens,
-          cachedInputTokens: usage.cache_read_input_tokens ?? 0,
+          cachedInputTokens,
           outputTokens,
           totalTokens,
           usageAvailable: true,

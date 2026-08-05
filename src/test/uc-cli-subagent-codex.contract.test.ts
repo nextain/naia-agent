@@ -60,7 +60,7 @@ describe("subagent-codex 어댑터 계약 (SPEC-010 확장, fake child)", () => 
     expect((events[3] as Extract<SubAgentEvent, { kind: "session_end" }>).evidence).toMatchObject({
       provider: "openai-codex", selectedModel: "codex-default", sessionId: "th_1",
       sessionEvidenceSource: "provider_reported",
-      inputTokens: 10, cachedInputTokens: 4, outputTokens: 2,
+      inputTokens: 6, cachedInputTokens: 4, outputTokens: 2, totalTokens: 12,
     });
   });
 
@@ -203,7 +203,8 @@ describe("subagent-codex 어댑터 계약 (SPEC-010 확장, fake child)", () => 
 
   it("turn.completed closes the logical job and reaps an idle Codex child", async () => {
     const f = fakeNdjson();
-    const port = makeCodexSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn, hardKillDeadlineMs: 15 });
+    const port = makeCodexSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn, hardKillDeadlineMs: 15,
+      priceUsdPerMillion: { uncachedInput: 1, cachedInput: 0.1, output: 6 } });
     const session = port.spawn({ prompt: "proposal", workdir: "/tmp/course", filesystemAccess: "read_only" });
     f.line('{"type":"item.completed","item":{"type":"agent_message","text":"proposal"}}');
     f.line('{"type":"thread.started","thread_id":"thread-priced"}');
@@ -213,7 +214,8 @@ describe("subagent-codex 어댑터 계약 (SPEC-010 확장, fake child)", () => 
     expect(events.map((event) => event.kind)).toEqual(["text_delta", "planning", "session_end"]);
     expect((events.at(-1) as Extract<SubAgentEvent, { kind: "session_end" }>).ok).toBe(true);
     expect((events.at(-1) as Extract<SubAgentEvent, { kind: "session_end" }>).evidence).toMatchObject({
-      sessionId: "thread-priced", inputTokens: 100, cachedInputTokens: 40, outputTokens: 10,
+      sessionId: "thread-priced", inputTokens: 60, cachedInputTokens: 40, outputTokens: 10, totalTokens: 110,
+      measuredCostUsd: 0.000124,
     });
     expect(f.killSignals).toEqual(["SIGTERM", "SIGKILL"]);
   });

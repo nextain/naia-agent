@@ -60,6 +60,7 @@
   "assertions": {
     "exactArtifacts": true,
     "evidenceComplete": true,
+    "tokenPartition": "inputTokens excludes cachedInputTokens; legacy inclusive input counts were normalized by subtraction",
     "mixedAppsObserved": true,
     "roleKinds": {
       "explorer": "claude-code",
@@ -75,9 +76,10 @@
       "provider": "claude-code",
       "model": "sonnet",
       "sessionId": "0c694b57-c101-499e-8964-bfe55791dcfe",
+      "sessionEvidenceSource": "provider_reported",
       "executionId": "fceedccf-409c-44ea-98bb-8ae752a3bacb",
       "tokenCountsAvailable": true,
-      "inputTokens": 27045,
+      "inputTokens": 2868,
       "cachedInputTokens": 24177,
       "outputTokens": 424,
       "cost": {
@@ -92,9 +94,10 @@
       "provider": "opencode",
       "model": "opencode/deepseek-v4-flash-free",
       "sessionId": "ses_02cae9f3fffeOwu4hDhroo7bCa",
+      "sessionEvidenceSource": "provider_reported",
       "executionId": "711c709e-0ae9-4f82-a693-2b3a1e7ab2b1",
       "tokenCountsAvailable": true,
-      "inputTokens": 31058,
+      "inputTokens": 17234,
       "cachedInputTokens": 13824,
       "outputTokens": 314,
       "cost": {
@@ -109,9 +112,10 @@
       "model": "gpt-5.3-codex-spark",
       "reasoningEffort": "low",
       "sessionId": "019fd351-ba51-7cb1-9b79-7e0ff20d7d72",
+      "sessionEvidenceSource": "provider_reported",
       "executionId": "3b299a1d-98ce-4708-9641-00d186a6e1c3",
       "tokenCountsAvailable": true,
-      "inputTokens": 26173,
+      "inputTokens": 9789,
       "cachedInputTokens": 16384,
       "outputTokens": 847,
       "cost": {
@@ -126,9 +130,10 @@
       "model": "gpt-5.3-codex-spark",
       "reasoningEffort": "low",
       "sessionId": "019fd351-efa4-7d42-a058-237c9a511a49",
+      "sessionEvidenceSource": "provider_reported",
       "executionId": "ce50362b-666d-4d07-a5e6-6a0c51482544",
       "tokenCountsAvailable": true,
-      "inputTokens": 134000,
+      "inputTokens": 15728,
       "cachedInputTokens": 118272,
       "outputTokens": 1929,
       "cost": {

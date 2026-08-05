@@ -60,7 +60,7 @@ describe("subagent-opencode-cli 어댑터 계약 (2b, fake child)", () => {
     expect((events[4] as Extract<SubAgentEvent, { kind: "session_end" }>).evidence).toMatchObject({
       provider: "opencode", selectedModel: "opencode-default", sessionId: "ses_real",
       sessionEvidenceSource: "provider_reported",
-      inputTokens: 38, cachedInputTokens: 28, outputTokens: 7, totalTokens: 45,
+      inputTokens: 10, cachedInputTokens: 28, outputTokens: 7, totalTokens: 45,
       usageAvailable: true, modelEvidenceSource: "adapter_requested",
     });
     expect((events[4] as Extract<SubAgentEvent, { kind: "session_end" }>).evidence?.measuredCostUsd).toBeUndefined();
@@ -79,7 +79,7 @@ describe("subagent-opencode-cli 어댑터 계약 (2b, fake child)", () => {
     expect(end.evidence).toMatchObject({
       provider: "azure-foundry", selectedModel: "azure-foundry/gpt-5-4-nano",
       sessionId: "ses_live", sessionEvidenceSource: "provider_reported",
-      inputTokens: 12079, cachedInputTokens: 5888,
+      inputTokens: 6191, cachedInputTokens: 5888,
       outputTokens: 192, totalTokens: 12271, usageAvailable: true,
     });
     expect(end.evidence?.measuredCostUsd).toBeUndefined();

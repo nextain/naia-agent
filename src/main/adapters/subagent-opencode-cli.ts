@@ -132,13 +132,13 @@ export function makeOpencodeLineParser(
     const reportedSessionId = nonemptyString(raw.sessionID) ?? nonemptyString(raw.part.sessionID);
     sessionId = reportedSessionId ?? sessionId;
     if (reportedSessionId) sessionEvidenceSource = "provider_reported";
-    const input = uncachedInput + cachedInput;
+    const input = uncachedInput;
     onEvidence({
       ...base,
       inputTokens: input,
       cachedInputTokens: cachedInput,
       outputTokens: output,
-      totalTokens: input + output,
+      totalTokens: input + cachedInput + output,
       usageAvailable: true,
       ...(sessionId ? { sessionId } : {}),
       ...(sessionEvidenceSource ? { sessionEvidenceSource } : {}),
