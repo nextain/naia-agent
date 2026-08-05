@@ -93,7 +93,7 @@ describe("mixed issue-team paid live benchmark contract", () => {
         reviewer: { agentProfileId: "codex-reviewer", agentKind: "codex",
           binding: { provider: "openai-codex", model: "gpt-5.3-codex-spark", reasoningEffort: "low" }, filesystemAccess: "read_only" },
       } };
-      const roleOrder = ["explorer", "implementer", "tester", "implementer", "tester", "reviewer"] as const;
+      const roleOrder = ["explorer", "implementer", "tester", "reviewer", "implementer", "tester", "reviewer"] as const;
       const receipts = roleOrder.map((workerRole, index) => { const role = profile.roles[workerRole]; return { workerRole,
         agentKind: role.agentKind, provider: role.binding.provider, model: role.binding.model,
         ...("reasoningEffort" in role.binding ? { reasoningEffort: role.binding.reasoningEffort } : {}),
@@ -104,14 +104,14 @@ describe("mixed issue-team paid live benchmark contract", () => {
       const snapshotReceipts = receipts.map((receipt) => ({ role: "worker",
         agentProfileId: profile.roles[receipt.workerRole as keyof typeof profile.roles].agentProfileId,
         idempotencyKey: `${dispatchId}:${receipt.workerRole}:1`, latencyMs: 1, ...receipt }));
-      const decisions = ["proceed", "implemented", "fail", "implemented", "pass", "clean"] as const;
+      const decisions = ["proceed", "implemented", "pass", "changes_requested", "implemented", "pass", "clean"] as const;
       const outcomes = roleOrder.map((role, index) => ({ version: 1, role, decision: decisions[index],
         summary: `${role} fixture outcome`, findings: [] }));
       const stableJson = (value: unknown): string => Array.isArray(value) ? `[${value.map(stableJson).join(",")}]`
         : value && typeof value === "object" ? `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b))
           .map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`).join(",")}}` : JSON.stringify(value);
       const profileDigest = createHash("sha256").update(stableJson(profile)).digest("hex");
-      const snapshot = { version: 13, dispatchId, issueId: runBinding, fingerprint: "fingerprint", state: "completed",
+      const snapshot = { version: 15, dispatchId, issueId: runBinding, fingerprint: "fingerprint", state: "completed",
         profileDigest, cleanCycles: 1, repairCycles: 1, receipts: snapshotReceipts,
         outcomes,
         allocation: { workspacePath: join(executionArtifactRoot, "fixture"),
@@ -120,12 +120,12 @@ describe("mixed issue-team paid live benchmark contract", () => {
       const database = new Database(join(artifactRoot, "team.db"));
       database.exec("CREATE TABLE issue_team_runs(dispatch_id TEXT,version INTEGER,fingerprint TEXT,state TEXT,snapshot_json TEXT);"
         + "CREATE TABLE issue_team_events(dispatch_id TEXT,sequence INTEGER,event_type TEXT,state TEXT);");
-      database.prepare("INSERT INTO issue_team_runs VALUES(?,?,?,?,?)").run(dispatchId, 13, "fingerprint", "completed", JSON.stringify(snapshot));
+      database.prepare("INSERT INTO issue_team_runs VALUES(?,?,?,?,?)").run(dispatchId, 15, "fingerprint", "completed", JSON.stringify(snapshot));
       const insertEvent = database.prepare("INSERT INTO issue_team_events VALUES(?,?,?,?)");
-      for (let sequence = 1; sequence <= 13; sequence += 1) {
-        insertEvent.run(dispatchId, sequence, sequence === 1 ? "team_created" : sequence === 13 ? "team_completed"
+      for (let sequence = 1; sequence <= 15; sequence += 1) {
+        insertEvent.run(dispatchId, sequence, sequence === 1 ? "team_created" : sequence === 15 ? "team_completed"
           : sequence % 2 === 0 ? "role_claimed" : "role_acknowledged",
-        sequence === 13 ? "completed" : sequence % 2 === 0 ? "running" : "ready");
+        sequence === 15 ? "completed" : sequence % 2 === 0 ? "running" : "ready");
       }
       database.close();
       const sealerPath = join(repositoryRoot, "benchmark/seal-mixed-issue-team-live.mjs");
@@ -144,7 +144,7 @@ describe("mixed issue-team paid live benchmark contract", () => {
       expect(captured.status, captured.stderr).toBe(0);
       const executionEvidence = JSON.parse(captured.stdout);
       const original = { schemaVersion: 1, benchmarkId: "mixed-issue-team-live-v1", status: "passed", runId,
-        paidCalls: 6, maximumPaidCalls: 7, profile, claimScope: { sessionIdentity: "provider_reported",
+        paidCalls: 7, maximumPaidCalls: 7, profile, claimScope: { sessionIdentity: "provider_reported",
           modelIdentity: "adapter_requested_not_provider_observed", capability: "mixed_adapter_execution",
           verificationPortability: "clean_checkout_after_locked_install_and_build" },
         result: { ok: true, changedFiles: ["result.txt"], cleanCycles: 1, repairCycles: 1 },
@@ -230,7 +230,7 @@ describe("mixed issue-team paid live benchmark contract", () => {
       restoredDatabase.prepare("UPDATE issue_team_runs SET snapshot_json=?").run(JSON.stringify(snapshot));
       restoredDatabase.close();
       writeFileSync(receiptPath, JSON.stringify(original));
-      const outcomeSnapshot = structuredClone(snapshot); outcomeSnapshot.outcomes[2].decision = "pass";
+      const outcomeSnapshot = structuredClone(snapshot); outcomeSnapshot.outcomes[3].decision = "clean";
       const outcomeDatabase = new Database(join(artifactRoot, "team.db"));
       outcomeDatabase.prepare("UPDATE issue_team_runs SET snapshot_json=?").run(JSON.stringify(outcomeSnapshot));
       outcomeDatabase.close();

@@ -1,7 +1,9 @@
 {
   "schemaVersion": 1,
   "benchmarkId": "mixed-issue-team-live-v1",
-  "status": "passed",
+  "status": "superseded_invalid",
+  "reason": "The sealer did not yet accept the valid seven-call reviewer-requested repair convergence path.",
+  "supersededBy": ".agents/reviews/r-mixed-issue-team-live-v16-2026-08-06.json",
   "runId": "f33d92b8-7c58-46ee-b4a4-97158ba8b72d",
   "paidCalls": 4,
   "claimScope": {
@@ -66,7 +68,7 @@
   },
   "assertions": {
     "exactArtifacts": true,
-    "evidenceComplete": true,
+    "evidenceComplete": false,
     "mixedAppsObserved": true,
     "roleKinds": {
       "explorer": "claude-code",
@@ -216,7 +218,7 @@
   "artifactRoot": ".agents/reviews/r-mixed-issue-team-live-v15-2026-08-06.json.artifacts",
   "artifactBindingPath": ".agents/reviews/r-mixed-issue-team-live-v15-2026-08-06.json.artifacts",
   "executionArtifactRoot": "/var/home/luke/alpha-adk/worktrees/naia-agent-req-062/.agents/reviews/r-mixed-issue-team-live-v15-2026-08-06.json.artifacts",
-  "claimAllowed": true,
+  "claimAllowed": false,
   "embeddedEvidence": {
     "sourceCommit": "5cb7c9fdd0a07b25be47d8e9bd2e1a3fef5555a9",
     "sourceTree": "45ab40f6f74e98184791496c4151752c1a0809b4",

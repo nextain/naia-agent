@@ -138,21 +138,25 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
     mixedAppsObserved: new Set(projected.map((value) => value.agentKind)).size === 3, roleKinds };
   const claimScope = { sessionIdentity: "provider_reported", modelIdentity: "adapter_requested_not_provider_observed",
     capability: "mixed_adapter_execution", verificationPortability: "clean_checkout_after_locked_install_and_build" };
-  const expectedRoleSequence = coreResult.repairCycles === 0
-    ? ["explorer", "implementer", "tester", "reviewer"]
-    : coreResult.repairCycles === 1
-      ? ["explorer", "implementer", "tester", "implementer", "tester", "reviewer"] : undefined;
-  const expectedDecisionSequence = coreResult.repairCycles === 0
-    ? ["explorer:proceed", "implementer:implemented", "tester:pass", "reviewer:clean"]
-    : coreResult.repairCycles === 1
-      ? ["explorer:proceed", "implementer:implemented", "tester:fail", "implementer:implemented",
-        "tester:pass", "reviewer:clean"] : undefined;
+  const convergencePaths = coreResult.repairCycles === 0 ? [{
+    roles: ["explorer", "implementer", "tester", "reviewer"],
+    decisions: ["explorer:proceed", "implementer:implemented", "tester:pass", "reviewer:clean"],
+  }] : coreResult.repairCycles === 1 ? [{
+    roles: ["explorer", "implementer", "tester", "implementer", "tester", "reviewer"],
+    decisions: ["explorer:proceed", "implementer:implemented", "tester:fail", "implementer:implemented",
+      "tester:pass", "reviewer:clean"],
+  }, {
+    roles: ["explorer", "implementer", "tester", "reviewer", "implementer", "tester", "reviewer"],
+    decisions: ["explorer:proceed", "implementer:implemented", "tester:pass", "reviewer:changes_requested",
+      "implementer:implemented", "tester:pass", "reviewer:clean"],
+  }] : [];
+  const observedRoles = projected.map((value) => value.workerRole);
+  const observedDecisions = snapshot.outcomes?.map((value) => `${value.role}:${value.decision}`);
+  const convergenceMatches = convergencePaths.some((path) => JSON.stringify(observedRoles) === JSON.stringify(path.roles)
+    && JSON.stringify(observedDecisions) === JSON.stringify(path.decisions));
   if (receipt.schemaVersion !== 1 || receipt.benchmarkId !== "mixed-issue-team-live-v1"
     || receipt.maximumPaidCalls !== 7 || receipt.paidCalls !== projected.length
-    || coreResult.ok !== true || !expectedRoleSequence
-    || JSON.stringify(projected.map((value) => value.workerRole)) !== JSON.stringify(expectedRoleSequence)
-    || !expectedDecisionSequence || JSON.stringify(snapshot.outcomes?.map((value) => `${value.role}:${value.decision}`))
-      !== JSON.stringify(expectedDecisionSequence)
+    || coreResult.ok !== true || !convergenceMatches
     || JSON.stringify(coreResult.changedFiles) !== JSON.stringify(["result.txt"])
     || coreResult.cleanCycles !== 1
     || coreAssertions.evidenceComplete !== true || coreAssertions.mixedAppsObserved !== true
