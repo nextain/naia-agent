@@ -122,11 +122,16 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
     mixedAppsObserved: new Set(projected.map((value) => value.agentKind)).size === 3, roleKinds };
   const claimScope = { sessionIdentity: "provider_reported", modelIdentity: "adapter_requested_not_provider_observed",
     capability: "mixed_adapter_execution" };
+  const expectedRoleSequence = coreResult.repairCycles === 0
+    ? ["explorer", "implementer", "tester", "reviewer"]
+    : coreResult.repairCycles === 1
+      ? ["explorer", "implementer", "tester", "implementer", "tester", "reviewer"] : undefined;
   if (receipt.schemaVersion !== 1 || receipt.benchmarkId !== "mixed-issue-team-live-v1"
     || receipt.maximumPaidCalls !== 7 || receipt.paidCalls !== projected.length
-    || projected.length !== 4 || coreResult.ok !== true
+    || coreResult.ok !== true || !expectedRoleSequence
+    || JSON.stringify(projected.map((value) => value.workerRole)) !== JSON.stringify(expectedRoleSequence)
     || JSON.stringify(coreResult.changedFiles) !== JSON.stringify(["result.txt"])
-    || coreResult.cleanCycles !== 1 || coreResult.repairCycles !== 0
+    || coreResult.cleanCycles !== 1
     || coreAssertions.evidenceComplete !== true || coreAssertions.mixedAppsObserved !== true
     || JSON.stringify(receipt.claimScope) !== JSON.stringify(claimScope)
     || JSON.stringify(coreAssertions.roleKinds) !== JSON.stringify({ explorer: "claude-code",

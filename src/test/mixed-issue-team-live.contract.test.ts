@@ -87,13 +87,14 @@ describe("mixed issue-team paid live benchmark contract", () => {
         reviewer: { agentProfileId: "codex-reviewer", agentKind: "codex",
           binding: { provider: "openai-codex", model: "gpt-5.3-codex-spark", reasoningEffort: "low" }, filesystemAccess: "read_only" },
       } };
-      const receipts = Object.entries(profile.roles).map(([workerRole, role], index) => ({ workerRole,
+      const roleOrder = ["explorer", "implementer", "tester", "implementer", "tester", "reviewer"] as const;
+      const receipts = roleOrder.map((workerRole, index) => { const role = profile.roles[workerRole]; return { workerRole,
         agentKind: role.agentKind, provider: role.binding.provider, model: role.binding.model,
         ...("reasoningEffort" in role.binding ? { reasoningEffort: role.binding.reasoningEffort } : {}),
         sessionId: `provider-session-${index}`, sessionEvidenceSource: "provider_reported",
         modelEvidenceSource: "adapter_requested", executionId: `execution-${index}`,
         tokenCountsAvailable: true, inputTokens: index + 1, cachedInputTokens: index + 2, outputTokens: index + 3,
-        cost: { state: "unavailable", reason: "not priced" } }));
+        cost: { state: "unavailable", reason: "not priced" } }; });
       const snapshotReceipts = receipts.map((receipt) => ({ role: "worker",
         agentProfileId: profile.roles[receipt.workerRole as keyof typeof profile.roles].agentProfileId,
         idempotencyKey: `${dispatchId}:${receipt.workerRole}:1`, latencyMs: 1, ...receipt }));
@@ -101,18 +102,18 @@ describe("mixed issue-team paid live benchmark contract", () => {
         : value && typeof value === "object" ? `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b))
           .map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`).join(",")}}` : JSON.stringify(value);
       const profileDigest = createHash("sha256").update(stableJson(profile)).digest("hex");
-      const snapshot = { version: 9, dispatchId, issueId: runBinding, fingerprint: "fingerprint", state: "completed",
-        profileDigest, cleanCycles: 1, repairCycles: 0, receipts: snapshotReceipts,
+      const snapshot = { version: 13, dispatchId, issueId: runBinding, fingerprint: "fingerprint", state: "completed",
+        profileDigest, cleanCycles: 1, repairCycles: 1, receipts: snapshotReceipts,
         result: { ok: true, changedFiles: ["result.txt"] } };
       const database = new Database(join(artifactRoot, "team.db"));
       database.exec("CREATE TABLE issue_team_runs(dispatch_id TEXT,version INTEGER,fingerprint TEXT,state TEXT,snapshot_json TEXT);"
         + "CREATE TABLE issue_team_events(dispatch_id TEXT,sequence INTEGER,event_type TEXT,state TEXT);");
-      database.prepare("INSERT INTO issue_team_runs VALUES(?,?,?,?,?)").run(dispatchId, 9, "fingerprint", "completed", JSON.stringify(snapshot));
+      database.prepare("INSERT INTO issue_team_runs VALUES(?,?,?,?,?)").run(dispatchId, 13, "fingerprint", "completed", JSON.stringify(snapshot));
       const insertEvent = database.prepare("INSERT INTO issue_team_events VALUES(?,?,?,?)");
-      for (let sequence = 1; sequence <= 9; sequence += 1) {
-        insertEvent.run(dispatchId, sequence, sequence === 1 ? "team_created" : sequence === 9 ? "team_completed"
+      for (let sequence = 1; sequence <= 13; sequence += 1) {
+        insertEvent.run(dispatchId, sequence, sequence === 1 ? "team_created" : sequence === 13 ? "team_completed"
           : sequence % 2 === 0 ? "role_claimed" : "role_acknowledged",
-        sequence === 9 ? "completed" : sequence % 2 === 0 ? "running" : "ready");
+        sequence === 13 ? "completed" : sequence % 2 === 0 ? "running" : "ready");
       }
       database.close();
       const sealerPath = join(repositoryRoot, "benchmark/seal-mixed-issue-team-live.mjs");
@@ -130,9 +131,9 @@ describe("mixed issue-team paid live benchmark contract", () => {
       expect(captured.status, captured.stderr).toBe(0);
       const executionEvidence = JSON.parse(captured.stdout);
       const original = { schemaVersion: 1, benchmarkId: "mixed-issue-team-live-v1", status: "passed", runId,
-        paidCalls: 4, maximumPaidCalls: 7, profile, claimScope: { sessionIdentity: "provider_reported",
+        paidCalls: 6, maximumPaidCalls: 7, profile, claimScope: { sessionIdentity: "provider_reported",
           modelIdentity: "adapter_requested_not_provider_observed", capability: "mixed_adapter_execution" },
-        result: { ok: true, changedFiles: ["result.txt"], cleanCycles: 1, repairCycles: 0 },
+        result: { ok: true, changedFiles: ["result.txt"], cleanCycles: 1, repairCycles: 1 },
         assertions: { exactArtifacts: true, evidenceComplete: true, mixedAppsObserved: true,
           roleKinds: { explorer: "claude-code", implementer: "opencode", tester: "codex", reviewer: "codex" } },
         executionEvidence, claimAllowed: true, receipts };
