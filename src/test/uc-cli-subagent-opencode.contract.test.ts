@@ -48,7 +48,7 @@ describe("subagent-opencode-cli 어댑터 계약 (2b, fake child)", () => {
     f.line('{"type":"text","part":{"text":"분석 중"}}');
     f.line('{"type":"tool_use","part":{"tool":"edit","state":{"status":"running"}}}');
     f.line('{"type":"tool_use","part":{"tool":"edit","state":{"status":"completed"}}}');
-    f.line('{"type":"step_finish","part":{"tokens":{}}}'); // 드롭
+    f.line('{"type":"step_finish","sessionID":"ses_real","part":{"tokens":{"total":45,"input":10,"output":5,"reasoning":2,"cache":{"read":28,"write":0}},"cost":0}}');
     f.close(0);
     const events = await drain(session.events);
 
@@ -57,6 +57,29 @@ describe("subagent-opencode-cli 어댑터 계약 (2b, fake child)", () => {
     expect((events[2] as Extract<SubAgentEvent, { kind: "tool_use_start" }>).tool).toBe("edit");
     expect((events[3] as Extract<SubAgentEvent, { kind: "tool_use_end" }>).ok).toBe(true);
     expect((events[4] as Extract<SubAgentEvent, { kind: "session_end" }>).ok).toBe(true);
+    expect((events[4] as Extract<SubAgentEvent, { kind: "session_end" }>).evidence).toMatchObject({
+      provider: "opencode", selectedModel: "opencode-default", sessionId: "ses_real",
+      inputTokens: 38, cachedInputTokens: 28, outputTokens: 7, totalTokens: 45,
+      usageAvailable: true, modelEvidenceSource: "adapter_requested",
+    });
+  });
+
+  it("실제 OpenCode step_finish 여러 턴의 사용량과 requested provider를 누적한다", async () => {
+    const f = fakeNdjson();
+    const port = makeOpencodeSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn,
+      model: "azure-foundry/gpt-5-4-nano" });
+    const session = port.spawn({ prompt: "p", workdir: "/tmp/w" });
+    f.line('{"type":"step_finish","sessionID":"ses_live","part":{"tokens":{"total":6106,"input":5951,"output":76,"reasoning":79,"cache":{"read":0,"write":0}},"cost":0}}');
+    f.line('{"type":"step_finish","sessionID":"ses_live","part":{"tokens":{"total":6165,"input":240,"output":37,"reasoning":0,"cache":{"read":5888,"write":0}},"cost":0}}');
+    f.close(0);
+    const events = await drain(session.events);
+    const end = events.at(-1) as Extract<SubAgentEvent, { kind: "session_end" }>;
+    expect(end.evidence).toMatchObject({
+      provider: "azure-foundry", selectedModel: "azure-foundry/gpt-5-4-nano",
+      sessionId: "ses_live", inputTokens: 12079, cachedInputTokens: 5888,
+      outputTokens: 192, totalTokens: 12271, usageAvailable: true,
+    });
+    expect(end.evidence?.measuredCostUsd).toBeUndefined();
   });
 
   it("args 정합: opencode run --format json --dir <workdir> [-m] [--skip] <prompt>(마지막)", () => {

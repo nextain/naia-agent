@@ -60,8 +60,12 @@ export function resolveOpencodeBin(): ResolvedBin {
 // ── opencode NDJSON 파싱 (구 event-parser.ts: text/tool_use/step_start) ────────
 
 interface RawToolState { status?: string }
-interface RawPart { text?: string; tool?: string; state?: RawToolState }
-interface RawOpencodeEvent { type?: string; part?: RawPart; [key: string]: unknown }
+interface RawTokens {
+  total?: number; input?: number; output?: number; reasoning?: number;
+  cache?: { read?: number; write?: number };
+}
+interface RawPart { text?: string; tool?: string; state?: RawToolState; tokens?: RawTokens; cost?: number; sessionID?: string }
+interface RawOpencodeEvent { type?: string; sessionID?: string; part?: RawPart; [key: string]: unknown }
 
 /** 단일 NDJSON 줄 → SubAgentEvent 0~1개. malformed/빈줄/무관 type = null(드롭). */
 export function opencodeLineToEvent(line: string): SubAgentEvent | null {
@@ -97,6 +101,49 @@ export function opencodeLineToEvent(line: string): SubAgentEvent | null {
   }
 }
 
+/** Accumulate OpenCode's provider-reported per-step usage for one process. */
+export function makeOpencodeLineParser(
+  base: import("../domain/orchestration.js").SubAgentModelEvidence,
+  onEvidence: (evidence: import("../domain/orchestration.js").SubAgentModelEvidence) => void,
+): (line: string) => SubAgentEvent | null {
+  let uncachedInput = 0;
+  let cachedInput = 0;
+  let output = 0;
+  let cost = 0;
+  let pricedSteps = 0;
+  let sessionId = base.sessionId;
+  return (line) => {
+    const semantic = opencodeLineToEvent(line);
+    if (semantic) return semantic;
+    let raw: RawOpencodeEvent;
+    try { raw = JSON.parse(line.trim()) as RawOpencodeEvent; } catch { return null; }
+    if (raw.type !== "step_finish" || !validTokens(raw.part?.tokens)) return null;
+    const tokens = raw.part.tokens;
+    uncachedInput += tokens.input;
+    cachedInput += tokens.cache?.read ?? 0;
+    // Azure/OpenAI separates reasoning from visible output, but both are billed
+    // completion tokens. Normalize them into the domain output count.
+    output += tokens.output + (tokens.reasoning ?? 0);
+    if (typeof raw.part.cost === "number" && Number.isFinite(raw.part.cost) && raw.part.cost > 0) {
+      cost += raw.part.cost;
+      pricedSteps += 1;
+    }
+    sessionId = nonemptyString(raw.sessionID) ?? nonemptyString(raw.part.sessionID) ?? sessionId;
+    const input = uncachedInput + cachedInput;
+    onEvidence({
+      ...base,
+      inputTokens: input,
+      cachedInputTokens: cachedInput,
+      outputTokens: output,
+      totalTokens: input + output,
+      usageAvailable: true,
+      ...(sessionId ? { sessionId } : {}),
+      ...(pricedSteps > 0 ? { measuredCostUsd: cost } : {}),
+    });
+    return null;
+  };
+}
+
 /** SubAgentPort 의 opencode 구현. opencode run 1회를 sub-agent 세션으로 spawn. */
 export function makeOpencodeSubAgent(opts: SubAgentOpencodeOptions = {}): SubAgentPort {
   const hardKillMs = opts.hardKillDeadlineMs ?? DEFAULT_HARD_KILL_DEADLINE_MS;
@@ -121,27 +168,53 @@ export function makeOpencodeSubAgent(opts: SubAgentOpencodeOptions = {}): SubAge
       args.push(task.prompt);
       const executionId = randomUUID();
       const sessionId = randomUUID();
+      let evidence: import("../domain/orchestration.js").SubAgentModelEvidence = {
+        provider: opts.provider ?? requestedProvider(model) ?? "opencode",
+        selectedModel: model ?? "opencode-default",
+        modelEvidenceSource: "adapter_requested",
+        inputTokens: 0, outputTokens: 0, totalTokens: 0, cachedInputTokens: 0,
+        usageAvailable: false, sessionId, executionId,
+      };
       const session = spawnSubprocessSession({
-        spawnFn, bin, args, cwd: task.workdir, hardKillMs, lineToEvent: opencodeLineToEvent, label: "opencode",
+        spawnFn, bin, args, cwd: task.workdir, hardKillMs,
+        lineToEvent: makeOpencodeLineParser(evidence, (next) => { evidence = next; }), label: "opencode",
       });
-      return withRequestedEvidence(session, {
-        provider: opts.provider ?? "opencode", selectedModel: model ?? "opencode-default",
-        modelEvidenceSource: "adapter_requested", inputTokens: 0, outputTokens: 0, totalTokens: 0,
-        cachedInputTokens: 0, usageAvailable: false, sessionId, executionId,
-      });
+      return withRequestedEvidence(session, () => evidence);
     },
   };
 }
 
-function withRequestedEvidence(session: SubAgentSession, evidence: import("../domain/orchestration.js").SubAgentModelEvidence): SubAgentSession {
+function withRequestedEvidence(session: SubAgentSession,
+  evidence: () => import("../domain/orchestration.js").SubAgentModelEvidence): SubAgentSession {
   return {
     async cancel(reason) { await session.cancel(reason); },
     events: {
       async *[Symbol.asyncIterator]() {
         for await (const event of session.events) {
-          yield event.kind === "session_end" ? { ...event, evidence } : event;
+          yield event.kind === "session_end" ? { ...event, evidence: evidence() } : event;
         }
       },
     },
   };
+}
+
+function validTokens(tokens: RawTokens | undefined): tokens is Required<Pick<RawTokens, "input" | "output">> & RawTokens {
+  if (!tokens || !nonnegativeInt(tokens.input) || !nonnegativeInt(tokens.output)) return false;
+  return (tokens.reasoning === undefined || nonnegativeInt(tokens.reasoning))
+    && (tokens.cache?.read === undefined || nonnegativeInt(tokens.cache.read))
+    && (tokens.cache?.write === undefined || nonnegativeInt(tokens.cache.write));
+}
+
+function nonnegativeInt(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function nonemptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function requestedProvider(model: string | undefined): string | undefined {
+  if (!model) return undefined;
+  const slash = model.indexOf("/");
+  return slash > 0 ? model.slice(0, slash) : undefined;
 }
