@@ -62,14 +62,25 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
     || receipt.canonicalArtifactRoot !== realpathSync(artifactRoot)) {
     throw new Error("live evidence run ID or canonical artifact root does not match its original execution path");
   }
-  const sqliteNames = readdirSync(artifactRoot).filter((name) => name.startsWith("team.db")).sort();
-  if (!sqliteNames.includes("team.db") || sqliteNames.some((name) => !["team.db", "team.db-shm", "team.db-wal"].includes(name))) {
+  const initialSqliteNames = readdirSync(artifactRoot).filter((name) => name.startsWith("team.db")).sort();
+  if (!initialSqliteNames.includes("team.db")
+    || initialSqliteNames.some((name) => !["team.db", "team.db-shm", "team.db-wal"].includes(name))) {
     throw new Error("SQLite evidence contains an unexpected journal or sidecar");
+  }
+  for (const name of initialSqliteNames) {
+    const path = join(artifactRoot, name); assertNoSymlinkPath(repositoryRoot, path, "file");
+    if (name === "team.db-wal" && readRegularFileNoFollow(path).length !== 0) {
+      throw new Error("SQLite WAL must be checkpointed and empty before sealing");
+    }
+  }
+  if (!verifyExistingSeal) normalizeSqliteToDeleteJournal(databasePath);
+  const sqliteNames = readdirSync(artifactRoot).filter((name) => name.startsWith("team.db")).sort();
+  if (JSON.stringify(sqliteNames) !== JSON.stringify(["team.db"])) {
+    throw new Error("SQLite evidence is not a checkpointed self-contained database");
   }
   const sqliteFiles = sqliteNames.map((name) => {
     const path = join(artifactRoot, name); assertNoSymlinkPath(repositoryRoot, path, "file");
     const bytes = readRegularFileNoFollow(path);
-    if (name === "team.db-wal" && bytes.length !== 0) throw new Error("SQLite WAL must be checkpointed and empty before sealing");
     return { path: name, byteLength: bytes.length, sha256: sha256(bytes) };
   });
   if (process.platform !== "linux") throw new Error("secure descriptor-backed SQLite evidence verification requires Linux");
@@ -320,6 +331,21 @@ function openRegularFileNoFollow(path) {
 function readRegularFileNoFollow(path) {
   const fd = openRegularFileNoFollow(path);
   try { return readFileSync(fd); } finally { closeSync(fd); }
+}
+
+function normalizeSqliteToDeleteJournal(path) {
+  if (process.platform !== "linux") throw new Error("secure descriptor-backed SQLite evidence verification requires Linux");
+  const fd = openSync(path, constants.O_RDWR | (constants.O_NOFOLLOW ?? 0));
+  if (!fstatSync(fd).isFile()) { closeSync(fd); throw new Error("SQLite evidence is not a regular file"); }
+  try {
+    const database = new Database(`/proc/self/fd/${fd}`, { fileMustExist: true });
+    try {
+      database.pragma("wal_checkpoint(TRUNCATE)");
+      if (database.pragma("journal_mode = DELETE", { simple: true }) !== "delete") {
+        throw new Error("SQLite evidence could not be normalized to a self-contained journal mode");
+      }
+    } finally { database.close(); }
+  } finally { closeSync(fd); }
 }
 
 function directoryIdentity(path) {
