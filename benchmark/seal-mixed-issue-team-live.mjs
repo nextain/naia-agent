@@ -113,7 +113,7 @@ function validateExecutionEvidence(value, repositoryRoot, sourceCommit, requireC
     || value.runtimeBuild.tsconfigSha256 !== sha256(execFileSync("git", ["show", `${sourceCommit}:tsconfig.json`], { cwd: repositoryRoot }))) {
     throw new Error("execution evidence is not bound to the declared source commit");
   }
-  validateExecutableEvidence(value.executables, requireCurrentSourceMatch);
+  validateExecutableEvidence(value.executables, true);
   if (requireCurrentSourceMatch) {
     execFileSync("git", ["diff", "--quiet", sourceCommit, "--"], { cwd: repositoryRoot });
     execFileSync("git", ["diff", "--cached", "--quiet", sourceCommit, "--"], { cwd: repositoryRoot });
