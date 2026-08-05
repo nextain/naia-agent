@@ -80,6 +80,8 @@ describe("mixed issue-team paid live benchmark contract", () => {
     expect(source).toContain("modelEvidenceSource: receipt.modelEvidenceSource");
     expect(durable).toContain("SQLite event history is inconsistent with the completed run");
     expect(secureFiles).toContain("fixture evidence changed before the sealing commit point");
+    expect(secureFiles).toContain("publishJsonAtomically");
+    expect(secureFiles).toContain("renameSync(`/proc/self/fd/${parentFd}/${temporaryName}`");
   });
 
   it("seals matching durable evidence and rejects a tampered receipt", () => {
@@ -201,7 +203,7 @@ describe("mixed issue-team paid live benchmark contract", () => {
            beforeFinalEvidenceCheck: () => writeFileSync(${JSON.stringify(receiptPath)}, ${JSON.stringify("RACED\n")}) });`],
       { cwd: repositoryRoot, encoding: "utf8", env: { ...process.env, ...executableEnvironment } });
       expect(receiptRaced.status).not.toBe(0);
-      expect(receiptRaced.stderr).toContain("receipt changed before the bound seal write");
+      expect(receiptRaced.stderr).toContain("receipt changed before atomic publication");
       writeFileSync(receiptPath, JSON.stringify(original));
       const sealed = spawnSync(process.execPath,
         [sealerPath, "--receipt", receiptPath, "--source-commit", sourceCommit, "--seal-unsealed"],

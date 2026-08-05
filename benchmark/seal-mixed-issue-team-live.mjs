@@ -9,7 +9,7 @@ import { pickCoreAssertions, projectReceipt, validateDurableReceipts, validateDu
   validateOutcomeSchemas } from "./mixed-live-durable-validation.mjs";
 import { assertArtifactSnapshot, assertChildMatchesDescriptor, assertPathMatchesDescriptor, assertTrackedEvidence,
   normalizeSqliteToDeleteJournal, openChildNoFollow, openPathFromRepository, readChildNoFollow,
-  writeJsonBoundFile } from "./mixed-live-secure-files.mjs";
+  publishJsonAtomically } from "./mixed-live-secure-files.mjs";
 import { git, sha256, stableJson } from "./mixed-live-seal-utils.mjs";
 
 const scriptPath = fileURLToPath(import.meta.url);
@@ -18,6 +18,7 @@ export { captureMixedLiveExecutionEvidence, validateLiveExecutionInputs };
 
 export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, requireCurrentSourceMatch = false,
   verifyExistingSeal = false, evidenceCommit, boundReceiptFd, beforeFinalEvidenceCheck }) {
+  let claimPublished = false;
   const receiptPath = resolve(inputPath);
   if (!sourceCommit || !/^[0-9a-f]{40}$/u.test(sourceCommit)) throw new Error("source commit must be full 40-hex");
   const repositoryRoot = git(dirname(receiptPath), ["rev-parse", "--show-toplevel"]);
@@ -189,14 +190,17 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
   if (receipt.embeddedEvidence !== undefined) throw new Error("receipt is already sealed; use sealed verification mode");
   const sealed = { ...receipt, claimAllowed: true, artifactRoot: expectedArtifactRoot,
     embeddedEvidence: expectedEmbeddedEvidence, assertions: expectedAssertions };
-  // This descriptor-backed write is the publication commit point. All fallible
+  // This atomic rename is the publication commit point. All fallible
   // artifact/path validation must stay above it so a reported sealing failure
   // can never leave a pathname-reachable claimable receipt behind.
-  writeJsonBoundFile(receiptParentFd, basename(receiptPath), receiptFd, receiptIdentity, receiptBytes, sealed);
+  publishJsonAtomically(receiptParentFd, basename(receiptPath), receiptFd, receiptIdentity, receiptBytes, sealed);
+  claimPublished = true;
   return sealed;
-  } finally { closeSync(artifactFd); }
-  } finally { if (ownsReceiptFd) closeSync(receiptFd); }
-  } finally { closeSync(receiptParentFd); }
+  } finally { try { closeSync(artifactFd); } catch (error) { if (!claimPublished) throw error; } }
+  } finally {
+    if (ownsReceiptFd) try { closeSync(receiptFd); } catch (error) { if (!claimPublished) throw error; }
+  }
+  } finally { try { closeSync(receiptParentFd); } catch (error) { if (!claimPublished) throw error; } }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === scriptPath) {

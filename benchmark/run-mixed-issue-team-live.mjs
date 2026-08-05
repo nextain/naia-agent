@@ -155,6 +155,7 @@ try {
   if (payload.status === "passed") sealed = sealMixedIssueTeamLive({ receiptPath: outputPath,
     sourceCommit: executionEvidence.sourceCommit, requireCurrentSourceMatch: true, boundReceiptFd: receiptFd });
 } finally {
-  closeSync(receiptFd); closeSync(receiptParentFd);
+  try { closeSync(receiptFd); } catch { /* Process exit releases a descriptor after publication. */ }
+  try { closeSync(receiptParentFd); } catch { /* Do not turn a successful atomic publication into failure. */ }
 }
 process.stdout.write(`${JSON.stringify(sealed, null, 2)}\n`);

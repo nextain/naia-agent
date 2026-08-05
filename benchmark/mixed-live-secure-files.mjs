@@ -1,5 +1,6 @@
 import { closeSync, constants, fstatSync, fsyncSync, ftruncateSync, openSync, readFileSync, readdirSync,
-  writeSync } from "node:fs";
+  renameSync, unlinkSync, writeSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import Database from "better-sqlite3";
@@ -158,5 +159,36 @@ export function writeJsonBoundFile(parentFd, name, receiptFd, receiptIdentity, e
   assertChildMatchesDescriptor(parentFd, name, receiptIdentity, "file");
   if (!readFileSync(`/proc/self/fd/${receiptFd}`).equals(bytes)) {
     throw new Error("sealed receipt bytes changed during the bound write");
+  }
+}
+
+export function publishJsonAtomically(parentFd, name, receiptFd, receiptIdentity, expectedOriginalBytes, value) {
+  assertChildMatchesDescriptor(parentFd, name, receiptIdentity, "file");
+  if (!readFileSync(`/proc/self/fd/${receiptFd}`).equals(expectedOriginalBytes)) {
+    throw new Error("receipt changed before atomic publication");
+  }
+  const temporaryName = `.${name}.seal-${randomUUID()}`;
+  const temporaryFd = createChildFileNoFollow(parentFd, temporaryName);
+  let published = false;
+  try {
+    const temporaryIdentity = fstatSync(temporaryFd);
+    writeJsonBoundFile(parentFd, temporaryName, temporaryFd, temporaryIdentity, Buffer.alloc(0), value);
+    // Persist the complete temporary entry first. The rename below is the sole
+    // publication commit point; after it succeeds no fallible operation runs.
+    fsyncSync(parentFd);
+    assertChildMatchesDescriptor(parentFd, name, receiptIdentity, "file");
+    if (!readFileSync(`/proc/self/fd/${receiptFd}`).equals(expectedOriginalBytes)) {
+      throw new Error("receipt changed before atomic publication");
+    }
+    assertChildMatchesDescriptor(parentFd, temporaryName, temporaryIdentity, "file");
+    renameSync(`/proc/self/fd/${parentFd}/${temporaryName}`, `/proc/self/fd/${parentFd}/${name}`);
+    published = true;
+  } finally {
+    try { closeSync(temporaryFd); } catch (error) { if (!published) throw error; }
+    if (!published) {
+      try { unlinkSync(`/proc/self/fd/${parentFd}/${temporaryName}`); } catch (error) {
+        if (error?.code !== "ENOENT") throw error;
+      }
+    }
   }
 }
