@@ -1,7 +1,9 @@
 {
   "schemaVersion": 1,
   "benchmarkId": "mixed-issue-team-live-v1",
-  "status": "passed",
+  "status": "superseded_invalid",
+  "reason": "The sealer did not yet require every positive claim predicate or current execution-source/runtime matching on its CLI path.",
+  "supersededBy": ".agents/reviews/r-mixed-issue-team-live-v10-2026-08-06.json",
   "runId": "20fb896e-c056-4c53-bd39-c315c06e3689",
   "paidCalls": 4,
   "maximumPaidCalls": 7,
@@ -60,7 +62,7 @@
   },
   "assertions": {
     "exactArtifacts": true,
-    "evidenceComplete": true,
+    "evidenceComplete": false,
     "mixedAppsObserved": true,
     "roleKinds": {
       "explorer": "claude-code",
@@ -209,7 +211,7 @@
   },
   "artifactRoot": ".agents/reviews/r-mixed-issue-team-live-v9-2026-08-06.json.artifacts",
   "canonicalArtifactRoot": "/var/home/luke/alpha-adk/worktrees/naia-agent-req-062/.agents/reviews/r-mixed-issue-team-live-v9-2026-08-06.json.artifacts",
-  "claimAllowed": true,
+  "claimAllowed": false,
   "embeddedEvidence": {
     "sourceCommit": "7a60985801451683cea52e41fa68f5c2020f575c",
     "sourceTree": "1e3fb76bbc60a6f6aa1107a4987d145cc2829414",
