@@ -2,6 +2,9 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
 	test: {
+		// Several real-process suites compile and execute the same dist/ tree. Running test files
+		// concurrently can expose a partially rewritten module graph to a child process.
+		fileParallelism: false,
 		// Scope to the TypeScript vitest suites only. The `*.test.mjs` files under
 		// src/test/ are node:test harness self-trust tests run via `node --test`,
 		// not vitest. Using a config `include` (instead of a CLI glob in the npm

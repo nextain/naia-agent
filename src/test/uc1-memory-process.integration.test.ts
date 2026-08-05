@@ -69,8 +69,11 @@ describe("UC-memory — 실 프로세스 관통(gRPC 진입점 종료 lifecycle)
       cwd: pkgRoot,
       // AGENT_PROVIDER=echo-system → provider 가 systemPrompt 를 그대로 echo → recall 이 주입했으면 wire 에 나옴.
       env: { ...process.env, AGENT_PROVIDER: "echo-system", NAIA_AGENT_SKILLS: "off", NAIA_MEMORY_STORE: storePath, NAIA_ADK_PATH: dir },
-      stdio: ["pipe", "pipe", "ignore"],
+      stdio: ["pipe", "pipe", "pipe"],
     });
+    let startupStderr = "";
+    child.stderr!.setEncoding("utf8");
+    child.stderr!.on("data", (chunk: string) => { startupStderr += chunk; });
 
     // GRPC_LISTENING <addr> 핸드셰이크(stdout). gRPC 이식 후 stdout = 이 한 줄(다른 로그는 stderr).
     const addr = await new Promise<string>((res, rej) => {
@@ -82,7 +85,10 @@ describe("UC-memory — 실 프로세스 관통(gRPC 진입점 종료 lifecycle)
         const m = buf.match(/GRPC_LISTENING\s+(\S+)/);
         if (m) { clearTimeout(to); res(m[1]); }
       });
-      child!.on("exit", () => { clearTimeout(to); rej(new Error("리스닝 전 종료")); });
+      child!.on("exit", (code, signal) => {
+        clearTimeout(to);
+        rej(new Error(`리스닝 전 종료: code=${code ?? "null"} signal=${signal ?? "null"} stderr=${startupStderr}`));
+      });
     });
 
     const client = makeClient(addr);
