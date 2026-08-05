@@ -58,9 +58,11 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
   assertNoSymlinkPath(repositoryRoot, artifactRoot, "directory");
   assertNoSymlinkPath(repositoryRoot, databasePath, "file");
   const artifactIdentity = directoryIdentity(artifactRoot);
+  const expectedArtifactRoot = relative(repositoryRoot, artifactRoot).split("\\").join("/");
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(receipt.runId)
-    || receipt.canonicalArtifactRoot !== realpathSync(artifactRoot)) {
-    throw new Error("live evidence run ID or canonical artifact root does not match its original execution path");
+    || receipt.artifactBindingPath !== expectedArtifactRoot || !isAbsolute(receipt.executionArtifactRoot)
+    || (!verifyExistingSeal && receipt.executionArtifactRoot !== realpathSync(artifactRoot))) {
+    throw new Error("live evidence run ID or artifact binding does not match its execution path");
   }
   const initialSqliteNames = readdirSync(artifactRoot).filter((name) => name.startsWith("team.db")).sort();
   if (!initialSqliteNames.includes("team.db")
@@ -78,13 +80,11 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
   if (JSON.stringify(sqliteNames) !== JSON.stringify(["team.db"])) {
     throw new Error("SQLite evidence is not a checkpointed self-contained database");
   }
-  const sqliteFiles = sqliteNames.map((name) => {
-    const path = join(artifactRoot, name); assertNoSymlinkPath(repositoryRoot, path, "file");
-    const bytes = readRegularFileNoFollow(path);
-    return { path: name, byteLength: bytes.length, sha256: sha256(bytes) };
-  });
   if (process.platform !== "linux") throw new Error("secure descriptor-backed SQLite evidence verification requires Linux");
   const databaseFd = openRegularFileNoFollow(databasePath);
+  const databaseIdentity = fstatSync(databaseFd);
+  const databaseBytes = readFileSync(databaseFd);
+  const sqliteFiles = [{ path: "team.db", byteLength: databaseBytes.length, sha256: sha256(databaseBytes) }];
   let runs; let events;
   try {
     const database = new Database(`/proc/self/fd/${databaseFd}`, { readonly: true, fileMustExist: true });
@@ -92,10 +92,12 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
       runs = database.prepare("SELECT dispatch_id,version,fingerprint,state,snapshot_json FROM issue_team_runs").all();
       events = database.prepare("SELECT dispatch_id,sequence,event_type,state FROM issue_team_events ORDER BY dispatch_id,sequence").all();
     } finally { database.close(); }
+    assertPathMatchesFileDescriptor(databasePath, databaseIdentity);
   } finally { closeSync(databaseFd); }
   if (runs.length !== 1) throw new Error("live evidence must contain exactly one durable team run");
   const run = runs[0]; const snapshot = JSON.parse(String(run.snapshot_json));
-  validateDurableRun(run, snapshot, events, receipt.runId, receipt.canonicalArtifactRoot);
+  validateDurableRun(run, snapshot, events, receipt.runId, receipt.artifactBindingPath,
+    receipt.executionArtifactRoot);
   const projected = snapshot.receipts.map(projectReceipt);
   if (JSON.stringify(projected) !== JSON.stringify(receipt.receipts)) {
     throw new Error("receipt projection does not match the durable SQLite snapshot");
@@ -152,10 +154,9 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
     throw new Error("receipt summary does not match durable state and exact fixture evidence");
   }
 
-  const normalizedSnapshot = JSON.parse(JSON.stringify(snapshot).split(artifactRoot).join("$ARTIFACT_ROOT"));
+  const normalizedSnapshot = JSON.parse(JSON.stringify(snapshot).split(receipt.executionArtifactRoot).join("$ARTIFACT_ROOT"));
   const durableRun = { dispatchId: run.dispatch_id, version: run.version, fingerprint: run.fingerprint,
     state: run.state, normalizedSnapshot };
-  const expectedArtifactRoot = relative(repositoryRoot, artifactRoot).split("\\").join("/");
   const expectedEmbeddedEvidence = { ...receipt.executionEvidence, sqliteFiles,
     sqliteSha256: sqliteFiles.find((value) => value.path === "team.db").sha256,
     durableRun, durableRunSha256: sha256(Buffer.from(JSON.stringify(durableRun))), events, fixture };
@@ -250,11 +251,12 @@ function validateExecutableEvidence(value, compareCurrent) {
   }
 }
 
-function validateDurableRun(run, snapshot, events, runId, canonicalArtifactRoot) {
-  const expectedIssueId = sha256(Buffer.from(`${runId}\0${canonicalArtifactRoot}`));
+function validateDurableRun(run, snapshot, events, runId, artifactBindingPath, executionArtifactRoot) {
+  const expectedIssueId = sha256(Buffer.from(`${runId}\0${artifactBindingPath}`));
   if (run.dispatch_id !== `${runId}:dispatch:1` || run.dispatch_id !== snapshot.dispatchId
-    || snapshot.issueId !== expectedIssueId) {
-    throw new Error("durable run binding does not match the execution run ID and canonical artifact root");
+    || snapshot.issueId !== expectedIssueId || snapshot.allocation?.workspacePath !== join(executionArtifactRoot, "fixture")
+    || snapshot.allocation?.worktreePath !== join(executionArtifactRoot, "fixture")) {
+    throw new Error("durable run binding does not match the execution run ID and artifact path");
   }
   if (run.version !== snapshot.version || run.fingerprint !== snapshot.fingerprint
     || run.state !== snapshot.state || run.state !== "completed"
@@ -358,6 +360,14 @@ function assertSameDirectory(path, identity) {
   const current = directoryIdentity(path);
   if (current.realpath !== identity.realpath || current.dev !== identity.dev || current.ino !== identity.ino) {
     throw new Error("evidence directory changed during verification");
+  }
+}
+
+function assertPathMatchesFileDescriptor(path, descriptorIdentity) {
+  const current = lstatSync(path);
+  if (!current.isFile() || current.isSymbolicLink() || current.dev !== descriptorIdentity.dev
+    || current.ino !== descriptorIdentity.ino) {
+    throw new Error("evidence file changed during descriptor-backed verification");
   }
 }
 

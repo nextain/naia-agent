@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { resolve, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { captureMixedLiveExecutionEvidence, sealMixedIssueTeamLive } from "./seal-mixed-issue-team-live.mjs";
 
@@ -30,12 +30,14 @@ const runId = randomUUID();
 
 const artifactRoot = `${outputPath}.artifacts`;
 mkdirSync(artifactRoot, { recursive: false, mode: 0o700 });
-const canonicalArtifactRoot = realpathSync(artifactRoot);
-const runBinding = createHash("sha256").update(`${runId}\0${canonicalArtifactRoot}`).digest("hex");
+const executionArtifactRoot = realpathSync(artifactRoot);
+const artifactBindingPath = relative(repositoryRoot, artifactRoot).split("\\").join("/");
+const runBinding = createHash("sha256").update(`${runId}\0${artifactBindingPath}`).digest("hex");
 const claimScope = { sessionIdentity: "provider_reported", modelIdentity: "adapter_requested_not_provider_observed",
   capability: "mixed_adapter_execution" };
 writeFileSync(outputPath, `${JSON.stringify({ schemaVersion: 1, benchmarkId, status: "running",
-  runId, paidCalls: 0, maximumPaidCalls: 7, artifactRoot, canonicalArtifactRoot, claimScope }, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+  runId, paidCalls: 0, maximumPaidCalls: 7, artifactRoot, artifactBindingPath, executionArtifactRoot,
+  claimScope }, null, 2)}\n`, { mode: 0o600, flag: "wx" });
 const fixtureRoot = join(artifactRoot, "fixture");
 mkdirSync(fixtureRoot, { mode: 0o700 });
 writeFileSync(join(fixtureRoot, "seed.txt"), "SEED_MUST_STAY\n", { mode: 0o600 });
@@ -120,11 +122,12 @@ try {
       executionId: receipt.executionId,
       tokenCountsAvailable: receipt.tokenCountsAvailable, inputTokens: receipt.inputTokens,
       cachedInputTokens: receipt.cachedInputTokens, outputTokens: receipt.outputTokens, cost: receipt.cost })),
-    diagnostics, executionEvidence, artifactRoot, canonicalArtifactRoot, claimAllowed: passed };
+    diagnostics, executionEvidence, artifactRoot, artifactBindingPath, executionArtifactRoot, claimAllowed: passed };
   if (!passed) process.exitCode = 2;
 } catch (error) {
   payload = { schemaVersion: 1, benchmarkId, status: "failed", runId, paidCalls, maximumPaidCalls: 7,
-    reason: error instanceof Error ? error.message : String(error), diagnostics, artifactRoot, canonicalArtifactRoot,
+    reason: error instanceof Error ? error.message : String(error), diagnostics, artifactRoot, artifactBindingPath,
+    executionArtifactRoot,
     claimAllowed: false };
   process.exitCode = 2;
 } finally {

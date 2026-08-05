@@ -1,7 +1,9 @@
 {
   "schemaVersion": 1,
   "benchmarkId": "mixed-issue-team-live-v1",
-  "status": "passed",
+  "status": "superseded_invalid",
+  "reason": "The original DB and fixture were ignored, the run binding used an absolute path, and DB hashing and querying used separate opens.",
+  "supersededBy": ".agents/reviews/r-mixed-issue-team-live-v14-2026-08-06.json",
   "runId": "070ec216-f0bc-48aa-85ab-62b0b70e7c57",
   "paidCalls": 4,
   "claimScope": {
@@ -65,7 +67,7 @@
   },
   "assertions": {
     "exactArtifacts": true,
-    "evidenceComplete": true,
+    "evidenceComplete": false,
     "mixedAppsObserved": true,
     "roleKinds": {
       "explorer": "claude-code",
@@ -214,7 +216,7 @@
   },
   "artifactRoot": ".agents/reviews/r-mixed-issue-team-live-v13-2026-08-06.json.artifacts",
   "canonicalArtifactRoot": "/var/home/luke/alpha-adk/worktrees/naia-agent-req-062/.agents/reviews/r-mixed-issue-team-live-v13-2026-08-06.json.artifacts",
-  "claimAllowed": true,
+  "claimAllowed": false,
   "embeddedEvidence": {
     "sourceCommit": "48acaa444f88424388c92f2bbfcd7e389c67d8f3",
     "sourceTree": "43e866ee52a02ee9549bac3019dc094f5dc6fcb6",

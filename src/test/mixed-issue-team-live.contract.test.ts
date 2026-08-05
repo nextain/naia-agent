@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
@@ -50,7 +50,7 @@ describe("mixed issue-team paid live benchmark contract", () => {
     expect(sealer).toContain("sqliteClosure: captureSqliteClosure()");
     expect(source).toContain("const runId = randomUUID()");
     expect(source).toContain('modelIdentity: "adapter_requested_not_provider_observed"');
-    expect(sealer).toContain("canonical artifact root does not match its original execution path");
+    expect(sealer).toContain("artifact binding does not match its execution path");
     expect(sealer).toContain('execFileSync("git", ["diff", "--quiet", "HEAD", "--"]');
     expect(sealer).toContain("current benchmark source or execution runtime closure does not match the live run");
     expect(sealer).toContain("requireCurrentSourceMatch: true,");
@@ -73,8 +73,9 @@ describe("mixed issue-team paid live benchmark contract", () => {
       const artifactRoot = `${receiptPath}.artifacts`; const fixtureRoot = join(artifactRoot, "fixture");
       mkdirSync(fixtureRoot, { recursive: true });
       const runId = "12345678-1234-4123-8123-123456789abc"; const dispatchId = `${runId}:dispatch:1`;
-      const canonicalArtifactRoot = realpathSync(artifactRoot);
-      const runBinding = createHash("sha256").update(`${runId}\0${canonicalArtifactRoot}`).digest("hex");
+      const executionArtifactRoot = realpathSync(artifactRoot);
+      const artifactBindingPath = relative(repositoryRoot, artifactRoot).split("\\").join("/");
+      const runBinding = createHash("sha256").update(`${runId}\0${artifactBindingPath}`).digest("hex");
       writeFileSync(join(fixtureRoot, "result.txt"), "NAIA_MIXED_TEAM_OK\n");
       writeFileSync(join(fixtureRoot, "seed.txt"), "SEED_MUST_STAY\n");
       const profile = { kind: "team", maxRepairCycles: 1, requiredCleanCycles: 1, roles: {
@@ -104,6 +105,8 @@ describe("mixed issue-team paid live benchmark contract", () => {
       const profileDigest = createHash("sha256").update(stableJson(profile)).digest("hex");
       const snapshot = { version: 13, dispatchId, issueId: runBinding, fingerprint: "fingerprint", state: "completed",
         profileDigest, cleanCycles: 1, repairCycles: 1, receipts: snapshotReceipts,
+        allocation: { workspacePath: join(executionArtifactRoot, "fixture"),
+          worktreePath: join(executionArtifactRoot, "fixture") },
         result: { ok: true, changedFiles: ["result.txt"] } };
       const database = new Database(join(artifactRoot, "team.db"));
       database.exec("CREATE TABLE issue_team_runs(dispatch_id TEXT,version INTEGER,fingerprint TEXT,state TEXT,snapshot_json TEXT);"
@@ -137,7 +140,7 @@ describe("mixed issue-team paid live benchmark contract", () => {
         assertions: { exactArtifacts: true, evidenceComplete: true, mixedAppsObserved: true,
           roleKinds: { explorer: "claude-code", implementer: "opencode", tester: "codex", reviewer: "codex" } },
         executionEvidence, claimAllowed: true, receipts };
-      Object.assign(original, { canonicalArtifactRoot });
+      Object.assign(original, { artifactBindingPath, executionArtifactRoot });
       writeFileSync(receiptPath, JSON.stringify(original));
       const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repositoryRoot, encoding: "utf8" }).trim();
       const sealed = spawnSync(process.execPath,
@@ -159,7 +162,7 @@ describe("mixed issue-team paid live benchmark contract", () => {
       const replayPath = join(root, "replayed.json");
       cpSync(artifactRoot, `${replayPath}.artifacts`, { recursive: true });
       const replayValue = structuredClone(parsed);
-      replayValue.canonicalArtifactRoot = realpathSync(`${replayPath}.artifacts`);
+      replayValue.artifactBindingPath = relative(repositoryRoot, `${replayPath}.artifacts`).split("\\").join("/");
       writeFileSync(replayPath, JSON.stringify(replayValue));
       const replayed = spawnSync(process.execPath,
         [sealerPath, "--receipt", replayPath, "--source-commit", sourceCommit, "--verify-sealed"],
