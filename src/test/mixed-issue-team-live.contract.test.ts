@@ -166,6 +166,16 @@ describe("mixed issue-team paid live benchmark contract", () => {
       expect(raced.status).not.toBe(0);
       expect(raced.stderr).toContain("fixture evidence changed before the sealing commit point");
       writeFileSync(join(fixtureRoot, "result.txt"), "NAIA_MIXED_TEAM_OK\n");
+      const receiptRaced = spawnSync(process.execPath, ["--input-type=module", "-e",
+        `import { writeFileSync } from "node:fs";
+         const { sealMixedIssueTeamLive } = await import(${JSON.stringify(pathToFileURL(sealerPath).href)});
+         sealMixedIssueTeamLive({ receiptPath: ${JSON.stringify(receiptPath)}, sourceCommit: ${JSON.stringify(sourceCommit)},
+           requireCurrentSourceMatch: true,
+           beforeFinalEvidenceCheck: () => writeFileSync(${JSON.stringify(receiptPath)}, ${JSON.stringify("RACED\n")}) });`],
+      { cwd: repositoryRoot, encoding: "utf8", env: { ...process.env, ...executableEnvironment } });
+      expect(receiptRaced.status).not.toBe(0);
+      expect(receiptRaced.stderr).toContain("receipt changed before the bound seal write");
+      writeFileSync(receiptPath, JSON.stringify(original));
       const sealed = spawnSync(process.execPath,
         [sealerPath, "--receipt", receiptPath, "--source-commit", sourceCommit, "--seal-unsealed"],
         { cwd: repositoryRoot, encoding: "utf8" });

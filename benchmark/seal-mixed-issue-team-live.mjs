@@ -206,7 +206,7 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
   if (receipt.embeddedEvidence !== undefined) throw new Error("receipt is already sealed; use sealed verification mode");
   const sealed = { ...receipt, artifactRoot: expectedArtifactRoot, embeddedEvidence: expectedEmbeddedEvidence,
     assertions: expectedAssertions };
-  writeJsonBoundFile(receiptParentFd, basename(receiptPath), receiptFd, receiptIdentity, sealed);
+  writeJsonBoundFile(receiptParentFd, basename(receiptPath), receiptFd, receiptIdentity, receiptBytes, sealed);
   assertArtifactSnapshot(artifactFd, databaseIdentity, sqliteFiles[0].sha256, fixture);
   assertChildMatchesDescriptor(receiptParentFd, basename(artifactRoot), artifactIdentity, "directory");
   assertPathMatchesDescriptor(receiptParentPath, receiptParentIdentity, "directory");
@@ -526,8 +526,11 @@ function assertTrackedEvidence(repositoryRoot, receiptPath, artifactRoot, receip
   execFileSync("git", ["diff", "--cached", "--quiet", "HEAD", "--", ...paths], { cwd: repositoryRoot });
 }
 
-function writeJsonBoundFile(parentFd, name, receiptFd, receiptIdentity, value) {
+function writeJsonBoundFile(parentFd, name, receiptFd, receiptIdentity, expectedOriginalBytes, value) {
   assertChildMatchesDescriptor(parentFd, name, receiptIdentity, "file");
+  if (!readFileSync(`/proc/self/fd/${receiptFd}`).equals(expectedOriginalBytes)) {
+    throw new Error("receipt changed before the bound seal write");
+  }
   const bytes = Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
   ftruncateSync(receiptFd, 0);
   let offset = 0;
