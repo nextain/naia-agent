@@ -3,7 +3,8 @@ import { closeSync, constants, fstatSync, readFileSync, readdirSync, realpathSyn
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
-import { captureMixedLiveExecutionEvidence, validateExecutionEvidence } from "./mixed-live-execution-evidence.mjs";
+import { captureMixedLiveExecutionEvidence, validateExecutionEvidence,
+  validateLiveExecutionInputs } from "./mixed-live-execution-evidence.mjs";
 import { pickCoreAssertions, projectReceipt, validateDurableReceipts, validateDurableRun,
   validateOutcomeSchemas } from "./mixed-live-durable-validation.mjs";
 import { assertArtifactSnapshot, assertChildMatchesDescriptor, assertPathMatchesDescriptor, assertTrackedEvidence,
@@ -13,10 +14,10 @@ import { git, sha256, stableJson } from "./mixed-live-seal-utils.mjs";
 
 const scriptPath = fileURLToPath(import.meta.url);
 
-export { captureMixedLiveExecutionEvidence };
+export { captureMixedLiveExecutionEvidence, validateLiveExecutionInputs };
 
 export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, requireCurrentSourceMatch = false,
-  verifyExistingSeal = false, beforeFinalEvidenceCheck }) {
+  verifyExistingSeal = false, evidenceCommit, boundReceiptFd, beforeFinalEvidenceCheck }) {
   const receiptPath = resolve(inputPath);
   if (!sourceCommit || !/^[0-9a-f]{40}$/u.test(sourceCommit)) throw new Error("source commit must be full 40-hex");
   const repositoryRoot = git(dirname(receiptPath), ["rev-parse", "--show-toplevel"]);
@@ -24,14 +25,19 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
   const receiptParentFd = openPathFromRepository(repositoryRoot, receiptParentPath, "directory");
   const receiptParentIdentity = fstatSync(receiptParentFd);
   try {
-  const receiptFd = openChildNoFollow(receiptParentFd, basename(receiptPath), "file",
-    verifyExistingSeal ? constants.O_RDONLY : constants.O_RDWR);
+  const ownsReceiptFd = boundReceiptFd === undefined;
+  const receiptFd = ownsReceiptFd ? openChildNoFollow(receiptParentFd, basename(receiptPath), "file",
+    verifyExistingSeal ? constants.O_RDONLY : constants.O_RDWR) : boundReceiptFd;
   const receiptIdentity = fstatSync(receiptFd);
   try {
+  if (!receiptIdentity.isFile()) throw new Error("bound receipt descriptor is not a regular file");
+  assertChildMatchesDescriptor(receiptParentFd, basename(receiptPath), receiptIdentity, "file");
   const receiptBytes = readFileSync(receiptFd);
   const receipt = JSON.parse(receiptBytes.toString("utf8"));
-  if (receipt.status !== "passed" || receipt.claimAllowed !== true || !Array.isArray(receipt.receipts)) {
-    throw new Error("only a passed, claim-allowed mixed-team receipt can be sealed");
+  const expectedClaimAllowed = verifyExistingSeal;
+  if (receipt.status !== "passed" || receipt.claimAllowed !== expectedClaimAllowed || !Array.isArray(receipt.receipts)) {
+    throw new Error(verifyExistingSeal ? "only a passed, claim-allowed mixed-team receipt can be verified"
+      : "only a passed, non-claimable mixed-team receipt can be sealed");
   }
   validateExecutionEvidence(receipt.executionEvidence, repositoryRoot, sourceCommit, requireCurrentSourceMatch);
 
@@ -124,6 +130,7 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
     mixedAppsObserved: new Set(projected.map((value) => value.agentKind)).size === 3, roleKinds };
   const claimScope = { sessionIdentity: "provider_reported", providerIdentity: "adapter_declared_not_provider_observed",
     modelIdentity: "adapter_requested_not_provider_observed",
+    executionRuntimeIdentity: "path_hash_observed_at_boundaries_not_execution_pinned",
     capability: "mixed_adapter_execution", verificationPortability: "linux_clean_checkout_after_locked_install_and_build" };
   const convergencePaths = coreResult.repairCycles === 0 ? [{
     roles: ["explorer", "implementer", "tester", "reviewer"],
@@ -173,20 +180,22 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
       throw new Error("sealed receipt evidence does not match the immutable execution artifacts");
     }
     if (expectedArtifactRoot.startsWith(".agents/reviews/")) {
-      assertTrackedEvidence(repositoryRoot, receiptPath, artifactRoot, receiptBytes, databaseBytes, fixture);
+      if (!evidenceCommit) throw new Error("tracked evidence verification requires an immutable evidence commit");
+      assertTrackedEvidence(repositoryRoot, evidenceCommit, receiptPath, artifactRoot, receiptBytes, databaseBytes,
+        fixture);
     }
     return receipt;
   }
   if (receipt.embeddedEvidence !== undefined) throw new Error("receipt is already sealed; use sealed verification mode");
-  const sealed = { ...receipt, artifactRoot: expectedArtifactRoot, embeddedEvidence: expectedEmbeddedEvidence,
-    assertions: expectedAssertions };
+  const sealed = { ...receipt, claimAllowed: true, artifactRoot: expectedArtifactRoot,
+    embeddedEvidence: expectedEmbeddedEvidence, assertions: expectedAssertions };
   writeJsonBoundFile(receiptParentFd, basename(receiptPath), receiptFd, receiptIdentity, receiptBytes, sealed);
   assertArtifactSnapshot(artifactFd, databaseIdentity, sqliteFiles[0].sha256, fixture);
   assertChildMatchesDescriptor(receiptParentFd, basename(artifactRoot), artifactIdentity, "directory");
   assertPathMatchesDescriptor(receiptParentPath, receiptParentIdentity, "directory");
   return sealed;
   } finally { closeSync(artifactFd); }
-  } finally { closeSync(receiptFd); }
+  } finally { if (ownsReceiptFd) closeSync(receiptFd); }
   } finally { closeSync(receiptParentFd); }
 }
 
@@ -200,10 +209,12 @@ if (process.argv[1] && resolve(process.argv[1]) === scriptPath) {
   const receiptIndex = process.argv.indexOf("--receipt"); const sourceIndex = process.argv.indexOf("--source-commit");
   const receiptPath = receiptIndex >= 0 ? process.argv[receiptIndex + 1] : undefined;
   const sourceCommit = sourceIndex >= 0 ? process.argv[sourceIndex + 1] : undefined;
+  const evidenceIndex = process.argv.indexOf("--evidence-commit");
+  const evidenceCommit = evidenceIndex >= 0 ? process.argv[evidenceIndex + 1] : undefined;
   const sealUnsealed = process.argv.includes("--seal-unsealed"); const verifySealed = process.argv.includes("--verify-sealed");
   if (!receiptPath || !sourceCommit || sealUnsealed === verifySealed) {
     throw new Error("usage: seal-mixed-issue-team-live.mjs --receipt <path> --source-commit <commit> (--seal-unsealed|--verify-sealed)");
   }
   sealMixedIssueTeamLive({ receiptPath, sourceCommit, requireCurrentSourceMatch: true,
-    verifyExistingSeal: verifySealed });
+    verifyExistingSeal: verifySealed, evidenceCommit });
 }

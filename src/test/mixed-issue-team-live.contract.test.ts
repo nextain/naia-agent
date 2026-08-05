@@ -33,7 +33,8 @@ describe("mixed issue-team paid live benchmark contract", () => {
     expect(source).toContain("const evidenceComplete = receipts.length >= 4");
     expect(source).toContain('receipt.sessionEvidenceSource === "provider_reported"');
     expect(source).toContain("const mixedAppsObserved = new Set(receipts.map((receipt) => receipt.agentKind)).size === 3");
-    expect(source).toContain("claimAllowed: passed");
+    expect(source).toContain("artifactBindingPath, executionArtifactRoot, claimAllowed: false");
+    expect(source).toContain('if (payload.status === "passed")');
   });
 
   it("has a deterministic sealer for tracked source, durable state, and exact fixture evidence", () => {
@@ -53,6 +54,9 @@ describe("mixed issue-team paid live benchmark contract", () => {
     expect(sealer).toContain("durableEvidenceEmbedded: true");
     expect(sealer).toContain("receiptMatchesDurableSnapshot: true");
     expect(source).toContain("captureMixedLiveExecutionEvidence(repositoryRoot)");
+    expect(source).toContain("validateLiveExecutionInputs(executionEvidence, repositoryRoot)");
+    expect(source).toContain("boundReceiptFd: receiptFd");
+    expect(source).toContain('executionRuntimeIdentity: "path_hash_observed_at_boundaries_not_execution_pinned"');
     expect(source).toContain("sealMixedIssueTeamLive({ receiptPath: outputPath");
     expect(source).toContain("requireCurrentSourceMatch: true");
     expect(evidence).toContain('execFileSync(process.execPath, [compilerPath, "-p"');
@@ -157,12 +161,14 @@ describe("mixed issue-team paid live benchmark contract", () => {
       const original = { schemaVersion: 1, benchmarkId: "mixed-issue-team-live-v1", status: "passed", runId,
         paidCalls: 7, maximumPaidCalls: 7, profile, claimScope: { sessionIdentity: "provider_reported",
           providerIdentity: "adapter_declared_not_provider_observed",
-          modelIdentity: "adapter_requested_not_provider_observed", capability: "mixed_adapter_execution",
+          modelIdentity: "adapter_requested_not_provider_observed",
+          executionRuntimeIdentity: "path_hash_observed_at_boundaries_not_execution_pinned",
+          capability: "mixed_adapter_execution",
           verificationPortability: "linux_clean_checkout_after_locked_install_and_build" },
         result: { ok: true, changedFiles: ["result.txt"], cleanCycles: 1, repairCycles: 1 },
         assertions: { exactArtifacts: true, evidenceComplete: true, mixedAppsObserved: true,
           roleKinds: { explorer: "claude-code", implementer: "opencode", tester: "codex", reviewer: "codex" } },
-        executionEvidence, claimAllowed: true, receipts };
+        executionEvidence, claimAllowed: false, receipts };
       Object.assign(original, { artifactBindingPath, executionArtifactRoot });
       writeFileSync(receiptPath, JSON.stringify(original));
       const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repositoryRoot, encoding: "utf8" }).trim();

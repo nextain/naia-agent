@@ -44,6 +44,18 @@ export function openChildNoFollow(parentFd, name, expectedKind, flags) {
   } catch (error) { closeSync(fd); throw error; }
 }
 
+export function createChildFileNoFollow(parentFd, name, mode = 0o600) {
+  if (!name || name === "." || name === ".." || name.includes("/") || name.includes("\\")) {
+    throw new Error("evidence child name is invalid");
+  }
+  const fd = openSync(`/proc/self/fd/${parentFd}/${name}`, constants.O_CREAT | constants.O_EXCL
+    | constants.O_RDWR | (constants.O_NOFOLLOW ?? 0), mode);
+  try {
+    if (!fstatSync(fd).isFile()) throw new Error("evidence path is not a regular file");
+    return fd;
+  } catch (error) { closeSync(fd); throw error; }
+}
+
 export function readChildNoFollow(parentFd, name) {
   const fd = openChildNoFollow(parentFd, name, "file", constants.O_RDONLY);
   try { return readFileSync(fd); } finally { closeSync(fd); }
@@ -111,19 +123,26 @@ export function assertArtifactSnapshot(artifactFd, databaseIdentity, databaseSha
   } finally { closeSync(fixtureFd); }
 }
 
-export function assertTrackedEvidence(repositoryRoot, receiptPath, artifactRoot, receiptBytes, databaseBytes, fixture) {
+export function assertTrackedEvidence(repositoryRoot, evidenceCommit, receiptPath, artifactRoot, receiptBytes,
+  databaseBytes, fixture) {
+  if (!/^[0-9a-f]{40}$/u.test(evidenceCommit)) throw new Error("evidence commit must be full 40-hex");
+  const resolvedEvidenceCommit = execFileSync("git", ["rev-parse", `${evidenceCommit}^{commit}`],
+    { cwd: repositoryRoot, encoding: "utf8" }).trim();
+  if (resolvedEvidenceCommit !== evidenceCommit) throw new Error("evidence commit did not resolve immutably");
   const paths = [receiptPath, join(artifactRoot, "team.db"), join(artifactRoot, "fixture/result.txt"),
     join(artifactRoot, "fixture/seed.txt")].map((path) => relative(repositoryRoot, path).split("\\").join("/"));
   for (const path of paths) execFileSync("git", ["ls-files", "--error-unmatch", path],
     { cwd: repositoryRoot, stdio: "ignore" });
   const expected = [receiptBytes, databaseBytes, ...fixture.map((value) => Buffer.from(value.hex, "hex"))];
   for (let index = 0; index < paths.length; index += 1) {
-    if (!execFileSync("git", ["show", `HEAD:${paths[index]}`], { cwd: repositoryRoot }).equals(expected[index])) {
-      throw new Error("tracked evidence bytes do not match immutable HEAD");
+    if (!execFileSync("git", ["show", `${resolvedEvidenceCommit}:${paths[index]}`],
+      { cwd: repositoryRoot }).equals(expected[index])) {
+      throw new Error("tracked evidence bytes do not match immutable evidence commit");
     }
   }
-  execFileSync("git", ["diff", "--quiet", "HEAD", "--", ...paths], { cwd: repositoryRoot });
-  execFileSync("git", ["diff", "--cached", "--quiet", "HEAD", "--", ...paths], { cwd: repositoryRoot });
+  execFileSync("git", ["diff", "--quiet", resolvedEvidenceCommit, "--", ...paths], { cwd: repositoryRoot });
+  execFileSync("git", ["diff", "--cached", "--quiet", resolvedEvidenceCommit, "--", ...paths],
+    { cwd: repositoryRoot });
 }
 
 export function writeJsonBoundFile(parentFd, name, receiptFd, receiptIdentity, expectedOriginalBytes, value) {

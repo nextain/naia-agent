@@ -80,6 +80,19 @@ export function validateExecutionEvidence(value, repositoryRoot, sourceCommit, r
   }
 }
 
+export function validateLiveExecutionInputs(value, repositoryRoot) {
+  const currentSupportModules = Object.fromEntries(SUPPORT_MODULE_PATHS.map((path) =>
+    [path, sha256(readFileSync(join(repositoryRoot, path)))]));
+  if (sha256(readFileSync(join(repositoryRoot, "benchmark/run-mixed-issue-team-live.mjs")))
+      !== value.benchmarkScriptSha256
+    || sha256(readFileSync(join(repositoryRoot, "benchmark/seal-mixed-issue-team-live.mjs"))) !== value.sealerSha256
+    || JSON.stringify(currentSupportModules) !== JSON.stringify(value.supportModuleSha256)
+    || JSON.stringify(digestDirectory(join(repositoryRoot, "dist/main"))) !== JSON.stringify(value.runtimeClosure)) {
+    throw new Error("live execution inputs changed at an observation boundary");
+  }
+  validateExecutableEvidence(value.executables, repositoryRoot);
+}
+
 function sourceSha256(repositoryRoot, sourceCommit, path) {
   return sha256(execFileSync("git", ["show", `${sourceCommit}:${path}`], { cwd: repositoryRoot }));
 }

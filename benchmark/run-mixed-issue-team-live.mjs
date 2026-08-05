@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
-import { resolve, join, relative } from "node:path";
+import { closeSync, existsSync, fstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
+import { basename, dirname, resolve, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { captureMixedLiveExecutionEvidence, sealMixedIssueTeamLive } from "./seal-mixed-issue-team-live.mjs";
+import { captureMixedLiveExecutionEvidence, sealMixedIssueTeamLive,
+  validateLiveExecutionInputs } from "./seal-mixed-issue-team-live.mjs";
+import { createChildFileNoFollow, openPathFromRepository,
+  writeJsonBoundFile } from "./mixed-live-secure-files.mjs";
 
 const benchmarkId = "mixed-issue-team-live-v1";
 const outputIndex = process.argv.indexOf("--output");
@@ -35,10 +38,19 @@ const artifactBindingPath = relative(repositoryRoot, artifactRoot).split("\\").j
 const runBinding = createHash("sha256").update(`${runId}\0${artifactBindingPath}`).digest("hex");
 const claimScope = { sessionIdentity: "provider_reported", providerIdentity: "adapter_declared_not_provider_observed",
   modelIdentity: "adapter_requested_not_provider_observed",
+  executionRuntimeIdentity: "path_hash_observed_at_boundaries_not_execution_pinned",
   capability: "mixed_adapter_execution", verificationPortability: "linux_clean_checkout_after_locked_install_and_build" };
-writeFileSync(outputPath, `${JSON.stringify({ schemaVersion: 1, benchmarkId, status: "running",
+const receiptParentFd = openPathFromRepository(repositoryRoot, dirname(outputPath), "directory");
+const receiptFd = createChildFileNoFollow(receiptParentFd, basename(outputPath));
+const receiptIdentity = fstatSync(receiptFd);
+let receiptBytes = Buffer.alloc(0);
+function writeReceipt(value) {
+  writeJsonBoundFile(receiptParentFd, basename(outputPath), receiptFd, receiptIdentity, receiptBytes, value);
+  receiptBytes = Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
+}
+writeReceipt({ schemaVersion: 1, benchmarkId, status: "running",
   runId, paidCalls: 0, maximumPaidCalls: 7, artifactRoot, artifactBindingPath, executionArtifactRoot,
-  claimScope }, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+  claimScope, claimAllowed: false });
 const fixtureRoot = join(artifactRoot, "fixture");
 mkdirSync(fixtureRoot, { mode: 0o700 });
 writeFileSync(join(fixtureRoot, "seed.txt"), "SEED_MUST_STAY\n", { mode: 0o600 });
@@ -52,6 +64,7 @@ const [{ makeIssueTeamWorker }, { SqliteIssueTeamStore }, { makeIssueTeamRoleExe
   import(new URL("composition/mixed-issue-team-agents.js", dist).href),
   import(new URL("adapters/subprocess-session.js", dist).href),
 ]);
+validateLiveExecutionInputs(executionEvidence, repositoryRoot);
 
 const profile = { kind: "team", maxRepairCycles: 1, requiredCleanCycles: 1, roles: {
   explorer: { agentProfileId: "claude-explorer", agentKind: "claude-code",
@@ -76,6 +89,7 @@ const agents = Object.fromEntries(Object.entries(rawAgents).map(([id, selected])
   adapter: {
     spawn(task) {
       if (paidCalls >= 7) return endedSession("mixed live paid-call ceiling reached");
+      validateLiveExecutionInputs(executionEvidence, repositoryRoot);
       paidCalls += 1;
       return selected.adapter.spawn(task);
     },
@@ -99,6 +113,7 @@ try {
     workspacePath: fixtureRoot, task, obligations: ["result.txt bytes equal NAIA_MIXED_TEAM_OK\\n", "seed.txt remains unchanged"],
     acceptanceChecks: ["read result.txt and compare exact bytes", "read seed.txt and compare exact bytes"],
     profileId: "mixed-live-balanced", profile, signal: new AbortController().signal });
+  validateLiveExecutionInputs(executionEvidence, repositoryRoot);
   const resultBytes = readFileSync(join(fixtureRoot, "result.txt"), "utf8");
   const seedBytes = readFileSync(join(fixtureRoot, "seed.txt"), "utf8");
   const files = readdirSync(fixtureRoot).sort();
@@ -123,7 +138,7 @@ try {
       executionId: receipt.executionId,
       tokenCountsAvailable: receipt.tokenCountsAvailable, inputTokens: receipt.inputTokens,
       cachedInputTokens: receipt.cachedInputTokens, outputTokens: receipt.outputTokens, cost: receipt.cost })),
-    diagnostics, executionEvidence, artifactRoot, artifactBindingPath, executionArtifactRoot, claimAllowed: passed };
+    diagnostics, executionEvidence, artifactRoot, artifactBindingPath, executionArtifactRoot, claimAllowed: false };
   if (!passed) process.exitCode = 2;
 } catch (error) {
   payload = { schemaVersion: 1, benchmarkId, status: "failed", runId, paidCalls, maximumPaidCalls: 7,
@@ -134,8 +149,12 @@ try {
 } finally {
   store.close();
 }
-writeFileSync(outputPath, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
-const sealed = payload.claimAllowed
-  ? sealMixedIssueTeamLive({ receiptPath: outputPath, sourceCommit: executionEvidence.sourceCommit,
-    requireCurrentSourceMatch: true }) : payload;
+writeReceipt(payload);
+let sealed = payload;
+try {
+  if (payload.status === "passed") sealed = sealMixedIssueTeamLive({ receiptPath: outputPath,
+    sourceCommit: executionEvidence.sourceCommit, requireCurrentSourceMatch: true, boundReceiptFd: receiptFd });
+} finally {
+  closeSync(receiptFd); closeSync(receiptParentFd);
+}
 process.stdout.write(`${JSON.stringify(sealed, null, 2)}\n`);

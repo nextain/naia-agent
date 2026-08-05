@@ -1,7 +1,9 @@
 {
   "schemaVersion": 1,
   "benchmarkId": "mixed-issue-team-live-v1",
-  "status": "passed",
+  "status": "superseded_invalid",
+  "supersededBy": "r-mixed-issue-team-live-v20-2026-08-06.json",
+  "invalidationReason": "Final adversarial review found pre-seal claim publication, path-observed execution provenance limits, and symbolic HEAD verification races; source and sealer were changed after this run.",
   "runId": "bc808bd2-10c8-47e5-8c77-96dac2ff07b0",
   "paidCalls": 4,
   "claimScope": {
@@ -223,7 +225,7 @@
   "artifactRoot": ".agents/reviews/r-mixed-issue-team-live-v19-2026-08-06.json.artifacts",
   "artifactBindingPath": ".agents/reviews/r-mixed-issue-team-live-v19-2026-08-06.json.artifacts",
   "executionArtifactRoot": "/var/home/luke/alpha-adk/worktrees/naia-agent-req-062/.agents/reviews/r-mixed-issue-team-live-v19-2026-08-06.json.artifacts",
-  "claimAllowed": true,
+  "claimAllowed": false,
   "embeddedEvidence": {
     "sourceCommit": "efb8e288b4b805f4568e62141c475fa7fe023666",
     "sourceTree": "ae83bf6a34b1561d13dca274c0b999d642d63ea9",
