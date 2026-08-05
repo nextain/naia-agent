@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "benchmarkId": "naia-issue-team-deterministic-v1",
-  "sourceRevision": "abb7b16b6c8e2b272697e0b9d3ce2d70ce47eb77",
+  "sourceRevision": "5a67ce7e64d6fa7917b7049204362ef922ed34a3",
   "paidCalls": 0,
   "observation": {
     "roleOrderMatches": true,
@@ -36,7 +36,7 @@
       "src/main/ports/issue-team.ts": "e91ad06b36c866be0fab931c6647166fe6f5d9f9fac3282e54e57993001872d3",
       "src/main/composition/supervised-issue-worker.ts": "3466f39c682b59f5f5ff05c2efc022898817918204ffedfb6921e7a1986caacb",
       "src/main/composition/issue-team-role-executor.ts": "42813d3974122cc80c8c2e33fe20ea915f2f332ae58199be10a61c18dd6e5686",
-      "src/main/app/single-issue-orchestrator.ts": "ba92e54be4719f247893b83058f4cb9705cdc15243ecc9fa1613f4d65ea06342",
+      "src/main/app/single-issue-orchestrator.ts": "94b296cfbb1990d2d8c46f40ec67c0d6939215260af302a78b4f9214f023f82c",
       "src/main/composition/profiled-issue-worker.ts": "12a8ed19074765e7a665c5872475c87c4e4045bdc0ae78273abcb94874bc0bf1",
       "src/main/adapters/sqlite-issue-orchestration-store.ts": "cef7d66cd2f01305450ef4361296845c48d503cf796d5c08773ba5b530ce3de1",
       "src/main/domain/issue-orchestration.ts": "445526203af0088afa7b0017fb87644ced4209096420ba33645a40eff8378755",
@@ -54,7 +54,7 @@
       "dist/main/domain/issue-team-benchmark.js": "b5f953546badfee9d31d42890f0641177387a526c0511a53ba095b6681effef0",
       "dist/main/composition/supervised-issue-worker.js": "b3bb1a7ab249633c487d016d44a5019b5e02b399f1dd07a550c5e8a92d243d02",
       "dist/main/composition/issue-team-role-executor.js": "690534a3029015c314397836bcd5aeff75ef6f9e49ea7ec7be0762e7b2f19a8f",
-      "dist/main/app/single-issue-orchestrator.js": "61d5afc6a7b247439a0931d90aec1e723ca678a74b04ffc595522a5490971b17",
+      "dist/main/app/single-issue-orchestrator.js": "ec830bc64cfce2e5e2941baab54011d14c9ffb7dcbeac009f1302ccabcee637c",
       "dist/main/adapters/sqlite-issue-orchestration-store.js": "b5b2c4e86052149925f342b3578db061cd5580ac68a6e5530dbd3715d087fff9",
       "dist/main/composition/profiled-issue-worker.js": "bedf8a89b6f04fef15ad99e259a87fc616925c9597100667f7de9c4dfca30281"
     }
