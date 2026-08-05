@@ -19,14 +19,15 @@ function run(command: string, args: string[], env: NodeJS.ProcessEnv): Promise<P
   });
 }
 
-function sse(model: string): string {
-  const chunk = (delta: object, finish_reason: string | null, usage?: object) =>
-    `data: ${JSON.stringify({ id: "chatcmpl-cli", object: "chat.completion.chunk", created: 1, model, choices: [{ index: 0, delta, finish_reason }], ...(usage ? { usage } : {}) })}\n\n`;
-  return [
-    chunk({ role: "assistant", content: "controlled cli ok" }, null),
-    chunk({}, "stop", { prompt_tokens: 4, completion_tokens: 3, total_tokens: 7 }),
-    "data: [DONE]\n\n",
-  ].join("");
+function completion(model: string, request: Record<string, unknown>): string {
+  return JSON.stringify({
+    id: "chatcmpl-cli", object: "chat.completion", created: 1, model,
+    choices: [{ index: 0, message: { role: "assistant", content: "controlled cli ok" }, finish_reason: "stop" }],
+    usage: { prompt_tokens: 4, completion_tokens: 3, total_tokens: 7 },
+    customer_cost: "0.00001000", price_version_id: "cli-test-price-v1", currency: "USD",
+    settlement_status: "settled", billing_status: "settled",
+    gateway_request_id: request.gateway_request_id, gateway_attempt: request.gateway_attempt,
+  });
 }
 
 describe("UC-NAIA-PI actual CLI process and stored login", () => {
@@ -44,12 +45,13 @@ describe("UC-NAIA-PI actual CLI process and stored login", () => {
     req.setEncoding("utf8");
     req.on("data", (part) => { raw += part; });
     req.on("end", () => {
-      const body = JSON.parse(raw) as { model?: string };
+      const body = JSON.parse(raw) as Record<string, unknown>;
       upstreamCalls += 1;
       expect(body.model).toBe("grok-4.3");
+      expect(body.stream).toBe(false);
       expect(req.headers["x-anyllm-key"]).toBe("Bearer stored-test-key");
-      res.writeHead(200, { "Content-Type": "text/event-stream" });
-      res.end(sse("grok-4.3"));
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(completion("grok-4.3", body));
     });
   });
 
@@ -71,6 +73,9 @@ describe("UC-NAIA-PI actual CLI process and stored login", () => {
       ...process.env,
       USERPROFILE: home,
       HOME: home,
+      // HOME does not isolate Linux Secret Service because it uses the user's
+      // DBus session. Keep this process test on its explicit legacy fixture.
+      DBUS_SESSION_BUS_ADDRESS: `unix:path=${join(home, "no-session-bus")}`,
       NAIA_ANYLLM_BASE_URL: baseUrl,
       NAIA_API_KEY: undefined,
       NAIA_ANYLLM_API_KEY: undefined,
@@ -99,15 +104,42 @@ describe("UC-NAIA-PI actual CLI process and stored login", () => {
     ].join("");
     const parent = await run(process.execPath, ["-e", wrapper, ...args], env);
 
-    expect(direct.code).toBe(0);
-    expect(parent.code).toBe(0);
+    expect(direct.code, `direct stderr:\n${direct.stderr}`).toBe(0);
+    expect(parent.code, `parent stderr:\n${parent.stderr}`).toBe(0);
     const directReport = JSON.parse(direct.stdout.trim());
     const parentReport = JSON.parse(parent.stdout.trim());
     for (const report of [directReport, parentReport]) {
       expect(report.sessionOk).toBe(true);
-      expect(report.modelEvidence).toMatchObject({ provider: "naia", selectedModel: "grok-4.3", totalTokens: 7 });
+      expect(report.modelEvidence).toMatchObject({
+        provider: "naia", selectedModel: "grok-4.3", totalTokens: 7, measuredCostUsd: 0.00001,
+      });
+      expect(report.modelEvidence.gatewayBillingReceipts).toHaveLength(1);
+      const receipt = report.modelEvidence.gatewayBillingReceipts[0];
+      expect(receipt).toMatchObject({
+        executionId: report.modelEvidence.executionId,
+        provider: "naia", model: "grok-4.3", totalTokens: 7,
+        customerCostDecimal: "0.00001000", settlementStatus: "settled",
+      });
+      expect(receipt.gatewayRequestId).toContain(report.modelEvidence.executionId);
     }
-    expect(parentReport).toEqual(directReport);
+    expect(parentReport).toMatchObject({
+      filesChanged: directReport.filesChanged,
+      additions: directReport.additions,
+      deletions: directReport.deletions,
+      verification: directReport.verification,
+      sessionOk: directReport.sessionOk,
+      modelEvidence: {
+        provider: directReport.modelEvidence.provider,
+        selectedModel: directReport.modelEvidence.selectedModel,
+        modelEvidenceSource: directReport.modelEvidence.modelEvidenceSource,
+        usageAvailable: directReport.modelEvidence.usageAvailable,
+        inputTokens: directReport.modelEvidence.inputTokens,
+        cachedInputTokens: directReport.modelEvidence.cachedInputTokens,
+        outputTokens: directReport.modelEvidence.outputTokens,
+        totalTokens: directReport.modelEvidence.totalTokens,
+        measuredCostUsd: directReport.modelEvidence.measuredCostUsd,
+      },
+    });
     expect(upstreamCalls).toBe(2);
 
     const beforeRejected = upstreamCalls;

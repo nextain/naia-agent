@@ -13,6 +13,15 @@
 
 - Build: passed.
 - Focused contract and integration tests: 55 passed, 1 skipped.
+- Full regression: 436 suites passed; 1,705 tests passed, 10 skipped, 0
+  failed (1,715 total).
+- The stale Pi CLI process fixture was corrected to isolate Linux Secret
+  Service through DBus and to return the current versioned-billing settlement
+  receipt. Stable direct/parent evidence is compared while each run's dynamic
+  execution identity is verified against its own receipt.
+- The repository `npm test` wrapper could not run its `pretest` because the host
+  has pnpm 9 while `packageManager` pins pnpm 10.33. The same required build and
+  complete Vitest suite were run directly and passed.
 - Complexity preflight: clean, digest
   `sha256:37b69dafa3e8e963b2ffcf7c9e5e26dd54aa33c06cccb5e8402a003123333e77`.
 - Structure and CI verification suites: passed.
