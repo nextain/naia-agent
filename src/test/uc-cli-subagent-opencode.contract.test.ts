@@ -62,6 +62,7 @@ describe("subagent-opencode-cli 어댑터 계약 (2b, fake child)", () => {
       inputTokens: 38, cachedInputTokens: 28, outputTokens: 7, totalTokens: 45,
       usageAvailable: true, modelEvidenceSource: "adapter_requested",
     });
+    expect((events[4] as Extract<SubAgentEvent, { kind: "session_end" }>).evidence?.measuredCostUsd).toBeUndefined();
   });
 
   it("실제 OpenCode step_finish 여러 턴의 사용량과 requested provider를 누적한다", async () => {
@@ -80,6 +81,39 @@ describe("subagent-opencode-cli 어댑터 계약 (2b, fake child)", () => {
       outputTokens: 192, totalTokens: 12271, usageAvailable: true,
     });
     expect(end.evidence?.measuredCostUsd).toBeUndefined();
+  });
+
+  it("음수·불완전 step_finish 토큰은 사용량 증빙으로 채택하지 않는다", async () => {
+    const f = fakeNdjson();
+    const port = makeOpencodeSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn });
+    const session = port.spawn({ prompt: "p", workdir: "/tmp/w" });
+    f.line('{"type":"step_finish","sessionID":"ses_bad","part":{"tokens":{"input":-1,"output":2},"cost":0.01}}');
+    f.line('{"type":"step_finish","sessionID":"ses_bad","part":{"tokens":{"input":1},"cost":0.01}}');
+    f.close(0);
+    const events = await drain(session.events);
+    const end = events.at(-1) as Extract<SubAgentEvent, { kind: "session_end" }>;
+    expect(end.evidence).toMatchObject({
+      usageAvailable: false, inputTokens: 0, cachedInputTokens: 0,
+      outputTokens: 0, totalTokens: 0,
+    });
+    expect(end.evidence?.sessionId).not.toBe("ses_bad");
+    expect(end.evidence?.measuredCostUsd).toBeUndefined();
+  });
+
+  it("양수 유한 비용만 여러 step_finish에서 누적한다", async () => {
+    const f = fakeNdjson();
+    const port = makeOpencodeSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn });
+    const session = port.spawn({ prompt: "p", workdir: "/tmp/w" });
+    f.line('{"type":"step_finish","part":{"tokens":{"input":2,"output":1},"cost":0}}');
+    f.line('{"type":"step_finish","part":{"tokens":{"input":3,"output":1},"cost":0.0015}}');
+    f.line('{"type":"step_finish","part":{"tokens":{"input":4,"output":1},"cost":0.0025}}');
+    f.close(0);
+    const events = await drain(session.events);
+    const end = events.at(-1) as Extract<SubAgentEvent, { kind: "session_end" }>;
+    expect(end.evidence).toMatchObject({
+      inputTokens: 9, outputTokens: 3, totalTokens: 12,
+      usageAvailable: true, measuredCostUsd: 0.004,
+    });
   });
 
   it("args 정합: opencode run --format json --dir <workdir> [-m] [--skip] <prompt>(마지막)", () => {

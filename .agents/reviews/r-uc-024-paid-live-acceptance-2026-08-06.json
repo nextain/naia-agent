@@ -2,6 +2,7 @@
   "schema_version": 1,
   "review": "UC-024 paid live acceptance",
   "executed_at": "2026-08-06T02:54:42+09:00",
+  "follow_up_at": "2026-08-06T03:32:08+09:00",
   "authorization": "User explicitly requested all paid live scenarios on 2026-08-06.",
   "standalone_workers": {
     "codex": {
@@ -18,17 +19,40 @@
       "fix": "bin/naia-agent-run.mjs now obtains explicit claudeCode.skipPermissions=true from superviseSubAgentOptions; the adapter default remains safe for embedded callers."
     },
     "opencode": {
-      "status": "pass_with_accounting_gap",
+      "status": "pass_with_usage_evidence",
       "model": "azure-foundry/gpt-5-4-nano",
       "artifact": "opencode.txt=OPENCODE_LIVE_OK\\n",
-      "gap": "The OpenCode adapter reports the requested provider/model but does not expose provider token or cost usage."
+      "usage": {
+        "input_tokens": 18267,
+        "cached_input_tokens": 11776,
+        "output_tokens": 204,
+        "total_tokens": 18471,
+        "usage_available": true
+      },
+      "cost_claim_allowed": false,
+      "cost_note": "OpenCode reported cost=0 for the Azure Foundry run. The adapter therefore propagates usage but does not represent the call as measured-free or attach measuredCostUsd."
     },
     "pi": {
       "status": "blocked_fail_closed",
       "analysis_model": "deepseek-v4-flash",
       "coding_model": "grok-4.3",
-      "paid_gateway_calls_observed": 1,
-      "reason": "The production gateway response did not provide complete request-correlated versioned billing receipts. DeepSeek V4 Flash and Pro also remain intentionally analysis-only, so neither may be used as a writing worker.",
+      "paid_gateway_calls_observed": 2,
+      "direct_probe": {
+        "http_status": 200,
+        "prompt_tokens": 6,
+        "completion_tokens": 2,
+        "total_tokens": 8,
+        "missing_fields": [
+          "gateway_request_id",
+          "gateway_attempt",
+          "settlement_status",
+          "billing_status",
+          "customer_cost",
+          "price_version_id",
+          "currency"
+        ]
+      },
+      "reason": "The production gateway accepted inference but its deployed response schema did not include request-correlated versioned billing fields. The versioned-billing branch passes its focused tests locally but is not deployed. DeepSeek V4 Flash and Pro also remain intentionally analysis-only, so neither may be used as a writing worker.",
       "cost_claim_allowed": false
     }
   },
@@ -75,5 +99,21 @@
     "reported_cost_usd": 0.6438234,
     "claim": "This is paid execution evidence only, not a completed independent review."
   },
-  "verdict": "PARTIAL: the balanced Codex orchestration and three standalone coding backends passed live execution. Pi/Naia Gateway remains blocked by missing versioned billing evidence, and OpenCode lacks measured usage propagation."
+  "follow_up_independent_review": {
+    "reviewer": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
+    "status": "clean_after_fix",
+    "round_1": "FOUND_ISSUES: malformed and negative step_finish token validation lacked a direct regression test.",
+    "fix": "Added rejection coverage for negative and incomplete tokens, explicit zero-cost non-measurement, and positive finite multi-step cost accumulation.",
+    "round_2": "CLEAN with three non-blocking implementation/test observations and one wording observation.",
+    "external_mutation": false
+  },
+  "regression": {
+    "build": "pass",
+    "structure": "pass",
+    "ci_contracts": "23 passed",
+    "vitest": "1711 passed, 10 skipped, 0 failed",
+    "gateway_focused_tests": "85 passed; Docker-backed model route test not executed because this host has no Docker socket",
+    "gateway_lint": "unavailable: ruff executable is not installed in the gateway environment"
+  },
+  "verdict": "PARTIAL: balanced Codex orchestration and the standalone Codex, Claude Code, and OpenCode coding backends passed live execution. OpenCode now propagates real provider/model/session/token usage but does not claim a measured cost when its source reports zero. Pi/Naia Gateway remains fail-closed because production has not deployed request-correlated versioned billing receipts."
 }
