@@ -183,7 +183,7 @@
   "claimAllowed": true,
   "embeddedEvidence": {
     "sourceCommit": "5a67ce7e64d6fa7917b7049204362ef922ed34a3",
-    "sealerSha256": "f86508db051ea6c4630e7e732976d21025263595cd859f5fc6cb4708c7d5bbc4",
+    "sealerSha256": "89f29a0bc9102c78a19ca137fa8bc6a1c1075738cb458332429c7cf6b9435404",
     "benchmarkScriptAtSourceSha256": "0f57065a36a6646fb1234d3b6cb4112053ae13e9c31cc567aebedabf733af3a8",
     "sqliteSha256": "2692963fe56a4c77759c92edddc6568d3daf8622a37b27603784405448c71f42",
     "durableRun": {

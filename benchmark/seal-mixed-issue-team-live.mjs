@@ -35,6 +35,15 @@ const projected = snapshot.receipts.map(projectReceipt);
 if (JSON.stringify(projected) !== JSON.stringify(receipt.receipts)) {
   throw new Error("receipt projection does not match the durable SQLite snapshot");
 }
+const profileDigest = sha256(Buffer.from(stableJson(receipt.profile)));
+if (profileDigest !== snapshot.profileDigest) throw new Error("profile does not match the durable SQLite snapshot");
+for (const roleReceipt of projected) {
+  const role = receipt.profile?.roles?.[roleReceipt.workerRole];
+  if (!role || role.agentKind !== roleReceipt.agentKind || role.binding?.provider !== roleReceipt.provider
+    || role.binding?.model !== roleReceipt.model || role.binding?.reasoningEffort !== roleReceipt.reasoningEffort) {
+    throw new Error("profile role binding does not match durable receipt evidence");
+  }
+}
 
 const fixtureRoot = join(artifactRoot, "fixture");
 const fixture = readdirSync(fixtureRoot).sort().map((name) => {
@@ -45,6 +54,19 @@ if (JSON.stringify(fixture.map(({ path }) => path)) !== JSON.stringify(["result.
   || fixture[0].hex !== Buffer.from("NAIA_MIXED_TEAM_OK\n").toString("hex")
   || fixture[1].hex !== Buffer.from("SEED_MUST_STAY\n").toString("hex")) {
   throw new Error("fixture bytes do not match the live benchmark contract");
+}
+const roleKinds = Object.fromEntries(projected.map((value) => [value.workerRole, value.agentKind]));
+const coreResult = { ok: snapshot.result?.ok, changedFiles: snapshot.result?.changedFiles,
+  cleanCycles: snapshot.cleanCycles, repairCycles: snapshot.repairCycles };
+const coreAssertions = { exactArtifacts: true,
+  evidenceComplete: projected.length >= 4 && projected.every((value) => value.sessionId
+    && value.sessionEvidenceSource === "provider_reported" && value.executionId && value.provider && value.model),
+  mixedAppsObserved: new Set(projected.map((value) => value.agentKind)).size === 3, roleKinds };
+if (receipt.schemaVersion !== 1 || receipt.benchmarkId !== "mixed-issue-team-live-v1"
+  || receipt.maximumPaidCalls !== 7 || receipt.paidCalls !== projected.length
+  || JSON.stringify(receipt.result) !== JSON.stringify(coreResult)
+  || JSON.stringify(pickCoreAssertions(receipt.assertions)) !== JSON.stringify(coreAssertions)) {
+  throw new Error("receipt summary does not match durable state and exact fixture evidence");
 }
 
 const normalizedSnapshot = JSON.parse(JSON.stringify(snapshot).split(artifactRoot).join("$ARTIFACT_ROOT"));
@@ -66,7 +88,7 @@ receipt.embeddedEvidence = {
   events,
   fixture,
 };
-receipt.assertions = { ...receipt.assertions, durableEvidenceEmbedded: true, receiptMatchesDurableSnapshot: true };
+receipt.assertions = { ...coreAssertions, durableEvidenceEmbedded: true, receiptMatchesDurableSnapshot: true };
 writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600 });
 
 function projectReceipt(value) {
@@ -88,3 +110,15 @@ function projectReceipt(value) {
 }
 
 function sha256(bytes) { return createHash("sha256").update(bytes).digest("hex"); }
+
+function pickCoreAssertions(value) {
+  return { exactArtifacts: value?.exactArtifacts, evidenceComplete: value?.evidenceComplete,
+    mixedAppsObserved: value?.mixedAppsObserved, roleKinds: value?.roleKinds };
+}
+
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") return `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`).join(",")}}`;
+  return JSON.stringify(value);
+}

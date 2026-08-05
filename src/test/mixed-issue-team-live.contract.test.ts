@@ -1,4 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -58,15 +59,29 @@ describe("mixed issue-team paid live benchmark contract", () => {
         cost: { state: "unavailable", reason: "not priced" } };
       const snapshotReceipt = { role: "worker", agentProfileId: "claude-explorer", idempotencyKey: "dispatch:explorer:1",
         latencyMs: 1, modelEvidenceSource: "adapter_requested", ...roleReceipt };
+      const profile = { kind: "team", maxRepairCycles: 1, requiredCleanCycles: 1, roles: {
+        explorer: { agentProfileId: "claude-explorer", agentKind: "claude-code",
+          binding: { provider: "claude-code", model: "sonnet" }, filesystemAccess: "read_only" },
+      } };
+      const stableJson = (value: unknown): string => Array.isArray(value) ? `[${value.map(stableJson).join(",")}]`
+        : value && typeof value === "object" ? `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b))
+          .map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`).join(",")}}` : JSON.stringify(value);
+      const profileDigest = createHash("sha256").update(stableJson(profile)).digest("hex");
       const snapshot = { version: 1, dispatchId: "dispatch", fingerprint: "fingerprint", state: "completed",
-        receipts: [snapshotReceipt] };
+        profileDigest, cleanCycles: 1, repairCycles: 0, receipts: [snapshotReceipt],
+        result: { ok: true, changedFiles: ["result.txt"] } };
       const database = new Database(join(artifactRoot, "team.db"));
       database.exec("CREATE TABLE issue_team_runs(dispatch_id TEXT,version INTEGER,fingerprint TEXT,state TEXT,snapshot_json TEXT);"
         + "CREATE TABLE issue_team_events(dispatch_id TEXT,sequence INTEGER,event_type TEXT,state TEXT);");
       database.prepare("INSERT INTO issue_team_runs VALUES(?,?,?,?,?)").run("dispatch", 1, "fingerprint", "completed", JSON.stringify(snapshot));
       database.prepare("INSERT INTO issue_team_events VALUES(?,?,?,?)").run("dispatch", 1, "team_completed", "completed");
       database.close();
-      writeFileSync(receiptPath, JSON.stringify({ status: "passed", claimAllowed: true, receipts: [roleReceipt], assertions: {} }));
+      const original = { schemaVersion: 1, benchmarkId: "mixed-issue-team-live-v1", status: "passed",
+        paidCalls: 1, maximumPaidCalls: 7, profile,
+        result: { ok: true, changedFiles: ["result.txt"], cleanCycles: 1, repairCycles: 0 },
+        assertions: { exactArtifacts: true, evidenceComplete: false, mixedAppsObserved: false,
+          roleKinds: { explorer: "claude-code" } }, claimAllowed: true, receipts: [roleReceipt] };
+      writeFileSync(receiptPath, JSON.stringify(original));
       const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repositoryRoot, encoding: "utf8" }).trim();
       const sealerPath = join(repositoryRoot, "benchmark/seal-mixed-issue-team-live.mjs");
       const sealed = spawnSync(process.execPath, [sealerPath, "--receipt", receiptPath, "--source-commit", sourceCommit], { cwd: repositoryRoot, encoding: "utf8" });
@@ -75,10 +90,19 @@ describe("mixed issue-team paid live benchmark contract", () => {
       expect(parsed).toMatchObject({ artifactRoot: expect.stringContaining("receipt.json.artifacts"),
         assertions: { durableEvidenceEmbedded: true, receiptMatchesDurableSnapshot: true },
         embeddedEvidence: { sourceCommit, durableRun: { state: "completed" } } });
-      parsed.receipts[0].inputTokens = 999; writeFileSync(receiptPath, JSON.stringify(parsed));
-      const tampered = spawnSync(process.execPath, [sealerPath, "--receipt", receiptPath, "--source-commit", sourceCommit], { cwd: repositoryRoot, encoding: "utf8" });
-      expect(tampered.status).not.toBe(0);
-      expect(tampered.stderr).toContain("receipt projection does not match the durable SQLite snapshot");
+      const tamperedCases = [
+        { name: "receipt", mutate: (value: any) => { value.receipts[0].inputTokens = 999; }, message: "receipt projection" },
+        { name: "paid calls", mutate: (value: any) => { value.paidCalls = 2; }, message: "receipt summary" },
+        { name: "profile", mutate: (value: any) => { value.profile.roles.explorer.binding.model = "other"; }, message: "profile does not match" },
+        { name: "result", mutate: (value: any) => { value.result.cleanCycles = 2; }, message: "receipt summary" },
+        { name: "assertions", mutate: (value: any) => { value.assertions.exactArtifacts = false; }, message: "receipt summary" },
+      ];
+      for (const candidate of tamperedCases) {
+        const value = structuredClone(original); candidate.mutate(value); writeFileSync(receiptPath, JSON.stringify(value));
+        const tampered = spawnSync(process.execPath, [sealerPath, "--receipt", receiptPath, "--source-commit", sourceCommit], { cwd: repositoryRoot, encoding: "utf8" });
+        expect(tampered.status, candidate.name).not.toBe(0);
+        expect(tampered.stderr, candidate.name).toContain(candidate.message);
+      }
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });
