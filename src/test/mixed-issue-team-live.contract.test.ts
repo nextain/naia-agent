@@ -2,7 +2,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 
@@ -51,7 +51,7 @@ describe("mixed issue-team paid live benchmark contract", () => {
     expect(source).toContain("const runId = randomUUID()");
     expect(source).toContain('modelIdentity: "adapter_requested_not_provider_observed"');
     expect(source).toContain('providerIdentity: "adapter_declared_not_provider_observed"');
-    expect(source).toContain('verificationPortability: "clean_checkout_after_locked_install_and_build"');
+    expect(source).toContain('verificationPortability: "linux_clean_checkout_after_locked_install_and_build"');
     expect(sealer).toContain("artifact binding does not match its execution path");
     expect(sealer).toContain('execFileSync("git", ["diff", "--quiet", "HEAD", "--"]');
     expect(sealer).toContain("current benchmark source or execution runtime closure does not match the live run");
@@ -148,7 +148,7 @@ describe("mixed issue-team paid live benchmark contract", () => {
         paidCalls: 7, maximumPaidCalls: 7, profile, claimScope: { sessionIdentity: "provider_reported",
           providerIdentity: "adapter_declared_not_provider_observed",
           modelIdentity: "adapter_requested_not_provider_observed", capability: "mixed_adapter_execution",
-          verificationPortability: "clean_checkout_after_locked_install_and_build" },
+          verificationPortability: "linux_clean_checkout_after_locked_install_and_build" },
         result: { ok: true, changedFiles: ["result.txt"], cleanCycles: 1, repairCycles: 1 },
         assertions: { exactArtifacts: true, evidenceComplete: true, mixedAppsObserved: true,
           roleKinds: { explorer: "claude-code", implementer: "opencode", tester: "codex", reviewer: "codex" } },
@@ -156,6 +156,16 @@ describe("mixed issue-team paid live benchmark contract", () => {
       Object.assign(original, { artifactBindingPath, executionArtifactRoot });
       writeFileSync(receiptPath, JSON.stringify(original));
       const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repositoryRoot, encoding: "utf8" }).trim();
+      const raced = spawnSync(process.execPath, ["--input-type=module", "-e",
+        `import { writeFileSync } from "node:fs";
+         const { sealMixedIssueTeamLive } = await import(${JSON.stringify(pathToFileURL(sealerPath).href)});
+         sealMixedIssueTeamLive({ receiptPath: ${JSON.stringify(receiptPath)}, sourceCommit: ${JSON.stringify(sourceCommit)},
+           requireCurrentSourceMatch: true,
+           beforeFinalEvidenceCheck: () => writeFileSync(${JSON.stringify(join(fixtureRoot, "result.txt"))}, "RACED\\n") });`],
+      { cwd: repositoryRoot, encoding: "utf8", env: { ...process.env, ...executableEnvironment } });
+      expect(raced.status).not.toBe(0);
+      expect(raced.stderr).toContain("fixture evidence changed before the sealing commit point");
+      writeFileSync(join(fixtureRoot, "result.txt"), "NAIA_MIXED_TEAM_OK\n");
       const sealed = spawnSync(process.execPath,
         [sealerPath, "--receipt", receiptPath, "--source-commit", sourceCommit, "--seal-unsealed"],
         { cwd: repositoryRoot, encoding: "utf8" });

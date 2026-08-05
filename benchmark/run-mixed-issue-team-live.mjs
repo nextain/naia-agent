@@ -35,7 +35,7 @@ const artifactBindingPath = relative(repositoryRoot, artifactRoot).split("\\").j
 const runBinding = createHash("sha256").update(`${runId}\0${artifactBindingPath}`).digest("hex");
 const claimScope = { sessionIdentity: "provider_reported", providerIdentity: "adapter_declared_not_provider_observed",
   modelIdentity: "adapter_requested_not_provider_observed",
-  capability: "mixed_adapter_execution", verificationPortability: "clean_checkout_after_locked_install_and_build" };
+  capability: "mixed_adapter_execution", verificationPortability: "linux_clean_checkout_after_locked_install_and_build" };
 writeFileSync(outputPath, `${JSON.stringify({ schemaVersion: 1, benchmarkId, status: "running",
   runId, paidCalls: 0, maximumPaidCalls: 7, artifactRoot, artifactBindingPath, executionArtifactRoot,
   claimScope }, null, 2)}\n`, { mode: 0o600, flag: "wx" });

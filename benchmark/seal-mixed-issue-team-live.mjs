@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-import { createHash, randomUUID } from "node:crypto";
-import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, readdirSync, realpathSync,
-  renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { closeSync, constants, fstatSync, fsyncSync, ftruncateSync, lstatSync, openSync, readFileSync, readdirSync,
+  realpathSync, statSync, writeSync } from "node:fs";
 import { createRequire } from "node:module";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -42,7 +42,7 @@ export function captureMixedLiveExecutionEvidence(repositoryRoot) {
 }
 
 export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, requireCurrentSourceMatch = false,
-  verifyExistingSeal = false }) {
+  verifyExistingSeal = false, beforeFinalEvidenceCheck }) {
   const receiptPath = resolve(inputPath);
   if (!sourceCommit || !/^[0-9a-f]{40}$/u.test(sourceCommit)) throw new Error("source commit must be full 40-hex");
   const repositoryRoot = git(dirname(receiptPath), ["rev-parse", "--show-toplevel"]);
@@ -50,7 +50,11 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
   const receiptParentFd = openPathFromRepository(repositoryRoot, receiptParentPath, "directory");
   const receiptParentIdentity = fstatSync(receiptParentFd);
   try {
-  const receiptBytes = readChildNoFollow(receiptParentFd, basename(receiptPath));
+  const receiptFd = openChildNoFollow(receiptParentFd, basename(receiptPath), "file",
+    verifyExistingSeal ? constants.O_RDONLY : constants.O_RDWR);
+  const receiptIdentity = fstatSync(receiptFd);
+  try {
+  const receiptBytes = readFileSync(receiptFd);
   const receipt = JSON.parse(receiptBytes.toString("utf8"));
   if (receipt.status !== "passed" || receipt.claimAllowed !== true || !Array.isArray(receipt.receipts)) {
     throw new Error("only a passed, claim-allowed mixed-team receipt can be sealed");
@@ -146,7 +150,7 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
     mixedAppsObserved: new Set(projected.map((value) => value.agentKind)).size === 3, roleKinds };
   const claimScope = { sessionIdentity: "provider_reported", providerIdentity: "adapter_declared_not_provider_observed",
     modelIdentity: "adapter_requested_not_provider_observed",
-    capability: "mixed_adapter_execution", verificationPortability: "clean_checkout_after_locked_install_and_build" };
+    capability: "mixed_adapter_execution", verificationPortability: "linux_clean_checkout_after_locked_install_and_build" };
   const convergencePaths = coreResult.repairCycles === 0 ? [{
     roles: ["explorer", "implementer", "tester", "reviewer"],
     decisions: ["explorer:proceed", "implementer:implemented", "tester:pass", "reviewer:clean"],
@@ -184,6 +188,8 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
     sqliteSha256: sqliteFiles.find((value) => value.path === "team.db").sha256,
     durableRun, durableRunSha256: sha256(Buffer.from(JSON.stringify(durableRun))), events, fixture };
   const expectedAssertions = { ...coreAssertions, durableEvidenceEmbedded: true, receiptMatchesDurableSnapshot: true };
+  beforeFinalEvidenceCheck?.();
+  assertArtifactSnapshot(artifactFd, databaseIdentity, sqliteFiles[0].sha256, fixture);
   assertChildMatchesDescriptor(receiptParentFd, basename(artifactRoot), artifactIdentity, "directory");
   assertPathMatchesDescriptor(receiptParentPath, receiptParentIdentity, "directory");
   if (verifyExistingSeal) {
@@ -200,9 +206,13 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
   if (receipt.embeddedEvidence !== undefined) throw new Error("receipt is already sealed; use sealed verification mode");
   const sealed = { ...receipt, artifactRoot: expectedArtifactRoot, embeddedEvidence: expectedEmbeddedEvidence,
     assertions: expectedAssertions };
-  writeJsonAtomicAt(receiptParentFd, basename(receiptPath), sealed);
+  writeJsonBoundFile(receiptParentFd, basename(receiptPath), receiptFd, receiptIdentity, sealed);
+  assertArtifactSnapshot(artifactFd, databaseIdentity, sqliteFiles[0].sha256, fixture);
+  assertChildMatchesDescriptor(receiptParentFd, basename(artifactRoot), artifactIdentity, "directory");
+  assertPathMatchesDescriptor(receiptParentPath, receiptParentIdentity, "directory");
   return sealed;
   } finally { closeSync(artifactFd); }
+  } finally { closeSync(receiptFd); }
   } finally { closeSync(receiptParentFd); }
 }
 
@@ -427,9 +437,11 @@ function openChildNoFollow(parentFd, name, expectedKind, flags) {
     if (["ELOOP", "ENOTDIR"].includes(error?.code)) throw new Error("evidence path contains a symbolic link");
     throw error;
   }
-  const stat = fstatSync(fd); const valid = expectedKind === "file" ? stat.isFile() : stat.isDirectory();
-  if (!valid) { closeSync(fd); throw new Error(`evidence path is not a regular ${expectedKind}`); }
-  return fd;
+  try {
+    const stat = fstatSync(fd); const valid = expectedKind === "file" ? stat.isFile() : stat.isDirectory();
+    if (!valid) throw new Error(`evidence path is not a regular ${expectedKind}`);
+    return fd;
+  } catch (error) { closeSync(fd); throw error; }
 }
 
 function readChildNoFollow(parentFd, name) {
@@ -440,8 +452,8 @@ function readChildNoFollow(parentFd, name) {
 function normalizeSqliteToDeleteJournal(path) {
   if (process.platform !== "linux") throw new Error("secure descriptor-backed SQLite evidence verification requires Linux");
   const fd = openSync(path, constants.O_RDWR | (constants.O_NOFOLLOW ?? 0));
-  if (!fstatSync(fd).isFile()) { closeSync(fd); throw new Error("SQLite evidence is not a regular file"); }
   try {
+    if (!fstatSync(fd).isFile()) throw new Error("SQLite evidence is not a regular file");
     const database = new Database(`/proc/self/fd/${fd}`, { fileMustExist: true });
     try {
       database.pragma("wal_checkpoint(TRUNCATE)");
@@ -463,14 +475,40 @@ function assertChildMatchesDescriptor(parentFd, name, descriptorIdentity, expect
 }
 
 function assertPathMatchesDescriptor(path, descriptorIdentity, expectedKind) {
-  const fd = openSync(path, constants.O_RDONLY
-    | (expectedKind === "directory" ? constants.O_DIRECTORY : 0) | (constants.O_NOFOLLOW ?? 0));
+  let fd;
   try {
+    fd = openSync(path, constants.O_RDONLY
+      | (expectedKind === "directory" ? constants.O_DIRECTORY : 0) | (constants.O_NOFOLLOW ?? 0));
     const current = fstatSync(fd); const kindMatches = expectedKind === "file" ? current.isFile() : current.isDirectory();
     if (!kindMatches || current.dev !== descriptorIdentity.dev || current.ino !== descriptorIdentity.ino) {
       throw new Error("evidence path changed during descriptor-backed verification");
     }
-  } finally { closeSync(fd); }
+  } finally { if (fd !== undefined) closeSync(fd); }
+}
+
+function assertArtifactSnapshot(artifactFd, databaseIdentity, databaseSha256, fixture) {
+  const names = readdirSync(`/proc/self/fd/${artifactFd}`).filter((name) => name.startsWith("team.db")).sort();
+  if (JSON.stringify(names) !== JSON.stringify(["team.db"])) {
+    throw new Error("SQLite evidence changed before the sealing commit point");
+  }
+  const databaseFd = openChildNoFollow(artifactFd, "team.db", "file", constants.O_RDONLY);
+  try {
+    const current = fstatSync(databaseFd);
+    if (current.dev !== databaseIdentity.dev || current.ino !== databaseIdentity.ino
+      || sha256(readFileSync(databaseFd)) !== databaseSha256) {
+      throw new Error("SQLite evidence changed before the sealing commit point");
+    }
+  } finally { closeSync(databaseFd); }
+  const fixtureFd = openChildNoFollow(artifactFd, "fixture", "directory", constants.O_RDONLY);
+  try {
+    const current = readdirSync(`/proc/self/fd/${fixtureFd}`).sort().map((name) => {
+      const bytes = readChildNoFollow(fixtureFd, name);
+      return { path: name, byteLength: bytes.length, sha256: sha256(bytes), hex: bytes.toString("hex") };
+    });
+    if (JSON.stringify(current) !== JSON.stringify(fixture)) {
+      throw new Error("fixture evidence changed before the sealing commit point");
+    }
+  } finally { closeSync(fixtureFd); }
 }
 
 function assertTrackedEvidence(repositoryRoot, receiptPath, artifactRoot, receiptBytes, databaseBytes, fixture) {
@@ -488,17 +526,16 @@ function assertTrackedEvidence(repositoryRoot, receiptPath, artifactRoot, receip
   execFileSync("git", ["diff", "--cached", "--quiet", "HEAD", "--", ...paths], { cwd: repositoryRoot });
 }
 
-function writeJsonAtomicAt(parentFd, name, value) {
-  const parent = `/proc/self/fd/${parentFd}`; const path = join(parent, name);
-  const temporary = join(parent, `.${name}.${randomUUID()}.tmp`);
-  let fd;
-  try {
-    fd = openSync(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0), 0o600);
-    writeFileSync(fd, `${JSON.stringify(value, null, 2)}\n`); closeSync(fd); fd = undefined;
-    renameSync(temporary, path);
-  } finally {
-    if (fd !== undefined) closeSync(fd);
-    try { unlinkSync(temporary); } catch { /* renamed or never created */ }
+function writeJsonBoundFile(parentFd, name, receiptFd, receiptIdentity, value) {
+  assertChildMatchesDescriptor(parentFd, name, receiptIdentity, "file");
+  const bytes = Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
+  ftruncateSync(receiptFd, 0);
+  let offset = 0;
+  while (offset < bytes.length) offset += writeSync(receiptFd, bytes, offset, bytes.length - offset, offset);
+  fsyncSync(receiptFd);
+  assertChildMatchesDescriptor(parentFd, name, receiptIdentity, "file");
+  if (!readFileSync(`/proc/self/fd/${receiptFd}`).equals(bytes)) {
+    throw new Error("sealed receipt bytes changed during the bound write");
   }
 }
 
