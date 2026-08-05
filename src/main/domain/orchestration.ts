@@ -48,6 +48,8 @@ export interface SubAgentModelEvidence {
   readonly usageAvailable?: boolean;
   readonly piEstimatedCost?: number;
   readonly sessionId?: string;
+  /** Whether sessionId came from the provider process or is only an adapter-local correlation ID. */
+  readonly sessionEvidenceSource?: "provider_reported" | "adapter_generated";
   readonly executionId?: string;
   readonly measuredCostUsd?: number;
   /** Request-level atomic gateway receipts. Operational evidence; not an independent attestation. */

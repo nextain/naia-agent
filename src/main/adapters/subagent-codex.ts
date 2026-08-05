@@ -213,7 +213,9 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
               ...(opts.reasoningEffort ? { reasoningEffort: opts.reasoningEffort } : {}),
               inputTokens, cachedInputTokens, outputTokens, totalTokens: inputTokens + outputTokens,
               usageAvailable: Boolean(usage),
-              sessionId: threadId ?? executionId, executionId,
+              sessionId: threadId ?? executionId,
+              sessionEvidenceSource: threadId ? "provider_reported" : "adapter_generated",
+              executionId,
               ...(measuredCostUsd !== undefined ? { measuredCostUsd } : {}),
             },
           };

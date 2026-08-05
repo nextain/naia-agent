@@ -25,6 +25,7 @@ describe("mixed issue-team paid live benchmark contract", () => {
     expect(source).toContain('resultBytes === "NAIA_MIXED_TEAM_OK\\n"');
     expect(source).toContain('seedBytes === "SEED_MUST_STAY\\n"');
     expect(source).toContain("const evidenceComplete = receipts.length >= 4");
+    expect(source).toContain('receipt.sessionEvidenceSource === "provider_reported"');
     expect(source).toContain("const mixedAppsObserved = new Set(receipts.map((receipt) => receipt.agentKind)).size === 3");
     expect(source).toContain("claimAllowed: passed");
   });

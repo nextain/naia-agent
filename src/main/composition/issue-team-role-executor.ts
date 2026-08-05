@@ -69,6 +69,7 @@ export function makeIssueTeamRoleExecutor(options: IssueTeamRoleExecutorOptions)
         provider: evidence.provider, model: evidence.selectedModel,
         ...(evidence.reasoningEffort ? { reasoningEffort: evidence.reasoningEffort } : {}),
         sessionId: evidence.sessionId, executionId: evidence.executionId, idempotencyKey: input.stepId,
+        ...(evidence.sessionEvidenceSource ? { sessionEvidenceSource: evidence.sessionEvidenceSource } : {}),
         tokenCountsAvailable: evidence.usageAvailable === true,
         inputTokens: evidence.usageAvailable === true ? evidence.inputTokens : 0,
         cachedInputTokens: evidence.usageAvailable === true ? evidence.cachedInputTokens ?? 0 : 0,

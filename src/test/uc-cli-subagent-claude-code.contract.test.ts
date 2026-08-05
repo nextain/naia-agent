@@ -92,7 +92,8 @@ describe("subagent-claude-code 어댑터 계약 (SPEC-010 확장, fake child)", 
     const end = events.at(-1) as Extract<SubAgentEvent, { kind: "session_end" }>;
     expect(end.evidence).toMatchObject({
       provider: "claude-code", selectedModel: "sonnet", modelEvidenceSource: "adapter_requested",
-      sessionId: "claude-session", inputTokens: 43766, cachedInputTokens: 15912,
+      sessionId: "claude-session", sessionEvidenceSource: "provider_reported",
+      inputTokens: 43766, cachedInputTokens: 15912,
       outputTokens: 20, totalTokens: 43786, usageAvailable: true,
       measuredCostUsd: 0.1721916,
     });
@@ -109,6 +110,7 @@ describe("subagent-claude-code 어댑터 계약 (SPEC-010 확장, fake child)", 
     const end = events.at(-1) as Extract<SubAgentEvent, { kind: "session_end" }>;
     expect(end.evidence).toMatchObject({ usageAvailable: false, inputTokens: 0, outputTokens: 0, totalTokens: 0 });
     expect(end.evidence?.sessionId).toBe("bad-session");
+    expect(end.evidence?.sessionEvidenceSource).toBe("provider_reported");
     expect(end.evidence?.measuredCostUsd).toBeUndefined();
   });
 

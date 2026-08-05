@@ -91,6 +91,7 @@ try {
   const receipts = result.receipts ?? [];
   const roleKinds = Object.fromEntries(receipts.map((receipt) => [receipt.workerRole, receipt.agentKind]));
   const evidenceComplete = receipts.length >= 4 && receipts.every((receipt) => receipt.sessionId
+    && receipt.sessionEvidenceSource === "provider_reported"
     && receipt.executionId && receipt.provider && receipt.model);
   const exactArtifacts = resultBytes === "NAIA_MIXED_TEAM_OK\n" && seedBytes === "SEED_MUST_STAY\n"
     && JSON.stringify(files) === JSON.stringify(["result.txt", "seed.txt"]);
@@ -102,7 +103,8 @@ try {
     assertions: { exactArtifacts, evidenceComplete, mixedAppsObserved, roleKinds },
     receipts: receipts.map((receipt) => ({ workerRole: receipt.workerRole, agentKind: receipt.agentKind,
       provider: receipt.provider, model: receipt.model, reasoningEffort: receipt.reasoningEffort,
-      sessionId: receipt.sessionId, executionId: receipt.executionId,
+      sessionId: receipt.sessionId, sessionEvidenceSource: receipt.sessionEvidenceSource,
+      executionId: receipt.executionId,
       tokenCountsAvailable: receipt.tokenCountsAvailable, inputTokens: receipt.inputTokens,
       cachedInputTokens: receipt.cachedInputTokens, outputTokens: receipt.outputTokens, cost: receipt.cost })),
     diagnostics, artifactRoot, claimAllowed: passed };

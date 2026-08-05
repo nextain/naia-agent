@@ -112,6 +112,7 @@ export function makeOpencodeLineParser(
   let cost = 0;
   let pricedSteps = 0;
   let sessionId = base.sessionId;
+  let sessionEvidenceSource = base.sessionEvidenceSource;
   return (line) => {
     const semantic = opencodeLineToEvent(line);
     if (semantic) return semantic;
@@ -128,7 +129,9 @@ export function makeOpencodeLineParser(
       cost += raw.part.cost;
       pricedSteps += 1;
     }
-    sessionId = nonemptyString(raw.sessionID) ?? nonemptyString(raw.part.sessionID) ?? sessionId;
+    const reportedSessionId = nonemptyString(raw.sessionID) ?? nonemptyString(raw.part.sessionID);
+    sessionId = reportedSessionId ?? sessionId;
+    if (reportedSessionId) sessionEvidenceSource = "provider_reported";
     const input = uncachedInput + cachedInput;
     onEvidence({
       ...base,
@@ -138,6 +141,7 @@ export function makeOpencodeLineParser(
       totalTokens: input + output,
       usageAvailable: true,
       ...(sessionId ? { sessionId } : {}),
+      ...(sessionEvidenceSource ? { sessionEvidenceSource } : {}),
       ...(pricedSteps > 0 ? { measuredCostUsd: cost } : {}),
     });
     return null;
@@ -174,6 +178,7 @@ export function makeOpencodeSubAgent(opts: SubAgentOpencodeOptions = {}): SubAge
         modelEvidenceSource: "adapter_requested",
         inputTokens: 0, outputTokens: 0, totalTokens: 0, cachedInputTokens: 0,
         usageAvailable: false, sessionId, executionId,
+        sessionEvidenceSource: "adapter_generated",
       };
       const session = spawnSubprocessSession({
         spawnFn, bin, args, cwd: task.workdir, hardKillMs,

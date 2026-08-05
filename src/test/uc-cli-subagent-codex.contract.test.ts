@@ -59,6 +59,7 @@ describe("subagent-codex 어댑터 계약 (SPEC-010 확장, fake child)", () => 
     expect((events[3] as Extract<SubAgentEvent, { kind: "session_end" }>).ok).toBe(true);
     expect((events[3] as Extract<SubAgentEvent, { kind: "session_end" }>).evidence).toMatchObject({
       provider: "openai-codex", selectedModel: "codex-default", sessionId: "th_1",
+      sessionEvidenceSource: "provider_reported",
       inputTokens: 10, cachedInputTokens: 4, outputTokens: 2,
     });
   });

@@ -33,6 +33,7 @@ export interface ActorReceipt {
   readonly model: string;
   readonly reasoningEffort?: string;
   readonly sessionId: string;
+  readonly sessionEvidenceSource?: "provider_reported" | "adapter_generated";
   readonly executionId: string;
   readonly idempotencyKey: string;
   readonly tokenCountsAvailable: boolean;

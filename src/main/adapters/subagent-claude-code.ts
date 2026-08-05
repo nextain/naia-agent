@@ -131,7 +131,7 @@ export function createClaudeLineParser(
 
     const reportedSessionId = nonemptyString(raw.session_id);
     if (evidence && reportedSessionId) {
-      evidence = { ...evidence, sessionId: reportedSessionId };
+      evidence = { ...evidence, sessionId: reportedSessionId, sessionEvidenceSource: "provider_reported" };
       onEvidence?.(evidence);
     }
 
@@ -175,7 +175,7 @@ export function createClaudeLineParser(
           outputTokens,
           totalTokens,
           usageAvailable: true,
-          ...(reportedSessionId ? { sessionId: reportedSessionId } : {}),
+          ...(reportedSessionId ? { sessionId: reportedSessionId, sessionEvidenceSource: "provider_reported" as const } : {}),
           ...(measuredCostUsd !== undefined ? { measuredCostUsd } : {}),
         };
         onEvidence?.(evidence);
@@ -222,6 +222,7 @@ export function makeClaudeCodeSubAgent(opts: SubAgentClaudeCodeOptions = {}): Su
         cachedInputTokens: 0,
         usageAvailable: false,
         sessionId: randomUUID(),
+        sessionEvidenceSource: "adapter_generated",
         executionId: randomUUID(),
       };
       const session = spawnSubprocessSession({
