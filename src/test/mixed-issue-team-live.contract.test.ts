@@ -1,6 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
@@ -138,6 +138,14 @@ describe("mixed issue-team paid live benchmark contract", () => {
         expect(tampered.status, candidate.name).not.toBe(0);
         expect(tampered.stderr, candidate.name).toContain(candidate.message);
       }
+      const resultPath = join(fixtureRoot, "result.txt"); const symlinkTarget = join(artifactRoot, "same-result.txt");
+      writeFileSync(symlinkTarget, "NAIA_MIXED_TEAM_OK\n"); rmSync(resultPath);
+      symlinkSync(symlinkTarget, resultPath); writeFileSync(receiptPath, JSON.stringify(original));
+      const symlinkedArtifact = spawnSync(process.execPath,
+        [sealerPath, "--receipt", receiptPath, "--source-commit", sourceCommit], { cwd: repositoryRoot, encoding: "utf8" });
+      expect(symlinkedArtifact.status).not.toBe(0);
+      expect(symlinkedArtifact.stderr).toContain("evidence path contains a symbolic link");
+      rmSync(resultPath); writeFileSync(resultPath, "NAIA_MIXED_TEAM_OK\n"); rmSync(symlinkTarget);
       writeFileSync(receiptPath, JSON.stringify(original));
       const tamperedDatabase = new Database(join(artifactRoot, "team.db"));
       tamperedDatabase.prepare("UPDATE issue_team_events SET state='ready' WHERE sequence=2").run(); tamperedDatabase.close();

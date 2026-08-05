@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { lstatSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
@@ -41,6 +41,7 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
   const receiptPath = resolve(inputPath);
   if (!sourceCommit || !/^[0-9a-f]{40}$/u.test(sourceCommit)) throw new Error("source commit must be full 40-hex");
   const repositoryRoot = git(dirname(receiptPath), ["rev-parse", "--show-toplevel"]);
+  assertNoSymlinkPath(repositoryRoot, receiptPath, "file");
   const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
   if (receipt.status !== "passed" || receipt.claimAllowed !== true || !Array.isArray(receipt.receipts)) {
     throw new Error("only a passed, claim-allowed mixed-team receipt can be sealed");
@@ -49,6 +50,8 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
 
   const artifactRoot = `${receiptPath}.artifacts`;
   const databasePath = join(artifactRoot, "team.db");
+  assertNoSymlinkPath(repositoryRoot, artifactRoot, "directory");
+  assertNoSymlinkPath(repositoryRoot, databasePath, "file");
   const database = new Database(databasePath, { readonly: true, fileMustExist: true });
   const runs = database.prepare("SELECT dispatch_id,version,fingerprint,state,snapshot_json FROM issue_team_runs").all();
   const events = database.prepare("SELECT dispatch_id,sequence,event_type,state FROM issue_team_events ORDER BY dispatch_id,sequence").all();
@@ -71,8 +74,10 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
   }
 
   const fixtureRoot = join(artifactRoot, "fixture");
+  assertNoSymlinkPath(repositoryRoot, fixtureRoot, "directory");
   const fixture = readdirSync(fixtureRoot).sort().map((name) => {
-    const bytes = readFileSync(join(fixtureRoot, name));
+    const path = join(fixtureRoot, name); assertNoSymlinkPath(repositoryRoot, path, "file");
+    const bytes = readFileSync(path);
     return { path: name, byteLength: bytes.length, sha256: sha256(bytes), hex: bytes.toString("hex") };
   });
   if (JSON.stringify(fixture.map(({ path }) => path)) !== JSON.stringify(["result.txt", "seed.txt"])
@@ -212,7 +217,7 @@ function digestDirectory(root) {
   const entries = [];
   const visit = (directory) => {
     for (const name of readdirSync(directory).sort()) {
-      const path = join(directory, name); const stat = statSync(path);
+      const path = join(directory, name); const stat = lstatSync(path);
       if (stat.isDirectory()) visit(path);
       else if (stat.isFile()) entries.push([relative(root, path).split("\\").join("/"), sha256(readFileSync(path))]);
       else throw new Error("runtime closure contains a non-regular entry");
@@ -220,6 +225,23 @@ function digestDirectory(root) {
   };
   visit(root);
   return { fileCount: entries.length, manifestSha256: sha256(Buffer.from(JSON.stringify(entries))) };
+}
+
+function assertNoSymlinkPath(repositoryRoot, targetPath, expectedKind) {
+  const root = resolve(repositoryRoot); const target = resolve(targetPath); const pathFromRoot = relative(root, target);
+  if (!pathFromRoot || pathFromRoot.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)
+    || pathFromRoot === ".." || isAbsolute(pathFromRoot)) {
+    throw new Error("evidence path must be inside the repository");
+  }
+  let cursor = root;
+  for (const part of pathFromRoot.split(/[\\/]/u)) {
+    cursor = join(cursor, part); const stat = lstatSync(cursor);
+    if (stat.isSymbolicLink()) throw new Error("evidence path contains a symbolic link");
+    if (cursor !== target && !stat.isDirectory()) throw new Error("evidence path parent is not a directory");
+    if (cursor === target && (expectedKind === "file" ? !stat.isFile() : !stat.isDirectory())) {
+      throw new Error(`evidence path is not a regular ${expectedKind}`);
+    }
+  }
 }
 
 function stableJson(value) {
