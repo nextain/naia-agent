@@ -1,7 +1,9 @@
 {
   "schemaVersion": 1,
   "benchmarkId": "mixed-issue-team-live-v1",
-  "status": "passed",
+  "status": "superseded_invalid",
+  "reason": "The sealed artifact paths were not yet proven to be regular, non-symlinked files and directories.",
+  "supersededBy": ".agents/reviews/r-mixed-issue-team-live-v8-2026-08-06.json",
   "paidCalls": 4,
   "maximumPaidCalls": 7,
   "profile": {
@@ -59,7 +61,7 @@
   },
   "assertions": {
     "exactArtifacts": true,
-    "evidenceComplete": true,
+    "evidenceComplete": false,
     "mixedAppsObserved": true,
     "roleKinds": {
       "explorer": "claude-code",
@@ -203,7 +205,7 @@
     }
   },
   "artifactRoot": ".agents/reviews/r-mixed-issue-team-live-v7-2026-08-06.json.artifacts",
-  "claimAllowed": true,
+  "claimAllowed": false,
   "embeddedEvidence": {
     "sourceCommit": "6c97c41c7b6b28ed8a846315fc62c6978a8589a1",
     "sourceTree": "23fc0a6571ad0a602b95283b8a1f476dec6b54f5",
