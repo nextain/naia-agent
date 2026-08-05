@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1.0",
   "benchmarkId": "uc-orch-002-deterministic-v1",
-  "sourceRevision": "aee9d6b2f3f9abd53f6573bf16145de29b879a61",
+  "sourceRevision": "abb7b16b6c8e2b272697e0b9d3ce2d70ce47eb77",
   "paidCalls": 0,
   "observation": {
     "submitted": 4,

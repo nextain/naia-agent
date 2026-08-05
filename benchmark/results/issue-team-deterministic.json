@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "benchmarkId": "naia-issue-team-deterministic-v1",
-  "sourceRevision": "aee9d6b2f3f9abd53f6573bf16145de29b879a61",
+  "sourceRevision": "abb7b16b6c8e2b272697e0b9d3ce2d70ce47eb77",
   "paidCalls": 0,
   "observation": {
     "roleOrderMatches": true,
@@ -29,7 +29,7 @@
       "src/main/app/issue-team-worker.ts": "0e091f480a99eb37d607b99f9a967b2dd680741da206757cc58c4c2a32f25fba",
       "src/main/adapters/sqlite-issue-team-store.ts": "6e604d24435d9e8de1135547fd60e730a543e6cbc1b32bc98bb054e41ce2951c",
       "src/main/adapters/subagent-pi.ts": "ad3c3fc9b4f683862d0689f700b7ac6ca2181d8e5e2d01324e79335eb3208eba",
-      "src/main/adapters/subagent-opencode-cli.ts": "556a673d7f16a8d7b40802e16696ad04cd06238b6bbfeba0e82bde9fe19cf7ec",
+      "src/main/adapters/subagent-opencode-cli.ts": "63c236aaf42d7f6594d686995c83e9247efe5293a5c306c85069eae16fc538b9",
       "src/main/adapters/subagent-codex.ts": "6c4616231b333ba1b8bedc3b2199e4598b3ba814af48e3e325aaf423e304a1ad",
       "src/main/domain/issue-team.ts": "f10f8183e28d5eab2aec9fee55aa72d894d48dc8eef8d4bbbd25f0d4beac2ddf",
       "src/main/domain/issue-team-benchmark.ts": "56b2ec0d2a35e28f7762453db07bbf1b916f13ce1996678c8054d335a8d69ebc",
@@ -49,7 +49,7 @@
       "dist/main/app/issue-team-worker.js": "93b3a9e73c67d60d96c20c9abc2cbfc2af87b6747eeffdf2683f93eefa9215f9",
       "dist/main/adapters/sqlite-issue-team-store.js": "5de30dd40d3b7e94adcba686228276ef257a0d9dfcbacb7e57de8800b8b710c8",
       "dist/main/adapters/subagent-pi.js": "aba537ba4285b55eb8344e7112337b55a7bdb4f25b49dbcc39715307ac6404a7",
-      "dist/main/adapters/subagent-opencode-cli.js": "1129d7ad082ad4c7eaf6bc65d261702dff79c587407671019e47a3150ef701ba",
+      "dist/main/adapters/subagent-opencode-cli.js": "dc165cc151b254cb838f464aaac5021aba27edc83f5b2b3dfcb7ab880ca3c930",
       "dist/main/adapters/subagent-codex.js": "4f0ddb5d9ef03e23c75f97bb695b753b1047700e64e22228fe740f4a828d3269",
       "dist/main/domain/issue-team-benchmark.js": "b5f953546badfee9d31d42890f0641177387a526c0511a53ba095b6681effef0",
       "dist/main/composition/supervised-issue-worker.js": "b3bb1a7ab249633c487d016d44a5019b5e02b399f1dd07a550c5e8a92d243d02",
