@@ -42,6 +42,11 @@ describe("mixed issue-team paid live benchmark contract", () => {
     expect(sealer).toContain("receipt projection does not match the durable SQLite snapshot");
     expect(sealer).toContain("durableEvidenceEmbedded: true");
     expect(sealer).toContain("receiptMatchesDurableSnapshot: true");
+    expect(source).toContain("captureMixedLiveExecutionEvidence(repositoryRoot)");
+    expect(source).toContain("sealMixedIssueTeamLive({ receiptPath: outputPath");
+    expect(sealer).toContain('execFileSync("git", ["diff", "--quiet", "HEAD", "--"]');
+    expect(sealer).toContain("execution runtime closure changed before evidence sealing");
+    expect(sealer).toContain("SQLite event history is inconsistent with the completed run");
   });
 
   it("seals matching durable evidence and rejects a tampered receipt", () => {
@@ -67,23 +72,30 @@ describe("mixed issue-team paid live benchmark contract", () => {
         : value && typeof value === "object" ? `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b))
           .map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`).join(",")}}` : JSON.stringify(value);
       const profileDigest = createHash("sha256").update(stableJson(profile)).digest("hex");
-      const snapshot = { version: 1, dispatchId: "dispatch", fingerprint: "fingerprint", state: "completed",
+      const snapshot = { version: 3, dispatchId: "dispatch", fingerprint: "fingerprint", state: "completed",
         profileDigest, cleanCycles: 1, repairCycles: 0, receipts: [snapshotReceipt],
         result: { ok: true, changedFiles: ["result.txt"] } };
       const database = new Database(join(artifactRoot, "team.db"));
       database.exec("CREATE TABLE issue_team_runs(dispatch_id TEXT,version INTEGER,fingerprint TEXT,state TEXT,snapshot_json TEXT);"
         + "CREATE TABLE issue_team_events(dispatch_id TEXT,sequence INTEGER,event_type TEXT,state TEXT);");
-      database.prepare("INSERT INTO issue_team_runs VALUES(?,?,?,?,?)").run("dispatch", 1, "fingerprint", "completed", JSON.stringify(snapshot));
-      database.prepare("INSERT INTO issue_team_events VALUES(?,?,?,?)").run("dispatch", 1, "team_completed", "completed");
+      database.prepare("INSERT INTO issue_team_runs VALUES(?,?,?,?,?)").run("dispatch", 3, "fingerprint", "completed", JSON.stringify(snapshot));
+      const insertEvent = database.prepare("INSERT INTO issue_team_events VALUES(?,?,?,?)");
+      insertEvent.run("dispatch", 1, "team_created", "ready");
+      insertEvent.run("dispatch", 2, "role_claimed", "running");
+      insertEvent.run("dispatch", 3, "team_completed", "completed");
       database.close();
+      const sealerPath = join(repositoryRoot, "benchmark/seal-mixed-issue-team-live.mjs");
+      const captured = spawnSync(process.execPath,
+        [sealerPath, "--capture-execution-evidence", "--repository-root", repositoryRoot], { cwd: repositoryRoot, encoding: "utf8" });
+      expect(captured.status, captured.stderr).toBe(0);
+      const executionEvidence = JSON.parse(captured.stdout);
       const original = { schemaVersion: 1, benchmarkId: "mixed-issue-team-live-v1", status: "passed",
         paidCalls: 1, maximumPaidCalls: 7, profile,
         result: { ok: true, changedFiles: ["result.txt"], cleanCycles: 1, repairCycles: 0 },
         assertions: { exactArtifacts: true, evidenceComplete: false, mixedAppsObserved: false,
-          roleKinds: { explorer: "claude-code" } }, claimAllowed: true, receipts: [roleReceipt] };
+          roleKinds: { explorer: "claude-code" } }, executionEvidence, claimAllowed: true, receipts: [roleReceipt] };
       writeFileSync(receiptPath, JSON.stringify(original));
       const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repositoryRoot, encoding: "utf8" }).trim();
-      const sealerPath = join(repositoryRoot, "benchmark/seal-mixed-issue-team-live.mjs");
       const sealed = spawnSync(process.execPath, [sealerPath, "--receipt", receiptPath, "--source-commit", sourceCommit], { cwd: repositoryRoot, encoding: "utf8" });
       expect(sealed.status, sealed.stderr).toBe(0);
       const parsed = JSON.parse(readFileSync(receiptPath, "utf8"));
@@ -96,6 +108,7 @@ describe("mixed issue-team paid live benchmark contract", () => {
         { name: "profile", mutate: (value: any) => { value.profile.roles.explorer.binding.model = "other"; }, message: "profile does not match" },
         { name: "result", mutate: (value: any) => { value.result.cleanCycles = 2; }, message: "receipt summary" },
         { name: "assertions", mutate: (value: any) => { value.assertions.exactArtifacts = false; }, message: "receipt summary" },
+        { name: "source binding", mutate: (value: any) => { value.executionEvidence.sourceTree = "0".repeat(40); }, message: "execution evidence" },
       ];
       for (const candidate of tamperedCases) {
         const value = structuredClone(original); candidate.mutate(value); writeFileSync(receiptPath, JSON.stringify(value));
@@ -103,6 +116,12 @@ describe("mixed issue-team paid live benchmark contract", () => {
         expect(tampered.status, candidate.name).not.toBe(0);
         expect(tampered.stderr, candidate.name).toContain(candidate.message);
       }
+      writeFileSync(receiptPath, JSON.stringify(original));
+      const tamperedDatabase = new Database(join(artifactRoot, "team.db"));
+      tamperedDatabase.prepare("UPDATE issue_team_events SET state='ready' WHERE sequence=2").run(); tamperedDatabase.close();
+      const eventTamper = spawnSync(process.execPath, [sealerPath, "--receipt", receiptPath, "--source-commit", sourceCommit], { cwd: repositoryRoot, encoding: "utf8" });
+      expect(eventTamper.status).not.toBe(0);
+      expect(eventTamper.stderr).toContain("SQLite event history is inconsistent");
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });

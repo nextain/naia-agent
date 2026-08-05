@@ -1,119 +1,155 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import Database from "better-sqlite3";
 
-const receiptIndex = process.argv.indexOf("--receipt");
-const sourceIndex = process.argv.indexOf("--source-commit");
-const receiptPath = receiptIndex >= 0 ? resolve(process.argv[receiptIndex + 1] ?? "") : undefined;
-const sourceCommit = sourceIndex >= 0 ? process.argv[sourceIndex + 1] : undefined;
-if (!receiptPath || !sourceCommit || !/^[0-9a-f]{40}$/u.test(sourceCommit)) {
-  throw new Error("usage: seal-mixed-issue-team-live.mjs --receipt <path> --source-commit <40-hex commit>");
-}
+const scriptPath = fileURLToPath(import.meta.url);
 
-const repositoryRoot = execFileSync("git", ["rev-parse", "--show-toplevel"], {
-  cwd: dirname(receiptPath), encoding: "utf8",
-}).trim();
-execFileSync("git", ["cat-file", "-e", `${sourceCommit}^{commit}`], { cwd: repositoryRoot });
-
-const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
-if (receipt.status !== "passed" || receipt.claimAllowed !== true || !Array.isArray(receipt.receipts)) {
-  throw new Error("only a passed, claim-allowed mixed-team receipt can be sealed");
-}
-const artifactRoot = `${receiptPath}.artifacts`;
-const databasePath = join(artifactRoot, "team.db");
-const database = new Database(databasePath, { readonly: true, fileMustExist: true });
-const run = database.prepare("SELECT dispatch_id,version,fingerprint,state,snapshot_json FROM issue_team_runs").all();
-const events = database.prepare("SELECT dispatch_id,sequence,event_type,state FROM issue_team_events ORDER BY dispatch_id,sequence").all();
-database.close();
-if (run.length !== 1) throw new Error("live evidence must contain exactly one durable team run");
-const snapshot = JSON.parse(String(run[0].snapshot_json));
-const projected = snapshot.receipts.map(projectReceipt);
-if (JSON.stringify(projected) !== JSON.stringify(receipt.receipts)) {
-  throw new Error("receipt projection does not match the durable SQLite snapshot");
-}
-const profileDigest = sha256(Buffer.from(stableJson(receipt.profile)));
-if (profileDigest !== snapshot.profileDigest) throw new Error("profile does not match the durable SQLite snapshot");
-for (const roleReceipt of projected) {
-  const role = receipt.profile?.roles?.[roleReceipt.workerRole];
-  if (!role || role.agentKind !== roleReceipt.agentKind || role.binding?.provider !== roleReceipt.provider
-    || role.binding?.model !== roleReceipt.model || role.binding?.reasoningEffort !== roleReceipt.reasoningEffort) {
-    throw new Error("profile role binding does not match durable receipt evidence");
+export function captureMixedLiveExecutionEvidence(repositoryRoot) {
+  const sourceCommit = git(repositoryRoot, ["rev-parse", "HEAD"]);
+  if (!/^[0-9a-f]{40}$/u.test(sourceCommit)) throw new Error("mixed live source commit is invalid");
+  execFileSync("git", ["diff", "--quiet", "HEAD", "--"], { cwd: repositoryRoot });
+  execFileSync("git", ["diff", "--cached", "--quiet", "HEAD", "--"], { cwd: repositoryRoot });
+  for (const path of ["benchmark/run-mixed-issue-team-live.mjs", "benchmark/seal-mixed-issue-team-live.mjs"]) {
+    execFileSync("git", ["ls-files", "--error-unmatch", path], { cwd: repositoryRoot, stdio: "ignore" });
   }
-}
-
-const fixtureRoot = join(artifactRoot, "fixture");
-const fixture = readdirSync(fixtureRoot).sort().map((name) => {
-  const bytes = readFileSync(join(fixtureRoot, name));
-  return { path: name, byteLength: bytes.length, sha256: sha256(bytes), hex: bytes.toString("hex") };
-});
-if (JSON.stringify(fixture.map(({ path }) => path)) !== JSON.stringify(["result.txt", "seed.txt"])
-  || fixture[0].hex !== Buffer.from("NAIA_MIXED_TEAM_OK\n").toString("hex")
-  || fixture[1].hex !== Buffer.from("SEED_MUST_STAY\n").toString("hex")) {
-  throw new Error("fixture bytes do not match the live benchmark contract");
-}
-const roleKinds = Object.fromEntries(projected.map((value) => [value.workerRole, value.agentKind]));
-const coreResult = { ok: snapshot.result?.ok, changedFiles: snapshot.result?.changedFiles,
-  cleanCycles: snapshot.cleanCycles, repairCycles: snapshot.repairCycles };
-const coreAssertions = { exactArtifacts: true,
-  evidenceComplete: projected.length >= 4 && projected.every((value) => value.sessionId
-    && value.sessionEvidenceSource === "provider_reported" && value.executionId && value.provider && value.model),
-  mixedAppsObserved: new Set(projected.map((value) => value.agentKind)).size === 3, roleKinds };
-if (receipt.schemaVersion !== 1 || receipt.benchmarkId !== "mixed-issue-team-live-v1"
-  || receipt.maximumPaidCalls !== 7 || receipt.paidCalls !== projected.length
-  || JSON.stringify(receipt.result) !== JSON.stringify(coreResult)
-  || JSON.stringify(pickCoreAssertions(receipt.assertions)) !== JSON.stringify(coreAssertions)) {
-  throw new Error("receipt summary does not match durable state and exact fixture evidence");
-}
-
-const normalizedSnapshot = JSON.parse(JSON.stringify(snapshot).split(artifactRoot).join("$ARTIFACT_ROOT"));
-const durableRun = {
-  dispatchId: run[0].dispatch_id,
-  version: run[0].version,
-  fingerprint: run[0].fingerprint,
-  state: run[0].state,
-  normalizedSnapshot,
-};
-receipt.artifactRoot = relative(repositoryRoot, artifactRoot).split("\\").join("/");
-receipt.embeddedEvidence = {
-  sourceCommit,
-  sealerSha256: sha256(readFileSync(fileURLToPath(import.meta.url))),
-  benchmarkScriptAtSourceSha256: sha256(execFileSync("git", ["show", `${sourceCommit}:benchmark/run-mixed-issue-team-live.mjs`], { cwd: repositoryRoot })),
-  sqliteSha256: sha256(readFileSync(databasePath)),
-  durableRun,
-  durableRunSha256: sha256(Buffer.from(JSON.stringify(durableRun))),
-  events,
-  fixture,
-};
-receipt.assertions = { ...coreAssertions, durableEvidenceEmbedded: true, receiptMatchesDurableSnapshot: true };
-writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600 });
-
-function projectReceipt(value) {
   return {
-    workerRole: value.workerRole,
-    agentKind: value.agentKind,
-    provider: value.provider,
-    model: value.model,
-    ...(value.reasoningEffort ? { reasoningEffort: value.reasoningEffort } : {}),
-    sessionId: value.sessionId,
-    sessionEvidenceSource: value.sessionEvidenceSource,
-    executionId: value.executionId,
-    tokenCountsAvailable: value.tokenCountsAvailable,
-    inputTokens: value.inputTokens,
-    cachedInputTokens: value.cachedInputTokens,
-    outputTokens: value.outputTokens,
-    cost: value.cost,
+    sourceCommit,
+    sourceTree: git(repositoryRoot, ["rev-parse", `${sourceCommit}^{tree}`]),
+    benchmarkScriptSha256: sha256(execFileSync("git", ["show", `${sourceCommit}:benchmark/run-mixed-issue-team-live.mjs`], { cwd: repositoryRoot })),
+    sealerSha256: sha256(execFileSync("git", ["show", `${sourceCommit}:benchmark/seal-mixed-issue-team-live.mjs`], { cwd: repositoryRoot })),
+    runtimeClosure: digestDirectory(join(repositoryRoot, "dist/main")),
   };
 }
 
-function sha256(bytes) { return createHash("sha256").update(bytes).digest("hex"); }
+export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit }) {
+  const receiptPath = resolve(inputPath);
+  if (!sourceCommit || !/^[0-9a-f]{40}$/u.test(sourceCommit)) throw new Error("source commit must be full 40-hex");
+  const repositoryRoot = git(dirname(receiptPath), ["rev-parse", "--show-toplevel"]);
+  const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
+  if (receipt.status !== "passed" || receipt.claimAllowed !== true || !Array.isArray(receipt.receipts)) {
+    throw new Error("only a passed, claim-allowed mixed-team receipt can be sealed");
+  }
+  validateExecutionEvidence(receipt.executionEvidence, repositoryRoot, sourceCommit);
+
+  const artifactRoot = `${receiptPath}.artifacts`;
+  const databasePath = join(artifactRoot, "team.db");
+  const database = new Database(databasePath, { readonly: true, fileMustExist: true });
+  const runs = database.prepare("SELECT dispatch_id,version,fingerprint,state,snapshot_json FROM issue_team_runs").all();
+  const events = database.prepare("SELECT dispatch_id,sequence,event_type,state FROM issue_team_events ORDER BY dispatch_id,sequence").all();
+  database.close();
+  if (runs.length !== 1) throw new Error("live evidence must contain exactly one durable team run");
+  const run = runs[0]; const snapshot = JSON.parse(String(run.snapshot_json));
+  validateDurableRun(run, snapshot, events);
+  const projected = snapshot.receipts.map(projectReceipt);
+  if (JSON.stringify(projected) !== JSON.stringify(receipt.receipts)) {
+    throw new Error("receipt projection does not match the durable SQLite snapshot");
+  }
+  const profileDigest = sha256(Buffer.from(stableJson(receipt.profile)));
+  if (profileDigest !== snapshot.profileDigest) throw new Error("profile does not match the durable SQLite snapshot");
+  for (const roleReceipt of projected) {
+    const role = receipt.profile?.roles?.[roleReceipt.workerRole];
+    if (!role || role.agentKind !== roleReceipt.agentKind || role.binding?.provider !== roleReceipt.provider
+      || role.binding?.model !== roleReceipt.model || role.binding?.reasoningEffort !== roleReceipt.reasoningEffort) {
+      throw new Error("profile role binding does not match durable receipt evidence");
+    }
+  }
+
+  const fixtureRoot = join(artifactRoot, "fixture");
+  const fixture = readdirSync(fixtureRoot).sort().map((name) => {
+    const bytes = readFileSync(join(fixtureRoot, name));
+    return { path: name, byteLength: bytes.length, sha256: sha256(bytes), hex: bytes.toString("hex") };
+  });
+  if (JSON.stringify(fixture.map(({ path }) => path)) !== JSON.stringify(["result.txt", "seed.txt"])
+    || fixture[0].hex !== Buffer.from("NAIA_MIXED_TEAM_OK\n").toString("hex")
+    || fixture[1].hex !== Buffer.from("SEED_MUST_STAY\n").toString("hex")) {
+    throw new Error("fixture bytes do not match the live benchmark contract");
+  }
+  const roleKinds = Object.fromEntries(projected.map((value) => [value.workerRole, value.agentKind]));
+  const coreResult = { ok: snapshot.result?.ok, changedFiles: snapshot.result?.changedFiles,
+    cleanCycles: snapshot.cleanCycles, repairCycles: snapshot.repairCycles };
+  const coreAssertions = { exactArtifacts: true,
+    evidenceComplete: projected.length >= 4 && projected.every((value) => value.sessionId
+      && value.sessionEvidenceSource === "provider_reported" && value.executionId && value.provider && value.model),
+    mixedAppsObserved: new Set(projected.map((value) => value.agentKind)).size === 3, roleKinds };
+  if (receipt.schemaVersion !== 1 || receipt.benchmarkId !== "mixed-issue-team-live-v1"
+    || receipt.maximumPaidCalls !== 7 || receipt.paidCalls !== projected.length
+    || JSON.stringify(receipt.result) !== JSON.stringify(coreResult)
+    || JSON.stringify(pickCoreAssertions(receipt.assertions)) !== JSON.stringify(coreAssertions)) {
+    throw new Error("receipt summary does not match durable state and exact fixture evidence");
+  }
+
+  const normalizedSnapshot = JSON.parse(JSON.stringify(snapshot).split(artifactRoot).join("$ARTIFACT_ROOT"));
+  const durableRun = { dispatchId: run.dispatch_id, version: run.version, fingerprint: run.fingerprint,
+    state: run.state, normalizedSnapshot };
+  receipt.artifactRoot = relative(repositoryRoot, artifactRoot).split("\\").join("/");
+  receipt.embeddedEvidence = { ...receipt.executionEvidence, sqliteSha256: sha256(readFileSync(databasePath)),
+    durableRun, durableRunSha256: sha256(Buffer.from(JSON.stringify(durableRun))), events, fixture };
+  receipt.assertions = { ...coreAssertions, durableEvidenceEmbedded: true, receiptMatchesDurableSnapshot: true };
+  writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600 });
+  return receipt;
+}
+
+function validateExecutionEvidence(value, repositoryRoot, sourceCommit) {
+  if (!value || value.sourceCommit !== sourceCommit
+    || value.sourceTree !== git(repositoryRoot, ["rev-parse", `${sourceCommit}^{tree}`])
+    || value.benchmarkScriptSha256 !== sha256(execFileSync("git", ["show", `${sourceCommit}:benchmark/run-mixed-issue-team-live.mjs`], { cwd: repositoryRoot }))
+    || value.sealerSha256 !== sha256(execFileSync("git", ["show", `${sourceCommit}:benchmark/seal-mixed-issue-team-live.mjs`], { cwd: repositoryRoot }))) {
+    throw new Error("execution evidence is not bound to the declared source commit");
+  }
+  execFileSync("git", ["diff", "--quiet", sourceCommit, "--"], { cwd: repositoryRoot });
+  execFileSync("git", ["diff", "--cached", "--quiet", sourceCommit, "--"], { cwd: repositoryRoot });
+  if (JSON.stringify(value.runtimeClosure) !== JSON.stringify(digestDirectory(join(repositoryRoot, "dist/main")))) {
+    throw new Error("execution runtime closure changed before evidence sealing");
+  }
+}
+
+function validateDurableRun(run, snapshot, events) {
+  if (run.dispatch_id !== snapshot.dispatchId || run.version !== snapshot.version
+    || run.fingerprint !== snapshot.fingerprint || run.state !== snapshot.state || run.state !== "completed"
+    || events.length !== snapshot.version || snapshot.version !== snapshot.receipts.length * 2 + 1) {
+    throw new Error("SQLite run columns, snapshot, and event cardinality are inconsistent");
+  }
+  for (let index = 0; index < events.length; index += 1) {
+    const event = events[index]; const sequence = index + 1;
+    const expectedType = sequence === 1 ? "team_created" : sequence === events.length ? "team_completed"
+      : sequence % 2 === 0 ? "role_claimed" : "role_acknowledged";
+    const expectedState = sequence === events.length ? "completed" : sequence % 2 === 0 ? "running" : "ready";
+    if (event.dispatch_id !== snapshot.dispatchId || event.sequence !== sequence
+      || event.event_type !== expectedType || event.state !== expectedState) {
+      throw new Error("SQLite event history is inconsistent with the completed run");
+    }
+  }
+}
+
+function projectReceipt(value) {
+  return { workerRole: value.workerRole, agentKind: value.agentKind, provider: value.provider, model: value.model,
+    ...(value.reasoningEffort ? { reasoningEffort: value.reasoningEffort } : {}), sessionId: value.sessionId,
+    sessionEvidenceSource: value.sessionEvidenceSource, executionId: value.executionId,
+    tokenCountsAvailable: value.tokenCountsAvailable, inputTokens: value.inputTokens,
+    cachedInputTokens: value.cachedInputTokens, outputTokens: value.outputTokens, cost: value.cost };
+}
 
 function pickCoreAssertions(value) {
   return { exactArtifacts: value?.exactArtifacts, evidenceComplete: value?.evidenceComplete,
     mixedAppsObserved: value?.mixedAppsObserved, roleKinds: value?.roleKinds };
+}
+
+function digestDirectory(root) {
+  const entries = [];
+  const visit = (directory) => {
+    for (const name of readdirSync(directory).sort()) {
+      const path = join(directory, name); const stat = statSync(path);
+      if (stat.isDirectory()) visit(path);
+      else if (stat.isFile()) entries.push([relative(root, path).split("\\").join("/"), sha256(readFileSync(path))]);
+      else throw new Error("runtime closure contains a non-regular entry");
+    }
+  };
+  visit(root);
+  return { fileCount: entries.length, manifestSha256: sha256(Buffer.from(JSON.stringify(entries))) };
 }
 
 function stableJson(value) {
@@ -121,4 +157,20 @@ function stableJson(value) {
   if (value && typeof value === "object") return `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b))
     .map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`).join(",")}}`;
   return JSON.stringify(value);
+}
+function sha256(bytes) { return createHash("sha256").update(bytes).digest("hex"); }
+function git(cwd, args) { return execFileSync("git", args, { cwd, encoding: "utf8" }).trim(); }
+
+if (process.argv[1] && resolve(process.argv[1]) === scriptPath) {
+  if (process.argv.includes("--capture-execution-evidence")) {
+    const rootIndex = process.argv.indexOf("--repository-root"); const root = process.argv[rootIndex + 1];
+    if (!root) throw new Error("--capture-execution-evidence requires --repository-root");
+    process.stdout.write(`${JSON.stringify(captureMixedLiveExecutionEvidence(resolve(root)))}\n`);
+    process.exit(0);
+  }
+  const receiptIndex = process.argv.indexOf("--receipt"); const sourceIndex = process.argv.indexOf("--source-commit");
+  const receiptPath = receiptIndex >= 0 ? process.argv[receiptIndex + 1] : undefined;
+  const sourceCommit = sourceIndex >= 0 ? process.argv[sourceIndex + 1] : undefined;
+  if (!receiptPath || !sourceCommit) throw new Error("usage: seal-mixed-issue-team-live.mjs --receipt <path> --source-commit <commit>");
+  sealMixedIssueTeamLive({ receiptPath, sourceCommit });
 }

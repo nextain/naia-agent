@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { resolve, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { captureMixedLiveExecutionEvidence, sealMixedIssueTeamLive } from "./seal-mixed-issue-team-live.mjs";
 
 const benchmarkId = "mixed-issue-team-live-v1";
 const outputIndex = process.argv.indexOf("--output");
 const outputArgument = outputIndex >= 0 ? process.argv[outputIndex + 1] : undefined;
 const outputPath = outputArgument ? resolve(outputArgument) : undefined;
+const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
 const confirmed = process.argv.includes("--confirm-seven-paid-calls")
   && process.env.NAIA_MIXED_TEAM_LIVE_CONFIRM === "1";
 const opencodeBinding = process.env.NAIA_MIXED_OPENCODE_MODEL === "opencode/deepseek-v4-flash-free"
@@ -21,6 +24,7 @@ if (reason) {
   process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
   process.exit(0);
 }
+const executionEvidence = captureMixedLiveExecutionEvidence(repositoryRoot);
 
 const artifactRoot = `${outputPath}.artifacts`;
 mkdirSync(artifactRoot, { recursive: false, mode: 0o700 });
@@ -107,7 +111,7 @@ try {
       executionId: receipt.executionId,
       tokenCountsAvailable: receipt.tokenCountsAvailable, inputTokens: receipt.inputTokens,
       cachedInputTokens: receipt.cachedInputTokens, outputTokens: receipt.outputTokens, cost: receipt.cost })),
-    diagnostics, artifactRoot, claimAllowed: passed };
+    diagnostics, executionEvidence, artifactRoot, claimAllowed: passed };
   if (!passed) process.exitCode = 2;
 } catch (error) {
   payload = { schemaVersion: 1, benchmarkId, status: "failed", paidCalls, maximumPaidCalls: 7,
@@ -117,4 +121,6 @@ try {
   store.close();
 }
 writeFileSync(outputPath, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
-process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
+const sealed = payload.claimAllowed
+  ? sealMixedIssueTeamLive({ receiptPath: outputPath, sourceCommit: executionEvidence.sourceCommit }) : payload;
+process.stdout.write(`${JSON.stringify(sealed, null, 2)}\n`);

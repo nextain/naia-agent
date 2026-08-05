@@ -1,7 +1,9 @@
 {
   "schemaVersion": 1,
   "benchmarkId": "mixed-issue-team-live-v1",
-  "status": "passed",
+  "status": "superseded_invalid",
+  "reason": "Execution source and runtime closure were added only after this run, so this receipt cannot prove which committed runner and built modules produced it.",
+  "supersededBy": ".agents/reviews/r-mixed-issue-team-live-v3-2026-08-06.json",
   "paidCalls": 6,
   "maximumPaidCalls": 7,
   "profile": {
@@ -59,7 +61,7 @@
   },
   "assertions": {
     "exactArtifacts": true,
-    "evidenceComplete": true,
+    "evidenceComplete": false,
     "mixedAppsObserved": true,
     "roleKinds": {
       "explorer": "claude-code",
@@ -180,7 +182,7 @@
   ],
   "diagnostics": [],
   "artifactRoot": ".agents/reviews/r-mixed-issue-team-live-v2-2026-08-06.json.artifacts",
-  "claimAllowed": true,
+  "claimAllowed": false,
   "embeddedEvidence": {
     "sourceCommit": "5a67ce7e64d6fa7917b7049204362ef922ed34a3",
     "sealerSha256": "89f29a0bc9102c78a19ca137fa8bc6a1c1075738cb458332429c7cf6b9435404",
