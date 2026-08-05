@@ -1,8 +1,16 @@
 {
   "work": "naia-agent-pi-continuous-loop",
   "status": "in_progress",
-  "current_phase": "gpu1_local_qualification_complete_req024_operational_prerequisites_pending",
+  "current_phase": "paid_live_acceptance_partial_gateway_billing_pending",
   "contract_id": "naia-agent-pi-continuous-loop-2026-08-04",
   "contract_digest": "9b5c606d58fecf96cf01626f87205566d629ad97f4e59cd52b14b991178f558b",
-  "updated_at": "2026-08-05T03:45:17+09:00"
+  "updated_at": "2026-08-06T03:01:00+09:00",
+  "paid_live_acceptance": {
+    "evidence": ".agents/reviews/r-uc-024-paid-live-acceptance-2026-08-06.json",
+    "balanced_codex_orchestration": "passed",
+    "claude_noninteractive_write_regression": "fixed_and_live_verified",
+    "opencode_azure_write": "passed_usage_unavailable",
+    "pi_naia_gateway": "blocked_missing_versioned_billing_receipt",
+    "independent_review": "unavailable_timeout_without_verdict"
+  }
 }

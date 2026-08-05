@@ -7,6 +7,7 @@ import {
   renderEvent,
   renderReport,
   reportExitCode,
+  superviseSubAgentOptions,
   superviseUsage,
 } from "../main/app/cli-supervise.js";
 import type { SupervisorReport, SubAgentEvent } from "../main/domain/orchestration.js";
@@ -70,6 +71,19 @@ describe("parseSuperviseArgs — 기본/직교", () => {
       { name: "test", command: "pnpm", args: ["test"] },
       { name: "lint", command: "eslint", args: ["."] },
     ]);
+  });
+});
+
+describe("superviseSubAgentOptions — 비대화형 작업자 권한 배선", () => {
+  it("claude-code 작업자는 승인 대화 없이 실제 편집할 수 있게 명시적으로 자율 모드를 사용한다", () => {
+    expect(superviseSubAgentOptions({ agent: "claude-code", noTools: false }))
+      .toEqual({ claudeCode: { skipPermissions: true } });
+  });
+
+  it("Pi 모델·도구 설정은 기존 실행 계약을 보존한다", () => {
+    expect(superviseSubAgentOptions({ agent: "pi", model: "grok-4.3", noTools: false }))
+      .toEqual({ pi: { model: "grok-4.3", noTools: false } });
+    expect(superviseSubAgentOptions({ agent: "codex", noTools: false })).toBeUndefined();
   });
 });
 

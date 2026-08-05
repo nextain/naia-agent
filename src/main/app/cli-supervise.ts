@@ -26,6 +26,21 @@ export interface SuperviseArgs {
   readonly json: boolean;
 }
 
+/**
+ * Non-interactive CLI workers cannot answer an approval prompt. Keep the
+ * autonomous permission choice explicit at the host boundary instead of
+ * changing the safer adapter default used by embedded callers.
+ */
+export function superviseSubAgentOptions(args: Pick<SuperviseArgs, "agent" | "model" | "noTools">):
+  { readonly pi?: { readonly model?: string; readonly noTools: boolean };
+    readonly claudeCode?: { readonly skipPermissions: true } } | undefined {
+  if (args.agent === "pi") {
+    return { pi: { ...(args.model ? { model: args.model } : {}), noTools: args.noTools } };
+  }
+  if (args.agent === "claude-code") return { claudeCode: { skipPermissions: true } };
+  return undefined;
+}
+
 export type ParseResult =
   | { readonly ok: true; readonly args: SuperviseArgs }
   /** help=true = 사용자가 도움말을 명시 요청(에러 아님) → host 는 stdout 출력 + exit 0. help 미설정 = 인자 오류 → stderr + exit 64. */

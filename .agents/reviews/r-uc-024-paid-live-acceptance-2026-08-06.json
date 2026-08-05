@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "review": "UC-024 paid live acceptance",
+  "executed_at": "2026-08-06T02:54:42+09:00",
+  "authorization": "User explicitly requested all paid live scenarios on 2026-08-06.",
+  "standalone_workers": {
+    "codex": {
+      "status": "pass",
+      "model": "gpt-5.3-codex-spark",
+      "artifact": "codex.txt=CODEX_LIVE_OK\\n",
+      "usage": { "input_tokens": 22111, "cached_input_tokens": 14720, "output_tokens": 956 }
+    },
+    "claude_code": {
+      "status": "pass_after_fix",
+      "model": "sonnet",
+      "artifact": "claude.txt=CLAUDE_LIVE_OK\\n",
+      "initial_failure": "The non-interactive host did not enable autonomous permissions, so Bash and Write were denied.",
+      "fix": "bin/naia-agent-run.mjs now obtains explicit claudeCode.skipPermissions=true from superviseSubAgentOptions; the adapter default remains safe for embedded callers."
+    },
+    "opencode": {
+      "status": "pass_with_accounting_gap",
+      "model": "azure-foundry/gpt-5-4-nano",
+      "artifact": "opencode.txt=OPENCODE_LIVE_OK\\n",
+      "gap": "The OpenCode adapter reports the requested provider/model but does not expose provider token or cost usage."
+    },
+    "pi": {
+      "status": "blocked_fail_closed",
+      "analysis_model": "deepseek-v4-flash",
+      "coding_model": "grok-4.3",
+      "paid_gateway_calls_observed": 1,
+      "reason": "The production gateway response did not provide complete request-correlated versioned billing receipts. DeepSeek V4 Flash and Pro also remain intentionally analysis-only, so neither may be used as a writing worker.",
+      "cost_claim_allowed": false
+    }
+  },
+  "integrated_paid_benchmark": {
+    "benchmark": "single-issue-live-v1 frozen bounded-parser-fix",
+    "paid_calls": 8,
+    "observed_api_equivalent_usd": 0.3198795,
+    "balanced": {
+      "status": "pass",
+      "bindings": {
+        "naia": "gpt-5.6-luna/low",
+        "moderator": "gpt-5.6-sol/high",
+        "worker": "gpt-5.6-terra/medium",
+        "reporter": "gpt-5.6-luna/low"
+      },
+      "usd": 0.0867365,
+      "hard_gates": "8/8"
+    },
+    "all_sol_control": {
+      "status": "pass",
+      "bindings": {
+        "naia": "gpt-5.6-sol/low",
+        "moderator": "gpt-5.6-sol/high",
+        "worker": "gpt-5.6-sol/high",
+        "reporter": "gpt-5.6-sol/low"
+      },
+      "usd": 0.233143,
+      "hard_gates": "8/8"
+    },
+    "measured_savings_usd": 0.1464065,
+    "measured_savings_percent": 62.797,
+    "cost_claim_allowed": true,
+    "local_raw_evidence": "data-private/live-results/single-issue-live-20260806-r3-025300.json"
+  },
+  "bounded_retries": [
+    { "reserved_call_usd": 0.1, "result": "all-Sol worker rejected at 0.12396 USD" },
+    { "reserved_call_usd": 0.2, "result": "all-Sol worker rejected at 0.206964 USD" },
+    { "reserved_call_usd": 0.3, "result": "both routes passed; no further retry" }
+  ],
+  "independent_review": {
+    "reviewer": "claude-sonnet-5",
+    "status": "unavailable",
+    "reason": "The read-only adversarial review reached the 180 second limit while stopped on tool_use and returned no verdict.",
+    "reported_cost_usd": 0.6438234,
+    "claim": "This is paid execution evidence only, not a completed independent review."
+  },
+  "verdict": "PARTIAL: the balanced Codex orchestration and three standalone coding backends passed live execution. Pi/Naia Gateway remains blocked by missing versioned billing evidence, and OpenCode lacks measured usage propagation."
+}

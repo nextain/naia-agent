@@ -11,6 +11,7 @@ import {
   renderEvent,
   renderReport,
   reportExitCode,
+  superviseSubAgentOptions,
 } from "../dist/main/app/cli-supervise.js";
 import { applyCodingDefaults } from "../dist/main/app/cli-manage.js";
 import { wireSupervisor } from "../dist/main/composition/index.js";
@@ -44,9 +45,7 @@ const shellOpts =
       ? { shell: { command: "cmd", args: (t) => ["/c", t.prompt] } }
       : { shell: { command: "/bin/sh", args: (t) => ["-c", t.prompt] } }
     : undefined;
-const subAgentOpts = shellOpts ?? (a.agent === "pi" ? {
-  pi: { ...(a.model ? { model: a.model } : {}), noTools: a.noTools },
-} : undefined);
+const subAgentOpts = shellOpts ?? superviseSubAgentOptions(a);
 
 const controller = new AbortController();
 let interrupted = false;
