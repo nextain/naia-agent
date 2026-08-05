@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { ToolCall, ToolSpec } from "../domain/chat.js";
 import type { ActorBinding, IssueReport, IssueStartRequest } from "../domain/issue-orchestration.js";
 import type { ManagedIssueSession } from "../domain/multi-issue-session.js";
@@ -18,7 +19,7 @@ export interface CodingSessionSkillDeps {
   readonly context: CodingSessionTrustedContext;
   /** The durable manager may be configured with autoPump=false. This trigger must never delay tool return. */
   readonly pump?: () => Promise<void>;
-  readonly requestId?: (call: ToolCall) => string;
+  readonly requestId?: (call: ToolCall, chatRequestId?: string) => string;
   readonly maxList?: number;
   readonly diag?: DiagnosticLog;
 }
@@ -102,7 +103,7 @@ export function makeCodingSessionSkill(deps: CodingSessionSkillDeps): ToolExecut
             if (!task.ok) return failure(task.error);
             const obligations = readObligations(call, task.value);
             if (!obligations.ok) return failure(obligations.error);
-            const requestId = deps.requestId?.(call) ?? `coding-tool-${call.id}`;
+            const requestId = deps.requestId?.(call, opts.requestId) ?? defaultRequestId(call, opts.requestId);
             const request: IssueStartRequest = {
               requestId,
               text: task.value,
@@ -155,6 +156,11 @@ export function makeCodingSessionSkill(deps: CodingSessionSkillDeps): ToolExecut
       }
     },
   };
+}
+
+function defaultRequestId(call: ToolCall, chatRequestId?: string): string {
+  const digest = createHash("sha256").update(chatRequestId ?? "local").update("\0").update(call.id).digest("hex");
+  return `coding-tool-${digest}`;
 }
 
 function triggerPump(deps: CodingSessionSkillDeps): void {

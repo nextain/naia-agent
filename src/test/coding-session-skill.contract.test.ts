@@ -94,6 +94,24 @@ describe("REQ-025 coding-session chat skill", () => {
     release();
   });
 
+  it("binds default idempotency to both chat request and provider tool-call identity", async () => {
+    const h = harness();
+    const skill = makeCodingSessionSkill({ sessions: h.api, context: {
+      workspacePath: "/trusted/workspace", actorId: "owner",
+      naiaBinding: { provider: "naia", model: "assistant" },
+      moderatorBinding: { provider: "codex", model: "luna" },
+      workerProfiles: { trusted: { provider: "codex", model: "worker" } },
+    } });
+    const sameCall = call("start_coding_task", { task: "implement safely" });
+    await skill.execute(sameCall, { ...opts(), requestId: "chat-turn-1" });
+    await skill.execute(sameCall, { ...opts(), requestId: "chat-turn-1" });
+    await skill.execute(sameCall, { ...opts(), requestId: "chat-turn-2" });
+    const ids = vi.mocked(h.api.submit).mock.calls.map(([input]) => input.request.requestId);
+    expect(ids[0]).toBe(ids[1]);
+    expect(ids[2]).not.toBe(ids[0]);
+    expect(ids.every((id) => /^coding-tool-[a-f0-9]{64}$/u.test(id))).toBe(true);
+  });
+
   it("lists, shows, answers, and cancels exact session identities with safe grounded results", async () => {
     const h = harness();
     h.set(session({ state: "awaiting_user", report: {

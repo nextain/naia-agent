@@ -32,7 +32,7 @@
 | TEST-S-101 | REQ-101 | 헥사고날 직교 — 도메인/ports/app 이 transport/adapter/메커니즘(child_process·git·net) 미import(레이어 방향 + 메커니즘 누수 0) | 계약 | `src/test/import-boundary.contract.test.ts` | Pass |
 
 | TEST-S-020 | UC-023 | isolated HOME에서 auth→config→models→doctor→session→run 기본값/override 전체 흐름과 실제 Naia 계정 Pi model evidence를 검증 | process integration + live smoke | `src/test/cli-manage-process.integration.test.ts`; `docs/naia-agent-cli-manual.md` | Pass |
-| TEST-S-024 | UC-024 | 일반 Naia 대화의 persona·memory·KB 도구와 durable coding-session start/list/show/answer/cancel을 함께 합성하고, trusted binding·안전한 projection·SQLite reopen/cancel·Claude Code worker kind를 무과금 계약/통합 테스트로 검증 | contract + SQLite integration | `src/test/coding-session-skill.contract.test.ts`, `src/test/coding-session-skill.integration.test.ts`, `src/test/cli-chat.contract.test.ts`, `src/test/issue-team-profile.contract.test.ts` | In-progress |
+| TEST-S-024 | UC-024 | 실제 chat tool loop에서 persona·memory·workspace context를 유지하며 durable coding-session start/list/show/answer/cancel을 수행하고, trusted binding·안전한 projection·SQLite reopen·Claude Code worker kind를 무과금 검증 | conversation scenario + contract + SQLite integration | `src/test/naia-coding-assistant.scenario.integration.test.ts`, `src/test/coding-session-skill.contract.test.ts`, `src/test/coding-session-skill.integration.test.ts`, `src/test/cli-chat.contract.test.ts`, `src/test/issue-team-profile.contract.test.ts` | Pass |
 
 ## 비고
 - Pass = `npx vitest run` 기준(2026-06-23 agent 583 pass / 5 skip 확인). external(UC-006 CDP/UC-008 youtube) 실 서비스 runtime = 루크머신(계약·skill 로직만 자율 검증).

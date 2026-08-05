@@ -884,7 +884,7 @@ honestly. The loop has no arbitrary two-minute ceiling and stops only at explici
 | paired cost evidence permits a bounded internal savings claim only for equal tasks and actor-attempt topology, restored checkpoints, deterministic quality non-inferiority, every exact settled gateway customer-billing request, and an external-key HMAC over the complete evidence; tool-loop request-count differences remain measured rather than being confused with role counts, while estimates, window aggregates, contamination, route/token/cost drift, missing authority, post-attestation mutation, or unresolved calls fail closed; the unsigned gateway response is not presented as a third-party audit | `pi-cost-comparison.contract.test.ts`, `pi-cost-comparison-runner.contract.test.ts`, `benchmark/orchestration/pi-cost-comparison.json` |
 | the Naia-only Pi provider converts each tool-loop request to atomic non-streaming gateway billing, binds it to a parent-owned execution identity, reserves a shared durable request allowance before network I/O, persists an owner-only receipt journal, and reconstructs Pi-compatible SSE without losing text, tool calls, or usage; missing, malformed, unsettled, route-drifted, over-budget, duplicate, or tampered evidence never becomes measured cost | `naia-pi-versioned-billing.contract.test.ts`, `uc-naia-pi-provider.contract.test.ts` |
 | a user-owned local Pi binding is credential-free and loopback-only, while its GPU1 qualification binds source/dist/Pi and external-executable hashes, immutable serving image and model snapshot, container endpoint and GPU telemetry, a real >=32K prompt, native tool protocol, two clean cycles, and deterministic file verification without inventing provider cost | `user-owned-pi-provider.contract.test.ts`, `pi-continuous-loop.contract.test.ts`, `issue-team-role-executor.integration.test.ts`, `benchmark/run-user-owned-three-layer-live.mjs`, `benchmark/results/gpu1-user-owned-three-layer-live-final-2026-08-05.json` |
-## UC-ORCH-005 — Naia chats and controls durable coding workers
+## UC-024 — Naia chats and controls durable coding workers
 
 The user starts one Naia CLI conversation with the ordinary persona, long-term memory, workspace
 context, and compiled-knowledge tools. In that conversation the user can assign a coding task and
@@ -905,8 +905,10 @@ into worker context.
 
 | Scenario | Contract/integration test |
 |---|---|
+| the real `naia-agent chat --coding-config` process loads the durable composition, opens all SQLite stores, exposes `coding=durable`, replies through the ordinary provider, and exits cleanly without a paid call | `naia-coding-assistant.scenario.integration.test.ts` |
+| one real chat loop keeps persona, recalled memory, and workspace context while starting, listing, showing, answering, and cancelling durable SQLite sessions | `naia-coding-assistant.scenario.integration.test.ts` |
 | start returns a trusted, redacted durable session projection without awaiting worker completion | `coding-session-skill.contract.test.ts` |
 | list/show/answer/cancel preserve exact session and question identity and never throw through chat | `coding-session-skill.contract.test.ts` |
 | SQLite reopen preserves the created session and cancellation state without a paid call | `coding-session-skill.integration.test.ts` |
-| optional CLI coding configuration composes the tools beside ordinary persona/memory/knowledge chat | `cli-chat.contract.test.ts`, `uc-cli-host-entry.contract.test.ts` |
+| optional CLI coding configuration parses and composes the tools beside ordinary persona/memory/knowledge chat | `cli-chat.contract.test.ts`, `naia-coding-assistant.scenario.integration.test.ts` |
 | Claude Code is accepted by the same declared team adapter-kind contract as Codex/OpenCode/Pi | `issue-team-profile.contract.test.ts` |

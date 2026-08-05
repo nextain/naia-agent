@@ -3,8 +3,8 @@
   "files": {
     "src/main/adapters/coding-session-skill.ts": {
       "layer": "adapters",
-      "uc": ["UC-024", "UC-ORCH-005"],
-      "contract": "docs/progress/99.dev-comm/UC-ORCH-005-naia-coding-assistant-contract-2026-08-06.md",
+      "uc": ["UC-024"],
+      "contract": "docs/progress/99.dev-comm/UC-024-naia-coding-assistant-contract-2026-08-06.md",
       "note": "Adapter-neutral Naia chat tools for durable coding-session start/list/show/answer/cancel with trusted host bindings and safe projections."
     },
     "src/main/adapters/naia-pi-versioned-billing.ts": {

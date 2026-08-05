@@ -1,4 +1,4 @@
-# UC-ORCH-005 — Naia coding orchestration assistant contract
+# UC-024 — Naia coding orchestration assistant contract
 
 ## User outcome
 
@@ -40,7 +40,8 @@ chain-of-thought, unrestricted command output, and raw model transcripts.
 
 1. Tool contract tests prove trusted context binding, projection redaction, and no-throw failures.
 2. SQLite integration proves start/list/show/cancel across reopen without a paid model call.
-3. CLI parser and host-entry tests prove optional coding configuration composes with ordinary chat.
+3. An actual CLI process proves `--coding-config` opens the durable stores and exits cleanly; an
+   actual chat tool-loop scenario proves persona, recalled memory, and workspace context remain
+   active while start/list/show/answer/cancel operate on durable SQLite sessions.
 4. Team-profile tests prove Claude Code joins the same declared adapter-kind boundary.
 5. Existing chat, Discord, and Codex workshop tests remain green.
-

@@ -13,8 +13,17 @@
 
 - Build: passed.
 - Focused contract and integration tests: 55 passed, 1 skipped.
-- Full regression: 436 suites passed; 1,705 tests passed, 10 skipped, 0
-  failed (1,715 total).
+- Full regression after the actual scenarios and idempotency fix: 438 suites
+  passed; 1,708 tests passed, 10 skipped, 0 failed (1,718 total).
+- Actual UC-024 conversation scenario: passed without a paid call. It preserves
+  persona, recalled memory, and workspace context while the real chat tool loop
+  starts, lists, shows, answers, and cancels durable SQLite sessions.
+- Actual CLI process scenario: passed without a paid call. `naia-agent chat
+  --coding-config` loaded the production host composition, opened its four
+  durable SQLite stores, advertised `coding=durable`, replied, and closed.
+- The scenario exposed repeated provider tool-call IDs collapsing a later task
+  into an earlier session. Default idempotency identity now binds the chat
+  request ID and tool-call ID through a bounded SHA-256 identifier.
 - The stale Pi CLI process fixture was corrected to isolate Linux Secret
   Service through DBus and to return the current versioned-billing settlement
   receipt. Stable direct/parent evidence is compared while each run's dynamic
