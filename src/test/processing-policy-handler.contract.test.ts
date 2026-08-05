@@ -348,4 +348,142 @@ describe("ChatTurnHandler processing guard", () => {
     await new ChatTurnHandler({ ...deps, provider, processingGuard, toolExecutor }).onChatRequest(request);
     expect(order.indexOf("guard:network_tool:github:issues-api")).toBeLessThan(order.indexOf("tool:execute"));
   });
+
+  it("selects and guards only the delegated role's sub-LLM plan before execute", async () => {
+    const { deps, request } = fixture("allowed");
+    const order: string[] = [];
+    let rounds = 0;
+    const provider: ProviderPort = {
+      async *chat(): AsyncIterable<ProviderChunk> {
+        rounds++;
+        if (rounds === 1) yield { kind: "toolUse", id: "call_1", name: "delegate_agent", args: { agent: "sub" } };
+        yield { kind: "finish" };
+      },
+    };
+    const processingGuard: NonNullable<HandlerDeps["processingGuard"]> = completeGuard({
+      authorize: (input) => {
+        order.push(`guard:${input.workload}:${input.provider.provider}:${input.provider.model}`);
+        return {
+          workload: input.workload,
+          destination: "external_cloud",
+          decision: "allowed",
+          processingProfileRef: input.processingProfileRef,
+        };
+      },
+    });
+    const toolExecutor = {
+      specs: () => [{
+        name: "delegate_agent",
+        description: "delegate",
+        parameters: {},
+        processing: [
+          { workload: "sub_llm" as const, destination: "external_cloud" as const, provider: "codex", model: "expert", when: { key: "agent", values: ["expert"] } },
+          { workload: "sub_llm" as const, destination: "external_cloud" as const, provider: "nextain", model: "cheap", when: { key: "agent", values: ["sub"] } },
+        ],
+      }],
+      execute: async () => {
+        order.push("tool:execute");
+        return { output: "ok" };
+      },
+    };
+    await new ChatTurnHandler({ ...deps, provider, processingGuard, toolExecutor }).onChatRequest(request);
+    expect(order).toContain("guard:sub_llm:nextain:cheap");
+    expect(order).not.toContain("guard:sub_llm:codex:expert");
+    expect(order.indexOf("guard:sub_llm:nextain:cheap")).toBeLessThan(order.indexOf("tool:execute"));
+  });
+
+  it("guards a provider-native delegated sub-LLM before its immediate callback executes", async () => {
+    const { deps, request } = fixture("allowed");
+    const order: string[] = [];
+    const provider: ProviderPort = {
+      async *chat(_config, _messages, opts): AsyncIterable<ProviderChunk> {
+        const call = { id: "native-1", name: "delegate_agent", args: { agent: "sub" } };
+        yield { kind: "toolUse", ...call, handled: true };
+        const result = await opts.executeTool!(call);
+        yield { kind: "toolResult", ...call, output: result.output, success: !result.isError, handled: true };
+        yield { kind: "finish" };
+      },
+    };
+    const processingGuard: NonNullable<HandlerDeps["processingGuard"]> = completeGuard({
+      authorize: (input) => {
+        order.push(`guard:${input.workload}:${input.provider.provider}:${input.provider.model}`);
+        return {
+          workload: input.workload,
+          destination: "external_cloud",
+          decision: "allowed",
+          processingProfileRef: input.processingProfileRef,
+        };
+      },
+    });
+    const toolExecutor = {
+      specs: () => [{
+        name: "delegate_agent",
+        description: "delegate",
+        parameters: {},
+        tier: "none",
+        processing: [{
+          workload: "sub_llm" as const,
+          destination: "external_cloud" as const,
+          provider: "nextain",
+          model: "cheap",
+          when: { key: "agent", values: ["sub"] },
+        }],
+      }],
+      execute: async () => {
+        order.push("tool:execute");
+        return { output: "ok" };
+      },
+    };
+    await new ChatTurnHandler({ ...deps, provider, processingGuard, toolExecutor }).onChatRequest(request);
+    expect(order).toContain("guard:sub_llm:nextain:cheap");
+    expect(order.indexOf("guard:sub_llm:nextain:cheap")).toBeLessThan(order.indexOf("tool:execute"));
+  });
+
+  it("closes the provider-native tool pair and makes zero sub-LLM calls when policy blocks it", async () => {
+    const { deps, emits, request } = fixture("allowed");
+    let executions = 0;
+    const provider: ProviderPort = {
+      async *chat(_config, _messages, opts): AsyncIterable<ProviderChunk> {
+        const call = { id: "native-blocked", name: "delegate_agent", args: { agent: "sub" } };
+        yield { kind: "toolUse", ...call, handled: true };
+        const result = await opts.executeTool!(call);
+        yield { kind: "toolResult", ...call, output: result.output, success: !result.isError, handled: true };
+        yield { kind: "text", text: "must be suppressed after denial" };
+        yield { kind: "finish" };
+      },
+    };
+    const processingGuard: NonNullable<HandlerDeps["processingGuard"]> = completeGuard({
+      authorize: (input) => ({
+        workload: input.workload,
+        destination: "external_cloud",
+        decision: input.workload === "sub_llm" ? "blocked" : "allowed",
+        processingProfileRef: input.processingProfileRef,
+      }),
+    });
+    const toolExecutor = {
+      specs: () => [{
+        name: "delegate_agent",
+        description: "delegate",
+        parameters: {},
+        tier: "none",
+        processing: [{
+          workload: "sub_llm" as const,
+          destination: "external_cloud" as const,
+          provider: "nextain",
+          model: "cheap",
+          when: { key: "agent", values: ["sub"] },
+        }],
+      }],
+      execute: async () => {
+        executions++;
+        return { output: "unexpected" };
+      },
+    };
+    await new ChatTurnHandler({ ...deps, provider, processingGuard, toolExecutor }).onChatRequest(request);
+    expect(executions).toBe(0);
+    expect(emits.map((event) => event.kind)).toEqual([
+      "processingDisclosure", "toolUse", "processingDisclosure", "toolResult", "usage", "error",
+    ]);
+    expect(emits.at(-1)).toMatchObject({ kind: "error", code: "EXTERNAL_PROCESSING_FORBIDDEN" });
+  });
 });

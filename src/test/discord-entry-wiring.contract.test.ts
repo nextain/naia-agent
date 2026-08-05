@@ -85,6 +85,13 @@ describe("T-DISCORD-RT-02/05 — production entry wiring", () => {
     expect(entry).toContain("resolveDefaultWorkdir: () => currentAdkPath");
     expect(entry).toContain("resolveAllowedWorkdirRoot: () => currentAdkPath");
     expect(entry).toContain('allowedAgents: ["expert", "main", "sub"]');
+    expect(entry).toContain("() => activeLlmRoles");
+    expect(entry).toContain("activeLlmRoles = path ? settingsStore.loadLlmRoles(path) : null");
+    expect(entry).toContain("makePiRoleProcessingPlans");
+    expect(entry).toContain("resolveProcessing: () => makePiRoleProcessingPlans(activeLlmRoles)");
+    expect(entry).toContain("credentials.get(config.provider.value)?.naiaKey");
+    expect(entry).toContain("NAIA_API_KEY: secret");
+    expect(entry).not.toContain('workload === "memory_llm" || workload === "sub_llm"');
     expect(entry.indexOf("let currentAdkPath = adkPath")).toBeLessThan(entry.indexOf("makeDelegateAgentSkill({"));
     expect(entry.indexOf("makeDelegateAgentSkill")).toBeLessThan(entry.indexOf("wireAgentUC1({ ingress: agentIngress"));
 

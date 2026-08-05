@@ -4,6 +4,7 @@
 // 세션 머신(스트림·cancel·가드)은 공유 subprocess-session 에. 여기엔 opencode 고유의 bin·args·lineToEvent 만.
 // bin 미해결/ENOENT = 정직한 session_end{ok:false}(throw 금지, AC6). spawnFn 주입 seam.
 import { execSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { isAbsolute } from "node:path";
 import type { TaskSpec, SubAgentEvent } from "../domain/orchestration.js";
 import type { SubAgentPort, SubAgentSession } from "../ports/orchestration.js";
@@ -15,6 +16,8 @@ import {
 export interface SubAgentOpencodeOptions {
   /** -m 으로 전달(옵셔널). TaskSpec.model 보다 우선. */
   readonly model?: string;
+  /** Honest requested provider label when OpenCode's stream omits provider identity. */
+  readonly provider?: string;
   /** opencode --dangerously-skip-permissions(기본 false). */
   readonly skipPermissions?: boolean;
   readonly hardKillDeadlineMs?: number;
@@ -101,6 +104,9 @@ export function makeOpencodeSubAgent(opts: SubAgentOpencodeOptions = {}): SubAge
   const resolveBin = opts.resolveBin ?? resolveOpencodeBin;
   return {
     spawn(task: TaskSpec): SubAgentSession {
+      if (task.filesystemAccess === "read_only") {
+        return endedSession("opencode read-only execution is unavailable; refusing an unconfined role session");
+      }
       let bin: ResolvedBin;
       try {
         bin = resolveBin();
@@ -113,9 +119,29 @@ export function makeOpencodeSubAgent(opts: SubAgentOpencodeOptions = {}): SubAge
       if (model) args.push("-m", model);
       if (opts.skipPermissions) args.push("--dangerously-skip-permissions");
       args.push(task.prompt);
-      return spawnSubprocessSession({
+      const executionId = randomUUID();
+      const sessionId = randomUUID();
+      const session = spawnSubprocessSession({
         spawnFn, bin, args, cwd: task.workdir, hardKillMs, lineToEvent: opencodeLineToEvent, label: "opencode",
       });
+      return withRequestedEvidence(session, {
+        provider: opts.provider ?? "opencode", selectedModel: model ?? "opencode-default",
+        modelEvidenceSource: "adapter_requested", inputTokens: 0, outputTokens: 0, totalTokens: 0,
+        cachedInputTokens: 0, usageAvailable: false, sessionId, executionId,
+      });
+    },
+  };
+}
+
+function withRequestedEvidence(session: SubAgentSession, evidence: import("../domain/orchestration.js").SubAgentModelEvidence): SubAgentSession {
+  return {
+    async cancel(reason) { await session.cancel(reason); },
+    events: {
+      async *[Symbol.asyncIterator]() {
+        for await (const event of session.events) {
+          yield event.kind === "session_end" ? { ...event, evidence } : event;
+        }
+      },
     },
   };
 }

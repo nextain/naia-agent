@@ -1,0 +1,136 @@
+{
+  "schemaVersion": 2,
+  "benchmarkId": "pi-cost-comparison-v1",
+  "scope": "frozen paired engineering case only",
+  "task": {
+    "id": "write-export",
+    "request": "Create src/answer.js exporting const answer = 42 and do not modify any other tracked file.",
+    "obligations": [
+      "src/answer.js exists",
+      "src/answer.js exports const answer = 42",
+      "no other tracked file changes"
+    ]
+  },
+  "taskDigest": "sha256:41146f2d5d5f6b25a074af017980abb72e94e0837ea9b3dbb0fd780f44e13f42",
+  "baselineDigest": "sha256:ad7aee3aee25b556a9e152c21a1c2978cc65ae9f163bf0c29160c0b372665c64",
+  "trustedRuntimeModules": [
+    "adapters/naia-pi-versioned-billing.js",
+    "adapters/pi-cost-attestation.js",
+    "benchmark/pi-cost-comparison.js",
+    "composition/pi-continuous-loop.js",
+    "composition/supervised-issue-worker.js"
+  ],
+  "trustedRuntimeArtifacts": [
+    "benchmark/run-pi-cost-comparison-live.mjs",
+    "benchmark/analyze-pi-cost-comparison.mjs",
+    "benchmark/pi-cost-runtime-trust.mjs",
+    "benchmark/pi-cost-git-isolation.mjs",
+    "benchmark/pi-cost-contract.mjs",
+    "benchmark/prepare-pi-cost-pins.mjs",
+    "benchmark/digest-tree.mjs",
+    "scripts/pi/naia-versioned-billing-extension.mjs",
+    "scripts/pi/workspace-tool-boundary.mjs",
+    "package.json",
+    "pnpm-lock.yaml"
+  ],
+  "trustedRuntimePackages": [
+    {
+      "name": "@earendil-works/pi-ai",
+      "version": "0.83.0",
+      "modules": ["dist/api/openai-completions.lazy.js"]
+    },
+    {
+      "name": "openai",
+      "version": "6.26.0",
+      "resolveFrom": "@earendil-works/pi-ai",
+      "modules": ["index.mjs"]
+    },
+    {
+      "name": "partial-json",
+      "version": "0.1.7",
+      "resolveFrom": "@earendil-works/pi-ai",
+      "modules": ["dist/index.js"]
+    }
+  ],
+  "trustedRuntimeExecutables": ["pi"],
+  "trustedExternalExecutables": ["git"],
+  "executionAuthority": {
+    "git": {
+      "path": null,
+      "digest": null,
+      "source": "contract-bound-pins"
+    }
+  },
+  "trustedRuntimeClosure": {
+    "fileCount": 3655,
+    "manifestDigest": "sha256:3ac007d0418c677bd8751f82d96e4b15e994d69f10c0abbb33ec6a1e97045526"
+  },
+  "minimumSavingsBasisPoints": 1000,
+  "quality": {
+    "scorerId": "deterministic-file-and-git-checks",
+    "requiredChecks": ["file-content", "changed-files"],
+    "allowedChangedFiles": ["src/answer.js"],
+    "candidateMustBeNonInferior": true
+  },
+  "routePolicy": {
+    "candidate": {
+      "provider": "naia",
+      "roleModels": {
+        "facing": "deepseek-v4-flash",
+        "moderator": "deepseek-v4-flash",
+        "explorer": "deepseek-v4-flash",
+        "implementer": "grok-4.3",
+        "tester": "deepseek-v4-flash",
+        "reviewer": "deepseek-v4-flash",
+        "reporter": "deepseek-v4-flash"
+      },
+      "description": "Low-cost DeepSeek V4 Flash analysis/front/review roles and Grok writing implementer"
+    },
+    "control": {
+      "provider": "naia",
+      "roleModels": {
+        "facing": "grok-4.3",
+        "moderator": "grok-4.3",
+        "explorer": "grok-4.3",
+        "implementer": "grok-4.3",
+        "tester": "grok-4.3",
+        "reviewer": "grok-4.3",
+        "reporter": "grok-4.3"
+      },
+      "description": "Grok for every paid role"
+    }
+  },
+  "expectedRoleCounts": {
+    "facing": 1,
+    "moderator": 1,
+    "explorer": 1,
+    "implementer": 1,
+    "tester": 2,
+    "reviewer": 2,
+    "reporter": 1
+  },
+  "budget": {
+    "maximumCombinedActorAttempts": 20,
+    "maximumCombinedGatewayCalls": 60,
+    "maximumCombinedUsdDecimal": "0.50000000",
+    "maximumInputTokens": 80000,
+    "maximumOutputTokens": 10000
+  },
+  "receiptAuthority": {
+    "source": "gateway_versioned_customer_billing",
+    "authentication": {
+      "gatewayReceiptChannel": "api_key_authenticated_https_response",
+      "gatewaySigningKeyId": null,
+      "harnessJournalKeyId": null,
+      "pinsDigest": null,
+      "status": "journal_key_unpinned",
+      "claimBoundary": "HMAC proves the captured request-correlated evidence was not changed; the gateway response is not server-signed"
+    },
+    "priceVersionByModel": {
+      "deepseek-v4-flash": null,
+      "grok-4.3": null
+    },
+    "requires": ["executionId", "gatewayRequestId", "priceVersionId", "settlementStatus", "provider", "model", "inputTokens", "outputTokens", "customerCostDecimal", "customerCostUsd"],
+    "rejects": ["pi_catalog_estimate", "time_window_aggregate", "unbound_profile_log"]
+  }
+}

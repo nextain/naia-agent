@@ -209,6 +209,68 @@ provider/model 을 구성하고, `Chat(server-stream)` 으로 대화를 처리�
 
 ### 단독 CLI — 오케스트레이션 실행 (naia-shell 없이)
 
+내장 Pi로 여러 코딩 이슈를 영속 관리하는 경로는 `naia-agent loop --help`를 사용한다.
+이 경로는 OpenCode를 설치·호출·fallback하지 않으며, SQLite에 호출 수·USD·입력/출력 토큰을
+호출 전에 예약하므로 재시작 뒤에도 미결 유료 호출을 반복하지 않는다. Discord ingress와
+naia-shell 표시는 후속 어댑터 범위다.
+
+```bash
+cp examples/pi-continuous-loop.config.example.json /private/path/loop.json
+# 절대경로와 한도를 편집한 뒤:
+naia-agent loop serve --config /private/path/loop.json
+# 또는 1회 명령:
+naia-agent loop start --config /private/path/loop.json \
+  --request examples/pi-continuous-loop.request.example.json
+naia-agent loop list --config /private/path/loop.json
+naia-agent loop budget --config /private/path/loop.json
+```
+
+Codex 구독을 최소화하려면 `examples/codex-luna-azure-team.config.example.json`을 사용한다.
+이 프로파일은 moderator 한 슬롯만 `gpt-5.6-luna`로 고정하고 나머지 모델 세션은 Naia
+Gateway(Azure)로 보낸다.
+
+`serve`는 프로세스를 유지하며 stdin의 NDJSON 요청(`{ "id": "...", "command": "list" }`)을
+같은 세션 관리자에 연결한다. `start`, `answer`, `cancel`은 작업을 예약하고 백그라운드 pump를
+깨우므로 한 제어 세션에서 여러 이슈를 겹쳐 실행·조회할 수 있다.
+
+DeepSeek V4 Flash/Pro는 분석 전용(`--no-tools`)이므로 facing/reporting에는 사용할 수 있지만,
+worktree를 검사하는 explorer/tester/reviewer나 쓰는 implementer에는 사용할 수 없다. 기본 팀
+역할은 도구 사용 가능한 Grok 4.3이다. 예시의 estimated-USD 한도는 고정된 Azure rate-card와
+gateway markup을 사용한 운영 상한이며, versioned Gateway 영수증이 없으면 측정 비용 주장이 아니다.
+
+비용 비교 계약은 `benchmark/orchestration/pi-cost-comparison.json`에 고정되어 있다. 실제 호출 전에
+외부 HMAC 키와 Naia gateway에서 확인한 정확한 price-version ID를 사용해 pins와 파생 계약을 만든다.
+
+```bash
+NAIA_BENCHMARK_JOURNAL_KEY='<32바이트 이상 외부 키>' \
+node benchmark/prepare-pi-cost-pins.mjs \
+  --git /usr/bin/git \
+  --price-version deepseek-v4-flash=<gateway-price-version-id> \
+  --price-version grok-4.3=<gateway-price-version-id> \
+  --output-pins /private/pi-cost-pins.json \
+  --output-contract /private/pi-cost-contract.json
+```
+
+준비 명령은 유료 호출을 하지 않고 pins 전체 SHA-256을 `pinsDigest`로 결박한 파생 계약을 생성한다.
+파생 계약은 정본에서 `pinsDigest`만 달라질 수 있다. 이후 이 두 파일을 같은 실행과 분석에 사용한다.
+
+```bash
+NAIA_PI_COST_CONFIRM=1 NAIA_API_KEY='<key>' NAIA_BENCHMARK_JOURNAL_KEY='<same-key>' \
+node benchmark/run-pi-cost-comparison-live.mjs \
+  --contract /private/pi-cost-contract.json --pins /private/pi-cost-pins.json \
+  --confirm-paid-comparison --output /private/pi-cost-result.json
+NAIA_BENCHMARK_JOURNAL_KEY='<same-key>' node benchmark/analyze-pi-cost-comparison.mjs \
+  --contract /private/pi-cost-contract.json --pins /private/pi-cost-pins.json \
+  --evidence /private/pi-cost-result.json
+```
+동일 과제·동일 역할 시도 구조·체크포인트 재개·결정론 검증을 모두 통과하고, 각 실제 도구 루프 호출이 gateway request
+ID와 price version에 결박된 실제 customer billing 영수증을 가져야만 절감 판정을 허용한다.
+증거 없이 실행하면 유료 호출 0건의 `unavailable`을 반환하며 Pi 추정가나 시간창 로그 차액은
+비용 효율 증명으로 취급하지 않는다. 제출 행뿐 아니라 각 실행의 해시체인 영수증 저널과 공유 SQLite
+게이트웨이 원장의 전체 요청 집합·정산 합계도 증거에 포함해 누락을 검출한다. 전체 증거는 외부 HMAC 키와 미리 고정한 키 ID로 검증하며,
+키·가격 버전·자격증명 중 하나라도 없으면 유료 호출 전에 중단한다. 이 검증은 고정된 내부 비교의
+사후 변조를 막지만, 현재 gateway 응답 자체에는 서버 서명이 없으므로 제3자 감사 증명으로 과장하지 않는다.
+
 `pnpm build` 후, 터미널에서 직접 작업을 시킨다(S2 supervisor mode). 외부 코딩 에이전트(또는 셸)를
 sub-agent 로 spawn → (옵션)워크스페이스 감시 + (옵션)검증 → **정직한 숫자 리포트**.
 

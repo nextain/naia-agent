@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { resolveLlmRoles } from "../main/domain/llm-roles.js";
-import { makePiRoleSupervisorRunner } from "../main/adapters/pi-role-runner.js";
+import { makePiRoleProcessingPlans, makePiRoleSupervisorRunner } from "../main/adapters/pi-role-runner.js";
 
 describe("main/sub/memory 역할 해석", () => {
   it("세 역할을 서로 다른 provider/model로 독립 해석한다", () => {
@@ -136,5 +136,45 @@ describe("main/sub/memory 역할 해석", () => {
     expect(supervise).toHaveBeenCalledTimes(1);
     expect(egress.event).toHaveBeenCalledWith(expect.objectContaining({ kind: "session_end", ok: false }));
     expect(egress.report).toHaveBeenCalledWith(expect.objectContaining({ sessionOk: false }));
+  });
+
+  it("supervisor runner는 매 호출마다 최신 역할 resolution을 읽는다", async () => {
+    let active = resolveLlmRoles({
+      roles: {
+        main: { provider: "opencode", model: "not-allowed" },
+        sub: { inherit: "main" },
+        memory: { inherit: "sub" },
+      },
+    });
+    const supervise = vi.fn(async () => {});
+    const runner = makePiRoleSupervisorRunner(() => active, supervise);
+    const egress = { event: vi.fn(), report: vi.fn() };
+    await expect(runner("main", { prompt: "first", workdir: "/workspace" }, new AbortController().signal, egress))
+      .resolves.toMatchObject({ ok: false });
+    active = resolveLlmRoles({
+      roles: {
+        main: { provider: "codex", model: "gpt-5.6-luna" },
+        sub: { inherit: "main" },
+        memory: { inherit: "sub" },
+      },
+    });
+    await expect(runner("main", { prompt: "second", workdir: "/workspace" }, new AbortController().signal, egress))
+      .resolves.toEqual({ ok: true });
+    expect(supervise).toHaveBeenCalledOnce();
+  });
+
+  it("Pi로 실제 실행 가능한 역할만 sub-LLM 처리 계획으로 공개한다", () => {
+    const roles = resolveLlmRoles({
+      roles: {
+        expert: { provider: "anthropic", model: "opus" },
+        main: { provider: "codex", model: "luna" },
+        sub: { provider: "opencode", model: "unsupported" },
+        memory: { inherit: "sub" },
+      },
+    });
+    expect(makePiRoleProcessingPlans(roles)).toEqual([
+      expect.objectContaining({ provider: "codex", model: "luna", when: { key: "agent", values: ["main"] } }),
+      expect.objectContaining({ provider: "anthropic", model: "opus", when: { key: "agent", values: ["expert"] } }),
+    ]);
   });
 });

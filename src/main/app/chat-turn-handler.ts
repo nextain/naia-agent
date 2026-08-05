@@ -1,7 +1,8 @@
 // app — UC1 ChatTurnHandler + UC5 도구 실행 루프 (계약 §B.3 + UC5-agent-tool-loop §B.3). 포트만 사용. domain 만.
 // 불변식: usage=terminal 직전 1회(라운드 스냅샷 합)·이후 무방출 / finish XOR error(terminal 래치) / 레지스트리 finally 해제 / emit no-throw.
 import type {
-  ChatRequest, CancelRequest, ApprovalResponse, CredsUpdate, ChatTurnState, ChatMessage, ToolCall, ToolSpec, ProviderConfig, WireErrorCode, ToolExecutionResult,
+  ChatRequest, CancelRequest, ApprovalResponse, CredsUpdate, ChatTurnState, ChatMessage, ToolCall, ToolSpec, ToolProcessing, ProviderConfig, WireErrorCode,
+  ToolExecutionResult,
 } from "../domain/chat.js";
 import { mapProviderChunk, threadToolRound, estimateMessageTokens } from "../domain/chat.js";
 import { calculateCost } from "../domain/cost.js";
@@ -187,7 +188,9 @@ export class ChatTurnHandler {
     const signal = t.abort.signal;
     let sawTerminal = false;
     const totalUsage = { inputTokens: 0, outputTokens: 0 };
-    const emit = (e: Parameters<AgentEgressPort["emit"]>[1]) => this.d.egress.emit(req.requestId, e); // egress no-throw
+    const emit = (e: Parameters<AgentEgressPort["emit"]>[1]) => {
+      if (!sawTerminal) this.d.egress.emit(req.requestId, e);
+    }; // egress no-throw; provider-native callback가 terminal을 만든 뒤의 late chunk는 폐기
     // config 정본: wire provider override > 기동 시 naia-settings 로딩한 defaultConfig(정본 "대화는 메시지만").
     const activeConfig = req.provider ?? this.activeDefaultConfig;
     const costModel = activeConfig?.model ?? ""; // 미설정 = calculateCost("") = 0(크래시 아님)
@@ -214,10 +217,13 @@ export class ChatTurnHandler {
         workload: "main_llm" | "sub_llm" | "memory_llm" | "embedding" | "network_tool";
         provider: { provider: string; model: string };
       };
-      const authorizeOperations = async (operations: readonly PlannedOperation[]): Promise<boolean> => {
+      const authorizeOperations = async (
+        operations: readonly PlannedOperation[],
+        deny: (message: string, code?: WireErrorCode) => void = terminalError,
+      ): Promise<boolean> => {
         if (!req.processing) return true;
         if (!this.d.processingGuard) {
-          terminalError("processing policy guard is not configured", "PROCESSING_DESTINATION_UNKNOWN");
+          deny("processing policy guard is not configured", "PROCESSING_DESTINATION_UNKNOWN");
           return false;
         }
         const processingProfileRef = req.processing.processingProfileRef;
@@ -236,7 +242,7 @@ export class ChatTurnHandler {
           commitAuthorization = prepared.commit;
           rollbackAuthorization = prepared.rollback;
         } catch {
-          terminalError("processing destination could not be classified", "PROCESSING_DESTINATION_UNKNOWN");
+          deny("processing destination could not be classified", "PROCESSING_DESTINATION_UNKNOWN");
           return false;
         }
         const blocked = disclosures.find((disclosure) => disclosure.decision !== "allowed");
@@ -248,11 +254,11 @@ export class ChatTurnHandler {
             ) ?? false;
             if (!accepted) {
               rollbackAuthorization();
-              terminalError("processing disclosure delivery failed", "PROCESSING_DESTINATION_UNKNOWN");
+              deny("processing disclosure delivery failed", "PROCESSING_DESTINATION_UNKNOWN");
               return false;
             }
           }
-          terminalError(
+          deny(
             "EXTERNAL_PROCESSING_CONFIRMATION_REQUIRED",
             "EXTERNAL_PROCESSING_CONFIRMATION_REQUIRED",
           );
@@ -266,7 +272,7 @@ export class ChatTurnHandler {
           ) ?? false;
           if (!accepted) {
             rollbackAuthorization();
-            terminalError("processing disclosure delivery failed", "PROCESSING_DESTINATION_UNKNOWN");
+            deny("processing disclosure delivery failed", "PROCESSING_DESTINATION_UNKNOWN");
             return false;
           }
         }
@@ -274,7 +280,7 @@ export class ChatTurnHandler {
           const code = blocked.decision === "blocked"
             ? "EXTERNAL_PROCESSING_FORBIDDEN"
             : "EXTERNAL_PROCESSING_CONFIRMATION_REQUIRED";
-          terminalError(code, code);
+          deny(code, code);
           return false;
         }
         return true;
@@ -356,6 +362,7 @@ export class ChatTurnHandler {
       let toolRounds = 0;
       let controlConsumed = false;
       let continuation: ContinuationState | undefined;
+      let nativeProcessingDenied: { message: string; code?: WireErrorCode } | undefined;
       const continuationClock = this.d.continuationClock ?? DEFAULT_CONTINUATION_CLOCK;
       const usedCids = new Set<string>(); // turn-unique correlation id (D-I7)
       // tier 조회: name 매치 중 gated(none 아님) 있으면 그 tier(승인필요), 없으면 "none". 미등록=none. (중복 매치=보수적 gated 우선)
@@ -411,8 +418,24 @@ export class ChatTurnHandler {
         if (signal.aborted) { terminalError("cancelled"); break; }                 // (a) provider 호출 전 가드
         if (!await authorizeOperation("main_llm")) break;
         const roundTools = controlConsumed ? externalTools : tools;
-        const round = await this.runRound(providerConfig, messages, memSystemPrompt, roundTools, signal, emit, req.requestId);
+        const round = await this.runRound(
+          providerConfig, messages, memSystemPrompt, roundTools, signal, emit, req.requestId,
+          async (plans) => {
+            if (nativeProcessingDenied) return false;
+            return authorizeOperations(plans.map((processing) => ({
+              workload: processing.workload,
+              provider: { provider: processing.provider, model: processing.model },
+            })), (message, code) => { nativeProcessingDenied ??= { message, ...(code ? { code } : {}) }; });
+          },
+          (event) => {
+            if (!nativeProcessingDenied || event.kind === "toolResult") emit(event);
+          },
+        );
         if (round.usage) { totalUsage.inputTokens += round.usage.inputTokens; totalUsage.outputTokens += round.usage.outputTokens; } // 라운드 스냅샷 1회 합산
+        if (nativeProcessingDenied) {
+          terminalError(nativeProcessingDenied.message, nativeProcessingDenied.code);
+          break;
+        }
         if (round.aborted) { terminalError("cancelled"); break; }
         if (round.rejected !== undefined) { terminalError(`provider error: ${round.rejected}`); break; }
         if (!round.finished) { terminalError("incomplete stream"); break; }         // finish 없는 EOF = provider error(UC1 계승)
@@ -513,18 +536,24 @@ export class ChatTurnHandler {
           let r: ToolExecutionResult;
           try {
             if (exec) {
-              const processing = externalTools.find((spec) => spec.name === call.name)?.processing;
-              const processingApplies = processing && (!processing.when
+              const declaredProcessing = externalTools.find((spec) => spec.name === call.name)?.processing;
+              const processingPlans = declaredProcessing
+                ? (Array.isArray(declaredProcessing) ? declaredProcessing : [declaredProcessing])
+                : [];
+              const applicableProcessing = processingPlans.filter((processing) => !processing.when
                 || (call.args !== null && typeof call.args === "object" && !Array.isArray(call.args)
                   && processing.when.values.includes(
                     (call.args as Record<string, unknown>)[processing.when.key] as never,
                   )));
-              if (processingApplies && !await authorizeOperation(processing.workload, {
-                provider: processing.provider,
-                model: processing.model,
-              })) return;
+              if (applicableProcessing.length > 0 && !await authorizeOperations(applicableProcessing.map((processing) => ({
+                workload: processing.workload,
+                provider: { provider: processing.provider, model: processing.model },
+              })))) return;
               // UC5 리뷰 fix(liveness): per-tool deadline race(memory 와 동일). 무응답 도구가 turn 영구 hang 못 하게.
-              const res = await raceAbort(exec.execute({ ...call, id: cid }, { signal, requestId: req.requestId }), signal, this.d.toolTimeoutMs ?? TOOL_EXEC_TIMEOUT_MS); // requestId=UC-PANEL: panel 도구가 panel_tool_call 을 이 chat 스트림으로 위임
+              const res = await raceAbort(exec.execute(
+                { ...call, id: cid },
+                { signal, requestId: req.requestId, authorizedProcessing: applicableProcessing },
+              ), signal, this.d.toolTimeoutMs ?? TOOL_EXEC_TIMEOUT_MS); // requestId=UC-PANEL: panel 도구가 panel_tool_call 을 이 chat 스트림으로 위임
               if (res === null) {
                 if (signal.aborted) { terminalError("cancelled"); cancelled = true; break; }
                 r = { output: `tool timeout (>${this.d.toolTimeoutMs ?? TOOL_EXEC_TIMEOUT_MS}ms)`, isError: true }; // 무응답=isError, LLM 복구 가능, turn 진행
@@ -569,15 +598,31 @@ export class ChatTurnHandler {
     cfg: ProviderConfig, messages: readonly ChatMessage[], systemPrompt: string | undefined,
     tools: ProviderChatOpts["tools"], signal: AbortSignal, emit: (e: Parameters<AgentEgressPort["emit"]>[1]) => void,
     requestId: string,
+    authorizeToolProcessing: (plans: readonly ToolProcessing[]) => Promise<boolean>,
+    nativeEmit: (event: Parameters<AgentEgressPort["emit"]>[1]) => void = emit,
   ): Promise<RoundResult> {
     // 요청별 provider 해석(resolver 주입 시) — config(provider/model/naiaKey)로 라우팅. 미주입=고정 provider(fallback/테스트).
     const provider = this.d.resolver ? this.d.resolver.resolve(cfg) : this.d.provider;
     const executeTool = this.d.toolExecutor
       ? async (call: ToolCall): Promise<ToolExecutionResult> => {
-          const allowed = tools?.some((spec) => spec.name === call.name && (spec.tier === undefined || spec.tier === "none") && spec.processing === undefined);
-          if (!allowed) return { output: `provider-native tool '${call.name}' is not authorized`, isError: true };
+          const spec = tools?.find((candidate) => candidate.name === call.name && (candidate.tier === undefined || candidate.tier === "none"));
+          if (!spec) return { output: `provider-native tool '${call.name}' is not authorized`, isError: true };
+          const declared = spec.processing
+            ? (Array.isArray(spec.processing) ? spec.processing : [spec.processing])
+            : [];
+          const applicable = declared.filter((processing) => !processing.when
+            || (call.args !== null && typeof call.args === "object" && !Array.isArray(call.args)
+              && processing.when.values.includes(
+                (call.args as Record<string, unknown>)[processing.when.key] as never,
+              )));
+          if (applicable.length > 0 && !await authorizeToolProcessing(applicable)) {
+            return { output: `provider-native tool '${call.name}' processing was denied`, isError: true };
+          }
           try {
-            const result = await raceAbort(this.d.toolExecutor!.execute(call, { signal, requestId }), signal, this.d.toolTimeoutMs ?? TOOL_EXEC_TIMEOUT_MS);
+            const result = await raceAbort(this.d.toolExecutor!.execute(
+              call,
+              { signal, requestId, authorizedProcessing: applicable },
+            ), signal, this.d.toolTimeoutMs ?? TOOL_EXEC_TIMEOUT_MS);
             return result ?? { output: `tool '${call.name}' timed out`, isError: true };
           } catch (error) {
             if (signal.aborted) throw error;
@@ -612,9 +657,9 @@ export class ChatTurnHandler {
         if (chunk.kind === "usage") { usage = { inputTokens: chunk.inputTokens, outputTokens: chunk.outputTokens }; } // 마지막 스냅샷 채택(델타 아님)
         else if (chunk.kind === "finish") { finished = true; closeIt(); break; }     // 라운드 종료자=finish 1회; 이후 chunk 무시
         else if (chunk.kind === "toolUse" && !chunk.handled) { calls.push({ id: chunk.id, name: chunk.name, args: chunk.args }); } // ⚠️ 버퍼링(emit 보류)
-        else if (chunk.kind === "toolUse" || chunk.kind === "toolResult") { emit(mapProviderChunk(chunk)); } // provider-native 실행은 이미 완료/진행 중 — 재실행 금지
-        else if (chunk.kind === "text") { text += chunk.text; emit(mapProviderChunk(chunk)); } // 즉시 표시 + history 누적
-        else { emit(mapProviderChunk(chunk)); }                                      // thinking — 즉시 표시(history 누적 안 함)
+        else if (chunk.kind === "toolUse" || chunk.kind === "toolResult") { nativeEmit(mapProviderChunk(chunk)); } // provider-native 실행은 이미 완료/진행 중 — 재실행 금지
+        else if (chunk.kind === "text") { text += chunk.text; nativeEmit(mapProviderChunk(chunk)); } // 즉시 표시 + history 누적
+        else { nativeEmit(mapProviderChunk(chunk)); }                                      // thinking — 즉시 표시(history 누적 안 함)
       }
     } catch (err) {
       closeIt();

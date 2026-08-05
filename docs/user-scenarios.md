@@ -609,7 +609,7 @@ Codex가 같은 명령을 자식 프로세스로 호출해도 provider/model/wor
 Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode fallback을 사용하지 않는다.
 
 - **S-NAIA-PI-1 (Grok coding)**: `grok-4.3`이 도구를 호출하고 파일 변경과 검증 결과를 정직한 리포트로 남긴다.
-- **S-NAIA-PI-2 (DeepSeek analysis)**: `deepseek-v4-pro`는 파일 도구가 필요 없는 분석·리뷰 요청에 응답한다.
+- **S-NAIA-PI-2 (DeepSeek analysis)**: `deepseek-v4-flash`와 `deepseek-v4-pro`는 파일 도구가 필요 없는 분석·리뷰 요청에 응답한다. 비용 비교 후보는 Flash를 사용한다.
 - **S-NAIA-PI-3 (capability rejection)**: DeepSeek로 코딩을 요청하면 Pi spawn/Azure 호출 전에 tool 미지원 이유로 실패한다.
 - **S-NAIA-PI-4 (stored login)**: 새 CLI 프로세스가 `~/.naia-agent/.env`의 Naia 키를 읽고 키 인자 없이 실행한다.
 - **S-NAIA-PI-5 (honest failure)**: 키 누락·인증 실패·모델 미지원·upstream 실패를 구분하고 비밀을 출력하지 않는다.
@@ -720,15 +720,19 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 
 ## UC-020 ? Three-tier development role delegated through Pi
 
-Naia Agent reads Shell's `expert`, `main`, and `sub` profile metadata from the active ADK configuration. For a requested role it resolves inheritance, accepts only Codex or Claude providers for this Pi path, and starts a Pi sub-agent with the resolved provider/model. The Supervisor remains responsible for cancellation, event forwarding, and final report.
+Naia Agent reads Shell's `expert`, `main`, and `sub` profile metadata from the active ADK configuration. For a requested role it resolves inheritance, accepts Pi-supported Codex, Claude, or Naia-account providers, and starts a Pi sub-agent with the resolved provider/model. The Supervisor remains responsible for cancellation, event forwarding, and final report. Workspace selection and settings reload apply to the next delegation without restarting Agent.
 
 OpenCode is intentionally not a candidate, fallback, command, or diagnostic label for this Shell/Agent route. A malformed role or unsupported provider fails closed before Pi spawn.
+
+When the request originates from Discord, the selected role is also a trusted `sub_llm` processing operation. Its provider/model must be authorized and disclosed by the binding's processing profile before the delegated Pi session starts.
 
 ### Test Coverage Map
 
 | Scenario | Contract test |
 |---|---|
 | explicit/inherited expert/main/sub resolves | `llm-roles.contract.test.ts` |
+| settings reload is observed by the next role invocation | `llm-roles.contract.test.ts`, `discord-entry-wiring.contract.test.ts` |
+| selected Discord role is authorized as `sub_llm` before execution | `processing-policy-handler.contract.test.ts`, `delegate-agent-skill.contract.test.ts` |
 
 ## UC-022 — Durable issue supervisor runtime
 
@@ -742,3 +746,140 @@ The Agent-side runtime persists the run, events, worker attempt lease, and trans
 | stale heartbeat/completion are rejected and timeout observes retry backoff | `durable-supervisor.integration.test.ts` |
 | every missed ten-minute report boundary survives SQLite reopen | `durable-supervisor.integration.test.ts` |
 | production composition performs startup recovery and owns a cancellable periodic pump | `durable-supervisor.integration.test.ts` |
+
+## UC-ORCH-001 — Naia delegates one coding issue through a moderator
+
+A user can keep chatting with Naia and assign a bounded coding task without treating the
+Naia-facing model as the coding expert. Naia classifies chat versus work and preserves every
+explicit obligation. For work, a separate Sol-class development moderator produces the worker
+task, profile, acceptance checks, and any blocking question. One isolated issue owns stable issue,
+dispatch, actor-session, and execution identities. A Codex worker edits only its managed worktree,
+verification runs after the worker stops, and Naia reports only persisted events and receipts.
+
+If the Agent restarts, the same request and dispatch identifiers resume from the last persisted
+stage. A repeated request never creates a second issue or worker effect. A lost worker response is
+reported as `outcome_unknown`, not upgraded to failure or success. A user can cancel before
+dispatch, and a moderator question is preserved byte-for-byte until the matching answer arrives.
+Chat-only input creates no coding dispatch and invokes neither the moderator nor worker; the durable
+routing record exists only to make the facing-model call idempotent and auditable.
+
+The first product slice uses GPT-5.6 Luna as a proxy for a weaker 24GB local Naia model, GPT-5.6
+Sol as development moderator, and one Codex worker selected by a pinned role profile. OpenCode and
+naia-agent-as-worker are outside this slice and are not runtime dependencies.
+
+### Test Coverage Map
+
+| Scenario | Contract/integration test |
+|---|---|
+| chat stays conversational and invokes no moderator or worker | `single-issue-orchestrator.integration.test.ts` |
+| work obligations, actor identities, profile, verification, and grounded report survive end to end | `single-issue-orchestrator.integration.test.ts` |
+| moderator question and exact answer resume the same issue | `single-issue-orchestrator.integration.test.ts` |
+| duplicate request and restart replay use the same issue/dispatch and worker effect once | `single-issue-orchestrator.integration.test.ts` |
+| concurrent Agent processes join an expiring SQLite execution claim and stale owners cannot write | `single-issue-orchestrator.integration.test.ts` |
+| durable cancellation aborts slow facing/moderator work before dispatch and late paths cannot start a worker | `single-issue-orchestrator.integration.test.ts`, `subagent-issue-actors.contract.test.ts` |
+| post-dispatch cancellation is rejected and lost worker response remains an honest terminal state | `single-issue-orchestrator.integration.test.ts` |
+| managed worktree, real Codex protocol receipt, and verifier compose behind the worker port | `supervised-issue-worker.integration.test.ts` |
+| Luna-proxy and all-Sol runs use the same frozen cases and behaviorally account for rejected/excess actor receipts | `single-issue-benchmark.contract.test.ts` |
+
+## UC-ORCH-002 — Naia manages multiple coding issues as visible independent sessions
+
+A user can hand Naia several bounded coding issues without opening and manually tracking one coding
+tool per issue. Naia accepts each issue into a durable queue, assigns it a stable session identity,
+and runs it through the existing moderated single-issue vertical. A bounded scheduler starts no more
+than the configured number of issues at once and preserves FIFO order among equally ready work.
+
+Each issue remains isolated: its workspace, actor sessions, receipts, cancellation, question, failure,
+and terminal outcome cannot mutate or block another issue. The user can list all sessions, inspect one
+session, answer its exact pending question, or cancel only that session. After Agent restart, persisted
+queued work is schedulable again while already-started work is reconciled through the single-issue
+orchestrator instead of being blindly duplicated.
+
+Naia's portfolio view is computed from persisted snapshots and receipts. It exposes queue/running/
+waiting/terminal counts, per-session state and last update, and measured aggregate cost only when every
+included issue has complete cost evidence. The first slice uses the existing Luna-proxy → Sol moderator
+→ one Codex worker composition for every issue. OpenCode and naia-agent worker collaboration, Discord
+ingress, terminal/file-opening UX, and naia-shell UI are later adapters. This slice preserves neutral
+`source` metadata and read/query ports for those adapters but does not claim that they are activated.
+
+### Test Coverage Map
+
+| Scenario | Contract/integration test |
+|---|---|
+| bounded FIFO scheduling starts at most the configured number and eventually runs every ready issue | `multi-issue-session-manager.integration.test.ts` |
+| duplicate intake returns the same session while conflicting request content fails closed | `multi-issue-session-manager.integration.test.ts` |
+| issue identity is durably ensured and linked before actor execution, including cancellation/restart in that boundary | `multi-issue-session-manager.integration.test.ts` |
+| one issue waiting, failing, or being cancelled does not block or overwrite another issue | `multi-issue-session-manager.integration.test.ts` |
+| list/get expose durable per-session state and evidence-grounded aggregate counts/cost | `multi-issue-session-manager.integration.test.ts` |
+| two manager processes share one expiring scheduler-owner lease, preserve the global limit/FIFO order, and recover without duplicate worker effect | `multi-issue-session-manager.integration.test.ts` |
+| source metadata accepts local and future adapter identifiers without activating Discord or Shell | `multi-issue-session-manager.integration.test.ts` |
+| manager domain/app modules remain free of Discord, Shell, Codex-protocol, and model-SDK imports | `multi-issue-layer-boundary.contract.test.ts` |
+| aggregate admission accounts for settled cost and active reservations and blocks on unavailable cost only when a threshold is enabled | `multi-issue-session-manager.integration.test.ts` |
+| a frozen deterministic workload scores completion, isolation, fairness, concurrency, restart, visibility, and cost accounting without paid calls | `multi-issue-benchmark.contract.test.ts` |
+
+## UC-ORCH-003 — One issue is solved by a profiled coding-agent team
+
+After the development moderator selects a declared worker profile, Naia can run one issue through
+separate explorer, implementer, tester, and reviewer sessions in the same managed worktree. Each
+role is pinned to an independently declared Codex, OpenCode, or naia-agent Pi profile. The facing
+model and moderator cannot invent an adapter, model, role, or filesystem capability at runtime.
+
+Only the implementer may receive workspace-write access. Explorer, tester, and reviewer sessions
+are read-only and pass bounded, structured findings to the next role. Failed tests or review
+findings return to the implementer through a configurable, bounded repair loop. Completion requires
+the configured number of consecutive clean tester/reviewer passes plus the existing issue-level
+verifier. A model-authored claim cannot replace either check.
+
+Every role attempt has its own session, execution, idempotency, model, usage, and cost evidence.
+The issue report includes all role receipts without merging their identities or hiding unavailable
+cost. A restart after a durably completed role resumes the next undispatched role; a restart that
+finds an unacknowledged in-flight role reports `outcome_unknown` instead of blindly repeating a
+possibly mutating agent. Duplicate dispatch returns the same persisted team result.
+
+The production composition uses the existing Codex, OpenCode, and built-in Pi adapters. Pi may use
+the user's Naia account through the existing Naia gateway contract; OpenCode is an optional worker,
+not a fallback and not a dependency of the basic Codex path. This stage deliberately stops before
+Discord ingress, terminal/file-opening UX, and naia-shell visualization.
+
+### Test Coverage Map
+
+| Scenario | Contract/integration test |
+|---|---|
+| declared roles run in order in one worktree, with write access only for the implementer | `issue-team-worker.integration.test.ts` |
+| the production mixed catalog routes legacy and team profiles into their concrete workers | `profiled-issue-worker.integration.test.ts` |
+| tester/reviewer findings cause bounded repair and two consecutive clean passes | `issue-team-worker.integration.test.ts` |
+| every Codex/OpenCode/Pi attempt preserves distinct identity, binding, usage, and cost evidence | `issue-team-role-executor.integration.test.ts`, `single-issue-team-verifier.integration.test.ts` |
+| duplicate dispatch returns one persisted result and does not repeat a role effect | `issue-team-worker.integration.test.ts` |
+| restart after an acknowledged role resumes safely, while an in-flight unknown role is never replayed | `issue-team-worker.integration.test.ts` |
+| undeclared profiles, adapters, roles, model mismatches, malformed results, and excess loop bounds fail closed | `issue-team-worker.integration.test.ts`, `issue-team-profile.contract.test.ts` |
+| OpenCode emits honest adapter-requested identity evidence without fabricating provider usage | `uc-cli-subagent-opencode.contract.test.ts` |
+| a clean team result still fails the issue when the independent acceptance-check verifier fails | `single-issue-team-verifier.integration.test.ts` |
+| app/domain/port layers remain free of Discord, Shell, provider SDK, and subprocess imports | `issue-team-layer-boundary.contract.test.ts` |
+| a frozen no-paid-call workload gates ordering, isolation, recovery, loop convergence, receipt coverage, and cost accounting | `issue-team-benchmark.contract.test.ts` |
+## UC-ORCH-004 — One Naia Agent session continuously manages coding sessions
+
+The user starts Naia Agent without naia-shell, submits several repository issues, and keeps using
+the same durable session manager to inspect, answer, cancel, and resume them. Each issue runs through
+the existing moderator and bounded explorer/implementer/tester/reviewer loop, but every authored
+role uses built-in Pi by default. The subscription-conserving profile uses Codex Luna only for the
+development moderator while facing/reporting and all worktree roles stay on Naia Gateway Pi.
+OpenCode is not installed or started on this path.
+
+Before each paid model attempt, Naia Agent durably reserves calls, dollars, input tokens, and output
+tokens. Restart cannot erase the budget or cause an unresolved paid attempt to be repeated. Complete
+provider evidence settles the reservation; missing or conflicting evidence stops the affected work
+honestly. The loop has no arbitrary two-minute ceiling and stops only at explicit contract bounds.
+
+### Test Coverage Map
+
+| Scenario | Contract/integration test |
+|---|---|
+| independent SQLite connections serialize reservations and enforce all four aggregate limits | `sqlite-paid-call-budget.integration.test.ts` |
+| restart preserves settled and unresolved allowance; duplicate/conflicting receipts are deterministic | `sqlite-paid-call-budget.integration.test.ts` |
+| the shared actor path and role executor reserve before spawn and settle bound evidence | `pi-continuous-loop.integration.test.ts` |
+| the Pi-only transitive TypeScript import closure has no OpenCode adapter edge | `pi-continuous-loop.contract.test.ts`, `pi-continuous-loop-benchmark.contract.test.ts` |
+| the hybrid profile permits only Codex Luna as moderator, rejects Codex in every other slot, and rejects analysis-only DeepSeek models in worktree roles | `pi-continuous-loop.contract.test.ts`, `issue-team-role-executor.integration.test.ts` |
+| the command backend reopens the same durable control state; one NDJSON session accepts multiple starts and surfaces background pump failure; every command that pumps work, including cancel, restores the Naia credential first; every paid smoke/comparison path requires durable output and preserves partial billing artifacts | `pi-continuous-loop-cli.integration.test.ts`, `pi-continuous-loop.contract.test.ts`, `pi-cost-comparison-runner.contract.test.ts` |
+| frozen zero-paid benchmark executes two managed issues through the real Pi-only composition with injected provider/worktree/verifier effects, binds current TypeScript to the exact executed JavaScript, mutation-tests forbidden import/executable patterns, and covers paid-attempt settlement, repair, verification failure, duplicate submission, restart, unresolved calls, drift, receipt conflict, and budget gates | `pi-continuous-loop-benchmark.contract.test.ts` |
+| paired cost evidence permits a bounded internal savings claim only for equal tasks and actor-attempt topology, restored checkpoints, deterministic quality non-inferiority, every exact settled gateway customer-billing request, and an external-key HMAC over the complete evidence; tool-loop request-count differences remain measured rather than being confused with role counts, while estimates, window aggregates, contamination, route/token/cost drift, missing authority, post-attestation mutation, or unresolved calls fail closed; the unsigned gateway response is not presented as a third-party audit | `pi-cost-comparison.contract.test.ts`, `pi-cost-comparison-runner.contract.test.ts`, `benchmark/orchestration/pi-cost-comparison.json` |
+| the Naia-only Pi provider converts each tool-loop request to atomic non-streaming gateway billing, binds it to a parent-owned execution identity, reserves a shared durable request allowance before network I/O, persists an owner-only receipt journal, and reconstructs Pi-compatible SSE without losing text, tool calls, or usage; missing, malformed, unsettled, route-drifted, over-budget, duplicate, or tampered evidence never becomes measured cost | `naia-pi-versioned-billing.contract.test.ts`, `uc-naia-pi-provider.contract.test.ts` |
+| a user-owned local Pi binding is credential-free and loopback-only, while its GPU1 qualification binds source/dist/Pi and external-executable hashes, immutable serving image and model snapshot, container endpoint and GPU telemetry, a real >=32K prompt, native tool protocol, two clean cycles, and deterministic file verification without inventing provider cost | `user-owned-pi-provider.contract.test.ts`, `pi-continuous-loop.contract.test.ts`, `issue-team-role-executor.integration.test.ts`, `benchmark/run-user-owned-three-layer-live.mjs`, `benchmark/results/gpu1-user-owned-three-layer-live-final-2026-08-05.json` |

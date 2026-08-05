@@ -10,7 +10,7 @@
 // ⚠️ tier="none": 본 도구는 opt-in(env NAIA_DELEGATE_AGENT=1 등)으로 host 가 활성화 → operator 사전 승인 전제.
 //    외부 에이전트 spawn + 워크스페이스 파일 변경을 수반하므로, 기본 toolExecutor 에는 포함되지 않는다.
 import type { ToolExecutorPort, DiagnosticLog } from "../ports/uc1.js";
-import type { ToolSpec, ToolCall } from "../domain/chat.js";
+import type { ToolSpec, ToolCall, ToolProcessing } from "../domain/chat.js";
 import type { TaskSpec, SupervisorReport } from "../domain/orchestration.js";
 import type { SupervisorEgressPort } from "../ports/orchestration.js";
 import { isAborted } from "./signal-util.js";
@@ -42,6 +42,8 @@ export interface DelegateAgentDeps {
   readonly resolveAllowedWorkdirRoot?: () => string;
   /** 외부 요청이 workdir를 바꾸게 할지. 기본 false = host가 선택한 단일 workspace에 고정. */
   readonly allowWorkdirOverride?: boolean;
+  /** 호출 시점 역할 설정으로 만든 처리 계획. 빈 배열이면 실행기가 fail-closed할 설정이다. */
+  readonly resolveProcessing?: () => readonly ToolProcessing[];
 }
 
 /** roster 전체 agent(문서용 enum — host 가 화이트리스트 좁힐 수도). */
@@ -55,10 +57,21 @@ function readArg(call: ToolCall, name: string): string | undefined {
   return typeof v === "string" ? v : undefined;
 }
 
+function selectedProcessing(plans: readonly ToolProcessing[], agent: string): ToolProcessing | undefined {
+  return plans.find((plan) => plan.when?.key === "agent" && plan.when.values.includes(agent));
+}
+
+function sameProcessing(left: ToolProcessing | undefined, right: ToolProcessing | undefined): boolean {
+  return left?.workload === right?.workload
+    && left?.destination === right?.destination
+    && left?.provider === right?.provider
+    && left?.model === right?.model;
+}
+
 /** ToolExecutorPort 구현. 메인 LLM 이 sub-agent 위임용으로 사용. */
 export function makeDelegateAgentSkill(deps: DelegateAgentDeps): ToolExecutorPort {
   const allowed = deps.allowedAgents ?? DELEGATE_AGENTS;
-  const TOOLS: readonly ToolSpec[] = [
+  const specs = (): readonly ToolSpec[] => [
     {
       name: "delegate_agent",
       description:
@@ -77,11 +90,12 @@ export function makeDelegateAgentSkill(deps: DelegateAgentDeps): ToolExecutorPor
         required: ["agent", "task"],
       },
       tier: "none",
+      ...(deps.resolveProcessing ? { processing: deps.resolveProcessing() } : {}),
     },
   ];
 
   return {
-    specs: () => TOOLS,
+    specs,
     async execute(call, opts) {
       const agent = readArg(call, "agent");
       const task = readArg(call, "task");
@@ -95,6 +109,13 @@ export function makeDelegateAgentSkill(deps: DelegateAgentDeps): ToolExecutorPor
       if (!agent) return { output: "delegate_agent: 'agent' 인자 누락", isError: true };
       if (!allowed.includes(agent)) return { output: `delegate_agent: 지원 안 하는 agent '${agent}' (가능: ${allowed.join(", ")})`, isError: true };
       if (!task) return { output: "delegate_agent: 'task' 인자 누락", isError: true };
+      if (deps.resolveProcessing && opts.authorizedProcessing) {
+        const authorized = selectedProcessing(opts.authorizedProcessing, agent);
+        const active = selectedProcessing(deps.resolveProcessing(), agent);
+        if (!sameProcessing(authorized, active)) {
+          return { output: "delegate_agent: 역할 설정이 승인 후 변경되어 실행을 거부했습니다", isError: true };
+        }
+      }
       if (allowedWorkdirRoot) {
         try {
           const root = realpathSync(allowedWorkdirRoot);

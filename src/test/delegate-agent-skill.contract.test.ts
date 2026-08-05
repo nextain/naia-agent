@@ -135,6 +135,51 @@ describe("delegate-agent-skill 계약 (메인 LLM → sub-agent 위임 도구)",
     expect(no.isError).toBe(true);
   });
 
+  it("역할별 sub-LLM 처리 계획은 specs 호출 시점의 활성 설정을 반영한다", () => {
+    let model = "cheap-v1";
+    const ex = makeDelegateAgentSkill({
+      run: fakeRunner().run,
+      defaultWorkdir: "/ws",
+      allowedAgents: ["sub"],
+      resolveProcessing: () => [{
+        workload: "sub_llm",
+        destination: "external_cloud",
+        provider: "nextain",
+        model,
+        when: { key: "agent", values: ["sub"] },
+      }],
+    });
+    expect(ex.specs()[0]?.processing).toEqual([expect.objectContaining({ model: "cheap-v1" })]);
+    model = "cheap-v2";
+    expect(ex.specs()[0]?.processing).toEqual([expect.objectContaining({ model: "cheap-v2" })]);
+  });
+
+  it("승인 뒤 역할 설정이 바뀌면 새 모델을 실행하지 않고 fail-closed한다", async () => {
+    let model = "cheap-v1";
+    const fr = fakeRunner();
+    const plan = (selectedModel: string) => [{
+      workload: "sub_llm" as const,
+      destination: "external_cloud" as const,
+      provider: "nextain",
+      model: selectedModel,
+      when: { key: "agent", values: ["sub"] },
+    }];
+    const ex = makeDelegateAgentSkill({
+      run: fr.run,
+      defaultWorkdir: "/ws",
+      allowedAgents: ["sub"],
+      resolveProcessing: () => plan(model),
+    });
+    const authorized = plan(model);
+    model = "cheap-v2";
+    const result = await ex.execute(call({ agent: "sub", task: "work" }), {
+      authorizedProcessing: authorized,
+    });
+    expect(result).toMatchObject({ isError: true });
+    expect(result.output).toContain("승인 후 변경");
+    expect(fr.calls).toHaveLength(0);
+  });
+
   it("allowedWorkdirRoot 밖 경로와 symlink 탈출을 거부한다", async () => {
     const base = mkdtempSync(join(tmpdir(), "naia-delegate-"));
     const root = join(base, "workspace");

@@ -111,7 +111,7 @@ const { JeonjuDiscordCourseService, parseJeonjuDiscordCourseConfig } =
   await import("../../dist/main/app/jeonju-discord-course.js");
 const { selectSubAgent } =
   await import("../../dist/main/adapters/subagent-roster.js");
-const { makePiRoleSupervisorRunner } =
+const { makePiRoleProcessingPlans, makePiRoleSupervisorRunner } =
   await import("../../dist/main/adapters/pi-role-runner.js");
 const { makeActivityRouteRegistry, makeActivitySpeechEgress } =
   await import("../../dist/main/adapters/activity-speech-egress.js");
@@ -144,6 +144,7 @@ const deps = await composeAgentRuntimeDeps();
 cleanupFns = deps.cleanupFns;
 const { adkPath, provider, resolver, providerLabel: label, credentials, settingsStore, defaultConfig, configLabel } = deps;
 const { llmRoles } = deps;
+let activeLlmRoles = llmRoles ?? null;
 let { toolExecutor } = deps;
 const { memory, memoryLabel, reloadMemory, conversationLog, transcriptLabel, diag, personaSource, workspaceContextSource, knowledgeBackend } = deps;
 let skillsLabel = deps.skillsLabel;
@@ -200,8 +201,16 @@ if (codingJobs && jeonjuCourseConfig) {
 // 실행 에이전트와 작업 경로를 모두 좁혀 임의 agent 선택 및 워크스페이스 밖 쓰기를 차단한다.
 if (adkPath) {
   const runConfiguredPiRole = makePiRoleSupervisorRunner(
-    llmRoles ?? null,
+    () => activeLlmRoles,
     (subAgent, task, signal, egress) => wireSupervisor({ subAgent, diag }).run(task, signal, egress),
+    (role) => {
+      const config = activeLlmRoles?.ok
+        ? activeLlmRoles.configs.find((candidate) => candidate.role === role)
+        : undefined;
+      if (!config || !(config.provider.value === "nextain" || config.provider.value === "naia")) return {};
+      const secret = credentials.get(config.provider.value)?.naiaKey;
+      return { env: { ...process.env, ...(secret ? { NAIA_API_KEY: secret } : {}) } };
+    },
   );
   const delegateRun = async (agent, task, signal, egress) => {
     if (agent === "expert" || agent === "main" || agent === "sub") {
@@ -218,6 +227,7 @@ if (adkPath) {
     resolveDefaultWorkdir: () => currentAdkPath,
     resolveAllowedWorkdirRoot: () => currentAdkPath,
     allowedAgents: ["expert", "main", "sub"],
+    resolveProcessing: () => makePiRoleProcessingPlans(activeLlmRoles),
     diag,
   });
   toolExecutor = toolExecutor ? makeCompositeToolExecutor([delegateExec, toolExecutor]) : delegateExec;
@@ -288,6 +298,7 @@ const reloadConfigFrom = async (path, atomicWorkspace = false) => {
   const committed = !atomicWorkspace || memoryResult.ok;
   if (committed) {
     activeProcessingConfig = c;
+    activeLlmRoles = path ? settingsStore.loadLlmRoles(path) : null;
     applyDefaultConfig(c);
   }
   if (memoryResult.ok) activeMemoryProcessingConfig = path ? settingsStore.loadMemoryConfig(path) : null;
@@ -398,7 +409,7 @@ if (discordToken && discordConfig && discordAuthority) {
       profiles: { get: (ref) => discordConfig.processingProfiles?.[ref] },
       endpoints: {
         resolve: (provider, workload) => {
-          if (workload === "memory_llm" || workload === "sub_llm") {
+          if (workload === "memory_llm") {
             const memoryLlm = activeMemoryProcessingConfig?.llm;
             if (!memoryLlm || memoryLlm.provider === "none") {
               return {
@@ -435,11 +446,14 @@ if (discordToken && discordConfig && discordAuthority) {
               model: embedding.model || "unknown",
             };
           }
-          if (workload === "network_tool") {
-            const processing = toolExecutor?.specs().find((spec) =>
-              spec.processing?.workload === "network_tool"
-              && spec.processing.provider === provider.provider
-              && spec.processing.model === provider.model)?.processing;
+          if (workload === "network_tool" || workload === "sub_llm") {
+            const processing = toolExecutor?.specs().flatMap((spec) => {
+              if (!spec.processing) return [];
+              return Array.isArray(spec.processing) ? spec.processing : [spec.processing];
+            }).find((candidate) =>
+              candidate.workload === workload
+              && candidate.provider === provider.provider
+              && candidate.model === provider.model);
             if (!processing) return undefined;
             return {
               destination: processing.destination,

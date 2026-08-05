@@ -326,8 +326,11 @@ export interface CliModel {
 
 export const FALLBACK_NAIA_MODELS: readonly CliModel[] = [
   { provider: "naia", id: "grok-4.3", label: "Grok 4.3 (Naia / Azure)", tools: true, use: "coding" },
+  { provider: "naia", id: "deepseek-v4-flash", label: "DeepSeek V4 Flash (Naia / Azure)", tools: false, use: "analysis" },
   { provider: "naia", id: "deepseek-v4-pro", label: "DeepSeek V4 Pro (Naia / Azure)", tools: false, use: "analysis" },
 ];
+
+const ANALYSIS_ONLY_NAIA_MODELS = new Set(["deepseek-v4-flash", "deepseek-v4-pro"]);
 
 export function normalizeModelCatalog(input: unknown): CliModel[] {
   const data = (input as { data?: unknown })?.data;
@@ -343,14 +346,15 @@ export function normalizeModelCatalog(input: unknown): CliModel[] {
     const provider = typeof item.provider === "string"
       ? item.provider
       : typeof item.owned_by === "string" ? item.owned_by : "naia";
-    const tools = id !== "deepseek-v4-pro"
+    const analysisOnly = ANALYSIS_ONLY_NAIA_MODELS.has(id);
+    const tools = !analysisOnly
       && (typeof item.supports_tools === "boolean" ? item.supports_tools : true);
     models.push({
       provider,
       id,
       label: typeof item.name === "string" ? item.name : id,
       tools,
-      use: id === "deepseek-v4-pro" ? "analysis" : (tools ? "coding" : "general"),
+      use: analysisOnly ? "analysis" : (tools ? "coding" : "general"),
     });
   }
   return models.sort((a, b) => `${a.provider}/${a.id}`.localeCompare(`${b.provider}/${b.id}`));

@@ -32,16 +32,47 @@ export type SubAgentEvent =
   | { readonly kind: "text_delta"; readonly text: string }
   | { readonly kind: "model_evidence"; readonly evidence: SubAgentModelEvidence }
   /** terminal — 세션당 정확히 1회. ok=false = 실패/취소/비정상종료. reason = 사람이 읽는 사유(opaque). */
-  | { readonly kind: "session_end"; readonly ok: boolean; readonly reason?: string };
+  | { readonly kind: "session_end"; readonly ok: boolean; readonly reason?: string; readonly evidence?: SubAgentModelEvidence };
 
 export interface SubAgentModelEvidence {
   readonly provider: string;
-  /** Model reported by Pi's AssistantMessage. Pi 0.83 does not expose the HTTP response model separately. */
+  /** Selected model identifier. Consult modelEvidenceSource before treating it as provider-observed. */
   readonly selectedModel: string;
+  readonly modelEvidenceSource?: "provider_reported" | "adapter_requested";
+  readonly reasoningEffort?: string;
   readonly inputTokens: number;
   readonly outputTokens: number;
   readonly totalTokens: number;
+  readonly cachedInputTokens?: number;
+  /** False when a terminal provider event omitted or malformed its usage object. */
+  readonly usageAvailable?: boolean;
   readonly piEstimatedCost?: number;
+  readonly sessionId?: string;
+  readonly executionId?: string;
+  readonly measuredCostUsd?: number;
+  /** Request-level atomic gateway receipts. Operational evidence; not an independent attestation. */
+  readonly gatewayBillingReceipts?: readonly GatewayBillingReceipt[];
+}
+
+export interface GatewayBillingReceipt {
+  readonly source: "gateway_versioned_customer_billing";
+  readonly executionId: string;
+  readonly localRequestId: string;
+  readonly gatewayRequestId: string;
+  readonly gatewayAttempt: number;
+  readonly provider: string;
+  readonly model: string;
+  readonly responseModel?: string;
+  readonly responseId?: string;
+  readonly inputTokens: number;
+  readonly cachedInputTokens: number;
+  readonly outputTokens: number;
+  readonly totalTokens: number;
+  readonly customerCostDecimal: string;
+  readonly customerCostUsd: number;
+  readonly priceVersionId: string;
+  readonly currency: string;
+  readonly settlementStatus: "settled";
 }
 
 /** 워크스페이스 변경 요약(semantic) — 구 WorkspaceChange 스트림의 *집계 스냅샷*. 어떤 파일이

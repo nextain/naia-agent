@@ -1,0 +1,401 @@
+{
+  "schemaVersion": 1,
+  "benchmarkId": "azure-deepseek-grok-paired-v1",
+  "executedAt": "2026-08-04T14:14:38.911Z",
+  "status": "completed",
+  "task": "Create src/answer.js exporting const answer = 42 and do not modify any other tracked file.",
+  "priceSnapshot": {
+    "schemaVersion": 1,
+    "snapshotId": "azure-korea-central-model-prices-2026-08-04",
+    "currency": "USD",
+    "unit": "per_1m_tokens",
+    "region": "Korea Central",
+    "retrievedAt": "2026-08-04",
+    "source": "Azure Retail Prices API",
+    "query": "https://prices.azure.com/api/retail/prices?api-version=2023-01-01-preview&$filter=armRegionName%20eq%20'koreacentral'%20and%20contains(skuName,%20'<MODEL>')",
+    "models": {
+      "azure:DeepSeek-V4-Flash": {
+        "input": "0.19",
+        "cachedInput": "0.028",
+        "output": "0.51",
+        "meters": {
+          "input": {
+            "meterId": "8ef423d6-d080-596c-8f3d-5acaad190154",
+            "skuName": "V4 Flash Inp glbl",
+            "retailPricePer1K": "0.00019",
+            "effectiveStartDate": "2026-05-01T00:00:00Z"
+          },
+          "cachedInput": {
+            "meterId": "4bc60834-bb9c-5ba9-8633-4fce6bef2ebf",
+            "skuName": "V4 Flash cached glbl",
+            "retailPricePer1K": "0.000028",
+            "effectiveStartDate": "2026-07-01T00:00:00Z"
+          },
+          "output": {
+            "meterId": "fda23d8b-af4f-5e63-b719-8112058f54f0",
+            "skuName": "V4 Flash Outp glbl",
+            "retailPricePer1K": "0.00051",
+            "effectiveStartDate": "2026-05-01T00:00:00Z"
+          }
+        }
+      },
+      "azure:grok-4.3": {
+        "input": "1.25",
+        "cachedInput": "1.25",
+        "output": "2.50",
+        "pricingProxy": "Azure Retail Prices API has no Grok 4.3 meter as of retrieval; the deployed gateway rate matches Grok 4.2 Global input/output meters. Cached input conservatively uses the normal input rate because no separate cached meter was returned.",
+        "meters": {
+          "input": {
+            "meterId": "6d4ecd4b-3420-5333-bfdc-6683f18e27ef",
+            "skuName": "Grok 4.2 Inp glbl",
+            "retailPricePer1K": "0.00125",
+            "effectiveStartDate": "2026-05-01T00:00:00Z"
+          },
+          "output": {
+            "meterId": "f474eca8-070b-5624-b4f7-0ff68098d402",
+            "skuName": "Grok 4.2 Outp glbl",
+            "retailPricePer1K": "0.0025",
+            "effectiveStartDate": "2026-05-01T00:00:00Z"
+          }
+        }
+      }
+    },
+    "gateway": {
+      "customerMarkupMultiplier": "1.10",
+      "azureBaseFromCustomerReceipt": "customer_cost / 1.10"
+    },
+    "claimBoundary": "This snapshot supports Azure rate-card normalization only. DeepSeek V4 Flash is directly meter-bound. Grok 4.3 uses the deployed gateway's rate, which matches the listed Grok 4.2 Global meters; it is a pricing proxy until Azure publishes a Grok 4.3 meter or a bill export binds the deployment."
+  },
+  "budget": {
+    "maximumCalls": 18,
+    "maximumAzureBaseUsd": "0.50000000"
+  },
+  "arms": {
+    "candidate": {
+      "status": "completed",
+      "quality": {
+        "exactProposedContent": true,
+        "proposedContent": "export const answer = 42;",
+        "testerPasses": [
+          true,
+          true
+        ],
+        "reviewerCleans": [
+          true,
+          true
+        ],
+        "allChecksPass": true
+      },
+      "calls": 9,
+      "inputTokens": 505,
+      "cachedInputTokens": 4,
+      "outputTokens": 116,
+      "latencyMs": 67963,
+      "azureBaseUsd": 0.00022628,
+      "rows": [
+        {
+          "sequence": 1,
+          "role": "facing",
+          "model": "deepseek-v4-flash",
+          "requestId": "azure-bench-dc933de4-efb4-47ec-8903-3bc682fe1710",
+          "status": "settled",
+          "responseId": "c5f1f3f94de847c9b674a94c5434e38b",
+          "responseModel": "deepseek-v4-flash",
+          "inputTokens": 50,
+          "cachedInputTokens": 0,
+          "outputTokens": 24,
+          "latencyMs": 15921,
+          "azureBaseUsd": 0.00002174,
+          "output": "The user wants me to create a file that exports a constant with value 42, without changing any other files."
+        },
+        {
+          "sequence": 2,
+          "role": "moderator",
+          "model": "deepseek-v4-flash",
+          "requestId": "azure-bench-3331226e-ca1a-4991-b7ea-d8331f6e5ca2",
+          "status": "settled",
+          "responseId": "f42b1ec99ef641a9bc99d4a0ba27a508",
+          "responseModel": "deepseek-v4-flash",
+          "inputTokens": 45,
+          "cachedInputTokens": 0,
+          "outputTokens": 39,
+          "latencyMs": 11693,
+          "azureBaseUsd": 0.00002844,
+          "output": "{\n  \"obligations\": [\n    \"Create src/answer.js\",\n    \"Export const answer = 42\",\n    \"Do not modify any other tracked file\"\n  ]\n}"
+        },
+        {
+          "sequence": 3,
+          "role": "explorer",
+          "model": "deepseek-v4-flash",
+          "requestId": "azure-bench-acdcfe98-4462-4787-b6f1-34c1d0224ee3",
+          "status": "settled",
+          "responseId": "27acc72ebc544b55bf37e17ba8fb9f92",
+          "responseModel": "deepseek-v4-flash",
+          "inputTokens": 47,
+          "cachedInputTokens": 0,
+          "outputTokens": 12,
+          "latencyMs": 14536,
+          "azureBaseUsd": 0.00001505,
+          "output": "```javascript\nexport const answer = 42;\n```"
+        },
+        {
+          "sequence": 4,
+          "role": "implementer",
+          "model": "grok-4.3",
+          "requestId": "azure-bench-5f857267-dd03-4606-83ae-6b37821f6677",
+          "status": "settled",
+          "responseId": "97f28ffe-fa5e-4636-acbb-bd787eab6564",
+          "responseModel": "grok-4.3",
+          "inputTokens": 54,
+          "cachedInputTokens": 4,
+          "outputTokens": 7,
+          "latencyMs": 2798,
+          "azureBaseUsd": 0.000085,
+          "output": "export const answer = 42;"
+        },
+        {
+          "sequence": 5,
+          "role": "tester",
+          "model": "deepseek-v4-flash",
+          "requestId": "azure-bench-3e0dada5-d80f-469d-86d4-47437ce56597",
+          "status": "settled",
+          "responseId": "297be3213f784599a9cf4781e6689268",
+          "responseModel": "deepseek-v4-flash",
+          "inputTokens": 73,
+          "cachedInputTokens": 0,
+          "outputTokens": 3,
+          "latencyMs": 12382,
+          "azureBaseUsd": 0.0000154,
+          "output": "PASS"
+        },
+        {
+          "sequence": 6,
+          "role": "reviewer",
+          "model": "deepseek-v4-flash",
+          "requestId": "azure-bench-b01eaca0-439f-4707-b495-7384b26385c2",
+          "status": "settled",
+          "responseId": "1616c86f6d8d463ea65fb9e85f5b2d0d",
+          "responseModel": "deepseek-v4-flash",
+          "inputTokens": 73,
+          "cachedInputTokens": 0,
+          "outputTokens": 4,
+          "latencyMs": 547,
+          "azureBaseUsd": 0.00001591,
+          "output": "CLEAN"
+        },
+        {
+          "sequence": 7,
+          "role": "tester",
+          "model": "deepseek-v4-flash",
+          "requestId": "azure-bench-5f0f7fba-9949-4db2-bcaa-361f7b66a95a",
+          "status": "settled",
+          "responseId": "4e1b75e367e94380ab2034d4a0b6a31e",
+          "responseModel": "deepseek-v4-flash",
+          "inputTokens": 57,
+          "cachedInputTokens": 0,
+          "outputTokens": 3,
+          "latencyMs": 374,
+          "azureBaseUsd": 0.00001236,
+          "output": "PASS"
+        },
+        {
+          "sequence": 8,
+          "role": "reviewer",
+          "model": "deepseek-v4-flash",
+          "requestId": "azure-bench-7e6c2888-b5a6-4b47-aa26-d75de97d1ea0",
+          "status": "settled",
+          "responseId": "4b8e90b94e9245b4b4d360c85ee250d4",
+          "responseModel": "deepseek-v4-flash",
+          "inputTokens": 59,
+          "cachedInputTokens": 0,
+          "outputTokens": 4,
+          "latencyMs": 9139,
+          "azureBaseUsd": 0.00001325,
+          "output": "CLEAN"
+        },
+        {
+          "sequence": 9,
+          "role": "reporter",
+          "model": "deepseek-v4-flash",
+          "requestId": "azure-bench-72b1ffd7-c1eb-432b-9b52-de07420d530a",
+          "status": "settled",
+          "responseId": "20ed96f8e29a460b95be67aa685bc6cb",
+          "responseModel": "deepseek-v4-flash",
+          "inputTokens": 47,
+          "cachedInputTokens": 0,
+          "outputTokens": 20,
+          "latencyMs": 573,
+          "azureBaseUsd": 0.00001913,
+          "output": "The file `src/answer.js` was created, exporting `const answer = 42`."
+        }
+      ]
+    },
+    "control": {
+      "status": "completed",
+      "quality": {
+        "exactProposedContent": true,
+        "proposedContent": "export const answer = 42;",
+        "testerPasses": [
+          true,
+          true
+        ],
+        "reviewerCleans": [
+          true,
+          true
+        ],
+        "allChecksPass": true
+      },
+      "calls": 9,
+      "inputTokens": 535,
+      "cachedInputTokens": 36,
+      "outputTokens": 81,
+      "latencyMs": 51621,
+      "azureBaseUsd": 0.00087125,
+      "rows": [
+        {
+          "sequence": 1,
+          "role": "facing",
+          "model": "grok-4.3",
+          "requestId": "azure-bench-b58d4bc9-27e2-431b-b7e0-5a4c70a25b3b",
+          "status": "settled",
+          "responseId": "305179e3-11cf-4bd6-b4b1-c6d830999230",
+          "responseModel": "grok-4.3",
+          "inputTokens": 54,
+          "cachedInputTokens": 4,
+          "outputTokens": 23,
+          "latencyMs": 10364,
+          "azureBaseUsd": 0.000125,
+          "output": "This is a coding task: create src/answer.js exporting const answer = 42 without modifying other tracked files."
+        },
+        {
+          "sequence": 2,
+          "role": "moderator",
+          "model": "grok-4.3",
+          "requestId": "azure-bench-47a5b077-666b-4262-970c-ffdb76180f25",
+          "status": "settled",
+          "responseId": "94d0d75c-abae-43a7-b37b-584e9ffefda6",
+          "responseModel": "grok-4.3",
+          "inputTokens": 49,
+          "cachedInputTokens": 4,
+          "outputTokens": 26,
+          "latencyMs": 9264,
+          "azureBaseUsd": 0.00012625,
+          "output": "{\"acceptanceObligations\":[\"Create src/answer.js exporting const answer = 42\",\"do not modify any other tracked file\"]}"
+        },
+        {
+          "sequence": 3,
+          "role": "explorer",
+          "model": "grok-4.3",
+          "requestId": "azure-bench-1b7ede7d-08e7-4159-bfe0-78e696c055e3",
+          "status": "settled",
+          "responseId": "c0a8bdb8-516b-460c-9775-923f0958b9b7",
+          "responseModel": "grok-4.3",
+          "inputTokens": 51,
+          "cachedInputTokens": 4,
+          "outputTokens": 8,
+          "latencyMs": 3293,
+          "azureBaseUsd": 0.00008375,
+          "output": "export const answer = 42;\n\\"
+        },
+        {
+          "sequence": 4,
+          "role": "implementer",
+          "model": "grok-4.3",
+          "requestId": "azure-bench-f0de1c9d-9484-4a89-9d74-303094feff0e",
+          "status": "settled",
+          "responseId": "1cf436f8-8119-46b0-8759-0ccae7d3d382",
+          "responseModel": "grok-4.3",
+          "inputTokens": 54,
+          "cachedInputTokens": 4,
+          "outputTokens": 7,
+          "latencyMs": 2598,
+          "azureBaseUsd": 0.000085,
+          "output": "export const answer = 42;"
+        },
+        {
+          "sequence": 5,
+          "role": "tester",
+          "model": "grok-4.3",
+          "requestId": "azure-bench-b59cb605-d0ce-4a00-b1f4-87d68cedef64",
+          "status": "settled",
+          "responseId": "c9fa2b3f-18bf-4b1a-b3ac-73590ed7011b",
+          "responseModel": "grok-4.3",
+          "inputTokens": 77,
+          "cachedInputTokens": 4,
+          "outputTokens": 1,
+          "latencyMs": 3617,
+          "azureBaseUsd": 0.00009875,
+          "output": "PASS"
+        },
+        {
+          "sequence": 6,
+          "role": "reviewer",
+          "model": "grok-4.3",
+          "requestId": "azure-bench-5180077e-e750-4a3f-975f-0b76c21c25e8",
+          "status": "settled",
+          "responseId": "e529b554-0918-448d-b4a0-87f190ae72f9",
+          "responseModel": "grok-4.3",
+          "inputTokens": 76,
+          "cachedInputTokens": 4,
+          "outputTokens": 2,
+          "latencyMs": 4093,
+          "azureBaseUsd": 0.0001,
+          "output": "CLEAN"
+        },
+        {
+          "sequence": 7,
+          "role": "tester",
+          "model": "grok-4.3",
+          "requestId": "azure-bench-80cf140e-d71e-4405-8cf4-c5300fdc710a",
+          "status": "settled",
+          "responseId": "edecb0f8-f5ab-4718-b4ad-9c3b2107cfc4",
+          "responseModel": "grok-4.3",
+          "inputTokens": 61,
+          "cachedInputTokens": 4,
+          "outputTokens": 1,
+          "latencyMs": 6329,
+          "azureBaseUsd": 0.00007875,
+          "output": "PASS"
+        },
+        {
+          "sequence": 8,
+          "role": "reviewer",
+          "model": "grok-4.3",
+          "requestId": "azure-bench-dcf31cb0-c959-4822-967d-a439da91db6a",
+          "status": "settled",
+          "responseId": "fdcab46c-bcd9-48ae-8531-89fdfab14e7b",
+          "responseModel": "grok-4.3",
+          "inputTokens": 62,
+          "cachedInputTokens": 4,
+          "outputTokens": 2,
+          "latencyMs": 8130,
+          "azureBaseUsd": 0.0000825,
+          "output": "CLEAN"
+        },
+        {
+          "sequence": 9,
+          "role": "reporter",
+          "model": "grok-4.3",
+          "requestId": "azure-bench-593a3e2d-508a-4df7-9b81-d68a3c99b458",
+          "status": "settled",
+          "responseId": "a80b6377-b01e-44d0-b299-ca1e9658fd98",
+          "responseModel": "grok-4.3",
+          "inputTokens": 51,
+          "cachedInputTokens": 4,
+          "outputTokens": 11,
+          "latencyMs": 3933,
+          "azureBaseUsd": 0.00009125,
+          "output": "The file src/answer.js was created as specified."
+        }
+      ]
+    }
+  },
+  "calls": 18,
+  "comparison": {
+    "qualityComparable": true,
+    "azureBaseSavingsUsd": 0.00064497,
+    "azureBaseSavingsPercent": 74.0281,
+    "latencyDeltaPercent": 31.6577,
+    "claimAllowed": true
+  }
+}

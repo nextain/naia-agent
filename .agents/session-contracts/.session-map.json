@@ -1,0 +1,10 @@
+{
+  "schema_version": "1.0",
+  "bindings": {
+    "019fb8d5-7b1a-7fd2-99c4-837a2d701c10": {
+      "contract_id": "naia-agent-pi-continuous-loop-2026-08-04",
+      "contract_path": ".agents/session-contracts/naia-agent-pi-continuous-loop-2026-08-04.json",
+      "contract_digest": "9b5c606d58fecf96cf01626f87205566d629ad97f4e59cd52b14b991178f558b"
+    }
+  }
+}

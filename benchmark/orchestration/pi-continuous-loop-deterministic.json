@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "benchmarkId": "pi-continuous-loop-deterministic-v1",
+  "paidCalls": 0,
+  "profile": {
+    "explorer": { "provider": "naia", "model": "grok-4.3" },
+    "implementer": { "provider": "naia", "model": "grok-4.3" },
+    "tester": { "provider": "naia", "model": "grok-4.3" },
+    "reviewer": { "provider": "naia", "model": "grok-4.3" }
+  },
+  "policy": { "maxPaidCalls": 10, "maxUsd": 0.2, "maxInputTokens": 20000, "maxOutputTokens": 8000 },
+  "reservation": { "reservedUsd": 0.02, "reservedInputTokens": 2000, "reservedOutputTokens": 800 },
+  "cases": [
+    { "id": "issue-a:facing", "state": "settled", "usd": 0.004, "input": 300, "output": 80 },
+    { "id": "issue-a:moderator", "state": "settled", "usd": 0.009, "input": 700, "output": 180 },
+    { "id": "issue-a:explorer", "state": "settled", "usd": 0.006, "input": 600, "output": 150 },
+    { "id": "issue-a:implementer", "state": "settled", "usd": 0.018, "input": 1500, "output": 650 },
+    { "id": "issue-a:tester", "state": "settled", "usd": 0.006, "input": 600, "output": 150 },
+    { "id": "issue-a:reviewer", "state": "settled", "usd": 0.006, "input": 600, "output": 150 },
+    { "id": "issue-b:implementer-crash", "state": "unresolved" },
+    { "id": "issue-c:moderator-crash", "state": "unresolved" }
+  ]
+}

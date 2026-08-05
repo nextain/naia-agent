@@ -175,6 +175,7 @@ export class Supervisor {
             sessionOk = t.e.ok;
             sawSessionEnd = true;
             realSessionEnd = true; // 실제 종료 관측 — 자식이 스스로 끝남(finally cancel 불요)
+            if (t.e.evidence) modelEvidence = t.e.evidence;
             break;
           }
           if (t.e.kind === "model_evidence") modelEvidence = t.e.evidence;

@@ -1,0 +1,360 @@
+{
+  "schemaVersion": 1,
+  "benchmarkId": "pi-continuous-loop-deterministic-v1",
+  "sourceTreeDigest": "ec6b9661c470ab8a652bab6f0ad4b992665a6ed510a65cf1f42d2db59565c59b",
+  "executionTreeDigest": "6799b10d43e1897d64f56cf33b03c638876eabaf8f143c1cd2adf5753a807d96",
+  "paidCalls": 0,
+  "gates": {
+    "moderateCorpus": true,
+    "zeroPaidCalls": true,
+    "restartExact": true,
+    "unresolvedPreserved": true,
+    "duplicateBlocked": true,
+    "exhaustionBlocked": true,
+    "receiptConflictBlocked": true,
+    "driftBlockedAndReserved": true,
+    "multiIssueTerminal": true,
+    "duplicateSubmitDeduplicated": true,
+    "repairObserved": true,
+    "verificationFailurePreserved": true,
+    "controlRestartExact": true,
+    "compositionBudgetSettled": true,
+    "executedDistMatchesSource": true,
+    "importClosureComplete": true,
+    "allRolesPi": true,
+    "onlyImplementerWrites": true,
+    "openCodeDetectorSelfTest": true,
+    "noOpenCodeEdge": true
+  },
+  "evidence": {
+    "beforeRestart": {
+      "maxPaidCalls": 10,
+      "maxUsd": 0.2,
+      "maxInputTokens": 20000,
+      "maxOutputTokens": 8000,
+      "paidCalls": 8,
+      "activeReservations": 2,
+      "chargedUsd": 0.089,
+      "chargedInputTokens": 8300,
+      "chargedOutputTokens": 2960,
+      "costBasis": "mixed"
+    },
+    "afterRestart": {
+      "maxPaidCalls": 10,
+      "maxUsd": 0.2,
+      "maxInputTokens": 20000,
+      "maxOutputTokens": 8000,
+      "paidCalls": 8,
+      "activeReservations": 2,
+      "chargedUsd": 0.089,
+      "chargedInputTokens": 8300,
+      "chargedOutputTokens": 2960,
+      "costBasis": "mixed"
+    },
+    "profile": {
+      "kind": "team",
+      "roles": {
+        "explorer": {
+          "agentProfileId": "pi-explorer",
+          "agentKind": "pi",
+          "binding": {
+            "provider": "naia",
+            "model": "deepseek-v4-pro"
+          },
+          "filesystemAccess": "read_only"
+        },
+        "implementer": {
+          "agentProfileId": "pi-implementer",
+          "agentKind": "pi",
+          "binding": {
+            "provider": "naia",
+            "model": "grok-4.3"
+          },
+          "filesystemAccess": "workspace_write"
+        },
+        "tester": {
+          "agentProfileId": "pi-tester",
+          "agentKind": "pi",
+          "binding": {
+            "provider": "naia",
+            "model": "deepseek-v4-pro"
+          },
+          "filesystemAccess": "read_only"
+        },
+        "reviewer": {
+          "agentProfileId": "pi-reviewer",
+          "agentKind": "pi",
+          "binding": {
+            "provider": "naia",
+            "model": "deepseek-v4-pro"
+          },
+          "filesystemAccess": "read_only"
+        }
+      },
+      "maxRepairCycles": 2,
+      "requiredCleanCycles": 2
+    },
+    "endToEnd": {
+      "states": [
+        "completed",
+        "failed"
+      ],
+      "reports": [
+        {
+          "sessionId": "session-1",
+          "issueId": "issue-1",
+          "state": "completed",
+          "report": {
+            "issueId": "issue-1",
+            "state": "completed",
+            "summary": "state=completed; changedFiles=1; verification=passed",
+            "naiaCommentary": "Completed. Changed files: src/fix.ts. Verification: passed.",
+            "changedFiles": [
+              "src/fix.ts"
+            ],
+            "verificationPassed": true,
+            "totalCost": {
+              "state": "unavailable",
+              "reason": "incomplete naia cost: actor adapter did not receive priced usage"
+            }
+          },
+          "issueState": "completed",
+          "verification": {
+            "ok": true,
+            "checks": [
+              {
+                "name": "fixture-check",
+                "pass": true
+              }
+            ],
+            "receipt": {
+              "role": "verifier",
+              "provider": "fixture",
+              "model": "verifier",
+              "sessionId": "fixture-session-issue-1",
+              "executionId": "fixture-execution-issue-1",
+              "idempotencyKey": "issue-1:verify:1",
+              "tokenCountsAvailable": true,
+              "inputTokens": 10,
+              "cachedInputTokens": 0,
+              "outputTokens": 3,
+              "latencyMs": 1,
+              "modelEvidenceSource": "provider_reported",
+              "cost": {
+                "state": "measured",
+                "usd": 0.001,
+                "source": "fixture"
+              }
+            }
+          }
+        },
+        {
+          "sessionId": "session-3",
+          "issueId": "issue-3",
+          "state": "failed",
+          "report": {
+            "issueId": "issue-3",
+            "state": "failed",
+            "summary": "state=failed; changedFiles=1; verification=failed",
+            "naiaCommentary": "Failed. Changed files: src/fix.ts. Verification: failed.",
+            "changedFiles": [
+              "src/fix.ts"
+            ],
+            "verificationPassed": false,
+            "totalCost": {
+              "state": "unavailable",
+              "reason": "incomplete naia cost: actor adapter did not receive priced usage"
+            }
+          },
+          "issueState": "failed",
+          "verification": {
+            "ok": false,
+            "checks": [
+              {
+                "name": "fixture-check",
+                "pass": false
+              }
+            ],
+            "receipt": {
+              "role": "verifier",
+              "provider": "fixture",
+              "model": "verifier",
+              "sessionId": "fixture-session-issue-3",
+              "executionId": "fixture-execution-issue-3",
+              "idempotencyKey": "issue-3:verify:1",
+              "tokenCountsAvailable": true,
+              "inputTokens": 10,
+              "cachedInputTokens": 0,
+              "outputTokens": 3,
+              "latencyMs": 1,
+              "modelEvidenceSource": "provider_reported",
+              "cost": {
+                "state": "measured",
+                "usd": 0.001,
+                "source": "fixture"
+              }
+            }
+          }
+        }
+      ],
+      "repairCycles": 1,
+      "duplicateSubmitDeduplicated": true,
+      "restartExact": true,
+      "modelEffects": 20,
+      "budget": {
+        "maxPaidCalls": 40,
+        "maxUsd": 0.2,
+        "maxInputTokens": 40000,
+        "maxOutputTokens": 20000,
+        "paidCalls": 20,
+        "activeReservations": 0,
+        "chargedUsd": 0.02,
+        "chargedInputTokens": 200,
+        "chargedOutputTokens": 60,
+        "costBasis": "estimated"
+      }
+    },
+    "closureRoots": [
+      "src/main/composition/pi-continuous-loop.ts"
+    ],
+    "importClosureCount": 36,
+    "openCodeRuntimeEdges": [],
+    "openCodeDetectorSelfTest": {
+      "pass": true,
+      "cases": [
+        {
+          "name": "static-import",
+          "expected": 1,
+          "actual": 1
+        },
+        {
+          "name": "aliased-spawn",
+          "expected": 1,
+          "actual": 1
+        },
+        {
+          "name": "secondary-alias",
+          "expected": 1,
+          "actual": 1
+        },
+        {
+          "name": "default-child-process",
+          "expected": 1,
+          "actual": 1
+        },
+        {
+          "name": "commonjs",
+          "expected": 2,
+          "actual": 2
+        },
+        {
+          "name": "computed-dynamic-import",
+          "expected": 1,
+          "actual": 1
+        },
+        {
+          "name": "renamed-wrapper",
+          "expected": 1,
+          "actual": 1
+        },
+        {
+          "name": "fallback-command",
+          "expected": 1,
+          "actual": 1
+        },
+        {
+          "name": "compatibility-label",
+          "expected": 0,
+          "actual": 0
+        }
+      ]
+    },
+    "distConformance": {
+      "exact": true,
+      "mismatches": [],
+      "executedArtifacts": {
+        "main/adapters/coding-job-worktree.js": "77d00446c65cb10ed95414c922994fea25a89a0f6f4c240260162a5f3135d2ca",
+        "main/adapters/diagnostic.js": "d6c1e2dba260af680a14da7a9dff24d8d07e880e8b6db84573bde0d5419484b0",
+        "main/adapters/naia-pi-provider.js": "e59ade1e0ec4e438734087a83dd2265d58a6b0409b5a08836833deea63b45648",
+        "main/adapters/naia-pi-versioned-billing.js": "e72c8ab053a5c2cf695d43348f213d807d3485a829f03f6cc5555ff666e0f855",
+        "main/adapters/redact.js": "968af5ffe51b75d1da6e674b010dc8a502eaa5bf5a146971b1e493311fcbbd5d",
+        "main/adapters/sqlite-issue-orchestration-store.js": "b5b2c4e86052149925f342b3578db061cd5580ac68a6e5530dbd3715d087fff9",
+        "main/adapters/sqlite-issue-team-store.js": "5de30dd40d3b7e94adcba686228276ef257a0d9dfcbacb7e57de8800b8b710c8",
+        "main/adapters/sqlite-multi-issue-session-store.js": "431c1337a5f8e31d810c221dc8f5cb9e2edcc0d9a40b37f6f7b53f506d49b155",
+        "main/adapters/sqlite-paid-call-budget.js": "dcced52cb92f291e09768605087490a1500944731b26897eb6fd2f7ded1922fe",
+        "main/adapters/subagent-issue-actors.js": "b4ce17932517815b9d42bc24a9a9d1973f50f60774412edb52c5bae45e8f03e4",
+        "main/adapters/subagent-pi.js": "afd5ad857112f0f2eef2594a129f521f3090ac4d1f9d0115f3b5195814451b71",
+        "main/adapters/subprocess-session.js": "216beff3f48bca1a27b905e123b4dc7ff041783b2940aa6f1ea3f33f5ad7d7e1",
+        "main/adapters/verifier-commands.js": "6074fdf5b2f506e276c9417216f9deaaea9dfd037bf7859b1dc3ec510fff2829",
+        "main/app/issue-team-worker.js": "93b3a9e73c67d60d96c20c9abc2cbfc2af87b6747eeffdf2683f93eefa9215f9",
+        "main/app/multi-issue-session-manager.js": "e1f2584afad2f3c48e9605afc6f5cb22a7385b06311378a31f30fbb0d6e216b1",
+        "main/app/single-issue-orchestrator.js": "61d5afc6a7b247439a0931d90aec1e723ca678a74b04ffc595522a5490971b17",
+        "main/app/supervisor.js": "fa644504cbe3ea4c4ea08af5f81439295e9e7cb42d105255bb5741490726ed00",
+        "main/composition/issue-team-role-executor.js": "dd3bc52c7a795ec4afb1731d20d7c6ae0ff019dbfb90661dcf612c4c7b0548cf",
+        "main/composition/pi-continuous-loop.js": "beb0a88313d81f60bb3cfd741cca41e6cd245d958f7dbd8bb83fd3cec53d1d86",
+        "main/composition/supervised-issue-worker.js": "b3bb1a7ab249633c487d016d44a5019b5e02b399f1dd07a550c5e8a92d243d02",
+        "main/domain/chat.js": "f434c39eec4a815ba6ff8c55e4f014107c0aee56aeb66b3b217f126063e7c39c",
+        "main/domain/coding-job.js": "70535bf508c3b3ba3d8f7652bc46a6ee568f144318ff4c755f243737729a18b1",
+        "main/domain/issue-orchestration.js": "283abb82ccf5ab375a53e143711f954bc464225d9342d388e3e85edd518be1ed",
+        "main/domain/issue-team.js": "4959ad34152d2f4952f4f92eb2105bb4fe301409725f8a06f8248a426321895a",
+        "main/domain/jeonju-course.js": "9e896846d63017e295dc3fa572e066571f561e442491d4ea41191d1c84e75f73",
+        "main/domain/multi-issue-session.js": "a527f67db282daca56ae51cd520e8ede25666caf6ab2fa76a71138489982d04c",
+        "main/domain/orchestration.js": "b81d71651937138627db83e89960cf9c903270491288a445b6192ee9aa1405eb",
+        "main/domain/persona.js": "f39d1563096c0204185ed5a22a847dc80df930a91f25534f29edacae32d18df1",
+        "main/domain/workspace-context.js": "8cff1cdfd3deab451e81011f2f978bb30590aa9e63a5e23515ebd25058d24736",
+        "main/ports/coding-job.js": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881",
+        "main/ports/issue-orchestration.js": "7a2b07a4c3efc3b0261a8691f3881a18dbe0fb99268febf4e1f1ecc6f4267c65",
+        "main/ports/issue-team.js": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881",
+        "main/ports/multi-issue-session.js": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881",
+        "main/ports/orchestration.js": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881",
+        "main/ports/paid-call-budget.js": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881",
+        "main/ports/uc1.js": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881"
+      }
+    },
+    "trackedInputs": {
+      "benchmark/orchestration/pi-continuous-loop-deterministic.json": "c60d467ef1cb5f3359cb054b8e794df1bacd0618295fcea7f2331918d53dcc4e",
+      "benchmark/run-pi-continuous-loop-deterministic.mjs": "667609b0170e08016f06ffe7591989ddef5f75fb94a6db4d6eff604cb1e87193",
+      "package.json": "a3e758ab75c8e3c9514b726d0fe576c671a7c69e880b9500767ae3dac75717d4",
+      "pnpm-lock.yaml": "1a1852e1492d2f5643662470b81695d90952c0f1703f0ccedd1db08eb84b44a7",
+      "src/main/adapters/coding-job-worktree.ts": "4d81139293c3ec1d97b9a45aefe07e0d6a4f6b09ab716b880d967950092785b8",
+      "src/main/adapters/diagnostic.ts": "aa961b9fea24ff3ad7f8782b6ba893e656ec46576bd04b2d2ec0ee1e635d2159",
+      "src/main/adapters/naia-pi-provider.ts": "6b83423813f6248f28551778f0330f9fe883c0b51c716627b1a00540b5931eb7",
+      "src/main/adapters/naia-pi-versioned-billing.ts": "3026d399aabd2ccb435b313f7a7fdd4a23f1756d71577a46de707657a9070167",
+      "src/main/adapters/redact.ts": "6707fba70983f5c0ba953ca9b123579d7e014e70020e5003017bd07f2220756b",
+      "src/main/adapters/sqlite-issue-orchestration-store.ts": "cef7d66cd2f01305450ef4361296845c48d503cf796d5c08773ba5b530ce3de1",
+      "src/main/adapters/sqlite-issue-team-store.ts": "6e604d24435d9e8de1135547fd60e730a543e6cbc1b32bc98bb054e41ce2951c",
+      "src/main/adapters/sqlite-multi-issue-session-store.ts": "0fe0a4005099903cf92629b5eb6ec1aedf81ed412dc49e9116bf8a672e8f5679",
+      "src/main/adapters/sqlite-paid-call-budget.ts": "2c84078cff2390b3e5a30f5b7d6f2a1501ec4a989ca718dc1f3bfec49058717d",
+      "src/main/adapters/subagent-issue-actors.ts": "bd31bb02099dc8d0357d87f582f71b53e204876f728a2900f1f1f8a90745278c",
+      "src/main/adapters/subagent-pi.ts": "2137bad9c5912eb5887aea2086ef017c4481d7e92d562d9099b6ccfaeca66ce6",
+      "src/main/adapters/subprocess-session.ts": "bed2788365c847a218679d5823ed875e2ff687394df4ca27fdf4f71a3ac35b50",
+      "src/main/adapters/verifier-commands.ts": "461ea716343ead2409391ead028a231f35b57ffdd01729f8abc1204d4586f3af",
+      "src/main/app/issue-team-worker.ts": "0e091f480a99eb37d607b99f9a967b2dd680741da206757cc58c4c2a32f25fba",
+      "src/main/app/multi-issue-session-manager.ts": "e542ba5045d2f397e4d82aca8c585e20a7d317a1094b44106b42d9ce49d9d077",
+      "src/main/app/single-issue-orchestrator.ts": "ba92e54be4719f247893b83058f4cb9705cdc15243ecc9fa1613f4d65ea06342",
+      "src/main/app/supervisor.ts": "977db87e5583a393b6c385ac7808b479e4834e131d02f33ddf1bb2185a437d9b",
+      "src/main/composition/issue-team-role-executor.ts": "97cc97b18e24fbd5ac99e95c620af578c919ff1da7624429ed22e4d6a3411d0d",
+      "src/main/composition/pi-continuous-loop.ts": "43b5579532ca58314f0c30d15acb4d31dc7c3a8e09dbe4c943072f5776a971cc",
+      "src/main/composition/supervised-issue-worker.ts": "3466f39c682b59f5f5ff05c2efc022898817918204ffedfb6921e7a1986caacb",
+      "src/main/domain/chat.ts": "57f7006e88ebc72282d9ad893a4143df8857a2f481b8bff40090ced79a555141",
+      "src/main/domain/coding-job.ts": "ed9e7265c27232621bd6c7cb8486e908e7cc5a2c7bf517cb22f72bedacf0eb84",
+      "src/main/domain/issue-orchestration.ts": "63e62f3df5fcf8bfe2507bd4590a4182518dd5e80fc75869d3882de892f7d011",
+      "src/main/domain/issue-team.ts": "7f525f1da2e131ade21833f470cd171bd0189a9a0a2988af14b1df531e09697e",
+      "src/main/domain/jeonju-course.ts": "42c47b3403706dce3ace7cf863d4d05f62a95e0e5b3a36f4bea0bf358db90365",
+      "src/main/domain/multi-issue-session.ts": "45f736715f02bd74dc27c92b1a9c9b2f4d3dce5acbed4674030677f63cce68d6",
+      "src/main/domain/orchestration.ts": "531d4f8c8f9a760b6ae7282d89bdf515704881f7cdf112f96a3293a411da5169",
+      "src/main/domain/persona.ts": "7d2c06b5f276b1a73ab081c500decc5554da1c884efdeb9ad8a6848198dc8396",
+      "src/main/domain/workspace-context.ts": "c901872d487696f0cbd277f799cd51e5d00b94acf186b47fcccf729d0d8a7c2c",
+      "src/main/ports/coding-job.ts": "2acb6c672bfb786f8934fc72aaf0315170fe2bf69e8d7ee09b93b2a907548f3e",
+      "src/main/ports/issue-orchestration.ts": "397638793a4b184130e70ee6901b8c86cf18b3114a823463bfd96c9b3bce85cb",
+      "src/main/ports/issue-team.ts": "e91ad06b36c866be0fab931c6647166fe6f5d9f9fac3282e54e57993001872d3",
+      "src/main/ports/multi-issue-session.ts": "56af132aa2f4164b9a53e3dcf150b1e7bc516bafd4a0ceca529844e14a323f31",
+      "src/main/ports/orchestration.ts": "47954755365e1f12ab7ece225f3a105b3aa8e54c1e1ccd854fd9250fcfeab999",
+      "src/main/ports/paid-call-budget.ts": "2c652045738e1650aa823d7e76161353b96fb2ef7235104dc0b8a1e27b7c422b",
+      "src/main/ports/uc1.ts": "74baa3b7b63a3e965851a9f086e193d2b600fc9e604b59ae6618106922f34afc",
+      "tsconfig.json": "38204ea85e3c37122c6a44fc86255d6e2d653fd549facb84f5a91ddda743f5d2"
+    }
+  },
+  "claimAllowed": true,
+  "costClaim": "deterministic harness only; no live Azure price comparison"
+}

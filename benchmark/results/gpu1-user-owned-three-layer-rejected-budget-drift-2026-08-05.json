@@ -1,0 +1,602 @@
+{
+  "schemaVersion": 1,
+  "benchmarkId": "gpu1-user-owned-three-layer-v1",
+  "startedAt": "2026-08-04T16:16:06.440Z",
+  "completedAt": "2026-08-04T16:18:04.536Z",
+  "elapsedMs": 118096,
+  "endpoint": {
+    "provider": "local-vllm",
+    "model": "naia-0.9-coding-24g",
+    "maxModelLen": 65536,
+    "gpu": 1
+  },
+  "status": "failed",
+  "issueState": "failed",
+  "session": {
+    "version": 3,
+    "sessionId": "5d31f823-fc9d-483e-bbde-4cb949b9046d",
+    "requestId": "gpu1-user-owned-three-layer-v1",
+    "requestDigest": "9e7ce3aaeb47bc3e5ccbc8c2a8eef8fef2f7328805300af40055a209b91ac3b0",
+    "issueId": "f49b5576-f365-407e-bb6e-60174a9a32e5",
+    "workspacePath": "/tmp/naia-user-owned-three-layer-6VD4f1/source",
+    "source": {
+      "kind": "local",
+      "sourceId": "gpu1-user-owned-three-layer-v1",
+      "actorId": "benchmark"
+    },
+    "state": "failed",
+    "readyPriority": "normal",
+    "readySequence": 1,
+    "cancellationRequested": false,
+    "createdAt": "2026-08-04T16:16:06.512Z",
+    "updatedAt": "2026-08-04T16:18:04.536Z",
+    "report": {
+      "state": "failed",
+      "summary": "failed",
+      "issueId": "f49b5576-f365-407e-bb6e-60174a9a32e5",
+      "changedFiles": [],
+      "verificationPassed": null,
+      "totalCost": {
+        "state": "unavailable",
+        "reason": "incomplete naia cost: actor adapter did not receive priced usage"
+      }
+    }
+  },
+  "issue": {
+    "version": 8,
+    "requestId": "gpu1-user-owned-three-layer-v1",
+    "requestDigest": "9e7ce3aaeb47bc3e5ccbc8c2a8eef8fef2f7328805300af40055a209b91ac3b0",
+    "issueId": "f49b5576-f365-407e-bb6e-60174a9a32e5",
+    "originalText": "Create src/answer.js exporting const answer = 42 and do not modify any other tracked file.",
+    "requiredObligations": [
+      "src/answer.js exists",
+      "src/answer.js exports const answer = 42",
+      "no other tracked file changes"
+    ],
+    "workspacePath": "/tmp/naia-user-owned-three-layer-6VD4f1/source",
+    "state": "failed",
+    "naiaBinding": {
+      "provider": "local-vllm",
+      "model": "naia-0.9-coding-24g"
+    },
+    "moderatorBinding": {
+      "provider": "local-vllm",
+      "model": "naia-0.9-coding-24g"
+    },
+    "workerProfiles": {
+      "user-owned-local-pi": {
+        "kind": "team",
+        "roles": {
+          "explorer": {
+            "agentProfileId": "pi-explorer",
+            "agentKind": "pi",
+            "binding": {
+              "provider": "local-vllm",
+              "model": "naia-0.9-coding-24g"
+            },
+            "filesystemAccess": "read_only"
+          },
+          "implementer": {
+            "agentProfileId": "pi-implementer",
+            "agentKind": "pi",
+            "binding": {
+              "provider": "local-vllm",
+              "model": "naia-0.9-coding-24g"
+            },
+            "filesystemAccess": "workspace_write"
+          },
+          "tester": {
+            "agentProfileId": "pi-tester",
+            "agentKind": "pi",
+            "binding": {
+              "provider": "local-vllm",
+              "model": "naia-0.9-coding-24g"
+            },
+            "filesystemAccess": "read_only"
+          },
+          "reviewer": {
+            "agentProfileId": "pi-reviewer",
+            "agentKind": "pi",
+            "binding": {
+              "provider": "local-vllm",
+              "model": "naia-0.9-coding-24g"
+            },
+            "filesystemAccess": "read_only"
+          }
+        },
+        "maxRepairCycles": 1,
+        "requiredCleanCycles": 2
+      }
+    },
+    "answers": [],
+    "receipts": [
+      {
+        "role": "naia",
+        "provider": "local-vllm",
+        "model": "naia-0.9-coding-24g",
+        "sessionId": "cf89b728-b848-41ed-80a8-8383c5276a2e",
+        "executionId": "214d8f58-3a91-4856-8960-030e427346ec",
+        "idempotencyKey": "f49b5576-f365-407e-bb6e-60174a9a32e5:facing:classify",
+        "tokenCountsAvailable": true,
+        "inputTokens": 1843,
+        "cachedInputTokens": 0,
+        "outputTokens": 67,
+        "latencyMs": 3820,
+        "modelEvidenceSource": "provider_reported",
+        "estimatedCostUsd": 0,
+        "estimatedCostSource": "pi_catalog",
+        "cost": {
+          "state": "unavailable",
+          "reason": "actor adapter did not receive priced usage"
+        }
+      },
+      {
+        "role": "moderator",
+        "provider": "local-vllm",
+        "model": "naia-0.9-coding-24g",
+        "sessionId": "e0ef5d7f-0f93-4232-aa6a-cb2e337d5bbe",
+        "executionId": "23d3cf42-b8c6-4381-ad68-36b9437dcebf",
+        "idempotencyKey": "f49b5576-f365-407e-bb6e-60174a9a32e5:moderator:0",
+        "tokenCountsAvailable": true,
+        "inputTokens": 5788,
+        "cachedInputTokens": 0,
+        "outputTokens": 154,
+        "latencyMs": 9429,
+        "modelEvidenceSource": "provider_reported",
+        "estimatedCostUsd": 0,
+        "estimatedCostSource": "pi_catalog",
+        "cost": {
+          "state": "unavailable",
+          "reason": "actor adapter did not receive priced usage"
+        }
+      },
+      {
+        "role": "worker",
+        "workerRole": "explorer",
+        "agentProfileId": "pi-explorer",
+        "agentKind": "pi",
+        "provider": "local-vllm",
+        "model": "naia-0.9-coding-24g",
+        "sessionId": "13ff905c-195c-4b16-bce9-6e3a13503341",
+        "executionId": "9b076f64-47b4-4a46-bfe9-395f12672365",
+        "idempotencyKey": "f49b5576-f365-407e-bb6e-60174a9a32e5:dispatch:1:explorer:1",
+        "tokenCountsAvailable": true,
+        "inputTokens": 15192,
+        "cachedInputTokens": 0,
+        "outputTokens": 528,
+        "latencyMs": 28542,
+        "modelEvidenceSource": "provider_reported",
+        "estimatedCostUsd": 0,
+        "estimatedCostSource": "pi_catalog",
+        "cost": {
+          "state": "unavailable",
+          "reason": "role adapter did not receive priced usage"
+        }
+      },
+      {
+        "role": "worker",
+        "workerRole": "implementer",
+        "agentProfileId": "pi-implementer",
+        "agentKind": "pi",
+        "provider": "local-vllm",
+        "model": "naia-0.9-coding-24g",
+        "sessionId": "74cbec8f-b6fe-477d-b246-65d18c299dcb",
+        "executionId": "65cab587-3b29-4c2d-9ed8-c480ec3d944d",
+        "idempotencyKey": "f49b5576-f365-407e-bb6e-60174a9a32e5:dispatch:1:implementer:2",
+        "tokenCountsAvailable": true,
+        "inputTokens": 8059,
+        "cachedInputTokens": 0,
+        "outputTokens": 189,
+        "latencyMs": 12241,
+        "modelEvidenceSource": "provider_reported",
+        "estimatedCostUsd": 0,
+        "estimatedCostSource": "pi_catalog",
+        "cost": {
+          "state": "unavailable",
+          "reason": "role adapter did not receive priced usage"
+        }
+      },
+      {
+        "role": "worker",
+        "workerRole": "tester",
+        "agentProfileId": "pi-tester",
+        "agentKind": "pi",
+        "provider": "local-vllm",
+        "model": "naia-0.9-coding-24g",
+        "sessionId": "45dd03a4-55ea-469c-8e43-e184d6aeb581",
+        "executionId": "5bc9777b-24fa-4b82-a459-107b44be096a",
+        "idempotencyKey": "f49b5576-f365-407e-bb6e-60174a9a32e5:dispatch:1:tester:3",
+        "tokenCountsAvailable": true,
+        "inputTokens": 9736,
+        "cachedInputTokens": 0,
+        "outputTokens": 584,
+        "latencyMs": 24590,
+        "modelEvidenceSource": "provider_reported",
+        "estimatedCostUsd": 0,
+        "estimatedCostSource": "pi_catalog",
+        "cost": {
+          "state": "unavailable",
+          "reason": "role adapter did not receive priced usage"
+        }
+      },
+      {
+        "role": "worker",
+        "workerRole": "reviewer",
+        "agentProfileId": "pi-reviewer",
+        "agentKind": "pi",
+        "provider": "local-vllm",
+        "model": "naia-0.9-coding-24g",
+        "sessionId": "d5a25d36-d502-4b67-9be0-2f151a461ae2",
+        "executionId": "47d56304-605c-4c8b-b74d-963381aa5d21",
+        "idempotencyKey": "f49b5576-f365-407e-bb6e-60174a9a32e5:dispatch:1:reviewer:4",
+        "tokenCountsAvailable": true,
+        "inputTokens": 16090,
+        "cachedInputTokens": 0,
+        "outputTokens": 911,
+        "latencyMs": 39379,
+        "modelEvidenceSource": "provider_reported",
+        "estimatedCostUsd": 0,
+        "estimatedCostSource": "pi_catalog",
+        "cost": {
+          "state": "unavailable",
+          "reason": "role adapter did not receive priced usage"
+        }
+      }
+    ],
+    "createdAt": "2026-08-04T16:16:06.512Z",
+    "updatedAt": "2026-08-04T16:18:04.535Z",
+    "classification": {
+      "kind": "work",
+      "obligations": [
+        "src/answer.js exists",
+        "src/answer.js exports const answer = 42",
+        "no other tracked file changes"
+      ],
+      "chatReply": ""
+    },
+    "plan": {
+      "workerTask": "Create a new file src/answer.js that exports `const answer = 42`. Do not modify any other tracked file. The directory src/ does not yet exist and must be created alongside the file.",
+      "workerProfile": "user-owned-local-pi",
+      "acceptanceChecks": [
+        "file-content",
+        "changed-files"
+      ],
+      "questions": []
+    },
+    "workerProfile": {
+      "kind": "team",
+      "roles": {
+        "explorer": {
+          "agentProfileId": "pi-explorer",
+          "agentKind": "pi",
+          "binding": {
+            "provider": "local-vllm",
+            "model": "naia-0.9-coding-24g"
+          },
+          "filesystemAccess": "read_only"
+        },
+        "implementer": {
+          "agentProfileId": "pi-implementer",
+          "agentKind": "pi",
+          "binding": {
+            "provider": "local-vllm",
+            "model": "naia-0.9-coding-24g"
+          },
+          "filesystemAccess": "workspace_write"
+        },
+        "tester": {
+          "agentProfileId": "pi-tester",
+          "agentKind": "pi",
+          "binding": {
+            "provider": "local-vllm",
+            "model": "naia-0.9-coding-24g"
+          },
+          "filesystemAccess": "read_only"
+        },
+        "reviewer": {
+          "agentProfileId": "pi-reviewer",
+          "agentKind": "pi",
+          "binding": {
+            "provider": "local-vllm",
+            "model": "naia-0.9-coding-24g"
+          },
+          "filesystemAccess": "read_only"
+        }
+      },
+      "maxRepairCycles": 1,
+      "requiredCleanCycles": 2
+    },
+    "dispatchId": "f49b5576-f365-407e-bb6e-60174a9a32e5:dispatch:1"
+  },
+  "answer": null,
+  "changedFiles": [],
+  "transcripts": [
+    {
+      "role": "facing",
+      "write": false,
+      "text": "```json\n{\n  \"kind\": \"work\",\n  \"obligations\": [\n    \"src/answer.js exists\",\n    \"src/answer.js exports const answer = 42\",\n    \"no other tracked file changes\"\n  ],\n  \"chatReply\": \"\"\n}\n```",
+      "events": [
+        "planning",
+        "text_delta",
+        "model_evidence",
+        "session_end"
+      ]
+    },
+    {
+      "role": "moderator",
+      "write": false,
+      "text": "```json\n{\n  \"workerTask\": \"Create a new file src/answer.js that exports `const answer = 42`. Do not modify any other tracked file. The directory src/ does not yet exist and must be created alongside the file.\",\n  \"workerProfile\": \"user-owned-local-pi\",\n  \"acceptanceChecks\": [\n    \"file-content\",\n    \"changed-files\"\n  ],\n  \"questions\": []\n}\n```",
+      "events": [
+        "planning",
+        "model_evidence",
+        "tool_use_start",
+        "tool_use_end",
+        "model_evidence",
+        "tool_use_start",
+        "tool_use_end",
+        "text_delta",
+        "model_evidence",
+        "session_end"
+      ]
+    },
+    {
+      "role": "explorer",
+      "write": false,
+      "text": "The worktree currently contains only `.git` and `package.json`. The `src/` directory does not exist yet. The task requires creating `src/answer.js` with `const answer = 42` — no other tracked files should be modified.\n\nThe environment is clean and ready for the implementation step.\n\nThis is a git worktree. The current state is clean — only `package.json` and `.git` exist. No `src/` directory yet. All findings are clear.\n\n{\"version\":1,\"role\":\"explorer\",\"decision\":\"proceed\",\"summary\":\"Worktree is clean with only package.json and .git. The src/ directory does not exist yet. Creating src/answer.js with `const answer = 42` will be a new untracked file addition, satisfying all obligations without modifying existing tracked files.\",\"findings\":[{\"code\":\"directory-absent\",\"message\":\"src/ directory does not exist yet, needs to be created\"},{\"code\":\"no-conflicts\",\"message\":\"No existing src/ files or other tracked files to worry about\"},{\"code\":\"clean-worktree\",\"message\":\"Worktree has only package.json and .git, no uncommitted changes\"}]}",
+      "events": [
+        "planning",
+        "model_evidence",
+        "tool_use_start",
+        "tool_use_end",
+        "model_evidence",
+        "tool_use_start",
+        "tool_use_end",
+        "model_evidence",
+        "tool_use_start",
+        "tool_use_end",
+        "text_delta",
+        "model_evidence",
+        "tool_use_start",
+        "tool_use_end",
+        "model_evidence",
+        "tool_use_start",
+        "tool_use_end",
+        "model_evidence",
+        "tool_use_start",
+        "tool_use_end",
+        "text_delta",
+        "model_evidence",
+        "session_end"
+      ]
+    },
+    {
+      "role": "implementer",
+      "write": true,
+      "text": "The file `src/answer.js` has been created with `const answer = 42` exported. No other tracked files were modified.\n\n{\"version\":1,\"role\":\"implementer\",\"decision\":\"implemented\",\"summary\":\"Created src/answer.js exporting const answer = 42. No other tracked files were modified.\",\"findings\":[{\"code\":\"file-created\",\"message\":\"src/answer.js created with const answer = 42 export\"},{\"code\":\"no-tracked-changes\",\"message\":\"No existing tracked files were modified\"}]}",
+      "events": [
+        "planning",
+        "model_evidence",
+        "tool_use_start",
+        "tool_use_end",
+        "model_evidence",
+        "tool_use_start",
+        "tool_use_end",
+        "text_delta",
+        "model_evidence",
+        "session_end"
+      ]
+    },
+    {
+      "role": "tester",
+      "write": false,
+      "text": "I need to verify that the implementer correctly created `src/answer.js` with the right content and didn't modify any tracked files.\n\nGood, `src/` directory exists and `src/answer.js` is present. Let me verify the file content.\n\nThe file exports `const answer = 42` via `module.exports`. All obligations are satisfied:\n\n- `src/answer.js` exists ✓\n- It exports `const answer = 42` ✓\n- No other tracked files were modified (only `src/` directory and `src/answer.js` were added) ✓\n\n{\"version\":1,\"role\":\"tester\",\"decision\":\"pass\",\"summary\":\"src/answer.js exists and exports const answer = 42 via module.exports. No other tracked files were modified.\",\"findings\":[{\"code\":\"file-exists\",\"message\":\"src/answer.js exists in the worktree\"},{\"code\":\"correct-export\",\"message\":\"File contains 'const answer = 42' and exports it via module.exports\"},{\"code\":\"no-tracked-changes\",\"message\":\"Only src/ directory and src/answer.js were added; no existing tracked files modified\"}]}",
+      "events": [
+        "planning",
+        "text_delta",
+        "model_evidence",
+        "tool_use_start",
+        "tool_use_start",
+        "tool_use_end",
+        "tool_use_end",
+        "text_delta",
+        "model_evidence",
+        "tool_use_start",
+        "tool_use_end",
+        "text_delta",
+        "model_evidence",
+        "tool_use_start",
+        "tool_use_end",
+        "text_delta",
+        "model_evidence",
+        "session_end"
+      ]
+    },
+    {
+      "role": "reviewer",
+      "write": false,
+      "text": "Let me start by inspecting the current state of the worktree to verify what exists.\n\nGood, the `src/` directory and `src/answer.js` exist. Let me read the file contents and check git status.\n\nNow let me verify the git status to confirm no tracked files were modified:\n\nLet me verify the git status by checking what's tracked:\n\nAll obligations are satisfied:\n\n1. **`src/answer.js` exists** — confirmed by `find` and `ls`.\n2. **`src/answer.js` exports `const answer = 42`** — the file contains `const answer = 42;` and `module.exports = { answer };`, which correctly exports it.\n3. **No other tracked file changes** — only `package.json` and `.git` existed before; `src/answer.js` is a new untracked file addition.\n\n{\"version\":1,\"role\":\"reviewer\",\"decision\":\"clean\",\"summary\":\"All obligations verified: src/answer.js exists with correct export of const answer = 42, and no tracked files were modified.\",\"findings\":[{\"code\":\"file-exists\",\"message\":\"src/answer.js exists in the worktree\"},{\"code\":\"correct-export\",\"message\":\"File contains const answer = 42 and exports it via module.exports\"},{\"code\":\"no-tracked-changes\",\"message\":\"Only src/answer.js was added; package.json and .git remain unchanged\"}]}",
+      "events": [
+        "planning",
+        "text_delta",
+        "model_evidence",
+        "tool_use_start",
+        "tool_use_start",
+        "tool_use_end",
+        "tool_use_end",
+        "text_delta",
+        "model_evidence",
+        "tool_use_start",
+        "tool_use_end",
+        "text_delta",
+        "model_evidence",
+        "tool_use_start",
+        "tool_use_end",
+        "text_delta",
+        "model_evidence",
+        "tool_use_start",
+        "tool_use_end",
+        "text_delta",
+        "model_evidence",
+        "tool_use_start",
+        "tool_use_end",
+        "text_delta",
+        "model_evidence",
+        "session_end"
+      ]
+    }
+  ],
+  "receipts": [
+    {
+      "role": "naia",
+      "provider": "local-vllm",
+      "model": "naia-0.9-coding-24g",
+      "sessionId": "cf89b728-b848-41ed-80a8-8383c5276a2e",
+      "executionId": "214d8f58-3a91-4856-8960-030e427346ec",
+      "idempotencyKey": "f49b5576-f365-407e-bb6e-60174a9a32e5:facing:classify",
+      "tokenCountsAvailable": true,
+      "inputTokens": 1843,
+      "cachedInputTokens": 0,
+      "outputTokens": 67,
+      "latencyMs": 3820,
+      "modelEvidenceSource": "provider_reported",
+      "estimatedCostUsd": 0,
+      "estimatedCostSource": "pi_catalog",
+      "cost": {
+        "state": "unavailable",
+        "reason": "actor adapter did not receive priced usage"
+      }
+    },
+    {
+      "role": "moderator",
+      "provider": "local-vllm",
+      "model": "naia-0.9-coding-24g",
+      "sessionId": "e0ef5d7f-0f93-4232-aa6a-cb2e337d5bbe",
+      "executionId": "23d3cf42-b8c6-4381-ad68-36b9437dcebf",
+      "idempotencyKey": "f49b5576-f365-407e-bb6e-60174a9a32e5:moderator:0",
+      "tokenCountsAvailable": true,
+      "inputTokens": 5788,
+      "cachedInputTokens": 0,
+      "outputTokens": 154,
+      "latencyMs": 9429,
+      "modelEvidenceSource": "provider_reported",
+      "estimatedCostUsd": 0,
+      "estimatedCostSource": "pi_catalog",
+      "cost": {
+        "state": "unavailable",
+        "reason": "actor adapter did not receive priced usage"
+      }
+    },
+    {
+      "role": "worker",
+      "workerRole": "explorer",
+      "agentProfileId": "pi-explorer",
+      "agentKind": "pi",
+      "provider": "local-vllm",
+      "model": "naia-0.9-coding-24g",
+      "sessionId": "13ff905c-195c-4b16-bce9-6e3a13503341",
+      "executionId": "9b076f64-47b4-4a46-bfe9-395f12672365",
+      "idempotencyKey": "f49b5576-f365-407e-bb6e-60174a9a32e5:dispatch:1:explorer:1",
+      "tokenCountsAvailable": true,
+      "inputTokens": 15192,
+      "cachedInputTokens": 0,
+      "outputTokens": 528,
+      "latencyMs": 28542,
+      "modelEvidenceSource": "provider_reported",
+      "estimatedCostUsd": 0,
+      "estimatedCostSource": "pi_catalog",
+      "cost": {
+        "state": "unavailable",
+        "reason": "role adapter did not receive priced usage"
+      }
+    },
+    {
+      "role": "worker",
+      "workerRole": "implementer",
+      "agentProfileId": "pi-implementer",
+      "agentKind": "pi",
+      "provider": "local-vllm",
+      "model": "naia-0.9-coding-24g",
+      "sessionId": "74cbec8f-b6fe-477d-b246-65d18c299dcb",
+      "executionId": "65cab587-3b29-4c2d-9ed8-c480ec3d944d",
+      "idempotencyKey": "f49b5576-f365-407e-bb6e-60174a9a32e5:dispatch:1:implementer:2",
+      "tokenCountsAvailable": true,
+      "inputTokens": 8059,
+      "cachedInputTokens": 0,
+      "outputTokens": 189,
+      "latencyMs": 12241,
+      "modelEvidenceSource": "provider_reported",
+      "estimatedCostUsd": 0,
+      "estimatedCostSource": "pi_catalog",
+      "cost": {
+        "state": "unavailable",
+        "reason": "role adapter did not receive priced usage"
+      }
+    },
+    {
+      "role": "worker",
+      "workerRole": "tester",
+      "agentProfileId": "pi-tester",
+      "agentKind": "pi",
+      "provider": "local-vllm",
+      "model": "naia-0.9-coding-24g",
+      "sessionId": "45dd03a4-55ea-469c-8e43-e184d6aeb581",
+      "executionId": "5bc9777b-24fa-4b82-a459-107b44be096a",
+      "idempotencyKey": "f49b5576-f365-407e-bb6e-60174a9a32e5:dispatch:1:tester:3",
+      "tokenCountsAvailable": true,
+      "inputTokens": 9736,
+      "cachedInputTokens": 0,
+      "outputTokens": 584,
+      "latencyMs": 24590,
+      "modelEvidenceSource": "provider_reported",
+      "estimatedCostUsd": 0,
+      "estimatedCostSource": "pi_catalog",
+      "cost": {
+        "state": "unavailable",
+        "reason": "role adapter did not receive priced usage"
+      }
+    },
+    {
+      "role": "worker",
+      "workerRole": "reviewer",
+      "agentProfileId": "pi-reviewer",
+      "agentKind": "pi",
+      "provider": "local-vllm",
+      "model": "naia-0.9-coding-24g",
+      "sessionId": "d5a25d36-d502-4b67-9be0-2f151a461ae2",
+      "executionId": "47d56304-605c-4c8b-b74d-963381aa5d21",
+      "idempotencyKey": "f49b5576-f365-407e-bb6e-60174a9a32e5:dispatch:1:reviewer:4",
+      "tokenCountsAvailable": true,
+      "inputTokens": 16090,
+      "cachedInputTokens": 0,
+      "outputTokens": 911,
+      "latencyMs": 39379,
+      "modelEvidenceSource": "provider_reported",
+      "estimatedCostUsd": 0,
+      "estimatedCostSource": "pi_catalog",
+      "cost": {
+        "state": "unavailable",
+        "reason": "role adapter did not receive priced usage"
+      }
+    }
+  ],
+  "budget": {
+    "maxPaidCalls": 12,
+    "maxUsd": 0.12,
+    "maxInputTokens": 180000,
+    "maxOutputTokens": 24000,
+    "paidCalls": 6,
+    "activeReservations": 0,
+    "chargedUsd": 0,
+    "chargedInputTokens": 56708,
+    "chargedOutputTokens": 2433,
+    "costBasis": "estimated"
+  },
+  "gates": {
+    "completed": false,
+    "exactArtifact": false,
+    "onlyAllowedFile": false,
+    "allActorsLocal": true,
+    "providerCostNotFaked": true,
+    "contextAtLeast32K": true
+  }
+}

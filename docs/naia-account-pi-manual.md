@@ -5,7 +5,7 @@
 1. Codex가 `naia-agent` CLI를 호출해 Pi와 Naia 계정 모델을 사용하는 경로
 2. 사용자가 `naia-agent` CLI를 단독 실행하는 경로
 
-이번 범위의 모델은 `grok-4.3`과 `deepseek-v4-pro`뿐이다. Grok은 도구를 쓰는 코딩용이고, DeepSeek는 도구를 끈 분석·리뷰용이다. Sol, Terra, Luna와 naia-shell 코딩 작업자는 이번 범위가 아니다.
+이번 범위의 모델은 `grok-4.3`, `deepseek-v4-flash`, `deepseek-v4-pro`다. Grok은 도구를 쓰는 코딩용이고, 두 DeepSeek 모델은 도구를 끈 분석·리뷰용이다. Sol, Terra, Luna와 naia-shell 코딩 작업자는 이번 범위가 아니다.
 
 ## 1. 경로와 안전 계약
 
@@ -22,15 +22,16 @@ Codex 또는 사용자
 | 모델 | 용도 | Pi 도구 | 필수 옵션 | Azure 상태 |
 |---|---|---:|---|---|
 | `grok-4.3` | 파일 편집·명령 실행·검증을 포함한 코딩 | 켬 | 없음 | Preview |
+| `deepseek-v4-flash` | 저비용 분석·리뷰·벤치 후보 | 끔 | `--no-tools` | 배포 별칭 검증 중 |
 | `deepseek-v4-pro` | 분석·리뷰·설계 검토 | 끔 | `--no-tools` | GA |
 
 보호 규칙은 다음과 같다.
 
-- 두 모델은 Pi에서 `provider=naia`로만 실행된다. `xai`나 `deepseek` 직접 provider 우회는 spawn 전에 실패한다.
+- 세 모델은 Pi에서 `provider=naia`로만 실행된다. `xai`나 `deepseek` 직접 provider 우회는 spawn 전에 실패한다.
 - Pi 전용 설정은 `~/.naia-agent/pi/models.json`에 생성되며 실제 키를 저장하지 않고 `$NAIA_API_KEY` 참조만 저장한다.
 - Pi 자식 환경은 전역 Pi 디렉터리와 OpenAI/XAI/DeepSeek 직접 키를 상속하지 않는다.
-- `deepseek-v4-pro`를 `--no-tools` 없이 실행하면 Pi를 시작하지 않는다.
-- gateway도 DeepSeek 요청에 `tools`가 있으면 upstream 호출 전에 HTTP 400으로 거부한다.
+- `deepseek-v4-flash` 또는 `deepseek-v4-pro`를 `--no-tools` 없이 실행하면 Pi를 시작하지 않는다.
+- Agent는 DeepSeek 도구 요청을 Pi spawn 전에 거부한다. 현재 Agent 증거는 gateway의 별도 서버 가드까지 증명하지 않는다.
 - gateway에는 모델별 Azure endpoint/deployment와 `azure:<model>` 가격 행이 모두 있어야 한다. 하나라도 없으면 HTTP 503이다.
 - CLI 성공 보고에는 Pi 0.83의 `AssistantMessage`가 보고한 provider/model과 token usage가 포함된다. Pi는 HTTP 응답의 model 필드를 별도로 노출하지 않으므로 이를 “응답 모델 증거”라고 부르지 않는다. 실제 gateway 요청·응답 모델과 `azure:<model>` 청구 키는 gateway 검증에서 별도로 대조한다.
 
@@ -174,11 +175,11 @@ pnpm exec vitest run src/test/uc1-openai-compat.contract.test.ts
 
 CLI의 `piEstimatedCost`는 Pi 로컬 카탈로그 기준 추정치이며 Naia 청구의 정본이 아니다. 실제 비용·크레딧 검증은 gateway에서 같은 요청의 다음 세 항목을 대조한다.
 
-1. `UsageLog.model_key == azure:grok-4.3` 또는 `azure:deepseek-v4-pro`
+1. `UsageLog.model_key == azure:grok-4.3`, `azure:deepseek-v4-flash`, 또는 `azure:deepseek-v4-pro`
 2. prompt/completion/total token과 `UsageLog.cost`
 3. 같은 usage ID에 연결된 credit 차감 거래와 사용자 잔액 변화
 
-가격 행이 없는 상태, 잘못된 direct-provider prefix, DeepSeek tools 요청은 upstream 호출 수 `0`이어야 한다. 모델별 endpoint 캐시는 Grok→DeepSeek와 DeepSeek→Grok 두 순서 모두 서로 다른 client를 사용해야 한다.
+가격 행이 없는 상태와 잘못된 direct-provider prefix는 gateway에서 실패해야 한다. DeepSeek tools 요청은 Agent 경계에서 spawn 수 `0`이어야 한다. 모델별 endpoint 캐시는 Grok→DeepSeek와 DeepSeek→Grok 두 순서 모두 서로 다른 client를 사용해야 한다.
 
 비용 절감률은 한 번의 성공으로 주장하지 않는다. 같은 작업 묶음을 기존 모델과 새 모델로 반복해 token, 경과 시간, 재작업 횟수, 검증 통과율, gateway 실청구를 함께 기록한 뒤 판단한다.
 
@@ -227,7 +228,7 @@ Known limitations:
 ## 부록 A. GPT-5.6 캐시 쓰기/읽기 검증
 
 이 부록은 Pi 단독 모델 범위를 넓히지 않는다. Pi 단독 실행은 계속
-`grok-4.3`, `deepseek-v4-pro`만 사용한다. Sol/Luna는 naia-agent 일반 채팅
+`grok-4.3`, `deepseek-v4-flash`, `deepseek-v4-pro`만 사용한다. Sol/Luna는 naia-agent 일반 채팅
 또는 naia-shell이 Naia 계정으로 호출할 때 적용되며, AnyLLM gateway가
 사용자 격리와 실제 과금을 소유한다.
 

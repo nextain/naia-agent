@@ -48,7 +48,7 @@ describe("subagent-codex 어댑터 계약 (SPEC-010 확장, fake child)", () => 
     f.line('{"type":"turn.started"}');                                              // 무시
     f.line('{"type":"item.completed","item":{"id":"i0","type":"agent_message","text":"시작"}}');
     f.line('{"type":"item.completed","item":{"id":"i1","type":"command_execution","command":["ls"]}}');
-    f.line('{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}'); // 무시(terminal=close)
+    f.line('{"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":4,"output_tokens":2}}');
     f.close(0);
     const events = await drain(session.events);
 
@@ -57,6 +57,10 @@ describe("subagent-codex 어댑터 계약 (SPEC-010 확장, fake child)", () => 
     expect((events[2] as Extract<SubAgentEvent, { kind: "tool_use_end" }>).tool).toBe("command_execution");
     expect((events[2] as Extract<SubAgentEvent, { kind: "tool_use_end" }>).ok).toBe(true);
     expect((events[3] as Extract<SubAgentEvent, { kind: "session_end" }>).ok).toBe(true);
+    expect((events[3] as Extract<SubAgentEvent, { kind: "session_end" }>).evidence).toMatchObject({
+      provider: "openai-codex", selectedModel: "codex-default", sessionId: "th_1",
+      inputTokens: 10, cachedInputTokens: 4, outputTokens: 2,
+    });
   });
 
   it("args 정합: 전역 config를 무시하고 workspace-write/never/ephemeral 경계를 강제한다", () => {
@@ -76,6 +80,13 @@ describe("subagent-codex 어댑터 계약 (SPEC-010 확장, fake child)", () => 
       "hi",
     ]);
     expect(f.spawnArgs.cwd).toBe("/tmp/w");
+  });
+
+  it("pins role-profile reasoning effort independently from the model id", () => {
+    const f = fakeNdjson();
+    const port = makeCodexSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn, model: "gpt-5.6-luna", reasoningEffort: "low" });
+    port.spawn({ prompt: "hi", workdir: "/tmp/w" });
+    expect(f.spawnArgs.args).toContain("model_reasoning_effort=\"low\"");
   });
 
   it("uses the provider-neutral read-only capability when Naia requests a proposal worker", () => {
@@ -116,6 +127,34 @@ describe("subagent-codex 어댑터 계약 (SPEC-010 확장, fake child)", () => 
       else process.env.CODEX_THREAD_ID = priorThread;
       if (priorProfile === undefined) delete process.env.CODEX_PERMISSION_PROFILE;
       else process.env.CODEX_PERMISSION_PROFILE = priorProfile;
+    }
+  });
+
+  it("passes only a minimal non-secret environment to the Codex child", () => {
+    const prior = {
+      OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+      AWS_SECRET_ACCESS_KEY: process.env.AWS_SECRET_ACCESS_KEY,
+      GH_TOKEN: process.env.GH_TOKEN,
+      NPM_TOKEN: process.env.NPM_TOKEN,
+    };
+    process.env.OPENAI_API_KEY = "openai-secret";
+    process.env.AWS_SECRET_ACCESS_KEY = "aws-secret";
+    process.env.GH_TOKEN = "github-secret";
+    process.env.NPM_TOKEN = "npm-secret";
+    try {
+      const f = fakeNdjson();
+      makeCodexSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn }).spawn({ prompt: "hi", workdir: "/tmp/w" });
+      expect(f.spawnArgs.env?.PATH).toBe(process.env.PATH);
+      expect(f.spawnArgs.env?.HOME).toBe(process.env.HOME);
+      expect(f.spawnArgs.env?.OPENAI_API_KEY).toBeUndefined();
+      expect(f.spawnArgs.env?.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+      expect(f.spawnArgs.env?.GH_TOKEN).toBeUndefined();
+      expect(f.spawnArgs.env?.NPM_TOKEN).toBeUndefined();
+    } finally {
+      for (const [key, value] of Object.entries(prior)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
     }
   });
 
@@ -166,12 +205,52 @@ describe("subagent-codex 어댑터 계약 (SPEC-010 확장, fake child)", () => 
     const port = makeCodexSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn, hardKillDeadlineMs: 15 });
     const session = port.spawn({ prompt: "proposal", workdir: "/tmp/course", filesystemAccess: "read_only" });
     f.line('{"type":"item.completed","item":{"type":"agent_message","text":"proposal"}}');
-    f.line('{"type":"turn.completed","usage":{}}');
+    f.line('{"type":"thread.started","thread_id":"thread-priced"}');
+    f.line('{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":10}}');
     const events = await drain(session.events);
     await new Promise((resolve) => setTimeout(resolve, 30));
-    expect(events.map((event) => event.kind)).toEqual(["text_delta", "session_end"]);
+    expect(events.map((event) => event.kind)).toEqual(["text_delta", "planning", "session_end"]);
     expect((events.at(-1) as Extract<SubAgentEvent, { kind: "session_end" }>).ok).toBe(true);
+    expect((events.at(-1) as Extract<SubAgentEvent, { kind: "session_end" }>).evidence).toMatchObject({
+      sessionId: "thread-priced", inputTokens: 100, cachedInputTokens: 40, outputTokens: 10,
+    });
     expect(f.killSignals).toEqual(["SIGTERM", "SIGKILL"]);
+  });
+
+  it("does not price an omitted or malformed usage object as measured zero", async () => {
+    for (const terminal of [
+      '{"type":"turn.completed"}',
+      '{"type":"turn.completed","usage":{"input_tokens":"10","cached_input_tokens":0,"output_tokens":1}}',
+      '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":2,"output_tokens":0}}',
+    ]) {
+      const f = fakeNdjson();
+      const port = makeCodexSubAgent({
+        resolveBin: fixedBin, spawnFn: f.spawnFn, hardKillDeadlineMs: 5,
+        priceUsdPerMillion: { uncachedInput: 1, cachedInput: 1, output: 1 },
+      });
+      const session = port.spawn({ prompt: "p", workdir: "/tmp/w" });
+      f.line(terminal);
+      const [end] = await drain(session.events) as Extract<SubAgentEvent, { kind: "session_end" }>[];
+      expect(end.evidence).toMatchObject({ usageAvailable: false, modelEvidenceSource: "adapter_requested" });
+      expect(end.evidence?.measuredCostUsd).toBeUndefined();
+    }
+  });
+
+  it("marks monetary cost unavailable above the frozen long-context applicability threshold", async () => {
+    for (const [inputTokens, measured] of [[272_000, true], [272_001, false]] as const) {
+      const f = fakeNdjson();
+      const port = makeCodexSubAgent({
+        resolveBin: fixedBin, spawnFn: f.spawnFn, hardKillDeadlineMs: 5,
+        priceUsdPerMillion: { uncachedInput: 1, cachedInput: 0.1, output: 6 },
+        maximumPricedInputTokens: 272_000,
+      });
+      const session = port.spawn({ prompt: "p", workdir: "/tmp/w" });
+      f.line(`{"type":"turn.completed","usage":{"input_tokens":${inputTokens},"cached_input_tokens":0,"output_tokens":1}}`);
+      const [end] = await drain(session.events) as Extract<SubAgentEvent, { kind: "session_end" }>[];
+      expect(end.evidence?.usageAvailable).toBe(true);
+      if (measured) expect(end.evidence?.measuredCostUsd).toBeTypeOf("number");
+      else expect(end.evidence?.measuredCostUsd).toBeUndefined();
+    }
   });
 
   it("ignores duplicate logical terminal events in one stdout chunk", async () => {

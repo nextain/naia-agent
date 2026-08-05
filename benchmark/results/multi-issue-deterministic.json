@@ -1,0 +1,94 @@
+{
+  "schemaVersion": "1.0",
+  "benchmarkId": "uc-orch-002-deterministic-v1",
+  "sourceRevision": "bd770dc91f8766abd04c690199420c475623302a",
+  "paidCalls": 0,
+  "observation": {
+    "submitted": 4,
+    "terminal": 4,
+    "identityLeakCount": 0,
+    "expectedStartOrder": [
+      "issue-a",
+      "issue-b",
+      "issue-c",
+      "issue-d"
+    ],
+    "observedStartOrder": [
+      "issue-a",
+      "issue-b",
+      "issue-c",
+      "issue-d"
+    ],
+    "configuredConcurrency": 2,
+    "maximumObservedConcurrency": 2,
+    "restartDuplicateEffects": 0,
+    "visibilityCountMatches": true,
+    "allCostsMeasured": true,
+    "expectedCostUsd": 0.4,
+    "observedCostUsd": 0.4
+  },
+  "evidence": {
+    "sessionStates": [
+      {
+        "sessionId": "session-1",
+        "issueId": "issue-a",
+        "state": "completed"
+      },
+      {
+        "sessionId": "session-2",
+        "issueId": "issue-b",
+        "state": "completed"
+      },
+      {
+        "sessionId": "session-3",
+        "issueId": "issue-c",
+        "state": "completed"
+      },
+      {
+        "sessionId": "session-4",
+        "issueId": "issue-d",
+        "state": "completed"
+      }
+    ],
+    "restart": {
+      "starts": [
+        "issue-restart",
+        "issue-restart"
+      ],
+      "effectApplications": 1,
+      "finalState": "completed"
+    },
+    "provenance": {
+      "trackedInputs": {
+        "benchmark/run-multi-issue-deterministic.mjs": "b4f1300dacf109764527c94cd1da9bcf0757c461a678a388faa0ba7536522ef4",
+        "benchmark/orchestration/multi-issue-deterministic.json": "5942f3c85636e9554b13a255ed7ee7b522296692f990422f7ec7fd094e813ec2",
+        "src/main/adapters/sqlite-multi-issue-session-store.ts": "0fe0a4005099903cf92629b5eb6ec1aedf81ed412dc49e9116bf8a672e8f5679",
+        "src/main/adapters/redact.ts": "6707fba70983f5c0ba953ca9b123579d7e014e70020e5003017bd07f2220756b",
+        "src/main/app/multi-issue-session-manager.ts": "e542ba5045d2f397e4d82aca8c585e20a7d317a1094b44106b42d9ce49d9d077",
+        "src/main/domain/multi-issue-benchmark.ts": "376c494476abb02e8180c8ab62624a1a3b1ed74a0fb2fb4cf84d90d571c5a720",
+        "src/main/domain/multi-issue-session.ts": "45f736715f02bd74dc27c92b1a9c9b2f4d3dce5acbed4674030677f63cce68d6",
+        "src/main/ports/multi-issue-session.ts": "56af132aa2f4164b9a53e3dcf150b1e7bc516bafd4a0ceca529844e14a323f31",
+        "package.json": "639720e1b4893055f4c7943cce93fa271569cf82546b98a6d2538a31fe9e049a",
+        "pnpm-lock.yaml": "9634967eeab33d2d1382fed3e452c47fc695328b33177b3eea0084cba0c69ed7",
+        "tsconfig.json": "38204ea85e3c37122c6a44fc86255d6e2d653fd549facb84f5a91ddda743f5d2"
+      },
+      "runtimeModules": {
+        "dist/main/adapters/sqlite-multi-issue-session-store.js": "431c1337a5f8e31d810c221dc8f5cb9e2edcc0d9a40b37f6f7b53f506d49b155",
+        "dist/main/adapters/redact.js": "968af5ffe51b75d1da6e674b010dc8a502eaa5bf5a146971b1e493311fcbbd5d",
+        "dist/main/app/multi-issue-session-manager.js": "e1f2584afad2f3c48e9605afc6f5cb22a7385b06311378a31f30fbb0d6e216b1",
+        "dist/main/domain/multi-issue-benchmark.js": "fbad5c6ff64082c383da0137c4933f02ab9eb60341bf842367045ded49910ff9",
+        "dist/main/domain/multi-issue-session.js": "a527f67db282daca56ae51cd520e8ede25666caf6ab2fa76a71138489982d04c"
+      }
+    }
+  },
+  "gates": {
+    "completion": true,
+    "isolation": true,
+    "fairness": true,
+    "concurrency": true,
+    "restart": true,
+    "visibility": true,
+    "costAccounting": true
+  },
+  "claimAllowed": true
+}

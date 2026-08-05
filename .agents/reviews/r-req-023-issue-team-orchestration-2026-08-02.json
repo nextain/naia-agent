@@ -1,0 +1,75 @@
+{
+  "schema_version": "1.0",
+  "requirement": "REQ-023",
+  "use_case": "UC-ORCH-003",
+  "charter": {
+    "path": "/var/home/luke/alpha-adk-worktrees/naia-orchestration-sot/.agents/context/naia-development-orchestration.yaml",
+    "sha256": "3707ebf9a593caf0c86eef8a6faa75bd271f2e6c990f3f125521a82dfbe7f8e5"
+  },
+  "baseline_revision": "56af76284bd5bbb78400be7827a717cb75dc14b3",
+  "implementation_revision": "a08748c89a0c05130dfa89d82c9fe850b9193952",
+  "benchmark": {
+    "path": "benchmark/results/issue-team-deterministic.json",
+    "sha256": "bd6056242583302fc106e1093ca029198761f8ceb7c4c3dc0a8108f53b7fc6b5",
+    "source_revision": "592b70084dbab54c5fb234d5f7f5ce1700e0d43a",
+    "paid_calls": 0,
+    "claim_allowed": true,
+    "source_and_runtime_hashes_recorded": true,
+    "isolated_build_byte_reproduction": true
+  },
+  "review_history": [
+    {
+      "stage": "integration",
+      "result": "findings_fixed",
+      "accepted_findings": [
+        "paid rejected-role receipt persistence and aggregate accounting",
+        "adapter-enforced filesystem boundaries",
+        "parent team projection and receipt validation",
+        "role receipt identity preservation",
+        "allocation race and lease cleanup",
+        "bounded profile/result validation",
+        "cumulative rejected-role recovery evidence",
+        "production legacy/team routing",
+        "durable terminal failure reconstruction",
+        "exact immutable catalog binding",
+        "Pi and Codex module-to-contract traceability"
+      ]
+    }
+  ],
+  "verification": {
+    "typescript": "passed",
+    "focused": "17 passed",
+    "final_req_023_focused": "31 passed",
+    "full": "140 files passed, 2 failed, 3 skipped; 1548 tests passed, 2 failed, 10 skipped; 1 unhandled error",
+    "documented_baseline_failures": [
+      "cli-manage-process.integration: isolated doctor expected exit 1 but ambient environment reported ready with exit 0",
+      "uc-naia-pi-cli-process.integration: ambient real credential won over isolated stored key, causing assertion, hook timeout, and test timeout"
+    ],
+    "req_023_regressions": 0,
+    "contract_conformance": "PASS — conform oracle self-test, TypeScript interface checking, and legacy/team routing integration tests",
+    "product_preservation": "CLEAN for scoped library extension — no deleted product entry, legacy IssueWorkerPort route and receipt shape preserved by integration test and deterministic benchmark",
+    "root_structure": "PASS — F12/F13 whitelist with temporary dependency symlink removed",
+    "unchanged_global_drift": { "file_anchors": 29, "canon_conformance": 57 }
+  },
+  "final_convergence": {
+    "required": "two consecutive Clean reviews on the unchanged final candidate commit",
+    "candidate_revision": "a08748c89a0c05130dfa89d82c9fe850b9193952",
+    "reviewers": ["gpt-5.6-terra medium", "gpt-5.6-terra medium"],
+    "results": ["clean", "clean"],
+    "evidence_sha256": [
+      "8024f012c6484c5ba91e6d39d6d6006aa8f5276496cf5398ce3aa0d14b056f50",
+      "bde7bd84ed1b075531133538deef58f03c29d39cc81b6302568ae60a743b8831"
+    ],
+    "external_evidence_paths": [
+      "/tmp/naia-req023-review-converged-clean1.txt",
+      "/tmp/naia-req023-review-converged-clean2.txt"
+    ],
+    "change_resets_count": true
+  },
+  "excluded_claims": [
+    "actual Discord ingress or authorization",
+    "naia-shell UI, terminal opening, or file opening",
+    "live paid multi-provider end-to-end execution",
+    "replacement with a real 24GB local Naia model"
+  ]
+}

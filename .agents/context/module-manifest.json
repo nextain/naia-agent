@@ -1,6 +1,54 @@
 {
   "_doc": "파일단위 계약 앵커 (드리프트 자동차단). src/main 의 모든 .ts 는 여기 {layer, uc, contract} 와 함께 등록돼야 한다. 미등록 파일 = 미계약 코드 = RED (scripts/check-file-anchors.mjs). 계약 먼저, 코드 나중 — 새 파일 추가 전 이 manifest 에 앵커 선언. layer ∈ {domain,ports,app,adapters,composition}. contract = docs/progress 의 계약 문서.",
   "files": {
+    "src/main/adapters/naia-pi-versioned-billing.ts": {
+      "layer": "adapters",
+      "uc": ["UC-ORCH-004"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-004-pi-continuous-loop-contract-2026-08-04.md",
+      "note": "Atomic non-streaming Naia gateway billing bridge, shared durable request-level pre-call budget, owner-only receipt journal, and Pi-compatible SSE reconstruction."
+    },
+    "src/main/benchmark/pi-cost-comparison.ts": {
+      "layer": "domain",
+      "uc": ["UC-ORCH-004"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-004-pi-continuous-loop-contract-2026-08-04.md",
+      "note": "Pure fail-closed decision contract for exact provider-priced paired Pi routing evidence."
+    },
+    "src/main/adapters/pi-cost-attestation.ts": {
+      "layer": "adapters",
+      "uc": ["UC-ORCH-004"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-004-pi-continuous-loop-contract-2026-08-04.md",
+      "note": "External-key HMAC adapter for canonical paired-cost evidence; secrets remain outside serialized artifacts."
+    },
+    "src/main/ports/paid-call-budget.ts": {
+      "layer": "ports",
+      "uc": ["UC-ORCH-004"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-004-pi-continuous-loop-contract-2026-08-04.md",
+      "note": "Provider-neutral durable pre-call reservation and receipt-settlement boundary."
+    },
+    "src/main/adapters/sqlite-paid-call-budget.ts": {
+      "layer": "adapters",
+      "uc": ["UC-ORCH-004"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-004-pi-continuous-loop-contract-2026-08-04.md",
+      "note": "Cross-process SQLite paid-call ledger with fail-closed unresolved reservations."
+    },
+    "src/main/composition/pi-continuous-loop.ts": {
+      "layer": "composition",
+      "uc": ["UC-ORCH-004"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-004-pi-continuous-loop-contract-2026-08-04.md",
+      "note": "Standalone Pi-only multi-session composition; deliberately has no OpenCode import edge."
+    },
+    "src/main/composition/pi-continuous-loop-control.ts": {
+      "layer": "composition",
+      "uc": ["UC-ORCH-004"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-004-pi-continuous-loop-contract-2026-08-04.md",
+      "note": "Persistent NDJSON control session for one durable Pi-only loop instance."
+    },
+    "src/main/composition/mixed-issue-team-agents.ts": {
+      "layer": "composition",
+      "uc": ["UC-ORCH-003"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-003-issue-team-contract-2026-08-02.md",
+      "note": "Legacy mixed Codex/OpenCode/Pi adapter catalog, isolated from the Pi-only runtime graph."
+    },
     "src/main/ports/compaction.ts": {
       "layer": "ports",
       "uc": [
@@ -647,14 +695,20 @@
     },
     "src/main/adapters/subagent-pi.ts": {
       "layer": "adapters",
-      "uc": ["UC-014"],
-      "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
-      "note": "pi 코딩에이전트 SubAgentPort — pi NDJSON→event·bin resolve(PI_BIN→node_modules→PATH→npx)·honest-unsupported. SPEC-010."
+      "uc": ["UC-014", "UC-ORCH-003", "UC-ORCH-004"],
+      "contract": ["docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md", "docs/progress/99.dev-comm/UC-ORCH-003-issue-team-contract-2026-08-02.md", "docs/progress/99.dev-comm/UC-ORCH-004-pi-continuous-loop-contract-2026-08-04.md"],
+      "note": "pi 코딩에이전트 SubAgentPort — Pi NDJSON 누적 usage/priced-cost evidence, bin resolve, honest unsupported, read-only tool boundary."
+    },
+    "src/main/adapters/naia-pi-provider.ts": {
+      "layer": "adapters",
+      "uc": ["UC-016", "UC-ORCH-004"],
+      "contract": ["docs/progress/99.dev-comm/naia-account-pi-azure-contract-2026-07-30.md", "docs/progress/99.dev-comm/UC-ORCH-004-pi-continuous-loop-contract-2026-08-04.md"],
+      "note": "Naia-account Pi catalog and secret-free provider config, including per-response output ceiling."
     },
     "src/main/adapters/subagent-opencode-cli.ts": {
       "layer": "adapters",
-      "uc": ["UC-014"],
-      "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
+      "uc": ["UC-014", "UC-ORCH-003"],
+      "contract": ["docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md", "docs/progress/99.dev-comm/UC-ORCH-003-issue-team-contract-2026-08-02.md"],
       "note": "opencode SubAgentPort — opencode run --format json NDJSON→event·bin resolve·honest-unsupported. SPEC-010."
     },
     "src/main/adapters/subagent-shell.ts": {
@@ -671,9 +725,9 @@
     },
     "src/main/adapters/subagent-codex.ts": {
       "layer": "adapters",
-      "uc": ["UC-014"],
-      "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
-      "note": "codex SubAgentPort — codex exec --json NDJSON→event(item.completed agent_message→text·command_execution/file_change→tool_use)·bin resolve(CODEX_BIN→PATH→npx). RT-verified. SPEC-010. 진행=naia-agent-subagent-adapters-2026-06-29.md"
+      "uc": ["UC-014", "UC-ORCH-003"],
+      "contract": ["docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md", "docs/progress/99.dev-comm/UC-ORCH-003-issue-team-contract-2026-08-02.md"],
+      "note": "codex SubAgentPort — codex exec --json NDJSON→event(item.completed agent_message→text·command_execution/file_change→tool_use)·bin resolve(CODEX_BIN→PATH→npx), 팀 역할의 sandbox/workspace-root 경계. RT-verified. SPEC-010. 진행=naia-agent-subagent-adapters-2026-06-29.md"
     },
     "src/main/adapters/subagent-gemini.ts": {
       "layer": "adapters",
@@ -791,6 +845,126 @@
       "uc": ["UC-015"],
       "contract": "docs/progress/99.dev-comm/UC-CONTINUE-SPEAKING-contract-2026-07-16.md",
       "note": "KnowledgeBackend를 전시 profile의 source 필수 read-only 포트로 제한."
+    },
+    "src/main/domain/issue-orchestration.ts": {
+      "layer": "domain",
+      "uc": ["UC-ORCH-001", "UC-ORCH-003"],
+      "contract": ["docs/progress/99.dev-comm/UC-ORCH-001-single-issue-vertical-contract-2026-08-01.md", "docs/progress/99.dev-comm/UC-ORCH-003-issue-team-contract-2026-08-02.md"],
+      "note": "Single-issue state, actor receipts, stable identity, cost accounting, and evidence-grounded report types."
+    },
+    "src/main/domain/orchestration-benchmark.ts": {
+      "layer": "domain",
+      "uc": ["UC-ORCH-001"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-001-single-issue-vertical-contract-2026-08-01.md",
+      "note": "Pure hard-gate predicates shared by the paid runner and deterministic benchmark tests."
+    },
+    "src/main/ports/issue-orchestration.ts": {
+      "layer": "ports",
+      "uc": ["UC-ORCH-001", "UC-ORCH-003"],
+      "contract": ["docs/progress/99.dev-comm/UC-ORCH-001-single-issue-vertical-contract-2026-08-01.md", "docs/progress/99.dev-comm/UC-ORCH-003-issue-team-contract-2026-08-02.md"],
+      "note": "Provider-neutral facing, moderator, worker, verifier, reporter, and durable issue-store boundaries."
+    },
+    "src/main/app/single-issue-orchestrator.ts": {
+      "layer": "app",
+      "uc": ["UC-ORCH-001", "UC-ORCH-003"],
+      "contract": ["docs/progress/99.dev-comm/UC-ORCH-001-single-issue-vertical-contract-2026-08-01.md", "docs/progress/99.dev-comm/UC-ORCH-003-issue-team-contract-2026-08-02.md"],
+      "note": "Restart-safe Luna-proxy to moderator to one worker to verification to grounded-report stage machine."
+    },
+    "src/main/app/observed-spend-budget.ts": {
+      "layer": "app",
+      "uc": ["UC-ORCH-001"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-001-single-issue-vertical-contract-2026-08-01.md",
+      "note": "Behaviorally testable paid-call reservation and deduplicated observed-spend ledger that preserves receipt-carrying rejections."
+    },
+    "src/main/adapters/sqlite-issue-orchestration-store.ts": {
+      "layer": "adapters",
+      "uc": ["UC-ORCH-001"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-001-single-issue-vertical-contract-2026-08-01.md",
+      "note": "Owner-local SQLite snapshot plus append-only event store with optimistic version, terminal immutability, and expiring cross-process execution claims."
+    },
+    "src/main/composition/supervised-issue-worker.ts": {
+      "layer": "composition",
+      "uc": ["UC-ORCH-001"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-001-single-issue-vertical-contract-2026-08-01.md",
+      "note": "Managed worktree composition that wires the existing Supervisor, Codex SubAgentPort, workspace observer, and verifier behind IssueWorkerPort."
+    },
+    "src/main/adapters/subagent-issue-actors.ts": {
+      "layer": "adapters",
+      "uc": ["UC-ORCH-001"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-001-single-issue-vertical-contract-2026-08-01.md",
+      "note": "Strict JSON adapters for separate Naia-facing, development-moderator, and grounded-reporter SubAgentPort sessions with usage receipts."
+    },
+    "src/main/domain/multi-issue-session.ts": {
+      "layer": "domain",
+      "uc": ["UC-ORCH-002"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-002-multi-issue-session-manager-contract-2026-08-02.md",
+      "note": "Transport-neutral managed-session lifecycle, provenance, portfolio, and budget evidence types."
+    },
+    "src/main/domain/multi-issue-benchmark.ts": {
+      "layer": "domain",
+      "uc": ["UC-ORCH-002"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-002-multi-issue-session-manager-contract-2026-08-02.md",
+      "note": "Pure deterministic hard gates for completion, isolation, FIFO, concurrency, recovery, visibility, and cost accounting."
+    },
+    "src/main/ports/multi-issue-session.ts": {
+      "layer": "ports",
+      "uc": ["UC-ORCH-002"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-002-multi-issue-session-manager-contract-2026-08-02.md",
+      "note": "Neutral session command/query, durable store, and REQ-021 execution boundaries for future ingress adapters."
+    },
+    "src/main/app/multi-issue-session-manager.ts": {
+      "layer": "app",
+      "uc": ["UC-ORCH-002"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-002-multi-issue-session-manager-contract-2026-08-02.md",
+      "note": "Database-global leased scheduler for bounded multi-issue admission, isolated commands, recovery, and grounded portfolio queries."
+    },
+    "src/main/adapters/sqlite-multi-issue-session-store.ts": {
+      "layer": "adapters",
+      "uc": ["UC-ORCH-002"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-002-multi-issue-session-manager-contract-2026-08-02.md",
+      "note": "Owner-local SQLite queue, source metadata, ready order, scheduler lease, fenced lifecycle, and session events."
+    },
+    "src/main/domain/issue-team.ts": {
+      "layer": "domain",
+      "uc": ["UC-ORCH-003"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-003-issue-team-contract-2026-08-02.md",
+      "note": "Fixed four-role team profile, bounded structured results, durable run projection, and worker-profile union."
+    },
+    "src/main/domain/issue-team-benchmark.ts": {
+      "layer": "domain",
+      "uc": ["UC-ORCH-003"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-003-issue-team-contract-2026-08-02.md",
+      "note": "Pure hard gates for ordering, write isolation, convergence, restart safety, receipt identity, and complete cost."
+    },
+    "src/main/ports/issue-team.ts": {
+      "layer": "ports",
+      "uc": ["UC-ORCH-003"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-003-issue-team-contract-2026-08-02.md",
+      "note": "Provider-neutral structured role executor and durable issue-team store boundaries."
+    },
+    "src/main/app/issue-team-worker.ts": {
+      "layer": "app",
+      "uc": ["UC-ORCH-003"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-003-issue-team-contract-2026-08-02.md",
+      "note": "Durable four-role worker state machine with bounded repairs, consecutive clean cycles, and unknown in-flight recovery."
+    },
+    "src/main/adapters/sqlite-issue-team-store.ts": {
+      "layer": "adapters",
+      "uc": ["UC-ORCH-003"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-003-issue-team-contract-2026-08-02.md",
+      "note": "Owner-local team snapshots and append-only transitions with optimistic version and terminal immutability."
+    },
+    "src/main/composition/issue-team-role-executor.ts": {
+      "layer": "composition",
+      "uc": ["UC-ORCH-003"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-003-issue-team-contract-2026-08-02.md",
+      "note": "Predeclared Codex/OpenCode/Pi profile selection through Supervisor with bounded JSON and honest per-role receipts."
+    },
+    "src/main/composition/profiled-issue-worker.ts": {
+      "layer": "composition",
+      "uc": ["UC-ORCH-003"],
+      "contract": "docs/progress/99.dev-comm/UC-ORCH-003-issue-team-contract-2026-08-02.md",
+      "note": "Production mixed-catalog router and factory that select legacy or durable team workers from the immutable moderator-selected profile."
     },
     "src/main/adapters/radio-dj-runtime.ts": {
       "layer": "adapters",

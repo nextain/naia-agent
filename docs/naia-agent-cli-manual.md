@@ -1,7 +1,7 @@
 # naia-agent CLI manual
 
 이 문서는 `naia-agent`를 Naia 계정 기반 독립 코딩 CLI로 설정하고 검증하는 실행 매뉴얼이다.
-현재 코딩 모델은 `grok-4.3`(도구 코딩)과 `deepseek-v4-pro`(도구 없는 분석)다.
+현재 Pi 모델은 `grok-4.3`(도구 코딩)과 `deepseek-v4-flash`/`deepseek-v4-pro`(도구 없는 분석)다.
 naia-shell의 코딩 Workspace UI는 이 범위가 아니다.
 
 ## 1. 설치 확인
@@ -213,4 +213,3 @@ node --test src/test/ci-verify-*.test.mjs
 6. DeepSeek negative test는 도구를 켠 상태에서 exit 3이고 upstream 호출 전에 끝남.
 
 LLM이 만든 답변 문구 자체는 합격 조건이 아니다.
-

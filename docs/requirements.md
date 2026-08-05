@@ -82,8 +82,8 @@
 | FR-CLI-6 | **WorkspacePort** — 파일 변경 요약 스트림(added/modified/deleted + 수치). domain 은 git diff 포맷 모름(adapter=chokidar+git). | Done |
 | FR-CLI-7 | **CLI 대화 host (S1 멀티턴 REPL)** — `naia-agent chat` 가 stdio/readline **AgentIngressPort/AgentEgressPort** 어댑터를 gRPC 와 **동일 `wireAgentUC1`** 에 주입. 매 입력이 누적 history 와 함께 `ChatRequest` → 맥락 유지 멀티턴. emit(text)→stdout 스트리밍, finish→assistant 턴 history append+재프롬프트, error→격리(턴만 실패·루프 생존), Ctrl+C=현재 턴 cancel. | Done |
 | FR-CLI-8 | **CLI 로그인 (S1 자격증명)** — `naia-agent login --provider <p> [--key <k>\|stdin]` → 자격증명 영속(홈 `.naia-agent/.env` 0600, 옛 CLI 호환·크로스플랫폼; Linux 추가 secret-tool). chat host 기동 시 로드 → resolver/credentials 포트가 읽어 provider 연결(키 인자 없이 대화). | Done |
-| FR-CLI-9 | **Naia account Pi provider** — `run --agent pi --model grok-4.3`와 `deepseek-v4-pro` 분석 실행은 저장된 `NAIA_API_KEY`와 Naia gateway만 사용한다. Pi 설정에는 환경변수 참조만 기록하고 direct Azure/xAI/DeepSeek key 및 OpenCode fallback을 금지한다. | Done (#93; live Azure는 `OPERATIONAL_UNVERIFIED`) |
-| FR-CLI-10 | **모델 능력 fail-closed** — Grok은 tool coding 허용. DeepSeek-V4-Pro는 명시적 `--no-tools` 분석만 허용하고 생략 시 Pi spawn 전에 실패한다. Gateway는 `tools`가 있는 DeepSeek 요청을 upstream 0-call/HTTP 400으로 독립 거부한다. | Done (#93) |
+| FR-CLI-9 | **Naia account Pi provider** — `run --agent pi --model grok-4.3`와 `deepseek-v4-flash`/`deepseek-v4-pro` 분석 실행은 저장된 `NAIA_API_KEY`와 Naia gateway만 사용한다. Pi 설정에는 환경변수 참조만 기록하고 direct Azure/xAI/DeepSeek key 및 OpenCode fallback을 금지한다. | Done (#93; Flash 확장 UC-ORCH-004, live Azure는 `OPERATIONAL_UNVERIFIED`) |
+| FR-CLI-10 | **모델 능력 fail-closed** — Grok은 tool coding 허용. DeepSeek-V4-Flash/Pro는 명시적 `--no-tools` 분석만 허용하고 생략 시 Pi spawn 전에 실패한다. 이 Agent 계약은 gateway가 별도 서버 가드를 제공한다고 주장하지 않는다. | Done (#93; Flash 확장 UC-ORCH-004) |
 | FR-CLI-11 | **동일 CLI 표면** — Codex가 자식 프로세스로 호출한 경우와 사용자가 직접 호출한 경우 provider/model/workdir/terminal report가 동일하다. | Done (#93) |
 | FR-CLI-12 | **격리 환경·고정 Pi·canonical identity** — 고정 버전 Pi는 격리 config와 Naia key/필수 env만 받고 direct-provider secret을 상속하지 않는다. gateway usage/billing key는 `azure:<exact-model>`이며 Azure client cache는 모델별 endpoint를 혼용하지 않는다. | Done (#93; live 청구는 `OPERATIONAL_UNVERIFIED`) |
 | FR-CLI-13 | **실행 가능한 매뉴얼** — `docs/naia-account-pi-manual.md`의 clean-HOME 명령, exit code, model/usage/diff/verifier 판정을 자동 실행 가능한 acceptance로 유지한다. | Done (#93) |
@@ -388,7 +388,7 @@ RPC만 추가하며, 별도 셸 반복 상태 머신은 만들지 않는다.
 | FR-CODEX-1 | Codex provider는 API key를 복사하지 않고 로컬 로그인과 app-server를 사용하며 현재 protocol의 experimental dynamic tool 계약을 따른다. | Done |
 | FR-CODEX-2 | `tier=none`이고 외부 처리 metadata가 없는 등록 도구만 app-server에 광고하고, server tool request에 같은 call id의 결과를 응답한다. | Done |
 | FR-CODEX-3 | provider-native 도구 실행은 toolUse/toolResult로 관측되되 기존 handler가 두 번 실행하지 않는다. | Done |
-| FR-CODEX-4 | desktop/Discord host의 `delegate_agent`는 Codex만 허용하고 host가 선택한 단일 workspace 실경로에 고정하며 model의 workdir override를 거부한다. child Codex는 전역 config를 무시하고 `workspace-write` OS sandbox를 강제한다. | Done |
+| FR-CODEX-4 | desktop/Discord host의 `delegate_agent`는 설정된 `expert/main/sub` 역할만 허용하고 host가 선택한 단일 workspace 실경로에 고정하며 model의 workdir override를 거부한다. Codex 역할은 Pi의 `openai-codex` 계정/OAuth provider로 실행하고 OpenAI API-key 경로나 임의 roster/OpenCode fallback은 허용하지 않는다. | Done |
 | FR-CODEX-5 | Discord는 도구 시작·성공·실패를 원래 reply에 직렬 전송하되 args/output/call id와 mention 가능한 도구명을 반사하지 않는다. | Done |
 
 ## UC-DISCORD-SESSION-ROTATION FR/NFR
@@ -421,9 +421,15 @@ RPC만 추가하며, 별도 셸 반복 상태 머신은 만들지 않는다.
 
 - **FR-PI-ROLE-1**: Agent resolves the four stored LLM roles `main`, `sub`, `memory`, and `expert`; `expert/main/sub` are the development tiers while `memory` remains orthogonal.
 - **FR-PI-ROLE-2**: A Shell/Agent development task selects `expert`, `main`, or `sub` and creates a supervised Pi session using its resolved provider/model.
-- **FR-PI-ROLE-3**: This route permits only Codex and Claude provider selections and fails closed for unknown, incomplete, or OpenCode selections before spawn.
-- **NFR-PI-ROLE-1**: Pi receives no credential material; credential references remain opaque configuration metadata.
+- **FR-PI-ROLE-3**: This route permits only Pi-supported account providers (`codex`, `claude-code-cli`/`anthropic`, `nextain`/`naia`) and fails closed for unknown, incomplete, local OpenAI-compatible, or OpenCode selections before spawn.
+- **FR-PI-ROLE-4**: Workspace selection or settings reload replaces the role resolution used by the next delegation; an already captured startup profile must never be reused. If a role changes after processing authorization but before spawn, the mismatched delegation fails without a provider call.
+- **FR-PI-ROLE-5**: Naia-account roles accept only the Agent-owned Pi model catalog, receive the OS-keychain credential through a child-only environment at spawn time, and run catalogued analysis-only models with Pi tools disabled.
+- **NFR-PI-ROLE-1**: Every Pi child receives an allowlisted process environment. Account providers retain
+  only the OS paths needed to read their own subscription state; unrelated provider, Discord, and Naia
+  credentials are removed. A Naia-account child receives only its exact child-scoped Naia key and billing
+  bindings; credential references remain opaque configuration metadata.
 - **NFR-PI-ROLE-2**: Agent preserves Supervisor cancellation/event/report semantics for every Pi role session.
+- **NFR-PI-ROLE-3**: A Discord-originated role delegation declares the selected role's provider/model as a separate `sub_llm` operation. The trusted channel processing profile must authorize and disclose it before Pi starts; missing or unclassifiable metadata fails closed.
 
 ## UC-021 FR/NFR — AnyLLM-backed Naia providers
 
@@ -523,4 +529,338 @@ The Agent and Gateway preserve these codes end to end:
 - **FR-SUPERVISOR-4**: Active runs persist `next_report_at`; one progress-report outbox command becomes due at each ten-minute boundary and advances the next durable boundary.
 - **NFR-SUPERVISOR-1**: Closing the initiating caller does not cancel an accepted run. Restarting the Agent reconciles persisted outbox state before dispatch, without requiring Shell UI availability.
 - **Scope**: This requirement is the Agent-side P0 vertical slice. Production host activation/accepted-run ingress, Shell RPC/UI, real worker adapter, and full ADK stage receipt evaluation are follow-up integration work; caller-disconnect survival is not yet a product acceptance claim.
-- **Status**: In progress.
+- **Status**: Done for the declared Agent-side library and deterministic benchmark scope. Evidence:
+  `benchmark/results/multi-issue-deterministic.json` (implementation source `bd770dc9`) and
+  `.agents/reviews/r-req-022-multi-issue-session-manager-2026-08-02.json`. OpenCode/naia-agent worker
+  collaboration, production Discord ingress, terminal/file opening, and naia-shell UI remain deferred
+  and are not completion claims of REQ-022.
+
+## REQ-021 — Single-issue moderated coding vertical
+
+- **FR-ORCH-001**: The Naia-facing actor classifies `chat` versus `work`; chat invokes neither
+  moderator nor worker, while work persists the original request and ordered obligations before
+  another actor is called.
+- **FR-ORCH-002**: Work uses a separate development-moderator session and execution. Its persisted
+  plan contains a bounded worker task, role-profile id, acceptance checks, and zero or more blocking
+  questions. The facing, moderator, and worker identities must not be equal.
+- **FR-ORCH-003**: Each accepted request has stable request, issue, dispatch, actor-session, and
+  execution ids. Reusing a request id with different content fails closed; retrying identical input
+  returns the same issue and does not repeat an acknowledged worker effect.
+- **FR-ORCH-004**: A blocking moderator question is stored and returned byte-for-byte. Only an answer
+  bound to the same issue and question id resumes planning; unrelated answers are rejected.
+- **FR-ORCH-005**: The worker port receives one pinned role profile, managed-worktree path, exact task,
+  acceptance checks, and stable dispatch idempotency key. The first real adapter is Codex; OpenCode
+  and naia-agent worker adapters are not dependencies of this slice.
+- **FR-ORCH-006**: Verification is a separate persisted stage after worker completion. Completion
+  requires worker success and every declared verification check passing.
+- **FR-ORCH-007**: Naia's final report is derived only from persisted issue events and receipts. It
+  preserves `failed`, `cancelled`, `awaiting_user`, and `outcome_unknown` without rewriting them as
+  success.
+- **FR-ORCH-008**: Restart resumes the last incomplete stage. Replayed actor calls reuse their stable
+  idempotency keys; a worker transport loss after dispatch becomes `outcome_unknown` unless the
+  adapter can reconcile the exact dispatch.
+- **FR-ORCH-009**: Every actor call persists provider, model, role, session id, execution id, token
+  counts, latency, and cost state. Total issue accounting includes Naia, moderator, worker,
+  verification, retries, and reporting; unavailable cost remains unavailable.
+- **FR-ORCH-010**: Cancellation before dispatch is idempotent and prevents worker execution. A
+  terminal issue cannot be overwritten by a later actor response.
+- **NFR-ORCH-001**: SQLite state and append-only events are owner-local, transactionally updated, and
+  contain no provider credential or raw secret.
+- **NFR-ORCH-002**: Actor ports are model/provider neutral. GPT-5.6 Luna is only the first weak-local
+  proxy and must be explicitly enabled; the default worker profile remains independently selected.
+- **NFR-ORCH-003**: Deterministic tests inject clock, ids, actor results, restart, duplicate delivery,
+  and transport loss without paid model calls.
+- **NFR-ORCH-004**: The frozen benchmark compares the complete Luna-proxy composition with an all-Sol
+  control on identical cases and forbids a savings claim when quality, receipt completeness, or any
+  hard gate fails.
+- **Scope note**: This slice is a library/composition and benchmark path. Production chat/CLI ingress
+  activation and naia-shell RPC/UI are later integration work; they are not claimed by REQ-021.
+  Codex CLI receipts prove the exact requested model/profile arguments, not provider-internal backend
+  routing, because its JSONL protocol does not expose an independently observed backend model id.
+- **Status**: Done for the declared library/composition and paired-benchmark scope. Evidence:
+  `benchmark/results/single-issue-live-1785619885488.json` (source revision `d0bbbe0`) and
+  `.agents/reviews/r-req-021-single-issue-vertical-2026-08-02.json`. Production ingress and
+  naia-shell integration remain the explicitly deferred next phase.
+
+## REQ-022 — Multi-issue session management vertical
+
+- **FR-MULTI-001**: Intake persists one session record per accepted request before scheduling. The
+  record binds stable session/request identity, exact request digest, workspace, ordered obligations,
+  actor bindings, and adapter-neutral source kind/source id. Before admission, an additive `REQ-021`
+  ensure operation atomically creates-or-gets the issue and returns its stable id without invoking an
+  actor; the manager then links that id immutably before execution. Identical replay returns the same
+  session; reuse with different bound content fails closed.
+- **FR-MULTI-002**: A durable scheduler admits queued sessions in FIFO order among equal-priority
+  ready records using a persisted `ready_sequence` assigned whenever a session enters ready state.
+  Restart reconciliation has higher priority than new/answered ready work; each class remains FIFO.
+  The scheduler runs no more than the configured positive concurrency limit. A waiting-for-user,
+  failed, cancelled, or unknown session does not consume a running slot after its execution settles.
+- **FR-MULTI-003**: Every admitted session executes only through the `REQ-021` single-issue port. The
+  manager does not reimplement model planning, worker dispatch, verification, or reporting and does
+  not allow the Naia-facing model to select an undeclared worker profile.
+- **FR-MULTI-004**: List and get queries return durable per-session identity, source, workspace,
+  lifecycle state, queue order, issue id when established, last update, and grounded outcome fields.
+  Aggregate visibility derives state counts and cost solely from persisted session/issue evidence.
+- **FR-MULTI-005**: Answer and cancellation commands are bound to one session. An answer must match
+  that issue's exact pending question. Cancellation is idempotent and cannot cancel, reorder, or
+  overwrite any sibling session.
+- **FR-MULTI-006**: Startup recovery makes never-started queued sessions schedulable and hands every
+  previously started nonterminal issue back to the single-issue reconciler with its stable identity.
+  It never creates a replacement request or claims success for an unreconciled outcome.
+- **FR-MULTI-007**: A settled execution always releases its scheduler slot and prompts another pump,
+  including `awaiting_user`, `failed`, `cancelled`, `outcome_unknown`, thrown adapter errors, and
+  process-local abort. No ready session can starve behind a settled predecessor.
+- **FR-MULTI-008**: Each session carries an optional per-admission observed-spend reservation and the
+  manager has an optional aggregate observed-spend threshold. When the aggregate threshold is enabled,
+  a candidate must declare a reservation and admission is allowed only when `settled measured cost +
+  active reservations + candidate reservation <= threshold`; any unavailable included cost blocks new
+  admission. Without an aggregate threshold reservations are advisory and never block. Completed
+  measured costs replace their active reservation and are summed once by stable session identity.
+  Overrun is persisted honestly but cannot undo an in-flight call. These are harness stop rules, not
+  provider-enforced credit ceilings.
+- **FR-MULTI-009**: The portfolio summary is deterministic and evidence-grounded. Model-authored prose
+  may explain persisted facts but cannot authoritatively change session state, counts, verification,
+  changed files, or cost availability.
+- **FR-MULTI-010**: Source metadata and query/command boundaries support later local, Discord, and
+  naia-shell adapters without importing those transports into the manager. This requirement activates
+  none of those production ingress or UI paths. The neutral DTOs contain source kind/id and actor id
+  for provenance, but authorization remains the responsibility of the future ingress adapter.
+- **NFR-MULTI-001**: The manager owns an owner-local SQLite store with transactional session updates,
+  deterministic queue sequence, terminal immutability, and no provider credentials or raw secrets.
+  One expiring database-wide scheduler-owner lease serializes admission across Agent processes;
+  renewal requires an unexpired prior lease and every scheduler lifecycle write is owner-fenced.
+- **NFR-MULTI-002**: Tests inject clock, ids, the single-issue execution port, restart, cancellation,
+  and failures. The default contract and benchmark suite makes no paid model call.
+- **NFR-MULTI-003**: Concurrency is bounded and configurable; invalid limits fail at construction.
+  The bound is database-global because only the current scheduler owner may admit work. Scheduler
+  progress and lifecycle transitions use the project `DiagnosticLog` boundary.
+- **NFR-MULTI-004**: A frozen benchmark must gate completion, isolation, FIFO fairness, maximum observed
+  concurrency, restart safety, visibility consistency, and cost accounting. A score or efficiency
+  claim is forbidden when any hard gate fails.
+- **Scope note**: This slice is the Agent-side multi-session management library and deterministic
+  benchmark. Each issue still uses Luna-proxy → Sol moderator → one Codex worker from `REQ-021`.
+  Multi-agent worker collaboration (OpenCode/naia-agent), Discord ingress, terminal/file opening, and
+  naia-shell visualization are explicitly deferred adapter/product stages.
+- **Status**: Done for the declared Agent-side library and deterministic benchmark scope. Evidence:
+  `benchmark/results/multi-issue-deterministic.json` and
+  `.agents/reviews/r-req-022-multi-issue-session-manager-2026-08-02.json`.
+
+## REQ-023 — Profiled multi-agent collaboration inside one issue
+
+- **FR-TEAM-001**: A worker profile is either one legacy actor binding or a team profile containing
+  exactly one explorer, implementer, tester, and reviewer role. Every team role declares a stable
+  agent-profile id, adapter kind (`codex`, `opencode`, or `pi`), provider/model binding, and semantic
+  filesystem capability. Role names and profile ids are unique; only the implementer can request
+  workspace write. Unknown or malformed profiles fail before a role session starts.
+- **FR-TEAM-002**: One team dispatch owns one managed worktree. The normal order is explorer →
+  implementer → tester → reviewer. Structured explorer findings are supplied to implementation;
+  tester and reviewer findings are supplied to repair. Role output is bounded and schema-validated
+  before it can affect the next prompt or terminal decision. Immutable safety bounds are 64 KiB
+  collected output, 8 KiB summary, 32 findings, 80-character finding code, and 2 KiB finding message.
+  Unknown fields, duplicate codes, role/decision mismatch, or exceeded bounds reject the result and
+  raw output is never persisted.
+- **FR-TEAM-003**: A failed tester or `changes_requested` reviewer starts another implementer →
+  tester → reviewer cycle while the configured repair limit remains. Success requires the configured
+  positive number of consecutive clean tester/reviewer cycles. Repair and clean-pass bounds are
+  explicit profile settings, not an arbitrary two-minute wall-clock ceiling.
+- **FR-TEAM-004**: Every role attempt records role, agent-profile id, adapter kind, provider, model,
+  reasoning effort when present, session id, execution id, stable attempt idempotency key, token
+  availability/counts, latency, and cost state. Distinct role attempts cannot share session or
+  execution identity. Issue total cost sums every persisted role receipt once and remains unavailable
+  if any included paid-role cost is unavailable.
+- **FR-TEAM-005**: Team progress is durable. A duplicate team dispatch with identical profile/task
+  returns the persisted run/result. Restart after a completed role resumes only an undispatched role
+  with the same worktree and stable step identity. Claiming a role attempt and acknowledging its
+  validated result are separate durable transitions guarded by optimistic version checks; the stable
+  attempt idempotency key is stored at claim time. An unacknowledged in-flight role is not replayed;
+  recovery returns unknown so the parent issue becomes `outcome_unknown`.
+- **FR-TEAM-006**: The team worker implements the existing `IssueWorkerPort`; facing, moderator,
+  multi-session scheduling, issue verification, and reporting do not import a coding-agent protocol.
+  Legacy single-Codex profiles remain compatible.
+- **FR-TEAM-007**: The concrete role executor selects only a predeclared Codex, OpenCode, or built-in
+  Pi adapter. Missing adapters fail honestly. OpenCode never becomes an implicit fallback. Pi's Naia
+  account path reuses the existing secret-free gateway configuration and never copies credentials
+  into team state, prompts, receipts, or logs. Every adapter must enforce the requested semantic
+  filesystem capability itself. Pi read-only roles receive only its read/grep/find/list tool set;
+  OpenCode read-only roles fail closed until an isolated permission profile can be proven, while its
+  workspace-write implementer role remains supported.
+- **FR-TEAM-008**: OpenCode provides adapter-requested model identity with unique session/execution
+  ids when its protocol does not provide independently observed identity or priced usage. Such a
+  receipt marks usage/cost unavailable and cannot be presented as provider-observed or measured zero.
+- **FR-TEAM-009**: Final issue verification remains a separate stage after team success. A clean
+  reviewer result cannot complete the issue when the declared issue-level acceptance checks fail.
+- **FR-TEAM-010**: The deterministic benchmark covers role order, declared and adapter-enforced write
+  boundaries, repair convergence, duplicate dispatch, safe restart including failed worktree recovery,
+  unknown in-flight recovery, identity isolation, receipt/cost completeness, and legacy-profile
+  preservation without a paid provider call.
+- **FR-TEAM-011**: `WorkerResult.receipt` remains the lead implementer receipt for legacy callers.
+  A team result also carries every role receipt exactly once and a bounded team summary. The parent
+  issue validates each receipt against the immutable profile, persists all receipts in the existing
+  issue snapshot, rejects duplicate identities, and computes aggregate cost there. The team store
+  cannot independently author issue accounting or the user-facing terminal state.
+- **NFR-TEAM-001**: Team snapshots and append-only events are owner-local SQLite data with optimistic
+  version checks, terminal immutability, bounded text/findings, and no credentials or raw model stream.
+- **NFR-TEAM-002**: Domain, port, and application modules import no Discord, naia-shell, model SDK,
+  child-process, Git, or SQLite mechanism. Mechanisms remain in adapters/composition.
+- **NFR-TEAM-003**: Diagnostic events use the project logging port and expose stable ids, role, state,
+  and counts only; prompts, credentials, raw output, and absolute paths are not logged.
+- **NFR-TEAM-004**: Discord ingress, Discord authorization, terminal/file-opening UX, naia-shell UI,
+  SSH/mobile federation, automatic merge selection, and replacing Luna with a real 24GB local model
+  are outside this requirement and must not be claimed as active.
+- **NFR-TEAM-005**: Completion evidence records the unchanged candidate Git tree/commit identity and
+  two consecutive external Clean reviews, each explicitly bound to the orchestration SoT hash. The
+  benchmark artifact binds its reproducible source commit; the review log binds the later unchanged
+  candidate that contains that artifact (an artifact cannot embed the hash of its own containing commit).
+- **Status**: Done for the declared Agent-side composition, durable recovery, and deterministic
+  no-paid benchmark scope. Evidence: `benchmark/results/issue-team-deterministic.json` and
+  `.agents/reviews/r-req-023-issue-team-orchestration-2026-08-02.json`. Actual Discord ingress and
+  authorization, naia-shell UI, live paid multi-provider E2E, and a real 24GB local Naia model remain
+  explicitly outside this completed requirement.
+## REQ-024 — Built-in Pi continuous coding loop and durable paid-call budget
+
+- **FR-LOOP-001**: A standalone Agent composition runs the existing multi-session → single-issue →
+  profiled-team stack with built-in Pi for every model-authored role. This path neither imports,
+  invokes, nor falls back to OpenCode; legacy mixed profiles remain separate compatibility code.
+  An explicit subscription-conserving profile may instead pin only the moderator to Codex
+  `gpt-5.6-luna`; facing, reporting, and every team role remain built-in Pi bindings. No other
+  Codex slot or Codex model is accepted by that profile.
+- **FR-LOOP-002**: Every paid actor attempt reserves one stable idempotency key, USD allowance,
+  input-token allowance, and output-token allowance in SQLite before provider execution. The ledger
+  atomically enforces total paid-call, USD, input-token, and output-token limits across processes.
+  These are conservative admission and next-call stop rules; a provider can overrun one in-flight
+  reservation, which is recorded and fails the issue after the response rather than being hidden.
+- **FR-LOOP-003**: A provider-model receipt settles its reservation exactly once. Settlement requires
+  complete provider-reported token usage and either measured billing cost or Pi-priced usage explicitly
+  labeled as an estimate. Estimated cost can enforce operational admission but cannot support a live
+  Azure savings claim. Duplicate settlement is idempotent
+  only for the byte-identical receipt; conflicting evidence fails closed.
+- **FR-LOOP-004**: A reservation left active by crash or transport loss remains charged at its
+  reserved allowance and is never silently replayed. Operators can inspect it as unresolved; only
+  explicit reconciliation with bound receipt evidence may settle it.
+- **FR-LOOP-005**: A foreground NDJSON control session plus one-shot commands expose session
+  start/list/show/answer/cancel/pump and budget visibility without naia-shell. State survives restart
+  and reuses exact question binding, scheduler leases, managed worktrees, the role loop, verification,
+  and grounded reporting.
+- **FR-LOOP-006**: A frozen deterministic benchmark uses zero paid calls and covers multiple issues,
+  restart, duplicate commands, repair, budget exhaustion, unresolved reservations, and receipt
+  conflict. It hashes the exact JavaScript closure it executes, requires byte-exact current TypeScript
+  emission, and mutation-tests static/dynamic/CommonJS import plus direct/aliased/fallback executable
+  edges while allowing compatibility-only type labels. The opt-in one-call Azure/Naia-gateway script is only a bounded route/receipt smoke and
+  cannot claim cost efficiency. The active cost-efficiency completion gate remains unavailable until
+  candidate/control runs over identical cases expose complete provider-priced receipts; it is not
+  satisfied or deferred by the smoke.
+- **FR-LOOP-007**: The frozen paid comparison uses the same task, deterministic file/Git scorer,
+  actor-attempt topology, and a checkpoint-reopen step in which a separate Node process reopens and
+  hashes the frozen Git worktree before any paid call. It also enforces combined 20-actor-attempt/60-gateway-call/$0.50 ceilings for candidate
+  and control. USD caps use exact 8-decimal integers, and the 10% savings threshold uses integer basis
+  points rather than floating-point comparison. A savings decision requires candidate quality non-inferiority and at least 10% lower
+  customer cost. Every cost row must be settled gateway versioned-customer-billing evidence bound by
+  local execution ID, gateway request ID, price version, exact route, and exact token counts. Pi
+  catalog estimates, profile time-window deltas, unbound logs, missing rows, extra rows, route drift,
+  unresolved reservations, and unsigned self-asserted JSON make the result unavailable rather than
+  cheaper. Combined call/USD/token ceilings and the exact per-role attempt topology are enforced by
+  the analyzer. Actor attempts and billable gateway requests are distinct: both arms must run the
+  same declared role-attempt topology, while every tool-loop request is counted and differing request
+  counts remain part of the observed efficiency result. The analyzer verifies an HMAC-SHA256
+  attestation over the complete paired evidence with an external key whose public digest is pinned.
+  The evidence contains the independently reread hash-chain receipt journals plus the complete per-arm
+  delta from the shared SQLite gateway ledger; their ordered identities, exact settled totals, receipt
+  digests, and zero active-reservation count must equal the submitted rows. The immutable task contract
+  accepts only a separate pins file bound to its benchmark and task digests for price versions, key ID,
+  and the absolute Git executable path/digest;
+  the immutable contract must also pin the SHA-256 of that exact pins file before any paid call.
+  A deterministic preparation command creates a pins file and a derived contract without network or
+  paid calls; the derived contract is accepted only when every field except `pinsDigest` is structurally
+  equal under canonical JSON comparison to the repository contract. Runner and analyzer must consume the same derived
+  contract and pins pair.
+  Missing authority, a wrong key, post-run mutation, omitted or replayed rows,
+  and a changed contract binding make the result `unavailable`. A valid attestation may enable
+  `costEfficiencyClaimAllowed` only inside this frozen paired-engineering-case scope. The gateway
+  response is API-key/TLS authenticated and request-correlated but not server-signed, so this is not
+  a transferable third-party audit or a general model-superiority claim. Both arms must reopen the same contract-pinned
+  baseline digest, and every model must use its contract-pinned price version; an unpinned baseline or
+  price version also makes the comparison unavailable.
+- **FR-LOOP-008**: The Naia Pi adapter loads an Agent-owned provider extension only for the Naia
+  gateway route. For every logical provider turn the extension sends the OpenAI-compatible request
+  with `stream=false`, one parent-bound gateway request ID, and a positive attempt number. Before
+  network I/O, a shared SQLite ledger durably reserves one request plus conservative USD/input/output
+  allowances; retry of the same canonical request reuses that reservation, while a new request beyond
+  any ceiling is rejected before `fetch`. The extension validates
+  the returned route, settled versioned-customer-billing fields, exact token usage, and nonnegative
+  customer cost; atomically appends the result to an owner-only receipt journal; and converts the
+  ordinary completion back to Pi-compatible SSE so Pi retains its native text/tool loop. The parent
+  accepts measured cost only when the journal execution identity, ordered local request identities,
+  gateway identities, provider/model, token totals, settlement state, and file integrity all match.
+  The extension fails before provider I/O when its gateway-budget binding is absent. The common Naia
+  Pi subprocess factory always supplies one: continuous-loop and benchmark callers inject their shared
+  contract policy, while legacy CLI/mixed-team callers receive an execution-local durable default capped
+  at 8 gateway calls, $0.20, 32,000 input tokens, and eight reserved output allowances. Thus budgeting
+  is not an optional adapter mode and existing public Pi CLI routing remains usable. Legacy/direct
+  providers never load this extension. This receipt is operational settlement evidence. FR-LOOP-007
+  separately binds the complete paired result with an external-key HMAC; the distinction between that
+  internal integrity claim and an unavailable gateway server signature remains explicit.
+- **FR-LOOP-009**: Every paid benchmark runner requires an explicit durable output path before network
+  I/O. The paired runner writes running and per-arm checkpoints outside the evidence directory; the
+  one-call smoke writes a running checkpoint before its call. Both preserve receipt and gateway-budget
+  databases after success or failure and emit an honest partial-paid `unavailable` record on exceptions.
+  Neither runner deletes or overwrites the only copy of paid-call evidence. The paired runner removes
+  its HMAC integrity key from the process environment immediately after loading it, strips it from every
+  child environment, and runs benchmark Git with system/global configuration disabled plus an isolated
+  empty hooks path so a model-controlled global hook cannot capture the attestation authority. This
+  process-level isolation covers transitive worktree and verifier Git calls as well as the runner's own
+  Git wrapper. The external Git executable path and SHA-256 are contract-bound through the anchored pins
+  file, rechecked before each Git use, and every Git/digest child receives an environment with provider
+  credentials removed. Worktree allocation, changed-file scoring, and verification use that same injected
+  Git boundary rather than caller `PATH`. The runner, analyzer, digest/Git/integrity helpers, full transitive local ESM closure,
+  the Pi billing extension, the exact direct
+  `pi-ai` OpenAI-completion closure and its `openai`/`partial-json` dependencies, package/lock files,
+  and the workspace-local Pi executable's full statically reachable package graph are captured in one
+  contract-pinned manifest digest. The
+  broad compatibility entrypoint is not used. An inherited `PI_BIN` override is removed. Signer,
+  analyzer, billing, loop, and scorer entry modules are preloaded before the first model arm, and the
+  complete closure is rehashed immediately before every actor spawn and after each arm. Any replacement
+  fails before a credential-bearing child, another arm, or a signature is accepted. Because Pi itself
+  needs the Naia credential, paid comparison writers receive an explicit shell-free built-in tool
+  allowlist (`read,write,edit,grep,find,ls`); read-only actors are intersected down to
+  `read,grep,find,ls`. The billing extension blocks every file-tool target outside the assigned real
+  workspace and rejects symbolic-link escape before tool execution. The guard mirrors Pi's leading-`@`
+  path normalization before checking the target; Pi's absolute-path-capable built-ins
+  therefore cannot read secrets or replace benchmark/runtime files outside that worktree. No shell or
+  alternate network-capable tool can bypass the billed fetch and shared request ledger.
+- **FR-LOOP-010**: A user-owned Pi provider is an explicit, credential-free, loopback-only
+  OpenAI-compatible binding whose provider ID cannot collide with a cloud provider. A local-model
+  qualification run binds the current TypeScript import closure to the exact executed JavaScript,
+  the Pi executable hash, pinned external executable paths/hashes, endpoint model/root, serving version
+  and command, immutable container image identity, Hugging Face snapshot revision and file-manifest digest,
+  container network namespace and loopback port, one declared GPU device and its UUID/memory telemetry,
+  an actual >=32K prompt, and redacted native tool-call protocol evidence. Existing result paths are
+  preserved fail-closed. It completes only after the ordinary facing → moderator
+  → explorer/implementer/tester/reviewer(two clean cycles) → deterministic verifier → reporter path
+  succeeds. Provider price is unavailable unless a real provider or operating-cost receipt exists;
+  a zero Pi catalog price is never reported as measured zero cost.
+- **NFR-LOOP-001**: Default benchmark limits are deliberately small; there is no two-minute product
+  loop ceiling. Termination comes from repair/clean bounds, cancellation, verification, provider
+  failure, or durable budget exhaustion.
+- **NFR-LOOP-002**: SQLite state is owner-local mode 0600 and stores no credential, prompt stream,
+  or raw model output. Logs use `DiagnosticLog` and never expose those values.
+- **NFR-LOOP-003**: Discord ingress and naia-shell UI remain outside this requirement. Source
+  metadata stays adapter-neutral for their later attachment.
+- **NFR-LOOP-004**: The 24GiB local-model profile is a user-owned assistant/worker option, not a
+  Codex/Claude replacement claim. GPU0 is outside the qualification run; the canonical live run uses
+  GPU1 only. Candidates that merely fit memory but do not expose native tools fail the prerequisite
+  gate and are not run through the 3-layer completion loop.
+- **FR-LOOP-011**: A Naia model declared analysis-only cannot occupy explorer, implementer, tester,
+  or reviewer because those roles must inspect or mutate the assigned worktree through bounded Pi
+  tools. Configuration fails before state or provider execution rather than accepting an ungrounded
+  role claim.
+- **FR-LOOP-012**: `gatewayBillingMode=unavailable` is an explicit operational compatibility mode
+  for a Gateway response that omits versioned settlement fields. It bypasses only the per-request
+  receipt extension. Parent actor reservations still enforce call, token, and estimated-USD ceilings
+  from the pinned Azure rate-card catalog; terminal customer cost remains unavailable, and paid
+  benchmark/savings claims remain prohibited. The default mode remains strict versioned billing.
+- **Status**: In progress. Completion requires reproducible benchmark evidence and two consecutive
+  clean adversarial reviews on one unchanged candidate. The decision contract is implemented. Exact
+  request-correlated operational receipt transport is specified by FR-LOOP-008, while a live paired
+  run still requires a Naia credential, pinned price versions, and a pinned external harness-journal
+  key identity. The baseline is already pinned. A hand-authored or unsigned evidence file can never
+  become a completion claim, and the current gateway does not provide a server signature.

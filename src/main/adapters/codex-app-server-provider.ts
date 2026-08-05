@@ -301,12 +301,12 @@ export async function* runCodexAppServerTurn(
     });
     peer.notify("initialized");
     const { tmpdir } = await import("node:os");
-    // app-server 동적 도구는 한 RPC 안에서 즉시 결과를 돌려줘야 한다. 승인/외부처리 도구는
-    // ChatTurnHandler의 기존 게이트를 우회할 수 있으므로 자동승인 로컬 도구만 광고한다.
+    // app-server 동적 도구는 한 RPC 안에서 즉시 결과를 돌려줘야 한다. 승인 필요 도구는 제외한다.
+    // processing metadata가 있는 도구는 ChatTurnHandler의 executeTool callback이 승인/공개한 뒤 실행한다.
     const dynamicTools = (input.tools ?? [])
       // continue_speaking은 ChatTurnHandler가 인용 검증/상태 전이를 소유하는 내부 제어 도구다.
       // app-server 안에서 선실행하면 그 검증을 우회하므로 외부 executor 도구만 native 실행한다.
-      .filter((tool) => tool.name !== "continue_speaking" && (tool.tier === undefined || tool.tier === "none") && tool.processing === undefined)
+      .filter((tool) => tool.name !== "continue_speaking" && (tool.tier === undefined || tool.tier === "none"))
       .map((tool) => ({
         type: "function" as const,
         name: tool.name,

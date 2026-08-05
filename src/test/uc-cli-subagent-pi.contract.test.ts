@@ -2,8 +2,13 @@
 // fake child(spawnFn 주입)로 실 pi 바이너리 없이 결정론 검증. resolveBin 주입으로 PATH 조회(execSync) 회피.
 import { describe, it, expect } from "vitest";
 import type { ChildProcess } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { makePiSubAgent, piLineToEvent, type SpawnFn, type ResolvedBin } from "../main/adapters/subagent-pi.js";
+import { makeSubAgentNaiaFacing } from "../main/adapters/subagent-issue-actors.js";
 import type { SubAgentEvent } from "../main/domain/orchestration.js";
+import { IssueActorResultError } from "../main/ports/issue-orchestration.js";
 
 const fixedBin = (): ResolvedBin => ({ command: "pi", prefixArgs: [] });
 
@@ -12,9 +17,9 @@ function fakeNdjson() {
   let stdoutCb: ((b: Buffer) => void) | undefined;
   const handlers: Record<string, (...a: unknown[]) => void> = {};
   const killSignals: Array<string | number> = [];
-  let spawnArgs: { command: string; args: readonly string[]; cwd: string } | undefined;
+  let spawnArgs: { command: string; args: readonly string[]; cwd: string; env?: NodeJS.ProcessEnv } | undefined;
   const spawnFn: SpawnFn = (command, args, o) => {
-    spawnArgs = { command, args, cwd: o.cwd };
+    spawnArgs = { command, args, cwd: o.cwd, env: o.env };
     const child = {
       stdout: { on: (_e: string, cb: (b: Buffer) => void) => { stdoutCb = cb; } },
       stderr: { on: () => {} },
@@ -66,6 +71,104 @@ describe("subagent-pi 어댑터 계약 (2b, fake child)", () => {
     expect(f.spawnArgs.command).toBe("pi");
     expect(f.spawnArgs.args).toEqual(["-p", "hi", "--mode", "json", "--no-session", "--provider", "anthropic", "--model", "claude-sonnet-4-6"]);
     expect(f.spawnArgs.cwd).toBe("/tmp/w");
+  });
+
+  it("isolates account-provider children from unrelated parent credentials", () => {
+    const f = fakeNdjson();
+    const port = makePiSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn, provider: "openai-codex", model: "codex-model",
+      env: { HOME: "/account-home", PATH: "/bin", DISCORD_BOT_TOKEN: "must-not-leak",
+        NAIA_API_KEY: "must-not-leak", ANTHROPIC_API_KEY: "must-not-leak" } });
+    port.spawn({ prompt: "hi", workdir: "/tmp/w" });
+    expect(f.spawnArgs.env).toMatchObject({ HOME: "/account-home", PATH: "/bin" });
+    expect(f.spawnArgs.env).not.toHaveProperty("DISCORD_BOT_TOKEN");
+    expect(f.spawnArgs.env).not.toHaveProperty("NAIA_API_KEY");
+    expect(f.spawnArgs.env).not.toHaveProperty("ANTHROPIC_API_KEY");
+  });
+
+  it("read-only capability is enforced with Pi's non-writing tool allowlist", () => {
+    const f = fakeNdjson();
+    const port = makePiSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn });
+    port.spawn({ prompt: "inspect", workdir: "/tmp/w", filesystemAccess: "read_only" });
+    expect(f.spawnArgs.args).toContain("--tools");
+    expect(f.spawnArgs.args).toContain("read,grep,find,ls");
+    expect(f.spawnArgs.args).not.toContain("--no-tools");
+  });
+
+  it("uses an explicit unpriced Naia fallback without loading the strict billing extension", () => {
+    const f = fakeNdjson(); const dir = mkdtempSync(join(tmpdir(), "naia-pi-unpriced-"));
+    try {
+      const port = makePiSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn, provider: "naia",
+        model: "deepseek-v4-flash", noTools: true, gatewayBillingMode: "unavailable", piConfigDir: dir,
+        env: { HOME: dir, PATH: "/bin", NAIA_API_KEY: "test-naia-key" } });
+      port.spawn({ prompt: "inspect", workdir: "/tmp/w", filesystemAccess: "read_only" });
+      expect(f.spawnArgs.args).not.toContain("--extension");
+      expect(f.spawnArgs.args).toContain("--no-tools");
+      expect(f.spawnArgs.env).toMatchObject({ NAIA_API_KEY: "test-naia-key", PI_CODING_AGENT_DIR: dir });
+      expect(f.spawnArgs.env).not.toHaveProperty("NAIA_PI_RECEIPT_PATH");
+      expect(f.spawnArgs.env).not.toHaveProperty("NAIA_PI_GATEWAY_BUDGET_POLICY");
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it("provides adapter-owned identities for a Pi-backed JSON actor receipt", async () => {
+    const f = fakeNdjson();
+    const pi = makePiSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn, provider: "anthropic", model: "claude-sonnet-4-6" });
+    const facing = makeSubAgentNaiaFacing({
+      subAgent: pi,
+      binding: { provider: "anthropic", model: "claude-sonnet-4-6" },
+      workdir: "/tmp/w", diag: { log() {}, debug() {} },
+    });
+    const result = facing.classify({
+      requestId: "request-pi-facing", idempotencyKey: "issue:pi:facing", text: "fix it", requiredObligations: ["fix it"],
+      signal: new AbortController().signal,
+    });
+    f.line(JSON.stringify({
+      type: "message_end",
+      message: {
+        role: "assistant", provider: "anthropic", model: "claude-sonnet-4-6",
+        content: [{ type: "text", text: '{"kind":"work","obligations":["fix it"]}' }],
+        usage: { input: 10, output: 4, totalTokens: 14, cost: { total: 0.01 } },
+      },
+    }));
+    f.close(0);
+    const classified = await result;
+    expect(classified.classification).toEqual({ kind: "work", obligations: ["fix it"] });
+    expect(classified.receipt).toMatchObject({
+      role: "naia", provider: "anthropic", model: "claude-sonnet-4-6",
+      tokenCountsAvailable: true, inputTokens: 10, outputTokens: 4,
+      sessionId: expect.any(String), executionId: expect.any(String),
+      cost: { state: "unavailable" },
+    });
+    expect(classified.receipt.sessionId).not.toBe(classified.receipt.executionId);
+  });
+
+  it("preserves Pi usage evidence when provider/model drift ends the paid actor as failed", async () => {
+    const f = fakeNdjson();
+    const pi = makePiSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn, provider: "anthropic", model: "claude-sonnet-4-6" });
+    const facing = makeSubAgentNaiaFacing({
+      subAgent: pi, binding: { provider: "anthropic", model: "claude-sonnet-4-6" },
+      workdir: "/tmp/w", diag: { log() {}, debug() {} },
+    });
+    const result = facing.classify({
+      requestId: "request-pi-drift", idempotencyKey: "issue:pi:drift", text: "fix it", requiredObligations: ["fix it"],
+      signal: new AbortController().signal,
+    });
+    f.line(JSON.stringify({
+      type: "message_end",
+      message: {
+        role: "assistant", provider: "openai", model: "unexpected-model",
+        content: [{ type: "text", text: '{"kind":"work","obligations":["fix it"]}' }],
+        usage: { input: 10, output: 4, totalTokens: 14, cost: { total: 0.01 } },
+      },
+    }));
+    const error = await result.catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(IssueActorResultError);
+    expect(error).toMatchObject({
+      message: expect.stringContaining("binding mismatch"),
+      receipt: {
+        role: "naia", provider: "openai", model: "unexpected-model", idempotencyKey: "issue:pi:drift",
+        tokenCountsAvailable: true, inputTokens: 10, outputTokens: 4, cost: { state: "unavailable" },
+      },
+    });
   });
 
   it("malformed/partial NDJSON 관용 (crash 없이 드롭, 정상 줄만 이벤트)", async () => {

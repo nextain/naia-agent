@@ -14,6 +14,9 @@ importers:
       '@earendil-works/pi-coding-agent':
         specifier: 0.83.0
         version: 0.83.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
+      '@earendil-works/pi-ai':
+        specifier: 0.83.0
+        version: 0.83.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
       '@grpc/grpc-js':
         specifier: ^1.14.4
         version: 1.14.4

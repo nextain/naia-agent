@@ -1,0 +1,465 @@
+{
+  "schemaVersion": 1,
+  "benchmarkId": "UC-ORCH-001-2026-08-01",
+  "caseId": "bounded-parser-fix",
+  "executedAt": "2026-08-01T19:46:32.742Z",
+  "priceSnapshot": {
+    "id": "PRICE-OPENAI-2026-07-29",
+    "sha256": "36ff2bca30e2823cddda6b207bdf68b3bb15700c5fdc4e0e67792bda44bc6626",
+    "capturedAt": "2026-07-29T15:48:42Z",
+    "currency": "USD",
+    "tokenUnit": 1000000,
+    "normalizationMethod": "API-equivalent USD and Codex credit rate-card estimates computed from the exact CLI usage receipt; they are analytical normalization values, not an invoice or a hard spending cap.",
+    "applicability": {
+      "maximum_input_tokens_without_frozen_long_context_rule": 272000,
+      "above_threshold": "monetary and quota normalization are unavailable until a current long-context surcharge rule is separately frozen"
+    },
+    "costScope": "Complete issue marginal API-equivalent USD for Naia, moderator, worker, reporter, and zero-cost local deterministic verification; excludes subscription quota and local machine occupancy."
+  },
+  "budget": {
+    "observedSpendStopThresholdUsd": 1.6,
+    "reservedCallUsd": 0.2,
+    "actorTimeoutMs": 120000,
+    "maxPaidCalls": 8,
+    "paidCalls": 8,
+    "observedSpendUsd": 0.308617,
+    "hardProviderDollarCeiling": false
+  },
+  "corpus": {
+    "schemaVersion": 1,
+    "benchmarkId": "UC-ORCH-001-2026-08-01",
+    "claimPolicy": "A cost-savings claim is forbidden unless both routes pass every hard gate and every required actor has a measured receipt.",
+    "costScope": "Complete issue marginal API-equivalent USD for Naia, moderator, worker, reporter, and zero-cost local deterministic verification; excludes subscription quota and local machine occupancy.",
+    "routes": {
+      "lunaProxy": {
+        "naia": "gpt-5.6-luna",
+        "naiaReasoning": "low",
+        "moderator": "gpt-5.6-sol",
+        "moderatorReasoning": "high",
+        "workerProfile": "balanced",
+        "worker": "gpt-5.6-terra",
+        "workerReasoning": "medium",
+        "reporter": "gpt-5.6-luna",
+        "reporterReasoning": "low"
+      },
+      "allSol": {
+        "naia": "gpt-5.6-sol",
+        "naiaReasoning": "low",
+        "moderator": "gpt-5.6-sol",
+        "moderatorReasoning": "high",
+        "workerProfile": "control",
+        "worker": "gpt-5.6-sol",
+        "workerReasoning": "high",
+        "reporter": "gpt-5.6-sol",
+        "reporterReasoning": "low"
+      }
+    },
+    "requiredReceiptRoles": [
+      "naia",
+      "moderator",
+      "worker",
+      "verifier",
+      "reporter"
+    ],
+    "hardGates": [
+      "terminal_completed",
+      "all_acceptance_checks_pass",
+      "obligations_preserved",
+      "independent_actor_identities",
+      "stable_dispatch_id",
+      "profile_request_exact",
+      "all_required_receipts_measured"
+    ],
+    "cases": [
+      {
+        "id": "chat-isolation",
+        "kind": "deterministic",
+        "request": "오늘 어때?",
+        "expected": {
+          "state": "chat",
+          "forbiddenRoles": [
+            "moderator",
+            "worker",
+            "verifier",
+            "reporter"
+          ]
+        }
+      },
+      {
+        "id": "bounded-parser-fix",
+        "kind": "live-paired",
+        "request": "Fix add() in math.mjs so the frozen Node test passes. Change only math.mjs.",
+        "obligations": [
+          "fix add()",
+          "pass the frozen Node test",
+          "change only math.mjs"
+        ],
+        "acceptanceChecks": [
+          "node --test math.test.mjs passes",
+          "only math.mjs changed"
+        ]
+      },
+      {
+        "id": "blocking-question",
+        "kind": "deterministic",
+        "request": "Fix the parser",
+        "expected": {
+          "state": "awaiting_user",
+          "questionMustRoundTripExactly": true
+        }
+      },
+      {
+        "id": "verification-failure",
+        "kind": "deterministic",
+        "request": "Make the test pass",
+        "expected": {
+          "state": "failed",
+          "verificationPassed": false
+        }
+      },
+      {
+        "id": "lost-worker-outcome",
+        "kind": "deterministic",
+        "request": "Apply the bounded patch",
+        "expected": {
+          "state": "outcome_unknown",
+          "workerMustNotBlindlyReplay": true
+        }
+      }
+    ]
+  },
+  "runs": {
+    "lunaProxy": {
+      "routeId": "lunaProxy",
+      "bindings": {
+        "naia": {
+          "provider": "openai-codex",
+          "model": "gpt-5.6-luna",
+          "reasoningEffort": "low"
+        },
+        "moderator": {
+          "provider": "openai-codex",
+          "model": "gpt-5.6-sol",
+          "reasoningEffort": "high"
+        },
+        "worker": {
+          "provider": "openai-codex",
+          "model": "gpt-5.6-terra",
+          "reasoningEffort": "medium",
+          "profile": "balanced"
+        },
+        "reporter": {
+          "provider": "openai-codex",
+          "model": "gpt-5.6-luna",
+          "reasoningEffort": "low"
+        }
+      },
+      "report": {
+        "issueId": "9238f236-6fa4-4f9f-9a18-c098a323ef02",
+        "state": "completed",
+        "summary": "state=completed; changedFiles=1; verification=passed",
+        "naiaCommentary": "Completed. math.mjs changed. Verification passed: node --test math.test.mjs passes and only math.mjs changed. Worker session is true; issue verification remains pending.",
+        "changedFiles": [
+          "math.mjs"
+        ],
+        "verificationPassed": true,
+        "totalCost": {
+          "state": "measured",
+          "usd": 0.108371,
+          "source": "sum_of_persisted_actor_receipts"
+        }
+      },
+      "hardGates": {
+        "terminal_completed": true,
+        "all_acceptance_checks_pass": true,
+        "obligations_preserved": true,
+        "independent_actor_identities": true,
+        "stable_dispatch_id": true,
+        "profile_request_exact": true,
+        "all_required_receipts_measured": true
+      },
+      "receipts": [
+        {
+          "role": "naia",
+          "provider": "openai-codex",
+          "model": "gpt-5.6-luna",
+          "reasoningEffort": "low",
+          "sessionId": "019fbedb-88df-74e3-8068-8d75a9a7008c",
+          "executionId": "6348d02e-b63c-42d3-a051-2b0715a66a53",
+          "idempotencyKey": "9238f236-6fa4-4f9f-9a18-c098a323ef02:facing:classify",
+          "tokenCountsAvailable": true,
+          "inputTokens": 12173,
+          "cachedInputTokens": 8960,
+          "outputTokens": 30,
+          "latencyMs": 6854,
+          "modelEvidenceSource": "adapter_requested",
+          "cost": {
+            "state": "measured",
+            "usd": 0.004289,
+            "source": "subagent_usage_and_pinned_price"
+          }
+        },
+        {
+          "role": "moderator",
+          "provider": "openai-codex",
+          "model": "gpt-5.6-sol",
+          "reasoningEffort": "high",
+          "sessionId": "019fbedb-a36c-7f02-9dc5-afd84b3ecf2b",
+          "executionId": "fc8732e1-4962-4288-b5a9-ea72204d9b16",
+          "idempotencyKey": "9238f236-6fa4-4f9f-9a18-c098a323ef02:moderator:0",
+          "tokenCountsAvailable": true,
+          "inputTokens": 13637,
+          "cachedInputTokens": 9984,
+          "outputTokens": 74,
+          "latencyMs": 5825,
+          "modelEvidenceSource": "adapter_requested",
+          "cost": {
+            "state": "measured",
+            "usd": 0.025477,
+            "source": "subagent_usage_and_pinned_price"
+          }
+        },
+        {
+          "role": "worker",
+          "provider": "openai-codex",
+          "model": "gpt-5.6-terra",
+          "reasoningEffort": "medium",
+          "sessionId": "019fbedb-ba36-79e3-bd4b-5789bb8b4395",
+          "executionId": "35296f59-be54-46cf-8106-5a38026467d1",
+          "idempotencyKey": "9238f236-6fa4-4f9f-9a18-c098a323ef02:dispatch:1",
+          "tokenCountsAvailable": true,
+          "inputTokens": 124450,
+          "cachedInputTokens": 113664,
+          "outputTokens": 1249,
+          "latencyMs": 38484,
+          "modelEvidenceSource": "adapter_requested",
+          "cost": {
+            "state": "measured",
+            "usd": 0.074116,
+            "source": "codex_usage_and_pinned_price"
+          }
+        },
+        {
+          "role": "verifier",
+          "provider": "deterministic",
+          "model": "command-verifier",
+          "sessionId": "a2c64a9e-1068-46b6-94bc-833a96eccfd8",
+          "executionId": "241d13a1-5e50-4aa9-892d-fd19d68256d1",
+          "idempotencyKey": "9238f236-6fa4-4f9f-9a18-c098a323ef02:verify:1",
+          "tokenCountsAvailable": true,
+          "inputTokens": 0,
+          "cachedInputTokens": 0,
+          "outputTokens": 0,
+          "latencyMs": 133,
+          "cost": {
+            "state": "measured",
+            "usd": 0,
+            "source": "local_deterministic_verifier"
+          }
+        },
+        {
+          "role": "reporter",
+          "provider": "openai-codex",
+          "model": "gpt-5.6-luna",
+          "reasoningEffort": "low",
+          "sessionId": "019fbedc-510e-74d3-b9cc-5140608fa33a",
+          "executionId": "2c62332c-ebd9-42ab-bb65-f354032b67e5",
+          "idempotencyKey": "9238f236-6fa4-4f9f-9a18-c098a323ef02:report:1",
+          "tokenCountsAvailable": true,
+          "inputTokens": 12157,
+          "cachedInputTokens": 8960,
+          "outputTokens": 66,
+          "latencyMs": 4596,
+          "modelEvidenceSource": "adapter_requested",
+          "cost": {
+            "state": "measured",
+            "usd": 0.004489,
+            "source": "subagent_usage_and_pinned_price"
+          }
+        }
+      ],
+      "eventTypes": [
+        "issue_accepted",
+        "facing_dispatched",
+        "request_classified",
+        "moderator_requested",
+        "moderator_dispatched",
+        "plan_ready",
+        "worker_dispatched",
+        "worker_completed",
+        "verification_passed",
+        "reporter_dispatched",
+        "issue_reported"
+      ]
+    },
+    "allSol": {
+      "routeId": "allSol",
+      "bindings": {
+        "naia": {
+          "provider": "openai-codex",
+          "model": "gpt-5.6-sol",
+          "reasoningEffort": "low"
+        },
+        "moderator": {
+          "provider": "openai-codex",
+          "model": "gpt-5.6-sol",
+          "reasoningEffort": "high"
+        },
+        "worker": {
+          "provider": "openai-codex",
+          "model": "gpt-5.6-sol",
+          "reasoningEffort": "high",
+          "profile": "control"
+        },
+        "reporter": {
+          "provider": "openai-codex",
+          "model": "gpt-5.6-sol",
+          "reasoningEffort": "low"
+        }
+      },
+      "report": {
+        "issueId": "fe16baea-d8f5-45ae-9cca-ba58c9ad3b45",
+        "state": "completed",
+        "summary": "state=completed; changedFiles=1; verification=passed",
+        "naiaCommentary": "Completed: math.mjs was the only changed file, and `node --test math.test.mjs` passed. Worker reported `session=true`; issue verification remains pending.",
+        "changedFiles": [
+          "math.mjs"
+        ],
+        "verificationPassed": true,
+        "totalCost": {
+          "state": "measured",
+          "usd": 0.200246,
+          "source": "sum_of_persisted_actor_receipts"
+        }
+      },
+      "hardGates": {
+        "terminal_completed": true,
+        "all_acceptance_checks_pass": true,
+        "obligations_preserved": true,
+        "independent_actor_identities": true,
+        "stable_dispatch_id": true,
+        "profile_request_exact": true,
+        "all_required_receipts_measured": true
+      },
+      "receipts": [
+        {
+          "role": "naia",
+          "provider": "openai-codex",
+          "model": "gpt-5.6-sol",
+          "reasoningEffort": "low",
+          "sessionId": "019fbedc-6321-7ff3-8da4-410683af391b",
+          "executionId": "c80376a4-ca70-4610-9a5e-1c1f34857297",
+          "idempotencyKey": "fe16baea-d8f5-45ae-9cca-ba58c9ad3b45:facing:classify",
+          "tokenCountsAvailable": true,
+          "inputTokens": 13594,
+          "cachedInputTokens": 9984,
+          "outputTokens": 30,
+          "latencyMs": 4338,
+          "modelEvidenceSource": "adapter_requested",
+          "cost": {
+            "state": "measured",
+            "usd": 0.023942,
+            "source": "subagent_usage_and_pinned_price"
+          }
+        },
+        {
+          "role": "moderator",
+          "provider": "openai-codex",
+          "model": "gpt-5.6-sol",
+          "reasoningEffort": "high",
+          "sessionId": "019fbedc-7416-7fe0-b0c2-caa62fc7b53e",
+          "executionId": "096d2b13-3b66-49d5-830c-09087b7d7127",
+          "idempotencyKey": "fe16baea-d8f5-45ae-9cca-ba58c9ad3b45:moderator:0",
+          "tokenCountsAvailable": true,
+          "inputTokens": 13635,
+          "cachedInputTokens": 9984,
+          "outputTokens": 74,
+          "latencyMs": 5442,
+          "modelEvidenceSource": "adapter_requested",
+          "cost": {
+            "state": "measured",
+            "usd": 0.025467,
+            "source": "subagent_usage_and_pinned_price"
+          }
+        },
+        {
+          "role": "worker",
+          "provider": "openai-codex",
+          "model": "gpt-5.6-sol",
+          "reasoningEffort": "high",
+          "sessionId": "019fbedc-8977-7690-93e8-7e031d361584",
+          "executionId": "3d304b3b-cbcb-420c-8f70-34b62d3d716e",
+          "idempotencyKey": "fe16baea-d8f5-45ae-9cca-ba58c9ad3b45:dispatch:1",
+          "tokenCountsAvailable": true,
+          "inputTokens": 95787,
+          "cachedInputTokens": 84480,
+          "outputTokens": 928,
+          "latencyMs": 35535,
+          "modelEvidenceSource": "adapter_requested",
+          "cost": {
+            "state": "measured",
+            "usd": 0.126615,
+            "source": "codex_usage_and_pinned_price"
+          }
+        },
+        {
+          "role": "verifier",
+          "provider": "deterministic",
+          "model": "command-verifier",
+          "sessionId": "355bef51-23a8-45d6-8ba3-32c419001fae",
+          "executionId": "6b67982c-b3ea-4b0a-b348-cead9a73e04d",
+          "idempotencyKey": "fe16baea-d8f5-45ae-9cca-ba58c9ad3b45:verify:1",
+          "tokenCountsAvailable": true,
+          "inputTokens": 0,
+          "cachedInputTokens": 0,
+          "outputTokens": 0,
+          "latencyMs": 176,
+          "cost": {
+            "state": "measured",
+            "usd": 0,
+            "source": "local_deterministic_verifier"
+          }
+        },
+        {
+          "role": "reporter",
+          "provider": "openai-codex",
+          "model": "gpt-5.6-sol",
+          "reasoningEffort": "low",
+          "sessionId": "019fbedd-1531-7b71-ba7e-2d8be326e795",
+          "executionId": "07c6d73c-4a4d-4e98-ad20-f22c284e33d3",
+          "idempotencyKey": "fe16baea-d8f5-45ae-9cca-ba58c9ad3b45:report:1",
+          "tokenCountsAvailable": true,
+          "inputTokens": 13578,
+          "cachedInputTokens": 9984,
+          "outputTokens": 42,
+          "latencyMs": 5310,
+          "modelEvidenceSource": "adapter_requested",
+          "cost": {
+            "state": "measured",
+            "usd": 0.024222,
+            "source": "subagent_usage_and_pinned_price"
+          }
+        }
+      ],
+      "eventTypes": [
+        "issue_accepted",
+        "facing_dispatched",
+        "request_classified",
+        "moderator_requested",
+        "moderator_dispatched",
+        "plan_ready",
+        "worker_dispatched",
+        "worker_completed",
+        "verification_passed",
+        "reporter_dispatched",
+        "issue_reported"
+      ]
+    }
+  },
+  "comparison": {
+    "claimAllowed": true,
+    "lunaProxyUsd": 0.108371,
+    "allSolUsd": 0.200246,
+    "savingsUsd": 0.09187500000000001
+  }
+}

@@ -67,6 +67,15 @@ describe("subagent-opencode-cli 어댑터 계약 (2b, fake child)", () => {
     expect(f.spawnArgs.args).toEqual(["run", "--format", "json", "--dir", "/tmp/w", "-m", "glm-4.7", "--dangerously-skip-permissions", "do it"]);
   });
 
+  it("fails closed before spawn when OpenCode is assigned a read-only role", async () => {
+    const f = fakeNdjson();
+    const port = makeOpencodeSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn });
+    const session = port.spawn({ prompt: "inspect", workdir: "/tmp/w", filesystemAccess: "read_only" });
+    const [end] = await drain(session.events) as Extract<SubAgentEvent, { kind: "session_end" }>[];
+    expect(end).toMatchObject({ ok: false, reason: expect.stringContaining("read-only execution is unavailable") });
+    expect(f.spawnArgs).toBeUndefined();
+  });
+
   it("tool_use status 'error' → tool_use_end{ok:false}; malformed 관용", async () => {
     const f = fakeNdjson();
     const port = makeOpencodeSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn });

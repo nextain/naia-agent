@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "benchmarkId": "UC-ORCH-001-2026-08-01",
+  "claimPolicy": "A cost-savings claim is forbidden unless both routes pass every hard gate and every required actor has a measured receipt.",
+  "costScope": "Complete issue marginal API-equivalent USD for Naia, moderator, worker, reporter, and zero-cost local deterministic verification; excludes subscription quota and local machine occupancy.",
+  "routes": {
+    "lunaProxy": {
+      "naia": "gpt-5.6-luna",
+      "naiaReasoning": "low",
+      "moderator": "gpt-5.6-sol",
+      "moderatorReasoning": "high",
+      "workerProfile": "balanced",
+      "worker": "gpt-5.6-terra",
+      "workerReasoning": "medium",
+      "reporter": "gpt-5.6-luna",
+      "reporterReasoning": "low"
+    },
+    "allSol": {
+      "naia": "gpt-5.6-sol",
+      "naiaReasoning": "low",
+      "moderator": "gpt-5.6-sol",
+      "moderatorReasoning": "high",
+      "workerProfile": "control",
+      "worker": "gpt-5.6-sol",
+      "workerReasoning": "high",
+      "reporter": "gpt-5.6-sol",
+      "reporterReasoning": "low"
+    }
+  },
+  "requiredReceiptRoles": ["naia", "moderator", "worker", "verifier", "reporter"],
+  "hardGates": [
+    "terminal_completed",
+    "all_acceptance_checks_pass",
+    "obligations_preserved",
+    "independent_actor_identities",
+    "stable_dispatch_id",
+    "profile_request_exact",
+    "all_required_receipts_measured"
+  ],
+  "cases": [
+    {
+      "id": "chat-isolation",
+      "kind": "deterministic",
+      "request": "오늘 어때?",
+      "expected": { "state": "chat", "forbiddenRoles": ["moderator", "worker", "verifier", "reporter"] }
+    },
+    {
+      "id": "bounded-parser-fix",
+      "kind": "live-paired",
+      "request": "Fix add() in math.mjs so the frozen Node test passes. Change only math.mjs.",
+      "obligations": ["fix add()", "pass the frozen Node test", "change only math.mjs"],
+      "acceptanceChecks": ["node --test math.test.mjs passes", "only math.mjs changed"]
+    },
+    {
+      "id": "blocking-question",
+      "kind": "deterministic",
+      "request": "Fix the parser",
+      "expected": { "state": "awaiting_user", "questionMustRoundTripExactly": true }
+    },
+    {
+      "id": "verification-failure",
+      "kind": "deterministic",
+      "request": "Make the test pass",
+      "expected": { "state": "failed", "verificationPassed": false }
+    },
+    {
+      "id": "lost-worker-outcome",
+      "kind": "deterministic",
+      "request": "Apply the bounded patch",
+      "expected": { "state": "outcome_unknown", "workerMustNotBlindlyReplay": true }
+    }
+  ]
+}

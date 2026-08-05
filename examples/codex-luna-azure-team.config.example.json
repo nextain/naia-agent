@@ -1,0 +1,34 @@
+{
+  "stateDir": "/absolute/private/path/naia-loop-state",
+  "workspaceRoot": "/absolute/path/to/naia-adk",
+  "worktreeRoot": "/absolute/private/path/naia-loop-worktrees",
+  "facing": { "provider": "naia", "model": "deepseek-v4-flash" },
+  "moderator": { "provider": "openai-codex", "model": "gpt-5.6-luna", "reasoningEffort": "high" },
+  "reporter": { "provider": "naia", "model": "deepseek-v4-flash" },
+  "roles": {
+    "explorer": { "provider": "naia", "model": "grok-4.3" },
+    "implementer": { "provider": "naia", "model": "grok-4.3" },
+    "tester": { "provider": "naia", "model": "grok-4.3" },
+    "reviewer": { "provider": "naia", "model": "grok-4.3" }
+  },
+  "profileId": "codex-luna-azure-team",
+  "pi": { "gatewayBillingMode": "unavailable" },
+  "maxRepairCycles": 2,
+  "requiredCleanCycles": 2,
+  "acceptanceChecks": [
+    { "name": "build", "command": "pnpm", "args": ["build"] },
+    { "name": "test", "command": "pnpm", "args": ["test"] }
+  ],
+  "concurrency": 2,
+  "budget": {
+    "maxPaidCalls": 40,
+    "maxUsd": 10,
+    "maxInputTokens": 1000000,
+    "maxOutputTokens": 100000
+  },
+  "callAllowance": {
+    "reservedUsd": 0.25,
+    "reservedInputTokens": 50000,
+    "reservedOutputTokens": 5000
+  }
+}

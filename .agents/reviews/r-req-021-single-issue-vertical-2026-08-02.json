@@ -1,0 +1,148 @@
+{
+  "requirement": "REQ-021",
+  "use_case": "UC-ORCH-001",
+  "branch": "feat/naia-single-issue-vertical",
+  "baseline_revision": "c424be65d22891f0f158395428d915031cf8e412",
+  "implementation_revision": "d0bbbe04353f50d969af16e4ea541ebd11ae862c",
+  "charter": {
+    "path": "/var/home/luke/alpha-adk-worktrees/naia-orchestration-sot/.agents/context/naia-development-orchestration.yaml",
+    "sha256": "3707ebf9a593caf0c86eef8a6faa75bd271f2e6c990f3f125521a82dfbe7f8e5",
+    "goal": "Naia is a conversational assistant and process manager; this slice proves one moderated coding issue, not a frontier coding-tool replacement."
+  },
+  "declared_scope": {
+    "included": [
+      "weak/local-model proxy Naia facing actor",
+      "separate Sol-class development moderator",
+      "one isolated issue and managed worktree",
+      "profile-selected Codex worker",
+      "separate deterministic verifier",
+      "durable evidence-grounded Naia report",
+      "paired opt-in live benchmark"
+    ],
+    "deferred": [
+      "production chat or CLI ingress activation",
+      "concurrent multi-issue user interface",
+      "Discord issue ingress",
+      "OpenCode worker collaboration",
+      "naia-shell session supervision"
+    ]
+  },
+  "adversarial_review": {
+    "method": "Every integration review re-read the charter and printed its calculated hash. Any actionable finding reset the consecutive-Clean count; timeouts and unavailable reviewers were not counted.",
+    "accepted_findings": [
+      "coalesce concurrent starts before paid dispatch",
+      "persist paid receipts when strict actor results are rejected",
+      "make terminal snapshots immutable",
+      "fence execution across processes with leases and stable dispatch identity",
+      "preserve rejected worker receipts and observed spend",
+      "allowlist child-process environment variables and keep credentials out of durable state",
+      "atomically establish request identity across SQLite processes",
+      "honor cancellation before worker dispatch and prevent late terminal overwrite",
+      "freeze worker model/profile and price-snapshot applicability for claims",
+      "terminalize unavailable verifier outcomes and forbid blind verifier replay",
+      "require explicit usage availability instead of inferring measured zero",
+      "preserve Pi session and execution evidence",
+      "rejoin a successor after execution claim loss or lease renewal failure",
+      "fence expired leases and concurrent SQLite startup",
+      "bind reporter prose and fallback fields to durable verification evidence",
+      "narrow the reporter port to evidence needed for the report",
+      "bind intake-authoritative obligations into request digest and durable identity",
+      "carry canonical obligations independently into the worker port and prompt",
+      "reject legacy snapshots lacking the obligation contract before actor dispatch",
+      "construct paid receipts before rejecting provider, model, or reasoning drift",
+      "persist structurally valid rejected receipts even when their binding differs",
+      "reject duplicate or reordered moderator acceptance checks",
+      "preserve Pi model and usage evidence when a provider/model mismatch ends the session as failed",
+      "revalidate every declared acceptance check in the core orchestrator before completion",
+      "commit the exact accepted benchmark evidence and this review ledger before declaring Done"
+    ],
+    "targeted_clean": [
+      {
+        "revision": "ca6b6232ba1ce590581cc890aa949ac2b22d9cbd",
+        "model": "gpt-5.6-terra",
+        "reasoning": "low",
+        "scope": "rejected actor receipt persistence and binding enforcement",
+        "output_sha256": "3cd9f2deeca40eda019f1a09d644ea46325d24e02924b56281f543374cb09207"
+      },
+      {
+        "revision": "a80ac68",
+        "model": "gpt-5.6-terra",
+        "reasoning": "low",
+        "scope": "exact acceptance checks and Pi failed-session receipt preservation",
+        "output_sha256": "508c3b9ca0c2cd3f1bc08e541eaea34d2ae52860b483787b169566536f0a1780"
+      },
+      {
+        "revision": "d0bbbe0",
+        "model": "gpt-5.6-terra",
+        "reasoning": "low",
+        "scope": "core verification completeness",
+        "output_sha256": "508c3b9ca0c2cd3f1bc08e541eaea34d2ae52860b483787b169566536f0a1780"
+      }
+    ],
+    "prebenchmark_code_clean": {
+      "revision": "d0bbbe04353f50d969af16e4ea541ebd11ae862c",
+      "model": "gpt-5.6-terra",
+      "reasoning": "medium",
+      "output_sha256": "508c3b9ca0c2cd3f1bc08e541eaea34d2ae52860b483787b169566536f0a1780"
+    },
+    "integration_clean_before_evidence_commit": [
+      {
+        "revision": "ca6b6232ba1ce590581cc890aa949ac2b22d9cbd",
+        "model": "gpt-5.6-terra",
+        "reasoning": "medium",
+        "output_sha256": "061dbe33cafa7bef65dccd359a644b9316d90fb147349c178b46c415d46d7305"
+      }
+    ],
+    "invalid_not_counted": [
+      "bounded Codex and Claude reviewer connection failures or timeouts",
+      "the second ca6b623 integration attempt that timed out before a verdict"
+    ],
+    "last_pre_evidence_finding": {
+      "output_sha256": "63ed0870e273485b4e226472834bf9963d8559ed549c0c1b0077159a083ea8f8",
+      "finding": "Done and savings claims lacked committed benchmark and ledger evidence",
+      "resolution": "This ledger, the accepted artifact, and both rejected counterexamples are included in the evidence commit."
+    }
+  },
+  "benchmark_evidence": {
+    "claim_policy": "No savings claim is allowed unless both routes pass every hard gate and every required actor receipt is measured.",
+    "artifacts": [
+      {
+        "path": "benchmark/results/single-issue-live-1785613592742.json",
+        "sha256": "fb928fab061ed2f2161aff8234f111a289c7a3d5d3455e0ccfc43f5c7990d84e",
+        "status": "rejected_counterevidence",
+        "reason": "old structured gates passed while model commentary contradicted durable verification"
+      },
+      {
+        "path": "benchmark/results/single-issue-live-1785618174141.json",
+        "sha256": "09cd79c26a28af342b45fff661cdd419dc81cf58ddafacf120b29d32e3eb435d",
+        "status": "rejected_budget_counterevidence",
+        "reason": "all-Sol worker exceeded the USD 0.20 per-call reservation; claim was forbidden and USD 0.352556 observed spend was retained"
+      },
+      {
+        "path": "benchmark/results/single-issue-live-1785619885488.json",
+        "sha256": "dd636efc7a8bd92010adadaf860cb0663b62fcb619e6dd773e9e30b465ed46c5",
+        "status": "accepted",
+        "source_revision": "d0bbbe04353f50d969af16e4ea541ebd11ae862c",
+        "luna_proxy_usd": 0.1153415,
+        "all_sol_usd": 0.248749,
+        "savings_usd": 0.1334075,
+        "observed_spend_usd": 0.3640905,
+        "all_hard_gates": true,
+        "hard_provider_dollar_ceiling": false
+      }
+    ]
+  },
+  "verification": {
+    "build": "PASS",
+    "full_regression": "130 files passed; 1491 tests passed; 9 opt-in tests skipped; two documented environment-sensitive baseline process tests excluded",
+    "targeted": "sub-agent actor and single-issue integration suites passed after the final receipt fixes",
+    "artifact_permissions": "0600",
+    "artifact_secret_scan": "PASS",
+    "known_baseline_drift": "file-anchor gate retains the same 29 pre-existing entries"
+  },
+  "manage_skills": {
+    "result": "NO_CHANGE",
+    "reason": "The new obligation, restart, receipt, and benchmark rules are local REQ-021 contracts with deterministic project tests; they do not establish a reusable cross-project verify-skill pattern."
+  },
+  "verdict": "READY_FOR_FINAL_TWO_CLEAN_REVIEWS"
+}
