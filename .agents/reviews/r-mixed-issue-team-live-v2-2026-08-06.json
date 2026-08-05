@@ -1,10 +1,8 @@
 {
   "schemaVersion": 1,
   "benchmarkId": "mixed-issue-team-live-v1",
-  "status": "superseded_invalid",
-  "reason": "Legacy runtime receipts were manually normalized after execution and cannot reproduce the added sessionEvidenceSource or token partitions.",
-  "supersededBy": ".agents/reviews/r-mixed-issue-team-live-v2-2026-08-06.json",
-  "paidCalls": 4,
+  "status": "passed",
+  "paidCalls": 6,
   "maximumPaidCalls": 7,
   "profile": {
     "kind": "team",
@@ -57,12 +55,11 @@
       "result.txt"
     ],
     "cleanCycles": 1,
-    "repairCycles": 0
+    "repairCycles": 1
   },
   "assertions": {
     "exactArtifacts": true,
-    "evidenceComplete": false,
-    "tokenPartition": "inputTokens excludes cachedInputTokens; legacy inclusive input counts were normalized by subtraction",
+    "evidenceComplete": true,
     "mixedAppsObserved": true,
     "roleKinds": {
       "explorer": "claude-code",
@@ -77,16 +74,16 @@
       "agentKind": "claude-code",
       "provider": "claude-code",
       "model": "sonnet",
-      "sessionId": "0c694b57-c101-499e-8964-bfe55791dcfe",
+      "sessionId": "3cfad7cc-5912-4290-9701-5f87f764aa2a",
       "sessionEvidenceSource": "provider_reported",
-      "executionId": "fceedccf-409c-44ea-98bb-8ae752a3bacb",
+      "executionId": "04ea8fcf-d883-41a1-b425-5e1340e8d4f8",
       "tokenCountsAvailable": true,
-      "inputTokens": 2868,
-      "cachedInputTokens": 24177,
-      "outputTokens": 424,
+      "inputTokens": 2523,
+      "cachedInputTokens": 23465,
+      "outputTokens": 440,
       "cost": {
         "state": "measured",
-        "usd": 0.0316701,
+        "usd": 0.0296465,
         "source": "role_adapter_priced_usage"
       }
     },
@@ -95,13 +92,13 @@
       "agentKind": "opencode",
       "provider": "opencode",
       "model": "opencode/deepseek-v4-flash-free",
-      "sessionId": "ses_02cae9f3fffeOwu4hDhroo7bCa",
+      "sessionId": "ses_02c800686ffeU20tZjixL15O8W",
       "sessionEvidenceSource": "provider_reported",
-      "executionId": "711c709e-0ae9-4f82-a693-2b3a1e7ab2b1",
+      "executionId": "e06cd66c-3277-49a7-bd93-41b7db81d4cd",
       "tokenCountsAvailable": true,
-      "inputTokens": 17234,
-      "cachedInputTokens": 13824,
-      "outputTokens": 314,
+      "inputTokens": 17431,
+      "cachedInputTokens": 24064,
+      "outputTokens": 390,
       "cost": {
         "state": "unavailable",
         "reason": "role adapter did not receive priced usage"
@@ -113,13 +110,48 @@
       "provider": "openai-codex",
       "model": "gpt-5.3-codex-spark",
       "reasoningEffort": "low",
-      "sessionId": "019fd351-ba51-7cb1-9b79-7e0ff20d7d72",
+      "sessionId": "019fd380-3401-7420-be3d-365fcc678a07",
       "sessionEvidenceSource": "provider_reported",
-      "executionId": "3b299a1d-98ce-4708-9641-00d186a6e1c3",
+      "executionId": "63e3df24-0b83-4107-8f68-6d7e522fdddc",
       "tokenCountsAvailable": true,
-      "inputTokens": 9789,
-      "cachedInputTokens": 16384,
-      "outputTokens": 847,
+      "inputTokens": 15049,
+      "cachedInputTokens": 108032,
+      "outputTokens": 3463,
+      "cost": {
+        "state": "unavailable",
+        "reason": "role adapter did not receive priced usage"
+      }
+    },
+    {
+      "workerRole": "implementer",
+      "agentKind": "opencode",
+      "provider": "opencode",
+      "model": "opencode/deepseek-v4-flash-free",
+      "sessionId": "ses_02c7f77adffe62g6eopdaZq9ub",
+      "sessionEvidenceSource": "provider_reported",
+      "executionId": "ad353939-e54a-4b29-9f94-3d9dc4a3e4c0",
+      "tokenCountsAvailable": true,
+      "inputTokens": 9080,
+      "cachedInputTokens": 46976,
+      "outputTokens": 935,
+      "cost": {
+        "state": "unavailable",
+        "reason": "role adapter did not receive priced usage"
+      }
+    },
+    {
+      "workerRole": "tester",
+      "agentKind": "codex",
+      "provider": "openai-codex",
+      "model": "gpt-5.3-codex-spark",
+      "reasoningEffort": "low",
+      "sessionId": "019fd380-be2a-78d2-ad3b-4ced737b8204",
+      "sessionEvidenceSource": "provider_reported",
+      "executionId": "9a1d574e-97f1-47ee-964f-86a38ec0ce05",
+      "tokenCountsAvailable": true,
+      "inputTokens": 9737,
+      "cachedInputTokens": 16896,
+      "outputTokens": 685,
       "cost": {
         "state": "unavailable",
         "reason": "role adapter did not receive priced usage"
@@ -131,13 +163,13 @@
       "provider": "openai-codex",
       "model": "gpt-5.3-codex-spark",
       "reasoningEffort": "low",
-      "sessionId": "019fd351-efa4-7d42-a058-237c9a511a49",
+      "sessionId": "019fd380-db74-7253-b880-e6797ae004ab",
       "sessionEvidenceSource": "provider_reported",
-      "executionId": "ce50362b-666d-4d07-a5e6-6a0c51482544",
+      "executionId": "2fb2444e-1cc9-48a6-a8cd-7aae3db1f3ad",
       "tokenCountsAvailable": true,
-      "inputTokens": 15728,
-      "cachedInputTokens": 118272,
-      "outputTokens": 1929,
+      "inputTokens": 11686,
+      "cachedInputTokens": 46464,
+      "outputTokens": 1670,
       "cost": {
         "state": "unavailable",
         "reason": "role adapter did not receive priced usage"
@@ -145,21 +177,6 @@
     }
   ],
   "diagnostics": [],
-  "routeTrials": {
-    "azureFoundryNano": {
-      "model": "azure-foundry/gpt-5-4-nano",
-      "attempts": 2,
-      "result": "failed_closed",
-      "observedStage": "opencode implementer",
-      "deadlineMsOnBoundedAttempt": 180000,
-      "reason": "role session failed before an implementation receipt was produced"
-    },
-    "openCodeFreeControl": {
-      "model": "opencode/deepseek-v4-flash-free",
-      "attempts": 1,
-      "result": "passed"
-    }
-  },
-  "artifactRoot": "/var/home/luke/alpha-adk/worktrees/naia-agent-req-062/.agents/reviews/r-mixed-issue-team-live-2026-08-06.json.artifacts",
-  "claimAllowed": false
+  "artifactRoot": "/var/home/luke/alpha-adk/worktrees/naia-agent-req-062/.agents/reviews/r-mixed-issue-team-live-v2-2026-08-06.json.artifacts",
+  "claimAllowed": true
 }
