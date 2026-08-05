@@ -1,7 +1,9 @@
 {
   "schemaVersion": 1,
   "benchmarkId": "mixed-issue-team-live-v1",
-  "status": "passed",
+  "status": "superseded_invalid",
+  "reason": "The claim scope, immutable sealed-verification mode, checkpointed SQLite sidecars, and descriptor-backed evidence reads were not yet enforced.",
+  "supersededBy": ".agents/reviews/r-mixed-issue-team-live-v11-2026-08-06.json",
   "runId": "c1372b0f-e443-404e-8ea5-515922192130",
   "paidCalls": 4,
   "maximumPaidCalls": 7,
@@ -60,7 +62,7 @@
   },
   "assertions": {
     "exactArtifacts": true,
-    "evidenceComplete": true,
+    "evidenceComplete": false,
     "mixedAppsObserved": true,
     "roleKinds": {
       "explorer": "claude-code",
@@ -209,7 +211,7 @@
   },
   "artifactRoot": ".agents/reviews/r-mixed-issue-team-live-v10-2026-08-06.json.artifacts",
   "canonicalArtifactRoot": "/var/home/luke/alpha-adk/worktrees/naia-agent-req-062/.agents/reviews/r-mixed-issue-team-live-v10-2026-08-06.json.artifacts",
-  "claimAllowed": true,
+  "claimAllowed": false,
   "embeddedEvidence": {
     "sourceCommit": "7cc0c4ec62b8b3bacdc67a2a19f6c1e952ee32f1",
     "sourceTree": "02f16dfc8f7668defd2f065e1d8ef6b0f86e72ed",
