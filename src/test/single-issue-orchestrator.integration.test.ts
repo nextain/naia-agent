@@ -46,7 +46,7 @@ function request(requestId = "request-1", text = "Fix the parser and run its tes
   };
 }
 
-function harness(options: { chat?: boolean; droppedObligation?: boolean; question?: boolean; multipleQuestions?: boolean; workerThrows?: boolean; unavailableCost?: boolean; badFacingBinding?: boolean; verificationFails?: boolean; verifierOmitsChecks?: boolean; verifierThrows?: boolean; badVerifierReceipt?: boolean; workerProfile?: string; malformedReceipt?: "cached" | "cost" | "unavailable"; rejectedActorResult?: boolean; rejectedWorkerResult?: boolean; contradictoryReporter?: boolean } = {}) {
+function harness(options: { chat?: boolean; droppedObligation?: boolean; question?: boolean; multipleQuestions?: boolean; workerThrows?: boolean; unavailableCost?: boolean; badFacingBinding?: boolean; verificationFails?: boolean; verifierOmitsChecks?: boolean; verifierThrows?: boolean; badVerifierReceipt?: boolean; workerProfile?: string; cacheHeavy?: boolean; malformedReceipt?: "cached" | "cost" | "unavailable"; rejectedActorResult?: boolean; rejectedWorkerResult?: boolean; contradictoryReporter?: boolean } = {}) {
   const root = mkdtempSync(join(tmpdir(), "single-issue-")); roots.push(root);
   const store = new SqliteIssueOrchestrationStore(join(root, "issues.db"));
   const calls = { facing: 0, moderator: 0, worker: 0, verifier: 0, reporter: 0 };
@@ -74,12 +74,15 @@ function harness(options: { chat?: boolean; droppedObligation?: boolean; questio
       const questions = options.question
         ? [{ questionId: "q-1", text: "Which parser?" }, ...(options.multipleQuestions ? [{ questionId: "q-2", text: "Which test?" }] : [])]
         : [];
-      const moderatorReceipt = receipt("moderator", input.idempotencyKey, actor);
+      const baseModeratorReceipt = receipt("moderator", input.idempotencyKey, actor);
+      const moderatorReceipt = options.cacheHeavy
+        ? { ...baseModeratorReceipt, cachedInputTokens: baseModeratorReceipt.inputTokens * 4 }
+        : baseModeratorReceipt;
       if (options.rejectedActorResult) throw new IssueActorResultError("moderator JSON rejected", moderatorReceipt);
       return {
         plan: { workerTask: "Fix src/parser.ts", workerProfile: options.workerProfile ?? "balanced", acceptanceChecks: ["parser tests pass"], questions },
         receipt: options.malformedReceipt === "cached"
-          ? { ...moderatorReceipt, cachedInputTokens: moderatorReceipt.inputTokens + 1 }
+          ? { ...moderatorReceipt, cachedInputTokens: Number.MAX_SAFE_INTEGER + 1 }
           : options.malformedReceipt === "cost"
             ? { ...moderatorReceipt, cost: { state: "measured", usd: Number.NaN, source: "fixture" } }
             : options.malformedReceipt === "unavailable"
@@ -223,6 +226,15 @@ describe("UC-ORCH-001 single issue", () => {
     const report = await h.orchestrator.start(request(`request-bad-receipt-${malformedReceipt}`));
     expect(report).toMatchObject({ state: "outcome_unknown", totalCost: { state: "unavailable" } });
     expect(h.orchestrator.snapshot("issue-0001").receipts.map((item) => item.role)).toEqual(["naia"]);
+    h.store.close();
+  });
+
+  it("accepts a valid cache-heavy receipt whose cache-read partition exceeds uncached input", async () => {
+    const h = harness({ cacheHeavy: true });
+    const report = await h.orchestrator.start(request("request-cache-heavy"));
+    expect(report.state).toBe("completed");
+    expect(h.orchestrator.snapshot("issue-0001").receipts.find((item) => item.role === "moderator"))
+      .toMatchObject({ inputTokens: 10, cachedInputTokens: 40 });
     h.store.close();
   });
 

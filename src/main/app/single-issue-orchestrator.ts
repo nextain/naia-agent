@@ -666,7 +666,7 @@ function assertReceipt(receipt: ActorReceipt, role: ActorReceipt["role"], expect
   for (const value of [receipt.inputTokens, receipt.cachedInputTokens, receipt.outputTokens]) {
     if (!Number.isSafeInteger(value) || value < 0) throw new Error(`invalid ${role} receipt accounting`);
   }
-  if (!Number.isFinite(receipt.latencyMs) || receipt.latencyMs < 0 || receipt.cachedInputTokens > receipt.inputTokens) throw new Error(`invalid ${role} receipt accounting`);
+  if (!Number.isFinite(receipt.latencyMs) || receipt.latencyMs < 0) throw new Error(`invalid ${role} receipt accounting`);
   if (!receipt.tokenCountsAvailable && (receipt.inputTokens !== 0 || receipt.cachedInputTokens !== 0 || receipt.outputTokens !== 0 || receipt.cost.state === "measured")) {
     throw new Error(`invalid ${role} unavailable usage receipt`);
   }
