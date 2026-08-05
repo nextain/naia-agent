@@ -1,7 +1,9 @@
 {
   "schemaVersion": 1,
   "benchmarkId": "mixed-issue-team-live-v1",
-  "status": "passed",
+  "status": "superseded_invalid",
+  "reason": "The verifier did not yet revalidate full durable receipt identities, idempotency, accounting, and outcome schemas.",
+  "supersededBy": ".agents/reviews/r-mixed-issue-team-live-v17-2026-08-06.json",
   "runId": "4e588234-4b0d-4fe0-9f65-e7de1bcd4389",
   "paidCalls": 4,
   "claimScope": {
@@ -66,7 +68,7 @@
   },
   "assertions": {
     "exactArtifacts": true,
-    "evidenceComplete": true,
+    "evidenceComplete": false,
     "mixedAppsObserved": true,
     "roleKinds": {
       "explorer": "claude-code",
@@ -216,7 +218,7 @@
   "artifactRoot": ".agents/reviews/r-mixed-issue-team-live-v16-2026-08-06.json.artifacts",
   "artifactBindingPath": ".agents/reviews/r-mixed-issue-team-live-v16-2026-08-06.json.artifacts",
   "executionArtifactRoot": "/var/home/luke/alpha-adk/worktrees/naia-agent-req-062/.agents/reviews/r-mixed-issue-team-live-v16-2026-08-06.json.artifacts",
-  "claimAllowed": true,
+  "claimAllowed": false,
   "embeddedEvidence": {
     "sourceCommit": "81d9f600d4e22fd3d8733e7d0eb7a86b04847a27",
     "sourceTree": "235bf33547c0f7c0aa5a90a51bc1ea1aaaf466d7",

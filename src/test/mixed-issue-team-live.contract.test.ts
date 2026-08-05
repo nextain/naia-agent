@@ -242,6 +242,32 @@ describe("mixed issue-team paid live benchmark contract", () => {
       const outcomeRestore = new Database(join(artifactRoot, "team.db"));
       outcomeRestore.prepare("UPDATE issue_team_runs SET snapshot_json=?").run(JSON.stringify(snapshot));
       outcomeRestore.close();
+      const coordinatedCases = [
+        { name: "agent profile", message: "durable worker receipt invariants",
+          mutateSnapshot: (value: any) => { value.receipts[0].agentProfileId = "wrong-profile"; },
+          mutateReceipt: (_value: any) => {} },
+        { name: "duplicate identities", message: "durable worker receipt invariants",
+          mutateSnapshot: (value: any) => { value.receipts[1].sessionId = value.receipts[0].sessionId; },
+          mutateReceipt: (value: any) => { value.receipts[1].sessionId = value.receipts[0].sessionId; } },
+        { name: "outcome schema", message: "durable outcome schema",
+          mutateSnapshot: (value: any) => { value.outcomes[0].unexpected = true; },
+          mutateReceipt: (_value: any) => {} },
+      ];
+      for (const candidate of coordinatedCases) {
+        const changedSnapshot = structuredClone(snapshot); candidate.mutateSnapshot(changedSnapshot);
+        const changedReceipt = structuredClone(original); candidate.mutateReceipt(changedReceipt);
+        const coordinatedDatabase = new Database(join(artifactRoot, "team.db"));
+        coordinatedDatabase.prepare("UPDATE issue_team_runs SET snapshot_json=?").run(JSON.stringify(changedSnapshot));
+        coordinatedDatabase.close(); writeFileSync(receiptPath, JSON.stringify(changedReceipt));
+        const coordinated = spawnSync(process.execPath,
+          [sealerPath, "--receipt", receiptPath, "--source-commit", sourceCommit, "--seal-unsealed"],
+          { cwd: repositoryRoot, encoding: "utf8" });
+        expect(coordinated.status, candidate.name).not.toBe(0);
+        expect(coordinated.stderr, candidate.name).toContain(candidate.message);
+        const restore = new Database(join(artifactRoot, "team.db"));
+        restore.prepare("UPDATE issue_team_runs SET snapshot_json=?").run(JSON.stringify(snapshot)); restore.close();
+      }
+      writeFileSync(receiptPath, JSON.stringify(original));
       const tamperedDatabase = new Database(join(artifactRoot, "team.db"));
       tamperedDatabase.prepare("UPDATE issue_team_events SET state='ready' WHERE sequence=2").run(); tamperedDatabase.close();
       const eventTamper = spawnSync(process.execPath,
