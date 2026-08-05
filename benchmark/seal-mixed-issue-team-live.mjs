@@ -50,8 +50,7 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
   const receiptParentFd = openPathFromRepository(repositoryRoot, receiptParentPath, "directory");
   const receiptParentIdentity = fstatSync(receiptParentFd);
   try {
-  const receiptFd = openChildNoFollow(receiptParentFd, basename(receiptPath), "file", constants.O_RDONLY);
-  const receiptBytes = readFileSync(receiptFd); closeSync(receiptFd);
+  const receiptBytes = readChildNoFollow(receiptParentFd, basename(receiptPath));
   const receipt = JSON.parse(receiptBytes.toString("utf8"));
   if (receipt.status !== "passed" || receipt.claimAllowed !== true || !Array.isArray(receipt.receipts)) {
     throw new Error("only a passed, claim-allowed mixed-team receipt can be sealed");
@@ -87,11 +86,11 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
   }
   if (process.platform !== "linux") throw new Error("secure descriptor-backed SQLite evidence verification requires Linux");
   const databaseFd = openChildNoFollow(artifactFd, "team.db", "file", constants.O_RDONLY);
-  const databaseIdentity = fstatSync(databaseFd);
-  const databaseBytes = readFileSync(databaseFd);
-  const sqliteFiles = [{ path: "team.db", byteLength: databaseBytes.length, sha256: sha256(databaseBytes) }];
-  let runs; let events;
+  let databaseIdentity; let databaseBytes; let sqliteFiles; let runs; let events;
   try {
+    databaseIdentity = fstatSync(databaseFd);
+    databaseBytes = readFileSync(databaseFd);
+    sqliteFiles = [{ path: "team.db", byteLength: databaseBytes.length, sha256: sha256(databaseBytes) }];
     const database = new Database(`/proc/self/fd/${databaseFd}`, { readonly: true, fileMustExist: true });
     try {
       runs = database.prepare("SELECT dispatch_id,version,fingerprint,state,snapshot_json FROM issue_team_runs").all();
