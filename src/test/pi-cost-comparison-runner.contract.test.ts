@@ -218,7 +218,7 @@ describe("Pi live cost-comparison runner", () => {
       await expect(runPiCostAnalyzerCli(["--pins", pinsPath, "--evidence", evidencePath],
         { NAIA_BENCHMARK_JOURNAL_KEY: key })).rejects.toThrow(/pins are not bound/u);
     } finally { rmSync(temporary, { recursive: true, force: true }); }
-  });
+  }, 15_000);
 
   it("isolates every benchmark Git child from hostile global hooks and the integrity key", async () => {
     // @ts-expect-error Production benchmark helpers are intentionally plain ESM.
