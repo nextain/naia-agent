@@ -67,7 +67,10 @@
     "podman run GPU1-only local model benchmark containers",
     "curl http://127.0.0.1:8000/v1/models and /v1/chat/completions"
   ],
-  "session_bindings": [{"session_id": "019fb8d5-7b1a-7fd2-99c4-837a2d701c10", "contract_digest": "9b5c606d58fecf96cf01626f87205566d629ad97f4e59cd52b14b991178f558b"}],
+  "session_bindings": [
+    {"session_id": "019fb8d5-7b1a-7fd2-99c4-837a2d701c10", "contract_digest": "2ce9ebd7ce6dd8c9d273282fbb8220b8e5bd0dccbfaa41184f62a54bfc13380b"},
+    {"session_id": "019fd0ac-2c7b-7190-a6bf-52231925ca7f", "contract_digest": "2ce9ebd7ce6dd8c9d273282fbb8220b8e5bd0dccbfaa41184f62a54bfc13380b"}
+  ],
   "progress_file": ".agents/progress/naia-agent-pi-continuous-loop-2026-08-04.json",
-  "contract_digest": "9b5c606d58fecf96cf01626f87205566d629ad97f4e59cd52b14b991178f558b"
+  "contract_digest": "2ce9ebd7ce6dd8c9d273282fbb8220b8e5bd0dccbfaa41184f62a54bfc13380b"
 }

@@ -4,7 +4,12 @@
     "019fb8d5-7b1a-7fd2-99c4-837a2d701c10": {
       "contract_id": "naia-agent-pi-continuous-loop-2026-08-04",
       "contract_path": ".agents/session-contracts/naia-agent-pi-continuous-loop-2026-08-04.json",
-      "contract_digest": "9b5c606d58fecf96cf01626f87205566d629ad97f4e59cd52b14b991178f558b"
+      "contract_digest": "2ce9ebd7ce6dd8c9d273282fbb8220b8e5bd0dccbfaa41184f62a54bfc13380b"
+    },
+    "019fd0ac-2c7b-7190-a6bf-52231925ca7f": {
+      "contract_id": "naia-agent-pi-continuous-loop-2026-08-04",
+      "contract_path": ".agents/session-contracts/naia-agent-pi-continuous-loop-2026-08-04.json",
+      "contract_digest": "2ce9ebd7ce6dd8c9d273282fbb8220b8e5bd0dccbfaa41184f62a54bfc13380b"
     }
   }
 }

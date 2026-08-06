@@ -886,6 +886,10 @@ The Agent and Gateway preserve these codes end to end:
 - **FR-ASSIST-006**: Persona, memory, workspace context, and compiled knowledge remain Naia-facing
   dependencies. They are not copied into worker state or worker prompts except where a separately
   declared bounded task source explicitly authorizes content.
+- **FR-ASSIST-007**: A durable coding session can enter `completed` only when its grounded issue
+  report carries `verificationPassed=true`. A contradictory completion claim is reduced to
+  `failed`; missing verification evidence is reduced to `outcome_unknown`. The SQLite settlement
+  boundary independently rejects direct unverified completion writes.
 - **NFR-ASSIST-001**: Invalid arguments, unknown sessions, background pump failure, cancellation,
   restart, and `outcome_unknown` preserve existing no-throw and durable semantics.
 - **NFR-ASSIST-002**: P0 deterministic tests make no paid model call and preserve existing chat,

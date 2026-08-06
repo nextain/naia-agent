@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { IssueReport } from "../domain/issue-orchestration.js";
-import { emptySessionCounts, isManagedSessionTerminal, type ManagedIssueSession, type MultiIssuePortfolio, type MultiIssueSubmission } from "../domain/multi-issue-session.js";
+import { emptySessionCounts, groundManagedIssueReport, isManagedSessionTerminal, type ManagedIssueSession, type MultiIssuePortfolio, type MultiIssueSubmission } from "../domain/multi-issue-session.js";
 import type { MultiIssueSessionCommands, MultiIssueSessionQueries, MultiIssueSessionStore, SingleIssueExecutionPort } from "../ports/multi-issue-session.js";
 import type { DiagnosticLog } from "../ports/uc1.js";
 
@@ -225,6 +225,7 @@ export class MultiIssueSessionManager implements MultiIssueSessionCommands, Mult
         totalCost: { state: "unavailable", reason: "single-issue report issue id was missing or mismatched" },
       };
     }
+    report = groundManagedIssueReport(report);
     if (signal.aborted) return;
     const settled = this.d.store.settle(session.sessionId, this.#ownerId, this.#clockMs(), this.#now(), report);
     this.debug(settled ? "session-settled" : "session-settle-fenced", { sessionId: session.sessionId, state: report.state });

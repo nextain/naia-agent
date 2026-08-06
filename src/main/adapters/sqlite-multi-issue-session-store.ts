@@ -223,6 +223,9 @@ export class SqliteMultiIssueSessionStore implements MultiIssueSessionStore {
 
   settle(sessionId: string, ownerId: string, nowMs: number, now: string, report: IssueReport): ManagedIssueSession | undefined {
     return this.transaction(() => {
+      if (report.state === "completed" && report.verificationPassed !== true) {
+        throw new MultiIssueCommandError("completed session report requires passing independent verification");
+      }
       if (!this.schedulerOwned(ownerId, nowMs)) return undefined;
       const current = this.required(sessionId);
       if (isManagedSessionTerminal(current.state) || current.state === "awaiting_user") return current;

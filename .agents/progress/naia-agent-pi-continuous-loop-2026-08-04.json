@@ -3,7 +3,7 @@
   "status": "in_progress",
   "current_phase": "paid_live_acceptance_partial_gateway_billing_pending",
   "contract_id": "naia-agent-pi-continuous-loop-2026-08-04",
-  "contract_digest": "9b5c606d58fecf96cf01626f87205566d629ad97f4e59cd52b14b991178f558b",
+  "contract_digest": "2ce9ebd7ce6dd8c9d273282fbb8220b8e5bd0dccbfaa41184f62a54bfc13380b",
   "updated_at": "2026-08-06T03:01:00+09:00",
   "paid_live_acceptance": {
     "evidence": ".agents/reviews/r-uc-024-paid-live-acceptance-2026-08-06.json",

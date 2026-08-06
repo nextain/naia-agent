@@ -912,3 +912,4 @@ into worker context.
 | SQLite reopen preserves the created session and cancellation state without a paid call | `coding-session-skill.integration.test.ts` |
 | optional CLI coding configuration parses and composes the tools beside ordinary persona/memory/knowledge chat | `cli-chat.contract.test.ts`, `naia-coding-assistant.scenario.integration.test.ts` |
 | Claude Code is accepted by the same declared team adapter-kind contract as Codex/OpenCode/Pi | `issue-team-profile.contract.test.ts` |
+| a faulty single-issue adapter or direct SQLite caller cannot persist `completed` without passing independent verification | `multi-issue-session-manager.integration.test.ts` |

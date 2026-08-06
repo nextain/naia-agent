@@ -275,4 +275,36 @@ describe("UC-ORCH-002 multi-issue session manager", () => {
     });
     h.store.close();
   });
+
+  it("never persists an unverified single-issue completion claim as completed", async () => {
+    for (const [verificationPassed, expectedState] of [[false, "failed"], [null, "outcome_unknown"]] as const) {
+      const h = harness();
+      const issueId = `issue-unverified-${String(verificationPassed)}`;
+      h.issues.outcomes.set(issueId, {
+        ...report(issueId), verificationPassed,
+        summary: "worker claimed completion",
+      });
+      const session = await h.manager.submit(submission(`unverified-${String(verificationPassed)}`));
+      await h.manager.pump();
+      expect(h.manager.get(session.sessionId)).toMatchObject({
+        state: expectedState,
+        report: { state: expectedState, verificationPassed },
+      });
+      h.store.close();
+    }
+  });
+
+  it("SQLite refuses a direct completed settlement without passing verification", async () => {
+    const h = harness();
+    const session = await h.manager.submit(submission("store-guard"));
+    expect(h.store.tryAcquireScheduler("direct-owner", 1_000, 2_000)).toBe(true);
+    expect(h.store.claimReady({ ownerId: "direct-owner", nowMs: 1_000, now: "2026-08-02T00:00:00Z", limit: 1 }))
+      .toHaveLength(1);
+    expect(() => h.store.settle(session.sessionId, "direct-owner", 1_001, "2026-08-02T00:00:01Z", {
+      ...report("issue-store-guard"), verificationPassed: null,
+    })).toThrow("completed session report requires passing independent verification");
+    expect(h.manager.get(session.sessionId).state).toBe("running");
+    h.store.releaseScheduler("direct-owner");
+    h.store.close();
+  });
 });

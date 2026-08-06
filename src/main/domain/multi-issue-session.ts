@@ -59,3 +59,16 @@ export function emptySessionCounts(): Record<ManagedSessionState, number> {
     completed: 0, failed: 0, cancelled: 0, outcome_unknown: 0,
   };
 }
+
+/** A worker/control adapter cannot turn an unverified claim into a durable completed session. */
+export function groundManagedIssueReport(report: IssueReport): IssueReport {
+  if (report.state !== "completed" || report.verificationPassed === true) return report;
+  const state = report.verificationPassed === false ? "failed" : "outcome_unknown";
+  return {
+    ...report,
+    state,
+    summary: report.verificationPassed === false
+      ? "completion rejected because independent verification did not pass"
+      : "completion outcome is unknown because independent verification evidence is unavailable",
+  };
+}
