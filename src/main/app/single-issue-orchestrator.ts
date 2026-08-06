@@ -302,6 +302,24 @@ export class SingleIssueOrchestrator {
           }, worker.ok ? "worker_completed" : "worker_failed", { changedFiles: worker.changedFiles.length });
           verifierDispatchedInThisCall = worker.ok;
         } catch (error) {
+          if (signal.aborted) {
+            const latest = this.required(issueId);
+            if (error instanceof IssueActorResultError) {
+              try {
+                const cancelledReceipts = error.receipts ?? [error.receipt];
+                if (!cancelledReceipts.some((receipt) => JSON.stringify(receipt) === JSON.stringify(error.receipt))) {
+                  throw new Error("cancelled worker receipt missing from collection");
+                }
+                const lead = cancelledReceipts.find((receipt) => receipt.workerRole === "implementer") ?? error.receipt;
+                assertWorkerReceipts(cancelledReceipts, lead, latest.dispatchId!, latest.workerProfile!, false);
+                for (const receipt of cancelledReceipts) assertIndependent(latest.receipts, receipt);
+                return this.terminalizeCancellation({
+                  ...latest, receipts: appendReceipts(latest.receipts, cancelledReceipts),
+                }, false);
+              } catch { return this.terminalizeCancellation(latest, true); }
+            }
+            return this.terminalizeCancellation(latest, true);
+          }
           if (error instanceof IssueActorResultError) {
             try {
               const rejectedReceipts = error.receipts ?? [error.receipt];

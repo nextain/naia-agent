@@ -25,6 +25,7 @@ export function makeIssueTeamRoleExecutor(options: IssueTeamRoleExecutorOptions)
     async execute(input) {
       const selected = options.agents[input.roleProfile.agentProfileId];
       if (!selected || selected.agentKind !== input.roleProfile.agentKind) throw new Error(`undeclared issue-team agent profile: ${input.roleProfile.agentProfileId}`);
+      if (input.signal.aborted) throw input.signal.reason ?? new Error("issue-team role cancelled before dispatch");
       const startedAt = (options.nowMs ?? Date.now)();
       if (options.budget) {
         if (!options.callAllowance) throw new Error("issue-team paid-call allowance missing");

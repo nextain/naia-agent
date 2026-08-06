@@ -1,7 +1,9 @@
 {
   "schemaVersion": 1,
   "benchmarkId": "mixed-issue-team-live-v1",
-  "status": "passed",
+  "status": "superseded_invalid",
+  "supersededBy": "r-mixed-issue-team-live-v27-2026-08-06.json",
+  "invalidationReason": "Final orchestration review found that an already-aborted team could claim and reserve the next paid role, and an in-flight cancelled role was persisted as failed; source changed to close both cancellation boundaries.",
   "runId": "5f651630-0ced-4798-8850-27cd1122f924",
   "paidCalls": 4,
   "claimScope": {
@@ -237,7 +239,7 @@
   "artifactRoot": ".agents/reviews/r-mixed-issue-team-live-v26-2026-08-06.json.artifacts",
   "artifactBindingPath": ".agents/reviews/r-mixed-issue-team-live-v26-2026-08-06.json.artifacts",
   "executionArtifactRoot": "/var/home/luke/alpha-adk/worktrees/naia-agent-req-062/.agents/reviews/r-mixed-issue-team-live-v26-2026-08-06.json.artifacts",
-  "claimAllowed": true,
+  "claimAllowed": false,
   "embeddedEvidence": {
     "sourceCommit": "35d2e75c7386715c9dce388b324382455d9d286b",
     "sourceTree": "e07e5caf14cf424a14bf23259a57a306614d1983",

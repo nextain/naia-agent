@@ -75,6 +75,23 @@ describe("REQ-023 durable issue-team worker", () => {
     store.close();
   });
 
+  it("cancels between roles without claiming or dispatching the next paid role", async () => {
+    const root = mkdtempSync(join(tmpdir(), "issue-team-")); roots.push(root);
+    const store = new SqliteIssueTeamStore(join(root, "team.db"));
+    const controller = new AbortController(); let calls = 0;
+    const worker = makeIssueTeamWorker({ store, worktrees: { allocate() { return { workspacePath: "/repo",
+      worktreePath: "/managed/team", branch: "naia/team", leaseId: "lease", release() {} }; } },
+      roles: { async execute(value) { calls += 1; controller.abort(new Error("stop after explorer"));
+        return { result: result("explorer", "proceed"), receipt: receipt("explorer", value.stepId, 1) }; } } });
+    const error = await worker.execute({ ...input(), signal: controller.signal }).catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ message: "issue team cancelled before the next role",
+      receipts: [{ workerRole: "explorer" }] });
+    expect(calls).toBe(1);
+    expect(store.get(input().dispatchId)).toMatchObject({ state: "cancelled", nextRole: "implementer",
+      receipts: [{ workerRole: "explorer" }] });
+    store.close();
+  });
+
   it("releases a losing allocation when a stale first-read races an existing dispatch", async () => {
     const root = mkdtempSync(join(tmpdir(), "issue-team-")); roots.push(root);
     const durable = new SqliteIssueTeamStore(join(root, "team.db"));

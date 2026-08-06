@@ -538,6 +538,24 @@ describe("UC-ORCH-001 single issue", () => {
     cost.store.close();
   });
 
+  it("terminalizes an externally aborted in-flight worker as cancelled and preserves its paid receipt", async () => {
+    const h = harness(); const controller = new AbortController();
+    let enteredResolve!: () => void;
+    const entered = new Promise<void>((resolve) => { enteredResolve = resolve; });
+    const orchestrator = new SingleIssueOrchestrator({ ...h.deps, worker: { async execute(input) {
+      enteredResolve();
+      await new Promise<void>((_, reject) => input.signal.addEventListener("abort", () => reject(
+        new IssueActorResultError("worker cancelled", receipt("worker", input.dispatchId, 3))), { once: true }));
+      throw new Error("unreachable");
+    } } });
+    const running = orchestrator.start(request("request-external-worker-abort"), controller.signal);
+    await entered; controller.abort(new Error("caller stopped the issue"));
+    await expect(running).resolves.toMatchObject({ state: "cancelled", totalCost: { state: "measured", usd: 0.03 } });
+    expect(orchestrator.snapshot("issue-0001").receipts.map((item) => item.role)).toEqual(["naia", "moderator", "worker"]);
+    expect(h.store.events("issue-0001").at(-1)?.type).toBe("issue_cancelled");
+    h.store.close();
+  });
+
   it("persists a paid worker receipt when post-call policy rejects its result", async () => {
     const h = harness({ rejectedWorkerResult: true });
     const report = await h.orchestrator.start(request("request-worker-result-rejected"));

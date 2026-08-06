@@ -50,7 +50,9 @@ export class SqliteIssueTeamStore implements IssueTeamStore {
       if (!prior || prior.version !== input.expectedVersion || prior.fingerprint !== input.snapshot.fingerprint) {
         throw new IssueTeamStoreConflictError("team snapshot changed concurrently");
       }
-      if (prior.state === "completed" || prior.state === "failed") throw new IssueTeamStoreConflictError("terminal team snapshot is immutable");
+      if (prior.state === "completed" || prior.state === "failed" || prior.state === "cancelled") {
+        throw new IssueTeamStoreConflictError("terminal team snapshot is immutable");
+      }
       const next = { ...input.snapshot, version: input.expectedVersion + 1 };
       const changed = this.#db.prepare("UPDATE issue_team_runs SET version=?,state=?,snapshot_json=? WHERE dispatch_id=? AND version=?")
         .run(next.version, next.state, JSON.stringify(next), next.dispatchId, input.expectedVersion);

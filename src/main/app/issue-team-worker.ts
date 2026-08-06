@@ -43,6 +43,7 @@ export function makeIssueTeamWorker(options: IssueTeamWorkerOptions): IssueWorke
       if (!stored.created) { allocation.release(); allocation = undefined; }
     } else if (snapshot.fingerprint !== fingerprint) throw new Error("team dispatch fingerprint mismatch");
     if (snapshot.state === "completed") return snapshot.result;
+    if (snapshot.state === "cancelled") throw input.signal.reason ?? new Error("issue team was cancelled");
     if (snapshot.state === "failed") {
       if (snapshot.result) return snapshot.result;
       const rejected = snapshot.receipts.at(-1);
@@ -57,6 +58,14 @@ export function makeIssueTeamWorker(options: IssueTeamWorkerOptions): IssueWorke
     }
     try {
       for (;;) {
+        if (input.signal.aborted) {
+          snapshot = options.store.save({ expectedVersion: snapshot.version, eventType: "team_cancelled", snapshot: {
+            ...snapshot, state: "cancelled", activeStepId: undefined,
+          } });
+          const prior = snapshot.receipts.at(-1);
+          if (prior) throw new IssueActorResultError("issue team cancelled before the next role", prior, snapshot.receipts);
+          throw input.signal.reason ?? new Error("issue team cancelled before the first role");
+        }
         const role = snapshot.nextRole;
         const attemptNo = snapshot.attemptNo + 1;
         const stepId = `${input.dispatchId}:${role}:${attemptNo}`;
@@ -99,7 +108,17 @@ export function makeIssueTeamWorker(options: IssueTeamWorkerOptions): IssueWorke
       }
     } catch (error) {
       let propagated = error;
-      if (error instanceof IssueActorResultError && snapshot.state === "running" && snapshot.activeStepId) {
+      if (input.signal.aborted && error instanceof IssueActorResultError
+        && snapshot.state === "running" && snapshot.activeStepId) {
+        try {
+          assertRoleReceipt(error.receipt, snapshot.activeStepId, snapshot.nextRole, profile);
+          assertDistinct(snapshot.receipts, error.receipt);
+          snapshot = options.store.save({ expectedVersion: snapshot.version, eventType: "role_cancelled", snapshot: {
+            ...snapshot, state: "cancelled", activeStepId: undefined, receipts: [...snapshot.receipts, error.receipt],
+          } });
+          propagated = new IssueActorResultError(error.message, error.receipt, snapshot.receipts);
+        } catch { /* Invalid or concurrently changed evidence stays running/unknown. */ }
+      } else if (error instanceof IssueActorResultError && snapshot.state === "running" && snapshot.activeStepId) {
         try {
           assertRoleReceipt(error.receipt, snapshot.activeStepId, snapshot.nextRole, profile);
           assertDistinct(snapshot.receipts, error.receipt);

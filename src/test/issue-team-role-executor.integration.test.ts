@@ -17,6 +17,23 @@ describe("REQ-023 profiled role executor", () => {
     expect(DEFAULT_ISSUE_TEAM_ROLE_DEADLINE_MS).toBe(5 * 60_000);
   });
 
+  it("does not reserve budget or spawn a role when cancellation already won", async () => {
+    const controller = new AbortController(); controller.abort(new Error("stop before dispatch"));
+    let reserved = 0; let spawned = 0;
+    const adapter: SubAgentPort = { spawn() { spawned += 1; throw new Error("must not spawn"); } };
+    const executor = makeIssueTeamRoleExecutor({ agents: { explorer: { agentKind: "claude-code", adapter } },
+      diag: { log() {}, debug() {} }, budget: { reserve() { reserved += 1; }, settle() {},
+        snapshot: () => ({ maxPaidCalls: 1, maxUsd: 1, maxInputTokens: 1, maxOutputTokens: 1,
+          paidCalls: 0, activeReservations: 0, chargedUsd: 0, chargedInputTokens: 0, chargedOutputTokens: 0,
+          costBasis: "none" }), reservations: () => [], close() {} },
+      callAllowance: { reservedUsd: 1, reservedInputTokens: 1, reservedOutputTokens: 1 } });
+    await expect(executor.execute({ issueId: "issue", dispatchId: "dispatch", stepId: "dispatch:explorer:1",
+      worktreePath: "/repo", task: "inspect", context: "{}", roleProfile: { agentProfileId: "explorer",
+        agentKind: "claude-code", binding: { provider: "claude-code", model: "sonnet" }, filesystemAccess: "read_only" },
+      signal: controller.signal })).rejects.toThrow("stop before dispatch");
+    expect({ reserved, spawned }).toEqual({ reserved: 0, spawned: 0 });
+  });
+
   it("cancels a stalled role at the configured deadline instead of waiting forever", async () => {
     let cancelled = false;
     let release: (() => void) | undefined;

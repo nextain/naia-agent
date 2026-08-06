@@ -39,7 +39,7 @@ export interface IssueTeamProjection {
   readonly outcomes: readonly IssueTeamRoleResult[];
 }
 
-export type IssueTeamRunState = "ready" | "running" | "completed" | "failed";
+export type IssueTeamRunState = "ready" | "running" | "completed" | "failed" | "cancelled";
 export interface IssueTeamAllocationEvidence {
   readonly workspacePath: string;
   readonly worktreePath: string;
