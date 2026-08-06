@@ -155,6 +155,12 @@ function captureSqliteClosure() {
   // pnpm generates this install-only shim with checkout-absolute NODE_PATHs.
   // better-sqlite3 never loads it at runtime; package JS and better_sqlite3.node
   // remain hash-bound and portable across clean checkout paths.
-  return digestDirectory(dirname(require.resolve("better-sqlite3/package.json")),
-    { excludePrefixes: ["node_modules/.bin"] });
+  const sqliteEntry = require.resolve("better-sqlite3");
+  const sqliteRequire = createRequire(sqliteEntry);
+  return {
+    betterSqlite3: digestDirectory(dirname(require.resolve("better-sqlite3/package.json")),
+      { excludePrefixes: ["node_modules/.bin"] }),
+    bindings: digestDirectory(dirname(sqliteRequire.resolve("bindings/package.json"))),
+    fileUriToPath: digestDirectory(dirname(sqliteRequire.resolve("file-uri-to-path/package.json"))),
+  };
 }

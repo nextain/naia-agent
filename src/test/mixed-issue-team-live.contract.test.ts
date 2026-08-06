@@ -63,6 +63,8 @@ describe("mixed issue-team paid live benchmark contract", () => {
     expect(evidence).toContain("compilerClosure: digestDirectory(dirname(dirname(compilerPath)))");
     expect(evidence).toContain("sqliteClosure: captureSqliteClosure()");
     expect(evidence).toContain('{ excludePrefixes: ["node_modules/.bin"] }');
+    expect(evidence).toContain('sqliteRequire.resolve("bindings/package.json")');
+    expect(evidence).toContain('sqliteRequire.resolve("file-uri-to-path/package.json")');
     expect(source).toContain("const runId = randomUUID()");
     expect(source).toContain('modelIdentity: "adapter_requested_not_provider_observed"');
     expect(source).toContain('providerIdentity: "adapter_declared_not_provider_observed"');
