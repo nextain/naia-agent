@@ -274,7 +274,7 @@ describe("mixed issue-team paid live benchmark contract", () => {
         [sealerPath, "--receipt", receiptPath, "--source-commit", sourceCommit, "--verify-sealed"],
         { cwd: repositoryRoot, encoding: "utf8" });
       expect(embeddedTampered.status).not.toBe(0);
-      expect(embeddedTampered.stderr).toContain("sealed receipt evidence does not match");
+      expect(embeddedTampered.stderr).toContain("embedded fixture bytes do not match their declared hash");
       writeFileSync(receiptPath, JSON.stringify(parsed));
       const replayPath = join(root, "replayed.json");
       cpSync(artifactRoot, `${replayPath}.artifacts`, { recursive: true });
