@@ -53,7 +53,9 @@ describe("mixed issue-team paid live benchmark contract", () => {
     expect(evidence).toContain("JSON.stringify(currentSupportModules) !== JSON.stringify(value.supportModuleSha256)");
     expect(sealer).toContain("receipt projection does not match the durable SQLite snapshot");
     expect(sealer).toContain("durableEvidenceEmbedded: true");
-    expect(sealer).toContain("embeddedEvidenceMatchesBoundSnapshotAtSeal: true");
+    expect(sealer).toContain("selfContainedEvidenceEmbedded: true");
+    expect(sealer).toContain("externalArtifactsExcludedFromClaim: true");
+    expect(sealer).toContain('sqliteHex: databaseBytes.toString("hex")');
     expect(source).toContain("captureMixedLiveExecutionEvidence(repositoryRoot)");
     expect(source).toContain("validateLiveExecutionInputs(executionEvidence, repositoryRoot)");
     expect(source).toContain("boundReceiptFd: receiptFd");
@@ -70,8 +72,8 @@ describe("mixed issue-team paid live benchmark contract", () => {
     expect(source).toContain('modelIdentity: "adapter_requested_not_provider_observed"');
     expect(source).toContain('providerIdentity: "adapter_declared_not_provider_observed"');
     expect(source).toContain('verificationPortability: "same_linux_host_clean_checkout_with_locked_dependencies_and_exact_bound_external_toolchain"');
-    expect(source).toContain('claimEvidence: "atomically_published_embedded_semantic_snapshot"');
-    expect(source).toContain('externalArtifacts: "descriptor_snapshot_revalidated_at_publication_boundary_not_immutable_after_publication"');
+    expect(source).toContain('claimEvidence: "atomically_published_self_contained_receipt_evidence"');
+    expect(source).toContain('externalArtifacts: "non_authoritative_working_copy_excluded_from_claim_after_capture"');
     expect(sealer).toContain("artifact binding does not match its execution path");
     expect(evidence).toContain('execFileSync("git", ["diff", "--quiet", "HEAD", "--"]');
     expect(evidence).toContain("current benchmark source or execution runtime closure does not match the live run");
@@ -176,8 +178,8 @@ describe("mixed issue-team paid live benchmark contract", () => {
           executionRuntimeIdentity: "path_hash_observed_at_boundaries_not_execution_pinned",
           capability: "mixed_adapter_execution",
           verificationPortability: "same_linux_host_clean_checkout_with_locked_dependencies_and_exact_bound_external_toolchain",
-          claimEvidence: "atomically_published_embedded_semantic_snapshot",
-          externalArtifacts: "descriptor_snapshot_revalidated_at_publication_boundary_not_immutable_after_publication" },
+          claimEvidence: "atomically_published_self_contained_receipt_evidence",
+          externalArtifacts: "non_authoritative_working_copy_excluded_from_claim_after_capture" },
         result: { ok: true, changedFiles: ["result.txt"], cleanCycles: 1, repairCycles: 1 },
         assertions: { exactArtifacts: true, evidenceComplete: true, mixedAppsObserved: true,
           roleKinds: { explorer: "claude-code", implementer: "opencode", tester: "codex", reviewer: "codex" } },
@@ -225,8 +227,25 @@ describe("mixed issue-team paid live benchmark contract", () => {
       expect(publicationSyncFailed.status).not.toBe(0);
       expect(publicationSyncFailed.stderr).toContain("injected post-rename sync failure");
       expect(JSON.parse(readFileSync(receiptPath, "utf8"))).toMatchObject({ claimAllowed: false });
-      expect(readFileSync(receiptPath, "utf8")).not.toContain("embeddedEvidenceMatchesBoundSnapshotAtSeal");
+      expect(readFileSync(receiptPath, "utf8")).not.toContain("selfContainedEvidenceEmbedded");
       expect(readdirSync(root).filter((name) => name.includes("unsealed-backup-") || name.includes(".seal-"))).toEqual([]);
+      writeFileSync(receiptPath, JSON.stringify(original));
+      const externalRaceAfterGuard = spawnSync(process.execPath, ["--input-type=module", "-e",
+        `import { writeFileSync } from "node:fs";
+         const { sealMixedIssueTeamLive } = await import(${JSON.stringify(pathToFileURL(sealerPath).href)});
+         sealMixedIssueTeamLive({ receiptPath: ${JSON.stringify(receiptPath)}, sourceCommit: ${JSON.stringify(sourceCommit)},
+           requireCurrentSourceMatch: true,
+           afterPublicationEvidenceGuardBeforeReceiptValidation: () => writeFileSync(${JSON.stringify(join(fixtureRoot, "result.txt"))}, "RACED_AFTER_CAPTURE\n") });`],
+      { cwd: repositoryRoot, encoding: "utf8", env: { ...process.env, ...executableEnvironment } });
+      expect(externalRaceAfterGuard.status, externalRaceAfterGuard.stderr).toBe(0);
+      const isolatedClaim = JSON.parse(readFileSync(receiptPath, "utf8"));
+      expect(isolatedClaim).toMatchObject({ claimAllowed: true, assertions: {
+        selfContainedEvidenceEmbedded: true, externalArtifactsExcludedFromClaim: true },
+      embeddedEvidence: { fixture: [{ hex: Buffer.from("NAIA_MIXED_TEAM_OK\n").toString("hex") }, expect.anything()],
+        sqliteHex: expect.any(String) } });
+      expect(createHash("sha256").update(Buffer.from(isolatedClaim.embeddedEvidence.sqliteHex, "hex")).digest("hex"))
+        .toBe(isolatedClaim.embeddedEvidence.sqliteSha256);
+      writeFileSync(join(fixtureRoot, "result.txt"), "NAIA_MIXED_TEAM_OK\n");
       writeFileSync(receiptPath, JSON.stringify(original));
       const sealed = spawnSync(process.execPath,
         [sealerPath, "--receipt", receiptPath, "--source-commit", sourceCommit, "--seal-unsealed"],
@@ -234,7 +253,8 @@ describe("mixed issue-team paid live benchmark contract", () => {
       expect(sealed.status, sealed.stderr).toBe(0);
       const parsed = JSON.parse(readFileSync(receiptPath, "utf8"));
       expect(parsed).toMatchObject({ artifactRoot: expect.stringContaining("receipt.json.artifacts"),
-        assertions: { durableEvidenceEmbedded: true, embeddedEvidenceMatchesBoundSnapshotAtSeal: true },
+        assertions: { durableEvidenceEmbedded: true, selfContainedEvidenceEmbedded: true,
+          externalArtifactsExcludedFromClaim: true },
         embeddedEvidence: { sourceCommit, durableRun: { state: "completed" } } });
       const embeddedTamper = structuredClone(parsed); embeddedTamper.embeddedEvidence.fixture[0].hex = "00";
       writeFileSync(receiptPath, JSON.stringify(embeddedTamper));

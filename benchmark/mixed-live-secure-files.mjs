@@ -212,6 +212,7 @@ export function publishJsonAtomically(parentFd, name, receiptFd, receiptIdentity
     // before the original receipt and temporary entry are revalidated.
     fsyncSync(parentFd);
     hooks.beforeRename?.();
+    hooks.afterBeforeRename?.();
     assertChildMatchesDescriptor(parentFd, name, receiptIdentity, "file");
     if (!readFileSync(`/proc/self/fd/${receiptFd}`).equals(expectedOriginalBytes)) {
       throw new Error("receipt changed before atomic publication");

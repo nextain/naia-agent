@@ -19,7 +19,7 @@ export { captureMixedLiveExecutionEvidence, validateLiveExecutionInputs };
 
 export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, requireCurrentSourceMatch = false,
   verifyExistingSeal = false, evidenceCommit, boundReceiptFd, beforeFinalEvidenceCheck,
-  afterPublicationRenameBeforeDirectorySync }) {
+  afterPublicationEvidenceGuardBeforeReceiptValidation, afterPublicationRenameBeforeDirectorySync }) {
   let claimPublished = false;
   const receiptPath = resolve(inputPath);
   if (!sourceCommit || !/^[0-9a-f]{40}$/u.test(sourceCommit)) throw new Error("source commit must be full 40-hex");
@@ -137,8 +137,8 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
     executionRuntimeIdentity: "path_hash_observed_at_boundaries_not_execution_pinned",
     capability: "mixed_adapter_execution",
     verificationPortability: "same_linux_host_clean_checkout_with_locked_dependencies_and_exact_bound_external_toolchain",
-    claimEvidence: "atomically_published_embedded_semantic_snapshot",
-    externalArtifacts: "descriptor_snapshot_revalidated_at_publication_boundary_not_immutable_after_publication" };
+    claimEvidence: "atomically_published_self_contained_receipt_evidence",
+    externalArtifacts: "non_authoritative_working_copy_excluded_from_claim_after_capture" };
   const convergencePaths = coreResult.repairCycles === 0 ? [{
     roles: ["explorer", "implementer", "tester", "reviewer"],
     decisions: ["explorer:proceed", "implementer:implemented", "tester:pass", "reviewer:clean"],
@@ -174,9 +174,10 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
     state: run.state, normalizedSnapshot };
   const expectedEmbeddedEvidence = { ...receipt.executionEvidence, sqliteFiles,
     sqliteSha256: sqliteFiles.find((value) => value.path === "team.db").sha256,
+    sqliteHex: databaseBytes.toString("hex"),
     durableRun, durableRunSha256: sha256(Buffer.from(JSON.stringify(durableRun))), events, fixture };
   const expectedAssertions = { ...coreAssertions, durableEvidenceEmbedded: true,
-    embeddedEvidenceMatchesBoundSnapshotAtSeal: true };
+    selfContainedEvidenceEmbedded: true, externalArtifactsExcludedFromClaim: true };
   if (verifyExistingSeal) {
     assertArtifactSnapshot(artifactFd, databaseIdentity, sqliteFiles[0].sha256, fixture);
     assertChildMatchesDescriptor(receiptParentFd, basename(artifactRoot), artifactIdentity, "directory");
@@ -207,6 +208,7 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
       assertChildMatchesDescriptor(receiptParentFd, basename(artifactRoot), artifactIdentity, "directory");
       assertPathMatchesDescriptor(receiptParentPath, receiptParentIdentity, "directory");
     },
+    afterBeforeRename: afterPublicationEvidenceGuardBeforeReceiptValidation,
     afterRenameBeforeDirectorySync: afterPublicationRenameBeforeDirectorySync,
   });
   claimPublished = true;

@@ -41,8 +41,8 @@ const claimScope = { sessionIdentity: "provider_reported", providerIdentity: "ad
   executionRuntimeIdentity: "path_hash_observed_at_boundaries_not_execution_pinned",
   capability: "mixed_adapter_execution",
   verificationPortability: "same_linux_host_clean_checkout_with_locked_dependencies_and_exact_bound_external_toolchain",
-  claimEvidence: "atomically_published_embedded_semantic_snapshot",
-  externalArtifacts: "descriptor_snapshot_revalidated_at_publication_boundary_not_immutable_after_publication" };
+  claimEvidence: "atomically_published_self_contained_receipt_evidence",
+  externalArtifacts: "non_authoritative_working_copy_excluded_from_claim_after_capture" };
 const receiptParentFd = openPathFromRepository(repositoryRoot, dirname(outputPath), "directory");
 const receiptFd = createChildFileNoFollow(receiptParentFd, basename(outputPath));
 const receiptIdentity = fstatSync(receiptFd);
