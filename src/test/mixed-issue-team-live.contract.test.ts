@@ -235,7 +235,7 @@ describe("mixed issue-team paid live benchmark contract", () => {
          const { sealMixedIssueTeamLive } = await import(${JSON.stringify(pathToFileURL(sealerPath).href)});
          sealMixedIssueTeamLive({ receiptPath: ${JSON.stringify(receiptPath)}, sourceCommit: ${JSON.stringify(sourceCommit)},
            requireCurrentSourceMatch: true,
-           afterPublicationEvidenceGuardBeforeReceiptValidation: () => writeFileSync(${JSON.stringify(join(fixtureRoot, "result.txt"))}, "RACED_AFTER_CAPTURE\n") });`],
+           afterPublicationEvidenceGuardBeforeReceiptValidation: () => writeFileSync(${JSON.stringify(join(fixtureRoot, "result.txt"))}, "RACED_AFTER_CAPTURE\\n") });`],
       { cwd: repositoryRoot, encoding: "utf8", env: { ...process.env, ...executableEnvironment } });
       expect(externalRaceAfterGuard.status, externalRaceAfterGuard.stderr).toBe(0);
       const isolatedClaim = JSON.parse(readFileSync(receiptPath, "utf8"));
