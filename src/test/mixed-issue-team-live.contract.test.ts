@@ -285,7 +285,7 @@ describe("mixed issue-team paid live benchmark contract", () => {
         [sealerPath, "--receipt", replayPath, "--source-commit", sourceCommit, "--verify-sealed"],
         { cwd: repositoryRoot, encoding: "utf8" });
       expect(replayed.status).not.toBe(0);
-      expect(replayed.stderr).toContain("durable run binding does not match");
+      expect(replayed.stderr).toContain("sealed receipt identity or self-contained evidence binding is invalid");
       const tamperedCases = [
         { name: "receipt", mutate: (value: any) => { value.receipts[0].inputTokens = 999; }, message: "receipt projection" },
         { name: "paid calls", mutate: (value: any) => { value.paidCalls = 2; }, message: "receipt summary" },
