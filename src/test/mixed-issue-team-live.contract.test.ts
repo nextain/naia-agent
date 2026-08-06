@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync,
-  writeFileSync } from "node:fs";
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync,
+  symlinkSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import Database from "better-sqlite3";
@@ -245,6 +245,18 @@ describe("mixed issue-team paid live benchmark contract", () => {
         sqliteHex: expect.any(String) } });
       expect(createHash("sha256").update(Buffer.from(isolatedClaim.embeddedEvidence.sqliteHex, "hex")).digest("hex"))
         .toBe(isolatedClaim.embeddedEvidence.sqliteSha256);
+      const verifiedAfterExternalMutation = spawnSync(process.execPath,
+        [sealerPath, "--receipt", receiptPath, "--source-commit", sourceCommit, "--verify-sealed"],
+        { cwd: repositoryRoot, encoding: "utf8", env: { ...process.env, ...executableEnvironment } });
+      expect(verifiedAfterExternalMutation.status, verifiedAfterExternalMutation.stderr).toBe(0);
+      const detachedArtifactRoot = `${artifactRoot}.detached`;
+      renameSync(artifactRoot, detachedArtifactRoot);
+      try {
+        const verifiedWithoutExternalArtifacts = spawnSync(process.execPath,
+          [sealerPath, "--receipt", receiptPath, "--source-commit", sourceCommit, "--verify-sealed"],
+          { cwd: repositoryRoot, encoding: "utf8", env: { ...process.env, ...executableEnvironment } });
+        expect(verifiedWithoutExternalArtifacts.status, verifiedWithoutExternalArtifacts.stderr).toBe(0);
+      } finally { renameSync(detachedArtifactRoot, artifactRoot); }
       writeFileSync(join(fixtureRoot, "result.txt"), "NAIA_MIXED_TEAM_OK\n");
       writeFileSync(receiptPath, JSON.stringify(original));
       const sealed = spawnSync(process.execPath,

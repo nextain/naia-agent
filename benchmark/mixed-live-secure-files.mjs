@@ -147,25 +147,49 @@ export function fsyncArtifactEvidence(artifactFd, fixture) {
   fsyncSync(artifactFd);
 }
 
-export function assertTrackedEvidence(repositoryRoot, evidenceCommit, receiptPath, artifactRoot, receiptBytes,
-  databaseBytes, fixture) {
+export function queryEmbeddedSqliteEvidence(parentFd, databaseBytes) {
+  const name = `.embedded-sqlite-${randomUUID()}`;
+  const fd = createChildFileNoFollow(parentFd, name);
+  try {
+    let offset = 0;
+    while (offset < databaseBytes.length) {
+      offset += writeSync(fd, databaseBytes, offset, databaseBytes.length - offset, offset);
+    }
+    fsyncSync(fd);
+    const database = new Database(`/proc/self/fd/${fd}`, { readonly: true, fileMustExist: true });
+    try {
+      const runs = database.prepare(
+        "SELECT dispatch_id,version,fingerprint,state,snapshot_json FROM issue_team_runs",
+      ).all();
+      const events = database.prepare(
+        "SELECT dispatch_id,sequence,event_type,state FROM issue_team_events ORDER BY dispatch_id,sequence",
+      ).all();
+      if (!readFileSync(fd).equals(databaseBytes)) {
+        throw new Error("embedded SQLite bytes changed while durable state was queried");
+      }
+      return { runs, events };
+    } finally { database.close(); }
+  } finally {
+    closeSync(fd);
+    try { unlinkSync(`/proc/self/fd/${parentFd}/${name}`); } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+  }
+}
+
+export function assertTrackedReceipt(repositoryRoot, evidenceCommit, receiptPath, receiptBytes) {
   if (!/^[0-9a-f]{40}$/u.test(evidenceCommit)) throw new Error("evidence commit must be full 40-hex");
   const resolvedEvidenceCommit = execFileSync("git", ["rev-parse", `${evidenceCommit}^{commit}`],
     { cwd: repositoryRoot, encoding: "utf8" }).trim();
   if (resolvedEvidenceCommit !== evidenceCommit) throw new Error("evidence commit did not resolve immutably");
-  const paths = [receiptPath, join(artifactRoot, "team.db"), join(artifactRoot, "fixture/result.txt"),
-    join(artifactRoot, "fixture/seed.txt")].map((path) => relative(repositoryRoot, path).split("\\").join("/"));
-  for (const path of paths) execFileSync("git", ["ls-files", "--error-unmatch", path],
-    { cwd: repositoryRoot, stdio: "ignore" });
-  const expected = [receiptBytes, databaseBytes, ...fixture.map((value) => Buffer.from(value.hex, "hex"))];
-  for (let index = 0; index < paths.length; index += 1) {
-    if (!execFileSync("git", ["show", `${resolvedEvidenceCommit}:${paths[index]}`],
-      { cwd: repositoryRoot }).equals(expected[index])) {
-      throw new Error("tracked evidence bytes do not match immutable evidence commit");
-    }
+  const path = relative(repositoryRoot, receiptPath).split("\\").join("/");
+  execFileSync("git", ["ls-files", "--error-unmatch", path], { cwd: repositoryRoot, stdio: "ignore" });
+  if (!execFileSync("git", ["show", `${resolvedEvidenceCommit}:${path}`],
+    { cwd: repositoryRoot }).equals(receiptBytes)) {
+    throw new Error("tracked receipt bytes do not match immutable evidence commit");
   }
-  execFileSync("git", ["diff", "--quiet", resolvedEvidenceCommit, "--", ...paths], { cwd: repositoryRoot });
-  execFileSync("git", ["diff", "--cached", "--quiet", resolvedEvidenceCommit, "--", ...paths],
+  execFileSync("git", ["diff", "--quiet", resolvedEvidenceCommit, "--", path], { cwd: repositoryRoot });
+  execFileSync("git", ["diff", "--cached", "--quiet", resolvedEvidenceCommit, "--", path],
     { cwd: repositoryRoot });
 }
 
