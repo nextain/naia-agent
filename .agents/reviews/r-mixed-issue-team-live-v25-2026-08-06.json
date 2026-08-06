@@ -1,7 +1,9 @@
 {
   "schemaVersion": 1,
   "benchmarkId": "mixed-issue-team-live-v1",
-  "status": "passed",
+  "status": "superseded_invalid",
+  "supersededBy": "r-mixed-issue-team-live-v26-2026-08-06.json",
+  "invalidationReason": "Full-suite validation found stale deterministic and Pi cost benchmark bindings; source changed to refresh those contracts after this run.",
   "runId": "0494f3da-c754-4bdd-a738-dc3c04c87a25",
   "paidCalls": 4,
   "claimScope": {
@@ -237,7 +239,7 @@
   "artifactRoot": ".agents/reviews/r-mixed-issue-team-live-v25-2026-08-06.json.artifacts",
   "artifactBindingPath": ".agents/reviews/r-mixed-issue-team-live-v25-2026-08-06.json.artifacts",
   "executionArtifactRoot": "/var/home/luke/alpha-adk/worktrees/naia-agent-req-062/.agents/reviews/r-mixed-issue-team-live-v25-2026-08-06.json.artifacts",
-  "claimAllowed": true,
+  "claimAllowed": false,
   "embeddedEvidence": {
     "sourceCommit": "f11035be8962ccae404c55fd58d4d4a19e7544af",
     "sourceTree": "24aec8c35504ac47609a88952d5537bd3e1557b8",
