@@ -124,6 +124,29 @@ export function assertArtifactSnapshot(artifactFd, databaseIdentity, databaseSha
   } finally { closeSync(fixtureFd); }
 }
 
+export function fsyncArtifactEvidence(artifactFd, fixture) {
+  const databaseNames = readdirSync(`/proc/self/fd/${artifactFd}`).filter((name) => name.startsWith("team.db")).sort();
+  if (JSON.stringify(databaseNames) !== JSON.stringify(["team.db"])) {
+    throw new Error("SQLite evidence changed before durable synchronization");
+  }
+  const databaseFd = openChildNoFollow(artifactFd, "team.db", "file", constants.O_RDONLY);
+  try { fsyncSync(databaseFd); } finally { closeSync(databaseFd); }
+  const fixtureFd = openChildNoFollow(artifactFd, "fixture", "directory", constants.O_RDONLY);
+  try {
+    const names = readdirSync(`/proc/self/fd/${fixtureFd}`).sort();
+    const expectedNames = fixture.map((value) => value.path).sort();
+    if (JSON.stringify(names) !== JSON.stringify(expectedNames)) {
+      throw new Error("fixture evidence changed before durable synchronization");
+    }
+    for (const name of names) {
+      const fd = openChildNoFollow(fixtureFd, name, "file", constants.O_RDONLY);
+      try { fsyncSync(fd); } finally { closeSync(fd); }
+    }
+    fsyncSync(fixtureFd);
+  } finally { closeSync(fixtureFd); }
+  fsyncSync(artifactFd);
+}
+
 export function assertTrackedEvidence(repositoryRoot, evidenceCommit, receiptPath, artifactRoot, receiptBytes,
   databaseBytes, fixture) {
   if (!/^[0-9a-f]{40}$/u.test(evidenceCommit)) throw new Error("evidence commit must be full 40-hex");
@@ -162,31 +185,75 @@ export function writeJsonBoundFile(parentFd, name, receiptFd, receiptIdentity, e
   }
 }
 
-export function publishJsonAtomically(parentFd, name, receiptFd, receiptIdentity, expectedOriginalBytes, value) {
+export function assertNoPublicationRecoveryEntries(parentFd, name) {
+  const prefixes = [`.${name}.seal-`, `.${name}.unsealed-backup-`];
+  if (readdirSync(`/proc/self/fd/${parentFd}`).some((entry) => prefixes.some((prefix) => entry.startsWith(prefix)))) {
+    throw new Error("incomplete receipt publication recovery entry exists");
+  }
+}
+
+export function publishJsonAtomically(parentFd, name, receiptFd, receiptIdentity, expectedOriginalBytes, value,
+  hooks = {}) {
   assertChildMatchesDescriptor(parentFd, name, receiptIdentity, "file");
   if (!readFileSync(`/proc/self/fd/${receiptFd}`).equals(expectedOriginalBytes)) {
     throw new Error("receipt changed before atomic publication");
   }
-  const temporaryName = `.${name}.seal-${randomUUID()}`;
+  const temporaryPrefix = `.${name}.seal-`; const backupPrefix = `.${name}.unsealed-backup-`;
+  assertNoPublicationRecoveryEntries(parentFd, name);
+  const temporaryName = `${temporaryPrefix}${randomUUID()}`;
+  const backupName = `${backupPrefix}${randomUUID()}`;
   const temporaryFd = createChildFileNoFollow(parentFd, temporaryName);
-  let published = false;
+  let temporaryExists = true; let backupExists = false; let rollbackFailed = false; let published = false;
   try {
     const temporaryIdentity = fstatSync(temporaryFd);
     writeJsonBoundFile(parentFd, temporaryName, temporaryFd, temporaryIdentity, Buffer.alloc(0), value);
-    // Persist the complete temporary entry first. The rename below is the sole
-    // publication commit point; after it succeeds no fallible operation runs.
+    // Persist the complete temporary entry first. The caller's final evidence
+    // guard runs at the publication boundary, after every temporary write and
+    // before the original receipt and temporary entry are revalidated.
     fsyncSync(parentFd);
+    hooks.beforeRename?.();
     assertChildMatchesDescriptor(parentFd, name, receiptIdentity, "file");
     if (!readFileSync(`/proc/self/fd/${receiptFd}`).equals(expectedOriginalBytes)) {
       throw new Error("receipt changed before atomic publication");
     }
     assertChildMatchesDescriptor(parentFd, temporaryName, temporaryIdentity, "file");
+    // Preserve the original nonclaimable receipt under a private recovery name.
+    // A crash before completion therefore leaves either no canonical receipt or
+    // a detectable recovery entry; sealed verification fails closed on either.
+    renameSync(`/proc/self/fd/${parentFd}/${name}`, `/proc/self/fd/${parentFd}/${backupName}`);
+    backupExists = true;
+    fsyncSync(parentFd);
     renameSync(`/proc/self/fd/${parentFd}/${temporaryName}`, `/proc/self/fd/${parentFd}/${name}`);
+    temporaryExists = false;
+    hooks.afterRenameBeforeDirectorySync?.();
+    // rename publication is not durable until the containing directory is
+    // synchronized after the namespace change.
+    fsyncSync(parentFd);
+    unlinkSync(`/proc/self/fd/${parentFd}/${backupName}`);
+    backupExists = false;
+    fsyncSync(parentFd);
     published = true;
+  } catch (error) {
+    if (backupExists) {
+      try {
+        renameSync(`/proc/self/fd/${parentFd}/${backupName}`, `/proc/self/fd/${parentFd}/${name}`);
+        backupExists = false;
+        fsyncSync(parentFd);
+      } catch (rollbackError) {
+        rollbackFailed = true;
+        throw new AggregateError([error, rollbackError], "receipt publication rollback failed; outcome is unknown");
+      }
+    }
+    throw error;
   } finally {
     try { closeSync(temporaryFd); } catch (error) { if (!published) throw error; }
-    if (!published) {
+    if (temporaryExists) {
       try { unlinkSync(`/proc/self/fd/${parentFd}/${temporaryName}`); } catch (error) {
+        if (error?.code !== "ENOENT") throw error;
+      }
+    }
+    if (backupExists && !rollbackFailed) {
+      try { unlinkSync(`/proc/self/fd/${parentFd}/${backupName}`); } catch (error) {
         if (error?.code !== "ENOENT") throw error;
       }
     }

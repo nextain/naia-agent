@@ -7,8 +7,9 @@ import { captureMixedLiveExecutionEvidence, validateExecutionEvidence,
   validateLiveExecutionInputs } from "./mixed-live-execution-evidence.mjs";
 import { pickCoreAssertions, projectReceipt, validateDurableReceipts, validateDurableRun,
   validateOutcomeSchemas } from "./mixed-live-durable-validation.mjs";
-import { assertArtifactSnapshot, assertChildMatchesDescriptor, assertPathMatchesDescriptor, assertTrackedEvidence,
-  normalizeSqliteToDeleteJournal, openChildNoFollow, openPathFromRepository, readChildNoFollow,
+import { assertArtifactSnapshot, assertChildMatchesDescriptor, assertNoPublicationRecoveryEntries,
+  assertPathMatchesDescriptor, assertTrackedEvidence,
+  fsyncArtifactEvidence, normalizeSqliteToDeleteJournal, openChildNoFollow, openPathFromRepository, readChildNoFollow,
   publishJsonAtomically } from "./mixed-live-secure-files.mjs";
 import { git, sha256, stableJson } from "./mixed-live-seal-utils.mjs";
 
@@ -17,7 +18,8 @@ const scriptPath = fileURLToPath(import.meta.url);
 export { captureMixedLiveExecutionEvidence, validateLiveExecutionInputs };
 
 export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, requireCurrentSourceMatch = false,
-  verifyExistingSeal = false, evidenceCommit, boundReceiptFd, beforeFinalEvidenceCheck }) {
+  verifyExistingSeal = false, evidenceCommit, boundReceiptFd, beforeFinalEvidenceCheck,
+  afterPublicationRenameBeforeDirectorySync }) {
   let claimPublished = false;
   const receiptPath = resolve(inputPath);
   if (!sourceCommit || !/^[0-9a-f]{40}$/u.test(sourceCommit)) throw new Error("source commit must be full 40-hex");
@@ -26,6 +28,7 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
   const receiptParentFd = openPathFromRepository(repositoryRoot, receiptParentPath, "directory");
   const receiptParentIdentity = fstatSync(receiptParentFd);
   try {
+  assertNoPublicationRecoveryEntries(receiptParentFd, basename(receiptPath));
   const ownsReceiptFd = boundReceiptFd === undefined;
   const receiptFd = ownsReceiptFd ? openChildNoFollow(receiptParentFd, basename(receiptPath), "file",
     verifyExistingSeal ? constants.O_RDONLY : constants.O_RDWR) : boundReceiptFd;
@@ -132,7 +135,10 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
   const claimScope = { sessionIdentity: "provider_reported", providerIdentity: "adapter_declared_not_provider_observed",
     modelIdentity: "adapter_requested_not_provider_observed",
     executionRuntimeIdentity: "path_hash_observed_at_boundaries_not_execution_pinned",
-    capability: "mixed_adapter_execution", verificationPortability: "linux_clean_checkout_after_locked_install_and_build" };
+    capability: "mixed_adapter_execution",
+    verificationPortability: "same_linux_host_clean_checkout_with_locked_dependencies_and_exact_bound_external_toolchain",
+    claimEvidence: "atomically_published_embedded_semantic_snapshot",
+    externalArtifacts: "descriptor_snapshot_revalidated_at_publication_boundary_not_immutable_after_publication" };
   const convergencePaths = coreResult.repairCycles === 0 ? [{
     roles: ["explorer", "implementer", "tester", "reviewer"],
     decisions: ["explorer:proceed", "implementer:implemented", "tester:pass", "reviewer:clean"],
@@ -169,16 +175,16 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
   const expectedEmbeddedEvidence = { ...receipt.executionEvidence, sqliteFiles,
     sqliteSha256: sqliteFiles.find((value) => value.path === "team.db").sha256,
     durableRun, durableRunSha256: sha256(Buffer.from(JSON.stringify(durableRun))), events, fixture };
-  const expectedAssertions = { ...coreAssertions, durableEvidenceEmbedded: true, receiptMatchesDurableSnapshot: true };
-  beforeFinalEvidenceCheck?.();
-  assertArtifactSnapshot(artifactFd, databaseIdentity, sqliteFiles[0].sha256, fixture);
-  assertChildMatchesDescriptor(receiptParentFd, basename(artifactRoot), artifactIdentity, "directory");
-  assertPathMatchesDescriptor(receiptParentPath, receiptParentIdentity, "directory");
+  const expectedAssertions = { ...coreAssertions, durableEvidenceEmbedded: true,
+    embeddedEvidenceMatchesBoundSnapshotAtSeal: true };
   if (verifyExistingSeal) {
+    assertArtifactSnapshot(artifactFd, databaseIdentity, sqliteFiles[0].sha256, fixture);
+    assertChildMatchesDescriptor(receiptParentFd, basename(artifactRoot), artifactIdentity, "directory");
+    assertPathMatchesDescriptor(receiptParentPath, receiptParentIdentity, "directory");
     if (!receipt.embeddedEvidence || receipt.artifactRoot !== expectedArtifactRoot
       || JSON.stringify(receipt.embeddedEvidence) !== JSON.stringify(expectedEmbeddedEvidence)
       || JSON.stringify(receipt.assertions) !== JSON.stringify(expectedAssertions)) {
-      throw new Error("sealed receipt evidence does not match the immutable execution artifacts");
+      throw new Error("sealed receipt evidence does not match the bound execution snapshot");
     }
     if (expectedArtifactRoot.startsWith(".agents/reviews/")) {
       if (!evidenceCommit) throw new Error("tracked evidence verification requires an immutable evidence commit");
@@ -190,10 +196,19 @@ export function sealMixedIssueTeamLive({ receiptPath: inputPath, sourceCommit, r
   if (receipt.embeddedEvidence !== undefined) throw new Error("receipt is already sealed; use sealed verification mode");
   const sealed = { ...receipt, claimAllowed: true, artifactRoot: expectedArtifactRoot,
     embeddedEvidence: expectedEmbeddedEvidence, assertions: expectedAssertions };
-  // This atomic rename is the publication commit point. All fallible
-  // artifact/path validation must stay above it so a reported sealing failure
-  // can never leave a pathname-reachable claimable receipt behind.
-  publishJsonAtomically(receiptParentFd, basename(receiptPath), receiptFd, receiptIdentity, receiptBytes, sealed);
+  // The temporary receipt is complete before this boundary guard runs. The
+  // guard durably synchronizes and revalidates every bound artifact, and the
+  // publisher revalidates both receipt entries again before rename.
+  publishJsonAtomically(receiptParentFd, basename(receiptPath), receiptFd, receiptIdentity, receiptBytes, sealed, {
+    beforeRename() {
+      beforeFinalEvidenceCheck?.();
+      fsyncArtifactEvidence(artifactFd, fixture);
+      assertArtifactSnapshot(artifactFd, databaseIdentity, sqliteFiles[0].sha256, fixture);
+      assertChildMatchesDescriptor(receiptParentFd, basename(artifactRoot), artifactIdentity, "directory");
+      assertPathMatchesDescriptor(receiptParentPath, receiptParentIdentity, "directory");
+    },
+    afterRenameBeforeDirectorySync: afterPublicationRenameBeforeDirectorySync,
+  });
   claimPublished = true;
   return sealed;
   } finally { try { closeSync(artifactFd); } catch (error) { if (!claimPublished) throw error; } }

@@ -1,6 +1,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync,
+  writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import Database from "better-sqlite3";
@@ -52,7 +53,7 @@ describe("mixed issue-team paid live benchmark contract", () => {
     expect(evidence).toContain("JSON.stringify(currentSupportModules) !== JSON.stringify(value.supportModuleSha256)");
     expect(sealer).toContain("receipt projection does not match the durable SQLite snapshot");
     expect(sealer).toContain("durableEvidenceEmbedded: true");
-    expect(sealer).toContain("receiptMatchesDurableSnapshot: true");
+    expect(sealer).toContain("embeddedEvidenceMatchesBoundSnapshotAtSeal: true");
     expect(source).toContain("captureMixedLiveExecutionEvidence(repositoryRoot)");
     expect(source).toContain("validateLiveExecutionInputs(executionEvidence, repositoryRoot)");
     expect(source).toContain("boundReceiptFd: receiptFd");
@@ -68,7 +69,9 @@ describe("mixed issue-team paid live benchmark contract", () => {
     expect(source).toContain("const runId = randomUUID()");
     expect(source).toContain('modelIdentity: "adapter_requested_not_provider_observed"');
     expect(source).toContain('providerIdentity: "adapter_declared_not_provider_observed"');
-    expect(source).toContain('verificationPortability: "linux_clean_checkout_after_locked_install_and_build"');
+    expect(source).toContain('verificationPortability: "same_linux_host_clean_checkout_with_locked_dependencies_and_exact_bound_external_toolchain"');
+    expect(source).toContain('claimEvidence: "atomically_published_embedded_semantic_snapshot"');
+    expect(source).toContain('externalArtifacts: "descriptor_snapshot_revalidated_at_publication_boundary_not_immutable_after_publication"');
     expect(sealer).toContain("artifact binding does not match its execution path");
     expect(evidence).toContain('execFileSync("git", ["diff", "--quiet", "HEAD", "--"]');
     expect(evidence).toContain("current benchmark source or execution runtime closure does not match the live run");
@@ -84,6 +87,9 @@ describe("mixed issue-team paid live benchmark contract", () => {
     expect(durable).toContain("SQLite event history is inconsistent with the completed run");
     expect(secureFiles).toContain("fixture evidence changed before the sealing commit point");
     expect(secureFiles).toContain("publishJsonAtomically");
+    expect(secureFiles).toContain("fsyncArtifactEvidence");
+    expect(secureFiles).toContain("afterRenameBeforeDirectorySync");
+    expect(secureFiles).toContain("unsealed-backup-");
     expect(secureFiles).toContain("renameSync(`/proc/self/fd/${parentFd}/${temporaryName}`");
   });
 
@@ -169,7 +175,9 @@ describe("mixed issue-team paid live benchmark contract", () => {
           modelIdentity: "adapter_requested_not_provider_observed",
           executionRuntimeIdentity: "path_hash_observed_at_boundaries_not_execution_pinned",
           capability: "mixed_adapter_execution",
-          verificationPortability: "linux_clean_checkout_after_locked_install_and_build" },
+          verificationPortability: "same_linux_host_clean_checkout_with_locked_dependencies_and_exact_bound_external_toolchain",
+          claimEvidence: "atomically_published_embedded_semantic_snapshot",
+          externalArtifacts: "descriptor_snapshot_revalidated_at_publication_boundary_not_immutable_after_publication" },
         result: { ok: true, changedFiles: ["result.txt"], cleanCycles: 1, repairCycles: 1 },
         assertions: { exactArtifacts: true, evidenceComplete: true, mixedAppsObserved: true,
           roleKinds: { explorer: "claude-code", implementer: "opencode", tester: "codex", reviewer: "codex" } },
@@ -208,13 +216,25 @@ describe("mixed issue-team paid live benchmark contract", () => {
       expect(receiptRaced.status).not.toBe(0);
       expect(receiptRaced.stderr).toContain("receipt changed before atomic publication");
       writeFileSync(receiptPath, JSON.stringify(original));
+      const publicationSyncFailed = spawnSync(process.execPath, ["--input-type=module", "-e",
+        `const { sealMixedIssueTeamLive } = await import(${JSON.stringify(pathToFileURL(sealerPath).href)});
+         sealMixedIssueTeamLive({ receiptPath: ${JSON.stringify(receiptPath)}, sourceCommit: ${JSON.stringify(sourceCommit)},
+           requireCurrentSourceMatch: true,
+           afterPublicationRenameBeforeDirectorySync: () => { throw new Error("injected post-rename sync failure"); } });`],
+      { cwd: repositoryRoot, encoding: "utf8", env: { ...process.env, ...executableEnvironment } });
+      expect(publicationSyncFailed.status).not.toBe(0);
+      expect(publicationSyncFailed.stderr).toContain("injected post-rename sync failure");
+      expect(JSON.parse(readFileSync(receiptPath, "utf8"))).toMatchObject({ claimAllowed: false });
+      expect(readFileSync(receiptPath, "utf8")).not.toContain("embeddedEvidenceMatchesBoundSnapshotAtSeal");
+      expect(readdirSync(root).filter((name) => name.includes("unsealed-backup-") || name.includes(".seal-"))).toEqual([]);
+      writeFileSync(receiptPath, JSON.stringify(original));
       const sealed = spawnSync(process.execPath,
         [sealerPath, "--receipt", receiptPath, "--source-commit", sourceCommit, "--seal-unsealed"],
         { cwd: repositoryRoot, encoding: "utf8" });
       expect(sealed.status, sealed.stderr).toBe(0);
       const parsed = JSON.parse(readFileSync(receiptPath, "utf8"));
       expect(parsed).toMatchObject({ artifactRoot: expect.stringContaining("receipt.json.artifacts"),
-        assertions: { durableEvidenceEmbedded: true, receiptMatchesDurableSnapshot: true },
+        assertions: { durableEvidenceEmbedded: true, embeddedEvidenceMatchesBoundSnapshotAtSeal: true },
         embeddedEvidence: { sourceCommit, durableRun: { state: "completed" } } });
       const embeddedTamper = structuredClone(parsed); embeddedTamper.embeddedEvidence.fixture[0].hex = "00";
       writeFileSync(receiptPath, JSON.stringify(embeddedTamper));

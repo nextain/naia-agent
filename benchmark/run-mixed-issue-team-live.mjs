@@ -39,7 +39,10 @@ const runBinding = createHash("sha256").update(`${runId}\0${artifactBindingPath}
 const claimScope = { sessionIdentity: "provider_reported", providerIdentity: "adapter_declared_not_provider_observed",
   modelIdentity: "adapter_requested_not_provider_observed",
   executionRuntimeIdentity: "path_hash_observed_at_boundaries_not_execution_pinned",
-  capability: "mixed_adapter_execution", verificationPortability: "linux_clean_checkout_after_locked_install_and_build" };
+  capability: "mixed_adapter_execution",
+  verificationPortability: "same_linux_host_clean_checkout_with_locked_dependencies_and_exact_bound_external_toolchain",
+  claimEvidence: "atomically_published_embedded_semantic_snapshot",
+  externalArtifacts: "descriptor_snapshot_revalidated_at_publication_boundary_not_immutable_after_publication" };
 const receiptParentFd = openPathFromRepository(repositoryRoot, dirname(outputPath), "directory");
 const receiptFd = createChildFileNoFollow(receiptParentFd, basename(outputPath));
 const receiptIdentity = fstatSync(receiptFd);

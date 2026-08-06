@@ -1,7 +1,9 @@
 {
   "schemaVersion": 1,
   "benchmarkId": "mixed-issue-team-live-v1",
-  "status": "passed",
+  "status": "superseded_invalid",
+  "supersededBy": "r-mixed-issue-team-live-v24-2026-08-06.json",
+  "invalidationReason": "Final adversarial review found a publication-boundary artifact race, missing post-rename directory durability, and an overbroad clean-checkout portability claim; source changed after this run.",
   "runId": "408be037-df53-4c3e-977a-4d8b404a0ee0",
   "paidCalls": 4,
   "claimScope": {
@@ -234,7 +236,7 @@
   "artifactRoot": ".agents/reviews/r-mixed-issue-team-live-v23-2026-08-06.json.artifacts",
   "artifactBindingPath": ".agents/reviews/r-mixed-issue-team-live-v23-2026-08-06.json.artifacts",
   "executionArtifactRoot": "/var/home/luke/alpha-adk/worktrees/naia-agent-req-062/.agents/reviews/r-mixed-issue-team-live-v23-2026-08-06.json.artifacts",
-  "claimAllowed": true,
+  "claimAllowed": false,
   "embeddedEvidence": {
     "sourceCommit": "360d987e1742396bbf1d03d456723582298de93a",
     "sourceTree": "ad17f133f06f18cc7e1deb6dc0ee6051c41a0f86",
