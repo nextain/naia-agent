@@ -105,6 +105,8 @@ export class Supervisor {
       deletions: changes ? changes.deleted.length : 0,
       verification: result?.verification ?? { ok: false, checks: [{ name: "supervisor", pass: false, details: "attempt 결과 없음(치명 오류)" }] },
       sessionOk: result?.sessionOk ?? false,
+      ...(!result?.sessionOk && result?.endEvent.kind === "session_end" && result.endEvent.reason
+        ? { sessionEndReason: result.endEvent.reason } : {}),
       ...(result?.modelEvidence ? { modelEvidence: result.modelEvidence } : {}),
     };
     this.safeReport(report);

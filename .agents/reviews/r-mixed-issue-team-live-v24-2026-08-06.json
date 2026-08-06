@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "benchmarkId": "mixed-issue-team-live-v1",
+  "status": "failed",
+  "runId": "160b91ea-b1b9-4732-96a2-daa9dbf1073a",
+  "paidCalls": 2,
+  "maximumPaidCalls": 7,
+  "reason": "role session failed",
+  "diagnostics": [],
+  "artifactRoot": "/var/home/luke/alpha-adk/worktrees/naia-agent-req-062/.agents/reviews/r-mixed-issue-team-live-v24-2026-08-06.json.artifacts",
+  "artifactBindingPath": ".agents/reviews/r-mixed-issue-team-live-v24-2026-08-06.json.artifacts",
+  "executionArtifactRoot": "/var/home/luke/alpha-adk/worktrees/naia-agent-req-062/.agents/reviews/r-mixed-issue-team-live-v24-2026-08-06.json.artifacts",
+  "claimAllowed": false
+}

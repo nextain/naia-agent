@@ -36,7 +36,7 @@ describe("REQ-023 profiled role executor", () => {
     await expect(executor.execute({ issueId: "issue", dispatchId: "dispatch", stepId: "dispatch:explorer:1",
       worktreePath: "/repo", task: "inspect", context: "{}", roleProfile: { agentProfileId: "explorer",
         agentKind: "claude-code", binding: { provider: "claude-code", model: "sonnet" }, filesystemAccess: "read_only" },
-      signal: new AbortController().signal })).rejects.toThrow("role session failed");
+      signal: new AbortController().signal })).rejects.toThrow("role session failed: cancelled");
     expect(cancelled).toBe(true);
   });
 

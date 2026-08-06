@@ -103,6 +103,8 @@ export interface SupervisorReport {
   readonly verification: VerificationReport;
   /** sub-agent session_end.ok — 검증과 **독립**(세션 실패해도 verify 는 돈다, AC4). */
   readonly sessionOk: boolean;
+  /** Opaque adapter/session failure reason, retained so durable callers do not collapse every failure into one label. */
+  readonly sessionEndReason?: string;
   readonly modelEvidence?: SubAgentModelEvidence;
 }
 

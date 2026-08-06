@@ -94,7 +94,9 @@ export function makeIssueTeamRoleExecutor(options: IssueTeamRoleExecutorOptions)
       try { options.budget?.settle(input.stepId, receipt); }
       catch (error) { throw new IssueActorResultError(error instanceof Error ? error.message : "paid-call settlement failed", receipt); }
       if (pendingText.length > 0) text = pendingText;
-      if (!report?.sessionOk || overflow) throw new IssueActorResultError(overflow ? "role assistant message exceeded 64 KiB" : "role session failed", receipt);
+      if (!report?.sessionOk || overflow) throw new IssueActorResultError(overflow
+        ? "role assistant message exceeded 64 KiB"
+        : `role session failed${report?.sessionEndReason ? `: ${report.sessionEndReason}` : ""}`, receipt);
       let result: IssueTeamRoleResult;
       try { result = parseRoleResult(text); }
       catch { throw new IssueActorResultError("role output was not one JSON object", receipt); }
