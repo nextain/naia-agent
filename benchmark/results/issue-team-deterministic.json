@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "benchmarkId": "naia-issue-team-deterministic-v1",
-  "sourceRevision": "0a27a075552ea99eb46b27e49b2c3b90aad318ef",
+  "sourceRevision": "4cf1de5729fc7b6449fdfb66347db2500daf3ee1",
   "paidCalls": 0,
   "observation": {
     "roleOrderMatches": true,
@@ -26,17 +26,17 @@
     "trackedInputs": {
       "benchmark/run-issue-team-deterministic.mjs": "cc8d8ebf0511247162106391179b80d3357dfd33853cffaf888648db96acfe85",
       "benchmark/orchestration/issue-team-deterministic.json": "d2ea0595cdf2b1de2546249aef38ff6fc7cf64ac511ceab1a468791056895d19",
-      "src/main/app/issue-team-worker.ts": "0e091f480a99eb37d607b99f9a967b2dd680741da206757cc58c4c2a32f25fba",
-      "src/main/adapters/sqlite-issue-team-store.ts": "6e604d24435d9e8de1135547fd60e730a543e6cbc1b32bc98bb054e41ce2951c",
+      "src/main/app/issue-team-worker.ts": "da3dbfafb0eb10c81f1672793028284a4d9f5bbdacd65de65a2655651c00f859",
+      "src/main/adapters/sqlite-issue-team-store.ts": "f7d9df55b81636eca112f13f670ad174e05b45f3c34bb9ac1410e3eebe337f5c",
       "src/main/adapters/subagent-pi.ts": "ad3c3fc9b4f683862d0689f700b7ac6ca2181d8e5e2d01324e79335eb3208eba",
       "src/main/adapters/subagent-opencode-cli.ts": "63c236aaf42d7f6594d686995c83e9247efe5293a5c306c85069eae16fc538b9",
       "src/main/adapters/subagent-codex.ts": "6c4616231b333ba1b8bedc3b2199e4598b3ba814af48e3e325aaf423e304a1ad",
-      "src/main/domain/issue-team.ts": "f10f8183e28d5eab2aec9fee55aa72d894d48dc8eef8d4bbbd25f0d4beac2ddf",
+      "src/main/domain/issue-team.ts": "6a63dbdc6b3165c87db510ea86af7b40def4711076e00fc0f1f5349b300cfd66",
       "src/main/domain/issue-team-benchmark.ts": "56b2ec0d2a35e28f7762453db07bbf1b916f13ce1996678c8054d335a8d69ebc",
       "src/main/ports/issue-team.ts": "e91ad06b36c866be0fab931c6647166fe6f5d9f9fac3282e54e57993001872d3",
       "src/main/composition/supervised-issue-worker.ts": "3466f39c682b59f5f5ff05c2efc022898817918204ffedfb6921e7a1986caacb",
-      "src/main/composition/issue-team-role-executor.ts": "45e0a3cb0d37ec86df3e2e4f2c2dbb8af8aec031a050882ef074902c2863c067",
-      "src/main/app/single-issue-orchestrator.ts": "94b296cfbb1990d2d8c46f40ec67c0d6939215260af302a78b4f9214f023f82c",
+      "src/main/composition/issue-team-role-executor.ts": "691ebed58d6131ec28f92f3c1bb182871c626061444552cef348ea8b8ba7e145",
+      "src/main/app/single-issue-orchestrator.ts": "eca886787df8c21937ecb9e35b5b2ccb3a21231b6708ff3fbb977cd6a71f4da5",
       "src/main/composition/profiled-issue-worker.ts": "12a8ed19074765e7a665c5872475c87c4e4045bdc0ae78273abcb94874bc0bf1",
       "src/main/adapters/sqlite-issue-orchestration-store.ts": "cef7d66cd2f01305450ef4361296845c48d503cf796d5c08773ba5b530ce3de1",
       "src/main/domain/issue-orchestration.ts": "445526203af0088afa7b0017fb87644ced4209096420ba33645a40eff8378755",
@@ -46,15 +46,15 @@
       "tsconfig.json": "38204ea85e3c37122c6a44fc86255d6e2d653fd549facb84f5a91ddda743f5d2"
     },
     "runtimeModules": {
-      "dist/main/app/issue-team-worker.js": "93b3a9e73c67d60d96c20c9abc2cbfc2af87b6747eeffdf2683f93eefa9215f9",
-      "dist/main/adapters/sqlite-issue-team-store.js": "5de30dd40d3b7e94adcba686228276ef257a0d9dfcbacb7e57de8800b8b710c8",
+      "dist/main/app/issue-team-worker.js": "275b28e6b836b8f513c6ea1be644991ea201f402fffce897eecf18cfda9ec08d",
+      "dist/main/adapters/sqlite-issue-team-store.js": "99eefc3355ce4e99088de19ea61099a8f6b4e89195a1e85ae6d87e83b1e6fb31",
       "dist/main/adapters/subagent-pi.js": "aba537ba4285b55eb8344e7112337b55a7bdb4f25b49dbcc39715307ac6404a7",
       "dist/main/adapters/subagent-opencode-cli.js": "dc165cc151b254cb838f464aaac5021aba27edc83f5b2b3dfcb7ab880ca3c930",
       "dist/main/adapters/subagent-codex.js": "4f0ddb5d9ef03e23c75f97bb695b753b1047700e64e22228fe740f4a828d3269",
       "dist/main/domain/issue-team-benchmark.js": "b5f953546badfee9d31d42890f0641177387a526c0511a53ba095b6681effef0",
       "dist/main/composition/supervised-issue-worker.js": "b3bb1a7ab249633c487d016d44a5019b5e02b399f1dd07a550c5e8a92d243d02",
-      "dist/main/composition/issue-team-role-executor.js": "ea52f063e290929ddc56c2e794b764fc9f5b75da60e6b7cd4b6f493ecc5ce6a1",
-      "dist/main/app/single-issue-orchestrator.js": "ec830bc64cfce2e5e2941baab54011d14c9ffb7dcbeac009f1302ccabcee637c",
+      "dist/main/composition/issue-team-role-executor.js": "7d0f1ca3f9d8f286b85bf692eadd691fa8a94ec4b70a25873083f8e100ea5bd2",
+      "dist/main/app/single-issue-orchestrator.js": "81fde017d18a732ce96271bb6146059541941c36579eb1c12d9553132880fc38",
       "dist/main/adapters/sqlite-issue-orchestration-store.js": "b5b2c4e86052149925f342b3578db061cd5580ac68a6e5530dbd3715d087fff9",
       "dist/main/composition/profiled-issue-worker.js": "bedf8a89b6f04fef15ad99e259a87fc616925c9597100667f7de9c4dfca30281"
     }
