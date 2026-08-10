@@ -62,7 +62,7 @@ describe("UC-ORCH-001 frozen composition benchmark", () => {
   it("pins the immutable monetary snapshot and complete comparison cost scope", () => {
     const bytes = readFileSync(priceSnapshotPath);
     const snapshot = JSON.parse(bytes.toString("utf8")) as Record<string, unknown>;
-    expect(createHash("sha256").update(bytes).digest("hex")).toBe("36ff2bca30e2823cddda6b207bdf68b3bb15700c5fdc4e0e67792bda44bc6626");
+    expect(createHash("sha256").update(bytes.toString("utf8").replaceAll("\r\n", "\n")).digest("hex")).toBe("36ff2bca30e2823cddda6b207bdf68b3bb15700c5fdc4e0e67792bda44bc6626");
     expect(snapshot).toMatchObject({
       id: "PRICE-OPENAI-2026-07-29", captured_at: "2026-07-29T15:48:42Z", currency: "USD", token_unit: 1_000_000,
       applicability: { maximum_input_tokens_without_frozen_long_context_rule: 272_000 },

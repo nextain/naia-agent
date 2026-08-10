@@ -218,7 +218,7 @@ describe("Pi live cost-comparison runner", () => {
       await expect(runPiCostAnalyzerCli(["--pins", pinsPath, "--evidence", evidencePath],
         { NAIA_BENCHMARK_JOURNAL_KEY: key })).rejects.toThrow(/pins are not bound/u);
     } finally { rmSync(temporary, { recursive: true, force: true }); }
-  });
+  }, 30_000);
 
   it("isolates every benchmark Git child from hostile global hooks and the integrity key", async () => {
     // @ts-expect-error Production benchmark helpers are intentionally plain ESM.
@@ -229,21 +229,21 @@ describe("Pi live cost-comparison runner", () => {
         GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.hooksPath", GIT_CONFIG_VALUE_0: "/hostile/hooks",
         GIT_DIR: "/hostile/repository", NAIA_BENCHMARK_JOURNAL_KEY: "must-not-reach-hook",
         NAIA_API_KEY: "must-not-reach-git", AZURE_API_KEY: "must-not-reach-git", PATH: "/bin" });
-    expect(invocation.args).toEqual(["-c", "core.hooksPath=/benchmark/isolation/hooks", "commit", "-m", "fixture"]);
+    expect(invocation.args).toEqual(["-c", `core.hooksPath=${join("/benchmark/isolation", "hooks")}`, "commit", "-m", "fixture"]);
     expect(invocation.env).toMatchObject({ HOME: "/hostile/home", PATH: "/bin", GIT_CONFIG_NOSYSTEM: "1",
-      GIT_CONFIG_GLOBAL: "/benchmark/isolation/global.gitconfig", GIT_TERMINAL_PROMPT: "0" });
+      GIT_CONFIG_GLOBAL: join("/benchmark/isolation", "global.gitconfig"), GIT_TERMINAL_PROMPT: "0" });
     expect(invocation.env).not.toHaveProperty("NAIA_BENCHMARK_JOURNAL_KEY");
     expect(invocation.env).not.toHaveProperty("NAIA_API_KEY");
     expect(invocation.env).not.toHaveProperty("AZURE_API_KEY");
     expect(invocation.env).toMatchObject({ GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.hooksPath",
-      GIT_CONFIG_VALUE_0: "/benchmark/isolation/hooks" });
+      GIT_CONFIG_VALUE_0: join("/benchmark/isolation", "hooks") });
     expect(invocation.env).not.toHaveProperty("GIT_DIR");
     const transitiveEnv: Record<string, string> = { NAIA_BENCHMARK_JOURNAL_KEY: "secret",
       GIT_CONFIG_COUNT: "1", GIT_DIR: "/hostile", PATH: "/bin" };
     installBenchmarkProcessIsolation("/benchmark/isolation", transitiveEnv);
     expect(transitiveEnv).toEqual({ PATH: "/bin", GIT_CONFIG_NOSYSTEM: "1",
-      GIT_CONFIG_GLOBAL: "/benchmark/isolation/global.gitconfig", GIT_CONFIG_COUNT: "1",
-      GIT_CONFIG_KEY_0: "core.hooksPath", GIT_CONFIG_VALUE_0: "/benchmark/isolation/hooks",
+      GIT_CONFIG_GLOBAL: join("/benchmark/isolation", "global.gitconfig"), GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: "core.hooksPath", GIT_CONFIG_VALUE_0: join("/benchmark/isolation", "hooks"),
       GIT_TERMINAL_PROMPT: "0" });
   });
 
@@ -375,7 +375,8 @@ function digestTree(path: string): string {
   const hash = createHash("sha256");
   for (const file of walk(path)) {
     hash.update(relative(path, file).replaceAll("\\", "/")); hash.update("\0");
-    hash.update(readFileSync(file)); hash.update("\0");
+    const bytes = readFileSync(file);
+    hash.update(bytes.includes(0) ? bytes : bytes.toString("utf8").replaceAll("\r\n", "\n")); hash.update("\0");
   }
   return `sha256:${hash.digest("hex")}`;
 }

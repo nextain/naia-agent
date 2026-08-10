@@ -191,4 +191,4 @@ function captureSpawn() {
     return { stdout: { on() {} }, stderr: { on() {} }, on() { return this; }, kill() { return true; } }; } };
   return capture;
 }
-function sha256(path) { return createHash("sha256").update(readFileSync(path)).digest("hex"); }
+function sha256(path) { return createHash("sha256").update(readFileSync(path, "utf8").replaceAll("\r\n", "\n")).digest("hex"); }

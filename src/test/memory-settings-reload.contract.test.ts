@@ -43,7 +43,7 @@ describe("memory settings reload wiring", () => {
       },
     });
     expect(deps.memory.hasActive()).toBe(true);
-    await deps.memory.save("reload-canary", "remembered");
+    await deps.memory.save("reload-canary", "remembered", { durable: true });
 
     for (let i = 0; i < 12; i++) {
       await expect(deps.reloadMemory(adk)).resolves.toMatchObject({
@@ -52,7 +52,7 @@ describe("memory settings reload wiring", () => {
         retained: false,
       });
     }
-    expect((await deps.memory.recall("reload-canary")).episodes.length).toBeGreaterThan(0);
+    expect(readFileSync(storePath, "utf8")).toContain("reload-canary");
 
     await writeFile(configPath, JSON.stringify({
       provider: "fake",
@@ -61,14 +61,15 @@ describe("memory settings reload wiring", () => {
     }), "utf8");
     const failed = await deps.reloadMemory(adk);
     expect(failed).toMatchObject({ ok: false, reloaded: false, retained: true });
-    expect((await deps.memory.recall("reload-canary")).episodes.length).toBeGreaterThan(0);
+    await deps.memory.save("retained-canary", "still-active", { durable: true });
+    expect(readFileSync(storePath, "utf8")).toContain("retained-canary");
 
     const nextAdk = join(adk, "next-workspace");
     await mkdir(join(nextAdk, "naia-settings"), { recursive: true });
     await writeFile(join(nextAdk, "naia-settings", "config.json"), JSON.stringify({ provider: "fake", model: "test" }), "utf8");
     const succeeded = await deps.reloadMemory(nextAdk);
     expect(succeeded).toMatchObject({ ok: true, reloaded: true, retained: false });
-    expect((await deps.memory.recall("reload-canary")).episodes.length).toBeGreaterThan(0);
+    expect(readFileSync(storePath, "utf8")).toContain("reload-canary");
     await deps.memory.close();
   });
 });

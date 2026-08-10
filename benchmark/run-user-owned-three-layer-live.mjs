@@ -24,16 +24,16 @@ if (outputIndex >= 0 && (!process.argv[outputIndex + 1] || process.argv[outputIn
   throw new Error("--output requires a path");
 }
 let outputLockPath;
-const trustedExecutables = Object.fromEntries(["git", "podman", "nvidia-smi", "ss"].map((name) => {
-  const path = resolveExecutable(name);
-  return [name, { path, sha256: sha256(path) }];
-}));
 if (outputPath) {
   mkdirSync(dirname(outputPath), { recursive: true });
   if (existsSync(outputPath)) throw new Error("live benchmark output path already exists");
   outputLockPath = `${outputPath}.claim`;
   const claim = openSync(outputLockPath, "wx", 0o600); closeSync(claim);
 }
+const trustedExecutables = Object.fromEntries(["git", "podman", "nvidia-smi", "ss"].map((name) => {
+  const path = resolveExecutable(name);
+  return [name, { path, sha256: sha256(path) }];
+}));
 const root = mkdtempSync(join(tmpdir(), "naia-user-owned-three-layer-"));
 const source = join(root, "source");
 const startedAt = new Date().toISOString(); const startedMs = Date.now();

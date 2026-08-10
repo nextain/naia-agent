@@ -19,16 +19,6 @@ function run(command: string, args: string[], env: NodeJS.ProcessEnv): Promise<P
   });
 }
 
-function sse(model: string): string {
-  const chunk = (delta: object, finish_reason: string | null, usage?: object) =>
-    `data: ${JSON.stringify({ id: "chatcmpl-cli", object: "chat.completion.chunk", created: 1, model, choices: [{ index: 0, delta, finish_reason }], ...(usage ? { usage } : {}) })}\n\n`;
-  return [
-    chunk({ role: "assistant", content: "controlled cli ok" }, null),
-    chunk({}, "stop", { prompt_tokens: 4, completion_tokens: 3, total_tokens: 7 }),
-    "data: [DONE]\n\n",
-  ].join("");
-}
-
 describe("UC-NAIA-PI actual CLI process and stored login", () => {
   const home = mkdtempSync(join(tmpdir(), "naia-pi-cli-home-"));
   const workdir = mkdtempSync(join(tmpdir(), "naia-pi-cli-work-"));
@@ -44,12 +34,19 @@ describe("UC-NAIA-PI actual CLI process and stored login", () => {
     req.setEncoding("utf8");
     req.on("data", (part) => { raw += part; });
     req.on("end", () => {
-      const body = JSON.parse(raw) as { model?: string };
+      const body = JSON.parse(raw) as { model?: string; gateway_request_id?: string; gateway_attempt?: number };
       upstreamCalls += 1;
       expect(body.model).toBe("grok-4.3");
       expect(req.headers["x-anyllm-key"]).toBe("Bearer stored-test-key");
-      res.writeHead(200, { "Content-Type": "text/event-stream" });
-      res.end(sse("grok-4.3"));
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        id: "chatcmpl-cli", model: "grok-4.3",
+        gateway_request_id: body.gateway_request_id, gateway_attempt: body.gateway_attempt,
+        settlement_status: "settled", billing_status: "settled", customer_cost: "0.00010000",
+        price_version_id: "test-price-v1", currency: "USD",
+        choices: [{ index: 0, message: { role: "assistant", content: "controlled cli ok" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 4, completion_tokens: 3, total_tokens: 7 },
+      }));
     });
   });
 
@@ -99,15 +96,26 @@ describe("UC-NAIA-PI actual CLI process and stored login", () => {
     ].join("");
     const parent = await run(process.execPath, ["-e", wrapper, ...args], env);
 
-    expect(direct.code).toBe(0);
-    expect(parent.code).toBe(0);
+    expect(direct.code, direct.stderr).toBe(0);
+    expect(parent.code, parent.stderr).toBe(0);
     const directReport = JSON.parse(direct.stdout.trim());
     const parentReport = JSON.parse(parent.stdout.trim());
     for (const report of [directReport, parentReport]) {
       expect(report.sessionOk).toBe(true);
       expect(report.modelEvidence).toMatchObject({ provider: "naia", selectedModel: "grok-4.3", totalTokens: 7 });
     }
-    expect(parentReport).toEqual(directReport);
+    const withoutVolatileIds = (report: typeof directReport) => {
+      const copy = structuredClone(report);
+      delete copy.modelEvidence.sessionId;
+      delete copy.modelEvidence.executionId;
+      for (const receipt of copy.modelEvidence.gatewayBillingReceipts ?? []) {
+        delete receipt.executionId;
+        delete receipt.localRequestId;
+        delete receipt.gatewayRequestId;
+      }
+      return copy;
+    };
+    expect(withoutVolatileIds(parentReport)).toEqual(withoutVolatileIds(directReport));
     expect(upstreamCalls).toBe(2);
 
     const beforeRejected = upstreamCalls;

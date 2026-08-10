@@ -186,4 +186,4 @@ try {
   rmSync(root, { recursive: true, force: true });
 }
 
-function sha256(path) { return createHash("sha256").update(readFileSync(path)).digest("hex"); }
+function sha256(path) { return createHash("sha256").update(readFileSync(path, "utf8").replaceAll("\r\n", "\n")).digest("hex"); }

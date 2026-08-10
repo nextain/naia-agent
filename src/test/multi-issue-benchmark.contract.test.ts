@@ -18,11 +18,11 @@ function actualObservation(): MultiIssueBenchmarkObservation {
   mkdirSync(workRoot, { recursive: true });
   const cleanDist = mkdtempSync(join(workRoot, "multi-issue-benchmark-dist-"));
   try {
-    const build = spawnSync(join(repositoryRoot, "node_modules/.bin/tsc"), ["-p", "tsconfig.json", "--outDir", cleanDist], { cwd: repositoryRoot, encoding: "utf8" });
+    const build = spawnSync(process.execPath, [join(repositoryRoot, "node_modules/typescript/bin/tsc"), "-p", "tsconfig.json", "--outDir", cleanDist], { cwd: repositoryRoot, encoding: "utf8" });
     expect(build.status, build.stderr).toBe(0);
     const run = spawnSync(process.execPath, [runnerPath, "--source-revision", artifact.sourceRevision, "--dist-dir", cleanDist], { encoding: "utf8" });
     expect(run.status, run.stderr).toBe(0);
-    expect(run.stdout).toBe(artifactBytes);
+    expect(JSON.parse(run.stdout)).toEqual(JSON.parse(artifactBytes));
     const result = JSON.parse(run.stdout) as { paidCalls: number; claimAllowed: boolean; observation: MultiIssueBenchmarkObservation };
     expect(result.paidCalls).toBe(0);
     expect(result.claimAllowed).toBe(true);

@@ -388,7 +388,10 @@ describe("UC-ORCH-001 single issue", () => {
         if (message.kind === "result") { readyResolve(); resultResolve(message.value!); }
       });
       worker.once("error", (error) => { readyResolve(); resultResolve({ created: false, issueId: "", digest: "", error: error.message }); });
-      return { ready, result };
+      const exited = new Promise<void>((resolve, reject) => {
+        worker.once("exit", (code) => code === 0 ? resolve() : reject(new Error(`worker exited with code ${code}`)));
+      });
+      return { ready, result, exited };
     };
     const first = spawn("issue-thread-1");
     const second = spawn("issue-thread-2");
@@ -396,6 +399,7 @@ describe("UC-ORCH-001 single issue", () => {
     Atomics.store(new Int32Array(barrier), 1, 1);
     Atomics.notify(new Int32Array(barrier), 1, 2);
     const results = await Promise.all([first.result, second.result]);
+    await Promise.all([first.exited, second.exited]);
     expect(results.every((result) => !result.error), JSON.stringify(results)).toBe(true);
     expect(results.map((result) => result.created).sort()).toEqual([false, true]);
     expect(new Set(results.map((result) => result.issueId)).size).toBe(1);

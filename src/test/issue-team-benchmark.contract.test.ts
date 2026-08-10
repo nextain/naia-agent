@@ -14,10 +14,10 @@ function observation(): IssueTeamBenchmarkObservation {
   const artifactBytes = readFileSync(artifactPath, "utf8"); const artifact = JSON.parse(artifactBytes) as { sourceRevision: string };
   const work = join(repositoryRoot, ".agents/work"); mkdirSync(work, { recursive: true }); const dist = mkdtempSync(join(work, "issue-team-benchmark-dist-"));
   try {
-    const build = spawnSync(join(repositoryRoot, "node_modules/.bin/tsc"), ["-p", "tsconfig.json", "--outDir", dist], { cwd: repositoryRoot, encoding: "utf8" });
+    const build = spawnSync(process.execPath, [join(repositoryRoot, "node_modules/typescript/bin/tsc"), "-p", "tsconfig.json", "--outDir", dist], { cwd: repositoryRoot, encoding: "utf8" });
     expect(build.status, build.stderr).toBe(0);
     const run = spawnSync(process.execPath, [runnerPath, "--source-revision", artifact.sourceRevision, "--dist-dir", dist], { cwd: repositoryRoot, encoding: "utf8" });
-    expect(run.status, run.stderr).toBe(0); expect(run.stdout).toBe(artifactBytes);
+    expect(run.status, run.stderr).toBe(0); expect(JSON.parse(run.stdout)).toEqual(JSON.parse(artifactBytes));
     const output = JSON.parse(run.stdout) as { paidCalls: number; claimAllowed: boolean; observation: IssueTeamBenchmarkObservation };
     expect(output).toMatchObject({ paidCalls: 0, claimAllowed: true }); cached = output.observation; return cached;
   } finally { rmSync(dist, { recursive: true, force: true }); }

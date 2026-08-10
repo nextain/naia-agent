@@ -25,7 +25,7 @@ const corpus = JSON.parse(readFileSync(join(here, "orchestration", "single-issue
 const priceSnapshotPath = join(here, "orchestration", "openai-price-snapshot-2026-07-29.json");
 const priceSnapshotBytes = readFileSync(priceSnapshotPath);
 const priceSnapshot = JSON.parse(priceSnapshotBytes.toString("utf8"));
-const priceSnapshotSha256 = createHash("sha256").update(priceSnapshotBytes).digest("hex");
+const priceSnapshotSha256 = createHash("sha256").update(priceSnapshotBytes.toString("utf8").replaceAll("\r\n", "\n")).digest("hex");
 const expectedPriceSnapshotSha256 = "36ff2bca30e2823cddda6b207bdf68b3bb15700c5fdc4e0e67792bda44bc6626";
 if (priceSnapshotSha256 !== expectedPriceSnapshotSha256 || priceSnapshot.id !== "PRICE-OPENAI-2026-07-29"
   || priceSnapshot.currency !== "USD" || priceSnapshot.token_unit !== 1_000_000

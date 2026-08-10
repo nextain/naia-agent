@@ -1,6 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { makePiContinuousLoop, makePiOnlyTeamProfile } from "../main/composition/pi-continuous-loop.js";
 
@@ -104,7 +105,7 @@ describe("Pi-only continuous loop contract", () => {
   });
 
   it("has no OpenCode import, invocation, or fallback edge", () => {
-    const entry = new URL("../main/composition/pi-continuous-loop.ts", import.meta.url).pathname;
+    const entry = fileURLToPath(new URL("../main/composition/pi-continuous-loop.ts", import.meta.url));
     const pending = [entry]; const visited = new Set<string>();
     while (pending.length > 0) {
       const path = pending.pop()!; if (visited.has(path)) continue; visited.add(path);
