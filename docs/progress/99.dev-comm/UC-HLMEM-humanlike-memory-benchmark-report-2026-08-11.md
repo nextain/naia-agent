@@ -56,8 +56,36 @@
 - `benchmark/reports/humanlike/2026-08-11-deterministic.json`
 - `benchmark/reports/humanlike/2026-08-11-live-attempt.json`
 
-## 4. 다음 루프
+## 4. 루프 2 — topical distractor와 target recall
 
-현재 12/12 오프라인 검색은 사용자별 임시 저장소에 관련 seed만 넣은 쉬운 조건이며 F1 시나리오가 빠져 있다. 다음 루프에서는 F1까지 대상에 포함하고 같은 저장소에 비관련 대화 distractor를 넣은 뒤, 단순히 결과가 비어 있지 않은지가 아니라 target seed가 실제 검색 결과에 포함됐는지 측정한다. 이 결과로 검색 품질 병목인지, 라이브 공급자 경로만의 병목인지 분리한다.
+### 가설
+
+기존 12/12는 사용자별 저장소에 관련 seed만 있고 F1이 빠진 쉬운 조건이다. 같은 저장소에 probe 주제와 겹치는 비관련 대화를 넣고 실제 seed 문장이 반환됐는지 판정하면 숨겨진 검색 실패를 드러낼 수 있다.
+
+### 변경
+
+- F1 3개 사용자까지 포함해 검색 대상 12개에서 15개로 확대
+- 저장소마다 음식·카페인·시간대·사교·기온·매운맛 등 topical distractor 8개 추가
+- `injected.length > 0` 대신 반환 episode가 실제 target seed 문장을 포함하는지 판정
+- 라이브 trace도 matched target 검색 여부와 단순 memory injection 여부를 분리
+
+### 평가
+
+| 항목 | 단순 기준선 | distractor 조건 |
+|---|---:|---:|
+| 대상 사용자 | F2 12명 | F1+F2 15명 |
+| store당 distractor | 0 | 8 |
+| 무엇이든 주입됨 | 12/12 | 15/15 |
+| 실제 target seed 검색 | 간접 12/12 | 13/15 (86.7%) |
+| 실패 | 관측 안 됨 | `F2-spice` 2/2 |
+| 계약 테스트 | 26개 | 27개 모두 통과 |
+
+이 루프는 기존 지표의 false positive를 실제로 드러냈다. `F2-spice`에서는 “매운 음식과 순한 음식” distractor가 넓은 keyword-only query와 경쟁해, 결과 블록은 생성됐지만 두 사용자의 실제 성향 seed가 topK에 들지 못했다. 따라서 `any-injection=100%`를 target recall로 해석하면 안 된다.
+
+증적: `benchmark/reports/humanlike/2026-08-11-distractor.json`
+
+## 5. 다음 루프
+
+현재 어댑터 기본 `topK=5`가 경쟁 후보가 있는 검색에서 target 누락을 만들 수 있다는 가설을 검증한다. 동일한 8개 distractor와 15개 사용자를 유지하고 topK만 변화시켜 recall 개선과 프롬프트 길이 증가를 함께 기록한다. 단일 소규모 fixture 결과만으로 프로덕션 기본값을 즉시 변경하지 않고, 민감도 결과가 일관될 때 별도 회귀 검증 후 반영한다.
 
 라이브 3회 반복은 네트워크 가능한 실행 환경에서 동일 seed와 모델로 수행해야 한다. 유효 실행 전에는 인간다운 기억 성능이 좋아졌다는 주장을 보류한다.

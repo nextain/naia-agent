@@ -11,6 +11,16 @@ export function correctOptionIsA(seed: string, trialKey: string): boolean {
   return (digest[0]! & 1) === 0;
 }
 
+/** True only when recall contains an actual seeded user utterance, not merely any result. */
+export function containsAnyTargetText(
+  recalledTexts: readonly string[],
+  targetTexts: readonly string[],
+): boolean {
+  return targetTexts.some(
+    (target) => target.trim().length > 0 && recalledTexts.some((recalled) => recalled.includes(target)),
+  );
+}
+
 export type RunValidityStatus = "complete" | "invalid-infrastructure";
 
 export interface RunValidity {

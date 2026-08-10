@@ -10,7 +10,9 @@ import {
   replayFixture, validateFixture,
   type HumanlikeResult, type HumanlikeTrace, type HumanlikeFixture,
 } from "../../benchmark/src/humanlike/index.js";
-import { correctOptionIsA, assessRunValidity } from "../../benchmark/src/humanlike/run-quality.js";
+import {
+  correctOptionIsA, containsAnyTargetText, assessRunValidity,
+} from "../../benchmark/src/humanlike/run-quality.js";
 
 const trace = (o: Partial<HumanlikeTrace> & { correctLabel: "A" | "B"; predicted: "A" | "B" | null; responseText: string }): HumanlikeTrace => ({
   scenarioId: "s", targetUserId: "u", condition: "matched",
@@ -85,6 +87,18 @@ describe("live-run reproducibility and validity", () => {
     const aRate = first.filter(Boolean).length / first.length;
     expect(aRate).toBeGreaterThan(0.35);
     expect(aRate).toBeLessThan(0.65);
+  });
+
+  it("distinguishes a retrieved target seed from topical distractors", () => {
+    const targets = ["나는 오후에는 디카페인만 마셔.", "진한 커피는 피하고 있어."];
+    expect(containsAnyTargetText(
+      ["카페 메뉴판에 커피와 차가 많더라.", "회의 장소를 정했어."],
+      targets,
+    )).toBe(false);
+    expect(containsAnyTargetText(
+      ["카페 메뉴판에 커피와 차가 많더라.", `기억: ${targets[0]}`],
+      targets,
+    )).toBe(true);
   });
 
   it("fails closed when provider calls fail or a condition has no scored result", () => {

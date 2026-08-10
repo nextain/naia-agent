@@ -15,6 +15,6 @@ export {
   type RecordedProbe, type HumanlikeFixture,
 } from "./fixture.js";
 export {
-  DEFAULT_HUMANLIKE_SEED, correctOptionIsA, assessRunValidity,
+  DEFAULT_HUMANLIKE_SEED, correctOptionIsA, containsAnyTargetText, assessRunValidity,
   type RunValidity, type RunValidityStatus,
 } from "./run-quality.js";

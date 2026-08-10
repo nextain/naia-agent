@@ -14,9 +14,9 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import {
-  HUMANLIKE_FIXTURE_VERSION, HUMANLIKE_SCENARIOS, SELF_SPEC_SCENARIOS,
+  HUMANLIKE_FIXTURE_VERSION, HUMANLIKE_SCENARIOS,
   DEFAULT_HUMANLIKE_SEED, assessRunValidity, assignOptions, buildResult,
-  correctOptionIsA, summarize,
+  containsAnyTargetText, correctOptionIsA, summarize,
 } from "./dist/humanlike/index.js";
 import { makeNaiaMemory } from "../dist/main/adapters/naia-memory.js";
 import { formatRecalledMemory } from "../dist/main/domain/memory.js";
@@ -31,6 +31,19 @@ const KEY = (process.env.NAIA_PROD_KEY ?? "").trim();
 const SEED = process.env.HUMANLIKE_SEED ?? DEFAULT_HUMANLIKE_SEED;
 const OUTPUT = (process.env.HUMANLIKE_OUTPUT ?? "").trim();
 
+// Same-store topical competitors: retrieval must surface the user's actual preference,
+// not pass merely because some broadly related memory was returned.
+const DISTRACTOR_TURNS = [
+  "친구가 회식 장소 후보로 새 고기집과 채식 식당을 보내 줬어.",
+  "카페 메뉴판 사진을 정리 중인데 커피와 차 종류가 많더라.",
+  "달력에 아침 운동과 밤 영화 일정을 둘 다 적어 뒀어.",
+  "주말 모임 참석자 명단을 전달받았어.",
+  "여행지의 여름과 겨울 평균 기온을 비교해 봤어.",
+  "점심 메뉴표에 매운 음식과 순한 음식이 같이 있었어.",
+  "새로 산 책과 이어폰 영수증을 정리했어.",
+  "다음 주 업무 회의 자료를 폴더에 옮겼어.",
+];
+
 const SYS_BASE =
   "너는 사용자를 오래 알고 지낸 친구야. 사용자가 어떤 선택을 할지 '예측'해. " +
   "조언이나 훈수가 아니라 사용자 본인이 실제로 뭘 고를지를 맞혀. " +
@@ -41,8 +54,16 @@ async function inject(project, seed, recallQuery) {
   const storePath = join(mkdtempSync(join(tmpdir(), "hlmem-host-")), "store.json");
   const mem = makeNaiaMemory({ storePath, project, sessionId: "s1" });
   try {
+    for (const userText of DISTRACTOR_TURNS) await mem.save(userText, "알겠어.");
     for (const t of seed) await mem.save(t.userText, t.assistantText ?? "");
-    return formatRecalledMemory(await mem.recall(recallQuery));
+    const recalled = await mem.recall(recallQuery);
+    return {
+      formatted: formatRecalledMemory(recalled),
+      targetFound: containsAnyTargetText(
+        recalled.episodes.map((episode) => episode.content),
+        seed.map((turn) => turn.userText),
+      ),
+    };
   } finally { await mem.close(); }
 }
 
@@ -69,22 +90,30 @@ async function writeArtifact(artifact) {
 }
 
 async function runDeterministic() {
-  console.log(`[humanlike] runtime host — deterministic recall-coverage (P4)`);
-  let surfaced = 0, total = 0;
-  for (const sc of SELF_SPEC_SCENARIOS) for (const u of sc.users) {
+  console.log(`[humanlike] runtime host — deterministic target-recall with ${DISTRACTOR_TURNS.length} distractors/store (P4)`);
+  let injected = 0, surfaced = 0, total = 0;
+  for (const sc of HUMANLIKE_SCENARIOS) for (const u of sc.users) {
     total++;
     const m = await inject(`user-${sc.id}-${u.id}`, u.seed, sc.recallQuery);
-    if (m.length > 0) surfaced++;
-    console.log(`  ${sc.id}/${u.label}  matched-recall=${m.length > 0 ? "Y" : "·"}(${m.length}b)`);
+    if (m.formatted.length > 0) injected++;
+    if (m.targetFound) surfaced++;
+    console.log(`  ${sc.id}/${u.label}  target=${m.targetFound ? "Y" : "·"} injected=${m.formatted.length > 0 ? "Y" : "·"}(${m.formatted.length}b)`);
   }
-  console.log(`\n[P4] recall-coverage: ${surfaced}/${total} surfaced own seed. scenarios=${HUMANLIKE_SCENARIOS.length}.`);
+  console.log(`\n[P4] target-recall: ${surfaced}/${total}; any-injection: ${injected}/${total}; scenarios=${HUMANLIKE_SCENARIOS.length}.`);
   await writeArtifact({
     schemaVersion: 1,
     benchmark: "UC-HLMEM",
     mode: "deterministic-recall",
     recordedAt: new Date().toISOString(),
     seed: SEED,
-    coverage: { surfaced, total, rate: total === 0 ? null : surfaced / total },
+    profile: { name: "topical-distractors-v1", distractorsPerStore: DISTRACTOR_TURNS.length },
+    coverage: {
+      targetSurfaced: surfaced,
+      anyInjected: injected,
+      total,
+      targetRate: total === 0 ? null : surfaced / total,
+      injectionRate: total === 0 ? null : injected / total,
+    },
   });
   return surfaced === total ? 0 : 1;
 }
@@ -114,8 +143,8 @@ async function runLive() {
         const conds = selfSpec ? ["matched", "mismatched", "blind"] : ["matched", "blind"];
         for (const condition of conds) {
           const src = condition === "matched" ? self : condition === "mismatched" ? other : null;
-          const injected = src ? await inject(`u-${sc.id}-${src.id}-${run}`, src.seed, sc.recallQuery) : "";
-          const sys = injected ? `${SYS_BASE}\n\n사용자에 대해 네가 아는 것:\n${injected}` : SYS_BASE;
+          const recalled = src ? await inject(`u-${sc.id}-${src.id}-${run}`, src.seed, sc.recallQuery) : { formatted: "", targetFound: false };
+          const sys = recalled.formatted ? `${SYS_BASE}\n\n사용자에 대해 네가 아는 것:\n${recalled.formatted}` : SYS_BASE;
           let resp = "";
           try { resp = await predictOnce(provider, sys, probe); }
           catch (e) {
@@ -130,8 +159,8 @@ async function runLive() {
             condition,
             correctLabel,
             responseText: resp,
-            recallReturnedTarget: condition === "matched" && injected.length > 0,
-            memoryInjected: injected.length > 0,
+            recallReturnedTarget: condition === "matched" && recalled.targetFound,
+            memoryInjected: recalled.formatted.length > 0,
           });
           results.push(r);
           console.log(`  ${sc.id}/${self.label}/${condition}  정답=${correctLabel} → ${r.trace.predicted ?? "?"} [${r.outcome}]`);
@@ -158,7 +187,14 @@ async function runLive() {
     benchmark: "UC-HLMEM",
     mode: "live-prediction",
     recordedAt,
-    config: { gateway: GATEWAY, model: MAIN_MODEL, runs: RUNS, seed: SEED },
+    config: {
+      gateway: GATEWAY,
+      model: MAIN_MODEL,
+      runs: RUNS,
+      seed: SEED,
+      profile: "topical-distractors-v1",
+      distractorsPerStore: DISTRACTOR_TURNS.length,
+    },
     assignment: { correctA, total: assignments, rate: assignments === 0 ? null : correctA / assignments },
     validity,
     summary: s,
