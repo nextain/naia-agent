@@ -203,20 +203,22 @@ describe("Pi live cost-comparison runner", () => {
       const testContract = structuredClone(contract);
       testContract.receiptAuthority.authentication.pinsDigest =
         `sha256:${createHash("sha256").update(pinsBytes).digest("hex")}`;
-      // @ts-expect-error Production benchmark entrypoints are intentionally plain ESM.
-      const { runPiCostAnalyzerCli } = await import("../../benchmark/analyze-pi-cost-comparison.mjs");
-      const invoke = (integrityKey?: string) => runPiCostAnalyzerCli(
-        ["--pins", pinsPath, "--evidence", evidencePath],
-        integrityKey ? { NAIA_BENCHMARK_JOURNAL_KEY: integrityKey } : {}, { baseContract: testContract });
-      const valid = await invoke(key);
-      expect(valid).toMatchObject({ exitCode: 0,
-        payload: { status: "verified", costEfficiencyClaimAllowed: true } });
-      for (const run of [await invoke("wrong-offline-analyzer-key-000000000000000000000"), await invoke()]) {
-        expect(run).toMatchObject({ exitCode: 2,
-          payload: { status: "unavailable", costEfficiencyClaimAllowed: false } });
+      const testContractPath = join(temporary, "contract.json");
+      writeFileSync(testContractPath, JSON.stringify(testContract));
+      const analyzerPath = join(root, "benchmark/analyze-pi-cost-comparison.mjs");
+      const invoke = (integrityKey?: string, bindContract = true) => spawnSync(process.execPath,
+        [analyzerPath, ...(bindContract ? ["--contract", testContractPath] : []), "--pins", pinsPath, "--evidence", evidencePath],
+        { cwd: root, encoding: "utf8", env: integrityKey ? { ...process.env, NAIA_BENCHMARK_JOURNAL_KEY: integrityKey } : process.env });
+      const valid = invoke(key);
+      expect(valid.status, valid.stderr).toBe(0);
+      expect(JSON.parse(valid.stdout)).toMatchObject({ status: "verified", costEfficiencyClaimAllowed: true });
+      for (const run of [invoke("wrong-offline-analyzer-key-000000000000000000000"), invoke()]) {
+        expect(run.status, run.stderr).toBe(2);
+        expect(JSON.parse(run.stdout)).toMatchObject({ status: "unavailable", costEfficiencyClaimAllowed: false });
       }
-      await expect(runPiCostAnalyzerCli(["--pins", pinsPath, "--evidence", evidencePath],
-        { NAIA_BENCHMARK_JOURNAL_KEY: key })).rejects.toThrow(/pins are not bound/u);
+      const unbound = invoke(key, false);
+      expect(unbound.status).not.toBe(0);
+      expect(unbound.stderr).toMatch(/pins are not bound/u);
     } finally { rmSync(temporary, { recursive: true, force: true }); }
   }, 30_000);
 

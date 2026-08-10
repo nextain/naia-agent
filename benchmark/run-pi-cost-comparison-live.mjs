@@ -304,7 +304,11 @@ function digestFile(path) { return `sha256:${createHash("sha256").update(readFil
 function digestTree(path, ignoreGit = false) {
   const files = walk(path).filter((file) => !(ignoreGit && relative(path, file).split(/[\\/]/u).includes(".git")));
   const hash = createHash("sha256");
-  for (const file of files) { hash.update(relative(path, file).replaceAll("\\", "/")); hash.update("\0"); hash.update(readFileSync(file)); hash.update("\0"); }
+  for (const file of files) {
+    const bytes = readFileSync(file);
+    hash.update(relative(path, file).replaceAll("\\", "/")); hash.update("\0");
+    hash.update(bytes.includes(0) ? bytes : bytes.toString("utf8").replaceAll("\r\n", "\n")); hash.update("\0");
+  }
   return `sha256:${hash.digest("hex")}`;
 }
 function walk(path) {
