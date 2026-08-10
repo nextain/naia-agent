@@ -1,0 +1,497 @@
+{
+  "schemaVersion": 1,
+  "benchmark": "UC-HLMEM",
+  "mode": "live-prediction",
+  "recordedAt": "2026-08-10T22:42:12.123Z",
+  "config": {
+    "gateway": "https://api.nextain.io",
+    "model": "gemini-3.1-flash-lite",
+    "runs": 1,
+    "seed": "20260811",
+    "profile": "topical-distractors-v1",
+    "distractorsPerStore": 8,
+    "topK": 5
+  },
+  "assignment": {
+    "correctA": 8,
+    "total": 15,
+    "rate": 0.5333333333333333
+  },
+  "validity": {
+    "status": "invalid-infrastructure",
+    "total": 42,
+    "scored": 41,
+    "execErrors": 1,
+    "missingConditions": []
+  },
+  "summary": {
+    "matched": {
+      "condition": "matched",
+      "correct": 15,
+      "wrong": 0,
+      "unparsed": 0,
+      "execError": 0,
+      "scored": 15,
+      "accuracy": 1,
+      "pickedARate": 0.5333333333333333
+    },
+    "mismatched": {
+      "condition": "mismatched",
+      "correct": 0,
+      "wrong": 12,
+      "unparsed": 0,
+      "execError": 0,
+      "scored": 12,
+      "accuracy": 0,
+      "pickedARate": 0.4166666666666667
+    },
+    "blind": {
+      "condition": "blind",
+      "correct": 6,
+      "wrong": 8,
+      "unparsed": 0,
+      "execError": 1,
+      "scored": 14,
+      "accuracy": 0.42857142857142855,
+      "pickedARate": 0.35714285714285715
+    },
+    "memoryLift": 0.5714285714285714,
+    "selfSpecificity": 1,
+    "mismatchedBelowBlind": 0.42857142857142855
+  },
+  "executionErrors": [
+    {
+      "scenarioId": "F2-spice",
+      "targetUserId": "B",
+      "condition": "blind",
+      "message": "terminated"
+    }
+  ],
+  "fixture": {
+    "version": 1,
+    "recordedAt": "2026-08-10T22:42:12.123Z",
+    "model": "gemini-3.1-flash-lite",
+    "probes": [
+      {
+        "scenarioId": "F1-vegetarian",
+        "targetUserId": "u",
+        "condition": "matched",
+        "correctLabel": "B",
+        "predicted": "B",
+        "recallReturnedTarget": true,
+        "memoryInjected": true,
+        "responseText": "예측: B\n평소 회식 때도 고기보다는 채소와 사이드 메뉴 위주로 식사하는 너의 식성을 고려하면 고민 없이 채소 비빔밥을 택할 게 뻔하니까."
+      },
+      {
+        "scenarioId": "F1-vegetarian",
+        "targetUserId": "u",
+        "condition": "blind",
+        "correctLabel": "B",
+        "predicted": "A",
+        "recallReturnedTarget": false,
+        "memoryInjected": false,
+        "responseText": "예측: A\n너는 평소에 고기라면 자다가도 일어나는 육식파인데다, 사람들과 모일 때는 무조건 기름진 걸 먹어야 대화가 잘 된다고 했잖아."
+      },
+      {
+        "scenarioId": "F1-caffeine",
+        "targetUserId": "u",
+        "condition": "matched",
+        "correctLabel": "B",
+        "predicted": "B",
+        "recallReturnedTarget": true,
+        "memoryInjected": true,
+        "responseText": "예측: B\n오후 4시에 카페인을 섭취하면 밤잠을 설치는 걸 싫어해서 무조건 디카페인 음료를 고를 테니까요."
+      },
+      {
+        "scenarioId": "F1-caffeine",
+        "targetUserId": "u",
+        "condition": "blind",
+        "correctLabel": "B",
+        "predicted": "A",
+        "recallReturnedTarget": false,
+        "memoryInjected": false,
+        "responseText": "예측: A\n오후 4시면 슬슬 집중력 떨어질 시간이라 평소처럼 카페인 수혈해서 버티는 쪽을 선택할 거잖아."
+      },
+      {
+        "scenarioId": "F1-morning",
+        "targetUserId": "u",
+        "condition": "matched",
+        "correctLabel": "A",
+        "predicted": "A",
+        "recallReturnedTarget": true,
+        "memoryInjected": true,
+        "responseText": "예측: A\n너는 아침 10시면 잠드는 규칙적인 아침형 인간이라 밤 9시 영화보다는 새벽 운동을 선호하잖아."
+      },
+      {
+        "scenarioId": "F1-morning",
+        "targetUserId": "u",
+        "condition": "blind",
+        "correctLabel": "A",
+        "predicted": "B",
+        "recallReturnedTarget": false,
+        "memoryInjected": false,
+        "responseText": "예측: B\n너는 평소에 늦게까지 깨어 있는 걸 좋아하고, 아침 일찍 일어나는 것보다는 여유롭게 밤 시간을 즐기는 쪽을 훨씬 선호하잖아."
+      },
+      {
+        "scenarioId": "F2-diet",
+        "targetUserId": "A",
+        "condition": "matched",
+        "correctLabel": "A",
+        "predicted": "A",
+        "recallReturnedTarget": true,
+        "memoryInjected": true,
+        "responseText": "예측: A\n3년째 윤리적 이유로 채식을 실천하고 있어서, 고기집은 아예 선택지에 두지 않을 거라는 걸 잘 알거든."
+      },
+      {
+        "scenarioId": "F2-diet",
+        "targetUserId": "A",
+        "condition": "mismatched",
+        "correctLabel": "A",
+        "predicted": "B",
+        "recallReturnedTarget": false,
+        "memoryInjected": true,
+        "responseText": "예측: B\n너는 평소에도 고기가 없으면 밥을 먹은 것 같지 않다고 할 정도로 육류를 좋아하니까 당연히 소고기 구이집을 선택할 거야."
+      },
+      {
+        "scenarioId": "F2-diet",
+        "targetUserId": "A",
+        "condition": "blind",
+        "correctLabel": "A",
+        "predicted": "B",
+        "recallReturnedTarget": false,
+        "memoryInjected": false,
+        "responseText": "예측: B\n너는 평소에 건강식보다는 입이 즐거운 확실한 맛을 선호하니까 당연히 소고기지."
+      },
+      {
+        "scenarioId": "F2-diet",
+        "targetUserId": "B",
+        "condition": "matched",
+        "correctLabel": "B",
+        "predicted": "B",
+        "recallReturnedTarget": true,
+        "memoryInjected": true,
+        "responseText": "예측: B\n너는 평소 고기 없이는 식사가 안 된다고 할 정도로 육류를 좋아하니까 당연히 소고기 구이집을 선택할 거야."
+      },
+      {
+        "scenarioId": "F2-diet",
+        "targetUserId": "B",
+        "condition": "mismatched",
+        "correctLabel": "B",
+        "predicted": "A",
+        "recallReturnedTarget": false,
+        "memoryInjected": true,
+        "responseText": "예측: A\n너는 3년째 윤리적 이유로 철저하게 채식을 실천하고 있으니까 당연히 고기집은 아예 고려 대상이 아니잖아."
+      },
+      {
+        "scenarioId": "F2-diet",
+        "targetUserId": "B",
+        "condition": "blind",
+        "correctLabel": "B",
+        "predicted": "B",
+        "recallReturnedTarget": false,
+        "memoryInjected": false,
+        "responseText": "예측: B\n너는 평소에 채소보다는 고기 먹고 나서 힘내야 한다는 말을 입에 달고 살잖아."
+      },
+      {
+        "scenarioId": "F2-caffeine",
+        "targetUserId": "A",
+        "condition": "matched",
+        "correctLabel": "A",
+        "predicted": "A",
+        "recallReturnedTarget": true,
+        "memoryInjected": true,
+        "responseText": "예측: A\n너 카페인에 민감해서 오후엔 무조건 디카페인만 마시잖아, 밤에 심장 두근거리는 거 싫어하니까 당연히 캐모마일이지."
+      },
+      {
+        "scenarioId": "F2-caffeine",
+        "targetUserId": "A",
+        "condition": "mismatched",
+        "correctLabel": "A",
+        "predicted": "B",
+        "recallReturnedTarget": false,
+        "memoryInjected": true,
+        "responseText": "예측: B\n디카페인을 커피 취급하지 않을 정도로 진한 카페인을 선호하는 너니까 고민 없이 콜드브루 더블샷을 고를 게 뻔하지."
+      },
+      {
+        "scenarioId": "F2-caffeine",
+        "targetUserId": "A",
+        "condition": "blind",
+        "correctLabel": "A",
+        "predicted": "B",
+        "recallReturnedTarget": false,
+        "memoryInjected": false,
+        "responseText": "예측: B\n너는 카페인 충전이 꼭 필요한 상황이거나, 밍밍한 것보다 쌉싸름하고 진한 맛을 선호하는 편이니까."
+      },
+      {
+        "scenarioId": "F2-caffeine",
+        "targetUserId": "B",
+        "condition": "matched",
+        "correctLabel": "B",
+        "predicted": "B",
+        "recallReturnedTarget": true,
+        "memoryInjected": true,
+        "responseText": "예측: B\n디카페인을 커피 취급 안 할 정도로 커피를 좋아하니, 고민할 것 없이 진한 콜드브루 더블샷을 고를 게 뻔해."
+      },
+      {
+        "scenarioId": "F2-caffeine",
+        "targetUserId": "B",
+        "condition": "mismatched",
+        "correctLabel": "B",
+        "predicted": "A",
+        "recallReturnedTarget": false,
+        "memoryInjected": true,
+        "responseText": "예측: A\n카페인에 민감해서 오후에는 무조건 디카페인을 찾고, 심장 두근거림을 피하는 너라면 고민할 것도 없이 캐모마일을 고를 테니까."
+      },
+      {
+        "scenarioId": "F2-caffeine",
+        "targetUserId": "B",
+        "condition": "blind",
+        "correctLabel": "B",
+        "predicted": "B",
+        "recallReturnedTarget": false,
+        "memoryInjected": false,
+        "responseText": "예측: B\n너는 카페인 충전이 필요한 상황이거나 깔끔하면서도 진한 커피의 풍미를 포기하지 못하는 편이잖아."
+      },
+      {
+        "scenarioId": "F2-chrono",
+        "targetUserId": "A",
+        "condition": "matched",
+        "correctLabel": "A",
+        "predicted": "A",
+        "recallReturnedTarget": true,
+        "memoryInjected": true,
+        "responseText": "예측: A\n너는 밤 10시면 이미 잠자리에 드는 철저한 아침형 인간이라 밤 11시 영화는 절대 무리거든."
+      },
+      {
+        "scenarioId": "F2-chrono",
+        "targetUserId": "A",
+        "condition": "mismatched",
+        "correctLabel": "A",
+        "predicted": "B",
+        "recallReturnedTarget": false,
+        "memoryInjected": true,
+        "responseText": "예측: B\n아침 일찍 일어나는 걸 정말 힘들어하는 네 성격상, 아침 조깅보다는 밤늦게 영화를 보는 편이 훨씬 너답거든."
+      },
+      {
+        "scenarioId": "F2-chrono",
+        "targetUserId": "A",
+        "condition": "blind",
+        "correctLabel": "A",
+        "predicted": "B",
+        "recallReturnedTarget": false,
+        "memoryInjected": false,
+        "responseText": "예측: B\n너는 평소에 밤늦게까지 깨어 있는 걸 좋아하고, 아침 일찍 일어나는 것보다는 여유로운 밤 시간을 훨씬 선호하잖아."
+      },
+      {
+        "scenarioId": "F2-chrono",
+        "targetUserId": "B",
+        "condition": "matched",
+        "correctLabel": "A",
+        "predicted": "A",
+        "recallReturnedTarget": true,
+        "memoryInjected": true,
+        "responseText": "예측: A\n아침 일찍 일어나는 걸 정말 힘들어하는 너니까, 고민할 것도 없이 밤늦게 영화 보는 쪽을 고를 게 뻔해."
+      },
+      {
+        "scenarioId": "F2-chrono",
+        "targetUserId": "B",
+        "condition": "mismatched",
+        "correctLabel": "A",
+        "predicted": "B",
+        "recallReturnedTarget": false,
+        "memoryInjected": true,
+        "responseText": "예측: B\n너는 아침형 인간이라 밤 10시면 이미 자고 있을 테니까 당연히 아침 7시 조깅 모임을 선택하겠지."
+      },
+      {
+        "scenarioId": "F2-chrono",
+        "targetUserId": "B",
+        "condition": "blind",
+        "correctLabel": "A",
+        "predicted": "A",
+        "recallReturnedTarget": false,
+        "memoryInjected": false,
+        "responseText": "예측: A\n너 평소에 아침잠 많은 거 내가 모를 줄 알고? 밤늦게까지 노는 건 좋아해도 새벽 기상은 절대 못 하잖아."
+      },
+      {
+        "scenarioId": "F2-social",
+        "targetUserId": "A",
+        "condition": "matched",
+        "correctLabel": "B",
+        "predicted": "B",
+        "recallReturnedTarget": true,
+        "memoryInjected": true,
+        "responseText": "예측: B\n너는 기 빨리는 대규모 모임보다 마음 편한 소규모 인원과의 시간을 훨씬 선호하니까."
+      },
+      {
+        "scenarioId": "F2-social",
+        "targetUserId": "A",
+        "condition": "mismatched",
+        "correctLabel": "B",
+        "predicted": "A",
+        "recallReturnedTarget": false,
+        "memoryInjected": true,
+        "responseText": "예측: A\n사람 많은 곳에서 에너지를 얻는 성격이라 100명 규모의 파티는 고민할 필요도 없이 바로 선택할 거잖아."
+      },
+      {
+        "scenarioId": "F2-social",
+        "targetUserId": "A",
+        "condition": "blind",
+        "correctLabel": "B",
+        "predicted": "B",
+        "recallReturnedTarget": false,
+        "memoryInjected": false,
+        "responseText": "예측: B\n너는 시끌벅적한 곳보다는 마음 맞는 소수와 깊은 대화를 나누거나 집중해서 노는 시간을 훨씬 더 소중하게 생각하잖아."
+      },
+      {
+        "scenarioId": "F2-social",
+        "targetUserId": "B",
+        "condition": "matched",
+        "correctLabel": "A",
+        "predicted": "A",
+        "recallReturnedTarget": true,
+        "memoryInjected": true,
+        "responseText": "예측: A\n사람이 많을수록 에너지가 넘치고 파티를 즐기는 성향이라 조용한 보드게임보다는 북적이는 대규모 파티를 당연히 더 선호할 테니까."
+      },
+      {
+        "scenarioId": "F2-social",
+        "targetUserId": "B",
+        "condition": "mismatched",
+        "correctLabel": "A",
+        "predicted": "B",
+        "recallReturnedTarget": false,
+        "memoryInjected": true,
+        "responseText": "예측: B\n사람 많은 곳에서 금방 지치는 너니까, 고민할 것도 없이 당연히 조용하게 즐길 수 있는 넷이서 보드게임을 택할 거야."
+      },
+      {
+        "scenarioId": "F2-social",
+        "targetUserId": "B",
+        "condition": "blind",
+        "correctLabel": "A",
+        "predicted": "B",
+        "recallReturnedTarget": false,
+        "memoryInjected": false,
+        "responseText": "예측: B\n너는 시끌벅적한 곳보다는 친한 친구들과 밀도 있게 대화하고 웃으며 노는 시간을 훨씬 더 소중하게 생각하잖아."
+      },
+      {
+        "scenarioId": "F2-temp",
+        "targetUserId": "A",
+        "condition": "matched",
+        "correctLabel": "B",
+        "predicted": "B",
+        "recallReturnedTarget": true,
+        "memoryInjected": true,
+        "responseText": "예측: B\n너는 추위를 질색해서 겨울 여행은 절대 안 간다고 했으니까 고민할 것도 없이 여름 남해지."
+      },
+      {
+        "scenarioId": "F2-temp",
+        "targetUserId": "A",
+        "condition": "mismatched",
+        "correctLabel": "B",
+        "predicted": "A",
+        "recallReturnedTarget": false,
+        "memoryInjected": true,
+        "responseText": "예측: A\n더위를 워낙 못 참아서 여름 남해의 습한 더위보다는 서늘한 겨울 대관령에서 스키를 즐기는 게 훨씬 나을 것 같아."
+      },
+      {
+        "scenarioId": "F2-temp",
+        "targetUserId": "A",
+        "condition": "blind",
+        "correctLabel": "B",
+        "predicted": "B",
+        "recallReturnedTarget": false,
+        "memoryInjected": false,
+        "responseText": "예측: B\n너는 평소에 정적인 휴식보다는 파도 소리 들으며 맥주 한잔하는 여유로운 분위기를 더 좋아하니까."
+      },
+      {
+        "scenarioId": "F2-temp",
+        "targetUserId": "B",
+        "condition": "matched",
+        "correctLabel": "B",
+        "predicted": "B",
+        "recallReturnedTarget": true,
+        "memoryInjected": true,
+        "responseText": "예측: B\n더위를 유독 힘들어하는 네 성격상 여름의 무더운 남해보다는 쾌적하고 시원한 겨울의 대관령을 선택할 게 분명해."
+      },
+      {
+        "scenarioId": "F2-temp",
+        "targetUserId": "B",
+        "condition": "mismatched",
+        "correctLabel": "B",
+        "predicted": "A",
+        "recallReturnedTarget": false,
+        "memoryInjected": true,
+        "responseText": "예측: A\n추위를 질색해서 겨울 여행은 아예 안 간다고 했던 네 성향상 당연히 여름 남해 해변을 선택할 거야."
+      },
+      {
+        "scenarioId": "F2-temp",
+        "targetUserId": "B",
+        "condition": "blind",
+        "correctLabel": "B",
+        "predicted": "A",
+        "recallReturnedTarget": false,
+        "memoryInjected": false,
+        "responseText": "예측: A\n너는 왁자지껄한 분위기보다 잔잔한 바다 보면서 맥주 한잔하는 여유로운 여행을 훨씬 선호하잖아."
+      },
+      {
+        "scenarioId": "F2-spice",
+        "targetUserId": "A",
+        "condition": "matched",
+        "correctLabel": "A",
+        "predicted": "A",
+        "recallReturnedTarget": true,
+        "memoryInjected": true,
+        "responseText": "예측: A\n평소 자극적이고 매운 음식을 워낙 좋아해서 고민도 안 하고 얼큰한 짬뽕탕을 선택할 게 뻔하거든."
+      },
+      {
+        "scenarioId": "F2-spice",
+        "targetUserId": "A",
+        "condition": "mismatched",
+        "correctLabel": "A",
+        "predicted": "B",
+        "recallReturnedTarget": false,
+        "memoryInjected": true,
+        "responseText": "예측: B\n매운 걸 워낙 못 드셔서 신라면도 물 타서 드시는 분이라 고민할 것도 없이 당연히 콩나물국밥을 고르실 거예요."
+      },
+      {
+        "scenarioId": "F2-spice",
+        "targetUserId": "A",
+        "condition": "blind",
+        "correctLabel": "A",
+        "predicted": "A",
+        "recallReturnedTarget": false,
+        "memoryInjected": false,
+        "responseText": "예측: A\n너 어제도 속이 좀 안 좋다고 했으니까 해장 겸 해서 자극적이고 얼큰한 짬뽕탕을 더 당겨할 것 같거든."
+      },
+      {
+        "scenarioId": "F2-spice",
+        "targetUserId": "B",
+        "condition": "matched",
+        "correctLabel": "A",
+        "predicted": "A",
+        "recallReturnedTarget": true,
+        "memoryInjected": true,
+        "responseText": "예측: A\n너 매운 거 정말 못 먹어서 신라면도 물 타서 먹는 사람이잖아, 고민할 것도 없이 당연히 콩나물국밥이지."
+      },
+      {
+        "scenarioId": "F2-spice",
+        "targetUserId": "B",
+        "condition": "mismatched",
+        "correctLabel": "A",
+        "predicted": "B",
+        "recallReturnedTarget": false,
+        "memoryInjected": true,
+        "responseText": "예측: B\n너는 매운 음식이라면 자다가도 일어날 정도로 좋아하니까 고민 없이 짬뽕탕을 선택할 게 뻔하거든."
+      },
+      {
+        "scenarioId": "F2-spice",
+        "targetUserId": "B",
+        "condition": "blind",
+        "correctLabel": "A",
+        "predicted": null,
+        "recallReturnedTarget": false,
+        "memoryInjected": false,
+        "responseText": ""
+      }
+    ]
+  }
+}

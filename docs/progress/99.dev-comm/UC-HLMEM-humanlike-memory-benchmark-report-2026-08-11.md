@@ -158,7 +158,28 @@
 
 로컬 파일 의존성 갱신 과정에서는 워크스페이스 전체 오프라인 설치가 무관한 dashboard의 `fsevents` 캐시 부재로, 독립 설치가 현재 배치와 맞지 않는 기존 `file:../../naia-kb-compiler` 경로로 각각 중단됐다. package.json과 lockfile은 변경하지 않았으며, 최종 실험은 설치된 패키지 파일과 제품 빌드의 체크섬 일치를 확인하고 수행했다.
 
-## 8. 결론과 다음 실험
+## 8. 네트워크 재확인과 운영 게이트웨이 라이브 시도
+
+사용자가 네트워크를 열어 준 뒤 기존 라이브 기준선의 주소부터 다시 확인했다. 하네스에 남아 있던 Cloud Run 주소 `naia-gateway-181404717065.asia-northeast3.run.app`는 `/`, `/health`, `/healthz`, `/v1`, `/v1/models`, `/v1/chat/completions`에서 모두 404였다. 현재 운영 게이트웨이 `https://api.nextain.io`는 `/health`와 `/v1/models`가 200이며, 모델 목록에서 `gemini-3.1-flash-lite`를 확인했다. 짧은 비스트리밍 4회와 스트리밍 4회 직접 호출도 모두 200이었다. 비밀키 값은 기록하지 않았다.
+
+이에 하네스 기본값을 운영 주소와 `gemini-3.1-flash-lite`로 교정하고, 라이브 호출마다 bounded abort timeout·최대 재시도·선택적 호출 간격을 기록하도록 했다. 그러나 42-call 전체 경로는 짧은 직접 probe와 달리 후반부 스트림에서 반복적으로 끊겼다.
+
+| 실행 | 설정 | 결과 | 판정 |
+|---|---|---|---|
+| corrected 1-run | timeout/retry 미지정, topK=5 | matched 15/15, mismatched 0/12, blind 6/14, exec-error 1 (`terminated`) | `invalid-infrastructure` |
+| throttled 1-run | timeout 15s, retry 1, 간격 1s | matched 12/15 채점, mismatched 9/12 채점, blind 11/15 채점, exec-error 10 | `invalid-infrastructure` |
+| slow 1-run | timeout 60s, retry 0, 간격 2s | `F2-chrono` 이후 연속 timeout; 수동 중단 | artifact 미생성, 성능 증거 아님 |
+
+첫 실행의 `matched=100%`, `memory lift=57pp`, `self-specificity=100pp` 등은 1개 호출 오류가 있는 무효 실행에서 나온 proxy이므로 성능 수치로 사용하지 않는다. timeout/retry 변경은 무한 대기를 막았지만 운영 스트림 불안정을 해소하지 못했다. 현재 근거로는 엔드포인트 자체가 죽었다고 단정할 수 없고, 짧은 probe는 정상인 반면 42개 순차 요청의 스트림 세션 안정성이 확보되지 않았다고만 결론 내린다.
+
+증적:
+
+- `benchmark/reports/humanlike/2026-08-11-live-3run-network-open.json` (구 주소 404, 126/126 오류)
+- `benchmark/reports/humanlike/2026-08-11-live-api-nextain-gemini31-1run.json`
+- `benchmark/reports/humanlike/2026-08-11-live-api-nextain-gemini31-1run-throttled.json`
+- `benchmark/run-humanlike-bench.mjs`의 `HUMANLIKE_CALL_TIMEOUT_MS`, `HUMANLIKE_CALL_RETRIES`, `HUMANLIKE_CALL_DELAY_MS`
+
+## 9. 결론과 다음 실험
 
 이번 반복에서는 먼저 쉬운 `any-injection` 지표의 false positive를 제거했고, 단순 topK 확대가 효과 없이 문맥만 늘린다는 음성 결과를 남긴 다음, 실제 token 불일치를 제품 계층에서 수정했다. 고정 fixture target recall은 같은 topK에서 86.7%에서 100%로 개선됐다.
 
@@ -169,4 +190,4 @@
 3. 네트워크 가능한 환경에서 동일 seed·모델로 matched/mismatched/blind 라이브 실행을 3회 이상 반복한다.
 4. 지연시간이나 scale 개선을 주장하려면 `naia-memory` 규칙에 따라 100k 기억 규모에서 별도 부하 실험을 수행한다.
 
-현재 환경의 라이브 실행은 42/42 `fetch failed`인 `invalid-infrastructure`이므로, LLM의 인간다운 기억 성능이나 memory lift가 개선됐다는 주장은 계속 보류한다.
+현재 운영 게이트웨이의 짧은 호출은 가능하지만 42-call 라이브 실행은 모두 `invalid-infrastructure`이거나 중단되었다. 따라서 LLM의 인간다운 기억 성능이나 memory lift가 개선됐다는 주장은 계속 보류한다. 재개 시에는 게이트웨이 운영자 측의 스트림 세션/요청 제한 로그를 확인하거나, 동일 ProviderPort 계약을 유지하는 안정적인 batch 평가 경로를 먼저 확보해야 한다.

@@ -25,11 +25,17 @@ import { makeOpenAICompatProvider } from "../dist/main/adapters/openai-compat-pr
 const _here = dirname(fileURLToPath(import.meta.url));
 const LIVE = process.env.PREDICT_LIVE === "1";
 const RUNS = Math.max(1, Number(process.env.PREDICT_RUNS ?? 1) | 0);
-const GATEWAY = (process.env.NAIA_GATEWAY_URL ?? "https://naia-gateway-181404717065.asia-northeast3.run.app").replace(/\/+$/, "");
-const MAIN_MODEL = process.env.HUMANLIKE_MAIN_MODEL ?? "vertexai:gemini-3.6-flash";
+const GATEWAY = (process.env.NAIA_GATEWAY_URL ?? "https://api.nextain.io").replace(/\/+$/, "");
+const MAIN_MODEL = process.env.HUMANLIKE_MAIN_MODEL ?? "gemini-3.1-flash-lite";
 const KEY = (process.env.NAIA_PROD_KEY ?? "").trim();
 const SEED = process.env.HUMANLIKE_SEED ?? DEFAULT_HUMANLIKE_SEED;
 const OUTPUT = (process.env.HUMANLIKE_OUTPUT ?? "").trim();
+const requestedCallTimeoutMs = Math.floor(Number(process.env.HUMANLIKE_CALL_TIMEOUT_MS ?? 45000));
+const CALL_TIMEOUT_MS = Number.isFinite(requestedCallTimeoutMs) ? Math.min(Math.max(5000, requestedCallTimeoutMs), 180000) : 45000;
+const requestedCallRetries = Math.floor(Number(process.env.HUMANLIKE_CALL_RETRIES ?? 2));
+const CALL_RETRIES = Number.isFinite(requestedCallRetries) ? Math.min(Math.max(0, requestedCallRetries), 3) : 2;
+const requestedCallDelayMs = Math.floor(Number(process.env.HUMANLIKE_CALL_DELAY_MS ?? 0));
+const CALL_DELAY_MS = Number.isFinite(requestedCallDelayMs) ? Math.min(Math.max(0, requestedCallDelayMs), 10000) : 0;
 const requestedTopK = Math.floor(Number(process.env.HUMANLIKE_TOP_K ?? 5));
 const TOP_K = Number.isFinite(requestedTopK) ? Math.min(Math.max(1, requestedTopK), 50) : 5;
 
@@ -70,12 +76,29 @@ async function inject(project, seed, recallQuery) {
 }
 
 /** P5 seam: predict via ProviderPort (sole sanctioned LLM path). Collect text chunks. */
-async function predictOnce(provider, systemPrompt, probe) {
+async function predictOnce(provider, systemPrompt, probe, signal) {
   let text = "";
-  for await (const ch of provider.chat({ provider: "naia-gw", model: MAIN_MODEL }, [{ role: "user", content: probe }], { systemPrompt })) {
+  for await (const ch of provider.chat({ provider: "naia-gw", model: MAIN_MODEL }, [{ role: "user", content: probe }], { systemPrompt, signal })) {
     if (ch.kind === "text") text += ch.text;
   }
   return text;
+}
+
+async function predictWithRetry(provider, systemPrompt, probe) {
+  let lastError;
+  for (let attempt = 0; attempt <= CALL_RETRIES; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), CALL_TIMEOUT_MS);
+    try {
+      return await predictOnce(provider, systemPrompt, probe, controller.signal);
+    } catch (error) {
+      lastError = error;
+      if (attempt < CALL_RETRIES) await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw lastError;
 }
 
 async function writeArtifact(artifact) {
@@ -153,13 +176,14 @@ async function runLive() {
           const recalled = src ? await inject(`u-${sc.id}-${src.id}-${run}`, src.seed, sc.recallQuery) : { formatted: "", targetFound: false };
           const sys = recalled.formatted ? `${SYS_BASE}\n\n사용자에 대해 네가 아는 것:\n${recalled.formatted}` : SYS_BASE;
           let resp = "";
-          try { resp = await predictOnce(provider, sys, probe); }
+          try { resp = await predictWithRetry(provider, sys, probe); }
           catch (e) {
             const message = e instanceof Error ? e.message : String(e);
             resp = "";
             executionErrors.push({ scenarioId: sc.id, targetUserId: self.id, condition, message });
             console.error(`  (call error ${sc.id}/${self.id}/${condition}: ${message})`);
           }
+          if (CALL_DELAY_MS > 0) await new Promise((resolve) => setTimeout(resolve, CALL_DELAY_MS));
           const r = buildResult({
             scenarioId: sc.id,
             targetUserId: self.id,
@@ -202,6 +226,9 @@ async function runLive() {
       profile: "topical-distractors-v1",
       distractorsPerStore: DISTRACTOR_TURNS.length,
       topK: TOP_K,
+      callTimeoutMs: CALL_TIMEOUT_MS,
+      callRetries: CALL_RETRIES,
+      callDelayMs: CALL_DELAY_MS,
     },
     assignment: { correctA, total: assignments, rate: assignments === 0 ? null : correctA / assignments },
     validity,
