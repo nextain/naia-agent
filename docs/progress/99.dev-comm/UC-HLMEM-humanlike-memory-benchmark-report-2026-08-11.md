@@ -179,6 +179,8 @@
 - `benchmark/reports/humanlike/2026-08-11-live-api-nextain-gemini31-1run-throttled.json`
 - `benchmark/run-humanlike-bench.mjs`의 `HUMANLIKE_CALL_TIMEOUT_MS`, `HUMANLIKE_CALL_RETRIES`, `HUMANLIKE_CALL_DELAY_MS`
 
+이번 네트워크 재확인 단계의 benchmark 커밋은 `fbe8458`이다. 앞선 제품 수정 커밋은 `8ab6283`이며, 그 전의 재현성·distractor·topK 평가 커밋은 각각 `9fd5253`, `6a52cb1`, `1d9890b`이다.
+
 ## 9. 결론과 다음 실험
 
 이번 반복에서는 먼저 쉬운 `any-injection` 지표의 false positive를 제거했고, 단순 topK 확대가 효과 없이 문맥만 늘린다는 음성 결과를 남긴 다음, 실제 token 불일치를 제품 계층에서 수정했다. 고정 fixture target recall은 같은 topK에서 86.7%에서 100%로 개선됐다.
