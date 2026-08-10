@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1.0",
   "benchmarkId": "uc-orch-002-deterministic-v1",
-  "sourceRevision": "a498bcdf6c3bbe6856416dddf40276d8ecbd6a6b",
+  "sourceRevision": "eb1e32b64db184eb3315670fe79509f3dbda6d6d",
   "paidCalls": 0,
   "observation": {
     "submitted": 4,
@@ -60,7 +60,7 @@
     },
     "provenance": {
       "trackedInputs": {
-        "benchmark/run-multi-issue-deterministic.mjs": "b4f1300dacf109764527c94cd1da9bcf0757c461a678a388faa0ba7536522ef4",
+        "benchmark/run-multi-issue-deterministic.mjs": "9530e242f47bfc429fb28fbcb4f0f631bac8ca253d7ebc0739dd827c0f155dcb",
         "benchmark/orchestration/multi-issue-deterministic.json": "5942f3c85636e9554b13a255ed7ee7b522296692f990422f7ec7fd094e813ec2",
         "src/main/adapters/sqlite-multi-issue-session-store.ts": "0fe0a4005099903cf92629b5eb6ec1aedf81ed412dc49e9116bf8a672e8f5679",
         "src/main/adapters/redact.ts": "6707fba70983f5c0ba953ca9b123579d7e014e70020e5003017bd07f2220756b",
