@@ -14,3 +14,7 @@ export {
   HUMANLIKE_FIXTURE_VERSION, replayFixture, validateFixture,
   type RecordedProbe, type HumanlikeFixture,
 } from "./fixture.js";
+export {
+  DEFAULT_HUMANLIKE_SEED, correctOptionIsA, assessRunValidity,
+  type RunValidity, type RunValidityStatus,
+} from "./run-quality.js";

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "benchmark": "UC-HLMEM",
+  "mode": "deterministic-recall",
+  "recordedAt": "2026-08-10T17:56:50.142Z",
+  "seed": "20260811",
+  "coverage": {
+    "surfaced": 12,
+    "total": 12,
+    "rate": 1
+  }
+}

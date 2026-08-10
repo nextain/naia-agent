@@ -1,0 +1,744 @@
+{
+  "schemaVersion": 1,
+  "benchmark": "UC-HLMEM",
+  "mode": "live-prediction",
+  "recordedAt": "2026-08-10T17:56:59.020Z",
+  "config": {
+    "gateway": "https://naia-gateway-181404717065.asia-northeast3.run.app",
+    "model": "vertexai:gemini-3.6-flash",
+    "runs": 1,
+    "seed": "20260811"
+  },
+  "assignment": {
+    "correctA": 8,
+    "total": 15,
+    "rate": 0.5333333333333333
+  },
+  "validity": {
+    "status": "invalid-infrastructure",
+    "total": 42,
+    "scored": 0,
+    "execErrors": 42,
+    "missingConditions": [
+      "matched",
+      "mismatched",
+      "blind"
+    ]
+  },
+  "summary": {
+    "matched": {
+      "condition": "matched",
+      "correct": 0,
+      "wrong": 0,
+      "unparsed": 0,
+      "execError": 15,
+      "scored": 0,
+      "accuracy": null,
+      "pickedARate": null
+    },
+    "mismatched": {
+      "condition": "mismatched",
+      "correct": 0,
+      "wrong": 0,
+      "unparsed": 0,
+      "execError": 12,
+      "scored": 0,
+      "accuracy": null,
+      "pickedARate": null
+    },
+    "blind": {
+      "condition": "blind",
+      "correct": 0,
+      "wrong": 0,
+      "unparsed": 0,
+      "execError": 15,
+      "scored": 0,
+      "accuracy": null,
+      "pickedARate": null
+    },
+    "memoryLift": null,
+    "selfSpecificity": null,
+    "mismatchedBelowBlind": null
+  },
+  "executionErrors": [
+    {
+      "scenarioId": "F1-vegetarian",
+      "targetUserId": "u",
+      "condition": "matched",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F1-vegetarian",
+      "targetUserId": "u",
+      "condition": "blind",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F1-caffeine",
+      "targetUserId": "u",
+      "condition": "matched",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F1-caffeine",
+      "targetUserId": "u",
+      "condition": "blind",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F1-morning",
+      "targetUserId": "u",
+      "condition": "matched",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F1-morning",
+      "targetUserId": "u",
+      "condition": "blind",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-diet",
+      "targetUserId": "A",
+      "condition": "matched",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-diet",
+      "targetUserId": "A",
+      "condition": "mismatched",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-diet",
+      "targetUserId": "A",
+      "condition": "blind",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-diet",
+      "targetUserId": "B",
+      "condition": "matched",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-diet",
+      "targetUserId": "B",
+      "condition": "mismatched",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-diet",
+      "targetUserId": "B",
+      "condition": "blind",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-caffeine",
+      "targetUserId": "A",
+      "condition": "matched",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-caffeine",
+      "targetUserId": "A",
+      "condition": "mismatched",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-caffeine",
+      "targetUserId": "A",
+      "condition": "blind",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-caffeine",
+      "targetUserId": "B",
+      "condition": "matched",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-caffeine",
+      "targetUserId": "B",
+      "condition": "mismatched",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-caffeine",
+      "targetUserId": "B",
+      "condition": "blind",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-chrono",
+      "targetUserId": "A",
+      "condition": "matched",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-chrono",
+      "targetUserId": "A",
+      "condition": "mismatched",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-chrono",
+      "targetUserId": "A",
+      "condition": "blind",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-chrono",
+      "targetUserId": "B",
+      "condition": "matched",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-chrono",
+      "targetUserId": "B",
+      "condition": "mismatched",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-chrono",
+      "targetUserId": "B",
+      "condition": "blind",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-social",
+      "targetUserId": "A",
+      "condition": "matched",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-social",
+      "targetUserId": "A",
+      "condition": "mismatched",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-social",
+      "targetUserId": "A",
+      "condition": "blind",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-social",
+      "targetUserId": "B",
+      "condition": "matched",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-social",
+      "targetUserId": "B",
+      "condition": "mismatched",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-social",
+      "targetUserId": "B",
+      "condition": "blind",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-temp",
+      "targetUserId": "A",
+      "condition": "matched",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-temp",
+      "targetUserId": "A",
+      "condition": "mismatched",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-temp",
+      "targetUserId": "A",
+      "condition": "blind",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-temp",
+      "targetUserId": "B",
+      "condition": "matched",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-temp",
+      "targetUserId": "B",
+      "condition": "mismatched",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-temp",
+      "targetUserId": "B",
+      "condition": "blind",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-spice",
+      "targetUserId": "A",
+      "condition": "matched",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-spice",
+      "targetUserId": "A",
+      "condition": "mismatched",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-spice",
+      "targetUserId": "A",
+      "condition": "blind",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-spice",
+      "targetUserId": "B",
+      "condition": "matched",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-spice",
+      "targetUserId": "B",
+      "condition": "mismatched",
+      "message": "fetch failed"
+    },
+    {
+      "scenarioId": "F2-spice",
+      "targetUserId": "B",
+      "condition": "blind",
+      "message": "fetch failed"
+    }
+  ],
+  "fixture": {
+    "version": 1,
+    "recordedAt": "2026-08-10T17:56:59.020Z",
+    "model": "vertexai:gemini-3.6-flash",
+    "probes": [
+      {
+        "scenarioId": "F1-vegetarian",
+        "targetUserId": "u",
+        "condition": "matched",
+        "correctLabel": "B",
+        "predicted": null,
+        "recallReturnedTarget": true,
+        "memoryInjected": true,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F1-vegetarian",
+        "targetUserId": "u",
+        "condition": "blind",
+        "correctLabel": "B",
+        "predicted": null,
+        "recallReturnedTarget": false,
+        "memoryInjected": false,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F1-caffeine",
+        "targetUserId": "u",
+        "condition": "matched",
+        "correctLabel": "B",
+        "predicted": null,
+        "recallReturnedTarget": true,
+        "memoryInjected": true,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F1-caffeine",
+        "targetUserId": "u",
+        "condition": "blind",
+        "correctLabel": "B",
+        "predicted": null,
+        "recallReturnedTarget": false,
+        "memoryInjected": false,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F1-morning",
+        "targetUserId": "u",
+        "condition": "matched",
+        "correctLabel": "A",
+        "predicted": null,
+        "recallReturnedTarget": true,
+        "memoryInjected": true,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F1-morning",
+        "targetUserId": "u",
+        "condition": "blind",
+        "correctLabel": "A",
+        "predicted": null,
+        "recallReturnedTarget": false,
+        "memoryInjected": false,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-diet",
+        "targetUserId": "A",
+        "condition": "matched",
+        "correctLabel": "A",
+        "predicted": null,
+        "recallReturnedTarget": true,
+        "memoryInjected": true,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-diet",
+        "targetUserId": "A",
+        "condition": "mismatched",
+        "correctLabel": "A",
+        "predicted": null,
+        "recallReturnedTarget": false,
+        "memoryInjected": true,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-diet",
+        "targetUserId": "A",
+        "condition": "blind",
+        "correctLabel": "A",
+        "predicted": null,
+        "recallReturnedTarget": false,
+        "memoryInjected": false,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-diet",
+        "targetUserId": "B",
+        "condition": "matched",
+        "correctLabel": "B",
+        "predicted": null,
+        "recallReturnedTarget": true,
+        "memoryInjected": true,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-diet",
+        "targetUserId": "B",
+        "condition": "mismatched",
+        "correctLabel": "B",
+        "predicted": null,
+        "recallReturnedTarget": false,
+        "memoryInjected": true,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-diet",
+        "targetUserId": "B",
+        "condition": "blind",
+        "correctLabel": "B",
+        "predicted": null,
+        "recallReturnedTarget": false,
+        "memoryInjected": false,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-caffeine",
+        "targetUserId": "A",
+        "condition": "matched",
+        "correctLabel": "A",
+        "predicted": null,
+        "recallReturnedTarget": true,
+        "memoryInjected": true,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-caffeine",
+        "targetUserId": "A",
+        "condition": "mismatched",
+        "correctLabel": "A",
+        "predicted": null,
+        "recallReturnedTarget": false,
+        "memoryInjected": true,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-caffeine",
+        "targetUserId": "A",
+        "condition": "blind",
+        "correctLabel": "A",
+        "predicted": null,
+        "recallReturnedTarget": false,
+        "memoryInjected": false,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-caffeine",
+        "targetUserId": "B",
+        "condition": "matched",
+        "correctLabel": "B",
+        "predicted": null,
+        "recallReturnedTarget": true,
+        "memoryInjected": true,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-caffeine",
+        "targetUserId": "B",
+        "condition": "mismatched",
+        "correctLabel": "B",
+        "predicted": null,
+        "recallReturnedTarget": false,
+        "memoryInjected": true,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-caffeine",
+        "targetUserId": "B",
+        "condition": "blind",
+        "correctLabel": "B",
+        "predicted": null,
+        "recallReturnedTarget": false,
+        "memoryInjected": false,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-chrono",
+        "targetUserId": "A",
+        "condition": "matched",
+        "correctLabel": "A",
+        "predicted": null,
+        "recallReturnedTarget": true,
+        "memoryInjected": true,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-chrono",
+        "targetUserId": "A",
+        "condition": "mismatched",
+        "correctLabel": "A",
+        "predicted": null,
+        "recallReturnedTarget": false,
+        "memoryInjected": true,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-chrono",
+        "targetUserId": "A",
+        "condition": "blind",
+        "correctLabel": "A",
+        "predicted": null,
+        "recallReturnedTarget": false,
+        "memoryInjected": false,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-chrono",
+        "targetUserId": "B",
+        "condition": "matched",
+        "correctLabel": "A",
+        "predicted": null,
+        "recallReturnedTarget": true,
+        "memoryInjected": true,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-chrono",
+        "targetUserId": "B",
+        "condition": "mismatched",
+        "correctLabel": "A",
+        "predicted": null,
+        "recallReturnedTarget": false,
+        "memoryInjected": true,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-chrono",
+        "targetUserId": "B",
+        "condition": "blind",
+        "correctLabel": "A",
+        "predicted": null,
+        "recallReturnedTarget": false,
+        "memoryInjected": false,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-social",
+        "targetUserId": "A",
+        "condition": "matched",
+        "correctLabel": "B",
+        "predicted": null,
+        "recallReturnedTarget": true,
+        "memoryInjected": true,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-social",
+        "targetUserId": "A",
+        "condition": "mismatched",
+        "correctLabel": "B",
+        "predicted": null,
+        "recallReturnedTarget": false,
+        "memoryInjected": true,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-social",
+        "targetUserId": "A",
+        "condition": "blind",
+        "correctLabel": "B",
+        "predicted": null,
+        "recallReturnedTarget": false,
+        "memoryInjected": false,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-social",
+        "targetUserId": "B",
+        "condition": "matched",
+        "correctLabel": "A",
+        "predicted": null,
+        "recallReturnedTarget": true,
+        "memoryInjected": true,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-social",
+        "targetUserId": "B",
+        "condition": "mismatched",
+        "correctLabel": "A",
+        "predicted": null,
+        "recallReturnedTarget": false,
+        "memoryInjected": true,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-social",
+        "targetUserId": "B",
+        "condition": "blind",
+        "correctLabel": "A",
+        "predicted": null,
+        "recallReturnedTarget": false,
+        "memoryInjected": false,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-temp",
+        "targetUserId": "A",
+        "condition": "matched",
+        "correctLabel": "B",
+        "predicted": null,
+        "recallReturnedTarget": true,
+        "memoryInjected": true,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-temp",
+        "targetUserId": "A",
+        "condition": "mismatched",
+        "correctLabel": "B",
+        "predicted": null,
+        "recallReturnedTarget": false,
+        "memoryInjected": true,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-temp",
+        "targetUserId": "A",
+        "condition": "blind",
+        "correctLabel": "B",
+        "predicted": null,
+        "recallReturnedTarget": false,
+        "memoryInjected": false,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-temp",
+        "targetUserId": "B",
+        "condition": "matched",
+        "correctLabel": "B",
+        "predicted": null,
+        "recallReturnedTarget": true,
+        "memoryInjected": true,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-temp",
+        "targetUserId": "B",
+        "condition": "mismatched",
+        "correctLabel": "B",
+        "predicted": null,
+        "recallReturnedTarget": false,
+        "memoryInjected": true,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-temp",
+        "targetUserId": "B",
+        "condition": "blind",
+        "correctLabel": "B",
+        "predicted": null,
+        "recallReturnedTarget": false,
+        "memoryInjected": false,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-spice",
+        "targetUserId": "A",
+        "condition": "matched",
+        "correctLabel": "A",
+        "predicted": null,
+        "recallReturnedTarget": true,
+        "memoryInjected": true,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-spice",
+        "targetUserId": "A",
+        "condition": "mismatched",
+        "correctLabel": "A",
+        "predicted": null,
+        "recallReturnedTarget": false,
+        "memoryInjected": true,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-spice",
+        "targetUserId": "A",
+        "condition": "blind",
+        "correctLabel": "A",
+        "predicted": null,
+        "recallReturnedTarget": false,
+        "memoryInjected": false,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-spice",
+        "targetUserId": "B",
+        "condition": "matched",
+        "correctLabel": "A",
+        "predicted": null,
+        "recallReturnedTarget": true,
+        "memoryInjected": true,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-spice",
+        "targetUserId": "B",
+        "condition": "mismatched",
+        "correctLabel": "A",
+        "predicted": null,
+        "recallReturnedTarget": false,
+        "memoryInjected": true,
+        "responseText": ""
+      },
+      {
+        "scenarioId": "F2-spice",
+        "targetUserId": "B",
+        "condition": "blind",
+        "correctLabel": "A",
+        "predicted": null,
+        "recallReturnedTarget": false,
+        "memoryInjected": false,
+        "responseText": ""
+      }
+    ]
+  }
+}

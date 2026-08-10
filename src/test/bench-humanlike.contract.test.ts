@@ -10,6 +10,7 @@ import {
   replayFixture, validateFixture,
   type HumanlikeResult, type HumanlikeTrace, type HumanlikeFixture,
 } from "../../benchmark/src/humanlike/index.js";
+import { correctOptionIsA, assessRunValidity } from "../../benchmark/src/humanlike/run-quality.js";
 
 const trace = (o: Partial<HumanlikeTrace> & { correctLabel: "A" | "B"; predicted: "A" | "B" | null; responseText: string }): HumanlikeTrace => ({
   scenarioId: "s", targetUserId: "u", condition: "matched",
@@ -71,6 +72,41 @@ describe("assignOptions (position-bias control)", () => {
     expect(r.optA).toBe(f1.options.find((o) => o.correctFor === "u")!.text);
     expect(r.optB).toBe(f1.options.find((o) => o.correctFor === "_")!.text);
     expect(() => assignOptions(f1, "_", true)).toThrow();
+  });
+});
+
+describe("live-run reproducibility and validity", () => {
+  it("places options reproducibly from a seed and trial key", () => {
+    const first = Array.from({ length: 128 }, (_, i) => correctOptionIsA("seed-1", `trial-${i}`));
+    const replay = Array.from({ length: 128 }, (_, i) => correctOptionIsA("seed-1", `trial-${i}`));
+    const changedSeed = Array.from({ length: 128 }, (_, i) => correctOptionIsA("seed-2", `trial-${i}`));
+    expect(replay).toEqual(first);
+    expect(changedSeed).not.toEqual(first);
+    const aRate = first.filter(Boolean).length / first.length;
+    expect(aRate).toBeGreaterThan(0.35);
+    expect(aRate).toBeLessThan(0.65);
+  });
+
+  it("fails closed when provider calls fail or a condition has no scored result", () => {
+    const failed = [res("matched", "A", ""), res("mismatched", "A", ""), res("blind", "A", "")];
+    expect(assessRunValidity(failed)).toMatchObject({
+      status: "invalid-infrastructure", scored: 0, execErrors: 3,
+      missingConditions: ["matched", "mismatched", "blind"],
+    });
+    expect(assessRunValidity([res("matched", "A", "예측: A"), res("blind", "A", "예측: A")])).toMatchObject({
+      status: "invalid-infrastructure", missingConditions: ["mismatched"],
+    });
+  });
+
+  it("accepts a complete three-condition run", () => {
+    const complete = [
+      res("matched", "A", "예측: A"),
+      res("mismatched", "A", "예측: B"),
+      res("blind", "A", "예측: A"),
+    ];
+    expect(assessRunValidity(complete)).toEqual({
+      status: "complete", total: 3, scored: 3, execErrors: 0, missingConditions: [],
+    });
   });
 });
 
