@@ -21,7 +21,7 @@
 - `node --test src/test/ci-verify-*.test.mjs`: `ci-verify-completion.test.mjs` 1개 실패(나머지 3개 통과)
 - 시스템 `pnpm test`: 저장소 요구 버전 10.33.0 대신 9.0.0이어서 시작 전 중단
 
-기존 파일이나 디렉터리는 삭제·수정하지 않았다. 이후 검증에는 캐시된 pnpm 10.33.0 또는 로컬 실행 파일을 사용한다.
+기존 파일이나 디렉터리는 삭제·수정하지 않았다. 이후 검증에는 로컬 실행 파일을 사용했다. `10.33.0` 경로의 Corepack 캐시가 실제로는 pnpm 9.0.0 CLI를 실행하는 환경 이상도 별도로 확인했다.
 
 ## 3. 루프 1 — 재현성과 fail-closed 판정
 
@@ -84,8 +84,89 @@
 
 증적: `benchmark/reports/humanlike/2026-08-11-distractor.json`
 
-## 5. 다음 루프
+## 5. 루프 3 — topK 민감도와 문맥 비용
 
-현재 어댑터 기본 `topK=5`가 경쟁 후보가 있는 검색에서 target 누락을 만들 수 있다는 가설을 검증한다. 동일한 8개 distractor와 15개 사용자를 유지하고 topK만 변화시켜 recall 개선과 프롬프트 길이 증가를 함께 기록한다. 단일 소규모 fixture 결과만으로 프로덕션 기본값을 즉시 변경하지 않고, 민감도 결과가 일관될 때 별도 회귀 검증 후 반영한다.
+### 가설
 
-라이브 3회 반복은 네트워크 가능한 실행 환경에서 동일 seed와 모델로 수행해야 한다. 유효 실행 전에는 인간다운 기억 성능이 좋아졌다는 주장을 보류한다.
+`F2-spice`의 누락이 경쟁 후보에 밀린 결과라면 `topK=5`를 8로 늘릴 때 target recall이 개선될 수 있다. 단, 더 많은 기억을 넣는 비용을 함께 측정해야 한다.
+
+### 변경
+
+- `HUMANLIKE_TOP_K`로 1~50 범위의 검색 폭을 지정
+- 아티팩트에 topK, 사용자별 target 판정, 주입 문자 수, 평균·최대 주입 문자 수 기록
+- seed `20260811`, store당 distractor 8개, 동일한 15개 target을 고정하고 topK만 5와 8로 비교
+
+### 평가
+
+| 항목 | topK=5 control | topK=8 candidate | 판정 |
+|---|---:|---:|---|
+| target recall | 13/15 (86.7%) | 13/15 (86.7%) | 개선 없음 |
+| any injection | 15/15 | 15/15 | 동일 |
+| 평균 주입 문자 | 322.0 | 418.4 | +96.4 (+29.9%) |
+| 최대 주입 문자 | 346 | 457 | +111 (+32.1%) |
+| 누락 | `F2-spice` 2건 | `F2-spice` 2건 | 동일 |
+
+가설은 기각했다. 검색 폭 확대는 target을 한 건도 더 찾지 못하면서 프롬프트 문맥만 약 30% 늘렸다. 따라서 프로덕션 기본 topK는 변경하지 않았다.
+
+증적:
+
+- `benchmark/reports/humanlike/2026-08-11-topk5-control.json`
+- `benchmark/reports/humanlike/2026-08-11-topk8-candidate.json`
+
+## 6. 루프 4 — 한국어 맛 합성어 정규화
+
+### 원인 분석과 가설
+
+실패 query의 핵심 token은 `매운맛`이지만 seed 문장의 핵심 token은 `매운`이었다. keyword-only 검색에서 두 token의 교집합이 없어 점수가 0이므로, topK를 늘려도 후보 자체에 들어오지 않았다. 생산적인 `맛` 합성어를 원형과 어간으로 함께 확장하면 `매운맛 ↔ 매운`을 연결하면서 기존 정확한 token도 보존할 수 있다고 판단했다.
+
+### 제품 변경
+
+`naia-memory`의 한국어 정규화에서 길이 2 이상인 `*맛` token을 원형과 어간으로 확장했다. 예를 들어 `매운맛`은 `[매운맛, 매운]`, `감칠맛`은 `[감칠맛, 감칠]`로 정규화한다. 두 사례를 회귀 테스트로 고정했다.
+
+- 제품 커밋: `8ab6283` (`fix(recall): expand Korean taste compounds`)
+- `naia-memory` 빌드 통과
+- `naia-memory` 전체 테스트 24 files, 391 tests 통과
+
+### 동일 조건 재평가
+
+빌드된 `naia-memory/dist`와 `naia-agent`가 해석한 설치 패키지 파일의 SHA-256이 동일함을 확인한 뒤, control과 같은 topK=5·seed·distractor 조건으로 재실행했다.
+
+| 항목 | 수정 전 control | 정규화 수정 후 | 변화 |
+|---|---:|---:|---:|
+| target recall | 13/15 (86.7%) | 15/15 (100%) | +2건, +13.3%p |
+| any injection | 15/15 | 15/15 | 동일 |
+| 평균 주입 문자 | 322.0 | 328.7 | +6.7 (+2.1%) |
+| 최대 주입 문자 | 346 | 350 | +4 (+1.2%) |
+| `F2-spice` recall | 0/2 | 2/2 | +2건 |
+
+이번 fixture에서는 검색 폭을 늘리지 않고 누락 2건을 모두 복구했다. 문맥 길이의 소폭 증가는 새로 회수된 target episode가 프롬프트에 포함된 결과다. 이 수치는 **15개 고정 fixture의 keyword-only target recall**이며, 일반적인 완전 회수율이나 LLM 응답 품질 100%를 뜻하지 않는다.
+
+증적: `benchmark/reports/humanlike/2026-08-11-ko-compound-candidate.json`
+
+## 7. 최종 검증 상태
+
+| 검증 | 결과 |
+|---|---|
+| benchmark TypeScript compile | 통과 |
+| 관련 계약 테스트 | 27/27 통과 |
+| `naia-agent` TypeScript compile | 통과 |
+| `naia-agent` 전체 Vitest | 1,368 통과, 12 실패, 9 skip |
+| root structure | 기존 미등록 `projects/` 때문에 실패 |
+| CI verify | 3 통과, 기존 completion 1 실패 |
+
+전체 Vitest의 12개 실패는 6개 파일에 있으며, 샌드박스의 `spawnSync git EPERM`, localhost `listen EPERM`, 자식 프로세스 조기 종료에 걸린 subprocess/gRPC 통합 테스트다. 관련 벤치마크 테스트와 양 저장소 TypeScript 컴파일, `naia-memory` 전체 테스트는 통과했다. 따라서 이번 변경 범위의 회귀는 관측되지 않았지만, 전체 suite를 통과했다고 기록하지는 않는다.
+
+로컬 파일 의존성 갱신 과정에서는 워크스페이스 전체 오프라인 설치가 무관한 dashboard의 `fsevents` 캐시 부재로, 독립 설치가 현재 배치와 맞지 않는 기존 `file:../../naia-kb-compiler` 경로로 각각 중단됐다. package.json과 lockfile은 변경하지 않았으며, 최종 실험은 설치된 패키지 파일과 제품 빌드의 체크섬 일치를 확인하고 수행했다.
+
+## 8. 결론과 다음 실험
+
+이번 반복에서는 먼저 쉬운 `any-injection` 지표의 false positive를 제거했고, 단순 topK 확대가 효과 없이 문맥만 늘린다는 음성 결과를 남긴 다음, 실제 token 불일치를 제품 계층에서 수정했다. 고정 fixture target recall은 같은 topK에서 86.7%에서 100%로 개선됐다.
+
+다음 우선순위는 다음과 같다.
+
+1. `맛` 이외의 한국어 합성 명사·활용 불일치 corpus를 추가해 규칙의 precision과 recall을 함께 측정한다.
+2. 같은 fixture에서 keyword-only와 embedding 검색을 비교해 lexical rule의 적용 범위를 정한다.
+3. 네트워크 가능한 환경에서 동일 seed·모델로 matched/mismatched/blind 라이브 실행을 3회 이상 반복한다.
+4. 지연시간이나 scale 개선을 주장하려면 `naia-memory` 규칙에 따라 100k 기억 규모에서 별도 부하 실험을 수행한다.
+
+현재 환경의 라이브 실행은 42/42 `fetch failed`인 `invalid-infrastructure`이므로, LLM의 인간다운 기억 성능이나 memory lift가 개선됐다는 주장은 계속 보류한다.

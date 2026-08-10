@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 1,
+  "benchmark": "UC-HLMEM",
+  "mode": "deterministic-recall",
+  "recordedAt": "2026-08-10T18:35:12.400Z",
+  "seed": "20260811",
+  "profile": {
+    "name": "topical-distractors-v1",
+    "distractorsPerStore": 8,
+    "topK": 5
+  },
+  "coverage": {
+    "targetSurfaced": 15,
+    "anyInjected": 15,
+    "total": 15,
+    "targetRate": 1,
+    "injectionRate": 1,
+    "meanInjectedChars": 328.73333333333335,
+    "maxInjectedChars": 350
+  },
+  "cases": [
+    {
+      "scenarioId": "F1-vegetarian",
+      "targetUserId": "u",
+      "targetFound": true,
+      "injectedChars": 342
+    },
+    {
+      "scenarioId": "F1-caffeine",
+      "targetUserId": "u",
+      "targetFound": true,
+      "injectedChars": 341
+    },
+    {
+      "scenarioId": "F1-morning",
+      "targetUserId": "u",
+      "targetFound": true,
+      "injectedChars": 311
+    },
+    {
+      "scenarioId": "F2-diet",
+      "targetUserId": "A",
+      "targetFound": true,
+      "injectedChars": 334
+    },
+    {
+      "scenarioId": "F2-diet",
+      "targetUserId": "B",
+      "targetFound": true,
+      "injectedChars": 335
+    },
+    {
+      "scenarioId": "F2-caffeine",
+      "targetUserId": "A",
+      "targetFound": true,
+      "injectedChars": 325
+    },
+    {
+      "scenarioId": "F2-caffeine",
+      "targetUserId": "B",
+      "targetFound": true,
+      "injectedChars": 326
+    },
+    {
+      "scenarioId": "F2-chrono",
+      "targetUserId": "A",
+      "targetFound": true,
+      "injectedChars": 332
+    },
+    {
+      "scenarioId": "F2-chrono",
+      "targetUserId": "B",
+      "targetFound": true,
+      "injectedChars": 318
+    },
+    {
+      "scenarioId": "F2-social",
+      "targetUserId": "A",
+      "targetFound": true,
+      "injectedChars": 308
+    },
+    {
+      "scenarioId": "F2-social",
+      "targetUserId": "B",
+      "targetFound": true,
+      "injectedChars": 324
+    },
+    {
+      "scenarioId": "F2-temp",
+      "targetUserId": "A",
+      "targetFound": true,
+      "injectedChars": 330
+    },
+    {
+      "scenarioId": "F2-temp",
+      "targetUserId": "B",
+      "targetFound": true,
+      "injectedChars": 329
+    },
+    {
+      "scenarioId": "F2-spice",
+      "targetUserId": "A",
+      "targetFound": true,
+      "injectedChars": 326
+    },
+    {
+      "scenarioId": "F2-spice",
+      "targetUserId": "B",
+      "targetFound": true,
+      "injectedChars": 350
+    }
+  ]
+}

@@ -30,6 +30,8 @@ const MAIN_MODEL = process.env.HUMANLIKE_MAIN_MODEL ?? "vertexai:gemini-3.6-flas
 const KEY = (process.env.NAIA_PROD_KEY ?? "").trim();
 const SEED = process.env.HUMANLIKE_SEED ?? DEFAULT_HUMANLIKE_SEED;
 const OUTPUT = (process.env.HUMANLIKE_OUTPUT ?? "").trim();
+const requestedTopK = Math.floor(Number(process.env.HUMANLIKE_TOP_K ?? 5));
+const TOP_K = Number.isFinite(requestedTopK) ? Math.min(Math.max(1, requestedTopK), 50) : 5;
 
 // Same-store topical competitors: retrieval must surface the user's actual preference,
 // not pass merely because some broadly related memory was returned.
@@ -52,7 +54,7 @@ const SYS_BASE =
 /** P4 bridge: seed → automatic recall → trusted-boundary formatter (never re-framed). keyword-only. */
 async function inject(project, seed, recallQuery) {
   const storePath = join(mkdtempSync(join(tmpdir(), "hlmem-host-")), "store.json");
-  const mem = makeNaiaMemory({ storePath, project, sessionId: "s1" });
+  const mem = makeNaiaMemory({ storePath, project, sessionId: "s1", topK: TOP_K });
   try {
     for (const userText of DISTRACTOR_TURNS) await mem.save(userText, "알겠어.");
     for (const t of seed) await mem.save(t.userText, t.assistantText ?? "");
@@ -90,13 +92,15 @@ async function writeArtifact(artifact) {
 }
 
 async function runDeterministic() {
-  console.log(`[humanlike] runtime host — deterministic target-recall with ${DISTRACTOR_TURNS.length} distractors/store (P4)`);
+  console.log(`[humanlike] runtime host — deterministic target-recall with ${DISTRACTOR_TURNS.length} distractors/store, topK=${TOP_K} (P4)`);
   let injected = 0, surfaced = 0, total = 0;
+  const cases = [];
   for (const sc of HUMANLIKE_SCENARIOS) for (const u of sc.users) {
     total++;
     const m = await inject(`user-${sc.id}-${u.id}`, u.seed, sc.recallQuery);
     if (m.formatted.length > 0) injected++;
     if (m.targetFound) surfaced++;
+    cases.push({ scenarioId: sc.id, targetUserId: u.id, targetFound: m.targetFound, injectedChars: m.formatted.length });
     console.log(`  ${sc.id}/${u.label}  target=${m.targetFound ? "Y" : "·"} injected=${m.formatted.length > 0 ? "Y" : "·"}(${m.formatted.length}b)`);
   }
   console.log(`\n[P4] target-recall: ${surfaced}/${total}; any-injection: ${injected}/${total}; scenarios=${HUMANLIKE_SCENARIOS.length}.`);
@@ -106,14 +110,17 @@ async function runDeterministic() {
     mode: "deterministic-recall",
     recordedAt: new Date().toISOString(),
     seed: SEED,
-    profile: { name: "topical-distractors-v1", distractorsPerStore: DISTRACTOR_TURNS.length },
+    profile: { name: "topical-distractors-v1", distractorsPerStore: DISTRACTOR_TURNS.length, topK: TOP_K },
     coverage: {
       targetSurfaced: surfaced,
       anyInjected: injected,
       total,
       targetRate: total === 0 ? null : surfaced / total,
       injectionRate: total === 0 ? null : injected / total,
+      meanInjectedChars: total === 0 ? null : cases.reduce((sum, item) => sum + item.injectedChars, 0) / total,
+      maxInjectedChars: cases.reduce((max, item) => Math.max(max, item.injectedChars), 0),
     },
+    cases,
   });
   return surfaced === total ? 0 : 1;
 }
@@ -194,6 +201,7 @@ async function runLive() {
       seed: SEED,
       profile: "topical-distractors-v1",
       distractorsPerStore: DISTRACTOR_TURNS.length,
+      topK: TOP_K,
     },
     assignment: { correctA, total: assignments, rate: assignments === 0 ? null : correctA / assignments },
     validity,
