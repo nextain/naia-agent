@@ -11,6 +11,8 @@ import {
   OpenAICompatEmbeddingProvider,
 } from "@nextain/naia-memory";
 import type { CompactionSummarizer, EmbeddingProvider, FactExtractor } from "@nextain/naia-memory";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { ManagedMemoryPort } from "../ports/memory.js";
 import type { CompactionPort, CompactionRequest, CompactionResult, HandoffBlob } from "../ports/compaction.js";
 import type { RecalledMemory } from "../domain/memory.js";
@@ -24,6 +26,19 @@ const ANCHOR_CAP = 512;   // anchor 1개 길이 상한.
 function capInput(s: string, max: number): string {
   const t = String(s ?? "");
   return t.length <= max ? t : `${t.slice(0, max)} …[절단됨]`;
+}
+
+/** FR-MEM-15 (#108, naia-shell#425): 로컬 기억 저장 경로의 명시 해석.
+ *  비어있지 않은 `NAIA_HOME` 이 `~/.naia` 를 대체한다 — 격리된 dev 인스턴스(Naia Dev,
+ *  NAIA_HOME=~/.naia-dev)의 agent 가 운영 기억(naia-memory.json)을 오염시키지 않도록,
+ *  패키지 기본값에 맡기지 않고 agent 가 항상 명시 경로를 LocalAdapter 에 전달한다.
+ *  미지정 기본값은 기존 패키지 기본(~/.naia/memory/naia-memory.json)과 동일(무회귀). */
+export function naiaMemoryDefaultStorePath(
+  overrideHome: string | undefined = process.env.NAIA_HOME,
+): string {
+  const trimmed = overrideHome?.trim();
+  const home = trimmed ? trimmed : join(homedir(), ".naia");
+  return join(home, "memory", "naia-memory.json");
 }
 
 export interface NaiaMemoryOpts {
@@ -214,7 +229,8 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
     // 는 LocalAdapter 에 직접 주입(MemorySystem 은 pre-built adapter 에 embedding 미전달 — index.ts:464 경로).
     sys = new MemorySystem({
       adapter: new LocalAdapter({
-        ...(opts.storePath ? { storePath: opts.storePath } : {}),
+        // FR-MEM-15: 항상 명시 storePath — NAIA_HOME 격리 존중(위 헬퍼 참조).
+        storePath: opts.storePath ?? naiaMemoryDefaultStorePath(),
         ...(embeddingProvider ? { embeddingProvider } : {}),
       }),
       ...(factExtractor ? { factExtractor } : {}),

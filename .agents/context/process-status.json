@@ -9,6 +9,14 @@
   },
 
   "current_work": {
+    "memory_store_path_isolation_108": {
+      "issue": "https://github.com/nextain/naia-agent/issues/108",
+      "linked": "naia-shell#425 (dev 인스턴스 격리)",
+      "scope": "FR-MEM-15 — 로컬 기억 저장 경로를 agent 가 명시 해석해 LocalAdapter 에 항상 전달. 비어있지 않은 NAIA_HOME 이 ~/.naia 를 대체(dev=~/.naia-dev) → dev/운영 agent 의 naia-memory.json 교차 오염 차단. 기본값=기존 패키지 기본과 동일(무회귀).",
+      "status": "done",
+      "verification": "memory-store-path-isolation.contract.test.ts 3건 + 전체 pnpm test 1701 GREEN(tsc 포함)",
+      "last_updated": "2026-08-13T16:10:00+09:00"
+    },
     "issue": "FR-MEM-13 / #106",
     "title": "Reload live memory configuration and safely replace MemoryPort",
     "issue_doc": ".agents/progress/issue-106-memory-live-reload.md",
