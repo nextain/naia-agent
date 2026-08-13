@@ -40,15 +40,23 @@ describe("UC-NAIA-PI provider isolation", () => {
         { id: "grok-4.3", cost: { input: 1.375, output: 2.75, cacheRead: 1.375 } },
         { id: "deepseek-v4-flash", cost: { input: 0.209, output: 0.561, cacheRead: 0.0308 } },
         { id: "deepseek-v4-pro" },
+        { id: "solar-pro4", cost: { input: 0.33, output: 1.32, cacheRead: 0.066 } },
+        { id: "solar-mini", cost: { input: 0.165, output: 0.165, cacheRead: 0.165 } },
       ] } },
     });
     expect(buildNaiaPiModelsConfig("https://gateway.example", 321)).toMatchObject({
-      providers: { naia: { models: [{ maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }] } },
+      providers: { naia: { models: [{ maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }] } },
     });
     const models = (buildNaiaPiModelsConfig("https://gateway.example") as {
       providers: { naia: { models: Array<{ id: string }> } };
     }).providers.naia.models.map(({ id }) => id);
-    expect(models).toEqual(["grok-4.3", "deepseek-v4-flash", "deepseek-v4-pro"]);
+    expect(models).toEqual([
+      "grok-4.3",
+      "deepseek-v4-flash",
+      "deepseek-v4-pro",
+      "solar-pro4",
+      "solar-mini",
+    ]);
   });
 
   it("child env keeps runtime values and Naia auth but drops global Pi/direct-provider secrets", () => {

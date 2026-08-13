@@ -5,8 +5,18 @@ import { join } from "node:path";
 import type { GatewayRequestBudgetPolicy } from "./naia-pi-versioned-billing.js";
 
 export const NAIA_PI_PROVIDER = "naia";
-export const NAIA_PI_MODELS = ["grok-4.3", "deepseek-v4-flash", "deepseek-v4-pro"] as const;
+export const NAIA_PI_MODELS = [
+  "grok-4.3",
+  "deepseek-v4-flash",
+  "deepseek-v4-pro",
+  "solar-pro4",
+  "solar-mini",
+] as const;
 export type NaiaPiModel = (typeof NAIA_PI_MODELS)[number];
+// DeepSeek V4 now accepts tools on the gateway (deployed 2026-08-13,
+// naia-shell#427), but the agent keeps them analysis-only until the team-profile
+// composition guard + its contract tests are reworked (tracked separately).
+// Solar is tool-capable and is intentionally absent here.
 export const NAIA_PI_ANALYSIS_ONLY_MODELS: readonly NaiaPiModel[] = ["deepseek-v4-flash", "deepseek-v4-pro"];
 
 // USD per 1M tokens. Operational Pi estimates use the 2026-08-04 Azure Korea Central
@@ -15,6 +25,12 @@ export const NAIA_PI_ANALYSIS_ONLY_MODELS: readonly NaiaPiModel[] = ["deepseek-v
 const AZURE_CUSTOMER_COST = {
   grok43: { input: 1.375, output: 2.75, cacheRead: 1.375, cacheWrite: 1.375 },
   deepseekV4Flash: { input: 0.209, output: 0.561, cacheRead: 0.0308, cacheWrite: 0.209 },
+} as const;
+
+// Upstage Solar (direct provider). Final customer rates = source x 1.10.
+const UPSTAGE_CUSTOMER_COST = {
+  solarPro4: { input: 0.33, output: 1.32, cacheRead: 0.066, cacheWrite: 0.33 },
+  solarMini: { input: 0.165, output: 0.165, cacheRead: 0.165, cacheWrite: 0.165 },
 } as const;
 
 export function isNaiaPiModel(model: string | undefined): model is NaiaPiModel {
@@ -45,10 +61,14 @@ export function buildNaiaPiModelsConfig(baseUrl?: string, maxTokens?: number): R
         models: [
           { id: "grok-4.3", name: "Grok 4.3 (Naia / Azure)", reasoning: false, input: ["text"],
             cost: AZURE_CUSTOMER_COST.grok43, contextWindow: 200000, ...(maxTokens ? { maxTokens } : {}) },
-          { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash (Naia / Azure, no tools)", reasoning: false,
+          { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash (Naia / Azure, analysis)", reasoning: false,
             input: ["text"], cost: AZURE_CUSTOMER_COST.deepseekV4Flash,
             contextWindow: 128000, ...(maxTokens ? { maxTokens } : {}) },
-          { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro (Naia / Azure, no tools)", reasoning: false, input: ["text"], contextWindow: 1000000, ...(maxTokens ? { maxTokens } : {}) },
+          { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro (Naia / Azure, analysis)", reasoning: false, input: ["text"], contextWindow: 1000000, ...(maxTokens ? { maxTokens } : {}) },
+          { id: "solar-pro4", name: "Solar Pro 4 (Naia / Upstage, 국내)", reasoning: false, input: ["text"],
+            cost: UPSTAGE_CUSTOMER_COST.solarPro4, contextWindow: 128000, ...(maxTokens ? { maxTokens } : {}) },
+          { id: "solar-mini", name: "Solar Mini (Naia / Upstage, 국내)", reasoning: false, input: ["text"],
+            cost: UPSTAGE_CUSTOMER_COST.solarMini, contextWindow: 32000, ...(maxTokens ? { maxTokens } : {}) },
         ],
       },
     },

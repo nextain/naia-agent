@@ -147,7 +147,13 @@ describe("SPEC-019 model catalog truthfulness", () => {
       { provider: "azure", id: "deepseek-v4-pro", label: "DeepSeek", tools: false, use: "analysis" },
       { provider: "azure", id: "grok-4.3", label: "grok-4.3", tools: true, use: "coding" },
     ]);
-    expect(FALLBACK_NAIA_MODELS.map((x) => x.id)).toEqual(["grok-4.3", "deepseek-v4-flash", "deepseek-v4-pro"]);
+    expect(FALLBACK_NAIA_MODELS.map((x) => x.id)).toEqual([
+      "grok-4.3",
+      "deepseek-v4-flash",
+      "deepseek-v4-pro",
+      "solar-pro4",
+      "solar-mini",
+    ]);
     expect(normalizeModelCatalog({ bad: true })).toEqual([]);
   });
 });
