@@ -39,8 +39,8 @@
     "@earendil-works/pi-coding-agent": "0.83.0",
     "@grpc/grpc-js": "^1.14.4",
     "@grpc/proto-loader": "^0.8.1",
-    "@naia/kb-compiler": "file:../../naia-kb-compiler",
-    "@nextain/naia-memory": "file:../../naia-memory",
+    "@naia/kb-compiler": "file:../naia-kb-compiler",
+    "@nextain/naia-memory": "file:../naia-memory",
     "better-sqlite3": "^12.10.0",
     "js-yaml": "^4.2.0"
   },

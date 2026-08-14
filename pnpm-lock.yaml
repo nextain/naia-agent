@@ -11,10 +11,10 @@ importers:
       '@anthropic-ai/claude-agent-sdk':
         specifier: ^0.3.179
         version: 0.3.179(@anthropic-ai/sdk@0.91.1(zod@4.4.3))(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(zod@4.4.3)
-      '@earendil-works/pi-coding-agent':
+      '@earendil-works/pi-ai':
         specifier: 0.83.0
         version: 0.83.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
-      '@earendil-works/pi-ai':
+      '@earendil-works/pi-coding-agent':
         specifier: 0.83.0
         version: 0.83.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
       '@grpc/grpc-js':
@@ -24,11 +24,11 @@ importers:
         specifier: ^0.8.1
         version: 0.8.1
       '@naia/kb-compiler':
-        specifier: file:../../naia-kb-compiler
-        version: file:../../naia-kb-compiler
+        specifier: file:../naia-kb-compiler
+        version: file:../naia-kb-compiler
       '@nextain/naia-memory':
-        specifier: file:../../naia-memory
-        version: file:../../naia-memory(@aws-crypto/sha256-js@5.2.0)(@aws-sdk/credential-provider-node@3.972.75)(@browserbasehq/sdk@2.14.0)(@browserbasehq/stagehand@1.14.0(@playwright/test@1.60.0)(deepmerge@4.3.1)(dotenv@16.4.5)(openai@6.42.0(ws@8.21.0)(zod@4.4.3))(zod@4.4.3))(@huggingface/transformers@3.8.1)(@ibm-cloud/watsonx-ai@1.7.14)(@opentelemetry/api@1.9.0)(@smithy/signature-v4@5.6.12)(google-auth-library@10.9.1)(ibm-cloud-sdk-core@5.4.20)(ignore@7.0.5)(jsonwebtoken@9.0.3)(mammoth@1.12.0)(openai@6.42.0(ws@8.21.0)(zod@4.4.3))(pdf-parse@1.1.4)(playwright@1.60.0)(typescript@5.9.3)(ws@8.21.0)
+        specifier: file:../naia-memory
+        version: file:../naia-memory(@aws-crypto/sha256-js@5.2.0)(@aws-sdk/credential-provider-node@3.972.75)(@browserbasehq/sdk@2.14.0)(@browserbasehq/stagehand@1.14.0(@playwright/test@1.60.0)(deepmerge@4.3.1)(dotenv@16.4.5)(openai@6.42.0(ws@8.21.0)(zod@4.4.3))(zod@4.4.3))(@huggingface/transformers@3.8.1)(@ibm-cloud/watsonx-ai@1.7.14)(@opentelemetry/api@1.9.0)(@smithy/signature-v4@5.6.12)(google-auth-library@10.9.1)(ibm-cloud-sdk-core@5.4.20)(ignore@7.0.5)(jsonwebtoken@9.0.3)(mammoth@1.12.0)(openai@6.42.0(ws@8.21.0)(zod@4.4.3))(pdf-parse@1.1.4)(playwright@1.60.0)(typescript@5.9.3)(ws@8.21.0)
       better-sqlite3:
         specifier: ^12.10.0
         version: 12.10.0
@@ -1075,11 +1075,11 @@ packages:
       '@cfworker/json-schema':
         optional: true
 
-  '@naia/kb-compiler@file:../../naia-kb-compiler':
-    resolution: {directory: ../../naia-kb-compiler, type: directory}
+  '@naia/kb-compiler@file:../naia-kb-compiler':
+    resolution: {directory: ../naia-kb-compiler, type: directory}
 
-  '@nextain/naia-memory@file:../../naia-memory':
-    resolution: {directory: ../../naia-memory, type: directory}
+  '@nextain/naia-memory@file:../naia-memory':
+    resolution: {directory: ../naia-memory, type: directory}
     engines: {node: '>=20'}
     peerDependencies:
       '@huggingface/transformers': ^3.0.0
@@ -1390,6 +1390,7 @@ packages:
   '@xmldom/xmldom@0.8.13':
     resolution: {integrity: sha512-KRYzxepc14G/CEpEGc3Yn+JKaAeT63smlDr+vjB8jRfgTBBI9wRj/nkQEO+ucV8p8I9bfKLWp37uHgFrbntPvw==}
     engines: {node: '>=10.0.0'}
+    deprecated: this version has critical issues, please update to the latest version
 
   abort-controller@3.0.0:
     resolution: {integrity: sha512-h8lQ8tacZYnR3vNQTgibj+tODHI5/+l06Au2Pcriv/Gmet0eaj4TwWH41sO9wnHDiQsEj19q0drzdWdeAHtweg==}
@@ -3677,7 +3678,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@naia/kb-compiler@file:../../naia-kb-compiler':
+  '@naia/kb-compiler@file:../naia-kb-compiler':
     dependencies:
       zod: 3.25.76
     optionalDependencies:
@@ -3686,7 +3687,7 @@ snapshots:
       pdf-parse: 1.1.4
       xlsx: 0.18.5
 
-  '@nextain/naia-memory@file:../../naia-memory(@aws-crypto/sha256-js@5.2.0)(@aws-sdk/credential-provider-node@3.972.75)(@browserbasehq/sdk@2.14.0)(@browserbasehq/stagehand@1.14.0(@playwright/test@1.60.0)(deepmerge@4.3.1)(dotenv@16.4.5)(openai@6.42.0(ws@8.21.0)(zod@4.4.3))(zod@4.4.3))(@huggingface/transformers@3.8.1)(@ibm-cloud/watsonx-ai@1.7.14)(@opentelemetry/api@1.9.0)(@smithy/signature-v4@5.6.12)(google-auth-library@10.9.1)(ibm-cloud-sdk-core@5.4.20)(ignore@7.0.5)(jsonwebtoken@9.0.3)(mammoth@1.12.0)(openai@6.42.0(ws@8.21.0)(zod@4.4.3))(pdf-parse@1.1.4)(playwright@1.60.0)(typescript@5.9.3)(ws@8.21.0)':
+  '@nextain/naia-memory@file:../naia-memory(@aws-crypto/sha256-js@5.2.0)(@aws-sdk/credential-provider-node@3.972.75)(@browserbasehq/sdk@2.14.0)(@browserbasehq/stagehand@1.14.0(@playwright/test@1.60.0)(deepmerge@4.3.1)(dotenv@16.4.5)(openai@6.42.0(ws@8.21.0)(zod@4.4.3))(zod@4.4.3))(@huggingface/transformers@3.8.1)(@ibm-cloud/watsonx-ai@1.7.14)(@opentelemetry/api@1.9.0)(@smithy/signature-v4@5.6.12)(google-auth-library@10.9.1)(ibm-cloud-sdk-core@5.4.20)(ignore@7.0.5)(jsonwebtoken@9.0.3)(mammoth@1.12.0)(openai@6.42.0(ws@8.21.0)(zod@4.4.3))(pdf-parse@1.1.4)(playwright@1.60.0)(typescript@5.9.3)(ws@8.21.0)':
     dependencies:
       '@langchain/community': 1.1.29(@aws-crypto/sha256-js@5.2.0)(@aws-sdk/credential-provider-node@3.972.75)(@browserbasehq/sdk@2.14.0)(@browserbasehq/stagehand@1.14.0(@playwright/test@1.60.0)(deepmerge@4.3.1)(dotenv@16.4.5)(openai@6.42.0(ws@8.21.0)(zod@4.4.3))(zod@4.4.3))(@huggingface/transformers@3.8.1)(@ibm-cloud/watsonx-ai@1.7.14)(@langchain/core@1.1.48(@opentelemetry/api@1.9.0)(openai@6.42.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0))(@opentelemetry/api@1.9.0)(@qdrant/js-client-rest@1.18.0(typescript@5.9.3))(@smithy/signature-v4@5.6.12)(better-sqlite3@12.10.0)(google-auth-library@10.9.1)(ibm-cloud-sdk-core@5.4.20)(ignore@7.0.5)(jsonwebtoken@9.0.3)(mammoth@1.12.0)(openai@6.42.0(ws@8.21.0)(zod@4.4.3))(pdf-parse@1.1.4)(playwright@1.60.0)(ws@8.21.0)
       '@langchain/core': 1.1.48(@opentelemetry/api@1.9.0)(openai@6.42.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0)
