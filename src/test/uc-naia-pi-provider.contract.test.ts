@@ -7,6 +7,7 @@ import {
   buildNaiaPiChildEnv,
   buildNaiaPiModelsConfig,
   ensureNaiaPiConfig,
+  isNaiaPiModel,
 } from "../main/adapters/naia-pi-provider.js";
 import { makeCumulativePiLineParser, makePiSubAgent, piLineToEvents, type SpawnFn } from "../main/adapters/subagent-pi.js";
 
@@ -42,10 +43,12 @@ describe("UC-NAIA-PI provider isolation", () => {
         { id: "deepseek-v4-pro" },
         { id: "solar-pro4", cost: { input: 0.33, output: 1.32, cacheRead: 0.066 } },
         { id: "solar-mini", cost: { input: 0.165, output: 0.165, cacheRead: 0.165 } },
+        { id: "HCX-007", cost: { input: 0.97, output: 3.88 } },
+        { id: "HCX-DASH-002", cost: { input: 0.388, output: 1.552 } },
       ] } },
     });
     expect(buildNaiaPiModelsConfig("https://gateway.example", 321)).toMatchObject({
-      providers: { naia: { models: [{ maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }] } },
+      providers: { naia: { models: [{ maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }] } },
     });
     const models = (buildNaiaPiModelsConfig("https://gateway.example") as {
       providers: { naia: { models: Array<{ id: string }> } };
@@ -56,7 +59,20 @@ describe("UC-NAIA-PI provider isolation", () => {
       "deepseek-v4-pro",
       "solar-pro4",
       "solar-mini",
+      "HCX-007",
+      "HCX-DASH-002",
     ]);
+  });
+
+  it("recognizes Naia models case-insensitively, incl. uppercase CLOVA ids", () => {
+    expect(isNaiaPiModel("grok-4.3")).toBe(true);
+    expect(isNaiaPiModel("solar-pro4")).toBe(true);
+    // CLOVA ids are uppercase; both exact and lowercased must resolve.
+    expect(isNaiaPiModel("HCX-007")).toBe(true);
+    expect(isNaiaPiModel("hcx-007")).toBe(true);
+    expect(isNaiaPiModel("HCX-DASH-002")).toBe(true);
+    expect(isNaiaPiModel("gpt-4o")).toBe(false);
+    expect(isNaiaPiModel(undefined)).toBe(false);
   });
 
   it("child env keeps runtime values and Naia auth but drops global Pi/direct-provider secrets", () => {

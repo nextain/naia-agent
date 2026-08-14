@@ -11,6 +11,9 @@ export const NAIA_PI_MODELS = [
   "deepseek-v4-pro",
   "solar-pro4",
   "solar-mini",
+  // Naver CLOVA canonical ids are uppercase (the gateway forwards them verbatim).
+  "HCX-007",
+  "HCX-DASH-002",
 ] as const;
 export type NaiaPiModel = (typeof NAIA_PI_MODELS)[number];
 // DeepSeek V4 now accepts tools on the gateway (deployed 2026-08-13,
@@ -33,8 +36,22 @@ const UPSTAGE_CUSTOMER_COST = {
   solarMini: { input: 0.165, output: 0.165, cacheRead: 0.165, cacheWrite: 0.165 },
 } as const;
 
+// Naver CLOVA (direct provider, billed in KRW). These are ESTIMATES only — the
+// gateway recomputes the USD price weekly from USD/KRW (naia-anyllm#66), so the
+// authoritative cost is always the versioned gateway receipt, never this table.
+// Snapshot @ ~1,417 KRW/USD, 2026-08-14. No cache discount (endpoint returns none).
+const CLOVA_CUSTOMER_COST = {
+  hcx007: { input: 0.97, output: 3.88, cacheRead: 0.97, cacheWrite: 0.97 },
+  hcxDash002: { input: 0.388, output: 1.552, cacheRead: 0.388, cacheWrite: 0.388 },
+} as const;
+
 export function isNaiaPiModel(model: string | undefined): model is NaiaPiModel {
-  return typeof model === "string" && (NAIA_PI_MODELS as readonly string[]).includes(model.toLowerCase());
+  // Case-insensitive on both sides: most ids are lowercase, but CLOVA ids
+  // (HCX-007, HCX-DASH-002) are uppercase.
+  return (
+    typeof model === "string" &&
+    (NAIA_PI_MODELS as readonly string[]).some((m) => m.toLowerCase() === model.toLowerCase())
+  );
 }
 
 export function isNaiaPiAnalysisOnlyModel(model: string | undefined): model is NaiaPiModel {
@@ -69,6 +86,10 @@ export function buildNaiaPiModelsConfig(baseUrl?: string, maxTokens?: number): R
             cost: UPSTAGE_CUSTOMER_COST.solarPro4, contextWindow: 128000, ...(maxTokens ? { maxTokens } : {}) },
           { id: "solar-mini", name: "Solar Mini (Naia / Upstage, 국내)", reasoning: false, input: ["text"],
             cost: UPSTAGE_CUSTOMER_COST.solarMini, contextWindow: 32000, ...(maxTokens ? { maxTokens } : {}) },
+          { id: "HCX-007", name: "HyperCLOVA X HCX-007 (Naia / CLOVA, 국내)", reasoning: false, input: ["text"],
+            cost: CLOVA_CUSTOMER_COST.hcx007, contextWindow: 128000, ...(maxTokens ? { maxTokens } : {}) },
+          { id: "HCX-DASH-002", name: "HyperCLOVA X DASH (Naia / CLOVA, 국내)", reasoning: false, input: ["text"],
+            cost: CLOVA_CUSTOMER_COST.hcxDash002, contextWindow: 32000, ...(maxTokens ? { maxTokens } : {}) },
         ],
       },
     },
