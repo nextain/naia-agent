@@ -565,9 +565,14 @@ const preferenceStore = makeRadioDjPreferenceStore({
   } : {}),
 });
 void preferenceStore.flushOutbox().catch((error) => {
-  logger.warn("DJ preference outbox recovery deferred", {
-    error: error instanceof Error ? error.message : String(error),
-  });
+  // No `logger` is in scope here — referencing it threw a ReferenceError inside
+  // this catch, which escaped to unhandledRejection → process.exit(1), i.e. the
+  // recovery handler could kill the whole agent. Log to stderr (agent-stderr.log)
+  // instead. (#448)
+  console.error(
+    "[naia-agent] DJ preference outbox recovery deferred:",
+    error instanceof Error ? error.message : String(error),
+  );
 });
 const radioContext = makeRadioDjContext({
   explicitLikes: () => preferenceStore.activeExplicitLikes(),

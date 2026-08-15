@@ -430,8 +430,17 @@ export function makeNaiaSettingsStore(deps: {
 			// ⚠️ precedence: config.json(naia-os 셸 정본 — 사용자가 UI 에서 고른 provider/model 을 OS 가 write_naia_config 로
 		//    기록)을 *우선*. llm.json(구 CLI login 포맷)은 폴백. desktop 에선 config.json 이 라이브 선택의 SoT 이므로
 		//    stale llm.json 이 가리면 안 된다(실측 회귀: stale llm.json main.provider=openai-compat 가 config.json 을 덮어
-		//    채팅 전체 throw). config.json 부재/불완전이면 llm.json(CLI 로그인) 으로 폴백.
-		return fromConfigJson(`${dir}/config.json`) ?? fromLlmJson(`${dir}/llm.json`);
+		//    채팅 전체 throw).
+		const configPath = `${dir}/config.json`;
+		const fromConfig = fromConfigJson(configPath);
+		if (fromConfig) return fromConfig;
+		// #448: config.json 이 *존재하나 불완전*이면 llm.json 으로 폴백하지 않는다. desktop 에선
+		// config.json 이 라이브 SoT 이고, 온보딩이 끝나기 전(불완전) 구간에 workspace 에 동봉된
+		// 기본 llm.json(로컬 Ollama 템플릿 openai-compat/gemma3n:e4b@11434)이 폴백을 채우면,
+		// Ollama 없는 클린 머신에서 채팅이 죽은 host 로 조용히 나가 0 토큰(에러 표시 없음)이 된다.
+		// llm.json 폴백은 config.json 이 *아예 없는* 순수 CLI 로그인 경우로만 한정한다.
+		if (fs.existsSync(configPath)) return null;
+		return fromLlmJson(`${dir}/llm.json`);
 		},
 		loadMemoryConfig(adkPath) {
 			if (!adkPath) return null;
