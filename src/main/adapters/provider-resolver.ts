@@ -12,7 +12,6 @@ import { makeOllamaProvider } from "./ollama-provider.js";
 import { makeAnthropicProvider } from "./anthropic-provider.js";
 import { makeClaudeCodeProvider } from "./claude-code-provider.js";
 import { makeCodexAppServerProvider, type CodexRunTurn } from "./codex-app-server-provider.js";
-import { isNaiaPiAnalysisOnlyModel } from "./naia-pi-provider.js";
 
 export interface ProviderResolverDeps {
 	/** 테스트/대체용 fetch 주입(미주입 = global fetch). */
@@ -57,7 +56,7 @@ export function makeProviderResolver(deps?: ProviderResolverDeps): ProviderResol
 						auth: "x-anyllm",
 						model: config.model,
 						supportsReasoningEffort: false,
-						supportsTools: !isNaiaPiAnalysisOnlyModel(config.model),
+						supportsTools: true,
 						promptCacheShard: config.model === "gpt-5.6-sol" || config.model === "gpt-5.6-luna",
 						...(f ? { fetch: f } : {}),
 					});

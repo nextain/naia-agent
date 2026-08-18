@@ -233,9 +233,9 @@ Gateway(Azure)로 보낸다.
 같은 세션 관리자에 연결한다. `start`, `answer`, `cancel`은 작업을 예약하고 백그라운드 pump를
 깨우므로 한 제어 세션에서 여러 이슈를 겹쳐 실행·조회할 수 있다.
 
-DeepSeek V4 Flash/Pro는 분석 전용(`--no-tools`)이므로 facing/reporting에는 사용할 수 있지만,
-worktree를 검사하는 explorer/tester/reviewer나 쓰는 implementer에는 사용할 수 없다. 기본 팀
-역할은 도구 사용 가능한 Grok 4.3이다. 예시의 estimated-USD 한도는 고정된 Azure rate-card와
+DeepSeek V4 Flash/Pro를 포함한 등록 Naia 모델은 모두 Pi 도구를 사용할 수 있으며,
+explorer/tester/reviewer와 쓰기 implementer 역할에도 배치할 수 있다. `--no-tools`는 사용자가
+명시적으로 도구 없는 실행을 요청할 때만 적용된다. 예시의 estimated-USD 한도는 고정된 Azure rate-card와
 gateway markup을 사용한 운영 상한이며, versioned Gateway 영수증이 없으면 측정 비용 주장이 아니다.
 
 비용 비교 계약은 `benchmark/orchestration/pi-cost-comparison.json`에 고정되어 있다. 실제 호출 전에

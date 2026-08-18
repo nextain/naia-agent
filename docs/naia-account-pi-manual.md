@@ -82,18 +82,18 @@ node bin\naia-agent.mjs run "요구사항을 구현하고 테스트까지 실행
 - `modelEvidence.totalTokens > 0`
 - 기대한 파일 diff가 존재하고 테스트가 통과
 
-### DeepSeek 분석·리뷰
+### DeepSeek 도구 실행
 
 ```powershell
 node bin\naia-agent.mjs run "이 변경의 회귀 위험을 분석해" `
   --agent pi `
   --model deepseek-v4-pro `
-  --no-tools `
   --workdir D:\work\target-project `
+  --check "test=pnpm test" `
   --json
 ```
 
-성공 조건은 Grok과 같되 모델 값이 `deepseek-v4-pro`이고 파일 변경은 없어야 한다. `--no-tools`를 빼면 exit code `3`과 `analysis-only` 오류가 나와야 한다.
+성공 조건은 Grok과 같되 모델 값이 `deepseek-v4-pro`이고 요청한 검사 또는 변경이 도구를 통해 수행돼야 한다. 도구 없는 분석을 명시적으로 원할 때만 `--no-tools`를 추가한다.
 
 ## 4. Codex에서 호출
 
@@ -179,7 +179,7 @@ CLI의 `piEstimatedCost`는 Pi 로컬 카탈로그 기준 추정치이며 Naia �
 2. prompt/completion/total token과 `UsageLog.cost`
 3. 같은 usage ID에 연결된 credit 차감 거래와 사용자 잔액 변화
 
-가격 행이 없는 상태와 잘못된 direct-provider prefix는 gateway에서 실패해야 한다. DeepSeek tools 요청은 Agent 경계에서 spawn 수 `0`이어야 한다. 모델별 endpoint 캐시는 Grok→DeepSeek와 DeepSeek→Grok 두 순서 모두 서로 다른 client를 사용해야 한다.
+가격 행이 없는 상태와 잘못된 direct-provider prefix는 gateway에서 실패해야 한다. DeepSeek tools 요청은 Agent에서 차단되지 않고 gateway로 전달돼 실제 tool call을 완료해야 한다. 모델별 endpoint 캐시는 Grok→DeepSeek와 DeepSeek→Grok 두 순서 모두 서로 다른 client를 사용해야 한다.
 
 비용 절감률은 한 번의 성공으로 주장하지 않는다. 같은 작업 묶음을 기존 모델과 새 모델로 반복해 token, 경과 시간, 재작업 횟수, 검증 통과율, gateway 실청구를 함께 기록한 뒤 판단한다.
 
@@ -188,11 +188,10 @@ CLI의 `piEstimatedCost`는 Pi 로컬 카탈로그 기준 추정치이며 Naia �
 | 증상 | 예상 exit/HTTP | 확인할 것 |
 |---|---:|---|
 | `NAIA_API_KEY is required` | CLI 3 | `naia-agent login --provider naia` 실행 여부 |
-| DeepSeek `analysis-only` | CLI 3 | `--no-tools` 누락 |
 | direct provider 거부 | CLI 3 또는 HTTP 400 | 모델 prefix를 제거하고 provider를 `naia`로 사용 |
 | `Azure provider/route is not configured` | HTTP 503 | `providers.azure.model_routes.<model>` |
 | `Pricing is not configured` | HTTP 503 | canonical `azure:<model>` 가격 행 |
-| DeepSeek tool calling 거부 | HTTP 400 | 분석 경로는 tools/tool_choice를 보내지 않음 |
+| DeepSeek tool calling 거부 | HTTP 400 | gateway 모델 계약과 `/v1/models`의 `supports_tools` 확인 |
 | Pi model mismatch | CLI 3 | CLI 선택 모델과 Pi `AssistantMessage.model` 불일치 |
 | `/v1/models`에 모델 없음 | Shell static fallback | gateway 배포 버전과 카탈로그 응답 확인 |
 | live 검증 불가 | `OPERATIONAL_UNVERIFIED` | Naia/Azure 자격 증명과 승인된 가격·deployment 준비 여부 |

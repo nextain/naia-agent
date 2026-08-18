@@ -1,6 +1,7 @@
 // OpenAI-compat(GLM/zai) ProviderPort 계약 테스트 — mock fetch(SSE 재현, 실 API 없이).
 import { describe, it, expect } from "vitest";
 import { makeOpenAICompatProvider } from "../main/adapters/openai-compat-provider.js";
+import { makeProviderResolver } from "../main/adapters/provider-resolver.js";
 import type { ProviderChunk, ProviderConfig } from "../main/domain/chat.js";
 
 function mockFetch(sseLines: string[], opts: { ok?: boolean; status?: number } = {}) {
@@ -100,11 +101,14 @@ describe("§C slice 1b — tool_calls 재조립", () => {
     ]);
   });
 
-  it("DeepSeek ordinary-chat policy omits tools instead of sending an unsupported request", async () => {
+  it("DeepSeek ordinary chat forwards skill tools through the Naia resolver", async () => {
     const { fetch, box } = captureStream(["data: [DONE]\n"]);
-    const provider = makeOpenAICompatProvider({ baseUrl: "https://x", apiKey: "k", supportsTools: false, fetch: fetch as never });
-    await collect(provider.chat({ provider: "nextain", model: "deepseek-v4-pro" }, [{ role: "user", content: "review" }], { tools }));
-    expect(box.body?.tools).toBeUndefined();
+    const config: ProviderConfig = { provider: "nextain", model: "deepseek-v4-pro", naiaKey: "k" };
+    const provider = makeProviderResolver({ fetch: fetch as never }).resolve(config);
+    await collect(provider.chat(config, [{ role: "user", content: "review" }], { tools }));
+    expect(box.body?.tools).toEqual([
+      { type: "function", function: { name: "echo", description: "echo it", parameters: { type: "object" } } },
+    ]);
   });
 
   it("(a) tools 전달 → body.tools 매핑 / (g) assistant(toolCalls)+tool 메시지 매핑(content null·tool_call_id)", async () => {

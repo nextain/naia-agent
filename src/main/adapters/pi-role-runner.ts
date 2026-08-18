@@ -4,7 +4,7 @@ import type { TaskSpec, SupervisorReport } from "../domain/orchestration.js";
 import type { SupervisorEgressPort } from "../ports/orchestration.js";
 import type { SubAgentPort } from "../ports/orchestration.js";
 import { makePiSubAgent, type SubAgentPiOptions } from "./subagent-pi.js";
-import { isNaiaPiAnalysisOnlyModel, isNaiaPiModel } from "./naia-pi-provider.js";
+import { isNaiaPiModel } from "./naia-pi-provider.js";
 
 /** The only roles that can run a Shell/Agent development task. */
 export type PiDevelopmentRole = Extract<LlmRole, "expert" | "main" | "sub">;
@@ -70,10 +70,9 @@ export function makePiRoleSubAgent(
   return {
     ok: true,
     role,
-    agent: makePiSubAgent({
-      ...options,
-      ...(isNaiaPiAnalysisOnlyModel(config.model.value) ? { noTools: true } : {}),
-      provider,
+		agent: makePiSubAgent({
+			...options,
+			provider,
       model: config.model.value,
     }),
   };

@@ -17,10 +17,11 @@ describe("Pi-only continuous loop contract", () => {
       .toEqual([profile.roles.implementer]);
   });
 
-  it("rejects an analysis-only model as implementer", () => {
-    expect(() => makePiOnlyTeamProfile({ roles: { explorer: binding("grok-4.3"),
+  it("accepts DeepSeek V4 as a tool-capable writing implementer", () => {
+    const profile = makePiOnlyTeamProfile({ roles: { explorer: binding("grok-4.3"),
       implementer: binding("deepseek-v4-flash"), tester: binding("grok-4.3"), reviewer: binding("grok-4.3") },
-      maxRepairCycles: 1, requiredCleanCycles: 1 })).toThrow(/analysis-only/u);
+      maxRepairCycles: 1, requiredCleanCycles: 1 });
+    expect(profile.roles.implementer.binding).toEqual(binding("deepseek-v4-flash"));
   });
 
   it("fails closed before opening state for a non-Naia or inactive Pi binding", () => {
@@ -91,17 +92,21 @@ describe("Pi-only continuous loop contract", () => {
       .toThrow(/Codex gpt-5.6-luna/u);
   });
 
-  it("rejects analysis-only DeepSeek bindings for worktree-inspecting issue-team roles", () => {
-    const toolModel = binding("grok-4.3");
-    const base = { stateDir: "/must-not-be-created", workspaceRoot: "/tmp", worktreeRoot: "/tmp",
+  it("accepts DeepSeek bindings for worktree-inspecting issue-team roles", () => {
+    const root = resolve(process.cwd()); const state = mkdtempSync(resolve(tmpdir(), "naia-deepseek-loop-"));
+    const base = { stateDir: state, workspaceRoot: root, worktreeRoot: resolve(state, "worktrees"),
       facing: binding("deepseek-v4-flash"), moderator: { provider: "openai-codex", model: "gpt-5.6-luna" },
-      reporter: binding("deepseek-v4-flash"), roles: { explorer: toolModel, implementer: toolModel,
-        tester: toolModel, reviewer: toolModel }, profileId: "hybrid", maxRepairCycles: 1, requiredCleanCycles: 2,
-      acceptanceChecks: [], concurrency: 1,
-      budget: { maxPaidCalls: 1, maxUsd: 1, maxInputTokens: 1, maxOutputTokens: 1 },
-      callAllowance: { reservedUsd: 1, reservedInputTokens: 1, reservedOutputTokens: 1 } } as const;
-    expect(() => makePiContinuousLoop({ ...base,
-      roles: { ...base.roles, tester: binding("deepseek-v4-pro") } })).toThrow(/tool-capable Naia model/u);
+      reporter: binding("deepseek-v4-flash"), roles: { explorer: binding("deepseek-v4-pro"),
+        implementer: binding("deepseek-v4-flash"), tester: binding("deepseek-v4-pro"),
+        reviewer: binding("deepseek-v4-flash") }, profileId: "hybrid", maxRepairCycles: 1, requiredCleanCycles: 2,
+      acceptanceChecks: [{ name: "test", command: "true", args: [] }], concurrency: 1,
+      budget: { maxPaidCalls: 20, maxUsd: 10, maxInputTokens: 1_000_000, maxOutputTokens: 100_000 },
+      callAllowance: { reservedUsd: 0.25, reservedInputTokens: 50_000, reservedOutputTokens: 5_000 } } as const;
+    const runtime = { makeSubAgent: () => ({ spawn: () => { throw new Error("not called during composition"); } }),
+      worktrees: {} as never, verifier: {} as never };
+    const loop = makePiContinuousLoop(base, runtime);
+    try { expect(loop.profile.roles.implementer.binding.model).toBe("deepseek-v4-flash"); }
+    finally { loop.close(); rmSync(state, { recursive: true, force: true }); }
   });
 
   it("has no OpenCode import, invocation, or fallback edge", () => {

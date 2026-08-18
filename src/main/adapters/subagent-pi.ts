@@ -16,8 +16,8 @@ import { fileURLToPath } from "node:url";
 import type { TaskSpec, SubAgentEvent } from "../domain/orchestration.js";
 import type { SubAgentPort, SubAgentSession } from "../ports/orchestration.js";
 import {
-  NAIA_PI_PROVIDER, buildIsolatedPiChildEnv, buildNaiaPiChildEnv, ensureNaiaPiConfig,
-  isNaiaPiAnalysisOnlyModel, isNaiaPiModel,
+	NAIA_PI_PROVIDER, buildIsolatedPiChildEnv, buildNaiaPiChildEnv, ensureNaiaPiConfig,
+	isNaiaPiModel,
 } from "./naia-pi-provider.js";
 import {
   buildUserOwnedPiChildEnv, ensureUserOwnedPiConfig, isUserOwnedPiBinding, type UserOwnedPiProvider,
@@ -291,9 +291,6 @@ export function makePiSubAgent(opts: SubAgentPiOptions = {}): SubAgentPort {
       const identity = { sessionId: randomUUID(), executionId: randomUUID() };
       if (naiaModel && provider !== NAIA_PI_PROVIDER) {
         return endedSession(`Naia model '${model}' cannot use direct provider '${provider}'`);
-      }
-      if (isNaiaPiAnalysisOnlyModel(model) && opts.noTools !== true) {
-        return endedSession(`${model} is analysis-only; rerun with --no-tools`);
       }
       if (opts.userOwnedProvider && provider === opts.userOwnedProvider.id && !userOwnedModel) {
         return endedSession(`user-owned Pi model '${model ?? ""}' is not in the declared local catalog`);

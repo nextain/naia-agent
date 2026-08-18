@@ -112,15 +112,13 @@ describe("UC-NAIA-PI provider isolation", () => {
     });
   });
 
-  it("fails before spawn when auth is missing, direct routing is requested, or DeepSeek lacks --no-tools", async () => {
+  it("fails before spawn when auth is missing or direct routing is requested", async () => {
     let spawns = 0;
     const spawnFn: SpawnFn = () => { spawns += 1; throw new Error("must not spawn"); };
     const base = { resolveBin: () => ({ command: "pi", prefixArgs: [] }), spawnFn, piConfigDir: tempDir() };
     const missing = makePiSubAgent({ ...base, env: {} }).spawn({ prompt: "p", workdir: ".", model: "grok-4.3" });
     const direct = makePiSubAgent({ ...base, provider: "xai", env: { NAIA_API_KEY: "k" } }).spawn({ prompt: "p", workdir: ".", model: "grok-4.3" });
-    const flashTools = makePiSubAgent({ ...base, env: { NAIA_API_KEY: "k" } }).spawn({ prompt: "p", workdir: ".", model: "deepseek-v4-flash" });
-    const proTools = makePiSubAgent({ ...base, env: { NAIA_API_KEY: "k" } }).spawn({ prompt: "p", workdir: ".", model: "deepseek-v4-pro" });
-    for (const session of [missing, direct, flashTools, proTools]) {
+    for (const session of [missing, direct]) {
       const events = [];
       for await (const event of session.events) events.push(event);
       expect(events).toHaveLength(1);
@@ -129,7 +127,7 @@ describe("UC-NAIA-PI provider isolation", () => {
     expect(spawns).toBe(0);
   });
 
-  it("DeepSeek analysis adds --no-tools", () => {
+  it("DeepSeek spawns with tools unless noTools is explicitly requested", () => {
     let args: readonly string[] = [];
     const spawnFn: SpawnFn = (_command, next) => {
       args = next;
@@ -137,9 +135,17 @@ describe("UC-NAIA-PI provider isolation", () => {
     };
     const configDir = tempDir();
     makePiSubAgent({
+      resolveBin: () => ({ command: "pi", prefixArgs: [] }), spawnFn,
+      env: { NAIA_API_KEY: "k" }, piConfigDir: configDir, gatewayBudget: gatewayBudget(configDir),
+    }).spawn({ prompt: "review", workdir: ".", model: "deepseek-v4-flash", filesystemAccess: "read_only" });
+    expect(args).not.toContain("--no-tools");
+    expect(args).toContain("--tools");
+    expect(args).toContain("read,grep,find,ls");
+
+    makePiSubAgent({
       resolveBin: () => ({ command: "pi", prefixArgs: [] }), spawnFn, noTools: true,
       env: { NAIA_API_KEY: "k" }, piConfigDir: configDir, gatewayBudget: gatewayBudget(configDir),
-    }).spawn({ prompt: "review", workdir: ".", model: "deepseek-v4-flash" });
+    }).spawn({ prompt: "review", workdir: ".", model: "deepseek-v4-pro" });
     expect(args).toContain("--no-tools");
   });
 

@@ -17,11 +17,6 @@ export const NAIA_PI_MODELS = [
   "HCX-DASH-002",
 ] as const;
 export type NaiaPiModel = (typeof NAIA_PI_MODELS)[number];
-// DeepSeek V4 now accepts tools on the gateway (deployed 2026-08-13,
-// naia-shell#427), but the agent keeps them analysis-only until the team-profile
-// composition guard + its contract tests are reworked (tracked separately).
-// Solar is tool-capable and is intentionally absent here.
-export const NAIA_PI_ANALYSIS_ONLY_MODELS: readonly NaiaPiModel[] = ["deepseek-v4-flash", "deepseek-v4-pro"];
 
 // USD per 1M tokens. Operational Pi estimates use the 2026-08-04 Azure Korea Central
 // rate-card snapshot plus the gateway's documented 1.10 customer multiplier. These
@@ -53,10 +48,6 @@ export function isNaiaPiModel(model: string | undefined): model is NaiaPiModel {
     typeof model === "string" &&
     (NAIA_PI_MODELS as readonly string[]).some((m) => m.toLowerCase() === model.toLowerCase())
   );
-}
-
-export function isNaiaPiAnalysisOnlyModel(model: string | undefined): model is NaiaPiModel {
-  return isNaiaPiModel(model) && NAIA_PI_ANALYSIS_ONLY_MODELS.includes(model.toLowerCase() as NaiaPiModel);
 }
 
 export function normalizeNaiaGatewayBaseUrl(raw: string | undefined): string {

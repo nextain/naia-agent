@@ -13,7 +13,7 @@ import { SqliteIssueTeamStore } from "../adapters/sqlite-issue-team-store.js";
 import { SqliteMultiIssueSessionStore } from "../adapters/sqlite-multi-issue-session-store.js";
 import { SqlitePaidCallBudget } from "../adapters/sqlite-paid-call-budget.js";
 import { initializeGatewayRequestBudget } from "../adapters/naia-pi-versioned-billing.js";
-import { isNaiaPiAnalysisOnlyModel, isNaiaPiModel, NAIA_PI_PROVIDER } from "../adapters/naia-pi-provider.js";
+import { isNaiaPiModel, NAIA_PI_PROVIDER } from "../adapters/naia-pi-provider.js";
 import { isUserOwnedPiBinding } from "../adapters/user-owned-pi-provider.js";
 import { makeCommandVerifier, type CommandCheck } from "../adapters/verifier-commands.js";
 import { makeIssueTeamWorker } from "../app/issue-team-worker.js";
@@ -64,9 +64,6 @@ export interface PiContinuousLoopRuntimeOverrides {
 
 export function makePiOnlyTeamProfile(config: Pick<PiContinuousLoopConfig,
   "roles" | "maxRepairCycles" | "requiredCleanCycles">): IssueTeamProfile {
-  if (isNaiaPiAnalysisOnlyModel(config.roles.implementer.model)) {
-    throw new Error(`analysis-only ${config.roles.implementer.model} cannot be the writing implementer`);
-  }
   const role = (name: IssueTeamRole) => ({ agentProfileId: `pi-${name}`, agentKind: "pi" as const,
     binding: config.roles[name], filesystemAccess: name === "implementer" ? "workspace_write" as const : "read_only" as const });
   const profile: IssueTeamProfile = { kind: "team", roles: { explorer: role("explorer"),
@@ -95,16 +92,15 @@ export function makePiContinuousLoop(config: PiContinuousLoopConfig, runtime: Pi
       initializeGatewayRequestBudget(gatewayBudget.path, gatewayBudget.policy);
     }
     const profile = makePiOnlyTeamProfile(config);
-    const pi = (binding: ActorBinding, write = false) => makePiSubAgent({ ...config.pi,
+    const pi = (binding: ActorBinding) => makePiSubAgent({ ...config.pi,
       provider: binding.provider, model: binding.model,
       maxOutputTokens: config.callAllowance.reservedOutputTokens,
-      gatewayBudget,
-      ...(isNaiaPiAnalysisOnlyModel(binding.model) && !write ? { noTools: true } : {}) });
+      gatewayBudget });
     const subAgent = (binding: ActorBinding, write = false) => runtime.makeSubAgent?.(binding, write)
       ?? (binding.provider === "openai-codex"
         ? makeCodexSubAgent({ ...config.codex, model: binding.model,
           ...(binding.reasoningEffort ? { reasoningEffort: binding.reasoningEffort as SubAgentCodexOptions["reasoningEffort"] } : {}) })
-        : pi(binding, write));
+        : pi(binding));
     const actor = (binding: ActorBinding) => ({ subAgent: subAgent(binding), binding,
       workdir: realpathSync(config.workspaceRoot), diag,
       ...(binding.provider === NAIA_PI_PROVIDER
@@ -157,10 +153,6 @@ function validateConfig(config: PiContinuousLoopConfig): void {
   }
   if (azureBindings.some((binding) => binding.reasoningEffort !== undefined)) {
     throw new Error("Naia and user-owned Pi bindings do not support reasoningEffort");
-  }
-  if (Object.values(config.roles).some((binding) => binding.provider === NAIA_PI_PROVIDER
-    && isNaiaPiAnalysisOnlyModel(binding.model))) {
-    throw new Error("issue-team roles require a tool-capable Naia model; DeepSeek V4 Flash/Pro are analysis-only");
   }
   if (!Number.isSafeInteger(config.concurrency) || config.concurrency <= 0) throw new Error("concurrency must be a positive integer");
 }

@@ -136,15 +136,16 @@ describe("SPEC-019 credential text policy", () => {
 });
 
 describe("SPEC-019 model catalog truthfulness", () => {
-  it("normalizes live OpenAI-shaped catalog and marks DeepSeek analysis-only", () => {
+  it("normalizes only skill-capable live models and keeps DeepSeek tool-capable", () => {
     expect(normalizeModelCatalog({ data: [
-      { id: "deepseek-v4-flash", owned_by: "azure", name: "DeepSeek Flash" },
-      { id: "deepseek-v4-pro", owned_by: "azure", name: "DeepSeek" },
+      { id: "deepseek-v4-flash", owned_by: "azure", name: "DeepSeek Flash", supports_tools: true },
+      { id: "deepseek-v4-pro", owned_by: "azure", name: "DeepSeek", supports_tools: true },
       { id: "grok-4.3", owned_by: "azure", supports_tools: true },
       { id: "grok-4.3", owned_by: "duplicate" },
+      { id: "text-only", owned_by: "azure", supports_tools: false },
     ] })).toEqual([
-      { provider: "azure", id: "deepseek-v4-flash", label: "DeepSeek Flash", tools: false, use: "analysis" },
-      { provider: "azure", id: "deepseek-v4-pro", label: "DeepSeek", tools: false, use: "analysis" },
+      { provider: "azure", id: "deepseek-v4-flash", label: "DeepSeek Flash", tools: true, use: "coding" },
+      { provider: "azure", id: "deepseek-v4-pro", label: "DeepSeek", tools: true, use: "coding" },
       { provider: "azure", id: "grok-4.3", label: "grok-4.3", tools: true, use: "coding" },
     ]);
     expect(FALLBACK_NAIA_MODELS.map((x) => x.id)).toEqual([
@@ -156,6 +157,7 @@ describe("SPEC-019 model catalog truthfulness", () => {
       "HCX-007",
       "HCX-DASH-002",
     ]);
+    expect(FALLBACK_NAIA_MODELS.every((model) => model.tools)).toBe(true);
     expect(normalizeModelCatalog({ bad: true })).toEqual([]);
   });
 });

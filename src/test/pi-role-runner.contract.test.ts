@@ -45,7 +45,7 @@ describe("Pi-only development role factory", () => {
     });
   });
 
-  it("accepts only the registered Naia Pi catalog and keeps analysis-only models explicit", () => {
+  it("accepts every registered skill-capable Naia Pi model", () => {
     const valid = resolveLlmRoles({
       roles: {
         main: { provider: "nextain", model: "deepseek-v4-flash" },

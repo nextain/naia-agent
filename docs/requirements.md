@@ -93,7 +93,7 @@
 | FR-CLI-16 | **모델 카탈로그** — `models [provider] [--json]`이 모델 ID, provider, 용도, 도구 지원을 안정된 형식으로 보여 준다. Naia catalog 장애 시 검증된 Pi 내장 목록으로 제한적으로 fallback하고 그 출처를 표시한다. | Done (#97) |
 | FR-CLI-17 | **자가 진단** — `doctor [--json]`가 계정, workspace, naia-settings, Pi 설치/config, gateway/catalog 준비 상태를 component별 pass/warn/fail로 보고하며 secret을 노출하지 않는다. | Done (#97) |
 | FR-CLI-18 | **세션 관리·재개** — `session list|show|resume`이 기존 workspace transcript를 안전하게 읽는다. 손상 줄은 격리하고 경로 탈출 ID를 거부하며, 5 MiB/최근 400 message로 제한하고 show는 secret redaction한다. resume은 완결 turn만 같은 session ID로 이어 간다. | Done (#97) |
-| FR-CLI-19 | **코딩 기본값** — 저장된 `coding.agent/model/tools`는 하나의 결속된 기본값 묶음이다. 명시 argv가 우선하며, 다른 agent 또는 model을 명시하면 저장된 model/tools를 상속하지 않는다. 반복 value option은 downstream parser와 같이 마지막 값을 기준으로 판정한다. DeepSeek analysis-only guard와 Pi model evidence는 그대로 유지한다. | Done (#97, #99) |
+| FR-CLI-19 | **코딩 기본값** — 저장된 `coding.agent/model/tools`는 하나의 결속된 기본값 묶음이다. 명시 argv가 우선하며, 다른 agent 또는 model을 명시하면 저장된 model/tools를 상속하지 않는다. 반복 value option은 downstream parser와 같이 마지막 값을 기준으로 판정한다. Naia의 선택 가능 모델은 모두 도구를 지원해야 하며 명시적 `supports_tools: false` 모델은 노출하지 않는다. Pi model evidence는 그대로 유지한다. | Done (#97, #99, naia-shell#427) |
 | FR-CLI-20 | **자동화 가능한 표면** — 관리 명령의 JSON schema와 exit code가 안정적이며, 격리 HOME process test에서 Codex-child 호출과 직접 호출이 동일하게 동작한다. | Done (#97) |
 
 ### NFR
@@ -424,7 +424,7 @@ RPC만 추가하며, 별도 셸 반복 상태 머신은 만들지 않는다.
 - **FR-PI-ROLE-2**: A Shell/Agent development task selects `expert`, `main`, or `sub` and creates a supervised Pi session using its resolved provider/model.
 - **FR-PI-ROLE-3**: This route permits only Pi-supported account providers (`codex`, `claude-code-cli`/`anthropic`, `nextain`/`naia`) and fails closed for unknown, incomplete, local OpenAI-compatible, or OpenCode selections before spawn.
 - **FR-PI-ROLE-4**: Workspace selection or settings reload replaces the role resolution used by the next delegation; an already captured startup profile must never be reused. If a role changes after processing authorization but before spawn, the mismatched delegation fails without a provider call.
-- **FR-PI-ROLE-5**: Naia-account roles accept only the Agent-owned Pi model catalog, receive the OS-keychain credential through a child-only environment at spawn time, and run catalogued analysis-only models with Pi tools disabled.
+- **FR-PI-ROLE-5**: Naia-account roles accept only the Agent-owned, tool-capable Pi model catalog and receive the OS-keychain credential through a child-only environment at spawn time. The Agent does not silently strip tools by model; only an explicit caller `noTools` request disables them.
 - **NFR-PI-ROLE-1**: Every Pi child receives an allowlisted process environment. Account providers retain
   only the OS paths needed to read their own subscription state; unrelated provider, Discord, and Naia
   credentials are removed. A Naia-account child receives only its exact child-scoped Naia key and billing
@@ -850,10 +850,9 @@ The Agent and Gateway preserve these codes end to end:
   Codex/Claude replacement claim. GPU0 is outside the qualification run; the canonical live run uses
   GPU1 only. Candidates that merely fit memory but do not expose native tools fail the prerequisite
   gate and are not run through the 3-layer completion loop.
-- **FR-LOOP-011**: A Naia model declared analysis-only cannot occupy explorer, implementer, tester,
-  or reviewer because those roles must inspect or mutate the assigned worktree through bounded Pi
-  tools. Configuration fails before state or provider execution rather than accepting an ungrounded
-  role claim.
+- **FR-LOOP-011**: Every admitted Naia model is tool-capable and may occupy explorer, implementer,
+  tester, or reviewer. Models that cannot execute bounded Pi tools are excluded from the catalog
+  before composition rather than being admitted with tools silently removed.
 - **FR-LOOP-012**: `gatewayBillingMode=unavailable` is an explicit operational compatibility mode
   for a Gateway response that omits versioned settlement fields. It bypasses only the per-request
   receipt extension. Parent actor reservations still enforce call, token, and estimated-USD ceilings
