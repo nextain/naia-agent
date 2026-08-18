@@ -60,6 +60,28 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
 	"glm-4.5-air": { input: 0.1, output: 0.3 },
 };
 
+// Live pricing overlay — populated from the Naia gateway GET /v1/pricing
+// (adapters/gateway-pricing.ts). The gateway is the pricing SoT for models it
+// routes (naia-agent#59; nextain/naia-shell#458: Pi models like
+// deepseek-v4-flash/solar-pro4 were absent from the static table above and
+// silently charged $0 in the shell). Static entries stay as the offline
+// fallback for direct providers the gateway does not know.
+const LIVE_PRICING: Record<string, { input: number; output: number }> = {};
+
+/** Merge gateway pricing entries (bare model ids) into the live overlay.
+ *  Pure state update — no I/O here; returns how many entries were applied. */
+export function applyGatewayPricing(
+	entries: ReadonlyArray<{ readonly model: string; readonly input: number; readonly output: number }>,
+): number {
+	let applied = 0;
+	for (const e of entries) {
+		if (!e.model || !Number.isFinite(e.input) || !Number.isFinite(e.output)) continue;
+		LIVE_PRICING[e.model] = { input: e.input, output: e.output };
+		applied++;
+	}
+	return applied;
+}
+
 /** per-token 과금에서 제외되는 provider — 사용자 구독으로 호출(과금 $0).
  *  claude-code-cli = Claude Agent SDK + 로컬 Claude Code 구독 인증(직접 키·게이트웨이 아님 → 사용자에게 토큰 비용 0). */
 const SUBSCRIPTION_PROVIDERS = new Set(["claude-code-cli"]);
@@ -71,7 +93,10 @@ const SUBSCRIPTION_PROVIDERS = new Set(["claude-code-cli"]);
  */
 export function calculateCost(model: string, inputTokens: number, outputTokens: number, provider?: string): number {
 	if (provider && SUBSCRIPTION_PROVIDERS.has(provider)) return 0; // 구독 = $0(per-token 과금 제외)
-	const pricing = MODEL_PRICING[model];
+	// Gateway-fetched pricing wins over the static fallback — the gateway
+	// recomputes KRW-source rates weekly (naia-anyllm#66) and carries models
+	// this table never listed.
+	const pricing = LIVE_PRICING[model] ?? MODEL_PRICING[model];
 	if (!pricing) return 0;
 	return (pricing.input / 1_000_000) * inputTokens + (pricing.output / 1_000_000) * outputTokens;
 }

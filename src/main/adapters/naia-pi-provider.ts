@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { ensureGatewayPricing } from "./gateway-pricing.js";
 import type { GatewayRequestBudgetPolicy } from "./naia-pi-versioned-billing.js";
 
 export const NAIA_PI_PROVIDER = "naia";
@@ -97,6 +98,10 @@ export function buildNaiaPiModelsConfig(baseUrl?: string, maxTokens?: number): R
 }
 
 export function ensureNaiaPiConfig(opts: { dir?: string; baseUrl?: string; maxTokens?: number } = {}): string {
+  // Every Pi run passes through here — refresh the live pricing overlay so the
+  // shell's usage display never falls back to a stale/absent static price
+  // (fire-and-forget, throttled; naia-agent#59 / nextain/naia-shell#458).
+  void ensureGatewayPricing(opts.baseUrl);
   const dir = opts.dir ?? join(homedir(), ".naia-agent", "pi");
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const target = join(dir, "models.json");

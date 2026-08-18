@@ -1,13 +1,11 @@
 {
   "schema_version": "1.0",
   "description": "프로세스 현황 SoT. 세션 시작/종료 시 반드시 업데이트. 구조명세·이슈·리소스를 유기적으로 링크.",
-
   "refs": {
     "project_structure": "docs/project-structure.md",
     "agents_rules": ".agents/context/agents-rules.json",
     "issue_docs_dir": ".agents/progress/"
   },
-
   "current_work": {
     "memory_store_path_isolation_108": {
       "issue": "https://github.com/nextain/naia-agent/issues/108",
@@ -39,17 +37,47 @@
       "full_suite_note": "The full agent suite still has pre-existing Windows portability failures outside this Codex change (Discord lock/path, gRPC proto path, and memory-header cases)."
     },
     "handoff_note": "Issue #99는 #98 사후 적대 리뷰에서 합의된 CLI 기본값 누출을 수정한다. 저장 agent/model/tools는 하나의 묶음이며 명시적으로 다른 agent/model에 전파되지 않는다.",
-    "prior_work_note": "REQ-013 선제 발화와 REQ-014 Discord runtime은 보존됐다. 실제 Discord 자격증명 2채널·OS credential store·현장 리허설은 운영 인수 범위다."
+    "prior_work_note": "REQ-013 선제 발화와 REQ-014 Discord runtime은 보존됐다. 실제 Discord 자격증명 2채널·OS credential store·현장 리허설은 운영 인수 범위다.",
+    "gateway_pricing_overlay_458": {
+      "issue": "nextain/naia-shell#458 (+ naia-agent#59 gap: 게이트웨이 pricing fetch)",
+      "scope": "게이트웨이 GET /v1/pricing 라이브 오버레이 — Pi 모델(deepseek/solar/HCX)이 정적 단가표에 없어 셸 차감표기가 $0. 하드코딩 대신 받아오는 구조(사용자 지시).",
+      "status": "done",
+      "last_updated": "2026-08-18T17:20:00+09:00",
+      "verification": "vitest src/test/gateway-pricing.contract.test.ts 7 passed; tsc --build 0. 기존 스위트 23 실패는 벤치마크/외부의존 사전존재(내 변경 모듈은 frozen closure 미포함 확인)."
+    }
   },
-
   "sdlc_gates": {
-    "P01": { "status": "done", "name": "user_scenarios", "deliverable": "live memory swap, in-flight drain, failed replacement retention, workspace isolation", "ref": "docs/user-scenarios.md; .agents/progress/issue-106-memory-live-reload.md" },
-    "P02": { "status": "done", "name": "test_scenarios", "deliverable": "swap ordering, failure retention, config reread, persistence and async gRPC coverage", "ref": "src/test/reloadable-memory.contract.test.ts; src/test/memory-settings-reload.contract.test.ts" },
-    "P03": { "status": "done", "name": "requirements", "deliverable": "FR-MEM-13 live replacement and diagnostic contract", "ref": "docs/requirements.md; GitHub #106" },
-    "P04": { "status": "done", "name": "integration_test", "deliverable": "build plus 74 memory tests and 57 reload/roles/gRPC tests", "ref": ".agents/progress/issue-106-memory-live-reload.md" },
-    "P05": { "status": "pending", "name": "requirements_complete", "deliverable": "implementation verified; commit/push pending parent task", "ref": "GitHub #106" }
+    "P01": {
+      "status": "done",
+      "name": "user_scenarios",
+      "deliverable": "live memory swap, in-flight drain, failed replacement retention, workspace isolation",
+      "ref": "docs/user-scenarios.md; .agents/progress/issue-106-memory-live-reload.md"
+    },
+    "P02": {
+      "status": "done",
+      "name": "test_scenarios",
+      "deliverable": "swap ordering, failure retention, config reread, persistence and async gRPC coverage",
+      "ref": "src/test/reloadable-memory.contract.test.ts; src/test/memory-settings-reload.contract.test.ts"
+    },
+    "P03": {
+      "status": "done",
+      "name": "requirements",
+      "deliverable": "FR-MEM-13 live replacement and diagnostic contract",
+      "ref": "docs/requirements.md; GitHub #106"
+    },
+    "P04": {
+      "status": "done",
+      "name": "integration_test",
+      "deliverable": "build plus 74 memory tests and 57 reload/roles/gRPC tests",
+      "ref": ".agents/progress/issue-106-memory-live-reload.md"
+    },
+    "P05": {
+      "status": "pending",
+      "name": "requirements_complete",
+      "deliverable": "implementation verified; commit/push pending parent task",
+      "ref": "GitHub #106"
+    }
   },
-
   "known_drift": {
     "_comment": "2026-07-31 전체 검사 기준 기존 저장소 드리프트. 이번 변경의 cli-manage.ts는 UC-023/SPEC-019 앵커와 canon scope를 갖추며 아래 목록에 포함되지 않는다. 타 작업 소유 파일을 추측해 일괄 수정하지 않는다.",
     "check_file_anchors": [
@@ -65,12 +93,10 @@
       "src/main/app/cli-chat.ts — 앵커 추가 (layer=app, uc=[UC-CLI, UC-THINKING], contract=UC-cli-orchestration-contract-2026-06-22.md — cli-supervise.ts 형제 파일과 동일 계약)"
     ]
   },
-
   "resource_registry": {
     "last_enforce_run": null,
     "violations": []
   },
-
   "_usage": {
     "session_start": [
       "1. 이 파일 읽기",
@@ -91,5 +117,6 @@
       "3. sdlc_gates 전체 status → pending으로 리셋",
       "4. resource_registry.violations 초기화"
     ]
-  }
+  },
+  "last_updated": "2026-08-18T17:20:00+09:00"
 }
