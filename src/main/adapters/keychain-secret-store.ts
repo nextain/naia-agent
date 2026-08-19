@@ -12,6 +12,50 @@ import type { CredentialPort } from "../ports/uc1.js";
 /** 키체인 read 함수(name=env_key → value|undefined). .mjs 가 secret-tool/security/DPAPI 구현 주입. */
 export type KeychainRead = (name: string) => string | undefined;
 
+/**
+ * A versioned view of one backing secret. `cacheKey` identifies the backing
+ * store (for example an absolute DPAPI file path), while `version` changes
+ * whenever its contents change. The plaintext is read only on a cache miss.
+ */
+export interface KeychainSecretSnapshot {
+	readonly cacheKey: string;
+	readonly version: string;
+	read(): string | undefined;
+}
+
+/**
+ * Cache successful secret reads without assuming that login state is fixed
+ * for the lifetime of the Agent process.
+ *
+ * Missing entries and failed reads are deliberately not cached: a login may
+ * create the backing entry immediately after Agent startup, and a transient
+ * decrypt failure must remain retryable. A changed cacheKey also invalidates
+ * the value, which keeps SetWorkspace from reading credentials from the
+ * previous workspace even when both files happen to have the same version.
+ */
+export function makeRefreshingKeychainRead(
+	resolveSnapshot: (name: string) => KeychainSecretSnapshot | undefined,
+): KeychainRead {
+	const cache = new Map<string, { identity: string; value: string }>();
+	return (name) => {
+		const snapshot = resolveSnapshot(name);
+		if (!snapshot) {
+			cache.delete(name);
+			return undefined;
+		}
+		const identity = `${snapshot.cacheKey}\0${snapshot.version}`;
+		const cached = cache.get(name);
+		if (cached?.identity === identity) return cached.value;
+		const value = snapshot.read();
+		if (!value) {
+			cache.delete(name);
+			return undefined;
+		}
+		cache.set(name, { identity, value });
+		return value;
+	};
+}
+
 /** secret-tool lookup 결과 분류(locale-independent, 순수): 0=found, 1+빈stderr=absent(healthy), 그외=unavailable. old 이식. */
 export function classifyProbe(r: { error?: unknown; status: number | null; stderr: string }): boolean {
 	if (r.error || r.status === null) return false;

@@ -142,7 +142,7 @@ const { composeAgentRuntimeDeps } = await import("./compose-agent-deps.mjs");
 // ── transport-독립 런타임 deps = 공유 빌더(CLI host 와 literally 동일, NFR-CLI-shared) ──
 const deps = await composeAgentRuntimeDeps();
 cleanupFns = deps.cleanupFns;
-const { adkPath, provider, resolver, providerLabel: label, credentials, settingsStore, defaultConfig, configLabel } = deps;
+const { adkPath, provider, resolver, providerLabel: label, credentials, settingsStore, defaultConfig, configLabel, setCredentialWorkspace } = deps;
 const { llmRoles } = deps;
 let activeLlmRoles = llmRoles ?? null;
 let { toolExecutor } = deps;
@@ -326,12 +326,21 @@ const grpcServer = makeGrpcServer({
   onShutdown: () => onShutdown?.(),
   onSetWorkspace: async (wsPath) => {
     const previousAdkPath = currentAdkPath;
-    if (wsPath) currentAdkPath = wsPath; // OS 가 워크스페이스 경로 주입 → 이후 ReloadSettings 도 이 경로 사용
+    if (wsPath) {
+      currentAdkPath = wsPath; // OS 가 워크스페이스 경로 주입 → 이후 ReloadSettings 도 이 경로 사용
+      setCredentialWorkspace(currentAdkPath);
+    }
     const result = await reloadConfigFrom(currentAdkPath, true);
-    if (!result.memoryReloaded && result.memoryError) currentAdkPath = previousAdkPath;
+    if (!result.memoryReloaded && result.memoryError) {
+      currentAdkPath = previousAdkPath;
+      setCredentialWorkspace(currentAdkPath);
+    }
     return result;
   },
-  onReloadSettings: () => reloadConfigFrom(currentAdkPath),
+  onReloadSettings: () => {
+    setCredentialWorkspace(currentAdkPath);
+    return reloadConfigFrom(currentAdkPath);
+  },
   ...(codingJobs ? { codingJobs } : {}),
   // UC-KNOWLEDGE-COMPILE(FR-KB-5): "지금 컴파일" → 등록 소스 폴더(naia-settings/knowledge.json) → kb.json.
   //   config 읽기=셸 소유 정본(에이전트 읽기전용), 실 backend=kb-compiler(오프라인 결정론). adk_path 미지정=현 워크스페이스.

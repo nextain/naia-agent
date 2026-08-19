@@ -146,6 +146,11 @@ RPC 결과에 유지 여부와 오류 진단을 반환한다. 따라서 실패�
 재호출 → 활성 `defaultConfig` swap). 모든 naia-os 프로바이더(nextain/gemini/openai/xai/zai/
 ollama/vllm)가 연결된다. anthropic/claude-code-cli 도 연결됨(FR-PROV-4/5 — claude-code 는 Claude Agent SDK 구독 인증, apiKey 불요. requirements.md 참조).
 
+Windows에서 Agent가 로그아웃 상태로 먼저 시작된 뒤 사용자가 OAuth 로그인해 DPAPI 키가 생성되거나 교체되어도,
+Agent 재기동 없이 다음 credential read와 LLM 턴에서 새 키를 사용한다. `SetWorkspace`는 credential 저장소도 새
+workspace로 함께 전환하며, 설정·메모리 reload가 원자적으로 실패하면 이전 credential workspace를 복원한다
+(FR-PROV-7).
+
 ## UC-CLI (naia-agent 단독 CLI 오케스트레이션)
 
 사용자(luke)가 **naia-os 없이** 터미널에서 `naia-agent`를 단독 실행해 실제 작업을 시킨다. naia-agent는
@@ -635,6 +640,7 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 | FR-MEM-13 / S-MEM-RELOAD | `src/test/reloadable-memory.contract.test.ts`(in-flight 대기·flush/build/close 순서·실패 시 기존 인스턴스 유지), `src/test/memory-settings-reload.contract.test.ts`(실 config 재독·동일 설정 12회 no-op·불완전 llmRoles 유지·정상 교체 후 데이터 보존), `discord-entry-wiring.contract.test.ts`·`grpc-shutdown.contract.test.ts`(비동기 SetWorkspace/ReloadSettings·lifecycle 회귀) |
 | FR-MEM-14 / 진단 provider 기억 오염 방지 | `src/test/echo-system-memory-persistence.contract.test.ts`(실 user episode는 저장하고 `SYSTEM_ECHO` 및 빈 assistant episode는 저장하지 않음) |
 | UC-PROV-1 / FR-PROV-1·2·3 | `src/test/all-providers-wiring.contract.test.ts`, `uc1-reload-default-config.contract.test.ts`, `uc-naia-settings-store.contract.test.ts` |
+| UC-PROV-1 / FR-PROV-7 (로그인·workspace credential 동기화) | `src/test/uc-keychain-credentials.contract.test.ts`(login 전 부재·키 교체·workspace 분리·복호화 재시도), `src/test/discord-entry-wiring.contract.test.ts`(production DPAPI reader·SetWorkspace rollback 배선) |
 | UC-THINKING / S-THINK-1·2·3 / FR-THINK-1~4 | `src/test/uc-thinking.contract.test.ts` (요청 body 검증: enableThinking=false+로컬 → `reasoning_effort:"none"` / true·미지정 → 미전송 / **원격 baseUrl → 미전송**(400 회귀 방지) / `isLocalEngineBaseUrl` 순수 판별) |
 | FR-CONT-MVP-1~4·9 / 개인 라디오 DJ | 계약/통합: `src/test/personal-radio-dj.contract.test.ts` (`DJ-01~08`: ended 전환 멘트→radio 검색 포함), `src/test/activity-radio-dj-bgm.contract.test.ts`(`mode=radio_dj`, 최근곡·즐겨찾기 status), `src/test/radio-dj-shell-handoff.integration.test.ts`(실 Controller+activity panel adapter의 ended→전환 발화→radio play→playing 관측), `src/test/radio-dj-product-acceptance.contract.test.ts`(local tombstone 우선 Naia Memory recall), `src/test/speech-profile-runtime.integration.test.ts`(제어 사전 검증), `src/test/grpc-shutdown.contract.test.ts`(제어 ACK가 긴 작업을 기다리지 않음). 실제 Tauri: shell `71-proactive-speech-profiles.spec.ts`의 profile 저장·복원과 `94-avatar-4060-facade.spec.ts`의 A→B 교체·TRT 발화·끼어들기. |
 | FR-PANEL-6 / 패널 screenshot multimodal 전달 | `src/test/uc-panel-skill.contract.test.ts`의 bounded data URI 추출·실패 격리, provider 계약 테스트의 OpenAI/Anthropic/Ollama image block 매핑, Shell `capture.rs`·`tab-skills.ts` 실제 PNG 반환 경로 |

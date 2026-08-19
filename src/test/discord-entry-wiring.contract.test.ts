@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 describe("T-DISCORD-RT-02/05 — production entry wiring", () => {
   const entry = readFileSync(new URL("../../scripts/builds/agent-stdio-entry.mjs", import.meta.url), "utf8");
+  const composition = readFileSync(new URL("../../scripts/builds/compose-agent-deps.mjs", import.meta.url), "utf8");
 
   it("removes the injected token from process.env and never writes it to config", () => {
     expect(entry).toContain('process.env.NAIA_DISCORD_TOKEN_PIPE === "stdin"');
@@ -99,9 +100,19 @@ describe("T-DISCORD-RT-02/05 — production entry wiring", () => {
     const setWorkspaceEnd = entry.indexOf("onReloadSettings:", setWorkspaceStart);
     const setWorkspaceBody = entry.slice(setWorkspaceStart, setWorkspaceEnd);
     expect(setWorkspaceStart).toBeGreaterThan(0);
-    expect(setWorkspaceBody).toContain("if (wsPath) currentAdkPath = wsPath");
+    expect(setWorkspaceBody).toContain("currentAdkPath = wsPath");
+    expect(setWorkspaceBody).toContain("setCredentialWorkspace(currentAdkPath)");
     expect(setWorkspaceBody).toContain("await reloadConfigFrom(currentAdkPath, true)");
-    expect(setWorkspaceBody).toContain("if (!result.memoryReloaded && result.memoryError) currentAdkPath = previousAdkPath");
+    expect(setWorkspaceBody).toContain("currentAdkPath = previousAdkPath");
+    expect(setWorkspaceBody.match(/setCredentialWorkspace\(currentAdkPath\)/g)).toHaveLength(2);
+  });
+
+  it("keeps the Windows credential reader synchronized with login state and workspace changes", () => {
+    expect(composition).toContain("makeRefreshingKeychainRead");
+    expect(composition).toContain("let credentialAdkPath = adkPath");
+    expect(composition).toContain("nodeFs.statSync(file, { bigint: true })");
+    expect(composition).toContain("credentials, secretToolRead, setCredentialWorkspace");
+    expect(composition).not.toContain("dpapiCache");
   });
 
   it("starts only after gRPC boot succeeds and gracefully drains Discord before shared resources", () => {

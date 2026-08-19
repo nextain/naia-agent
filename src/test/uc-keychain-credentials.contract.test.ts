@@ -1,7 +1,7 @@
 // 키체인 backed CredentialPort 계약 — naia-os write_agent_key(키체인) → agent read-back → resolver 키 획득.
 // 계약: docs/progress/UC-provider-provenance-contract-2026-06-12.md
 import { describe, it, expect } from "vitest";
-import { makeKeychainCredentials, apiKeyEnvFor, classifyProbe } from "../main/adapters/keychain-secret-store.js";
+import { makeKeychainCredentials, makeRefreshingKeychainRead, apiKeyEnvFor, classifyProbe } from "../main/adapters/keychain-secret-store.js";
 import { makeProviderResolver } from "../main/adapters/provider-resolver.js";
 import { wireAgentUC1 } from "../main/composition/index.js";
 // stdio 는 production(composition)에서 제거(transport=gRPC) → 테스트는 stdio 어댑터 직접 사용(in-process wire 검증).
@@ -24,6 +24,56 @@ describe("classifyProbe (secret-tool 가용성, locale-safe)", () => {
     expect(classifyProbe({ status: 1, stderr: "dbus error" })).toBe(false);
     expect(classifyProbe({ status: null, stderr: "" })).toBe(false); // killed/missing
     expect(classifyProbe({ error: new Error("ENOENT"), status: null, stderr: "" })).toBe(false);
+  });
+});
+
+describe("makeRefreshingKeychainRead (live login/workspace synchronization)", () => {
+  it("does not cache startup absence, so a key created by login is visible on the next read", () => {
+    let present = false;
+    let decrypts = 0;
+    const read = makeRefreshingKeychainRead(() => present ? {
+      cacheKey: "/workspace/.keys/NAIA.dpapi",
+      version: "1",
+      read: () => { decrypts++; return "new-login-key"; },
+    } : undefined);
+
+    expect(read("NAIA_ANYLLM_API_KEY")).toBeUndefined();
+    present = true;
+    expect(read("NAIA_ANYLLM_API_KEY")).toBe("new-login-key");
+    expect(read("NAIA_ANYLLM_API_KEY")).toBe("new-login-key");
+    expect(decrypts).toBe(1);
+  });
+
+  it("refreshes a rotated key and separates workspaces even when their file versions match", () => {
+    let workspace = "a";
+    let version = "1";
+    let value = "key-a1";
+    const read = makeRefreshingKeychainRead(() => ({
+      cacheKey: `/${workspace}/.keys/NAIA.dpapi`,
+      version,
+      read: () => value,
+    }));
+
+    expect(read("NAIA_ANYLLM_API_KEY")).toBe("key-a1");
+    version = "2";
+    value = "key-a2";
+    expect(read("NAIA_ANYLLM_API_KEY")).toBe("key-a2");
+    workspace = "b";
+    value = "key-b2";
+    expect(read("NAIA_ANYLLM_API_KEY")).toBe("key-b2");
+  });
+
+  it("does not cache a transient decrypt failure", () => {
+    let attempts = 0;
+    const read = makeRefreshingKeychainRead(() => ({
+      cacheKey: "/workspace/.keys/NAIA.dpapi",
+      version: "1",
+      read: () => ++attempts === 1 ? undefined : "recovered-key",
+    }));
+
+    expect(read("NAIA_ANYLLM_API_KEY")).toBeUndefined();
+    expect(read("NAIA_ANYLLM_API_KEY")).toBe("recovered-key");
+    expect(attempts).toBe(2);
   });
 });
 

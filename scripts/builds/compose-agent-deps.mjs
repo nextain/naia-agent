@@ -8,7 +8,7 @@ import { createInterface } from "node:readline";
 import { WINDOWS_DPAPI_TIMEOUT_MS } from "../../dist/main/app/cli-manage.js";
 import { makeProviderResolver } from "../../dist/main/adapters/provider-resolver.js";
 import { makeFakeProvider, makeSystemEchoProvider } from "../../dist/main/adapters/fake-provider.js";
-import { makeKeychainCredentials } from "../../dist/main/adapters/keychain-secret-store.js";
+import { makeKeychainCredentials, makeRefreshingKeychainRead } from "../../dist/main/adapters/keychain-secret-store.js";
 import { makeNaiaSettingsStore } from "../../dist/main/adapters/naia-settings-store.js";
 import { buildSubLlmProvider } from "../../dist/main/adapters/sub-llm-provider.js";
 import { resolveRoleRuntimeConfig } from "../../dist/main/adapters/llm-role-runtime.js";
@@ -267,18 +267,27 @@ export async function composeAgentRuntimeDeps(o = {}) {
   };
   // Windows DPAPI read-back(키체인). {adk}/naia-settings/.keys/<name>.dpapi → PowerShell ProtectedData::Unprotect(CurrentUser).
   // naia-os 가 write_agent_key 로 저장한 키를 agent 가 read-back(별도 login 불요). 경로는 $env:DPAPI_FILE 로 전달(명령 주입 방지).
-  // 키체인은 프로세스 중 불변 → 메모리 캐시(매 턴 PowerShell spawn 지연 방지).
-  const dpapiCache = new Map();
-  const winDpapiRead = (name) => {
-    if (dpapiCache.has(name)) return dpapiCache.get(name);
-    const file = join(adkPath, "naia-settings", ".keys", `${name}.dpapi`);
-    if (!nodeFs.existsSync(file)) { dpapiCache.set(name, undefined); return undefined; }
-    const r = spawnSync("powershell", ["-NoProfile", "-Command", "Add-Type -AssemblyName System.Security; [Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect([IO.File]::ReadAllBytes($env:DPAPI_FILE), $null, [Security.Cryptography.DataProtectionScope]::CurrentUser))"], { encoding: "utf8", timeout: WINDOWS_DPAPI_TIMEOUT_MS, env: { ...env, DPAPI_FILE: file }, windowsHide: true });
-    const out = (!r.error && r.status === 0) ? (r.stdout ?? "").replace(/\r?\n$/, "") : undefined;
-    const v = out && out.length > 0 ? out : undefined;
-    dpapiCache.set(name, v);
-    return v;
+  // 성공한 decrypt만 파일 identity+version으로 캐시한다. login 전 부재, logout/login에 따른 교체,
+  // SetWorkspace 경로 변경은 다음 read에서 즉시 관측하면서 매 턴 PowerShell spawn은 피한다.
+  let credentialAdkPath = adkPath;
+  const setCredentialWorkspace = (workspacePath) => {
+    if (workspacePath) credentialAdkPath = workspacePath;
   };
+  const winDpapiRead = makeRefreshingKeychainRead((name) => {
+    const file = join(credentialAdkPath, "naia-settings", ".keys", `${name}.dpapi`);
+    let stat;
+    try { stat = nodeFs.statSync(file, { bigint: true }); }
+    catch { return undefined; }
+    return {
+      cacheKey: file,
+      version: `${stat.mtimeNs}:${stat.ctimeNs}:${stat.size}`,
+      read: () => {
+        const r = spawnSync("powershell", ["-NoProfile", "-Command", "Add-Type -AssemblyName System.Security; [Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect([IO.File]::ReadAllBytes($env:DPAPI_FILE), $null, [Security.Cryptography.DataProtectionScope]::CurrentUser))"], { encoding: "utf8", timeout: WINDOWS_DPAPI_TIMEOUT_MS, env: { ...env, DPAPI_FILE: file }, windowsHide: true });
+        const out = (!r.error && r.status === 0) ? (r.stdout ?? "").replace(/\r?\n$/, "") : undefined;
+        return out && out.length > 0 ? out : undefined;
+      },
+    };
+  });
   const keychainRead = process.platform === "win32" ? winDpapiRead : (process.platform === "linux" ? secretToolRead : () => undefined);
   const credentials = makeKeychainCredentials({ read: keychainRead });
 
@@ -449,7 +458,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
   return {
     adkPath,
     provider, resolver, providerLabel,
-    credentials, secretToolRead,
+    credentials, secretToolRead, setCredentialWorkspace,
     settingsStore, settingsResolveSecret, defaultConfig, configLabel,
     engineProfile, engineLabel, llmRoles, roleLabel,
     subLlm, subLlmLabel,
