@@ -78,7 +78,10 @@ export function makeActivityRadioDjBgm(deps: {
   readonly now?: () => number;
 }): ActivityRadioDjBgmAdapter {
   const timeoutMs = deps.timeoutMs ?? 15_000;
-  const observationTimeoutMs = deps.observationTimeoutMs ?? 15_000;
+  // The Shell watchdog marks 12s as a diagnostic timeout, not proof that the
+  // embed failed. Keep observing beyond that marker so a cold YouTube iframe
+  // can still produce a correlated playing receipt without a false failure.
+  const observationTimeoutMs = deps.observationTimeoutMs ?? 30_000;
   const pollIntervalMs = deps.pollIntervalMs ?? 100;
   const wait = deps.wait ?? ((delayMs: number) => new Promise<void>((resolve) => setTimeout(resolve, delayMs)));
   const now = deps.now ?? Date.now;
@@ -169,7 +172,7 @@ export function makeActivityRadioDjBgm(deps: {
           if (state.track.videoId !== selectedVideoId) return { ok: false, reason: "BGM observed track mismatch" };
           return { ok: true, videoId: state.track.videoId, title: state.track.title };
         }
-        if (state.playbackId === playbackId && ["ended", "error", "timeout"].includes(state.status)) {
+        if (state.playbackId === playbackId && ["ended", "error"].includes(state.status)) {
           return { ok: false, reason: state.reason ?? `BGM ${state.status}` };
         }
         await wait(pollIntervalMs);
