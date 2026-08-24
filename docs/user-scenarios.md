@@ -129,6 +129,14 @@ memory 가 **전체 OFF 되지 않고** sub-LLM 만 생략한 채 동작한다 �
 유지되고 LLM 기반 사실추출/요약만 비활성(graceful degrade). memory 격리 키는 워크스페이스 UUID 라
 페르소나 userName(S1b)을 옮겨도 기억 정체성이 갈라지지 않는다.
 
+### S-MEM-STORAGE-BOUNDARY (agent 소유 제품 저장 경계)
+
+사용자가 Shell에서 ADK workspace를 선택하면 Shell은 그 `adkPath`와 설정만 Agent에 전달한다. Agent가
+workspace identity와 실제 저장 경로를 결정하며, 로컬 기억은 `<adkPath>/naia-settings/memory/`, 컴파일된
+지식은 `<adkPath>/naia-settings/knowledge/<scope>/` 아래에만 둔다. 제품 host는 env나 Shell이 넘긴 임의
+memory/knowledge 파일 경로를 받지 않는다. 서로 다른 ADK는 서로 다른 UUID와 저장소를 사용하고, 재시작 뒤
+같은 ADK의 기억과 지식을 그대로 회상한다.
+
 ### S-MEM-RELOAD (메모리 설정 라이브 교체 — #106)
 
 사용자가 실행 중인 Shell에서 memory adapter·embedding·memory LLM 역할을 바꾸고 설정을 다시 불러오면,
@@ -639,6 +647,7 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 | FR-MEM-12 / S-MEM-SUBLLM (naia sub-LLM 폴백 + graceful degrade, S5) | `src/test/uc-naia-settings-store.contract.test.ts` — describe "naia sub-LLM model 폴백 + graceful degrade (S5/G5)" (naia+모델부재+키존재→기본모델 완전구성·명시모델 우선·키 부재→provider=none 강등(메모리 유지)·vllm baseUrl 누락→none 강등) + `sub-llm-provider.contract.test.ts`(미구성=undefined) |
 | FR-MEM-13 / S-MEM-RELOAD | `src/test/reloadable-memory.contract.test.ts`(in-flight 대기·flush/build/close 순서·실패 시 기존 인스턴스 유지), `src/test/memory-settings-reload.contract.test.ts`(실 config 재독·동일 설정 12회 no-op·불완전 llmRoles 유지·정상 교체 후 데이터 보존), `discord-entry-wiring.contract.test.ts`·`grpc-shutdown.contract.test.ts`(비동기 SetWorkspace/ReloadSettings·lifecycle 회귀) |
 | FR-MEM-14 / 진단 provider 기억 오염 방지 | `src/test/echo-system-memory-persistence.contract.test.ts`(실 user episode는 저장하고 `SYSTEM_ECHO` 및 빈 assistant episode는 저장하지 않음) |
+| FR-MEM-15·16 / S-MEM-STORAGE-BOUNDARY | `src/test/product-storage-boundary.contract.test.ts`(canonical ADK·한국어 scope·경로 탈출 거부·legacy identity/store/KB 이동), `src/test/discord-entry-wiring.contract.test.ts`(제품 host의 canonical/symlink guard 배선), `src/test/memory-settings-reload.contract.test.ts`(교체 전후 양방향 비오염), `src/test/uc1-memory-stdio.integration.test.ts`(identity/store가 naia-settings 아래인지, 임의 env override 비수용, ADK 간 격리), `src/test/uc1-memory-process.integration.test.ts`(Shell과 같은 제품 host 경로의 재시작 영속), `src/test/uc-fs-tools.contract.test.ts`(AI 파일 도구의 memory/knowledge 쓰기 차단) |
 | UC-PROV-1 / FR-PROV-1·2·3 | `src/test/all-providers-wiring.contract.test.ts`, `uc1-reload-default-config.contract.test.ts`, `uc-naia-settings-store.contract.test.ts` |
 | UC-PROV-1 / FR-PROV-7 (로그인·workspace credential 동기화) | `src/test/uc-keychain-credentials.contract.test.ts`(login 전 부재·키 교체·workspace 분리·복호화 재시도), `src/test/discord-entry-wiring.contract.test.ts`(production DPAPI reader·SetWorkspace rollback 배선) |
 | UC-THINKING / S-THINK-1·2·3 / FR-THINK-1~4 | `src/test/uc-thinking.contract.test.ts` (요청 body 검증: enableThinking=false+로컬 → `reasoning_effort:"none"` / true·미지정 → 미전송 / **원격 baseUrl → 미전송**(400 회귀 방지) / `isLocalEngineBaseUrl` 순수 판별) |
@@ -663,7 +672,7 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 | UC-FS-TOOLS / S-FS-1·2·3 / FR-FS-2·3·4 + NFR-SEC (sandbox 단위) | `src/test/uc-fs-tools.contract.test.ts` — describe "validatePath (domain)" — `..`/드라이브절대/UNC/env확장/널바이트 거부, allow-root 밖 거부·안 허용, denylist(.keys/.env/.dpapi/data-private/ssh) 거부, 빈 allowRoots deny-all + describe "realpath/TOCTOU" — fake realpath 가 allow-root 밖 가리키면 거부(symlink/junction 탈출 시뮬) |
 | UC-FS-TOOLS / S-FS-5·6·7 / FR-FS-1·5·6·7·8 (도구 계약) | `src/test/uc-fs-tools.contract.test.ts` — describe "makeFsTools" — read_file/list_dir(허용 성공·거부 isError·throw 안 함), write_file(enableWrite=false→spec 없음·동작 거부, true→동작·승인 tier), 민감경로 실증(`<adk>/naia-settings/.keys/x.dpapi`·`<adk>/data-private/...` read→isError) + describe "makeShellTool" — argv 정상·셸문자열(string) 거부·cwd 탈출 거부·tier shell·no-throw |
 | UC-KNOWLEDGE / S-KB-1~4 / FR-KB-1~4 | `src/test/uc-knowledge.contract.test.ts` — describe "makeKnowledgeSkillsExecutor" (specs 2종·tier 없음 / search JSON hits+sourceUris / k 반영 / ask JSON answer+sources / 근거없음 기권 abstained / backend 미주입 unavailable / 빈·비문자 query·잘못 args isError no-throw / unknown tool / abort reject). fake backend 결정론 |
-| UC-KNOWLEDGE / S-KB-5 / FR-KB-5 (컴파일 K1b) | `src/test/uc-knowledge-compile.contract.test.ts` — makeCompileKnowledge(소스→backend·통계 / 소스0·빈adkPath·backend throw·readConfig throw = ok:false no-throw) + readWorkspaceKnowledgeConfig(부재·유효·깨짐). `src/test/uc-knowledge-compile.integration.test.ts` — 실 kb-compiler: 폴더(.md)→compile→knowledge/<scope>/kb.json 영속+sourceUris 보존(cross-repo) |
+| UC-KNOWLEDGE / S-KB-5 / FR-KB-5 (컴파일 K1b) | `src/test/uc-knowledge-compile.contract.test.ts` — makeCompileKnowledge(소스→backend·통계 / 소스0·빈adkPath·backend throw·readConfig throw = ok:false no-throw) + readWorkspaceKnowledgeConfig(부재·유효·깨짐). `src/test/uc-knowledge-compile.integration.test.ts` — 실 kb-compiler: 폴더(.md)→compile→`naia-settings/knowledge/<scope>/kb.json` 영속+sourceUris 보존(cross-repo) |
 
 > UC1/UC5/provider-provenance 의 상세 시나리오·수용기준은 각 계약서 + `docs/acceptance-criteria.md` 참조.
 

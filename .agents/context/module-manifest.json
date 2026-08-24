@@ -593,8 +593,8 @@
       "uc": [
         "UC-memory"
       ],
-      "contract": "docs/progress/99.dev-comm/UC-memory-recall-save-contract-2026-06-12.md",
-      "note": "deriveProjectKey/storeDirKey — workspace 격리 키 유도(순수, FR-MEM-9 SoT, 테스트 가능)"
+      "contract": "docs/requirements.md",
+      "note": "제품 저장 경계 SoT — canonical <ADK>/naia-settings 아래 memory identity/store 및 knowledge scope를 해석하고 destination-wins legacy migration을 제공. workspace UUID·storeDirKey 격리와 다국어 단일-segment scope 검증 포함(FR-MEM-9·15·16, FR-KB-6)."
     },
     "src/main/adapters/diagnostic.ts": {
       "layer": "adapters",

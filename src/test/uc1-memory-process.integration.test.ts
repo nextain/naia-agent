@@ -57,7 +57,8 @@ describe("UC-memory — 실 프로세스 관통(gRPC 진입점 종료 lifecycle)
 
   it("실 진입점 2턴 e2e(gRPC): 턴1 save → 턴2 recall→systemPrompt 주입(echo provider) + SIGTERM 영속", async () => {
     dir = await mkdtemp(join(tmpdir(), "naia-mem-proc-"));
-    const storePath = join(dir, "store.json");
+    const storePath = join(dir, "naia-settings", "memory", "store.json");
+    const rejectedOverride = join(dir, "outside-settings.json");
     const SECRET = "ProcZephyrLambda";
 
     // provider/config 는 naia-adk settings 에서 로딩(canon) — wire 에 provider 안 실음.
@@ -68,7 +69,7 @@ describe("UC-memory — 실 프로세스 관통(gRPC 진입점 종료 lifecycle)
     child = spawn(process.execPath, [entry], {
       cwd: pkgRoot,
       // AGENT_PROVIDER=echo-system → provider 가 systemPrompt 를 그대로 echo → recall 이 주입했으면 wire 에 나옴.
-      env: { ...process.env, AGENT_PROVIDER: "echo-system", NAIA_AGENT_SKILLS: "off", NAIA_MEMORY_STORE: storePath, NAIA_ADK_PATH: dir },
+      env: { ...process.env, AGENT_PROVIDER: "echo-system", NAIA_AGENT_SKILLS: "off", NAIA_MEMORY_STORE: rejectedOverride, NAIA_ADK_PATH: dir },
       stdio: ["pipe", "pipe", "ignore"],
     });
 
@@ -108,6 +109,7 @@ describe("UC-memory — 실 프로세스 관통(gRPC 진입점 종료 lifecycle)
       expect(exitCode).toBe(0);
       // 영속(종료 flush) — recall 이 관통했음을 store 로도 증명.
       expect(await readFile(storePath, "utf8")).toContain(SECRET);
+      await expect(readFile(rejectedOverride, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
     }
   }, 90000);
 

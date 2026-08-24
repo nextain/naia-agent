@@ -31,13 +31,14 @@ import { makeFileMemoStore } from "../../dist/main/adapters/file-memo-store.js";
 import { makeFileConversationLog } from "../../dist/main/adapters/conversation-log-store.js";
 import { makePersonaSourceStore } from "../../dist/main/adapters/persona-source-store.js";
 import { makeWorkspaceContextStore } from "../../dist/main/adapters/workspace-context-store.js";
+import { migrateLegacyKnowledge, migrateLegacyMemoryStore, migrateLegacyMemoryStoreFile, migrateLegacyWorkspaceIdentity, resolveProductKnowledgeDir, resolveProductStorage } from "../../dist/main/adapters/workspace-project.js";
 // ⚠️ makeNaiaMemory(→@nextain/naia-memory)는 *동적* import(아래) — 정적이면 모듈 로딩 실패 시 NAIA_AGENT_MEMORY=off
 // 나 try/catch 에 도달 못 하고 프로세스가 죽어 메모리 비활성 채팅(FR-MEM-3)·초기화 격리 계약이 깨진다.
 import * as nodeFs from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 
 /**
  * transport-독립 런타임 deps 조립(async — memory 동적 import + MCP init 때문).
@@ -48,6 +49,64 @@ import { dirname, join, resolve } from "node:path";
 export async function composeAgentRuntimeDeps(o = {}) {
   const env = o.env ?? process.env;
   const cleanupFns = []; // 종료 시 정리(MCP 자식 등) — 호스트 shutdown 이 호출.
+  const rejectExistingSymlink = (path, label) => {
+    try {
+      if (nodeFs.lstatSync(path).isSymbolicLink()) throw new Error(`${label} must not be a symbolic link`);
+    } catch (error) {
+      if (!(error && typeof error === "object" && error.code === "ENOENT")) throw error;
+    }
+  };
+  const canonicalProductRoot = (workspacePath) => {
+    const canonical = nodeFs.realpathSync(workspacePath);
+    const storage = resolveProductStorage(canonical);
+    rejectExistingSymlink(storage.settingsDir, "naia-settings");
+    rejectExistingSymlink(storage.memoryDir, "naia-settings/memory");
+    rejectExistingSymlink(storage.memoryStorePath, "naia-settings/memory/store.json");
+    rejectExistingSymlink(storage.workspaceIdPath, "naia-settings/memory/workspace-id");
+    return { canonical, storage };
+  };
+  const assertContainedRealPath = (root, path, label) => {
+    if (!nodeFs.existsSync(path)) return;
+    const realRoot = nodeFs.realpathSync(root);
+    const realPath = nodeFs.realpathSync(path);
+    if (realPath !== realRoot && !realPath.startsWith(`${realRoot}${sep}`)) {
+      throw new Error(`${label} escapes the canonical ADK`);
+    }
+  };
+  const migrationDeps = {
+    exists: (path) => nodeFs.existsSync(path),
+    mkdir: (path) => nodeFs.mkdirSync(path, { recursive: true, mode: 0o700 }),
+    validateSource: (source, expectedRoot) => {
+      const realRoot = nodeFs.realpathSync(expectedRoot);
+      const realSource = nodeFs.realpathSync(source);
+      if (realSource !== realRoot && !realSource.startsWith(`${realRoot}${sep}`)) {
+        throw new Error(`legacy source escapes its expected root: ${source}`);
+      }
+    },
+    copyExclusive: (source, destination) => {
+      if (nodeFs.lstatSync(source).isSymbolicLink()) throw new Error(`legacy source must not be a symbolic link: ${source}`);
+      const temp = `${destination}.migrate-${process.pid}-${randomUUID()}`;
+      try {
+        nodeFs.copyFileSync(source, temp, nodeFs.constants.COPYFILE_EXCL);
+        const fd = nodeFs.openSync(temp, "r+");
+        try { nodeFs.fsyncSync(fd); } finally { nodeFs.closeSync(fd); }
+        try {
+          nodeFs.linkSync(temp, destination); // atomic destination-wins; EEXIST is handled by copyLegacyFile
+        } catch (error) {
+          const code = error && typeof error === "object" ? error.code : undefined;
+          if (!["EXDEV", "EPERM", "ENOTSUP", "EOPNOTSUPP"].includes(code)) throw error;
+          // Some network/removable filesystems cannot create hard links. COPYFILE_EXCL
+          // retains destination-wins semantics; the legacy source remains the rollback copy.
+          nodeFs.copyFileSync(temp, destination, nodeFs.constants.COPYFILE_EXCL);
+          const destinationFd = nodeFs.openSync(destination, "r+");
+          try { nodeFs.fsyncSync(destinationFd); } finally { nodeFs.closeSync(destinationFd); }
+        }
+        try { nodeFs.chmodSync(destination, 0o600); } catch { /* best-effort permission hardening */ }
+      } finally {
+        try { nodeFs.unlinkSync(temp); } catch { /* absent or cleanup failure: destination remains authoritative */ }
+      }
+    },
+  };
 
   // ── provider 해석: 기본 = config-driven resolver(naia-settings→셸→req.provider+creds_update 로 lab-proxy/native/ollama
   //    라우팅). AGENT_PROVIDER=fake → 헤드리스 결정론 fake(E2E·LLM 불요). echo-system → recall→inject 관통 검증용. ──
@@ -98,6 +157,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
   // ⚠️ panel(환경 위임)은 여기 미포함 — egress 가 필요해 gRPC host 가 wire 후 합성(브라우저/BGM=셸 소유 환경, E1).
   let toolExecutor, skillsLabel = "off";
   let knowledgeBackend;
+  let setKnowledgeWorkspace = () => undefined;
   if (env.NAIA_AGENT_SKILLS !== "off") {
     const memoPath = env.NAIA_MEMO_PATH || join(homedir(), ".naia-agent", "memos.json");
     const memo = makeFileMemoStore({ path: memoPath, dir: dirname(memoPath), fs: nodeFs });
@@ -155,39 +215,47 @@ export async function composeAgentRuntimeDeps(o = {}) {
     }
 
     // ── UC-KNOWLEDGE(K1a): 워크스페이스 지식 풀 도구(read-only skill_knowledge_search/ask). memory(푸시)와 직교한 풀.
-    //    backend = naia-kb-compiler openWorkspaceKnowledge(<adkPath>/knowledge/<scope>) — *동적* import(@naia/kb-compiler
+    //    backend = naia-kb-compiler openWorkspaceKnowledge(<adkPath>/naia-settings/knowledge/<scope>) — *동적* import(@naia/kb-compiler
     //    미설치/빌드실패/KB부재 시 격리: 지식 도구만 생략, 채팅 무영향). 어댑터(makeKnowledgeSkillsExecutor)는 코어 소유,
     //    backend 만 외부 엔진 주입(D03 비종속). **활성 스코프** = 셸 소유 knowledge.json(읽기전용)의 scope —
     //    컴파일 산출(knowledge/<scope>/kb.json)과 동일 scope 로 읽어 읽기/쓰기 경로 정렬(멀티스코프 V1). 파일 부재=빈 KB(ask 기권).
     if (env.NAIA_KNOWLEDGE !== "off") {
       try {
         const { openWorkspaceKnowledge, toGraphData } = await import("@naia/kb-compiler");
-        let knowledgeDir = env.NAIA_KNOWLEDGE_DIR;
-        if (!knowledgeDir) {
-          // 활성 스코프 해소: knowledge.json scope(검증) → knowledge/<scope>. 부재/무효 = default.
-          let scope = "default";
-          try {
-            const cfg = await readWorkspaceKnowledgeConfig(adkPath);
-            if (cfg.scope && isValidKnowledgeScope(cfg.scope)) scope = cfg.scope;
-          } catch { /* knowledge.json 부재/깨짐 = default */ }
-          knowledgeDir = join(adkPath, "knowledge", scope);
-        }
+        let knowledgeWorkspace = adkPath;
+        setKnowledgeWorkspace = (workspacePath) => { if (workspacePath) knowledgeWorkspace = workspacePath; };
         // ★ 라이브 리로드(컴파일 후 재시작 불요): kb.json 은 기동 시 1회 인덱싱되므로, "지금 컴파일" 로
         //   파일이 바뀌어도 기존 KB(인덱스)는 stale → AI 가 새 지식을 못 본다. mtime 변화 감지 시 다음 질의에서
         //   재로딩(재인덱싱) = 컴파일 RPC 와 결선 없이 자가교정. 무변화면 캐시 재사용(매 질의 재인덱싱 안 함).
-        const kbFile = join(knowledgeDir, "kb.json");
         let cached = null;
+        let cachedKey = "";
         let cachedMtime = -1;
         const loadKnowledge = async () => {
+          let scope = "default";
+          try {
+            const cfg = await readWorkspaceKnowledgeConfig(knowledgeWorkspace);
+            if (cfg.scope && isValidKnowledgeScope(cfg.scope)) scope = cfg.scope;
+          } catch { /* knowledge.json 부재/깨짐 = default */ }
+          const { canonical } = canonicalProductRoot(knowledgeWorkspace);
+          const knowledgeRoot = join(canonical, "naia-settings", "knowledge");
+          const knowledgeDir = resolveProductKnowledgeDir(canonical, scope);
+          const kbFile = join(knowledgeDir, "kb.json");
+          rejectExistingSymlink(knowledgeRoot, "naia-settings/knowledge");
+          rejectExistingSymlink(knowledgeDir, `naia-settings/knowledge/${scope}`);
+          rejectExistingSymlink(kbFile, `naia-settings/knowledge/${scope}/kb.json`);
+          assertContainedRealPath(canonical, knowledgeRoot, "naia-settings/knowledge");
+          assertContainedRealPath(canonical, knowledgeDir, `naia-settings/knowledge/${scope}`);
+          migrateLegacyKnowledge(canonical, scope, migrationDeps);
           let mtime = 0;
           try { mtime = nodeFs.statSync(kbFile).mtimeMs; } catch { mtime = 0; } // 부재 = mtime 0(빈 KB)
-          if (cached === null || mtime !== cachedMtime) {
+          const key = `${canonical}\0${scope}`;
+          if (cached === null || key !== cachedKey || mtime !== cachedMtime) {
             cached = await openWorkspaceKnowledge(knowledgeDir);
+            cachedKey = key;
             cachedMtime = mtime;
           }
           return cached;
         };
-        const wk = await loadKnowledge(); // 초기 로드(존재·라벨)
         const backend = {
           search: async (q, k) => (await loadKnowledge()).service.search(q, k),
           ask: async (q) => (await loadKnowledge()).service.ask(q),
@@ -195,7 +263,9 @@ export async function composeAgentRuntimeDeps(o = {}) {
         };
         knowledgeBackend = backend;
         executors.push(makeKnowledgeSkillsExecutor({ backend }));
-        skillsLabel += ` + knowledge(${knowledgeDir}, cards=${wk.kb.cards.length}, live-reload)`;
+        // Do not eagerly realpath/load the fallback workspace. A fresh desktop may boot before
+        // the selected ADK exists; the dynamic backend must recover after SetWorkspace.
+        skillsLabel += " + knowledge(canonical naia-settings, live-workspace-reload)";
       } catch (e) {
         process.stderr.write(`[naia-agent] knowledge init 실패(격리, 지식 도구 없이 진행): ${e instanceof Error ? e.message : String(e)}\n`);
       }
@@ -333,7 +403,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
     try {
       const { makeNaiaMemory } = await import("../../dist/main/adapters/naia-memory.js");
       const { makeReloadableMemory } = await import("../../dist/main/adapters/reloadable-memory.js");
-      const { resolveWorkspaceId, storeDirKey } = await import("../../dist/main/adapters/workspace-project.js");
+      const { resolveWorkspaceId } = await import("../../dist/main/adapters/workspace-project.js");
       memory = makeReloadableMemory();
 
       const stableJson = (value) => {
@@ -371,15 +441,46 @@ export async function composeAgentRuntimeDeps(o = {}) {
         const nextMemoryRuntime = effectiveMemoryRole
           ? resolveRoleRuntimeConfig(effectiveMemoryRole, settingsResolveSecret)
           : undefined;
-        const project = env.NAIA_MEMORY_PROJECT || resolveWorkspaceId(workspacePath, {
+        const { canonical: canonicalWorkspace, storage } = canonicalProductRoot(workspacePath);
+        // Preserve existing users: copy legacy identity first, then use that identity to find
+        // the legacy hashed store. Never overwrite a new-boundary file.
+        const tryLegacyMigration = (label, migrate) => {
+          try { return migrate(); }
+          catch (error) {
+            process.stderr.write(`[naia-agent] legacy ${label} migration skipped: ${error instanceof Error ? error.message : String(error)}\n`);
+            return false;
+          }
+        };
+        tryLegacyMigration("workspace identity", () => migrateLegacyWorkspaceIdentity(canonicalWorkspace, migrationDeps));
+        const project = resolveWorkspaceId(canonicalWorkspace, {
           readFile: (p) => nodeFs.readFileSync(p, "utf8"),
           writeFileExclusive: (p, d) => nodeFs.writeFileSync(p, d, { flag: "wx", mode: 0o600 }),
           mkdir: (p) => nodeFs.mkdirSync(p, { recursive: true, mode: 0o700 }),
           isDirectory: (p) => { try { return nodeFs.statSync(p).isDirectory(); } catch { return false; } },
+          realpath: (p) => nodeFs.realpathSync(p),
           randomUUID,
         });
-        const storeBase = env.NAIA_MEMORY_DIR || join(homedir(), ".naia-agent", "memory");
-        const storePath = env.NAIA_MEMORY_STORE || join(storeBase, storeDirKey(project), "store.json");
+        const storePath = storage.memoryStorePath;
+        let migratedLegacyStore = false;
+        if (env.NAIA_MEMORY_STORE) {
+          migratedLegacyStore = tryLegacyMigration("memory store", () => migrateLegacyMemoryStoreFile(canonicalWorkspace, env.NAIA_MEMORY_STORE, migrationDeps));
+        }
+        const legacyRoots = [
+          env.NAIA_MEMORY_DIR,
+          join(homedir(), ".naia-agent", "memory"),
+        ].filter((value, index, all) => value && all.indexOf(value) === index);
+        for (const legacyRoot of migratedLegacyStore ? [] : legacyRoots) {
+          if (tryLegacyMigration("memory store", () => migrateLegacyMemoryStore(canonicalWorkspace, project, legacyRoot, migrationDeps))) {
+            migratedLegacyStore = true;
+            break;
+          }
+        }
+        // A store keyed by a caller-supplied legacy project cannot be copied safely: its records
+        // retain that project and strict UUID scope would make every copied memory unreachable.
+        // Keep the source untouched and require an explicit record-rewrite migration later.
+        if ((env.NAIA_MEMORY_STORE || env.NAIA_MEMORY_DIR || env.NAIA_MEMORY_PROJECT) && !migratedLegacyStore) {
+          process.stderr.write("[naia-agent] legacy memory override is ignored; no legacy store was copied because the canonical destination already exists or the source is absent\n");
+        }
         try { nodeFs.mkdirSync(dirname(storePath), { recursive: true, mode: 0o700 }); } catch { /* best-effort */ }
         const sessionId = env.NAIA_MEMORY_SESSION || `proc-${randomUUID()}`;
         const next = makeNaiaMemory({
@@ -396,6 +497,14 @@ export async function composeAgentRuntimeDeps(o = {}) {
         });
         try {
           await next.ready();
+          // Re-check after adapter initialization: a local race must not leave an
+          // active memory instance writing through a swapped directory/file link.
+          rejectExistingSymlink(storage.memoryDir, "naia-settings/memory");
+          rejectExistingSymlink(storage.memoryStorePath, "naia-settings/memory/store.json");
+          rejectExistingSymlink(storage.workspaceIdPath, "naia-settings/memory/workspace-id");
+          assertContainedRealPath(canonicalWorkspace, storage.memoryDir, "naia-settings/memory");
+          assertContainedRealPath(canonicalWorkspace, storage.memoryStorePath, "naia-settings/memory/store.json");
+          assertContainedRealPath(canonicalWorkspace, storage.workspaceIdPath, "naia-settings/memory/workspace-id");
         } catch (error) {
           await next.close().catch(() => undefined);
           throw error;
@@ -462,7 +571,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
     settingsStore, settingsResolveSecret, defaultConfig, configLabel,
     engineProfile, engineLabel, llmRoles, roleLabel,
     subLlm, subLlmLabel,
-    toolExecutor, skillsLabel, knowledgeBackend,
+    toolExecutor, skillsLabel, knowledgeBackend, setKnowledgeWorkspace,
     memory, memoryLabel, reloadMemory,
     conversationLog, transcriptLabel,
     personaSource, personaLabel,

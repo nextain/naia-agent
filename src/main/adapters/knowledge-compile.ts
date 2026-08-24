@@ -10,6 +10,7 @@
 import type { Dirent } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
+import { isSafeProductScope, resolveProductKnowledgeDir } from "./workspace-project.js";
 
 /** 컴파일 결과(통계). gRPC `CompileKnowledgeResult` 와 동형(camelCase). */
 export interface CompileKnowledgeResult {
@@ -48,13 +49,7 @@ export interface CompileKnowledgeDeps {
  *  드라이브절대·널바이트·과길이 거부. 셸 소유 config 라도 defense-in-depth: 악의/버그로 `../../etc` 가 와도
  *  outDir 이 워크스페이스 밖으로 못 나가게 한다(Rust `read_naia_knowledge_kb` 의 scope 가드와 대칭). */
 export function isValidKnowledgeScope(scope: string): boolean {
-	if (typeof scope !== "string" || scope.length === 0 || scope.length > 128)
-		return false;
-	if (scope.includes("/") || scope.includes("\\") || scope.includes("\0"))
-		return false;
-	if (scope === "." || scope.includes("..")) return false;
-	if (/^[A-Za-z]:/.test(scope)) return false; // 드라이브 절대
-	return true;
+	return isSafeProductScope(scope);
 }
 
 export function makeCompileKnowledge(deps: CompileKnowledgeDeps) {
@@ -80,7 +75,7 @@ export function makeCompileKnowledge(deps: CompileKnowledgeDeps) {
 				return fail(scope, "유효하지 않은 지식 스코프(경로 구분자/.. 금지)");
 			if (!cfg.sources.length)
 				return fail(scope, "등록된 소스 폴더가 없습니다");
-			const outDir = join(adkPath, "knowledge", scope);
+			const outDir = resolveProductKnowledgeDir(adkPath, scope);
 			const stats = await deps.backend.compileSources({
 				sources: cfg.sources,
 				scope,

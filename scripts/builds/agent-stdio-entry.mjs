@@ -48,8 +48,8 @@ const discordToken = await discordTokenFromSecretPipe;
 // Secret pipe read/close must finish before any runtime module is evaluated. This keeps
 // provider/tool composition and every later child process outside the secret fd lifetime.
 const { randomUUID } = await import("node:crypto");
-const { existsSync, readFileSync } = await import("node:fs");
-const { join } = await import("node:path");
+const { existsSync, lstatSync, readFileSync, realpathSync } = await import("node:fs");
+const { join, sep } = await import("node:path");
 const { loadJeonjuCourseTargetRaw } = await import("./jeonju-course-target-config.mjs");
 const { wireAgentUC1, wireSupervisor } = await import("../../dist/main/composition/index.js");
 const { makeCompositeAgentIngress, makePrefixedAgentEgress } =
@@ -142,7 +142,7 @@ const { composeAgentRuntimeDeps } = await import("./compose-agent-deps.mjs");
 // ── transport-독립 런타임 deps = 공유 빌더(CLI host 와 literally 동일, NFR-CLI-shared) ──
 const deps = await composeAgentRuntimeDeps();
 cleanupFns = deps.cleanupFns;
-const { adkPath, provider, resolver, providerLabel: label, credentials, settingsStore, defaultConfig, configLabel, setCredentialWorkspace } = deps;
+const { adkPath, provider, resolver, providerLabel: label, credentials, settingsStore, defaultConfig, configLabel, setCredentialWorkspace, setKnowledgeWorkspace } = deps;
 const { llmRoles } = deps;
 let activeLlmRoles = llmRoles ?? null;
 let { toolExecutor } = deps;
@@ -334,6 +334,10 @@ const grpcServer = makeGrpcServer({
     if (!result.memoryReloaded && result.memoryError) {
       currentAdkPath = previousAdkPath;
       setCredentialWorkspace(currentAdkPath);
+    } else if (wsPath) {
+      // Knowledge switches only after the memory/config transaction commits, so in-flight turns
+      // cannot observe a different workspace while SetWorkspace is still pending.
+      setKnowledgeWorkspace(currentAdkPath);
     }
     return result;
   },
@@ -344,12 +348,44 @@ const grpcServer = makeGrpcServer({
   ...(codingJobs ? { codingJobs } : {}),
   // UC-KNOWLEDGE-COMPILE(FR-KB-5): "지금 컴파일" → 등록 소스 폴더(naia-settings/knowledge.json) → kb.json.
   //   config 읽기=셸 소유 정본(에이전트 읽기전용), 실 backend=kb-compiler(오프라인 결정론). adk_path 미지정=현 워크스페이스.
-  onCompileKnowledge: (wsPath) =>
-    makeCompileKnowledge({
-      readConfig: readWorkspaceKnowledgeConfig,
-      backend: makeKbCompilerBackend(),
-      diag,
-    })(wsPath || currentAdkPath),
+  onCompileKnowledge: async (wsPath) => {
+    const fail = (error) => ({ ok: false, scope: "default", sourceCount: 0, cardCount: 0, entityCount: 0, relationCount: 0, error });
+    try {
+      const requested = wsPath || currentAdkPath;
+      const canonical = realpathSync(requested);
+      const rejectCompileSymlink = (candidate) => {
+        try {
+          if (lstatSync(candidate).isSymbolicLink()) throw new Error(`${candidate} must not be a symbolic link`);
+        } catch (error) {
+          if (!(error && typeof error === "object" && error.code === "ENOENT")) throw error;
+        }
+      };
+      const assertCompilePath = (candidate) => {
+        rejectCompileSymlink(candidate);
+        if (!existsSync(candidate)) return;
+        const real = realpathSync(candidate);
+        if (real !== canonical && !real.startsWith(`${canonical}${sep}`)) throw new Error(`${candidate} escapes the canonical ADK`);
+      };
+      assertCompilePath(`${canonical}/naia-settings`);
+      assertCompilePath(`${canonical}/naia-settings/knowledge`);
+      const backend = makeKbCompilerBackend();
+      return await makeCompileKnowledge({
+        readConfig: readWorkspaceKnowledgeConfig,
+        backend: {
+          compileSources: async (opts) => {
+            // Config determines scope only after it is read. Recheck the scope directory and
+            // final file at the last adapter boundary before the compiler can write either.
+            assertCompilePath(opts.outDir);
+            assertCompilePath(join(opts.outDir, "kb.json"));
+            return backend.compileSources(opts);
+          },
+        },
+        diag,
+      })(canonical);
+    } catch (error) {
+      return fail(error instanceof Error ? error.message : String(error));
+    }
+  },
   onRegisterPanelSkills: (panelId, tools) => {
     panelExec?.register(panelId, tools);
     profileRuntime?.capabilitiesChanged();

@@ -72,6 +72,9 @@ describe("denylist (민감경로 — allow-root 안이라도 거부)", () => {
   const denied = [
     "naia-settings/.keys/x.dpapi",   // .keys 세그먼트 + .dpapi 접미사
     "naia-settings/.keys/anything",  // .keys 세그먼트
+    "naia-settings/memory/store.json", // durable memory 전체 덤프 차단
+    "naia-settings/memory/workspace-id", // workspace identity 차단
+    "naia-settings/knowledge/default/kb.json", // compiled knowledge는 scoped tool로만 접근
     ".env",
     "sub/.env",
     ".env.production",
@@ -132,7 +135,6 @@ describe("isSettingsWriteFenced (설정 쓰기-펜스 — write 전용, FR-KB-OS
   it("naia-settings 밖 = 펜스 아님(false) — 일반 워크스페이스/유사이름", () => {
     for (const p of [
       "/ws/docs/x.md",
-      "/ws/knowledge/default/kb.json",
       "/ws/naia-settings-backup/x", // prefix 유사하지만 다른 디렉터리
     ])
       expect(isSettingsWriteFenced(p, [ROOT])).toBe(false);

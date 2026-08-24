@@ -27,7 +27,7 @@ describe("memory settings reload wiring", () => {
     const adk = await mkdtemp(join(tmpdir(), "naia-memory-reload-"));
     const settingsDir = join(adk, "naia-settings");
     const configPath = join(settingsDir, "config.json");
-    const storePath = join(adk, "memory.json");
+    const storePath = join(adk, "naia-settings", "memory", "store.json");
     await mkdir(settingsDir, { recursive: true });
     await writeFile(configPath, JSON.stringify({ provider: "fake", model: "test" }), "utf8");
 
@@ -35,8 +35,6 @@ describe("memory settings reload wiring", () => {
       env: {
         ...process.env,
         NAIA_ADK_PATH: adk,
-        NAIA_MEMORY_STORE: storePath,
-        NAIA_MEMORY_PROJECT: "reload-contract",
         NAIA_AGENT_SKILLS: "off",
         NAIA_AGENT_TRANSCRIPT: "off",
         AGENT_PROVIDER: "fake",
@@ -65,11 +63,16 @@ describe("memory settings reload wiring", () => {
     expect(readFileSync(storePath, "utf8")).toContain("retained-canary");
 
     const nextAdk = join(adk, "next-workspace");
+    const nextStorePath = join(nextAdk, "naia-settings", "memory", "store.json");
     await mkdir(join(nextAdk, "naia-settings"), { recursive: true });
     await writeFile(join(nextAdk, "naia-settings", "config.json"), JSON.stringify({ provider: "fake", model: "test" }), "utf8");
     const succeeded = await deps.reloadMemory(nextAdk);
     expect(succeeded).toMatchObject({ ok: true, reloaded: true, retained: false });
     expect(readFileSync(storePath, "utf8")).toContain("reload-canary");
+    await deps.memory.save("next-workspace-canary", "isolated", { durable: true });
+    expect(readFileSync(nextStorePath, "utf8")).toContain("next-workspace-canary");
+    expect(readFileSync(nextStorePath, "utf8")).not.toContain("reload-canary");
+    expect(readFileSync(storePath, "utf8")).not.toContain("next-workspace-canary");
     await deps.memory.close();
   });
 });

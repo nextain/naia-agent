@@ -53,7 +53,10 @@ describe("UC-KNOWLEDGE 컴파일 통합 — 실 kb-compiler 폴더→kb.json(FR-
 
 		// kb.json 영속 + 가반 envelope({version:1,kb})
 		const env = JSON.parse(
-			await readFile(join(adk, "knowledge", "gov", "kb.json"), "utf8"),
+			await readFile(
+				join(adk, "naia-settings", "knowledge", "gov", "kb.json"),
+				"utf8",
+			),
 		);
 		expect(env.version).toBe(1);
 		expect(env.kb.cards.length).toBe(r.cardCount);
@@ -63,9 +66,12 @@ describe("UC-KNOWLEDGE 컴파일 통합 — 실 kb-compiler 폴더→kb.json(FR-
 		);
 		expect(uris.some((u: string) => u.includes("jeonipsingo.md"))).toBe(true);
 
-		// K-SEC 분리: 컴파일은 knowledge/<scope>/ 만 영속 — memory store 미접촉(누수 0).
-		expect(await readdir(join(adk, "knowledge"))).toEqual(["gov"]); // scope 만
+		// K-SEC 분리: 컴파일은 naia-settings/knowledge/<scope>/ 만 영속 — memory store 미접촉(누수 0).
+		expect(await readdir(join(adk, "naia-settings", "knowledge"))).toEqual([
+			"gov",
+		]); // scope 만
 		const rootEntries = await readdir(adk);
+		expect(rootEntries).not.toContain("knowledge"); // ADK 루트 임의 저장 금지
 		expect(rootEntries.some((e) => /memory/i.test(e))).toBe(false); // memory 류 디렉터리 미생성
 	});
 

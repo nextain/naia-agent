@@ -74,7 +74,7 @@ describe("T-DISCORD-RT-02/05 — production entry wiring", () => {
   });
 
   it("keeps a fresh desktop install bootable before a workspace exists", () => {
-    expect(entry).toContain('const { existsSync, readFileSync } = await import("node:fs")');
+    expect(entry).toMatch(/const \{[^}]*existsSync[^}]*readFileSync[^}]*\} = await import\("node:fs"\)/);
     expect(entry).toContain("adkPath && existsSync(adkPath) ? new CodingJobService");
   });
 
@@ -105,6 +105,10 @@ describe("T-DISCORD-RT-02/05 — production entry wiring", () => {
     expect(setWorkspaceBody).toContain("await reloadConfigFrom(currentAdkPath, true)");
     expect(setWorkspaceBody).toContain("currentAdkPath = previousAdkPath");
     expect(setWorkspaceBody.match(/setCredentialWorkspace\(currentAdkPath\)/g)).toHaveLength(2);
+    expect(setWorkspaceBody.indexOf("setKnowledgeWorkspace(currentAdkPath)")).toBeGreaterThan(
+      setWorkspaceBody.indexOf("await reloadConfigFrom(currentAdkPath, true)"),
+    );
+    expect(entry).toContain('assertCompilePath(join(opts.outDir, "kb.json"))');
   });
 
   it("keeps the Windows credential reader synchronized with login state and workspace changes", () => {

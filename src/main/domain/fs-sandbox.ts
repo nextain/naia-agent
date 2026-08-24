@@ -83,6 +83,8 @@ const DENY_FILENAME_PREFIXES: readonly string[] = [
 
 /** 정규화된(소문자/POSIX) 경로 어디든 이 부분문자열이 있으면 거부(브라우저 프로필·토큰 저장소). */
 const DENY_SUBSTRINGS: readonly string[] = [
+  "/naia-settings/memory", // agent-owned durable memory/store identity: model file tools must never dump it
+  "/naia-settings/knowledge/", // compiled scope contents; knowledge.json remains readable product config
   "/login data",          // 브라우저 저장 비번
   "/cookies",             // 브라우저 쿠키
   "/.config/gcloud",      // gcloud 자격증명 저장소
