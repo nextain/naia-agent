@@ -864,3 +864,8 @@ The Agent and Gateway preserve these codes end to end:
   run still requires a Naia credential, pinned price versions, and a pinned external harness-journal
   key identity. The baseline is already pinned. A hand-authored or unsigned evidence file can never
   become a completion claim, and the current gateway does not provide a server signature.
+# FR-ACTION-1 — requested actions complete in the same turn
+
+When tools are available, a request to inspect, list, open, search, check weather, or control an app must invoke the relevant tool before the assistant claims completion. The assistant must not terminate with only a future-tense promise. A vague BGM request uses a sensible default query and starts playback. Provider reasoning stays separate from final answer text, and code is emitted as a language-tagged fenced block.
+
+Verification: `src/test/action-execution-policy.contract.test.ts` and the naia-shell v0.2.2 same-build E2E acceptance flow.
