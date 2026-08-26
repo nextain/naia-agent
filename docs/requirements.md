@@ -866,3 +866,23 @@ The Agent and Gateway preserve these codes end to end:
   run still requires a Naia credential, pinned price versions, and a pinned external harness-journal
   key identity. The baseline is already pinned. A hand-authored or unsigned evidence file can never
   become a completion claim, and the current gateway does not provide a server signature.
+
+## REQ-021 — 환경 표면 관측 (nextain/naia-agent#112)
+
+- **배경**: 루크 결정(2026-08-26)으로 정보의 취합과 결정은 naia-agent 에서 한다. 셸은 사용자의
+  터미널 세계를 관측해 구조화 값으로 올리고, 뇌가 그것을 자기 페르소나·기억·이슈 포트폴리오와
+  함께 취합한다. 계약은 `docs/progress/99.dev-comm/issue-112-environment-surfaces.md`.
+- **요구**: `EnvironmentSegment` 화이트리스트에 `environmentSurfaces` kind 를 더한다. 클라는
+  표면 손잡이·이름·활동 상태·사용자 주시 여부와 상한 때문에 못 실은 개수만 보낸다. 프롬프트에
+  들어갈 문장은 코어가 발행하며, 클라가 보낸 문자열은 지시문 자리에 놓이지 않는다.
+- **불변**: 클라 주입 금지 모델은 그대로다. persona·profile·workspaceContext 는 여전히 클라가
+  주입하지 못한다. 이번 변경은 화이트리스트에 kind 를 더하는 것이지 예외를 만드는 것이 아니다.
+- **셸을 신뢰하지 않는다**: 짝 저장소가 이미 제어문자를 제거하고 길이를 자르고 활동 상태를
+  정규화한다. 그래도 코어가 다시 한다. 셸은 여러 개일 수 있고 그중 하나가 게을러도 뇌가
+  오염되면 안 된다. 기존 `panel` kind 가 같은 태도를 취한다.
+- **상한**: 세그먼트 개수·엔트리 개수·렌더 총길이 상한은 `environment-segments.ts` 의 기존
+  상수 체계를 따른다. 새 상한 체계를 만들지 않는다.
+- **범위 밖**: 내려가는 의도(관측·포커스·중단·실행)는 `environmentSegments` 가 아니라 도구 호출
+  경로이며 별도 요구사항으로 연다. 오케스트레이션은 이미 이 저장소에 있으므로 새로 만들지 않는다.
+- **Status**: In progress. UC-024 / SPEC-020 / TEST-S-024 / TEST-F-020 으로 추적한다.
+  `.agents/context/process-status.json` 은 이 저장소에서 헌장 파일이라 P05 상태 갱신은 사람 승인 뒤에 한다.

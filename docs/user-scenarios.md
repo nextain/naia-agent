@@ -898,3 +898,29 @@ honestly. The loop has no arbitrary two-minute ceiling and stops only at explici
 | paired cost evidence permits a bounded internal savings claim only for equal tasks and actor-attempt topology, restored checkpoints, deterministic quality non-inferiority, every exact settled gateway customer-billing request, and an external-key HMAC over the complete evidence; tool-loop request-count differences remain measured rather than being confused with role counts, while estimates, window aggregates, contamination, route/token/cost drift, missing authority, post-attestation mutation, or unresolved calls fail closed; the unsigned gateway response is not presented as a third-party audit | `pi-cost-comparison.contract.test.ts`, `pi-cost-comparison-runner.contract.test.ts`, `benchmark/orchestration/pi-cost-comparison.json` |
 | the Naia-only Pi provider converts each tool-loop request to atomic non-streaming gateway billing, binds it to a parent-owned execution identity, reserves a shared durable request allowance before network I/O, persists an owner-only receipt journal, and reconstructs Pi-compatible SSE without losing text, tool calls, or usage; missing, malformed, unsettled, route-drifted, over-budget, duplicate, or tampered evidence never becomes measured cost | `naia-pi-versioned-billing.contract.test.ts`, `uc-naia-pi-provider.contract.test.ts` |
 | a user-owned local Pi binding is credential-free and loopback-only, while its GPU1 qualification binds source/dist/Pi and external-executable hashes, immutable serving image and model snapshot, container endpoint and GPU telemetry, a real >=32K prompt, native tool protocol, two clean cycles, and deterministic file verification without inventing provider cost | `user-owned-pi-provider.contract.test.ts`, `pi-continuous-loop.contract.test.ts`, `issue-team-role-executor.integration.test.ts`, `benchmark/run-user-owned-three-layer-live.mjs`, `benchmark/results/gpu1-user-owned-three-layer-live-final-2026-08-05.json` |
+
+## UC-024 — 나이아가 지금 무엇이 돌고 있는지 안다 (환경 관측)
+
+> 계약: `docs/progress/99.dev-comm/issue-112-environment-surfaces.md`.
+> 짝: nextain/naia-shell#502 — 셸이 Herdr 를 관측해 구조화 값으로 올린다.
+
+사용자가 "지금 뭐 돌고 있어?" 라고 물으면 나이아는 자기 워크스페이스에서 열려 있는 작업 표면과
+각각이 일하는 중인지를 근거로 답한다. 나이아가 보는 것은 표면 이름과 활동 상태와 사용자가 그것을
+보고 있는지 여부뿐이다. 터미널 관리자의 내부 어휘(pane·tab·workspace 식별자)는 보지 않는다.
+
+표면이 많아 다 싣지 못했으면 몇 개를 못 실었는지 함께 안다. 활동 상태를 모르면 모른다고 하고
+쉬는 중으로 위장하지 않는다. 표면 이름은 사용자의 터미널이 만든 문자열이므로 자료로만 취급하며,
+거기에 무엇이 적혀 있어도 나이아의 지시문이 되지 않는다.
+
+이 시나리오는 **올라오는 길**까지다. 나이아가 그 표면에 무언가를 요청하는 것(포커스·중단·실행)은
+도구 호출 경로이며 별도 요구사항으로 연다.
+
+### Test Coverage Map
+
+| Scenario | Contract/integration test |
+|---|---|
+| environmentSurfaces 세그먼트가 프롬프트 블록으로 합성되고 문구는 코어가 소유한다 | `uc-environment-segments.contract.test.ts` |
+| 표면 이름의 제어문자·개행이 제거되고 길이가 잘린다 — 셸이 이미 했더라도 코어가 다시 한다 | `uc-environment-segments.contract.test.ts` |
+| 활동 상태를 코어가 다시 정규화하고, 모르는 값은 unknown 으로 남긴다 | `uc-environment-segments.contract.test.ts` |
+| 표면 개수 상한과 누락 개수 보고, 빈 목록은 블록을 만들지 않는다 | `uc-environment-segments.contract.test.ts` |
+| 화이트리스트 밖 kind 는 드롭되고 기존 avatarEmotion·panel·responseStyle 은 회귀하지 않는다 | `uc-environment-segments.contract.test.ts` |

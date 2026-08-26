@@ -32,6 +32,7 @@
 | TEST-S-101 | REQ-101 | 헥사고날 직교 — 도메인/ports/app 이 transport/adapter/메커니즘(child_process·git·net) 미import(레이어 방향 + 메커니즘 누수 0) | 계약 | `src/test/import-boundary.contract.test.ts` | Pass |
 
 | TEST-S-020 | UC-023 | isolated HOME에서 auth→config→models→doctor→session→run 기본값/override 전체 흐름과 실제 Naia 계정 Pi model evidence를 검증 | process integration + live smoke | `src/test/cli-manage-process.integration.test.ts`; `docs/naia-agent-cli-manual.md` | Pass |
+| TEST-S-024 | UC-024 | environmentSurfaces 세그먼트가 프롬프트 블록으로 합성되고, 제어문자·과길이·대량 입력·미지 값이 뇌를 오염시키지 못하며, 화이트리스트 밖 kind 는 드롭된다 | 계약 | `src/test/uc-environment-segments.contract.test.ts` | In-progress |
 
 ## 비고
 - Pass = `npx vitest run` 기준(2026-06-23 agent 583 pass / 5 skip 확인). external(UC-006 CDP/UC-008 youtube) 실 서비스 runtime = 루크머신(계약·skill 로직만 자율 검증).

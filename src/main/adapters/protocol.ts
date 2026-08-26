@@ -33,6 +33,23 @@ export function decodeEnvironmentSegments(v: unknown): EnvironmentSegment[] {
       // style 은 enum 만 — "brief" 만 효과, 그 외(미지정 포함)는 "normal"(무영향)로 정규화. 자유 텍스트 주입 경로 없음.
       const style = (s as Record<string, unknown>)["style"] === "brief" ? "brief" : "normal";
       out.push({ kind: "responseStyle", style });
+    } else if (kind === "environmentSurfaces") {
+      // REQ-021·SPEC-020. 클라 값은 형태만 받고 정규화·새니타이즈는 domain 렌더가 한다(C3).
+      // 여기서는 배열/필드 형태만 강제해 손상된 입력이 렌더까지 흘러가지 않게 한다.
+      const rawSurfaces = (s as Record<string, unknown>)["surfaces"];
+      const surfaces = Array.isArray(rawSurfaces)
+        ? rawSurfaces
+            .filter((x): x is Record<string, unknown> => !!x && typeof x === "object" && typeof (x as Record<string, unknown>)["label"] === "string")
+            .map((x) => ({
+              ref: typeof x["ref"] === "string" ? String(x["ref"]) : "",
+              label: String(x["label"]),
+              activity: typeof x["activity"] === "string" ? String(x["activity"]) : "unknown",
+              focused: x["focused"] === true,
+            }))
+        : [];
+      const rawOmitted = (s as Record<string, unknown>)["omitted"];
+      const omitted = typeof rawOmitted === "number" && Number.isFinite(rawOmitted) && rawOmitted > 0 ? Math.trunc(rawOmitted) : 0;
+      out.push({ kind: "environmentSurfaces", surfaces, omitted });
     }
     // 그 외 kind = 드롭(화이트리스트).
   }

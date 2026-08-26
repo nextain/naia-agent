@@ -41,6 +41,7 @@ scripts/check-traceability.mjs 가 파싱. 상세 = docs/requirements.md, 99.dev
 | REQ-016 | Discord 유휴 세션 회전 | Gateway는 모델 호출 없이 대기하고, 사용자·binding별 임시 대화는 30분 기본 유휴시간 전까지만 재사용하며 경계 이후 새 문맥으로 전환한다 | Done | UC-018 | SPEC-015 | TEST-S-018 |
 | REQ-101 | NFR-기반 | substrate-agnostic 포트(core 도메인은 transport 무지) + 헥사고날 직교 | Done | — | — | TEST-S-101 |
 | REQ-102 | NFR-보안 | 키체인 자격증명(secret 평문 미보존) + provider 전환 시 stale 키 clear | Done | — | — | TEST-S-003 |
+| REQ-021 | 환경 관측 | 셸이 보고한 터미널 작업 표면을 뇌가 구조화 값으로 받아 자기 컨텍스트에 합친다. 클라 주입 금지 모델을 유지하고, 셸의 새니타이즈를 신뢰하지 않고 코어가 다시 강제한다. 내려가는 의도는 범위 밖. | In-progress | UC-024 | SPEC-020 | TEST-S-024 |
 
 ## off-scope 노트 (추적 체인 제외)
 - **UC-memory (FR-MEM-1~10)**: 턴 recall 주입/save(naia-memory 연동). ⚠️정정(2026-06-21, 교차검증): `feat/memory-wiring` 브랜치는 **존재하지 않음** — 코드+테스트가 **main에 배선·기본 활성**이다(진입점 `scripts/builds/agent-stdio-entry.mjs` 기본 주입, `memory-orthogonality.contract` 6/6 · `uc1-memory-stdio` 29/31 pass). 즉 **기능은 main DONE**(agent#4 closed). 본 노트의 "off-scope"는 *V모델 추적*에서만 제외라는 의미(루크 우선순위 ⑧). V모델 정식 backfill(REQ/UC/SPEC/TEST 편입) 여부는 미결. 상세 = `99.dev-comm/UC-memory-recall-save-contract-2026-06-12.md`.

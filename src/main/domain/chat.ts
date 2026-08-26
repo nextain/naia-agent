@@ -50,11 +50,29 @@ export interface ToolCall { readonly id: string; readonly name: string; readonly
 //  - responseStyle: 환경의 응답 스타일 힌트(음성 파이프라인 = brief). 코어가 표준 간결성 지시문을 *자체 발행*
 //    (클라는 style enum 만, 문구는 코어 소유). brief=짧은 구어 응답, normal=무영향. 음성 STT→채팅 경로가 raw
 //    systemPrompt 로 persona 를 덮던 회귀(S4)를 닫는다 — persona 조립을 보존하면서 간결성만 환경 지시로 운반.
-// 화이트리스트(avatarEmotion|panel|responseStyle) 외 kind 는 코어가 드롭(domain/environment-segments.ts).
+//  - environmentSurfaces: 사용자의 터미널 작업 표면 목록(REQ-021·SPEC-020). 클라는 손잡이·이름·활동상태·
+//    주시여부와 누락 개수만 보내고, 프롬프트 문구는 코어가 발행한다. 짝 저장소(naia-shell)가 이미
+//    새니타이즈·정규화·상한을 걸지만 코어가 다시 건다 — 셸은 여럿일 수 있고 그중 하나가 게을러도
+//    뇌가 오염되면 안 된다(panel 과 같은 태도).
+// 화이트리스트(avatarEmotion|panel|responseStyle|environmentSurfaces) 외 kind 는 코어가 드롭(domain/environment-segments.ts).
 export type EnvironmentSegment =
   | { readonly kind: "avatarEmotion" }
   | { readonly kind: "panel"; readonly entries: readonly { readonly type: string; readonly data: unknown }[] }
-  | { readonly kind: "responseStyle"; readonly style: "brief" | "normal" };
+  | { readonly kind: "responseStyle"; readonly style: "brief" | "normal" }
+  | {
+      readonly kind: "environmentSurfaces";
+      readonly surfaces: readonly {
+        /** 클라가 발행한 불투명 손잡이. 코어는 의미를 읽지 않고 표시에도 쓰지 않는다. */
+        readonly ref: string;
+        /** 사람이 읽는 이름. 사용자의 터미널이 만든 문자열 = 자료(코어가 다시 새니타이즈). */
+        readonly label: string;
+        /** 활동 상태. 클라가 정규화해 보내도 코어가 다시 정규화한다(미지 값 = unknown). */
+        readonly activity: string;
+        readonly focused: boolean;
+      }[];
+      /** 클라 상한 때문에 못 실은 표면 수. 조용한 절단을 감추지 않기 위해 함께 받는다. */
+      readonly omitted: number;
+    };
 
 export interface ChatMessage {
   readonly role: "system" | "user" | "assistant" | "tool";
