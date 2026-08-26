@@ -21,7 +21,11 @@ export function decodeEnvironmentSegments(v: unknown): EnvironmentSegment[] {
     const kind = (s as Record<string, unknown>)["kind"];
     if (kind === "avatarEmotion") {
       out.push({ kind: "avatarEmotion" });
-    } else if (kind === "panel") {
+    } else if (kind === "panel" || kind === "app") {
+      // ⚠️ 2026-08-26 실측 결함: naia-shell 이 2026-07-01 커밋 "panel→app 리팩터"로 자기 쪽 kind 이름만
+      //    바꿨고(8d51b57a), 이 디코더는 "panel" 만 받아 그 뒤로 패널 컨텍스트가 조용히 버려져 왔다.
+      //    wire 이름은 계약이므로 한쪽이 바꿔도 다른 쪽이 따라가지 않는다 — 여기서 별칭으로 받아
+      //    내부 정본 이름("panel")으로 눕힌다. 셸이 이름을 되돌리면 별칭은 남아도 무해하다.
       const rawEntries = (s as Record<string, unknown>)["entries"];
       const entries = Array.isArray(rawEntries)
         ? rawEntries

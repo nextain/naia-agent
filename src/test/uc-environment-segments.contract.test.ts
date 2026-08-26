@@ -709,3 +709,49 @@ describe("UC-024 wire 표본 대조 (TEST-S-024)", () => {
     expect(theirs.segment).toEqual(fixture.segment);
   });
 });
+
+
+// ── 회귀: 셸이 보내는 "app" 이 버려지지 않는다 (2026-08-26 실측 결함) ──
+// naia-shell 이 2026-07-01 커밋 "panel→app 리팩터"(8d51b57a)로 자기 쪽 kind 이름만 바꿨고,
+// 이 디코더는 "panel" 만 받아 그 뒤로 패널 컨텍스트가 조용히 버려져 왔다.
+// wire 이름은 계약이라 한쪽이 바꿔도 다른 쪽이 따라가지 않는다 — 별칭으로 받아 정본 이름으로 눕힌다.
+describe("환경 세그먼트 wire 별칭 — shell 의 app (2026-08-26 회귀 방지)", () => {
+  function decodeSegs(segs: unknown): readonly EnvironmentSegment[] {
+    const line = JSON.stringify({ type: "chat_request", message: "x", environmentSegments: segs });
+    const req = decodeRequest(line);
+    expect(req?.kind).toBe("chat");
+    return (req as Extract<ChatRequest, { kind: "chat" }>).environmentSegments ?? [];
+  }
+
+  it("셸이 오늘 실제로 보내는 세 세그먼트가 하나도 버려지지 않는다", () => {
+    // naia-shell packages/shell/src/components/ChatArea.tsx buildEnvironmentSegments 가 만드는 형태 그대로.
+    const decoded = decodeSegs([
+      { kind: "avatarEmotion" },
+      { kind: "app", entries: [{ type: "bgm", data: { favorites: ["a"] } }] },
+      { kind: "responseStyle", style: "brief" },
+    ]);
+    expect(decoded.map((s) => s.kind)).toEqual(["avatarEmotion", "panel", "responseStyle"]);
+  });
+
+  it("app 의 entries 가 유실 없이 정본 이름으로 눕는다", () => {
+    const decoded = decodeSegs([{ kind: "app", entries: [{ type: "browser", data: { url: "https://x" } }] }]);
+    expect(decoded[0]).toEqual({ kind: "panel", entries: [{ type: "browser", data: { url: "https://x" } }] });
+  });
+
+  it("정본 이름 panel 도 그대로 받는다 — 별칭이 원래 이름을 밀어내지 않는다", () => {
+    const decoded = decodeSegs([{ kind: "panel", entries: [{ type: "bgm", data: 1 }] }]);
+    expect(decoded[0]).toEqual({ kind: "panel", entries: [{ type: "bgm", data: 1 }] });
+  });
+
+  it("app 으로 온 것도 렌더까지 도달한다 — 디코드만 되고 안 쓰이면 의미가 없다", () => {
+    const decoded = decodeSegs([{ kind: "app", entries: [{ type: "bgm", data: { favorites: ["재즈"] } }] }]);
+    const out = renderEnvironmentSegments(decoded);
+    expect(out).toContain("Panel [bgm] context:");
+    expect(out).toContain("재즈");
+  });
+
+  it("별칭이 화이트리스트를 넓히지는 않는다 — 미지 kind 는 여전히 드롭", () => {
+    expect(decodeSegs([{ kind: "application", entries: [] }])).toEqual([]);
+    expect(decodeSegs([{ kind: "panels", entries: [] }])).toEqual([]);
+  });
+});
