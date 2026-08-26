@@ -43,6 +43,42 @@ function toWireMessages(systemPrompt: string | undefined, messages: readonly Cha
 
 interface ToolAcc { id?: string; name?: string; args: string; excluded: boolean; conflict: boolean; }
 
+class ThinkingTagFilter {
+  private buffer = "";
+  private thinking = false;
+  push(value: string): ProviderChunk[] {
+    this.buffer += value;
+    const out: ProviderChunk[] = [];
+    while (this.buffer) {
+      const tag = this.thinking ? "</think>" : "<think>";
+      const lower = this.buffer.toLowerCase();
+      const at = lower.indexOf(tag);
+      if (at >= 0) {
+        const content = this.buffer.slice(0, at);
+        if (content) out.push(this.thinking ? { kind: "thinking", text: content } : { kind: "text", text: content });
+        this.buffer = this.buffer.slice(at + tag.length);
+        this.thinking = !this.thinking;
+        continue;
+      }
+      let retain = 0;
+      for (let n = Math.min(this.buffer.length, tag.length - 1); n > 0; n--) {
+        if (tag.startsWith(lower.slice(-n))) { retain = n; break; }
+      }
+      const content = this.buffer.slice(0, this.buffer.length - retain);
+      if (content) out.push(this.thinking ? { kind: "thinking", text: content } : { kind: "text", text: content });
+      this.buffer = this.buffer.slice(this.buffer.length - retain);
+      break;
+    }
+    return out;
+  }
+  flush(): ProviderChunk[] {
+    const content = this.buffer;
+    this.buffer = "";
+    if (!content) return [];
+    return [this.thinking ? { kind: "thinking", text: content } : { kind: "text", text: content }];
+  }
+}
+
 /**
  * baseUrl 예: https://api.z.ai/api/coding/paas/v4 (GLM coding plan). apiKey=Bearer.
  * model(옵션): config.model 이 백엔드 카탈로그에 없을 때 강제. 미지정 시 config.model.
@@ -107,6 +143,7 @@ export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string
       let buffer = "";
       let inTok = 0, outTok = 0;
       let finishReason: string | undefined;
+      const thinkingFilter = new ThinkingTagFilter();
       const acc = new Map<number, ToolAcc>(); // index 별 tool_call 누적(§C.2)
 
       // SSE data json 1건 처리: content → 즉시 text chunk 반환. tool_calls/usage → 누적(side effect). error → throw.
@@ -117,7 +154,7 @@ export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string
         try { evt = JSON.parse(t); } catch { return []; } // 손상 SSE 줄 skip
         if (!evt || typeof evt !== "object") return [];
         const o = evt as {
-          choices?: { finish_reason?: unknown; delta?: { content?: string; tool_calls?: Array<{ index?: unknown; id?: unknown; type?: unknown; function?: { name?: unknown; arguments?: unknown } }> } }[];
+          choices?: { finish_reason?: unknown; delta?: { content?: string; reasoning_content?: string; tool_calls?: Array<{ index?: unknown; id?: unknown; type?: unknown; function?: { name?: unknown; arguments?: unknown } }> } }[];
           usage?: { prompt_tokens?: number; completion_tokens?: number }; error?: unknown;
         };
         if (o.error) throw new Error(`OpenAI-compat stream error: ${JSON.stringify(o.error)}`);
@@ -125,7 +162,8 @@ export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string
         const rawFinishReason = o.choices?.[0]?.finish_reason;
         if (typeof rawFinishReason === "string" && rawFinishReason !== "") finishReason = rawFinishReason;
         const delta = o.choices?.[0]?.delta;
-        if (delta?.content) out.push({ kind: "text", text: delta.content });
+        if (delta?.reasoning_content) out.push({ kind: "thinking", text: delta.reasoning_content });
+        if (delta?.content) out.push(...thinkingFilter.push(delta.content));
         const tcs = delta?.tool_calls;
         if (Array.isArray(tcs)) {
           for (const tc of tcs) {
@@ -155,6 +193,7 @@ export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string
       // 단일 finalize(§C.2): abort commit-point → parse-all-then-yield 원자 → toolUse → usage → finish.
       const finalize = function* (): Generator<ProviderChunk> {
         if (opts.signal?.aborted) return; // commit point: abort 면 배치 전체 미yield
+        yield* thinkingFilter.flush();
         if (finishReason === "length" || finishReason === "max_tokens") {
           throw new Error(`OpenAI-compat response truncated by provider (finish_reason=${finishReason})`);
         }

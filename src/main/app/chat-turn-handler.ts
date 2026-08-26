@@ -346,6 +346,7 @@ export class ChatTurnHandler {
       let memSystemPrompt = compactionRecap
         ? (asm.systemPrompt ? `${asm.systemPrompt}\n\n## 이전 대화 요약(compacted)\n${compactionRecap}` : `## 이전 대화 요약(compacted)\n${compactionRecap}`)
         : asm.systemPrompt;
+	  let emptyFinalRetried = false;
       // FR-MEM-1a: 빈/공백 query 는 app 계층에서 단락(recall 미호출) — 빈 query 가 전체/임의 top-K 를
       // 끌어와 무관 정보를 주입하는 것을 *어댑터 구현과 무관하게* 막는다(정책은 app 소유). 어댑터에도
       // 동일 가드(방어 심층).
@@ -452,6 +453,12 @@ export class ChatTurnHandler {
         if (signal.aborted) { terminalError("cancelled"); break; }                  // (b) provider loop 종료 직후 가드(finish 직후 취소 시 finish/cap-error 선방출 차단)
         if (round.text) assistantTurnParts.push(round.text);                        // 이 라운드 assistant 텍스트 누적(도구 라운드 preamble 도 보존)
         if (round.calls.length === 0) {                                             // 최종 응답
+		  if (!round.text.trim() && !emptyFinalRetried) {
+			emptyFinalRetried = true;
+			memSystemPrompt = `${memSystemPrompt ?? ""}\n\nReturn the final answer now. Do not emit reasoning, <think> tags, or analysis. Answer the user's latest message directly.`.trim();
+			continue;
+		  }
+		  if (!round.text.trim()) { terminalError("provider returned reasoning without a final answer"); break; }
           // 활성화 뒤 no-more-tool final text 만 발화로 센다. 빈 최종은 기존 단일턴처럼 즉시 커밋해 spin 방지.
           if (continuation && round.text) {
             continuation.utterances++;

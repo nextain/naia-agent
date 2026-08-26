@@ -36,6 +36,16 @@ describe("makeOpenAICompatProvider (GLM/openai SSE, mock)", () => {
     const out = await collect(prov(lines).chat(cfg, [], {}));
     expect(out.filter((c) => c.kind === "text").map((c) => (c as { text: string }).text)).toEqual(["부분1", "부분2"]);
   });
+  it("separates streamed think tags from the final answer", async () => {
+    const out = await collect(prov([
+      'data: {"choices":[{"delta":{"content":"<thi"}}]}\n',
+      'data: {"choices":[{"delta":{"content":"nk>private</think>Final"}}]}\n',
+      "data: [DONE]\n",
+    ]).chat(cfg, [], {}));
+    expect(out).toContainEqual({ kind: "thinking", text: "private" });
+    expect(out).toContainEqual({ kind: "text", text: "Final" });
+  });
+
   it("!ok → throw", async () => {
     await expect(collect(prov([], { ok: false, status: 401 }).chat(cfg, [], {}))).rejects.toThrow(/401/);
   });
