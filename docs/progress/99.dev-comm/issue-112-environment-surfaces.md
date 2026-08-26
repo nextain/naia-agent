@@ -70,3 +70,25 @@ Issue: nextain/naia-agent#112 · 짝: nextain/naia-shell#497, #502
 `.agents/context/process-status.json` 은 이 저장소에서 **헌장 파일**이라 사람 승인 없이 고칠 수
 없다. 따라서 P05 의 상태 갱신은 루크 승인 뒤에 한다. P01~P04 는 이 문서와 V모델 registry,
 `docs/user-scenarios.md`, `docs/requirements.md`, 그리고 테스트로 닫는다.
+
+## 2026-08-26 추가 — wire 게이트 갭과 표본
+
+두 저장소는 2026-06-08 에 갈라졌다. 그 전에는 뇌가 `old-naia-os/agent/` 하위 디렉터리였고,
+헥사고날 재작성 때 자기 저장소로 나왔다. 분리의 근거는 이 저장소의
+`docs/progress/99.dev-comm/agent-vertical-anchor-2026-06-10.md` 에 있다 — os 와 agent 는 같은 UC 의
+두 반쪽이고, 둘을 잇는 H-agent 경계를 **양방향 probe 로 게이트**해서 각자 자유롭게 재설계해도
+경계는 불변이게 한다는 것이다.
+
+그런데 그 probe(`naia-shell/scripts/builds/uc1-outbound-probe.mjs`, `uc1-variant-probe.mjs`)는
+**옛 baseline(old-naia-os) 대조용**이라 오늘 실행하면 SKIP 된다(2026-08-26 확인). 분리를 정당화한
+게이트가 이식 시점에 멈춰 있었고, 지금의 셸↔뇌 형태를 막아 주는 것이 없다.
+
+### C6. 표본으로 자기 쪽을 검증한다
+
+두 저장소가 같은 표본 `src/test/fixtures/environment-surfaces-wire.json` 을 든다.
+셸은 그 표본을 실제로 산출하는지 검증하고, 이 저장소는 그 표본을 **유실 없이 받아 렌더하는지**
+검증한다. 그리고 상대 저장소가 옆에 있으면 표본이 같은지 대조하며, 찾지 못하면 건너뛰지 않고
+실패한다 — 건너뛴 게이트는 게이트가 아니다.
+
+이것은 uc1 probe 를 대체하지 않는다. 여기서 닫은 것은 이번 슬라이스가 쓰는 한 kind 의 형태뿐이고,
+전체 union 동기는 여전히 멈춰 있다. 후속 과제다.

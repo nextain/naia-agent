@@ -13,7 +13,9 @@
 //   golden 대조: naia-os buildSystemPrompt 의 emotion-tag·panel 라벨과 **의미 동등**(코어 조립이 같은 지시·라벨 발행).
 // 권위: .agents/progress/naia-agent-unified-core-contract-freeze-2026-06-29.md(C2), -migration-2026-06-29.md(S4).
 import { describe, it, expect } from "vitest";
-import { renderEnvironmentSegments, sanitizeLabel, normalizeSurfaceActivity, PANEL_ENTRY_JSON_CAP, PANEL_TYPE_LABEL_CAP, MAX_SEGMENTS, MAX_PANEL_ENTRIES, MAX_RENDER_CHARS, MAX_SURFACES, SURFACE_LABEL_CAP } from "../main/domain/environment-segments.js";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { renderEnvironmentSegments, sanitizeLabel, normalizeSurfaceActivity, sanitizeSurfaceLabel, PANEL_ENTRY_JSON_CAP, PANEL_TYPE_LABEL_CAP, MAX_SEGMENTS, MAX_PANEL_ENTRIES, MAX_RENDER_CHARS, MAX_SURFACES, SURFACE_LABEL_CAP } from "../main/domain/environment-segments.js";
 import { decodeRequest } from "../main/adapters/protocol.js";
 import { chatRequestToDomain, type PbChatRequest } from "../main/adapters/grpc/grpc-codec.js";
 import { ChatTurnHandler, type HandlerDeps } from "../main/app/chat-turn-handler.js";
@@ -636,5 +638,74 @@ describe("UC-024 environmentSurfaces — 통합 (TEST-F-020)", () => {
     const { deps: d2 } = makeDeps(p2, { personaSource: personaSourceOf(ALPHA_PROFILE) });
     await new ChatTurnHandler(d2).onChatRequest(req({ environmentSegments: [surfaceSeg([])] }));
     expect(s2.systemPrompt).toBe(s1.systemPrompt);
+  });
+});
+
+
+// ── wire 표본 대조 (TEST-S-024) — 짝 저장소가 실제로 보내는 형태를 뇌가 받는가 ──
+// 두 저장소를 잇는 것은 wire 계약이다(2026-06-10 교차개발 앵커 원칙). 그런데 그 원칙이 근거로 삼은
+// uc1 probe 들은 *옛 baseline* 대조용이라 오늘의 형태를 막아 주지 못한다(2026-08-26 확인).
+// 그래서 양쪽 저장소가 같은 표본을 들고 각자 자기 쪽을 검증한다.
+// 짝: naia-shell src/test/fixtures/environment-surfaces-wire.json — 두 파일이 달라지면 양쪽이 깨진다.
+
+describe("UC-024 wire 표본 대조 (TEST-S-024)", () => {
+  const FIXTURE_PATH = resolve(__dirname, "fixtures", "environment-surfaces-wire.json");
+  const fixture = JSON.parse(readFileSync(FIXTURE_PATH, "utf8")) as {
+    readonly segment: {
+      readonly kind: string;
+      readonly surfaces: readonly { ref: string; label: string; activity: string; focused: boolean }[];
+      readonly omitted: number;
+    };
+  };
+
+  function decodeOne(seg: unknown): EnvironmentSegment | undefined {
+    const line = JSON.stringify({ type: "chat_request", message: "x", environmentSegments: [seg] });
+    const req = decodeRequest(line);
+    return (req as Extract<ChatRequest, { kind: "chat" }>).environmentSegments?.[0];
+  }
+
+  it("표본이 비어 있지 않다 — 공허하게 통과하지 않게", () => {
+    expect(fixture.segment.surfaces.length).toBeGreaterThan(0);
+    expect(fixture.segment.omitted).toBeGreaterThan(0);
+    expect(new Set(fixture.segment.surfaces.map((s) => s.activity)).size).toBeGreaterThanOrEqual(3);
+  });
+
+  it("셸이 보내는 표본을 그대로 받는다 — 필드가 하나도 유실되지 않는다", () => {
+    expect(decodeOne(fixture.segment)).toEqual(fixture.segment);
+  });
+
+  it("표본을 받아 렌더하면 모든 표면이 프롬프트에 나온다", () => {
+    const decoded = decodeOne(fixture.segment)!;
+    const out = renderEnvironmentSegments([decoded]);
+    for (const s of fixture.segment.surfaces) expect(out).toContain(s.label);
+    expect(out).toContain(`${fixture.segment.omitted} more not shown`);
+  });
+
+  it("표본의 활동 상태가 코어 정규화를 그대로 통과한다 — 표본이 미지 값을 쓰지 않는다", () => {
+    for (const s of fixture.segment.surfaces) {
+      expect(normalizeSurfaceActivity(s.activity)).toBe(s.activity);
+    }
+  });
+
+  it("표본의 이름이 새니타이즈로 손상되지 않는다 — 정상값 무손실", () => {
+    for (const s of fixture.segment.surfaces) {
+      expect(sanitizeSurfaceLabel(s.label)).toBe(s.label);
+    }
+  });
+
+  it("짝 저장소 표본과 같다", () => {
+    const REL = ["src", "test", "fixtures", "environment-surfaces-wire.json"];
+    const roots: string[] = [];
+    for (let up = 2; up <= 6; up += 1) {
+      const base = resolve(__dirname, ...Array.from({ length: up }, () => ".."));
+      roots.push(resolve(base, "naia-shell", ...REL));
+      for (const wt of ["naia-shell-497-universal-agent"]) {
+        roots.push(resolve(base, "naia-shell", "worktrees", wt, ...REL));
+      }
+    }
+    const peer = roots.find((p) => existsSync(p));
+    expect(peer, `찾은 곳 없음. 훑은 경로: ${roots.join(", ")}`).toBeDefined();
+    const theirs = JSON.parse(readFileSync(peer as string, "utf8")) as { readonly segment: unknown };
+    expect(theirs.segment).toEqual(fixture.segment);
   });
 });
