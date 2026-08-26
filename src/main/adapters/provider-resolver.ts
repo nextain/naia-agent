@@ -58,6 +58,7 @@ export function makeProviderResolver(deps?: ProviderResolverDeps): ProviderResol
 						supportsReasoningEffort: false,
 						supportsTools: true,
 						promptCacheShard: config.model === "gpt-5.6-sol" || config.model === "gpt-5.6-luna",
+						...(config.model === "deepseek-v4-flash" ? { maxTokens: 16_384 } : {}),
 						...(f ? { fetch: f } : {}),
 					});
 				}

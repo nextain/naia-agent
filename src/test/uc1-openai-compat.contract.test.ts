@@ -111,12 +111,13 @@ describe("§C slice 1b — tool_calls 재조립", () => {
 
   it("DeepSeek ordinary chat forwards skill tools through the Naia resolver", async () => {
     const { fetch, box } = captureStream(["data: [DONE]\n"]);
-    const config: ProviderConfig = { provider: "nextain", model: "deepseek-v4-pro", naiaKey: "k" };
+    const config: ProviderConfig = { provider: "nextain", model: "deepseek-v4-flash", naiaKey: "k" };
     const provider = makeProviderResolver({ fetch: fetch as never }).resolve(config);
     await collect(provider.chat(config, [{ role: "user", content: "review" }], { tools }));
     expect(box.body?.tools).toEqual([
       { type: "function", function: { name: "echo", description: "echo it", parameters: { type: "object" } } },
     ]);
+    expect(box.body?.max_tokens).toBe(16_384);
   });
 
   it("(a) tools 전달 → body.tools 매핑 / (g) assistant(toolCalls)+tool 메시지 매핑(content null·tool_call_id)", async () => {

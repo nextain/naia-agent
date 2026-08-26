@@ -58,7 +58,7 @@ export function buildPromptCacheShard(model: string, systemPrompt: string | unde
   return `agent-${createHash("sha256").update(input, "utf8").digest("hex")}`;
 }
 
-export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string; model?: string; auth?: "bearer" | "x-anyllm"; supportsReasoningEffort?: boolean; supportsTools?: boolean; promptCacheShard?: boolean; fetch?: FetchLike }): ProviderPort {
+export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string; model?: string; auth?: "bearer" | "x-anyllm"; supportsReasoningEffort?: boolean; supportsTools?: boolean; promptCacheShard?: boolean; maxTokens?: number; fetch?: FetchLike }): ProviderPort {
   const doFetch: FetchLike = deps.fetch ?? (globalThis.fetch as unknown as FetchLike);
   const base = deps.baseUrl.replace(/\/+$/, "");
   // ⚠️ x-anyllm(naia lab-proxy): 게이트웨이는 `Bearer <token>` 형식 요구(old lab-proxy.ts 와 동일).
@@ -90,7 +90,7 @@ export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string
       const resp = await doFetch(`${base}/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeader },
-        body: JSON.stringify({ model: requestModel, messages: wireMsgs, stream: true, stream_options: { include_usage: true }, ...(toolsBody ? { tools: toolsBody } : {}), ...(noThinkBody ?? {}), ...(promptCacheBody ?? {}) }),
+        body: JSON.stringify({ model: requestModel, messages: wireMsgs, stream: true, stream_options: { include_usage: true }, ...(deps.maxTokens ? { max_tokens: deps.maxTokens } : {}), ...(toolsBody ? { tools: toolsBody } : {}), ...(noThinkBody ?? {}), ...(promptCacheBody ?? {}) }),
         ...(opts.signal ? { signal: opts.signal } : {}),
       });
       if (!resp.ok || !resp.body) {

@@ -16,6 +16,7 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
 	"gemini-2.0-flash-lite-preview-02-05": { input: 0.075, output: 0.3 },
 	// xAI
 	"grok-4.3": { input: 1.25, output: 2.5 },
+	"deepseek-v4-flash": { input: 0.209, output: 0.561 },
 	"grok-4.1-fast": { input: 5.0, output: 25.0 },
 	"grok-4": { input: 3.0, output: 15.0 },
 	"grok-4-1-fast-reasoning": { input: 5.0, output: 25.0 },

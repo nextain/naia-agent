@@ -14,6 +14,10 @@ afterEach(() => {
 });
 
 describe("domain cost — gateway pricing overlay", () => {
+	it("keeps DeepSeek V4 Flash cost non-zero before the live refresh", () => {
+		expect(calculateCost("deepseek-v4-flash", 1_000_000, 1_000_000)).toBeCloseTo(0.77, 6);
+	});
+
 	it("a model absent from the static table costs 0 until the overlay arrives", () => {
 		expect(calculateCost("model-not-in-any-table", 1_000_000, 1_000_000)).toBe(0);
 	});
