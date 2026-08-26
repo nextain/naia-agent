@@ -33,6 +33,7 @@
 | SPEC-018 | UC-022 | **SQLite durable issue supervisor P0** — Agent-owned run/event/attempt/lease/outbox store, transactional outbox claim/ack, stable execution idempotency, composition startup reconciliation/periodic pump, supervisor-clock lease fence, timeout backoff retry, and every ten-minute report boundary. Production host ingress/activation, real worker, Shell RPC/UI and ADK receipt integration remain follow-up. | agent | In-progress | TEST-F-018 |
 | SPEC-019 | UC-023 | **First-class CLI management surface** — 순수 parser/config/credential/model/session/doctor policy + filesystem/TTY/HTTP host; 기존 transcript·naia-settings·Pi supervisor를 재사용하고 명시 argv가 저장 coding 기본값보다 우선 | agent CLI | Done | TEST-F-019 |
 | SPEC-020 | UC-024 | **environmentSurfaces 세그먼트** — EnvironmentSegment 화이트리스트에 kind 추가. 클라는 표면 손잡이·이름·활동상태·주시여부와 누락 개수만 보내고, 프롬프트 문구는 코어가 발행한다. 코어가 라벨을 다시 새니타이즈하고 활동상태를 다시 정규화하며 기존 상한 체계를 따른다. 내려가는 의도는 범위 밖. | agent | In-progress | TEST-F-020 |
+| SPEC-021 | UC-025 | **두 저장소 wire 어휘 게이트** — 어휘를 손으로 적은 표가 아니라 실행되는 코드에서 뽑는다(뇌=`encodeEmit` 본문·`EnvironmentSegment` union, 셸=수용 상수). 공유 표본 `src/test/fixtures/wire-union.json` 두 벌이 바이트 동일해야 하고, 디코더는 union 의 모든 kind 를 실제로 받아야 한다. 별칭 대응은 다음 이름 변경을 못 막으므로 쓰지 않는다. | agent + shell | Done | TEST-F-021 |
 
 ## 비고
 - SPEC-002 = 도구루프 + 9개 agent-local skill 묶음(개별 skill = TEST-F-002 의 test_ref 군). external(브라우저 CDP·youtube)만 루크머신 runtime.

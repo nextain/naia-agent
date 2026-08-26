@@ -31,5 +31,6 @@
 | UC-022 | Durable issue supervisor | Agent-side runtime safely reopens SQLite, recovers dispatch, rejects stale worker events with a trusted clock, retries timeout with backoff, and persists every ten-minute report boundary. Production host ingress/activation remains pending. | REQ-019 | In-progress | TEST-S-022 |
 | UC-023 | First-class naia-agent CLI | 사용자가 계정·설정·모델·진단·세션을 한 CLI에서 관리하고 저장된 Pi/Grok 기본값으로 직접 또는 Codex 자식 프로세스에서 동일하게 코딩 실행 | REQ-020 | Done | TEST-S-020 |
 | UC-024 | 환경 관측 | 사용자 → "지금 뭐 돌고 있어?" → 나이아가 셸이 보고한 작업 표면과 활동 상태를 근거로 답한다. 터미널 관리자 어휘는 보지 않고, 환경이 만든 문자열은 지시문이 되지 않는다 | REQ-021 | In-progress | TEST-S-024 |
+| UC-025 | wire 어휘 동기 | 개발자가 한쪽 저장소에서 메시지 종류를 더하거나 이름을 바꾼다 → 상대가 따라오지 않았으면 양쪽 테스트가 그 자리에서 깨진다. 사람이 눈으로 찾아야 하는 구간이 없다 | REQ-022 | Done | TEST-S-025 |
 
 > **상태 의미**: agent 측 Done = 이식+2-AI(또는 self)리뷰+계약테스트 완료. UC-006/008 = agent-local skill 완료, 실 외부서비스(CDP/youtube) runtime = 루크머신. off-scope(UC-memory) = 01 노트.

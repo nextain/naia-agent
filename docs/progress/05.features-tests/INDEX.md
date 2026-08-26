@@ -34,6 +34,7 @@
 
 | TEST-F-019 | SPEC-019 | management parser/config allowlist와 타입, credential upsert/remove/redaction, catalog fallback/capability, doctor component status, safe session list/show/resume, run default precedence를 계약·process test로 검증 | `src/test/cli-manage.contract.test.ts`, `src/test/cli-manage-process.integration.test.ts`, `src/test/uc-cli-host-entry.contract.test.ts` | Pass |
 | TEST-F-020 | SPEC-020 | 렌더 문구의 코어 소유, 라벨 제어문자 제거·길이 cap, 활동상태 재정규화(미지 값 unknown), 표면 개수 cap 과 누락 보고, 빈 표면 목록 무영향, 기존 kind 회귀 없음 | `src/test/uc-environment-segments.contract.test.ts` | In-progress |
+| TEST-F-021 | SPEC-021 | 소스 추출과 표본 일치, 부분집합 단언, kind 별 디코더 수용, union 밖 kind 드롭 유지, 짝 표본 바이트 동일, 반증 검사(4종 변이로 게이트가 실제로 깨짐 확인) | `src/test/wire-union-drift.contract.test.ts` | Done |
 
 ## 비고
 - off-scope UC-memory 테스트(`uc1-memory-stdio.integration.test.ts`, `uc1-memory-process.integration.test.ts`)는 본 추적 제외(01 노트). agent 전체 vitest 에는 포함(583 pass / 5 skip, 2026-06-23).
