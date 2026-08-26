@@ -332,7 +332,7 @@ adapter 가 주입 실행기로 소유, tier 승인은 코어의 기존 Approval
 knowledge=WHAT/풀, 안 섞음).
 
 근본: KB 컴파일·서빙은 외부 엔진(naia-kb-compiler)이 담당하고, 코어는 그 KnowledgeService(검색/질의응답)를
-**ToolExecutorPort 도구로 노출**만 한다(naia-os 패널이 결과를 렌더·근거 칩). 통합 설계 SoT = 루트
+**ToolExecutorPort 도구로 노출**만 한다(naia-os 앱이 결과를 렌더·근거 칩). 통합 설계 SoT = 루트
 `.agents/progress/naia-kb-compiler-agent-os-integration-2026-06-29.md` (K1a).
 
 - **S-KB-1 (read-only 도구 노출)**: `makeKnowledgeSkillsExecutor` 가 `skill_knowledge_search`({query,k?})·
@@ -436,7 +436,7 @@ Luke가 “음악만”, “말 줄여”, “다른 분위기”, “다음 곡
 다음 검색을 요청한다. 검색어는 명시적 선호와 최근에 재생하지 않은 즐겨찾기 힌트를 결합하며, 실제
 `playing` 영수증을 확인한 다음에만 새 영상 제목을 소개한다.
 
-패널의 `skill_tab_screenshot` 결과가 PNG/JPEG/WebP data URI이면 Agent는 이를 로그용 base64 문자열로
+앱의 `skill_tab_screenshot` 결과가 PNG/JPEG/WebP data URI이면 Agent는 이를 로그용 base64 문자열로
 재주입하지 않고 bounded inline image로 분리한다. 도구 결과 결속을 유지한 뒤 멀티모달 provider에는
 실제 이미지 content block으로 전달하고, 이미지 입력을 지원하지 않는 provider에서는 이미지가 보였다고
 가정하지 않는다.
@@ -494,9 +494,9 @@ detector나 cron 같은 외부 정책이 자유 발화를 시작하면 사용자
   writer를 격리해 뒤늦은 파일 순서 역전을 막는다.
 - **S-CONT-7 (wire·회귀)**: 모든 provider usage를 합산해 마지막 한 번만 방출하고 terminal도 한 번만
   방출한다. 제어 도구 미호출 일반 채팅과 기존 외부 도구 턴의 correlation·저장 계약은 바뀌지 않는다.
-- **S-CONT-8 (제어 ACK와 패널 왕복 분리)**: `change_vibe`·`next`처럼 Shell 패널 도구 결과가 필요한
+- **S-CONT-8 (제어 ACK와 앱 왕복 분리)**: `change_vibe`·`next`처럼 Shell 앱 도구 결과가 필요한
   제어는 session/activity/action을 동기 검증해 먼저 ACK하고, 긴 제어 작업은 그 뒤 비동기로 진행한다.
-  제어 RPC가 패널 결과를 기다리며 Shell→agent dispatcher를 점유해서는 안 된다. 잘못된 session,
+  제어 RPC가 앱 결과를 기다리며 Shell→agent dispatcher를 점유해서는 안 된다. 잘못된 session,
   activity 또는 action은 false ACK이며 작업을 시작하지 않는다.
 
 범위 밖은 앱 재시작 후 자동 재개, 여러 프로세스/기기 사이 활동 이전, 별도 라디오 설정 UI다. 자유 발화
@@ -652,9 +652,9 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 | UC-PROV-1 / FR-PROV-7 (로그인·workspace credential 동기화) | `src/test/uc-keychain-credentials.contract.test.ts`(login 전 부재·키 교체·workspace 분리·복호화 재시도), `src/test/discord-entry-wiring.contract.test.ts`(production DPAPI reader·SetWorkspace rollback 배선) |
 | UC-THINKING / S-THINK-1·2·3 / FR-THINK-1~4 | `src/test/uc-thinking.contract.test.ts` (요청 body 검증: enableThinking=false+로컬 → `reasoning_effort:"none"` / true·미지정 → 미전송 / **원격 baseUrl → 미전송**(400 회귀 방지) / `isLocalEngineBaseUrl` 순수 판별) |
 | FR-CONT-MVP-1~4·9 / 개인 라디오 DJ | 계약/통합: `src/test/personal-radio-dj.contract.test.ts` (`DJ-01~08`: ended 전환 멘트→radio 검색 포함), `src/test/activity-radio-dj-bgm.contract.test.ts`(`mode=radio_dj`, 최근곡·즐겨찾기 status), `src/test/radio-dj-shell-handoff.integration.test.ts`(실 Controller+activity app adapter의 ended→전환 발화→radio play→playing 관측), `src/test/radio-dj-product-acceptance.contract.test.ts`(local tombstone 우선 Naia Memory recall), `src/test/speech-profile-runtime.integration.test.ts`(제어 사전 검증), `src/test/grpc-shutdown.contract.test.ts`(제어 ACK가 긴 작업을 기다리지 않음). 실제 Tauri: shell `71-proactive-speech-profiles.spec.ts`의 profile 저장·복원과 `94-avatar-4060-facade.spec.ts`의 A→B 교체·TRT 발화·끼어들기. |
-| FR-APP-6 / 패널 screenshot multimodal 전달 | `src/test/uc-app-skill.contract.test.ts`의 bounded data URI 추출·실패 격리, provider 계약 테스트의 OpenAI/Anthropic/Ollama image block 매핑, Shell `capture.rs`·`tab-skills.ts` 실제 PNG 반환 경로 |
+| FR-APP-6 / 앱 screenshot multimodal 전달 | `src/test/uc-app-skill.contract.test.ts`의 bounded data URI 추출·실패 격리, provider 계약 테스트의 OpenAI/Anthropic/Ollama image block 매핑, Shell `capture.rs`·`tab-skills.ts` 실제 PNG 반환 경로 |
 | FR-CONT-MVP-1·2·5~8 / 회사 전시 소개 | 계약/통합: `src/test/exhibition-intro.contract.test.ts` (`EX-01~06`)가 소개3·질문 yield/resume·stale 폐기를 검증. 실제 Tauri: shell `71-proactive-speech-profiles.spec.ts`의 무입력 greeting과 stop만. audible TTS·실제 질문 barge-in은 미검증. |
-| UC-CONTINUE-SPEAKING / S-CONT-1~7 / FR-CONT-1~8 | 권위 계약 §10 AC1~18 matrix. `src/test/uc-continue-speaking.contract.test.ts`; `src/test/uc-continue-speaking-grpc.integration.test.ts` (`speech activity subscription lifecycle`, `stop response mapping`, `composition activity drain`); `src/test/conversation-log.{contract,integration}.test.ts`; `src/test/compose-agent-deps.integration.test.ts`; shell `packages/shell/src-tauri/src/agent_grpc.rs` `speech_activity_*` + `packages/shell/e2e-tauri/continuous-speech.spec.ts`; Ollama contract; 모델 패널 JSON |
+| UC-CONTINUE-SPEAKING / S-CONT-1~7 / FR-CONT-1~8 | 권위 계약 §10 AC1~18 matrix. `src/test/uc-continue-speaking.contract.test.ts`; `src/test/uc-continue-speaking-grpc.integration.test.ts` (`speech activity subscription lifecycle`, `stop response mapping`, `composition activity drain`); `src/test/conversation-log.{contract,integration}.test.ts`; `src/test/compose-agent-deps.integration.test.ts`; shell `packages/shell/src-tauri/src/agent_grpc.rs` `speech_activity_*` + `packages/shell/e2e-tauri/continuous-speech.spec.ts`; Ollama contract; 모델 앱 JSON |
 | FR-PROV-5 (claude-code SDK 분리) | `src/test/all-providers-wiring.contract.test.ts`(claude-code 케이스 = Agent SDK 라우팅·apiKey 미주입) |
 | FR-MODEL-1 (모델 카탈로그 정합) | `src/test/uc-provider-provenance.contract.test.ts`(cost↔registry 정합·구독 $0), naia-os `src/lib/llm/__tests__/registry.test.ts`(카탈로그 정합·최신화) |
 | UC-CLI / AC3·AC5 (2a 골격) | `src/test/uc-cli-supervisor.contract.test.ts`, `uc-cli-composition.contract.test.ts` (fake 포트 stream-merge·terminal 1회·직교·동시성 — Pass) |

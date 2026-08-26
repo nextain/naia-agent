@@ -1,4 +1,4 @@
-// UC-ENV-SEGMENTS (S4, 계약 C2) — 코어가 클라(naia-os) 환경고유 세그먼트(아바타 감정·패널)를 구조화로 받아
+// UC-ENV-SEGMENTS (S4, 계약 C2) — 코어가 클라(naia-os) 환경고유 세그먼트(아바타 감정·앱)를 구조화로 받아
 // persona ⊕ workspaceContext 뒤에 결정론 머지. naia-os 가 더는 raw systemPrompt 를 굽지 않는 두벌 제거의 코어 측.
 //
 // 권한 모델(C2/GLM): persona/profile/workspace 는 클라 주입 금지(코어 SoT). environmentSegments **만** 클라 제공
@@ -410,7 +410,7 @@ describe("ChatTurnHandler environment 머지 (S4 C2)", () => {
 // ── S4-4: golden 대조 — naia-os buildSystemPrompt 와 의미 동등 ──
 // naia-os packages/shell/src/lib/persona.ts::buildSystemPrompt 의 대표 산출(현행 baseline)을 인라인 fixture 로
 // 캡처 → 코어 조립(persona+workspace+environment)이 같은 emotion-tag 지시·app 라벨을 발행하는지 단정.
-// 목적: 두벌 제거 후 "조용한 회귀"(존댓말·이름·감정태그·패널 라벨 유실) 차단.
+// 목적: 두벌 제거 후 "조용한 회귀"(존댓말·이름·감정태그·앱 라벨 유실) 차단.
 describe("golden 대조 — naia-os buildSystemPrompt 의미 동등 (S4 R2/R3)", () => {
   // baseline(naia-os getEmotionInstructions("ko") 발췌 — 문구 SoT 가 코어로 이동, 1:1 동일해야).
   const NAIA_OS_EMOTION_KO_LINES = [
@@ -711,11 +711,12 @@ describe("UC-024 wire 표본 대조 (TEST-S-024)", () => {
 });
 
 
-// ── 회귀: 셸이 보내는 "app" 이 버려지지 않는다 (2026-08-26 실측 결함) ──
-// naia-shell 이 2026-07-01 커밋 "app→app 리팩터"(8d51b57a)로 자기 쪽 kind 이름만 바꿨고,
-// 이 디코더는 "app" 만 받아 그 뒤로 패널 컨텍스트가 조용히 버려져 왔다.
-// wire 이름은 계약이라 한쪽이 바꿔도 다른 쪽이 따라가지 않는다 — 별칭으로 받아 정본 이름으로 눕힌다.
-describe("환경 세그먼트 wire 별칭 — shell 의 app (2026-08-26 회귀 방지)", () => {
+// ── 회귀: 셸이 보내는 "app" 이 버려지지 않는다 (2026-08-26 실측 결함 #113) ──
+// naia-shell 이 2026-07-01 커밋 8d51b57a 로 자기 쪽 kind 이름만 "panel"→"app" 으로 바꿨고,
+// 이 디코더는 옛 이름만 받아 그 뒤로 8주간 앱 컨텍스트가 조용히 버려져 왔다.
+// wire 이름은 계약이라 한쪽이 바꿔도 다른 쪽은 따라가지 않는다. 지금은 양쪽이 "app" 으로
+// 맞춰졌고, 다시 갈라지는 것은 `wire-union-drift.contract.test.ts` 가 막는다.
+describe("환경 세그먼트 wire — shell 의 app (#113 회귀 방지)", () => {
   function decodeSegs(segs: unknown): readonly EnvironmentSegment[] {
     const line = JSON.stringify({ type: "chat_request", message: "x", environmentSegments: segs });
     const req = decodeRequest(line);

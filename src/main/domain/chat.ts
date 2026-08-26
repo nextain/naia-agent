@@ -46,7 +46,7 @@ export interface ToolCall { readonly id: string; readonly name: string; readonly
 // workspace/agentInstruction 을 위조 주입하는 경로를 API 차원에서 차단(raw systemPrompt 이름만 바꾼 게 아님).
 //  - avatarEmotion: naia-os 아바타 모드 — 코어가 표준 emotion-tag 지시문을 *자체 발행*(클라는 capability flag 만,
 //    문구는 코어 소유). 아바타 없는 CLI 는 omit → emotion 지시 없음.
-//  - app: 런타임 UI 패널 컨텍스트 — "참고 데이터"로 격리·이스케이프(JSON.stringify + 길이 제한). 모델 지시문 아님.
+//  - app: 런타임 UI 앱 컨텍스트 — "참고 데이터"로 격리·이스케이프(JSON.stringify + 길이 제한). 모델 지시문 아님.
 //  - responseStyle: 환경의 응답 스타일 힌트(음성 파이프라인 = brief). 코어가 표준 간결성 지시문을 *자체 발행*
 //    (클라는 style enum 만, 문구는 코어 소유). brief=짧은 구어 응답, normal=무영향. 음성 STT→채팅 경로가 raw
 //    systemPrompt 로 persona 를 덮던 회귀(S4)를 닫는다 — persona 조립을 보존하면서 간결성만 환경 지시로 운반.
@@ -198,8 +198,8 @@ export interface ChatRequest {
   /** raw override(--system 플래그 등 명시 override). S4 종착: 코어가 persona+workspace+environmentSegments 를
    *  스스로 조립 — naia-os 는 더는 systemPrompt 를 싣지 않는다. 있으면 코어 조립 전부 무시(명시 override only). */
   readonly systemPrompt?: string;
-  /** S4 — 클라(naia-os) 환경고유 컨텍스트(아바타 감정·패널). 코어가 persona+workspace 뒤에 결정론 머지.
-   *  CLI 는 빈 배열(아바타·패널 없음). 화이트리스트 외 kind 는 코어가 드롭. systemPrompt override 시 무시. */
+  /** S4 — 클라(naia-os) 환경고유 컨텍스트(아바타 감정·앱). 코어가 persona+workspace 뒤에 결정론 머지.
+   *  CLI 는 빈 배열(아바타·앱 없음). 화이트리스트 외 kind 는 코어가 드롭. systemPrompt override 시 무시. */
   readonly environmentSegments?: readonly EnvironmentSegment[];
   readonly enableTools?: boolean;
   readonly enableThinking?: boolean; // top-level (agent 가 providerConfig 에 주입)
@@ -228,7 +228,7 @@ export interface CredsUpdate {
 }
 /** 셸의 standalone tool_request(IPC) — old-core 가 스킬을 직접 실행하던 경로(skill_sessions/skill_config/gateway history 등).
  *  new-core 는 LLM 도구루프(chat_request) 로만 도구 실행 → standalone tool_request 는 미지원. 단 **즉시 error 응답**해야
- *  셸 directToolCall 이 120s 행에 빠지지 않음(무응답 시 RESPONSE_TIMEOUT → 패널 행·WebDriver 세션 드롭 유발). */
+ *  셸 directToolCall 이 120s 행에 빠지지 않음(무응답 시 RESPONSE_TIMEOUT → 앱 행·WebDriver 세션 드롭 유발). */
 export interface ToolRequestControl { readonly kind: "toolRequest"; readonly requestId: string; readonly toolName: string; }
 export type AgentRequest = ChatRequest | CancelRequest | ApprovalResponse | CredsUpdate | ToolRequestControl;
 

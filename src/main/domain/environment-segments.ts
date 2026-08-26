@@ -7,7 +7,7 @@
 //
 //  - avatarEmotion: naia-os 아바타 모드. 코어가 **표준 emotion-tag 지시문을 자체 발행**(naia-os
 //    getEmotionInstructions 문자열 이식 — 문구 SoT 가 코어로 이동). CLI 는 아바타가 없어 이 세그먼트를 안 보냄.
-//  - app: 런타임 UI 패널 컨텍스트. "참고 데이터"로 격리·이스케이프(JSON.stringify + 길이 제한) — 모델 지시문이
+//  - app: 런타임 UI 앱 컨텍스트. "참고 데이터"로 격리·이스케이프(JSON.stringify + 길이 제한) — 모델 지시문이
 //    아니라 컨텍스트로 명시 라벨링(naia-os buildSystemPrompt 의 `App [type] context: <json>` 거울).
 //  - environmentSurfaces: 사용자의 터미널 작업 표면 목록(REQ-021·SPEC-020). 클라는 손잡이·이름·활동상태·
 //    주시여부와 누락 개수만 보내고 문구는 코어가 발행한다. 짝 저장소가 이미 새니타이즈·정규화·상한을
@@ -28,7 +28,7 @@ import type { EnvironmentSegment } from "./chat.js";
 const BRIEF_RESPONSE_INSTRUCTION =
   "Keep responses concise and brief (voice mode — short spoken answers).";
 
-/** app 데이터 1건의 JSON 직렬화 길이 상한(토큰 bounded — 비대 패널 페이로드가 프롬프트를 잠식 못 하게). */
+/** app 데이터 1건의 JSON 직렬화 길이 상한(토큰 bounded — 비대 앱 페이로드가 프롬프트를 잠식 못 하게). */
 export const APP_ENTRY_JSON_CAP = 2000;
 
 /** app.type(라벨) 새니타이즈 후 최대 길이(자유 system-prompt 텍스트 운반 차단 — 라벨은 짧은 식별자). */

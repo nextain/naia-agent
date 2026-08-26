@@ -21,7 +21,7 @@ export interface PbChatRequest {
     }[];
   }[];
   systemPrompt?: string;
-  /** S4 — 클라 환경 세그먼트(아바타 감정·패널). proto `environment_segments_json` = JSON 문자열(args_json 동형, 무손실). */
+  /** S4 — 클라 환경 세그먼트(아바타 감정·앱). proto `environment_segments_json` = JSON 문자열(args_json 동형, 무손실). */
   environmentSegmentsJson?: string;
   enableTools?: boolean;
   enableThinking?: boolean;
