@@ -2,8 +2,8 @@
 // gRPC host(agent-stdio-entry.mjs)와 CLI host(bin/naia-agent-chat.mjs)가 **둘 다 이 함수**로 deps 를
 // 만들어 같은 `wireAgentUC1` 에 주입한다 → 두 경로가 literally 동일 파이프라인(NFR-CLI-shared, 병렬 금지).
 // 여기서 만드는 것: provider(resolver/fake) · credentials(keychain) · naia-settings(defaultConfig) ·
-//   toolExecutor(builtin+composite, **panel 제외**=gRPC 전용) · memory(naia-memory) · conversationLog(transcript) · diag.
-// transport(stdin/stdout/readline/grpc)·panel(환경 위임, egress 필요)·shutdown 은 각 host 의 관심사 → 여기 없음.
+//   toolExecutor(builtin+composite, **app 제외**=gRPC 전용) · memory(naia-memory) · conversationLog(transcript) · diag.
+// transport(stdin/stdout/readline/grpc)·app(환경 위임, egress 필요)·shutdown 은 각 host 의 관심사 → 여기 없음.
 import { createInterface } from "node:readline";
 import { WINDOWS_DPAPI_TIMEOUT_MS } from "../../dist/main/app/cli-manage.js";
 import { makeProviderResolver } from "../../dist/main/adapters/provider-resolver.js";
@@ -154,7 +154,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
     : "workspace(none)";
 
   // ── UC5 실 스킬(time/weather/memo + github/obsidian/mcp/notify/adk) — 기본 활성(NAIA_AGENT_SKILLS=off 로 비활성). ──
-  // ⚠️ panel(환경 위임)은 여기 미포함 — egress 가 필요해 gRPC host 가 wire 후 합성(브라우저/BGM=셸 소유 환경, E1).
+  // ⚠️ app(환경 위임)은 여기 미포함 — egress 가 필요해 gRPC host 가 wire 후 합성(브라우저/BGM=셸 소유 환경, E1).
   let toolExecutor, skillsLabel = "off";
   let knowledgeBackend;
   let setKnowledgeWorkspace = () => undefined;

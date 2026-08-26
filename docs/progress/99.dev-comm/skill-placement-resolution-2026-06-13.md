@@ -15,7 +15,7 @@
 | diagnostics | health/logs | **F1** diagnostics(os-local) + rich payload=gRPC Diagnostics RPC(Rust 잔여) | △ |
 | skill-manager | 스킬 관리 | **새 agent** ToolExecutor registry(composition + makeCompositeToolExecutor 보수 tier) | ✓ |
 | welcome | 온보딩 환영 | **UC12** OnboardingController welcome step | ✓ |
-| panel | UI 패널 | **F0** panel_list_installed(os-side) | ✓ |
+| app | UI 패널 | **F0** app_list_installed(os-side) | ✓ |
 | voicewake | 이름 호출 활성 | **V2** SensoryPort(S18, deprecated 잔재 — 새 voicewake 는 V2 신규) | △ |
 | notify-{slack,discord,google_chat} | 알림 발신 | **notify skill**(이식됨) | ✓ |
 | channels / naia-discord(full bot) | 다채널 수신/discord 봇 | **신규계약 필요**(notify=발신만; full 채널 수신=external + gRPC channel surface) | ✗(신규계약) |

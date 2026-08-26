@@ -46,18 +46,18 @@ export interface ToolCall { readonly id: string; readonly name: string; readonly
 // workspace/agentInstruction 을 위조 주입하는 경로를 API 차원에서 차단(raw systemPrompt 이름만 바꾼 게 아님).
 //  - avatarEmotion: naia-os 아바타 모드 — 코어가 표준 emotion-tag 지시문을 *자체 발행*(클라는 capability flag 만,
 //    문구는 코어 소유). 아바타 없는 CLI 는 omit → emotion 지시 없음.
-//  - panel: 런타임 UI 패널 컨텍스트 — "참고 데이터"로 격리·이스케이프(JSON.stringify + 길이 제한). 모델 지시문 아님.
+//  - app: 런타임 UI 패널 컨텍스트 — "참고 데이터"로 격리·이스케이프(JSON.stringify + 길이 제한). 모델 지시문 아님.
 //  - responseStyle: 환경의 응답 스타일 힌트(음성 파이프라인 = brief). 코어가 표준 간결성 지시문을 *자체 발행*
 //    (클라는 style enum 만, 문구는 코어 소유). brief=짧은 구어 응답, normal=무영향. 음성 STT→채팅 경로가 raw
 //    systemPrompt 로 persona 를 덮던 회귀(S4)를 닫는다 — persona 조립을 보존하면서 간결성만 환경 지시로 운반.
 //  - environmentSurfaces: 사용자의 터미널 작업 표면 목록(REQ-021·SPEC-020). 클라는 손잡이·이름·활동상태·
 //    주시여부와 누락 개수만 보내고, 프롬프트 문구는 코어가 발행한다. 짝 저장소(naia-shell)가 이미
 //    새니타이즈·정규화·상한을 걸지만 코어가 다시 건다 — 셸은 여럿일 수 있고 그중 하나가 게을러도
-//    뇌가 오염되면 안 된다(panel 과 같은 태도).
-// 화이트리스트(avatarEmotion|panel|responseStyle|environmentSurfaces) 외 kind 는 코어가 드롭(domain/environment-segments.ts).
+//    뇌가 오염되면 안 된다(app 과 같은 태도).
+// 화이트리스트(avatarEmotion|app|responseStyle|environmentSurfaces) 외 kind 는 코어가 드롭(domain/environment-segments.ts).
 export type EnvironmentSegment =
   | { readonly kind: "avatarEmotion" }
-  | { readonly kind: "panel"; readonly entries: readonly { readonly type: string; readonly data: unknown }[] }
+  | { readonly kind: "app"; readonly entries: readonly { readonly type: string; readonly data: unknown }[] }
   | { readonly kind: "responseStyle"; readonly style: "brief" | "normal" }
   | {
       readonly kind: "environmentSurfaces";
@@ -253,7 +253,7 @@ export type AgentEmit =
   | { readonly kind: "logEntry"; readonly level: string; readonly message: string }
   | { readonly kind: "tokenWarning"; readonly raw: unknown }
   | { readonly kind: "compacted"; readonly droppedCount: number } // UC-compaction(FR-COMPACT): 예산 압박 시 head 요약 발생 알림(UI 표시용, 비-terminal)
-  | { readonly kind: "panelToolCall"; readonly toolCallId: string; readonly toolName: string; readonly args: unknown } // UC-PANEL FR-PANEL-2: 환경 도구(BGM·브라우저·workspace) 위임 — agent 미실행, 셸이 실행(비-terminal)
+  | { readonly kind: "appToolCall"; readonly toolCallId: string; readonly toolName: string; readonly args: unknown } // UC-APP FR-APP-2: 환경 도구(BGM·브라우저·workspace) 위임 — agent 미실행, 셸이 실행(비-terminal)
   | { readonly kind: "grounding"; readonly status: "grounded" | "no_evidence" | "uncompiled" | "unavailable"; readonly sources: readonly GroundingSource[] }
   | { readonly kind: "artifact"; readonly artifact: ImageArtifact }
   | { readonly kind: "providerSession"; readonly sessionId: string; readonly providerSessionRef: string; readonly state: "started" | "resumed" | "closed" }

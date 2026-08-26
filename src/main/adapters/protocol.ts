@@ -10,8 +10,8 @@ import type {
   ProviderSessionRequest,
 } from "../domain/chat.js";
 
-/** wire environmentSegments(unknown) → EnvironmentSegment[] 안전 디코드(S4). 화이트리스트(avatarEmotion|panel|responseStyle) 외 드롭.
- *  비배열/잘못된 모양 = []. panel.entries 는 {type:string, data} 만 채택(자유 텍스트 위조 주입 차단 — 코어 domain 이 격리).
+/** wire environmentSegments(unknown) → EnvironmentSegment[] 안전 디코드(S4). 화이트리스트(avatarEmotion|app|responseStyle) 외 드롭.
+ *  비배열/잘못된 모양 = []. app.entries 는 {type:string, data} 만 채택(자유 텍스트 위조 주입 차단 — 코어 domain 이 격리).
  *  responseStyle 은 style enum("brief"|"normal") 만 채택(미지 style=normal 폴백, 자유 텍스트 주입 경로 없음). */
 export function decodeEnvironmentSegments(v: unknown): EnvironmentSegment[] {
   if (!Array.isArray(v)) return [];
@@ -21,18 +21,18 @@ export function decodeEnvironmentSegments(v: unknown): EnvironmentSegment[] {
     const kind = (s as Record<string, unknown>)["kind"];
     if (kind === "avatarEmotion") {
       out.push({ kind: "avatarEmotion" });
-    } else if (kind === "panel" || kind === "app") {
-      // ⚠️ 2026-08-26 실측 결함: naia-shell 이 2026-07-01 커밋 "panel→app 리팩터"로 자기 쪽 kind 이름만
-      //    바꿨고(8d51b57a), 이 디코더는 "panel" 만 받아 그 뒤로 패널 컨텍스트가 조용히 버려져 왔다.
+    } else if (kind === "app" || kind === "app") {
+      // ⚠️ 2026-08-26 실측 결함: naia-shell 이 2026-07-01 커밋 "app→app 리팩터"로 자기 쪽 kind 이름만
+      //    바꿨고(8d51b57a), 이 디코더는 "app" 만 받아 그 뒤로 패널 컨텍스트가 조용히 버려져 왔다.
       //    wire 이름은 계약이므로 한쪽이 바꿔도 다른 쪽이 따라가지 않는다 — 여기서 별칭으로 받아
-      //    내부 정본 이름("panel")으로 눕힌다. 셸이 이름을 되돌리면 별칭은 남아도 무해하다.
+      //    내부 정본 이름("app")으로 눕힌다. 셸이 이름을 되돌리면 별칭은 남아도 무해하다.
       const rawEntries = (s as Record<string, unknown>)["entries"];
       const entries = Array.isArray(rawEntries)
         ? rawEntries
             .filter((e): e is Record<string, unknown> => !!e && typeof e === "object" && typeof (e as Record<string, unknown>)["type"] === "string")
             .map((e) => ({ type: String(e["type"]), data: e["data"] }))
         : [];
-      out.push({ kind: "panel", entries });
+      out.push({ kind: "app", entries });
     } else if (kind === "responseStyle") {
       // style 은 enum 만 — "brief" 만 효과, 그 외(미지정 포함)는 "normal"(무영향)로 정규화. 자유 텍스트 주입 경로 없음.
       const style = (s as Record<string, unknown>)["style"] === "brief" ? "brief" : "normal";
@@ -130,7 +130,7 @@ export function encodeEmit(requestId: string, e: AgentEmit): Record<string, unkn
     case "logEntry": return { type: "log_entry", requestId, level: e.level, message: e.message };
     case "tokenWarning": return { type: "token_warning", requestId, raw: e.raw };
     case "compacted": return { type: "compacted", requestId, droppedCount: e.droppedCount };
-    case "panelToolCall": return { type: "panel_tool_call", requestId, toolCallId: e.toolCallId, toolName: e.toolName, args: e.args }; // UC-PANEL FR-PANEL-2
+    case "appToolCall": return { type: "app_tool_call", requestId, toolCallId: e.toolCallId, toolName: e.toolName, args: e.args }; // UC-APP FR-APP-2
     case "grounding": return { type: "grounding", requestId, status: e.status, sources: e.sources };
     case "artifact": return { type: "artifact", requestId, artifact: e.artifact };
     case "providerSession": return {

@@ -8,7 +8,7 @@ import {
 import type { AgentEmit } from "../main/domain/chat.js";
 
 describe("emitToProto — UC1 필드 보존(agent→gRPC)", () => {
-  it("★ toolResult: toolName+success 를 proto 로 전송(os ChatPanel chunk.success)", () => {
+  it("★ toolResult: toolName+success 를 proto 로 전송(os ChatApp chunk.success)", () => {
     const e: AgentEmit = { kind: "toolResult", toolCallId: "t", output: "ok", toolName: "write_file", success: false };
     const p = emitToProto("r1", e);
     expect(p.toolResult).toMatchObject({ toolCallId: "t", output: "ok", toolName: "write_file", success: false });

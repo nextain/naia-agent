@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { makeActivityRadioDjBgm } from "../main/adapters/activity-radio-dj-bgm.js";
 import { makeActivityRouteRegistry } from "../main/adapters/activity-speech-egress.js";
 
-describe("DJ-GRPC-01 activity panel BGM correlation", () => {
+describe("DJ-GRPC-01 activity app BGM correlation", () => {
   it("Shell의 requested receipt 뒤 status=playing 관측이 와야만 성공한다", async () => {
     const routes = makeActivityRouteRegistry();
     routes.set({
@@ -36,7 +36,7 @@ describe("DJ-GRPC-01 activity panel BGM correlation", () => {
       requestId: "radio-dj:a1",
       activityId: "a1",
       event: {
-        kind: "panelToolCall",
+        kind: "appToolCall",
         toolName: "skill_youtube_bgm",
         args: { action: "play", query: "저녁 재즈", mode: "radio_dj" },
       },
@@ -118,7 +118,7 @@ describe("DJ-GRPC-01 activity panel BGM correlation", () => {
       routes,
       wire: {
         emit: (_s, _r, _a, _g, event) => {
-          toolCallId = event.kind === "panelToolCall" ? event.toolCallId : "";
+          toolCallId = event.kind === "appToolCall" ? event.toolCallId : "";
         },
       },
       specs: () => [{ name: "skill_youtube_bgm", description: "", parameters: {} }],
@@ -137,7 +137,7 @@ describe("DJ-GRPC-01 activity panel BGM correlation", () => {
       routes,
       wire: {
         emit: (_s, _r, _a, _g, event) => {
-          if (event.kind === "panelToolCall") calls.push({
+          if (event.kind === "appToolCall") calls.push({
             toolCallId: event.toolCallId,
             action: String((event.args as { action?: unknown }).action),
           });

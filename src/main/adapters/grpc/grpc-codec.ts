@@ -150,7 +150,7 @@ export function emitToProto(requestId: string, e: AgentEmit): PbAgentEvent {
     case "logEntry": return { requestId, logEntry: { level: e.level, message: e.message } };
     case "tokenWarning": return { requestId, tokenWarning: { rawJson: JSON.stringify(e.raw ?? null) } };
     case "compacted": return { requestId, compacted: { droppedCount: e.droppedCount } };
-    case "panelToolCall": return { requestId, panelToolCall: { toolCallId: e.toolCallId, toolName: e.toolName, argsJson: JSON.stringify(e.args ?? null) } }; // UC-PANEL FR-PANEL-2
+    case "appToolCall": return { requestId, appToolCall: { toolCallId: e.toolCallId, toolName: e.toolName, argsJson: JSON.stringify(e.args ?? null) } }; // UC-APP FR-APP-2
     case "grounding": return { requestId, grounding: { status: enumUpper(e.status), sources: e.sources } };
     case "artifact": return { requestId, artifact: { artifact: e.artifact } };
     case "providerSession": return {

@@ -109,19 +109,19 @@
 - **NFR-SEC-1 (로그 시크릿 마스킹)**: DiagnosticLog sink 가 write 직전 `adapters/redact.ts`(`redactSecrets`)로 알려진 키·토큰(sk-/AIza/ghp/xox/AKIA/gw/JWT + apiKey/password/token 키문맥)을 `[REDACTED]` 마스킹 — 평문 자격증명의 stderr 누출 방지(best-effort defense-in-depth, 1차 방어=로그금지 규율). 검증 `redact.contract.test.ts`(26 케이스, codex 적대 7R). 재감사 2026-06-23.
 - **NFR-NAIA-PI**: 모델/가격/크레딧/실 upstream의 권위는 gateway이며 Agent는 이를 복제하지 않는다. 단일 실행 결과로 비용 절감을 약속하지 않고 tokens/time/rework를 기록한다.
 
-## UC-PANEL FR/NFR (FR-PANEL-1 ~ 5) — 환경 panel skill (BGM·브라우저·workspace)
+## UC-APP FR/NFR (FR-APP-1 ~ 5) — 환경 app skill (BGM·브라우저·workspace)
 
 | FR | 요구 | 상태 |
 |----|------|------|
-| FR-PANEL-1 | **PanelSkillPort 동적 등록** — 셸 `RegisterPanelSkills(panel_id, specs[])` → agent 동적 toolExecutor 합성(builtin 과 composite)해 LLM 노출. `ClearPanelSkills` 로 제거. spec=name/description/parameters_json/tier. | 예정 |
-| FR-PANEL-2 | **원격 위임(intent emit)** — LLM 이 panel tool call → 실행 대신 `panel_tool_call`(AgentEvent) emit. agent 는 환경을 실행하지 않음(E1, brain-body-environment). | 예정 |
-| FR-PANEL-3 | **결과 주입** — 셸 `PanelToolResult(request_id, tool_call_id, output, success)` → chat 루프가 pending(requestId+toolCallId) 매칭해 tool_result 주입 후 라운드 계속. | 예정 |
-| FR-PANEL-4 | **비동기 안전** — 원격 실행 대기 중 timeout(기본값)·취소·agent-down·다중 동시 tool call 매칭(pending map 누수 0). terminal 1회·usage 1회 불변식 보존. | 예정 |
-| FR-PANEL-5 | **무회귀** — panel skill 미등록 = 기존 builtin tool 즉시 실행 경로 무영향. tier 승인 게이트 그대로 적용. | 예정 |
+| FR-APP-1 | **AppSkillPort 동적 등록** — 셸 `RegisterAppSkills(app_id, specs[])` → agent 동적 toolExecutor 합성(builtin 과 composite)해 LLM 노출. `ClearAppSkills` 로 제거. spec=name/description/parameters_json/tier. | 예정 |
+| FR-APP-2 | **원격 위임(intent emit)** — LLM 이 app tool call → 실행 대신 `app_tool_call`(AgentEvent) emit. agent 는 환경을 실행하지 않음(E1, brain-body-environment). | 예정 |
+| FR-APP-3 | **결과 주입** — 셸 `AppToolResult(request_id, tool_call_id, output, success)` → chat 루프가 pending(requestId+toolCallId) 매칭해 tool_result 주입 후 라운드 계속. | 예정 |
+| FR-APP-4 | **비동기 안전** — 원격 실행 대기 중 timeout(기본값)·취소·agent-down·다중 동시 tool call 매칭(pending map 누수 0). terminal 1회·usage 1회 불변식 보존. | 예정 |
+| FR-APP-5 | **무회귀** — app skill 미등록 = 기존 builtin tool 즉시 실행 경로 무영향. tier 승인 게이트 그대로 적용. | 예정 |
 
 ### NFR
-- **직교**: domain/app 은 panel tool 의 transport(gRPC)·셸 실행을 모름(`PanelSkillPort` 캡슐화, `import-boundary` green 유지).
-- **NFR-efferent-async 정합**: 원격 panel 실행 = async + interruption + 결과 매칭. 동기 가정 하드코딩 금지.
+- **직교**: domain/app 은 app tool 의 transport(gRPC)·셸 실행을 모름(`AppSkillPort` 캡슐화, `import-boundary` green 유지).
+- **NFR-efferent-async 정합**: 원격 app 실행 = async + interruption + 결과 매칭. 동기 가정 하드코딩 금지.
 
 ## UC-PERSONA-CLI FR/NFR (FR-PERSONA-1 ~ 3) — 워크스페이스 페르소나 기본 주입
 
@@ -145,7 +145,7 @@ ghost-edit split 없음). **조립 위치 = 코어**(host 아님): host 는 `Per
 - **NFR-PERSONA-core-owned**: 페르소나 조립은 **코어 소유**(host 조립·`req.systemPrompt` 로 주입하는 과도기 경로 금지). 식별자 `personaSystemPrompt` 는 코드베이스에 잔존하지 않는다(grep 0).
 - **NFR-PERSONA-locale-normalize**: locale 은 `composePersonaPrompt` 진입에서 **primary subtag 정규화 1회**(BCP-47 — `-`/`_` 분리 첫 토큰 소문자화: `"ko-KR"`/`"ko_KR"`/`"KO"` → `"ko"`). `localeToLanguage`/`FORMALITY_LOCALES` lookup 이 region/script subtag 로 silent 영어 폴백·formal 강제되던 결함을 닫는다(한국어/말투 보존). speechStyle 은 소문자화 후 `"casual"` 매칭만 신뢰 — 미지값(`"banmal"` 등)은 **formal 안전 기본**(존댓말; casual 오입력이 조용히 반대로 가지 않게).
 - **NFR-PERSONA-trust-model** (systemPrompt override): `req.systemPrompt` 는 코어 조립(persona⊕workspace⊕environment)을 **무조건 덮는다**(C2). 이는 **신뢰 로컬 단일유저** 모델(C1)에서만 수용 — override 는 **신뢰 로컬 클라(`--system`/voice/discord) 전용**이며, naia-os **텍스트 채팅은 systemPrompt 미전송**(environmentSegments 만 → persona 보존, S4). 악성 클라면 `.keys` 를 직접 읽으므로 wire 게이팅은 무의미(GLM 위협모델 — 클라가 신뢰 경계 안). **원격/멀티테넌트 전개 시엔 override 게이팅이 필요**(미래 작업 — 현재는 미적용). 코드 마커: `adapters/protocol.ts`(systemPrompt decode 주석)·`app/chat-turn-handler.ts`(baseSystemPrompt 결정 주석).
-- **NFR-ENV-injection-hardening** (C2 인젝션 차단): 클라 제공 환경 컨텍스트는 *데이터*이지 지시문이 아니다. (1) panel.type **라벨 새니타이즈**(`sanitizeLabel` — 개행/제어문자·`[`/`]` 제거 + 길이 cap `PANEL_TYPE_LABEL_CAP`=64) + panel.data 한줄 강제(제어문자 제거). (2) 워크스페이스 **프로젝트 이름 새니타이즈**(개행/제어문자 제거 + cap `PROJECT_NAME_CAP`=64; 콤마 보존). (3) **크기 cap**: 세그먼트 `MAX_SEGMENTS`=8·panel entry `MAX_PANEL_ENTRIES`=16·렌더 총길이 `MAX_RENDER_CHARS`=4000(초과 절단+마커). 정상 라벨/이름/데이터는 무손실(새니타이즈가 정상값을 망가뜨리지 않음). domain 순수(`environment-segments.ts`·`workspace-context.ts`).
+- **NFR-ENV-injection-hardening** (C2 인젝션 차단): 클라 제공 환경 컨텍스트는 *데이터*이지 지시문이 아니다. (1) app.type **라벨 새니타이즈**(`sanitizeLabel` — 개행/제어문자·`[`/`]` 제거 + 길이 cap `APP_TYPE_LABEL_CAP`=64) + app.data 한줄 강제(제어문자 제거). (2) 워크스페이스 **프로젝트 이름 새니타이즈**(개행/제어문자 제거 + cap `PROJECT_NAME_CAP`=64; 콤마 보존). (3) **크기 cap**: 세그먼트 `MAX_SEGMENTS`=8·app entry `MAX_APP_ENTRIES`=16·렌더 총길이 `MAX_RENDER_CHARS`=4000(초과 절단+마커). 정상 라벨/이름/데이터는 무손실(새니타이즈가 정상값을 망가뜨리지 않음). domain 순수(`environment-segments.ts`·`workspace-context.ts`).
 
 ## UC-WORKSPACE-CTX FR/NFR (FR-WORKSPACE-1 ~ 4) — 워크스페이스 컨텍스트 경량 인식
 
@@ -221,7 +221,7 @@ spec + sandbox 정책(allow-root) + tier(승인)** 를 소유한다.
 **검증(2026-07-15)**: `src/test/uc-thinking.contract.test.ts` **11/11 통과**. 전체 스위트 **945 통과·실패 0**
 (회귀 0 — FR-THINK-4 충족). `tsc --noEmit` clean. `check-logging`·`ci-verify-sdlc`·`check-traceability`·
 `check-terminology` 전부 통과. ⚠️ `check-file-anchors` 는 RED 4건이나 **모두 본 변경 이전부터 존재**
-(HEAD stash 재검사로 확인 — `sub-llm-provider.ts`·`cli-chat.ts`·`sub-llm.ts`·`panel-tool-executor.ts`,
+(HEAD stash 재검사로 확인 — `sub-llm-provider.ts`·`cli-chat.ts`·`sub-llm.ts`·`app-tool-executor.ts`,
 본 변경과 무관·별도 이슈).
 
 ### NFR
@@ -250,7 +250,7 @@ spec + sandbox 정책(allow-root) + tier(승인)** 를 소유한다.
 | FR-CONT-MVP-8 | **실제 증적** — 전체 계약/통합 테스트와 Playwright 7건이 TTS 두 경로·제어 6종·250ms interrupt·stale 폐기·전시 yield/resume를 검증하고, 실제 Tauri WebDriver가 file-backed 설정 저장·cache-clear 재수화·동의 철회를 검증한다. 물리 음질·현장 선호도는 자동 완료 판정 밖의 운영 관찰 항목이다. | Done |
 | FR-CONT-MVP-9 | **종료 기반 동적 선곡** — Player의 실제 `ended` 관측 뒤 짧은 전환 멘트를 먼저 완료하고 같은 activity에서 `skill_youtube_bgm {action:"play", mode:"radio_dj"}`로 다음 검색을 요청한다. Shell은 최근곡을 제외하고, Agent는 명시 선호와 최근에 재생하지 않은 즐겨찾기를 검색 힌트로 결합한다. 새 곡 제목은 상관된 `playing` 관측 뒤에만 말한다. | Done |
 
-| FR-PANEL-6 | **화면 캡처의 실제 multimodal 전달** — `skill_tab_screenshot`의 bounded PNG/JPEG/WebP data URI를 panel executor가 base64 로그/텍스트에서 분리하고 도구 결과 결속 뒤 inline image로 보존한다. OpenAI-compatible·Anthropic·Ollama adapter는 각 provider의 image content 형식으로 전달하며, 미지원 provider는 이미지를 보았다고 표현하지 않는다. 손상·과대 data URI는 일반 오류 결과로 fail-closed한다. | Done |
+| FR-APP-6 | **화면 캡처의 실제 multimodal 전달** — `skill_tab_screenshot`의 bounded PNG/JPEG/WebP data URI를 app executor가 base64 로그/텍스트에서 분리하고 도구 결과 결속 뒤 inline image로 보존한다. OpenAI-compatible·Anthropic·Ollama adapter는 각 provider의 image content 형식으로 전달하며, 미지원 provider는 이미지를 보았다고 표현하지 않는다. 손상·과대 data URI는 일반 오류 결과로 fail-closed한다. | Done |
 
 현재 DJ 멘트는 근거 유무를 확인하는 8개 bounded variant를 순환하며 최근 6문장 반복을 피한다.
 설정 UI는 profile/idle/interval/timezone/BGM/weather/좌표/knowledge scope를 파일에 저장하고 복원하며,
@@ -879,7 +879,7 @@ The Agent and Gateway preserve these codes end to end:
   주입하지 못한다. 이번 변경은 화이트리스트에 kind 를 더하는 것이지 예외를 만드는 것이 아니다.
 - **셸을 신뢰하지 않는다**: 짝 저장소가 이미 제어문자를 제거하고 길이를 자르고 활동 상태를
   정규화한다. 그래도 코어가 다시 한다. 셸은 여러 개일 수 있고 그중 하나가 게을러도 뇌가
-  오염되면 안 된다. 기존 `panel` kind 가 같은 태도를 취한다.
+  오염되면 안 된다. 기존 `app` kind 가 같은 태도를 취한다.
 - **상한**: 세그먼트 개수·엔트리 개수·렌더 총길이 상한은 `environment-segments.ts` 의 기존
   상수 체계를 따른다. 새 상한 체계를 만들지 않는다.
 - **범위 밖**: 내려가는 의도(관측·포커스·중단·실행)는 `environmentSegments` 가 아니라 도구 호출

@@ -8,7 +8,7 @@
 
 현재 실앱 갭(2026-06-12 발견):
 - agent는 `AGENT_PROVIDER` env로 **단일 고정 provider**만 씀(dev 런처가 glm 강제) → config의 gemini 무시. (UI=gemini ↔ 실제=glm 불일치)
-- agent가 usage에 **cost 미방출** → 셸 `formatCost(undefined)` 크래시 → ChatPanel 언마운트(대화 사라짐).
+- agent가 usage에 **cost 미방출** → 셸 `formatCost(undefined)` 크래시 → ChatApp 언마운트(대화 사라짐).
 
 ## §B. Old-Baseline 골든트레이스 (old-naia-os/agent)
 - `providers/registry.ts` — `registerLlmProvider({id,name,envVar,create})` 자가등록.
@@ -27,7 +27,7 @@
 
 ## §C. New 구조 매핑 (이미 있는 것 / 이식할 것)
 **이미 있음**: `ports/uc1.ts ProviderPort.chat(config,msgs,opts)` · `CredentialPort{update,get}`(creds_update→{apiKey,naiaKey}) · `ProviderConfig{provider,model,labGatewayUrl,apiKey,naiaKey}` · handler `providerConfig={...req.provider,...creds.get()}` · `makeOpenAICompatProvider({baseUrl,apiKey,model})`(Bearer) · `makeOllamaProvider` · `makeFakeProvider`.
-**os side**: `message-router.ts:99 usage→{kind:usage, raw:m}` + `chatChunkToWire usage={...raw}` → **agent가 cost 실으면 ChatPanel까지 통과**(os 코드 변경 불필요).
+**os side**: `message-router.ts:99 usage→{kind:usage, raw:m}` + `chatChunkToWire usage={...raw}` → **agent가 cost 실으면 ChatApp까지 통과**(os 코드 변경 불필요).
 
 **이식(agent-side):**
 1. `domain/cost.ts` (NEW) — `MODEL_PRICING` + `calculateCost(model,inTok,outTok):number` (순수, old verbatim 이식 + gemini-2.5-flash 등 포함).
@@ -45,7 +45,7 @@
 
 ## §D. 수용 기준 (Old-Baseline parity)
 - config{provider:gemini, model:gemini-2.5-flash} + 로그인(naiaKey) → 대화가 **gemini(lab-proxy api.nextain.io)** 로 진행.
-- usage에 cost 실려 ChatPanel **크래시 없음**, 대화 유지.
+- usage에 cost 실려 ChatApp **크래시 없음**, 대화 유지.
 - UI 설정 모델 == 실제 사용 provider (불일치 해소).
 - env 강제 hack 제거 후에도 동작.
 - **검증**: 단위(resolver 라우팅·cost·auth 분기) + tsc + file-anchor 0 FP + e2e-tauri/실앱(Luke).

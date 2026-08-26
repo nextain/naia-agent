@@ -38,7 +38,7 @@ describe("domain (agent UC1)", () => {
     expect(isTerminalEmit({ kind: "error", message: "e" })).toBe(true);
     expect(isTerminalEmit({ kind: "text", text: "a" })).toBe(false);
   });
-  it("FR-PANEL-6: image parser bounds/signature + tool round image threading", () => {
+  it("FR-APP-6: image parser bounds/signature + tool round image threading", () => {
     const image = parseInlineImageDataUri(`data:image/png;base64,${ONE_PIXEL_PNG}`);
     expect(image).toEqual({ mimeType: "image/png", data: ONE_PIXEL_PNG });
     expect(parseInlineImageDataUri("data:image/png;base64,QUFBQQ==")).toBeUndefined();

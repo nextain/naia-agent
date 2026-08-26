@@ -553,7 +553,7 @@ export class ChatTurnHandler {
               const res = await raceAbort(exec.execute(
                 { ...call, id: cid },
                 { signal, requestId: req.requestId, authorizedProcessing: applicableProcessing },
-              ), signal, this.d.toolTimeoutMs ?? TOOL_EXEC_TIMEOUT_MS); // requestId=UC-PANEL: panel 도구가 panel_tool_call 을 이 chat 스트림으로 위임
+              ), signal, this.d.toolTimeoutMs ?? TOOL_EXEC_TIMEOUT_MS); // requestId=UC-APP: app 도구가 app_tool_call 을 이 chat 스트림으로 위임
               if (res === null) {
                 if (signal.aborted) { terminalError("cancelled"); cancelled = true; break; }
                 r = { output: `tool timeout (>${this.d.toolTimeoutMs ?? TOOL_EXEC_TIMEOUT_MS}ms)`, isError: true }; // 무응답=isError, LLM 복구 가능, turn 진행
