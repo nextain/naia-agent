@@ -39,6 +39,14 @@ describe("makeOpenAICompatProvider (GLM/openai SSE, mock)", () => {
   it("!ok → throw", async () => {
     await expect(collect(prov([], { ok: false, status: 401 }).chat(cfg, [], {}))).rejects.toThrow(/401/);
   });
+  it("finish_reason=length is reported as truncation", async () => {
+    const lines = [
+      'data: {"choices":[{"delta":{"content":"partial"}}]}\n',
+      'data: {"choices":[{"delta":{},"finish_reason":"length"}],"usage":{"prompt_tokens":7590,"completion_tokens":602}}\n',
+      "data: [DONE]\n",
+    ];
+    await expect(collect(prov(lines).chat(cfg, [], {}))).rejects.toThrow(/truncated.*finish_reason=length/);
+  });
   it("비-OK(429 등) 응답 본문을 throw 전에 취소 — dangling 소켓→libuv 어설션 방지(적대리뷰)", async () => {
     let cancelled = false;
     const fetch = async () => ({

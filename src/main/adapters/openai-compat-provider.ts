@@ -106,6 +106,7 @@ export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string
       const decoder = new TextDecoder();
       let buffer = "";
       let inTok = 0, outTok = 0;
+      let finishReason: string | undefined;
       const acc = new Map<number, ToolAcc>(); // index 별 tool_call 누적(§C.2)
 
       // SSE data json 1건 처리: content → 즉시 text chunk 반환. tool_calls/usage → 누적(side effect). error → throw.
@@ -116,11 +117,13 @@ export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string
         try { evt = JSON.parse(t); } catch { return []; } // 손상 SSE 줄 skip
         if (!evt || typeof evt !== "object") return [];
         const o = evt as {
-          choices?: { delta?: { content?: string; tool_calls?: Array<{ index?: unknown; id?: unknown; type?: unknown; function?: { name?: unknown; arguments?: unknown } }> } }[];
+          choices?: { finish_reason?: unknown; delta?: { content?: string; tool_calls?: Array<{ index?: unknown; id?: unknown; type?: unknown; function?: { name?: unknown; arguments?: unknown } }> } }[];
           usage?: { prompt_tokens?: number; completion_tokens?: number }; error?: unknown;
         };
         if (o.error) throw new Error(`OpenAI-compat stream error: ${JSON.stringify(o.error)}`);
         const out: ProviderChunk[] = [];
+        const rawFinishReason = o.choices?.[0]?.finish_reason;
+        if (typeof rawFinishReason === "string" && rawFinishReason !== "") finishReason = rawFinishReason;
         const delta = o.choices?.[0]?.delta;
         if (delta?.content) out.push({ kind: "text", text: delta.content });
         const tcs = delta?.tool_calls;
@@ -152,6 +155,9 @@ export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string
       // 단일 finalize(§C.2): abort commit-point → parse-all-then-yield 원자 → toolUse → usage → finish.
       const finalize = function* (): Generator<ProviderChunk> {
         if (opts.signal?.aborted) return; // commit point: abort 면 배치 전체 미yield
+        if (finishReason === "length" || finishReason === "max_tokens") {
+          throw new Error(`OpenAI-compat response truncated by provider (finish_reason=${finishReason})`);
+        }
         const indices = [...acc.keys()].filter((i) => !acc.get(i)!.excluded).sort((x, y) => x - y);
         // 1차: provider 제공 id 중복 거부 + used 집합 구성(합성 id 충돌 회피용).
         const used = new Set<string>();
