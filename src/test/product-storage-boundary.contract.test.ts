@@ -1,7 +1,7 @@
 import { constants, copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   migrateLegacyKnowledge,
@@ -22,8 +22,8 @@ describe("naia-agent product storage boundary", () => {
       memoryStorePath: join(root, "naia-settings", "memory", "store.json"),
       workspaceIdPath: join(root, "naia-settings", "memory", "workspace-id"),
     });
-    expect(resolveProductKnowledgeDir("/ws/adk", "personal-ko")).toBe(
-      "/ws/adk/naia-settings/knowledge/personal-ko",
+    expect(resolveProductKnowledgeDir(root, "personal-ko")).toBe(
+      join(root, "naia-settings", "knowledge", "personal-ko"),
     );
     expect(resolveProductKnowledgeDir("/ws/adk", "고객1")).toBe(
       join(resolve("/ws/adk"), "naia-settings", "knowledge", "고객1"),
@@ -52,7 +52,7 @@ describe("naia-agent product storage boundary", () => {
       validateSource: (source: string, expectedRoot: string) => {
         const realRoot = realpathSync(expectedRoot);
         const realSource = realpathSync(source);
-        if (realSource !== realRoot && !realSource.startsWith(`${realRoot}/`)) throw new Error("legacy source escapes");
+        if (realSource !== realRoot && !realSource.startsWith(`${realRoot}${sep}`)) throw new Error("legacy source escapes");
       },
       copyExclusive: (source: string, destination: string) => copyFileSync(source, destination, constants.COPYFILE_EXCL),
     };
@@ -90,7 +90,7 @@ describe("naia-agent product storage boundary", () => {
       validateSource: (source: string, expectedRoot: string) => {
         const realRoot = realpathSync(expectedRoot);
         const realSource = realpathSync(source);
-        if (realSource !== realRoot && !realSource.startsWith(`${realRoot}/`)) throw new Error("legacy source escapes");
+        if (realSource !== realRoot && !realSource.startsWith(`${realRoot}${sep}`)) throw new Error("legacy source escapes");
       },
       copyExclusive: (source: string, destination: string) => copyFileSync(source, destination, constants.COPYFILE_EXCL),
     };
