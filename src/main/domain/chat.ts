@@ -72,6 +72,12 @@ export type EnvironmentSegment =
       }[];
       /** 클라 상한 때문에 못 실은 표면 수. 조용한 절단을 감추지 않기 위해 함께 받는다. */
       readonly omitted: number;
+      /**
+       * 셸이 목록을 일부러 싣지 않았는가. 상한에 잘린 것과 다른 사실이다 —
+       * 앞의 것은 어쩔 수 없는 절단이고, 이것은 나이아가 걷을 수 있는 가림막이다.
+       * 옛 셸은 이 필드를 보내지 않으므로 없으면 false 로 읽는다.
+       */
+      readonly listWithheld?: boolean;
     };
 
 export interface ChatMessage {
