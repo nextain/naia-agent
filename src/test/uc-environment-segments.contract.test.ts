@@ -560,6 +560,22 @@ describe("UC-024 environmentSurfaces — 상한 (C4)", () => {
     expect(out).toContain("4 more not shown");
   });
 
+  // 2026-08-27: 셸이 기본으로 보내는 형태가 바뀌었다. 표면 목록을 요청마다 실으면 토큰이
+  // 붙고 사용자의 터미널 이름이 늘 뇌로 오므로, 셸은 평소 개수만 보내고 나이아가 지켜보기로
+  // 정했을 때만 목록을 보낸다(naia-shell FR-ENV-ATTENTION). 즉 아래 형태가 예외가 아니라
+  // 평상시 입력이다 — 받는 쪽이 그것을 "볼 것이 없다"로 읽으면 안 된다.
+  it("개수만 온 평상시 형태를 '아무것도 없다'로 읽지 않는다", () => {
+    const out = renderEnvironmentSegments([surfaceSeg([], 2)]);
+    expect(out).toContain("2 more not shown");
+    // 볼 것이 있다는 사실은 전해지되, 없는 표면을 지어내지 않는다.
+    expect(out).not.toContain("(unnamed)");
+    expect(out.split("\n").filter((l) => l.startsWith("- [")).length).toBe(0);
+  });
+
+  it("개수가 0 이면 블록 자체를 만들지 않는다 — 0 개를 단언하지 않는다", () => {
+    expect(renderEnvironmentSegments([surfaceSeg([], 0)])).toBe("");
+  });
+
   it("음수·비정상 누락 개수는 무시한다", () => {
     expect(renderEnvironmentSegments([surfaceSeg([surface()], -5)])).not.toContain("more not shown");
   });
