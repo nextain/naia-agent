@@ -54,7 +54,8 @@ export function decodeEnvironmentSegments(v: unknown): EnvironmentSegment[] {
         : [];
       const rawOmitted = (s as Record<string, unknown>)["omitted"];
       const omitted = typeof rawOmitted === "number" && Number.isFinite(rawOmitted) && rawOmitted > 0 ? Math.trunc(rawOmitted) : 0;
-      out.push({ kind: "environmentSurfaces", surfaces, omitted });
+      const listWithheld = (s as Record<string, unknown>)["listWithheld"] === true;
+      out.push({ kind: "environmentSurfaces", surfaces, omitted, listWithheld });
     }
     // 그 외 kind = 드롭(화이트리스트).
   }

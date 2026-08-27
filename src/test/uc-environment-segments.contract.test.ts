@@ -463,8 +463,9 @@ describe("golden 대조 — naia-os buildSystemPrompt 의미 동등 (S4 R2/R3)",
 function surfaceSeg(
   surfaces: readonly { ref: string; label: string; activity: string; focused: boolean }[],
   omitted = 0,
+  listWithheld = false,
 ): EnvironmentSegment {
-  return { kind: "environmentSurfaces", surfaces: [...surfaces], omitted };
+  return { kind: "environmentSurfaces", surfaces: [...surfaces], omitted, listWithheld };
 }
 
 function surface(over: Partial<{ ref: string; label: string; activity: string; focused: boolean }> = {}) {
@@ -572,6 +573,33 @@ describe("UC-024 environmentSurfaces — 상한 (C4)", () => {
     expect(out.split("\n").filter((l) => l.startsWith("- [")).length).toBe(0);
   });
 
+  // 셸이 목록을 일부러 안 보낸 것과 상한에 잘린 것은 다른 사실이다. 앞의 것은 나이아가
+  // 직접 걷을 수 있고, 뒤의 것은 어쩔 수 없다. 같은 문구로 뭉치면 나이아가 볼 수 있는
+  // 것을 못 본다고 판단하거나, 못 보는 것을 조르게 된다(2026-08-27 8차 적대리뷰 지적).
+  it("일부러 안 보낸 경우와 상한에 잘린 경우를 다른 문구로 말한다", () => {
+    const withheld = renderEnvironmentSegments([surfaceSeg([], 3, true)]);
+    const truncated = renderEnvironmentSegments([surfaceSeg([], 3, false)]);
+    expect(withheld).not.toEqual(truncated);
+    expect(truncated).toContain("3 more not shown");
+    expect(withheld).not.toContain("more not shown");
+  });
+
+  it("일부러 안 보낸 경우에는 걷는 방법을 알려 준다 — 못 본다고 오해하지 않게", () => {
+    const out = renderEnvironmentSegments([surfaceSeg([], 3, true)]);
+    expect(out).toContain("3 work surfaces are open");
+    expect(out).toContain("watch");
+  });
+
+  it("하나뿐일 때도 문장이 어긋나지 않는다", () => {
+    expect(renderEnvironmentSegments([surfaceSeg([], 1, true)])).toContain("1 work surface is open");
+  });
+
+  it("목록을 실제로 보냈으면 숨김 표시가 있어도 목록을 지우지 않는다", () => {
+    // 셸이 잘못 표시해도 실린 것은 보여 준다 — 표시 하나로 자료가 사라지면 안 된다.
+    const out = renderEnvironmentSegments([surfaceSeg([surface({ label: "빌더" })], 0, true)]);
+    expect(out).toContain("빌더");
+  });
+
   it("개수가 0 이면 블록 자체를 만들지 않는다 — 0 개를 단언하지 않는다", () => {
     expect(renderEnvironmentSegments([surfaceSeg([], 0)])).toBe("");
   });
@@ -602,6 +630,7 @@ describe("UC-024 environmentSurfaces — wire 디코드 (TEST-S-024)", () => {
       kind: "environmentSurfaces",
       surfaces: [{ ref: "s-1", label: "빌더", activity: "working", focused: true }],
       omitted: 2,
+      listWithheld: false,
     });
   });
 
@@ -611,12 +640,13 @@ describe("UC-024 environmentSurfaces — wire 디코드 (TEST-S-024)", () => {
       kind: "environmentSurfaces",
       surfaces: [{ ref: "", label: "정상", activity: "unknown", focused: false }],
       omitted: 0,
+      listWithheld: false,
     });
   });
 
   it("surfaces 가 배열이 아니어도 터지지 않는다", () => {
     const decoded = decodeSegs([{ kind: "environmentSurfaces", surfaces: "이상함" }]);
-    expect(decoded[0]).toEqual({ kind: "environmentSurfaces", surfaces: [], omitted: 0 });
+    expect(decoded[0]).toEqual({ kind: "environmentSurfaces", surfaces: [], omitted: 0, listWithheld: false });
   });
 
   it("화이트리스트 밖 kind 는 여전히 드롭된다", () => {
