@@ -2,7 +2,7 @@
 //
 // naia-os packages/shell/src/lib/persona.ts `buildSystemPrompt()` 의 합성 순서·문자열을 **재구현**(import
 // 금지 — 별도 패키지·다른 fork 의존 회피, 헥사고날 domain 순수성). 단, 아바타/환경 전용 **emotion-tag 블록은
-// 제외**한다 — CLI(naia-agent-chat)는 아바타가 없으므로(naia-os 전용 분기). discord/panel 등 다른 환경 블록도
+// 제외**한다 — CLI(naia-agent-chat)는 아바타가 없으므로(naia-os 전용 분기). discord/app 등 다른 환경 블록도
 // 미포함(코어는 환경 비종속).
 //
 // 정본(루크): 페르소나 SoT = `<adkPath>/naia-settings/config.json` (naia-os 가 읽고 쓰는 동일 파일).

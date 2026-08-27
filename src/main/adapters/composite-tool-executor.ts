@@ -1,9 +1,9 @@
-// adapters/composite-tool-executor — 여러 ToolExecutorPort 를 하나로 합성(builtin + github + panel + …).
+// adapters/composite-tool-executor — 여러 ToolExecutorPort 를 하나로 합성(builtin + github + app + …).
 // specs 병합(name 충돌=첫 등록 우선, 후순위 중복 drop), execute 는 name 소유 executor 로 위임.
 //
-// ⚠️ 동적(H1 fix): child(panel-tool-executor 등)가 런타임에 specs 를 바꾼다(RegisterPanelSkills). 구축 시점에
-//   owner/specs 를 스냅샷하면 — entry 가 panel 등록 *전*에 composite 를 합성하므로 — panel 도구가 영영
-//   LLM 에 안 보이고 execute 도 "unknown tool" 로 떨어진다(panel skill 0% 동작). 따라서 specs()/execute()
+// ⚠️ 동적(H1 fix): child(app-tool-executor 등)가 런타임에 specs 를 바꾼다(RegisterAppSkills). 구축 시점에
+//   owner/specs 를 스냅샷하면 — entry 가 app 등록 *전*에 composite 를 합성하므로 — app 도구가 영영
+//   LLM 에 안 보이고 execute 도 "unknown tool" 로 떨어진다(app skill 0% 동작). 따라서 specs()/execute()
 //   호출마다 child specs() 를 **재집계**한다(child 가 정적이면 결과 동일 = builtin 무회귀).
 import type { ToolExecutorPort } from "../ports/uc1.js";
 import type { ToolSpec, ToolCall } from "../domain/chat.js";
@@ -34,7 +34,7 @@ export function makeCompositeToolExecutor(executors: readonly ToolExecutorPort[]
     execute(call: ToolCall, opts: Parameters<ToolExecutorPort["execute"]>[1]): Promise<{ output: string; isError?: boolean }> {
       const ex = resolve().owner.get(call.name);
       if (!ex) return Promise.resolve({ output: `unknown tool: ${call.name}`, isError: true }); // no-throw
-      return ex.execute(call, opts); // 위임(child 의 no-throw/abort 계약 그대로 전파). requestId=panel 위임용(builtin 무시).
+      return ex.execute(call, opts); // 위임(child 의 no-throw/abort 계약 그대로 전파). requestId=app 위임용(builtin 무시).
     },
   };
 }

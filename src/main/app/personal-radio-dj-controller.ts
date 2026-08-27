@@ -129,7 +129,7 @@ export class PersonalRadioDjController {
     this.armIdle();
   }
 
-  /** Re-evaluate late-bound shell capabilities such as panel BGM registration. */
+  /** Re-evaluate late-bound shell capabilities such as app BGM registration. */
   refreshAvailability(): void {
     this.armIdle();
   }

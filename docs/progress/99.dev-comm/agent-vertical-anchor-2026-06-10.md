@@ -25,7 +25,7 @@ os 측에서 **wire 계약이 이미 2-clean 확정**됨(`new-naia-os/docs/progr
 | UC5 도구사용 | ToolPort+Environment | **skills(20+) + gateway 도구 실행** | pending |
 | UC6 환경조작-브라우저 | EnvironmentPort | (gateway native exec) | pending |
 | UC7/7a 시스템 관측·조작 | EnvironmentPort | (gateway native exec + reafference) | pending |
-| UC9 패널앱 | EnvironmentPort(app-surface) | **panel skills**(panel_* egress) | pending |
+| UC9 패널앱 | EnvironmentPort(app-surface) | **app skills**(app_* egress) | pending |
 | UC10 멀티채널 | 채널 ingress | **discord/slack/gchat webhook**(notify) | pending |
 | UC11 자기상태 | InteroceptivePort | (상태 보고 egress) | pending |
 | UC2~14 기타 | (os 매트릭스 참조) | (해당 brain 모듈) | pending |

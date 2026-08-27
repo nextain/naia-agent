@@ -98,7 +98,7 @@ describe("speech activity control acknowledgement", () => {
 		await server?.shutdown();
 	});
 
-	it("ACKs a valid control before its panel-dependent work settles", async () => {
+	it("ACKs a valid control before its app-dependent work settles", async () => {
 		let finishControl: (() => void) | undefined;
 		const controlFinished = new Promise<void>((resolve) => {
 			finishControl = resolve;

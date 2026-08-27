@@ -39,9 +39,9 @@ describe("Radio DJ Agent↔Shell handoff integration", () => {
           timeline.push({ kind: "text", text: event.text });
           return;
         }
-        if (event.kind !== "panelToolCall") return;
+        if (event.kind !== "appToolCall") return;
         const args = event.args as { action?: string; mode?: string };
-        timeline.push({ kind: "panel", action: args.action, ...(args.mode ? { mode: args.mode } : {}) });
+        timeline.push({ kind: "app", action: args.action, ...(args.mode ? { mode: args.mode } : {}) });
         queueMicrotask(() => {
           if (args.action === "status") {
             statusCalls++;
@@ -116,12 +116,12 @@ describe("Radio DJ Agent↔Shell handoff integration", () => {
     await scheduler.advance(1);
     expect(controller.state()).toBe("dj_speaking");
 
-    const secondPlayIndex = timeline.findIndex((entry, index) => index > 0 && entry.kind === "panel" && entry.action === "play" && entry.mode === "radio_dj" && timeline.slice(0, index).some((prior) => prior.action === "play"));
+    const secondPlayIndex = timeline.findIndex((entry, index) => index > 0 && entry.kind === "app" && entry.action === "play" && entry.mode === "radio_dj" && timeline.slice(0, index).some((prior) => prior.action === "play"));
     const transitionIndex = timeline.findIndex((entry) => entry.text?.includes("한 곡이 마무리됐어요"));
     expect(transitionIndex).toBeGreaterThan(-1);
     expect(secondPlayIndex).toBeGreaterThan(transitionIndex);
-    expect(timeline.filter((entry) => entry.kind === "panel" && entry.action === "play")).toHaveLength(2);
-    expect(timeline.filter((entry) => entry.kind === "panel" && entry.action === "play").every((entry) => entry.mode === "radio_dj")).toBe(true);
+    expect(timeline.filter((entry) => entry.kind === "app" && entry.action === "play")).toHaveLength(2);
+    expect(timeline.filter((entry) => entry.kind === "app" && entry.action === "play").every((entry) => entry.mode === "radio_dj")).toBe(true);
     expect(timeline.at(-1)?.text).toContain("다음 곡");
   });
 });

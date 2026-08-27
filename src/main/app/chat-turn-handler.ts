@@ -308,7 +308,7 @@ export class ChatTurnHandler {
       // FR-WORKSPACE: persona 바로 뒤에 워크스페이스 컨텍스트(cwd+프로젝트 이름, 경량 shallow)를 append —
       // 에이전트가 자기 워크스페이스를 인식. snapshot()=undefined(소스 부재)면 빈 입력으로 정규화 → "".
       const coreWs = this.d.workspaceContext ? composeWorkspaceContext(this.d.workspaceContext.snapshot() ?? { cwd: "", projects: [], projectTotal: 0 }) : "";
-      // S4(계약 C2): 클라(naia-os) 환경고유 세그먼트(아바타 감정·패널)를 workspace 뒤에 결정론 머지. emotion-tag
+      // S4(계약 C2): 클라(naia-os) 환경고유 세그먼트(아바타 감정·앱)를 workspace 뒤에 결정론 머지. emotion-tag
       // 예시의 locale 은 코어가 소유한 persona 프로필(config.json locale)에서 취함(클라가 안 보냄 — 권한 모델).
       // CLI 는 빈 배열 → ""(무영향). 화이트리스트 외 kind 는 renderEnvironmentSegments 가 드롭.
       const coreEnv = renderEnvironmentSegments(req.environmentSegments ?? [], personaProfile?.locale);
@@ -553,7 +553,7 @@ export class ChatTurnHandler {
               const res = await raceAbort(exec.execute(
                 { ...call, id: cid },
                 { signal, requestId: req.requestId, authorizedProcessing: applicableProcessing },
-              ), signal, this.d.toolTimeoutMs ?? TOOL_EXEC_TIMEOUT_MS); // requestId=UC-PANEL: panel 도구가 panel_tool_call 을 이 chat 스트림으로 위임
+              ), signal, this.d.toolTimeoutMs ?? TOOL_EXEC_TIMEOUT_MS); // requestId=UC-APP: app 도구가 app_tool_call 을 이 chat 스트림으로 위임
               if (res === null) {
                 if (signal.aborted) { terminalError("cancelled"); cancelled = true; break; }
                 r = { output: `tool timeout (>${this.d.toolTimeoutMs ?? TOOL_EXEC_TIMEOUT_MS}ms)`, isError: true }; // 무응답=isError, LLM 복구 가능, turn 진행

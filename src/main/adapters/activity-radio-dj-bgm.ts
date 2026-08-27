@@ -1,4 +1,4 @@
-// adapters/activity-radio-dj-bgm — self-init activity의 좁은 shell panel BGM 왕복.
+// adapters/activity-radio-dj-bgm — self-init activity의 좁은 shell app BGM 왕복.
 // 일반 ToolExecutor를 열지 않고 skill_youtube_bgm의 관측된 play/status/next/stop 결과만 사용한다.
 import type { RadioDjBgmPort, RadioDjPlaybackState } from "../ports/speech-activity.js";
 import type { ToolSpec } from "../domain/chat.js";
@@ -119,7 +119,7 @@ export function makeActivityRadioDjBgm(deps: {
         clearTimeout(timer);
         resolve(result);
       };
-      const timer = setTimeout(() => settle({ ok: false, reason: "panel BGM timeout" }), timeoutMs);
+      const timer = setTimeout(() => settle({ ok: false, reason: "app BGM timeout" }), timeoutMs);
       pending.set(key, { activityId: opts.activityId, action, settle });
       if (opts.signal?.aborted) { settle({ ok: false, reason: "cancelled" }); return; }
       deps.wire.emit(
@@ -128,7 +128,7 @@ export function makeActivityRadioDjBgm(deps: {
         route.activityId,
         route.profileGeneration,
         {
-          kind: "panelToolCall",
+          kind: "appToolCall",
           toolCallId,
           toolName: "skill_youtube_bgm",
           args: { action, ...args },

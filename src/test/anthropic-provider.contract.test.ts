@@ -79,7 +79,7 @@ describe("makeAnthropicProvider — Messages API SSE", () => {
     expect(box.body?.system).toBeUndefined(); // systemPrompt 없으면 system 생략
   });
 
-  it("FR-PANEL-6: inline image → Anthropic base64 image source block", async () => {
+  it("FR-APP-6: inline image → Anthropic base64 image source block", async () => {
     const box: { body?: Record<string, unknown> } = {};
     const p = makeAnthropicProvider({ baseUrl: "https://api.anthropic.com", apiKey: "K", fetch: sseFetch(['data: {"type":"message_stop"}\n'], box) as never });
     await collect(p.chat(cfg, [{

@@ -10,8 +10,8 @@ import type {
   ProviderSessionRequest,
 } from "../domain/chat.js";
 
-/** wire environmentSegments(unknown) → EnvironmentSegment[] 안전 디코드(S4). 화이트리스트(avatarEmotion|panel|responseStyle) 외 드롭.
- *  비배열/잘못된 모양 = []. panel.entries 는 {type:string, data} 만 채택(자유 텍스트 위조 주입 차단 — 코어 domain 이 격리).
+/** wire environmentSegments(unknown) → EnvironmentSegment[] 안전 디코드(S4). 화이트리스트(avatarEmotion|app|responseStyle) 외 드롭.
+ *  비배열/잘못된 모양 = []. app.entries 는 {type:string, data} 만 채택(자유 텍스트 위조 주입 차단 — 코어 domain 이 격리).
  *  responseStyle 은 style enum("brief"|"normal") 만 채택(미지 style=normal 폴백, 자유 텍스트 주입 경로 없음). */
 export function decodeEnvironmentSegments(v: unknown): EnvironmentSegment[] {
   if (!Array.isArray(v)) return [];
@@ -21,18 +21,40 @@ export function decodeEnvironmentSegments(v: unknown): EnvironmentSegment[] {
     const kind = (s as Record<string, unknown>)["kind"];
     if (kind === "avatarEmotion") {
       out.push({ kind: "avatarEmotion" });
-    } else if (kind === "panel") {
+    } else if (kind === "app") {
+      // ⚠️ 2026-08-26 실측 결함(#113): naia-shell 이 2026-07-01 커밋 8d51b57a 로 자기 쪽 kind 이름만
+      //    "panel"→"app" 으로 바꿨고, 이 디코더는 옛 이름만 받아 그 뒤로 8주간 앱 컨텍스트가
+      //    조용히 버려져 왔다. wire 이름은 계약이므로 한쪽이 바꿔도 다른 쪽은 따라가지 않는다.
+      //    지금은 양쪽이 "app" 으로 맞춰졌고, 다시 갈라지는 것은 별칭이 아니라
+      //    `wire-union-drift.contract.test.ts` 가 막는다 — 별칭은 다음 이름 변경을 못 막기 때문이다.
       const rawEntries = (s as Record<string, unknown>)["entries"];
       const entries = Array.isArray(rawEntries)
         ? rawEntries
             .filter((e): e is Record<string, unknown> => !!e && typeof e === "object" && typeof (e as Record<string, unknown>)["type"] === "string")
             .map((e) => ({ type: String(e["type"]), data: e["data"] }))
         : [];
-      out.push({ kind: "panel", entries });
+      out.push({ kind: "app", entries });
     } else if (kind === "responseStyle") {
       // style 은 enum 만 — "brief" 만 효과, 그 외(미지정 포함)는 "normal"(무영향)로 정규화. 자유 텍스트 주입 경로 없음.
       const style = (s as Record<string, unknown>)["style"] === "brief" ? "brief" : "normal";
       out.push({ kind: "responseStyle", style });
+    } else if (kind === "environmentSurfaces") {
+      // REQ-021·SPEC-020. 클라 값은 형태만 받고 정규화·새니타이즈는 domain 렌더가 한다(C3).
+      // 여기서는 배열/필드 형태만 강제해 손상된 입력이 렌더까지 흘러가지 않게 한다.
+      const rawSurfaces = (s as Record<string, unknown>)["surfaces"];
+      const surfaces = Array.isArray(rawSurfaces)
+        ? rawSurfaces
+            .filter((x): x is Record<string, unknown> => !!x && typeof x === "object" && typeof (x as Record<string, unknown>)["label"] === "string")
+            .map((x) => ({
+              ref: typeof x["ref"] === "string" ? String(x["ref"]) : "",
+              label: String(x["label"]),
+              activity: typeof x["activity"] === "string" ? String(x["activity"]) : "unknown",
+              focused: x["focused"] === true,
+            }))
+        : [];
+      const rawOmitted = (s as Record<string, unknown>)["omitted"];
+      const omitted = typeof rawOmitted === "number" && Number.isFinite(rawOmitted) && rawOmitted > 0 ? Math.trunc(rawOmitted) : 0;
+      out.push({ kind: "environmentSurfaces", surfaces, omitted });
     }
     // 그 외 kind = 드롭(화이트리스트).
   }
@@ -109,7 +131,7 @@ export function encodeEmit(requestId: string, e: AgentEmit): Record<string, unkn
     case "logEntry": return { type: "log_entry", requestId, level: e.level, message: e.message };
     case "tokenWarning": return { type: "token_warning", requestId, raw: e.raw };
     case "compacted": return { type: "compacted", requestId, droppedCount: e.droppedCount };
-    case "panelToolCall": return { type: "panel_tool_call", requestId, toolCallId: e.toolCallId, toolName: e.toolName, args: e.args }; // UC-PANEL FR-PANEL-2
+    case "appToolCall": return { type: "app_tool_call", requestId, toolCallId: e.toolCallId, toolName: e.toolName, args: e.args }; // UC-APP FR-APP-2
     case "grounding": return { type: "grounding", requestId, status: e.status, sources: e.sources };
     case "artifact": return { type: "artifact", requestId, artifact: e.artifact };
     case "providerSession": return {

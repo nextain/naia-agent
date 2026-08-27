@@ -111,7 +111,7 @@ MVP 증적:
 
 - app 계층이 `idle → attract → speak → wait → yield → answer → resume → stop` 수명을 소유한다.
 - profile은 `personal_radio_dj | exhibition_intro`의 닫힌 union이다. 임의 범용 profile은 이번 범위가 아니다.
-- shell은 기존 TTS·Chat·panel tool 실행을 재사용하고 별도 반복 상태 기계를 만들지 않는다.
+- shell은 기존 TTS·Chat·app tool 실행을 재사용하고 별도 반복 상태 기계를 만들지 않는다.
 - 첫 무입력 시작, 끼어들기, resume, quiet/stop은 fake clock으로 결정론 테스트한다.
 - MVP 구현에 필요한 최소 cancel·terminal·bounded lease만 먼저 적용한다.
 - presence/camera, 유튜브 chapter 동기화, 장시간 무인 운영 최적화, 복잡한 저장 semaphore/quarantine은 후속이다.
@@ -183,15 +183,15 @@ interface RadioDjBgmPort {
 ```
 
 - 상태는 `disabled → idle → selecting → playing → dj_speaking | music_only → yielded → stopped`다.
-- 시작 gate는 `bgmAutoPlayOptIn === true + activity subscriber + shell panel skill_youtube_bgm ready` 셋
+- 시작 gate는 `bgmAutoPlayOptIn === true + activity subscriber + shell app skill_youtube_bgm ready` 셋
   모두다. DJ opt-in은 `RadioDjBgmPort.searchAndPlay|next|stop|status`만 허용하는 좁은 사전 동의이며
-  다른 환경 도구로 확장되지 않는다. `searchAndPlay(query)`가 shell panel의 `play {query}`로 검색과
+  다른 환경 도구로 확장되지 않는다. `searchAndPlay(query)`가 shell app의 `play {query}`로 검색과
   재생을 원자 위임한다.
 - self-init 전에 app이 `DjContextSnapshot`을 만든다. 없는 weather/mood/nowPlaying/preferences 필드는
   생략하고 provider에 “누락값을 추측하지 말라”고 명시한다.
 - BGM 정본은 production에서 shell이 등록하는 `skill_youtube_bgm`이다. 이름이 다른 agent-local
   `youtube_bgm` 테스트 adapter를 같은 capability로 간주하지 않는다.
-- MVP는 activity stream에서도 `panelToolCall`과 `PanelToolResult`를
+- MVP는 activity stream에서도 `appToolCall`과 `AppToolResult`를
   `(requestId, activityId, toolCallId)`로 왕복시킨다. profile controller는 동적으로 등록된 전체 도구가
   아니라 검증된 BGM action만 호출한다.
 - `searchAndPlay` 성공 결과는 문자열 파싱이 아닌 `{ ok, videoId, title }` 구조 결과를 포함한다. 성공 확인
@@ -277,7 +277,7 @@ interface ExhibitionIntroItem {
 | DJ-05 | 서로 다른 DJ 멘트 2회와 설정 간격, music-only 뒤 추가 DJ TTS 0 |
 | DJ-06 | talk-less/change-vibe/next/stop 각각 닫힌 상태 전이, stop 뒤 provider/TTS/BGM 호출 0 |
 | DJ-07 | lease 2회 갱신 뒤 BGM 연속·controller 중복 0, 활동 memory.save 0, 명시 preference handoff만 1 |
-| DJ-GRPC-01 | self-init activity stream에서 panel BGM call/result가 activityId까지 상관되고 실제 player play/stop |
+| DJ-GRPC-01 | self-init activity stream에서 app BGM call/result가 activityId까지 상관되고 실제 player play/stop |
 | EX-01 | enabled+subscriber+KB ready 뒤 idle 경계에서 첫 인사, 미준비면 시작 0 |
 | EX-02 | source가 있는 A/B/C를 정확히 3개 소개하고 itemId 중복 0; 2개뿐이면 2개 뒤 종료 |
 | EX-03 | empty/abstained/source-empty 질문은 고정 기권하며 근거 없는 회사·제품 사실 0 |
@@ -915,11 +915,11 @@ AC→FR→테스트 단언:
 
 실연동 모델 패널:
 
-- 증적: `.agents/reviews/issue-82-v3-panel-ollama032-thinking-on-2026-07-18.json`
+- 증적: `.agents/reviews/issue-82-v3-app-ollama032-thinking-on-2026-07-18.json`
 - 공통 환경: Ollama 0.32.1, thinking=true, 모델별 3회
 - 이 파일의 기존 R1은 `quote != evidence`까지만 적용한 v3 원자료다. v3.1의 비포함·비중첩 별도-span
   postprocessor로는 그대로 합격 수치라고 인용하지 않는다.
-- `benchmark/v3-evidence-probe2.mjs`와 `merge-v3-evidence-panel.mjs`를 production 구조 검사와 같게 갱신했으며,
+- `benchmark/v3-evidence-probe2.mjs`와 `merge-v3-evidence-app.mjs`를 production 구조 검사와 같게 갱신했으며,
   test 게이트에서 6모델 패널을 다시 실행해 새 activation/clarification 수치를 별도 증적으로 고정한다.
 - `P-AMB-006`은 측정으로 라벨 오류가 확인되어 즉시 시작군으로 수정
 - 8B 결과는 하한 참조이며 제품 합격 기준으로 승격하지 않음

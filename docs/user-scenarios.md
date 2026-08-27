@@ -104,7 +104,7 @@ an isolated worktree, and an exclusive lease before Codex can write.
 | UC-memory | 대화 턴 recall 주입 / save(naia-memory 연동) | `docs/progress/99.dev-comm/UC-memory-recall-save-contract-2026-06-12.md` |
 | UC-PROV | provider/model 라이브 교체 — 재기동 없이 다음 턴 반영 | (계약 요약 = `docs/requirements.md` FR-PROV-1~5; 상세 진행기록은 메인테이너 워크스페이스) |
 | UC-CLI | naia-agent 단독 CLI 오케스트레이션(direct tool-loop + sub-agent supervisor + interrupt + 정직보고) — naia-os 없이 단독 실행 | `docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md` |
-| UC-PANEL | 환경 panel skill(BGM·브라우저·workspace) 대화 도구 — agent 노출+위임, 셸 실행(E1) | `.agents/progress/panel-skill-grpc-port-2026-06-24.md` (설계) |
+| UC-APP | 환경 app skill(BGM·브라우저·workspace) 대화 도구 — agent 노출+위임, 셸 실행(E1) | `.agents/progress/app-skill-grpc-port-2026-06-24.md` (설계) |
 | UC-PERSONA-CLI | 코어가 워크스페이스 설정의 페르소나(Alpha)를 system prompt 로 합성 → CLI 가 `--system` 없이도 알파로 응답 | `docs/requirements.md` FR-PERSONA-1~3 (집약) |
 | UC-WORKSPACE-CTX | 코어가 워크스페이스 컨텍스트(cwd + 프로젝트 이름 목록)를 system prompt 에 경량 포함 → 에이전트가 자기 워크스페이스를 인식 | `docs/requirements.md` FR-WORKSPACE-1~4 (집약) |
 | UC-FS-TOOLS | 에이전트가 **직접 도구**로 워크스페이스 내 파일을 나열/읽기(기본), opt-in 으로 쓰기/셸 실행 — allow-root sandbox + 민감경로 denylist + realpath 재검증(TOCTOU) + tier 승인 | `docs/requirements.md` FR-FS-1~8 / NFR-SEC (집약) |
@@ -203,22 +203,22 @@ Codex가 같은 명령을 자식 프로세스로 호출해도 provider/model/wor
 
 상세 계약과 경계는 `.agents/progress/issue-97-first-class-cli.md`다.
 
-## UC-PANEL (환경 panel skill — BGM·브라우저·workspace 대화 도구)
+## UC-APP (환경 app skill — BGM·브라우저·workspace 대화 도구)
 
 사용자가 채팅으로 "음악 틀어줘"·"이 페이지 열어줘" 등 **환경 도구**(BGM·브라우저·workspace)를 시킨다.
 이 도구들은 셸(naia-os)이 소유·실행하는 **환경**(brain-body-environment §3·§4, E1)이고, agent(뇌)는 실행하지
-않는다 — agent 는 셸이 등록한 panel skill 을 LLM 에 **노출**하고, LLM tool call 시 **intent(panel_tool_call)만
-emit**, 실행은 셸. 셸 결과(panel_tool_result)를 받아 tool_result 로 LLM 에 주입.
+않는다 — agent 는 셸이 등록한 app skill 을 LLM 에 **노출**하고, LLM tool call 시 **intent(app_tool_call)만
+emit**, 실행은 셸. 셸 결과(app_tool_result)를 받아 tool_result 로 LLM 에 주입.
 
-근본 원인: panel skill 은 옛 stdio protocol·gRPC proto 어디에도 정의 없는 **new-core 미이식 신규 기능**.
-현재 agent_dispatcher(naia-os)가 panel 메시지를 `_=>{}` drop → BGM·브라우저 대화 불가. 본 UC가 신 arch로 편입.
+근본 원인: app skill 은 옛 stdio protocol·gRPC proto 어디에도 정의 없는 **new-core 미이식 신규 기능**.
+현재 agent_dispatcher(naia-os)가 app 메시지를 `_=>{}` drop → BGM·브라우저 대화 불가. 본 UC가 신 arch로 편입.
 
-- **S-PANEL-1 등록**: 셸이 panel 활성화 시 도구 spec(name/description/parameters/tier)을 `RegisterPanelSkills` 로 등록 → agent 가 동적 toolExecutor(builtin 과 composite)로 LLM 에 노출. 비활성화=`ClearPanelSkills`.
-- **S-PANEL-2 위임**: LLM 이 panel tool call → agent 가 실행 대신 `panel_tool_call`(AgentEvent) emit → 셸 실행 → `PanelToolResult` 로 결과 반환 → agent 가 tool_result 주입 후 라운드 계속.
-- **S-PANEL-3 목록**: `ListSkills`(voice 세션이 현재 도구 목록 질의 — 옛 fetchAgentSkills).
+- **S-APP-1 등록**: 셸이 app 활성화 시 도구 spec(name/description/parameters/tier)을 `RegisterAppSkills` 로 등록 → agent 가 동적 toolExecutor(builtin 과 composite)로 LLM 에 노출. 비활성화=`ClearAppSkills`.
+- **S-APP-2 위임**: LLM 이 app tool call → agent 가 실행 대신 `app_tool_call`(AgentEvent) emit → 셸 실행 → `AppToolResult` 로 결과 반환 → agent 가 tool_result 주입 후 라운드 계속.
+- **S-APP-3 목록**: `ListSkills`(voice 세션이 현재 도구 목록 질의 — 옛 fetchAgentSkills).
 - 직교: domain/app 은 "도구 spec·tool call·결과"만, transport(gRPC)·셸 실행은 adapter/셸. tier 승인 게이트 그대로.
 
-수용기준: panel tool 원격 실행이 chat 루프에서 **비동기 대기**(timeout·취소·다중 동시 매칭) 안전. builtin tool(즉시 실행) 무회귀.
+수용기준: app tool 원격 실행이 chat 루프에서 **비동기 대기**(timeout·취소·다중 동시 매칭) 안전. builtin tool(즉시 실행) 무회귀.
 
 ## UC-PERSONA-CLI (워크스페이스 페르소나 기본 주입)
 
@@ -332,7 +332,7 @@ adapter 가 주입 실행기로 소유, tier 승인은 코어의 기존 Approval
 knowledge=WHAT/풀, 안 섞음).
 
 근본: KB 컴파일·서빙은 외부 엔진(naia-kb-compiler)이 담당하고, 코어는 그 KnowledgeService(검색/질의응답)를
-**ToolExecutorPort 도구로 노출**만 한다(naia-os 패널이 결과를 렌더·근거 칩). 통합 설계 SoT = 루트
+**ToolExecutorPort 도구로 노출**만 한다(naia-os 앱이 결과를 렌더·근거 칩). 통합 설계 SoT = 루트
 `.agents/progress/naia-kb-compiler-agent-os-integration-2026-06-29.md` (K1a).
 
 - **S-KB-1 (read-only 도구 노출)**: `makeKnowledgeSkillsExecutor` 가 `skill_knowledge_search`({query,k?})·
@@ -436,7 +436,7 @@ Luke가 “음악만”, “말 줄여”, “다른 분위기”, “다음 곡
 다음 검색을 요청한다. 검색어는 명시적 선호와 최근에 재생하지 않은 즐겨찾기 힌트를 결합하며, 실제
 `playing` 영수증을 확인한 다음에만 새 영상 제목을 소개한다.
 
-패널의 `skill_tab_screenshot` 결과가 PNG/JPEG/WebP data URI이면 Agent는 이를 로그용 base64 문자열로
+앱의 `skill_tab_screenshot` 결과가 PNG/JPEG/WebP data URI이면 Agent는 이를 로그용 base64 문자열로
 재주입하지 않고 bounded inline image로 분리한다. 도구 결과 결속을 유지한 뒤 멀티모달 provider에는
 실제 이미지 content block으로 전달하고, 이미지 입력을 지원하지 않는 provider에서는 이미지가 보였다고
 가정하지 않는다.
@@ -494,9 +494,9 @@ detector나 cron 같은 외부 정책이 자유 발화를 시작하면 사용자
   writer를 격리해 뒤늦은 파일 순서 역전을 막는다.
 - **S-CONT-7 (wire·회귀)**: 모든 provider usage를 합산해 마지막 한 번만 방출하고 terminal도 한 번만
   방출한다. 제어 도구 미호출 일반 채팅과 기존 외부 도구 턴의 correlation·저장 계약은 바뀌지 않는다.
-- **S-CONT-8 (제어 ACK와 패널 왕복 분리)**: `change_vibe`·`next`처럼 Shell 패널 도구 결과가 필요한
+- **S-CONT-8 (제어 ACK와 앱 왕복 분리)**: `change_vibe`·`next`처럼 Shell 앱 도구 결과가 필요한
   제어는 session/activity/action을 동기 검증해 먼저 ACK하고, 긴 제어 작업은 그 뒤 비동기로 진행한다.
-  제어 RPC가 패널 결과를 기다리며 Shell→agent dispatcher를 점유해서는 안 된다. 잘못된 session,
+  제어 RPC가 앱 결과를 기다리며 Shell→agent dispatcher를 점유해서는 안 된다. 잘못된 session,
   activity 또는 action은 false ACK이며 작업을 시작하지 않는다.
 
 범위 밖은 앱 재시작 후 자동 재개, 여러 프로세스/기기 사이 활동 이전, 별도 라디오 설정 UI다. 자유 발화
@@ -651,10 +651,10 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 | UC-PROV-1 / FR-PROV-1·2·3 | `src/test/all-providers-wiring.contract.test.ts`, `uc1-reload-default-config.contract.test.ts`, `uc-naia-settings-store.contract.test.ts` |
 | UC-PROV-1 / FR-PROV-7 (로그인·workspace credential 동기화) | `src/test/uc-keychain-credentials.contract.test.ts`(login 전 부재·키 교체·workspace 분리·복호화 재시도), `src/test/discord-entry-wiring.contract.test.ts`(production DPAPI reader·SetWorkspace rollback 배선) |
 | UC-THINKING / S-THINK-1·2·3 / FR-THINK-1~4 | `src/test/uc-thinking.contract.test.ts` (요청 body 검증: enableThinking=false+로컬 → `reasoning_effort:"none"` / true·미지정 → 미전송 / **원격 baseUrl → 미전송**(400 회귀 방지) / `isLocalEngineBaseUrl` 순수 판별) |
-| FR-CONT-MVP-1~4·9 / 개인 라디오 DJ | 계약/통합: `src/test/personal-radio-dj.contract.test.ts` (`DJ-01~08`: ended 전환 멘트→radio 검색 포함), `src/test/activity-radio-dj-bgm.contract.test.ts`(`mode=radio_dj`, 최근곡·즐겨찾기 status), `src/test/radio-dj-shell-handoff.integration.test.ts`(실 Controller+activity panel adapter의 ended→전환 발화→radio play→playing 관측), `src/test/radio-dj-product-acceptance.contract.test.ts`(local tombstone 우선 Naia Memory recall), `src/test/speech-profile-runtime.integration.test.ts`(제어 사전 검증), `src/test/grpc-shutdown.contract.test.ts`(제어 ACK가 긴 작업을 기다리지 않음). 실제 Tauri: shell `71-proactive-speech-profiles.spec.ts`의 profile 저장·복원과 `94-avatar-4060-facade.spec.ts`의 A→B 교체·TRT 발화·끼어들기. |
-| FR-PANEL-6 / 패널 screenshot multimodal 전달 | `src/test/uc-panel-skill.contract.test.ts`의 bounded data URI 추출·실패 격리, provider 계약 테스트의 OpenAI/Anthropic/Ollama image block 매핑, Shell `capture.rs`·`tab-skills.ts` 실제 PNG 반환 경로 |
+| FR-CONT-MVP-1~4·9 / 개인 라디오 DJ | 계약/통합: `src/test/personal-radio-dj.contract.test.ts` (`DJ-01~08`: ended 전환 멘트→radio 검색 포함), `src/test/activity-radio-dj-bgm.contract.test.ts`(`mode=radio_dj`, 최근곡·즐겨찾기 status), `src/test/radio-dj-shell-handoff.integration.test.ts`(실 Controller+activity app adapter의 ended→전환 발화→radio play→playing 관측), `src/test/radio-dj-product-acceptance.contract.test.ts`(local tombstone 우선 Naia Memory recall), `src/test/speech-profile-runtime.integration.test.ts`(제어 사전 검증), `src/test/grpc-shutdown.contract.test.ts`(제어 ACK가 긴 작업을 기다리지 않음). 실제 Tauri: shell `71-proactive-speech-profiles.spec.ts`의 profile 저장·복원과 `94-avatar-4060-facade.spec.ts`의 A→B 교체·TRT 발화·끼어들기. |
+| FR-APP-6 / 앱 screenshot multimodal 전달 | `src/test/uc-app-skill.contract.test.ts`의 bounded data URI 추출·실패 격리, provider 계약 테스트의 OpenAI/Anthropic/Ollama image block 매핑, Shell `capture.rs`·`tab-skills.ts` 실제 PNG 반환 경로 |
 | FR-CONT-MVP-1·2·5~8 / 회사 전시 소개 | 계약/통합: `src/test/exhibition-intro.contract.test.ts` (`EX-01~06`)가 소개3·질문 yield/resume·stale 폐기를 검증. 실제 Tauri: shell `71-proactive-speech-profiles.spec.ts`의 무입력 greeting과 stop만. audible TTS·실제 질문 barge-in은 미검증. |
-| UC-CONTINUE-SPEAKING / S-CONT-1~7 / FR-CONT-1~8 | 권위 계약 §10 AC1~18 matrix. `src/test/uc-continue-speaking.contract.test.ts`; `src/test/uc-continue-speaking-grpc.integration.test.ts` (`speech activity subscription lifecycle`, `stop response mapping`, `composition activity drain`); `src/test/conversation-log.{contract,integration}.test.ts`; `src/test/compose-agent-deps.integration.test.ts`; shell `packages/shell/src-tauri/src/agent_grpc.rs` `speech_activity_*` + `packages/shell/e2e-tauri/continuous-speech.spec.ts`; Ollama contract; 모델 패널 JSON |
+| UC-CONTINUE-SPEAKING / S-CONT-1~7 / FR-CONT-1~8 | 권위 계약 §10 AC1~18 matrix. `src/test/uc-continue-speaking.contract.test.ts`; `src/test/uc-continue-speaking-grpc.integration.test.ts` (`speech activity subscription lifecycle`, `stop response mapping`, `composition activity drain`); `src/test/conversation-log.{contract,integration}.test.ts`; `src/test/compose-agent-deps.integration.test.ts`; shell `packages/shell/src-tauri/src/agent_grpc.rs` `speech_activity_*` + `packages/shell/e2e-tauri/continuous-speech.spec.ts`; Ollama contract; 모델 앱 JSON |
 | FR-PROV-5 (claude-code SDK 분리) | `src/test/all-providers-wiring.contract.test.ts`(claude-code 케이스 = Agent SDK 라우팅·apiKey 미주입) |
 | FR-MODEL-1 (모델 카탈로그 정합) | `src/test/uc-provider-provenance.contract.test.ts`(cost↔registry 정합·구독 $0), naia-os `src/lib/llm/__tests__/registry.test.ts`(카탈로그 정합·최신화) |
 | UC-CLI / AC3·AC5 (2a 골격) | `src/test/uc-cli-supervisor.contract.test.ts`, `uc-cli-composition.contract.test.ts` (fake 포트 stream-merge·terminal 1회·직교·동시성 — Pass) |
@@ -664,7 +664,7 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 | UC-CLI / S-CLI-CHAT·S-CLI-LOGIN (S1 대화·로그인) / FR-CLI-7·8 | `src/test/cli-chat.contract.test.ts`(멀티턴 history 누적·emit→stdout·finish 재프롬프트·error 격리·login 파싱→.env 기록) + bin 실행 검증(fake provider 2턴 맥락 유지) |
 | UC-NAIA-PI / FR-CLI-9~13 | `src/test/uc-naia-pi-provider.contract.test.ts`, `uc-naia-pi-controlled.integration.test.ts`, `uc-cli-host-entry.contract.test.ts`, `uc-cli-subagent-pi.contract.test.ts`, `cli-chat.contract.test.ts` — secret-free config, exact host/spawn, stored-login env contract, 실제 Pi 0.83 Grok 도구 실행, DeepSeek analysis/tool-negative, model evidence |
 | UC-CLI-MANAGE / FR-CLI-14~20 | `src/test/cli-manage.contract.test.ts`, `src/test/cli-manage-process.integration.test.ts`, `src/test/uc-cli-host-entry.contract.test.ts` — auth/config/models/doctor/session, isolated HOME, run defaults/override, secret redaction, resume, DeepSeek guard — Pass |
-| UC-PANEL / S-PANEL-1·2·3 / FR-PANEL-1~5 | `src/test/uc-panel-skill.contract.test.ts` (등록→노출·tool call→panel_tool_call emit·result→주입·timeout/취소·동시성·builtin 무회귀) [예정] |
+| UC-APP / S-APP-1·2·3 / FR-APP-1~5 | `src/test/uc-app-skill.contract.test.ts` (등록→노출·tool call→app_tool_call emit·result→주입·timeout/취소·동시성·builtin 무회귀) [예정] |
 | UC-PERSONA-CLI / S-PERSONA-1·2 / FR-PERSONA-1·2 | `src/test/uc-persona-compose.contract.test.ts` — describe "composePersonaPrompt" (full Alpha profile→prefix·존댓말·루크·마스터·Korean 포함, emotion-tag 제외 단언) + describe "Golden case D (CLI/no avatar)" (빈 profile→"", prefix-only→base only) + describe "PersonaSourcePort (fake fs)" (실 config.json shape→매핑 PersonaProfile, 파일부재→undefined) |
 | UC-PERSONA-CLI / S-PERSONA-3 / FR-PERSONA-3 (코어 조립 + override) | `src/test/uc-persona-handler.contract.test.ts` — fake provider 가 받은 systemPrompt 를 캡처: (a) `req.systemPrompt` 없음 + personaSource 주입 → provider 가 코어 조립 persona(알파 prefix) 수신, (b) `req.systemPrompt` 있음 → 그 override 가 쓰이고 코어 조립 무시, (c) personaSource 미주입 → `req.systemPrompt` 만(무회귀) |
 | UC-WORKSPACE-CTX / S-WORKSPACE-1·2 / FR-WORKSPACE-1·2 | `src/test/uc-workspace-context.contract.test.ts` — describe "composeWorkspaceContext" (cwd+projects 렌더·cap "+N more" 토큰 bounded·빈 입력→""·cwd-only·파일내용 미포함 단언) + describe "WorkspaceContextPort via fake fs" (fake readdir → 디렉터리명만 수집·dotfile/파일 제외·정렬·projects/ 부재 no-throw degrade·파일 내용 안 읽음) |
@@ -898,3 +898,29 @@ honestly. The loop has no arbitrary two-minute ceiling and stops only at explici
 | paired cost evidence permits a bounded internal savings claim only for equal tasks and actor-attempt topology, restored checkpoints, deterministic quality non-inferiority, every exact settled gateway customer-billing request, and an external-key HMAC over the complete evidence; tool-loop request-count differences remain measured rather than being confused with role counts, while estimates, window aggregates, contamination, route/token/cost drift, missing authority, post-attestation mutation, or unresolved calls fail closed; the unsigned gateway response is not presented as a third-party audit | `pi-cost-comparison.contract.test.ts`, `pi-cost-comparison-runner.contract.test.ts`, `benchmark/orchestration/pi-cost-comparison.json` |
 | the Naia-only Pi provider converts each tool-loop request to atomic non-streaming gateway billing, binds it to a parent-owned execution identity, reserves a shared durable request allowance before network I/O, persists an owner-only receipt journal, and reconstructs Pi-compatible SSE without losing text, tool calls, or usage; missing, malformed, unsettled, route-drifted, over-budget, duplicate, or tampered evidence never becomes measured cost | `naia-pi-versioned-billing.contract.test.ts`, `uc-naia-pi-provider.contract.test.ts` |
 | a user-owned local Pi binding is credential-free and loopback-only, while its GPU1 qualification binds source/dist/Pi and external-executable hashes, immutable serving image and model snapshot, container endpoint and GPU telemetry, a real >=32K prompt, native tool protocol, two clean cycles, and deterministic file verification without inventing provider cost | `user-owned-pi-provider.contract.test.ts`, `pi-continuous-loop.contract.test.ts`, `issue-team-role-executor.integration.test.ts`, `benchmark/run-user-owned-three-layer-live.mjs`, `benchmark/results/gpu1-user-owned-three-layer-live-final-2026-08-05.json` |
+
+## UC-024 — 나이아가 지금 무엇이 돌고 있는지 안다 (환경 관측)
+
+> 계약: `docs/progress/99.dev-comm/issue-112-environment-surfaces.md`.
+> 짝: nextain/naia-shell#502 — 셸이 Herdr 를 관측해 구조화 값으로 올린다.
+
+사용자가 "지금 뭐 돌고 있어?" 라고 물으면 나이아는 자기 워크스페이스에서 열려 있는 작업 표면과
+각각이 일하는 중인지를 근거로 답한다. 나이아가 보는 것은 표면 이름과 활동 상태와 사용자가 그것을
+보고 있는지 여부뿐이다. 터미널 관리자의 내부 어휘(pane·tab·workspace 식별자)는 보지 않는다.
+
+표면이 많아 다 싣지 못했으면 몇 개를 못 실었는지 함께 안다. 활동 상태를 모르면 모른다고 하고
+쉬는 중으로 위장하지 않는다. 표면 이름은 사용자의 터미널이 만든 문자열이므로 자료로만 취급하며,
+거기에 무엇이 적혀 있어도 나이아의 지시문이 되지 않는다.
+
+이 시나리오는 **올라오는 길**까지다. 나이아가 그 표면에 무언가를 요청하는 것(포커스·중단·실행)은
+도구 호출 경로이며 별도 요구사항으로 연다.
+
+### Test Coverage Map
+
+| Scenario | Contract/integration test |
+|---|---|
+| environmentSurfaces 세그먼트가 프롬프트 블록으로 합성되고 문구는 코어가 소유한다 | `uc-environment-segments.contract.test.ts` |
+| 표면 이름의 제어문자·개행이 제거되고 길이가 잘린다 — 셸이 이미 했더라도 코어가 다시 한다 | `uc-environment-segments.contract.test.ts` |
+| 활동 상태를 코어가 다시 정규화하고, 모르는 값은 unknown 으로 남긴다 | `uc-environment-segments.contract.test.ts` |
+| 표면 개수 상한과 누락 개수 보고, 빈 목록은 블록을 만들지 않는다 | `uc-environment-segments.contract.test.ts` |
+| 화이트리스트 밖 kind 는 드롭되고 기존 avatarEmotion·app·responseStyle 은 회귀하지 않는다 | `uc-environment-segments.contract.test.ts` |

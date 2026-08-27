@@ -7,7 +7,7 @@
 - **slice 1 (이 계약)**: agent 내부 **도구 실행 루프** — provider 가 tool 호출을 내면 agent 가 실행→결과를 대화에 엮어 provider 재호출→최종 텍스트까지. 도구 = agent 등록 built-in(결정론). 승인 불요(tier=none) 도구만.
 - **slice 2 (후속)**: 승인 게이트(tier-gated → approval_request emit → os/user → approval_response → 재개). ApprovalPort.awaitDecision.
 - **slice 1b (후속)**: openai-compat provider 의 실 streaming tool_calls 송수신(tools 전송 + delta.tool_calls 재조립). slice 1 은 fake provider 로 루프 아키텍처 입증.
-- **범위 밖**: os-side ToolPort/EnvironmentPort 실행(execute_command sandbox·panel·browser = UC6/UC7), gateway/mcp 도구(S55/S56), 번들 ~60 스킬(S71 per-skill).
+- **범위 밖**: os-side ToolPort/EnvironmentPort 실행(execute_command sandbox·app·browser = UC6/UC7), gateway/mcp 도구(S55/S56), 번들 ~60 스킬(S71 per-skill).
 
 ## §A. Old-Baseline (old agent 실코드 흐름)
 old naia-os agent = LLM tool_calls → agent runtime 가 skill/tool 실행 → 결과를 tool 메시지로 대화에 append → LLM 재호출 → tool 없는 최종 응답까지 (multi-round agentic loop). 표시용 tool_use/tool_result 를 stream.

@@ -37,12 +37,12 @@ service NaiaAgent {
   rpc Diagnostics(DiagnosticsRequest) returns (DiagnosticsResult);
   rpc Shutdown(ShutdownRequest) returns (Ack);
 
-  // UC-PANEL (FR-PANEL): 환경 panel skill(BGM·브라우저·workspace). 셸이 도구를 등록 → agent 가 LLM 에 노출,
-  //   LLM tool call 시 panel_tool_call(AgentEvent) emit → 셸 실행 → PanelToolResult 로 결과 주입(E1: agent 는 환경 미실행).
-  rpc RegisterPanelSkills(PanelSkills) returns (Ack);    // FR-PANEL-1 panel 활성화 — 동적 도구 등록
-  rpc ClearPanelSkills(PanelId) returns (Ack);           // FR-PANEL-1 panel 비활성화 — 도구 제거
+  // UC-APP (FR-APP): 환경 app skill(BGM·브라우저·workspace). 셸이 도구를 등록 → agent 가 LLM 에 노출,
+  //   LLM tool call 시 app_tool_call(AgentEvent) emit → 셸 실행 → AppToolResult 로 결과 주입(E1: agent 는 환경 미실행).
+  rpc RegisterAppSkills(AppSkills) returns (Ack);    // FR-APP-1 app 활성화 — 동적 도구 등록
+  rpc ClearAppSkills(AppId) returns (Ack);           // FR-APP-1 app 비활성화 — 도구 제거
   rpc ListSkills(ListSkillsRequest) returns (SkillList); // 현재 노출 도구 목록(voice 세션 — 옛 fetchAgentSkills)
-  rpc PanelToolResult(PanelToolResultMsg) returns (Ack); // FR-PANEL-3 셸 실행 결과 → chat 루프 주입
+  rpc AppToolResult(AppToolResultMsg) returns (Ack); // FR-APP-3 셸 실행 결과 → chat 루프 주입
 
   // UC-CONTINUE-SPEAKING #82 — 사용자 입력 없는 profile activity.
   rpc ConfigureSpeechProfile(ConfigureSpeechProfileRequest) returns (Ack);
@@ -223,7 +223,7 @@ message AgentEvent {
     FinishEvent finish = 11;
     ErrorEvent error = 12;
     CompactedEvent compacted = 13;   // UC-compaction(FR-COMPACT): 예산 압박 시 head 요약 발생 알림(비-terminal)
-    PanelToolCallEvent panel_tool_call = 14; // UC-PANEL FR-PANEL-2: LLM 이 panel(환경) 도구 호출 → 셸에 위임(agent 미실행)
+    AppToolCallEvent app_tool_call = 14; // UC-APP FR-APP-2: LLM 이 app(환경) 도구 호출 → 셸에 위임(agent 미실행)
     GroundingEvent grounding = 17;
     ArtifactEvent artifact = 18;
     ProviderSessionEvent provider_session = 19;
@@ -234,7 +234,7 @@ message AgentEvent {
 }
 message TextEvent { string text = 1; }
 message ToolUseEvent { string tool_call_id = 1; string tool_name = 2; string args_json = 3; }   // args = JSON 문자열(무손실)
-message ToolResultEvent { string tool_call_id = 1; string output = 2; string tool_name = 3; bool success = 4; } // UC1 리뷰: success/toolName 보존(os ChatPanel chunk.success)
+message ToolResultEvent { string tool_call_id = 1; string output = 2; string tool_name = 3; bool success = 4; } // UC1 리뷰: success/toolName 보존(os ChatApp chunk.success)
 message ApprovalRequestEvent { string tool_call_id = 1; string tool_name = 2; int32 tier = 3; string args_json = 4; string description = 5; } // UC1 리뷰: args/description(blind approval 방지)
 message GatewayApprovalRequestEvent { string tool_call_id = 1; string tool_name = 2; string args_json = 3; }
 message UsageEvent { int64 input_tokens = 1; int64 output_tokens = 2; optional double cost = 3; optional string model = 4; }
@@ -269,15 +269,15 @@ enum WireErrorCode {
 message ErrorEvent { string message = 1; optional WireErrorCode code = 2; }
 message CompactedEvent { int64 dropped_count = 1; }
 
-// ── UC-PANEL (FR-PANEL): 환경 panel skill (BGM·브라우저·workspace) ──────────────────
+// ── UC-APP (FR-APP): 환경 app skill (BGM·브라우저·workspace) ──────────────────
 // ToolSpec.parameters_json = JSON Schema 문자열(args_json 과 동형, 무손실). tier = 승인 게이트(미설정/0=none).
 message ToolSpec { string name = 1; string description = 2; string parameters_json = 3; optional int32 tier = 4; }
-message PanelSkills { string panel_id = 1; repeated ToolSpec tools = 2; }   // FR-PANEL-1 등록
-message PanelId { string panel_id = 1; }                                     // FR-PANEL-1 제거
+message AppSkills { string app_id = 1; repeated ToolSpec tools = 2; }   // FR-APP-1 등록
+message AppId { string app_id = 1; }                                     // FR-APP-1 제거
 message ListSkillsRequest {}
 message SkillList { repeated ToolSpec tools = 1; }                           // 현재 노출 도구
-message PanelToolResultMsg { string request_id = 1; string tool_call_id = 2; string output = 3; bool success = 4; optional string activity_id = 5; } // FR-PANEL-3 결과 주입
-message PanelToolCallEvent { string tool_call_id = 1; string tool_name = 2; string args_json = 3; } // FR-PANEL-2 위임(args=JSON 무손실, ToolUseEvent 동형)
+message AppToolResultMsg { string request_id = 1; string tool_call_id = 2; string output = 3; bool success = 4; optional string activity_id = 5; } // FR-APP-3 결과 주입
+message AppToolCallEvent { string tool_call_id = 1; string tool_name = 2; string args_json = 3; } // FR-APP-2 위임(args=JSON 무손실, ToolUseEvent 동형)
 
 // ── UC-CONTINUE-SPEAKING #82 proactive profiles ───────────────────────────────
 message ConfigureSpeechProfileRequest {

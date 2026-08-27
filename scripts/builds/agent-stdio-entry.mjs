@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // agent-stdio-entry — new-naia-agent(brain) 를 **gRPC transport** 로 구동하는 진입점(naia-os 가 spawn → connect).
 // transport-독립 런타임 deps 는 compose-agent-deps.mjs(CLI host 와 공유, NFR-CLI-shared) — 여기선 gRPC server +
-// panel(환경 위임, egress 필요) + 라이브 reload + 종료(drain/flush) 등 **gRPC host 관심사**만 배선.
+// app(환경 위임, egress 필요) + 라이브 reload + 종료(drain/flush) 등 **gRPC host 관심사**만 배선.
 // gRPC host에서 stdin은 일반 명령 transport가 아니다. Shell이 이 자식 전용 익명 파이프에 토큰 원문만
 // 한 번 쓰고 즉시 닫는다. line protocol과 섞지 않으며 argv/env/config 파일에도 토큰을 남기지 않는다.
 const shutdownNonce = process.env.NAIA_AGENT_SHUTDOWN_NONCE;
@@ -91,8 +91,8 @@ const {
 } = await import("../../dist/main/domain/provider-route.js");
 const { makeCompositeToolExecutor } =
   await import("../../dist/main/adapters/composite-tool-executor.js");
-const { makePanelToolExecutor } =
-  await import("../../dist/main/adapters/panel-tool-executor.js");
+const { makeAppToolExecutor } =
+  await import("../../dist/main/adapters/app-tool-executor.js");
 const { makeDelegateAgentSkill } =
   await import("../../dist/main/adapters/delegate-agent-skill.js");
 const { makeGrpcServer } =
@@ -316,8 +316,8 @@ const reloadConfigFrom = async (path, atomicWorkspace = false) => {
 
 // 정본 transport = gRPC (naia-os --gRPC--> naia-agent). os(Rust)가 이 서버에 connect. data 채널은 gRPC 단일.
 // SetWorkspace/ReloadSettings = naia-adk/naia-settings 로딩 결과 반환(저장/불러오기 정본).
-// UC-PANEL(FR-PANEL): panel executor(환경 도구) 콜백은 late-binding — panelExec 는 egress 확보 후(아래) 생성.
-let panelExec;
+// UC-APP(FR-APP): app executor(환경 도구) 콜백은 late-binding — appExec 는 egress 확보 후(아래) 생성.
+let appExec;
 let activityBgm;
 let profileRuntime;
 const grpcServer = makeGrpcServer({
@@ -386,17 +386,17 @@ const grpcServer = makeGrpcServer({
       return fail(error instanceof Error ? error.message : String(error));
     }
   },
-  onRegisterPanelSkills: (panelId, tools) => {
-    panelExec?.register(panelId, tools);
+  onRegisterAppSkills: (appId, tools) => {
+    appExec?.register(appId, tools);
     profileRuntime?.capabilitiesChanged();
-  },                                                                                    // FR-PANEL-1
-  onClearPanelSkills: (panelId) => {
-    panelExec?.clear(panelId);
+  },                                                                                    // FR-APP-1
+  onClearAppSkills: (appId) => {
+    appExec?.clear(appId);
     profileRuntime?.capabilitiesChanged();
-  },                                                                                    // FR-PANEL-1
-  onListSkills: () => toolExecutor?.specs() ?? [],                                      // M2: ListSkills(voice)=composite 전체(builtin+panel, H1 동적 재집계). panel만 반환하던 버그 수정.
-  onPanelToolResult: (requestId, toolCallId, output, success, activityId) => {
-    panelExec?.resolveResult(requestId, toolCallId, output, success);
+  },                                                                                    // FR-APP-1
+  onListSkills: () => toolExecutor?.specs() ?? [],                                      // M2: ListSkills(voice)=composite 전체(builtin+app, H1 동적 재집계). app만 반환하던 버그 수정.
+  onAppToolResult: (requestId, toolCallId, output, success, activityId) => {
+    appExec?.resolveResult(requestId, toolCallId, output, success);
     activityBgm?.resolveResult(requestId, activityId, toolCallId, output, success);
   },
   onConfigureSpeechProfile: (profile) => profileRuntime?.configure(profile),
@@ -533,7 +533,7 @@ if (discordToken && discordConfig && discordAuthority) {
   diag.log("discord runtime", { code });
   try { discordStatus?.write("failed", code); } catch { /* observer isolation */ }
 }
-// panel executor 생성(egress 확보 후) + builtin 과 composite 합성. panel 도구 execute()=panel_tool_call emit→PanelToolResult 대기(E1, FR-PANEL-2/3).
+// app executor 생성(egress 확보 후) + builtin 과 composite 합성. app 도구 execute()=app_tool_call emit→AppToolResult 대기(E1, FR-APP-2/3).
 // Direct result delivery is intentionally independent of Gateway ingress/reply.
 // Its allowlisted destination policy arrives from Shell separately from bindings,
 // and the Bot token remains only in this entry process.
@@ -589,9 +589,9 @@ if (scheduledTaskExec.specs().length) {
   toolExecutor = toolExecutor ? makeCompositeToolExecutor([toolExecutor, scheduledTaskExec]) : scheduledTaskExec;
   skillsLabel += " + scheduled_report";
 }
-panelExec = makePanelToolExecutor({ egress: grpcServer.egress });
-toolExecutor = toolExecutor ? makeCompositeToolExecutor([toolExecutor, panelExec]) : panelExec;
-skillsLabel += " + panel(환경 위임)";
+appExec = makeAppToolExecutor({ egress: grpcServer.egress });
+toolExecutor = toolExecutor ? makeCompositeToolExecutor([toolExecutor, appExec]) : appExec;
+skillsLabel += " + app(환경 위임)";
 // Issue #82 proactive profiles — persistent activity stream + 좁은 BGM/KB 포트.
 const activityRoutes = makeActivityRouteRegistry();
 const activitySpeech = makeActivitySpeechEgress(grpcServer.activityEgress, activityRoutes);
