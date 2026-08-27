@@ -630,7 +630,6 @@ describe("UC-024 environmentSurfaces — wire 디코드 (TEST-S-024)", () => {
       kind: "environmentSurfaces",
       surfaces: [{ ref: "s-1", label: "빌더", activity: "working", focused: true }],
       omitted: 2,
-      listWithheld: false,
     });
   });
 
@@ -640,13 +639,22 @@ describe("UC-024 environmentSurfaces — wire 디코드 (TEST-S-024)", () => {
       kind: "environmentSurfaces",
       surfaces: [{ ref: "", label: "정상", activity: "unknown", focused: false }],
       omitted: 0,
-      listWithheld: false,
     });
   });
 
   it("surfaces 가 배열이 아니어도 터지지 않는다", () => {
     const decoded = decodeSegs([{ kind: "environmentSurfaces", surfaces: "이상함" }]);
-    expect(decoded[0]).toEqual({ kind: "environmentSurfaces", surfaces: [], omitted: 0, listWithheld: false });
+    expect(decoded[0]).toEqual({ kind: "environmentSurfaces", surfaces: [], omitted: 0 });
+  });
+
+  it("숨김이 아니면 그 키를 만들어내지 않는다 — 셸이 보낸 형태 그대로 둔다", () => {
+    const decoded = decodeSegs([{ kind: "environmentSurfaces", surfaces: [], omitted: 3 }]);
+    expect(Object.keys(decoded[0] as object).sort()).toEqual(["kind", "omitted", "surfaces"]);
+  });
+
+  it("숨김이면 그 키가 살아 남는다", () => {
+    const decoded = decodeSegs([{ kind: "environmentSurfaces", surfaces: [], omitted: 3, listWithheld: true }]);
+    expect((decoded[0] as { listWithheld?: boolean }).listWithheld).toBe(true);
   });
 
   it("화이트리스트 밖 kind 는 여전히 드롭된다", () => {

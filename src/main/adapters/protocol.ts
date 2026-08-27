@@ -54,8 +54,10 @@ export function decodeEnvironmentSegments(v: unknown): EnvironmentSegment[] {
         : [];
       const rawOmitted = (s as Record<string, unknown>)["omitted"];
       const omitted = typeof rawOmitted === "number" && Number.isFinite(rawOmitted) && rawOmitted > 0 ? Math.trunc(rawOmitted) : 0;
+      // 숨김일 때만 싣는다. 없는 것을 false 로 물질화하면 셸이 보낸 형태와 달라져,
+      // 두 저장소의 표본 대조가 의미를 잃는다. 부재 = false 는 아래 사용처가 지킨다.
       const listWithheld = (s as Record<string, unknown>)["listWithheld"] === true;
-      out.push({ kind: "environmentSurfaces", surfaces, omitted, listWithheld });
+      out.push({ kind: "environmentSurfaces", surfaces, omitted, ...(listWithheld ? { listWithheld } : {}) });
     }
     // 그 외 kind = 드롭(화이트리스트).
   }
