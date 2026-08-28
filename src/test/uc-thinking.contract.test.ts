@@ -97,6 +97,9 @@ describe("UC-THINKING — isLocalEngineBaseUrl (순수 판별)", () => {
       "http://172.16.5.9:8000/v1",
       "http://172.31.0.1:8000/v1",
       "http://naia-box.local:11434/v1",
+      "http://mybox.tailabc123.ts.net:11435/v1", // Tailscale MagicDNS(#118)
+      "http://100.64.0.1:8000/v1",               // CGNAT 하한 경계(#118)
+      "http://100.127.255.254:8000/v1",          // CGNAT 상한 경계(#118)
     ]) expect(isLocalEngineBaseUrl(u), u).toBe(true);
   });
 
@@ -109,6 +112,8 @@ describe("UC-THINKING — isLocalEngineBaseUrl (순수 판별)", () => {
       "https://api.nextain.io/v1",     // lab-proxy 게이트웨이
       "http://172.32.0.1:8000/v1",     // 172.32 = 사설망 아님(경계)
       "http://11.0.0.1:8000/v1",       // 11.x = 사설망 아님(경계)
+      "http://100.63.255.255:8000/v1", // CGNAT 직전 = 공인(경계, #118)
+      "http://100.128.0.1:8000/v1",    // CGNAT 직후 = 공인(경계, #118)
       "not-a-url",                     // 파싱 불가 = 보수적으로 false
     ]) expect(isLocalEngineBaseUrl(u), u).toBe(false);
   });
