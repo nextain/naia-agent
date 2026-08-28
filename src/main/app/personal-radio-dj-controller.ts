@@ -60,6 +60,8 @@ interface DjDeps {
     }): Promise<void>;
   };
   readonly lease?: { readonly durationMs?: number; readonly maxUtterances?: number };
+  /** #119 — 자율(유휴 타이머) 실패 관측 로그. 미주입=no-op(테스트 무소음). */
+  readonly log?: (message: string, ctx?: Record<string, unknown>) => void;
 }
 
 const WEATHER_FRESH_MS = 60 * 60_000;
@@ -415,7 +417,7 @@ export class PersonalRadioDjController {
     }
     if (!played.ok) {
       this.startFailureStreak++; // #115
-      await this.speakFailureNoticeOnce("지금은 조건에 맞는 음악을 재생하지 못했어요.");
+      this.noteAutoFailureOnce("지금은 조건에 맞는 음악을 재생하지 못했어요."); // #119 — 자율 시작 실패는 무발화
       if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
       // A player timeout is recoverable. Keep the long-lived activity route so
       // `next` / `change_vibe` can retry instead of ACKing against a stale ID.
@@ -592,6 +594,13 @@ export class PersonalRadioDjController {
     try { await this.speak(text); } catch { /* speech failure must not wedge controller */ }
   }
 
+  /** #119 — 자율(유휴 타이머) 시작 실패는 사용자를 방해하지 않는다: 발화 대신 진단 로그만. dedup 구간은 #115 와 동일. */
+  private noteAutoFailureOnce(text: string): void {
+    if (this.spokenFailureNotices.has(text)) return;
+    this.spokenFailureNotices.add(text);
+    this.d.log?.("radio-dj auto-start failure", { notice: text, streak: this.startFailureStreak });
+  }
+
   private resetStartFailureBackoff(): void {
     this.startFailureStreak = 0;
     this.spokenFailureNotices.clear();
@@ -677,7 +686,7 @@ export class PersonalRadioDjController {
   private async failAndRearm(generation: number, activityId: string, operationEpoch: number, text: string): Promise<void> {
     if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
     this.startFailureStreak++; // #115 — armIdle 지수 백오프의 근거
-    await this.speakFailureNoticeOnce(text);
+    this.noteAutoFailureOnce(text); // #119 — start() 자율 경로 전용: 무발화
     if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
     this.currentState = "idle";
     this.cancelLease();

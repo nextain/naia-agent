@@ -54,6 +54,7 @@ function harness(overrides: {
   const timeline: string[] = [];
   const speechInterrupts = vi.fn();
   const speechClose = vi.fn();
+  const logs: { message: string; ctx?: Record<string, unknown> }[] = [];
   const bgmCalls: string[] = [];
   const preferenceHandoffs: {
     sentiment: "like" | "dislike";
@@ -106,6 +107,7 @@ function harness(overrides: {
     preferences: {
       handoff: vi.fn(async (signal) => { preferenceHandoffs.push(signal); }),
     },
+    log: (message, ctx) => { logs.push({ message, ...(ctx !== undefined ? { ctx } : {}) }); }, // #119
     ...(overrides.lease ? { lease: overrides.lease } : {}),
   });
   controller.configure({
@@ -116,7 +118,7 @@ function harness(overrides: {
     bgmAutoPlayOptIn: overrides.optIn ?? true,
   });
   controller.setSubscriberReady(overrides.subscriberReady ?? true);
-  return { controller, scheduler, spoken, timeline, bgmCalls, preferenceHandoffs, selectedSnapshots, bgm, speechInterrupts, speechClose };
+  return { controller, scheduler, spoken, timeline, bgmCalls, preferenceHandoffs, selectedSnapshots, bgm, speechInterrupts, speechClose, logs };
 }
 
 describe("personal radio DJ MVP contract", () => {
@@ -509,7 +511,7 @@ describe("#115 radio DJ off-race·backoff·configure contract", () => {
     expect(h.controller.state()).toBe("disabled");
   });
 
-  it("연속 시작-실패: 동일 실패 발화 1회 + 지수 백오프(간격 단조 증가·상한 10분)", async () => {
+  it("연속 시작-실패: 자율 실패는 무발화(진단 로그 1회) + 지수 백오프(간격 단조 증가·상한 10분)", async () => {
     const h = harness();
     const attemptTimes: number[] = [];
     vi.mocked(h.bgm.searchAndPlay).mockImplementation(async () => {
@@ -522,7 +524,8 @@ describe("#115 radio DJ off-race·backoff·configure contract", () => {
     const gaps = attemptTimes.slice(1).map((t, i) => t - attemptTimes[i]!);
     for (let i = 1; i < gaps.length; i++) expect(gaps[i]!).toBeGreaterThanOrEqual(gaps[i - 1]!);
     expect(Math.max(...gaps)).toBeLessThanOrEqual(10 * 60_000);
-    expect(h.spoken.filter((t) => t === "음악을 준비하는 중 문제가 생겼어요.")).toHaveLength(1);
+    expect(h.spoken).toHaveLength(0); // #119 — 자율 실패는 발화하지 않는다
+    expect(h.logs.filter((l) => l.ctx?.["notice"] === "음악을 준비하는 중 문제가 생겼어요.")).toHaveLength(1);
   });
 
   it("사용자 명시 액션은 실패 dedupe/streak 을 리셋한다 — 재시도마다 안내 1회는 다시 허용", async () => {

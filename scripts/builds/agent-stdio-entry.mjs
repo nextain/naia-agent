@@ -646,6 +646,7 @@ const djController = new PersonalRadioDjController({
   bgm: activityBgm,
   speech: activitySpeech,
   preferences: preferenceStore,
+  log: (message, ctx) => diag.log(message, ctx), // #119 — 자율 실패는 발화 대신 진단 로그
 });
 const exhibitionController = new ExhibitionIntroController({
   scheduler: proactiveScheduler,
