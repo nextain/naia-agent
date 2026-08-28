@@ -24,6 +24,7 @@ function fixture(decision: "allowed" | "blocked" | "confirmation_required", with
     chat() {
       chat();
       return (async function* (): AsyncIterable<ProviderChunk> {
+        yield { kind: "text", text: "ok" }; // #120 — 빈 최종응답 재시도(7b05100) 비발동
         yield { kind: "finish" };
       })();
     },
@@ -71,7 +72,7 @@ describe("ChatTurnHandler processing guard", () => {
     await new ChatTurnHandler(deps).onChatRequest(request);
     expect(chat).toHaveBeenCalledOnce();
     expect(emits.map((event) => event.kind)).toEqual([
-      "processingDisclosure", "usage", "finish",
+      "processingDisclosure", "text", "usage", "finish",
     ]);
   });
 
@@ -294,6 +295,7 @@ describe("ChatTurnHandler processing guard", () => {
       async *chat(): AsyncIterable<ProviderChunk> {
         rounds += 1;
         if (rounds === 1) yield { kind: "toolUse", id: "call_1", name: "echo", args: {} };
+        else yield { kind: "text", text: "done" }; // #120
         yield { kind: "finish" };
       },
     };
