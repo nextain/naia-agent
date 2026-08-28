@@ -16,6 +16,9 @@ export interface WorkspaceSnapshot {
   readonly cwd: string;
   readonly projects: readonly string[];
   readonly projectTotal: number;
+  /** #116 — 워크스페이스 루트 진입점 문서의 상대경로(AGENTS.md, 없으면 CLAUDE.md). 부재 시 undefined.
+   *  존재 여부+이름만(내용 미포함 — bounded 유지, 상세는 read_file 도구=S3). */
+  readonly entrypoint?: string;
 }
 
 /** 프롬프트에 나열할 프로젝트 이름 최대 개수. 초과분은 "+N more" 총계로만(토큰 bounded). */
@@ -60,6 +63,10 @@ export function composeWorkspaceContext(snap: WorkspaceSnapshot): string {
 
   const lines: string[] = [];
   if (cwd) lines.push(`Workspace root: ${cwd}`);
+
+  // #116 — 진입점 문서 포인터 1줄(존재 시). 내용은 절대 미주입(bounded) — 이름은 데이터(기존 새니타이즈 재사용).
+  const entrypoint = snap.entrypoint ? sanitizeProjectName(snap.entrypoint).trim() : "";
+  if (entrypoint) lines.push(`Entrypoint: ${entrypoint} — load it with the read_file tool before answering workspace-rule questions.`);
 
   if (all.length > 0) {
     // 각 이름 새니타이즈(C2 인젝션 차단) 후 cap 까지만 나열 — 악성 디렉터리명이 지시문으로 삽입되지 않게.

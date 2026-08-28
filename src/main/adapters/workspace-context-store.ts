@@ -30,6 +30,9 @@ export interface WorkspaceFsRead {
  * - projectTotal = 수집된 *전체* 디렉터리 수, projects = 상위 PROJECT_RENDER_CAP 개만(렌더 토큰 bounded;
  *   도메인이 "+N more" 로 총계 표기). 파일 내용은 절대 읽지 않는다(shallow only).
  */
+/** #116 — 워크스페이스 루트 진입점 문서 후보(우선순위 순). 존재 여부만 확인(내용 안 읽음). */
+const WORKSPACE_ENTRYPOINT_CANDIDATES = ["AGENTS.md", "CLAUDE.md"] as const;
+
 export function makeWorkspaceContextStore(deps: { fs: WorkspaceFsRead; adkPath: string; cwd: string }): WorkspaceContextPort {
   const { fs, adkPath, cwd } = deps;
   return {
@@ -48,10 +51,19 @@ export function makeWorkspaceContextStore(deps: { fs: WorkspaceFsRead; adkPath: 
       } catch {
         names = []; // projects/ 읽기 실패 = no-throw degrade(프로젝트 0개)
       }
+      // #116 — 루트 진입점 문서(AGENTS.md 우선, 없으면 CLAUDE.md) 존재+상대경로만 수집(existsSync — 내용 안 읽음).
+      let entrypoint: string | undefined;
+      try {
+        const root = adkPath.replace(/[\\/]+$/, "");
+        entrypoint = WORKSPACE_ENTRYPOINT_CANDIDATES.find((name) => fs.existsSync(`${root}/${name}`));
+      } catch {
+        entrypoint = undefined; // 존재 확인 실패 = no-throw degrade(진입점 없음)
+      }
       return {
         cwd: cwd ?? "",
         projects: names.slice(0, PROJECT_RENDER_CAP), // 상위 cap 만 렌더(전체 수는 projectTotal)
         projectTotal: names.length,
+        ...(entrypoint ? { entrypoint } : {}),
       };
     },
   };

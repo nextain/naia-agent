@@ -106,7 +106,7 @@ an isolated worktree, and an exclusive lease before Codex can write.
 | UC-CLI | naia-agent 단독 CLI 오케스트레이션(direct tool-loop + sub-agent supervisor + interrupt + 정직보고) — naia-os 없이 단독 실행 | `docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md` |
 | UC-APP | 환경 app skill(BGM·브라우저·workspace) 대화 도구 — agent 노출+위임, 셸 실행(E1) | `.agents/progress/app-skill-grpc-port-2026-06-24.md` (설계) |
 | UC-PERSONA-CLI | 코어가 워크스페이스 설정의 페르소나(Alpha)를 system prompt 로 합성 → CLI 가 `--system` 없이도 알파로 응답 | `docs/requirements.md` FR-PERSONA-1~3 (집약) |
-| UC-WORKSPACE-CTX | 코어가 워크스페이스 컨텍스트(cwd + 프로젝트 이름 목록)를 system prompt 에 경량 포함 → 에이전트가 자기 워크스페이스를 인식 | `docs/requirements.md` FR-WORKSPACE-1~4 (집약) |
+| UC-WORKSPACE-CTX | 코어가 워크스페이스 컨텍스트(cwd + 프로젝트 이름 목록)를 system prompt 에 경량 포함 → 에이전트가 자기 워크스페이스를 인식 | `docs/requirements.md` FR-WORKSPACE-1~5 (집약) |
 | UC-FS-TOOLS | 에이전트가 **직접 도구**로 워크스페이스 내 파일을 나열/읽기(기본), opt-in 으로 쓰기/셸 실행 — allow-root sandbox + 민감경로 denylist + realpath 재검증(TOCTOU) + tier 승인 | `docs/requirements.md` FR-FS-1~8 / NFR-SEC (집약) |
 | UC-KNOWLEDGE | 코어가 컴파일된 워크스페이스 지식(KB)을 **풀 도구**(`skill_knowledge_search`/`ask`)로 노출 → 에이전트가 근거 있는 답변·근거 없으면 기권. + **컴파일 트리거**(`CompileKnowledge` RPC, K1b — 소스 폴더→kb.json). memory(푸시)와 분리된 풀(tool) | `docs/requirements.md` FR-KB-1~5 (집약) |
 | UC-HLMEM | 인간유사 기억 **측정**(memory-as-user-model) — 장기기억이 사용자의 held-out 선택을 예측하나(F1 취향), 본인 기억이 예측하고 타인 기억은 오도하나(F2 자아특이성), 감정 salience 가중(F3, P6). vs 완벽회상 아님. 벤치(benchmark/src) 측정, 실행경로 아님 | `docs/progress/99.dev-comm/UC-HLMEM-humanlike-memory-measurement-contract-2026-07-07.md` + `docs/requirements.md` FR-HLMEM-1~7 |
@@ -282,6 +282,11 @@ emotion-tag 블록은 naia-os 전용으로 유지.
   를 `\n\n` 으로 join 한다. `req.systemPrompt`(override) 가 있으면 persona·workspace 둘 다 무시. `workspaceContext`
   미주입 = 기존 동작(persona 만, 무회귀). 두 host(`bin/naia-agent-chat.mjs`·`agent-stdio-entry.mjs`)는
   `compose-agent-deps` 가 만든 `workspaceContextSource` 를 `wireAgentUC1` 에 주입(병렬 경로 없음, NFR-CLI-shared).
+- **S-WORKSPACE-4 (진입점 문서 포인터 — #116)**: 워크스페이스 루트에 `AGENTS.md`(없으면 `CLAUDE.md`)가
+  있으면 컨텍스트에 "Entrypoint: <이름> — load it with the read_file tool before answering
+  workspace-rule questions." 1줄을 추가한다. 존재 여부+상대경로만(내용 미주입 — bounded 유지),
+  이름은 데이터로 새니타이즈된다. 그래서 워크스페이스 규칙 질문에 에이전트가 진입점 문서를 읽고
+  답할 근거를 얻는다.
 
 직교: 합성은 domain(순수), projects/ 읽기는 adapter(`fs` 주입), **조립은 코어(app/ChatTurnHandler)** —
 host 는 `WorkspaceContextPort` 주입만.
@@ -685,6 +690,7 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 | UC-PERSONA-CLI / S-PERSONA-3 / FR-PERSONA-3 (코어 조립 + override) | `src/test/uc-persona-handler.contract.test.ts` — fake provider 가 받은 systemPrompt 를 캡처: (a) `req.systemPrompt` 없음 + personaSource 주입 → provider 가 코어 조립 persona(알파 prefix) 수신, (b) `req.systemPrompt` 있음 → 그 override 가 쓰이고 코어 조립 무시, (c) personaSource 미주입 → `req.systemPrompt` 만(무회귀) |
 | UC-WORKSPACE-CTX / S-WORKSPACE-1·2 / FR-WORKSPACE-1·2 | `src/test/uc-workspace-context.contract.test.ts` — describe "composeWorkspaceContext" (cwd+projects 렌더·cap "+N more" 토큰 bounded·빈 입력→""·cwd-only·파일내용 미포함 단언) + describe "WorkspaceContextPort via fake fs" (fake readdir → 디렉터리명만 수집·dotfile/파일 제외·정렬·projects/ 부재 no-throw degrade·파일 내용 안 읽음) |
 | UC-WORKSPACE-CTX / S-WORKSPACE-3 / FR-WORKSPACE-3 (코어 조립 + persona 뒤 append) | `src/test/uc-workspace-context.contract.test.ts` — describe "ChatTurnHandler workspace 조립" — capturing provider 로 systemPrompt 캡처: persona+workspace 둘 다 포함(append 순서), `req.systemPrompt` override 시 둘 다 무시, workspaceContext 미주입 시 persona 만(무회귀) |
+| UC-WORKSPACE-CTX / S-WORKSPACE-4 / FR-WORKSPACE-5 (#116 진입점 포인터) | `src/test/uc-workspace-context.contract.test.ts` — describe "#116 워크스페이스 진입점 포인터" (존재→Entrypoint 1줄+read_file 안내·내용 미주입 bounded / 부재→줄 없음 무회귀 / 이름 새니타이즈 / 어댑터 AGENTS.md 우선·CLAUDE.md 폴백·둘 다 부재 undefined·existsSync 만(내용 미독)·trailing slash 정규화 / ChatTurnHandler 통합 systemPrompt 포함) |
 | UC-FS-TOOLS / S-FS-1·2·3 / FR-FS-2·3·4 + NFR-SEC (sandbox 단위) | `src/test/uc-fs-tools.contract.test.ts` — describe "validatePath (domain)" — `..`/드라이브절대/UNC/env확장/널바이트 거부, allow-root 밖 거부·안 허용, denylist(.keys/.env/.dpapi/data-private/ssh) 거부, 빈 allowRoots deny-all + describe "realpath/TOCTOU" — fake realpath 가 allow-root 밖 가리키면 거부(symlink/junction 탈출 시뮬) |
 | UC-FS-TOOLS / S-FS-5·6·7 / FR-FS-1·5·6·7·8 (도구 계약) | `src/test/uc-fs-tools.contract.test.ts` — describe "makeFsTools" — read_file/list_dir(허용 성공·거부 isError·throw 안 함), write_file(enableWrite=false→spec 없음·동작 거부, true→동작·승인 tier), 민감경로 실증(`<adk>/naia-settings/.keys/x.dpapi`·`<adk>/data-private/...` read→isError) + describe "makeShellTool" — argv 정상·셸문자열(string) 거부·cwd 탈출 거부·tier shell·no-throw |
 | UC-KNOWLEDGE / S-KB-1~4 / FR-KB-1~4 | `src/test/uc-knowledge.contract.test.ts` — describe "makeKnowledgeSkillsExecutor" (specs 2종·tier 없음 / search JSON hits+sourceUris / k 반영 / ask JSON answer+sources / 근거없음 기권 abstained / backend 미주입 unavailable / 빈·비문자 query·잘못 args isError no-throw / unknown tool / abort reject). fake backend 결정론 |
