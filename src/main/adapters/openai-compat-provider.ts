@@ -41,7 +41,8 @@ function toWireMessages(systemPrompt: string | undefined, messages: readonly Cha
   return wire;
 }
 
-interface ToolAcc { id?: string; name?: string; args: string; excluded: boolean; conflict: boolean; }
+interface ToolAcc { id?: string; name?: string; args: string; excluded: boolean; conflict: boolean;   wire?: number;
+}
 
 /** #114 — 스트림 idle 데드라인: 마지막 청크 수신 후 이 시간 동안 무수신이면 abort(게이트웨이가 종료
  *  신호를 안 줄 때 턴 영구 hang 방지). 총시간 상한이 **아니다** — 정상 장문 스트림은 청크가 계속 오므로 안 끊긴다. */
@@ -137,6 +138,31 @@ export function buildPromptCacheShard(model: string, systemPrompt: string | unde
   return `agent-${createHash("sha256").update(input, "utf8").digest("hex")}`;
 }
 
+/** #122 — 누적 args 에서 첫 완결 JSON 값과 잔여를 분리(문자열·이스케이프 인지). 실패 시 null. */
+function splitFirstJsonValue(raw: string): { value: string; rest: string } | null {
+	const t = raw.trimStart();
+	const open = t[0];
+	if (open !== "{" && open !== "[") return null;
+	const close = open === "{" ? "}" : "]";
+	let depth = 0, inStr = false, esc = false;
+	for (let i = 0; i < t.length; i++) {
+		const ch = t[i];
+		if (esc) { esc = false; continue; }
+		if (inStr) {
+			if (ch === "\\") esc = true;
+			else if (ch === '"') inStr = false;
+			continue;
+		}
+		if (ch === '"') inStr = true;
+		else if (ch === open) depth++;
+		else if (ch === close) {
+			depth--;
+			if (depth === 0) return { value: t.slice(0, i + 1), rest: t.slice(i + 1) };
+		}
+	}
+	return null;
+}
+
 export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string; model?: string; auth?: "bearer" | "x-anyllm"; supportsReasoningEffort?: boolean; supportsTools?: boolean; promptCacheShard?: boolean; maxTokens?: number; idleTimeoutMs?: number; fetch?: FetchLike }): ProviderPort {
   const doFetch: FetchLike = deps.fetch ?? (globalThis.fetch as unknown as FetchLike);
   const base = deps.baseUrl.replace(/\/+$/, "");
@@ -187,7 +213,13 @@ export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string
       let inTok = 0, outTok = 0;
       let finishReason: string | undefined;
       const thinkingFilter = new ThinkingTagFilter();
-      const acc = new Map<number, ToolAcc>(); // index 별 tool_call 누적(§C.2)
+      const acc = new Map<number, ToolAcc>(); // 슬롯 별 tool_call 누적(§C.2)
+      // #122 — any-llm(deepseek) 게이트웨이는 호출마다 wire index 를 0 으로 재사용한다(2026-08-29
+      //        스트림 실측: get_time·get_weather 둘 다 index 0). 같은 index 에 '비어있지 않은 다른 id'가
+      //        도착하면 손상이 아니라 **새 호출의 경계**다(OpenAI 규격 스트림은 id 를 호출 첫 델타에만
+      //        싣는다) — wire index → 현재 슬롯 매핑을 갈아끼워 별도 호출로 누적한다.
+      const slotByWireIndex = new Map<number, number>();
+      let nextSlot = 0;
 
       // SSE data json 1건 처리: content → 즉시 text chunk 반환. tool_calls/usage → 누적(side effect). error → throw.
       const parseData = (payload: string): ProviderChunk[] => {
@@ -212,13 +244,28 @@ export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string
           for (const tc of tcs) {
             const idx = tc.index;
             if (typeof idx !== "number" || !Number.isInteger(idx) || idx < 0) throw new Error("invalid tool_call index"); // §C.2 누적 전 검증
-            let a = acc.get(idx);
-            if (!a) { a = { args: "", excluded: false, conflict: false }; acc.set(idx, a); }
+            let slot = slotByWireIndex.get(idx);
+            let a = slot === undefined ? undefined : acc.get(slot);
+            // #122 — 다른 nonempty id = 새 호출 경계: 이 wire index 의 새 슬롯을 연다.
+            if (
+              a !== undefined &&
+              typeof tc.id === "string" && tc.id !== "" &&
+              a.id !== undefined && a.id !== tc.id
+            ) {
+              a = undefined;
+              slot = undefined;
+            }
+            if (a === undefined) {
+              slot = nextSlot++;
+              slotByWireIndex.set(idx, slot);
+              a = { args: "", excluded: false, conflict: false, wire: idx };
+              acc.set(slot, a);
+            }
             if (tc.type !== undefined && tc.type !== "function") a.excluded = true; // present 이면서 "function" 아님(null/number/타 문자열 포함) = 미지원
 
-            if (a.excluded) continue; // excluded index = 이후 모든 필드 무시
+            if (a.excluded) continue; // excluded slot = 이후 모든 필드 무시
             if (typeof tc.id === "string" && tc.id !== "") {
-              if (a.id !== undefined && a.id !== tc.id) a.conflict = true; else a.id = tc.id; // 다른 nonempty id → conflict marker(finalize 평가)
+              a.id = tc.id; // 경계 감지 후이므로 여기서는 항상 동일 id 이거나 첫 지정
             }
             const fn = tc.function;
             if (fn) {
@@ -260,14 +307,27 @@ export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string
           if (a.args === "") args = {}; // 인자 없는 도구
           else {
             let p: unknown;
-            try { p = JSON.parse(a.args); } catch { throw new Error("malformed tool_call arguments"); }
+            try { p = JSON.parse(a.args); } catch {
+              // #122 — any-llm(deepseek) 게이트웨이가 유효 args 뒤에 스퓨리어스 `\"\"` 조각을 덧붙인다
+              //        (무인자 도구 실측: 조각 "" → {} → "\"\"" ⇒ 누적 `{}\"\"`). 첫 완결 JSON 값을 취하고
+              //        잔여가 내용 없는 따옴표/공백/쉼표뿐일 때만 수용 — 내용 있는 잔여는 기존대로 fail-closed.
+              const split = splitFirstJsonValue(a.args);
+              if (split !== null && /^[\s",]*$/.test(split.rest)) {
+                try { p = JSON.parse(split.value); } catch {
+                  throw new Error(`malformed tool_call arguments (name=${a.name}, head=${JSON.stringify(a.args.slice(0, 160))})`);
+                }
+              } else {
+                throw new Error(`malformed tool_call arguments (name=${a.name}, head=${JSON.stringify(a.args.slice(0, 160))}, tail=${JSON.stringify(a.args.slice(-80))})`);
+              }
+            }
             if (!p || typeof p !== "object" || Array.isArray(p)) throw new Error("tool_call arguments not an object"); // plain object 강제
             args = p;
           }
           let id = a.id;
-          if (id === undefined || id === "") { // 빈 id → 배치 내 유일 합성
-            let cand = `call_${i}`; let n = 1;
-            while (used.has(cand)) cand = `call_${i}_${n++}`;
+          if (id === undefined || id === "") { // 빈 id → 배치 내 유일 합성(wire index 기준 — §C.2)
+            const seed = a.wire ?? i;
+            let cand = `call_${seed}`; let n = 1;
+            while (used.has(cand)) cand = `call_${seed}_${n++}`;
             used.add(cand); id = cand;
           }
           built.push({ id, name: a.name, args });

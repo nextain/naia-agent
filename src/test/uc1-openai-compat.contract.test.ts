@@ -158,6 +158,33 @@ describe("§C slice 1b — tool_calls 재조립", () => {
     // 순서: text → toolUse → usage → finish
     expect(out.map((c) => c.kind)).toEqual(["text", "toolUse", "usage", "finish"]);
   });
+  it("(g/#122) 게이트웨이 index 재사용(deepseek 실측 wire): 다른 id = 새 호출 경계 → 두 toolUse", async () => {
+    const out = await collect(provF(captureStream([
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_t","function":{"name":"get_time","arguments":""},"type":"function"}]}}]}\n',
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":null,"function":{"arguments":"{\\"timezone\\": \\"Asia/Seoul\\"}","name":null},"type":"function"}]}}]}\n',
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_w","function":{"name":"get_weather","arguments":""},"type":"function"}]}}]}\n',
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":null,"function":{"arguments":"{\\"city\\": \\"Seoul\\"}","name":null},"type":"function"}]}}]}\n',
+      "data: [DONE]\n",
+    ]).fetch).chat(cfg, [], { tools }));
+    expect(tu(out)).toEqual([
+      { kind: "toolUse", id: "call_t", name: "get_time", args: { timezone: "Asia/Seoul" } },
+      { kind: "toolUse", id: "call_w", name: "get_weather", args: { city: "Seoul" } },
+    ]);
+  });
+  it("(s/#122) 게이트웨이 스퓨리어스 `\"\"` 꼬리(무인자 도구 실측): 첫 완결 JSON 만 취함 / 내용 있는 꼬리는 여전히 throw", async () => {
+    const mk = (frags: string[]) => captureStream([
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"echo","arguments":""},"type":"function"}]}}]}\n',
+      ...frags.map((f) =>
+        `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":null,"function":{"arguments":${JSON.stringify(f)},"name":null},"type":"function"}]}}]}\n`,
+      ),
+      "data: [DONE]\n",
+    ]).fetch;
+    const outEmpty = await collect(provF(mk(["{}", "\"\""])).chat(cfg, [], { tools }));
+    expect(tu(outEmpty)).toEqual([{ kind: "toolUse", id: "c1", name: "echo", args: {} }]);
+    const outArgs = await collect(provF(mk(["{\"q\":1}", "\"\""])).chat(cfg, [], { tools }));
+    expect(tu(outArgs)).toEqual([{ kind: "toolUse", id: "c1", name: "echo", args: { q: 1 } }]);
+    await expect(collect(provF(mk(["{}", "\"x\""])).chat(cfg, [], { tools }))).rejects.toThrow(/malformed/);
+  });
   it("(d) malformed args → throw / 빈 args → {}", async () => {
     await expect(collect(provF(captureStream([
       'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c","function":{"name":"echo","arguments":"{bad"}}]}}]}\n', "data: [DONE]\n",
@@ -196,21 +223,28 @@ describe("§C slice 1b — tool_calls 재조립", () => {
       'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"dup","function":{"name":"echo","arguments":"{}"}},{"index":1,"id":"dup","function":{"name":"echo","arguments":"{}"}}]}}]}\n', "data: [DONE]\n",
     ]).fetch).chat(cfg, [], { tools }))).rejects.toThrow(/duplicate/);
   });
-  it("(n) id 충돌 → finalize throw / (p) invalid index → throw / (q) 빈 name → throw / (r) non-object args → throw", async () => {
+  it("(n) 손상 감지 fail-closed / (p) invalid index → throw / (q) 빈 name → throw / (r) non-object args → throw", async () => {
+    // #122 — 같은 index 의 다른 id 는 이제 새 호출 경계다: 이 wire 는 두 번째 호출의 name 누락으로
+    //        fail-closed 된다(원자성 유지 — 선행 호출도 미방출).
     await expect(collect(provF(captureStream([
       'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"a","function":{"name":"echo"}}]}}]}\n',
       'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"b","function":{"arguments":"{}"}}]}}]}\n', "data: [DONE]\n",
+    ]).fetch).chat(cfg, [], { tools }))).rejects.toThrow(/missing name/);
+    // 같은 호출(같은 id) 안에서 name 이 바뀌는 것은 여전히 손상 → conflict throw.
+    await expect(collect(provF(captureStream([
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"a","function":{"name":"echo"}}]}}]}\n',
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"other","arguments":"{}"}}]}}]}\n', "data: [DONE]\n",
     ]).fetch).chat(cfg, [], { tools }))).rejects.toThrow(/conflict/);
     await expect(collect(provF(captureStream(['data: {"choices":[{"delta":{"tool_calls":[{"index":-1,"id":"c","function":{"name":"x"}}]}}]}\n', "data: [DONE]\n"]).fetch).chat(cfg, [], { tools }))).rejects.toThrow(/index/);
     await expect(collect(provF(captureStream(['data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c","function":{"arguments":"{}"}}]}}]}\n', "data: [DONE]\n"]).fetch).chat(cfg, [], { tools }))).rejects.toThrow(/missing name/);
     await expect(collect(provF(captureStream(['data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c","function":{"name":"echo","arguments":"[1,2]"}}]}}]}\n', "data: [DONE]\n"]).fetch).chat(cfg, [], { tools }))).rejects.toThrow(/not an object/);
   });
-  it("(o) 충돌 후 excluded → 오류 없이 제외", async () => {
+  it("(o/#122) 새 경계의 미지원 type → 그 호출만 제외, 선행 유효 호출은 방출", async () => {
     const out = await collect(provF(captureStream([
       'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"a","function":{"name":"echo"}}]}}]}\n',
       'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"b","type":"code_interpreter"}]}}]}\n', "data: [DONE]\n",
     ]).fetch).chat(cfg, [], { tools }));
-    expect(tu(out).length).toBe(0); // excluded → 제외, conflict throw 없음
+    expect(tu(out)).toEqual([{ kind: "toolUse", id: "a", name: "echo", args: {} }]);
   });
   it("(i) [DONE] 후 EOF 와도 finalize 1회(이중 yield 없음) / (l) EOF-only finalize", async () => {
     const eofOnly = await collect(provF(captureStream([
