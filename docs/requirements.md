@@ -251,6 +251,7 @@ spec + sandbox 정책(allow-root) + tier(승인)** 를 소유한다.
 | FR-CONT-MVP-7 | **기억·개인정보** — 활동 발화·수동 청취·재생 시간으로 취향을 추론하지 않고, 전시 activity/Q&A는 memory recall/save와 영속 transcript를 기본 사용하지 않는다. 명시적 DJ 선호만 provenance와 durable/idempotent handoff하며 최신 dislike는 같은 subject의 like를 무효화한다(PA-DJ-01, PA-EX-02). | Done |
 | FR-CONT-MVP-8 | **실제 증적** — 전체 계약/통합 테스트와 Playwright 7건이 TTS 두 경로·제어 6종·250ms interrupt·stale 폐기·전시 yield/resume를 검증하고, 실제 Tauri WebDriver가 file-backed 설정 저장·cache-clear 재수화·동의 철회를 검증한다. 물리 음질·현장 선호도는 자동 완료 판정 밖의 운영 관찰 항목이다. | Done |
 | FR-CONT-MVP-9 | **종료 기반 동적 선곡** — Player의 실제 `ended` 관측 뒤 짧은 전환 멘트를 먼저 완료하고 같은 activity에서 `skill_youtube_bgm {action:"play", mode:"radio_dj"}`로 다음 검색을 요청한다. Shell은 최근곡을 제외하고, Agent는 명시 선호와 최근에 재생하지 않은 즐겨찾기를 검색 힌트로 결합한다. 새 곡 제목은 상관된 `playing` 관측 뒤에만 말한다. | Done |
+| FR-CONT-MVP-10 | **off-레이스·연속 실패 백오프·폴링 하한(#115)** — 활성(비-stopped) 상태의 동등 profile 재-configure(disabled 재전송 포함)는 no-op 이다. subscriber 재연결 churn 은 stopped/disabled 를 idle 로 부활시키지 않고 music_only 활동을 파괴하지 않는다(재구독이 start() 를 재발화하지 못함 — 재개는 명시 next/change_vibe/talk_more 만). 연속 시작-실패는 지수 백오프(상한 10분)로만 재시도하고 동일 실패 발화는 연속 실패 구간에서 1회만 말한다(시작/교체 성공·사용자 명시 액션이 리셋). BGM status 관측 폴링 간격은 하한 1초를 강제한다(`MIN_BGM_STATUS_POLL_INTERVAL_MS`). | Done |
 
 | FR-APP-6 | **화면 캡처의 실제 multimodal 전달** — `skill_tab_screenshot`의 bounded PNG/JPEG/WebP data URI를 app executor가 base64 로그/텍스트에서 분리하고 도구 결과 결속 뒤 inline image로 보존한다. OpenAI-compatible·Anthropic·Ollama adapter는 각 provider의 image content 형식으로 전달하며, 미지원 provider는 이미지를 보았다고 표현하지 않는다. 손상·과대 data URI는 일반 오류 결과로 fail-closed한다. | Done |
 

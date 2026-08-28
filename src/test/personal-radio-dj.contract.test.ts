@@ -454,3 +454,84 @@ describe("personal radio DJ MVP contract", () => {
     expect(disconnected.bgmCalls).toContain("stop");
   });
 });
+
+// ── #115 — off-레이스·연속 실패 백오프·configure idempotent 계약 (FR-CONT-MVP-10) ──
+describe("#115 radio DJ off-race·backoff·configure contract", () => {
+  it("music_only 는 subscriber churn(off→on)에도 보존된다 — BGM stop·start 재발화 없음", async () => {
+    const h = harness();
+    await h.scheduler.advance(1_000);
+    await h.controller.control({ kind: "music_only" });
+    const plays = h.bgmCalls.filter((c) => c.startsWith("play:")).length;
+    h.controller.setSubscriberReady(false);
+    h.controller.setSubscriberReady(true);
+    await h.scheduler.advance(60_000);
+    expect(h.controller.state()).toBe("music_only");
+    expect(h.bgmCalls).not.toContain("stop");
+    expect(h.bgmCalls.filter((c) => c.startsWith("play:")).length).toBe(plays);
+    expect(h.spoken.filter((t) => t.includes("재생 중이에요"))).toHaveLength(1); // 재시작 소개 없음
+  });
+
+  it("stop(off) 후 subscriber churn 이 와도 start 를 재발화하지 않고 stopped 를 유지한다", async () => {
+    const h = harness();
+    await h.scheduler.advance(1_000);
+    await h.controller.control({ kind: "stop" });
+    const plays = h.bgmCalls.filter((c) => c.startsWith("play:")).length;
+    const spokenCount = h.spoken.length;
+    h.controller.setSubscriberReady(false);
+    h.controller.setSubscriberReady(true);
+    await h.scheduler.advance(60 * 60_000);
+    expect(h.controller.state()).toBe("stopped");
+    expect(h.bgmCalls.filter((c) => c.startsWith("play:")).length).toBe(plays);
+    expect(h.spoken).toHaveLength(spokenCount);
+  });
+
+  it("동등 config 재-configure(disabled 재전송 포함)는 no-op — 진행 중 활동 파괴/재시작 없음", async () => {
+    const h = harness();
+    await h.scheduler.advance(1_000);
+    const state = h.controller.state();
+    const interrupts = h.speechInterrupts.mock.calls.length;
+    h.controller.configure({
+      sessionId: "agent:main:main",
+      idleMs: 1_000,
+      djIntervalMs: 500,
+      timezone: "Asia/Seoul",
+      bgmAutoPlayOptIn: true,
+    });
+    expect(h.controller.state()).toBe(state);
+    expect(h.speechClose).not.toHaveBeenCalled();
+    expect(h.speechInterrupts.mock.calls.length).toBe(interrupts);
+    // disabled 로 전환(변경 = 정리) 뒤 disabled 재전송은 no-op
+    h.controller.configure(undefined);
+    await Promise.resolve();
+    const closes = h.speechClose.mock.calls.length;
+    h.controller.configure(undefined);
+    expect(h.speechClose.mock.calls.length).toBe(closes);
+    expect(h.controller.state()).toBe("disabled");
+  });
+
+  it("연속 시작-실패: 동일 실패 발화 1회 + 지수 백오프(간격 단조 증가·상한 10분)", async () => {
+    const h = harness();
+    const attemptTimes: number[] = [];
+    vi.mocked(h.bgm.searchAndPlay).mockImplementation(async () => {
+      attemptTimes.push(h.scheduler.now());
+      throw new Error("player down");
+    });
+    await h.scheduler.advance(60 * 60_000);
+    expect(attemptTimes.length).toBeGreaterThanOrEqual(3);
+    expect(attemptTimes.length).toBeLessThanOrEqual(20); // 무백오프면 idleMs(1s)마다 수천 회
+    const gaps = attemptTimes.slice(1).map((t, i) => t - attemptTimes[i]!);
+    for (let i = 1; i < gaps.length; i++) expect(gaps[i]!).toBeGreaterThanOrEqual(gaps[i - 1]!);
+    expect(Math.max(...gaps)).toBeLessThanOrEqual(10 * 60_000);
+    expect(h.spoken.filter((t) => t === "음악을 준비하는 중 문제가 생겼어요.")).toHaveLength(1);
+  });
+
+  it("사용자 명시 액션은 실패 dedupe/streak 을 리셋한다 — 재시도마다 안내 1회는 다시 허용", async () => {
+    const h = harness();
+    await h.scheduler.advance(1_000);
+    vi.mocked(h.bgm.searchAndPlay).mockResolvedValue({ ok: false, reason: "down" });
+    await h.controller.control({ kind: "next" });
+    await h.controller.control({ kind: "next" });
+    expect(h.spoken.filter((t) => t === "다른 분위기의 음악을 찾지 못했어요.")).toHaveLength(2);
+    expect(h.controller.state()).toBe("music_only");
+  });
+});

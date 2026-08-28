@@ -68,9 +68,25 @@ const MAX_DJ_INTERVAL_MS = 60 * 60_000;
 const DEFAULT_LEASE_MS = 30 * 60_000;
 const DEFAULT_LEASE_UTTERANCES = 60;
 const MAX_PREFERENCE_CODEPOINTS = 500;
+// #115 — 연속 시작-실패 재시도는 지수 백오프(상한 10분)로만, 동일 실패 발화는 연속 실패 구간에서 1회만.
+const START_FAILURE_BACKOFF_MIN_BASE_MS = 1_000;
+const START_FAILURE_BACKOFF_CAP_MS = 10 * 60_000;
 
 function finiteDelay(value: number, fallback: number): number {
   return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : fallback;
+}
+
+/** #115 — configure idempotent guard 용 동등성(닫힌 PersonalRadioDjConfig shape 의 필드 비교). */
+function sameDjConfig(a: PersonalRadioDjConfig | undefined, b: PersonalRadioDjConfig | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  return a.sessionId === b.sessionId
+    && a.idleMs === b.idleMs
+    && a.djIntervalMs === b.djIntervalMs
+    && a.timezone === b.timezone
+    && a.bgmAutoPlayOptIn === b.bgmAutoPlayOptIn
+    && (a.weatherLocation === undefined) === (b.weatherLocation === undefined)
+    && a.weatherLocation?.latitude === b.weatherLocation?.latitude
+    && a.weatherLocation?.longitude === b.weatherLocation?.longitude;
 }
 
 export class PersonalRadioDjController {
@@ -94,6 +110,8 @@ export class PersonalRadioDjController {
   private leaseUtterances = 0;
   private leaseRenewals = 0;
   private controllerStarts = 0;
+  private startFailureStreak = 0;
+  private spokenFailureNotices = new Set<string>();
 
   constructor(private readonly d: DjDeps) {}
 
@@ -108,6 +126,10 @@ export class PersonalRadioDjController {
   }
 
   configure(config: PersonalRadioDjConfig | undefined): void {
+    // #115 — idempotent guard: 활성(비-stopped) 상태에서 동등 config 재전송(disabled 재전송 포함)은 no-op.
+    //   프로필 재푸시/재연결 churn 이 진행 중 활동을 파괴하고 start() 를 재발화하는 레이스를 차단한다.
+    //   stopped 상태의 명시 재-configure 는 재시작 신호이므로 기존 전체 리셋을 유지한다.
+    if (this.currentState !== "stopped" && sameDjConfig(this.config, config)) return;
     this.deactivateCurrent();
     this.generation++;
     this.config = config;
@@ -116,12 +138,18 @@ export class PersonalRadioDjController {
     this.leaseUtterances = 0;
     this.leaseRenewals = 0;
     this.controllerStarts = 0;
+    this.startFailureStreak = 0;
+    this.spokenFailureNotices.clear();
     this.armIdle();
   }
 
   setSubscriberReady(ready: boolean): void {
     this.subscriberReady = ready;
     if (!ready) {
+      // #115 — 사용자 의도/종결 상태는 subscriber churn 에도 보존한다: stopped/disabled 를 idle 로
+      //   부활시키지 않고(off 후 재구독 churn 이 start() 를 재발화하던 레이스 차단), music_only 는
+      //   활동을 파괴하지 않는다(재구독 시 자동 발화 부활 금지 — 재개는 명시 next/change_vibe/talk_more 만).
+      if (this.currentState === "stopped" || this.currentState === "disabled" || this.currentState === "music_only") return;
       this.deactivateCurrent();
       this.currentState = this.config ? "idle" : "disabled";
       return;
@@ -177,6 +205,7 @@ export class PersonalRadioDjController {
 
   async control(control: RadioDjControl): Promise<void> {
     if (!this.config || !this.activityId || !this.requestId) return;
+    this.resetStartFailureBackoff(); // #115 — 사용자 명시 액션은 실패 streak·발화 dedupe 를 리셋한다
     const generation = this.generation;
     const activityId = this.activityId;
     const requestId = this.requestId;
@@ -323,8 +352,13 @@ export class PersonalRadioDjController {
   private armIdle(): void {
     if (!this.config || this.currentState !== "idle" || !this.ready() || this.cancelFlowTimer) return;
     const generation = this.generation;
+    const baseIdleMs = finiteDelay(this.config.idleMs, 60_000);
+    // #115 — 연속 시작-실패 구간에서는 지수 백오프(상한 10분)로만 재무장한다(폭주 재시도·반복 발화 차단).
+    const delayMs = this.startFailureStreak > 0
+      ? Math.min(Math.max(baseIdleMs, START_FAILURE_BACKOFF_MIN_BASE_MS) * 2 ** this.startFailureStreak, START_FAILURE_BACKOFF_CAP_MS)
+      : baseIdleMs;
     this.cancelFlowTimer = this.d.scheduler.schedule(
-      finiteDelay(this.config.idleMs, 60_000),
+      delayMs,
       async () => {
         this.cancelFlowTimer = undefined;
         if (generation !== this.generation || this.currentState !== "idle" || !this.ready()) return;
@@ -380,13 +414,15 @@ export class PersonalRadioDjController {
       return;
     }
     if (!played.ok) {
-      await this.speak("지금은 조건에 맞는 음악을 재생하지 못했어요.");
+      this.startFailureStreak++; // #115
+      await this.speakFailureNoticeOnce("지금은 조건에 맞는 음악을 재생하지 못했어요.");
       if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
       // A player timeout is recoverable. Keep the long-lived activity route so
       // `next` / `change_vibe` can retry instead of ACKing against a stale ID.
       this.currentState = "music_only";
       return;
     }
+    this.resetStartFailureBackoff(); // #115 — 시작 성공이 연속 실패 구간을 닫는다
     this.currentState = "playing";
     try {
       await this.speak(renderPlayIntro(played.title));
@@ -453,11 +489,12 @@ export class PersonalRadioDjController {
       return;
     }
     if (!played.ok) {
-      await this.speak("다른 분위기의 음악을 찾지 못했어요.");
+      await this.speakFailureNoticeOnce("다른 분위기의 음악을 찾지 못했어요.");
       if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
       this.currentState = "music_only";
       return;
     }
+    this.resetStartFailureBackoff(); // #115 — 교체 성공도 연속 실패 구간을 닫는다
     await this.speak(renderPlayIntro(played.title));
     if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
     this.currentState = "dj_speaking";
@@ -548,6 +585,18 @@ export class PersonalRadioDjController {
     return result;
   }
 
+  /** #115 — 동일 실패 발화는 연속 실패 구간에서 1회만. 성공·사용자 명시 액션(control)이 구간을 닫는다. */
+  private async speakFailureNoticeOnce(text: string): Promise<void> {
+    if (this.spokenFailureNotices.has(text)) return;
+    this.spokenFailureNotices.add(text);
+    try { await this.speak(text); } catch { /* speech failure must not wedge controller */ }
+  }
+
+  private resetStartFailureBackoff(): void {
+    this.startFailureStreak = 0;
+    this.spokenFailureNotices.clear();
+  }
+
   private cancelScheduled(): void {
     this.cancelFlow();
     this.cancelLease();
@@ -627,7 +676,8 @@ export class PersonalRadioDjController {
 
   private async failAndRearm(generation: number, activityId: string, operationEpoch: number, text: string): Promise<void> {
     if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
-    try { await this.speak(text); } catch { /* speech failure must not wedge controller */ }
+    this.startFailureStreak++; // #115 — armIdle 지수 백오프의 근거
+    await this.speakFailureNoticeOnce(text);
     if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
     this.currentState = "idle";
     this.cancelLease();
@@ -641,7 +691,7 @@ export class PersonalRadioDjController {
     text: string,
   ): Promise<void> {
     if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
-    try { await this.speak(text); } catch { /* no-throw activity boundary */ }
+    await this.speakFailureNoticeOnce(text); /* no-throw activity boundary */
     if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
     this.currentState = "music_only";
   }

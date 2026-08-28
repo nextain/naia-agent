@@ -7,6 +7,9 @@ import type {
   ActivityWireEgress,
 } from "./activity-speech-egress.js";
 
+/** #115 — BGM status 관측 폴링 간격 하한. */
+export const MIN_BGM_STATUS_POLL_INTERVAL_MS = 1_000;
+
 export interface ActivityRadioDjBgmAdapter extends RadioDjBgmPort {
   resolveResult(
     requestId: string,
@@ -79,7 +82,9 @@ export function makeActivityRadioDjBgm(deps: {
 }): ActivityRadioDjBgmAdapter {
   const timeoutMs = deps.timeoutMs ?? 15_000;
   const observationTimeoutMs = deps.observationTimeoutMs ?? 15_000;
-  const pollIntervalMs = deps.pollIntervalMs ?? 100;
+  // #115 — status 관측 폴링 하한(≥1s): 선곡/관측 대기 경로가 appToolCall 왕복을 ~100ms 간격으로
+  //   폭주시키던 것을 차단한다(더 촘촘한 주입값도 하한으로 승격).
+  const pollIntervalMs = Math.max(MIN_BGM_STATUS_POLL_INTERVAL_MS, deps.pollIntervalMs ?? MIN_BGM_STATUS_POLL_INTERVAL_MS);
   const wait = deps.wait ?? ((delayMs: number) => new Promise<void>((resolve) => setTimeout(resolve, delayMs)));
   const now = deps.now ?? Date.now;
   const pending = new Map<string, {

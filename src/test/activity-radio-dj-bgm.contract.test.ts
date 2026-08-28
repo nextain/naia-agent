@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { makeActivityRadioDjBgm } from "../main/adapters/activity-radio-dj-bgm.js";
+import { makeActivityRadioDjBgm, MIN_BGM_STATUS_POLL_INTERVAL_MS } from "../main/adapters/activity-radio-dj-bgm.js";
 import { makeActivityRouteRegistry } from "../main/adapters/activity-speech-egress.js";
 
 describe("DJ-GRPC-01 activity app BGM correlation", () => {
@@ -177,5 +177,58 @@ describe("DJ-GRPC-01 activity app BGM correlation", () => {
       reason: "uncorrelated_next_receipt",
     });
     expect(emitted).toBe(0);
+  });
+});
+
+// ── #115 — status 관측 폴링 간격 하한(≥1s) 계약 (FR-CONT-MVP-10) ──
+describe("#115 BGM status 폴링 간격 하한", () => {
+  it("하한 미만 주입값(50ms)도 1s 로 승격되어 wait 간격이 항상 ≥ 1_000ms", async () => {
+    const routes = makeActivityRouteRegistry();
+    routes.set({ sessionId: "s", requestId: "r", activityId: "a", profileGeneration: 1 });
+    const waits: number[] = [];
+    const events: { toolCallId: string; action: string }[] = [];
+    const bgm = makeActivityRadioDjBgm({
+      routes,
+      wire: {
+        emit: (_s, _r, _a, _g, event) => {
+          if (event.kind === "appToolCall") events.push({
+            toolCallId: event.toolCallId,
+            action: String((event.args as { action?: unknown }).action),
+          });
+        },
+      },
+      specs: () => [{
+        name: "skill_youtube_bgm",
+        description: "",
+        parameters: { type: "object", properties: { action: { enum: ["play", "status", "stop"] } } },
+      }],
+      pollIntervalMs: 50, // 하한 미만 → 1s 승격
+      wait: async (delayMs) => { waits.push(delayMs); },
+    });
+    const play = bgm.searchAndPlay("q", { requestId: "r", activityId: "a" });
+    expect(events).toHaveLength(1);
+    bgm.resolveResult("r", "a", events[0]!.toolCallId, JSON.stringify({
+      ok: true, action: "play",
+      selected: { videoId: "v", title: "t" },
+      playback: { playbackId: "p", sequence: 1, status: "requested" },
+      announceTrack: false,
+    }), true);
+    await vi.waitFor(() => expect(events).toHaveLength(2));
+    bgm.resolveResult("r", "a", events[1]!.toolCallId, JSON.stringify({
+      ok: true, action: "status",
+      playback: { playbackId: "p", sequence: 2, status: "requested" },
+      announceTrack: false,
+    }), true);
+    await vi.waitFor(() => expect(events).toHaveLength(3));
+    bgm.resolveResult("r", "a", events[2]!.toolCallId, JSON.stringify({
+      ok: true, action: "status",
+      playback: { playbackId: "p", sequence: 3, status: "playing" },
+      currentTrack: { videoId: "v", title: "t" },
+      announceTrack: true,
+    }), true);
+    await expect(play).resolves.toEqual({ ok: true, videoId: "v", title: "t" });
+    expect(MIN_BGM_STATUS_POLL_INTERVAL_MS).toBe(1_000);
+    expect(waits.length).toBeGreaterThan(0);
+    expect(Math.min(...waits)).toBeGreaterThanOrEqual(1_000);
   });
 });

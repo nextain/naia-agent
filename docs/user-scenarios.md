@@ -454,6 +454,12 @@ Luke가 “음악만”, “말 줄여”, “다른 분위기”, “다음 곡
 “다음 곡” 또는 “다른 분위기”라고 말해야 새 시도를 정확히 한 번 시작하며, 동시에 들어온 교체 요청은
 하나의 진행 중인 시도로 합친다.
 
+프로필 재전송이나 이벤트 구독 재연결(churn)은 진행 중 상태를 파괴하지 않는다(#115) — 같은 설정의
+재-configure(비활성 재전송 포함)는 no-op 이고, "음악만"·"그만" 상태는 재연결 뒤에도 유지되며 자동
+재시작하지 않는다. 선곡 시작이 연속 실패하면 같은 실패 안내를 반복하지 않고(구간당 1회) 지수
+백오프(최대 10분)로만 재시도하며, 성공이나 사용자 명시 액션이 그 구간을 닫는다. 플레이어 상태 관측
+폴링은 1초 미만으로 조여지지 않는다.
+
 ### MVP-2 회사 전시 행사 소개
 
 회사 전시에서 Naia는 관람객 입력을 기다리지 않고 설정된 idle 뒤 먼저 짧게 인사하고 회사·제품·전시의
@@ -661,6 +667,7 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 | UC-THINKING / S-THINK-1·2·3 / FR-THINK-1~4 | `src/test/uc-thinking.contract.test.ts` (요청 body 검증: enableThinking=false+로컬 → `reasoning_effort:"none"` / true·미지정 → 미전송 / **원격 baseUrl → 미전송**(400 회귀 방지) / `isLocalEngineBaseUrl` 순수 판별) |
 | UC-THINKING / S-THINK-4·5 / FR-THINK-5·6 (#114) | `src/test/uc1-openai-compat.contract.test.ts` — describe "#114 deepseek [THINK] 정규화" (①닫힘쌍 분리 ②미닫힘 thinking flush·text 무누출 ③청크 경계 분할 태그 ④literal [think] 트레이드오프 계약 ⑤flavor 대칭·꺾쇠 무회귀) + describe "#114 스트림 idle 데드라인" (hang → 데드라인 내 throw+reader.cancel / 연속 청크 무절단 / 기본 45s 상수) |
 | FR-CONT-MVP-1~4·9 / 개인 라디오 DJ | 계약/통합: `src/test/personal-radio-dj.contract.test.ts` (`DJ-01~08`: ended 전환 멘트→radio 검색 포함), `src/test/activity-radio-dj-bgm.contract.test.ts`(`mode=radio_dj`, 최근곡·즐겨찾기 status), `src/test/radio-dj-shell-handoff.integration.test.ts`(실 Controller+activity app adapter의 ended→전환 발화→radio play→playing 관측), `src/test/radio-dj-product-acceptance.contract.test.ts`(local tombstone 우선 Naia Memory recall), `src/test/speech-profile-runtime.integration.test.ts`(제어 사전 검증), `src/test/grpc-shutdown.contract.test.ts`(제어 ACK가 긴 작업을 기다리지 않음). 실제 Tauri: shell `71-proactive-speech-profiles.spec.ts`의 profile 저장·복원과 `94-avatar-4060-facade.spec.ts`의 A→B 교체·TRT 발화·끼어들기. |
+| FR-CONT-MVP-10 / #115 off-레이스·백오프·폴링 하한 | `src/test/personal-radio-dj.contract.test.ts` — describe "#115 radio DJ off-race·backoff·configure contract" (music_only churn 보존 / stop 후 churn start 미호출 / 동등 config·disabled 재전송 no-op / 연속실패 발화 1회+지수 백오프 단조 증가·상한 / 사용자 액션 리셋) + `src/test/activity-radio-dj-bgm.contract.test.ts` — describe "#115 BGM status 폴링 간격 하한" (주입 50ms → 1s 승격, wait ≥ 1000ms) |
 | FR-APP-6 / 앱 screenshot multimodal 전달 | `src/test/uc-app-skill.contract.test.ts`의 bounded data URI 추출·실패 격리, provider 계약 테스트의 OpenAI/Anthropic/Ollama image block 매핑, Shell `capture.rs`·`tab-skills.ts` 실제 PNG 반환 경로 |
 | FR-CONT-MVP-1·2·5~8 / 회사 전시 소개 | 계약/통합: `src/test/exhibition-intro.contract.test.ts` (`EX-01~06`)가 소개3·질문 yield/resume·stale 폐기를 검증. 실제 Tauri: shell `71-proactive-speech-profiles.spec.ts`의 무입력 greeting과 stop만. audible TTS·실제 질문 barge-in은 미검증. |
 | UC-CONTINUE-SPEAKING / S-CONT-1~7 / FR-CONT-1~8 | 권위 계약 §10 AC1~18 matrix. `src/test/uc-continue-speaking.contract.test.ts`; `src/test/uc-continue-speaking-grpc.integration.test.ts` (`speech activity subscription lifecycle`, `stop response mapping`, `composition activity drain`); `src/test/conversation-log.{contract,integration}.test.ts`; `src/test/compose-agent-deps.integration.test.ts`; shell `packages/shell/src-tauri/src/agent_grpc.rs` `speech_activity_*` + `packages/shell/e2e-tauri/continuous-speech.spec.ts`; Ollama contract; 모델 앱 JSON |
