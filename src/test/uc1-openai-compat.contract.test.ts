@@ -36,8 +36,26 @@ describe("makeOpenAICompatProvider (GLM/openai SSE, mock)", () => {
     const out = await collect(prov(lines).chat(cfg, [], {}));
     expect(out.filter((c) => c.kind === "text").map((c) => (c as { text: string }).text)).toEqual(["부분1", "부분2"]);
   });
+  it("separates streamed think tags from the final answer", async () => {
+    const out = await collect(prov([
+      'data: {"choices":[{"delta":{"content":"<thi"}}]}\n',
+      'data: {"choices":[{"delta":{"content":"nk>private</think>Final"}}]}\n',
+      "data: [DONE]\n",
+    ]).chat(cfg, [], {}));
+    expect(out).toContainEqual({ kind: "thinking", text: "private" });
+    expect(out).toContainEqual({ kind: "text", text: "Final" });
+  });
+
   it("!ok → throw", async () => {
     await expect(collect(prov([], { ok: false, status: 401 }).chat(cfg, [], {}))).rejects.toThrow(/401/);
+  });
+  it("finish_reason=length is reported as truncation", async () => {
+    const lines = [
+      'data: {"choices":[{"delta":{"content":"partial"}}]}\n',
+      'data: {"choices":[{"delta":{},"finish_reason":"length"}],"usage":{"prompt_tokens":7590,"completion_tokens":602}}\n',
+      "data: [DONE]\n",
+    ];
+    await expect(collect(prov(lines).chat(cfg, [], {}))).rejects.toThrow(/truncated.*finish_reason=length/);
   });
   it("비-OK(429 등) 응답 본문을 throw 전에 취소 — dangling 소켓→libuv 어설션 방지(적대리뷰)", async () => {
     let cancelled = false;
@@ -103,12 +121,13 @@ describe("§C slice 1b — tool_calls 재조립", () => {
 
   it("DeepSeek ordinary chat forwards skill tools through the Naia resolver", async () => {
     const { fetch, box } = captureStream(["data: [DONE]\n"]);
-    const config: ProviderConfig = { provider: "nextain", model: "deepseek-v4-pro", naiaKey: "k" };
+    const config: ProviderConfig = { provider: "nextain", model: "deepseek-v4-flash", naiaKey: "k" };
     const provider = makeProviderResolver({ fetch: fetch as never }).resolve(config);
     await collect(provider.chat(config, [{ role: "user", content: "review" }], { tools }));
     expect(box.body?.tools).toEqual([
       { type: "function", function: { name: "echo", description: "echo it", parameters: { type: "object" } } },
     ]);
+    expect(box.body?.max_tokens).toBe(16_384);
   });
 
   it("(a) tools 전달 → body.tools 매핑 / (g) assistant(toolCalls)+tool 메시지 매핑(content null·tool_call_id)", async () => {

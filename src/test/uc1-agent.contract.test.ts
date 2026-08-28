@@ -1,7 +1,7 @@
 // UC1 agent(brain) 계약 테스트 (P02). fake ProviderPort → ChatTurnHandler → egress 캡처.
 import { describe, it, expect } from "vitest";
 import { mapProviderChunk, isTerminalEmit, parseInlineImageDataUri, threadToolRound, type AgentEmit, type ChatRequest } from "../main/domain/chat.js";
-import { ChatTurnHandler, type HandlerDeps } from "../main/app/chat-turn-handler.js";
+import { ChatTurnHandler, isLikelyIncompleteDeepSeekFinal, type HandlerDeps } from "../main/app/chat-turn-handler.js";
 import { decodeRequest, encodeEmit } from "../main/adapters/protocol.js";
 import { makeFakeProvider } from "../main/adapters/fake-provider.js";
 import { makeInMemoryCredentials } from "../main/composition/index.js";
@@ -50,6 +50,41 @@ describe("domain (agent UC1)", () => {
       { role: "tool", toolCallId: "c1", content: "attached" },
       { role: "user", content: "Image returned by tool skill_tab_screenshot.", inlineImages: [image] },
     ]);
+  });
+});
+
+describe("DeepSeek partial-final recovery", () => {
+  it("continues from a mid-sentence stop instead of accepting it as complete", async () => {
+    const { deps, emits } = capture();
+    let calls = 0;
+    const seenMessages: (readonly ChatMessage[])[] = [];
+    const provider: ProviderPort = {
+      async *chat(_config, messages): AsyncIterable<ProviderChunk> {
+        seenMessages.push(messages);
+        calls++;
+        if (calls === 1) yield { kind: "text", text: "지금 이 워크스페이스는 shell" };
+        else yield { kind: "text", text: " 기반으로 구성되어 있습니다." };
+        yield { kind: "finish" };
+      },
+    };
+    await new ChatTurnHandler({ ...deps, provider }).onChatRequest(req({
+      provider: { provider: "nextain", model: "deepseek-v4-flash" },
+    }));
+    expect(calls).toBe(2);
+    expect(seenMessages[1]?.at(-2)).toEqual({ role: "assistant", content: "지금 이 워크스페이스는 shell" });
+    expect(emits.filter(({ e }) => e.kind === "text").map(({ e }) => (e as { text: string }).text).join(""))
+      .toBe("지금 이 워크스페이스는 shell 기반으로 구성되어 있습니다.");
+    expect(emits.at(-1)?.e.kind).toBe("finish");
+  });
+});
+
+describe("DeepSeek incomplete-final detection", () => {
+  it.each(["", "아, 루크대표님.", "지금 이 워크스페이스는 shell", "그리고 조금 더"])("detects an incomplete final: %j", (text) => {
+    expect(isLikelyIncompleteDeepSeekFinal(text)).toBe(true);
+  });
+
+  it.each(["네.", "확인했어요", "현재 정상적으로 실행 중", "완료했습니다!"])("keeps a complete short final: %j", (text) => {
+    expect(isLikelyIncompleteDeepSeekFinal(text)).toBe(false);
   });
 });
 
