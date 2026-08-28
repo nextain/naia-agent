@@ -18,6 +18,9 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
 	"grok-4.5": { input: 2.0, output: 6.0 },
 	"grok-4.3": { input: 1.25, output: 2.5 },
 	"grok-build-0.1": { input: 1.0, output: 2.0 },
+	// DeepSeek (Naia 기본 모델 — 게이트웨이 오버레이가 SoT 지만, 라이브 갱신 전
+	//  기본 모델이 $0 로 보이면 안 되므로 정적 폴백을 유지한다. #458 회귀 계약)
+	"deepseek-v4-flash": { input: 0.209, output: 0.561 },
 	// Anthropic (alias = naia-os registry/anthropic·claude-code-cli provider 모델 — 비용 $0 회귀 방지, 적대적 리뷰 H1)
 	//  2026-08 공식가: fable-5 10/50, opus 4.6+ 5/25, sonnet 4.6·5 3/15, haiku-4.5 1/5.
 	"claude-fable-5": { input: 10.0, output: 50.0 },
