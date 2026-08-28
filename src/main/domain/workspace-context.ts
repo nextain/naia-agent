@@ -59,7 +59,7 @@ export function composeWorkspaceContext(snap: WorkspaceSnapshot): string {
   const total = snap.projectTotal ?? all.length;
 
   const lines: string[] = [];
-  if (cwd) lines.push(`Current dir: ${cwd}`);
+  if (cwd) lines.push(`Workspace root: ${cwd}`);
 
   if (all.length > 0) {
     // 각 이름 새니타이즈(C2 인젝션 차단) 후 cap 까지만 나열 — 악성 디렉터리명이 지시문으로 삽입되지 않게.

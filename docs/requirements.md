@@ -886,3 +886,9 @@ The Agent and Gateway preserve these codes end to end:
   경로이며 별도 요구사항으로 연다. 오케스트레이션은 이미 이 저장소에 있으므로 새로 만들지 않는다.
 - **Status**: In progress. UC-024 / SPEC-020 / TEST-S-024 / TEST-F-020 으로 추적한다.
   `.agents/context/process-status.json` 은 이 저장소에서 헌장 파일이라 P05 상태 갱신은 사람 승인 뒤에 한다.
+
+# FR-ACTION-1 — requested actions complete in the same turn
+
+When tools are available, a request to inspect, list, open, search, check weather, or control an app must invoke the relevant tool before the assistant claims completion. The assistant must not terminate with only a future-tense promise. A vague BGM request uses a sensible default query and starts playback. Provider reasoning stays separate from final answer text, and code is emitted as a language-tagged fenced block.
+
+Verification: `src/test/action-execution-policy.contract.test.ts` and the naia-shell v0.2.2 same-build E2E acceptance flow.

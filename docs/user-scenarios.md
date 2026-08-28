@@ -924,3 +924,12 @@ honestly. The loop has no arbitrary two-minute ceiling and stops only at explici
 | 활동 상태를 코어가 다시 정규화하고, 모르는 값은 unknown 으로 남긴다 | `uc-environment-segments.contract.test.ts` |
 | 표면 개수 상한과 누락 개수 보고, 빈 목록은 블록을 만들지 않는다 | `uc-environment-segments.contract.test.ts` |
 | 화이트리스트 밖 kind 는 드롭되고 기존 avatarEmotion·app·responseStyle 은 회귀하지 않는다 | `uc-environment-segments.contract.test.ts` |
+
+# UC-ACTION-COMPLETION — do the requested work, do not merely announce it
+
+1. Given filesystem, weather, and BGM tools are advertised, when the user asks to list the workspace, check Seoul weather, or play BGM, the model receives an explicit same-turn execution contract.
+2. The final response follows the tool result; it does not stop at “I will check” or “please wait”.
+3. A vague BGM request chooses a default query and invokes playback without an avoidable preference round-trip.
+4. Private reasoning is carried separately from the final response, while code uses a language-tagged fenced Markdown block.
+
+Coverage: `src/test/action-execution-policy.contract.test.ts` plus naia-shell v0.2.2 local E2E.

@@ -43,6 +43,42 @@ function toWireMessages(systemPrompt: string | undefined, messages: readonly Cha
 
 interface ToolAcc { id?: string; name?: string; args: string; excluded: boolean; conflict: boolean; }
 
+class ThinkingTagFilter {
+  private buffer = "";
+  private thinking = false;
+  push(value: string): ProviderChunk[] {
+    this.buffer += value;
+    const out: ProviderChunk[] = [];
+    while (this.buffer) {
+      const tag = this.thinking ? "</think>" : "<think>";
+      const lower = this.buffer.toLowerCase();
+      const at = lower.indexOf(tag);
+      if (at >= 0) {
+        const content = this.buffer.slice(0, at);
+        if (content) out.push(this.thinking ? { kind: "thinking", text: content } : { kind: "text", text: content });
+        this.buffer = this.buffer.slice(at + tag.length);
+        this.thinking = !this.thinking;
+        continue;
+      }
+      let retain = 0;
+      for (let n = Math.min(this.buffer.length, tag.length - 1); n > 0; n--) {
+        if (tag.startsWith(lower.slice(-n))) { retain = n; break; }
+      }
+      const content = this.buffer.slice(0, this.buffer.length - retain);
+      if (content) out.push(this.thinking ? { kind: "thinking", text: content } : { kind: "text", text: content });
+      this.buffer = this.buffer.slice(this.buffer.length - retain);
+      break;
+    }
+    return out;
+  }
+  flush(): ProviderChunk[] {
+    const content = this.buffer;
+    this.buffer = "";
+    if (!content) return [];
+    return [this.thinking ? { kind: "thinking", text: content } : { kind: "text", text: content }];
+  }
+}
+
 /**
  * baseUrl 예: https://api.z.ai/api/coding/paas/v4 (GLM coding plan). apiKey=Bearer.
  * model(옵션): config.model 이 백엔드 카탈로그에 없을 때 강제. 미지정 시 config.model.
@@ -58,7 +94,7 @@ export function buildPromptCacheShard(model: string, systemPrompt: string | unde
   return `agent-${createHash("sha256").update(input, "utf8").digest("hex")}`;
 }
 
-export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string; model?: string; auth?: "bearer" | "x-anyllm"; supportsReasoningEffort?: boolean; supportsTools?: boolean; promptCacheShard?: boolean; fetch?: FetchLike }): ProviderPort {
+export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string; model?: string; auth?: "bearer" | "x-anyllm"; supportsReasoningEffort?: boolean; supportsTools?: boolean; promptCacheShard?: boolean; maxTokens?: number; fetch?: FetchLike }): ProviderPort {
   const doFetch: FetchLike = deps.fetch ?? (globalThis.fetch as unknown as FetchLike);
   const base = deps.baseUrl.replace(/\/+$/, "");
   // ⚠️ x-anyllm(naia lab-proxy): 게이트웨이는 `Bearer <token>` 형식 요구(old lab-proxy.ts 와 동일).
@@ -90,7 +126,7 @@ export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string
       const resp = await doFetch(`${base}/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeader },
-        body: JSON.stringify({ model: requestModel, messages: wireMsgs, stream: true, stream_options: { include_usage: true }, ...(toolsBody ? { tools: toolsBody } : {}), ...(noThinkBody ?? {}), ...(promptCacheBody ?? {}) }),
+        body: JSON.stringify({ model: requestModel, messages: wireMsgs, stream: true, stream_options: { include_usage: true }, ...(deps.maxTokens ? { max_tokens: deps.maxTokens } : {}), ...(toolsBody ? { tools: toolsBody } : {}), ...(noThinkBody ?? {}), ...(promptCacheBody ?? {}) }),
         ...(opts.signal ? { signal: opts.signal } : {}),
       });
       if (!resp.ok || !resp.body) {
@@ -106,6 +142,8 @@ export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string
       const decoder = new TextDecoder();
       let buffer = "";
       let inTok = 0, outTok = 0;
+      let finishReason: string | undefined;
+      const thinkingFilter = new ThinkingTagFilter();
       const acc = new Map<number, ToolAcc>(); // index 별 tool_call 누적(§C.2)
 
       // SSE data json 1건 처리: content → 즉시 text chunk 반환. tool_calls/usage → 누적(side effect). error → throw.
@@ -116,13 +154,16 @@ export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string
         try { evt = JSON.parse(t); } catch { return []; } // 손상 SSE 줄 skip
         if (!evt || typeof evt !== "object") return [];
         const o = evt as {
-          choices?: { delta?: { content?: string; tool_calls?: Array<{ index?: unknown; id?: unknown; type?: unknown; function?: { name?: unknown; arguments?: unknown } }> } }[];
+          choices?: { finish_reason?: unknown; delta?: { content?: string; reasoning_content?: string; tool_calls?: Array<{ index?: unknown; id?: unknown; type?: unknown; function?: { name?: unknown; arguments?: unknown } }> } }[];
           usage?: { prompt_tokens?: number; completion_tokens?: number }; error?: unknown;
         };
         if (o.error) throw new Error(`OpenAI-compat stream error: ${JSON.stringify(o.error)}`);
         const out: ProviderChunk[] = [];
+        const rawFinishReason = o.choices?.[0]?.finish_reason;
+        if (typeof rawFinishReason === "string" && rawFinishReason !== "") finishReason = rawFinishReason;
         const delta = o.choices?.[0]?.delta;
-        if (delta?.content) out.push({ kind: "text", text: delta.content });
+        if (delta?.reasoning_content) out.push({ kind: "thinking", text: delta.reasoning_content });
+        if (delta?.content) out.push(...thinkingFilter.push(delta.content));
         const tcs = delta?.tool_calls;
         if (Array.isArray(tcs)) {
           for (const tc of tcs) {
@@ -152,6 +193,10 @@ export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string
       // 단일 finalize(§C.2): abort commit-point → parse-all-then-yield 원자 → toolUse → usage → finish.
       const finalize = function* (): Generator<ProviderChunk> {
         if (opts.signal?.aborted) return; // commit point: abort 면 배치 전체 미yield
+        yield* thinkingFilter.flush();
+        if (finishReason === "length" || finishReason === "max_tokens") {
+          throw new Error(`OpenAI-compat response truncated by provider (finish_reason=${finishReason})`);
+        }
         const indices = [...acc.keys()].filter((i) => !acc.get(i)!.excluded).sort((x, y) => x - y);
         // 1차: provider 제공 id 중복 거부 + used 집합 구성(합성 id 충돌 회피용).
         const used = new Set<string>();

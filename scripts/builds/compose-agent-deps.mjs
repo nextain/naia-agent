@@ -147,7 +147,9 @@ export async function composeAgentRuntimeDeps(o = {}) {
   //    (ChatTurnHandler 가 workspaceContext 로 per-turn snapshot()→composeWorkspaceContext, persona 뒤 append).
   //    shallow 1-depth readdir 만(<adkPath>/projects/ 디렉터리명) — 파일 내용/깊은 walk 없음(GLM: 덤프 방지).
   //    wsLabel 은 stderr 상태줄 표기용으로만 snapshot() 1회 추출(프로젝트 수 + cwd).
-  const workspaceContextSource = makeWorkspaceContextStore({ fs: nodeFs, adkPath, cwd: process.cwd() });
+  // Product chat is rooted at the selected ADK, not at the launcher process's
+  // implementation directory (for example naia-shell/src-tauri in dev mode).
+  const workspaceContextSource = makeWorkspaceContextStore({ fs: nodeFs, adkPath, cwd: adkPath });
   const wsSnap = workspaceContextSource.snapshot();
   const wsLabel = wsSnap
     ? `workspace(cwd=${wsSnap.cwd}, projects=${wsSnap.projectTotal})`

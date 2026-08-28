@@ -17,6 +17,14 @@ import { composePersonaPrompt } from "../domain/persona.js";
 import { composeWorkspaceContext } from "../domain/workspace-context.js";
 import { renderEnvironmentSegments } from "../domain/environment-segments.js";
 
+export const ACTION_EXECUTION_POLICY = [
+  "Operational behavior:",
+  "- When the user asks you to inspect, list, open, search, check weather, or control an available app, call the relevant tool in this turn before claiming that you did it.",
+  "- Do not answer with a promise such as 'I will check' or 'please wait' when an available tool can perform the requested action now.",
+  "- For a vague background-music request, choose a sensible default query and start playback instead of asking a preference question.",
+  "- Keep private reasoning in the provider reasoning channel; never repeat it in the final answer. Use fenced Markdown code blocks with a language identifier for code.",
+].join("\n");
+
 interface Turn { abort: AbortController; state: ChatTurnState; }
 
 const MAX_TOOL_ROUNDS = 8; // 허용 도구라운드 최대치(round 단위). cap-th 결과로 provider 1회 재호출 허용, 그게 또 도구면 error.
@@ -35,6 +43,17 @@ const CONTINUE_MAX_PAUSE_SECONDS = 30;
 const CONTINUE_MAX_UTTERANCES = 60;
 const CONTINUE_TOOL_RESULT_ACTIVATED = "continuous speaking activated";
 const CONTINUE_TOOL_RESULT_REJECTED = "continuous speaking rejected: explicit user request quote is missing or does not match the latest user message";
+
+/** DeepSeek V4 Flash can report `stop` for a visibly incomplete response. */
+export function isLikelyIncompleteDeepSeekFinal(text: string): boolean {
+  const value = text.trim();
+  if (!value) return true;
+  if (/^(?:아[,.!]?[ ]*)?(?:네[,.!]?[ ]*)?(?:루크[ ]*)?(?:대표님|님)[.!?…]*$/u.test(value)) return true;
+  if (/[A-Za-z0-9_]$/u.test(value)) return true;
+  if (/[.!?。！？…][\])}"'’”]*$/u.test(value)) return false;
+  if (/(?:요|다|죠|네|까|음|함|됨|중|완료)[\])}"'’”]*$/u.test(value)) return false;
+  return true;
+}
 
 /** UC-015 제어 도구 스펙. **export 이유 = 계측 드리프트 방지**: `benchmark/run-tool-selection-bench.mjs` 가
  *  도구 선택률(오호출률)을 잴 때 이 스펙을 **그대로** 쓴다. 복사본을 재면 설명을 고쳐도 계측이 안 따라와
@@ -312,13 +331,17 @@ export class ChatTurnHandler {
       // 예시의 locale 은 코어가 소유한 persona 프로필(config.json locale)에서 취함(클라가 안 보냄 — 권한 모델).
       // CLI 는 빈 배열 → ""(무영향). 화이트리스트 외 kind 는 renderEnvironmentSegments 가 드롭.
       const coreEnv = renderEnvironmentSegments(req.environmentSegments ?? [], personaProfile?.locale);
+      const exec = this.d.toolExecutor;
+      const allSpecs = exec?.specs() ?? [];
       // 코어 조립값 = persona ⊕ workspace ⊕ environment(전부 빈 값이면 "" → undefined). req.systemPrompt override 시 전부 무시.
       // ⚠️ override 신뢰모델(C2/C1, codex 적대리뷰): req.systemPrompt 는 코어 조립을 *무조건* 덮는다. **신뢰 로컬
       // 단일유저**(C1)에서만 수용 — systemPrompt override 는 신뢰 로컬 클라(--system/voice/discord) 전용이며,
       // naia-os 텍스트 채팅은 systemPrompt 미전송(environmentSegments 만 → persona 보존, S4). 악성 클라면 .keys 를
       // 직접 읽으므로 wire 게이팅은 무의미(GLM 위협모델). 원격/멀티테넌트면 override 게이팅 필요(미래 — NFR-PERSONA-trust-model).
       const coreComposed = [corePersona, coreWs, coreEnv].filter(Boolean).join("\n\n");
-      const baseSystemPrompt = req.systemPrompt ?? (coreComposed || undefined);
+      const selectedSystemPrompt = req.systemPrompt ?? (coreComposed || undefined);
+      const actionPolicy = req.enableTools === false || allSpecs.length === 0 ? "" : ACTION_EXECUTION_POLICY;
+      const baseSystemPrompt = [selectedSystemPrompt, actionPolicy].filter(Boolean).join("\n\n") || undefined;
       this.d.diag.debug?.("persona base 결정", { requestId: req.requestId, override: req.systemPrompt !== undefined, corePersona: corePersona.length > 0, workspace: coreWs.length > 0, environment: coreEnv.length > 0, source: req.systemPrompt !== undefined ? "override" : (coreComposed ? "core" : "none") });
       const asm = this.d.conversation.assemble({ messages: preMessages, systemPrompt: baseSystemPrompt });
       // UC-memory FR-MEM-1: 턴 전 recall → systemPrompt 주입(회상 있으면). 기준 = *이 턴의 새 user
@@ -334,6 +357,7 @@ export class ChatTurnHandler {
       let memSystemPrompt = compactionRecap
         ? (asm.systemPrompt ? `${asm.systemPrompt}\n\n## 이전 대화 요약(compacted)\n${compactionRecap}` : `## 이전 대화 요약(compacted)\n${compactionRecap}`)
         : asm.systemPrompt;
+	  let finalRecoveryUsed = false;
       // FR-MEM-1a: 빈/공백 query 는 app 계층에서 단락(recall 미호출) — 빈 query 가 전체/임의 top-K 를
       // 끌어와 무관 정보를 주입하는 것을 *어댑터 구현과 무관하게* 막는다(정책은 app 소유). 어댑터에도
       // 동일 가드(방어 심층).
@@ -351,9 +375,7 @@ export class ChatTurnHandler {
           if (recalled) memSystemPrompt = memSystemPrompt ? `${memSystemPrompt}\n\n${recalled}` : recalled;
         } catch (e) { this.safeDiag("memory recall 실패(턴 유지)", e); }
       }
-      const exec = this.d.toolExecutor;
       // UC5 리뷰 fix: enableTools=false → 도구 미제공(순수 챗), disabledSkills 필터(wire 필드 소비, old 충실).
-      const allSpecs = exec?.specs() ?? [];
       // UC-015: app 소유 semantic control 은 외부 executor 와 이름 충돌하지 않도록 우선한다. enableTools=false 만
       // 전체 도구를 끈다. 활성화/거부 뒤에는 control 을 다시 노출하지 않아 재호출 루프를 막는다.
       const externalTools = req.enableTools === false ? [] : allSpecs.filter((s) => s.name !== CONTINUE_SPEAKING_TOOL_NAME && !(req.disabledSkills ?? []).includes(s.name));
@@ -442,6 +464,22 @@ export class ChatTurnHandler {
         if (signal.aborted) { terminalError("cancelled"); break; }                  // (b) provider loop 종료 직후 가드(finish 직후 취소 시 finish/cap-error 선방출 차단)
         if (round.text) assistantTurnParts.push(round.text);                        // 이 라운드 assistant 텍스트 누적(도구 라운드 preamble 도 보존)
         if (round.calls.length === 0) {                                             // 최종 응답
+		  if (!round.text.trim() && !finalRecoveryUsed) {
+			finalRecoveryUsed = true;
+			memSystemPrompt = `${memSystemPrompt ?? ""}\n\nReturn the final answer now. Do not emit reasoning, <think> tags, or analysis. Answer the user's latest message directly.`.trim();
+			continue;
+		  }
+		  if (!round.text.trim()) { terminalError("provider returned reasoning without a final answer"); break; }
+		  const isDeepSeekV4Flash = /deepseek[-_/ ]?v4[-_/ ]?flash/i.test(`${providerConfig.provider}/${providerConfig.model}`);
+		  if (isDeepSeekV4Flash && !finalRecoveryUsed && isLikelyIncompleteDeepSeekFinal(round.text)) {
+			finalRecoveryUsed = true;
+			messages = [
+			  ...messages,
+			  { role: "assistant", content: round.text },
+			  { role: "user", content: "Continue exactly from the point where the answer was cut off. Complete the answer directly, without restarting, apologizing, reasoning, or mentioning this instruction." },
+			];
+			continue;
+		  }
           // 활성화 뒤 no-more-tool final text 만 발화로 센다. 빈 최종은 기존 단일턴처럼 즉시 커밋해 spin 방지.
           if (continuation && round.text) {
             continuation.utterances++;
