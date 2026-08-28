@@ -11,6 +11,8 @@
 //     override 시 둘 다 무시·workspaceContext 미주입 무회귀.
 // 권위: docs/requirements.md FR-WORKSPACE-1~4, docs/user-scenarios.md UC-WORKSPACE-CTX / S-WORKSPACE-1·2·3.
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { composeWorkspaceContext, PROJECT_RENDER_CAP, type WorkspaceSnapshot } from "../main/domain/workspace-context.js";
 import { makeWorkspaceContextStore, type WorkspaceFsRead, type WorkspaceDirent } from "../main/adapters/workspace-context-store.js";
 import { ChatTurnHandler, type HandlerDeps } from "../main/app/chat-turn-handler.js";
@@ -22,10 +24,19 @@ import type { PersonaProfile } from "../main/domain/persona.js";
 
 // ── S-WORKSPACE-1: composeWorkspaceContext (domain 순수) ──
 describe("composeWorkspaceContext — 렌더 (FR-WORKSPACE-1)", () => {
+	it("product composition identifies the selected ADK instead of the launcher cwd", () => {
+		const composition = readFileSync(
+			join(process.cwd(), "scripts", "builds", "compose-agent-deps.mjs"),
+			"utf8",
+		);
+		expect(composition).toContain("adkPath, cwd: adkPath");
+		expect(composition).not.toContain("adkPath, cwd: process.cwd()");
+	});
+
   it("cwd + projects → ## Workspace 블록(cwd 줄 + Projects 줄 + read_file 안내)", () => {
     const out = composeWorkspaceContext({ cwd: "/home/luke/alpha-adk", projects: ["naia-os", "naia-agent", "naia-memory"], projectTotal: 3 });
     expect(out).toContain("## Workspace");
-    expect(out).toContain("Current dir: /home/luke/alpha-adk");
+    expect(out).toContain("Workspace root: /home/luke/alpha-adk");
     expect(out).toContain("Projects (3): naia-os, naia-agent, naia-memory");
     expect(out).toContain("read_file"); // 상세는 도구로(S3) — FR-WORKSPACE-4
   });
@@ -33,7 +44,7 @@ describe("composeWorkspaceContext — 렌더 (FR-WORKSPACE-1)", () => {
   it("cwd 만(프로젝트 0개) → cwd 줄만(Projects 줄·안내 없음)", () => {
     const out = composeWorkspaceContext({ cwd: "/ws", projects: [], projectTotal: 0 });
     expect(out).toContain("## Workspace");
-    expect(out).toContain("Current dir: /ws");
+    expect(out).toContain("Workspace root: /ws");
     expect(out).not.toContain("Projects (");
     expect(out).not.toContain("read_file");
   });
@@ -253,7 +264,7 @@ describe("ChatTurnHandler workspace 조립 (FR-WORKSPACE-3)", () => {
     expect(seen.systemPrompt).toBeDefined();
     expect(seen.systemPrompt).toContain(ALPHA_PREFIX);          // persona
     expect(seen.systemPrompt).toContain("## Workspace");        // workspace
-    expect(seen.systemPrompt).toContain("Current dir: /home/luke/alpha-adk");
+    expect(seen.systemPrompt).toContain("Workspace root: /home/luke/alpha-adk");
     expect(seen.systemPrompt).toContain("Projects (2): naia-os, naia-agent");
     // append 순서: persona base 가 workspace 블록보다 앞
     expect(seen.systemPrompt!.indexOf(ALPHA_PREFIX)).toBeLessThan(seen.systemPrompt!.indexOf("## Workspace"));
