@@ -15,8 +15,9 @@ let inFlight: Promise<number> | null = null;
 
 interface GatewayPricingEntry {
 	readonly model_key?: string;
-	readonly input_price_per_million?: number;
-	readonly output_price_per_million?: number;
+	readonly input_price_per_million?: number | null;
+	readonly output_price_per_million?: number | null;
+	readonly pricing_unit?: string;
 }
 
 /** Strip the route prefix ("azure:deepseek-v4-flash" → "deepseek-v4-flash"). */
@@ -43,13 +44,21 @@ export async function ensureGatewayPricing(gatewayUrl?: string): Promise<number>
 			if (!resp.ok) return 0;
 			const raw: unknown = await resp.json();
 			if (!Array.isArray(raw)) return 0;
+			// null 가격은 "미책정"이지 0 이 아니다 — Number(null)=0 으로 정적 단가표를 0 으로
+			// 덮어쓰는 오염을 막기 위해 숫자 타입 + per_token 항목만 오버레이에 반영한다.
 			return applyGatewayPricing(
 				(raw as GatewayPricingEntry[])
-					.filter((e) => typeof e.model_key === "string")
+					.filter(
+						(e) =>
+							typeof e.model_key === "string" &&
+							typeof e.input_price_per_million === "number" &&
+							typeof e.output_price_per_million === "number" &&
+							(e.pricing_unit === undefined || e.pricing_unit === "per_token"),
+					)
 					.map((e) => ({
 						model: bareModelId(e.model_key as string),
-						input: Number(e.input_price_per_million),
-						output: Number(e.output_price_per_million),
+						input: e.input_price_per_million as number,
+						output: e.output_price_per_million as number,
 					})),
 			);
 		} catch {

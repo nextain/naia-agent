@@ -71,13 +71,15 @@ describe("cost 과금 0 회귀 방지 (native 모델 = MODEL_PRICING 키 — os 
   //    native(per-token)만 — nextain(게이트웨이 SoT)·claude-code-cli($0 구독)·ollama/vllm(동적)·realtime(시간 과금) 제외.
   //    (정직: 자동 정합이 아니라 '수동 동기화 + 변경 감지' — codex HIGH3. 자동 단일 SoT 는 후속. zai/glm 통째 누락이 과거 과금 0 회귀.)
   const REGISTRY_PRICED_MODELS = [
-    "claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5-20251001",                      // anthropic
-    "gpt-5.5", "gpt-5.4", "gpt-4.1", "gpt-4.1-mini", "o4-mini", "gpt-4o", // openai (gpt-5.2/5.1 = deprecated 회색지대 제거 2026-06-18)
+    "claude-fable-5", "claude-opus-4-8", "claude-sonnet-5",                                     // anthropic (2026-08 라인업)
+    "claude-sonnet-4-6", "claude-haiku-4-5-20251001",
+    "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna",                                             // openai (o4-mini = 2026-10-23 shutdown 예고 제거)
+    "gpt-5.5", "gpt-5.4", "gpt-4.1", "gpt-4.1-mini", "gpt-4o",
     "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite",       // gemini(native)
     "gemini-3.1-flash-lite", "gemini-3.1-pro-preview",
-    "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash",
-    "grok-4.3", "grok-4", "grok-4.1-fast", "grok-code-fast-1", "grok-3-mini",                   // xai
-    "glm-5.2", "glm-5.1", "glm-5-turbo", "glm-4.7", "glm-4.5-air",                              // zai
+    "gemini-2.5-pro", "gemini-2.5-flash",
+    "grok-4.6", "grok-4.5", "grok-4.3", "grok-build-0.1",                                       // xai (구모델 2026-05-15 retire)
+    "glm-5.3", "glm-5.3-flash", "glm-5.2", "glm-5.1", "glm-5-turbo",                            // zai (4.x 제거)
   ];
 
   it("registry native 모델 전부 MODEL_PRICING 등록(0 회귀 없음)", () => {
@@ -85,15 +87,26 @@ describe("cost 과금 0 회귀 방지 (native 모델 = MODEL_PRICING 키 — os 
     expect(missing, `cost.ts 미등록(과금 0 회귀): ${missing.join(", ")}`).toEqual([]);
   });
 
-  it("최신 모델 과금 > 0 (opus-4-8/gpt-5.5/grok-4.3/glm-5.2)", () => {
-    for (const m of ["claude-opus-4-8", "gpt-5.5", "grok-4.3", "glm-5.2"]) {
+  it("최신 모델 과금 > 0 (fable-5/gpt-5.6-sol/grok-4.6/glm-5.3)", () => {
+    for (const m of ["claude-fable-5", "gpt-5.6-sol", "grok-4.6", "glm-5.3"]) {
       expect(calculateCost(m, 1_000_000, 1_000_000), m).toBeGreaterThan(0);
     }
+  });
+
+  it("2026-08 공식가 반영(단가 교정 회귀 방지)", () => {
+    expect(calculateCost("claude-opus-4-8", 1_000_000, 1_000_000)).toBeCloseTo(5.0 + 25.0, 6);
+    expect(calculateCost("claude-fable-5", 1_000_000, 1_000_000)).toBeCloseTo(10.0 + 50.0, 6);
+    expect(calculateCost("gpt-5.5", 1_000_000, 1_000_000)).toBeCloseTo(5.0 + 30.0, 6);
   });
 
   it("claude-code-cli provider = $0 (구독, per-token 제외) / anthropic 동일 모델은 과금", () => {
     expect(calculateCost("claude-sonnet-4-6", 1_000_000, 1_000_000, "claude-code-cli")).toBe(0);
     expect(calculateCost("claude-sonnet-4-6", 1_000_000, 1_000_000, "anthropic")).toBeGreaterThan(0);
+  });
+
+  it("codex provider = $0 (ChatGPT 구독) / openai 동일 모델은 과금", () => {
+    expect(calculateCost("gpt-5.6-sol", 1_000_000, 1_000_000, "codex")).toBe(0);
+    expect(calculateCost("gpt-5.6-sol", 1_000_000, 1_000_000, "openai")).toBeGreaterThan(0);
   });
 });
 

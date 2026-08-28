@@ -60,6 +60,26 @@ describe("adapters gateway-pricing — fetch and merge", () => {
 		expect(calculateCost("fetch-test-model", 1_000_000, 0)).toBeCloseTo(0.5, 6);
 	});
 
+	it("null 가격·비-per_token 항목은 오버레이에 반영하지 않는다(Number(null)=0 오염 방지)", async () => {
+		const fetchMock = vi.fn().mockResolvedValue({
+			ok: true,
+			json: async () => [
+				// null 가격 = 미책정 — 0 으로 덮어쓰면 정적 단가표를 오염시킨다.
+				{ model_key: "gemini:gemini-2.5-flash", input_price_per_million: null, output_price_per_million: null },
+				// per_hour 모델의 per-million 필드는 토큰 과금 단가가 아니다.
+				{ model_key: "vllm:hourly-model", input_price_per_million: 0.39, output_price_per_million: 0, pricing_unit: "per_hour" },
+				{ model_key: "azure:valid-token-model", input_price_per_million: 0.5, output_price_per_million: 1.5, pricing_unit: "per_token" },
+			],
+		});
+		vi.stubGlobal("fetch", fetchMock);
+		const applied = await ensureGatewayPricing("https://gw.example");
+		expect(applied).toBe(1);
+		// 정적 단가는 그대로 살아 있다(0 으로 오염되지 않음).
+		expect(calculateCost("gemini-2.5-flash", 1_000_000, 0)).toBeGreaterThan(0);
+		expect(calculateCost("hourly-model", 1_000_000, 0)).toBe(0);
+		expect(calculateCost("valid-token-model", 1_000_000, 0)).toBeCloseTo(0.5, 6);
+	});
+
 	it("network failure is silent and leaves the static fallback in force", async () => {
 		vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("offline")));
 		await expect(ensureGatewayPricing()).resolves.toBe(0);
