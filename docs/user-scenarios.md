@@ -110,7 +110,7 @@ an isolated worktree, and an exclusive lease before Codex can write.
 | UC-FS-TOOLS | 에이전트가 **직접 도구**로 워크스페이스 내 파일을 나열/읽기(기본), opt-in 으로 쓰기/셸 실행 — allow-root sandbox + 민감경로 denylist + realpath 재검증(TOCTOU) + tier 승인 | `docs/requirements.md` FR-FS-1~8 / NFR-SEC (집약) |
 | UC-KNOWLEDGE | 코어가 컴파일된 워크스페이스 지식(KB)을 **풀 도구**(`skill_knowledge_search`/`ask`)로 노출 → 에이전트가 근거 있는 답변·근거 없으면 기권. + **컴파일 트리거**(`CompileKnowledge` RPC, K1b — 소스 폴더→kb.json). memory(푸시)와 분리된 풀(tool) | `docs/requirements.md` FR-KB-1~5 (집약) |
 | UC-HLMEM | 인간유사 기억 **측정**(memory-as-user-model) — 장기기억이 사용자의 held-out 선택을 예측하나(F1 취향), 본인 기억이 예측하고 타인 기억은 오도하나(F2 자아특이성), 감정 salience 가중(F3, P6). vs 완벽회상 아님. 벤치(benchmark/src) 측정, 실행경로 아님 | `docs/progress/99.dev-comm/UC-HLMEM-humanlike-memory-measurement-contract-2026-07-07.md` + `docs/requirements.md` FR-HLMEM-1~7 |
-| UC-THINKING | 추론(thinking) 모델의 **생각 출력 제어** — 로컬 추론 모델이 생각에 토큰을 다 써 최종 답변을 못 내는 것을 막는다. `enableThinking=false` 를 OpenAI-compat wire 에도 반영(`reasoning_effort:"none"`), **로컬 엔진에만** 적용(원격 클라우드는 400) | `docs/requirements.md` FR-THINK-1~4 (집약) |
+| UC-THINKING | 추론(thinking) 모델의 **생각 출력 제어** — 로컬 추론 모델이 생각에 토큰을 다 써 최종 답변을 못 내는 것을 막는다. `enableThinking=false` 를 OpenAI-compat wire 에도 반영(`reasoning_effort:"none"`), **로컬 엔진에만** 적용(원격 클라우드는 400) | `docs/requirements.md` FR-THINK-1~6 (집약) |
 | UC-CONTINUE-SPEAKING | 사용자 요청 또는 내부 활동 트리거로 시작한 에이전트가 라디오처럼 여러 번 이어 말하고, 사용자의 끼어들기에는 즉시 멈춘다 | `docs/progress/99.dev-comm/UC-CONTINUE-SPEAKING-contract-2026-07-16.md` |
 
 ## UC-MEM-1 (장기기억 회상)
@@ -403,6 +403,14 @@ ProviderPort). 옛 `<recall>` 마커·"부적절=실패" 도덕채점 폐기(SoT
 - **S-THINK-3 (기존 provider 무영향)**: anthropic·claude-code·ollama(native) 어댑터는 이미 각자
   `enableThinking` 을 소비한다(`anthropic-provider.ts:80`, `ollama-provider.ts:42`). 본 UC 는
   **OpenAI-compat 어댑터의 누락만** 메운다 — 다른 어댑터·도메인 계약·gRPC proto 는 건드리지 않는다.
+- **S-THINK-4 (deepseek 대괄호 태그 정규화 — #114)**: deepseek(lab-proxy)가 content 스트림에 싣는
+  `[THINK]`...`[/THINK]`(미닫힘 포함)를 꺾쇠 `<think>` 와 대칭으로 thinking 채널로 분리한다. 청크 경계에
+  걸린 부분 태그는 버퍼링하고, 미닫힘 잔여는 thinking 으로 flush 해 추론 원문이 셸 text 로 새지 않는다.
+  본문 중간 literal `[think]` 는 태그로 해석될 수 있으나(각오한 트레이드오프, 계약 테스트로 명시) 오인
+  방향은 항상 "숨김"이다.
+- **S-THINK-5 (스트림 idle 데드라인 — #114)**: 게이트웨이가 종료 신호 없이 무수신 hang 이면 마지막 청크
+  이후 45초(상수, 주입 가능)에 스트림을 에러로 끊어 터미널 이벤트를 보장한다. 총시간 기준이 아니므로
+  정상 장문 스트림은 절단되지 않는다.
 
 직교: 컨텍스트 예산(도구 스키마 미계상 / `finish` 에 잘림 사유 부재 / 잘림을 성공으로 오인)은 **별개 결함**
 (#80) 으로 분리 — 본 UC 는 "생각이 답변 예산을 잠식하는" 축만 닫는다.
@@ -651,6 +659,7 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 | UC-PROV-1 / FR-PROV-1·2·3 | `src/test/all-providers-wiring.contract.test.ts`, `uc1-reload-default-config.contract.test.ts`, `uc-naia-settings-store.contract.test.ts` |
 | UC-PROV-1 / FR-PROV-7 (로그인·workspace credential 동기화) | `src/test/uc-keychain-credentials.contract.test.ts`(login 전 부재·키 교체·workspace 분리·복호화 재시도), `src/test/discord-entry-wiring.contract.test.ts`(production DPAPI reader·SetWorkspace rollback 배선) |
 | UC-THINKING / S-THINK-1·2·3 / FR-THINK-1~4 | `src/test/uc-thinking.contract.test.ts` (요청 body 검증: enableThinking=false+로컬 → `reasoning_effort:"none"` / true·미지정 → 미전송 / **원격 baseUrl → 미전송**(400 회귀 방지) / `isLocalEngineBaseUrl` 순수 판별) |
+| UC-THINKING / S-THINK-4·5 / FR-THINK-5·6 (#114) | `src/test/uc1-openai-compat.contract.test.ts` — describe "#114 deepseek [THINK] 정규화" (①닫힘쌍 분리 ②미닫힘 thinking flush·text 무누출 ③청크 경계 분할 태그 ④literal [think] 트레이드오프 계약 ⑤flavor 대칭·꺾쇠 무회귀) + describe "#114 스트림 idle 데드라인" (hang → 데드라인 내 throw+reader.cancel / 연속 청크 무절단 / 기본 45s 상수) |
 | FR-CONT-MVP-1~4·9 / 개인 라디오 DJ | 계약/통합: `src/test/personal-radio-dj.contract.test.ts` (`DJ-01~08`: ended 전환 멘트→radio 검색 포함), `src/test/activity-radio-dj-bgm.contract.test.ts`(`mode=radio_dj`, 최근곡·즐겨찾기 status), `src/test/radio-dj-shell-handoff.integration.test.ts`(실 Controller+activity app adapter의 ended→전환 발화→radio play→playing 관측), `src/test/radio-dj-product-acceptance.contract.test.ts`(local tombstone 우선 Naia Memory recall), `src/test/speech-profile-runtime.integration.test.ts`(제어 사전 검증), `src/test/grpc-shutdown.contract.test.ts`(제어 ACK가 긴 작업을 기다리지 않음). 실제 Tauri: shell `71-proactive-speech-profiles.spec.ts`의 profile 저장·복원과 `94-avatar-4060-facade.spec.ts`의 A→B 교체·TRT 발화·끼어들기. |
 | FR-APP-6 / 앱 screenshot multimodal 전달 | `src/test/uc-app-skill.contract.test.ts`의 bounded data URI 추출·실패 격리, provider 계약 테스트의 OpenAI/Anthropic/Ollama image block 매핑, Shell `capture.rs`·`tab-skills.ts` 실제 PNG 반환 경로 |
 | FR-CONT-MVP-1·2·5~8 / 회사 전시 소개 | 계약/통합: `src/test/exhibition-intro.contract.test.ts` (`EX-01~06`)가 소개3·질문 yield/resume·stale 폐기를 검증. 실제 Tauri: shell `71-proactive-speech-profiles.spec.ts`의 무입력 greeting과 stop만. audible TTS·실제 질문 barge-in은 미검증. |

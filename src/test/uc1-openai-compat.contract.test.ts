@@ -1,6 +1,6 @@
 // OpenAI-compat(GLM/zai) ProviderPort 계약 테스트 — mock fetch(SSE 재현, 실 API 없이).
 import { describe, it, expect } from "vitest";
-import { makeOpenAICompatProvider } from "../main/adapters/openai-compat-provider.js";
+import { makeOpenAICompatProvider, STREAM_IDLE_TIMEOUT_MS } from "../main/adapters/openai-compat-provider.js";
 import { makeProviderResolver } from "../main/adapters/provider-resolver.js";
 import type { ProviderChunk, ProviderConfig } from "../main/domain/chat.js";
 
@@ -225,5 +225,98 @@ describe("§C slice 1b — tool_calls 재조립", () => {
       'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c","function":{"name":"echo","arguments":"{}"}}]}}]}\n', "data: [DONE]\n",
     ]).fetch).chat(cfg, [], { tools, signal: ac.signal }));
     expect(out.length).toBe(0); // commit-point: abort 면 배치 전체 미방출
+  });
+});
+
+// ── #114 — deepseek [THINK] 대괄호 태그 정규화 + 스트림 idle 데드라인 (FR-THINK-5·6) ──
+describe("#114 deepseek [THINK] 정규화 (FR-THINK-5)", () => {
+  it("① [THINK]x[/THINK]y → thinking=x, text=y (대소문자 무관)", async () => {
+    const out = await collect(prov([
+      'data: {"choices":[{"delta":{"content":"[THINK]내부 추론[/THINK]최종 답"}}]}\n',
+      "data: [DONE]\n",
+    ]).chat(cfg, [], {}));
+    expect(out).toContainEqual({ kind: "thinking", text: "내부 추론" });
+    expect(out).toContainEqual({ kind: "text", text: "최종 답" });
+    expect(out.filter((c) => c.kind === "text").map((c) => (c as { text: string }).text).join("")).toBe("최종 답");
+  });
+  it("② 미닫힘 [THINK]x 스트림종료 → thinking 으로 flush(text 누출 0 — 셸 노출 사고 차단)", async () => {
+    const out = await collect(prov([
+      'data: {"choices":[{"delta":{"content":"[THINK]새면 안 되는 추론 원문"}}]}\n',
+      "data: [DONE]\n",
+    ]).chat(cfg, [], {}));
+    expect(out.filter((c) => c.kind === "text")).toEqual([]); // text 무누출
+    expect(out.filter((c) => c.kind === "thinking").map((c) => (c as { text: string }).text).join("")).toBe("새면 안 되는 추론 원문");
+  });
+  it("③ 청크 경계 분할 태그([TH / INK]·[/THI / NK]) 재조립(부분 태그 버퍼링)", async () => {
+    const out = await collect(prov([
+      'data: {"choices":[{"delta":{"content":"[TH"}}]}\n',
+      'data: {"choices":[{"delta":{"content":"INK]속마음[/THI"}}]}\n',
+      'data: {"choices":[{"delta":{"content":"NK]겉말"}}]}\n',
+      "data: [DONE]\n",
+    ]).chat(cfg, [], {}));
+    expect(out.filter((c) => c.kind === "thinking").map((c) => (c as { text: string }).text).join("")).toBe("속마음");
+    expect(out.filter((c) => c.kind === "text").map((c) => (c as { text: string }).text).join("")).toBe("겉말");
+  });
+  it("④ 계약(각오한 트레이드오프): 본문 중간 literal [think] (닫힘쌍 없음) 이후는 thinking 으로 — text 로는 절대 새지 않는다", async () => {
+    const out = await collect(prov([
+      'data: {"choices":[{"delta":{"content":"태그 설명: [think] 라고 쓰면 생각이 시작됩니다"}}]}\n',
+      "data: [DONE]\n",
+    ]).chat(cfg, [], {}));
+    // 여는 태그 앞까지는 text, 이후(닫힘 없음)는 thinking flush — 오인 방향은 항상 "숨김"이지 "노출"이 아니다.
+    expect(out.filter((c) => c.kind === "text").map((c) => (c as { text: string }).text).join("")).toBe("태그 설명: ");
+    expect(out.filter((c) => c.kind === "thinking").map((c) => (c as { text: string }).text).join("")).toBe(" 라고 쓰면 생각이 시작됩니다");
+  });
+  it("flavor 대칭: [THINK] 는 [/THINK] 로만 닫힌다(</think> 는 내용) + 꺾쇠 <think> 무회귀", async () => {
+    const out = await collect(prov([
+      'data: {"choices":[{"delta":{"content":"[THINK]a</think>b[/THINK]c<think>d</think>e"}}]}\n',
+      "data: [DONE]\n",
+    ]).chat(cfg, [], {}));
+    expect(out.filter((c) => c.kind === "thinking").map((c) => (c as { text: string }).text).join("")).toBe("a</think>bd");
+    expect(out.filter((c) => c.kind === "text").map((c) => (c as { text: string }).text).join("")).toBe("ce");
+  });
+});
+
+describe("#114 스트림 idle 데드라인 (FR-THINK-6)", () => {
+  const enc = new TextEncoder();
+  it("⑤ 무수신 hang → 데드라인 내 에러 throw + reader.cancel(터널 hang 이 턴을 영구 점유하지 못한다)", async () => {
+    let cancelled = false;
+    let reads = 0;
+    const reader = {
+      read: () => {
+        reads++;
+        return reads === 1
+          ? Promise.resolve({ done: false, value: enc.encode('data: {"choices":[{"delta":{"content":"부분"}}]}\n') })
+          : new Promise<never>(() => {}); // 이후 영구 무수신(게이트웨이 hang 재현)
+      },
+      cancel: async () => { cancelled = true; },
+    };
+    const fetch = async () => ({ ok: true, status: 200, statusText: "OK", body: { getReader: () => reader } });
+    const provider = makeOpenAICompatProvider({ baseUrl: "https://x", apiKey: "k", idleTimeoutMs: 30, fetch: fetch as never });
+    await expect(collect(provider.chat(cfg, [], {}))).rejects.toThrow(/idle/);
+    expect(cancelled).toBe(true); // finally 가 연결 정리
+  });
+  it("청크가 계속 오면 idle 데드라인은 발화하지 않는다(총시간 기준 금지 — 정상 장문 무절단)", async () => {
+    const lines = [
+      'data: {"choices":[{"delta":{"content":"1"}}]}\n',
+      'data: {"choices":[{"delta":{"content":"2"}}]}\n',
+      'data: {"choices":[{"delta":{"content":"3"}}]}\n',
+      "data: [DONE]\n",
+    ];
+    let i = 0;
+    const reader = {
+      read: () => new Promise<{ done: boolean; value?: Uint8Array }>((resolve) => {
+        setTimeout(() => resolve(i >= lines.length ? { done: true } : { done: false, value: enc.encode(lines[i++]!) }), 20);
+      }),
+      cancel: async () => {},
+    };
+    const fetch = async () => ({ ok: true, status: 200, statusText: "OK", body: { getReader: () => reader } });
+    // 데드라인 50ms > 청크 간격 20ms — 총 소요(80ms+)가 데드라인을 넘어도 끊기지 않는다(idle 기준).
+    const provider = makeOpenAICompatProvider({ baseUrl: "https://x", apiKey: "k", idleTimeoutMs: 50, fetch: fetch as never });
+    const out = await collect(provider.chat(cfg, [], {}));
+    expect(out.filter((c) => c.kind === "text").map((c) => (c as { text: string }).text).join("")).toBe("123");
+    expect(out.at(-1)).toEqual({ kind: "finish" });
+  });
+  it("기본 데드라인 = 45s 상수", () => {
+    expect(STREAM_IDLE_TIMEOUT_MS).toBe(45_000);
   });
 });

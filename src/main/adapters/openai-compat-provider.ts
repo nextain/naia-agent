@@ -43,34 +43,77 @@ function toWireMessages(systemPrompt: string | undefined, messages: readonly Cha
 
 interface ToolAcc { id?: string; name?: string; args: string; excluded: boolean; conflict: boolean; }
 
+/** #114 — 스트림 idle 데드라인: 마지막 청크 수신 후 이 시간 동안 무수신이면 abort(게이트웨이가 종료
+ *  신호를 안 줄 때 턴 영구 hang 방지). 총시간 상한이 **아니다** — 정상 장문 스트림은 청크가 계속 오므로 안 끊긴다. */
+export const STREAM_IDLE_TIMEOUT_MS = 45_000;
+
+type ThinkTagFlavor = "angle" | "bracket";
+// deepseek(lab-proxy 게이트웨이)는 reasoning 을 content 스트림에 대괄호 [THINK]...[/THINK] 로 싣는다(#114 실측
+// — 미닫힘 스트림도 관측됨). 꺾쇠 <think> 와 **대칭**으로 인식하되, 연 flavor 와 같은 flavor 의 닫는 태그만 닫는다.
+// 트레이드오프(계약, 테스트로 명시): 본문 중간의 literal "[think]"/"<think>" 도 태그로 해석된다 — 오인 시 이후
+// 내용이 thinking 으로 흘러 사용자에게 안 보일 수 있으나, thinking 원문이 text 로 새는 사고(#114 본질)는 없다(fail-safe).
+const THINK_OPEN_TAGS: readonly { readonly flavor: ThinkTagFlavor; readonly tag: string }[] = [
+  { flavor: "angle", tag: "<think>" },
+  { flavor: "bracket", tag: "[think]" },
+];
+const THINK_CLOSE_TAGS: Record<ThinkTagFlavor, string> = { angle: "</think>", bracket: "[/think]" };
+
+/** buffer 끝이 tags 중 하나의 진성 접두(부분 태그)면 보류할 최대 길이(청크 경계 버퍼링 — 기존 메커니즘 일반화). */
+function partialTagSuffixLen(lowerBuffer: string, tags: readonly string[]): number {
+  let retain = 0;
+  for (const tag of tags) {
+    for (let n = Math.min(lowerBuffer.length, tag.length - 1); n > retain; n--) {
+      if (tag.startsWith(lowerBuffer.slice(-n))) { retain = n; break; }
+    }
+  }
+  return retain;
+}
+
 class ThinkingTagFilter {
   private buffer = "";
-  private thinking = false;
+  private thinking: ThinkTagFlavor | undefined;
   push(value: string): ProviderChunk[] {
     this.buffer += value;
     const out: ProviderChunk[] = [];
     while (this.buffer) {
-      const tag = this.thinking ? "</think>" : "<think>";
       const lower = this.buffer.toLowerCase();
-      const at = lower.indexOf(tag);
-      if (at >= 0) {
-        const content = this.buffer.slice(0, at);
-        if (content) out.push(this.thinking ? { kind: "thinking", text: content } : { kind: "text", text: content });
-        this.buffer = this.buffer.slice(at + tag.length);
-        this.thinking = !this.thinking;
+      if (this.thinking) {
+        const tag = THINK_CLOSE_TAGS[this.thinking];
+        const at = lower.indexOf(tag);
+        if (at >= 0) {
+          const content = this.buffer.slice(0, at);
+          if (content) out.push({ kind: "thinking", text: content });
+          this.buffer = this.buffer.slice(at + tag.length);
+          this.thinking = undefined;
+          continue;
+        }
+        const retain = partialTagSuffixLen(lower, [tag]);
+        const content = this.buffer.slice(0, this.buffer.length - retain);
+        if (content) out.push({ kind: "thinking", text: content });
+        this.buffer = this.buffer.slice(this.buffer.length - retain);
+        break;
+      }
+      let hit: { at: number; flavor: ThinkTagFlavor; len: number } | undefined;
+      for (const { flavor, tag } of THINK_OPEN_TAGS) {
+        const at = lower.indexOf(tag);
+        if (at >= 0 && (hit === undefined || at < hit.at)) hit = { at, flavor, len: tag.length };
+      }
+      if (hit) {
+        const content = this.buffer.slice(0, hit.at);
+        if (content) out.push({ kind: "text", text: content });
+        this.buffer = this.buffer.slice(hit.at + hit.len);
+        this.thinking = hit.flavor;
         continue;
       }
-      let retain = 0;
-      for (let n = Math.min(this.buffer.length, tag.length - 1); n > 0; n--) {
-        if (tag.startsWith(lower.slice(-n))) { retain = n; break; }
-      }
+      const retain = partialTagSuffixLen(lower, THINK_OPEN_TAGS.map((t) => t.tag));
       const content = this.buffer.slice(0, this.buffer.length - retain);
-      if (content) out.push(this.thinking ? { kind: "thinking", text: content } : { kind: "text", text: content });
+      if (content) out.push({ kind: "text", text: content });
       this.buffer = this.buffer.slice(this.buffer.length - retain);
       break;
     }
     return out;
   }
+  /** 스트림 종료: 미닫힘 thinking 잔여는 **thinking 으로** flush — 원문을 text 로 노출하지 않는다(#114). */
   flush(): ProviderChunk[] {
     const content = this.buffer;
     this.buffer = "";
@@ -94,7 +137,7 @@ export function buildPromptCacheShard(model: string, systemPrompt: string | unde
   return `agent-${createHash("sha256").update(input, "utf8").digest("hex")}`;
 }
 
-export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string; model?: string; auth?: "bearer" | "x-anyllm"; supportsReasoningEffort?: boolean; supportsTools?: boolean; promptCacheShard?: boolean; maxTokens?: number; fetch?: FetchLike }): ProviderPort {
+export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string; model?: string; auth?: "bearer" | "x-anyllm"; supportsReasoningEffort?: boolean; supportsTools?: boolean; promptCacheShard?: boolean; maxTokens?: number; idleTimeoutMs?: number; fetch?: FetchLike }): ProviderPort {
   const doFetch: FetchLike = deps.fetch ?? (globalThis.fetch as unknown as FetchLike);
   const base = deps.baseUrl.replace(/\/+$/, "");
   // ⚠️ x-anyllm(naia lab-proxy): 게이트웨이는 `Bearer <token>` 형식 요구(old lab-proxy.ts 와 동일).
@@ -234,10 +277,28 @@ export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string
         yield { kind: "finish" };
       };
 
+      const idleTimeoutMs = deps.idleTimeoutMs ?? STREAM_IDLE_TIMEOUT_MS;
+      // #114 — 마지막 청크 수신 후 idle 데드라인 race. 초과 시 throw → runRound catch → rejected → terminal error
+      //   (기존 abort/에러 배선 재사용). finally 의 reader.cancel() 이 연결을 정리한다. 총시간 기준이 아니므로
+      //   청크가 계속 오는 정상 장문 스트림은 절단되지 않는다.
+      const readWithIdleDeadline = async (): Promise<{ done: boolean; value?: Uint8Array }> => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          return await Promise.race([
+            reader.read(),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(() => reject(new Error(`OpenAI-compat stream idle for ${idleTimeoutMs}ms — no data and no termination signal from provider`)), idleTimeoutMs);
+            }),
+          ]);
+        } finally {
+          if (timer !== undefined) clearTimeout(timer);
+        }
+      };
+
       try {
         let sawDone = false;
         outer: for (;;) {
-          const { done, value } = await reader.read();
+          const { done, value } = await readWithIdleDeadline();
           if (done) break;
           if (value) buffer += decoder.decode(value, { stream: true });
           let nl: number;
