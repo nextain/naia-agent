@@ -81,6 +81,24 @@
       "contract": "docs/progress/99.dev-comm/UC1-agent-horizontal-contract-2026-06-10.md",
       "note": "claude-code-cli provider — Claude Agent SDK(query), 로컬 Claude Code 구독 인증($0). FR-PROV-5. 런타임 의존=CLI 설치+로그인."
     },
+    "src/main/adapters/grok-cli-provider.ts": {
+      "layer": "adapters",
+      "uc": [
+        "UC1",
+        "UC-GROK"
+      ],
+      "contract": "docs/progress/99.dev-comm/UC-grok-cli-subscription-contract-2026-09-02.md",
+      "note": "grok provider — Grok Build CLI -p 헤드리스, SuperGrok 구독 OAuth($0). xai API-key 와 분리. auth.json 미읽기."
+    },
+    "src/main/adapters/subagent-grok.ts": {
+      "layer": "adapters",
+      "uc": [
+        "UC-CLI",
+        "UC-GROK"
+      ],
+      "contract": "docs/progress/99.dev-comm/UC-grok-cli-subscription-contract-2026-09-02.md",
+      "note": "grok sub-agent — grok -p streaming-messages-json. roster 이름 grok."
+    },
     "src/main/adapters/adk-skill-loader.ts": {
       "layer": "adapters",
       "uc": [

@@ -1,8 +1,8 @@
 // adapters/subagent-roster — 이름 → SubAgentPort 선택(구 bin/naia-agent.ts buildSupervisorAdapter 이식, 단계 2b).
 //
 // "타 AI 오케스트레이터"의 선택 지점: 사용자가 어떤 코딩 에이전트를 sub-agent 로 쓸지 이름으로 고른다.
-// 구현됨: pi · opencode · shell · claude-code · codex · gemini(claude-code/codex/gemini 는 2026-06-29 추가,
-// UC-014/SPEC-010 확장). 미지(unknown) = **정직한 unsupported**(throw 아님 — spawn 시 session_end{ok:false}
+// 구현됨: pi · opencode · shell · claude-code · codex · gemini · grok.
+// 미지(unknown) = **정직한 unsupported**(throw 아님 — spawn 시 session_end{ok:false}
 // 1회, AC6). 호스트/CLI 가 이 결과를 그대로 표면화.
 //
 // ⚠️ gemini 어댑터는 runtime-unverified(auth IneligibleTierError) — schema=docs@0.47.0 기반 방어 파싱.
@@ -15,11 +15,12 @@ import { makeShellSubAgent, type SubAgentShellOptions } from "./subagent-shell.j
 import { makeClaudeCodeSubAgent, type SubAgentClaudeCodeOptions } from "./subagent-claude-code.js";
 import { makeCodexSubAgent, type SubAgentCodexOptions } from "./subagent-codex.js";
 import { makeGeminiSubAgent, type SubAgentGeminiOptions } from "./subagent-gemini.js";
+import { makeGrokSubAgent, type SubAgentGrokOptions } from "./subagent-grok.js";
 
-/** 실제 구현된 어댑터(선택 가능). claude-code/codex/gemini 는 2026-06-29 추가(SPEC-010 확장). */
-export const SUPPORTED_SUBAGENTS = ["pi", "opencode", "shell", "claude-code", "codex", "gemini"] as const;
+/** 실제 구현된 어댑터(선택 가능). grok 는 #126 SuperGrok 구독 CLI. */
+export const SUPPORTED_SUBAGENTS = ["pi", "opencode", "shell", "claude-code", "codex", "gemini", "grok"] as const;
 /** 로스터 전체 대상(선언) — 현재 SUPPORTED 와 동일(전원 구현됨). */
-export const DECLARED_SUBAGENTS = ["pi", "opencode", "shell", "claude-code", "codex", "gemini"] as const;
+export const DECLARED_SUBAGENTS = ["pi", "opencode", "shell", "claude-code", "codex", "gemini", "grok"] as const;
 
 export interface RosterOptions {
   readonly pi?: SubAgentPiOptions;
@@ -29,6 +30,7 @@ export interface RosterOptions {
   readonly claudeCode?: SubAgentClaudeCodeOptions;
   readonly codex?: SubAgentCodexOptions;
   readonly gemini?: SubAgentGeminiOptions;
+  readonly grok?: SubAgentGrokOptions;
 }
 
 /** 이름 → SubAgentPort. 미지(unknown) = 정직 unsupported(spawn 시 session_end{ok:false} 1회, throw 금지). */
@@ -48,6 +50,8 @@ export function selectSubAgent(name: string, opts: RosterOptions = {}): SubAgent
       return makeCodexSubAgent(opts.codex);
     case "gemini":
       return makeGeminiSubAgent(opts.gemini);
+    case "grok":
+      return makeGrokSubAgent(opts.grok);
     default:
       return unsupportedSubAgent(`unsupported sub-agent: ${name} (unknown — supported: ${SUPPORTED_SUBAGENTS.join(", ")})`);
   }

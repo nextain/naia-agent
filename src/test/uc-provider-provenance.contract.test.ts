@@ -108,6 +108,11 @@ describe("cost 과금 0 회귀 방지 (native 모델 = MODEL_PRICING 키 — os 
     expect(calculateCost("gpt-5.6-sol", 1_000_000, 1_000_000, "codex")).toBe(0);
     expect(calculateCost("gpt-5.6-sol", 1_000_000, 1_000_000, "openai")).toBeGreaterThan(0);
   });
+
+  it("grok provider = $0 (SuperGrok 구독) / xai 동일 모델은 과금", () => {
+    expect(calculateCost("grok-4.6", 1_000_000, 1_000_000, "grok")).toBe(0);
+    expect(calculateCost("grok-4.6", 1_000_000, 1_000_000, "xai")).toBeGreaterThan(0);
+  });
 });
 
 describe("makeProviderResolver (요청별 transport)", () => {

@@ -398,6 +398,16 @@ RPC만 추가하며, 별도 셸 반복 상태 머신은 만들지 않는다.
 | FR-CODEX-4 | desktop/Discord host의 `delegate_agent`는 설정된 `expert/main/sub` 역할만 허용하고 host가 선택한 단일 workspace 실경로에 고정하며 model의 workdir override를 거부한다. Codex 역할은 Pi의 `openai-codex` 계정/OAuth provider로 실행하고 OpenAI API-key 경로나 임의 roster/OpenCode fallback은 허용하지 않는다. | Done |
 | FR-CODEX-5 | Discord는 도구 시작·성공·실패를 원래 reply에 직렬 전송하되 args/output/call id와 mention 가능한 도구명을 반사하지 않는다. | Done |
 
+| ID | 요구사항 | 상태 |
+|----|----------|:----:|
+| FR-GROK-1 | `provider=grok`는 SuperGrok/X Premium+ 로컬 Grok Build CLI 로그인을 사용하며 `provider=xai`(API key)와 분리한다. auth.json을 읽거나 복사하지 않는다. | In review |
+| FR-GROK-2 | 채팅 호출은 `grok -p` + `streaming-messages-json`이며 cwd는 OS tmpdir, 내장 mutating tool은 비활성, `--always-approve`는 금지한다. spawn env에서 `XAI_API_KEY`를 제거한다. | In review |
+| FR-GROK-3 | 구독 경로 과금은 $0이다. 같은 모델 ID를 `xai`로 호출하면 per-token 가격표를 유지한다. | In review |
+| FR-GROK-4 | sub-agent roster 이름 `grok`가 구현되고, 미설치는 정직 unsupported이다. | In review |
+| FR-GROK-5 | preflight는 설치/로그인 상태 코드만 반환하고 계정·CLI 원문을 노출하지 않는다. | In review |
+
+- **NFR-GROK-auth-boundary**: `~/.grok/auth.json` 과 OAuth 토큰은 Agent 로그·wire·설정에 나타나지 않는다.
+
 ## UC-DISCORD-SESSION-ROTATION FR/NFR
 
 | ID | 요구사항 | 상태 |

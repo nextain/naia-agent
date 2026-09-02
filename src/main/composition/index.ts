@@ -130,7 +130,7 @@ export function wireAgentUC1(opts?: {
  */
 export function wireSupervisor(opts?: {
   subAgent?: SubAgentPort;          // 직접 주입(우선). 미주입 = roster 선택.
-  subAgentName?: string;            // roster 이름(기본 "shell"). pi/opencode/claude-code/codex/gemini.
+  subAgentName?: string;            // roster 이름(기본 "shell"). pi/opencode/claude-code/codex/gemini/grok.
   subAgentOpts?: RosterOptions;     // roster 어댑터 옵션(pi/opencode/shell).
   workspace?: WorkspacePort;        // 직접 주입.
   watchWorkspace?: boolean;         // true + workspace 미주입 = makeGitWorkspace(git status 폴링).

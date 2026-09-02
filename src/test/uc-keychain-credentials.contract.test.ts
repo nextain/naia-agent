@@ -14,6 +14,7 @@ describe("apiKeyEnvFor (provider → env_key, naia-os resolveAgentEnvKey 거울)
     expect(apiKeyEnvFor("glm")).toBe("GLM_API_KEY");
     expect(apiKeyEnvFor("gemini")).toBe("GEMINI_API_KEY");
     expect(apiKeyEnvFor("ollama")).toBeNull(); // 키 불요
+    expect(apiKeyEnvFor("grok")).toBeNull(); // SuperGrok CLI 구독 — XAI_API_KEY 매핑 금지
   });
 });
 

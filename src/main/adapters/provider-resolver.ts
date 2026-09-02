@@ -12,12 +12,15 @@ import { makeOllamaProvider } from "./ollama-provider.js";
 import { makeAnthropicProvider } from "./anthropic-provider.js";
 import { makeClaudeCodeProvider } from "./claude-code-provider.js";
 import { makeCodexAppServerProvider, type CodexRunTurn } from "./codex-app-server-provider.js";
+import { makeGrokCliProvider, type GrokRunTurn } from "./grok-cli-provider.js";
 
 export interface ProviderResolverDeps {
 	/** 테스트/대체용 fetch 주입(미주입 = global fetch). */
 	fetch?: Parameters<typeof makeOpenAICompatProvider>[0]["fetch"];
 	/** Codex app-server fake/alternate transport injection. */
 	codexRunTurn?: CodexRunTurn;
+	/** Grok CLI fake/alternate transport injection. */
+	grokRunTurn?: GrokRunTurn;
 }
 
 export function makeProviderResolver(deps?: ProviderResolverDeps): ProviderResolverPort {
@@ -45,6 +48,12 @@ export function makeProviderResolver(deps?: ProviderResolverDeps): ProviderResol
 					return makeCodexAppServerProvider({
 						model: config.model,
 						...(deps?.codexRunTurn ? { runTurn: deps.codexRunTurn } : {}),
+					});
+				case "grok":
+					// grok — 로컬 Grok Build CLI 구독 로그인. xAI API key/fetch 경로와 완전히 분리.
+					return makeGrokCliProvider({
+						model: config.model,
+						...(deps?.grokRunTurn ? { runTurn: deps.grokRunTurn } : {}),
 					});
 				case "lab-proxy": {
 					// naia 게이트웨이 — OpenAI-compat /v1/chat/completions, auth=X-AnyLLM-Key: naiaKey.

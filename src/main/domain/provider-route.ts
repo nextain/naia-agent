@@ -3,7 +3,7 @@
 // 첫 흐름(provider 출처)은 lab-proxy / native / ollama 만. local-live(naia-omni)·claude-cli·nextain-error 는 후속.
 import type { ProviderConfig } from "./chat.js";
 
-export type ProviderRoute = "lab-proxy" | "ollama" | "anthropic" | "claude-code" | "codex" | "native";
+export type ProviderRoute = "lab-proxy" | "ollama" | "anthropic" | "claude-code" | "codex" | "grok" | "native";
 
 /**
  * **provider 타입**으로 라우팅(루크 정정 2026-06-12 — naiaKey 유무 아님):
@@ -12,6 +12,8 @@ export type ProviderRoute = "lab-proxy" | "ollama" | "anthropic" | "claude-code"
  *  - `anthropic` → anthropic(Messages API /v1/messages, x-api-key, ANTHROPIC_API_KEY — 직접 키·per-token 과금).
  *  - `claude-code-cli` → claude-code(Claude Agent SDK query(), 로컬 Claude Code **구독 인증** 사용 — apiKey 없음, 과금 $0).
  *    ⚠️ anthropic 과 분리(루크 2026-06-17): claude-code-cli 를 Messages API 로 alias 하면 키 없으면 401·per-token 과금.
+ *  - `grok` → grok(Grok Build CLI `grok -p`, 로컬 SuperGrok/X Premium+ **구독 인증** — apiKey 없음, 과금 $0).
+ *    ⚠️ `xai`(api.x.ai + XAI_API_KEY)와 분리. grok 를 native 로내면 종량 과금.
  *  - 그 외(OpenAI-compat API-key: gemini/glm/zai/openai/xai/vllm) → native(외부 API 직결, 게이트웨이 안 탐).
  *    ⚠️ API-key 타입은 naiaKey 가 있어도 직결 — 키체인에 naiaKey 남아있다고 lab-proxy 로 보내면 안 됨(그게 500 원인이었음).
  */
@@ -20,6 +22,7 @@ export function resolveProviderRoute(config: ProviderConfig): ProviderRoute {
 	if (config.provider === "ollama") return "ollama";
 	if (config.provider === "claude-code-cli") return "claude-code"; // Agent SDK(구독 인증) — anthropic 보다 먼저 peel
 	if (config.provider === "codex") return "codex"; // app-server(로컬 Codex 로그인) — OpenAI API-key route 와 분리
+	if (config.provider === "grok") return "grok"; // Grok Build CLI(로컬 구독 로그인) — xAI API-key route 와 분리
 	if (config.provider === "anthropic") return "anthropic"; // Messages API(직접 키)
 	return "native";
 }

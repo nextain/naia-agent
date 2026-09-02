@@ -56,11 +56,12 @@ describe("subagent-roster 계약 (2b, AC6)", () => {
     expect(events[0].reason).toContain("unsupported sub-agent: shell");
   });
 
-  it.each(["claude-code", "codex", "gemini"])("'%s' → 실 어댑터(주입 bin/spawn 으로 세션 생성 — session_end{ok:true})", async (name) => {
+  it.each(["claude-code", "codex", "gemini", "grok"])("'%s' → 실 어댑터(주입 bin/spawn 으로 세션 생성 — session_end{ok:true})", async (name) => {
     const opts = {
       claudeCode: { resolveBin: fixedBin("claude"), spawnFn: closingSpawn() },
       codex: { resolveBin: fixedBin("codex"), spawnFn: closingSpawn() },
       gemini: { resolveBin: fixedBin("gemini"), spawnFn: closingSpawn() },
+      grok: { resolveBin: fixedBin("grok"), spawnFn: closingSpawn() },
     } as const;
     const port = selectSubAgent(name, opts);
     const events = await drain(port.spawn({ prompt: "x", workdir: "/tmp/w" }).events) as Extract<SubAgentEvent, { kind: "session_end" }>[];
@@ -78,8 +79,8 @@ describe("subagent-roster 계약 (2b, AC6)", () => {
   });
 
   it("roster 목록: supported = declared (전원 구현됨, 2026-06-29 SPEC-010 확장)", () => {
-    expect(SUPPORTED_SUBAGENTS).toEqual(["pi", "opencode", "shell", "claude-code", "codex", "gemini"]);
-    expect(DECLARED_SUBAGENTS).toEqual(["pi", "opencode", "shell", "claude-code", "codex", "gemini"]);
+    expect(SUPPORTED_SUBAGENTS).toEqual(["pi", "opencode", "shell", "claude-code", "codex", "gemini", "grok"]);
+    expect(DECLARED_SUBAGENTS).toEqual(["pi", "opencode", "shell", "claude-code", "codex", "gemini", "grok"]);
     for (const s of SUPPORTED_SUBAGENTS) expect(DECLARED_SUBAGENTS).toContain(s);
     // supported ⊆ declared 이고 둘의 차집합 없음 = deferred 잔여 0
   });

@@ -85,7 +85,7 @@ export function applyGatewayPricing(
 /** per-token 과금에서 제외되는 provider — 사용자 구독으로 호출(과금 $0).
  *  claude-code-cli = Claude Agent SDK + 로컬 Claude Code 구독 인증(직접 키·게이트웨이 아님 → 사용자에게 토큰 비용 0).
  *  codex = 로컬 codex app-server + ChatGPT 로그인(구독) — 동일 모델 ID(gpt-5.x)를 openai(직접 키)도 쓰므로 provider 로 가른다. */
-const SUBSCRIPTION_PROVIDERS = new Set(["claude-code-cli", "codex"]);
+const SUBSCRIPTION_PROVIDERS = new Set(["claude-code-cli", "codex", "grok"]);
 
 /**
  * 토큰 비용(USD). model 단가표 기반. provider 가 구독형(claude-code-cli)이면 **무조건 0**

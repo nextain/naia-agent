@@ -224,7 +224,7 @@ export function setCliConfigValue(config: CliGlobalConfig, key: CliConfigKey, ra
     if (bool === null) return { ok: false, error: "coding.tools는 true 또는 false여야 합니다" };
     coding.tools = bool;
   } else if (key === "coding.agent") {
-    if (!["pi", "shell", "opencode", "claude-code", "codex", "gemini"].includes(value)) {
+    if (!["pi", "shell", "opencode", "claude-code", "codex", "gemini", "grok"].includes(value)) {
       return { ok: false, error: `지원하지 않는 coding.agent: ${value}` };
     }
     coding.agent = value;

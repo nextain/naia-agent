@@ -35,7 +35,7 @@ const USAGE = `naia-agent run <task> [options]
 
   <task>              작업 지시(필수, 따옴표로 감싸기)
   --workdir <dir>     작업 디렉터리(기본: 현재 디렉터리)
-  --agent <name>      sub-agent (shell | pi | opencode | claude-code | codex | gemini, 기본: shell)
+  --agent <name>      sub-agent (shell | pi | opencode | claude-code | codex | gemini | grok, 기본: shell)
   --model <id>        모델 힌트(옵션)
   --tools             저장된 tools=false 기본값을 이번 실행에서 명시적으로 켬
   --no-tools          도구를 끄고 분석 전용으로 실행(DeepSeek V4 Pro 필수)

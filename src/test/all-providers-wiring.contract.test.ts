@@ -186,4 +186,14 @@ describe("all-providers wiring — naia-os 프로바이더 전수 (config.json �
 		expect(usage).toEqual({ kind: "usage", inputTokens: 5, outputTokens: 7 });
 		expect(chunks[chunks.length - 1]).toEqual({ kind: "finish" });
 	});
+
+	it("grok → route 'grok' (xAI API/fetch 로 가지 않음)", async () => {
+		const cfg = load({ provider: "grok", model: "grok-4.6" });
+		expect(resolveProviderRoute(cfg)).toBe("grok");
+		const { fetch, box } = capture();
+		const resolver = makeProviderResolver({ fetch: fetch as never });
+		const provider = resolver.resolve(cfg);
+		expect(typeof provider.chat).toBe("function");
+		expect(box.url).toBeUndefined();
+	});
 });
