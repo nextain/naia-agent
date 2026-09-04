@@ -160,16 +160,31 @@ export interface RpcPeer {
 
 type SpawnCodex = () => Promise<ChildProcessWithoutNullStreams>;
 
+// app-server 는 reasoning effort 를 안 실으면 Codex CLI 기본값(`max`)을 쓴다.
+// 그런데 gpt-5.4 는 `max` 를 더는 받지 않는다(지원: none/low/medium/high/xhigh) —
+// 그대로 두면 앱 채팅 turn 이 400(unsupported_value)으로 통째로 죽는다. 그래서 항상
+// 지원되는 값을 명시한다. 기본은 대화형 음성 채팅에 맞춘 `medium`(낮은 지연으로
+// 문장 단위 스트리밍이 자연스럽게 겹치게) 이고, `NAIA_CODEX_REASONING_EFFORT` 로
+// 덮을 수 있다. subagent 경로(subagent-codex.ts)가 쓰는 `--config
+// model_reasoning_effort` 와 동일한 검증된 스위치다.
+const ALLOWED_EFFORTS = new Set(["none", "low", "medium", "high", "xhigh"]);
+const APP_SERVER_REASONING_EFFORT = ALLOWED_EFFORTS.has(
+  process.env.NAIA_CODEX_REASONING_EFFORT ?? "",
+)
+  ? (process.env.NAIA_CODEX_REASONING_EFFORT as string)
+  : "medium";
+
 async function defaultSpawnCodex(): Promise<ChildProcessWithoutNullStreams> {
   const { spawn } = await import("node:child_process");
+  const effortConfig = `model_reasoning_effort="${APP_SERVER_REASONING_EFFORT}"`;
   if (process.platform === "win32") {
-    return spawn(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", `${codexExecutable()} app-server`], {
+    return spawn(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", `${codexExecutable()} app-server --config ${effortConfig}`], {
       stdio: ["pipe", "pipe", "pipe"],
       env: process.env,
       windowsHide: true,
     });
   }
-  return spawn(codexExecutable(), ["app-server"], {
+  return spawn(codexExecutable(), ["app-server", "--config", effortConfig], {
     stdio: ["pipe", "pipe", "pipe"],
     env: process.env,
     windowsHide: true,
