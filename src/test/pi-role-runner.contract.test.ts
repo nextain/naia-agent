@@ -1,6 +1,36 @@
 import { describe, expect, it } from "vitest";
+import type { ChildProcess } from "node:child_process";
 import { resolveLlmRoles } from "../main/domain/llm-roles.js";
-import { makePiRoleSubAgent, piProviderForRole } from "../main/adapters/pi-role-runner.js";
+import {
+  makeConfiguredRoleSubAgent,
+  makePiRoleSubAgent,
+  piProviderForRole,
+} from "../main/adapters/pi-role-runner.js";
+import type { ResolvedBin, SpawnFn } from "../main/adapters/subagent-codex.js";
+
+const fixedCodexBin = (): ResolvedBin => ({ command: "codex", prefixArgs: [] });
+
+function captureCodexSpawn() {
+  let captured: { command: string; args: readonly string[]; cwd: string; env?: NodeJS.ProcessEnv } | undefined;
+  const handlers: Record<string, (...args: unknown[]) => void> = {};
+  const spawnFn: SpawnFn = (command, args, options) => {
+    captured = { command, args, cwd: options.cwd, env: options.env };
+    const child = {
+      stdout: { on: () => {} },
+      stderr: { on: () => {} },
+      on(event: string, callback: (...args: unknown[]) => void) {
+        handlers[event] = callback;
+        return this;
+      },
+      kill: () => true,
+    };
+    return child as unknown as ChildProcess;
+  };
+  return {
+    spawnFn,
+    get captured() { return captured; },
+  };
+}
 
 describe("Pi-only development role factory", () => {
   const resolved = resolveLlmRoles({
@@ -63,5 +93,28 @@ describe("Pi-only development role factory", () => {
       ok: false,
       reason: expect.stringContaining("not registered"),
     });
+  });
+
+  it("routes a configured Codex role through the authenticated Codex adapter", () => {
+    const previousCodexHome = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = "/tmp/codex-home";
+    try {
+      const capture = captureCodexSpawn();
+      const selected = makeConfiguredRoleSubAgent(resolved, "main", {
+        codex: { resolveBin: fixedCodexBin, spawnFn: capture.spawnFn },
+      });
+      expect(selected.ok).toBe(true);
+      if (!selected.ok) return;
+
+      selected.agent.spawn({ prompt: "create the requested files", workdir: "/tmp/bound-workspace" });
+      expect(capture.captured).toMatchObject({ command: "codex", cwd: "/tmp/bound-workspace" });
+      expect(capture.captured?.args).toEqual(expect.arrayContaining([
+        "--sandbox", "workspace-write", "--model", "gpt-5.6", "--cd", "/tmp/bound-workspace",
+      ]));
+      expect(capture.captured?.env?.CODEX_HOME).toBe("/tmp/codex-home");
+    } finally {
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
+    }
   });
 });

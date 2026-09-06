@@ -4,6 +4,7 @@ import type { TaskSpec, SupervisorReport } from "../domain/orchestration.js";
 import type { SupervisorEgressPort } from "../ports/orchestration.js";
 import type { SubAgentPort } from "../ports/orchestration.js";
 import { makePiSubAgent, type SubAgentPiOptions } from "./subagent-pi.js";
+import { makeCodexSubAgent, type SubAgentCodexOptions } from "./subagent-codex.js";
 import { isNaiaPiModel } from "./naia-pi-provider.js";
 
 /** The only roles that can run a Shell/Agent development task. */
@@ -12,6 +13,11 @@ export type PiDevelopmentRole = Extract<LlmRole, "expert" | "main" | "sub">;
 export type PiRoleFactoryResult =
   | { readonly ok: true; readonly role: PiDevelopmentRole; readonly agent: SubAgentPort }
   | { readonly ok: false; readonly reason: string };
+
+export interface ConfiguredRoleSubAgentOptions {
+  readonly pi?: Omit<SubAgentPiOptions, "provider" | "model">;
+  readonly codex?: Omit<SubAgentCodexOptions, "model">;
+}
 
 export function piProviderForRole(provider: string): "openai-codex" | "anthropic" | "naia" | undefined {
   switch (provider) {
@@ -79,8 +85,36 @@ export function makePiRoleSubAgent(
 }
 
 /**
+ * Creates the adapter selected by the configured role. Codex account roles
+ * must use the Codex CLI adapter so CODEX_HOME authentication and its
+ * workspace-write boundary are retained; Pi remains the path for the other
+ * configured providers.
+ */
+export function makeConfiguredRoleSubAgent(
+  resolution: LlmRolesResolution | null,
+  role: PiDevelopmentRole,
+  options: ConfiguredRoleSubAgentOptions = {},
+): PiRoleFactoryResult {
+  if (!( ["expert", "main", "sub"] as const).includes(role)) {
+    return { ok: false, reason: `LLM role '${role}' is not a Pi development role` };
+  }
+  if (!resolution?.ok) return { ok: false, reason: "LLM role configuration is missing or invalid" };
+  const config = findRole(resolution, role);
+  if (!config) return { ok: false, reason: `LLM role '${role}' is not configured` };
+  if (config.provider.value.toLowerCase() === "codex") {
+    return {
+      ok: true,
+      role,
+      agent: makeCodexSubAgent({ ...options.codex, model: config.model.value }),
+    };
+  }
+  return makePiRoleSubAgent(resolution, role, options.pi);
+}
+
+/**
  * Host-facing execution seam for configured development roles. It stays
- * independent from the generic roster, so no alternative adapter can be a fallback.
+ * independent from the generic roster, while selecting the role's explicit
+ * adapter (Codex CLI or Pi) without an alternative fallback.
  */
 export type PiRoleSupervisor = (
   agent: SubAgentPort,
@@ -103,7 +137,7 @@ export function makePiRoleSupervisorRunner(
   return async (role, task, signal, egress) => {
     const activeResolution = typeof resolution === "function" ? resolution() : resolution;
     const activeOptions = typeof options === "function" ? options(role) : options;
-    const selected = makePiRoleSubAgent(activeResolution, role, activeOptions);
+    const selected = makeConfiguredRoleSubAgent(activeResolution, role, { pi: activeOptions });
     if (!selected.ok) {
       egress.event({ kind: "session_end", ok: false, reason: selected.reason });
       egress.report({
