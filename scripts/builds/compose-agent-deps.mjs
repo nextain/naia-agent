@@ -161,7 +161,10 @@ export async function composeAgentRuntimeDeps(o = {}) {
   let knowledgeBackend;
   let setKnowledgeWorkspace = () => undefined;
   if (env.NAIA_AGENT_SKILLS !== "off") {
-    const memoPath = env.NAIA_MEMO_PATH || join(homedir(), ".naia-agent", "memos.json");
+    // The selected ADK owns the default memo store.  Keep NAIA_MEMO_PATH as an
+    // explicit compatibility override, but never let the launcher home become
+    // an implicit cross-workspace storage boundary.
+    const memoPath = env.NAIA_MEMO_PATH || join(resolve(adkPath), "naia-settings", "memos.json");
     const memo = makeFileMemoStore({ path: memoPath, dir: dirname(memoPath), fs: nodeFs });
     const builtin = makeBuiltinSkillsExecutor({ clock: () => new Date(), fetchWeather: makeOpenMeteoFetchWeather(), memo });
     skillsLabel = `time/weather/memo(${memoPath})`;

@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -74,5 +74,51 @@ describe("memory settings reload wiring", () => {
     expect(readFileSync(nextStorePath, "utf8")).not.toContain("reload-canary");
     expect(readFileSync(storePath, "utf8")).not.toContain("next-workspace-canary");
     await deps.memory.close();
+  });
+
+  it("scopes the default file memo store to the selected ADK across A/B/A restarts", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "naia-memo-scope-"));
+    const adkA = join(parent, "adk-A");
+    const adkB = join(parent, "adk-B");
+    await mkdir(join(adkA, "naia-settings"), { recursive: true });
+    await mkdir(join(adkB, "naia-settings"), { recursive: true });
+
+    const envFor = (adk: string, memoPath = "") => ({
+      ...process.env,
+      NAIA_ADK_PATH: adk,
+      NAIA_AGENT_MEMORY: "off",
+      NAIA_AGENT_TRANSCRIPT: "off",
+      NAIA_KNOWLEDGE: "off",
+      AGENT_PROVIDER: "fake",
+      NAIA_MEMO_PATH: memoPath,
+    });
+    const close = async (deps: { cleanupFns?: Array<() => unknown>; memory?: { close?: () => Promise<unknown> } }) => {
+      await deps.memory?.close?.();
+      for (const cleanup of deps.cleanupFns ?? []) await cleanup();
+    };
+
+    const firstA = await composeAgentRuntimeDeps({ env: envFor(adkA) });
+    expect(firstA.skillsLabel).toContain(join(adkA, "naia-settings", "memos.json"));
+    await expect(firstA.toolExecutor.execute({ id: "save-a", name: "memo_save", args: { title: "A-only", content: "from A" } }, {})).resolves.toMatchObject({ output: "저장됨: A-only" });
+    await close(firstA);
+
+    const inB = await composeAgentRuntimeDeps({ env: envFor(adkB) });
+    expect(inB.skillsLabel).toContain(join(adkB, "naia-settings", "memos.json"));
+    await expect(inB.toolExecutor.execute({ id: "get-b", name: "memo_get", args: { title: "A-only" } }, {})).resolves.toMatchObject({ output: "(없음)" });
+    await close(inB);
+
+    const restoredA = await composeAgentRuntimeDeps({ env: envFor(adkA) });
+    await expect(restoredA.toolExecutor.execute({ id: "get-a", name: "memo_get", args: { title: "A-only" } }, {})).resolves.toMatchObject({ output: "from A" });
+    await close(restoredA);
+
+    expect(readFileSync(join(adkA, "naia-settings", "memos.json"), "utf8")).toContain("A-only");
+    await expect(access(join(adkB, "naia-settings", "memos.json"))).rejects.toMatchObject({ code: "ENOENT" });
+
+    const explicit = join(parent, "explicit", "memos.json");
+    const override = await composeAgentRuntimeDeps({ env: envFor(adkB, explicit) });
+    expect(override.skillsLabel).toContain(explicit);
+    await expect(override.toolExecutor.execute({ id: "save-explicit", name: "memo_save", args: { title: "explicit", content: "override" } }, {})).resolves.toMatchObject({ output: "저장됨: explicit" });
+    await close(override);
+    expect(readFileSync(explicit, "utf8")).toContain("explicit");
   });
 });
