@@ -99,6 +99,14 @@ describe("makeKeychainCredentials (주입 read)", () => {
     c.update("glm", { apiKey: "RUNTIME-OVERRIDE" });
     expect(c.get("glm")?.apiKey).toBe("RUNTIME-OVERRIDE");
   });
+  it("getRuntime 은 fallback 없이 creds_update overlay의 field presence를 보존", () => {
+    const c = makeKeychainCredentials({ read });
+    expect(c.getRuntime?.("glm")).toBeUndefined();
+    c.update("glm", { apiKey: "RUNTIME-OVERRIDE" });
+    expect(c.getRuntime?.("glm")).toEqual({ apiKey: "RUNTIME-OVERRIDE" });
+    c.update("glm", { apiKey: "" });
+    expect(c.getRuntime?.("glm")).toEqual({ apiKey: "" });
+  });
 
   // 신규계약(2026-06-16, creds graft): update=merge, 빈=명시 unset(권위, 키체인 fallback 차단)
   it("update=merge — apiKey-only 갱신이 직전 naiaKey overlay 를 안 지움(naia 로그인 보존)", () => {

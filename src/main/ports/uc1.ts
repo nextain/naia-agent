@@ -86,6 +86,12 @@ export interface CredentialPort {
   update(provider: string, secret: { apiKey?: string; naiaKey?: string }): void;
   /** providerConfig 조립 시 주입(secret 은 chat_request wire 엔 없음, creds_update 채널). */
   get(provider: string): { apiKey?: string; naiaKey?: string } | undefined;
+  /**
+   * creds_update 로 들어온 런타임 overlay 만 반환한다(키체인/env fallback 제외).
+   * 구현이 provenance 를 제공하지 않는 레거시 CredentialPort 도 허용한다.
+   * 빈 문자열도 명시적 unset 이므로 필드 presence 를 보존해야 한다.
+   */
+  getRuntime?(provider: string): { apiKey?: string; naiaKey?: string } | undefined;
 }
 
 export interface ApprovalPort {

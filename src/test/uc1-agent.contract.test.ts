@@ -4,6 +4,7 @@ import { mapProviderChunk, isTerminalEmit, parseInlineImageDataUri, threadToolRo
 import { ChatTurnHandler, isLikelyIncompleteDeepSeekFinal, type HandlerDeps } from "../main/app/chat-turn-handler.js";
 import { decodeRequest, encodeEmit } from "../main/adapters/protocol.js";
 import { makeFakeProvider } from "../main/adapters/fake-provider.js";
+import { makeKeychainCredentials } from "../main/adapters/keychain-secret-store.js";
 import { makeInMemoryCredentials } from "../main/composition/index.js";
 import { makeInMemoryApproval } from "../main/adapters/approval.js";
 import type { ProviderPort, ProviderChatOpts } from "../main/ports/uc1.js";
@@ -264,4 +265,67 @@ describe("ChatTurnHandler (turn 파이프라인)", () => {
     await h.onChatRequest(req());
     expect(seenConfig!.apiKey).toBe("sk-1"); // creds_update 채널 → providerConfig 주입
   });
+  it("선택 ADK credentialRef 값은 fallback keychain보다 우선하고 runtime 갱신은 그 값을 대체한다", async () => {
+    const { deps } = capture();
+    const seen: ProviderConfig[] = [];
+    const spy: ProviderPort = { async *chat(c: ProviderConfig): AsyncIterable<ProviderChunk> { seen.push(c); yield { kind: "finish" }; } };
+    const credentials = makeKeychainCredentials({
+      read: (name) => name === "NAIA_ANYLLM_API_KEY" ? "stale-keychain" : undefined,
+    });
+    const h = new ChatTurnHandler({ ...deps, provider: spy, credentials });
+
+    // The selected ADK's credentialRef→env value is already in activeConfig;
+    // keychain fallback must not silently replace it.
+    await h.onChatRequest(req({
+      requestId: "adk-explicit",
+      provider: { provider: "nextain", model: "m", naiaKey: "adk-from-credential-ref" },
+    }));
+    expect(seen.at(-1)?.naiaKey).toBe("adk-from-credential-ref");
+
+    // If the selected ADK omits the secret, the keychain fallback remains available.
+    await h.onChatRequest(req({
+      requestId: "fallback",
+      provider: { provider: "nextain", model: "m" },
+    }));
+    expect(seen.at(-1)?.naiaKey).toBe("stale-keychain");
+
+    // A normal runtime credentials refresh is still authoritative.
+    h.onCredsUpdate({ kind: "credsUpdate", provider: "nextain", secret: { naiaKey: "fresh-login" } });
+    await h.onChatRequest(req({
+      requestId: "runtime-refresh",
+      provider: { provider: "nextain", model: "m", naiaKey: "adk-from-credential-ref" },
+    }));
+    expect(seen.at(-1)?.naiaKey).toBe("fresh-login");
+
+    // An explicit runtime unset must remain an unset; do not fall back to the
+    // selected ADK value or to the stale keychain value.
+    h.onCredsUpdate({ kind: "credsUpdate", provider: "nextain", secret: { naiaKey: "" } });
+    await h.onChatRequest(req({
+      requestId: "runtime-unset",
+      provider: { provider: "nextain", model: "m", naiaKey: "adk-from-credential-ref" },
+    }));
+    expect(seen.at(-1)?.naiaKey).toBe("");
+  });
+  it("타 provider의 ADK apiKey도 keychain fallback에 덮이지 않고 runtime 갱신은 유지된다", async () => {
+    const { deps } = capture();
+    const seen: ProviderConfig[] = [];
+    const spy: ProviderPort = { async *chat(c: ProviderConfig): AsyncIterable<ProviderChunk> { seen.push(c); yield { kind: "finish" }; } };
+    const credentials = makeKeychainCredentials({
+      read: (name) => name === "GEMINI_API_KEY" ? "stale-gemini" : name === "NAIA_ANYLLM_API_KEY" ? "stale-naia" : undefined,
+    });
+    const h = new ChatTurnHandler({ ...deps, provider: spy, credentials });
+
+    await h.onChatRequest(req({
+      requestId: "gemini-adk",
+      provider: { provider: "gemini", model: "m", apiKey: "adk-gemini" },
+    }));
+    expect(seen.at(-1)?.apiKey).toBe("adk-gemini");
+    h.onCredsUpdate({ kind: "credsUpdate", provider: "gemini", secret: { apiKey: "runtime-gemini" } });
+    await h.onChatRequest(req({
+      requestId: "gemini-runtime",
+      provider: { provider: "gemini", model: "m", apiKey: "adk-gemini" },
+    }));
+    expect(seen.at(-1)?.apiKey).toBe("runtime-gemini");
+  });
+
 });

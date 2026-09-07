@@ -25,6 +25,7 @@ export function makeInMemoryCredentials(): CredentialPort {
   return {
     update: (provider, secret) => { store.set(provider, secret); },
     get: (provider) => store.get(provider),
+    getRuntime: (provider) => store.get(provider),
   };
 }
 

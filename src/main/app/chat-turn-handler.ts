@@ -227,10 +227,23 @@ export class ChatTurnHandler {
 
     try {
       if (!activeConfig) { terminalError("no provider configured — naia-settings/llm.json 도 wire provider 도 없음"); return; }
+      const storedCredentials = this.d.credentials.get(activeConfig.provider);
+      const runtimeCredentials = this.d.credentials.getRuntime?.(activeConfig.provider);
+      const credentialPatch: { apiKey?: string; naiaKey?: string } = {};
+      for (const field of ["apiKey", "naiaKey"] as const) {
+        // The selected ADK config is authoritative over keychain/env fallback. A
+        // creds_update overlay is the one deliberate exception: it is a runtime
+        // login/config refresh and may also explicitly clear a field with "".
+        if (runtimeCredentials && field in runtimeCredentials) {
+          credentialPatch[field] = runtimeCredentials[field];
+        } else if (activeConfig[field] === undefined && storedCredentials && field in storedCredentials) {
+          credentialPatch[field] = storedCredentials[field];
+        }
+      }
       const providerConfig: ProviderConfig = {
         ...activeConfig,
         ...(req.enableThinking !== undefined ? { enableThinking: req.enableThinking } : {}),
-        ...(this.d.credentials.get(activeConfig.provider) ?? {}),
+        ...credentialPatch,
       };
       type PlannedOperation = {
         workload: "main_llm" | "sub_llm" | "memory_llm" | "embedding" | "network_tool";

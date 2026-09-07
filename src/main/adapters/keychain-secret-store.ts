@@ -100,6 +100,10 @@ export function makeKeychainCredentials(deps: { read: KeychainRead }): Credentia
 			const prev = overlay.get(provider) ?? {};
 			overlay.set(provider, { ...prev, ...secret }); // merge — 타 필드 보존
 		},
+		getRuntime(provider) {
+			const ov = overlay.get(provider);
+			return ov ? { ...ov } : undefined;
+		},
 		get(provider) {
 			const ov = overlay.get(provider);
 			const out: { apiKey?: string; naiaKey?: string } = {};
