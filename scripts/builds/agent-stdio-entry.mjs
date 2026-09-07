@@ -149,6 +149,10 @@ let { toolExecutor } = deps;
 const { memory, memoryLabel, reloadMemory, conversationLog, transcriptLabel, diag, personaSource, workspaceContextSource, knowledgeBackend } = deps;
 let skillsLabel = deps.skillsLabel;
 let currentAdkPath = adkPath;
+// Runtime creds_update overlays are workspace-scoped. Start the process in the
+// selected ADK scope so a later SetWorkspace cannot inherit its predecessor's
+// same-provider overlay.
+credentials.setRuntimeScope?.(currentAdkPath ?? "");
 let jeonjuCourseConfig;
 const { raw: courseTargetRaw, provided: jeonjuCourseTargetProvided } = loadJeonjuCourseTargetRaw({
   adkPath,
@@ -297,6 +301,10 @@ const reloadConfigFrom = async (path, atomicWorkspace = false) => {
     : { ok: true, reloaded: false, retained: false, status: "off" };
   const committed = !atomicWorkspace || memoryResult.ok;
   if (committed) {
+    // Keep the credential scope switch in the same commit boundary as the
+    // config/memory swap. A failed atomic SetWorkspace keeps both views on the
+    // previous ADK; a successful A→B→A sequence restores each ADK's overlay.
+    credentials.setRuntimeScope?.(path ?? "");
     activeProcessingConfig = c;
     activeLlmRoles = path ? settingsStore.loadLlmRoles(path) : null;
     applyDefaultConfig(c);
@@ -328,13 +336,16 @@ const grpcServer = makeGrpcServer({
     const previousAdkPath = currentAdkPath;
     if (wsPath) {
       currentAdkPath = wsPath; // OS 가 워크스페이스 경로 주입 → 이후 ReloadSettings 도 이 경로 사용
-      setCredentialWorkspace(currentAdkPath);
     }
     const result = await reloadConfigFrom(currentAdkPath, true);
     if (!result.memoryReloaded && result.memoryError) {
       currentAdkPath = previousAdkPath;
       setCredentialWorkspace(currentAdkPath);
     } else if (wsPath) {
+      // Keep the keychain reader on the committed ADK as well. During the
+      // atomic reload, the active config and runtime credential scope still
+      // refer to the previous ADK, so its keychain fallback must do the same.
+      setCredentialWorkspace(currentAdkPath);
       // Knowledge switches only after the memory/config transaction commits, so in-flight turns
       // cannot observe a different workspace while SetWorkspace is still pending.
       setKnowledgeWorkspace(currentAdkPath);

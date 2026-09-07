@@ -92,6 +92,11 @@ export interface CredentialPort {
    * 빈 문자열도 명시적 unset 이므로 필드 presence 를 보존해야 한다.
    */
   getRuntime?(provider: string): { apiKey?: string; naiaKey?: string } | undefined;
+  /**
+   * Selects the ADK/workspace scope for runtime creds_update overlays.
+   * Implementations may omit this for legacy in-memory/test ports.
+   */
+  setRuntimeScope?(scope: string): void;
 }
 
 export interface ApprovalPort {

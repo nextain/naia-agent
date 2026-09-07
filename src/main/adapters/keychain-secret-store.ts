@@ -94,17 +94,32 @@ const NAIA_KEY_ENV = "NAIA_ANYLLM_API_KEY"; // 로그인 naiaKey(lab-proxy)
  */
 export function makeKeychainCredentials(deps: { read: KeychainRead }): CredentialPort {
 	const read = deps.read;
-	const overlay = new Map<string, { apiKey?: string; naiaKey?: string }>();
+	const overlays = new Map<string, Map<string, { apiKey?: string; naiaKey?: string }>>();
+	let runtimeScope = "";
+	const scopedOverlay = () => {
+		let overlay = overlays.get(runtimeScope);
+		if (!overlay) {
+			overlay = new Map<string, { apiKey?: string; naiaKey?: string }>();
+			overlays.set(runtimeScope, overlay);
+		}
+		return overlay;
+	};
 	return {
+		setRuntimeScope(scope) {
+			runtimeScope = scope;
+		},
 		update(provider, secret) {
+			const overlay = scopedOverlay();
 			const prev = overlay.get(provider) ?? {};
 			overlay.set(provider, { ...prev, ...secret }); // merge — 타 필드 보존
 		},
 		getRuntime(provider) {
+			const overlay = scopedOverlay();
 			const ov = overlay.get(provider);
 			return ov ? { ...ov } : undefined;
 		},
 		get(provider) {
+			const overlay = scopedOverlay();
 			const ov = overlay.get(provider);
 			const out: { apiKey?: string; naiaKey?: string } = {};
 			if (ov && "apiKey" in ov) {

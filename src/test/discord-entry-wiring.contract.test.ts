@@ -105,9 +105,20 @@ describe("T-DISCORD-RT-02/05 — production entry wiring", () => {
     expect(setWorkspaceBody).toContain("await reloadConfigFrom(currentAdkPath, true)");
     expect(setWorkspaceBody).toContain("currentAdkPath = previousAdkPath");
     expect(setWorkspaceBody.match(/setCredentialWorkspace\(currentAdkPath\)/g)).toHaveLength(2);
+    const reloadCall = setWorkspaceBody.indexOf("await reloadConfigFrom(currentAdkPath, true)");
+    expect(setWorkspaceBody.slice(0, reloadCall)).not.toContain("setCredentialWorkspace(currentAdkPath)");
+    expect(setWorkspaceBody.indexOf("setCredentialWorkspace(currentAdkPath)", reloadCall)).toBeGreaterThan(reloadCall);
     expect(setWorkspaceBody.indexOf("setKnowledgeWorkspace(currentAdkPath)")).toBeGreaterThan(
-      setWorkspaceBody.indexOf("await reloadConfigFrom(currentAdkPath, true)"),
+      reloadCall,
     );
+    expect(entry).toContain('credentials.setRuntimeScope?.(currentAdkPath ?? "")');
+    expect(entry).toContain('credentials.setRuntimeScope?.(path ?? "")');
+    const reloadCommitStart = entry.indexOf("if (committed) {");
+    const runtimeScopeSwitch = entry.indexOf("credentials.setRuntimeScope?.(path ?? \"\")", reloadCommitStart);
+    const configApply = entry.indexOf("applyDefaultConfig(c)", reloadCommitStart);
+    expect(reloadCommitStart).toBeGreaterThan(0);
+    expect(runtimeScopeSwitch).toBeGreaterThan(reloadCommitStart);
+    expect(runtimeScopeSwitch).toBeLessThan(configApply);
     expect(entry).toContain('assertCompilePath(join(opts.outDir, "kb.json"))');
   });
 

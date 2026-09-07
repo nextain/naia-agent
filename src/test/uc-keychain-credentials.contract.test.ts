@@ -127,6 +127,21 @@ describe("makeKeychainCredentials (주입 read)", () => {
     c.update("glm", { naiaKey: "x" }); // apiKey 필드 미포함 → 키체인 fallback 유효
     expect(c.get("glm")?.apiKey).toBe("glm-SECRET");
   });
+  it("같은 provider라도 ADK scope가 바뀌면 runtime overlay가 새 ADK로 누출되지 않고 A→B→A로 복원된다", () => {
+    const c = makeKeychainCredentials({ read: () => "stale-keychain" });
+    c.setRuntimeScope?.("adk-a");
+    c.update("nextain", { naiaKey: "adk-a-login" });
+    expect(c.get("nextain")?.naiaKey).toBe("adk-a-login");
+
+    c.setRuntimeScope?.("adk-b");
+    expect(c.getRuntime?.("nextain")).toBeUndefined();
+    expect(c.get("nextain")?.naiaKey).toBe("stale-keychain");
+    c.update("nextain", { naiaKey: "adk-b-login" });
+    expect(c.get("nextain")?.naiaKey).toBe("adk-b-login");
+
+    c.setRuntimeScope?.("adk-a");
+    expect(c.get("nextain")?.naiaKey).toBe("adk-a-login");
+  });
 });
 
 describe("wire-through: 키체인 naiaKey → resolver → lab-proxy (라이브 흐름 creds 연결)", () => {

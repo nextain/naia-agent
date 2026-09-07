@@ -21,11 +21,21 @@ import type { TaskSpec } from "../domain/orchestration.js";
 
 /** in-memory credential store. */
 export function makeInMemoryCredentials(): CredentialPort {
-  const store = new Map<string, { apiKey?: string; naiaKey?: string }>();
+	const stores = new Map<string, Map<string, { apiKey?: string; naiaKey?: string }>>();
+	let runtimeScope = "";
+	const scopedStore = () => {
+		let store = stores.get(runtimeScope);
+		if (!store) {
+			store = new Map<string, { apiKey?: string; naiaKey?: string }>();
+			stores.set(runtimeScope, store);
+		}
+		return store;
+	};
   return {
-    update: (provider, secret) => { store.set(provider, secret); },
-    get: (provider) => store.get(provider),
-    getRuntime: (provider) => store.get(provider),
+    setRuntimeScope: (scope) => { runtimeScope = scope; },
+    update: (provider, secret) => { scopedStore().set(provider, secret); },
+    get: (provider) => scopedStore().get(provider),
+    getRuntime: (provider) => scopedStore().get(provider),
   };
 }
 

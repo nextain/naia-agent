@@ -328,4 +328,28 @@ describe("ChatTurnHandler (turn 파이프라인)", () => {
     expect(seen.at(-1)?.apiKey).toBe("runtime-gemini");
   });
 
+  it("같은 provider의 runtime overlay도 ADK A→B 전환에서 누출되지 않고 A 복귀 시 복원된다", async () => {
+    const { deps } = capture();
+    const seen: ProviderConfig[] = [];
+    const spy: ProviderPort = { async *chat(c: ProviderConfig): AsyncIterable<ProviderChunk> { seen.push(c); yield { kind: "finish" }; } };
+    const credentials = makeKeychainCredentials({ read: () => "stale-keychain" });
+    const h = new ChatTurnHandler({ ...deps, provider: spy, credentials });
+
+    credentials.setRuntimeScope?.("adk-a");
+    h.onCredsUpdate({ kind: "credsUpdate", provider: "nextain", secret: { naiaKey: "a-runtime" } });
+    await h.onChatRequest(req({ requestId: "a", provider: { provider: "nextain", model: "m", naiaKey: "a-config" } }));
+    expect(seen.at(-1)?.naiaKey).toBe("a-runtime");
+
+    credentials.setRuntimeScope?.("adk-b");
+    await h.onChatRequest(req({ requestId: "b-before-login", provider: { provider: "nextain", model: "m", naiaKey: "b-config" } }));
+    expect(seen.at(-1)?.naiaKey).toBe("b-config");
+    h.onCredsUpdate({ kind: "credsUpdate", provider: "nextain", secret: { naiaKey: "b-runtime" } });
+    await h.onChatRequest(req({ requestId: "b", provider: { provider: "nextain", model: "m", naiaKey: "b-config" } }));
+    expect(seen.at(-1)?.naiaKey).toBe("b-runtime");
+
+    credentials.setRuntimeScope?.("adk-a");
+    await h.onChatRequest(req({ requestId: "a-restored", provider: { provider: "nextain", model: "m", naiaKey: "a-config" } }));
+    expect(seen.at(-1)?.naiaKey).toBe("a-runtime");
+  });
+
 });
