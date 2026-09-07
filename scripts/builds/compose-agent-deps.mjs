@@ -158,17 +158,59 @@ export async function composeAgentRuntimeDeps(o = {}) {
   // ── UC5 실 스킬(time/weather/memo + github/obsidian/mcp/notify/adk) — 기본 활성(NAIA_AGENT_SKILLS=off 로 비활성). ──
   // ⚠️ app(환경 위임)은 여기 미포함 — egress 가 필요해 gRPC host 가 wire 후 합성(브라우저/BGM=셸 소유 환경, E1).
   let toolExecutor, skillsLabel = "off";
+  // The gRPC host can switch the selected ADK without rebuilding this process.
+  // Keep the memo executor behind a stable delegating port so that a committed
+  // workspace reload can swap its file-backed store atomically.
+  let prepareMemoWorkspace = () => ({ ok: true, changed: false, path: "" });
   let knowledgeBackend;
   let setKnowledgeWorkspace = () => undefined;
   if (env.NAIA_AGENT_SKILLS !== "off") {
     // The selected ADK owns the default memo store.  Keep NAIA_MEMO_PATH as an
     // explicit compatibility override, but never let the launcher home become
     // an implicit cross-workspace storage boundary.
-    const memoPath = env.NAIA_MEMO_PATH || join(resolve(adkPath), "naia-settings", "memos.json");
-    const memo = makeFileMemoStore({ path: memoPath, dir: dirname(memoPath), fs: nodeFs });
-    const builtin = makeBuiltinSkillsExecutor({ clock: () => new Date(), fetchWeather: makeOpenMeteoFetchWeather(), memo });
-    skillsLabel = `time/weather/memo(${memoPath})`;
-    const executors = [builtin];
+    const memoOverride = env.NAIA_MEMO_PATH || undefined;
+    const memoPathFor = (workspacePath) => memoOverride || join(resolve(workspacePath || adkPath), "naia-settings", "memos.json");
+    const fetchWeather = makeOpenMeteoFetchWeather();
+    const makeMemoBuiltin = (memoPath) => makeBuiltinSkillsExecutor({
+      clock: () => new Date(),
+      fetchWeather,
+      memo: makeFileMemoStore({ path: memoPath, dir: dirname(memoPath), fs: nodeFs }),
+    });
+    let activeMemoPath = memoPathFor(adkPath);
+    let activeBuiltin = makeMemoBuiltin(activeMemoPath);
+    // All later composite wrappers retain this port, so SetWorkspace can swap
+    // the selected ADK's memo store without rebuilding delegate/app executors.
+    const memoExecutor = {
+      specs: () => activeBuiltin.specs(),
+      execute: (call, opts) => activeBuiltin.execute(call, opts),
+    };
+    prepareMemoWorkspace = (workspacePath) => {
+      const nextMemoPath = memoPathFor(workspacePath);
+      if (nextMemoPath === activeMemoPath) return { ok: true, changed: false, path: activeMemoPath };
+      try {
+        const nextBuiltin = makeMemoBuiltin(nextMemoPath);
+        return {
+          ok: true,
+          changed: true,
+          path: nextMemoPath,
+          // Construct/read the candidate above, but do not make it visible to
+          // tool calls until the host commits the complete workspace reload.
+          commit: () => {
+            activeBuiltin = nextBuiltin;
+            activeMemoPath = nextMemoPath;
+          },
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          changed: false,
+          path: activeMemoPath,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    };
+    skillsLabel = `time/weather/memo(${activeMemoPath})`;
+    const executors = [memoExecutor];
 
     // ── UC-FS-TOOLS(S3): 에이전트 직접 fs/shell 도구. ★ 보안 = 코어가 sandbox 정책(allow-root=adkPath)+tier 소유.
     //    실행기(realpath/exec)만 여기서 node:fs/child_process 주입(코어 순수). read/list 기본 등록, write/shell 은
@@ -327,7 +369,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
       executors.push(adkExec);
       skillsLabel += ` + adk-skills(${adkExec.specs().length}/${adkSkills.length})`;
     }
-    toolExecutor = executors.length > 1 ? makeCompositeToolExecutor(executors) : builtin;
+    toolExecutor = executors.length > 1 ? makeCompositeToolExecutor(executors) : memoExecutor;
   }
 
   // ── creds = OS 키체인 read-back. Linux=secret-tool(service=naia-agent account={env_key}).
@@ -576,7 +618,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
     settingsStore, settingsResolveSecret, defaultConfig, configLabel,
     engineProfile, engineLabel, llmRoles, roleLabel,
     subLlm, subLlmLabel,
-    toolExecutor, skillsLabel, knowledgeBackend, setKnowledgeWorkspace,
+    toolExecutor, skillsLabel, prepareMemoWorkspace, knowledgeBackend, setKnowledgeWorkspace,
     memory, memoryLabel, reloadMemory,
     conversationLog, transcriptLabel,
     personaSource, personaLabel,

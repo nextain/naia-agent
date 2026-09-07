@@ -142,7 +142,7 @@ const { composeAgentRuntimeDeps } = await import("./compose-agent-deps.mjs");
 // ── transport-독립 런타임 deps = 공유 빌더(CLI host 와 literally 동일, NFR-CLI-shared) ──
 const deps = await composeAgentRuntimeDeps();
 cleanupFns = deps.cleanupFns;
-const { adkPath, provider, resolver, providerLabel: label, credentials, settingsStore, defaultConfig, configLabel, setCredentialWorkspace, setKnowledgeWorkspace } = deps;
+const { adkPath, provider, resolver, providerLabel: label, credentials, settingsStore, defaultConfig, configLabel, setCredentialWorkspace, setKnowledgeWorkspace, prepareMemoWorkspace } = deps;
 const { llmRoles } = deps;
 let activeLlmRoles = llmRoles ?? null;
 let { toolExecutor } = deps;
@@ -296,11 +296,20 @@ let activeMemoryProcessingConfig = currentAdkPath ? settingsStore.loadMemoryConf
 let applyDefaultConfig = (_c) => {};
 const reloadConfigFrom = async (path, atomicWorkspace = false) => {
   const c = path ? (settingsStore.loadMain(path) ?? undefined) : undefined;
-  const memoryResult = path && reloadMemory
-    ? await reloadMemory(path)
-    : { ok: true, reloaded: false, retained: false, status: "off" };
-  const committed = !atomicWorkspace || memoryResult.ok;
+  // Prepare a file-backed memo executor for the candidate ADK without making
+  // it visible to calls yet. The commit below is shared with config/memory so
+  // a failed SetWorkspace cannot leave the old ADK using the new one's memo.
+  const memoResult = prepareMemoWorkspace
+    ? prepareMemoWorkspace(path)
+    : { ok: true, changed: false, path: "" };
+  const memoryResult = !memoResult.ok
+    ? { ok: false, reloaded: false, retained: true, status: memoryLabel, error: `memo workspace preparation failed: ${memoResult.error ?? "unknown error"}` }
+    : path && reloadMemory
+      ? await reloadMemory(path)
+      : { ok: true, reloaded: false, retained: false, status: "off" };
+  const committed = memoResult.ok && (!atomicWorkspace || memoryResult.ok);
   if (committed) {
+    memoResult.commit?.();
     // Keep the credential scope switch in the same commit boundary as the
     // config/memory swap. A failed atomic SetWorkspace keeps both views on the
     // previous ADK; a successful A→B→A sequence restores each ADK's overlay.
@@ -310,7 +319,7 @@ const reloadConfigFrom = async (path, atomicWorkspace = false) => {
     applyDefaultConfig(c);
   }
   if (memoryResult.ok) activeMemoryProcessingConfig = path ? settingsStore.loadMemoryConfig(path) : null;
-  process.stderr.write(`[naia-agent] settings reload → ${c ? `${c.provider}/${c.model}` : "none"} (adk=${path}, committed=${committed}, memory=${memoryResult.ok ? memoryResult.status : `retained:${memoryResult.error}`})\n`);
+  process.stderr.write(`[naia-agent] settings reload → ${c ? `${c.provider}/${c.model}` : "none"} (adk=${path}, committed=${committed}, memo=${memoResult.ok ? (memoResult.changed ? `rebound:${memoResult.path}` : "retained") : `error:${memoResult.error}`}, memory=${memoryResult.ok ? memoryResult.status : `retained:${memoryResult.error}`})\n`);
   return {
     loaded: !!c && committed,
     provider: c?.provider ?? "",
@@ -319,6 +328,9 @@ const reloadConfigFrom = async (path, atomicWorkspace = false) => {
     memoryRetained: memoryResult.retained,
     memoryStatus: memoryResult.status,
     memoryError: memoryResult.error ?? memoryResult.warning ?? "",
+    memoRebound: memoResult.changed && committed,
+    memoPath: memoResult.path ?? "",
+    memoError: memoResult.ok ? "" : memoResult.error ?? "memo workspace preparation failed",
   };
 };
 
@@ -338,7 +350,7 @@ const grpcServer = makeGrpcServer({
       currentAdkPath = wsPath; // OS 가 워크스페이스 경로 주입 → 이후 ReloadSettings 도 이 경로 사용
     }
     const result = await reloadConfigFrom(currentAdkPath, true);
-    if (!result.memoryReloaded && result.memoryError) {
+    if ((!result.memoryReloaded && result.memoryError) || result.memoError) {
       currentAdkPath = previousAdkPath;
       setCredentialWorkspace(currentAdkPath);
     } else if (wsPath) {
