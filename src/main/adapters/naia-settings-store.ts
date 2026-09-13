@@ -12,11 +12,8 @@
 // 헥사고날: 전역 env 변이 없이 ProviderConfig 반환. fs read 주입(node:fs 직접 import 금지). 평문키 방어(llm.json).
 import type { ProviderConfig } from "../domain/chat.js";
 import { resolveProviderRoute } from "../domain/provider-route.js";
-import {
-	resolveLlmRoles,
-	type LlmRoleSelection,
-	type LlmRolesResolution,
-} from "../domain/llm-roles.js";
+import { resolveLlmRoles, type LlmRolesResolution } from "../domain/llm-roles.js";
+import type { LlmRoleSelection } from "../domain/llm-role-selection.js";
 
 /** llm.json/config.json 읽기용 최소 fs. node:fs 를 entry 가 주입, 테스트는 fake. */
 export interface SettingsFsRead {

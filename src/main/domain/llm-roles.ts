@@ -1,7 +1,9 @@
 // domain/llm-roles — main/sub/memory 역할별 설정 해석과 provenance.
 // I/O·provider 생성·비밀 해석 없음. 신규 구조화 설정과 legacy 필드를 한 경계에서 정규화한다.
 
-export type LlmRole = "main" | "sub" | "memory" | "expert";
+import type { LlmRole, LlmRoleSelection } from "./llm-role-selection.js";
+
+export type { LlmRole, LlmRoleSelection } from "./llm-role-selection.js";
 export type ConfigProvenance = "explicit" | "inherit" | "legacy-inherit" | "default";
 
 export interface ResolvedConfigValue {
@@ -16,14 +18,6 @@ export interface EffectiveLlmConfig {
   readonly model: ResolvedConfigValue;
   readonly baseUrl?: ResolvedConfigValue;
   readonly credentialRef?: ResolvedConfigValue;
-}
-
-export interface LlmRoleSelection {
-  readonly provider?: string;
-  readonly model?: string;
-  readonly baseUrl?: string;
-  readonly credentialRef?: string;
-  readonly inherit?: LlmRole;
 }
 
 export interface LlmRolesInput {

@@ -17,7 +17,7 @@ function memFs(files: Record<string, string>): SettingsFsRead {
 }
 const LLM = "/ws/naia-settings/llm.json";
 const CONFIG = "/ws/naia-settings/config.json";
-const secrets: Record<string, string> = { GLM_API_KEY: "glm-SECRET", NAIA_ANYLLM_API_KEY: "naia-LOGIN" };
+const secrets: Record<string, string> = { GLM_API_KEY: "glm-SECRET", NAIA_ANYLLM_API_KEY: "naia-LOGIN", "vllm-main-ref": "vllm-SECRET" };
 const resolveSecret = (ref: string) => secrets[ref];
 const store = (files: Record<string, string>) => makeNaiaSettingsStore({ fs: memFs(files), resolveSecret });
 
@@ -29,6 +29,14 @@ describe("loadMain — config.json (naia-os 셸 정본 포맷; 키는 키체인=
 	it("nextain(naia 계정) config → labGatewayUrl(naiaGatewayUrl/NAIA_ANYLLM_BASE_URL), 키 없음", () => {
 		expect(store({ [CONFIG]: JSON.stringify({ provider: "nextain", model: "gemini-2.5-flash", NAIA_ANYLLM_BASE_URL: "https://api.nextain.io" }) }).loadMain("/ws"))
 			.toEqual({ provider: "nextain", model: "gemini-2.5-flash", labGatewayUrl: "https://api.nextain.io" });
+	});
+	it("llmRoles.main 의 모양 전체(baseUrl·credentialRef)를 잃지 않는다 — 보조·기억 역할과 분리된 main 선택(nextain/naia-shell#589)", () => {
+		expect(store({ [CONFIG]: JSON.stringify({
+			provider: "vllm",
+			model: "alpha",
+			llmRoles: { main: { provider: "vllm", model: "alpha", baseUrl: "http://gpu:8000", credentialRef: "vllm-main-ref" } },
+		}) }).loadMain("/ws"))
+			.toEqual({ provider: "vllm", model: "alpha", apiKey: "vllm-SECRET", vllmHost: "http://gpu:8000" });
 	});
 	it("ollama(로컬) config → ollamaHost", () => {
 		expect(store({ [CONFIG]: JSON.stringify({ provider: "ollama", model: "gemma3:4b", ollamaHost: "http://localhost:11434" }) }).loadMain("/ws"))

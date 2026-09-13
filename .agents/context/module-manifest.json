@@ -407,6 +407,14 @@
       "contract": "docs/progress/99.dev-comm/UC-provider-provenance-contract-2026-06-12.md",
       "note": "calculateCost + MODEL_PRICING(old verbatim 이식)"
     },
+    "src/main/domain/llm-role-selection.ts": {
+      "layer": "domain",
+      "uc": [
+        "UC1"
+      ],
+      "contract": "docs/progress/99.dev-comm/UC-provider-provenance-contract-2026-06-12.md",
+      "note": "저장된 LLM 역할 선택 한 칸의 모양. loadMain 이 main 을 읽을 때 쓰며 llm-roles 해석과 분리(nextain/naia-shell#589)"
+    },
     "src/main/domain/provider-route.ts": {
       "layer": "domain",
       "uc": [
