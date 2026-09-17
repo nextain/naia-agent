@@ -108,6 +108,12 @@ describe("T-DISCORD-RT-02/05 — production entry wiring", () => {
     expect(setWorkspaceBody.indexOf("setKnowledgeWorkspace(currentAdkPath)")).toBeGreaterThan(
       setWorkspaceBody.indexOf("await reloadConfigFrom(currentAdkPath, true)"),
     );
+    expect(setWorkspaceBody.indexOf("setWorkspaceBind")).toBeGreaterThan(
+      setWorkspaceBody.indexOf("setKnowledgeWorkspace(currentAdkPath)"),
+    );
+    expect(composition).toContain("setWorkspaceBind");
+    expect(composition).toContain("workspaceBindFromSettings");
+    expect(composition).toContain("makeProviderResolver({ workspace: () => currentBind })");
     expect(entry).toContain('assertCompilePath(join(opts.outDir, "kb.json"))');
   });
 

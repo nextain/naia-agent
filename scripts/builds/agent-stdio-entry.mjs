@@ -135,7 +135,7 @@ const { composeAgentRuntimeDeps } = await import("./compose-agent-deps.mjs");
 // ── transport-독립 런타임 deps = 공유 빌더(CLI host 와 literally 동일, NFR-CLI-shared) ──
 const deps = await composeAgentRuntimeDeps();
 cleanupFns = deps.cleanupFns;
-const { adkPath, provider, resolver, providerLabel: label, credentials, settingsStore, defaultConfig, configLabel, setCredentialWorkspace, setKnowledgeWorkspace } = deps;
+const { adkPath, provider, resolver, providerLabel: label, credentials, settingsStore, defaultConfig, configLabel, setCredentialWorkspace, setKnowledgeWorkspace, setWorkspaceBind } = deps;
 const { llmRoles } = deps;
 let activeLlmRoles = llmRoles ?? null;
 let { toolExecutor } = deps;
@@ -323,6 +323,7 @@ const grpcServer = makeGrpcServer({
       // Knowledge switches only after the memory/config transaction commits, so in-flight turns
       // cannot observe a different workspace while SetWorkspace is still pending.
       setKnowledgeWorkspace(currentAdkPath);
+      setWorkspaceBind?.(currentAdkPath);
     }
     return result;
   },

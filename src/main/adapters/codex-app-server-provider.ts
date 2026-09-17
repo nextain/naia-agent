@@ -6,6 +6,7 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { ProviderChatOpts, ProviderPort } from "../ports/uc1.js";
 import type { ChatMessage, ProviderChunk, ProviderConfig, ToolCall, ToolSpec } from "../domain/chat.js";
+import { codexThreadWorkspace, type WorkspaceBind } from "../domain/workspace-bind.js";
 
 export type CodexTurnEvent =
   | { readonly kind: "text"; readonly text: string }
@@ -22,6 +23,8 @@ export interface CodexTurnInput {
   readonly signal?: AbortSignal;
   readonly tools?: readonly ToolSpec[];
   readonly executeTool?: (call: ToolCall) => Promise<{ output: string; isError?: boolean }>;
+  /** Host workspace bind. When set, app-server cwd/sandbox follow this root instead of OS temp. */
+  readonly workspace?: WorkspaceBind;
 }
 
 export type CodexRunTurn = (input: CodexTurnInput) => AsyncIterable<CodexTurnEvent>;
@@ -108,6 +111,7 @@ function foldMessages(messages: readonly ChatMessage[]): { system: string; promp
 export function makeCodexAppServerProvider(deps?: {
   readonly model?: string;
   readonly runTurn?: CodexRunTurn;
+  readonly workspace?: () => WorkspaceBind | undefined;
 }): ProviderPort {
   const runTurn = deps?.runTurn ?? runCodexAppServerTurn;
   return {
@@ -118,6 +122,7 @@ export function makeCodexAppServerProvider(deps?: {
     ): AsyncIterable<ProviderChunk> {
       const folded = foldMessages(messages);
       const systemPrompt = [opts.systemPrompt, folded.system].filter(Boolean).join("\n\n");
+      const workspace = deps?.workspace?.();
       for await (const event of runTurn({
         model: deps?.model ?? config.model,
         prompt: folded.prompt,
@@ -125,6 +130,7 @@ export function makeCodexAppServerProvider(deps?: {
         ...(opts.signal ? { signal: opts.signal } : {}),
         ...(opts.tools ? { tools: opts.tools } : {}),
         ...(opts.executeTool ? { executeTool: opts.executeTool } : {}),
+        ...(workspace ? { workspace } : {}),
       })) {
         if (event.kind === "text") yield { kind: "text", text: event.text };
         else if (event.kind === "thinking") yield { kind: "thinking", text: event.text };
@@ -285,8 +291,8 @@ export async function makeCodexRpcPeer(
 
 /**
  * 한 ProviderPort 호출을 ephemeral Codex thread 한 개로 실행한다.
- * Naia가 대화 transcript를 전달하므로 app-server 자체 영속 thread에 의존하지 않으며,
- * read-only + approval never로 Naia 채팅이 사용자 파일을 변경하지 못하게 한다.
+ * Naia가 대화 transcript를 전달하므로 app-server 자체 영속 thread에 의존하지 않는다.
+ * cwd/sandbox follow the host workspace bind when one exists; otherwise temp + read-only.
  */
 export async function* runCodexAppServerTurn(
   input: CodexTurnInput,
@@ -316,6 +322,9 @@ export async function* runCodexAppServerTurn(
     });
     peer.notify("initialized");
     const { tmpdir } = await import("node:os");
+    // Host workspace bind is the Codex sandbox root. Temp isolation remains only
+    // when the host has no canonical workspace (first-run / missing ADK).
+    const threadWorkspace = codexThreadWorkspace(input.workspace, tmpdir());
     // app-server 동적 도구는 한 RPC 안에서 즉시 결과를 돌려줘야 한다. 승인 필요 도구는 제외한다.
     // processing metadata가 있는 도구는 ChatTurnHandler의 executeTool callback이 승인/공개한 뒤 실행한다.
     const dynamicTools = (input.tools ?? [])
@@ -331,11 +340,9 @@ export async function* runCodexAppServerTurn(
     const advertised = new Set(dynamicTools.map((tool) => tool.name));
     const started = await peer.request("thread/start", {
       model: input.model,
-      // 앱 채팅은 코딩 workspace가 아니다. 임시 디렉터리에서 시작해 주변 AGENTS.md/소스가
-      // 프롬프트에 유입되거나 토큰을 소비하지 않게 한다.
-      cwd: tmpdir(),
+      cwd: threadWorkspace.cwd,
       approvalPolicy: "never",
-      sandbox: "read-only",
+      sandbox: threadWorkspace.sandbox,
       ephemeral: true,
       ...(dynamicTools.length ? { dynamicTools } : {}),
       ...(input.systemPrompt ? { baseInstructions: input.systemPrompt } : {}),

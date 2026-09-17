@@ -23,6 +23,7 @@ import { makeNotifyExecutor } from "../../dist/main/adapters/notify-skills.js";
 import { makeAdkSkillExecutor, parseSkillMd } from "../../dist/main/adapters/adk-skill-loader.js";
 import { makeFsTools } from "../../dist/main/adapters/fs-tools.js";
 import { makeShellTool } from "../../dist/main/adapters/shell-tool.js";
+import { workspaceBindFromSettings } from "../../dist/main/domain/workspace-bind.js";
 import { makeKnowledgeSkillsExecutor } from "../../dist/main/adapters/knowledge-skill.js";
 import { readWorkspaceKnowledgeConfig, isValidKnowledgeScope } from "../../dist/main/adapters/knowledge-compile.js";
 import { pickSpawnableBin, resolveSpawnableBin, resolveFallbackCommand } from "../../dist/main/adapters/subprocess-session.js";
@@ -114,7 +115,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
   let provider, resolver, providerLabel;
   if (ap === "fake") { provider = makeFakeProvider(); providerLabel = "fake(headless)"; }
   else if (ap === "echo-system") { provider = makeSystemEchoProvider(); providerLabel = "echo-system(e2e)"; }
-  else { resolver = makeProviderResolver(); providerLabel = "config-driven resolver(lab-proxy/native/ollama)"; }
+  else { providerLabel = "config-driven resolver(lab-proxy/native/ollama)"; }
 
   // ADK 워크스페이스 경로 — 단일 device workspace(1기기=1설정=단일 워크스페이스). 우선순위:
   //   NAIA_ADK_PATH env > 전역 config(~/.naia-agent/config.json adkPath) > 기본 ~/naia-adk(bootstrap 폴백).
@@ -129,6 +130,28 @@ export async function composeAgentRuntimeDeps(o = {}) {
   const adkPath = env.NAIA_ADK_PATH || globalAdk || DEFAULT_ADK;
   if (!env.NAIA_ADK_PATH && !globalAdk) {
     process.stderr.write(`[naia-agent] ⚠ 워크스페이스 미설정 — 기본(${DEFAULT_ADK}) 폴백. 'naia-agent-chat workspace <path>' 로 단일 device 워크스페이스 고정 권장(1기기=1설정).\n`);
+  }
+  const readEnvironmentTerminalInput = (workspacePath) => {
+    try {
+      const parsed = JSON.parse(nodeFs.readFileSync(join(workspacePath, "naia-settings", "config.json"), "utf8"));
+      return parsed?.environmentTerminalInput === true;
+    } catch { return false; }
+  };
+  const bindFor = (workspacePath) => {
+    if (!workspacePath) return undefined;
+    try { if (!nodeFs.existsSync(workspacePath)) return undefined; }
+    catch { return undefined; }
+    return workspaceBindFromSettings({
+      canonicalRoot: workspacePath,
+      environmentTerminalInput: readEnvironmentTerminalInput(workspacePath),
+    });
+  };
+  let currentBind = bindFor(adkPath);
+  const setWorkspaceBind = (workspacePath) => {
+    if (workspacePath) currentBind = bindFor(workspacePath);
+  };
+  if (!provider) {
+    resolver = makeProviderResolver({ workspace: () => currentBind });
   }
   let skillsCfg = {};
   try { skillsCfg = JSON.parse(nodeFs.readFileSync(join(adkPath, "naia-settings", "skills.json"), "utf8")); } catch { /* 없음 = env 폴백 */ }
@@ -172,7 +195,11 @@ export async function composeAgentRuntimeDeps(o = {}) {
     //    NAIA_SHELL_TOOL=1 opt-in. (GLM: env-var 게이트는 자식상속으로 약함 → 핵심 보안은 sandbox/denylist/argv;
     //    per-request capability 미래 강화는 요구사항 NFR-SEC 노트.)
     const enableShell = env.NAIA_SHELL_TOOL === "1";
-    executors.push(makeFsTools({ fs: nodeFs, allowRoots: [adkPath], enableWrite: enableShell }));
+    executors.push(makeFsTools({
+      fs: nodeFs,
+      allowRoots: () => [currentBind?.canonicalRoot ?? adkPath],
+      enableWrite: enableShell,
+    }));
     skillsLabel += enableShell ? " + fs-tools(read/list/write)" : " + fs-tools(read/list)";
     if (enableShell) {
       // ── injection-safe argv 실행기 — **shell 없이** spawn(subprocess-session 헬퍼로 Windows .cmd/.bat shim 해석).
@@ -582,7 +609,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
     settingsStore, settingsResolveSecret, defaultConfig, configLabel,
     engineProfile, engineLabel, llmRoles, roleLabel,
     subLlm, subLlmLabel,
-    toolExecutor, skillsLabel, knowledgeBackend, setKnowledgeWorkspace,
+    toolExecutor, skillsLabel, knowledgeBackend, setKnowledgeWorkspace, setWorkspaceBind,
     memory, memoryLabel, reloadMemory,
     conversationLog, transcriptLabel,
     personaSource, personaLabel,

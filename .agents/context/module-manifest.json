@@ -786,6 +786,15 @@
       ],
       "note": "S3 보안계약 순수 경로정책(무 I/O) — validatePath(allow-root 컨테인먼트·`..`/드라이브절대/UNC/env확장/널바이트 차단·민감 denylist)+isSensitivePath(.keys/.env/.dpapi/SSH키/data-private 등). realpath I/O 는 어댑터가 실행시 후 재호출(TOCTOU/symlink·junction 탈출, GLM f). node:path 미import(순수). 테스트=src/test/uc-fs-tools.contract.test.ts"
     },
+    "src/main/domain/workspace-bind.ts": {
+      "layer": "domain",
+      "uc": ["UC-CODEX-DELEGATION", "UC-FS-TOOLS"],
+      "contract": [
+        "docs/requirements.md",
+        "docs/user-scenarios.md"
+      ],
+      "note": "Host workspace bind — Codex app-server cwd/sandbox and fs-tools allow-root share the shell canonical root. Terminal grant maps to workspace-write. Test=src/test/workspace-bind.contract.test.ts"
+    },
     "src/main/adapters/fs-tools.ts": {
       "layer": "adapters",
       "uc": ["UC-FS-TOOLS"],

@@ -35,8 +35,8 @@ export interface FsToolsFsLike {
 
 export interface FsToolsDeps {
   readonly fs: FsToolsFsLike;
-  /** allow-root(절대 adkPath). 모든 경로가 이 하위로 resolve 돼야 함. */
-  readonly allowRoots: readonly string[];
+  /** allow-root(절대 workspace). 모든 경로가 이 하위로 resolve 돼야 함. Live getter follows SetWorkspace. */
+  readonly allowRoots: readonly string[] | (() => readonly string[]);
   /** write_file 등록 여부(opt-in). false = read/list 만(write spec 미노출). */
   readonly enableWrite?: boolean;
 }
@@ -69,8 +69,10 @@ const WRITE_TOOL: ToolSpec =
  *   sandbox/denylist/argv 가 담당. 미래 강화 = chat_request 별 capability 토큰(요구사항 NFR-SEC 노트).
  */
 export function makeFsTools(deps: FsToolsDeps): ToolExecutorPort {
-  const { fs, allowRoots, enableWrite = false } = deps;
-  const policy: SandboxPolicy = { allowRoots };
+  const { fs, enableWrite = false } = deps;
+  const allowRoots = (): readonly string[] =>
+    typeof deps.allowRoots === "function" ? deps.allowRoots() : deps.allowRoots;
+  const policy = (): SandboxPolicy => ({ allowRoots: allowRoots() });
   const tools: readonly ToolSpec[] = enableWrite ? [...READ_TOOLS, WRITE_TOOL] : READ_TOOLS;
 
   /**
@@ -86,7 +88,7 @@ export function makeFsTools(deps: FsToolsDeps): ToolExecutorPort {
    */
   const resolveSafe = (rawPath: unknown, opts: { forWrite: boolean }): { ok: true; real: string } | { ok: false; reason: string } => {
     if (typeof rawPath !== "string") return { ok: false, reason: "path must be string" };
-    const v1 = validatePath(rawPath, policy); // 1단계: 순수 정책
+    const v1 = validatePath(rawPath, policy()); // 1단계: 순수 정책
     if (!v1.ok) return { ok: false, reason: v1.reason };
 
     // 2단계: 실제 경로 resolve 후 재검증(symlink/junction swap·TOCTOU 방지).
@@ -99,7 +101,7 @@ export function makeFsTools(deps: FsToolsDeps): ToolExecutorPort {
       }
       let real: string;
       try { real = fs.realpathSync(v1.normalized); } catch (e) { return { ok: false, reason: `realpath failed: ${safeMsg(e)}` }; }
-      const v2 = validatePath(real, policy); // realpath 재검증 — 링크가 allow-root 밖/민감경로 가리키면 거부
+      const v2 = validatePath(real, policy()); // realpath 재검증 — 링크가 allow-root 밖/민감경로 가리키면 거부
       if (!v2.ok) return { ok: false, reason: `realpath rejected: ${v2.reason}` };
       return { ok: true, real: v2.normalized };
     }
@@ -113,11 +115,11 @@ export function makeFsTools(deps: FsToolsDeps): ToolExecutorPort {
       if (fs.existsSync(parent)) {
         let realParent: string;
         try { realParent = fs.realpathSync(parent); } catch (e) { return { ok: false, reason: `realpath(parent) failed: ${safeMsg(e)}` }; }
-        const vp = validatePath(realParent, policy);
+        const vp = validatePath(realParent, policy());
         if (!vp.ok) return { ok: false, reason: `parent realpath rejected: ${vp.reason}` };
         // 부모 realpath + 자식명으로 최종 경로 재구성 후 한 번 더 denylist/컨테인먼트(자식명이 민감하면 거부).
         const finalPath = `${vp.normalized}/${child}`;
-        const vf = validatePath(finalPath, policy);
+        const vf = validatePath(finalPath, policy());
         if (!vf.ok) return { ok: false, reason: vf.reason };
         return { ok: true, real: vf.normalized };
       }
@@ -182,7 +184,7 @@ export function makeFsTools(deps: FsToolsDeps): ToolExecutorPort {
             if (!safe.ok) return err(`denied: ${safe.reason}`);
             // 설정 쓰기-펜스(FR-KB-OS.9): naia-settings/ 는 셸 소유 → 에이전트 일반 파일도구가 못 바꾼다.
             //   real(symlink 해소 후)로 판정 — 링크로 우회 불가. 읽기는 허용(read_file 미적용).
-            if (isSettingsWriteFenced(safe.real, allowRoots)) return err("denied: naia-settings is read-only for the agent (settings owned by shell)");
+            if (isSettingsWriteFenced(safe.real, allowRoots())) return err("denied: naia-settings is read-only for the agent (settings owned by shell)");
             abortGuard(); // (mutate 전 가드)
             fs.writeFileSync(safe.real, a.content, { encoding: "utf8", mode: 0o600 });
             return ok(`작성됨: ${safe.real} (${a.content.length} bytes)`);
