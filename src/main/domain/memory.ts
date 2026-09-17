@@ -36,6 +36,22 @@ const FRAME_HEAD = [
 const FRAME_FOOT = "[회상된 참고 정보 — 끝]";
 const MAX_ITEMS = 64; // 처리 항목 상한(거대 반환값 방어 — 예산 절단 전 작업량 bound).
 
+/** Trusted diagnostic: embedding-space mismatch is not an empty memory store. */
+export const MEMORY_INDEX_UNAVAILABLE_NOTICE = [
+  "[장기기억 색인 상태]",
+  "장기기억 저장소는 비어 있지 않습니다. 임베딩 공간이 바뀌어 지금은 과거 대화를 회상할 수 없습니다.",
+  "사용자에게 기억이 없다고 말하지 마세요. 색인을 다시 만드는 중일 수 있습니다.",
+].join("\n");
+
+export function isEmbeddingSpaceMismatchError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const err = error as { name?: string; code?: string; message?: string };
+  if (err.name === "EmbeddingSpaceMismatchError" || err.code === "EMBEDDING_SPACE_MISMATCH") {
+    return true;
+  }
+  return /call reindexEmbeddings\(\)/.test(String(err.message ?? ""));
+}
+
 function clip(s: string, max: number): string {
   const t = String(s ?? "");
   if (max <= 0) return "";

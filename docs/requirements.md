@@ -26,6 +26,7 @@
 | FR-MEM-14 | 진단 provider 기억 오염 방지 — `echo-system`의 전체 system prompt 출력은 assistant 장기기억에 저장하지 않되 실제 user 발화는 저장한다. 빈 assistant 텍스트는 episode로 만들지 않는다. | Done |
 | FR-MEM-15 | 인스턴스 간 기억 오염 방지(#108, naia-shell#425) — 로컬 기억 저장 경로는 agent가 **명시 해석해 항상 LocalAdapter에 전달**한다(패키지 기본값 미사용). 제품 경로는 `<adkPath>/naia-settings/memory/store.json`으로 고정하며 `NAIA_HOME`·`NAIA_MEMORY_DIR`·`NAIA_MEMORY_STORE`·`NAIA_MEMORY_PROJECT`로 우회할 수 없다. 개발/운영 분리는 서로 다른 ADK를 선택하는 shell→agent workspace 계약으로 수행한다. | Done |
 | FR-MEM-16 | 제품 저장소 소유 경계 — shell은 `adkPath`와 설정만 전달하고 memory/knowledge 파일 경로를 만들거나 주입하지 않는다. agent는 canonical ADK의 `naia-settings` 아래에서만 로컬 memory(`memory/store.json`, `memory/workspace-id`)와 compiled knowledge(`knowledge/<scope>/kb.json`)를 읽고 쓴다. `NAIA_KNOWLEDGE_DIR`를 포함한 임의 filesystem override는 제품 host에서 제거한다. qdrant는 사용자가 설정에서 명시 선택한 외부 adapter 예외이며 동일 workspace UUID scope를 유지한다. | Done |
+| FR-MEM-17 | 임베딩 공간 불일치 재색인(naia-shell#649) — 제품 LocalAdapter 는 `reindexEmbeddingsOnMismatch: true` 로 열고 `ready()` 가 재색인을 기다린다. 불일치는 빈 저장소가 아니다. 재색인 실패가 memory 전체를 끄지 않으며, recall 실패 시 모델에 「기억이 없다」가 아니라 색인 불가 진단을 넣는다. | Done |
 
 ### NFR
 - 헥사고날 경계: domain 순수(formatRecalledMemory)·app 포트만·adapter 데이터만(프롬프트 정책 비누출).

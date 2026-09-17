@@ -148,6 +148,12 @@ RPC 결과에 유지 여부와 오류 진단을 반환한다. 따라서 실패�
 새 workspace 대화에 노출하지 않는다. Shell 시작 과정에서 동일한 설정 재호출이 10회 이상 발생해도
 정상 활성 인스턴스의 fingerprint가 같으면 재초기화하지 않고 같은 status를 반환한다.
 
+### S-MEM-EMBED-REINDEX (임베딩 공간 불일치 재색인 — naia-shell#649)
+
+사용자가 임베딩 모델을 바꾸거나 예전 저장소에 공간 ID가 없으면, agent 시작(또는 설정 재로드)에서
+벡터를 다시 만든다. 그동안 회상/저장이 막혀도 에이전트는 「기억이 없다」고 말하지 않는다. 재색인이
+끝나면 이전 세션 사실이 다시 회상된다.
+
 ## UC-PROV-1 (provider/model 라이브 교체)
 
 사용자가 naia-os 설정에서 텍스트 모델/프로바이더를 바꾸면, agent 재기동 없이 **다음 대화
@@ -668,6 +674,7 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 | FR-MEM-13 / S-MEM-RELOAD | `src/test/reloadable-memory.contract.test.ts`(in-flight 대기·flush/build/close 순서·실패 시 기존 인스턴스 유지), `src/test/memory-settings-reload.contract.test.ts`(실 config 재독·동일 설정 12회 no-op·불완전 llmRoles 유지·정상 교체 후 데이터 보존), `discord-entry-wiring.contract.test.ts`·`grpc-shutdown.contract.test.ts`(비동기 SetWorkspace/ReloadSettings·lifecycle 회귀) |
 | FR-MEM-14 / 진단 provider 기억 오염 방지 | `src/test/echo-system-memory-persistence.contract.test.ts`(실 user episode는 저장하고 `SYSTEM_ECHO` 및 빈 assistant episode는 저장하지 않음) |
 | FR-MEM-15·16 / S-MEM-STORAGE-BOUNDARY | `src/test/product-storage-boundary.contract.test.ts`(canonical ADK·한국어 scope·경로 탈출 거부·legacy identity/store/KB 이동), `src/test/discord-entry-wiring.contract.test.ts`(제품 host의 canonical/symlink guard 배선), `src/test/memory-settings-reload.contract.test.ts`(교체 전후 양방향 비오염), `src/test/uc1-memory-stdio.integration.test.ts`(identity/store가 naia-settings 아래인지, 임의 env override 비수용, ADK 간 격리), `src/test/uc1-memory-process.integration.test.ts`(Shell과 같은 제품 host 경로의 재시작 영속), `src/test/uc-fs-tools.contract.test.ts`(AI 파일 도구의 memory/knowledge 쓰기 차단) |
+| FR-MEM-17 / S-MEM-EMBED-REINDEX | `src/test/memory-embedding-reindex.contract.test.ts`(ready 시 재색인 후 회상, 불일치를 빈 기억으로 주입하지 않음) |
 | UC-PROV-1 / FR-PROV-1·2·3 | `src/test/all-providers-wiring.contract.test.ts`, `uc1-reload-default-config.contract.test.ts`, `uc-naia-settings-store.contract.test.ts` |
 | UC-PROV-1 / FR-PROV-7 (로그인·workspace credential 동기화) | `src/test/uc-keychain-credentials.contract.test.ts`(login 전 부재·키 교체·workspace 분리·복호화 재시도), `src/test/discord-entry-wiring.contract.test.ts`(production DPAPI reader·SetWorkspace rollback 배선) |
 | UC-THINKING / S-THINK-1·2·3 / FR-THINK-1~4 | `src/test/uc-thinking.contract.test.ts` (요청 body 검증: enableThinking=false+로컬 → `reasoning_effort:"none"` / true·미지정 → 미전송 / **원격 baseUrl → 미전송**(400 회귀 방지) / `isLocalEngineBaseUrl` 순수 판별) |
