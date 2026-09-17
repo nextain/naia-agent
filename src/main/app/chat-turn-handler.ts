@@ -12,7 +12,7 @@ import type {
 import type { MemoryPort } from "../ports/memory.js";
 import type { CompactionPort } from "../ports/compaction.js";
 import type { ConversationLogPort } from "../ports/conversation-log.js";
-import { formatRecalledMemory } from "../domain/memory.js";
+import { formatRecalledMemory, isEmbeddingSpaceMismatchError, MEMORY_INDEX_UNAVAILABLE_NOTICE } from "../domain/memory.js";
 import { composePersonaPrompt } from "../domain/persona.js";
 import { composeWorkspaceContext } from "../domain/workspace-context.js";
 import { renderEnvironmentSegments } from "../domain/environment-segments.js";
@@ -373,7 +373,14 @@ export class ChatTurnHandler {
           // 프레이밍·예산 절단은 domain formatter 가 강제(adapter 무관 — FR-MEM-7/8 보장).
           const recalled = mem ? formatRecalledMemory(mem) : "";
           if (recalled) memSystemPrompt = memSystemPrompt ? `${memSystemPrompt}\n\n${recalled}` : recalled;
-        } catch (e) { this.safeDiag("memory recall 실패(턴 유지)", e); }
+        } catch (e) {
+          this.safeDiag("memory recall 실패(턴 유지)", e);
+          if (isEmbeddingSpaceMismatchError(e)) {
+            memSystemPrompt = memSystemPrompt
+              ? `${memSystemPrompt}\n\n${MEMORY_INDEX_UNAVAILABLE_NOTICE}`
+              : MEMORY_INDEX_UNAVAILABLE_NOTICE;
+          }
+        }
       }
       // UC5 리뷰 fix: enableTools=false → 도구 미제공(순수 챗), disabledSkills 필터(wire 필드 소비, old 충실).
       // UC-015: app 소유 semantic control 은 외부 executor 와 이름 충돌하지 않도록 우선한다. enableTools=false 만
@@ -426,7 +433,14 @@ export class ChatTurnHandler {
               : assistantTurnParts.join("\n");
             const ok = await raceTimeout(this.d.memory.save(lastUserText, assistantMemoryText), saveTimeoutMs);
             if (!ok) this.safeDiag("memory save 시간초과(턴 유지)", new Error(`>${saveTimeoutMs}ms`));
-          } catch (e) { this.safeDiag("memory save 실패(턴 유지)", e); }
+          } catch (e) {
+            this.safeDiag(
+              isEmbeddingSpaceMismatchError(e)
+                ? "memory save 실패(임베딩 색인 불일치, 턴 유지)"
+                : "memory save 실패(턴 유지)",
+              e,
+            );
+          }
         }
         if (privatePersistenceAllowed && this.d.conversationLog && currentUserMsg) {
           try {

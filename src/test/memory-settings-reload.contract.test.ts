@@ -21,6 +21,8 @@ describe("memory settings reload wiring", () => {
     expect(compose).toContain("settingsStore.loadLlmRoles(workspacePath)");
     expect(compose).toContain("memory.reconfigure(async () =>");
     expect(compose).toContain("snapshot.fingerprint === activeMemoryFingerprint");
+    expect(compose).toContain("onEmbeddingReindex");
+    expect(compose).toContain("store is not empty");
   });
 
   it("keeps the live backend on invalid llmRoles and preserves data across a valid swap", async () => {

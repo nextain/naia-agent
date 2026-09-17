@@ -496,6 +496,15 @@ export async function composeAgentRuntimeDeps(o = {}) {
               }
             : {}),
           ...(nextMemoryRuntime?.ok ? { llm: nextMemoryRuntime.config } : {}),
+          onEmbeddingReindex: (event) => {
+            if (event.phase === "start") {
+              process.stderr.write(`[naia-agent] memory embedding-space mismatch; reindexing (${event.reason})\n`);
+            } else if (event.phase === "done") {
+              process.stderr.write("[naia-agent] memory embedding reindex complete\n");
+            } else {
+              process.stderr.write(`[naia-agent] memory embedding reindex failed; store is not empty (${event.reason})\n`);
+            }
+          },
         });
         try {
           await next.ready();

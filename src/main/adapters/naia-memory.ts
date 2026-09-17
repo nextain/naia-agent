@@ -71,6 +71,13 @@ export interface NaiaMemoryOpts {
   /** Agent가 provider/auth를 해석해 만든 좁은 포트. 지정하면 legacy llm config보다 우선한다. */
   readonly factExtractor?: FactExtractor;
   readonly summarizer?: CompactionSummarizer;
+  /** Test/advanced: skip MemoryEmbeddingConfig and inject a ready provider. */
+  readonly embeddingProvider?: EmbeddingProvider;
+  /** Observes product-path embedding reindex at adapter open. */
+  readonly onEmbeddingReindex?: (event: {
+    readonly phase: "start" | "done" | "failed";
+    readonly reason: string;
+  }) => void;
 }
 
 /** 메모리 LLM(사실추출) 선택 — os 메모리 UI(memoryLlmProvider 등). baseUrl/apiKey/model 은 provider 별로
@@ -200,10 +207,11 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
   const scopeMode = opts.scopeMode ?? "strict"; // project 경계 격리(누설 차단)
   // issue #7: os 메모리 UI 의 adapter/embedding 선택을 런타임에 반영(이전엔 LocalAdapter+키워드-only 하드코딩).
   // embedding 은 adapter 선택과 분리해 빌드(순수). provider 별 필수 누락 = throw(상위 entry 가 catch→기억 없이 격리).
-  const embeddingProvider = buildEmbeddingProvider(opts.embedding);
+  const embeddingProvider = opts.embeddingProvider ?? buildEmbeddingProvider(opts.embedding);
   const factExtractor = opts.factExtractor ?? buildMemoryFactExtractor(opts.llm);
   const summarizer = opts.summarizer ?? buildMemorySummarizer(opts.llm);
   let sys: MemorySystem;
+  let localAdapter: LocalAdapter | null = null;
   if (opts.adapter === "qdrant") {
     // QdrantAdapter 는 embedding 필수(키워드-only 불가) — fail-closed.
     if (!embeddingProvider) {
@@ -227,19 +235,38 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
   } else {
     // local: storePath 제어 위해 LocalAdapter 직접 생성(MemorySystem 내부 빌드는 storePath 미지정). embeddingProvider
     // 는 LocalAdapter 에 직접 주입(MemorySystem 은 pre-built adapter 에 embedding 미전달 — index.ts:464 경로).
+    localAdapter = new LocalAdapter({
+      // FR-MEM-15: 항상 명시 storePath — NAIA_HOME 격리 존중(위 헬퍼 참조).
+      storePath: opts.storePath ?? naiaMemoryDefaultStorePath(),
+      ...(embeddingProvider
+        ? { embeddingProvider, reindexEmbeddingsOnMismatch: true }
+        : {}),
+    });
     sys = new MemorySystem({
-      adapter: new LocalAdapter({
-        // FR-MEM-15: 항상 명시 storePath — NAIA_HOME 격리 존중(위 헬퍼 참조).
-        storePath: opts.storePath ?? naiaMemoryDefaultStorePath(),
-        ...(embeddingProvider ? { embeddingProvider } : {}),
-      }),
+      adapter: localAdapter,
       ...(factExtractor ? { factExtractor } : {}),
       ...(summarizer ? { summarizer } : {}),
     });
   }
-  // QdrantAdapter 는 비동기 initialize() 필요(recall/encode 는 내부적으로 _initPromise 대기 안 함). LocalAdapter
-  // 는 즉시 ready. 모든 backend 작업 전 await ready 로 init 완료 보장(makeNaiaMemory 동기 시그니처 유지).
-  const ready = sys.init();
+  // QdrantAdapter 는 비동기 initialize() 필요(recall/encode 는 내부적으로 _initPromise 대기 안 함).
+  // LocalAdapter 는 즉시 열리지만, 제품 경로는 임베딩 공간 불일치 시 open 에서 재색인을 기다린다.
+  // 재색인 실패는 ready 를 깨지 않는다 — 저장소가 빈 것이 아니므로 memory 를 끄지 않는다.
+  const ready = (async () => {
+    await sys.init();
+    if (!localAdapter) return;
+    const mismatchAtOpen = localAdapter.getEmbeddingSpaceMismatch();
+    if (!mismatchAtOpen) {
+      await localAdapter.whenReady();
+      return;
+    }
+    opts.onEmbeddingReindex?.({ phase: "start", reason: mismatchAtOpen });
+    await localAdapter.whenReady();
+    if (localAdapter.getEmbeddingSpaceMismatch()) {
+      opts.onEmbeddingReindex?.({ phase: "failed", reason: mismatchAtOpen });
+      return;
+    }
+    opts.onEmbeddingReindex?.({ phase: "done", reason: mismatchAtOpen });
+  })();
   ready.catch(() => {}); // floating unhandledRejection 차단 — 실패는 첫 작업의 await ready 에서 표면화(호출측 격리).
 
   return {
