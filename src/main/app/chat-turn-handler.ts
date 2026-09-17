@@ -96,11 +96,21 @@ const DEFAULT_CONTINUATION_CLOCK: ContinuationClock = {
 /** 한 provider 호출(라운드)의 결과 — runRound 가 반환, onChatRequest 루프가 해석. */
 interface RoundResult {
   readonly text: string;                                          // 이 라운드 누적 텍스트(thinking 제외) — history threading 용
+  readonly thinking: string;                                      // reasoning-only 폴드용. 사용자 표시는 thinking chunk 로 이미 emit
   readonly calls: readonly ToolCall[];                            // 버퍼링된 toolUse(아직 emit 안 함)
   readonly usage: { inputTokens: number; outputTokens: number } | null; // 라운드 스냅샷(마지막 채택)
   readonly finished: boolean;                                     // finish chunk 수신
   readonly aborted: boolean;                                      // abort race 승 또는 abort 중 rejection
   readonly rejected?: string;                                     // provider rejection(abort 아님) 메시지
+}
+
+/** #639 — reasoning-only 최종을 사용자 보이는 답으로 접는다. 짧으면 그대로, 길면 잘라 남긴다. */
+export const REASONING_FOLD_MAX_CHARS = 1500;
+export function foldReasoningOnlyAnswer(thinking: string | undefined): string | undefined {
+  const text = thinking?.trim() ?? "";
+  if (!text) return undefined;
+  if (text.length <= REASONING_FOLD_MAX_CHARS) return text;
+  return `${text.slice(0, REASONING_FOLD_MAX_CHARS).trimEnd()}…`;
 }
 
 export interface HandlerDeps {
@@ -454,7 +464,7 @@ export class ChatTurnHandler {
         if (signal.aborted) { terminalError("cancelled"); break; }                 // (a) provider 호출 전 가드
         if (!await authorizeOperation("main_llm")) break;
         const roundTools = controlConsumed ? externalTools : tools;
-        const round = await this.runRound(
+        let round = await this.runRound(
           providerConfig, messages, memSystemPrompt, roundTools, signal, emit, req.requestId,
           async (plans) => {
             if (nativeProcessingDenied) return false;
@@ -478,12 +488,21 @@ export class ChatTurnHandler {
         if (signal.aborted) { terminalError("cancelled"); break; }                  // (b) provider loop 종료 직후 가드(finish 직후 취소 시 finish/cap-error 선방출 차단)
         if (round.text) assistantTurnParts.push(round.text);                        // 이 라운드 assistant 텍스트 누적(도구 라운드 preamble 도 보존)
         if (round.calls.length === 0) {                                             // 최종 응답
-		  if (!round.text.trim() && !finalRecoveryUsed) {
-			finalRecoveryUsed = true;
-			memSystemPrompt = `${memSystemPrompt ?? ""}\n\nReturn the final answer now. Do not emit reasoning, <think> tags, or analysis. Answer the user's latest message directly.`.trim();
-			continue;
+		  if (!round.text.trim()) {
+			const folded = foldReasoningOnlyAnswer(round.thinking);
+			if (folded) {
+			  emit({ kind: "text", text: folded });
+			  assistantTurnParts.push(folded);
+			  round = { ...round, text: folded };
+			} else if (!finalRecoveryUsed) {
+			  finalRecoveryUsed = true;
+			  memSystemPrompt = `${memSystemPrompt ?? ""}\n\nReturn the final answer now. Do not emit reasoning, <think> tags, or analysis. Answer the user's latest message directly.`.trim();
+			  continue;
+			} else {
+			  terminalError("provider returned reasoning without a final answer");
+			  break;
+			}
 		  }
-		  if (!round.text.trim()) { terminalError("provider returned reasoning without a final answer"); break; }
 		  const isDeepSeekV4Flash = /deepseek[-_/ ]?v4[-_/ ]?flash/i.test(`${providerConfig.provider}/${providerConfig.model}`);
 		  if (isDeepSeekV4Flash && !finalRecoveryUsed && isLikelyIncompleteDeepSeekFinal(round.text)) {
 			finalRecoveryUsed = true;
@@ -699,11 +718,11 @@ export class ChatTurnHandler {
         signal.addEventListener("abort", abortListener, { once: true });
       }
     });
-    let text = ""; const calls: ToolCall[] = []; let usage: RoundResult["usage"] = null; let finished = false;
+    let text = ""; let thinking = ""; const calls: ToolCall[] = []; let usage: RoundResult["usage"] = null; let finished = false;
     try {
       for (;;) {
         const r = await Promise.race([it.next(), abortP]);
-        if (r === ABORTED) { closeIt(); return { text, calls, usage, finished: false, aborted: true }; } // abort 승(R6/R8). await 안 함=return hang 대비
+        if (r === ABORTED) { closeIt(); return { text, thinking, calls, usage, finished: false, aborted: true }; } // abort 승(R6/R8). await 안 함=return hang 대비
         if (r.done) break;                                                          // finish 없는 EOF(소진=close 불요)
         const chunk = r.value;
         if (chunk.kind === "usage") { usage = { inputTokens: chunk.inputTokens, outputTokens: chunk.outputTokens }; } // 마지막 스냅샷 채택(델타 아님)
@@ -711,16 +730,17 @@ export class ChatTurnHandler {
         else if (chunk.kind === "toolUse" && !chunk.handled) { calls.push({ id: chunk.id, name: chunk.name, args: chunk.args }); } // ⚠️ 버퍼링(emit 보류)
         else if (chunk.kind === "toolUse" || chunk.kind === "toolResult") { nativeEmit(mapProviderChunk(chunk)); } // provider-native 실행은 이미 완료/진행 중 — 재실행 금지
         else if (chunk.kind === "text") { text += chunk.text; nativeEmit(mapProviderChunk(chunk)); } // 즉시 표시 + history 누적
-        else { nativeEmit(mapProviderChunk(chunk)); }                                      // thinking — 즉시 표시(history 누적 안 함)
+        else if (chunk.kind === "thinking") { thinking += chunk.text; nativeEmit(mapProviderChunk(chunk)); }
+        else { nativeEmit(mapProviderChunk(chunk)); }
       }
     } catch (err) {
       closeIt();
-      if (signal.aborted) return { text, calls, usage, finished: false, aborted: true };
-      return { text, calls, usage, finished: false, aborted: false, rejected: errMessage(err) };
+      if (signal.aborted) return { text, thinking, calls, usage, finished: false, aborted: true };
+      return { text, thinking, calls, usage, finished: false, aborted: false, rejected: errMessage(err) };
     } finally {
       if (abortListener) signal.removeEventListener("abort", abortListener);
     }
-    return { text, calls, usage, finished, aborted: false };
+    return { text, thinking, calls, usage, finished, aborted: false };
   }
 
   onApprovalResponse(req: ApprovalResponse): void {
