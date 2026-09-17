@@ -178,6 +178,61 @@ describe("DJ-GRPC-01 activity app BGM correlation", () => {
     });
     expect(emitted).toBe(0);
   });
+
+  it("#430: 진단 timeout 뒤 같은 playback의 late playing을 성공으로 확정한다", async () => {
+    const routes = makeActivityRouteRegistry();
+    routes.set({ sessionId: "s", requestId: "r", activityId: "a", profileGeneration: 1 });
+    const calls: { toolCallId: string; action: string }[] = [];
+    let clock = 0;
+    const bgm = makeActivityRadioDjBgm({
+      routes,
+      wire: {
+        emit: (_s, _r, _a, _g, event) => {
+          if (event.kind === "appToolCall") calls.push({
+            toolCallId: event.toolCallId,
+            action: String((event.args as { action?: unknown }).action),
+          });
+        },
+      },
+      specs: () => [{
+        name: "skill_youtube_bgm",
+        description: "",
+        parameters: { type: "object", properties: { action: { enum: ["play", "status", "stop"] } } },
+      }],
+      observationTimeoutMs: 30_000,
+      pollIntervalMs: 1_000,
+      now: () => clock,
+      wait: async (delayMs) => { clock += delayMs; },
+    });
+
+    const play = bgm.searchAndPlay("cold embed", { requestId: "r", activityId: "a" });
+    bgm.resolveResult("r", "a", calls[0]!.toolCallId, JSON.stringify({
+      ok: true,
+      action: "play",
+      selected: { videoId: "v1", title: "Cold Mix" },
+      playback: { playbackId: "p1", status: "requested" },
+    }), true);
+
+    await vi.waitFor(() => expect(calls).toHaveLength(2));
+    bgm.resolveResult("r", "a", calls[1]!.toolCallId, JSON.stringify({
+      ok: true,
+      action: "status",
+      playback: { playbackId: "p1", status: "timeout", reason: "diagnostic deadline" },
+      currentTrack: { videoId: "v1", title: "Cold Mix" },
+      announceTrack: false,
+    }), true);
+
+    await vi.waitFor(() => expect(calls).toHaveLength(3));
+    bgm.resolveResult("r", "a", calls[2]!.toolCallId, JSON.stringify({
+      ok: true,
+      action: "status",
+      playback: { playbackId: "p1", status: "playing" },
+      currentTrack: { videoId: "v1", title: "Cold Mix" },
+      announceTrack: true,
+    }), true);
+
+    await expect(play).resolves.toEqual({ ok: true, videoId: "v1", title: "Cold Mix" });
+  });
 });
 
 // ── #115 — status 관측 폴링 간격 하한(≥1s) 계약 (FR-CONT-MVP-10) ──
