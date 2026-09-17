@@ -287,7 +287,22 @@ export async function composeAgentRuntimeDeps(o = {}) {
         };
         const backend = {
           search: async (q, k) => (await loadKnowledge()).service.search(q, k),
-          ask: async (q) => (await loadKnowledge()).service.ask(q),
+          ask: async (q) => {
+            const wk = await loadKnowledge();
+            const r = await wk.service.ask(q);
+            if (!r?.abstained) return r;
+            // Serve rule: compiled non-gap hits are answers. Conversational
+            // questions ("회사 이름이 뭐야?") can miss ask's token coverage
+            // even when search already found the card (naia-shell#648).
+            const hits = await wk.service.search(q, 3);
+            const hit = Array.isArray(hits) ? hits.find((h) => h && h.score > 0) : null;
+            if (!hit) return r;
+            return {
+              abstained: false,
+              answer: hit.snippet || hit.title,
+              sources: hits.slice(0, 3).map((h) => ({ title: h.title, sourceUris: h.sourceUris })),
+            };
+          },
           graph: async () => toGraphData((await loadKnowledge()).kb),
         };
         knowledgeBackend = backend;
