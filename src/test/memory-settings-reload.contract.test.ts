@@ -17,6 +17,9 @@ describe("memory settings reload wiring", () => {
     expect(entry).toContain("const reloadConfigFrom = async (path, atomicWorkspace = false) =>");
     expect(entry).toContain("await reloadMemory(path)");
     expect(entry).toContain("memoryRetained: memoryResult.retained");
+    expect(entry).toContain("composeAgentRuntimeDeps({ allowHomeAdkFallback: false })");
+    expect(compose).toContain("resolveHostAdkPath");
+    expect(compose).toContain("allowHomeAdkFallback");
     expect(compose).toContain("settingsStore.loadMemoryConfig(workspacePath)");
     expect(compose).toContain("settingsStore.loadLlmRoles(workspacePath)");
     expect(compose).toContain("memory.reconfigure(async () =>");

@@ -41,14 +41,43 @@ import { createHash, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 
+/** Trim a workspace path. Empty/non-string values become "". */
+export function trimAdkPath(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+/**
+ * Host ADK root. Shell/gRPC must pass NAIA_ADK_PATH / SetWorkspace.
+ * A leftover `~/naia-adk` clone or CLI `~/.naia-agent/config.json` pin must
+ * not become the product memory root when that env is set, and the gRPC host
+ * must not fall back to those clones at all (`allowHomeAdkFallback: false`).
+ */
+export function resolveHostAdkPath({
+  envAdkPath,
+  globalAdkPath,
+  defaultAdkPath,
+  allowHomeAdkFallback = false,
+} = {}) {
+  const env = trimAdkPath(envAdkPath);
+  if (env) return env;
+  if (!allowHomeAdkFallback) return "";
+  const global = trimAdkPath(globalAdkPath);
+  if (global) return global;
+  return trimAdkPath(defaultAdkPath);
+}
+
 /**
  * transport-독립 런타임 deps 조립(async — memory 동적 import + MCP init 때문).
  * @param {object} [o]
  * @param {NodeJS.ProcessEnv} [o.env] — 기본 process.env. (NAIA_ADK_PATH/AGENT_PROVIDER/NAIA_AGENT_SKILLS/MEMORY/TRANSCRIPT/DEBUG 등)
+ * @param {string} [o.homeDir] — 기본 os.homedir(). 테스트가 leftover `~/naia-adk` clone 을 심을 때 주입.
+ * @param {boolean} [o.allowHomeAdkFallback] — CLI standalone 만 true. gRPC/Shell host 는 false(기본).
  * @returns deps + 라벨 + cleanupFns + settingsStore/adkPath(호스트의 reload 배선용).
  */
 export async function composeAgentRuntimeDeps(o = {}) {
   const env = o.env ?? process.env;
+  const homeDir = typeof o.homeDir === "string" && o.homeDir.trim() ? o.homeDir : homedir();
+  const allowHomeAdkFallback = o.allowHomeAdkFallback === true;
   const cleanupFns = []; // 종료 시 정리(MCP 자식 등) — 호스트 shutdown 이 호출.
   const rejectExistingSymlink = (path, label) => {
     try {
@@ -117,19 +146,25 @@ export async function composeAgentRuntimeDeps(o = {}) {
   else if (ap === "echo-system") { provider = makeSystemEchoProvider(); providerLabel = "echo-system(e2e)"; }
   else { providerLabel = "config-driven resolver(lab-proxy/native/ollama)"; }
 
-  // ADK 워크스페이스 경로 — 단일 device workspace(1기기=1설정=단일 워크스페이스). 우선순위:
-  //   NAIA_ADK_PATH env > 전역 config(~/.naia-agent/config.json adkPath) > 기본 ~/naia-adk(bootstrap 폴백).
-  // 전역 config 가 CLI standalone 의 SoT — 모든 진입점(chat/gRPC host)이 같은 워크스페이스에서 LLM/설정 로딩.
-  // ⚠️ 기본 ~/naia-adk 폴백은 silent-divergence 원인(다른 복제본 가리킘) — 사용 시 경고로 가시화.
-  const DEFAULT_ADK = join(homedir(), "naia-adk");
+  // ADK 워크스페이스 경로. 제품 host(gRPC/Shell) 정본 = NAIA_ADK_PATH / SetWorkspace.
+  // CLI standalone 만 ~/.naia-agent/config.json 과 ~/naia-adk bootstrap 을 허용한다.
+  // ⚠️ ~/naia-adk 폴백은 두 번째 clone silent-divergence 원인 — gRPC host 에서 금지.
+  const DEFAULT_ADK = join(homeDir, "naia-adk");
   let globalAdk;
   try {
-    const parsed = JSON.parse(nodeFs.readFileSync(join(homedir(), ".naia-agent", "config.json"), "utf8"));
-    if (typeof parsed?.adkPath === "string" && parsed.adkPath.length > 0) globalAdk = parsed.adkPath;
+    const parsed = JSON.parse(nodeFs.readFileSync(join(homeDir, ".naia-agent", "config.json"), "utf8"));
+    if (typeof parsed?.adkPath === "string" && parsed.adkPath.trim().length > 0) globalAdk = parsed.adkPath.trim();
   } catch { /* 전역 config 없음/손상 = 폴백 */ }
-  const adkPath = env.NAIA_ADK_PATH || globalAdk || DEFAULT_ADK;
-  if (!env.NAIA_ADK_PATH && !globalAdk) {
+  const adkPath = resolveHostAdkPath({
+    envAdkPath: env.NAIA_ADK_PATH,
+    globalAdkPath: globalAdk,
+    defaultAdkPath: DEFAULT_ADK,
+    allowHomeAdkFallback,
+  });
+  if (allowHomeAdkFallback && !trimAdkPath(env.NAIA_ADK_PATH) && !globalAdk && adkPath) {
     process.stderr.write(`[naia-agent] ⚠ 워크스페이스 미설정 — 기본(${DEFAULT_ADK}) 폴백. 'naia-agent-chat workspace <path>' 로 단일 device 워크스페이스 고정 권장(1기기=1설정).\n`);
+  } else if (!adkPath) {
+    process.stderr.write("[naia-agent] ⚠ 워크스페이스 미설정 — leftover ~/naia-adk clone 폴백 없이 SetWorkspace/NAIA_ADK_PATH 를 기다린다.\n");
   }
   const readEnvironmentTerminalInput = (workspacePath) => {
     try {
@@ -184,7 +219,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
   let knowledgeBackend;
   let setKnowledgeWorkspace = () => undefined;
   if (env.NAIA_AGENT_SKILLS !== "off") {
-    const memoPath = env.NAIA_MEMO_PATH || join(homedir(), ".naia-agent", "memos.json");
+    const memoPath = env.NAIA_MEMO_PATH || join(homeDir, ".naia-agent", "memos.json");
     const memo = makeFileMemoStore({ path: memoPath, dir: dirname(memoPath), fs: nodeFs });
     const builtin = makeBuiltinSkillsExecutor({ clock: () => new Date(), fetchWeather: makeOpenMeteoFetchWeather(), memo });
     skillsLabel = `time/weather/memo(${memoPath})`;
@@ -197,7 +232,10 @@ export async function composeAgentRuntimeDeps(o = {}) {
     const enableShell = env.NAIA_SHELL_TOOL === "1";
     executors.push(makeFsTools({
       fs: nodeFs,
-      allowRoots: () => [currentBind?.canonicalRoot ?? adkPath],
+      allowRoots: () => {
+        const root = currentBind?.canonicalRoot ?? adkPath;
+        return root ? [root] : [];
+      },
       enableWrite: enableShell,
     }));
     skillsLabel += enableShell ? " + fs-tools(read/list/write)" : " + fs-tools(read/list)";
@@ -239,8 +277,10 @@ export async function composeAgentRuntimeDeps(o = {}) {
         }
       });
       // realpath 주입 — cwd 의 symlink/junction 탈출 재검증(fs-tools 와 동형). 부재/실패 시 throw → 어댑터가 거부.
-      executors.push(makeShellTool({ exec: shellExec, allowRoots: [adkPath], realpath: (p) => nodeFs.realpathSync(p) }));
-      skillsLabel += " + shell-tool(argv)";
+      if (adkPath) {
+        executors.push(makeShellTool({ exec: shellExec, allowRoots: [adkPath], realpath: (p) => nodeFs.realpathSync(p) }));
+        skillsLabel += " + shell-tool(argv)";
+      }
     }
 
     // ── UC-KNOWLEDGE(K1a): 워크스페이스 지식 풀 도구(read-only skill_knowledge_search/ask). memory(푸시)와 직교한 풀.
@@ -511,7 +551,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
         }
         const legacyRoots = [
           env.NAIA_MEMORY_DIR,
-          join(homedir(), ".naia-agent", "memory"),
+          join(homeDir, ".naia-agent", "memory"),
         ].filter((value, index, all) => value && all.indexOf(value) === index);
         for (const legacyRoot of migratedLegacyStore ? [] : legacyRoots) {
           if (tryLegacyMigration("memory store", () => migrateLegacyMemoryStore(canonicalWorkspace, project, legacyRoot, migrationDeps))) {
@@ -597,9 +637,13 @@ export async function composeAgentRuntimeDeps(o = {}) {
         reloadQueue = run.then(() => undefined, () => undefined);
         return run;
       };
-      const initial = await reloadMemory(adkPath);
-      if (!initial.ok) {
-        process.stderr.write(`[naia-agent] memory init failed (isolated, continuing without memory): ${initial.error}\n`);
+      if (adkPath) {
+        const initial = await reloadMemory(adkPath);
+        if (!initial.ok) {
+          process.stderr.write(`[naia-agent] memory init failed (isolated, continuing without memory): ${initial.error}\n`);
+        }
+      } else {
+        process.stderr.write("[naia-agent] memory deferred until SetWorkspace/NAIA_ADK_PATH (no leftover ~/naia-adk clone)\n");
       }
     } catch (e) {
       process.stderr.write(`[naia-agent] memory init 실패(격리, 기억 없이 진행): ${e instanceof Error ? e.message : String(e)}\n`);
@@ -608,7 +652,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
 
   // ── 대화 transcript 영속(FR-CONV.1) — turn 종료 시 verbatim 대화록 append. 기본 활성(NAIA_AGENT_TRANSCRIPT=off). ──
   let conversationLog, transcriptLabel = "off";
-  if (env.NAIA_AGENT_TRANSCRIPT !== "off") {
+  if (env.NAIA_AGENT_TRANSCRIPT !== "off" && adkPath) {
     const conversationsDir = env.NAIA_CONVERSATIONS_DIR || join(adkPath, "conversations");
     conversationLog = makeFileConversationLog({ conversationsDir, fs: nodeFs, join });
     transcriptLabel = `conversations(${conversationsDir})`;
