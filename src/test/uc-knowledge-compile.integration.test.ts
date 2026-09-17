@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { openWorkspaceKnowledge } from "@naia/kb-compiler";
 import {
 	makeCompileKnowledge,
 	makeKbCompilerBackend,
@@ -65,6 +66,25 @@ describe("UC-KNOWLEDGE 컴파일 통합 — 실 kb-compiler 폴더→kb.json(FR-
 			(c: { sourceUris: string[] }) => c.sourceUris,
 		);
 		expect(uris.some((u: string) => u.includes("jeonipsingo.md"))).toBe(true);
+		expect(
+			env.kb.cards.every(
+				(c: { status: string }) => c.status === "draft" || c.status === "accepted",
+			),
+		).toBe(true);
+		expect(env.kb.cards.some((c: { status: string }) => c.status === "gap")).toBe(
+			false,
+		);
+		const { service } = await openWorkspaceKnowledge(
+			join(adk, "naia-settings", "knowledge", "gov"),
+		);
+		const hits = await service.search("신분증");
+		expect(hits.length).toBeGreaterThan(0);
+		expect(
+			hits.some(
+				(h: { title: string; snippet: string }) =>
+					h.title.includes("전입신고") || h.snippet.includes("신분증"),
+			),
+		).toBe(true);
 
 		// K-SEC 분리: 컴파일은 naia-settings/knowledge/<scope>/ 만 영속 — memory store 미접촉(누수 0).
 		expect(await readdir(join(adk, "naia-settings", "knowledge"))).toEqual([

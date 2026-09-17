@@ -8,13 +8,14 @@ import { join } from "node:path";
 // @ts-expect-error — .mjs 호스트 조립기(타입 선언 없음). 통합 경계라 의도적.
 import { composeAgentRuntimeDeps } from "../../scripts/builds/compose-agent-deps.mjs";
 
-// 실 kb-compiler 정본 envelope({version:1, kb}) — WorkspaceStoreAdapter.save 산출 형식.
+// 실 kb-compiler 정본 envelope({version:1, kb}) — 제품 compile()은 goldQA 없이 draft 를 남긴다.
+// 검색은 accepted 가 아니라 컴파일된 non-gap 카드를 읽어야 한다 (naia-shell#648).
 const KB = {
   version: 1,
   kb: {
     cards: [
-      { id: "c1", title: "전입신고", fields: { content: "전입신고 필요서류는 신분증과 임대차계약서. 담당은 주민센터." }, sourceUris: ["file:///ws/jeonipsingo.md"], confidence: 1, status: "accepted" },
-      { id: "c2", title: "여권 발급", fields: { content: "여권 발급 수수료는 53000원. 담당은 민원여권과." }, sourceUris: ["file:///ws/passport.md"], confidence: 1, status: "accepted" },
+      { id: "c1", title: "전입신고", fields: { content: "전입신고 필요서류는 신분증과 임대차계약서. 담당은 주민센터." }, sourceUris: ["file:///ws/jeonipsingo.md"], confidence: 1, status: "draft" },
+      { id: "c2", title: "여권 발급", fields: { content: "여권 발급 수수료는 53000원. 담당은 민원여권과." }, sourceUris: ["file:///ws/passport.md"], confidence: 1, status: "draft" },
     ],
     entities: [{ id: "e1", type: "Service", name: "전입신고" }],
     relations: [],
@@ -163,7 +164,7 @@ describe("UC-KNOWLEDGE 통합 — compose 가 실 kb-compiler backend 배선(K1a
     secondKb.kb.cards = [{
       id: "c-second", title: "부산 전용 안내",
       fields: { content: "부산 전용 확인어는 광안대교입니다." },
-      sourceUris: ["file:///second/busan.md"], confidence: 1, status: "accepted",
+      sourceUris: ["file:///second/busan.md"], confidence: 1, status: "draft",
     }];
     secondKb.kb.entities = [];
     await mkdir(join(second, "naia-settings", "knowledge", "default"), { recursive: true });

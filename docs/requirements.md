@@ -39,7 +39,7 @@
 
 | ID | 요구사항 | 상태 |
 |----|----------|:----:|
-| FR-KB-1 | 코어가 컴파일된 워크스페이스 KB 를 **풀 도구**로 노출 — `skill_knowledge_search`({query,k?})·`skill_knowledge_ask`({query}) ToolExecutorPort. **읽기 전용**(tier 없음, 승인 불요). 쓰기/컴파일/재인덱싱은 본 도구에 없음(K1b). | Done |
+| FR-KB-1 | 코어가 컴파일된 워크스페이스 KB 를 **풀 도구**로 노출 — `skill_knowledge_search`({query,k?})·`skill_knowledge_ask`({query}) ToolExecutorPort. **읽기 전용**(tier 없음, 승인 불요). 쓰기/컴파일/재인덱싱은 본 도구에 없음(K1b). 검색은 gold-QA `accepted`가 아니라 컴파일된 non-gap 카드(`draft` 포함)를 읽는다. | Done |
 | FR-KB-2 | backend 주입(DI)·비종속 — 어댑터는 `KnowledgeBackend`(search/ask) 주입. naia-kb-compiler `openWorkspaceKnowledge` 결과 매핑(D03 교체가능). 미주입/미가용 = 정직 unavailable(throw 아님). 코어가 특정 엔진을 import 하지 않음(비종속). | Done |
 | FR-KB-3 | 결과 직렬화·출처 보존 — execute output=JSON. `ask`={abstained,answer,sources[{title,sourceUris}]}·`search`={hits[{title,snippet,score,sourceUris}]}. **sourceUris 보존**(근거→원문 키, naia-os 칩 렌더). 구조화 citation(cardId/snippet) 확장은 후속(K5). | Done |
 | FR-KB-4 | no-throw·기권 — 실패/미가용/잘못된 인자 → `{output,isError:true}`(throw 금지, 루프 안정). abort 만 reject(2가드: 진입/await 후). 근거 없으면 backend 가 abstained=true(지어내지 않음, 안전). | Done |
