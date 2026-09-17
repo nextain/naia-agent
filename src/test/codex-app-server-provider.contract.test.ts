@@ -181,6 +181,94 @@ describe("Codex app-server main provider", () => {
     expect(closed).toBe(true);
   });
 
+  it("binds app-server cwd and sandbox to the host workspace instead of OS temp", async () => {
+    const requests: Array<{ method: string; params: unknown }> = [];
+    const peer: RpcPeer = {
+      async request(method, params) {
+        requests.push({ method, params });
+        if (method === "thread/start") return { thread: { id: "thread-1" } };
+        if (method === "turn/start") return { turn: { id: "turn-1" } };
+        return {};
+      },
+      notify() {},
+      respond() {},
+      notifications() {
+        return (async function* () {
+          yield { method: "turn/completed", params: { threadId: "thread-1", turn: { id: "turn-1", status: "completed" } } };
+        })();
+      },
+      close() {},
+    };
+    for await (const _ of runCodexAppServerTurn({
+      model: "gpt-5.6-luna",
+      prompt: "프로젝트 폴더 보고 하나 만들어",
+      workspace: { canonicalRoot: "D:\\alpha-adk", filesystemAccess: "workspace-write" },
+    }, async () => peer)) { /* drain */ }
+
+    expect(requests[1]).toMatchObject({
+      method: "thread/start",
+      params: {
+        cwd: "D:\\alpha-adk",
+        sandbox: "workspace-write",
+        approvalPolicy: "never",
+        ephemeral: true,
+      },
+    });
+    expect(JSON.stringify(requests[1])).not.toMatch(/AppData\\Local\\Temp|\/tmp\b/i);
+  });
+
+  it("keeps temp isolation only when the host has no workspace bind", async () => {
+    const requests: Array<{ method: string; params: unknown }> = [];
+    const peer: RpcPeer = {
+      async request(method, params) {
+        requests.push({ method, params });
+        if (method === "thread/start") return { thread: { id: "thread-1" } };
+        if (method === "turn/start") return { turn: { id: "turn-1" } };
+        return {};
+      },
+      notify() {},
+      respond() {},
+      notifications() {
+        return (async function* () {
+          yield { method: "turn/completed", params: { threadId: "thread-1", turn: { id: "turn-1", status: "completed" } } };
+        })();
+      },
+      close() {},
+    };
+    for await (const _ of runCodexAppServerTurn({
+      model: "gpt-5.6-luna",
+      prompt: "hi",
+    }, async () => peer)) { /* drain */ }
+
+    const started = requests[1] as { params: { cwd: string; sandbox: string } };
+    expect(started.params.sandbox).toBe("read-only");
+    expect(started.params.cwd).not.toBe("D:\\alpha-adk");
+  });
+
+  it("resolver Codex transport follows the live workspace bind across SetWorkspace", async () => {
+    let captured: CodexTurnInput | undefined;
+    const runTurn: CodexRunTurn = (input) => {
+      captured = input;
+      return (async function* () {
+        yield { kind: "completed" } as const;
+      })();
+    };
+    let bind: { canonicalRoot: string; filesystemAccess: "read-only" | "workspace-write" } = {
+      canonicalRoot: "/first",
+      filesystemAccess: "read-only",
+    };
+    const resolver = makeProviderResolver({
+      codexRunTurn: runTurn,
+      workspace: () => bind,
+    });
+    const config = { provider: "codex", model: "gpt-5.6-luna" };
+    await collect(resolver.resolve(config).chat(config, [{ role: "user", content: "hi" }], {}));
+    expect(captured?.workspace).toEqual(bind);
+    bind = { canonicalRoot: "/second", filesystemAccess: "workspace-write" };
+    await collect(resolver.resolve(config).chat(config, [{ role: "user", content: "again" }], {}));
+    expect(captured?.workspace).toEqual(bind);
+  });
+
   it("CLI preflight가 설치/로그인 상태를 token 노출 없이 분류한다", async () => {
     await expect(checkCodexPreflight(async () => ({
       code: 0,

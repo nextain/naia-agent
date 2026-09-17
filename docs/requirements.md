@@ -398,6 +398,7 @@ RPC만 추가하며, 별도 셸 반복 상태 머신은 만들지 않는다.
 | FR-CODEX-3 | provider-native 도구 실행은 toolUse/toolResult로 관측되되 기존 handler가 두 번 실행하지 않는다. | Done |
 | FR-CODEX-4 | desktop/Discord host의 `delegate_agent`는 설정된 `expert/main/sub` 역할만 허용하고 host가 선택한 단일 workspace 실경로에 고정하며 model의 workdir override를 거부한다. Codex 역할은 Pi의 `openai-codex` 계정/OAuth provider로 실행하고 OpenAI API-key 경로나 임의 roster/OpenCode fallback은 허용하지 않는다. | Done |
 | FR-CODEX-5 | Discord는 도구 시작·성공·실패를 원래 reply에 직렬 전송하되 args/output/call id와 mention 가능한 도구명을 반사하지 않는다. | Done |
+| FR-CODEX-6 | Host가 선택한 canonical workspace root(`SetWorkspace` / `NAIA_ADK_PATH`)가 있으면 Codex app-server thread cwd와 fs-tools allow-root는 그 루트다. OS temp로 떨어지지 않는다. `environmentTerminalInput`이 켜진 때만 sandbox가 `workspace-write`이고, 꺼져 있으면 같은 루트에서 `read-only`다. Naia write/github 도구를 되돌리지 않는다. | Done |
 
 | ID | 요구사항 | 상태 |
 |----|----------|:----:|
@@ -421,7 +422,7 @@ RPC만 추가하며, 별도 셸 반복 상태 머신은 만들지 않는다.
 - **NFR-DISCORD-SESSION-bounded**: 회전 후에도 기존 session 수와 메시지 수 상한을 유지하고 timestamp 항목을 함께 제거한다.
 
 - **NFR-CODEX-approval-boundary**: 승인 필요 또는 외부 처리 도구는 provider-native 즉시 실행 경로에 들어가지 않는다.
-- **NFR-CODEX-workspace-boundary**: `..`·심볼릭 링크 cwd 탈출을 거부하고, 전역 `add-dir`·sandbox 설정을 상속하지 않으며 child Codex 실행을 검증된 workspace 쓰기 경계로 제한한다.
+- **NFR-CODEX-workspace-boundary**: `..`·심볼릭 링크 cwd 탈출을 거부하고, 전역 `add-dir`·sandbox 설정을 상속하지 않으며 child Codex 실행을 검증된 workspace 쓰기 경계로 제한한다. Main Codex chat app-server도 같은 host workspace bind를 쓰며, workspace가 있을 때 OS temp를 cwd로 쓰지 않는다.
 
 ## UC-019 FR/NFR — durable scheduled delivery
 

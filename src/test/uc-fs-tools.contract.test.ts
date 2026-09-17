@@ -231,6 +231,16 @@ describe("makeFsTools — 도구 계약", () => {
     const ex = makeFsTools({ fs: fakeFs({ "/ws/a.md": "content" }), allowRoots: [ROOT] });
     expect((await ex.execute(CALL("read_file", { path: "a.md" }), {})).output).toBe("content");
   });
+  it("allowRoots getter follows a later workspace bind (SetWorkspace)", async () => {
+    let roots: readonly string[] = ["/old"];
+    const ex = makeFsTools({
+      fs: fakeFs({ "/ws/a.md": "from-ws" }),
+      allowRoots: () => roots,
+    });
+    expect((await ex.execute(CALL("read_file", { path: "a.md" }), {})).isError).toBe(true);
+    roots = [ROOT];
+    expect((await ex.execute(CALL("read_file", { path: "a.md" }), {})).output).toBe("from-ws");
+  });
   it("list_dir(허용) → 항목(d/f prefix)", async () => {
     const ex = makeFsTools({ fs: fakeFs({ "/ws/a.md": "x", "/ws/sub/b.md": "y" }, { dirs: ["/ws/sub"] }), allowRoots: [ROOT] });
     const r = await ex.execute(CALL("list_dir", { path: "." }), {});
