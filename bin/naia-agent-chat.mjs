@@ -187,7 +187,7 @@ async function doChat(args) {
     if (!ok) process.exit(64);
   }
 
-  const deps = await composeAgentRuntimeDeps();
+  const deps = await composeAgentRuntimeDeps({ allowHomeAdkFallback: true });
   const adkPath = deps.adkPath;
   const cleanup = () => { for (const fn of deps.cleanupFns) { try { fn(); } catch { /* best-effort */ } } };
 

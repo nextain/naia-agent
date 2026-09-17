@@ -7,6 +7,13 @@
     "issue_docs_dir": ".agents/progress/"
   },
   "current_work": {
+    "dual_memory_clone_136": {
+      "issue": "https://github.com/nextain/naia-agent/issues/136",
+      "scope": "FR-MEM-18 — gRPC/Shell host binds memory to NAIA_ADK_PATH/SetWorkspace and never leftover ~/naia-adk clone",
+      "status": "in_progress",
+      "verification": "leftover-adk-clone.contract.test.ts 3 passed; discord-entry-wiring 12 passed; gRPC host no ~/naia-adk fallback",
+      "last_updated": "2026-09-18T00:00:00+09:00"
+    },
     "memory_store_path_isolation_108": {
       "issue": "https://github.com/nextain/naia-agent/issues/108",
       "linked": "naia-shell#425 (dev 인스턴스 격리)",
