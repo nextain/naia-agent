@@ -69,6 +69,43 @@ describe("UC-KNOWLEDGE 통합 — compose 가 실 kb-compiler backend 배선(K1a
     expect(parsed.hits[0].sourceUris).toContain("file:///ws/passport.md");
   });
 
+  it("draft 회사명 카드 — 구어 질문도 기권하지 않는다", async () => {
+    const adk = await mkdtemp(join(tmpdir(), "kb-co-"));
+    dirs.push(adk);
+    const companyKb = {
+      version: 1,
+      kb: {
+        cards: [
+          {
+            id: "c-co",
+            title: "회사 소개",
+            fields: { content: "회사명은 넥스테인이다. Nextain Inc." },
+            sourceUris: ["file:///ws/company.md"],
+            confidence: 1,
+            status: "draft",
+          },
+        ],
+        entities: [{ id: "e-co", type: "Concept", name: "넥스테인" }],
+        relations: [],
+      },
+    };
+    await mkdir(join(adk, "naia-settings", "knowledge", "default"), { recursive: true });
+    await writeFile(
+      join(adk, "naia-settings", "knowledge", "default", "kb.json"),
+      JSON.stringify(companyKb),
+      "utf8",
+    );
+    const deps = await composeAgentRuntimeDeps({ env: baseEnv(adk) });
+    const r = await deps.toolExecutor.execute(
+      { id: "t-co", name: "skill_knowledge_ask", args: { query: "회사 이름이 뭐야?" } },
+      {},
+    );
+    expect(r.isError).toBeFalsy();
+    const parsed = JSON.parse(r.output);
+    expect(parsed.abstained).toBe(false);
+    expect(parsed.answer).toMatch(/넥스테인|Nextain/);
+  });
+
   it("근거 없으면 기권(지어내지 않음)", async () => {
     const adk = await seededAdk();
     const deps = await composeAgentRuntimeDeps({ env: baseEnv(adk) });
