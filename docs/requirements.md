@@ -408,6 +408,7 @@ RPC만 추가하며, 별도 셸 반복 상태 머신은 만들지 않는다.
 | FR-GROK-3 | 구독 경로 과금은 $0이다. 같은 모델 ID를 `xai`로 호출하면 per-token 가격표를 유지한다. | In review |
 | FR-GROK-4 | sub-agent roster 이름 `grok`가 구현되고, 미설치는 정직 unsupported이다. | In review |
 | FR-GROK-5 | preflight는 설치/로그인 상태 코드만 반환하고 계정·CLI 원문을 노출하지 않는다. | In review |
+| FR-GROK-6 | reasoning 스트림만 오고 최종 텍스트가 없으면 그 reasoning을 사용자 보이는 답으로 접는다. 짧으면 그대로, 길면 잘라 남긴다. `provider returned reasoning without a final answer`는 reasoning이 없을 때만 쓴다. | In review |
 
 - **NFR-GROK-auth-boundary**: `~/.grok/auth.json` 과 OAuth 토큰은 Agent 로그·wire·설정에 나타나지 않는다.
 

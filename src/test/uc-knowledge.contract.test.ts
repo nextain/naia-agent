@@ -118,6 +118,35 @@ describe("makeKnowledgeSkillsExecutor — skill_knowledge_graph (K3, backend.gra
     expect(g.communityCount).toBe(1);
   });
 
+  it("empty graph is not dumped as {}", async () => {
+    const emptyGraph: KnowledgeBackend = {
+      ...fakeBackend,
+      async graph() {
+        return { nodes: [], edges: [], communityCount: 0 };
+      },
+    };
+    const ex = makeKnowledgeSkillsExecutor({ backend: emptyGraph });
+    const r = await ex.execute(call("skill_knowledge_graph", {}), {});
+    expect(r.output).not.toBe("{}");
+    const parsed = JSON.parse(r.output);
+    expect(parsed.empty).toBe(true);
+    expect(parsed.message).toMatch(/No compiled knowledge/);
+  });
+
+  it("empty search is not dumped as {}", async () => {
+    const emptySearch: KnowledgeBackend = {
+      ...fakeBackend,
+      async search() { return []; },
+    };
+    const ex = makeKnowledgeSkillsExecutor({ backend: emptySearch });
+    const r = await ex.execute(call("skill_knowledge_search", { query: "없음" }), {});
+    expect(r.output).not.toBe("{}");
+    const parsed = JSON.parse(r.output);
+    expect(parsed.hits).toEqual([]);
+    expect(parsed.empty).toBe(true);
+    expect(parsed.message).toMatch(/No compiled knowledge/);
+  });
+
   it("backend.graph 없는데 graph 호출 → unavailable(isError, no-throw)", async () => {
     const ex = makeKnowledgeSkillsExecutor({ backend: fakeBackend });
     expect((await ex.execute(call("skill_knowledge_graph", {}), {})).isError).toBe(true);

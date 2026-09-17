@@ -76,7 +76,12 @@ export function makeKnowledgeSkillsExecutor(deps: KnowledgeDeps = {}): ToolExecu
           if (!backend.graph) return err("knowledge graph unavailable");
           const g = await backend.graph();
           abortGuard(); // (await 후 가드)
-          return ok(JSON.stringify(g)); // {nodes, edges, communityCount}
+          const empty = !Array.isArray(g.nodes) || g.nodes.length === 0;
+          return ok(JSON.stringify({
+            ...g,
+            empty,
+            ...(empty ? { message: "No compiled knowledge graph is available." } : {}),
+          }));
         }
         if (!isObj(call.args)) return err("args must be object");
         const q = call.args.query;
@@ -91,12 +96,21 @@ export function makeKnowledgeSkillsExecutor(deps: KnowledgeDeps = {}): ToolExecu
           }
           const hits = await backend.search(q, k);
           abortGuard(); // (await 후 가드)
-          return ok(JSON.stringify({ hits }));
+          const empty = hits.length === 0;
+          return ok(JSON.stringify({
+            hits,
+            empty,
+            ...(empty ? { message: "No compiled knowledge cards matched." } : {}),
+          }));
         }
         if (call.name === "skill_knowledge_ask") {
           const r = await backend.ask(q);
           abortGuard(); // (await 후 가드)
-          return ok(JSON.stringify(r));
+          return ok(JSON.stringify({
+            ...r,
+            empty: r.abstained === true && !(r.answer ?? "").trim(),
+            ...(r.abstained && !(r.answer ?? "").trim() ? { message: "No compiled knowledge cards matched." } : {}),
+          }));
         }
         return err(`unknown tool: ${call.name}`);
       } catch (e) {

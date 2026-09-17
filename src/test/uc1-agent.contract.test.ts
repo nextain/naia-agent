@@ -1,7 +1,7 @@
 // UC1 agent(brain) 계약 테스트 (P02). fake ProviderPort → ChatTurnHandler → egress 캡처.
 import { describe, it, expect } from "vitest";
 import { mapProviderChunk, isTerminalEmit, parseInlineImageDataUri, threadToolRound, type AgentEmit, type ChatRequest } from "../main/domain/chat.js";
-import { ChatTurnHandler, isLikelyIncompleteDeepSeekFinal, type HandlerDeps } from "../main/app/chat-turn-handler.js";
+import { ChatTurnHandler, foldReasoningOnlyAnswer, isLikelyIncompleteDeepSeekFinal, type HandlerDeps } from "../main/app/chat-turn-handler.js";
 import { decodeRequest, encodeEmit } from "../main/adapters/protocol.js";
 import { makeFakeProvider } from "../main/adapters/fake-provider.js";
 import { makeInMemoryCredentials } from "../main/composition/index.js";
@@ -75,6 +75,30 @@ describe("DeepSeek partial-final recovery", () => {
     expect(emits.filter(({ e }) => e.kind === "text").map(({ e }) => (e as { text: string }).text).join(""))
       .toBe("지금 이 워크스페이스는 shell 기반으로 구성되어 있습니다.");
     expect(emits.at(-1)?.e.kind).toBe("finish");
+  });
+});
+
+describe("reasoning-only final fold (#639)", () => {
+  it("folds a short reasoning-only stream into a visible answer", async () => {
+    const { deps, emits } = capture();
+    const provider: ProviderPort = {
+      async *chat(): AsyncIterable<ProviderChunk> {
+        yield { kind: "thinking", text: "사용자가 인사를 했다. 짧게 답한다." };
+        yield { kind: "finish" };
+      },
+    };
+    await new ChatTurnHandler({ ...deps, provider }).onChatRequest(req());
+    expect(emits.filter(({ e }) => e.kind === "text").map(({ e }) => (e as { text: string }).text).join(""))
+      .toBe("사용자가 인사를 했다. 짧게 답한다.");
+    expect(emits.at(-1)?.e.kind).toBe("finish");
+    expect(emits.some(({ e }) => e.kind === "error")).toBe(false);
+  });
+
+  it("truncates leftover long reasoning instead of failing closed", () => {
+    const long = "가".repeat(1600);
+    const folded = foldReasoningOnlyAnswer(long);
+    expect(folded?.endsWith("…")).toBe(true);
+    expect(folded?.length).toBeLessThanOrEqual(1501);
   });
 });
 
