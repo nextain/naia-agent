@@ -44,6 +44,60 @@ function toWireMessages(systemPrompt: string | undefined, messages: readonly Cha
 interface ToolAcc { id?: string; name?: string; args: string; excluded: boolean; conflict: boolean;   wire?: number;
 }
 
+type ErrorBody = NonNullable<Awaited<ReturnType<FetchLike>>["body"]>;
+
+const ERROR_BODY_READ_TIMEOUT_MS = 2000;
+
+/** Consume a non-OK body (cap 4096) so the socket is not left dangling, then return it. */
+async function readErrorBody(body: ErrorBody): Promise<string> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let s = "";
+  const deadline = new Promise<{ done: true; value?: undefined }>((res) => {
+    const t = setTimeout(() => res({ done: true }), ERROR_BODY_READ_TIMEOUT_MS);
+    (t as { unref?: () => void }).unref?.();
+  });
+  try {
+    for (;;) {
+      const { done, value } = await Promise.race([reader.read(), deadline]);
+      if (done) break;
+      if (value) s += decoder.decode(value, { stream: true });
+      if (s.length > 4096) break;
+    }
+    s += decoder.decode();
+  } catch { /* diagnostic */ }
+  try { await reader.cancel?.(); } catch { /* isolate */ }
+  return s.slice(0, 4096);
+}
+
+/** FastAPI `detail` or OpenAI `error.message`; empty when the body has neither. */
+function extractHttpErrorDetail(source: unknown): string {
+  if (typeof source === "string") {
+    const text = source.trim();
+    if (!text) return "";
+    try {
+      return extractHttpErrorDetail(JSON.parse(text) as unknown);
+    } catch {
+      return text.slice(0, 300);
+    }
+  }
+  if (!source || typeof source !== "object") return "";
+  const o = source as Record<string, unknown>;
+  if (typeof o.detail === "string" && o.detail.trim()) return o.detail.trim();
+  const err = o.error;
+  if (typeof err === "string" && err.trim()) return err.trim();
+  if (err && typeof err === "object") {
+    const message = (err as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) return message.trim();
+  }
+  return "";
+}
+
+function formatCompatHttpError(base: string, status: number, statusText: string, detail: string): string {
+  const extra = detail ? `: ${detail}` : "";
+  return `OpenAI-compat ${base} failed: ${status} ${statusText}${extra}`;
+}
+
 /** #114 — 스트림 idle 데드라인: 마지막 청크 수신 후 이 시간 동안 무수신이면 abort(게이트웨이가 종료
  *  신호를 안 줄 때 턴 영구 hang 방지). 총시간 상한이 **아니다** — 정상 장문 스트림은 청크가 계속 오므로 안 끊긴다. */
 export const STREAM_IDLE_TIMEOUT_MS = 45_000;
@@ -199,12 +253,12 @@ export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string
         ...(opts.signal ? { signal: opts.signal } : {}),
       });
       if (!resp.ok || !resp.body) {
-        // ⚠️ 비-OK(429/404 등)도 응답 본문이 딸려온다 — throw 전 **반드시 소비/취소**한다. 안 그러면 undici
+        // ⚠️ 비-OK(429/403/404 등)도 응답 본문이 딸려온다 — throw 전 **반드시 소비/취소**한다. 안 그러면 undici
         //    소켓이 dangling 으로 남아, 호스트가 곧장 process.exit() 하는 경로(CLI once-mode)에서 libuv
         //    "UV_HANDLE_CLOSING"(async.c) 어설션 크래시를 유발(실 키 round-trip 테스트로 적발 2026-06-26).
         //    성공 경로는 아래 finally(reader.cancel)가 정리하나, 이 early-throw 는 reader 생성 전이라 누락됐었음.
-        if (resp.body) { try { await resp.body.getReader().cancel?.(); } catch { /* 격리 */ } }
-        throw new Error(`OpenAI-compat ${base} failed: ${resp.status} ${resp.statusText}`); // rejection→handler catch=error
+        const errText = resp.body ? await readErrorBody(resp.body) : "";
+        throw new Error(formatCompatHttpError(base, resp.status, resp.statusText, extractHttpErrorDetail(errText)));
       }
 
       const reader = resp.body.getReader();

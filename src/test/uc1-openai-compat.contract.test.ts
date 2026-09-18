@@ -66,6 +66,22 @@ describe("makeOpenAICompatProvider (GLM/openai SSE, mock)", () => {
     await expect(collect(makeOpenAICompatProvider({ baseUrl: "https://x", apiKey: "k", fetch: fetch as never }).chat(cfg, [], {}))).rejects.toThrow(/429/);
     expect(cancelled).toBe(true); // 본문 reader.cancel() 호출됨
   });
+  it("403 FastAPI detail 을 셸이 볼 오류 문자열에 붙인다", async () => {
+    const enc = new TextEncoder();
+    const bytes = enc.encode(JSON.stringify({ detail: "Insufficient credits" }));
+    let cancelled = false;
+    let sent = false;
+    const fetch = async () => ({
+      ok: false, status: 403, statusText: "Forbidden",
+      body: { getReader: () => ({
+        read: async () => sent ? { done: true } : (sent = true, { done: false, value: bytes }),
+        cancel: async () => { cancelled = true; },
+      }) },
+    });
+    await expect(collect(makeOpenAICompatProvider({ baseUrl: "https://api-dev.naia.land/v1", apiKey: "k", fetch: fetch as never }).chat(cfg, [], {})))
+      .rejects.toThrow(/403 Forbidden: Insufficient credits/);
+    expect(cancelled).toBe(true);
+  });
   it("SSE error 이벤트 → throw", async () => {
     const lines = ['data: {"error":{"message":"bad key"}}\n'];
     await expect(collect(prov(lines).chat(cfg, [], {}))).rejects.toThrow(/error/);
