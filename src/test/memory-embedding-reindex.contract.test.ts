@@ -15,8 +15,9 @@ import { isEmbeddingSpaceMismatchError, MEMORY_INDEX_UNAVAILABLE_NOTICE } from "
 class FixedEmbedder implements EmbeddingProvider {
   readonly name = "fixed";
   readonly dims = 2;
-  constructor(readonly embeddingSpaceId: string) {}
+  constructor(readonly embeddingSpaceId: string, private readonly fail = false) {}
   async embed(text: string): Promise<number[]> {
+    if (this.fail) throw new Error("test embedding unavailable");
     return text.includes("코드명") ? [1, 0] : [0, 1];
   }
   async embedBatch(texts: string[]): Promise<number[][]> {
@@ -60,7 +61,11 @@ describe("FR-MEM-17 embedding-space reindex product path", () => {
     for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
   });
 
-  it("reindexes mismatched local vectors at ready and recalls afterwards", async () => {
+  it.each([
+    { space: "model-b", fail: false, phases: ["start", "done"] },
+    { space: "model-b", fail: true, phases: ["start", "failed"] },
+    { space: "model-a", fail: false, phases: [] },
+  ])("observes reindex once at ready: $space, fail=$fail", async ({ space, fail, phases }) => {
     const dir = mkdtempSync(join(tmpdir(), "naia-agent-reindex-"));
     dirs.push(dir);
     mkdirSync(dir, { recursive: true });
@@ -96,15 +101,22 @@ describe("FR-MEM-17 embedding-space reindex product path", () => {
       project: "p",
       storePath,
       sessionId: "s1",
-      embeddingProvider: new FixedEmbedder("model-b"),
+      embeddingProvider: new FixedEmbedder(space, fail),
       onEmbeddingReindex: (event) => { events.push(event); },
     });
+    expect(events.map((e) => e.phase)).toEqual(phases.slice(0, 1));
+    await Promise.all([memory.ready(), memory.ready()]);
     await memory.ready();
-    expect(events.map((e) => e.phase)).toEqual(["start", "done"]);
-    const recalled = await memory.recall("코드명");
-    expect(recalled.facts.join(" ")).toContain("오메가");
+    expect(events.map((e) => e.phase)).toEqual(phases);
+    if (fail) {
+      await expect(memory.recall("코드명")).rejects.toMatchObject({ code: "EMBEDDING_SPACE_MISMATCH" });
+    } else {
+      const recalled = await memory.recall("코드명");
+      expect(recalled.facts.join(" ")).toContain("오메가");
+    }
     const persisted = JSON.parse(readFileSync(storePath, "utf8"));
-    expect(persisted.embeddingSpaceId).toBe("model-b");
+    expect(persisted.embeddingSpaceId).toBe(fail ? "model-a" : space);
+    expect(persisted.facts[0].content).toBe("비밀 코드명은 오메가");
     await memory.close();
   });
 

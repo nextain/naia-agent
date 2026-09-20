@@ -252,14 +252,15 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
   // LocalAdapter 는 즉시 열리지만, 제품 경로는 임베딩 공간 불일치 시 open 에서 재색인을 기다린다.
   // 재색인 실패는 ready 를 깨지 않는다 — 저장소가 빈 것이 아니므로 memory 를 끄지 않는다.
   const ready = (async () => {
+    // init also awaits automatic reindex; capture the reason before it clears.
+    const mismatchAtOpen = localAdapter?.getEmbeddingSpaceMismatch();
+    if (mismatchAtOpen) opts.onEmbeddingReindex?.({ phase: "start", reason: mismatchAtOpen });
     await sys.init();
     if (!localAdapter) return;
-    const mismatchAtOpen = localAdapter.getEmbeddingSpaceMismatch();
     if (!mismatchAtOpen) {
       await localAdapter.whenReady();
       return;
     }
-    opts.onEmbeddingReindex?.({ phase: "start", reason: mismatchAtOpen });
     await localAdapter.whenReady();
     if (localAdapter.getEmbeddingSpaceMismatch()) {
       opts.onEmbeddingReindex?.({ phase: "failed", reason: mismatchAtOpen });
