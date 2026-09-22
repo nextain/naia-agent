@@ -12,6 +12,8 @@ import { makeKeychainCredentials, makeRefreshingKeychainRead } from "../../dist/
 import { makeNaiaSettingsStore } from "../../dist/main/adapters/naia-settings-store.js";
 import { buildSubLlmProvider } from "../../dist/main/adapters/sub-llm-provider.js";
 import { resolveRoleRuntimeConfig } from "../../dist/main/adapters/llm-role-runtime.js";
+import { makeMemorySurfacer } from "../../dist/main/app/memory-surfacer.js";
+import { decideSurfacing, SURFACING_LIMITS } from "../../dist/main/domain/surfacing.js";
 import { makeStderrDiagnostic } from "../../dist/main/adapters/diagnostic.js";
 import { makeBuiltinSkillsExecutor } from "../../dist/main/adapters/builtin-skills.js";
 import { makeGithubSkillsExecutor } from "../../dist/main/adapters/github-skills.js";
@@ -505,6 +507,35 @@ export async function composeAgentRuntimeDeps(o = {}) {
       ? `sub-llm(degraded:${subRoleRuntime.reason})`
       : "sub-llm(none)";
 
+  // ── #692 memory surfacing: small LLM (memory role) surfaces related memory/knowledge for the next turn. ──
+  let surfacingLlm; // undefined = off
+  let surfacingLabel = "surfacing=off(no-memory)";
+  const readMemorySurfacingFlag = (workspacePath) => {
+    try {
+      const parsed = JSON.parse(nodeFs.readFileSync(join(workspacePath, "naia-settings", "config.json"), "utf8"));
+      return parsed?.memorySurfacing === "off" ? "off" : "auto";
+    } catch { return "auto"; }
+  };
+  const refreshSurfacing = (workspacePath, memoryAvailable) => {
+    try {
+      const disabled = env.NAIA_MEMORY_SURFACING === "off" || (workspacePath ? readMemorySurfacingFlag(workspacePath) === "off" : false);
+      const roles = workspacePath ? settingsStore.loadLlmRoles(workspacePath) : null;
+      const memoryRole = roles?.ok ? roles.configs.find((cfg) => cfg.role === "memory") : undefined;
+      const runtime = memoryRole ? resolveRoleRuntimeConfig(memoryRole, settingsResolveSecret) : undefined;
+      const decision = decideSurfacing({ disabled, memoryAvailable, ...(memoryRole ? { memoryRole } : {}), runtimeOk: !!runtime?.ok });
+      surfacingLlm = decision.on && runtime?.ok
+        ? buildSubLlmProvider(runtime.config, { fetch: async (url, init) => fetch(url, init), temperature: null, maxTokens: SURFACING_LIMITS.maxOutputTokens })
+        : undefined;
+      const next = decision.on ? `surfacing=on(${decision.provider}/${decision.model})` : `surfacing=off(${decision.reason})`;
+      if (next !== surfacingLabel) process.stderr.write(`[naia-agent] memory ${next}\n`);
+      surfacingLabel = next;
+    } catch (e) {
+      surfacingLlm = undefined;
+      surfacingLabel = "surfacing=off(error)";
+      process.stderr.write(`[naia-agent] memory surfacing refresh failed (off): ${e instanceof Error ? e.message : String(e)}\n`);
+    }
+  };
+
   // ── 장기기억(naia-memory) — 기본 활성(NAIA_AGENT_MEMORY=off 로 비활성). 초기화 실패=격리(기억 없이 진행). ──
   let memory, memoryLabel = "off";
   let reloadMemory = async () => ({ ok: true, reloaded: false, retained: false, status: "off" });
@@ -648,6 +679,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
       let activeMemoryFingerprint;
       reloadMemory = (workspacePath) => {
         const run = reloadQueue.then(async () => {
+          refreshSurfacing(workspacePath, true);
           try {
             const snapshot = loadMemorySnapshot(workspacePath);
             if (memory.hasActive() && snapshot.fingerprint === activeMemoryFingerprint) {
@@ -699,6 +731,16 @@ export async function composeAgentRuntimeDeps(o = {}) {
   // ── 표준 로깅 sink(docs/logging.md): stderr + debug 게이트(NAIA_AGENT_DEBUG=1). console.* 금지. ──
   const diag = makeStderrDiagnostic({ write: (l) => process.stderr.write(l + "\n"), debug: env.NAIA_AGENT_DEBUG === "1" });
 
+  const surfacer = memory
+    ? makeMemorySurfacer({
+        memory,
+        ...(knowledgeBackend ? { knowledge: { search: (q, k) => knowledgeBackend.search(q, k) } } : {}),
+        llm: () => surfacingLlm,
+        diag,
+      })
+    : undefined;
+  if (surfacer) cleanupFns.push(() => { surfacer.close().catch(() => undefined); });
+
   return {
     adkPath,
     provider, resolver, providerLabel,
@@ -708,6 +750,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
     subLlm, subLlmLabel,
     toolExecutor, skillsLabel, knowledgeBackend, setKnowledgeWorkspace, setWorkspaceBind,
     memory, memoryLabel, reloadMemory,
+    surfacer, getSurfacingLabel: () => surfacingLabel,
     conversationLog, transcriptLabel,
     personaSource, personaLabel,
     workspaceContextSource, wsLabel,

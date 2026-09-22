@@ -12,7 +12,9 @@ import type {
 import type { MemoryPort } from "../ports/memory.js";
 import type { CompactionPort } from "../ports/compaction.js";
 import type { ConversationLogPort } from "../ports/conversation-log.js";
+import type { SurfacingPort, SurfacingSnapshot } from "../ports/surfacing.js";
 import { formatRecalledMemory, isEmbeddingSpaceMismatchError, isMemoryPreparingError, MEMORY_INDEX_UNAVAILABLE_NOTICE } from "../domain/memory.js";
+import { selectUnjudgedRecall, type SurfacingTurn } from "../domain/surfacing.js";
 import { composePersonaPrompt } from "../domain/persona.js";
 import { composeWorkspaceContext } from "../domain/workspace-context.js";
 import { renderEnvironmentSegments } from "../domain/environment-segments.js";
@@ -28,6 +30,7 @@ export const ACTION_EXECUTION_POLICY = [
 
 export const KNOWLEDGE_ROUTING_POLICY = [
   "Knowledge and memory sources:",
+  "- A \"[문득 떠오른 기억·지식]\" block, when present, holds memories and knowledge cards that a background model recalled for this conversation. Its knowledge items come from the compiled knowledge base: you may answer from them and cite their sources without calling a knowledge tool, and call skill_knowledge_ask when you need more than the block gives.",
   "- A \"[회상된 참고 정보]\" block, when present, is long-term memory recalled automatically from past conversations. It is not a tool and it is never the same as notes or workspace knowledge.",
   "- memo tools (memo_*) only hold notes the user explicitly asked you to save. An empty memo list says nothing about your memory or your workspace knowledge.",
   "- skill_knowledge_ask and skill_knowledge_search read the compiled workspace knowledge base: the user's company, business, projects, strategy, onboarding and other workspace documents.",
@@ -155,6 +158,7 @@ export interface HandlerDeps {
   readonly defaultConfig?: ProviderConfig;
   readonly toolExecutor?: ToolExecutorPort;                       // UC5 — 미주입 = 도구 없음(UC1 순수 채팅 회귀 없음)
   readonly memory?: MemoryPort;                                   // UC-memory — 미주입 = 기존 동작(무회귀). 턴 전 recall 주입 / 턴 후 save.
+  readonly surfacer?: SurfacingPort;                              // #692 — background small-LLM surfacing. 미주입 = 기존 동작(무회귀).
   readonly compaction?: CompactionPort;                           // UC-compaction — 미주입 = 압축 없음(무회귀, budgeted-conversation 드롭만). 예산 압박 시 head 요약→systemPrompt 주입 + 영속.
   readonly compactThresholdTokens?: number;                       // 압축 트리거 추정토큰 임계(미주입=기본 4000).
   readonly compactKeepTail?: number;                              // 압축 시 원문 유지 최근 메시지 수(미주입=기본 6).
@@ -390,6 +394,8 @@ export class ChatTurnHandler {
       const currentUserMsg = lastMsg?.role === "user" ? lastMsg : undefined;
       const lastUserText = currentUserMsg?.content ?? "";
       const privatePersistenceAllowed = req.channel?.kind !== "discord";
+      const surfacingSession = req.sessionId ?? "default";
+      const surfacingEligible = !!this.d.surfacer && privatePersistenceAllowed && !req.processing;
       // compaction recap → systemPrompt 주입(leading assistant 메시지 회피, recall 과 동일 패턴). recall 은 이 뒤에 append.
       let memSystemPrompt = compactionRecap
         ? (asm.systemPrompt ? `${asm.systemPrompt}\n\n## 이전 대화 요약(compacted)\n${compactionRecap}` : `## 이전 대화 요약(compacted)\n${compactionRecap}`)
@@ -403,20 +409,28 @@ export class ChatTurnHandler {
           provider: "naia-memory",
           model: "recall",
         })) return;
+        let surfaced: SurfacingSnapshot | undefined;
+        if (surfacingEligible) {
+          try { surfaced = this.d.surfacer!.consume(surfacingSession); }
+          catch (e) { this.safeDiag("memory surfacing consume 실패(recall 유지)", e); }
+        }
+        let recallBlock = "";
+        let recallNotice = "";
         try {
           // recall 을 abort + deadline 과 race — recall 이 멈춰도(취소 또는 무응답) 즉시 풀려 (a) 가드/턴이
           // 진행돼 terminal 이 항상 방출된다. abort/timeout → recalled=null=주입 생략(턴은 채팅 우선 진행).
           const mem = await raceAbort(this.d.memory.recall(lastUserText), signal, this.d.memoryTimeoutMs ?? MEM_RECALL_TIMEOUT_MS);
           // 프레이밍·예산 절단은 domain formatter 가 강제(adapter 무관 — FR-MEM-7/8 보장).
-          const recalled = mem ? formatRecalledMemory(mem) : "";
-          if (recalled) memSystemPrompt = memSystemPrompt ? `${memSystemPrompt}\n\n${recalled}` : recalled;
+          recallBlock = mem ? formatRecalledMemory(surfaced ? selectUnjudgedRecall(mem, surfaced.judgedKeys) : mem) : "";
         } catch (e) {
           this.safeDiag("memory recall 실패(턴 유지)", e);
           if (isEmbeddingSpaceMismatchError(e) || isMemoryPreparingError(e)) {
-            memSystemPrompt = memSystemPrompt
-              ? `${memSystemPrompt}\n\n${MEMORY_INDEX_UNAVAILABLE_NOTICE}`
-              : MEMORY_INDEX_UNAVAILABLE_NOTICE;
+            recallNotice = MEMORY_INDEX_UNAVAILABLE_NOTICE;
           }
+        }
+        this.d.diag.debug?.("memory surfacing 적용", { requestId: req.requestId, ready: surfaced !== undefined, surfaced: surfaced?.surfacedCount ?? 0 });
+        for (const part of [surfaced?.block ?? "", recallBlock, recallNotice]) {
+          if (part) memSystemPrompt = memSystemPrompt ? `${memSystemPrompt}\n\n${part}` : part;
         }
       }
       // UC5 리뷰 fix: enableTools=false → 도구 미제공(순수 챗), disabledSkills 필터(wire 필드 소비, old 충실).
@@ -479,6 +493,13 @@ export class ChatTurnHandler {
               e,
             );
           }
+        }
+        // #692: background surfacing for the NEXT turn — after the save, never awaited, never breaks the turn.
+        if (surfacingEligible && this.d.memory && currentUserMsg) {
+          try {
+            const reply = providerConfig.provider === "echo-system" ? "" : assistantTurnParts.join("\n");
+            this.d.surfacer!.schedule({ sessionId: surfacingSession, turns: surfacingTurns(req.messages, reply) });
+          } catch (e) { this.safeDiag("memory surfacing schedule 실패(턴 유지)", e); }
         }
         if (privatePersistenceAllowed && this.d.conversationLog && currentUserMsg) {
           try {
@@ -806,6 +827,18 @@ export class ChatTurnHandler {
 }
 
 function errMessage(e: unknown): string { return e instanceof Error ? e.message : String(e); }
+
+/** #692: user/assistant text turns for surfacing — the request history (ends with the current user message) plus this reply. */
+function surfacingTurns(history: readonly ChatMessage[], reply: string): SurfacingTurn[] {
+  const turns: SurfacingTurn[] = [];
+  for (const m of history) {
+    if ((m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim()) {
+      turns.push({ role: m.role, content: m.content });
+    }
+  }
+  if (reply.trim()) turns.push({ role: "assistant", content: reply });
+  return turns;
+}
 
 /** 모델이 quote 를 감쌀 때 쓰는 인용부호쌍(실측 + 흔한 변종). 중첩(예: "「…」")도 벗긴다. */
 const QUOTE_PAIRS: readonly (readonly [string, string])[] = [

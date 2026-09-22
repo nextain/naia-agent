@@ -139,7 +139,7 @@ const { adkPath, provider, resolver, providerLabel: label, credentials, settings
 const { llmRoles } = deps;
 let activeLlmRoles = llmRoles ?? null;
 let { toolExecutor } = deps;
-const { memory, memoryLabel, reloadMemory, conversationLog, transcriptLabel, diag, personaSource, workspaceContextSource, knowledgeBackend } = deps;
+const { memory, memoryLabel, reloadMemory, conversationLog, transcriptLabel, diag, personaSource, workspaceContextSource, knowledgeBackend, surfacer, getSurfacingLabel } = deps;
 let skillsLabel = deps.skillsLabel;
 let currentAdkPath = adkPath;
 let jeonjuCourseConfig;
@@ -600,7 +600,7 @@ const agentIngress = discordRuntime
 const agentEgress = discordRuntime
   ? makePrefixedAgentEgress([{ prefix: "discord:", egress: discordRuntime.egress }], grpcServer.egress)
   : grpcServer.egress;
-const wired = wireAgentUC1({ ingress: agentIngress, egress: agentEgress, speechProfiles: profileRuntime, credentials, diag, ...(provider ? { provider } : {}), ...(resolver ? { resolver } : {}), ...(processingGuard ? { processingGuard } : {}), ...(toolExecutor ? { toolExecutor } : {}), ...(memory ? { memory } : {}), ...(memory ? { compaction: memory } : {}), ...(conversationLog ? { conversationLog } : {}), ...(personaSource ? { personaSource } : {}), ...(workspaceContextSource ? { workspaceContext: workspaceContextSource } : {}), ...(defaultConfig ? { defaultConfig } : {}) });
+const wired = wireAgentUC1({ ingress: agentIngress, egress: agentEgress, speechProfiles: profileRuntime, credentials, diag, ...(provider ? { provider } : {}), ...(resolver ? { resolver } : {}), ...(processingGuard ? { processingGuard } : {}), ...(toolExecutor ? { toolExecutor } : {}), ...(memory ? { memory } : {}), ...(memory ? { compaction: memory } : {}), ...(surfacer ? { surfacer } : {}), ...(conversationLog ? { conversationLog } : {}), ...(personaSource ? { personaSource } : {}), ...(workspaceContextSource ? { workspaceContext: workspaceContextSource } : {}), ...(defaultConfig ? { defaultConfig } : {}) });
 applyDefaultConfig = wired.setDefaultConfig; // 라이브 reload 결선 — 이후 SetWorkspace/ReloadSettings 가 활성 config swap
 const { start, drain } = wired;
 start?.(); // ingress.onRequest(route) 등록 — gRPC 핸들러가 도메인 req 를 흘린다
@@ -638,7 +638,7 @@ if (discordRuntime && discordStatus) {
     catch { /* native supervisor will time out and reconcile */ }
   }, 50);
 }
-process.stderr.write(`[naia-agent] grpc ready @${grpcAddr} (${label} provider, config: ${configLabel}, skills: ${skillsLabel}, memory: ${memoryLabel}, transcript: ${transcriptLabel}, discord: ${discordRuntime ? "enabled" : "disabled"})\n`);
+process.stderr.write(`[naia-agent] grpc ready @${grpcAddr} (${label} provider, config: ${configLabel}, skills: ${skillsLabel}, memory: ${memoryLabel}, ${getSurfacingLabel ? getSurfacingLabel() : "surfacing=off"}, transcript: ${transcriptLabel}, discord: ${discordRuntime ? "enabled" : "disabled"})\n`);
 
 // stdin 닫히면 종료 — ⚠️ 순서: (1) drain(in-flight 턴 save 완료 대기) → (2) memory.close()(store flush)
 //   → (3) exit. naia-memory LocalAdapter 는 encode 를 in-memory 버퍼링하고 close() 에서 flush 하므로,

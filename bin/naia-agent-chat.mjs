@@ -272,6 +272,7 @@ async function doChat(args) {
     ...(deps.resolver ? { resolver: deps.resolver } : {}),
     ...(toolExecutor && !args.noTools ? { toolExecutor } : {}),
     ...(deps.memory ? { memory: deps.memory, compaction: deps.memory } : {}),
+    ...(deps.surfacer ? { surfacer: deps.surfacer } : {}),
     ...(deps.conversationLog ? { conversationLog: deps.conversationLog } : {}),
     ...(deps.personaSource ? { personaSource: deps.personaSource } : {}), // FR-PERSONA-3: 코어가 워크스페이스 페르소나 조립(클라가 안 보냄)
     ...(deps.workspaceContextSource ? { workspaceContext: deps.workspaceContextSource } : {}), // FR-WORKSPACE: 코어가 워크스페이스 컨텍스트(cwd+프로젝트) 조립

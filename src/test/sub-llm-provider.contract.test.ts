@@ -112,4 +112,93 @@ describe("SubLlmPort.complete — OpenAI-compat 비스트리밍 호출", () => {
 		await expect(p.complete("secret")).rejects.toThrow("SUB_LLM_PROCESSING_NOT_AUTHORIZED");
 		expect(fetchFn).not.toHaveBeenCalled();
 	});
+
+	it("default body includes temperature: 0", async () => {
+		let capturedBody: any;
+		const fetchFn = makeFetch((_url, body) => {
+			capturedBody = body;
+			return { ok: true, status: 200, payload: { choices: [{ message: { content: "ok" } }] } };
+		});
+		const p = buildSubLlmProvider(
+			{ provider: "naia", baseUrl: "https://gw/v1", model: "small" },
+			{ fetch: fetchFn },
+		)!;
+		await p.complete("hi", { authorizeAndDisclose: allow });
+		expect(capturedBody.temperature).toBe(0);
+	});
+
+	it("temperature: null omits the temperature field from body", async () => {
+		let capturedBody: any;
+		const fetchFn = makeFetch((_url, body) => {
+			capturedBody = body;
+			return { ok: true, status: 200, payload: { choices: [{ message: { content: "ok" } }] } };
+		});
+		const p = buildSubLlmProvider(
+			{ provider: "naia", baseUrl: "https://gw/v1", model: "small" },
+			{ fetch: fetchFn, temperature: null },
+		)!;
+		await p.complete("hi", { authorizeAndDisclose: allow });
+		expect("temperature" in capturedBody).toBe(false);
+	});
+
+	it("non-ok response rejects with an error whose status equals the HTTP status", async () => {
+		const p = buildSubLlmProvider(
+			{ provider: "naia", baseUrl: "https://gw/v1", model: "small" },
+			{
+				fetch: makeFetch(() => ({ ok: false, status: 404, payload: { error: "not found" } })),
+			},
+		)!;
+		let caught: any;
+		try {
+			await p.complete("hi", { authorizeAndDisclose: allow });
+		} catch (e) {
+			caught = e;
+		}
+		expect(caught).toBeInstanceOf(Error);
+		expect(caught.status).toBe(404);
+		expect(caught.message).toContain("HTTP 404");
+	});
+
+	it("maxTokens: 2000 puts max_tokens: 2000 in the body", async () => {
+		let capturedBody: any;
+		const fetchFn = makeFetch((_url, body) => {
+			capturedBody = body;
+			return { ok: true, status: 200, payload: { choices: [{ message: { content: "ok" } }] } };
+		});
+		const p = buildSubLlmProvider(
+			{ provider: "naia", baseUrl: "https://gw/v1", model: "small" },
+			{ fetch: fetchFn, maxTokens: 2000 },
+		)!;
+		await p.complete("hi", { authorizeAndDisclose: allow });
+		expect(capturedBody.max_tokens).toBe(2000);
+	});
+
+	it("default body has no max_tokens", async () => {
+		let capturedBody: any;
+		const fetchFn = makeFetch((_url, body) => {
+			capturedBody = body;
+			return { ok: true, status: 200, payload: { choices: [{ message: { content: "ok" } }] } };
+		});
+		const p = buildSubLlmProvider(
+			{ provider: "naia", baseUrl: "https://gw/v1", model: "small" },
+			{ fetch: fetchFn },
+		)!;
+		await p.complete("hi", { authorizeAndDisclose: allow });
+		expect("max_tokens" in capturedBody).toBe(false);
+	});
+
+	it("the body never has tools or response_format", async () => {
+		let capturedBody: any;
+		const fetchFn = makeFetch((_url, body) => {
+			capturedBody = body;
+			return { ok: true, status: 200, payload: { choices: [{ message: { content: "ok" } }] } };
+		});
+		const p = buildSubLlmProvider(
+			{ provider: "naia", baseUrl: "https://gw/v1", model: "small" },
+			{ fetch: fetchFn, maxTokens: 2000, temperature: null },
+		)!;
+		await p.complete("hi", { authorizeAndDisclose: allow });
+		expect("tools" in capturedBody).toBe(false);
+		expect("response_format" in capturedBody).toBe(false);
+	});
 });

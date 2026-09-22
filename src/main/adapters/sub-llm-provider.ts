@@ -21,6 +21,8 @@ export function buildSubLlmProvider(
 	cfg: SubLlmConfig | undefined,
 	deps: {
 		fetch: SubLlmFetch;
+		temperature?: number | null;
+		maxTokens?: number;
 	},
 ): SubLlmPort | undefined {
 	if (!cfg || cfg.provider === "none") return undefined;
@@ -33,6 +35,7 @@ export function buildSubLlmProvider(
 	const apiKey = cfg.apiKey ?? "";
 	const auth = cfg.auth ?? "bearer";
 	const fetchFn = deps.fetch;
+	const temperature = deps.temperature === null ? undefined : (deps.temperature ?? 0);
 
 	async function callOnce(
 		messages: readonly { role: string; content: string }[],
@@ -58,12 +61,22 @@ export function buildSubLlmProvider(
 						: { authorization: `Bearer ${apiKey}` }
 					: {}),
 			},
-			body: JSON.stringify({ model, messages, stream: false, temperature: 0 }),
+			body: JSON.stringify({
+				model,
+				messages,
+				stream: false,
+				...(temperature !== undefined ? { temperature } : {}),
+				...(typeof deps.maxTokens === "number" && Number.isInteger(deps.maxTokens) && deps.maxTokens > 0
+					? { max_tokens: deps.maxTokens }
+					: {}),
+			}),
 			...(signal ? { signal } : {}),
 		});
 		if (!res.ok) {
 			const body = await res.text().catch(() => "");
-			throw new Error(`sub-llm(${provider}) HTTP ${res.status}: ${body.slice(0, 200)}`);
+			throw Object.assign(new Error(`sub-llm(${provider}) HTTP ${res.status}: ${body.slice(0, 200)}`), {
+				status: res.status,
+			});
 		}
 		const text = await res.text();
 		// OpenAI-compat 비스트리밍 응답: choices[0].message.content
