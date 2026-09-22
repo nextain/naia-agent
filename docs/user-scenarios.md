@@ -171,6 +171,10 @@ RPC 결과에 유지 여부와 오류 진단을 반환한다. 따라서 실패�
 턴이 5초 타임아웃까지 지연되지 않고, 해당 턴에는 `[장기기억 색인 상태]` 안내(기억이 비어있는 것이 아님)가 주입되어 채팅이 즉시
 정상 응답된다(키워드 전용 및 빠른 오픈은 2초 유예 내 즉시 정상 회상). 백그라운드 준비가 완료되면 다음 턴부터 장기기억 회상과 저장이 정상 합류한다.
 
+### S-MEM-CONSOLIDATION (대화에서 사실 추출 — nextain/naia-agent#141)
+
+메모리 LLM 역할이 구성되면, 에이전트는 주기적으로(메모리 준비 완료 후 60초에 첫 실행, 이후 30분마다, 한 번에 최대 200개 에피소드) 저장된 대화 에피소드를 메모리 LLM을 사용해 원자적 사실로 변환하여 사실이 축적되고 회상되도록 한다. 추출이 실패하면 해당 에피소드를 다음 주기를 위해 보존하고 에이전트 로그(`[naia-agent] memory consolidation failed (episodes kept for retry): <cause>`)에 원인을 기록한다. 메모리 LLM이 구성되지 않았거나 `NAIA_MEMORY_CONSOLIDATION=off`인 경우 아무 것도 실행되지 않는다.
+
 ## UC-PROV-1 (provider/model 라이브 교체)
 
 사용자가 naia-os 설정에서 텍스트 모델/프로바이더를 바꾸면, agent 재기동 없이 **다음 대화
@@ -705,6 +709,7 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 | FR-MEM-17 / S-MEM-EMBED-REINDEX | `src/test/memory-embedding-reindex.contract.test.ts`(ready 시 재색인 후 회상, 불일치를 빈 기억으로 주입하지 않음) |
 | FR-MEM-19 / S-MEM-REINDEX-CAUSE (재색인 실패 원인 표면화, nextain/naia-shell#681) | `src/test/memory-embedding-reindex.contract.test.ts` (failed 이벤트의 error 필드 전달·어댑터 메서드 부재 호환·compose stderr cause 출력 검증) |
 | FR-MEM-20 / S-MEM-BACKGROUND-PREP (메모리 백그라운드 준비, nextain/naia-shell#681) | `src/test/memory-preparing.contract.test.ts` (준비 중 recall 최대 2초 대기 후 MEMORY_PREPARING throw·키워드 전용 즉시 정상 회상·완료 후 정상 회상, 턴 핸들러의 색인불가 진단 주입 및 1초 미만 빠른 완료, compose 비동기 실행 및 stderr 로그 검증) |
+| FR-MEM-21 / S-MEM-CONSOLIDATION (사실 추출 주기 실행, nextain/naia-agent#141) | `src/test/memory-consolidation.contract.test.ts` (기본 off, 예약 실행 후 사실 저장, 실패 시 에피소드 보존·원인 이벤트, 종료 중 쓰기 차단, 10개 단위 분할, compose 배선), `src/test/memory-adapter-embedding.contract.test.ts` (끝 슬래시 정규화 URL, 404 시 throw) |
 | UC-PROV-1 / FR-PROV-1·2·3 | `src/test/all-providers-wiring.contract.test.ts`, `uc1-reload-default-config.contract.test.ts`, `uc-naia-settings-store.contract.test.ts` |
 | UC-PROV-1 / FR-PROV-7 (로그인·workspace credential 동기화) | `src/test/uc-keychain-credentials.contract.test.ts`(login 전 부재·키 교체·workspace 분리·복호화 재시도), `src/test/discord-entry-wiring.contract.test.ts`(production DPAPI reader·SetWorkspace rollback 배선) |
 | UC-THINKING / S-THINK-1·2·3 / FR-THINK-1~4 | `src/test/uc-thinking.contract.test.ts` (요청 body 검증: enableThinking=false+로컬 → `reasoning_effort:"none"` / true·미지정 → 미전송 / **원격 baseUrl → 미전송**(400 회귀 방지) / `isLocalEngineBaseUrl` 순수 판별) |

@@ -10,7 +10,7 @@ import {
   OfflineEmbeddingProvider,
   OpenAICompatEmbeddingProvider,
 } from "@nextain/naia-memory";
-import type { CompactionSummarizer, EmbeddingProvider, FactExtractor } from "@nextain/naia-memory";
+import type { CompactionSummarizer, EmbeddingProvider, ExtractedFact, FactExtractor } from "@nextain/naia-memory";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ManagedMemoryPort } from "../ports/memory.js";
@@ -28,6 +28,24 @@ const MEMORY_PREPARING_GRACE_MS = 2000;
 function capInput(s: string, max: number): string {
   const t = String(s ?? "");
   return t.length <= max ? t : `${t.slice(0, max)} …[절단됨]`;
+}
+
+function describeError(error: unknown): string {
+  let message = error instanceof Error ? error.message : String(error ?? "");
+  if (error && typeof error === "object" && "cause" in error) {
+    const cause = (error as { cause: unknown }).cause;
+    if (cause instanceof Error) {
+      message += `; cause: ${cause.message}`;
+    } else if (typeof cause === "string" && cause) {
+      message += `; cause: ${cause}`;
+    }
+  }
+  return message.replace(/\r?\n/g, " ").slice(0, 500);
+}
+
+/** naia-memory joins `${baseURL}chat/completions` without a separator — the base URL must end with exactly one "/". */
+export function memoryLlmBaseUrl(baseUrl: string): string {
+  return `${baseUrl.trim().replace(/\/+$/, "")}/`;
 }
 
 /** FR-MEM-15 (#108, naia-shell#425): 로컬 기억 저장 경로의 명시 해석.
@@ -81,7 +99,18 @@ export interface NaiaMemoryOpts {
     readonly reason: string;
     readonly error?: string;
   }) => void;
+  /** Background consolidation (episode → fact extraction). Absent/false = never runs (default; tests and CLI).
+   *  The product path enables it only when an LLM memory role is configured. */
+  readonly consolidation?: false | { readonly initialDelayMs?: number; readonly intervalMs?: number };
+  /** Observes each consolidation run (scheduled or manual). Never receives secrets. */
+  readonly onConsolidation?: (event: MemoryConsolidationEvent) => void;
 }
+
+export type MemoryConsolidationEvent =
+  | { readonly phase: "done"; readonly episodesProcessed: number; readonly factsCreated: number; readonly factsUpdated: number }
+  | { readonly phase: "failed"; readonly error: string };
+export const MEMORY_CONSOLIDATION_DEFAULT_INITIAL_DELAY_MS = 60_000;
+export const MEMORY_CONSOLIDATION_DEFAULT_INTERVAL_MS = 30 * 60_000;
 
 /** 메모리 LLM(사실추출) 선택 — os 메모리 UI(memoryLlmProvider 등). baseUrl/apiKey/model 은 provider 별로
  *  loadMemoryConfig 가 정규화(naia=게이트웨이, vllm/ollama=로컬). buildMemoryFactExtractor 는 OpenAI-compat 단일 경로. */
@@ -99,7 +128,8 @@ export interface MemoryLlmConfig {
 }
 
 /** MemoryLlmConfig → FactExtractor(또는 undefined=휴리스틱). 순수·테스트 가능. baseUrl·model 누락 = fail-closed
- *  throw(makeNaiaMemory 가 catch→기억 없이 격리). vllm/ollama/naia 모두 OpenAI-compat 단일 경로(buildLLMFactExtractor). */
+ *  throw(makeNaiaMemory 가 catch→기억 없이 격리). vllm/ollama/naia 모두 OpenAI-compat 단일 경로(buildLLMFactExtractor).
+ *  failurePolicy: "throw" — a failed batch throws so consolidateNow does not mark those episodes consolidated; they are retried on the next cycle. */
 export function buildMemoryFactExtractor(cfg?: MemoryLlmConfig): FactExtractor | undefined {
   if (!cfg || cfg.provider === "none") return undefined;
   if (!cfg.baseUrl?.trim() || !cfg.model?.trim()) {
@@ -107,9 +137,10 @@ export function buildMemoryFactExtractor(cfg?: MemoryLlmConfig): FactExtractor |
   }
   const options = {
     apiKey: cfg.apiKey ?? "",
-    baseURL: cfg.baseUrl,
+    baseURL: memoryLlmBaseUrl(cfg.baseUrl),
     model: cfg.model,
     auth: cfg.auth ?? (cfg.provider === "naia" || cfg.provider === "nextain" ? "x-anyllm" : "bearer"),
+    failurePolicy: "throw",
   } as Parameters<typeof buildLLMFactExtractor>[0] & { auth?: "bearer" | "x-anyllm" };
   return buildLLMFactExtractor(options);
 }
@@ -123,7 +154,7 @@ export function buildMemorySummarizer(cfg?: MemoryLlmConfig): CompactionSummariz
   }
   const options = {
     apiKey: cfg.apiKey ?? "",
-    baseURL: cfg.baseUrl,
+    baseURL: memoryLlmBaseUrl(cfg.baseUrl),
     model: cfg.model,
     auth: cfg.auth ?? (cfg.provider === "naia" || cfg.provider === "nextain" ? "x-anyllm" : "bearer"),
   } as Parameters<typeof buildLLMSummarizer>[0] & { auth?: "bearer" | "x-anyllm" };
@@ -192,9 +223,12 @@ export function buildEmbeddingProvider(cfg?: MemoryEmbeddingConfig): EmbeddingPr
 export interface ReadyManagedMemoryPort extends ManagedMemoryPort, CompactionPort {
   ready(): Promise<void>;
   flush(): Promise<void>;
+  /** Run one consolidation cycle now (single-flight with the scheduler). force=true skips naia-memory's 5-minute episode age gate. */
+  consolidate(opts?: { force?: boolean }): Promise<MemoryConsolidationEvent>;
 }
 
 export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
+  let closed = false;
   const project = opts.project;
   // 타입(required string)만으론 ""·공백을 못 막는다 → 생성 경계에서 fail-closed(빈 project 가 backend
   // global/기본 scope 로 축약돼 격리를 우회하는 것 차단, FR-MEM-5/9).
@@ -211,7 +245,25 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
   // issue #7: os 메모리 UI 의 adapter/embedding 선택을 런타임에 반영(이전엔 LocalAdapter+키워드-only 하드코딩).
   // embedding 은 adapter 선택과 분리해 빌드(순수). provider 별 필수 누락 = throw(상위 entry 가 catch→기억 없이 격리).
   const embeddingProvider = opts.embeddingProvider ?? buildEmbeddingProvider(opts.embedding);
-  const factExtractor = opts.factExtractor ?? buildMemoryFactExtractor(opts.llm);
+  const rawFactExtractor = opts.factExtractor ?? buildMemoryFactExtractor(opts.llm);
+  const factExtractor: FactExtractor | undefined = rawFactExtractor
+    ? async (episodes) => {
+        const results: ExtractedFact[] = [];
+        const CHUNK_SIZE = 10;
+        for (let i = 0; i < episodes.length; i += CHUNK_SIZE) {
+          if (closed) {
+            throw new Error("memory closed during consolidation");
+          }
+          const chunk = episodes.slice(i, i + CHUNK_SIZE);
+          const chunkResults = await rawFactExtractor(chunk);
+          results.push(...chunkResults);
+        }
+        if (closed) {
+          throw new Error("memory closed during consolidation");
+        }
+        return results;
+      }
+    : undefined;
   const summarizer = opts.summarizer ?? buildMemorySummarizer(opts.llm);
   let sys: MemorySystem;
   let localAdapter: LocalAdapter | null = null;
@@ -279,6 +331,71 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
   let readySettled = false;
   ready.then(() => { readySettled = true; }, () => { readySettled = true; });
   ready.catch(() => {}); // floating unhandledRejection 차단 — 실패는 첫 작업의 await ready 에서 표면화(호출측 격리).
+
+  let inFlight: Promise<MemoryConsolidationEvent> | undefined;
+  const runConsolidation = (force: boolean): Promise<MemoryConsolidationEvent> => {
+    if (inFlight) return inFlight;
+    let run!: Promise<MemoryConsolidationEvent>;
+    run = (async (): Promise<MemoryConsolidationEvent | undefined> => {
+      try {
+        await ready;
+        if (closed) return undefined;
+        const r = await sys.consolidateNow(force);
+        if (closed) return undefined;
+        return {
+          phase: "done",
+          episodesProcessed: Number(r?.episodesProcessed ?? 0),
+          factsCreated: Number(r?.factsCreated ?? 0),
+          factsUpdated: Number(r?.factsUpdated ?? 0),
+        };
+      } catch (error) {
+        if (closed) return undefined;
+        return { phase: "failed", error: describeError(error) };
+      }
+    })().then((event): MemoryConsolidationEvent => {
+      if (!event) return { phase: "failed", error: "memory closed" };
+      try { opts.onConsolidation?.(event); } catch { /* observer must not break memory */ }
+      return event;
+    }).finally(() => {
+      if (inFlight === run) inFlight = undefined;
+    });
+    inFlight = run;
+    return run;
+  };
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  if (opts.consolidation && typeof opts.consolidation === "object") {
+    const rawInitial = opts.consolidation.initialDelayMs;
+    const initialDelayMs =
+      typeof rawInitial === "number" && Number.isFinite(rawInitial) && rawInitial >= 0
+        ? Math.max(0, Math.floor(rawInitial))
+        : MEMORY_CONSOLIDATION_DEFAULT_INITIAL_DELAY_MS;
+    const rawInterval = opts.consolidation.intervalMs;
+    const intervalMs =
+      typeof rawInterval === "number" && Number.isFinite(rawInterval) && rawInterval >= 0
+        ? Math.max(1_000, Math.floor(rawInterval))
+        : MEMORY_CONSOLIDATION_DEFAULT_INTERVAL_MS;
+
+    const tick = async () => {
+      if (closed) return;
+      try {
+        await runConsolidation(false);
+      } catch {
+        /* runConsolidation already catches errors, but guard against unhandled */
+      }
+      if (closed) return;
+      timer = setTimeout(tick, intervalMs);
+      timer?.unref?.();
+    };
+
+    const start = () => {
+      if (closed) return;
+      timer = setTimeout(tick, initialDelayMs);
+      timer?.unref?.();
+    };
+
+    ready.then(start, () => {});
+  }
 
   return {
     async ready(): Promise<void> {
@@ -378,7 +495,14 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
     },
 
     async close(): Promise<void> {
+      closed = true;
+      if (timer !== undefined) clearTimeout(timer);
+      await inFlight?.catch(() => undefined);
       await sys.close();
+    },
+
+    async consolidate(o?: { force?: boolean }): Promise<MemoryConsolidationEvent> {
+      return runConsolidation(o?.force === true);
     },
 
     // ── CompactionPort (UC-compaction) — 같은 MemorySystem 위임 ──

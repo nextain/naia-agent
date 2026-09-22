@@ -10,7 +10,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildEmbeddingProvider, buildMemoryFactExtractor, buildMemorySummarizer, makeNaiaMemory } from "../main/adapters/naia-memory.js";
+import { buildEmbeddingProvider, buildMemoryFactExtractor, buildMemorySummarizer, makeNaiaMemory, memoryLlmBaseUrl } from "../main/adapters/naia-memory.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -135,6 +135,46 @@ describe("issue #7 — buildMemoryFactExtractor: UI LLM 선택 → FactExtractor
     expect(new Headers(captured[1]).get("Authorization")).toBe("Bearer b-key");
     expect(new Headers(captured[1]).get("X-AnyLLM-Key")).toBeNull();
   });
+
+  it("baseUrl 끝 슬래시 정규화: /v1, /v1/, /v1// 모두 https://api.nextain.io/v1/chat/completions 로 요청", async () => {
+    const urls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      urls.push(String(input));
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"1":[]}' } }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }));
+    const episode = {
+      id: "e1", content: "기억", summary: "", timestamp: 1,
+      importance: { importance: 0, surprise: 0, emotion: 0, utility: 0 },
+      encodingContext: { project: "p" }, consolidated: false,
+      recallCount: 0, lastAccessed: 1, strength: 1,
+    };
+    for (const baseUrl of ["https://api.nextain.io/v1", "https://api.nextain.io/v1/", "https://api.nextain.io/v1//"]) {
+      const fe = buildMemoryFactExtractor({ provider: "naia", baseUrl, apiKey: "k", model: "m" })!;
+      await fe([episode]);
+    }
+    expect(urls).toEqual([
+      "https://api.nextain.io/v1/chat/completions",
+      "https://api.nextain.io/v1/chat/completions",
+      "https://api.nextain.io/v1/chat/completions",
+    ]);
+  });
+
+  it("fetch 404 시 failurePolicy throw 로 예외 방출", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      return new Response("Not Found", { status: 404, statusText: "Not Found" });
+    }));
+    const episode = {
+      id: "e1", content: "기억", summary: "", timestamp: 1,
+      importance: { importance: 0, surprise: 0, emotion: 0, utility: 0 },
+      encodingContext: { project: "p" }, consolidated: false,
+      recallCount: 0, lastAccessed: 1, strength: 1,
+    };
+    const fe = buildMemoryFactExtractor({ provider: "naia", baseUrl: "https://api.nextain.io/v1", apiKey: "k", model: "m" })!;
+    await expect(fe([episode])).rejects.toThrow(/404/);
+  });
 });
 
 describe("issue #7 후속 — embedding device(gpu/cpu) 선택(naia-embedded 컴퓨트)", () => {
@@ -181,5 +221,35 @@ describe("buildMemorySummarizer: small LLM 선택 → CompactionSummarizer 매�
     const s = buildMemorySummarizer({ provider: "vllm", baseUrl: "http://127.0.0.1:1/", model: "m" })!;
     const out = await s({ messages: [{ role: "user", content: "hi" }], keepTail: 0, targetTokens: 100, seedSummary: "SEED-RECAP" });
     expect(out).toBe("SEED-RECAP");
+  });
+
+  it("summarizer baseUrl 끝 슬래시 정규화: /v1, /v1/, /v1// 모두 https://api.nextain.io/v1/chat/completions 로 요청", async () => {
+    const urls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      urls.push(String(input));
+      return new Response(JSON.stringify({ choices: [{ message: { content: "요약" } }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }));
+    const input = { messages: [{ role: "user" as const, content: "기억" }], seedSummary: "", keepTail: 0, targetTokens: 100 };
+    for (const baseUrl of ["https://api.nextain.io/v1", "https://api.nextain.io/v1/", "https://api.nextain.io/v1//"]) {
+      const s = buildMemorySummarizer({ provider: "naia", baseUrl, apiKey: "k", model: "m" })!;
+      await s(input);
+    }
+    expect(urls).toEqual([
+      "https://api.nextain.io/v1/chat/completions",
+      "https://api.nextain.io/v1/chat/completions",
+      "https://api.nextain.io/v1/chat/completions",
+    ]);
+  });
+});
+
+describe("memoryLlmBaseUrl helper", () => {
+  it("baseUrl 끝 슬래시를 정확히 하나로 정규화한다", () => {
+    expect(memoryLlmBaseUrl("https://api.nextain.io/v1")).toBe("https://api.nextain.io/v1/");
+    expect(memoryLlmBaseUrl("https://api.nextain.io/v1/")).toBe("https://api.nextain.io/v1/");
+    expect(memoryLlmBaseUrl("https://api.nextain.io/v1//")).toBe("https://api.nextain.io/v1/");
+    expect(memoryLlmBaseUrl("  https://api.nextain.io/v1///  ")).toBe("https://api.nextain.io/v1/");
   });
 });
