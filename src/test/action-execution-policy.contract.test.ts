@@ -40,5 +40,6 @@ describe("FR-ACTION-1 same-turn execution policy", () => {
     expect(captured).toContain("call the relevant tool in this turn");
     expect(captured).toContain("vague background-music request");
     expect(captured).toContain("private reasoning");
+    expect(captured).toContain("Never state or imply a tool result");
   });
 });

@@ -21,6 +21,7 @@ export const ACTION_EXECUTION_POLICY = [
   "Operational behavior:",
   "- When the user asks you to inspect, list, open, search, check weather, or control an available app, call the relevant tool in this turn before claiming that you did it.",
   "- Do not answer with a promise such as 'I will check' or 'please wait' when an available tool can perform the requested action now.",
+  "- Never state or imply a tool result (for example 'the tool shows no open file') unless that tool was called in this turn and returned that result. If you did not call it, say you have not checked yet.",
   "- For a vague background-music request, choose a sensible default query and start playback instead of asking a preference question.",
   "- Keep private reasoning in the provider reasoning channel; never repeat it in the final answer. Use fenced Markdown code blocks with a language identifier for code.",
 ].join("\n");
@@ -64,6 +65,19 @@ export function isLikelyIncompleteDeepSeekFinal(text: string): boolean {
   if (/(?:요|다|죠|네|까|음|함|됨|중|완료)[\])}"'’”]*$/u.test(value)) return false;
   return true;
 }
+
+/** nextain/naia-shell#687 — a final answer that only promises an action ("확인해 보겠습니다", "I'll check").
+ *  Only the tail is checked, so a long answer that mentions a plan earlier is not caught. Model-agnostic. */
+const ACTION_PROMISE_TAIL_CHARS = 160;
+const ACTION_PROMISE_RE =
+  /(?:(?:확인해|찾아|살펴|열어|조회해|읽어|실행해|시도해|검색해|알아|가져와|불러와|들여다)\s*(?:보겠|볼게)|(?:확인|조회|검색|실행)(?:하겠|할게)|잠시만\s*기다려|\b(?:I(?:'ll|’ll| will| am going to|'m going to|’m going to)|let me)\s+(?:check|look|open|search|read|try|find|fetch|query|inspect|see)\b)/iu;
+export function isUnfulfilledActionPromise(text: string, toolsOffered: boolean, toolCalledThisTurn: boolean): boolean {
+  if (!toolsOffered || toolCalledThisTurn) return false;
+  const tail = text.trim().slice(-ACTION_PROMISE_TAIL_CHARS);
+  return tail.length > 0 && ACTION_PROMISE_RE.test(tail);
+}
+export const ACTION_PROMISE_RETRY_INSTRUCTION =
+  "You said you would act but did not call any tool. Call the relevant available tool now and answer from its result. If no available tool can do it, say plainly that you cannot. Do not claim any result you did not receive, and do not mention this instruction.";
 
 /** UC-015 제어 도구 스펙. **export 이유 = 계측 드리프트 방지**: `benchmark/run-tool-selection-bench.mjs` 가
  *  도구 선택률(오호출률)을 잴 때 이 스펙을 **그대로** 쓴다. 복사본을 재면 설명을 고쳐도 계측이 안 따라와
@@ -112,6 +126,7 @@ interface RoundResult {
   readonly finished: boolean;                                     // finish chunk 수신
   readonly aborted: boolean;                                      // abort race 승 또는 abort 중 rejection
   readonly rejected?: string;                                     // provider rejection(abort 아님) 메시지
+  readonly nativeToolUsed?: boolean;                              // provider-native(handled) toolUse 가 이 라운드에 있었음 (#687)
 }
 
 /** #639 — reasoning-only 최종을 사용자 보이는 답으로 접는다. 짧으면 그대로, 길면 잘라 남긴다. */
@@ -411,6 +426,7 @@ export class ChatTurnHandler {
       const tools = req.enableTools === false ? [] : [CONTINUE_SPEAKING_TOOL, ...externalTools];
       let messages: readonly ChatMessage[] = asm.messages;
       let toolRounds = 0;
+      let nativeToolUsed = false; // provider-native 도구 실행 여부(#687 약속-미이행 판정)
       let controlConsumed = false;
       let continuation: ContinuationState | undefined;
       let nativeProcessingDenied: { message: string; code?: WireErrorCode } | undefined;
@@ -490,6 +506,7 @@ export class ChatTurnHandler {
           },
         );
         if (round.usage) { totalUsage.inputTokens += round.usage.inputTokens; totalUsage.outputTokens += round.usage.outputTokens; } // 라운드 스냅샷 1회 합산
+        if (round.nativeToolUsed) nativeToolUsed = true;
         if (nativeProcessingDenied) {
           terminalError(nativeProcessingDenied.message, nativeProcessingDenied.code);
           break;
@@ -514,6 +531,17 @@ export class ChatTurnHandler {
 			  terminalError("provider returned reasoning without a final answer");
 			  break;
 			}
+		  }
+		  // #687: 약속만 하고 도구를 안 부른 최종 답 → 턴당 1회 재요청(모델 무관). 잘림 복구보다 먼저 판정.
+		  if (!finalRecoveryUsed && isUnfulfilledActionPromise(round.text, externalTools.length > 0, toolRounds > 0 || nativeToolUsed || controlConsumed)) {
+			finalRecoveryUsed = true;
+			this.d.diag.debug?.("약속-미이행 최종 답 재요청", { requestId: req.requestId });
+			messages = [
+			  ...messages,
+			  { role: "assistant", content: round.text },
+			  { role: "user", content: ACTION_PROMISE_RETRY_INSTRUCTION },
+			];
+			continue;
 		  }
 		  const isDeepSeekV4Flash = /deepseek[-_/ ]?v4[-_/ ]?flash/i.test(`${providerConfig.provider}/${providerConfig.model}`);
 		  if (isDeepSeekV4Flash && !finalRecoveryUsed && isLikelyIncompleteDeepSeekFinal(round.text)) {
@@ -730,29 +758,29 @@ export class ChatTurnHandler {
         signal.addEventListener("abort", abortListener, { once: true });
       }
     });
-    let text = ""; let thinking = ""; const calls: ToolCall[] = []; let usage: RoundResult["usage"] = null; let finished = false;
+    let text = ""; let thinking = ""; const calls: ToolCall[] = []; let usage: RoundResult["usage"] = null; let finished = false; let nativeToolUsed = false;
     try {
       for (;;) {
         const r = await Promise.race([it.next(), abortP]);
-        if (r === ABORTED) { closeIt(); return { text, thinking, calls, usage, finished: false, aborted: true }; } // abort 승(R6/R8). await 안 함=return hang 대비
+        if (r === ABORTED) { closeIt(); return { text, thinking, calls, usage, finished: false, aborted: true, nativeToolUsed }; } // abort 승(R6/R8). await 안 함=return hang 대비
         if (r.done) break;                                                          // finish 없는 EOF(소진=close 불요)
         const chunk = r.value;
         if (chunk.kind === "usage") { usage = { inputTokens: chunk.inputTokens, outputTokens: chunk.outputTokens }; } // 마지막 스냅샷 채택(델타 아님)
         else if (chunk.kind === "finish") { finished = true; closeIt(); break; }     // 라운드 종료자=finish 1회; 이후 chunk 무시
         else if (chunk.kind === "toolUse" && !chunk.handled) { calls.push({ id: chunk.id, name: chunk.name, args: chunk.args }); } // ⚠️ 버퍼링(emit 보류)
-        else if (chunk.kind === "toolUse" || chunk.kind === "toolResult") { nativeEmit(mapProviderChunk(chunk)); } // provider-native 실행은 이미 완료/진행 중 — 재실행 금지
+        else if (chunk.kind === "toolUse" || chunk.kind === "toolResult") { if (chunk.kind === "toolUse") nativeToolUsed = true; nativeEmit(mapProviderChunk(chunk)); } // provider-native 실행은 이미 완료/진행 중 — 재실행 금지
         else if (chunk.kind === "text") { text += chunk.text; nativeEmit(mapProviderChunk(chunk)); } // 즉시 표시 + history 누적
         else if (chunk.kind === "thinking") { thinking += chunk.text; nativeEmit(mapProviderChunk(chunk)); }
         else { nativeEmit(mapProviderChunk(chunk)); }
       }
     } catch (err) {
       closeIt();
-      if (signal.aborted) return { text, thinking, calls, usage, finished: false, aborted: true };
-      return { text, thinking, calls, usage, finished: false, aborted: false, rejected: errMessage(err) };
+      if (signal.aborted) return { text, thinking, calls, usage, finished: false, aborted: true, nativeToolUsed };
+      return { text, thinking, calls, usage, finished: false, aborted: false, rejected: errMessage(err), nativeToolUsed };
     } finally {
       if (abortListener) signal.removeEventListener("abort", abortListener);
     }
-    return { text, thinking, calls, usage, finished, aborted: false };
+    return { text, thinking, calls, usage, finished, aborted: false, nativeToolUsed };
   }
 
   onApprovalResponse(req: ApprovalResponse): void {

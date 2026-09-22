@@ -916,3 +916,12 @@ When tools are available, a request to inspect, list, open, search, check weathe
 
 Verification: `src/test/action-execution-policy.contract.test.ts` and the naia-shell v0.2.2 same-build E2E acceptance flow.
 
+# FR-ACTION-2 — a promise-only final answer is re-asked once (nextain/naia-shell#687)
+
+When real (non-control) tools are offered and no tool of any kind (handler-executed, provider-native, or the continue_speaking control) was called in the turn, a final answer whose last 160 characters promise an action ("확인해 보겠습니다", "확인해볼게요", "살펴보겠습니다", "찾아보겠습니다", "I'll check", "let me check", and similar) is not accepted. The agent appends that answer and one instruction to call the relevant tool now or state plainly that it cannot, and asks the provider again. This is model-agnostic and shares the single per-turn final-answer recovery with the reasoning-only and DeepSeek truncation recoveries, so it never loops. It runs before the DeepSeek truncation check.
+
+`ACTION_EXECUTION_POLICY` also states that the model must never state or imply a tool result that was not returned by a tool called in this turn.
+
+Verification: `src/test/action-promise-guard.contract.test.ts`, `src/test/action-execution-policy.contract.test.ts`. The attended naia-shell E2E for #687 is pending.
+
+Status: Done (contract tests and a real-LLM check pass; the attended naia-shell E2E is pending)
