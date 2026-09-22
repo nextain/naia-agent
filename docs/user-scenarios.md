@@ -993,5 +993,7 @@ honestly. The loop has no arbitrary two-minute ceiling and stops only at explici
 2. The final response follows the tool result; it does not stop at “I will check” or “please wait”.
 3. A vague BGM request chooses a default query and invokes playback without an avoidable preference round-trip.
 4. Private reasoning is carried separately from the final response, while code uses a language-tagged fenced Markdown block.
+5. If the model still ends a turn with only a promise ("확인해 보겠습니다", "I'll check") while real tools are offered and no tool was called in that turn, the agent re-asks it once to call the tool now or say plainly that it cannot (nextain/naia-shell#687). A normal final answer is not re-asked, and there is never more than one re-ask per turn.
+6. The model does not report a tool result (for example "the tool shows no open file") unless that tool was called in this turn and returned it.
 
-Coverage: `src/test/action-execution-policy.contract.test.ts` plus naia-shell v0.2.2 local E2E.
+Coverage: `src/test/action-execution-policy.contract.test.ts`, `src/test/action-promise-guard.contract.test.ts` plus naia-shell v0.2.2 local E2E (the #687 attended shell E2E is pending).
