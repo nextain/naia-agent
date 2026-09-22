@@ -385,6 +385,7 @@ knowledge=WHAT/풀, 안 섞음).
   `skill_knowledge_search`로 주요 어휘 검색). `[회상된 참고 정보]`(자동 장기기억), `memo_*`(사용자가 명시적으로 저장을
   요청한 메모), `skill_knowledge_*`(컴파일된 워크스페이스 지식)의 역할을 시스템 프롬프트 정책(`KNOWLEDGE_ROUTING_POLICY`)으로
   구분하여 메모가 비어 있다고 해서 지식이 없다고 답하지 않는다.
+- **S-KB-7 (지식 범위 질문 — nextain/naia-agent#142)**: 사용자가 "그럼 지식 파일은?"처럼 지식의 범위를 물으면 에이전트는 `skill_knowledge_scope` 로 등록 소스(`naia-settings/knowledge.json`)와 소스별·전체 카드 수를 조회해 그것만 근거로 답하고, 등록되지 않은 파일(각 프로젝트 README·AGENTS.md·설계 문서·코드)을 지식이라고 지어내지 않는다.
 
 직교: KB 컴파일/서빙 지능은 외부 엔진(어댑터가 backend 로 주입), 코어는 도구 노출 + 컴파일 트리거. `compose-agent-deps` 가
 실 backend(`openWorkspaceKnowledge`)를 주입(K1a-2), entry 가 컴파일 backend(`makeKbCompilerBackend`)를 주입(K1b). memory(push) 경로와 저장소·주입 모두 분리.
@@ -734,6 +735,7 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 | UC-KNOWLEDGE / S-KB-1~4 / FR-KB-1~4 | `src/test/uc-knowledge.contract.test.ts` — describe "makeKnowledgeSkillsExecutor" (specs 2종·tier 없음 / search JSON hits+sourceUris / k 반영 / ask JSON answer+sources / 근거없음 기권 abstained / backend 미주입 unavailable / 빈·비문자 query·잘못 args isError no-throw / unknown tool / abort reject). fake backend 결정론 |
 | UC-KNOWLEDGE / S-KB-5 / FR-KB-5 (컴파일 K1b) | `src/test/uc-knowledge-compile.contract.test.ts` — makeCompileKnowledge(소스→backend·통계 / 소스0·빈adkPath·backend throw·readConfig throw = ok:false no-throw) + readWorkspaceKnowledgeConfig(부재·유효·깨짐). `src/test/uc-knowledge-compile.integration.test.ts` — 실 kb-compiler: 폴더(.md)→compile→`naia-settings/knowledge/<scope>/kb.json` 영속+sourceUris 보존(cross-repo) |
 | UC-KNOWLEDGE / S-KB-6 / FR-KB-7 (지식 도구 라우팅 지침, nextain/naia-shell#681) | `src/test/knowledge-routing-policy.contract.test.ts` (지식 도구 등록 시 policy 주입·action policy 뒤 위치·systemPrompt override 반영·미등록/enableTools=false 시 미포함 검증) |
+| UC-KNOWLEDGE / S-KB-7 / FR-KB-8 (지식 범위 도구, nextain/naia-agent#142) | `src/test/uc-knowledge.contract.test.ts` (skill_knowledge_scope 노출 조건·JSON·empty/message·abort) + `src/test/knowledge-routing-policy.contract.test.ts` (범위 정책 문구) + `src/test/uc-knowledge.integration.test.ts` (등록 소스별 카드 수·prefix 오탐 방지·config 부재·실 워크스페이스 읽기 전용(NAIA_KB_REAL_ADK 지정 시에만)) |
 
 
 > UC1/UC5/provider-provenance 의 상세 시나리오·수용기준은 각 계약서 + `docs/acceptance-criteria.md` 참조.

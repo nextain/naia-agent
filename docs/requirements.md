@@ -37,7 +37,7 @@
 - recall 정확성은 content+project 기반(session/encode 순서 무관) → 동시 턴 교차 안전.
 - NFR-MEM-degrade(S5): sub-LLM(메모리 factExtractor/summarizer) 미구성/구성불가는 memory 전체를 비활성하지 않는다. `loadMemoryConfig` 가 구성불가 sub-LLM 을 `provider:"none"` 으로 강등(매핑 경계 graceful) → recall/save·embedding 은 보존, LLM 기반 추출/요약만 생략. memory identity 키 = **workspace-id(`resolveWorkspaceId`, 영속 UUID)** — persona userName(FR-PERSONA, S1b)과 직교(키 분리, identity split 없음).
 
-## UC-KNOWLEDGE FR/NFR (FR-KB-1 ~ 6) — 워크스페이스 지식 풀 도구 + 컴파일 + 보안 가드
+## UC-KNOWLEDGE FR/NFR (FR-KB-1 ~ 8) — 워크스페이스 지식 풀 도구 + 컴파일 + 보안 가드
 
 설계 SoT: 루트 `.agents/progress/naia-kb-compiler-agent-os-integration-2026-06-29.md` (K1a·K1b). memory(푸시)와 분리된 풀(tool). KB 컴파일/서빙=외부 엔진(naia-kb-compiler), 코어는 도구 노출 + 컴파일 트리거.
 
@@ -50,6 +50,7 @@
 | FR-KB-5 | **컴파일 트리거(K1b)** — gRPC `CompileKnowledge(adkPath)` RPC 가 셸 소유 `naia-settings/knowledge.json`(scope·sources)을 **읽어**(에이전트는 config 쓰기 없음 — naia-os FR-KB-OS.9 대칭) 등록 폴더(.md/.txt) → kb-compiler `compile()`(오프라인 결정론) → `naia-settings/knowledge/<scope>/kb.json` 영속. 통계({ok,scope,source/card/entity/relationCount,error?}) 반환. no-throw(미주입/실패=ok:false+error). backend 주입(DI·D03 비종속). | Done |
 | FR-KB-6 | **보안 가드(K-SEC)** — R2 적대리뷰의 "구호" 4종을 강제 코드로 전환: ①**설정 쓰기-펜스**(`isSettingsWriteFenced`, fs-sandbox): 에이전트 `write_file` 가 `naia-settings/` 쓰기 거부(읽기는 허용 — provider/지식 config) = FR-KB-OS.9 "AI 가 설정 못 건드림" 강제(realpath 해소 후 판정, symlink 우회 차단). ②**compile scope 경로탈출 방지**(`isValidKnowledgeScope`): 구분자/`..`/드라이브 scope 거부 → `knowledge/<scope>` outDir 워크스페이스 밖 탈출 차단. ③**extract 인젝션 안전**: 컴파일 추출=오프라인 결정론(Markdown, LLM 미사용)이라 자료 심긴 프롬프트 미해석=인젝션 surface 0(LLM 추출 전환 시 비신뢰 격리 필요 — 코드 명시). ④**memory↔knowledge 분리**: 컴파일은 `knowledge/<scope>/` 만 영속, naia-memory store 미접촉(누수 0). | Done |
 | FR-KB-7 | **지식 도구 라우팅 지침(K-ROUTE, nextain/naia-shell#681)** — `skill_knowledge_ask` 도구가 등록되고 `enableTools !== false` 인 턴에만 `KNOWLEDGE_ROUTING_POLICY` 를 `ACTION_EXECUTION_POLICY` 바로 뒤에 append. 회상 블록(자동 장기기억)·`memo_*`(명시 메모)·`skill_knowledge_*`(컴파일된 워크스페이스 지식: 회사/사업/프로젝트/전략/온보딩)의 역할을 구분하고, 회사/사업 관련 질문은 `skill_knowledge_ask`(기권 시 search) 우선 호출, 도구 결과 없이 "지식 없음" 답변 금지 규정. `req.systemPrompt` override 경로에도 동일 적용. 검증: `src/test/knowledge-routing-policy.contract.test.ts`. P04(2026-09-22, nextain/naia-shell#681): 단위·계약 테스트 통과, 실백엔드 통합 시험 8/8(영수증: alpha-adk tmp/naia-memory-knowledge-link-20260922/receipts/). 실화면 E2E 는 naia-shell 페어링 갱신 단계에서 수행. | Done |
+| FR-KB-8 | **지식 범위 도구(K-SCOPE, nextain/naia-agent#142)** — backend 가 `scope()` 를 제공하면 읽기 전용 `skill_knowledge_scope`(인자 없음) 노출. 출력 JSON={scope, sources[{path,cardCount}], totalCards, otherCards, empty, note(, message)}: 셸 소유 `knowledge.json` 등록 소스(설정 순서)와 소스별 카드 수(sourceUri 경로 접두 + 경계 일치, win32 대소문자 무시), 어느 소스에도 속하지 않는 카드 수. `KNOWLEDGE_ROUTING_POLICY` 에 범위 질문은 이 도구(없으면 지식 도구가 돌려준 출처)로만 답하고 등록 소스 밖 파일(프로젝트 README·AGENTS.md·설계 문서·코드)을 지식이라 주장하지 않는다는 줄 추가. 읽기 전용·no-throw. P04(2026-09-22): 계약·통합 테스트 통과, 실 워크스페이스 KB 읽기 전용 확인(data-company 130 + nextain-team-strategy 1579 = 1709, otherCards 0), 실 LLM 1회("그럼 지식 파일은 ?" → skill_knowledge_scope 호출 후 두 소스·카드 수로만 답변). 실화면 E2E 는 naia-shell 페어링 갱신 단계에서 수행. | Done |
 
 ### NFR
 - 헥사고날: adapter(backend 주입)·코어 비종속. 읽기 전용(쓰기/컴파일 분리=K1b).

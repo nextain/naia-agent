@@ -115,4 +115,20 @@ describe("FR-KB-7 workspace knowledge routing policy", () => {
     expect(captured).not.toContain(ACTION_EXECUTION_POLICY);
     expect(captured).not.toContain(KNOWLEDGE_ROUTING_POLICY);
   });
+
+  it("contains skill_knowledge_scope and anti-hallucination clause when skill_knowledge_ask is registered", async () => {
+    const { deps, getCaptured } = makeHarness(knowledgeAndOtherSpecs);
+    const request: ChatRequest = {
+      kind: "chat",
+      requestId: "kb-policy-scope-test",
+      provider: { provider: "fake", model: "m" },
+      messages: [{ role: "user", content: "지식 파일은 뭐가 있어?" }],
+    };
+
+    await new ChatTurnHandler(deps).onChatRequest(request);
+
+    const captured = getCaptured();
+    expect(captured).toContain("skill_knowledge_scope");
+    expect(captured).toContain("Never claim that other files");
+  });
 });

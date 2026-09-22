@@ -2,6 +2,7 @@
  *  배선하고, toolExecutor 가 skill_knowledge_search/ask 를 노출하며 **실 KB(워크스페이스 kb.json) 근거 답변**을 낸다.
  *  cross-repo in-process 관통(naia-agent → @naia/kb-compiler → KnowledgeService(BM25) → 워크스페이스 정본). fake 아님. */
 import { afterEach, describe, it, expect } from "vitest";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm, mkdir, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -233,5 +234,77 @@ describe("UC-KNOWLEDGE 통합 — compose 가 실 kb-compiler backend 배선(K1a
     const result = await deps.toolExecutor.execute({ id: "sym", name: "skill_knowledge_ask", args: { query: "전입신고?" } }, {});
     expect(result.isError).toBe(true);
     expect(result.output).toContain("symbolic link");
+  });
+
+  it("skill_knowledge_scope(FR-KB-8): knowledge.json 등록 소스별 카드 수 + 미등록 카드는 otherCards", async () => {
+    const adk = await mkdtemp(join(tmpdir(), "kb-scope-counts-"));
+    dirs.push(adk);
+    const customKb = {
+      version: 1,
+      kb: {
+        cards: [
+          { id: "c1", title: "a1", fields: { content: "c1" }, sourceUris: [join(adk, "src-a", "a1.md")], confidence: 1, status: "draft" },
+          { id: "c2", title: "a2", fields: { content: "c2" }, sourceUris: [join(adk, "src-a", "sub", "a2.md")], confidence: 1, status: "draft" },
+          { id: "c3", title: "b1", fields: { content: "c3" }, sourceUris: [join(adk, "src-b", "b1.md")], confidence: 1, status: "draft" },
+          { id: "c4", title: "x", fields: { content: "cx" }, sourceUris: [join(adk, "src-a-extra", "x.md")], confidence: 1, status: "draft" },
+        ],
+        entities: [],
+        relations: [],
+      },
+    };
+    await mkdir(join(adk, "naia-settings", "knowledge", "default"), { recursive: true });
+    await writeFile(join(adk, "naia-settings", "knowledge", "default", "kb.json"), JSON.stringify(customKb), "utf8");
+    await mkdir(join(adk, "naia-settings"), { recursive: true });
+    await writeFile(
+      join(adk, "naia-settings", "knowledge.json"),
+      JSON.stringify({
+        version: 1,
+        scope: "default",
+        sources: [{ path: join(adk, "src-a") }, { path: join(adk, "src-b") }],
+      }),
+      "utf8",
+    );
+    const deps = await composeAgentRuntimeDeps({ env: baseEnv(adk) });
+    expect(deps.toolExecutor.specs().map((s: { name: string }) => s.name)).toContain("skill_knowledge_scope");
+
+    const r = await deps.toolExecutor.execute({ id: "sc1", name: "skill_knowledge_scope", args: {} }, {});
+    expect(r.isError).toBeFalsy();
+    const parsed = JSON.parse(r.output);
+    expect(parsed.scope).toBe("default");
+    expect(parsed.sources).toEqual([
+      { path: join(adk, "src-a"), cardCount: 2 },
+      { path: join(adk, "src-b"), cardCount: 1 },
+    ]);
+    expect(parsed.totalCards).toBe(4);
+    expect(parsed.otherCards).toBe(1);
+    expect(parsed.empty).toBe(false);
+  });
+
+  it("skill_knowledge_scope: knowledge.json 부재 → sources [] + 기존 카드는 otherCards", async () => {
+    const adk = await seededAdk();
+    const deps = await composeAgentRuntimeDeps({ env: baseEnv(adk) });
+    const r = await deps.toolExecutor.execute({ id: "sc2", name: "skill_knowledge_scope", args: {} }, {});
+    expect(r.isError).toBeFalsy();
+    const parsed = JSON.parse(r.output);
+    expect(parsed.sources).toEqual([]);
+    expect(parsed.totalCards).toBe(2);
+    expect(parsed.otherCards).toBe(2);
+  });
+
+  // Opt-in only (hermetic default suite): set NAIA_KB_REAL_ADK=<ADK path> to check the real compiled KB read-only.
+  const REAL_ADK = process.env.NAIA_KB_REAL_ADK ?? "";
+  const realKbExists = REAL_ADK !== "" && existsSync(join(REAL_ADK, "naia-settings", "knowledge", "default", "kb.json")) && existsSync(join(REAL_ADK, "naia-settings", "knowledge.json"));
+  it.runIf(realKbExists)("실 워크스페이스(읽기 전용): 등록 소스 카드 합 + otherCards = totalCards, 등록 소스만 보고", async () => {
+    const deps = await composeAgentRuntimeDeps({ env: baseEnv(REAL_ADK) });
+    const r = await deps.toolExecutor.execute({ id: "sc3", name: "skill_knowledge_scope", args: {} }, {});
+    expect(r.isError).toBeFalsy();
+    const parsed = JSON.parse(r.output);
+    expect(parsed.totalCards).toBeGreaterThan(0);
+    expect(parsed.sources.length).toBeGreaterThanOrEqual(1);
+    const sum = parsed.sources.reduce((acc: number, s: { cardCount: number }) => acc + s.cardCount, 0) + parsed.otherCards;
+    expect(sum).toBe(parsed.totalCards);
+    for (const s of parsed.sources) {
+      expect(typeof s.path === "string" && s.path.length > 0).toBe(true);
+    }
   });
 });

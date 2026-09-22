@@ -299,12 +299,18 @@ export async function composeAgentRuntimeDeps(o = {}) {
         let cached = null;
         let cachedKey = "";
         let cachedMtime = -1;
+        let lastScope = "default";
+        let lastSources = [];
         const loadKnowledge = async () => {
           let scope = "default";
+          let sources = [];
           try {
             const cfg = await readWorkspaceKnowledgeConfig(knowledgeWorkspace);
             if (cfg.scope && isValidKnowledgeScope(cfg.scope)) scope = cfg.scope;
+            if (Array.isArray(cfg.sources)) sources = cfg.sources;
           } catch { /* knowledge.json 부재/깨짐 = default */ }
+          lastScope = scope;
+          lastSources = sources;
           const { canonical } = canonicalProductRoot(knowledgeWorkspace);
           const knowledgeRoot = join(canonical, "naia-settings", "knowledge");
           const knowledgeDir = resolveProductKnowledgeDir(canonical, scope);
@@ -325,6 +331,13 @@ export async function composeAgentRuntimeDeps(o = {}) {
           }
           return cached;
         };
+        // FR-KB-8 (naia-agent#142): 카드 → 등록 소스 매칭. 경로 구분자 정규화 + (win32) 대소문자 무시 + 경계 확인(prefix 오탐 방지).
+        const normPath = (p) => {
+          let s = String(p).replace(/^file:\/\//i, "").replace(/\\/g, "/").replace(/\/+$/, "");
+          if (process.platform === "win32") s = s.replace(/^\/(?=[a-zA-Z]:)/, "").toLowerCase();
+          return s;
+        };
+        const underSource = (uri, src) => { const u = normPath(uri); const s = normPath(src); return s !== "" && (u === s || u.startsWith(s + "/")); };
         const backend = {
           search: async (q, k) => (await loadKnowledge()).service.search(q, k),
           ask: async (q) => {
@@ -344,6 +357,18 @@ export async function composeAgentRuntimeDeps(o = {}) {
             };
           },
           graph: async () => toGraphData((await loadKnowledge()).kb),
+          scope: async () => {
+            const wk = await loadKnowledge();
+            const cards = Array.isArray(wk?.kb?.cards) ? wk.kb.cards : [];
+            const counts = lastSources.map(() => 0);
+            let otherCards = 0;
+            for (const c of cards) {
+              const uris = Array.isArray(c?.sourceUris) ? c.sourceUris : [];
+              const idx = lastSources.findIndex((src) => uris.some((u) => typeof u === "string" && underSource(u, src)));
+              if (idx >= 0) counts[idx] += 1; else otherCards += 1;
+            }
+            return { scope: lastScope, sources: lastSources.map((path, i) => ({ path, cardCount: counts[i] })), totalCards: cards.length, otherCards };
+          },
         };
         knowledgeBackend = backend;
         executors.push(makeKnowledgeSkillsExecutor({ backend }));
