@@ -12,7 +12,7 @@ import type {
 import type { MemoryPort } from "../ports/memory.js";
 import type { CompactionPort } from "../ports/compaction.js";
 import type { ConversationLogPort } from "../ports/conversation-log.js";
-import { formatRecalledMemory, isEmbeddingSpaceMismatchError, MEMORY_INDEX_UNAVAILABLE_NOTICE } from "../domain/memory.js";
+import { formatRecalledMemory, isEmbeddingSpaceMismatchError, isMemoryPreparingError, MEMORY_INDEX_UNAVAILABLE_NOTICE } from "../domain/memory.js";
 import { composePersonaPrompt } from "../domain/persona.js";
 import { composeWorkspaceContext } from "../domain/workspace-context.js";
 import { renderEnvironmentSegments } from "../domain/environment-segments.js";
@@ -396,7 +396,7 @@ export class ChatTurnHandler {
           if (recalled) memSystemPrompt = memSystemPrompt ? `${memSystemPrompt}\n\n${recalled}` : recalled;
         } catch (e) {
           this.safeDiag("memory recall 실패(턴 유지)", e);
-          if (isEmbeddingSpaceMismatchError(e)) {
+          if (isEmbeddingSpaceMismatchError(e) || isMemoryPreparingError(e)) {
             memSystemPrompt = memSystemPrompt
               ? `${memSystemPrompt}\n\n${MEMORY_INDEX_UNAVAILABLE_NOTICE}`
               : MEMORY_INDEX_UNAVAILABLE_NOTICE;

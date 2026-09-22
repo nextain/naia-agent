@@ -22,6 +22,8 @@ const SAVE_CAP = 20000;   // save 원문(턴당, user/assistant 각각) 상한(�
 const RECAP_CAP = 20000;  // recap(요약) 반환·영속 상한 — 거대 요약이 systemPrompt/디스크를 폭증시키는 것 차단.
 const ANCHOR_MAX = 32;    // 영속 anchor 개수 상한.
 const ANCHOR_CAP = 512;   // anchor 1개 길이 상한.
+// must stay well below the chat turn's 5 s recall deadline (`MEM_RECALL_TIMEOUT_MS` in chat-turn-handler) so a turn during a long first-time preparation still answers quickly, while normal fast opens (keyword-only, already-indexed stores) are unaffected.
+const MEMORY_PREPARING_GRACE_MS = 2000;
 /** 입력 문자열 상한 절단(초과 시 표식). 거대 입력이 backend 비용을 폭증시키는 것 차단. */
 function capInput(s: string, max: number): string {
   const t = String(s ?? "");
@@ -274,6 +276,8 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
     }
     opts.onEmbeddingReindex?.({ phase: "done", reason: mismatchAtOpen });
   })();
+  let readySettled = false;
+  ready.then(() => { readySettled = true; }, () => { readySettled = true; });
   ready.catch(() => {}); // floating unhandledRejection 차단 — 실패는 첫 작업의 await ready 에서 표면화(호출측 격리).
 
   return {
@@ -292,6 +296,26 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
       // 끌어와 무관한 민감정보를 빈 턴에 주입하는 것 방지). FR-MEM-1 의 "content='' 도 정상 입력"은
       // recall *호출 시도* 를 뜻하며, 의미 있는 결과가 없으면 빈 회상이 정상.
       if (!query || !query.trim()) return { facts: [], episodes: [] };
+      if (!readySettled) {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            ready,
+            new Promise<void>((_, reject) => {
+              timer = setTimeout(() => {
+                reject(
+                  Object.assign(new Error("memory is preparing (model load / reindex in progress)"), {
+                    name: "MemoryPreparingError",
+                    code: "MEMORY_PREPARING",
+                  }),
+                );
+              }, MEMORY_PREPARING_GRACE_MS);
+            }),
+          ]);
+        } finally {
+          if (timer !== undefined) clearTimeout(timer);
+        }
+      }
       await ready; // adapter init(특히 qdrant initialize()) 완료 보장 — 미완 시 조회 누락/throw.
       // query 입력도 상한 — 거대 query 가 backend embedding/조회 비용을 폭증시키는 것 차단.
       const result = await sys.recall(capInput(query, QUERY_CAP), { topK, project, scopeMode });

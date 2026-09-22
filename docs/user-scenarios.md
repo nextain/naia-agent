@@ -162,6 +162,15 @@ RPC 결과에 유지 여부와 오류 진단을 반환한다. 따라서 실패�
 명시한다. 사용자와 운영자는 영구적인 "색인 재구축 중" 침묵 대신 실제 모델 로드 실패 원인을 확인하고 복구할 수 있다.
 구버전 naia-memory 환경에서도 안전하게 에러 필드를 생략하고 기존 동작을 유지한다.
 
+### S-MEM-BACKGROUND-PREP (메모리 백그라운드 준비 — 모델 캐시 없는 첫 시작 시 즉시 채팅 가능, nextain/naia-shell#681)
+
+임베딩 모델 캐시가 없는 첫 시작이나 저장소 재색인이 필요한 환경에서, 에이전트는 무거운 준비 작업(모델 다운로드 약 60초,
+저장소 재색인 약 35초) 완료를 대기하느라 gRPC 준비 신호를 늦추지 않고 즉시 리스닝을 시작한다(`GRPC_LISTENING`).
+메모리 준비(어댑터 open, 모델 다운로드, 재색인)는 백그라운드에서 비동기로 실행되며, `SetWorkspace` 및 `ReloadSettings` 또한
+이를 대기하지 않는다. 준비가 끝나기 전 대화가 들어오면, recall은 최대 2초간 준비를 대기한 뒤 `MEMORY_PREPARING`으로 fail-fast 되어(recall waits up to 2 s for preparation, then fails fast with MEMORY_PREPARING)
+턴이 5초 타임아웃까지 지연되지 않고, 해당 턴에는 `[장기기억 색인 상태]` 안내(기억이 비어있는 것이 아님)가 주입되어 채팅이 즉시
+정상 응답된다(키워드 전용 및 빠른 오픈은 2초 유예 내 즉시 정상 회상). 백그라운드 준비가 완료되면 다음 턴부터 장기기억 회상과 저장이 정상 합류한다.
+
 ## UC-PROV-1 (provider/model 라이브 교체)
 
 사용자가 naia-os 설정에서 텍스트 모델/프로바이더를 바꾸면, agent 재기동 없이 **다음 대화
@@ -694,6 +703,7 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 | FR-MEM-18 / leftover clone unused | `src/test/leftover-adk-clone.contract.test.ts` — `NAIA_ADK_PATH`/`SetWorkspace` 가 선택된 ADK 일 때 leftover `~/naia-adk` clone store 를 쓰지 않음. gRPC host 는 홈 폴백 없이 SetWorkspace 까지 memory 를 비워 둔다. |
 | FR-MEM-17 / S-MEM-EMBED-REINDEX | `src/test/memory-embedding-reindex.contract.test.ts`(ready 시 재색인 후 회상, 불일치를 빈 기억으로 주입하지 않음) |
 | FR-MEM-19 / S-MEM-REINDEX-CAUSE (재색인 실패 원인 표면화, nextain/naia-shell#681) | `src/test/memory-embedding-reindex.contract.test.ts` (failed 이벤트의 error 필드 전달·어댑터 메서드 부재 호환·compose stderr cause 출력 검증) |
+| FR-MEM-20 / S-MEM-BACKGROUND-PREP (메모리 백그라운드 준비, nextain/naia-shell#681) | `src/test/memory-preparing.contract.test.ts` (준비 중 recall 최대 2초 대기 후 MEMORY_PREPARING throw·키워드 전용 즉시 정상 회상·완료 후 정상 회상, 턴 핸들러의 색인불가 진단 주입 및 1초 미만 빠른 완료, compose 비동기 실행 및 stderr 로그 검증) |
 | UC-PROV-1 / FR-PROV-1·2·3 | `src/test/all-providers-wiring.contract.test.ts`, `uc1-reload-default-config.contract.test.ts`, `uc-naia-settings-store.contract.test.ts` |
 | UC-PROV-1 / FR-PROV-7 (로그인·workspace credential 동기화) | `src/test/uc-keychain-credentials.contract.test.ts`(login 전 부재·키 교체·workspace 분리·복호화 재시도), `src/test/discord-entry-wiring.contract.test.ts`(production DPAPI reader·SetWorkspace rollback 배선) |
 | UC-THINKING / S-THINK-1·2·3 / FR-THINK-1~4 | `src/test/uc-thinking.contract.test.ts` (요청 body 검증: enableThinking=false+로컬 → `reasoning_effort:"none"` / true·미지정 → 미전송 / **원격 baseUrl → 미전송**(400 회귀 방지) / `isLocalEngineBaseUrl` 순수 판별) |

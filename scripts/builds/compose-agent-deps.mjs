@@ -589,8 +589,8 @@ export async function composeAgentRuntimeDeps(o = {}) {
             }
           },
         });
-        try {
-          await next.ready();
+        process.stderr.write("[naia-agent] memory preparing in background (model load / reindex)\n");
+        const verify = () => {
           // Re-check after adapter initialization: a local race must not leave an
           // active memory instance writing through a swapped directory/file link.
           rejectExistingSymlink(storage.memoryDir, "naia-settings/memory");
@@ -599,10 +599,13 @@ export async function composeAgentRuntimeDeps(o = {}) {
           assertContainedRealPath(canonicalWorkspace, storage.memoryDir, "naia-settings/memory");
           assertContainedRealPath(canonicalWorkspace, storage.memoryStorePath, "naia-settings/memory/store.json");
           assertContainedRealPath(canonicalWorkspace, storage.workspaceIdPath, "naia-settings/memory/workspace-id");
-        } catch (error) {
-          await next.close().catch(() => undefined);
-          throw error;
-        }
+        };
+        const onFail = (error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          process.stderr.write(`[naia-agent] memory preparation failed (memory disabled until next reload): ${message}\n`);
+          next.close().catch(() => undefined);
+        };
+        next.ready().then(verify, onFail).catch(onFail);
         const label = `naia-memory(${storePath}, project=${project}, adapter=${nextMemCfg?.adapter ?? "local"}, embed=${nextMemCfg?.embedding.provider ?? "none"}, llm=${nextMemoryRuntime?.ok ? nextMemoryRuntime.config.provider : "none"})`;
         return { next, label, fingerprint: snapshot.fingerprint };
       };
