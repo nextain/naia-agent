@@ -12,7 +12,7 @@ import type {
 import type { MemoryPort } from "../ports/memory.js";
 import type { CompactionPort } from "../ports/compaction.js";
 import type { ConversationLogPort } from "../ports/conversation-log.js";
-import { formatRecalledMemory, isEmbeddingSpaceMismatchError, MEMORY_INDEX_UNAVAILABLE_NOTICE } from "../domain/memory.js";
+import { formatRecalledMemory, isEmbeddingSpaceMismatchError, isMemoryPreparingError, MEMORY_INDEX_UNAVAILABLE_NOTICE } from "../domain/memory.js";
 import { composePersonaPrompt } from "../domain/persona.js";
 import { composeWorkspaceContext } from "../domain/workspace-context.js";
 import { renderEnvironmentSegments } from "../domain/environment-segments.js";
@@ -23,6 +23,15 @@ export const ACTION_EXECUTION_POLICY = [
   "- Do not answer with a promise such as 'I will check' or 'please wait' when an available tool can perform the requested action now.",
   "- For a vague background-music request, choose a sensible default query and start playback instead of asking a preference question.",
   "- Keep private reasoning in the provider reasoning channel; never repeat it in the final answer. Use fenced Markdown code blocks with a language identifier for code.",
+].join("\n");
+
+export const KNOWLEDGE_ROUTING_POLICY = [
+  "Knowledge and memory sources:",
+  "- A \"[회상된 참고 정보]\" block, when present, is long-term memory recalled automatically from past conversations. It is not a tool and it is never the same as notes or workspace knowledge.",
+  "- memo tools (memo_*) only hold notes the user explicitly asked you to save. An empty memo list says nothing about your memory or your workspace knowledge.",
+  "- skill_knowledge_ask and skill_knowledge_search read the compiled workspace knowledge base: the user's company, business, projects, strategy, onboarding and other workspace documents.",
+  "- For any question about the user's company, business, projects, strategy, team or workspace documents, call skill_knowledge_ask first. If it abstains or returns nothing useful, call skill_knowledge_search with the key terms before answering.",
+  "- Never say that you have no knowledge, that knowledge files are empty, or that you do not know the company, unless a knowledge tool call in this turn returned no result. When a knowledge tool answers, base the reply on it and mention its sources.",
 ].join("\n");
 
 interface Turn { abort: AbortController; state: ChatTurnState; }
@@ -351,7 +360,9 @@ export class ChatTurnHandler {
       const coreComposed = [corePersona, coreWs, coreEnv].filter(Boolean).join("\n\n");
       const selectedSystemPrompt = req.systemPrompt ?? (coreComposed || undefined);
       const actionPolicy = req.enableTools === false || allSpecs.length === 0 ? "" : ACTION_EXECUTION_POLICY;
-      const baseSystemPrompt = [selectedSystemPrompt, actionPolicy].filter(Boolean).join("\n\n") || undefined;
+      const hasKnowledgeAskTool = allSpecs.some((s) => s.name === "skill_knowledge_ask");
+      const knowledgePolicy = req.enableTools !== false && hasKnowledgeAskTool ? KNOWLEDGE_ROUTING_POLICY : "";
+      const baseSystemPrompt = [selectedSystemPrompt, actionPolicy, knowledgePolicy].filter(Boolean).join("\n\n") || undefined;
       this.d.diag.debug?.("persona base 결정", { requestId: req.requestId, override: req.systemPrompt !== undefined, corePersona: corePersona.length > 0, workspace: coreWs.length > 0, environment: coreEnv.length > 0, source: req.systemPrompt !== undefined ? "override" : (coreComposed ? "core" : "none") });
       const asm = this.d.conversation.assemble({ messages: preMessages, systemPrompt: baseSystemPrompt });
       // UC-memory FR-MEM-1: 턴 전 recall → systemPrompt 주입(회상 있으면). 기준 = *이 턴의 새 user
@@ -385,7 +396,7 @@ export class ChatTurnHandler {
           if (recalled) memSystemPrompt = memSystemPrompt ? `${memSystemPrompt}\n\n${recalled}` : recalled;
         } catch (e) {
           this.safeDiag("memory recall 실패(턴 유지)", e);
-          if (isEmbeddingSpaceMismatchError(e)) {
+          if (isEmbeddingSpaceMismatchError(e) || isMemoryPreparingError(e)) {
             memSystemPrompt = memSystemPrompt
               ? `${memSystemPrompt}\n\n${MEMORY_INDEX_UNAVAILABLE_NOTICE}`
               : MEMORY_INDEX_UNAVAILABLE_NOTICE;

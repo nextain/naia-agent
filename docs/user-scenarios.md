@@ -154,6 +154,23 @@ RPC 결과에 유지 여부와 오류 진단을 반환한다. 따라서 실패�
 벡터를 다시 만든다. 그동안 회상/저장이 막혀도 에이전트는 「기억이 없다」고 말하지 않는다. 재색인이
 끝나면 이전 세션 사실이 다시 회상된다.
 
+### S-MEM-REINDEX-CAUSE (재색인 실패 실제 원인 표면화 — nextain/naia-shell#681)
+
+임베딩 모델 캐시 손상(예: ONNX Protobuf parsing failed)이나 모델 로드 실패로 자동 재색인이 실패할 때,
+에이전트는 open 시점의 단순 불일치 사유뿐만 아니라 어댑터가 보고한 실제 실패 원인(`cause`)을 진단 이벤트와
+에이전트 로그(stderr: `[naia-agent] memory embedding reindex failed; store is not empty (<reason>); cause: <error>`)에
+명시한다. 사용자와 운영자는 영구적인 "색인 재구축 중" 침묵 대신 실제 모델 로드 실패 원인을 확인하고 복구할 수 있다.
+구버전 naia-memory 환경에서도 안전하게 에러 필드를 생략하고 기존 동작을 유지한다.
+
+### S-MEM-BACKGROUND-PREP (메모리 백그라운드 준비 — 모델 캐시 없는 첫 시작 시 즉시 채팅 가능, nextain/naia-shell#681)
+
+임베딩 모델 캐시가 없는 첫 시작이나 저장소 재색인이 필요한 환경에서, 에이전트는 무거운 준비 작업(모델 다운로드 약 60초,
+저장소 재색인 약 35초) 완료를 대기하느라 gRPC 준비 신호를 늦추지 않고 즉시 리스닝을 시작한다(`GRPC_LISTENING`).
+메모리 준비(어댑터 open, 모델 다운로드, 재색인)는 백그라운드에서 비동기로 실행되며, `SetWorkspace` 및 `ReloadSettings` 또한
+이를 대기하지 않는다. 준비가 끝나기 전 대화가 들어오면, recall은 최대 2초간 준비를 대기한 뒤 `MEMORY_PREPARING`으로 fail-fast 되어(recall waits up to 2 s for preparation, then fails fast with MEMORY_PREPARING)
+턴이 5초 타임아웃까지 지연되지 않고, 해당 턴에는 `[장기기억 색인 상태]` 안내(기억이 비어있는 것이 아님)가 주입되어 채팅이 즉시
+정상 응답된다(키워드 전용 및 빠른 오픈은 2초 유예 내 즉시 정상 회상). 백그라운드 준비가 완료되면 다음 턴부터 장기기억 회상과 저장이 정상 합류한다.
+
 ## UC-PROV-1 (provider/model 라이브 교체)
 
 사용자가 naia-os 설정에서 텍스트 모델/프로바이더를 바꾸면, agent 재기동 없이 **다음 대화
@@ -362,6 +379,12 @@ knowledge=WHAT/풀, 안 섞음).
   (scope·sources)을 **읽어**(에이전트는 config 쓰기 없음 — naia-os FR-KB-OS.9 대칭) 등록 폴더(.md/.txt) → kb-compiler
   `compile()`(오프라인 결정론) → `knowledge/<scope>/kb.json` 영속. 통계({ok,scope,*Count,error?}) 반환·no-throw.
   셸 "지금 컴파일" 버튼이 호출. backend 주입(D03 비종속). 읽기(S-KB-1)와 직교.
+- **S-KB-6 (지식 라우팅 및 출처 구분 — nextain/naia-shell#681)**: 사용자가 회사·사업·프로젝트·전략·온보딩 등
+  워크스페이스 문서에 관해 물으면("넥스테인의 사업에 대해 알려줘"), 에이전트는 도구를 호출하지 않고 "지식이 없다"거나
+  "모른다"고 답하거나 워크스페이스 디렉터리 목록만 나열하지 않고, `skill_knowledge_ask` 도구를 우선 호출한다(기권 시
+  `skill_knowledge_search`로 주요 어휘 검색). `[회상된 참고 정보]`(자동 장기기억), `memo_*`(사용자가 명시적으로 저장을
+  요청한 메모), `skill_knowledge_*`(컴파일된 워크스페이스 지식)의 역할을 시스템 프롬프트 정책(`KNOWLEDGE_ROUTING_POLICY`)으로
+  구분하여 메모가 비어 있다고 해서 지식이 없다고 답하지 않는다.
 
 직교: KB 컴파일/서빙 지능은 외부 엔진(어댑터가 backend 로 주입), 코어는 도구 노출 + 컴파일 트리거. `compose-agent-deps` 가
 실 backend(`openWorkspaceKnowledge`)를 주입(K1a-2), entry 가 컴파일 backend(`makeKbCompilerBackend`)를 주입(K1b). memory(push) 경로와 저장소·주입 모두 분리.
@@ -679,6 +702,8 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 | FR-MEM-15·16 / S-MEM-STORAGE-BOUNDARY | `src/test/product-storage-boundary.contract.test.ts`(canonical ADK·한국어 scope·경로 탈출 거부·legacy identity/store/KB 이동), `src/test/discord-entry-wiring.contract.test.ts`(제품 host의 canonical/symlink guard 배선), `src/test/memory-settings-reload.contract.test.ts`(교체 전후 양방향 비오염), `src/test/uc1-memory-stdio.integration.test.ts`(identity/store가 naia-settings 아래인지, 임의 env override 비수용, ADK 간 격리), `src/test/uc1-memory-process.integration.test.ts`(Shell과 같은 제품 host 경로의 재시작 영속), `src/test/uc-fs-tools.contract.test.ts`(AI 파일 도구의 memory/knowledge 쓰기 차단) |
 | FR-MEM-18 / leftover clone unused | `src/test/leftover-adk-clone.contract.test.ts` — `NAIA_ADK_PATH`/`SetWorkspace` 가 선택된 ADK 일 때 leftover `~/naia-adk` clone store 를 쓰지 않음. gRPC host 는 홈 폴백 없이 SetWorkspace 까지 memory 를 비워 둔다. |
 | FR-MEM-17 / S-MEM-EMBED-REINDEX | `src/test/memory-embedding-reindex.contract.test.ts`(ready 시 재색인 후 회상, 불일치를 빈 기억으로 주입하지 않음) |
+| FR-MEM-19 / S-MEM-REINDEX-CAUSE (재색인 실패 원인 표면화, nextain/naia-shell#681) | `src/test/memory-embedding-reindex.contract.test.ts` (failed 이벤트의 error 필드 전달·어댑터 메서드 부재 호환·compose stderr cause 출력 검증) |
+| FR-MEM-20 / S-MEM-BACKGROUND-PREP (메모리 백그라운드 준비, nextain/naia-shell#681) | `src/test/memory-preparing.contract.test.ts` (준비 중 recall 최대 2초 대기 후 MEMORY_PREPARING throw·키워드 전용 즉시 정상 회상·완료 후 정상 회상, 턴 핸들러의 색인불가 진단 주입 및 1초 미만 빠른 완료, compose 비동기 실행 및 stderr 로그 검증) |
 | UC-PROV-1 / FR-PROV-1·2·3 | `src/test/all-providers-wiring.contract.test.ts`, `uc1-reload-default-config.contract.test.ts`, `uc-naia-settings-store.contract.test.ts` |
 | UC-PROV-1 / FR-PROV-7 (로그인·workspace credential 동기화) | `src/test/uc-keychain-credentials.contract.test.ts`(login 전 부재·키 교체·workspace 분리·복호화 재시도), `src/test/discord-entry-wiring.contract.test.ts`(production DPAPI reader·SetWorkspace rollback 배선) |
 | UC-THINKING / S-THINK-1·2·3 / FR-THINK-1~4 | `src/test/uc-thinking.contract.test.ts` (요청 body 검증: enableThinking=false+로컬 → `reasoning_effort:"none"` / true·미지정 → 미전송 / **원격 baseUrl → 미전송**(400 회귀 방지) / `isLocalEngineBaseUrl` 순수 판별) |
@@ -708,6 +733,8 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 | UC-FS-TOOLS / S-FS-5·6·7 / FR-FS-1·5·6·7·8 (도구 계약) | `src/test/uc-fs-tools.contract.test.ts` — describe "makeFsTools" — read_file/list_dir(허용 성공·거부 isError·throw 안 함), write_file(enableWrite=false→spec 없음·동작 거부, true→동작·승인 tier), 민감경로 실증(`<adk>/naia-settings/.keys/x.dpapi`·`<adk>/data-private/...` read→isError) + describe "makeShellTool" — argv 정상·셸문자열(string) 거부·cwd 탈출 거부·tier shell·no-throw |
 | UC-KNOWLEDGE / S-KB-1~4 / FR-KB-1~4 | `src/test/uc-knowledge.contract.test.ts` — describe "makeKnowledgeSkillsExecutor" (specs 2종·tier 없음 / search JSON hits+sourceUris / k 반영 / ask JSON answer+sources / 근거없음 기권 abstained / backend 미주입 unavailable / 빈·비문자 query·잘못 args isError no-throw / unknown tool / abort reject). fake backend 결정론 |
 | UC-KNOWLEDGE / S-KB-5 / FR-KB-5 (컴파일 K1b) | `src/test/uc-knowledge-compile.contract.test.ts` — makeCompileKnowledge(소스→backend·통계 / 소스0·빈adkPath·backend throw·readConfig throw = ok:false no-throw) + readWorkspaceKnowledgeConfig(부재·유효·깨짐). `src/test/uc-knowledge-compile.integration.test.ts` — 실 kb-compiler: 폴더(.md)→compile→`naia-settings/knowledge/<scope>/kb.json` 영속+sourceUris 보존(cross-repo) |
+| UC-KNOWLEDGE / S-KB-6 / FR-KB-7 (지식 도구 라우팅 지침, nextain/naia-shell#681) | `src/test/knowledge-routing-policy.contract.test.ts` (지식 도구 등록 시 policy 주입·action policy 뒤 위치·systemPrompt override 반영·미등록/enableTools=false 시 미포함 검증) |
+
 
 > UC1/UC5/provider-provenance 의 상세 시나리오·수용기준은 각 계약서 + `docs/acceptance-criteria.md` 참조.
 

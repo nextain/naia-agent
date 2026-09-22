@@ -52,6 +52,12 @@ export function isEmbeddingSpaceMismatchError(error: unknown): boolean {
   return /call reindexEmbeddings\(\)/.test(String(err.message ?? ""));
 }
 
+export function isMemoryPreparingError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const err = error as { name?: string; code?: string };
+  return err.name === "MemoryPreparingError" || err.code === "MEMORY_PREPARING";
+}
+
 function clip(s: string, max: number): string {
   const t = String(s ?? "");
   if (max <= 0) return "";

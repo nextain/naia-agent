@@ -584,12 +584,13 @@ export async function composeAgentRuntimeDeps(o = {}) {
             } else if (event.phase === "done") {
               process.stderr.write("[naia-agent] memory embedding reindex complete\n");
             } else {
-              process.stderr.write(`[naia-agent] memory embedding reindex failed; store is not empty (${event.reason})\n`);
+              const cause = event.error ? `; cause: ${String(event.error).replace(/\r?\n/g, " ").slice(0, 500)}` : "";
+              process.stderr.write(`[naia-agent] memory embedding reindex failed; store is not empty (${event.reason})${cause}\n`);
             }
           },
         });
-        try {
-          await next.ready();
+        process.stderr.write("[naia-agent] memory preparing in background (model load / reindex)\n");
+        const verify = () => {
           // Re-check after adapter initialization: a local race must not leave an
           // active memory instance writing through a swapped directory/file link.
           rejectExistingSymlink(storage.memoryDir, "naia-settings/memory");
@@ -598,10 +599,13 @@ export async function composeAgentRuntimeDeps(o = {}) {
           assertContainedRealPath(canonicalWorkspace, storage.memoryDir, "naia-settings/memory");
           assertContainedRealPath(canonicalWorkspace, storage.memoryStorePath, "naia-settings/memory/store.json");
           assertContainedRealPath(canonicalWorkspace, storage.workspaceIdPath, "naia-settings/memory/workspace-id");
-        } catch (error) {
-          await next.close().catch(() => undefined);
-          throw error;
-        }
+        };
+        const onFail = (error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          process.stderr.write(`[naia-agent] memory preparation failed (memory disabled until next reload): ${message}\n`);
+          next.close().catch(() => undefined);
+        };
+        next.ready().then(verify, onFail).catch(onFail);
         const label = `naia-memory(${storePath}, project=${project}, adapter=${nextMemCfg?.adapter ?? "local"}, embed=${nextMemCfg?.embedding.provider ?? "none"}, llm=${nextMemoryRuntime?.ok ? nextMemoryRuntime.config.provider : "none"})`;
         return { next, label, fingerprint: snapshot.fingerprint };
       };
