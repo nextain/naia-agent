@@ -21,11 +21,20 @@ export interface KnowledgeAskResult {
 export interface KnowledgeGraphNode { id: string; label: string; type: string; deg: number; community: number; }
 export interface KnowledgeGraphEdge { from: string; to: string; type: string; weight: number; }
 export interface KnowledgeGraphData { nodes: KnowledgeGraphNode[]; edges: KnowledgeGraphEdge[]; communityCount: number; }
+export interface KnowledgeScopeSource { path: string; cardCount: number; }
+export interface KnowledgeScopeInfo {
+  scope: string;            // active scope name, e.g. "default"
+  sources: KnowledgeScopeSource[]; // registered source folders (knowledge.json), in config order
+  totalCards: number;       // all cards in the compiled KB
+  otherCards: number;       // cards whose sourceUris match no registered source (e.g. compiled from a source since removed)
+}
 export interface KnowledgeBackend {
   search(query: string, k?: number): Promise<KnowledgeSearchHit[]>;
   ask(query: string): Promise<KnowledgeAskResult>;
   /** 시각화용 그래프 데이터 — 선택(backend 지원 시에만 skill_knowledge_graph 노출, K3). */
   graph?(): Promise<KnowledgeGraphData>;
+  /** 등록 소스 및 카드 수 조회 — 선택(backend 지원 시에만 skill_knowledge_scope 노출, FR-KB-8, nextain/naia-agent#142). */
+  scope?(): Promise<KnowledgeScopeInfo>;
 }
 
 export interface KnowledgeDeps {
@@ -51,6 +60,12 @@ const GRAPH_TOOL: ToolSpec = {
   description: "워크스페이스 지식 그래프 데이터(엔티티·관계·군집) 조회 — 시각화용(읽기 전용). 인자 없음",
   parameters: { type: "object", properties: {} },
 };
+// FR-KB-8: 지식 범위 조회 — backend.scope 지원 시에만 specs 에 추가. 인자 없음.
+const SCOPE_TOOL: ToolSpec = {
+  name: "skill_knowledge_scope",
+  description: '워크스페이스 지식의 범위 조회 — 등록된 소스 폴더(knowledge.json)와 폴더별·전체 카드 수(읽기 전용). "지식 파일은?"·"지식에 뭐가 있어?" 같은 범위 질문에 사용. 인자 없음',
+  parameters: { type: "object", properties: {} },
+};
 
 const ok = (output: string) => ({ output });
 const err = (output: string) => ({ output, isError: true });
@@ -63,7 +78,13 @@ function safeMsg(e: unknown): string {
 export function makeKnowledgeSkillsExecutor(deps: KnowledgeDeps = {}): ToolExecutorPort {
   const backend = deps.backend;
   return {
-    specs: () => (backend?.graph ? [...TOOLS, GRAPH_TOOL] : TOOLS),
+    specs: () => {
+      if (!backend?.graph && !backend?.scope) return TOOLS;
+      const list = [...TOOLS];
+      if (backend.graph) list.push(GRAPH_TOOL);
+      if (backend.scope) list.push(SCOPE_TOOL);
+      return list;
+    },
     async execute(call: ToolCall, opts: { signal?: AbortSignal }): Promise<{ output: string; isError?: boolean }> {
       let signal: AbortSignal | undefined; // ⚠️ try 안에서 읽음 — malformed opts/throwing getter 도 catch→isError(NO-THROW)
       let aborted = false; // 결정론 abort 추적(catch 에서 signal 재독 의존 안 함)
@@ -81,6 +102,19 @@ export function makeKnowledgeSkillsExecutor(deps: KnowledgeDeps = {}): ToolExecu
             ...g,
             empty,
             ...(empty ? { message: "No compiled knowledge graph is available." } : {}),
+          }));
+        }
+        if (call.name === "skill_knowledge_scope") {
+          if (!backend.scope) return err("knowledge scope unavailable");
+          const s = await backend.scope();
+          abortGuard(); // (await 후 가드)
+          const empty = s.totalCards === 0;
+          const note = "Workspace knowledge consists only of the compiled cards from the registered sources listed here. Files outside these sources (other project READMEs, AGENTS.md, design docs, code) are not part of the knowledge base.";
+          return ok(JSON.stringify({
+            ...s,
+            empty,
+            note,
+            ...(empty ? { message: s.sources.length === 0 ? "No knowledge sources are registered." : "No compiled knowledge cards are available." } : {}),
           }));
         }
         if (!isObj(call.args)) return err("args must be object");

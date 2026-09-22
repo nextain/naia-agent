@@ -152,3 +152,87 @@ describe("makeKnowledgeSkillsExecutor — skill_knowledge_graph (K3, backend.gra
     expect((await ex.execute(call("skill_knowledge_graph", {}), {})).isError).toBe(true);
   });
 });
+
+describe("makeKnowledgeSkillsExecutor — skill_knowledge_scope (FR-KB-8, naia-agent#142)", () => {
+  const scopeBackend: KnowledgeBackend = {
+    ...fakeBackend,
+    async scope() {
+      return {
+        scope: "default",
+        sources: [{ path: "D:/alpha-adk/src-a", cardCount: 10 }],
+        totalCards: 12,
+        otherCards: 2,
+      };
+    },
+  };
+
+  it("backend with scope() → specs contain skill_knowledge_scope, no tier", () => {
+    const ex = makeKnowledgeSkillsExecutor({ backend: scopeBackend });
+    const spec = ex.specs().find((s) => s.name === "skill_knowledge_scope");
+    expect(spec).toBeDefined();
+    expect(spec?.tier).toBeUndefined();
+  });
+
+  it("backend without scope → specs do not contain it; calling it → isError true", async () => {
+    const ex = makeKnowledgeSkillsExecutor({ backend: fakeBackend });
+    expect(ex.specs().map((s) => s.name)).not.toContain("skill_knowledge_scope");
+    const r = await ex.execute(call("skill_knowledge_scope", {}), {});
+    expect(r.isError).toBe(true);
+  });
+
+  it("execute returns JSON with scope, sources[{path, cardCount}], totalCards, otherCards, empty:false, and note mentioning registered sources", async () => {
+    const ex = makeKnowledgeSkillsExecutor({ backend: scopeBackend });
+    const r = await ex.execute(call("skill_knowledge_scope", {}), {});
+    expect(r.isError).toBeFalsy();
+    const parsed = JSON.parse(r.output);
+    expect(parsed.scope).toBe("default");
+    expect(parsed.sources).toEqual([{ path: "D:/alpha-adk/src-a", cardCount: 10 }]);
+    expect(parsed.totalCards).toBe(12);
+    expect(parsed.otherCards).toBe(2);
+    expect(parsed.empty).toBe(false);
+    expect(parsed.note).toContain("registered sources");
+  });
+
+  it("totalCards 0 with sources → empty:true, message matches /No compiled knowledge/; sources [] and totalCards 0 → message matches /No knowledge sources are registered/", async () => {
+    const emptyWithSources: KnowledgeBackend = {
+      ...fakeBackend,
+      async scope() {
+        return {
+          scope: "default",
+          sources: [{ path: "D:/alpha-adk/src-a", cardCount: 0 }],
+          totalCards: 0,
+          otherCards: 0,
+        };
+      },
+    };
+    const ex1 = makeKnowledgeSkillsExecutor({ backend: emptyWithSources });
+    const r1 = await ex1.execute(call("skill_knowledge_scope", {}), {});
+    const p1 = JSON.parse(r1.output);
+    expect(p1.empty).toBe(true);
+    expect(p1.message).toMatch(/No compiled knowledge/);
+
+    const emptyNoSources: KnowledgeBackend = {
+      ...fakeBackend,
+      async scope() {
+        return {
+          scope: "default",
+          sources: [],
+          totalCards: 0,
+          otherCards: 0,
+        };
+      },
+    };
+    const ex2 = makeKnowledgeSkillsExecutor({ backend: emptyNoSources });
+    const r2 = await ex2.execute(call("skill_knowledge_scope", {}), {});
+    const p2 = JSON.parse(r2.output);
+    expect(p2.empty).toBe(true);
+    expect(p2.message).toMatch(/No knowledge sources are registered/);
+  });
+
+  it("aborted signal → rejects", async () => {
+    const ex = makeKnowledgeSkillsExecutor({ backend: scopeBackend });
+    const ac = new AbortController();
+    ac.abort();
+    await expect(ex.execute(call("skill_knowledge_scope", {}), { signal: ac.signal })).rejects.toThrow();
+  });
+});
