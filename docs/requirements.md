@@ -28,6 +28,7 @@
 | FR-MEM-16 | 제품 저장소 소유 경계 — shell은 `adkPath`와 설정만 전달하고 memory/knowledge 파일 경로를 만들거나 주입하지 않는다. agent는 canonical ADK의 `naia-settings` 아래에서만 로컬 memory(`memory/store.json`, `memory/workspace-id`)와 compiled knowledge(`knowledge/<scope>/kb.json`)를 읽고 쓴다. `NAIA_KNOWLEDGE_DIR`를 포함한 임의 filesystem override는 제품 host에서 제거한다. qdrant는 사용자가 설정에서 명시 선택한 외부 adapter 예외이며 동일 workspace UUID scope를 유지한다. | Done |
 | FR-MEM-17 | 임베딩 공간 불일치 재색인(naia-shell#649) — 제품 LocalAdapter 는 `reindexEmbeddingsOnMismatch: true` 로 열고 `ready()` 가 재색인을 기다린다. 불일치는 빈 저장소가 아니다. 재색인 실패가 memory 전체를 끄지 않으며, recall 실패 시 모델에 「기억이 없다」가 아니라 색인 불가 진단을 넣는다. | Done |
 | FR-MEM-18 | 선택된 ADK 단일 저장 루트(#136) — 제품 memory/knowledge/voice 로컬 파일은 Shell workspace / `NAIA_ADK_PATH` / `SetWorkspace` 가 가리키는 `<adkPath>/naia-settings` 아래에만 둔다. gRPC/Shell host 는 leftover `~/naia-adk` clone 과 CLI `~/.naia-agent/config.json` pin 으로 폴백하지 않는다. `NAIA_ADK_PATH` 가 설정된 동안 두 번째 clone 경로를 쓰지 않는다. CLI standalone 만 홈 폴백을 opt-in 한다. | In review |
+| FR-MEM-19 | 재색인 실패 원인 표면화(nextain/naia-shell#681) — 자동 재색인 실패 시 LocalAdapter 가 보존한 실제 원인(`getEmbeddingReindexError`)을 `onEmbeddingReindex` `phase:"failed"` 이벤트와 stderr 로그(`; cause: <error>`)에 명시. 구버전 naia-memory(메서드 부재 시)에서도 무회귀(error 생략). 검증: `src/test/memory-embedding-reindex.contract.test.ts`. P04(2026-09-22, nextain/naia-shell#681): 단위·계약 테스트 통과, 실백엔드 통합 시험 8/8(영수증: alpha-adk tmp/naia-memory-knowledge-link-20260922/receipts/). 실화면 E2E 는 naia-shell 페어링 갱신 단계에서 수행. | Done |
 
 ### NFR
 - 헥사고날 경계: domain 순수(formatRecalledMemory)·app 포트만·adapter 데이터만(프롬프트 정책 비누출).
@@ -47,6 +48,7 @@
 | FR-KB-4 | no-throw·기권 — 실패/미가용/잘못된 인자 → `{output,isError:true}`(throw 금지, 루프 안정). abort 만 reject(2가드: 진입/await 후). 근거 없으면 backend 가 abstained=true(지어내지 않음, 안전). | Done |
 | FR-KB-5 | **컴파일 트리거(K1b)** — gRPC `CompileKnowledge(adkPath)` RPC 가 셸 소유 `naia-settings/knowledge.json`(scope·sources)을 **읽어**(에이전트는 config 쓰기 없음 — naia-os FR-KB-OS.9 대칭) 등록 폴더(.md/.txt) → kb-compiler `compile()`(오프라인 결정론) → `naia-settings/knowledge/<scope>/kb.json` 영속. 통계({ok,scope,source/card/entity/relationCount,error?}) 반환. no-throw(미주입/실패=ok:false+error). backend 주입(DI·D03 비종속). | Done |
 | FR-KB-6 | **보안 가드(K-SEC)** — R2 적대리뷰의 "구호" 4종을 강제 코드로 전환: ①**설정 쓰기-펜스**(`isSettingsWriteFenced`, fs-sandbox): 에이전트 `write_file` 가 `naia-settings/` 쓰기 거부(읽기는 허용 — provider/지식 config) = FR-KB-OS.9 "AI 가 설정 못 건드림" 강제(realpath 해소 후 판정, symlink 우회 차단). ②**compile scope 경로탈출 방지**(`isValidKnowledgeScope`): 구분자/`..`/드라이브 scope 거부 → `knowledge/<scope>` outDir 워크스페이스 밖 탈출 차단. ③**extract 인젝션 안전**: 컴파일 추출=오프라인 결정론(Markdown, LLM 미사용)이라 자료 심긴 프롬프트 미해석=인젝션 surface 0(LLM 추출 전환 시 비신뢰 격리 필요 — 코드 명시). ④**memory↔knowledge 분리**: 컴파일은 `knowledge/<scope>/` 만 영속, naia-memory store 미접촉(누수 0). | Done |
+| FR-KB-7 | **지식 도구 라우팅 지침(K-ROUTE, nextain/naia-shell#681)** — `skill_knowledge_ask` 도구가 등록되고 `enableTools !== false` 인 턴에만 `KNOWLEDGE_ROUTING_POLICY` 를 `ACTION_EXECUTION_POLICY` 바로 뒤에 append. 회상 블록(자동 장기기억)·`memo_*`(명시 메모)·`skill_knowledge_*`(컴파일된 워크스페이스 지식: 회사/사업/프로젝트/전략/온보딩)의 역할을 구분하고, 회사/사업 관련 질문은 `skill_knowledge_ask`(기권 시 search) 우선 호출, 도구 결과 없이 "지식 없음" 답변 금지 규정. `req.systemPrompt` override 경로에도 동일 적용. 검증: `src/test/knowledge-routing-policy.contract.test.ts`. P04(2026-09-22, nextain/naia-shell#681): 단위·계약 테스트 통과, 실백엔드 통합 시험 8/8(영수증: alpha-adk tmp/naia-memory-knowledge-link-20260922/receipts/). 실화면 E2E 는 naia-shell 페어링 갱신 단계에서 수행. | Done |
 
 ### NFR
 - 헥사고날: adapter(backend 주입)·코어 비종속. 읽기 전용(쓰기/컴파일 분리=K1b).
@@ -910,3 +912,4 @@ The Agent and Gateway preserve these codes end to end:
 When tools are available, a request to inspect, list, open, search, check weather, or control an app must invoke the relevant tool before the assistant claims completion. The assistant must not terminate with only a future-tense promise. A vague BGM request uses a sensible default query and starts playback. Provider reasoning stays separate from final answer text, and code is emitted as a language-tagged fenced block.
 
 Verification: `src/test/action-execution-policy.contract.test.ts` and the naia-shell v0.2.2 same-build E2E acceptance flow.
+

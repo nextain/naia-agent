@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { EmbeddingProvider } from "@nextain/naia-memory";
+import { LocalAdapter, type EmbeddingProvider } from "@nextain/naia-memory";
 import { makeNaiaMemory } from "../main/adapters/naia-memory.js";
 import { ChatTurnHandler, type HandlerDeps } from "../main/app/chat-turn-handler.js";
 import { makeInMemoryCredentials } from "../main/composition/index.js";
@@ -96,7 +96,7 @@ describe("FR-MEM-17 embedding-space reindex product path", () => {
       episodeEmbeddings: {},
       embeddingSpaceId: "model-a",
     }));
-    const events: Array<{ phase: string; reason: string }> = [];
+    const events: Array<{ phase: string; reason: string; error?: string }> = [];
     const memory = makeNaiaMemory({
       project: "p",
       storePath,
@@ -109,6 +109,13 @@ describe("FR-MEM-17 embedding-space reindex product path", () => {
     await memory.ready();
     expect(events.map((e) => e.phase)).toEqual(phases);
     if (fail) {
+      const failedEvent = events.find((e) => e.phase === "failed");
+      const hasGetter = typeof (LocalAdapter.prototype as any).getEmbeddingReindexError === "function";
+      if (hasGetter) {
+        expect(failedEvent?.error).toContain("test embedding unavailable");
+      } else {
+        expect(failedEvent?.error).toBeUndefined();
+      }
       await expect(memory.recall("코드명")).rejects.toMatchObject({ code: "EMBEDDING_SPACE_MISMATCH" });
     } else {
       const recalled = await memory.recall("코드명");
@@ -145,6 +152,7 @@ describe("FR-MEM-17 embedding-space reindex product path", () => {
     expect(adapter).toContain("getEmbeddingSpaceMismatch");
     expect(compose).toContain("onEmbeddingReindex");
     expect(compose).toContain("store is not empty");
+    expect(compose).toContain("cause:");
   });
 
   it("still omits injection for generic recall failures", async () => {

@@ -584,7 +584,8 @@ export async function composeAgentRuntimeDeps(o = {}) {
             } else if (event.phase === "done") {
               process.stderr.write("[naia-agent] memory embedding reindex complete\n");
             } else {
-              process.stderr.write(`[naia-agent] memory embedding reindex failed; store is not empty (${event.reason})\n`);
+              const cause = event.error ? `; cause: ${String(event.error).replace(/\r?\n/g, " ").slice(0, 500)}` : "";
+              process.stderr.write(`[naia-agent] memory embedding reindex failed; store is not empty (${event.reason})${cause}\n`);
             }
           },
         });

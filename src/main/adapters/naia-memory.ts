@@ -77,6 +77,7 @@ export interface NaiaMemoryOpts {
   readonly onEmbeddingReindex?: (event: {
     readonly phase: "start" | "done" | "failed";
     readonly reason: string;
+    readonly error?: string;
   }) => void;
 }
 
@@ -263,7 +264,12 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
     }
     await localAdapter.whenReady();
     if (localAdapter.getEmbeddingSpaceMismatch()) {
-      opts.onEmbeddingReindex?.({ phase: "failed", reason: mismatchAtOpen });
+      const reindexError = (localAdapter as LocalAdapter & { getEmbeddingReindexError?: () => string | null }).getEmbeddingReindexError?.() ?? undefined;
+      opts.onEmbeddingReindex?.({
+        phase: "failed",
+        reason: mismatchAtOpen,
+        ...(reindexError ? { error: reindexError } : {}),
+      });
       return;
     }
     opts.onEmbeddingReindex?.({ phase: "done", reason: mismatchAtOpen });
