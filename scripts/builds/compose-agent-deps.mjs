@@ -567,6 +567,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
         }
         try { nodeFs.mkdirSync(dirname(storePath), { recursive: true, mode: 0o700 }); } catch { /* best-effort */ }
         const sessionId = env.NAIA_MEMORY_SESSION || `proc-${randomUUID()}`;
+        const consolidationOn = Boolean(nextMemoryRuntime?.ok && env.NAIA_MEMORY_CONSOLIDATION !== "off");
         const next = makeNaiaMemory({
           storePath, project, sessionId,
           ...(nextMemCfg
@@ -578,6 +579,14 @@ export async function composeAgentRuntimeDeps(o = {}) {
               }
             : {}),
           ...(nextMemoryRuntime?.ok ? { llm: nextMemoryRuntime.config } : {}),
+          ...(consolidationOn ? { consolidation: {} } : {}),
+          onConsolidation: (event) => {
+            if (event.phase === "failed") {
+              process.stderr.write(`[naia-agent] memory consolidation failed (episodes kept for retry): ${event.error}\n`);
+            } else if (event.episodesProcessed > 0) {
+              process.stderr.write(`[naia-agent] memory consolidation: episodes=${event.episodesProcessed} facts+=${event.factsCreated} updated=${event.factsUpdated}\n`);
+            }
+          },
           onEmbeddingReindex: (event) => {
             if (event.phase === "start") {
               process.stderr.write(`[naia-agent] memory embedding-space mismatch; reindexing (${event.reason})\n`);
@@ -606,7 +615,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
           next.close().catch(() => undefined);
         };
         next.ready().then(verify, onFail).catch(onFail);
-        const label = `naia-memory(${storePath}, project=${project}, adapter=${nextMemCfg?.adapter ?? "local"}, embed=${nextMemCfg?.embedding.provider ?? "none"}, llm=${nextMemoryRuntime?.ok ? nextMemoryRuntime.config.provider : "none"})`;
+        const label = `naia-memory(${storePath}, project=${project}, adapter=${nextMemCfg?.adapter ?? "local"}, embed=${nextMemCfg?.embedding.provider ?? "none"}, llm=${nextMemoryRuntime?.ok ? nextMemoryRuntime.config.provider : "none"}, consolidation=${consolidationOn ? "on" : "off"})`;
         return { next, label, fingerprint: snapshot.fingerprint };
       };
 
