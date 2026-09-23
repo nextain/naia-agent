@@ -48,7 +48,7 @@ describe("UC5 도구 실행 루프 (계약 §B.6)", () => {
     const { handler, emits } = setup({ provider: makeFakeToolProvider({ toolName: "nope" }) });
     await handler.onChatRequest(REQ());
     expect(kinds(emits)).toEqual(["toolUse", "toolResult", "text", "usage", "finish"]);
-    expect(pick(emits, "toolResult")[0].output).toMatch(/unknown tool: nope/);
+    expect(pick(emits, "toolResult")[0].output).toMatch(/not available in this conversation|unknown tool: nope/);
   });
 
   it("(c)+(g) cap 초과 → error terminal, usage 1회, overflow toolUse 미emit(orphan 없음)", async () => {

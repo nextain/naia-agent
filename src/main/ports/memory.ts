@@ -15,12 +15,27 @@ import type { RecalledMemory } from "../domain/memory.js";
  *   이 중간(예: user 만)으로 볼 수 있다(턴 단위 원자성 미보장). resolve 후엔 read-your-writes 로 수렴.
  * 더 강한 원자성/직렬화가 필요하면 app/adapter 경계에 큐를 둬야 한다.
  */
+export interface MemoryRecallOptions {
+  /**
+   * false 시 naia-memory의 read-touch(LRU/access frequency)를 건너뜀.
+   * 떠오름 판정 전 후보 수집이나 threshold 게이팅처럼
+   * "실제로 사용자 프롬프트에 주입될지 모르는" 회상에 사용 (FR-MEM-23).
+   * undefined/true 면 기존대로 touch 됨.
+   */
+  readonly touch?: boolean;
+  /**
+   * 상위 k개 후보 요청. naia-memory 어댑터는 이를 수용하되
+   * 내부 최대치(기본 20)를 초과할 수 없음.
+   */
+  readonly topK?: number;
+}
+
 export interface MemoryPort {
   /** 턴 전: query(이 턴의 새 user 입력)로 장기기억을 회상해 비신뢰 **bounded excerpt**(facts/episodes)을
    *  반환. 거대 항목은 상한 절단되며 그 경우 절단 표식(…[절단됨])을 보존한다 — 소비자가 불완전 발췌를
    *  원문으로 오인하지 않게(무표식 절단은 후반 조건/부정을 소리없이 잘라 의미 반전 위험). 회상 결과가
    *  없으면 빈 facts/episodes — 호출부(domain formatter)가 빈 블록("")으로 처리. 빈/공백 query 는 빈 결과. */
-  recall(query: string): Promise<RecalledMemory>;
+  recall(query: string, opts?: MemoryRecallOptions): Promise<RecalledMemory>;
 
   /** 턴 후: 그 턴의 user 발화 + assistant 응답을 장기기억에 저장. */
   save(

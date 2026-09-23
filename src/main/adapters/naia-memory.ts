@@ -13,9 +13,9 @@ import {
 import type { CompactionSummarizer, EmbeddingProvider, ExtractedFact, FactExtractor } from "@nextain/naia-memory";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { ManagedMemoryPort } from "../ports/memory.js";
+import type { ManagedMemoryPort, MemoryRecallOptions } from "../ports/memory.js";
 import type { CompactionPort, CompactionRequest, CompactionResult, HandoffBlob } from "../ports/compaction.js";
-import type { RecalledMemory } from "../domain/memory.js";
+import { maskSecretShapes, type RecalledMemory } from "../domain/memory.js";
 
 const QUERY_CAP = 4000;   // recall query 입력 상한(embedding 비용 bound).
 const SAVE_CAP = 20000;   // save 원문(턴당, user/assistant 각각) 상한(디스크/flush 비용 bound).
@@ -408,7 +408,7 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
       if (typeof flush === "function") await flush.call(sys);
     },
 
-    async recall(query: string): Promise<RecalledMemory> {
+    async recall(query: string, opts?: MemoryRecallOptions): Promise<RecalledMemory> {
       // 빈/공백 query = 회상 신호 없음 → backend 호출 없이 빈 결과(empty query 가 전체/임의 top-K 를
       // 끌어와 무관한 민감정보를 빈 턴에 주입하는 것 방지). FR-MEM-1 의 "content='' 도 정상 입력"은
       // recall *호출 시도* 를 뜻하며, 의미 있는 결과가 없으면 빈 회상이 정상.
@@ -434,18 +434,40 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
         }
       }
       await ready; // adapter init(특히 qdrant initialize()) 완료 보장 — 미완 시 조회 누락/throw.
+      // opts.topK 가 유한 정수면 1..RAW_MAX_ITEMS 로 clamp, 아니면 인스턴스 기본 topK.
+      const reqTopK = opts?.topK !== undefined ? Math.floor(Number(opts.topK)) : topK;
+      const k = Number.isFinite(reqTopK) ? Math.min(Math.max(1, reqTopK), RAW_MAX_ITEMS) : topK;
       // query 입력도 상한 — 거대 query 가 backend embedding/조회 비용을 폭증시키는 것 차단.
-      const result = await sys.recall(capInput(query, QUERY_CAP), { topK, project, scopeMode });
-      // 포트 반환 상한(방어): 항목 수 topK·각 content RAW_ITEM_CAP 자로 bound — 거대 반환이 동기 처리에서
+      const result = await sys.recall(capInput(query, QUERY_CAP), {
+        topK: k,
+        project,
+        scopeMode,
+        ...(opts?.touch === false ? { touch: false } : {}),
+      });
+      // 포트 반환 상한(방어): 항목 수 k·각 content RAW_ITEM_CAP 자로 bound — 거대 반환이 동기 처리에서
       // 루프/메모리를 고갈시키는 것 차단(formatter 도 별도 cap). RAW_ITEM_CAP > formatter maxItemChars 기본.
       // ⚠️ 절단 시 **표식**(…[절단됨]) 부착 — 무표식 절단은 문장 후반(조건·부정·출처)을 소리없이 잘라 기억
       // 의미를 반전시킬 수 있다. recall 반환은 "원문"이 아니라 *bounded excerpt*(절단 표식 보존)임을 명시.
       const RAW_ITEM_CAP = 4000;
       const cap = (s: unknown): string => capInput(s as string, RAW_ITEM_CAP);
-      const facts = Array.isArray(result?.facts) ? result.facts.slice(0, topK).map((f) => cap(f?.content)) : [];
-      // episode 의 role(provenance) 보존 — assistant 생성물이 사용자 사실로 강화되는 것 방지.
+      const rawFacts = Array.isArray(result?.facts) ? result.facts.slice(0, k) : [];
+      const facts = rawFacts.map((f) => cap(maskSecretShapes(String(f?.content ?? ""))));
+      const factScores = rawFacts.map((f) => {
+        const score = Number(f?.vectorScore);
+        return Number.isFinite(score) ? score : undefined;
+      });
+      // episode 의 role(provenance), score(vectorScore), timestamp 보존 — assistant 생성물이 사용자 사실로 강화되는 것 방지.
       const episodes = Array.isArray(result?.episodes)
-        ? result.episodes.slice(0, topK).map((e) => ({ content: cap(e?.content), ...(e?.role ? { role: e.role } : {}) }))
+        ? result.episodes.slice(0, k).map((e) => {
+            const score = Number(e?.vectorScore);
+            const ts = Number(e?.timestamp);
+            return {
+              content: cap(maskSecretShapes(String(e?.content ?? ""))),
+              ...(e?.role ? { role: e.role } : {}) ,
+              ...(Number.isFinite(score) ? { score } : {}),
+              ...(Number.isFinite(ts) ? { timestamp: ts } : {}),
+            };
+          })
         : [];
       // T0b: procedural 학습 교정(Reflection {task,failure,analysis,correction})을 회상에 surface.
       // codex 적대리뷰 → **correction-ONLY**: raw failure/analysis 는 물론 task 도 표면화하지 않는다.
@@ -455,11 +477,11 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
       // (아직 producer 없음) 빈 배열 → domain formatter 가 블록에서 생략(무회귀).
       const reflections = Array.isArray((result as { reflections?: unknown })?.reflections)
         ? (result as { reflections: ReadonlyArray<{ correction?: unknown }> }).reflections
-            .slice(0, topK)
-            .map((r) => (typeof r?.correction === "string" ? cap(r.correction.trim()) : ""))
+            .slice(0, k)
+            .map((r) => (typeof r?.correction === "string" ? cap(maskSecretShapes(r.correction.trim())) : ""))
             .filter((s) => s.length > 0)
         : [];
-      return { facts, episodes, reflections };
+      return { facts, factScores, episodes, reflections };
     },
 
     async save(

@@ -55,7 +55,7 @@ describe("UC-memory — 실 프로세스 관통(gRPC 진입점 종료 lifecycle)
     if (dir) { await rm(dir, { recursive: true, force: true }); dir = null; }
   });
 
-  it("실 진입점 2턴 e2e(gRPC): 턴1 save → 턴2 recall→systemPrompt 주입(echo provider) + SIGTERM 영속", async () => {
+  it("실 진입점 2턴 e2e(gRPC): 턴1 save → 턴2 임베딩 없음 → 자동 주입 없음(#693) + SIGTERM 영속", async () => {
     dir = await mkdtemp(join(tmpdir(), "naia-mem-proc-"));
     const storePath = join(dir, "naia-settings", "memory", "store.json");
     const rejectedOverride = join(dir, "outside-settings.json");
@@ -70,29 +70,33 @@ describe("UC-memory — 실 프로세스 관통(gRPC 진입점 종료 lifecycle)
       cwd: pkgRoot,
       // AGENT_PROVIDER=echo-system → provider 가 systemPrompt 를 그대로 echo → recall 이 주입했으면 wire 에 나옴.
       env: { ...process.env, AGENT_PROVIDER: "echo-system", NAIA_AGENT_SKILLS: "off", NAIA_MEMORY_STORE: rejectedOverride, NAIA_ADK_PATH: dir },
-      stdio: ["pipe", "pipe", "ignore"],
+      stdio: ["pipe", "pipe", "pipe"],
     });
+    let stderr = "";
+    child.stderr!.setEncoding("utf8");
+    child.stderr!.on("data", (chunk: string) => { stderr += chunk; });
 
     // GRPC_LISTENING <addr> 핸드셰이크(stdout). gRPC 이식 후 stdout = 이 한 줄(다른 로그는 stderr).
     const addr = await new Promise<string>((res, rej) => {
       let buf = "";
-      const to = setTimeout(() => rej(new Error("GRPC_LISTENING 타임아웃")), 60000);
+      const to = setTimeout(() => rej(new Error(`GRPC_LISTENING 타임아웃: ${stderr}`)), 60000);
       child!.stdout!.setEncoding("utf8");
       child!.stdout!.on("data", (c: string) => {
         buf += c;
         const m = buf.match(/GRPC_LISTENING\s+(\S+)/);
         if (m) { clearTimeout(to); res(m[1]); }
       });
-      child!.on("exit", () => { clearTimeout(to); rej(new Error("리스닝 전 종료")); });
+      child!.on("exit", () => { clearTimeout(to); rej(new Error(`리스닝 전 종료: ${stderr}`)); });
     });
 
     const client = makeClient(addr);
     // 턴1 — 사실 발화(save). 저장 전이라 systemPrompt(echo)에 비밀 없음(인과 분리).
     const t1 = await chatTurn(client, "p1", `내 비밀 코드명은 ${SECRET}야`);
     expect(t1).not.toContain(SECRET);
-    // 턴2 — 턴1 의 사실 질문. recall 이 비밀을 systemPrompt 에 주입했으면 echo provider 가 wire 로 뱉음.
+    // 턴2 — 턴1 의 사실 질문. #693: 임베딩 없으면 자동 주입 꺼짐(surfacing=off(no-embedding)).
     const t2 = await chatTurn(client, "p2", "내 코드명이 뭐였지?");
-    expect(t2).toContain(SECRET);
+    expect(t2).not.toContain(SECRET);
+    expect(stderr).toContain("surfacing=off(no-embedding)");
     client.close?.();
 
     // SIGTERM graceful shutdown(drain→flush→exit 0)은 **POSIX 계약** — Windows 는 SIGTERM 을 못 잡고

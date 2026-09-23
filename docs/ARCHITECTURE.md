@@ -19,12 +19,14 @@ naia-os(UI) ──gRPC──> [ naia-agent ] ──저장/불러오기──> na
 - **출력층** `AgentEgressPort` — AgentEvent(text/thinking/toolUse/usage/finish/…) emit.
 - transport 어댑터: `adapters/grpc/`(production) + `adapters/stdio.ts`(테스트 in-process). 둘 다 같은 Ingress/Egress 포트 구현 = 직교.
 
-### 떠오름(#692)
-작은 LLM(memory 역할)이 턴 완료(`commitCompletedTurn`, memory save 후) 비동기 백그라운드로 최근 대화와 회상 기억·지식 카드를 검토하여, 연관성이 높은 항목을 다음 턴의 `[문득 떠오른 기억·지식]` 블록으로 사전 선별·준비한다.
-- `domain/surfacing.ts`: 순수 도메인 로직(후보군 추출·프롬프트 조립·응답 파싱·블록 렌더링·판정 후보 필터링·자격 판정 `decideSurfacing`).
-- `ports/surfacing.ts`: `SurfacingPort`(consume/schedule/active/close) 및 스냅샷 계약 정의.
-- `app/memory-surfacer.ts`: 비동기 스케줄러, 타임아웃(8s)·TTL(15m) 관리, 모델 부재 시 백오프(10m), 후보 취합 및 작은 LLM 호출 오케스트레이션.
-- 합성 배선(`scripts/builds/compose-agent-deps.mjs`, `composition/index.ts` `wireAgentUC1`): memory 및 knowledge backend와 연동하여 surfacer 인스턴스를 주입하고, `chat-turn-handler.ts`는 턴 시작 시 직전 준비된 스냅샷을 `consume`해 주입하고 턴 종료 시 다음 턴을 위해 비동기 `schedule`한다.
+### 떠오름(#692, #693)
+작은 LLM(memory 역할) 또는 유사도 임계치 기반으로 연관성이 높은 기억을 다음 턴의 프롬프트로 선별·준비하고, 능동적 기억 회상 도구(`skill_memory_recall`)를 제공한다.
+- 3가지 동작 모드: `on-llm`(작은 LLM 비동기 선별 + 미판단 임계치 게이트), `on-threshold`(작은 LLM 없이 코사인 유사도 임계치 0.86 게이트 + 단순발화 필터), `off`(자동 기억 주입 완전 생략).
+- `domain/surfacing.ts`: 순수 도메인 로직(후보군 추출·프롬프트 조립·응답 파싱·블록 렌더링·판정 후보 필터링·자격 판정 `decideSurfacing`, 임계치 계산 및 trivial 검사 `isTrivialMemoryText`, 임계치 필터 `thresholdJudge`/`selectRecallByThreshold`).
+- `ports/surfacing.ts`: `SurfacingPort`(consume/schedule/mode/policy/active/close) 및 스냅샷·임계치 정책 계약 정의.
+- `app/memory-surfacer.ts`: 비동기 스케줄러, 타임아웃(8s)·TTL(15m) 관리, 모델 부재 시 백오프(10m), 후보 취합 및 작은 LLM 호출 오케스트레이션 (`on-llm` 모드에서만 동작, `touch: false` 회상).
+- `adapters/memory-skill.ts`: 능동적 장기기억 회상 도구 `skill_memory_recall` 구현 (읽기 전용, `touch: false`, 비밀 마스킹, JSON 출력 규격).
+- 합성 배선(`scripts/builds/compose-agent-deps.mjs`, `composition/index.ts` `wireAgentUC1`): memory 및 knowledge backend와 연동하여 surfacer 인스턴스를 주입하고 `skill_memory_recall` 실행기를 배선한다. `chat-turn-handler.ts`는 턴 시작 시 모드별 기억을 주입(임계치 적용 시 수치 통계 기록)하고, Discord/processing 요청 시 메모리 도구 및 정책을 안전하게 제외하며 unadvertised 도구 호출을 가드한다.
 
 ## 3. 헥사고날 레이어
 

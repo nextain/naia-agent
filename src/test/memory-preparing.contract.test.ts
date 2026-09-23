@@ -150,7 +150,7 @@ describe("FR-MEM-20 memory background preparation contract", () => {
     });
 
     const recalled = await memory.recall("test");
-    expect(recalled).toEqual({ facts: [], episodes: [], reflections: [] });
+    expect(recalled).toEqual({ facts: [], factScores: [], episodes: [], reflections: [] });
     await memory.close();
   });
 
