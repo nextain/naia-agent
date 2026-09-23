@@ -19,13 +19,20 @@ naia-os(UI) ──gRPC──> [ naia-agent ] ──저장/불러오기──> na
 - **출력층** `AgentEgressPort` — AgentEvent(text/thinking/toolUse/usage/finish/…) emit.
 - transport 어댑터: `adapters/grpc/`(production) + `adapters/stdio.ts`(테스트 in-process). 둘 다 같은 Ingress/Egress 포트 구현 = 직교.
 
+### 떠오름(#692)
+작은 LLM(memory 역할)이 턴 완료(`commitCompletedTurn`, memory save 후) 비동기 백그라운드로 최근 대화와 회상 기억·지식 카드를 검토하여, 연관성이 높은 항목을 다음 턴의 `[문득 떠오른 기억·지식]` 블록으로 사전 선별·준비한다.
+- `domain/surfacing.ts`: 순수 도메인 로직(후보군 추출·프롬프트 조립·응답 파싱·블록 렌더링·판정 후보 필터링·자격 판정 `decideSurfacing`).
+- `ports/surfacing.ts`: `SurfacingPort`(consume/schedule/active/close) 및 스냅샷 계약 정의.
+- `app/memory-surfacer.ts`: 비동기 스케줄러, 타임아웃(8s)·TTL(15m) 관리, 모델 부재 시 백오프(10m), 후보 취합 및 작은 LLM 호출 오케스트레이션.
+- 합성 배선(`scripts/builds/compose-agent-deps.mjs`, `composition/index.ts` `wireAgentUC1`): memory 및 knowledge backend와 연동하여 surfacer 인스턴스를 주입하고, `chat-turn-handler.ts`는 턴 시작 시 직전 준비된 스냅샷을 `consume`해 주입하고 턴 종료 시 다음 턴을 위해 비동기 `schedule`한다.
+
 ## 3. 헥사고날 레이어
 
 | 레이어 | 예 |
 |---|---|
-| `domain/` | chat.ts(계약 union, os 와 1:1), memory.ts, cost.ts, provider-route.ts |
-| `app/` | chat-turn-handler.ts |
-| `ports/` | uc1.ts, memory.ts |
+| `domain/` | chat.ts(계약 union, os 와 1:1), memory.ts, cost.ts, provider-route.ts, surfacing.ts |
+| `app/` | chat-turn-handler.ts, memory-surfacer.ts |
+| `ports/` | uc1.ts, memory.ts, surfacing.ts |
 | `adapters/` | grpc/, naia-memory.ts, naia-settings-store.ts, keychain-secret-store.ts, *-provider.ts, *-skills.ts, workspace-project.ts |
 | `composition/` | index.ts |
 

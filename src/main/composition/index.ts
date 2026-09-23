@@ -11,6 +11,7 @@ import type {
 import type { MemoryPort } from "../ports/memory.js";
 import type { CompactionPort } from "../ports/compaction.js";
 import type { ConversationLogPort } from "../ports/conversation-log.js";
+import type { SurfacingPort } from "../ports/surfacing.js";
 import type { AgentRequest, ProviderConfig } from "../domain/chat.js";
 import { Supervisor } from "../app/supervisor.js";
 import { selectSubAgent, type RosterOptions } from "../adapters/subagent-roster.js";
@@ -38,6 +39,7 @@ export function wireAgentUC1(opts?: {
   approval?: ApprovalPort;
   toolExecutor?: ToolExecutorPort; // UC5 — 미주입 = 도구 없음(UC1 순수 채팅)
   memory?: MemoryPort;             // UC-memory — 미주입 = 기존 동작(무회귀)
+  surfacer?: SurfacingPort;        // #692 — 미주입 = 기존 동작
   compaction?: CompactionPort;     // UC-compaction — 미주입 = 압축 없음(무회귀, budgeted-conversation 드롭만)
   compactThresholdTokens?: number; // 압축 트리거 추정토큰 임계(미주입=기본)
   compactKeepTail?: number;        // 압축 시 원문 유지 최근 메시지 수(미주입=기본)
@@ -64,6 +66,7 @@ export function wireAgentUC1(opts?: {
     approval,
     ...(opts?.toolExecutor ? { toolExecutor: opts.toolExecutor } : {}),
     ...(opts?.memory ? { memory: opts.memory } : {}),
+    ...(opts?.surfacer ? { surfacer: opts.surfacer } : {}),
     ...(opts?.compaction ? { compaction: opts.compaction } : {}),
     ...(opts?.compactThresholdTokens !== undefined ? { compactThresholdTokens: opts.compactThresholdTokens } : {}),
     ...(opts?.compactKeepTail !== undefined ? { compactKeepTail: opts.compactKeepTail } : {}),

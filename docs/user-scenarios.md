@@ -175,6 +175,10 @@ RPC 결과에 유지 여부와 오류 진단을 반환한다. 따라서 실패�
 
 메모리 LLM 역할이 구성되면, 에이전트는 주기적으로(메모리 준비 완료 후 60초에 첫 실행, 이후 30분마다, 한 번에 최대 200개 에피소드) 저장된 대화 에피소드를 메모리 LLM을 사용해 원자적 사실로 변환하여 사실이 축적되고 회상되도록 한다. 추출이 실패하면 해당 에피소드를 다음 주기를 위해 보존하고 에이전트 로그(`[naia-agent] memory consolidation failed (episodes kept for retry): <cause>`)에 원인을 기록한다. 메모리 LLM이 구성되지 않았거나 `NAIA_MEMORY_CONSOLIDATION=off`인 경우 아무 것도 실행되지 않는다.
 
+### S-MEM-SURFACING (작은 LLM 떠오름 — nextain/naia-shell#692)
+
+작은 LLM(메모리 LLM 역할)이 매 턴 답변 완료 후 백그라운드에서 비동기로 실행되어 최근 대화 턴, 회상된 기억 후보, 지식 카드를 검토한다. 모델이 현재 대화와 밀접하게 연관되어 떠올릴 가치가 있다고 판단한 항목만 엄격한 JSON으로 선별하여 다음 턴의 프롬프트에 `[문득 떠오른 기억·지식]` 프레이밍 블록으로 주입한다. 무관한 일상 대화나 인사에서는 아무것도 떠올리지 않으며, 회사/제품 관련 질문 시 지식 카드가 다음 턴에 자연스럽게 떠오른다. 메인 답변은 백그라운드 처리를 절대 대기하지 않는다(지연시간 0). 실패, 타임아웃, 게이트웨이에 모델 미배포(배포 전 gpt-5.4-nano 등 모델 없음) 시에는 기존의 회상 주입 동작을 그대로 유지한다. 메모리가 없거나 설정(`memorySurfacing: "off"`) 또는 환경변수(`NAIA_MEMORY_SURFACING=off`)로 꺼진 경우, 작은 LLM 미구성 시에는 비활성화되며, 상속된 유료 프로바이더에서는 비용 보호를 위해 절대 자동으로 켜지지 않는다. 작은 LLM이 없는 사용자를 위한 대체 방안은 nextain/naia-shell#693에서 다룬다.
+
 ## UC-PROV-1 (provider/model 라이브 교체)
 
 사용자가 naia-os 설정에서 텍스트 모델/프로바이더를 바꾸면, agent 재기동 없이 **다음 대화
@@ -710,6 +714,7 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 | FR-MEM-19 / S-MEM-REINDEX-CAUSE (재색인 실패 원인 표면화, nextain/naia-shell#681) | `src/test/memory-embedding-reindex.contract.test.ts` (failed 이벤트의 error 필드 전달·어댑터 메서드 부재 호환·compose stderr cause 출력 검증) |
 | FR-MEM-20 / S-MEM-BACKGROUND-PREP (메모리 백그라운드 준비, nextain/naia-shell#681) | `src/test/memory-preparing.contract.test.ts` (준비 중 recall 최대 2초 대기 후 MEMORY_PREPARING throw·키워드 전용 즉시 정상 회상·완료 후 정상 회상, 턴 핸들러의 색인불가 진단 주입 및 1초 미만 빠른 완료, compose 비동기 실행 및 stderr 로그 검증) |
 | FR-MEM-21 / S-MEM-CONSOLIDATION (사실 추출 주기 실행, nextain/naia-agent#141) | `src/test/memory-consolidation.contract.test.ts` (기본 off, 예약 실행 후 사실 저장, 실패 시 에피소드 보존·원인 이벤트, 종료 중 쓰기 차단, 10개 단위 분할, compose 배선), `src/test/memory-adapter-embedding.contract.test.ts` (끝 슬래시 정규화 URL, 404 시 throw) |
+| FR-MEM-22 / S-MEM-SURFACING (작은 LLM 떠오름, nextain/naia-shell#692) | src/test/memory-surfacing.contract.test.ts (파싱·후보·블록·자격·Fake LLM 한국어 시나리오·시간초과·모델 없음), src/test/memory-surfacing-handler.contract.test.ts (주입·판정 제외·무회귀·예약), src/test/memory-surfacing.integration.test.ts (실 naia-memory·kb-compiler), src/test/sub-llm-provider.contract.test.ts (temperature 생략·status) |
 | UC-PROV-1 / FR-PROV-1·2·3 | `src/test/all-providers-wiring.contract.test.ts`, `uc1-reload-default-config.contract.test.ts`, `uc-naia-settings-store.contract.test.ts` |
 | UC-PROV-1 / FR-PROV-7 (로그인·workspace credential 동기화) | `src/test/uc-keychain-credentials.contract.test.ts`(login 전 부재·키 교체·workspace 분리·복호화 재시도), `src/test/discord-entry-wiring.contract.test.ts`(production DPAPI reader·SetWorkspace rollback 배선) |
 | UC-THINKING / S-THINK-1·2·3 / FR-THINK-1~4 | `src/test/uc-thinking.contract.test.ts` (요청 body 검증: enableThinking=false+로컬 → `reasoning_effort:"none"` / true·미지정 → 미전송 / **원격 baseUrl → 미전송**(400 회귀 방지) / `isLocalEngineBaseUrl` 순수 판별) |
