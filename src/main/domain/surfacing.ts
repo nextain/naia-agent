@@ -1,5 +1,4 @@
-// domain/surfacing — background small-LLM memory/knowledge surfacing (nextain/naia-shell#692). Pure, no I/O.
-import type { RecalledMemory } from "./memory.js";
+import { maskSecretShapes, type RecalledMemory } from "./memory.js";
 import type { EffectiveLlmConfig } from "./llm-roles.js";
 
 export interface SurfacingTurn {
@@ -22,6 +21,7 @@ export type SurfacingCandidate =
       readonly role?: "user" | "assistant" | "tool";
       readonly text: string;
       readonly key: string;
+      readonly score?: number;
     }
   | {
       readonly id: string;
@@ -36,6 +36,213 @@ export interface SurfacedItem {
   readonly candidate: SurfacingCandidate;
   readonly reason: string;
   readonly confidence: number;
+}
+
+export type SurfacingLevel = "less" | "normal" | "more";
+
+export const SURFACING_THRESHOLD_LEVELS = {
+  less: 0.88,
+  normal: 0.86,
+  more: 0.84,
+} as const;
+
+export const DEFAULT_SURFACING_THRESHOLD = SURFACING_THRESHOLD_LEVELS.normal; // 0.86
+export const SURFACING_THRESHOLD_BOUNDS = { min: 0.8, max: 0.95 } as const;
+export const SURFACING_THRESHOLD_MAX_ITEMS = 3;
+
+export interface ThresholdPolicy {
+  readonly level?: SurfacingLevel;
+  readonly threshold: number; // 0.8..0.95
+  readonly maxItems: number;  // 기본 3
+}
+
+export interface ThresholdStats {
+  readonly threshold: number;
+  readonly candidates: number;
+  readonly kept: number;
+  readonly missingScore: number;
+  readonly trivial: number;
+  readonly below: number;
+  readonly keptScores: readonly number[];
+  readonly nearMissScores: readonly number[];
+}
+
+export function resolveSurfacingThreshold(level: unknown, override?: unknown): number {
+  let parsedOverride: number | undefined;
+  if (typeof override === "number" && Number.isFinite(override)) {
+    parsedOverride = override;
+  } else if (typeof override === "string" && override.trim().length > 0) {
+    const n = Number(override.trim());
+    if (Number.isFinite(n)) {
+      parsedOverride = n;
+    }
+  }
+
+  if (
+    parsedOverride !== undefined &&
+    parsedOverride >= SURFACING_THRESHOLD_BOUNDS.min &&
+    parsedOverride <= SURFACING_THRESHOLD_BOUNDS.max
+  ) {
+    return parsedOverride;
+  }
+
+  if (level === "less" || level === "normal" || level === "more") {
+    return SURFACING_THRESHOLD_LEVELS[level];
+  }
+  return DEFAULT_SURFACING_THRESHOLD;
+}
+
+export function isTrivialMemoryText(text: string, query: string): boolean {
+  const normText = String(text ?? "").normalize("NFC").toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
+  const normQuery = String(query ?? "").normalize("NFC").toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
+  if (!normText || normText === normQuery || normText.length < 6) {
+    return true;
+  }
+  const rawText = String(text ?? "").normalize("NFC").trim();
+  const wsTokens = rawText.split(/\s+/u).filter((t) => t.length > 0);
+  if (wsTokens.length < 2) {
+    return true;
+  }
+  const punctTokens = rawText.split(/[\s\p{P}\p{S}]+/gu).filter((t) => t.length > 0);
+  if (punctTokens.length < 2) {
+    return true;
+  }
+  return false;
+}
+
+export function thresholdJudge<T extends { readonly text: string; readonly score?: number }>(
+  items: readonly T[],
+  query: string,
+  policy: ThresholdPolicy,
+): { kept: T[]; stats: ThresholdStats } {
+  const threshold =
+    typeof policy?.threshold === "number" &&
+    Number.isFinite(policy.threshold) &&
+    policy.threshold >= SURFACING_THRESHOLD_BOUNDS.min &&
+    policy.threshold <= SURFACING_THRESHOLD_BOUNDS.max
+      ? policy.threshold
+      : DEFAULT_SURFACING_THRESHOLD;
+  const maxItems =
+    typeof policy?.maxItems === "number" &&
+    Number.isInteger(policy.maxItems) &&
+    policy.maxItems >= 0 &&
+    policy.maxItems <= 5
+      ? policy.maxItems
+      : SURFACING_THRESHOLD_MAX_ITEMS;
+
+  let candidates = 0;
+  let missingScore = 0;
+  let trivial = 0;
+  let below = 0;
+  const belowScores: number[] = [];
+  const passed: T[] = [];
+
+  for (const item of items ?? []) {
+    candidates++;
+    const score = item?.score;
+    if (typeof score !== "number" || !Number.isFinite(score)) {
+      missingScore++;
+      continue;
+    }
+    if (isTrivialMemoryText(item.text, query)) {
+      trivial++;
+      continue;
+    }
+    if (score < threshold) {
+      below++;
+      belowScores.push(score);
+      continue;
+    }
+    passed.push(item);
+  }
+
+  passed.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  const kept = passed.slice(0, maxItems);
+  const round3 = (n: number) => Math.round(n * 1000) / 1000;
+  const keptScores = kept.map((k) => round3(k.score!));
+  belowScores.sort((a, b) => b - a);
+  const nearMissScores = belowScores.slice(0, 3).map(round3);
+
+  return {
+    kept,
+    stats: {
+      threshold,
+      candidates,
+      kept: kept.length,
+      missingScore,
+      trivial,
+      below,
+      keptScores,
+      nearMissScores,
+    },
+  };
+}
+
+export function selectRecallByThreshold(
+  mem: RecalledMemory,
+  query: string,
+  policy: ThresholdPolicy,
+): { memory: RecalledMemory; stats: ThresholdStats } {
+  const rawFacts = Array.isArray(mem?.facts) ? mem.facts : [];
+  const rawEpisodes = Array.isArray(mem?.episodes) ? mem.episodes : [];
+  const rawReflections = Array.isArray(mem?.reflections) ? mem.reflections : [];
+  const hasValidFactScores =
+    Array.isArray(mem?.factScores) && mem.factScores.length === rawFacts.length;
+
+  type TaggedCandidate =
+    | {
+        readonly kind: "fact";
+        readonly text: string;
+        readonly score?: number;
+        readonly originalIndex: number;
+      }
+    | {
+        readonly kind: "episode";
+        readonly text: string;
+        readonly score?: number;
+        readonly ep: (typeof rawEpisodes)[number];
+      };
+
+  const factCandidates: TaggedCandidate[] = rawFacts.map((text, i) => ({
+    kind: "fact",
+    text: String(text ?? ""),
+    score: hasValidFactScores ? mem.factScores![i] : undefined,
+    originalIndex: i,
+  }));
+
+  const epCandidates: TaggedCandidate[] = rawEpisodes.map((e) => ({
+    kind: "episode",
+    text: String(e?.content ?? ""),
+    score: e?.score,
+    ep: e,
+  }));
+
+  const combinedCandidates = [...factCandidates, ...epCandidates];
+  const { kept, stats } = thresholdJudge(combinedCandidates, query, policy);
+
+  const keptFacts = kept.filter((x): x is TaggedCandidate & { kind: "fact" } => x.kind === "fact");
+  const keptEpisodes = kept.filter((x): x is TaggedCandidate & { kind: "episode" } => x.kind === "episode");
+
+  const facts = keptFacts.map((f) => f.text);
+  const factScores = keptFacts.map((f) => f.score);
+  const episodes = keptEpisodes.map((e) => e.ep);
+
+  const reflectionCount = rawReflections.length;
+  const finalStats: ThresholdStats = {
+    ...stats,
+    candidates: stats.candidates + reflectionCount,
+    missingScore: stats.missingScore + reflectionCount,
+  };
+
+  return {
+    memory: {
+      facts,
+      factScores,
+      episodes,
+      reflections: [],
+    },
+    stats: finalStats,
+  };
 }
 
 export const SURFACING_LIMITS = {
@@ -136,19 +343,24 @@ export function buildMemoryCandidates(
 
   // Facts first (origin "fact", no role)
   const rawFacts = Array.isArray(mem?.facts) ? mem.facts : [];
-  for (const f of rawFacts) {
-    const rawText = String(f ?? "");
+  const hasValidFactScores =
+    Array.isArray(mem?.factScores) && mem.factScores.length === rawFacts.length;
+  for (let i = 0; i < rawFacts.length; i++) {
+    const f = rawFacts[i];
+    const rawText = maskSecretShapes(String(f ?? ""));
     if (!rawText.trim()) continue;
     const key = surfacingKey(rawText);
     if (!key || seenKeys.has(key)) continue;
     if (recentTurnKeys.some((tk) => tk === key || tk.includes(key))) continue;
     seenKeys.add(key);
+    const score = hasValidFactScores ? mem!.factScores![i] : undefined;
     candidates.push({
       id: `m${candidates.length + 1}`,
       kind: "memory",
       origin: "fact",
       text: clip(rawText.trim(), SURFACING_LIMITS.maxCandidateChars),
       key,
+      ...(typeof score === "number" && Number.isFinite(score) ? { score } : {}),
     });
     if (candidates.length >= SURFACING_LIMITS.maxMemoryCandidates) return candidates;
   }
@@ -156,12 +368,13 @@ export function buildMemoryCandidates(
   // Then episodes (origin "episode", role kept)
   const rawEpisodes = Array.isArray(mem?.episodes) ? mem.episodes : [];
   for (const e of rawEpisodes) {
-    const rawText = String(e?.content ?? "");
+    const rawText = maskSecretShapes(String(e?.content ?? ""));
     if (!rawText.trim()) continue;
     const key = surfacingKey(rawText);
     if (!key || seenKeys.has(key)) continue;
     if (recentTurnKeys.some((tk) => tk === key || tk.includes(key))) continue;
     seenKeys.add(key);
+    const score = e?.score;
     candidates.push({
       id: `m${candidates.length + 1}`,
       kind: "memory",
@@ -169,6 +382,7 @@ export function buildMemoryCandidates(
       ...(e?.role !== undefined ? { role: e.role } : {}),
       text: clip(rawText.trim(), SURFACING_LIMITS.maxCandidateChars),
       key,
+      ...(typeof score === "number" && Number.isFinite(score) ? { score } : {}),
     });
     if (candidates.length >= SURFACING_LIMITS.maxMemoryCandidates) return candidates;
   }
@@ -186,8 +400,8 @@ export function buildKnowledgeCandidates(
   for (const hit of hits) {
     if (!hit) continue;
     if (typeof hit.score !== "number" || !Number.isFinite(hit.score) || hit.score <= 0) continue;
-    const rawSnippet = String(hit.snippet ?? "").trim();
-    const rawTitle = String(hit.title ?? "").trim();
+    const rawSnippet = maskSecretShapes(String(hit.snippet ?? "").trim());
+    const rawTitle = maskSecretShapes(String(hit.title ?? "").trim());
     if (!rawSnippet && !rawTitle) continue;
     const baseText = rawSnippet || rawTitle;
     const text = clip(baseText, SURFACING_LIMITS.maxCandidateChars);
@@ -219,15 +433,15 @@ export function buildSurfacingMessages(
   candidates: readonly SurfacingCandidate[],
 ): { role: "system" | "user"; content: string }[] {
   const normalized = normalizeSurfacingTurns(turns);
-  const turnLines = normalized.map((t) => `[${t.role}] ${t.content}`);
+  const turnLines = normalized.map((t) => `[${t.role}] ${maskSecretShapes(t.content)}`);
 
   const candLines = candidates.map((c) => {
     if (c.kind === "knowledge") {
-      const singleTitle = c.title.replace(/\n/g, " ");
-      const singleText = c.text.replace(/\n/g, " ");
+      const singleTitle = maskSecretShapes(c.title.replace(/\n/g, " "));
+      const singleText = maskSecretShapes(c.text.replace(/\n/g, " "));
       return `<${c.id}> knowledge "${singleTitle}": ${singleText}`;
     }
-    const singleText = c.text.replace(/\n/g, " ");
+    const singleText = maskSecretShapes(c.text.replace(/\n/g, " "));
     if (c.origin === "fact") {
       return `<${c.id}> memory (derived fact, unverified): ${singleText}`;
     }
@@ -331,7 +545,7 @@ export function formatSurfacedBlock(items: readonly SurfacedItem[]): string {
   for (const item of items) {
     const c = item.candidate;
     if (c.kind === "memory") {
-      const cleanText = neutralizeFraming(c.text);
+      const cleanText = maskSecretShapes(neutralizeFraming(c.text));
       if (c.origin === "fact") {
         lines.push(`- (기억 · 파생 사실, 미검증) ${cleanText}`);
       } else {
@@ -343,10 +557,10 @@ export function formatSurfacedBlock(items: readonly SurfacedItem[]): string {
         lines.push(`- (기억 · ${roleLabel}) ${cleanText}`);
       }
     } else {
-      const cleanTitle = neutralizeFraming(c.title);
-      const cleanText = neutralizeFraming(c.text);
+      const cleanTitle = maskSecretShapes(neutralizeFraming(c.title));
+      const cleanText = maskSecretShapes(neutralizeFraming(c.text));
       if (c.sources && c.sources.length > 0) {
-        const cleanSources = c.sources.map(neutralizeFraming).join(", ");
+        const cleanSources = c.sources.map((s) => maskSecretShapes(neutralizeFraming(s))).join(", ");
         lines.push(`- (지식 · ${cleanTitle}) ${cleanText} (출처: ${cleanSources})`);
       } else {
         lines.push(`- (지식 · ${cleanTitle}) ${cleanText}`);
@@ -372,37 +586,60 @@ export function selectUnjudgedRecall(
   mem: RecalledMemory,
   judgedKeys: ReadonlySet<string>,
 ): RecalledMemory {
-  const facts = (Array.isArray(mem?.facts) ? mem.facts : []).filter(
-    (f) => typeof f === "string" && !judgedKeys.has(surfacingKey(f)),
-  );
+  const rawFacts = Array.isArray(mem?.facts) ? mem.facts : [];
+  const hasValidFactScores =
+    Array.isArray(mem?.factScores) && mem.factScores.length === rawFacts.length;
+
+  const facts: string[] = [];
+  const factScores: (number | undefined)[] | undefined = hasValidFactScores ? [] : undefined;
+
+  for (let i = 0; i < rawFacts.length; i++) {
+    const f = rawFacts[i];
+    if (typeof f === "string" && !judgedKeys.has(surfacingKey(f))) {
+      facts.push(f);
+      if (factScores) {
+        factScores.push(mem.factScores![i]);
+      }
+    }
+  }
+
   const episodes = (Array.isArray(mem?.episodes) ? mem.episodes : []).filter(
     (e) => e && typeof e.content === "string" && !judgedKeys.has(surfacingKey(e.content)),
   );
   return {
     facts,
+    ...(factScores !== undefined ? { factScores } : {}),
     episodes,
     ...(mem?.reflections !== undefined ? { reflections: mem.reflections } : {}),
   };
 }
 
+export type SurfacingMode = "off" | "on-llm" | "on-threshold";
+
 export type SurfacingDecision =
-  | { readonly on: true; readonly provider: string; readonly model: string }
-  | { readonly on: false; readonly reason: "disabled" | "no-memory" | "no-small-llm" | "inherited-billed-provider" };
+  | { readonly mode: "on-llm"; readonly on: true; readonly provider: string; readonly model: string }
+  | { readonly mode: "on-threshold"; readonly on: false; readonly reason: "no-small-llm" | "inherited-billed-provider" | "user-choice" }
+  | { readonly mode: "off"; readonly on: false; readonly reason: "disabled" | "no-memory" | "no-embedding" };
 
 export function decideSurfacing(input: {
   readonly disabled: boolean;
   readonly memoryAvailable: boolean;
+  readonly embeddingAvailable?: boolean;
+  readonly judge?: "llm" | "threshold";
   readonly memoryRole?: EffectiveLlmConfig;
   readonly runtimeOk: boolean;
 }): SurfacingDecision {
-  if (input.disabled) return { on: false, reason: "disabled" };
-  if (!input.memoryAvailable) return { on: false, reason: "no-memory" };
-  if (!input.memoryRole || !input.runtimeOk) return { on: false, reason: "no-small-llm" };
+  if (input.disabled) return { mode: "off", on: false, reason: "disabled" };
+  if (!input.memoryAvailable) return { mode: "off", on: false, reason: "no-memory" };
+  if (input.embeddingAvailable === false) return { mode: "off", on: false, reason: "no-embedding" };
+  if (input.judge === "threshold") return { mode: "on-threshold", on: false, reason: "user-choice" };
+  if (!input.memoryRole || !input.runtimeOk) return { mode: "on-threshold", on: false, reason: "no-small-llm" };
 
   const providerLower = input.memoryRole.provider.value.trim().toLowerCase();
   const freeOrPlatform = ["naia", "nextain", "ollama", "vllm"].includes(providerLower);
   if (freeOrPlatform) {
     return {
+      mode: "on-llm",
       on: true,
       provider: input.memoryRole.provider.value,
       model: input.memoryRole.model.value,
@@ -414,11 +651,12 @@ export function decideSurfacing(input: {
     input.memoryRole.provider.inheritedFromRole === undefined
   ) {
     return {
+      mode: "on-llm",
       on: true,
       provider: input.memoryRole.provider.value,
       model: input.memoryRole.model.value,
     };
   }
 
-  return { on: false, reason: "inherited-billed-provider" };
+  return { mode: "on-threshold", on: false, reason: "inherited-billed-provider" };
 }

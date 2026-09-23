@@ -7,6 +7,10 @@
 export interface RecalledEpisode {
   readonly content: string;
   readonly role?: "user" | "assistant" | "tool";
+  /** #693: naia-memory vectorScore에서 가져온 유사도(raw cosine). undefined = 알 수 없음/미벡터. */
+  readonly score?: number;
+  /** #693: 에피소드 발생 시각(ms epoch). */
+  readonly timestamp?: number;
 }
 
 /** 회상된 비신뢰 데이터(원문). facts=semantic 파생, episodes=원문+역할, reflections=procedural 학습 교정
@@ -14,6 +18,8 @@ export interface RecalledEpisode {
  *  생략된다(미주입=무회귀). */
 export interface RecalledMemory {
   readonly facts: readonly string[];
+  /** #693: facts 배열과 index 가 1:1 로 정렬된 유사도 점수(raw cosine). 존재할 때 facts 와 길이가 같다. */
+  readonly factScores?: readonly (number | undefined)[];
   readonly episodes: readonly RecalledEpisode[];
   /** procedural 학습 교정(이미 "상황 → 교정" 으로 어댑터가 정형화한 문자열). 비신뢰·미검증 파생. */
   readonly reflections?: readonly string[];
@@ -70,6 +76,37 @@ function neutralizeFraming(s: string): string {
   return String(s ?? "").replace(/\[회상된 참고 정보[^\]]*\]/g, "⟦차단된 경계표식⟧");
 }
 
+/**
+ * #693: 회상 텍스트나 프롬프트 주입문에서 시크릿 모양을 탐지해 ⟦redacted⟧ 로 마스킹한다.
+ * 라벨 뒤 시크릿값, 주요 토큰 접두사(sk-, AKIA, ghp_, xox, eyJ, Bearer), 긴 hex,
+ * 대소문자+숫자가 혼합된 긴 base64 형상을 순서대로 치환한다. 예외를 던지지 않는다.
+ */
+export function maskSecretShapes(text: string): string {
+  let str = String(text ?? "");
+  // 1. 라벨 뒤 비밀값 치환 (그룹 1 보존, 그룹 2 마스킹)
+  str = str.replace(
+    /((?:password|passwd|pwd|passcode|비밀번호|비번|암호|api[ _-]?key|secret|token|토큰|access[ _-]?key)\s*(?:is\s*[:=：]?|는|은|[:=：])\s*)([^\s,;'"]{4,})/giu,
+    "$1⟦redacted⟧",
+  );
+  // 2. 주요 토큰 접두사 / JWT / Bearer
+  str = str.replace(/\bsk-(?:proj-|ant-)?[A-Za-z0-9_\-]{16,}/g, "⟦redacted⟧");
+  str = str.replace(/\bAKIA[0-9A-Z]{16}\b/g, "⟦redacted⟧");
+  str = str.replace(/\bgh[pousr]_[A-Za-z0-9]{20,}\b/g, "⟦redacted⟧");
+  str = str.replace(/\bxox[abprs]-[A-Za-z0-9-]{10,}/g, "⟦redacted⟧");
+  str = str.replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, "⟦redacted⟧");
+  str = str.replace(/\bBearer\s+[A-Za-z0-9._~+\/=-]{16,}/gi, "Bearer ⟦redacted⟧");
+  // 3. 긴 hex (32자 이상)
+  str = str.replace(/\b[A-Fa-f0-9]{32,}\b/g, "⟦redacted⟧");
+  // 4. 긴 base64/base64url 형상: 최소 숫자 1개, 소문자 1개, 대문자 1개 포함 시에만 치환 (일반 긴 단어/경로 오탐 방지)
+  str = str.replace(/[A-Za-z0-9+\/_-]{32,}={0,2}/g, (match) => {
+    if (/[0-9]/.test(match) && /[a-z]/.test(match) && /[A-Z]/.test(match)) {
+      return "⟦redacted⟧";
+    }
+    return match;
+  });
+  return str;
+}
+
 /** 비신뢰 회상 → systemPrompt 주입용 블록. 회상이 없으면 "". 프레이밍 경계는 보안상 *항상* 보존(절단
  *  대상 아님)하고 body 만 예산 안에서 절단한다. maxBlockChars 가 프레이밍 floor(~130자)보다 작으면 그
  *  floor 가 적용된다(보안 경계 > 엄격 예산). 권장 maxBlockChars ≥ 256. content 내 경계표식은 무력화. */
@@ -86,7 +123,8 @@ export function formatRecalledMemory(mem: RecalledMemory, opts: RecallFormatOpts
   // 생성물/출처불명 데이터가 사용자 사실로 강화되지 않게(FR-MEM-10).
   const epLabel = (role?: string): string =>
     role === "user" ? "사용자가 말함" : role === "assistant" ? "이전 내 답변(미검증)" : "이전 대화(출처 불명·미검증)";
-  const epLine = (e: RecalledEpisode) => `- (${epLabel(e?.role)}) ${neutralizeFraming(clip(e?.content ?? "", maxItemChars))}`;
+  const epLine = (e: RecalledEpisode) =>
+    `- (${epLabel(e?.role)}) ${neutralizeFraming(clip(maskSecretShapes(e?.content ?? ""), maxItemChars))}`;
   // ⚠️ 신뢰 우선순위 정렬 — body 가 예산으로 *끝에서* 절단되므로 가장 출처 명확한 사용자 원문을 *먼저*
   // 배치해 truncation 시 보존. 순서: 사용자 episode > 파생 fact > 학습 교정(reflection) > assistant/기타 episode.
   // reflection 은 procedural 파생(미검증)이라 fact 와 같은 신뢰 계층에 두되 fact 뒤에 배치.
@@ -96,8 +134,8 @@ export function formatRecalledMemory(mem: RecalledMemory, opts: RecallFormatOpts
   // 것 방지(포트 반환이 무제한이어도 formatter 가 방어). per-item clip 과 함께 작업량을 bound.
   const ordered = [
     ...userEps.map(epLine),
-    ...facts.map((f) => `- (파생 기억·미검증) ${neutralizeFraming(clip(f, maxItemChars))}`),
-    ...reflections.map((r) => `- (학습된 교정·미검증) ${neutralizeFraming(clip(r, maxItemChars))}`),
+    ...facts.map((f) => `- (파생 기억·미검증) ${neutralizeFraming(clip(maskSecretShapes(f), maxItemChars))}`),
+    ...reflections.map((r) => `- (학습된 교정·미검증) ${neutralizeFraming(clip(maskSecretShapes(r), maxItemChars))}`),
     ...otherEps.map(epLine),
   ];
   if (!ordered.length) return "";

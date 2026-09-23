@@ -139,4 +139,13 @@ describe("T-DISCORD-RT-02/05 — production entry wiring", () => {
     expect(entry).toContain('process.on("SIGTERM", () => { void onShutdown?.(); })');
     expect(entry).toContain('process.on("SIGINT", () => { void onShutdown?.(); })');
   });
+
+  it("wires memory surfacing (3-state) and skill_memory_recall executor in composition", () => {
+    expect(composition).toContain("makeMemorySkillsExecutor");
+    expect(composition).toContain("readMemorySurfacingConfig");
+    expect(composition).toContain("memorySurfacingJudge");
+    expect(composition).toContain("embeddingAvailable");
+    expect(composition).toContain("mode: () => surfacingMode");
+    expect(composition).toContain("policy: () => surfacingPolicy");
+  });
 });

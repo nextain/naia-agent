@@ -390,6 +390,7 @@ describe("domain/surfacing unit & contract tests", () => {
 
     it("handles disabled", () => {
       expect(decideSurfacing({ disabled: true, memoryAvailable: true, runtimeOk: true })).toEqual({
+        mode: "off",
         on: false,
         reason: "disabled",
       });
@@ -397,6 +398,7 @@ describe("domain/surfacing unit & contract tests", () => {
 
     it("handles no-memory", () => {
       expect(decideSurfacing({ disabled: false, memoryAvailable: false, runtimeOk: true })).toEqual({
+        mode: "off",
         on: false,
         reason: "no-memory",
       });
@@ -404,10 +406,12 @@ describe("domain/surfacing unit & contract tests", () => {
 
     it("handles no-small-llm when runtimeOk is false or memoryRole missing", () => {
       expect(decideSurfacing({ disabled: false, memoryAvailable: true, runtimeOk: false })).toEqual({
+        mode: "on-threshold",
         on: false,
         reason: "no-small-llm",
       });
       expect(decideSurfacing({ disabled: false, memoryAvailable: true, memoryRole: makeCfg("naia", "m"), runtimeOk: false })).toEqual({
+        mode: "on-threshold",
         on: false,
         reason: "no-small-llm",
       });
@@ -415,16 +419,19 @@ describe("domain/surfacing unit & contract tests", () => {
 
     it("enables for naia, nextain, ollama, vllm even if inherited", () => {
       expect(decideSurfacing({ disabled: false, memoryAvailable: true, memoryRole: makeCfg("naia", "gpt-5.4-nano"), runtimeOk: true })).toEqual({
+        mode: "on-llm",
         on: true,
         provider: "naia",
         model: "gpt-5.4-nano",
       });
       expect(decideSurfacing({ disabled: false, memoryAvailable: true, memoryRole: makeCfg("nextain", "flash"), runtimeOk: true })).toEqual({
+        mode: "on-llm",
         on: true,
         provider: "nextain",
         model: "flash",
       });
       expect(decideSurfacing({ disabled: false, memoryAvailable: true, memoryRole: makeCfg("ollama", "llama3", "inherit", "main"), runtimeOk: true })).toEqual({
+        mode: "on-llm",
         on: true,
         provider: "ollama",
         model: "llama3",
@@ -433,11 +440,13 @@ describe("domain/surfacing unit & contract tests", () => {
 
     it("enables explicit billed provider, rejects inherited billed provider", () => {
       expect(decideSurfacing({ disabled: false, memoryAvailable: true, memoryRole: makeCfg("openai", "gpt-4o-mini", "explicit"), runtimeOk: true })).toEqual({
+        mode: "on-llm",
         on: true,
         provider: "openai",
         model: "gpt-4o-mini",
       });
       expect(decideSurfacing({ disabled: false, memoryAvailable: true, memoryRole: makeCfg("openai", "gpt-4o-mini", "inherit", "sub"), runtimeOk: true })).toEqual({
+        mode: "on-threshold",
         on: false,
         reason: "inherited-billed-provider",
       });
@@ -751,7 +760,7 @@ describe("makeMemorySurfacer service scenarios", () => {
       llm: () => undefined,
       diag: { log: () => {} },
     });
-    expect(surfacer.active()).toBe(false);
+    expect(surfacer.mode()).toBe("off");
     surfacer.schedule({ sessionId: "s8", turns: [{ role: "user", content: "질문" }] });
     expect(memory.recall).not.toHaveBeenCalled();
     expect(surfacer.consume("s8")).toBeUndefined();
@@ -830,5 +839,157 @@ describe("makeMemorySurfacer service scenarios", () => {
     const jsonLogs = JSON.stringify(logCalls);
     expect(jsonLogs).not.toContain("밀면");
     expect(jsonLogs).not.toContain("부산");
+  });
+
+  it("12. candidate recall is called with { touch: false }", async () => {
+    const recallMock = vi.fn(async () => ({ facts: ["기억 1"], episodes: [] }));
+    let llmDone = false;
+    const llm = makeFakeLlm(async () => {
+      llmDone = true;
+      return JSON.stringify({ items: [] });
+    });
+    const surfacer = makeMemorySurfacer({
+      memory: { recall: recallMock },
+      llm: () => llm,
+      diag: { log: () => {} },
+    });
+
+    surfacer.schedule({
+      sessionId: "s12",
+      turns: [{ role: "user", content: "질문입니다" }],
+    });
+    await pollUntil(() => llmDone);
+
+    expect(recallMock).toHaveBeenCalledWith(expect.any(String), { touch: false });
+  });
+
+  it("13. schedule does nothing and consume returns undefined in on-threshold mode", async () => {
+    const recallMock = vi.fn(async () => ({ facts: ["기억 1"], episodes: [] }));
+    const llmMock = vi.fn(async () => '{"items":[]}');
+    const surfacer = makeMemorySurfacer({
+      memory: { recall: recallMock },
+      llm: () => ({ provider: "p", model: "m", completeMessages: llmMock }),
+      mode: () => "on-threshold",
+      diag: { log: () => {} },
+    });
+
+    surfacer.schedule({
+      sessionId: "s13",
+      turns: [{ role: "user", content: "질문입니다" }],
+    });
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(recallMock).not.toHaveBeenCalled();
+    expect(llmMock).not.toHaveBeenCalled();
+    expect(surfacer.consume("s13")).toBeUndefined();
+    expect(surfacer.mode()).toBe("on-threshold");
+  });
+
+  it("14. a mode dep that throws → mode() is 'off'", () => {
+    const surfacer = makeMemorySurfacer({
+      memory: { recall: vi.fn() },
+      llm: () => undefined,
+      mode: () => {
+        throw new Error("mode error");
+      },
+      diag: { log: () => {} },
+    });
+    expect(surfacer.mode()).toBe("off");
+  });
+
+  it("15. a policy dep returning { threshold: NaN, maxItems: 3 } → policy().threshold === 0.86", () => {
+    const surfacer = makeMemorySurfacer({
+      memory: { recall: vi.fn() },
+      llm: () => undefined,
+      policy: () => ({ threshold: NaN, maxItems: 3 } as any),
+      diag: { log: () => {} },
+    });
+    const policy = surfacer.policy();
+    expect(policy.threshold).toBe(0.86);
+    expect(policy.maxItems).toBe(3);
+  });
+
+  it("16. consume after a switch away from on-llm cancels the running job, and a later on-llm consume returns undefined", async () => {
+    const memory = { recall: vi.fn(async () => ({ facts: ["지연 사실"], episodes: [] })) };
+    let currentMode: "on-llm" | "off" = "on-llm";
+    let resolveLlm!: (val: string) => void;
+    let signalAborted = false;
+    const llm: SurfacingLlm = {
+      provider: "p",
+      completeMessages: (_msgs, opts) =>
+        new Promise((res) => {
+          resolveLlm = res;
+          opts.signal?.addEventListener("abort", () => {
+            signalAborted = true;
+          });
+        }),
+    };
+    const surfacer = makeMemorySurfacer({
+      memory,
+      llm: () => llm,
+      mode: () => currentMode,
+      diag: { log: () => {} },
+    });
+
+    surfacer.schedule({ sessionId: "s16", turns: [{ role: "user", content: "질문" }] });
+    await pollUntil(() => resolveLlm !== undefined);
+
+    // Switch mode away from on-llm to off
+    currentMode = "off";
+
+    // Consume while off mode -> cancels running job and returns undefined
+    expect(surfacer.consume("s16")).toBeUndefined();
+    expect(signalAborted).toBe(true);
+
+    // Resolve LLM late
+    resolveLlm(JSON.stringify({ items: [{ id: "m1", confidence: 0.9 }] }));
+    await new Promise((r) => setTimeout(r, 30));
+
+    // Switch back to on-llm
+    currentMode = "on-llm";
+
+    // A later on-llm consume must still return undefined
+    expect(surfacer.consume("s16")).toBeUndefined();
+  });
+
+  it("17. store a snapshot in on-llm, switch mode dep to on-threshold, consume → undefined, switch back to on-llm, consume → undefined", async () => {
+    const memory = {
+      recall: vi.fn(async () => ({
+        facts: ["사용자는 부산 출신이다"],
+        episodes: [{ role: "user" as const, content: "나는 밀면을 제일 좋아해" }],
+      })),
+    };
+    let llmDone = false;
+    const llm = makeFakeLlm(async () => {
+      llmDone = true;
+      return JSON.stringify({ items: [{ id: "m1", reason: "밀면 선호", confidence: 0.9 }] });
+    });
+    let currentMode: "on-llm" | "on-threshold" = "on-llm";
+    const surfacer = makeMemorySurfacer({
+      memory,
+      llm: () => llm,
+      mode: () => currentMode,
+      diag: { log: () => {} },
+    });
+
+    surfacer.schedule({
+      sessionId: "s17",
+      turns: [
+        { role: "user", content: "다음 주에 부산 가는데 뭐 먹지?" },
+        { role: "assistant", content: "부산 맛집을 찾아보세요." },
+      ],
+    });
+
+    await pollUntil(() => llmDone);
+    await new Promise((r) => setTimeout(r, 30));
+
+    // snapshot is stored now while mode is on-llm
+    // Switch the mode dep to on-threshold
+    currentMode = "on-threshold";
+    expect(surfacer.consume("s17")).toBeUndefined();
+
+    // Switch back to on-llm
+    currentMode = "on-llm";
+    expect(surfacer.consume("s17")).toBeUndefined();
   });
 });

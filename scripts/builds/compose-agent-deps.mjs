@@ -13,7 +13,7 @@ import { makeNaiaSettingsStore } from "../../dist/main/adapters/naia-settings-st
 import { buildSubLlmProvider } from "../../dist/main/adapters/sub-llm-provider.js";
 import { resolveRoleRuntimeConfig } from "../../dist/main/adapters/llm-role-runtime.js";
 import { makeMemorySurfacer } from "../../dist/main/app/memory-surfacer.js";
-import { decideSurfacing, SURFACING_LIMITS } from "../../dist/main/domain/surfacing.js";
+import { decideSurfacing, resolveSurfacingThreshold, SURFACING_LIMITS, SURFACING_THRESHOLD_MAX_ITEMS } from "../../dist/main/domain/surfacing.js";
 import { makeStderrDiagnostic } from "../../dist/main/adapters/diagnostic.js";
 import { makeBuiltinSkillsExecutor } from "../../dist/main/adapters/builtin-skills.js";
 import { makeGithubSkillsExecutor } from "../../dist/main/adapters/github-skills.js";
@@ -27,6 +27,7 @@ import { makeFsTools } from "../../dist/main/adapters/fs-tools.js";
 import { makeShellTool } from "../../dist/main/adapters/shell-tool.js";
 import { workspaceBindFromSettings } from "../../dist/main/domain/workspace-bind.js";
 import { makeKnowledgeSkillsExecutor } from "../../dist/main/adapters/knowledge-skill.js";
+import { makeMemorySkillsExecutor } from "../../dist/main/adapters/memory-skill.js";
 import { readWorkspaceKnowledgeConfig, isValidKnowledgeScope } from "../../dist/main/adapters/knowledge-compile.js";
 import { pickSpawnableBin, resolveSpawnableBin, resolveFallbackCommand } from "../../dist/main/adapters/subprocess-session.js";
 import { makeOpenMeteoFetchWeather } from "../../dist/main/adapters/openmeteo-weather.js";
@@ -508,28 +509,64 @@ export async function composeAgentRuntimeDeps(o = {}) {
       : "sub-llm(none)";
 
   // ── #692 memory surfacing: small LLM (memory role) surfaces related memory/knowledge for the next turn. ──
+  let surfacingMode = "off";
+  let surfacingPolicy = { level: "normal", threshold: 0.86, maxItems: 3 };
   let surfacingLlm; // undefined = off
   let surfacingLabel = "surfacing=off(no-memory)";
-  const readMemorySurfacingFlag = (workspacePath) => {
+  const readMemorySurfacingConfig = (workspacePath) => {
     try {
       const parsed = JSON.parse(nodeFs.readFileSync(join(workspacePath, "naia-settings", "config.json"), "utf8"));
-      return parsed?.memorySurfacing === "off" ? "off" : "auto";
-    } catch { return "auto"; }
+      const off = parsed?.memorySurfacing === "off";
+      const judge = parsed?.memorySurfacingJudge === "threshold" ? "threshold" : "llm";
+      const level = parsed?.memorySurfacingLevel === "less" || parsed?.memorySurfacingLevel === "more" ? parsed.memorySurfacingLevel : "normal";
+      const override = typeof parsed?.memorySurfacingThreshold === "number" ? parsed.memorySurfacingThreshold : undefined;
+      return { off, judge, level, override };
+    } catch {
+      return { off: false, judge: "llm", level: "normal", override: undefined };
+    }
   };
   const refreshSurfacing = (workspacePath, memoryAvailable) => {
     try {
-      const disabled = env.NAIA_MEMORY_SURFACING === "off" || (workspacePath ? readMemorySurfacingFlag(workspacePath) === "off" : false);
+      const memCfg = workspacePath ? settingsStore.loadMemoryConfig(workspacePath) : undefined;
+      const embeddingAvailable = memCfg ? memCfg.embedding?.provider !== "none" : false;
+      const surfConfig = workspacePath ? readMemorySurfacingConfig(workspacePath) : { off: false, judge: "llm", level: "normal" };
+      const disabled = env.NAIA_MEMORY_SURFACING === "off" || surfConfig.off;
       const roles = workspacePath ? settingsStore.loadLlmRoles(workspacePath) : null;
       const memoryRole = roles?.ok ? roles.configs.find((cfg) => cfg.role === "memory") : undefined;
       const runtime = memoryRole ? resolveRoleRuntimeConfig(memoryRole, settingsResolveSecret) : undefined;
-      const decision = decideSurfacing({ disabled, memoryAvailable, ...(memoryRole ? { memoryRole } : {}), runtimeOk: !!runtime?.ok });
-      surfacingLlm = decision.on && runtime?.ok
+      const decision = decideSurfacing({
+        disabled,
+        memoryAvailable,
+        embeddingAvailable,
+        judge: surfConfig.judge,
+        ...(memoryRole ? { memoryRole } : {}),
+        runtimeOk: !!runtime?.ok,
+      });
+      surfacingMode = decision.mode;
+      const rawOverride = env.NAIA_MEMORY_SURFACING_THRESHOLD !== undefined && env.NAIA_MEMORY_SURFACING_THRESHOLD !== ""
+        ? env.NAIA_MEMORY_SURFACING_THRESHOLD
+        : surfConfig.override;
+      const threshold = resolveSurfacingThreshold(surfConfig.level, rawOverride);
+      surfacingPolicy = {
+        level: surfConfig.level,
+        threshold,
+        maxItems: SURFACING_THRESHOLD_MAX_ITEMS,
+      };
+      surfacingLlm = decision.mode === "on-llm" && runtime?.ok
         ? buildSubLlmProvider(runtime.config, { fetch: async (url, init) => fetch(url, init), temperature: null, maxTokens: SURFACING_LIMITS.maxOutputTokens })
         : undefined;
-      const next = decision.on ? `surfacing=on(${decision.provider}/${decision.model})` : `surfacing=off(${decision.reason})`;
+      let next;
+      if (decision.mode === "on-llm") {
+        next = `surfacing=on-llm(${decision.provider}/${decision.model}, cos>=${threshold})`;
+      } else if (decision.mode === "on-threshold") {
+        next = `surfacing=on-threshold(${decision.reason}, ${surfConfig.level}, cos>=${threshold})`;
+      } else {
+        next = `surfacing=off(${decision.reason})`;
+      }
       if (next !== surfacingLabel) process.stderr.write(`[naia-agent] memory ${next}\n`);
       surfacingLabel = next;
     } catch (e) {
+      surfacingMode = "off";
       surfacingLlm = undefined;
       surfacingLabel = "surfacing=off(error)";
       process.stderr.write(`[naia-agent] memory surfacing refresh failed (off): ${e instanceof Error ? e.message : String(e)}\n`);
@@ -736,10 +773,18 @@ export async function composeAgentRuntimeDeps(o = {}) {
         memory,
         ...(knowledgeBackend ? { knowledge: { search: (q, k) => knowledgeBackend.search(q, k) } } : {}),
         llm: () => surfacingLlm,
+        mode: () => surfacingMode,
+        policy: () => surfacingPolicy,
         diag,
       })
     : undefined;
   if (surfacer) cleanupFns.push(() => { surfacer.close().catch(() => undefined); });
+
+  if (memory && toolExecutor) {
+    const memorySkillExec = makeMemorySkillsExecutor({ memory });
+    toolExecutor = makeCompositeToolExecutor([toolExecutor, memorySkillExec]);
+    skillsLabel = `${skillsLabel} + memory-skill(skill_memory_recall)`;
+  }
 
   return {
     adkPath,

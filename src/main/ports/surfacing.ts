@@ -1,5 +1,5 @@
 // ports/surfacing — background small-LLM surfacing (nextain/naia-shell#692). The handler only consumes/schedules.
-import type { SurfacingTurn } from "../domain/surfacing.js";
+import type { SurfacingMode, SurfacingTurn, ThresholdPolicy } from "../domain/surfacing.js";
 
 export interface SurfacingSnapshot {
   /** Framed block for the system prompt; "" = the small LLM found nothing relevant. */
@@ -15,8 +15,12 @@ export interface SurfacingPort {
   consume(sessionId: string): SurfacingSnapshot | undefined;
   /** After a completed turn: starts the background job and returns immediately. Never throws, never blocks. */
   schedule(input: { readonly sessionId: string; readonly turns: readonly SurfacingTurn[] }): void;
-  /** Status only: true when a small LLM is configured and surfacing is enabled. */
-  active(): boolean;
+  /** Surfacing mode: "off" | "on-llm" | "on-threshold" (#693). */
+  mode(): SurfacingMode;
+  /** Active threshold policy for threshold-gated surfacing (#693). */
+  policy(): ThresholdPolicy;
+  /** @deprecated Use mode() === "on-llm" instead. */
+  active?(): boolean;
   /** Stops scheduling, aborts running jobs, waits for them. */
   close(): Promise<void>;
 }

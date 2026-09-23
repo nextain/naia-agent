@@ -4,16 +4,21 @@ import type { DiagnosticLog } from "../ports/uc1.js";
 import type { MemoryPort } from "../ports/memory.js";
 import type { SurfacingPort, SurfacingSnapshot } from "../ports/surfacing.js";
 import {
+  DEFAULT_SURFACING_THRESHOLD,
   SURFACING_LIMITS,
+  SURFACING_THRESHOLD_MAX_ITEMS,
   buildKnowledgeCandidates,
   buildMemoryCandidates,
   buildSurfacingMessages,
   formatSurfacedBlock,
   normalizeSurfacingTurns,
   parseSurfacingResponse,
+  resolveSurfacingThreshold,
   surfacingQuery,
   type SurfacingKnowledgeHit,
+  type SurfacingMode,
   type SurfacingTurn,
+  type ThresholdPolicy,
 } from "../domain/surfacing.js";
 import type { RecalledMemory } from "../domain/memory.js";
 
@@ -43,6 +48,10 @@ export interface MemorySurfacerDeps {
   readonly knowledge?: SurfacingKnowledgeSource;
   /** Current small LLM, re-read on every schedule; undefined = surfacing off. */
   readonly llm: () => SurfacingLlm | undefined;
+  /** Surfacing mode provider (#693). */
+  readonly mode?: () => SurfacingMode;
+  /** Active threshold policy provider (#693). */
+  readonly policy?: () => ThresholdPolicy;
   readonly diag: DiagnosticLog;
   readonly now?: () => number; // default Date.now
   readonly timeoutMs?: number; // default 8000 (whole job)
@@ -114,6 +123,45 @@ export function makeMemorySurfacer(deps: MemorySurfacerDeps): SurfacingPort {
   const modelUnavailableBackoffMs = deps.modelUnavailableBackoffMs ?? 10 * 60_000;
   const maxSessions = deps.maxSessions ?? 32;
 
+  const defaultPolicy: ThresholdPolicy = {
+    level: "normal",
+    threshold: DEFAULT_SURFACING_THRESHOLD,
+    maxItems: SURFACING_THRESHOLD_MAX_ITEMS,
+  };
+  const getMode = (): SurfacingMode => {
+    if (closed) return "off";
+    try {
+      if (deps.mode) {
+        const m = deps.mode();
+        return (m === "off" || m === "on-llm" || m === "on-threshold") ? m : "off";
+      }
+      return deps.llm() !== undefined ? "on-llm" : "off";
+    } catch {
+      return "off";
+    }
+  };
+  const getPolicy = (): ThresholdPolicy => {
+    if (!deps.policy) return defaultPolicy;
+    try {
+      const p = deps.policy();
+      const threshold = resolveSurfacingThreshold(undefined, p?.threshold);
+      const maxItems =
+        typeof p?.maxItems === "number" &&
+        Number.isInteger(p.maxItems) &&
+        p.maxItems >= 1 &&
+        p.maxItems <= 5
+          ? p.maxItems
+          : SURFACING_THRESHOLD_MAX_ITEMS;
+      return {
+        ...(p?.level !== undefined ? { level: p.level } : {}),
+        threshold,
+        maxItems,
+      };
+    } catch {
+      return defaultPolicy;
+    }
+  };
+
   function storeSnapshot(sessionId: string, gen: number, snapshot: SurfacingSnapshot): void {
     if (closed) return;
     if (generation.get(sessionId) !== gen) return;
@@ -128,8 +176,16 @@ export function makeMemorySurfacer(deps: MemorySurfacerDeps): SurfacingPort {
   }
 
   return {
+    mode(): SurfacingMode {
+      return getMode();
+    },
+
+    policy(): ThresholdPolicy {
+      return getPolicy();
+    },
+
     active(): boolean {
-      return !closed && deps.llm() !== undefined;
+      return getMode() === "on-llm";
     },
 
     consume(sessionId: string): SurfacingSnapshot | undefined {
@@ -141,6 +197,11 @@ export function makeMemorySurfacer(deps: MemorySurfacerDeps): SurfacingPort {
         }
         const nextGen = (generation.get(sessionId) ?? 0) + 1;
         generation.set(sessionId, nextGen);
+
+        if (getMode() !== "on-llm") {
+          results.delete(sessionId);
+          return undefined;
+        }
 
         const stored = results.get(sessionId);
         if (!stored) return undefined;
@@ -155,6 +216,7 @@ export function makeMemorySurfacer(deps: MemorySurfacerDeps): SurfacingPort {
     schedule(input: { readonly sessionId: string; readonly turns: readonly SurfacingTurn[] }): void {
       try {
         if (closed) return;
+        if (getMode() !== "on-llm") return;
         const llm = deps.llm();
         if (!llm) return;
         if (now() < unavailableUntil) return;
@@ -187,7 +249,7 @@ export function makeMemorySurfacer(deps: MemorySurfacerDeps): SurfacingPort {
           try {
             let mem: RecalledMemory | undefined;
             try {
-              mem = await raceSignal(deps.memory.recall(query), signal);
+              mem = await raceSignal(deps.memory.recall(query, { touch: false }), signal);
             } catch (e) {
               if (signal.aborted) throw e;
               mem = undefined;
