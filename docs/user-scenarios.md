@@ -460,6 +460,19 @@ ProviderPort). 옛 `<recall>` 마커·"부적절=실패" 도덕채점 폐기(SoT
 - **S-THINK-5 (스트림 idle 데드라인 — #114)**: 게이트웨이가 종료 신호 없이 무수신 hang 이면 마지막 청크
   이후 45초(상수, 주입 가능)에 스트림을 에러로 끊어 터미널 이벤트를 보장한다. 총시간 기준이 아니므로
   정상 장문 스트림은 절단되지 않는다.
+- **S-THINK-6 (턴 세기 선택 — #149)**: 셸이 턴마다 gRPC proto 필드 15(`ThinkingRequest thinking`, level: off/low/high) 또는
+  stdio `thinking: {level}`을 명시 전송할 때, 도메인 `resolveTurnThinking(req)` 단일 결정 지점에서 `ThinkingLevel | undefined`로
+  해석하여 `ProviderConfig.thinkingLevel`로 공급한다. 레벨 지정 시 `enableThinking = level !== "off"`로 동기화하며,
+  미지정 시 기존 `enableThinking` 동작을 유지한다.
+- **S-THINK-7 (게이트웨이 경로 생각 켜기 — #149)**: 게이트웨이(lab-proxy) 경로(`supportsThinkingLevel: true`)에서 턴 세기가
+  low/high일 때 요청 body에 `reasoning_effort: "low" | "high"`를 싣는다. off이거나 미지정일 때는 아무것도 싣지 않아(무전송)
+  기존 요청 바이트 및 캐시를 보존한다. 로컬 엔진의 `reasoning_effort: "none"` 동작은 무변경 유지된다.
+- **S-THINK-8 (도구 루프 생각 에코 — #149)**: 게이트웨이 경로(`echoReasoningContent: true`)의 한 턴 안 도구 루프에서
+  모델이 도구를 호출한 라운드의 생각(`round.thinking`)을 `ChatMessage.reasoningContent`에 보존하고, 다음 라운드 요청의
+  assistant(tool_calls) 메시지에 `reasoning_content`로 에코한다. 생각이 비어 있거나 에코 미지원 경로에서는 필드를 싣지 않는다.
+- **S-THINK-9 (스트림 응답 다중 형식 수용 — #149)**: OpenAI 호환 어댑터 스트림 파서는 `delta.reasoning_content`(문자열)와
+  게이트웨이 바깥 형식 `delta.reasoning?.content`(문자열)를 모두 thinking 청크로 수용한다. 단일 델타에 둘 다 존재할 경우
+  `reasoning_content`만 채택하여 중복을 방지한다.
 
 직교: 컨텍스트 예산(도구 스키마 미계상 / `finish` 에 잘림 사유 부재 / 잘림을 성공으로 오인)은 **별개 결함**
 (#80) 으로 분리 — 본 UC 는 "생각이 답변 예산을 잠식하는" 축만 닫는다.
@@ -725,6 +738,7 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 | UC-PROV-1 / FR-PROV-7 (로그인·workspace credential 동기화) | `src/test/uc-keychain-credentials.contract.test.ts`(login 전 부재·키 교체·workspace 분리·복호화 재시도), `src/test/discord-entry-wiring.contract.test.ts`(production DPAPI reader·SetWorkspace rollback 배선) |
 | UC-THINKING / S-THINK-1·2·3 / FR-THINK-1~4 | `src/test/uc-thinking.contract.test.ts` (요청 body 검증: enableThinking=false+로컬 → `reasoning_effort:"none"` / true·미지정 → 미전송 / **원격 baseUrl → 미전송**(400 회귀 방지) / `isLocalEngineBaseUrl` 순수 판별) |
 | UC-THINKING / S-THINK-4·5 / FR-THINK-5·6 (#114) | `src/test/uc1-openai-compat.contract.test.ts` — describe "#114 deepseek [THINK] 정규화" (①닫힘쌍 분리 ②미닫힘 thinking flush·text 무누출 ③청크 경계 분할 태그 ④literal [think] 트레이드오프 계약 ⑤flavor 대칭·꺾쇠 무회귀) + describe "#114 스트림 idle 데드라인" (hang → 데드라인 내 throw+reader.cancel / 연속 청크 무절단 / 기본 45s 상수) |
+| UC-THINKING / S-THINK-6~9 / FR-THINK-7~11 (#149) | `src/test/uc-thinking.contract.test.ts` (게이트웨이 off/low/high/미지정 reasoning_effort 무전송/전송, 로컬 off none 무변경, 원격 low 무전송, delta.reasoning.content 파싱 및 중복 방지, 도구 루프 reasoning_content 에코, grpc-codec thinking enum 디코드, resolveTurnThinking, threadToolRound 5인자) |
 | FR-CONT-MVP-1~4·9 / 개인 라디오 DJ | 계약/통합: `src/test/personal-radio-dj.contract.test.ts` (`DJ-01~08`: ended 전환 멘트→radio 검색 포함), `src/test/activity-radio-dj-bgm.contract.test.ts`(`mode=radio_dj`, 최근곡·즐겨찾기 status), `src/test/radio-dj-shell-handoff.integration.test.ts`(실 Controller+activity app adapter의 ended→전환 발화→radio play→playing 관측), `src/test/radio-dj-product-acceptance.contract.test.ts`(local tombstone 우선 Naia Memory recall), `src/test/speech-profile-runtime.integration.test.ts`(제어 사전 검증), `src/test/grpc-shutdown.contract.test.ts`(제어 ACK가 긴 작업을 기다리지 않음). 실제 Tauri: shell `71-proactive-speech-profiles.spec.ts`의 profile 저장·복원과 `94-avatar-4060-facade.spec.ts`의 A→B 교체·TRT 발화·끼어들기. |
 | FR-CONT-MVP-10 / #115 off-레이스·백오프·폴링 하한 | `src/test/personal-radio-dj.contract.test.ts` — describe "#115 radio DJ off-race·backoff·configure contract" (music_only churn 보존 / stop 후 churn start 미호출 / 동등 config·disabled 재전송 no-op / 연속실패 발화 1회+지수 백오프 단조 증가·상한 / 사용자 액션 리셋) + `src/test/activity-radio-dj-bgm.contract.test.ts` — describe "#115 BGM status 폴링 간격 하한" (주입 50ms → 1s 승격, wait ≥ 1000ms) |
 | FR-APP-6 / 앱 screenshot multimodal 전달 | `src/test/uc-app-skill.contract.test.ts`의 bounded data URI 추출·실패 격리, provider 계약 테스트의 OpenAI/Anthropic/Ollama image block 매핑, Shell `capture.rs`·`tab-skills.ts` 실제 PNG 반환 경로 |

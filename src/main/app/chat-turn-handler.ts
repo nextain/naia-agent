@@ -4,7 +4,7 @@ import type {
   ChatRequest, CancelRequest, ApprovalResponse, CredsUpdate, ChatTurnState, ChatMessage, ToolCall, ToolSpec, ToolProcessing, ProviderConfig, WireErrorCode,
   ToolExecutionResult,
 } from "../domain/chat.js";
-import { mapProviderChunk, threadToolRound, estimateMessageTokens } from "../domain/chat.js";
+import { mapProviderChunk, threadToolRound, estimateMessageTokens, resolveTurnThinking } from "../domain/chat.js";
 import { calculateCost } from "../domain/cost.js";
 import type {
   ProviderPort, ProviderResolverPort, ProcessingGuardPort, ConversationPort, CredentialPort, ApprovalPort, AgentEgressPort, DiagnosticLog, ToolExecutorPort, ProviderChatOpts, PersonaSourcePort, WorkspaceContextPort,
@@ -280,9 +280,12 @@ export class ChatTurnHandler {
 
     try {
       if (!activeConfig) { terminalError("no provider configured — naia-settings/llm.json 도 wire provider 도 없음"); return; }
+      const level = resolveTurnThinking(req);
       const providerConfig: ProviderConfig = {
         ...activeConfig,
-        ...(req.enableThinking !== undefined ? { enableThinking: req.enableThinking } : {}),
+        ...(level !== undefined
+          ? { thinkingLevel: level, enableThinking: level !== "off" }
+          : (req.enableThinking !== undefined ? { enableThinking: req.enableThinking } : {})),
         ...(this.d.credentials.get(activeConfig.provider) ?? {}),
       };
       type PlannedOperation = {
@@ -777,7 +780,7 @@ export class ChatTurnHandler {
           results.push(r);
         }
         if (cancelled || sawTerminal) break;
-        messages = threadToolRound(messages, round.text, threadedCalls, results);    // assistant(text+cid calls) + tool 메시지들 → 다음 라운드
+        messages = threadToolRound(messages, round.text, threadedCalls, results, round.thinking);    // assistant(text+cid calls) + tool 메시지들 → 다음 라운드
         // 첫 no-more-tool 발화 전까지의 기존 다중 도구 루프 전체를 고정 기준점에 포함한다.
         if (continuation && continuation.utterances === 0) continuation.baseMessages = messages;
       }

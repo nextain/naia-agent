@@ -255,8 +255,9 @@ async function doChat(args) {
     newRequestId: () => randomUUID(),
     ...(systemPrompt ? { systemPrompt } : {}),
     enableTools: !args.noTools,
-    // UC-THINKING — --no-think/--think. 미지정이면 필드 미전송(모델 기본 유지).
+    // UC-THINKING — --no-think/--think/--think=level. 미지정이면 필드 미전송(모델 기본 유지).
     ...(args.enableThinking !== undefined ? { enableThinking: args.enableThinking } : {}),
+    ...(args.thinking ? { thinking: args.thinking } : {}),
     sessionId: args.resume ?? `cli-${randomUUID()}`,
     ...(initialHistory ? { initialHistory } : {}),
     ...(process.env.NAIA_CHAT_VERBOSE === "1" ? { verbose: true } : {}),

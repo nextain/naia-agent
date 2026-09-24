@@ -3,7 +3,7 @@
 // ⚠️ 같은 파이프라인(NFR-CLI-shared): 여기서 만드는 ingress/egress 는 gRPC 와 **동일 `wireAgentUC1`** 에 주입되는
 //    AgentIngressPort/AgentEgressPort 어댑터다. 별도 대화 엔진/도구루프 신설 아님 — transport 표면만 stdio/readline.
 import type { AgentIngressPort, AgentEgressPort } from "../ports/uc1.js";
-import type { AgentRequest, AgentEmit, ChatMessage, ProviderConfig } from "../domain/chat.js";
+import type { AgentRequest, AgentEmit, ChatMessage, ProviderConfig, ThinkingLevel } from "../domain/chat.js";
 
 // ── provider → 기본 모델 / api-key env 이름 (login·auto-detect·flag 기본값) ──
 // 기본 모델: naia main=gemini-3.1-flash-lite, anthropic=claude-sonnet-4-6(메모리 정본). 그 외는 --model 필수.
@@ -32,10 +32,11 @@ export interface ChatArgs {
   readonly systemPrompt?: string;
   readonly once?: string;
   readonly noTools?: boolean;
-  /** UC-THINKING — 추론(thinking) 출력 on/off. 미지정=모델 기본. `--no-think` → false / `--think` → true.
+  /** UC-THINKING — 추론(thinking) 출력 on/off. 미지정=모델 기본. `--no-think` → false / `--think` → true / `--think=low|high|off`.
    *  ⚠️ 이게 없으면 CLI 로는 추론 모델의 "생각에 예산 다 쓰고 빈 답" 결함을 재현/검증할 수 없다
    *  (셸은 gRPC 로 보내지만 CLI 엔 표면이 없었다). */
   readonly enableThinking?: boolean;
+  readonly thinking?: { readonly level: ThinkingLevel };
   readonly provider?: string;
   readonly model?: string;
   readonly workspace?: string;     // --workspace <path> : 이번 실행만 적용(per-invocation override)
@@ -115,6 +116,7 @@ export function parseChatArgs(argv: readonly string[]): ParseResult {
   let once: string | undefined;
   let noTools = false;
   let enableThinking: boolean | undefined;
+  let thinking: { readonly level: ThinkingLevel } | undefined;
   let provider: string | undefined;
   let model: string | undefined;
   let workspace: string | undefined;
@@ -134,8 +136,11 @@ export function parseChatArgs(argv: readonly string[]): ParseResult {
       case "--once": { const v = needsValue(); if (v === undefined) return { ok: false, error: `${t} 에 값이 필요합니다` }; once = v; break; }
       case "--no-tools": noTools = true; break;
       // UC-THINKING: 추론 출력 제어. 미지정 시 필드 자체를 안 실어 모델 기본을 유지(무회귀).
-      case "--no-think": enableThinking = false; break;
-      case "--think": enableThinking = true; break;
+      case "--no-think": enableThinking = false; thinking = undefined; break;
+      case "--think": enableThinking = true; thinking = undefined; break;
+      case "--think=low": enableThinking = true; thinking = { level: "low" }; break;
+      case "--think=high": enableThinking = true; thinking = { level: "high" }; break;
+      case "--think=off": enableThinking = false; thinking = { level: "off" }; break;
       case "--provider": { const v = needsValue(); if (v === undefined) return { ok: false, error: `${t} 에 값이 필요합니다` }; provider = v; break; }
       case "--model": { const v = needsValue(); if (v === undefined) return { ok: false, error: `${t} 에 값이 필요합니다` }; model = v; break; }
       case "--workspace": { const v = needsValue(); if (v === undefined) return { ok: false, error: `${t} 에 값이 필요합니다` }; workspace = v; break; }
@@ -146,7 +151,12 @@ export function parseChatArgs(argv: readonly string[]): ParseResult {
         if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(v)) return { ok: false, error: "안전하지 않은 session id" };
         resume = v; break;
       }
-      default: return { ok: false, error: `알 수 없는 인자: ${t}\n\n${CHAT_USAGE}` };
+      default: {
+        if (t.startsWith("--think=")) {
+          return { ok: false, error: `--think 에는 low, high, off 만 가능합니다 (입력: ${t.slice(8)})\n\n${CHAT_USAGE}` };
+        }
+        return { ok: false, error: `알 수 없는 인자: ${t}\n\n${CHAT_USAGE}` };
+      }
     }
   }
 
@@ -163,6 +173,7 @@ export function parseChatArgs(argv: readonly string[]): ParseResult {
       ...(once !== undefined ? { once } : {}),
       ...(noTools ? { noTools } : {}),
       ...(enableThinking !== undefined ? { enableThinking } : {}),
+      ...(thinking !== undefined ? { thinking } : {}),
       ...(provider !== undefined ? { provider } : {}),
       ...(model !== undefined ? { model } : {}),
       ...(workspace !== undefined ? { workspace } : {}),
@@ -295,6 +306,7 @@ export interface ReplConversationOpts {
   enableTools?: boolean;
   /** UC-THINKING — 추론 출력 on/off. 미지정 = 필드 미전송(모델 기본, 무회귀). */
   enableThinking?: boolean;
+  thinking?: { readonly level: ThinkingLevel };
   sessionId?: string;
   /** thinking/도구 이벤트 표시(기본 false=조용). */
   verbose?: boolean;
@@ -332,6 +344,7 @@ export function makeReplConversation(opts: ReplConversationOpts): ReplConversati
       ...(opts.systemPrompt ? { systemPrompt: opts.systemPrompt } : {}),
       ...(opts.enableTools !== undefined ? { enableTools: opts.enableTools } : {}),
       ...(opts.enableThinking !== undefined ? { enableThinking: opts.enableThinking } : {}),
+      ...(opts.thinking ? { thinking: opts.thinking } : {}),
       ...(opts.sessionId ? { sessionId: opts.sessionId } : {}),
     };
     routeCb(req);

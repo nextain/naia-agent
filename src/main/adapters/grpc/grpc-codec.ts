@@ -1,7 +1,7 @@
 // adapters/grpc/grpc-codec — proto(naia_agent.proto) ↔ domain 순수 매핑.
 // stdio 의 protocol.ts(decodeRequest/encodeEmit) 와 동형 — transport 만 다름(직교). gRPC 의존 없음(순수, 테스트 가능).
 // proto 메시지는 @grpc/proto-loader 가 런타임 로드하는 plain object → 여기서 도메인 타입으로 변환.
-import type { AgentRequest, AgentEmit, ChatMessage } from "../../domain/chat.js";
+import type { AgentRequest, AgentEmit, ChatMessage, ThinkingLevel } from "../../domain/chat.js";
 import { decodeEnvironmentSegments } from "../protocol.js";
 
 // proto-shaped 입력(proto-loader plain object; 필드명 = proto snake_case 또는 camelCase — loader keepCase=false 가정 camelCase).
@@ -25,6 +25,7 @@ export interface PbChatRequest {
   environmentSegmentsJson?: string;
   enableTools?: boolean;
   enableThinking?: boolean;
+  thinking?: { level?: number | string };
   gatewayUrl?: string;
   disabledSkills?: string[];
   activityResume?: {
@@ -65,6 +66,9 @@ export function chatRequestToDomain(p: PbChatRequest): Extract<AgentRequest, { k
     ...(p.environmentSegmentsJson ? { environmentSegments: decodeEnvironmentSegments(parseJsonSafe(p.environmentSegmentsJson)) } : {}),
     ...(p.enableTools !== undefined ? { enableTools: p.enableTools } : {}),
     ...(p.enableThinking !== undefined ? { enableThinking: p.enableThinking } : {}),
+    ...(decodeThinkingLevel(p.thinking?.level) !== undefined
+      ? { thinking: { level: decodeThinkingLevel(p.thinking?.level)! } }
+      : {}),
     ...(p.gatewayUrl !== undefined ? { gatewayUrl: p.gatewayUrl } : {}),
     ...(p.disabledSkills !== undefined ? { disabledSkills: p.disabledSkills } : {}),
     ...(p.activityResume ? {
@@ -184,4 +188,11 @@ function enumUpper(value: string): string {
 function enumText(value: unknown, numeric: Readonly<Record<number, string>>): string {
   if (typeof value === "number") return numeric[value] ?? "";
   return String(value ?? "").toLowerCase().replaceAll("_", "-");
+}
+
+function decodeThinkingLevel(raw: unknown): ThinkingLevel | undefined {
+  if (raw === 1 || raw === "THINKING_LEVEL_OFF") return "off";
+  if (raw === 2 || raw === "THINKING_LEVEL_LOW") return "low";
+  if (raw === 3 || raw === "THINKING_LEVEL_HIGH") return "high";
+  return undefined;
 }

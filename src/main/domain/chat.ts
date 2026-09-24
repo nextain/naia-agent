@@ -1,6 +1,8 @@
 // domain/chat — UC1 agent(brain) (계약 §B.1). 순수. I/O·wire 0.
 // 공유 wire 경계(H-agent)에 conform: AgentRequest=os AgentOutbound 1:1, AgentEmit=os chat-turn AgentMessage.
 
+export type ThinkingLevel = "off" | "low" | "high";
+
 export interface ProviderConfig {
   readonly provider: string;
   readonly model: string;
@@ -10,6 +12,7 @@ export interface ProviderConfig {
 	readonly vllmHost?: string;
   readonly labGatewayUrl?: string;
   readonly enableThinking?: boolean;
+  readonly thinkingLevel?: ThinkingLevel;
   readonly ollamaNumCtx?: number;
   readonly apiKey?: string;   // creds_update 채널로만 적재(chat_request wire 엔 없음)
   readonly naiaKey?: string;
@@ -85,6 +88,7 @@ export interface ChatMessage {
   readonly content: string;
   readonly toolCalls?: readonly ToolCall[]; // assistant 전용 — UC5 도구 라운드(없으면 미설정)
   readonly toolCallId?: string;             // tool 전용 — 결과 메시지가 어느 call 에 대응하는지 결속
+  readonly reasoningContent?: string;       // assistant 전용 — 도구 루프 에코 (#149)
   readonly attachments?: readonly AttachmentRef[];
   /** Tool-produced image bytes that are safe to send directly to a vision-capable provider. */
   readonly inlineImages?: readonly InlineImage[];
@@ -209,6 +213,7 @@ export interface ChatRequest {
   readonly environmentSegments?: readonly EnvironmentSegment[];
   readonly enableTools?: boolean;
   readonly enableThinking?: boolean; // top-level (agent 가 providerConfig 에 주입)
+  readonly thinking?: { readonly level: ThinkingLevel }; // 턴 단위 생각 세기 (#149)
   readonly gatewayUrl?: string;
   readonly disabledSkills?: readonly string[];
   /** UC-CONT-MVP-6 — YieldSpeechActivity가 발급한 profile-bound Q&A 결속. app이 검증하기 전에는 권한 없음. */
@@ -222,6 +227,14 @@ export interface ChatRequest {
   readonly grounding?: GroundingRequest;
   readonly providerSession?: ProviderSessionRequest;
   readonly processing?: ProcessingRequest;
+}
+
+/**
+ * 턴 세기를 정하는 유일한 지점 — 향후 조언자(#147) 연결점.
+ * 오늘 규칙: req.thinking?.level 그대로(없으면 undefined).
+ */
+export function resolveTurnThinking(req: ChatRequest): ThinkingLevel | undefined {
+  return req.thinking?.level;
 }
 export interface CancelRequest { readonly kind: "cancel"; readonly requestId: string; readonly activityId?: string; }
 export interface ApprovalResponse {
@@ -301,8 +314,14 @@ export function threadToolRound(
   roundText: string,
   calls: readonly ToolCall[],
   results: readonly ToolExecutionResult[],
+  roundThinking?: string,
 ): readonly ChatMessage[] {
-  const assistant: ChatMessage = { role: "assistant", content: roundText, toolCalls: calls };
+  const assistant: ChatMessage = {
+    role: "assistant",
+    content: roundText,
+    toolCalls: calls,
+    ...(roundThinking ? { reasoningContent: roundThinking } : {}),
+  };
   const toolMsgs: ChatMessage[] = calls.map((c, i) => ({ role: "tool", toolCallId: c.id, content: results[i]?.output ?? "" }));
   const imageMessages: ChatMessage[] = [];
   for (const [index, result] of results.entries()) {
