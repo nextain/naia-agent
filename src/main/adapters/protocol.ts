@@ -8,6 +8,7 @@ import type {
   EnvironmentSegment,
   GroundingRequest,
   ProviderSessionRequest,
+  ThinkingLevel,
 } from "../domain/chat.js";
 
 /** wire environmentSegments(unknown) → EnvironmentSegment[] 안전 디코드(S4). 화이트리스트(avatarEmotion|app|responseStyle) 외 드롭.
@@ -91,6 +92,16 @@ export function decodeRequest(line: string): AgentRequest | null {
         ...(o["environmentSegments"] !== undefined ? { environmentSegments: decodeEnvironmentSegments(o["environmentSegments"]) } : {}),
         ...(o["enableTools"] !== undefined ? { enableTools: !!o["enableTools"] } : {}),
         ...(o["enableThinking"] !== undefined ? { enableThinking: !!o["enableThinking"] } : {}),
+        ...(() => {
+          const t = o["thinking"];
+          if (t && typeof t === "object") {
+            const level = (t as Record<string, unknown>)["level"];
+            if (level === "off" || level === "low" || level === "high") {
+              return { thinking: { level: level as ThinkingLevel } };
+            }
+          }
+          return {};
+        })(),
         ...(o["gatewayUrl"] !== undefined ? { gatewayUrl: str(o["gatewayUrl"]) } : {}),
         ...(o["disabledSkills"] !== undefined ? { disabledSkills: o["disabledSkills"] as string[] } : {}),
         ...(decodeChannel(o["channel"]) ? { channel: decodeChannel(o["channel"])! } : {}),

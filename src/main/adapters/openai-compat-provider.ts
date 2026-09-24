@@ -12,7 +12,11 @@ type FetchLike = (url: string, init: { method: string; headers: Record<string, s
 }>;
 
 /** ChatMessage[] → OpenAI wire messages (§C.1). assistant.toolCalls·tool role 매핑, content null 규약. */
-function toWireMessages(systemPrompt: string | undefined, messages: readonly ChatMessage[]): Array<Record<string, unknown>> {
+function toWireMessages(
+  systemPrompt: string | undefined,
+  messages: readonly ChatMessage[],
+  opts?: { echoReasoningContent?: boolean },
+): Array<Record<string, unknown>> {
   const wire: Array<Record<string, unknown>> = [];
   if (systemPrompt) wire.push({ role: "system", content: systemPrompt });
   for (const m of messages) {
@@ -21,6 +25,7 @@ function toWireMessages(systemPrompt: string | undefined, messages: readonly Cha
         role: "assistant",
         content: m.content === "" ? null : m.content, // content "" + toolCalls → null (OpenAI 규약)
         tool_calls: m.toolCalls.map((c) => ({ id: c.id, type: "function", function: { name: c.name, arguments: JSON.stringify(c.args) } })),
+        ...(opts?.echoReasoningContent && m.reasoningContent ? { reasoning_content: m.reasoningContent } : {}),
       });
     } else if (m.role === "tool") {
       if (!m.toolCallId) throw new Error("tool message missing toolCallId"); // §C.1 — skip 금지(대응 깨짐)
@@ -217,7 +222,20 @@ function splitFirstJsonValue(raw: string): { value: string; rest: string } | nul
 	return null;
 }
 
-export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string; model?: string; auth?: "bearer" | "x-anyllm"; supportsReasoningEffort?: boolean; supportsTools?: boolean; promptCacheShard?: boolean; maxTokens?: number; idleTimeoutMs?: number; fetch?: FetchLike }): ProviderPort {
+export function makeOpenAICompatProvider(deps: {
+  baseUrl: string;
+  apiKey: string;
+  model?: string;
+  auth?: "bearer" | "x-anyllm";
+  supportsReasoningEffort?: boolean;
+  supportsThinkingLevel?: boolean;
+  echoReasoningContent?: boolean;
+  supportsTools?: boolean;
+  promptCacheShard?: boolean;
+  maxTokens?: number;
+  idleTimeoutMs?: number;
+  fetch?: FetchLike;
+}): ProviderPort {
   const doFetch: FetchLike = deps.fetch ?? (globalThis.fetch as unknown as FetchLike);
   const base = deps.baseUrl.replace(/\/+$/, "");
   // ⚠️ x-anyllm(naia lab-proxy): 게이트웨이는 `Bearer <token>` 형식 요구(old lab-proxy.ts 와 동일).
@@ -227,7 +245,7 @@ export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string
     : { Authorization: `Bearer ${deps.apiKey}` };
   return {
     async *chat(config: ProviderConfig, messages: readonly ChatMessage[], opts: ProviderChatOpts): AsyncIterable<ProviderChunk> {
-      const wireMsgs = toWireMessages(opts.systemPrompt, messages); // tool 메시지 toolCallId 누락 시 throw(§C.1)
+      const wireMsgs = toWireMessages(opts.systemPrompt, messages, { echoReasoningContent: deps.echoReasoningContent }); // tool 메시지 toolCallId 누락 시 throw(§C.1)
       const toolsBody = deps.supportsTools !== false && opts.tools && opts.tools.length > 0
         ? opts.tools.map((s) => ({ type: "function", function: { name: s.name, description: s.description, parameters: s.parameters } }))
         : undefined;
@@ -235,10 +253,15 @@ export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string
       //   현상 차단(실측: 빈 응답의 finish_reason 은 length 가 아니라 stop → 컨텍스트를 키워도 안 낫는다).
       //   OpenAI-compat wire 에서 듣는 스위치는 `reasoning_effort:"none"` 뿐(think:false·chat_template_kwargs·
       //   /no_think 전부 무시됨 — 2026-07-14 ollama 0.32.0 실측).
-      //   ⚠️ **로컬 엔진에만**(supportsReasoningEffort) — 셸이 enableThinking:false 를 기본 전송하므로
+      //   ⚠️ **로컬 엔진에만**(supportsReasoningEffort) — 셸이 설정을 저장했을 때만 enableThinking:false 를 전송하므로
       //      게이트 없이 붙이면 gpt-4o 등 비추론 원격 모델이 400 난다(FR-THINK-2).
       //   enableThinking 이 true/미지정이면 아무 것도 싣지 않는다(무회귀 — 추론 모델 기본=생각 켬).
-      const noThinkBody = deps.supportsReasoningEffort === true && config.enableThinking === false
+      // FR-THINK-9: 게이트웨이 경로(supportsThinkingLevel)는 low/high 일 때만 reasoning_effort 전송. off/미지정은 무전송.
+      // 둘이 동시에 켜질 수 없음을 코드로 보장(게이트웨이 경로는 supportsReasoningEffort=false).
+      const thinkingLevelBody = deps.supportsThinkingLevel && (config.thinkingLevel === "low" || config.thinkingLevel === "high")
+        ? { reasoning_effort: config.thinkingLevel }
+        : undefined;
+      const noThinkBody = !deps.supportsThinkingLevel && deps.supportsReasoningEffort === true && config.enableThinking === false
         ? { reasoning_effort: "none" as const }
         : undefined;
       const requestModel = deps.model ?? config.model;
@@ -249,7 +272,7 @@ export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string
       const resp = await doFetch(`${base}/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeader },
-        body: JSON.stringify({ model: requestModel, messages: wireMsgs, stream: true, stream_options: { include_usage: true }, ...(deps.maxTokens ? { max_tokens: deps.maxTokens } : {}), ...(toolsBody ? { tools: toolsBody } : {}), ...(noThinkBody ?? {}), ...(promptCacheBody ?? {}) }),
+        body: JSON.stringify({ model: requestModel, messages: wireMsgs, stream: true, stream_options: { include_usage: true }, ...(deps.maxTokens ? { max_tokens: deps.maxTokens } : {}), ...(toolsBody ? { tools: toolsBody } : {}), ...(noThinkBody ?? {}), ...(thinkingLevelBody ?? {}), ...(promptCacheBody ?? {}) }),
         ...(opts.signal ? { signal: opts.signal } : {}),
       });
       if (!resp.ok || !resp.body) {
@@ -283,7 +306,15 @@ export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string
         try { evt = JSON.parse(t); } catch { return []; } // 손상 SSE 줄 skip
         if (!evt || typeof evt !== "object") return [];
         const o = evt as {
-          choices?: { finish_reason?: unknown; delta?: { content?: string; reasoning_content?: string; tool_calls?: Array<{ index?: unknown; id?: unknown; type?: unknown; function?: { name?: unknown; arguments?: unknown } }> } }[];
+          choices?: {
+            finish_reason?: unknown;
+            delta?: {
+              content?: string;
+              reasoning_content?: string;
+              reasoning?: { content?: string };
+              tool_calls?: Array<{ index?: unknown; id?: unknown; type?: unknown; function?: { name?: unknown; arguments?: unknown } }>;
+            };
+          }[];
           usage?: { prompt_tokens?: number; completion_tokens?: number }; error?: unknown;
         };
         if (o.error) throw new Error(`OpenAI-compat stream error: ${JSON.stringify(o.error)}`);
@@ -291,7 +322,10 @@ export function makeOpenAICompatProvider(deps: { baseUrl: string; apiKey: string
         const rawFinishReason = o.choices?.[0]?.finish_reason;
         if (typeof rawFinishReason === "string" && rawFinishReason !== "") finishReason = rawFinishReason;
         const delta = o.choices?.[0]?.delta;
-        if (delta?.reasoning_content) out.push({ kind: "thinking", text: delta.reasoning_content });
+        const thinkingText = typeof delta?.reasoning_content === "string"
+          ? delta.reasoning_content
+          : (typeof delta?.reasoning?.content === "string" ? delta.reasoning.content : undefined);
+        if (thinkingText) out.push({ kind: "thinking", text: thinkingText });
         if (delta?.content) out.push(...thinkingFilter.push(delta.content));
         const tcs = delta?.tool_calls;
         if (Array.isArray(tcs)) {

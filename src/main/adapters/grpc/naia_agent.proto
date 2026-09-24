@@ -123,6 +123,9 @@ enum ProcessingDecision {
   CONFIRMATION_REQUIRED = 3;
 }
 
+enum ThinkingLevel { THINKING_LEVEL_UNSPECIFIED = 0; THINKING_LEVEL_OFF = 1; THINKING_LEVEL_LOW = 2; THINKING_LEVEL_HIGH = 3; }
+message ThinkingRequest { ThinkingLevel level = 1; }
+
 // 현 protocol.ts chat_request 전 필드 보존 (R1-1: enableThinking/gatewayUrl/disabledSkills 누락 금지). provider 제거(정본).
 message ChatRequest {
   string request_id = 1;
@@ -141,6 +144,8 @@ message ChatRequest {
   optional GroundingRequest grounding = 12;
   optional ProviderSessionRequest provider_session = 13;
   optional ProcessingRequest processing = 14;
+  // 턴 단위 생각(끔/낮음/높음) (#149)
+  optional ThinkingRequest thinking = 15;
 }
 
 message ActivityResume {
