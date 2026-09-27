@@ -109,4 +109,20 @@ describe("UC5 실 스킬 (§E)", () => {
     const ex = makeBuiltinSkillsExecutor({ clock: () => new Date("invalid") });
     expect((await ex.execute(CALL("get_time"), {})).isError).toBe(true);
   });
+
+  it("(q) memo_save description: explicit memo request only, never for pure 기억해줘", () => {
+    const specs = makeBuiltinSkillsExecutor().specs();
+    const memoSave = specs.find((s) => s.name === "memo_save");
+    expect(memoSave).toBeDefined();
+    expect(memoSave?.description).toContain("메모 저장(승인 필요)");
+    expect(memoSave?.description).toContain("인자: {title, content}");
+    expect(memoSave?.description).toContain("명시적으로");
+    expect(memoSave?.description).toContain("메모 작성해줘");
+    expect(memoSave?.description).toContain("save a note");
+    expect(memoSave?.description).toContain("기억해줘");
+    expect(memoSave?.description).toContain("remember this");
+    expect(memoSave?.description).toContain("순수");
+    expect(memoSave?.description).not.toContain("절대 호출하지 마세요");
+    expect(memoSave?.description).not.toContain("장기기억에 자동 저장");
+  });
 });

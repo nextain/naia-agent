@@ -25,7 +25,7 @@ const TOOLS: readonly ToolSpec[] = [
   { name: "get_weather", description: "위경도 현재 날씨. 인자: {latitude, longitude}", parameters: { type: "object", properties: { latitude: { type: "number" }, longitude: { type: "number" } }, required: ["latitude", "longitude"] }, processing: { workload: "network_tool", destination: "external_cloud", provider: "open-meteo", model: "current-weather" } },
   { name: "memo_list", description: "저장된 메모 제목 목록.", parameters: { type: "object", properties: {} } },
   { name: "memo_get", description: "제목으로 메모 내용 조회. 인자: {title}", parameters: { type: "object", properties: { title: { type: "string" } }, required: ["title"] } },
-  { name: "memo_save", description: "메모 저장(승인 필요). 인자: {title, content}", parameters: { type: "object", properties: { title: { type: "string" }, content: { type: "string" } }, required: ["title", "content"] }, tier: "ask" },
+  { name: "memo_save", description: "메모 저장(승인 필요). 사용자가 메모/노트를 명시적으로 요청한 경우에만 호출(예: 메모 작성해줘, save a note 등 모든 명시적 메모/노트 요청). 순수 \"기억해줘\" 또는 \"remember this\" 형태의 요청에는 호출하지 마세요(명시적 메모 요청이 함께 포함된 경우는 메모 요청으로 취급하여 호출). 인자: {title, content}", parameters: { type: "object", properties: { title: { type: "string" }, content: { type: "string" } }, required: ["title", "content"] }, tier: "ask" },
 ];
 
 const ok = (output: string): { output: string } => ({ output });
