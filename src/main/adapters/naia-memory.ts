@@ -15,7 +15,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ManagedMemoryPort, MemoryRecallOptions } from "../ports/memory.js";
 import type { CompactionPort, CompactionRequest, CompactionResult, HandoffBlob } from "../ports/compaction.js";
-import { maskSecretShapes, type RecalledMemory } from "../domain/memory.js";
+import { maskSecretShapes, stripAssistantMemoryTags, type RecalledMemory } from "../domain/memory.js";
 
 const QUERY_CAP = 4000;   // recall query 입력 상한(embedding 비용 bound).
 const SAVE_CAP = 20000;   // save 원문(턴당, user/assistant 각각) 상한(디스크/flush 비용 bound).
@@ -498,9 +498,10 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
           ? { idempotencyKey: `${opts.idempotencyKey}:user` }
           : {}),
       }, { project, sessionId });
-      if (assistantText.trim()) {
+      const cleanAssistantText = stripAssistantMemoryTags(assistantText);
+      if (cleanAssistantText.trim()) {
         await sys.encode({
-          content: capInput(assistantText, SAVE_CAP),
+          content: capInput(cleanAssistantText, SAVE_CAP),
           role: "assistant",
           ...(opts?.idempotencyKey
             ? { idempotencyKey: `${opts.idempotencyKey}:assistant` }
