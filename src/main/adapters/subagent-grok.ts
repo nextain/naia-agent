@@ -18,9 +18,11 @@ export type { SpawnFn, ResolvedBin };
 export interface SubAgentGrokOptions {
   readonly model?: string;
   readonly skipPermissions?: boolean;
+  readonly permissionMode?: string;
   readonly hardKillDeadlineMs?: number;
   readonly resolveBin?: () => ResolvedBin;
   readonly spawnFn?: SpawnFn;
+  readonly env?: NodeJS.ProcessEnv;
 }
 
 function validateGrokBin(raw: string | undefined): string | undefined {
@@ -86,13 +88,18 @@ export function makeGrokSubAgent(opts: SubAgentGrokOptions = {}): SubAgentPort {
         "--cwd", task.workdir,
       ];
       if (model) args.push("-m", model);
-      if (opts.skipPermissions) args.push("--always-approve");
+      if (opts.skipPermissions) {
+        args.push("--always-approve");
+      } else {
+        const mode = opts.permissionMode ?? "acceptEdits";
+        if (mode) args.push("--permission-mode", mode);
+      }
       return spawnSubprocessSession({
         spawnFn,
         bin,
         args,
         cwd: task.workdir,
-        env: grokSubscriptionEnv(),
+        env: grokSubscriptionEnv(opts.env ?? process.env),
         hardKillMs,
         lineToEvent: createGrokLineParser(),
         label: "grok",

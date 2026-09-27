@@ -414,7 +414,7 @@ RPC만 추가하며, 별도 셸 반복 상태 머신은 만들지 않는다.
 | FR-CODEX-1 | Codex provider는 API key를 복사하지 않고 로컬 로그인과 app-server를 사용하며 현재 protocol의 experimental dynamic tool 계약을 따른다. | Done |
 | FR-CODEX-2 | `tier=none`이고 외부 처리 metadata가 없는 등록 도구만 app-server에 광고하고, server tool request에 같은 call id의 결과를 응답한다. | Done |
 | FR-CODEX-3 | provider-native 도구 실행은 toolUse/toolResult로 관측되되 기존 handler가 두 번 실행하지 않는다. | Done |
-| FR-CODEX-4 | desktop/Discord host의 `delegate_agent`는 설정된 `expert/main/sub` 역할만 허용하고 host가 선택한 단일 workspace 실경로에 고정하며 model의 workdir override를 거부한다. Codex 역할은 Pi의 `openai-codex` 계정/OAuth provider로 실행하고 OpenAI API-key 경로나 임의 roster/OpenCode fallback은 허용하지 않는다. | Done |
+| FR-CODEX-4 | desktop/Discord host의 `delegate_agent`는 설정된 `expert/main/sub` 역할만 허용하고 host가 선택한 단일 workspace 실경로에 고정하며 model의 workdir override를 거부한다. Codex 역할은 전용 subagent-codex CLI 어댑터로 실행하며(FR-PI-ROLE-6), OpenAI API-key 경로나 임의 roster/OpenCode fallback은 허용하지 않는다. | Done |
 | FR-CODEX-5 | Discord는 도구 시작·성공·실패를 원래 reply에 직렬 전송하되 args/output/call id와 mention 가능한 도구명을 반사하지 않는다. | Done |
 | FR-CODEX-6 | Host가 선택한 canonical workspace root(`SetWorkspace` / `NAIA_ADK_PATH`)가 있으면 Codex app-server thread cwd와 fs-tools allow-root는 그 루트다. OS temp로 떨어지지 않는다. `environmentTerminalInput`이 켜진 때만 sandbox가 `workspace-write`이고, 꺼져 있으면 같은 루트에서 `read-only`다. Naia write/github 도구를 되돌리지 않는다. | Done |
 
@@ -455,11 +455,11 @@ RPC만 추가하며, 별도 셸 반복 상태 머신은 만들지 않는다.
 - **NFR-OUTBOUND-delivery**: ambiguous network outcomes are honestly recorded; durable outbox/idempotency prevents claiming a duplicate send as success.
 - **NFR-SCHEDULE-provider-neutral**: persisted schedules have no Codex/PI-specific schema fields.
 
-## UC-020 FR/NFR ? Pi-only three-tier role execution
+## UC-020 FR/NFR ? three-tier role execution (CLI workers + Pi)
 
 - **FR-PI-ROLE-1**: Agent resolves the four stored LLM roles `main`, `sub`, `memory`, and `expert`; `expert/main/sub` are the development tiers while `memory` remains orthogonal.
-- **FR-PI-ROLE-2**: A Shell/Agent development task selects `expert`, `main`, or `sub` and creates a supervised Pi session using its resolved provider/model.
-- **FR-PI-ROLE-3**: This route permits only Pi-supported account providers (`codex`, `claude-code-cli`/`anthropic`, `nextain`/`naia`) and fails closed for unknown, incomplete, local OpenAI-compatible, or OpenCode selections before spawn.
+- **FR-PI-ROLE-2**: A Shell/Agent development task selects `expert`, `main`, or `sub` and creates a supervised session routing configured CLI workers (Codex, Claude Code CLI, Grok) to dedicated adapters or falling back to Pi per FR-PI-ROLE-6.
+- **FR-PI-ROLE-3**: This route permits only configured CLI workers (`codex`, `claude-code-cli`, `grok`) and Pi fallback account providers (`anthropic`, `nextain`/`naia`) per FR-PI-ROLE-6, failing closed for unknown, incomplete, local OpenAI-compatible, or OpenCode selections before spawn.
 - **FR-PI-ROLE-4**: Workspace selection or settings reload replaces the role resolution used by the next delegation; an already captured startup profile must never be reused. If a role changes after processing authorization but before spawn, the mismatched delegation fails without a provider call.
 - **FR-PI-ROLE-5**: Naia-account roles accept only the Agent-owned, tool-capable Pi model catalog and receive the OS-keychain credential through a child-only environment at spawn time. The Agent does not silently strip tools by model; only an explicit caller `noTools` request disables them.
 - **NFR-PI-ROLE-1**: Every Pi child receives an allowlisted process environment. Account providers retain
@@ -467,7 +467,8 @@ RPC만 추가하며, 별도 셸 반복 상태 머신은 만들지 않는다.
   credentials are removed. A Naia-account child receives only its exact child-scoped Naia key and billing
   bindings; credential references remain opaque configuration metadata.
 - **NFR-PI-ROLE-2**: Agent preserves Supervisor cancellation/event/report semantics for every Pi role session.
-- **NFR-PI-ROLE-3**: A Discord-originated role delegation declares the selected role's provider/model as a separate `sub_llm` operation. The trusted channel processing profile must authorize and disclose it before Pi starts; missing or unclassifiable metadata fails closed.
+- **NFR-PI-ROLE-3**: A Discord-originated role delegation declares the selected role's provider/model as a separate `sub_llm` operation. The trusted channel processing profile must authorize and disclose it before the delegated session starts (codex, claude-code-cli and grok roles run through their own CLI worker; all other permitted providers go through Pi per FR-PI-ROLE-6); missing or unclassifiable metadata fails closed.
+- **FR-PI-ROLE-6**: Configured development roles (`expert/main/sub`) route `codex`, `claude-code-cli`, and `grok` to their respective CLI worker adapters (`subagent-codex`, `subagent-claude-code`, `subagent-grok`), while other permitted account providers fallback to Pi. Unknown providers fail closed.
 
 ## UC-021 FR/NFR — AnyLLM-backed Naia providers
 

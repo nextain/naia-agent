@@ -21,19 +21,31 @@ import type { SubAgentPort, SubAgentSession } from "../ports/orchestration.js";
 import {
   DEFAULT_HARD_KILL_DEADLINE_MS, defaultSpawn, spawnSubprocessSession, endedSession,
   type SpawnFn, type ResolvedBin, type LineToEvent, pickSpawnableBin, resolveSpawnableBin, resolveFallbackCommand,
+  buildIsolatedSubprocessEnv,
 } from "./subprocess-session.js";
 
 export type { SpawnFn, ResolvedBin };
+
+/**
+ * Isolated child environment for Claude Code CLI sub-agent.
+ * Allowlisted system/path/home/temp keys plus Claude's own config location vars.
+ */
+export function claudeWorkerEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  return buildIsolatedSubprocessEnv(base, ["CLAUDE_CONFIG_DIR", "ANTHROPIC_CONFIG_DIR"]);
+}
 
 export interface SubAgentClaudeCodeOptions {
   /** --model 로 전달(옵셔널). TaskSpec.model 보다 우선(어댑터 고정 모델). */
   readonly model?: string;
   /** --dangerously-skip-permissions(기본 false). sub-agent 자율 구동 시 true 권장. */
   readonly skipPermissions?: boolean;
+  /** permission mode to run non-interactively (기본: "acceptEdits"). */
+  readonly permissionMode?: string;
   readonly hardKillDeadlineMs?: number;
   /** bin 해석 주입(테스트/override). 미주입 = resolveClaudeCodeBin(env→PATH→npx). */
   readonly resolveBin?: () => ResolvedBin;
   readonly spawnFn?: SpawnFn;
+  readonly env?: NodeJS.ProcessEnv;
 }
 
 // ── bin resolution (pi/opencode 동형 패턴: env 절대경로 검증 → PATH → npx fallback) ──
@@ -157,13 +169,25 @@ export function makeClaudeCodeSubAgent(opts: SubAgentClaudeCodeOptions = {}): Su
         return endedSession(`claude-code unavailable: ${(e as Error).message}`);
       }
       const model = opts.model ?? task.model;
-      // -p <prompt> --output-format stream-json --verbose [--model X] [--dangerously-skip-permissions]
+      // -p <prompt> --output-format stream-json --verbose [--model X] [--dangerously-skip-permissions | --permission-mode <mode> --add-dir <workdir>]
       const args: string[] = ["-p", task.prompt, "--output-format", "stream-json", "--verbose"];
       if (model) args.push("--model", model);
-      if (opts.skipPermissions) args.push("--dangerously-skip-permissions");
+      if (opts.skipPermissions) {
+        args.push("--dangerously-skip-permissions");
+      } else {
+        const mode = opts.permissionMode ?? "acceptEdits";
+        if (mode) args.push("--permission-mode", mode);
+        args.push("--add-dir", task.workdir);
+      }
       return spawnSubprocessSession({
-        spawnFn, bin, args, cwd: task.workdir, hardKillMs,
-        lineToEvent: createClaudeLineParser(), label: "claude-code",
+        spawnFn,
+        bin,
+        args,
+        cwd: task.workdir,
+        env: claudeWorkerEnv(opts.env ?? process.env),
+        hardKillMs,
+        lineToEvent: createClaudeLineParser(),
+        label: "claude-code",
       });
     },
   };

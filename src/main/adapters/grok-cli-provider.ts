@@ -10,6 +10,7 @@ import type { ChildProcess } from "node:child_process";
 import { tmpdir } from "node:os";
 import type { ProviderChatOpts, ProviderPort } from "../ports/uc1.js";
 import type { ChatMessage, ProviderChunk, ProviderConfig } from "../domain/chat.js";
+import { buildIsolatedSubprocessEnv } from "./subprocess-session.js";
 
 export type GrokPreflightStatus =
   | { readonly status: "ready"; readonly detail: string }
@@ -69,9 +70,9 @@ export function grokExecutable(platform = process.platform): string {
   return platform === "win32" ? "grok.cmd" : "grok";
 }
 
-/** 구독 OAuth를 쓰기 위해 종량 API 키를 제거한다. */
+/** 구독 OAuth를 쓰기 위해 종량 API 키를 제거하고 allowlist 환경만 반환한다. */
 export function grokSubscriptionEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  const env = { ...base };
+  const env = buildIsolatedSubprocessEnv(base, ["GROK_HOME", "GROK_SANDBOX"]);
   delete env.XAI_API_KEY;
   return env;
 }
