@@ -153,3 +153,28 @@ export function formatRecalledMemory(mem: RecalledMemory, opts: RecallFormatOpts
   const body = clip(lines.join("\n"), bodyBudget);
   return `${FRAME_HEAD}\n${body}\n${FRAME_FOOT}`;
 }
+
+/**
+ * Emotion tags and reasoning blocks that must never be saved into memory episodes (FR-MEM-27).
+ * Reasoning (<think>...</think>, [THINK]...[/THINK]) is intermediate and speculative.
+ * Emotion tags ([HAPPY], [SAD], [ANGRY], [SURPRISED], [NEUTRAL], [THINK], [THINKING])
+ * are avatar rendering metadata, not conversation content.
+ *
+ * Preserves user text, citation numbers like [1], and markdown links like [text](url).
+ * Pure function, never throws.
+ */
+export function stripAssistantMemoryTags(raw: string | undefined): string {
+  if (!raw) return "";
+  let text = String(raw);
+  // 1. Strip <think>...</think> blocks (closed blocks)
+  text = text.replace(/<\s*think\b[^>]*>[\s\S]*?<\/\s*think\s*>/gi, "");
+  // If </think> is missing, strip only the opener so subsequent real answer is kept (fail-safe)
+  text = text.replace(/<\s*\/?\s*think\b[^>]*>[^\S\r\n]?/gi, "");
+  // 2. Strip bracketed think blocks: [thinking]...[/thinking] or [think]...[/think] (case-insensitive, no \1)
+  text = text.replace(/\[thinking\][\s\S]*?\[\/thinking\][^\S\r\n]?/gi, "");
+  text = text.replace(/\[think\][\s\S]*?\[\/think\][^\S\r\n]?/gi, "");
+  // 3. Strip individual emotion tags and thinking tags (case-insensitive, whole tag only, THINKING before THINK)
+  // Also consumes up to one following horizontal space so following words don't have leading space
+  text = text.replace(/\[\/?(?:HAPPY|SAD|ANGRY|SURPRISED|NEUTRAL|THINKING|THINK)\][^\S\r\n]?/gi, "");
+  return text.trim();
+}

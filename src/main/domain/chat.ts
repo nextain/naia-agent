@@ -305,6 +305,61 @@ export function mapProviderChunk(c: Exclude<ProviderChunk, { kind: "usage" }>): 
 }
 
 /**
+ * Normalises [THINKING] tags for display/avatar rendering:
+ * 1. A closed [THINKING]...[/THINKING] block is dropped from the emitted text only when
+ *    both opener and closer are present.
+ * 2. An unclosed [THINKING] becomes [THINK] (case-insensitive, whole tag only) so that
+ *    the Shell avatar receives a known emotion tag to drive facial expressions and the
+ *    following answer still displays without leaking raw [THINKING] text.
+ * 3. Supports chunked streaming: if text ends with an unclosed trailing prefix of `[thinking]`
+ *    or `[/thinking]`, the partial tag is retained in `remainder` (buffered up to 12 chars)
+ *    and not emitted until the next chunk arrives or until stream completion (flush).
+ */
+export function normalizeAvatarThinkingTag(
+  chunk: string,
+  buffer = "",
+): { emitted: string; remainder: string } {
+  let combined = buffer + chunk;
+  // 1. Drop closed [thinking]...[/thinking] blocks from display text only when both opener and closer are present
+  combined = combined.replace(/\[thinking\][\s\S]*?\[\/thinking\][^\S\r\n]?/gi, "");
+
+  // 2. Buffer trailing partial tag prefix: [ or [/ or [thi or [/thi etc.
+  const lastOpen = combined.lastIndexOf("[");
+  if (lastOpen >= 0 && combined.indexOf("]", lastOpen) === -1) {
+    const tail = combined.slice(lastOpen);
+    const lowerTail = tail.toLowerCase();
+    if (
+      tail.length <= 12 &&
+      ("[thinking]".startsWith(lowerTail) || "[/thinking]".startsWith(lowerTail))
+    ) {
+      const prefix = combined.slice(0, lastOpen);
+      if (/\[thinking\]/i.test(prefix) && "[/thinking]".startsWith(lowerTail)) {
+        return {
+          emitted: "",
+          remainder: combined,
+        };
+      }
+      return {
+        emitted: prefix.replace(/\[thinking\]/gi, "[THINK]"),
+        remainder: tail,
+      };
+    }
+  }
+
+  // 3. Unclosed [thinking] becomes [THINK] so subsequent text still displays
+  return {
+    emitted: combined.replace(/\[thinking\]/gi, "[THINK]"),
+    remainder: "",
+  };
+}
+
+export function flushAvatarThinkingTag(buffer: string): string {
+  if (!buffer) return "";
+  let text = buffer.replace(/\[thinking\][\s\S]*?\[\/thinking\][^\S\r\n]?/gi, "");
+  return text.replace(/\[thinking\]/gi, "[THINK]");
+}
+
+/**
  * UC5 도구 라운드 결과를 다음 provider 호출용 messages 로 엮음(순수, 계약 §B.1).
  * assistant(roundText + toolCalls) append → 각 call 의 결과를 tool 메시지로 append(순서·결속 보존).
  * roundText 가 history 에서 유실되지 않음. results[i] = calls[i] 의 결과(인덱스 대응).

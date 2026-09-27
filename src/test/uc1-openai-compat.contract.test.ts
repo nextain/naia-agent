@@ -324,6 +324,14 @@ describe("#114 deepseek [THINK] 정규화 (FR-THINK-5)", () => {
     expect(out.filter((c) => c.kind === "thinking").map((c) => (c as { text: string }).text).join("")).toBe("a</think>bd");
     expect(out.filter((c) => c.kind === "text").map((c) => (c as { text: string }).text).join("")).toBe("ce");
   });
+  it("⑥ [THINKING] 는 [THINK] 접두로 오인되지 않음 — 전체 태그 요구 (thinking 으로 오분류되지 않고 text 로 방출)", async () => {
+    const out = await collect(prov([
+      'data: {"choices":[{"delta":{"content":"[THINKING] Hello world"}}]}\n',
+      "data: [DONE]\n",
+    ]).chat(cfg, [], {}));
+    expect(out.filter((c) => c.kind === "thinking")).toEqual([]);
+    expect(out.filter((c) => c.kind === "text").map((c) => (c as { text: string }).text).join("")).toBe("[THINKING] Hello world");
+  });
 });
 
 describe("#114 스트림 idle 데드라인 (FR-THINK-6)", () => {

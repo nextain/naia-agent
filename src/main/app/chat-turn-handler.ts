@@ -4,7 +4,7 @@ import type {
   ChatRequest, CancelRequest, ApprovalResponse, CredsUpdate, ChatTurnState, ChatMessage, ToolCall, ToolSpec, ToolProcessing, ProviderConfig, WireErrorCode,
   ToolExecutionResult,
 } from "../domain/chat.js";
-import { mapProviderChunk, threadToolRound, estimateMessageTokens, resolveTurnThinking } from "../domain/chat.js";
+import { mapProviderChunk, threadToolRound, estimateMessageTokens, resolveTurnThinking, normalizeAvatarThinkingTag, flushAvatarThinkingTag } from "../domain/chat.js";
 import { calculateCost } from "../domain/cost.js";
 import type {
   ProviderPort, ProviderResolverPort, ProcessingGuardPort, ConversationPort, CredentialPort, ApprovalPort, AgentEgressPort, DiagnosticLog, ToolExecutorPort, ProviderChatOpts, PersonaSourcePort, WorkspaceContextPort,
@@ -24,7 +24,7 @@ import {
 import { composePersonaPrompt } from "../domain/persona.js";
 import { composeWorkspaceContext } from "../domain/workspace-context.js";
 import { renderEnvironmentSegments } from "../domain/environment-segments.js";
-import { formatRecalledMemory, isEmbeddingSpaceMismatchError, isMemoryPreparingError, MEMORY_INDEX_UNAVAILABLE_NOTICE } from "../domain/memory.js";
+import { formatRecalledMemory, isEmbeddingSpaceMismatchError, isMemoryPreparingError, MEMORY_INDEX_UNAVAILABLE_NOTICE, stripAssistantMemoryTags } from "../domain/memory.js";
 
 export const ACTION_EXECUTION_POLICY = [
   "Operational behavior:",
@@ -552,10 +552,14 @@ export class ChatTurnHandler {
         usedCids.add(cand); return cand;
       };
 
-      const assistantTurnParts: string[] = []; // 턴 전체 assistant 텍스트 누적(도구 라운드 preamble 포함) — save 용
+      let turnCommitted = false;
+      let memorySaved = false;
+      const assistantTurnParts: string[] = []; // 턴 전체 assistant 텍스트 누적(도구 라운드 preamble 포함) — transcript 용
+      const assistantMemoryParts: string[] = []; // 장기기억 저장용 어시스턴트 텍스트 (추론/thinking 제외)
       const commitCompletedTurn = async (): Promise<void> => {
+        if (turnCommitted) return;
         // UC-memory FR-MEM-2: provider 가 최종 응답을 낸 시점 = **커밋 지점**. 연속 발화도 전체를 한 번 저장.
-        if (saveWillRun && this.d.memory) {
+        if (saveWillRun && this.d.memory && !memorySaved) {
           if (!await authorizeOperations([
             {
               workload: "memory_llm",
@@ -566,6 +570,7 @@ export class ChatTurnHandler {
               provider: { provider: "naia-memory", model: "save" },
             },
           ])) return;
+          memorySaved = true;
           try {
             const saveTimeoutMs = this.d.memoryTimeoutMs ?? MEM_SAVE_TIMEOUT_MS;
             // echo-system is a diagnostic provider that deliberately returns
@@ -573,9 +578,10 @@ export class ChatTurnHandler {
             // recursively stores recalled memory and grows SYSTEM_ECHO noise on
             // every turn. Keep the real user episode, but omit this test-only
             // assistant payload from long-term memory.
-            const assistantMemoryText = providerConfig.provider === "echo-system"
+            const rawAssistantMemoryText = providerConfig.provider === "echo-system"
               ? ""
-              : assistantTurnParts.join("\n");
+              : assistantMemoryParts.join("\n");
+            const assistantMemoryText = stripAssistantMemoryTags(rawAssistantMemoryText);
             const ok = await raceTimeout(this.d.memory.save(lastUserText, assistantMemoryText), saveTimeoutMs);
             if (!ok) this.safeDiag("memory save 시간초과(턴 유지)", new Error(`>${saveTimeoutMs}ms`));
           } catch (e) {
@@ -599,6 +605,7 @@ export class ChatTurnHandler {
             await this.d.conversationLog.append({ sessionId: req.sessionId ?? "default", userText: lastUserText, assistantText: assistantTurnParts.join("\n") });
           } catch (e) { this.safeDiag("transcript append 실패(턴 유지)", e); }
         }
+        turnCommitted = true;
         terminalFinish();
       };
       for (;;) {
@@ -629,13 +636,24 @@ export class ChatTurnHandler {
         if (round.rejected !== undefined) { terminalError(`provider error: ${round.rejected}`); break; }
         if (!round.finished) { terminalError("incomplete stream"); break; }         // finish 없는 EOF = provider error(UC1 계승)
         if (signal.aborted) { terminalError("cancelled"); break; }                  // (b) provider loop 종료 직후 가드(finish 직후 취소 시 finish/cap-error 선방출 차단)
-        if (round.text) assistantTurnParts.push(round.text);                        // 이 라운드 assistant 텍스트 누적(도구 라운드 preamble 도 보존)
+        let pushedThisRound = false;
+        if (round.text) {
+          assistantTurnParts.push(round.text);
+          assistantMemoryParts.push(round.text);
+          pushedThisRound = true;
+        }
         if (round.calls.length === 0) {                                             // 최종 응답
 		  if (!round.text.trim()) {
 			const folded = foldReasoningOnlyAnswer(round.thinking);
 			if (folded) {
-			  emit({ kind: "text", text: folded });
+			  const norm = normalizeAvatarThinkingTag(folded);
+			  const toEmit = norm.emitted + flushAvatarThinkingTag(norm.remainder);
+			  if (toEmit) {
+			    emit({ kind: "text", text: toEmit });
+			  }
 			  assistantTurnParts.push(folded);
+			  assistantMemoryParts.push(folded);
+			  pushedThisRound = true;
 			  round = { ...round, text: folded };
 			} else if (!finalRecoveryUsed) {
 			  finalRecoveryUsed = true;
@@ -650,6 +668,7 @@ export class ChatTurnHandler {
 		  if (!finalRecoveryUsed && isUnfulfilledActionPromise(round.text, externalTools.length > 0, toolRounds > 0 || nativeToolUsed || controlConsumed)) {
 			finalRecoveryUsed = true;
 			this.d.diag.debug?.("약속-미이행 최종 답 재요청", { requestId: req.requestId });
+			if (pushedThisRound) assistantMemoryParts.pop(); // 약속-미이행 재요청: 이번 라운드에서 push된 경우에만 pop
 			messages = [
 			  ...messages,
 			  { role: "assistant", content: round.text },
@@ -880,22 +899,54 @@ export class ChatTurnHandler {
       }
     });
     let text = ""; let thinking = ""; const calls: ToolCall[] = []; let usage: RoundResult["usage"] = null; let finished = false; let nativeToolUsed = false;
+    let textPending = "";
+    const flushTextPending = () => {
+      if (!textPending) return;
+      const rem = flushAvatarThinkingTag(textPending);
+      textPending = "";
+      if (rem) {
+        nativeEmit(mapProviderChunk({ kind: "text", text: rem }));
+      }
+    };
     try {
       for (;;) {
         const r = await Promise.race([it.next(), abortP]);
-        if (r === ABORTED) { closeIt(); return { text, thinking, calls, usage, finished: false, aborted: true, nativeToolUsed }; } // abort 승(R6/R8). await 안 함=return hang 대비
-        if (r.done) break;                                                          // finish 없는 EOF(소진=close 불요)
+        if (r === ABORTED) { closeIt(); flushTextPending(); return { text, thinking, calls, usage, finished: false, aborted: true, nativeToolUsed }; } // abort 승(R6/R8). await 안 함=return hang 대비
+        if (r.done) { flushTextPending(); break; }                                  // finish 없는 EOF(소진=close 불요)
         const chunk = r.value;
-        if (chunk.kind === "usage") { usage = { inputTokens: chunk.inputTokens, outputTokens: chunk.outputTokens }; } // 마지막 스냅샷 채택(델타 아님)
-        else if (chunk.kind === "finish") { finished = true; closeIt(); break; }     // 라운드 종료자=finish 1회; 이후 chunk 무시
-        else if (chunk.kind === "toolUse" && !chunk.handled) { calls.push({ id: chunk.id, name: chunk.name, args: chunk.args }); } // ⚠️ 버퍼링(emit 보류)
-        else if (chunk.kind === "toolUse" || chunk.kind === "toolResult") { if (chunk.kind === "toolUse") nativeToolUsed = true; nativeEmit(mapProviderChunk(chunk)); } // provider-native 실행은 이미 완료/진행 중 — 재실행 금지
-        else if (chunk.kind === "text") { text += chunk.text; nativeEmit(mapProviderChunk(chunk)); } // 즉시 표시 + history 누적
-        else if (chunk.kind === "thinking") { thinking += chunk.text; nativeEmit(mapProviderChunk(chunk)); }
-        else { nativeEmit(mapProviderChunk(chunk)); }
+        if (chunk.kind === "text") {
+          text += chunk.text;
+          const norm = normalizeAvatarThinkingTag(chunk.text, textPending);
+          textPending = norm.remainder;
+          if (norm.emitted) {
+            nativeEmit(mapProviderChunk({ ...chunk, text: norm.emitted }));
+          }
+        } else if (chunk.kind === "thinking") {
+          thinking += chunk.text;
+          nativeEmit(mapProviderChunk(chunk));
+        } else if (chunk.kind === "usage") {
+          usage = { inputTokens: chunk.inputTokens, outputTokens: chunk.outputTokens }; // 마지막 스냅샷 채택(델타 아님)
+        } else if (chunk.kind === "finish") {
+          flushTextPending();
+          finished = true;
+          closeIt();
+          break; // 라운드 종료자=finish 1회; 이후 chunk 무시
+        } else if (chunk.kind === "toolUse") {
+          flushTextPending();
+          if (!chunk.handled) {
+            calls.push({ id: chunk.id, name: chunk.name, args: chunk.args }); // ⚠️ 버퍼링(emit 보류)
+          } else {
+            nativeToolUsed = true;
+            nativeEmit(mapProviderChunk(chunk));
+          }
+        } else {
+          flushTextPending();
+          nativeEmit(mapProviderChunk(chunk));
+        }
       }
     } catch (err) {
       closeIt();
+      flushTextPending();
       if (signal.aborted) return { text, thinking, calls, usage, finished: false, aborted: true, nativeToolUsed };
       return { text, thinking, calls, usage, finished: false, aborted: false, rejected: errMessage(err), nativeToolUsed };
     } finally {
