@@ -13,9 +13,9 @@ function fakeNdjson() {
   let stdoutCb: ((b: Buffer) => void) | undefined;
   const handlers: Record<string, (...a: unknown[]) => void> = {};
   const killSignals: Array<string | number> = [];
-  let spawnArgs: { command: string; args: readonly string[]; cwd: string } | undefined;
+  let spawnArgs: { command: string; args: readonly string[]; cwd: string; env?: NodeJS.ProcessEnv } | undefined;
   const spawnFn: SpawnFn = (command, args, o) => {
-    spawnArgs = { command, args, cwd: o.cwd };
+    spawnArgs = { command, args, cwd: o.cwd, env: o.env };
     const child = {
       stdout: { on: (_e: string, cb: (b: Buffer) => void) => { stdoutCb = cb; } },
       stderr: { on: () => {} },
@@ -68,6 +68,35 @@ describe("subagent-claude-code 어댑터 계약 (SPEC-010 확장, fake child)", 
     expect(f.spawnArgs.command).toBe("claude");
     expect(f.spawnArgs.args).toEqual(["-p", "hi", "--output-format", "stream-json", "--verbose", "--model", "sonnet", "--dangerously-skip-permissions"]);
     expect(f.spawnArgs.cwd).toBe("/tmp/w");
+  });
+
+  it("args 정합 (safe non-interactive): default sets --permission-mode acceptEdits and --add-dir limited to workdir", () => {
+    const f = fakeNdjson();
+    const port = makeClaudeCodeSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn, model: "sonnet" });
+    port.spawn({ prompt: "hi", workdir: "/tmp/w" });
+    expect(f.spawnArgs.command).toBe("claude");
+    expect(f.spawnArgs.args).toEqual([
+      "-p", "hi", "--output-format", "stream-json", "--verbose", "--model", "sonnet",
+      "--permission-mode", "acceptEdits", "--add-dir", "/tmp/w",
+    ]);
+    expect(f.spawnArgs.args).not.toContain("--dangerously-skip-permissions");
+    expect(f.spawnArgs.cwd).toBe("/tmp/w");
+  });
+
+  it("env 격리: NAIA_TEST_SECRET 같은 임의 시크릿은 child env에 포함되지 않고 PATH는 포함된다", () => {
+    const priorSecret = process.env.NAIA_TEST_SECRET;
+    process.env.NAIA_TEST_SECRET = "claude-secret-123";
+    try {
+      const f = fakeNdjson();
+      const port = makeClaudeCodeSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn });
+      port.spawn({ prompt: "test", workdir: "/tmp/w" });
+      expect(f.spawnArgs.env).toBeDefined();
+      expect(f.spawnArgs.env?.NAIA_TEST_SECRET).toBeUndefined();
+      expect(f.spawnArgs.env?.PATH).toBeDefined();
+    } finally {
+      if (priorSecret === undefined) delete process.env.NAIA_TEST_SECRET;
+      else process.env.NAIA_TEST_SECRET = priorSecret;
+    }
   });
 
   it("tool_result is_error=true → tool_use_end{ok:false}", async () => {

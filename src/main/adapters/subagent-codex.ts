@@ -23,6 +23,7 @@ import type { SubAgentPort, SubAgentSession } from "../ports/orchestration.js";
 import {
   DEFAULT_HARD_KILL_DEADLINE_MS, defaultSpawn, spawnSubprocessSession, endedSession,
   type SpawnFn, type ResolvedBin, pickSpawnableBin, resolveSpawnableBin, resolveFallbackCommand,
+  buildIsolatedSubprocessEnv,
 } from "./subprocess-session.js";
 
 export type { SpawnFn, ResolvedBin };
@@ -53,19 +54,7 @@ export interface SubAgentCodexOptions {
  * authoritative and cannot be widened by a child process.
  */
 function codexWorkerEnv(): NodeJS.ProcessEnv {
-  const allowed = new Set([
-    "PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TMP", "TEMP",
-    "LANG", "LC_ALL", "LC_CTYPE", "TERM", "COLORTERM", "NO_COLOR",
-    "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "CODEX_HOME",
-    "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS",
-    "SystemRoot", "ComSpec", "PATHEXT", "LOCALAPPDATA", "APPDATA", "USERPROFILE", "HOMEDRIVE", "HOMEPATH",
-  ]);
-  const env: NodeJS.ProcessEnv = {};
-  for (const key of allowed) {
-    const value = process.env[key];
-    if (value !== undefined) env[key] = value;
-  }
-  return env;
+  return buildIsolatedSubprocessEnv(process.env, ["CODEX_HOME"]);
 }
 
 // ── bin resolution (동형 패턴: env 절대경로 검증 → PATH → npx fallback) ────────

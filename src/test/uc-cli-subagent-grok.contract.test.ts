@@ -67,4 +67,45 @@ describe("subagent-grok 어댑터 계약", () => {
     ]);
     expect(f.spawnArgs.env?.XAI_API_KEY).toBeUndefined();
   });
+
+  it("args 정합 (safe non-interactive): default sets --permission-mode acceptEdits without --always-approve", () => {
+    const f = fakeNdjson();
+    const port = makeGrokSubAgent({
+      resolveBin: fixedBin,
+      spawnFn: f.spawnFn,
+      model: "grok-4.6",
+    });
+    port.spawn({ prompt: "do it", workdir: "/tmp/w" });
+    expect(f.spawnArgs.command).toBe("grok");
+    expect(f.spawnArgs.args).toEqual([
+      "-p", "do it",
+      "--output-format", "streaming-messages-json",
+      "--include-partial-messages",
+      "--cwd", "/tmp/w",
+      "-m", "grok-4.6",
+      "--permission-mode", "acceptEdits",
+    ]);
+    expect(f.spawnArgs.args).not.toContain("--always-approve");
+  });
+
+  it("env 격리: NAIA_TEST_SECRET 같은 임의 시크릿은 child env에 포함되지 않고 PATH·GROK_SANDBOX는 포함된다", () => {
+    const priorSecret = process.env.NAIA_TEST_SECRET;
+    const priorSandbox = process.env.GROK_SANDBOX;
+    process.env.NAIA_TEST_SECRET = "grok-secret-456";
+    process.env.GROK_SANDBOX = "workspace-write";
+    try {
+      const f = fakeNdjson();
+      const port = makeGrokSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn });
+      port.spawn({ prompt: "test", workdir: "/tmp/w" });
+      expect(f.spawnArgs.env).toBeDefined();
+      expect(f.spawnArgs.env?.NAIA_TEST_SECRET).toBeUndefined();
+      expect(f.spawnArgs.env?.PATH).toBeDefined();
+      expect(f.spawnArgs.env?.GROK_SANDBOX).toBe("workspace-write");
+    } finally {
+      if (priorSecret === undefined) delete process.env.NAIA_TEST_SECRET;
+      else process.env.NAIA_TEST_SECRET = priorSecret;
+      if (priorSandbox === undefined) delete process.env.GROK_SANDBOX;
+      else process.env.GROK_SANDBOX = priorSandbox;
+    }
+  });
 });

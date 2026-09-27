@@ -47,10 +47,18 @@ describe("Grok CLI subscription main provider", () => {
     expect(resolveProviderRoute({ provider: "xai", model: "grok-4.3" })).toBe("native");
   });
 
-  it("구독 env는 XAI_API_KEY를 제거한다", () => {
-    const env = grokSubscriptionEnv({ XAI_API_KEY: "xai-secret", PATH: "/usr/bin", HOME: "/tmp" });
+  it("구독 env는 XAI_API_KEY를 제거하고 GROK_SANDBOX·GROK_HOME을 보존한다", () => {
+    const env = grokSubscriptionEnv({
+      XAI_API_KEY: "xai-secret",
+      PATH: "/usr/bin",
+      HOME: "/tmp",
+      GROK_SANDBOX: "workspace-write",
+      GROK_HOME: "/custom/grok",
+    });
     expect(env.XAI_API_KEY).toBeUndefined();
     expect(env.PATH).toBe("/usr/bin");
+    expect(env.GROK_SANDBOX).toBe("workspace-write");
+    expect(env.GROK_HOME).toBe("/custom/grok");
     expect(JSON.stringify(env)).not.toContain("xai-secret");
   });
 

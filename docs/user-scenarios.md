@@ -827,13 +827,13 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 | T-SCHEDULE-02 | Codex produces one periodic report per occurrence; PI remains a deferred compatible runner. |
 | T-SCHEDULE-03 | Shell clearly separates inbound Discord conversation from outbound policy, schedule controls, and delivery history. |
 
-## UC-020 ? Three-tier development role delegated through Pi
+## UC-020 ? Three-tier development role delegated through CLI workers or Pi
 
-Naia Agent reads Shell's `expert`, `main`, and `sub` profile metadata from the active ADK configuration. For a requested role it resolves inheritance, accepts Pi-supported Codex, Claude, or Naia-account providers, and starts a Pi sub-agent with the resolved provider/model. The Supervisor remains responsible for cancellation, event forwarding, and final report. Workspace selection and settings reload apply to the next delegation without restarting Agent.
+Naia Agent reads Shell's `expert`, `main`, and `sub` profile metadata from the active ADK configuration. For a requested role it resolves inheritance, routes configured CLI workers (`codex`, `claude-code-cli`, `grok`) to their dedicated CLI adapters, and falls back to Pi for permitted account providers (`anthropic`, `nextain`/`naia`) per FR-PI-ROLE-6. The Supervisor remains responsible for cancellation, event forwarding, and final report. Workspace selection and settings reload apply to the next delegation without restarting Agent.
 
-OpenCode is intentionally not a candidate, fallback, command, or diagnostic label for this Shell/Agent route. A malformed role or unsupported provider fails closed before Pi spawn.
+OpenCode is intentionally not a candidate, fallback, command, or diagnostic label for this Shell/Agent route. A malformed role or unsupported provider fails closed before CLI worker or Pi fallback spawn.
 
-When the request originates from Discord, the selected role is also a trusted `sub_llm` processing operation. Its provider/model must be authorized and disclosed by the binding's processing profile before the delegated Pi session starts.
+When the request originates from Discord, the selected role is also a trusted `sub_llm` processing operation. Its provider/model must be authorized and disclosed by the binding's processing profile before the delegated session starts (codex, claude-code-cli, and grok roles run through their own CLI worker; other permitted providers go through Pi per FR-PI-ROLE-6).
 
 ### Test Coverage Map
 
@@ -842,6 +842,7 @@ When the request originates from Discord, the selected role is also a trusted `s
 | explicit/inherited expert/main/sub resolves | `llm-roles.contract.test.ts` |
 | settings reload is observed by the next role invocation | `llm-roles.contract.test.ts`, `discord-entry-wiring.contract.test.ts` |
 | selected Discord role is authorized as `sub_llm` before execution | `processing-policy-handler.contract.test.ts`, `delegate-agent-skill.contract.test.ts` |
+| CLI worker and Pi fallback routing for configured roles | `pi-role-runner.contract.test.ts` |
 
 ## UC-022 — Durable issue supervisor runtime
 

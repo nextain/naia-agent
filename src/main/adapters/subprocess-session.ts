@@ -31,6 +31,47 @@ export interface ResolvedBin {
 }
 
 /**
+ * Shared allowlist of safe system/environment keys for worker subprocesses.
+ * Covers path, OS/windows essentials, home, temp, locale, and network proxies.
+ */
+export const SUBPROCESS_ENV_ALLOWLIST = [
+  // System / OS / Windows
+  "PATH", "Path", "PATHEXT", "SystemRoot", "WINDIR", "ComSpec",
+  "LOCALAPPDATA", "APPDATA", "ProgramData", "USERPROFILE", "HOMEDRIVE", "HOMEPATH",
+  // User / shell / home
+  "HOME", "USER", "LOGNAME", "SHELL",
+  // Temp
+  "TMPDIR", "TMP", "TEMP",
+  // Locale / terminal
+  "LANG", "LC_ALL", "LC_CTYPE", "TERM", "COLORTERM", "NO_COLOR",
+  // XDG
+  "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_RUNTIME_DIR",
+  // Network / TLS proxy
+  "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS",
+  "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy",
+] as const;
+
+/**
+ * Builds an isolated child process environment from a source env (default: process.env),
+ * passing only allowlisted system keys and explicitly allowed CLI auth location keys.
+ */
+export function buildIsolatedSubprocessEnv(
+  source: NodeJS.ProcessEnv = process.env,
+  extraAllowedKeys: readonly string[] = [],
+): NodeJS.ProcessEnv {
+  const allowed = new Set<string>([...SUBPROCESS_ENV_ALLOWLIST, ...extraAllowedKeys]);
+  const env: NodeJS.ProcessEnv = {};
+  for (const key of allowed) {
+    const value = source[key];
+    if (value !== undefined) env[key] = value;
+  }
+  if (env.PATH === undefined && env.Path !== undefined) {
+    env.PATH = env.Path;
+  }
+  return env;
+}
+
+/**
  * `where`/`which` 결과 목록에서 spawn 가능한 바이너리 경로 선택.
  * **Windows**: Node 의 child_process.spawn 은 확장자 없는 파일(npm 전역 sh-script shim)을 직접 실행 못 함
  *   → ENOENT. 그래서 `.cmd`/`.exe`/`.bat` 확장자 경로를 **우선**. 없으면 첫 결과(테스트/비-Windows 호환).
