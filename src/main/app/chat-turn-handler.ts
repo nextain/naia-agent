@@ -46,6 +46,27 @@ export const KNOWLEDGE_ROUTING_POLICY = [
   "- Never say that you have no knowledge, that knowledge files are empty, or that you do not know the company, unless a knowledge tool call in this turn returned no result. When a knowledge tool answers, base the reply on it and mention its sources.",
 ].join("\n");
 
+export function isTurnMemorySaveEligible(
+  req: Pick<ChatRequest, "channel" | "messages">,
+  deps: Pick<HandlerDeps, "memory">,
+): boolean {
+  const privatePersistenceAllowed = req.channel?.kind !== "discord";
+  const lastMsg = req.messages?.length ? req.messages[req.messages.length - 1] : undefined;
+  const currentUserMsg = lastMsg?.role === "user";
+  return Boolean(privatePersistenceAllowed && deps.memory && currentUserMsg);
+}
+
+export function buildMemoPolicy(saveWillRun: boolean): string {
+  const memoInstruction = "- Call memo_save ONLY on an explicit memo request; if the user explicitly asks for a memo, call memo_save.";
+  const rememberInstruction = saveWillRun
+    ? "For pure \"기억해줘\" or \"remember this\"-style requests, do not call memo_save; say it will be remembered if memory saving is allowed."
+    : "For pure \"기억해줘\" or \"remember this\"-style requests, do not call memo_save; long-term memory is off for this conversation; do not claim it is remembered; tell the user.";
+  return [
+    "Memo tools policy:",
+    `${memoInstruction} ${rememberInstruction}`,
+  ].join("\n");
+}
+
 export const MEMORY_TOOL_POLICY = [
   "Long-term memory tools:",
   "- skill_memory_recall explicitly searches your long-term memory for past user statements, preferences, previous decisions, and earlier conversation episodes.",
@@ -391,6 +412,7 @@ export class ChatTurnHandler {
       const currentUserMsg = lastMsg?.role === "user" ? lastMsg : undefined;
       const lastUserText = currentUserMsg?.content ?? "";
       const privatePersistenceAllowed = req.channel?.kind !== "discord";
+      const saveWillRun = isTurnMemorySaveEligible(req, this.d);
       const surfacingSession = req.sessionId ?? "default";
       const surfacingEligible = !!this.d.surfacer && privatePersistenceAllowed && !req.processing;
       let surfacerMode: "off" | "on-llm" | "on-threshold" | undefined;
@@ -445,7 +467,9 @@ export class ChatTurnHandler {
       const knowledgePolicy = req.enableTools !== false && hasKnowledgeAskTool ? KNOWLEDGE_ROUTING_POLICY : "";
       const hasMemoryRecallTool = externalTools.some((s) => s.name === "skill_memory_recall");
       const memoryToolPolicy = req.enableTools !== false && hasMemoryRecallTool ? MEMORY_TOOL_POLICY : "";
-      const baseSystemPrompt = [selectedSystemPrompt, actionPolicy, knowledgePolicy, memoryToolPolicy].filter(Boolean).join("\n\n") || undefined;
+      const hasMemoSaveTool = externalTools.some((s) => s.name === "memo_save");
+      const memoPolicy = req.enableTools !== false && hasMemoSaveTool ? buildMemoPolicy(saveWillRun) : "";
+      const baseSystemPrompt = [selectedSystemPrompt, actionPolicy, knowledgePolicy, memoryToolPolicy, memoPolicy].filter(Boolean).join("\n\n") || undefined;
       this.d.diag.debug?.("persona base 결정", { requestId: req.requestId, override: req.systemPrompt !== undefined, corePersona: corePersona.length > 0, workspace: coreWs.length > 0, environment: coreEnv.length > 0, source: req.systemPrompt !== undefined ? "override" : (coreComposed ? "core" : "none") });
       const asm = this.d.conversation.assemble({ messages: preMessages, systemPrompt: baseSystemPrompt });
       // compaction recap → systemPrompt 주입(leading assistant 메시지 회피, recall 과 동일 패턴). recall 은 이 뒤에 append.
@@ -531,7 +555,7 @@ export class ChatTurnHandler {
       const assistantTurnParts: string[] = []; // 턴 전체 assistant 텍스트 누적(도구 라운드 preamble 포함) — save 용
       const commitCompletedTurn = async (): Promise<void> => {
         // UC-memory FR-MEM-2: provider 가 최종 응답을 낸 시점 = **커밋 지점**. 연속 발화도 전체를 한 번 저장.
-        if (privatePersistenceAllowed && this.d.memory && currentUserMsg) {
+        if (saveWillRun && this.d.memory) {
           if (!await authorizeOperations([
             {
               workload: "memory_llm",
