@@ -265,18 +265,38 @@ describe("UC-154 contract tests — explicit long-term memory & knowledge writin
       expect(fakeCompile).not.toHaveBeenCalled();
     });
 
-    it("returns error when no source folders are registered", async () => {
+    it("auto-registers default knowledge folder and compiles when no source folders are registered", async () => {
       const adk = await mkdtemp(join(tmpdir(), "kstore-empty-"));
       tempDirs.push(adk);
       await mkdir(join(adk, "naia-settings"), { recursive: true });
       await writeFile(
         join(adk, "naia-settings", "knowledge.json"),
         JSON.stringify({ version: 1, scope: "default", sources: [] }),
+        "utf8",
       );
 
-      const res = await storeWorkspaceKnowledge(adk, { content: "content" });
-      expect(res.ok).toBe(false);
-      expect(res.error).toContain("등록된 소스 폴더가 없습니다");
+      const fakeCompile = vi.fn(async () => ({
+        ok: true,
+        scope: "default",
+        sourceCount: 1,
+        cardCount: 2,
+        entityCount: 0,
+        relationCount: 0,
+      }));
+
+      const res = await storeWorkspaceKnowledge(adk, { content: "content", title: "지식_노트" }, fakeCompile);
+      expect(res.ok).toBe(true);
+      expect(res.error).toBeUndefined();
+      expect(res.sourceCount).toBe(1);
+      expect(res.cardCount).toBe(2);
+      expect(res.file).toContain("docs");
+      expect(fakeCompile).toHaveBeenCalled();
+
+      // Verify knowledge.json was updated with default source folder docs
+      const updatedConfigRaw = await readFile(join(adk, "naia-settings", "knowledge.json"), "utf8");
+      const updatedConfig = JSON.parse(updatedConfigRaw);
+      expect(updatedConfig.sources).toHaveLength(1);
+      expect(updatedConfig.sources[0].path).toBe("docs");
     });
 
     it("returns error when compile fails", async () => {
@@ -782,6 +802,194 @@ describe("UC-154 contract tests — explicit long-term memory & knowledge writin
       expect(customExecutor.execute).not.toHaveBeenCalled();
       expect(capturedSystemPrompt).toContain("Call memo_save ONLY on an explicit memo request");
       expect(capturedSystemPrompt).toContain("For pure \"기억해줘\" or \"remember this\"-style requests, do not call memo_save");
+    });
+
+    it("auto-registers folder, compiles, and finds content via search when knowledge.json has 0 sources", async () => {
+      const adk = await mkdtemp(join(tmpdir(), "live-kstore-zero-"));
+      tempDirs.push(adk);
+      await mkdir(join(adk, "naia-settings"), { recursive: true });
+      // 소스가 0개인 knowledge.json
+      await writeFile(
+        join(adk, "naia-settings", "knowledge.json"),
+        JSON.stringify({ version: 1, scope: "default", sources: [] }),
+        "utf8",
+      );
+
+      let cachedService: any = null;
+      const backend: KnowledgeBackend = {
+        search: async (q, k) => {
+          if (!cachedService) {
+            const wk = await openWorkspaceKnowledge(join(adk, "naia-settings", "knowledge", "default"));
+            cachedService = wk.service;
+          }
+          return cachedService.search(q, k);
+        },
+        ask: async (q) => {
+          if (!cachedService) {
+            const wk = await openWorkspaceKnowledge(join(adk, "naia-settings", "knowledge", "default"));
+            cachedService = wk.service;
+          }
+          return cachedService.ask(q);
+        },
+        store: async (opts) => {
+          cachedService = null;
+          return storeWorkspaceKnowledge(adk, opts);
+        },
+      };
+
+      const exec = makeKnowledgeSkillsExecutor({ backend });
+      const uniqueTitle = `제로소스_자동등록_${Date.now()}`;
+      const uniqueContent = "소스가 0개여도 기본 지식 폴더가 등록되고 컴파일되어 검색으로 조회된다.";
+
+      const storeRes = await exec.execute({
+        id: "call-live-k-zero-store",
+        name: "skill_knowledge_store",
+        args: {
+          title: uniqueTitle,
+          content: uniqueContent,
+        },
+      }, {});
+
+      expect(storeRes.isError).toBeFalsy();
+      const parsedStore = JSON.parse(storeRes.output);
+      expect(parsedStore.ok).toBe(true);
+      expect(parsedStore.message).toContain("지식 원본 저장 및 컴파일 성공");
+      expect(parsedStore.cardCount).toBeGreaterThan(0);
+      expect(parsedStore.sourceCount).toBe(1);
+
+      // Verify knowledge.json has the registered folder
+      const cfgRaw = await readFile(join(adk, "naia-settings", "knowledge.json"), "utf8");
+      const cfg = JSON.parse(cfgRaw);
+      expect(cfg.sources).toHaveLength(1);
+      expect(cfg.sources[0].path).toBe("docs");
+
+      // Verify search path finds the stored knowledge
+      const searchRes = await exec.execute({
+        id: "call-live-k-zero-search",
+        name: "skill_knowledge_search",
+        args: { query: "제로소스" },
+      }, {});
+
+      expect(searchRes.isError).toBeFalsy();
+      const parsedSearch = JSON.parse(searchRes.output);
+      expect(parsedSearch.empty).toBe(false);
+      expect(parsedSearch.hits.length).toBeGreaterThan(0);
+      expect(
+        parsedSearch.hits.some(
+          (h: { title: string; snippet: string }) =>
+            h.title.includes(uniqueTitle) || h.snippet.includes("기본 지식 폴더가 등록되고"),
+        ),
+      ).toBe(true);
+    });
+
+    it("ensures skill_memory_save is present in tools array sent to nextain deepseek-v4-flash chat turn", async () => {
+      let capturedTools: readonly ToolSpec[] = [];
+      let capturedConfig: ProviderConfig | undefined;
+      const memory: MemoryPort = {
+        recall: vi.fn(async () => ({ facts: [], episodes: [] })),
+        save: vi.fn(async () => {}),
+      };
+
+      const provider: ProviderPort = {
+        async *chat(c: ProviderConfig, _m: readonly ChatMessage[], o: ProviderChatOpts): AsyncIterable<ProviderChunk> {
+          capturedConfig = c;
+          capturedTools = o.tools ?? [];
+          yield { kind: "text", text: "기억하겠습니다." };
+          yield { kind: "finish" };
+        },
+      };
+
+      const deps: HandlerDeps = {
+        provider,
+        conversation: {
+          assemble: (r) => ({
+            messages: r.messages,
+            ...(r.systemPrompt !== undefined ? { systemPrompt: r.systemPrompt } : {}),
+          }),
+        },
+        credentials: makeInMemoryCredentials(),
+        approval: makeInMemoryApproval(),
+        egress: { emit: () => {} },
+        diag: { log: () => {} },
+        memory,
+        toolExecutor: makeMemorySkillsExecutor({ memory }),
+      };
+
+      const handler = new ChatTurnHandler(deps);
+
+      await handler.onChatRequest({
+        kind: "chat",
+        requestId: "turn-deepseek-v4-flash-1",
+        provider: { provider: "nextain", model: "deepseek-v4-flash" },
+        messages: [{ role: "user", content: "나 판교 사는 거 기억해줘" }],
+      });
+
+      expect(capturedConfig).toEqual({ provider: "nextain", model: "deepseek-v4-flash" });
+      const toolNames = capturedTools.map((t) => t.name);
+      expect(toolNames).toContain("skill_memory_save");
+      const saveSpec = capturedTools.find((t) => t.name === "skill_memory_save");
+      expect(saveSpec).toBeDefined();
+      expect(saveSpec?.description).toContain("사용자의 개인적 사실이나 선호 등 장기 기억에 저장해야 할 사실 문장을 근거 발화와 함께 저장한다");
+    });
+
+    it("executes skill_memory_save tool call from nextain deepseek-v4-flash model turn and completes memory save", async () => {
+      let turnStep = 0;
+      const memory: MemoryPort = {
+        recall: vi.fn(async () => ({ facts: [], episodes: [] })),
+        save: vi.fn(async () => {}),
+      };
+
+      const provider: ProviderPort = {
+        async *chat(_c: ProviderConfig, _m: readonly ChatMessage[], _o: ProviderChatOpts): AsyncIterable<ProviderChunk> {
+          if (turnStep === 0) {
+            turnStep++;
+            // Model calls skill_memory_save
+            yield {
+              kind: "toolUse",
+              id: "call-mem-save-deepseek",
+              name: "skill_memory_save",
+              args: {
+                fact: "사용자는 판교에 산다",
+                evidence: "나 판교 살아",
+              },
+            };
+            yield { kind: "finish" };
+          } else {
+            yield { kind: "text", text: "판교에 사시는군요, 기억했습니다!" };
+            yield { kind: "finish" };
+          }
+        },
+      };
+
+      const emits: AgentEmit[] = [];
+      const deps: HandlerDeps = {
+        provider,
+        conversation: {
+          assemble: (r) => ({
+            messages: r.messages,
+            ...(r.systemPrompt !== undefined ? { systemPrompt: r.systemPrompt } : {}),
+          }),
+        },
+        credentials: makeInMemoryCredentials(),
+        approval: makeInMemoryApproval(),
+        egress: { emit: (_id, e) => emits.push(e) },
+        diag: { log: () => {} },
+        memory,
+        toolExecutor: makeMemorySkillsExecutor({ memory }),
+      };
+
+      const handler = new ChatTurnHandler(deps);
+
+      await handler.onChatRequest({
+        kind: "chat",
+        requestId: "turn-deepseek-v4-flash-exec-1",
+        provider: { provider: "nextain", model: "deepseek-v4-flash" },
+        messages: [{ role: "user", content: "나 판교 살아" }],
+      });
+
+      expect(memory.save).toHaveBeenCalledWith("나 판교 살아", "사용자는 판교에 산다");
+      expect(emits.some((e) => e.kind === "toolResult" && e.toolName === "skill_memory_save" && e.success)).toBe(true);
+      expect(emits.some((e) => e.kind === "finish")).toBe(true);
     });
   });
 });

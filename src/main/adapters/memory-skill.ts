@@ -1,39 +1,21 @@
 // adapters/memory-skill — 워크스페이스 장기기억 도구 ToolExecutorPort (읽기 및 명시적 저장).
 import type { ToolExecutorPort } from "../ports/uc1.js";
-import type { ToolSpec, ToolCall } from "../domain/chat.js";
+import type { ToolCall } from "../domain/chat.js";
 import type { MemoryPort } from "../ports/memory.js";
-import { maskSecretShapes } from "../domain/memory.js";
+import {
+  maskSecretShapes,
+  MEMORY_RECALL_TOOL_NAME,
+  MEMORY_SAVE_TOOL_NAME,
+  MEMORY_RECALL_TOOL_SPEC,
+  MEMORY_SAVE_TOOL_SPEC,
+} from "../domain/memory.js";
 import { isAborted } from "./signal-util.js";
 
-export const MEMORY_RECALL_TOOL_NAME = "skill_memory_recall";
-export const MEMORY_SAVE_TOOL_NAME = "skill_memory_save";
-
-export const MEMORY_RECALL_TOOL_SPEC: ToolSpec = {
-  name: MEMORY_RECALL_TOOL_NAME,
-  description:
-    "장기기억(과거 대화)에서 관련 발화를 검색한다(읽기 전용). 사용자가 예전에 한 말·부탁·선호를 물을 때, 또는 자동 회상 블록에 답이 없을 때 쓴다. 기억을 저장·수정·삭제하지는 못한다. 인자: {query, k?}",
-  parameters: {
-    type: "object",
-    properties: {
-      query: { type: "string" },
-      k: { type: "integer", minimum: 1, maximum: 10 },
-    },
-    required: ["query"],
-  },
-};
-
-export const MEMORY_SAVE_TOOL_SPEC: ToolSpec = {
-  name: MEMORY_SAVE_TOOL_NAME,
-  description:
-    "사용자의 개인적 사실이나 선호 등 장기 기억에 저장해야 할 사실 문장을 근거 발화와 함께 저장한다. 개인적 사실과 선호는 이 도구를 사용하고, 회사·프로젝트·문서 지식(skill_knowledge_store)이나 명시적 메모(memo_save)와 혼동하지 마세요. 성공 응답을 받기 전에는 기억했다고 말하지 마세요. 인자: {fact, evidence}",
-  parameters: {
-    type: "object",
-    properties: {
-      fact: { type: "string", description: "저장할 사실 문장 (예: '사용자는 판교에 산다')" },
-      evidence: { type: "string", description: "근거가 된 사용자 발화 (예: '나 판교 살아')" },
-    },
-    required: ["fact", "evidence"],
-  },
+export {
+  MEMORY_RECALL_TOOL_NAME,
+  MEMORY_SAVE_TOOL_NAME,
+  MEMORY_RECALL_TOOL_SPEC,
+  MEMORY_SAVE_TOOL_SPEC,
 };
 
 export interface MemorySkillsDeps {

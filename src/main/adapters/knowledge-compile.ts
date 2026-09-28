@@ -77,7 +77,7 @@ export function makeCompileKnowledge(deps: CompileKnowledgeDeps) {
 				return fail(scope, "등록된 소스 폴더가 없습니다");
 			const outDir = resolveProductKnowledgeDir(adkPath, scope);
 			const stats = await deps.backend.compileSources({
-				sources: cfg.sources,
+				sources: cfg.sources.map((s) => (isAbsolute(s) ? s : resolve(adkPath, s))),
 				scope,
 				outDir,
 			});
@@ -243,31 +243,91 @@ export async function storeWorkspaceKnowledge(
 		return { ok: false, error: "content must be non-empty string" };
 	}
 
+	const canonicalAdk = resolve(adkPath);
 	let cfg: { scope: string; sources: string[] };
 	try {
-		cfg = await readWorkspaceKnowledgeConfig(adkPath);
+		cfg = await readWorkspaceKnowledgeConfig(canonicalAdk);
 	} catch (e) {
 		return { ok: false, error: `knowledge.json 읽기 실패: ${e instanceof Error ? e.message : String(e)}` };
 	}
 
+	let chosenSource: string;
 	if (!cfg.sources || cfg.sources.length === 0) {
-		return { ok: false, error: "등록된 소스 폴더가 없습니다" };
-	}
+		const defaultSource = (opts.sourcePath && typeof opts.sourcePath === "string" && opts.sourcePath.trim())
+			? normalize(opts.sourcePath.trim()).replace(/\\/g, "/").replace(/\/+$/, "")
+			: "docs";
 
-	let chosenSource = cfg.sources[0];
-	if (opts.sourcePath && typeof opts.sourcePath === "string" && opts.sourcePath.trim()) {
-		const reqNorm = normalize(opts.sourcePath.trim()).replace(/\\/g, "/").replace(/\/+$/, "");
-		const matched = cfg.sources.find((s) => {
-			const sNorm = normalize(s).replace(/\\/g, "/").replace(/\/+$/, "");
-			return sNorm === reqNorm || sNorm.endsWith("/" + reqNorm);
-		});
-		if (!matched) {
-			return { ok: false, error: "지정한 sourcePath가 등록된 소스 폴더 목록에 없습니다" };
+		if (defaultSource.includes("naia-settings") || defaultSource.includes("knowledge.json")) {
+			return { ok: false, error: "naia-settings 및 knowledge.json 은 직접 수정할 수 없습니다" };
 		}
-		chosenSource = matched;
-	}
+		if (defaultSource.startsWith("..") || defaultSource.includes("/..")) {
+			return { ok: false, error: "유효하지 않은 파일 경로 (디렉토리 탈출 시도)" };
+		}
 
-	const canonicalAdk = resolve(adkPath);
+		chosenSource = defaultSource;
+		const targetDir = isAbsolute(chosenSource) ? resolve(chosenSource) : resolve(canonicalAdk, chosenSource);
+
+		const relToAdk = normalize(targetDir).replace(/\\/g, "/");
+		if (relToAdk.includes("/naia-settings") || relToAdk.endsWith("/naia-settings") || relToAdk.includes("knowledge.json")) {
+			return { ok: false, error: "naia-settings 및 knowledge.json 은 직접 수정할 수 없습니다" };
+		}
+		if (!targetDir.startsWith(canonicalAdk + (canonicalAdk.endsWith("/") || canonicalAdk.endsWith("\\") ? "" : sep)) && targetDir !== canonicalAdk) {
+			return { ok: false, error: "유효하지 않은 파일 경로 (디렉토리 탈출 시도)" };
+		}
+
+		try {
+			await mkdir(targetDir, { recursive: true });
+		} catch (e) {
+			return { ok: false, error: `기본 지식 폴더 생성 실패: ${e instanceof Error ? e.message : String(e)}` };
+		}
+
+		try {
+			const settingsDir = join(canonicalAdk, "naia-settings");
+			const configPath = join(settingsDir, "knowledge.json");
+			await mkdir(settingsDir, { recursive: true });
+			let currentConfig: { version: number; scope: string; sources: Array<{ path: string } | string> } = {
+				version: 1,
+				scope: cfg.scope || "default",
+				sources: [],
+			};
+			try {
+				const raw = await readFile(configPath, "utf8");
+				const parsed = JSON.parse(raw);
+				if (parsed && typeof parsed === "object") {
+					currentConfig = {
+						version: typeof parsed.version === "number" ? parsed.version : 1,
+						scope: typeof parsed.scope === "string" && parsed.scope.trim() ? parsed.scope.trim() : (cfg.scope || "default"),
+						sources: Array.isArray(parsed.sources) ? parsed.sources : [],
+					};
+				}
+			} catch {
+				// 파일 부재 시 기본 객체 유지
+			}
+			const alreadyExists = currentConfig.sources.some((s) => {
+				const p = typeof s === "string" ? s : s?.path;
+				return typeof p === "string" && (p === chosenSource || normalize(p) === normalize(chosenSource));
+			});
+			if (!alreadyExists) {
+				currentConfig.sources.push({ path: chosenSource });
+				await writeFile(configPath, JSON.stringify(currentConfig, null, 2) + "\n", "utf8");
+			}
+		} catch (e) {
+			return { ok: false, error: `knowledge.json 등록 실패: ${e instanceof Error ? e.message : String(e)}` };
+		}
+	} else {
+		chosenSource = cfg.sources[0];
+		if (opts.sourcePath && typeof opts.sourcePath === "string" && opts.sourcePath.trim()) {
+			const reqNorm = normalize(opts.sourcePath.trim()).replace(/\\/g, "/").replace(/\/+$/, "");
+			const matched = cfg.sources.find((s) => {
+				const sNorm = normalize(s).replace(/\\/g, "/").replace(/\/+$/, "");
+				return sNorm === reqNorm || sNorm.endsWith("/" + reqNorm);
+			});
+			if (!matched) {
+				return { ok: false, error: "지정한 sourcePath가 등록된 소스 폴더 목록에 없습니다" };
+			}
+			chosenSource = matched;
+		}
+	}
 	const targetDir = isAbsolute(chosenSource) ? resolve(chosenSource) : resolve(canonicalAdk, chosenSource);
 
 	// 보안 검증: naia-settings 나 knowledge.json 경로 직접 수정 차단

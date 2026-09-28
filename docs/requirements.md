@@ -951,10 +951,10 @@ Status: Done (contract tests and a real-LLM check pass; the attended naia-shell 
 
 # FR-KB-9 — 지식 원본 추가 및 컴파일 도구 (`skill_knowledge_store`) (naia-agent#154)
 
-- **도구 정의**: `skill_knowledge_store` 는 워크스페이스 지식 원본(`knowledge.json` 에 등록된 소스 폴더)에 새 문서(`content`, 선택적 `title`, 선택적 `sourcePath`)를 추가하고, 컴파일 파이프라인(`makeCompileKnowledge`)을 실행해 지식 베이스를 갱신하며 컴파일 성공 여부 및 통계를 반환한다.
+- **도구 정의**: `skill_knowledge_store` 는 워크스페이스 지식 원본(`knowledge.json` 에 등록된 소스 폴더)에 새 문서(`content`, 선택적 `title`, 선택적 `sourcePath`)를 추가하고, 컴파일 파이프라인(`makeCompileKnowledge`)을 실행해 지식 베이스를 갱신하며 컴파일 성공 여부 및 통계를 반환한다. 만약 소스가 0개(미등록)인 경우, 실패로 끝내지 않고 기본 지식 폴더(`docs`)를 생성 및 `knowledge.json` 에 등록한 후 내용을 작성하고 컴파일을 완결한다.
 - **보안 및 불변**: 모델이 `knowledge.json` 과 `naia-settings` 디렉토리를 직접 수정하는 경로는 원천 차단된다. 지식 저장은 오직 등록된 소스 폴더 내의 마크다운 파일로만 한정되며, 상위 경로 탈출(`..`)이나 `naia-settings` 접근 시 fail-closed 로 거부한다.
 - **기존 읽기 도구 무회귀**: `skill_knowledge_search`, `skill_knowledge_ask`, `skill_knowledge_scope`, `skill_knowledge_graph` 등 기존 읽기 도구는 온전히 유지된다.
 - **Verification**: `src/test/explicit-memory-knowledge-write.contract.test.ts`.
 
-Status: In progress (UC-154 / FR-MEM-19 / FR-KB-9)
+Status: Done (#154)
 

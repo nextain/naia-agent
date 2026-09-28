@@ -24,7 +24,7 @@ import {
 import { composePersonaPrompt } from "../domain/persona.js";
 import { composeWorkspaceContext } from "../domain/workspace-context.js";
 import { renderEnvironmentSegments } from "../domain/environment-segments.js";
-import { formatRecalledMemory, isEmbeddingSpaceMismatchError, isMemoryPreparingError, MEMORY_INDEX_UNAVAILABLE_NOTICE, stripAssistantMemoryTags } from "../domain/memory.js";
+import { formatRecalledMemory, isEmbeddingSpaceMismatchError, isMemoryPreparingError, MEMORY_INDEX_UNAVAILABLE_NOTICE, stripAssistantMemoryTags, MEMORY_SAVE_TOOL_SPEC } from "../domain/memory.js";
 
 export const ACTION_EXECUTION_POLICY = [
   "Operational behavior:",
@@ -458,6 +458,17 @@ export class ChatTurnHandler {
             if ((s.name === "skill_memory_recall" || s.name === "skill_memory_save") && (!privatePersistenceAllowed || req.processing)) return false;
             return true;
           });
+      if (
+        req.enableTools !== false &&
+        this.d.memory &&
+        this.d.toolExecutor &&
+        privatePersistenceAllowed &&
+        !req.processing &&
+        !(req.disabledSkills ?? []).includes("skill_memory_save") &&
+        !externalTools.some((s) => s.name === "skill_memory_save")
+      ) {
+        externalTools.push(MEMORY_SAVE_TOOL_SPEC);
+      }
       const tools = req.enableTools === false ? [] : [CONTINUE_SPEAKING_TOOL, ...externalTools];
 
       // 코어 조립값 = persona ⊕ workspace ⊕ environment(전부 빈 값이면 "" → undefined). req.systemPrompt override 시 전부 무시.
@@ -805,7 +816,28 @@ export class ChatTurnHandler {
           // approve 또는 비-gated → 실행:
           let r: ToolExecutionResult;
           try {
-            if (exec) {
+            if (call.name === "skill_memory_save" && (!exec || !exec.specs().some((s) => s.name === "skill_memory_save"))) {
+              if (!this.d.memory || typeof this.d.memory.save !== "function") {
+                r = { output: "memory save unavailable (memory port 미지원)", isError: true };
+              } else {
+                const args = call.args as Record<string, unknown> | null;
+                const fact = (args?.fact ?? args?.factSentence) as unknown;
+                const evidence = (args?.evidence ?? args?.userUtterance ?? args?.evidenceUtterance) as unknown;
+                if (typeof fact !== "string" || !fact.trim() || typeof evidence !== "string" || !evidence.trim()) {
+                  r = { output: "fact and evidence must be non-empty strings", isError: true };
+                } else {
+                  await this.d.memory.save(evidence.trim(), fact.trim());
+                  r = {
+                    output: JSON.stringify({
+                      ok: true,
+                      success: true,
+                      fact: fact.trim(),
+                      message: `기억 저장 완료: ${fact.trim()}`,
+                    }),
+                  };
+                }
+              }
+            } else if (exec) {
               const declaredProcessing = externalTools.find((spec) => spec.name === call.name)?.processing;
               const processingPlans = declaredProcessing
                 ? (Array.isArray(declaredProcessing) ? declaredProcessing : [declaredProcessing])
@@ -873,10 +905,37 @@ export class ChatTurnHandler {
   ): Promise<RoundResult> {
     // 요청별 provider 해석(resolver 주입 시) — config(provider/model/naiaKey)로 라우팅. 미주입=고정 provider(fallback/테스트).
     const provider = this.d.resolver ? this.d.resolver.resolve(cfg) : this.d.provider;
-    const executeTool = this.d.toolExecutor
+    const executeTool = (this.d.toolExecutor || this.d.memory)
       ? async (call: ToolCall): Promise<ToolExecutionResult> => {
           const spec = tools?.find((candidate) => candidate.name === call.name && (candidate.tier === undefined || candidate.tier === "none"));
           if (!spec) return { output: `provider-native tool '${call.name}' is not authorized`, isError: true };
+          if (call.name === "skill_memory_save" && (!this.d.toolExecutor || !this.d.toolExecutor.specs().some((s) => s.name === "skill_memory_save"))) {
+            if (!this.d.memory || typeof this.d.memory.save !== "function") {
+              return { output: "memory save unavailable (memory port 미지원)", isError: true };
+            }
+            const args = call.args as Record<string, unknown> | null;
+            const fact = (args?.fact ?? args?.factSentence) as unknown;
+            const evidence = (args?.evidence ?? args?.userUtterance ?? args?.evidenceUtterance) as unknown;
+            if (typeof fact !== "string" || !fact.trim() || typeof evidence !== "string" || !evidence.trim()) {
+              return { output: "fact and evidence must be non-empty strings", isError: true };
+            }
+            try {
+              await this.d.memory.save(evidence.trim(), fact.trim());
+              return {
+                output: JSON.stringify({
+                  ok: true,
+                  success: true,
+                  fact: fact.trim(),
+                  message: `기억 저장 완료: ${fact.trim()}`,
+                }),
+              };
+            } catch (error) {
+              return { output: `기억 저장 실패: ${errMessage(error)}`, isError: true };
+            }
+          }
+          if (!this.d.toolExecutor) {
+            return { output: "no tool executor available", isError: true };
+          }
           const declared = spec.processing
             ? (Array.isArray(spec.processing) ? spec.processing : [spec.processing])
             : [];
@@ -889,7 +948,7 @@ export class ChatTurnHandler {
             return { output: `provider-native tool '${call.name}' processing was denied`, isError: true };
           }
           try {
-            const result = await raceAbort(this.d.toolExecutor!.execute(
+            const result = await raceAbort(this.d.toolExecutor.execute(
               call,
               { signal, requestId, authorizedProcessing: applicable },
             ), signal, this.d.toolTimeoutMs ?? TOOL_EXEC_TIMEOUT_MS);

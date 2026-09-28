@@ -1051,6 +1051,8 @@ Coverage: `src/test/action-execution-policy.contract.test.ts`, `src/test/action-
 |---|---|
 | skill_memory_save 가 사실과 근거 발화를 받아 MemoryPort 에 쓰고 성공/실패를 반환하며, 성공 전 기억 주장 금지 | `explicit-memory-knowledge-write.contract.test.ts` |
 | skill_knowledge_store 가 지식 원본에 내용을 추가하고 컴파일 통계를 반환하며, naia-settings/knowledge.json 직접 수정 불가 | `explicit-memory-knowledge-write.contract.test.ts` |
+| 등록된 소스가 0개인 상태에서 skill_knowledge_store 가 docs 폴더를 자동 등록하고 컴파일을 완결하며 검색으로 조회 가능 | `explicit-memory-knowledge-write.contract.test.ts` |
+| nextain deepseek-v4-flash 모델 포함 모든 채팅 턴 도구 배열에 skill_memory_save 가 제공되고 모델의 도구 호출 실행 | `explicit-memory-knowledge-write.contract.test.ts` |
 | 개인 사실은 기억 도구, 회사 지식은 지식 도구, 명시적 메모 요청만 memo_save 로 라우팅되는 정책 검증 | `explicit-memory-knowledge-write.contract.test.ts` |
 | 턴 종료 자동 memory.save 실패/시간초과 시 그 사실이 logEntry 로 전달되고 조용히 성공처럼 속이지 않음 | `explicit-memory-knowledge-write.contract.test.ts` |
 | 기존 읽기 도구 (skill_memory_recall, skill_knowledge_search 등) 무회귀 유지 | `memory-skill.contract.test.ts`, `uc-knowledge.contract.test.ts` |

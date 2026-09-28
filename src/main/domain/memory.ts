@@ -1,6 +1,36 @@
-// domain — 회상 메모리 표현 + 비신뢰 회상 → 프롬프트 블록 포맷(순수, 외부 의존 없음).
-// 프롬프트 표현·신뢰 정책·예산 절단은 *domain* 소유(헥사고날: adapter 는 데이터만 반환, app/domain 이
-// 포맷·프레이밍·cap 강제). 어떤 MemoryPort 구현을 쓰든 이 포맷터를 거치면 FR-MEM-7/8 이 보장된다.
+import type { ToolSpec } from "./chat.js";
+
+export const MEMORY_RECALL_TOOL_NAME = "skill_memory_recall";
+export const MEMORY_SAVE_TOOL_NAME = "skill_memory_save";
+
+export const MEMORY_RECALL_TOOL_SPEC: ToolSpec = {
+  name: MEMORY_RECALL_TOOL_NAME,
+  description:
+    "장기기억(과거 대화)에서 관련 발화를 검색한다(읽기 전용). 사용자가 예전에 한 말·부탁·선호를 물을 때, 또는 자동 회상 블록에 답이 없을 때 쓴다. 기억을 저장·수정·삭제하지는 못한다. 인자: {query, k?}",
+  parameters: {
+    type: "object",
+    properties: {
+      query: { type: "string" },
+      k: { type: "integer", minimum: 1, maximum: 10 },
+    },
+    required: ["query"],
+  },
+};
+
+export const MEMORY_SAVE_TOOL_SPEC: ToolSpec = {
+  name: MEMORY_SAVE_TOOL_NAME,
+  description:
+    "사용자의 개인적 사실이나 선호 등 장기 기억에 저장해야 할 사실 문장을 근거 발화와 함께 저장한다. 개인적 사실과 선호는 이 도구를 사용하고, 회사·프로젝트·문서 지식(skill_knowledge_store)이나 명시적 메모(memo_save)와 혼동하지 마세요. 성공 응답을 받기 전에는 기억했다고 말하지 마세요. 인자: {fact, evidence}",
+  parameters: {
+    type: "object",
+    properties: {
+      fact: { type: "string", description: "저장할 사실 문장 (예: '사용자는 판교에 산다')" },
+      evidence: { type: "string", description: "근거가 된 사용자 발화 (예: '나 판교 살아')" },
+    },
+    required: ["fact", "evidence"],
+  },
+};
+
 
 /** 회상된 episode — content + **출처 역할**(provenance). role 을 보존해 assistant 생성물(추측·오답)이
  *  사용자 진술 사실처럼 재주입·강화되는 자기증폭을 막는다(naia 확증루프 경계). */

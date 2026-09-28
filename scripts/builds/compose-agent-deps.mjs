@@ -783,10 +783,10 @@ export async function composeAgentRuntimeDeps(o = {}) {
     : undefined;
   if (surfacer) cleanupFns.push(() => { surfacer.close().catch(() => undefined); });
 
-  if (memory && toolExecutor) {
+  if (memory) {
     const memorySkillExec = makeMemorySkillsExecutor({ memory });
-    toolExecutor = makeCompositeToolExecutor([toolExecutor, memorySkillExec]);
-    skillsLabel = `${skillsLabel} + memory-skill(skill_memory_recall)`;
+    toolExecutor = toolExecutor ? makeCompositeToolExecutor([toolExecutor, memorySkillExec]) : memorySkillExec;
+    skillsLabel = `${skillsLabel} + memory-skill(skill_memory_recall,skill_memory_save)`;
   }
 
   return {

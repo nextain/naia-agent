@@ -5,6 +5,8 @@ import { makeFakeProvider } from "../adapters/fake-provider.js";
 import { makeInMemoryApproval } from "../adapters/approval.js";
 import { makeStderrDiagnostic } from "../adapters/diagnostic.js";
 import { makeBudgetedConversation } from "../adapters/budgeted-conversation.js";
+import { makeMemorySkillsExecutor } from "../adapters/memory-skill.js";
+import { makeCompositeToolExecutor } from "../adapters/composite-tool-executor.js";
 import type {
   ProviderPort, ProviderResolverPort, ProcessingGuardPort, ConversationPort, CredentialPort, ApprovalPort, AgentIngressPort, AgentEgressPort, DiagnosticLog, ToolExecutorPort, PersonaSourcePort, WorkspaceContextPort,
 } from "../ports/uc1.js";
@@ -57,6 +59,14 @@ export function wireAgentUC1(opts?: {
   // 표준 sink(docs/logging.md). 미주입=no-op write(코어 순수·무소음) — entry 가 process.stderr+debug 게이트 주입. console.* 금지.
   const diag: DiagnosticLog = opts?.diag ?? makeStderrDiagnostic();
   const approval: ApprovalPort = opts?.approval ?? makeInMemoryApproval(); // UC5 slice 2 — tier-gated 도구 승인 보류
+  let toolExecutor = opts?.toolExecutor;
+  if (opts?.memory) {
+    const existing = toolExecutor?.specs().map((s) => s.name) ?? [];
+    if (!existing.includes("skill_memory_save")) {
+      const memExec = makeMemorySkillsExecutor({ memory: opts.memory });
+      toolExecutor = toolExecutor ? makeCompositeToolExecutor([toolExecutor, memExec]) : memExec;
+    }
+  }
   const deps: HandlerDeps = {
     provider: opts?.provider ?? makeFakeProvider(),
     ...(opts?.resolver ? { resolver: opts.resolver } : {}),
@@ -64,7 +74,7 @@ export function wireAgentUC1(opts?: {
     conversation: opts?.conversation ?? makeBudgetedConversation(),
     credentials: opts?.credentials ?? makeInMemoryCredentials(),
     approval,
-    ...(opts?.toolExecutor ? { toolExecutor: opts.toolExecutor } : {}),
+    ...(toolExecutor ? { toolExecutor } : {}),
     ...(opts?.memory ? { memory: opts.memory } : {}),
     ...(opts?.surfacer ? { surfacer: opts.surfacer } : {}),
     ...(opts?.compaction ? { compaction: opts.compaction } : {}),
