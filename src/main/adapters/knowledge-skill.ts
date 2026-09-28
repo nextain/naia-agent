@@ -187,10 +187,37 @@ export function makeKnowledgeSkillsExecutor(deps: KnowledgeDeps = {}): ToolExecu
         if (call.name === "skill_knowledge_ask") {
           const r = await backend.ask(q);
           abortGuard(); // (await 후 가드)
+          const empty = r.abstained === true && !(r.answer ?? "").trim();
+          let related: Array<{ title: string; snippet: string; sourceUris: string[] }> | undefined;
+          let note: string | undefined;
+
+          if (r.abstained !== true && (r.answer ?? "").trim()) {
+            try {
+              const hits = await backend.search(q, 5);
+              abortGuard();
+              const answerTrimmed = (r.answer ?? "").trim();
+              const filtered = hits
+                .filter((hit) => (hit.snippet ?? "").trim() !== answerTrimmed)
+                .map((hit) => ({
+                  title: hit.title,
+                  snippet: hit.snippet,
+                  sourceUris: hit.sourceUris ?? [],
+                }));
+              related = filtered;
+              if (filtered.length > 0) {
+                note = "Other knowledge cards also matched. The answer field quotes only one card; if related cards give different values, list every value with its source.";
+              }
+            } catch (e) {
+              if (aborted || isAborted(signal)) throw e instanceof Error ? e : new Error("aborted");
+            }
+          }
+
           return ok(JSON.stringify({
             ...r,
-            empty: r.abstained === true && !(r.answer ?? "").trim(),
-            ...(r.abstained && !(r.answer ?? "").trim() ? { message: "No compiled knowledge cards matched." } : {}),
+            empty,
+            ...(empty ? { message: "No compiled knowledge cards matched." } : {}),
+            ...(related !== undefined ? { related } : {}),
+            ...(note !== undefined ? { note } : {}),
           }));
         }
         return err(`unknown tool: ${call.name}`);

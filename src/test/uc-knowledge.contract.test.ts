@@ -236,3 +236,132 @@ describe("makeKnowledgeSkillsExecutor — skill_knowledge_scope (FR-KB-8, naia-a
     await expect(ex.execute(call("skill_knowledge_scope", {}), { signal: ac.signal })).rejects.toThrow();
   });
 });
+
+describe("skill_knowledge_ask related cards attachment (#155)", () => {
+  it("(a) 답이 있고 검색이 다른 카드를 돌려주면 related와 note가 붙는다", async () => {
+    const backend: KnowledgeBackend = {
+      async search(_q, k) {
+        expect(k).toBe(5);
+        return [
+          { title: "배포 규칙 A", snippet: "배포 시간은 0045", score: 0.9, sourceUris: ["file:///ws/a.md"] },
+          { title: "배포 규칙 B", snippet: "배포 시간은 0130", score: 0.85, sourceUris: ["file:///ws/b.md"] },
+        ];
+      },
+      async ask() {
+        return {
+          abstained: false,
+          answer: "배포 시간은 0045",
+          sources: [{ title: "배포 규칙 A", sourceUris: ["file:///ws/a.md"] }],
+        };
+      },
+    };
+    const ex = makeKnowledgeSkillsExecutor({ backend });
+    const r = await ex.execute(call("skill_knowledge_ask", { query: "배포 규칙이 뭐였지?" }), {});
+    expect(r.isError).toBeFalsy();
+    const parsed = JSON.parse(r.output);
+    expect(parsed.abstained).toBe(false);
+    expect(parsed.answer).toBe("배포 시간은 0045");
+    expect(parsed.sources).toEqual([{ title: "배포 규칙 A", sourceUris: ["file:///ws/a.md"] }]);
+    expect(parsed.empty).toBe(false);
+    expect(parsed.related).toEqual([
+      { title: "배포 규칙 B", snippet: "배포 시간은 0130", sourceUris: ["file:///ws/b.md"] },
+    ]);
+    expect(parsed.note).toBe(
+      "Other knowledge cards also matched. The answer field quotes only one card; if related cards give different values, list every value with its source.",
+    );
+  });
+
+  it("(b) answer와 같은 스니펫은 related에서 빠진다", async () => {
+    const backend: KnowledgeBackend = {
+      async search() {
+        return [
+          { title: "배포 규칙 A", snippet: "배포 시간은 0045", score: 0.9, sourceUris: ["file:///ws/a.md"] },
+          { title: "배포 규칙 A duplicate", snippet: "  배포 시간은 0045  ", score: 0.89, sourceUris: ["file:///ws/a2.md"] },
+        ];
+      },
+      async ask() {
+        return {
+          abstained: false,
+          answer: "배포 시간은 0045",
+          sources: [{ title: "배포 규칙 A", sourceUris: ["file:///ws/a.md"] }],
+        };
+      },
+    };
+    const ex = makeKnowledgeSkillsExecutor({ backend });
+    const r = await ex.execute(call("skill_knowledge_ask", { query: "배포 규칙" }), {});
+    expect(r.isError).toBeFalsy();
+    const parsed = JSON.parse(r.output);
+    expect(parsed.related).toEqual([]);
+    expect(parsed.note).toBeUndefined();
+  });
+
+  it("(c) 검색이 throw하면 원래 ask 결과만 나오고 isError가 아니다", async () => {
+    const backend: KnowledgeBackend = {
+      async search() {
+        throw new Error("search index failed");
+      },
+      async ask() {
+        return {
+          abstained: false,
+          answer: "배포 시간은 0045",
+          sources: [{ title: "배포 규칙 A", sourceUris: ["file:///ws/a.md"] }],
+        };
+      },
+    };
+    const ex = makeKnowledgeSkillsExecutor({ backend });
+    const r = await ex.execute(call("skill_knowledge_ask", { query: "배포 규칙" }), {});
+    expect(r.isError).toBeFalsy();
+    const parsed = JSON.parse(r.output);
+    expect(parsed.abstained).toBe(false);
+    expect(parsed.answer).toBe("배포 시간은 0045");
+    expect(parsed.related).toBeUndefined();
+    expect(parsed.note).toBeUndefined();
+  });
+
+  it("(d) abstain이면 search가 불리지 않는다", async () => {
+    let searchCalled = false;
+    const backend: KnowledgeBackend = {
+      async search() {
+        searchCalled = true;
+        return [];
+      },
+      async ask() {
+        return {
+          abstained: true,
+          answer: "",
+          sources: [],
+        };
+      },
+    };
+    const ex = makeKnowledgeSkillsExecutor({ backend });
+    const r = await ex.execute(call("skill_knowledge_ask", { query: "배포 규칙" }), {});
+    expect(r.isError).toBeFalsy();
+    const parsed = JSON.parse(r.output);
+    expect(parsed.abstained).toBe(true);
+    expect(searchCalled).toBe(false);
+    expect(parsed.related).toBeUndefined();
+    expect(parsed.note).toBeUndefined();
+  });
+
+  it("(e) search await 중 abort되면 reject된다", async () => {
+    const ac = new AbortController();
+    const backend: KnowledgeBackend = {
+      async search() {
+        ac.abort();
+        return [];
+      },
+      async ask() {
+        return {
+          abstained: false,
+          answer: "배포 시간은 0045",
+          sources: [{ title: "배포 규칙 A", sourceUris: ["file:///ws/a.md"] }],
+        };
+      },
+    };
+    const ex = makeKnowledgeSkillsExecutor({ backend });
+    await expect(
+      ex.execute(call("skill_knowledge_ask", { query: "배포 규칙" }), { signal: ac.signal }),
+    ).rejects.toThrow();
+  });
+});
+

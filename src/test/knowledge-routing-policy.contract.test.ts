@@ -362,4 +362,26 @@ describe("FR-KB-7 workspace knowledge routing policy", () => {
     expect(captured).not.toContain("Memo tools policy:");
     expect(save).toHaveBeenCalledOnce();
   });
+
+  it("includes stored-rule knowledge routing and exact value quotation guidance (#155)", async () => {
+    expect(KNOWLEDGE_ROUTING_POLICY).toContain(
+      "- A question about a rule, policy, procedure, schedule, decision or other fact the user stored as knowledge (for example \"배포 규칙이 뭐였지?\") is a knowledge question: call skill_knowledge_ask or skill_knowledge_search in this turn before reading any workspace file, and never answer it from AGENTS.md or other workspace files instead of the knowledge tools.",
+    );
+    expect(KNOWLEDGE_ROUTING_POLICY).toContain(
+      "- When a knowledge or memory result contains concrete values such as numbers, times (for example 0045), dates, names or codes, repeat each value exactly as written in your answer; never replace it with a paraphrase such as \"late at night\". If results give different values, list every value with its source.",
+    );
+
+    const { deps, getCaptured } = makeHarness(knowledgeAndOtherSpecs);
+    const request: ChatRequest = {
+      kind: "chat",
+      requestId: "kb-policy-rule-question",
+      provider: { provider: "fake", model: "m" },
+      messages: [{ role: "user", content: "배포 규칙이 뭐였지?" }],
+    };
+    await new ChatTurnHandler(deps).onChatRequest(request);
+    const captured = getCaptured();
+    expect(captured).toContain("배포 규칙이 뭐였지?");
+    expect(captured).toContain("repeat each value exactly as written in your answer");
+  });
 });
+
