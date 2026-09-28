@@ -7,6 +7,8 @@ import {
   MEMORY_SAVE_TOOL_SPEC,
   makeMemorySkillsExecutor,
 } from "../main/adapters/memory-skill.js";
+import { makeNaiaMemory } from "../main/adapters/naia-memory.js";
+import { openWorkspaceKnowledge } from "@naia/kb-compiler";
 import {
   KNOWLEDGE_STORE_TOOL_NAME,
   KNOWLEDGE_STORE_TOOL_SPEC,
@@ -540,4 +542,247 @@ describe("UC-154 contract tests — explicit long-term memory & knowledge writin
       expect(capturedSystemPrompt).not.toContain(MEMORY_TOOL_POLICY);
     });
   });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // 5. Acceptance Live Check: Real MemoryPort & real KnowledgeStore without mocks
+  // ──────────────────────────────────────────────────────────────────────────
+  describe("live execution without test doubles (FR-MEM-19, FR-KB-9)", () => {
+    it("executes skill_memory_save with real MemoryPort (makeNaiaMemory) and existing recall path returns the fact", async () => {
+      const d = await mkdtemp(join(tmpdir(), "live-mem-port-"));
+      tempDirs.push(d);
+      const storePath = join(d, "store.json");
+      const memory = makeNaiaMemory({ project: "p-live-check", storePath, sessionId: "s-live" });
+      await memory.ready();
+
+      const exec = makeMemorySkillsExecutor({ memory });
+      const uniqueFact = `사용자가 선택한 중요 차종은 테슬라 모델 Y이다 (${Date.now()})`;
+      const evidence = "내가 선택한 중요 차종은 테슬라 모델 Y야!";
+
+      const saveRes = await exec.execute({
+        id: "call-live-mem-save",
+        name: "skill_memory_save",
+        args: { fact: uniqueFact, evidence },
+      }, {});
+
+      expect(saveRes.isError).toBeFalsy();
+      const parsedSave = JSON.parse(saveRes.output);
+      expect(parsedSave.ok).toBe(true);
+      expect(parsedSave.success).toBe(true);
+      expect(parsedSave.fact).toBe(uniqueFact);
+      expect(parsedSave.message).toContain("기억 저장 완료");
+
+      // Verify recall path via MemoryPort.recall
+      const recalled = await memory.recall("테슬라 모델 Y");
+      expect(recalled.episodes.some((e) => e.content.includes(uniqueFact))).toBe(true);
+
+      // Verify recall path via skill_memory_recall tool
+      const recallToolRes = await exec.execute({
+        id: "call-live-mem-recall",
+        name: "skill_memory_recall",
+        args: { query: "전기차 모델 Y" },
+      }, {});
+      expect(recallToolRes.isError).toBeFalsy();
+      const parsedRecall = JSON.parse(recallToolRes.output);
+      expect(parsedRecall.empty).toBe(false);
+      expect(parsedRecall.hits.some((h: { text: string }) => h.text.includes(uniqueFact))).toBe(true);
+
+      await memory.close();
+    });
+
+    it("executes skill_knowledge_store with real compiler backend and search path finds it", async () => {
+      const adk = await mkdtemp(join(tmpdir(), "live-kstore-"));
+      tempDirs.push(adk);
+      const docsDir = join(adk, "docs");
+      await mkdir(docsDir, { recursive: true });
+      await mkdir(join(adk, "naia-settings"), { recursive: true });
+      await writeFile(
+        join(adk, "naia-settings", "knowledge.json"),
+        JSON.stringify({ version: 1, scope: "default", sources: [{ path: docsDir }] }),
+        "utf8",
+      );
+
+      let cachedService: any = null;
+      const backend: KnowledgeBackend = {
+        search: async (q, k) => {
+          if (!cachedService) {
+            const wk = await openWorkspaceKnowledge(join(adk, "naia-settings", "knowledge", "default"));
+            cachedService = wk.service;
+          }
+          return cachedService.search(q, k);
+        },
+        ask: async (q) => {
+          if (!cachedService) {
+            const wk = await openWorkspaceKnowledge(join(adk, "naia-settings", "knowledge", "default"));
+            cachedService = wk.service;
+          }
+          return cachedService.ask(q);
+        },
+        store: async (opts) => {
+          cachedService = null;
+          return storeWorkspaceKnowledge(adk, opts);
+        },
+      };
+
+      const exec = makeKnowledgeSkillsExecutor({ backend });
+      const uniqueTitle = `사내_원격근무_정책_${Date.now()}`;
+      const uniqueContent = "넥스테인 팀은 주 3회 자율 원격근무를 시행하며 매주 금요일은 집중업무일입니다.";
+
+      const storeRes = await exec.execute({
+        id: "call-live-k-store",
+        name: "skill_knowledge_store",
+        args: {
+          title: uniqueTitle,
+          content: uniqueContent,
+        },
+      }, {});
+
+      expect(storeRes.isError).toBeFalsy();
+      const parsedStore = JSON.parse(storeRes.output);
+      expect(parsedStore.ok).toBe(true);
+      expect(parsedStore.message).toContain("지식 원본 저장 및 컴파일 성공");
+      expect(parsedStore.cardCount).toBeGreaterThan(0);
+      expect(parsedStore.sourceCount).toBe(1);
+
+      // Verify search path finds the stored knowledge
+      const searchRes = await exec.execute({
+        id: "call-live-k-search",
+        name: "skill_knowledge_search",
+        args: { query: "원격근무" },
+      }, {});
+
+      expect(searchRes.isError).toBeFalsy();
+      const parsedSearch = JSON.parse(searchRes.output);
+      expect(parsedSearch.empty).toBe(false);
+      expect(parsedSearch.hits.length).toBeGreaterThan(0);
+      expect(
+        parsedSearch.hits.some(
+          (h: { title: string; snippet: string }) =>
+            h.title.includes(uniqueTitle) || h.snippet.includes("주 3회 자율 원격근무"),
+        ),
+      ).toBe(true);
+    });
+
+    it("returns failure tool result and does not claim success when save fails", async () => {
+      // Memory failure case 1: missing required arguments
+      const memory: MemoryPort = {
+        recall: vi.fn(),
+        save: vi.fn(),
+      };
+      const memExec = makeMemorySkillsExecutor({ memory });
+      const resMemMissing = await memExec.execute({
+        id: "call-fail-mem-1",
+        name: "skill_memory_save",
+        args: { fact: "  ", evidence: "" },
+      }, {});
+      expect(resMemMissing.isError).toBe(true);
+      expect(resMemMissing.output).toContain("fact and evidence must be non-empty strings");
+      expect(resMemMissing.output).not.toContain("기억 저장 완료");
+      expect(resMemMissing.output).not.toContain('"ok":true');
+
+      // Memory failure case 2: MemoryPort.save rejects with disk/io error
+      const failingMemory: MemoryPort = {
+        recall: vi.fn(),
+        save: vi.fn(async () => {
+          throw new Error("ENOSPC: no space left on device");
+        }),
+      };
+      const memExecFailing = makeMemorySkillsExecutor({ memory: failingMemory });
+      const resMemReject = await memExecFailing.execute({
+        id: "call-fail-mem-2",
+        name: "skill_memory_save",
+        args: { fact: "사실", evidence: "발화" },
+      }, {});
+      expect(resMemReject.isError).toBe(true);
+      expect(resMemReject.output).toContain("기억 저장 실패: ENOSPC: no space left on device");
+      expect(resMemReject.output).not.toContain("기억 저장 완료");
+      expect(resMemReject.output).not.toContain('"ok":true');
+
+      // Knowledge failure case: invalid unregistered sourcePath
+      const adk = await mkdtemp(join(tmpdir(), "live-kfail-"));
+      tempDirs.push(adk);
+      await mkdir(join(adk, "docs"), { recursive: true });
+      await mkdir(join(adk, "naia-settings"), { recursive: true });
+      await writeFile(
+        join(adk, "naia-settings", "knowledge.json"),
+        JSON.stringify({ version: 1, scope: "default", sources: [{ path: "docs" }] }),
+        "utf8",
+      );
+
+      const kBackend: KnowledgeBackend = {
+        search: vi.fn(),
+        ask: vi.fn(),
+        store: async (opts) => storeWorkspaceKnowledge(adk, opts),
+      };
+      const kExec = makeKnowledgeSkillsExecutor({ backend: kBackend });
+      const resKFail = await kExec.execute({
+        id: "call-fail-k-1",
+        name: "skill_knowledge_store",
+        args: { content: "일급비밀", sourcePath: "invalid/unregistered_source" },
+      }, {});
+      expect(resKFail.isError).toBe(true);
+      expect(resKFail.output).toContain("지정한 sourcePath가 등록된 소스 폴더 목록에 없습니다");
+      expect(resKFail.output).not.toContain("성공");
+      expect(resKFail.output).not.toContain('"ok":true');
+    });
+
+    it("ensures memo_save is not called when input is not an explicit memo request", async () => {
+      let memoSaveCalled = false;
+      const memoToolSpec: ToolSpec = {
+        name: "memo_save",
+        description: "save memo",
+        parameters: { type: "object", properties: { title: { type: "string" }, content: { type: "string" } }, required: ["title", "content"] },
+      };
+
+      const customExecutor = {
+        specs: () => [memoToolSpec, MEMORY_SAVE_TOOL_SPEC],
+        execute: vi.fn(async (call) => {
+          if (call.name === "memo_save") {
+            memoSaveCalled = true;
+          }
+          return { output: "ok" };
+        }),
+      };
+
+      let capturedSystemPrompt = "";
+      const provider: ProviderPort = {
+        async *chat(_c, _m, o): AsyncIterable<ProviderChunk> {
+          capturedSystemPrompt = o.systemPrompt ?? "";
+          yield { kind: "text", text: "기억해 두겠습니다." };
+          yield { kind: "finish" };
+        },
+      };
+
+      const deps: HandlerDeps = {
+        provider,
+        conversation: {
+          assemble: (r) => ({
+            messages: r.messages,
+            ...(r.systemPrompt !== undefined ? { systemPrompt: r.systemPrompt } : {}),
+          }),
+        },
+        credentials: makeInMemoryCredentials(),
+        approval: makeInMemoryApproval(),
+        egress: { emit: () => {} },
+        diag: { log: () => {} },
+        memory: { recall: vi.fn(async () => ({ facts: [], episodes: [] })), save: vi.fn() },
+        toolExecutor: customExecutor,
+      };
+
+      const handler = new ChatTurnHandler(deps);
+
+      // Turn with non-explicit memo request (pure remember / statement)
+      await handler.onChatRequest({
+        kind: "chat",
+        requestId: "turn-non-memo-1",
+        provider: { provider: "fake", model: "m" },
+        messages: [{ role: "user", content: "나 내일 출장 가니까 기억해줘" }],
+      });
+
+      expect(memoSaveCalled).toBe(false);
+      expect(customExecutor.execute).not.toHaveBeenCalled();
+      expect(capturedSystemPrompt).toContain("Call memo_save ONLY on an explicit memo request");
+      expect(capturedSystemPrompt).toContain("For pure \"기억해줘\" or \"remember this\"-style requests, do not call memo_save");
+    });
+  });
 });
+
