@@ -28,6 +28,14 @@ export interface KnowledgeScopeInfo {
   totalCards: number;       // all cards in the compiled KB
   otherCards: number;       // cards whose sourceUris match no registered source (e.g. compiled from a source since removed)
 }
+export interface KnowledgeStoreResult {
+  readonly ok: boolean;
+  readonly file?: string;
+  readonly cardCount?: number;
+  readonly sourceCount?: number;
+  readonly error?: string;
+}
+
 export interface KnowledgeBackend {
   search(query: string, k?: number): Promise<KnowledgeSearchHit[]>;
   ask(query: string): Promise<KnowledgeAskResult>;
@@ -35,6 +43,8 @@ export interface KnowledgeBackend {
   graph?(): Promise<KnowledgeGraphData>;
   /** 등록 소스 및 카드 수 조회 — 선택(backend 지원 시에만 skill_knowledge_scope 노출, FR-KB-8, nextain/naia-agent#142). */
   scope?(): Promise<KnowledgeScopeInfo>;
+  /** 워크스페이스 지식 원본에 내용 추가 및 컴파일 — 선택(backend 지원 시에만 skill_knowledge_store 노출, FR-KB-9). */
+  store?(opts: { content: string; title?: string; sourcePath?: string }): Promise<KnowledgeStoreResult>;
 }
 
 export interface KnowledgeDeps {
@@ -66,6 +76,22 @@ const SCOPE_TOOL: ToolSpec = {
   description: '워크스페이스 지식의 범위 조회 — 등록된 소스 폴더(knowledge.json)와 폴더별·전체 카드 수(읽기 전용). "지식 파일은?"·"지식에 뭐가 있어?" 같은 범위 질문에 사용. 인자 없음',
   parameters: { type: "object", properties: {} },
 };
+// FR-KB-9: 지식 원본 추가 및 컴파일 — backend.store 지원 시에만 specs 에 추가.
+export const KNOWLEDGE_STORE_TOOL_NAME = "skill_knowledge_store";
+export const KNOWLEDGE_STORE_TOOL_SPEC: ToolSpec = {
+  name: KNOWLEDGE_STORE_TOOL_NAME,
+  description:
+    "워크스페이스 지식 원본(문서 소스)에 내용을 추가하고 컴파일하여 지식 베이스를 갱신합니다. 회사·프로젝트·업무 지식 저장에 사용하며, 개인 사실(skill_memory_save)이나 명시적 메모(memo_save)에 쓰지 마세요. knowledge.json 과 naia-settings 를 모델이 직접 고치지 않습니다. 인자: {content, title?, sourcePath?}",
+  parameters: {
+    type: "object",
+    properties: {
+      content: { type: "string", description: "지식 소스에 추가할 내용 (Markdown 형식)" },
+      title: { type: "string", description: "문서 제목 또는 항목명 (파일 식별 및 제목용, 선택 사항)" },
+      sourcePath: { type: "string", description: "저장할 소스 폴더 경로 (선택 사항, 생략 시 첫 번째 등록된 지식 소스 사용)" },
+    },
+    required: ["content"],
+  },
+};
 
 const ok = (output: string) => ({ output });
 const err = (output: string) => ({ output, isError: true });
@@ -79,10 +105,11 @@ export function makeKnowledgeSkillsExecutor(deps: KnowledgeDeps = {}): ToolExecu
   const backend = deps.backend;
   return {
     specs: () => {
-      if (!backend?.graph && !backend?.scope) return TOOLS;
+      if (!backend?.graph && !backend?.scope && !backend?.store) return TOOLS;
       const list = [...TOOLS];
       if (backend.graph) list.push(GRAPH_TOOL);
       if (backend.scope) list.push(SCOPE_TOOL);
+      if (backend.store) list.push(KNOWLEDGE_STORE_TOOL_SPEC);
       return list;
     },
     async execute(call: ToolCall, opts: { signal?: AbortSignal }): Promise<{ output: string; isError?: boolean }> {
@@ -93,6 +120,26 @@ export function makeKnowledgeSkillsExecutor(deps: KnowledgeDeps = {}): ToolExecu
         signal = opts?.signal;
         abortGuard(); // (진입 가드)
         if (!backend) return err("knowledge unavailable (backend 미주입)");
+        if (call.name === "skill_knowledge_store") {
+          if (!backend.store) return err("knowledge store unavailable");
+          if (!isObj(call.args)) return err("args must be object");
+          const content = (call.args.content ?? (call.args as Record<string, unknown>).text) as unknown;
+          if (typeof content !== "string" || !content.trim()) return err("content must be non-empty string");
+          const title = typeof call.args.title === "string" ? call.args.title : undefined;
+          const sourcePath = typeof call.args.sourcePath === "string" ? call.args.sourcePath : undefined;
+          const res = await backend.store({ content: content.trim(), title, sourcePath });
+          abortGuard();
+          if (!res.ok) {
+            return err(res.error ?? "knowledge store failed");
+          }
+          return ok(JSON.stringify({
+            ok: true,
+            message: "지식 원본 저장 및 컴파일 성공",
+            file: res.file,
+            cardCount: res.cardCount,
+            sourceCount: res.sourceCount,
+          }));
+        }
         if (call.name === "skill_knowledge_graph") {
           if (!backend.graph) return err("knowledge graph unavailable");
           const g = await backend.graph();

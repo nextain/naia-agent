@@ -8,8 +8,8 @@
  *  비종속(D03): kb-compiler 어댑터 선택은 `KnowledgeCompileBackend` 뒤 — 코어/UC 는 엔진을 모름(fake 로 계약검증).
  */
 import type { Dirent } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
-import { basename, extname, join } from "node:path";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { basename, extname, isAbsolute, join, normalize, resolve, sep } from "node:path";
 import { isSafeProductScope, resolveProductKnowledgeDir } from "./workspace-project.js";
 
 /** 컴파일 결과(통계). gRPC `CompileKnowledgeResult` 와 동형(camelCase). */
@@ -207,4 +207,119 @@ export function makeKbCompilerBackend(): KnowledgeCompileBackend {
 			};
 		},
 	};
+}
+
+export interface StoreWorkspaceKnowledgeOpts {
+	readonly content: string;
+	readonly title?: string;
+	readonly sourcePath?: string;
+}
+
+export interface StoreWorkspaceKnowledgeResult {
+	readonly ok: boolean;
+	readonly file?: string;
+	readonly cardCount?: number;
+	readonly sourceCount?: number;
+	readonly error?: string;
+}
+
+/**
+ * 워크스페이스 지식 원본(knowledge.json 에 등록된 소스 폴더)에 내용을 추가하고 컴파일을 수행한다.
+ *
+ * 불변 규칙:
+ * 1. knowledge.json 과 naia-settings 를 모델이 직접 고치는 경로는 원천 차단된다.
+ * 2. 상위 경로 탈출(..) 및 naia-settings 디렉터리 내 쓰기는 fail-closed 로 거부한다.
+ * 3. 등록된 소스 폴더가 없으면 에러를 반환한다.
+ */
+export async function storeWorkspaceKnowledge(
+	adkPath: string,
+	opts: StoreWorkspaceKnowledgeOpts,
+	compileFn?: (adkPath: string) => Promise<CompileKnowledgeResult>,
+): Promise<StoreWorkspaceKnowledgeResult> {
+	if (!adkPath) {
+		return { ok: false, error: "adkPath 미지정" };
+	}
+	if (!opts?.content || typeof opts.content !== "string" || !opts.content.trim()) {
+		return { ok: false, error: "content must be non-empty string" };
+	}
+
+	let cfg: { scope: string; sources: string[] };
+	try {
+		cfg = await readWorkspaceKnowledgeConfig(adkPath);
+	} catch (e) {
+		return { ok: false, error: `knowledge.json 읽기 실패: ${e instanceof Error ? e.message : String(e)}` };
+	}
+
+	if (!cfg.sources || cfg.sources.length === 0) {
+		return { ok: false, error: "등록된 소스 폴더가 없습니다" };
+	}
+
+	let chosenSource = cfg.sources[0];
+	if (opts.sourcePath && typeof opts.sourcePath === "string" && opts.sourcePath.trim()) {
+		const reqNorm = normalize(opts.sourcePath.trim()).replace(/\\/g, "/").replace(/\/+$/, "");
+		const matched = cfg.sources.find((s) => {
+			const sNorm = normalize(s).replace(/\\/g, "/").replace(/\/+$/, "");
+			return sNorm === reqNorm || sNorm.endsWith("/" + reqNorm);
+		});
+		if (!matched) {
+			return { ok: false, error: "지정한 sourcePath가 등록된 소스 폴더 목록에 없습니다" };
+		}
+		chosenSource = matched;
+	}
+
+	const canonicalAdk = resolve(adkPath);
+	const targetDir = isAbsolute(chosenSource) ? resolve(chosenSource) : resolve(canonicalAdk, chosenSource);
+
+	// 보안 검증: naia-settings 나 knowledge.json 경로 직접 수정 차단
+	const relToAdk = normalize(targetDir).replace(/\\/g, "/");
+	if (relToAdk.includes("/naia-settings") || relToAdk.endsWith("/naia-settings") || relToAdk.includes("knowledge.json")) {
+		return { ok: false, error: "naia-settings 및 knowledge.json 은 직접 수정할 수 없습니다" };
+	}
+
+	const rawTitle = (opts.title ?? "").trim();
+	const safeSlug = rawTitle
+		? rawTitle.replace(/[\\/:*?"<>|.]+/g, "_").slice(0, 80).trim()
+		: "";
+	const fileName = safeSlug ? `${safeSlug}.md` : `knowledge-${Date.now()}.md`;
+	const targetFile = resolve(targetDir, fileName);
+
+	// 보안 검증: 상위 디렉터리 탈출 검사
+	if (!targetFile.startsWith(targetDir + (targetDir.endsWith("/") || targetDir.endsWith("\\") ? "" : sep))) {
+		return { ok: false, error: "유효하지 않은 파일 경로 (디렉토리 탈출 시도)" };
+	}
+	if (targetFile.includes("naia-settings") || targetFile.includes("knowledge.json")) {
+		return { ok: false, error: "naia-settings 및 knowledge.json 은 직접 수정할 수 없습니다" };
+	}
+
+	try {
+		await mkdir(targetDir, { recursive: true });
+		let fileBody = opts.content.trim();
+		if (rawTitle && !fileBody.startsWith("# ")) {
+			fileBody = `# ${rawTitle}\n\n${fileBody}\n`;
+		} else {
+			fileBody = `${fileBody}\n`;
+		}
+		await writeFile(targetFile, fileBody, "utf8");
+	} catch (e) {
+		return { ok: false, error: `파일 저장 실패: ${e instanceof Error ? e.message : String(e)}` };
+	}
+
+	try {
+		const compiler = compileFn ?? makeCompileKnowledge({
+			readConfig: readWorkspaceKnowledgeConfig,
+			backend: makeKbCompilerBackend(),
+		});
+		const compResult = await compiler(canonicalAdk);
+		if (!compResult.ok) {
+			return { ok: false, file: targetFile, error: compResult.error ?? "컴파일 실패" };
+		}
+		return {
+			ok: true,
+			file: targetFile,
+			cardCount: compResult.cardCount,
+			sourceCount: compResult.sourceCount,
+		};
+	} catch (e) {
+		return { ok: false, file: targetFile, error: `컴파일 실행 실패: ${e instanceof Error ? e.message : String(e)}` };
+	}
 }

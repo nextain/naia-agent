@@ -28,7 +28,7 @@ import { makeShellTool } from "../../dist/main/adapters/shell-tool.js";
 import { workspaceBindFromSettings } from "../../dist/main/domain/workspace-bind.js";
 import { makeKnowledgeSkillsExecutor } from "../../dist/main/adapters/knowledge-skill.js";
 import { makeMemorySkillsExecutor } from "../../dist/main/adapters/memory-skill.js";
-import { readWorkspaceKnowledgeConfig, isValidKnowledgeScope } from "../../dist/main/adapters/knowledge-compile.js";
+import { readWorkspaceKnowledgeConfig, isValidKnowledgeScope, storeWorkspaceKnowledge } from "../../dist/main/adapters/knowledge-compile.js";
 import { pickSpawnableBin, resolveSpawnableBin, resolveFallbackCommand } from "../../dist/main/adapters/subprocess-session.js";
 import { makeOpenMeteoFetchWeather } from "../../dist/main/adapters/openmeteo-weather.js";
 import { makeFileMemoStore } from "../../dist/main/adapters/file-memo-store.js";
@@ -371,6 +371,9 @@ export async function composeAgentRuntimeDeps(o = {}) {
               if (idx >= 0) counts[idx] += 1; else otherCards += 1;
             }
             return { scope: lastScope, sources: lastSources.map((path, i) => ({ path, cardCount: counts[i] })), totalCards: cards.length, otherCards };
+          },
+          store: async (opts) => {
+            return storeWorkspaceKnowledge(knowledgeWorkspace, opts);
           },
         };
         knowledgeBackend = backend;

@@ -308,16 +308,17 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
   // 재색인 실패는 ready 를 깨지 않는다 — 저장소가 빈 것이 아니므로 memory 를 끄지 않는다.
   const ready = (async () => {
     // init also awaits automatic reindex; capture the reason before it clears.
-    const mismatchAtOpen = localAdapter?.getEmbeddingSpaceMismatch();
+    const la = localAdapter as any;
+    const mismatchAtOpen = typeof la?.getEmbeddingSpaceMismatch === "function" ? la.getEmbeddingSpaceMismatch() : null;
     if (mismatchAtOpen) opts.onEmbeddingReindex?.({ phase: "start", reason: mismatchAtOpen });
     await sys.init();
     if (!localAdapter) return;
     if (!mismatchAtOpen) {
-      await localAdapter.whenReady();
+      if (typeof la?.whenReady === "function") await la.whenReady();
       return;
     }
-    await localAdapter.whenReady();
-    if (localAdapter.getEmbeddingSpaceMismatch()) {
+    if (typeof la?.whenReady === "function") await la.whenReady();
+    if (typeof la?.getEmbeddingSpaceMismatch === "function" && la.getEmbeddingSpaceMismatch()) {
       const reindexError = (localAdapter as LocalAdapter & { getEmbeddingReindexError?: () => string | null }).getEmbeddingReindexError?.() ?? undefined;
       opts.onEmbeddingReindex?.({
         phase: "failed",

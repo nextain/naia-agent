@@ -1031,3 +1031,27 @@ honestly. The loop has no arbitrary two-minute ceiling and stops only at explici
 6. The model does not report a tool result (for example "the tool shows no open file") unless that tool was called in this turn and returned it.
 
 Coverage: `src/test/action-execution-policy.contract.test.ts`, `src/test/action-promise-guard.contract.test.ts` plus naia-shell v0.2.2 local E2E (the #687 attended shell E2E is pending).
+
+# UC-154 — 장기 기억과 지식 저장 도구를 모델에 연다 (naia-agent#154)
+
+사용자가 개인적 사실, 선호, 또는 회사·프로젝트·문서 지식을 저장하도록 요청하거나 나이아가 능동적으로 기록해야 할 때, 나이아는 명시적인 도구(`skill_memory_save`, `skill_knowledge_store`)를 통해 각각 장기 기억과 워크스페이스 지식 원본에 저장한다.
+
+1. **개인 사실 저장 (`skill_memory_save`)**: 사실 문장(`fact`)과 근거 발화(`evidence`)를 받아 `MemoryPort`로 장기 기억에 쓴다. 저장이 성공하기 전에는 모델이 기억했다고 주장할 수 없으며, 도구 결과가 성공인 경우에만 기억 완료로 응답한다. 도구 실패 시 실패를 정직하게 알린다.
+2. **지식 원본 저장 및 컴파일 (`skill_knowledge_store`)**: 회사·프로젝트·문서 지식을 워크스페이스 지식 원본에 추가하고 즉시 컴파일을 수행해 성공 또는 실패를 반환한다. 모델이 `knowledge.json`이나 `naia-settings`를 직접 수정하는 경로는 원천 차단된다.
+3. **도구 라우팅 원칙**:
+   - 개인 사실·선호 → 기억 도구 (`skill_memory_save`)
+   - 회사·프로젝트·문서 지식 → 지식 도구 (`skill_knowledge_store`)
+   - 이용자가 메모/노트를 명시적으로 부탁한 경우만 → `memo_save`
+4. **턴 종료 자동 저장 유지 및 정직한 통지**: 턴 종료 시 백그라운드 자동 `memory.save`는 그대로 유지된다. 자동 저장이 시간초과이거나 실패하면 그 사실이 클라이언트에 전달(`logEntry` 경고 등)되며, 실패를 성공처럼 위장하지 않는다.
+5. **기존 읽기 도구 유지**: `skill_memory_recall`, `skill_knowledge_search`, `skill_knowledge_ask`, `skill_knowledge_scope`, `skill_knowledge_graph` 등 기존 읽기 도구는 온전히 유지된다.
+
+### Test Coverage Map
+
+| Scenario | Contract/integration test |
+|---|---|
+| skill_memory_save 가 사실과 근거 발화를 받아 MemoryPort 에 쓰고 성공/실패를 반환하며, 성공 전 기억 주장 금지 | `explicit-memory-knowledge-write.contract.test.ts` |
+| skill_knowledge_store 가 지식 원본에 내용을 추가하고 컴파일 통계를 반환하며, naia-settings/knowledge.json 직접 수정 불가 | `explicit-memory-knowledge-write.contract.test.ts` |
+| 개인 사실은 기억 도구, 회사 지식은 지식 도구, 명시적 메모 요청만 memo_save 로 라우팅되는 정책 검증 | `explicit-memory-knowledge-write.contract.test.ts` |
+| 턴 종료 자동 memory.save 실패/시간초과 시 그 사실이 logEntry 로 전달되고 조용히 성공처럼 속이지 않음 | `explicit-memory-knowledge-write.contract.test.ts` |
+| 기존 읽기 도구 (skill_memory_recall, skill_knowledge_search 등) 무회귀 유지 | `memory-skill.contract.test.ts`, `uc-knowledge.contract.test.ts` |
+

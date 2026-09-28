@@ -119,7 +119,8 @@ describe("naia-memory × ChatTurnHandler 직교 UC 통합 (Goal2 A)", () => {
     const memory: MemoryPort = { recall: emptyRecall, save: async () => { throw new Error("save down"); } };
     const { deps, emits } = harness({ provider, memory });
     await new ChatTurnHandler(deps).onChatRequest(req());
-    expect(emits.map((e) => e.kind)).toEqual(["text", "usage", "finish"]);
+    expect(emits.map((e) => e.kind).filter((k) => k !== "logEntry")).toEqual(["text", "usage", "finish"]);
+    expect(emits.some((e) => e.kind === "logEntry" && (e as any).level === "warn")).toBe(true);
   });
 
   it("직교 memory ⊥ transcript: 한 턴에 save·append 가 독립적으로 둘 다 발화", async () => {

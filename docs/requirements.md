@@ -940,3 +940,21 @@ When real (non-control) tools are offered and no tool of any kind (handler-execu
 Verification: `src/test/action-promise-guard.contract.test.ts`, `src/test/action-execution-policy.contract.test.ts`. The attended naia-shell E2E for #687 is pending.
 
 Status: Done (contract tests and a real-LLM check pass; the attended naia-shell E2E is pending)
+
+# FR-MEM-19 — 명시적 장기 기억 저장 도구 (`skill_memory_save`) (naia-agent#154)
+
+- **도구 정의**: `skill_memory_save` 는 사용자 발화로부터 도출된 사실 문장(`fact`)과 근거가 된 사용자 발화(`evidence`)를 인자로 받아 `MemoryPort.save` 로 장기 기억에 쓰고, 성공 또는 실패를 도구 결과로 돌려준다.
+- **정직성 원칙**: 도구가 성공을 반환하기 전에는 모델이 기억했다고 주장할 수 없다. 도구 실행이 실패하거나 시간초과/오류인 경우, 모델은 실패를 정직하게 알린다.
+- **자동 저장과의 관계**: 턴 종료 시점의 자동 `memory.save` 는 그대로 유지된다. 단, 자동 저장이 시간초과이거나 실패하면 클라이언트에 그 사실(`logEntry` 경고 등)이 전달되며 성공처럼 위장하지 않는다.
+- **도구 라우팅**: 개인적 사실과 선호는 기억 도구(`skill_memory_save`), 회사·프로젝트·문서 지식은 지식 도구(`skill_knowledge_store`), 이용자가 메모 작성을 명시적으로 요청한 경우만 `memo_save` 로 라우팅한다.
+- **Verification**: `src/test/explicit-memory-knowledge-write.contract.test.ts`.
+
+# FR-KB-9 — 지식 원본 추가 및 컴파일 도구 (`skill_knowledge_store`) (naia-agent#154)
+
+- **도구 정의**: `skill_knowledge_store` 는 워크스페이스 지식 원본(`knowledge.json` 에 등록된 소스 폴더)에 새 문서(`content`, 선택적 `title`, 선택적 `sourcePath`)를 추가하고, 컴파일 파이프라인(`makeCompileKnowledge`)을 실행해 지식 베이스를 갱신하며 컴파일 성공 여부 및 통계를 반환한다.
+- **보안 및 불변**: 모델이 `knowledge.json` 과 `naia-settings` 디렉토리를 직접 수정하는 경로는 원천 차단된다. 지식 저장은 오직 등록된 소스 폴더 내의 마크다운 파일로만 한정되며, 상위 경로 탈출(`..`)이나 `naia-settings` 접근 시 fail-closed 로 거부한다.
+- **기존 읽기 도구 무회귀**: `skill_knowledge_search`, `skill_knowledge_ask`, `skill_knowledge_scope`, `skill_knowledge_graph` 등 기존 읽기 도구는 온전히 유지된다.
+- **Verification**: `src/test/explicit-memory-knowledge-write.contract.test.ts`.
+
+Status: In progress (UC-154 / FR-MEM-19 / FR-KB-9)
+
