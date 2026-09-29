@@ -336,32 +336,81 @@ export async function storeWorkspaceKnowledge(
 		return { ok: false, error: "naia-settings 및 knowledge.json 은 직접 수정할 수 없습니다" };
 	}
 
+	try {
+		await mkdir(targetDir, { recursive: true });
+	} catch (e) {
+		return { ok: false, error: `파일 저장 실패: ${e instanceof Error ? e.message : String(e)}` };
+	}
+
 	const rawTitle = (opts.title ?? "").trim();
 	const safeSlug = rawTitle
 		? rawTitle.replace(/[\\/:*?"<>|.]+/g, "_").slice(0, 80).trim()
 		: "";
-	const fileName = safeSlug ? `${safeSlug}.md` : `knowledge-${Date.now()}.md`;
-	const targetFile = resolve(targetDir, fileName);
+	const baseSlug = safeSlug || `knowledge-${Date.now()}`;
 
-	// 보안 검증: 상위 디렉터리 탈출 검사
-	if (!targetFile.startsWith(targetDir + (targetDir.endsWith("/") || targetDir.endsWith("\\") ? "" : sep))) {
-		return { ok: false, error: "유효하지 않은 파일 경로 (디렉토리 탈출 시도)" };
-	}
-	if (targetFile.includes("naia-settings") || targetFile.includes("knowledge.json")) {
-		return { ok: false, error: "naia-settings 및 knowledge.json 은 직접 수정할 수 없습니다" };
+	let fileBody = opts.content.trim();
+	if (rawTitle && !fileBody.startsWith("# ")) {
+		fileBody = `# ${rawTitle}\n\n${fileBody}\n`;
+	} else {
+		fileBody = `${fileBody}\n`;
 	}
 
-	try {
-		await mkdir(targetDir, { recursive: true });
-		let fileBody = opts.content.trim();
-		if (rawTitle && !fileBody.startsWith("# ")) {
-			fileBody = `# ${rawTitle}\n\n${fileBody}\n`;
-		} else {
-			fileBody = `${fileBody}\n`;
+	let targetFile = "";
+	let saved = false;
+
+	for (let i = 1; i <= 1000; i++) {
+		const candidateName = i === 1 ? `${baseSlug}.md` : `${baseSlug} (${i}).md`;
+		const candidatePath = resolve(targetDir, candidateName);
+
+		// 보안 검증: 상위 디렉터리 탈출 검사
+		if (!candidatePath.startsWith(targetDir + (targetDir.endsWith("/") || targetDir.endsWith("\\") ? "" : sep))) {
+			return { ok: false, error: "유효하지 않은 파일 경로 (디렉토리 탈출 시도)" };
 		}
-		await writeFile(targetFile, fileBody, "utf8");
-	} catch (e) {
-		return { ok: false, error: `파일 저장 실패: ${e instanceof Error ? e.message : String(e)}` };
+		if (candidatePath.includes("naia-settings") || candidatePath.includes("knowledge.json")) {
+			return { ok: false, error: "naia-settings 및 knowledge.json 은 직접 수정할 수 없습니다" };
+		}
+
+		try {
+			await writeFile(candidatePath, fileBody, { encoding: "utf8", flag: "wx" });
+			targetFile = candidatePath;
+			saved = true;
+			break;
+		} catch (e: unknown) {
+			if (typeof e === "object" && e !== null && "code" in e && (e as { code?: unknown }).code === "EEXIST") {
+				continue;
+			}
+			return { ok: false, error: `파일 저장 실패: ${e instanceof Error ? e.message : String(e)}` };
+		}
+	}
+
+	if (!saved) {
+		for (let attempt = 0; attempt < 10; attempt++) {
+			const fallbackName = `${baseSlug}-${Date.now()}.md`;
+			const candidatePath = resolve(targetDir, fallbackName);
+
+			// 보안 검증: 상위 디렉터리 탈출 검사
+			if (!candidatePath.startsWith(targetDir + (targetDir.endsWith("/") || targetDir.endsWith("\\") ? "" : sep))) {
+				return { ok: false, error: "유효하지 않은 파일 경로 (디렉토리 탈출 시도)" };
+			}
+			if (candidatePath.includes("naia-settings") || candidatePath.includes("knowledge.json")) {
+				return { ok: false, error: "naia-settings 및 knowledge.json 은 직접 수정할 수 없습니다" };
+			}
+
+			try {
+				await writeFile(candidatePath, fileBody, { encoding: "utf8", flag: "wx" });
+				targetFile = candidatePath;
+				saved = true;
+				break;
+			} catch (e: unknown) {
+				if (typeof e === "object" && e !== null && "code" in e && (e as { code?: unknown }).code === "EEXIST") {
+					continue;
+				}
+				return { ok: false, error: `파일 저장 실패: ${e instanceof Error ? e.message : String(e)}` };
+			}
+		}
+		if (!saved) {
+			return { ok: false, error: "파일 저장 실패: 사용 가능한 고유 파일 이름을 찾을 수 없습니다" };
+		}
 	}
 
 	try {

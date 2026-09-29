@@ -324,6 +324,218 @@ describe("UC-154 contract tests — explicit long-term memory & knowledge writin
       expect(res.error).toContain("syntax error in markdown table");
     });
 
+    it("never overwrites existing file with same title: creates (2).md and preserves first file", async () => {
+      const adk = await mkdtemp(join(tmpdir(), "kstore-dup-"));
+      tempDirs.push(adk);
+      const docsDir = join(adk, "docs");
+      await mkdir(docsDir, { recursive: true });
+      await mkdir(join(adk, "naia-settings"), { recursive: true });
+      await writeFile(
+        join(adk, "naia-settings", "knowledge.json"),
+        JSON.stringify({
+          version: 1,
+          scope: "default",
+          sources: [{ path: "docs" }],
+        }),
+      );
+
+      const fakeCompile = vi.fn(async () => ({
+        ok: true,
+        scope: "default",
+        sourceCount: 1,
+        cardCount: 1,
+        entityCount: 0,
+        relationCount: 0,
+      }));
+
+      // 1st store
+      const res1 = await storeWorkspaceKnowledge(
+        adk,
+        {
+          title: "배포 금지 규칙",
+          content: "배포는 0045 이후 하지 않는다.",
+        },
+        fakeCompile,
+      );
+      expect(res1.ok).toBe(true);
+      expect(res1.file).toBeDefined();
+      expect(res1.file).toMatch(/배포 금지 규칙\.md$/);
+
+      // 2nd store with same title
+      const res2 = await storeWorkspaceKnowledge(
+        adk,
+        {
+          title: "배포 금지 규칙",
+          content: "배포는 0936 이후 금요일에 하지 않는다.",
+        },
+        fakeCompile,
+      );
+      expect(res2.ok).toBe(true);
+      expect(res2.file).toBeDefined();
+      expect(res2.file).toMatch(/배포 금지 규칙 \(2\)\.md$/);
+
+      // Verify both files exist and first file was not overwritten
+      expect(res1.file).not.toBe(res2.file);
+      const content1 = await readFile(res1.file!, "utf8");
+      const content2 = await readFile(res2.file!, "utf8");
+      expect(content1).toContain("배포는 0045 이후 하지 않는다.");
+      expect(content2).toContain("배포는 0936 이후 금요일에 하지 않는다.");
+    });
+
+    it("preserves user's existing README.md when saving with title README and writes to README (2).md", async () => {
+      const adk = await mkdtemp(join(tmpdir(), "kstore-readme-"));
+      tempDirs.push(adk);
+      const docsDir = join(adk, "docs");
+      await mkdir(docsDir, { recursive: true });
+      await mkdir(join(adk, "naia-settings"), { recursive: true });
+      await writeFile(
+        join(adk, "naia-settings", "knowledge.json"),
+        JSON.stringify({
+          version: 1,
+          scope: "default",
+          sources: [{ path: "docs" }],
+        }),
+      );
+
+      // Pre-existing user README.md
+      const existingReadmePath = join(docsDir, "README.md");
+      const existingReadmeContent = "# Project Documentation\n\nOriginal user docs.";
+      await writeFile(existingReadmePath, existingReadmeContent, "utf8");
+
+      const fakeCompile = vi.fn(async () => ({
+        ok: true,
+        scope: "default",
+        sourceCount: 1,
+        cardCount: 2,
+        entityCount: 0,
+        relationCount: 0,
+      }));
+
+      const res = await storeWorkspaceKnowledge(
+        adk,
+        {
+          title: "README",
+          content: "새로운 지식 내용 저장",
+        },
+        fakeCompile,
+      );
+
+      expect(res.ok).toBe(true);
+      expect(res.file).toBeDefined();
+      expect(res.file).toMatch(/README \(2\)\.md$/);
+
+      // Verify existing README.md content is intact
+      const preservedReadme = await readFile(existingReadmePath, "utf8");
+      expect(preservedReadme).toBe(existingReadmeContent);
+
+      // Verify new content is written to README (2).md returned in file
+      const newFileContent = await readFile(res.file!, "utf8");
+      expect(newFileContent).toContain("새로운 지식 내용 저장");
+    });
+
+    it("returns actually written file path via skill_knowledge_store execution", async () => {
+      const adk = await mkdtemp(join(tmpdir(), "kstore-tool-"));
+      tempDirs.push(adk);
+      const docsDir = join(adk, "docs");
+      await mkdir(docsDir, { recursive: true });
+      await mkdir(join(adk, "naia-settings"), { recursive: true });
+      await writeFile(
+        join(adk, "naia-settings", "knowledge.json"),
+        JSON.stringify({
+          version: 1,
+          scope: "default",
+          sources: [{ path: "docs" }],
+        }),
+      );
+
+      const fakeCompile = vi.fn(async () => ({
+        ok: true,
+        scope: "default",
+        sourceCount: 1,
+        cardCount: 1,
+        entityCount: 0,
+        relationCount: 0,
+      }));
+
+      const backend: KnowledgeBackend = {
+        search: vi.fn(async () => []),
+        ask: vi.fn(async () => ({ abstained: true, answer: "", sources: [] })),
+        store: vi.fn(async (opts) => storeWorkspaceKnowledge(adk, opts, fakeCompile)),
+      };
+
+      const exec = makeKnowledgeSkillsExecutor({ backend });
+
+      // First call
+      const res1 = await exec.execute({
+        id: "call-k1",
+        name: "skill_knowledge_store",
+        args: { title: "배포 규칙", content: "첫 번째 규칙" },
+      }, {});
+      expect(res1.isError).toBeFalsy();
+      const parsed1 = JSON.parse(res1.output);
+      expect(parsed1.ok).toBe(true);
+      expect(parsed1.file).toMatch(/배포 규칙\.md$/);
+      expect(await readFile(parsed1.file, "utf8")).toContain("첫 번째 규칙");
+
+      // Second call with same title
+      const res2 = await exec.execute({
+        id: "call-k2",
+        name: "skill_knowledge_store",
+        args: { title: "배포 규칙", content: "두 번째 규칙" },
+      }, {});
+      expect(res2.isError).toBeFalsy();
+      const parsed2 = JSON.parse(res2.output);
+      expect(parsed2.ok).toBe(true);
+      expect(parsed2.file).toMatch(/배포 규칙 \(2\)\.md$/);
+      expect(parsed1.file).not.toBe(parsed2.file);
+      expect(await readFile(parsed2.file, "utf8")).toContain("두 번째 규칙");
+      expect(await readFile(parsed1.file, "utf8")).toContain("첫 번째 규칙");
+    });
+
+    it("handles fallback to timestamp when 1000 candidates already exist", async () => {
+      const adk = await mkdtemp(join(tmpdir(), "kstore-fallback-"));
+      tempDirs.push(adk);
+      const docsDir = join(adk, "docs");
+      await mkdir(docsDir, { recursive: true });
+      await mkdir(join(adk, "naia-settings"), { recursive: true });
+      await writeFile(
+        join(adk, "naia-settings", "knowledge.json"),
+        JSON.stringify({
+          version: 1,
+          scope: "default",
+          sources: [{ path: "docs" }],
+        }),
+      );
+
+      const fakeCompile = vi.fn(async () => ({
+        ok: true,
+        scope: "default",
+        sourceCount: 1,
+        cardCount: 1,
+        entityCount: 0,
+        relationCount: 0,
+      }));
+
+      // Pre-populate 1000 files for title "overflow"
+      await writeFile(join(docsDir, "overflow.md"), "base");
+      const writes: Promise<void>[] = [];
+      for (let i = 2; i <= 1000; i++) {
+        writes.push(writeFile(join(docsDir, `overflow (${i}).md`), `content ${i}`));
+      }
+      await Promise.all(writes);
+
+      // Now storing "overflow" must fall back to overflow-<Date.now()>.md
+      const resOverflow = await storeWorkspaceKnowledge(
+        adk,
+        { title: "overflow", content: "after 1000 overflow content" },
+        fakeCompile,
+      );
+      expect(resOverflow.ok).toBe(true);
+      expect(resOverflow.file).toBeDefined();
+      expect(resOverflow.file).toMatch(/overflow-\d+\.md$/);
+      expect(await readFile(resOverflow.file!, "utf8")).toContain("after 1000 overflow content");
+    });
+
     it("makeKnowledgeSkillsExecutor exposes skill_knowledge_store when backend.store is provided", async () => {
       const backend: KnowledgeBackend = {
         search: vi.fn(async () => []),
