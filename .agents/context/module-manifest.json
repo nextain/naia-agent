@@ -1,6 +1,24 @@
 {
   "_doc": "파일단위 계약 앵커 (드리프트 자동차단). src/main 의 모든 .ts 는 여기 {layer, uc, contract} 와 함께 등록돼야 한다. 미등록 파일 = 미계약 코드 = RED (scripts/check-file-anchors.mjs). 계약 먼저, 코드 나중 — 새 파일 추가 전 이 manifest 에 앵커 선언. layer ∈ {domain,ports,app,adapters,composition}. contract = docs/progress 의 계약 문서.",
   "files": {
+    "src/main/composition/uc1-wiring.ts": {
+      "layer": "composition",
+      "uc": ["UC1"],
+      "contract": "docs/progress/99.dev-comm/UC1-agent-horizontal-contract-2026-06-10.md",
+      "note": "naia-web 탐침: UC1 agent 와이어링 분리 (FE-05)."
+    },
+    "src/main/composition/browser-agent.ts": {
+      "layer": "composition",
+      "uc": ["UC1"],
+      "contract": "docs/progress/99.dev-comm/UC1-agent-horizontal-contract-2026-06-10.md",
+      "note": "naia-web 탐침: 브라우저 환경용 경량 Agent 조립 루트 (FE-05)."
+    },
+    "src/main/adapters/port-line-io.ts": {
+      "layer": "adapters",
+      "uc": ["UC1"],
+      "contract": "docs/progress/99.dev-comm/UC1-agent-horizontal-contract-2026-06-10.md",
+      "note": "naia-web 탐침: MessagePort 기반 LineIO 어댑터 (FE-06)."
+    },
     "src/main/adapters/naia-pi-versioned-billing.ts": {
       "layer": "adapters",
       "uc": ["UC-ORCH-004"],
