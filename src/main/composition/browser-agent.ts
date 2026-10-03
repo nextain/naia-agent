@@ -2,11 +2,13 @@
 import { wireAgentUC1 } from "./uc1-wiring.js";
 import { makePortLineIO, type LinePortLike } from "../adapters/port-line-io.js";
 import { makeStdioIngress, makeStdioEgress, type LineIO } from "../adapters/stdio.js";
-import type { ProviderPort, DiagnosticLog, Unsub } from "../ports/uc1.js";
+import type { ProviderPort, PersonaSourcePort, WorkspaceContextPort, DiagnosticLog, Unsub } from "../ports/uc1.js";
 
 export function startBrowserAgent(opts: {
   port: LinePortLike;
   provider?: ProviderPort;
+  personaSource?: PersonaSourcePort;
+  workspaceContext?: WorkspaceContextPort;
   diag: DiagnosticLog;
 }): { stop(): void } {
   let stopped = false;
@@ -41,6 +43,8 @@ export function startBrowserAgent(opts: {
     ingress,
     egress,
     ...(opts.provider !== undefined ? { provider: opts.provider } : {}),
+    ...(opts.personaSource !== undefined ? { personaSource: opts.personaSource } : {}),
+    ...(opts.workspaceContext !== undefined ? { workspaceContext: opts.workspaceContext } : {}),
     diag: opts.diag,
   });
 
@@ -60,3 +64,6 @@ export function startBrowserAgent(opts: {
 
 export { makeWebLLMProvider } from "../adapters/webllm-provider.js";
 export type { WebLLMEngineLike, WebLLMChatRequest, WebLLMChatChunk, WebLLMChatMessage } from "../adapters/webllm-provider.js";
+export { makePersonaSourceStore, type PersonaFsRead } from "../adapters/persona-source-store.js";
+export { makeWorkspaceContextStore, type WorkspaceFsRead, type WorkspaceDirent } from "../adapters/workspace-context-store.js";
+export type { PersonaSourcePort, WorkspaceContextPort } from "../ports/uc1.js";

@@ -1,6 +1,13 @@
 // Test browser-agent — MessagePort 기반 Agent 통합 시험 (FE-05, FE-06, FE-10).
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { startBrowserAgent } from "../main/composition/browser-agent.js";
+import {
+  startBrowserAgent,
+  makePersonaSourceStore,
+  makeWorkspaceContextStore,
+  type WorkspaceDirent,
+  type PersonaFsRead,
+  type WorkspaceFsRead,
+} from "../main/composition/browser-agent.js";
 import type { ProviderPort, ProviderChatOpts } from "../main/ports/uc1.js";
 import type { ProviderConfig, ChatMessage, ProviderChunk } from "../main/domain/chat.js";
 
@@ -291,5 +298,301 @@ describe("browser-agent 통합 시험 (FE-05/FE-06)", () => {
       (m) => m?.text === "late" || (m?.requestId === "s1" && m?.type === "finish"),
     );
     expect(s1LateOrFinish).toEqual([]);
+  });
+});
+
+describe("browser-agent 워크스페이스 포트 (FE-16)", () => {
+  let port1: MessagePort;
+  let port2: MessagePort;
+  let lines: string[];
+  let onMessage: (ev: MessageEvent) => void;
+
+  beforeEach(() => {
+    const channel = new MessageChannel();
+    port1 = channel.port1;
+    port2 = channel.port2;
+    lines = [];
+
+    onMessage = (ev: MessageEvent) => {
+      if (typeof ev.data === "string") {
+        lines.push(ev.data);
+      }
+    };
+
+    port2.addEventListener("message", onMessage);
+    port2.start();
+  });
+
+  afterEach(() => {
+    port2.removeEventListener("message", onMessage);
+    port1.close();
+    port2.close();
+  });
+
+  async function waitFor(
+    predicate: () => boolean,
+    timeoutMs = 2000,
+    desc = "condition",
+  ): Promise<void> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      if (predicate()) return;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    throw new Error(
+      `Timeout waiting for ${desc} within ${timeoutMs}ms. Received lines: ${JSON.stringify(lines)}`,
+    );
+  }
+
+  interface FakeEntry {
+    type: "file" | "dir";
+    content?: string;
+    entries?: readonly WorkspaceDirent[];
+  }
+
+  function createFakeFs(initialConfig?: string): {
+    fs: PersonaFsRead & WorkspaceFsRead;
+    updateConfig: (content: string) => void;
+  } {
+    const table: Record<string, FakeEntry> = {
+      "/adk/naia-settings/config.json": {
+        type: "file",
+        content:
+          initialConfig ??
+          JSON.stringify({
+            agentName: "루미",
+            speechStyle: "casual",
+            persona: "You are 루미, an AI companion. FE16-PERSONA-MARK",
+          }),
+      },
+      "/adk/AGENTS.md": { type: "file", content: "# AGENTS\n" },
+      "/adk/projects": {
+        type: "dir",
+        entries: [
+          { name: "proj-a", isDirectory: () => true },
+          { name: "note.txt", isDirectory: () => false },
+          { name: ".git", isDirectory: () => true },
+        ],
+      },
+      "/adk/projects/proj-a": { type: "dir" },
+      "/adk/projects/note.txt": { type: "file", content: "" },
+      "/adk/projects/.git": { type: "dir" },
+    };
+
+    const fs: PersonaFsRead & WorkspaceFsRead = {
+      existsSync(p: string): boolean {
+        return Object.prototype.hasOwnProperty.call(table, p);
+      },
+      readFileSync(p: string, _encoding: "utf8"): string {
+        const entry = table[p];
+        if (entry && entry.type === "file" && typeof entry.content === "string") {
+          return entry.content;
+        }
+        throw new Error(`File not found: ${p}`);
+      },
+      readdirSync(p: string, _opts: { withFileTypes: true }): readonly WorkspaceDirent[] {
+        const entry = table[p];
+        if (entry && entry.type === "dir" && entry.entries) {
+          return entry.entries;
+        }
+        return [];
+      },
+    };
+
+    return {
+      fs,
+      updateConfig(content: string): void {
+        table["/adk/naia-settings/config.json"] = {
+          type: "file",
+          content,
+        };
+      },
+    };
+  }
+
+  function createRecordingProvider(recordedPrompts: (string | undefined)[]): ProviderPort {
+    return {
+      async *chat(
+        _config: ProviderConfig,
+        _messages: readonly ChatMessage[],
+        opts: ProviderChatOpts,
+      ): AsyncIterable<ProviderChunk> {
+        recordedPrompts.push(opts.systemPrompt);
+        yield { kind: "text", text: "ok" };
+        yield { kind: "finish" };
+      },
+    };
+  }
+
+  it("두 포트를 넘기면 systemPrompt 에 페르소나와 워크스페이스가 들어간다", async () => {
+    const { fs } = createFakeFs();
+    const recordedPrompts: (string | undefined)[] = [];
+    const provider = createRecordingProvider(recordedPrompts);
+
+    const agent = startBrowserAgent({
+      port: port1,
+      provider,
+      diag: { log: () => {}, debug: () => {} },
+      personaSource: makePersonaSourceStore({ fs, adkPath: "/adk" }),
+      workspaceContext: makeWorkspaceContextStore({ fs, adkPath: "/adk", cwd: "/adk" }),
+    });
+
+    port2.postMessage(JSON.stringify({
+      type: "chat_request",
+      requestId: "w1",
+      provider: { provider: "fake", model: "m" },
+      messages: [{ role: "user", content: "hi" }],
+    }));
+
+    await waitFor(
+      () => lines.some((l) => parseLine(l)?.requestId === "w1" && parseLine(l)?.type === "finish"),
+      2000,
+      "w1 finish",
+    );
+
+    expect(recordedPrompts.length).toBe(1);
+    const sp = recordedPrompts[0];
+    expect(sp).toBeDefined();
+    expect(sp).toContain("FE16-PERSONA-MARK");
+    expect(sp).toContain("루미");
+    expect(sp).toContain("Workspace root: /adk");
+    expect(sp).toContain("Entrypoint: AGENTS.md");
+    expect(sp).toContain("Projects (1): proj-a");
+
+    const personaMarkIdx = sp!.indexOf("FE16-PERSONA-MARK");
+    const workspaceIdx = sp!.indexOf("## Workspace");
+    expect(personaMarkIdx).toBeGreaterThanOrEqual(0);
+    expect(workspaceIdx).toBeGreaterThanOrEqual(0);
+    expect(personaMarkIdx).toBeLessThan(workspaceIdx);
+
+    agent.stop();
+  });
+
+  it("페르소나를 바꾸면 다음 턴에 반영된다", async () => {
+    const { fs, updateConfig } = createFakeFs();
+    const recordedPrompts: (string | undefined)[] = [];
+    const provider = createRecordingProvider(recordedPrompts);
+
+    const agent = startBrowserAgent({
+      port: port1,
+      provider,
+      diag: { log: () => {}, debug: () => {} },
+      personaSource: makePersonaSourceStore({ fs, adkPath: "/adk" }),
+      workspaceContext: makeWorkspaceContextStore({ fs, adkPath: "/adk", cwd: "/adk" }),
+    });
+
+    // 턴 1: 시험 1의 상태
+    port2.postMessage(JSON.stringify({
+      type: "chat_request",
+      requestId: "w2-1",
+      provider: { provider: "fake", model: "m" },
+      messages: [{ role: "user", content: "turn 1" }],
+    }));
+
+    await waitFor(
+      () => lines.some((l) => parseLine(l)?.requestId === "w2-1" && parseLine(l)?.type === "finish"),
+      2000,
+      "w2-1 finish",
+    );
+
+    expect(recordedPrompts.length).toBe(1);
+    expect(recordedPrompts[0]).toContain("FE16-PERSONA-MARK");
+
+    // 가짜 fs 의 config.json 을 FE16-PERSONA-MARK-2 로 바꿈
+    updateConfig(JSON.stringify({
+      agentName: "루미",
+      speechStyle: "casual",
+      persona: "You are 루미, an AI companion. FE16-PERSONA-MARK-2",
+    }));
+
+    // 두 번째 chat_request (동일 agent 인스턴스, 다시 띄우지 않음)
+    port2.postMessage(JSON.stringify({
+      type: "chat_request",
+      requestId: "w2-2",
+      provider: { provider: "fake", model: "m" },
+      messages: [{ role: "user", content: "turn 2" }],
+    }));
+
+    await waitFor(
+      () => lines.some((l) => parseLine(l)?.requestId === "w2-2" && parseLine(l)?.type === "finish"),
+      2000,
+      "w2-2 finish",
+    );
+
+    expect(recordedPrompts.length).toBe(2);
+    expect(recordedPrompts[1]).toBeDefined();
+    expect(recordedPrompts[1]).toContain("FE16-PERSONA-MARK-2");
+
+    agent.stop();
+  });
+
+  it("포트가 없으면 systemPrompt 가 없다", async () => {
+    const recordedPrompts: (string | undefined)[] = [];
+    const provider = createRecordingProvider(recordedPrompts);
+
+    const agent = startBrowserAgent({
+      port: port1,
+      provider,
+      diag: { log: () => {}, debug: () => {} },
+    });
+
+    port2.postMessage(JSON.stringify({
+      type: "chat_request",
+      requestId: "w3",
+      provider: { provider: "fake", model: "m" },
+      messages: [{ role: "user", content: "hi" }],
+    }));
+
+    await waitFor(
+      () => lines.some((l) => parseLine(l)?.requestId === "w3" && parseLine(l)?.type === "finish"),
+      2000,
+      "w3 finish",
+    );
+
+    expect(recordedPrompts.length).toBe(1);
+    expect(recordedPrompts[0]).toBeUndefined();
+
+    agent.stop();
+  });
+
+  it("이름만 바꾸면 지금은 본문 이름이 바뀌지 않는다(현행 동작 고정)", async () => {
+    const { fs } = createFakeFs(
+      JSON.stringify({
+        agentName: "루미",
+        speechStyle: "casual",
+        persona: "You are Naia, an AI companion. Speak casually and warmly.",
+      }),
+    );
+    const recordedPrompts: (string | undefined)[] = [];
+    const provider = createRecordingProvider(recordedPrompts);
+
+    const agent = startBrowserAgent({
+      port: port1,
+      provider,
+      diag: { log: () => {}, debug: () => {} },
+      personaSource: makePersonaSourceStore({ fs, adkPath: "/adk" }),
+      workspaceContext: makeWorkspaceContextStore({ fs, adkPath: "/adk", cwd: "/adk" }),
+    });
+
+    port2.postMessage(JSON.stringify({
+      type: "chat_request",
+      requestId: "w4",
+      provider: { provider: "fake", model: "m" },
+      messages: [{ role: "user", content: "hi" }],
+    }));
+
+    await waitFor(
+      () => lines.some((l) => parseLine(l)?.requestId === "w4" && parseLine(l)?.type === "finish"),
+      2000,
+      "w4 finish",
+    );
+
+    expect(recordedPrompts.length).toBe(1);
+    const sp = recordedPrompts[0];
+    expect(sp).toBeDefined();
+    expect(sp).toContain("You are Naia, an AI companion.");
+    expect(sp).not.toContain("루미");
+
+    agent.stop();
   });
 });
