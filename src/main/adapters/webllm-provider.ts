@@ -291,6 +291,17 @@ export function makeWebLLMProvider(deps: {
       };
       opts.signal?.addEventListener("abort", onAbortSignal);
 
+      let abortListenersRemoved = false;
+      const removeAllAbortListeners = () => {
+        if (!abortListenersRemoved) {
+          abortListenersRemoved = true;
+          removeAbortListener();
+          if (opts.signal) {
+            opts.signal.removeEventListener("abort", onAbortSignal);
+          }
+        }
+      };
+
       async function drainStream(
         eng: WebLLMEngineLike,
         it: AsyncIterator<WebLLMChatChunk>,
@@ -338,6 +349,7 @@ export function makeWebLLMProvider(deps: {
       try {
         while (true) {
           if (opts.signal?.aborted) {
+            callInterruptOnce();
             return;
           }
 
@@ -369,6 +381,11 @@ export function makeWebLLMProvider(deps: {
           const { done, value } = nextRace.res;
           if (done) {
             normalDone = true;
+            removeAllAbortListeners();
+            releaseSlotOnce();
+            if (opts.signal?.aborted) {
+              return;
+            }
             yield { kind: "finish" };
             return;
           }
@@ -376,10 +393,18 @@ export function makeWebLLMProvider(deps: {
           const choice = value.choices?.[0];
           const content = choice?.delta?.content;
           if (content !== undefined && content !== null && content !== "") {
+            if (opts.signal?.aborted) {
+              callInterruptOnce();
+              return;
+            }
             yield { kind: "text", text: content };
           }
 
           if (value.usage) {
+            if (opts.signal?.aborted) {
+              callInterruptOnce();
+              return;
+            }
             yield {
               kind: "usage",
               inputTokens: value.usage.prompt_tokens,
@@ -388,8 +413,7 @@ export function makeWebLLMProvider(deps: {
           }
         }
       } finally {
-        removeAbortListener();
-        opts.signal?.removeEventListener("abort", onAbortSignal);
+        removeAllAbortListeners();
 
         if (normalDone || slotReleased) {
           if (!slotReleased) {

@@ -21,6 +21,10 @@ interface FakeStreamRecord {
   reachedDone: boolean;
   returnedCount: number;
   streamStarted: boolean;
+  emittedChunks: WebLLMChatChunk[];
+  createEntered: Promise<void>;
+  bodyStarted: Promise<void>;
+  reachedDonePromise: Promise<void>;
 }
 
 class FakeLock {
@@ -54,6 +58,7 @@ class FakeWebLLMEngine implements WebLLMEngineLike {
   public interruptCalls: Array<{ streamId?: number; streamStarted?: boolean }> = [];
   public streams: FakeStreamRecord[] = [];
   public totalReturnCalls = 0;
+  public totalThrowCalls = 0;
 
   public activeStreamId?: number;
   public interruptSignal = false;
@@ -74,6 +79,31 @@ class FakeWebLLMEngine implements WebLLMEngineLike {
   public shouldThrowErrorOnNext = false;
   public errorToThrow = new Error("fake stream error");
 
+  public createEntered!: Promise<void>;
+  private resolveCreateEntered!: () => void;
+
+  public bodyStarted!: Promise<void>;
+  private resolveBodyStarted!: () => void;
+
+  public reachedDone!: Promise<void>;
+  private resolveReachedDone!: () => void;
+
+  constructor() {
+    this.initStreamPromises();
+  }
+
+  public initStreamPromises(): void {
+    this.createEntered = new Promise<void>((resolve) => {
+      this.resolveCreateEntered = resolve;
+    });
+    this.bodyStarted = new Promise<void>((resolve) => {
+      this.resolveBodyStarted = resolve;
+    });
+    this.reachedDone = new Promise<void>((resolve) => {
+      this.resolveReachedDone = resolve;
+    });
+  }
+
   async interruptGenerate(): Promise<void> {
     const activeStream = this.streams.find((s) => s.id === this.activeStreamId);
     this.interruptCalls.push({
@@ -89,17 +119,29 @@ class FakeWebLLMEngine implements WebLLMEngineLike {
         this.createCalls++;
         this.requests.push(req);
 
+        if (this.createCalls > 1) {
+          this.initStreamPromises();
+        }
+        this.resolveCreateEntered();
+
         if (this.createGate) {
           await this.createGate;
         }
 
         const unlock = await this.lock.acquire();
         const streamId = this.streams.length + 1;
+        const currentResolveBodyStarted = this.resolveBodyStarted;
+        const currentResolveReachedDone = this.resolveReachedDone;
+
         const record: FakeStreamRecord = {
           id: streamId,
           reachedDone: false,
           returnedCount: 0,
           streamStarted: false,
+          emittedChunks: [],
+          createEntered: this.createEntered,
+          bodyStarted: this.bodyStarted,
+          reachedDonePromise: this.reachedDone,
         };
         this.streams.push(record);
         this.activeStreamId = streamId;
@@ -109,6 +151,7 @@ class FakeWebLLMEngine implements WebLLMEngineLike {
         async function* streamGenerator(): AsyncGenerator<WebLLMChatChunk, void, unknown> {
           record.streamStarted = true;
           engine.interruptSignal = false;
+          currentResolveBodyStarted();
 
           if (engine.beforeFirstChunkGate) {
             await engine.beforeFirstChunkGate;
@@ -117,18 +160,6 @@ class FakeWebLLMEngine implements WebLLMEngineLike {
           let threw = false;
           try {
             for (let i = 0; i < engine.chunksToSend.length; i++) {
-              if (engine.interruptSignal) {
-                record.finishReason = "abort";
-                yield {
-                  choices: [{ delta: { content: null }, finish_reason: "abort" }],
-                };
-                yield {
-                  choices: [],
-                  usage: { prompt_tokens: 1, completion_tokens: 1 },
-                };
-                break;
-              }
-
               if (engine.shouldThrowErrorOnNext && i === 1) {
                 threw = true;
                 unlock();
@@ -137,19 +168,35 @@ class FakeWebLLMEngine implements WebLLMEngineLike {
               }
 
               const item = engine.chunksToSend[i];
-              if (item.usage) {
-                yield {
-                  choices: [],
-                  usage: item.usage,
-                };
-              } else {
-                yield {
-                  choices: [{ delta: { content: item.content }, finish_reason: item.finish_reason ?? null }],
-                };
-              }
+              const chunk: WebLLMChatChunk = {
+                choices: item.content !== undefined
+                  ? [{ delta: { content: item.content }, finish_reason: item.finish_reason ?? null }]
+                  : [],
+                ...(item.usage ? { usage: item.usage } : {}),
+              };
+
+              record.emittedChunks.push(chunk);
+              yield chunk;
 
               if (i === 0 && engine.betweenChunksGate) {
                 await engine.betweenChunksGate;
+              }
+
+              if (engine.interruptSignal) {
+                record.finishReason = "abort";
+                const abortChunk: WebLLMChatChunk = {
+                  choices: [{ delta: { content: null }, finish_reason: "abort" }],
+                };
+                record.emittedChunks.push(abortChunk);
+                yield abortChunk;
+
+                const usageChunk: WebLLMChatChunk = {
+                  choices: [],
+                  usage: { prompt_tokens: 1, completion_tokens: 1 },
+                };
+                record.emittedChunks.push(usageChunk);
+                yield usageChunk;
+                break;
               }
             }
 
@@ -166,6 +213,7 @@ class FakeWebLLMEngine implements WebLLMEngineLike {
             if (engine.activeStreamId === streamId) {
               engine.activeStreamId = undefined;
             }
+            currentResolveReachedDone();
           }
         }
 
@@ -182,7 +230,10 @@ class FakeWebLLMEngine implements WebLLMEngineLike {
             engine.totalReturnCalls++;
             return originalReturn ? originalReturn(val) : Promise.resolve({ done: true as const, value: undefined });
           },
-          throw: (err?: unknown) => (originalThrow ? originalThrow(err) : Promise.reject(err)),
+          throw: (err?: unknown) => {
+            engine.totalThrowCalls++;
+            return originalThrow ? originalThrow(err) : Promise.reject(err);
+          },
         };
         return streamIt;
       },
@@ -216,6 +267,7 @@ function formatDebug(engine: FakeWebLLMEngine, collected: unknown[]): string {
       interruptCalls: engine.interruptCalls,
       streams: engine.streams,
       totalReturnCalls: engine.totalReturnCalls,
+      totalThrowCalls: engine.totalThrowCalls,
       locked: engine.lock.isLocked(),
       collected,
     },
@@ -224,10 +276,20 @@ function formatDebug(engine: FakeWebLLMEngine, collected: unknown[]): string {
   );
 }
 
-function assertCancelledCleanup(engine: FakeWebLLMEngine) {
+function assertCancelledCleanup(engine: FakeWebLLMEngine, expectedInterruptCalls: number) {
   expect(engine.lock.isLocked()).toBe(false);
   expect(engine.totalReturnCalls).toBe(0);
+  expect(engine.totalThrowCalls).toBe(0);
+  expect(engine.interruptCalls.length).toBe(expectedInterruptCalls);
 }
+
+const EXPECTED_FULL_CHUNKS: ProviderChunk[] = [
+  { kind: "text", text: "가" },
+  { kind: "text", text: "나" },
+  { kind: "text", text: "다" },
+  { kind: "usage", inputTokens: 3, outputTokens: 5 },
+  { kind: "finish" },
+];
 
 describe("WebLLM 공급자 어댑터 계약 시험 (FE-08)", () => {
   const defaultConfig: ProviderConfig = { provider: "webllm", model: "display-model" };
@@ -350,14 +412,13 @@ describe("WebLLM 공급자 어댑터 계약 시험 (FE-08)", () => {
       () => formatDebug(engine, chunks),
     );
 
-    // 백그라운드 drainStream 완료 대기
-    await new Promise((r) => setTimeout(r, 50));
+    // 백그라운드 drainStream 소진 및 잠금 해제 대기 (상태 약속 1초 제한)
+    await withTimeout(engine.reachedDone, 1000, () => formatDebug(engine, chunks));
 
     expect(chunks).toEqual([{ kind: "text", text: "가" }]);
-    expect(engine.interruptCalls.length).toBe(1);
     expect(engine.streams[0].finishReason).toBe("abort");
     expect(engine.streams[0].reachedDone).toBe(true);
-    assertCancelledCleanup(engine);
+    assertCancelledCleanup(engine, 1);
   });
 
   it("취소 후 같은 엔진 두 번째 요청 성공", async () => {
@@ -378,6 +439,9 @@ describe("WebLLM 공급자 어댑터 계약 시험 (FE-08)", () => {
       }
     }
 
+    // 첫 요청 소진 완료 대기
+    await withTimeout(engine.reachedDone, 1000, () => formatDebug(engine, []));
+
     // 두 번째 요청: 정상 수신
     engine.betweenChunksGate = undefined;
     const chunks2: ProviderChunk[] = [];
@@ -391,14 +455,8 @@ describe("WebLLM 공급자 어댑터 계약 시험 (FE-08)", () => {
       () => formatDebug(engine, chunks2),
     );
 
-    expect(chunks2).toEqual([
-      { kind: "text", text: "가" },
-      { kind: "text", text: "나" },
-      { kind: "text", text: "다" },
-      { kind: "usage", inputTokens: 3, outputTokens: 5 },
-      { kind: "finish" },
-    ]);
-    assertCancelledCleanup(engine);
+    expect(chunks2).toEqual(EXPECTED_FULL_CHUNKS);
+    assertCancelledCleanup(engine, 1);
   });
 
   it("첫 조각 전 취소: 스트림 본문 시작 후 표시 지운 뒤 interruptGenerate 호출 및 다음 요청 성공", async () => {
@@ -414,17 +472,24 @@ describe("WebLLM 공급자 어댑터 계약 시험 (FE-08)", () => {
 
     // 첫 next() 호출로 본문 시작 및 게이트 대기 유도
     const nextP = it.next();
-    // 작은 지연 후 본문 진입 확인
-    await new Promise((r) => setTimeout(r, 20));
+    // 스트림 본문 시작 및 끊기 표시 지움 대기 (고정 지연 제거)
+    await withTimeout(engine.bodyStarted, 1000, () => formatDebug(engine, []));
     ac.abort();
     releaseBeforeGate();
 
     const res = await withTimeout(nextP, 1000, () => formatDebug(engine, []));
     expect(res.done).toBe(true);
 
+    // 가짜 엔진은 첫 조각을 실제로 냈지만 바깥은 받지 못했음을 단언
+    expect(engine.streams[0].emittedChunks.some((c) => c.choices[0]?.delta?.content === "가")).toBe(true);
+
+    // 백그라운드 소진 및 잠금 해제 대기
+    await withTimeout(engine.reachedDone, 1000, () => formatDebug(engine, []));
+
     expect(engine.interruptCalls.length).toBe(1);
     expect(engine.interruptCalls[0].streamStarted).toBe(true);
     expect(engine.streams[0].finishReason).toBe("abort");
+    expect(engine.streams[0].reachedDone).toBe(true);
 
     // 두 번째 요청 성공 확인
     engine.beforeFirstChunkGate = undefined;
@@ -438,8 +503,8 @@ describe("WebLLM 공급자 어댑터 계약 시험 (FE-08)", () => {
       1000,
       () => formatDebug(engine, chunks2),
     );
-    expect(chunks2.length).toBe(5);
-    assertCancelledCleanup(engine);
+    expect(chunks2).toEqual(EXPECTED_FULL_CHUNKS);
+    assertCancelledCleanup(engine, 1);
   });
 
   it("create() 대기 중 취소: 늦게 돌아온 스트림 백그라운드 소진 및 다음 요청 성공", async () => {
@@ -454,7 +519,8 @@ describe("WebLLM 공급자 어댑터 계약 시험 (FE-08)", () => {
     const it = provider.chat(defaultConfig, [{ role: "user", content: "hi" }], { signal: ac.signal })[Symbol.asyncIterator]();
 
     const nextP = it.next();
-    await new Promise((r) => setTimeout(r, 20));
+    // create 진입 상태 약속 대기 (고정 지연 제거)
+    await withTimeout(engine.createEntered, 1000, () => formatDebug(engine, []));
     ac.abort();
 
     const res = await withTimeout(nextP, 1000, () => formatDebug(engine, []));
@@ -462,7 +528,8 @@ describe("WebLLM 공급자 어댑터 계약 시험 (FE-08)", () => {
 
     // 문을 열면 늦게 돌아온 스트림이 시작되고 interruptGenerate 1회 호출 후 abort 종료
     releaseCreateGate();
-    await new Promise((r) => setTimeout(r, 50));
+    // 늦게 돌아온 스트림 소진 및 잠금 해제 대기 (고정 지연 제거)
+    await withTimeout(engine.reachedDone, 1000, () => formatDebug(engine, []));
 
     expect(engine.interruptCalls.length).toBe(1);
     expect(engine.streams[0]?.finishReason).toBe("abort");
@@ -480,8 +547,8 @@ describe("WebLLM 공급자 어댑터 계약 시험 (FE-08)", () => {
       1000,
       () => formatDebug(engine, chunks2),
     );
-    expect(chunks2.length).toBe(5);
-    assertCancelledCleanup(engine);
+    expect(chunks2).toEqual(EXPECTED_FULL_CHUNKS);
+    assertCancelledCleanup(engine, 1);
   });
 
   it("대기 요청 취소가 활성 생성을 끊지 않음", async () => {
@@ -517,22 +584,22 @@ describe("WebLLM 공급자 어댑터 계약 시험 (FE-08)", () => {
       if (r.done) break;
       aChunks.push(r.value);
     }
-    expect(aChunks).toEqual([
-      { kind: "text", text: "가" },
-      { kind: "text", text: "나" },
-      { kind: "text", text: "다" },
-      { kind: "usage", inputTokens: 3, outputTokens: 5 },
-      { kind: "finish" },
-    ]);
+    expect(aChunks).toEqual(EXPECTED_FULL_CHUNKS);
 
-    // 요청 C 성공 확인
+    // 요청 C 성공 확인 (1초 제한 및 정확한 배열 단언)
     engine.betweenChunksGate = undefined;
     const cChunks: ProviderChunk[] = [];
-    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "reqC" }], {})) {
-      cChunks.push(c);
-    }
-    expect(cChunks.length).toBe(5);
-    assertCancelledCleanup(engine);
+    await withTimeout(
+      (async () => {
+        for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "reqC" }], {})) {
+          cChunks.push(c);
+        }
+      })(),
+      1000,
+      () => formatDebug(engine, cChunks),
+    );
+    expect(cChunks).toEqual(EXPECTED_FULL_CHUNKS);
+    assertCancelledCleanup(engine, 0);
   });
 
   it("소비자 return(): yield에 멈춘 상태에서 return() 호출 시 즉시 완료 및 백그라운드 소진", async () => {
@@ -547,18 +614,24 @@ describe("WebLLM 공급자 어댑터 계약 시험 (FE-08)", () => {
     const retRes = await withTimeout(it.return!(), 1000, () => formatDebug(engine, []));
     expect(retRes.done).toBe(true);
 
-    // 백그라운드 정리 대기
-    await new Promise((r) => setTimeout(r, 50));
+    // 백그라운드 정리 대기 (고정 지연 제거)
+    await withTimeout(engine.reachedDone, 1000, () => formatDebug(engine, []));
     expect(engine.interruptCalls.length).toBe(1);
     expect(engine.streams[0].reachedDone).toBe(true);
 
-    // 다음 요청 성공
+    // 다음 요청 성공 (1초 제한 및 정확한 배열 단언)
     const chunks2: ProviderChunk[] = [];
-    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi2" }], {})) {
-      chunks2.push(c);
-    }
-    expect(chunks2.length).toBe(5);
-    assertCancelledCleanup(engine);
+    await withTimeout(
+      (async () => {
+        for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi2" }], {})) {
+          chunks2.push(c);
+        }
+      })(),
+      1000,
+      () => formatDebug(engine, chunks2),
+    );
+    expect(chunks2).toEqual(EXPECTED_FULL_CHUNKS);
+    assertCancelledCleanup(engine, 1);
   });
 
   it("ChatTurnHandler 식 취소: next() 대기 중 abort 후 return() 동시 호출", async () => {
@@ -586,16 +659,23 @@ describe("WebLLM 공급자 어댑터 계약 시험 (FE-08)", () => {
     expect(res.done).toBe(true);
 
     releaseGate();
-    await new Promise((r) => setTimeout(r, 50));
+    // 백그라운드 소진 대기 (고정 지연 제거)
+    await withTimeout(engine.reachedDone, 1000, () => formatDebug(engine, []));
 
-    // 다음 요청 성공
+    // 다음 요청 성공 (1초 제한 및 정확한 배열 단언)
     engine.betweenChunksGate = undefined;
     const chunks2: ProviderChunk[] = [];
-    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "req2" }], {})) {
-      chunks2.push(c);
-    }
-    expect(chunks2.length).toBe(5);
-    assertCancelledCleanup(engine);
+    await withTimeout(
+      (async () => {
+        for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "req2" }], {})) {
+          chunks2.push(c);
+        }
+      })(),
+      1000,
+      () => formatDebug(engine, chunks2),
+    );
+    expect(chunks2).toEqual(EXPECTED_FULL_CHUNKS);
+    assertCancelledCleanup(engine, 1);
   });
 
   it("엔진 준비 중 취소: getEngine 미해결 약속 상태에서 abort 및 슬롯 인계", async () => {
@@ -614,6 +694,7 @@ describe("WebLLM 공급자 어댑터 계약 시험 (FE-08)", () => {
     const it = provider.chat(defaultConfig, [{ role: "user", content: "hi" }], { signal: ac.signal })[Symbol.asyncIterator]();
 
     const nextP = it.next();
+    // 50ms 후 abort (지시서 예외 허용: 원 지시서 요구사항)
     await new Promise((r) => setTimeout(r, 50));
     ac.abort();
 
@@ -621,12 +702,19 @@ describe("WebLLM 공급자 어댑터 계약 시험 (FE-08)", () => {
     expect(res.done).toBe(true);
     expect(engine.createCalls).toBe(0);
 
-    // 두 번째 요청 슬롯 획득 및 성공 확인
+    // 두 번째 요청 슬롯 획득 및 성공 확인 (1초 제한 및 정확한 배열 단언)
     const chunks2: ProviderChunk[] = [];
-    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi2" }], {})) {
-      chunks2.push(c);
-    }
-    expect(chunks2.length).toBe(5);
+    await withTimeout(
+      (async () => {
+        for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi2" }], {})) {
+          chunks2.push(c);
+        }
+      })(),
+      1000,
+      () => formatDebug(engine, chunks2),
+    );
+    expect(chunks2).toEqual(EXPECTED_FULL_CHUNKS);
+    assertCancelledCleanup(engine, 0);
   });
 
   it("시작 전 취소: 이미 끊긴 신호 전달 시 즉시 종료 및 getEngine 미호출", async () => {
@@ -650,6 +738,7 @@ describe("WebLLM 공급자 어댑터 계약 시험 (FE-08)", () => {
 
     expect(chunks).toEqual([]);
     expect(getEngineCalled).toBe(false);
+    assertCancelledCleanup(engine, 0);
   });
 
   it("오류 매핑 세 가지: getEngine 실패, create 실패, 스트림 읽기 중 실패", async () => {
@@ -698,7 +787,7 @@ describe("WebLLM 공급자 어댑터 계약 시험 (FE-08)", () => {
 
     // role: "tool"
     await expect(async () => {
-      for await (const _ of provider.chat(defaultConfig, [{ role: "tool", content: "res" } as unknown as ChatMessage], {})) {}
+      for await (const _ of provider.chat(defaultConfig, [{ role: "tool", content: "res" }], {})) {}
     }).rejects.toThrow(/webllm: 지원하지 않는 메시지/);
 
     // assistant with toolCalls
@@ -849,5 +938,107 @@ describe("WebLLM 공급자 어댑터 계약 시험 (FE-08)", () => {
       port2.close();
       agent.stop();
     }
+  });
+
+  it("finish 뒤 추가 next 없이 다음 요청: 슬롯이 풀려 둘째 요청 성공", async () => {
+    const engine = new FakeWebLLMEngine();
+    const provider = makeWebLLMProvider({ getEngine: async () => engine, model: "m" });
+
+    // 첫 요청: finish 까지만 받고 이터레이터 방치
+    const it1 = provider.chat(defaultConfig, [{ role: "user", content: "req1" }], {})[Symbol.asyncIterator]();
+    while (true) {
+      const res = await it1.next();
+      if (res.done) break;
+      if (res.value.kind === "finish") {
+        break; // finish 를 받고 더 이상 next() 나 return() 을 부르지 않음
+      }
+    }
+
+    // 둘째 요청: 1초 안에 정확한 출력 배열 수신
+    const chunks2: ProviderChunk[] = [];
+    await withTimeout(
+      (async () => {
+        for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "req2" }], {})) {
+          chunks2.push(c);
+        }
+      })(),
+      1000,
+      () => formatDebug(engine, chunks2),
+    );
+
+    expect(chunks2).toEqual(EXPECTED_FULL_CHUNKS);
+    assertCancelledCleanup(engine, 0);
+  });
+
+  it("버려진 이전 요청의 신호: finish 후 방치된 이터레이터의 신호 A가 나중에 abort 되어도 둘째 요청에 무영향", async () => {
+    const engine = new FakeWebLLMEngine();
+    const provider = makeWebLLMProvider({ getEngine: async () => engine, model: "m" });
+
+    const acA = new AbortController();
+    const it1 = provider.chat(defaultConfig, [{ role: "user", content: "req1" }], { signal: acA.signal })[Symbol.asyncIterator]();
+    while (true) {
+      const res = await it1.next();
+      if (res.done) break;
+      if (res.value.kind === "finish") {
+        break; // finish 까지만 받고 방치
+      }
+    }
+
+    const acB = new AbortController();
+    const it2 = provider.chat(defaultConfig, [{ role: "user", content: "req2" }], { signal: acB.signal })[Symbol.asyncIterator]();
+    const chunks2: ProviderChunk[] = [];
+
+    // 둘째 요청 첫 text 받은 뒤 신호 A abort
+    await withTimeout(
+      (async () => {
+        const first = await it2.next();
+        expect(first.done).toBe(false);
+        chunks2.push(first.value);
+
+        acA.abort(); // 신호 A abort!
+
+        while (true) {
+          const res = await it2.next();
+          if (res.done) break;
+          chunks2.push(res.value);
+        }
+      })(),
+      1000,
+      () => formatDebug(engine, chunks2),
+    );
+
+    expect(chunks2).toEqual(EXPECTED_FULL_CHUNKS);
+    assertCancelledCleanup(engine, 0);
+  });
+
+  it("한 조각에 content 와 usage: text 수신 직후 abort 시 다음 next()에서 usage가 나오지 않고 done: true", async () => {
+    const engine = new FakeWebLLMEngine();
+    // 한 조각에 content 와 usage 를 함께 담음
+    engine.chunksToSend = [
+      {
+        content: "가",
+        usage: { prompt_tokens: 3, completion_tokens: 5 },
+      },
+    ];
+
+    const provider = makeWebLLMProvider({ getEngine: async () => engine, model: "m" });
+    const ac = new AbortController();
+    const it = provider.chat(defaultConfig, [{ role: "user", content: "hi" }], { signal: ac.signal })[Symbol.asyncIterator]();
+
+    // 첫 next()로 text "가" 수신
+    const res1 = await withTimeout(it.next(), 1000, () => formatDebug(engine, []));
+    expect(res1.done).toBe(false);
+    expect(res1.value).toEqual({ kind: "text", text: "가" });
+
+    // 소비자가 text "가"를 받은 직후 abort
+    ac.abort();
+
+    // 그 뒤 next() 호출 시 usage가 나오지 않고 done: true
+    const res2 = await withTimeout(it.next(), 1000, () => formatDebug(engine, []));
+    expect(res2.done).toBe(true);
+
+    // 정리 대기 및 확인
+    await withTimeout(engine.reachedDone, 1000, () => formatDebug(engine, []));
+    assertCancelledCleanup(engine, 1);
   });
 });
