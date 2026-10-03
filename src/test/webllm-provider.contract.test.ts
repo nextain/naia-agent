@@ -1041,4 +1041,50 @@ describe("WebLLM 공급자 어댑터 계약 시험 (FE-08)", () => {
     await withTimeout(engine.reachedDone, 1000, () => formatDebug(engine, []));
     assertCancelledCleanup(engine, 1);
   });
+
+  it("create 성공 직후, 첫 next 전 취소", async () => {
+    const engine = new FakeWebLLMEngine();
+    const provider = makeWebLLMProvider({ getEngine: async () => engine, model: "m" });
+    const ac = new AbortController();
+
+    const origCreate = engine.chat.completions.create.bind(engine.chat.completions);
+    engine.chat.completions.create = (req: WebLLMChatRequest) => {
+      const p = origCreate(req);
+      p.then(() => queueMicrotask(() => ac.abort()));
+      return p;
+    };
+
+    const it = provider.chat(defaultConfig, [{ role: "user", content: "hi" }], { signal: ac.signal })[Symbol.asyncIterator]();
+    const chunks: ProviderChunk[] = [];
+    while (true) {
+      const res = await withTimeout(it.next(), 1000, () => formatDebug(engine, chunks));
+      if (res.done) break;
+      chunks.push(res.value);
+    }
+    expect(chunks).toEqual([]);
+
+    await withTimeout(engine.reachedDone, 1000, () => formatDebug(engine, []));
+    expect(engine.streams[0].reachedDone).toBe(true);
+
+    expect(engine.interruptCalls.length).toBe(1);
+    expect(engine.interruptCalls[0].streamStarted).toBe(true);
+    expect(engine.streams[0].finishReason).toBe("abort");
+
+    // 같은 공급자의 다음 요청이 1초 안에 정확한 출력 배열(가·나·다, usage, finish)을 받는다.
+    const chunks2: ProviderChunk[] = [];
+    await withTimeout(
+      (async () => {
+        for await (const chunk of provider.chat(defaultConfig, [{ role: "user", content: "req2" }], {})) {
+          chunks2.push(chunk);
+        }
+      })(),
+      1000,
+      () => formatDebug(engine, chunks2),
+    );
+    expect(chunks2).toEqual(EXPECTED_FULL_CHUNKS);
+
+    // 공통 정리 단언 함수(엔진 스트림 return()·throw() 0회 등)를 부른다.
+    assertCancelledCleanup(engine, 1);
+  });
 });
+

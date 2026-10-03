@@ -274,6 +274,9 @@ export function makeWebLLMProvider(deps: {
       let pendingEngineNext: Promise<IteratorResult<WebLLMChatChunk>> | null = null;
 
       const callInterruptOnce = () => {
+        if (!engineNextCalled) {
+          return;
+        }
         if (!interruptCalled) {
           interruptCalled = true;
           try {
