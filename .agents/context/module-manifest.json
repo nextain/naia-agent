@@ -19,6 +19,12 @@
       "contract": "docs/progress/99.dev-comm/UC1-agent-horizontal-contract-2026-06-10.md",
       "note": "naia-web 탐침: MessagePort 기반 LineIO 어댑터 (FE-06)."
     },
+    "src/main/adapters/webllm-provider.ts": {
+      "layer": "adapters",
+      "uc": ["UC1"],
+      "contract": "docs/progress/99.dev-comm/UC1-agent-horizontal-contract-2026-06-10.md",
+      "note": "naia-web 탐침: WebLLM 엔진을 주입받는 ProviderPort (FE-08)."
+    },
     "src/main/adapters/naia-pi-versioned-billing.ts": {
       "layer": "adapters",
       "uc": ["UC-ORCH-004"],

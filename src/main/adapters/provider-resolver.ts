@@ -4,7 +4,7 @@
 //   native    : openai-compat(provider별 baseUrl, Bearer: apiKey)
 //   ollama    : makeOllamaProvider
 // transport 자체는 stdio/gRPC 와 직교 — provider는 LLM 호출 어댑터일 뿐.
-import type { ProviderConfig } from "../domain/chat.js";
+import type { ProviderConfig, ProviderChunk } from "../domain/chat.js";
 import type { ProviderPort, ProviderResolverPort } from "../ports/uc1.js";
 import { resolveProviderRoute, labProxyBaseUrl, nativeBaseUrl, anthropicBaseUrl, isLocalEngineBaseUrl } from "../domain/provider-route.js";
 import { makeOpenAICompatProvider } from "./openai-compat-provider.js";
@@ -24,6 +24,8 @@ export interface ProviderResolverDeps {
 	grokRunTurn?: GrokRunTurn;
 	/** Live host workspace bind for Codex app-server cwd/sandbox. */
 	workspace?: () => WorkspaceBind | undefined;
+	/** 브라우저 호스트가 엔진을 주입한 공급자. Node 호스트에는 없다. */
+	webllm?: ProviderPort;
 }
 
 export function makeProviderResolver(deps?: ProviderResolverDeps): ProviderResolverPort {
@@ -31,6 +33,13 @@ export function makeProviderResolver(deps?: ProviderResolverDeps): ProviderResol
 	return {
 		resolve(config: ProviderConfig): ProviderPort {
 			switch (resolveProviderRoute(config)) {
+				case "webllm":
+					if (deps?.webllm) return deps.webllm;
+					return {
+						async *chat(): AsyncIterable<ProviderChunk> {
+							throw new Error("webllm 공급자는 브라우저 Worker 에서만 쓸 수 있다(엔진 미주입)");
+						},
+					};
 				case "ollama":
 					// fetch 주입 전달(미주입=global). 안 넘기면 헤드리스 테스트가 ollama 를 mock 못 해 실 네트워크로 샘(직교 위반).
 					return makeOllamaProvider(f ? { fetch: f } : undefined);

@@ -552,6 +552,11 @@ describe("browser-boundary 계약 — 브라우저 번들 런타임 순수성 (F
     expect(result.reachableFiles.size).toBeGreaterThanOrEqual(5);
   });
 
+  it("browser-agent 에서 도달 가능한 파일 목록에 webllm-provider.ts 가 포함된다", () => {
+    const webllmFile = join(MAIN, "adapters/webllm-provider.ts");
+    expect(result.reachableFiles.has(webllmFile)).toBe(true);
+  });
+
   it("도달 가능한 모든 파일에서 node: / Node 내장 / 외부 패키지 import 가 0건이다", () => {
     expect(result.violations, `브라우저 경계 위반 모듈 발견:\n${result.violations.join("\n")}`).toEqual([]);
   });

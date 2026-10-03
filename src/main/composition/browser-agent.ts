@@ -57,3 +57,6 @@ export function startBrowserAgent(opts: {
 
   return { stop };
 }
+
+export { makeWebLLMProvider } from "../adapters/webllm-provider.js";
+export type { WebLLMEngineLike, WebLLMChatRequest, WebLLMChatChunk, WebLLMChatMessage } from "../adapters/webllm-provider.js";
