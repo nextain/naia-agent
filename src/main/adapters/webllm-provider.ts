@@ -87,11 +87,123 @@ class SlotLock {
   }
 }
 
+const WATCH_TAGS = ["<tool_call>", "</tool_call>", "<think>", "</think>"] as const;
+const MAX_TAG_LEN = 12;
+
+function findTrailingPartialTag(str: string): number {
+  const maxCheck = Math.min(str.length, MAX_TAG_LEN - 1);
+  for (let len = maxCheck; len >= 1; len--) {
+    const sub = str.slice(str.length - len);
+    for (const tag of WATCH_TAGS) {
+      if (tag.startsWith(sub) && sub !== tag) {
+        return str.length - len;
+      }
+    }
+  }
+  return -1;
+}
+
+interface ParsedCall {
+  readonly name: string;
+  readonly args: Record<string, unknown>;
+}
+
+function parseCapturedCalls(
+  held: string,
+  allowedNames: readonly string[],
+): { readonly success: true; readonly calls: readonly ParsedCall[] } | { readonly success: false } {
+  let idx = 0;
+  let inThinking = false;
+  let hasUnclosed = false;
+  const outsideBlocks: string[] = [];
+
+  while (idx < held.length) {
+    if (!inThinking) {
+      const nextToolCall = held.indexOf("<tool_call>", idx);
+      const nextThink = held.indexOf("<think>", idx);
+      const nextCloseThink = held.indexOf("</think>", idx);
+
+      const candidates = [
+        { type: "tool_call" as const, pos: nextToolCall },
+        { type: "think" as const, pos: nextThink },
+        { type: "close_think" as const, pos: nextCloseThink },
+      ]
+        .filter((c) => c.pos !== -1)
+        .sort((a, b) => a.pos - b.pos);
+
+      if (candidates.length === 0) {
+        break;
+      }
+
+      const first = candidates[0]!;
+      if (first.type === "tool_call") {
+        const closeIdx = held.indexOf("</tool_call>", first.pos + 11);
+        if (closeIdx === -1) {
+          hasUnclosed = true;
+          break;
+        }
+        const body = held.slice(first.pos + 11, closeIdx);
+        outsideBlocks.push(body);
+        idx = closeIdx + 12;
+      } else if (first.type === "think") {
+        inThinking = true;
+        idx = first.pos + 7;
+      } else if (first.type === "close_think") {
+        idx = first.pos + 8;
+      }
+    } else {
+      const nextCloseThink = held.indexOf("</think>", idx);
+      if (nextCloseThink === -1) {
+        break;
+      }
+      inThinking = false;
+      idx = nextCloseThink + 8;
+    }
+  }
+
+  if (hasUnclosed || outsideBlocks.length === 0) {
+    return { success: false };
+  }
+
+  const calls: ParsedCall[] = [];
+  for (const block of outsideBlocks) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(block);
+    } catch {
+      return { success: false };
+    }
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      Array.isArray(parsed)
+    ) {
+      return { success: false };
+    }
+    const obj = parsed as Record<string, unknown>;
+    if (typeof obj.name !== "string" || !allowedNames.includes(obj.name)) {
+      return { success: false };
+    }
+    if (
+      typeof obj.arguments !== "object" ||
+      obj.arguments === null ||
+      Array.isArray(obj.arguments)
+    ) {
+      return { success: false };
+    }
+    calls.push({ name: obj.name, args: obj.arguments as Record<string, unknown> });
+  }
+
+  return { success: true, calls };
+}
+
 export function makeWebLLMProvider(deps: {
   getEngine: () => Promise<WebLLMEngineLike>;
   model: string;
+  toolNames?: readonly string[];
 }): ProviderPort {
   const slotLock = new SlotLock();
+  let requestCounter = 0;
 
   return {
     async *chat(
@@ -99,14 +211,8 @@ export function makeWebLLMProvider(deps: {
       messages: readonly ChatMessage[],
       opts: ProviderChatOpts,
     ): AsyncIterable<ProviderChunk> {
-      // 1. 지원하지 않는 입력 사전 검증
+      // 1. 지원하지 않는 입력 사전 검증 (inlineImages / attachments 만 거부)
       for (const m of messages) {
-        if (m.role === "tool") {
-          throw new Error("webllm: 지원하지 않는 메시지(tool)");
-        }
-        if (m.role === "assistant" && m.toolCalls && m.toolCalls.length > 0) {
-          throw new Error("webllm: 지원하지 않는 메시지(toolCalls)");
-        }
         if ((m.inlineImages && m.inlineImages.length > 0) || (m.attachments && m.attachments.length > 0)) {
           throw new Error("webllm: 지원하지 않는 메시지(inlineImages)");
         }
@@ -116,6 +222,13 @@ export function makeWebLLMProvider(deps: {
       if (opts.signal?.aborted) {
         return;
       }
+
+      const requestNumber = ++requestCounter;
+
+      // 쓸 도구 집합: opts.tools 가운데 이름이 toolNames 에 든 것뿐 (순서는 opts.tools 순서)
+      const activeTools = (deps.toolNames && deps.toolNames.length > 0 && opts.tools && opts.tools.length > 0)
+        ? opts.tools.filter((t) => deps.toolNames!.includes(t.name))
+        : [];
 
       // 3. 메시지 변환
       const systemParts: string[] = [];
@@ -128,6 +241,35 @@ export function makeWebLLMProvider(deps: {
         }
       }
 
+      if (activeTools.length > 0) {
+        const toolLines = activeTools.map((t) =>
+          JSON.stringify({
+            type: "function",
+            function: {
+              name: t.name,
+              description: t.description,
+              parameters: t.parameters,
+            },
+          })
+        ).join("\n");
+
+        const toolsPrompt = `# Tools
+
+You may call one or more functions to assist with the user specification.
+
+You are provided with function signatures within <tools></tools> XML tags:
+<tools>
+${toolLines}
+</tools>
+
+For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:
+<tool_call>
+{"name": <function-name>, "arguments": <args-json-object>}
+</tool_call>`;
+
+        systemParts.push(toolsPrompt);
+      }
+
       const convertedMessages: WebLLMChatMessage[] = [];
       if (systemParts.length > 0) {
         convertedMessages.push({
@@ -135,13 +277,50 @@ export function makeWebLLMProvider(deps: {
           content: systemParts.join("\n\n"),
         });
       }
-      for (const m of messages) {
-        if (m.role === "user" || m.role === "assistant") {
+
+      let msgIdx = 0;
+      while (msgIdx < messages.length) {
+        const m = messages[msgIdx]!;
+        if (m.role === "system") {
+          msgIdx++;
+          continue;
+        }
+        if (m.role === "user") {
           convertedMessages.push({
-            role: m.role,
+            role: "user",
             content: m.content,
           });
+          msgIdx++;
+          continue;
         }
+        if (m.role === "assistant") {
+          let content = m.content ?? "";
+          if (m.toolCalls && m.toolCalls.length > 0) {
+            for (const call of m.toolCalls) {
+              content += `\n<tool_call>\n${JSON.stringify({ name: call.name, arguments: call.args })}\n</tool_call>`;
+            }
+          }
+          convertedMessages.push({
+            role: "assistant",
+            content,
+          });
+          msgIdx++;
+          continue;
+        }
+        if (m.role === "tool") {
+          const toolBlocks: string[] = [];
+          while (msgIdx < messages.length && messages[msgIdx]!.role === "tool") {
+            const tm = messages[msgIdx]!;
+            toolBlocks.push(`<tool_response>\n${tm.content}\n</tool_response>`);
+            msgIdx++;
+          }
+          convertedMessages.push({
+            role: "user",
+            content: toolBlocks.join("\n"),
+          });
+          continue;
+        }
+        msgIdx++;
       }
 
       // 4. 요청 객체 조립
@@ -348,6 +527,114 @@ export function makeWebLLMProvider(deps: {
         }
       }
 
+      let inThinking = false;
+      let capturing = false;
+      let pendingBuffer = "";
+      let heldContent = "";
+      const allowedToolNames = activeTools.map((t) => t.name);
+
+      function* feedDelta(delta: string): Generator<ProviderChunk> {
+        if (capturing) {
+          heldContent += delta;
+          return;
+        }
+
+        pendingBuffer += delta;
+
+        while (pendingBuffer.length > 0) {
+          if (!inThinking) {
+            const idxTool = pendingBuffer.indexOf("<tool_call>");
+            const idxThink = pendingBuffer.indexOf("<think>");
+            const idxCloseThink = pendingBuffer.indexOf("</think>");
+
+            const candidates = [
+              { type: "tool_call" as const, pos: idxTool },
+              { type: "think" as const, pos: idxThink },
+              { type: "close_think" as const, pos: idxCloseThink },
+            ]
+              .filter((c) => c.pos !== -1)
+              .sort((a, b) => a.pos - b.pos);
+
+            if (candidates.length > 0) {
+              const first = candidates[0]!;
+              if (first.type === "tool_call") {
+                if (first.pos > 0) {
+                  yield { kind: "text", text: pendingBuffer.slice(0, first.pos) };
+                }
+                capturing = true;
+                heldContent = pendingBuffer.slice(first.pos);
+                pendingBuffer = "";
+                return;
+              } else if (first.type === "think") {
+                const endPos = first.pos + 7;
+                yield { kind: "text", text: pendingBuffer.slice(0, endPos) };
+                inThinking = true;
+                pendingBuffer = pendingBuffer.slice(endPos);
+                continue;
+              } else if (first.type === "close_think") {
+                const endPos = first.pos + 8;
+                yield { kind: "text", text: pendingBuffer.slice(0, endPos) };
+                inThinking = false;
+                pendingBuffer = pendingBuffer.slice(endPos);
+                continue;
+              }
+            }
+
+            const partialIdx = findTrailingPartialTag(pendingBuffer);
+            if (partialIdx !== -1) {
+              if (partialIdx > 0) {
+                yield { kind: "text", text: pendingBuffer.slice(0, partialIdx) };
+                pendingBuffer = pendingBuffer.slice(partialIdx);
+              }
+              return;
+            } else {
+              yield { kind: "text", text: pendingBuffer };
+              pendingBuffer = "";
+              return;
+            }
+          } else {
+            const idxCloseThink = pendingBuffer.indexOf("</think>");
+            const idxThink = pendingBuffer.indexOf("<think>");
+
+            const candidates = [
+              { type: "close_think" as const, pos: idxCloseThink },
+              { type: "think" as const, pos: idxThink },
+            ]
+              .filter((c) => c.pos !== -1)
+              .sort((a, b) => a.pos - b.pos);
+
+            if (candidates.length > 0) {
+              const first = candidates[0]!;
+              if (first.type === "close_think") {
+                const endPos = first.pos + 8;
+                yield { kind: "text", text: pendingBuffer.slice(0, endPos) };
+                inThinking = false;
+                pendingBuffer = pendingBuffer.slice(endPos);
+                continue;
+              } else if (first.type === "think") {
+                const endPos = first.pos + 7;
+                yield { kind: "text", text: pendingBuffer.slice(0, endPos) };
+                pendingBuffer = pendingBuffer.slice(endPos);
+                continue;
+              }
+            }
+
+            const partialIdx = findTrailingPartialTag(pendingBuffer);
+            if (partialIdx !== -1) {
+              if (partialIdx > 0) {
+                yield { kind: "text", text: pendingBuffer.slice(0, partialIdx) };
+                pendingBuffer = pendingBuffer.slice(partialIdx);
+              }
+              return;
+            } else {
+              yield { kind: "text", text: pendingBuffer };
+              pendingBuffer = "";
+              return;
+            }
+          }
+        }
+      }
+
       let normalDone = false;
       try {
         while (true) {
@@ -389,6 +676,35 @@ export function makeWebLLMProvider(deps: {
             if (opts.signal?.aborted) {
               return;
             }
+
+            if (activeTools.length === 0) {
+              yield { kind: "finish" };
+              return;
+            }
+
+            if (!capturing) {
+              if (pendingBuffer.length > 0) {
+                yield { kind: "text", text: pendingBuffer };
+              }
+              yield { kind: "finish" };
+              return;
+            }
+
+            const parsed = parseCapturedCalls(heldContent, allowedToolNames);
+            if (parsed.success) {
+              for (let bIdx = 0; bIdx < parsed.calls.length; bIdx++) {
+                const call = parsed.calls[bIdx]!;
+                yield {
+                  kind: "toolUse",
+                  id: `webllm-call-${requestNumber}-${bIdx}`,
+                  name: call.name,
+                  args: call.args,
+                };
+              }
+            } else {
+              yield { kind: "text", text: heldContent };
+            }
+
             yield { kind: "finish" };
             return;
           }
@@ -396,11 +712,21 @@ export function makeWebLLMProvider(deps: {
           const choice = value.choices?.[0];
           const content = choice?.delta?.content;
           if (content !== undefined && content !== null && content !== "") {
-            if (opts.signal?.aborted) {
-              callInterruptOnce();
-              return;
+            if (activeTools.length === 0) {
+              if (opts.signal?.aborted) {
+                callInterruptOnce();
+                return;
+              }
+              yield { kind: "text", text: content };
+            } else {
+              for (const chunk of feedDelta(content)) {
+                if (opts.signal?.aborted) {
+                  callInterruptOnce();
+                  return;
+                }
+                yield chunk;
+              }
             }
-            yield { kind: "text", text: content };
           }
 
           if (value.usage) {

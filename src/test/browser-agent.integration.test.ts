@@ -4,9 +4,15 @@ import {
   startBrowserAgent,
   makePersonaSourceStore,
   makeWorkspaceContextStore,
+  makeBrowserReadTools,
+  BROWSER_READ_TOOL_NAMES,
+  makeWebLLMProvider,
   type WorkspaceDirent,
   type PersonaFsRead,
   type WorkspaceFsRead,
+  type BrowserReadFs,
+  type WebLLMEngineLike,
+  type WebLLMChatRequest,
 } from "../main/composition/browser-agent.js";
 import type { ProviderPort, ProviderChatOpts } from "../main/ports/uc1.js";
 import type { ProviderConfig, ChatMessage, ProviderChunk } from "../main/domain/chat.js";
@@ -592,6 +598,128 @@ describe("browser-agent 워크스페이스 포트 (FE-16)", () => {
     expect(sp).toBeDefined();
     expect(sp).toContain("You are Naia, an AI companion.");
     expect(sp).not.toContain("루미");
+
+    agent.stop();
+  });
+
+  it("WO13A-I WebLLM 엔진과 browser-read-tools 를 엮은 브라우저 에이전트 도구 호출 루프", async () => {
+    let engineCallCount = 0;
+    const engineRequests: WebLLMChatRequest[] = [];
+
+    const fakeEngine: WebLLMEngineLike = {
+      chat: {
+        completions: {
+          create: async (req) => {
+            engineCallCount++;
+            engineRequests.push(req);
+            return (async function* () {
+              if (engineCallCount === 1) {
+                yield {
+                  choices: [
+                    {
+                      delta: {
+                        content: '<tool_call>{"name":"read_file","arguments":{"path":"AGENTS.md"}}</tool_call>',
+                      },
+                      finish_reason: null,
+                    },
+                  ],
+                };
+              } else {
+                yield {
+                  choices: [
+                    {
+                      delta: {
+                        content: "저장소 이름은 naia-adk 입니다.",
+                      },
+                      finish_reason: null,
+                    },
+                  ],
+                };
+              }
+            })();
+          },
+        },
+      },
+      interruptGenerate() {},
+    };
+
+    const readTextCalls: string[][] = [];
+    const fakeFs: BrowserReadFs = {
+      async stat(segments) {
+        if (segments.length === 1 && segments[0] === "AGENTS.md") {
+          return { kind: "file", size: 10 };
+        }
+        return null;
+      },
+      async list() {
+        return [];
+      },
+      async readText(segments) {
+        readTextCalls.push([...segments]);
+        if (segments.length === 1 && segments[0] === "AGENTS.md") {
+          return "# naia-adk";
+        }
+        throw new Error("not found");
+      },
+    };
+
+    const provider = makeWebLLMProvider({
+      getEngine: async () => fakeEngine,
+      model: "test-model",
+      toolNames: BROWSER_READ_TOOL_NAMES,
+    });
+
+    const toolExecutor = makeBrowserReadTools({ fs: fakeFs });
+
+    const agent = startBrowserAgent({
+      port: port1,
+      provider,
+      toolExecutor,
+      diag: { log: () => {}, debug: () => {} },
+    });
+
+    port2.postMessage(
+      JSON.stringify({
+        type: "chat_request",
+        requestId: "wo13a-req",
+        provider: { provider: "webllm", model: "test-model" },
+        enableTools: true,
+        messages: [{ role: "user", content: "AGENTS.md 읽어줘" }],
+      }),
+    );
+
+    await waitFor(
+      () => lines.some((l) => parseLine(l)?.requestId === "wo13a-req" && parseLine(l)?.type === "finish"),
+      3000,
+      "wo13a-req finish",
+    );
+
+    // 1. 가짜 fs 의 readText 가 정확히 한 번 ["AGENTS.md"] 로 불림
+    expect(readTextCalls).toEqual([["AGENTS.md"]]);
+
+    // 2. 가짜 엔진이 받은 요청이 정확히 둘
+    expect(engineRequests.length).toBe(2);
+
+    // 3. 둘째 요청 메시지 가운데 <tool_response> 와 # naia-adk 가 든 사용자 메시지가 있음
+    const secondReqMessages = engineRequests[1]!.messages;
+    const toolRespMsg = secondReqMessages.find(
+      (m) => m.role === "user" && m.content.includes("<tool_response>") && m.content.includes("# naia-adk"),
+    );
+    expect(toolRespMsg).toBeDefined();
+
+    // 4. 바깥으로 나간 최종 글에 naia-adk 입니다 가 있음
+    const outTexts = lines
+      .map(parseLine)
+      .filter((m) => m?.requestId === "wo13a-req" && m?.type === "text")
+      .map((m) => String(m?.text ?? ""))
+      .join("");
+    expect(outTexts).toContain("naia-adk 입니다");
+
+    // 5. 승인 요청이 나가지 않는다
+    const approvalRequests = lines
+      .map(parseLine)
+      .filter((m) => m?.requestId === "wo13a-req" && (m?.type === "gatewayApprovalRequest" || m?.type === "gateway_approval_request"));
+    expect(approvalRequests.length).toBe(0);
 
     agent.stop();
   });

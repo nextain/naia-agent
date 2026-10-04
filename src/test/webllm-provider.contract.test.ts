@@ -3,7 +3,7 @@
  * WebLLM 공급자 어댑터 계약 및 동작 검증 시험 (FE-08, FE-10).
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import {
   makeWebLLMProvider,
   type WebLLMEngineLike,
@@ -781,29 +781,24 @@ describe("WebLLM 공급자 어댑터 계약 시험 (FE-08)", () => {
     await expect(it3.next()).rejects.toThrow(/webllm 스트림 오류:.*디바이스 손실/);
   });
 
-  it("지원하지 않는 메시지: tool role, toolCalls, inlineImages 각각 거부", async () => {
+  it("WO13A-K 지원하지 않는 메시지: inlineImages·attachments 거부", async () => {
     const engine = new FakeWebLLMEngine();
     const provider = makeWebLLMProvider({ getEngine: async () => engine, model: "m" });
-
-    // role: "tool"
-    await expect(async () => {
-      for await (const _ of provider.chat(defaultConfig, [{ role: "tool", content: "res" }], {})) {}
-    }).rejects.toThrow(/webllm: 지원하지 않는 메시지/);
-
-    // assistant with toolCalls
-    await expect(async () => {
-      for await (const _ of provider.chat(
-        defaultConfig,
-        [{ role: "assistant", content: "", toolCalls: [{ id: "1", name: "f", args: {} }] }],
-        {},
-      )) {}
-    }).rejects.toThrow(/webllm: 지원하지 않는 메시지/);
 
     // user with inlineImages
     await expect(async () => {
       for await (const _ of provider.chat(
         defaultConfig,
         [{ role: "user", content: "img", inlineImages: [{ mimeType: "image/png", data: "abc" }] }],
+        {},
+      )) {}
+    }).rejects.toThrow(/webllm: 지원하지 않는 메시지/);
+
+    // user with attachments
+    await expect(async () => {
+      for await (const _ of provider.chat(
+        defaultConfig,
+        [{ role: "user", content: "att", attachments: [{ id: "1", kind: "image", mimeType: "image/png", sizeBytes: 10, localRef: "a" }] }],
         {},
       )) {}
     }).rejects.toThrow(/webllm: 지원하지 않는 메시지/);
@@ -1087,4 +1082,904 @@ describe("WebLLM 공급자 어댑터 계약 시험 (FE-08)", () => {
     assertCancelledCleanup(engine, 1);
   });
 });
+
+function mergeNeighboringTexts(chunks: readonly ProviderChunk[]): ProviderChunk[] {
+  const result: ProviderChunk[] = [];
+  for (const chunk of chunks) {
+    const last = result[result.length - 1];
+    if (chunk.kind === "text" && last && last.kind === "text") {
+      result[result.length - 1] = { kind: "text", text: last.text + chunk.text };
+    } else {
+      result.push(chunk);
+    }
+  }
+  return result;
+}
+
+function makeEngineWithChunks(chunks: Array<{ content?: string; usage?: { prompt_tokens: number; completion_tokens: number }; finish_reason?: string | null }>): {
+  engine: WebLLMEngineLike;
+  requests: WebLLMChatRequest[];
+} {
+  const requests: WebLLMChatRequest[] = [];
+  const engine: WebLLMEngineLike = {
+    chat: {
+      completions: {
+        create: async (req) => {
+          requests.push(req);
+          return (async function* () {
+            for (const c of chunks) {
+              yield {
+                choices: [{ delta: { content: c.content }, finish_reason: c.finish_reason ?? null }],
+                ...(c.usage ? { usage: c.usage } : {}),
+              };
+            }
+          })();
+        },
+      },
+    },
+    interruptGenerate() {},
+  };
+  return { engine, requests };
+}
+
+describe("WO13A WebLLM provider tool-call protocol", () => {
+  const defaultConfig: ProviderConfig = { provider: "webllm", model: "display-model" };
+
+  beforeEach(() => {
+    expect.hasAssertions();
+  });
+
+  it("WO13A-P1 toolNames 없이 opts.tools 주어도 원래대로 text 처리", async () => {
+    const { engine, requests } = makeEngineWithChunks([
+      { content: '<tool_call>{"name":"read_file","arguments":{"path":"AGENTS.md"}}</tool_call>' },
+    ]);
+    const provider = makeWebLLMProvider({ getEngine: async () => engine, model: "m" });
+    const chunks: ProviderChunk[] = [];
+    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+      tools: [{ name: "read_file", description: "desc", parameters: {} }],
+    })) {
+      chunks.push(c);
+    }
+    expect(requests[0]?.messages.some((m) => m.role === "system" && m.content.includes("<tools>"))).toBe(false);
+    expect(chunks).toEqual([
+      { kind: "text", text: '<tool_call>{"name":"read_file","arguments":{"path":"AGENTS.md"}}</tool_call>' },
+      { kind: "finish" },
+    ]);
+  });
+
+  it("WO13A-P2 toolNames 필터링 및 opts.tools 순서 보존", async () => {
+    const { engine, requests } = makeEngineWithChunks([{ content: "ok" }]);
+    const provider = makeWebLLMProvider({
+      getEngine: async () => engine,
+      model: "m",
+      toolNames: ["list_dir", "read_file"],
+    });
+
+    const toolCS = { name: "continue_speaking", description: "cs", parameters: {} };
+    const toolLD = { name: "list_dir", description: "ld", parameters: {} };
+    const toolRF = { name: "read_file", description: "rf", parameters: {} };
+
+    for await (const _ of provider.chat(defaultConfig, [{ role: "user", content: "1" }], {
+      systemPrompt: "sys",
+      tools: [toolCS, toolLD, toolRF],
+    })) {}
+
+    const sys1 = requests[0]?.messages.find((m) => m.role === "system")?.content ?? "";
+    expect(sys1.includes("continue_speaking")).toBe(false);
+    expect(sys1.includes('"name":"list_dir"')).toBe(true);
+    expect(sys1.includes('"name":"read_file"')).toBe(true);
+    expect(sys1.endsWith("</tool_call>")).toBe(true);
+
+    for await (const _ of provider.chat(defaultConfig, [{ role: "user", content: "2" }], {
+      systemPrompt: "sys",
+      tools: [toolRF, toolCS, toolLD],
+    })) {}
+
+    const sys2 = requests[1]?.messages.find((m) => m.role === "system")?.content ?? "";
+    const rfIdx = sys2.indexOf('"name":"read_file"');
+    const ldIdx = sys2.indexOf('"name":"list_dir"');
+    expect(rfIdx).toBeLessThan(ldIdx);
+    expect(sys2.includes("continue_speaking")).toBe(false);
+  });
+
+  it("WO13A-P3 merge-helper", () => {
+    const sample: ProviderChunk[] = [
+      { kind: "text", text: "a" },
+      { kind: "usage", inputTokens: 1, outputTokens: 1 },
+      { kind: "text", text: "b" },
+    ];
+    expect(mergeNeighboringTexts(sample)).toEqual(sample);
+  });
+
+  const BASE = "<think>\n\n</think>\n\n앞말 <tool_call>\n{\"name\":\"read_file\",\"arguments\":{\"path\":\"AGENTS.md\"}}\n</tool_call>";
+  const P3_SPLIT_CASES: Array<[number, string, string]> = [];
+  for (let i = 1; i < BASE.length; i++) {
+    P3_SPLIT_CASES.push([i, BASE.slice(0, i), BASE.slice(i)]);
+  }
+
+  it.each(P3_SPLIT_CASES)("WO13A-P3 split@%s", async (_idx, p1, p2) => {
+    const { engine } = makeEngineWithChunks([{ content: p1 }, { content: p2 }]);
+    const provider = makeWebLLMProvider({
+      getEngine: async () => engine,
+      model: "m",
+      toolNames: ["read_file"],
+    });
+
+    const chunks: ProviderChunk[] = [];
+    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+      tools: [{ name: "read_file", description: "rf", parameters: {} }],
+    })) {
+      chunks.push(c);
+    }
+
+    expect(mergeNeighboringTexts(chunks)).toEqual([
+      { kind: "text", text: "<think>\n\n</think>\n\n앞말 " },
+      { kind: "toolUse", id: "webllm-call-1-0", name: "read_file", args: { path: "AGENTS.md" } },
+      { kind: "finish" },
+    ]);
+  });
+
+  it("WO13A-P3 per-char", async () => {
+    const charChunks = Array.from(BASE).map((ch) => ({ content: ch }));
+    const { engine } = makeEngineWithChunks(charChunks);
+    const provider = makeWebLLMProvider({
+      getEngine: async () => engine,
+      model: "m",
+      toolNames: ["read_file"],
+    });
+
+    const chunks: ProviderChunk[] = [];
+    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+      tools: [{ name: "read_file", description: "rf", parameters: {} }],
+    })) {
+      chunks.push(c);
+    }
+
+    expect(mergeNeighboringTexts(chunks)).toEqual([
+      { kind: "text", text: "<think>\n\n</think>\n\n앞말 " },
+      { kind: "toolUse", id: "webllm-call-1-0", name: "read_file", args: { path: "AGENTS.md" } },
+      { kind: "finish" },
+    ]);
+  });
+
+  it("WO13A-P4 생각 구간 안의 유효 호출만 있는 생각+답", async () => {
+    const text = '<think><tool_call>{"name":"read_file","arguments":{"path":"AGENTS.md"}}</tool_call></think>답';
+    const { engine } = makeEngineWithChunks([{ content: text }]);
+    const provider = makeWebLLMProvider({
+      getEngine: async () => engine,
+      model: "m",
+      toolNames: ["read_file"],
+    });
+
+    const chunks: ProviderChunk[] = [];
+    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+      tools: [{ name: "read_file", description: "rf", parameters: {} }],
+    })) {
+      chunks.push(c);
+    }
+
+    expect(mergeNeighboringTexts(chunks)).toEqual([
+      { kind: "text", text },
+      { kind: "finish" },
+    ]);
+  });
+
+  it("WO13A-P5 바깥 유효 호출 뒤에 생각 구간 안 유효 호출 무시", async () => {
+    const c1 = '<tool_call>\n{"name":"read_file","arguments":{"path":"AGENTS.md"}}\n</tool_call>';
+    const c2 = '<think><tool_call>\n{"name":"list_dir","arguments":{"path":"notes"}}\n</tool_call></think>';
+    const { engine } = makeEngineWithChunks([{ content: c1 + c2 }]);
+    const provider = makeWebLLMProvider({
+      getEngine: async () => engine,
+      model: "m",
+      toolNames: ["read_file", "list_dir"],
+    });
+
+    const chunks: ProviderChunk[] = [];
+    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+      tools: [
+        { name: "read_file", description: "rf", parameters: {} },
+        { name: "list_dir", description: "ld", parameters: {} },
+      ],
+    })) {
+      chunks.push(c);
+    }
+
+    expect(chunks).toEqual([
+      { kind: "toolUse", id: "webllm-call-1-0", name: "read_file", args: { path: "AGENTS.md" } },
+      { kind: "finish" },
+    ]);
+  });
+
+  it("WO13A-P6 바깥 유효 호출 둘(사이에 글 그리고)", async () => {
+    const text = '<tool_call>\n{"name":"read_file","arguments":{"path":"AGENTS.md"}}\n</tool_call>그리고<tool_call>\n{"name":"list_dir","arguments":{"path":"notes"}}\n</tool_call>';
+    const { engine } = makeEngineWithChunks([{ content: text }]);
+    const provider = makeWebLLMProvider({
+      getEngine: async () => engine,
+      model: "m",
+      toolNames: ["read_file", "list_dir"],
+    });
+
+    const chunks: ProviderChunk[] = [];
+    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+      tools: [
+        { name: "read_file", description: "rf", parameters: {} },
+        { name: "list_dir", description: "ld", parameters: {} },
+      ],
+    })) {
+      chunks.push(c);
+    }
+
+    expect(chunks).toEqual([
+      { kind: "toolUse", id: "webllm-call-1-0", name: "read_file", args: { path: "AGENTS.md" } },
+      { kind: "toolUse", id: "webllm-call-1-1", name: "list_dir", args: { path: "notes" } },
+      { kind: "finish" },
+    ]);
+  });
+
+  const P7_CASES = [
+    ["WO13A-P7 bad-json", "<tool_call>bad json</tool_call>"],
+    ["WO13A-P7 hidden-name", '<tool_call>{"name":"continue_speaking","arguments":{}}</tool_call>'],
+    ["WO13A-P7 args-null", '<tool_call>{"name":"read_file","arguments":null}</tool_call>'],
+    ["WO13A-P7 args-array", '<tool_call>{"name":"read_file","arguments":[1]}</tool_call>'],
+    ["WO13A-P7 args-string", '<tool_call>{"name":"read_file","arguments":"str"}</tool_call>'],
+    ["WO13A-P7 unclosed", '<tool_call>{"name":"read_file","arguments":{"path":"x"}}'],
+    ["WO13A-P7 valid-plus-invalid", '<tool_call>{"name":"read_file","arguments":{"path":"x"}}</tool_call><tool_call>bad</tool_call>'],
+    ["WO13A-P7 valid-then-unclosed", '<tool_call>{"name":"read_file","arguments":{"path":"x"}}</tool_call><tool_call>{"name":"list_dir"'],
+    ["WO13A-P7 tag-in-string", '<tool_call>{"name":"read_file","arguments":{"path":"x</tool_call>y"}}</tool_call>'],
+  ] as const;
+
+  it.each(P7_CASES)("%s", async (_name, text) => {
+    const { engine } = makeEngineWithChunks([{ content: text }]);
+    const provider = makeWebLLMProvider({
+      getEngine: async () => engine,
+      model: "m",
+      toolNames: ["read_file", "list_dir"],
+    });
+
+    const chunks: ProviderChunk[] = [];
+    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+      tools: [
+        { name: "read_file", description: "rf", parameters: {} },
+        { name: "list_dir", description: "ld", parameters: {} },
+        { name: "continue_speaking", description: "cs", parameters: {} },
+      ],
+    })) {
+      chunks.push(c);
+    }
+
+    expect(chunks).toEqual([
+      { kind: "text", text },
+      { kind: "finish" },
+    ]);
+  });
+
+  it("WO13A-P8 usage-same-chunk", async () => {
+    const text = '앞말 <tool_call>\n{"name":"read_file","arguments":{"path":"AGENTS.md"}}\n</tool_call>';
+    const { engine } = makeEngineWithChunks([
+      { content: text, usage: { prompt_tokens: 10, completion_tokens: 5 } },
+    ]);
+    const provider = makeWebLLMProvider({ getEngine: async () => engine, model: "m", toolNames: ["read_file"] });
+
+    const chunks: ProviderChunk[] = [];
+    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+      tools: [{ name: "read_file", description: "rf", parameters: {} }],
+    })) {
+      chunks.push(c);
+    }
+
+    expect(chunks).toEqual([
+      { kind: "text", text: "앞말 " },
+      { kind: "usage", inputTokens: 10, outputTokens: 5 },
+      { kind: "toolUse", id: "webllm-call-1-0", name: "read_file", args: { path: "AGENTS.md" } },
+      { kind: "finish" },
+    ]);
+  });
+
+  it("WO13A-P8 usage-first", async () => {
+    const text = '앞말 <tool_call>\n{"name":"read_file","arguments":{"path":"AGENTS.md"}}\n</tool_call>';
+    const { engine } = makeEngineWithChunks([
+      { usage: { prompt_tokens: 10, completion_tokens: 5 } },
+      { content: text },
+    ]);
+    const provider = makeWebLLMProvider({ getEngine: async () => engine, model: "m", toolNames: ["read_file"] });
+
+    const chunks: ProviderChunk[] = [];
+    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+      tools: [{ name: "read_file", description: "rf", parameters: {} }],
+    })) {
+      chunks.push(c);
+    }
+
+    expect(chunks).toEqual([
+      { kind: "usage", inputTokens: 10, outputTokens: 5 },
+      { kind: "text", text: "앞말 " },
+      { kind: "toolUse", id: "webllm-call-1-0", name: "read_file", args: { path: "AGENTS.md" } },
+      { kind: "finish" },
+    ]);
+  });
+
+  it("WO13A-P8 usage-last-chunk", async () => {
+    const text = '앞말 <tool_call>\n{"name":"read_file","arguments":{"path":"AGENTS.md"}}\n</tool_call>';
+    const { engine } = makeEngineWithChunks([
+      { content: text },
+      { usage: { prompt_tokens: 10, completion_tokens: 5 } },
+    ]);
+    const provider = makeWebLLMProvider({ getEngine: async () => engine, model: "m", toolNames: ["read_file"] });
+
+    const chunks: ProviderChunk[] = [];
+    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+      tools: [{ name: "read_file", description: "rf", parameters: {} }],
+    })) {
+      chunks.push(c);
+    }
+
+    expect(chunks).toEqual([
+      { kind: "text", text: "앞말 " },
+      { kind: "usage", inputTokens: 10, outputTokens: 5 },
+      { kind: "toolUse", id: "webllm-call-1-0", name: "read_file", args: { path: "AGENTS.md" } },
+      { kind: "finish" },
+    ]);
+  });
+
+  it("WO13A-P8 usage-between-text", async () => {
+    const { engine } = makeEngineWithChunks([
+      { content: "앞" },
+      { usage: { prompt_tokens: 10, completion_tokens: 5 } },
+      { content: '말 <tool_call>\n{"name":"read_file","arguments":{"path":"AGENTS.md"}}\n</tool_call>' },
+    ]);
+    const provider = makeWebLLMProvider({ getEngine: async () => engine, model: "m", toolNames: ["read_file"] });
+
+    const chunks: ProviderChunk[] = [];
+    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+      tools: [{ name: "read_file", description: "rf", parameters: {} }],
+    })) {
+      chunks.push(c);
+    }
+
+    expect(chunks).toEqual([
+      { kind: "text", text: "앞" },
+      { kind: "usage", inputTokens: 10, outputTokens: 5 },
+      { kind: "text", text: "말 " },
+      { kind: "toolUse", id: "webllm-call-1-0", name: "read_file", args: { path: "AGENTS.md" } },
+      { kind: "finish" },
+    ]);
+  });
+
+  const P9_CASES = [
+    {
+      name: "WO13A-P9 cancel-held-call",
+      chunksBeforeAbort: [
+        { content: '앞말 <tool_call>\n{"name":"read_file","arguments":{"path":"AGENTS.md"}}\n</tool_call>' },
+      ],
+      expectedBeforeAbort: [{ kind: "text", text: "앞말 " } as ProviderChunk],
+      expectedTotal: [{ kind: "text", text: "앞말 " } as ProviderChunk],
+    },
+    {
+      name: "WO13A-P9 cancel-after-usage",
+      chunksBeforeAbort: [
+        { content: "앞말 " },
+        { usage: { prompt_tokens: 10, completion_tokens: 5 } },
+      ],
+      expectedBeforeAbort: [
+        { kind: "text", text: "앞말 " } as ProviderChunk,
+        { kind: "usage", inputTokens: 10, outputTokens: 5 } as ProviderChunk,
+      ],
+      expectedTotal: [
+        { kind: "text", text: "앞말 " } as ProviderChunk,
+        { kind: "usage", inputTokens: 10, outputTokens: 5 } as ProviderChunk,
+      ],
+    },
+    {
+      name: "WO13A-P9 cancel-partial-tag",
+      chunksBeforeAbort: [
+        { content: "앞말 <tool_" },
+      ],
+      expectedBeforeAbort: [{ kind: "text", text: "앞말 " } as ProviderChunk],
+      expectedTotal: [{ kind: "text", text: "앞말 " } as ProviderChunk],
+    },
+  ];
+
+  it.each(
+    P9_CASES.map((c) => [c.name, c.chunksBeforeAbort, c.expectedBeforeAbort, c.expectedTotal] as const),
+  )("%s", async (_name, chunksBeforeAbort, expectedBeforeAbort, expectedTotal) => {
+    let unblockNext!: () => void;
+    const nextWaitP = new Promise<void>((r) => { unblockNext = r; });
+
+    const ac = new AbortController();
+
+    async function* controllableEngineStream(): AsyncGenerator<WebLLMChatChunk, void, unknown> {
+      for (const c of chunksBeforeAbort) {
+        yield {
+          choices: [{ delta: { content: c.content }, finish_reason: null }],
+          ...(c.usage ? { usage: c.usage } : {}),
+        };
+      }
+      await nextWaitP;
+      yield { choices: [{ delta: { content: "끝" }, finish_reason: null }] };
+    }
+
+    const engine: WebLLMEngineLike = {
+      chat: { completions: { create: async () => controllableEngineStream() } },
+      interruptGenerate() {},
+    };
+
+    const provider = makeWebLLMProvider({ getEngine: async () => engine, model: "m", toolNames: ["read_file"] });
+
+    const it = provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+      signal: ac.signal,
+      tools: [{ name: "read_file", description: "rf", parameters: {} }],
+    })[Symbol.asyncIterator]();
+
+    const beforeAbortChunks: ProviderChunk[] = [];
+    for (let i = 0; i < expectedBeforeAbort.length; i++) {
+      const res = await it.next();
+      expect(res.done).toBe(false);
+      beforeAbortChunks.push(res.value);
+    }
+    expect(beforeAbortChunks).toEqual(expectedBeforeAbort);
+
+    ac.abort();
+    unblockNext();
+
+    const allChunks = [...beforeAbortChunks];
+    while (true) {
+      const res = await it.next();
+      if (res.done) break;
+      allChunks.push(res.value);
+    }
+
+    expect(allChunks).toEqual(expectedTotal);
+  });
+
+  it("WO13A-P11 think-split-after-capture", async () => {
+    const chunk1 = '앞말 <tool_call>\n{"name":"read_file","arguments":{"path":"AGENTS.md"}}\n</tool_call><thi';
+    const chunk2 = 'nk>x</think>';
+    const { engine } = makeEngineWithChunks([{ content: chunk1 }, { content: chunk2 }]);
+    const provider = makeWebLLMProvider({ getEngine: async () => engine, model: "m", toolNames: ["read_file"] });
+
+    const chunks: ProviderChunk[] = [];
+    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+      tools: [{ name: "read_file", description: "rf", parameters: {} }],
+    })) {
+      chunks.push(c);
+    }
+
+    expect(mergeNeighboringTexts(chunks)).toEqual([
+      { kind: "text", text: "앞말 " },
+      { kind: "toolUse", id: "webllm-call-1-0", name: "read_file", args: { path: "AGENTS.md" } },
+      { kind: "finish" },
+    ]);
+  });
+
+  it("WO13A-P11 usage-between-tag-pieces", async () => {
+    const { engine } = makeEngineWithChunks([
+      { content: "앞말 <tool_" },
+      { usage: { prompt_tokens: 10, completion_tokens: 5 } },
+      { content: 'call>\n{"name":"read_file","arguments":{"path":"AGENTS.md"}}\n</tool_call>' },
+    ]);
+    const provider = makeWebLLMProvider({ getEngine: async () => engine, model: "m", toolNames: ["read_file"] });
+
+    const chunks: ProviderChunk[] = [];
+    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+      tools: [{ name: "read_file", description: "rf", parameters: {} }],
+    })) {
+      chunks.push(c);
+    }
+
+    expect(mergeNeighboringTexts(chunks)).toEqual([
+      { kind: "text", text: "앞말 " },
+      { kind: "usage", inputTokens: 10, outputTokens: 5 },
+      { kind: "toolUse", id: "webllm-call-1-0", name: "read_file", args: { path: "AGENTS.md" } },
+      { kind: "finish" },
+    ]);
+  });
+
+  it("WO13A-P12 escaped-tag", async () => {
+    const text = '<tool_call>{"name":"read_file","arguments":{"path":"x<\\/tool_call>y"}}</tool_call>';
+    const { engine } = makeEngineWithChunks([{ content: text }]);
+    const provider = makeWebLLMProvider({ getEngine: async () => engine, model: "m", toolNames: ["read_file"] });
+
+    const chunks: ProviderChunk[] = [];
+    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+      tools: [{ name: "read_file", description: "rf", parameters: {} }],
+    })) {
+      chunks.push(c);
+    }
+
+    expect(chunks).toEqual([
+      { kind: "toolUse", id: "webllm-call-1-0", name: "read_file", args: { path: "x</tool_call>y" } },
+      { kind: "finish" },
+    ]);
+  });
+
+  it.each([
+    ["WO13A-P9 cancel-after-first-tooluse keep-reading", "keep-reading" as const],
+    ["WO13A-P9 cancel-after-first-tooluse return", "return" as const],
+  ])("%s", async (_name, action) => {
+    const text = '앞말 <tool_call>\n{"name":"read_file","arguments":{"path":"1"}}\n</tool_call><tool_call>\n{"name":"read_file","arguments":{"path":"2"}}\n</tool_call>';
+    const { engine } = makeEngineWithChunks([{ content: text }]);
+    const provider = makeWebLLMProvider({ getEngine: async () => engine, model: "m", toolNames: ["read_file"] });
+
+    const ac = new AbortController();
+    const it = provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+      signal: ac.signal,
+      tools: [{ name: "read_file", description: "rf", parameters: {} }],
+    })[Symbol.asyncIterator]();
+
+    const chunks: ProviderChunk[] = [];
+    const r1 = await it.next();
+    chunks.push(r1.value);
+    const r2 = await it.next();
+    chunks.push(r2.value);
+
+    ac.abort();
+
+    if (action === "keep-reading") {
+      const r3 = await it.next();
+      chunks.push(r3.value);
+      const r4 = await it.next();
+      chunks.push(r4.value);
+      expect(chunks).toEqual([
+        { kind: "text", text: "앞말 " },
+        { kind: "toolUse", id: "webllm-call-1-0", name: "read_file", args: { path: "1" } },
+        { kind: "toolUse", id: "webllm-call-1-1", name: "read_file", args: { path: "2" } },
+        { kind: "finish" },
+      ]);
+    } else {
+      const ret = await it.return!();
+      expect(ret).toEqual({ done: true, value: undefined });
+      expect(chunks).toEqual([
+        { kind: "text", text: "앞말 " },
+        { kind: "toolUse", id: "webllm-call-1-0", name: "read_file", args: { path: "1" } },
+      ]);
+    }
+  });
+
+  it("WO13A-P14 eof-partial-open-tag", async () => {
+    // 1. 앞말 <tool_
+    {
+      const { engine } = makeEngineWithChunks([{ content: "앞말 <tool_" }]);
+      const provider = makeWebLLMProvider({ getEngine: async () => engine, model: "m", toolNames: ["read_file"] });
+      const chunks: ProviderChunk[] = [];
+      for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+        tools: [{ name: "read_file", description: "rf", parameters: {} }],
+      })) {
+        chunks.push(c);
+      }
+      expect(mergeNeighboringTexts(chunks)).toEqual([
+        { kind: "text", text: "앞말 <tool_" },
+        { kind: "finish" },
+      ]);
+    }
+
+    // 2. 앞말 <tool_call>\n{"name":
+    {
+      const { engine } = makeEngineWithChunks([{ content: '앞말 <tool_call>\n{"name":' }]);
+      const provider = makeWebLLMProvider({ getEngine: async () => engine, model: "m", toolNames: ["read_file"] });
+      const chunks: ProviderChunk[] = [];
+      for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+        tools: [{ name: "read_file", description: "rf", parameters: {} }],
+      })) {
+        chunks.push(c);
+      }
+      expect(mergeNeighboringTexts(chunks)).toEqual([
+        { kind: "text", text: '앞말 <tool_call>\n{"name":' },
+        { kind: "finish" },
+      ]);
+    }
+
+    // 3. 앞말 <thi
+    {
+      const { engine } = makeEngineWithChunks([{ content: "앞말 <thi" }]);
+      const provider = makeWebLLMProvider({ getEngine: async () => engine, model: "m", toolNames: ["read_file"] });
+      const chunks: ProviderChunk[] = [];
+      for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+        tools: [{ name: "read_file", description: "rf", parameters: {} }],
+      })) {
+        chunks.push(c);
+      }
+      expect(mergeNeighboringTexts(chunks)).toEqual([
+        { kind: "text", text: "앞말 <thi" },
+        { kind: "finish" },
+      ]);
+    }
+
+    // 4. 앞말 <think>생각
+    {
+      const { engine } = makeEngineWithChunks([{ content: "앞말 <think>생각" }]);
+      const provider = makeWebLLMProvider({ getEngine: async () => engine, model: "m", toolNames: ["read_file"] });
+      const chunks: ProviderChunk[] = [];
+      for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+        tools: [{ name: "read_file", description: "rf", parameters: {} }],
+      })) {
+        chunks.push(c);
+      }
+      expect(mergeNeighboringTexts(chunks)).toEqual([
+        { kind: "text", text: "앞말 <think>생각" },
+        { kind: "finish" },
+      ]);
+    }
+
+    // 5. 앞말 <tool_call>\n{유효 read_file}\n</tool_call><think>x</thi
+    {
+      const content = '앞말 <tool_call>\n{"name":"read_file","arguments":{"path":"AGENTS.md"}}\n</tool_call><think>x</thi';
+      const { engine } = makeEngineWithChunks([{ content }]);
+      const provider = makeWebLLMProvider({ getEngine: async () => engine, model: "m", toolNames: ["read_file"] });
+      const chunks: ProviderChunk[] = [];
+      for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+        tools: [{ name: "read_file", description: "rf", parameters: {} }],
+      })) {
+        chunks.push(c);
+      }
+      expect(mergeNeighboringTexts(chunks)).toEqual([
+        { kind: "text", text: "앞말 " },
+        { kind: "toolUse", id: "webllm-call-1-0", name: "read_file", args: { path: "AGENTS.md" } },
+        { kind: "finish" },
+      ]);
+    }
+  });
+
+  const BASE2 = "앞말 <tool_call>\n{\"name\":\"read_file\",\"arguments\":{\"path\":\"AGENTS.md\"}}\n</tool_call><think>x</think>";
+  const P15_SPLIT_CASES: Array<[number, string, string]> = [];
+  for (let i = 1; i < BASE2.length; i++) {
+    P15_SPLIT_CASES.push([i, BASE2.slice(0, i), BASE2.slice(i)]);
+  }
+
+  it.each(P15_SPLIT_CASES)("WO13A-P15 split@%s", async (_idx, p1, p2) => {
+    const { engine } = makeEngineWithChunks([{ content: p1 }, { content: p2 }]);
+    const provider = makeWebLLMProvider({ getEngine: async () => engine, model: "m", toolNames: ["read_file"] });
+
+    const chunks: ProviderChunk[] = [];
+    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+      tools: [{ name: "read_file", description: "rf", parameters: {} }],
+    })) {
+      chunks.push(c);
+    }
+
+    expect(mergeNeighboringTexts(chunks)).toEqual([
+      { kind: "text", text: "앞말 " },
+      { kind: "toolUse", id: "webllm-call-1-0", name: "read_file", args: { path: "AGENTS.md" } },
+      { kind: "finish" },
+    ]);
+  });
+
+  it("WO13A-P16 think-tag-in-args", async () => {
+    const text = '앞말 <tool_call>\n{"name":"read_file","arguments":{"path":"a<think>b"}}\n</tool_call><tool_call>\n{"name":"list_dir","arguments":{"path":"notes"}}\n</tool_call>';
+    const { engine } = makeEngineWithChunks([{ content: text }]);
+    const provider = makeWebLLMProvider({ getEngine: async () => engine, model: "m", toolNames: ["read_file", "list_dir"] });
+
+    const chunks: ProviderChunk[] = [];
+    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+      tools: [
+        { name: "read_file", description: "rf", parameters: {} },
+        { name: "list_dir", description: "ld", parameters: {} },
+      ],
+    })) {
+      chunks.push(c);
+    }
+
+    expect(mergeNeighboringTexts(chunks)).toEqual([
+      { kind: "text", text: "앞말 " },
+      { kind: "toolUse", id: "webllm-call-1-0", name: "read_file", args: { path: "a<think>b" } },
+      { kind: "toolUse", id: "webllm-call-1-1", name: "list_dir", args: { path: "notes" } },
+      { kind: "finish" },
+    ]);
+  });
+
+  it("WO13A-P17 cancel-at-eof", async () => {
+    const ac = new AbortController();
+
+    async function* engineStream(): AsyncGenerator<WebLLMChatChunk, void, unknown> {
+      yield {
+        choices: [
+          {
+            delta: { content: '앞말 <tool_call>\n{"name":"read_file","arguments":{"path":"AGENTS.md"}}\n</tool_call>' },
+            finish_reason: null,
+          },
+        ],
+      };
+      ac.abort();
+      return;
+    }
+
+    const engine: WebLLMEngineLike = {
+      chat: { completions: { create: async () => engineStream() } },
+      interruptGenerate() {},
+    };
+
+    const provider = makeWebLLMProvider({ getEngine: async () => engine, model: "m", toolNames: ["read_file"] });
+
+    const chunks: ProviderChunk[] = [];
+    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+      signal: ac.signal,
+      tools: [{ name: "read_file", description: "rf", parameters: {} }],
+    })) {
+      chunks.push(c);
+    }
+
+    expect(chunks).toEqual([
+      { kind: "text", text: "앞말 " },
+    ]);
+  });
+
+  it("WO13A-P18 request-number", async () => {
+    let callCount = 0;
+    const engine: WebLLMEngineLike = {
+      chat: {
+        completions: {
+          create: async () => {
+            callCount++;
+            return (async function* () {
+              if (callCount <= 2) {
+                yield {
+                  choices: [
+                    {
+                      delta: { content: '<tool_call>{"name":"read_file","arguments":{"path":"AGENTS.md"}}</tool_call>' },
+                      finish_reason: null,
+                    },
+                  ],
+                };
+              } else {
+                yield {
+                  choices: [
+                    {
+                      delta: {
+                        content: '<tool_call>{"name":"read_file","arguments":{"path":"1"}}</tool_call><tool_call>{"name":"read_file","arguments":{"path":"2"}}</tool_call>',
+                      },
+                      finish_reason: null,
+                    },
+                  ],
+                };
+              }
+            })();
+          },
+        },
+      },
+      interruptGenerate() {},
+    };
+
+    const provider = makeWebLLMProvider({ getEngine: async () => engine, model: "m", toolNames: ["read_file"] });
+
+    const c1: ProviderChunk[] = [];
+    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "1" }], {
+      tools: [{ name: "read_file", description: "rf", parameters: {} }],
+    })) {
+      c1.push(c);
+    }
+    expect(c1).toEqual([
+      { kind: "toolUse", id: "webllm-call-1-0", name: "read_file", args: { path: "AGENTS.md" } },
+      { kind: "finish" },
+    ]);
+
+    const c2: ProviderChunk[] = [];
+    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "2" }], {
+      tools: [{ name: "read_file", description: "rf", parameters: {} }],
+    })) {
+      c2.push(c);
+    }
+    expect(c2).toEqual([
+      { kind: "toolUse", id: "webllm-call-2-0", name: "read_file", args: { path: "AGENTS.md" } },
+      { kind: "finish" },
+    ]);
+
+    const c3: ProviderChunk[] = [];
+    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "3" }], {
+      tools: [{ name: "read_file", description: "rf", parameters: {} }],
+    })) {
+      c3.push(c);
+    }
+    expect(c3).toEqual([
+      { kind: "toolUse", id: "webllm-call-3-0", name: "read_file", args: { path: "1" } },
+      { kind: "toolUse", id: "webllm-call-3-1", name: "read_file", args: { path: "2" } },
+      { kind: "finish" },
+    ]);
+  });
+
+  it("WO13A-P19 think-closed-inside-inner-call", async () => {
+    const text = '<think><tool_call>\n{"name":"list_dir","arguments":{"path":"notes"}}\n</think>그다음 <tool_call>\n{"name":"read_file","arguments":{"path":"AGENTS.md"}}\n</tool_call>';
+    const { engine } = makeEngineWithChunks([{ content: text }]);
+    const provider = makeWebLLMProvider({ getEngine: async () => engine, model: "m", toolNames: ["read_file", "list_dir"] });
+
+    const chunks: ProviderChunk[] = [];
+    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+      tools: [
+        { name: "read_file", description: "rf", parameters: {} },
+        { name: "list_dir", description: "ld", parameters: {} },
+      ],
+    })) {
+      chunks.push(c);
+    }
+
+    expect(mergeNeighboringTexts(chunks)).toEqual([
+      { kind: "text", text: '<think><tool_call>\n{"name":"list_dir","arguments":{"path":"notes"}}\n</think>그다음 ' },
+      { kind: "toolUse", id: "webllm-call-1-0", name: "read_file", args: { path: "AGENTS.md" } },
+      { kind: "finish" },
+    ]);
+  });
+
+  it("WO13A-P20 no-system-message", async () => {
+    const { engine, requests } = makeEngineWithChunks([{ content: "ok" }]);
+    const provider = makeWebLLMProvider({ getEngine: async () => engine, model: "m", toolNames: ["list_dir", "read_file"] });
+
+    const t1 = { name: "list_dir", description: "List files and folders at a path in the user's ADK workspace.", parameters: { type: "object", properties: { path: { type: "string", description: "Path relative to the workspace root, for example AGENTS.md or notes/hello.md. Use exact names; hidden folders start with a dot." } }, required: ["path"] } };
+    const t2 = { name: "read_file", description: "Read a text file in the user's ADK workspace.", parameters: { type: "object", properties: { path: { type: "string", description: "Path relative to the workspace root, for example AGENTS.md or notes/hello.md. Use exact names; hidden folders start with a dot." } }, required: ["path"] } };
+
+    for await (const _ of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+      tools: [t1, t2],
+    })) {}
+
+    const expectedToolsBlock = `# Tools
+
+You may call one or more functions to assist with the user specification.
+
+You are provided with function signatures within <tools></tools> XML tags:
+<tools>
+${JSON.stringify({ type: "function", function: { name: t1.name, description: t1.description, parameters: t1.parameters } })}
+${JSON.stringify({ type: "function", function: { name: t2.name, description: t2.description, parameters: t2.parameters } })}
+</tools>
+
+For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:
+<tool_call>
+{"name": <function-name>, "arguments": <args-json-object>}
+</tool_call>`;
+
+    expect(requests[0]?.messages[0]).toEqual({
+      role: "system",
+      content: expectedToolsBlock,
+    });
+  });
+
+  it("WO13A-P21 no-overlap", async () => {
+    const text = '앞말 <tool_call>\n{"name":"read_file","arguments":{"path":"AGENTS.md"}}\n</tool_call>';
+    const { engine, requests } = makeEngineWithChunks([{ content: text }]);
+    const provider = makeWebLLMProvider({ getEngine: async () => engine, model: "m", toolNames: ["list_dir", "read_file"] });
+
+    const chunks: ProviderChunk[] = [];
+    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+      tools: [{ name: "continue_speaking", description: "cs", parameters: {} }],
+    })) {
+      chunks.push(c);
+    }
+
+    expect(requests[0]?.messages.some((m) => m.content.includes("<tools>"))).toBe(false);
+    expect(mergeNeighboringTexts(chunks)).toEqual([
+      { kind: "text", text },
+      { kind: "finish" },
+    ]);
+  });
+
+  it("WO13A-P10 대화 히스토리 변환 assistant(toolCalls) 및 tool 연속 메시지", async () => {
+    const { engine, requests } = makeEngineWithChunks([{ content: "ok" }]);
+    const provider = makeWebLLMProvider({ getEngine: async () => engine, model: "m" });
+
+    const history: ChatMessage[] = [
+      { role: "user", content: "질문" },
+      {
+        role: "assistant",
+        content: "생각",
+        toolCalls: [
+          { id: "call1", name: "list_dir", args: { path: "notes" } },
+          { id: "call2", name: "read_file", args: { path: "AGENTS.md" } },
+        ],
+      },
+      { role: "tool", toolCallId: "call1", content: "f a.md\nf b.md" },
+      { role: "tool", toolCallId: "call2", content: "# Hello" },
+    ];
+
+    for await (const _ of provider.chat(defaultConfig, history, {})) {}
+
+    expect(requests[0]?.messages).toEqual([
+      { role: "user", content: "질문" },
+      {
+        role: "assistant",
+        content: '생각\n<tool_call>\n{"name":"list_dir","arguments":{"path":"notes"}}\n</tool_call>\n<tool_call>\n{"name":"read_file","arguments":{"path":"AGENTS.md"}}\n</tool_call>',
+      },
+      {
+        role: "user",
+        content: '<tool_response>\nf a.md\nf b.md\n</tool_response>\n<tool_response>\n# Hello\n</tool_response>',
+      },
+    ]);
+  });
+});
+
 
