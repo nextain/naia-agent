@@ -718,7 +718,13 @@ describe("browser-agent 워크스페이스 포트 (FE-16)", () => {
     // 5. 승인 요청이 나가지 않는다
     const approvalRequests = lines
       .map(parseLine)
-      .filter((m) => m?.requestId === "wo13a-req" && (m?.type === "gatewayApprovalRequest" || m?.type === "gateway_approval_request"));
+      .filter(
+        (m) =>
+          m?.requestId === "wo13a-req" &&
+          (m?.type === "gatewayApprovalRequest" ||
+            m?.type === "gateway_approval_request" ||
+            m?.type === "approval_request"),
+      );
     expect(approvalRequests.length).toBe(0);
 
     agent.stop();

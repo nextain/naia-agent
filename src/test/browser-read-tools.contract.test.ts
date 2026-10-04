@@ -277,18 +277,16 @@ describe("browser-read-tools contracts", () => {
     const tools = makeBrowserReadTools({ fs });
 
     const r1 = await tools.execute({ id: "1", name: "read_file", args: { path: "nope/x.md" } }, {});
-    expect(r1.output).not.toContain("naia-settings");
-    expect(r1.output).not.toContain(".env");
-    expect(r1.output).not.toContain(".keys");
-
     const r2 = await tools.execute({ id: "2", name: "list_dir", args: { path: "keys" } }, {});
-    expect(r2.output).not.toContain(".keys");
-
     const r3 = await tools.execute({ id: "3", name: "list_dir", args: { path: "env" } }, {});
-    expect(r3.output).not.toContain(".env");
-
     const r4 = await tools.execute({ id: "4", name: "list_dir", args: { path: "NAIA-SETTINGS2" } }, {});
-    expect(r4.output).not.toContain("naia-settings");
+
+    for (const r of [r1, r2, r3, r4]) {
+      const lower = r.output.toLowerCase().replace("naia-settings2", "");
+      expect(lower).not.toContain("naia-settings");
+      expect(lower).not.toContain(".env");
+      expect(lower).not.toContain(".keys");
+    }
   });
 
   it("WO13A-T16 별도 가짜 fs 맨 위 대소문자 민감 항목 숨김", async () => {
@@ -330,13 +328,15 @@ describe("browser-read-tools contracts", () => {
     const tools = makeBrowserReadTools({ fs });
 
     const res = await tools.execute({ id: "1", name: "list_dir", args: { path: "big" } }, {});
-    const lines = res.output.split("\n");
-    expect(lines.length).toBe(201);
-    expect(lines[0]).toBe("d d000");
-    expect(lines[99]).toBe("d d099");
-    expect(lines[100]).toBe("f f000");
-    expect(lines[199]).toBe("f f099");
-    expect(lines[200]).toBe("…(more entries)");
+    const expectedLines: string[] = [];
+    for (let i = 0; i < 100; i++) {
+      expectedLines.push(`d d${String(i).padStart(3, "0")}`);
+    }
+    for (let i = 0; i < 100; i++) {
+      expectedLines.push(`f f${String(i).padStart(3, "0")}`);
+    }
+    expectedLines.push("…(more entries)");
+    expect(res.output).toBe(expectedLines.join("\n"));
     expect(res.isError).toBe(undefined);
   });
 
@@ -376,8 +376,10 @@ describe("browser-read-tools contracts", () => {
 
     const rRead = await tools.execute({ id: "3", name: "read_file", args: { path: "notes/env" } }, {});
     expect(rRead.output.toLowerCase()).not.toContain(".env");
+    expect(rRead.output.toLowerCase()).not.toContain(".keys");
 
     const rList = await tools.execute({ id: "4", name: "list_dir", args: { path: "notes/keys" } }, {});
+    expect(rList.output.toLowerCase()).not.toContain(".env");
     expect(rList.output.toLowerCase()).not.toContain(".keys");
   });
 
@@ -443,7 +445,10 @@ describe("browser-read-tools contracts", () => {
     fs.addFile("exact6k.txt", exact6k);
     fs.addFile("exact1mb.bin", "b", 1048576);
 
-    for (let i = 0; i < 200; i++) {
+    for (let i = 0; i < 100; i++) {
+      fs.addDir(`folder200/d${String(i).padStart(3, "0")}`);
+    }
+    for (let i = 0; i < 100; i++) {
       fs.addFile(`folder200/f${String(i).padStart(3, "0")}`, "ok");
     }
     const tools = makeBrowserReadTools({ fs });
@@ -458,11 +463,14 @@ describe("browser-read-tools contracts", () => {
     expect(fs.readTextCalls.filter((c) => c.join("/") === "exact1mb.bin").length).toBe(1);
 
     const r200 = await tools.execute({ id: "3", name: "list_dir", args: { path: "folder200" } }, {});
-    const lines = r200.output.split("\n");
-    expect(lines.length).toBe(200);
-    expect(lines[0]).toBe("f f000");
-    expect(lines[199]).toBe("f f199");
-    expect(r200.output).not.toContain("…(more entries)");
+    const expected200Lines: string[] = [];
+    for (let i = 0; i < 100; i++) {
+      expected200Lines.push(`d d${String(i).padStart(3, "0")}`);
+    }
+    for (let i = 0; i < 100; i++) {
+      expected200Lines.push(`f f${String(i).padStart(3, "0")}`);
+    }
+    expect(r200.output).toBe(expected200Lines.join("\n"));
     expect(r200.isError).toBe(undefined);
   });
 

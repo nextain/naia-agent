@@ -211,6 +211,8 @@ export function makeWebLLMProvider(deps: {
       messages: readonly ChatMessage[],
       opts: ProviderChatOpts,
     ): AsyncIterable<ProviderChunk> {
+      const requestNumber = ++requestCounter;
+
       // 1. 지원하지 않는 입력 사전 검증 (inlineImages / attachments 만 거부)
       for (const m of messages) {
         if ((m.inlineImages && m.inlineImages.length > 0) || (m.attachments && m.attachments.length > 0)) {
@@ -222,8 +224,6 @@ export function makeWebLLMProvider(deps: {
       if (opts.signal?.aborted) {
         return;
       }
-
-      const requestNumber = ++requestCounter;
 
       // 쓸 도구 집합: opts.tools 가운데 이름이 toolNames 에 든 것뿐 (순서는 opts.tools 순서)
       const activeTools = (deps.toolNames && deps.toolNames.length > 0 && opts.tools && opts.tools.length > 0)

@@ -12,7 +12,7 @@ import {
 } from "../main/adapters/webllm-provider.js";
 import { resolveProviderRoute } from "../main/domain/provider-route.js";
 import { makeProviderResolver } from "../main/adapters/provider-resolver.js";
-import { startBrowserAgent } from "../main/composition/browser-agent.js";
+import { startBrowserAgent, BROWSER_READ_TOOL_NAMES } from "../main/composition/browser-agent.js";
 import type { ProviderConfig, ChatMessage, ProviderChunk } from "../main/domain/chat.js";
 
 interface FakeStreamRecord {
@@ -1159,27 +1159,63 @@ describe("WO13A WebLLM provider tool-call protocol", () => {
     const toolLD = { name: "list_dir", description: "ld", parameters: {} };
     const toolRF = { name: "read_file", description: "rf", parameters: {} };
 
-    for await (const _ of provider.chat(defaultConfig, [{ role: "user", content: "1" }], {
-      systemPrompt: "sys",
+    const expectedToolsBlock1 = `# Tools
+
+You may call one or more functions to assist with the user specification.
+
+You are provided with function signatures within <tools></tools> XML tags:
+<tools>
+${JSON.stringify({ type: "function", function: { name: toolLD.name, description: toolLD.description, parameters: toolLD.parameters } })}
+${JSON.stringify({ type: "function", function: { name: toolRF.name, description: toolRF.description, parameters: toolRF.parameters } })}
+</tools>
+
+For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:
+<tool_call>
+{"name": <function-name>, "arguments": <args-json-object>}
+</tool_call>`;
+
+    const chunks1: ProviderChunk[] = [];
+    for await (const c of provider.chat(defaultConfig, [{ role: "system", content: "SYS" }, { role: "user", content: "1" }], {
       tools: [toolCS, toolLD, toolRF],
-    })) {}
+    })) {
+      chunks1.push(c);
+    }
 
-    const sys1 = requests[0]?.messages.find((m) => m.role === "system")?.content ?? "";
-    expect(sys1.includes("continue_speaking")).toBe(false);
-    expect(sys1.includes('"name":"list_dir"')).toBe(true);
-    expect(sys1.includes('"name":"read_file"')).toBe(true);
-    expect(sys1.endsWith("</tool_call>")).toBe(true);
+    const sys1 = requests[0]?.messages.find((m) => m.role === "system")?.content;
+    expect(sys1).toBe("SYS\n\n" + expectedToolsBlock1);
+    expect(chunks1).toEqual([
+      { kind: "text", text: "ok" },
+      { kind: "finish" },
+    ]);
 
-    for await (const _ of provider.chat(defaultConfig, [{ role: "user", content: "2" }], {
-      systemPrompt: "sys",
+    const expectedToolsBlock2 = `# Tools
+
+You may call one or more functions to assist with the user specification.
+
+You are provided with function signatures within <tools></tools> XML tags:
+<tools>
+${JSON.stringify({ type: "function", function: { name: toolRF.name, description: toolRF.description, parameters: toolRF.parameters } })}
+${JSON.stringify({ type: "function", function: { name: toolLD.name, description: toolLD.description, parameters: toolLD.parameters } })}
+</tools>
+
+For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:
+<tool_call>
+{"name": <function-name>, "arguments": <args-json-object>}
+</tool_call>`;
+
+    const chunks2: ProviderChunk[] = [];
+    for await (const c of provider.chat(defaultConfig, [{ role: "system", content: "SYS" }, { role: "user", content: "2" }], {
       tools: [toolRF, toolCS, toolLD],
-    })) {}
+    })) {
+      chunks2.push(c);
+    }
 
-    const sys2 = requests[1]?.messages.find((m) => m.role === "system")?.content ?? "";
-    const rfIdx = sys2.indexOf('"name":"read_file"');
-    const ldIdx = sys2.indexOf('"name":"list_dir"');
-    expect(rfIdx).toBeLessThan(ldIdx);
-    expect(sys2.includes("continue_speaking")).toBe(false);
+    const sys2 = requests[1]?.messages.find((m) => m.role === "system")?.content;
+    expect(sys2).toBe("SYS\n\n" + expectedToolsBlock2);
+    expect(chunks2).toEqual([
+      { kind: "text", text: "ok" },
+      { kind: "finish" },
+    ]);
   });
 
   it("WO13A-P3 merge-helper", () => {
@@ -1625,6 +1661,8 @@ describe("WO13A WebLLM provider tool-call protocol", () => {
         { kind: "toolUse", id: "webllm-call-1-1", name: "read_file", args: { path: "2" } },
         { kind: "finish" },
       ]);
+      const r5 = await it.next();
+      expect(r5).toEqual({ done: true, value: undefined });
     } else {
       const ret = await it.return!();
       expect(ret).toEqual({ done: true, value: undefined });
@@ -1767,7 +1805,11 @@ describe("WO13A WebLLM provider tool-call protocol", () => {
   });
 
   it("WO13A-P17 cancel-at-eof", async () => {
-    const ac = new AbortController();
+    const controller = new AbortController();
+    let eofReached = false;
+    Object.defineProperty(controller.signal, "aborted", {
+      get: () => eofReached,
+    });
 
     async function* engineStream(): AsyncGenerator<WebLLMChatChunk, void, unknown> {
       yield {
@@ -1778,7 +1820,7 @@ describe("WO13A WebLLM provider tool-call protocol", () => {
           },
         ],
       };
-      ac.abort();
+      eofReached = true;
       return;
     }
 
@@ -1791,7 +1833,7 @@ describe("WO13A WebLLM provider tool-call protocol", () => {
 
     const chunks: ProviderChunk[] = [];
     for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
-      signal: ac.signal,
+      signal: controller.signal,
       tools: [{ name: "read_file", description: "rf", parameters: {} }],
     })) {
       chunks.push(c);
@@ -1810,11 +1852,13 @@ describe("WO13A WebLLM provider tool-call protocol", () => {
           create: async () => {
             callCount++;
             return (async function* () {
-              if (callCount <= 2) {
+              if (callCount === 3) {
                 yield {
                   choices: [
                     {
-                      delta: { content: '<tool_call>{"name":"read_file","arguments":{"path":"AGENTS.md"}}</tool_call>' },
+                      delta: {
+                        content: '<tool_call>{"name":"read_file","arguments":{"path":"1"}}</tool_call><tool_call>{"name":"read_file","arguments":{"path":"2"}}</tool_call>',
+                      },
                       finish_reason: null,
                     },
                   ],
@@ -1823,9 +1867,7 @@ describe("WO13A WebLLM provider tool-call protocol", () => {
                 yield {
                   choices: [
                     {
-                      delta: {
-                        content: '<tool_call>{"name":"read_file","arguments":{"path":"1"}}</tool_call><tool_call>{"name":"read_file","arguments":{"path":"2"}}</tool_call>',
-                      },
+                      delta: { content: '<tool_call>{"name":"read_file","arguments":{"path":"AGENTS.md"}}</tool_call>' },
                       finish_reason: null,
                     },
                   ],
@@ -1873,6 +1915,39 @@ describe("WO13A WebLLM provider tool-call protocol", () => {
       { kind: "toolUse", id: "webllm-call-3-1", name: "read_file", args: { path: "2" } },
       { kind: "finish" },
     ]);
+
+    // (가) 이미 취소된 신호로 chat() 하고 끝까지 읽음
+    const acCancelled = new AbortController();
+    acCancelled.abort();
+    const c4: ProviderChunk[] = [];
+    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "4" }], {
+      signal: acCancelled.signal,
+      tools: [{ name: "read_file", description: "rf", parameters: {} }],
+    })) {
+      c4.push(c);
+    }
+    expect(c4).toEqual([]);
+
+    // (나) inlineImages 가 든 메시지로 chat() 해서 예외를 받음
+    await expect(async () => {
+      for await (const _ of provider.chat(
+        defaultConfig,
+        [{ role: "user", content: "5", inlineImages: [{ mimeType: "image/png", data: "abc" }] }],
+        { tools: [{ name: "read_file", description: "rf", parameters: {} }] },
+      )) {}
+    }).rejects.toThrow();
+
+    // (다) 유효 read_file 호출 하나를 흘리는 chat() 을 더하고, toolUse.id 가 webllm-call-6-0 인지 단언
+    const c6: ProviderChunk[] = [];
+    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "6" }], {
+      tools: [{ name: "read_file", description: "rf", parameters: {} }],
+    })) {
+      c6.push(c);
+    }
+    expect(c6).toEqual([
+      { kind: "toolUse", id: "webllm-call-6-0", name: "read_file", args: { path: "AGENTS.md" } },
+      { kind: "finish" },
+    ]);
   });
 
   it("WO13A-P19 think-closed-inside-inner-call", async () => {
@@ -1904,9 +1979,12 @@ describe("WO13A WebLLM provider tool-call protocol", () => {
     const t1 = { name: "list_dir", description: "List files and folders at a path in the user's ADK workspace.", parameters: { type: "object", properties: { path: { type: "string", description: "Path relative to the workspace root, for example AGENTS.md or notes/hello.md. Use exact names; hidden folders start with a dot." } }, required: ["path"] } };
     const t2 = { name: "read_file", description: "Read a text file in the user's ADK workspace.", parameters: { type: "object", properties: { path: { type: "string", description: "Path relative to the workspace root, for example AGENTS.md or notes/hello.md. Use exact names; hidden folders start with a dot." } }, required: ["path"] } };
 
-    for await (const _ of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+    const chunks: ProviderChunk[] = [];
+    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
       tools: [t1, t2],
-    })) {}
+    })) {
+      chunks.push(c);
+    }
 
     const expectedToolsBlock = `# Tools
 
@@ -1927,6 +2005,10 @@ For each function call, return a json object with function name and arguments wi
       role: "system",
       content: expectedToolsBlock,
     });
+    expect(chunks).toEqual([
+      { kind: "text", text: "ok" },
+      { kind: "finish" },
+    ]);
   });
 
   it("WO13A-P21 no-overlap", async () => {
@@ -1950,7 +2032,6 @@ For each function call, return a json object with function name and arguments wi
 
   it("WO13A-P10 대화 히스토리 변환 assistant(toolCalls) 및 tool 연속 메시지", async () => {
     const { engine, requests } = makeEngineWithChunks([{ content: "ok" }]);
-    const provider = makeWebLLMProvider({ getEngine: async () => engine, model: "m" });
 
     const history: ChatMessage[] = [
       { role: "user", content: "질문" },
@@ -1966,9 +2047,7 @@ For each function call, return a json object with function name and arguments wi
       { role: "tool", toolCallId: "call2", content: "# Hello" },
     ];
 
-    for await (const _ of provider.chat(defaultConfig, history, {})) {}
-
-    expect(requests[0]?.messages).toEqual([
+    const expectedMessages = [
       { role: "user", content: "질문" },
       {
         role: "assistant",
@@ -1978,6 +2057,34 @@ For each function call, return a json object with function name and arguments wi
         role: "user",
         content: '<tool_response>\nf a.md\nf b.md\n</tool_response>\n<tool_response>\n# Hello\n</tool_response>',
       },
+    ];
+
+    // 1. toolNames 없음
+    const providerWithout = makeWebLLMProvider({ getEngine: async () => engine, model: "m" });
+    const chunksWithout: ProviderChunk[] = [];
+    for await (const c of providerWithout.chat(defaultConfig, history, {})) {
+      chunksWithout.push(c);
+    }
+    expect(requests[0]?.messages).toEqual(expectedMessages);
+    expect(chunksWithout).toEqual([
+      { kind: "text", text: "ok" },
+      { kind: "finish" },
+    ]);
+
+    // 2. toolNames: BROWSER_READ_TOOL_NAMES 있음
+    const providerWith = makeWebLLMProvider({
+      getEngine: async () => engine,
+      model: "m",
+      toolNames: BROWSER_READ_TOOL_NAMES,
+    });
+    const chunksWith: ProviderChunk[] = [];
+    for await (const c of providerWith.chat(defaultConfig, history, {})) {
+      chunksWith.push(c);
+    }
+    expect(requests[1]?.messages).toEqual(expectedMessages);
+    expect(chunksWith).toEqual([
+      { kind: "text", text: "ok" },
+      { kind: "finish" },
     ]);
   });
 });
