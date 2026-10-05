@@ -729,4 +729,155 @@ describe("browser-agent 워크스페이스 포트 (FE-16)", () => {
 
     agent.stop();
   });
+
+  it("WO13C-A7 integration WebLLM list_dir 후 경로를 그대로 쓴 read_file 및 최종 응답 흐름", async () => {
+    let engineCallCount = 0;
+    const engineRequests: WebLLMChatRequest[] = [];
+
+    const fakeEngine: WebLLMEngineLike = {
+      chat: {
+        completions: {
+          create: async (req) => {
+            engineCallCount++;
+            engineRequests.push(req);
+            return (async function* () {
+              if (engineCallCount === 1) {
+                yield {
+                  choices: [
+                    {
+                      delta: {
+                        content: '<tool_call>{"name":"list_dir","arguments":{"path":"notes"}}</tool_call>',
+                      },
+                      finish_reason: null,
+                    },
+                  ],
+                };
+              } else if (engineCallCount === 2) {
+                let extractedPath = "";
+                for (const m of req.messages) {
+                  const match = m.content.match(/<tool_response>[\s\S]*?f\s+([^\s\n\r]+)[\s\S]*?<\/tool_response>/);
+                  if (match && match[1]) {
+                    extractedPath = match[1];
+                    break;
+                  }
+                }
+                yield {
+                  choices: [
+                    {
+                      delta: {
+                        content: `<tool_call>{"name":"read_file","arguments":{"path":"${extractedPath}"}}</tool_call>`,
+                      },
+                      finish_reason: null,
+                    },
+                  ],
+                };
+              } else {
+                yield {
+                  choices: [
+                    {
+                      delta: {
+                        content: "notes/hello.md 파일 내용은 hello world 입니다.",
+                      },
+                      finish_reason: null,
+                    },
+                  ],
+                };
+              }
+            })();
+          },
+        },
+      },
+      interruptGenerate() {},
+    };
+
+    const readTextCalls: string[][] = [];
+    const fakeFs: BrowserReadFs = {
+      async stat(segments) {
+        if (segments.length === 1 && segments[0] === "notes") {
+          return { kind: "directory" };
+        }
+        if (segments.length === 2 && segments[0] === "notes" && segments[1] === "hello.md") {
+          return { kind: "file", size: 11 };
+        }
+        return null;
+      },
+      async list(segments) {
+        if (segments.length === 1 && segments[0] === "notes") {
+          return [{ name: "hello.md", kind: "file" }];
+        }
+        return [];
+      },
+      async readText(segments) {
+        readTextCalls.push([...segments]);
+        if (segments.length === 2 && segments[0] === "notes" && segments[1] === "hello.md") {
+          return "hello world";
+        }
+        throw new Error("not found");
+      },
+    };
+
+    const provider = makeWebLLMProvider({
+      getEngine: async () => fakeEngine,
+      model: "test-model",
+      toolNames: BROWSER_READ_TOOL_NAMES,
+    });
+
+    const toolExecutor = makeBrowserReadTools({ fs: fakeFs });
+
+    const agent = startBrowserAgent({
+      port: port1,
+      provider,
+      toolExecutor,
+      diag: { log: () => {}, debug: () => {} },
+    });
+
+    port2.postMessage(
+      JSON.stringify({
+        type: "chat_request",
+        requestId: "wo13c-req",
+        provider: { provider: "webllm", model: "test-model" },
+        enableTools: true,
+        messages: [{ role: "user", content: "notes 디렉토리 확인해줘" }],
+      }),
+    );
+
+    await waitFor(
+      () => lines.some((l) => parseLine(l)?.requestId === "wo13c-req" && parseLine(l)?.type === "finish"),
+      3000,
+      "wo13c-req finish",
+    );
+
+    // 1. 총 3회 엔진 호출 확인
+    expect(engineRequests.length).toBe(3);
+
+    // 2. 둘째 회차 엔진 입력의 <tool_response> 안에 f notes/hello.md 가 있음
+    const secondReqMessages = engineRequests[1]!.messages;
+    const firstToolResp = secondReqMessages.find(
+      (m) => m.content.includes("<tool_response>") && m.content.includes("f notes/hello.md"),
+    );
+    expect(firstToolResp).toBeDefined();
+
+    // 3. 셋째 회차 엔진 입력의 <tool_response> 안에 read_file 결과(hello world)가 있고 오류가 아님
+    const thirdReqMessages = engineRequests[2]!.messages;
+    const secondToolResp = thirdReqMessages.find(
+      (m) => m.content.includes("<tool_response>") && m.content.includes("hello world"),
+    );
+    expect(secondToolResp).toBeDefined();
+    expect(secondToolResp?.content).not.toContain("error");
+    expect(secondToolResp?.content).not.toContain("not found");
+    expect(secondToolResp?.content).not.toContain("denied");
+
+    // 4. fs readText 가 ["notes", "hello.md"] 로 호출됨
+    expect(readTextCalls).toEqual([["notes", "hello.md"]]);
+
+    // 5. 최종 응답 문자열에 내용 포함
+    const outTexts = lines
+      .map(parseLine)
+      .filter((m) => m?.requestId === "wo13c-req" && m?.type === "text")
+      .map((m) => String(m?.text ?? ""))
+      .join("");
+    expect(outTexts).toContain("notes/hello.md 파일 내용은 hello world 입니다.");
+
+    agent.stop();
+  });
 });

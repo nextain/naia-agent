@@ -265,7 +265,9 @@ ${toolLines}
 For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:
 <tool_call>
 {"name": <function-name>, "arguments": <args-json-object>}
-</tool_call>`;
+</tool_call>
+
+Always reply in the same language as the user's latest message, even when the files or tool results you read are in another language.`;
 
         systemParts.push(toolsPrompt);
       }

@@ -176,7 +176,8 @@ export function makeBrowserReadTools(deps: { fs: BrowserReadFs }): ToolExecutorP
   const toolSpecs: readonly ToolSpec[] = [
     {
       name: "list_dir",
-      description: "List files and folders at a path in the user's ADK workspace.",
+      description:
+        "List files and folders at a path in the user's ADK workspace. Each line is \"d <path>\" for a folder or \"f <path>\" for a file, where <path> is the full path from the workspace root. Pass that path unchanged to read_file or list_dir.",
       tier: "none",
       parameters: {
         type: "object",
@@ -192,7 +193,8 @@ export function makeBrowserReadTools(deps: { fs: BrowserReadFs }): ToolExecutorP
     },
     {
       name: "read_file",
-      description: "Read a text file in the user's ADK workspace.",
+      description:
+        "Read a text file in the user's ADK workspace. Use the full path from the workspace root, exactly as list_dir shows it.",
       tier: "none",
       parameters: {
         type: "object",
@@ -254,7 +256,8 @@ export function makeBrowserReadTools(deps: { fs: BrowserReadFs }): ToolExecutorP
 
           const lines = visible.slice(0, 200).map((e) => {
             const prefix = e.kind === "directory" ? "d" : "f";
-            return `${prefix} ${e.name}`;
+            const fullPath = segments.length > 0 ? `${segments.join("/")}/${e.name}` : e.name;
+            return `${prefix} ${fullPath}`;
           });
 
           if (visible.length > 200) {

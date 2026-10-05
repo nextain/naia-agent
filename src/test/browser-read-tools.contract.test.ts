@@ -149,7 +149,7 @@ describe("browser-read-tools contracts", () => {
     const fs = createDefaultFs();
     const tools = makeBrowserReadTools({ fs });
     const listRes = await tools.execute({ id: "1", name: "list_dir", args: { path: ".agents/context" } }, {});
-    expect(listRes.output).toBe("f philosophy.md");
+    expect(listRes.output).toBe("f .agents/context/philosophy.md");
     expect(listRes.isError).toBe(undefined);
 
     const readRes = await tools.execute(
@@ -330,10 +330,10 @@ describe("browser-read-tools contracts", () => {
     const res = await tools.execute({ id: "1", name: "list_dir", args: { path: "big" } }, {});
     const expectedLines: string[] = [];
     for (let i = 0; i < 100; i++) {
-      expectedLines.push(`d d${String(i).padStart(3, "0")}`);
+      expectedLines.push(`d big/d${String(i).padStart(3, "0")}`);
     }
     for (let i = 0; i < 100; i++) {
-      expectedLines.push(`f f${String(i).padStart(3, "0")}`);
+      expectedLines.push(`f big/f${String(i).padStart(3, "0")}`);
     }
     expectedLines.push("…(more entries)");
     expect(res.output).toBe(expectedLines.join("\n"));
@@ -367,7 +367,7 @@ describe("browser-read-tools contracts", () => {
     const tools = makeBrowserReadTools({ fs });
 
     const listRes = await tools.execute({ id: "1", name: "list_dir", args: { path: "notes" } }, {});
-    expect(listRes.output).toBe("f hello.md");
+    expect(listRes.output).toBe("f notes/hello.md");
     expect(listRes.isError).toBe(undefined);
 
     const notFoundRes = await tools.execute({ id: "2", name: "read_file", args: { path: "notes/nope.md" } }, {});
@@ -465,10 +465,10 @@ describe("browser-read-tools contracts", () => {
     const r200 = await tools.execute({ id: "3", name: "list_dir", args: { path: "folder200" } }, {});
     const expected200Lines: string[] = [];
     for (let i = 0; i < 100; i++) {
-      expected200Lines.push(`d d${String(i).padStart(3, "0")}`);
+      expected200Lines.push(`d folder200/d${String(i).padStart(3, "0")}`);
     }
     for (let i = 0; i < 100; i++) {
-      expected200Lines.push(`f f${String(i).padStart(3, "0")}`);
+      expected200Lines.push(`f folder200/f${String(i).padStart(3, "0")}`);
     }
     expect(r200.output).toBe(expected200Lines.join("\n"));
     expect(r200.isError).toBe(undefined);
@@ -500,7 +500,8 @@ describe("browser-read-tools contracts", () => {
     expect(specs).toEqual([
       {
         name: "list_dir",
-        description: "List files and folders at a path in the user's ADK workspace.",
+        description:
+          "List files and folders at a path in the user's ADK workspace. Each line is \"d <path>\" for a folder or \"f <path>\" for a file, where <path> is the full path from the workspace root. Pass that path unchanged to read_file or list_dir.",
         tier: "none",
         parameters: {
           type: "object",
@@ -516,7 +517,8 @@ describe("browser-read-tools contracts", () => {
       },
       {
         name: "read_file",
-        description: "Read a text file in the user's ADK workspace.",
+        description:
+          "Read a text file in the user's ADK workspace. Use the full path from the workspace root, exactly as list_dir shows it.",
         tier: "none",
         parameters: {
           type: "object",
@@ -531,6 +533,96 @@ describe("browser-read-tools contracts", () => {
         },
       },
     ]);
+  });
+
+  it("WO13C-A2 nested-full-path", async () => {
+    const fs = new FakeBrowserReadFs();
+    fs.addDir(".agents/context/sub");
+    fs.addFile(".agents/context/rule.md", "content");
+    const tools = makeBrowserReadTools({ fs });
+
+    const res = await tools.execute(
+      { id: "1", name: "list_dir", args: { path: ".agents/context" } },
+      {},
+    );
+    expect(res.isError).toBe(undefined);
+    expect(res.output).toBe("f .agents/context/rule.md\nd .agents/context/sub");
+  });
+
+  it("WO13C-A3 trailing-slash", async () => {
+    const fs = new FakeBrowserReadFs();
+    fs.addDir(".agents/context/sub");
+    fs.addFile(".agents/context/rule.md", "content");
+    const tools = makeBrowserReadTools({ fs });
+
+    const resTrailing = await tools.execute(
+      { id: "1", name: "list_dir", args: { path: ".agents/context/" } },
+      {},
+    );
+    expect(resTrailing.isError).toBe(undefined);
+    expect(resTrailing.output).toBe("f .agents/context/rule.md\nd .agents/context/sub");
+
+    const resDotSlash = await tools.execute(
+      { id: "2", name: "list_dir", args: { path: "./.agents/context" } },
+      {},
+    );
+    expect(resDotSlash.isError).toBe(undefined);
+    expect(resDotSlash.output).toBe("f .agents/context/rule.md\nd .agents/context/sub");
+  });
+
+  it("WO13C-A4 root-unchanged", async () => {
+    const fs = createDefaultFs();
+    const tools = makeBrowserReadTools({ fs });
+
+    const resEmpty = await tools.execute(
+      { id: "1", name: "list_dir", args: { path: "" } },
+      {},
+    );
+    expect(resEmpty.isError).toBe(undefined);
+    expect(resEmpty.output).toBe("d .agents\nf AGENTS.md\nd empty\nd notes");
+
+    const resDot = await tools.execute(
+      { id: "2", name: "list_dir", args: { path: "." } },
+      {},
+    );
+    expect(resDot.isError).toBe(undefined);
+    expect(resDot.output).toBe("d .agents\nf AGENTS.md\nd empty\nd notes");
+  });
+
+  it("WO13C-A5 path-roundtrip", async () => {
+    const fs = createDefaultFs();
+    const tools = makeBrowserReadTools({ fs });
+
+    const listRes = await tools.execute(
+      { id: "1", name: "list_dir", args: { path: "notes" } },
+      {},
+    );
+    expect(listRes.isError).toBe(undefined);
+    expect(listRes.output).toBe("f notes/hello.md");
+
+    const readPath = listRes.output.replace(/^f /, "").trim();
+    const readRes = await tools.execute(
+      { id: "2", name: "read_file", args: { path: readPath } },
+      {},
+    );
+    expect(readRes.isError).toBe(undefined);
+    expect(readRes.output).toBe("hello world");
+  });
+
+  it("WO13C-A6 descriptions", () => {
+    const fs = createDefaultFs();
+    const tools = makeBrowserReadTools({ fs });
+    const specs = tools.specs();
+
+    const listDirSpec = specs.find((s) => s.name === "list_dir");
+    expect(listDirSpec?.description).toBe(
+      "List files and folders at a path in the user's ADK workspace. Each line is \"d <path>\" for a folder or \"f <path>\" for a file, where <path> is the full path from the workspace root. Pass that path unchanged to read_file or list_dir.",
+    );
+
+    const readFileSpec = specs.find((s) => s.name === "read_file");
+    expect(readFileSpec?.description).toBe(
+      "Read a text file in the user's ADK workspace. Use the full path from the workspace root, exactly as list_dir shows it.",
+    );
   });
 });
 

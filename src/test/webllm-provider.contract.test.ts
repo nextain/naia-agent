@@ -1172,7 +1172,9 @@ ${JSON.stringify({ type: "function", function: { name: toolRF.name, description:
 For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:
 <tool_call>
 {"name": <function-name>, "arguments": <args-json-object>}
-</tool_call>`;
+</tool_call>
+
+Always reply in the same language as the user's latest message, even when the files or tool results you read are in another language.`;
 
     const chunks1: ProviderChunk[] = [];
     for await (const c of provider.chat(defaultConfig, [{ role: "system", content: "SYS" }, { role: "user", content: "1" }], {
@@ -1201,7 +1203,9 @@ ${JSON.stringify({ type: "function", function: { name: toolLD.name, description:
 For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:
 <tool_call>
 {"name": <function-name>, "arguments": <args-json-object>}
-</tool_call>`;
+</tool_call>
+
+Always reply in the same language as the user's latest message, even when the files or tool results you read are in another language.`;
 
     const chunks2: ProviderChunk[] = [];
     for await (const c of provider.chat(defaultConfig, [{ role: "system", content: "SYS" }, { role: "user", content: "2" }], {
@@ -1999,7 +2003,9 @@ ${JSON.stringify({ type: "function", function: { name: t2.name, description: t2.
 For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:
 <tool_call>
 {"name": <function-name>, "arguments": <args-json-object>}
-</tool_call>`;
+</tool_call>
+
+Always reply in the same language as the user's latest message, even when the files or tool results you read are in another language.`;
 
     expect(requests[0]?.messages[0]).toEqual({
       role: "system",
@@ -2086,6 +2092,46 @@ For each function call, return a json object with function name and arguments wi
       { kind: "text", text: "ok" },
       { kind: "finish" },
     ]);
+  });
+
+  it("WO13C-A1 tools-prompt-language", async () => {
+    // 1. 도구가 있는 요청: 첫 system 메시지가 1-1 문장으로 끝남
+    const { engine: engine1, requests: reqs1 } = makeEngineWithChunks([{ content: "ok" }]);
+    const provider1 = makeWebLLMProvider({
+      getEngine: async () => engine1,
+      model: "m",
+      toolNames: ["list_dir", "read_file"],
+    });
+    for await (const _ of provider1.chat(defaultConfig, [{ role: "user", content: "안녕" }], {
+      tools: [{ name: "read_file", description: "rf", parameters: {} }],
+    })) {}
+    const sys1 = reqs1[0]?.messages.find((m) => m.role === "system")?.content;
+    expect(sys1).toBeDefined();
+    expect(
+      sys1?.endsWith(
+        "Always reply in the same language as the user's latest message, even when the files or tool results you read are in another language.",
+      ),
+    ).toBe(true);
+
+    // 2. 도구가 없는 요청: system 메시지에 그 문장이 없음
+    const { engine: engine2, requests: reqs2 } = makeEngineWithChunks([{ content: "ok" }]);
+    const provider2 = makeWebLLMProvider({
+      getEngine: async () => engine2,
+      model: "m",
+      toolNames: ["list_dir", "read_file"],
+    });
+    for await (const _ of provider2.chat(
+      defaultConfig,
+      [{ role: "system", content: "당신은 도우미입니다." }, { role: "user", content: "안녕" }],
+      {},
+    )) {}
+    const sys2 = reqs2[0]?.messages.find((m) => m.role === "system")?.content;
+    expect(sys2).toBeDefined();
+    expect(
+      sys2?.includes(
+        "Always reply in the same language as the user's latest message, even when the files or tool results you read are in another language.",
+      ),
+    ).toBe(false);
   });
 });
 
