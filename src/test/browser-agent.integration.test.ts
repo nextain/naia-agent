@@ -880,4 +880,120 @@ describe("browser-agent 워크스페이스 포트 (FE-16)", () => {
 
     agent.stop();
   });
+
+  it("WO13D-I1 history-without-think 가짜 엔진 1회차 tool_call 생각 블록과 2회차 답 생각 블록이 히스토리 및 셸 이벤트에 누출되지 않음", async () => {
+    let engineCallCount = 0;
+    const engineRequests: WebLLMChatRequest[] = [];
+
+    const fakeEngine: WebLLMEngineLike = {
+      chat: {
+        completions: {
+          create: async (req) => {
+            engineCallCount++;
+            engineRequests.push(req);
+            return (async function* () {
+              if (engineCallCount === 1) {
+                yield {
+                  choices: [
+                    {
+                      delta: {
+                        content:
+                          '<think>\n\n</think>\n\n<tool_call>\n{"name":"read_file","arguments":{"path":"AGENTS.md"}}\n</tool_call>',
+                      },
+                      finish_reason: null,
+                    },
+                  ],
+                };
+              } else {
+                yield {
+                  choices: [
+                    {
+                      delta: {
+                        content: "<think>\n\n</think>\n\n답",
+                      },
+                      finish_reason: null,
+                    },
+                  ],
+                };
+              }
+            })();
+          },
+        },
+      },
+      interruptGenerate() {},
+    };
+
+    const fakeFs: BrowserReadFs = {
+      async stat(segments) {
+        if (segments.length === 1 && segments[0] === "AGENTS.md") {
+          return { kind: "file", size: 10 };
+        }
+        return null;
+      },
+      async list() {
+        return [{ name: "AGENTS.md", kind: "file" }];
+      },
+      async readText(segments) {
+        if (segments.length === 1 && segments[0] === "AGENTS.md") {
+          return "file content";
+        }
+        throw new Error("not found");
+      },
+    };
+
+    const provider = makeWebLLMProvider({
+      getEngine: async () => fakeEngine,
+      model: "test-model",
+      toolNames: BROWSER_READ_TOOL_NAMES,
+    });
+
+    const toolExecutor = makeBrowserReadTools({ fs: fakeFs });
+
+    const agent = startBrowserAgent({
+      port: port1,
+      provider,
+      toolExecutor,
+      diag: { log: () => {}, debug: () => {} },
+    });
+
+    port2.postMessage(
+      JSON.stringify({
+        type: "chat_request",
+        requestId: "wo13d-req",
+        provider: { provider: "webllm", model: "test-model" },
+        enableTools: true,
+        messages: [{ role: "user", content: "AGENTS.md 읽어줘" }],
+      }),
+    );
+
+    await waitFor(
+      () => lines.some((l) => parseLine(l)?.requestId === "wo13d-req" && parseLine(l)?.type === "finish"),
+      3000,
+      "wo13d-req finish",
+    );
+
+    expect(engineRequests.length).toBe(2);
+
+    // 2회차 엔진 입력의 모든 메시지 content에 <think>와 </think>가 없다
+    const secondReqMessages = engineRequests[1]!.messages;
+    for (const m of secondReqMessages) {
+      expect(m.content).not.toContain("<think>");
+      expect(m.content).not.toContain("</think>");
+    }
+
+    // 셸로 나간 이벤트에도 그 글자가 없다
+    for (const l of lines) {
+      expect(l).not.toContain("<think>");
+      expect(l).not.toContain("</think>");
+    }
+
+    const outTexts = lines
+      .map(parseLine)
+      .filter((m) => m?.requestId === "wo13d-req" && m?.type === "text")
+      .map((m) => String(m?.text ?? ""))
+      .join("");
+    expect(outTexts).toContain("답");
+
+    agent.stop();
+  });
 });

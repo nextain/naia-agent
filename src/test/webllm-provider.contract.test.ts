@@ -1096,6 +1096,21 @@ function mergeNeighboringTexts(chunks: readonly ProviderChunk[]): ProviderChunk[
   return result;
 }
 
+function mergeSameKindChunks(chunks: readonly ProviderChunk[]): ProviderChunk[] {
+  const result: ProviderChunk[] = [];
+  for (const chunk of chunks) {
+    const last = result[result.length - 1];
+    if (chunk.kind === "text" && last && last.kind === "text") {
+      result[result.length - 1] = { kind: "text", text: last.text + chunk.text };
+    } else if (chunk.kind === "thinking" && last && last.kind === "thinking") {
+      result[result.length - 1] = { kind: "thinking", text: last.text + chunk.text };
+    } else {
+      result.push(chunk);
+    }
+  }
+  return result;
+}
+
 function makeEngineWithChunks(chunks: Array<{ content?: string; usage?: { prompt_tokens: number; completion_tokens: number }; finish_reason?: string | null }>): {
   engine: WebLLMEngineLike;
   requests: WebLLMChatRequest[];
@@ -1253,7 +1268,7 @@ Always reply in the same language as the user's latest message, even when the fi
     }
 
     expect(mergeNeighboringTexts(chunks)).toEqual([
-      { kind: "text", text: "<think>\n\n</think>\n\n앞말 " },
+      { kind: "text", text: "\n\n앞말 " },
       { kind: "toolUse", id: "webllm-call-1-0", name: "read_file", args: { path: "AGENTS.md" } },
       { kind: "finish" },
     ]);
@@ -1276,7 +1291,7 @@ Always reply in the same language as the user's latest message, even when the fi
     }
 
     expect(mergeNeighboringTexts(chunks)).toEqual([
-      { kind: "text", text: "<think>\n\n</think>\n\n앞말 " },
+      { kind: "text", text: "\n\n앞말 " },
       { kind: "toolUse", id: "webllm-call-1-0", name: "read_file", args: { path: "AGENTS.md" } },
       { kind: "finish" },
     ]);
@@ -1299,7 +1314,8 @@ Always reply in the same language as the user's latest message, even when the fi
     }
 
     expect(mergeNeighboringTexts(chunks)).toEqual([
-      { kind: "text", text },
+      { kind: "thinking", text: '<tool_call>{"name":"read_file","arguments":{"path":"AGENTS.md"}}</tool_call>' },
+      { kind: "text", text: "답" },
       { kind: "finish" },
     ]);
   });
@@ -1737,7 +1753,8 @@ Always reply in the same language as the user's latest message, even when the fi
         chunks.push(c);
       }
       expect(mergeNeighboringTexts(chunks)).toEqual([
-        { kind: "text", text: "앞말 <think>생각" },
+        { kind: "text", text: "앞말 " },
+        { kind: "thinking", text: "생각" },
         { kind: "finish" },
       ]);
     }
@@ -1970,7 +1987,8 @@ Always reply in the same language as the user's latest message, even when the fi
     }
 
     expect(mergeNeighboringTexts(chunks)).toEqual([
-      { kind: "text", text: '<think><tool_call>\n{"name":"list_dir","arguments":{"path":"notes"}}\n</think>그다음 ' },
+      { kind: "thinking", text: '<tool_call>\n{"name":"list_dir","arguments":{"path":"notes"}}\n' },
+      { kind: "text", text: "그다음 " },
       { kind: "toolUse", id: "webllm-call-1-0", name: "read_file", args: { path: "AGENTS.md" } },
       { kind: "finish" },
     ]);
@@ -2132,6 +2150,301 @@ Always reply in the same language as the user's latest message, even when the fi
         "Always reply in the same language as the user's latest message, even when the files or tool results you read are in another language.",
       ),
     ).toBe(false);
+  });
+
+  it("WO13D-K1 empty-think-dropped", async () => {
+    const { engine } = makeEngineWithChunks([{ content: "<think>\n\n</think>\n\n답" }]);
+    const provider = makeWebLLMProvider({
+      getEngine: async () => engine,
+      model: "m",
+      toolNames: ["read_file"],
+    });
+
+    const chunks: ProviderChunk[] = [];
+    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+      tools: [{ name: "read_file", description: "rf", parameters: {} }],
+    })) {
+      chunks.push(c);
+    }
+
+    expect(mergeSameKindChunks(chunks)).toEqual([
+      { kind: "text", text: "\n\n답" },
+      { kind: "finish" },
+    ]);
+    for (const c of chunks) {
+      if (c.kind === "text" || c.kind === "thinking") {
+        expect(c.text).not.toContain("<think>");
+        expect(c.text).not.toContain("</think>");
+      }
+    }
+  });
+
+  it("WO13D-K2 think-to-thinking", async () => {
+    const { engine } = makeEngineWithChunks([{ content: "<think>생각</think>답" }]);
+    const provider = makeWebLLMProvider({
+      getEngine: async () => engine,
+      model: "m",
+      toolNames: ["read_file"],
+    });
+
+    const chunks: ProviderChunk[] = [];
+    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+      tools: [{ name: "read_file", description: "rf", parameters: {} }],
+    })) {
+      chunks.push(c);
+    }
+
+    expect(mergeSameKindChunks(chunks)).toEqual([
+      { kind: "thinking", text: "생각" },
+      { kind: "text", text: "답" },
+      { kind: "finish" },
+    ]);
+  });
+
+  const K3_BASE = "<think>\n생각\n</think>\n\n앞말 <tool_call>\n{\"name\":\"read_file\",\"arguments\":{\"path\":\"AGENTS.md\"}}\n</tool_call>";
+  const K3_SPLIT_CASES: Array<[number, string, string]> = [];
+  for (let i = 1; i < K3_BASE.length; i++) {
+    K3_SPLIT_CASES.push([i, K3_BASE.slice(0, i), K3_BASE.slice(i)]);
+  }
+
+  it.each(K3_SPLIT_CASES)("WO13D-K3 split@%s", async (_idx, p1, p2) => {
+    const { engine } = makeEngineWithChunks([{ content: p1 }, { content: p2 }]);
+    const provider = makeWebLLMProvider({
+      getEngine: async () => engine,
+      model: "m",
+      toolNames: ["read_file"],
+    });
+
+    const chunks: ProviderChunk[] = [];
+    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+      tools: [{ name: "read_file", description: "rf", parameters: {} }],
+    })) {
+      chunks.push(c);
+    }
+
+    expect(mergeSameKindChunks(chunks)).toEqual([
+      { kind: "thinking", text: "\n생각\n" },
+      { kind: "text", text: "\n\n앞말 " },
+      { kind: "toolUse", id: "webllm-call-1-0", name: "read_file", args: { path: "AGENTS.md" } },
+      { kind: "finish" },
+    ]);
+  });
+
+  it("WO13D-K4 whitespace-then-text-in-think", async () => {
+    const { engine } = makeEngineWithChunks([
+      { content: "<think>\n\n" },
+      { content: "  생각" },
+      { content: "</think>답" },
+    ]);
+    const provider = makeWebLLMProvider({
+      getEngine: async () => engine,
+      model: "m",
+      toolNames: ["read_file"],
+    });
+
+    const chunks: ProviderChunk[] = [];
+    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+      tools: [{ name: "read_file", description: "rf", parameters: {} }],
+    })) {
+      chunks.push(c);
+    }
+
+    expect(mergeSameKindChunks(chunks)).toEqual([
+      { kind: "thinking", text: "\n\n  생각" },
+      { kind: "text", text: "답" },
+      { kind: "finish" },
+    ]);
+  });
+
+  it("WO13D-K5 no-tools-path", async () => {
+    // 1. <think>\n\n</think>\n\n답
+    {
+      const { engine } = makeEngineWithChunks([{ content: "<think>\n\n</think>\n\n답" }]);
+      const provider = makeWebLLMProvider({ getEngine: async () => engine, model: "m" });
+      const chunks: ProviderChunk[] = [];
+      for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {})) {
+        chunks.push(c);
+      }
+      expect(mergeSameKindChunks(chunks)).toEqual([
+        { kind: "text", text: "\n\n답" },
+        { kind: "finish" },
+      ]);
+    }
+
+    // 2. <think>생각</think>답
+    {
+      const { engine } = makeEngineWithChunks([{ content: "<think>생각</think>답" }]);
+      const provider = makeWebLLMProvider({ getEngine: async () => engine, model: "m" });
+      const chunks: ProviderChunk[] = [];
+      for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {})) {
+        chunks.push(c);
+      }
+      expect(mergeSameKindChunks(chunks)).toEqual([
+        { kind: "thinking", text: "생각" },
+        { kind: "text", text: "답" },
+        { kind: "finish" },
+      ]);
+    }
+  });
+
+  it("WO13D-K6 stray-tags", async () => {
+    const { engine } = makeEngineWithChunks([{ content: "<think>가<think>나</think>다</think>라" }]);
+    const provider = makeWebLLMProvider({
+      getEngine: async () => engine,
+      model: "m",
+      toolNames: ["read_file"],
+    });
+
+    const chunks: ProviderChunk[] = [];
+    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+      tools: [{ name: "read_file", description: "rf", parameters: {} }],
+    })) {
+      chunks.push(c);
+    }
+
+    expect(mergeSameKindChunks(chunks)).toEqual([
+      { kind: "thinking", text: "가나" },
+      { kind: "text", text: "다라" },
+      { kind: "finish" },
+    ]);
+  });
+
+  it("WO13D-K7 unclosed-at-eof", async () => {
+    // 1. 도구 있음: 앞<think>생각
+    {
+      const { engine } = makeEngineWithChunks([{ content: "앞<think>생각" }]);
+      const provider = makeWebLLMProvider({ getEngine: async () => engine, model: "m", toolNames: ["read_file"] });
+      const chunks: ProviderChunk[] = [];
+      for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+        tools: [{ name: "read_file", description: "rf", parameters: {} }],
+      })) {
+        chunks.push(c);
+      }
+      expect(mergeSameKindChunks(chunks)).toEqual([
+        { kind: "text", text: "앞" },
+        { kind: "thinking", text: "생각" },
+        { kind: "finish" },
+      ]);
+    }
+
+    // 2. 도구 있음: 앞<think>  
+    {
+      const { engine } = makeEngineWithChunks([{ content: "앞<think>  " }]);
+      const provider = makeWebLLMProvider({ getEngine: async () => engine, model: "m", toolNames: ["read_file"] });
+      const chunks: ProviderChunk[] = [];
+      for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+        tools: [{ name: "read_file", description: "rf", parameters: {} }],
+      })) {
+        chunks.push(c);
+      }
+      expect(mergeSameKindChunks(chunks)).toEqual([
+        { kind: "text", text: "앞" },
+        { kind: "finish" },
+      ]);
+    }
+
+    // 3. 도구 없음: 앞<think>생각
+    {
+      const { engine } = makeEngineWithChunks([{ content: "앞<think>생각" }]);
+      const provider = makeWebLLMProvider({ getEngine: async () => engine, model: "m" });
+      const chunks: ProviderChunk[] = [];
+      for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {})) {
+        chunks.push(c);
+      }
+      expect(mergeSameKindChunks(chunks)).toEqual([
+        { kind: "text", text: "앞" },
+        { kind: "thinking", text: "생각" },
+        { kind: "finish" },
+      ]);
+    }
+
+    // 4. 도구 없음: 앞<think>  
+    {
+      const { engine } = makeEngineWithChunks([{ content: "앞<think>  " }]);
+      const provider = makeWebLLMProvider({ getEngine: async () => engine, model: "m" });
+      const chunks: ProviderChunk[] = [];
+      for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {})) {
+        chunks.push(c);
+      }
+      expect(mergeSameKindChunks(chunks)).toEqual([
+        { kind: "text", text: "앞" },
+        { kind: "finish" },
+      ]);
+    }
+  });
+
+  it("WO13D-K8 bracket-tag-untouched", async () => {
+    const { engine } = makeEngineWithChunks([{ content: "[THINK]\n답" }]);
+    const provider = makeWebLLMProvider({
+      getEngine: async () => engine,
+      model: "m",
+      toolNames: ["read_file"],
+    });
+
+    const chunks: ProviderChunk[] = [];
+    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+      tools: [{ name: "read_file", description: "rf", parameters: {} }],
+    })) {
+      chunks.push(c);
+    }
+
+    expect(mergeSameKindChunks(chunks)).toEqual([
+      { kind: "text", text: "[THINK]\n답" },
+      { kind: "finish" },
+    ]);
+  });
+
+  const K9_BASE = "<think>\n생각\n</think>\n\n답";
+  const K9_SPLIT_CASES: Array<[number, string, string]> = [];
+  for (let i = 1; i < K9_BASE.length; i++) {
+    K9_SPLIT_CASES.push([i, K9_BASE.slice(0, i), K9_BASE.slice(i)]);
+  }
+
+  it.each(K9_SPLIT_CASES)("WO13D-K9 split@%s", async (_idx, p1, p2) => {
+    const { engine } = makeEngineWithChunks([{ content: p1 }, { content: p2 }]);
+    const provider = makeWebLLMProvider({
+      getEngine: async () => engine,
+      model: "m",
+    });
+
+    const chunks: ProviderChunk[] = [];
+    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {})) {
+      chunks.push(c);
+    }
+
+    expect(mergeSameKindChunks(chunks)).toEqual([
+      { kind: "thinking", text: "\n생각\n" },
+      { kind: "text", text: "\n\n답" },
+      { kind: "finish" },
+    ]);
+  });
+
+  it("WO13D-K10 parse-fail-fallback", async () => {
+    const { engine } = makeEngineWithChunks([{ content: "<tool_call>bad</tool_call><think>x</think>" }]);
+    const provider = makeWebLLMProvider({
+      getEngine: async () => engine,
+      model: "m",
+      toolNames: ["read_file"],
+    });
+
+    const chunks: ProviderChunk[] = [];
+    for await (const c of provider.chat(defaultConfig, [{ role: "user", content: "hi" }], {
+      tools: [{ name: "read_file", description: "rf", parameters: {} }],
+    })) {
+      chunks.push(c);
+    }
+
+    expect(mergeSameKindChunks(chunks)).toEqual([
+      { kind: "text", text: "<tool_call>bad</tool_call>" },
+      { kind: "thinking", text: "x" },
+      { kind: "finish" },
+    ]);
+    for (const c of chunks) {
+      if (c.kind === "text" || c.kind === "thinking") {
+        expect(c.text).not.toContain("<think>");
+        expect(c.text).not.toContain("</think>");
+      }
+    }
   });
 });
 

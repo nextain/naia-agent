@@ -197,6 +197,158 @@ function parseCapturedCalls(
   return { success: true, calls };
 }
 
+interface WebLLMStreamParserOptions {
+  readonly withTools: boolean;
+}
+
+class WebLLMStreamParser {
+  private readonly withTools: boolean;
+  public capturing = false;
+  public heldContent = "";
+  private inThinking = false;
+  private thinkEmitted = false;
+  private thinkWhitespaceBuffer = "";
+  private pendingBuffer = "";
+
+  constructor(options: WebLLMStreamParserOptions) {
+    this.withTools = options.withTools;
+  }
+
+  private *emitThinking(text: string): Generator<ProviderChunk> {
+    if (text.length === 0) return;
+    if (this.thinkEmitted) {
+      yield { kind: "thinking", text };
+    } else {
+      const combined = this.thinkWhitespaceBuffer + text;
+      if (!/^\s*$/.test(combined)) {
+        yield { kind: "thinking", text: combined };
+        this.thinkWhitespaceBuffer = "";
+        this.thinkEmitted = true;
+      } else {
+        this.thinkWhitespaceBuffer = combined;
+      }
+    }
+  }
+
+  *feed(delta: string): Generator<ProviderChunk> {
+    if (this.capturing) {
+      this.heldContent += delta;
+      return;
+    }
+
+    this.pendingBuffer += delta;
+
+    while (this.pendingBuffer.length > 0) {
+      if (!this.inThinking) {
+        const idxTool = this.withTools ? this.pendingBuffer.indexOf("<tool_call>") : -1;
+        const idxThink = this.pendingBuffer.indexOf("<think>");
+        const idxCloseThink = this.pendingBuffer.indexOf("</think>");
+
+        const candidates = [
+          { type: "tool_call" as const, pos: idxTool, len: 11 },
+          { type: "think" as const, pos: idxThink, len: 7 },
+          { type: "close_think" as const, pos: idxCloseThink, len: 8 },
+        ]
+          .filter((c) => c.pos !== -1)
+          .sort((a, b) => a.pos - b.pos);
+
+        if (candidates.length > 0) {
+          const first = candidates[0]!;
+          if (first.pos > 0) {
+            yield { kind: "text", text: this.pendingBuffer.slice(0, first.pos) };
+          }
+          if (first.type === "tool_call") {
+            this.capturing = true;
+            this.heldContent = this.pendingBuffer.slice(first.pos);
+            this.pendingBuffer = "";
+            return;
+          } else if (first.type === "think") {
+            this.inThinking = true;
+            this.thinkEmitted = false;
+            this.thinkWhitespaceBuffer = "";
+            this.pendingBuffer = this.pendingBuffer.slice(first.pos + first.len);
+            continue;
+          } else if (first.type === "close_think") {
+            this.pendingBuffer = this.pendingBuffer.slice(first.pos + first.len);
+            continue;
+          }
+        }
+
+        const partialIdx = findTrailingPartialTag(this.pendingBuffer);
+        if (partialIdx !== -1) {
+          if (partialIdx > 0) {
+            yield { kind: "text", text: this.pendingBuffer.slice(0, partialIdx) };
+            this.pendingBuffer = this.pendingBuffer.slice(partialIdx);
+          }
+          return;
+        } else {
+          yield { kind: "text", text: this.pendingBuffer };
+          this.pendingBuffer = "";
+          return;
+        }
+      } else {
+        const idxCloseThink = this.pendingBuffer.indexOf("</think>");
+        const idxThink = this.pendingBuffer.indexOf("<think>");
+
+        const candidates = [
+          { type: "close_think" as const, pos: idxCloseThink, len: 8 },
+          { type: "think" as const, pos: idxThink, len: 7 },
+        ]
+          .filter((c) => c.pos !== -1)
+          .sort((a, b) => a.pos - b.pos);
+
+        if (candidates.length > 0) {
+          const first = candidates[0]!;
+          if (first.pos > 0) {
+            yield* this.emitThinking(this.pendingBuffer.slice(0, first.pos));
+          }
+          if (first.type === "close_think") {
+            this.inThinking = false;
+            this.thinkEmitted = false;
+            this.thinkWhitespaceBuffer = "";
+            this.pendingBuffer = this.pendingBuffer.slice(first.pos + first.len);
+            continue;
+          } else if (first.type === "think") {
+            this.pendingBuffer = this.pendingBuffer.slice(first.pos + first.len);
+            continue;
+          }
+        }
+
+        const partialIdx = findTrailingPartialTag(this.pendingBuffer);
+        if (partialIdx !== -1) {
+          if (partialIdx > 0) {
+            yield* this.emitThinking(this.pendingBuffer.slice(0, partialIdx));
+            this.pendingBuffer = this.pendingBuffer.slice(partialIdx);
+          }
+          return;
+        } else {
+          yield* this.emitThinking(this.pendingBuffer);
+          this.pendingBuffer = "";
+          return;
+        }
+      }
+    }
+  }
+
+  *flush(): Generator<ProviderChunk> {
+    if (this.pendingBuffer.length > 0) {
+      if (this.inThinking) {
+        yield* this.emitThinking(this.pendingBuffer);
+      } else {
+        yield { kind: "text", text: this.pendingBuffer };
+      }
+      this.pendingBuffer = "";
+    }
+    this.thinkWhitespaceBuffer = "";
+  }
+}
+
+function* parseThinkingBlocks(content: string): Generator<ProviderChunk> {
+  const parser = new WebLLMStreamParser({ withTools: false });
+  yield* parser.feed(content);
+  yield* parser.flush();
+}
+
 export function makeWebLLMProvider(deps: {
   getEngine: () => Promise<WebLLMEngineLike>;
   model: string;
@@ -529,113 +681,8 @@ Always reply in the same language as the user's latest message, even when the fi
         }
       }
 
-      let inThinking = false;
-      let capturing = false;
-      let pendingBuffer = "";
-      let heldContent = "";
       const allowedToolNames = activeTools.map((t) => t.name);
-
-      function* feedDelta(delta: string): Generator<ProviderChunk> {
-        if (capturing) {
-          heldContent += delta;
-          return;
-        }
-
-        pendingBuffer += delta;
-
-        while (pendingBuffer.length > 0) {
-          if (!inThinking) {
-            const idxTool = pendingBuffer.indexOf("<tool_call>");
-            const idxThink = pendingBuffer.indexOf("<think>");
-            const idxCloseThink = pendingBuffer.indexOf("</think>");
-
-            const candidates = [
-              { type: "tool_call" as const, pos: idxTool },
-              { type: "think" as const, pos: idxThink },
-              { type: "close_think" as const, pos: idxCloseThink },
-            ]
-              .filter((c) => c.pos !== -1)
-              .sort((a, b) => a.pos - b.pos);
-
-            if (candidates.length > 0) {
-              const first = candidates[0]!;
-              if (first.type === "tool_call") {
-                if (first.pos > 0) {
-                  yield { kind: "text", text: pendingBuffer.slice(0, first.pos) };
-                }
-                capturing = true;
-                heldContent = pendingBuffer.slice(first.pos);
-                pendingBuffer = "";
-                return;
-              } else if (first.type === "think") {
-                const endPos = first.pos + 7;
-                yield { kind: "text", text: pendingBuffer.slice(0, endPos) };
-                inThinking = true;
-                pendingBuffer = pendingBuffer.slice(endPos);
-                continue;
-              } else if (first.type === "close_think") {
-                const endPos = first.pos + 8;
-                yield { kind: "text", text: pendingBuffer.slice(0, endPos) };
-                inThinking = false;
-                pendingBuffer = pendingBuffer.slice(endPos);
-                continue;
-              }
-            }
-
-            const partialIdx = findTrailingPartialTag(pendingBuffer);
-            if (partialIdx !== -1) {
-              if (partialIdx > 0) {
-                yield { kind: "text", text: pendingBuffer.slice(0, partialIdx) };
-                pendingBuffer = pendingBuffer.slice(partialIdx);
-              }
-              return;
-            } else {
-              yield { kind: "text", text: pendingBuffer };
-              pendingBuffer = "";
-              return;
-            }
-          } else {
-            const idxCloseThink = pendingBuffer.indexOf("</think>");
-            const idxThink = pendingBuffer.indexOf("<think>");
-
-            const candidates = [
-              { type: "close_think" as const, pos: idxCloseThink },
-              { type: "think" as const, pos: idxThink },
-            ]
-              .filter((c) => c.pos !== -1)
-              .sort((a, b) => a.pos - b.pos);
-
-            if (candidates.length > 0) {
-              const first = candidates[0]!;
-              if (first.type === "close_think") {
-                const endPos = first.pos + 8;
-                yield { kind: "text", text: pendingBuffer.slice(0, endPos) };
-                inThinking = false;
-                pendingBuffer = pendingBuffer.slice(endPos);
-                continue;
-              } else if (first.type === "think") {
-                const endPos = first.pos + 7;
-                yield { kind: "text", text: pendingBuffer.slice(0, endPos) };
-                pendingBuffer = pendingBuffer.slice(endPos);
-                continue;
-              }
-            }
-
-            const partialIdx = findTrailingPartialTag(pendingBuffer);
-            if (partialIdx !== -1) {
-              if (partialIdx > 0) {
-                yield { kind: "text", text: pendingBuffer.slice(0, partialIdx) };
-                pendingBuffer = pendingBuffer.slice(partialIdx);
-              }
-              return;
-            } else {
-              yield { kind: "text", text: pendingBuffer };
-              pendingBuffer = "";
-              return;
-            }
-          }
-        }
-      }
+      const parser = new WebLLMStreamParser({ withTools: activeTools.length > 0 });
 
       let normalDone = false;
       try {
@@ -679,20 +726,18 @@ Always reply in the same language as the user's latest message, even when the fi
               return;
             }
 
-            if (activeTools.length === 0) {
-              yield { kind: "finish" };
-              return;
-            }
-
-            if (!capturing) {
-              if (pendingBuffer.length > 0) {
-                yield { kind: "text", text: pendingBuffer };
+            if (!parser.capturing) {
+              for (const chunk of parser.flush()) {
+                if (opts.signal?.aborted) {
+                  return;
+                }
+                yield chunk;
               }
               yield { kind: "finish" };
               return;
             }
 
-            const parsed = parseCapturedCalls(heldContent, allowedToolNames);
+            const parsed = parseCapturedCalls(parser.heldContent, allowedToolNames);
             if (parsed.success) {
               for (let bIdx = 0; bIdx < parsed.calls.length; bIdx++) {
                 const call = parsed.calls[bIdx]!;
@@ -704,7 +749,12 @@ Always reply in the same language as the user's latest message, even when the fi
                 };
               }
             } else {
-              yield { kind: "text", text: heldContent };
+              for (const chunk of parseThinkingBlocks(parser.heldContent)) {
+                if (opts.signal?.aborted) {
+                  return;
+                }
+                yield chunk;
+              }
             }
 
             yield { kind: "finish" };
@@ -714,20 +764,12 @@ Always reply in the same language as the user's latest message, even when the fi
           const choice = value.choices?.[0];
           const content = choice?.delta?.content;
           if (content !== undefined && content !== null && content !== "") {
-            if (activeTools.length === 0) {
+            for (const chunk of parser.feed(content)) {
               if (opts.signal?.aborted) {
                 callInterruptOnce();
                 return;
               }
-              yield { kind: "text", text: content };
-            } else {
-              for (const chunk of feedDelta(content)) {
-                if (opts.signal?.aborted) {
-                  callInterruptOnce();
-                  return;
-                }
-                yield chunk;
-              }
+              yield chunk;
             }
           }
 
