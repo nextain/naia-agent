@@ -101,9 +101,11 @@ describe("ChatTurnHandler persona 조립 (FR-PERSONA-3)", () => {
     expect(seen.systemPrompt).toBeUndefined(); // "" → undefined 정규화(generic)
   });
 
-  it("(d) 기존 fixture 그대로(B 경로): 최종 systemPrompt 에 호칭 줄 다음 문장 B 가 있고 A 는 없다", async () => {
+  it("(d) 기존 fixture 그대로(B 경로): 최종 systemPrompt 에 호칭 줄 다음 빈도 줄과 문장 B 가 있고 A 는 없다", async () => {
+    const FREQUENCY_LINE =
+      'Use this form only now and then: most replies should not contain it, and never use it in two consecutive replies.';
     const INSTRUCTION_A =
-      'Never address the user with any title or nickname, such as "친구", "친구야", "friend", "buddy", or "pal". If you know the user\'s name, use it; otherwise, speak directly without addressing them.';
+      'Never address the user with any title or nickname, such as "친구", "친구야", "friend", "buddy", or "pal". Speak directly without addressing them.';
     const INSTRUCTION_B =
       'Do not address the user with any other title or nickname, such as "친구", "친구야", "friend", "buddy", or "pal"; use only the form given above.';
 
@@ -113,13 +115,13 @@ describe("ChatTurnHandler persona 조립 (FR-PERSONA-3)", () => {
     expect(seen.systemPrompt).toBeDefined();
     const expectedHonorificLine = 'Address the user as "마스터 루크" or "루크마스터" as appropriate for Korean.';
     expect(seen.systemPrompt).toContain(expectedHonorificLine);
-    expect(seen.systemPrompt).toContain(`${expectedHonorificLine}\n${INSTRUCTION_B}`);
+    expect(seen.systemPrompt).toContain(`${expectedHonorificLine}\n${FREQUENCY_LINE}\n${INSTRUCTION_B}`);
     expect(seen.systemPrompt).not.toContain(INSTRUCTION_A);
   });
 
-  it("(e) honorific 을 뺀 프로필(A 경로): 최종 systemPrompt 에 문장 A 가 있고 B 는 없다", async () => {
+  it("(e) honorific 을 뺀 프로필(A 경로): 최종 systemPrompt 에 이름 있는 문장 A 가 있고 B 는 없다", async () => {
     const INSTRUCTION_A =
-      'Never address the user with any title or nickname, such as "친구", "친구야", "friend", "buddy", or "pal". If you know the user\'s name, use it; otherwise, speak directly without addressing them.';
+      'Never address the user with any title or nickname, such as "친구", "친구야", "friend", "buddy", or "pal". Apart from the occasional use of their name described above, speak directly without addressing them.';
     const INSTRUCTION_B =
       'Do not address the user with any other title or nickname, such as "친구", "친구야", "friend", "buddy", or "pal"; use only the form given above.';
 
