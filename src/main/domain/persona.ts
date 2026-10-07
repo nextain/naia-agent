@@ -141,9 +141,15 @@ export function composePersonaPrompt(profile: PersonaProfile): string {
     (!locale || FORMALITY_LOCALES.has(locale))
   ) {
     const lang = locale ? localeToLanguage(locale) : "the user's language";
-    contextLines.push(
-      `Address the user as "${profile.honorific} ${profile.userName || ""}" or "${profile.userName || ""}${profile.honorific}" as appropriate for ${lang}.`,
-    );
+    if (profile.userName) {
+      contextLines.push(
+        `Address the user as "${profile.honorific} ${profile.userName || ""}" or "${profile.userName || ""}${profile.honorific}" as appropriate for ${lang}.`,
+      );
+    } else {
+      contextLines.push(
+        `The user chose to be addressed as "${profile.honorific}". Use it alone only if it works as a standalone form of address in ${lang}; if it is a suffix that needs a name (such as "님", "씨", "さん", or "様"), do not address the user at all.`,
+      );
+    }
     contextLines.push(
       `Do not address the user with any other title or nickname, such as "친구", "친구야", "friend", "buddy", or "pal"; use only the form given above.`,
     );

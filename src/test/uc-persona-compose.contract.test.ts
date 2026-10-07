@@ -300,6 +300,17 @@ describe("#158 호칭 규칙", () => {
   const INSTRUCTION_B =
     'Do not address the user with any other title or nickname, such as "친구", "친구야", "friend", "buddy", or "pal"; use only the form given above.';
 
+  function extractHonorificInstructionLine(prompt: string): string | undefined {
+    return prompt
+      .split("\n")
+      .map((line) => line.trim())
+      .find(
+        (line) =>
+          line.startsWith("Address the user as") ||
+          line.startsWith("The user chose to be addressed as"),
+      );
+  }
+
   it("ko+casual, 호칭 없음: 출력에 문장 A 가 있고 문장 B 는 없다", () => {
     const out = composePersonaPrompt({
       systemPromptPrefix: "You are an AI companion. Speak casually and warmly.",
@@ -327,6 +338,7 @@ describe("#158 호칭 규칙", () => {
       honorific: "님",
     });
     const expectedHonorificLine = 'Address the user as "님 민수" or "민수님" as appropriate for Korean.';
+    expect(extractHonorificInstructionLine(out)).toBe(expectedHonorificLine);
     expect(out).toContain(expectedHonorificLine);
     expect(out).toContain(`${expectedHonorificLine}\n${INSTRUCTION_B}`);
     expect(out).not.toContain(INSTRUCTION_A);
@@ -366,15 +378,35 @@ describe("#158 호칭 규칙", () => {
     expect(out).not.toContain(INSTRUCTION_B);
   });
 
-  it("호칭만 있고 이름 없음(locale 'ko', 호칭 '님'): 호칭 줄 바로 다음 줄이 문장 B, 문장 A 없음", () => {
+  it("호칭만 있고 이름 없음(locale 'ko', 호칭 '님'): 새 문장과 문장 B 가 들어가고 '님 '와 'Address the user as' 없음", () => {
     const out = composePersonaPrompt({
       systemPromptPrefix: "You are an AI companion.",
       locale: "ko",
       honorific: "님",
     });
-    const expectedHonorificLine = 'Address the user as "님 " or "님" as appropriate for Korean.';
+    const expectedHonorificLine =
+      'The user chose to be addressed as "님". Use it alone only if it works as a standalone form of address in Korean; if it is a suffix that needs a name (such as "님", "씨", "さん", or "様"), do not address the user at all.';
+    expect(extractHonorificInstructionLine(out)).toBe(expectedHonorificLine);
     expect(out).toContain(expectedHonorificLine);
     expect(out).toContain(`${expectedHonorificLine}\n${INSTRUCTION_B}`);
+    expect(out).not.toContain('"님 "');
+    expect(out).not.toContain("Address the user as");
+    expect(out).not.toContain(INSTRUCTION_A);
+  });
+
+  it("호칭만 있고 이름 없음(locale 'ko', 호칭 '오빠'): 새 문장에 '오빠' 포함되고 문장 B 가 들어가며 'Address the user as' 없음", () => {
+    const out = composePersonaPrompt({
+      systemPromptPrefix: "You are an AI companion.",
+      locale: "ko",
+      honorific: "오빠",
+    });
+    const expectedHonorificLine =
+      'The user chose to be addressed as "오빠". Use it alone only if it works as a standalone form of address in Korean; if it is a suffix that needs a name (such as "님", "씨", "さん", or "様"), do not address the user at all.';
+    expect(extractHonorificInstructionLine(out)).toBe(expectedHonorificLine);
+    expect(out).toContain(expectedHonorificLine);
+    expect(out).toContain("오빠");
+    expect(out).toContain(`${expectedHonorificLine}\n${INSTRUCTION_B}`);
+    expect(out).not.toContain("Address the user as");
     expect(out).not.toContain(INSTRUCTION_A);
   });
 
