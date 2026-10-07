@@ -144,6 +144,13 @@ export function composePersonaPrompt(profile: PersonaProfile): string {
     contextLines.push(
       `Address the user as "${profile.honorific} ${profile.userName || ""}" or "${profile.userName || ""}${profile.honorific}" as appropriate for ${lang}.`,
     );
+    contextLines.push(
+      `Do not address the user with any other title or nickname, such as "친구", "친구야", "friend", "buddy", or "pal"; use only the form given above.`,
+    );
+  } else {
+    contextLines.push(
+      `Never address the user with any title or nickname, such as "친구", "친구야", "friend", "buddy", or "pal". If you know the user's name, use it; otherwise, speak directly without addressing them.`,
+    );
   }
 
   if (locale) {

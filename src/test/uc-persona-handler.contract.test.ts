@@ -100,4 +100,41 @@ describe("ChatTurnHandler persona 조립 (FR-PERSONA-3)", () => {
     await new ChatTurnHandler(deps).onChatRequest(req());
     expect(seen.systemPrompt).toBeUndefined(); // "" → undefined 정규화(generic)
   });
+
+  it("(d) 기존 fixture 그대로(B 경로): 최종 systemPrompt 에 호칭 줄 다음 문장 B 가 있고 A 는 없다", async () => {
+    const INSTRUCTION_A =
+      'Never address the user with any title or nickname, such as "친구", "친구야", "friend", "buddy", or "pal". If you know the user\'s name, use it; otherwise, speak directly without addressing them.';
+    const INSTRUCTION_B =
+      'Do not address the user with any other title or nickname, such as "친구", "친구야", "friend", "buddy", or "pal"; use only the form given above.';
+
+    const { provider, seen } = makeCapturingProvider();
+    const { deps } = makeDeps(provider, personaSourceOf(ALPHA_PROFILE));
+    await new ChatTurnHandler(deps).onChatRequest(req());
+    expect(seen.systemPrompt).toBeDefined();
+    const expectedHonorificLine = 'Address the user as "마스터 루크" or "루크마스터" as appropriate for Korean.';
+    expect(seen.systemPrompt).toContain(expectedHonorificLine);
+    expect(seen.systemPrompt).toContain(`${expectedHonorificLine}\n${INSTRUCTION_B}`);
+    expect(seen.systemPrompt).not.toContain(INSTRUCTION_A);
+  });
+
+  it("(e) honorific 을 뺀 프로필(A 경로): 최종 systemPrompt 에 문장 A 가 있고 B 는 없다", async () => {
+    const INSTRUCTION_A =
+      'Never address the user with any title or nickname, such as "친구", "친구야", "friend", "buddy", or "pal". If you know the user\'s name, use it; otherwise, speak directly without addressing them.';
+    const INSTRUCTION_B =
+      'Do not address the user with any other title or nickname, such as "친구", "친구야", "friend", "buddy", or "pal"; use only the form given above.';
+
+    const NO_HONORIFIC_PROFILE: PersonaProfile = {
+      agentName: "알파",
+      userName: "루크",
+      speechStyle: "casual",
+      locale: "ko",
+      systemPromptPrefix: ALPHA_PREFIX,
+    };
+    const { provider, seen } = makeCapturingProvider();
+    const { deps } = makeDeps(provider, personaSourceOf(NO_HONORIFIC_PROFILE));
+    await new ChatTurnHandler(deps).onChatRequest(req());
+    expect(seen.systemPrompt).toBeDefined();
+    expect(seen.systemPrompt).toContain(INSTRUCTION_A);
+    expect(seen.systemPrompt).not.toContain(INSTRUCTION_B);
+  });
 });
