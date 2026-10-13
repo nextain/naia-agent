@@ -1,0 +1,21 @@
+# 다른 기기·세션과 나누는 일의 실행 통로.
+# 제품 코드는 이 저장소에 둔다. 실행 큐는 nextain/naia-comm 이다.
+version: 1
+status: active
+updated_at: 2026-09-13
+
+rule: |
+  구현 이슈는 nextain/naia-agent 에 둔다. 다른 기기나 AI 세션에 일을 줄 때는
+  nextain/naia-comm 큐에 넣는다 (qa-cycle.mjs 마스터, qa-executor.mjs 기기당 하나).
+  GitHub 댓글과 디스코드는 실행 채널이 아니다.
+
+same_as_qa: "개발 실행자와 QA 실행자는 같은 구조다. 사람 채널만 다르다."
+human_notify:
+  development: "Naia 길드 개발-운영"
+  qa: "Naia 길드 QA 채널"
+
+acknowledgement: "naia-comm 에 PID·명령·시작 시각이 든 시작 영수증이 커밋된 것"
+not_ack: [issue_comment, discord_message, dm]
+contracts:
+  - "naia-comm .agents/context/collaboration.yaml"
+  - "naia-comm .agents/context/qa-master.yaml"

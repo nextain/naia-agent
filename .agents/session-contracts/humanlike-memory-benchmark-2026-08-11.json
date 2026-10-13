@@ -1,0 +1,100 @@
+{
+  "schema_version": "1.0",
+  "id": "humanlike-memory-benchmark-2026-08-11",
+  "status": "active",
+  "project_root": ".",
+  "goal": "Iteratively improve and evaluate the UC-HLMEM naia-memory integration benchmark, preserve reproducible evidence, and publish a benchmark report.",
+  "scope": [
+    "UC-HLMEM deterministic and live benchmark reproducibility",
+    "Baseline and post-change evaluation artifacts",
+    "Benchmark quality or measured memory performance improvements",
+    "Korean experiment report and stepwise commits"
+  ],
+  "non_goals": [
+    "No production deployment",
+    "No secret or personal-memory publication",
+    "No unrelated naia-agent changes",
+    "No perfect-recall claim"
+  ],
+  "success_criteria": [
+    "Existing required checks and deterministic baseline are recorded",
+    "Each experiment records configuration, raw-enough evidence, metrics, and interpretation",
+    "At least one justified benchmark or performance improvement is evaluated against a comparable baseline",
+    "Relevant tests pass and work is committed in reviewable stages",
+    "A Korean benchmark report states limitations and next experiments"
+  ],
+  "allowed_paths": [
+    "benchmark/run-humanlike-bench.mjs",
+    "benchmark/src/humanlike/**",
+    "benchmark/reports/humanlike/**",
+    "src/test/bench-humanlike.contract.test.ts",
+    "docs/progress/99.dev-comm/UC-HLMEM-humanlike-memory-benchmark-report-2026-08-11.md",
+    ".agents/progress/humanlike-memory-benchmark-2026-08-11.json"
+  ],
+  "target_ownership": [
+    "benchmark/run-humanlike-bench.mjs",
+    "benchmark/src/humanlike/**",
+    "benchmark/reports/humanlike/**",
+    "src/test/bench-humanlike.contract.test.ts",
+    "docs/progress/99.dev-comm/UC-HLMEM-humanlike-memory-benchmark-report-2026-08-11.md",
+    ".agents/progress/humanlike-memory-benchmark-2026-08-11.json"
+  ],
+  "audiences": [
+    "workspace owner",
+    "naia-memory maintainers",
+    "naia-agent maintainers"
+  ],
+  "source_refs": [
+    "USR-2026-08-11: continue naia-memory benchmarks and experiments",
+    "USR-2026-08-11: proceed-evaluate-repeat loop",
+    "USR-2026-08-11: keep records, commit by stage, and write a report",
+    "UC-HLMEM",
+    "FR-HLMEM-1..7"
+  ],
+  "allowed_shell_commands": [
+    "bash scripts/enforce-root-structure.sh",
+    "node --test src/test/ci-verify-*.test.mjs",
+    "pnpm test",
+    "pnpm exec tsc -p benchmark/tsconfig.json",
+    "pnpm vitest run src/test/bench-humanlike.contract.test.ts",
+    "node /var/home/luke/.cache/node/corepack/v1/pnpm/10.33.0/bin/pnpm.cjs test",
+    "./node_modules/.bin/tsc -p benchmark/tsconfig.json",
+    "./node_modules/.bin/vitest run src/test/bench-humanlike.contract.test.ts",
+    "./node_modules/.bin/vitest run",
+    "./node_modules/.bin/tsc -p tsconfig.json",
+    "node benchmark/run-humanlike-bench.mjs",
+    "HUMANLIKE_SEED=20260811 HUMANLIKE_OUTPUT=benchmark/reports/humanlike/2026-08-11-deterministic.json node benchmark/run-humanlike-bench.mjs",
+    "HUMANLIKE_SEED=20260811 HUMANLIKE_OUTPUT=benchmark/reports/humanlike/2026-08-11-distractor.json node benchmark/run-humanlike-bench.mjs",
+    "HUMANLIKE_TOP_K=5 HUMANLIKE_SEED=20260811 HUMANLIKE_OUTPUT=benchmark/reports/humanlike/2026-08-11-topk5-control.json node benchmark/run-humanlike-bench.mjs",
+    "HUMANLIKE_TOP_K=8 HUMANLIKE_SEED=20260811 HUMANLIKE_OUTPUT=benchmark/reports/humanlike/2026-08-11-topk8-candidate.json node benchmark/run-humanlike-bench.mjs",
+    "node /var/home/luke/.cache/node/corepack/v1/pnpm/10.33.0/bin/pnpm.cjs install --force --offline",
+    "node /var/home/luke/.cache/node/corepack/v1/pnpm/10.33.0/bin/pnpm.cjs install --filter @nextain/naia-agent --force --offline",
+    "node /var/home/luke/.cache/node/corepack/v1/pnpm/10.33.0/bin/pnpm.cjs install --ignore-workspace --force --offline",
+    "node /var/home/luke/.cache/node/corepack/v1/pnpm/10.33.0/bin/pnpm.cjs link ../naia-memory --dir . --ignore-workspace",
+    "HUMANLIKE_TOP_K=5 HUMANLIKE_SEED=20260811 HUMANLIKE_OUTPUT=benchmark/reports/humanlike/2026-08-11-ko-compound-candidate.json node benchmark/run-humanlike-bench.mjs",
+    "set -a; source ../../data-private/key/llm-key.env; set +a; PREDICT_LIVE=1 PREDICT_RUNS=1 node benchmark/run-humanlike-bench.mjs",
+    "set -a; source <(tr -d '\\r' < ../../data-private/key/llm-key.env); set +a; PREDICT_LIVE=1 PREDICT_RUNS=1 HUMANLIKE_SEED=20260811 HUMANLIKE_OUTPUT=benchmark/reports/humanlike/2026-08-11-live-attempt.json node benchmark/run-humanlike-bench.mjs",
+    "set -a; source ../../data-private/key/llm-key.env; set +a; PREDICT_LIVE=1 PREDICT_RUNS=3 HUMANLIKE_SEED=20260811 HUMANLIKE_OUTPUT=benchmark/reports/humanlike/2026-08-11-post.json node benchmark/run-humanlike-bench.mjs"
+    ,"git add benchmark/run-humanlike-bench.mjs benchmark/src/humanlike/index.ts benchmark/src/humanlike/run-quality.ts benchmark/reports/humanlike/2026-08-11-deterministic.json benchmark/reports/humanlike/2026-08-11-live-attempt.json src/test/bench-humanlike.contract.test.ts docs/progress/99.dev-comm/UC-HLMEM-humanlike-memory-benchmark-report-2026-08-11.md"
+    ,"git commit -m \"test(benchmark): make humanlike runs reproducible\""
+    ,"git add benchmark/run-humanlike-bench.mjs benchmark/src/humanlike/index.ts benchmark/src/humanlike/run-quality.ts benchmark/reports/humanlike/2026-08-11-distractor.json src/test/bench-humanlike.contract.test.ts docs/progress/99.dev-comm/UC-HLMEM-humanlike-memory-benchmark-report-2026-08-11.md"
+    ,"git commit -m \"test(benchmark): add distractor recall coverage\""
+    ,"git add benchmark/run-humanlike-bench.mjs benchmark/reports/humanlike/2026-08-11-topk5-control.json benchmark/reports/humanlike/2026-08-11-topk8-candidate.json docs/progress/99.dev-comm/UC-HLMEM-humanlike-memory-benchmark-report-2026-08-11.md"
+    ,"git commit -m \"perf(benchmark): evaluate wider recall candidates\""
+    ,"git add benchmark/run-humanlike-bench.mjs benchmark/reports/humanlike/2026-08-11-topk5-control.json benchmark/reports/humanlike/2026-08-11-topk8-candidate.json benchmark/reports/humanlike/2026-08-11-ko-compound-candidate.json docs/progress/99.dev-comm/UC-HLMEM-humanlike-memory-benchmark-report-2026-08-11.md"
+    ,"git commit -m \"perf(benchmark): validate Korean recall normalization\""
+    ,"set -a; source <(tr -d '\\r' < ../../data-private/key/llm-key.env); set +a; NAIA_GATEWAY_URL=https://api.nextain.io HUMANLIKE_MAIN_MODEL=gemini-3.1-flash-lite PREDICT_LIVE=1 PREDICT_RUNS=1 HUMANLIKE_SEED=20260811 HUMANLIKE_OUTPUT=benchmark/reports/humanlike/2026-08-11-live-api-nextain-gemini31-1run.json node benchmark/run-humanlike-bench.mjs"
+    ,"set -a; source <(tr -d '\\r' < ../../data-private/key/llm-key.env); set +a; NAIA_GATEWAY_URL=https://api.nextain.io HUMANLIKE_MAIN_MODEL=gemini-3.1-flash-lite PREDICT_LIVE=1 PREDICT_RUNS=1 HUMANLIKE_SEED=20260811 HUMANLIKE_OUTPUT=benchmark/reports/humanlike/2026-08-11-live-api-nextain-gemini31-1run-retry.json node benchmark/run-humanlike-bench.mjs"
+    ,"set -a; source <(tr -d '\\r' < ../../data-private/key/llm-key.env); set +a; NAIA_GATEWAY_URL=https://api.nextain.io HUMANLIKE_MAIN_MODEL=gemini-3.1-flash-lite HUMANLIKE_CALL_TIMEOUT_MS=30000 HUMANLIKE_CALL_RETRIES=2 PREDICT_LIVE=1 PREDICT_RUNS=1 HUMANLIKE_SEED=20260811 HUMANLIKE_OUTPUT=benchmark/reports/humanlike/2026-08-11-live-api-nextain-gemini31-1run-timeout-retry.json node benchmark/run-humanlike-bench.mjs"
+    ,"set -a; source <(tr -d '\\r' < ../../data-private/key/llm-key.env); set +a; NAIA_GATEWAY_URL=https://api.nextain.io HUMANLIKE_MAIN_MODEL=gemini-3.1-flash-lite HUMANLIKE_CALL_TIMEOUT_MS=15000 HUMANLIKE_CALL_RETRIES=1 HUMANLIKE_CALL_DELAY_MS=1000 PREDICT_LIVE=1 PREDICT_RUNS=1 HUMANLIKE_SEED=20260811 HUMANLIKE_OUTPUT=benchmark/reports/humanlike/2026-08-11-live-api-nextain-gemini31-1run-throttled.json node benchmark/run-humanlike-bench.mjs"
+    ,"set -a; source <(tr -d '\\r' < ../../data-private/key/llm-key.env); set +a; NAIA_GATEWAY_URL=https://api.nextain.io HUMANLIKE_MAIN_MODEL=gemini-3.1-flash-lite HUMANLIKE_CALL_TIMEOUT_MS=60000 HUMANLIKE_CALL_RETRIES=0 HUMANLIKE_CALL_DELAY_MS=2000 PREDICT_LIVE=1 PREDICT_RUNS=1 HUMANLIKE_SEED=20260811 HUMANLIKE_OUTPUT=benchmark/reports/humanlike/2026-08-11-live-api-nextain-gemini31-1run-slow.json node benchmark/run-humanlike-bench.mjs"
+  ],
+  "session_bindings": [
+    {
+      "session_id": "019fecc4-abf7-78a2-bcc3-2cded9ad1421",
+      "contract_digest": "186ff517611a7a30079d71800cfbd91b53e50b7ddedf31a71bfdf2ca20cb0d1d"
+    }
+  ],
+  "progress_file": ".agents/progress/humanlike-memory-benchmark-2026-08-11.json",
+  "contract_digest": "186ff517611a7a30079d71800cfbd91b53e50b7ddedf31a71bfdf2ca20cb0d1d"
+}

@@ -12,6 +12,8 @@ mandatory_reads:
     purpose: "규칙 SoT — 금지/필수 전체."
   - file: docs/project-structure.md
     purpose: "허용된 루트 구조 명세."
+  - file: .agents/context/collaboration-routing.yaml
+    purpose: "다른 기기·세션 일은 naia-comm 큐. 개발-운영은 사람 알림."
 
 # 진입점
 entry_points:
@@ -29,6 +31,8 @@ on_demand_loading:
       topics: [FR, NFR, 요구사항]
     - file: docs/glossary.md
       topics: [용어, 명칭, terms]
+    - file: .agents/context/collaboration-routing.yaml
+      topics: [naia-comm, 큐, 실행자, 개발-운영, 다른 기기, 협업]
   architecture:
     - file: docs/ARCHITECTURE.md
       topics: [아키텍처, 패키지맵, 의존성]

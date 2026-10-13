@@ -18,11 +18,11 @@ importers:
         specifier: ^0.8.1
         version: 0.8.1
       '@naia/kb-compiler':
-        specifier: file:../../naia-kb-compiler
-        version: file:../../naia-kb-compiler
+        specifier: file:../naia-kb-compiler
+        version: file:../naia-kb-compiler
       '@nextain/naia-memory':
-        specifier: file:../../naia-memory
-        version: file:../../naia-memory(@browserbasehq/sdk@2.14.0)(@browserbasehq/stagehand@1.14.0(@playwright/test@1.60.0)(deepmerge@4.3.1)(dotenv@16.4.5)(openai@6.42.0(ws@8.21.0)(zod@4.4.3))(zod@4.4.3))(@huggingface/transformers@3.8.1)(@ibm-cloud/watsonx-ai@1.7.14)(ibm-cloud-sdk-core@5.4.20)(jsonwebtoken@9.0.3)(mammoth@1.12.0)(openai@6.42.0(ws@8.21.0)(zod@4.4.3))(pdf-parse@1.1.4)(playwright@1.60.0)(typescript@5.9.3)(ws@8.21.0)
+        specifier: file:../naia-memory
+        version: file:../naia-memory(@browserbasehq/sdk@2.14.0)(@browserbasehq/stagehand@1.14.0(@playwright/test@1.60.0)(deepmerge@4.3.1)(dotenv@16.4.5)(openai@6.42.0(ws@8.21.0)(zod@4.4.3))(zod@4.4.3))(@huggingface/transformers@3.8.1)(@ibm-cloud/watsonx-ai@1.7.14)(ibm-cloud-sdk-core@5.4.20)(jsonwebtoken@9.0.3)(mammoth@1.12.0)(openai@6.42.0(ws@8.21.0)(zod@4.4.3))(pdf-parse@1.1.4)(playwright@1.60.0)(typescript@5.9.3)(ws@8.21.0)
       better-sqlite3:
         specifier: ^12.10.0
         version: 12.10.0
@@ -856,11 +856,11 @@ packages:
       '@cfworker/json-schema':
         optional: true
 
-  '@naia/kb-compiler@file:../../naia-kb-compiler':
-    resolution: {directory: ../../naia-kb-compiler, type: directory}
+  '@naia/kb-compiler@file:../naia-kb-compiler':
+    resolution: {directory: ../naia-kb-compiler, type: directory}
 
-  '@nextain/naia-memory@file:../../naia-memory':
-    resolution: {directory: ../../naia-memory, type: directory}
+  '@nextain/naia-memory@file:../naia-memory':
+    resolution: {directory: ../naia-memory, type: directory}
     engines: {node: '>=20'}
     peerDependencies:
       '@huggingface/transformers': ^3.0.0
@@ -2869,7 +2869,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@naia/kb-compiler@file:../../naia-kb-compiler':
+  '@naia/kb-compiler@file:../naia-kb-compiler':
     dependencies:
       zod: 3.25.76
     optionalDependencies:
@@ -2878,7 +2878,7 @@ snapshots:
       pdf-parse: 1.1.4
       xlsx: 0.18.5
 
-  '@nextain/naia-memory@file:../../naia-memory(@browserbasehq/sdk@2.14.0)(@browserbasehq/stagehand@1.14.0(@playwright/test@1.60.0)(deepmerge@4.3.1)(dotenv@16.4.5)(openai@6.42.0(ws@8.21.0)(zod@4.4.3))(zod@4.4.3))(@huggingface/transformers@3.8.1)(@ibm-cloud/watsonx-ai@1.7.14)(ibm-cloud-sdk-core@5.4.20)(jsonwebtoken@9.0.3)(mammoth@1.12.0)(openai@6.42.0(ws@8.21.0)(zod@4.4.3))(pdf-parse@1.1.4)(playwright@1.60.0)(typescript@5.9.3)(ws@8.21.0)':
+  '@nextain/naia-memory@file:../naia-memory(@browserbasehq/sdk@2.14.0)(@browserbasehq/stagehand@1.14.0(@playwright/test@1.60.0)(deepmerge@4.3.1)(dotenv@16.4.5)(openai@6.42.0(ws@8.21.0)(zod@4.4.3))(zod@4.4.3))(@huggingface/transformers@3.8.1)(@ibm-cloud/watsonx-ai@1.7.14)(ibm-cloud-sdk-core@5.4.20)(jsonwebtoken@9.0.3)(mammoth@1.12.0)(openai@6.42.0(ws@8.21.0)(zod@4.4.3))(pdf-parse@1.1.4)(playwright@1.60.0)(typescript@5.9.3)(ws@8.21.0)':
     dependencies:
       '@langchain/community': 1.1.29(@browserbasehq/sdk@2.14.0)(@browserbasehq/stagehand@1.14.0(@playwright/test@1.60.0)(deepmerge@4.3.1)(dotenv@16.4.5)(openai@6.42.0(ws@8.21.0)(zod@4.4.3))(zod@4.4.3))(@huggingface/transformers@3.8.1)(@ibm-cloud/watsonx-ai@1.7.14)(@langchain/core@1.1.48(openai@6.42.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0))(@qdrant/js-client-rest@1.18.0(typescript@5.9.3))(better-sqlite3@12.10.0)(ibm-cloud-sdk-core@5.4.20)(jsonwebtoken@9.0.3)(mammoth@1.12.0)(openai@6.42.0(ws@8.21.0)(zod@4.4.3))(pdf-parse@1.1.4)(playwright@1.60.0)(ws@8.21.0)
       '@langchain/core': 1.1.48(openai@6.42.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0)

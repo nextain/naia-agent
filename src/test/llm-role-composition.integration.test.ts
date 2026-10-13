@@ -3,9 +3,31 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — .mjs 호스트 조립기(타입 선언 없음). 통합 경계라 의도적.
-import { composeAgentRuntimeDeps } from "../../scripts/builds/compose-agent-deps.mjs";
+import { composeAgentRuntimeDeps, resolveMemoryStorePath } from "../../scripts/builds/compose-agent-deps.mjs";
 
 describe("compose-agent-deps 역할별 실제 소비", () => {
+  it("기본 메모리 저장소를 활성 ADK의 naia-settings 아래에 둔다", async () => {
+    const adk = await mkdtemp(join(tmpdir(), "naia-memory-path-compose-"));
+    await mkdir(join(adk, "naia-settings"), { recursive: true });
+    const storePath = resolveMemoryStorePath({
+      adkPath: adk,
+    });
+
+    expect(storePath).toBe(join(adk, "naia-settings", "memory", "store.json"));
+    expect(storePath).not.toContain(join(".naia-agent", "memory"));
+  });
+
+  it("환경변수로 제품 메모리 정본을 우회하지 않는다", async () => {
+    const adk = await mkdtemp(join(tmpdir(), "naia-memory-path-compose-"));
+    expect(resolveMemoryStorePath({
+      adkPath: adk,
+      env: {
+        NAIA_MEMORY_STORE: join(adk, "redirected.json"),
+        NAIA_MEMORY_DIR: join(adk, "redirected"),
+      },
+    })).toBe(join(adk, "naia-settings", "memory", "store.json"));
+  });
+
   it("main Codex + sub Ollama + memory Naia 설정을 서로 덮어쓰지 않는다", async () => {
     const adk = await mkdtemp(join(tmpdir(), "naia-role-compose-"));
     await mkdir(join(adk, "naia-settings"), { recursive: true });

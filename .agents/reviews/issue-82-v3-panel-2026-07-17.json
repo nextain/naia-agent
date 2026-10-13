@@ -1,0 +1,867 @@
+{
+  "measurement": "issue-82 v3 경첩 실측 2차 — ②-only 방어 + 모델 패널 교차",
+  "date": "2026-07-17",
+  "session": "03b17f74-14d6-4390-a3ed-871d373001cf",
+  "host": "local ollama 0.24.0 (bazzite, RTX 3090 GPU1)",
+  "runner": "benchmark/v3-evidence-probe2.mjs",
+  "runs_per_probe": 3,
+  "rules": {
+    "R0": "v3 원안: called ∧ evidence 비어있지 않음 ∧ evidence 가 사용자 원문의 부분문자열",
+    "R1": "R0 ∧ quote 비어있지 않음 ∧ norm(quote) ≠ norm(evidence)"
+  },
+  "excluded_no_tool_support": [
+    "kanana2",
+    "exaone45",
+    "hf.co/naver-ellm/HyperCLOVAX-SEED-Think-32B-GGUF:Q4_K_M",
+    "kanana-judge",
+    "hf.co/unsloth/gemma-4-26B-A4B-it-qat-GGUF:UD-Q4_K_XL"
+  ],
+  "byModel": [
+    {
+      "model": "qwen3.6:27b",
+      "tier": "24G",
+      "variants": {
+        "desc-a": {
+          "positive": {
+            "valid": 48,
+            "called": 48,
+            "R0_activate": 48,
+            "R0_ci": [
+              0.9259,
+              1.0
+            ],
+            "R1_activate": 48,
+            "R1_ci": [
+              0.9259,
+              1.0
+            ],
+            "errors": 0
+          },
+          "oneOnly": {
+            "valid": 9,
+            "called": 9,
+            "R0_activate": 0,
+            "R0_ci": [
+              0,
+              0.2992
+            ],
+            "R1_activate": 0,
+            "R1_ci": [
+              0,
+              0.2992
+            ],
+            "errors": 0
+          },
+          "awayOnly": {
+            "valid": 9,
+            "called": 3,
+            "R0_activate": 3,
+            "R0_ci": [
+              0.1206,
+              0.6458
+            ],
+            "R1_activate": 0,
+            "R1_ci": [
+              0,
+              0.2992
+            ],
+            "errors": 0
+          },
+          "negFalseCaller": {
+            "valid": 24,
+            "called": 0,
+            "R0_activate": 0,
+            "R0_ci": [
+              0,
+              0.138
+            ],
+            "R1_activate": 0,
+            "R1_ci": [
+              0,
+              0.138
+            ],
+            "errors": 0
+          },
+          "oneOnly_labelfixed": {
+            "note": "P-AMB-006('잠들 때까지 얘기해줘') 제외 — '잠들 때까지'는 실제 ② 신호(코퍼스 라벨 오류)",
+            "valid": 6,
+            "R0_activate": 0,
+            "R0_ci": [
+              0,
+              0.3903
+            ]
+          }
+        },
+        "desc-b": {
+          "positive": {
+            "valid": 48,
+            "called": 48,
+            "R0_activate": 48,
+            "R0_ci": [
+              0.9259,
+              1.0
+            ],
+            "R1_activate": 48,
+            "R1_ci": [
+              0.9259,
+              1.0
+            ],
+            "errors": 0
+          },
+          "oneOnly": {
+            "valid": 9,
+            "called": 9,
+            "R0_activate": 2,
+            "R0_ci": [
+              0.0632,
+              0.5474
+            ],
+            "R1_activate": 2,
+            "R1_ci": [
+              0.0632,
+              0.5474
+            ],
+            "errors": 0
+          },
+          "awayOnly": {
+            "valid": 9,
+            "called": 0,
+            "R0_activate": 0,
+            "R0_ci": [
+              0,
+              0.2992
+            ],
+            "R1_activate": 0,
+            "R1_ci": [
+              0,
+              0.2992
+            ],
+            "errors": 0
+          },
+          "negFalseCaller": {
+            "valid": 24,
+            "called": 0,
+            "R0_activate": 0,
+            "R0_ci": [
+              0,
+              0.138
+            ],
+            "R1_activate": 0,
+            "R1_ci": [
+              0,
+              0.138
+            ],
+            "errors": 0
+          },
+          "oneOnly_labelfixed": {
+            "note": "P-AMB-006('잠들 때까지 얘기해줘') 제외 — '잠들 때까지'는 실제 ② 신호(코퍼스 라벨 오류)",
+            "valid": 6,
+            "R0_activate": 0,
+            "R0_ci": [
+              0,
+              0.3903
+            ]
+          }
+        }
+      }
+    },
+    {
+      "model": "gemma4:31b-it-q4_K_M",
+      "tier": "24G",
+      "variants": {
+        "desc-a": {
+          "positive": {
+            "valid": 48,
+            "called": 48,
+            "R0_activate": 48,
+            "R0_ci": [
+              0.9259,
+              1.0
+            ],
+            "R1_activate": 48,
+            "R1_ci": [
+              0.9259,
+              1.0
+            ],
+            "errors": 0
+          },
+          "oneOnly": {
+            "valid": 9,
+            "called": 9,
+            "R0_activate": 3,
+            "R0_ci": [
+              0.1206,
+              0.6458
+            ],
+            "R1_activate": 3,
+            "R1_ci": [
+              0.1206,
+              0.6458
+            ],
+            "errors": 0
+          },
+          "awayOnly": {
+            "valid": 9,
+            "called": 2,
+            "R0_activate": 2,
+            "R0_ci": [
+              0.0632,
+              0.5474
+            ],
+            "R1_activate": 0,
+            "R1_ci": [
+              0,
+              0.2992
+            ],
+            "errors": 0
+          },
+          "negFalseCaller": {
+            "valid": 24,
+            "called": 0,
+            "R0_activate": 0,
+            "R0_ci": [
+              0,
+              0.138
+            ],
+            "R1_activate": 0,
+            "R1_ci": [
+              0,
+              0.138
+            ],
+            "errors": 0
+          },
+          "oneOnly_labelfixed": {
+            "note": "P-AMB-006('잠들 때까지 얘기해줘') 제외 — '잠들 때까지'는 실제 ② 신호(코퍼스 라벨 오류)",
+            "valid": 6,
+            "R0_activate": 0,
+            "R0_ci": [
+              0,
+              0.3903
+            ]
+          }
+        },
+        "desc-b": {
+          "positive": {
+            "valid": 48,
+            "called": 48,
+            "R0_activate": 48,
+            "R0_ci": [
+              0.9259,
+              1.0
+            ],
+            "R1_activate": 48,
+            "R1_ci": [
+              0.9259,
+              1.0
+            ],
+            "errors": 0
+          },
+          "oneOnly": {
+            "valid": 9,
+            "called": 9,
+            "R0_activate": 3,
+            "R0_ci": [
+              0.1206,
+              0.6458
+            ],
+            "R1_activate": 3,
+            "R1_ci": [
+              0.1206,
+              0.6458
+            ],
+            "errors": 0
+          },
+          "awayOnly": {
+            "valid": 9,
+            "called": 0,
+            "R0_activate": 0,
+            "R0_ci": [
+              0,
+              0.2992
+            ],
+            "R1_activate": 0,
+            "R1_ci": [
+              0,
+              0.2992
+            ],
+            "errors": 0
+          },
+          "negFalseCaller": {
+            "valid": 24,
+            "called": 0,
+            "R0_activate": 0,
+            "R0_ci": [
+              0,
+              0.138
+            ],
+            "R1_activate": 0,
+            "R1_ci": [
+              0,
+              0.138
+            ],
+            "errors": 0
+          },
+          "oneOnly_labelfixed": {
+            "note": "P-AMB-006('잠들 때까지 얘기해줘') 제외 — '잠들 때까지'는 실제 ② 신호(코퍼스 라벨 오류)",
+            "valid": 6,
+            "R0_activate": 0,
+            "R0_ci": [
+              0,
+              0.3903
+            ]
+          }
+        }
+      }
+    },
+    {
+      "model": "gemma4:e4b-it-q8_0",
+      "tier": "8B",
+      "variants": {
+        "desc-a": {
+          "positive": {
+            "valid": 48,
+            "called": 48,
+            "R0_activate": 46,
+            "R0_ci": [
+              0.8602,
+              0.9885
+            ],
+            "R1_activate": 46,
+            "R1_ci": [
+              0.8602,
+              0.9885
+            ],
+            "errors": 0
+          },
+          "oneOnly": {
+            "valid": 9,
+            "called": 9,
+            "R0_activate": 0,
+            "R0_ci": [
+              0,
+              0.2992
+            ],
+            "R1_activate": 0,
+            "R1_ci": [
+              0,
+              0.2992
+            ],
+            "errors": 0
+          },
+          "awayOnly": {
+            "valid": 9,
+            "called": 6,
+            "R0_activate": 6,
+            "R0_ci": [
+              0.3542,
+              0.8794
+            ],
+            "R1_activate": 0,
+            "R1_ci": [
+              0,
+              0.2992
+            ],
+            "errors": 0
+          },
+          "negFalseCaller": {
+            "valid": 24,
+            "called": 0,
+            "R0_activate": 0,
+            "R0_ci": [
+              0,
+              0.138
+            ],
+            "R1_activate": 0,
+            "R1_ci": [
+              0,
+              0.138
+            ],
+            "errors": 0
+          },
+          "oneOnly_labelfixed": {
+            "note": "P-AMB-006('잠들 때까지 얘기해줘') 제외 — '잠들 때까지'는 실제 ② 신호(코퍼스 라벨 오류)",
+            "valid": 6,
+            "R0_activate": 0,
+            "R0_ci": [
+              0,
+              0.3903
+            ]
+          }
+        },
+        "desc-b": {
+          "positive": {
+            "valid": 48,
+            "called": 48,
+            "R0_activate": 43,
+            "R0_ci": [
+              0.7783,
+              0.9547
+            ],
+            "R1_activate": 43,
+            "R1_ci": [
+              0.7783,
+              0.9547
+            ],
+            "errors": 0
+          },
+          "oneOnly": {
+            "valid": 9,
+            "called": 9,
+            "R0_activate": 0,
+            "R0_ci": [
+              0,
+              0.2992
+            ],
+            "R1_activate": 0,
+            "R1_ci": [
+              0,
+              0.2992
+            ],
+            "errors": 0
+          },
+          "awayOnly": {
+            "valid": 9,
+            "called": 0,
+            "R0_activate": 0,
+            "R0_ci": [
+              0,
+              0.2992
+            ],
+            "R1_activate": 0,
+            "R1_ci": [
+              0,
+              0.2992
+            ],
+            "errors": 0
+          },
+          "negFalseCaller": {
+            "valid": 24,
+            "called": 3,
+            "R0_activate": 0,
+            "R0_ci": [
+              0,
+              0.138
+            ],
+            "R1_activate": 0,
+            "R1_ci": [
+              0,
+              0.138
+            ],
+            "errors": 0
+          },
+          "oneOnly_labelfixed": {
+            "note": "P-AMB-006('잠들 때까지 얘기해줘') 제외 — '잠들 때까지'는 실제 ② 신호(코퍼스 라벨 오류)",
+            "valid": 6,
+            "R0_activate": 0,
+            "R0_ci": [
+              0,
+              0.3903
+            ]
+          }
+        }
+      }
+    },
+    {
+      "model": "huihui_ai/qwen3-abliterated:8b",
+      "tier": "8B",
+      "variants": {
+        "desc-a": {
+          "positive": {
+            "valid": 48,
+            "called": 48,
+            "R0_activate": 21,
+            "R0_ci": [
+              0.307,
+              0.5773
+            ],
+            "R1_activate": 21,
+            "R1_ci": [
+              0.307,
+              0.5773
+            ],
+            "errors": 0
+          },
+          "oneOnly": {
+            "valid": 9,
+            "called": 9,
+            "R0_activate": 0,
+            "R0_ci": [
+              0,
+              0.2992
+            ],
+            "R1_activate": 0,
+            "R1_ci": [
+              0,
+              0.2992
+            ],
+            "errors": 0
+          },
+          "awayOnly": {
+            "valid": 9,
+            "called": 8,
+            "R0_activate": 5,
+            "R0_ci": [
+              0.2666,
+              0.8112
+            ],
+            "R1_activate": 0,
+            "R1_ci": [
+              0,
+              0.2992
+            ],
+            "errors": 0
+          },
+          "negFalseCaller": {
+            "valid": 24,
+            "called": 6,
+            "R0_activate": 0,
+            "R0_ci": [
+              0,
+              0.138
+            ],
+            "R1_activate": 0,
+            "R1_ci": [
+              0,
+              0.138
+            ],
+            "errors": 0
+          },
+          "oneOnly_labelfixed": {
+            "note": "P-AMB-006('잠들 때까지 얘기해줘') 제외 — '잠들 때까지'는 실제 ② 신호(코퍼스 라벨 오류)",
+            "valid": 6,
+            "R0_activate": 0,
+            "R0_ci": [
+              0,
+              0.3903
+            ]
+          }
+        },
+        "desc-b": {
+          "positive": {
+            "valid": 48,
+            "called": 48,
+            "R0_activate": 25,
+            "R0_ci": [
+              0.3833,
+              0.6553
+            ],
+            "R1_activate": 24,
+            "R1_ci": [
+              0.3639,
+              0.6361
+            ],
+            "errors": 0
+          },
+          "oneOnly": {
+            "valid": 9,
+            "called": 9,
+            "R0_activate": 0,
+            "R0_ci": [
+              0,
+              0.2992
+            ],
+            "R1_activate": 0,
+            "R1_ci": [
+              0,
+              0.2992
+            ],
+            "errors": 0
+          },
+          "awayOnly": {
+            "valid": 9,
+            "called": 7,
+            "R0_activate": 6,
+            "R0_ci": [
+              0.3542,
+              0.8794
+            ],
+            "R1_activate": 3,
+            "R1_ci": [
+              0.1206,
+              0.6458
+            ],
+            "errors": 0
+          },
+          "negFalseCaller": {
+            "valid": 24,
+            "called": 3,
+            "R0_activate": 0,
+            "R0_ci": [
+              0,
+              0.138
+            ],
+            "R1_activate": 0,
+            "R1_ci": [
+              0,
+              0.138
+            ],
+            "errors": 0
+          },
+          "oneOnly_labelfixed": {
+            "note": "P-AMB-006('잠들 때까지 얘기해줘') 제외 — '잠들 때까지'는 실제 ② 신호(코퍼스 라벨 오류)",
+            "valid": 6,
+            "R0_activate": 0,
+            "R0_ci": [
+              0,
+              0.3903
+            ]
+          }
+        }
+      }
+    },
+    {
+      "model": "goekdenizguelmez/JOSIEFIED-Qwen3:8b",
+      "tier": "8B",
+      "variants": {
+        "desc-a": {
+          "positive": {
+            "valid": 48,
+            "called": 48,
+            "R0_activate": 28,
+            "R0_ci": [
+              0.4428,
+              0.7115
+            ],
+            "R1_activate": 28,
+            "R1_ci": [
+              0.4428,
+              0.7115
+            ],
+            "errors": 0
+          },
+          "oneOnly": {
+            "valid": 9,
+            "called": 9,
+            "R0_activate": 0,
+            "R0_ci": [
+              0,
+              0.2992
+            ],
+            "R1_activate": 0,
+            "R1_ci": [
+              0,
+              0.2992
+            ],
+            "errors": 0
+          },
+          "awayOnly": {
+            "valid": 9,
+            "called": 5,
+            "R0_activate": 2,
+            "R0_ci": [
+              0.0632,
+              0.5474
+            ],
+            "R1_activate": 0,
+            "R1_ci": [
+              0,
+              0.2992
+            ],
+            "errors": 0
+          },
+          "negFalseCaller": {
+            "valid": 24,
+            "called": 6,
+            "R0_activate": 0,
+            "R0_ci": [
+              0,
+              0.138
+            ],
+            "R1_activate": 0,
+            "R1_ci": [
+              0,
+              0.138
+            ],
+            "errors": 0
+          },
+          "oneOnly_labelfixed": {
+            "note": "P-AMB-006('잠들 때까지 얘기해줘') 제외 — '잠들 때까지'는 실제 ② 신호(코퍼스 라벨 오류)",
+            "valid": 6,
+            "R0_activate": 0,
+            "R0_ci": [
+              0,
+              0.3903
+            ]
+          }
+        },
+        "desc-b": {
+          "positive": {
+            "valid": 48,
+            "called": 48,
+            "R0_activate": 19,
+            "R0_ci": [
+              0.2702,
+              0.5369
+            ],
+            "R1_activate": 19,
+            "R1_ci": [
+              0.2702,
+              0.5369
+            ],
+            "errors": 0
+          },
+          "oneOnly": {
+            "valid": 9,
+            "called": 9,
+            "R0_activate": 0,
+            "R0_ci": [
+              0,
+              0.2992
+            ],
+            "R1_activate": 0,
+            "R1_ci": [
+              0,
+              0.2992
+            ],
+            "errors": 0
+          },
+          "awayOnly": {
+            "valid": 9,
+            "called": 5,
+            "R0_activate": 5,
+            "R0_ci": [
+              0.2666,
+              0.8112
+            ],
+            "R1_activate": 0,
+            "R1_ci": [
+              0,
+              0.2992
+            ],
+            "errors": 0
+          },
+          "negFalseCaller": {
+            "valid": 24,
+            "called": 6,
+            "R0_activate": 0,
+            "R0_ci": [
+              0,
+              0.138
+            ],
+            "R1_activate": 0,
+            "R1_ci": [
+              0,
+              0.138
+            ],
+            "errors": 0
+          },
+          "oneOnly_labelfixed": {
+            "note": "P-AMB-006('잠들 때까지 얘기해줘') 제외 — '잠들 때까지'는 실제 ② 신호(코퍼스 라벨 오류)",
+            "valid": 6,
+            "R0_activate": 0,
+            "R0_ci": [
+              0,
+              0.3903
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "pooled": {
+    "desc-a/positive": {
+      "valid": 240,
+      "R0_activate": 191,
+      "R0_ci": [
+        0.7404,
+        0.842
+      ],
+      "R1_activate": 191,
+      "R1_ci": [
+        0.7404,
+        0.842
+      ]
+    },
+    "desc-a/oneOnly": {
+      "valid": 45,
+      "R0_activate": 3,
+      "R0_ci": [
+        0.0229,
+        0.1786
+      ],
+      "R1_activate": 3,
+      "R1_ci": [
+        0.0229,
+        0.1786
+      ]
+    },
+    "desc-a/awayOnly": {
+      "valid": 45,
+      "R0_activate": 18,
+      "R0_ci": [
+        0.2702,
+        0.5455
+      ],
+      "R1_activate": 0,
+      "R1_ci": [
+        0,
+        0.0787
+      ]
+    },
+    "desc-a/negFalseCaller": {
+      "valid": 120,
+      "R0_activate": 0,
+      "R0_ci": [
+        0,
+        0.031
+      ],
+      "R1_activate": 0,
+      "R1_ci": [
+        0,
+        0.031
+      ]
+    },
+    "desc-b/positive": {
+      "valid": 240,
+      "R0_activate": 183,
+      "R0_ci": [
+        0.7048,
+        0.8119
+      ],
+      "R1_activate": 182,
+      "R1_ci": [
+        0.7004,
+        0.8082
+      ]
+    },
+    "desc-b/oneOnly": {
+      "valid": 45,
+      "R0_activate": 5,
+      "R0_ci": [
+        0.0484,
+        0.235
+      ],
+      "R1_activate": 5,
+      "R1_ci": [
+        0.0484,
+        0.235
+      ]
+    },
+    "desc-b/awayOnly": {
+      "valid": 45,
+      "R0_activate": 11,
+      "R0_ci": [
+        0.1424,
+        0.3867
+      ],
+      "R1_activate": 3,
+      "R1_ci": [
+        0.0229,
+        0.1786
+      ]
+    },
+    "desc-b/negFalseCaller": {
+      "valid": 120,
+      "R0_activate": 0,
+      "R0_ci": [
+        0,
+        0.031
+      ],
+      "R1_activate": 0,
+      "R1_ci": [
+        0,
+        0.031
+      ]
+    }
+  }
+}

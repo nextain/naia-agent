@@ -93,6 +93,15 @@ describe("UC-GATEWAY-COST — real non-stream versioned billing contract", () =>
     expect((chunks.find((chunk) => chunk.kind === "usage") as UsageChunk).billingReceipt?.attempt).toBe(2);
   });
 
+  it("forwards hosted 403 FastAPI detail instead of a bare Forbidden", async () => {
+    const provider = makeOpenAICompatProvider({ baseUrl: "https://api-dev.naia.land/v1", apiKey: "key", auth: "x-anyllm", fetch: (async () => ({
+      ok: false, status: 403, statusText: "Forbidden", body: jsonBody({ detail: "Insufficient credits" }),
+    })) as never });
+    await expect(async () => {
+      for await (const _chunk of provider.chat({ provider: "nextain", model: "deepseek-v4-flash" }, [], { gatewayRequestId: "gw-round-1", gatewayAttempt: 1 })) { /* drain */ }
+    }).rejects.toThrow("403 Forbidden: Insufficient credits");
+  });
+
   it("does not retry an HTTP 5xx response", async () => {
     const bodies: Record<string, unknown>[] = [];
     const provider = makeOpenAICompatProvider({ baseUrl: "https://gateway.invalid/v1", apiKey: "key", auth: "x-anyllm", fetch: (async (_url: string, init: { body: string }) => {
@@ -101,7 +110,7 @@ describe("UC-GATEWAY-COST — real non-stream versioned billing contract", () =>
     }) as never });
     await expect(async () => {
       for await (const _chunk of provider.chat({ provider: "nextain", model: "m" }, [], { gatewayRequestId: "gw-round-1", gatewayAttempt: 1 })) { /* drain */ }
-    }).rejects.toThrow("503 upstream unavailable");
+    }).rejects.toThrow("503 upstream unavailable: do not retry");
     expect(bodies.map((body) => [body.gateway_request_id, body.gateway_attempt])).toEqual([["gw-round-1", 1]]);
   });
 

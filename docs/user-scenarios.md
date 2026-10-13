@@ -571,6 +571,7 @@ issue.
 | FR-MEM-3 fault-injection(불변식) | `uc1-memory-stdio.integration.test.ts`(recall/save throw·hang → finish 1회·error 없음·usage 1회) |
 | 실 프로세스 lifecycle | `src/test/uc1-memory-process.integration.test.ts`(EOF→drain→close→flush, save 영속) |
 | FR-MEM-12 / S-MEM-SUBLLM (naia sub-LLM 폴백 + graceful degrade, S5) | `src/test/uc-naia-settings-store.contract.test.ts` — describe "naia sub-LLM model 폴백 + graceful degrade (S5/G5)" (naia+모델부재+키존재→기본모델 완전구성·명시모델 우선·키 부재→provider=none 강등(메모리 유지)·vllm baseUrl 누락→none 강등) + `sub-llm-provider.contract.test.ts`(미구성=undefined) |
+| FR-MEM-13 / ADK 소유 저장 경로 | `src/test/llm-role-composition.integration.test.ts` — store가 정확히 `<adkPath>/naia-settings/memory/store.json`이고 구 `~/.naia-agent/memory` 및 환경변수 redirect를 사용하지 않음; `src/test/uc1-memory-process.integration.test.ts` — 실제 프로세스 save/recall/restart 영속 |
 | UC-PROV-1 / FR-PROV-1·2·3 | `src/test/all-providers-wiring.contract.test.ts`, `uc1-reload-default-config.contract.test.ts`, `uc-naia-settings-store.contract.test.ts` |
 | UC-THINKING / S-THINK-1·2·3 / FR-THINK-1~4 | `src/test/uc-thinking.contract.test.ts` (요청 body 검증: enableThinking=false+로컬 → `reasoning_effort:"none"` / true·미지정 → 미전송 / **원격 baseUrl → 미전송**(400 회귀 방지) / `isLocalEngineBaseUrl` 순수 판별) |
 | FR-CONT-MVP-1~4 / 개인 라디오 DJ | 계약/통합: `src/test/personal-radio-dj.contract.test.ts` (`DJ-01~07`), `src/test/personal-radio-dj-grpc.integration.test.ts` (`DJ-GRPC-01`). 실제 Tauri: shell `71-proactive-speech-profiles.spec.ts`의 profile 저장·복원, 실제 YouTube BGM, 첫 결과 text, stop만. |
@@ -677,3 +678,48 @@ The Agent-side runtime persists the run, events, worker attempt lease, and trans
 | stale heartbeat/completion are rejected and timeout observes retry backoff | `durable-supervisor.integration.test.ts` |
 | every missed ten-minute report boundary survives SQLite reopen | `durable-supervisor.integration.test.ts` |
 | production composition performs startup recovery and owns a cancellable periodic pump | `durable-supervisor.integration.test.ts` |
+
+## UC-STUDIO-VOICE — Studio voice profile·동의 게이트 (alpha-adk #48 / #47-A)
+
+일반 사용자(또는 웹/셸 호스트)가 Singing에 쓸 목소리를 고를 때, agent는 **voice profile 스키마**로
+목록·미리듣기·동의 생명주기(grant/revoke/expire)·출처·권리 주체를 검증한다. NVA/VRM 캐릭터
+표현 manifest와 동일 타입으로 취급하지 않는다. 동의되지 않았거나 철회·만료된 profile로는
+생성 작업을 시작하지 않는다. 대용량 음성 blob은 profile 메타데이터에 넣지 않고
+`storageLocator` opaque 참조만 둔다.
+
+### UC-STUDIO-VOICE-01 — 유효 동의 profile만 통과
+
+1. 호스트가 voice profile 후보를 제시한다.
+2. agent 검증기는 `consent.status=granted` 이고 `revokedAt` 없음, `expiresAt` 미경과,
+   `usageScope`가 요청 범위와 맞을 때만 통과한다.
+3. 미리듣기용 `previewRef`는 opaque이며 필수 포맷 지식을 사용자에게 요구하지 않는다.
+
+### UC-STUDIO-VOICE-02 — 미동의·철회·만료 거부
+
+1. `pending`/`denied`/`revoked`/`expired` profile로 생성 게이트를 호출한다.
+2. 검증기는 거부하고 사용자용 오류 코드(`voice_consent_required` 등)를 반환한다.
+3. 철회 이후 신규 생성은 막히며, 기존 파생물은 `derivativePolicy`에 따른다(본 UC는 게이트만).
+
+### UC-STUDIO-VOICE-03 — NVA manifest와 분리
+
+1. NVA `manifest.json` 형태 객체를 voice profile 파서에 넣는다.
+2. 파서는 voice profile로 수락하지 않는다(타입 구분 실패).
+
+### Test Coverage Map — UC-STUDIO-VOICE (P02)
+
+| Test ID | 검증 | 증적 |
+|---|---|---|
+| TEST-STUDIO-VOICE-01 | normalizeVoiceProfile: 필수 필드·consent enum·provenance/subject | `src/test/studio-voice-profile.contract.test.ts` |
+| TEST-STUDIO-VOICE-02 | assertVoiceUsableForGeneration: grant/revoke/expire/scope 조합 | 동상 |
+| TEST-STUDIO-VOICE-03 | NVA-shaped 입력 거부 | 동상 |
+| TEST-STUDIO-VOICE-04 | storageLocator에 절대경로·`..` traversal 거부; audio bytes 필드 없음 | 동상 |
+
+## UC-STUDIO-AGENT — Studio 조립 포트 (alpha-adk #51 / #47-C)
+
+agent가 voice 게이트·SingingJob·제안 카드·VersionGraph·재시작 복원을 조립한다. UI는 소유하지 않는다.
+MVP-1에서 segment edit capability가 없으면 unsupported + regenerate_all 대안을 제시한다.
+
+### Test Coverage Map
+| Test ID | 증적 |
+|---|---|
+| TEST-STUDIO-AGENT-* | `src/test/studio-service.contract.test.ts` |

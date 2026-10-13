@@ -1,0 +1,10 @@
+{
+  "schema_version": "1.0",
+  "session_id": "PROBE-ALL",
+  "state": "active",
+  "pid": 3531725,
+  "host_process": null,
+  "host": "bazzite",
+  "updated_at": "2026-08-19T05:24:16.269Z",
+  "event": "PreToolUse"
+}

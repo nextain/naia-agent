@@ -1,0 +1,10 @@
+{
+  "schema_version": "1.0",
+  "bindings": {
+    "019fecc4-abf7-78a2-bcc3-2cded9ad1421": {
+      "contract_id": "humanlike-memory-benchmark-2026-08-11",
+      "contract_path": ".agents/session-contracts/humanlike-memory-benchmark-2026-08-11.json",
+      "contract_digest": "fada30b51564d5afd86e264340f95287424b0a8cf1caf428ce5099dff7999c58"
+    }
+  }
+}

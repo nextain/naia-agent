@@ -605,103 +605,138 @@
     },
     "src/main/domain/orchestration.ts": {
       "layer": "domain",
-      "uc": ["UC-014"],
+      "uc": [
+        "UC-014"
+      ],
       "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
       "note": "오케스트레이션 semantic 타입(TaskSpec·SubAgentEvent·WorkspaceChange·VerificationReport·SupervisorReport). Node 무의존, 순수."
     },
     "src/main/ports/orchestration.ts": {
       "layer": "ports",
-      "uc": ["UC-014"],
+      "uc": [
+        "UC-014"
+      ],
       "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
       "note": "SubAgentPort·WorkspacePort·VerifierPort·SupervisorEgressPort — semantic 계약(PID/SIGTERM/git 등 메커니즘 0). SPEC-009."
     },
     "src/main/app/supervisor.ts": {
       "layer": "app",
-      "uc": ["UC-014"],
+      "uc": [
+        "UC-014"
+      ],
       "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
       "note": "Supervisor(구 Phase1Supervisor) — spawn→이벤트 forward(+ws merge)→session_end시 verify→정직보고 1회. mergeStreams. 불변식 I1(terminal 1회)·AC2 never-throws·AC4 항상 verify. SPEC-009."
     },
     "src/main/app/cli-supervise.ts": {
       "layer": "app",
-      "uc": ["UC-014"],
+      "uc": [
+        "UC-014"
+      ],
       "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
       "note": "UC-CLI S2 supervisor mode host 진입점의 순수 로직 — argv 파싱·이벤트/정직 리포트 렌더·exit code(0/2/3, S4). process/Node 의존 0(bin/naia-agent-run.mjs 가 I/O·SIGINT·platform shell 주입). ③ '🔌 배선대기' host측. SPEC-011."
     },
     "src/main/app/cli-chat.ts": {
       "layer": "app",
-      "uc": ["UC-CLI", "UC-THINKING"],
+      "uc": [
+        "UC-CLI",
+        "UC-THINKING"
+      ],
       "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
       "note": "UC-CLI chat mode 의 순수 로직 — parseChatArgs(argv→ChatArgs) + makeReplConversation(AgentIngress/EgressPort + host측 멀티턴 history). process/Node 의존 0(bin/naia-agent-chat.mjs 가 I/O 주입). UC-THINKING: --no-think/--think → ChatRequest.enableThinking (CLI 로 추론 제어·검증 가능하게 하는 표면 — 없으면 레포 자체 검증 도구로 추론 결함을 재현 못 함)."
     },
     "src/main/adapters/subprocess-session.ts": {
       "layer": "adapters",
-      "uc": ["UC-014"],
+      "uc": [
+        "UC-014"
+      ],
       "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
       "note": "pi/opencode 공유 subprocess 세션 머신 — child stdout 줄→이벤트(큐+waiter)·session_end 1회·cancel SIGTERM→500ms→SIGKILL·late-stdout/64MiB 가드. child_process 격리. SPEC-010."
     },
     "src/main/adapters/subagent-pi.ts": {
       "layer": "adapters",
-      "uc": ["UC-014"],
+      "uc": [
+        "UC-014"
+      ],
       "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
       "note": "pi 코딩에이전트 SubAgentPort — pi NDJSON→event·bin resolve(PI_BIN→node_modules→PATH→npx)·honest-unsupported. SPEC-010."
     },
     "src/main/adapters/subagent-opencode-cli.ts": {
       "layer": "adapters",
-      "uc": ["UC-014"],
+      "uc": [
+        "UC-014"
+      ],
       "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
       "note": "opencode SubAgentPort — opencode run --format json NDJSON→event·bin resolve·honest-unsupported. SPEC-010."
     },
     "src/main/adapters/subagent-shell.ts": {
       "layer": "adapters",
-      "uc": ["UC-014"],
+      "uc": [
+        "UC-014"
+      ],
       "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
       "note": "shell 레퍼런스 SubAgentPort — 임의 명령 spawn·SIGTERM→SIGKILL 인터럽트 레퍼런스(AC1 실프로세스 검증). SPEC-010."
     },
     "src/main/adapters/subagent-claude-code.ts": {
       "layer": "adapters",
-      "uc": ["UC-014"],
+      "uc": [
+        "UC-014"
+      ],
       "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
       "note": "claude-code SubAgentPort — claude -p --output-format stream-json NDJSON→event(assistant text/tool_use·user tool_result id→name 상태ful 페어링)·bin resolve(CLAUDE_BIN→PATH→npx). RT-verified(shape). SPEC-010. 진행=.agents/progress/naia-agent-subagent-adapters-2026-06-29.md"
     },
     "src/main/adapters/subagent-codex.ts": {
       "layer": "adapters",
-      "uc": ["UC-014"],
+      "uc": [
+        "UC-014"
+      ],
       "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
       "note": "codex SubAgentPort — codex exec --json NDJSON→event(item.completed agent_message→text·command_execution/file_change→tool_use)·bin resolve(CODEX_BIN→PATH→npx). RT-verified. SPEC-010. 진행=naia-agent-subagent-adapters-2026-06-29.md"
     },
     "src/main/adapters/subagent-gemini.ts": {
       "layer": "adapters",
-      "uc": ["UC-014"],
+      "uc": [
+        "UC-014"
+      ],
       "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
       "note": "gemini SubAgentPort — gemini -p --output-format stream-json NDJSON→event(init/message/tool_use/tool_result, 관용 파싱)·bin resolve(GEMINI_BIN→PATH→npx). ⚠️runtime-unverified(auth IneligibleTierError) schema=docs@0.47.0. SPEC-010. 진행=naia-agent-subagent-adapters-2026-06-29.md"
     },
     "src/main/adapters/subagent-roster.ts": {
       "layer": "adapters",
-      "uc": ["UC-014"],
+      "uc": [
+        "UC-014"
+      ],
       "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
       "note": "이름→SubAgentPort 선택 — pi/opencode/shell/claude-code/codex/gemini 구현 + unknown = honest-unsupported(throw 아님, AC6). SPEC-010."
     },
     "src/main/adapters/delegate-agent-skill.ts": {
       "layer": "adapters",
-      "uc": ["UC-014"],
+      "uc": [
+        "UC-014"
+      ],
       "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
       "note": "delegate_agent ToolExecutorPort — 메인 LLM 이 sub-agent 를 부리는 도구(UC-014 오케스트레이션 확장, 메인→다중 sub-agent 위임·취합). supervisor runner DI(import-boundary 준수). opt-in(env NAIA_DELEGATE_AGENT). 진행=naia-agent-subagent-adapters-2026-06-29.md"
     },
     "src/main/adapters/verifier-commands.ts": {
       "layer": "adapters",
-      "uc": ["UC-014"],
+      "uc": [
+        "UC-014"
+      ],
       "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
       "note": "VerifierPort 실 어댑터 — check 목록 병렬 실행 **never-throws(AC2)**(exit/ENOENT/timeout/spawn-throw→pass:false). 정직보고. SPEC-010."
     },
     "src/main/adapters/workspace-git.ts": {
       "layer": "adapters",
-      "uc": ["UC-014"],
+      "uc": [
+        "UC-014"
+      ],
       "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
       "note": "WorkspacePort 실 어댑터 — git status --porcelain 폴링·classifyPorcelain(C-quoting 디코드)·abort 누수0. 정직보고 변경 수치. SPEC-010."
     },
     "src/main/domain/fs-sandbox.ts": {
       "layer": "domain",
-      "uc": ["UC-FS-TOOLS"],
+      "uc": [
+        "UC-FS-TOOLS"
+      ],
       "contract": [
         "docs/requirements.md",
         "docs/user-scenarios.md"
@@ -710,7 +745,9 @@
     },
     "src/main/adapters/fs-tools.ts": {
       "layer": "adapters",
-      "uc": ["UC-FS-TOOLS"],
+      "uc": [
+        "UC-FS-TOOLS"
+      ],
       "contract": [
         "docs/requirements.md",
         "docs/user-scenarios.md"
@@ -719,7 +756,9 @@
     },
     "src/main/adapters/shell-tool.ts": {
       "layer": "adapters",
-      "uc": ["UC-FS-TOOLS"],
+      "uc": [
+        "UC-FS-TOOLS"
+      ],
       "contract": [
         "docs/requirements.md",
         "docs/user-scenarios.md"
@@ -728,7 +767,9 @@
     },
     "src/main/adapters/knowledge-skill.ts": {
       "layer": "adapters",
-      "uc": ["UC-KNOWLEDGE"],
+      "uc": [
+        "UC-KNOWLEDGE"
+      ],
       "contract": [
         "docs/requirements.md",
         "docs/user-scenarios.md"
@@ -737,7 +778,9 @@
     },
     "src/main/adapters/knowledge-compile.ts": {
       "layer": "adapters",
-      "uc": ["UC-KNOWLEDGE"],
+      "uc": [
+        "UC-KNOWLEDGE"
+      ],
       "contract": [
         "docs/requirements.md",
         "docs/user-scenarios.md"
@@ -746,51 +789,142 @@
     },
     "src/main/ports/speech-activity.ts": {
       "layer": "ports",
-      "uc": ["UC-015"],
+      "uc": [
+        "UC-015"
+      ],
       "contract": "docs/progress/99.dev-comm/UC-CONTINUE-SPEAKING-contract-2026-07-16.md",
       "note": "두 opt-in 선제 발화 profile의 닫힌 포트·설정·activity event 계약."
     },
     "src/main/app/personal-radio-dj-controller.ts": {
       "layer": "app",
-      "uc": ["UC-015"],
+      "uc": [
+        "UC-015"
+      ],
       "contract": "docs/progress/99.dev-comm/UC-CONTINUE-SPEAKING-contract-2026-07-16.md",
       "note": "개인 라디오 DJ idle·BGM·멘트·제어·bounded lease와 race 보상."
     },
     "src/main/app/exhibition-intro-controller.ts": {
       "layer": "app",
-      "uc": ["UC-015"],
+      "uc": [
+        "UC-015"
+      ],
       "contract": "docs/progress/99.dev-comm/UC-CONTINUE-SPEAKING-contract-2026-07-16.md",
       "note": "전시 KB 소개·기권·비반복 cursor·질문 yield/resume·privacy 경계."
     },
     "src/main/app/speech-profile-runtime.ts": {
       "layer": "app",
-      "uc": ["UC-015"],
+      "uc": [
+        "UC-015"
+      ],
       "contract": "docs/progress/99.dev-comm/UC-CONTINUE-SPEAKING-contract-2026-07-16.md",
       "note": "profile 선택·session 구독·control/stop·전시 Q&A 결속."
     },
     "src/main/adapters/activity-radio-dj-bgm.ts": {
       "layer": "adapters",
-      "uc": ["UC-015"],
+      "uc": [
+        "UC-015"
+      ],
       "contract": "docs/progress/99.dev-comm/UC-CONTINUE-SPEAKING-contract-2026-07-16.md",
       "note": "일반 도구를 열지 않는 profile 전용 shell panel BGM 왕복."
     },
     "src/main/adapters/activity-speech-egress.ts": {
       "layer": "adapters",
-      "uc": ["UC-015"],
+      "uc": [
+        "UC-015"
+      ],
       "contract": "docs/progress/99.dev-comm/UC-CONTINUE-SPEAKING-contract-2026-07-16.md",
       "note": "선제 발화 activity를 session stream AgentEvent로 내보내는 표현 어댑터."
     },
     "src/main/adapters/exhibition-knowledge.ts": {
       "layer": "adapters",
-      "uc": ["UC-015"],
+      "uc": [
+        "UC-015"
+      ],
       "contract": "docs/progress/99.dev-comm/UC-CONTINUE-SPEAKING-contract-2026-07-16.md",
       "note": "KnowledgeBackend를 전시 profile의 source 필수 read-only 포트로 제한."
     },
     "src/main/adapters/radio-dj-runtime.ts": {
       "layer": "adapters",
-      "uc": ["UC-015"],
+      "uc": [
+        "UC-015"
+      ],
       "contract": "docs/progress/99.dev-comm/UC-CONTINUE-SPEAKING-contract-2026-07-16.md",
       "note": "DJ clock·시간/날씨 context·결정론 selector·in-process 명시 선호 adapter."
+    },
+    "src/main/domain/studio-voice-profile.ts": {
+      "layer": "domain",
+      "uc": [
+        "UC-STUDIO-VOICE"
+      ],
+      "contract": [
+        "docs/requirements.md",
+        "docs/user-scenarios.md",
+        "docs/progress/99.dev-comm/UC-studio-voice-profile-contract-2026-09-17.md"
+      ],
+      "note": "VoiceProfile schema + consent gate (grant/revoke/expire/scope). NVA manifest 분리. storageLocator opaque. FR-STUDIO-VOICE-1~6. 테스트=src/test/studio-voice-profile.contract.test.ts. alpha-adk#48"
+    },
+    "src/main/domain/studio-version.ts": {
+      "layer": "domain",
+      "uc": [
+        "UC-STUDIO-AGENT"
+      ],
+      "contract": [
+        "docs/requirements.md",
+        "docs/user-scenarios.md"
+      ],
+      "note": "VersionGraph original immutable + artifactRef. alpha-adk#51 FE-NS-011"
+    },
+    "src/main/domain/studio-proposal.ts": {
+      "layer": "domain",
+      "uc": [
+        "UC-STUDIO-AGENT"
+      ],
+      "contract": [
+        "docs/requirements.md",
+        "docs/user-scenarios.md"
+      ],
+      "note": "RevisionProposal FSM + MVP-1 unsupported. alpha-adk#51 FE-NS-008/009"
+    },
+    "src/main/domain/studio-error.ts": {
+      "layer": "domain",
+      "uc": [
+        "UC-STUDIO-AGENT"
+      ],
+      "contract": [
+        "docs/requirements.md"
+      ],
+      "note": "UserFacingError + correlationId + model slug strip. alpha-adk#51 FE-NS-012"
+    },
+    "src/main/ports/studio.ts": {
+      "layer": "ports",
+      "uc": [
+        "UC-STUDIO-AGENT"
+      ],
+      "contract": [
+        "docs/requirements.md"
+      ],
+      "note": "SingingBackendPort + StudioServicePort. alpha-adk#51"
+    },
+    "src/main/app/studio-service.ts": {
+      "layer": "app",
+      "uc": [
+        "UC-STUDIO-AGENT"
+      ],
+      "contract": [
+        "docs/requirements.md",
+        "docs/user-scenarios.md"
+      ],
+      "note": "Studio orchestration: voice gate, job, proposal, resume. alpha-adk#51"
+    },
+    "src/main/domain/studio-melody.ts": {
+      "layer": "domain",
+      "uc": [
+        "UC-STUDIO-AGENT"
+      ],
+      "contract": [
+        "docs/requirements.md"
+      ],
+      "note": "MelodyCatalog + MelodyLyricsAlignment opaque refs. FE-NS-010/014 alpha-adk#51"
     }
   }
 }

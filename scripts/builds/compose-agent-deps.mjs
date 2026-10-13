@@ -38,6 +38,11 @@ import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+/** 제품 메모리의 정본 경로. 셸·환경변수가 제품 저장 위치를 우회할 수 없다. */
+export function resolveMemoryStorePath({ adkPath }) {
+  return join(adkPath, "naia-settings", "memory", "store.json");
+}
+
 /**
  * transport-독립 런타임 deps 조립(async — memory 동적 import + MCP init 때문).
  * @param {object} [o]
@@ -324,7 +329,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
   if (env.NAIA_AGENT_MEMORY !== "off") {
     try {
       const { makeNaiaMemory } = await import("../../dist/main/adapters/naia-memory.js");
-      const { resolveWorkspaceId, storeDirKey } = await import("../../dist/main/adapters/workspace-project.js");
+      const { resolveWorkspaceId } = await import("../../dist/main/adapters/workspace-project.js");
       const project = env.NAIA_MEMORY_PROJECT || resolveWorkspaceId(adkPath, {
         readFile: (p) => nodeFs.readFileSync(p, "utf8"),
         writeFileExclusive: (p, d) => nodeFs.writeFileSync(p, d, { flag: "wx", mode: 0o600 }),
@@ -332,8 +337,9 @@ export async function composeAgentRuntimeDeps(o = {}) {
         isDirectory: (p) => { try { return nodeFs.statSync(p).isDirectory(); } catch { return false; } },
         randomUUID,
       });
-      const storeBase = env.NAIA_MEMORY_DIR || join(homedir(), ".naia-agent", "memory");
-      const storePath = env.NAIA_MEMORY_STORE || join(storeBase, storeDirKey(project), "store.json");
+      // 제품 정본은 활성 ADK 워크스페이스가 소유한다. 라이브러리/사용자 홈 폴백을 쓰면
+      // 셸이 선택한 ADK와 실제 기억 저장소가 갈라지므로 기본 루트는 naia-settings 아래로 고정한다.
+      const storePath = resolveMemoryStorePath({ adkPath });
       try { nodeFs.mkdirSync(dirname(storePath), { recursive: true, mode: 0o700 }); } catch { /* best-effort */ }
       const sessionId = env.NAIA_MEMORY_SESSION || `proc-${randomUUID()}`;
       memory = makeNaiaMemory({

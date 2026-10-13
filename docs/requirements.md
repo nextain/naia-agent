@@ -22,6 +22,7 @@
 | FR-MEM-10 | 출처 보존 — recall 이 episode role(user/assistant) 보존, formatter 가 사용자 진술/assistant 생성물(미검증) 구분(자기증폭·확증루프 방지). | Done |
 | FR-MEM-11 | adapter/embedding/LLM 선택 배선(issue #7) — os 메모리 UI 의 `memoryAdapter`(local/qdrant)·`memoryEmbeddingProvider`(none/offline/vllm/ollama/naia)·`memoryLlmProvider`(none/vllm/ollama/naia, factExtractor) 선택이 config.json→`loadMemoryConfig`→`makeNaiaMemory`(`buildEmbeddingProvider`/`buildMemoryFactExtractor`)로 런타임 반영. 이전엔 LocalAdapter+키워드-only+휴리스틱 하드코딩이라 UI 선택 무시(silent no-op)였음. 미설정=local+키워드-only+휴리스틱(무회귀). qdrant=embedding 필수, embedding/LLM=baseUrl·model 필수 fail-closed. 비밀(*ApiKey)은 셸 strip→**키체인 정식 기록**(#18: NAIA_MEMORY_*_API_KEY, naiaKey=NAIA_ANYLLM_API_KEY)+env override 폴백. 부팅 1회(라이브 변경=재시작 반영). compaction **summarizer 도 same small-LLM 으로 배선**(buildMemorySummarizer→naia-memory buildLLMSummarizer, 실패 시 결정론 recap 폴백=무손실). embedding offline=GPU/CPU/auto device. 실 backend I/O(원격/모델다운로드/라이브 qdrant/LLM 출력 품질)=naia-memory 책임+외부자원(헤르메틱 범위 밖). | Done |
 | FR-MEM-12 | naia sub-LLM config 보강 + graceful degrade(S5/G5) — `memoryLlmProvider:"naia"` 일 때 `loadMemoryConfig` 가 sub-LLM 을 게이트웨이로 완전 구성: baseUrl=`naiaGatewayUrl`/`NAIA_ANYLLM_BASE_URL`(기본 api.nextain.io), key=naiaKey(키체인 NAIA_ANYLLM_API_KEY), model=`memoryLlmModel` **부재 시 기본 게이트웨이 경량 모델**(`gemini-3.1-flash-lite`, FR-SLOT.3 정합). 근본 원인: naia-os SettingsTab 이 provider="naia" 일 때 model 입력란을 렌더하지 않아(vllm/ollama 만) `memoryLlmModel` 누락 → 폴백 없으면 model 누락이 makeNaiaMemory 의 fail-closed throw 를 유발해 **메모리 전체 OFF**(G5: "memory=off"). **graceful degrade**: sub-LLM 을 깨끗이 구성 불가하면(baseUrl/model 누락, 또는 naia 인데 key 부재로 게이트웨이 호출 불가) `llm.provider` 를 `none` 으로 강등 → factExtractor/summarizer=undefined(휴리스틱·결정론 recap) → 메모리는 embedding/키워드 회상·저장으로 **계속 동작**(LLM 추출/요약만 생략). 즉 sub-LLM 부재가 memory 전체를 죽이지 않는다. | Done |
+| FR-MEM-13 | ADK 소유 저장 경로 — 제품 런타임의 메모리 정본은 활성 `<adkPath>/naia-settings/memory/store.json`이다. 사용자 홈이나 naia-memory 라이브러리 기본 경로로 암묵 폴백하지 않으며 셸·환경변수로 로컬 제품 저장 위치를 우회할 수 없다. 명시적으로 선택한 외부 저장 backend는 adapter 경계의 예외다. | Done |
 
 ### NFR
 - 헥사고날 경계: domain 순수(formatRecalledMemory)·app 포트만·adapter 데이터만(프롬프트 정책 비누출).
@@ -506,3 +507,32 @@ The Agent and Gateway preserve these codes end to end:
 - **NFR-SUPERVISOR-1**: Closing the initiating caller does not cancel an accepted run. Restarting the Agent reconciles persisted outbox state before dispatch, without requiring Shell UI availability.
 - **Scope**: This requirement is the Agent-side P0 vertical slice. Production host activation/accepted-run ingress, Shell RPC/UI, real worker adapter, and full ADK stage receipt evaluation are follow-up integration work; caller-disconnect survival is not yet a product acceptance claim.
 - **Status**: In progress.
+
+## UC-STUDIO-VOICE FR/NFR (FR-STUDIO-VOICE-1 ~ 6) — alpha-adk #48
+
+권위: alpha-adk `.agents/progress/naia-studio-47-20260917/` (REQ-NS-004,005,013) + 본 표.
+계약 테스트: `src/test/studio-voice-profile.contract.test.ts`.
+
+| ID | 요구사항 | 상태 |
+|----|----------|:----:|
+| FR-STUDIO-VOICE-1 | VoiceProfile 스키마: id, displayName, previewRef, consent{status,scope,recordedAt,revokedAt?,expiresAt?}, provenance, subject, usageScope[], storageLocator, derivativePolicy. 순수 domain 정규화. | Done |
+| FR-STUDIO-VOICE-2 | 생성 게이트: status=granted ∧ ¬revoked ∧ ¬expired ∧ scope⊇requested 일 때만 허용. 그 외 user-facing code. | Done |
+| FR-STUDIO-VOICE-3 | NVA/VRM 캐릭터 manifest ≠ VoiceProfile. 교차 투입 시 타입 거부. | Done |
+| FR-STUDIO-VOICE-4 | 대용량 음성 bytes를 profile 객체에 금지. storageLocator는 opaque relative/key만(절대경로·`..` 거부). | Done |
+| FR-STUDIO-VOICE-5 | 스키마·검증기 코드 소유=naia-agent domain. naia-settings는 데이터 인스턴스만. | Done |
+| FR-STUDIO-VOICE-6 | 철회 후 신규 생성 차단. derivativePolicy ∈ {keep,hide,delete} 기록(실행은 후속 이슈). | Done |
+
+### NFR
+- domain 순수: fs/network/process 금지.
+- 호스트 중립: shell·naia.land 모두 동일 스키마를 소비.
+- 모델/알고리즘명 비노출(오류 코드만).
+
+## UC-STUDIO-AGENT FR (FR-STUDIO-AGENT-1 ~ 5) — alpha-adk #51
+
+| ID | 요구사항 | 상태 |
+|----|----------|:----:|
+| FR-STUDIO-AGENT-1 | VersionGraph: original immutable, artifactRef only, A/B | Done |
+| FR-STUDIO-AGENT-2 | RevisionProposal FSM; approve 전 revision job 없음; MVP-1 unsupported 분기 | Done |
+| FR-STUDIO-AGENT-3 | UserFacingError + correlationId; 모델 slug 비노출 | Done |
+| FR-STUDIO-AGENT-4 | StudioService: voice gate → job → graph; resume unknown 정직 | Done |
+| FR-STUDIO-AGENT-5 | SingingBackendPort로 sing 계약 소비(모델 비소유) | Done |
