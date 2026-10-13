@@ -21,6 +21,7 @@ type FetchLike = (url: string, init: { method: string; headers: Record<string, s
 }>;
 
 const OLLAMA_SHOW_TIMEOUT_MS = 2_000;
+const OLLAMA_SHOW_CACHE_TTL_MS = 30_000;
 const UNKNOWN_THINKING_CAPABILITY: ThinkingCapability = { kind: "unknown" };
 
 type ThinkingCapability =
@@ -32,6 +33,11 @@ type ThinkingCapability =
 interface ShowLookup {
   readonly cacheable: boolean;
   readonly capability: ThinkingCapability;
+}
+
+interface CachedThinkingCapability {
+  readonly capability: ThinkingCapability;
+  readonly expiresAt: number;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -178,7 +184,7 @@ async function readErrorBody(body: { getReader(): { read(): Promise<{ done: bool
 
 export function makeOllamaProvider(deps?: { fetch?: FetchLike }): ProviderPort {
   const doFetch: FetchLike = deps?.fetch ?? (globalThis.fetch as unknown as FetchLike);
-  const showCache = new Map<string, ThinkingCapability>();
+  const showCache = new Map<string, CachedThinkingCapability>();
   const showInFlight = new Map<string, Promise<ThinkingCapability>>();
   let lastScope: string | undefined;
   const getThinkingCapability = (host: string, baseUrl: string, model: string): Promise<ThinkingCapability> => {
@@ -187,13 +193,16 @@ export function makeOllamaProvider(deps?: { fetch?: FetchLike }): ProviderPort {
     lastScope = scope;
     const cacheKey = JSON.stringify([host, model]);
     const cached = showCache.get(cacheKey);
-    if (cached) return Promise.resolve(cached);
+    if (cached && cached.expiresAt > Date.now()) return Promise.resolve(cached.capability);
+    if (cached) showCache.delete(cacheKey);
     const inFlight = showInFlight.get(cacheKey);
     if (inFlight) return inFlight;
     let pending!: Promise<ThinkingCapability>;
     pending = fetchThinkingCapability(doFetch, baseUrl, model).then(({ cacheable, capability }) => {
       if (showInFlight.get(cacheKey) === pending) showInFlight.delete(cacheKey);
-      if (cacheable && lastScope === scope) showCache.set(cacheKey, capability);
+      if (cacheable && lastScope === scope) {
+        showCache.set(cacheKey, { capability, expiresAt: Date.now() + OLLAMA_SHOW_CACHE_TTL_MS });
+      }
       return capability;
     });
     showInFlight.set(cacheKey, pending);

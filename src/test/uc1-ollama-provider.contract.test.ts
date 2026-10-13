@@ -1,6 +1,6 @@
 // ollama ProviderPort 계약 테스트 — mock fetch(실 ollama 없이 NDJSON 스트림 재현).
 // UC5 §H(FR-PROV-6): tools 전송·message.tool_calls 파싱·tool-bearing 메시지 매핑·degrade 재시도.
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { makeOllamaProvider } from "../main/adapters/ollama-provider.js";
 import type { ProviderChunk, ProviderConfig } from "../main/domain/chat.js";
 
@@ -465,5 +465,77 @@ describe("Ollama thinking capability (/api/show, mocked responses)", () => {
     expect(fetch.showCalls.map(({ body }) => body.model)).toEqual(["model-a", "model-b", "model-a"]);
     expect(fetch.chatBodies.map((body) => body.think)).toEqual([true, "high", false]);
     expect(unsupportedSignals).toEqual([{ host: "http://h", model: "model-a" }]);
+  });
+
+  it("refreshes a same-tag capability after cache expiry from supported to unsupported", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(0));
+    try {
+      const responses = [
+        { thinking: { values: ["low", "high"] } },
+        { thinking: { values: [false] } },
+      ];
+      let responseIndex = 0;
+      const fetch = makeThinkingFetch(async () =>
+        fakeJsonResponse(responses[responseIndex++] ?? { thinking: { values: [] } }),
+      );
+      const provider = makeOllamaProvider({ fetch: fetch as never });
+      const unsupportedSignals: Array<{ host: string; model: string }> = [];
+      const opts = {
+        onOllamaThinkingUnsupported: (host: string, model: string) => unsupportedSignals.push({ host, model }),
+      };
+
+      await collect(provider.chat(thinkingConfig("high"), [], opts));
+      await collect(provider.chat(thinkingConfig("high"), [], opts));
+      expect(fetch.showCalls).toHaveLength(1);
+      expect(fetch.chatBodies.map((body) => body.think)).toEqual(["high", "high"]);
+
+      await vi.advanceTimersByTimeAsync(30_001);
+      await collect(provider.chat(thinkingConfig("high"), [], opts));
+
+      expect(fetch.showCalls).toHaveLength(2);
+      expect(fetch.chatBodies.map((body) => body.think)).toEqual(["high", "high", false]);
+      expect(unsupportedSignals).toEqual([{ host: "http://h", model: "gemma4" }]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("refreshes a same-tag capability after cache expiry from unsupported to supported", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(0));
+    try {
+      const responses = [
+        { thinking: { values: [false] } },
+        { thinking: { values: ["low", "high"] } },
+      ];
+      let responseIndex = 0;
+      const fetch = makeThinkingFetch(async () =>
+        fakeJsonResponse(responses[responseIndex++] ?? { thinking: { values: [] } }),
+      );
+      const provider = makeOllamaProvider({ fetch: fetch as never });
+      const unsupportedSignals: Array<{ host: string; model: string }> = [];
+      const opts = {
+        onOllamaThinkingUnsupported: (host: string, model: string) => unsupportedSignals.push({ host, model }),
+      };
+
+      await collect(provider.chat(thinkingConfig("high"), [], opts));
+      await collect(provider.chat(thinkingConfig("high"), [], opts));
+      expect(fetch.showCalls).toHaveLength(1);
+      expect(fetch.chatBodies.map((body) => body.think)).toEqual([false, false]);
+      expect(unsupportedSignals).toEqual([
+        { host: "http://h", model: "gemma4" },
+        { host: "http://h", model: "gemma4" },
+      ]);
+
+      await vi.advanceTimersByTimeAsync(30_001);
+      await collect(provider.chat(thinkingConfig("high"), [], opts));
+
+      expect(fetch.showCalls).toHaveLength(2);
+      expect(fetch.chatBodies.map((body) => body.think)).toEqual([false, false, "high"]);
+      expect(unsupportedSignals).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
