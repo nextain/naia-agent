@@ -28,12 +28,13 @@ export interface ProviderResolverDeps {
 
 export function makeProviderResolver(deps?: ProviderResolverDeps): ProviderResolverPort {
 	const f = deps?.fetch;
+	const ollamaProvider = makeOllamaProvider(f ? { fetch: f } : undefined);
 	return {
 		resolve(config: ProviderConfig): ProviderPort {
 			switch (resolveProviderRoute(config)) {
 				case "ollama":
 					// fetch 주입 전달(미주입=global). 안 넘기면 헤드리스 테스트가 ollama 를 mock 못 해 실 네트워크로 샘(직교 위반).
-					return makeOllamaProvider(f ? { fetch: f } : undefined);
+					return ollamaProvider;
 				case "anthropic":
 					// anthropic — Messages API(/v1/messages, x-api-key, ANTHROPIC_API_KEY). OpenAI-compat 아님 → 전용 어댑터.
 					return makeAnthropicProvider({

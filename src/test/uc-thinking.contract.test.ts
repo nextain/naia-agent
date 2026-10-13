@@ -28,6 +28,7 @@ import { ChatTurnHandler, type HandlerDeps } from "../main/app/chat-turn-handler
 import { makeInMemoryCredentials } from "../main/composition/index.js";
 import { makeInMemoryApproval } from "../main/adapters/approval.js";
 import { makeFakeProvider } from "../main/adapters/fake-provider.js";
+import type { ProviderPort, ProviderChatOpts } from "../main/ports/uc1.js";
 
 /** 요청 body 를 포착하는 mock fetch(SSE 1줄 + DONE). */
 function captureFetch(sink: { body?: Record<string, unknown> }) {
@@ -405,6 +406,67 @@ describe("UC-THINKING — S-THINK-9 / FR-THINK-11 (응답 다중 형식 & 중복
     const chunks = await collect(prov.chat({ provider: "nextain", model: "deepseek-v4-flash" }, [{ role: "user", content: "hi" }], {}));
     const thinkingChunks = chunks.filter((c) => c.kind === "thinking");
     expect(thinkingChunks).toEqual([{ kind: "thinking", text: "direct thought" }]);
+  });
+});
+
+describe("UC-THINKING — Ollama capability status handoff", () => {
+  it("turn level survives into ProviderConfig and the explicit unsupported signal uses the existing AgentEmit path", async () => {
+    const emits: { requestId: string; e: AgentEmit }[] = [];
+    let seenConfig: ProviderConfig | undefined;
+    const provider: ProviderPort = {
+      async *chat(config: ProviderConfig, _messages: readonly ChatMessage[], opts: ProviderChatOpts): AsyncIterable<ProviderChunk> {
+        seenConfig = config;
+        opts.onOllamaThinkingUnsupported?.(config.ollamaHost ?? "http://localhost:11434", config.model);
+        yield { kind: "finish" };
+      },
+    };
+    const deps: HandlerDeps = {
+      provider: makeFakeProvider(),
+      resolver: { resolve: () => provider },
+      conversation: { assemble: (request) => ({ messages: request.messages }) },
+      credentials: makeInMemoryCredentials(),
+      approval: makeInMemoryApproval(),
+      egress: { emit: (requestId, e) => emits.push({ requestId, e }) },
+      diag: { log: () => {} },
+    };
+    await new ChatTurnHandler(deps).onChatRequest({
+      kind: "chat",
+      requestId: "ollama-thinking-status",
+      provider: { provider: "ollama", model: "qwen3:8b", ollamaHost: "http://localhost:11434" },
+      thinking: { level: "high" },
+      messages: [{ role: "user", content: "hi" }],
+    });
+
+    expect(seenConfig).toMatchObject({ thinkingLevel: "high", enableThinking: true });
+    expect(emits.map(({ e }) => e.kind)).toContain("logEntry");
+    expect(emits.find(({ e }) => e.kind === "logEntry")?.e).toEqual({
+      kind: "logEntry",
+      level: "ollama_thinking_unsupported",
+      message: JSON.stringify({ host: "http://localhost:11434", model: "qwen3:8b" }),
+    });
+  });
+
+  it("keeps Ollama capability probing and think conversion out of other providers", async () => {
+    const urls: string[] = [];
+    const bodies: Record<string, unknown>[] = [];
+    const enc = new TextEncoder();
+    const fetch = async (url: string, init: { body: string }) => {
+      urls.push(url);
+      bodies.push(JSON.parse(init.body) as Record<string, unknown>);
+      let index = 0;
+      const lines = ['data: {"choices":[{"delta":{"content":"ok"}}]}\n', "data: [DONE]\n"];
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        body: { getReader: () => ({ async read() { return index >= lines.length ? { done: true } : { done: false, value: enc.encode(lines[index++]!) }; } }) },
+      };
+    };
+    const resolver = makeProviderResolver({ fetch: fetch as never });
+    const config: ProviderConfig = { provider: "openai", model: "gpt-4o", thinkingLevel: "high", enableThinking: true };
+    await drain(resolver.resolve(config).chat(config, [{ role: "user", content: "hi" }], {}));
+    expect(urls.some((url) => url.endsWith("/api/show"))).toBe(false);
+    expect(bodies[0]).not.toHaveProperty("think");
   });
 });
 

@@ -966,6 +966,13 @@ export class ChatTurnHandler {
       signal,
       ...(tools && tools.length ? { tools } : {}),
       ...(executeTool ? { executeTool } : {}),
+      onOllamaThinkingUnsupported: (host, model) => {
+        nativeEmit({
+          kind: "logEntry",
+          level: "ollama_thinking_unsupported",
+          message: JSON.stringify({ host, model }),
+        });
+      },
     });
     const it = stream[Symbol.asyncIterator]();
     const closeIt = () => { try { void Promise.resolve(it.return?.()).catch(() => {}); } catch { /* return() 동기 throw 격리(R9) */ } };

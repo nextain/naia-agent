@@ -245,3 +245,225 @@ describe("UC5 §H tools (ollama native tool_calls)", () => {
     await expect(collect(gen)).rejects.toThrow(/404.*model not found/s);
   });
 });
+
+type FakeResponse = {
+  ok: boolean;
+  status: number;
+  statusText: string;
+  body: { getReader(): { read(): Promise<{ done: boolean; value?: Uint8Array }> } } | null;
+  json?: () => Promise<unknown>;
+};
+
+function fakeJsonResponse(payload: unknown, status = 200): FakeResponse {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    statusText: status === 200 ? "OK" : "Error",
+    body: null,
+    json: async () => payload,
+  };
+}
+
+function fakeChatResponse(): FakeResponse {
+  const enc = new TextEncoder();
+  const lines = [JSON.stringify({ done: true }) + "\n"];
+  let index = 0;
+  return {
+    ok: true,
+    status: 200,
+    statusText: "OK",
+    body: {
+      getReader: () => ({
+        async read() {
+          return index >= lines.length
+            ? { done: true }
+            : { done: false, value: enc.encode(lines[index++]!) };
+        },
+      }),
+    },
+  };
+}
+
+function makeThinkingFetch(
+  show: (url: string, body: Record<string, unknown>, signal?: AbortSignal) => Promise<FakeResponse>,
+) {
+  const showCalls: Array<{ url: string; body: Record<string, unknown> }> = [];
+  const chatBodies: Array<Record<string, unknown>> = [];
+  const fetch = async (url: string, init: { body: string; signal?: AbortSignal }) => {
+    const body = JSON.parse(init.body) as Record<string, unknown>;
+    if (url.endsWith("/api/show")) {
+      showCalls.push({ url, body });
+      return show(url, body, init.signal);
+    }
+    chatBodies.push(body);
+    return fakeChatResponse();
+  };
+  return Object.assign(fetch, { showCalls, chatBodies });
+}
+
+const thinkingConfig = (level: "off" | "low" | "high", host = "http://h", model = "gemma4"): ProviderConfig => ({
+  ...cfg,
+  ollamaHost: host,
+  model,
+  thinkingLevel: level,
+  enableThinking: level !== "off",
+});
+
+describe("Ollama thinking capability (/api/show, mocked responses)", () => {
+  it("maps exact named levels and off, and reuses the successful host/model result", async () => {
+    const fetch = makeThinkingFetch(async () => fakeJsonResponse({ thinking: { values: ["low", "medium", "high"] } }));
+    const provider = makeOllamaProvider({ fetch: fetch as never });
+    for (const [level, expected] of [["off", false], ["low", "low"], ["high", "high"]] as const) {
+      await collect(provider.chat(thinkingConfig(level), [], {}));
+      expect(fetch.chatBodies[fetch.chatBodies.length - 1]?.think).toBe(expected);
+    }
+    expect(fetch.showCalls).toEqual([{ url: "http://h/api/show", body: { model: "gemma4" } }]);
+  });
+
+  it("maps boolean capability values to legacy off/on and signals only the exact [false] unsupported fixture", async () => {
+    const boolFetch = makeThinkingFetch(async () => fakeJsonResponse({ thinking: { values: [false, true] } }));
+    const boolProvider = makeOllamaProvider({ fetch: boolFetch as never });
+    for (const [level, expected] of [["off", false], ["low", true], ["high", true]] as const) {
+      await collect(boolProvider.chat(thinkingConfig(level), [], {}));
+      expect(boolFetch.chatBodies[boolFetch.chatBodies.length - 1]?.think).toBe(expected);
+    }
+
+    const unsupportedFetch = makeThinkingFetch(async () => fakeJsonResponse({ thinking: { values: [false] } }));
+    const unsupportedProvider = makeOllamaProvider({ fetch: unsupportedFetch as never });
+    const signals: Array<{ host: string; model: string }> = [];
+    for (const level of ["off", "low", "high"] as const) {
+      await collect(unsupportedProvider.chat(thinkingConfig(level), [], {
+        onOllamaThinkingUnsupported: (host, model) => signals.push({ host, model }),
+      }));
+      expect(unsupportedFetch.chatBodies[unsupportedFetch.chatBodies.length - 1]?.think).toBe(false);
+    }
+    expect(signals).toEqual([
+      { host: "http://h", model: "gemma4" },
+      { host: "http://h", model: "gemma4" },
+      { host: "http://h", model: "gemma4" },
+    ]);
+    expect(unsupportedFetch.showCalls).toHaveLength(1);
+  });
+
+  it("uses true for an unmatched named level and preserves off/on for undocumented boolean combinations", async () => {
+    const named = makeThinkingFetch(async () => fakeJsonResponse({ thinking: { values: ["tiny", "maximum"] } }));
+    await collect(makeOllamaProvider({ fetch: named as never }).chat(thinkingConfig("high"), [], {}));
+    expect(named.chatBodies[0]?.think).toBe(true); // Received fixture has no order-defined low/high mapping.
+
+    for (const values of [[true], [true, false], [false, false]] as const) {
+      const fetch = makeThinkingFetch(async () => fakeJsonResponse({ thinking: { values } }));
+      const provider = makeOllamaProvider({ fetch: fetch as never });
+      await collect(provider.chat(thinkingConfig("off"), [], {}));
+      await collect(provider.chat(thinkingConfig("high"), [], {}));
+      expect(fetch.chatBodies.map((body) => body.think)).toEqual([false, true]);
+    }
+  });
+
+  it("falls back for absent or malformed metadata and leaves unspecified think omitted", async () => {
+    const fixtures: Array<[string, (url: string, body: Record<string, unknown>, signal?: AbortSignal) => Promise<FakeResponse>, boolean]> = [
+      ["missing thinking", async () => fakeJsonResponse({ model: "gemma4" }), false],
+      ["wrong values shape", async () => fakeJsonResponse({ thinking: { values: "high" } }), false],
+      ["malformed JSON", async () => ({ ...fakeJsonResponse(null), json: async () => { throw new Error("invalid JSON"); } }), true],
+      ["HTTP error", async () => fakeJsonResponse({ error: "unavailable" }, 503), true],
+      ["fetch rejection", async () => { throw new Error("connection refused"); }, true],
+    ];
+    for (const [name, show, shouldRetry] of fixtures) {
+      const fetch = makeThinkingFetch(show);
+      const provider = makeOllamaProvider({ fetch: fetch as never });
+      const unsupportedSignals: Array<{ host: string; model: string }> = [];
+      for (const [level, expected] of [["off", false], ["high", true]] as const) {
+        await collect(provider.chat(thinkingConfig(level), [], {
+          onOllamaThinkingUnsupported: (host, model) => unsupportedSignals.push({ host, model }),
+        }));
+        expect(fetch.chatBodies[fetch.chatBodies.length - 1]?.think, name).toBe(expected);
+      }
+      expect(fetch.showCalls).toHaveLength(shouldRetry ? 2 : 1);
+      expect(unsupportedSignals, name).toEqual([]);
+    }
+
+    const noSelection = makeThinkingFetch(async () => fakeJsonResponse({ thinking: { values: [false] } }));
+    await collect(makeOllamaProvider({ fetch: noSelection as never }).chat(cfg, [], {}));
+    expect(noSelection.showCalls).toHaveLength(0);
+    expect(noSelection.chatBodies[0]?.think).toBeUndefined();
+  });
+
+  it("retries after timeout and fetch failure, then caches a successful result", async () => {
+    let showCount = 0;
+    const fetch = makeThinkingFetch(async (_url, _body, signal) => {
+      showCount += 1;
+      if (showCount === 1) {
+        return new Promise<FakeResponse>((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+        });
+      }
+      if (showCount === 2) throw new Error("connection refused");
+      return fakeJsonResponse({ thinking: { values: ["low", "high"] } });
+    });
+    const provider = makeOllamaProvider({ fetch: fetch as never });
+    await collect(provider.chat(thinkingConfig("high"), [], {}));
+    expect(fetch.chatBodies[0]?.think).toBe(true);
+    await collect(provider.chat(thinkingConfig("high"), [], {}));
+    expect(fetch.chatBodies[1]?.think).toBe(true);
+    await collect(provider.chat(thinkingConfig("high"), [], {}));
+    expect(fetch.chatBodies[2]?.think).toBe("high");
+    expect(showCount).toBe(3);
+  });
+
+  it("de-duplicates concurrent lookups and separates host/model cache keys", async () => {
+    let resolveShow!: (response: FakeResponse) => void;
+    let showStarted!: () => void;
+    const started = new Promise<void>((resolve) => { showStarted = resolve; });
+    const delayed = new Promise<FakeResponse>((resolve) => { resolveShow = resolve; });
+    const fetch = makeThinkingFetch(async () => {
+      showStarted();
+      return delayed;
+    });
+    const provider = makeOllamaProvider({ fetch: fetch as never });
+    const low = collect(provider.chat(thinkingConfig("low"), [], {}));
+    const high = collect(provider.chat(thinkingConfig("high"), [], {}));
+    await started;
+    expect(fetch.showCalls).toHaveLength(1);
+    resolveShow(fakeJsonResponse({ thinking: { values: ["low", "high"] } }));
+    await Promise.all([low, high]);
+    expect(fetch.chatBodies.map((body) => body.think)).toEqual(["low", "high"]);
+
+    const separated = makeThinkingFetch(async (url, body) => fakeJsonResponse({
+      thinking: { values: url.includes("host-b") || body.model === "other" ? ["high"] : ["low"] },
+    }));
+    const separatedProvider = makeOllamaProvider({ fetch: separated as never });
+    await collect(separatedProvider.chat(thinkingConfig("low", "http://host-a", "gemma4"), [], {}));
+    await collect(separatedProvider.chat(thinkingConfig("high", "http://host-b", "gemma4"), [], {}));
+    await collect(separatedProvider.chat(thinkingConfig("high", "http://host-a", "other"), [], {}));
+    expect(separated.showCalls.map(({ url, body }) => [url, body.model])).toEqual([
+      ["http://host-a/api/show", "gemma4"],
+      ["http://host-b/api/show", "gemma4"],
+      ["http://host-a/api/show", "other"],
+    ]);
+    expect(separated.chatBodies.map((body) => body.think)).toEqual(["low", "high", "high"]);
+  });
+
+  it("rechecks a model after the selected host/model scope changes", async () => {
+    const responses = [
+      { thinking: { values: ["low"] } },
+      { thinking: { values: ["high"] } },
+      { thinking: { values: [false] } },
+    ];
+    let responseIndex = 0;
+    const fetch = makeThinkingFetch(async () =>
+      fakeJsonResponse(responses[responseIndex++] ?? { thinking: { values: [] } }),
+    );
+    const provider = makeOllamaProvider({ fetch: fetch as never });
+    const unsupportedSignals: Array<{ host: string; model: string }> = [];
+    const opts = {
+      onOllamaThinkingUnsupported: (host: string, model: string) => unsupportedSignals.push({ host, model }),
+    };
+
+    await collect(provider.chat(thinkingConfig("high", "http://h", "model-a"), [], opts));
+    await collect(provider.chat(thinkingConfig("high", "http://h", "model-b"), [], opts));
+    await collect(provider.chat(thinkingConfig("high", "http://h", "model-a"), [], opts));
+
+    expect(fetch.showCalls.map(({ body }) => body.model)).toEqual(["model-a", "model-b", "model-a"]);
+    expect(fetch.chatBodies.map((body) => body.think)).toEqual([true, "high", false]);
+    expect(unsupportedSignals).toEqual([{ host: "http://h", model: "model-a" }]);
+  });
+});

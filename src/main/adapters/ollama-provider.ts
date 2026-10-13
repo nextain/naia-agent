@@ -17,7 +17,94 @@ const DEFAULT_NUM_CTX = 16384;
 type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal }) => Promise<{
   ok: boolean; status: number; statusText: string;
   body: { getReader(): { read(): Promise<{ done: boolean; value?: Uint8Array }>; cancel?(): Promise<void> | void } } | null;
+  json?: () => Promise<unknown>;
 }>;
+
+const OLLAMA_SHOW_TIMEOUT_MS = 2_000;
+const UNKNOWN_THINKING_CAPABILITY: ThinkingCapability = { kind: "unknown" };
+
+type ThinkingCapability =
+  | { readonly kind: "unknown" }
+  | { readonly kind: "unsupported" }
+  | { readonly kind: "named"; readonly values: readonly string[] }
+  | { readonly kind: "boolean"; readonly values: readonly boolean[] };
+
+interface ShowLookup {
+  readonly cacheable: boolean;
+  readonly capability: ThinkingCapability;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseThinkingCapability(payload: unknown): ThinkingCapability {
+  if (!isRecord(payload) || !isRecord(payload.thinking) || !Array.isArray(payload.thinking.values)) {
+    return UNKNOWN_THINKING_CAPABILITY;
+  }
+  const values: unknown[] = payload.thinking.values;
+  if (values.length === 1 && values[0] === false) return { kind: "unsupported" };
+  if (values.length > 0 && values.every((value) => typeof value === "string")) {
+    return { kind: "named", values: values as string[] };
+  }
+  if (values.length > 0 && values.every((value) => typeof value === "boolean")) {
+    return { kind: "boolean", values: values as boolean[] };
+  }
+  return UNKNOWN_THINKING_CAPABILITY;
+}
+
+async function fetchThinkingCapability(
+  doFetch: FetchLike,
+  baseUrl: string,
+  model: string,
+): Promise<ShowLookup> {
+  const controller = new AbortController();
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timeoutId = setTimeout(() => {
+      controller.abort();
+      reject(new Error("Ollama /api/show timed out"));
+    }, OLLAMA_SHOW_TIMEOUT_MS);
+  });
+  const request = async (): Promise<ShowLookup> => {
+    const response = await doFetch(`${baseUrl}/api/show`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model }),
+      signal: controller.signal,
+    });
+    if (!response.ok || typeof response.json !== "function") {
+      return { cacheable: false, capability: UNKNOWN_THINKING_CAPABILITY };
+    }
+    const payload = await response.json();
+    return { cacheable: true, capability: parseThinkingCapability(payload) };
+  };
+  try {
+    return await Promise.race([request(), timeout]);
+  } catch {
+    return { cacheable: false, capability: UNKNOWN_THINKING_CAPABILITY };
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+  }
+}
+
+function resolveThinkValue(
+  config: ProviderConfig,
+  capability: ThinkingCapability,
+): boolean | string | undefined {
+  const hasExplicitSetting = config.thinkingLevel !== undefined || config.enableThinking !== undefined;
+  if (!hasExplicitSetting) return undefined;
+  if (capability.kind === "unsupported") return false;
+  if (config.thinkingLevel === "off") return false;
+  if (config.thinkingLevel === "low" || config.thinkingLevel === "high") {
+    if (capability.kind === "named" && capability.values.includes(config.thinkingLevel)) {
+      return config.thinkingLevel;
+    }
+    // Boolean, unknown, and string-level lists without this exact name preserve on/off.
+    return true;
+  }
+  return config.enableThinking;
+}
 
 interface OllamaToolCallWire { id?: unknown; function?: { index?: unknown; name?: unknown; arguments?: unknown } }
 interface OllamaChunk {
@@ -91,9 +178,36 @@ async function readErrorBody(body: { getReader(): { read(): Promise<{ done: bool
 
 export function makeOllamaProvider(deps?: { fetch?: FetchLike }): ProviderPort {
   const doFetch: FetchLike = deps?.fetch ?? (globalThis.fetch as unknown as FetchLike);
+  const showCache = new Map<string, ThinkingCapability>();
+  const showInFlight = new Map<string, Promise<ThinkingCapability>>();
+  let lastScope: string | undefined;
+  const getThinkingCapability = (host: string, baseUrl: string, model: string): Promise<ThinkingCapability> => {
+    const scope = JSON.stringify([host, model]);
+    if (lastScope !== undefined && lastScope !== scope) showCache.clear();
+    lastScope = scope;
+    const cacheKey = JSON.stringify([host, model]);
+    const cached = showCache.get(cacheKey);
+    if (cached) return Promise.resolve(cached);
+    const inFlight = showInFlight.get(cacheKey);
+    if (inFlight) return inFlight;
+    let pending!: Promise<ThinkingCapability>;
+    pending = fetchThinkingCapability(doFetch, baseUrl, model).then(({ cacheable, capability }) => {
+      if (showInFlight.get(cacheKey) === pending) showInFlight.delete(cacheKey);
+      if (cacheable && lastScope === scope) showCache.set(cacheKey, capability);
+      return capability;
+    });
+    showInFlight.set(cacheKey, pending);
+    return pending;
+  };
   return {
     async *chat(config: ProviderConfig, messages: readonly ChatMessage[], opts: ProviderChatOpts): AsyncIterable<ProviderChunk> {
-      const baseUrl = (config.ollamaHost || "http://localhost:11434").replace(/\/+$/, "");
+      const host = config.ollamaHost || "http://localhost:11434";
+      const baseUrl = host.replace(/\/+$/, "");
+      const requestsThinking = config.thinkingLevel !== undefined || config.enableThinking !== undefined;
+      const capability = requestsThinking
+        ? await getThinkingCapability(host, baseUrl, config.model)
+        : UNKNOWN_THINKING_CAPABILITY;
+      if (capability.kind === "unsupported") opts.onOllamaThinkingUnsupported?.(host, config.model);
       const wireMsgs = toOllamaMessages(messages, opts.systemPrompt); // tool 메시지 toolCallId 누락 시 throw(§H.1)
       const toolsBody = opts.tools && opts.tools.length > 0
         ? opts.tools.map((s) => ({ type: "function", function: { name: s.name, description: s.description, parameters: s.parameters } }))
@@ -115,7 +229,8 @@ export function makeOllamaProvider(deps?: { fetch?: FetchLike }): ProviderPort {
 		  },
           ...(includeTools ? { tools: toolsBody } : {}),
         };
-        if (config.enableThinking !== undefined) body.think = config.enableThinking; // 명시 시만(미지원 모델 에러 방지)
+        const think = resolveThinkValue(config, capability);
+        if (think !== undefined) body.think = think; // 명시 시만(미지원 모델 에러 방지)
 
         const resp = await doFetch(`${baseUrl}/api/chat`, {
           method: "POST",
