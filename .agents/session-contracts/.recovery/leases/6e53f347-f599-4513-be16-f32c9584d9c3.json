@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "session_id": "6e53f347-f599-4513-be16-f32c9584d9c3",
+  "state": "active",
+  "pid": 2386781,
+  "host_process": {
+    "pid": 2386781,
+    "start_token": "18787707",
+    "command_line_hash": "fd7b8f908f7b4144474e6b70ff62631c1f9d5ab49a1280de38e00161cc6a1c4e"
+  },
+  "host": "bazzite",
+  "updated_at": "2026-10-03T09:39:45.376Z",
+  "event": "PreToolUse"
+}
