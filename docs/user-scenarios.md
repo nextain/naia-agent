@@ -713,7 +713,7 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 - **S-NAIA-PI-3 (capability rejection)**: DeepSeek로 코딩을 요청하면 Pi spawn/Azure 호출 전에 tool 미지원 이유로 실패한다.
 - **S-NAIA-PI-4 (stored login)**: 새 CLI 프로세스가 `~/.naia-agent/.env`의 Naia 키를 읽고 키 인자 없이 실행한다.
 - **S-NAIA-PI-5 (honest failure)**: 키 누락·인증 실패·모델 미지원·upstream 실패를 구분하고 비밀을 출력하지 않는다.
-- **S-NAIA-PI-6 (Motif 3)**: `motif-3`는 10개 Naia 도구 스키마 실측에서 10회 구조화 `tool_calls`를 반환한 후 도구 사용 모델과 Pi 목록에 포함된다. 스트리밍 `delta.reasoning` 문자열/객체는 thinking 이벤트로 전달되고 Pi 설정은 측정된 262,144 토큰 컨텍스트를 선언한다.
+- **S-NAIA-PI-6 (Motif 3)**: `motif-3`는 두 차례 live probe에서 구조화 `tool_calls` 9/10, 10/10(요청 함수 일치 8/10, 9/10)을 반환해 기준(9/10 이상)을 충족한 뒤 도구 사용 모델과 Pi 목록에 포함된다. 스트리밍 `delta.reasoning` 문자열/객체는 thinking 이벤트로 전달되고 Pi 설정은 측정된 262,144 토큰 컨텍스트를 선언한다.
 
 권위 계약과 전체 REQ/FE/TEST 매핑은
 `docs/progress/99.dev-comm/naia-account-pi-azure-contract-2026-07-30.md`이다.
