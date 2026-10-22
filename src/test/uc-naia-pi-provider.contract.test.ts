@@ -44,7 +44,7 @@ describe("UC-NAIA-PI provider isolation", () => {
         { id: "solar-pro4", cost: { input: 0.33, output: 1.32, cacheRead: 0.066 } },
         { id: "solar-mini", cost: { input: 0.165, output: 0.165, cacheRead: 0.165 } },
         { id: "motif-3", reasoning: true, contextWindow: 262144, maxTokens: 8192,
-          cost: { input: 0.22, output: 0.88, cacheRead: 0.044, cacheWrite: 0.22 } },
+          cost: { input: 0.26, output: 1.04, cacheRead: 0.052, cacheWrite: 0.26 } },
         { id: "HCX-007", cost: { input: 0.97, output: 3.88 } },
         { id: "HCX-DASH-002", cost: { input: 0.388, output: 1.552 } },
       ] } },
