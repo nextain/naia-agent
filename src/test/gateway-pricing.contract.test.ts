@@ -58,7 +58,7 @@ describe("adapters gateway-pricing — fetch and merge", () => {
 			json: async () => [
 				{ model_key: "azure:fetch-test-model", input_price_per_million: 0.5, output_price_per_million: 1.5 },
 				{ model_key: "upstage:fetch-test-solar", input_price_per_million: 0.33, output_price_per_million: 1.32 },
-				{ model_key: "motif:motif-3", input_price_per_million: 0.22, output_price_per_million: 0.88, cached_price_per_million: 0.044 },
+				{ model_key: "motif:motif-3", input_price_per_million: 0.26, output_price_per_million: 1.04, cached_price_per_million: 0.052 },
 			],
 		});
 		vi.stubGlobal("fetch", fetchMock);
@@ -66,7 +66,7 @@ describe("adapters gateway-pricing — fetch and merge", () => {
 		expect(applied).toBe(3);
 		expect(String(fetchMock.mock.calls[0][0])).toBe("https://gw.example/v1/pricing");
 		expect(calculateCost("fetch-test-model", 1_000_000, 0)).toBeCloseTo(0.5, 6);
-		expect(calculateCost("motif-3", 1_000_000, 1_000_000)).toBeCloseTo(1.1, 6);
+		expect(calculateCost("motif-3", 1_000_000, 1_000_000)).toBeCloseTo(1.3, 6);
 	});
 
 	it("null 가격·비-per_token 항목은 오버레이에 반영하지 않는다(Number(null)=0 오염 방지)", async () => {
@@ -137,8 +137,8 @@ describe("wireAgentUC1 chat turn — gateway pricing cost calculation", () => {
 			json: async () => [
 				{
 					model_key: "motif:motif-3",
-					input_price_per_million: 0.22,
-					output_price_per_million: 0.88,
+					input_price_per_million: 0.26,
+					output_price_per_million: 1.04,
 				},
 			],
 		});
@@ -158,7 +158,7 @@ describe("wireAgentUC1 chat turn — gateway pricing cost calculation", () => {
 		expect(String(fetchMock.mock.calls[0][0])).toBe("https://gw-test.example/v1/pricing");
 		const usage = emitted.find((e): e is Extract<AgentEmit, { kind: "usage" }> => e.kind === "usage");
 		expect(usage).toBeDefined();
-		expect(usage?.cost).toBeCloseTo((100_000 * 0.22 + 50_000 * 0.88) / 1_000_000, 8);
+		expect(usage?.cost).toBeCloseTo((100_000 * 0.26 + 50_000 * 1.04) / 1_000_000, 8);
 		expect(emitted.at(-1)?.kind).toBe("finish");
 	});
 

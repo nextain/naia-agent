@@ -42,12 +42,12 @@ const CLOVA_CUSTOMER_COST = {
   hcxDash002: { input: 0.388, output: 1.552, cacheRead: 0.388, cacheWrite: 0.388 },
 } as const;
 
-// Motif 3 (MorphFactory CBT). Customer prices are the gateway's source rates × 1.10.
+// Motif 3 (MorphFactory CBT). Customer prices are the gateway's source rates × 1.30.
 const MOTIF_CUSTOMER_COST = {
-  input: 0.22,
-  output: 0.88,
-  cacheRead: 0.044,
-  cacheWrite: 0.22,
+  input: 0.26,
+  output: 1.04,
+  cacheRead: 0.052,
+  cacheWrite: 0.26,
 } as const;
 
 export function isNaiaPiModel(model: string | undefined): model is NaiaPiModel {
