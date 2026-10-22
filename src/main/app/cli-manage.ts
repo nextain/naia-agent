@@ -330,32 +330,46 @@ export const FALLBACK_NAIA_MODELS: readonly CliModel[] = [
   { provider: "naia", id: "deepseek-v4-pro", label: "DeepSeek V4 Pro (Naia / Azure)", tools: true, use: "coding" },
   { provider: "naia", id: "solar-pro4", label: "Solar Pro 4 (Naia / Upstage, 국내)", tools: true, use: "coding" },
   { provider: "naia", id: "solar-mini", label: "Solar Mini (Naia / Upstage, 국내)", tools: true, use: "general" },
+  { provider: "naia", id: "motif-3", label: "Motif 3 (Naia / Motif, 국내 CBT)", tools: true, use: "coding" },
   { provider: "naia", id: "HCX-007", label: "HyperCLOVA X HCX-007 (Naia / CLOVA, 국내)", tools: true, use: "coding" },
   { provider: "naia", id: "HCX-DASH-002", label: "HyperCLOVA X DASH (Naia / CLOVA, 국내)", tools: true, use: "general" },
 ];
 
 export function normalizeModelCatalog(input: unknown): CliModel[] {
-  const data = (input as { data?: unknown })?.data;
+  const isBareArray = Array.isArray(input);
+  const data = isBareArray ? input : (input as { data?: unknown })?.data;
   if (!Array.isArray(data)) return [];
   const seen = new Set<string>();
   const models: CliModel[] = [];
   for (const raw of data) {
     if (!raw || typeof raw !== "object") continue;
     const item = raw as Record<string, unknown>;
-    const id = typeof item.id === "string" ? item.id.trim() : "";
+    const rawId = typeof item.id === "string" && item.id.trim()
+      ? item.id.trim()
+      : typeof item.model_key === "string"
+        ? item.model_key.trim().replace(/^[^:]+:/, "")
+        : "";
+    const id = rawId.trim();
     if (!id || seen.has(id)) continue;
-    seen.add(id);
-    const provider = typeof item.provider === "string"
-      ? item.provider
-      : typeof item.owned_by === "string" ? item.owned_by : "naia";
+    if (Array.isArray(item.capabilities) && !item.capabilities.includes("llm")) continue;
     // Naia exposes only skill-capable chat models. A catalog entry that
     // explicitly denies tools is not selectable through the Agent CLI.
     if (item.supports_tools === false) continue;
+    seen.add(id);
+    const provider = isBareArray
+      ? "naia"
+      : typeof item.provider === "string"
+        ? item.provider
+        : typeof item.owned_by === "string" ? item.owned_by : "naia";
+    const fallbackLabel = FALLBACK_NAIA_MODELS.find((m) => m.provider === provider && m.id === id)?.label;
+    const label = typeof item.name === "string" && item.name.trim()
+      ? item.name
+      : (fallbackLabel ?? id);
     const tools = true;
     models.push({
       provider,
       id,
-      label: typeof item.name === "string" ? item.name : id,
+      label,
       tools,
       use: tools ? "coding" : "general",
     });

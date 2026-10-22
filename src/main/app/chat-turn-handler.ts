@@ -212,6 +212,8 @@ export interface HandlerDeps {
   readonly workspaceContext?: WorkspaceContextPort;               // FR-WORKSPACE — 코어가 워크스페이스 컨텍스트(cwd+프로젝트 이름)를 *스스로* 조립해 persona 뒤에 append(경량 shallow). 미주입=기존 동작(persona 만, 무회귀). req.systemPrompt override 시 둘 다 무시.
   /** UC-015 결정론 테스트 seam. 미주입이면 Date.now + abort 가능한 실제 timer. */
   readonly continuationClock?: ContinuationClock;
+  /** Naia 게이트웨이 가격 오버레이 갱신(GET /v1/pricing). 주입 시 nextain/naia 턴의 usage cost 계산 전 대기. */
+  readonly ensureGatewayPricing?: (gatewayUrl?: string) => Promise<number>;
 }
 
 export class ChatTurnHandler {
@@ -295,6 +297,11 @@ export class ChatTurnHandler {
     const activeConfig = req.provider ?? this.activeDefaultConfig;
     const costModel = activeConfig?.model ?? ""; // 미설정 = calculateCost("") = 0(크래시 아님)
     const costProvider = activeConfig?.provider; // 구독형(claude-code-cli) = $0 분기용(동일 model ID anthropic 과 구별).
+    const isNaiaGateway = costProvider === "nextain" || costProvider === "naia";
+    const gatewayPricingUrl = activeConfig?.labGatewayUrl ?? req.gatewayUrl;
+    const pricingReady = isNaiaGateway && this.d.ensureGatewayPricing
+      ? Promise.resolve().then(() => this.d.ensureGatewayPricing!(gatewayPricingUrl)).catch(() => 0)
+      : undefined;
     // terminal 래치(usage 중복 emit 원천 차단 — 두 종결 모두 이 헬퍼만 사용).
     const terminalFinish = () => { if (!sawTerminal) { emit({ kind: "usage", ...totalUsage, cost: calculateCost(costModel, totalUsage.inputTokens, totalUsage.outputTokens, costProvider), model: costModel }); emit({ kind: "finish" }); sawTerminal = true; t.state = "finished"; } };
     const terminalError = (message: string, code?: WireErrorCode) => {
@@ -637,6 +644,7 @@ export class ChatTurnHandler {
             await this.d.conversationLog.append({ sessionId: req.sessionId ?? "default", userText: lastUserText, assistantText: assistantTurnParts.join("\n") });
           } catch (e) { this.safeDiag("transcript append 실패(턴 유지)", e); }
         }
+        if (pricingReady) await raceTimeout(pricingReady, 5000);
         turnCommitted = true;
         terminalFinish();
       };

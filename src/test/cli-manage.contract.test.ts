@@ -154,11 +154,76 @@ describe("SPEC-019 model catalog truthfulness", () => {
       "deepseek-v4-pro",
       "solar-pro4",
       "solar-mini",
+      "motif-3",
       "HCX-007",
       "HCX-DASH-002",
     ]);
     expect(FALLBACK_NAIA_MODELS.every((model) => model.tools)).toBe(true);
     expect(normalizeModelCatalog({ bad: true })).toEqual([]);
+  });
+
+  it("normalizes bare array catalog from gateway /v1/models, filtering non-llm and supports_tools===false", () => {
+    const bareCatalog = [
+      {
+        model_key: "motif-3",
+        capabilities: ["llm"],
+        supports_tools: true,
+        upstream_provider: "motif",
+        lifecycle: "preview",
+        protocol: "openai_chat_completions",
+        operational_status: "live",
+      },
+      {
+        model_key: "upstage:solar-pro4",
+        capabilities: ["llm"],
+        supports_tools: true,
+        upstream_provider: "upstage",
+        lifecycle: "live",
+        protocol: "openai_chat_completions",
+        operational_status: "live",
+      },
+      {
+        model_key: "gemini-2.5-flash-live",
+        capabilities: ["llm", "omni"],
+      },
+      {
+        model_key: "text-only-model",
+        capabilities: ["llm"],
+        supports_tools: false,
+      },
+      {
+        model_key: "whisper-asr",
+        capabilities: ["asr"],
+        supports_tools: true,
+      },
+      {
+        model_key: "image-gen",
+        capabilities: ["image"],
+      },
+    ];
+    expect(normalizeModelCatalog(bareCatalog)).toEqual([
+      {
+        provider: "naia",
+        id: "gemini-2.5-flash-live",
+        label: "gemini-2.5-flash-live",
+        tools: true,
+        use: "coding",
+      },
+      {
+        provider: "naia",
+        id: "motif-3",
+        label: "Motif 3 (Naia / Motif, 국내 CBT)",
+        tools: true,
+        use: "coding",
+      },
+      {
+        provider: "naia",
+        id: "solar-pro4",
+        label: "Solar Pro 4 (Naia / Upstage, 국내)",
+        tools: true,
+        use: "coding",
+      },
+    ]);
   });
 });
 

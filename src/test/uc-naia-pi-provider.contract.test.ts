@@ -43,12 +43,14 @@ describe("UC-NAIA-PI provider isolation", () => {
         { id: "deepseek-v4-pro" },
         { id: "solar-pro4", cost: { input: 0.33, output: 1.32, cacheRead: 0.066 } },
         { id: "solar-mini", cost: { input: 0.165, output: 0.165, cacheRead: 0.165 } },
+        { id: "motif-3", reasoning: true, contextWindow: 262144, maxTokens: 8192,
+          cost: { input: 0.22, output: 0.88, cacheRead: 0.044, cacheWrite: 0.22 } },
         { id: "HCX-007", cost: { input: 0.97, output: 3.88 } },
         { id: "HCX-DASH-002", cost: { input: 0.388, output: 1.552 } },
       ] } },
     });
     expect(buildNaiaPiModelsConfig("https://gateway.example", 321)).toMatchObject({
-      providers: { naia: { models: [{ maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }] } },
+      providers: { naia: { models: [{ maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }] } },
     });
     const models = (buildNaiaPiModelsConfig("https://gateway.example") as {
       providers: { naia: { models: Array<{ id: string }> } };
@@ -59,6 +61,7 @@ describe("UC-NAIA-PI provider isolation", () => {
       "deepseek-v4-pro",
       "solar-pro4",
       "solar-mini",
+      "motif-3",
       "HCX-007",
       "HCX-DASH-002",
     ]);
@@ -67,6 +70,7 @@ describe("UC-NAIA-PI provider isolation", () => {
   it("recognizes Naia models case-insensitively, incl. uppercase CLOVA ids", () => {
     expect(isNaiaPiModel("grok-4.3")).toBe(true);
     expect(isNaiaPiModel("solar-pro4")).toBe(true);
+    expect(isNaiaPiModel("motif-3")).toBe(true);
     // CLOVA ids are uppercase; both exact and lowercased must resolve.
     expect(isNaiaPiModel("HCX-007")).toBe(true);
     expect(isNaiaPiModel("hcx-007")).toBe(true);

@@ -3,6 +3,9 @@
 // listed them and hardcoding each new model was rejected by the user).
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { applyGatewayPricing, calculateCost } from "../main/domain/cost.js";
+import type { AgentEmit, ProviderConfig } from "../main/domain/chat.js";
+import type { ProviderPort } from "../main/ports/uc1.js";
+import { wireAgentUC1 } from "../main/composition/index.js";
 import {
 	ensureGatewayPricing,
 	resetGatewayPricingThrottleForTest,
@@ -55,13 +58,15 @@ describe("adapters gateway-pricing — fetch and merge", () => {
 			json: async () => [
 				{ model_key: "azure:fetch-test-model", input_price_per_million: 0.5, output_price_per_million: 1.5 },
 				{ model_key: "upstage:fetch-test-solar", input_price_per_million: 0.33, output_price_per_million: 1.32 },
+				{ model_key: "motif:motif-3", input_price_per_million: 0.22, output_price_per_million: 0.88, cached_price_per_million: 0.044 },
 			],
 		});
 		vi.stubGlobal("fetch", fetchMock);
 		const applied = await ensureGatewayPricing("https://gw.example");
-		expect(applied).toBe(2);
+		expect(applied).toBe(3);
 		expect(String(fetchMock.mock.calls[0][0])).toBe("https://gw.example/v1/pricing");
 		expect(calculateCost("fetch-test-model", 1_000_000, 0)).toBeCloseTo(0.5, 6);
+		expect(calculateCost("motif-3", 1_000_000, 1_000_000)).toBeCloseTo(1.1, 6);
 	});
 
 	it("null 가격·비-per_token 항목은 오버레이에 반영하지 않는다(Number(null)=0 오염 방지)", async () => {
@@ -97,5 +102,105 @@ describe("adapters gateway-pricing — fetch and merge", () => {
 		await ensureGatewayPricing("https://gw.example");
 		await ensureGatewayPricing("https://gw.example");
 		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("wireAgentUC1 chat turn — gateway pricing cost calculation", () => {
+	function makeUsageProvider(inputTokens: number, outputTokens: number): ProviderPort {
+		return {
+			async *chat() {
+				yield { kind: "text", text: "ok." };
+				yield { kind: "usage", inputTokens, outputTokens };
+				yield { kind: "finish" };
+			},
+		};
+	}
+
+	async function runTurn(providerConfig: ProviderConfig, inputTokens = 100_000, outputTokens = 50_000) {
+		const emitted: AgentEmit[] = [];
+		const { handler } = wireAgentUC1({
+			provider: makeUsageProvider(inputTokens, outputTokens),
+			egress: { emit: (_reqId, e) => emitted.push(e) },
+		});
+		await handler.onChatRequest({
+			kind: "chat",
+			requestId: "req-pricing-1",
+			provider: providerConfig,
+			messages: [{ role: "user", content: "hi" }],
+		});
+		return emitted;
+	}
+
+	it("fetches /v1/pricing from configured labGatewayUrl on a Naia turn and computes usage cost", async () => {
+		const fetchMock = vi.fn().mockResolvedValue({
+			ok: true,
+			json: async () => [
+				{
+					model_key: "motif:motif-3",
+					input_price_per_million: 0.22,
+					output_price_per_million: 0.88,
+				},
+			],
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		const emitted = await runTurn(
+			{
+				provider: "nextain",
+				model: "motif-3",
+				labGatewayUrl: "https://gw-test.example",
+			},
+			100_000,
+			50_000,
+		);
+
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(String(fetchMock.mock.calls[0][0])).toBe("https://gw-test.example/v1/pricing");
+		const usage = emitted.find((e): e is Extract<AgentEmit, { kind: "usage" }> => e.kind === "usage");
+		expect(usage).toBeDefined();
+		expect(usage?.cost).toBeCloseTo((100_000 * 0.22 + 50_000 * 0.88) / 1_000_000, 8);
+		expect(emitted.at(-1)?.kind).toBe("finish");
+	});
+
+	it("completes without throwing and falls back to 0 or static price when /v1/pricing fails", async () => {
+		const fetchMock = vi.fn().mockRejectedValue(new Error("gateway unreachable"));
+		vi.stubGlobal("fetch", fetchMock);
+
+		const unpricedEmitted = await runTurn({
+			provider: "nextain",
+			model: "unlisted-gateway-model",
+			labGatewayUrl: "https://gw-test.example",
+		});
+		const unpricedUsage = unpricedEmitted.find(
+			(e): e is Extract<AgentEmit, { kind: "usage" }> => e.kind === "usage",
+		);
+		expect(unpricedUsage?.cost).toBe(0);
+		expect(unpricedEmitted.at(-1)?.kind).toBe("finish");
+
+		resetGatewayPricingThrottleForTest();
+		const staticEmitted = await runTurn(
+			{
+				provider: "nextain",
+				model: "deepseek-v4-flash",
+				labGatewayUrl: "https://gw-test.example",
+			},
+			1_000_000,
+			1_000_000,
+		);
+		const staticUsage = staticEmitted.find(
+			(e): e is Extract<AgentEmit, { kind: "usage" }> => e.kind === "usage",
+		);
+		expect(staticUsage?.cost).toBeCloseTo(0.209 + 0.561, 6);
+		expect(staticEmitted.at(-1)?.kind).toBe("finish");
+	});
+
+	it("does not call /v1/pricing for non-Naia providers (direct API key or subscription)", async () => {
+		const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => [] });
+		vi.stubGlobal("fetch", fetchMock);
+
+		await runTurn({ provider: "openai", model: "gpt-4o" });
+		await runTurn({ provider: "claude-code-cli", model: "claude-sonnet-4-6" });
+
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 });

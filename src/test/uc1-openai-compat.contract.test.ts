@@ -46,6 +46,16 @@ describe("makeOpenAICompatProvider (GLM/openai SSE, mock)", () => {
     expect(out).toContainEqual({ kind: "text", text: "Final" });
   });
 
+  it("maps delta.reasoning strings and objects to thinking chunks", async () => {
+    const out = await collect(prov([
+      'data: {"choices":[{"delta":{"reasoning":"Motif reasoning string"}}]}\n',
+      'data: {"choices":[{"delta":{"reasoning":{"content":"Motif reasoning object"}}}]}\n',
+      "data: [DONE]\n",
+    ]).chat(cfg, [], {}));
+    expect(out).toContainEqual({ kind: "thinking", text: "Motif reasoning string" });
+    expect(out).toContainEqual({ kind: "thinking", text: "Motif reasoning object" });
+  });
+
   it("!ok → throw", async () => {
     await expect(collect(prov([], { ok: false, status: 401 }).chat(cfg, [], {}))).rejects.toThrow(/401/);
   });
@@ -261,6 +271,26 @@ describe("§C slice 1b — tool_calls 재조립", () => {
       'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"b","type":"code_interpreter"}]}}]}\n', "data: [DONE]\n",
     ]).fetch).chat(cfg, [], { tools }));
     expect(tu(out)).toEqual([{ kind: "toolUse", id: "a", name: "echo", args: {} }]);
+  });
+  it("(t) 첫 조각 type 'function' + 이어지는 조각 'type': null (게이트웨이 SSE 모양) → 도구 호출 하나로 모임", async () => {
+    const out = await collect(provF(captureStream([
+      'data: {"id":"chatcmpl-test-1","choices":[{"delta":{"audio":null,"content":null,"function_call":null,"refusal":null,"role":null,"tool_calls":[{"index":0,"id":"chatcmpl-tool-test01","function":{"arguments":null,"name":"get_time"},"type":"function"}],"reasoning":null},"index":0,"finish_reason":null,"logprobs":null,"token_ids":null}],"model":"motif-3","object":"chat.completion.chunk"}\n',
+      'data: {"id":"chatcmpl-test-1","choices":[{"delta":{"audio":null,"content":null,"function_call":null,"refusal":null,"role":null,"tool_calls":[{"index":0,"id":null,"function":{"arguments":"{\\"timezone\\": \\"Asia/Seoul\\"}","name":null},"type":null}],"reasoning":null},"index":0,"finish_reason":null,"logprobs":null,"token_ids":null}],"model":"motif-3","object":"chat.completion.chunk"}\n',
+      'data: {"id":"chatcmpl-test-1","choices":[{"delta":{"audio":null,"content":null,"function_call":null,"refusal":null,"role":null,"tool_calls":null,"reasoning":null},"index":0,"finish_reason":"tool_calls","logprobs":null,"stop_reason":6,"token_ids":null}],"model":"motif-3","object":"chat.completion.chunk"}\n',
+      "data: [DONE]\n",
+    ]).fetch).chat(cfg, [], { tools }));
+    expect(tu(out)).toEqual([
+      { kind: "toolUse", id: "chatcmpl-tool-test01", name: "get_time", args: { timezone: "Asia/Seoul" } },
+    ]);
+  });
+  it("(u) 첫 조각부터 type null 인 경우도 받아들임", async () => {
+    const out = await collect(provF(captureStream([
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_null_type","type":null,"function":{"name":"echo","arguments":"{\\"text\\":\\"ok\\"}"}}]}}]}\n',
+      "data: [DONE]\n",
+    ]).fetch).chat(cfg, [], { tools }));
+    expect(tu(out)).toEqual([
+      { kind: "toolUse", id: "call_null_type", name: "echo", args: { text: "ok" } },
+    ]);
   });
   it("(i) [DONE] 후 EOF 와도 finalize 1회(이중 yield 없음) / (l) EOF-only finalize", async () => {
     const eofOnly = await collect(provF(captureStream([

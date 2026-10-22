@@ -311,7 +311,7 @@ export function makeOpenAICompatProvider(deps: {
             delta?: {
               content?: string;
               reasoning_content?: string;
-              reasoning?: { content?: string };
+              reasoning?: string | { content?: string };
               tool_calls?: Array<{ index?: unknown; id?: unknown; type?: unknown; function?: { name?: unknown; arguments?: unknown } }>;
             };
           }[];
@@ -324,7 +324,9 @@ export function makeOpenAICompatProvider(deps: {
         const delta = o.choices?.[0]?.delta;
         const thinkingText = typeof delta?.reasoning_content === "string"
           ? delta.reasoning_content
-          : (typeof delta?.reasoning?.content === "string" ? delta.reasoning.content : undefined);
+          : (typeof delta?.reasoning === "string"
+            ? delta.reasoning
+            : (typeof delta?.reasoning?.content === "string" ? delta.reasoning.content : undefined));
         if (thinkingText) out.push({ kind: "thinking", text: thinkingText });
         if (delta?.content) out.push(...thinkingFilter.push(delta.content));
         const tcs = delta?.tool_calls;
@@ -349,7 +351,7 @@ export function makeOpenAICompatProvider(deps: {
               a = { args: "", excluded: false, conflict: false, wire: idx };
               acc.set(slot, a);
             }
-            if (tc.type !== undefined && tc.type !== "function") a.excluded = true; // present 이면서 "function" 아님(null/number/타 문자열 포함) = 미지원
+            if (tc.type != null && tc.type !== "function") a.excluded = true; // null/undefined = 생략(게이트웨이 이어지는 조각), 그 외 비-"function"(number/타 문자열 포함) = 미지원
 
             if (a.excluded) continue; // excluded slot = 이후 모든 필드 무시
             if (typeof tc.id === "string" && tc.id !== "") {

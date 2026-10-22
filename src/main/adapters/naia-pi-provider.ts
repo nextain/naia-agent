@@ -12,6 +12,7 @@ export const NAIA_PI_MODELS = [
   "deepseek-v4-pro",
   "solar-pro4",
   "solar-mini",
+  "motif-3",
   // Naver CLOVA canonical ids are uppercase (the gateway forwards them verbatim).
   "HCX-007",
   "HCX-DASH-002",
@@ -39,6 +40,14 @@ const UPSTAGE_CUSTOMER_COST = {
 const CLOVA_CUSTOMER_COST = {
   hcx007: { input: 0.97, output: 3.88, cacheRead: 0.97, cacheWrite: 0.97 },
   hcxDash002: { input: 0.388, output: 1.552, cacheRead: 0.388, cacheWrite: 0.388 },
+} as const;
+
+// Motif 3 (MorphFactory CBT). Customer prices are the gateway's source rates × 1.10.
+const MOTIF_CUSTOMER_COST = {
+  input: 0.22,
+  output: 0.88,
+  cacheRead: 0.044,
+  cacheWrite: 0.22,
 } as const;
 
 export function isNaiaPiModel(model: string | undefined): model is NaiaPiModel {
@@ -78,6 +87,8 @@ export function buildNaiaPiModelsConfig(baseUrl?: string, maxTokens?: number): R
             cost: UPSTAGE_CUSTOMER_COST.solarPro4, contextWindow: 128000, ...(maxTokens ? { maxTokens } : {}) },
           { id: "solar-mini", name: "Solar Mini (Naia / Upstage, 국내)", reasoning: false, input: ["text"],
             cost: UPSTAGE_CUSTOMER_COST.solarMini, contextWindow: 32000, ...(maxTokens ? { maxTokens } : {}) },
+          { id: "motif-3", name: "Motif 3 (Naia / Motif, 국내 CBT)", reasoning: true, input: ["text"],
+            cost: MOTIF_CUSTOMER_COST, contextWindow: 262144, maxTokens: maxTokens ?? 8192 },
           { id: "HCX-007", name: "HyperCLOVA X HCX-007 (Naia / CLOVA, 국내)", reasoning: false, input: ["text"],
             cost: CLOVA_CUSTOMER_COST.hcx007, contextWindow: 128000, ...(maxTokens ? { maxTokens } : {}) },
           { id: "HCX-DASH-002", name: "HyperCLOVA X DASH (Naia / CLOVA, 국내)", reasoning: false, input: ["text"],
