@@ -330,6 +330,7 @@ export const FALLBACK_NAIA_MODELS: readonly CliModel[] = [
   { provider: "naia", id: "deepseek-v4-pro", label: "DeepSeek V4 Pro (Naia / Azure)", tools: true, use: "coding" },
   { provider: "naia", id: "solar-pro4", label: "Solar Pro 4 (Naia / Upstage, 국내)", tools: true, use: "coding" },
   { provider: "naia", id: "solar-mini", label: "Solar Mini (Naia / Upstage, 국내)", tools: true, use: "general" },
+  { provider: "naia", id: "motif-3", label: "Motif 3 (Naia / Motif, 국내 CBT)", tools: true, use: "coding" },
   { provider: "naia", id: "HCX-007", label: "HyperCLOVA X HCX-007 (Naia / CLOVA, 국내)", tools: true, use: "coding" },
   { provider: "naia", id: "HCX-DASH-002", label: "HyperCLOVA X DASH (Naia / CLOVA, 국내)", tools: true, use: "general" },
 ];

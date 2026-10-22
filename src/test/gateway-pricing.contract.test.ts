@@ -55,13 +55,15 @@ describe("adapters gateway-pricing — fetch and merge", () => {
 			json: async () => [
 				{ model_key: "azure:fetch-test-model", input_price_per_million: 0.5, output_price_per_million: 1.5 },
 				{ model_key: "upstage:fetch-test-solar", input_price_per_million: 0.33, output_price_per_million: 1.32 },
+				{ model_key: "motif:motif-3", input_price_per_million: 0.22, output_price_per_million: 0.88, cached_price_per_million: 0.044 },
 			],
 		});
 		vi.stubGlobal("fetch", fetchMock);
 		const applied = await ensureGatewayPricing("https://gw.example");
-		expect(applied).toBe(2);
+		expect(applied).toBe(3);
 		expect(String(fetchMock.mock.calls[0][0])).toBe("https://gw.example/v1/pricing");
 		expect(calculateCost("fetch-test-model", 1_000_000, 0)).toBeCloseTo(0.5, 6);
+		expect(calculateCost("motif-3", 1_000_000, 1_000_000)).toBeCloseTo(1.1, 6);
 	});
 
 	it("null 가격·비-per_token 항목은 오버레이에 반영하지 않는다(Number(null)=0 오염 방지)", async () => {

@@ -46,6 +46,16 @@ describe("makeOpenAICompatProvider (GLM/openai SSE, mock)", () => {
     expect(out).toContainEqual({ kind: "text", text: "Final" });
   });
 
+  it("maps delta.reasoning strings and objects to thinking chunks", async () => {
+    const out = await collect(prov([
+      'data: {"choices":[{"delta":{"reasoning":"Motif reasoning string"}}]}\n',
+      'data: {"choices":[{"delta":{"reasoning":{"content":"Motif reasoning object"}}}]}\n',
+      "data: [DONE]\n",
+    ]).chat(cfg, [], {}));
+    expect(out).toContainEqual({ kind: "thinking", text: "Motif reasoning string" });
+    expect(out).toContainEqual({ kind: "thinking", text: "Motif reasoning object" });
+  });
+
   it("!ok → throw", async () => {
     await expect(collect(prov([], { ok: false, status: 401 }).chat(cfg, [], {}))).rejects.toThrow(/401/);
   });

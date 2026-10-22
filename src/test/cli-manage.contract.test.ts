@@ -154,6 +154,7 @@ describe("SPEC-019 model catalog truthfulness", () => {
       "deepseek-v4-pro",
       "solar-pro4",
       "solar-mini",
+      "motif-3",
       "HCX-007",
       "HCX-DASH-002",
     ]);

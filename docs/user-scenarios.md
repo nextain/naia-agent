@@ -713,6 +713,7 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 - **S-NAIA-PI-3 (capability rejection)**: DeepSeek로 코딩을 요청하면 Pi spawn/Azure 호출 전에 tool 미지원 이유로 실패한다.
 - **S-NAIA-PI-4 (stored login)**: 새 CLI 프로세스가 `~/.naia-agent/.env`의 Naia 키를 읽고 키 인자 없이 실행한다.
 - **S-NAIA-PI-5 (honest failure)**: 키 누락·인증 실패·모델 미지원·upstream 실패를 구분하고 비밀을 출력하지 않는다.
+- **S-NAIA-PI-6 (Motif 3)**: `motif-3`는 10개 Naia 도구 스키마 실측에서 10회 구조화 `tool_calls`를 반환한 후 도구 사용 모델과 Pi 목록에 포함된다. 스트리밍 `delta.reasoning` 문자열/객체는 thinking 이벤트로 전달되고 Pi 설정은 측정된 262,144 토큰 컨텍스트를 선언한다.
 
 권위 계약과 전체 REQ/FE/TEST 매핑은
 `docs/progress/99.dev-comm/naia-account-pi-azure-contract-2026-07-30.md`이다.
@@ -762,7 +763,7 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 | UC-CLI / AC2·AC4 (2c 정직보고) | `src/test/uc-cli-verifier.contract.test.ts`, `uc-cli-workspace.contract.test.ts`, `uc-cli-supervisor-real-verifier.integration.test.ts` (never-throws·git classify·실 verify — Pass) |
 | V모델: UC-CLI = UC-014 (REQ-011·012 → SPEC-009·010 → TEST-F-009·010), TEST-S-014 | `docs/progress/{01..05}/INDEX.md` (orphan 0) |
 | UC-CLI / S-CLI-CHAT·S-CLI-LOGIN (S1 대화·로그인) / FR-CLI-7·8 | `src/test/cli-chat.contract.test.ts`(멀티턴 history 누적·emit→stdout·finish 재프롬프트·error 격리·login 파싱→.env 기록) + bin 실행 검증(fake provider 2턴 맥락 유지) |
-| UC-NAIA-PI / FR-CLI-9~13 | `src/test/uc-naia-pi-provider.contract.test.ts`, `uc-naia-pi-controlled.integration.test.ts`, `uc-cli-host-entry.contract.test.ts`, `uc-cli-subagent-pi.contract.test.ts`, `cli-chat.contract.test.ts` — secret-free config, exact host/spawn, stored-login env contract, 실제 Pi 0.83 Grok 도구 실행, DeepSeek analysis/tool-negative, model evidence |
+| UC-NAIA-PI / FR-CLI-9~13 | `src/test/uc-naia-pi-provider.contract.test.ts`, `uc-naia-pi-controlled.integration.test.ts`, `uc-cli-host-entry.contract.test.ts`, `uc-cli-subagent-pi.contract.test.ts`, `cli-chat.contract.test.ts`, `gateway-pricing.contract.test.ts`, `cli-manage.contract.test.ts`, `uc1-openai-compat.contract.test.ts` — Motif Pi cost/context/reasoning, live pricing overlay, CLI fallback and `delta.reasoning` stream contract, existing secret-free config and tool/provider behavior |
 | UC-CLI-MANAGE / FR-CLI-14~20 | `src/test/cli-manage.contract.test.ts`, `src/test/cli-manage-process.integration.test.ts`, `src/test/uc-cli-host-entry.contract.test.ts` — auth/config/models/doctor/session, isolated HOME, run defaults/override, secret redaction, resume, DeepSeek guard — Pass |
 | UC-APP / S-APP-1·2·3 / FR-APP-1~5 | `src/test/uc-app-skill.contract.test.ts` (등록→노출·tool call→app_tool_call emit·result→주입·timeout/취소·동시성·builtin 무회귀) [예정] |
 | UC-PERSONA-CLI / S-PERSONA-1·2 / FR-PERSONA-1·2 | `src/test/uc-persona-compose.contract.test.ts` — describe "composePersonaPrompt" (full Alpha profile→prefix·존댓말·루크·마스터·Korean 포함, emotion-tag 제외 단언) + describe "Golden case D (CLI/no avatar)" (빈 profile→"", prefix-only→base only) + describe "PersonaSourcePort (fake fs)" (실 config.json shape→매핑 PersonaProfile, 파일부재→undefined) |
