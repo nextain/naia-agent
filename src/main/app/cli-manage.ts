@@ -336,27 +336,40 @@ export const FALLBACK_NAIA_MODELS: readonly CliModel[] = [
 ];
 
 export function normalizeModelCatalog(input: unknown): CliModel[] {
-  const data = (input as { data?: unknown })?.data;
+  const isBareArray = Array.isArray(input);
+  const data = isBareArray ? input : (input as { data?: unknown })?.data;
   if (!Array.isArray(data)) return [];
   const seen = new Set<string>();
   const models: CliModel[] = [];
   for (const raw of data) {
     if (!raw || typeof raw !== "object") continue;
     const item = raw as Record<string, unknown>;
-    const id = typeof item.id === "string" ? item.id.trim() : "";
+    const rawId = typeof item.id === "string" && item.id.trim()
+      ? item.id.trim()
+      : typeof item.model_key === "string"
+        ? item.model_key.trim().replace(/^[^:]+:/, "")
+        : "";
+    const id = rawId.trim();
     if (!id || seen.has(id)) continue;
-    seen.add(id);
-    const provider = typeof item.provider === "string"
-      ? item.provider
-      : typeof item.owned_by === "string" ? item.owned_by : "naia";
+    if (Array.isArray(item.capabilities) && !item.capabilities.includes("llm")) continue;
     // Naia exposes only skill-capable chat models. A catalog entry that
     // explicitly denies tools is not selectable through the Agent CLI.
     if (item.supports_tools === false) continue;
+    seen.add(id);
+    const provider = isBareArray
+      ? "naia"
+      : typeof item.provider === "string"
+        ? item.provider
+        : typeof item.owned_by === "string" ? item.owned_by : "naia";
+    const fallbackLabel = FALLBACK_NAIA_MODELS.find((m) => m.provider === provider && m.id === id)?.label;
+    const label = typeof item.name === "string" && item.name.trim()
+      ? item.name
+      : (fallbackLabel ?? id);
     const tools = true;
     models.push({
       provider,
       id,
-      label: typeof item.name === "string" ? item.name : id,
+      label,
       tools,
       use: tools ? "coding" : "general",
     });

@@ -5,6 +5,7 @@ import { makeFakeProvider } from "../adapters/fake-provider.js";
 import { makeInMemoryApproval } from "../adapters/approval.js";
 import { makeStderrDiagnostic } from "../adapters/diagnostic.js";
 import { makeBudgetedConversation } from "../adapters/budgeted-conversation.js";
+import { ensureGatewayPricing } from "../adapters/gateway-pricing.js";
 import { makeMemorySkillsExecutor } from "../adapters/memory-skill.js";
 import { makeCompositeToolExecutor } from "../adapters/composite-tool-executor.js";
 import type {
@@ -86,6 +87,7 @@ export function wireAgentUC1(opts?: {
     ...(opts?.workspaceContext ? { workspaceContext: opts.workspaceContext } : {}),
     ...(opts?.memoryTimeoutMs !== undefined ? { memoryTimeoutMs: opts.memoryTimeoutMs } : {}),
     ...(opts?.defaultConfig ? { defaultConfig: opts.defaultConfig } : {}),
+    ensureGatewayPricing,
     egress: opts?.egress ?? { emit: () => {} }, // transport=gRPC: egress 는 grpc adapter 주입(stdio 제거). 미주입=no-op(헤드리스).
     diag,
   };
