@@ -7,8 +7,36 @@ import type {
   YieldSpeechResult,
 } from "../ports/speech-activity.js";
 import type { AgentEgressPort } from "../ports/uc1.js";
-import type { PersonalRadioDjController } from "./personal-radio-dj-controller.js";
+import type {
+  PersonalRadioDjController,
+  RadioDjBgmEvent,
+} from "./personal-radio-dj-controller.js";
 import type { ExhibitionIntroController } from "./exhibition-intro-controller.js";
+
+const BGM_EVENT_KINDS = new Set([
+  "track_playing",
+  "track_ended",
+  "track_changed",
+  "track_error",
+]);
+
+function parseBgmEventAction(action: string): RadioDjBgmEvent | undefined {
+  if (!action.startsWith("bgm_event:")) return undefined;
+  try {
+    const parsed = JSON.parse(action.slice("bgm_event:".length));
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      typeof parsed.kind !== "string" ||
+      !BGM_EVENT_KINDS.has(parsed.kind)
+    ) {
+      return undefined;
+    }
+    return parsed as RadioDjBgmEvent;
+  } catch {
+    return undefined;
+  }
+}
 
 export class SpeechProfileRuntime {
   private activeKind: "disabled" | "personal_radio_dj" | "exhibition_intro" = "disabled";
@@ -89,16 +117,13 @@ export class SpeechProfileRuntime {
     if (!this.canControl(sessionId, activityId, action)) return false;
     if (this.activeKind === "personal_radio_dj") {
       if (action.startsWith("bgm_event:")) {
-        try {
-          const parsed = JSON.parse(action.slice("bgm_event:".length));
-          if (parsed && typeof parsed === "object" && typeof parsed.kind === "string") {
-            await this.d.dj.onBgmEvent(parsed);
-            return true;
-          }
-        } catch {
-          return false;
-        }
-        return false;
+        const parsed = parseBgmEventAction(action);
+        if (!parsed) return false;
+        await this.d.dj.onBgmEvent({
+          ...parsed,
+          ...(activityId && !parsed.activityId ? { activityId } : {}),
+        });
+        return true;
       }
       await this.d.dj.control({ kind: action as "music_only" | "talk_less" | "talk_more" | "change_vibe" | "next" | "stop" });
       return true;
@@ -114,8 +139,17 @@ export class SpeechProfileRuntime {
   canControl(sessionId: string, activityId: string | undefined, action: string): boolean {
     if (sessionId !== this.activeSessionId) return false;
     if (this.activeKind === "personal_radio_dj") {
-      if (action.startsWith("bgm_event:")) return true;
-      return (!activityId || activityId === this.d.dj.currentActivityId())
+      const currentActivityId = this.d.dj.currentActivityId();
+      if (action.startsWith("bgm_event:")) {
+        const event = parseBgmEventAction(action);
+        if (!event) return false;
+        if (currentActivityId) {
+          if (activityId && activityId !== currentActivityId) return false;
+          if (event.activityId && event.activityId !== currentActivityId) return false;
+        }
+        return true;
+      }
+      return (!activityId || activityId === currentActivityId)
         && ["music_only", "talk_less", "talk_more", "change_vibe", "next", "stop"].includes(action);
     }
     if (this.activeKind !== "exhibition_intro") return false;

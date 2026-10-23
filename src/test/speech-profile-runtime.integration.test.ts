@@ -263,4 +263,80 @@ describe("EX-06 profile-bound Q&A privacy integration", () => {
       { kind: "finish" },
     ]);
   });
+
+  it("canControl validates bgm_event JSON shape and rejects mismatched activityId in header or payload", async () => {
+    const onBgmEvent = vi.fn(async () => undefined);
+    const dj = {
+      configure: vi.fn(),
+      setSubscriberReady: vi.fn(),
+      currentActivityId: vi.fn(() => "dj-activity-1"),
+      onBgmEvent,
+      control: vi.fn(),
+    };
+    const exhibition = {
+      configure: vi.fn(),
+      setSubscriberReady: vi.fn(),
+      currentActivityId: vi.fn(() => undefined),
+    };
+    const profiles = new SpeechProfileRuntime({
+      dj: dj as never,
+      exhibition: exhibition as never,
+      chatEgress: { emit: vi.fn() },
+    });
+    profiles.configure({
+      kind: "personal_radio_dj",
+      config: {
+        sessionId: "agent:main:main",
+        idleMs: 1,
+        djIntervalMs: 1,
+        timezone: "Asia/Seoul",
+        bgmAutoPlayOptIn: true,
+      },
+    });
+
+    const validAction = `bgm_event:${JSON.stringify({
+      kind: "track_ended",
+      activityId: "dj-activity-1",
+      playbackId: "bgm-1",
+      sequence: 3,
+      previousVideoId: "v-1",
+      previousTitle: "첫 곡",
+      continued: false,
+    })}`;
+    expect(profiles.canControl("agent:main:main", "dj-activity-1", validAction)).toBe(true);
+    expect(profiles.canControl("agent:main:main", "stale-activity", validAction)).toBe(false);
+
+    const stalePayloadAction = `bgm_event:${JSON.stringify({
+      kind: "track_ended",
+      activityId: "stale-activity",
+      playbackId: "bgm-1",
+      previousVideoId: "v-1",
+      previousTitle: "첫 곡",
+      continued: false,
+    })}`;
+    expect(profiles.canControl("agent:main:main", undefined, stalePayloadAction)).toBe(false);
+    expect(profiles.canControl("agent:main:main", "dj-activity-1", "bgm_event:{broken")).toBe(false);
+    expect(
+      profiles.canControl(
+        "agent:main:main",
+        "dj-activity-1",
+        `bgm_event:${JSON.stringify({ kind: "unknown_kind" })}`,
+      ),
+    ).toBe(false);
+
+    await expect(profiles.control("agent:main:main", "stale-activity", validAction)).resolves.toBe(false);
+    expect(onBgmEvent).not.toHaveBeenCalled();
+
+    await expect(profiles.control("agent:main:main", "dj-activity-1", validAction)).resolves.toBe(true);
+    expect(onBgmEvent).toHaveBeenCalledTimes(1);
+    expect(onBgmEvent).toHaveBeenCalledWith({
+      kind: "track_ended",
+      activityId: "dj-activity-1",
+      playbackId: "bgm-1",
+      sequence: 3,
+      previousVideoId: "v-1",
+      previousTitle: "첫 곡",
+      continued: false,
+    });
+  });
 });

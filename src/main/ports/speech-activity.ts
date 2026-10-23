@@ -61,16 +61,24 @@ export interface RadioDjBgmPort {
       readonly preserveActive?: boolean;
     },
   ): Promise<
-    | {
+      | {
         readonly ok: true;
         readonly videoId: string;
         readonly title: string;
+        readonly playbackId?: string;
+        readonly sequence?: number;
         readonly preservedActive?: boolean;
       }
     | { readonly ok: false; readonly reason: string }
   >;
   next(opts: { readonly requestId: string; readonly activityId: string; readonly signal?: AbortSignal }): Promise<
-    | { readonly ok: true; readonly videoId?: string; readonly title?: string }
+    | {
+        readonly ok: true;
+        readonly videoId?: string;
+        readonly title?: string;
+        readonly playbackId?: string;
+        readonly sequence?: number;
+      }
     | { readonly ok: false; readonly reason: string }
   >;
   stop(opts: { readonly requestId: string; readonly activityId: string }): Promise<{ readonly ok: boolean }>;

@@ -26,7 +26,9 @@ export type RadioDjControl =
 
 export interface RadioDjBgmEvent {
   readonly kind: "track_ended" | "track_playing" | "track_changed" | "track_error";
+  readonly activityId?: string;
   readonly playbackId?: string;
+  readonly sequence?: number;
   readonly videoId?: string;
   readonly title?: string;
   readonly previousVideoId?: string;
@@ -41,7 +43,6 @@ export interface RadioDjBgmEvent {
 export type RadioDjCommentGenerator = (input: {
   readonly previousTitle?: string;
   readonly nextTitle?: string;
-  readonly snapshot?: DjContextSnapshot;
   readonly signal?: AbortSignal;
 }) => Promise<string | undefined>;
 
@@ -141,7 +142,20 @@ export class PersonalRadioDjController {
   private awaitingPlaybackConfirmation = false;
   private lastHandledTrackEndKey = "";
   private lastHandledTrackChangeKey = "";
-  private lastAnnouncedPlaybackKey = "";
+  private lastWrappedUpTrackKey = "";
+  private activePlaybackId = "";
+  private activeVideoId = "";
+  private activePlaybackSequence = 0;
+  private retiredPlaybackIds = new Set<string>();
+  private retiredVideoIds = new Set<string>();
+  private announcedPlaybackIds = new Set<string>();
+  private announcedVideoId = "";
+  private pendingTransition?: {
+    readonly previousTitle: string;
+    readonly nextPlaybackId?: string;
+    readonly nextVideoId: string;
+    readonly nextTitle: string;
+  };
   private deferredTransitionComment?: string;
 
   constructor(private readonly d: DjDeps) {}
@@ -175,7 +189,15 @@ export class PersonalRadioDjController {
     this.awaitingPlaybackConfirmation = false;
     this.lastHandledTrackEndKey = "";
     this.lastHandledTrackChangeKey = "";
-    this.lastAnnouncedPlaybackKey = "";
+    this.lastWrappedUpTrackKey = "";
+    this.activePlaybackId = "";
+    this.activeVideoId = "";
+    this.activePlaybackSequence = 0;
+    this.retiredPlaybackIds.clear();
+    this.retiredVideoIds.clear();
+    this.announcedPlaybackIds.clear();
+    this.announcedVideoId = "";
+    this.pendingTransition = undefined;
     this.deferredTransitionComment = undefined;
     this.armIdle();
   }
@@ -334,11 +356,13 @@ export class PersonalRadioDjController {
       case "change_vibe":
         this.userRequestedMusicOnly = false;
         this.awaitingPlaybackConfirmation = false;
+        this.pendingTransition = undefined;
         await this.replaceSelection(true, generation, operationEpoch);
         return;
       case "next": {
         this.userRequestedMusicOnly = false;
         this.awaitingPlaybackConfirmation = false;
+        this.pendingTransition = undefined;
         if (this.d.bgm.capabilities().next) {
           let next;
           let previous: Awaited<ReturnType<RadioDjBgmPort["status"]>>;
@@ -367,8 +391,15 @@ export class PersonalRadioDjController {
             && next.title
             && next.videoId !== previous?.track?.videoId
           ) {
+            this.retireTrack(previous?.playbackId, previous?.track?.videoId);
+            this.acceptActiveTrack({
+              playbackId: next.playbackId,
+              videoId: next.videoId,
+              sequence: next.sequence,
+              title: next.title,
+            });
+            this.markTrackAnnounced(next.playbackId, next.videoId);
             this.currentState = "dj_speaking";
-            this.lastAnnouncedPlaybackKey = next.videoId;
             await this.speak(renderPlayIntro(next.title));
             if (this.isOperationCurrent(generation, activityId, operationEpoch) && this.currentState === "dj_speaking") {
               this.scheduleComment();
@@ -482,10 +513,12 @@ export class PersonalRadioDjController {
       profileGeneration: generation,
     });
     let played: Awaited<ReturnType<RadioDjBgmPort["searchAndPlay"]>>;
+    let initialLive: Awaited<ReturnType<RadioDjBgmPort["status"]>>;
     try {
       const raw = await this.d.context.snapshot(config);
       if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
       const live = await this.d.bgm.status();
+      initialLive = live;
       if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
       const snapshot = this.freshSnapshot(raw, live);
       this.lastSnapshot = snapshot;
@@ -521,7 +554,14 @@ export class PersonalRadioDjController {
     }
     this.resetStartFailureBackoff(); // #115 — 시작 성공이 연속 실패 구간을 닫는다
     this.awaitingPlaybackConfirmation = false;
-    this.lastAnnouncedPlaybackKey = played.videoId;
+    this.pendingTransition = undefined;
+    this.acceptActiveTrack({
+      playbackId: played.playbackId ?? (played.preservedActive ? initialLive?.playbackId : undefined),
+      videoId: played.videoId,
+      sequence: played.sequence ?? (played.preservedActive ? initialLive?.sequence : undefined),
+      title: played.title,
+    });
+    this.markTrackAnnounced(this.activePlaybackId, played.videoId);
     if (played.preservedActive) {
       // A user-chosen or LLM-initiated song is already playing; do not interrupt
       // it with a startup intro. Wait for the song to finish and speak on transition.
@@ -551,6 +591,7 @@ export class PersonalRadioDjController {
   async onBgmEvent(event: RadioDjBgmEvent): Promise<void> {
     if (!this.config || !this.subscriberReady) return;
     if (this.currentState === "disabled" || this.currentState === "stopped") return;
+    if (event.activityId && this.activityId && event.activityId !== this.activityId) return;
     if (this.currentState === "idle") {
       if (event.kind === "track_playing") return;
       this.cancelFlow();
@@ -558,6 +599,7 @@ export class PersonalRadioDjController {
       this.currentState = this.userRequestedMusicOnly ? "music_only" : "dj_speaking";
     }
     if (!this.activityId || !this.requestId) return;
+    if (this.isStaleBgmEvent(event)) return;
     const generation = this.generation;
     const activityId = this.activityId;
     const operationEpoch = this.operationEpoch;
@@ -565,19 +607,53 @@ export class PersonalRadioDjController {
     if (event.kind === "track_playing") {
       const videoId = event.videoId?.trim() ?? "";
       const title = event.title?.trim() ?? "";
-      if (videoId && title && this.lastSnapshot) {
-        this.lastSnapshot = {
-          ...this.lastSnapshot,
-          nowPlaying: { videoId, title, source: "bgm-player" },
-        };
+      this.acceptActiveTrack({
+        playbackId: event.playbackId,
+        videoId,
+        sequence: event.sequence,
+        title,
+      });
+      if (this.pendingTransition) {
+        const pending = this.pendingTransition;
+        if (
+          (!pending.nextPlaybackId || !event.playbackId || pending.nextPlaybackId === event.playbackId.trim())
+          && (!pending.nextVideoId || !videoId || pending.nextVideoId === videoId)
+        ) {
+          this.pendingTransition = undefined;
+          this.awaitingPlaybackConfirmation = false;
+          this.resetStartFailureBackoff();
+          const confirmedTitle = cleanTrackTitle(title || pending.nextTitle);
+          const trackPb = event.playbackId?.trim() || pending.nextPlaybackId || "";
+          const trackVid = videoId || pending.nextVideoId;
+          if (!this.userRequestedMusicOnly && confirmedTitle && !this.hasAnnouncedTrack(trackPb, trackVid)) {
+            this.markTrackAnnounced(trackPb, trackVid);
+            const intro = await this.buildTransitionComment("", confirmedTitle);
+            if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+            if (this.currentState === "yielded") {
+              this.deferredTransitionComment = this.deferredTransitionComment
+                ? `${this.deferredTransitionComment} ${intro}`
+                : intro;
+              return;
+            }
+            this.currentState = "dj_speaking";
+            await this.speak(intro);
+            if (this.isOperationCurrent(generation, activityId, operationEpoch) && this.currentState === "dj_speaking") {
+              this.scheduleComment();
+            }
+          }
+          return;
+        }
+      }
+      if (this.currentState === "selecting" || this.replacementInFlight) {
+        return;
       }
       if (this.currentState === "music_only" && (this.awaitingPlaybackConfirmation || !this.userRequestedMusicOnly)) {
         this.awaitingPlaybackConfirmation = false;
         this.resetStartFailureBackoff();
         this.currentState = "dj_speaking";
-        const key = event.playbackId || videoId;
-        if (title && key && this.lastAnnouncedPlaybackKey !== key) {
-          this.lastAnnouncedPlaybackKey = key;
+        const trackPb = event.playbackId?.trim() ?? "";
+        if (title && (trackPb || videoId) && !this.hasAnnouncedTrack(trackPb, videoId)) {
+          this.markTrackAnnounced(trackPb, videoId);
           await this.speak(renderPlayIntro(cleanTrackTitle(title)));
         }
         if (this.isOperationCurrent(generation, activityId, operationEpoch) && this.currentState === "dj_speaking") {
@@ -593,41 +669,52 @@ export class PersonalRadioDjController {
         `${event.previousVideoId ?? ""}:${event.previousTitle ?? ""}`;
       if (endKey && this.lastHandledTrackEndKey === endKey) return;
       if (endKey) this.lastHandledTrackEndKey = endKey;
+      this.retireTrack(event.playbackId, event.previousVideoId ?? event.videoId);
       this.cancelFlow();
-      if (this.currentState === "music_only" && !this.userRequestedMusicOnly) {
-        this.awaitingPlaybackConfirmation = false;
-        this.currentState = "dj_speaking";
-      }
       const prevTitle = cleanTrackTitle(
         event.previousTitle || this.lastSnapshot?.nowPlaying?.title || "",
       );
       if (event.continued && event.nextTitle?.trim()) {
         const nextTitle = cleanTrackTitle(event.nextTitle);
         const nextVideoId = event.nextVideoId?.trim() ?? "";
-        if (nextVideoId && this.lastSnapshot) {
-          this.lastSnapshot = {
-            ...this.lastSnapshot,
-            nowPlaying: { videoId: nextVideoId, title: event.nextTitle.trim(), source: "bgm-player" },
-          };
+        const nextPlaybackId = event.nextPlaybackId?.trim() ?? "";
+        this.announcedVideoId = "";
+        if (nextPlaybackId) {
+          this.activePlaybackId = nextPlaybackId;
+          this.activePlaybackSequence = 0;
+          this.retiredPlaybackIds.delete(nextPlaybackId);
+        } else {
+          this.activePlaybackId = "";
+          this.activePlaybackSequence = 0;
         }
-        if (event.nextPlaybackId || nextVideoId) {
-          this.lastAnnouncedPlaybackKey = event.nextPlaybackId || nextVideoId;
+        if (nextVideoId) {
+          this.activeVideoId = nextVideoId;
+          this.retiredVideoIds.delete(nextVideoId);
+        } else {
+          this.activeVideoId = "";
         }
+        this.pendingTransition = {
+          previousTitle: prevTitle,
+          ...(nextPlaybackId ? { nextPlaybackId } : {}),
+          nextVideoId,
+          nextTitle,
+        };
+        this.awaitingPlaybackConfirmation = true;
         if (this.userRequestedMusicOnly) return;
-        const comment = await this.buildTransitionComment(prevTitle, nextTitle);
-        if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
-        if (this.currentState === "yielded") {
-          this.deferredTransitionComment = comment;
-          return;
-        }
-        this.currentState = "dj_speaking";
-        await this.speak(comment);
-        if (this.isOperationCurrent(generation, activityId, operationEpoch) && this.currentState === "dj_speaking") {
-          this.scheduleComment();
+        if (prevTitle && (!endKey || this.lastWrappedUpTrackKey !== endKey)) {
+          if (endKey) this.lastWrappedUpTrackKey = endKey;
+          const wrapUp = await this.buildTransitionComment(prevTitle, "");
+          if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+          if (this.currentState === "yielded") {
+            this.deferredTransitionComment = wrapUp;
+            return;
+          }
+          this.currentState = "dj_speaking";
+          await this.speak(wrapUp);
         }
         return;
       }
-      await this.selectAndPlayAfterRealtimeEnd(prevTitle, generation, operationEpoch);
+      await this.selectAndPlayAfterRealtimeEnd(prevTitle, endKey, generation, operationEpoch);
       return;
     }
 
@@ -635,39 +722,71 @@ export class PersonalRadioDjController {
       const changeKey = `${event.previousVideoId ?? ""}->${event.nextVideoId ?? event.nextTitle ?? ""}`;
       if (changeKey && this.lastHandledTrackChangeKey === changeKey) return;
       if (changeKey) this.lastHandledTrackChangeKey = changeKey;
+      this.retireTrack(undefined, event.previousVideoId);
       this.cancelFlow();
-      if (this.currentState === "music_only" && !this.userRequestedMusicOnly) {
-        this.awaitingPlaybackConfirmation = false;
-        this.currentState = "dj_speaking";
-      }
       const prevTitle = cleanTrackTitle(
         event.previousTitle || this.lastSnapshot?.nowPlaying?.title || "",
       );
       const nextTitle = cleanTrackTitle(event.nextTitle || "");
       if (!nextTitle) return;
-      if (event.nextVideoId && this.lastSnapshot) {
-        this.lastSnapshot = {
-          ...this.lastSnapshot,
-          nowPlaying: { videoId: event.nextVideoId, title: event.nextTitle ?? nextTitle, source: "bgm-player" },
-        };
+      const nextVideoId = event.nextVideoId?.trim() ?? "";
+      const nextPlaybackId = (event.nextPlaybackId ?? event.playbackId)?.trim() ?? "";
+      this.announcedVideoId = "";
+      if (nextPlaybackId) {
+        this.activePlaybackId = nextPlaybackId;
+        this.retiredPlaybackIds.delete(nextPlaybackId);
       }
-      this.lastAnnouncedPlaybackKey = event.nextVideoId || event.playbackId || nextTitle;
+      if (nextVideoId) {
+        this.activeVideoId = nextVideoId;
+        this.retiredVideoIds.delete(nextVideoId);
+      }
+      this.pendingTransition = {
+        previousTitle: prevTitle,
+        ...(nextPlaybackId ? { nextPlaybackId } : {}),
+        nextVideoId,
+        nextTitle,
+      };
+      this.awaitingPlaybackConfirmation = true;
       if (this.userRequestedMusicOnly) return;
-      const comment = await this.buildTransitionComment(prevTitle, nextTitle);
-      if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
-      if (this.currentState === "yielded") {
-        this.deferredTransitionComment = comment;
-        return;
-      }
-      this.currentState = "dj_speaking";
-      await this.speak(comment);
-      if (this.isOperationCurrent(generation, activityId, operationEpoch) && this.currentState === "dj_speaking") {
-        this.scheduleComment();
+      const wrapKey = event.previousVideoId?.trim() || prevTitle;
+      if (prevTitle && (!wrapKey || this.lastWrappedUpTrackKey !== wrapKey)) {
+        if (wrapKey) this.lastWrappedUpTrackKey = wrapKey;
+        const wrapUp = await this.buildTransitionComment(prevTitle, "");
+        if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+        if (this.currentState === "yielded") {
+          this.deferredTransitionComment = wrapUp;
+          return;
+        }
+        this.currentState = "dj_speaking";
+        await this.speak(wrapUp);
       }
       return;
     }
 
     if (event.kind === "track_error") {
+      this.retireTrack(event.playbackId, event.previousVideoId ?? event.videoId);
+      if (event.continued && event.nextTitle?.trim()) {
+        const nextVideoId = event.nextVideoId?.trim() ?? "";
+        const nextPlaybackId = event.nextPlaybackId?.trim() ?? "";
+        this.announcedVideoId = "";
+        if (nextPlaybackId) {
+          this.activePlaybackId = nextPlaybackId;
+          this.activePlaybackSequence = 0;
+          this.retiredPlaybackIds.delete(nextPlaybackId);
+        }
+        if (nextVideoId) {
+          this.activeVideoId = nextVideoId;
+          this.retiredVideoIds.delete(nextVideoId);
+        }
+        this.pendingTransition = {
+          previousTitle: "",
+          ...(nextPlaybackId ? { nextPlaybackId } : {}),
+          nextVideoId,
+          nextTitle: cleanTrackTitle(event.nextTitle),
+        };
+        this.awaitingPlaybackConfirmation = true;
+        return;
+      }
       if (!event.continued) {
         await this.replaceSelection(true, generation, operationEpoch);
       }
@@ -676,6 +795,7 @@ export class PersonalRadioDjController {
 
   private async selectAndPlayAfterRealtimeEnd(
     previousTitle: string,
+    endedTrackKey: string,
     generation: number,
     operationEpoch: number,
   ): Promise<void> {
@@ -685,7 +805,23 @@ export class PersonalRadioDjController {
       const activityId = this.activityId;
       const requestId = this.requestId;
       const wasYielded = this.currentState === "yielded";
-      if (!wasYielded && !this.userRequestedMusicOnly) {
+      // FR-CONT-MVP-9 / MVP-1 / FR-RADIO-DJ.5:
+      // 1) After observing `ended`, complete the short wrap-up comment first (only referencing
+      //    the confirmed ended track; never announce an unconfirmed next track title).
+      if (!this.userRequestedMusicOnly && (!endedTrackKey || this.lastWrappedUpTrackKey !== endedTrackKey)) {
+        if (endedTrackKey) this.lastWrappedUpTrackKey = endedTrackKey;
+        const wrapUp = await this.buildTransitionComment(previousTitle, "");
+        if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+        if (this.currentState === "yielded" || wasYielded) {
+          this.deferredTransitionComment = wrapUp;
+        } else {
+          this.currentState = "dj_speaking";
+          await this.speak(wrapUp);
+          if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+        }
+      }
+      // 2) In the same activity, request the next search & play with mode=radio_dj.
+      if (!wasYielded && this.currentState !== "yielded" && !this.userRequestedMusicOnly) {
         this.currentState = "selecting";
       }
       let played: Awaited<ReturnType<RadioDjBgmPort["searchAndPlay"]>>;
@@ -716,26 +852,49 @@ export class PersonalRadioDjController {
         return;
       }
       if (!played.ok) {
+        this.pendingTransition = {
+          previousTitle,
+          nextVideoId: "",
+          nextTitle: "",
+        };
         this.awaitingPlaybackConfirmation = true;
         this.currentState = "music_only";
         return;
       }
+      // 3) After `playing` is confirmed (`played.ok`), introduce the confirmed next track once.
       this.resetStartFailureBackoff();
       this.awaitingPlaybackConfirmation = false;
-      this.lastAnnouncedPlaybackKey = played.videoId;
+      this.pendingTransition = undefined;
+      this.acceptActiveTrack({
+        playbackId: played.playbackId,
+        videoId: played.videoId,
+        sequence: played.sequence,
+        title: played.title,
+      });
       if (this.userRequestedMusicOnly) {
         this.currentState = "music_only";
         return;
       }
       const nextTitle = cleanTrackTitle(played.title);
-      const comment = await this.buildTransitionComment(previousTitle, nextTitle);
+      const trackPb = played.playbackId ?? this.activePlaybackId;
+      if (this.hasAnnouncedTrack(trackPb, played.videoId)) {
+        if (this.currentState !== "yielded" && !wasYielded) {
+          this.currentState = "dj_speaking";
+          this.scheduleComment();
+        }
+        return;
+      }
+      this.markTrackAnnounced(trackPb, played.videoId);
+      const intro = await this.buildTransitionComment("", nextTitle);
       if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
       if (this.currentState === "yielded" || wasYielded) {
-        this.deferredTransitionComment = comment;
+        this.deferredTransitionComment = this.deferredTransitionComment
+          ? `${this.deferredTransitionComment} ${intro}`
+          : intro;
         return;
       }
       this.currentState = "dj_speaking";
-      await this.speak(comment);
+      await this.speak(intro);
       if (this.isOperationCurrent(generation, activityId, operationEpoch) && this.currentState === "dj_speaking") {
         this.scheduleComment();
       }
@@ -759,7 +918,6 @@ export class PersonalRadioDjController {
       const generated = await this.d.commentGenerator({
         ...(prev ? { previousTitle: prev } : {}),
         ...(next ? { nextTitle: next } : {}),
-        ...(this.lastSnapshot ? { snapshot: this.lastSnapshot } : {}),
         ...(this.activityAbort?.signal ? { signal: this.activityAbort.signal } : {}),
       });
       const sanitized = sanitizeGeneratedDjComment(generated, prev, next);
@@ -767,6 +925,133 @@ export class PersonalRadioDjController {
     } catch {
       return fallback;
     }
+  }
+
+  private acceptActiveTrack(input: {
+    readonly playbackId?: string;
+    readonly videoId?: string;
+    readonly sequence?: number;
+    readonly title?: string;
+  }): void {
+    const pb = input.playbackId?.trim() ?? "";
+    const vid = input.videoId?.trim() ?? "";
+    const title = input.title?.trim() ?? "";
+    if (pb && this.activePlaybackId && this.activePlaybackId !== pb) {
+      this.retiredPlaybackIds.add(this.activePlaybackId);
+    }
+    if (vid && this.activeVideoId && this.activeVideoId !== vid) {
+      this.retiredVideoIds.add(this.activeVideoId);
+      if (!pb && this.activePlaybackId) {
+        this.retiredPlaybackIds.add(this.activePlaybackId);
+        this.activePlaybackId = "";
+        this.activePlaybackSequence = 0;
+      }
+      if (this.announcedVideoId && this.announcedVideoId !== vid) {
+        this.announcedVideoId = "";
+      }
+    }
+    if (pb) {
+      const changedPlayback = this.activePlaybackId !== pb;
+      this.activePlaybackId = pb;
+      this.retiredPlaybackIds.delete(pb);
+      if (typeof input.sequence === "number" && Number.isFinite(input.sequence)) {
+        this.activePlaybackSequence = changedPlayback
+          ? input.sequence
+          : Math.max(this.activePlaybackSequence, input.sequence);
+      } else if (changedPlayback) {
+        this.activePlaybackSequence = 0;
+      }
+    } else if (typeof input.sequence === "number" && Number.isFinite(input.sequence)) {
+      this.activePlaybackSequence = Math.max(this.activePlaybackSequence, input.sequence);
+    }
+    if (vid) {
+      this.activeVideoId = vid;
+      this.retiredVideoIds.delete(vid);
+      if (title && this.lastSnapshot) {
+        this.lastSnapshot = {
+          ...this.lastSnapshot,
+          nowPlaying: { videoId: vid, title, source: "bgm-player" },
+        };
+      }
+    }
+  }
+
+  private retireTrack(playbackId: string | undefined, videoId: string | undefined): void {
+    const pb = playbackId?.trim() ?? "";
+    const vid = videoId?.trim() ?? "";
+    if (pb) {
+      this.retiredPlaybackIds.add(pb);
+      if (this.activePlaybackId === pb) {
+        this.activePlaybackId = "";
+        this.activePlaybackSequence = 0;
+      }
+    }
+    if (vid) {
+      this.retiredVideoIds.add(vid);
+      if (this.activeVideoId === vid) {
+        this.activeVideoId = "";
+      }
+    }
+  }
+
+  private markTrackAnnounced(playbackId: string | undefined, videoId: string | undefined): void {
+    const pb = playbackId?.trim() ?? "";
+    const vid = videoId?.trim() ?? "";
+    if (pb) this.announcedPlaybackIds.add(pb);
+    if (vid) this.announcedVideoId = vid;
+  }
+
+  private hasAnnouncedTrack(playbackId: string | undefined, videoId: string | undefined): boolean {
+    const pb = playbackId?.trim() ?? "";
+    const vid = videoId?.trim() ?? "";
+    if (pb && this.announcedPlaybackIds.has(pb)) return true;
+    if (vid && this.announcedVideoId === vid) {
+      if (pb) this.announcedPlaybackIds.add(pb);
+      return true;
+    }
+    return false;
+  }
+
+  private isStaleBgmEvent(event: RadioDjBgmEvent): boolean {
+    if (event.activityId && this.activityId && event.activityId !== this.activityId) {
+      return true;
+    }
+    const pb = event.playbackId?.trim() ?? "";
+    if (
+      pb
+      && this.activePlaybackId
+      && pb === this.activePlaybackId
+      && typeof event.sequence === "number"
+      && Number.isFinite(event.sequence)
+      && event.sequence < this.activePlaybackSequence
+    ) {
+      return true;
+    }
+    if (event.kind === "track_ended" || event.kind === "track_error") {
+      const vid = (event.previousVideoId ?? event.videoId ?? "").trim();
+      if (pb && this.retiredPlaybackIds.has(pb)) return true;
+      if (vid && this.retiredVideoIds.has(vid)) return true;
+      if (this.activePlaybackId && pb && pb !== this.activePlaybackId) return true;
+      if (this.activeVideoId && vid && vid !== this.activeVideoId) return true;
+      return false;
+    }
+    if (event.kind === "track_playing") {
+      const vid = (event.videoId ?? "").trim();
+      if (pb && this.retiredPlaybackIds.has(pb)) return true;
+      if (vid && this.retiredVideoIds.has(vid)) return true;
+      return false;
+    }
+    if (event.kind === "track_changed") {
+      const prevVid = (event.previousVideoId ?? "").trim();
+      const nextPb = (event.nextPlaybackId ?? event.playbackId ?? "").trim();
+      const nextVid = (event.nextVideoId ?? event.videoId ?? "").trim();
+      if (nextPb && this.retiredPlaybackIds.has(nextPb)) return true;
+      if (nextVid && this.retiredVideoIds.has(nextVid)) return true;
+      if (this.activeVideoId && prevVid && prevVid !== this.activeVideoId && nextVid !== this.activeVideoId) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private replaceSelection(changeVibe: boolean, generation: number, operationEpoch: number): Promise<void> {
@@ -837,9 +1122,17 @@ export class PersonalRadioDjController {
         (afterLive.playbackId !== liveBeforeReplace?.playbackId ||
           afterLive.track.videoId !== liveBeforeReplace?.track?.videoId)
       ) {
+        this.retireTrack(liveBeforeReplace?.playbackId, liveBeforeReplace?.track?.videoId);
         this.resetStartFailureBackoff();
         this.awaitingPlaybackConfirmation = false;
-        this.lastAnnouncedPlaybackKey = afterLive.playbackId || afterLive.track.videoId;
+        this.pendingTransition = undefined;
+        this.acceptActiveTrack({
+          playbackId: afterLive.playbackId,
+          videoId: afterLive.track.videoId,
+          sequence: afterLive.sequence,
+          title: afterLive.track.title,
+        });
+        this.markTrackAnnounced(afterLive.playbackId, afterLive.track.videoId);
         await this.speak(renderPlayIntro(afterLive.track.title));
         if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
         this.currentState = "dj_speaking";
@@ -851,6 +1144,7 @@ export class PersonalRadioDjController {
         afterLive.playbackId &&
         afterLive.playbackId !== liveBeforeReplace?.playbackId
       ) {
+        this.retireTrack(liveBeforeReplace?.playbackId, liveBeforeReplace?.track?.videoId);
         this.awaitingPlaybackConfirmation = true;
         this.currentState = "music_only";
         return;
@@ -861,9 +1155,17 @@ export class PersonalRadioDjController {
       this.currentState = "music_only";
       return;
     }
+    this.retireTrack(liveBeforeReplace?.playbackId, liveBeforeReplace?.track?.videoId);
     this.resetStartFailureBackoff(); // #115 — 교체 성공도 연속 실패 구간을 닫는다
     this.awaitingPlaybackConfirmation = false;
-    this.lastAnnouncedPlaybackKey = played.videoId;
+    this.pendingTransition = undefined;
+    this.acceptActiveTrack({
+      playbackId: played.playbackId,
+      videoId: played.videoId,
+      sequence: played.sequence,
+      title: played.title,
+    });
+    this.markTrackAnnounced(this.activePlaybackId, played.videoId);
     await this.speak(renderPlayIntro(played.title));
     if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
     this.currentState = "dj_speaking";
@@ -1129,13 +1431,15 @@ function sanitizeGeneratedDjComment(
   nextTitle: string,
 ): string | undefined {
   if (!raw) return undefined;
-  const cleaned = raw
-    .replace(/<think>[\s\S]*?<\/think>/giu, "")
-    .replace(/\[emotion:[^\]]*\]/giu, "")
-    .replace(/[\r\n]+/gu, " ")
-    .replace(/\s+/gu, " ")
-    .trim();
-  if (!cleaned || [...cleaned].length < 10 || [...cleaned].length > 130) {
+  const firstLine =
+    raw
+      .replace(/<think>[\s\S]*?<\/think>/giu, "")
+      .replace(/\[emotion:[^\]]*\]/giu, "")
+      .split(/[\r\n]+/u)
+      .map((line) => line.trim())
+      .find((line) => line.length > 0) ?? "";
+  const cleaned = [...firstLine.replace(/\s+/gu, " ").trim()].slice(0, 120).join("").trim();
+  if (!cleaned || [...cleaned].length < 10) {
     return undefined;
   }
   const matchesTitleToken = (title: string): boolean => {
