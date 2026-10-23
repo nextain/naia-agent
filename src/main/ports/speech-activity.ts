@@ -97,6 +97,7 @@ export interface ActivitySpeechPort {
     readonly activityId: string;
     readonly text: string;
     readonly sourceUris?: readonly string[];
+    readonly signal?: AbortSignal;
   }): Promise<"completed" | "cancelled">;
   interrupt(activityId: string): void;
   close(activityId: string, reason: "finished" | "cancelled"): void;

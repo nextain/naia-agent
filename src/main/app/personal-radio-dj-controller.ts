@@ -200,7 +200,6 @@ export class PersonalRadioDjController {
     this.announcedVideoId = "";
     this.pendingTransition = undefined;
     this.deferredTransitionComment = undefined;
-    this.transitionSpeechChain = Promise.resolve();
     this.armIdle();
   }
 
@@ -420,20 +419,17 @@ export class PersonalRadioDjController {
   }
 
   async stop(): Promise<void> {
-    this.cancelScheduled();
-    this.replacementInFlight = undefined;
-    this.preserveLatePlaybackEpochs.clear();
-    this.generation++;
-    this.operationEpoch++;
-    this.activityAbort?.abort();
     const activityId = this.activityId;
     const requestId = this.requestId;
-    if (activityId) this.d.speech.interrupt(activityId);
+    this.generation++;
+    this.retireActiveExecution();
     this.currentState = "stopped";
     if (activityId && requestId) {
       try { await this.d.bgm.stop({ requestId, activityId }); } catch { /* stop is best-effort but terminal */ }
     }
     if (activityId) this.d.speech.close(activityId, "finished");
+    this.activityId = undefined;
+    this.requestId = undefined;
   }
 
   async recordExplicitPreference(
@@ -629,8 +625,8 @@ export class PersonalRadioDjController {
           const trackVid = videoId || pending.nextVideoId;
           if (!this.userRequestedMusicOnly && confirmedTitle && !this.hasAnnouncedTrack(trackPb, trackVid)) {
             this.markTrackAnnounced(trackPb, trackVid);
-            await this.enqueueTransitionSpeech(generation, activityId, operationEpoch, async () => {
-              const intro = await this.buildTransitionComment("", confirmedTitle);
+            await this.enqueueTransitionSpeech(generation, activityId, operationEpoch, async (signal) => {
+              const intro = await this.buildTransitionComment("", confirmedTitle, signal);
               if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
               if (this.currentState === "yielded") {
                 this.deferredTransitionComment = this.deferredTransitionComment
@@ -639,7 +635,7 @@ export class PersonalRadioDjController {
                 return;
               }
               this.currentState = "dj_speaking";
-              await this.speak(intro);
+              await this.speak(intro, signal);
               if (this.isOperationCurrent(generation, activityId, operationEpoch) && this.currentState === "dj_speaking") {
                 this.scheduleComment();
               }
@@ -707,15 +703,16 @@ export class PersonalRadioDjController {
         if (this.userRequestedMusicOnly) return;
         if (prevTitle && (!endKey || this.lastWrappedUpTrackKey !== endKey)) {
           if (endKey) this.lastWrappedUpTrackKey = endKey;
-          await this.enqueueTransitionSpeech(generation, activityId, operationEpoch, async () => {
-            const wrapUp = await this.buildTransitionComment(prevTitle, "");
+          await this.enqueueTransitionSpeech(generation, activityId, operationEpoch, async (signal) => {
+            const wrapUp = await this.buildTransitionComment(prevTitle, "", signal);
             if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
             if (this.currentState === "yielded") {
               this.deferredTransitionComment = wrapUp;
               return;
             }
             this.currentState = "dj_speaking";
-            await this.speak(wrapUp);
+            await this.speak(wrapUp, signal);
+            if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
           });
         }
         return;
@@ -757,15 +754,16 @@ export class PersonalRadioDjController {
       const wrapKey = event.previousVideoId?.trim() || prevTitle;
       if (prevTitle && (!wrapKey || this.lastWrappedUpTrackKey !== wrapKey)) {
         if (wrapKey) this.lastWrappedUpTrackKey = wrapKey;
-        await this.enqueueTransitionSpeech(generation, activityId, operationEpoch, async () => {
-          const wrapUp = await this.buildTransitionComment(prevTitle, "");
+        await this.enqueueTransitionSpeech(generation, activityId, operationEpoch, async (signal) => {
+          const wrapUp = await this.buildTransitionComment(prevTitle, "", signal);
           if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
           if (this.currentState === "yielded") {
             this.deferredTransitionComment = wrapUp;
             return;
           }
           this.currentState = "dj_speaking";
-          await this.speak(wrapUp);
+          await this.speak(wrapUp, signal);
+          if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
         });
       }
       return;
@@ -818,15 +816,18 @@ export class PersonalRadioDjController {
       //    the confirmed ended track; never announce an unconfirmed next track title).
       if (!this.userRequestedMusicOnly && (!endedTrackKey || this.lastWrappedUpTrackKey !== endedTrackKey)) {
         if (endedTrackKey) this.lastWrappedUpTrackKey = endedTrackKey;
-        const wrapUp = await this.buildTransitionComment(previousTitle, "");
-        if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
-        if (this.currentState === "yielded" || wasYielded) {
-          this.deferredTransitionComment = wrapUp;
-        } else {
-          this.currentState = "dj_speaking";
-          await this.speak(wrapUp);
+        await this.enqueueTransitionSpeech(generation, activityId, operationEpoch, async (signal) => {
+          const wrapUp = await this.buildTransitionComment(previousTitle, "", signal);
           if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
-        }
+          if (this.currentState === "yielded" || wasYielded) {
+            this.deferredTransitionComment = wrapUp;
+            return;
+          }
+          this.currentState = "dj_speaking";
+          await this.speak(wrapUp, signal);
+          if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+        });
+        if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
       }
       // 2) In the same activity, request the next search & play with mode=radio_dj.
       if (!wasYielded && this.currentState !== "yielded" && !this.userRequestedMusicOnly) {
@@ -893,19 +894,21 @@ export class PersonalRadioDjController {
         return;
       }
       this.markTrackAnnounced(trackPb, played.videoId);
-      const intro = await this.buildTransitionComment("", nextTitle);
-      if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
-      if (this.currentState === "yielded" || wasYielded) {
-        this.deferredTransitionComment = this.deferredTransitionComment
-          ? `${this.deferredTransitionComment} ${intro}`
-          : intro;
-        return;
-      }
-      this.currentState = "dj_speaking";
-      await this.speak(intro);
-      if (this.isOperationCurrent(generation, activityId, operationEpoch) && this.currentState === "dj_speaking") {
-        this.scheduleComment();
-      }
+      await this.enqueueTransitionSpeech(generation, activityId, operationEpoch, async (signal) => {
+        const intro = await this.buildTransitionComment("", nextTitle, signal);
+        if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+        if (this.currentState === "yielded" || wasYielded) {
+          this.deferredTransitionComment = this.deferredTransitionComment
+            ? `${this.deferredTransitionComment} ${intro}`
+            : intro;
+          return;
+        }
+        this.currentState = "dj_speaking";
+        await this.speak(intro, signal);
+        if (this.isOperationCurrent(generation, activityId, operationEpoch) && this.currentState === "dj_speaking") {
+          this.scheduleComment();
+        }
+      });
     })();
     const tracked = attempt.finally(() => {
       if (this.replacementInFlight === tracked) this.replacementInFlight = undefined;
@@ -917,16 +920,18 @@ export class PersonalRadioDjController {
   private async buildTransitionComment(
     previousTitle: string,
     nextTitle: string,
+    signal: AbortSignal | undefined = this.activityAbort?.signal,
   ): Promise<string> {
     const prev = cleanTrackTitle(previousTitle);
     const next = cleanTrackTitle(nextTitle);
     const fallback = renderTrackTransition(prev, next);
+    if (signal?.aborted) return fallback;
     if (!this.d.commentGenerator) return fallback;
     try {
       const generated = await this.d.commentGenerator({
         ...(prev ? { previousTitle: prev } : {}),
         ...(next ? { nextTitle: next } : {}),
-        ...(this.activityAbort?.signal ? { signal: this.activityAbort.signal } : {}),
+        ...(signal ? { signal } : {}),
       });
       const sanitized = sanitizeGeneratedDjComment(generated, prev, next);
       return sanitized ?? fallback;
@@ -1250,13 +1255,25 @@ export class PersonalRadioDjController {
     if (!fired) this.cancelFlowTimer = cancelTimer;
   }
 
-  private async speak(text: string): Promise<"completed" | "cancelled"> {
-    if (!this.config || !this.activityId) return "cancelled";
+  private async speak(
+    text: string,
+    signal: AbortSignal | undefined = this.activityAbort?.signal,
+  ): Promise<"completed" | "cancelled"> {
+    if (!this.config || !this.activityId || signal?.aborted || this.currentState === "stopped") {
+      return "cancelled";
+    }
+    const generation = this.generation;
+    const activityId = this.activityId;
+    const operationEpoch = this.operationEpoch;
     const result = await this.d.speech.speak({
       sessionId: this.config.sessionId,
-      activityId: this.activityId,
+      activityId,
       text,
+      ...(signal ? { signal } : {}),
     });
+    if (!this.isOperationCurrent(generation, activityId, operationEpoch) || signal?.aborted) {
+      return "cancelled";
+    }
     if (result === "completed") {
       this.leaseUtterances++;
       this.renewLeaseForUtteranceLimit();
@@ -1343,27 +1360,33 @@ export class PersonalRadioDjController {
     generation: number,
     activityId: string,
     operationEpoch: number,
-    step: () => Promise<void>,
+    step: (signal: AbortSignal | undefined) => Promise<void>,
   ): Promise<void> {
+    const signal = this.activityAbort?.signal;
     const run = async () => {
-      if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
-      await step();
+      if (!this.isOperationCurrent(generation, activityId, operationEpoch) || signal?.aborted) return;
+      await step(signal);
     };
     const next = this.transitionSpeechChain.then(run, run);
     this.transitionSpeechChain = next.catch(() => {});
     return next;
   }
 
-  private deactivateCurrent(): void {
+  private retireActiveExecution(): void {
     this.cancelScheduled();
     this.replacementInFlight = undefined;
-    this.transitionSpeechChain = Promise.resolve();
     this.preserveLatePlaybackEpochs.clear();
+    this.pendingTransition = undefined;
+    this.deferredTransitionComment = undefined;
     this.operationEpoch++;
     this.activityAbort?.abort();
+    if (this.activityId) this.d.speech.interrupt(this.activityId);
+  }
+
+  private deactivateCurrent(): void {
     const activityId = this.activityId;
     const requestId = this.requestId;
-    if (activityId) this.d.speech.interrupt(activityId);
+    this.retireActiveExecution();
     if (activityId) this.d.speech.close(activityId, "cancelled");
     if (activityId && requestId) {
       void this.d.bgm.stop({ requestId, activityId }).catch(() => {});

@@ -708,6 +708,178 @@ describe("radio DJ song-end transitions & unconfirmed playback recovery", () => 
     ]);
   });
 
+  it("transitionSpeechChain 은 deactivateCurrent·stop 둘 다에서 같은 방식으로 중단되며, 진행 중 멘트 생성·발화에 abort 신호를 넘기고 정지·활동 교체 뒤 남은 멘트는 말하지 않는다 (FR-RADIO-DJ.12)", async () => {
+    // 1) stop 중 진행 중이던 전환 멘트 생성·발화가 끝난 뒤에도 남은 멘트는 0회 발화된다.
+    let releaseWrapUpGen!: () => void;
+    const seenSignals: (AbortSignal | undefined)[] = [];
+    const speakSignals: (AbortSignal | undefined)[] = [];
+    const stopHarness = harness({
+      commentGenerator: async (input) => {
+        seenSignals.push(input.signal);
+        if (input.previousTitle && !input.nextTitle) {
+          await new Promise<void>((resolve) => {
+            releaseWrapUpGen = resolve;
+          });
+          return `방금은 “${input.previousTitle}”였습니다.`;
+        }
+        return `이어서 “${input.nextTitle}” 들려 드릴게요.`;
+      },
+    });
+    await stopHarness.scheduler.advance(1_000);
+    stopHarness.spoken.length = 0;
+
+    const pChanged = stopHarness.controller.onBgmEvent({
+      kind: "track_changed",
+      activityId: "activity-dj-1",
+      playbackId: "bgm-1",
+      sequence: 2,
+      previousVideoId: "v1",
+      previousTitle: "아이유 - 밤편지",
+      nextPlaybackId: "bgm-2",
+      nextVideoId: "v2",
+      nextTitle: "악뮤 - 어떻게 이별까지 사랑하겠어",
+      continued: true,
+    });
+    const pPlaying = stopHarness.controller.onBgmEvent({
+      kind: "track_playing",
+      activityId: "activity-dj-1",
+      playbackId: "bgm-2",
+      sequence: 3,
+      videoId: "v2",
+      title: "악뮤 - 어떻게 이별까지 사랑하겠어",
+    });
+
+    await vi.waitFor(() => expect(releaseWrapUpGen).toBeTypeOf("function"));
+    await stopHarness.controller.stop();
+    expect(seenSignals[0]?.aborted).toBe(true);
+
+    releaseWrapUpGen();
+    await Promise.all([pChanged, pPlaying]);
+    expect(stopHarness.spoken).toEqual([]);
+
+    // 2) deactivateCurrent(활동 재구성) 시에도 체인을 끊어 동시 실행하지 않고, 구 활동 speak 가 끝난 뒤에야 새 활동이 순서대로 실행되며 구 멘트는 0회다.
+    let releaseSlowSpeak!: () => void;
+    let activeSpeaks = 0;
+    let maxConcurrentSpeaks = 0;
+    const events: string[] = [];
+    let nextId = 0;
+    const scheduler = new ManualScheduler();
+    const controller = new PersonalRadioDjController({
+      scheduler,
+      ids: { next: () => `activity-dj-${++nextId}` },
+      context: {
+        snapshot: async () => ({
+          localTime: { iso: new Date(scheduler.now()).toISOString(), timezone: "Asia/Seoul", source: "configured" },
+          preferences: [],
+        }),
+      },
+      selector: {
+        select: async () => ({ query: "재즈", reason: "generic" as const }),
+      },
+      bgm: {
+        capabilities: () => ({ ready: true, next: false }),
+        searchAndPlay: async () => ({ ok: true as const, playbackId: `pb-${nextId}`, sequence: 1, videoId: `v-${nextId}`, title: `곡-${nextId}` }),
+        next: async () => ({ ok: false as const, reason: "unsupported" }),
+        stop: async () => ({ ok: true }),
+        status: async () => ({ status: "playing" as const, playbackId: `pb-${nextId}`, track: { videoId: `v-${nextId}`, title: `곡-${nextId}` } }),
+      },
+      speech: {
+        open: () => {},
+        speak: async ({ activityId, text, signal }) => {
+          speakSignals.push(signal);
+          activeSpeaks++;
+          maxConcurrentSpeaks = Math.max(maxConcurrentSpeaks, activeSpeaks);
+          try {
+            if (activityId === "activity-dj-1" && text.includes("방금은")) {
+              await new Promise<void>((resolve) => {
+                releaseSlowSpeak = resolve;
+              });
+            }
+            if (signal?.aborted) {
+              events.push(`aborted:${activityId}:${text}`);
+              return "cancelled" as const;
+            }
+            events.push(`spoken:${activityId}:${text}`);
+            return "completed" as const;
+          } finally {
+            activeSpeaks--;
+          }
+        },
+        interrupt: () => {},
+        close: () => {},
+      },
+      preferences: { handoff: async () => {} },
+    });
+
+    controller.configure({
+      sessionId: "s-1",
+      idleMs: 1_000,
+      djIntervalMs: 500,
+      timezone: "Asia/Seoul",
+      bgmAutoPlayOptIn: true,
+    });
+    controller.setSubscriberReady(true);
+    await scheduler.advance(1_000);
+    events.length = 0;
+
+    const oldWrapUp = controller.onBgmEvent({
+      kind: "track_ended",
+      activityId: "activity-dj-1",
+      playbackId: "pb-1",
+      sequence: 2,
+      previousVideoId: "v-1",
+      previousTitle: "이전 활동 첫 곡",
+      nextPlaybackId: "pb-1b",
+      nextVideoId: "v-1b",
+      nextTitle: "이전 활동 다음 곡",
+      continued: true,
+    });
+    const oldIntro = controller.onBgmEvent({
+      kind: "track_playing",
+      activityId: "activity-dj-1",
+      playbackId: "pb-1b",
+      sequence: 3,
+      videoId: "v-1b",
+      title: "이전 활동 다음 곡",
+    });
+
+    await vi.waitFor(() => expect(releaseSlowSpeak).toBeTypeOf("function"));
+
+    // 활동 교체(deactivateCurrent 발생) 후 새 활동에서 전환 이벤트 도착
+    controller.configure({
+      sessionId: "s-2",
+      idleMs: 60_000,
+      djIntervalMs: 500,
+      timezone: "Asia/Seoul",
+      bgmAutoPlayOptIn: true,
+    });
+
+    const newWrapUp = controller.onBgmEvent({
+      kind: "track_ended",
+      activityId: "activity-dj-2",
+      playbackId: "pb-2",
+      sequence: 2,
+      previousVideoId: "v-2",
+      previousTitle: "새 활동 곡",
+      nextPlaybackId: "pb-2b",
+      nextVideoId: "v-2b",
+      nextTitle: "새 활동 다음 곡",
+      continued: true,
+    });
+
+    // 구 활동의 진행 중 speak 가 아직 끝나지 않았으므로 새 활동 전환 멘트도 겹쳐서 동시 실행되지 않는다.
+    expect(maxConcurrentSpeaks).toBe(1);
+    expect(speakSignals.some((s) => s?.aborted)).toBe(true);
+
+    releaseSlowSpeak();
+    await Promise.all([oldWrapUp, oldIntro, newWrapUp]);
+
+    expect(maxConcurrentSpeaks).toBe(1);
+    // 구 활동의 남은 intro("이전 활동 다음 곡")는 발화되지 않고, 새 활동의 멘트만 정상 발화된다.
+    expect(events.some((e) => e.includes("이전 활동 다음 곡"))).toBe(false);
+    expect(events).toContain("spoken:activity-dj-2:방금은 “새 활동 곡”였어요. 다음 곡을 이어서 들려 드릴게요.");
+  });
+
   it("대기열이 비어 곡이 끝났을 때(track_ended continued:false) 짧은 전환 멘트를 먼저 완료한 뒤 같은 activity 에서 다음 검색·재생을 요청하고 playing 확인 뒤 새 곡을 소개한다 (FR-CONT-MVP-9)", async () => {
     const h = harness();
     await h.scheduler.advance(1_000);
