@@ -27,9 +27,11 @@ type StructuredResult = {
   title?: string;
   selected?: Track;
   currentTrack?: Track | null;
+  pendingTrack?: Track | null;
   recentTracks?: Track[];
   favoriteTracks?: Track[];
   announceTrack?: boolean;
+  preservedActive?: boolean;
   playback?: {
     playbackId?: string;
     sequence?: number;
@@ -57,6 +59,8 @@ function observedState(data: StructuredResult | undefined): RadioDjPlaybackState
   if (!data || !playback?.status) return undefined;
   const videoId = data.currentTrack?.videoId?.trim();
   const title = data.currentTrack?.title?.trim();
+  const pendingVideoId = data.pendingTrack?.videoId?.trim();
+  const pendingTitle = data.pendingTrack?.title?.trim();
   const recentTracks = boundedTracks(data.recentTracks, 20);
   const favoriteTracks = boundedTracks(data.favoriteTracks, 10);
   return {
@@ -64,6 +68,7 @@ function observedState(data: StructuredResult | undefined): RadioDjPlaybackState
     ...(playback.playbackId ? { playbackId: playback.playbackId } : {}),
     ...(Number.isSafeInteger(playback.sequence) ? { sequence: playback.sequence } : {}),
     ...(videoId && title && data.announceTrack === true ? { track: { videoId, title } } : {}),
+    ...(pendingVideoId && pendingTitle ? { pendingTrack: { videoId: pendingVideoId, title: pendingTitle } } : {}),
     ...(playback.reason ? { reason: playback.reason } : {}),
     ...(recentTracks ? { recentTracks } : {}),
     ...(favoriteTracks ? { favoriteTracks } : {}),
@@ -107,6 +112,12 @@ export function makeActivityRadioDjBgm(deps: {
     } | undefined;
     const actions = parameters?.properties?.action?.enum;
     return Array.isArray(actions) ? actions.includes(action) : action !== "next" && action !== "status";
+  };
+  const supportsParam = (paramName: string): boolean => {
+    const parameters = spec()?.parameters as {
+      properties?: Record<string, unknown>;
+    } | undefined;
+    return Boolean(parameters?.properties && paramName in parameters.properties);
   };
 
   async function call(
@@ -156,26 +167,66 @@ export function makeActivityRadioDjBgm(deps: {
   return {
     capabilities: () => ({
       ready: spec() !== undefined && supports("play") && supports("status"),
-      // Shell next currently returns command acceptance without a target playbackId.
-      // Radio therefore reselects through the exact play receipt/status contract.
-      next: false,
+      next:
+        spec() !== undefined &&
+        supports("next") &&
+        supports("status") &&
+        supportsParam("preserveActive"),
     }),
     async searchAndPlay(query, opts) {
       lastRoute = { requestId: opts.requestId, activityId: opts.activityId };
-      const result = await call("play", { query, mode: "radio_dj" }, opts);
+      const playArgs: Record<string, unknown> = {
+        query,
+        mode: "radio_dj",
+        ...(opts.preserveActive === true && supportsParam("preserveActive")
+          ? { preserveActive: true }
+          : {}),
+      };
+      const result = await call("play", playArgs, opts);
+      const playbackId = result.data?.playback?.playbackId;
+      if (!result.ok || !playbackId) {
+        return { ok: false, reason: result.reason ?? "invalid BGM play receipt" };
+      }
       const selectedVideoId = result.data?.selected?.videoId?.trim();
       const selectedTitle = result.data?.selected?.title?.trim();
-      const playbackId = result.data?.playback?.playbackId;
-      if (!result.ok || !selectedVideoId || !selectedTitle || !playbackId) {
+      if (result.data?.selected !== undefined && (!selectedVideoId || !selectedTitle)) {
         return { ok: false, reason: result.reason ?? "invalid BGM play receipt" };
+      }
+      const preservedActive = result.data?.preservedActive === true;
+      // When the Shell already waited for ack (`waitForAck`) and returned a
+      // confirmed playing snapshot without legacy `selected`, accept it directly.
+      if (
+        !result.data?.selected &&
+        result.data?.playback?.status === "playing" &&
+        result.data?.announceTrack === true &&
+        result.data?.currentTrack?.videoId?.trim() &&
+        result.data?.currentTrack?.title?.trim()
+      ) {
+        const confirmed = {
+          videoId: result.data.currentTrack.videoId.trim(),
+          title: result.data.currentTrack.title.trim(),
+        };
+        nowPlaying = observedState(result.data);
+        return {
+          ok: true,
+          ...confirmed,
+          ...(preservedActive ? { preservedActive: true } : {}),
+        };
       }
       const deadline = now() + observationTimeoutMs;
       while (!opts.signal?.aborted && now() <= deadline) {
         const state = await readObservedStatus(opts);
         if (!state) return { ok: false, reason: "BGM status unavailable" };
         if (state.playbackId === playbackId && state.status === "playing" && state.track) {
-          if (state.track.videoId !== selectedVideoId) return { ok: false, reason: "BGM observed track mismatch" };
-          return { ok: true, videoId: state.track.videoId, title: state.track.title };
+          if (selectedVideoId && state.track.videoId !== selectedVideoId) {
+            return { ok: false, reason: "BGM observed track mismatch" };
+          }
+          return {
+            ok: true,
+            videoId: state.track.videoId,
+            title: state.track.title,
+            ...(preservedActive ? { preservedActive: true } : {}),
+          };
         }
         if (state.playbackId === playbackId && ["ended", "error"].includes(state.status)) {
           return { ok: false, reason: state.reason ?? `BGM ${state.status}` };
@@ -184,8 +235,42 @@ export function makeActivityRadioDjBgm(deps: {
       }
       return { ok: false, reason: opts.signal?.aborted ? "cancelled" : "BGM playing observation timeout" };
     },
-    async next(_opts) {
-      return { ok: false, reason: "uncorrelated_next_receipt" };
+    async next(opts) {
+      if (!supports("next") || !supports("status") || !supportsParam("preserveActive")) {
+        return { ok: false, reason: "uncorrelated_next_receipt" };
+      }
+      lastRoute = { requestId: opts.requestId, activityId: opts.activityId };
+      const result = await call("next", {}, opts);
+      const playbackId = result.data?.playback?.playbackId;
+      if (!result.ok || !playbackId) {
+        return { ok: false, reason: result.reason ?? "uncorrelated_next_receipt" };
+      }
+      if (
+        result.data?.playback?.status === "playing" &&
+        result.data?.announceTrack === true &&
+        result.data?.currentTrack?.videoId?.trim() &&
+        result.data?.currentTrack?.title?.trim()
+      ) {
+        nowPlaying = observedState(result.data);
+        return {
+          ok: true,
+          videoId: result.data.currentTrack.videoId.trim(),
+          title: result.data.currentTrack.title.trim(),
+        };
+      }
+      const deadline = now() + observationTimeoutMs;
+      while (!opts.signal?.aborted && now() <= deadline) {
+        const state = await readObservedStatus(opts);
+        if (!state) return { ok: false, reason: "BGM status unavailable" };
+        if (state.playbackId === playbackId && state.status === "playing" && state.track) {
+          return { ok: true, videoId: state.track.videoId, title: state.track.title };
+        }
+        if (state.playbackId === playbackId && ["ended", "error"].includes(state.status)) {
+          return { ok: false, reason: state.reason ?? `BGM ${state.status}` };
+        }
+        await wait(pollIntervalMs);
+      }
+      return { ok: false, reason: opts.signal?.aborted ? "cancelled" : "BGM playing observation timeout" };
     },
     async stop(opts) {
       const result = await call("stop", {}, opts);

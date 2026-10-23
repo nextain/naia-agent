@@ -115,6 +115,7 @@ const { makeExhibitionKnowledge } =
 const {
   makeDeterministicRadioDjSelector,
   makeFileRadioDjPreferencePersistence,
+  makeRadioDjCommentGenerator,
   makeRadioDjContext,
   makeRadioDjPreferenceStore,
   makeSystemProactiveScheduler,
@@ -579,6 +580,12 @@ const djController = new PersonalRadioDjController({
   speech: activitySpeech,
   preferences: preferenceStore,
   log: (message, ctx) => diag.log(message, ctx), // #119 — 자율 실패는 발화 대신 진단 로그
+  commentGenerator: makeRadioDjCommentGenerator({
+    getConfig: () => activeProcessingConfig,
+    resolveProvider: (hydrated) => (resolver ? resolver.resolve(hydrated) : provider),
+    getCredentials: (providerName) => credentials?.get(providerName),
+    timeoutMs: 3_500,
+  }),
 });
 const exhibitionController = new ExhibitionIntroController({
   scheduler: proactiveScheduler,

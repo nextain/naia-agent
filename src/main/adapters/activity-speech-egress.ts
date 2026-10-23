@@ -50,9 +50,10 @@ export function makeActivitySpeechEgress(
         profileGeneration: input.profileGeneration,
       });
     },
-    async speak(input): Promise<"completed"> {
+    async speak(input): Promise<"completed" | "cancelled"> {
+      if (input.signal?.aborted) return "cancelled";
       const route = routes.get(input.activityId);
-      if (!route) return "completed";
+      if (!route) return "cancelled";
       wire.emit(
         route.sessionId,
         route.requestId,
