@@ -1324,6 +1324,79 @@ describe("radio DJ song-end transitions & unconfirmed playback recovery", () => 
     expect(vi.mocked(h.bgm.searchAndPlay).mock.calls.length).toBe(initialPlayCalls + 1);
   });
 
+  it("곡 끝 교체(replacementInFlight) 진행 중에는 preQueueNextTrackIfNeeded 가 미리 확보 검색을 실행하지 않는다 (FR-RADIO-DJ.11/16)", async () => {
+    const h = harness();
+    await h.scheduler.advance(1_000);
+    h.spoken.length = 0;
+
+    let releaseStatus!: (live: NonNullable<Awaited<ReturnType<typeof h.bgm.status>>>) => void;
+    vi.mocked(h.bgm.status).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseStatus = resolve;
+        }),
+    );
+
+    const scheduleTick = h.scheduler.advance(500);
+    await vi.waitFor(() => expect(releaseStatus).toBeTypeOf("function"));
+
+    let releaseEndPlay!: () => void;
+    const preQueuePlayCalls: string[] = [];
+    const endReplaceCalls: string[] = [];
+    vi.mocked(h.bgm.searchAndPlay).mockImplementation(async (q, opts) => {
+      if (opts.preserveActive) {
+        preQueuePlayCalls.push(q);
+        return {
+          ok: true,
+          videoId: "v-pre",
+          title: "미리 확보 후보",
+          preservedActive: true,
+          queuedCount: 1,
+          nextPrepared: true,
+        };
+      }
+      endReplaceCalls.push(q);
+      await new Promise<void>((resolve) => {
+        releaseEndPlay = resolve;
+      });
+      return {
+        ok: true,
+        playbackId: "bgm-after-end",
+        sequence: 2,
+        videoId: "v-after-end",
+        title: "곡 끝 교체 곡",
+      };
+    });
+
+    const endedPromise = h.controller.onBgmEvent({
+      kind: "track_ended",
+      activityId: "activity-dj-1",
+      playbackId: "bgm-1",
+      sequence: 2,
+      previousVideoId: "v1",
+      previousTitle: "아이유 - 밤편지",
+      continued: false,
+    });
+    await vi.waitFor(() => expect(releaseEndPlay).toBeTypeOf("function"));
+
+    releaseStatus({
+      status: "playing",
+      playbackId: "bgm-1",
+      track: { videoId: "v1", title: "아이유 - 밤편지" },
+      currentTime: 190,
+      duration: 210,
+      queueLength: 0,
+    });
+    await scheduleTick;
+
+    expect(preQueuePlayCalls).toEqual([]);
+    expect(endReplaceCalls).toHaveLength(1);
+
+    releaseEndPlay();
+    await endedPromise;
+    expect(preQueuePlayCalls).toEqual([]);
+  });
+
   it("선곡기(makeDeterministicRadioDjSelector)는 실패한 검색어와 최근 곡·아티스트를 기억해 다시 고를 때 다른 검색어를 만든다 (FR-RADIO-DJ.12/16)", async () => {
     const selector = makeDeterministicRadioDjSelector();
     const baseSnapshot: DjContextSnapshot = {
@@ -1444,5 +1517,24 @@ describe("radio DJ song-end transitions & unconfirmed playback recovery", () => 
     await expect(
       hijackedGen({ previousTitle: "아이유 - 밤편지" }),
     ).resolves.toBe("방금은 “아이유 - 밤편지”였어요.");
+  });
+
+  it("다음 곡이 확인(safeNext)되지 않았을 때 LLM 멘트에 '다음 곡/다음곡' 언급이 있으면 고정 마무리 멘트로 대체한다 (FR-RADIO-DJ.5)", async () => {
+    for (const unconfirmedMention of [
+      "방금은 아이유의 밤편지였어요, 다음 곡도 기대해 주세요.",
+      "방금은 아이유의 밤편지였어요, 다음곡으로 곧 찾아올게요.",
+    ]) {
+      const gen = makeRadioDjCommentGenerator({
+        getConfig: () => ({ provider: "mock" }),
+        resolveProvider: () => ({
+          chat: async function* () {
+            yield { kind: "textDelta", text: unconfirmedMention };
+          },
+        }),
+      });
+      await expect(
+        gen({ previousTitle: "아이유 - 밤편지" }),
+      ).resolves.toBe("방금은 “아이유 - 밤편지”였어요.");
+    }
   });
 });

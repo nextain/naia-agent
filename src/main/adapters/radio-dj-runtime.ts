@@ -678,7 +678,7 @@ export function makeRadioDjCommentGenerator(deps: {
         .find((line) => line.length > 0) ?? "";
       const clipped = [...firstLine].slice(0, MAX_RADIO_DJ_COMMENT_CHARS).join("").trim();
       if ([...clipped].length < 10) return fallback;
-      if (!safeNext && /다음\s*곡[^\r\n]*?(?:이어서|들려|준비|골라)|이어서[^\r\n]*?들려/u.test(clipped)) {
+      if (!safeNext && /다음\s*곡|이어서[^\r\n]*?들려/u.test(clipped)) {
         return fallback;
       }
 

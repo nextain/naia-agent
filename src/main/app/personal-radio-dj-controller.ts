@@ -1446,6 +1446,7 @@ export class PersonalRadioDjController {
     operationEpoch: number,
   ): Promise<void> {
     if (!this.config || !this.requestId) return;
+    if (this.replacementInFlight || this.currentState === "selecting") return;
     if (live.queueLength !== 0) return;
     const duration = live.duration;
     const currentTime = live.currentTime;
