@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   PersonalRadioDjController,
+  cleanTrackTitle,
+  renderTrackTransition,
   type DjContextSnapshot,
   type ProactiveScheduler,
   type RadioDjBgmPort,
@@ -536,5 +538,135 @@ describe("#115 radio DJ off-race·backoff·configure contract", () => {
     await h.controller.control({ kind: "next" });
     expect(h.spoken.filter((t) => t === "다른 분위기의 음악을 찾지 못했어요.")).toHaveLength(2);
     expect(h.controller.state()).toBe("music_only");
+  });
+});
+
+describe("radio DJ song-end transitions & unconfirmed playback recovery", () => {
+  it("cleanTrackTitle strips Official MV / Audio / Lyrics suffixes and renderTrackTransition formats finished + upcoming tracks", () => {
+    expect(cleanTrackTitle("아이유 - 밤편지 (Official MV) [4K]")).toBe("아이유 - 밤편지");
+    expect(cleanTrackTitle("NewJeans - Ditto (Official Video)")).toBe("NewJeans - Ditto");
+    expect(renderTrackTransition("아이유 - 밤편지 (Official MV)", "악뮤 - 어떻게 이별까지 사랑하겠어 (Official Audio)"))
+      .toBe("방금은 “아이유 - 밤편지”였어요. 이어서 “악뮤 - 어떻게 이별까지 사랑하겠어” 들려 드릴게요.");
+  });
+
+  it("자율 시작에서 재생 미확인(music_only)이어도 이후 재생이 확인되면 발화 상태로 복구하고 소개한다", async () => {
+    const h = harness();
+    vi.mocked(h.bgm.searchAndPlay).mockResolvedValueOnce({ ok: false, reason: "bgm_playback_not_confirmed:requested" });
+    await h.scheduler.advance(1_000);
+    expect(h.controller.state()).toBe("music_only");
+    expect(h.spoken).toHaveLength(0);
+
+    // 셸에서 뒤늦게 재생이 확인되어 bgm_event:track_playing 수신
+    await h.controller.onBgmEvent({
+      kind: "track_playing",
+      videoId: "v-late",
+      title: "아이유 - 밤편지 (Official MV)",
+    });
+    expect(h.controller.state()).toBe("dj_speaking");
+    expect(h.spoken).toEqual(["“아이유 - 밤편지” 영상을 재생 중이에요. 음악 흐름을 방해하지 않게 가끔 짧게 인사할게요."]);
+  });
+
+  it("곡이 끝나고 대기열 다음 곡으로 넘어갈 때(track_ended continued:true) 방금 곡과 다음 곡 제목으로 한마디하고 중복 발화하지 않는다", async () => {
+    const h = harness();
+    await h.scheduler.advance(1_000);
+    h.spoken.length = 0;
+
+    await h.controller.onBgmEvent({
+      kind: "track_ended",
+      previousVideoId: "v1",
+      previousTitle: "아이유 - 밤편지 (Official MV)",
+      nextVideoId: "v2",
+      nextTitle: "태연 - 사계 (Official Video)",
+      continued: true,
+    });
+    expect(h.spoken).toEqual(["방금은 “아이유 - 밤편지”였어요. 이어서 “태연 - 사계” 들려 드릴게요."]);
+
+    // 같은 곡 전환 이벤트 중복 수신 시 재발화 없음
+    await h.controller.onBgmEvent({
+      kind: "track_ended",
+      previousVideoId: "v1",
+      previousTitle: "아이유 - 밤편지 (Official MV)",
+      nextVideoId: "v2",
+      nextTitle: "태연 - 사계 (Official Video)",
+      continued: true,
+    });
+    expect(h.spoken).toHaveLength(1);
+  });
+
+  it("대기열이 비어 곡이 끝났을 때(track_ended continued:false) 새 곡을 선곡해 틀고 방금 곡과 새 곡 제목을 함께 안내한다", async () => {
+    const h = harness();
+    await h.scheduler.advance(1_000);
+    h.spoken.length = 0;
+    vi.mocked(h.bgm.searchAndPlay).mockResolvedValueOnce({
+      ok: true,
+      videoId: "v-next",
+      title: "백예린 - 그건 아마 우리의 잘못은 아닐 거야 (Official Audio)",
+    });
+
+    await h.controller.onBgmEvent({
+      kind: "track_ended",
+      previousVideoId: "v1",
+      previousTitle: "집중할 때 듣는 긴 재즈 믹스",
+      continued: false,
+    });
+    expect(h.spoken).toEqual([
+      "방금은 “집중할 때 듣는 긴 재즈 믹스”였어요. 이어서 “백예린 - 그건 아마 우리의 잘못은 아닐 거야” 들려 드릴게요.",
+    ]);
+  });
+
+  it("사용자 대화 중(yielded)에 곡이 바뀌면 바로 끼어들지 않고 resumeAfterUserTurn 때 안내한다", async () => {
+    const h = harness();
+    await h.scheduler.advance(1_000);
+    h.spoken.length = 0;
+
+    const binding = h.controller.yieldForUserTurn();
+    expect(binding).toBeDefined();
+    expect(h.controller.state()).toBe("yielded");
+    await h.controller.onBgmEvent({
+      kind: "track_ended",
+      previousVideoId: "v1",
+      previousTitle: "첫 곡",
+      nextVideoId: "v2",
+      nextTitle: "둘째 곡",
+      continued: true,
+    });
+    expect(h.spoken).toHaveLength(0);
+
+    expect(h.controller.resumeAfterUserTurn(binding!)).toBe(true);
+    await vi.waitFor(() => expect(h.spoken).toEqual(["방금은 “첫 곡”였어요. 이어서 “둘째 곡” 들려 드릴게요."]));
+  });
+
+  it("사용자가 이미 고른 곡이 재생 중일 때 DJ 자율 시작은 preserveActive:true 로 기존 곡을 끊지 않고 발화도 생략한다", async () => {
+    const h = harness();
+    vi.mocked(h.bgm.searchAndPlay).mockImplementationOnce(async (_q, opts) => {
+      expect(opts.preserveActive).toBe(true);
+      return { ok: true, videoId: "user-v1", title: "싸이 - 강남스타일", preservedActive: true };
+    });
+    await h.scheduler.advance(1_000);
+    expect(h.controller.state()).toBe("dj_speaking");
+    expect(h.spoken).toEqual([]);
+  });
+
+  it("다음 곡 교체(searchAndPlay)가 확인 타임아웃이어도 실제 셸 상태의 곡이 바뀌었으면 실패 멘트 대신 새 곡을 안내한다", async () => {
+    const h = harness();
+    await h.scheduler.advance(1_000);
+    h.spoken.length = 0;
+
+    vi.mocked(h.bgm.searchAndPlay).mockResolvedValueOnce({ ok: false, reason: "bgm_playback_not_confirmed:loading" });
+    vi.mocked(h.bgm.status)
+      .mockResolvedValueOnce({
+        status: "playing",
+        playbackId: "p-1",
+        track: { videoId: "v1", title: "집중할 때 듣는 긴 재즈 믹스" },
+      })
+      .mockResolvedValueOnce({
+        status: "playing",
+        playbackId: "p-2",
+        track: { videoId: "v-new", title: "데이식스 - 한 페이지가 될 수 있게" },
+      });
+
+    await h.controller.control({ kind: "next" });
+    expect(h.spoken).toEqual(["“데이식스 - 한 페이지가 될 수 있게” 영상을 재생 중이에요. 음악 흐름을 방해하지 않게 가끔 짧게 인사할게요."]);
+    expect(h.spoken).not.toContain("다른 분위기의 음악을 찾지 못했어요.");
   });
 });

@@ -393,7 +393,7 @@ export function makeDeterministicRadioDjSelector() {
       if (opts?.changeVibe) {
         const hint = [preference, favorite?.title].filter(Boolean).join(" ");
         return {
-          query: `${timeBand} ${hint ? `${hint} 취향을 살린 ` : ""}새로운 분위기 음악 믹스`,
+          query: `${timeBand} ${hint ? `${hint} 취향을 살린 ` : ""}새로운 분위기 인기곡 노래`,
           reason: preference ? "preference" as const : favorite ? "favorite" as const : "time" as const,
         };
       }
@@ -405,24 +405,24 @@ export function makeDeterministicRadioDjSelector() {
           .trim()
           .slice(0, 100);
         return {
-          query: `${timeBand} ${mood}에 어울리는 음악 믹스`,
+          query: `${timeBand} ${mood}에 어울리는 노래`,
           reason: "mood" as const,
         };
       }
       if (preference || favorite) {
         const hint = [preference, favorite?.title].filter(Boolean).join(" ");
         return {
-          query: `${timeBand} ${hint}와 비슷하지만 새로운 긴 음악 믹스`,
+          query: `${timeBand} ${hint} 감성 대표곡 노래`,
           reason: preference ? "preference" as const : "favorite" as const,
         };
       }
       if (snapshot.weather) {
         return {
-          query: `${timeBand} 날씨에 어울리는 편안한 음악 믹스`,
+          query: `${timeBand} 날씨에 어울리는 감성 노래`,
           reason: "weather" as const,
         };
       }
-      return { query: `${timeBand} 편안한 BGM 긴 믹스`, reason: "time" as const };
+      return { query: `${timeBand} 듣기 좋은 감성 노래`, reason: "time" as const };
     },
   };
 }

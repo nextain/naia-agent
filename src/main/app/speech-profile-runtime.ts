@@ -88,6 +88,18 @@ export class SpeechProfileRuntime {
   async control(sessionId: string, activityId: string | undefined, action: string): Promise<boolean> {
     if (!this.canControl(sessionId, activityId, action)) return false;
     if (this.activeKind === "personal_radio_dj") {
+      if (action.startsWith("bgm_event:")) {
+        try {
+          const parsed = JSON.parse(action.slice("bgm_event:".length));
+          if (parsed && typeof parsed === "object" && typeof parsed.kind === "string") {
+            await this.d.dj.onBgmEvent(parsed);
+            return true;
+          }
+        } catch {
+          return false;
+        }
+        return false;
+      }
       await this.d.dj.control({ kind: action as "music_only" | "talk_less" | "talk_more" | "change_vibe" | "next" | "stop" });
       return true;
     }
@@ -102,6 +114,7 @@ export class SpeechProfileRuntime {
   canControl(sessionId: string, activityId: string | undefined, action: string): boolean {
     if (sessionId !== this.activeSessionId) return false;
     if (this.activeKind === "personal_radio_dj") {
+      if (action.startsWith("bgm_event:")) return true;
       return (!activityId || activityId === this.d.dj.currentActivityId())
         && ["music_only", "talk_less", "talk_more", "change_vibe", "next", "stop"].includes(action);
     }

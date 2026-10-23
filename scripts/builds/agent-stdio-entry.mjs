@@ -579,6 +579,44 @@ const djController = new PersonalRadioDjController({
   speech: activitySpeech,
   preferences: preferenceStore,
   log: (message, ctx) => diag.log(message, ctx), // #119 — 자율 실패는 발화 대신 진단 로그
+  commentGenerator: async ({ previousTitle, nextTitle, signal }) => {
+    const cfg = activeProcessingConfig;
+    if (!cfg || (!resolver && !provider)) return undefined;
+    const hydrated = {
+      ...cfg,
+      enableThinking: false,
+      thinkingLevel: "off",
+      ...(credentials?.get(cfg.provider) ?? {}),
+    };
+    const activeProvider = resolver ? resolver.resolve(hydrated) : provider;
+    if (!activeProvider) return undefined;
+    const timeoutAbort = new AbortController();
+    const timer = setTimeout(() => timeoutAbort.abort(), 3_500);
+    const onParentAbort = () => timeoutAbort.abort();
+    signal?.addEventListener("abort", onParentAbort, { once: true });
+    try {
+      const prompt = previousTitle && nextTitle
+        ? `방금 끝난 곡: "${previousTitle}"\n다음 시작할 곡: "${nextTitle}"\n라디오 DJ 나이아로서 곡이 넘어갈 때 할 짧은 멘트를 한국어 한두 문장(약 50~70자)으로 작성하세요. 두 곡 제목을 모두 자연스럽게 포함하고, 따옴표나 마크다운 없이 말할 문장만 출력하세요.`
+        : `다음 시작할 곡: "${nextTitle || previousTitle || ""}"\n라디오 DJ 나이아로서 곡을 이어 소개하는 짧은 멘트를 한국어 한 문장(약 45자)으로 작성하세요.`;
+      let text = "";
+      for await (const chunk of activeProvider.chat(
+        hydrated,
+        [{ role: "user", content: prompt }],
+        {
+          systemPrompt: "당신은 다정하고 자연스러운 라디오 DJ 나이아입니다. 항상 한국어 한두 문장(60자 안팎)으로만 답하세요.",
+          signal: timeoutAbort.signal,
+        },
+      )) {
+        if (chunk.kind === "textDelta" && chunk.text) text += chunk.text;
+      }
+      return text.trim() || undefined;
+    } catch {
+      return undefined;
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onParentAbort);
+    }
+  },
 });
 const exhibitionController = new ExhibitionIntroController({
   scheduler: proactiveScheduler,

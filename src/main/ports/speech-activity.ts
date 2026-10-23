@@ -44,6 +44,7 @@ export interface RadioDjPlaybackState {
   readonly playbackId?: string;
   readonly sequence?: number;
   readonly track?: { readonly videoId: string; readonly title: string };
+  readonly pendingTrack?: { readonly videoId: string; readonly title: string };
   readonly reason?: string;
   readonly recentTracks?: readonly { readonly videoId: string; readonly title: string }[];
   readonly favoriteTracks?: readonly { readonly videoId: string; readonly title: string }[];
@@ -53,9 +54,19 @@ export interface RadioDjBgmPort {
   capabilities(): { readonly ready: boolean; readonly next: boolean };
   searchAndPlay(
     query: string,
-    opts: { readonly requestId: string; readonly activityId: string; readonly signal?: AbortSignal },
+    opts: {
+      readonly requestId: string;
+      readonly activityId: string;
+      readonly signal?: AbortSignal;
+      readonly preserveActive?: boolean;
+    },
   ): Promise<
-    | { readonly ok: true; readonly videoId: string; readonly title: string }
+    | {
+        readonly ok: true;
+        readonly videoId: string;
+        readonly title: string;
+        readonly preservedActive?: boolean;
+      }
     | { readonly ok: false; readonly reason: string }
   >;
   next(opts: { readonly requestId: string; readonly activityId: string; readonly signal?: AbortSignal }): Promise<

@@ -286,4 +286,80 @@ describe("#115 BGM status 폴링 간격 하한", () => {
     expect(waits.length).toBeGreaterThan(0);
     expect(Math.min(...waits)).toBeGreaterThanOrEqual(1_000);
   });
+
+  it("toBgmPlayToolResult 형식(selected 없이 playback/pendingTrack 만 있는 응답)과 preserveActive:true 응답을 처리한다", async () => {
+    const routes = makeActivityRouteRegistry();
+    routes.set({ sessionId: "s1", requestId: "r1", activityId: "a1", profileGeneration: 1 });
+    routes.set({ sessionId: "s1", requestId: "r2", activityId: "a2", profileGeneration: 1 });
+    const events: { toolCallId: string; args: Record<string, unknown> }[] = [];
+    const bgm = makeActivityRadioDjBgm({
+      routes,
+      wire: {
+        emit: (_sessionId, _requestId, _activityId, _generation, event) => {
+          if (event.kind === "appToolCall") {
+            events.push({
+              toolCallId: event.toolCallId,
+              args: event.args as Record<string, unknown>,
+            });
+          }
+        },
+      },
+      specs: () => [{
+        name: "skill_youtube_bgm",
+        description: "",
+        parameters: {
+          type: "object",
+          properties: {
+            action: { enum: ["play", "status", "stop", "next"] },
+            preserveActive: { type: "boolean" },
+          },
+        },
+      }],
+      pollIntervalMs: 10,
+      wait: async () => {},
+    });
+
+    expect(bgm.capabilities()).toEqual({ ready: true, next: true });
+
+    // 1) preserveActive:true 에서 기존 곡이 재생 중이라 preservedActive:true 로 즉시 응답하는 경우
+    const preserved = bgm.searchAndPlay("새 곡", { requestId: "r1", activityId: "a1", preserveActive: true });
+    expect(events[0]?.args["preserveActive"]).toBe(true);
+    bgm.resolveResult("r1", "a1", events[0]!.toolCallId, JSON.stringify({
+      ok: true,
+      action: "play",
+      preservedActive: true,
+      playback: { playbackId: "p-existing", sequence: 3, status: "playing" },
+      currentTrack: { videoId: "v-user", title: "사용자 선곡" },
+      announceTrack: true,
+    }), true);
+    await expect(preserved).resolves.toEqual({
+      ok: true,
+      videoId: "v-user",
+      title: "사용자 선곡",
+      preservedActive: true,
+    });
+
+    // 2) selected 필드 없이 playback + pendingTrack 만 있는 신규 셸 응답 → status 폴링으로 확인
+    const play2 = bgm.searchAndPlay("밤편지", { requestId: "r2", activityId: "a2" });
+    bgm.resolveResult("r2", "a2", events[1]!.toolCallId, JSON.stringify({
+      ok: true,
+      action: "play",
+      playback: { playbackId: "p-new", sequence: 1, status: "requested" },
+      pendingTrack: { videoId: "v-iu", title: "아이유 - 밤편지", confirmed: false },
+      announceTrack: false,
+    }), true);
+    await vi.waitFor(() => expect(events).toHaveLength(3));
+    bgm.resolveResult("r2", "a2", events[2]!.toolCallId, JSON.stringify({
+      ok: true,
+      action: "status",
+      playback: { playbackId: "p-new", sequence: 2, status: "playing" },
+      currentTrack: { videoId: "v-iu", title: "아이유 - 밤편지" },
+      announceTrack: true,
+    }), true);
+    await expect(play2).resolves.toEqual({
+      ok: true,
+      videoId: "v-iu",
+      title: "아이유 - 밤편지",
+    });
+  });
 });
