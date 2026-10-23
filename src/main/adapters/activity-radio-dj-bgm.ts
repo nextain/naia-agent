@@ -30,12 +30,17 @@ type StructuredResult = {
   pendingTrack?: Track | null;
   recentTracks?: Track[];
   favoriteTracks?: Track[];
+  queue?: unknown[];
   announceTrack?: boolean;
   preservedActive?: boolean;
+  queuedCount?: number;
+  nextPrepared?: boolean;
   playback?: {
     playbackId?: string;
     sequence?: number;
     status?: RadioDjPlaybackState["status"];
+    currentTime?: number;
+    duration?: number;
     reason?: string;
   } | null;
   ok?: boolean;
@@ -63,10 +68,22 @@ function observedState(data: StructuredResult | undefined): RadioDjPlaybackState
   const pendingTitle = data.pendingTrack?.title?.trim();
   const recentTracks = boundedTracks(data.recentTracks, 20);
   const favoriteTracks = boundedTracks(data.favoriteTracks, 10);
+  const currentTime =
+    typeof playback.currentTime === "number" && Number.isFinite(playback.currentTime) && playback.currentTime >= 0
+      ? playback.currentTime
+      : undefined;
+  const duration =
+    typeof playback.duration === "number" && Number.isFinite(playback.duration) && playback.duration > 0
+      ? playback.duration
+      : undefined;
+  const queueLength = Array.isArray(data.queue) ? data.queue.length : undefined;
   return {
     status: playback.status,
     ...(playback.playbackId ? { playbackId: playback.playbackId } : {}),
     ...(Number.isSafeInteger(playback.sequence) ? { sequence: playback.sequence } : {}),
+    ...(currentTime !== undefined ? { currentTime } : {}),
+    ...(duration !== undefined ? { duration } : {}),
+    ...(queueLength !== undefined ? { queueLength } : {}),
     ...(videoId && title && data.announceTrack === true ? { track: { videoId, title } } : {}),
     ...(pendingVideoId && pendingTitle ? { pendingTrack: { videoId: pendingVideoId, title: pendingTitle } } : {}),
     ...(playback.reason ? { reason: playback.reason } : {}),
@@ -193,6 +210,14 @@ export function makeActivityRadioDjBgm(deps: {
         return { ok: false, reason: result.reason ?? "invalid BGM play receipt" };
       }
       const preservedActive = result.data?.preservedActive === true;
+      const queuedCount =
+        typeof result.data?.queuedCount === "number" && Number.isFinite(result.data.queuedCount)
+          ? result.data.queuedCount
+          : undefined;
+      const nextPrepared =
+        typeof result.data?.nextPrepared === "boolean"
+          ? result.data.nextPrepared
+          : undefined;
       // When the Shell already waited for ack (`waitForAck`) and returned a
       // confirmed playing snapshot without legacy `selected`, accept it directly.
       if (
@@ -211,6 +236,8 @@ export function makeActivityRadioDjBgm(deps: {
           ok: true,
           ...confirmed,
           ...(preservedActive ? { preservedActive: true } : {}),
+          ...(queuedCount !== undefined ? { queuedCount } : {}),
+          ...(nextPrepared !== undefined ? { nextPrepared } : {}),
         };
       }
       const deadline = now() + observationTimeoutMs;
@@ -226,6 +253,8 @@ export function makeActivityRadioDjBgm(deps: {
             videoId: state.track.videoId,
             title: state.track.title,
             ...(preservedActive ? { preservedActive: true } : {}),
+            ...(queuedCount !== undefined ? { queuedCount } : {}),
+            ...(nextPrepared !== undefined ? { nextPrepared } : {}),
           };
         }
         if (state.playbackId === playbackId && ["ended", "error"].includes(state.status)) {
