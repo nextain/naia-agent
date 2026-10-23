@@ -270,11 +270,19 @@ export class PersonalRadioDjController {
       const generation = this.generation;
       const activityId = this.activityId;
       const operationEpoch = this.operationEpoch;
-      void this.speak(deferred).then(() => {
+      void this.enqueueTransitionSpeech(generation, activityId, operationEpoch, async (signal) => {
+        if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+        if (this.currentState === "yielded") {
+          this.deferredTransitionComment = this.deferredTransitionComment
+            ? `${deferred} ${this.deferredTransitionComment}`
+            : deferred;
+          return;
+        }
+        await this.speak(deferred, signal);
         if (this.isOperationCurrent(generation, activityId, operationEpoch) && this.currentState === "dj_speaking") {
           this.scheduleComment();
         }
-      }).catch(() => {});
+      });
     } else {
       this.scheduleComment();
     }

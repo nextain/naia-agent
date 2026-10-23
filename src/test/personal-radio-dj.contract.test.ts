@@ -1038,6 +1038,117 @@ describe("radio DJ song-end transitions & unconfirmed playback recovery", () => 
     );
   });
 
+  it("resumeAfterUserTurn 의 지연 멘트도 enqueueTransitionSpeech 직렬 체인으로 말해 새 전환 멘트와 겹치지 않는다 (FR-RADIO-DJ.12)", async () => {
+    let releaseDeferredSpeak!: () => void;
+    let activeSpeaks = 0;
+    let maxConcurrentSpeaks = 0;
+    const spokenOrder: string[] = [];
+    const scheduler = new ManualScheduler();
+    let nextId = 0;
+    const controller = new PersonalRadioDjController({
+      scheduler,
+      ids: { next: () => `activity-dj-${++nextId}` },
+      context: {
+        snapshot: async () => ({
+          localTime: { iso: new Date(scheduler.now()).toISOString(), timezone: "Asia/Seoul", source: "configured" },
+          preferences: [],
+        }),
+      },
+      selector: {
+        select: async () => ({ query: "재즈", reason: "generic" as const }),
+      },
+      bgm: {
+        capabilities: () => ({ ready: true, next: false }),
+        searchAndPlay: async () => ({ ok: true as const, playbackId: "bgm-1", sequence: 1, videoId: "v1", title: "첫 곡" }),
+        next: async () => ({ ok: false as const, reason: "unsupported" }),
+        stop: async () => ({ ok: true }),
+        status: async () => ({ status: "playing" as const, playbackId: "bgm-1", track: { videoId: "v1", title: "첫 곡" } }),
+      },
+      speech: {
+        open: () => {},
+        speak: async ({ text }) => {
+          activeSpeaks++;
+          maxConcurrentSpeaks = Math.max(maxConcurrentSpeaks, activeSpeaks);
+          try {
+            if (text.includes("첫 곡") && text.includes("둘째 곡")) {
+              await new Promise<void>((resolve) => {
+                releaseDeferredSpeak = resolve;
+              });
+            }
+            spokenOrder.push(text);
+            return "completed" as const;
+          } finally {
+            activeSpeaks--;
+          }
+        },
+        interrupt: () => {},
+        close: () => {},
+      },
+      preferences: { handoff: async () => {} },
+    });
+
+    controller.configure({
+      sessionId: "s-1",
+      idleMs: 1_000,
+      djIntervalMs: 5_000,
+      timezone: "Asia/Seoul",
+      bgmAutoPlayOptIn: true,
+    });
+    controller.setSubscriberReady(true);
+    await scheduler.advance(1_000);
+    spokenOrder.length = 0;
+
+    const binding = controller.yieldForUserTurn();
+    expect(binding).toBeDefined();
+
+    await controller.onBgmEvent({
+      kind: "track_ended",
+      activityId: "activity-dj-1",
+      playbackId: "bgm-1",
+      previousVideoId: "v1",
+      previousTitle: "첫 곡",
+      nextPlaybackId: "bgm-2",
+      nextVideoId: "v2",
+      nextTitle: "둘째 곡",
+      continued: true,
+    });
+    await controller.onBgmEvent({
+      kind: "track_playing",
+      activityId: "activity-dj-1",
+      playbackId: "bgm-2",
+      videoId: "v2",
+      title: "둘째 곡",
+    });
+
+    expect(controller.resumeAfterUserTurn(binding!)).toBe(true);
+    await vi.waitFor(() => expect(releaseDeferredSpeak).toBeTypeOf("function"));
+
+    // 재개 멘트 발화가 진행 중일 때 새 전환 이벤트가 들어와도 겹쳐 발화하지 않고 직렬 체인 뒤에 줄 선다.
+    const nextTransitionPromise = controller.onBgmEvent({
+      kind: "track_ended",
+      activityId: "activity-dj-1",
+      playbackId: "bgm-2",
+      previousVideoId: "v2",
+      previousTitle: "둘째 곡",
+      nextPlaybackId: "bgm-3",
+      nextVideoId: "v3",
+      nextTitle: "셋째 곡",
+      continued: true,
+    });
+
+    expect(maxConcurrentSpeaks).toBe(1);
+    expect(spokenOrder).toEqual([]);
+
+    releaseDeferredSpeak();
+    await nextTransitionPromise;
+
+    expect(maxConcurrentSpeaks).toBe(1);
+    expect(spokenOrder).toEqual([
+      "방금은 “첫 곡”였어요. 다음 곡을 이어서 들려 드릴게요. 이어서 “둘째 곡” 들려 드릴게요.",
+      "방금은 “둘째 곡”였어요. 다음 곡을 이어서 들려 드릴게요.",
+    ]);
+  });
+
   it("사용자가 이미 고른 곡이 재생 중일 때 DJ 자율 시작은 preserveActive:true 로 기존 곡을 끊지 않고 발화도 생략한다", async () => {
     const h = harness();
     vi.mocked(h.bgm.searchAndPlay).mockImplementationOnce(async (_q, opts) => {
