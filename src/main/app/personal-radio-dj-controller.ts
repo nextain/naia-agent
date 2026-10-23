@@ -157,6 +157,7 @@ export class PersonalRadioDjController {
     readonly nextTitle: string;
   };
   private deferredTransitionComment?: string;
+  private transitionSpeechChain: Promise<void> = Promise.resolve();
 
   constructor(private readonly d: DjDeps) {}
 
@@ -199,6 +200,7 @@ export class PersonalRadioDjController {
     this.announcedVideoId = "";
     this.pendingTransition = undefined;
     this.deferredTransitionComment = undefined;
+    this.transitionSpeechChain = Promise.resolve();
     this.armIdle();
   }
 
@@ -627,19 +629,21 @@ export class PersonalRadioDjController {
           const trackVid = videoId || pending.nextVideoId;
           if (!this.userRequestedMusicOnly && confirmedTitle && !this.hasAnnouncedTrack(trackPb, trackVid)) {
             this.markTrackAnnounced(trackPb, trackVid);
-            const intro = await this.buildTransitionComment("", confirmedTitle);
-            if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
-            if (this.currentState === "yielded") {
-              this.deferredTransitionComment = this.deferredTransitionComment
-                ? `${this.deferredTransitionComment} ${intro}`
-                : intro;
-              return;
-            }
-            this.currentState = "dj_speaking";
-            await this.speak(intro);
-            if (this.isOperationCurrent(generation, activityId, operationEpoch) && this.currentState === "dj_speaking") {
-              this.scheduleComment();
-            }
+            await this.enqueueTransitionSpeech(generation, activityId, operationEpoch, async () => {
+              const intro = await this.buildTransitionComment("", confirmedTitle);
+              if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+              if (this.currentState === "yielded") {
+                this.deferredTransitionComment = this.deferredTransitionComment
+                  ? `${this.deferredTransitionComment} ${intro}`
+                  : intro;
+                return;
+              }
+              this.currentState = "dj_speaking";
+              await this.speak(intro);
+              if (this.isOperationCurrent(generation, activityId, operationEpoch) && this.currentState === "dj_speaking") {
+                this.scheduleComment();
+              }
+            });
           }
           return;
         }
@@ -703,14 +707,16 @@ export class PersonalRadioDjController {
         if (this.userRequestedMusicOnly) return;
         if (prevTitle && (!endKey || this.lastWrappedUpTrackKey !== endKey)) {
           if (endKey) this.lastWrappedUpTrackKey = endKey;
-          const wrapUp = await this.buildTransitionComment(prevTitle, "");
-          if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
-          if (this.currentState === "yielded") {
-            this.deferredTransitionComment = wrapUp;
-            return;
-          }
-          this.currentState = "dj_speaking";
-          await this.speak(wrapUp);
+          await this.enqueueTransitionSpeech(generation, activityId, operationEpoch, async () => {
+            const wrapUp = await this.buildTransitionComment(prevTitle, "");
+            if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+            if (this.currentState === "yielded") {
+              this.deferredTransitionComment = wrapUp;
+              return;
+            }
+            this.currentState = "dj_speaking";
+            await this.speak(wrapUp);
+          });
         }
         return;
       }
@@ -751,14 +757,16 @@ export class PersonalRadioDjController {
       const wrapKey = event.previousVideoId?.trim() || prevTitle;
       if (prevTitle && (!wrapKey || this.lastWrappedUpTrackKey !== wrapKey)) {
         if (wrapKey) this.lastWrappedUpTrackKey = wrapKey;
-        const wrapUp = await this.buildTransitionComment(prevTitle, "");
-        if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
-        if (this.currentState === "yielded") {
-          this.deferredTransitionComment = wrapUp;
-          return;
-        }
-        this.currentState = "dj_speaking";
-        await this.speak(wrapUp);
+        await this.enqueueTransitionSpeech(generation, activityId, operationEpoch, async () => {
+          const wrapUp = await this.buildTransitionComment(prevTitle, "");
+          if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+          if (this.currentState === "yielded") {
+            this.deferredTransitionComment = wrapUp;
+            return;
+          }
+          this.currentState = "dj_speaking";
+          await this.speak(wrapUp);
+        });
       }
       return;
     }
@@ -1331,9 +1339,25 @@ export class PersonalRadioDjController {
     return true;
   }
 
+  private enqueueTransitionSpeech(
+    generation: number,
+    activityId: string,
+    operationEpoch: number,
+    step: () => Promise<void>,
+  ): Promise<void> {
+    const run = async () => {
+      if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+      await step();
+    };
+    const next = this.transitionSpeechChain.then(run, run);
+    this.transitionSpeechChain = next.catch(() => {});
+    return next;
+  }
+
   private deactivateCurrent(): void {
     this.cancelScheduled();
     this.replacementInFlight = undefined;
+    this.transitionSpeechChain = Promise.resolve();
     this.preserveLatePlaybackEpochs.clear();
     this.operationEpoch++;
     this.activityAbort?.abort();

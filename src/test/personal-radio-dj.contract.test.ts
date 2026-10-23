@@ -11,6 +11,7 @@ import {
   type DjContextSnapshot,
   type ProactiveScheduler,
   type RadioDjBgmPort,
+  type RadioDjCommentGenerator,
 } from "../main/app/personal-radio-dj-controller.js";
 
 class ManualScheduler implements ProactiveScheduler {
@@ -52,6 +53,7 @@ function harness(overrides: {
   lease?: { durationMs: number; maxUtterances: number };
   djIntervalMs?: number;
   currentBgm?: { videoId: string; title: string };
+  commentGenerator?: RadioDjCommentGenerator;
   nextResult?:
     | { ok: true; videoId: string; title: string }
     | { ok: false; reason: string };
@@ -115,6 +117,7 @@ function harness(overrides: {
       handoff: vi.fn(async (signal) => { preferenceHandoffs.push(signal); }),
     },
     log: (message, ctx) => { logs.push({ message, ...(ctx !== undefined ? { ctx } : {}) }); }, // #119
+    ...(overrides.commentGenerator ? { commentGenerator: overrides.commentGenerator } : {}),
     ...(overrides.lease ? { lease: overrides.lease } : {}),
   });
   controller.configure({
@@ -661,6 +664,47 @@ describe("radio DJ song-end transitions & unconfirmed playback recovery", () => 
     expect(h.spoken).toEqual([
       "방금은 “아이유 - 밤편지”였어요. 다음 곡을 이어서 들려 드릴게요.",
       "이어서 “악뮤 - 어떻게 이별까지 사랑하겠어” 들려 드릴게요.",
+    ]);
+  });
+
+  it("같은 전환에서 track_changed 와 track_playing 이 잇달아 도착해도 직렬 대기열로 마무리 멘트 → 다음 곡 소개 순서를 지킨다 (FR-RADIO-DJ.5)", async () => {
+    const commentGenerator: RadioDjCommentGenerator = async (input) => {
+      if (input.previousTitle && !input.nextTitle) {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        return `방금 들으신 곡은 “${input.previousTitle}”였습니다.`;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      return `다음 곡 “${input.nextTitle}” 바로 이어갈게요.`;
+    };
+    const h = harness({ commentGenerator });
+    await h.scheduler.advance(1_000);
+    h.spoken.length = 0;
+
+    const p1 = h.controller.onBgmEvent({
+      kind: "track_changed",
+      activityId: "activity-dj-1",
+      playbackId: "bgm-1",
+      sequence: 2,
+      previousVideoId: "v1",
+      previousTitle: "아이유 - 밤편지",
+      nextPlaybackId: "bgm-1",
+      nextVideoId: "v2",
+      nextTitle: "악뮤 - 어떻게 이별까지 사랑하겠어",
+      continued: true,
+    });
+    const p2 = h.controller.onBgmEvent({
+      kind: "track_playing",
+      activityId: "activity-dj-1",
+      playbackId: "bgm-1",
+      sequence: 3,
+      videoId: "v2",
+      title: "악뮤 - 어떻게 이별까지 사랑하겠어",
+    });
+    await Promise.all([p1, p2]);
+
+    expect(h.spoken).toEqual([
+      "방금 들으신 곡은 “아이유 - 밤편지”였습니다.",
+      "다음 곡 “악뮤 - 어떻게 이별까지 사랑하겠어” 바로 이어갈게요.",
     ]);
   });
 
