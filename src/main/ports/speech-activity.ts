@@ -43,6 +43,9 @@ export interface RadioDjPlaybackState {
   readonly status: "requested" | "loading" | "playing" | "paused" | "ended" | "error" | "timeout";
   readonly playbackId?: string;
   readonly sequence?: number;
+  readonly currentTime?: number;
+  readonly duration?: number;
+  readonly queueLength?: number;
   readonly track?: { readonly videoId: string; readonly title: string };
   readonly pendingTrack?: { readonly videoId: string; readonly title: string };
   readonly reason?: string;
@@ -68,6 +71,8 @@ export interface RadioDjBgmPort {
         readonly playbackId?: string;
         readonly sequence?: number;
         readonly preservedActive?: boolean;
+        readonly queuedCount?: number;
+        readonly nextPrepared?: boolean;
       }
     | { readonly ok: false; readonly reason: string }
   >;

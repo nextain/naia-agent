@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  makeDeterministicRadioDjSelector,
   makeRadioDjCommentGenerator,
   RADIO_DJ_COMMENT_SYSTEM_PROMPT,
   sanitizeUntrustedTrackTitleForPrompt,
@@ -263,9 +264,11 @@ describe("personal radio DJ MVP contract", () => {
     const h = harness();
     await h.scheduler.advance(1_000);
     let resolveReplacement!: (value: { ok: false; reason: string }) => void;
-    vi.mocked(h.bgm.searchAndPlay).mockImplementationOnce(
-      () => new Promise((resolve) => { resolveReplacement = resolve; }),
-    );
+    vi.mocked(h.bgm.searchAndPlay)
+      .mockImplementationOnce(
+        () => new Promise((resolve) => { resolveReplacement = resolve; }),
+      )
+      .mockResolvedValueOnce({ ok: false, reason: "no_single_track_candidates" });
 
     const next = h.controller.control({ kind: "next" });
     const vibe = h.controller.control({ kind: "change_vibe" });
@@ -591,8 +594,8 @@ describe("radio DJ song-end transitions & unconfirmed playback recovery", () => 
       nextTitle: "태연 - 사계 (Official Video)",
       continued: true,
     });
-    // playing 확인 전에는 다음 곡 제목("태연 - 사계")을 절대 먼저 말하지 않는다
-    expect(h.spoken).toEqual(["방금은 “아이유 - 밤편지”였어요. 다음 곡을 이어서 들려 드릴게요."]);
+    // playing 확인 전에는 다음 곡 제목("태연 - 사계")이나 "이어서 들려 드릴게요" 예고를 절대 먼저 말하지 않는다
+    expect(h.spoken).toEqual(["방금은 “아이유 - 밤편지”였어요."]);
 
     // 같은 곡 전환 이벤트 중복 수신 시 재발화 없음
     await h.controller.onBgmEvent({
@@ -619,7 +622,7 @@ describe("radio DJ song-end transitions & unconfirmed playback recovery", () => 
       title: "태연 - 사계 (Official Video)",
     });
     expect(h.spoken).toEqual([
-      "방금은 “아이유 - 밤편지”였어요. 다음 곡을 이어서 들려 드릴게요.",
+      "방금은 “아이유 - 밤편지”였어요.",
       "이어서 “태연 - 사계” 들려 드릴게요.",
     ]);
 
@@ -651,7 +654,7 @@ describe("radio DJ song-end transitions & unconfirmed playback recovery", () => 
       nextTitle: "악뮤 - 어떻게 이별까지 사랑하겠어 (Official Audio)",
       continued: true,
     });
-    expect(h.spoken).toEqual(["방금은 “아이유 - 밤편지”였어요. 다음 곡을 이어서 들려 드릴게요."]);
+    expect(h.spoken).toEqual(["방금은 “아이유 - 밤편지”였어요."]);
 
     await h.controller.onBgmEvent({
       kind: "track_playing",
@@ -662,7 +665,7 @@ describe("radio DJ song-end transitions & unconfirmed playback recovery", () => 
       title: "악뮤 - 어떻게 이별까지 사랑하겠어 (Official Audio)",
     });
     expect(h.spoken).toEqual([
-      "방금은 “아이유 - 밤편지”였어요. 다음 곡을 이어서 들려 드릴게요.",
+      "방금은 “아이유 - 밤편지”였어요.",
       "이어서 “악뮤 - 어떻게 이별까지 사랑하겠어” 들려 드릴게요.",
     ]);
   });
@@ -877,7 +880,7 @@ describe("radio DJ song-end transitions & unconfirmed playback recovery", () => 
     expect(maxConcurrentSpeaks).toBe(1);
     // 구 활동의 남은 intro("이전 활동 다음 곡")는 발화되지 않고, 새 활동의 멘트만 정상 발화된다.
     expect(events.some((e) => e.includes("이전 활동 다음 곡"))).toBe(false);
-    expect(events).toContain("spoken:activity-dj-2:방금은 “새 활동 곡”였어요. 다음 곡을 이어서 들려 드릴게요.");
+    expect(events).toContain("spoken:activity-dj-2:방금은 “새 활동 곡”였어요.");
   });
 
   it("대기열이 비어 곡이 끝났을 때(track_ended continued:false) 짧은 전환 멘트를 먼저 완료한 뒤 같은 activity 에서 다음 검색·재생을 요청하고 playing 확인 뒤 새 곡을 소개한다 (FR-CONT-MVP-9)", async () => {
@@ -911,12 +914,12 @@ describe("radio DJ song-end transitions & unconfirmed playback recovery", () => 
 
     expect(searchActivityId).toBe("activity-dj-1");
     expect(h.timeline).toEqual([
-      "speak:방금은 “집중할 때 듣는 긴 재즈 믹스”였어요. 다음 곡을 이어서 들려 드릴게요.",
+      "speak:방금은 “집중할 때 듣는 긴 재즈 믹스”였어요.",
       expect.stringMatching(/^play:/),
       "speak:이어서 “백예린 - 그건 아마 우리의 잘못은 아닐 거야” 들려 드릴게요.",
     ]);
     expect(h.spoken).toEqual([
-      "방금은 “집중할 때 듣는 긴 재즈 믹스”였어요. 다음 곡을 이어서 들려 드릴게요.",
+      "방금은 “집중할 때 듣는 긴 재즈 믹스”였어요.",
       "이어서 “백예린 - 그건 아마 우리의 잘못은 아닐 거야” 들려 드릴게요.",
     ]);
 
@@ -1033,7 +1036,7 @@ describe("radio DJ song-end transitions & unconfirmed playback recovery", () => 
     expect(h.controller.resumeAfterUserTurn(binding!)).toBe(true);
     await vi.waitFor(() =>
       expect(h.spoken).toEqual([
-        "방금은 “첫 곡”였어요. 다음 곡을 이어서 들려 드릴게요. 이어서 “둘째 곡” 들려 드릴게요.",
+        "방금은 “첫 곡”였어요. 이어서 “둘째 곡” 들려 드릴게요.",
       ]),
     );
   });
@@ -1144,8 +1147,8 @@ describe("radio DJ song-end transitions & unconfirmed playback recovery", () => 
 
     expect(maxConcurrentSpeaks).toBe(1);
     expect(spokenOrder).toEqual([
-      "방금은 “첫 곡”였어요. 다음 곡을 이어서 들려 드릴게요. 이어서 “둘째 곡” 들려 드릴게요.",
-      "방금은 “둘째 곡”였어요. 다음 곡을 이어서 들려 드릴게요.",
+      "방금은 “첫 곡”였어요. 이어서 “둘째 곡” 들려 드릴게요.",
+      "방금은 “둘째 곡”였어요.",
     ]);
   });
 
@@ -1153,11 +1156,208 @@ describe("radio DJ song-end transitions & unconfirmed playback recovery", () => 
     const h = harness();
     vi.mocked(h.bgm.searchAndPlay).mockImplementationOnce(async (_q, opts) => {
       expect(opts.preserveActive).toBe(true);
-      return { ok: true, videoId: "user-v1", title: "싸이 - 강남스타일", preservedActive: true };
+      return { ok: true, videoId: "user-v1", title: "싸이 - 강남스타일", preservedActive: true, queuedCount: 2, nextPrepared: true };
     });
     await h.scheduler.advance(1_000);
     expect(h.controller.state()).toBe("dj_speaking");
     expect(h.spoken).toEqual([]);
+  });
+
+  it("preserveActive:true 에서 nextPrepared:false(queuedCount:0)면 다른 검색어로 한 번 더 다음 곡 준비를 시도한다 (FR-RADIO-DJ.11/16)", async () => {
+    const h = harness();
+    const queries: string[] = [];
+    vi.mocked(h.bgm.searchAndPlay)
+      .mockImplementationOnce(async (q, opts) => {
+        expect(opts.preserveActive).toBe(true);
+        queries.push(q);
+        return {
+          ok: true,
+          videoId: "user-v1",
+          title: "싸이 - 강남스타일",
+          preservedActive: true,
+          queuedCount: 0,
+          nextPrepared: false,
+        };
+      })
+      .mockImplementationOnce(async (q, opts) => {
+        expect(opts.preserveActive).toBe(true);
+        queries.push(q);
+        return {
+          ok: true,
+          videoId: "user-v1",
+          title: "싸이 - 강남스타일",
+          preservedActive: true,
+          queuedCount: 2,
+          nextPrepared: true,
+        };
+      });
+
+    await h.scheduler.advance(1_000);
+    expect(queries).toHaveLength(2);
+    expect(queries[0]).not.toBe(queries[1]);
+    expect(h.controller.state()).toBe("dj_speaking");
+    expect(h.spoken).toEqual([]);
+  });
+
+  it("ended 뒤 첫 검색 실패·두 번째 성공 시 두 검색어가 다르고 playing 확인 뒤에만 소개하며 '이어서' 예고를 먼저 하지 않는다 (FR-RADIO-DJ.5/11/16)", async () => {
+    const h = harness();
+    await h.scheduler.advance(1_000);
+    h.spoken.length = 0;
+    h.timeline.length = 0;
+
+    const queries: string[] = [];
+    vi.mocked(h.bgm.searchAndPlay)
+      .mockImplementationOnce(async (q) => {
+        queries.push(q);
+        h.timeline.push(`play:${q}:fail`);
+        return { ok: false, reason: "no_single_track_candidates" };
+      })
+      .mockImplementationOnce(async (q) => {
+        queries.push(q);
+        h.timeline.push(`play:${q}:ok`);
+        return {
+          ok: true,
+          playbackId: "bgm-next-2",
+          sequence: 2,
+          videoId: "v-next-2",
+          title: "잔나비 - 주저하는 연인들을 위해 (Official Audio)",
+        };
+      });
+
+    await h.controller.onBgmEvent({
+      kind: "track_ended",
+      activityId: "activity-dj-1",
+      playbackId: "bgm-1",
+      sequence: 2,
+      previousVideoId: "v1",
+      previousTitle: "아이유 - 밤편지",
+      continued: false,
+    });
+
+    expect(queries).toHaveLength(2);
+    expect(queries[0]).not.toBe(queries[1]);
+    expect(h.timeline).toEqual([
+      "speak:방금은 “아이유 - 밤편지”였어요.",
+      `play:${queries[0]}:fail`,
+      `play:${queries[1]}:ok`,
+      "speak:이어서 “잔나비 - 주저하는 연인들을 위해” 들려 드릴게요.",
+    ]);
+    // 확보 전 "다음 곡을 이어서 들려 드릴게요" 예고 0회
+    expect(h.spoken.some((s) => s.includes("다음 곡을 이어서 들려 드릴게요"))).toBe(false);
+    expect(h.spoken).toEqual([
+      "방금은 “아이유 - 밤편지”였어요.",
+      "이어서 “잔나비 - 주저하는 연인들을 위해” 들려 드릴게요.",
+    ]);
+  });
+
+  it("ended 뒤 두 번 모두 검색 실패하면 실패 안내를 1회 말하고 이후 자동 검색은 0회다 (FR-RADIO-DJ.11/16)", async () => {
+    const h = harness();
+    await h.scheduler.advance(1_000);
+    h.spoken.length = 0;
+    h.timeline.length = 0;
+
+    const queries: string[] = [];
+    vi.mocked(h.bgm.searchAndPlay).mockImplementation(async (q) => {
+      queries.push(q);
+      h.timeline.push(`play:${q}:fail`);
+      return { ok: false, reason: "no_single_track_candidates" };
+    });
+
+    await h.controller.onBgmEvent({
+      kind: "track_ended",
+      activityId: "activity-dj-1",
+      playbackId: "bgm-1",
+      sequence: 2,
+      previousVideoId: "v1",
+      previousTitle: "아이유 - 밤편지",
+      continued: false,
+    });
+
+    expect(queries).toHaveLength(2);
+    expect(queries[0]).not.toBe(queries[1]);
+    expect(h.spoken).toEqual([
+      "방금은 “아이유 - 밤편지”였어요.",
+      "다음 곡으로 넘기지 못했어요.",
+    ]);
+    expect(h.controller.state()).toBe("music_only");
+
+    const queriesAfterEnded = queries.length;
+    const spokenAfterEnded = h.spoken.length;
+    await h.scheduler.advance(60 * 60_000);
+    expect(queries).toHaveLength(queriesAfterEnded);
+    expect(h.spoken).toHaveLength(spokenAfterEnded);
+  });
+
+  it("현재 곡이 playing 이고 셸 대기열이 비어 있을 때 곡 중반 이후/남은 60초 이내에 preserveActive:true 로 다음 후보를 1회 미리 확보한다 (FR-RADIO-DJ.11)", async () => {
+    const h = harness();
+    await h.scheduler.advance(1_000);
+    const initialPlayCalls = vi.mocked(h.bgm.searchAndPlay).mock.calls.length;
+
+    vi.mocked(h.bgm.status).mockResolvedValue({
+      status: "playing",
+      playbackId: "bgm-playback-1",
+      track: { videoId: "v1", title: "집중할 때 듣는 긴 재즈 믹스" },
+      currentTime: 185,
+      duration: 210,
+      queueLength: 0,
+    });
+    const preQueueCalls: { query: string; preserveActive?: boolean }[] = [];
+    vi.mocked(h.bgm.searchAndPlay).mockImplementation(async (q, opts) => {
+      preQueueCalls.push({ query: q, ...(opts.preserveActive !== undefined ? { preserveActive: opts.preserveActive } : {}) });
+      return {
+        ok: true,
+        videoId: "v1",
+        title: "집중할 때 듣는 긴 재즈 믹스",
+        preservedActive: true,
+        queuedCount: 2,
+        nextPrepared: true,
+      };
+    });
+
+    await h.scheduler.advance(500);
+    expect(preQueueCalls).toHaveLength(1);
+    expect(preQueueCalls[0]?.preserveActive).toBe(true);
+
+    // 같은 playbackId 에 대해서는 중복 미리 검색하지 않는다
+    await h.scheduler.advance(500);
+    expect(preQueueCalls).toHaveLength(1);
+    expect(vi.mocked(h.bgm.searchAndPlay).mock.calls.length).toBe(initialPlayCalls + 1);
+  });
+
+  it("선곡기(makeDeterministicRadioDjSelector)는 실패한 검색어와 최근 곡·아티스트를 기억해 다시 고를 때 다른 검색어를 만든다 (FR-RADIO-DJ.12/16)", async () => {
+    const selector = makeDeterministicRadioDjSelector();
+    const baseSnapshot: DjContextSnapshot = {
+      localTime: { iso: "2026-07-18T14:00:00+09:00", timezone: "Asia/Seoul", source: "configured" },
+      nowPlaying: { videoId: "v-iu", title: "아이유 (IU) - 밤편지", source: "bgm-player" },
+      recentTracks: [
+        { videoId: "v-iu", title: "아이유 (IU) - 밤편지" },
+        { videoId: "v-akmu", title: "AKMU - 어떻게 이별까지 사랑하겠어" },
+      ],
+      favoriteTracks: [
+        { videoId: "fav-iu", title: "아이유 - 봄날의 기억" },
+        { videoId: "fav-akmu", title: "AKMU - 오랜 날 오랜 밤" },
+      ],
+      preferences: [
+        { text: "아이유 감성 발라드", source: "user-memory", confidence: "explicit" },
+      ],
+    };
+    const first = await selector.select(baseSnapshot, { changeVibe: true, attempt: 0 });
+    selector.recordFailure(first.query);
+    const second = await selector.select(baseSnapshot, {
+      changeVibe: true,
+      attempt: 1,
+      failedQueries: [first.query],
+    });
+    const third = await selector.select(baseSnapshot, { changeVibe: true, attempt: 0 });
+
+    expect(second.query).not.toBe(first.query);
+    expect(third.query).not.toBe(first.query);
+    expect(third.query).not.toBe(second.query);
+    // 최근 재생 아티스트(아이유, AKMU)는 선곡 힌트에서 제외된다
+    expect(first.query).not.toContain("아이유");
+    expect(first.query).not.toContain("AKMU");
+    expect(second.query).not.toContain("아이유");
+    expect(second.query).not.toContain("AKMU");
   });
 
   it("다음 곡 교체(searchAndPlay)가 확인 타임아웃이어도 실제 셸 상태의 곡이 바뀌었으면 실패 멘트 대신 새 곡을 안내한다", async () => {
@@ -1243,6 +1443,6 @@ describe("radio DJ song-end transitions & unconfirmed playback recovery", () => 
     });
     await expect(
       hijackedGen({ previousTitle: "아이유 - 밤편지" }),
-    ).resolves.toBe("방금은 “아이유 - 밤편지”였어요. 다음 곡을 이어서 들려 드릴게요.");
+    ).resolves.toBe("방금은 “아이유 - 밤편지”였어요.");
   });
 });

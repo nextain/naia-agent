@@ -66,8 +66,14 @@ interface DjDeps {
   readonly selector: {
     select(
       snapshot: DjContextSnapshot,
-      opts?: { readonly changeVibe?: boolean },
+      opts?: {
+        readonly changeVibe?: boolean;
+        readonly attempt?: number;
+        readonly failedQueries?: readonly string[];
+        readonly excludedArtists?: readonly string[];
+      },
     ): Promise<{ readonly query: string; readonly reason: "time" | "weather" | "mood" | "preference" | "favorite" | "generic" }>;
+    recordFailure?(query: string): void;
   };
   readonly bgm: RadioDjBgmPort;
   readonly speech: RadioDjSpeechPort;
@@ -158,6 +164,9 @@ export class PersonalRadioDjController {
   };
   private deferredTransitionComment?: string;
   private transitionSpeechChain: Promise<void> = Promise.resolve();
+  private failedSearchQueries = new Set<string>();
+  private retryRotationCursor = 0;
+  private preQueuedPlaybackKeys = new Set<string>();
 
   constructor(private readonly d: DjDeps) {}
 
@@ -200,6 +209,9 @@ export class PersonalRadioDjController {
     this.announcedVideoId = "";
     this.pendingTransition = undefined;
     this.deferredTransitionComment = undefined;
+    this.failedSearchQueries.clear();
+    this.retryRotationCursor = 0;
+    this.preQueuedPlaybackKeys.clear();
     this.armIdle();
   }
 
@@ -528,7 +540,12 @@ export class PersonalRadioDjController {
       if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
       const snapshot = this.freshSnapshot(raw, live);
       this.lastSnapshot = snapshot;
-      const selection = await this.d.selector.select(snapshot);
+      const usedInOperation = new Set<string>();
+      const selection = await this.selectDistinctQuery(snapshot, {
+        changeVibe: false,
+        attempt: 0,
+        usedInOperation,
+      });
       if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
       this.lastReason = sourceExists(selection.reason, snapshot) ? selection.reason : "generic";
       played = await this.d.bgm.searchAndPlay(selection.query, {
@@ -537,6 +554,33 @@ export class PersonalRadioDjController {
         signal: this.activityAbort.signal,
         preserveActive: true,
       });
+      if (!played.ok) {
+        this.recordFailedQuery(selection.query);
+      } else if (played.preservedActive && played.nextPrepared === false) {
+        this.recordFailedQuery(selection.query);
+        if (this.isOperationCurrent(generation, activityId, operationEpoch)) {
+          const retrySelection = await this.selectDistinctQuery(snapshot, {
+            changeVibe: true,
+            attempt: 1,
+            usedInOperation,
+          });
+          if (this.isOperationCurrent(generation, activityId, operationEpoch)) {
+            this.lastReason = sourceExists(retrySelection.reason, snapshot) ? retrySelection.reason : "generic";
+            const retryPlayed = await this.d.bgm.searchAndPlay(retrySelection.query, {
+              requestId,
+              activityId,
+              signal: this.activityAbort.signal,
+              preserveActive: true,
+            });
+            if (!retryPlayed.ok || (retryPlayed.preservedActive && retryPlayed.nextPrepared === false)) {
+              this.recordFailedQuery(retrySelection.query);
+            }
+            if (retryPlayed.ok) {
+              played = retryPlayed;
+            }
+          }
+        }
+      }
     } catch {
       await this.failAndRearm(generation, activityId, operationEpoch, "음악을 준비하는 중 문제가 생겼어요.");
       return;
@@ -849,7 +893,12 @@ export class PersonalRadioDjController {
         if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
         const snapshot = this.freshSnapshot(raw, live);
         this.lastSnapshot = snapshot;
-        const selection = await this.d.selector.select(snapshot, { changeVibe: true });
+        const usedInOperation = new Set<string>();
+        const selection = await this.selectDistinctQuery(snapshot, {
+          changeVibe: true,
+          attempt: 0,
+          usedInOperation,
+        });
         if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
         this.lastReason = sourceExists(selection.reason, snapshot) ? selection.reason : "generic";
         played = await this.d.bgm.searchAndPlay(selection.query, {
@@ -857,6 +906,27 @@ export class PersonalRadioDjController {
           activityId,
           signal: this.activityAbort?.signal,
         });
+        if (!played.ok) {
+          this.recordFailedQuery(selection.query);
+          if (this.isOperationCurrent(generation, activityId, operationEpoch)) {
+            const retrySelection = await this.selectDistinctQuery(snapshot, {
+              changeVibe: true,
+              attempt: 1,
+              usedInOperation,
+            });
+            if (this.isOperationCurrent(generation, activityId, operationEpoch)) {
+              this.lastReason = sourceExists(retrySelection.reason, snapshot) ? retrySelection.reason : "generic";
+              played = await this.d.bgm.searchAndPlay(retrySelection.query, {
+                requestId,
+                activityId,
+                signal: this.activityAbort?.signal,
+              });
+              if (!played.ok) {
+                this.recordFailedQuery(retrySelection.query);
+              }
+            }
+          }
+        }
       } catch {
         this.awaitingPlaybackConfirmation = true;
         this.currentState = "music_only";
@@ -875,7 +945,25 @@ export class PersonalRadioDjController {
           nextTitle: "",
         };
         this.awaitingPlaybackConfirmation = true;
-        this.currentState = "music_only";
+        const failureNotice = "다음 곡으로 넘기지 못했어요.";
+        if (!this.userRequestedMusicOnly && !this.spokenFailureNotices.has(failureNotice)) {
+          this.spokenFailureNotices.add(failureNotice);
+          await this.enqueueTransitionSpeech(generation, activityId, operationEpoch, async (signal) => {
+            if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+            if (this.currentState === "yielded" || wasYielded) {
+              this.deferredTransitionComment = this.deferredTransitionComment
+                ? `${this.deferredTransitionComment} ${failureNotice}`
+                : failureNotice;
+              return;
+            }
+            this.currentState = "dj_speaking";
+            await this.speak(failureNotice, signal);
+          });
+          if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+        }
+        if (this.currentState !== "yielded" && !wasYielded) {
+          this.currentState = "music_only";
+        }
         return;
       }
       // 3) After `playing` is confirmed (`played.ok`), introduce the confirmed next track once.
@@ -1103,15 +1191,23 @@ export class PersonalRadioDjController {
     }
     let liveBeforeReplace: Awaited<ReturnType<RadioDjBgmPort["status"]>>;
     let played: Awaited<ReturnType<RadioDjBgmPort["searchAndPlay"]>>;
+    let snapshot: DjContextSnapshot;
+    let firstQuery = "";
+    const usedInOperation = new Set<string>();
     try {
       const raw = await this.d.context.snapshot(this.config);
       if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
       const live = await this.d.bgm.status();
       liveBeforeReplace = live;
       if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
-      const snapshot = this.freshSnapshot(raw, live);
+      snapshot = this.freshSnapshot(raw, live);
       this.lastSnapshot = snapshot;
-      const selection = await this.d.selector.select(snapshot, { changeVibe });
+      const selection = await this.selectDistinctQuery(snapshot, {
+        changeVibe,
+        attempt: 0,
+        usedInOperation,
+      });
+      firstQuery = selection.query;
       if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
       this.lastReason = sourceExists(selection.reason, snapshot) ? selection.reason : "generic";
       played = await this.d.bgm.searchAndPlay(selection.query, {
@@ -1170,11 +1266,40 @@ export class PersonalRadioDjController {
         this.currentState = "music_only";
         return;
       }
-      await this.speakFailureNoticeOnce("다른 분위기의 음악을 찾지 못했어요.");
-      if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
-      this.awaitingPlaybackConfirmation = true;
-      this.currentState = "music_only";
-      return;
+      this.recordFailedQuery(firstQuery);
+      try {
+        const retrySelection = await this.selectDistinctQuery(snapshot, {
+          changeVibe: true,
+          attempt: 1,
+          usedInOperation,
+        });
+        if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+        this.lastReason = sourceExists(retrySelection.reason, snapshot) ? retrySelection.reason : "generic";
+        played = await this.d.bgm.searchAndPlay(retrySelection.query, {
+          requestId,
+          activityId,
+          signal: this.activityAbort?.signal,
+        });
+        if (!played.ok) {
+          this.recordFailedQuery(retrySelection.query);
+        }
+      } catch {
+        await this.failAndWaitForUserRetry(generation, activityId, operationEpoch, "다른 분위기의 음악을 준비하지 못했어요.");
+        return;
+      }
+      if (!this.isOperationCurrent(generation, activityId, operationEpoch)) {
+        if (played.ok && this.shouldCompensateLatePlayback(operationEpoch)) {
+          await this.compensateLatePlayback(requestId, activityId);
+        }
+        return;
+      }
+      if (!played.ok) {
+        await this.speakFailureNoticeOnce("다른 분위기의 음악을 찾지 못했어요.");
+        if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+        this.awaitingPlaybackConfirmation = true;
+        this.currentState = "music_only";
+        return;
+      }
     }
     this.retireTrack(liveBeforeReplace?.playbackId, liveBeforeReplace?.track?.videoId);
     this.resetStartFailureBackoff(); // #115 — 교체 성공도 연속 실패 구간을 닫는다
@@ -1253,6 +1378,7 @@ export class PersonalRadioDjController {
       if (live.track && this.lastSnapshot) {
         this.lastSnapshot = { ...this.lastSnapshot, nowPlaying: { ...live.track, source: "bgm-player" } };
       }
+      await this.preQueueNextTrackIfNeeded(live, generation, activityId, operationEpoch);
       if (!this.isOperationCurrent(generation, activityId, operationEpoch) || this.currentState !== "dj_speaking") return;
       await this.speak(renderDjComment(this.commentIndex++, this.lastSnapshot, this.lastReason));
       if (!this.isOperationCurrent(generation, activityId, operationEpoch) || this.currentState !== "dj_speaking") return;
@@ -1261,6 +1387,111 @@ export class PersonalRadioDjController {
       }
     });
     if (!fired) this.cancelFlowTimer = cancelTimer;
+  }
+
+  private recordFailedQuery(query: string): void {
+    const trimmed = query.trim();
+    if (!trimmed) return;
+    this.failedSearchQueries.add(trimmed);
+    this.d.selector.recordFailure?.(trimmed);
+  }
+
+  private async selectDistinctQuery(
+    snapshot: DjContextSnapshot,
+    opts: {
+      readonly changeVibe: boolean;
+      readonly attempt: number;
+      readonly usedInOperation: Set<string>;
+    },
+  ): Promise<{ readonly query: string; readonly reason: "time" | "weather" | "mood" | "preference" | "favorite" | "generic" }> {
+    const failedQueries = [...this.failedSearchQueries, ...opts.usedInOperation];
+    const selected = await this.d.selector.select(snapshot, {
+      changeVibe: opts.changeVibe,
+      attempt: opts.attempt,
+      failedQueries,
+    });
+    let query = selected.query.trim();
+    if (
+      !query
+      || this.failedSearchQueries.has(query)
+      || opts.usedInOperation.has(query)
+    ) {
+      query = this.pickFallbackRetryQuery(opts.usedInOperation);
+    }
+    opts.usedInOperation.add(query);
+    return {
+      query,
+      reason: selected.reason,
+    };
+  }
+
+  private pickFallbackRetryQuery(usedInOperation: Set<string>): string {
+    for (let i = 0; i < FALLBACK_RETRY_QUERIES.length; i++) {
+      const idx = (this.retryRotationCursor + i) % FALLBACK_RETRY_QUERIES.length;
+      const candidate = FALLBACK_RETRY_QUERIES[idx]!;
+      if (!this.failedSearchQueries.has(candidate) && !usedInOperation.has(candidate)) {
+        this.retryRotationCursor = idx + 1;
+        return candidate;
+      }
+    }
+    const base = FALLBACK_RETRY_QUERIES[this.retryRotationCursor % FALLBACK_RETRY_QUERIES.length]!;
+    this.retryRotationCursor++;
+    return `${base} ${this.retryRotationCursor}`;
+  }
+
+  private async preQueueNextTrackIfNeeded(
+    live: NonNullable<Awaited<ReturnType<RadioDjBgmPort["status"]>>>,
+    generation: number,
+    activityId: string,
+    operationEpoch: number,
+  ): Promise<void> {
+    if (!this.config || !this.requestId) return;
+    if (live.queueLength !== 0) return;
+    const duration = live.duration;
+    const currentTime = live.currentTime;
+    if (
+      duration === undefined
+      || !Number.isFinite(duration)
+      || duration <= 0
+      || currentTime === undefined
+      || !Number.isFinite(currentTime)
+      || currentTime < 0
+    ) {
+      return;
+    }
+    const nearEnd = duration - currentTime <= 60 || currentTime >= duration / 2;
+    if (!nearEnd) return;
+    const trackKey = (live.playbackId ?? live.track?.videoId ?? "").trim();
+    if (!trackKey || this.preQueuedPlaybackKeys.has(trackKey)) return;
+    this.preQueuedPlaybackKeys.add(trackKey);
+    const requestId = this.requestId;
+    try {
+      const raw = await this.d.context.snapshot(this.config);
+      if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+      const snapshot = this.freshSnapshot(raw, live);
+      this.lastSnapshot = snapshot;
+      const usedInOperation = new Set<string>();
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const selection = await this.selectDistinctQuery(snapshot, {
+          changeVibe: true,
+          attempt,
+          usedInOperation,
+        });
+        if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+        const prepared = await this.d.bgm.searchAndPlay(selection.query, {
+          requestId,
+          activityId,
+          signal: this.activityAbort?.signal,
+          preserveActive: true,
+        });
+        if (prepared.ok && prepared.nextPrepared !== false) {
+          return;
+        }
+        this.recordFailedQuery(selection.query);
+      }
+    } catch {
+      // Pre-queuing is opportunistic; end-of-track fallback handles selection if it fails.
+    }
   }
 
   private async speak(
@@ -1438,7 +1669,7 @@ export class PersonalRadioDjController {
       true,
       generation,
       operationEpoch,
-      "한 곡이 마무리됐어요. 다음 분위기를 이어서 골라볼게요.",
+      "한 곡이 마무리됐어요.",
     );
     const tracked = attempt.finally(() => {
       if (this.replacementInFlight === tracked) this.replacementInFlight = undefined;
@@ -1448,6 +1679,17 @@ export class PersonalRadioDjController {
   }
 
 }
+
+const FALLBACK_RETRY_QUERIES: readonly string[] = [
+  "감성 인디 어쿠스틱 노래",
+  "잔잔한 피아노 연주곡",
+  "편안한 어쿠스틱 카페 음악",
+  "부드러운 재즈 보사노바 노래",
+  "맑은 날 드라이브 팝 음악",
+  "차분한 로파이 시티팝 노래",
+  "따뜻한 알앤비 소울 음악",
+  "상쾌한 모닝 어쿠스틱 팝",
+];
 
 const NOISY_TITLE_BRACKET_RE =
   /[\(\[【]\s*(?:official\s*(?:music\s*)?(?:video|mv|audio|lyric\s*video|visualizer)|m\/v|mv|lyric\s*video|lyrics?|가사|visualizer|live\s*clip|special\s*clip|performance\s*video|full\s*audio|audio|4k|hd|uhd|remastered(?:\s*\d{4})?)\s*[\)\]】]/giu;
@@ -1475,9 +1717,9 @@ export function renderTrackTransition(previousTitle: string, nextTitle: string):
     return `이어서 “${next}” 들려 드릴게요.`;
   }
   if (prev) {
-    return `방금은 “${prev}”였어요. 다음 곡을 이어서 들려 드릴게요.`;
+    return `방금은 “${prev}”였어요.`;
   }
-  return "한 곡이 마무리됐어요. 이어서 다음 곡을 들려 드릴게요.";
+  return "한 곡이 마무리됐어요.";
 }
 
 function sanitizeGeneratedDjComment(

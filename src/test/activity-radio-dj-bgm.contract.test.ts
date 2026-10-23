@@ -321,13 +321,15 @@ describe("#115 BGM status 폴링 간격 하한", () => {
 
     expect(bgm.capabilities()).toEqual({ ready: true, next: true });
 
-    // 1) preserveActive:true 에서 기존 곡이 재생 중이라 preservedActive:true 로 즉시 응답하는 경우
+    // 1) preserveActive:true 에서 기존 곡이 재생 중이라 preservedActive:true 로 즉시 응답하는 경우 (queuedCount·nextPrepared 전달 포함)
     const preserved = bgm.searchAndPlay("새 곡", { requestId: "r1", activityId: "a1", preserveActive: true });
     expect(events[0]?.args["preserveActive"]).toBe(true);
     bgm.resolveResult("r1", "a1", events[0]!.toolCallId, JSON.stringify({
       ok: true,
       action: "play",
       preservedActive: true,
+      queuedCount: 0,
+      nextPrepared: false,
       playback: { playbackId: "p-existing", sequence: 3, status: "playing" },
       currentTrack: { videoId: "v-user", title: "사용자 선곡" },
       announceTrack: true,
@@ -337,6 +339,8 @@ describe("#115 BGM status 폴링 간격 하한", () => {
       videoId: "v-user",
       title: "사용자 선곡",
       preservedActive: true,
+      queuedCount: 0,
+      nextPrepared: false,
     });
 
     // 2) selected 필드 없이 playback + pendingTrack 만 있는 신규 셸 응답 → status 폴링으로 확인
