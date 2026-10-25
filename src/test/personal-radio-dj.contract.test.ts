@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  compactRadioSearchHint,
   makeDeterministicRadioDjSelector,
   makeRadioDjCommentGenerator,
   RADIO_DJ_COMMENT_SYSTEM_PROMPT,
@@ -8,6 +9,7 @@ import {
 import {
   PersonalRadioDjController,
   cleanTrackTitle,
+  normalizeRadioSearchQuery,
   renderTrackTransition,
   type DjContextSnapshot,
   type ProactiveScheduler,
@@ -55,6 +57,7 @@ function harness(overrides: {
   djIntervalMs?: number;
   currentBgm?: { videoId: string; title: string };
   commentGenerator?: RadioDjCommentGenerator;
+  selector?: ReturnType<typeof makeDeterministicRadioDjSelector>;
   nextResult?:
     | { ok: true; videoId: string; title: string }
     | { ok: false; reason: string };
@@ -101,7 +104,7 @@ function harness(overrides: {
         preferences: [{ text: "재즈를 좋아함", source: "user-memory", confidence: "explicit" }],
       } satisfies DjContextSnapshot)),
     },
-    selector: {
+    selector: overrides.selector ?? {
       select: vi.fn(async (snapshot) => {
         selectedSnapshots.push(snapshot);
         return { query: "저녁 집중 재즈 믹스", reason: overrides.selectorReason ?? "preference" };
@@ -268,7 +271,8 @@ describe("personal radio DJ MVP contract", () => {
       .mockImplementationOnce(
         () => new Promise((resolve) => { resolveReplacement = resolve; }),
       )
-      .mockResolvedValueOnce({ ok: false, reason: "no_single_track_candidates" });
+      .mockResolvedValueOnce({ ok: false, reason: "no_single_track_candidates" })
+      .mockResolvedValueOnce({ ok: false, reason: "no_search_results" });
 
     const next = h.controller.control({ kind: "next" });
     const vibe = h.controller.control({ kind: "change_vibe" });
@@ -1250,7 +1254,7 @@ describe("radio DJ song-end transitions & unconfirmed playback recovery", () => 
     ]);
   });
 
-  it("ended 뒤 두 번 모두 검색 실패하면 실패 안내를 1회 말하고 이후 자동 검색은 0회다 (FR-RADIO-DJ.11/16)", async () => {
+  it("ended 뒤 세 번(힌트·힌트 없음·고정 기본) 모두 검색 실패하면 진단 기록을 남기고 다시 시키는 법을 1회 알린 뒤 자동 검색은 0회다 (FR-RADIO-DJ.11/16)", async () => {
     const h = harness();
     await h.scheduler.advance(1_000);
     h.spoken.length = 0;
@@ -1273,12 +1277,16 @@ describe("radio DJ song-end transitions & unconfirmed playback recovery", () => 
       continued: false,
     });
 
-    expect(queries).toHaveLength(2);
-    expect(queries[0]).not.toBe(queries[1]);
+    expect(queries).toHaveLength(3);
+    expect(new Set(queries).size).toBe(3);
     expect(h.spoken).toEqual([
       "방금은 “아이유 - 밤편지”였어요.",
-      "다음 곡으로 넘기지 못했어요.",
+      "다음 곡을 찾지 못해 음악이 멈췄어요. “다음 곡”이라고 말씀해 주시면 다시 찾아볼게요.",
     ]);
+    const exhausted = h.logs.find((l) => l.message === "radio-dj next track search exhausted");
+    expect(exhausted?.ctx?.attempts).toEqual(
+      queries.map((query) => ({ query, reason: "no_single_track_candidates" })),
+    );
     expect(h.controller.state()).toBe("music_only");
 
     const queriesAfterEnded = queries.length;
@@ -1536,5 +1544,242 @@ describe("radio DJ song-end transitions & unconfirmed playback recovery", () => 
         gen({ previousTitle: "아이유 - 밤편지" }),
       ).resolves.toBe("방금은 “아이유 - 밤편지”였어요.");
     }
+  });
+});
+
+describe("radio DJ next-track search query hygiene (0.2.4 실기 18번)", () => {
+  // 4060 실기(2026-10-25)에서 즐겨찾기 재생목록 제목이 꾸밈 유니코드째 검색어에 들어가 no_search_results 로 멈췄다.
+  const DECORATED_PLAYLIST_TITLE = "𝐏𝐥𝐚𝐲𝐥𝐢𝐬𝐭 | 수라간의 온기 | 궁궐의 아침 … 조선 궁중 퓨전 국악";
+  const REPORTED_QUERY = "아침 𝐏𝐥𝐚𝐲𝐥𝐢𝐬𝐭 | 수라간의 온기 | 궁궐의 아침 … 취향을 살린 밴드 사운드 모던록 명곡 노래";
+
+  it("compactRadioSearchHint: 재생목록·여러 구분자 제목은 힌트로 쓰지 않고, 곡 제목은 NFKC·괄호 제거·잡음 낱말 제거 뒤 짧게 줄인다", () => {
+    expect(compactRadioSearchHint(DECORATED_PLAYLIST_TITLE)).toBe("");
+    expect(compactRadioSearchHint("아침 𝐏𝐥𝐚𝐲𝐥𝐢𝐬𝐭")).toBe("");
+    expect(compactRadioSearchHint("궁궐의 아침 | 수라간의 온기 | 국악 퓨전")).toBe("");
+    expect(compactRadioSearchHint("아이유 (IU) - 밤편지 (Official MV)")).toBe("아이유 밤편지");
+    expect(compactRadioSearchHint("𝐈𝐔 - 𝐁𝐥𝐮𝐞𝐦𝐢𝐧𝐠 [𝐋𝐲𝐫𝐢𝐜𝐬]")).toBe("IU Blueming");
+    expect(compactRadioSearchHint("잔나비 - 주저하는 연인들을 위해 / 가사")).toBe("잔나비 주저하는 연인들을 위해");
+    const long = compactRadioSearchHint("아주 길고 긴 곡 제목이 여기에 계속 이어지고 또 이어지는 노래");
+    expect([...long].length).toBeLessThanOrEqual(40);
+    expect(long.split(" ").length).toBeLessThanOrEqual(8);
+    // 이름 안의 "/"·"'"·숫자는 지우지 않는다.
+    expect(compactRadioSearchHint("AC/DC - Highway to Hell")).toBe("AC/DC Highway to Hell");
+    expect(compactRadioSearchHint("Bruno Mars - 24K Magic")).toBe("Bruno Mars 24K Magic");
+    expect(compactRadioSearchHint("Guns N' Roses - Sweet Child O' Mine")).toBe("Guns N' Roses Sweet Child O' Mine");
+    // 선호는 사용자가 직접 말한 문장이라 재생목록 판정 없이 정리만 한다.
+    expect(compactRadioSearchHint("잔잔한 플레이리스트 같은 재즈 ✨", "preference")).toBe("잔잔한 플레이리스트 같은 재즈");
+    expect(compactRadioSearchHint("잔나비 - 1+1")).toBe("잔나비 1+1");
+    expect(compactRadioSearchHint("R&B 감성 - 비 오는 날")).toBe("R&B 감성 비 오는 날");
+    // 곡 이름에 든 radio·mix 는 재생목록으로 보지 않는다. 괄호 꼬리표·모음 어절은 재생목록으로 본다.
+    expect(compactRadioSearchHint("Queen - Radio Ga Ga (Official Video)")).toBe("Queen Radio Ga Ga");
+    expect(compactRadioSearchHint("Stray Kids - MIXTAPE : OH")).toBe("Stray Kids MIXTAPE OH");
+    expect(compactRadioSearchHint("카페 재즈 (BGM)")).toBe("");
+    expect(compactRadioSearchHint("발라드 명곡 모음")).toBe("");
+    expect(compactRadioSearchHint("공부할 때 듣는 10시간 피아노")).toBe("");
+    expect(compactRadioSearchHint("공부할 때 듣는 10 시간 피아노")).toBe("");
+    expect(compactRadioSearchHint("Avicii - Levels (Radio Edit)")).toBe("Avicii Levels");
+    expect(compactRadioSearchHint("Daft Punk - One More Time (Club Mix)")).toBe("Daft Punk One More Time");
+  });
+
+  it("normalizeRadioSearchQuery: 실제 문제 검색어에서 꾸밈 글자·구분 기호를 풀고 80자 안으로 자른다", () => {
+    const normalized = normalizeRadioSearchQuery(REPORTED_QUERY);
+    expect(normalized).not.toMatch(/[|…]/u);
+    expect(normalized).not.toMatch(/[\u{1D400}-\u{1D7FF}]/u);
+    expect(normalized.startsWith("아침 Playlist 수라간의 온기")).toBe(true);
+    expect([...normalized].length).toBeLessThanOrEqual(80);
+    expect(normalizeRadioSearchQuery("AC/DC 1+1 R&B ... ★ -")).toBe("AC/DC 1+1 R&B");
+    const tooLong = normalizeRadioSearchQuery(`${"가나다라마 ".repeat(30)}끝`);
+    expect([...tooLong].length).toBeLessThanOrEqual(80);
+    expect(tooLong.endsWith(" ")).toBe(false);
+  });
+
+  it("선곡기: 꾸밈 재생목록 즐겨찾기는 검색어에 들어가지 않고, 실패한 힌트는 다시 쓰지 않으며, 재시도는 힌트 없이 만든다", async () => {
+    const selector = makeDeterministicRadioDjSelector();
+    const snapshot: DjContextSnapshot = {
+      localTime: { iso: "2026-10-25T06:02:04.000Z", timezone: "UTC", source: "configured" },
+      favoriteTracks: [
+        { videoId: "fav-playlist", title: DECORATED_PLAYLIST_TITLE },
+        { videoId: "fav-song", title: "𝐈𝐔 - 𝐁𝐥𝐮𝐞𝐦𝐢𝐧𝐠 (Official MV)" },
+      ],
+      preferences: [],
+    };
+    const first = await selector.select(snapshot, { changeVibe: true, attempt: 0 });
+    expect(first.query).not.toMatch(/수라간|Playlist|[|…]|[\u{1D400}-\u{1D7FF}]/u);
+    expect(first.query).toContain("IU Blueming");
+    expect(first.reason).toBe("favorite");
+
+    selector.recordFailure(first.query);
+    const retry = await selector.select(snapshot, { changeVibe: true, attempt: 1, failedQueries: [first.query] });
+    expect(retry.query).not.toContain("IU");
+    expect(retry.reason).toBe("time");
+
+    // 다음 곡 차례(attempt 0)에서도 실패한 즐겨찾기 힌트는 다시 붙지 않는다.
+    const later = await selector.select(snapshot, { changeVibe: true, attempt: 0 });
+    expect(later.query).not.toContain("IU Blueming");
+    expect(later.query).not.toBe(first.query);
+  });
+
+  it("4060 재현: 꾸밈 재생목록 즐겨찾기가 있어도 곡 끝 다음 검색이 이어지고, 첫 검색 실패 한 번으로 라디오가 멈추지 않는다", async () => {
+    const decoratedOrLong = (q: string) =>
+      /[|…]|[\u{1D400}-\u{1D7FF}]|수라간|Playlist/u.test(q) || [...q].length > 80;
+    const h = harness({
+      selector: makeDeterministicRadioDjSelector(),
+      snapshot: {
+        localTime: { iso: "2026-10-25T06:02:04.000Z", timezone: "UTC", source: "configured" },
+        favoriteTracks: [{ videoId: "fav-playlist", title: DECORATED_PLAYLIST_TITLE }],
+        preferences: [],
+      },
+    });
+    await h.scheduler.advance(1_000);
+    h.spoken.length = 0;
+    const queries: string[] = [];
+    let call = 0;
+    vi.mocked(h.bgm.searchAndPlay).mockImplementation(async (q) => {
+      queries.push(q);
+      call++;
+      if (decoratedOrLong(q)) return { ok: false, reason: "no_search_results" };
+      // 셸 검색이 첫 시도를 비워 돌려줘도(실기와 같은 사유) 다음 시도에서 이어간다.
+      if (call === 1) return { ok: false, reason: "no_search_results" };
+      return { ok: true, playbackId: "bgm-5", sequence: 5, videoId: "v5", title: "검정치마 - 기다린 만큼, 더" };
+    });
+
+    await h.controller.onBgmEvent({
+      kind: "track_ended",
+      activityId: "activity-dj-1",
+      playbackId: "bgm-1",
+      sequence: 2,
+      previousVideoId: "v1",
+      previousTitle: "넬 - 기억을 걷는 시간",
+      continued: false,
+    });
+
+    expect(queries.length).toBe(2);
+    expect(queries.every((q) => !decoratedOrLong(q))).toBe(true);
+    expect(h.spoken).toEqual([
+      "방금은 “넬 - 기억을 걷는 시간”였어요.",
+      "이어서 “검정치마 - 기다린 만큼, 더” 들려 드릴게요.",
+    ]);
+    expect(h.spoken.some((s) => s.includes("찾지 못해"))).toBe(false);
+    expect(h.controller.state()).toBe("dj_speaking");
+  });
+
+  it("선곡기가 꾸밈 글자 검색어를 돌려줘도 컨트롤러가 정규화해 셸에 보낸다", async () => {
+    const h = harness();
+    await h.scheduler.advance(1_000);
+    const sent: string[] = [];
+    vi.mocked(h.bgm.searchAndPlay).mockImplementation(async (q) => {
+      sent.push(q);
+      return { ok: true, playbackId: "bgm-n", sequence: 9, videoId: "v-n", title: "새 곡" };
+    });
+    const selectMock = vi.fn(async () => ({ query: REPORTED_QUERY, reason: "favorite" as const }));
+    (h.controller as unknown as { d: { selector: { select: typeof selectMock } } }).d.selector.select = selectMock;
+    await h.controller.onBgmEvent({
+      kind: "track_ended",
+      activityId: "activity-dj-1",
+      playbackId: "bgm-1",
+      sequence: 2,
+      previousVideoId: "v1",
+      previousTitle: "아이유 - 밤편지",
+      continued: false,
+    });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toBe(normalizeRadioSearchQuery(REPORTED_QUERY));
+  });
+
+  it("선곡기: 선호+즐겨찾기를 합친 검색이 실패하면 양쪽 힌트를 함께 쉬게 하고, 몇 차례 뒤 다시 쓴다", async () => {
+    const selector = makeDeterministicRadioDjSelector();
+    const snapshot: DjContextSnapshot = {
+      localTime: { iso: "2026-10-25T11:00:00.000Z", timezone: "UTC", source: "configured" },
+      favoriteTracks: [{ videoId: "fav-song", title: "아이유 - 밤편지" }],
+      preferences: [{ text: "잔잔한 재즈", source: "user-memory", confidence: "explicit" }],
+    };
+    const first = await selector.select(snapshot, { changeVibe: true, attempt: 0 });
+    expect(first.query).toContain("잔잔한 재즈 아이유 밤편지");
+    selector.recordFailure(first.query);
+    const next = await selector.select(snapshot, { changeVibe: true, attempt: 0 });
+    expect(next.query).not.toContain("잔잔한 재즈");
+    expect(next.query).not.toContain("아이유");
+    // 컨트롤러처럼 매 선곡마다 지난 실패 검색어 전체를 다시 넘겨도 쉬는 기간이 늘어나지 않는다.
+    for (let i = 0; i < 6; i++) {
+      await selector.select(snapshot, { changeVibe: true, attempt: 1, failedQueries: [first.query] });
+    }
+    const later = await selector.select(snapshot, { changeVibe: true, attempt: 0, failedQueries: [first.query] });
+    expect(later.query).toContain("잔잔한 재즈 아이유 밤편지");
+  });
+
+  it("선곡기: 긴 선호와 즐겨찾기를 합쳐도 즐겨찾기 힌트 자리가 남는다", async () => {
+    const selector = makeDeterministicRadioDjSelector();
+    const snapshot: DjContextSnapshot = {
+      localTime: { iso: "2026-10-25T11:00:00.000Z", timezone: "UTC", source: "configured" },
+      favoriteTracks: [{ videoId: "fav-song", title: "아이유 - 밤편지" }],
+      preferences: [{
+        text: "비 오는 날 창가에서 듣기 좋은 아주 잔잔하고 따뜻한 어쿠스틱 기타 연주",
+        source: "user-memory",
+        confidence: "explicit",
+      }],
+    };
+    const first = await selector.select(snapshot, { changeVibe: true, attempt: 0 });
+    expect(first.query).toContain("아이유 밤편지");
+    expect(first.query).toContain("비 오는 날");
+  });
+
+  it("곡 끝 전 미리 확보도 세 번까지 다른 검색어로 시도한다", async () => {
+    const h = harness();
+    await h.scheduler.advance(1_000);
+    vi.mocked(h.bgm.status).mockResolvedValue({
+      status: "playing",
+      playbackId: "bgm-playback-1",
+      track: { videoId: "v1", title: "집중할 때 듣는 긴 재즈 믹스" },
+      currentTime: 185,
+      duration: 210,
+      queueLength: 0,
+    });
+    const preQueueQueries: string[] = [];
+    vi.mocked(h.bgm.searchAndPlay).mockImplementation(async (q) => {
+      preQueueQueries.push(q);
+      return { ok: false, reason: "no_search_results" };
+    });
+    await h.scheduler.advance(500);
+    expect(preQueueQueries).toHaveLength(3);
+    expect(new Set(preQueueQueries).size).toBe(3);
+  });
+
+  it("선곡기 검색어가 정리 뒤 비면 고정 기본 검색어로 대신한다", async () => {
+    const h = harness();
+    await h.scheduler.advance(1_000);
+    const sent: string[] = [];
+    vi.mocked(h.bgm.searchAndPlay).mockImplementation(async (q) => {
+      sent.push(q);
+      return { ok: true, playbackId: "bgm-n", sequence: 9, videoId: "v-n", title: "새 곡" };
+    });
+    (h.controller as unknown as { d: { selector: { select: () => Promise<unknown> } } }).d.selector.select =
+      async () => ({ query: "★ | … ♪", reason: "favorite" as const });
+    await h.controller.onBgmEvent({
+      kind: "track_ended",
+      activityId: "activity-dj-1",
+      playbackId: "bgm-1",
+      sequence: 2,
+      previousVideoId: "v1",
+      previousTitle: "아이유 - 밤편지",
+      continued: false,
+    });
+    expect(sent).toEqual(["감성 인디 어쿠스틱 노래"]);
+  });
+
+  it("교체(다음 곡) 검색 세 번이 모두 실패하면 진단 기록과 안내 1회 뒤 멈춘다", async () => {
+    const h = harness();
+    await h.scheduler.advance(1_000);
+    h.spoken.length = 0;
+    const queries: string[] = [];
+    vi.mocked(h.bgm.searchAndPlay).mockImplementation(async (q) => {
+      queries.push(q);
+      return { ok: false, reason: "no_search_results" };
+    });
+    await h.controller.control({ kind: "next" });
+    expect(queries).toHaveLength(3);
+    expect(new Set(queries).size).toBe(3);
+    expect(h.spoken.filter((t) => t === "다른 분위기의 음악을 찾지 못했어요.")).toHaveLength(1);
+    expect(h.logs.some((l) => l.message === "radio-dj replacement search exhausted")).toBe(true);
+    expect(h.controller.state()).toBe("music_only");
   });
 });
