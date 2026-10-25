@@ -886,6 +886,7 @@ export class PersonalRadioDjController {
         this.currentState = "selecting";
       }
       let played: Awaited<ReturnType<RadioDjBgmPort["searchAndPlay"]>>;
+      const failedAttempts: { query: string; reason: string }[] = [];
       try {
         const raw = await this.d.context.snapshot(this.config);
         if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
@@ -894,39 +895,28 @@ export class PersonalRadioDjController {
         const snapshot = this.freshSnapshot(raw, live);
         this.lastSnapshot = snapshot;
         const usedInOperation = new Set<string>();
-        const selection = await this.selectDistinctQuery(snapshot, {
-          changeVibe: true,
-          attempt: 0,
-          usedInOperation,
-        });
-        if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
-        this.lastReason = sourceExists(selection.reason, snapshot) ? selection.reason : "generic";
-        played = await this.d.bgm.searchAndPlay(selection.query, {
-          requestId,
-          activityId,
-          signal: this.activityAbort?.signal,
-        });
-        if (!played.ok) {
+        // 검색 한 번 실패로 라디오가 멈추지 않게: 힌트 검색어 → 힌트 없는 분위기 검색어 → 고정 기본 검색어 순으로 시도한다.
+        let lastPlayed: Awaited<ReturnType<RadioDjBgmPort["searchAndPlay"]>> | undefined;
+        for (let attempt = 0; attempt < NEXT_TRACK_SEARCH_ATTEMPTS; attempt++) {
+          const selection = await this.selectDistinctQuery(snapshot, {
+            changeVibe: true,
+            attempt,
+            usedInOperation,
+          });
+          if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+          this.lastReason = sourceExists(selection.reason, snapshot) ? selection.reason : "generic";
+          lastPlayed = await this.d.bgm.searchAndPlay(selection.query, {
+            requestId,
+            activityId,
+            signal: this.activityAbort?.signal,
+          });
+          if (lastPlayed.ok) break;
           this.recordFailedQuery(selection.query);
-          if (this.isOperationCurrent(generation, activityId, operationEpoch)) {
-            const retrySelection = await this.selectDistinctQuery(snapshot, {
-              changeVibe: true,
-              attempt: 1,
-              usedInOperation,
-            });
-            if (this.isOperationCurrent(generation, activityId, operationEpoch)) {
-              this.lastReason = sourceExists(retrySelection.reason, snapshot) ? retrySelection.reason : "generic";
-              played = await this.d.bgm.searchAndPlay(retrySelection.query, {
-                requestId,
-                activityId,
-                signal: this.activityAbort?.signal,
-              });
-              if (!played.ok) {
-                this.recordFailedQuery(retrySelection.query);
-              }
-            }
-          }
+          failedAttempts.push({ query: selection.query, reason: lastPlayed.reason });
+          if (!this.isOperationCurrent(generation, activityId, operationEpoch)) break;
         }
+        if (!lastPlayed) return;
+        played = lastPlayed;
       } catch {
         this.awaitingPlaybackConfirmation = true;
         this.currentState = "music_only";
@@ -945,7 +935,9 @@ export class PersonalRadioDjController {
           nextTitle: "",
         };
         this.awaitingPlaybackConfirmation = true;
-        const failureNotice = "다음 곡으로 넘기지 못했어요.";
+        // 조용한 실패 금지: 진단 기록을 남기고, 사용자가 다시 시킬 수 있게 분명히 알린다.
+        this.d.log?.("radio-dj next track search exhausted", { attempts: failedAttempts });
+        const failureNotice = NEXT_TRACK_EXHAUSTED_NOTICE;
         if (!this.userRequestedMusicOnly && !this.spokenFailureNotices.has(failureNotice)) {
           this.spokenFailureNotices.add(failureNotice);
           await this.enqueueTransitionSpeech(generation, activityId, operationEpoch, async (signal) => {
@@ -1267,21 +1259,25 @@ export class PersonalRadioDjController {
         return;
       }
       this.recordFailedQuery(firstQuery);
+      const failedAttempts: { query: string; reason: string }[] = [{ query: firstQuery, reason: played.reason }];
       try {
-        const retrySelection = await this.selectDistinctQuery(snapshot, {
-          changeVibe: true,
-          attempt: 1,
-          usedInOperation,
-        });
-        if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
-        this.lastReason = sourceExists(retrySelection.reason, snapshot) ? retrySelection.reason : "generic";
-        played = await this.d.bgm.searchAndPlay(retrySelection.query, {
-          requestId,
-          activityId,
-          signal: this.activityAbort?.signal,
-        });
-        if (!played.ok) {
+        for (let attempt = 1; attempt < NEXT_TRACK_SEARCH_ATTEMPTS; attempt++) {
+          const retrySelection = await this.selectDistinctQuery(snapshot, {
+            changeVibe: true,
+            attempt,
+            usedInOperation,
+          });
+          if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+          this.lastReason = sourceExists(retrySelection.reason, snapshot) ? retrySelection.reason : "generic";
+          played = await this.d.bgm.searchAndPlay(retrySelection.query, {
+            requestId,
+            activityId,
+            signal: this.activityAbort?.signal,
+          });
+          if (played.ok) break;
           this.recordFailedQuery(retrySelection.query);
+          failedAttempts.push({ query: retrySelection.query, reason: played.reason });
+          if (!this.isOperationCurrent(generation, activityId, operationEpoch)) break;
         }
       } catch {
         await this.failAndWaitForUserRetry(generation, activityId, operationEpoch, "다른 분위기의 음악을 준비하지 못했어요.");
@@ -1294,6 +1290,7 @@ export class PersonalRadioDjController {
         return;
       }
       if (!played.ok) {
+        this.d.log?.("radio-dj replacement search exhausted", { attempts: failedAttempts });
         await this.speakFailureNoticeOnce("다른 분위기의 음악을 찾지 못했어요.");
         if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
         this.awaitingPlaybackConfirmation = true;
@@ -1404,13 +1401,19 @@ export class PersonalRadioDjController {
       readonly usedInOperation: Set<string>;
     },
   ): Promise<{ readonly query: string; readonly reason: "time" | "weather" | "mood" | "preference" | "favorite" | "generic" }> {
+    if (opts.attempt >= FIXED_FALLBACK_ATTEMPT) {
+      // 마지막 시도는 선곡기 힌트와 무관한 고정 기본 검색어로 한다.
+      const query = this.pickFallbackRetryQuery(opts.usedInOperation);
+      opts.usedInOperation.add(query);
+      return { query, reason: "generic" };
+    }
     const failedQueries = [...this.failedSearchQueries, ...opts.usedInOperation];
     const selected = await this.d.selector.select(snapshot, {
       changeVibe: opts.changeVibe,
       attempt: opts.attempt,
       failedQueries,
     });
-    let query = selected.query.trim();
+    let query = normalizeRadioSearchQuery(selected.query);
     if (
       !query
       || this.failedSearchQueries.has(query)
@@ -1418,6 +1421,9 @@ export class PersonalRadioDjController {
     ) {
       query = this.pickFallbackRetryQuery(opts.usedInOperation);
     }
+    // 선곡기는 정리 전 문자열로 중복을 보므로 정리 전후를 모두 이번 작업의 사용 목록에 넣는다.
+    const raw = selected.query.trim();
+    if (raw && raw !== query) opts.usedInOperation.add(raw);
     opts.usedInOperation.add(query);
     return {
       query,
@@ -1434,9 +1440,14 @@ export class PersonalRadioDjController {
         return candidate;
       }
     }
-    const base = FALLBACK_RETRY_QUERIES[this.retryRotationCursor % FALLBACK_RETRY_QUERIES.length]!;
-    this.retryRotationCursor++;
-    return `${base} ${this.retryRotationCursor}`;
+    // 고정 목록을 모두 썼으면 번호를 붙이되, 이미 쓰거나 실패한 문자열은 건너뛴다.
+    for (let guard = 0; guard < 1_000; guard++) {
+      const base = FALLBACK_RETRY_QUERIES[this.retryRotationCursor % FALLBACK_RETRY_QUERIES.length]!;
+      this.retryRotationCursor++;
+      const candidate = `${base} ${this.retryRotationCursor}`;
+      if (!this.failedSearchQueries.has(candidate) && !usedInOperation.has(candidate)) return candidate;
+    }
+    return `${FALLBACK_RETRY_QUERIES[0]!} ${Date.now()}`;
   }
 
   private async preQueueNextTrackIfNeeded(
@@ -1472,7 +1483,7 @@ export class PersonalRadioDjController {
       const snapshot = this.freshSnapshot(raw, live);
       this.lastSnapshot = snapshot;
       const usedInOperation = new Set<string>();
-      for (let attempt = 0; attempt < 2; attempt++) {
+      for (let attempt = 0; attempt < NEXT_TRACK_SEARCH_ATTEMPTS; attempt++) {
         const selection = await this.selectDistinctQuery(snapshot, {
           changeVibe: true,
           attempt,
@@ -1679,6 +1690,38 @@ export class PersonalRadioDjController {
     return tracked;
   }
 
+}
+
+/** 곡 끝·교체·미리 확보 검색의 최대 시도 수: 힌트 검색어 → 힌트 없는 분위기 → 고정 기본 검색어. */
+const NEXT_TRACK_SEARCH_ATTEMPTS = 3;
+const FIXED_FALLBACK_ATTEMPT = 2;
+const NEXT_TRACK_EXHAUSTED_NOTICE =
+  "다음 곡을 찾지 못해 음악이 멈췄어요. “다음 곡”이라고 말씀해 주시면 다시 찾아볼게요.";
+const MAX_RADIO_SEARCH_QUERY_CHARS = 80;
+
+/**
+ * 셸로 보내는 검색어의 마지막 방어선. NFKC 로 꾸밈 글자(𝐏𝐥𝐚𝐲𝐥𝐢𝐬𝐭 → Playlist)를 풀고,
+ * 제어·서식 문자와 구분 기호(| … ★ 등)를 공백으로 바꾸고, 80자 안에서 낱말 단위로 자른다.
+ */
+export function normalizeRadioSearchQuery(raw: string): string {
+  // 선곡기 cleanRadioSearchText(adapters/radio-dj-runtime.ts)와 같은 규칙이다. app 층은 adapter 를 가져오지 않으므로 따로 둔다.
+  // 이름 안의 ' & - + / . 는 남기고(AC/DC, 1+1, R&B), 기호만으로 된 어절과 어절 앞뒤의 + / . 는 지운다.
+  const cleaned = raw
+    .normalize("NFKC")
+    .replace(/[\p{Cc}\p{Cf}]/gu, " ")
+    .replace(/[^\p{L}\p{N}\p{M}\s'&+/.-]+/gu, " ")
+    .split(/\s+/u)
+    .map((word) => word.replace(/^[+/.]+|[+/.]+$/gu, ""))
+    .filter((word) => word && !/^[-&'+/.]+$/u.test(word))
+    .join(" ");
+  if ([...cleaned].length <= MAX_RADIO_SEARCH_QUERY_CHARS) return cleaned;
+  let out = "";
+  for (const word of cleaned.split(" ")) {
+    const candidate = out ? `${out} ${word}` : word;
+    if ([...candidate].length > MAX_RADIO_SEARCH_QUERY_CHARS) break;
+    out = candidate;
+  }
+  return out || [...cleaned].slice(0, MAX_RADIO_SEARCH_QUERY_CHARS).join("");
 }
 
 const FALLBACK_RETRY_QUERIES: readonly string[] = [
