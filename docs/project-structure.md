@@ -49,7 +49,8 @@
 | `tsconfig.json` | TypeScript 프로젝트 참조 |
 | `tsconfig.base.json` | 공통 tsconfig 기본값 |
 | `vitest.config.ts` | vitest 설정 (test include — 크로스플랫폼) |
-| `README.md` | 이 repo 소개 (복제 제외) |
+| `README.md` | 이 repo 소개, 영어 (복제 제외) |
+| `README.ko.md` | README 한국어판 |
 | `README.template.md` | 새 프로젝트가 받는 README skeleton (create/migration 이 README.md 로 사용) |
 | `CHANGELOG.md` | 변경 이력 |
 | `review-pass.yaml` | 크로스리뷰 리뷰어 패널 project-local override (정본 SoT = naia-settings/review.json) |
