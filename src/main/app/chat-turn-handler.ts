@@ -101,13 +101,24 @@ const CONTINUE_TOOL_RESULT_ACTIVATED = "continuous speaking activated";
 const CONTINUE_TOOL_RESULT_REJECTED = "continuous speaking rejected: explicit user request quote is missing or does not match the latest user message";
 
 /** DeepSeek V4 Flash can report `stop` for a visibly incomplete response. */
+const DEEPSEEK_FINAL_TRAIL_DECO_RE = /[\s\p{Extended_Pictographic}\uFE00-\uFE0F\u200D｡•ᴗ·・~～〜ー☆★♥♡♪♫✦✧※❀]+$/u;
+const DEEPSEEK_FINAL_VOCATIVE_RE = /^(?:아[,.!]?[ ]*)?(?:네[,.!]?[ ]*)?(?:루크[ ]*)?(?:대표님|님)[.!?…]*$/u;
+const DEEPSEEK_FINAL_COMPLETE_END_RE = /(?:요|다|죠|네|까|음|함|됨|중|완료)[\])}"'’”]*$/u;
+const DEEPSEEK_FINAL_PUNCT_END_RE = /[.!?。！？…][\])}"'’”]*$/u;
 export function isLikelyIncompleteDeepSeekFinal(text: string): boolean {
   const value = text.trim();
   if (!value) return true;
-  if (/^(?:아[,.!]?[ ]*)?(?:네[,.!]?[ ]*)?(?:루크[ ]*)?(?:대표님|님)[.!?…]*$/u.test(value)) return true;
+  // 페르소나 문체(이모지·카모지 장식 종결: "있어요 ☀️☕", "책임질게요. ｡•ᴗ•｡☕")는 완성이다.
+  // 끝 장식을 벗긴 핵이 완성 어미/구두점으로 끝나면 잘림 재요청을 쏘지 않는다 — 쏘면 모델이
+  // 완성된 답을 "이어쓰기"라며 되풀이한다(0.2.4 음악·DJ 턴 되풀이). 호칭-only("아, 루크대표님.")는 제외.
+  const core = value.replace(DEEPSEEK_FINAL_TRAIL_DECO_RE, "");
+  if (core && !DEEPSEEK_FINAL_VOCATIVE_RE.test(core)
+    && (DEEPSEEK_FINAL_COMPLETE_END_RE.test(core) || DEEPSEEK_FINAL_PUNCT_END_RE.test(core))) return false;
+  if (!core) return true;
+  if (DEEPSEEK_FINAL_VOCATIVE_RE.test(value)) return true;
   if (/[A-Za-z0-9_]$/u.test(value)) return true;
-  if (/[.!?。！？…][\])}"'’”]*$/u.test(value)) return false;
-  if (/(?:요|다|죠|네|까|음|함|됨|중|완료)[\])}"'’”]*$/u.test(value)) return false;
+  if (DEEPSEEK_FINAL_PUNCT_END_RE.test(value)) return false;
+  if (DEEPSEEK_FINAL_COMPLETE_END_RE.test(value)) return false;
   return true;
 }
 
