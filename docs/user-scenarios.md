@@ -1039,8 +1039,9 @@ honestly. The loop has no arbitrary two-minute ceiling and stops only at explici
 4. Private reasoning is carried separately from the final response, while code uses a language-tagged fenced Markdown block.
 5. If the model still ends a turn with only a promise ("확인해 보겠습니다", "I'll check") while real tools are offered and no tool was called in that turn, the agent re-asks it once to call the tool now or say plainly that it cannot (nextain/naia-shell#687). A normal final answer is not re-asked, and there is never more than one re-ask per turn.
 6. The model does not report a tool result (for example "the tool shows no open file") unless that tool was called in this turn and returned it.
+7. A complete final answer that ends with emoji/decoration ("있어요 ☀️☕") is not mistaken for a DeepSeek truncation: no "continue from the cut point" re-ask is sent, so the model does not restate the song intro and guidance it already gave. A genuinely cut-off final ("노래는건") is still re-asked once.
 
-Coverage: `src/test/action-execution-policy.contract.test.ts`, `src/test/action-promise-guard.contract.test.ts` plus naia-shell v0.2.2 local E2E (the #687 attended shell E2E is pending).
+Coverage: `src/test/action-execution-policy.contract.test.ts`, `src/test/action-promise-guard.contract.test.ts`, `src/test/chat-repeat-regression.contract.test.ts` plus naia-shell v0.2.2 local E2E (the #687 attended shell E2E is pending).
 
 # UC-154 — 장기 기억과 지식 저장 도구를 모델에 연다 (naia-agent#154)
 

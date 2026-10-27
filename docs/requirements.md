@@ -942,6 +942,14 @@ Verification: `src/test/action-promise-guard.contract.test.ts`, `src/test/action
 
 Status: Done (contract tests and a real-LLM check pass; the attended naia-shell E2E is pending)
 
+# FR-ACTION-3 — 완성된 이모지 종결 최종답에 잘림 재요청을 쏘지 않는다 (0.2.4 chat-repeat)
+
+DeepSeek V4 Flash 최종답 판정(`isLikelyIncompleteDeepSeekFinal`)은 끝 장식(이모지·`｡•ᴗ•｡`·물결 등)을 벗긴 핵이 완성 어미(`요|다|죠|네|까|음|함|됨|중|완료`)나 종결 구두점으로 끝나면 완성으로 본다. 호칭-only(`아, 루크대표님.`)는 여전히 잘림으로 본다. 완성된 답에 "Continue exactly from the point where the answer was cut off" 재요청을 보내면 모델이 완성된 곡 소개·안내를 "이어쓰기"라며 되풀이하므로(셸 0.2.4 "곡을 또 이야기한것 같은데"), 이 오발을 막는다. 진짜 잘림(`노래는건` 등 중간 끊김)은 기존대로 재요청한다. 턴당 1회 상한(`finalRecoveryUsed`)은 그대로 공유한다.
+
+Verification: `src/test/chat-repeat-regression.contract.test.ts` (가짜 모델 글A→도구→글B 순서, 셸 텍스트=A+B 1회씩·2차 호출 입력에 A 포함·이모지 종결 완성/잘림 판정).
+
+Status: Done
+
 # FR-MEM-19 — 명시적 장기 기억 저장 도구 (`skill_memory_save`) (naia-agent#154)
 
 - **도구 정의**: `skill_memory_save` 는 사용자 발화로부터 도출된 사실 문장(`fact`)과 근거가 된 사용자 발화(`evidence`)를 인자로 받아 `MemoryPort.save` 로 장기 기억에 쓰고, 성공 또는 실패를 도구 결과로 돌려준다.
