@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,6 +17,41 @@ function testDirectory(): string {
 function writeGatewayPreload(directory: string): string {
   const path = join(directory, "fake-discord-gateway.mjs");
   writeFileSync(path, `
+import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
+const originalRename = fs.renameSync;
+const action = process.env.TEST_STARTUP_ACTION;
+const statusPath = process.env.NAIA_DISCORD_STATUS_PATH;
+const authorityPath = process.env.NAIA_DISCORD_AUTHORITY_PATH;
+const tracePath = process.env.TEST_STARTUP_TRACE;
+let injected = false;
+fs.renameSync = function(source, target) {
+  if (target === statusPath && action && !injected) {
+    injected = true;
+    fs.appendFileSync(tracePath, fs.existsSync(authorityPath + ".generation_process_test.lock") ? "lease present\\n" : "lease absent\\n");
+    if (action === "throw") throw new Error("injected status write failure");
+    originalRename(source, target);
+    fs.appendFileSync(tracePath, "starting\\n");
+    if (action === "reject") Promise.reject(new Error("injected startup rejection"));
+    else if (action === "SIGTERM" || action === "SIGINT") {
+      process.kill(process.pid, action);
+    } else if (action === "double") {
+      process.kill(process.pid, "SIGTERM");
+      process.kill(process.pid, "SIGINT");
+    }
+    return;
+  }
+  if (target === statusPath && action) fs.appendFileSync(tracePath, "final status\\n");
+  return originalRename(source, target);
+};
+syncBuiltinESMExports();
+const originalStderrWrite = process.stderr.write.bind(process.stderr);
+process.stderr.write = function(chunk, ...args) {
+  if (action === "late_throw" && String(chunk).includes("Discord standalone ready")) {
+    throw new Error("injected late startup failure");
+  }
+  return originalStderrWrite(chunk, ...args);
+};
 class FakeSocket {
   readyState = 1;
   listeners = new Map();
@@ -39,6 +74,7 @@ class FakeSocket {
 }
 globalThis.WebSocket = FakeSocket;
 globalThis.fetch = async (input) => {
+  if (action) fs.appendFileSync(tracePath, "gateway started\\n");
   if (String(input).endsWith("/gateway/bot")) {
     return new Response(JSON.stringify({ url: "wss://fake-discord.invalid" }), { status: 200 });
   }
@@ -159,6 +195,52 @@ afterEach(async () => {
 });
 
 describe("naia-agent serve process lifecycle", () => {
+  for (const signal of ["SIGTERM", "SIGINT", "double"] as const) {
+    it(`releases the lease on ${signal} immediately after starting is published`, async () => {
+      const directory = testDirectory();
+      const trace = join(directory, "startup-trace");
+      const first = startServe(directory, { TEST_STARTUP_ACTION: signal, TEST_STARTUP_TRACE: trace });
+      await expect(waitForExit(first.child)).resolves.toEqual({ code: 0, signal: null });
+      expect(JSON.parse(readFileSync(first.statusPath, "utf8"))).toMatchObject({ state: "stopped" });
+      expect(existsSync(join(directory, "authority.json.generation_process_test.lock"))).toBe(false);
+      expect(readFileSync(trace, "utf8")).toBe("lease present\nstarting\nfinal status\n");
+      const replacement = startServe(directory);
+      await waitForStatus(replacement.statusPath, "ready", 20_000, replacement.output);
+      replacement.child.kill("SIGTERM");
+      await expect(waitForExit(replacement.child)).resolves.toEqual({ code: 0, signal: null });
+    }, 60_000);
+  }
+
+  for (const action of ["throw", "reject"] as const) {
+    it(`cleans up the lease after a startup ${action}`, async () => {
+      const directory = testDirectory();
+      const trace = join(directory, "startup-trace");
+      const first = startServe(directory, { TEST_STARTUP_ACTION: action, TEST_STARTUP_TRACE: trace });
+      await expect(waitForExit(first.child)).resolves.toEqual({ code: 1, signal: null });
+      expect(JSON.parse(readFileSync(first.statusPath, "utf8"))).toMatchObject({ state: "failed", code: "startup_failed" });
+      expect(existsSync(join(directory, "authority.json.generation_process_test.lock"))).toBe(false);
+      expect(readFileSync(trace, "utf8")).toBe(`lease present\n${action === "reject" ? "starting\n" : ""}final status\n`);
+      const replacement = startServe(directory);
+      await waitForStatus(replacement.statusPath, "ready", 20_000, replacement.output);
+      replacement.child.kill("SIGTERM");
+      await expect(waitForExit(replacement.child)).resolves.toEqual({ code: 0, signal: null });
+    }, 60_000);
+  }
+
+  it("cleans up if initialization throws after the runtime starts", async () => {
+    const directory = testDirectory();
+    const trace = join(directory, "startup-trace");
+    const first = startServe(directory, { TEST_STARTUP_ACTION: "late_throw", TEST_STARTUP_TRACE: trace });
+    await expect(waitForExit(first.child)).resolves.toEqual({ code: 1, signal: null });
+    expect(JSON.parse(readFileSync(first.statusPath, "utf8"))).toMatchObject({ state: "failed", code: "startup_failed" });
+    expect(existsSync(join(directory, "authority.json.generation_process_test.lock"))).toBe(false);
+    expect(readFileSync(trace, "utf8")).toBe("lease present\nstarting\ngateway started\nfinal status\n");
+    const replacement = startServe(directory);
+    await waitForStatus(replacement.statusPath, "ready", 20_000, replacement.output);
+    replacement.child.kill("SIGTERM");
+    await expect(waitForExit(replacement.child)).resolves.toEqual({ code: 0, signal: null });
+  }, 60_000);
+
   it("reads the token pipe, publishes ready, rejects a duplicate generation, and exits cleanly on SIGTERM", async () => {
     const directory = testDirectory();
     const first = startServe(directory);

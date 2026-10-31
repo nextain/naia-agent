@@ -153,6 +153,49 @@ let { toolExecutor } = deps;
 const { memory, memoryLabel, reloadMemory, conversationLog, transcriptLabel, diag, personaSource, workspaceContextSource, knowledgeBackend, surfacer, getSurfacingLabel } = deps;
 let skillsLabel = deps.skillsLabel;
 let currentAdkPath = adkPath;
+let discordRuntime;
+let discordStatus;
+let discordStatusPoll;
+const failStandaloneStartup = async (code) => {
+  const error = new Error(`Discord standalone startup failed (${code})`);
+  error.startupCode = code;
+  throw error;
+};
+// Install the handlers before acquiring a lease. Startup shutdown only touches
+// resources already registered; it never starts or drains an unfinished runtime.
+let shutdownPromise;
+let starting = true;
+let startupRuntimeCleanup;
+const startupShutdown = async (exitCode, code) => {
+  process.exitCode = exitCode;
+  setTimeout(() => process.exit(exitCode), 30000).unref();
+  if (discordStatusPoll) clearInterval(discordStatusPoll);
+  try { await startupRuntimeCleanup?.(); } catch { /* best-effort */ }
+  if (code !== "authority_conflict") {
+    try { discordStatus?.write(exitCode === 0 ? "stopped" : "failed", code); } catch { /* best-effort */ }
+  }
+  for (const fn of cleanupFns.splice(0)) { try { fn(); } catch { /* best-effort */ } }
+  try { if (memory) await Promise.race([memory.close(), new Promise((res) => setTimeout(res, 8000))]); } catch { /* best-effort */ }
+  process.stdout.write("", () => process.exit(exitCode));
+};
+onShutdown = (exitCode = 0, code) => {
+  shutdownPromise ??= startupShutdown(exitCode, code);
+  return shutdownPromise;
+};
+process.on("SIGTERM", () => { void onShutdown?.(); });
+process.on("SIGINT", () => { void onShutdown?.(); });
+const reportFatal = (kind, error) => {
+  if (shutdownPromise) return;
+  process.stderr.write(`[naia-agent] ${kind}: ${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+  if (!starting) {
+    try { discordStatus?.write("failed", "runtime_failed"); } catch { /* best-effort */ }
+  }
+  void onShutdown(1, "startup_failed");
+};
+process.on("unhandledRejection", (error) => reportFatal("unhandledRejection", error));
+process.on("uncaughtException", (error) => reportFatal("uncaughtException", error));
+
+try {
 let jeonjuCourseConfig;
 const { raw: courseTargetRaw, provided: jeonjuCourseTargetProvided } = loadJeonjuCourseTargetRaw({
   adkPath,
@@ -167,7 +210,6 @@ delete process.env.NAIA_JEONJU_COURSE_TARGET_JSON;
 // cwd. The Codex CLI runner is intentionally ephemeral, so Resume is exposed
 // but returns FAILED_PRECONDITION until a checkpoint-capable runner is added.
 let courseService;
-let discordRuntime;
 const invalidCourseCommand = jeonjuCourseTargetProvided && !jeonjuCourseConfig
   ? {
     start: (input) => {
@@ -265,7 +307,6 @@ delete process.env.NAIA_DISCORD_GENERATION;
 delete process.env.NAIA_DISCORD_STATUS_PATH;
 delete process.env.NAIA_DISCORD_AUTHORITY_PATH;
 delete process.env.NAIA_DISCORD_INBOX_PATH;
-let discordStatus;
 let discordAuthority;
 let discordAuthorityLease;
 if (discordGeneration && discordStatusPath && discordAuthorityPath) {
@@ -281,15 +322,6 @@ if (discordGeneration && discordStatusPath && discordAuthorityPath) {
   }
 }
 
-const failStandaloneStartup = async (code) => {
-  if (code !== "authority_conflict") {
-    try { discordStatus?.write("failed", code); } catch { /* state file may be unavailable */ }
-  }
-  for (const fn of cleanupFns) { try { fn(); } catch { /* best-effort */ } }
-  try { if (memory) await memory.close(); } catch { /* best-effort */ }
-  process.stderr.write(`[naia-agent] Discord standalone startup failed (${code})\n`);
-  process.exit(1);
-};
 if (discordStandalone) {
   const startupError = !secretPipeConfigured ? "token_pipe_required"
     : !discordToken ? "token_unavailable"
@@ -300,8 +332,11 @@ if (discordStandalone) {
     : !(discordAuthorityLease = discordAuthority.acquire?.()) ? "authority_conflict"
     : undefined;
   if (startupError) await failStandaloneStartup(startupError);
-  discordStatus.write("starting");
   cleanupFns.unshift(() => discordAuthorityLease?.release());
+  discordStatus.write("starting");
+  // Let pending OS signals run before continuing with runtime construction.
+  await new Promise((resolve) => setImmediate(() => setImmediate(resolve)));
+  if (shutdownPromise) { await shutdownPromise; return; }
 }
 
 // ★ 라이브 reload(정본 R1-2 "startup-only 금지"): 사용자가 naia-os 에서 모델/프로바이더 교체 시 OS 가
@@ -429,7 +464,6 @@ const grpcServer = makeGrpcServer({
   diag,
 });
 let processingGuard;
-let discordStatusPoll;
 if (discordToken && discordConfig && discordAuthority) {
   try {
     const dedupePath = process.env.NAIA_DISCORD_DEDUPE_PATH
@@ -656,10 +690,12 @@ if (!discordStandalone) {
     grpcAddr = await grpcServer.start();
   } catch (e) {
     process.stderr.write(`[naia-agent] gRPC 시작 실패(주소: ${process.env.NAIA_AGENT_GRPC_ADDR ?? "기본"}): ${e instanceof Error ? e.message : String(e)}\n`);
-    for (const fn of cleanupFns) { try { fn(); } catch { /* best-effort */ } }
-    process.exit(1);
+    await onShutdown(1, "startup_failed");
+    return;
   }
+  if (shutdownPromise) { await shutdownPromise; return; }
 }
+startupRuntimeCleanup = () => discordRuntime?.gracefulStop();
 discordRuntime?.start();
 courseService?.restore();
 if (discordRuntime && discordStatus) {
@@ -696,7 +732,6 @@ process.stderr.write(`[naia-agent] ${discordStandalone ? "Discord standalone rea
 // stdin 닫히면 종료 — ⚠️ 순서: (1) drain(in-flight 턴 save 완료 대기) → (2) memory.close()(store flush)
 //   → (3) exit. naia-memory LocalAdapter 는 encode 를 in-memory 버퍼링하고 close() 에서 flush 하므로,
 //   진행 중 턴을 안 기다리고 닫으면 마지막 턴 save 가 유실된다(EOF-during-turn 레이스). 격리: 실패해도 종료 진행.
-let shutdownPromise;
 const performShutdown = async (exitCode = 0) => {
   const finalExitCode = exitCode === 0 ? 0 : 1;
   process.exitCode = finalExitCode;
@@ -724,23 +759,14 @@ onShutdown = (exitCode = 0) => {
   shutdownPromise ??= performShutdown(exitCode);
   return shutdownPromise;
 };
-// gRPC 서버 종료 = OS(Rust)가 보내는 시그널. drain/flush/grpc-shutdown 수행 후 exit.
-process.on("SIGTERM", () => { void onShutdown?.(); });
-process.on("SIGINT", () => { void onShutdown?.(); });
+starting = false;
 // 호스트는 핸드셰이크를 읽자마자 종료 신호를 보낼 수 있으므로 graceful handler 등록 후 알린다.
 if (!discordStandalone) process.stdout.write(`GRPC_LISTENING ${grpcAddr}\n`);
-// ⚠️ 최후 백스톱(재감사 2026-06-23): 부팅/런타임의 잡히지 않은 reject/throw 가 raw 스택 크래시로 새지 않게 —
-//   정직 메시지 남기고 자원 정리 후 종료. 정상 경로는 각자 try/catch 로 처리되며 여긴 그물망이다.
-process.on("unhandledRejection", (reason) => {
-  process.stderr.write(`[naia-agent] unhandledRejection: ${reason instanceof Error ? reason.stack ?? reason.message : String(reason)}\n`);
-  for (const fn of cleanupFns) { try { fn(); } catch { /* best-effort */ } }
-  process.exit(1);
-});
-process.on("uncaughtException", (err) => {
-  process.stderr.write(`[naia-agent] uncaughtException: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`);
-  for (const fn of cleanupFns) { try { fn(); } catch { /* best-effort */ } }
-  process.exit(1);
-});
+} catch (error) {
+  const code = error?.startupCode ?? "startup_failed";
+  process.stderr.write(`[naia-agent] ${discordStandalone ? "Discord standalone" : "gRPC"} startup failed (${code})\n`);
+  await onShutdown(1, code);
+}
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {

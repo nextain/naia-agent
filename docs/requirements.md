@@ -970,21 +970,19 @@ Status: Done (#154)
 
 ### FR-DISCORD-169 — 독립 Discord 호스트와 DM·스레드 (In review)
 
-기존 셸 호스트와 공통 조립을 공유하고 전용 stdin 비밀 파이프, 셸 경로의 loopback-only gRPC, 독립 경로의 gRPC 비활성화, 정상 종료와 상태·세대 소유권 검사를 제공한다. 독립 serve는 존재하는 workspace와 구체적인 main provider 설정을 시작 전에 확인하고, 빠진 설정을 `--help`에 안내하며 미설정 상태는 0이 아닌 코드로 끝난다. 허용 사용자 DM 및 허용 guild·부모 채널·사용자의 멘션과 스레드만 수신하며 빈 목록과 확인할 수 없는 부모는 거부한다. 일반 guild message channel은 type 0(text)·5(announcement), thread는 type 10·11·12만 허용하며 Gateway cache와 runtime 양쪽에서 그 밖의 type을 거부한다. 일반 채널 `parent_id`는 category ID로 보존하거나 thread 부모 검증에 사용하지 않는다. Guild 없는 메시지에서 type/recipient를 확인할 수 없으면 REST를 조회하고, 모든 DM 메시지는 type 1 및 recipients에 작성자가 있는지 확인한다. recipients 부재·조회 오류·그룹 DM·불일치는 거부하고 확인되지 않은 항목은 신뢰 캐시에 저장하지 않는다. `THREAD_LIST_SYNC`·`GUILD_CREATE`는 outer `guild_id`를 thread metadata에 전달하며, guild 정보가 불완전한 cache 항목은 REST 확인 성공 전까지 승인하지 않는다. 서버 channel/thread도 캐시가 없으면 조회해 guild·thread type·parent를 검증하고 불일치나 누락은 거부한다. 현재 generation authority와 process lease의 token 소유권을 ingress와 각 egress에서 확인하며, lease 상실 시 readiness를 내리고 처리를 멈춘 뒤 프로세스를 비정상 종료한다. 기존 `NAIA_DISCORD_BINDINGS_JSON`에 선택적 `dm` 설정을 추가하되 필드가 없는 이전 설정은 그대로 허용한다. 봇·웹훅·자기 메시지를 거부하고 DM·스레드별 세션을 격리한다. Discord 개인 기억과 대화록의 기존 제한은 유지한다. 컨테이너 예제와 오프라인 통합·프로세스·셸 회귀 검증을 제공한다. 기억 복구와 긴 작업 위임은 후속 범위다.
+기존 셸 호스트와 공통 조립을 공유하고 전용 stdin 비밀 파이프, 셸 경로의 loopback-only gRPC, 독립 경로의 gRPC 비활성화, 정상 종료와 상태·세대 소유권 검사를 제공한다. 독립 serve는 존재하는 workspace와 구체적인 main provider 설정을 시작 전에 확인하고, 빠진 설정을 `--help`에 안내하며 미설정 상태는 0이 아닌 코드로 끝난다. 허용 사용자 DM 및 허용 guild·부모 채널·사용자의 멘션과 스레드만 수신하며 빈 목록과 확인할 수 없는 부모는 거부한다. 일반 guild message channel은 type 0(text)·5(announcement), thread는 type 10·11·12만 허용하며 Gateway cache와 runtime 양쪽에서 그 밖의 type을 거부한다. 일반 채널 `parent_id`는 category ID로 보존하거나 thread 부모 검증에 사용하지 않는다. Guild 없는 메시지에서 type/recipient를 확인할 수 없으면 REST를 조회하고, 모든 DM 메시지는 type 1 및 recipients에 작성자가 있는지 확인한다. recipients 부재·조회 오류·그룹 DM·불일치는 거부하고 확인되지 않은 항목은 신뢰 캐시에 저장하지 않는다. `THREAD_LIST_SYNC`·`GUILD_CREATE`는 outer `guild_id`를 thread metadata에 전달하며, guild 정보가 불완전한 cache 항목은 REST 확인 성공 전까지 승인하지 않는다. 서버 channel/thread도 캐시가 없으면 조회해 guild·thread type·parent를 검증하고 불일치나 누락은 거부한다. 현재 generation authority와 process lease의 token 소유권을 ingress와 각 egress에서 확인하며, lease 상실 시 readiness를 내리고 처리를 멈춘 뒤 프로세스를 비정상 종료한다. lease 취득 전 SIGTERM/SIGINT 처리기를 등록하고, 시작 중 신호는 남은 초기화를 중단한 후 이미 등록된 자원을 한 번만 정리하고 stopped를 기록한다. 시작 중 예외·promise 거절도 실패 상태를 기록하고 소유한 lease를 해제한다. 기존 `NAIA_DISCORD_BINDINGS_JSON`에 선택적 `dm` 설정을 추가하되 필드가 없는 이전 설정은 그대로 허용한다. 봇·웹훅·자기 메시지를 거부하고 DM·스레드별 세션을 격리한다. Discord 개인 기억과 대화록의 기존 제한은 유지한다. 컨테이너 예제와 오프라인 통합·프로세스·셸 회귀 검증을 제공한다. 기억 복구와 긴 작업 위임은 후속 범위다.
 
-검증: 저장소 workflow와 같은 Node major(`22.23.4`), `CI=1`, 4 CPU affinity를 사용했다. Vitest 2.1.9 기본 계산은 3 worker이며 workflow와 마찬가지로 heap/maxWorkers override를 주지 않았다. 전체 실행마다 `pnpm test`의 pretest 빌드도 통과했다.
+검증: Node 22.23.4, `CI=1`, CPU 0–3 affinity, Vitest 기본 3 workers 및 기본 heap에서 기준과 수정본의 `pnpm test`를 각각 두 번 순차 실행했다. 각 실행의 pretest 빌드는 통과했다.
 
-| 실행 | 시험 파일 실패/통과/skip | 시험 실패/통과/skip | uncaught errors |
-|---|---:|---:|---:|
-| 기준 `fdc6fcb` 1회차 | 20 / 154 / 3 | 132 / 2,036 / 11 | 1 |
-| 기준 `fdc6fcb` 2회차 | 20 / 154 / 3 | 132 / 2,036 / 11 | 1 |
-| 수정 후 HEAD 1회차 | 20 / 157 / 3 | 132 / 2,074 / 11 | 1 |
-| 수정 후 HEAD 2회차 | 20 / 157 / 3 | 132 / 2,074 / 11 | 1 |
+| 실행 | 시험 파일 실패/통과/skip | 시험 실패/통과/skip | uncaught errors | 시간 |
+|---|---:|---:|---:|---:|
+| 기준 `fdc6fcb` 1회차 | 20 / 154 / 3 | 132 / 2,036 / 11 | 1 | 105.27s |
+| 기준 `fdc6fcb` 2회차 | 20 / 154 / 3 | 132 / 2,036 / 11 | 1 | 107.02s |
+| 수정 후 HEAD 1회차 | 20 / 157 / 3 | 132 / 2,080 / 11 | 1 | 116.93s |
+| 수정 후 HEAD 2회차 | 20 / 157 / 3 | 132 / 2,080 / 11 | 1 | 115.33s |
 
 네 실행의 실패 파일 집합은 모두 같다. HEAD 각 회차의 실패 집합은 기준 합집합(20개)의 부분집합이며 새 실패 파일은 없다: `cli-manage-process.integration.test.ts`, `delegate-agent-skill.contract.test.ts`, `durable-supervisor.integration.test.ts`, `issue-team-benchmark.contract.test.ts`, `issue-team-worker.integration.test.ts`, `multi-issue-benchmark.contract.test.ts`, `multi-issue-session-manager.integration.test.ts`, `naia-pi-versioned-billing.contract.test.ts`, `pi-continuous-loop-benchmark.contract.test.ts`, `pi-continuous-loop-cli.integration.test.ts`, `pi-continuous-loop.contract.test.ts`, `pi-continuous-loop.integration.test.ts`, `pi-cost-comparison-runner.contract.test.ts`, `profiled-issue-worker.integration.test.ts`, `selected-workspace-coding.contract.test.ts`, `single-issue-orchestrator.integration.test.ts`, `single-issue-team-verifier.integration.test.ts`, `sqlite-paid-call-budget.integration.test.ts`, `uc-naia-pi-cli-process.integration.test.ts`, `uc-naia-pi-controlled.integration.test.ts`.
 
-검수 r2에서 보고한 `memory-settings-reload.contract.test.ts` 전체 실행 5초 timeout을 조사했다. 시험은 runtime composition을 만들고 무변경 reload 12회, durable 저장, 잘못된 `llmRoles` 보존, 유효한 workspace 교체를 검증하지만 성공 경로 끝에서만 `memory.close()`를 호출했다. 실패 시 composition resource와 임시 workspace 정리가 빠지는 것을 고쳐 `finally`에서 reverse `cleanupFns`, memory close, 디렉터리 삭제를 수행하고 해당 시험 제한 시간을 근거 있게 15초로 늘렸다. 수정 후 Node 22 전체 실행에서 시험 파일의 두 시험 모두 통과했고 해당 계약 시험은 1,088ms·934ms였다.
+실패 시험 이름과 중복 건수까지 기준 합집합과 비교했고 두 HEAD 회차의 신규 실패는 0건이다. 각 실행의 uncaught error는 `uc-naia-pi-controlled.integration.test.ts`의 동일한 JSON 파싱 오류다. 전체 시험은 기존 실패로 exit 1이다.
 
-Node 22의 중간 전체 실행에서는 `uc1-memory-process.integration.test.ts`가 종료 코드 `-1`을 받아 한 번 기준 밖 실패로 나타났다. gRPC entry는 `GRPC_LISTENING` 핸드셰이크를 내보낸 다음 `SIGTERM` 처리기를 등록하고 있었다. 부모가 핸드셰이크 직후 종료 신호를 보내면 graceful handler가 등록되기 전일 수 있어, 핸드셰이크 출력을 처리기 등록 뒤로 옮겼다. 그 뒤 전체 두 실행에서 이 시험은 391ms·409ms에 정상 통과했다. 새 `discord-serve-process.integration.test.ts`는 별도 로컬 프로세스에서 runtime/memory 조립을 수행한다. 검토 결과 `afterEach`가 자식을 종료·대기하고 임시 디렉터리를 삭제하며 shutdown이 status polling timer를 해제한다. 이 시험의 정리 누락은 찾지 못했고, 병렬 프로세스 실행이 gRPC handshake 순서의 기존 경합을 드러낸 것으로 판단했다.
-
-기준·HEAD 모두 132 시험 실패와 uncaught error 1건이 남았으나 네 실행에서 파일 집합이 같았다. Node 22 로컬 경로 의미 때문에 일부 기존 시험의 경로 기대가 다를 수 있으므로 이 수치는 실제 실행 출력 그대로 기록했다. Discord 검증은 가짜 Gateway/REST와 로컬 프로세스 fixture를 사용하며 실제 Discord 접속은 하지 않았다. P05는 새 독립 적대 리뷰 전까지 검토 중이다.
+검수 r3의 시작 경합은 lease 취득 후 기존 처리기 등록 지점 전의 상태 쓰기를 가로채는 자식 프로세스 시험으로 고정했다. SIGTERM 단독·SIGINT 단독·연속 신호에서 초기화 중단, stopped, lease 해제, 정상 종료와 즉시 재시작을 확인했다. 상태 쓰기 예외, 거절된 promise, runtime 시작 직후 예외도 실패 상태·lease 해제·즉시 재시작을 확인했다. 관련 프로세스·배선 집중 시험은 26개 모두 통과했다. 시험은 가짜 Gateway/REST를 사용하고 실제 Discord에 접속하지 않았다. P05는 새 독립 검수 전까지 In review다.
