@@ -1,9 +1,12 @@
 import { createHash } from "node:crypto";
-import type {
-  DiscordGatewayClose,
-  DiscordGatewayConnection,
-  DiscordGatewayMessage,
-  DiscordGatewayPort,
+import {
+  isDiscordGuildMessageChannelType,
+  isDiscordThreadChannelType,
+  isSupportedDiscordChannelType,
+  type DiscordGatewayClose,
+  type DiscordGatewayConnection,
+  type DiscordGatewayMessage,
+  type DiscordGatewayPort,
 } from "../ports/discord.js";
 
 interface SocketEvent {
@@ -42,14 +45,16 @@ export class DiscordGatewayError extends Error {
   }
 }
 
-const GUILD_MESSAGES_INTENTS = 1 | 512 | 32_768;
+const MESSAGE_INTENTS = 1 | 512 | 4_096 | 32_768;
 const MAX_TOKEN_LENGTH = 512;
 const MAX_REPLY_LENGTH = 2_000;
 const MAX_EVENT_LENGTH = 1_000_000;
 const MAX_MESSAGE_LENGTH = 4_000;
 const MAX_PENDING_MESSAGES = 256;
+const MAX_IN_FLIGHT_CHANNEL_LOOKUPS = 64;
 const MAX_IDEMPOTENCY_KEY_LENGTH = 512;
 const MAX_REPLY_RESPONSE_BYTES = 64 * 1_024;
+const MAX_CHANNEL_METADATA = 4_096;
 const SNOWFLAKE = /^\d{1,128}$/;
 const DEFAULT_DISCOVERY_TIMEOUT_MS = 10_000;
 
@@ -202,10 +207,106 @@ function parsePayload(data: unknown): { op: number; t?: string; s?: number; d?: 
   }
 }
 
-function asMessage(value: unknown): DiscordGatewayMessage | undefined {
+interface ChannelMetadata {
+  readonly type: number;
+  readonly guildId?: string;
+  readonly parentChannelId?: string;
+  readonly recipientIds?: readonly string[];
+}
+
+function rememberChannel(
+  value: unknown,
+  channels: Map<string, ChannelMetadata>,
+  expectedChannelId?: string,
+  inheritedGuildId?: string,
+): ChannelMetadata | undefined {
+  if (!value || typeof value !== "object") return;
+  const channel = value as Record<string, unknown>;
+  if (typeof channel.id !== "string" || !SNOWFLAKE.test(channel.id)
+    || (expectedChannelId !== undefined && channel.id !== expectedChannelId)) return;
+  if (!Number.isSafeInteger(channel.type) || !isSupportedDiscordChannelType(channel.type)) {
+    channels.delete(channel.id);
+    return;
+  }
+  const parent = channel.parent_id;
+  const channelType = Number(channel.type);
+  let guildId = channel.guild_id;
+  if ((guildId === undefined || guildId === null)
+    && typeof inheritedGuildId === "string" && SNOWFLAKE.test(inheritedGuildId)) {
+    guildId = inheritedGuildId;
+  }
+  let recipientIds: string[] | undefined;
+  if (channel.recipients !== undefined) {
+    if (!Array.isArray(channel.recipients) || channel.recipients.length > 100) {
+      channels.delete(channel.id);
+      return;
+    }
+    recipientIds = [];
+    for (const recipient of channel.recipients) {
+      const id = recipient && typeof recipient === "object"
+        ? (recipient as Record<string, unknown>).id
+        : undefined;
+      if (typeof id !== "string" || !SNOWFLAKE.test(id)) {
+        channels.delete(channel.id);
+        return;
+      }
+      recipientIds.push(id);
+    }
+  }
+  if (channel.type === 1 && recipientIds === undefined) {
+    channels.delete(channel.id);
+    return undefined;
+  }
+  if (guildId !== undefined && guildId !== null
+    && (typeof guildId !== "string" || !SNOWFLAKE.test(guildId))) {
+    channels.delete(channel.id);
+    return undefined;
+  }
+  if ((isDiscordThreadChannelType(channelType) || isDiscordGuildMessageChannelType(channelType))
+    && typeof guildId !== "string") {
+    channels.delete(channel.id);
+    return undefined;
+  }
+  if (isDiscordThreadChannelType(channelType) && (typeof parent !== "string" || !SNOWFLAKE.test(parent))) {
+    channels.delete(channel.id);
+    return undefined;
+  }
+  if (parent !== undefined && parent !== null && (typeof parent !== "string" || !SNOWFLAKE.test(parent))) {
+    channels.delete(channel.id);
+    return undefined;
+  }
+  if (!channels.has(channel.id) && channels.size >= MAX_CHANNEL_METADATA) {
+    const oldest = channels.keys().next().value;
+    if (oldest !== undefined) channels.delete(oldest);
+  }
+  channels.delete(channel.id);
+  const metadata: ChannelMetadata = {
+    type: channelType,
+    ...(typeof guildId === "string" ? { guildId } : {}),
+    ...(isDiscordThreadChannelType(channelType) && typeof parent === "string" ? { parentChannelId: parent } : {}),
+    ...(recipientIds !== undefined ? { recipientIds } : {}),
+  };
+  channels.set(channel.id, metadata);
+  return metadata;
+}
+
+function rememberChannelList(
+  value: unknown,
+  channels: Map<string, ChannelMetadata>,
+  inheritedGuildId?: string,
+): void {
+  if (!Array.isArray(value) || value.length > MAX_CHANNEL_METADATA) return;
+  for (const item of value) rememberChannel(item, channels, undefined, inheritedGuildId);
+}
+
+function asMessage(
+  value: unknown,
+  channels: ReadonlyMap<string, ChannelMetadata>,
+): DiscordGatewayMessage | undefined {
   if (!value || typeof value !== "object") return undefined;
   const message = value as Record<string, unknown>;
   const author = message.author as Record<string, unknown> | undefined;
+  if (message.webhook_id !== undefined && message.webhook_id !== null) return undefined;
   if (typeof message.id !== "string" || !SNOWFLAKE.test(message.id)
     || typeof message.channel_id !== "string" || !SNOWFLAKE.test(message.channel_id)
     || (message.guild_id !== undefined && (typeof message.guild_id !== "string" || !SNOWFLAKE.test(message.guild_id)))
@@ -224,10 +325,18 @@ function asMessage(value: unknown): DiscordGatewayMessage | undefined {
     : [];
   const referenced = message.referenced_message as Record<string, unknown> | undefined;
   const referencedAuthor = referenced?.author as Record<string, unknown> | undefined;
+  const channelMetadata = channels.get(message.channel_id);
+  const metadataMatchesGuild = message.guild_id === undefined
+    ? channelMetadata?.guildId === undefined
+    : channelMetadata?.guildId === message.guild_id;
   return {
     messageId: message.id,
     guildId: typeof message.guild_id === "string" ? message.guild_id : null,
     channelId: message.channel_id,
+    ...(metadataMatchesGuild && channelMetadata?.parentChannelId
+      ? { parentChannelId: channelMetadata.parentChannelId }
+      : {}),
+    ...(metadataMatchesGuild && channelMetadata ? { channelType: channelMetadata.type } : {}),
     authorId: author.id,
     authorIsBot: author.bot === true,
     content: message.content,
@@ -261,6 +370,8 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
   let resumeUrl: string | undefined;
   let resumeSequence: number | null = null;
   let resumedSelfUserId: string | undefined;
+  const channelMetadata = new Map<string, ChannelMetadata>();
+  const channelLookups = new Map<string, Promise<ChannelMetadata | undefined>>();
 
   return {
     async connect(token, handlers, connectOptions) {
@@ -303,7 +414,55 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
       const becomeReady = (selfUserId: string) => {
         authenticated = true;
         handlers.onReady(selfUserId);
-        for (const message of pendingMessages.splice(0)) handlers.onMessage(message);
+        for (const message of pendingMessages.splice(0)) deliverMessage(message);
+      };
+      const lookupChannel = (channelId: string): Promise<ChannelMetadata | undefined> => {
+        const cached = channelMetadata.get(channelId);
+        if (cached) return Promise.resolve(cached);
+        const pending = channelLookups.get(channelId);
+        if (pending) return pending;
+        if (channelLookups.size >= MAX_IN_FLIGHT_CHANNEL_LOOKUPS) return Promise.resolve(undefined);
+        const lookup = (async () => {
+          try {
+            const result = await fetchReplyWithTimeout(
+              fetchImpl,
+              `${apiBase}/channels/${encodeURIComponent(channelId)}`,
+              { method: "GET", headers: { authorization: `Bot ${token}` } },
+              replyTimeoutMs,
+              connectOptions?.signal,
+            );
+            if (!result.response.ok) return undefined;
+            let body: unknown;
+            try { body = JSON.parse(result.bodyText ?? "") as unknown; }
+            catch { return undefined; }
+            return rememberChannel(body, channelMetadata, channelId);
+          } catch {
+            return undefined;
+          }
+        })().finally(() => channelLookups.delete(channelId));
+        channelLookups.set(channelId, lookup);
+        return lookup;
+      };
+      const deliverMessage = (message: DiscordGatewayMessage) => {
+        void lookupChannel(message.channelId).then((metadata) => {
+          if (settled || !metadata) return;
+          if (message.guildId === null) {
+            if (metadata.guildId !== undefined || metadata.parentChannelId !== undefined
+              || metadata.type !== 1
+              || !metadata.recipientIds?.includes(message.authorId)) return;
+          } else if ((!isDiscordGuildMessageChannelType(metadata.type)
+            && !isDiscordThreadChannelType(metadata.type))
+            || metadata.guildId !== message.guildId
+            || (isDiscordThreadChannelType(metadata.type) && !metadata.parentChannelId)
+            || (metadata.parentChannelId !== undefined && !isDiscordThreadChannelType(metadata.type))) {
+            return;
+          }
+          handlers.onMessage({
+            ...message,
+            channelType: metadata.type,
+            ...(metadata.parentChannelId ? { parentChannelId: metadata.parentChannelId } : {}),
+          });
+        }).catch(() => {});
       };
       const requestReconnect = () => {
         if (reconnectRequested || settled) return;
@@ -339,7 +498,7 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
               op: 2,
               d: {
                 token,
-                intents: GUILD_MESSAGES_INTENTS,
+                intents: MESSAGE_INTENTS,
                 properties: { os: process.platform, browser: "naia-agent", device: "naia-agent" },
               },
             });
@@ -379,7 +538,21 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
             user?: { id?: unknown };
             session_id?: unknown;
             resume_gateway_url?: unknown;
+            private_channels?: unknown;
+            guilds?: unknown;
           } | undefined;
+          if (ready && typeof ready === "object") {
+            rememberChannelList(ready.private_channels, channelMetadata);
+            if (Array.isArray(ready.guilds) && ready.guilds.length <= 1_000) {
+              for (const guild of ready.guilds) {
+                if (guild && typeof guild === "object") {
+                  const entry = guild as Record<string, unknown>;
+                  rememberChannelList(entry.threads, channelMetadata,
+                    typeof entry.id === "string" ? entry.id : undefined);
+                }
+              }
+            }
+          }
           if (typeof ready?.user?.id === "string") becomeReady(ready.user.id);
           if (typeof ready?.user?.id === "string"
             && typeof ready.session_id === "string"
@@ -397,10 +570,31 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
           if (resumedSelfUserId) becomeReady(resumedSelfUserId);
           return;
         }
+        if (["CHANNEL_CREATE", "CHANNEL_UPDATE", "THREAD_CREATE", "THREAD_UPDATE"].includes(payload.t ?? "")) {
+          rememberChannel(payload.d, channelMetadata);
+          return;
+        }
+        if (payload.t === "THREAD_LIST_SYNC") {
+          const sync = payload.d as { guild_id?: unknown; threads?: unknown } | undefined;
+          rememberChannelList(sync?.threads, channelMetadata,
+            typeof sync?.guild_id === "string" ? sync.guild_id : undefined);
+          return;
+        }
+        if (payload.t === "GUILD_CREATE") {
+          const guild = payload.d as Record<string, unknown> | undefined;
+          rememberChannelList(guild?.threads, channelMetadata,
+            typeof guild?.id === "string" ? guild.id : undefined);
+          return;
+        }
+        if (payload.t === "CHANNEL_DELETE" || payload.t === "THREAD_DELETE") {
+          const deleted = payload.d as { id?: unknown } | undefined;
+          if (typeof deleted?.id === "string") channelMetadata.delete(deleted.id);
+          return;
+        }
         if (payload.t === "MESSAGE_CREATE") {
-          const message = asMessage(payload.d);
+          const message = asMessage(payload.d, channelMetadata);
           if (!message) return;
-          if (authenticated) handlers.onMessage(message);
+          if (authenticated) deliverMessage(message);
           else if (pendingMessages.length < MAX_PENDING_MESSAGES) pendingMessages.push(message);
         }
       });
@@ -421,6 +615,42 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
 
       const connection: DiscordGatewayConnection = {
         closed,
+        async createThreadFromMessage(input) {
+          if (!SNOWFLAKE.test(input.guildId) || !SNOWFLAKE.test(input.channelId)
+            || !SNOWFLAKE.test(input.messageId) || !input.name || input.name.length > 100
+            || /[\u0000-\u001f\u007f]/.test(input.name)) {
+            throw new DiscordGatewayError("invalid_reply");
+          }
+          const result = await fetchReplyWithTimeout(
+            fetchImpl,
+            `${apiBase}/channels/${encodeURIComponent(input.channelId)}/messages/${encodeURIComponent(input.messageId)}/threads`,
+            {
+              method: "POST",
+              headers: {
+                authorization: `Bot ${token}`,
+                "content-type": "application/json",
+              },
+              signal: input.signal,
+              body: JSON.stringify({ name: input.name, auto_archive_duration: 1_440 }),
+            },
+            replyTimeoutMs,
+            input.signal,
+          );
+          if (result.response.status === 401) throw new DiscordGatewayError("auth_failed");
+          if (result.response.status === 403) throw new DiscordGatewayError("permission_denied");
+          if (result.response.status === 429) throw new DiscordGatewayError("rate_limited");
+          if (!result.response.ok) throw new DiscordGatewayError("http_error");
+          let thread: Record<string, unknown>;
+          try { thread = JSON.parse(result.bodyText ?? "") as Record<string, unknown>; }
+          catch { throw new DiscordGatewayError("http_error"); }
+          if (typeof thread.id !== "string" || !SNOWFLAKE.test(thread.id)
+            || thread.parent_id !== input.channelId || thread.guild_id !== input.guildId
+            || !isDiscordThreadChannelType(thread.type)) {
+            throw new DiscordGatewayError("invalid_reply");
+          }
+          rememberChannel(thread, channelMetadata);
+          return thread.id;
+        },
         close() {
           if (settled) return;
           try { socket.close(1_000, "shutdown"); } finally {
@@ -429,8 +659,9 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
         },
         async sendReply(input) {
           if (!input.content || Array.from(input.content).length > MAX_REPLY_LENGTH
-            || !SNOWFLAKE.test(input.channelId) || !SNOWFLAKE.test(input.guildId)
-            || !SNOWFLAKE.test(input.messageId)
+            || !SNOWFLAKE.test(input.channelId)
+            || (input.guildId !== null && !SNOWFLAKE.test(input.guildId))
+            || (input.messageId !== undefined && !SNOWFLAKE.test(input.messageId))
             || (input.idempotencyKey !== undefined
               && (input.idempotencyKey.length < 1
                 || input.idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH
@@ -464,12 +695,12 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
                       signal: input.signal,
                       body: JSON.stringify({
                         content: input.content,
-                        message_reference: {
+                        ...(input.messageId ? { message_reference: {
                           message_id: input.messageId,
                           channel_id: input.channelId,
-                          guild_id: input.guildId,
+                          ...(input.guildId !== null ? { guild_id: input.guildId } : {}),
                           fail_if_not_exists: false,
-                        },
+                        } } : {}),
                         allowed_mentions: { parse: [], replied_user: false },
                         ...(nonce ? { nonce, enforce_nonce: true } : {}),
                       }),
