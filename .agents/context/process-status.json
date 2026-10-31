@@ -63,8 +63,8 @@
       "issue": "https://github.com/nextain/naia-agent/issues/169",
       "status": "in_review",
       "scope": "r6: 독립 검수 B1~B6 수정 — channel type·DM recipient·lease fencing·serve 설정 검증·guild metadata 보강",
-      "last_updated": "2026-10-31T14:34:00+09:00",
-      "verification": "fdc6fcb 직접 기준 비교: 기준 7개 파일/28 실패/2140 통과/11 skip/2 errors, 현재 7개 파일/28 실패/2178 통과/11 skip/2 errors(신규 실패 0, 통과 +38). pnpm build, 루트 구조, logging, compile-integrity, CI 구조 검사 통과. P05 독립 검수 후 완료 예정."
+      "last_updated": "2026-10-31T14:35:21+09:00",
+      "verification": "fdc6fcb 직접 기준 비교: 기준 7개 파일/28 실패/2140 통과/11 skip/2 errors, 현재 7개 파일/28 실패/2178 통과/11 skip/2 errors(신규 실패 0, 통과 +38). pnpm build, 루트 구조, logging, compile-integrity, CI 구조 검사 통과. P05 독립 검수 후 완료 예정. 브랜치 push 및 PR 검증 표/잔여 위험 갱신 완료."
     }
   },
   "sdlc_gates": {
@@ -139,5 +139,5 @@
       "4. resource_registry.violations 초기화"
     ]
   },
-  "last_updated": "2026-10-31T14:34:00+09:00"
+  "last_updated": "2026-10-31T14:35:21+09:00"
 }
