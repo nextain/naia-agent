@@ -4,11 +4,21 @@
 
 ## Issue #169 — 독립 Discord 호스트와 DM·스레드 (검토 중)
 
-- 이번 범위: 검수 B1~B6를 수정했다. channel parent 의미와 허용 유형, DM 매 메시지 recipient 확인, lease fencing, serve 시작 전 workspace/provider 확인, outer guild ID 전파와 불완전 metadata의 REST 재확인을 계약·프로세스 시험으로 고정했다.
-- 전체 회귀: `fdc6fcb` 직접 기준은 7개 파일 28건 실패, 통과 2,140건, skip 11건, uncaught error 2건. 현재도 동일한 7개 파일 28건 실패와 uncaught error 2건이며 통과 2,178건, skip 11건(신규 실패 0, 통과 +38).
-- 게이트: `pnpm build`, 루트 구조, logging, compile-integrity, CI 구조 검증 통과. P01~P04 완료. FR-DISCORD-169와 P05는 독립 적대 리뷰 기록 전까지 검토 중.
-- 게시: 작업 브랜치 push 및 PR 검증 표·잔여 위험 갱신 완료.
-- 마지막 업데이트: 2026-10-31 14:39 KST.
+- 이번 범위: r7에서 검수 B2의 전체 실행 차이를 다시 비교하고 memory reload 시험을 정리했다. 이전 B1~B6 수정은 보존했다.
+- 실행 조건: `CI=1 pnpm test`, 4 CPU affinity, 기본 Node heap 설정. 저장소 workflow는 Node 22지만 이 비교의 로컬 Node는 26.12.1이었다.
+
+| 실행 | 실패 파일 | 실패/통과/skip 시험 | uncaught errors |
+|---|---:|---:|---:|
+| 기준 `fdc6fcb` 1회차 | 8 | 29 / 2,139 / 11 | 2 |
+| 기준 `fdc6fcb` 2회차 | 7 | 28 / 2,140 / 11 | 2 |
+| HEAD 수정 후 1회차 | 7 | 28 / 2,178 / 11 | 2 |
+| HEAD 수정 후 2회차 | 8 | 29 / 2,177 / 11 | 2 |
+
+- 기준 두 회차의 실패 파일 합집합은 8개다. `uc1-memory-process.integration.test.ts`만 간헐 실패했고, 나머지 7개는 두 번 모두 실패했다. 수정 후 HEAD 각 회차의 실패 파일은 기준 합집합의 부분집합이다(신규 실패 파일 0).
+- r2에서 보고한 전체 실행 5초 timeout과 함께, 수정 전 HEAD 두 번째 실행에서 `memory-settings-reload.contract.test.ts`의 재구성 assertion 실패가 재현됐다. 시험은 실패 경로에서도 composition cleanup·memory close·임시 workspace 삭제를 수행하고 기본 5초를 15초로 늘렸다. 수정 후 전체 두 회차에서 해당 파일 2/2 통과(1,237ms·1,226ms); 단독 5회도 통과.
+- 게이트: `pnpm build`(전체 실행의 pretest), 루트 구조, logging, compile-integrity, CI 구조 검증 통과. P01~P04 완료. FR-DISCORD-169/P05는 새 독립 적대 리뷰 전까지 In review.
+- 게시: r7 검증 결과를 기록했으며 PR #170은 초안 상태다.
+- 마지막 업데이트: 2026-10-31 15:34 KST.
 
 ## Memory live reload — 2026-08-03 (#106)
 
