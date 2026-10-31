@@ -215,7 +215,7 @@ it("IT-SM-AGENT-03 공유 memory의 동시 추출·요약과 승인을 격리한
   let enter!: () => void; let release!: () => void;
   const entered = new Promise<void>((resolve) => { enter = resolve; });
   const gate = new Promise<void>((resolve) => { release = resolve; });
-  const fetch = async (_url: string, init: { body: string }) => { const body = JSON.parse(init.body); calls.push(body.max_tokens); return ok(body.max_tokens === 8192 ? '{"1":["User likes tea"]}' : "approved recap"); };
+  const fetch = async (_url: string, init: { body: string }) => { const body = JSON.parse(init.body); calls.push(body.max_tokens); const prompt = String(body.messages[0].content); const coffee = prompt.match(/\[(\d+)\](?: \[Date: [^\]]+\])? I like coffee/); return ok(body.max_tokens === 8192 ? (coffee ? JSON.stringify({ [coffee[1]!]: ["User likes coffee"] }) : '{"1":["User likes tea"]}') : "approved recap"); };
   const small = config("small");
   const memory = makeNaiaMemory({ project: "test", storePath: join(dir, "memory.json"), roleExtractor: buildRoleMemoryExtractor(small, undefined, fetch, () => {}), roleSummarizer: buildRoleMemorySummarizer(small, undefined, fetch, () => {}) });
   try {
@@ -234,10 +234,13 @@ it("IT-SM-AGENT-03 공유 memory의 동시 추출·요약과 승인을 격리한
     expect(approvals).toContain("first"); expect(approvals).toContain("allow-summary"); expect(approvals).toContain("deny-summary");
     expect(calls.filter((n) => n === 8192)).toHaveLength(1); expect(calls.filter((n) => n === 1024)).toHaveLength(1);
     expect(approvals).not.toContain("second"); // single-flight leaves the competing episode for a later cycle
+    expect((await memory.recall("tea")).facts).toContain("User likes tea");
     vi.setSystemTime(Date.now() + 360_000);
     await memory.save("third", "", { authorizeAndDisclose: async () => { approvals.push("later"); return true; } });
     expect(approvals).toContain("later"); expect(calls.filter((n) => n === 8192)).toHaveLength(2);
-    expect((await memory.recall("coffee")).episodes.some((episode) => episode.content === "I like coffee")).toBe(true);
+    const coffee = await memory.recall("coffee");
+    expect(coffee.episodes.some((episode) => episode.content === "I like coffee")).toBe(true);
+    expect(coffee.facts).toContain("User likes coffee");
   } finally { release?.(); vi.useRealTimers(); await memory.close(); await rm(dir, { recursive: true, force: true }); }
 });
 
@@ -283,4 +286,53 @@ it("IT-SM-AGENT-01 실제 조립에서 기억 우선, 빈 역할과 메인 선�
       } finally { vi.useRealTimers(); await deps.memory.close(); }
     }
   } finally { globalThis.fetch = originalFetch; await rm(root, { recursive: true, force: true }); }
+});
+
+it("IT-SM-AGENT-04 desktop 요청 경계에서 원본 오류를 작업별로 회수하고 기록에 노출하지 않는다", async () => {
+  const { ChatTurnHandler } = await import("../main/app/chat-turn-handler.js");
+  const { makeInMemoryApproval } = await import("../main/adapters/approval.js");
+  const { makeInMemoryCredentials } = await import("../main/composition/index.js");
+  const { makeFakeProvider } = await import("../main/adapters/fake-provider.js");
+  const originalExtraction = Object.assign(new Error("private-extraction"), { status: 429 });
+  const originalCompaction = Object.assign(new Error("private-compaction"), { status: 503 });
+  const logs: unknown[] = [];
+  const handler = new ChatTurnHandler({
+    provider: makeFakeProvider(), defaultConfig: { provider: "fake", model: "main" },
+    conversation: { assemble: (request) => ({ messages: request.messages }) }, credentials: makeInMemoryCredentials(), approval: makeInMemoryApproval(),
+    egress: { emit: (_id, event) => { logs.push(event); } }, diag: { log: (...args) => { logs.push(args); } },
+    compactThresholdTokens: 0, compactKeepTail: 1,
+    compaction: { compact: async (req) => { req.onRoleError?.(originalCompaction); return { recap: "", droppedCount: 0 }; }, attachHandoff: async () => {} },
+    memory: { recall: async () => ({ facts: [], episodes: [] }), save: async (_user, _assistant, opts) => { opts?.onRoleError?.(originalExtraction); } },
+  });
+  await handler.onChatRequest({ kind: "chat", requestId: "request-a", messages: [{ role: "user", content: "old" }, { role: "assistant", content: "reply" }, { role: "user", content: "new" }] });
+  expect(handler.takeMemoryRoleErrors("other")).toEqual([]);
+  expect(handler.takeMemoryRoleErrors("request-a")).toEqual([{ operation: "compaction", error: originalCompaction }, { operation: "extraction", error: originalExtraction }]);
+  expect(handler.takeMemoryRoleErrors("request-a")).toEqual([]);
+  expect(JSON.stringify(logs)).not.toMatch(/private-extraction|private-compaction/);
+});
+
+it("IT-SM-AGENT-04 재사용 ID에서 이전 요청의 오류와 늦은 콜백을 격리한다", async () => {
+  const { ChatTurnHandler } = await import("../main/app/chat-turn-handler.js");
+  const { makeInMemoryApproval } = await import("../main/adapters/approval.js");
+  const { makeInMemoryCredentials } = await import("../main/composition/index.js");
+  const { makeFakeProvider } = await import("../main/adapters/fake-provider.js");
+  const old = new Error("old"), current = new Error("current"), late = new Error("late");
+  let previous: ((error: unknown) => void) | undefined;
+  let latest: ((error: unknown) => void) | undefined;
+  let count = 0;
+  const handler = new ChatTurnHandler({
+    provider: makeFakeProvider(), defaultConfig: { provider: "fake", model: "main" },
+    conversation: { assemble: (request) => ({ messages: request.messages }) }, credentials: makeInMemoryCredentials(), approval: makeInMemoryApproval(), egress: { emit: () => {} }, diag: { log: () => {} },
+    memory: { recall: async () => ({ facts: [], episodes: [] }), save: async (_user, _assistant, opts) => {
+      count++;
+      if (count === 1) { previous = opts?.onRoleError; previous?.(old); }
+      else { previous?.(late); latest = opts?.onRoleError; latest?.(current); }
+    } },
+  });
+  const request = { kind: "chat" as const, requestId: "same", messages: [{ role: "user" as const, content: "hi" }] };
+  await handler.onChatRequest(request);
+  await handler.onChatRequest(request);
+  previous?.(late); latest?.(late);
+  expect(handler.takeMemoryRoleErrors("same")).toEqual([{ operation: "extraction", error: current }]);
+  expect(handler.takeMemoryRoleErrors("same")).toEqual([]);
 });

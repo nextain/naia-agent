@@ -229,6 +229,14 @@ export interface HandlerDeps {
 
 export class ChatTurnHandler {
   private readonly turns = new Map<string, Turn>();
+  private readonly memoryRoleErrors = new Map<string, Array<{ operation: "extraction" | "compaction"; error: unknown }>>();
+
+  /** Consume request-local failures without putting provider error details into logs or wire events. */
+  takeMemoryRoleErrors(requestId: string): Array<{ operation: "extraction" | "compaction"; error: unknown }> {
+    const errors = this.memoryRoleErrors.get(requestId) ?? [];
+    this.memoryRoleErrors.delete(requestId);
+    return errors;
+  }
   /** 활성 defaultConfig — 라이브 reload 가능. 초기값=주입 defaultConfig. 정본(R1-2 "startup-only 금지"):
    *  사용자가 모델 교체 시 OS가 naia-settings 갱신 후 ReloadSettings/SetWorkspace 재호출 → entry 가 setDefaultConfig 로 swap. */
   private activeDefaultConfig?: ProviderConfig;
@@ -298,6 +306,7 @@ export class ChatTurnHandler {
       this.d.diag.log("duplicate requestId — 무시", req.requestId);
       return;
     }
+    this.memoryRoleErrors.delete(req.requestId);
     const t: Turn = { abort: new AbortController(), state: "streaming" };
     this.turns.set(req.requestId, t);
     const signal = t.abort.signal;
@@ -333,7 +342,7 @@ export class ChatTurnHandler {
         ...activeConfig,
         ...(level !== undefined
           ? { thinkingLevel: level, enableThinking: level !== "off" }
-          : (req.enableThinking !== undefined ? { enableThinking: req.enableThinking } : {})),
+          : (req.enableThinking !== undefined ? { thinkingLevel: undefined, enableThinking: req.enableThinking } : {})),
         ...(this.d.credentials.get(activeConfig.provider) ?? {}),
       };
       type PlannedOperation = {
@@ -456,13 +465,20 @@ export class ChatTurnHandler {
       };
       // UC-compaction(FR-COMPACT): assemble 전 예산 압박이면 head 를 memory 가 요약(recap)해 교체(정보보존).
       // 미주입/임계이하/실패 = 원본(budgeted-conversation 이 최종 드롭 가드). recap 은 아래 systemPrompt 에 주입.
-      const observeMemoryFailure = (error: unknown) => {
+      const observeMemoryFailure = (operation: "extraction" | "compaction") => (error: unknown) => {
+        if (this.turns.get(req.requestId) !== t) return;
+        const errors = this.memoryRoleErrors.get(req.requestId) ?? [];
+        if (!this.memoryRoleErrors.has(req.requestId) && this.memoryRoleErrors.size >= 32) {
+          this.memoryRoleErrors.delete(this.memoryRoleErrors.keys().next().value!);
+        }
+        if (errors.length < 4) errors.push({ operation, error });
+        this.memoryRoleErrors.set(req.requestId, errors);
         const status = error && typeof error === "object" && "status" in error && typeof error.status === "number" ? error.status : undefined;
         this.d.diag.log("memory model attempt failed", status === undefined ? { reason: "request_failed" } : { reason: "http_error", status });
       };
       const compacted = await this.maybeCompact(req, signal, this.d.compaction
         ? () => authorizeOperation("memory_llm", { provider: "naia-memory", model: "compaction" })
-        : undefined, ({ provider, model, endpoint, role, signal: requestSignal }) => authorizeOperation("memory_llm", { provider, model }, endpoint || undefined, true, requestSignal, role), observeMemoryFailure);
+        : undefined, ({ provider, model, endpoint, role, signal: requestSignal }) => authorizeOperation("memory_llm", { provider, model }, endpoint || undefined, true, requestSignal, role), observeMemoryFailure("compaction"));
       if (compacted.processingDenied) return;
       const { messages: preMessages, recap: compactionRecap, droppedCount: compactedCount } = compacted;
       // UC-compaction: 압축 발생 시 wire 로 알림(UI 표시용). 비-terminal·무손실 정보 — usage/finish 불변식 무영향.
@@ -671,7 +687,7 @@ export class ChatTurnHandler {
             const assistantMemoryText = stripAssistantMemoryTags(rawAssistantMemoryText);
             const ok = await raceTimeout(this.d.memory.save(lastUserText, assistantMemoryText, {
               signal: AbortSignal.any([signal, AbortSignal.timeout(saveTimeoutMs)]),
-              onRoleError: observeMemoryFailure,
+              onRoleError: observeMemoryFailure("extraction"),
               authorizeAndDisclose: ({ provider, model, endpoint, role, signal: requestSignal }) => authorizeOperation("memory_llm", { provider, model }, endpoint || undefined, true, requestSignal, role),
             }), saveTimeoutMs);
             if (!ok) {

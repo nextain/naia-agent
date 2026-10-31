@@ -625,3 +625,28 @@ it("IT-SM-AGENT-THINK-01 미지정은 Anthropic 기존 생각 설정을 유지�
   await drain(provider.chat({ provider: "anthropic", model: "m", enableThinking: true }, [], {}));
   expect(sink.body?.thinking).toEqual({ type: "adaptive" });
 });
+
+it("IT-SM-AGENT-THINK-01 legacy 설정이 기존 수준보다 우선해 실제 제공자 본문에 반영된다", async () => {
+  const { makeOllamaProvider } = await import("../main/adapters/ollama-provider.js");
+  for (const raw of [undefined, 0, 99, "UNKNOWN"] as const) for (const enabled of [false, true, undefined]) {
+    for (const route of ["gateway", "ollama"] as const) {
+      const bodies: Record<string, unknown>[] = [];
+      const gatewayFetch = captureFetch({});
+      const fetch = async (url: string, init: { body: string }) => {
+        if (url.endsWith("/api/show")) return { ok: true, status: 200, json: async () => ({ thinking: { values: [true, false] } }) };
+        bodies.push(JSON.parse(init.body));
+        if (route === "gateway") return gatewayFetch(url, init);
+        const enc = new TextEncoder(); let done = false;
+        return { ok: true, status: 200, statusText: "OK", body: { getReader: () => ({ read: async () => done ? { done: true } : (done = true, { done: false, value: enc.encode('{"done":true}\n') }), cancel: async () => {} }) } };
+      };
+      const provider = route === "gateway" ? makeOpenAICompatProvider({ baseUrl: "https://example.invalid", apiKey: "fake", supportsThinkingLevel: true, fetch: fetch as never }) : makeOllamaProvider({ fetch: fetch as never });
+      const handler = new ChatTurnHandler({ provider, defaultConfig: { provider: route === "gateway" ? "nextain" : "ollama", model: "m", thinkingLevel: "xhigh", enableThinking: true }, conversation: { assemble: (request) => ({ messages: request.messages }) }, credentials: makeInMemoryCredentials(), approval: makeInMemoryApproval(), egress: { emit: () => {} }, diag: { log: () => {} } });
+      await handler.onChatRequest(chatRequestToDomain({ requestId: "r", messages: [{ role: "user", content: "hi" }], ...(raw === undefined ? {} : { thinking: { level: raw } }), ...(enabled === undefined ? {} : { enableThinking: enabled }) }));
+      expect(bodies.length).toBeGreaterThan(0);
+      if (route === "gateway") {
+        if (enabled === undefined) expect(bodies[0]?.reasoning_effort).toBe("xhigh");
+        else expect(bodies[0]).not.toHaveProperty("reasoning_effort");
+      } else expect(bodies[0]?.think).toBe(enabled === undefined ? true : enabled);
+    }
+  }
+});
