@@ -186,6 +186,71 @@ describe("T-DISCORD-RT-02/05/06 — Discord Gateway adapter", () => {
     connection.close();
   });
 
+  it.each([
+    ["THREAD_LIST_SYNC", {
+      guild_id: "100", threads: [{ id: "700", parent_id: "200", type: 11 }],
+    }],
+    ["GUILD_CREATE", {
+      id: "100", threads: [{ id: "700", parent_id: "200", type: 11 }],
+    }],
+  ])("uses outer guild ID from %s for thread metadata", async (event, data) => {
+    const socket = new FakeSocket();
+    const fetcher = vi.fn(async () => response(200, { url: "wss://gateway.discord.test" }));
+    const onMessage = vi.fn();
+    const connection = await makeDiscordGateway({
+      fetch: fetcher as typeof fetch,
+      socket: () => socket,
+    }).connect("token", { onReady() {}, onMessage });
+    try {
+      socket.payload({ op: 0, t: "READY", d: { user: { id: "999" } } });
+      socket.payload({ op: 0, t: event, d: data });
+      socket.payload({ op: 0, t: "MESSAGE_CREATE", d: {
+        id: "408", guild_id: "100", channel_id: "700", content: "thread follow-up",
+        author: { id: "300", bot: false },
+      } });
+
+      await vi.waitFor(() => expect(onMessage).toHaveBeenCalledTimes(1));
+      expect(onMessage.mock.calls[0]![0]).toMatchObject({
+        guildId: "100", channelId: "700", channelType: 11, parentChannelId: "200",
+      });
+      expect(fetcher).toHaveBeenCalledOnce();
+    } finally {
+      connection.close();
+    }
+  });
+
+  it("does not trust incomplete READY thread metadata before REST confirms its guild", async () => {
+    const socket = new FakeSocket();
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(response(200, { url: "wss://gateway.discord.test" }))
+      .mockResolvedValueOnce(response(200, {
+        id: "700", guild_id: "100", parent_id: "200", type: 11,
+      }));
+    const onMessage = vi.fn();
+    const connection = await makeDiscordGateway({
+      fetch: fetcher as typeof fetch,
+      socket: () => socket,
+    }).connect("token", { onReady() {}, onMessage });
+    try {
+      socket.payload({ op: 0, t: "READY", d: {
+        user: { id: "999" },
+        guilds: [{ threads: [{ id: "700", parent_id: "200", type: 11 }] }],
+      } });
+      socket.payload({ op: 0, t: "MESSAGE_CREATE", d: {
+        id: "409", guild_id: "100", channel_id: "700", content: "REST confirmed",
+        author: { id: "300", bot: false },
+      } });
+
+      await vi.waitFor(() => expect(onMessage).toHaveBeenCalledTimes(1));
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(onMessage.mock.calls[0]![0]).toMatchObject({
+        guildId: "100", channelId: "700", parentChannelId: "200",
+      });
+    } finally {
+      connection.close();
+    }
+  });
+
   it("attaches private channel type metadata from READY for DM policy checks", async () => {
     const socket = new FakeSocket();
     const onMessage = vi.fn();

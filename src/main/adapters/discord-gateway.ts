@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  isDiscordGuildMessageChannelType,
   isDiscordThreadChannelType,
   isSupportedDiscordChannelType,
   type DiscordGatewayClose,
@@ -217,6 +218,7 @@ function rememberChannel(
   value: unknown,
   channels: Map<string, ChannelMetadata>,
   expectedChannelId?: string,
+  inheritedGuildId?: string,
 ): ChannelMetadata | undefined {
   if (!value || typeof value !== "object") return;
   const channel = value as Record<string, unknown>;
@@ -227,8 +229,12 @@ function rememberChannel(
     return;
   }
   const parent = channel.parent_id;
-  const guildId = channel.guild_id;
   const channelType = Number(channel.type);
+  let guildId = channel.guild_id;
+  if ((guildId === undefined || guildId === null)
+    && typeof inheritedGuildId === "string" && SNOWFLAKE.test(inheritedGuildId)) {
+    guildId = inheritedGuildId;
+  }
   let recipientIds: string[] | undefined;
   if (channel.recipients !== undefined) {
     if (!Array.isArray(channel.recipients) || channel.recipients.length > 100) {
@@ -256,6 +262,15 @@ function rememberChannel(
     channels.delete(channel.id);
     return undefined;
   }
+  if ((isDiscordThreadChannelType(channelType) || isDiscordGuildMessageChannelType(channelType))
+    && typeof guildId !== "string") {
+    channels.delete(channel.id);
+    return undefined;
+  }
+  if (isDiscordThreadChannelType(channelType) && (typeof parent !== "string" || !SNOWFLAKE.test(parent))) {
+    channels.delete(channel.id);
+    return undefined;
+  }
   if (parent !== undefined && parent !== null && (typeof parent !== "string" || !SNOWFLAKE.test(parent))) {
     channels.delete(channel.id);
     return undefined;
@@ -275,9 +290,13 @@ function rememberChannel(
   return metadata;
 }
 
-function rememberChannelList(value: unknown, channels: Map<string, ChannelMetadata>): void {
+function rememberChannelList(
+  value: unknown,
+  channels: Map<string, ChannelMetadata>,
+  inheritedGuildId?: string,
+): void {
   if (!Array.isArray(value) || value.length > MAX_CHANNEL_METADATA) return;
-  for (const item of value) rememberChannel(item, channels);
+  for (const item of value) rememberChannel(item, channels, undefined, inheritedGuildId);
 }
 
 function asMessage(
@@ -525,7 +544,9 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
             if (Array.isArray(ready.guilds) && ready.guilds.length <= 1_000) {
               for (const guild of ready.guilds) {
                 if (guild && typeof guild === "object") {
-                  rememberChannelList((guild as Record<string, unknown>).threads, channelMetadata);
+                  const entry = guild as Record<string, unknown>;
+                  rememberChannelList(entry.threads, channelMetadata,
+                    typeof entry.id === "string" ? entry.id : undefined);
                 }
               }
             }
@@ -552,13 +573,15 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
           return;
         }
         if (payload.t === "THREAD_LIST_SYNC") {
-          const sync = payload.d as { threads?: unknown } | undefined;
-          rememberChannelList(sync?.threads, channelMetadata);
+          const sync = payload.d as { guild_id?: unknown; threads?: unknown } | undefined;
+          rememberChannelList(sync?.threads, channelMetadata,
+            typeof sync?.guild_id === "string" ? sync.guild_id : undefined);
           return;
         }
         if (payload.t === "GUILD_CREATE") {
           const guild = payload.d as Record<string, unknown> | undefined;
-          rememberChannelList(guild?.threads, channelMetadata);
+          rememberChannelList(guild?.threads, channelMetadata,
+            typeof guild?.id === "string" ? guild.id : undefined);
           return;
         }
         if (payload.t === "CHANNEL_DELETE" || payload.t === "THREAD_DELETE") {
