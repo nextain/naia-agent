@@ -48,6 +48,7 @@ const MAX_REPLY_LENGTH = 2_000;
 const MAX_EVENT_LENGTH = 1_000_000;
 const MAX_MESSAGE_LENGTH = 4_000;
 const MAX_PENDING_MESSAGES = 256;
+const MAX_IN_FLIGHT_CHANNEL_LOOKUPS = 64;
 const MAX_IDEMPOTENCY_KEY_LENGTH = 512;
 const MAX_REPLY_RESPONSE_BYTES = 64 * 1_024;
 const MAX_CHANNEL_METADATA = 4_096;
@@ -208,34 +209,61 @@ interface ChannelMetadata {
   readonly type: number;
   readonly guildId?: string;
   readonly parentChannelId?: string;
+  readonly recipientIds?: readonly string[];
 }
 
-function rememberChannel(value: unknown, channels: Map<string, ChannelMetadata>): void {
+function rememberChannel(
+  value: unknown,
+  channels: Map<string, ChannelMetadata>,
+  expectedChannelId?: string,
+): ChannelMetadata | undefined {
   if (!value || typeof value !== "object") return;
   const channel = value as Record<string, unknown>;
   if (typeof channel.id !== "string" || !SNOWFLAKE.test(channel.id)
+    || (expectedChannelId !== undefined && channel.id !== expectedChannelId)
     || !Number.isSafeInteger(channel.type) || Number(channel.type) < 0 || Number(channel.type) > 20) return;
   const parent = channel.parent_id;
   const guildId = channel.guild_id;
+  let recipientIds: string[] | undefined;
+  if (channel.recipients !== undefined) {
+    if (!Array.isArray(channel.recipients) || channel.recipients.length > 100) {
+      channels.delete(channel.id);
+      return;
+    }
+    recipientIds = [];
+    for (const recipient of channel.recipients) {
+      const id = recipient && typeof recipient === "object"
+        ? (recipient as Record<string, unknown>).id
+        : undefined;
+      if (typeof id !== "string" || !SNOWFLAKE.test(id)) {
+        channels.delete(channel.id);
+        return;
+      }
+      recipientIds.push(id);
+    }
+  }
   if (guildId !== undefined && guildId !== null
     && (typeof guildId !== "string" || !SNOWFLAKE.test(guildId))) {
     channels.delete(channel.id);
-    return;
+    return undefined;
   }
   if (parent !== undefined && parent !== null && (typeof parent !== "string" || !SNOWFLAKE.test(parent))) {
     channels.delete(channel.id);
-    return;
+    return undefined;
   }
   if (!channels.has(channel.id) && channels.size >= MAX_CHANNEL_METADATA) {
     const oldest = channels.keys().next().value;
     if (oldest !== undefined) channels.delete(oldest);
   }
   channels.delete(channel.id);
-  channels.set(channel.id, {
+  const metadata: ChannelMetadata = {
     type: Number(channel.type),
     ...(typeof guildId === "string" ? { guildId } : {}),
     ...(typeof parent === "string" ? { parentChannelId: parent } : {}),
-  });
+    ...(recipientIds !== undefined ? { recipientIds } : {}),
+  };
+  channels.set(channel.id, metadata);
+  return metadata;
 }
 
 function rememberChannelList(value: unknown, channels: Map<string, ChannelMetadata>): void {
@@ -270,7 +298,9 @@ function asMessage(
   const referenced = message.referenced_message as Record<string, unknown> | undefined;
   const referencedAuthor = referenced?.author as Record<string, unknown> | undefined;
   const channelMetadata = channels.get(message.channel_id);
-  const metadataMatchesGuild = !channelMetadata?.guildId || channelMetadata.guildId === message.guild_id;
+  const metadataMatchesGuild = message.guild_id === undefined
+    ? channelMetadata?.guildId === undefined
+    : channelMetadata?.guildId === message.guild_id;
   return {
     messageId: message.id,
     guildId: typeof message.guild_id === "string" ? message.guild_id : null,
@@ -313,6 +343,7 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
   let resumeSequence: number | null = null;
   let resumedSelfUserId: string | undefined;
   const channelMetadata = new Map<string, ChannelMetadata>();
+  const channelLookups = new Map<string, Promise<ChannelMetadata | undefined>>();
 
   return {
     async connect(token, handlers, connectOptions) {
@@ -355,7 +386,55 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
       const becomeReady = (selfUserId: string) => {
         authenticated = true;
         handlers.onReady(selfUserId);
-        for (const message of pendingMessages.splice(0)) handlers.onMessage(message);
+        for (const message of pendingMessages.splice(0)) deliverMessage(message);
+      };
+      const lookupChannel = (channelId: string): Promise<ChannelMetadata | undefined> => {
+        const cached = channelMetadata.get(channelId);
+        if (cached) return Promise.resolve(cached);
+        const pending = channelLookups.get(channelId);
+        if (pending) return pending;
+        if (channelLookups.size >= MAX_IN_FLIGHT_CHANNEL_LOOKUPS) return Promise.resolve(undefined);
+        const lookup = (async () => {
+          try {
+            const result = await fetchReplyWithTimeout(
+              fetchImpl,
+              `${apiBase}/channels/${encodeURIComponent(channelId)}`,
+              { method: "GET", headers: { authorization: `Bot ${token}` } },
+              replyTimeoutMs,
+              connectOptions?.signal,
+            );
+            if (!result.response.ok) return undefined;
+            let body: unknown;
+            try { body = JSON.parse(result.bodyText ?? "") as unknown; }
+            catch { return undefined; }
+            return rememberChannel(body, channelMetadata, channelId);
+          } catch {
+            return undefined;
+          }
+        })().finally(() => channelLookups.delete(channelId));
+        channelLookups.set(channelId, lookup);
+        return lookup;
+      };
+      const deliverMessage = (message: DiscordGatewayMessage) => {
+        const alreadyKnown = channelMetadata.has(message.channelId);
+        void lookupChannel(message.channelId).then((metadata) => {
+          if (settled || !metadata) return;
+          if (message.guildId === null) {
+            if (metadata.guildId !== undefined || metadata.parentChannelId !== undefined
+              || metadata.type !== 1
+              || (!alreadyKnown && !metadata.recipientIds?.includes(message.authorId))
+              || (metadata.recipientIds && !metadata.recipientIds.includes(message.authorId))) return;
+          } else if (metadata.guildId !== message.guildId
+            || (THREAD_CHANNEL_TYPES.has(metadata.type) && !metadata.parentChannelId)
+            || (metadata.parentChannelId !== undefined && !THREAD_CHANNEL_TYPES.has(metadata.type))) {
+            return;
+          }
+          handlers.onMessage({
+            ...message,
+            channelType: metadata.type,
+            ...(metadata.parentChannelId ? { parentChannelId: metadata.parentChannelId } : {}),
+          });
+        }).catch(() => {});
       };
       const requestReconnect = () => {
         if (reconnectRequested || settled) return;
@@ -483,7 +562,7 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
         if (payload.t === "MESSAGE_CREATE") {
           const message = asMessage(payload.d, channelMetadata);
           if (!message) return;
-          if (authenticated) handlers.onMessage(message);
+          if (authenticated) deliverMessage(message);
           else if (pendingMessages.length < MAX_PENDING_MESSAGES) pendingMessages.push(message);
         }
       });

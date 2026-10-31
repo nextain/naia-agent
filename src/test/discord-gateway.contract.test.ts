@@ -83,6 +83,9 @@ describe("T-DISCORD-RT-02/05/06 — Discord Gateway adapter", () => {
       d: { token: "test-token", intents: 37_377 },
     });
     socket.payload({ op: 0, t: "READY", s: 1, d: { user: { id: "999" } } });
+    socket.payload({ op: 0, t: "CHANNEL_CREATE", d: {
+      id: "200", guild_id: "100", type: 0,
+    } });
     socket.payload({
       op: 0,
       t: "MESSAGE_CREATE",
@@ -95,16 +98,17 @@ describe("T-DISCORD-RT-02/05/06 — Discord Gateway adapter", () => {
       },
     });
     expect(onReady).toHaveBeenCalledWith("999");
-    expect(onMessage).toHaveBeenCalledWith({
+    await vi.waitFor(() => expect(onMessage).toHaveBeenCalledWith({
       messageId: "400",
       guildId: "100",
       channelId: "200",
+      channelType: 0,
       authorId: "300",
       authorIsBot: false,
       content: "<@999> hi",
       mentionedUserIds: ["999"],
       replyToAuthorId: "999",
-    });
+    }));
     connection.close();
   });
 
@@ -123,9 +127,9 @@ describe("T-DISCORD-RT-02/05/06 — Discord Gateway adapter", () => {
       id: "401", guild_id: "100", channel_id: "700", content: "follow up",
       author: { id: "300", bot: false },
     } });
-    expect(onMessage).toHaveBeenCalledWith(expect.objectContaining({
+    await vi.waitFor(() => expect(onMessage).toHaveBeenCalledWith(expect.objectContaining({
       channelId: "700", parentChannelId: "200", channelType: 11,
-    }));
+    })));
     connection.close();
   });
 
@@ -146,10 +150,104 @@ describe("T-DISCORD-RT-02/05/06 — Discord Gateway adapter", () => {
     socket.payload({ op: 0, t: "MESSAGE_CREATE", d: {
       id: "403", channel_id: "501", content: "group", author: { id: "300" },
     } });
-    expect(onMessage.mock.calls.map(([message]) => message)).toEqual([
+    await vi.waitFor(() => expect(onMessage.mock.calls.map(([message]) => message)).toEqual([
       expect.objectContaining({ channelId: "500", guildId: null, channelType: 1 }),
-      expect.objectContaining({ channelId: "501", guildId: null, channelType: 3 }),
-    ]);
+    ]));
+    connection.close();
+  });
+
+  it("looks up an unknown DM once and accepts it only when it is a one-to-one channel for the author", async () => {
+    const socket = new FakeSocket();
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(response(200, { url: "wss://gateway.discord.test" }))
+      .mockResolvedValueOnce(response(200, {
+        id: "500", type: 1, recipients: [{ id: "300" }],
+      }));
+    const onMessage = vi.fn();
+    const connection = await makeDiscordGateway({
+      fetch: fetcher as typeof fetch,
+      socket: () => socket,
+    }).connect("token", { onReady() {}, onMessage });
+    socket.payload({ op: 0, t: "READY", d: { user: { id: "999" } } });
+    socket.payload({ op: 0, t: "MESSAGE_CREATE", d: {
+      id: "404", channel_id: "500", content: "first", author: { id: "300" },
+    } });
+    await vi.waitFor(() => expect(onMessage).toHaveBeenCalledTimes(1));
+    socket.payload({ op: 0, t: "MESSAGE_CREATE", d: {
+      id: "405", channel_id: "500", content: "second", author: { id: "300" },
+    } });
+    await vi.waitFor(() => expect(onMessage).toHaveBeenCalledTimes(2));
+    expect(onMessage.mock.calls[0]![0]).toMatchObject({
+      channelId: "500", guildId: null, channelType: 1, authorId: "300",
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls[1]![0]).toBe("https://discord.com/api/v10/channels/500");
+    expect(fetcher.mock.calls[1]![1]).toMatchObject({
+      method: "GET", headers: { authorization: "Bot token" },
+    });
+    connection.close();
+  });
+
+  it("fails closed for unknown group DMs, mismatched recipients, failed REST lookups, and mismatched channel IDs", async () => {
+    const socket = new FakeSocket();
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(response(200, { url: "wss://gateway.discord.test" }))
+      .mockResolvedValueOnce(response(200, {
+        id: "501", type: 3, recipients: [{ id: "300" }, { id: "301" }],
+      }))
+      .mockResolvedValueOnce(response(200, {
+        id: "502", type: 1, recipients: [{ id: "301" }],
+      }))
+      .mockResolvedValueOnce(response(403, {}))
+      .mockResolvedValueOnce(response(200, {
+        id: "999", type: 1, recipients: [{ id: "300" }],
+      }));
+    const onMessage = vi.fn();
+    const connection = await makeDiscordGateway({
+      fetch: fetcher as typeof fetch,
+      socket: () => socket,
+    }).connect("token", { onReady() {}, onMessage });
+    socket.payload({ op: 0, t: "READY", d: { user: { id: "999" } } });
+    for (const [messageId, channelId] of [["406", "501"], ["407", "502"], ["408", "503"], ["409", "504"]]) {
+      socket.payload({ op: 0, t: "MESSAGE_CREATE", d: {
+        id: messageId, channel_id: channelId, content: "must fail closed", author: { id: "300" },
+      } });
+    }
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(5));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(onMessage).not.toHaveBeenCalled();
+    connection.close();
+  });
+
+  it("looks up an unknown server thread and requires a matching guild and verified parent", async () => {
+    const socket = new FakeSocket();
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(response(200, { url: "wss://gateway.discord.test" }))
+      .mockResolvedValueOnce(response(200, {
+        id: "700", guild_id: "100", parent_id: "200", type: 11,
+      }))
+      .mockResolvedValueOnce(response(200, {
+        id: "701", guild_id: "101", parent_id: "200", type: 11,
+      }));
+    const onMessage = vi.fn();
+    const connection = await makeDiscordGateway({
+      fetch: fetcher as typeof fetch,
+      socket: () => socket,
+    }).connect("token", { onReady() {}, onMessage });
+    socket.payload({ op: 0, t: "READY", d: { user: { id: "999" } } });
+    socket.payload({ op: 0, t: "MESSAGE_CREATE", d: {
+      id: "410", guild_id: "100", channel_id: "700", content: "thread", author: { id: "300" },
+    } });
+    await vi.waitFor(() => expect(onMessage).toHaveBeenCalledTimes(1));
+    expect(onMessage.mock.calls[0]![0]).toMatchObject({
+      guildId: "100", channelId: "700", channelType: 11, parentChannelId: "200",
+    });
+    socket.payload({ op: 0, t: "MESSAGE_CREATE", d: {
+      id: "411", guild_id: "100", channel_id: "701", content: "wrong guild", author: { id: "300" },
+    } });
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(3));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(onMessage).toHaveBeenCalledTimes(1);
     connection.close();
   });
 
@@ -346,6 +444,9 @@ describe("T-DISCORD-RT-02/05/06 — Discord Gateway adapter", () => {
         resume_gateway_url: "wss://resume.discord.test",
       },
     });
+    firstSocket.payload({ op: 0, t: "CHANNEL_CREATE", d: {
+      id: "200", guild_id: "100", type: 0,
+    } });
     firstSocket.emit("close", { code: 1_006 });
     await first.closed;
     const secondSocket = sockets[0]!;
@@ -373,7 +474,7 @@ describe("T-DISCORD-RT-02/05/06 — Discord Gateway adapter", () => {
     expect(resumedMessage).not.toHaveBeenCalled();
     secondSocket.payload({ op: 0, t: "RESUMED", s: 9, d: {} });
     expect(resumedReady).toHaveBeenCalledWith("999");
-    expect(resumedMessage).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(resumedMessage).toHaveBeenCalledTimes(1));
     second.close();
   });
 
