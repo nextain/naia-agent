@@ -40,14 +40,33 @@ describe("memory settings reload wiring", () => {
       await writeFile(configPath, JSON.stringify({ provider: "fake", model: "test" }), "utf8");
 
       deps = await composeAgentRuntimeDeps({
+        homeDir: adk,
         env: {
           ...process.env,
           NAIA_ADK_PATH: adk,
           NAIA_AGENT_SKILLS: "off",
           NAIA_AGENT_TRANSCRIPT: "off",
+          NAIA_AGENT_MEMORY: "on",
+          NAIA_MEMORY_DIR: "",
+          NAIA_MEMORY_STORE: "",
+          NAIA_MEMORY_PROJECT: "",
+          // Empty overrides prevent unrelated OS keychain changes from altering
+          // the settings snapshot during this no-configuration-change test.
+          NAIA_MEMORY_EMBED_API_KEY: "",
+          NAIA_MEMORY_QDRANT_API_KEY: "",
+          NAIA_MEMORY_LLM_API_KEY: "",
+          NAIA_ANYLLM_API_KEY: "",
+          NAIA_KEY: "",
+          naiaKey: "",
           AGENT_PROVIDER: "fake",
         },
       });
+      expect(deps.settingsStore.loadMemoryConfig(adk)).toMatchObject({
+        adapter: "local",
+        embedding: { provider: "none" },
+        llm: { provider: "none" },
+      });
+      expect(deps.settingsResolveSecret("NAIA_ANYLLM_API_KEY")).toBe("");
       expect(deps.memory.hasActive()).toBe(true);
       await deps.memory.save("reload-canary", "remembered", { durable: true });
 
