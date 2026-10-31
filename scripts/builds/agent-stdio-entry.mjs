@@ -141,7 +141,10 @@ const {
 const { composeAgentRuntimeDeps } = await import("./compose-agent-deps.mjs");
 
 // ── transport-독립 런타임 deps = 공유 빌더(CLI host 와 literally 동일, NFR-CLI-shared) ──
-const deps = await composeAgentRuntimeDeps({ allowHomeAdkFallback: false });
+const deps = await composeAgentRuntimeDeps({
+  allowHomeAdkFallback: false,
+  requireConfiguredProvider: discordStandalone,
+});
 cleanupFns = deps.cleanupFns;
 const { adkPath, provider, resolver, providerLabel: label, credentials, settingsStore, defaultConfig, configLabel, setCredentialWorkspace, setKnowledgeWorkspace, setWorkspaceBind } = deps;
 const { llmRoles } = deps;

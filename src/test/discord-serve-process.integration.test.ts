@@ -1,5 +1,5 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { spawn, type ChildProcess } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -89,7 +89,15 @@ interface RunningServe {
 }
 
 function startServe(directory: string, overrides: Record<string, string | undefined> = {}): RunningServe {
-  const config = makeProcessEnv(directory, overrides);
+  const workspacePath = join(directory, "workspace");
+  const settingsPath = join(workspacePath, "naia-settings");
+  mkdirSync(settingsPath, { recursive: true });
+  writeFileSync(join(settingsPath, "config.json"), JSON.stringify({
+    provider: "ollama",
+    model: "gemma3:4b",
+    ollamaHost: "http://127.0.0.1:11434",
+  }));
+  const config = makeProcessEnv(directory, { NAIA_ADK_PATH: workspacePath, ...overrides });
   const entry = new URL("../../bin/naia-agent.mjs", import.meta.url);
   const child = spawn(process.execPath, [fileURLToPath(entry), "serve"], {
     cwd: fileURLToPath(new URL("../..", import.meta.url)),
@@ -210,5 +218,31 @@ describe("naia-agent serve process lifecycle", () => {
     await expect(waitForExit(conflict.child)).resolves.toMatchObject({ code: 1 });
     expect(conflict.output()).toContain("authority_conflict");
     expect(conflict.output()).not.toContain("fake-test-token");
+  }, 60_000);
+
+  it("requires workspace and provider configuration before ready and documents them in help", async () => {
+    const workspaceMissing = startServe(testDirectory(), { NAIA_ADK_PATH: undefined });
+    const workspaceExit = await waitForExit(workspaceMissing.child, 1_000).catch(() => undefined);
+    expect(workspaceExit?.code).toBe(1);
+    expect(workspaceMissing.output()).toContain("workspace_unconfigured");
+
+    const directory = testDirectory();
+    const emptyWorkspace = join(directory, "empty-workspace");
+    mkdirSync(emptyWorkspace, { recursive: true });
+    const providerMissing = startServe(directory, { NAIA_ADK_PATH: emptyWorkspace });
+    const providerExit = await waitForExit(providerMissing.child, 1_000).catch(() => undefined);
+    expect(providerExit?.code).toBe(1);
+    expect(providerMissing.output()).toContain("provider_unconfigured");
+
+    const entry = fileURLToPath(new URL("../../bin/naia-agent.mjs", import.meta.url));
+    const help = spawnSync(process.execPath, [entry, "serve", "--help"], {
+      cwd: fileURLToPath(new URL("../..", import.meta.url)),
+      encoding: "utf8",
+      env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", TMPDIR: tmpdir() },
+      windowsHide: true,
+    });
+    expect(help.status).toBe(0);
+    expect(help.stdout).toContain("NAIA_ADK_PATH");
+    expect(help.stdout).toContain("naia-settings/config.json");
   }, 60_000);
 });

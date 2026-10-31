@@ -10,6 +10,7 @@ const HELP = `naia-agent serve — 독립 Discord 수신 호스트
   naia-agent serve
 
 필수 환경 설정:
+  NAIA_ADK_PATH                 naia-settings/config.json(provider/model)이 있는 workspace
   NAIA_DISCORD_TOKEN_PIPE=stdin   봇 토큰은 stdin 전용 pipe로 전달
   NAIA_DISCORD_BINDINGS_JSON     허용 guild/channel/user와 processing profile JSON
   NAIA_DISCORD_GENERATION        상태·authority 파일의 generation ID
