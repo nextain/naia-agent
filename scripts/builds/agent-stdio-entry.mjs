@@ -340,7 +340,7 @@ let profileRuntime;
 const grpcServer = makeGrpcServer({
   bindAddr: process.env.NAIA_AGENT_GRPC_ADDR || "127.0.0.1:0",
   shutdownNonce,
-  onShutdown: () => onShutdown?.(),
+  onShutdown: (exitCode) => onShutdown?.(exitCode),
   onSetWorkspace: async (wsPath) => {
     const previousAdkPath = currentAdkPath;
     if (wsPath) {
@@ -665,6 +665,15 @@ if (discordRuntime && discordStatus) {
   let previous;
   discordStatusPoll = setInterval(() => {
     const status = discordRuntime.status();
+    if (discordStandalone && discordAuthority && !discordAuthority.isActive()) {
+      if (previous !== "authority_lost") {
+        previous = "authority_lost";
+        try { discordStatus.write("failed", "authority_lost", status.partialReply); }
+        catch { /* native supervisor will observe process exit */ }
+        void onShutdown?.(1);
+      }
+      return;
+    }
     const nativeState = status.state === "ready"
       ? (status.authoritative ? "ready" : "standby")
       : status.state === "terminal_error" ? "failed" : "starting";
@@ -687,13 +696,16 @@ process.stderr.write(`[naia-agent] ${discordStandalone ? "Discord standalone rea
 //   → (3) exit. naia-memory LocalAdapter 는 encode 를 in-memory 버퍼링하고 close() 에서 flush 하므로,
 //   진행 중 턴을 안 기다리고 닫으면 마지막 턴 save 가 유실된다(EOF-during-turn 레이스). 격리: 실패해도 종료 진행.
 let shutdownPromise;
-const performShutdown = async () => {
-  process.exitCode = 0;
+const performShutdown = async (exitCode = 0) => {
+  const finalExitCode = exitCode === 0 ? 0 : 1;
+  process.exitCode = finalExitCode;
   // ⚠️ 강제 종료 안전망을 *최상단*(await 전)에 설치 — drain/close/flush 어디서 hang 해도 종료를 보장한다.
-  setTimeout(() => process.exit(0), 30000);
+  setTimeout(() => process.exit(finalExitCode), 30000);
   if (discordStatusPoll) clearInterval(discordStatusPoll);
   try { await discordRuntime?.gracefulStop(); } catch { diag.log("discord runtime", { code: "shutdown_failed" }); }
-  try { discordStatus?.write("stopped"); } catch { /* native supervisor reconciles */ }
+  if (finalExitCode === 0) {
+    try { discordStatus?.write("stopped"); } catch { /* native supervisor reconciles */ }
+  }
   try { if (drain) await drain(); } catch (e) { process.stderr.write(`[naia-agent] drain 실패: ${e instanceof Error ? e.message : String(e)}\n`); }
   if (!discordStandalone) {
     try { await grpcServer.shutdown(); } catch (e) { process.stderr.write(`[naia-agent] grpc shutdown 실패: ${e instanceof Error ? e.message : String(e)}\n`); }
@@ -705,10 +717,10 @@ const performShutdown = async () => {
   } catch (e) { process.stderr.write(`[naia-agent] memory flush 실패: ${e instanceof Error ? e.message : String(e)}\n`); }
   // process.exit 는 미flush stdout 쓰기를 끊는다(turn 출력 유실 가능). 빈 write 콜백은 앞선 모든 쓰기가
   // 파이프로 flush 된 뒤 호출 → 그때 종료(순서 보장). drain/close 가 실패·hang 해도 이 줄에 항상 도달.
-  process.stdout.write("", () => process.exit(0));
+  process.stdout.write("", () => process.exit(finalExitCode));
 };
-onShutdown = () => {
-  shutdownPromise ??= performShutdown();
+onShutdown = (exitCode = 0) => {
+  shutdownPromise ??= performShutdown(exitCode);
   return shutdownPromise;
 };
 // gRPC 서버 종료 = OS(Rust)가 보내는 시그널. drain/flush/grpc-shutdown 수행 후 exit.

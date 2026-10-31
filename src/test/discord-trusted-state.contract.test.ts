@@ -48,6 +48,33 @@ describe("Discord trusted one-time state", () => {
     replacement?.release();
   });
 
+  it("fences an older process after another process takes its stale lease", () => {
+    const path = tempFile("authority.json");
+    writeFileSync(path, JSON.stringify({ version: 1, generation: "generation_2" }));
+    const firstAuthority = makeDiscordGenerationAuthority({ path, generation: "generation_2" });
+    const first = firstAuthority.acquire?.();
+    expect(first).toBeDefined();
+    expect(firstAuthority.isActive()).toBe(true);
+
+    const leasePath = `${path}.generation_2.lock`;
+    const stale = JSON.parse(readFileSync(leasePath, "utf8")) as { token: string };
+    const leaseFiles = [leasePath, `${leasePath}.${stale.token}.heartbeat`];
+    for (const leaseFile of leaseFiles) {
+      let content: string;
+      try { content = readFileSync(leaseFile, "utf8"); } catch { continue; }
+      const record = JSON.parse(content) as Record<string, unknown>;
+      writeFileSync(leaseFile, JSON.stringify({ ...record, updatedAt: 0 }));
+    }
+
+    const secondAuthority = makeDiscordGenerationAuthority({ path, generation: "generation_2" });
+    const second = secondAuthority.acquire?.();
+    expect(second).toBeDefined();
+    expect(firstAuthority.isActive()).toBe(false);
+    expect(secondAuthority.isActive()).toBe(true);
+    first?.release();
+    second?.release();
+  });
+
   it("claims a registration code once, before its expiry, without persisting the code", async () => {
     const path = tempFile("registrations.json");
     const seed = {

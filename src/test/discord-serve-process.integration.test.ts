@@ -102,7 +102,11 @@ function startServe(directory: string, overrides: Record<string, string | undefi
   child.stdout?.on("data", (chunk: Buffer) => output.push(chunk.toString("utf8")));
   child.stderr?.on("data", (chunk: Buffer) => output.push(chunk.toString("utf8")));
   child.stdin?.end("fake-test-token");
-  return { child, statusPath: config.statusPath, output: () => output.join("") };
+  return {
+    child,
+    statusPath: config.env.NAIA_DISCORD_STATUS_PATH ?? config.statusPath,
+    output: () => output.join(""),
+  };
 }
 
 async function waitForStatus(
@@ -164,6 +168,36 @@ describe("naia-agent serve process lifecycle", () => {
     await expect(waitForExit(first.child)).resolves.toEqual({ code: 0, signal: null });
     await expect(waitForStatus(first.statusPath, "stopped")).resolves.toMatchObject({ state: "stopped" });
     expect(first.output()).not.toContain("fake-test-token");
+  }, 60_000);
+
+  it("drops readiness and exits when a replacement process takes the stale lease", async () => {
+    const directory = testDirectory();
+    const first = startServe(directory);
+    await waitForStatus(first.statusPath, "ready", 20_000, first.output);
+
+    const leasePath = join(directory, "authority.json.generation_process_test.lock");
+    const lease = JSON.parse(readFileSync(leasePath, "utf8")) as Record<string, unknown>;
+    writeFileSync(leasePath, JSON.stringify({ ...lease, updatedAt: 0 }));
+    if (typeof lease.token === "string") {
+      const heartbeatPath = `${leasePath}.${lease.token}.heartbeat`;
+      try {
+        const heartbeat = JSON.parse(readFileSync(heartbeatPath, "utf8")) as Record<string, unknown>;
+        writeFileSync(heartbeatPath, JSON.stringify({ ...heartbeat, updatedAt: 0 }));
+      } catch { /* r5 lease files have no separate heartbeat record */ }
+    }
+    const second = startServe(directory, {
+      NAIA_DISCORD_STATUS_PATH: join(directory, "status-second.json"),
+    });
+    const secondReady = await waitForStatus(second.statusPath, "ready", 20_000, second.output);
+    const firstExit = await waitForExit(first.child, 5_000);
+
+    expect(firstExit.code).toBe(1);
+    expect(JSON.parse(readFileSync(first.statusPath, "utf8"))).toMatchObject({
+      state: "failed", code: "authority_lost",
+    });
+    expect(secondReady.state).toBe("ready");
+    second.child.kill("SIGTERM");
+    await expect(waitForExit(second.child)).resolves.toEqual({ code: 0, signal: null });
   }, 60_000);
 
   it("exits nonzero when bindings are missing or the authority selects another generation", async () => {

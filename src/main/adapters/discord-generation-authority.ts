@@ -54,23 +54,40 @@ function createLease(path: string, record: GenerationLeaseRecord): boolean {
   }
 }
 
+function heartbeatPath(path: string, token: string): string {
+  return `${path}.${token}.heartbeat`;
+}
+
+function readHeartbeat(path: string, record: GenerationLeaseRecord): GenerationLeaseRecord | undefined {
+  const heartbeat = readLease(heartbeatPath(path, record.token));
+  return heartbeat?.generation === record.generation && heartbeat.token === record.token
+    ? heartbeat
+    : undefined;
+}
+
 function claimGenerationLease(input: { readonly path: string; readonly generation: string }):
-  { release(): void } | undefined {
+  { isOwner(): boolean; release(): void } | undefined {
   const path = `${input.path}.${input.generation}.lock`;
   const token = randomUUID();
+  const ownerHeartbeatPath = heartbeatPath(path, token);
   const makeRecord = (): GenerationLeaseRecord => ({
     version: 1,
     generation: input.generation,
     token,
     updatedAt: Date.now(),
   });
+  if (!createLease(ownerHeartbeatPath, makeRecord())) return undefined;
   let claimed = createLease(path, makeRecord());
+  let previous: GenerationLeaseRecord | undefined;
   if (!claimed && existsSync(path)) {
     const current = readLease(path);
+    previous = current;
     let lastChangedAt = 0;
     try { lastChangedAt = statSync(path).mtimeMs; } catch { /* file may have disappeared */ }
+    const heartbeat = current ? readHeartbeat(path, current) : undefined;
+    const lastUpdatedAt = heartbeat?.updatedAt ?? current?.updatedAt;
     const isStale = current
-      ? Date.now() - current.updatedAt > LEASE_TTL_MS
+      ? Date.now() - (lastUpdatedAt ?? 0) > LEASE_TTL_MS
       : lastChangedAt > 0 && Date.now() - lastChangedAt > LEASE_TTL_MS;
     if (isStale) {
       const stalePath = `${path}.${randomUUID()}.stale`;
@@ -83,23 +100,41 @@ function claimGenerationLease(input: { readonly path: string; readonly generatio
       }
     }
   }
-  if (!claimed) return undefined;
+  if (!claimed) {
+    try { unlinkSync(ownerHeartbeatPath); } catch { /* best effort */ }
+    return undefined;
+  }
+  if (previous) {
+    try { unlinkSync(heartbeatPath(path, previous.token)); } catch { /* stale owner may have exited */ }
+  }
+
+  const isOwner = (): boolean => {
+    const current = readLease(path);
+    const heartbeat = readLease(ownerHeartbeatPath);
+    return current?.generation === input.generation
+      && current.token === token
+      && heartbeat?.generation === input.generation
+      && heartbeat.token === token
+      && Date.now() - heartbeat.updatedAt <= LEASE_TTL_MS;
+  };
 
   const refresh = setInterval(() => {
-    const current = readLease(path);
-    if (current?.token !== token) return;
-    try { replaceOwnerOnlyAtomic(path, JSON.stringify(makeRecord())); }
+    if (!isOwner()) return;
+    try { replaceOwnerOnlyAtomic(ownerHeartbeatPath, JSON.stringify(makeRecord())); }
     catch { /* another generation owner will fail closed until this lease expires */ }
   }, LEASE_REFRESH_MS);
   refresh.unref();
   let released = false;
   return {
+    isOwner,
     release() {
       if (released) return;
       released = true;
       clearInterval(refresh);
-      if (readLease(path)?.token !== token) return;
-      try { unlinkSync(path); } catch { /* best effort */ }
+      if (readLease(path)?.token === token) {
+        try { unlinkSync(path); } catch { /* best effort */ }
+      }
+      try { unlinkSync(ownerHeartbeatPath); } catch { /* best effort */ }
     },
   };
 }
@@ -115,24 +150,35 @@ export function makeDiscordGenerationAuthority(input: {
   if (!isAbsolute(input.path) || !GENERATION.test(input.generation)) {
     throw new Error("DISCORD_AUTHORITY_CONFIG_INVALID");
   }
+  let leaseAttempted = false;
+  let localLease: ReturnType<typeof claimGenerationLease>;
+  const generationSelected = (): boolean => {
+    try {
+      const parsed = JSON.parse(readFileSync(input.path, "utf8")) as unknown;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return false;
+      const record = parsed as Record<string, unknown>;
+      return Object.keys(record).length === 2
+        && record.version === 1
+        && record.generation === input.generation
+        && GENERATION.test(String(record.generation));
+    } catch {
+      return false;
+    }
+  };
   return {
     isActive() {
-      try {
-        const parsed = JSON.parse(readFileSync(input.path, "utf8")) as unknown;
-        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return false;
-        const record = parsed as Record<string, unknown>;
-        return Object.keys(record).length === 2
-          && record.version === 1
-          && record.generation === input.generation
-          && GENERATION.test(String(record.generation));
-      } catch {
-        return false;
-      }
+      if (!generationSelected()) return false;
+      return !leaseAttempted || localLease?.isOwner() === true;
     },
     acquire() {
-      if (!this.isActive()) return undefined;
-      try { return claimGenerationLease(input); }
-      catch { return undefined; }
+      leaseAttempted = true;
+      if (!generationSelected()) return undefined;
+      try {
+        localLease = claimGenerationLease(input);
+        return localLease;
+      } catch {
+        return undefined;
+      }
     },
   };
 }
