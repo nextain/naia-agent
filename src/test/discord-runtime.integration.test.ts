@@ -182,6 +182,7 @@ class FakeGateway implements DiscordGatewayPort {
       channelId: "200",
       authorId: "300",
       authorIsBot: false,
+      channelType: 0,
       content: "<@999> hello",
       mentionedUserIds: ["999"],
       ...value,
@@ -1024,6 +1025,32 @@ describe("T-DISCORD-RT-01/02 — authenticated ingress to existing chat pipeline
     try {
       await waitFor(() => gateway.handlers.length === 1);
       gateway.message({ channelType: 0, parentChannelId: "150" });
+      await waitFor(() => answerReplies(gateway.connections[0]!).length === 1);
+      expect(answerReplies(gateway.connections[0]!)[0]!.content).toBe("answer:hello");
+    } finally {
+      await runtime.stop();
+    }
+  });
+
+  it.each([4, 13, 15, 20])("rejects unsupported Discord channel type %i before provider dispatch", async (channelType) => {
+    const provider = { chat: vi.fn() } as unknown as ProviderPort;
+    const { gateway, runtime } = makeHarness({ provider, participation: "all" });
+    try {
+      await waitFor(() => gateway.handlers.length === 1);
+      gateway.message({ channelType });
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      expect(provider.chat).not.toHaveBeenCalled();
+      expect(gateway.connections[0]!.replies).toHaveLength(0);
+    } finally {
+      await runtime.stop();
+    }
+  });
+
+  it("accepts the supported guild announcement channel type", async () => {
+    const { gateway, runtime } = makeHarness({ participation: "all" });
+    try {
+      await waitFor(() => gateway.handlers.length === 1);
+      gateway.message({ channelType: 5 });
       await waitFor(() => answerReplies(gateway.connections[0]!).length === 1);
       expect(answerReplies(gateway.connections[0]!)[0]!.content).toBe("answer:hello");
     } finally {

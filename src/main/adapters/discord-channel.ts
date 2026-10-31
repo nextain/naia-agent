@@ -9,6 +9,11 @@ import type {
   DiscordInboxRecord,
   DiscordRuntimeDeps,
 } from "../ports/discord.js";
+import {
+  DISCORD_DM_CHANNEL_TYPE,
+  isDiscordGuildMessageChannelType,
+  isDiscordThreadChannelType,
+} from "../ports/discord.js";
 import type { AgentEgressPort, AgentIngressPort } from "../ports/uc1.js";
 import type { ProcessingProfile } from "../domain/processing-policy.js";
 
@@ -106,7 +111,6 @@ const BINDING_KEYS = new Set([
   "participation",
 ]);
 const DM_BINDING_KEYS = new Set(["bindingId", "allowedUserIds", "processingProfileRef"]);
-const THREAD_CHANNEL_TYPES = new Set([10, 11, 12]);
 type DiscordRuntimeState = "idle" | "connecting" | "ready" | "backoff" | "stopped" | "terminal_error";
 
 function isBounded(value: unknown, max: number): value is string {
@@ -738,7 +742,7 @@ export class DiscordChannelRuntime {
   private findBinding(message: DiscordGatewayMessage): ResolvedDiscordBinding | undefined {
     if (message.guildId === null) {
       const dm = this.config.dm;
-      if (!dm || message.channelType !== 1 || THREAD_CHANNEL_TYPES.has(message.channelType)
+      if (!dm || message.channelType !== DISCORD_DM_CHANNEL_TYPE
         || message.parentChannelId !== undefined || !dm.allowedUserIds.includes(message.authorId)) return undefined;
       return {
         kind: "dm",
@@ -751,7 +755,8 @@ export class DiscordChannelRuntime {
         isThread: false,
       };
     }
-    const isThread = THREAD_CHANNEL_TYPES.has(message.channelType ?? -1);
+    const isThread = isDiscordThreadChannelType(message.channelType);
+    if (!isThread && !isDiscordGuildMessageChannelType(message.channelType)) return undefined;
     if (isThread && !message.parentChannelId) return undefined;
     const authorizedChannelId = isThread ? message.parentChannelId : message.channelId;
     const binding = this.config.bindings.find((candidate) =>

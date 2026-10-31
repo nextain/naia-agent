@@ -133,6 +133,37 @@ describe("T-DISCORD-RT-02/05/06 — Discord Gateway adapter", () => {
     connection.close();
   });
 
+  it("rejects unsupported channel types from Gateway cache events and REST lookup", async () => {
+    const socket = new FakeSocket();
+    const onMessage = vi.fn();
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith("/gateway/bot")) return response(200, { url: "wss://gateway.discord.test" });
+      const channelId = String(input).split("/").at(-1);
+      return response(200, { id: channelId, guild_id: "100", type: 20 });
+    });
+    const connection = await makeDiscordGateway({
+      fetch: fetcher as typeof fetch,
+      socket: () => socket,
+    }).connect("token", { onReady() {}, onMessage });
+    socket.payload({ op: 0, t: "READY", d: { user: { id: "999" } } });
+    socket.payload({ op: 0, t: "CHANNEL_CREATE", d: {
+      id: "200", guild_id: "100", type: 20,
+    } });
+    socket.payload({ op: 0, t: "MESSAGE_CREATE", d: {
+      id: "403", guild_id: "100", channel_id: "200", content: "unsupported cached type",
+      author: { id: "300", bot: false },
+    } });
+    socket.payload({ op: 0, t: "MESSAGE_CREATE", d: {
+      id: "404", guild_id: "100", channel_id: "201", content: "unsupported REST type",
+      author: { id: "300", bot: false },
+    } });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(onMessage).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(3));
+    connection.close();
+  });
+
   it("does not treat a guild text channel category parent as a thread parent", async () => {
     const socket = new FakeSocket();
     const onMessage = vi.fn();

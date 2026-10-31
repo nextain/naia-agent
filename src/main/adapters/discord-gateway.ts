@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
-import type {
-  DiscordGatewayClose,
-  DiscordGatewayConnection,
-  DiscordGatewayMessage,
-  DiscordGatewayPort,
+import {
+  isDiscordThreadChannelType,
+  isSupportedDiscordChannelType,
+  type DiscordGatewayClose,
+  type DiscordGatewayConnection,
+  type DiscordGatewayMessage,
+  type DiscordGatewayPort,
 } from "../ports/discord.js";
 
 interface SocketEvent {
@@ -53,7 +55,6 @@ const MAX_IDEMPOTENCY_KEY_LENGTH = 512;
 const MAX_REPLY_RESPONSE_BYTES = 64 * 1_024;
 const MAX_CHANNEL_METADATA = 4_096;
 const SNOWFLAKE = /^\d{1,128}$/;
-const THREAD_CHANNEL_TYPES = new Set([10, 11, 12]);
 const DEFAULT_DISCOVERY_TIMEOUT_MS = 10_000;
 
 function boundedTimeout(value: number | undefined): number {
@@ -220,8 +221,11 @@ function rememberChannel(
   if (!value || typeof value !== "object") return;
   const channel = value as Record<string, unknown>;
   if (typeof channel.id !== "string" || !SNOWFLAKE.test(channel.id)
-    || (expectedChannelId !== undefined && channel.id !== expectedChannelId)
-    || !Number.isSafeInteger(channel.type) || Number(channel.type) < 0 || Number(channel.type) > 20) return;
+    || (expectedChannelId !== undefined && channel.id !== expectedChannelId)) return;
+  if (!Number.isSafeInteger(channel.type) || !isSupportedDiscordChannelType(channel.type)) {
+    channels.delete(channel.id);
+    return;
+  }
   const parent = channel.parent_id;
   const guildId = channel.guild_id;
   const channelType = Number(channel.type);
@@ -260,7 +264,7 @@ function rememberChannel(
   const metadata: ChannelMetadata = {
     type: channelType,
     ...(typeof guildId === "string" ? { guildId } : {}),
-    ...(THREAD_CHANNEL_TYPES.has(channelType) && typeof parent === "string" ? { parentChannelId: parent } : {}),
+    ...(isDiscordThreadChannelType(channelType) && typeof parent === "string" ? { parentChannelId: parent } : {}),
     ...(recipientIds !== undefined ? { recipientIds } : {}),
   };
   channels.set(channel.id, metadata);
@@ -426,8 +430,8 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
               || (!alreadyKnown && !metadata.recipientIds?.includes(message.authorId))
               || (metadata.recipientIds && !metadata.recipientIds.includes(message.authorId))) return;
           } else if (metadata.guildId !== message.guildId
-            || (THREAD_CHANNEL_TYPES.has(metadata.type) && !metadata.parentChannelId)
-            || (metadata.parentChannelId !== undefined && !THREAD_CHANNEL_TYPES.has(metadata.type))) {
+            || (isDiscordThreadChannelType(metadata.type) && !metadata.parentChannelId)
+            || (metadata.parentChannelId !== undefined && !isDiscordThreadChannelType(metadata.type))) {
             return;
           }
           handlers.onMessage({
@@ -614,7 +618,7 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
           catch { throw new DiscordGatewayError("http_error"); }
           if (typeof thread.id !== "string" || !SNOWFLAKE.test(thread.id)
             || thread.parent_id !== input.channelId || thread.guild_id !== input.guildId
-            || !THREAD_CHANNEL_TYPES.has(Number(thread.type))) {
+            || !isDiscordThreadChannelType(thread.type)) {
             throw new DiscordGatewayError("invalid_reply");
           }
           rememberChannel(thread, channelMetadata);

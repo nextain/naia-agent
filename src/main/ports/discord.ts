@@ -1,6 +1,24 @@
 import type { DiagnosticLog } from "./uc1.js";
 import type { CodingJobCourseLifecycleState } from "../domain/coding-job.js";
 
+export const DISCORD_DM_CHANNEL_TYPE = 1 as const;
+export const DISCORD_GUILD_MESSAGE_CHANNEL_TYPES = [0, 5] as const;
+export const DISCORD_THREAD_CHANNEL_TYPES = [10, 11, 12] as const;
+
+export function isDiscordGuildMessageChannelType(value: unknown): value is typeof DISCORD_GUILD_MESSAGE_CHANNEL_TYPES[number] {
+  return typeof value === "number" && DISCORD_GUILD_MESSAGE_CHANNEL_TYPES.some((type) => type === value);
+}
+
+export function isDiscordThreadChannelType(value: unknown): value is typeof DISCORD_THREAD_CHANNEL_TYPES[number] {
+  return typeof value === "number" && DISCORD_THREAD_CHANNEL_TYPES.some((type) => type === value);
+}
+
+export function isSupportedDiscordChannelType(value: unknown): boolean {
+  return value === DISCORD_DM_CHANNEL_TYPE
+    || isDiscordGuildMessageChannelType(value)
+    || isDiscordThreadChannelType(value);
+}
+
 export interface DiscordGatewayMessage {
   readonly messageId: string;
   readonly guildId: string | null;
