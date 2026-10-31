@@ -42,7 +42,7 @@ class FakeGateway implements DiscordGatewayPort {
   message(messageId: string, content: string): void {
     this.handlers?.onMessage({
       messageId, guildId: "100", channelId: "200", authorId: "300", authorIsBot: false,
-      content, mentionedUserIds: ["999"],
+      content, mentionedUserIds: ["999"], channelType: 0,
     });
   }
 }
