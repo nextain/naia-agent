@@ -83,6 +83,12 @@ export async function composeAgentRuntimeDeps(o = {}) {
   const homeDir = typeof o.homeDir === "string" && o.homeDir.trim() ? o.homeDir : homedir();
   const allowHomeAdkFallback = o.allowHomeAdkFallback === true;
   const cleanupFns = []; // 종료 시 정리(MCP 자식 등) — 호스트 shutdown 이 호출.
+  const requireConfiguredProvider = o.requireConfiguredProvider === true;
+  const failConfiguredStartup = (code) => {
+    for (const cleanup of cleanupFns) { try { cleanup(); } catch { /* best-effort */ } }
+    process.stderr.write(`[naia-agent] Discord standalone startup failed (${code})\n`);
+    throw new Error(code);
+  };
   const rejectExistingSymlink = (path, label) => {
     try {
       if (nodeFs.lstatSync(path).isSymbolicLink()) throw new Error(`${label} must not be a symbolic link`);
@@ -165,6 +171,12 @@ export async function composeAgentRuntimeDeps(o = {}) {
     defaultAdkPath: DEFAULT_ADK,
     allowHomeAdkFallback,
   });
+  if (requireConfiguredProvider) {
+    let workspaceReady = false;
+    try { workspaceReady = !!adkPath && nodeFs.statSync(adkPath).isDirectory(); } catch { /* fail closed */ }
+    if (!workspaceReady) failConfiguredStartup("workspace_unconfigured");
+    if (ap === "fake" || ap === "echo-system") failConfiguredStartup("provider_unconfigured");
+  }
   if (allowHomeAdkFallback && !trimAdkPath(env.NAIA_ADK_PATH) && !globalAdk && adkPath) {
     process.stderr.write(`[naia-agent] ⚠ 워크스페이스 미설정 — 기본(${DEFAULT_ADK}) 폴백. 'naia-agent-chat workspace <path>' 로 단일 device 워크스페이스 고정 권장(1기기=1설정).\n`);
   } else if (!adkPath) {
@@ -481,6 +493,17 @@ export async function composeAgentRuntimeDeps(o = {}) {
   const settingsResolveSecret = (ref) => env[ref] ?? keychainRead(ref);
   const settingsStore = makeNaiaSettingsStore({ fs: nodeFs, resolveSecret: settingsResolveSecret, log: (m, c) => process.stderr.write(`[naia-agent] ${m} ${c ? JSON.stringify(c) : ""}\n`) });
   const defaultConfig = settingsStore.loadMain(adkPath) ?? undefined;
+  if (requireConfiguredProvider) {
+    const hasMainProvider = !!defaultConfig
+      && typeof defaultConfig.provider === "string"
+      && defaultConfig.provider.trim().length > 0
+      && typeof defaultConfig.model === "string"
+      && defaultConfig.model.trim().length > 0
+      && !!resolver;
+    if (!hasMainProvider) failConfiguredStartup("provider_unconfigured");
+    try { resolver.resolve(defaultConfig); }
+    catch { failConfiguredStartup("provider_unconfigured"); }
+  }
   const configLabel = defaultConfig ? `naia-settings(${defaultConfig.provider}/${defaultConfig.model})` : `none(wire provider 필요) adk=${adkPath}`;
 
   // ── main/sub/memory 역할별 effective config. 신규 llmRoles 우선, legacy memoryLlm*은

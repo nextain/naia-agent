@@ -51,38 +51,66 @@
       "status": "done",
       "last_updated": "2026-08-18T17:20:00+09:00",
       "verification": "vitest src/test/gateway-pricing.contract.test.ts 7 passed; tsc --build 0. 기존 스위트 23 실패는 벤치마크/외부의존 사전존재(내 변경 모듈은 frozen closure 미포함 확인)."
+    },
+    "discord_169_r5": {
+      "issue": "https://github.com/nextain/naia-agent/issues/169",
+      "status": "in_review",
+      "scope": "r5: 실제 Discord DM 채널 조회 fail-closed 보강, Gateway→코어→REST 및 serve 프로세스 검증, 컨테이너 예시·빌드, 전체 시험 기준 비교",
+      "last_updated": "2026-10-31T13:46:28+09:00",
+      "verification": "fdc6fcb 기준·현재 모두 pnpm test에서 7개 파일/28건 실패 및 uncaught error 2건, 현재 신규 실패 0건(통과 2140→2163). pnpm build 및 logging/compile-integrity 검사 기준·현재 통과. Discord 가짜 Gateway/REST 경로 183건, 셸 gRPC 회귀 69건, Podman 이미지 빌드 및 serve --help 통과. 독립 적대 리뷰 전까지 P05 검토 중"
+    },
+    "discord_169_r6": {
+      "issue": "https://github.com/nextain/naia-agent/issues/169",
+      "status": "in_review",
+      "scope": "r6: 독립 검수 B1~B6 수정 — channel type·DM recipient·lease fencing·serve 설정 검증·guild metadata 보강",
+      "last_updated": "2026-10-31T14:39:19+09:00",
+      "verification": "fdc6fcb 직접 기준 비교: 기준 7개 파일/28 실패/2140 통과/11 skip/2 errors, 현재 7개 파일/28 실패/2178 통과/11 skip/2 errors(신규 실패 0, 통과 +38). pnpm build, 루트 구조, logging, compile-integrity, CI 구조 검사 통과. 추가 B2 guild-context DM type 거부 재현을 고정. 브랜치 push 및 PR 검증 표/잔여 위험 갱신 완료. P05 독립 검수 후 완료 예정."
+    },
+    "discord_169_r7": {
+      "issue": "https://github.com/nextain/naia-agent/issues/169",
+      "status": "in_review",
+      "scope": "r7: 독립 검수 B2 — memory reload 실패 경로 정리·timeout 보강, Node 22 전체 시험 비교, gRPC readiness handshake 순서 경합 보완",
+      "last_updated": "2026-10-31T15:53:58+09:00",
+      "verification": "Node 22.23.4, CI=1, 4 CPU affinity/기본 Vitest 3 workers·heap override 없음으로 전체 비교. 기준 2회 모두 20개 파일/132 실패/2036 통과/11 skip/1 error; 수정 후 HEAD 2회 모두 20개/132/2074/11/1. 각 HEAD 실패 집합은 기준 합집합과 같음. memory-settings-reload 2/2 통과(1088ms, 934ms); GRPC_LISTENING을 SIGTERM handler 등록 뒤로 옮긴 뒤 uc1-memory-process 2/2 통과(391ms, 409ms). P05는 독립 검수 전까지 In review."
+    },
+    "discord_169_r8": {
+      "issue": "https://github.com/nextain/naia-agent/issues/169",
+      "status": "in_review",
+      "scope": "r8: 검수 r3 B1 — 시작 중 SIGTERM/SIGINT, 중복 신호, 예외 및 거절된 promise에서 상태 기록·자원 정리·lease 해제",
+      "last_updated": "2026-10-31T16:33:13+09:00",
+      "verification": "Node 22.23.4 CI=1, CPU 0–3, 기본 Vitest/heap: 기준 2회 20개 파일/132 실패/2036 통과/11 skip/1 error, HEAD 2회 20개 파일/132 실패/2080 통과/11 skip/1 error. 실패 시험 이름과 중복 건수 및 uncaught error 위치까지 동일, 신규 실패 0. 가짜 Gateway 프로세스·배선 집중 26개 통과. P05는 독립 검수 전 In review."
     }
   },
   "sdlc_gates": {
     "P01": {
       "status": "done",
       "name": "user_scenarios",
-      "deliverable": "live memory swap, in-flight drain, failed replacement retention, workspace isolation",
-      "ref": "docs/user-scenarios.md; .agents/progress/issue-106-memory-live-reload.md"
+      "deliverable": "docs/user-scenarios.md#uc-discord-standalone-169",
+      "ref": "docs/user-scenarios.md#uc-discord-standalone-169"
     },
     "P02": {
       "status": "done",
       "name": "test_scenarios",
-      "deliverable": "swap ordering, failure retention, config reread, persistence and async gRPC coverage",
-      "ref": "src/test/reloadable-memory.contract.test.ts; src/test/memory-settings-reload.contract.test.ts"
+      "deliverable": "docs/user-scenarios.md#uc-discord-standalone-169",
+      "ref": "docs/user-scenarios.md#uc-discord-standalone-169"
     },
     "P03": {
       "status": "done",
       "name": "requirements",
-      "deliverable": "FR-MEM-13 live replacement and diagnostic contract",
-      "ref": "docs/requirements.md; GitHub #106"
+      "deliverable": "docs/requirements.md#fr-discord-169",
+      "ref": "docs/requirements.md#fr-discord-169"
     },
     "P04": {
       "status": "done",
       "name": "integration_test",
-      "deliverable": "build plus 74 memory tests and 57 reload/roles/gRPC tests",
-      "ref": ".agents/progress/issue-106-memory-live-reload.md"
+      "deliverable": "Node 22.23.4 CI 전체 비교 기준·HEAD 각 2회: 20개 실패 파일/132 실패/11 skip/1 uncaught error, 기준 2036 통과·HEAD 2080 통과. 실패 시험과 중복 건수 동일. 시작 중 SIGTERM/SIGINT·중복 신호·예외·거절된 promise 및 즉시 재시작 포함 집중 26개 통과.",
+      "ref": "docs/user-scenarios.md#uc-discord-standalone-169"
     },
     "P05": {
       "status": "pending",
       "name": "requirements_complete",
-      "deliverable": "implementation verified; commit/push pending parent task",
-      "ref": "GitHub #106"
+      "deliverable": "FR-DISCORD-169는 r8 수정과 CI 비교 반영 후 새 독립 적대 리뷰 확인 전까지 In review 유지",
+      "ref": "docs/requirements.md#fr-discord-169"
     }
   },
   "known_drift": {
@@ -101,7 +129,7 @@
     ]
   },
   "resource_registry": {
-    "last_enforce_run": null,
+    "last_enforce_run": "2026-10-31T16:33:13+09:00",
     "violations": []
   },
   "_usage": {
@@ -125,5 +153,5 @@
       "4. resource_registry.violations 초기화"
     ]
   },
-  "last_updated": "2026-08-18T17:20:00+09:00"
+  "last_updated": "2026-10-31T16:33:13+09:00"
 }
