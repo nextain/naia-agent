@@ -70,7 +70,7 @@
       "issue": "https://github.com/nextain/naia-agent/issues/169",
       "status": "in_review",
       "scope": "r7: 독립 검수 B2 — memory reload 실패 경로 정리·timeout 보강, Node 22 전체 시험 비교, gRPC readiness handshake 순서 경합 보완",
-      "last_updated": "2026-10-31T15:52:06+09:00",
+      "last_updated": "2026-10-31T15:53:58+09:00",
       "verification": "Node 22.23.4, CI=1, 4 CPU affinity/기본 Vitest 3 workers·heap override 없음으로 전체 비교. 기준 2회 모두 20개 파일/132 실패/2036 통과/11 skip/1 error; 수정 후 HEAD 2회 모두 20개/132/2074/11/1. 각 HEAD 실패 집합은 기준 합집합과 같음. memory-settings-reload 2/2 통과(1088ms, 934ms); GRPC_LISTENING을 SIGTERM handler 등록 뒤로 옮긴 뒤 uc1-memory-process 2/2 통과(391ms, 409ms). P05는 독립 검수 전까지 In review."
     }
   },
@@ -146,5 +146,5 @@
       "4. resource_registry.violations 초기화"
     ]
   },
-  "last_updated": "2026-10-31T15:52:06+09:00"
+  "last_updated": "2026-10-31T15:53:58+09:00"
 }

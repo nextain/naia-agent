@@ -19,7 +19,7 @@
 - Node 22 중간 실행에서 `uc1-memory-process.integration.test.ts`가 종료 코드 `-1`을 냈다. 원인은 `GRPC_LISTENING` 출력이 `SIGTERM` handler보다 앞선 코드 순서였고, handshake 출력을 handler 등록 뒤로 옮겼다. 최종 두 회차에서 해당 시험은 391ms·409ms로 통과. Discord 프로세스 시험 자체는 자식 종료 대기, 임시 디렉터리 삭제, status timer 해제를 수행한다.
 - 기준과 HEAD 모두 132개 기존 실패 시험과 uncaught error 1건이 남았으며 파일 집합은 동일하다. 전체 `pnpm test`는 pretest build를 포함한다. P01~P04 완료, FR-DISCORD-169/P05는 새 독립 적대 리뷰 전까지 In review.
 - 게시: PR #170은 초안 상태다.
-- 마지막 업데이트: 2026-10-31 15:52 KST.
+- 마지막 업데이트: 2026-10-31 15:54 KST.
 
 ## Memory live reload — 2026-08-03 (#106)
 
