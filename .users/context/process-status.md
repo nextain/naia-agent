@@ -4,21 +4,22 @@
 
 ## Issue #169 — 독립 Discord 호스트와 DM·스레드 (검토 중)
 
-- 이번 범위: r7에서 검수 B2의 전체 실행 차이를 다시 비교하고 memory reload 시험을 정리했다. 이전 B1~B6 수정은 보존했다.
-- 실행 조건: `CI=1 pnpm test`, 4 CPU affinity, 기본 Node heap 설정. 저장소 workflow는 Node 22지만 이 비교의 로컬 Node는 26.12.1이었다.
+- 이번 범위: r7 검수 B2에 따라 memory reload 시험의 실패 경로 정리와 전체 timeout을 보강했다. Node 22 전체 비교에서 드러난 gRPC readiness/종료 처리기 순서 경합도 고쳤다. 이전 B1~B6 수정은 보존했다.
+- 실행 조건: Node 22.23.4, `CI=1`, 4 CPU affinity → Vitest 기본 3 workers, 기본 heap 설정(override 없음).
 
 | 실행 | 실패 파일 | 실패/통과/skip 시험 | uncaught errors |
 |---|---:|---:|---:|
-| 기준 `fdc6fcb` 1회차 | 8 | 29 / 2,139 / 11 | 2 |
-| 기준 `fdc6fcb` 2회차 | 7 | 28 / 2,140 / 11 | 2 |
-| HEAD 수정 후 1회차 | 7 | 28 / 2,178 / 11 | 2 |
-| HEAD 수정 후 2회차 | 8 | 29 / 2,177 / 11 | 2 |
+| 기준 `fdc6fcb` 1회차 | 20 | 132 / 2,036 / 11 | 1 |
+| 기준 `fdc6fcb` 2회차 | 20 | 132 / 2,036 / 11 | 1 |
+| 수정 후 HEAD 1회차 | 20 | 132 / 2,074 / 11 | 1 |
+| 수정 후 HEAD 2회차 | 20 | 132 / 2,074 / 11 | 1 |
 
-- 기준 두 회차의 실패 파일 합집합은 8개다. `uc1-memory-process.integration.test.ts`만 간헐 실패했고, 나머지 7개는 두 번 모두 실패했다. 수정 후 HEAD 각 회차의 실패 파일은 기준 합집합의 부분집합이다(신규 실패 파일 0).
-- r2에서 보고한 전체 실행 5초 timeout과 함께, 수정 전 HEAD 두 번째 실행에서 `memory-settings-reload.contract.test.ts`의 재구성 assertion 실패가 재현됐다. 시험은 실패 경로에서도 composition cleanup·memory close·임시 workspace 삭제를 수행하고 기본 5초를 15초로 늘렸다. 수정 후 전체 두 회차에서 해당 파일 2/2 통과(1,237ms·1,226ms); 단독 5회도 통과.
-- 게이트: `pnpm build`(전체 실행의 pretest), 루트 구조, logging, compile-integrity, CI 구조 검증 통과. P01~P04 완료. FR-DISCORD-169/P05는 새 독립 적대 리뷰 전까지 In review.
-- 게시: r7 검증 결과를 기록했으며 PR #170은 초안 상태다.
-- 마지막 업데이트: 2026-10-31 15:34 KST.
+- 네 회차의 실패 파일 집합은 같다: `cli-manage-process.integration.test.ts`, `delegate-agent-skill.contract.test.ts`, `durable-supervisor.integration.test.ts`, `issue-team-benchmark.contract.test.ts`, `issue-team-worker.integration.test.ts`, `multi-issue-benchmark.contract.test.ts`, `multi-issue-session-manager.integration.test.ts`, `naia-pi-versioned-billing.contract.test.ts`, `pi-continuous-loop-benchmark.contract.test.ts`, `pi-continuous-loop-cli.integration.test.ts`, `pi-continuous-loop.contract.test.ts`, `pi-continuous-loop.integration.test.ts`, `pi-cost-comparison-runner.contract.test.ts`, `profiled-issue-worker.integration.test.ts`, `selected-workspace-coding.contract.test.ts`, `single-issue-orchestrator.integration.test.ts`, `single-issue-team-verifier.integration.test.ts`, `sqlite-paid-call-budget.integration.test.ts`, `uc-naia-pi-cli-process.integration.test.ts`, `uc-naia-pi-controlled.integration.test.ts`. 수정 후 HEAD 실패 집합은 기준 실패 집합의 부분집합(신규 파일 0).
+- memory reload 시험은 실패 때도 composition cleanup·memory close·임시 workspace 삭제를 수행하도록 `finally`를 추가하고 timeout을 15초로 조정했다. 수정 후 전체 두 회차에서 두 시험이 통과(1,088ms·934ms).
+- Node 22 중간 실행에서 `uc1-memory-process.integration.test.ts`가 종료 코드 `-1`을 냈다. 원인은 `GRPC_LISTENING` 출력이 `SIGTERM` handler보다 앞선 코드 순서였고, handshake 출력을 handler 등록 뒤로 옮겼다. 최종 두 회차에서 해당 시험은 391ms·409ms로 통과. Discord 프로세스 시험 자체는 자식 종료 대기, 임시 디렉터리 삭제, status timer 해제를 수행한다.
+- 기준과 HEAD 모두 132개 기존 실패 시험과 uncaught error 1건이 남았으며 파일 집합은 동일하다. 전체 `pnpm test`는 pretest build를 포함한다. P01~P04 완료, FR-DISCORD-169/P05는 새 독립 적대 리뷰 전까지 In review.
+- 게시: PR #170은 초안 상태다.
+- 마지막 업데이트: 2026-10-31 15:52 KST.
 
 ## Memory live reload — 2026-08-03 (#106)
 

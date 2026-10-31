@@ -659,8 +659,6 @@ if (!discordStandalone) {
     for (const fn of cleanupFns) { try { fn(); } catch { /* best-effort */ } }
     process.exit(1);
   }
-  // ⚠️ stdout 한 줄 핸드셰이크(데이터 transport 아님) — Rust 가 이 addr 를 읽어 gRPC connect.
-  process.stdout.write(`GRPC_LISTENING ${grpcAddr}\n`);
 }
 discordRuntime?.start();
 courseService?.restore();
@@ -729,6 +727,8 @@ onShutdown = (exitCode = 0) => {
 // gRPC 서버 종료 = OS(Rust)가 보내는 시그널. drain/flush/grpc-shutdown 수행 후 exit.
 process.on("SIGTERM", () => { void onShutdown?.(); });
 process.on("SIGINT", () => { void onShutdown?.(); });
+// 호스트는 핸드셰이크를 읽자마자 종료 신호를 보낼 수 있으므로 graceful handler 등록 후 알린다.
+if (!discordStandalone) process.stdout.write(`GRPC_LISTENING ${grpcAddr}\n`);
 // ⚠️ 최후 백스톱(재감사 2026-06-23): 부팅/런타임의 잡히지 않은 reject/throw 가 raw 스택 크래시로 새지 않게 —
 //   정직 메시지 남기고 자원 정리 후 종료. 정상 경로는 각자 try/catch 로 처리되며 여긴 그물망이다.
 process.on("unhandledRejection", (reason) => {

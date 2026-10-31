@@ -69,9 +69,9 @@
     "discord_169_r7": {
       "issue": "https://github.com/nextain/naia-agent/issues/169",
       "status": "in_review",
-      "scope": "r7: 독립 검수 B2 — CI 조건 전체 시험 실패 집합 비교, memory reload 시험의 실패 경로 정리 및 근거 있는 timeout 조정",
-      "last_updated": "2026-10-31T15:34:15+09:00",
-      "verification": "CI=1 pnpm test 4회 CPU affinity 고정 비교: 기준 2회는 8개 파일/29 실패/2139 통과/11 skip/2 errors 및 7개/28/2140/11/2; 수정 후 HEAD 2회는 7개/28/2178/11/2 및 8개/29/2177/11/2. 기준 2회 실패 파일 합집합 8개, 수정 후 각 HEAD 실패 집합은 그 부분집합(신규 파일 0). 수정 전 HEAD 2회 중 1회 memory-settings-reload 추가 실패; finally 정리와 15초 timeout 적용 후 두 전체 실행에서 해당 시험 2/2 통과(1237ms, 1226ms). P05는 후속 독립 재검토 전까지 In review."
+      "scope": "r7: 독립 검수 B2 — memory reload 실패 경로 정리·timeout 보강, Node 22 전체 시험 비교, gRPC readiness handshake 순서 경합 보완",
+      "last_updated": "2026-10-31T15:52:06+09:00",
+      "verification": "Node 22.23.4, CI=1, 4 CPU affinity/기본 Vitest 3 workers·heap override 없음으로 전체 비교. 기준 2회 모두 20개 파일/132 실패/2036 통과/11 skip/1 error; 수정 후 HEAD 2회 모두 20개/132/2074/11/1. 각 HEAD 실패 집합은 기준 합집합과 같음. memory-settings-reload 2/2 통과(1088ms, 934ms); GRPC_LISTENING을 SIGTERM handler 등록 뒤로 옮긴 뒤 uc1-memory-process 2/2 통과(391ms, 409ms). P05는 독립 검수 전까지 In review."
     }
   },
   "sdlc_gates": {
@@ -96,13 +96,13 @@
     "P04": {
       "status": "done",
       "name": "integration_test",
-      "deliverable": "r7 CI 전체 비교: 기준 2회 8/29/2139 pass/11 skip/2 errors 및 7/28/2140/11/2; 수정 후 HEAD 2회 7/28/2178/11/2 및 8/29/2177/11/2. 실패 파일 기준 합집합 8개이며 각 수정 후 HEAD 집합은 부분집합. memory-settings-reload 2/2 통과(1237ms, 1226ms), 실패 경로 resource cleanup 및 15초 timeout 반영.",
+      "deliverable": "Node 22.23.4 CI 전체 비교 기준·HEAD 각각 2회: 모두 기준 실패 파일 20개, 132 failed/1 uncaught error. HEAD는 2074 pass, 기준은 2036 pass; 신규 실패 파일 0. memory-settings-reload 2/2 통과(1088ms, 934ms), uc1-memory-process shutdown 경합 순서 수정 후 2/2 통과(391ms, 409ms).",
       "ref": "docs/user-scenarios.md#uc-discord-standalone-169"
     },
     "P05": {
       "status": "pending",
       "name": "requirements_complete",
-      "deliverable": "FR-DISCORD-169는 B2 수정 반영 후 새 독립 적대 리뷰 확인 전까지 In review 유지",
+      "deliverable": "FR-DISCORD-169는 r7 수정과 CI 비교 반영 후 새 독립 적대 리뷰 확인 전까지 In review 유지",
       "ref": "docs/requirements.md#fr-discord-169"
     }
   },
@@ -122,7 +122,7 @@
     ]
   },
   "resource_registry": {
-    "last_enforce_run": "2026-10-31T15:32:04+09:00",
+    "last_enforce_run": "2026-10-31T15:52:02+09:00",
     "violations": []
   },
   "_usage": {
@@ -146,5 +146,5 @@
       "4. resource_registry.violations 초기화"
     ]
   },
-  "last_updated": "2026-10-31T15:34:15+09:00"
+  "last_updated": "2026-10-31T15:52:06+09:00"
 }
