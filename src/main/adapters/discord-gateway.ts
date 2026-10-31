@@ -450,7 +450,9 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
             if (metadata.guildId !== undefined || metadata.parentChannelId !== undefined
               || metadata.type !== 1
               || !metadata.recipientIds?.includes(message.authorId)) return;
-          } else if (metadata.guildId !== message.guildId
+          } else if ((!isDiscordGuildMessageChannelType(metadata.type)
+            && !isDiscordThreadChannelType(metadata.type))
+            || metadata.guildId !== message.guildId
             || (isDiscordThreadChannelType(metadata.type) && !metadata.parentChannelId)
             || (metadata.parentChannelId !== undefined && !isDiscordThreadChannelType(metadata.type))) {
             return;

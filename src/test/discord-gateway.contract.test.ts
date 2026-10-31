@@ -149,8 +149,15 @@ describe("T-DISCORD-RT-02/05/06 — Discord Gateway adapter", () => {
     socket.payload({ op: 0, t: "CHANNEL_CREATE", d: {
       id: "200", guild_id: "100", type: 20,
     } });
+    socket.payload({ op: 0, t: "CHANNEL_CREATE", d: {
+      id: "202", guild_id: "100", type: 1, recipients: [{ id: "300" }],
+    } });
     socket.payload({ op: 0, t: "MESSAGE_CREATE", d: {
       id: "403", guild_id: "100", channel_id: "200", content: "unsupported cached type",
+      author: { id: "300", bot: false },
+    } });
+    socket.payload({ op: 0, t: "MESSAGE_CREATE", d: {
+      id: "405", guild_id: "100", channel_id: "202", content: "DM type in guild context",
       author: { id: "300", bot: false },
     } });
     socket.payload({ op: 0, t: "MESSAGE_CREATE", d: {
