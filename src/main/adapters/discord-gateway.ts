@@ -224,6 +224,7 @@ function rememberChannel(
     || !Number.isSafeInteger(channel.type) || Number(channel.type) < 0 || Number(channel.type) > 20) return;
   const parent = channel.parent_id;
   const guildId = channel.guild_id;
+  const channelType = Number(channel.type);
   let recipientIds: string[] | undefined;
   if (channel.recipients !== undefined) {
     if (!Array.isArray(channel.recipients) || channel.recipients.length > 100) {
@@ -257,9 +258,9 @@ function rememberChannel(
   }
   channels.delete(channel.id);
   const metadata: ChannelMetadata = {
-    type: Number(channel.type),
+    type: channelType,
     ...(typeof guildId === "string" ? { guildId } : {}),
-    ...(typeof parent === "string" ? { parentChannelId: parent } : {}),
+    ...(THREAD_CHANNEL_TYPES.has(channelType) && typeof parent === "string" ? { parentChannelId: parent } : {}),
     ...(recipientIds !== undefined ? { recipientIds } : {}),
   };
   channels.set(channel.id, metadata);

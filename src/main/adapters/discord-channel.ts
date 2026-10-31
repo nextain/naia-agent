@@ -751,10 +751,8 @@ export class DiscordChannelRuntime {
         isThread: false,
       };
     }
-    const isThread = THREAD_CHANNEL_TYPES.has(message.channelType ?? -1)
-      || message.parentChannelId !== undefined;
+    const isThread = THREAD_CHANNEL_TYPES.has(message.channelType ?? -1);
     if (isThread && !message.parentChannelId) return undefined;
-    if (!isThread && message.parentChannelId !== undefined) return undefined;
     const authorizedChannelId = isThread ? message.parentChannelId : message.channelId;
     const binding = this.config.bindings.find((candidate) =>
       candidate.guildId === message.guildId && candidate.channelId === authorizedChannelId);

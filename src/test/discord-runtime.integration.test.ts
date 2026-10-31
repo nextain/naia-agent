@@ -1019,6 +1019,18 @@ describe("T-DISCORD-RT-01/02 — authenticated ingress to existing chat pipeline
     await runtime.stop();
   });
 
+  it("routes a regular guild channel by its own ID when parent_id denotes a category", async () => {
+    const { gateway, runtime } = makeHarness({ participation: "all" });
+    try {
+      await waitFor(() => gateway.handlers.length === 1);
+      gateway.message({ channelType: 0, parentChannelId: "150" });
+      await waitFor(() => answerReplies(gateway.connections[0]!).length === 1);
+      expect(answerReplies(gateway.connections[0]!)[0]!.content).toBe("answer:hello");
+    } finally {
+      await runtime.stop();
+    }
+  });
+
   it("rejects a guild/channel cross-product that is not an exact binding", async () => {
     const provider = { chat: vi.fn() } as unknown as ProviderPort;
     const { gateway, runtime } = makeHarness({ provider, twoBindings: true });

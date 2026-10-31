@@ -1071,7 +1071,7 @@ Coverage: `src/test/action-execution-policy.contract.test.ts`, `src/test/action-
 
 ## UC-DISCORD-STANDALONE-169 — 셸 없이 허용된 Discord 대화에 응답한다 (진행 중)
 
-사용자는 `naia-agent serve`와 전용 비밀 파이프, 명시적인 권한 설정으로 독립 호스트를 실행한다. Gateway 캐시에 이미 있는 일반 DM 채널은 그 채널 유형을 사용한다. 유형을 아직 모르는 guild 없는 메시지는 `GET /channels/{channel_id}`로 확인하고, type 1이며 recipients에 작성자가 포함될 때만 캐시해 수용한다. 그룹 DM·조회 실패·작성자가 recipients에 없는 DM·비허용 사용자는 거부한다. 서버 채널 유형이나 스레드 부모가 캐시에 없으면 같은 REST 조회로 guild와 parent를 확인하며, 부모를 검증할 수 없는 스레드는 거부한다. 허용 guild·부모 채널·사용자가 모두 일치하는 멘션으로 스레드를 만들고 그 스레드의 후속 메시지는 멘션 없이 이어 간다. DM 채널·서버 스레드·사용자별 대화 문맥은 분리된다. Discord 개인 기억과 대화록의 기존 차단은 유지한다.
+사용자는 `naia-agent serve`와 전용 비밀 파이프, 명시적인 권한 설정으로 독립 호스트를 실행한다. serve는 기존 workspace와 구체적인 main provider 설정을 확인한 뒤 준비 상태를 보고하며, 누락 시 도움말에 필요한 설정을 안내하고 0이 아닌 코드로 끝난다. 서버 일반 메시지 채널은 text(0)·announcement(5), thread는 announcement/public/private thread(10·11·12)만 허용한다. 일반 채널의 `parent_id`는 category 관계이므로 thread 부모로 쓰지 않는다. thread 부모는 허용된 thread 유형에서만 검사한다. 미지원 유형은 Gateway 캐시와 runtime 모두 거부한다. DM은 캐시에 있더라도 매 메시지마다 type 1과 recipients 내 작성자 일치를 확인한다. 확인할 수 없는 READY·REST DM 항목은 신뢰 캐시로 승격하지 않으며, recipients 부재·조회 실패·그룹 DM·비허용 사용자는 거부한다. 서버 channel/thread 정보가 없거나 guild 정보가 불완전하면 REST 확인 뒤 사용한다. `THREAD_LIST_SYNC`·`GUILD_CREATE`의 바깥 guild ID를 thread metadata에 보충한다. 허용 guild·부모 채널·사용자가 모두 일치하는 멘션으로 스레드를 만들고 그 스레드의 후속 메시지는 멘션 없이 이어 간다. DM 채널·서버 스레드·사용자별 대화 문맥은 분리된다. ingress와 각 egress 쓰기에서 현재 generation authority와 process lease 소유권을 함께 확인하고, lease를 잃으면 처리와 readiness를 중단한 뒤 프로세스를 종료한다. Discord 개인 기억과 대화록의 기존 차단은 유지한다.
 
 | 시험 시나리오 | 검증 대상 |
 |---|---|
@@ -1079,5 +1079,6 @@ Coverage: `src/test/action-execution-policy.contract.test.ts`, `src/test/action-
 | DM·스레드 세션 격리, 멘션에서 스레드 생성, 중복·실패 처리 | `src/test/discord-runtime.integration.test.ts`, `src/test/discord-inbox-store.contract.test.ts`, `src/test/discord-gateway.contract.test.ts` |
 | 독립 호스트 공통 조립, stdin 토큰·상태·authority 설정 및 gRPC 비활성화 배선 | `src/test/discord-standalone-entry.contract.test.ts`, `src/test/discord-entry-wiring.contract.test.ts` |
 | Gateway 캐시/가짜 REST로 DM type·recipients와 스레드 guild·parent를 확인하고 실패 시 거부 | `src/test/discord-gateway.contract.test.ts`, `src/test/discord-standalone.integration.test.ts` |
-| 가짜 Gateway와 모델, REST를 통과하는 전체 흐름 및 독립 호스트의 pipe·SIGTERM·소유권 충돌 프로세스 시험 | `src/test/discord-standalone.integration.test.ts`, `src/test/discord-serve-process.integration.test.ts` |
+| 일반 채널 category parent 의미, 일반/thread 유형 allowlist, DM 매 메시지 recipient 확인, outer guild ID 보충 및 불완전 metadata REST 재확인 | `src/test/discord-gateway.contract.test.ts`, `src/test/discord-runtime.integration.test.ts`, `src/test/discord-standalone.integration.test.ts` |
+| 가짜 Gateway와 모델, REST를 통과하는 전체 흐름 및 독립 호스트의 pipe·SIGTERM·lease 탈취 fencing·workspace/provider 준비 검증 | `src/test/discord-standalone.integration.test.ts`, `src/test/discord-serve-process.integration.test.ts`, `src/test/discord-trusted-state.contract.test.ts` |
 | 셸 gRPC Chat·Cancel·승인·설정 회귀 | 기존 gRPC 및 Discord 배선 테스트 |

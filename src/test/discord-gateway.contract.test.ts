@@ -133,6 +133,28 @@ describe("T-DISCORD-RT-02/05/06 — Discord Gateway adapter", () => {
     connection.close();
   });
 
+  it("does not treat a guild text channel category parent as a thread parent", async () => {
+    const socket = new FakeSocket();
+    const onMessage = vi.fn();
+    const connection = await makeDiscordGateway({
+      fetch: vi.fn(async () => response(200, { url: "wss://gateway.discord.test" })) as typeof fetch,
+      socket: () => socket,
+    }).connect("token", { onReady() {}, onMessage });
+    socket.payload({ op: 0, t: "READY", d: { user: { id: "999" } } });
+    socket.payload({ op: 0, t: "CHANNEL_CREATE", d: {
+      id: "200", guild_id: "100", parent_id: "150", type: 0,
+    } });
+    socket.payload({ op: 0, t: "MESSAGE_CREATE", d: {
+      id: "402", guild_id: "100", channel_id: "200", content: "in category",
+      author: { id: "300", bot: false },
+    } });
+
+    await vi.waitFor(() => expect(onMessage).toHaveBeenCalledTimes(1));
+    expect(onMessage.mock.calls[0]![0]).toMatchObject({ channelType: 0, channelId: "200" });
+    expect(onMessage.mock.calls[0]![0]).not.toHaveProperty("parentChannelId");
+    connection.close();
+  });
+
   it("attaches private channel type metadata from READY for DM policy checks", async () => {
     const socket = new FakeSocket();
     const onMessage = vi.fn();
