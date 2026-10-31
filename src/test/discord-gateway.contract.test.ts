@@ -195,7 +195,10 @@ describe("T-DISCORD-RT-02/05/06 — Discord Gateway adapter", () => {
     }).connect("token", { onReady() {}, onMessage });
     socket.payload({ op: 0, t: "READY", d: {
       user: { id: "999" },
-      private_channels: [{ id: "500", type: 1 }, { id: "501", type: 3 }],
+      private_channels: [
+        { id: "500", type: 1, recipients: [{ id: "300" }] },
+        { id: "501", type: 3, recipients: [{ id: "300" }, { id: "301" }] },
+      ],
     } });
     socket.payload({ op: 0, t: "MESSAGE_CREATE", d: {
       id: "402", channel_id: "500", content: "dm", author: { id: "300" },
@@ -206,6 +209,36 @@ describe("T-DISCORD-RT-02/05/06 — Discord Gateway adapter", () => {
     await vi.waitFor(() => expect(onMessage.mock.calls.map(([message]) => message)).toEqual([
       expect.objectContaining({ channelId: "500", guildId: null, channelType: 1 }),
     ]));
+    connection.close();
+  });
+
+  it("does not trust recipient-less READY or REST DM metadata and retries REST", async () => {
+    const socket = new FakeSocket();
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(response(200, { url: "wss://gateway.discord.test" }))
+      .mockResolvedValueOnce(response(200, { id: "500", type: 1 }))
+      .mockResolvedValueOnce(response(403, { message: "forbidden" }));
+    const onMessage = vi.fn();
+    const connection = await makeDiscordGateway({
+      fetch: fetcher as typeof fetch,
+      socket: () => socket,
+    }).connect("token", { onReady() {}, onMessage });
+    socket.payload({ op: 0, t: "READY", d: {
+      user: { id: "999" },
+      private_channels: [{ id: "500", type: 1 }],
+    } });
+    socket.payload({ op: 0, t: "MESSAGE_CREATE", d: {
+      id: "406", channel_id: "500", content: "unknown recipient", author: { id: "300" },
+    } });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(onMessage).not.toHaveBeenCalled();
+    socket.payload({ op: 0, t: "MESSAGE_CREATE", d: {
+      id: "407", channel_id: "500", content: "retry after failed REST", author: { id: "300" },
+    } });
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(3));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(onMessage).not.toHaveBeenCalled();
     connection.close();
   });
 

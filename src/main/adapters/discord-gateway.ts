@@ -247,6 +247,10 @@ function rememberChannel(
       recipientIds.push(id);
     }
   }
+  if (channel.type === 1 && recipientIds === undefined) {
+    channels.delete(channel.id);
+    return undefined;
+  }
   if (guildId !== undefined && guildId !== null
     && (typeof guildId !== "string" || !SNOWFLAKE.test(guildId))) {
     channels.delete(channel.id);
@@ -421,14 +425,12 @@ export function makeDiscordGateway(options: DiscordGatewayAdapterOptions = {}): 
         return lookup;
       };
       const deliverMessage = (message: DiscordGatewayMessage) => {
-        const alreadyKnown = channelMetadata.has(message.channelId);
         void lookupChannel(message.channelId).then((metadata) => {
           if (settled || !metadata) return;
           if (message.guildId === null) {
             if (metadata.guildId !== undefined || metadata.parentChannelId !== undefined
               || metadata.type !== 1
-              || (!alreadyKnown && !metadata.recipientIds?.includes(message.authorId))
-              || (metadata.recipientIds && !metadata.recipientIds.includes(message.authorId))) return;
+              || !metadata.recipientIds?.includes(message.authorId)) return;
           } else if (metadata.guildId !== message.guildId
             || (isDiscordThreadChannelType(metadata.type) && !metadata.parentChannelId)
             || (metadata.parentChannelId !== undefined && !isDiscordThreadChannelType(metadata.type))) {
