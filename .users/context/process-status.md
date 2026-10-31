@@ -8,7 +8,7 @@
 - 전체 회귀: `fdc6fcb` 직접 기준은 7개 파일 28건 실패, 통과 2,140건, skip 11건, uncaught error 2건. 현재도 동일한 7개 파일 28건 실패와 uncaught error 2건이며 통과 2,178건, skip 11건(신규 실패 0, 통과 +38).
 - 게이트: `pnpm build`, 루트 구조, logging, compile-integrity, CI 구조 검증 통과. P01~P04 완료. FR-DISCORD-169와 P05는 독립 적대 리뷰 기록 전까지 검토 중.
 - 게시: 작업 브랜치 push 및 PR 검증 표·잔여 위험 갱신 완료.
-- 마지막 업데이트: 2026-10-31 14:35 KST.
+- 마지막 업데이트: 2026-10-31 14:39 KST.
 
 ## Memory live reload — 2026-08-03 (#106)
 
