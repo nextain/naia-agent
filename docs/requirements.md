@@ -974,17 +974,15 @@ Status: Done (#154)
 
 컨테이너 예제는 호스트 authority 디렉터리를 읽기 전용으로, lease·상태 디렉터리를 별도로 쓰기 가능하게 마운트한다. 선택적 절대 lease 경로를 지원하며 미설정 시 기존 경로를 유지한다. rootless 실행은 이미지 node UID/GID에 매핑한다.
 
-검증: Node 22.23.4, `CI=1`, CPU 0–3 affinity, Vitest 기본 3 workers 및 기본 heap에서 기준과 수정본의 `pnpm test`를 각각 두 번 순차 실행했다. 각 실행의 pretest 빌드는 통과했다.
+검증: 독립 검수 r6가 Node 22.23.4, pnpm 10.33.0, `CI=1`, CPU 0–3 affinity, Vitest 기본 worker/heap, Discord live 비활성, 자격증명 없는 격리 환경(`env -i`, 임시 HOME/XDG/TMPDIR)에서 기준과 HEAD `41bd3ed1`의 `pnpm test`를 각각 두 번 순차 실행했다. 각 실행의 pretest 빌드는 통과했다.
 
 | 실행 | 시험 파일 실패/통과/skip | 시험 실패/통과/skip | uncaught errors | 시간 |
 |---|---:|---:|---:|---:|
-| 기준 `fdc6fcb` 1회차 | 20 / 154 / 3 | 132 / 2,036 / 11 | 1 | 105.27s |
-| 기준 `fdc6fcb` 2회차 | 20 / 154 / 3 | 132 / 2,036 / 11 | 1 | 107.02s |
-| 수정 후 HEAD 1회차 | 20 / 157 / 3 | 132 / 2,080 / 11 | 1 | 116.93s |
-| 수정 후 HEAD 2회차 | 20 / 157 / 3 | 132 / 2,080 / 11 | 1 | 115.33s |
+| 기준 `fdc6fcb` 1회차 | 8 / 166 / 3 | 29 / 2,136 / 14 | 2 | 107.94s |
+| 기준 `fdc6fcb` 2회차 | 8 / 166 / 3 | 29 / 2,136 / 14 | 2 | 110.24s |
+| 수정 후 HEAD 1회차 | 8 / 169 / 3 | 29 / 2,183 / 14 | 2 | 117.52s |
+| 수정 후 HEAD 2회차 | 8 / 169 / 3 | 29 / 2,183 / 14 | 2 | 115.52s |
 
-네 실행의 실패 파일 집합은 모두 같다. HEAD 각 회차의 실패 집합은 기준 합집합(20개)의 부분집합이며 새 실패 파일은 없다: `cli-manage-process.integration.test.ts`, `delegate-agent-skill.contract.test.ts`, `durable-supervisor.integration.test.ts`, `issue-team-benchmark.contract.test.ts`, `issue-team-worker.integration.test.ts`, `multi-issue-benchmark.contract.test.ts`, `multi-issue-session-manager.integration.test.ts`, `naia-pi-versioned-billing.contract.test.ts`, `pi-continuous-loop-benchmark.contract.test.ts`, `pi-continuous-loop-cli.integration.test.ts`, `pi-continuous-loop.contract.test.ts`, `pi-continuous-loop.integration.test.ts`, `pi-cost-comparison-runner.contract.test.ts`, `profiled-issue-worker.integration.test.ts`, `selected-workspace-coding.contract.test.ts`, `single-issue-orchestrator.integration.test.ts`, `single-issue-team-verifier.integration.test.ts`, `sqlite-paid-call-budget.integration.test.ts`, `uc-naia-pi-cli-process.integration.test.ts`, `uc-naia-pi-controlled.integration.test.ts`.
+네 실행의 실패 파일 집합과 실패 시험 제목·중복 건수는 모두 같고 신규 실패는 0건이다. 기준과 HEAD 모두 실패한 파일: `delegate-agent-skill.contract.test.ts`, `issue-team-benchmark.contract.test.ts`, `memory-store-path-isolation.contract.test.ts`, `multi-issue-benchmark.contract.test.ts`, `pi-cost-comparison-runner.contract.test.ts`, `selected-workspace-coding.contract.test.ts`, `uc-naia-pi-cli-process.integration.test.ts`, `uc1-memory-process.integration.test.ts`. 전체 시험은 기존 실패로 exit 1이다. 집중 시험(Discord·Jeonju·memory reload·wire security 18개 파일)은 256 통과·1 skip, `pnpm build`와 `tsc --noEmit`은 통과했다. 이전 r8 실행 환경의 수치(실패 20개 파일·132개 시험)는 격리하지 않은 환경 기준이라 이 표로 대체했다.
 
-실패 시험 이름과 중복 건수까지 기준 합집합과 비교했고 두 HEAD 회차의 신규 실패는 0건이다. 각 실행의 uncaught error는 `uc-naia-pi-controlled.integration.test.ts`의 동일한 JSON 파싱 오류다. 전체 시험은 기존 실패로 exit 1이다.
-
-검수 r3의 시작 경합은 lease 취득 후 기존 처리기 등록 지점 전의 상태 쓰기를 가로채는 자식 프로세스 시험으로 고정했다. SIGTERM 단독·SIGINT 단독·연속 신호에서 초기화 중단, stopped, lease 해제, 정상 종료와 즉시 재시작을 확인했다. 상태 쓰기 예외, 거절된 promise, runtime 시작 직후 예외도 실패 상태·lease 해제·즉시 재시작을 확인했다. 관련 프로세스·배선 집중 시험은 26개 모두 통과했다. 시험은 가짜 Gateway/REST를 사용하고 실제 Discord에 접속하지 않았다. P05는 새 독립 검수 전까지 In review다.
+검수 r3의 시작 경합은 lease 취득 후 기존 처리기 등록 지점 전의 상태 쓰기를 가로채는 자식 프로세스 시험으로 고정했다. SIGTERM 단독·SIGINT 단독·연속 신호에서 초기화 중단, stopped, lease 해제, 정상 종료와 즉시 재시작을 확인했다. 상태 쓰기 예외, 거절된 promise, runtime 시작 직후 예외도 실패 상태·lease 해제·즉시 재시작을 확인했다. 관련 프로세스·배선 집중 시험은 26개 모두 통과했다. 시험은 가짜 Gateway/REST를 사용하고 실제 Discord에 접속하지 않았다. P05는 독립 검수 r6에서 통과했다. 실제 Discord 자격증명·Gateway 권한·DM/thread 수신·재연결 dedupe 확인은 배포 전 실기 항목으로 남는다.
