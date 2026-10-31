@@ -52,6 +52,18 @@ describe("loadMain — config.json (naia-os 셸 정본 포맷; 키는 키체인=
 });
 
 describe("loadLlmRoles — main/sub/memory 독립 설정과 migration", () => {
+	it("작은 모델과 기억 모델이 모두 비어 있으면 기억의 기존 휴리스틱을 유지한다", () => {
+		const result = store({ [CONFIG]: JSON.stringify({ provider: "nextain", model: "main" }) }).loadLlmRoles("/ws");
+		expect(result?.ok && result.configs[2].provider.value).toBe("none");
+	});
+	it("기억 모델이 비고 작은 모델을 명시하면 기억은 작은 모델을 따른다", () => {
+		const result = store({ [CONFIG]: JSON.stringify({ provider: "nextain", model: "main", subLlmProvider: "nextain", subLlmModel: "small" }) }).loadLlmRoles("/ws");
+		expect(result?.ok && result.configs[2].model.value).toBe("small");
+	});
+	it("명시적 memory 끄기는 작은 모델 상속으로 바뀌지 않는다", () => {
+		const result = store({ [CONFIG]: JSON.stringify({ provider: "nextain", model: "main", subLlmProvider: "nextain", subLlmModel: "small", memoryLlmProvider: "none" }) }).loadLlmRoles("/ws");
+		expect(result?.ok && result.configs[2].provider.value).toBe("none");
+	});
 	it("구조화 main은 legacy provider/model보다 실제 채팅 기본 설정에서 우선한다", () => {
 		const settings = store({
 			[CONFIG]: JSON.stringify({
@@ -93,7 +105,7 @@ describe("loadLlmRoles — main/sub/memory 독립 설정과 migration", () => {
 		});
 	});
 
-	it("legacy memoryLlm*은 memory로 보존하고 sub는 legacy-inherit", () => {
+	it("UT-SM-AGENT-02 옛 기억 전용 설정을 작은 역할로 이어받고 독립 선택을 보존한다", () => {
 		const result = store({
 			[CONFIG]: JSON.stringify({
 				provider: "codex",
@@ -108,7 +120,6 @@ describe("loadLlmRoles — main/sub/memory 독립 설정과 migration", () => {
 		expect(result.configs[1].provider).toEqual({
 			value: "ollama",
 			provenance: "legacy-inherit",
-			inheritedFromRole: "memory",
 		});
 		expect(result.configs[2].provider).toEqual({ value: "ollama", provenance: "explicit" });
 	});

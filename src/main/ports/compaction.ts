@@ -4,12 +4,16 @@
 // 먼저 동작하는 요약형 압축이다. 구현 = adapters/naia-memory.ts(같은 MemorySystem 위임). 미주입 = 압축
 // 없음(무회귀: budgeted-conversation 드롭만).
 import type { ChatMessage } from "../domain/chat.js";
+import type { SubLlmCallOptions } from "./sub-llm.js";
 
 /** 압축 요청 — 최근 keepTail 개는 원문 유지, 그 앞(head)을 targetTokens 예산의 recap 으로 요약. */
 export interface CompactionRequest {
   readonly messages: readonly ChatMessage[];
   readonly keepTail: number;
   readonly targetTokens: number;
+  readonly signal?: AbortSignal;
+  readonly authorizeAndDisclose?: SubLlmCallOptions["authorizeAndDisclose"];
+  readonly onRoleError?: (error: unknown) => void;
 }
 
 /** 압축 결과 — recap(head 요약 텍스트, systemPrompt 에 주입) + droppedCount(요약에 흡수된 메시지 수).

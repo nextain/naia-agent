@@ -39,7 +39,7 @@ describe("main/sub/memory 역할 해석", () => {
     expect(memory.credentialRef).toEqual({ value: "sub-key", provenance: "inherit", inheritedFromRole: "sub" });
   });
 
-	it("legacy memoryLlm*은 memory로 보존하고 sub는 legacy-inherit로 해석한다", () => {
+	it("옛 기억 전용 설정을 작은 역할로 이어받고 독립 선택을 보존한다", () => {
     const result = resolveLlmRoles({
       legacy: {
         main: { provider: "openai", model: "gpt-5.4" },
@@ -52,7 +52,6 @@ describe("main/sub/memory 역할 해석", () => {
     expect(result.configs[1].provider).toEqual({
       value: "ollama",
       provenance: "legacy-inherit",
-      inheritedFromRole: "memory",
     });
     expect(result.configs[2].provider).toEqual({ value: "ollama", provenance: "explicit" });
   });
@@ -177,4 +176,15 @@ describe("main/sub/memory 역할 해석", () => {
       expect.objectContaining({ provider: "anthropic", model: "opus", when: { key: "agent", values: ["expert"] } }),
     ]);
   });
+});
+
+it("UT-SM-AGENT-01 기억 우선과 빈 두 역할의 무모델 경로를 구별한다", () => {
+  const explicit = resolveLlmRoles({ roles: { main: { provider: "nextain", model: "main" }, sub: { provider: "nextain", model: "small" }, memory: { provider: "ollama", model: "memory" } } });
+  expect(explicit.ok && explicit.configs[2].model.value).toBe("memory");
+  const inherited = resolveLlmRoles({ roles: { main: { provider: "nextain", model: "main" }, sub: { provider: "nextain", model: "small" } } });
+  expect(inherited.ok && inherited.configs[2].model.value).toBe("small");
+  const empty = resolveLlmRoles({ roles: { main: { provider: "nextain", model: "main" }, memory: { provider: "none", model: "none" } } });
+  expect(empty.ok && empty.configs[2].provider.value).toBe("none");
+  const main = resolveLlmRoles({ roles: { main: { provider: "nextain", model: "main" }, sub: { inherit: "main" } } });
+  expect(main.ok && main.configs[2].model.value).toBe("main");
 });

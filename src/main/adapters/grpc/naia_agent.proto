@@ -123,7 +123,7 @@ enum ProcessingDecision {
   CONFIRMATION_REQUIRED = 3;
 }
 
-enum ThinkingLevel { THINKING_LEVEL_UNSPECIFIED = 0; THINKING_LEVEL_OFF = 1; THINKING_LEVEL_LOW = 2; THINKING_LEVEL_HIGH = 3; }
+enum ThinkingLevel { THINKING_LEVEL_UNSPECIFIED = 0; THINKING_LEVEL_OFF = 1; THINKING_LEVEL_LOW = 2; THINKING_LEVEL_HIGH = 3; THINKING_LEVEL_XHIGH = 4; }
 message ThinkingRequest { ThinkingLevel level = 1; }
 
 // 현 protocol.ts chat_request 전 필드 보존 (R1-1: enableThinking/gatewayUrl/disabledSkills 누락 금지). provider 제거(정본).

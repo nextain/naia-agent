@@ -968,6 +968,81 @@ Status: Done
 Status: Done (#154)
 
 
+
+## UC-SM-AGENT-01 — 작은 모델을 기억 작업에 연결 (목표 계약)
+
+이 절은 셸 `FR-SM.2`~`.7`, `NFR-SM.2`~`.3`, `FE-SM-01`~`03`의 에이전트 책임을 명시한다. 각 시험의 실제 실행 상태는 아래 표를 따른다. 셸 UI와 웹 기억 소비는 각 소유 범위에서 다룬다.
+
+| ID | 요구 및 받아들임 기준 | 시험 |
+|---|---|---|
+| FR-SM-AGENT-1 | 명시 기억 모델이 우선이고, 없으면 명시 `sub`를 쓴다. 기억과 작은 역할이 모두 미설정이면 메인을 호출하지 않고 기존 휴리스틱 추출과 누적 요약 또는 결정론 요약을 쓴다. `sub`가 명시적으로 메인을 상속하거나 지원되지 않는 작은 모델이면 메인을 따른다. 기억 끄기는 보존한다. 셸 FR-SM.4·.5, FE-SM-01·03. | UT-SM-AGENT-01, IT-SM-AGENT-01 |
+| FR-SM-AGENT-2 | 유효한 옛 `memoryLlm*`만 있고 작은 역할·`subLlm*`가 비면 공급자·모델·주소·자격 참조를 작은 역할과 기억 역할에 해석하되 기억 설정은 보존한다. 명시 작은 선택은 범용 작은 작업에서 옛 기억보다 우선하고 기억 역할은 별도로 유지한다. 셸이 전달한 선택과 생각 수준을 보존·해석한다. 셸 FR-SM.2·.4·.5, FE-SM-02·03. 셸 카탈로그 기본값 조건은 셸 UT-SM-01에서 검증한다. | UT-SM-AGENT-02, IT-SM-AGENT-02; 셸 UT-SM-01 (카탈로그) |
+| FR-SM-AGENT-3 | 데스크톱 대화의 기억 사실 추출과 압축 요약에 매 요청마다 해석된 기억 역할을 연결한다. 메인 대화와 보조 Pi 에이전트는 메인 모델을 유지한다. 요청 간 추출기·요약기와 승인 문맥은 섞이지 않는다. 셸 FR-SM.5·.7, FE-SM-01. | IT-SM-AGENT-01, IT-SM-AGENT-03 |
+| FR-SM-AGENT-4 | 작은 모델 작업 실패 시 실제 메인 대상의 승인을 확인하고 동일 작업을 최대 한 번 재시도한다. 두 시도가 실패하면 최초 오류를 보존한다. 모든 실제 전송 직전 해당 대상의 승인을 확인하며 거부된 전송은 0회다. 직접 선택한 로컬 Qwen 실패 시 클라우드 메인으로 전송하지 않고 휴리스틱 추출 또는 기존 누적·결정론 요약으로 복구한다. 셸 FR-SM.3·.6, FE-SM-03. | UT-SM-AGENT-03, IT-SM-AGENT-04 |
+| NFR-SM-AGENT-1 | 각 시도의 역할, 실제 공급자·모델, 성공/실패와 대체 사유를 기록하되 자격 증명과 대화 본문을 기록하지 않는다. 실패와 재시도로 사실을 중복 저장하지 않고 기존 떠오름·꺼짐·점수 문턱 선택을 보존한다. 셸 NFR-SM.2·.3, FE-SM-03. | IT-SM-AGENT-04, IT-SM-AGENT-05 |
+| FR-THINK-13 | 셸 요청 수준 `off`, `low`, `high`, `xhigh`를 전송부터 제공자까지 보존한다. proto의 기존 UNSPECIFIED=0, OFF=1, LOW=2, HIGH=3을 유지하고 XHIGH=4를 뒤에 추가한다. 셸 타입에 `medium`은 없으므로 추가하지 않는다. 숫자와 proto enum 이름을 디코드하고 0·미지정·알 수 없는 숫자/문자열은 수준 미지정으로 처리해 기존 `enableThinking` 경로를 쓴다. FR-THINK-7~9의 목표 확장이다. 셸 FR-SM.2, FE-SM-02. | UT-SM-SHELL-THINK-01, UT-SM-AGENT-THINK-01, IT-SM-AGENT-THINK-01 |
+| FR-THINK-14 | 게이트웨이 OpenAI 호환 경로에서 `low`·`high`·`xhigh`는 같은 `reasoning_effort`로 전송하고 `off`·미지정은 그 키를 생략한다. 로컬 OpenAI 호환 off의 `none`과 원격 미지원 경로의 미전송을 보존한다. Ollama는 능력 목록에 일치하는 이름만 그대로 쓰고 불일치 `xhigh`는 기존 활성 불리언 경로를 쓰며 명시 미지원이면 false 신호를 낸다. Anthropic은 기존 adaptive on/off를 사용한다. 지원하지 않는 제공자에 임의 파라미터를 추가하거나 `xhigh`를 `high`로 바꾸지 않는다. 셸 FR-SM.2, FE-SM-02. | IT-SM-AGENT-THINK-01 |
+
+기존 FR-MEM-11·12의 기억 LLM 미설정 시 자동 consolidation 중지 설명은 현재 동작 기록이다. 목표에서 두 역할이 모두 비었을 때 추출을 실행하는 경로는 기존 휴리스틱을 쓰되 메인 호출은 하지 않는다. 저장된 기억 끄기는 자동으로 켜지 않는다. 기존 FR-THINK-7·9의 세 수준 설명도 현재 동작이고 FR-THINK-13·14가 구현 목표다. 압축은 기억 라이브러리가 실패를 잡아 기존 요약을 반환할 수 있으므로, 양쪽 시도 실패의 최초 오류는 에이전트 호출 계층에서 보존·관찰 가능해야 한다. 이때 기록에는 오류에 섞인 자격 증명·대화 본문을 넣지 않는다.
+
+### 시험 계획 및 받아들임
+
+아래 시험은 지정 파일과 이름으로 실행하며 실제 상태는 바로 아래 표에 기록한다. 셸 시험은 다음 회차에 수행한다.
+
+| 번호 | 파일 및 시험 이름 | 기대값 |
+|---|---|---|
+| UT-SM-AGENT-01 | `src/test/llm-roles.contract.test.ts` — “기억 우선과 빈 두 역할의 무모델 경로를 구별한다” | 명시 기억 > 지정 sub; 둘 다 빈 경우 메인 호출 없음; 명시 상속과 비지원 sub는 메인; 기억 끄기 보존. |
+| UT-SM-AGENT-02 | `src/test/uc-naia-settings-store.contract.test.ts` — “옛 기억 전용 설정을 작은 역할로 이어받고 독립 선택을 보존한다” | 옛 기억의 공급자·모델·주소·자격 참조를 작은 역할로 이어받고 기억 설정을 유지; 명시 sub는 범용 작은 작업에서 우선하고 별도 기억 선택은 보존; 전달된 생각 수준을 보존·해석. |
+| UT-SM-AGENT-03 | `src/test/smallmodel-i1.contract.test.ts` — “각 대상 승인과 한 번 폴백 및 최초 오류를 지킨다” | 승인 거부 시 해당 전송 0회, 실패 시 메인 최대 1회, 양쪽 실패 최초 오류, 로컬 실패 시 클라우드 0회. |
+| IT-SM-AGENT-01 | `src/test/smallmodel-memory.integration.test.ts` — “대화 추출과 압축이 해석된 기억 역할을 쓴다” | 지정 sub 호출, 명시 기억 우선, 빈 두 역할에서 메인 0회와 기존 추출·요약 결과, 메인 대화·Pi는 메인. |
+| IT-SM-AGENT-02 | `src/test/smallmodel-legacy-sub-consumer.integration.test.ts` — “옛 기억만 있는 범용 소비와 별도 작은 선택을 이어 쓴다” | 옛 기억만 있을 때 범용 작은 작업은 상속된 공급자·모델·주소·자격 참조를 사용하고 기억 역할도 유지; 별도 작은 선택 후 범용 작업은 새 선택을 쓰며 기억 작업은 기존 기억 선택을 사용; 전달된 생각 수준 보존·해석. |
+| IT-SM-AGENT-03 | `src/test/smallmodel-memory.integration.test.ts` — “동시 요청별 추출기와 요약기 및 승인을 격리한다” | 두 요청이 각자 주입한 대상과 승인만 쓰고 서로 공유하지 않는다. |
+| IT-SM-AGENT-04 | `src/test/smallmodel-memory.integration.test.ts` — “추출과 압축의 실패·승인·로컬 복구를 각각 확인한다” | 두 작업에서 작은 실패 → 승인된 메인 한 번; 양쪽 실패 최초 오류 보존; 로컬 실패 시 클라우드 0회와 기존 복구 결과. |
+| IT-SM-AGENT-05 | `src/test/smallmodel-memory.integration.test.ts` — “재시도 후 중복 사실 없이 안전한 호출 기록을 남긴다” | 같은 사실 한 번 저장, 역할·실제 모델·결과·대체 사유 기록, 자격 증명·대화 본문 없음, 기존 기억 선택 유지. |
+| UT-SM-SHELL-THINK-01 | 셸 `packages/shell/src-tauri/src/agent_grpc.rs`의 네이티브 단위 시험 — “네 수준을 proto로 변환하고 미지정과 알 수 없는 값을 구분한다” | 네 수준이 각각 OFF=1, LOW=2, HIGH=3, XHIGH=4; 미지정·알 수 없는 값은 미지정. |
+| UT-SM-AGENT-THINK-01 | `src/test/uc-thinking.contract.test.ts` — “proto 숫자와 이름의 네 수준을 디코드한다” | 1~4와 네 enum 이름이 정확히 매핑되고 0·부재·알 수 없는 값은 미지정; 이전 값 불변. |
+| IT-SM-AGENT-THINK-01 | `src/test/uc-thinking.contract.test.ts`, `src/test/uc1-ollama-provider.contract.test.ts` — “요청 수준을 제공자별 계약대로 보낸다” | 게이트웨이의 low/high/xhigh 값과 off 생략, 로컬 off none, 원격 미지원 생략, Ollama 능력·Anthropic on/off를 가짜 전송으로 확인. |
+
+### 시험 상태
+
+| 번호 | 상태 |
+|---|---|
+| UT-SM-AGENT-01 | 작성; 통과 |
+| UT-SM-AGENT-02 | 작성; 통과 |
+| UT-SM-AGENT-03 | 작성; 통과 |
+| IT-SM-AGENT-01 | 작성; 통과 |
+| IT-SM-AGENT-02 | 작성; 통과 |
+| IT-SM-AGENT-03 | 작성; 통과 |
+| IT-SM-AGENT-04 | 작성; 통과 |
+| IT-SM-AGENT-05 | 작성; 통과 |
+| UT-SM-AGENT-THINK-01 | 작성; 통과 |
+| IT-SM-AGENT-THINK-01 | 작성; 통과 |
+| UT-SM-SHELL-THINK-01 | 다음 회차 |
+
+#### FR-THINK-13 하위 호환 시험 행렬
+
+아래 여섯 행은 각각 UT-SM-SHELL-THINK-01(셸 Rust→proto), UT-SM-AGENT-THINK-01(에이전트 디코드·해석), IT-SM-AGENT-THINK-01(제공자 요청)의 별도 시험 사례다. proto `enable_thinking`은 optional이므로 `false`와 부재를 구별한다. 알 수 없는 수준은 셸 입력의 미인식 문자열과 에이전트가 직접 받은 알 수 없는 proto 숫자·문자열을 각각 시험한다. 수준 0도 부재와 같은 미지정이다.
+
+| 입력 수준 | `enableThinking` | Rust→proto 기대값 | 에이전트 해석 기대값 | 제공자 요청 기대값 |
+|---|---|---|---|---|
+| 없음 | `true` | 수준 UNSPECIFIED=0; boolean `true` 유지 | 수준 미지정, legacy `true` 유지 | 아래 T |
+| 없음 | `false` | 수준 UNSPECIFIED=0; boolean `false` 존재 유지 | 수준 미지정, legacy `false` 유지 | 아래 F |
+| 없음 | 없음 | 수준 UNSPECIFIED=0; boolean 필드 부재 유지 | 수준 미지정, legacy 입력 부재; 기존 제공자 설정을 덮지 않음 | 아래 A |
+| 알 수 없는 값 | `true` | 수준 UNSPECIFIED=0; boolean `true` 유지 | 미지정으로 정규화, legacy `true` 유지 | 아래 T |
+| 알 수 없는 값 | `false` | 수준 UNSPECIFIED=0; boolean `false` 존재 유지 | 미지정으로 정규화, legacy `false` 유지 | 아래 F |
+| 알 수 없는 값 | 없음 | 수준 UNSPECIFIED=0; boolean 필드 부재 유지 | 미지정으로 정규화, legacy 입력 부재; 기존 제공자 설정을 덮지 않음 | 아래 A |
+
+제공자 요청은 기존 설정에 별도 생각 설정이 없는 기준으로 아래 실제 body를 각 행에서 확인한다. T/F/A는 각각 위 입력의 `true`/`false`/부재다. 별도 설정이 있는 경우 A는 그것을 덮어쓰지 않는 기존 경로도 확인한다.
+
+| 제공자 경로 | T | F | A |
+|---|---|---|---|
+| 게이트웨이 OpenAI 호환 | `reasoning_effort` 생략 | `reasoning_effort` 생략 | `reasoning_effort` 생략 |
+| 로컬 OpenAI 호환 (`supportsReasoningEffort`) | `reasoning_effort` 생략 | `reasoning_effort: "none"` | `reasoning_effort` 생략 |
+| 원격 미지원 OpenAI 호환 | 생각 관련 키 생략 | 생각 관련 키 생략 | 생각 관련 키 생략 |
+| Ollama (지원 또는 능력 미확정) | `think: true` | `think: false` | `think` 생략 |
+| Ollama (명시 미지원) | `think: false` | `think: false` | `think` 생략 |
+| Anthropic | `thinking: { type: "adaptive" }` | `thinking` 생략 | `thinking` 생략 |
+
 ### FR-DISCORD-169 — 독립 Discord 호스트와 DM·스레드 (In review)
 
 기존 셸 호스트와 공통 조립을 공유하고 전용 stdin 비밀 파이프, 셸 경로의 loopback-only gRPC, 독립 경로의 gRPC 비활성화, 정상 종료와 상태·세대 소유권 검사를 제공한다. 독립 serve는 존재하는 workspace와 구체적인 main provider 설정을 시작 전에 확인하고, 빠진 설정을 `--help`에 안내하며 미설정 상태는 0이 아닌 코드로 끝난다. 허용 사용자 DM 및 허용 guild·부모 채널·사용자의 멘션과 스레드만 수신하며 빈 목록과 확인할 수 없는 부모는 거부한다. 일반 guild message channel은 type 0(text)·5(announcement), thread는 type 10·11·12만 허용하며 Gateway cache와 runtime 양쪽에서 그 밖의 type을 거부한다. 일반 채널 `parent_id`는 category ID로 보존하거나 thread 부모 검증에 사용하지 않는다. Guild 없는 메시지에서 type/recipient를 확인할 수 없으면 REST를 조회하고, 모든 DM 메시지는 type 1 및 recipients에 작성자가 있는지 확인한다. recipients 부재·조회 오류·그룹 DM·불일치는 거부하고 확인되지 않은 항목은 신뢰 캐시에 저장하지 않는다. `THREAD_LIST_SYNC`·`GUILD_CREATE`는 outer `guild_id`를 thread metadata에 전달하며, guild 정보가 불완전한 cache 항목은 REST 확인 성공 전까지 승인하지 않는다. 서버 channel/thread도 캐시가 없으면 조회해 guild·thread type·parent를 검증하고 불일치나 누락은 거부한다. 현재 generation authority와 process lease의 token 소유권을 ingress와 각 egress에서 확인하며, lease 상실 시 readiness를 내리고 처리를 멈춘 뒤 프로세스를 비정상 종료한다. lease 취득 전 SIGTERM/SIGINT 처리기를 등록하고, 시작 중 신호는 남은 초기화를 중단한 후 이미 등록된 자원을 한 번만 정리하고 stopped를 기록한다. 시작 중 예외·promise 거절도 실패 상태를 기록하고 소유한 lease를 해제한다. 기존 `NAIA_DISCORD_BINDINGS_JSON`에 선택적 `dm` 설정을 추가하되 필드가 없는 이전 설정은 그대로 허용한다. 봇·웹훅·자기 메시지를 거부하고 DM·스레드별 세션을 격리한다. Discord 개인 기억과 대화록의 기존 제한은 유지한다. 컨테이너 예제와 오프라인 통합·프로세스·셸 회귀 검증을 제공한다. 기억 복구와 긴 작업 위임은 후속 범위다.

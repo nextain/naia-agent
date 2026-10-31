@@ -1069,6 +1069,20 @@ Coverage: `src/test/action-execution-policy.contract.test.ts`, `src/test/action-
 | 기존 읽기 도구 (skill_memory_recall, skill_knowledge_search 등) 무회귀 유지 | `memory-skill.contract.test.ts`, `uc-knowledge.contract.test.ts` |
 
 
+
+## UC-SM-AGENT-01 — 대화에서 작은 모델로 기억을 만든다
+
+셸 UC-SM-01에 이어지는 데스크톱 후보판의 직접 확인이다. 사용할 수 있는 메인·작은 모델과 기억이 켜진 작업 공간을 준비한다. 목표 시나리오이며 후보판이 준비되기 전에는 미실시다. 기기·후보판·실제 결과를 기록한다.
+
+| 단계 | 행동 | 기대 결과와 관찰 위치 |
+|---|---|---|
+| 1 | 셸 설정에서 메인 모델을 확인하고 작은 모델을 다른 모델로 고른 뒤 저장한다. 설정을 닫고 다시 연다. | 설정의 메인·작은 모델 선택 칸에서 각각 선택이 유지된다. 기존에 별도 기억 모델이 있다면 기억 역할이 우선하므로 작은 모델 사용을 확인하려면 별도 기억 모델이 없는 작업 공간을 쓴다. |
+| 2 | 대화 화면에서 “나는 따뜻한 차를 좋아해. 너는 어떤 차를 추천해?”라고 말하고 응답을 기다린다. | 대화 화면에 응답이 보인다. |
+| 3 | 설정의 **기억(Memory)** 탭을 열어 저장된 사실 목록을 확인하고 필요하면 탭을 다시 연다. | 말한 선호가 목록에 저장되는 것이 목표다. 보이지 않으면 관찰 결과를 기록하며 저장 완료 시점을 확인할 수 없다면 미확인으로 둔다. 목록만으로 추출에 쓰인 모델이나 압축 호출은 판정할 수 없다. |
+
+실패 주입, 승인·호출 횟수, 로컬 복구, 빈 역할과 압축은 셸 UC-SM-01과 같이 자동 시험으로 확인한다. 자동 시험은 [시험 계획](requirements.md#시험-계획-및-받아들임)의 IT-SM-AGENT-01 (`src/test/smallmodel-memory.integration.test.ts`, “대화 추출과 압축이 해석된 기억 역할을 쓴다”), IT-SM-AGENT-04 (같은 파일, “추출과 압축의 실패·승인·로컬 복구를 각각 확인한다”), IT-SM-AGENT-05 (같은 파일, “재시도 후 중복 사실 없이 안전한 호출 기록을 남긴다”)다. 셸의 IT-SM-06·07도 각각 추출·압축의 실패와 복구를 검증한다.
+
+Test Coverage Map: [UT-SM-AGENT-01~03, IT-SM-AGENT-01~05, UT-SM-SHELL-THINK-01, UT-SM-AGENT-THINK-01, IT-SM-AGENT-THINK-01](requirements.md#시험-계획-및-받아들임). 셸 FR-SM.3~.7, NFR-SM.2·.3, FE-SM-01·03.
 ## UC-DISCORD-STANDALONE-169 — 셸 없이 허용된 Discord 대화에 응답한다 (진행 중)
 
 사용자는 `naia-agent serve`와 전용 비밀 파이프, 명시적인 권한 설정으로 독립 호스트를 실행한다. serve는 기존 workspace와 구체적인 main provider 설정을 확인한 뒤 준비 상태를 보고하며, 누락 시 도움말에 필요한 설정을 안내하고 0이 아닌 코드로 끝난다. 서버 일반 메시지 채널은 text(0)·announcement(5), thread는 announcement/public/private thread(10·11·12)만 허용한다. 일반 채널의 `parent_id`는 category 관계이므로 thread 부모로 쓰지 않는다. thread 부모는 허용된 thread 유형에서만 검사한다. 미지원 유형은 Gateway 캐시와 runtime 모두 거부한다. DM은 캐시에 있더라도 매 메시지마다 type 1과 recipients 내 작성자 일치를 확인한다. 확인할 수 없는 READY·REST DM 항목은 신뢰 캐시로 승격하지 않으며, recipients 부재·조회 실패·그룹 DM·비허용 사용자는 거부한다. 서버 channel/thread 정보가 없거나 guild 정보가 불완전하면 REST 확인 뒤 사용한다. `THREAD_LIST_SYNC`·`GUILD_CREATE`의 바깥 guild ID를 thread metadata에 보충한다. 허용 guild·부모 채널·사용자가 모두 일치하는 멘션으로 스레드를 만들고 그 스레드의 후속 메시지는 멘션 없이 이어 간다. DM 채널·서버 스레드·사용자별 대화 문맥은 분리된다. ingress와 각 egress 쓰기에서 현재 generation authority와 process lease 소유권을 함께 확인하고, lease를 잃으면 처리와 readiness를 중단한 뒤 프로세스를 종료한다. Discord 개인 기억과 대화록의 기존 차단은 유지한다.

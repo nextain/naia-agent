@@ -280,6 +280,7 @@ export function makeNaiaSettingsStore(deps: {
 			...(str("model") ? { model: str("model") } : {}),
 			...(str("baseUrl") ? { baseUrl: str("baseUrl") } : {}),
 			...(str("credentialRef") ? { credentialRef: str("credentialRef") } : {}),
+			...(["off", "low", "high", "xhigh"].includes(str("thinkingLevel") ?? "") ? { thinkingLevel: str("thinkingLevel") } : {}),
 			...(inherit ? { inherit } : {}),
 		};
 		return Object.keys(selection).length ? selection : undefined;
@@ -295,7 +296,8 @@ export function makeNaiaSettingsStore(deps: {
 		const mainRole = roleSelection(structured?.["main"]);
 		const expertRole = roleSelection(structured?.["expert"]);
 		const subRole = roleSelection(structured?.["sub"]);
-		const memoryRole = roleSelection(structured?.["memory"]);
+		const rawMemoryRole = roleSelection(structured?.["memory"]);
+		const memoryRole = rawMemoryRole?.provider === "none" ? { provider: "none", model: "none" } : rawMemoryRole;
 		const roles = {
 			...(expertRole ? { expert: expertRole } : {}),
 			...(mainRole ? { main: mainRole } : {}),
@@ -305,6 +307,7 @@ export function makeNaiaSettingsStore(deps: {
 		const providerSelection = (prefix: "" | "subLlm" | "memoryLlm"): LlmRoleSelection | undefined => {
 			const provider = str(prefix ? `${prefix}Provider` : "provider");
 			const model = str(prefix ? `${prefix}Model` : "model");
+			if (prefix === "memoryLlm" && provider === "none") return { provider: "none", model: "none" };
 			if (!provider || provider === "none") return undefined;
 			const baseUrl = prefix ? str(`${prefix}BaseUrl`) : undefined;
 			const credentialRef = prefix ? str(`${prefix}CredentialRef`) : undefined;
@@ -324,7 +327,10 @@ export function makeNaiaSettingsStore(deps: {
 			...(legacyMemory ? { memory: legacyMemory } : {}),
 		};
 		if (!Object.keys(roles).length && !Object.keys(legacy).length) return null;
-		return resolveLlmRoles({ roles, legacy });
+		const effectiveRoles = !subRole && !legacySub && !memoryRole && !legacyMemory
+			? { ...roles, memory: { provider: "none", model: "none" } }
+			: roles;
+		return resolveLlmRoles({ roles: effectiveRoles, legacy });
 	}
 
 	function fromLlmJsonLlmRoles(file: string): LlmRolesResolution | null {
@@ -344,7 +350,7 @@ export function makeNaiaSettingsStore(deps: {
 			roles: {
 				...(main ? { main } : {}),
 				...(sub ? { sub } : {}),
-				...(memory ? { memory } : {}),
+				...(memory ? { memory } : !sub ? { memory: { provider: "none", model: "none" } } : {}),
 			},
 		});
 	}

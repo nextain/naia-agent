@@ -102,7 +102,7 @@ function resolveThinkValue(
   if (!hasExplicitSetting) return undefined;
   if (capability.kind === "unsupported") return false;
   if (config.thinkingLevel === "off") return false;
-  if (config.thinkingLevel === "low" || config.thinkingLevel === "high") {
+  if (config.thinkingLevel === "low" || config.thinkingLevel === "high" || config.thinkingLevel === "xhigh") {
     if (capability.kind === "named" && capability.values.includes(config.thinkingLevel)) {
       return config.thinkingLevel;
     }

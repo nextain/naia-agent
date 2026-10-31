@@ -539,3 +539,35 @@ describe("Ollama thinking capability (/api/show, mocked responses)", () => {
     }
   });
 });
+
+it("IT-SM-AGENT-THINK-01 요청 수준을 제공자별 계약대로 보낸다", async () => {
+  for (const [values, expected] of [[["low", "xhigh"], "xhigh"], [["low", "high"], true], [[false], false]] as const) {
+    const fetch = makeThinkingFetch(async () => fakeJsonResponse({ thinking: { values } }));
+    await collect(makeOllamaProvider({ fetch: fetch as never }).chat({ ...cfg, thinkingLevel: "xhigh", enableThinking: true }, [], {}));
+    expect(fetch.chatBodies[0]?.think).toBe(expected);
+  }
+  for (const enabled of [true, false, undefined]) {
+    const fetch = makeThinkingFetch(async () => fakeJsonResponse({ thinking: { values: [false, true] } }));
+    await collect(makeOllamaProvider({ fetch: fetch as never }).chat({ ...cfg, ...(enabled === undefined ? {} : { enableThinking: enabled }) }, [], {}));
+    expect(fetch.chatBodies[0]?.think).toBe(enabled);
+  }
+});
+
+it("IT-SM-AGENT-THINK-01 Ollama legacy 여섯 조합을 실제 본문에 보존한다", async () => {
+  for (const level of [undefined, 0, 99, "UNKNOWN"] as const) for (const enabled of [true, false, undefined]) {
+    const { chatRequestToDomain } = await import("../main/adapters/grpc/grpc-codec.js");
+    const request = chatRequestToDomain({ requestId: "r", messages: [], ...(level === undefined ? {} : { thinking: { level } }), ...(enabled === undefined ? {} : { enableThinking: enabled }) });
+    for (const unsupported of [false, true]) {
+      const fetch = makeThinkingFetch(async () => fakeJsonResponse({ thinking: { values: unsupported ? [false] : [false, true] } }));
+      await collect(makeOllamaProvider({ fetch: fetch as never }).chat({ ...cfg, ...(request.enableThinking === undefined ? {} : { enableThinking: request.enableThinking }) }, [], {}));
+      expect(fetch.chatBodies[0]?.think).toBe(enabled === undefined ? undefined : unsupported ? false : enabled);
+    }
+  }
+});
+
+it("IT-SM-AGENT-THINK-01 미지정은 Ollama의 기존 생각 설정을 유지한다", async () => {
+  const fetch = makeThinkingFetch(async () => fakeJsonResponse({ thinking: { values: ["low", "high", "xhigh"] } }));
+  const provider = makeOllamaProvider({ fetch: fetch as never });
+  await collect(provider.chat({ ...cfg, thinkingLevel: "xhigh", enableThinking: true }, [], {}));
+  expect(fetch.chatBodies[0]?.think).toBe("xhigh");
+});

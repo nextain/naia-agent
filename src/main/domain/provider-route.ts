@@ -105,3 +105,13 @@ export function nativeBaseUrl(provider: string, override?: string): string {
 			throw new Error(`provider '${provider}' baseUrl 미정의 — OpenAI-compat 미지원(미등록 provider) 또는 host override 지정 필요`);
 	}
 }
+
+/** Transport base, or an opaque CLI process identity that must be classified as external cloud. */
+export function providerProcessingEndpoint(config: ProviderConfig): string | undefined {
+  const route = resolveProviderRoute(config);
+  if (route === "lab-proxy") return labProxyBaseUrl(config);
+  if (route === "ollama") return nativeBaseUrl("ollama", config.ollamaHost);
+  if (route === "anthropic") return anthropicBaseUrl(config);
+  if (route === "claude-code" || route === "codex" || route === "grok") return `opaque-cli:${encodeURIComponent(config.provider)}:${encodeURIComponent(config.model)}`;
+  try { return nativeBaseUrl(config.provider, config.labGatewayUrl ?? config.vllmHost); } catch { return undefined; }
+}

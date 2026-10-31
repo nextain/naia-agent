@@ -82,6 +82,8 @@ const { makeFileDiscordInbox } =
   await import("../../dist/main/adapters/discord-inbox-store.js");
 const { makeProcessingGuard } =
   await import("../../dist/main/adapters/processing-guard.js");
+const { resolveMemoryRoleEndpoint } =
+  await import("../../dist/main/adapters/llm-role-runtime.js");
 const {
   anthropicBaseUrl,
   isLocalEngineBaseUrl,
@@ -146,7 +148,7 @@ const deps = await composeAgentRuntimeDeps({
   requireConfiguredProvider: discordStandalone,
 });
 cleanupFns = deps.cleanupFns;
-const { adkPath, provider, resolver, providerLabel: label, credentials, settingsStore, defaultConfig, configLabel, setCredentialWorkspace, setKnowledgeWorkspace, setWorkspaceBind } = deps;
+const { adkPath, provider, resolver, providerLabel: label, credentials, settingsStore, settingsResolveSecret, defaultConfig, configLabel, setCredentialWorkspace, setKnowledgeWorkspace, setWorkspaceBind } = deps;
 const { llmRoles } = deps;
 let activeLlmRoles = llmRoles ?? null;
 let { toolExecutor } = deps;
@@ -514,8 +516,13 @@ if (discordToken && discordConfig && discordAuthority) {
     processingGuard = makeProcessingGuard({
       profiles: { get: (ref) => discordConfig.processingProfiles?.[ref] },
       endpoints: {
-        resolve: (provider, workload) => {
+        resolve: (provider, workload, expectedEndpoint, expectedRole) => {
           if (workload === "memory_llm") {
+            if (provider.provider !== "naia-memory") {
+              const url = resolveMemoryRoleEndpoint(activeLlmRoles, provider, settingsResolveSecret, activeProcessingConfig, expectedEndpoint, expectedRole);
+              if (!url) return undefined;
+              return { url, ...(url.startsWith("opaque-cli:") ? { destination: "external_cloud" } : {}), zone: isLocalEngineBaseUrl(url) ? "private_managed" : "unverified", provider: provider.provider, model: provider.model };
+            }
             const memoryLlm = activeMemoryProcessingConfig?.llm;
             if (!memoryLlm || memoryLlm.provider === "none") {
               return {

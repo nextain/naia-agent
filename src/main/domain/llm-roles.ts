@@ -16,6 +16,7 @@ export interface EffectiveLlmConfig {
   readonly model: ResolvedConfigValue;
   readonly baseUrl?: ResolvedConfigValue;
   readonly credentialRef?: ResolvedConfigValue;
+  readonly thinkingLevel?: ResolvedConfigValue;
 }
 
 export interface LlmRoleSelection {
@@ -23,6 +24,7 @@ export interface LlmRoleSelection {
   readonly model?: string;
   readonly baseUrl?: string;
   readonly credentialRef?: string;
+  readonly thinkingLevel?: string;
   readonly inherit?: LlmRole;
 }
 
@@ -63,14 +65,18 @@ function directSource(selection: LlmRoleSelection | undefined, provenance: Confi
  * 우선순위:
  * 1) 신규 llmRoles 명시 설정/상속
  * 2) 역할별 legacy 설정(main=provider/model, sub=subLlm*, memory=memoryLlm*)
- * 3) 구버전에서 subLlm*이 없고 memoryLlm*만 있으면 sub=memory legacy 상속
- * 4) 신규 memory 미설정은 sub가 명시된 경우에만 sub 상속
+ * 3) sub가 없거나 불완전하면 main 상속
+ * 4) memory 미설정은 sub 상속
  * 5) 선택적 literal defaults
  */
 export function resolveLlmRoles(input: LlmRolesInput): LlmRolesResolution {
   const sources = new Map<LlmRole, Source>();
   for (const role of ORDER) {
     const explicit = input.roles?.[role];
+    if (role === "sub" && explicit && !explicit.inherit && (!clean(explicit.provider) || !clean(explicit.model))) {
+      sources.set(role, { selection: { inherit: "main" }, provenance: "inherit", inheritedFromRole: "main" });
+      continue;
+    }
     if (explicit) {
       sources.set(role, {
         selection: explicit,
@@ -80,16 +86,12 @@ export function resolveLlmRoles(input: LlmRolesInput): LlmRolesResolution {
       continue;
     }
     const legacy = role === "expert" ? undefined : input.legacy?.[role];
-    if (legacy) {
+    if (legacy && !(role === "sub" && (!clean(legacy.provider) || !clean(legacy.model)))) {
       sources.set(role, directSource(legacy, "explicit")!);
       continue;
     }
-    if (role === "sub" && input.legacy?.memory) {
-      sources.set(role, {
-        selection: { inherit: "memory" },
-        provenance: "legacy-inherit",
-        inheritedFromRole: "memory",
-      });
+    if (role === "sub" && !explicit && !legacy && input.legacy?.memory && clean(input.legacy.memory.provider) && input.legacy.memory.provider !== "none" && clean(input.legacy.memory.model)) {
+      sources.set(role, { selection: input.legacy.memory, provenance: "legacy-inherit", inheritedFromRole: "memory" });
       continue;
     }
     if (role === "sub" && sources.has("main")) {
@@ -154,6 +156,7 @@ export function resolveLlmRoles(input: LlmRolesInput): LlmRolesResolution {
         model: wrap(parent.model),
         ...(parent.baseUrl ? { baseUrl: wrap(parent.baseUrl) } : {}),
         ...(parent.credentialRef ? { credentialRef: wrap(parent.credentialRef) } : {}),
+        ...(parent.thinkingLevel ? { thinkingLevel: wrap(parent.thinkingLevel) } : {}),
       };
       resolving.delete(role);
       resolved.set(role, config);
@@ -169,12 +172,14 @@ export function resolveLlmRoles(input: LlmRolesInput): LlmRolesResolution {
     const value = (raw: string): ResolvedConfigValue => ({ value: raw, provenance: source.provenance });
     const baseUrl = clean(source.selection.baseUrl);
     const credentialRef = clean(source.selection.credentialRef);
+    const thinkingLevel = clean(source.selection.thinkingLevel);
     const config: EffectiveLlmConfig = {
       role,
       provider: value(provider.toLowerCase()),
       model: value(model),
       ...(baseUrl ? { baseUrl: value(baseUrl) } : {}),
       ...(credentialRef ? { credentialRef: value(credentialRef) } : {}),
+      ...(thinkingLevel ? { thinkingLevel: value(thinkingLevel) } : {}),
     };
     resolving.delete(role);
     resolved.set(role, config);
