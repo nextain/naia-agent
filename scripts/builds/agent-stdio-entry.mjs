@@ -4,9 +4,16 @@
 // app(환경 위임, egress 필요) + 라이브 reload + 종료(drain/flush) 등 **gRPC host 관심사**만 배선.
 // gRPC host에서 stdin은 일반 명령 transport가 아니다. Shell이 이 자식 전용 익명 파이프에 토큰 원문만
 // 한 번 쓰고 즉시 닫는다. line protocol과 섞지 않으며 argv/env/config 파일에도 토큰을 남기지 않는다.
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+
+/** Compose and run the shared agent host for either the Shell gRPC or Discord-only entrypoint. */
+export async function startAgentHost({ mode = "grpc" } = {}) {
+const discordStandalone = mode === "discord-standalone";
+const secretPipeConfigured = process.env.NAIA_DISCORD_TOKEN_PIPE === "stdin";
 const shutdownNonce = process.env.NAIA_AGENT_SHUTDOWN_NONCE;
 delete process.env.NAIA_AGENT_SHUTDOWN_NONCE;
-const discordTokenFromSecretPipe = process.env.NAIA_DISCORD_TOKEN_PIPE === "stdin"
+const discordTokenFromSecretPipe = secretPipeConfigured
   ? new Promise((resolve) => {
     const chunks = [];
     let size = 0;
@@ -270,6 +277,23 @@ if (discordGeneration && discordStatusPath && discordAuthorityPath) {
   }
 }
 
+const failStandaloneStartup = async (code) => {
+  try { discordStatus?.write("failed", code); } catch { /* state file may be unavailable */ }
+  for (const fn of cleanupFns) { try { fn(); } catch { /* best-effort */ } }
+  try { if (memory) await memory.close(); } catch { /* best-effort */ }
+  process.stderr.write(`[naia-agent] Discord standalone startup failed (${code})\n`);
+  process.exit(1);
+};
+if (discordStandalone) {
+  const startupError = !secretPipeConfigured ? "token_pipe_required"
+    : !discordToken ? "token_unavailable"
+    : !discordBindingsProvided || !discordConfig || discordConfig.bindings.length === 0 ? "bindings_invalid"
+    : !discordStatus || !discordAuthority ? "authority_invalid"
+    : !discordAuthority.isActive() ? "authority_conflict"
+    : undefined;
+  if (startupError) await failStandaloneStartup(startupError);
+}
+
 // ★ 라이브 reload(정본 R1-2 "startup-only 금지"): 사용자가 naia-os 에서 모델/프로바이더 교체 시 OS 가
 //   naia-settings(config.json) 갱신 후 SetWorkspace/ReloadSettings 재호출 → 여기서 재로딩해 handler 활성 config 를 swap.
 //   applyDefaultConfig 는 wireAgentUC1 반환(아래)으로 채워진다 — 클로저가 *호출 시점* 값을 보므로 선언 순서 무관.
@@ -512,6 +536,7 @@ if (discordToken && discordConfig && discordAuthority) {
   } catch {
     diag.log("discord runtime", { code: "configuration_failed" });
     try { discordStatus?.write("failed", "configuration_failed"); } catch { /* status observer isolation */ }
+    if (discordStandalone) await failStandaloneStartup("configuration_failed");
   }
 } else if (discordToken || discordBindingsProvided) {
   const code = !discordToken ? "token_unavailable"
@@ -522,9 +547,11 @@ if (discordToken && discordConfig && discordAuthority) {
 }
 // app executor 생성(egress 확보 후) + builtin 과 composite 합성. app 도구 execute()=app_tool_call emit→AppToolResult 대기(E1, FR-APP-2/3).
 // #610: discord_send / scheduled_report model tools removed (epic #589).
-appExec = makeAppToolExecutor({ egress: grpcServer.egress });
-toolExecutor = toolExecutor ? makeCompositeToolExecutor([toolExecutor, appExec]) : appExec;
-skillsLabel += " + app(환경 위임)";
+if (!discordStandalone) {
+  appExec = makeAppToolExecutor({ egress: grpcServer.egress });
+  toolExecutor = toolExecutor ? makeCompositeToolExecutor([toolExecutor, appExec]) : appExec;
+  skillsLabel += " + app(환경 위임)";
+}
 // Issue #82 proactive profiles — persistent activity stream + 좁은 BGM/KB 포트.
 const activityRoutes = makeActivityRouteRegistry();
 const activitySpeech = makeActivitySpeechEgress(grpcServer.activityEgress, activityRoutes);
@@ -614,15 +641,17 @@ start?.(); // ingress.onRequest(route) 등록 — gRPC 핸들러가 도메인 re
 // ⚠️ gRPC bind 실패(포트 점유·잘못된 NAIA_AGENT_GRPC_ADDR·DNS·권한)는 부팅의 유일한 비방어 await 였다 →
 //   raw 스택 크래시(재감사 2026-06-23 HIGH). 정직 메시지 + 깔끔한 exit(1)로 감싼다(동적 import 격리와 동일 규율).
 let grpcAddr;
-try {
-  grpcAddr = await grpcServer.start();
-} catch (e) {
-  process.stderr.write(`[naia-agent] gRPC 시작 실패(주소: ${process.env.NAIA_AGENT_GRPC_ADDR ?? "기본"}): ${e instanceof Error ? e.message : String(e)}\n`);
-  for (const fn of cleanupFns) { try { fn(); } catch { /* best-effort */ } }
-  process.exit(1);
+if (!discordStandalone) {
+  try {
+    grpcAddr = await grpcServer.start();
+  } catch (e) {
+    process.stderr.write(`[naia-agent] gRPC 시작 실패(주소: ${process.env.NAIA_AGENT_GRPC_ADDR ?? "기본"}): ${e instanceof Error ? e.message : String(e)}\n`);
+    for (const fn of cleanupFns) { try { fn(); } catch { /* best-effort */ } }
+    process.exit(1);
+  }
+  // ⚠️ stdout 한 줄 핸드셰이크(데이터 transport 아님) — Rust 가 이 addr 를 읽어 gRPC connect.
+  process.stdout.write(`GRPC_LISTENING ${grpcAddr}\n`);
 }
-// ⚠️ stdout 한 줄 핸드셰이크(데이터 transport 아님) — Rust 가 이 addr 를 읽어 gRPC connect.
-process.stdout.write(`GRPC_LISTENING ${grpcAddr}\n`);
 discordRuntime?.start();
 courseService?.restore();
 if (discordRuntime && discordStatus) {
@@ -645,7 +674,7 @@ if (discordRuntime && discordStatus) {
     catch { /* native supervisor will time out and reconcile */ }
   }, 50);
 }
-process.stderr.write(`[naia-agent] grpc ready @${grpcAddr} (${label} provider, config: ${configLabel}, skills: ${skillsLabel}, memory: ${memoryLabel}, ${getSurfacingLabel ? getSurfacingLabel() : "surfacing=off"}, transcript: ${transcriptLabel}, discord: ${discordRuntime ? "enabled" : "disabled"})\n`);
+process.stderr.write(`[naia-agent] ${discordStandalone ? "Discord standalone ready" : `grpc ready @${grpcAddr}`} (${label} provider, config: ${configLabel}, skills: ${skillsLabel}, memory: ${memoryLabel}, ${getSurfacingLabel ? getSurfacingLabel() : "surfacing=off"}, transcript: ${transcriptLabel}, discord: ${discordRuntime ? "enabled" : "disabled"})\n`);
 
 // stdin 닫히면 종료 — ⚠️ 순서: (1) drain(in-flight 턴 save 완료 대기) → (2) memory.close()(store flush)
 //   → (3) exit. naia-memory LocalAdapter 는 encode 를 in-memory 버퍼링하고 close() 에서 flush 하므로,
@@ -659,7 +688,9 @@ const performShutdown = async () => {
   try { await discordRuntime?.gracefulStop(); } catch { diag.log("discord runtime", { code: "shutdown_failed" }); }
   try { discordStatus?.write("stopped"); } catch { /* native supervisor reconciles */ }
   try { if (drain) await drain(); } catch (e) { process.stderr.write(`[naia-agent] drain 실패: ${e instanceof Error ? e.message : String(e)}\n`); }
-  try { await grpcServer.shutdown(); } catch (e) { process.stderr.write(`[naia-agent] grpc shutdown 실패: ${e instanceof Error ? e.message : String(e)}\n`); }
+  if (!discordStandalone) {
+    try { await grpcServer.shutdown(); } catch (e) { process.stderr.write(`[naia-agent] grpc shutdown 실패: ${e instanceof Error ? e.message : String(e)}\n`); }
+  }
   // F2: MCP 자식 등 등록된 자원 정리(고아 누적 방지). 각 독립 try — 한 개 실패가 나머지/exit 를 막지 않게.
   for (const fn of cleanupFns) { try { fn(); } catch (e) { process.stderr.write(`[naia-agent] cleanup 실패: ${e instanceof Error ? e.message : String(e)}\n`); } }
   try {
@@ -688,3 +719,8 @@ process.on("uncaughtException", (err) => {
   for (const fn of cleanupFns) { try { fn(); } catch { /* best-effort */ } }
   process.exit(1);
 });
+}
+
+if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
+  await startAgentHost();
+}
