@@ -3,6 +3,7 @@
 // 절단은 domain formatRecalledMemory 가 강제한다(헥사고날: adapter 는 프롬프트 표현/신뢰 정책을 소유하지
 // 않음). domain/app 은 이 인터페이스에만 의존, 구현(@nextain/naia-memory)은 adapters 에.
 import type { RecalledMemory } from "../domain/memory.js";
+import type { SubLlmCallOptions } from "./sub-llm.js";
 
 /**
  * MemoryPort — 턴 전 recall / 턴 후 save.
@@ -41,7 +42,7 @@ export interface MemoryPort {
   save(
     userText: string,
     assistantText: string,
-    opts?: { idempotencyKey?: string; durable?: boolean },
+    opts?: { idempotencyKey?: string; durable?: boolean; signal?: AbortSignal; authorizeAndDisclose?: SubLlmCallOptions["authorizeAndDisclose"] },
   ): Promise<void>;
 }
 

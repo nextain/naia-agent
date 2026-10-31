@@ -11,6 +11,7 @@ import {
   OpenAICompatEmbeddingProvider,
 } from "@nextain/naia-memory";
 import type { CompactionSummarizer, EmbeddingProvider, ExtractedFact, FactExtractor } from "@nextain/naia-memory";
+import type { SubLlmCallOptions } from "../ports/sub-llm.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ManagedMemoryPort, MemoryRecallOptions } from "../ports/memory.js";
@@ -91,6 +92,8 @@ export interface NaiaMemoryOpts {
   /** Agent가 provider/auth를 해석해 만든 좁은 포트. 지정하면 legacy llm config보다 우선한다. */
   readonly factExtractor?: FactExtractor;
   readonly summarizer?: CompactionSummarizer;
+  readonly roleSummarizer?: (input: Parameters<CompactionSummarizer>[0], authorize: NonNullable<SubLlmCallOptions["authorizeAndDisclose"]>) => ReturnType<CompactionSummarizer>;
+  readonly roleExtractor?: (episodes: Parameters<FactExtractor>[0], authorize: NonNullable<SubLlmCallOptions["authorizeAndDisclose"]>, signal?: AbortSignal) => ReturnType<FactExtractor>;
   /** Test/advanced: skip MemoryEmbeddingConfig and inject a ready provider. */
   readonly embeddingProvider?: EmbeddingProvider;
   /** Observes product-path embedding reindex at adapter open. */
@@ -488,15 +491,15 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
     async save(
       userText: string,
       assistantText: string,
-      opts?: { idempotencyKey?: string; durable?: boolean },
+      saveOpts?: { idempotencyKey?: string; durable?: boolean; signal?: AbortSignal; authorizeAndDisclose?: SubLlmCallOptions["authorizeAndDisclose"] },
     ): Promise<void> {
       await ready; // adapter init 완료 보장.
       // 저장 원문도 상한(턴당) — 거대 턴이 embedding/디스크/flush 시간을 폭증시키는 것 차단. 초과분 절단 표식.
       await sys.encode({
         content: capInput(userText, SAVE_CAP),
         role: "user",
-        ...(opts?.idempotencyKey
-          ? { idempotencyKey: `${opts.idempotencyKey}:user` }
+        ...(saveOpts?.idempotencyKey
+          ? { idempotencyKey: `${saveOpts.idempotencyKey}:user` }
           : {}),
       }, { project, sessionId });
       const cleanAssistantText = stripAssistantMemoryTags(assistantText);
@@ -504,17 +507,26 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
         await sys.encode({
           content: capInput(cleanAssistantText, SAVE_CAP),
           role: "assistant",
-          ...(opts?.idempotencyKey
-            ? { idempotencyKey: `${opts.idempotencyKey}:assistant` }
+          ...(saveOpts?.idempotencyKey
+            ? { idempotencyKey: `${saveOpts.idempotencyKey}:assistant` }
             : {}),
         }, { project, sessionId });
       }
-      if (opts?.durable) {
+      if (saveOpts?.durable) {
         const flush = (sys as MemorySystem & { flush?: () => Promise<void> }).flush;
         if (typeof flush !== "function") {
           throw new Error("naia-memory durable flush is unavailable");
         }
         await flush.call(sys);
+      }
+      if (opts.roleExtractor && saveOpts?.authorizeAndDisclose && !saveOpts.signal?.aborted && !closed) {
+        const extract: FactExtractor = (episodes) => opts.roleExtractor!(episodes, saveOpts.authorizeAndDisclose!, saveOpts.signal);
+        try {
+          await (sys.consolidateNow as unknown as (force: boolean, extractor: FactExtractor) => Promise<unknown>)(false, extract);
+        } catch {
+          // Episodes remain available for a later approved turn.
+          opts.onConsolidation?.({ phase: "failed", error: "role extraction failed" });
+        }
       }
     },
 
@@ -539,6 +551,9 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
         keepTail: Math.max(0, Math.floor(req.keepTail)),
         targetTokens: Math.max(1, Math.floor(req.targetTokens)),
         sessionId,
+        ...(opts.roleSummarizer && req.authorizeAndDisclose ? {
+          summarizer: (input: Parameters<CompactionSummarizer>[0]) => opts.roleSummarizer!({ ...input, ...(req.signal ? { signal: req.signal } : {}) }, req.authorizeAndDisclose!),
+        } : {}),
       });
       // recap 반환 상한(systemPrompt 폭증 차단). droppedCount = 요약에 흡수된 메시지 수(MemorySystem 계약).
       return { recap: capInput(r?.summary?.content ?? "", RECAP_CAP), droppedCount: Number(r?.droppedCount ?? 0) };

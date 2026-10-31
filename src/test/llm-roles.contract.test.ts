@@ -39,7 +39,7 @@ describe("main/sub/memory 역할 해석", () => {
     expect(memory.credentialRef).toEqual({ value: "sub-key", provenance: "inherit", inheritedFromRole: "sub" });
   });
 
-	it("legacy memoryLlm*은 memory로 보존하고 sub는 legacy-inherit로 해석한다", () => {
+	it("legacy memoryLlm*은 memory로 보존하고 sub는 main을 상속한다", () => {
     const result = resolveLlmRoles({
       legacy: {
         main: { provider: "openai", model: "gpt-5.4" },
@@ -50,9 +50,9 @@ describe("main/sub/memory 역할 해석", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.configs[1].provider).toEqual({
-      value: "ollama",
-      provenance: "legacy-inherit",
-      inheritedFromRole: "memory",
+      value: "openai",
+      provenance: "inherit",
+      inheritedFromRole: "main",
     });
     expect(result.configs[2].provider).toEqual({ value: "ollama", provenance: "explicit" });
   });

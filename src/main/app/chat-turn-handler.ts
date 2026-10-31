@@ -10,7 +10,7 @@ import type {
   ProviderPort, ProviderResolverPort, ProcessingGuardPort, ConversationPort, CredentialPort, ApprovalPort, AgentEgressPort, DiagnosticLog, ToolExecutorPort, ProviderChatOpts, PersonaSourcePort, WorkspaceContextPort,
 } from "../ports/uc1.js";
 import type { MemoryPort } from "../ports/memory.js";
-import type { CompactionPort } from "../ports/compaction.js";
+import type { CompactionPort, CompactionRequest } from "../ports/compaction.js";
 import type { ConversationLogPort } from "../ports/conversation-log.js";
 import type { SurfacingPort, SurfacingSnapshot } from "../ports/surfacing.js";
 import {
@@ -246,6 +246,7 @@ export class ChatTurnHandler {
     req: ChatRequest,
     signal: AbortSignal,
     beforeCompact?: () => Promise<boolean>,
+    authorizeAndDisclose?: CompactionRequest["authorizeAndDisclose"],
   ): Promise<{
     messages: readonly ChatMessage[];
     recap: string;
@@ -274,7 +275,7 @@ export class ChatTurnHandler {
     }
     try {
       const r = await raceAbort(
-        compaction.compact({ messages: req.messages, keepTail, targetTokens: this.d.compactTargetTokens ?? DEFAULT_COMPACT_TARGET_TOKENS }),
+        compaction.compact({ messages: req.messages, keepTail, targetTokens: this.d.compactTargetTokens ?? DEFAULT_COMPACT_TARGET_TOKENS, signal: AbortSignal.any([signal, AbortSignal.timeout(this.d.memoryTimeoutMs ?? MEM_RECALL_TIMEOUT_MS)]), ...(authorizeAndDisclose ? { authorizeAndDisclose } : {}) }),
         signal, this.d.memoryTimeoutMs ?? MEM_RECALL_TIMEOUT_MS,
       );
       // null=abort/timeout, droppedCount<=0=압축 미수행, recap 공백=주입할 요약 없음 → 모두 원본 유지.
@@ -414,7 +415,7 @@ export class ChatTurnHandler {
       // 미주입/임계이하/실패 = 원본(budgeted-conversation 이 최종 드롭 가드). recap 은 아래 systemPrompt 에 주입.
       const compacted = await this.maybeCompact(req, signal, this.d.compaction
         ? () => authorizeOperation("memory_llm", { provider: "naia-memory", model: "compaction" })
-        : undefined);
+        : undefined, ({ provider, model }) => authorizeOperation("memory_llm", { provider, model }));
       if (compacted.processingDenied) return;
       const { messages: preMessages, recap: compactionRecap, droppedCount: compactedCount } = compacted;
       // UC-compaction: 압축 발생 시 wire 로 알림(UI 표시용). 비-terminal·무손실 정보 — usage/finish 불변식 무영향.
@@ -621,7 +622,10 @@ export class ChatTurnHandler {
               ? ""
               : assistantMemoryParts.join("\n");
             const assistantMemoryText = stripAssistantMemoryTags(rawAssistantMemoryText);
-            const ok = await raceTimeout(this.d.memory.save(lastUserText, assistantMemoryText), saveTimeoutMs);
+            const ok = await raceTimeout(this.d.memory.save(lastUserText, assistantMemoryText, {
+              signal: AbortSignal.any([signal, AbortSignal.timeout(saveTimeoutMs)]),
+              authorizeAndDisclose: ({ provider, model }) => authorizeOperation("memory_llm", { provider, model }),
+            }), saveTimeoutMs);
             if (!ok) {
               this.safeDiag("memory save 시간초과(턴 유지)", new Error(`>${saveTimeoutMs}ms`));
               emit({ kind: "logEntry", level: "warn", message: "자동 기억 저장 시간초과" });

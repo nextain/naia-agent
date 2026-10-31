@@ -75,6 +75,8 @@ const { makeFileDiscordInbox } =
   await import("../../dist/main/adapters/discord-inbox-store.js");
 const { makeProcessingGuard } =
   await import("../../dist/main/adapters/processing-guard.js");
+const { resolveMemoryRoleEndpoint } =
+  await import("../../dist/main/adapters/llm-role-runtime.js");
 const {
   anthropicBaseUrl,
   isLocalEngineBaseUrl,
@@ -136,7 +138,7 @@ const { composeAgentRuntimeDeps } = await import("./compose-agent-deps.mjs");
 // ── transport-독립 런타임 deps = 공유 빌더(CLI host 와 literally 동일, NFR-CLI-shared) ──
 const deps = await composeAgentRuntimeDeps({ allowHomeAdkFallback: false });
 cleanupFns = deps.cleanupFns;
-const { adkPath, provider, resolver, providerLabel: label, credentials, settingsStore, defaultConfig, configLabel, setCredentialWorkspace, setKnowledgeWorkspace, setWorkspaceBind } = deps;
+const { adkPath, provider, resolver, providerLabel: label, credentials, settingsStore, settingsResolveSecret, defaultConfig, configLabel, setCredentialWorkspace, setKnowledgeWorkspace, setWorkspaceBind } = deps;
 const { llmRoles } = deps;
 let activeLlmRoles = llmRoles ?? null;
 let { toolExecutor } = deps;
@@ -442,6 +444,11 @@ if (discordToken && discordConfig && discordAuthority) {
       endpoints: {
         resolve: (provider, workload) => {
           if (workload === "memory_llm") {
+            if (provider.provider !== "naia-memory") {
+              const url = resolveMemoryRoleEndpoint(activeLlmRoles, provider, settingsResolveSecret);
+              if (!url) return undefined;
+              return { url, zone: isLocalEngineBaseUrl(url) ? "private_managed" : "unverified", provider: provider.provider, model: provider.model };
+            }
             const memoryLlm = activeMemoryProcessingConfig?.llm;
             if (!memoryLlm || memoryLlm.provider === "none") {
               return {

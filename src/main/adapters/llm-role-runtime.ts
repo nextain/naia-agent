@@ -1,6 +1,6 @@
 // adapters/llm-role-runtime — effective role config를 OpenAI-compatible batch/memory 런타임 설정으로 변환.
 // provider capability·endpoint·credential ref 규칙을 한 곳에 모아 sub와 memory가 설정 필드를 공유하지 않게 한다.
-import type { EffectiveLlmConfig, LlmRole } from "../domain/llm-roles.js";
+import type { EffectiveLlmConfig, LlmRole, LlmRolesResolution } from "../domain/llm-roles.js";
 import { nativeBaseUrl } from "../domain/provider-route.js";
 import type { SubLlmConfig } from "./sub-llm-provider.js";
 
@@ -71,8 +71,26 @@ export function resolveRoleRuntimeConfig(
       model: effective.model.value,
       baseUrl,
       ...(apiKey ? { apiKey } : {}),
+	  ...(effective.thinkingLevel?.value ? { thinkingLevel: effective.thinkingLevel.value } : {}),
       ...((provider === "nextain" || provider === "naia") ? { auth: "x-anyllm" as const } : {}),
     },
     ...(credentialRef ? { credentialRef } : {}),
   };
+}
+
+/** Look up only trusted selected roles; an ambiguous same-model endpoint fails closed. */
+export function resolveMemoryRoleEndpoint(
+  roles: LlmRolesResolution | null,
+  actual: { provider: string; model: string },
+  resolveSecret: (ref: string) => string | undefined,
+): string | undefined {
+  if (!roles?.ok) return undefined;
+  const urls = roles.configs.filter((role) => role.role === "memory" || role.role === "main")
+    .map((role) => resolveRoleRuntimeConfig({ ...role, role: "sub" }, resolveSecret))
+    .filter((result): result is Extract<RoleRuntimeResolution, { ok: true }> => result.ok)
+    .filter((result) => result.config.provider === actual.provider && result.config.model === actual.model)
+    .map((result) => result.config.baseUrl)
+    .filter((url): url is string => !!url);
+  const unique = [...new Set(urls)];
+  return unique.length === 1 ? unique[0] : undefined;
 }

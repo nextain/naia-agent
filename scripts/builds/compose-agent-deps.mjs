@@ -11,6 +11,7 @@ import { makeFakeProvider, makeSystemEchoProvider } from "../../dist/main/adapte
 import { makeKeychainCredentials, makeRefreshingKeychainRead } from "../../dist/main/adapters/keychain-secret-store.js";
 import { makeNaiaSettingsStore } from "../../dist/main/adapters/naia-settings-store.js";
 import { buildSubLlmProvider } from "../../dist/main/adapters/sub-llm-provider.js";
+import { buildRoleMemoryExtractor, buildRoleMemorySummarizer } from "../../dist/main/adapters/memory-role-summarizer.js";
 import { resolveRoleRuntimeConfig } from "../../dist/main/adapters/llm-role-runtime.js";
 import { makeMemorySurfacer } from "../../dist/main/app/memory-surfacer.js";
 import { decideSurfacing, resolveSurfacingThreshold, SURFACING_LIMITS, SURFACING_THRESHOLD_MAX_ITEMS } from "../../dist/main/domain/surfacing.js";
@@ -621,6 +622,28 @@ export async function composeAgentRuntimeDeps(o = {}) {
         const nextMemoryRuntime = effectiveMemoryRole
           ? resolveRoleRuntimeConfig(effectiveMemoryRole, settingsResolveSecret)
           : undefined;
+        const followsSub = effectiveMemoryRole?.provider.inheritedFromRole === "sub";
+        const effectiveMain = nextRoleConfigs.find((cfg) => cfg.role === "main");
+        const mainRuntime = effectiveMain
+          ? resolveRoleRuntimeConfig({ ...effectiveMain, role: "sub" }, settingsResolveSecret)
+          : undefined;
+        const selectedRuntime = nextMemoryRuntime?.ok ? nextMemoryRuntime : mainRuntime;
+        const roleSummarizer = followsSub && selectedRuntime?.ok
+          ? buildRoleMemorySummarizer(
+              selectedRuntime.config,
+              mainRuntime?.ok ? mainRuntime.config : undefined,
+              async (url, init) => fetch(url, init),
+              (event) => process.stderr.write(`[naia-agent] memory model fallback ${JSON.stringify(event)}\n`),
+            )
+          : undefined;
+        const roleExtractor = followsSub && selectedRuntime?.ok
+          ? buildRoleMemoryExtractor(
+              selectedRuntime.config,
+              mainRuntime?.ok ? mainRuntime.config : undefined,
+              async (url, init) => fetch(url, init),
+              (event) => process.stderr.write(`[naia-agent] memory model fallback ${JSON.stringify(event)}\n`),
+            )
+          : undefined;
         const { canonical: canonicalWorkspace, storage } = canonicalProductRoot(workspacePath);
         // Preserve existing users: copy legacy identity first, then use that identity to find
         // the legacy hashed store. Never overwrite a new-boundary file.
@@ -663,7 +686,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
         }
         try { nodeFs.mkdirSync(dirname(storePath), { recursive: true, mode: 0o700 }); } catch { /* best-effort */ }
         const sessionId = env.NAIA_MEMORY_SESSION || `proc-${randomUUID()}`;
-        const consolidationOn = Boolean(nextMemoryRuntime?.ok && env.NAIA_MEMORY_CONSOLIDATION !== "off");
+        const consolidationOn = Boolean(!followsSub && nextMemoryRuntime?.ok && env.NAIA_MEMORY_CONSOLIDATION !== "off");
         const next = makeNaiaMemory({
           storePath, project, sessionId,
           ...(nextMemCfg
@@ -674,7 +697,9 @@ export async function composeAgentRuntimeDeps(o = {}) {
                 embedding: nextMemCfg.embedding,
               }
             : {}),
-          ...(nextMemoryRuntime?.ok ? { llm: nextMemoryRuntime.config } : {}),
+          ...(!followsSub && nextMemoryRuntime?.ok ? { llm: nextMemoryRuntime.config } : {}),
+          ...(roleSummarizer ? { roleSummarizer } : {}),
+          ...(roleExtractor ? { roleExtractor } : {}),
           ...(consolidationOn ? { consolidation: {} } : {}),
           onConsolidation: (event) => {
             if (event.phase === "failed") {
