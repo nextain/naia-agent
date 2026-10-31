@@ -972,4 +972,4 @@ Status: Done (#154)
 
 기존 셸 호스트와 공통 조립을 공유하고 전용 stdin 비밀 파이프, 셸 경로의 loopback-only gRPC, 독립 경로의 gRPC 비활성화, 정상 종료와 상태·세대 소유권 검사를 제공한다. 허용 사용자 DM 및 허용 guild·부모 채널·사용자의 멘션과 스레드만 수신하며 빈 목록과 확인할 수 없는 부모는 거부한다. Guild 없는 메시지에 채널 유형이 없으면 알려진 Gateway 채널 캐시를 사용하고, 캐시가 없을 때 기존 Gateway/REST 어댑터로 채널을 조회한다. 조회된 DM은 type 1이고 recipients에 작성자가 있을 때만 캐시·수신하며, 그룹 DM·조회 실패·다른 채널 유형은 거부한다. 서버 채널/스레드도 캐시가 없으면 조회해 guild·thread type·parent를 검증하고 불일치나 누락은 거부한다. 기존 `NAIA_DISCORD_BINDINGS_JSON`에 선택적 `dm` 설정을 추가하되 필드가 없는 이전 설정은 그대로 허용한다. 봇·웹훅·자기 메시지를 거부하고 DM·스레드별 세션을 격리한다. Discord 개인 기억과 대화록의 기존 제한은 유지한다. 컨테이너 예제와 오프라인 통합·프로세스·셸 회귀 검증을 제공한다. 기억 복구와 긴 작업 위임은 후속 범위다.
 
-검증: TypeScript 빌드 통과, Discord 가짜 Gateway/REST 경로 183건과 셸 gRPC 회귀 69건 통과. 전체 `pnpm test`는 기준 실행과 동일하게 7개 기존 실패 파일에서 28건 실패 및 uncaught error 2건을 보고했으며, 이번 변경으로 추가된 실패는 0건이다. 컨테이너 이미지는 Podman으로 빌드하고 `serve --help`를 확인했다. P05는 독립 적대 리뷰가 기록될 때까지 검토 중이다.
+검증: TypeScript 빌드 통과, Discord 가짜 Gateway/REST 경로 183건과 셸 gRPC 회귀 69건 통과. 전체 `pnpm test`는 `fdc6fcb` 기준과 동일하게 7개 파일에서 28건 실패 및 uncaught error 2건을 보고했으며, 이번 변경으로 추가된 실패는 0건이다. 컨테이너 이미지는 Podman으로 빌드하고 `serve --help`를 확인했다. P05는 독립 적대 리뷰가 기록될 때까지 검토 중이다.

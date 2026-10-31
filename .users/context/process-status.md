@@ -5,10 +5,10 @@
 ## Issue #169 — 독립 Discord 호스트와 DM·스레드 (검토 중)
 
 - 이번 범위: 캐시/REST로 실제 Discord DM 채널 유형을 확인하고, Gateway→코어→REST 경로·serve 프로세스·컨테이너·전체 회귀를 검증했다.
-- 검증: `pnpm build`, Discord 가짜 Gateway/REST 경로 183건, 셸 gRPC 회귀 69건 통과. 전체 시험은 기준과 동일하게 7개 파일 28건 실패 및 uncaught error 2건이며 새 실패는 없다.
+- 검증: `pnpm build`, Discord 가짜 Gateway/REST 경로 183건, 셸 gRPC 회귀 69건 통과. 전체 시험은 `fdc6fcb` 기준과 동일하게 7개 파일 28건 실패 및 uncaught error 2건이며 새 실패는 없다(통과 2,140→2,163).
 - 컨테이너: Podman 빌드 및 `serve --help` 통과, 이미지 약 1.24 GB.
 - 게이트: P01~P04 완료. FR-DISCORD-169와 P05는 독립 적대 리뷰 기록 전까지 검토 중.
-- 마지막 업데이트: 2026-10-31 13:40 KST.
+- 마지막 업데이트: 2026-10-31 13:46 KST.
 
 ## Memory live reload — 2026-08-03 (#106)
 
