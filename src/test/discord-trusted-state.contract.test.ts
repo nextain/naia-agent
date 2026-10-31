@@ -41,10 +41,14 @@ describe("Discord trusted one-time state", () => {
     const authority = makeDiscordGenerationAuthority({ path, generation: "generation_2" });
     const first = authority.acquire?.();
     expect(first).toBeDefined();
+    expect(authority.isActive()).toBe(true);
     expect(authority.acquire?.()).toBeUndefined();
+    expect(authority.isActive()).toBe(true);
     first?.release();
+    expect(authority.isActive()).toBe(false);
     const replacement = authority.acquire?.();
     expect(replacement).toBeDefined();
+    expect(authority.isActive()).toBe(true);
     replacement?.release();
   });
 

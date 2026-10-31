@@ -174,8 +174,9 @@ export function makeDiscordGenerationAuthority(input: {
       leaseAttempted = true;
       if (!generationSelected()) return undefined;
       try {
-        localLease = claimGenerationLease(input);
-        return localLease;
+        const lease = claimGenerationLease(input);
+        if (lease) localLease = lease;
+        return lease;
       } catch {
         return undefined;
       }
