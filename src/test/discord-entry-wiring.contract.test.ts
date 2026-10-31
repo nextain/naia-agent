@@ -15,6 +15,7 @@ describe("T-DISCORD-RT-02/05 — production entry wiring", () => {
     expect(entry).toContain("delete process.env.NAIA_DISCORD_GENERATION");
     expect(entry).toContain("delete process.env.NAIA_DISCORD_STATUS_PATH");
     expect(entry).toContain("delete process.env.NAIA_DISCORD_AUTHORITY_PATH");
+    expect(entry).toContain("delete process.env.NAIA_DISCORD_LEASE_PATH");
     expect(entry).toContain("delete process.env.NAIA_DISCORD_INBOX_PATH");
     expect(entry).toContain("delete process.env.NAIA_JEONJU_COURSE_TARGET_JSON");
     expect(entry).toContain("delete process.env.NAIA_AGENT_SHUTDOWN_NONCE");
@@ -134,8 +135,10 @@ describe("T-DISCORD-RT-02/05 — production entry wiring", () => {
   });
 
   it("shares one idempotent shutdown promise across authenticated RPC and signals", () => {
-    expect(entry).toContain("shutdownPromise ??= performShutdown()");
-    expect(entry).toContain("onShutdown: () => onShutdown?.()");
+    expect(entry).toContain("shutdownPromise ??= performShutdown(exitCode)");
+    expect(entry).toContain("onShutdown: (exitCode) => onShutdown?.(exitCode)");
+    expect(entry).toContain("onShutdown = (exitCode = 0) =>");
+    expect(entry).toContain("process.exit(finalExitCode)");
     expect(entry).toContain('process.on("SIGTERM", () => { void onShutdown?.(); })');
     expect(entry).toContain('process.on("SIGINT", () => { void onShutdown?.(); })');
   });

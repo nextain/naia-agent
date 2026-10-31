@@ -139,8 +139,9 @@ export type ChannelContext =
   | {
       readonly kind: "discord";
       readonly bindingId: string;
-      readonly guildId: string;
+      readonly guildId: string | null;
       readonly channelId: string;
+      readonly parentChannelId?: string;
       readonly userId: string;
     };
 export interface GroundingRequest {

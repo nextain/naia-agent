@@ -31,7 +31,7 @@ function isRecord(value: unknown): value is DiscordInboxRecord {
   return ID.test(String(record.recordId ?? ""))
     && ["incoming", "outgoing"].includes(String(record.direction))
     && ID.test(String(record.bindingId ?? ""))
-    && SNOWFLAKE.test(String(record.guildId ?? ""))
+    && (record.guildId === null || SNOWFLAKE.test(String(record.guildId ?? "")))
     && SNOWFLAKE.test(String(record.channelId ?? ""))
     && SNOWFLAKE.test(String(record.sourceMessageId ?? ""))
     && (record.authorId === undefined || SNOWFLAKE.test(record.authorId))
@@ -43,7 +43,7 @@ function isRecord(value: unknown): value is DiscordInboxRecord {
 }
 
 function channelKey(record: Pick<DiscordInboxRecord, "bindingId" | "guildId" | "channelId">): string {
-  return `${record.bindingId}:${record.guildId}:${record.channelId}`;
+  return `${record.bindingId}:${record.guildId ?? "dm"}:${record.channelId}`;
 }
 
 function readBoundedFile(path: string): string {
@@ -80,7 +80,7 @@ function parseDocument(
     throw new Error("DISCORD_INBOX_CORRUPT");
   }
   for (const [key, records] of Object.entries(document.channels)) {
-    if (!/^[A-Za-z0-9_-]{1,128}:\d{1,128}:\d{1,128}$/.test(key)
+    if (!/^[A-Za-z0-9_-]{1,128}:(?:dm|\d{1,128}):\d{1,128}$/.test(key)
       || !Array.isArray(records) || !records.every(isRecord)
       || records.length > maxRecords
       || Buffer.byteLength(JSON.stringify(records), "utf8") > maxBytes

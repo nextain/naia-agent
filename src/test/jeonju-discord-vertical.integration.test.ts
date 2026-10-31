@@ -21,9 +21,10 @@ class FakeConnection implements DiscordGatewayConnection {
   readonly closed = this.#done.promise;
   readonly replies: string[] = [];
   readonly replyTargets: string[] = [];
-  async sendReply(input: { guildId: string; channelId: string; messageId: string; content: string }): Promise<string> {
-    if (!/^\d+$/.test(input.messageId)) throw new Error("invalid_reply");
-    this.replyTargets.push(input.messageId);
+  async createThreadFromMessage(): Promise<string> { return "700"; }
+  async sendReply(input: { guildId: string | null; channelId: string; messageId?: string; content: string }): Promise<string> {
+    if (input.messageId && !/^\d+$/.test(input.messageId)) throw new Error("invalid_reply");
+    if (input.messageId) this.replyTargets.push(input.messageId);
     this.replies.push(input.content);
     return `reply_${this.replies.length}`;
   }
@@ -41,7 +42,7 @@ class FakeGateway implements DiscordGatewayPort {
   message(messageId: string, content: string): void {
     this.handlers?.onMessage({
       messageId, guildId: "100", channelId: "200", authorId: "300", authorIsBot: false,
-      content, mentionedUserIds: ["999"],
+      content, mentionedUserIds: ["999"], channelType: 0,
     });
   }
 }
@@ -174,7 +175,7 @@ describe("UC-JEONJU vertical Discord acceptance", () => {
     expect(courseDedupeIds).toHaveLength(3);
     expect(new Set(courseDedupeIds).size).toBe(3);
     expect(courseDedupeIds.every((id) => /^course_(received|running|completed)_[a-f0-9]{32}$/.test(id))).toBe(true);
-    expect(gateway.connection.replyTargets.slice(3)).toEqual(["4002", "4002", "4002"]);
+    expect(gateway.connection.replyTargets).toEqual(["4002", "4002", "4002"]);
     const publicEvidence = JSON.stringify(gateway.connection.replies);
     expect(publicEvidence).not.toContain("student-page");
     expect(publicEvidence).not.toContain("D:/alpha-adk");
