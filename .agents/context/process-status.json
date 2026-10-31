@@ -58,6 +58,13 @@
       "scope": "r5: 실제 Discord DM 채널 조회 fail-closed 보강, Gateway→코어→REST 및 serve 프로세스 검증, 컨테이너 예시·빌드, 전체 시험 기준 비교",
       "last_updated": "2026-10-31T13:46:28+09:00",
       "verification": "fdc6fcb 기준·현재 모두 pnpm test에서 7개 파일/28건 실패 및 uncaught error 2건, 현재 신규 실패 0건(통과 2140→2163). pnpm build 및 logging/compile-integrity 검사 기준·현재 통과. Discord 가짜 Gateway/REST 경로 183건, 셸 gRPC 회귀 69건, Podman 이미지 빌드 및 serve --help 통과. 독립 적대 리뷰 전까지 P05 검토 중"
+    },
+    "discord_169_r6": {
+      "issue": "https://github.com/nextain/naia-agent/issues/169",
+      "status": "in_review",
+      "scope": "r6: 독립 검수 B1~B6 수정 — channel type·DM recipient·lease fencing·serve 설정 검증·guild metadata 보강",
+      "last_updated": "2026-10-31T14:34:00+09:00",
+      "verification": "fdc6fcb 직접 기준 비교: 기준 7개 파일/28 실패/2140 통과/11 skip/2 errors, 현재 7개 파일/28 실패/2178 통과/11 skip/2 errors(신규 실패 0, 통과 +38). pnpm build, 루트 구조, logging, compile-integrity, CI 구조 검사 통과. P05 독립 검수 후 완료 예정."
     }
   },
   "sdlc_gates": {
@@ -82,7 +89,7 @@
     "P04": {
       "status": "done",
       "name": "integration_test",
-      "deliverable": "가짜 Gateway→실제 코어→가짜 REST DM/스레드 통합, serve 자식 프로세스 pipe·ready·SIGTERM·authority 충돌 검증, 셸 gRPC 회귀 통과; 전체 시험은 기준과 동일한 기존 7개 파일 28건 실패 및 uncaught error 2건(신규 실패 0)",
+      "deliverable": "B1~B6 재현 계약·통합·프로세스 시험 통과; 전체 pnpm test는 fdc6fcb 기준과 같은 기존 7개 파일 28건 실패 및 uncaught error 2건, 신규 실패 0(통과 2140→2178)",
       "ref": "docs/user-scenarios.md#uc-discord-standalone-169"
     },
     "P05": {
@@ -108,7 +115,7 @@
     ]
   },
   "resource_registry": {
-    "last_enforce_run": "2026-10-31T13:46:28+09:00",
+    "last_enforce_run": "2026-10-31T14:34:00+09:00",
     "violations": []
   },
   "_usage": {
@@ -132,5 +139,5 @@
       "4. resource_registry.violations 초기화"
     ]
   },
-  "last_updated": "2026-10-31T13:46:28+09:00"
+  "last_updated": "2026-10-31T14:34:00+09:00"
 }
