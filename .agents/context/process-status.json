@@ -56,7 +56,7 @@
       "issue": "https://github.com/nextain/naia-agent/issues/169",
       "status": "in_progress",
       "scope": "독립 Discord serve 호스트와 허용 사용자 DM·서버 스레드. Gateway→코어→REST 전체 프로세스 검증, 컨테이너, 전체 시험 기준 비교는 다음 회차",
-      "last_updated": "2026-10-31T13:18:13+09:00",
+      "last_updated": "2026-10-31T13:19:31+09:00",
       "verification": "serve/배선 19건 및 Discord 대상 9개 파일 176건 통과; tsc 통과. 시작 기준 전체 시험은 기존 7개 파일/28건 실패와 2개 uncaught error가 있어 다음 회차에서 비교"
     }
   },
@@ -132,5 +132,5 @@
       "4. resource_registry.violations 초기화"
     ]
   },
-  "last_updated": "2026-10-31T13:18:13+09:00"
+  "last_updated": "2026-10-31T13:19:31+09:00"
 }
