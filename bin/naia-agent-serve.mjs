@@ -17,6 +17,9 @@ const HELP = `naia-agent serve — 독립 Discord 수신 호스트
   NAIA_DISCORD_STATUS_PATH       상태 JSON의 절대 경로
   NAIA_DISCORD_AUTHORITY_PATH    현재 generation authority JSON의 절대 경로
 
+선택 환경 설정:
+  NAIA_DISCORD_LEASE_PATH        lease 파일 접두사의 절대 경로 (기본값: authority 경로)
+
 SIGTERM/SIGINT를 받으면 Discord 입력을 멈추고 진행 중인 턴을 정리합니다.
 `;
 

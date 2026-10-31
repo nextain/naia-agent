@@ -972,6 +972,8 @@ Status: Done (#154)
 
 기존 셸 호스트와 공통 조립을 공유하고 전용 stdin 비밀 파이프, 셸 경로의 loopback-only gRPC, 독립 경로의 gRPC 비활성화, 정상 종료와 상태·세대 소유권 검사를 제공한다. 독립 serve는 존재하는 workspace와 구체적인 main provider 설정을 시작 전에 확인하고, 빠진 설정을 `--help`에 안내하며 미설정 상태는 0이 아닌 코드로 끝난다. 허용 사용자 DM 및 허용 guild·부모 채널·사용자의 멘션과 스레드만 수신하며 빈 목록과 확인할 수 없는 부모는 거부한다. 일반 guild message channel은 type 0(text)·5(announcement), thread는 type 10·11·12만 허용하며 Gateway cache와 runtime 양쪽에서 그 밖의 type을 거부한다. 일반 채널 `parent_id`는 category ID로 보존하거나 thread 부모 검증에 사용하지 않는다. Guild 없는 메시지에서 type/recipient를 확인할 수 없으면 REST를 조회하고, 모든 DM 메시지는 type 1 및 recipients에 작성자가 있는지 확인한다. recipients 부재·조회 오류·그룹 DM·불일치는 거부하고 확인되지 않은 항목은 신뢰 캐시에 저장하지 않는다. `THREAD_LIST_SYNC`·`GUILD_CREATE`는 outer `guild_id`를 thread metadata에 전달하며, guild 정보가 불완전한 cache 항목은 REST 확인 성공 전까지 승인하지 않는다. 서버 channel/thread도 캐시가 없으면 조회해 guild·thread type·parent를 검증하고 불일치나 누락은 거부한다. 현재 generation authority와 process lease의 token 소유권을 ingress와 각 egress에서 확인하며, lease 상실 시 readiness를 내리고 처리를 멈춘 뒤 프로세스를 비정상 종료한다. lease 취득 전 SIGTERM/SIGINT 처리기를 등록하고, 시작 중 신호는 남은 초기화를 중단한 후 이미 등록된 자원을 한 번만 정리하고 stopped를 기록한다. 시작 중 예외·promise 거절도 실패 상태를 기록하고 소유한 lease를 해제한다. 기존 `NAIA_DISCORD_BINDINGS_JSON`에 선택적 `dm` 설정을 추가하되 필드가 없는 이전 설정은 그대로 허용한다. 봇·웹훅·자기 메시지를 거부하고 DM·스레드별 세션을 격리한다. Discord 개인 기억과 대화록의 기존 제한은 유지한다. 컨테이너 예제와 오프라인 통합·프로세스·셸 회귀 검증을 제공한다. 기억 복구와 긴 작업 위임은 후속 범위다.
 
+컨테이너 예제는 호스트 authority 디렉터리를 읽기 전용으로, lease·상태 디렉터리를 별도로 쓰기 가능하게 마운트한다. 선택적 절대 lease 경로를 지원하며 미설정 시 기존 경로를 유지한다. rootless 실행은 이미지 node UID/GID에 매핑한다.
+
 검증: Node 22.23.4, `CI=1`, CPU 0–3 affinity, Vitest 기본 3 workers 및 기본 heap에서 기준과 수정본의 `pnpm test`를 각각 두 번 순차 실행했다. 각 실행의 pretest 빌드는 통과했다.
 
 | 실행 | 시험 파일 실패/통과/skip | 시험 실패/통과/skip | uncaught errors | 시간 |

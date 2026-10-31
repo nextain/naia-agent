@@ -15,6 +15,7 @@ describe("T-DISCORD-RT-02/05 — production entry wiring", () => {
     expect(entry).toContain("delete process.env.NAIA_DISCORD_GENERATION");
     expect(entry).toContain("delete process.env.NAIA_DISCORD_STATUS_PATH");
     expect(entry).toContain("delete process.env.NAIA_DISCORD_AUTHORITY_PATH");
+    expect(entry).toContain("delete process.env.NAIA_DISCORD_LEASE_PATH");
     expect(entry).toContain("delete process.env.NAIA_DISCORD_INBOX_PATH");
     expect(entry).toContain("delete process.env.NAIA_JEONJU_COURSE_TARGET_JSON");
     expect(entry).toContain("delete process.env.NAIA_AGENT_SHUTDOWN_NONCE");

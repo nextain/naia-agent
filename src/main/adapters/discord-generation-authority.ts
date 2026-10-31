@@ -1,5 +1,7 @@
 import {
+  accessSync,
   closeSync,
+  constants,
   existsSync,
   fsyncSync,
   openSync,
@@ -9,7 +11,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { isAbsolute } from "node:path";
+import { dirname, isAbsolute } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { DiscordIngressAuthorityPort } from "../ports/discord.js";
 import { replaceOwnerOnlyAtomic } from "./owner-only-atomic-file.js";
@@ -139,6 +141,15 @@ function claimGenerationLease(input: { readonly path: string; readonly generatio
   };
 }
 
+/** Warn when this process can alter the authority file or replace it in its directory. */
+export function isDiscordAuthorityWritable(path: string): boolean {
+  if (!existsSync(path)) return false;
+  for (const target of [path, dirname(path)]) {
+    try { accessSync(target, constants.W_OK); return true; } catch { /* not writable */ }
+  }
+  return false;
+}
+
 /**
  * Native atomically replaces this file only after its manifest is durable.
  * Every ingress-consuming operation re-reads it; invalid state fails closed.
@@ -146,8 +157,10 @@ function claimGenerationLease(input: { readonly path: string; readonly generatio
 export function makeDiscordGenerationAuthority(input: {
   readonly path: string;
   readonly generation: string;
+  readonly leasePath?: string;
 }): DiscordIngressAuthorityPort {
-  if (!isAbsolute(input.path) || !GENERATION.test(input.generation)) {
+  if (!isAbsolute(input.path) || (input.leasePath !== undefined && !isAbsolute(input.leasePath))
+    || !GENERATION.test(input.generation)) {
     throw new Error("DISCORD_AUTHORITY_CONFIG_INVALID");
   }
   let leaseAttempted = false;
@@ -174,7 +187,7 @@ export function makeDiscordGenerationAuthority(input: {
       leaseAttempted = true;
       if (!generationSelected()) return undefined;
       try {
-        const lease = claimGenerationLease(input);
+        const lease = claimGenerationLease({ path: input.leasePath ?? input.path, generation: input.generation });
         if (lease) localLease = lease;
         return lease;
       } catch {

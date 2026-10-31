@@ -241,6 +241,19 @@ describe("naia-agent serve process lifecycle", () => {
     await expect(waitForExit(replacement.child)).resolves.toEqual({ code: 0, signal: null });
   }, 60_000);
 
+  it("uses the configured lease path and warns about writable authority", async () => {
+    const directory = testDirectory();
+    const leasePath = join(directory, "separate-lease");
+    const first = startServe(directory, { NAIA_DISCORD_LEASE_PATH: leasePath });
+    await waitForStatus(first.statusPath, "ready", 20_000, first.output);
+    expect(first.output()).toContain("Discord generation authority is writable");
+    expect(existsSync(`${leasePath}.generation_process_test.lock`)).toBe(true);
+    expect(existsSync(join(directory, "authority.json.generation_process_test.lock"))).toBe(false);
+    first.child.kill("SIGTERM");
+    await expect(waitForExit(first.child)).resolves.toEqual({ code: 0, signal: null });
+    expect(existsSync(`${leasePath}.generation_process_test.lock`)).toBe(false);
+  }, 60_000);
+
   it("reads the token pipe, publishes ready, rejects a duplicate generation, and exits cleanly on SIGTERM", async () => {
     const directory = testDirectory();
     const first = startServe(directory);

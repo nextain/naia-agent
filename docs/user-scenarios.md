@@ -1082,4 +1082,5 @@ Coverage: `src/test/action-execution-policy.contract.test.ts`, `src/test/action-
 | 일반 채널 category parent 의미, 일반/thread 유형 allowlist, DM 매 메시지 recipient 확인, outer guild ID 보충 및 불완전 metadata REST 재확인 | `src/test/discord-gateway.contract.test.ts`, `src/test/discord-runtime.integration.test.ts`, `src/test/discord-standalone.integration.test.ts` |
 | 가짜 Gateway와 모델, REST를 통과하는 전체 흐름 및 독립 호스트의 pipe·SIGTERM·lease 탈취 fencing·workspace/provider 준비 검증 | `src/test/discord-standalone.integration.test.ts`, `src/test/discord-serve-process.integration.test.ts`, `src/test/discord-trusted-state.contract.test.ts` |
 | lease 취득 직후 SIGTERM/SIGINT, 중복 신호, 시작 상태 쓰기 예외·거절된 promise·runtime 시작 직후 예외 시 정리·상태 기록과 즉시 재시작 | `src/test/discord-serve-process.integration.test.ts` |
+| 읽기 전용 authority 디렉터리와 별도 쓰기 가능 lease, 원자적 authority 교체 및 rootless node UID 매핑 | `src/test/discord-trusted-state.contract.test.ts`, `src/test/discord-serve-process.integration.test.ts`, 컨테이너 오프라인 권한 검증 |
 | 셸 gRPC Chat·Cancel·승인·설정 회귀 | 기존 gRPC 및 Discord 배선 테스트 |

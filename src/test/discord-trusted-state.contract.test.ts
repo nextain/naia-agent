@@ -1,6 +1,6 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { makeFileDiscordConsentStore } from "../main/adapters/discord-consent-store.js";
 import {
@@ -8,7 +8,7 @@ import {
   makeFileDiscordRegistration,
 } from "../main/adapters/discord-registration-store.js";
 import { makeDiscordStatusFile } from "../main/adapters/discord-status-file.js";
-import { makeDiscordGenerationAuthority } from "../main/adapters/discord-generation-authority.js";
+import { isDiscordAuthorityWritable, makeDiscordGenerationAuthority } from "../main/adapters/discord-generation-authority.js";
 
 const dirs: string[] = [];
 function tempFile(name: string): string {
@@ -33,6 +33,35 @@ describe("Discord trusted one-time state", () => {
       version: 1, generation: "generation_2", unexpected: true,
     }));
     expect(authority.isActive()).toBe(false);
+  });
+
+  it("detects writable authority files and writable replacement directories", () => {
+    const path = tempFile("authority.json");
+    writeFileSync(path, "{}");
+    expect(isDiscordAuthorityWritable(path)).toBe(true);
+    chmodSync(path, 0o400);
+    expect(isDiscordAuthorityWritable(path)).toBe(true);
+    chmodSync(dirname(path), 0o500);
+    try { expect(isDiscordAuthorityWritable(path)).toBe(false); }
+    finally { chmodSync(dirname(path), 0o700); }
+  });
+
+  it("uses a separate lease path and observes atomic authority replacement", () => {
+    const path = tempFile("authority.json");
+    const leasePath = tempFile("lease");
+    writeFileSync(path, JSON.stringify({ version: 1, generation: "generation_2" }));
+    const authority = makeDiscordGenerationAuthority({ path, leasePath, generation: "generation_2" });
+    const lease = authority.acquire?.();
+    expect(lease).toBeDefined();
+    expect(existsSync(`${leasePath}.generation_2.lock`)).toBe(true);
+    expect(existsSync(`${path}.generation_2.lock`)).toBe(false);
+    expect(authority.isActive()).toBe(true);
+    writeFileSync(`${path}.new`, JSON.stringify({ version: 1, generation: "generation_3" }));
+    renameSync(`${path}.new`, path);
+    expect(authority.isActive()).toBe(false);
+    lease?.release();
+    expect(existsSync(`${leasePath}.generation_2.lock`)).toBe(false);
+    expect(() => makeDiscordGenerationAuthority({ path, leasePath: "relative", generation: "generation_2" })).toThrow("DISCORD_AUTHORITY_CONFIG_INVALID");
   });
 
   it("allows one live process lease per generation and releases it on shutdown", () => {

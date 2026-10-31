@@ -76,7 +76,7 @@ const { makeFileDiscordConsentStore } =
   await import("../../dist/main/adapters/discord-consent-store.js");
 const { makeDiscordStatusFile } =
   await import("../../dist/main/adapters/discord-status-file.js");
-const { makeDiscordGenerationAuthority } =
+const { isDiscordAuthorityWritable, makeDiscordGenerationAuthority } =
   await import("../../dist/main/adapters/discord-generation-authority.js");
 const { makeFileDiscordInbox } =
   await import("../../dist/main/adapters/discord-inbox-store.js");
@@ -302,10 +302,12 @@ delete process.env.NAIA_DISCORD_CONSENTS_JSON;
 const discordGeneration = process.env.NAIA_DISCORD_GENERATION;
 const discordStatusPath = process.env.NAIA_DISCORD_STATUS_PATH;
 const discordAuthorityPath = process.env.NAIA_DISCORD_AUTHORITY_PATH;
+const discordLeasePath = process.env.NAIA_DISCORD_LEASE_PATH;
 const discordInboxPath = process.env.NAIA_DISCORD_INBOX_PATH;
 delete process.env.NAIA_DISCORD_GENERATION;
 delete process.env.NAIA_DISCORD_STATUS_PATH;
 delete process.env.NAIA_DISCORD_AUTHORITY_PATH;
+delete process.env.NAIA_DISCORD_LEASE_PATH;
 delete process.env.NAIA_DISCORD_INBOX_PATH;
 let discordAuthority;
 let discordAuthorityLease;
@@ -315,7 +317,11 @@ if (discordGeneration && discordStatusPath && discordAuthorityPath) {
     discordAuthority = makeDiscordGenerationAuthority({
       generation: discordGeneration,
       path: discordAuthorityPath,
+      ...(discordLeasePath !== undefined ? { leasePath: discordLeasePath } : {}),
     });
+    if (discordStandalone && isDiscordAuthorityWritable(discordAuthorityPath)) {
+      process.emitWarning("Discord generation authority is writable by this process; mount its directory read-only.");
+    }
     if (!discordStandalone) discordStatus.write("starting");
   } catch {
     discordStatus = undefined;

@@ -27,6 +27,7 @@ COPY --from=build --chown=node:node /workspace/naia-agent/node_modules ./node_mo
 COPY --from=build --chown=node:node /workspace/naia-agent/package.json ./package.json
 COPY --from=build --chown=node:node /workspace/naia-agent/scripts/builds ./scripts/builds
 VOLUME ["/workspace", "/var/lib/naia-agent"]
+# The rootless run example maps the invoking user to this image user (1000:1000).
 USER node
 WORKDIR /workspace
 ENTRYPOINT ["node", "/opt/naia-agent/bin/naia-agent.mjs"]
