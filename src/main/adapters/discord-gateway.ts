@@ -206,6 +206,7 @@ function asMessage(value: unknown): DiscordGatewayMessage | undefined {
   if (!value || typeof value !== "object") return undefined;
   const message = value as Record<string, unknown>;
   const author = message.author as Record<string, unknown> | undefined;
+  if (message.webhook_id !== undefined && message.webhook_id !== null) return undefined;
   if (typeof message.id !== "string" || !SNOWFLAKE.test(message.id)
     || typeof message.channel_id !== "string" || !SNOWFLAKE.test(message.channel_id)
     || (message.guild_id !== undefined && (typeof message.guild_id !== "string" || !SNOWFLAKE.test(message.guild_id)))

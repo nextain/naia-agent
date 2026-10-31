@@ -52,6 +52,22 @@ function deferred<T>() {
 afterEach(() => vi.useRealTimers());
 
 describe("T-DISCORD-RT-02/05/06 — Discord Gateway adapter", () => {
+  it("rejects webhook events even when their author looks like an allowed human", async () => {
+    const socket = new FakeSocket();
+    const onMessage = vi.fn();
+    const connection = await makeDiscordGateway({
+      fetch: vi.fn(async () => response(200, { url: "wss://gateway.discord.test" })) as typeof fetch,
+      socket: () => socket,
+    }).connect("token", { onReady() {}, onMessage });
+    socket.payload({ op: 0, t: "READY", d: { user: { id: "999" } } });
+    socket.payload({ op: 0, t: "MESSAGE_CREATE", d: {
+      id: "400", guild_id: "100", channel_id: "200", content: "hi",
+      author: { id: "300", bot: false }, webhook_id: "123",
+    } });
+    expect(onMessage).not.toHaveBeenCalled();
+    connection.close();
+  });
+
   it("authenticates after Hello and maps READY/MESSAGE_CREATE authenticated fields", async () => {
     vi.useFakeTimers();
     const socket = new FakeSocket();
