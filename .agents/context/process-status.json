@@ -52,12 +52,12 @@
       "last_updated": "2026-08-18T17:20:00+09:00",
       "verification": "vitest src/test/gateway-pricing.contract.test.ts 7 passed; tsc --build 0. 기존 스위트 23 실패는 벤치마크/외부의존 사전존재(내 변경 모듈은 frozen closure 미포함 확인)."
     },
-    "discord_169_r4": {
+    "discord_169_r5": {
       "issue": "https://github.com/nextain/naia-agent/issues/169",
-      "status": "in_progress",
+      "status": "in_review",
       "scope": "r5: 실제 Discord DM 채널 조회 fail-closed 보강, Gateway→코어→REST 및 serve 프로세스 검증, 컨테이너 예시·빌드, 전체 시험 기준 비교",
-      "last_updated": "2026-10-31T13:22:23+09:00",
-      "verification": "serve/배선 19건 및 Discord 대상 9개 파일 176건 통과; tsc 통과. 시작 기준 전체 시험은 기존 7개 파일/28건 실패와 2개 uncaught error가 있어 다음 회차에서 비교"
+      "last_updated": "2026-10-31T13:40:06+09:00",
+      "verification": "pnpm build 통과; Discord 가짜 Gateway/REST 경로 183건 및 셸 gRPC 회귀 69건 통과. 전체 pnpm test는 기준과 동일한 7개 파일/28건 실패 및 uncaught error 2건, 신규 실패 0건. Podman 이미지 빌드 및 serve --help 통과. 독립 적대 리뷰 전까지 P05 검토 중"
     }
   },
   "sdlc_gates": {
@@ -80,16 +80,16 @@
       "ref": "docs/requirements.md#fr-discord-169"
     },
     "P04": {
-      "status": "pending",
+      "status": "done",
       "name": "integration_test",
-      "deliverable": "현재 범위 계약·통합 시험 176건 통과; 전체 Gateway→코어→REST 및 독립 호스트 프로세스 검증은 다음 회차",
+      "deliverable": "가짜 Gateway→실제 코어→가짜 REST DM/스레드 통합, serve 자식 프로세스 pipe·ready·SIGTERM·authority 충돌 검증, 셸 gRPC 회귀 통과; 전체 시험은 기준과 동일한 기존 7개 파일 28건 실패 및 uncaught error 2건(신규 실패 0)",
       "ref": "docs/user-scenarios.md#uc-discord-standalone-169"
     },
     "P05": {
       "status": "pending",
       "name": "requirements_complete",
-      "deliverable": "예정",
-      "ref": "예정"
+      "deliverable": "FR-DISCORD-169는 독립 적대 리뷰 기록 전까지 In review로 유지",
+      "ref": "docs/requirements.md#fr-discord-169"
     }
   },
   "known_drift": {
@@ -108,7 +108,7 @@
     ]
   },
   "resource_registry": {
-    "last_enforce_run": null,
+    "last_enforce_run": "2026-10-31T13:40:06+09:00",
     "violations": []
   },
   "_usage": {
@@ -132,5 +132,5 @@
       "4. resource_registry.violations 초기화"
     ]
   },
-  "last_updated": "2026-10-31T13:22:23+09:00"
+  "last_updated": "2026-10-31T13:40:06+09:00"
 }
