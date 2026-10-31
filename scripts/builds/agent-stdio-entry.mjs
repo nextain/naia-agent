@@ -264,6 +264,7 @@ delete process.env.NAIA_DISCORD_AUTHORITY_PATH;
 delete process.env.NAIA_DISCORD_INBOX_PATH;
 let discordStatus;
 let discordAuthority;
+let discordAuthorityLease;
 if (discordGeneration && discordStatusPath && discordAuthorityPath) {
   try {
     discordStatus = makeDiscordStatusFile({ generation: discordGeneration, path: discordStatusPath });
@@ -271,14 +272,16 @@ if (discordGeneration && discordStatusPath && discordAuthorityPath) {
       generation: discordGeneration,
       path: discordAuthorityPath,
     });
-    discordStatus.write("starting");
+    if (!discordStandalone) discordStatus.write("starting");
   } catch {
     discordStatus = undefined;
   }
 }
 
 const failStandaloneStartup = async (code) => {
-  try { discordStatus?.write("failed", code); } catch { /* state file may be unavailable */ }
+  if (code !== "authority_conflict") {
+    try { discordStatus?.write("failed", code); } catch { /* state file may be unavailable */ }
+  }
   for (const fn of cleanupFns) { try { fn(); } catch { /* best-effort */ } }
   try { if (memory) await memory.close(); } catch { /* best-effort */ }
   process.stderr.write(`[naia-agent] Discord standalone startup failed (${code})\n`);
@@ -291,8 +294,11 @@ if (discordStandalone) {
       || (discordConfig.bindings.length === 0 && !discordConfig.dm) ? "bindings_invalid"
     : !discordStatus || !discordAuthority ? "authority_invalid"
     : !discordAuthority.isActive() ? "authority_conflict"
+    : !(discordAuthorityLease = discordAuthority.acquire?.()) ? "authority_conflict"
     : undefined;
   if (startupError) await failStandaloneStartup(startupError);
+  discordStatus.write("starting");
+  cleanupFns.unshift(() => discordAuthorityLease?.release());
 }
 
 // ★ 라이브 reload(정본 R1-2 "startup-only 금지"): 사용자가 naia-os 에서 모델/프로바이더 교체 시 OS 가

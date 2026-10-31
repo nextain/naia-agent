@@ -72,9 +72,20 @@ const args = sub === "run"
 
 const child = spawn(process.execPath, [target, ...args], { stdio: "inherit", windowsHide: true });
 child.on("exit", (code, signal) => {
-  if (signal) process.kill(process.pid, signal);
+  if (signal) {
+    process.exit(signal === "SIGINT" ? 130 : 143);
+  }
   process.exit(code ?? 0);
 });
+let forwardedSignal;
+for (const signal of ["SIGTERM", "SIGINT"]) {
+  process.on(signal, () => {
+    if (forwardedSignal) return;
+    forwardedSignal = signal;
+    try { child.kill(signal); }
+    catch { process.exit(signal === "SIGINT" ? 130 : 143); }
+  });
+}
 child.on("error", (e) => {
   process.stderr.write(`naia-agent 디스패치 실패: ${e.message}\n`);
   process.exit(1);

@@ -211,6 +211,8 @@ export interface DiscordRuntimeTextPort {
 export interface DiscordIngressAuthorityPort {
   /** Re-read cross-process generation authority. Missing or invalid state is inactive. */
   isActive(): boolean;
+  /** Claim one local process lease for this generation; concurrent copies fail closed. */
+  acquire?(): { release(): void } | undefined;
 }
 
 export interface DiscordRuntimeDeps {

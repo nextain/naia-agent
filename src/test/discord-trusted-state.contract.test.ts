@@ -35,6 +35,19 @@ describe("Discord trusted one-time state", () => {
     expect(authority.isActive()).toBe(false);
   });
 
+  it("allows one live process lease per generation and releases it on shutdown", () => {
+    const path = tempFile("authority.json");
+    writeFileSync(path, JSON.stringify({ version: 1, generation: "generation_2" }));
+    const authority = makeDiscordGenerationAuthority({ path, generation: "generation_2" });
+    const first = authority.acquire?.();
+    expect(first).toBeDefined();
+    expect(authority.acquire?.()).toBeUndefined();
+    first?.release();
+    const replacement = authority.acquire?.();
+    expect(replacement).toBeDefined();
+    replacement?.release();
+  });
+
   it("claims a registration code once, before its expiry, without persisting the code", async () => {
     const path = tempFile("registrations.json");
     const seed = {
