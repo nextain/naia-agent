@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   DiscordChannelRuntime,
   parseDiscordRuntimeConfig,
+  type DiscordDmBinding,
 } from "../main/adapters/discord-channel.js";
 import { wireAgentUC1 } from "../main/composition/index.js";
 import type { AgentRequest, ChatMessage, ProviderChunk } from "../main/domain/chat.js";
@@ -103,9 +104,9 @@ class FakeConnection implements DiscordGatewayConnection {
   private readonly done = deferred<DiscordGatewayClose>();
   readonly closed = this.done.promise;
   readonly replies: {
-    guildId: string;
+    guildId: string | null;
     channelId: string;
-    messageId: string;
+    messageId?: string;
     content: string;
     replyMessageId: string;
   }[] = [];
@@ -114,10 +115,18 @@ class FakeConnection implements DiscordGatewayConnection {
   rateLimitGate?: Promise<void>;
   failOnReplyNumber?: number;
   replyAttempts = 0;
+  threadCreates: { guildId: string; channelId: string; messageId: string; name: string }[] = [];
+  private nextThreadId = 700;
+  async createThreadFromMessage(input: {
+    guildId: string; channelId: string; messageId: string; name: string;
+  }): Promise<string> {
+    this.threadCreates.push(input);
+    return String(this.nextThreadId++);
+  }
   async sendReply(input: {
-    guildId: string;
+    guildId: string | null;
     channelId: string;
-    messageId: string;
+    messageId?: string;
     content: string;
     signal?: AbortSignal;
   }): Promise<string> {
@@ -209,6 +218,7 @@ function makeHarness(options: {
   inbox?: DiscordInboxPort;
   gracefulStopTimeoutMs?: number;
   toolExecutor?: ToolExecutorPort;
+  dm?: DiscordDmBinding;
 } = {}) {
   const gateway = new FakeGateway();
   const sleeps: number[] = [];
@@ -244,7 +254,7 @@ function makeHarness(options: {
         channelId: "200",
         allowedUserIds: options.allowedUserIds ?? ["300"],
         processingProfileRef: "profile_1",
-        participation: options.participation ?? "mentions",
+        participation: options.participation ?? "all",
       },
       ...(options.twoBindings ? [{
         bindingId: "binding_2",
@@ -252,9 +262,10 @@ function makeHarness(options: {
         channelId: "201",
         allowedUserIds: ["301"],
         processingProfileRef: "profile_2",
-        participation: "mentions" as const,
+        participation: "all" as const,
       }] : []),
     ],
+    ...(options.dm ? { dm: options.dm } : {}),
     reconnectBaseMs: 100,
     reconnectMaxMs: 400,
     ...(options.maxActiveTurns ? { maxActiveTurns: options.maxActiveTurns } : {}),
@@ -270,8 +281,16 @@ function makeHarness(options: {
       yield { kind: "finish" };
     },
   };
+  const requests: AgentRequest[] = [];
   const wired = wireAgentUC1({
-    ingress: runtime.ingress,
+    ingress: {
+      onRequest(callback) {
+        return runtime.ingress.onRequest((request) => {
+          requests.push(request);
+          callback(request);
+        });
+      },
+    },
     egress: runtime.egress,
     provider,
     defaultConfig: { provider: "fake", model: "fake-model" },
@@ -310,7 +329,7 @@ function makeHarness(options: {
   });
   wired.start?.();
   runtime.start();
-  return { gateway, runtime, sleeps, logs, setNow: (value: number) => { now = value; } };
+  return { gateway, runtime, sleeps, logs, requests, setNow: (value: number) => { now = value; } };
 }
 
 describe("T-DISCORD-RT-01/02 — authenticated ingress to existing chat pipeline", () => {
@@ -681,6 +700,21 @@ describe("T-DISCORD-RT-01/02 — authenticated ingress to existing chat pipeline
       bindings: valid.bindings,
       processingProfiles: valid.processingProfiles,
     });
+    const dmConfig = {
+      version: 1,
+      bindings: [],
+      processingProfiles: { profile_dm: "local_only" },
+      dm: { bindingId: "dm_binding", allowedUserIds: ["300"], processingProfileRef: "profile_dm" },
+    };
+    expect(parseDiscordRuntimeConfig(dmConfig)).toMatchObject({
+      bindings: [],
+      processingProfiles: dmConfig.processingProfiles,
+      dm: dmConfig.dm,
+    });
+    expect(parseDiscordRuntimeConfig({ ...dmConfig, dm: { ...dmConfig.dm, allowedUserIds: [] } }))
+      .toBeUndefined();
+    expect(parseDiscordRuntimeConfig({ ...dmConfig, dm: { ...dmConfig.dm, processingProfileRef: "missing" } }))
+      .toBeUndefined();
     expect(parseDiscordRuntimeConfig({
       version: 1,
       bindings: [],
@@ -769,7 +803,7 @@ describe("T-DISCORD-RT-01/02 — authenticated ingress to existing chat pipeline
     await runtime.stop();
   });
 
-  it("dispatches an exact binding with trusted processing metadata and replies to the source message", async () => {
+  it("creates a thread for an authorized mention and routes the first turn into it", async () => {
     const gateway = new FakeGateway();
     const requests: AgentRequest[] = [];
     const runtime = new DiscordChannelRuntime({
@@ -793,19 +827,121 @@ describe("T-DISCORD-RT-01/02 — authenticated ingress to existing chat pipeline
     expect(requests[0]).toMatchObject({
       kind: "chat",
       requestId: "discord:binding_1:m-1",
-      sessionId: "discord:binding_1:100:200:300",
+      sessionId: "discord:binding_1:thread:700:300",
       messages: [{ role: "user", content: "hello" }],
       channel: {
-        kind: "discord", bindingId: "binding_1", guildId: "100", channelId: "200", userId: "300",
+        kind: "discord", bindingId: "binding_1", guildId: "100", channelId: "700",
+        parentChannelId: "200", userId: "300",
       },
       processing: { processingProfileRef: "profile_1" },
     });
+    expect(gateway.connections[0]!.threadCreates).toMatchObject([{
+      guildId: "100", channelId: "200", messageId: "m-1", name: "Naia m-1",
+    }]);
     runtime.egress.emit("discord:binding_1:m-1", { kind: "text", text: "answer" });
     runtime.egress.emit("discord:binding_1:m-1", { kind: "finish" });
     await waitFor(() => gateway.connections[0]!.replies.length === 1);
     expect(gateway.connections[0]!.replies[0]).toMatchObject({
-      guildId: "100", channelId: "200", messageId: "m-1", content: "answer",
+      guildId: "100", channelId: "700", content: "answer",
     });
+    expect(gateway.connections[0]!.replies[0]?.messageId).toBeUndefined();
+    await runtime.stop();
+  });
+
+  it("continues an authorized thread without another mention and keeps other threads separate", async () => {
+    const { gateway, runtime, requests } = makeHarness({ participation: "mentions" });
+    await waitFor(() => gateway.handlers.length === 1);
+    gateway.message({ messageId: "thread-root" });
+    await waitFor(() => requests.length === 1 && answerReplies(gateway.connections[0]!).length === 1);
+    gateway.message({
+      messageId: "thread-follow-up",
+      channelId: "700",
+      parentChannelId: "200",
+      channelType: 11,
+      content: "follow up",
+      mentionedUserIds: [],
+      replyToAuthorId: undefined,
+    });
+    await waitFor(() => requests.length === 2 && answerReplies(gateway.connections[0]!).length === 2);
+    const firstRequest = requests[0] as Extract<AgentRequest, { kind: "chat" }>;
+    expect(requests[1]).toMatchObject({
+      sessionId: firstRequest.sessionId,
+      messages: [
+        { role: "user", content: "hello" },
+        { role: "assistant", content: "answer:hello" },
+        { role: "user", content: "follow up" },
+      ],
+      channel: { channelId: "700", parentChannelId: "200" },
+    });
+
+    gateway.message({
+      messageId: "other-thread",
+      channelId: "701",
+      parentChannelId: "200",
+      channelType: 11,
+      content: "other thread",
+      mentionedUserIds: [],
+      replyToAuthorId: undefined,
+    });
+    await waitFor(() => requests.length === 3 && answerReplies(gateway.connections[0]!).length === 3);
+    expect(requests[2]).toMatchObject({
+      sessionId: "discord:binding_1:thread:701:300",
+      messages: [{ role: "user", content: "other thread" }],
+    });
+
+    gateway.message({
+      messageId: "unknown-parent",
+      channelId: "701",
+      channelType: 11,
+      content: "must be rejected",
+      mentionedUserIds: [],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(requests).toHaveLength(3);
+    await runtime.stop();
+  });
+
+  it("accepts allowlisted DMs without mentions and isolates them by DM channel", async () => {
+    const { gateway, runtime, requests } = makeHarness({
+      dm: { bindingId: "dm_binding", allowedUserIds: ["300"], processingProfileRef: "profile_dm" },
+    });
+    await waitFor(() => gateway.handlers.length === 1);
+    gateway.message({
+      messageId: "dm-1", guildId: null, channelId: "500", authorId: "300",
+      content: "private question", mentionedUserIds: [], channelType: 1,
+    });
+    await waitFor(() => requests.length === 1 && answerReplies(gateway.connections[0]!).length === 1);
+    expect(requests[0]).toMatchObject({
+      sessionId: "discord:dm_binding:dm:500:300",
+      channel: { kind: "discord", bindingId: "dm_binding", guildId: null, channelId: "500", userId: "300" },
+      processing: { processingProfileRef: "profile_dm" },
+    });
+    expect(gateway.connections[0]!.threadCreates).toHaveLength(0);
+    expect(gateway.connections[0]!.replies[0]).toMatchObject({
+      guildId: null, channelId: "500", messageId: "dm-1",
+    });
+
+    gateway.message({
+      messageId: "dm-2", guildId: null, channelId: "501", authorId: "300",
+      content: "another private channel", mentionedUserIds: [], channelType: 1,
+    });
+    await waitFor(() => requests.length === 2 && answerReplies(gateway.connections[0]!).length === 2);
+    expect(requests[1]).toMatchObject({ sessionId: "discord:dm_binding:dm:501:300" });
+
+    gateway.message({
+      messageId: "dm-denied", guildId: null, channelId: "500", authorId: "301",
+      content: "not allowlisted", mentionedUserIds: [], channelType: 1,
+    });
+    gateway.message({
+      messageId: "dm-unverified-type", guildId: null, channelId: "502", authorId: "300",
+      content: "unknown private channel type", mentionedUserIds: [],
+    });
+    gateway.message({
+      messageId: "dm-group", guildId: null, channelId: "503", authorId: "300",
+      content: "group private channel", mentionedUserIds: [], channelType: 3,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(requests).toHaveLength(2);
     await runtime.stop();
   });
 
@@ -874,7 +1010,7 @@ describe("T-DISCORD-RT-01/02 — authenticated ingress to existing chat pipeline
     { mentionedUserIds: [], replyToAuthorId: undefined },
   ] as Partial<DiscordGatewayMessage>[])("rejects before provider/dispatch: %o", async (change) => {
     const provider = { chat: vi.fn() } as unknown as ProviderPort;
-    const { gateway, runtime } = makeHarness({ provider });
+    const { gateway, runtime } = makeHarness({ provider, participation: "mentions" });
     await waitFor(() => gateway.handlers.length === 1);
     gateway.message(change);
     await new Promise((resolve) => setTimeout(resolve, 5));
@@ -1917,7 +2053,10 @@ describe("T-DISCORD-RT-05/06 — lifecycle, bounded reply, safe failure", () => 
       authorId: "302",
     });
     await waitFor(() => answerReplies(gateway.connections.at(-1)!).length === 1);
-    expect(answerReplies(gateway.connections.at(-1)!)[0]?.messageId).toBe("latest-binding");
+    expect(answerReplies(gateway.connections.at(-1)!)[0]).toMatchObject({
+      channelId: "700",
+      content: "answer:hello",
+    });
     await runtime.stop();
   });
 

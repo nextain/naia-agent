@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { AgentEmit, AgentRequest, ChatMessage } from "../domain/chat.js";
-import { evaluateDiscordIngress } from "../domain/discord-ingress-policy.js";
+import { evaluateDiscordDmIngress, evaluateDiscordIngress } from "../domain/discord-ingress-policy.js";
 import { validateSecurityWireRequest } from "../domain/security-wire.js";
 import type {
   DiscordGatewayConnection,
@@ -21,8 +21,16 @@ export interface DiscordChannelBinding {
   readonly participation: "mentions" | "all" | "paused";
 }
 
+export interface DiscordDmBinding {
+  readonly bindingId: string;
+  readonly allowedUserIds: readonly string[];
+  readonly processingProfileRef: string;
+}
+
 export interface DiscordRuntimeConfig {
   readonly bindings: readonly DiscordChannelBinding[];
+  /** Optional for old configs; absent/empty DM policy stays closed. */
+  readonly dm?: DiscordDmBinding;
   readonly processingProfiles?: Readonly<Record<string, ProcessingProfile>>;
   readonly reconnectBaseMs?: number;
   readonly reconnectMaxMs?: number;
@@ -33,14 +41,28 @@ export interface DiscordRuntimeConfig {
   readonly maxReplyChars?: number;
 }
 
+interface ResolvedDiscordBinding {
+  readonly kind: "guild" | "dm";
+  readonly bindingId: string;
+  readonly guildId: string | null;
+  /** Configured server channel or concrete DM channel. */
+  readonly channelId: string;
+  readonly allowedUserIds: readonly string[];
+  readonly processingProfileRef: string;
+  readonly participation: "mentions" | "all" | "paused";
+  readonly isThread: boolean;
+  readonly parentChannelId?: string;
+}
+
 interface ActiveTurn {
   readonly requestId: string;
   readonly sessionId: string;
   readonly lifecycleEpoch: number;
   readonly outboundSignal: AbortSignal;
-  readonly guildId: string;
+  readonly guildId: string | null;
   readonly channelId: string;
   readonly messageId: string;
+  readonly replyToMessageId: string | null;
   readonly bindingId: string;
   readonly userText: string;
   readonly complete: () => void;
@@ -71,6 +93,7 @@ const CONFIG_KEYS = new Set([
   "bindings",
   "processingProfiles",
   "sessionIdleTimeoutMs",
+  "dm",
 ]);
 const BINDING_KEYS = new Set([
   "bindingId",
@@ -82,6 +105,8 @@ const BINDING_KEYS = new Set([
   "processingProfileRef",
   "participation",
 ]);
+const DM_BINDING_KEYS = new Set(["bindingId", "allowedUserIds", "processingProfileRef"]);
+const THREAD_CHANNEL_TYPES = new Set([10, 11, 12]);
 type DiscordRuntimeState = "idle" | "connecting" | "ready" | "backoff" | "stopped" | "terminal_error";
 
 function isBounded(value: unknown, max: number): value is string {
@@ -120,6 +145,24 @@ function parseBinding(value: unknown): DiscordChannelBinding | undefined {
   };
 }
 
+function parseDmBinding(value: unknown): DiscordDmBinding | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const item = value as Record<string, unknown>;
+  if (!hasOnlyKeys(item, DM_BINDING_KEYS)
+    || !ID.test(String(item.bindingId ?? ""))
+    || !ID.test(String(item.processingProfileRef ?? ""))
+    || !Array.isArray(item.allowedUserIds)
+    || item.allowedUserIds.length < 1 || item.allowedUserIds.length > 256
+    || !item.allowedUserIds.every((id) => isBounded(id, 128) && SNOWFLAKE.test(id))) {
+    return undefined;
+  }
+  return {
+    bindingId: item.bindingId as string,
+    allowedUserIds: [...new Set(item.allowedUserIds as string[])],
+    processingProfileRef: item.processingProfileRef as string,
+  };
+}
+
 export function parseDiscordRuntimeConfig(value: unknown): DiscordRuntimeConfig | undefined {
   if (!value || typeof value !== "object") return undefined;
   const input = value as Record<string, unknown>;
@@ -145,14 +188,19 @@ export function parseDiscordRuntimeConfig(value: unknown): DiscordRuntimeConfig 
     || Array.isArray(input.processingProfiles)) return undefined;
   const processingProfiles = input.processingProfiles as Record<string, unknown>;
   const profileEntries = Object.entries(processingProfiles);
+  const dm = input.dm === undefined ? undefined : parseDmBinding(input.dm);
   if (profileEntries.length < 1 || profileEntries.length > 256
     || profileEntries.some(([key, profile]) =>
       !ID.test(key) || !["local_only", "cloud_enabled", "ask_before_external"].includes(String(profile)))
-    || (bindings as DiscordChannelBinding[]).some((binding) => !(binding.processingProfileRef in processingProfiles))) {
+    || (bindings as DiscordChannelBinding[]).some((binding) => !(binding.processingProfileRef in processingProfiles))
+    || (input.dm !== undefined && !dm)
+    || (dm !== undefined && (!(dm.processingProfileRef in processingProfiles)
+      || (bindings as DiscordChannelBinding[]).some((binding) => binding.bindingId === dm.bindingId)))) {
     return undefined;
   }
   return {
     bindings: bindings as DiscordChannelBinding[],
+    ...(dm ? { dm } : {}),
     processingProfiles: processingProfiles as Record<string, ProcessingProfile>,
     ...(input.sessionIdleTimeoutMs !== undefined
       ? { sessionIdleTimeoutMs: Number(input.sessionIdleTimeoutMs) }
@@ -247,6 +295,8 @@ export class DiscordChannelRuntime {
   private authorityRefresh?: Promise<boolean>;
   private readonly registeredUsers = new Map<string, Set<string>>();
   private readonly sessionTails = new Map<string, Promise<void>>();
+  private readonly threadQueueKeys = new Map<string, string>();
+  private readonly messageThreads = new Map<string, string>();
   private readonly inFlightTasks = new Set<Promise<unknown>>();
   private admittedMessages = 0;
   private queuedMessages = 0;
@@ -264,7 +314,10 @@ export class DiscordChannelRuntime {
     private readonly deps: DiscordRuntimeDeps,
     private config: DiscordRuntimeConfig,
   ) {
-    if (config.bindings.length > 256) throw new Error("DISCORD_BINDINGS_INVALID");
+    if (config.bindings.length > 256
+      || (config.dm !== undefined && (config.dm.allowedUserIds.length < 1 || config.dm.allowedUserIds.length > 256))) {
+      throw new Error("DISCORD_BINDINGS_INVALID");
+    }
     this.reconnectBaseMs = this.boundedOption(config.reconnectBaseMs, 1_000, 100, 60_000);
     this.reconnectMaxMs = this.boundedOption(config.reconnectMaxMs, 30_000, this.reconnectBaseMs, 300_000);
     this.maxActiveTurns = this.boundedOption(config.maxActiveTurns, 32, 1, 256);
@@ -392,7 +445,7 @@ export class DiscordChannelRuntime {
   } {
     return {
       state: this.state,
-      bindingCount: this.config.bindings.length,
+      bindingCount: this.config.bindings.length + (this.config.dm ? 1 : 0),
       activeTurns: this.active.size,
       partialReplies: this.partialReplies,
       ...(this.latestPartialConfirmedChunk !== undefined
@@ -423,6 +476,8 @@ export class DiscordChannelRuntime {
     this.registeredUsers.clear();
     this.histories.clear();
     this.historyTouchedAt.clear();
+    this.threadQueueKeys.clear();
+    this.messageThreads.clear();
     this.connection?.close();
     const staleTasks = [...this.inFlightTasks];
     const staleTurns = [...this.active.values()];
@@ -680,16 +735,55 @@ export class DiscordChannelRuntime {
     }
   }
 
-  private findBinding(message: DiscordGatewayMessage): DiscordChannelBinding | undefined {
-    if (message.guildId === null) return undefined;
-    return this.config.bindings.find((binding) =>
-      binding.guildId === message.guildId && binding.channelId === message.channelId);
+  private findBinding(message: DiscordGatewayMessage): ResolvedDiscordBinding | undefined {
+    if (message.guildId === null) {
+      const dm = this.config.dm;
+      if (!dm || message.channelType !== 1 || THREAD_CHANNEL_TYPES.has(message.channelType)
+        || message.parentChannelId !== undefined || !dm.allowedUserIds.includes(message.authorId)) return undefined;
+      return {
+        kind: "dm",
+        bindingId: dm.bindingId,
+        guildId: null,
+        channelId: message.channelId,
+        allowedUserIds: dm.allowedUserIds,
+        processingProfileRef: dm.processingProfileRef,
+        participation: "all",
+        isThread: false,
+      };
+    }
+    const isThread = THREAD_CHANNEL_TYPES.has(message.channelType ?? -1)
+      || message.parentChannelId !== undefined;
+    if (isThread && !message.parentChannelId) return undefined;
+    if (!isThread && message.parentChannelId !== undefined) return undefined;
+    const authorizedChannelId = isThread ? message.parentChannelId : message.channelId;
+    const binding = this.config.bindings.find((candidate) =>
+      candidate.guildId === message.guildId && candidate.channelId === authorizedChannelId);
+    if (!binding) return undefined;
+    return {
+      ...binding,
+      kind: "guild",
+      guildId: message.guildId,
+      participation: isThread && binding.participation !== "paused" ? "all" : binding.participation,
+      isThread,
+      ...(isThread ? { parentChannelId: binding.channelId } : {}),
+    };
+  }
+
+  private sessionQueueKey(message: DiscordGatewayMessage, binding: ResolvedDiscordBinding): string {
+    if (binding.isThread) {
+      return this.threadQueueKeys.get(`${message.channelId}:${message.authorId}`)
+        ?? `discord:${binding.bindingId}:channel:${binding.channelId}:${message.authorId}`;
+    }
+    if (binding.kind === "dm") {
+      return `discord:${binding.bindingId}:dm:${message.channelId}:${message.authorId}`;
+    }
+    return `discord:${binding.bindingId}:channel:${binding.channelId}:${message.authorId}`;
   }
 
   private scheduleMessage(message: DiscordGatewayMessage, lifecycleEpoch: number): void {
     if (this.quiescing || !this.isLifecycleCurrent(lifecycleEpoch)) return;
     const binding = this.findBinding(message);
-    if (!binding || message.guildId === null) return;
+    if (!binding) return;
     if (this.active.size + this.admittedMessages >= this.maxActiveTurns) {
       this.diagnostic("busy", {
         activeCount: this.active.size,
@@ -698,8 +792,8 @@ export class DiscordChannelRuntime {
       });
       return;
     }
-    const sessionId = `discord:${binding.bindingId}:${binding.guildId}:${binding.channelId}:${message.authorId}`;
-    const previous = this.sessionTails.get(sessionId) ?? Promise.resolve();
+    const queueKey = this.sessionQueueKey(message, binding);
+    const previous = this.sessionTails.get(queueKey) ?? Promise.resolve();
     let admissionHeld = true;
     const releaseAdmission = () => {
       if (!admissionHeld) return;
@@ -712,7 +806,7 @@ export class DiscordChannelRuntime {
       this.queuedMessages--;
       try {
         if (!this.isLifecycleCurrent(lifecycleEpoch)) return;
-        await this.handleMessage(message, binding, lifecycleEpoch, releaseAdmission);
+        await this.handleMessage(message, binding, lifecycleEpoch, releaseAdmission, queueKey);
       } catch {
         this.diagnostic("message_handling_failed");
       } finally {
@@ -720,17 +814,18 @@ export class DiscordChannelRuntime {
       }
     });
     this.trackTask(task);
-    this.sessionTails.set(sessionId, task);
+    this.sessionTails.set(queueKey, task);
     void task.then(() => {
-      if (this.sessionTails.get(sessionId) === task) this.sessionTails.delete(sessionId);
+      if (this.sessionTails.get(queueKey) === task) this.sessionTails.delete(queueKey);
     });
   }
 
   private async handleMessage(
     message: DiscordGatewayMessage,
-    binding: DiscordChannelBinding | undefined,
+    binding: ResolvedDiscordBinding | undefined,
     lifecycleEpoch: number,
     releaseAdmission: () => void,
+    queueKey: string,
   ): Promise<void> {
     if (!await this.ensureAuthoritative()) {
       this.deps.diag.debug?.("discord ingress rejected", { reason: "generation_not_authoritative" });
@@ -738,8 +833,10 @@ export class DiscordChannelRuntime {
     }
     if (!this.isLifecycleCurrent(lifecycleEpoch)) return;
     const selfUserId = this.selfUserId;
-    let registered = binding ? this.registeredUsers.get(binding.bindingId)?.has(message.authorId) === true : false;
-    if (!registered && binding && this.deps.registration) {
+    let registered = binding?.kind === "guild"
+      ? this.registeredUsers.get(binding.bindingId)?.has(message.authorId) === true
+      : false;
+    if (!registered && binding?.kind === "guild" && this.deps.registration) {
       try {
         registered = await this.deps.registration.isRegistered({
           bindingId: binding.bindingId,
@@ -751,22 +848,31 @@ export class DiscordChannelRuntime {
     const allowedUserIds = binding
       ? [...binding.allowedUserIds, ...(registered ? [message.authorId] : [])]
       : [];
-    const decision = evaluateDiscordIngress({
-      readySelfUserId: selfUserId,
-      messageId: message.messageId,
-      guildId: message.guildId ?? "",
-      channelId: message.channelId,
-      authorId: message.authorId,
-      authorIsBot: message.authorIsBot,
-      mentionsSelf: selfUserId !== null && message.mentionedUserIds.includes(selfUserId),
-      repliesToSelf: selfUserId !== null && message.replyToAuthorId === selfUserId,
-      allowedGuildIds: binding ? [binding.guildId] : [],
-      allowedChannelIds: binding ? [binding.channelId] : [],
-      allowedUserIds,
-      participation: binding?.participation ?? "paused",
-    });
+    const decision = binding?.kind === "dm"
+      ? evaluateDiscordDmIngress({
+        readySelfUserId: selfUserId,
+        messageId: message.messageId,
+        channelId: message.channelId,
+        authorId: message.authorId,
+        authorIsBot: message.authorIsBot,
+        allowedUserIds,
+      })
+      : evaluateDiscordIngress({
+        readySelfUserId: selfUserId,
+        messageId: message.messageId,
+        guildId: binding?.guildId ?? "",
+        channelId: binding?.channelId ?? "",
+        authorId: message.authorId,
+        authorIsBot: message.authorIsBot,
+        mentionsSelf: selfUserId !== null && message.mentionedUserIds.includes(selfUserId),
+        repliesToSelf: selfUserId !== null && message.replyToAuthorId === selfUserId,
+        allowedGuildIds: binding?.guildId ? [binding.guildId] : [],
+        allowedChannelIds: binding ? [binding.channelId] : [],
+        allowedUserIds,
+        participation: binding?.participation ?? "paused",
+      });
     if (!decision.accepted || !binding || !selfUserId) {
-      if (binding && selfUserId && !message.authorIsBot && message.authorId !== selfUserId
+      if (binding?.kind === "guild" && selfUserId && !message.authorIsBot && message.authorId !== selfUserId
         && message.mentionedUserIds.includes(selfUserId) && this.deps.registration) {
         const code = stripSelfMention(message.content, selfUserId).match(/^register\s+(\S{4,128})$/i)?.[1];
         if (code) {
@@ -812,15 +918,25 @@ export class DiscordChannelRuntime {
       return;
     }
     if (reservation.decision === "resume_reply") {
+      const threadId = binding.kind === "guild"
+        ? (binding.isThread ? message.channelId : this.messageThreads.get(message.messageId))
+        : undefined;
+      if (binding.kind === "guild" && !binding.isThread && binding.participation === "mentions" && !threadId) {
+        await this.finishInterruptedReservation(binding.bindingId, message.messageId);
+        this.diagnostic("thread_resume_unavailable");
+        return;
+      }
       await this.sendDurableReply(
         binding.bindingId,
         binding.guildId,
-        binding.channelId,
+        threadId ?? message.channelId,
         message.messageId,
         reservation.chunks,
         reservation.nextChunk,
         lifecycleEpoch,
         this.lifecycleAbort.signal,
+        message.messageId,
+        threadId && !binding.isThread ? null : message.messageId,
       );
       return;
     }
@@ -828,12 +944,63 @@ export class DiscordChannelRuntime {
       this.deps.diag.debug?.("discord ingress rejected", { reason: "dedupe_rejected" });
       return;
     }
+    const courseTask = userText.match(COURSE_COMMAND)?.[1]?.trim();
+    let destinationChannelId = message.channelId;
+    let replyToMessageId: string | null = message.messageId;
+    let messageCreatesThread = false;
+    if (binding.kind === "guild" && !binding.isThread && binding.participation === "mentions" && !courseTask) {
+      let threadId = this.messageThreads.get(message.messageId);
+      if (!threadId) {
+        const connection = this.connection;
+        if (!connection || !await this.ensureAuthoritative() || !this.isLifecycleCurrent(lifecycleEpoch)) {
+          await this.finishInterruptedReservation(binding.bindingId, message.messageId);
+          return;
+        }
+        try {
+          threadId = await connection.createThreadFromMessage({
+            guildId: binding.guildId!,
+            channelId: binding.channelId,
+            messageId: message.messageId,
+            name: `Naia ${message.messageId.slice(-8)}`,
+            signal: this.lifecycleAbort.signal,
+          });
+        } catch {
+          await this.finishInterruptedReservation(binding.bindingId, message.messageId);
+          this.diagnostic("thread_create_failed");
+          return;
+        }
+      }
+      if (!SNOWFLAKE.test(threadId) || !await this.ensureAuthoritative()
+        || !this.isLifecycleCurrent(lifecycleEpoch)) {
+        await this.finishInterruptedReservation(binding.bindingId, message.messageId);
+        this.diagnostic("thread_create_unconfirmed");
+        return;
+      }
+      this.messageThreads.delete(message.messageId);
+      this.messageThreads.set(message.messageId, threadId);
+      while (this.messageThreads.size > 512) {
+        const oldest = this.messageThreads.keys().next().value as string | undefined;
+        if (oldest === undefined) break;
+        this.messageThreads.delete(oldest);
+      }
+      const threadQueueKey = `${threadId}:${message.authorId}`;
+      this.threadQueueKeys.delete(threadQueueKey);
+      this.threadQueueKeys.set(threadQueueKey, queueKey);
+      while (this.threadQueueKeys.size > 512) {
+        const oldest = this.threadQueueKeys.keys().next().value as string | undefined;
+        if (oldest === undefined) break;
+        this.threadQueueKeys.delete(oldest);
+      }
+      destinationChannelId = threadId;
+      replyToMessageId = null;
+      messageCreatesThread = true;
+    }
     await this.recordInbox({
       recordId: `incoming_${message.messageId}`,
       direction: "incoming",
       bindingId: binding.bindingId,
       guildId: binding.guildId,
-      channelId: binding.channelId,
+      channelId: destinationChannelId,
       sourceMessageId: message.messageId,
       authorId: message.authorId,
       content: message.content,
@@ -843,11 +1010,10 @@ export class DiscordChannelRuntime {
       await this.finishInterruptedReservation(binding.bindingId, message.messageId);
       return;
     }
-    const courseTask = userText.match(COURSE_COMMAND)?.[1]?.trim();
-    if (courseTask && this.deps.courseCommand?.start({
+    if (binding.kind === "guild" && courseTask && this.deps.courseCommand?.start({
       bindingId: binding.bindingId,
-      guildId: binding.guildId,
-      channelId: binding.channelId,
+      guildId: binding.guildId!,
+      channelId: message.channelId,
       sourceMessageId: message.messageId,
       authorId: message.authorId,
       task: courseTask,
@@ -867,7 +1033,12 @@ export class DiscordChannelRuntime {
       return;
     }
     const requestId = `${REQUEST_PREFIX}${binding.bindingId}:${message.messageId}`;
-    const sessionId = `discord:${binding.bindingId}:${binding.guildId}:${binding.channelId}:${message.authorId}`;
+    const isThreadConversation = binding.isThread || messageCreatesThread;
+    const sessionId = binding.kind === "dm"
+      ? `discord:${binding.bindingId}:dm:${message.channelId}:${message.authorId}`
+      : isThreadConversation
+        ? `discord:${binding.bindingId}:thread:${destinationChannelId}:${message.authorId}`
+        : `discord:${binding.bindingId}:${binding.guildId}:${binding.channelId}:${message.authorId}`;
     const previous = this.touchHistory(sessionId, this.deps.clock.now());
     const request = {
       kind: "chat" as const,
@@ -878,13 +1049,25 @@ export class DiscordChannelRuntime {
         kind: "discord" as const,
         bindingId: binding.bindingId,
         guildId: binding.guildId,
-        channelId: binding.channelId,
+        channelId: destinationChannelId,
+        ...(isThreadConversation && binding.kind === "guild"
+          ? { parentChannelId: binding.channelId }
+          : {}),
         userId: message.authorId,
       },
       processing: { processingProfileRef: binding.processingProfileRef },
     };
     const checked = validateSecurityWireRequest(request, {
-      trustedBinding: { ...binding, allowedUserIds },
+      trustedBinding: {
+        bindingId: binding.bindingId,
+        guildId: binding.guildId,
+        channelId: binding.kind === "dm" ? destinationChannelId : binding.channelId,
+        ...(isThreadConversation && binding.kind === "guild"
+          ? { parentChannelId: binding.channelId }
+          : {}),
+        allowedUserIds,
+        processingProfileRef: binding.processingProfileRef,
+      },
     });
     if (!checked.ok) {
       await this.finishInterruptedReservation(binding.bindingId, message.messageId);
@@ -900,8 +1083,9 @@ export class DiscordChannelRuntime {
       lifecycleEpoch,
       outboundSignal: this.lifecycleAbort.signal,
       guildId: binding.guildId,
-      channelId: binding.channelId,
+      channelId: destinationChannelId,
       messageId: message.messageId,
+      replyToMessageId,
       bindingId: binding.bindingId,
       userText,
       complete,
@@ -1023,6 +1207,8 @@ export class DiscordChannelRuntime {
       0,
       turn.lifecycleEpoch,
       turn.outboundSignal,
+      turn.messageId,
+      turn.replyToMessageId,
     );
   }
 
@@ -1040,7 +1226,7 @@ export class DiscordChannelRuntime {
       await connection.sendReply({
         channelId: turn.channelId,
         guildId: turn.guildId,
-        messageId: turn.messageId,
+        ...(turn.replyToMessageId ? { messageId: turn.replyToMessageId } : {}),
         content: this.deps.text.processingDisclosure(event),
         idempotencyKey: `event:${turn.bindingId}:${turn.messageId}:${deliverySequence}`,
         signal: turn.outboundSignal,
@@ -1065,7 +1251,7 @@ export class DiscordChannelRuntime {
       await connection.sendReply({
         channelId: turn.channelId,
         guildId: turn.guildId,
-        messageId: turn.messageId,
+        ...(turn.replyToMessageId ? { messageId: turn.replyToMessageId } : {}),
         content: toolProgressMessage(event),
         idempotencyKey: `event:${turn.bindingId}:${turn.messageId}:${deliverySequence}`,
         signal: turn.outboundSignal,
@@ -1079,7 +1265,7 @@ export class DiscordChannelRuntime {
 
   private async sendDurableReply(
     bindingId: string,
-    guildId: string,
+    guildId: string | null,
     channelId: string,
     messageId: string,
     chunks: readonly string[],
@@ -1087,6 +1273,7 @@ export class DiscordChannelRuntime {
     lifecycleEpoch?: number,
     outboundSignal: AbortSignal = this.lifecycleAbort.signal,
     durableMessageId: string = messageId,
+    replyToMessageId: string | null = messageId,
   ): Promise<boolean> {
     const connection = this.connection;
     if (!connection) {
@@ -1121,7 +1308,7 @@ export class DiscordChannelRuntime {
           guildId,
           // Gateway reply threading always targets the original Discord
           // snowflake. The synthetic ID is exclusively the durable outbox key.
-          messageId,
+          ...(replyToMessageId ? { messageId: replyToMessageId } : {}),
           content: chunks[index]!,
           idempotencyKey: `reply:${bindingId}:${durableMessageId}:${index}`,
           signal: outboundSignal,

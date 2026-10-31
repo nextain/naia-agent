@@ -5,6 +5,9 @@ export interface DiscordGatewayMessage {
   readonly messageId: string;
   readonly guildId: string | null;
   readonly channelId: string;
+  /** Set only from a Gateway thread/channel object; missing parent metadata is fail-closed. */
+  readonly parentChannelId?: string;
+  readonly channelType?: number;
   readonly authorId: string;
   readonly authorIsBot: boolean;
   readonly content: string;
@@ -64,10 +67,17 @@ export interface DiscordGatewayClose {
 
 export interface DiscordGatewayConnection {
   readonly closed: Promise<DiscordGatewayClose>;
+  createThreadFromMessage(input: {
+    readonly guildId: string;
+    readonly channelId: string;
+    readonly messageId: string;
+    readonly name: string;
+    readonly signal?: AbortSignal;
+  }): Promise<string>;
   sendReply(input: {
     readonly channelId: string;
-    readonly guildId: string;
-    readonly messageId: string;
+    readonly guildId: string | null;
+    readonly messageId?: string;
     readonly content: string;
     /** Stable logical delivery key. The adapter hashes it into a Discord nonce. */
     readonly idempotencyKey?: string;
@@ -97,7 +107,7 @@ export interface DiscordInboxRecord {
   readonly recordId: string;
   readonly direction: "incoming" | "outgoing";
   readonly bindingId: string;
-  readonly guildId: string;
+  readonly guildId: string | null;
   readonly channelId: string;
   readonly sourceMessageId: string;
   readonly authorId?: string;

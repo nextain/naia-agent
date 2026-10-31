@@ -287,7 +287,8 @@ const failStandaloneStartup = async (code) => {
 if (discordStandalone) {
   const startupError = !secretPipeConfigured ? "token_pipe_required"
     : !discordToken ? "token_unavailable"
-    : !discordBindingsProvided || !discordConfig || discordConfig.bindings.length === 0 ? "bindings_invalid"
+    : !discordBindingsProvided || !discordConfig
+      || (discordConfig.bindings.length === 0 && !discordConfig.dm) ? "bindings_invalid"
     : !discordStatus || !discordAuthority ? "authority_invalid"
     : !discordAuthority.isActive() ? "authority_conflict"
     : undefined;

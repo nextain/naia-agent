@@ -1068,3 +1068,15 @@ Coverage: `src/test/action-execution-policy.contract.test.ts`, `src/test/action-
 | 턴 종료 자동 memory.save 실패/시간초과 시 그 사실이 logEntry 로 전달되고 조용히 성공처럼 속이지 않음 | `explicit-memory-knowledge-write.contract.test.ts` |
 | 기존 읽기 도구 (skill_memory_recall, skill_knowledge_search 등) 무회귀 유지 | `memory-skill.contract.test.ts`, `uc-knowledge.contract.test.ts` |
 
+
+## UC-DISCORD-STANDALONE-169 — 셸 없이 허용된 Discord 대화에 응답한다 (진행 중)
+
+사용자는 `naia-agent serve`와 전용 비밀 파이프, 명시적인 권한 설정으로 독립 호스트를 실행한다. Gateway 메타데이터에서 일반 DM으로 확인된 허용 사용자 메시지만 수용하고, 그룹 DM·유형 미확인 채널·비허용 사용자는 거부한다. 서버에서는 허용 guild·부모 채널·사용자가 모두 일치하는 멘션으로 스레드를 만들고, 그 스레드의 후속 메시지는 멘션 없이 이어 간다. DM 채널·서버 스레드·사용자별 대화 문맥은 분리된다. Discord 개인 기억과 대화록의 기존 차단은 유지한다.
+
+| 시험 시나리오 | 검증 대상 |
+|---|---|
+| 허용 목록 AND, 빈 목록, 그룹/유형 미확인 DM, 봇·웹훅·자기 메시지 및 알 수 없는 스레드 부모 거부 | `src/test/discord-runtime.integration.test.ts`, `src/test/discord-gateway.contract.test.ts`, `src/test/discord-ingress-policy.contract.test.ts` |
+| DM·스레드 세션 격리, 멘션에서 스레드 생성, 중복·실패 처리 | `src/test/discord-runtime.integration.test.ts`, `src/test/discord-inbox-store.contract.test.ts`, `src/test/discord-gateway.contract.test.ts` |
+| 독립 호스트 공통 조립, stdin 토큰·상태·authority 설정 및 gRPC 비활성화 배선 | `src/test/discord-standalone-entry.contract.test.ts`, `src/test/discord-entry-wiring.contract.test.ts` |
+| 가짜 Gateway와 모델, REST를 통과하는 전체 흐름 및 독립 호스트의 pipe·SIGTERM·소유권 충돌 프로세스 시험 | 독립 호스트 프로세스 및 Discord 통합 테스트 (다음 회차) |
+| 셸 gRPC Chat·Cancel·승인·설정 회귀 | 기존 gRPC 및 Discord 배선 테스트 |

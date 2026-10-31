@@ -2,6 +2,14 @@
 
 > **SoT**: `.agents/context/process-status.json`
 
+## Issue #169 — 독립 Discord 호스트와 DM·스레드 (진행 중)
+
+- 이번 범위: `naia-agent serve` 독립 호스트, 기존 조립 공유, 허용 사용자 일반 DM, 허용 guild·부모 채널·사용자의 서버 스레드 대화.
+- 검증: 시작기/배선 19건, Discord 대상 계약·통합 176건, TypeScript 검사 통과.
+- 다음 회차: Gateway→코어→REST 전체 경로와 시작기 SIGTERM/소유권 프로세스 시험, 컨테이너 예시·빌드, 전체 시험 기준 비교.
+- 게이트: P01~P03 완료, P04 통합 검증 진행 중, P05 완료 대기.
+- 마지막 업데이트: 2026-10-31 13:18 KST.
+
 ## Memory live reload — 2026-08-03 (#106)
 
 - 상태: 구현·검증 완료, 상위 작업의 commit/push 대기.

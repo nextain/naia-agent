@@ -75,12 +75,12 @@ describe("T-DISCORD-RT-02/05/06 — Discord Gateway adapter", () => {
     const onReady = vi.fn();
     const onMessage = vi.fn();
     const connection = await makeDiscordGateway({ fetch: fetcher as typeof fetch, socket: () => socket })
-      .connect("bot-token-secret", { onReady, onMessage });
+      .connect("test-token", { onReady, onMessage });
 
     socket.payload({ op: 10, d: { heartbeat_interval: 1_000 } });
     expect(JSON.parse(socket.sent[0]!)).toMatchObject({
       op: 2,
-      d: { token: "bot-token-secret", intents: 33_281 },
+      d: { token: "test-token", intents: 37_377 },
     });
     socket.payload({ op: 0, t: "READY", s: 1, d: { user: { id: "999" } } });
     socket.payload({
@@ -104,6 +104,88 @@ describe("T-DISCORD-RT-02/05/06 — Discord Gateway adapter", () => {
       content: "<@999> hi",
       mentionedUserIds: ["999"],
       replyToAuthorId: "999",
+    });
+    connection.close();
+  });
+
+  it("attaches a cached thread parent to incoming messages", async () => {
+    const socket = new FakeSocket();
+    const onMessage = vi.fn();
+    const connection = await makeDiscordGateway({
+      fetch: vi.fn(async () => response(200, { url: "wss://gateway.discord.test" })) as typeof fetch,
+      socket: () => socket,
+    }).connect("token", { onReady() {}, onMessage });
+    socket.payload({ op: 0, t: "READY", d: { user: { id: "999" } } });
+    socket.payload({ op: 0, t: "THREAD_CREATE", d: {
+      id: "700", guild_id: "100", parent_id: "200", type: 11,
+    } });
+    socket.payload({ op: 0, t: "MESSAGE_CREATE", d: {
+      id: "401", guild_id: "100", channel_id: "700", content: "follow up",
+      author: { id: "300", bot: false },
+    } });
+    expect(onMessage).toHaveBeenCalledWith(expect.objectContaining({
+      channelId: "700", parentChannelId: "200", channelType: 11,
+    }));
+    connection.close();
+  });
+
+  it("attaches private channel type metadata from READY for DM policy checks", async () => {
+    const socket = new FakeSocket();
+    const onMessage = vi.fn();
+    const connection = await makeDiscordGateway({
+      fetch: vi.fn(async () => response(200, { url: "wss://gateway.discord.test" })) as typeof fetch,
+      socket: () => socket,
+    }).connect("token", { onReady() {}, onMessage });
+    socket.payload({ op: 0, t: "READY", d: {
+      user: { id: "999" },
+      private_channels: [{ id: "500", type: 1 }, { id: "501", type: 3 }],
+    } });
+    socket.payload({ op: 0, t: "MESSAGE_CREATE", d: {
+      id: "402", channel_id: "500", content: "dm", author: { id: "300" },
+    } });
+    socket.payload({ op: 0, t: "MESSAGE_CREATE", d: {
+      id: "403", channel_id: "501", content: "group", author: { id: "300" },
+    } });
+    expect(onMessage.mock.calls.map(([message]) => message)).toEqual([
+      expect.objectContaining({ channelId: "500", guildId: null, channelType: 1 }),
+      expect.objectContaining({ channelId: "501", guildId: null, channelType: 3 }),
+    ]);
+    connection.close();
+  });
+
+  it("creates a thread only from the specified parent message and validates the returned parent", async () => {
+    const socket = new FakeSocket();
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(response(200, { url: "wss://gateway.discord.test" }))
+      .mockResolvedValueOnce(response(200, {
+        id: "700", guild_id: "100", parent_id: "200", type: 11,
+      }));
+    const connection = await makeDiscordGateway({
+      fetch: fetcher as typeof fetch,
+      socket: () => socket,
+    }).connect("token", { onReady() {}, onMessage() {} });
+    await expect(connection.createThreadFromMessage({
+      guildId: "100", channelId: "200", messageId: "400", name: "Naia conversation",
+    })).resolves.toBe("700");
+    expect(fetcher.mock.calls[1]![0]).toContain("/channels/200/messages/400/threads");
+    expect(JSON.parse(fetcher.mock.calls[1]![1]!.body as string)).toEqual({
+      name: "Naia conversation", auto_archive_duration: 1_440,
+    });
+    connection.close();
+  });
+
+  it("sends DM replies without inventing a guild id or cross-channel message reference", async () => {
+    const socket = new FakeSocket();
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(response(200, { url: "wss://gateway.discord.test" }))
+      .mockResolvedValueOnce(response(200, { id: "401" }));
+    const connection = await makeDiscordGateway({
+      fetch: fetcher as typeof fetch,
+      socket: () => socket,
+    }).connect("token", { onReady() {}, onMessage() {} });
+    await connection.sendReply({ guildId: null, channelId: "500", content: "answer" });
+    expect(JSON.parse(fetcher.mock.calls[1]![1]!.body as string)).toEqual({
+      content: "answer", allowed_mentions: { parse: [], replied_user: false },
     });
     connection.close();
   });
