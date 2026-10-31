@@ -22,14 +22,14 @@ describe("small model role", () => {
     await port.complete("x", { authorizeAndDisclose: async () => true });
     expect(bodies[0].reasoning_effort).toBe("low");
   });
-  it("a legacy memory choice does not replace an empty sub role", () => {
+  it("a legacy memory choice fills an empty sub role", () => {
     const result = resolveLlmRoles({ legacy: {
       main: { provider: "nextain", model: "main" },
       memory: { provider: "ollama", model: "memory" },
     }});
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.configs[1].model.value).toBe("main");
+      expect(result.configs[1].model.value).toBe("memory");
       expect(result.configs[2].model.value).toBe("memory");
     }
   });
@@ -94,4 +94,79 @@ describe("small model failure fallback", () => {
     await expect(withMainFallback(sub, main, (event) => log.push(event)).complete("x", { authorizeAndDisclose })).rejects.toBe(first);
     expect(JSON.stringify(log)).not.toContain("private response");
   });
+});
+
+it("UT-SM-AGENT-03 각 대상 승인과 한 번 폴백 및 최초 오류를 지킨다: 로컬 OpenAI 호환 주소", async () => {
+  const calls: string[] = [];
+  const fetch = async (_url: string, init: { body: string }) => { calls.push(JSON.parse(init.body).model); return { ok: false, status: 503, text: async () => "failure" }; };
+  const local = buildSubLlmProvider({ provider: "openai-compat", model: "qwen", baseUrl: "http://localhost:8000/v1" }, { fetch })!;
+  const main = buildSubLlmProvider({ provider: "nextain", model: "main", baseUrl: "https://example.invalid/v1" }, { fetch })!;
+  await expect(withMainFallback(local, main, () => {}).complete("x", { authorizeAndDisclose: async () => true })).rejects.toThrow();
+  expect(calls).toEqual(["qwen"]);
+});
+
+it("same provider and model at different endpoints remains a distinct approved fallback", async () => {
+  const urls: string[] = [];
+  const fetch = async (url: string) => { urls.push(url); return url.includes("first") ? { ok: false, status: 503, text: async () => "" } : { ok: true, status: 200, text: async () => '{"choices":[{"message":{"content":"ok"}}]}' }; };
+  const first = buildSubLlmProvider({ provider: "nextain", model: "same", baseUrl: "https://first.invalid" }, { fetch })!;
+  const second = buildSubLlmProvider({ provider: "nextain", model: "same", baseUrl: "https://second.invalid" }, { fetch })!;
+  await expect(withMainFallback(first, second, () => {}).complete("x", { authorizeAndDisclose: async () => true })).resolves.toBe("ok");
+  expect(urls).toEqual(["https://first.invalid/chat/completions", "https://second.invalid/chat/completions"]);
+});
+
+it("main endpoint classification uses the real provider route and rejects ambiguity", () => {
+  const roles = resolveLlmRoles({ roles: { main: { provider: "anthropic", model: "main" }, sub: { provider: "nextain", model: "small" } } });
+  expect(resolveMemoryRoleEndpoint(roles, { provider: "anthropic", model: "main" }, () => "fake", { provider: "anthropic", model: "main" })).toBe("https://api.anthropic.com");
+});
+
+it("a delayed approval after cancellation never reaches transport", async () => {
+  const controller = new AbortController();
+  let resolve!: (value: boolean) => void;
+  const approval = new Promise<boolean>((done) => { resolve = done; });
+  let calls = 0;
+  const sub = buildSubLlmProvider({ provider: "nextain", model: "small", baseUrl: "https://example.invalid" }, { fetch: async () => { calls++; return { ok: true, status: 200, text: async () => "ok" }; } })!;
+  const pending = sub.complete("x", { signal: controller.signal, authorizeAndDisclose: async () => approval });
+  controller.abort(); resolve(true);
+  await expect(pending).rejects.toThrow("SUB_LLM_ABORTED"); expect(calls).toBe(0);
+});
+
+it("configuration changes while waiting for approval block the old transport", async () => {
+  const { bindMemoryAuthorization } = await import("../main/adapters/llm-role-runtime.js");
+  let current = "https://old.invalid";
+  let respond!: (value: boolean) => void;
+  const decision = new Promise<boolean>((resolve) => { respond = resolve; });
+  const authorize = bindMemoryAuthorization(() => current, async () => decision);
+  let calls = 0;
+  const port = buildSubLlmProvider({ provider: "nextain", model: "small", baseUrl: current }, { fetch: async () => { calls++; return { ok: true, status: 200, text: async () => "ok" }; } })!;
+  const pending = port.complete("x", { authorizeAndDisclose: authorize });
+  current = "https://new.invalid"; respond(true);
+  await expect(pending).rejects.toThrow("SUB_LLM_PROCESSING_NOT_AUTHORIZED");
+  expect(calls).toBe(0);
+});
+
+it("a role swap during approval cannot authorize the old memory destination as main", async () => {
+  const { bindMemoryAuthorization } = await import("../main/adapters/llm-role-runtime.js");
+  let memoryUrl = "https://first.invalid";
+  let mainUrl = "https://second.invalid";
+  const current = () => resolveLlmRoles({ roles: { main: { provider: "nextain", model: "same", baseUrl: mainUrl }, memory: { provider: "nextain", model: "same", baseUrl: memoryUrl } } });
+  let reply!: (value: boolean) => void;
+  const answer = new Promise<boolean>((resolve) => { reply = resolve; });
+  const authorize = bindMemoryAuthorization((input) => resolveMemoryRoleEndpoint(current(), input, () => "fake", undefined, input.endpoint, input.role), async () => answer);
+  let sent = 0;
+  const port = buildSubLlmProvider({ provider: "nextain", model: "same", baseUrl: memoryUrl }, { fetch: async () => { sent++; return { ok: true, status: 200, text: async () => "ok" }; } })!;
+  const pending = port.complete("x", { authorizeAndDisclose: (input) => authorize({ ...input, role: "memory" }) });
+  [memoryUrl, mainUrl] = [mainUrl, memoryUrl]; reply(true);
+  await expect(pending).rejects.toThrow("SUB_LLM_PROCESSING_NOT_AUTHORIZED"); expect(sent).toBe(0);
+});
+
+it("UT-SM-AGENT-03 각 대상 승인과 한 번 폴백 및 최초 오류를 지킨다", async () => {
+  const calls: string[] = [];
+  const fetch = async (_url: string, init: { body: string }) => { const model = JSON.parse(init.body).model; calls.push(model); return { ok: false, status: model === "small" ? 429 : 503, text: async () => "" }; };
+  const small = buildSubLlmProvider({ provider: "nextain", model: "small", baseUrl: "https://small.invalid" }, { fetch })!;
+  const main = buildSubLlmProvider({ provider: "nextain", model: "main", baseUrl: "https://main.invalid" }, { fetch })!;
+  const port = withMainFallback(small, main, () => {});
+  await expect(port.complete("x", { authorizeAndDisclose: async () => false })).rejects.toThrow("SUB_LLM_PROCESSING_NOT_AUTHORIZED"); expect(calls).toEqual([]);
+  await expect(port.complete("x", { authorizeAndDisclose: async ({ model }) => model === "small" })).rejects.toMatchObject({ status: 429 }); expect(calls).toEqual(["small"]);
+  calls.length = 0;
+  await expect(port.complete("x", { authorizeAndDisclose: async () => true })).rejects.toMatchObject({ status: 429 }); expect(calls).toEqual(["small", "main"]);
 });

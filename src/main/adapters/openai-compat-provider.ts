@@ -258,7 +258,7 @@ export function makeOpenAICompatProvider(deps: {
       //   enableThinking 이 true/미지정이면 아무 것도 싣지 않는다(무회귀 — 추론 모델 기본=생각 켬).
       // FR-THINK-9: 게이트웨이 경로(supportsThinkingLevel)는 low/high 일 때만 reasoning_effort 전송. off/미지정은 무전송.
       // 둘이 동시에 켜질 수 없음을 코드로 보장(게이트웨이 경로는 supportsReasoningEffort=false).
-      const thinkingLevelBody = deps.supportsThinkingLevel && (config.thinkingLevel === "low" || config.thinkingLevel === "high")
+      const thinkingLevelBody = deps.supportsThinkingLevel && (config.thinkingLevel === "low" || config.thinkingLevel === "high" || config.thinkingLevel === "xhigh")
         ? { reasoning_effort: config.thinkingLevel }
         : undefined;
       const noThinkBody = !deps.supportsThinkingLevel && deps.supportsReasoningEffort === true && config.enableThinking === false

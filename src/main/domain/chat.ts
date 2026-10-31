@@ -1,7 +1,7 @@
 // domain/chat — UC1 agent(brain) (계약 §B.1). 순수. I/O·wire 0.
 // 공유 wire 경계(H-agent)에 conform: AgentRequest=os AgentOutbound 1:1, AgentEmit=os chat-turn AgentMessage.
 
-export type ThinkingLevel = "off" | "low" | "high";
+export type ThinkingLevel = "off" | "low" | "high" | "xhigh";
 
 export interface ProviderConfig {
   readonly provider: string;

@@ -33,6 +33,8 @@ export interface ProviderResolverPort {
 /** 일반 코드가 provider 호출 전에 처리 위치와 profile을 판정하는 포트. */
 export interface ProcessingAuthorizationInput {
   readonly processingProfileRef: string;
+  readonly expectedEndpoint?: string;
+  readonly expectedRole?: "memory" | "main";
   readonly workload: ProcessingWorkload;
   readonly provider: { readonly provider: string; readonly model: string };
   readonly sessionId: string;

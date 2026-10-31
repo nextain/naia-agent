@@ -13,6 +13,7 @@ export interface CompactionRequest {
   readonly targetTokens: number;
   readonly signal?: AbortSignal;
   readonly authorizeAndDisclose?: SubLlmCallOptions["authorizeAndDisclose"];
+  readonly onRoleError?: (error: unknown) => void;
 }
 
 /** 압축 결과 — recap(head 요약 텍스트, systemPrompt 에 주입) + droppedCount(요약에 흡수된 메시지 수).

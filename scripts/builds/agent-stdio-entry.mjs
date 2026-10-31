@@ -516,12 +516,12 @@ if (discordToken && discordConfig && discordAuthority) {
     processingGuard = makeProcessingGuard({
       profiles: { get: (ref) => discordConfig.processingProfiles?.[ref] },
       endpoints: {
-        resolve: (provider, workload) => {
+        resolve: (provider, workload, expectedEndpoint, expectedRole) => {
           if (workload === "memory_llm") {
             if (provider.provider !== "naia-memory") {
-              const url = resolveMemoryRoleEndpoint(activeLlmRoles, provider, settingsResolveSecret);
+              const url = resolveMemoryRoleEndpoint(activeLlmRoles, provider, settingsResolveSecret, activeProcessingConfig, expectedEndpoint, expectedRole);
               if (!url) return undefined;
-              return { url, zone: isLocalEngineBaseUrl(url) ? "private_managed" : "unverified", provider: provider.provider, model: provider.model };
+              return { url, ...(url.startsWith("opaque-cli:") ? { destination: "external_cloud" } : {}), zone: isLocalEngineBaseUrl(url) ? "private_managed" : "unverified", provider: provider.provider, model: provider.model };
             }
             const memoryLlm = activeMemoryProcessingConfig?.llm;
             if (!memoryLlm || memoryLlm.provider === "none") {

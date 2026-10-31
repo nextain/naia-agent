@@ -90,6 +90,10 @@ export function resolveLlmRoles(input: LlmRolesInput): LlmRolesResolution {
       sources.set(role, directSource(legacy, "explicit")!);
       continue;
     }
+    if (role === "sub" && !explicit && !legacy && input.legacy?.memory && clean(input.legacy.memory.provider) && input.legacy.memory.provider !== "none" && clean(input.legacy.memory.model)) {
+      sources.set(role, { selection: input.legacy.memory, provenance: "legacy-inherit", inheritedFromRole: "memory" });
+      continue;
+    }
     if (role === "sub" && sources.has("main")) {
       sources.set(role, {
         selection: { inherit: "main" },

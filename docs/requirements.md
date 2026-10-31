@@ -971,7 +971,7 @@ Status: Done (#154)
 
 ## UC-SM-AGENT-01 — 작은 모델을 기억 작업에 연결 (목표 계약)
 
-이 절은 셸 `FR-SM.2`~`.7`, `NFR-SM.2`~`.3`, `FE-SM-01`~`03`의 에이전트 책임을 명시한다. 아래는 **Pending**이며 선행 코드나 시험 존재가 통과 증거는 아니다. 셸 UI와 웹 기억 소비는 각 소유 범위에서 다룬다.
+이 절은 셸 `FR-SM.2`~`.7`, `NFR-SM.2`~`.3`, `FE-SM-01`~`03`의 에이전트 책임을 명시한다. 각 시험의 실제 실행 상태는 아래 표를 따른다. 셸 UI와 웹 기억 소비는 각 소유 범위에서 다룬다.
 
 | ID | 요구 및 받아들임 기준 | 시험 |
 |---|---|---|
@@ -987,9 +987,9 @@ Status: Done (#154)
 
 ### 시험 계획 및 받아들임
 
-아래 시험 이름은 작성·보강 예정인 계약이다. 실제 실행과 통과는 별도 구현 회차의 증거로만 판정한다.
+아래 시험은 지정 파일과 이름으로 실행하며 실제 상태는 바로 아래 표에 기록한다. 셸 시험은 다음 회차에 수행한다.
 
-| 번호 | 예정 파일 및 시험 이름 | 기대값 |
+| 번호 | 파일 및 시험 이름 | 기대값 |
 |---|---|---|
 | UT-SM-AGENT-01 | `src/test/llm-roles.contract.test.ts` — “기억 우선과 빈 두 역할의 무모델 경로를 구별한다” | 명시 기억 > 지정 sub; 둘 다 빈 경우 메인 호출 없음; 명시 상속과 비지원 sub는 메인; 기억 끄기 보존. |
 | UT-SM-AGENT-02 | `src/test/uc-naia-settings-store.contract.test.ts` — “옛 기억 전용 설정을 작은 역할로 이어받고 독립 선택을 보존한다” | 옛 기억의 공급자·모델·주소·자격 참조를 작은 역할로 이어받고 기억 설정을 유지; 명시 sub는 범용 작은 작업에서 우선하고 별도 기억 선택은 보존; 전달된 생각 수준을 보존·해석. |
@@ -1003,9 +1003,25 @@ Status: Done (#154)
 | UT-SM-AGENT-THINK-01 | `src/test/uc-thinking.contract.test.ts` — “proto 숫자와 이름의 네 수준을 디코드한다” | 1~4와 네 enum 이름이 정확히 매핑되고 0·부재·알 수 없는 값은 미지정; 이전 값 불변. |
 | IT-SM-AGENT-THINK-01 | `src/test/uc-thinking.contract.test.ts`, `src/test/uc1-ollama-provider.contract.test.ts` — “요청 수준을 제공자별 계약대로 보낸다” | 게이트웨이의 low/high/xhigh 값과 off 생략, 로컬 off none, 원격 미지원 생략, Ollama 능력·Anthropic on/off를 가짜 전송으로 확인. |
 
+### 시험 상태
+
+| 번호 | 상태 |
+|---|---|
+| UT-SM-AGENT-01 | 작성; 통과 |
+| UT-SM-AGENT-02 | 작성; 통과 |
+| UT-SM-AGENT-03 | 작성; 통과 |
+| IT-SM-AGENT-01 | 작성; 통과 |
+| IT-SM-AGENT-02 | 작성; 통과 |
+| IT-SM-AGENT-03 | 작성; 통과 |
+| IT-SM-AGENT-04 | 작성; 통과 |
+| IT-SM-AGENT-05 | 작성; 통과 |
+| UT-SM-AGENT-THINK-01 | 작성; 통과 |
+| IT-SM-AGENT-THINK-01 | 작성; 통과 |
+| UT-SM-SHELL-THINK-01 | 다음 회차 |
+
 #### FR-THINK-13 하위 호환 시험 행렬
 
-아래 여섯 행은 각각 UT-SM-SHELL-THINK-01(셸 Rust→proto), UT-SM-AGENT-THINK-01(에이전트 디코드·해석), IT-SM-AGENT-THINK-01(제공자 요청)의 **별도 예정 사례**다. proto `enable_thinking`은 optional이므로 `false`와 부재를 구별한다. 알 수 없는 수준은 셸 입력의 미인식 문자열과 에이전트가 직접 받은 알 수 없는 proto 숫자·문자열을 각각 시험한다. 수준 0도 부재와 같은 미지정이다.
+아래 여섯 행은 각각 UT-SM-SHELL-THINK-01(셸 Rust→proto), UT-SM-AGENT-THINK-01(에이전트 디코드·해석), IT-SM-AGENT-THINK-01(제공자 요청)의 별도 시험 사례다. proto `enable_thinking`은 optional이므로 `false`와 부재를 구별한다. 알 수 없는 수준은 셸 입력의 미인식 문자열과 에이전트가 직접 받은 알 수 없는 proto 숫자·문자열을 각각 시험한다. 수준 0도 부재와 같은 미지정이다.
 
 | 입력 수준 | `enableThinking` | Rust→proto 기대값 | 에이전트 해석 기대값 | 제공자 요청 기대값 |
 |---|---|---|---|---|

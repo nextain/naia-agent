@@ -247,6 +247,7 @@ export class ChatTurnHandler {
     signal: AbortSignal,
     beforeCompact?: () => Promise<boolean>,
     authorizeAndDisclose?: CompactionRequest["authorizeAndDisclose"],
+    onRoleError?: CompactionRequest["onRoleError"],
   ): Promise<{
     messages: readonly ChatMessage[];
     recap: string;
@@ -275,7 +276,7 @@ export class ChatTurnHandler {
     }
     try {
       const r = await raceAbort(
-        compaction.compact({ messages: req.messages, keepTail, targetTokens: this.d.compactTargetTokens ?? DEFAULT_COMPACT_TARGET_TOKENS, signal: AbortSignal.any([signal, AbortSignal.timeout(this.d.memoryTimeoutMs ?? MEM_RECALL_TIMEOUT_MS)]), ...(authorizeAndDisclose ? { authorizeAndDisclose } : {}) }),
+        compaction.compact({ messages: req.messages, keepTail, targetTokens: this.d.compactTargetTokens ?? DEFAULT_COMPACT_TARGET_TOKENS, signal: AbortSignal.any([signal, AbortSignal.timeout(this.d.memoryTimeoutMs ?? MEM_RECALL_TIMEOUT_MS)]), ...(authorizeAndDisclose ? { authorizeAndDisclose } : {}), ...(onRoleError ? { onRoleError } : {}) }),
         signal, this.d.memoryTimeoutMs ?? MEM_RECALL_TIMEOUT_MS,
       );
       // null=abort/timeout, droppedCount<=0=압축 미수행, recap 공백=주입할 요약 없음 → 모두 원본 유지.
@@ -338,11 +339,16 @@ export class ChatTurnHandler {
       type PlannedOperation = {
         workload: "main_llm" | "sub_llm" | "memory_llm" | "embedding" | "network_tool";
         provider: { provider: string; model: string };
+        expectedEndpoint?: string;
+        expectedRole?: "memory" | "main";
       };
       const authorizeOperations = async (
         operations: readonly PlannedOperation[],
         deny: (message: string, code?: WireErrorCode) => void = terminalError,
+        requestSignal?: AbortSignal,
       ): Promise<boolean> => {
+        const cancelled = () => signal.aborted || requestSignal?.aborted === true;
+        if (cancelled()) return false;
         if (!req.processing) return true;
         if (!this.d.processingGuard) {
           deny("processing policy guard is not configured", "PROCESSING_DESTINATION_UNKNOWN");
@@ -356,6 +362,8 @@ export class ChatTurnHandler {
           const inputs = operations.map((operation) => ({
               processingProfileRef,
               workload: operation.workload,
+              ...(operation.expectedEndpoint !== undefined ? { expectedEndpoint: operation.expectedEndpoint } : {}),
+              ...(operation.expectedRole ? { expectedRole: operation.expectedRole } : {}),
               provider: operation.provider,
               sessionId: req.sessionId ?? "default",
             }));
@@ -367,13 +375,16 @@ export class ChatTurnHandler {
           deny("processing destination could not be classified", "PROCESSING_DESTINATION_UNKNOWN");
           return false;
         }
+        if (cancelled()) { rollbackAuthorization(); return false; }
         const blocked = disclosures.find((disclosure) => disclosure.decision !== "allowed");
         if (!blocked && !commitAuthorization()) {
           for (const disclosure of disclosures) {
+            if (cancelled()) { rollbackAuthorization(); return false; }
             const accepted = await this.d.egress.emitCritical?.(
               req.requestId,
               { kind: "processingDisclosure", ...disclosure, decision: "confirmation_required" },
             ) ?? false;
+            if (cancelled()) { rollbackAuthorization(); return false; }
             if (!accepted) {
               rollbackAuthorization();
               deny("processing disclosure delivery failed", "PROCESSING_DESTINATION_UNKNOWN");
@@ -388,10 +399,12 @@ export class ChatTurnHandler {
         }
         const deliveries = blocked ? [blocked] : disclosures;
         for (const disclosure of deliveries) {
+          if (cancelled()) { rollbackAuthorization(); return false; }
           const accepted = await this.d.egress.emitCritical?.(
             req.requestId,
             { kind: "processingDisclosure", ...disclosure },
           ) ?? false;
+          if (cancelled()) { rollbackAuthorization(); return false; }
           if (!accepted) {
             rollbackAuthorization();
             deny("processing disclosure delivery failed", "PROCESSING_DESTINATION_UNKNOWN");
@@ -407,15 +420,49 @@ export class ChatTurnHandler {
         }
         return true;
       };
-      const authorizeOperation = (
+      let memoryApprovalSequence = 0;
+      const authorizeOperation = async (
         workload: PlannedOperation["workload"],
         provider = { provider: activeConfig.provider, model: activeConfig.model },
-      ) => authorizeOperations([{ workload, provider }]);
+        expectedEndpoint?: string,
+        memoryTransmission = false,
+        requestSignal?: AbortSignal,
+        expectedRole?: "memory" | "main",
+      ) => {
+        if (memoryTransmission && !req.processing) {
+          const toolCallId = `memory-processing-${++memoryApprovalSequence}`;
+          const approvalSignal = AbortSignal.any([signal, requestSignal ?? AbortSignal.timeout(this.d.memoryTimeoutMs ?? MEM_SAVE_TIMEOUT_MS)]);
+          const { promise, dispose } = this.d.approval.prepareDecision(req.requestId, toolCallId, { signal: approvalSignal });
+          void promise.catch(() => {});
+          try {
+            if (approvalSignal.aborted) return false;
+            let endpointIdentity = expectedEndpoint ?? "";
+            if (endpointIdentity) {
+              try {
+                const parsed = new URL(endpointIdentity);
+                parsed.hash = "";
+                endpointIdentity = parsed.toString().replace(/\/+$/, "");
+              } catch { return false; }
+            }
+            const identity = new TextEncoder().encode(JSON.stringify([provider.provider, provider.model, endpointIdentity]));
+            const digest = await globalThis.crypto.subtle.digest("SHA-256", identity);
+            const suffix = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+            if (approvalSignal.aborted || sawTerminal) return false;
+            this.d.egress.emit(req.requestId, { kind: "approvalRequest", toolCallId, toolName: `memory_model_${suffix}`, tier: "2", args: { provider: provider.provider, model: provider.model }, description: "Approve memory model processing" });
+            return await promise === "approve" && !approvalSignal.aborted;
+          } catch { return false; } finally { dispose(); }
+        }
+        return authorizeOperations([{ workload, provider, ...(expectedEndpoint !== undefined ? { expectedEndpoint } : {}), ...(expectedRole ? { expectedRole } : {}) }], terminalError, requestSignal);
+      };
       // UC-compaction(FR-COMPACT): assemble 전 예산 압박이면 head 를 memory 가 요약(recap)해 교체(정보보존).
       // 미주입/임계이하/실패 = 원본(budgeted-conversation 이 최종 드롭 가드). recap 은 아래 systemPrompt 에 주입.
+      const observeMemoryFailure = (error: unknown) => {
+        const status = error && typeof error === "object" && "status" in error && typeof error.status === "number" ? error.status : undefined;
+        this.d.diag.log("memory model attempt failed", status === undefined ? { reason: "request_failed" } : { reason: "http_error", status });
+      };
       const compacted = await this.maybeCompact(req, signal, this.d.compaction
         ? () => authorizeOperation("memory_llm", { provider: "naia-memory", model: "compaction" })
-        : undefined, ({ provider, model }) => authorizeOperation("memory_llm", { provider, model }));
+        : undefined, ({ provider, model, endpoint, role, signal: requestSignal }) => authorizeOperation("memory_llm", { provider, model }, endpoint || undefined, true, requestSignal, role), observeMemoryFailure);
       if (compacted.processingDenied) return;
       const { messages: preMessages, recap: compactionRecap, droppedCount: compactedCount } = compacted;
       // UC-compaction: 압축 발생 시 wire 로 알림(UI 표시용). 비-terminal·무손실 정보 — usage/finish 불변식 무영향.
@@ -624,7 +671,8 @@ export class ChatTurnHandler {
             const assistantMemoryText = stripAssistantMemoryTags(rawAssistantMemoryText);
             const ok = await raceTimeout(this.d.memory.save(lastUserText, assistantMemoryText, {
               signal: AbortSignal.any([signal, AbortSignal.timeout(saveTimeoutMs)]),
-              authorizeAndDisclose: ({ provider, model }) => authorizeOperation("memory_llm", { provider, model }),
+              onRoleError: observeMemoryFailure,
+              authorizeAndDisclose: ({ provider, model, endpoint, role, signal: requestSignal }) => authorizeOperation("memory_llm", { provider, model }, endpoint || undefined, true, requestSignal, role),
             }), saveTimeoutMs);
             if (!ok) {
               this.safeDiag("memory save 시간초과(턴 유지)", new Error(`>${saveTimeoutMs}ms`));

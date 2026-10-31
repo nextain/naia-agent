@@ -674,7 +674,7 @@ describe("UC-154 contract tests — explicit long-term memory & knowledge writin
       });
 
       expect(memory.save).toHaveBeenCalledOnce();
-      expect(memory.save).toHaveBeenCalledWith("오늘 날씨 어때?", "대답 완료.");
+      expect(memory.save).toHaveBeenCalledWith("오늘 날씨 어때?", "대답 완료.", expect.objectContaining({ signal: expect.any(AbortSignal), authorizeAndDisclose: expect.any(Function) }));
       expect(emits.some((e) => e.kind === "finish")).toBe(true);
       // No failure warnings emitted
       expect(emits.some((e) => e.kind === "logEntry" && e.level === "warn")).toBe(false);

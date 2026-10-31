@@ -1080,7 +1080,7 @@ Coverage: `src/test/action-execution-policy.contract.test.ts`, `src/test/action-
 | 2 | 대화 화면에서 “나는 따뜻한 차를 좋아해. 너는 어떤 차를 추천해?”라고 말하고 응답을 기다린다. | 대화 화면에 응답이 보인다. |
 | 3 | 설정의 **기억(Memory)** 탭을 열어 저장된 사실 목록을 확인하고 필요하면 탭을 다시 연다. | 말한 선호가 목록에 저장되는 것이 목표다. 보이지 않으면 관찰 결과를 기록하며 저장 완료 시점을 확인할 수 없다면 미확인으로 둔다. 목록만으로 추출에 쓰인 모델이나 압축 호출은 판정할 수 없다. |
 
-실패 주입, 승인·호출 횟수, 로컬 복구, 빈 역할과 압축은 셸 UC-SM-01과 같이 자동 시험으로 확인한다. 예정 시험은 [시험 계획](requirements.md#시험-계획-및-받아들임)의 IT-SM-AGENT-01 (`src/test/smallmodel-memory.integration.test.ts`, “대화 추출과 압축이 해석된 기억 역할을 쓴다”), IT-SM-AGENT-04 (같은 파일, “추출과 압축의 실패·승인·로컬 복구를 각각 확인한다”), IT-SM-AGENT-05 (같은 파일, “재시도 후 중복 사실 없이 안전한 호출 기록을 남긴다”)다. 셸의 IT-SM-06·07도 각각 추출·압축의 실패와 복구를 검증한다.
+실패 주입, 승인·호출 횟수, 로컬 복구, 빈 역할과 압축은 셸 UC-SM-01과 같이 자동 시험으로 확인한다. 자동 시험은 [시험 계획](requirements.md#시험-계획-및-받아들임)의 IT-SM-AGENT-01 (`src/test/smallmodel-memory.integration.test.ts`, “대화 추출과 압축이 해석된 기억 역할을 쓴다”), IT-SM-AGENT-04 (같은 파일, “추출과 압축의 실패·승인·로컬 복구를 각각 확인한다”), IT-SM-AGENT-05 (같은 파일, “재시도 후 중복 사실 없이 안전한 호출 기록을 남긴다”)다. 셸의 IT-SM-06·07도 각각 추출·압축의 실패와 복구를 검증한다.
 
 Test Coverage Map: [UT-SM-AGENT-01~03, IT-SM-AGENT-01~05, UT-SM-SHELL-THINK-01, UT-SM-AGENT-THINK-01, IT-SM-AGENT-THINK-01](requirements.md#시험-계획-및-받아들임). 셸 FR-SM.3~.7, NFR-SM.2·.3, FE-SM-01·03.
 ## UC-DISCORD-STANDALONE-169 — 셸 없이 허용된 Discord 대화에 응답한다 (진행 중)

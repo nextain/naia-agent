@@ -26,6 +26,8 @@ export interface TrustedEndpointRegistry {
   resolve(
     provider: { readonly provider: string; readonly model: string },
     workload: ProcessingWorkload,
+    expectedEndpoint?: string,
+    expectedRole?: "memory" | "main",
   ): TrustedEndpointRecord | undefined;
 }
 
@@ -57,8 +59,12 @@ export function makeProcessingGuard(deps: {
   const classify = (input: ProcessingAuthorizationInput): ProcessingDisclosure => {
       const profile = deps.profiles.get(input.processingProfileRef);
       if (!profile) throw new Error("processing profile not found");
-      const endpoint = deps.endpoints.resolve(input.provider, input.workload);
+      const endpoint = deps.endpoints.resolve(input.provider, input.workload, input.expectedEndpoint, input.expectedRole);
       if (!endpoint) throw new Error("processing endpoint not found");
+      if (input.expectedEndpoint !== undefined) {
+        const normalize = (url: string) => url.replace(/\/+$/, "");
+        if (!endpoint.url || normalize(endpoint.url) !== normalize(input.expectedEndpoint)) throw new Error("processing endpoint changed");
+      }
       const classified = endpoint.destination
         ? { ok: true as const, destination: endpoint.destination }
         : classifyProcessingEndpoint(endpoint.url);

@@ -105,7 +105,7 @@ describe("loadLlmRoles — main/sub/memory 독립 설정과 migration", () => {
 		});
 	});
 
-	it("legacy memoryLlm*은 memory로 보존하고 sub는 main 상속", () => {
+	it("UT-SM-AGENT-02 옛 기억 전용 설정을 작은 역할로 이어받고 독립 선택을 보존한다", () => {
 		const result = store({
 			[CONFIG]: JSON.stringify({
 				provider: "codex",
@@ -118,9 +118,8 @@ describe("loadLlmRoles — main/sub/memory 독립 설정과 migration", () => {
 		expect(result?.ok).toBe(true);
 		if (!result?.ok) return;
 		expect(result.configs[1].provider).toEqual({
-			value: "codex",
-			provenance: "inherit",
-			inheritedFromRole: "main",
+			value: "ollama",
+			provenance: "legacy-inherit",
 		});
 		expect(result.configs[2].provider).toEqual({ value: "ollama", provenance: "explicit" });
 	});

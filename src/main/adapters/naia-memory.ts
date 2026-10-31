@@ -93,6 +93,8 @@ export interface NaiaMemoryOpts {
   readonly factExtractor?: FactExtractor;
   readonly summarizer?: CompactionSummarizer;
   readonly roleSummarizer?: (input: Parameters<CompactionSummarizer>[0], authorize: NonNullable<SubLlmCallOptions["authorizeAndDisclose"]>) => ReturnType<CompactionSummarizer>;
+  readonly consolidateOnSave?: boolean;
+  readonly fallbackHeuristicOnFailure?: boolean;
   readonly roleExtractor?: (episodes: Parameters<FactExtractor>[0], authorize: NonNullable<SubLlmCallOptions["authorizeAndDisclose"]>, signal?: AbortSignal) => ReturnType<FactExtractor>;
   /** Test/advanced: skip MemoryEmbeddingConfig and inject a ready provider. */
   readonly embeddingProvider?: EmbeddingProvider;
@@ -491,7 +493,7 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
     async save(
       userText: string,
       assistantText: string,
-      saveOpts?: { idempotencyKey?: string; durable?: boolean; signal?: AbortSignal; authorizeAndDisclose?: SubLlmCallOptions["authorizeAndDisclose"] },
+      saveOpts?: { idempotencyKey?: string; durable?: boolean; signal?: AbortSignal; authorizeAndDisclose?: SubLlmCallOptions["authorizeAndDisclose"]; onRoleError?: (error: unknown) => void },
     ): Promise<void> {
       await ready; // adapter init 완료 보장.
       // 저장 원문도 상한(턴당) — 거대 턴이 embedding/디스크/flush 시간을 폭증시키는 것 차단. 초과분 절단 표식.
@@ -519,13 +521,16 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
         }
         await flush.call(sys);
       }
-      if (opts.roleExtractor && saveOpts?.authorizeAndDisclose && !saveOpts.signal?.aborted && !closed) {
-        const extract: FactExtractor = (episodes) => opts.roleExtractor!(episodes, saveOpts.authorizeAndDisclose!, saveOpts.signal);
+      if ((opts.consolidateOnSave || opts.roleExtractor) && !saveOpts?.signal?.aborted && !closed) {
+        const extract: FactExtractor | undefined = opts.roleExtractor && saveOpts?.authorizeAndDisclose
+          ? (episodes) => opts.roleExtractor!(episodes, saveOpts.authorizeAndDisclose!, saveOpts.signal)
+          : undefined;
         try {
-          await (sys.consolidateNow as unknown as (force: boolean, extractor: FactExtractor) => Promise<unknown>)(false, extract);
-        } catch {
-          // Episodes remain available for a later approved turn.
+          await (sys.consolidateNow as unknown as (force: boolean, extractor?: FactExtractor) => Promise<unknown>)(false, extract);
+        } catch (error) {
+          try { saveOpts?.onRoleError?.(error); } catch { /* observation cannot alter recovery */ }
           opts.onConsolidation?.({ phase: "failed", error: "role extraction failed" });
+          if (opts.fallbackHeuristicOnFailure) await sys.consolidateNow(false);
         }
       }
     },
@@ -552,7 +557,10 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
         targetTokens: Math.max(1, Math.floor(req.targetTokens)),
         sessionId,
         ...(opts.roleSummarizer && req.authorizeAndDisclose ? {
-          summarizer: (input: Parameters<CompactionSummarizer>[0]) => opts.roleSummarizer!({ ...input, ...(req.signal ? { signal: req.signal } : {}) }, req.authorizeAndDisclose!),
+          summarizer: async (input: Parameters<CompactionSummarizer>[0]) => {
+            try { return await opts.roleSummarizer!({ ...input, ...(req.signal ? { signal: req.signal } : {}) }, req.authorizeAndDisclose!); }
+            catch (error) { try { req.onRoleError?.(error); } catch { /* observation cannot alter recovery */ } throw error; }
+          },
         } : {}),
       });
       // recap 반환 상한(systemPrompt 폭증 차단). droppedCount = 요약에 흡수된 메시지 수(MemorySystem 계약).

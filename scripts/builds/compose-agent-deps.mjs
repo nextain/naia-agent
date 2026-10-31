@@ -6,13 +6,14 @@
 // transport(stdin/stdout/readline/grpc)·app(환경 위임, egress 필요)·shutdown 은 각 host 의 관심사 → 여기 없음.
 import { createInterface } from "node:readline";
 import { WINDOWS_DPAPI_TIMEOUT_MS } from "../../dist/main/app/cli-manage.js";
+import { isLocalEngineBaseUrl } from "../../dist/main/domain/provider-route.js";
 import { makeProviderResolver } from "../../dist/main/adapters/provider-resolver.js";
 import { makeFakeProvider, makeSystemEchoProvider } from "../../dist/main/adapters/fake-provider.js";
 import { makeKeychainCredentials, makeRefreshingKeychainRead } from "../../dist/main/adapters/keychain-secret-store.js";
 import { makeNaiaSettingsStore } from "../../dist/main/adapters/naia-settings-store.js";
 import { buildSubLlmProvider } from "../../dist/main/adapters/sub-llm-provider.js";
-import { buildRoleMemoryExtractor, buildRoleMemorySummarizer } from "../../dist/main/adapters/memory-role-summarizer.js";
-import { resolveRoleRuntimeConfig } from "../../dist/main/adapters/llm-role-runtime.js";
+import { buildMainMemoryPort, buildRoleMemoryExtractor, buildRoleMemorySummarizer } from "../../dist/main/adapters/memory-role-summarizer.js";
+import { bindMemoryAuthorization, resolveRoleRuntimeConfig, resolveMemoryRoleEndpoint } from "../../dist/main/adapters/llm-role-runtime.js";
 import { makeMemorySurfacer } from "../../dist/main/app/memory-surfacer.js";
 import { decideSurfacing, resolveSurfacingThreshold, SURFACING_LIMITS, SURFACING_THRESHOLD_MAX_ITEMS } from "../../dist/main/domain/surfacing.js";
 import { makeStderrDiagnostic } from "../../dist/main/adapters/diagnostic.js";
@@ -645,28 +646,35 @@ export async function composeAgentRuntimeDeps(o = {}) {
         const nextMemoryRuntime = effectiveMemoryRole
           ? resolveRoleRuntimeConfig(effectiveMemoryRole, settingsResolveSecret)
           : undefined;
-        const followsSub = effectiveMemoryRole?.provider.inheritedFromRole === "sub";
         const effectiveMain = nextRoleConfigs.find((cfg) => cfg.role === "main");
         const mainRuntime = effectiveMain
           ? resolveRoleRuntimeConfig({ ...effectiveMain, role: "sub" }, settingsResolveSecret)
           : undefined;
-        const selectedRuntime = nextMemoryRuntime?.ok ? nextMemoryRuntime : mainRuntime;
-        const roleSummarizer = followsSub && selectedRuntime?.ok
+        const mainConfig = settingsStore.loadMain(workspacePath);
+        const mainPort = mainConfig && resolver ? buildMainMemoryPort({ ...mainConfig, ...(credentials.get(mainConfig.provider) ?? {}) }, resolver) : undefined;
+        const selected = nextMemoryRuntime?.ok ? nextMemoryRuntime.config : nextMemoryRuntime?.reason === "unsupported" ? mainPort : undefined;
+        const authorizeCurrentRole = (authorize) => bindMemoryAuthorization(
+          (input) => resolveMemoryRoleEndpoint(settingsStore.loadLlmRoles(workspacePath), input, settingsResolveSecret, settingsStore.loadMain(workspacePath) ?? undefined, input.endpoint, input.role),
+          authorize,
+        );
+        const rawRoleSummarizer = effectiveMemoryRole?.provider.value !== "none" && selected
           ? buildRoleMemorySummarizer(
-              selectedRuntime.config,
-              mainRuntime?.ok ? mainRuntime.config : undefined,
+              selected,
+              mainPort ?? (mainRuntime?.ok ? mainRuntime.config : undefined),
               async (url, init) => fetch(url, init),
-              (event) => process.stderr.write(`[naia-agent] memory model fallback ${JSON.stringify(event)}\n`),
+              (event) => process.stderr.write(`[naia-agent] memory model fallback ${JSON.stringify({ role: "memory", ...event })}\n`),
             )
           : undefined;
-        const roleExtractor = followsSub && selectedRuntime?.ok
+        const rawRoleExtractor = effectiveMemoryRole?.provider.value !== "none" && selected
           ? buildRoleMemoryExtractor(
-              selectedRuntime.config,
-              mainRuntime?.ok ? mainRuntime.config : undefined,
+              selected,
+              mainPort ?? (mainRuntime?.ok ? mainRuntime.config : undefined),
               async (url, init) => fetch(url, init),
-              (event) => process.stderr.write(`[naia-agent] memory model fallback ${JSON.stringify(event)}\n`),
+              (event) => process.stderr.write(`[naia-agent] memory model fallback ${JSON.stringify({ role: "memory", ...event })}\n`),
             )
           : undefined;
+        const roleSummarizer = rawRoleSummarizer ? (input, authorize) => rawRoleSummarizer(input, authorizeCurrentRole(authorize)) : undefined;
+        const roleExtractor = rawRoleExtractor ? (episodes, authorize, signal) => rawRoleExtractor(episodes, authorizeCurrentRole(authorize), signal) : undefined;
         const { canonical: canonicalWorkspace, storage } = canonicalProductRoot(workspacePath);
         // Preserve existing users: copy legacy identity first, then use that identity to find
         // the legacy hashed store. Never overwrite a new-boundary file.
@@ -709,7 +717,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
         }
         try { nodeFs.mkdirSync(dirname(storePath), { recursive: true, mode: 0o700 }); } catch { /* best-effort */ }
         const sessionId = env.NAIA_MEMORY_SESSION || `proc-${randomUUID()}`;
-        const consolidationOn = Boolean(!followsSub && nextMemoryRuntime?.ok && env.NAIA_MEMORY_CONSOLIDATION !== "off");
+        const consolidationOn = false;
         const next = makeNaiaMemory({
           storePath, project, sessionId,
           ...(nextMemCfg
@@ -720,7 +728,8 @@ export async function composeAgentRuntimeDeps(o = {}) {
                 embedding: nextMemCfg.embedding,
               }
             : {}),
-          ...(!followsSub && nextMemoryRuntime?.ok ? { llm: nextMemoryRuntime.config } : {}),
+          ...(env.NAIA_MEMORY_CONSOLIDATION !== "off" ? { consolidateOnSave: true } : {}),
+          ...((["ollama", "vllm"].includes(effectiveMemoryRole?.provider.value) || (nextMemoryRuntime?.ok && isLocalEngineBaseUrl(nextMemoryRuntime.config.baseUrl))) ? { fallbackHeuristicOnFailure: true } : {}),
           ...(roleSummarizer ? { roleSummarizer } : {}),
           ...(roleExtractor ? { roleExtractor } : {}),
           ...(consolidationOn ? { consolidation: {} } : {}),

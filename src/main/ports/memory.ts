@@ -42,7 +42,7 @@ export interface MemoryPort {
   save(
     userText: string,
     assistantText: string,
-    opts?: { idempotencyKey?: string; durable?: boolean; signal?: AbortSignal; authorizeAndDisclose?: SubLlmCallOptions["authorizeAndDisclose"] },
+    opts?: { idempotencyKey?: string; durable?: boolean; signal?: AbortSignal; authorizeAndDisclose?: SubLlmCallOptions["authorizeAndDisclose"]; onRoleError?: (error: unknown) => void },
   ): Promise<void>;
 }
 

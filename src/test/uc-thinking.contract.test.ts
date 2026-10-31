@@ -552,3 +552,76 @@ describe("UC-THINKING — 핸들러 2라운드 도구 루프 통합 (첫 라운�
   });
 });
 
+
+describe("FR-THINK-13·14 small model transport", () => {
+  it("UT-SM-AGENT-THINK-01 proto 숫자와 이름의 네 수준을 디코드한다", () => {
+    for (const [number, name, expected] of [[1, "OFF", "off"], [2, "LOW", "low"], [3, "HIGH", "high"], [4, "XHIGH", "xhigh"]] as const) {
+      for (const level of [number, `THINKING_LEVEL_${name}`]) {
+        expect(chatRequestToDomain({ requestId: "r", messages: [], thinking: { level } }).thinking).toEqual({ level: expected });
+      }
+    }
+    for (const level of [0, "THINKING_LEVEL_UNSPECIFIED", 99, "UNKNOWN", undefined]) {
+      expect(chatRequestToDomain({ requestId: "r", messages: [], thinking: { level } }).thinking).toBeUndefined();
+    }
+    for (const level of [undefined, 99, "UNKNOWN"] as const) for (const enabled of [true, false, undefined]) {
+      const req = chatRequestToDomain({ requestId: "r", messages: [], ...(level === undefined ? {} : { thinking: { level } }), ...(enabled === undefined ? {} : { enableThinking: enabled }) });
+      expect(resolveTurnThinking(req)).toBeUndefined();
+      expect(req.enableThinking).toBe(enabled);
+      expect("enableThinking" in req).toBe(enabled !== undefined);
+    }
+  });
+
+  it("IT-SM-AGENT-THINK-01 요청 수준을 제공자별 계약대로 보낸다", async () => {
+    for (const level of ["off", "low", "high", "xhigh"] as const) {
+      const sink: { body?: Record<string, unknown> } = {};
+      const provider = makeOpenAICompatProvider({ baseUrl: "https://example.invalid", apiKey: "test", supportsThinkingLevel: true, fetch: captureFetch(sink) as never });
+      await drain(provider.chat({ provider: "nextain", model: "m", thinkingLevel: level, enableThinking: level !== "off" }, [], {}));
+      if (level === "off") expect(sink.body).not.toHaveProperty("reasoning_effort");
+      else expect(sink.body?.reasoning_effort).toBe(level);
+    }
+    for (const level of [undefined, 0, 99, "UNKNOWN"] as const) for (const enabled of [true, false, undefined]) {
+      const req = chatRequestToDomain({ requestId: "r", messages: [], ...(level === undefined ? {} : { thinking: { level } }), ...(enabled === undefined ? {} : { enableThinking: enabled }) });
+      for (const route of ["gateway", "local", "remote"] as const) {
+        const sink: { body?: Record<string, unknown> } = {};
+        const provider = makeOpenAICompatProvider({ baseUrl: "https://example.invalid", apiKey: "test", supportsThinkingLevel: route === "gateway", supportsReasoningEffort: route === "local", fetch: captureFetch(sink) as never });
+        await drain(provider.chat({ provider: "test", model: "m", ...(req.enableThinking === undefined ? {} : { enableThinking: req.enableThinking }) }, [], {}));
+        if (route === "local" && enabled === false) expect(sink.body?.reasoning_effort).toBe("none");
+        else expect(sink.body).not.toHaveProperty("reasoning_effort");
+      }
+    }
+  });
+});
+
+it("IT-SM-AGENT-THINK-01 Anthropic legacy 여섯 조합을 adaptive 본문으로 보존한다", async () => {
+  const { makeAnthropicProvider } = await import("../main/adapters/anthropic-provider.js");
+  for (const level of [undefined, 0, 99, "UNKNOWN"] as const) for (const enabled of [true, false, undefined]) {
+    const request = chatRequestToDomain({ requestId: "r", messages: [], ...(level === undefined ? {} : { thinking: { level } }), ...(enabled === undefined ? {} : { enableThinking: enabled }) });
+    const sink: { body?: Record<string, unknown> } = {};
+    const provider = makeAnthropicProvider({ baseUrl: "https://example.invalid", apiKey: "fake", fetch: captureFetch(sink) as never });
+    await drain(provider.chat({ provider: "anthropic", model: "m", ...(request.enableThinking === undefined ? {} : { enableThinking: request.enableThinking }) }, [], {}));
+    if (enabled === true) expect(sink.body?.thinking).toEqual({ type: "adaptive" });
+    else expect(sink.body).not.toHaveProperty("thinking");
+  }
+});
+
+it("IT-SM-AGENT-THINK-01 미지정은 기존 provider 설정을 덮지 않는다", async () => {
+  for (const raw of [undefined, 0, 99, "UNKNOWN"] as const) {
+    let seen: ProviderConfig | undefined;
+    const provider: ProviderPort = { async *chat(config) { seen = config; yield { kind: "finish" }; } };
+    const handler = new ChatTurnHandler({ provider, defaultConfig: { provider: "nextain", model: "m", thinkingLevel: "xhigh", enableThinking: true }, conversation: { assemble: (request) => ({ messages: request.messages }) }, credentials: makeInMemoryCredentials(), approval: makeInMemoryApproval(), egress: { emit: () => {} }, diag: { log: () => {} } });
+    const request = chatRequestToDomain({ requestId: "r", messages: [{ role: "user", content: "hi" }], ...(raw === undefined ? {} : { thinking: { level: raw } }) });
+    await handler.onChatRequest(request);
+    expect(seen).toMatchObject({ thinkingLevel: "xhigh", enableThinking: true });
+    const sink: { body?: Record<string, unknown> } = {};
+    const gateway = makeOpenAICompatProvider({ baseUrl: "https://example.invalid", apiKey: "fake", supportsThinkingLevel: true, fetch: captureFetch(sink) as never });
+    await drain(gateway.chat(seen!, [], {})); expect(sink.body?.reasoning_effort).toBe("xhigh");
+  }
+});
+
+it("IT-SM-AGENT-THINK-01 미지정은 Anthropic 기존 생각 설정을 유지한다", async () => {
+  const { makeAnthropicProvider } = await import("../main/adapters/anthropic-provider.js");
+  const sink: { body?: Record<string, unknown> } = {};
+  const provider = makeAnthropicProvider({ baseUrl: "https://example.invalid", apiKey: "fake", fetch: captureFetch(sink) as never });
+  await drain(provider.chat({ provider: "anthropic", model: "m", enableThinking: true }, [], {}));
+  expect(sink.body?.thinking).toEqual({ type: "adaptive" });
+});

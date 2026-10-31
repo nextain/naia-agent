@@ -47,8 +47,8 @@ it("extracts facts through the existing parser with fallback and distinct approv
   expect(models).toEqual(["small", "main"]);
   expect(authorize).toHaveBeenCalledTimes(2);
   expect(events).toEqual([
-    { provider: "nextain", model: "small", reason: "invalid_response" },
-    { provider: "nextain", model: "main", reason: "fallback_success" },
+    { provider: "nextain", model: "small", reason: "invalid_response", attemptRole: "memory" },
+    { provider: "nextain", model: "main", reason: "fallback_success", attemptRole: "main" },
   ]);
 });
 
@@ -88,4 +88,43 @@ it("runs the real consolidation only in a save that supplies authorization", asy
     await memory.save("Hello", "", { authorizeAndDisclose: async () => true });
     expect(fetch).toHaveBeenCalledOnce();
   } finally { vi.useRealTimers(); await memory.close(); await rm(storePath, { force: true }); }
+});
+
+it("uses the actual main ProviderPort after separate approval and preserves the first failure", async () => {
+  const { buildMainMemoryPort } = await import("../main/adapters/memory-role-summarizer.js");
+  const seen: string[] = [];
+  const resolver = { resolve: (config: { provider: string; model: string }) => ({
+    async *chat() { seen.push(`${config.provider}/${config.model}`); yield { kind: "text" as const, text: "main recap" }; },
+  }) };
+  const main = buildMainMemoryPort({ provider: "anthropic", model: "main" }, resolver);
+  const small = { provider: "nextain", model: "small", baseUrl: "https://example.invalid" };
+  const events: string[] = [];
+  const endpoints: string[] = [];
+  const summary = buildRoleMemorySummarizer(small, main, async () => ({ ok: false, status: 503, text: async () => "" }), () => {});
+  const value = await summary({ messages: [{ role: "user", content: "hi" }], keepTail: 0, targetTokens: 20, seedSummary: "" }, async ({ provider, endpoint }) => { events.push(provider); endpoints.push(endpoint); return true; });
+  expect(value).toBe("main recap");
+  expect(seen).toEqual(["anthropic/main"]);
+  expect(events).toEqual(["nextain", "anthropic"]);
+  expect(endpoints).toEqual(["https://example.invalid", "https://api.anthropic.com"]);
+});
+
+it("approves an opaque main CLI as the selected provider and model before executing it", async () => {
+  const { buildMainMemoryPort } = await import("../main/adapters/memory-role-summarizer.js");
+  const { bindMemoryAuthorization } = await import("../main/adapters/llm-role-runtime.js");
+  const calls: string[] = [];
+  const provider = { provider: "codex", model: "main" };
+  const port = buildMainMemoryPort(provider, { resolve: () => ({ async *chat() { calls.push("executed"); yield { kind: "text" as const, text: "ok" }; } }) });
+  const endpoint = "opaque-cli:codex:main";
+  let current: string | undefined = endpoint;
+  let reply!: (decision: boolean) => void;
+  const pendingDecision = new Promise<boolean>((resolve) => { reply = resolve; });
+  const pending = port.complete("x", { authorizeAndDisclose: bindMemoryAuthorization(() => current, async () => pendingDecision) });
+  current = "opaque-cli:codex:other"; reply(true);
+  await expect(pending).rejects.toThrow("SUB_LLM_PROCESSING_NOT_AUTHORIZED");
+  expect(calls).toEqual([]);
+  current = endpoint;
+  const approved: unknown[] = [];
+  await expect(port.complete("x", { authorizeAndDisclose: bindMemoryAuthorization(() => current, async (input) => { approved.push(input); return true; }) })).resolves.toBe("ok");
+  expect(approved).toEqual([expect.objectContaining({ provider: "codex", model: "main", endpoint })]);
+  expect(calls).toEqual(["executed"]);
 });
