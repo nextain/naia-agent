@@ -7,6 +7,7 @@
 import { createInterface } from "node:readline";
 import { WINDOWS_DPAPI_TIMEOUT_MS } from "../../dist/main/app/cli-manage.js";
 import { isLocalEngineBaseUrl } from "../../dist/main/domain/provider-route.js";
+import { makeAxEffectBroker } from "../../dist/main/adapters/ax-policy-tool-executor.js";
 import { makeProviderResolver } from "../../dist/main/adapters/provider-resolver.js";
 import { makeFakeProvider, makeSystemEchoProvider } from "../../dist/main/adapters/fake-provider.js";
 import { makeKeychainCredentials, makeRefreshingKeychainRead } from "../../dist/main/adapters/keychain-secret-store.js";
@@ -81,6 +82,7 @@ export function resolveHostAdkPath({
  */
 export async function composeAgentRuntimeDeps(o = {}) {
   const env = o.env ?? process.env;
+  const diag = makeStderrDiagnostic({ write: (l) => process.stderr.write(l + "\n"), debug: env.NAIA_AGENT_DEBUG === "1" });
   const homeDir = typeof o.homeDir === "string" && o.homeDir.trim() ? o.homeDir : homedir();
   const allowHomeAdkFallback = o.allowHomeAdkFallback === true;
   const cleanupFns = []; // 종료 시 정리(MCP 자식 등) — 호스트 shutdown 이 호출.
@@ -232,7 +234,8 @@ export async function composeAgentRuntimeDeps(o = {}) {
 
   // ── UC5 실 스킬(time/weather/memo + github/obsidian/mcp/notify/adk) — 기본 활성(NAIA_AGENT_SKILLS=off 로 비활성). ──
   // ⚠️ app(환경 위임)은 여기 미포함 — egress 가 필요해 gRPC host 가 wire 후 합성(브라우저/BGM=셸 소유 환경, E1).
-  let toolExecutor, skillsLabel = "off";
+  let toolExecutor, axExecutor, skillsLabel = "off";
+  const axRegistrations = [];
   let knowledgeBackend;
   let setKnowledgeWorkspace = () => undefined;
   if (env.NAIA_AGENT_SKILLS !== "off") {
@@ -241,20 +244,27 @@ export async function composeAgentRuntimeDeps(o = {}) {
     const builtin = makeBuiltinSkillsExecutor({ clock: () => new Date(), fetchWeather: makeOpenMeteoFetchWeather(), memo });
     skillsLabel = `time/weather/memo(${memoPath})`;
     const executors = [builtin];
+    for (const spec of builtin.specs().filter((s) => ["get_time", "memo_list", "memo_get"].includes(s.name))) {
+      axRegistrations.push({ spec, classify: () => ["local_read"], execute: builtin.execute.bind(builtin) });
+    }
 
     // ── UC-FS-TOOLS(S3): 에이전트 직접 fs/shell 도구. ★ 보안 = 코어가 sandbox 정책(allow-root=adkPath)+tier 소유.
     //    실행기(realpath/exec)만 여기서 node:fs/child_process 주입(코어 순수). read/list 기본 등록, write/shell 은
     //    NAIA_SHELL_TOOL=1 opt-in. (GLM: env-var 게이트는 자식상속으로 약함 → 핵심 보안은 sandbox/denylist/argv;
     //    per-request capability 미래 강화는 요구사항 NFR-SEC 노트.)
     const enableShell = env.NAIA_SHELL_TOOL === "1";
-    executors.push(makeFsTools({
+    const fsExecutor = makeFsTools({
       fs: nodeFs,
       allowRoots: () => {
         const root = currentBind?.canonicalRoot ?? adkPath;
         return root ? [root] : [];
       },
       enableWrite: enableShell,
-    }));
+    });
+    executors.push(fsExecutor);
+    for (const spec of fsExecutor.specs().filter((s) => ["list_dir", "read_file"].includes(s.name))) {
+      axRegistrations.push({ spec, classify: () => ["local_read"], execute: fsExecutor.execute.bind(fsExecutor) });
+    }
     skillsLabel += enableShell ? " + fs-tools(read/list/write)" : " + fs-tools(read/list)";
     if (enableShell) {
       // ── injection-safe argv 실행기 — **shell 없이** spawn(subprocess-session 헬퍼로 Windows .cmd/.bat shim 해석).
@@ -405,7 +415,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
     const vault = env.NAIA_OBSIDIAN_VAULT;
     if (vault) { executors.push(makeObsidianSkillsExecutor({ vaultDir: vault, fs: nodeFs })); skillsLabel += " + obsidian(ro)"; }
     const mcpCmd = env.NAIA_MCP_CMD;
-    if (mcpCmd) {
+    if (mcpCmd && env.NAIA_AGENT_AX !== "on") {
       try {
         const parts = mcpCmd.trim().split(/\s+/);
         const mcpName = env.NAIA_MCP_NAME || "mcp";
@@ -453,6 +463,13 @@ export async function composeAgentRuntimeDeps(o = {}) {
     }
     toolExecutor = executors.length > 1 ? makeCompositeToolExecutor(executors) : builtin;
   }
+  if (env.NAIA_AGENT_AX === "on") {
+    axExecutor = makeAxEffectBroker({ registrations: axRegistrations, diag });
+    toolExecutor = axExecutor;
+    if (resolver) resolver = makeProviderResolver({ axExecutor, workspace: () => currentBind });
+    skillsLabel = "AX trusted local reads (external actions require host approval integration)";
+  }
+
 
   // ── creds = OS 키체인 read-back. Linux=secret-tool(service=naia-agent account={env_key}).
   //    Windows=DPAPI({adkPath}/naia-settings/.keys/{env_key}.dpapi, CurrentUser scope — naia-os write_agent_key 가 저장).
@@ -826,7 +843,6 @@ export async function composeAgentRuntimeDeps(o = {}) {
   }
 
   // ── 표준 로깅 sink(docs/logging.md): stderr + debug 게이트(NAIA_AGENT_DEBUG=1). console.* 금지. ──
-  const diag = makeStderrDiagnostic({ write: (l) => process.stderr.write(l + "\n"), debug: env.NAIA_AGENT_DEBUG === "1" });
 
   const surfacer = memory
     ? makeMemorySurfacer({
@@ -840,7 +856,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
     : undefined;
   if (surfacer) cleanupFns.push(() => { surfacer.close().catch(() => undefined); });
 
-  if (memory) {
+  if (memory && !axExecutor) {
     const memorySkillExec = makeMemorySkillsExecutor({ memory });
     toolExecutor = toolExecutor ? makeCompositeToolExecutor([toolExecutor, memorySkillExec]) : memorySkillExec;
     skillsLabel = `${skillsLabel} + memory-skill(skill_memory_recall,skill_memory_save)`;
@@ -853,7 +869,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
     settingsStore, settingsResolveSecret, defaultConfig, configLabel,
     engineProfile, engineLabel, llmRoles, roleLabel,
     subLlm, subLlmLabel,
-    toolExecutor, skillsLabel, knowledgeBackend, setKnowledgeWorkspace, setWorkspaceBind,
+    toolExecutor, axExecutor, skillsLabel, knowledgeBackend, setKnowledgeWorkspace, setWorkspaceBind,
     memory, memoryLabel, reloadMemory,
     surfacer, getSurfacingLabel: () => surfacingLabel,
     conversationLog, transcriptLabel,

@@ -1118,3 +1118,14 @@ P02 Test Coverage Map (P03 = FR-AX-026, 설계 = ARCHITECTURE.md §7):
 
 범위: exec 공급자 초기판은 텍스트 추론이며 native 도구 실행을 비활성화한다. 기존 app-server 도구 경로는 유지한다.
 음성/STT 보류 결속, 캘린더 실제 연결, 모델 전송 공개·감사 영속화는 설계 및 후속 인수 대상이다.
+
+2회차 P01/P02: 사용자는 `codex-ax`를 명시적으로 선택하고 CLI 0.163.0 설치·로그인 사전 점검을 받는다.
+app-server가 등록된 로컬 읽기 도구를 반복 호출하며 미등록 shell/MCP/HTTP·변조·중복 호출은 실행되지 않는다.
+`codex-app-server-provider.contract.test.ts`에 버전 불일치/실패 무대체·native 제한·반복 시험,
+`ax-approval-policy.contract.test.ts`에 trusted registry·실행 대상 고정·우회 차단·composition 시험을 매핑한다.
+기존 모델은 AX를 켜지 않았을 때 기존 실행 경로를 유지한다.
+
+2회차 P04 보강: 실제 공용 조립기의 AX 기동·원시 MCP 미기동을 `ax-approval-policy.contract.test.ts`에서
+검증한다. CLI 카탈로그·doctor 회귀는 기존 cli-manage/cli-manage-process,
+gRPC/Discord 단일 파이프라인 보존은 discord-entry-wiring 시험에 연결한다.
+검증 수치와 실제 로그인/우회 시험 범위는 FR-AX-026 및 ARCHITECTURE §7.8에 기록했다.

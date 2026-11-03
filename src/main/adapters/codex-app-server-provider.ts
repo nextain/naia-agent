@@ -4,7 +4,7 @@
 // `codex app-server`를 사용하며 auth.json/token을 읽거나 복사하지 않는다.
 // app-server JSONL 프로토콜은 이 파일 안에 격리하고 ProviderPort에는 정규화 chunk만 노출한다.
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import type { ProviderChatOpts, ProviderPort } from "../ports/uc1.js";
+import type { ProviderChatOpts, ProviderPort, ToolExecutorPort } from "../ports/uc1.js";
 import type { ChatMessage, ProviderChunk, ProviderConfig, ToolCall, ToolSpec } from "../domain/chat.js";
 import { codexThreadWorkspace, type WorkspaceBind } from "../domain/workspace-bind.js";
 
@@ -16,13 +16,21 @@ export type CodexTurnEvent =
   | { readonly kind: "toolResult"; readonly id: string; readonly name: string; readonly output: string; readonly success: boolean }
   | { readonly kind: "completed" };
 
+export const CODEX_CLI_VERSION = "0.163.0";
+export const CODEX_PROVIDER_CATALOG = Object.freeze([
+  { id: "codex", transport: "app-server", tools: true },
+  { id: "codex-ax", transport: "app-server", tools: true, cliVersion: CODEX_CLI_VERSION },
+  { id: "codex-exec", transport: "exec", tools: false },
+]);
+
 export interface CodexTurnInput {
+  readonly ax?: boolean;
   readonly model: string;
   readonly prompt: string;
   readonly systemPrompt?: string;
   readonly signal?: AbortSignal;
   readonly tools?: readonly ToolSpec[];
-  readonly executeTool?: (call: ToolCall) => Promise<{ output: string; isError?: boolean }>;
+  readonly executeTool?: (call: ToolCall, signal?: AbortSignal) => Promise<{ output: string; isError?: boolean }>;
   /** Host workspace bind. When set, app-server cwd/sandbox follow this root instead of OS temp. */
   readonly workspace?: WorkspaceBind;
 }
@@ -109,6 +117,7 @@ function foldMessages(messages: readonly ChatMessage[]): { system: string; promp
 }
 
 export function makeCodexAppServerProvider(deps?: {
+  readonly axExecutor?: ToolExecutorPort;
   readonly model?: string;
   readonly runTurn?: CodexRunTurn;
   readonly workspace?: () => WorkspaceBind | undefined;
@@ -120,16 +129,27 @@ export function makeCodexAppServerProvider(deps?: {
       messages: readonly ChatMessage[],
       opts: ProviderChatOpts,
     ): AsyncIterable<ProviderChunk> {
+      if (deps?.axExecutor && messages.some((m) => m.inlineImages?.length || m.attachments?.length)) {
+        throw new Error("codex-ax currently accepts text and broker tools only");
+      }
       const folded = foldMessages(messages);
       const systemPrompt = [opts.systemPrompt, folded.system].filter(Boolean).join("\n\n");
       const workspace = deps?.workspace?.();
+      const axTools = deps?.axExecutor?.specs().filter((spec) => opts.tools?.some((t) => t.name === spec.name)) ?? [];
       for await (const event of runTurn({
         model: deps?.model ?? config.model,
         prompt: folded.prompt,
         ...(systemPrompt ? { systemPrompt } : {}),
         ...(opts.signal ? { signal: opts.signal } : {}),
-        ...(opts.tools ? { tools: opts.tools } : {}),
-        ...(opts.executeTool ? { executeTool: opts.executeTool } : {}),
+        ...(deps?.axExecutor ? {
+          ax: true, tools: axTools,
+          executeTool: (call: ToolCall, signal?: AbortSignal) => axTools.some((t) => t.name === call.name)
+            ? deps.axExecutor!.execute(call, { signal: signal ?? opts.signal, requestId: opts.requestId })
+            : Promise.resolve({ output: "AX tool unavailable in this turn", isError: true }),
+        } : {
+          ...(opts.tools ? { tools: opts.tools } : {}),
+          ...(opts.executeTool ? { executeTool: opts.executeTool } : {}),
+        }),
         ...(workspace ? { workspace } : {}),
       })) {
         if (event.kind === "text") yield { kind: "text", text: event.text };
@@ -243,6 +263,7 @@ export async function makeCodexRpcPeer(
     }
     if (message.method) push(message);
   });
+  child.stderr.resume();
   child.once("error", (error) => fail(new Error(`Codex app-server unavailable: ${error.message}`)));
   child.once("exit", (code) => fail(new Error(`Codex app-server exited (${code ?? "signal"})`)));
 
@@ -281,7 +302,7 @@ export async function makeCodexRpcPeer(
     },
     close() {
       if (closed) return;
-      closed = true;
+      fail(new Error("Codex app-server closed"));
       lines.close();
       child.kill();
       while (waiters.length) waiters.shift()!({ done: true, value: undefined });
@@ -296,11 +317,34 @@ export async function makeCodexRpcPeer(
  */
 export async function* runCodexAppServerTurn(
   input: CodexTurnInput,
-  peerFactory: () => Promise<RpcPeer> = makeCodexRpcPeer,
+  peerFactory?: () => Promise<RpcPeer>,
 ): AsyncIterable<CodexTurnEvent> {
-  const peer = await peerFactory();
+  input.signal?.throwIfAborted();
+  const axController = input.ax ? new AbortController() : undefined;
+  if (axController) input = { ...input, signal: input.signal ? AbortSignal.any([input.signal, axController.signal]) : axController.signal };
+  let axCwd: string | undefined;
+  let axModelCatalog: string | undefined;
+  if (input.ax && !peerFactory) {
+    const status = await checkCodexAxPreflight();
+    if (status.status !== "ready") throw new Error(status.detail);
+    const { mkdtemp } = await import("node:fs/promises");
+    const { join } = await import("node:path");
+    const { tmpdir } = await import("node:os");
+    axCwd = await mkdtemp(join(tmpdir(), "naia-codex-ax-"));
+    try { axModelCatalog = await prepareAxModelCatalog(input.model, axCwd); }
+    catch (error) { await (await import("node:fs/promises")).rm(axCwd, { recursive: true, force: true }); throw error; }
+  }
+  let peer: RpcPeer;
+  try {
+    peer = await (peerFactory ? peerFactory() : input.ax
+      ? makeCodexRpcPeer(() => spawnCodexAx(axCwd!, axModelCatalog)) : makeCodexRpcPeer());
+  } catch (error) {
+    if (axCwd) await (await import("node:fs/promises")).rm(axCwd, { recursive: true, force: true });
+    throw error;
+  }
   if (input.signal?.aborted) {
     peer.close();
+    if (axCwd) await (await import("node:fs/promises")).rm(axCwd, { recursive: true, force: true });
     return;
   }
   let threadId = "";
@@ -311,7 +355,10 @@ export async function* runCodexAppServerTurn(
     readonly signature: string;
     readonly result: { output: string; isError?: boolean };
   }>();
+  const deadline = input.ax ? setTimeout(() => { axController?.abort(new Error("AX Codex timed out")); peer.close(); }, 120_000) : undefined;
+  deadline?.unref();
   const abort = () => {
+    if (input.ax) { peer.close(); return; }
     if (threadId && turnId) void peer.request("turn/interrupt", { threadId, turnId }).catch(() => {});
   };
   input.signal?.addEventListener("abort", abort, { once: true });
@@ -324,7 +371,18 @@ export async function* runCodexAppServerTurn(
     const { tmpdir } = await import("node:os");
     // Host workspace bind is the Codex sandbox root. Temp isolation remains only
     // when the host has no canonical workspace (first-run / missing ADK).
-    const threadWorkspace = codexThreadWorkspace(input.workspace, tmpdir());
+    const threadWorkspace = input.ax
+      ? { cwd: axCwd ?? tmpdir(), sandbox: "read-only" }
+      : codexThreadWorkspace(input.workspace, tmpdir());
+    let axThreadConfig: Record<string, unknown> = {};
+    if (input.ax) {
+      const effective = await peer.request("config/read", { includeLayers: false }) as { config?: Record<string, unknown> };
+      assertAxConfig(effective.config);
+      // TOML table overrides merge: {} does not erase user MCP entries.
+      // Disable every configured server before thread/start can initialize it.
+      const servers = effective.config?.mcp_servers as Record<string, unknown> | undefined;
+      axThreadConfig = { mcp_servers: Object.fromEntries(Object.entries(servers ?? {}).map(([name, server]) => [name, { ...withoutNullConfig(server as Record<string, unknown>), enabled: false }])) };
+    }
     // app-server 동적 도구는 한 RPC 안에서 즉시 결과를 돌려줘야 한다. 승인 필요 도구는 제외한다.
     // processing metadata가 있는 도구는 ChatTurnHandler의 executeTool callback이 승인/공개한 뒤 실행한다.
     const dynamicTools = (input.tools ?? [])
@@ -344,9 +402,13 @@ export async function* runCodexAppServerTurn(
       approvalPolicy: "never",
       sandbox: threadWorkspace.sandbox,
       ephemeral: true,
+      ...(input.ax ? { config: axThreadConfig } : {}),
       ...(dynamicTools.length ? { dynamicTools } : {}),
       ...(input.systemPrompt ? { baseInstructions: input.systemPrompt } : {}),
-    }) as { thread?: { id?: string } };
+    }) as { thread?: { id?: string }; model?: string; sandbox?: { type?: string; networkAccess?: boolean } };
+    if (input.ax && (started.model !== input.model || started.sandbox?.type !== "readOnly" || started.sandbox.networkAccess === true)) {
+      throw new Error("AX effective model/sandbox differs from explicit selection");
+    }
     threadId = started.thread?.id ?? "";
     if (!threadId) throw new Error("Codex app-server returned no thread id");
     const turn = await peer.request("turn/start", {
@@ -359,7 +421,19 @@ export async function* runCodexAppServerTurn(
 
     for await (const message of peer.notifications()) {
       const params = (message.params ?? {}) as Record<string, unknown>;
+      if (input.ax && message.id !== undefined && message.method !== "item/tool/call") {
+        // Native command, patch, permissions, MCP elicitation and unknown requests
+        // never inherit a Naia grant. Reply fail closed so the server cannot hang.
+        peer.respond(message.id, { decision: "decline" });
+        throw new Error("AX rejected native or unknown Codex request");
+      }
       if (params["threadId"] !== threadId) continue;
+      if (input.ax && (message.method === "item/started" || message.method === "item/completed")) {
+        const item = params["item"] as { type?: string } | undefined;
+        if (["commandExecution", "fileChange", "mcpToolCall", "webSearch", "collabAgentToolCall"].includes(item?.type ?? "")) {
+          throw new Error("AX unexpected native execution event");
+        }
+      }
       if (message.method === "item/tool/call" && params["turnId"] === turnId && message.id !== undefined) {
         const id = typeof params["callId"] === "string" ? params["callId"] : String(message.id);
         const name = typeof params["tool"] === "string" ? params["tool"] : "";
@@ -382,7 +456,8 @@ export async function* runCodexAppServerTurn(
           result = { output: `dynamic tool '${name || "unknown"}' is unavailable`, isError: true };
         } else {
           try {
-            result = await input.executeTool({ id, name, args });
+            const pending = input.executeTool({ id, name, args }, input.signal);
+            result = input.ax ? await abortableCodexTool(pending, input.signal!) : await pending;
           } catch (error) {
             result = { output: error instanceof Error ? error.message : String(error), isError: true };
           }
@@ -414,6 +489,7 @@ export async function* runCodexAppServerTurn(
         if (turnResult.status === "failed") {
           throw new Error(`Codex turn failed: ${turnResult.error?.message ?? "unknown"}`);
         }
+        if (input.ax && turnResult?.status !== "completed" && turnResult?.status !== "interrupted") throw new Error("AX invalid terminal status");
         completed = true;
         if (turnResult.status === "interrupted" || input.signal?.aborted) break;
         if (lastUsage) yield { kind: "usage", ...lastUsage };
@@ -427,7 +503,136 @@ export async function* runCodexAppServerTurn(
     }
     if (!completed && !input.signal?.aborted) throw new Error("Codex app-server closed before turn completion");
   } finally {
+    if (deadline) clearTimeout(deadline);
     input.signal?.removeEventListener("abort", abort);
     peer.close();
+    if (axCwd) await (await import("node:fs/promises")).rm(axCwd, { recursive: true, force: true });
   }
+}
+
+// AX is pinned independently of legacy Codex. SDK is deliberately not installed.
+export async function checkCodexAxPreflight(runVersion?: RunCodexStatus, runLogin?: RunCodexStatus): Promise<CodexPreflightStatus> {
+  try {
+    const version = await (runVersion ?? (() => runCodexCommand(["--version"])))();
+    if (version.code !== 0 || version.stdout.trim() !== `codex-cli ${CODEX_CLI_VERSION}`) {
+      return { status: "error", detail: `codex-ax requires codex-cli ${CODEX_CLI_VERSION}; no fallback` };
+    }
+    return await checkCodexPreflight(runLogin ?? (() => runCodexCommand(["login", "status"])));
+  } catch {
+    return { status: "not-installed", detail: `Install @openai/codex@${CODEX_CLI_VERSION}; no fallback` };
+  }
+}
+
+async function runCodexCommand(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+  const { execFile } = await import("node:child_process");
+  const { resolveFallbackCommand, buildIsolatedSubprocessEnv } = await import("./subprocess-session.js");
+  const bin = resolveFallbackCommand("codex");
+  return new Promise((resolve, reject) => {
+    execFile(bin.command, [...bin.prefixArgs, ...args], {
+      timeout: 10_000, maxBuffer: 2 * 1024 * 1024, windowsHide: true,
+      env: buildIsolatedSubprocessEnv(process.env, ["CODEX_HOME"]),
+    }, (error, stdout, stderr) => {
+      if (error && typeof error.code !== "number") reject(error);
+      else resolve({ code: error?.code as number ?? 0, stdout, stderr });
+    });
+  });
+}
+
+const AX_DISABLED_FEATURES = [
+  "shell_tool", "unified_exec", "js_repl", "code_mode", "code_mode_only", "code_mode_host",
+  "apps", "plugins", "plugin_hooks", "hooks", "codex_hooks", "multi_agent", "multi_agent_v2",
+  "browser_use", "browser_use_external", "computer_use", "view_image", "image_generation",
+  "memory_tool", "skill_mcp_dependency_install", "tool_suggest", "workspace_dependencies",
+  "remote_plugin", "plugin_sharing", "recommended_plugins", "in_app_browser", "browser_use_full_cdp_access",
+  "request_permissions_tool", "sleep_tool", "deferred_executor", "send_message_to_user_async",
+];
+
+export function codexAxConfig(): Record<string, unknown> {
+  return {
+    ...Object.fromEntries(AX_DISABLED_FEATURES.map((name) => [`features.${name}`, false])),
+    "mcp_servers": {}, "hooks": {}, "plugins": {}, "web_search": "disabled",
+    "approval_policy": "never", "sandbox_mode": "read-only",
+    "project_doc_max_bytes": 0, "model_reasoning_effort": "low",
+    "analytics.enabled": false, "otel.exporter": "none", "otel.trace_exporter": "none",
+  };
+}
+
+function assertAxConfig(config: Record<string, unknown> | undefined): void {
+  if (!config || config.web_search !== "disabled" || config.sandbox_mode !== "read-only" || config.approval_policy !== "never") {
+    throw new Error("AX Codex configuration ceiling not established");
+  }
+  const features = config.features as Record<string, unknown> | undefined;
+  if (AX_DISABLED_FEATURES.some((key) => features?.[key] !== false)) throw new Error("AX native tools are not disabled");
+}
+
+async function spawnCodexAx(cwd: string, modelCatalog?: string): Promise<ChildProcessWithoutNullStreams> {
+  const { spawn } = await import("node:child_process");
+  const { resolveFallbackCommand, buildIsolatedSubprocessEnv } = await import("./subprocess-session.js");
+  const bin = resolveFallbackCommand("codex");
+  const args = Object.entries({ ...codexAxConfig(), ...(modelCatalog ? { model_catalog_json: modelCatalog } : {}) }).flatMap(([key, value]) => ["-c", `${key}=${typeof value === "object" ? "{}" : JSON.stringify(value)}`]);
+  return spawn(bin.command, [...bin.prefixArgs, "app-server", ...args], {
+    cwd, stdio: ["pipe", "pipe", "pipe"], windowsHide: true,
+    env: buildIsolatedSubprocessEnv(process.env, ["CODEX_HOME"]),
+  });
+}
+
+/** CLI catalog is discovery, never an entitlement check or automatic fallback. */
+export async function listCodexAxModels(): Promise<readonly { id: string; provider: string; tools: boolean; use: string }[]> {
+  const status = await checkCodexAxPreflight();
+  if (status.status !== "ready") throw new Error(status.detail);
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { join } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const cwd = await mkdtemp(join(tmpdir(), "naia-codex-catalog-"));
+  let peer: RpcPeer | undefined;
+  const deadline = setTimeout(() => peer?.close(), 15_000);
+  try {
+    peer = await makeCodexRpcPeer(() => spawnCodexAx(cwd));
+    await peer.request("initialize", { clientInfo: { name: "naia-agent", version: "0.2.6" } });
+    peer.notify("initialized");
+    const result = await peer.request("model/list", { limit: 100 }) as { data?: { id?: string; model?: string }[] };
+    if (!Array.isArray(result.data)) throw new Error("Invalid Codex model catalog");
+    return result.data.map((model) => ({ id: model.model ?? model.id ?? "", provider: "codex-ax", tools: true, use: "chat" })).filter((m) => m.id);
+  } finally {
+    clearTimeout(deadline);
+    peer?.close();
+    await rm(cwd, { recursive: true, force: true });
+  }
+}
+
+/** Pin model tool construction too: current Codex models can force Code Mode,
+ * and native apply_patch is independent of the shell feature flag. */
+export function axModelCatalog(raw: unknown, model: string): { models: Record<string, unknown>[] } {
+  const models = (raw as { models?: Record<string, unknown>[] } | null)?.models;
+  const selected = models?.find((entry) => entry.slug === model);
+  if (!selected) throw new Error("AX model is absent from the pinned CLI catalog; no fallback");
+  return { models: [{ ...selected, tool_mode: "direct", shell_type: "disabled", apply_patch_tool_type: null, experimental_supported_tools: [] }] };
+}
+
+async function prepareAxModelCatalog(model: string, cwd: string): Promise<string> {
+  const bundled = await runCodexCommand(["debug", "models", "--bundled"]);
+  if (bundled.code !== 0) throw new Error("AX pinned model catalog unavailable");
+  const catalog = axModelCatalog(JSON.parse(bundled.stdout), model);
+  const { writeFile } = await import("node:fs/promises");
+  const { join } = await import("node:path");
+  const path = join(cwd, "models.json");
+  await writeFile(path, JSON.stringify(catalog), { mode: 0o600 });
+  return path;
+}
+
+function abortableCodexTool<T>(pending: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const abort = () => { signal.removeEventListener("abort", abort); reject(signal.reason ?? new Error("AX aborted")); };
+    pending.then((value) => { signal.removeEventListener("abort", abort); resolve(value); }, (error) => { signal.removeEventListener("abort", abort); reject(error); });
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) abort();
+  });
+}
+
+// config/read serializes optional fields as null; thread config translates JSON
+// to TOML, where null would become an invalid empty-string timeout/transport.
+function withoutNullConfig(value: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== null).map(([key, v]) => [key,
+    v && typeof v === "object" && !Array.isArray(v) ? withoutNullConfig(v as Record<string, unknown>) : v,
+  ]));
 }

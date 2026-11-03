@@ -3,7 +3,7 @@
 // 첫 흐름(provider 출처)은 lab-proxy / native / ollama 만. local-live(naia-omni)·claude-cli·nextain-error 는 후속.
 import type { ProviderConfig } from "./chat.js";
 
-export type ProviderRoute = "lab-proxy" | "ollama" | "anthropic" | "claude-code" | "codex" | "codex-exec" | "grok" | "native";
+export type ProviderRoute = "lab-proxy" | "ollama" | "anthropic" | "claude-code" | "codex" | "codex-ax" | "codex-exec" | "grok" | "native";
 
 /**
  * **provider 타입**으로 라우팅(루크 정정 2026-06-12 — naiaKey 유무 아님):
@@ -18,6 +18,7 @@ export type ProviderRoute = "lab-proxy" | "ollama" | "anthropic" | "claude-code"
  *    ⚠️ API-key 타입은 naiaKey 가 있어도 직결 — 키체인에 naiaKey 남아있다고 lab-proxy 로 보내면 안 됨(그게 500 원인이었음).
  */
 export function resolveProviderRoute(config: ProviderConfig): ProviderRoute {
+	if (config.provider === "codex-ax") return "codex-ax";
 	if (config.provider === "codex-exec") return "codex-exec";
 	if (config.provider === "nextain") return "lab-proxy";
 	if (config.provider === "ollama") return "ollama";
@@ -113,6 +114,6 @@ export function providerProcessingEndpoint(config: ProviderConfig): string | und
   if (route === "lab-proxy") return labProxyBaseUrl(config);
   if (route === "ollama") return nativeBaseUrl("ollama", config.ollamaHost);
   if (route === "anthropic") return anthropicBaseUrl(config);
-  if (route === "claude-code" || route === "codex" || route === "codex-exec" || route === "grok") return `opaque-cli:${encodeURIComponent(config.provider)}:${encodeURIComponent(config.model)}`;
+  if (route === "claude-code" || route === "codex" || route === "codex-exec" || route === "codex-ax" || route === "grok") return `opaque-cli:${encodeURIComponent(config.provider)}:${encodeURIComponent(config.model)}`;
   try { return nativeBaseUrl(config.provider, config.labGatewayUrl ?? config.vllmHost); } catch { return undefined; }
 }

@@ -5,7 +5,7 @@
 //   ollama    : makeOllamaProvider
 // transport 자체는 stdio/gRPC 와 직교 — provider는 LLM 호출 어댑터일 뿐.
 import type { ProviderConfig } from "../domain/chat.js";
-import type { ProviderPort, ProviderResolverPort } from "../ports/uc1.js";
+import type { ProviderPort, ProviderResolverPort, ToolExecutorPort } from "../ports/uc1.js";
 import { resolveProviderRoute, labProxyBaseUrl, nativeBaseUrl, anthropicBaseUrl, isLocalEngineBaseUrl } from "../domain/provider-route.js";
 import { makeOpenAICompatProvider } from "./openai-compat-provider.js";
 import { makeOllamaProvider } from "./ollama-provider.js";
@@ -17,6 +17,7 @@ import { makeGrokCliProvider, type GrokRunTurn } from "./grok-cli-provider.js";
 import type { WorkspaceBind } from "../domain/workspace-bind.js";
 
 export interface ProviderResolverDeps {
+	axExecutor?: ToolExecutorPort;
 	/** Opt-in AX text preview. Existing codex app-server route is unchanged. */
 	codexExecRun?: CodexExecRunner;
 	/** 테스트/대체용 fetch 주입(미주입 = global fetch). */
@@ -35,6 +36,9 @@ export function makeProviderResolver(deps?: ProviderResolverDeps): ProviderResol
 	return {
 		resolve(config: ProviderConfig): ProviderPort {
 			switch (resolveProviderRoute(config)) {
+				case "codex-ax":
+					if (!deps?.axExecutor) throw new Error("codex-ax requires the trusted AX broker");
+					return makeCodexAppServerProvider({ model: config.model, axExecutor: deps.axExecutor });
 				case "codex-exec":
 					return makeCodexExecProvider({ run: deps?.codexExecRun });
 				case "ollama":

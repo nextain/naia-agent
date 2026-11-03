@@ -1087,3 +1087,25 @@ P04 초기 검증: 새 계약 34건 + 기존 Codex·공급자·도구루프 회�
   입력, 전송 공개와 감사 및 모든 우회 실행 경로 검증 후에 한다. 운영 접속·배포·원격 push는 범위 밖이다.
 
 P04: 위 두 시험과 기존 provider/approval 회귀 및 타입 검사. P05: 독립 리뷰·실제 호스트 인수 전까지 In review/WIP.
+
+2회차 P03 — FR-AX-026.5: 전체 반복은 명시적 `codex-ax` app-server로 고정한다. CLI 0.163.0 이외는
+실행 전에 거절한다. Codex SDK는 채택하지 않는다(추가 SDK 버전/프로세스 계층 없음). exec는 텍스트 실험용 유지.
+FR-AX-026.6: 신뢰하는 호스트 코드가 spec·효과 분석·실행 함수를 함께 등록한 broker만 AX에 노출한다.
+동적 MCP/app 등록·모델 인자·tier는 등록 권한이 아니다. 미등록/중복 이름·셸/직접 HTTP는 차단한다.
+승인 콜백 부재 시 conversation/code 효과는 거절한다. 승인 중 mutable registry 교체로 실행 대상을 바꿀 수 없다.
+FR-AX-026.7: native shell/JS/browser/MCP/apps/web/하위 에이전트·hook을 끄고 read-only 임시 cwd를 사용한다.
+CLI 사용자 설정에 안전 설정을 덮어쓸 수 없는 값이 있으면 실패한다. native 실행 승인은 거절한다.
+전체 추론 프로세스의 OS egress firewall·기업 endpoint 검증은 별도 인수 대상이다.
+
+2회차 P04 (2026-11-03): 관련 8개 파일 132 통과·1 skip, 독립 검수 4개 파일 66 통과.
+CLI 버전/로그인·모델 목록·실제 ChatGPT 짧은 추론·같은 turn의 read→발송 거절·native MCP/셸/HTTP
+시도를 합성 데이터로 확인했다. 실제 공용 조립기 CLI도 NAIA_AX_CLI_OK로 완료했다.
+독립 리뷰의 workspace callback·비협조적 callback 취소·native patch 노출 지적을 보완했고,
+실기에서 발견한 Code Mode 기본값·MCP 설정 병합/null 변환·diag 초기화 순서를 수정했다.
+기준 8d92e26 분리 worktree와 작업 snapshot의 전체 시험은 각각 2272/2281 통과, 양쪽 모두 기존
+7개 파일 28 실패·12 skip·2 errors로 실패 제목/중복 29줄이 일치했다(신규 실패 0).
+이 전체 snapshot 뒤 마지막 조립기 기동 보완·새 시험은 위 집중/독립 시험으로 검증했다.
+루트 구조·node CI 4건·build·compile-integrity·logging 통과. 기존 앵커 36/canon 62 드리프트는 유지되며
+미계약 신규 파일 probe 차단도 확인했다. P05는 말 승인/코드 인증기·실제 캘린더·OS/보안 인수 전 In review 유지.
+헌장 파일은 수정하지 않았다. process-status.json의 세션 갱신 의무와 명시 승인 조건의 충돌은
+1회차처럼 정규 요구사항/리뷰에 산출물을 기록하는 것으로 처리했다.

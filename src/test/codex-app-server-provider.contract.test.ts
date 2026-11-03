@@ -285,3 +285,81 @@ describe("Codex app-server main provider", () => {
     })).resolves.toEqual({ status: "not-installed", detail: "Codex CLI not installed" });
   });
 });
+
+// UC-AX-026 / FR-AX-026.5–7
+describe("AX pinned app-server", () => {
+  it("requires exact CLI pin and never turns version/login failure into fallback", async () => {
+    const { checkCodexAxPreflight, CODEX_CLI_VERSION } = await import("../main/adapters/codex-app-server-provider.js");
+    let loginCalls = 0;
+    const login = async () => { loginCalls++; return { code: 0, stdout: "Logged in using ChatGPT", stderr: "" }; };
+    for (const stdout of ["codex-cli 0.162.0", "codex-cli 0.164.0", "unexpected"]) {
+      expect((await checkCodexAxPreflight(async () => ({ code: 0, stdout, stderr: "" }), login)).status).toBe("error");
+    }
+    expect(loginCalls).toBe(0);
+    expect((await checkCodexAxPreflight(async () => ({ code: 0, stdout: `codex-cli ${CODEX_CLI_VERSION}`, stderr: "" }), login)).status).toBe("ready");
+    expect((await checkCodexAxPreflight(async () => ({ code: 0, stdout: `codex-cli ${CODEX_CLI_VERSION}`, stderr: "" }), async () => ({ code: 1, stdout: "Not logged in", stderr: "" }))).status).toBe("login-required");
+    expect(() => makeProviderResolver().resolve({ provider: "codex-ax", model: "test" })).toThrow(/broker/);
+  });
+  it("advertises only enabled broker registrations and never calls the raw callback", async () => {
+    const { makeAxEffectBroker } = await import("../main/adapters/ax-policy-tool-executor.js");
+    let executions = 0, rawExecutions = 0;
+    const spec = { name: "read", parameters: {}, description: "local" };
+    const broker = makeAxEffectBroker({ registrations: [{ spec, classify: () => ["local_read"], execute: async () => { executions++; return { output: "read" }; } }], diag: { log() {} } });
+    const runTurn: CodexRunTurn = async function* (input) {
+      expect(input.ax).toBe(true);
+      expect(input.tools?.map((t) => t.name)).toEqual(["read"]);
+      expect((await input.executeTool!({ id: "bad", name: "shell", args: {} })).isError).toBe(true);
+      expect(await input.executeTool!({ id: "good", name: "read", args: {} })).toEqual({ output: "read" });
+      yield { kind: "completed" };
+    };
+    await collect(makeCodexAppServerProvider({ axExecutor: broker, runTurn }).chat({ provider: "codex-ax", model: "test" }, [], { tools: [spec, { name: "shell", parameters: {}, description: "raw" }], executeTool: async () => { rawExecutions++; return { output: "raw" }; } }));
+    expect(executions).toBe(1); expect(rawExecutions).toBe(0);
+    await collect(makeCodexAppServerProvider({ axExecutor: broker, runTurn: async function* (input) { expect(input.tools).toEqual([]); expect((await input.executeTool!({ id: "x", name: "read", args: {} })).isError).toBe(true); yield { kind: "completed" }; } }).chat({ provider: "codex-ax", model: "test" }, [], {}));
+    expect(executions).toBe(1);
+  });
+  it("uses read-only temp cwd, disables merged MCP servers, and rejects native requests", async () => {
+    const { codexAxConfig } = await import("../main/adapters/codex-app-server-provider.js");
+    const flat = codexAxConfig();
+    const config = { ...flat, features: Object.fromEntries(Object.entries(flat).filter(([key]) => key.startsWith("features.")).map(([key, value]) => [key.slice(9), value])), mcp_servers: { hostile: { command: "must-not-start", tool_timeout_sec: null } } };
+    const requests: [string, unknown][] = [], responses: unknown[] = [];
+    let closed = false;
+    const peer: RpcPeer = {
+      async request(method, params) { requests.push([method, params]); if (method === "config/read") return { config }; if (method === "thread/start") return { thread: { id: "t" }, model: "test", sandbox: { type: "readOnly", networkAccess: false } }; if (method === "turn/start") return { turn: { id: "u" } }; return {}; },
+      notify() {}, respond(id, result) { responses.push([id, result]); }, close() { closed = true; },
+      async *notifications() { yield { id: 9, method: "item/commandExecution/requestApproval", params: { threadId: "t", turnId: "u" } }; },
+    };
+    const events = async () => { for await (const event of runCodexAppServerTurn({ ax: true, model: "test", prompt: "test", workspace: { canonicalRoot: "/private/work", filesystemAccess: "workspace-write" } }, async () => peer)) void event; };
+    await expect(events()).rejects.toThrow(/rejected native/);
+    expect(closed).toBe(true);
+    expect(responses).toEqual([[9, { decision: "decline" }]]);
+    const start = requests.find(([method]) => method === "thread/start")![1] as Record<string, unknown>;
+    expect(start.sandbox).toBe("read-only"); expect(start.cwd).not.toBe("/private/work");
+    expect(start.config).toEqual({ mcp_servers: { hostile: { command: "must-not-start", enabled: false } } });
+  });
+});
+
+it("AX model catalog removes native executors and forces direct broker calls", async () => {
+  const { axModelCatalog } = await import("../main/adapters/codex-app-server-provider.js");
+  const raw = { models: [{ slug: "selected", tool_mode: "code_mode_only", shell_type: "unified_exec", apply_patch_tool_type: "freeform", experimental_supported_tools: ["test_sync_tool"] }, { slug: "other" }] };
+  expect(axModelCatalog(raw, "selected")).toEqual({ models: [{ slug: "selected", tool_mode: "direct", shell_type: "disabled", apply_patch_tool_type: null, experimental_supported_tools: [] }] });
+  expect(raw.models[0].apply_patch_tool_type).toBe("freeform");
+  expect(() => axModelCatalog(raw, "unknown")).toThrow(/no fallback/);
+});
+
+it("AX cancellation releases a noncooperative tool callback", async () => {
+  const { codexAxConfig } = await import("../main/adapters/codex-app-server-provider.js");
+  const flat = codexAxConfig();
+  const config = { ...flat, features: Object.fromEntries(Object.entries(flat).filter(([key]) => key.startsWith("features.")).map(([key, value]) => [key.slice(9), value])) };
+  const controller = new AbortController();
+  let called!: () => void;
+  const entered = new Promise<void>((resolve) => { called = resolve; });
+  let closed = false;
+  const peer: RpcPeer = {
+    async request(method) { if (method === "config/read") return { config }; if (method === "thread/start") return { thread: { id: "t" }, model: "test", sandbox: { type: "readOnly", networkAccess: false } }; if (method === "turn/start") return { turn: { id: "u" } }; return {}; },
+    notify() {}, respond() {}, close() { closed = true; },
+    async *notifications() { yield { id: 1, method: "item/tool/call", params: { threadId: "t", turnId: "u", tool: "read", callId: "c", arguments: {} } }; },
+  };
+  const run = (async () => { for await (const event of runCodexAppServerTurn({ ax: true, model: "test", prompt: "test", signal: controller.signal, tools: [{ name: "read", description: "test", parameters: {} }], executeTool: () => { called(); return new Promise(() => {}); } }, async () => peer)) void event; })();
+  await entered; controller.abort(); await run;
+  expect(closed).toBe(true);
+});

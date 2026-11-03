@@ -110,3 +110,81 @@ describe("FR-AX-026 trusted effect policy", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 });
+
+// UC-AX-026 / FR-AX-026.6 trusted registry and composition acceptance.
+describe("AX effect broker", () => {
+  it("pins implementation/spec/classifier and refuses raw shell, MCP and HTTP", async () => {
+    const { makeAxEffectBroker } = await import("../main/adapters/ax-policy-tool-executor.js");
+    const trusted = vi.fn(async () => ({ output: "original" }));
+    const injected = vi.fn(async () => ({ output: "injected" }));
+    const registration = { spec: { name: "read", parameters: {}, description: "local" }, classify: () => ["local_read"] as const, execute: trusted };
+    const broker = makeAxEffectBroker({ registrations: [registration], diag });
+    registration.execute = injected;
+    registration.spec.name = "shell";
+    for (const name of ["shell", "mcp_send", "http_request", "read_file"]) {
+      expect((await broker.execute({ id: name, name, args: { approved: true, effects: ["local_read"], command: "curl example.invalid" } }, {})).isError).toBe(true);
+    }
+    expect(await broker.execute({ id: "read1", name: "read", args: {} }, {})).toEqual({ output: "original" });
+    expect(trusted).toHaveBeenCalledOnce();
+    expect(injected).not.toHaveBeenCalled();
+  });
+  it("rejects duplicate registrations instead of choosing a shadow implementation", async () => {
+    const { makeAxEffectBroker } = await import("../main/adapters/ax-policy-tool-executor.js");
+    const registration = { spec: { name: "read", parameters: {}, description: "local" }, classify: () => ["local_read"] as const, execute: async () => ({ output: "ok" }) };
+    expect(() => makeAxEffectBroker({ registrations: [registration, registration], diag })).toThrow(/duplicate/);
+  });
+  it("MCP/direct HTTP callbacks still require the registered strongest effect", async () => {
+    const { makeAxEffectBroker } = await import("../main/adapters/ax-policy-tool-executor.js");
+    const execute = vi.fn(async () => ({ output: "sent" }));
+    const conversationApproval = vi.fn(async () => true);
+    const broker = makeAxEffectBroker({ registrations: [{ spec: { name: "mcp", parameters: {}, description: "test" }, classify: () => ["external_send", "payment"], execute }], diag, conversationApproval });
+    expect((await broker.execute({ id: "1", name: "mcp", args: { approved: true } }, {})).isError).toBe(true);
+    expect(execute).not.toHaveBeenCalled();
+    expect(conversationApproval).not.toHaveBeenCalled();
+  });
+  it("composition replaces raw tools, including automatic memory skills", async () => {
+    const { wireAgentUC1 } = await import("../main/composition/index.js");
+    const { makeAxEffectBroker } = await import("../main/adapters/ax-policy-tool-executor.js");
+    const raw = vi.fn(async () => ({ output: "raw" }));
+    let names: string[] = [];
+    let providerCalls = 0;
+    const emitted: unknown[] = [];
+    const { handler } = wireAgentUC1({
+      toolExecutor: { specs: () => [{ name: "shell", description: "raw", parameters: {} }], execute: raw },
+      axExecutor: makeAxEffectBroker({ registrations: [], diag }),
+      egress: { emit: (_id, event) => { emitted.push(event); } },
+      memory: { recall: async () => ({ facts: [], episodes: [] }), save: async () => {} },
+      provider: { async *chat(_config, _messages, opts) { providerCalls++; names = (opts.tools ?? []).map((t) => t.name); yield { kind: "text", text: "hello" }; yield { kind: "finish" }; } },
+    });
+    await handler.onChatRequest({ kind: "chat", requestId: "ax", provider: { provider: "codex-ax", model: "test" }, messages: [{ role: "user", content: "hello" }] });
+    expect(providerCalls, JSON.stringify(emitted)).toBe(1);
+    expect(names).not.toContain("shell");
+    expect(names).not.toContain("skill_memory_save");
+    expect(raw).not.toHaveBeenCalled();
+  });
+});
+
+it("production AX composition boots with only trusted registrations and never starts raw MCP", async () => {
+  const { mkdtemp, writeFile, access, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { pathToFileURL } = await import("node:url");
+  const root = await mkdtemp(join(tmpdir(), "naia-ax-compose-"));
+  const marker = join(root, "mcp-started");
+  const fixture = join(root, "mcp.mjs");
+  await writeFile(fixture, `import {writeFileSync} from 'node:fs';writeFileSync(${JSON.stringify(marker)},'unsafe');`);
+  const modulePath = pathToFileURL(join(process.cwd(), "scripts/builds/compose-agent-deps.mjs")).href;
+  const { composeAgentRuntimeDeps } = await import(modulePath);
+  let deps: any;
+  try {
+    deps = await composeAgentRuntimeDeps({ env: { NAIA_ADK_PATH: root, NAIA_AGENT_AX: "on", NAIA_AGENT_MEMORY: "off", NAIA_AGENT_TRANSCRIPT: "off", NAIA_MCP_CMD: `${process.execPath} ${fixture}` }, homeDir: root });
+    expect(deps.axExecutor).toBeDefined();
+    expect(deps.toolExecutor).toBe(deps.axExecutor);
+    expect(deps.axExecutor.specs().map((spec: { name: string }) => spec.name).sort()).toEqual(["get_time", "list_dir", "memo_get", "memo_list", "read_file"]);
+    expect(deps.resolver.resolve({ provider: "codex-ax", model: "test" }).chat).toBeTypeOf("function");
+    await expect(access(marker)).rejects.toBeDefined();
+  } finally {
+    for (const cleanup of deps?.cleanupFns ?? []) cleanup();
+    await rm(root, { recursive: true, force: true });
+  }
+});

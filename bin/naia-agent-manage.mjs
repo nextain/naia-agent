@@ -20,6 +20,7 @@ import {
   resetCliConfigValue,
   setCliConfigValue,
 } from "../dist/main/app/cli-manage.js";
+import { checkCodexAxPreflight, listCodexAxModels } from "../dist/main/adapters/codex-app-server-provider.js";
 import { redactSecrets } from "../dist/main/adapters/redact.js";
 import {
   CONFIG_PATH,
@@ -164,6 +165,14 @@ async function fetchModels() {
 }
 
 async function doModels(args) {
+  if (args.provider === "codex-ax") {
+    try {
+      const models = await listCodexAxModels();
+      process.stdout.write(args.json ? `${JSON.stringify({ source: "codex-cli", models }, null, 2)}\n`
+        : models.map((model) => `${model.provider}/${model.id}\ttools=yes\tuse=chat`).join("\n") + "\n");
+    } catch { exitError("codex-ax catalog unavailable; run codex login and install @openai/codex@0.163.0. No fallback.", 1); }
+    return;
+  }
   const result = await fetchModels();
   const models = args.provider
     ? result.models.filter((model) => model.provider.toLowerCase() === args.provider || (args.provider === "naia" && ["azure", "nextain"].includes(model.provider.toLowerCase())))
@@ -256,6 +265,8 @@ async function doDoctor(args) {
     { component: "pi", status: piCandidates.some((path) => fs.existsSync(path)) ? "pass" : "fail", detail: piCandidates.find((path) => fs.existsSync(path)) ?? "Pi executable/package 없음" },
     { component: "models", status: catalog.source === "live" ? "pass" : "warn", detail: catalog.source === "live" ? `${catalog.models.length} live models` : catalog.warning },
   ];
+  const codex = await checkCodexAxPreflight();
+  checks.push({ component: "codex-ax", status: codex.status === "ready" ? "pass" : "warn", detail: codex.detail });
   const ready = !checks.some((check) => check.status === "fail");
   if (args.json) process.stdout.write(`${JSON.stringify({ ready, workspace, checks }, null, 2)}\n`);
   else {

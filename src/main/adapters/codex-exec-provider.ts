@@ -1,5 +1,6 @@
 // UC1 / FR-AX-026.1–2 — opt-in text-only Codex exec ProviderPort.
 // The app-server provider remains the tool-capable Codex route.
+import { checkCodexAxPreflight } from "./codex-app-server-provider.js";
 import { spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -89,6 +90,12 @@ export async function* runCodexExec(input: CodexExecInput, deps: {
   readonly timeoutMs?: number;
 } = {}): AsyncIterable<unknown> {
   input.signal?.throwIfAborted();
+  if (!deps.executable) {
+    const preflight = await checkCodexAxPreflight();
+    if (preflight.status !== "ready" && !input.apiKey) throw new Error(preflight.detail);
+    // API-key callers still require the version ceiling; login may be absent.
+    if (input.apiKey && preflight.status !== "ready" && preflight.status !== "login-required") throw new Error(preflight.detail);
+  }
   const timeoutMs = deps.timeoutMs ?? 120_000;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) throw new Error("Invalid Codex exec timeout");
   const cwd = await mkdtemp(join(deps.tempRoot ?? tmpdir(), "naia-codex-exec-"));

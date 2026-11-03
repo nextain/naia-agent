@@ -52,7 +52,8 @@ agent 반쪽: 포트(`ports/`) → 도메인(`domain/`) → 어댑터(`adapters/
 
 ## 7. 0.2.6 AX — Codex 핵심 반복과 하네스 승인 설계 (2026-11-03)
 
-상태: 초기 어댑터/정책 구현. P01/P02 = `user-scenarios.md` UC-AX-026,
+상태: 2회차에서 명시적 `codex-ax` app-server 반복과 trusted broker 배선을 추가했다(§7.8).
+§7.1~7.7의 초기판 설명은 1회차 이력이며 현재 결정/검증은 §7.8을 우선한다. P01/P02 = `user-scenarios.md` UC-AX-026,
 P03 = `requirements.md` FR-AX-026. 실제 셸·캘린더·보안 인수 전이며 기본 공급자 교체는 하지 않았다.
 대표님 11/3 지시: 1인 문서·일정 승인, 일상 승인은 대화 “응/보내”, 어려운 운영 변경만 계획·코드 승인.
 출시 목표 11/13, 기능 고정 11/9. 웹·로컬 동기화는 0.2.7로 미룬다.
@@ -243,3 +244,73 @@ OS 사용자 권한·암호화 저장소·키체인·workspace allow-root/realpa
 
 현재 상태는 설계 및 가짜 CLI/승인 콜백 단위·프로세스 계약 시험이다. 실제 ChatGPT/API 계정 유료 호출,
 기업 문서 전송, 셸 UI 승인, 캘린더 실등록, B2B 보안 감사는 검증했다고 보고하지 않는다.
+
+### 7.8 2회차 확정 — app-server 반복 + trusted effect broker (2026-11-03)
+
+**전체 반복은 `codex-ax` → app-server로 확정한다.** exec는 텍스트 실험용 `codex-exec`로 남긴다.
+SDK는 채택하지 않으므로 SDK 의존성/버전은 없다. CLI는 **@openai/codex 0.163.0**을 런타임에서 정확히
+검사하고 불일치/미설치/미로그인/지원하지 않는 모델이면 중단한다. 설치: `npm install -g @openai/codex@0.163.0`.
+기존 `codex`와 다른 공급자의 기본 동작은 유지한다. 새 경로는 `NAIA_AGENT_AX=on`인 호스트에서
+설정의 provider를 `codex-ax`로 명시적으로 선택해야 한다. 환경 스위치만으로 공급자를 바꾸지 않는다.
+실패 시 exec·기존 codex·다른 클라우드로 대체하지 않는다.
+
+선택 이유: app-server는 같은 turn 안의 동적 도구 호출을 실행 전에 호스트로 보내며, 결과·usage·완료·취소를
+같은 프로토콜로 받는다. Naia 외부 도구 루프는 handled 결과를 다시 실행하지 않는다. exec/SDK 위에 별도의
+도구 실행 추정기를 만들면 native 실행 전의 정책 중재와 사람 승인 수명을 맞추기 어렵다.
+공식 [app-server 계약](https://developers.openai.com/codex/app-server),
+[통합 계층 설명](https://developers.openai.com/blog/codex-as-a-platform),
+[설정 명세](https://developers.openai.com/codex/config-reference)를 참고했고,
+실제 0.163.0 CLI 도움말·생성 JSON schema·동일 태그 소스·로그인 시험으로 검증했다.
+
+공급자/모델 발견: `CODEX_PROVIDER_CATALOG`, `checkCodexAxPreflight`, `listCodexAxModels`가 같은 어댑터에 있다.
+`naia-agent models codex-ax --json`은 CLI model/list를 사용하며 실패 시 내장 Naia 목록으로 대체하지 않는다.
+`naia-agent doctor --json`은 codex-ax 버전/로그인 점검을 표시한다(다른 공급자 사용자를 강제로 실패시키지 않음).
+발견 목록은 계정의 사용 권한 증명이 아니다. 실제 추론 성공이 해당 모델·요청의 사용 가능 증거다.
+
+```text
+CLI/gRPC → wireAgentUC1(axExecutor) → AX broker만 도구로 노출
+  → 명시적 codex-ax → 고정 CLI / 읽기 전용 임시 cwd / ephemeral thread
+      → dynamic tool call → broker의 고정 등록 함수
+          → trusted classify → allow / conversation callback / code callback / deny
+          → 고정 execute → 같은 Codex turn에 결과 → 다음 도구 / 최종 답변
+```
+
+`makeAxEffectBroker`는 등록 사양·trusted classify·execute 함수를 한 번에 캡처한다. 중복 이름은 시작 시 거절한다.
+MCP 설명·앱 tier·문서/모델의 approved=true는 등록 권한이 아니다. 등록한 구현을 승인 대기 중 바꿀 수도 없다.
+모델에는 broker 사양과 그 턴에 허용된 도구 목록의 교집합만 제공한다. 원시 executeTool 콜백은 AX 공급자에서
+사용하지 않는다. 공용 wire root는 메모리·셸 앱 도구 합성 후에도 broker로 최종 교체하며 합성 memory-save
+우회 도구도 추가하지 않는다. native 반복의 같은 callId 재전송은 결과를 재사용하고 변경된 payload는 거절한다.
+
+초기 production 등록은 구현을 직접 고정한 get_time/memo_list/memo_get/list_dir/read_file이다.
+fs 도구는 현재 workspace의 allow-root·realpath·민감 경로 거절을 계속 적용한다. 원시 shell·범용 HTTP·
+MCP/app 도구는 등록되지 않아 실행할 수 없다. 복구 계약 없는 write_file을 reversible_edit로 거짓 등록하지 않는다.
+외부 처리·발송·일정·위험 도구를 추가할 때는 전용 구현의 전체 효과와 별도 사람 승인 콜백을 등록해야 한다.
+현재 공용 조립기에 사람 승인 인증기는 없으며 conversation/code 콜백 부재 시 거절한다. 기존 yes/no tier
+응답을 code 승인으로 재사용하지 않는다. 이 입력 연결·TTL·payload 결속·영속 single-use는 11/6 범위다.
+
+native 실행 경계:
+
+- 제한된 자식 env(로그인 위치만 CLI 소유), shell:false, 임시 cwd, read-only, approvalPolicy=never.
+  실제 thread/start 응답이 선택 model과 readOnly/networkAccess=false인지 확인한다.
+- **모델 도구 구성도 고정**한다. 0.163.0 내장 카탈로그의 선택 모델만 복제하여 tool_mode=direct,
+  shell_type=disabled, apply_patch_tool_type=null, experimental_supported_tools=[]로 만든 임시 카탈로그를
+  시작 시 사용한다. 현재 모델의 code_mode_only 기본값을 그대로 두면 동적 도구가 실행되지 않고,
+  shell_tool=false만으로는 native patch 정의가 사라지지 않음을 실측/동일 태그 소스로 확인했다.
+- shell/unified_exec/Code Mode/브라우저/컴퓨터/이미지/앱/플러그인/hook/하위 에이전트/권한·sleep 도구를 끈다.
+  설정의 {}는 표를 지우지 않고 병합한다. config/read로 확인한 모든 MCP 항목을 원래 transport와 함께
+  enabled=false로 thread/start에 전달한다. optional null은 TOML 변환 전에 제거한다.
+- native·미상 승인 RPC는 거절하며 native 실행 이벤트도 오류로 처리한다. 이벤트 사후 거절만을 실행 전
+  통제의 증거로 삼지 않는다. 위 도구 구성과 sandbox 제한이 먼저 적용된다.
+- abort/deadline은 비협조적인 도구 callback 대기도 해제한다. 승인 콜백은 같은 신호를 받아 늦은 승인으로
+  실행할 수 없다. CLI stderr는 배출하되 원문을 진단 로그로 보존하지 않는다.
+
+실제 ChatGPT 로그인 인수(합성/비민감, gpt-5.6-luna): 짧은 NAIA_AX_OK 응답·usage·완료를 확인했다.
+동일 turn에서 로컬 시각 조회 1회 → 외부 발송 제안 → 사람 승인 fixture 거절 1회 → 발송 실행 0회를 확인했다.
+별도 로컬 HTTP 수신기와 시작 표식 MCP fixture를 구성하고 native shell/MCP/curl 요청을 했을 때
+HTTP 수신 0회·셸 표식 없음·MCP 시작 표식 없음·정상 완료였다. 실제 일정/메일을 보내지 않았다.
+검증 로그/재실행 스크립트는 실행 폴더 `tmp/r2-live*.{log,mjs}`에 있다.
+
+이 경계는 **AX 모드에서 모델이 사용할 수 있는 도구**를 제한한다. 같은 OS 사용자의 임의 코드 실행,
+CLI 자체의 모델 추론 네트워크·프록시·사용자 설정 전체를 별도 OS 방화벽으로 격리한 상태는 아니다.
+기존 codex 경로에 같은 제한이 적용된다고 설명하지 않는다. 기업 문서의 endpoint/보존·PII 전송·감사·
+OS egress 인수 전까지 보안 문서용 자동 전송 허용이나 B2B 보안 완료로 표시하지 않는다.

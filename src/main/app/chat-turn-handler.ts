@@ -195,6 +195,7 @@ export function foldReasoningOnlyAnswer(thinking: string | undefined): string | 
 }
 
 export interface HandlerDeps {
+  readonly trustedToolsOnly?: boolean;
   /** 고정 provider(fallback/테스트). 라이브는 resolver 가 요청별 해석(우선). */
   readonly provider: ProviderPort;
   /** 요청별 provider 해석(config 기반 라우팅). 주입 시 runRound 가 resolver.resolve(cfg) 사용. */
@@ -548,6 +549,7 @@ export class ChatTurnHandler {
         this.d.toolExecutor &&
         privatePersistenceAllowed &&
         !req.processing &&
+        !this.d.trustedToolsOnly &&
         !(req.disabledSkills ?? []).includes("skill_memory_save") &&
         !externalTools.some((s) => s.name === "skill_memory_save")
       ) {
@@ -1049,6 +1051,7 @@ export class ChatTurnHandler {
         }
       : undefined;
     const stream = provider.chat(cfg, messages, {
+      requestId,
       ...(systemPrompt !== undefined ? { systemPrompt } : {}),
       signal,
       ...(tools && tools.length ? { tools } : {}),

@@ -157,7 +157,7 @@ function assembleConfig(
 		// ⚠️ secret/baseUrl 을 실으면 안 됨 — apiKey 가 있으면 구독 아닌 직접 키 과금 패러다임으로 오해될 수 있음. {provider,model}만.
 		return { ...base };
 	}
-	if (route === "codex") {
+	if (route === "codex" || route === "codex-ax") {
 		// codex — 로컬 app-server가 Codex 로그인을 사용. token/apiKey/baseUrl은 설정에 복사하지 않는다.
 		return { ...base };
 	}

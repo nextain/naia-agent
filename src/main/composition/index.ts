@@ -40,6 +40,7 @@ export function wireAgentUC1(opts?: {
   conversation?: ConversationPort;
   credentials?: CredentialPort;
   approval?: ApprovalPort;
+  axExecutor?: ToolExecutorPort; // trusted AX broker; replaces every raw executor after composition
   toolExecutor?: ToolExecutorPort; // UC5 — 미주입 = 도구 없음(UC1 순수 채팅)
   memory?: MemoryPort;             // UC-memory — 미주입 = 기존 동작(무회귀)
   surfacer?: SurfacingPort;        // #692 — 미주입 = 기존 동작
@@ -68,7 +69,9 @@ export function wireAgentUC1(opts?: {
       toolExecutor = toolExecutor ? makeCompositeToolExecutor([toolExecutor, memExec]) : memExec;
     }
   }
+  if (opts?.axExecutor) toolExecutor = opts.axExecutor;
   const deps: HandlerDeps = {
+    ...(opts?.axExecutor ? { trustedToolsOnly: true } : {}),
     provider: opts?.provider ?? makeFakeProvider(),
     ...(opts?.resolver ? { resolver: opts.resolver } : {}),
     ...(opts?.processingGuard ? { processingGuard: opts.processingGuard } : {}),

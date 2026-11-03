@@ -52,3 +52,60 @@ Windows 미검증, 승인 callback 외부의 실제 사람 증명·TTL·single-u
 실제 보안 문서·캘린더·음성 승인 E2E, 네트워크 우회 차단, B2B 보안 인수는 후속이며 P05는 In review다.
 헌장 파일은 수정하지 않았다. process-status.json의 필수 갱신과 단독 수정 금지 지시가 충돌하므로 기존 상태를
 임의로 덮지 않고 이번 P01~P05 상태를 requirements/user-scenarios/이 리뷰 및 실행 보고서에 기록했다.
+
+## 2회차 독립 적대 리뷰 (2026-11-03 UTC)
+
+- 리뷰어: `/root/ax_review_r2`; 구현 파일은 수정하지 않고 diff·정책·합성·프로토콜을 대조했다.
+- 직접 재실행: `TMPDIR=/home/nextain/work/codex-runs/026-ax/tmp PATH=/home/nextain/work/codex-runs/026-ax/tmp/bin:$PATH pnpm exec vitest run src/test/codex-app-server-provider.contract.test.ts src/test/ax-approval-policy.contract.test.ts src/test/uc-provider-provenance.contract.test.ts src/test/uc5-tool-loop.contract.test.ts` — 4개 파일 63개 통과. 원시 출력: 실행 폴더 `tmp/r2-independent-review-tests.log`.
+- 의미 있는 반증: 미등록 shell/MCP/HTTP 호출 거절, 등록 후 실행 함수·spec 변조 방지, 최강 효과 선택, broker 합성 후 원시 shell/자동 메모 도구 제거, 버전 불일치·미로그인·broker 부재 시 fail closed를 확인했다. 이 테스트들은 실제 외부 서비스 호출 없이 실행 경계의 부수효과 미발생을 관찰한다.
+- 수정 요청 1: AX 환경에서 resolver 재생성 시 `workspace` callback이 사라져 기존 codex 경로가 workspace bind를 잃는다. AX 활성 상태의 기존 공급자 보존 요구와 충돌하므로 callback 보존 필요.
+- 수정 요청 2: peer 종료만으로 이미 기다리는 비협조적 `executeTool` Promise를 취소하지 못한다. signal 취소와 timeout이 실행 대기에도 적용되어야 하며, underlying effect 자체가 취소를 무시하면 되돌릴 수 없다는 포트 한계도 명시해야 한다.
+- 검증 주의: read-only sandbox와 native 실행 이벤트 거절은 도구 노출 제거 자체의 증거가 아니다. 실행 폴더에 수집된 `r2-spec-plan.rs`의 ApplyPatchHandler 등록 조건은 ShellTool feature와 독립적이다. pin과 동일한 소스 또는 실제 도구 목록으로 patch/권한 도구의 비노출을 확인해야 한다. `apply_patch_freeform=false`만으로는 제거가 입증되지 않는다.
+- 판정: 위 항목을 부모에게 전달했다. native 도구 비노출과 취소 보완이 확인되기 전 전체 보안 인수 완료 판정은 유보한다. 실제 민감 문서·캘린더·운영 연결 시험은 수행하지 않았다.
+
+### 2회차 보완 재검토
+
+이전 수정 요청 3건을 구현과 대조했다. resolver는 workspace callback을 보존하고,
+AX 내부 AbortController의 deadline·사용자 취소가 broker와 비협조적 callback 대기에 전달된다.
+취소 후 외부 구현이 신호를 무시한 부수효과를 되돌리는 기능은 아니다.
+`axModelCatalog`는 pin CLI의 번들 목록에서 **선택한 모델만** 남기고 direct mode,
+disabled shell, null apply_patch, 빈 experimental tools로 제한한다. 모르는 모델은 대체하지 않고 거절한다.
+별도 권한·sleep·deferred executor 기능도 껐다. 유효 config의 각 feature를 검사한 후
+병합된 MCP 서버 이름별 enabled=false를 thread/start에 주입하며, 반환 모델과 read-only sandbox도 검사한다.
+이는 이전의 이벤트 사후 거절만 있던 patch 노출 갭을 닫는다.
+부모가 수행한 실제 ChatGPT 비민감 smoke의 원시 출력 `tmp/r2-live-broker.log`에서
+read=1, approval=1, send=0 및 tool result/finish를 읽어 확인했다. 독립 리뷰어가 실모델 호출을 중복 수행하지는 않았다.
+
+재실행 `tmp/r2-independent-review-final.log`: 65개 중 64개 통과, 1개는 작성 중인 composition
+시험 provider가 finish만 보내 reasoning-without-answer 재시도(2회)를 유발한 fixture 실패다.
+부모에 전달했으며 해당 시험은 수정 후 다시 확인해야 한다. 새 catalog 제한·비협조적 callback 취소 시험은 통과했다.
+
+최종 fixture 보완 후 같은 4개 파일을 독립 재실행하여 **65개 모두 통과**했다.
+원시 출력은 실행 폴더 `tmp/r2-independent-review-final-green.log`다.
+이 범위에서 이전 3개 구현 지적에 대한 잔여 blocker는 없으며, 실제 외부 승인 호스트 연결·민감 문서
+인수·Windows 동작까지 검증했다는 의미는 아니다.
+
+### 최종 실행 경로 확인
+
+마지막 production 합성 변경도 독립 검토했다. 진단 sink 초기화는 broker 생성보다 앞서며,
+AX에서는 NAIA_MCP_CMD 프로세스를 시작하지 않고 raw memory executor도 덧붙이지 않는다.
+실제 production compose를 불러 MCP marker 미생성과 등록 5개 도구·동일 broker 반환을 확인하는
+새 시험을 포함해 관련 4개 파일 **66개 시험을 독립 재실행하여 모두 통과**했다.
+출력: `tmp/r2-independent-review-boot-final.log`.
+MCP disable override는 기존 transport를 보존하고 JSON null만 제거하므로 TOML 변환 오류를 피하면서
+서버별 enabled=false를 유지한다. 실제 native smoke의 `tmp/r2-live-native.log`에서도
+HTTP 요청 0, shell marker=false, MCP marker=false, completed=true를 확인했다.
+실제 CLI 출력 `tmp/r2-cli-live.log`의 명시적 codex-ax 선택과 `NAIA_AX_CLI_OK`,
+`tmp/r2-cli-catalog.log`의 공급자 목록도 읽어 대조했다.
+
+**최종 판정: 이번 2회차 Linux 실행·신뢰 효과 중개기 범위 승인, 잔여 blocker 없음.**
+승인 호스트의 음성 인증·코드 TTL/single-use, 실제 문서/일정 커넥터, Windows 보장 및 기업 보안 인수는
+이 판정에 포함되지 않는다. 독립 리뷰어는 운영 연결·추가 실모델 호출·커밋을 수행하지 않았다.
+
+### 부모 최종 회귀 대조 (2회차)
+
+- 재현: `pnpm build`; `pnpm exec vitest run src/test/ax-approval-policy.contract.test.ts src/test/codex-app-server-provider.contract.test.ts src/test/codex-exec-provider.contract.test.ts src/test/uc-provider-provenance.contract.test.ts src/test/uc5-tool-loop.contract.test.ts src/test/discord-entry-wiring.contract.test.ts src/test/cli-manage.contract.test.ts src/test/cli-manage-process.integration.test.ts` → 132 pass / 1 skip.
+- 8d92e26 detached worktree·작업 snapshot 전체 `pnpm test`: 기존 7개 파일 28 실패·12 skip·2 errors, 통과 2272→2281. 실패 제목과 중복 건수 29줄 완전 일치. snapshot 뒤 조립기 기동 보완은 위 집중 시험 및 독립 66건으로 검증.
+- 증거: 실행 폴더 `tmp/r2-pristine-baseline-test.log`, `r2-final-stable-test.log`, `r2-comparison.json`, `r2-target-final.log`. 초기 진행 중 snapshot 및 중단한 중복 실행 로그는 최종 비교 근거로 사용하지 않음.
+- 구조 CI 4건·루트 구조·build·compile-integrity·logging 통과. 파일 앵커 36/canon 62 기존 드리프트 유지. 새 미계약 파일 probe 차단 확인.
+- P05 제품 전체는 In review. 헌장 process-status.json은 단독 변경하지 않음.
