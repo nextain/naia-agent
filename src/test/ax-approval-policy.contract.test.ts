@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { axApprovalFor, type AxEffect } from "../main/domain/ax-approval-policy.js";
-import { makeAxPolicyToolExecutor, type AxApprovalRequest, makeAxHumanApprovalStore, type AxApprovalCard, makeAxHumanEffectBroker } from "../main/adapters/ax-policy-tool-executor.js";
+import { makeAxHostControlLane, makeAxPolicyToolExecutor, type AxApprovalRequest, makeAxHumanApprovalStore, type AxApprovalCard, makeAxHumanEffectBroker } from "../main/adapters/ax-policy-tool-executor.js";
 import type { ToolExecutorPort } from "../main/ports/uc1.js";
 
 const call = { id: "c1", name: "calendar", args: { event: { title: "meeting", destination: "private" } } };
@@ -326,5 +326,37 @@ describe("human broker composition", () => {
     expect(h.approvals.respond(input)).toBe(true); expect(h.approvals.respond(input)).toBe(false);
     expect(await result).toEqual({ output: "receipt" }); expect(execute).toHaveBeenCalledOnce();
     h.approvals.dispose();
+  });
+});
+
+
+describe("AX authenticated host control lane", () => {
+  it.each(["approve", "invalidate", "dispose", "stale", "untrusted"])("%s binds fresh capture and single use", async (mode) => {
+    let card!: AxApprovalCard;
+    const execute = vi.fn(async () => ({ output: "receipt" }));
+    const evidence = {};
+    const h = makeAxHostControlLane({
+      scope: () => ({ sessionId: "s", workspace: "/w", provider: "codex-ax", policyRevision: "1" }),
+      diag, authenticate: (value) => value === evidence ? "human-text" : undefined,
+      describe: () => ({ preview: "synthetic payload/destination" }), present: (c) => { card = c; },
+      registrations: [{ spec: { name: call.name, description: "fixture", parameters: {} }, classify: () => ["external_send"], execute }],
+    });
+    expect(h.beginInput(evidence)).toBeUndefined();
+    const pending = h.executor.execute(call, { requestId: "r" });
+    expect(h.beginInput(evidence)).toBeUndefined();
+    expect(h.displayed("wrong")).toBe(false);
+    expect(h.displayed(card.proposalId)).toBe(true);
+    expect(h.beginInput({ origin: "human-text" })).toBeUndefined();
+    const token = h.beginInput(evidence)!;
+    if (mode === "invalidate" || mode === "stale") h.invalidate();
+    if (mode === "dispose") h.dispose();
+    const ok = h.submit(mode === "untrusted" ? {} : token, { text: "보내", final: true });
+    expect(ok).toBe(mode === "approve");
+    if (mode === "untrusted") h.dispose();
+    expect(h.submit(token, { text: "보내", final: true })).toBe(false);
+    if (mode !== "approve") h.dispose();
+    expect((await pending).isError ?? false).toBe(mode !== "approve");
+    expect(execute).toHaveBeenCalledTimes(mode === "approve" ? 1 : 0);
+    h.dispose();
   });
 });

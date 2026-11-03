@@ -265,3 +265,47 @@ export function makeAxHumanEffectBroker(deps: Parameters<typeof makeAxHumanAppro
   const approvals = makeAxHumanApprovalStore(deps);
   return { approvals, executor: makeAxEffectBroker({ ...approvals, registrations: deps.registrations, diag: deps.diag }) };
 }
+
+/** FR-AX-026.11: host-only control lane. Tokens are object capabilities, never
+ * wire fields. authenticate must verify connection identity and input provenance.
+ * The host calls displayed only after render acknowledgement, beginInput at the
+ * start of capture, and submit before any chat/model/memory dispatch. */
+export function makeAxHostControlLane(deps: Parameters<typeof makeAxHumanApprovalStore>[0] & {
+  readonly registrations: readonly AxEffectRegistration[];
+  readonly authenticate: (evidence: unknown) => "human-text" | "human-voice" | undefined;
+}) {
+  deps.diag.debug?.("AxHostControlLane created", {});
+  let card: AxApprovalCard | undefined;
+  let displayed = false;
+  let closed = false;
+  const captures = new Map<object, { proposalId: string; origin: "human-text" | "human-voice" }>();
+  const clear = () => { card = undefined; displayed = false; captures.clear(); };
+  const broker = makeAxHumanEffectBroker({ ...deps, present(next, code) {
+    clear(); card = next;
+    deps.present(next, code);
+  } });
+  return {
+    executor: broker.executor,
+    displayed(proposalId: string) {
+      if (closed || card?.proposalId !== proposalId) return false;
+      displayed = true; return true;
+    },
+    beginInput(evidence: unknown): object | undefined {
+      const origin = deps.authenticate(evidence);
+      if (closed || !displayed || !card || !origin) return undefined;
+      const token = Object.freeze({});
+      captures.set(token, { proposalId: card.proposalId, origin });
+      return token;
+    },
+    submit(token: object, input: { text: string; final: boolean; confidence?: number }): boolean {
+      const capture = captures.get(token);
+      captures.delete(token);
+      if (closed || !capture || !displayed || card?.proposalId !== capture.proposalId) return false;
+      const scope = deps.scope();
+      clear();
+      return broker.approvals.respond({ ...scope, text: input.text, final: input.final, confidence: input.confidence, proposalId: capture.proposalId, origin: capture.origin });
+    },
+    invalidate() { clear(); broker.approvals.invalidate(); },
+    dispose() { closed = true; clear(); broker.approvals.dispose(); },
+  };
+}

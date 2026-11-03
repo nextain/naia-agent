@@ -138,3 +138,12 @@ HTTP 요청 0, shell marker=false, MCP marker=false, completed=true를 확인했
 ### 4회차 최종 경로 재검토
 
 부모의 마지막 두 변경도 독립 대조했다. preflight는 실제 env 검증 실패를 설치 실패로 오분류하지 않고 정적 enterprise acceptance 오류로 반환하며, 모델 목록 경로도 config/read 검증을 model/list보다 먼저 실행한다. 관련 app-server 계약 시험을 최종 소스에서 다시 실행하여 **36건 통과**했다 (`tmp/r4-independent-transport-final2.log`). 기존 리뷰 판정과 범위 한계는 유지한다.
+
+## 5회차 Agent 경계 자체 검토 (2026-11-03)
+
+독립 검수 아님. 새 control lane은 직렬화 불가능한 입력 object identity를 사용하고,
+표시 전·위조 origin evidence·다른 카드·invalidate/dispose·재사용 시 실행 0회를 검사했다.
+인증 callback은 trusted host가 제공해야 하며 원격 JSON origin을 인증으로 바꾸지 않는다.
+submit은 입력 payload에서 scope/origin/proposalId를 수입하지 않고 trusted 값만 사용한다.
+앱 transcript 양쪽 appName·기존 무태그 호환·일반 handler history 제외 및 양 transport codec을 검사했다.
+실제 셸 wire 인증/화면/음성/코드 채널은 구현·검증했다고 주장하지 않는다.

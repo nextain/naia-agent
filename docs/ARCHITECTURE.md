@@ -400,3 +400,24 @@ provider 목적지 변조·instruction 파일·notify 변조의 thread/turn 시�
 OS firewall/DNS/CA/기업 proxy·원격 서비스 보존·화면 공개와 캡처 일치는 이 시험의 범위가 아니다.
 현재는 별도 enterprise transport 정책을 발급하는 API가 없으므로 기업 custom endpoint가 필요하면
 이 검사를 우회하지 않고 후속 구현과 자격 인수를 기다린다. 합성 fixture 원시 증거는 실행 폴더 result.md 참조.
+
+### 7.11 5회차 — Agent host control lane / B2C transcript 계약
+
+`makeAxHostControlLane`은 executor와 displayed/beginInput/submit/invalidate/dispose를 반환한다.
+trusted host가 present 렌더 완료 후 displayed(proposalId)를 호출하고, 직접 입력 캡처 시작에
+beginInput(evidence)를 호출한다. authenticate는 호스트가 인증된 연결·직접 사람 입력 증거를 검증하는
+함수다. JSON origin이나 STT confidence로 이를 대체하지 않는다. 반환 object token은 메모리 내
+권한이며 직렬화하거나 모델 도구에 노출하지 않는다. submit은 토큰을 단회 소비하고 현재 scope로
+저장소에 전달한다. 반환 true/false 모두 control lane에서 끝내며 chat/LLM/메모리로 재전달하지 않는다.
+새 사용자 의도·내용/설정 변경·취소에 invalidate, disconnect/종료에 dispose를 호출한다.
+코드는 기존 present의 별도 인자로만 전달한다. 일반 chat RPC/approval_response는 승격하지 않는다.
+이 factory는 Agent 측 연결 경계다. 실제 셸 RPC 인증 adapter와 표시 ACK/입력 capture 연결은 셸 작업자 몫이다.
+
+B2C 계약: ChatRequest.appName / ChatMessage.appName, gRPC ChatRequest.app_name=16 /
+Message.app_name=5를 추가했다. 앱 요청은 appName과 현재 user 입력을 함께 전달한다.
+turn 완료 시 JSONL user/assistant 모두 같은 appName을 가진다. 무태그 일반 턴은 기존 포맷 그대로다.
+셸 reader는 재시작 시 appName을 양쪽 메시지에 복원하고 일반 history를 만들 때 앱 턴을 제외해야 한다.
+Agent도 appName이 있는 과거 메시지를 compaction/recall/provider 조립 전에 제외한다.
+앱 요청의 마지막 같은 appName user 입력만 현재 입력으로 유지한다. appName은 권한이나 앱 인증이 아니다.
+transcript 읽기/화면 복원은 기존 설계대로 셸 소관이다. 새 Agent reader를 중복 구현하지 않는다.
+웹·로컬 동기화는 0.2.7이며 이 계약에 포함하지 않는다.

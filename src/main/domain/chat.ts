@@ -84,6 +84,7 @@ export type EnvironmentSegment =
     };
 
 export interface ChatMessage {
+  readonly appName?: string;
   readonly role: "system" | "user" | "assistant" | "tool";
   readonly content: string;
   readonly toolCalls?: readonly ToolCall[]; // assistant 전용 — UC5 도구 라운드(없으면 미설정)
@@ -198,6 +199,7 @@ export type WireErrorCode =
 
 // ── inbound domain 폐쇄 union (os AgentOutbound 와 1:1) ──
 export interface ChatRequest {
+  readonly appName?: string;
   readonly kind: "chat";
   readonly requestId: string;
   /** 대화별 세션 id(shell localSessionId) — agent 가 transcript 를 세션 파일로 분리하는 키(FR-CONV.2). 누락 시 단일 fallback. */

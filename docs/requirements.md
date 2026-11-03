@@ -1139,3 +1139,15 @@ loopback 수신 0회였고 기본 config·카탈로그 및 ChatGPT 읽기→발�
 독립 검수에서 ALL_PROXY 조용한 제거와 미검토 instruction 입력을 지적받아 source env 검사와
 설정 거절로 보완했다. 증거와 서버 밖 인수 목록은 실행 폴더 026-ax/result.md 및
 `.agents/reviews/026-ax-codex-core.md` 4회차 절에 기록한다. 기업/제품 전체 P05는 In review다.
+
+5회차 P03 — FR-AX-026.11: trusted host control lane은 표시 확인·표시 후 입력 시작을
+프로세스 내 불투명 토큰으로 결속한다. 인증 함수는 서버/호스트가 주입하며 JSON origin만 신뢰하지 않는다.
+invalidate/dispose 뒤 토큰과 grant는 무효다. 실제 셸 인증 transport 인수까지 In review.
+FR-CONV.6: optional appName을 요청 및 history 메시지에서 전달하고 transcript 양쪽 행에 보존한다.
+일반 요청은 태그된 과거 메시지를 compaction/recall/provider 이전 제외한다. 앱 요청의 현재 입력은 유지한다.
+재시작은 JSONL reader 소관이며 필드 손실 없이 복원해야 한다. 기존 무태그 파일과 호환한다.
+
+5회차 P04: AX control lane 5건·앱 handler 1건·실 디스크 재생성/재읽기 1건·gRPC/stdio codec 2건을
+추가했다. 관련 7개 파일 144건 통과, 최종 tsc build 통과. CLI 전송 경계 기존 37건도 포함한다.
+P05: Agent 계약 구현은 검증했으며 실제 셸 인증 transport·표시/음성/코드 UI 및 connector 인수 전
+FR-AX-026.11과 전체 AX는 In review. B2C 셸 reader의 appName 복원/일반 history 제외 인수는 별도다.

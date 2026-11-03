@@ -1142,3 +1142,8 @@ TTL, 변경·복수·취소·재시작·코드 오입력/replay/위험 효과 �
 P02: `codex-app-server-provider.contract.test.ts` — 설정 변조 시 thread/start·turn/start 0회,
 endpoint/관측 오류에 원문·URL·키 비노출, 자식 env의 proxy/TLS override 거절, 기본 설정 회귀.
 실제 pin CLI + 합성 문서 + loopback 수신 fixture는 별도 실행 증거로 기록한다.
+
+5회차 P01/P02: 표시 완료된 승인 카드 이후 시작한 인증 입력만 host control lane에서 소비한다.
+과거 입력·다른 카드·재전송·연결 종료는 실행 0회다. AX 시험에 표시/입력 토큰 경계와 폐기를 매핑한다.
+앱 턴은 user/assistant 양쪽 appName을 JSONL에 보존한다. 재시작 reader가 태그를 복원하여
+일반 대화 history에서 제외한다. conversation-log 및 handler 계약 시험으로 검증한다.

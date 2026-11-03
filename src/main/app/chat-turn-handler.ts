@@ -302,6 +302,9 @@ export class ChatTurnHandler {
   }
 
   async onChatRequest(req: ChatRequest): Promise<void> {
+    // FR-CONV.6: filter before compaction, recall, surfacing and provider assembly.
+    req = { ...req, messages: req.messages.filter((m, i) => !m.appName ||
+      (!!req.appName && i === req.messages.length - 1 && m.role === "user" && m.appName === req.appName)) };
     if (this.turns.has(req.requestId)) {
       // 중복=requestId 고유성 불변식 위반(os §B.4.1). wire error emit 금지(기존 활성턴 종료 방지) — 진단 로그만.
       this.d.diag.log("duplicate requestId — 무시", req.requestId);
@@ -722,7 +725,7 @@ export class ChatTurnHandler {
         }
         if (privatePersistenceAllowed && this.d.conversationLog && currentUserMsg) {
           try {
-            await this.d.conversationLog.append({ sessionId: req.sessionId ?? "default", userText: lastUserText, assistantText: assistantTurnParts.join("\n") });
+            await this.d.conversationLog.append({ sessionId: req.sessionId ?? "default", userText: lastUserText, assistantText: assistantTurnParts.join("\n"), ...(req.appName ? { appName: req.appName } : {}) });
           } catch (e) { this.safeDiag("transcript append 실패(턴 유지)", e); }
         }
         if (pricingReady) await raceTimeout(pricingReady, 5000);
