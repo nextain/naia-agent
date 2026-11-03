@@ -34,13 +34,14 @@ describe("UC-NAIA-PI actual CLI process and stored login", () => {
     req.setEncoding("utf8");
     req.on("data", (part) => { raw += part; });
     req.on("end", () => {
-      const body = JSON.parse(raw) as { model?: string; gateway_request_id?: string; gateway_attempt?: number };
+      const body = JSON.parse(raw || "{}") as { model?: string; gateway_request_id?: string; gateway_attempt?: number };
       upstreamCalls += 1;
+      if (!body.model) { res.writeHead(400).end(); return; }
       expect(body.model).toBe("grok-4.3");
       expect(req.headers["x-anyllm-key"]).toBe("Bearer stored-test-key");
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({
-        id: "chatcmpl-cli", model: "grok-4.3",
+        id: "chatcmpl-cli", model: body.model,
         gateway_request_id: body.gateway_request_id, gateway_attempt: body.gateway_attempt,
         settlement_status: "settled", billing_status: "settled", customer_cost: "0.00010000",
         price_version_id: "test-price-v1", currency: "USD",
@@ -57,6 +58,7 @@ describe("UC-NAIA-PI actual CLI process and stored login", () => {
     baseUrl = `http://127.0.0.1:${address.port}`;
   });
   afterAll(async () => {
+    server.closeAllConnections();
     await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
     for (const dir of [home, workdir]) {
       try { rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }); } catch { /* late Windows handles */ }
@@ -119,7 +121,7 @@ describe("UC-NAIA-PI actual CLI process and stored login", () => {
     expect(upstreamCalls).toBe(2);
 
     const beforeRejected = upstreamCalls;
-    const rejected = await run(process.execPath, [cli, "run", "code", "--agent", "pi", "--model", "deepseek-v4-pro", "--workdir", workdir, "--json"], env);
+    const rejected = await run(process.execPath, [cli, "run", "code", "--agent", "pi", "--model", "unregistered-model-fixture", "--workdir", workdir, "--json"], env);
     expect(rejected.code).toBe(3);
     expect(upstreamCalls).toBe(beforeRejected);
   }, 60_000);

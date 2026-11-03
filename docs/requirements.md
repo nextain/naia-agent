@@ -1151,3 +1151,20 @@ FR-CONV.6: optional appName을 요청 및 history 메시지에서 전달하고 t
 추가했다. 관련 7개 파일 144건 통과, 최종 tsc build 통과. CLI 전송 경계 기존 37건도 포함한다.
 P05: Agent 계약 구현은 검증했으며 실제 셸 인증 transport·표시/음성/코드 UI 및 connector 인수 전
 FR-AX-026.11과 전체 AX는 In review. B2C 셸 reader의 appName 복원/일반 history 제외 인수는 별도다.
+
+6회차 P03 — FR-AX-026.12 (In review): host 등록 connector는 document_draft(local_draft),
+document_send(external_send), calendar_create(calendar_write)만 노출한다. 일정은 명시 offset 시작/끝과
+IANA 시간대 일치·끝>시작을 요구한다. 작업 키는 host가 workspace/account 범위에서 고정하며 payload digest와
+결속한다. 모든 쓰기 시도 전 영수증을 조회하고, unknown/timeout/조회 실패는 쓰기 없이 보류한다.
+서버는 같은 키의 원자적 중복 제거와 payload 충돌 거절을 보장해야 한다. 자동 재전송은 하지 않는다.
+재시도에도 새 승인이 필요하다. timeout 이후 조회에서 기존 영수증을 발견하면 새 쓰기 없이 반환한다.
+문서 원문/수신자·일정 제목·키는 진단 로그에 남기지 않는다. 실제 계정/셸 배선 전 전체 P05는 In review다.
+6회차 시험 유지보수: 짝 저장소 이름이 달라도 NAIA_SHELL_ROOT로 실제 표본을 대조한다.
+Pi 비용 증명의 런타임 모듈 분류는 node:sqlite 같은 접두어 전용 builtin을 인식해야 한다.
+sourceRevision 고정/closure 해시/claim gate를 현재 HEAD로 무조건 덮어써 통과시키지 않는다.
+6회차 P04/P05: 가짜 HTTP connector 시험은 승인 일정 1건·취소 0건·문서 발송·동시 중복·응답 손실 후
+조회 복구·재생성 뒤 영수증 조회·시간대 오류·취소 signal을 포함한다. Pi CLI의 미지원 모델 fixture는
+이제 지원되는 deepseek-v4-pro 대신 명시적 미등록 모델을 사용한다. 빈 HTTP 요청은 400으로 처리하고
+종료 시 연결을 닫는다. 실제 계정/셸/독립 검수 전 제품 P05 In review를 유지한다.
+6회차 전체 회귀 후속: Discord serve 설정 누락 시험의 1초 startup 대기는 부하에 취약하여 10초로
+조정했다. 실제 exit=1/오류 코드/help 계약은 그대로 검증하며 production 동작은 변경하지 않는다.

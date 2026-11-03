@@ -1147,3 +1147,14 @@ endpoint/관측 오류에 원문·URL·키 비노출, 자식 env의 proxy/TLS ov
 과거 입력·다른 카드·재전송·연결 종료는 실행 0회다. AX 시험에 표시/입력 토큰 경계와 폐기를 매핑한다.
 앱 턴은 user/assistant 양쪽 appName을 JSONL에 보존한다. 재시작 reader가 태그를 복원하여
 일반 대화 history에서 제외한다. conversation-log 및 handler 계약 시험으로 검증한다.
+
+6회차 P01/P02 — UC-AX-026 connector: 로컬 문서 초안은 승인 없이, 외부 문서 발송과 일정 등록은
+표시된 payload의 사람 승인 이후에만 실행한다. 승인 일정 1건·취소 0건, IANA 시간대/offset 검증,
+동시 중복·timeout 후 조회·재시작 후 조회를 ax-approval-policy.contract.test.ts에서 가짜 HTTP 서버로 확인한다.
+기존 전체 실패는 원인/책임 경계를 기록하고 보안 benchmark claim gate를 약화하지 않는다.
+6회차 P02 추가: UC-024/REQ-022 짝 저장소 시험은 NAIA_SHELL_ROOT 경로 지정으로 같은 표본을
+읽되 누락/드리프트 실패를 유지한다. Pi runtime closure 시험은 node: 접두어 전용 builtin을
+Node 공식 isBuiltin 판정으로 인식하고 나머지 의존성 closure 검증을 유지한다.
+6회차 전체 회귀 후속: Discord serve의 설정 누락 프로세스는 부하 중에도 10초 안에 exit=1 및
+workspace_unconfigured/provider_unconfigured를 반환해야 한다. 기존 1초 대기는 다른 전체 시험과
+겹칠 때 조기 실패하여 두 경계의 대기만 늘리고 오류/exit 단언은 유지한다.

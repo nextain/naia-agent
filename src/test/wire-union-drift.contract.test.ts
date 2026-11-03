@@ -124,7 +124,8 @@ describe("`encodeEmit` 추출이 실제 산출과 맞다", () => {
 
 describe("짝 저장소와의 표본 드리프트 (REQ-022)", () => {
   const REL = ["src", "test", "fixtures", "wire-union.json"];
-  const roots: string[] = [];
+  const roots: string[] = process.env.NAIA_SHELL_ROOT
+      ? [resolve(process.env.NAIA_SHELL_ROOT, ...REL)] : [];
   for (let up = 2; up <= 6; up += 1) {
     const base = resolve(__dirname, ...Array.from({ length: up }, () => ".."));
     roots.push(resolve(base, "naia-shell", ...REL));

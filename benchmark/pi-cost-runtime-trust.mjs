@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
-import { builtinModules } from "node:module";
+import { isBuiltin } from "node:module";
 import ts from "typescript";
 
 export function collectTrustedRuntimeFiles(root, roots) {
@@ -183,10 +183,6 @@ function packageName(specifier) {
   return specifier.startsWith("@") ? `${parts[0]}/${parts[1]}` : parts[0];
 }
 
-function isBuiltin(specifier) {
-  const name = specifier.startsWith("node:") ? specifier.slice(5) : specifier;
-  return builtinModules.includes(name) || builtinModules.includes(`node:${name}`);
-}
 
 function collectExecutableClosure(entryPath) {
   const pending = [realpathSync(entryPath)]; const visited = new Set(); const files = {};

@@ -360,3 +360,112 @@ describe("AX authenticated host control lane", () => {
     h.dispose();
   });
 });
+
+// FR-AX-026.12: loopback service, no external accounts or credentials.
+import { createServer } from "node:http";
+import { makeAxConnectorRegistrations, makeAxEffectBroker } from "../main/adapters/ax-policy-tool-executor.js";
+
+describe("AX connector fake service", () => {
+  async function fixture(run: (f: { broker: ToolExecutorPort; requests: string[]; approve: (v: boolean) => void;
+    setUnknown: () => void; setSlow: () => void; restart: () => ToolExecutorPort }) => Promise<void>) {
+    const requests: string[] = [];
+    const receipts = new Map<string, { digest: string; receipt: string }>();
+    let allowed = true, unknown = false, slow = false;
+    const server = createServer(async (req, res) => {
+      const key = req.url!.slice(1);
+      requests.push(req.method!);
+      if (req.method === "GET") {
+        res.end(JSON.stringify(unknown ? { status: "unknown" } : receipts.has(key)
+          ? { status: "found", ...receipts.get(key) } : { status: "absent" }));
+      } else {
+        let body = "";
+        for await (const part of req) body += part;
+        const { digest } = JSON.parse(body);
+        const prior = receipts.get(key);
+        if (prior && prior.digest !== digest) { res.writeHead(409); res.end(); return; }
+        receipts.set(key, { digest, receipt: "event-1" });
+        if (slow) { setTimeout(() => res.end(JSON.stringify({ receipt: "event-1" })), 1500).unref(); }
+        else res.end(JSON.stringify({ receipt: "event-1" }));
+      }
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    const address = server.address() as { port: number };
+    const endpoint = `http://127.0.0.1:${address.port}/operation`;
+    const registrations = makeAxConnectorRegistrations({ keyFor: () => "host-operation", diag, timeoutMs: 1000,
+      draft: async () => ({ output: "local draft" }),
+      lookup: async (_key, digest, signal) => {
+        const response = await fetch(endpoint, { signal });
+        const value = await response.json() as { status: "found"; digest: string; receipt: string } | { status: "absent" | "unknown" };
+        if (value.status === "found" && value.digest !== digest) throw new Error("Conflict");
+        return value;
+      },
+      write: async (_key, digest, call, signal) => {
+        const response = await fetch(endpoint, { method: "POST", body: JSON.stringify({ digest, call }), signal });
+        if (!response.ok) throw new Error("Conflict");
+        return (await response.json() as { receipt: string }).receipt;
+      } });
+    const broker = makeAxEffectBroker({ registrations, conversationApproval: async () => allowed, diag });
+    try { await run({ broker, requests, approve: (v) => { allowed = v; }, setUnknown: () => { unknown = true; }, setSlow: () => { slow = true; },
+      restart: () => makeAxEffectBroker({ registrations: makeAxConnectorRegistrations({ keyFor: () => "host-operation", diag,
+        draft: async () => ({ output: "local draft" }),
+        lookup: async (_key, _digest, signal) => (await (await fetch(endpoint, { signal })).json()) as { status: "found"; receipt: string },
+        write: async () => { throw new Error("Recovery must not write"); } }), conversationApproval: async () => allowed, diag }) }); }
+    finally { server.closeAllConnections(); await new Promise<void>((r) => server.close(() => r())); }
+  }
+  const event = { id: "event", name: "calendar_create", args: { title: "synthetic", start: "2026-11-07T10:00:00+09:00", end: "2026-11-07T11:00:00+09:00", timeZone: "Asia/Seoul" } };
+  it("registers one approved event; duplicate queries first with no second write", async () => fixture(async ({ broker, requests }) => {
+    expect((await broker.execute(event, {})).isError).not.toBe(true);
+    expect(JSON.parse((await broker.execute({ ...event, id: "retry" }, {})).output)).toEqual({ receipt: "event-1", recovered: true });
+    expect(requests).toEqual(["GET", "POST", "GET"]);
+  }));
+  it("cancelled approval performs zero service requests; local draft needs none", async () => fixture(async ({ broker, requests, approve }) => {
+    approve(false);
+    expect((await broker.execute(event, {})).isError).toBe(true);
+    expect(await broker.execute({ id: "draft", name: "document_draft", args: {} }, {})).toEqual({ output: "local draft" });
+    expect((await broker.execute({ id: "send", name: "document_send", args: { body: "synthetic" } }, {})).isError).toBe(true);
+    expect(requests).toEqual([]);
+  }));
+  it.each([
+    { timeZone: "Invalid/Zone" }, { start: "2026-11-07T10:00:00" },
+    { timeZone: "America/New_York" }, { end: "2026-11-07T09:00:00+09:00" },
+    { start: "2026-02-30T10:00:00+09:00" },
+  ])("rejects invalid time before service requests %j", async (change) => fixture(async ({ broker, requests }) => {
+    expect((await broker.execute({ ...event, args: { ...event.args, ...change } }, {})).isError).toBe(true);
+    expect(requests).toEqual([]);
+  }));
+  it("unknown lookup cannot write", async () => fixture(async ({ broker, requests, setUnknown }) => {
+    setUnknown(); expect((await broker.execute(event, {})).isError).toBe(true);
+    expect(requests).toEqual(["GET"]);
+  }));
+  it("lost write response is recovered by lookup, without resend", async () => fixture(async ({ broker, requests, setSlow }) => {
+    setSlow(); expect((await broker.execute(event, {})).isError).toBe(true);
+    expect(JSON.parse((await broker.execute(event, {})).output).recovered).toBe(true);
+    expect(requests).toEqual(["GET", "POST", "GET"]);
+  }));
+  it("fresh connector recovers committed receipt after restart", async () => fixture(async ({ broker, requests, restart }) => {
+    await broker.execute(event, {});
+    expect(JSON.parse((await restart().execute(event, {})).output).recovered).toBe(true);
+    expect(requests).toEqual(["GET", "POST", "GET"]);
+  }));
+  it("approved document send writes once and retry queries", async () => fixture(async ({ broker, requests }) => {
+    const send = { id: "send", name: "document_send", args: { destination: "synthetic", body: "synthetic" } };
+    expect((await broker.execute(send, {})).isError).not.toBe(true);
+    expect(JSON.parse((await broker.execute(send, {})).output).recovered).toBe(true);
+    expect(requests).toEqual(["GET", "POST", "GET"]);
+  }));
+  it("concurrent duplicates cannot create two writes", async () => fixture(async ({ broker, requests, setSlow }) => {
+    setSlow();
+    await Promise.all([broker.execute(event, {}), broker.execute(event, {})]);
+    expect(requests.filter((method) => method === "POST")).toHaveLength(1);
+  }));
+  it("aborted request never reaches the service", async () => fixture(async ({ broker, requests }) => {
+    const controller = new AbortController(); controller.abort();
+    await expect(broker.execute(event, { signal: controller.signal })).rejects.toBeDefined();
+    expect(requests).toEqual([]);
+  }));
+  it("rejects changed payload under an existing host key", async () => fixture(async ({ broker, requests }) => {
+    await broker.execute(event, {});
+    expect((await broker.execute({ ...event, args: { ...event.args, title: "changed" } }, {})).isError).toBe(true);
+    expect(requests).toEqual(["GET", "POST", "GET"]);
+  }));
+});

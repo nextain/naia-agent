@@ -147,3 +147,11 @@ HTTP 요청 0, shell marker=false, MCP marker=false, completed=true를 확인했
 submit은 입력 payload에서 scope/origin/proposalId를 수입하지 않고 trusted 값만 사용한다.
 앱 transcript 양쪽 appName·기존 무태그 호환·일반 handler history 제외 및 양 transport codec을 검사했다.
 실제 셸 wire 인증/화면/음성/코드 채널은 구현·검증했다고 주장하지 않는다.
+
+## 6회차 자체 검토 (2026-11-03)
+독립 검수 아님. FR-AX-026.12는 host key와 payload digest, 조회 우선, unknown 보류,
+원격 원자적 중복 제거 계약을 분리했다. 로컬 timeout은 원격 취소를 보장하지 않는다.
+계정/작업 범위의 영속 key는 host 책임이며 모델 ID를 키로 사용하지 않는다.
+가짜 HTTP 시험에서 승인/취소·문서 발송·시간대·응답 손실·동시 중복·payload 충돌을 확인한다.
+실제 캘린더/기업 PII/셸 인증을 인수한 것은 아니다. production 신규 파일/거짓 앵커는 없다.
+전체 시험의 고정 sourceRevision 및 runtime closure manifest 불일치는 보안 gate를 완화하지 않고 남긴다.

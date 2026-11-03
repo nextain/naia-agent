@@ -421,3 +421,32 @@ Agent도 appName이 있는 과거 메시지를 compaction/recall/provider 조립
 앱 요청의 마지막 같은 appName user 입력만 현재 입력으로 유지한다. appName은 권한이나 앱 인증이 아니다.
 transcript 읽기/화면 복원은 기존 설계대로 셸 소관이다. 새 Agent reader를 중복 구현하지 않는다.
 웹·로컬 동기화는 0.2.7이며 이 계약에 포함하지 않는다.
+
+### 7.12 6회차 — connector 계약과 셸 control lane 인계 (한 장)
+
+진입점은 `makeAxHostControlLane` (`src/main/adapters/ax-policy-tool-executor.ts`)이다.
+셸 trusted backend가 연결별로 하나 만들고 executor를 codex-ax provider에 전달한다.
+공용 gRPC에 승인 RPC를 추가하지 않는다. authenticate는 셸이 소유한 연결/입력 capture 증거를
+검증한다. 클라이언트 JSON의 origin만 검사하는 구현은 금지한다.
+
+1. `scope()`는 sessionId/workspace/provider/policyRevision을 반환한다. 변경 전 invalidate한다.
+2. registrations에는 host의 고정 spec/classify/execute만 넣는다. connector는
+   `makeAxConnectorRegistrations`로 구성한다. keyFor는 계정/workspace/작업별 영속 키를 발급하고
+   같은 작업 재시도에 재사용한다. 모델 call ID를 그대로 키로 쓰지 않는다.
+3. describe는 등록할 일정의 제목·시작/끝·시간대·캘린더·초대자, 발송 문서의 목적지·본문·첨부를
+   빠짐없이 표시한다. present(card, code)의 code는 비공개 UI 전용이고 모델/로그/기억/TTS에 보내지 않는다.
+4. 실제 렌더 ACK 후 displayed(proposalId). 새 입력 capture 시작 때 beginInput(evidence).
+   반환 object token은 backend 메모리에 보관한다. wire로 직렬화하거나 renderer에서 만들어 받지 않는다.
+5. submit(token,{text,final,confidence})를 일반 chat 처리보다 먼저 호출한다. true/false 모두 해당 입력은
+   control lane에서 소비한다. 음성은 final 및 confidence>=0.98, 코드는 직접 텍스트만 허용한다.
+6. 수정/새 의도/취소/설정 변경은 invalidate, disconnect/종료는 dispose. 오류도 모델 대화로 재전송하지 않는다.
+
+connector lookup은 found(receipt)/absent/unknown으로 답한다. timeout·불명 결과는 보류하고
+다음 새 승인 후 조회부터 한다. 서버는 (host key,payload digest)의 원자적 중복 제거·충돌 거절을
+제공해야 한다. 늦게 도착하는 쓰기가 가능할 때 absent를 반환하면 안 된다. 이 보장 없는 provider는
+활성화하지 않는다. timeout은 로컬 대기 종료이며 원격 취소나 exactly-once 증명이 아니다.
+현재 factory는 opt-in 계약이며 실제 Google/Microsoft SDK·계정·공용 composition 배선은 없다.
+가짜 HTTP 서비스는 이 서버 계약을 검증한다. draft는 host의 로컬 복구 가능 구현만 주입한다.
+
+짝 셸 fixture 시험은 `NAIA_SHELL_ROOT=/absolute/peer`로 읽기 전용 위치를 지정할 수 있다.
+누락/내용 차이는 계속 실패한다. 실제 셸 인증·UI·음성 인수는 별도다.

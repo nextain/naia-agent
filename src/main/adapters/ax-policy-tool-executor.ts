@@ -309,3 +309,77 @@ export function makeAxHostControlLane(deps: Parameters<typeof makeAxHumanApprova
     dispose() { closed = true; clear(); broker.approvals.dispose(); },
   };
 }
+
+/** FR-AX-026.12: host-owned connector capabilities. The remote service must
+ * atomically deduplicate (key,digest), reject conflicting payloads, and return
+ * unknown rather than absent while a previous write may still commit.
+ * Keys are minted/persisted by the host per account/workspace, never the model.
+ */
+export function makeAxConnectorRegistrations(deps: {
+  readonly keyFor: (call: ToolCall) => string;
+  readonly lookup: (key: string, digest: string, signal: AbortSignal) => Promise<
+    { status: "found"; receipt: string } | { status: "absent" | "unknown" }>;
+  readonly write: (key: string, digest: string, call: ToolCall, signal: AbortSignal) => Promise<string>;
+  readonly draft: ToolExecutorPort["execute"];
+  readonly diag: DiagnosticLog;
+  readonly timeoutMs?: number;
+}): readonly AxEffectRegistration[] {
+  const timeout = deps.timeoutMs ?? 10_000;
+  if (!Number.isFinite(timeout) || timeout <= 0) throw new Error("Invalid AX connector timeout");
+  const active = new Set<string>();
+  async function bounded<T>(work: (signal: AbortSignal) => Promise<T>, outer?: AbortSignal): Promise<T> {
+    const signal = AbortSignal.any([AbortSignal.timeout(timeout), ...(outer ? [outer] : [])]);
+    signal.throwIfAborted();
+    return new Promise<T>((resolve, reject) => {
+      const abort = () => reject(new Error("AX connector interrupted"));
+      signal.addEventListener("abort", abort, { once: true });
+      Promise.resolve().then(() => { signal.throwIfAborted(); return work(signal); }).then(resolve, reject)
+        .finally(() => signal.removeEventListener("abort", abort));
+    });
+  }
+  const execute: ToolExecutorPort["execute"] = async (call, opts) => {
+    deps.diag.debug?.("AxConnector execute", { calendar: call.name === "calendar_create" });
+    try {
+      if (call.name === "calendar_create") validateAxCalendar(call.args);
+      const key = deps.keyFor(call);
+      if (!key || active.has(key)) return { output: "AX connector operation pending", isError: true };
+      active.add(key);
+      try {
+        const digest = createHash("sha256").update(JSON.stringify({ name: call.name, args: call.args })).digest("hex");
+        const prior = await bounded((signal) => deps.lookup(key, digest, signal), opts.signal);
+        if (prior.status === "found") return { output: JSON.stringify({ receipt: prior.receipt, recovered: true }) };
+        if (prior.status !== "absent") return { output: "AX connector outcome unknown; query again", isError: true };
+        opts.signal?.throwIfAborted();
+        const receipt = await bounded((signal) => deps.write(key, digest, call, signal), opts.signal);
+        return { output: JSON.stringify({ receipt, recovered: false }) };
+      } finally { active.delete(key); }
+    } catch {
+      return { output: "AX connector unresolved; query before retry", isError: true };
+    }
+  };
+  return [
+    { spec: { name: "document_draft", description: "Local reversible document draft", parameters: {} },
+      classify: () => ["local_draft"], execute: deps.draft },
+    ...([ ["document_send", "external_send"], ["calendar_create", "calendar_write"] ] as const).map(([name, effect]) => ({
+      spec: { name, description: "Host-scoped connector operation", parameters: {} },
+      classify: () => [effect], execute,
+    })),
+  ];
+}
+
+function validateAxCalendar(args: unknown): void {
+  if (!args || typeof args !== "object") throw new Error("Invalid calendar payload");
+  const { start, end, timeZone } = args as Record<string, unknown>;
+  if (typeof timeZone !== "string") throw new Error("Missing time zone");
+  const formatter = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit",
+    day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
+  const times = [start, end].map((value) => {
+    if (typeof value !== "string" || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:Z|[+-]\d\d:\d\d)$/.test(value)) throw new Error("Missing offset");
+    const ms = Date.parse(value);
+    if (!Number.isFinite(ms)) throw new Error("Invalid instant");
+    const parts = Object.fromEntries(formatter.formatToParts(ms).map(({ type, value }) => [type, value]));
+    if (`${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}` !== value.slice(0, 19)) throw new Error("Time zone mismatch");
+    return ms;
+  });
+  if (times[1]! <= times[0]!) throw new Error("Invalid interval");
+}
