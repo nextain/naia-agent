@@ -1197,3 +1197,8 @@ P04: 합성 fixture 시험 예정. P05: In review (실제 저장소·계정·독
 두 benchmark의 대표 재실행은 새 tmpdir에서 컴파일 후 기존 frozen revision 차이로 각각 거절됐다
 (`tmp/r7-frozen-probe.log`). 비용 closure는 고정 3655파일 대비 현재 3683파일이다.
 전체 green 또는 보안·제품 인수 완료를 주장하지 않으며 P05 In review를 유지한다.
+
+## FR-AX-026.14 — 데이터 홈 메모 경로 (r8, P03)
+상태: In review (P01~P04 구현·Linux 검증, Windows/macOS 실기 인수 대기). 공용 CLI/gRPC 조립기는 NAIA_MEMO_PATH > NAIA_HOME/memos.json > ~/.naia/memos.json 순으로 경로를 정한다. 명시 override에는 자동 이관하지 않는다. 옛 ~/.naia-agent/memos.json이 있고 대상이 없으면 배타적 복사하며 원본을 삭제하지 않는다. 기존 대상은 그대로 유지한다. 복사 실패는 시작 실패로 드러내며 옛 저장소로 조용히 되돌아가지 않는다. Windows 경로 함수와 Linux 실파일 통합 시험을 구분한다.
+
+P04 evidence (r8): uc5-file-memo 15/15, 독립 적대 리뷰 `.agents/reviews/026-ax-codex-core.md` 8회차. 고정 benchmark 두 파일 제외 회귀 2398통과/1실패/11skip(비용 analyzer 기존 closure 불일치). Windows/macOS 실파일 인수 전 In review.

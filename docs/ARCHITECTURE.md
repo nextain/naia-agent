@@ -470,3 +470,6 @@ connector의 필수 `verifyReceipt(key,digest,receipt,signal)`는 원격 응답 
 reference는 감사용 작업 식별자나 증명 서명이 아니며 host의 영속 key를 대신하지 않는다.
 원문을 담은 도구 call 자체나 사용자가 모델에 준 문서를 제거하는 기능은 아니다. 비공개 문서를
 모델에 넣는 전송 공개/발췌 정책은 §7.8~7.12 host 경계에서 별도로 적용한다.
+
+### 7.14 r8 — 메모 데이터 홈
+공용 compose-agent-deps가 경로 선택과 옛 파일 이관을 소유하고 file-memo-store는 주입된 파일만 읽고 쓴다. NAIA_MEMO_PATH(명시 경로) > NAIA_HOME/memos.json > ~/.naia/memos.json. 공백 설정은 무시한다. 옛 ~/.naia-agent/memos.json은 대상 부재 시 COPYFILE_EXCL로 복사한다. EEXIST 경쟁은 대상 소유자의 승리로 간주하고 그 외 오류는 시작을 중단한다. 원본은 삭제하지 않으며 대상이 있는 재시작에는 복사하지 않는다. 명시 경로 override는 별도 저장소이므로 자동 이관하지 않는다. 여러 데이터 홈은 각 첫 실행 때 같은 원본 스냅샷을 받을 수 있으나 이후 쓰기는 독립적이다. 복사에 성공한 뒤 대상 파일을 사용자가 삭제하면 다음 시작에 재복사될 수 있다(별도 전역 이관 표시는 없음). 로그에는 메모 원문을 넣지 않는다. Linux에서 node:path.win32로 drive/UNC 문자열 계약을 검사하며 Windows 실파일 인수와 구분한다.

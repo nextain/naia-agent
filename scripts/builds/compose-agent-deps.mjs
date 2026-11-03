@@ -45,7 +45,38 @@ import * as nodeFs from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
-import { dirname, join, resolve, sep } from "node:path";
+import { dirname, join, resolve, sep, win32, posix } from "node:path";
+
+/** FR-AX-026.14: product memo home, with injectable path semantics for OS contracts. */
+export function resolveMemoStorage({ env = process.env, homeDir = homedir(), pathApi = process.platform === "win32" ? win32 : posix } = {}) {
+  const explicit = env.NAIA_MEMO_PATH?.trim();
+  const dataHome = env.NAIA_HOME?.trim() || pathApi.join(homeDir, ".naia");
+  return {
+    path: explicit || pathApi.join(dataHome, "memos.json"),
+    legacyPath: pathApi.join(homeDir, ".naia-agent", "memos.json"),
+    migrate: !explicit,
+  };
+}
+
+/** Copy once per destination; never overwrite or delete the legacy source. */
+export function prepareMemoStorage({ env, homeDir, fs = nodeFs, pathApi = process.platform === "win32" ? win32 : posix, diag } = {}) {
+  const storage = resolveMemoStorage({ env, homeDir, pathApi });
+  diag?.debug("memo-storage", "prepare", { explicit: !storage.migrate });
+  if (storage.migrate && !fs.existsSync(storage.path) && fs.existsSync(storage.legacyPath)) {
+    fs.mkdirSync(pathApi.dirname(storage.path), { recursive: true });
+    try {
+      fs.copyFileSync(storage.legacyPath, storage.path, nodeFs.constants.COPYFILE_EXCL);
+      diag?.debug("memo-storage", "legacy-copied", {});
+    } catch (error) {
+      if (error?.code !== "EEXIST") {
+        diag?.debug("memo-storage", "legacy-copy-failed", {});
+        throw new Error("memo storage migration failed", { cause: error });
+      }
+      diag?.debug("memo-storage", "destination-won-race", {});
+    }
+  }
+  return storage.path;
+}
 
 /** Trim a workspace path. Empty/non-string values become "". */
 export function trimAdkPath(value) {
@@ -239,7 +270,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
   let knowledgeBackend;
   let setKnowledgeWorkspace = () => undefined;
   if (env.NAIA_AGENT_SKILLS !== "off") {
-    const memoPath = env.NAIA_MEMO_PATH || join(homeDir, ".naia-agent", "memos.json");
+    const memoPath = prepareMemoStorage({ env, homeDir, diag });
     const memo = makeFileMemoStore({ path: memoPath, dir: dirname(memoPath), fs: nodeFs });
     const builtin = makeBuiltinSkillsExecutor({ clock: () => new Date(), fetchWeather: makeOpenMeteoFetchWeather(), memo });
     skillsLabel = `time/weather/memo(${memoPath})`;

@@ -1169,3 +1169,7 @@ workspace_unconfigured/provider_unconfigured를 반환해야 한다. 기존 1초
 7회차 시험 환경: 고정 issue-team/multi-issue benchmark의 빌드 임시 경로도 OS tmpdir
 (TMPDIR로 실행 폴더 tmp 지정)를 따른다. 외부 dist의 패키지 해석은 전용 node_modules 링크로
 유지한다. frozen sourceRevision·증거 비교 단언은 유지한다.
+
+## UC-AX-026 r8 — 데이터 홈 메모 이관 (P01/P02)
+4060 사용자는 NAIA_HOME으로 선택한 데이터 홈에 메모를 보존한다. 명시 NAIA_MEMO_PATH가 우선하며 공백 설정은 미설정으로 취급한다. 옛 ~/.naia-agent/memos.json은 대상 부재 시 배타적으로 복사하고 원본을 보존한다. 기존 대상은 덮어쓰거나 합치지 않는다.
+Test Coverage Map: src/test/uc5-file-memo.contract.test.ts의 데이터 홈 경로/이관 그룹 — POSIX·Windows drive/UNC, 기존 대상, 명시 override, 재시작, 복사 오류 및 실제 런타임 memo save/list/get 검증. P04는 이번 실행 기록, P05는 독립 검수 전 In review.

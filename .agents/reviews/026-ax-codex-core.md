@@ -171,3 +171,8 @@ HTTP fixture는 수신 call의 name/args를 다시 해시하여 승인 digest와
 최종 집중 106건(AX99+기억요약7) 통과. 두 frozen benchmark 제외 회귀 2390통과/2실패/11skip;
 기억 요약 timeout은 코드 변경 없이 7/7 재통과. 나머지 비용 closure 실패는 기존 기준 차이다.
 신규 tmpdir에서 benchmark 두 대표 경로도 컴파일 성공 후 frozen revision 거절을 확인했다.
+
+## 8회차 독립 적대 리뷰 (2026-11-03 UTC)
+리뷰어 `/root/memo_review`는 FR-AX-026.14, UC r8, §7.14 및 공용 조립기/시험 diff를 대조했다. 원본 보존·배타 복사·NAIA_HOME/명시 override 우선순위·기존 대상 불변·복사 실패 전파에 차단 결함 없음. 최초 runtime 시험의 content/output 필드 오류를 지적했고 수정 후 14건을 직접 재실행했다. Windows migration filesystem 인수 보강 제안도 반영했다. Windows 실파일 인수는 이 서버의 문자열/fake fs 검증으로 대체하지 않는다. P05는 실기 전 In review.
+
+리뷰어 최종 재실행: 보강된 15/15 통과. drive/UNC 경로의 mkdir/copy 및 COPYFILE_EXCL 인수 확인. 넓은 회귀 184파일 2398통과/1실패/11skip(고정 benchmark 2파일 제외); 잔여 비용 analyzer closure 기준 불일치.
