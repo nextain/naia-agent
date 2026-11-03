@@ -1122,3 +1122,20 @@ FR-AX-026.9 (In review): 위험 효과는 검토된 계획 digest와 결속한 �
 `.agents/reviews/026-ax-codex-core.md` 3회차 절. 중첩 후 하나 취소 시 재승인과 소비 뒤 scope 변경을 보완했다.
 P05: 저장소·호스트 API 구현 및 계약 시험 검증, FR-AX-026.8~9는 셸 인증/표시/음성·코드 채널 실통합
 인수 전까지 In review 유지. process-status.json은 헌장 단독 수정 금지에 따라 변경하지 않는다.
+
+4회차 P03 — FR-AX-026.10 (In review): AX는 프롬프트/시스템 지시를 thread/start에 넣기 전에
+유효 config의 기본 model provider·OpenAI/ChatGPT URL·원격 thread 저장·관측·notify 경계를 검사한다.
+미검증 custom provider/URL·proxy/TLS override는 fallback 없이 거절하고 오류에 값/본문/키를 넣지 않는다.
+AX 자식은 공용 env allowlist를 좁혀 사용하며 기존 Codex/다른 모델에는 이 정책을 전파하지 않는다.
+metrics·prompt/response 관측·history·feedback·update 확인은 pin CLI 설정으로 끈다.
+범위는 CLI 설정 경계이며 OS firewall·DNS·기업 CA/프록시 및 실제 공개 화면 인수를 대체하지 않는다.
+P04: 기존 Codex/AX 계약·loopback 실 CLI 거절 fixture·build 및 구조 검사.
+P05: 기업 endpoint/OS egress·셸 공개 화면 인수 전 In review 유지.
+
+4회차 P04: 최종 관련 6개 파일 183 통과·1 skip, 독립 Codex 계약 36 통과(이후 추가한
+preflight 오류 분류 회귀 1건은 최종 관련 시험에 포함). 최종 build·compile-integrity·logging·
+루트 구조·node CI 4건을 확인했다. 실제 pin CLI의 변조 설정 5종은 thread/turn 시작 0회,
+loopback 수신 0회였고 기본 config·카탈로그 및 ChatGPT 읽기→발송 거절 회귀도 확인했다.
+독립 검수에서 ALL_PROXY 조용한 제거와 미검토 instruction 입력을 지적받아 source env 검사와
+설정 거절로 보완했다. 증거와 서버 밖 인수 목록은 실행 폴더 026-ax/result.md 및
+`.agents/reviews/026-ax-codex-core.md` 4회차 절에 기록한다. 기업/제품 전체 P05는 In review다.

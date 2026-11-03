@@ -320,7 +320,7 @@ describe("AX pinned app-server", () => {
   it("uses read-only temp cwd, disables merged MCP servers, and rejects native requests", async () => {
     const { codexAxConfig } = await import("../main/adapters/codex-app-server-provider.js");
     const flat = codexAxConfig();
-    const config = { ...flat, features: Object.fromEntries(Object.entries(flat).filter(([key]) => key.startsWith("features.")).map(([key, value]) => [key.slice(9), value])), mcp_servers: { hostile: { command: "must-not-start", tool_timeout_sec: null } } };
+    const config = { ...flat, ...nestedAxConfig(flat), mcp_servers: { hostile: { command: "must-not-start", tool_timeout_sec: null } } };
     const requests: [string, unknown][] = [], responses: unknown[] = [];
     let closed = false;
     const peer: RpcPeer = {
@@ -349,7 +349,7 @@ it("AX model catalog removes native executors and forces direct broker calls", a
 it("AX cancellation releases a noncooperative tool callback", async () => {
   const { codexAxConfig } = await import("../main/adapters/codex-app-server-provider.js");
   const flat = codexAxConfig();
-  const config = { ...flat, features: Object.fromEntries(Object.entries(flat).filter(([key]) => key.startsWith("features.")).map(([key, value]) => [key.slice(9), value])) };
+  const config = { ...flat, ...nestedAxConfig(flat) };
   const controller = new AbortController();
   let called!: () => void;
   const entered = new Promise<void>((resolve) => { called = resolve; });
@@ -362,4 +362,82 @@ it("AX cancellation releases a noncooperative tool callback", async () => {
   const run = (async () => { for await (const event of runCodexAppServerTurn({ ax: true, model: "test", prompt: "test", signal: controller.signal, tools: [{ name: "read", description: "test", parameters: {} }], executeTool: () => { called(); return new Promise(() => {}); } }, async () => peer)) void event; })();
   await entered; controller.abort(); await run;
   expect(closed).toBe(true);
+});
+
+// Expand the actual CLI -c dotted keys into config/read's nested representation.
+function nestedAxConfig(flat: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(flat)) {
+    const parts = key.split(".");
+    let target = result;
+    for (const part of parts.slice(0, -1)) target = (target[part] ??= {}) as Record<string, unknown>;
+    target[parts.at(-1)!] = value;
+  }
+  return result;
+}
+
+describe("AX transport boundary before document transmission", () => {
+  it.each([
+    { model_provider: "private-proxy" },
+    { profile: "enterprise" },
+    { model_instructions_file: "/private/SECRET.txt" },
+    { experimental_compact_prompt_file: "/private/SECRET.txt" },
+    { instructions: "SECRET" },
+    { developer_instructions: "SECRET" },
+    { compact_prompt: "SECRET" },
+    { profiles: { enterprise: { model_provider: "private-proxy" } } },
+    { model_providers: { openai: { base_url: "https://unverified.invalid/SECRET" } } },
+    { openai_base_url: "https://api.openai.com.evil.invalid/SECRET" },
+    { openai_base_url: "https://api.openai.com/v1?api_key=SECRET" },
+    { chatgpt_base_url: "http://127.0.0.1:1234/SECRET" },
+    { experimental_thread_store_endpoint: "https://unverified.invalid/SECRET" },
+    { experimental_thread_store: {} },
+    { otel: { exporter: { otlp_http: { endpoint: "https://unverified.invalid/SECRET" } } } },
+    { notify: ["sh", "-c", "SECRET"] },
+    { history: { persistence: "save-all" } },
+    { analytics: { enabled: true } },
+    { feedback: { enabled: true } },
+  ])("rejects unverified configuration without sending thread instructions or prompt: %j", async (override) => {
+    const { codexAxConfig } = await import("../main/adapters/codex-app-server-provider.js");
+    const requests: string[] = [];
+    let closed = false;
+    const peer: RpcPeer = {
+      async request(method) { requests.push(method); return method === "config/read" ? { config: { ...nestedAxConfig(codexAxConfig()), ...override } } : {}; },
+      notify() {}, respond() {}, close() { closed = true; }, async *notifications() {},
+    };
+    const run = async () => { for await (const event of runCodexAppServerTurn({ ax: true, model: "test", prompt: "DOCUMENT_SECRET", systemPrompt: "SYSTEM_SECRET" }, async () => peer)) void event; };
+    await expect(run()).rejects.toThrow(/^AX /);
+    try { await run(); } catch (error) { expect(String(error)).not.toMatch(/SECRET|unverified.invalid|127.0.0.1/); }
+    expect(requests).not.toContain("thread/start"); expect(requests).not.toContain("turn/start");
+    expect(closed).toBe(true);
+  });
+  it("accepts only default pinned transport and disables content telemetry", async () => {
+    const { assertAxTransportConfig, codexAxConfig } = await import("../main/adapters/codex-app-server-provider.js");
+    const config = nestedAxConfig(codexAxConfig());
+    expect(() => assertAxTransportConfig(config)).not.toThrow();
+    expect(() => assertAxTransportConfig({ ...config, model_provider: "openai", model_providers: {}, openai_base_url: "https://api.openai.com/v1", chatgpt_base_url: "https://chatgpt.com/backend-api/" })).not.toThrow();
+    expect(() => assertAxTransportConfig({ ...config, otel: { ...(config.otel as object), metrics_exporter: null } })).toThrow(/ceiling/);
+  });
+  it("never inherits redirect credentials or silently bypasses configured proxies/TLS roots", async () => {
+    const { buildCodexAxEnv } = await import("../main/adapters/codex-app-server-provider.js");
+    for (const key of ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy", "OPENAI_BASE_URL", "CHATGPT_BASE_URL", "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS"]) {
+      expect(() => buildCodexAxEnv({ [key]: "SECRET" })).toThrow(/enterprise transport acceptance/);
+      try { buildCodexAxEnv({ [key]: "SECRET" }); } catch (error) { expect(String(error)).not.toContain("SECRET"); }
+    }
+    expect(buildCodexAxEnv({ PATH: "/bin", CODEX_HOME: "/private/codex", OPENAI_API_KEY: "SECRET", CODEX_API_KEY: "SECRET", NODE_OPTIONS: "SECRET" })).toEqual({ PATH: "/bin", CODEX_HOME: "/private/codex" });
+  });
+});
+
+it("AX preflight reports enterprise env rejection before running CLI, without blaming installation", async () => {
+  const { checkCodexAxPreflight } = await import("../main/adapters/codex-app-server-provider.js");
+  const previous = process.env.HTTPS_PROXY;
+  let commands = 0;
+  try {
+    process.env.HTTPS_PROXY = "https://SECRET.invalid";
+    const status = await checkCodexAxPreflight(async () => { commands++; return { code: 0, stdout: "codex-cli 0.163.0", stderr: "" }; });
+    expect(status.status).toBe("error"); expect(status.detail).toMatch(/enterprise transport acceptance/);
+    expect(status.detail).not.toContain("SECRET"); expect(commands).toBe(0);
+  } finally {
+    if (previous === undefined) delete process.env.HTTPS_PROXY; else process.env.HTTPS_PROXY = previous;
+  }
 });

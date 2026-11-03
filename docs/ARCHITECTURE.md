@@ -53,7 +53,7 @@ agent 반쪽: 포트(`ports/`) → 도메인(`domain/`) → 어댑터(`adapters/
 ## 7. 0.2.6 AX — Codex 핵심 반복과 하네스 승인 설계 (2026-11-03)
 
 상태: 2회차 app-server·trusted broker(§7.8)에 3회차 사람 입력 승인 저장소와 실행 직전 검증(§7.9)을 추가했다.
-§7.1~7.7의 초기판 설명은 1회차 이력이며 현재 결정/검증은 §7.8~7.9를 우선한다. P01/P02 = `user-scenarios.md` UC-AX-026,
+§7.1~7.7의 초기판 설명은 1회차 이력이며 현재 결정/검증은 §7.8~7.10을 우선한다. P01/P02 = `user-scenarios.md` UC-AX-026,
 P03 = `requirements.md` FR-AX-026. 실제 셸·캘린더·보안 인수 전이며 기본 공급자 교체는 하지 않았다.
 대표님 11/3 지시: 1인 문서·일정 승인, 일상 승인은 대화 “응/보내”, 어려운 운영 변경만 계획·코드 승인.
 출시 목표 11/13, 기능 고정 11/9. 웹·로컬 동기화는 0.2.7로 미룬다.
@@ -367,3 +367,36 @@ trusted describe는 정확한 전체 효과 미리보기를 만들고, code에�
 
 P04 증거: `ax-approval-policy.contract.test.ts` human approval store / human broker composition.
 실제 셸 텍스트/음성 E2E와 코드 채널 인수, 실제 connector 권한은 11/7~11/9 남은 작업이다.
+
+
+### 7.10 4회차 — 전송 전 CLI 설정 경계 (2026-11-03)
+
+11/4의 Linux 로그인·broker 인수는 유지한다. 별도 API 키는 이 서버 환경에 없어 추론 시험을 하지 않았고,
+Windows/macOS 실기 및 기업 endpoint 자격·OS egress 인수는 남겨 둔다.
+11/5의 서버 가능 범위로 **미검증 CLI 전송 설정에서 문서 전송 전 거절**을 구현했다.
+
+`codex-ax`는 initialize → config/read → 검증 → thread/start(시스템 지시) → turn/start(본문) 순서다.
+검증 실패 시 thread/turn을 시작하지 않는다. 모델 목록 조회도 config/read 검증 뒤에 한다.
+허용 범위는 pin CLI의 기본 provider 또는 명시적 `openai`, 기본 OpenAI API URL과 기본 ChatGPT URL이다.
+custom model_providers·profile/profiles·원격 thread store·다른 URL은 거절한다. URL의 사용자정보·query·
+다른 path/스킴/유사 도메인도 허용하지 않는다. 지원하지 않는 설정을 지워 기본 클라우드로 대체하지 않는다.
+CLI의 별도 instructions/developer_instructions/compact prompt 및 instruction 파일 경로도 거절하여
+호스트가 보내지 않은 로컬 파일이나 지시가 암묵적으로 섞이는 경계를 줄인다.
+
+추론 subprocess·버전/로그인 명령은 `buildCodexAxEnv`를 사용한다. 공용 allowlist를 통과하기 전에
+HTTP(S)/ALL_PROXY(대소문자), 별도 CA/TLS 루트, OPENAI_BASE_URL/CHATGPT_BASE_URL을 확인하고
+값이 있으면 거절한다. 조직 proxy를 조용히 건너뛰지 않는다. 키/Node 옵션 등은 공용 allowlist로
+전달하지 않는다. API 키 방식은 별도 자격 경로 인수 전까지 지원 완료로 표시하지 않는다.
+기존 `codex` 공급자와 일반 subprocess 정책은 변경하지 않는다.
+
+pin CLI에 analytics·OTel exporter/trace/metrics·prompt/response 관측·history 저장·feedback·update 확인을
+끄는 override를 전달하고 config/read 결과를 검사한다. notify는 빈 배열로 덮고 실제 배열도 검사한다.
+설정 직렬화는 JSON 배열을 유지하여 notify=[]를 `{}`로 바꾸지 않는다. 차단 오류는 고정 문구만 사용한다.
+이는 CLI가 만드는 auth/cache/log 파일 전체가 없다는 보장이나 서버측 보존 정책의 증명이 아니다.
+
+검증: 합성 문서·로컬 수신 fixture와 실제 0.163.0 CLI에서 default config 허용, OpenAI/ChatGPT/custom
+provider 목적지 변조·instruction 파일·notify 변조의 thread/turn 시작 0회·수신 0회를 확인했다.
+실제 ChatGPT 로그인 broker 회귀는 읽기 1회·발송 승인 거절 1회·발송 0회·finish를 확인했다.
+OS firewall/DNS/CA/기업 proxy·원격 서비스 보존·화면 공개와 캡처 일치는 이 시험의 범위가 아니다.
+현재는 별도 enterprise transport 정책을 발급하는 API가 없으므로 기업 custom endpoint가 필요하면
+이 검사를 우회하지 않고 후속 구현과 자격 인수를 기다린다. 합성 fixture 원시 증거는 실행 폴더 result.md 참조.

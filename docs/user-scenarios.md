@@ -1135,3 +1135,10 @@ gRPC/Discord 단일 파이프라인 보존은 discord-entry-wiring 시험에 연
 삭제·결제·운영 변경은 별도 검토 계획과 사람 코드 입력으로만 한 번 실행한다.
 P02: `ax-approval-policy.contract.test.ts`의 `human approval store` 그룹: broker 실행 횟수, origin, scope,
 TTL, 변경·복수·취소·재시작·코드 오입력/replay/위험 효과 말 승인 거부.
+
+4회차 P01: 기업 문서 사용자는 검증하지 않은 사용자 CLI endpoint·proxy·원격 관측 설정으로
+대화/문서가 전송되지 않아야 한다. 현재 지원 범위는 고정 CLI의 기본 OpenAI 목적지이며
+기업 endpoint는 자격·네트워크 인수 전까지 거절한다. 목적지를 몰래 기본값으로 바꾸지도 않는다.
+P02: `codex-app-server-provider.contract.test.ts` — 설정 변조 시 thread/start·turn/start 0회,
+endpoint/관측 오류에 원문·URL·키 비노출, 자식 env의 proxy/TLS override 거절, 기본 설정 회귀.
+실제 pin CLI + 합성 문서 + loopback 수신 fixture는 별도 실행 증거로 기록한다.

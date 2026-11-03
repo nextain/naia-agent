@@ -4,6 +4,7 @@
 // `codex app-server`를 사용하며 auth.json/token을 읽거나 복사하지 않는다.
 // app-server JSONL 프로토콜은 이 파일 안에 격리하고 ProviderPort에는 정규화 chunk만 노출한다.
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import { buildIsolatedSubprocessEnv } from "./subprocess-session.js";
 import type { ProviderChatOpts, ProviderPort, ToolExecutorPort } from "../ports/uc1.js";
 import type { ChatMessage, ProviderChunk, ProviderConfig, ToolCall, ToolSpec } from "../domain/chat.js";
 import { codexThreadWorkspace, type WorkspaceBind } from "../domain/workspace-bind.js";
@@ -512,6 +513,10 @@ export async function* runCodexAppServerTurn(
 
 // AX is pinned independently of legacy Codex. SDK is deliberately not installed.
 export async function checkCodexAxPreflight(runVersion?: RunCodexStatus, runLogin?: RunCodexStatus): Promise<CodexPreflightStatus> {
+  if (!runVersion || !runLogin) {
+    try { buildCodexAxEnv(); }
+    catch { return { status: "error", detail: "AX proxy/TLS override requires enterprise transport acceptance" }; }
+  }
   try {
     const version = await (runVersion ?? (() => runCodexCommand(["--version"])))();
     if (version.code !== 0 || version.stdout.trim() !== `codex-cli ${CODEX_CLI_VERSION}`) {
@@ -525,12 +530,12 @@ export async function checkCodexAxPreflight(runVersion?: RunCodexStatus, runLogi
 
 async function runCodexCommand(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
   const { execFile } = await import("node:child_process");
-  const { resolveFallbackCommand, buildIsolatedSubprocessEnv } = await import("./subprocess-session.js");
+  const { resolveFallbackCommand } = await import("./subprocess-session.js");
   const bin = resolveFallbackCommand("codex");
   return new Promise((resolve, reject) => {
     execFile(bin.command, [...bin.prefixArgs, ...args], {
       timeout: 10_000, maxBuffer: 2 * 1024 * 1024, windowsHide: true,
-      env: buildIsolatedSubprocessEnv(process.env, ["CODEX_HOME"]),
+      env: buildCodexAxEnv(),
     }, (error, stdout, stderr) => {
       if (error && typeof error.code !== "number") reject(error);
       else resolve({ code: error?.code as number ?? 0, stdout, stderr });
@@ -554,6 +559,9 @@ export function codexAxConfig(): Record<string, unknown> {
     "approval_policy": "never", "sandbox_mode": "read-only",
     "project_doc_max_bytes": 0, "model_reasoning_effort": "low",
     "analytics.enabled": false, "otel.exporter": "none", "otel.trace_exporter": "none",
+    "otel.metrics_exporter": "none", "otel.log_user_prompt": false, "otel.log_agent_responses": false,
+    "history.persistence": "none", "feedback.enabled": false, "check_for_update_on_startup": false,
+    "notify": [],
   };
 }
 
@@ -561,18 +569,57 @@ function assertAxConfig(config: Record<string, unknown> | undefined): void {
   if (!config || config.web_search !== "disabled" || config.sandbox_mode !== "read-only" || config.approval_policy !== "never") {
     throw new Error("AX Codex configuration ceiling not established");
   }
+  assertAxTransportConfig(config);
   const features = config.features as Record<string, unknown> | undefined;
   if (AX_DISABLED_FEATURES.some((key) => features?.[key] !== false)) throw new Error("AX native tools are not disabled");
 }
 
+/** Default pinned CLI transport only. Never print untrusted config values. */
+export function assertAxTransportConfig(config: Record<string, unknown>): void {
+  const provider = config.model_provider;
+  const providers = config.model_providers;
+  const profiles = config.profiles;
+  const defaultUrl = (value: unknown, expected: string) => value == null || value === expected;
+  if (["model_instructions_file", "experimental_compact_prompt_file", "instructions", "developer_instructions", "compact_prompt"].some((key) => config[key] != null) ||
+      config.profile != null ||
+      (profiles != null && (typeof profiles !== "object" || Array.isArray(profiles) || Object.keys(profiles).length !== 0)) ||
+      (provider != null && provider !== "openai") ||
+      (providers != null && (typeof providers !== "object" || Array.isArray(providers) || Object.keys(providers).length !== 0)) ||
+      !defaultUrl(config.openai_base_url, "https://api.openai.com/v1") ||
+      !defaultUrl(config.chatgpt_base_url, "https://chatgpt.com/backend-api/") ||
+      config.experimental_thread_store_endpoint != null || config.experimental_thread_store != null) {
+    throw new Error("AX unverified model transport configuration; no fallback");
+  }
+  const otel = config.otel as Record<string, unknown> | undefined;
+  const analytics = config.analytics as Record<string, unknown> | undefined;
+  const history = config.history as Record<string, unknown> | undefined;
+  const feedback = config.feedback as Record<string, unknown> | undefined;
+  if (otel?.exporter !== "none" || otel.trace_exporter !== "none" || otel.metrics_exporter !== "none" ||
+      otel.log_user_prompt !== false || otel.log_agent_responses !== false || analytics?.enabled !== false ||
+      history?.persistence !== "none" || feedback?.enabled !== false || config.check_for_update_on_startup !== false ||
+      (config.notify != null && (!Array.isArray(config.notify) || config.notify.length !== 0))) {
+    throw new Error("AX telemetry/history/notification ceiling not established");
+  }
+}
+
+/** A proxy or alternate trust root needs a separately reviewed enterprise policy.
+ * Reject rather than silently bypassing the organization's configured proxy. */
+export function buildCodexAxEnv(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const overrides = ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy",
+    "OPENAI_BASE_URL", "CHATGPT_BASE_URL",
+    "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS"];
+  if (overrides.some((key) => !!source[key])) throw new Error("AX proxy/TLS override requires enterprise transport acceptance");
+  return buildIsolatedSubprocessEnv(source, ["CODEX_HOME"]);
+}
+
 async function spawnCodexAx(cwd: string, modelCatalog?: string): Promise<ChildProcessWithoutNullStreams> {
   const { spawn } = await import("node:child_process");
-  const { resolveFallbackCommand, buildIsolatedSubprocessEnv } = await import("./subprocess-session.js");
+  const { resolveFallbackCommand } = await import("./subprocess-session.js");
   const bin = resolveFallbackCommand("codex");
-  const args = Object.entries({ ...codexAxConfig(), ...(modelCatalog ? { model_catalog_json: modelCatalog } : {}) }).flatMap(([key, value]) => ["-c", `${key}=${typeof value === "object" ? "{}" : JSON.stringify(value)}`]);
+  const args = Object.entries({ ...codexAxConfig(), ...(modelCatalog ? { model_catalog_json: modelCatalog } : {}) }).flatMap(([key, value]) => ["-c", `${key}=${JSON.stringify(value)}`]);
   return spawn(bin.command, [...bin.prefixArgs, "app-server", ...args], {
     cwd, stdio: ["pipe", "pipe", "pipe"], windowsHide: true,
-    env: buildIsolatedSubprocessEnv(process.env, ["CODEX_HOME"]),
+    env: buildCodexAxEnv(),
   });
 }
 
@@ -590,6 +637,8 @@ export async function listCodexAxModels(): Promise<readonly { id: string; provid
     peer = await makeCodexRpcPeer(() => spawnCodexAx(cwd));
     await peer.request("initialize", { clientInfo: { name: "naia-agent", version: "0.2.6" } });
     peer.notify("initialized");
+    const effective = await peer.request("config/read", { includeLayers: false }) as { config?: Record<string, unknown> };
+    assertAxConfig(effective.config);
     const result = await peer.request("model/list", { limit: 100 }) as { data?: { id?: string; model?: string }[] };
     if (!Array.isArray(result.data)) throw new Error("Invalid Codex model catalog");
     return result.data.map((model) => ({ id: model.model ?? model.id ?? "", provider: "codex-ax", tools: true, use: "chat" })).filter((m) => m.id);

@@ -124,3 +124,17 @@ HTTP 요청 0, shell marker=false, MCP marker=false, completed=true를 확인했
 ### 3회차 최종 합성 재검토
 
 `makeAxHumanEffectBroker`가 저장소의 conversation/code callback과 실행 직전 validator를 같은 broker에 함께 주입하는 것을 확인했다. 최종 문서는 실제 wire 미구현·화자 인증과 과거 STT 버퍼 금지·trusted host 책임을 명시한다. 코드/대화 양쪽 취소·만료·재시작·변경 회귀 및 세 가지 효과의 factory 합성 시험을 포함하여 AX 계약 시험 **70건 모두 독립 재실행 통과**했다. 원시 로그: 실행 폴더 `tmp/r3-independent-final.log`. 이 최종 저장소/factory diff에서 잔여 blocker 없음. 실제 셸/외부 connector 인수는 기존 범위 제한을 유지한다.
+
+
+## 4회차 독립 적대 리뷰 (2026-11-03 UTC)
+
+- 리뷰어: `/root/transport_review`. FR-AX-026.10과 4회차 사용자 시나리오, production diff, 공용 subprocess env allowlist, pin CLI 설정 schema를 대조했다. production 코드·헌장·커밋은 수정하지 않았다.
+- 발견 및 보완: 최초 env 검사에서 ALL_PROXY/all_proxy는 allowlist 제거 후 검사하여 기업 proxy를 조용히 우회했다. 부모가 원본 env에서 proxy·endpoint·TLS override를 검사하도록 바꾸었고 관련 회귀를 확인했다.
+- 추가 보완: CLI model_instructions_file 등 사용자 instruction 입력은 host가 공개한 텍스트 외의 로컬 내용을 추가할 가능성이 있어 거절하도록 요청했다. 부모가 model/compact instruction 경로 및 문자열을 thread/start 전에 거절했다. 실제 민감 파일 읽기나 외부 모델 전송을 재현한 것은 아니며 보수적 경계 강화다.
+- profile 의심은 실제 pin CLI로 합성 설정을 읽어 반증했다. legacy profile 설정은 config/read 자체에서 거절되었고 우회는 확인하지 못했다. 부모는 선택 profile·비어 있지 않은 profiles도 보수적으로 거절했다.
+- 직접 재실행: `TMPDIR=/home/nextain/work/codex-runs/026-ax/tmp node_modules/.bin/vitest run src/test/codex-app-server-provider.contract.test.ts` — 최종 **36건 통과**. 원시 출력 `tmp/r4-independent-transport-final.log`. 시험은 thread/start·turn/start 미호출 및 오류의 비밀값 비노출을 직접 확인하므로 단순 함수 반환만 보는 검증이 아니다.
+- 판정: 검토한 AX CLI transport/config 경계에 잔여 blocker 없음. OS egress·DNS·인증 저장소·기업 CA·실제 Shell 공개 화면 또는 민감 문서 전체 보안 인수를 승인하는 판정은 아니다. 운영 접속·실모델 호출·다른 작업자 저장소 접근은 수행하지 않았다.
+
+### 4회차 최종 경로 재검토
+
+부모의 마지막 두 변경도 독립 대조했다. preflight는 실제 env 검증 실패를 설치 실패로 오분류하지 않고 정적 enterprise acceptance 오류로 반환하며, 모델 목록 경로도 config/read 검증을 model/list보다 먼저 실행한다. 관련 app-server 계약 시험을 최종 소스에서 다시 실행하여 **36건 통과**했다 (`tmp/r4-independent-transport-final2.log`). 기존 리뷰 판정과 범위 한계는 유지한다.
