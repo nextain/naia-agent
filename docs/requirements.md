@@ -1174,3 +1174,26 @@ sourceRevision 고정/closure 해시/claim gate를 현재 HEAD로 무조건 덮�
 전체 실행은 4파일/24실패/2379통과/11skip/1error였고 이후 Discord 대기·controlled fixture를 보완했다.
 남은 고정 revision benchmark 22건과 비용 analyzer frozen closure 1건은 기준 재인수가 필요하다.
 전체 최종 snapshot 재실행 없이 전체 green을 선언하지 않는다. build/구조/CI/로그/compile 검증 통과.
+
+### FR-AX-026.13 — 합성 문서 보존·삭제·감사 및 효과 대조 (7회차)
+
+P01/P02: UC-AX-026 7회차. P03: host 전용 lifecycle capability는 유한 만료 시각과
+현재 시각을 검증하고 만료 문서는 반환하지 않는다. 만료/명시 삭제는 remove 뒤 exists=false를
+확인해야 하며 감사 저장 실패나 잔류는 실패다. 감사 자료는 무작위 참조·사건 종류·시각만 포함한다.
+원문·문서 이름·저장소 키·승인 코드는 감사/diagnostic/model-facing 결과에 넣지 않는다.
+connector는 host verifyReceipt가 승인된 payload digest와 실제 수신/저장 효과를 대조한 경우만
+성공한다. write 응답과 복구 lookup 모두 검증하며 원격 receipt는 모델에 반환하지 않는다.
+이는 host adapter 계약이며 운영 보존 정책/법적 보존 기간/백업 삭제/실제 provider 인수 주장이 아니다.
+명시 삭제 API는 인증·코드 승인을 마친 host만 호출한다. 자동 만료는 사전 합의한 보존 정책이다.
+P04: 합성 fixture 시험 예정. P05: In review (실제 저장소·계정·독립 검수 대기).
+7회차 P04 중간 근거: AX 99건 + Codex app-server 37건, 총 136건 통과
+(`codex-runs/026-ax/tmp/r7-target3.log`). 합성 HTTP 수신 digest 대조 보강 뒤 최종 회귀는 별도 기록한다.
+7회차 기존 실패 정리: benchmark 시험의 임시 빌드는 `.agents/work` 고정 경로 대신 tmpdir를
+사용하고 전용 dist 안의 node_modules 링크로 런타임 해석을 유지한다. frozen 기준은 바꾸지 않는다.
+7회차 P04 최종: 합성 HTTP 수신 payload 재해시 포함 AX 99건 및 기억 요약 재검증 7건 통과
+(`tmp/r7-final-target.log`). Codex app-server 37건은 넓은 회귀에서도 통과했다.
+두 frozen benchmark 파일을 제외한 184개 파일 회귀는 2390 통과/2 실패/11 skip,
+실패는 비용 closure와 부하 중 기억 요약 5초 timeout이다. 기억 요약은 수정 없이 재검증 7/7 통과했다.
+두 benchmark의 대표 재실행은 새 tmpdir에서 컴파일 후 기존 frozen revision 차이로 각각 거절됐다
+(`tmp/r7-frozen-probe.log`). 비용 closure는 고정 3655파일 대비 현재 3683파일이다.
+전체 green 또는 보안·제품 인수 완료를 주장하지 않으며 P05 In review를 유지한다.

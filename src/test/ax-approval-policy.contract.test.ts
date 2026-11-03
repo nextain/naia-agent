@@ -380,7 +380,9 @@ describe("AX connector fake service", () => {
       } else {
         let body = "";
         for await (const part of req) body += part;
-        const { digest } = JSON.parse(body);
+        const { digest, call: receivedCall } = JSON.parse(body);
+        const actualDigest = createHash("sha256").update(JSON.stringify({ name: receivedCall.name, args: receivedCall.args })).digest("hex");
+        if (actualDigest !== digest) { res.writeHead(409); res.end(); return; }
         const prior = receipts.get(key);
         if (prior && prior.digest !== digest) { res.writeHead(409); res.end(); return; }
         receipts.set(key, { digest, receipt: "event-1" });
@@ -391,7 +393,7 @@ describe("AX connector fake service", () => {
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
     const address = server.address() as { port: number };
     const endpoint = `http://127.0.0.1:${address.port}/operation`;
-    const registrations = makeAxConnectorRegistrations({ keyFor: () => "host-operation", diag, timeoutMs: 1000,
+    const registrations = makeAxConnectorRegistrations({ verifyReceipt: async (_key, digest, receipt) => receipts.get("operation")?.digest === digest && receipt === "event-1", keyFor: () => "host-operation", diag, timeoutMs: 1000,
       draft: async () => ({ output: "local draft" }),
       lookup: async (_key, digest, signal) => {
         const response = await fetch(endpoint, { signal });
@@ -406,7 +408,7 @@ describe("AX connector fake service", () => {
       } });
     const broker = makeAxEffectBroker({ registrations, conversationApproval: async () => allowed, diag });
     try { await run({ broker, requests, approve: (v) => { allowed = v; }, setUnknown: () => { unknown = true; }, setSlow: () => { slow = true; },
-      restart: () => makeAxEffectBroker({ registrations: makeAxConnectorRegistrations({ keyFor: () => "host-operation", diag,
+      restart: () => makeAxEffectBroker({ registrations: makeAxConnectorRegistrations({ verifyReceipt: async (_key, digest, receipt) => receipts.get("operation")?.digest === digest && receipt === "event-1", keyFor: () => "host-operation", diag,
         draft: async () => ({ output: "local draft" }),
         lookup: async (_key, _digest, signal) => (await (await fetch(endpoint, { signal })).json()) as { status: "found"; receipt: string },
         write: async () => { throw new Error("Recovery must not write"); } }), conversationApproval: async () => allowed, diag }) }); }
@@ -415,7 +417,7 @@ describe("AX connector fake service", () => {
   const event = { id: "event", name: "calendar_create", args: { title: "synthetic", start: "2026-11-07T10:00:00+09:00", end: "2026-11-07T11:00:00+09:00", timeZone: "Asia/Seoul" } };
   it("registers one approved event; duplicate queries first with no second write", async () => fixture(async ({ broker, requests }) => {
     expect((await broker.execute(event, {})).isError).not.toBe(true);
-    expect(JSON.parse((await broker.execute({ ...event, id: "retry" }, {})).output)).toEqual({ receipt: "event-1", recovered: true });
+    expect(JSON.parse((await broker.execute({ ...event, id: "retry" }, {})).output)).toEqual({ reference: expect.any(String), recovered: true });
     expect(requests).toEqual(["GET", "POST", "GET"]);
   }));
   it("cancelled approval performs zero service requests; local draft needs none", async () => fixture(async ({ broker, requests, approve }) => {
@@ -468,4 +470,93 @@ describe("AX connector fake service", () => {
     expect((await broker.execute({ ...event, args: { ...event.args, title: "changed" } }, {})).isError).toBe(true);
     expect(requests).toEqual(["GET", "POST", "GET"]);
   }));
+});
+
+// Synthetic fixtures only. No customer documents, credentials or approval codes.
+import { makeAxDocumentLifecycle } from "../main/adapters/ax-policy-tool-executor.js";
+import { createHash } from "node:crypto";
+
+describe("FR-AX-026.13 synthetic document lifecycle", () => {
+  const secret = "SYNTHETIC-document-key-code-PII@example.invalid";
+  function fixture() {
+    let now = 99;
+    const documents = new Map([[secret, "SYNTHETIC customer body"]]);
+    const audit = vi.fn(async (_event: unknown) => {});
+    const diag = { log: vi.fn(), debug: vi.fn() };
+    const remove = vi.fn(async (key: string) => { documents.delete(key); });
+    const lifecycle = makeAxDocumentLifecycle({ now: () => now, remove,
+      exists: async (key) => documents.has(key), audit, diag });
+    return { lifecycle, documents, audit, diag, remove, advance: (n: number) => { now = n; } };
+  }
+  it("retains before expiry, removes at boundary, retries safely without PII audit", async () => {
+    const f = fixture(); const record = { storageKey: secret, expiresAt: 100 };
+    expect((await f.lifecycle.check(record)).status).toBe("retained");
+    expect(f.documents.size).toBe(1); expect(f.remove).not.toHaveBeenCalled();
+    f.advance(100);
+    const expired = await f.lifecycle.check(record);
+    expect(expired.status).toBe("expired"); expect(f.documents.size).toBe(0);
+    expect((await f.lifecycle.check(record)).status).toBe("expired");
+    expect(JSON.stringify([f.audit.mock.calls, f.diag.debug.mock.calls, expired])).not.toContain(secret);
+    expect(f.audit.mock.calls.map(([event]) => (event as { action: string }).action)).toEqual(["retained", "expired", "expired"]);
+  });
+  it("explicit deletion confirms absence; residual copies fail closed", async () => {
+    const f = fixture(); f.remove.mockImplementationOnce(async () => {});
+    expect(await f.lifecycle.check({ storageKey: secret, expiresAt: 100 }, true)).toEqual({ status: "unresolved" });
+    expect(f.audit).not.toHaveBeenCalled();
+    expect((await f.lifecycle.check({ storageKey: secret, expiresAt: 100 }, true)).status).toBe("deleted");
+    expect(f.documents.size).toBe(0);
+  });
+  it("audit outage and storage errors never report successful deletion", async () => {
+    const f = fixture(); f.remove.mockRejectedValueOnce(new Error(secret));
+    expect(await f.lifecycle.check({ storageKey: secret, expiresAt: 100 }, true)).toEqual({ status: "unresolved" });
+    f.audit.mockRejectedValueOnce(new Error(secret));
+    expect(await f.lifecycle.check({ storageKey: secret, expiresAt: 100 }, true)).toEqual({ status: "unresolved" });
+    expect(f.documents.size).toBe(0);
+    expect((await f.lifecycle.check({ storageKey: secret, expiresAt: 100 }, true)).status).toBe("deleted");
+  });
+  it.each([NaN, Infinity, -Infinity])("rejects invalid expiry %s without touching storage", async (expiresAt) => {
+    const f = fixture();
+    expect(await f.lifecycle.check({ storageKey: secret, expiresAt })).toEqual({ status: "unresolved" });
+    expect(f.remove).not.toHaveBeenCalled(); expect(f.audit).not.toHaveBeenCalled();
+  });
+  it("rejects invalid host clock and absent retained document", async () => {
+    const f = fixture(); f.advance(NaN);
+    expect((await f.lifecycle.check({ storageKey: secret, expiresAt: 100 })).status).toBe("unresolved");
+    f.advance(99); f.documents.clear();
+    expect((await f.lifecycle.check({ storageKey: secret, expiresAt: 100 })).status).toBe("unresolved");
+  });
+});
+
+describe("FR-AX-026.13 approval receipt versus actual synthetic effect", () => {
+  it.each([false, true])("verifies new and recovered effects; recovered=%s", async (recovered) => {
+    const payload = { id: "synthetic", name: "document_send", args: { body: "SYNTHETIC PII body", to: "synthetic@example.invalid" } };
+    const expectedDigest = createHash("sha256").update(JSON.stringify({ name: payload.name, args: payload.args })).digest("hex");
+    const remoteReceipt = "SYNTHETIC raw body / private-key / approval-code";
+    let actualDigest = "changed destination";
+    const verifyReceipt = vi.fn(async (key: string, digest: string, receipt: string) =>
+      key === "private-storage-key" && receipt === remoteReceipt && actualDigest === digest);
+    const write = vi.fn(async () => remoteReceipt);
+    const diag = { log: vi.fn(), debug: vi.fn() };
+    const broker = makeAxEffectBroker({ diag, conversationApproval: async () => true,
+      registrations: makeAxConnectorRegistrations({ diag, keyFor: () => "private-storage-key",
+        draft: async () => ({ output: "draft" }), write, verifyReceipt,
+        lookup: async () => recovered ? { status: "found", receipt: remoteReceipt } : { status: "absent" } }) });
+    const mismatch = await broker.execute(payload, {});
+    expect(mismatch.isError).toBe(true);
+    actualDigest = expectedDigest;
+    const matched = await broker.execute(payload, {});
+    expect(matched.isError).not.toBe(true);
+    expect(JSON.parse(matched.output)).toEqual({ reference: expect.any(String), recovered });
+    expect(verifyReceipt).toHaveBeenCalledWith("private-storage-key", expectedDigest, remoteReceipt, expect.any(AbortSignal));
+    if (recovered) expect(write).not.toHaveBeenCalled();
+    const modelAndLogs = JSON.stringify([mismatch, matched, diag.debug.mock.calls, diag.log.mock.calls]);
+    for (const sensitive of [remoteReceipt, payload.args.body, payload.args.to, "private-storage-key"]) expect(modelAndLogs).not.toContain(sensitive);
+  });
+  it("verification exception is sanitized and does not leak into model result", async () => {
+    const registrations = makeAxConnectorRegistrations({ keyFor: () => "key", diag,
+      draft: async () => ({ output: "draft" }), lookup: async () => ({ status: "absent" }),
+      write: async () => "private receipt", verifyReceipt: async () => { throw new Error("secret code"); } });
+    const broker = makeAxEffectBroker({ registrations, diag, conversationApproval: async () => true });
+    expect(await broker.execute({ id: "1", name: "document_send", args: {} }, {})).toEqual({ output: "AX connector unresolved; query before retry", isError: true });
+  });
 });

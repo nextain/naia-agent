@@ -1160,3 +1160,12 @@ workspace_unconfigured/provider_unconfigured를 반환해야 한다. 기존 1초
 겹칠 때 조기 실패하여 두 경계의 대기만 늘리고 오류/exit 단언은 유지한다.
 6회차 전체 오류 후속: uc-naia-pi-controlled 가짜 gateway는 POST /v1/chat/completions만 JSON으로
 파싱하고 가격 조회 등 그 외 요청은 404로 끝낸다. 도구 write·모델/usage 단언은 유지한다.
+
+7회차 P01/P02 — 합성 기업 문서를 host 소유 저장소에 명시적 만료 시각으로 보관한다.
+만료 경계부터 읽기 불가, 삭제 후 존재 조회로 실제 제거를 확인하고 원문 없는 감사 사건만 남긴다.
+삭제/감사 실패는 성공으로 보고하지 않는다. 승인된 call의 digest와 실제 효과를 host가 조회하여
+영수증을 대조하며 불일치·검증 실패는 미결이다. 모델에는 원격 영수증 대신 불투명 참조만 보낸다.
+`ax-approval-policy.contract.test.ts`에 보존 경계·삭제 잔류·감사 실패·영수증 불일치·합성 비밀 누출을 매핑한다.
+7회차 시험 환경: 고정 issue-team/multi-issue benchmark의 빌드 임시 경로도 OS tmpdir
+(TMPDIR로 실행 폴더 tmp 지정)를 따른다. 외부 dist의 패키지 해석은 전용 node_modules 링크로
+유지한다. frozen sourceRevision·증거 비교 단언은 유지한다.

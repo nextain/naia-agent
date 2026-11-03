@@ -320,6 +320,7 @@ export function makeAxConnectorRegistrations(deps: {
   readonly lookup: (key: string, digest: string, signal: AbortSignal) => Promise<
     { status: "found"; receipt: string } | { status: "absent" | "unknown" }>;
   readonly write: (key: string, digest: string, call: ToolCall, signal: AbortSignal) => Promise<string>;
+  readonly verifyReceipt: (key: string, digest: string, receipt: string, signal: AbortSignal) => Promise<boolean>;
   readonly draft: ToolExecutorPort["execute"];
   readonly diag: DiagnosticLog;
   readonly timeoutMs?: number;
@@ -347,11 +348,15 @@ export function makeAxConnectorRegistrations(deps: {
       try {
         const digest = createHash("sha256").update(JSON.stringify({ name: call.name, args: call.args })).digest("hex");
         const prior = await bounded((signal) => deps.lookup(key, digest, signal), opts.signal);
-        if (prior.status === "found") return { output: JSON.stringify({ receipt: prior.receipt, recovered: true }) };
+        if (prior.status === "found") {
+          if (await bounded((signal) => deps.verifyReceipt(key, digest, prior.receipt, signal), opts.signal) !== true) throw new Error("Effect mismatch");
+          return { output: JSON.stringify({ reference: randomUUID(), recovered: true }) };
+        }
         if (prior.status !== "absent") return { output: "AX connector outcome unknown; query again", isError: true };
         opts.signal?.throwIfAborted();
         const receipt = await bounded((signal) => deps.write(key, digest, call, signal), opts.signal);
-        return { output: JSON.stringify({ receipt, recovered: false }) };
+        if (await bounded((signal) => deps.verifyReceipt(key, digest, receipt, signal), opts.signal) !== true) throw new Error("Effect mismatch");
+        return { output: JSON.stringify({ reference: randomUUID(), recovered: false }) };
       } finally { active.delete(key); }
     } catch {
       return { output: "AX connector unresolved; query before retry", isError: true };
@@ -382,4 +387,39 @@ function validateAxCalendar(args: unknown): void {
     return ms;
   });
   if (times[1]! <= times[0]!) throw new Error("Invalid interval");
+}
+
+/** FR-AX-026.13 / UC-AX-026: trusted host-only document lifecycle.
+ * Store implementations serialize access and cover originals, indexes and copies.
+ * No document bytes or storage identifiers are returned to the model or audit.
+ * A failed audit is observable even when deletion already happened; retry safely.
+ */
+export function makeAxDocumentLifecycle(deps: {
+  readonly now: () => number;
+  readonly remove: (storageKey: string) => Promise<void>;
+  readonly exists: (storageKey: string) => Promise<boolean>;
+  readonly audit: (event: { reference: string; action: "retained" | "expired" | "deleted"; at: number }) => Promise<void>;
+  readonly diag: DiagnosticLog;
+}) {
+  return {
+    async check(record: { storageKey: string; expiresAt: number }, explicitDelete = false): Promise<
+      { status: "retained" | "expired" | "deleted"; reference: string } | { status: "unresolved" }> {
+      deps.diag.debug?.("AxDocumentLifecycle check", { explicitDelete });
+      try {
+        const { storageKey, expiresAt } = record;
+        const at = deps.now();
+        if (!storageKey || !Number.isFinite(at) || !Number.isFinite(expiresAt)) throw new Error("Invalid retention policy");
+        const action = explicitDelete ? "deleted" : at >= expiresAt ? "expired" : "retained";
+        if (action !== "retained") {
+          await deps.remove(storageKey);
+          if (await deps.exists(storageKey)) throw new Error("Document remains");
+        } else if (!await deps.exists(storageKey)) throw new Error("Missing document");
+        const reference = randomUUID();
+        await deps.audit({ reference, action, at });
+        return { status: action, reference };
+      } catch {
+        return { status: "unresolved" };
+      }
+    },
+  };
 }

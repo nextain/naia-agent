@@ -450,3 +450,23 @@ connector lookup은 found(receipt)/absent/unknown으로 답한다. timeout·불�
 
 짝 셸 fixture 시험은 `NAIA_SHELL_ROOT=/absolute/peer`로 읽기 전용 위치를 지정할 수 있다.
 누락/내용 차이는 계속 실패한다. 실제 셸 인증·UI·음성 인수는 별도다.
+
+### 7.13 기업 문서 lifecycle와 영수증 대조 (FR-AX-026.13)
+
+`makeAxDocumentLifecycle`은 host 전용 capability이며 모델 도구로 등록하지 않는다.
+저장 시 host가 조직 정책으로 expiresAt을 정하고 원본·발췌·색인·캐시의 범위를 같은 저장소
+adapter에 결박한다. 읽기 전 check의 retained만 허용하고 unresolved/expired/deleted는 차단한다.
+자동 만료는 at >= expiresAt부터 remove→exists(false)→audit 순서다. 명시 삭제는 별도의
+인증/코드 승인을 마친 host만 요청한다. 감사 실패는 삭제가 이미 발생했더라도 unresolved이며
+다시 조회/감사한다. 저장소는 동시 읽기/삭제를 직렬화하고 재시작 후에도 만료 정책을 보존해야 한다.
+이 factory는 스케줄러·파일 저장소·법적 보존 정책 구현이 아니다. host 배선 전까지 자동 삭제 주장은 금지한다.
+감사는 무작위 reference/action/at만 저장하며 문서 키·원문·수신자·승인 코드가 없다.
+감사 자체의 보존 기간/접근통제/무결성·백업 삭제는 조직 adapter의 별도 인수 조건이다.
+
+connector의 필수 `verifyReceipt(key,digest,receipt,signal)`는 원격 응답 문자열을 믿는 대신
+인증된 서비스의 실제 수신 내용/목적지/계정과 승인 call의 digest를 비교한다. 신규 쓰기와
+복구 조회 모두 같은 검증을 통과해야 성공한다. 실패는 미결이며 자동 재발송하지 않는다.
+모델에는 매 응답마다 새로 만든 reference/recovered만 전달하고 원격 receipt는 보내지 않는다.
+reference는 감사용 작업 식별자나 증명 서명이 아니며 host의 영속 key를 대신하지 않는다.
+원문을 담은 도구 call 자체나 사용자가 모델에 준 문서를 제거하는 기능은 아니다. 비공개 문서를
+모델에 넣는 전송 공개/발췌 정책은 §7.8~7.12 host 경계에서 별도로 적용한다.

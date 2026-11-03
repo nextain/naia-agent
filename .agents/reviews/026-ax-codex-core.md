@@ -158,3 +158,16 @@ submit은 입력 payload에서 scope/origin/proposalId를 수입하지 않고 tr
 6회차 전체 시험 후속: 24 실패/2379 통과/11 skip/1 error를 확인했다.
 Discord startup 1초 경합과 controlled Pi fixture의 빈 GET JSON 파싱을 수정한 후 13건 통과·error 없음.
 전체 재실행의 대체로 취급하지 않으며 잔여 22개 frozen sourceRevision 및 1개 closure 인수가 필요하다.
+
+## 7회차 자체 검토 (2026-11-03)
+독립 검수 아님. FR-AX-026.13의 lifecycle은 host capability 계약이며 모델 도구로 노출하지 않는다.
+만료 경계와 삭제 잔류/감사 오류에 대한 실패를 합성 자료로 확인한다. 실제 저장소 직렬화·백업 삭제·
+법적 보존·감사 무결성은 구현 또는 인수했다고 주장하지 않는다. connector의 원격 receipt를 모델에
+반환하던 경로를 없애고 write/lookup 모두 host 실제 효과 대조를 요구한다. 신규 필수 callback이므로
+opt-in host는 verifyReceipt를 구현해야 한다. 순수 참조 문자열은 증명이나 영속 id가 아니다.
+HTTP fixture는 수신 call의 name/args를 다시 해시하여 승인 digest와 비교한다. 코드/원문이 이미
+모델 입력에 있는 경우를 제거하는 기능은 아니며 이번 누출 단언은 결과/진단/감사와 기존 승인 경계다.
+헌장 파일은 단독 수정 금지로 유지한다. 기존 frozen benchmark 인수 gate도 유지한다.
+최종 집중 106건(AX99+기억요약7) 통과. 두 frozen benchmark 제외 회귀 2390통과/2실패/11skip;
+기억 요약 timeout은 코드 변경 없이 7/7 재통과. 나머지 비용 closure 실패는 기존 기준 차이다.
+신규 tmpdir에서 benchmark 두 대표 경로도 컴파일 성공 후 frozen revision 거절을 확인했다.
