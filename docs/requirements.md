@@ -1168,3 +1168,9 @@ sourceRevision 고정/closure 해시/claim gate를 현재 HEAD로 무조건 덮�
 종료 시 연결을 닫는다. 실제 계정/셸/독립 검수 전 제품 P05 In review를 유지한다.
 6회차 전체 회귀 후속: Discord serve 설정 누락 시험의 1초 startup 대기는 부하에 취약하여 10초로
 조정했다. 실제 exit=1/오류 코드/help 계약은 그대로 검증하며 production 동작은 변경하지 않는다.
+6회차 전체 오류 후속: controlled Pi fixture의 빈 GET 요청 JSON 파싱 unhandled rejection은
+가짜 gateway의 메서드/경로 분기로 제거한다. 지원하지 않는 요청은 404이며 실제 API 호출이 아니다.
+6회차 검증 결과: 최종 AX/Pi CLI 90건, controlled Pi/Discord 후속 13건 통과 및 unhandled error 없음.
+전체 실행은 4파일/24실패/2379통과/11skip/1error였고 이후 Discord 대기·controlled fixture를 보완했다.
+남은 고정 revision benchmark 22건과 비용 analyzer frozen closure 1건은 기준 재인수가 필요하다.
+전체 최종 snapshot 재실행 없이 전체 green을 선언하지 않는다. build/구조/CI/로그/compile 검증 통과.

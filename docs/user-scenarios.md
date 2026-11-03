@@ -1158,3 +1158,5 @@ Node 공식 isBuiltin 판정으로 인식하고 나머지 의존성 closure 검�
 6회차 전체 회귀 후속: Discord serve의 설정 누락 프로세스는 부하 중에도 10초 안에 exit=1 및
 workspace_unconfigured/provider_unconfigured를 반환해야 한다. 기존 1초 대기는 다른 전체 시험과
 겹칠 때 조기 실패하여 두 경계의 대기만 늘리고 오류/exit 단언은 유지한다.
+6회차 전체 오류 후속: uc-naia-pi-controlled 가짜 gateway는 POST /v1/chat/completions만 JSON으로
+파싱하고 가격 조회 등 그 외 요청은 404로 끝낸다. 도구 write·모델/usage 단언은 유지한다.

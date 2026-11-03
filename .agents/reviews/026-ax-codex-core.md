@@ -155,3 +155,6 @@ submit은 입력 payload에서 scope/origin/proposalId를 수입하지 않고 tr
 가짜 HTTP 시험에서 승인/취소·문서 발송·시간대·응답 손실·동시 중복·payload 충돌을 확인한다.
 실제 캘린더/기업 PII/셸 인증을 인수한 것은 아니다. production 신규 파일/거짓 앵커는 없다.
 전체 시험의 고정 sourceRevision 및 runtime closure manifest 불일치는 보안 gate를 완화하지 않고 남긴다.
+6회차 전체 시험 후속: 24 실패/2379 통과/11 skip/1 error를 확인했다.
+Discord startup 1초 경합과 controlled Pi fixture의 빈 GET JSON 파싱을 수정한 후 13건 통과·error 없음.
+전체 재실행의 대체로 취급하지 않으며 잔여 22개 frozen sourceRevision 및 1개 closure 인수가 필요하다.

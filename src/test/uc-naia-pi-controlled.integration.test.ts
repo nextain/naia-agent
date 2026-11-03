@@ -41,6 +41,7 @@ describe("UC-NAIA-PI controlled Agent -> real Pi -> Naia-compatible gateway", ()
   it("Grok receives tools, executes write, and reports the selected model", async () => {
     let calls = 0;
     const server = createServer(async (req, res) => {
+      if (req.method !== "POST" || req.url !== "/v1/chat/completions") { res.writeHead(404).end(); return; }
       const body = await bodyOf(req);
       calls += 1;
       expect(req.url).toBe("/v1/chat/completions");
@@ -83,6 +84,7 @@ describe("UC-NAIA-PI controlled Agent -> real Pi -> Naia-compatible gateway", ()
 
   it("DeepSeek --no-tools sends no tool definitions and completes analysis", async () => {
     const server = createServer(async (req, res) => {
+      if (req.method !== "POST" || req.url !== "/v1/chat/completions") { res.writeHead(404).end(); return; }
       const body = await bodyOf(req);
       expect(body.model).toBe("deepseek-v4-pro");
       expect(body.tools).toBeUndefined();
