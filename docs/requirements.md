@@ -1202,3 +1202,13 @@ P04: 합성 fixture 시험 예정. P05: In review (실제 저장소·계정·독
 상태: In review (P01~P04 구현·Linux 검증, Windows/macOS 실기 인수 대기). 공용 CLI/gRPC 조립기는 NAIA_MEMO_PATH > NAIA_HOME/memos.json > ~/.naia/memos.json 순으로 경로를 정한다. 명시 override에는 자동 이관하지 않는다. 옛 ~/.naia-agent/memos.json이 있고 대상이 없으면 배타적 복사하며 원본을 삭제하지 않는다. 기존 대상은 그대로 유지한다. 복사 실패는 시작 실패로 드러내며 옛 저장소로 조용히 되돌아가지 않는다. Windows 경로 함수와 Linux 실파일 통합 시험을 구분한다.
 
 P04 evidence (r8): uc5-file-memo 15/15, 독립 적대 리뷰 `.agents/reviews/026-ax-codex-core.md` 8회차. 고정 benchmark 두 파일 제외 회귀 2398통과/1실패/11skip(비용 analyzer 기존 closure 불일치). Windows/macOS 실파일 인수 전 In review.
+
+### FR-AX-026.15 — 셸 승인 연결 경계 (r9, In review)
+P01/P02: UC-AX-026 r9. P03: 인증 함수의 허용 origin 두 값만 수용하며 예외는 거절한다. capture 시점 scope와 submit scope는 같아야 한다. 인증 실패·변경·종료·재사용에는 효과가 없어야 한다. 셸 초안의 실제 함수를 서버 계약 시험으로 실행하고 code는 별도 인자로만 전달한다. 실제 Tauri 인증·화면 ACK·음성 장치 연결은 기기 인수 전이다. 비용 analyzer 합성 시험은 테스트 전용 base contract를 사용하며 생산 frozen 계약을 수정하거나 완화하지 않는다.
+
+r9 회귀 수용: multi-issue/issue-team의 오래된 sourceRevision 산출물은 변경 없는 production runner와 현재 커밋 입력으로 무과금 재생성한다. 기존 observation·gates·claimAllowed·비용은 동일해야 하며 sourceRevision/provenance 변경만 수용한다. source/digest 검사를 제거하지 않는다. 재생성 JSON은 커밋하여 재현 근거로 남긴다.
+r9 취소 시험 요구사항: 실제 자식이 준비를 알린 뒤 cancel해야 한다. 에스컬레이션·terminal 1회 단언은 유지한다. production subprocess 구현은 변경하지 않는다.
+
+r9 P04 검증: NAIA_SHELL_ROOT 지정 `pnpm test`(tsc 포함) 186파일 중 183통과/3skip,
+2438통과/실패0/11skip. 비용·결정론 산출물·취소 회귀 전부 포함. 독립 리뷰 집중126건 및 취소8건 통과.
+서버 구현·계약 검증은 수용했으며 실제 native 인증/UI/음성·기기 인수 전 FR-AX-026.15는 In review 유지.

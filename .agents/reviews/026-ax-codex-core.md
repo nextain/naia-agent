@@ -176,3 +176,24 @@ HTTP fixture는 수신 call의 name/args를 다시 해시하여 승인 digest와
 리뷰어 `/root/memo_review`는 FR-AX-026.14, UC r8, §7.14 및 공용 조립기/시험 diff를 대조했다. 원본 보존·배타 복사·NAIA_HOME/명시 override 우선순위·기존 대상 불변·복사 실패 전파에 차단 결함 없음. 최초 runtime 시험의 content/output 필드 오류를 지적했고 수정 후 14건을 직접 재실행했다. Windows migration filesystem 인수 보강 제안도 반영했다. Windows 실파일 인수는 이 서버의 문자열/fake fs 검증으로 대체하지 않는다. P05는 실기 전 In review.
 
 리뷰어 최종 재실행: 보강된 15/15 통과. drive/UNC 경로의 mkdir/copy 및 COPYFILE_EXCL 인수 확인. 넓은 회귀 184파일 2398통과/1실패/11skip(고정 benchmark 2파일 제외); 잔여 비용 analyzer closure 기준 불일치.
+
+## r9 — 셸 adapter 계약 / 비용 회귀 (2026-11-03 UTC)
+
+독립 적대 리뷰: `/root/review_r9` (읽기 전용).
+발견: peer checkout 무조건 의존(P1), scope 객체 JSON 순서 의존(P2), frozen 거부 시험이
+우연한 runtime drift에 의존. 수정: NAIA_SHELL_ROOT 명시 시 peer 11건 실행, 기본 환경은
+Agent 자체 실패 경계 5건 실행; scope 네 필드 tuple; 명시 변조 digest 거절 검증.
+후속 정적 검토는 위 세 건 해소 및 추가 실행 우회 없음. 테스트 전용 baseContract는 생산
+frozen 검증을 변경하지 않는다. 결정론 산출물 재실행도 sourceRevision을 실제 시작 HEAD로
+보존하고 observation/gates를 변경하지 않는 조건에서 수용했다. 실 UI·인증·음성·기기 인수는 남음.
+독립 실행: 지정 PATH/TMPDIR/NAIA_SHELL_ROOT로 변경 시험 2파일 126/126 재실행 통과.
+Agent 자체 peer 미지정 실행: 104통과/11skip. 전체 검증 결과는 이번 회차 result.md와
+아래 후속 기록 참조. 헌장 process-status는 사용자 승인 없는 단독 수정 금지에 따라 유지한다.
+후속 전체 실행에서 기존 AC1 실 자식 취소 시험의 고정 150ms 대기 경합을 재현했다
+(SIGTERM handler 설치 전 취소 → SIGKILL 미관측). 준비 ACK를 기다리도록 시험만 변경했다.
+독립 재검토: 5초 준비 timeout/10초 시험 예산, finally timer 정리·cancel 적절,
+SIGTERM/SIGKILL/terminal 1회 단언 유지. 독립 재실행 8/8 통과, 차단 결함 없음.
+최종 전체 직접 재실행: `NAIA_SHELL_ROOT=/home/nextain/work/026-shell pnpm test`(tsc 포함),
+186파일 중 183통과/3skip, 2438통과/실패0/11skip. 비용·결정론22건·준비ACK 취소 포함.
+원시 실행 로그는 실행 폴더 `tmp/r9-full-accepted.log`; 결정론 재현 JSON은 저장소에 추적한다.
+실 UI/OS/계정 인수 전 P05 In review 유지.

@@ -1173,3 +1173,9 @@ workspace_unconfigured/provider_unconfigured를 반환해야 한다. 기존 1초
 ## UC-AX-026 r8 — 데이터 홈 메모 이관 (P01/P02)
 4060 사용자는 NAIA_HOME으로 선택한 데이터 홈에 메모를 보존한다. 명시 NAIA_MEMO_PATH가 우선하며 공백 설정은 미설정으로 취급한다. 옛 ~/.naia-agent/memos.json은 대상 부재 시 배타적으로 복사하고 원본을 보존한다. 기존 대상은 덮어쓰거나 합치지 않는다.
 Test Coverage Map: src/test/uc5-file-memo.contract.test.ts의 데이터 홈 경로/이관 그룹 — POSIX·Windows drive/UNC, 기존 대상, 명시 override, 재시작, 복사 오류 및 실제 런타임 memo save/list/get 검증. P04는 이번 실행 기록, P05는 독립 검수 전 In review.
+
+### UC-AX-026 r9 — 셸 승인 adapter 인수
+사용자는 표시된 목적지·내용을 확인한 뒤 직접 캡처한 입력으로 한 번 승인한다. 인증 origin 위조·인증 장애·scope 변경·재사용은 효과 0회여야 한다. 코드 승인은 별도 비공개 present 인자에만 전달한다.
+Test Coverage Map: `ax-approval-policy.contract.test.ts`의 r9 paired shell adapter 그룹은 읽기 전용 셸 초안을 실제 Agent control lane과 연결해 ACK/capture/submit·취소·종료·코드·음성 경계를 검사한다. `pi-cost-comparison-runner.contract.test.ts`는 현 빌드 합성 analyzer와 고정 계약 거절을 구분한다.
+r9 Test Coverage Map 추가: `multi-issue-benchmark.contract.test.ts`, `issue-team-benchmark.contract.test.ts`는 현재 입력 provenance로 재생성한 결정론 산출물을 새 dist 빌드와 대조하며 기존 hard gate 반례 검사를 유지한다.
+r9 취소 회귀: `uc-cli-subagent-shell.contract.test.ts` AC1은 실제 자식의 SIGTERM handler 준비 ACK 후 취소하여 서버 부하 중에도 SIGKILL 에스컬레이션을 검사한다. 고정 sleep으로 준비를 추정하지 않는다.

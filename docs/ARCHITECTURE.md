@@ -473,3 +473,28 @@ reference는 감사용 작업 식별자나 증명 서명이 아니며 host의 �
 
 ### 7.14 r8 — 메모 데이터 홈
 공용 compose-agent-deps가 경로 선택과 옛 파일 이관을 소유하고 file-memo-store는 주입된 파일만 읽고 쓴다. NAIA_MEMO_PATH(명시 경로) > NAIA_HOME/memos.json > ~/.naia/memos.json. 공백 설정은 무시한다. 옛 ~/.naia-agent/memos.json은 대상 부재 시 COPYFILE_EXCL로 복사한다. EEXIST 경쟁은 대상 소유자의 승리로 간주하고 그 외 오류는 시작을 중단한다. 원본은 삭제하지 않으며 대상이 있는 재시작에는 복사하지 않는다. 명시 경로 override는 별도 저장소이므로 자동 이관하지 않는다. 여러 데이터 홈은 각 첫 실행 때 같은 원본 스냅샷을 받을 수 있으나 이후 쓰기는 독립적이다. 복사에 성공한 뒤 대상 파일을 사용자가 삭제하면 다음 시작에 재복사될 수 있다(별도 전역 이관 표시는 없음). 로그에는 메모 원문을 넣지 않는다. Linux에서 node:path.win32로 drive/UNC 문자열 계약을 검사하며 Windows 실파일 인수와 구분한다.
+
+### 7.15 r9 — 셸 초안 대조와 인증 실패 경계
+
+셸 `8f175ea3` 이후 `packages/shell/src/lib/ax-approval-adapter.ts`의 실제 함수를
+`NAIA_SHELL_ROOT` 지정 시 읽기 전용으로 transpile해 Agent lane에 연결한다. UI logger만
+무출력 대역으로 치환하며 adapter 본문은 실행한다. 미지정 환경에서는 짝 연결 11건을 skip한다.
+ACK 이전 capture, JSON origin 위조, 잘못된 인증 반환값/예외, scope 변경/예외, 취소/종료,
+텍스트 승인과 비공개 코드 승인, 음성 코드 거절, 재사용을 검증한다.
+Agent는 authenticate를 ACK 이후에만 호출하고 두 origin만 수용한다. capture scope는
+sessionId/workspace/provider/policyRevision의 고정 순서 값으로 묶는다. scope 조회 장애나
+변경 시 pending 승인을 무효화한다. 인증 장애는 민감 정보 없이 거절한다.
+
+실제 셸 draft의 `present(card)`는 code 인자를 받지 않는다. trusted backend의
+`present(card, code)`에서 card는 adapter에 전달하고 code는 별도 비공개 UI 채널에 연결해야 한다.
+코드 화면·렌더 ACK·인증된 직접 입력 증거 발급은 아직 셸 인수 항목이다. 초안 submit은
+텍스트만 지원하므로 음성 final/confidence 전달도 셸 후속이다. 일반 chat으로 fallback하지 않는다.
+
+비용 analyzer 시험은 현재 runtime을 테스트 전용 baseContract에 묶어 외부 서명 키의
+정상/오류/누락을 검사한다. closure digest를 명시 변조한 증거를 생산 frozen CLI에 제출하면 거절되는 것도 검사한다.
+기존 frozen manifest/pins/산출물은 수정하지 않으며 합성 비용 숫자는 제품 성능 주장이 아니다.
+
+r9의 결정론 multi-issue/team 회귀 JSON은 현재 시작 커밋 `ecb879b`의 입력과 빌드로
+runner를 다시 실행한 결과다. 관측값·gate·비용은 이전 산출물과 동일하고 sourceRevision과
+provenance만 갱신됐다. runner의 ancestry·tracked input·runtime digest 검사는 그대로 유지한다.
+유료 비용 비교 manifest를 이 결정론 결과로 대체하지 않는다.

@@ -206,8 +206,21 @@ describe("Pi live cost-comparison runner", () => {
       const testContractPath = join(temporary, "contract.json");
       writeFileSync(testContractPath, JSON.stringify(testContract));
       const analyzerPath = join(root, "benchmark/analyze-pi-cost-comparison.mjs");
+      // The current build is a synthetic fixture, never frozen release evidence.
+      const syntheticBase = structuredClone(contract);
+      syntheticBase.trustedRuntimeClosure = { ...contract.trustedRuntimeClosure,
+        fileCount: Object.keys(runtimeFiles).length,
+        manifestDigest: unsigned.trustedRuntimeClosureDigest };
+      const syntheticContract = structuredClone(testContract);
+      syntheticContract.trustedRuntimeClosure = syntheticBase.trustedRuntimeClosure;
+      const syntheticPath = join(temporary, "synthetic-contract.json");
+      writeFileSync(syntheticPath, JSON.stringify(syntheticContract));
+      const handlerPath = join(temporary, "handler.mjs");
+      writeFileSync(handlerPath, `import { runPiCostAnalyzerCli } from ${JSON.stringify(new URL("../../benchmark/analyze-pi-cost-comparison.mjs", import.meta.url).href)};
+const result = await runPiCostAnalyzerCli(process.argv.slice(2), process.env, { baseContract: ${JSON.stringify(syntheticBase)} });
+process.stdout.write(JSON.stringify(result.payload)); process.exitCode = result.exitCode;`);
       const invoke = (integrityKey?: string, bindContract = true) => spawnSync(process.execPath,
-        [analyzerPath, ...(bindContract ? ["--contract", testContractPath] : []), "--pins", pinsPath, "--evidence", evidencePath],
+        [handlerPath, ...(bindContract ? ["--contract", syntheticPath] : []), "--pins", pinsPath, "--evidence", evidencePath],
         { cwd: root, encoding: "utf8", env: integrityKey ? { ...process.env, NAIA_BENCHMARK_JOURNAL_KEY: integrityKey } : process.env });
       const valid = invoke(key);
       expect(valid.status, valid.stderr).toBe(0);
@@ -216,6 +229,13 @@ describe("Pi live cost-comparison runner", () => {
         expect(run.status, run.stderr).toBe(2);
         expect(JSON.parse(run.stdout)).toMatchObject({ status: "unavailable", costEfficiencyClaimAllowed: false });
       }
+      const tampered = structuredClone(evidence);
+      tampered.trustedRuntimeClosureDigest = `sha256:${"0".repeat(64)}`;
+      writeFileSync(evidencePath, JSON.stringify(tampered));
+      const frozen = spawnSync(process.execPath, [analyzerPath, "--contract", testContractPath,
+        "--pins", pinsPath, "--evidence", evidencePath], { cwd: root, encoding: "utf8" });
+      expect(frozen.status).not.toBe(0);
+      expect(frozen.stderr).toContain("evidence is not bound to the frozen benchmark contract");
       const unbound = invoke(key, false);
       expect(unbound.status).not.toBe(0);
       expect(unbound.stderr).toMatch(/pins are not bound/u);

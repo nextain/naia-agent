@@ -560,3 +560,94 @@ describe("FR-AX-026.13 approval receipt versus actual synthetic effect", () => {
     expect(await broker.execute({ id: "1", name: "document_send", args: {} }, {})).toEqual({ output: "AX connector unresolved; query before retry", isError: true });
   });
 });
+
+// Execute the peer's actual draft without importing its UI logger/runtime.
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import ts from "typescript";
+async function pairedAdapter() {
+  const source = readFileSync(resolve(process.env.NAIA_SHELL_ROOT ?? "../026-shell",
+    "packages/shell/src/lib/ax-approval-adapter.ts"), "utf8");
+  const compiled = ts.transpileModule(source.replace('import { Logger } from "./logger";',
+    'const Logger = { debug() {} };'), { compilerOptions: { target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.ESNext } }).outputText;
+  return (await import(/* @vite-ignore */ `data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`)).makeAxApprovalAdapter;
+}
+
+describe.skipIf(!process.env.NAIA_SHELL_ROOT)("r9 paired shell adapter", () => {
+  it.each(["approve", "no-ack", "forged", "bad-origin", "auth-error", "scope", "scope-error", "invalidate", "dispose", "code", "voice-code"])(
+    "%s crosses the real peer adapter and registered executor", async (mode) => {
+      const makeAdapter = await pairedAdapter();
+      let card!: AxApprovalCard; let code: string | undefined;
+      let workspace = "/w"; let scopeError = false;
+      const evidence = Object.freeze({});
+      const execute = vi.fn(async () => ({ output: "receipt" }));
+      let adapter: ReturnType<typeof makeAdapter>;
+      const lane = makeAxHostControlLane({ diag,
+        scope: () => { if (scopeError) throw new Error("fixture scope failure");
+          return { sessionId: "s", workspace, provider: "codex-ax", policyRevision: "1" }; },
+        authenticate: (value) => {
+          if (mode === "auth-error") throw new Error("fixture auth failure");
+          if (mode === "bad-origin") return "model" as "human-text";
+          return value === evidence ? (mode === "voice-code" ? "human-voice" : "human-text") : undefined;
+        },
+        describe: () => ({ preview: "synthetic destination/payload", reviewedPlanDigest: "reviewed-plan" }),
+        present: (c, secret) => { card = c; code = secret; adapter.present(c); },
+        registrations: [{ spec: { name: call.name, description: "fixture", parameters: {} },
+          classify: () => [mode === "code" || mode === "voice-code" ? "production_change" : "external_send"], execute }],
+      });
+      adapter = makeAdapter(lane);
+      const pending = lane.executor.execute(call, { requestId: "r9" });
+      expect(adapter.beginInput(evidence)).toBe(false);
+      expect(adapter.displayed("wrong")).toBe(false);
+      if (mode !== "no-ack") expect(adapter.displayed(card.proposalId)).toBe(true);
+      const captured = adapter.beginInput(mode === "forged" ? { origin: "human-text" } : evidence);
+      expect(captured).toBe(!["no-ack", "forged", "bad-origin", "auth-error"].includes(mode));
+      if (mode === "scope") workspace = "/changed";
+      if (mode === "scope-error") scopeError = true;
+      if (mode === "invalidate") adapter.invalidate();
+      if (mode === "dispose") adapter.dispose();
+      const approved = mode === "approve" || mode === "code";
+      expect(adapter.submit(code ?? "보내")).toBe(approved);
+      expect(adapter.submit(code ?? "보내")).toBe(false);
+      if (!approved) adapter.dispose();
+      expect((await pending).isError ?? false).toBe(!approved);
+      adapter.dispose();
+      expect(execute).toHaveBeenCalledTimes(approved ? 1 : 0);
+      if (code) {
+        expect(JSON.stringify(card)).not.toContain(code);
+        expect(JSON.stringify(diag.debug.mock.calls)).not.toContain(code);
+      }
+    });
+});
+
+describe("r9 Agent capture failure boundaries", () => {
+  it.each(["origin", "auth-error", "scope", "scope-error", "equivalent-scope"])("%s is checked without a peer checkout", async (mode) => {
+    let card!: AxApprovalCard; let changed = false;
+    const execute = vi.fn(async () => ({ output: "receipt" }));
+    const lane = makeAxHostControlLane({ diag,
+      scope: () => {
+        if (changed && mode === "scope-error") throw new Error("fixture");
+        if (changed && mode === "equivalent-scope") return { provider: "codex-ax", policyRevision: "1", workspace: "/w", sessionId: "s" };
+        return { sessionId: "s", workspace: changed ? "/changed" : "/w", provider: "codex-ax", policyRevision: "1" };
+      },
+      authenticate: () => {
+        if (mode === "auth-error") throw new Error("fixture");
+        return mode === "origin" ? "model" as "human-text" : "human-text";
+      },
+      describe: () => ({ preview: "synthetic payload" }), present: c => { card = c; },
+      registrations: [{ spec: { name: call.name, description: "fixture", parameters: {} }, classify: () => ["external_send"], execute }],
+    });
+    const pending = lane.executor.execute(call, { requestId: "r9" });
+    lane.displayed(card.proposalId);
+    const token = lane.beginInput({});
+    if (mode === "origin" || mode === "auth-error") expect(token).toBeUndefined();
+    changed = true;
+    const approved = mode === "equivalent-scope";
+    expect(lane.submit(token ?? {}, { text: "보내", final: true })).toBe(approved);
+    if (!approved) lane.dispose();
+    expect((await pending).isError ?? false).toBe(!approved);
+    expect(execute).toHaveBeenCalledTimes(approved ? 1 : 0);
+    lane.dispose();
+  });
+});

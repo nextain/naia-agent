@@ -278,8 +278,11 @@ export function makeAxHostControlLane(deps: Parameters<typeof makeAxHumanApprova
   let card: AxApprovalCard | undefined;
   let displayed = false;
   let closed = false;
-  const captures = new Map<object, { proposalId: string; origin: "human-text" | "human-voice" }>();
+  const captures = new Map<object, { proposalId: string; origin: "human-text" | "human-voice"; scope: string }>();
   const clear = () => { card = undefined; displayed = false; captures.clear(); };
+  const captureScope = (scope: AxApprovalScope) => JSON.stringify([
+    scope.sessionId, scope.workspace, scope.provider, scope.policyRevision,
+  ]);
   const broker = makeAxHumanEffectBroker({ ...deps, present(next, code) {
     clear(); card = next;
     deps.present(next, code);
@@ -291,17 +294,25 @@ export function makeAxHostControlLane(deps: Parameters<typeof makeAxHumanApprova
       displayed = true; return true;
     },
     beginInput(evidence: unknown): object | undefined {
-      const origin = deps.authenticate(evidence);
-      if (closed || !displayed || !card || !origin) return undefined;
+      if (closed || !displayed || !card) return undefined;
+      let origin: "human-text" | "human-voice" | undefined;
+      let scope: string;
+      try { origin = deps.authenticate(evidence); scope = captureScope(deps.scope()); }
+      catch { deps.diag.debug?.("AxHostControlLane authentication rejected", {}); return undefined; }
+      if (origin !== "human-text" && origin !== "human-voice") return undefined;
       const token = Object.freeze({});
-      captures.set(token, { proposalId: card.proposalId, origin });
+      captures.set(token, { proposalId: card.proposalId, origin, scope });
       return token;
     },
     submit(token: object, input: { text: string; final: boolean; confidence?: number }): boolean {
       const capture = captures.get(token);
       captures.delete(token);
       if (closed || !capture || !displayed || card?.proposalId !== capture.proposalId) return false;
-      const scope = deps.scope();
+      let scope: AxApprovalScope;
+      try {
+        scope = deps.scope();
+        if (captureScope(scope) !== capture.scope) { clear(); broker.approvals.invalidate(); return false; }
+      } catch { clear(); broker.approvals.invalidate(); return false; }
       clear();
       return broker.approvals.respond({ ...scope, text: input.text, final: input.final, confidence: input.confidence, proposalId: capture.proposalId, origin: capture.origin });
     },
