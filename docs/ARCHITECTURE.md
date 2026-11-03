@@ -52,8 +52,8 @@ agent 반쪽: 포트(`ports/`) → 도메인(`domain/`) → 어댑터(`adapters/
 
 ## 7. 0.2.6 AX — Codex 핵심 반복과 하네스 승인 설계 (2026-11-03)
 
-상태: 2회차에서 명시적 `codex-ax` app-server 반복과 trusted broker 배선을 추가했다(§7.8).
-§7.1~7.7의 초기판 설명은 1회차 이력이며 현재 결정/검증은 §7.8을 우선한다. P01/P02 = `user-scenarios.md` UC-AX-026,
+상태: 2회차 app-server·trusted broker(§7.8)에 3회차 사람 입력 승인 저장소와 실행 직전 검증(§7.9)을 추가했다.
+§7.1~7.7의 초기판 설명은 1회차 이력이며 현재 결정/검증은 §7.8~7.9를 우선한다. P01/P02 = `user-scenarios.md` UC-AX-026,
 P03 = `requirements.md` FR-AX-026. 실제 셸·캘린더·보안 인수 전이며 기본 공급자 교체는 하지 않았다.
 대표님 11/3 지시: 1인 문서·일정 승인, 일상 승인은 대화 “응/보내”, 어려운 운영 변경만 계획·코드 승인.
 출시 목표 11/13, 기능 고정 11/9. 웹·로컬 동기화는 0.2.7로 미룬다.
@@ -314,3 +314,56 @@ HTTP 수신 0회·셸 표식 없음·MCP 시작 표식 없음·정상 완료였�
 CLI 자체의 모델 추론 네트워크·프록시·사용자 설정 전체를 별도 OS 방화벽으로 격리한 상태는 아니다.
 기존 codex 경로에 같은 제한이 적용된다고 설명하지 않는다. 기업 문서의 endpoint/보존·PII 전송·감사·
 OS egress 인수 전까지 보안 문서용 자동 전송 허용이나 B2B 보안 완료로 표시하지 않는다.
+
+
+### 7.9 3회차 — 사람 입력 저장소와 셸 연결 계약
+
+`makeAxHumanEffectBroker`는 trusted registrations와 `scope/describe/present`를 받아
+`executor`와 호스트 전용 `approvals`를 함께 만든다. 전체 approvals를 연결하여 승인 소비 뒤 실행 직전에도
+session/workspace/provider/policyRevision·TTL·취소·invalidate/dispose를 다시 검사한다.
+기존 boolean callback만 떼어 쓰면 이 최종 검사 계약을 잃는다. 현재 공용 조립기는 읽기 도구만 등록하며
+외부 connector를 자동 활성화하지 않는다. 실제 셸 연결은 이번 범위 밖이다.
+
+저장소는 메모리 전용이다. 승인 권한·코드 hash를 디스크에 복원하지 않으므로 재시작 뒤 코드는 무효다.
+기본/최대 TTL 120초, 새 proposalId는 random UUID, 코드는 crypto random 128bit hex이고 hash만 저장한다.
+코드 평문은 present의 별도 인자로 1회 전달하며 카드·모델·진단 로그에는 넣지 않는다.
+승인은 동기적으로 먼저 consume되고 이후 실행이 실패/timeout이어도 복구하지 않는다. 외부 서비스의
+중복 방지는 connector의 idempotency/영수증 조회 계약이며 이 저장소가 네트워크 exactly-once를 보장하지 않는다.
+
+단일 제안에서 정확한 `응/보내/그래/등록해`(마침표·느낌표 허용)만 승인한다. 취소/기타 입력은 폐기한다.
+확정 음성은 host가 인증한 직접 사용자 발화 + finite confidence 0.98 이상을 요구한다.
+STT 신뢰도만으로 화자 인증이 되지는 않는다. speaker/echo/재생음 검증이 없으면 음성 승인을 제공하지 않는다.
+코드는 직접 텍스트 입력만 허용한다. 위험 효과에서 “응” 또는 잘못된 코드를 입력하면 제안 자체가 폐기된다.
+복수 제안이 겹치는 순간 기존/신규를 모두 거절한다. 이후 하나가 사라져도 이전 “응”을 살리지 않는다.
+
+셸 읽기 확인(수정 없음): `/home/nextain/work/naia-shell-824/packages/shell/src/lib/chat-service.ts`의
+기존 approval_response는 requestId/toolCallId/approve|reject이며, 일부 direct tool 요청은 implicit consent다.
+이 boolean/implicit consent를 AX 저장소의 사람 입력으로 변환하지 않는다.
+
+후속 wire v2 연결 제안(현재 proto/wire에 구현된 variant라고 주장하지 않음):
+
+| 방향/메시지 | 필드·신뢰 조건 |
+|---|---|
+| agent → host `ax_approval_proposal` | proposalId, requestId, callId, mode, expiresAt, preview, reviewedPlanDigest(code). scope는 인증된 transport/session 소유값 |
+| host → agent `ax_approval_input` | proposalId, origin(human-text/human-voice), text, final, confidence. scope는 클라이언트 JSON을 신뢰하지 않고 서버가 현재 연결에서 채움 |
+| host → agent `ax_approval_invalidate` | 편집·새 사용자 의도·취소·workspace/provider/policy 변경 전에 approvals.invalidate(); disconnect/종료는 dispose + AbortSignal |
+| agent → trusted host code channel | present(card, code)의 code. 대화·LLM·TTS·일반 이벤트/telemetry·히스토리에 넣지 않는 별도 UI 채널. 아직 wire 미구현 |
+
+셸은 표시된 카드의 proposalId와 **표시 이후 시작된 직접 입력**을 결속해야 한다.
+새 카드에 과거 음성/STT 버퍼를 자동 연결하지 않는다. 인용/문서/assistant/tool 입력은 respond 호출 금지다.
+입력은 모델 호출 전에 승인 control lane에서 소비하고 모델 프롬프트/장기기억으로 전달하지 않는다.
+새 의도·내용/수신자/시간대/첨부/검토 계획 변경은 기존 proposal을 먼저 invalidate하고 새 immutable call로 제안한다.
+trusted describe는 정확한 전체 효과 미리보기를 만들고, code에서는 검토된 계획 digest가 없으면 발급하지 않는다.
+모델 인자의 reviewed=true 또는 모델이 쓴 파일은 검토 증거가 아니다. 같은 OS 사용자로 임의 코드를 실행하는
+공격자는 이 API의 인증 범위 밖이며 실제 인증/권한 부여는 host adapter 책임이다.
+
+카드 문구(예시, 실제 값은 trusted renderer가 escape하여 채움):
+- 일반: “업무 캘린더에 11/4 15:00 Asia/Seoul, 30분 ‘계약 검토’를 등록합니다. 참가자·외부 발송: 없음.
+  ‘응’, ‘그래’, ‘등록해’라고 답하면 이 일정만 한 번 등록합니다. 2분 후 만료됩니다. 취소할 수 있습니다.”
+- 발송: “받는 사람: [정확한 주소]. 본문·첨부: [미리보기와 버전]. ‘보내’라고 답하면 이 내용만 한 번 보냅니다.”
+- 위험: “운영 변경/삭제/결제: [대상·차이·금액·백업/복구·검증·계획 digest]. 말로 승인할 수 없습니다.
+  검토 후 별도 코드 입력란에 표시된 일회용 코드를 직접 입력하세요. 2분 후 만료되며 오입력하면 다시 검토해야 합니다.”
+- 폐기: “제안이 변경·취소·만료되었거나 여러 제안이 겹쳤습니다. 실행하지 않았습니다. 내용을 다시 확인하세요.”
+
+P04 증거: `ax-approval-policy.contract.test.ts` human approval store / human broker composition.
+실제 셸 텍스트/음성 E2E와 코드 채널 인수, 실제 connector 권한은 11/7~11/9 남은 작업이다.

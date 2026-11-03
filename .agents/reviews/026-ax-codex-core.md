@@ -109,3 +109,18 @@ HTTP 요청 0, shell marker=false, MCP marker=false, completed=true를 확인했
 - 증거: 실행 폴더 `tmp/r2-pristine-baseline-test.log`, `r2-final-stable-test.log`, `r2-comparison.json`, `r2-target-final.log`. 초기 진행 중 snapshot 및 중단한 중복 실행 로그는 최종 비교 근거로 사용하지 않음.
 - 구조 CI 4건·루트 구조·build·compile-integrity·logging 통과. 파일 앵커 36/canon 62 기존 드리프트 유지. 새 미계약 파일 probe 차단 확인.
 - P05 제품 전체는 In review. 헌장 process-status.json은 단독 변경하지 않음.
+
+
+## 3회차 독립 적대 리뷰 (2026-11-03 UTC)
+
+- 리뷰어: `/root/approval_review`; production 코드와 헌장은 수정하지 않고 diff와 승인 경계를 검토했다.
+- 발견·재현: A/B 제안 중 B를 취소하면 A만 남아 과거의 모호한 “응”이 통과했다. 최초 빌드 산출물의 저장소를 직접 호출하여 `acceptedAfterOverlap: true`, 결과 `[true, false]`를 재현했다. 보완 후 두 번째 제안 등록 자체가 기존 제안을 폐기하고 새 제안도 거절하므로 이 경로가 닫혔다.
+- 승인 응답 직후 실제 실행 Promise가 재개되기 전에 scope·TTL·취소가 바뀌는 경계도 지적했다. 보완된 broker는 실행 직전 `validateApproval`을 동기 호출하며, 저장소는 WeakMap의 request 객체 결속 grant를 한 번 소비하고 scope/revision/TTL/dispose/AbortSignal을 재검사한다. 호스트는 두 approval callback과 이 validator를 함께 주입해야 한다.
+- 검토 계획 digest가 카드에 없던 계약 갭을 전달했고 보완 카드의 `reviewedPlanDigest`를 확인했다. digest의 실제 계획 검토·본문 대응 증명은 trusted host 책임이다.
+- 최초 독립 시험 55건 중 4건은 설치된 Vitest가 지원하지 않는 matcher 때문에 실패했다. matcher 보완 뒤 `TMPDIR=/home/nextain/work/codex-runs/026-ax/tmp node_modules/.bin/vitest run src/test/ax-approval-policy.contract.test.ts`를 다시 실행하여 **59건 모두 통과**했다. 승인과 실행 사이 scope/invalidate/dispose/expire 변경 회귀도 포함한다.
+- 판정: 검토한 저장소·broker 경계에 위 수정 요청의 잔여 blocker 없음. Shell의 실제 사람 입력 인증, trusted 카드 렌더링, 변경 시 invalidate, validator 합성 및 실제 캘린더/발송 E2E는 이번 독립 시험의 검증 범위 밖이다. 운영 접근·외부 발송·실모델 호출은 수행하지 않았다.
+
+
+### 3회차 최종 합성 재검토
+
+`makeAxHumanEffectBroker`가 저장소의 conversation/code callback과 실행 직전 validator를 같은 broker에 함께 주입하는 것을 확인했다. 최종 문서는 실제 wire 미구현·화자 인증과 과거 STT 버퍼 금지·trusted host 책임을 명시한다. 코드/대화 양쪽 취소·만료·재시작·변경 회귀 및 세 가지 효과의 factory 합성 시험을 포함하여 AX 계약 시험 **70건 모두 독립 재실행 통과**했다. 원시 로그: 실행 폴더 `tmp/r3-independent-final.log`. 이 최종 저장소/factory diff에서 잔여 blocker 없음. 실제 셸/외부 connector 인수는 기존 범위 제한을 유지한다.

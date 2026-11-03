@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { axApprovalFor, type AxEffect } from "../main/domain/ax-approval-policy.js";
-import { makeAxPolicyToolExecutor, type AxApprovalRequest } from "../main/adapters/ax-policy-tool-executor.js";
+import { makeAxPolicyToolExecutor, type AxApprovalRequest, makeAxHumanApprovalStore, type AxApprovalCard, makeAxHumanEffectBroker } from "../main/adapters/ax-policy-tool-executor.js";
 import type { ToolExecutorPort } from "../main/ports/uc1.js";
 
 const call = { id: "c1", name: "calendar", args: { event: { title: "meeting", destination: "private" } } };
@@ -8,6 +8,7 @@ const diag = { log: vi.fn(), debug: vi.fn() };
 function setup(effects: readonly AxEffect[], approvals: {
   conversationApproval?: (request: AxApprovalRequest) => Promise<boolean>;
   codeApproval?: (request: AxApprovalRequest) => Promise<boolean>;
+  validateApproval?: (request: AxApprovalRequest) => boolean;
 } = {}) {
   const execute = vi.fn(async () => ({ output: "ok" }));
   const executor: ToolExecutorPort = { specs: () => [{ name: "calendar", parameters: {}, description: "test", tier: "ask" }], execute };
@@ -187,4 +188,143 @@ it("production AX composition boots with only trusted registrations and never st
     for (const cleanup of deps?.cleanupFns ?? []) cleanup();
     await rm(root, { recursive: true, force: true });
   }
+});
+
+
+describe("human approval store", () => {
+  const scope = { sessionId: "s1", workspace: "/fixture", provider: "codex-ax", policyRevision: "v1" };
+  function host(effects: readonly AxEffect[] = ["external_send"], ttlMs = 120_000) {
+    let clock = 100;
+    let planDigest = "host-reviewed-plan-v1";
+    let currentScope = { ...scope };
+    const cards: AxApprovalCard[] = [];
+    const codes: (string | undefined)[] = [];
+    const store = makeAxHumanApprovalStore({ scope: () => currentScope, now: () => clock, ttlMs, diag,
+      describe: () => ({ preview: "Send synthetic meeting to fixture recipient", reviewedPlanDigest: planDigest }),
+      present: (card, code) => { cards.push(card); codes.push(code); } });
+    const broker = setup(effects, store);
+    const start = (id = "r1", signal?: AbortSignal, proposal = call) => broker.gate.execute(proposal, { requestId: id, signal });
+    const input = (text = "응", extra: Record<string, unknown> = {}) => ({ ...scope,
+      proposalId: cards.at(-1)!.proposalId, origin: "human-text" as const, final: true, text, ...extra });
+    return { store, cards, codes, start, input, execute: broker.execute,
+      changePlan: () => { planDigest = "host-reviewed-plan-v2"; store.invalidate(); },
+      advance: (ms: number) => { clock += ms; }, switchScope: () => { currentScope = { ...scope, workspace: "/other" }; } };
+  }
+  it.each(["응", "보내", "그래", "등록해"])("executes the bound effect exactly once for %s", async (word) => {
+    const h = host(); const result = h.start();
+    expect(h.execute).not.toHaveBeenCalled();
+    expect(h.store.respond(h.input(word))).toBe(true);
+    expect(h.store.respond(h.input(word))).toBe(false);
+    expect(await result).toEqual({ output: "ok" });
+    expect(h.execute).toHaveBeenCalledOnce(); expect(h.execute).toHaveBeenCalledWith(call, expect.anything());
+    h.store.dispose();
+  });
+  it.each(["아니", "취소", "보내지 마", "그가 보내라고 했다", "응 그리고 삭제해", "yes"])("rejects cancellation/ambiguous text %s", async (word) => {
+    const h = host(); const result = h.start();
+    expect(h.store.respond(h.input(word))).toBe(false);
+    expect((await result).isError).toBe(true); expect(h.execute).not.toHaveBeenCalled();
+  });
+  it.each([{ origin: "assistant" }, { origin: "human-voice", confidence: 0.5 },
+    { origin: "human-voice", confidence: Number.NaN }, { origin: "human-voice" }, { final: false }])("rejects untrusted or uncertain input %j", async (extra) => {
+    const h = host(); const result = h.start();
+    expect(h.store.respond(h.input("응", extra))).toBe(false);
+    expect((await result).isError).toBe(true); expect(h.execute).not.toHaveBeenCalled();
+  });
+  it.each(["scope", "invalidate", "dispose", "expire"])("rechecks %s between approval and execution", async (change) => {
+    const h = host(); const result = h.start(); expect(h.store.respond(h.input())).toBe(true);
+    if (change === "scope") h.switchScope();
+    if (change === "invalidate") h.store.invalidate();
+    if (change === "dispose") h.store.dispose();
+    if (change === "expire") h.advance(120_000);
+    expect((await result).isError).toBe(true); expect(h.execute).not.toHaveBeenCalled();
+  });
+  it("accepts only final confident voice", async () => {
+    const h = host(); const result = h.start();
+    expect(h.store.respond(h.input("보내", { origin: "human-voice", confidence: 0.99 }))).toBe(true);
+    await result; expect(h.execute).toHaveBeenCalledOnce();
+  });
+  it.each(["sessionId", "workspace", "provider", "policyRevision"])("rejects foreign %s", async (key) => {
+    const h = host(); const result = h.start();
+    expect(h.store.respond(h.input("응", { [key]: "foreign" }))).toBe(false);
+    h.store.dispose(); await result; expect(h.execute).not.toHaveBeenCalled();
+  });
+  it("rejects overlapping proposals and does not retain the utterance", async () => {
+    const h = host(); const a = h.start(); const b = h.start("r2");
+    expect(h.store.respond(h.input())).toBe(false);
+    await Promise.all([a, b]); expect(h.execute).not.toHaveBeenCalled();
+    const c = h.start("r3"); expect(h.execute).not.toHaveBeenCalled(); h.store.dispose(); await c;
+  });
+  it.each(["cancel", "change", "expire", "scope", "restart", "abort"].flatMap(kind => ["conversation", "code"].map(mode => ({ kind, mode }))))("rejects $kind in $mode and old proposal replay", async ({ kind, mode }) => {
+    const h = host(mode === "code" ? ["payment"] : ["external_send"]); const controller = new AbortController();
+    const result = h.start("r1", controller.signal).catch(() => ({ isError: true })); const old = h.input(h.codes.at(-1) ?? "응");
+    if (kind === "expire") h.advance(120_000);
+    else if (kind === "scope") h.switchScope();
+    else if (kind === "restart") h.store.dispose();
+    else if (kind === "abort") controller.abort();
+    else h.store.invalidate();
+    expect(h.store.respond(old)).toBe(false); await result; expect(h.execute).not.toHaveBeenCalled();
+    if (kind === "change") {
+      const next = h.start("new"); expect(h.store.respond(old)).toBe(false);
+      h.store.dispose(); await next;
+    }
+    if (kind === "restart") {
+      const next = host(); const wait = next.start(); expect(next.store.respond(old)).toBe(false);
+      next.store.dispose(); await wait;
+    }
+  });
+  it.each(["permanent_delete", "payment", "production_change"] as const)("%s needs a one-time human code", async (effect) => {
+    const h = host([effect]); const first = h.start(); const code = h.codes[0]!;
+    expect(code).toMatch(/^[a-f0-9]{32}$/); expect(JSON.stringify(h.cards)).not.toContain(code);
+    expect(h.store.respond(h.input("응"))).toBe(false); await first; expect(h.execute).not.toHaveBeenCalled();
+    const second = h.start("r2"); expect(h.store.respond(h.input(code))).toBe(false); await second;
+    const third = h.start("r3"); const response = h.input(h.codes.at(-1)!);
+    expect(h.store.respond(response)).toBe(true); expect(h.store.respond(response)).toBe(false);
+    await third; expect(h.execute).toHaveBeenCalledOnce();
+  });
+  it.each(["conversation", "code"])("requires fresh consent after changed payload/plan in %s", async (mode) => {
+    const h = host(mode === "code" ? ["payment"] : ["external_send"]); const first = h.start();
+    const stale = h.input(h.codes.at(-1) ?? "보내"); h.changePlan(); await first;
+    const changed = { ...call, args: { event: { title: "changed meeting", destination: "other recipient" } } };
+    const second = h.start("r2", undefined, changed);
+    if (mode === "code") expect(h.cards.at(-1)!.reviewedPlanDigest).toBe("host-reviewed-plan-v2");
+    expect(h.store.respond(stale)).toBe(false); expect(h.execute).not.toHaveBeenCalled();
+    expect(h.store.respond(h.input(h.codes.at(-1) ?? "보내"))).toBe(true); await second;
+    expect(h.execute).toHaveBeenCalledOnce(); expect(h.execute).toHaveBeenCalledWith(changed, expect.anything());
+  });
+  it("never accepts spoken codes", async () => {
+    const h = host(["payment"]); const result = h.start();
+    expect(h.store.respond(h.input(h.codes[0]!, { origin: "human-voice", confidence: 1 }))).toBe(false);
+    await result; expect(h.execute).not.toHaveBeenCalled();
+  });
+  it("rejects code without host-reviewed plan or request binding", async () => {
+    const present = vi.fn();
+    const store = makeAxHumanApprovalStore({ scope: () => scope, describe: () => ({ preview: "delete" }), present, diag });
+    expect(await store.codeApproval({ call, effects: ["payment"], requestId: "r" })).toBe(false);
+    expect(await store.conversationApproval({ call, effects: ["external_send"] })).toBe(false);
+    expect(present).not.toHaveBeenCalled();
+  });
+  it("expires pending wait without any subsequent input", async () => {
+    vi.useFakeTimers();
+    try { const h = host(["external_send"], 20); const result = h.start();
+      await vi.advanceTimersByTimeAsync(20); expect((await result).isError).toBe(true); expect(h.execute).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+});
+
+
+describe("human broker composition", () => {
+  it.each(["external_send", "payment", "production_change"] as const)("binds %s through registered broker to one execution", async (effect) => {
+    const scope = { sessionId: "s", workspace: "/fixture", provider: "codex-ax", policyRevision: "v1" };
+    let card!: AxApprovalCard; let code: string | undefined;
+    const execute = vi.fn(async () => ({ output: "receipt" }));
+    const h = makeAxHumanEffectBroker({ scope: () => scope, diag,
+      describe: () => ({ preview: "fixture destination and payload", reviewedPlanDigest: "reviewed-v1" }),
+      present: (c, value) => { card = c; code = value; },
+      registrations: [{ spec: { name: "calendar", description: "fixture", parameters: {} }, classify: () => [effect], execute }] });
+    const result = h.executor.execute(call, { requestId: "r" });
+    const input = { ...scope, proposalId: card.proposalId, origin: "human-text" as const, final: true, text: code ?? "보내" };
+    expect(h.approvals.respond(input)).toBe(true); expect(h.approvals.respond(input)).toBe(false);
+    expect(await result).toEqual({ output: "receipt" }); expect(execute).toHaveBeenCalledOnce();
+    h.approvals.dispose();
+  });
 });

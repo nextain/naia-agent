@@ -1109,3 +1109,16 @@ CLI 버전/로그인·모델 목록·실제 ChatGPT 짧은 추론·같은 turn�
 미계약 신규 파일 probe 차단도 확인했다. P05는 말 승인/코드 인증기·실제 캘린더·OS/보안 인수 전 In review 유지.
 헌장 파일은 수정하지 않았다. process-status.json의 세션 갱신 의무와 명시 승인 조건의 충돌은
 1회차처럼 정규 요구사항/리뷰에 산출물을 기록하는 것으로 처리했다.
+
+3회차 P03 — FR-AX-026.8 (In review): 호스트 전용 승인 저장소는 세션·workspace·공급자/정책 revision·
+request·call·전체 효과/인자를 결속한다. 단 하나의 표시 제안에만 직접 사람 입력을 적용한다.
+보류 수명은 최대 2분이며 취소·변경·만료·재시작·소비 뒤 권한은 소멸한다.
+FR-AX-026.9 (In review): 위험 효과는 검토된 계획 digest와 결속한 암호학적 일회용 코드를 발급한다.
+코드는 별도 trusted UI에만 전달하고 저장소는 hash만 보관한다. 오입력은 제안을 폐기한다.
+코드와 일반 승인 입력은 모델 도구·대화 기록에 공개하지 않는다. 셸 배선 계약은 ARCHITECTURE §7.9.
+
+3회차 P04: `ax-approval-policy.contract.test.ts`의 저장소/실제 broker 등록 연결 시험 재실행.
+진단은 mode/approved 등 분기 정보만 기록하며 코드·본문·목적지는 기록하지 않는다. 독립 적대 검수는
+`.agents/reviews/026-ax-codex-core.md` 3회차 절. 중첩 후 하나 취소 시 재승인과 소비 뒤 scope 변경을 보완했다.
+P05: 저장소·호스트 API 구현 및 계약 시험 검증, FR-AX-026.8~9는 셸 인증/표시/음성·코드 채널 실통합
+인수 전까지 In review 유지. process-status.json은 헌장 단독 수정 금지에 따라 변경하지 않는다.

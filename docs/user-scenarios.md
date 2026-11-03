@@ -1129,3 +1129,9 @@ app-server가 등록된 로컬 읽기 도구를 반복 호출하며 미등록 sh
 검증한다. CLI 카탈로그·doctor 회귀는 기존 cli-manage/cli-manage-process,
 gRPC/Discord 단일 파이프라인 보존은 discord-entry-wiring 시험에 연결한다.
 검증 수치와 실제 로그인/우회 시험 범위는 FR-AX-026 및 ARCHITECTURE §7.8에 기록했다.
+
+3회차 P01: UC-AX-026 — 사용자가 표시된 하나의 대기 효과에 직접 텍스트/확정 음성으로 “응·보내·그래”를 답한다.
+취소, 낮은 음성 신뢰, 복수 제안, 변경, 만료, 세션/작업공간 변경, 재시작, 재사용이면 실행하지 않는다.
+삭제·결제·운영 변경은 별도 검토 계획과 사람 코드 입력으로만 한 번 실행한다.
+P02: `ax-approval-policy.contract.test.ts`의 `human approval store` 그룹: broker 실행 횟수, origin, scope,
+TTL, 변경·복수·취소·재시작·코드 오입력/replay/위험 효과 말 승인 거부.
