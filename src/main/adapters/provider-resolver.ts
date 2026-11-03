@@ -12,10 +12,13 @@ import { makeOllamaProvider } from "./ollama-provider.js";
 import { makeAnthropicProvider } from "./anthropic-provider.js";
 import { makeClaudeCodeProvider } from "./claude-code-provider.js";
 import { makeCodexAppServerProvider, type CodexRunTurn } from "./codex-app-server-provider.js";
+import { makeCodexExecProvider, type CodexExecRunner } from "./codex-exec-provider.js";
 import { makeGrokCliProvider, type GrokRunTurn } from "./grok-cli-provider.js";
 import type { WorkspaceBind } from "../domain/workspace-bind.js";
 
 export interface ProviderResolverDeps {
+	/** Opt-in AX text preview. Existing codex app-server route is unchanged. */
+	codexExecRun?: CodexExecRunner;
 	/** 테스트/대체용 fetch 주입(미주입 = global fetch). */
 	fetch?: Parameters<typeof makeOpenAICompatProvider>[0]["fetch"];
 	/** Codex app-server fake/alternate transport injection. */
@@ -32,6 +35,8 @@ export function makeProviderResolver(deps?: ProviderResolverDeps): ProviderResol
 	return {
 		resolve(config: ProviderConfig): ProviderPort {
 			switch (resolveProviderRoute(config)) {
+				case "codex-exec":
+					return makeCodexExecProvider({ run: deps?.codexExecRun });
 				case "ollama":
 					// fetch 주입 전달(미주입=global). 안 넘기면 헤드리스 테스트가 ollama 를 mock 못 해 실 네트워크로 샘(직교 위반).
 					return ollamaProvider;

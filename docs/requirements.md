@@ -1061,3 +1061,29 @@ Status: Done (#154)
 네 실행의 실패 파일 집합과 실패 시험 제목·중복 건수는 모두 같고 신규 실패는 0건이다. 기준과 HEAD 모두 실패한 파일: `delegate-agent-skill.contract.test.ts`, `issue-team-benchmark.contract.test.ts`, `memory-store-path-isolation.contract.test.ts`, `multi-issue-benchmark.contract.test.ts`, `pi-cost-comparison-runner.contract.test.ts`, `selected-workspace-coding.contract.test.ts`, `uc-naia-pi-cli-process.integration.test.ts`, `uc1-memory-process.integration.test.ts`. 전체 시험은 기존 실패로 exit 1이다. 집중 시험(Discord·Jeonju·memory reload·wire security 18개 파일)은 256 통과·1 skip, `pnpm build`와 `tsc --noEmit`은 통과했다. 이전 r8 실행 환경의 수치(실패 20개 파일·132개 시험)는 격리하지 않은 환경 기준이라 이 표로 대체했다.
 
 검수 r3의 시작 경합은 lease 취득 후 기존 처리기 등록 지점 전의 상태 쓰기를 가로채는 자식 프로세스 시험으로 고정했다. SIGTERM 단독·SIGINT 단독·연속 신호에서 초기화 중단, stopped, lease 해제, 정상 종료와 즉시 재시작을 확인했다. 상태 쓰기 예외, 거절된 promise, runtime 시작 직후 예외도 실패 상태·lease 해제·즉시 재시작을 확인했다. 관련 프로세스·배선 집중 시험은 26개 모두 통과했다. 시험은 가짜 Gateway/REST를 사용하고 실제 Discord에 접속하지 않았다. P05는 독립 검수 r6에서 통과했다. 실제 Discord 자격증명·Gateway 권한·DM/thread 수신·재연결 dedupe 확인은 배포 전 실기 항목으로 남는다.
+
+
+## FR-AX-026 — Codex 실행 공급자와 하네스 승인
+
+상태: In review (0.2.6 초기 구현, 실제 Shell·캘린더 인수 전). P01/P02: UC-AX-026.
+P04 초기 검증: 새 계약 34건 + 기존 Codex·공급자·도구루프 회귀 포함 73건 통과, 타입 검사 통과.
+독립 적대 리뷰: `.agents/reviews/026-ax-codex-core.md`. 전체 시험 기존 실패는 리뷰 및 실행 보고서에 별도 기록.
+
+- FR-AX-026.1: 기존 `codex` app-server 및 타 공급자를 보존하고 명시적인 `codex-exec` ProviderPort를 추가한다.
+  초기판은 텍스트 전용이며 도구·이미지 요청은 조용히 유실하지 않고 거절한다. CLI 자격은 로컬 로그인 또는
+  명시적 API 키로 제공하며 auth.json을 읽거나 복사하지 않는다. 자동 공급자 fallback을 하지 않는다.
+- FR-AX-026.2: stdin으로 프롬프트를 전달하고 --json·--ephemeral·read-only·approval_policy=never 및
+  사용자 설정 격리를 사용한다. shell/web/MCP를 열지 않는다. spawn은 shell:false이며 timeout·abort·종료 정리를 한다.
+  텍스트·실측 usage·finish를 변환한다. 실패/누락 terminal/프로토콜 위반은 오류이며 비용을 0원으로 추정하지 않는다.
+- FR-AX-026.3: 승인 정책의 입력은 호스트가 등록한 효과 목록이다. 로컬 읽기·초안·복구 가능한 편집은 allow,
+  외부 발송·외부 처리·캘린더 쓰기는 conversation, 영구삭제·결제·운영 변경은 code, 미등록/미상 효과는 deny.
+  위험 효과가 섞이면 가장 강한 등급을 적용한다. 도구 이름이나 LLM의 safe=true로 권한을 내리지 않는다.
+- FR-AX-026.4: opt-in ToolExecutorPort 래퍼는 정책을 실행 직전에 적용하고 별도 대화/코드 승인 콜백을 요구한다.
+  거절·콜백 부재·미등록·취소 시 실행하지 않는다. 승인 대상 인자는 복제·동결하여 승인 대기 중 바뀌지 않는다.
+  일반 오류는 isError로 반환하고 기존 executor 계약을 따른다. 모델에 승인 신뢰 메타데이터를 광고하지 않는다.
+- NFR-AX-026.1: 원문·개인정보·키를 진단 로그에 남기지 않는다. 로컬 원본 보관이 클라우드 추론의 무전송을 뜻하지
+  않음을 명시한다. B2B 보안/투명성은 검증할 설계 목표이며 인증·타사보다 우수한 성능 실측으로 표현하지 않는다.
+- NFR-AX-026.2: 기본 공급자·기존 tier 정책은 이 단계에서 바꾸지 않는다. 새 정책 활성화는 신뢰 가능한 사람 승인
+  입력, 전송 공개와 감사 및 모든 우회 실행 경로 검증 후에 한다. 운영 접속·배포·원격 push는 범위 밖이다.
+
+P04: 위 두 시험과 기존 provider/approval 회귀 및 타입 검사. P05: 독립 리뷰·실제 호스트 인수 전까지 In review/WIP.

@@ -1098,3 +1098,23 @@ Test Coverage Map: [UT-SM-AGENT-01~03, IT-SM-AGENT-01~05, UT-SM-SHELL-THINK-01, 
 | lease 취득 직후 SIGTERM/SIGINT, 중복 신호, 시작 상태 쓰기 예외·거절된 promise·runtime 시작 직후 예외 시 정리·상태 기록과 즉시 재시작 | `src/test/discord-serve-process.integration.test.ts` |
 | 읽기 전용 authority 디렉터리와 별도 쓰기 가능 lease, 원자적 authority 교체 및 rootless node UID 매핑 | `src/test/discord-trusted-state.contract.test.ts`, `src/test/discord-serve-process.integration.test.ts`, 컨테이너 오프라인 권한 검증 |
 | 셸 gRPC Chat·Cancel·승인·설정 회귀 | 기존 gRPC 및 Discord 배선 테스트 |
+
+
+## UC-AX-026 — Codex 공급자와 하네스 승인 (UC1·UC5·UC13 확장)
+
+사용자 지시(2026-11-03): 1인 문서·일정 승인 업무를 Codex 기반으로 시작하되 기존 모델과 공존한다.
+P01: 회사 문서를 로컬에서 읽어 초안을 작성·복구 가능한 편집할 때 반복 승인하지 않는다.
+외부 처리 전 선택된 공급자·보낼 발췌·목적지를 공개한다. 일정 초안은 자동이며 실제 캘린더 등록·초대는
+수신자·시각·시간대·내용을 보여 준 뒤 같은 보류 동작에 대한 사용자 “응/등록해/보내”로 승인한다.
+영구 삭제·결제·운영 변경은 단순 긍정 발화로 실행할 수 없다. 취소·목적지 변경은 승인을 폐기한다.
+
+P02 Test Coverage Map (P03 = FR-AX-026, 설계 = ARCHITECTURE.md §7):
+
+| 검증 | 시험 파일 | 기대 결과 |
+|---|---|---|
+| Codex exec 공급자 선택·프롬프트·토큰·정상/실패/취소 | `src/test/codex-exec-provider.contract.test.ts` | ProviderPort 정규화, 비밀 로그 없음, 조기 종료를 성공으로 보고하지 않음 |
+| 로컬 문서·일정·발송·영구삭제·결제·운영 정책 | `src/test/ax-approval-policy.contract.test.ts` | allow / conversation / code / deny 결정, 중첩 위험 중 가장 강한 승인 |
+| 실행 직전 게이트·거절·취소·미등록·인자변조 | `src/test/ax-approval-policy.contract.test.ts` | 승인 전 실행 0회, 코드 승인은 대화 승인으로 대체 불가 |
+
+범위: exec 공급자 초기판은 텍스트 추론이며 native 도구 실행을 비활성화한다. 기존 app-server 도구 경로는 유지한다.
+음성/STT 보류 결속, 캘린더 실제 연결, 모델 전송 공개·감사 영속화는 설계 및 후속 인수 대상이다.

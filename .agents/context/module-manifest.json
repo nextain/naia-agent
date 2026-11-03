@@ -998,6 +998,46 @@
       "uc": ["UC-015"],
       "contract": "docs/progress/99.dev-comm/UC-CONTINUE-SPEAKING-contract-2026-07-16.md",
       "note": "DJ clock·시간/날씨 context·결정론 selector·in-process 명시 선호 adapter."
+    },
+    "src/main/adapters/codex-exec-provider.ts": {
+      "layer": "adapters",
+      "uc": [
+        "UC1",
+        "UC5",
+        "UC13"
+      ],
+      "contract": [
+        "docs/ARCHITECTURE.md",
+        "docs/requirements.md",
+        "docs/user-scenarios.md"
+      ],
+      "note": "2026-11-03 사용자 0.2.6 AX 지시. FR-AX-026 / UC-AX-026; opt-in 초기 구현."
+    },
+    "src/main/domain/ax-approval-policy.ts": {
+      "layer": "domain",
+      "uc": [
+        "UC13"
+      ],
+      "contract": [
+        "docs/ARCHITECTURE.md",
+        "docs/requirements.md",
+        "docs/user-scenarios.md"
+      ],
+      "note": "2026-11-03 사용자 0.2.6 AX 지시. FR-AX-026 / UC-AX-026; opt-in 초기 구현."
+    },
+    "src/main/adapters/ax-policy-tool-executor.ts": {
+      "layer": "adapters",
+      "uc": [
+        "UC1",
+        "UC5",
+        "UC13"
+      ],
+      "contract": [
+        "docs/ARCHITECTURE.md",
+        "docs/requirements.md",
+        "docs/user-scenarios.md"
+      ],
+      "note": "2026-11-03 사용자 0.2.6 AX 지시. FR-AX-026 / UC-AX-026; opt-in 초기 구현."
     }
   }
 }
