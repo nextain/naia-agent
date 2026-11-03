@@ -2,6 +2,7 @@
 // recall = 시맨틱/키워드 검색 결과의 *원문*(facts/episodes content)을 반환 — 프롬프트 프레이밍·예산
 // 절단은 domain formatRecalledMemory 소유(adapter 는 데이터만). save = user/assistant encode.
 import {
+  buildLLMDeleteVerifier,
   buildLLMFactExtractor,
   buildLLMSummarizer,
   LocalAdapter,
@@ -10,7 +11,7 @@ import {
   OfflineEmbeddingProvider,
   OpenAICompatEmbeddingProvider,
 } from "@nextain/naia-memory";
-import type { CompactionSummarizer, EmbeddingProvider, ExtractedFact, FactExtractor } from "@nextain/naia-memory";
+import type { CompactionSummarizer, DeleteVerifier, EmbeddingProvider, ExtractedFact, FactExtractor } from "@nextain/naia-memory";
 import type { SubLlmCallOptions } from "../ports/sub-llm.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -91,6 +92,8 @@ export interface NaiaMemoryOpts {
   readonly llm?: MemoryLlmConfig;
   /** Agent가 provider/auth를 해석해 만든 좁은 포트. 지정하면 legacy llm config보다 우선한다. */
   readonly factExtractor?: FactExtractor;
+  /** 삭제 검증기("지워줘" 근거 확인). 지정하면 llm 설정보다 우선. 미지정이고 llm 이 있으면 같은 설정으로 buildMemoryDeleteVerifier 가 만든다. */
+  readonly deleteVerifier?: DeleteVerifier;
   readonly summarizer?: CompactionSummarizer;
   readonly roleSummarizer?: (input: Parameters<CompactionSummarizer>[0], authorize: NonNullable<SubLlmCallOptions["authorizeAndDisclose"]>) => ReturnType<CompactionSummarizer>;
   readonly consolidateOnSave?: boolean;
@@ -148,6 +151,23 @@ export function buildMemoryFactExtractor(cfg?: MemoryLlmConfig): FactExtractor |
     failurePolicy: "throw",
   } as Parameters<typeof buildLLMFactExtractor>[0] & { auth?: "bearer" | "x-anyllm" };
   return buildLLMFactExtractor(options);
+}
+
+/** MemoryLlmConfig → DeleteVerifier(또는 undefined). 사실추출이 내보낸 삭제 연산("지워줘·더 이상 ~않다")은 검증기가
+ *  없으면 통합 단계에서 거부된다(메모리 켬 36문항 시험에서 삭제 축 6→2 의 원인). 검증기는 사실추출과 같은 LLM 설정을
+ *  쓰므로 독립 판정은 아니다 — 근거 문장·대상 문장의 결정론 검사는 삭제 지점에서 따로 돈다. */
+export function buildMemoryDeleteVerifier(cfg?: MemoryLlmConfig): DeleteVerifier | undefined {
+  if (!cfg || cfg.provider === "none") return undefined;
+  if (!cfg.baseUrl?.trim() || !cfg.model?.trim()) {
+    throw new Error(`memory llm(${cfg.provider}): baseUrl·model 은 필수다(deleteVerifier).`);
+  }
+  const options = {
+    apiKey: cfg.apiKey ?? "",
+    baseURL: memoryLlmBaseUrl(cfg.baseUrl),
+    model: cfg.model,
+    auth: cfg.auth ?? (cfg.provider === "naia" || cfg.provider === "nextain" ? "x-anyllm" : "bearer"),
+  } as Parameters<typeof buildLLMDeleteVerifier>[0] & { auth?: "bearer" | "x-anyllm" };
+  return buildLLMDeleteVerifier(options);
 }
 
 /** MemoryLlmConfig → CompactionSummarizer(또는 undefined=결정론 recap). factExtractor 와 같은 small-LLM 설정
@@ -270,6 +290,8 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
       }
     : undefined;
   const summarizer = opts.summarizer ?? buildMemorySummarizer(opts.llm);
+  // Agent 가 factExtractor 를 직접 주입했으면 legacy llm 설정은 무시된다(위 주석) — 검증기도 같은 규칙으로 llm 에서 만들지 않는다.
+  const deleteVerifier = opts.deleteVerifier ?? (opts.factExtractor ? undefined : buildMemoryDeleteVerifier(opts.llm));
   let sys: MemorySystem;
   let localAdapter: LocalAdapter | null = null;
   if (opts.adapter === "qdrant") {
@@ -291,6 +313,7 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
       embeddingProvider,
       ...(factExtractor ? { factExtractor } : {}),
       ...(summarizer ? { summarizer } : {}),
+      ...(deleteVerifier ? { deleteVerifier } : {}),
     });
   } else {
     // local: storePath 제어 위해 LocalAdapter 직접 생성(MemorySystem 내부 빌드는 storePath 미지정). embeddingProvider
@@ -306,6 +329,7 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
       adapter: localAdapter,
       ...(factExtractor ? { factExtractor } : {}),
       ...(summarizer ? { summarizer } : {}),
+      ...(deleteVerifier ? { deleteVerifier } : {}),
     });
   }
   // QdrantAdapter 는 비동기 initialize() 필요(recall/encode 는 내부적으로 _initPromise 대기 안 함).
