@@ -498,3 +498,16 @@ r9의 결정론 multi-issue/team 회귀 JSON은 현재 시작 커밋 `ecb879b`�
 runner를 다시 실행한 결과다. 관측값·gate·비용은 이전 산출물과 동일하고 sourceRevision과
 provenance만 갱신됐다. runner의 ancestry·tracked input·runtime digest 검사는 그대로 유지한다.
 유료 비용 비교 manifest를 이 결정론 결과로 대체하지 않는다.
+
+### 7.16 r10 — 승인/수신 경계와 기기 인수
+FR-AX-026.16은 기존 host control lane의 describe→present→displayed→capture→submit→executor를
+두 loopback HTTP 수신 서버에 연결해 표시 snapshot과 실수신을 대조한다. 원본 call의 목적지/본문을
+대기 중 변경해도 승인 snapshot만 전송하고, 거절·ACK 미수신·무효화·종료 시 두 서버 모두 비어 있다.
+진단에는 목적지/본문이 없다. 네트워크 기능이나 기업 허용 목록을 새로 열지 않았다.
+실제 host adapter가 다른 URL로 보내거나 redirect/OS proxy를 쓰는 경우는 이 fixture로 보증할 수 없다.
+따라서 endpoint/proxy/CA 사전 차단을 유지하고 실제 공개 UI·OS 수신/방화벽 대조는 준의
+`/home/nextain/jun/ax-026-device-check-20261104.md`에 별도 인수 항목으로 넘긴다.
+메모 이관은 r8 공용 조립기를 유지한다. Windows 문자열/fake fs와 Linux 파일 시험은
+Windows/macOS 실파일·로그인·키체인·자손 종료의 실기 대체 증거가 아니다.
+짝 셸 HEAD 25b0599a의 `packages/shell/src/components/AxApprovalDraft.tsx`는 Unmounted draft이며
+앱 src 내 mount 참조가 없다. 공개 UI 인수는 기기 실기 외에 앱 조립/native 인증 연결도 필요하다.

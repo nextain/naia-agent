@@ -1212,3 +1212,10 @@ r9 취소 시험 요구사항: 실제 자식이 준비를 알린 뒤 cancel해�
 r9 P04 검증: NAIA_SHELL_ROOT 지정 `pnpm test`(tsc 포함) 186파일 중 183통과/3skip,
 2438통과/실패0/11skip. 비용·결정론 산출물·취소 회귀 전부 포함. 독립 리뷰 집중126건 및 취소8건 통과.
 서버 구현·계약 검증은 수용했으며 실제 native 인증/UI/음성·기기 인수 전 FR-AX-026.15는 In review 유지.
+
+### FR-AX-026.16 — 목적지/수신 대조 인수 준비 (r10, In review)
+P01/P02: UC-AX-026 r10. 승인 카드의 목적지·본문과 HTTP 수신 값이 같아야 하며,
+대기 중 호출 원본 변경은 승인 snapshot에 영향을 주지 않는다. 미승인·ACK 없음·무효화·종료는
+수신 0회여야 한다. 기업 custom endpoint/proxy/CA는 기존 사전 거절을 유지한다.
+로컬 HTTP 시험은 trusted host callback의 조립 계약 검증이며 임의 adapter의 재전송·redirect,
+OS egress, 실제 기업 CA/계정 및 공개 UI 인수를 보증하지 않는다. P05는 이 실기 증거 전 In review.

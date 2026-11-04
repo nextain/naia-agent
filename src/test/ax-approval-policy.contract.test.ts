@@ -651,3 +651,67 @@ describe("r9 Agent capture failure boundaries", () => {
     lane.dispose();
   });
 });
+
+// UC-AX-026 r10 / FR-AX-026.16: real loopback receipt versus displayed snapshot.
+// This is a trusted host fixture, not enterprise OS/proxy/UI acceptance.
+describe("r10 displayed destination versus HTTP receiver", () => {
+  it.each(["approve", "deny", "no-ack", "edit", "dispose"] as const)("%s keeps unapproved receiver empty", async (mode) => {
+    const received: { receiver: string; path: string; body: string }[] = [];
+    const servers = ["approved", "unapproved"].map((receiver) => createServer(async (req, res) => {
+      let body = "";
+      for await (const part of req) body += part;
+      received.push({ receiver, path: req.url!, body });
+      res.end("synthetic receipt");
+    }));
+    let lane: ReturnType<typeof makeAxHostControlLane> | undefined;
+    try {
+      for (const server of servers) await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+      const endpoints = servers.map((server) => `http://127.0.0.1:${(server.address() as { port: number }).port}/document`);
+      const original = { id: "r10-send", name: "document_send", args: { destination: endpoints[0], body: "합성 문서 — no credentials" } };
+      const expected = structuredClone(original.args);
+      let card!: AxApprovalCard;
+      const evidence = {};
+      const diagnostics: unknown[] = [];
+      lane = makeAxHostControlLane({
+        scope: () => ({ sessionId: "r10", workspace: "/synthetic", provider: "codex-ax", policyRevision: "1" }),
+        authenticate: (value) => value === evidence ? "human-text" : undefined,
+        describe: (request) => ({ preview: JSON.stringify(request.call.args) }),
+        present: (value) => { card = value; },
+        diag: { log: (...args) => { diagnostics.push(args); }, debug: (...args) => { diagnostics.push(args); } },
+        registrations: [{ spec: { name: "document_send", description: "loopback only", parameters: {} },
+          classify: () => ["external_send"],
+          execute: async (snapshot, opts) => {
+            const args = snapshot.args as { destination: string; body: string };
+            const response = await fetch(args.destination, { method: "POST", body: args.body, redirect: "error", signal: opts.signal });
+            return { output: await response.text() };
+          } }],
+      });
+      const pending = lane.executor.execute(original, { requestId: "r10" });
+      expect(JSON.parse(card.preview)).toEqual(expected);
+      expect(received).toEqual([]);
+      // Mutate the caller's object after presentation; only the frozen snapshot may execute.
+      original.args.destination = endpoints[1]; original.args.body = "UNAPPROVED_BODY";
+      if (mode !== "no-ack") expect(lane.displayed(card.proposalId)).toBe(true);
+      const token = lane.beginInput(evidence);
+      if (mode === "edit") lane.invalidate();
+      if (mode === "dispose") lane.dispose();
+      if (mode === "no-ack") {
+        expect(token).toBeUndefined(); lane.dispose();
+      } else {
+        expect(lane.submit(token!, { text: mode === "deny" ? "아니" : "보내", final: true })).toBe(mode === "approve");
+        expect(lane.submit(token!, { text: "보내", final: true })).toBe(false);
+      }
+      expect((await pending).isError ?? false).toBe(mode !== "approve");
+      expect(received).toEqual(mode === "approve" ? [{ receiver: "approved", path: "/document", body: expected.body }] : []);
+      expect(received.some((entry) => entry.receiver === "unapproved")).toBe(false);
+      expect(JSON.stringify(diagnostics)).not.toContain(expected.destination);
+      expect(JSON.stringify(diagnostics)).not.toContain(expected.body);
+    } finally {
+      lane?.dispose();
+      for (const server of servers) {
+        server.closeAllConnections();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+    }
+  });
+});

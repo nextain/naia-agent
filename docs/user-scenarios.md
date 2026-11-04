@@ -1179,3 +1179,10 @@ Test Coverage Map: src/test/uc5-file-memo.contract.test.ts의 데이터 홈 경�
 Test Coverage Map: `ax-approval-policy.contract.test.ts`의 r9 paired shell adapter 그룹은 읽기 전용 셸 초안을 실제 Agent control lane과 연결해 ACK/capture/submit·취소·종료·코드·음성 경계를 검사한다. `pi-cost-comparison-runner.contract.test.ts`는 현 빌드 합성 analyzer와 고정 계약 거절을 구분한다.
 r9 Test Coverage Map 추가: `multi-issue-benchmark.contract.test.ts`, `issue-team-benchmark.contract.test.ts`는 현재 입력 provenance로 재생성한 결정론 산출물을 새 dist 빌드와 대조하며 기존 hard gate 반례 검사를 유지한다.
 r9 취소 회귀: `uc-cli-subagent-shell.contract.test.ts` AC1은 실제 자식의 SIGTERM handler 준비 ACK 후 취소하여 서버 부하 중에도 SIGKILL 에스컬레이션을 검사한다. 고정 sleep으로 준비를 추정하지 않는다.
+
+### UC-AX-026 r10 — 승인 목적지와 수신 대조 (P01/P02)
+사용자가 목적지·본문 전체 카드 표시 후 직접 승인하면 trusted host executor가 그 snapshot만 전송한다.
+호출자가 승인 대기 중 목적지/본문을 바꿔도 수신 값은 표시한 값과 같아야 한다. 거절·표시 ACK 없음·
+편집 무효화·종료에는 승인/미승인 수신 서버 모두 0회다. P02: `ax-approval-policy.contract.test.ts`
+의 r10 loopback 수신 대조와 `codex-app-server-provider.contract.test.ts`의 config/env 차단,
+`uc5-file-memo.contract.test.ts`의 기존 경로/원본 보존 회귀. 기기 명령·실기 판정은 준 인수 문서로 넘긴다.

@@ -197,3 +197,23 @@ SIGTERM/SIGKILL/terminal 1회 단언 유지. 독립 재실행 8/8 통과, 차단
 186파일 중 183통과/3skip, 2438통과/실패0/11skip. 비용·결정론22건·준비ACK 취소 포함.
 원시 실행 로그는 실행 폴더 `tmp/r9-full-accepted.log`; 결정론 재현 JSON은 저장소에 추적한다.
 실 UI/OS/계정 인수 전 P05 In review 유지.
+
+## r10 — 승인 목적지/수신 대조 (2026-11-04 UTC)
+독립 읽기 전용 적대 리뷰 `/root/review_r10`: r10 시험 직접 재실행 5/5 통과.
+카드 preview와 원본 expected, 서로 다른 실제 loopback 서버의 receiver/path/body를 비교하므로
+공허하지 않음. snapshot 우회 시 B 수신 또는 body 불일치로 실패한다. deny/no-ack/invalidate/dispose
+0회도 P01/P03 계약과 일치하며 변경 범위의 차단 결함 없음. no-ack는 dispose로 종료하는 경로여서
+영구 대기·늦은 ACK 인수까지 보증하지 않는다. 실제 기업 proxy/CA·OS egress·공개 UI로 확대하지 않는다.
+production source·메모 이관·전송 허용 범위는 유지했다. 헌장 process-status는 단독 수정 금지로 유지.
+실제 CLI pin 0.163.0 별도 로컬 fixture에서도 기본 config와 변조 5종을 실행해 thread/turn 0회,
+loopback 수신/추론 호출 0회를 확인했다. 준 기기 문서의 live 예제는 node --check로 문법을 검사했으며
+실제 로그인·키/모델 호출은 실행하지 않았다. 전체 시험/환경 한계는 이번 회차 result.md 참조.
+준 문서 추가 독립 대조: import/실제 API/이벤트 필드 일치, 실행을 막는 오류 없음.
+직접 codex login은 Agent 사전 차단 밖이라는 지적을 반영해, 로그인 전 buildCodexAxEnv 검사와
+OS proxy/기업 CA 확인을 요구하고 해당 설정이 있으면 로그인/live 호출도 생략하도록 명시했다.
+셸 읽기 대조: 25b0599a의 AxApprovalDraft.tsx는 Unmounted draft이고 다른 앱 src mount 참조가
+없다. 공개 UI 미인수 원인은 실기/자격 외에 앱 조립과 native 인증 연결 부재도 포함한다.
+최종 실행: 기본 peer 미지정 2427통과/2실패/23skip은 짝 fixture 미발견 2건.
+peer 명시 전체는 AX120 모두 통과했으나 기존 10ms lease 시험 1건 실패(2445통과/11skip).
+해당 파일은 변경 없이 단독42/42 통과. worker2 제한 전체 재실행은 186파일 중
+183통과/3skip, 2446통과/11skip/실패0(tsc 포함). 기본 병렬 실행의 lease 경합 기록은 숨기지 않는다.
