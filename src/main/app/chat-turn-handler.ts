@@ -5,6 +5,7 @@ import type {
   ToolExecutionResult,
 } from "../domain/chat.js";
 import { mapProviderChunk, threadToolRound, estimateMessageTokens, resolveTurnThinking, normalizeAvatarThinkingTag, flushAvatarThinkingTag } from "../domain/chat.js";
+import { classifyProcessingEndpoint } from "../domain/processing-policy.js";
 import { calculateCost } from "../domain/cost.js";
 import type {
   ProviderPort, ProviderResolverPort, ProcessingGuardPort, ConversationPort, CredentialPort, ApprovalPort, AgentEgressPort, DiagnosticLog, ToolExecutorPort, ProviderChatOpts, PersonaSourcePort, WorkspaceContextPort,
@@ -86,7 +87,7 @@ interface Turn { abort: AbortController; state: ChatTurnState; }
 const MAX_TOOL_ROUNDS = 8; // 허용 도구라운드 최대치(round 단위). cap-th 결과로 provider 1회 재호출 허용, 그게 또 도구면 error.
 const TOOL_EXEC_TIMEOUT_MS = 60_000; // per-tool 실행 deadline(UC5 리뷰): hung MCP/HTTP 도구가 turn 무한 hang 방지. 초과=isError(LLM 복구).
 const MEM_RECALL_TIMEOUT_MS = 5000; // recall bound — 무응답 시 주입 생략하고 턴 진행(terminal 항상 방출).
-const MEM_SAVE_TIMEOUT_MS = 5000;   // save bound — 무응답 시 finish/drain 영구정지 방지(timeout→로그 후 finish).
+const MEM_SAVE_TIMEOUT_MS = 30000;   // save bound — 로컬 사실 추출 시간을 허용하고 무응답은 유한하게 종료(timeout→로그 후 finish).
 // UC-compaction(FR-COMPACT) 기본값 — compaction 포트 주입 시에만 동작(미주입=압축 없음).
 const DEFAULT_COMPACT_THRESHOLD_TOKENS = 4000; // 추정 토큰 이 임계 초과 시 head 요약 시도.
 const DEFAULT_COMPACT_KEEP_TAIL = 6;           // 압축 시 원문 유지할 최근 메시지 수.
@@ -443,6 +444,10 @@ export class ChatTurnHandler {
         expectedRole?: "memory" | "main",
       ) => {
         if (memoryTransmission && !req.processing) {
+          // The configured loopback memory model stays on this device, like the
+          // main local conversation. Keep external/unknown destinations gated.
+          const destination = classifyProcessingEndpoint(expectedEndpoint);
+          if (destination.ok && destination.destination === "local_device") return true;
           const toolCallId = `memory-processing-${++memoryApprovalSequence}`;
           const approvalSignal = AbortSignal.any([signal, requestSignal ?? AbortSignal.timeout(this.d.memoryTimeoutMs ?? MEM_SAVE_TIMEOUT_MS)]);
           const { promise, dispose } = this.d.approval.prepareDecision(req.requestId, toolCallId, { signal: approvalSignal });

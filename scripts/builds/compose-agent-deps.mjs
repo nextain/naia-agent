@@ -604,7 +604,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
   const refreshSurfacing = (workspacePath, memoryAvailable) => {
     try {
       const memCfg = workspacePath ? settingsStore.loadMemoryConfig(workspacePath) : undefined;
-      const embeddingAvailable = memCfg ? memCfg.embedding?.provider !== "none" : false;
+      const embeddingAvailable = !!memCfg && memCfg.embedding?.provider !== "none" && (memCfg.embedding?.provider === "offline" || !!memCfg.embedding?.deploymentRevision);
       const surfConfig = workspacePath ? readMemorySurfacingConfig(workspacePath) : { off: false, judge: "llm", level: "normal" };
       const disabled = env.NAIA_MEMORY_SURFACING === "off" || surfConfig.off;
       const roles = workspacePath ? settingsStore.loadLlmRoles(workspacePath) : null;
@@ -627,6 +627,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
         level: surfConfig.level,
         threshold,
         maxItems: SURFACING_THRESHOLD_MAX_ITEMS,
+        keywordOnly: !embeddingAvailable,
       };
       surfacingLlm = decision.mode === "on-llm" && runtime?.ok
         ? buildSubLlmProvider(runtime.config, { fetch: async (url, init) => fetch(url, init), temperature: null, maxTokens: SURFACING_LIMITS.maxOutputTokens })
@@ -700,7 +701,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
           : undefined;
         const mainConfig = settingsStore.loadMain(workspacePath);
         const mainPort = mainConfig && resolver ? buildMainMemoryPort({ ...mainConfig, ...(credentials.get(mainConfig.provider) ?? {}) }, resolver) : undefined;
-        const selected = nextMemoryRuntime?.ok ? nextMemoryRuntime.config : nextMemoryRuntime?.reason === "unsupported" ? mainPort : undefined;
+        const selected = nextMemoryRuntime?.ok ? nextMemoryRuntime.config : mainPort;
         const authorizeCurrentRole = (authorize) => bindMemoryAuthorization(
           (input) => resolveMemoryRoleEndpoint(settingsStore.loadLlmRoles(workspacePath), input, settingsResolveSecret, settingsStore.loadMain(workspacePath) ?? undefined, input.endpoint, input.role),
           authorize,
@@ -773,11 +774,10 @@ export async function composeAgentRuntimeDeps(o = {}) {
                 adapter: nextMemCfg.adapter,
                 ...(nextMemCfg.qdrantUrl ? { qdrantUrl: nextMemCfg.qdrantUrl } : {}),
                 ...(nextMemCfg.qdrantApiKey ? { qdrantApiKey: nextMemCfg.qdrantApiKey } : {}),
-                embedding: nextMemCfg.embedding,
+                embedding: nextMemCfg.embedding.provider !== "offline" && !nextMemCfg.embedding.deploymentRevision ? { provider: "none" } : nextMemCfg.embedding,
               }
             : {}),
           consolidateOnSave: consolidationOn,
-          ...((["ollama", "vllm"].includes(effectiveMemoryRole?.provider.value) || (nextMemoryRuntime?.ok && isLocalEngineBaseUrl(nextMemoryRuntime.config.baseUrl))) ? { fallbackHeuristicOnFailure: true } : {}),
           ...(roleSummarizer ? { roleSummarizer } : {}),
           ...(roleExtractor ? { roleExtractor } : {}),
           onConsolidation: (event) => {

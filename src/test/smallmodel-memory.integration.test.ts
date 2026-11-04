@@ -58,8 +58,8 @@ describe("small model memory request integration", () => {
     expect(calls).toEqual(["small", "main"]); expect(approvals).toEqual(["small", "main"]);
     calls.length = 0;
     const local = buildRoleMemorySummarizer(config("small", "ollama"), config("main"), fetch, () => {});
-    await expect(local({ messages: [{ role: "user", content: "hi" }], keepTail: 0, targetTokens: 20, seedSummary: "" }, async () => true)).rejects.toThrow();
-    expect(calls).toEqual(["small"]);
+    await expect(local({ messages: [{ role: "user", content: "hi" }], keepTail: 0, targetTokens: 20, seedSummary: "" }, async () => true)).resolves.toBe("fallback recap");
+    expect(calls).toEqual(["small", "main"]);
   });
 });
 
@@ -204,7 +204,7 @@ it("IT-SM-AGENT-04 추출과 압축의 승인 거부, 양쪽 실패와 로컬 �
     const result = await memory.compact({ messages: input.messages, keepTail: 0, targetTokens: 20, authorizeAndDisclose: async () => true });
     expect((await memory.recall("tea")).facts).toContain("I like tea");
     expect(result.recap).toContain("tea");
-    expect(calls).toEqual(["small", "small"]);
+    expect(calls).toEqual(["small", "main", "small", "main"]);
     expect(JSON.stringify(events)).not.toContain("private");
   } finally { vi.useRealTimers(); await memory.close(); await rm(dir, { recursive: true, force: true }); }
 });
@@ -280,7 +280,7 @@ it("IT-SM-AGENT-01 실제 조립에서 기억 우선, 빈 역할과 메인 선�
         await deps.memory.save("hello", "", { authorizeAndDisclose: async () => true });
         const compacted = await deps.memory.compact({ messages: [{ role: "user" as const, content: "I like tea" }], keepTail: 0, targetTokens: 20, authorizeAndDisclose: async () => true });
         const recalled = await deps.memory.recall("tea");
-        if (mode === "empty") { expect(models).toEqual([]); expect(recalled.facts).toContain("I like tea"); expect(compacted.recap).toContain("tea"); }
+        if (mode === "empty") { expect(models).toEqual(["grok-4.3", "grok-4.3"]); expect(recalled.facts).toContain("User likes tea"); expect(compacted.recap).toBe("memory recap"); }
         else { expect(models).toEqual([mode === "explicit" ? "memory" : "small", mode === "explicit" ? "memory" : "small"]); expect(recalled.facts).toContain("User likes tea"); expect(compacted.recap).toBe("memory recap"); }
         models.length = 0;
       } finally { vi.useRealTimers(); await deps.memory.close(); }

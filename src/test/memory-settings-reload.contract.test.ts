@@ -82,7 +82,7 @@ describe("memory settings reload wiring", () => {
       await writeFile(configPath, JSON.stringify({
         provider: "fake",
         model: "test",
-        llmRoles: { memory: { provider: "ollama" } },
+        llmRoles: { main: { provider: "ollama" }, memory: { provider: "ollama" } },
       }), "utf8");
       const failed = await deps.reloadMemory(adk);
       expect(failed).toMatchObject({ ok: false, reloaded: false, retained: true });

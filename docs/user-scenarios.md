@@ -1195,3 +1195,22 @@ r9 취소 회귀: `uc-cli-subagent-shell.contract.test.ts` AC1은 실제 자식�
 기록과 ReloadSettings 상태는 consolidation=on-save/off로 실제 저장 시 동작을 표시한다.
 P02 Test Coverage Map: `memory-consolidation.contract.test.ts` — 가짜 OpenAI 호환 HTTP 서버·임베딩,
 실 compose → ChatTurnHandler 완료 턴 네 번 → close/recompose → 새 대화 회상, 추출 실패와 복구, 명시 off.
+
+
+### UC-B2C-026-R17 — 대화 사이 기억 (#792)
+대화 A에서 “내 할 일은 제안서 작성”, “다음 주 보라 님 답사 간다”라고 말한다. 기억 목록에 사실이 표시되고 셸을 다시 켠 뒤 새 대화 B의 “내 할 일 뭐였지?”에 저장한 사실로 답한다. 작은 LLM 미설정/접속 실패는 메인 두뇌로 대체하며 설정에서 알린다. 임베딩 없음은 경고와 로컬 주소 설정 길을 제공하고 제한된 키워드 회상으로 동작한다. 기억 목록은 정리 대기 건수를 표시한다. Linux 비밀 저장 도구 누락은 쉬운 말로 복구를 안내한다.
+
+| Test Coverage Map — R17 | 검증 |
+|---|---|
+| 저장→사실 추출→재시작→새 대화 | 실제 memory adapter + 가짜 LLM/임베딩, 최근 사실·오류 재시도 |
+| 설정 기본/빈 값/진행/성공/접속 실패 | SmallLlmSection 컴포넌트와 실 브라우저, 값 저장·메인 대체 표시 |
+| 기억 빈 목록/정리 대기/완료/오류 | SettingsTab, Rust 읽기, 키보드·ARIA·360/1100px UX |
+| Linux 저장 실패 | .deb libsecret-tools, AppImage 기동 검사, 쉬운 말 오류 |
+
+R17 검증 연결: `memory-role-summarizer.contract.test.ts`(재개방 및 대화 처리기), `uc1-memory-process.integration.test.ts`(실 프로세스 재시작, 임베딩 없음/가짜 임베딩), `memory-settings.spec.ts`(360/1100px 빈 목록·대기·성공·오류 복구·로컬 임베딩 설정), `SmallLlmSection.test.tsx`, `linux-media.test.ts`, Rust `r17_pending_tests`. 설치된 준 3090 모델 자체의 정확도와 실 장치 인수는 별도이며 자동 시험의 가짜 답변을 실 모델 품질로 해석하지 않는다.
+
+R17: 메인 로컬 모델로 사실을 뽑는 저장 단계는 최대 30초로 제한하며, 실패한 대화는 다음 저장 때 재시도한다. 대화 생성·회상 제한은 유지한다.
+
+R17 검증 짝: memory `ab1f8002d31bffacf4779760eda727cc57a658a8` (기존 e8cbd6f에서 전송 주입만 추가), 0.1.4. 요청별 훅은 생성자+AsyncLocalStorage로 연결하며 전역 fetch 교체가 없다. 이 정확한 소스 조합으로 관련290개와 실제 gRPC 종료·재기동 두 경우가 통과했다.
+
+R18 (#792 P01–P05): 904878e 위에 R17을 통합한다. Memory ab1f800의 생성자 훅+AsyncLocalStorage로 요청 extractor/summarizer를 전달하며 명시 off, 승인 누락 원문 보존, 오류 원인 전달, on-save 표시 및 삭제 검증기를 유지한다. 회귀는 memory-consolidation, memory-role-summarizer, uc1-memory-process (실 SIGTERM/재시작·사실>0·대기0), 전체 시험으로 검증한다.

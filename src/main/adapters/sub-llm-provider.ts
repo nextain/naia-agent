@@ -24,6 +24,7 @@ export function withMainFallback(
 	sub: SubLlmPort,
 	main: SubLlmPort,
 	log: (event: { provider: string; model?: string; reason: string; attemptRole?: "memory" | "main" }) => void,
+    options: { allowLocalFallback?: boolean } = {},
 ): SubLlmPort {
 	const run = async (invoke: (port: SubLlmPort) => Promise<string>) => {
 		try {
@@ -36,7 +37,7 @@ export function withMainFallback(
 			const reason = typeof status === "number" ? `http_${status}` : original instanceof Error && original.message === "SUB_LLM_INVALID_RESPONSE" ? "invalid_response" : original instanceof Error && original.message === "SUB_LLM_PROCESSING_NOT_AUTHORIZED" ? "authorization_denied" : "request_failed";
 			log({ provider: sub.provider, model: sub.model, reason, ...(sub.role ? { attemptRole: sub.role } : {}) });
 			if ((original instanceof Error && original.message === "SUB_LLM_PROCESSING_NOT_AUTHORIZED") ||
-				(sub.local || ["ollama", "vllm"].includes(sub.provider.toLowerCase())) ||
+				(!options.allowLocalFallback && (sub.local || ["ollama", "vllm"].includes(sub.provider.toLowerCase()))) ||
 				(sub.provider === main.provider && sub.model === main.model && sub.endpoint === main.endpoint)) throw original;
 			try {
 				const result = await invoke(main);

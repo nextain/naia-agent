@@ -4,6 +4,7 @@
 import {
   buildLLMDeleteVerifier,
   buildLLMFactExtractor,
+  heuristicFactExtractor,
   buildLLMSummarizer,
   LocalAdapter,
   MemorySystem,
@@ -13,6 +14,8 @@ import {
 } from "@nextain/naia-memory";
 import type { CompactionSummarizer, DeleteVerifier, EmbeddingProvider, ExtractedFact, FactExtractor } from "@nextain/naia-memory";
 import type { SubLlmCallOptions } from "../ports/sub-llm.js";
+import { selectRecallByThreshold } from "../domain/surfacing.js";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ManagedMemoryPort, MemoryRecallOptions } from "../ports/memory.js";
@@ -206,6 +209,8 @@ export interface MemoryEmbeddingConfig {
   readonly apiKey?: string;
   /** OpenAI-compat 임베딩 모델명(provider="vllm"|"ollama" 필수). */
   readonly model?: string;
+  readonly dimensions?: number;
+  readonly deploymentRevision?: string;
   /** naia 게이트웨이 URL(provider="naia" 필수). */
   readonly naiaGatewayUrl?: string;
   /** naia 게이트웨이 키(provider="naia" 필수). */
@@ -231,13 +236,13 @@ export function buildEmbeddingProvider(cfg?: MemoryEmbeddingConfig): EmbeddingPr
       if (!cfg.baseUrl?.trim() || !cfg.model?.trim()) {
         throw new Error(`memory embedding(${cfg.provider}): baseUrl·model 은 필수다.`);
       }
-      return new OpenAICompatEmbeddingProvider(cfg.baseUrl, cfg.apiKey ?? "", cfg.model);
+      return new OpenAICompatEmbeddingProvider(cfg.baseUrl, cfg.apiKey ?? "", cfg.model, cfg.dimensions ?? 1536, cfg.deploymentRevision);
     }
     case "naia": {
       if (!cfg.naiaGatewayUrl?.trim() || !cfg.naiaKey?.trim()) {
         throw new Error("memory embedding(naia): naiaGatewayUrl·naiaKey 는 필수다.");
       }
-      return new NaiaGatewayEmbeddingProvider(cfg.naiaGatewayUrl, cfg.naiaKey);
+      return new NaiaGatewayEmbeddingProvider(cfg.naiaGatewayUrl, cfg.naiaKey, cfg.deploymentRevision);
     }
     default:
       return undefined;
@@ -270,7 +275,17 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
   // issue #7: os 메모리 UI 의 adapter/embedding 선택을 런타임에 반영(이전엔 LocalAdapter+키워드-only 하드코딩).
   // embedding 은 adapter 선택과 분리해 빌드(순수). provider 별 필수 누락 = throw(상위 entry 가 catch→기억 없이 격리).
   const embeddingProvider = opts.embeddingProvider ?? buildEmbeddingProvider(opts.embedding);
-  const rawFactExtractor = opts.factExtractor ?? buildMemoryFactExtractor(opts.llm);
+  // The pinned MemorySystem accepts constructor hooks, not per-call overrides.
+  // ALS carries only this save/compact call's authorization across awaits.
+  const extractionScope = new AsyncLocalStorage<FactExtractor>();
+  const summaryScope = new AsyncLocalStorage<CompactionSummarizer>();
+  const rawFactExtractor = opts.roleExtractor
+    ? async (episodes: Parameters<FactExtractor>[0]) => {
+        const extract = extractionScope.getStore();
+        if (!extract) throw new Error("MEMORY_EXTRACTION_NOT_AUTHORIZED");
+        return extract(episodes);
+      }
+    : opts.factExtractor ?? buildMemoryFactExtractor(opts.llm);
   const factExtractor: FactExtractor | undefined = rawFactExtractor
     ? async (episodes) => {
         const results: ExtractedFact[] = [];
@@ -289,7 +304,13 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
         return results;
       }
     : undefined;
-  const summarizer = opts.summarizer ?? buildMemorySummarizer(opts.llm);
+  const summarizer = opts.roleSummarizer
+    ? async (input: Parameters<CompactionSummarizer>[0]) => {
+        const summarize = summaryScope.getStore();
+        if (!summarize) throw new Error("MEMORY_SUMMARY_NOT_AUTHORIZED");
+        return summarize(input);
+      }
+    : opts.summarizer ?? buildMemorySummarizer(opts.llm);
   // Agent 가 factExtractor 를 직접 주입했으면 legacy llm 설정은 무시된다(위 주석) — 검증기도 같은 규칙으로 llm 에서 만들지 않는다.
   const deleteVerifier = opts.deleteVerifier ?? (opts.factExtractor ? undefined : buildMemoryDeleteVerifier(opts.llm));
   let sys: MemorySystem;
@@ -474,6 +495,17 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
         scopeMode,
         ...(opts?.touch === false ? { touch: false } : {}),
       });
+      // Without vectors, inspect the most recent active facts within this exact
+      // workspace. Korean spacing/particles can defeat the backend BM25 query.
+      // Never revive archived/superseded facts or facts from another project.
+      if (!embeddingProvider && localAdapter) {
+        const now = Date.now();
+        const recent = (await localAdapter.semantic.getAll())
+          .filter(f => f.encodingContext?.project === project && (f.status ?? "active") === "active" && (f.validTo == null || f.validTo > now) && (f.validFrom == null || f.validFrom <= now))
+          .sort((a, b) => b.updatedAt - a.updatedAt).slice(0, RAW_MAX_ITEMS);
+        const picked = selectRecallByThreshold({ facts: recent.map(f => f.content), episodes: [] }, query, { threshold: 0.86, maxItems: Math.min(k, 5), keywordOnly: true }).memory.facts;
+        result.facts = recent.filter(f => picked.includes(f.content)).slice(0, k);
+      }
       // 포트 반환 상한(방어): 항목 수 k·각 content RAW_ITEM_CAP 자로 bound — 거대 반환이 동기 처리에서
       // 루프/메모리를 고갈시키는 것 차단(formatter 도 별도 cap). RAW_ITEM_CAP > formatter maxItemChars 기본.
       // ⚠️ 절단 시 **표식**(…[절단됨]) 부착 — 무표식 절단은 문장 후반(조건·부정·출처)을 소리없이 잘라 기억
@@ -557,14 +589,14 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
         try {
           // Save is the consolidation trigger: freshly encoded episodes must not wait
           // behind the engine's five-minute background age gate.
-          const result = await sys.consolidateNow(true, extract);
+          const result = await (extract ? extractionScope.run(extract, () => sys.consolidateNow(true)) : sys.consolidateNow(true));
           await sys.flush();
           try { opts.onConsolidation?.({ phase: "done", episodesProcessed: result.episodesProcessed, factsCreated: result.factsCreated, factsUpdated: result.factsUpdated }); } catch { /* observer only */ }
         } catch (error) {
           try { saveOpts?.onRoleError?.(error); } catch { /* observation cannot alter recovery */ }
           try { opts.onConsolidation?.({ phase: "failed", error: describeError(error) }); } catch { /* observer only */ }
           if (opts.fallbackHeuristicOnFailure && !saveOpts?.signal?.aborted) {
-            await sys.consolidateNow(true);
+            await extractionScope.run(heuristicFactExtractor, () => sys.consolidateNow(true));
             await sys.flush();
           }
         }
@@ -587,18 +619,21 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
       // 입력 메시지를 {role,content}로 정규화(상한 절단) — toolCalls/toolCallId 는 요약 대상 아님.
       const messages = req.messages.map((m) => ({ role: m.role, content: capInput(m.content, SAVE_CAP) }));
       await ready; // adapter init 완료 보장.
-      const r = await sys.compact({
+      const compactInput = {
         messages,
         keepTail: Math.max(0, Math.floor(req.keepTail)),
         targetTokens: Math.max(1, Math.floor(req.targetTokens)),
         sessionId,
-        ...(opts.roleSummarizer && req.authorizeAndDisclose ? {
-          summarizer: async (input: Parameters<CompactionSummarizer>[0]) => {
+      };
+      const summarize: CompactionSummarizer | undefined = opts.roleSummarizer && req.authorizeAndDisclose
+        ? async input => {
             try { return await opts.roleSummarizer!({ ...input, ...(req.signal ? { signal: req.signal } : {}) }, req.authorizeAndDisclose!); }
             catch (error) { try { req.onRoleError?.(error); } catch { /* observation cannot alter recovery */ } throw error; }
-          },
-        } : {}),
-      });
+          }
+        : undefined;
+      const r = summarize
+        ? await summaryScope.run(summarize, () => sys.compact(compactInput))
+        : await sys.compact(compactInput);
       // recap 반환 상한(systemPrompt 폭증 차단). droppedCount = 요약에 흡수된 메시지 수(MemorySystem 계약).
       return { recap: capInput(r?.summary?.content ?? "", RECAP_CAP), droppedCount: Number(r?.droppedCount ?? 0) };
     },
