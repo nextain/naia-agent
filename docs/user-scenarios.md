@@ -173,7 +173,7 @@ RPC 결과에 유지 여부와 오류 진단을 반환한다. 따라서 실패�
 
 ### S-MEM-CONSOLIDATION (대화에서 사실 추출 — nextain/naia-agent#141)
 
-메모리 LLM 역할이 구성되면, 에이전트는 주기적으로(메모리 준비 완료 후 60초에 첫 실행, 이후 30분마다, 한 번에 최대 200개 에피소드) 저장된 대화 에피소드를 메모리 LLM을 사용해 원자적 사실로 변환하여 사실이 축적되고 회상되도록 한다. 추출이 실패하면 해당 에피소드를 다음 주기를 위해 보존하고 에이전트 로그(`[naia-agent] memory consolidation failed (episodes kept for retry): <cause>`)에 원인을 기록한다. 메모리 LLM이 구성되지 않았거나 `NAIA_MEMORY_CONSOLIDATION=off`인 경우 아무 것도 실행되지 않는다.
+완료 턴 저장마다 승인된 메모리 역할로 즉시 사실을 추출한다(5분 age gate를 건너뛰고, 한 번에 최대 200개 에피소드). 추출 뒤 즉시 flush하여 짧은 대화와 재시작 사이에도 사실을 유지한다. 실패는 stderr 원인과 `MEMORY_EXTRACTION_FAILED` logEntry 경고로 표시하고 원문을 보존한다. 로컬 모델 실패 시 휴리스틱으로 복구할 수 있다. 역할 미구성은 로컬 휴리스틱, 구성된 역할의 승인 콜백 누락은 추출 보류 및 `MEMORY_EXTRACTION_AUTHORIZATION_MISSING` 진단이다. `NAIA_MEMORY_CONSOLIDATION=off`이면 추출하지 않는다. 제품은 주기 타이머 대신 저장 시 정리를 사용하며 상태에 `consolidation=on-save`를 표시한다. S-MEM-SAVE-026이 재시작 회귀 시나리오다.
 
 ### S-MEM-SURFACING (작은 LLM 떠오름 — nextain/naia-shell#692)
 
@@ -740,7 +740,7 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 | FR-MEM-17 / S-MEM-EMBED-REINDEX | `src/test/memory-embedding-reindex.contract.test.ts`(ready 시 재색인 후 회상, 불일치를 빈 기억으로 주입하지 않음) |
 | FR-MEM-19 / S-MEM-REINDEX-CAUSE (재색인 실패 원인 표면화, nextain/naia-shell#681) | `src/test/memory-embedding-reindex.contract.test.ts` (failed 이벤트의 error 필드 전달·어댑터 메서드 부재 호환·compose stderr cause 출력 검증) |
 | FR-MEM-20 / S-MEM-BACKGROUND-PREP (메모리 백그라운드 준비, nextain/naia-shell#681) | `src/test/memory-preparing.contract.test.ts` (준비 중 recall 최대 2초 대기 후 MEMORY_PREPARING throw·키워드 전용 즉시 정상 회상·완료 후 정상 회상, 턴 핸들러의 색인불가 진단 주입 및 1초 미만 빠른 완료, compose 비동기 실행 및 stderr 로그 검증) |
-| FR-MEM-21 / S-MEM-CONSOLIDATION (사실 추출 주기 실행, nextain/naia-agent#141) | `src/test/memory-consolidation.contract.test.ts` (기본 off, 예약 실행 후 사실 저장, 실패 시 에피소드 보존·원인 이벤트, 종료 중 쓰기 차단, 10개 단위 분할, compose 배선), `src/test/memory-adapter-embedding.contract.test.ts` (끝 슬래시 정규화 URL, 404 시 throw) |
+| FR-MEM-21 / S-MEM-CONSOLIDATION / S-MEM-SAVE-026 (저장 시 사실 추출, nextain/naia-agent#141) | `src/test/memory-consolidation.contract.test.ts` (라이브러리 기본 off·명시 off, 예약 실행 호환, 저장 시 즉시 추출·flush, 실패·재시도·승인 누락, 가짜 HTTP/임베딩 compose 턴 4회·재시작 회상·셸 경고, 종료 중 쓰기 차단, 10개 단위 분할), `src/test/memory-adapter-embedding.contract.test.ts` (끝 슬래시 정규화 URL, 404 시 throw) |
 | FR-MEM-22 / S-MEM-SURFACING (작은 LLM 떠오름, nextain/naia-shell#692) | src/test/memory-surfacing.contract.test.ts (파싱·후보·블록·자격·Fake LLM 한국어 시나리오·시간초과·모델 없음), src/test/memory-surfacing-handler.contract.test.ts (주입·판정 제외·무회귀·예약), src/test/memory-surfacing.integration.test.ts (실 naia-memory·kb-compiler), src/test/sub-llm-provider.contract.test.ts (temperature 생략·status) |
 | FR-MEM-23~25 / S-MEM-THRESHOLD (임계치 기반 떠오름·기억 회상 도구, nextain/naia-shell#693) | `src/test/memory-surfacing-threshold.contract.test.ts` (임계치 계산·trivial 판정·임계치 필터·fail-closed·3모드 decideSurfacing·비밀 마스킹), `src/test/memory-skill.contract.test.ts` (도구 spec·query 검증·k 상한 클램프·read-touch 보존·출력 JSON 규격·점수 반올림·weak 플래그·비밀 마스킹·abort 처리), `src/test/memory-surfacing-handler.contract.test.ts` (3모드 동작·임계치 게이트·숫자 전용 진단 로그·Discord/processing 도구 제외·offered-tool 가드), `src/test/discord-entry-wiring.contract.test.ts` (배선 검증) |
 | FR-MEM-27 / 장기기억 추론 및 감정 태그 배제 | `src/test/memory-strip-tags.contract.test.ts` (핸들러 thinking 청크 배제·<think> 및 [THINK]/[THINKING] 블록 제거·미닫힘 <think> 실답변 보존·감정 태그 제거·#639 접힌 답변 메모리 보존·약속 미이행 재시도 pop·아바타 [THINKING] 스트림 정규화·[1] 및 [link](url) 보존·태그-only 시 assistant 에피소드 미저장·사용자 발화 무수정) |
@@ -1186,3 +1186,12 @@ r9 취소 회귀: `uc-cli-subagent-shell.contract.test.ts` AC1은 실제 자식�
 편집 무효화·종료에는 승인/미승인 수신 서버 모두 0회다. P02: `ax-approval-policy.contract.test.ts`
 의 r10 loopback 수신 대조와 `codex-app-server-provider.contract.test.ts`의 config/env 차단,
 `uc5-file-memo.contract.test.ts`의 기존 경로/원본 보존 회귀. 기기 명령·실기 판정은 준 인수 문서로 넘긴다.
+
+
+## S-MEM-SAVE-026 — 즉시 사실 저장과 재시작 회상 (2026-11-04)
+대화 A에서 사용자가 개인 정보를 네 번 말하면 각 완료 턴 저장에서 5분 대기 없이 사실을 추출한다.
+프로세스를 종료한 뒤 같은 워크스페이스로 재시작하고 새 대화 B에서 질문하면 영속 사실을 회상한다.
+추출 실패 시 원문은 재시도 가능하게 보존하고 stderr 원인 및 셸 표시용 logEntry 경고를 남긴다.
+기록과 ReloadSettings 상태는 consolidation=on-save/off로 실제 저장 시 동작을 표시한다.
+P02 Test Coverage Map: `memory-consolidation.contract.test.ts` — 가짜 OpenAI 호환 HTTP 서버·임베딩,
+실 compose → ChatTurnHandler 완료 턴 네 번 → close/recompose → 새 대화 회상, 추출 실패와 복구, 명시 off.

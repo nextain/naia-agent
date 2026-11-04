@@ -477,6 +477,7 @@ export class ChatTurnHandler {
         }
         if (errors.length < 4) errors.push({ operation, error });
         this.memoryRoleErrors.set(req.requestId, errors);
+        if (operation === "extraction") emit({ kind: "logEntry", level: "warn", message: "MEMORY_EXTRACTION_FAILED: 사실 추출 실패, 대화 원문은 보존됩니다" });
         const status = error && typeof error === "object" && "status" in error && typeof error.status === "number" ? error.status : undefined;
         this.d.diag.log("memory model attempt failed", status === undefined ? { reason: "request_failed" } : { reason: "http_error", status });
       };

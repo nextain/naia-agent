@@ -545,16 +545,28 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
         }
         await flush.call(sys);
       }
-      if ((opts.consolidateOnSave || opts.roleExtractor) && !saveOpts?.signal?.aborted && !closed) {
+      if ((opts.consolidateOnSave ?? !!opts.roleExtractor) && opts.roleExtractor && !saveOpts?.authorizeAndDisclose) {
+        const error = new Error("MEMORY_EXTRACTION_AUTHORIZATION_MISSING");
+        try { saveOpts?.onRoleError?.(error); } catch { /* observer only */ }
+        try { opts.onConsolidation?.({ phase: "failed", error: error.message }); } catch { /* observer only */ }
+      }
+      if ((opts.consolidateOnSave ?? !!opts.roleExtractor) && (!opts.roleExtractor || saveOpts?.authorizeAndDisclose) && !saveOpts?.signal?.aborted && !closed) {
         const extract: FactExtractor | undefined = opts.roleExtractor && saveOpts?.authorizeAndDisclose
           ? (episodes) => opts.roleExtractor!(episodes, saveOpts.authorizeAndDisclose!, saveOpts.signal)
           : undefined;
         try {
-          await (sys.consolidateNow as unknown as (force: boolean, extractor?: FactExtractor) => Promise<unknown>)(false, extract);
+          // Save is the consolidation trigger: freshly encoded episodes must not wait
+          // behind the engine's five-minute background age gate.
+          const result = await sys.consolidateNow(true, extract);
+          await sys.flush();
+          try { opts.onConsolidation?.({ phase: "done", episodesProcessed: result.episodesProcessed, factsCreated: result.factsCreated, factsUpdated: result.factsUpdated }); } catch { /* observer only */ }
         } catch (error) {
           try { saveOpts?.onRoleError?.(error); } catch { /* observation cannot alter recovery */ }
-          opts.onConsolidation?.({ phase: "failed", error: "role extraction failed" });
-          if (opts.fallbackHeuristicOnFailure) await sys.consolidateNow(false);
+          try { opts.onConsolidation?.({ phase: "failed", error: describeError(error) }); } catch { /* observer only */ }
+          if (opts.fallbackHeuristicOnFailure && !saveOpts?.signal?.aborted) {
+            await sys.consolidateNow(true);
+            await sys.flush();
+          }
         }
       }
     },
