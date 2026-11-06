@@ -1214,3 +1214,13 @@ R17: 메인 로컬 모델로 사실을 뽑는 저장 단계는 최대 30초로 �
 R17 검증 짝: memory `ab1f8002d31bffacf4779760eda727cc57a658a8` (기존 e8cbd6f에서 전송 주입만 추가), 0.1.4. 요청별 훅은 생성자+AsyncLocalStorage로 연결하며 전역 fetch 교체가 없다. 이 정확한 소스 조합으로 관련290개와 실제 gRPC 종료·재기동 두 경우가 통과했다.
 
 R18 (#792 P01–P05): 904878e 위에 R17을 통합한다. Memory ab1f800의 생성자 훅+AsyncLocalStorage로 요청 extractor/summarizer를 전달하며 명시 off, 승인 누락 원문 보존, 오류 원인 전달, on-save 표시 및 삭제 검증기를 유지한다. 회귀는 memory-consolidation, memory-role-summarizer, uc1-memory-process (실 SIGTERM/재시작·사실>0·대기0), 전체 시험으로 검증한다.
+
+## UC-CODEX-CORE-SWAP — 코어 Pi 제거 및 Codex 기본화 (2026-11-06)
+
+사용자와 호스트(naia-os / 단독 CLI)는 `pi`(`@earendil-works/pi-coding-agent`) 없이 **`codex`를 기본 코어**로 사용하여 대화, 도구 실행, 역할 라우팅(`expert`/`main`/`sub`), 단독 CLI 코딩(`naia-agent run`), 에이전트 위임(`delegate_to_agent`), 자가 진단(`naia-agent doctor`)을 수행한다. 상세 내역은 [Pi 제거 및 Codex 기본화 기록](progress/99.dev-comm/codex-core-swap-pi-removal-2026-11-06.md)에 기록한다.
+
+| Test ID | 검증 | 증적 |
+|---|---|---|
+| TEST-CODEX-SWAP-01 | 서브에이전트 로스터(`SUPPORTED_SUBAGENTS`), 위임 스킬(`DELEGATE_AGENTS`), CLI 설정(`coding.agent`)에서 `pi`가 제거되고 `codex`가 기본 코어로 동작한다. | `src/test/uc-cli-subagent-codex.contract.test.ts`, `src/test/delegate-agent-skill.contract.test.ts`, `src/test/cli-manage.contract.test.ts`, `src/test/uc-cli-host-entry.contract.test.ts` |
+| TEST-CODEX-SWAP-02 | 역할 실행기(`pi-role-runner.ts`)가 Pi 없이 `codex`(`makeCodexSubAgent`), `claude-code-cli`, `grok`으로 역할을 라우팅한다. | `src/test/pi-role-runner.contract.test.ts`, `src/test/llm-roles.contract.test.ts`, `src/test/discord-entry-wiring.contract.test.ts` |
+| TEST-CODEX-SWAP-03 | `package.json` 및 런타임 코드에 `@earendil-works/pi-*` 의존성이 남아 있지 않다. | `pnpm build`, `pnpm test` |

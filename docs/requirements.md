@@ -94,7 +94,7 @@
 | FR-CLI-1 | **SubAgentPort (semantic)** — `spawn(taskSpec)` → sub-agent 세션 이벤트 스트림(planning/tool_use/text/session_end), `cancel(reason)`. domain/app 은 PID/SIGTERM/stdout/exit code 등 메커니즘을 모른다(adapter 캡슐화). | Done |
 | FR-CLI-2 | **SupervisorApp (app)** — sub-agent 이벤트 ⊕ workspace 변경 스트림 merge(인과/세션 순서 보존, terminal 드롭 0), `session_end` 시 verify(실패/중단 포함) → filesChanged/additions/deletions/verification 수치 **정직 리포트** emit. | Done |
 | FR-CLI-3 | **Interrupt** — `cancel` → SIGTERM → 유예(500ms) → SIGKILL, terminal 이벤트/리포트 정확히 1회. 단독 CLI "stop"/Ctrl+C 경로(adapter 메커니즘). | Done |
-| FR-CLI-4 | **roster 어댑터** — `adapter-pi`/`adapter-opencode-cli`(+레퍼런스 `adapter-shell`)가 SubAgentPort 구현. 선택 명시(pi/opencode/claude-code/codex/gemini), 미설치=정직 unsupported(throw 아님). | Done |
+| FR-CLI-4 | **roster 어댑터** — `adapter-codex`/`adapter-opencode-cli`(+레퍼런스 `adapter-shell`)가 SubAgentPort 구현. 기본 코어는 `codex`이며 선택 명시(`codex`/`opencode`/`claude-code`/`gemini`/`grok`/`shell`; `pi` 제거), 미설치=정직 unsupported(throw 아님). | Done |
 | FR-CLI-5 | **VerifierPort** — test/lint/build/typecheck/shell runner 병렬, **never-throws**(실패/타임아웃/도구부재/malformed→구조화 수치 실패 리포트). domain 은 runner 이름 모름. | Done |
 | FR-CLI-6 | **WorkspacePort** — 파일 변경 요약 스트림(added/modified/deleted + 수치). domain 은 git diff 포맷 모름(adapter=chokidar+git). | Done |
 | FR-CLI-7 | **CLI 대화 host (S1 멀티턴 REPL)** — `naia-agent chat` 가 stdio/readline **AgentIngressPort/AgentEgressPort** 어댑터를 gRPC 와 **동일 `wireAgentUC1`** 에 주입. 매 입력이 누적 history 와 함께 `ChatRequest` → 맥락 유지 멀티턴. emit(text)→stdout 스트리밍, finish→assistant 턴 history append+재프롬프트, error→격리(턴만 실패·루프 생존), Ctrl+C=현재 턴 cancel. | Done |
@@ -1237,3 +1237,13 @@ R17: 메인 로컬 모델로 사실을 뽑는 저장 단계는 최대 30초로 �
 R17 검증 짝: memory `ab1f8002d31bffacf4779760eda727cc57a658a8` (기존 e8cbd6f에서 전송 주입만 추가), 0.1.4. 요청별 훅은 생성자+AsyncLocalStorage로 연결하며 전역 fetch 교체가 없다. 이 정확한 소스 조합으로 관련290개와 실제 gRPC 종료·재기동 두 경우가 통과했다.
 
 R18 (#792 P01–P05): 904878e 위에 R17을 통합한다. Memory ab1f800의 생성자 훅+AsyncLocalStorage로 요청 extractor/summarizer를 전달하며 명시 off, 승인 누락 원문 보존, 오류 원인 전달, on-save 표시 및 삭제 검증기를 유지한다. 회귀는 memory-consolidation, memory-role-summarizer, uc1-memory-process (실 SIGTERM/재시작·사실>0·대기0), 전체 시험으로 검증한다.
+
+## UC-CODEX-CORE-SWAP — 코어 Pi 제거 및 Codex 기본화 (2026-11-06)
+
+권위 기록: [Pi 제거 및 Codex 기본화 기록](progress/99.dev-comm/codex-core-swap-pi-removal-2026-11-06.md).
+
+| ID | 요구사항 | 상태 |
+|----|----------|:----:|
+| FR-CODEX-SWAP-1 | **Pi 의존성 완전 제거** — `package.json` 및 `pnpm-lock.yaml`에서 `@earendil-works/pi-coding-agent`와 `@earendil-works/pi-ai`를 제거하고, Pi 전용 어댑터(`subagent-pi`, `naia-pi-provider`, `naia-pi-versioned-billing`, `user-owned-pi-provider`, `pi-cost-attestation`)·연속 루프(`pi-continuous-loop*`, `bin/naia-agent-loop.mjs`)·벤치마크(`pi-cost-comparison`, `scripts/pi/*`, `benchmark/*`)를 제거한다. | Done |
+| FR-CODEX-SWAP-2 | **Codex 기본 코어 일원화** — CLI 코딩 감독기(`naia-agent run`, `cli-supervise`), 설정 관리(`cli-manage` `coding.agent`), 서브에이전트 로스터(`subagent-roster`), 위임 스킬(`delegate-agent-skill`), 이슈 팀(`issue-team`, `mixed-issue-team-agents`), 역할 실행기(`pi-role-runner`)에서 `pi`를 제거하고 `codex`(`gpt-5.4` 기본 모델)를 기본 코어로 사용한다. | Done |
+| FR-CODEX-SWAP-3 | **CLI 진단 및 계약 시험 전환** — `naia-agent doctor`는 `component: "codex"`(`checkCodexPreflight`)를 점검하며, 기존 Pi 의존 시험은 Codex 기준 계약 시험으로 전환하거나 Pi 전용 픽스처는 제거한다. | Done |

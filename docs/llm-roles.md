@@ -71,6 +71,12 @@
 
 ## FE-SM-AGENT-01 — 제품 런타임의 작은 모델 (목표)
 
-위 개발 검토 역할과 별개로 대화 본문과 보조 Pi는 메인 모델을 쓴다. 데스크톱 기억 사실 추출과 압축은 명시 기억 모델, 그다음 지정된 `sub`를 쓴다. 둘 다 미설정이면 메인 호출 없이 기존 휴리스틱 추출과 누적 또는 결정론 요약을 쓴다. 옛 `memoryLlm*`만 있는 설정은 작은 역할도 그 설정을 이어받되 별도 작은 선택 이후 기억 설정은 그대로다. 작은 모델 실패 시 승인된 메인으로 최대 한 번 재시도하고 최초 오류를 보존한다. 직접 고른 로컬 Qwen 실패는 클라우드 메인으로 보내지 않고 기존 기억 경로로 복구한다. 각 전송 승인과 비밀·본문 없는 시도 기록은 필수다. 셸 FR-SM.4~.7, NFR-SM.2·.3, FE-SM-01·03과 [요구·시험](requirements.md#uc-sm-agent-01--작은-모델을-기억-작업에-연결-목표-계약)을 따른다.
+위 개발 검토 역할과 별개로 대화 본문과 보조 코딩 에이전트(기본 코어 `codex`)는 메인 모델을 쓴다(기존 `pi` 코어 및 `@earendil-works/pi-coding-agent` 의존성은 제거됨 — 상세는 [Pi 제거 및 Codex 기본화 기록](progress/99.dev-comm/codex-core-swap-pi-removal-2026-11-06.md) 참조). 데스크톱 기억 사실 추출과 압축은 명시 기억 모델, 그다음 지정된 `sub`를 쓴다. 둘 다 미설정이면 메인 호출 없이 기존 휴리스틱 추출과 누적 또는 결정론 요약을 쓴다. 옛 `memoryLlm*`만 있는 설정은 작은 역할도 그 설정을 이어받되 별도 작은 선택 이후 기억 설정은 그대로다. 작은 모델 실패 시 승인된 메인으로 최대 한 번 재시도하고 최초 오류를 보존한다. 직접 고른 로컬 Qwen 실패는 클라우드 메인으로 보내지 않고 기존 기억 경로로 복구한다. 각 전송 승인과 비밀·본문 없는 시도 기록은 필수다. 셸 FR-SM.4~.7, NFR-SM.2·.3, FE-SM-01·03과 [요구·시험](requirements.md#uc-sm-agent-01--작은-모델을-기억-작업에-연결-목표-계약)을 따른다.
 
 데스크톱 요청 경계는 추출·압축의 최초 오류 원본을 요청 ID별로 제한된 수만 보관하고 소비형 `takeMemoryRoleErrors`로 회수한다. 동일 ID를 다시 쓰면 이전 오류를 지우고 종료된 턴의 늦은 콜백을 무시한다. 원본은 진단 기록과 전송 이벤트에 싣지 않는다.
+
+## 코어 교체 결정 — Codex 기본화 및 Pi 제거 (2026-11-06)
+
+- **기본 코어**: `naia-agent`의 기본 코어 및 역할 실행기(`expert`/`main`/`sub` CLI 워커, `naia-agent run` 기본 에이전트, 위임 스킬 기본 에이전트)는 **`codex`**다.
+- **Pi 제거**: `@earendil-works/pi-coding-agent` 및 `@earendil-works/pi-ai` 의존성, `subagent-pi`, `naia-pi-provider`, `user-owned-pi-provider`, `pi-continuous-loop` 등 Pi 전용 경로는 모두 제거한다.
+- **역할 라우팅**: CLI 역할 실행기(`pi-role-runner.ts` 호환 진입점)는 `codex`를 기본 코어(`makeCodexSubAgent`)로 라우팅하고, 명시된 `claude-code-cli`(`makeClaudeCodeSubAgent`)와 `grok`(`makeGrokSubAgent`)을 직접 연결한다.
