@@ -39,7 +39,7 @@ describe("delegate-agent-skill 계약 (메인 LLM → sub-agent 위임 도구)",
     expect(s[0].name).toBe("delegate_agent");
     expect(s[0].tier).toBe("none");
     const agentEnum = (s[0].parameters as unknown as { properties: { agent: { enum: readonly string[] } } }).properties.agent.enum;
-    for (const a of ["gemini", "opencode", "pi", "claude-code", "codex", "shell"]) expect(agentEnum).toContain(a);
+    for (const a of ["codex", "gemini", "opencode", "claude-code", "grok", "shell"]) expect(agentEnum).toContain(a);
   });
 
   it("정상: agent+task → runner 호출(workdir 기본값) + 보고 포맷(text 포함)", async () => {

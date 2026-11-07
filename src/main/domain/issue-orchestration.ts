@@ -42,9 +42,9 @@ export interface ActorReceipt {
   readonly latencyMs: number;
   readonly modelEvidenceSource?: "provider_reported" | "adapter_requested";
   readonly cost: CostEvidence;
-  /** Pi-local priced-usage estimate; operational budgeting only, never a provider invoice claim. */
+  /** Local priced-usage estimate; operational budgeting only, never a provider invoice claim. */
   readonly estimatedCostUsd?: number;
-  readonly estimatedCostSource?: "pi_catalog";
+  readonly estimatedCostSource?: "catalog";
   /** Exact request-level gateway settlement evidence retained for audit/benchmark extraction. */
   readonly gatewayBillingReceipts?: readonly import("./orchestration.js").GatewayBillingReceipt[];
   readonly workerRole?: import("./issue-team.js").IssueTeamRole;

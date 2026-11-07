@@ -113,8 +113,8 @@ const { JeonjuDiscordCourseService, parseJeonjuDiscordCourseConfig } =
   await import("../../dist/main/app/jeonju-discord-course.js");
 const { selectSubAgent } =
   await import("../../dist/main/adapters/subagent-roster.js");
-const { makePiRoleProcessingPlans, makePiRoleSupervisorRunner } =
-  await import("../../dist/main/adapters/pi-role-runner.js");
+const { makeRoleProcessingPlans, makeRoleSupervisorRunner } =
+  await import("../../dist/main/adapters/role-runner.js");
 const { makeActivityRouteRegistry, makeActivitySpeechEgress } =
   await import("../../dist/main/adapters/activity-speech-egress.js");
 const { makeActivityRadioDjBgm } =
@@ -248,7 +248,7 @@ if (codingJobs && jeonjuCourseConfig) {
 // 전주대 Discord/Codex 실습 경로: 신뢰된 채널의 메인 모델이 별도 터미널 Codex를 위임할 수 있다.
 // 실행 에이전트와 작업 경로를 모두 좁혀 임의 agent 선택 및 워크스페이스 밖 쓰기를 차단한다.
 if (adkPath) {
-  const runConfiguredPiRole = makePiRoleSupervisorRunner(
+  const runConfiguredRole = makeRoleSupervisorRunner(
     () => activeLlmRoles,
     (subAgent, task, signal, egress) => wireSupervisor({ subAgent, diag }).run(task, signal, egress),
     (role) => {
@@ -262,7 +262,7 @@ if (adkPath) {
   );
   const delegateRun = async (agent, task, signal, egress) => {
     if (agent === "expert" || agent === "main" || agent === "sub") {
-      await runConfiguredPiRole(agent, task, signal, egress);
+      await runConfiguredRole(agent, task, signal, egress);
       return;
     }
     const supervisor = wireSupervisor({ subAgentName: agent, subAgentOpts: {}, diag });
@@ -275,11 +275,11 @@ if (adkPath) {
     resolveDefaultWorkdir: () => currentAdkPath,
     resolveAllowedWorkdirRoot: () => currentAdkPath,
     allowedAgents: ["expert", "main", "sub"],
-    resolveProcessing: () => makePiRoleProcessingPlans(activeLlmRoles),
+    resolveProcessing: () => makeRoleProcessingPlans(activeLlmRoles),
     diag,
   });
   toolExecutor = toolExecutor ? makeCompositeToolExecutor([delegateExec, toolExecutor]) : delegateExec;
-  skillsLabel += " + delegate(Pi:expert/main/sub, workspace-bound)";
+  skillsLabel += " + delegate(Codex:expert/main/sub, workspace-bound)";
 }
 
 let discordConfig;
@@ -691,7 +691,7 @@ const agentIngress = discordRuntime
 const agentEgress = discordRuntime
   ? makePrefixedAgentEgress([{ prefix: "discord:", egress: discordRuntime.egress }], grpcServer.egress)
   : grpcServer.egress;
-const wired = wireAgentUC1({ ingress: agentIngress, egress: agentEgress, speechProfiles: profileRuntime, credentials, diag, ...(provider ? { provider } : {}), ...(resolver ? { resolver } : {}), ...(processingGuard ? { processingGuard } : {}), ...(toolExecutor ? { toolExecutor } : {}), ...(memory ? { memory } : {}), ...(memory ? { compaction: memory } : {}), ...(surfacer ? { surfacer } : {}), ...(conversationLog ? { conversationLog } : {}), ...(personaSource ? { personaSource } : {}), ...(workspaceContextSource ? { workspaceContext: workspaceContextSource } : {}), ...(defaultConfig ? { defaultConfig } : {}) });
+const wired = wireAgentUC1({ ingress: agentIngress, egress: agentEgress, ...(deps.axExecutor ? { axExecutor: deps.axExecutor } : {}), speechProfiles: profileRuntime, credentials, diag, ...(provider ? { provider } : {}), ...(resolver ? { resolver } : {}), ...(processingGuard ? { processingGuard } : {}), ...(toolExecutor ? { toolExecutor } : {}), ...(memory ? { memory } : {}), ...(memory ? { compaction: memory } : {}), ...(surfacer ? { surfacer } : {}), ...(conversationLog ? { conversationLog } : {}), ...(personaSource ? { personaSource } : {}), ...(workspaceContextSource ? { workspaceContext: workspaceContextSource } : {}), ...(defaultConfig ? { defaultConfig } : {}) });
 applyDefaultConfig = wired.setDefaultConfig; // 라이브 reload 결선 — 이후 SetWorkspace/ReloadSettings 가 활성 config swap
 const { start, drain } = wired;
 start?.(); // ingress.onRequest(route) 등록 — gRPC 핸들러가 도메인 req 를 흘린다

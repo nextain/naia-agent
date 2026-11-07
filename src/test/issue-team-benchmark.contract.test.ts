@@ -1,4 +1,5 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { symlinkSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,8 +13,9 @@ let cached: IssueTeamBenchmarkObservation | undefined;
 function observation(): IssueTeamBenchmarkObservation {
   if (cached) return cached;
   const artifactBytes = readFileSync(artifactPath, "utf8"); const artifact = JSON.parse(artifactBytes) as { sourceRevision: string };
-  const work = join(repositoryRoot, ".agents/work"); mkdirSync(work, { recursive: true }); const dist = mkdtempSync(join(work, "issue-team-benchmark-dist-"));
+  const dist = mkdtempSync(join(tmpdir(), "issue-team-benchmark-dist-"));
   try {
+    symlinkSync(join(repositoryRoot, "node_modules"), join(dist, "node_modules"), "junction");
     const build = spawnSync(process.execPath, [join(repositoryRoot, "node_modules/typescript/bin/tsc"), "-p", "tsconfig.json", "--outDir", dist], { cwd: repositoryRoot, encoding: "utf8" });
     expect(build.status, build.stderr).toBe(0);
     const run = spawnSync(process.execPath, [runnerPath, "--source-revision", artifact.sourceRevision, "--dist-dir", dist], { cwd: repositoryRoot, encoding: "utf8" });

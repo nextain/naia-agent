@@ -51,6 +51,7 @@ export const SURFACING_THRESHOLD_BOUNDS = { min: 0.8, max: 0.95 } as const;
 export const SURFACING_THRESHOLD_MAX_ITEMS = 3;
 
 export interface ThresholdPolicy {
+  readonly keywordOnly?: boolean;
   readonly level?: SurfacingLevel;
   readonly threshold: number; // 0.8..0.95
   readonly maxItems: number;  // 기본 3
@@ -183,6 +184,19 @@ export function selectRecallByThreshold(
   query: string,
   policy: ThresholdPolicy,
 ): { memory: RecalledMemory; stats: ThresholdStats } {
+  if (policy.keywordOnly) {
+    // Lexical matches are not cosine scores. Keep this path separate and bounded.
+    const compact = (s: string) => s.normalize("NFC").toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
+    const q = compact(query).slice(0, 4000);
+    const terms = query.toLowerCase().split(/[\s\p{P}\p{S}]+/gu).filter(t => t.length >= 2 && !["뭐였지", "알려줘", "뭐야", "what", "was", "the", "my"].includes(t));
+    // Korean spacing varies (할 일 / 할일); include two-letter Hangul phrases.
+    for (let i = 0; i < q.length - 1; i++) { const pair = q.slice(i, i + 2); if (/^[가-힣]{2}$/u.test(pair)) terms.push(pair); }
+    const matches = (s: string) => terms.some(t => compact(s).includes(t)) && !isTrivialMemoryText(s, query);
+    const limit = Math.max(0, Math.min(5, policy.maxItems));
+    const facts = (mem.facts ?? []).filter(matches).slice(0, limit);
+    const episodes = (mem.episodes ?? []).filter(e => e.role === "user" && matches(e.content)).sort((a,b) => (b.timestamp ?? 0) - (a.timestamp ?? 0)).slice(0, limit - facts.length);
+    return { memory: { facts, episodes }, stats: { threshold: policy.threshold, candidates: (mem.facts?.length ?? 0) + (mem.episodes?.length ?? 0), kept: facts.length + episodes.length, missingScore: 0, trivial: 0, below: 0, keptScores: [], nearMissScores: [] } };
+  }
   const rawFacts = Array.isArray(mem?.facts) ? mem.facts : [];
   const rawEpisodes = Array.isArray(mem?.episodes) ? mem.episodes : [];
   const rawReflections = Array.isArray(mem?.reflections) ? mem.reflections : [];
@@ -618,7 +632,7 @@ export type SurfacingMode = "off" | "on-llm" | "on-threshold";
 
 export type SurfacingDecision =
   | { readonly mode: "on-llm"; readonly on: true; readonly provider: string; readonly model: string }
-  | { readonly mode: "on-threshold"; readonly on: false; readonly reason: "no-small-llm" | "inherited-billed-provider" | "user-choice" }
+  | { readonly mode: "on-threshold"; readonly on: false; readonly reason: "no-small-llm" | "inherited-billed-provider" | "user-choice" | "no-embedding" }
   | { readonly mode: "off"; readonly on: false; readonly reason: "disabled" | "no-memory" | "no-embedding" };
 
 export function decideSurfacing(input: {
@@ -631,7 +645,7 @@ export function decideSurfacing(input: {
 }): SurfacingDecision {
   if (input.disabled) return { mode: "off", on: false, reason: "disabled" };
   if (!input.memoryAvailable) return { mode: "off", on: false, reason: "no-memory" };
-  if (input.embeddingAvailable === false) return { mode: "off", on: false, reason: "no-embedding" };
+  if (input.embeddingAvailable === false) return { mode: "on-threshold", on: false, reason: "no-embedding" };
   if (input.judge === "threshold") return { mode: "on-threshold", on: false, reason: "user-choice" };
   if (!input.memoryRole || !input.runtimeOk) return { mode: "on-threshold", on: false, reason: "no-small-llm" };
 

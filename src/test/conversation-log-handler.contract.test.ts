@@ -63,3 +63,20 @@ describe("ChatTurnHandler × ConversationLogPort (FR-CONV.1)", () => {
     expect(emits.map((e) => e.kind)).toEqual(["text", "usage", "finish"]);
   });
 });
+
+
+it("FR-CONV.6 tags app turn and excludes restored app rows before assembly", async () => {
+  const appended: ConversationTurnRecord[] = [];
+  const { deps } = harness({ async append(t) { appended.push(t); } });
+  const seen: unknown[] = [];
+  const handler = new ChatTurnHandler({ ...deps, conversation: { assemble(r) { seen.push(r.messages); return { messages: r.messages }; } } });
+  await handler.onChatRequest(req({ appName: "character", messages: [{ role: "user", content: "app input", appName: "character" }] }));
+  expect(appended[0].appName).toBe("character");
+  const restored = JSON.parse(JSON.stringify([
+    { role: "user", content: "app input", appName: "character" },
+    { role: "assistant", content: appended[0].assistantText, appName: "character" },
+    { role: "user", content: "normal" },
+  ]));
+  await new ChatTurnHandler({ ...deps, conversation: { assemble(r) { seen.push(r.messages); return { messages: r.messages }; } } }).onChatRequest(req({ messages: restored }));
+  expect(seen[1]).toEqual([{ role: "user", content: "normal" }]);
+});

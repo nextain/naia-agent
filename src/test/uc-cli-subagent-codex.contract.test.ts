@@ -3,7 +3,9 @@
 import { describe, it, expect } from "vitest";
 import type { ChildProcess } from "node:child_process";
 import { makeCodexSubAgent, codexLineToEvent, type SpawnFn, type ResolvedBin } from "../main/adapters/subagent-codex.js";
+import { makeSubAgentNaiaFacing } from "../main/adapters/subagent-issue-actors.js";
 import type { SubAgentEvent } from "../main/domain/orchestration.js";
+import { IssueActorResultError } from "../main/ports/issue-orchestration.js";
 
 const fixedBin = (): ResolvedBin => ({ command: "codex", prefixArgs: [] });
 
@@ -156,6 +158,123 @@ describe("subagent-codex 어댑터 계약 (SPEC-010 확장, fake child)", () => 
         else process.env[key] = value;
       }
     }
+  });
+
+  it("enforces --sandbox read-only when noTools=true option is set (B1)", () => {
+    const f = fakeNdjson();
+    const port = makeCodexSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn, noTools: true, model: "gpt-5.4" });
+    port.spawn({ prompt: "inspect only", workdir: "/tmp/w" });
+    expect(f.spawnArgs.args).toContain("read-only");
+    expect(f.spawnArgs.args).not.toContain("workspace-write");
+  });
+
+  it("rejects Naia gateway model IDs before spawn on the Codex CLI path (B1/B2)", async () => {
+    for (const model of ["grok-4.3", "deepseek-v4-pro", "HCX-007", "hcx-007"]) {
+      const f = fakeNdjson();
+      const port = makeCodexSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn, model });
+      const session = port.spawn({ prompt: "inspect", workdir: "/tmp/w" });
+      const [end] = await drain(session.events) as Extract<SubAgentEvent, { kind: "session_end" }>[];
+      expect(f.spawnArgs).toBeUndefined();
+      expect(end.ok).toBe(false);
+      expect(end.reason).toContain("codex model rejected before spawn");
+    }
+  });
+
+  it("isolates account-provider Codex children from parent DISCORD_BOT_TOKEN, NAIA_API_KEY, and ANTHROPIC_API_KEY credentials (B3)", () => {
+    const prior = {
+      DISCORD_BOT_TOKEN: process.env.DISCORD_BOT_TOKEN,
+      NAIA_API_KEY: process.env.NAIA_API_KEY,
+      NAIA_ANYLLM_API_KEY: process.env.NAIA_ANYLLM_API_KEY,
+      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+    };
+    process.env.DISCORD_BOT_TOKEN = "must-not-leak-discord";
+    process.env.NAIA_API_KEY = "must-not-leak-naia";
+    process.env.NAIA_ANYLLM_API_KEY = "must-not-leak-anyllm";
+    process.env.ANTHROPIC_API_KEY = "must-not-leak-anthropic";
+    try {
+      const f = fakeNdjson();
+      makeCodexSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn, model: "gpt-5.4" }).spawn({ prompt: "hi", workdir: "/tmp/w" });
+      expect(f.spawnArgs.env).toBeDefined();
+      expect(f.spawnArgs.env).not.toHaveProperty("DISCORD_BOT_TOKEN");
+      expect(f.spawnArgs.env).not.toHaveProperty("NAIA_API_KEY");
+      expect(f.spawnArgs.env).not.toHaveProperty("NAIA_ANYLLM_API_KEY");
+      expect(f.spawnArgs.env).not.toHaveProperty("ANTHROPIC_API_KEY");
+    } finally {
+      for (const [key, value] of Object.entries(prior)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+
+  it("provides adapter-owned identities and preserves usage evidence on failure for a Codex-backed JSON actor receipt (B3)", async () => {
+    const f = fakeNdjson();
+    const codex = makeCodexSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn, model: "gpt-5.4", hardKillDeadlineMs: 5 });
+    const facing = makeSubAgentNaiaFacing({
+      subAgent: codex,
+      binding: { provider: "openai-codex", model: "gpt-5.4" },
+      workdir: "/tmp/w",
+      diag: { log() {}, debug() {} },
+    });
+    const result = facing.classify({
+      requestId: "request-codex-facing",
+      idempotencyKey: "issue:codex:facing",
+      text: "fix it",
+      requiredObligations: ["fix it"],
+      signal: new AbortController().signal,
+    });
+    f.line('{"type":"thread.started","thread_id":"th_codex_1"}');
+    f.line('{"type":"item.completed","item":{"id":"i0","type":"agent_message","text":"{\\"kind\\":\\"work\\",\\"obligations\\":[\\"fix it\\"]}"}}');
+    f.line('{"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":2,"output_tokens":4}}');
+    f.close(0);
+    const classified = await result;
+    expect(classified.classification).toEqual({ kind: "work", obligations: ["fix it"] });
+    expect(classified.receipt).toMatchObject({
+      role: "naia",
+      provider: "openai-codex",
+      model: "gpt-5.4",
+      tokenCountsAvailable: true,
+      inputTokens: 10,
+      outputTokens: 4,
+      sessionId: "th_codex_1",
+      executionId: expect.any(String),
+      cost: { state: "unavailable" },
+    });
+    expect(classified.receipt.sessionId).not.toBe(classified.receipt.executionId);
+
+    const fFail = fakeNdjson();
+    const codexFail = makeCodexSubAgent({ resolveBin: fixedBin, spawnFn: fFail.spawnFn, model: "gpt-5.4", hardKillDeadlineMs: 5 });
+    const facingFail = makeSubAgentNaiaFacing({
+      subAgent: codexFail,
+      binding: { provider: "openai-codex", model: "gpt-5.4" },
+      workdir: "/tmp/w",
+      diag: { log() {}, debug() {} },
+    });
+    const failedResult = facingFail.classify({
+      requestId: "request-codex-fail",
+      idempotencyKey: "issue:codex:fail",
+      text: "fix it",
+      requiredObligations: ["fix it"],
+      signal: new AbortController().signal,
+    });
+    fFail.line('{"type":"thread.started","thread_id":"th_codex_fail"}');
+    fFail.line('{"type":"item.completed","item":{"id":"i0","type":"agent_message","text":"{\\"kind\\":\\"invalid\\",\\"obligations\\":[]}"}}');
+    fFail.line('{"type":"turn.completed","usage":{"input_tokens":12,"cached_input_tokens":0,"output_tokens":5}}');
+    fFail.close(0);
+    const error = await failedResult.catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(IssueActorResultError);
+    expect(error).toMatchObject({
+      receipt: {
+        role: "naia",
+        provider: "openai-codex",
+        model: "gpt-5.4",
+        idempotencyKey: "issue:codex:fail",
+        tokenCountsAvailable: true,
+        inputTokens: 12,
+        outputTokens: 5,
+        cost: { state: "unavailable" },
+      },
+    });
   });
 
   it("malformed NDJSON 관용 (crash 없이 드롭) + file_change → tool_use_end", async () => {

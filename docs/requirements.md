@@ -30,7 +30,7 @@
 | FR-MEM-18 | 선택된 ADK 단일 저장 루트(#136) — 제품 memory/knowledge/voice 로컬 파일은 Shell workspace / `NAIA_ADK_PATH` / `SetWorkspace` 가 가리키는 `<adkPath>/naia-settings` 아래에만 둔다. gRPC/Shell host 는 leftover `~/naia-adk` clone 과 CLI `~/.naia-agent/config.json` pin 으로 폴백하지 않는다. `NAIA_ADK_PATH` 가 설정된 동안 두 번째 clone 경로를 쓰지 않는다. CLI standalone 만 홈 폴백을 opt-in 한다. | In review |
 | FR-MEM-19 | 재색인 실패 원인 표면화(nextain/naia-shell#681) — 자동 재색인 실패 시 LocalAdapter 가 보존한 실제 원인(`getEmbeddingReindexError`)을 `onEmbeddingReindex` `phase:"failed"` 이벤트와 stderr 로그(`; cause: <error>`)에 명시. 구버전 naia-memory(메서드 부재 시)에서도 무회귀(error 생략). 검증: `src/test/memory-embedding-reindex.contract.test.ts`. P04(2026-09-22, nextain/naia-shell#681): 단위·계약 테스트 통과, 실백엔드 통합 시험 8/8(영수증: alpha-adk tmp/naia-memory-knowledge-link-20260922/receipts/). 실화면 E2E 는 naia-shell 페어링 갱신 단계에서 수행. | Done |
 | FR-MEM-20 | 메모리 백그라운드 준비(nextain/naia-shell#681) — 메모리 준비(어댑터 open, 모델 다운로드, 재색인)는 백그라운드에서 실행되며 gRPC readiness, SetWorkspace, ReloadSettings는 이를 대기하지 않는다. 준비 중 recall은 최대 2초간 준비를 대기한 뒤 MEMORY_PREPARING으로 fail-fast 되어(recall waits up to 2 s for preparation, then fails fast with MEMORY_PREPARING) 해당 턴에 색인 불가 진단(MEMORY_INDEX_UNAVAILABLE_NOTICE)이 주입된다. 준비 중의 save는 준비 완료 후 완료된다. post-ready 경로 검증 실패 시 메모리를 닫아 격리한다. 검증: `src/test/memory-preparing.contract.test.ts`. P04(2026-09-22): 계약 테스트 통과, 실 에이전트 진입점 시작 시험 5/5 — GRPC_LISTENING 461ms, 재색인 백그라운드 37.4s 완료(영수증: alpha-adk tmp/naia-memory-knowledge-link-20260922/receipts/). | Done |
-| FR-MEM-21 | 사실 추출 주기 실행(nextain/naia-agent#141) — memory LLM 역할이 구성되면 제품 경로는 메모리 준비 후 60초에 첫 consolidation, 이후 30분마다 실행해 에피소드를 사실로 추출·저장한다(한 번에 최대 200개, 추출 요청은 10개 단위). 추출 실패는 throw 정책으로 에피소드를 consolidated 로 표시하지 않아 다음 주기에 재시도하고, 원인을 stderr(`memory consolidation failed (episodes kept for retry): <cause>`)에 남긴다. 메모리 LLM 요청 base URL 은 끝 슬래시 하나로 정규화한다(`.../v1chat/completions` 404 방지). 종료 시 예약을 멈추고 진행 중 실행을 기다려 닫힌 저장소에 쓰지 않는다. memory LLM 미구성 또는 `NAIA_MEMORY_CONSOLIDATION=off` 이면 실행하지 않는다. 검증: `src/test/memory-consolidation.contract.test.ts`, `src/test/memory-adapter-embedding.contract.test.ts`. P04(2026-09-22, nextain/naia-agent#141): 계약 테스트 통과, 실 게이트웨이 통합 시험(naia/gemini-3.1-flash-lite, 합성 저장소) — 에피소드 4건 처리·사실 2건 저장·회상, 수정 전 URL 은 HTTP 404 재현. 실화면 E2E 는 naia-shell 페어링 갱신 단계에서 수행. | Done |
+| FR-MEM-21 | 저장 시 사실 추출(#141, S-MEM-SAVE-026): 제품 경로는 완료 턴마다 승인된 memory 역할로 즉시 정리(force=true, 5분 age gate 생략)하고 디스크에 flush한다. 주기 타이머는 사용하지 않는다. 역할 미구성은 기존 로컬 휴리스틱을 사용한다. 역할 구성 시 승인 콜백 없는 호출은 추출을 보류해 원문을 보존한다. 실패는 원문을 재시도 가능하게 보존하고 stderr에 한 줄 원인 및 셸 logEntry 경고를 제공한다. 로컬 모델 실패 시 휴리스틱 복구도 즉시 수행한다. NAIA_MEMORY_CONSOLIDATION=off는 저장 시 추출도 끈다. 상태는 consolidation=on-save/off. 검증: memory-consolidation.contract.test.ts 및 기존 임베딩·역할 시험. P04/P05(2026-11-04): 가짜 HTTP·임베딩 실제 조립 저장/재시작 회귀 포함 전체 2449 passed, 11 skipped, 실패 0. | Done |
 | FR-MEM-22 | **작은 LLM 백그라운드 떠오름(nextain/naia-shell#692)** — 메모리 저장 완료 후 백그라운드에서 비동기로 실행되어 다음 턴에 반영되며 메인 응답 지연은 0이다. 입력은 최근 대화(최대 6턴×600자)와 회상 기억·지식 카드(각각 최대 5개×400자)이며 후보가 없으면 LLM을 호출하지 않는다. 출력은 엄격한 JSON 스키마(`{"items":[{"id":...,"reason":...,"confidence":...}]}`)로 confidence ≥ 0.6인 항목만 최대 4개 선택한다. 다음 턴 진입 시 소비되어 `[문득 떠오른 기억·지식]` 프레이밍 블록으로 주입되고 판정된 기억 후보는 기존 recall 블록에서 제외된다(빈 결과=미주입). 예산과 수명은 8초 작업 타임아웃, 15분 TTL, 세션당 LRU(32개)로 관리된다. 실패·시간초과는 다음 턴에서 기존 recall로 즉시 폴백하고 모델 부재(404/400/422 등 미배포·지원불가) 시 10분간 자동 중단(pause) 후 기존 recall을 유지한다. 진단 로그는 대화·후보·사유·키 등의 내용을 일절 남기지 않는다. 스위치는 `memorySurfacing: "off"`(config.json) 또는 `NAIA_MEMORY_SURFACING=off`(env)로 비활성화되며, 자격 요건으로 naia/nextain/ollama/vllm 또는 명시적 memory 역할 구성에서만 동작하고 상속된 유료 provider(inherited billed provider)에서는 절대 실행되지 않는다. 추론 모델 호환을 위해 요청 body에서 `temperature`는 생략(null)하고 `max_tokens` 2000(게이트웨이가 GPT-5의 `max_completion_tokens`로 매핑)을 전송하며, `tools`와 `response_format`은 전송하지 않는다(프롬프트 기반 엄격 JSON). 모델은 Naia 게이트웨이를 통해 `gpt-5.4-nano`로 주소 지정된다. 작은 LLM이 없는 환경의 폴백은 #693이 소유한다. 검증: `src/test/memory-surfacing.contract.test.ts`, `src/test/memory-surfacing-handler.contract.test.ts`, `src/test/memory-surfacing.integration.test.ts`, `src/test/sub-llm-provider.contract.test.ts`. P04(2026-09-22): 단위·계약·통합 테스트 통과(4개 파일), 전체 스위트 신규 실패 0. 실 LLM 통합 시험(naia/gemini-3.1-flash-lite, 실제 기억 저장소 사본·실 kb.json 읽기 전용) 한국어 3시나리오 통과 — 관련 기억 떠오름, 잡담 없음, 회사 질문 지식 떠오름(호출 1.0~1.4 s). gpt-5.4-nano 는 게이트웨이 배포 전(HTTP 400 모델 추론 실패) → 폴백·일시 중지 확인. 실화면 E2E 는 루크 확인 대기. | Done |
 | FR-MEM-23 | **임계치 기반 떠오름(nextain/naia-shell#693)** — 3가지 동작 모드(`on-llm` \| `on-threshold` \| `off`)를 지원하며, 작은 LLM이 없거나 상속된 유료 프로바이더인 경우 `on-threshold`로 동작한다. `memorySurfacingJudge:"threshold"`(셸 '점수 문턱만 쓰기')이면 작은 LLM이 있어도 on-threshold(user-choice), 떠오름에 LLM 호출·과금 없음. 벡터 코사인 유사도 임계치(기본값 0.86, less=0.88, normal=0.86, more=0.84, 허용 범위 0.80–0.95, 환경변수 `NAIA_MEMORY_SURFACING_THRESHOLD` override가 config보다 우선하며 범위 밖 값은 기본값/레벨로 안전 폴백) 이상인 사실·에피소드 기억만 전역 최대 3개 선별 주입한다. 점수가 없는 반성(reflections)은 항상 탈락(reflections: [])하며 결측 점수(missingScore)로 집계된다. 공백/문장부호 정규화 후 6자 미만 또는 2토큰 미만 단순 발화(trivial)는 회상 점수가 높아도 걸러지며, 점수 누락/비정상(NaN/비유한값) 점수는 fail-closed로 탈락한다. 후보 추출 시 `touch: false`를 전달해 읽기 갱신을 방지한다. 진단 로그는 대화/기억 텍스트 없이 수치 통계(`mode`, `threshold`, `candidates`, `kept`, `missingScore`, `trivial`, `below`, `keptScores`, `nearMissScores`, `snapshot`)만 기록한다. `on-llm` 모드에서도 미판단 항목에 동일한 임계치 게이트가 적용되어 무조건 회상 주입을 대체한다. 작은 LLM 없는 환경에서는 지식 카드의 자동 주입은 실행되지 않는다. 검증: `src/test/memory-surfacing-threshold.contract.test.ts`, `src/test/memory-surfacing-handler.contract.test.ts`. P04(2026-09-23): 단위·계약 테스트 통과, 전체 스위트 신규 실패 0. 실 저장소 사본(에피소드 635, e5-large CPU) 45개 한국어 질의 — 무조건 top-5(무관 64%·잡담 누출 10/10) → 문턱 0.86(항목/질의 0.64, 정밀도 0.96, 회상 12/20, 잡담 누출 1/10(경계값 0.860), 일반·회사 질문 무관 0). 홀드아웃(저장소 2분할): 반쪽1에서 고른 0.87 → 반쪽2 정밀도 1.00·회상 7/16·누출 0, 반쪽2에서 고른 0.85 → 반쪽1 정밀도 0.79·회상 11/20·누출 2/10; 기본 0.86 은 두 반쪽 모두 잡담 누출 ≤ 1/10(정밀도 0.83 / 1.00). 선택값이 0.85–0.87 로 흔들려 3단 설정(0.88/0.86/0.84)이 이 폭을 덮는다. 통합 시험(사본+실 핸들러+실 도구) 13/13. 실 셸 E2E 는 루크 확인 대기. | Done |
 | FR-MEM-24 | **장기기억 회상 도구(`skill_memory_recall`, nextain/naia-shell#693)** — 에이전트가 필요 시 능동적으로 장기기억을 검색하는 도구(`query: string`, `k?: integer` 1..10 정수 검증, 기본 5, 범위 외/비정수 값은 "k must be an integer 1..10" 오류 반환). 다른 스킬이 활성화되어 `toolExecutor`가 이미 존재할 때만 함께 등록된다(`NAIA_AGENT_SKILLS=off` 시 단독 등록되지 않음). 읽기 전용(tier 없음, 승인 불요), `touch: false`로 호출자의 읽기 순위를 보존한다(`deps.memory.recall(query, { touch: false, topK: k })`). 결과는 엄격한 단일 `hits` JSON 배열(사실과 에피소드 통합, 점수 내림차순 정렬 및 null 마지막, 3자리 반올림, 점수 null 또는 < 0.80 시 `weak: true` 플래그, 유한 타임스탬프 `YYYY-MM-DD`의 `when`, 500자 절단 표식 `…[절단됨]`, 비밀 패턴 `maskSecretShapes` 마스킹, 프레이밍 중화)과 `empty`, 읽기 전용 주의문 `note`, 매칭 없을 시 `message: "No memories matched."`로 반환되며, query 에코나 reflections는 포함하지 않는다. 메모리 실패 시 고정 오류 문구 `{ output: "memory recall failed", isError: true }`를 반환해 백엔드 원문을 숨긴다. 엄격한 워크스페이스 범위로 격리되며, Discord 채널 및 백그라운드 processing 요청에서는 제공 목록에서 제외된다. 제공되지 않은 도구 호출은 실행기 호출 없이 즉시 거부된다(offered-tool guard: 이번 턴에 제공되지 않은 도구명은 실행하지 않고 거부). 도구가 제공된 경우에만 시스템 프롬프트에 `MEMORY_TOOL_POLICY`가 주입된다. 검증: `src/test/memory-skill.contract.test.ts`, `src/test/memory-surfacing-handler.contract.test.ts`. | Done |
@@ -94,22 +94,22 @@
 | FR-CLI-1 | **SubAgentPort (semantic)** — `spawn(taskSpec)` → sub-agent 세션 이벤트 스트림(planning/tool_use/text/session_end), `cancel(reason)`. domain/app 은 PID/SIGTERM/stdout/exit code 등 메커니즘을 모른다(adapter 캡슐화). | Done |
 | FR-CLI-2 | **SupervisorApp (app)** — sub-agent 이벤트 ⊕ workspace 변경 스트림 merge(인과/세션 순서 보존, terminal 드롭 0), `session_end` 시 verify(실패/중단 포함) → filesChanged/additions/deletions/verification 수치 **정직 리포트** emit. | Done |
 | FR-CLI-3 | **Interrupt** — `cancel` → SIGTERM → 유예(500ms) → SIGKILL, terminal 이벤트/리포트 정확히 1회. 단독 CLI "stop"/Ctrl+C 경로(adapter 메커니즘). | Done |
-| FR-CLI-4 | **roster 어댑터** — `adapter-pi`/`adapter-opencode-cli`(+레퍼런스 `adapter-shell`)가 SubAgentPort 구현. 선택 명시(pi/opencode/claude-code/codex/gemini), 미설치=정직 unsupported(throw 아님). | Done |
+| FR-CLI-4 | **roster 어댑터** — `adapter-codex`/`adapter-opencode-cli`(+레퍼런스 `adapter-shell`)가 SubAgentPort 구현. 기본 코어는 `codex`이며 선택 명시(`codex`/`opencode`/`claude-code`/`gemini`/`grok`/`shell`; `pi` 제거), 미설치=정직 unsupported(throw 아님). | Done |
 | FR-CLI-5 | **VerifierPort** — test/lint/build/typecheck/shell runner 병렬, **never-throws**(실패/타임아웃/도구부재/malformed→구조화 수치 실패 리포트). domain 은 runner 이름 모름. | Done |
 | FR-CLI-6 | **WorkspacePort** — 파일 변경 요약 스트림(added/modified/deleted + 수치). domain 은 git diff 포맷 모름(adapter=chokidar+git). | Done |
 | FR-CLI-7 | **CLI 대화 host (S1 멀티턴 REPL)** — `naia-agent chat` 가 stdio/readline **AgentIngressPort/AgentEgressPort** 어댑터를 gRPC 와 **동일 `wireAgentUC1`** 에 주입. 매 입력이 누적 history 와 함께 `ChatRequest` → 맥락 유지 멀티턴. emit(text)→stdout 스트리밍, finish→assistant 턴 history append+재프롬프트, error→격리(턴만 실패·루프 생존), Ctrl+C=현재 턴 cancel. | Done |
 | FR-CLI-8 | **CLI 로그인 (S1 자격증명)** — `naia-agent login --provider <p> [--key <k>\|stdin]` → 자격증명 영속(홈 `.naia-agent/.env` 0600, 옛 CLI 호환·크로스플랫폼; Linux 추가 secret-tool). chat host 기동 시 로드 → resolver/credentials 포트가 읽어 provider 연결(키 인자 없이 대화). | Done |
-| FR-CLI-9 | **Naia account Pi provider** — `run --agent pi --model grok-4.3`, `motif-3`, `deepseek-v4-flash`/`deepseek-v4-pro` 분석 실행은 저장된 `NAIA_API_KEY`와 Naia gateway만 사용한다. Motif Pi metadata declares reasoning, 262,144 context tokens, and the gateway's 1.30x cost estimate. Pi 설정에는 환경변수 참조만 기록하고 direct Azure/xAI/DeepSeek/Motif key 및 OpenCode fallback을 금지한다. | Done (#93; two live probes: 9/10 then 10/10 structured tool_calls; requested-function matches 8/10 then 9/10; threshold >=9/10) |
-| FR-CLI-10 | **모델 능력 fail-closed** — Grok과 실측에서 9/10 이상 구조화 `tool_calls`를 반환한 모델은 tool coding 허용. DeepSeek-V4-Flash/Pro는 명시적 `--no-tools` 분석만 허용하고 생략 시 Pi spawn 전에 실패한다. Motif 3은 두 차례 실측에서 구조화 `tool_calls` 9/10, 10/10(요청 함수 일치 8/10, 9/10)을 반환해 목록 허용 기준(9/10 이상)을 충족했다. | Done (#93; Motif probe and model capability contract) |
+| FR-CLI-9 | **Naia 계정 모델 및 구 Pi provider 제거** — 구 `run --agent pi` 전용 provider 경로는 `UC-CODEX-CORE-SWAP`(2026-11-06)에서 제거되었다. Naia 게이트웨이 모델(`grok-4.3`, `motif-3`, `deepseek-v4-flash`/`deepseek-v4-pro`, `solar-pro4`, `solar-mini`, `HCX-007`, `HCX-DASH-002`)은 `naia-agent chat --provider naia` 및 `naia-agent models naia`에서 저장된 `NAIA_API_KEY`와 Naia gateway만 사용한다. `naia-agent run`은 `codex`를 기본 코어로 사용하며 Naia 모델 ID를 OpenAI Codex CLI에 직접 넘기지 않고 spawn 전에 거부한다. | Removed (`run --agent pi` 제거됨; Naia chat/models 계약은 유지) |
+| FR-CLI-10 | **읽기 전용(`--no-tools`) 및 모델 능력 fail-closed** — `naia-agent run --no-tools`는 `codex`를 읽기 전용 샌드박스(`--sandbox read-only`, `filesystemAccess: "read_only"`)로 실행하며, 읽기 전용을 보장할 수 없는 서브에이전트(`shell` 등)와 함께 지정하면 spawn 전에 인자 오류로 멈춘다. 구 Pi 전용 DeepSeek 분석 전용 가드는 Pi 제거 및 `FR-CLI-19`(모든 노출 Naia 모델 도구 지원)와 함께 제거되었으며, Naia 전용 모델 ID를 `codex`에 직접 넘기면 spawn 전에 실패한다. | Done (#93, `UC-CODEX-CORE-SWAP`) |
 | FR-CLI-11 | **동일 CLI 표면** — Codex가 자식 프로세스로 호출한 경우와 사용자가 직접 호출한 경우 provider/model/workdir/terminal report가 동일하다. | Done (#93) |
-| FR-CLI-12 | **격리 환경·고정 Pi·canonical identity** — 고정 버전 Pi는 격리 config와 Naia key/필수 env만 받고 direct-provider secret을 상속하지 않는다. gateway usage/billing key는 `azure:<exact-model>`이며 Azure client cache는 모델별 endpoint를 혼용하지 않는다. | Done (#93; live 청구는 `OPERATIONAL_UNVERIFIED`) |
-| FR-CLI-13 | **실행 가능한 매뉴얼** — `docs/naia-account-pi-manual.md`의 clean-HOME 명령, exit code, model/usage/diff/verifier 판정을 자동 실행 가능한 acceptance로 유지한다. | Done (#93) |
+| FR-CLI-12 | **자식 환경 격리 및 canonical identity** — `subagent-codex` 자식은 `CODEX_HOME` 및 필수 시스템 환경만 받고 부모 프로세스의 `DISCORD_BOT_TOKEN`, `NAIA_API_KEY`, `NAIA_ANYLLM_API_KEY`, `ANTHROPIC_API_KEY` 등 무관한 자격증명을 상속하지 않는다(구 Pi 격리 config 경로는 제거됨). Naia gateway usage/billing key는 `azure:<exact-model>`이며 Azure client cache는 모델별 endpoint를 혼용하지 않는다. | Done (#93, `UC-CODEX-CORE-SWAP`) |
+| FR-CLI-13 | **실행 가능한 매뉴얼** — `docs/naia-agent-cli-manual.md`의 명령, exit code, model/usage/diff/verifier 판정을 자동 실행 가능한 acceptance로 유지한다. | Done (#93) |
 | FR-CLI-14 | **계정 명령군** — `auth status|login|logout`이 provider별 로그인 상태를 관리한다. TTY 입력은 화면에 표시하지 않고 Windows DPAPI/Linux secret-tool에 저장한다(평문 fallback 금지). status/JSON/오류에는 키 값을 출력하지 않는다. 기존 `login`은 호환 alias이고 `.env`는 읽기·마이그레이션만 한다. | Done (#97) |
-| FR-CLI-15 | **CLI 설정 명령군** — `config list|get|set|reset`이 `workspace`, `coding.agent`, `coding.model`, `coding.tools` allowlist만 관리한다. 전역 config는 workspace 포인터만, `coding.*`는 현재 workspace의 `naia-settings/cli.json`에 둔다. LLM 정본을 복제하거나 secret을 저장하지 않는다. | Done (#97) |
-| FR-CLI-16 | **모델 카탈로그** — `models [provider] [--json]`이 모델 ID, provider, 용도, 도구 지원을 안정된 형식으로 보여 준다. Naia catalog 장애 시 검증된 Pi 내장 목록으로 제한적으로 fallback하고 그 출처를 표시한다. | Done (#97) |
-| FR-CLI-17 | **자가 진단** — `doctor [--json]`가 계정, workspace, naia-settings, Pi 설치/config, gateway/catalog 준비 상태를 component별 pass/warn/fail로 보고하며 secret을 노출하지 않는다. | Done (#97) |
+| FR-CLI-15 | **CLI 설정 명령군** — `config list|get|set|reset`이 `workspace`, `coding.agent`, `coding.model`, `coding.tools` allowlist만 관리한다. 전역 config는 workspace 포인터만, `coding.*`는 현재 workspace의 `naia-settings/cli.json`에 둔다. 저장된 구 `coding.agent="pi"`를 읽으면 `"codex"`로 자동 이전하고 1회 안내하며, `config set coding.agent pi`는 명시적 오류와 수정 방법(`naia-agent config set coding.agent codex`)을 반환한다. LLM 정본을 복제하거나 secret을 저장하지 않는다. | Done (#97, `UC-CODEX-CORE-SWAP`) |
+| FR-CLI-16 | **모델 카탈로그** — `models [provider] [--json]`이 모델 ID, provider, 용도, 도구 지원을 안정된 형식으로 보여 준다. Naia catalog 장애 시 검증된 Naia 내장 폴백 목록(`FALLBACK_NAIA_MODELS`)으로 제한적으로 fallback하고 그 출처를 표시한다. | Done (#97) |
+| FR-CLI-17 | **자가 진단** — `doctor [--json]`가 계정, workspace, naia-settings, Codex CLI 실행 가능 여부(`component: "codex"`, `checkCodexPreflight`), gateway/catalog 준비 상태를 component별 pass/warn/fail로 보고하며 secret을 노출하지 않는다. | Done (#97, `UC-CODEX-CORE-SWAP`) |
 | FR-CLI-18 | **세션 관리·재개** — `session list|show|resume`이 기존 workspace transcript를 안전하게 읽는다. 손상 줄은 격리하고 경로 탈출 ID를 거부하며, 5 MiB/최근 400 message로 제한하고 show는 secret redaction한다. resume은 완결 turn만 같은 session ID로 이어 간다. | Done (#97) |
-| FR-CLI-19 | **코딩 기본값** — 저장된 `coding.agent/model/tools`는 하나의 결속된 기본값 묶음이다. 명시 argv가 우선하며, 다른 agent 또는 model을 명시하면 저장된 model/tools를 상속하지 않는다. 반복 value option은 downstream parser와 같이 마지막 값을 기준으로 판정한다. Naia의 선택 가능 모델은 모두 도구를 지원해야 하며 명시적 `supports_tools: false` 모델은 노출하지 않는다. Pi model evidence는 그대로 유지한다. | Done (#97, #99, naia-shell#427) |
+| FR-CLI-19 | **코딩 기본값** — 저장된 `coding.agent/model/tools`는 하나의 결속된 기본값 묶음이다. 명시 argv가 우선하며, 다른 agent 또는 model을 명시하면 저장된 model/tools를 상속하지 않는다. 반복 value option은 downstream parser와 같이 마지막 값을 기준으로 판정한다. Naia의 선택 가능 모델은 모두 도구를 지원해야 하며 명시적 `supports_tools: false` 모델은 노출하지 않는다. Codex model evidence는 그대로 유지한다. | Done (#97, #99, naia-shell#427, `UC-CODEX-CORE-SWAP`) |
 | FR-CLI-20 | **자동화 가능한 표면** — 관리 명령의 JSON schema와 exit code가 안정적이며, 격리 HOME process test에서 Codex-child 호출과 직접 호출이 동일하게 동작한다. | Done (#97) |
 
 ### NFR
@@ -458,20 +458,17 @@ RPC만 추가하며, 별도 셸 반복 상태 머신은 만들지 않는다.
 - **NFR-OUTBOUND-delivery**: ambiguous network outcomes are honestly recorded; durable outbox/idempotency prevents claiming a duplicate send as success.
 - **NFR-SCHEDULE-provider-neutral**: persisted schedules have no Codex/PI-specific schema fields.
 
-## UC-020 FR/NFR ? three-tier role execution (CLI workers + Pi)
+## UC-020 FR/NFR — three-tier role execution (CLI workers, Pi fallback removed)
 
 - **FR-PI-ROLE-1**: Agent resolves the four stored LLM roles `main`, `sub`, `memory`, and `expert`; `expert/main/sub` are the development tiers while `memory` remains orthogonal.
-- **FR-PI-ROLE-2**: A Shell/Agent development task selects `expert`, `main`, or `sub` and creates a supervised session routing configured CLI workers (Codex, Claude Code CLI, Grok) to dedicated adapters or falling back to Pi per FR-PI-ROLE-6.
-- **FR-PI-ROLE-3**: This route permits only configured CLI workers (`codex`, `claude-code-cli`, `grok`) and Pi fallback account providers (`anthropic`, `nextain`/`naia`) per FR-PI-ROLE-6, failing closed for unknown, incomplete, local OpenAI-compatible, or OpenCode selections before spawn.
+- **FR-PI-ROLE-2**: A Shell/Agent development task selects `expert`, `main`, or `sub` and creates a supervised session routing configured CLI workers (`codex`, `claude-code-cli`, `grok`) to their dedicated adapters (`src/main/adapters/role-runner.ts`). Following Pi removal (`UC-CODEX-CORE-SWAP`), non-CLI account providers (`naia`/`nextain`, `anthropic`) fail closed before spawn (B2 Option (나)) rather than passing Naia/Anthropic model IDs raw to OpenAI Codex CLI.
+- **FR-PI-ROLE-3**: This route permits only configured CLI workers (`codex`, `claude-code-cli`, `grok`) to spawn. Account providers (`anthropic`, `nextain`/`naia`), unknown, incomplete, local OpenAI-compatible, or OpenCode selections fail closed before spawn with an explicit error and failed verification check (`verification: { ok: false, checks: [{ name: "role", pass: false, details }] }`).
 - **FR-PI-ROLE-4**: Workspace selection or settings reload replaces the role resolution used by the next delegation; an already captured startup profile must never be reused. If a role changes after processing authorization but before spawn, the mismatched delegation fails without a provider call.
-- **FR-PI-ROLE-5**: Naia-account roles accept only the Agent-owned, tool-capable Pi model catalog and receive the OS-keychain credential through a child-only environment at spawn time. The Agent does not silently strip tools by model; only an explicit caller `noTools` request disables them.
-- **NFR-PI-ROLE-1**: Every Pi child receives an allowlisted process environment. Account providers retain
-  only the OS paths needed to read their own subscription state; unrelated provider, Discord, and Naia
-  credentials are removed. A Naia-account child receives only its exact child-scoped Naia key and billing
-  bindings; credential references remain opaque configuration metadata.
-- **NFR-PI-ROLE-2**: Agent preserves Supervisor cancellation/event/report semantics for every Pi role session.
-- **NFR-PI-ROLE-3**: A Discord-originated role delegation declares the selected role's provider/model as a separate `sub_llm` operation. The trusted channel processing profile must authorize and disclose it before the delegated session starts (codex, claude-code-cli and grok roles run through their own CLI worker; all other permitted providers go through Pi per FR-PI-ROLE-6); missing or unclassifiable metadata fails closed.
-- **FR-PI-ROLE-6**: Configured development roles (`expert/main/sub`) route `codex`, `claude-code-cli`, and `grok` to their respective CLI worker adapters (`subagent-codex`, `subagent-claude-code`, `subagent-grok`), while other permitted account providers fallback to Pi. Unknown providers fail closed.
+- **FR-PI-ROLE-5**: `isSupportedNaiaRoleModel` matches the 8 registered Naia role models (`grok-4.3`, `deepseek-v4-flash`, `deepseek-v4-pro`, `solar-pro4`, `solar-mini`, `motif-3`, `HCX-007`, `HCX-DASH-002`) case-insensitively (`hcx-007` → `HCX-007`) so unregistered Naia models are distinguished from registered Naia models, while execution on the Codex role runner remains blocked before spawn until a verified gateway bridge is configured (Removed: Pi subprocess fallback).
+- **NFR-PI-ROLE-1**: Every CLI worker child (`codex`, `claude-code-cli`, `grok`) receives an isolated process environment where unrelated parent credentials (`DISCORD_BOT_TOKEN`, `NAIA_API_KEY`, `NAIA_ANYLLM_API_KEY`, `ANTHROPIC_API_KEY`) are stripped.
+- **NFR-PI-ROLE-2**: Agent preserves Supervisor cancellation/event/report semantics for every role session, including emitting `verification: { ok: false, checks: [{ name: "role", pass: false, details }] }` when role resolution fails.
+- **NFR-PI-ROLE-3**: A Discord-originated role delegation declares the selected role's provider/model as a separate `sub_llm` operation only for roles that can actually execute (`codex`, `claude-code-cli`, `grok`); missing, unclassifiable, or non-CLI account role metadata fails closed.
+- **FR-PI-ROLE-6**: Configured development roles (`expert/main/sub`) route `codex`, `claude-code-cli`, and `grok` to their respective CLI worker adapters (`subagent-codex`, `subagent-claude-code`, `subagent-grok`), while non-CLI account providers (`naia`/`nextain`, `anthropic`) and unknown providers fail closed before spawn (B2 Option (나)).
 
 ## UC-021 FR/NFR — AnyLLM-backed Naia providers
 
@@ -620,8 +617,8 @@ The Agent and Gateway preserve these codes end to end:
   Codex CLI receipts prove the exact requested model/profile arguments, not provider-internal backend
   routing, because its JSONL protocol does not expose an independently observed backend model id.
 - **Status**: Done for the declared library/composition and paired-benchmark scope. Evidence:
-  `benchmark/results/single-issue-live-1785619885488.json` (source revision `d0bbbe0`) and
-  `.agents/reviews/r-req-021-single-issue-vertical-2026-08-02.json`. Production ingress and
+  `benchmark/run-single-issue-live.mjs` (source revision `d0bbbe0` live run recorded in
+  `.agents/reviews/r-req-021-single-issue-vertical-2026-08-02.json`). Production ingress and
   naia-shell integration remain the explicitly deferred next phase.
 
 ## REQ-022 — Multi-issue session management vertical
@@ -719,13 +716,7 @@ The Agent and Gateway preserve these codes end to end:
 - **FR-TEAM-006**: The team worker implements the existing `IssueWorkerPort`; facing, moderator,
   multi-session scheduling, issue verification, and reporting do not import a coding-agent protocol.
   Legacy single-Codex profiles remain compatible.
-- **FR-TEAM-007**: The concrete role executor selects only a predeclared Codex, OpenCode, or built-in
-  Pi adapter. Missing adapters fail honestly. OpenCode never becomes an implicit fallback. Pi's Naia
-  account path reuses the existing secret-free gateway configuration and never copies credentials
-  into team state, prompts, receipts, or logs. Every adapter must enforce the requested semantic
-  filesystem capability itself. Pi read-only roles receive only its read/grep/find/list tool set;
-  OpenCode read-only roles fail closed until an isolated permission profile can be proven, while its
-  workspace-write implementer role remains supported.
+- **FR-TEAM-007**: The concrete role executor selects only a predeclared Codex or OpenCode adapter (built-in Pi adapter removed in `UC-CODEX-CORE-SWAP`). Missing adapters fail honestly. OpenCode never becomes an implicit fallback. Every adapter must enforce the requested semantic filesystem capability itself. Codex read-only roles execute with `--sandbox read-only` (`filesystemAccess: "read_only"`) and never receive workspace-write tools; OpenCode read-only roles fail closed until an isolated permission profile can be proven, while its workspace-write implementer role remains supported.
 - **FR-TEAM-008**: OpenCode provides adapter-requested model identity with unique session/execution
   ids when its protocol does not provide independently observed identity or priced usage. Such a
   receipt marks usage/cost unavailable and cannot be presented as provider-observed or measured zero.
@@ -758,153 +749,38 @@ The Agent and Gateway preserve these codes end to end:
   `.agents/reviews/r-req-023-issue-team-orchestration-2026-08-02.json`. Actual Discord ingress and
   authorization, naia-shell UI, live paid multi-provider E2E, and a real 24GB local Naia model remain
   explicitly outside this completed requirement.
-## REQ-024 — Built-in Pi continuous coding loop and durable paid-call budget
+## REQ-024 — Durable paid-call budget (retained) and Pi continuous coding loop / billing bridge / cost comparison (제거됨, 2026-11-06)
 
-- **FR-LOOP-001**: A standalone Agent composition runs the existing multi-session → single-issue →
-  profiled-team stack with built-in Pi for every model-authored role. This path neither imports,
-  invokes, nor falls back to OpenCode; legacy mixed profiles remain separate compatibility code.
-  An explicit subscription-conserving profile may instead pin only the moderator to Codex
-  `gpt-5.6-luna`; facing, reporting, and every team role remain built-in Pi bindings. No other
-  Codex slot or Codex model is accepted by that profile.
-- **FR-LOOP-002**: Every paid actor attempt reserves one stable idempotency key, USD allowance,
-  input-token allowance, and output-token allowance in SQLite before provider execution. The ledger
+- **FR-LOOP-001** (**제거됨 — 2026-11-06 `UC-CODEX-CORE-SWAP`**): Built-in Pi standalone continuous loop composition was removed together with Pi dependencies (`@earendil-works/pi-coding-agent`, `@earendil-works/pi-ai`). Active issue-team and multi-issue orchestration now uses Codex as default core (`REQ-022`, `REQ-023`).
+- **FR-LOOP-002** (**Retained — Done**): Every paid actor attempt reserves one stable idempotency key, USD allowance,
+  input-token allowance, and output-token allowance in SQLite (`SqlitePaidCallBudget`) before provider execution. The ledger
   atomically enforces total paid-call, USD, input-token, and output-token limits across processes.
   These are conservative admission and next-call stop rules; a provider can overrun one in-flight
   reservation, which is recorded and fails the issue after the response rather than being hidden.
-- **FR-LOOP-003**: A provider-model receipt settles its reservation exactly once. Settlement requires
-  complete provider-reported token usage and either measured billing cost or Pi-priced usage explicitly
-  labeled as an estimate. Estimated cost can enforce operational admission but cannot support a live
-  Azure savings claim. Duplicate settlement is idempotent
+- **FR-LOOP-003** (**Retained — Done**): A provider-model receipt settles its reservation exactly once. Settlement requires
+  complete provider-reported token usage and either measured billing cost or catalog-priced usage (`estimatedCostSource: "catalog"`) explicitly
+  labeled as an estimate. Duplicate settlement is idempotent
   only for the byte-identical receipt; conflicting evidence fails closed.
-- **FR-LOOP-004**: A reservation left active by crash or transport loss remains charged at its
+- **FR-LOOP-004** (**Retained — Done**): A reservation left active by crash or transport loss remains charged at its
   reserved allowance and is never silently replayed. Operators can inspect it as unresolved; only
   explicit reconciliation with bound receipt evidence may settle it.
-- **FR-LOOP-005**: A foreground NDJSON control session plus one-shot commands expose session
-  start/list/show/answer/cancel/pump and budget visibility without naia-shell. State survives restart
-  and reuses exact question binding, scheduler leases, managed worktrees, the role loop, verification,
-  and grounded reporting.
-- **FR-LOOP-006**: A frozen deterministic benchmark uses zero paid calls and covers multiple issues,
-  restart, duplicate commands, repair, budget exhaustion, unresolved reservations, and receipt
-  conflict. It hashes the exact JavaScript closure it executes, requires byte-exact current TypeScript
-  emission, and mutation-tests static/dynamic/CommonJS import plus direct/aliased/fallback executable
-  edges while allowing compatibility-only type labels. The opt-in one-call Azure/Naia-gateway script is only a bounded route/receipt smoke and
-  cannot claim cost efficiency. The active cost-efficiency completion gate remains unavailable until
-  candidate/control runs over identical cases expose complete provider-priced receipts; it is not
-  satisfied or deferred by the smoke.
-- **FR-LOOP-007**: The frozen paid comparison uses the same task, deterministic file/Git scorer,
-  actor-attempt topology, and a checkpoint-reopen step in which a separate Node process reopens and
-  hashes the frozen Git worktree before any paid call. It also enforces combined 20-actor-attempt/60-gateway-call/$0.50 ceilings for candidate
-  and control. USD caps use exact 8-decimal integers, and the 10% savings threshold uses integer basis
-  points rather than floating-point comparison. A savings decision requires candidate quality non-inferiority and at least 10% lower
-  customer cost. Every cost row must be settled gateway versioned-customer-billing evidence bound by
-  local execution ID, gateway request ID, price version, exact route, and exact token counts. Pi
-  catalog estimates, profile time-window deltas, unbound logs, missing rows, extra rows, route drift,
-  unresolved reservations, and unsigned self-asserted JSON make the result unavailable rather than
-  cheaper. Combined call/USD/token ceilings and the exact per-role attempt topology are enforced by
-  the analyzer. Actor attempts and billable gateway requests are distinct: both arms must run the
-  same declared role-attempt topology, while every tool-loop request is counted and differing request
-  counts remain part of the observed efficiency result. The analyzer verifies an HMAC-SHA256
-  attestation over the complete paired evidence with an external key whose public digest is pinned.
-  The evidence contains the independently reread hash-chain receipt journals plus the complete per-arm
-  delta from the shared SQLite gateway ledger; their ordered identities, exact settled totals, receipt
-  digests, and zero active-reservation count must equal the submitted rows. The immutable task contract
-  accepts only a separate pins file bound to its benchmark and task digests for price versions, key ID,
-  and the absolute Git executable path/digest;
-  the immutable contract must also pin the SHA-256 of that exact pins file before any paid call.
-  A deterministic preparation command creates a pins file and a derived contract without network or
-  paid calls; the derived contract is accepted only when every field except `pinsDigest` is structurally
-  equal under canonical JSON comparison to the repository contract. Runner and analyzer must consume the same derived
-  contract and pins pair.
-  Missing authority, a wrong key, post-run mutation, omitted or replayed rows,
-  and a changed contract binding make the result `unavailable`. A valid attestation may enable
-  `costEfficiencyClaimAllowed` only inside this frozen paired-engineering-case scope. The gateway
-  response is API-key/TLS authenticated and request-correlated but not server-signed, so this is not
-  a transferable third-party audit or a general model-superiority claim. Both arms must reopen the same contract-pinned
-  baseline digest, and every model must use its contract-pinned price version; an unpinned baseline or
-  price version also makes the comparison unavailable.
-- **FR-LOOP-008**: The Naia Pi adapter loads an Agent-owned provider extension only for the Naia
-  gateway route. For every logical provider turn the extension sends the OpenAI-compatible request
-  with `stream=false`, one parent-bound gateway request ID, and a positive attempt number. Before
-  network I/O, a shared SQLite ledger durably reserves one request plus conservative USD/input/output
-  allowances; retry of the same canonical request reuses that reservation, while a new request beyond
-  any ceiling is rejected before `fetch`. The extension validates
-  the returned route, settled versioned-customer-billing fields, exact token usage, and nonnegative
-  customer cost; atomically appends the result to an owner-only receipt journal; and converts the
-  ordinary completion back to Pi-compatible SSE so Pi retains its native text/tool loop. The parent
-  accepts measured cost only when the journal execution identity, ordered local request identities,
-  gateway identities, provider/model, token totals, settlement state, and file integrity all match.
-  The extension fails before provider I/O when its gateway-budget binding is absent. The common Naia
-  Pi subprocess factory always supplies one: continuous-loop and benchmark callers inject their shared
-  contract policy, while legacy CLI/mixed-team callers receive an execution-local durable default capped
-  at 8 gateway calls, $0.20, 32,000 input tokens, and eight reserved output allowances. Thus budgeting
-  is not an optional adapter mode and existing public Pi CLI routing remains usable. Legacy/direct
-  providers never load this extension. This receipt is operational settlement evidence. FR-LOOP-007
-  separately binds the complete paired result with an external-key HMAC; the distinction between that
-  internal integrity claim and an unavailable gateway server signature remains explicit.
-- **FR-LOOP-009**: Every paid benchmark runner requires an explicit durable output path before network
-  I/O. The paired runner writes running and per-arm checkpoints outside the evidence directory; the
-  one-call smoke writes a running checkpoint before its call. Both preserve receipt and gateway-budget
-  databases after success or failure and emit an honest partial-paid `unavailable` record on exceptions.
-  Neither runner deletes or overwrites the only copy of paid-call evidence. The paired runner removes
-  its HMAC integrity key from the process environment immediately after loading it, strips it from every
-  child environment, and runs benchmark Git with system/global configuration disabled plus an isolated
-  empty hooks path so a model-controlled global hook cannot capture the attestation authority. This
-  process-level isolation covers transitive worktree and verifier Git calls as well as the runner's own
-  Git wrapper. The external Git executable path and SHA-256 are contract-bound through the anchored pins
-  file, rechecked before each Git use, and every Git/digest child receives an environment with provider
-  credentials removed. Worktree allocation, changed-file scoring, and verification use that same injected
-  Git boundary rather than caller `PATH`. The runner, analyzer, digest/Git/integrity helpers, full transitive local ESM closure,
-  the Pi billing extension, the exact direct
-  `pi-ai` OpenAI-completion closure and its `openai`/`partial-json` dependencies, package/lock files,
-  and the workspace-local Pi executable's full statically reachable package graph are captured in one
-  contract-pinned manifest digest. The
-  broad compatibility entrypoint is not used. An inherited `PI_BIN` override is removed. Signer,
-  analyzer, billing, loop, and scorer entry modules are preloaded before the first model arm, and the
-  complete closure is rehashed immediately before every actor spawn and after each arm. Any replacement
-  fails before a credential-bearing child, another arm, or a signature is accepted. Because Pi itself
-  needs the Naia credential, paid comparison writers receive an explicit shell-free built-in tool
-  allowlist (`read,write,edit,grep,find,ls`); read-only actors are intersected down to
-  `read,grep,find,ls`. The billing extension blocks every file-tool target outside the assigned real
-  workspace and rejects symbolic-link escape before tool execution. The guard mirrors Pi's leading-`@`
-  path normalization before checking the target; Pi's absolute-path-capable built-ins
-  therefore cannot read secrets or replace benchmark/runtime files outside that worktree. No shell or
-  alternate network-capable tool can bypass the billed fetch and shared request ledger.
-- **FR-LOOP-010**: A user-owned Pi provider is an explicit, credential-free, loopback-only
-  OpenAI-compatible binding whose provider ID cannot collide with a cloud provider. A local-model
-  qualification run binds the current TypeScript import closure to the exact executed JavaScript,
-  the Pi executable hash, pinned external executable paths/hashes, endpoint model/root, serving version
-  and command, immutable container image identity, Hugging Face snapshot revision and file-manifest digest,
-  container network namespace and loopback port, one declared GPU device and its UUID/memory telemetry,
-  an actual >=32K prompt, and redacted native tool-call protocol evidence. Existing result paths are
-  preserved fail-closed. It completes only after the ordinary facing → moderator
-  → explorer/implementer/tester/reviewer(two clean cycles) → deterministic verifier → reporter path
-  succeeds. Provider price is unavailable unless a real provider or operating-cost receipt exists;
-  a zero Pi catalog price is never reported as measured zero cost.
-- **NFR-LOOP-001**: Default benchmark limits are deliberately small; there is no two-minute product
+- **FR-LOOP-005** (**제거됨 — 2026-11-06 `UC-CODEX-CORE-SWAP`**): Standalone Pi loop NDJSON control session CLI was removed with Pi.
+- **FR-LOOP-006** (**제거됨 — 2026-11-06 `UC-CODEX-CORE-SWAP`**): Pi-only continuous loop benchmark and one-call Pi Azure smoke script were removed with Pi.
+- **FR-LOOP-007** (**제거됨 — 2026-11-06 `UC-CODEX-CORE-SWAP`**): Pi paired cost comparison runner and attestation analyzer were removed with Pi.
+- **FR-LOOP-008** (**제거됨 — 2026-11-06 `UC-CODEX-CORE-SWAP`**): Naia Pi versioned-billing extension and receipt journal bridge were removed with Pi.
+- **FR-LOOP-009** (**제거됨 — 2026-11-06 `UC-CODEX-CORE-SWAP`**): Pi paid comparison runner and Pi tool allowlist extension were removed with Pi.
+- **FR-LOOP-010** (**제거됨 — 2026-11-06 `UC-CODEX-CORE-SWAP`**): User-owned local Pi provider binding and GPU1 Pi qualification runner were removed with Pi.
+- **NFR-LOOP-001** (**Retained**): Default benchmark limits are deliberately small; there is no two-minute product
   loop ceiling. Termination comes from repair/clean bounds, cancellation, verification, provider
   failure, or durable budget exhaustion.
-- **NFR-LOOP-002**: SQLite state is owner-local mode 0600 and stores no credential, prompt stream,
+- **NFR-LOOP-002** (**Retained — Done**): SQLite state (`SqlitePaidCallBudget`) is owner-local mode 0600 and stores no credential, prompt stream,
   or raw model output. Logs use `DiagnosticLog` and never expose those values.
-- **NFR-LOOP-003**: Discord ingress and naia-shell UI remain outside this requirement. Source
+- **NFR-LOOP-003** (**Retained**): Discord ingress and naia-shell UI remain outside this requirement. Source
   metadata stays adapter-neutral for their later attachment.
-- **NFR-LOOP-004**: The 24GiB local-model profile is a user-owned assistant/worker option, not a
-  Codex/Claude replacement claim. GPU0 is outside the qualification run; the canonical live run uses
-  GPU1 only. Candidates that merely fit memory but do not expose native tools fail the prerequisite
-  gate and are not run through the 3-layer completion loop.
-- **FR-LOOP-011**: Every admitted Naia model is tool-capable and may occupy explorer, implementer,
-  tester, or reviewer. Models that cannot execute bounded Pi tools are excluded from the catalog
-  before composition rather than being admitted with tools silently removed.
-- **FR-LOOP-012**: `gatewayBillingMode=unavailable` is an explicit operational compatibility mode
-  for a Gateway response that omits versioned settlement fields. It bypasses only the per-request
-  receipt extension. Parent actor reservations still enforce call, token, and estimated-USD ceilings
-  from the pinned Azure rate-card catalog; terminal customer cost remains unavailable, and paid
-  benchmark/savings claims remain prohibited. The default mode remains strict versioned billing.
-- **Status**: In progress. Completion requires reproducible benchmark evidence and two consecutive
-  clean adversarial reviews on one unchanged candidate. The decision contract is implemented. Exact
-  request-correlated operational receipt transport is specified by FR-LOOP-008, while a live paired
-  run still requires a Naia credential, pinned price versions, and a pinned external harness-journal
-  key identity. The baseline is already pinned. A hand-authored or unsigned evidence file can never
-  become a completion claim, and the current gateway does not provide a server signature.
+- **NFR-LOOP-004** (**제거됨 — 2026-11-06 `UC-CODEX-CORE-SWAP`**): Local Pi provider qualification profile was removed with Pi.
+- **FR-LOOP-011** (**제거됨 — 2026-11-06 `UC-CODEX-CORE-SWAP`**): Pi worktree role catalog rule was removed with Pi (`FR-CLI-19` retains the tool-capable requirement for Naia chat/models catalog).
+- **FR-LOOP-012** (**제거됨 — 2026-11-06 `UC-CODEX-CORE-SWAP`**): Pi `gatewayBillingMode=unavailable` compatibility flag was removed with Pi.
+- **Status**: **Removed** for Pi-specific continuous loop, versioned billing bridge, user-owned Pi provider, and Pi cost comparison (`FR-LOOP-001`, `FR-LOOP-005..012`, `NFR-LOOP-004` — removed in `UC-CODEX-CORE-SWAP`). **Done** for the retained durable SQLite paid-call budget ledger (`FR-LOOP-002..004`, `NFR-LOOP-002`, verified by `src/test/sqlite-paid-call-budget.integration.test.ts`).
 
 ## REQ-021 — 환경 표면 관측 (nextain/naia-agent#112)
 
@@ -1058,6 +934,192 @@ Status: Done (#154)
 | 수정 후 HEAD 1회차 | 8 / 169 / 3 | 29 / 2,183 / 14 | 2 | 117.52s |
 | 수정 후 HEAD 2회차 | 8 / 169 / 3 | 29 / 2,183 / 14 | 2 | 115.52s |
 
-네 실행의 실패 파일 집합과 실패 시험 제목·중복 건수는 모두 같고 신규 실패는 0건이다. 기준과 HEAD 모두 실패한 파일: `delegate-agent-skill.contract.test.ts`, `issue-team-benchmark.contract.test.ts`, `memory-store-path-isolation.contract.test.ts`, `multi-issue-benchmark.contract.test.ts`, `pi-cost-comparison-runner.contract.test.ts`, `selected-workspace-coding.contract.test.ts`, `uc-naia-pi-cli-process.integration.test.ts`, `uc1-memory-process.integration.test.ts`. 전체 시험은 기존 실패로 exit 1이다. 집중 시험(Discord·Jeonju·memory reload·wire security 18개 파일)은 256 통과·1 skip, `pnpm build`와 `tsc --noEmit`은 통과했다. 이전 r8 실행 환경의 수치(실패 20개 파일·132개 시험)는 격리하지 않은 환경 기준이라 이 표로 대체했다.
+네 실행의 실패 파일 집합과 실패 시험 제목·중복 건수는 모두 같고 신규 실패는 0건이다. 당시 기준과 HEAD 모두 실패한 파일(이후 `UC-CODEX-CORE-SWAP`에서 제거된 구 Pi 비용 비교·프로세스 시험 2건 제외 현존 6개): `delegate-agent-skill.contract.test.ts`, `issue-team-benchmark.contract.test.ts`, `memory-store-path-isolation.contract.test.ts`, `multi-issue-benchmark.contract.test.ts`, `selected-workspace-coding.contract.test.ts`, `uc1-memory-process.integration.test.ts`. 전체 시험은 기존 실패로 exit 1이다. 집중 시험(Discord·Jeonju·memory reload·wire security 18개 파일)은 256 통과·1 skip, `pnpm build`와 `tsc --noEmit`은 통과했다. 이전 r8 실행 환경의 수치(실패 20개 파일·132개 시험)는 격리하지 않은 환경 기준이라 이 표로 대체했다.
 
 검수 r3의 시작 경합은 lease 취득 후 기존 처리기 등록 지점 전의 상태 쓰기를 가로채는 자식 프로세스 시험으로 고정했다. SIGTERM 단독·SIGINT 단독·연속 신호에서 초기화 중단, stopped, lease 해제, 정상 종료와 즉시 재시작을 확인했다. 상태 쓰기 예외, 거절된 promise, runtime 시작 직후 예외도 실패 상태·lease 해제·즉시 재시작을 확인했다. 관련 프로세스·배선 집중 시험은 26개 모두 통과했다. 시험은 가짜 Gateway/REST를 사용하고 실제 Discord에 접속하지 않았다. P05는 독립 검수 r6에서 통과했다. 실제 Discord 자격증명·Gateway 권한·DM/thread 수신·재연결 dedupe 확인은 배포 전 실기 항목으로 남는다.
+
+
+## FR-AX-026 — Codex 실행 공급자와 하네스 승인
+
+상태: In review (0.2.6 초기 구현, 실제 Shell·캘린더 인수 전). P01/P02: UC-AX-026.
+P04 초기 검증: 새 계약 34건 + 기존 Codex·공급자·도구루프 회귀 포함 73건 통과, 타입 검사 통과.
+독립 적대 리뷰: `.agents/reviews/026-ax-codex-core.md`. 전체 시험 기존 실패는 리뷰 및 실행 보고서에 별도 기록.
+
+- FR-AX-026.1: 기존 `codex` app-server 및 타 공급자를 보존하고 명시적인 `codex-exec` ProviderPort를 추가한다.
+  초기판은 텍스트 전용이며 도구·이미지 요청은 조용히 유실하지 않고 거절한다. CLI 자격은 로컬 로그인 또는
+  명시적 API 키로 제공하며 auth.json을 읽거나 복사하지 않는다. 자동 공급자 fallback을 하지 않는다.
+- FR-AX-026.2: stdin으로 프롬프트를 전달하고 --json·--ephemeral·read-only·approval_policy=never 및
+  사용자 설정 격리를 사용한다. shell/web/MCP를 열지 않는다. spawn은 shell:false이며 timeout·abort·종료 정리를 한다.
+  텍스트·실측 usage·finish를 변환한다. 실패/누락 terminal/프로토콜 위반은 오류이며 비용을 0원으로 추정하지 않는다.
+- FR-AX-026.3: 승인 정책의 입력은 호스트가 등록한 효과 목록이다. 로컬 읽기·초안·복구 가능한 편집은 allow,
+  외부 발송·외부 처리·캘린더 쓰기는 conversation, 영구삭제·결제·운영 변경은 code, 미등록/미상 효과는 deny.
+  위험 효과가 섞이면 가장 강한 등급을 적용한다. 도구 이름이나 LLM의 safe=true로 권한을 내리지 않는다.
+- FR-AX-026.4: opt-in ToolExecutorPort 래퍼는 정책을 실행 직전에 적용하고 별도 대화/코드 승인 콜백을 요구한다.
+  거절·콜백 부재·미등록·취소 시 실행하지 않는다. 승인 대상 인자는 복제·동결하여 승인 대기 중 바뀌지 않는다.
+  일반 오류는 isError로 반환하고 기존 executor 계약을 따른다. 모델에 승인 신뢰 메타데이터를 광고하지 않는다.
+- NFR-AX-026.1: 원문·개인정보·키를 진단 로그에 남기지 않는다. 로컬 원본 보관이 클라우드 추론의 무전송을 뜻하지
+  않음을 명시한다. B2B 보안/투명성은 검증할 설계 목표이며 인증·타사보다 우수한 성능 실측으로 표현하지 않는다.
+- NFR-AX-026.2: 기본 공급자·기존 tier 정책은 이 단계에서 바꾸지 않는다. 새 정책 활성화는 신뢰 가능한 사람 승인
+  입력, 전송 공개와 감사 및 모든 우회 실행 경로 검증 후에 한다. 운영 접속·배포·원격 push는 범위 밖이다.
+
+P04: 위 두 시험과 기존 provider/approval 회귀 및 타입 검사. P05: 독립 리뷰·실제 호스트 인수 전까지 In review/WIP.
+
+2회차 P03 — FR-AX-026.5: 전체 반복은 명시적 `codex-ax` app-server로 고정한다. CLI 0.163.0 이외는
+실행 전에 거절한다. Codex SDK는 채택하지 않는다(추가 SDK 버전/프로세스 계층 없음). exec는 텍스트 실험용 유지.
+FR-AX-026.6: 신뢰하는 호스트 코드가 spec·효과 분석·실행 함수를 함께 등록한 broker만 AX에 노출한다.
+동적 MCP/app 등록·모델 인자·tier는 등록 권한이 아니다. 미등록/중복 이름·셸/직접 HTTP는 차단한다.
+승인 콜백 부재 시 conversation/code 효과는 거절한다. 승인 중 mutable registry 교체로 실행 대상을 바꿀 수 없다.
+FR-AX-026.7: native shell/JS/browser/MCP/apps/web/하위 에이전트·hook을 끄고 read-only 임시 cwd를 사용한다.
+CLI 사용자 설정에 안전 설정을 덮어쓸 수 없는 값이 있으면 실패한다. native 실행 승인은 거절한다.
+전체 추론 프로세스의 OS egress firewall·기업 endpoint 검증은 별도 인수 대상이다.
+
+2회차 P04 (2026-11-03): 관련 8개 파일 132 통과·1 skip, 독립 검수 4개 파일 66 통과.
+CLI 버전/로그인·모델 목록·실제 ChatGPT 짧은 추론·같은 turn의 read→발송 거절·native MCP/셸/HTTP
+시도를 합성 데이터로 확인했다. 실제 공용 조립기 CLI도 NAIA_AX_CLI_OK로 완료했다.
+독립 리뷰의 workspace callback·비협조적 callback 취소·native patch 노출 지적을 보완했고,
+실기에서 발견한 Code Mode 기본값·MCP 설정 병합/null 변환·diag 초기화 순서를 수정했다.
+기준 8d92e26 분리 worktree와 작업 snapshot의 전체 시험은 각각 2272/2281 통과, 양쪽 모두 기존
+7개 파일 28 실패·12 skip·2 errors로 실패 제목/중복 29줄이 일치했다(신규 실패 0).
+이 전체 snapshot 뒤 마지막 조립기 기동 보완·새 시험은 위 집중/독립 시험으로 검증했다.
+루트 구조·node CI 4건·build·compile-integrity·logging 통과. 기존 앵커 36/canon 62 드리프트는 유지되며
+미계약 신규 파일 probe 차단도 확인했다. P05는 말 승인/코드 인증기·실제 캘린더·OS/보안 인수 전 In review 유지.
+헌장 파일은 수정하지 않았다. process-status.json의 세션 갱신 의무와 명시 승인 조건의 충돌은
+1회차처럼 정규 요구사항/리뷰에 산출물을 기록하는 것으로 처리했다.
+
+3회차 P03 — FR-AX-026.8 (In review): 호스트 전용 승인 저장소는 세션·workspace·공급자/정책 revision·
+request·call·전체 효과/인자를 결속한다. 단 하나의 표시 제안에만 직접 사람 입력을 적용한다.
+보류 수명은 최대 2분이며 취소·변경·만료·재시작·소비 뒤 권한은 소멸한다.
+FR-AX-026.9 (In review): 위험 효과는 검토된 계획 digest와 결속한 암호학적 일회용 코드를 발급한다.
+코드는 별도 trusted UI에만 전달하고 저장소는 hash만 보관한다. 오입력은 제안을 폐기한다.
+코드와 일반 승인 입력은 모델 도구·대화 기록에 공개하지 않는다. 셸 배선 계약은 ARCHITECTURE §7.9.
+
+3회차 P04: `ax-approval-policy.contract.test.ts`의 저장소/실제 broker 등록 연결 시험 재실행.
+진단은 mode/approved 등 분기 정보만 기록하며 코드·본문·목적지는 기록하지 않는다. 독립 적대 검수는
+`.agents/reviews/026-ax-codex-core.md` 3회차 절. 중첩 후 하나 취소 시 재승인과 소비 뒤 scope 변경을 보완했다.
+P05: 저장소·호스트 API 구현 및 계약 시험 검증, FR-AX-026.8~9는 셸 인증/표시/음성·코드 채널 실통합
+인수 전까지 In review 유지. process-status.json은 헌장 단독 수정 금지에 따라 변경하지 않는다.
+
+4회차 P03 — FR-AX-026.10 (In review): AX는 프롬프트/시스템 지시를 thread/start에 넣기 전에
+유효 config의 기본 model provider·OpenAI/ChatGPT URL·원격 thread 저장·관측·notify 경계를 검사한다.
+미검증 custom provider/URL·proxy/TLS override는 fallback 없이 거절하고 오류에 값/본문/키를 넣지 않는다.
+AX 자식은 공용 env allowlist를 좁혀 사용하며 기존 Codex/다른 모델에는 이 정책을 전파하지 않는다.
+metrics·prompt/response 관측·history·feedback·update 확인은 pin CLI 설정으로 끈다.
+범위는 CLI 설정 경계이며 OS firewall·DNS·기업 CA/프록시 및 실제 공개 화면 인수를 대체하지 않는다.
+P04: 기존 Codex/AX 계약·loopback 실 CLI 거절 fixture·build 및 구조 검사.
+P05: 기업 endpoint/OS egress·셸 공개 화면 인수 전 In review 유지.
+
+4회차 P04: 최종 관련 6개 파일 183 통과·1 skip, 독립 Codex 계약 36 통과(이후 추가한
+preflight 오류 분류 회귀 1건은 최종 관련 시험에 포함). 최종 build·compile-integrity·logging·
+루트 구조·node CI 4건을 확인했다. 실제 pin CLI의 변조 설정 5종은 thread/turn 시작 0회,
+loopback 수신 0회였고 기본 config·카탈로그 및 ChatGPT 읽기→발송 거절 회귀도 확인했다.
+독립 검수에서 ALL_PROXY 조용한 제거와 미검토 instruction 입력을 지적받아 source env 검사와
+설정 거절로 보완했다. 증거와 서버 밖 인수 목록은 실행 폴더 026-ax/result.md 및
+`.agents/reviews/026-ax-codex-core.md` 4회차 절에 기록한다. 기업/제품 전체 P05는 In review다.
+
+5회차 P03 — FR-AX-026.11: trusted host control lane은 표시 확인·표시 후 입력 시작을
+프로세스 내 불투명 토큰으로 결속한다. 인증 함수는 서버/호스트가 주입하며 JSON origin만 신뢰하지 않는다.
+invalidate/dispose 뒤 토큰과 grant는 무효다. 실제 셸 인증 transport 인수까지 In review.
+FR-CONV.6: optional appName을 요청 및 history 메시지에서 전달하고 transcript 양쪽 행에 보존한다.
+일반 요청은 태그된 과거 메시지를 compaction/recall/provider 이전 제외한다. 앱 요청의 현재 입력은 유지한다.
+재시작은 JSONL reader 소관이며 필드 손실 없이 복원해야 한다. 기존 무태그 파일과 호환한다.
+
+5회차 P04: AX control lane 5건·앱 handler 1건·실 디스크 재생성/재읽기 1건·gRPC/stdio codec 2건을
+추가했다. 관련 7개 파일 144건 통과, 최종 tsc build 통과. CLI 전송 경계 기존 37건도 포함한다.
+P05: Agent 계약 구현은 검증했으며 실제 셸 인증 transport·표시/음성/코드 UI 및 connector 인수 전
+FR-AX-026.11과 전체 AX는 In review. B2C 셸 reader의 appName 복원/일반 history 제외 인수는 별도다.
+
+6회차 P03 — FR-AX-026.12 (In review): host 등록 connector는 document_draft(local_draft),
+document_send(external_send), calendar_create(calendar_write)만 노출한다. 일정은 명시 offset 시작/끝과
+IANA 시간대 일치·끝>시작을 요구한다. 작업 키는 host가 workspace/account 범위에서 고정하며 payload digest와
+결속한다. 모든 쓰기 시도 전 영수증을 조회하고, unknown/timeout/조회 실패는 쓰기 없이 보류한다.
+서버는 같은 키의 원자적 중복 제거와 payload 충돌 거절을 보장해야 한다. 자동 재전송은 하지 않는다.
+재시도에도 새 승인이 필요하다. timeout 이후 조회에서 기존 영수증을 발견하면 새 쓰기 없이 반환한다.
+문서 원문/수신자·일정 제목·키는 진단 로그에 남기지 않는다. 실제 계정/셸 배선 전 전체 P05는 In review다.
+6회차 시험 유지보수: 짝 저장소 이름이 달라도 NAIA_SHELL_ROOT로 실제 표본을 대조한다.
+Pi 비용 증명의 런타임 모듈 분류는 node:sqlite 같은 접두어 전용 builtin을 인식해야 한다.
+sourceRevision 고정/closure 해시/claim gate를 현재 HEAD로 무조건 덮어써 통과시키지 않는다.
+6회차 P04/P05: 가짜 HTTP connector 시험은 승인 일정 1건·취소 0건·문서 발송·동시 중복·응답 손실 후
+조회 복구·재생성 뒤 영수증 조회·시간대 오류·취소 signal을 포함한다. Pi CLI의 미지원 모델 fixture는
+이제 지원되는 deepseek-v4-pro 대신 명시적 미등록 모델을 사용한다. 빈 HTTP 요청은 400으로 처리하고
+종료 시 연결을 닫는다. 실제 계정/셸/독립 검수 전 제품 P05 In review를 유지한다.
+6회차 전체 회귀 후속: Discord serve 설정 누락 시험의 1초 startup 대기는 부하에 취약하여 10초로
+조정했다. 실제 exit=1/오류 코드/help 계약은 그대로 검증하며 production 동작은 변경하지 않는다.
+6회차 전체 오류 후속: controlled Pi fixture의 빈 GET 요청 JSON 파싱 unhandled rejection은
+가짜 gateway의 메서드/경로 분기로 제거한다. 지원하지 않는 요청은 404이며 실제 API 호출이 아니다.
+6회차 검증 결과: 최종 AX/Pi CLI 90건, controlled Pi/Discord 후속 13건 통과 및 unhandled error 없음.
+전체 실행은 4파일/24실패/2379통과/11skip/1error였고 이후 Discord 대기·controlled fixture를 보완했다.
+남은 고정 revision benchmark 22건과 비용 analyzer frozen closure 1건은 기준 재인수가 필요하다.
+전체 최종 snapshot 재실행 없이 전체 green을 선언하지 않는다. build/구조/CI/로그/compile 검증 통과.
+
+### FR-AX-026.13 — 합성 문서 보존·삭제·감사 및 효과 대조 (7회차)
+
+P01/P02: UC-AX-026 7회차. P03: host 전용 lifecycle capability는 유한 만료 시각과
+현재 시각을 검증하고 만료 문서는 반환하지 않는다. 만료/명시 삭제는 remove 뒤 exists=false를
+확인해야 하며 감사 저장 실패나 잔류는 실패다. 감사 자료는 무작위 참조·사건 종류·시각만 포함한다.
+원문·문서 이름·저장소 키·승인 코드는 감사/diagnostic/model-facing 결과에 넣지 않는다.
+connector는 host verifyReceipt가 승인된 payload digest와 실제 수신/저장 효과를 대조한 경우만
+성공한다. write 응답과 복구 lookup 모두 검증하며 원격 receipt는 모델에 반환하지 않는다.
+이는 host adapter 계약이며 운영 보존 정책/법적 보존 기간/백업 삭제/실제 provider 인수 주장이 아니다.
+명시 삭제 API는 인증·코드 승인을 마친 host만 호출한다. 자동 만료는 사전 합의한 보존 정책이다.
+P04: 합성 fixture 시험 예정. P05: In review (실제 저장소·계정·독립 검수 대기).
+7회차 P04 중간 근거: AX 99건 + Codex app-server 37건, 총 136건 통과
+(`codex-runs/026-ax/tmp/r7-target3.log`). 합성 HTTP 수신 digest 대조 보강 뒤 최종 회귀는 별도 기록한다.
+7회차 기존 실패 정리: benchmark 시험의 임시 빌드는 `.agents/work` 고정 경로 대신 tmpdir를
+사용하고 전용 dist 안의 node_modules 링크로 런타임 해석을 유지한다. frozen 기준은 바꾸지 않는다.
+7회차 P04 최종: 합성 HTTP 수신 payload 재해시 포함 AX 99건 및 기억 요약 재검증 7건 통과
+(`tmp/r7-final-target.log`). Codex app-server 37건은 넓은 회귀에서도 통과했다.
+두 frozen benchmark 파일을 제외한 184개 파일 회귀는 2390 통과/2 실패/11 skip,
+실패는 비용 closure와 부하 중 기억 요약 5초 timeout이다. 기억 요약은 수정 없이 재검증 7/7 통과했다.
+두 benchmark의 대표 재실행은 새 tmpdir에서 컴파일 후 기존 frozen revision 차이로 각각 거절됐다
+(`tmp/r7-frozen-probe.log`). 비용 closure는 고정 3655파일 대비 현재 3683파일이다.
+전체 green 또는 보안·제품 인수 완료를 주장하지 않으며 P05 In review를 유지한다.
+
+## FR-AX-026.14 — 데이터 홈 메모 경로 (r8, P03)
+상태: In review (P01~P04 구현·Linux 검증, Windows/macOS 실기 인수 대기). 공용 CLI/gRPC 조립기는 NAIA_MEMO_PATH > NAIA_HOME/memos.json > ~/.naia/memos.json 순으로 경로를 정한다. 명시 override에는 자동 이관하지 않는다. 옛 ~/.naia-agent/memos.json이 있고 대상이 없으면 배타적 복사하며 원본을 삭제하지 않는다. 기존 대상은 그대로 유지한다. 복사 실패는 시작 실패로 드러내며 옛 저장소로 조용히 되돌아가지 않는다. Windows 경로 함수와 Linux 실파일 통합 시험을 구분한다.
+
+P04 evidence (r8): uc5-file-memo 15/15, 독립 적대 리뷰 `.agents/reviews/026-ax-codex-core.md` 8회차. 고정 benchmark 두 파일 제외 회귀 2398통과/1실패/11skip(비용 analyzer 기존 closure 불일치). Windows/macOS 실파일 인수 전 In review.
+
+### FR-AX-026.15 — 셸 승인 연결 경계 (r9, In review)
+P01/P02: UC-AX-026 r9. P03: 인증 함수의 허용 origin 두 값만 수용하며 예외는 거절한다. capture 시점 scope와 submit scope는 같아야 한다. 인증 실패·변경·종료·재사용에는 효과가 없어야 한다. 셸 초안의 실제 함수를 서버 계약 시험으로 실행하고 code는 별도 인자로만 전달한다. 실제 Tauri 인증·화면 ACK·음성 장치 연결은 기기 인수 전이다. 비용 analyzer 합성 시험은 테스트 전용 base contract를 사용하며 생산 frozen 계약을 수정하거나 완화하지 않는다.
+
+r9 회귀 수용: multi-issue/issue-team의 오래된 sourceRevision 산출물은 변경 없는 production runner와 현재 커밋 입력으로 무과금 재생성한다. 기존 observation·gates·claimAllowed·비용은 동일해야 하며 sourceRevision/provenance 변경만 수용한다. source/digest 검사를 제거하지 않는다. 재생성 JSON은 커밋하여 재현 근거로 남긴다.
+r9 취소 시험 요구사항: 실제 자식이 준비를 알린 뒤 cancel해야 한다. 에스컬레이션·terminal 1회 단언은 유지한다. production subprocess 구현은 변경하지 않는다.
+
+r9 P04 검증: NAIA_SHELL_ROOT 지정 `pnpm test`(tsc 포함) 186파일 중 183통과/3skip,
+2438통과/실패0/11skip. 비용·결정론 산출물·취소 회귀 전부 포함. 독립 리뷰 집중126건 및 취소8건 통과.
+서버 구현·계약 검증은 수용했으며 실제 native 인증/UI/음성·기기 인수 전 FR-AX-026.15는 In review 유지.
+
+### FR-AX-026.16 — 목적지/수신 대조 인수 준비 (r10, In review)
+P01/P02: UC-AX-026 r10. 승인 카드의 목적지·본문과 HTTP 수신 값이 같아야 하며,
+대기 중 호출 원본 변경은 승인 snapshot에 영향을 주지 않는다. 미승인·ACK 없음·무효화·종료는
+수신 0회여야 한다. 기업 custom endpoint/proxy/CA는 기존 사전 거절을 유지한다.
+로컬 HTTP 시험은 trusted host callback의 조립 계약 검증이며 임의 adapter의 재전송·redirect,
+OS egress, 실제 기업 CA/계정 및 공개 UI 인수를 보증하지 않는다. P05는 이 실기 증거 전 In review.
+
+
+### FR-B2C-026-R17 — 대화 사이 기억 (#792)
+상태: Done (P01–P05, R17 자동 인수; 준 3090 설치 실기는 별도)
+- 보이는 작은 LLM 값과 저장값 일치. 빈 값/접속 실패는 메인 모델로 대체하고 설정에 표시.
+- 최근 대화도 사실 추출 대상이어야 하며 5분 대기로 첫 세션 기억이 누락되지 않는다. 요청 권한 경계와 영속 저장·재시도 유지.
+- 임베딩 없음은 숨기지 않고 키워드 기반 회상 및 기존 로컬 임베딩 주소 설정을 제공.
+- 기억 목록에서 정리 대기 n건과 최신 사실을 조회.
+- Linux .deb는 libsecret-tools에 의존하며 AppImage는 실행 전 확인. 저장 실패는 쉬운 말로 표시.
+- 가짜 LLM·임베딩으로 A→사실→종료→B 자동 회귀, 셸 전체 시험 수와 실기 제한 기록.
+
+R17 구현 상세: 매 턴 정리 force=true로 5분 제한을 건너뛰고 사실까지 flush한다. 임베딩 없는 회상은 같은 workspace의 활성 최근 사실 50개에서 낱말 일치 최대 3개를 사용한다. 로컬 주소는 추가 전송 승인 대기 없이 처리하되 외부/알 수 없는 주소의 기존 승인을 유지한다. 임베딩 서버의 모델 버전·벡터 크기를 설정으로 전달하고 버전 미입력은 낱말 검색과 화면 안내로 대체한다. 실 프로세스 gRPC A→사실 JSON→SIGTERM→새 프로세스 B는 가짜 LLM·임베딩으로 두 경우 통과.
+
+R17: 메인 로컬 모델로 사실을 뽑는 저장 단계는 최대 30초로 제한하며, 실패한 대화는 다음 저장 때 재시도한다. 대화 생성·회상 제한은 유지한다.
+
+R17 검증 짝: memory `ab1f8002d31bffacf4779760eda727cc57a658a8` (기존 e8cbd6f에서 전송 주입만 추가), 0.1.4. 요청별 훅은 생성자+AsyncLocalStorage로 연결하며 전역 fetch 교체가 없다. 이 정확한 소스 조합으로 관련290개와 실제 gRPC 종료·재기동 두 경우가 통과했다.
+
+R18 (#792 P01–P05): 904878e 위에 R17을 통합한다. Memory ab1f800의 생성자 훅+AsyncLocalStorage로 요청 extractor/summarizer를 전달하며 명시 off, 승인 누락 원문 보존, 오류 원인 전달, on-save 표시 및 삭제 검증기를 유지한다. 회귀는 memory-consolidation, memory-role-summarizer, uc1-memory-process (실 SIGTERM/재시작·사실>0·대기0), 전체 시험으로 검증한다.
+
+## UC-CODEX-CORE-SWAP — 코어 Pi 제거 및 Codex 기본화 (2026-11-06)
+
+권위 기록: [Pi 제거 및 Codex 기본화 기록](progress/99.dev-comm/codex-core-swap-pi-removal-2026-11-06.md).
+
+| ID | 요구사항 | 상태 |
+|----|----------|:----:|
+| FR-CODEX-SWAP-1 | **Pi 의존성 완전 제거** — `package.json` 및 `pnpm-lock.yaml`에서 `@earendil-works/pi-coding-agent`와 `@earendil-works/pi-ai`를 제거하고, Pi 전용 어댑터·연속 루프·과금 브리지·비용 비교기·Pi 전용 스크립트 및 Pi 전용 벤치마크를 제거한다(비-Pi 결정론·단일 이슈 벤치마크인 `benchmark/run-issue-team-deterministic.mjs`, `benchmark/run-multi-issue-deterministic.mjs`, `benchmark/run-single-issue-live.mjs`는 유지). | Done |
+| FR-CODEX-SWAP-2 | **Codex 기본 코어 일원화 및 안전 가드(B1·B2·R2·R9)** — CLI 코딩 감독기(`naia-agent run`, `cli-supervise`), 설정 관리(`cli-manage` `coding.agent`), 서브에이전트 로스터(`subagent-roster`), 위임 스킬(`delegate-agent-skill`), 이슈 팀(`issue-team`, `mixed-issue-team-agents`), 역할 실행기(`src/main/adapters/role-runner.ts`), `wireSupervisor`(기본 `subAgentName: "codex"`)에서 `pi`를 제거하고 `codex`(`gpt-5.4` 기본 모델)를 기본 코어로 사용한다. `naia-agent run --no-tools`는 `codex`를 읽기 전용(`--sandbox read-only`, `filesystemAccess: "read_only"`)으로 실행하며 읽기 전용을 보장할 수 없는 에이전트는 spawn 전에 거부한다(B1). 역할 실행기는 CLI 워커(`codex`, `claude-code-cli`, `grok`)만 실행하고 계정형 provider(`naia`/`nextain`, `anthropic`)는 검증된 브리지 지원 전까지 spawn 전에 분명한 오류로 차단하며(B2 선택지 (나)), Naia 모델 이름 대소문자 무시 매칭(`hcx-007` → `HCX-007`)과 역할 해석 실패 시 `verification: { ok: false, checks: [{ name: "role", pass: false, details }] }` 리포트를 보장한다. 구 저장값 `coding.agent="pi"`는 `"codex"`로 자동 이전·안내하거나 명시적 수정 안내 오류를 낸다(R2). | Done |
+| FR-CODEX-SWAP-3 | **CLI 진단 및 계약 시험 전환(B3)** — `naia-agent doctor`는 `component: "codex"`(`checkCodexPreflight`)를 점검하며, 자식 프로세스 환경 격리(`DISCORD_BOT_TOKEN`·`NAIA_API_KEY`·`ANTHROPIC_API_KEY` 차단)·읽기 전용 실행(`--no-tools` / `read_only`)·정직한 실패 계약을 Codex 계약 시험(`src/test/uc-cli-subagent-codex.contract.test.ts`, `src/test/role-runner.contract.test.ts`, `src/test/cli-manage.contract.test.ts`)으로 고정한다. | Done |

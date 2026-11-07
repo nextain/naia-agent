@@ -79,6 +79,8 @@ export interface MemoryRuntimeConfig {
 		baseUrl?: string;
 		apiKey?: string;
 		model?: string;
+        dimensions?: number;
+        deploymentRevision?: string;
 		naiaGatewayUrl?: string;
 		naiaKey?: string;
 	};
@@ -157,7 +159,7 @@ function assembleConfig(
 		// ⚠️ secret/baseUrl 을 실으면 안 됨 — apiKey 가 있으면 구독 아닌 직접 키 과금 패러다임으로 오해될 수 있음. {provider,model}만.
 		return { ...base };
 	}
-	if (route === "codex") {
+	if (route === "codex" || route === "codex-ax") {
 		// codex — 로컬 app-server가 Codex 로그인을 사용. token/apiKey/baseUrl은 설정에 복사하지 않는다.
 		return { ...base };
 	}
@@ -327,9 +329,9 @@ export function makeNaiaSettingsStore(deps: {
 			...(legacyMemory ? { memory: legacyMemory } : {}),
 		};
 		if (!Object.keys(roles).length && !Object.keys(legacy).length) return null;
-		const effectiveRoles = !subRole && !legacySub && !memoryRole && !legacyMemory
-			? { ...roles, memory: { provider: "none", model: "none" } }
-			: roles;
+		const selectedMemory = memoryRole ?? legacyMemory;
+        const incompleteMemory = !selectedMemory || (!selectedMemory.inherit && selectedMemory.provider !== "none" && (!selectedMemory.provider?.trim() || !selectedMemory.model?.trim()));
+        const effectiveRoles = incompleteMemory ? { ...roles, memory: { inherit: (subRole || legacySub ? "sub" : "main") as "sub" | "main" } } : roles;
 		return resolveLlmRoles({ roles: effectiveRoles, legacy });
 	}
 
@@ -409,6 +411,8 @@ export function makeNaiaSettingsStore(deps: {
 			...(qdrantApiKey ? { qdrantApiKey } : {}),
 			embedding: {
 				provider,
+                ...(str("memoryEmbeddingRevision")?.trim() ? { deploymentRevision: str("memoryEmbeddingRevision")!.trim() } : {}),
+                ...(typeof c["memoryEmbeddingDimensions"] === "number" && Number.isInteger(c["memoryEmbeddingDimensions"]) && Number(c["memoryEmbeddingDimensions"]) > 0 && Number(c["memoryEmbeddingDimensions"]) <= 65536 ? { dimensions: Number(c["memoryEmbeddingDimensions"]) } : {}),
 				...(offlineModel ? { offlineModel } : {}),
 				...(device ? { device } : {}),
 				...(str("memoryEmbeddingBaseUrl") ? { baseUrl: str("memoryEmbeddingBaseUrl") } : {}),

@@ -245,7 +245,7 @@ describe("memory surfacing threshold & policy contract tests (FR-MEM-23/24/25)",
         memoryRole,
         runtimeOk: true,
       });
-      expect(decision.mode).toBe("off");
+      expect(decision.mode).toBe("on-threshold");
       expect((decision as { reason?: string }).reason).toBe("no-embedding");
     });
 
@@ -371,7 +371,7 @@ describe("memory surfacing threshold & policy contract tests (FR-MEM-23/24/25)",
         },
         runtimeOk: true,
       });
-      expect(decision.mode).toBe("off");
+      expect(decision.mode).toBe("on-threshold");
       expect(decision.on).toBe(false);
       expect((decision as { reason?: string }).reason).toBe("no-embedding");
     });

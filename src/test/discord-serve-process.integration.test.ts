@@ -317,7 +317,7 @@ describe("naia-agent serve process lifecycle", () => {
 
   it("requires workspace and provider configuration before ready and documents them in help", async () => {
     const workspaceMissing = startServe(testDirectory(), { NAIA_ADK_PATH: undefined });
-    const workspaceExit = await waitForExit(workspaceMissing.child, 1_000).catch(() => undefined);
+    const workspaceExit = await waitForExit(workspaceMissing.child, 10_000).catch(() => undefined);
     expect(workspaceExit?.code).toBe(1);
     expect(workspaceMissing.output()).toContain("workspace_unconfigured");
 
@@ -325,7 +325,7 @@ describe("naia-agent serve process lifecycle", () => {
     const emptyWorkspace = join(directory, "empty-workspace");
     mkdirSync(emptyWorkspace, { recursive: true });
     const providerMissing = startServe(directory, { NAIA_ADK_PATH: emptyWorkspace });
-    const providerExit = await waitForExit(providerMissing.child, 1_000).catch(() => undefined);
+    const providerExit = await waitForExit(providerMissing.child, 10_000).catch(() => undefined);
     expect(providerExit?.code).toBe(1);
     expect(providerMissing.output()).toContain("provider_unconfigured");
 

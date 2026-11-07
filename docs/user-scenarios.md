@@ -173,7 +173,7 @@ RPC 결과에 유지 여부와 오류 진단을 반환한다. 따라서 실패�
 
 ### S-MEM-CONSOLIDATION (대화에서 사실 추출 — nextain/naia-agent#141)
 
-메모리 LLM 역할이 구성되면, 에이전트는 주기적으로(메모리 준비 완료 후 60초에 첫 실행, 이후 30분마다, 한 번에 최대 200개 에피소드) 저장된 대화 에피소드를 메모리 LLM을 사용해 원자적 사실로 변환하여 사실이 축적되고 회상되도록 한다. 추출이 실패하면 해당 에피소드를 다음 주기를 위해 보존하고 에이전트 로그(`[naia-agent] memory consolidation failed (episodes kept for retry): <cause>`)에 원인을 기록한다. 메모리 LLM이 구성되지 않았거나 `NAIA_MEMORY_CONSOLIDATION=off`인 경우 아무 것도 실행되지 않는다.
+완료 턴 저장마다 승인된 메모리 역할로 즉시 사실을 추출한다(5분 age gate를 건너뛰고, 한 번에 최대 200개 에피소드). 추출 뒤 즉시 flush하여 짧은 대화와 재시작 사이에도 사실을 유지한다. 실패는 stderr 원인과 `MEMORY_EXTRACTION_FAILED` logEntry 경고로 표시하고 원문을 보존한다. 로컬 모델 실패 시 휴리스틱으로 복구할 수 있다. 역할 미구성은 로컬 휴리스틱, 구성된 역할의 승인 콜백 누락은 추출 보류 및 `MEMORY_EXTRACTION_AUTHORIZATION_MISSING` 진단이다. `NAIA_MEMORY_CONSOLIDATION=off`이면 추출하지 않는다. 제품은 주기 타이머 대신 저장 시 정리를 사용하며 상태에 `consolidation=on-save`를 표시한다. S-MEM-SAVE-026이 재시작 회귀 시나리오다.
 
 ### S-MEM-SURFACING (작은 LLM 떠오름 — nextain/naia-shell#692)
 
@@ -701,22 +701,19 @@ issue.
 | T-ANYLLM-14 | The versioned pricebook uses decimal rates, ISO currency/minor units and round-half-even once at terminal settlement; only the Gateway supplies authoritative upstream and 1.1x billed amounts. |
 | T-ANYLLM-15 | An unsupported or downgraded Claude allowlist is disabled without remapping to a broader/older model or provider fallback. |
 
-## UC-NAIA-PI — Naia 계정으로 Pi를 직접 사용한다
+## UC-NAIA-PI — Naia 계정 모델 및 Codex CLI 실행 (구 `--agent pi` 경로 제거됨, 2026-11-06)
 
-사용자는 `naia-agent login --provider naia`를 한 번 수행한 뒤 새 터미널에서
-`naia-agent run --agent pi --model grok-4.3 "..."`를 직접 실행할 수 있다.
-Codex가 같은 명령을 자식 프로세스로 호출해도 provider/model/workdir/최종 리포트는 같다.
-Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode fallback을 사용하지 않는다.
+> **상태**: 구 `naia-agent run --agent pi` 실행 경로는 `UC-CODEX-CORE-SWAP`(2026-11-06)에서 **제거됨**.
+> `naia-agent run`은 `codex`를 기본 코어(`--agent codex --model gpt-5.4`)로 사용하며, Naia 게이트웨이 모델(`grok-4.3`, `deepseek-v4-flash`, `deepseek-v4-pro`, `motif-3`, `solar-pro4`, `solar-mini`, `HCX-007`, `HCX-DASH-002`)은 `naia-agent chat --provider naia` 및 `naia-agent models naia`에서 사용한다.
 
-- **S-NAIA-PI-1 (Grok coding)**: `grok-4.3`이 도구를 호출하고 파일 변경과 검증 결과를 정직한 리포트로 남긴다.
-- **S-NAIA-PI-2 (DeepSeek analysis)**: `deepseek-v4-flash`와 `deepseek-v4-pro`는 파일 도구가 필요 없는 분석·리뷰 요청에 응답한다. 비용 비교 후보는 Flash를 사용한다.
-- **S-NAIA-PI-3 (capability rejection)**: DeepSeek로 코딩을 요청하면 Pi spawn/Azure 호출 전에 tool 미지원 이유로 실패한다.
-- **S-NAIA-PI-4 (stored login)**: 새 CLI 프로세스가 `~/.naia-agent/.env`의 Naia 키를 읽고 키 인자 없이 실행한다.
-- **S-NAIA-PI-5 (honest failure)**: 키 누락·인증 실패·모델 미지원·upstream 실패를 구분하고 비밀을 출력하지 않는다.
-- **S-NAIA-PI-6 (Motif 3)**: `motif-3`는 두 차례 live probe에서 구조화 `tool_calls` 9/10, 10/10(요청 함수 일치 8/10, 9/10)을 반환해 기준(9/10 이상)을 충족한 뒤 도구 사용 모델과 Pi 목록에 포함된다. 스트리밍 `delta.reasoning` 문자열/객체는 thinking 이벤트로 전달되고 Pi 설정은 측정된 262,144 토큰 컨텍스트를 선언한다.
+- **S-NAIA-PI-1 (Codex coding / 구 Pi Grok coding 제거됨)**: `naia-agent run "..." --agent codex --model gpt-5.4`가 `--sandbox workspace-write`로 실행되고 파일 변경과 검증 결과를 정직한 리포트로 남긴다(구 `--agent pi --model grok-4.3` 경로는 제거됨).
+- **S-NAIA-PI-2 (읽기 전용 분석 및 Naia chat)**: `naia-agent run "..." --agent codex --no-tools`는 `--sandbox read-only`(`filesystemAccess: "read_only"`)로 실행된다. `deepseek-v4-flash`와 `deepseek-v4-pro`는 `naia-agent chat --provider naia`에서 사용한다.
+- **S-NAIA-PI-3 (capability & model guard)**: `--no-tools`를 읽기 전용 샌드박스를 보장할 수 없는 에이전트에 지정하거나, Naia 전용 모델 ID(`grok-4.3`, `deepseek-v4-pro` 등)를 `--agent codex`에 직접 넘기면 Codex spawn 전에 실패한다.
+- **S-NAIA-PI-4 (stored login)**: 새 CLI 프로세스가 OS 보안 저장소(또는 호환 `.env`)의 Naia 키를 읽고 키 인자 없이 `chat`/`models`를 실행한다.
+- **S-NAIA-PI-5 (honest failure & child env isolation)**: 키 누락·인증 실패·모델 미지원·upstream 실패를 구분하고 비밀을 출력하지 않으며, Codex 자식 프로세스에는 `DISCORD_BOT_TOKEN`·`NAIA_API_KEY`·`ANTHROPIC_API_KEY`가 전달되지 않는다.
+- **S-NAIA-PI-6 (Motif 3 & Naia catalog)**: `motif-3`는 구조화 `tool_calls` 기준(9/10 이상)을 충족해 Naia 도구 사용 모델 카탈로그(`cli-manage.ts`)에 포함되며, 스트리밍 `delta.reasoning` 문자열/객체는 thinking 이벤트로 전달된다.
 
-권위 계약과 전체 REQ/FE/TEST 매핑은
-`docs/progress/99.dev-comm/naia-account-pi-azure-contract-2026-07-30.md`이다.
+과거 이력 기록은 `docs/progress/99.dev-comm/naia-account-pi-azure-contract-2026-07-30.md` 및 `docs/progress/99.dev-comm/codex-core-swap-pi-removal-2026-11-06.md`를 참조한다.
 
 ## Test Coverage Map
 
@@ -740,7 +737,7 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 | FR-MEM-17 / S-MEM-EMBED-REINDEX | `src/test/memory-embedding-reindex.contract.test.ts`(ready 시 재색인 후 회상, 불일치를 빈 기억으로 주입하지 않음) |
 | FR-MEM-19 / S-MEM-REINDEX-CAUSE (재색인 실패 원인 표면화, nextain/naia-shell#681) | `src/test/memory-embedding-reindex.contract.test.ts` (failed 이벤트의 error 필드 전달·어댑터 메서드 부재 호환·compose stderr cause 출력 검증) |
 | FR-MEM-20 / S-MEM-BACKGROUND-PREP (메모리 백그라운드 준비, nextain/naia-shell#681) | `src/test/memory-preparing.contract.test.ts` (준비 중 recall 최대 2초 대기 후 MEMORY_PREPARING throw·키워드 전용 즉시 정상 회상·완료 후 정상 회상, 턴 핸들러의 색인불가 진단 주입 및 1초 미만 빠른 완료, compose 비동기 실행 및 stderr 로그 검증) |
-| FR-MEM-21 / S-MEM-CONSOLIDATION (사실 추출 주기 실행, nextain/naia-agent#141) | `src/test/memory-consolidation.contract.test.ts` (기본 off, 예약 실행 후 사실 저장, 실패 시 에피소드 보존·원인 이벤트, 종료 중 쓰기 차단, 10개 단위 분할, compose 배선), `src/test/memory-adapter-embedding.contract.test.ts` (끝 슬래시 정규화 URL, 404 시 throw) |
+| FR-MEM-21 / S-MEM-CONSOLIDATION / S-MEM-SAVE-026 (저장 시 사실 추출, nextain/naia-agent#141) | `src/test/memory-consolidation.contract.test.ts` (라이브러리 기본 off·명시 off, 예약 실행 호환, 저장 시 즉시 추출·flush, 실패·재시도·승인 누락, 가짜 HTTP/임베딩 compose 턴 4회·재시작 회상·셸 경고, 종료 중 쓰기 차단, 10개 단위 분할), `src/test/memory-adapter-embedding.contract.test.ts` (끝 슬래시 정규화 URL, 404 시 throw) |
 | FR-MEM-22 / S-MEM-SURFACING (작은 LLM 떠오름, nextain/naia-shell#692) | src/test/memory-surfacing.contract.test.ts (파싱·후보·블록·자격·Fake LLM 한국어 시나리오·시간초과·모델 없음), src/test/memory-surfacing-handler.contract.test.ts (주입·판정 제외·무회귀·예약), src/test/memory-surfacing.integration.test.ts (실 naia-memory·kb-compiler), src/test/sub-llm-provider.contract.test.ts (temperature 생략·status) |
 | FR-MEM-23~25 / S-MEM-THRESHOLD (임계치 기반 떠오름·기억 회상 도구, nextain/naia-shell#693) | `src/test/memory-surfacing-threshold.contract.test.ts` (임계치 계산·trivial 판정·임계치 필터·fail-closed·3모드 decideSurfacing·비밀 마스킹), `src/test/memory-skill.contract.test.ts` (도구 spec·query 검증·k 상한 클램프·read-touch 보존·출력 JSON 규격·점수 반올림·weak 플래그·비밀 마스킹·abort 처리), `src/test/memory-surfacing-handler.contract.test.ts` (3모드 동작·임계치 게이트·숫자 전용 진단 로그·Discord/processing 도구 제외·offered-tool 가드), `src/test/discord-entry-wiring.contract.test.ts` (배선 검증) |
 | FR-MEM-27 / 장기기억 추론 및 감정 태그 배제 | `src/test/memory-strip-tags.contract.test.ts` (핸들러 thinking 청크 배제·<think> 및 [THINK]/[THINKING] 블록 제거·미닫힘 <think> 실답변 보존·감정 태그 제거·#639 접힌 답변 메모리 보존·약속 미이행 재시도 pop·아바타 [THINKING] 스트림 정규화·[1] 및 [link](url) 보존·태그-only 시 assistant 에피소드 미저장·사용자 발화 무수정) |
@@ -759,12 +756,12 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 | UC-GROK / FR-GROK-1~6 | `src/test/grok-cli-provider.contract.test.ts`, `src/test/all-providers-wiring.contract.test.ts`(grok 라우트), `src/test/uc-provider-provenance.contract.test.ts`(구독 $0), `src/test/uc-cli-subagent-grok.contract.test.ts`, `src/test/uc-cli-subagent-roster.contract.test.ts`, `src/test/uc1-agent.contract.test.ts`(reasoning-only fold) |
 | FR-MODEL-1 (모델 카탈로그 정합) | `src/test/uc-provider-provenance.contract.test.ts`(cost↔registry 정합·구독 $0), naia-os `src/lib/llm/__tests__/registry.test.ts`(카탈로그 정합·최신화) |
 | UC-CLI / AC3·AC5 (2a 골격) | `src/test/uc-cli-supervisor.contract.test.ts`, `uc-cli-composition.contract.test.ts` (fake 포트 stream-merge·terminal 1회·직교·동시성 — Pass) |
-| UC-CLI / AC1·AC6 (2b 실 어댑터) | `src/test/uc-cli-subagent-{pi,opencode,roster,shell}.contract.test.ts`, `subprocess-session.contract.test.ts` (NDJSON→event·SIGTERM→SIGKILL·honest-unsupported — Pass) |
+| UC-CLI / AC1·AC6 (2b 실 어댑터) | `src/test/uc-cli-subagent-{codex,opencode,roster,shell}.contract.test.ts`, `subprocess-session.contract.test.ts` (NDJSON→event·SIGTERM→SIGKILL·honest-unsupported·child env 격리·read-only 샌드박스 — Pass) |
 | UC-CLI / AC2·AC4 (2c 정직보고) | `src/test/uc-cli-verifier.contract.test.ts`, `uc-cli-workspace.contract.test.ts`, `uc-cli-supervisor-real-verifier.integration.test.ts` (never-throws·git classify·실 verify — Pass) |
 | V모델: UC-CLI = UC-014 (REQ-011·012 → SPEC-009·010 → TEST-F-009·010), TEST-S-014 | `docs/progress/{01..05}/INDEX.md` (orphan 0) |
 | UC-CLI / S-CLI-CHAT·S-CLI-LOGIN (S1 대화·로그인) / FR-CLI-7·8 | `src/test/cli-chat.contract.test.ts`(멀티턴 history 누적·emit→stdout·finish 재프롬프트·error 격리·login 파싱→.env 기록) + bin 실행 검증(fake provider 2턴 맥락 유지) |
-| UC-NAIA-PI / FR-CLI-9~13 | `src/test/uc-naia-pi-provider.contract.test.ts`, `uc-naia-pi-controlled.integration.test.ts`, `uc-cli-host-entry.contract.test.ts`, `uc-cli-subagent-pi.contract.test.ts`, `cli-chat.contract.test.ts`, `gateway-pricing.contract.test.ts`, `cli-manage.contract.test.ts`, `uc1-openai-compat.contract.test.ts` — Motif Pi cost/context/reasoning, live pricing overlay, CLI fallback and `delta.reasoning` stream contract, existing secret-free config and tool/provider behavior |
-| UC-CLI-MANAGE / FR-CLI-14~20 | `src/test/cli-manage.contract.test.ts`, `src/test/cli-manage-process.integration.test.ts`, `src/test/uc-cli-host-entry.contract.test.ts` — auth/config/models/doctor/session, isolated HOME, run defaults/override, secret redaction, resume, DeepSeek guard — Pass |
+| UC-NAIA-PI / FR-CLI-9~13 (구 Pi 경로 제거·Codex 전환) | `src/test/uc-cli-subagent-codex.contract.test.ts`, `src/test/uc-cli-host-entry.contract.test.ts`, `src/test/cli-chat.contract.test.ts`, `src/test/gateway-pricing.contract.test.ts`, `src/test/cli-manage.contract.test.ts`, `src/test/uc1-openai-compat.contract.test.ts` — Codex `--no-tools`(`--sandbox read-only`)·자식 env 격리·Naia 모델 ID 차단, live pricing overlay, `delta.reasoning` 스트림 계약, secret-free 설정 |
+| UC-CLI-MANAGE / FR-CLI-14~20 | `src/test/cli-manage.contract.test.ts`, `src/test/cli-manage-process.integration.test.ts`, `src/test/uc-cli-host-entry.contract.test.ts` — auth/config/models/doctor/session, isolated HOME, run defaults/override, `coding.agent="pi"` 마이그레이션/거부, secret redaction, resume, `--no-tools` 가드 — Pass |
 | UC-APP / S-APP-1·2·3 / FR-APP-1~5 | `src/test/uc-app-skill.contract.test.ts` (등록→노출·tool call→app_tool_call emit·result→주입·timeout/취소·동시성·builtin 무회귀) [예정] |
 | UC-PERSONA-CLI / S-PERSONA-1·2 / FR-PERSONA-1·2 | `src/test/uc-persona-compose.contract.test.ts` — describe "composePersonaPrompt" (full Alpha profile→prefix·존댓말·루크·마스터·Korean 포함, emotion-tag 제외 단언) + describe "Golden case D (CLI/no avatar)" (빈 profile→"", prefix-only→base only) + describe "PersonaSourcePort (fake fs)" (실 config.json shape→매핑 PersonaProfile, 파일부재→undefined) |
 | UC-PERSONA-CLI / S-PERSONA-3 / FR-PERSONA-3 (코어 조립 + override) | `src/test/uc-persona-handler.contract.test.ts` — fake provider 가 받은 systemPrompt 를 캡처: (a) `req.systemPrompt` 없음 + personaSource 주입 → provider 가 코어 조립 persona(알파 prefix) 수신, (b) `req.systemPrompt` 있음 → 그 override 가 쓰이고 코어 조립 무시, (c) personaSource 미주입 → `req.systemPrompt` 만(무회귀) |
@@ -838,13 +835,13 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 | T-SCHEDULE-02 | Codex produces one periodic report per occurrence; PI remains a deferred compatible runner. |
 | T-SCHEDULE-03 | Shell clearly separates inbound Discord conversation from outbound policy, schedule controls, and delivery history. |
 
-## UC-020 ? Three-tier development role delegated through CLI workers or Pi
+## UC-020 — Three-tier development role delegated through CLI workers (Pi fallback 제거됨)
 
-Naia Agent reads Shell's `expert`, `main`, and `sub` profile metadata from the active ADK configuration. For a requested role it resolves inheritance, routes configured CLI workers (`codex`, `claude-code-cli`, `grok`) to their dedicated CLI adapters, and falls back to Pi for permitted account providers (`anthropic`, `nextain`/`naia`) per FR-PI-ROLE-6. The Supervisor remains responsible for cancellation, event forwarding, and final report. Workspace selection and settings reload apply to the next delegation without restarting Agent.
+Naia Agent reads Shell's `expert`, `main`, and `sub` profile metadata from the active ADK configuration. For a requested role it resolves inheritance and routes configured CLI workers (`codex`, `claude-code-cli`, `grok`) to their dedicated CLI adapters (`src/main/adapters/role-runner.ts`). Following Pi removal (`UC-CODEX-CORE-SWAP`), non-CLI account providers (`anthropic`, `nextain`/`naia`) fail closed before spawn (B2 Option (나)) rather than passing Naia/Anthropic model IDs raw to OpenAI Codex CLI. `isSupportedNaiaRoleModel` retains case-insensitive Naia model matching (`hcx-007` → `HCX-007`), and `makeRoleSupervisorRunner` emits a failed verification check (`verification: { ok: false, checks: [{ name: "role", pass: false, details }] }`) when role resolution fails. The Supervisor remains responsible for cancellation, event forwarding, and final report. Workspace selection and settings reload apply to the next delegation without restarting Agent.
 
-OpenCode is intentionally not a candidate, fallback, command, or diagnostic label for this Shell/Agent route. A malformed role or unsupported provider fails closed before CLI worker or Pi fallback spawn.
+OpenCode is intentionally not a candidate, fallback, command, or diagnostic label for this Shell/Agent route. A malformed role, non-CLI account provider (`naia`/`nextain`, `anthropic`), or unsupported provider fails closed before spawn.
 
-When the request originates from Discord, the selected role is also a trusted `sub_llm` processing operation. Its provider/model must be authorized and disclosed by the binding's processing profile before the delegated session starts (codex, claude-code-cli, and grok roles run through their own CLI worker; other permitted providers go through Pi per FR-PI-ROLE-6).
+When the request originates from Discord, the selected role is also a trusted `sub_llm` processing operation. Its provider/model must be authorized and disclosed by the binding's processing profile before the delegated session starts (`codex`, `claude-code-cli`, and `grok` roles run through their own CLI worker; non-CLI providers are excluded from `makeRoleProcessingPlans` and fail closed).
 
 ### Test Coverage Map
 
@@ -853,7 +850,7 @@ When the request originates from Discord, the selected role is also a trusted `s
 | explicit/inherited expert/main/sub resolves | `llm-roles.contract.test.ts` |
 | settings reload is observed by the next role invocation | `llm-roles.contract.test.ts`, `discord-entry-wiring.contract.test.ts` |
 | selected Discord role is authorized as `sub_llm` before execution | `processing-policy-handler.contract.test.ts`, `delegate-agent-skill.contract.test.ts` |
-| CLI worker and Pi fallback routing for configured roles | `pi-role-runner.contract.test.ts` |
+| CLI worker routing, case-insensitive Naia model check, and fail-closed non-CLI role rejection | `role-runner.contract.test.ts` |
 
 ## UC-022 — Durable issue supervisor runtime
 
@@ -941,7 +938,7 @@ ingress, terminal/file-opening UX, and naia-shell UI are later adapters. This sl
 
 After the development moderator selects a declared worker profile, Naia can run one issue through
 separate explorer, implementer, tester, and reviewer sessions in the same managed worktree. Each
-role is pinned to an independently declared Codex, OpenCode, or naia-agent Pi profile. The facing
+role is pinned to an independently declared Codex or OpenCode profile (built-in Pi profiles were removed in `UC-CODEX-CORE-SWAP`). The facing
 model and moderator cannot invent an adapter, model, role, or filesystem capability at runtime.
 
 Only the implementer may receive workspace-write access. Explorer, tester, and reviewer sessions
@@ -956,8 +953,7 @@ cost. A restart after a durably completed role resumes the next undispatched rol
 finds an unacknowledged in-flight role reports `outcome_unknown` instead of blindly repeating a
 possibly mutating agent. Duplicate dispatch returns the same persisted team result.
 
-The production composition uses the existing Codex, OpenCode, and built-in Pi adapters. Pi may use
-the user's Naia account through the existing Naia gateway contract; OpenCode is an optional worker,
+The production composition uses the existing Codex and OpenCode adapters (Pi adapter removed in `UC-CODEX-CORE-SWAP`). OpenCode is an optional worker,
 not a fallback and not a dependency of the basic Codex path. This stage deliberately stops before
 Discord ingress, terminal/file-opening UX, and naia-shell visualization.
 
@@ -968,7 +964,7 @@ Discord ingress, terminal/file-opening UX, and naia-shell visualization.
 | declared roles run in order in one worktree, with write access only for the implementer | `issue-team-worker.integration.test.ts` |
 | the production mixed catalog routes legacy and team profiles into their concrete workers | `profiled-issue-worker.integration.test.ts` |
 | tester/reviewer findings cause bounded repair and two consecutive clean passes | `issue-team-worker.integration.test.ts` |
-| every Codex/OpenCode/Pi attempt preserves distinct identity, binding, usage, and cost evidence | `issue-team-role-executor.integration.test.ts`, `single-issue-team-verifier.integration.test.ts` |
+| every Codex/OpenCode attempt preserves distinct identity, binding, usage, and cost evidence | `issue-team-role-executor.integration.test.ts`, `single-issue-team-verifier.integration.test.ts` |
 | duplicate dispatch returns one persisted result and does not repeat a role effect | `issue-team-worker.integration.test.ts` |
 | restart after an acknowledged role resumes safely, while an in-flight unknown role is never replayed | `issue-team-worker.integration.test.ts` |
 | undeclared profiles, adapters, roles, model mismatches, malformed results, and excess loop bounds fail closed | `issue-team-worker.integration.test.ts`, `issue-team-profile.contract.test.ts` |
@@ -976,19 +972,15 @@ Discord ingress, terminal/file-opening UX, and naia-shell visualization.
 | a clean team result still fails the issue when the independent acceptance-check verifier fails | `single-issue-team-verifier.integration.test.ts` |
 | app/domain/port layers remain free of Discord, Shell, provider SDK, and subprocess imports | `issue-team-layer-boundary.contract.test.ts` |
 | a frozen no-paid-call workload gates ordering, isolation, recovery, loop convergence, receipt coverage, and cost accounting | `issue-team-benchmark.contract.test.ts` |
-## UC-ORCH-004 — One Naia Agent session continuously manages coding sessions
+## UC-ORCH-004 — Durable paid-call budget (retained) and Pi continuous coding loop (제거됨, 2026-11-06)
 
-The user starts Naia Agent without naia-shell, submits several repository issues, and keeps using
-the same durable session manager to inspect, answer, cancel, and resume them. Each issue runs through
-the existing moderator and bounded explorer/implementer/tester/reviewer loop, but every authored
-role uses built-in Pi by default. The subscription-conserving profile uses Codex Luna only for the
-development moderator while facing/reporting and all worktree roles stay on Naia Gateway Pi.
-OpenCode is not installed or started on this path.
+> **상태**: Pi 전용 연속 루프(`bin`, `composition`), 버전 과금 브리지, user-owned 로컬 Pi provider, Pi 비용 비교기는 `UC-CODEX-CORE-SWAP`(2026-11-06)에서 **제거됨**.
+> 다중 세션 오케스트레이션(`UC-ORCH-002`)과 이슈 팀 오케스트레이션(`UC-ORCH-003`)은 Codex 기본 코어로 유지되며, SQLite 기반 유료 호출 예산 원장(`SqlitePaidCallBudget`, `FR-LOOP-002..004`)은 그대로 유지된다.
 
 Before each paid model attempt, Naia Agent durably reserves calls, dollars, input tokens, and output
-tokens. Restart cannot erase the budget or cause an unresolved paid attempt to be repeated. Complete
+tokens in SQLite (`SqlitePaidCallBudget`). Restart cannot erase the budget or cause an unresolved paid attempt to be repeated. Complete
 provider evidence settles the reservation; missing or conflicting evidence stops the affected work
-honestly. The loop has no arbitrary two-minute ceiling and stops only at explicit contract bounds.
+honestly.
 
 ### Test Coverage Map
 
@@ -996,14 +988,8 @@ honestly. The loop has no arbitrary two-minute ceiling and stops only at explici
 |---|---|
 | independent SQLite connections serialize reservations and enforce all four aggregate limits | `sqlite-paid-call-budget.integration.test.ts` |
 | restart preserves settled and unresolved allowance; duplicate/conflicting receipts are deterministic | `sqlite-paid-call-budget.integration.test.ts` |
-| the shared actor path and role executor reserve before spawn and settle bound evidence | `pi-continuous-loop.integration.test.ts` |
-| the Pi-only transitive TypeScript import closure has no OpenCode adapter edge | `pi-continuous-loop.contract.test.ts`, `pi-continuous-loop-benchmark.contract.test.ts` |
-| the hybrid profile permits only Codex Luna as moderator, rejects Codex in every other slot, and permits every admitted tool-capable Naia model, including DeepSeek V4, in worktree roles | `pi-continuous-loop.contract.test.ts`, `issue-team-role-executor.integration.test.ts` |
-| the command backend reopens the same durable control state; one NDJSON session accepts multiple starts and surfaces background pump failure; every command that pumps work, including cancel, restores the Naia credential first; every paid smoke/comparison path requires durable output and preserves partial billing artifacts | `pi-continuous-loop-cli.integration.test.ts`, `pi-continuous-loop.contract.test.ts`, `pi-cost-comparison-runner.contract.test.ts` |
-| frozen zero-paid benchmark executes two managed issues through the real Pi-only composition with injected provider/worktree/verifier effects, binds current TypeScript to the exact executed JavaScript, mutation-tests forbidden import/executable patterns, and covers paid-attempt settlement, repair, verification failure, duplicate submission, restart, unresolved calls, drift, receipt conflict, and budget gates | `pi-continuous-loop-benchmark.contract.test.ts` |
-| paired cost evidence permits a bounded internal savings claim only for equal tasks and actor-attempt topology, restored checkpoints, deterministic quality non-inferiority, every exact settled gateway customer-billing request, and an external-key HMAC over the complete evidence; tool-loop request-count differences remain measured rather than being confused with role counts, while estimates, window aggregates, contamination, route/token/cost drift, missing authority, post-attestation mutation, or unresolved calls fail closed; the unsigned gateway response is not presented as a third-party audit | `pi-cost-comparison.contract.test.ts`, `pi-cost-comparison-runner.contract.test.ts`, `benchmark/orchestration/pi-cost-comparison.json` |
-| the Naia-only Pi provider converts each tool-loop request to atomic non-streaming gateway billing, binds it to a parent-owned execution identity, reserves a shared durable request allowance before network I/O, persists an owner-only receipt journal, and reconstructs Pi-compatible SSE without losing text, tool calls, or usage; missing, malformed, unsettled, route-drifted, over-budget, duplicate, or tampered evidence never becomes measured cost | `naia-pi-versioned-billing.contract.test.ts`, `uc-naia-pi-provider.contract.test.ts` |
-| a user-owned local Pi binding is credential-free and loopback-only, while its GPU1 qualification binds source/dist/Pi and external-executable hashes, immutable serving image and model snapshot, container endpoint and GPU telemetry, a real >=32K prompt, native tool protocol, two clean cycles, and deterministic file verification without inventing provider cost | `user-owned-pi-provider.contract.test.ts`, `pi-continuous-loop.contract.test.ts`, `issue-team-role-executor.integration.test.ts`, `benchmark/run-user-owned-three-layer-live.mjs`, `benchmark/results/gpu1-user-owned-three-layer-live-final-2026-08-05.json` |
+| Codex/OpenCode role executor enforces read-only vs workspace-write boundaries and distinct attempt receipts | `issue-team-role-executor.integration.test.ts`, `uc-cli-subagent-codex.contract.test.ts` |
+| Pi-only continuous loop, Naia Pi versioned billing bridge, user-owned Pi provider, and Pi paired cost comparison | **제거됨 (`UC-CODEX-CORE-SWAP`, 2026-11-06)** |
 
 ## UC-024 — 나이아가 지금 무엇이 돌고 있는지 안다 (환경 관측)
 
@@ -1098,3 +1084,126 @@ Test Coverage Map: [UT-SM-AGENT-01~03, IT-SM-AGENT-01~05, UT-SM-SHELL-THINK-01, 
 | lease 취득 직후 SIGTERM/SIGINT, 중복 신호, 시작 상태 쓰기 예외·거절된 promise·runtime 시작 직후 예외 시 정리·상태 기록과 즉시 재시작 | `src/test/discord-serve-process.integration.test.ts` |
 | 읽기 전용 authority 디렉터리와 별도 쓰기 가능 lease, 원자적 authority 교체 및 rootless node UID 매핑 | `src/test/discord-trusted-state.contract.test.ts`, `src/test/discord-serve-process.integration.test.ts`, 컨테이너 오프라인 권한 검증 |
 | 셸 gRPC Chat·Cancel·승인·설정 회귀 | 기존 gRPC 및 Discord 배선 테스트 |
+
+
+## UC-AX-026 — Codex 공급자와 하네스 승인 (UC1·UC5·UC13 확장)
+
+사용자 지시(2026-11-03): 1인 문서·일정 승인 업무를 Codex 기반으로 시작하되 기존 모델과 공존한다.
+P01: 회사 문서를 로컬에서 읽어 초안을 작성·복구 가능한 편집할 때 반복 승인하지 않는다.
+외부 처리 전 선택된 공급자·보낼 발췌·목적지를 공개한다. 일정 초안은 자동이며 실제 캘린더 등록·초대는
+수신자·시각·시간대·내용을 보여 준 뒤 같은 보류 동작에 대한 사용자 “응/등록해/보내”로 승인한다.
+영구 삭제·결제·운영 변경은 단순 긍정 발화로 실행할 수 없다. 취소·목적지 변경은 승인을 폐기한다.
+
+P02 Test Coverage Map (P03 = FR-AX-026, 설계 = ARCHITECTURE.md §7):
+
+| 검증 | 시험 파일 | 기대 결과 |
+|---|---|---|
+| Codex exec 공급자 선택·프롬프트·토큰·정상/실패/취소 | `src/test/codex-exec-provider.contract.test.ts` | ProviderPort 정규화, 비밀 로그 없음, 조기 종료를 성공으로 보고하지 않음 |
+| 로컬 문서·일정·발송·영구삭제·결제·운영 정책 | `src/test/ax-approval-policy.contract.test.ts` | allow / conversation / code / deny 결정, 중첩 위험 중 가장 강한 승인 |
+| 실행 직전 게이트·거절·취소·미등록·인자변조 | `src/test/ax-approval-policy.contract.test.ts` | 승인 전 실행 0회, 코드 승인은 대화 승인으로 대체 불가 |
+
+범위: exec 공급자 초기판은 텍스트 추론이며 native 도구 실행을 비활성화한다. 기존 app-server 도구 경로는 유지한다.
+음성/STT 보류 결속, 캘린더 실제 연결, 모델 전송 공개·감사 영속화는 설계 및 후속 인수 대상이다.
+
+2회차 P01/P02: 사용자는 `codex-ax`를 명시적으로 선택하고 CLI 0.163.0 설치·로그인 사전 점검을 받는다.
+app-server가 등록된 로컬 읽기 도구를 반복 호출하며 미등록 shell/MCP/HTTP·변조·중복 호출은 실행되지 않는다.
+`codex-app-server-provider.contract.test.ts`에 버전 불일치/실패 무대체·native 제한·반복 시험,
+`ax-approval-policy.contract.test.ts`에 trusted registry·실행 대상 고정·우회 차단·composition 시험을 매핑한다.
+기존 모델은 AX를 켜지 않았을 때 기존 실행 경로를 유지한다.
+
+2회차 P04 보강: 실제 공용 조립기의 AX 기동·원시 MCP 미기동을 `ax-approval-policy.contract.test.ts`에서
+검증한다. CLI 카탈로그·doctor 회귀는 기존 cli-manage/cli-manage-process,
+gRPC/Discord 단일 파이프라인 보존은 discord-entry-wiring 시험에 연결한다.
+검증 수치와 실제 로그인/우회 시험 범위는 FR-AX-026 및 ARCHITECTURE §7.8에 기록했다.
+
+3회차 P01: UC-AX-026 — 사용자가 표시된 하나의 대기 효과에 직접 텍스트/확정 음성으로 “응·보내·그래”를 답한다.
+취소, 낮은 음성 신뢰, 복수 제안, 변경, 만료, 세션/작업공간 변경, 재시작, 재사용이면 실행하지 않는다.
+삭제·결제·운영 변경은 별도 검토 계획과 사람 코드 입력으로만 한 번 실행한다.
+P02: `ax-approval-policy.contract.test.ts`의 `human approval store` 그룹: broker 실행 횟수, origin, scope,
+TTL, 변경·복수·취소·재시작·코드 오입력/replay/위험 효과 말 승인 거부.
+
+4회차 P01: 기업 문서 사용자는 검증하지 않은 사용자 CLI endpoint·proxy·원격 관측 설정으로
+대화/문서가 전송되지 않아야 한다. 현재 지원 범위는 고정 CLI의 기본 OpenAI 목적지이며
+기업 endpoint는 자격·네트워크 인수 전까지 거절한다. 목적지를 몰래 기본값으로 바꾸지도 않는다.
+P02: `codex-app-server-provider.contract.test.ts` — 설정 변조 시 thread/start·turn/start 0회,
+endpoint/관측 오류에 원문·URL·키 비노출, 자식 env의 proxy/TLS override 거절, 기본 설정 회귀.
+실제 pin CLI + 합성 문서 + loopback 수신 fixture는 별도 실행 증거로 기록한다.
+
+5회차 P01/P02: 표시 완료된 승인 카드 이후 시작한 인증 입력만 host control lane에서 소비한다.
+과거 입력·다른 카드·재전송·연결 종료는 실행 0회다. AX 시험에 표시/입력 토큰 경계와 폐기를 매핑한다.
+앱 턴은 user/assistant 양쪽 appName을 JSONL에 보존한다. 재시작 reader가 태그를 복원하여
+일반 대화 history에서 제외한다. conversation-log 및 handler 계약 시험으로 검증한다.
+
+6회차 P01/P02 — UC-AX-026 connector: 로컬 문서 초안은 승인 없이, 외부 문서 발송과 일정 등록은
+표시된 payload의 사람 승인 이후에만 실행한다. 승인 일정 1건·취소 0건, IANA 시간대/offset 검증,
+동시 중복·timeout 후 조회·재시작 후 조회를 ax-approval-policy.contract.test.ts에서 가짜 HTTP 서버로 확인한다.
+기존 전체 실패는 원인/책임 경계를 기록하고 보안 benchmark claim gate를 약화하지 않는다.
+6회차 P02 추가: UC-024/REQ-022 짝 저장소 시험은 NAIA_SHELL_ROOT 경로 지정으로 같은 표본을
+읽되 누락/드리프트 실패를 유지한다. (구 Pi runtime closure 및 controlled 가짜 gateway 시험은 `UC-CODEX-CORE-SWAP`에서 Pi 제거와 함께 제거됨.)
+6회차 전체 회귀 후속: Discord serve의 설정 누락 프로세스는 부하 중에도 10초 안에 exit=1 및
+workspace_unconfigured/provider_unconfigured를 반환해야 한다. 기존 1초 대기는 다른 전체 시험과
+겹칠 때 조기 실패하여 두 경계의 대기만 늘리고 오류/exit 단언은 유지한다.
+
+7회차 P01/P02 — 합성 기업 문서를 host 소유 저장소에 명시적 만료 시각으로 보관한다.
+만료 경계부터 읽기 불가, 삭제 후 존재 조회로 실제 제거를 확인하고 원문 없는 감사 사건만 남긴다.
+삭제/감사 실패는 성공으로 보고하지 않는다. 승인된 call의 digest와 실제 효과를 host가 조회하여
+영수증을 대조하며 불일치·검증 실패는 미결이다. 모델에는 원격 영수증 대신 불투명 참조만 보낸다.
+`ax-approval-policy.contract.test.ts`에 보존 경계·삭제 잔류·감사 실패·영수증 불일치·합성 비밀 누출을 매핑한다.
+7회차 시험 환경: 고정 issue-team/multi-issue benchmark의 빌드 임시 경로도 OS tmpdir
+(TMPDIR로 실행 폴더 tmp 지정)를 따른다. 외부 dist의 패키지 해석은 전용 node_modules 링크로
+유지한다. frozen sourceRevision·증거 비교 단언은 유지한다.
+
+## UC-AX-026 r8 — 데이터 홈 메모 이관 (P01/P02)
+4060 사용자는 NAIA_HOME으로 선택한 데이터 홈에 메모를 보존한다. 명시 NAIA_MEMO_PATH가 우선하며 공백 설정은 미설정으로 취급한다. 옛 ~/.naia-agent/memos.json은 대상 부재 시 배타적으로 복사하고 원본을 보존한다. 기존 대상은 덮어쓰거나 합치지 않는다.
+Test Coverage Map: src/test/uc5-file-memo.contract.test.ts의 데이터 홈 경로/이관 그룹 — POSIX·Windows drive/UNC, 기존 대상, 명시 override, 재시작, 복사 오류 및 실제 런타임 memo save/list/get 검증. P04는 이번 실행 기록, P05는 독립 검수 전 In review.
+
+### UC-AX-026 r9 — 셸 승인 adapter 인수
+사용자는 표시된 목적지·내용을 확인한 뒤 직접 캡처한 입력으로 한 번 승인한다. 인증 origin 위조·인증 장애·scope 변경·재사용은 효과 0회여야 한다. 코드 승인은 별도 비공개 present 인자에만 전달한다.
+Test Coverage Map: `ax-approval-policy.contract.test.ts`의 r9 paired shell adapter 그룹은 읽기 전용 셸 초안을 실제 Agent control lane과 연결해 ACK/capture/submit·취소·종료·코드·음성 경계를 검사한다. (구 Pi 비용 비교 runner 시험은 `UC-CODEX-CORE-SWAP`에서 Pi 제거와 함께 제거됨.)
+r9 Test Coverage Map 추가: `multi-issue-benchmark.contract.test.ts`, `issue-team-benchmark.contract.test.ts`는 현재 입력 provenance로 재생성한 결정론 산출물을 새 dist 빌드와 대조하며 기존 hard gate 반례 검사를 유지한다.
+r9 취소 회귀: `uc-cli-subagent-shell.contract.test.ts` AC1은 실제 자식의 SIGTERM handler 준비 ACK 후 취소하여 서버 부하 중에도 SIGKILL 에스컬레이션을 검사한다. 고정 sleep으로 준비를 추정하지 않는다.
+
+### UC-AX-026 r10 — 승인 목적지와 수신 대조 (P01/P02)
+사용자가 목적지·본문 전체 카드 표시 후 직접 승인하면 trusted host executor가 그 snapshot만 전송한다.
+호출자가 승인 대기 중 목적지/본문을 바꿔도 수신 값은 표시한 값과 같아야 한다. 거절·표시 ACK 없음·
+편집 무효화·종료에는 승인/미승인 수신 서버 모두 0회다. P02: `ax-approval-policy.contract.test.ts`
+의 r10 loopback 수신 대조와 `codex-app-server-provider.contract.test.ts`의 config/env 차단,
+`uc5-file-memo.contract.test.ts`의 기존 경로/원본 보존 회귀. 기기 명령·실기 판정은 준 인수 문서로 넘긴다.
+
+
+## S-MEM-SAVE-026 — 즉시 사실 저장과 재시작 회상 (2026-11-04)
+대화 A에서 사용자가 개인 정보를 네 번 말하면 각 완료 턴 저장에서 5분 대기 없이 사실을 추출한다.
+프로세스를 종료한 뒤 같은 워크스페이스로 재시작하고 새 대화 B에서 질문하면 영속 사실을 회상한다.
+추출 실패 시 원문은 재시도 가능하게 보존하고 stderr 원인 및 셸 표시용 logEntry 경고를 남긴다.
+기록과 ReloadSettings 상태는 consolidation=on-save/off로 실제 저장 시 동작을 표시한다.
+P02 Test Coverage Map: `memory-consolidation.contract.test.ts` — 가짜 OpenAI 호환 HTTP 서버·임베딩,
+실 compose → ChatTurnHandler 완료 턴 네 번 → close/recompose → 새 대화 회상, 추출 실패와 복구, 명시 off.
+
+
+### UC-B2C-026-R17 — 대화 사이 기억 (#792)
+대화 A에서 “내 할 일은 제안서 작성”, “다음 주 보라 님 답사 간다”라고 말한다. 기억 목록에 사실이 표시되고 셸을 다시 켠 뒤 새 대화 B의 “내 할 일 뭐였지?”에 저장한 사실로 답한다. 작은 LLM 미설정/접속 실패는 메인 두뇌로 대체하며 설정에서 알린다. 임베딩 없음은 경고와 로컬 주소 설정 길을 제공하고 제한된 키워드 회상으로 동작한다. 기억 목록은 정리 대기 건수를 표시한다. Linux 비밀 저장 도구 누락은 쉬운 말로 복구를 안내한다.
+
+| Test Coverage Map — R17 | 검증 |
+|---|---|
+| 저장→사실 추출→재시작→새 대화 | 실제 memory adapter + 가짜 LLM/임베딩, 최근 사실·오류 재시도 |
+| 설정 기본/빈 값/진행/성공/접속 실패 | SmallLlmSection 컴포넌트와 실 브라우저, 값 저장·메인 대체 표시 |
+| 기억 빈 목록/정리 대기/완료/오류 | SettingsTab, Rust 읽기, 키보드·ARIA·360/1100px UX |
+| Linux 저장 실패 | .deb libsecret-tools, AppImage 기동 검사, 쉬운 말 오류 |
+
+R17 검증 연결: `memory-role-summarizer.contract.test.ts`(재개방 및 대화 처리기), `uc1-memory-process.integration.test.ts`(실 프로세스 재시작, 임베딩 없음/가짜 임베딩), `memory-settings.spec.ts`(360/1100px 빈 목록·대기·성공·오류 복구·로컬 임베딩 설정), `SmallLlmSection.test.tsx`, `linux-media.test.ts`, Rust `r17_pending_tests`. 설치된 준 3090 모델 자체의 정확도와 실 장치 인수는 별도이며 자동 시험의 가짜 답변을 실 모델 품질로 해석하지 않는다.
+
+R17: 메인 로컬 모델로 사실을 뽑는 저장 단계는 최대 30초로 제한하며, 실패한 대화는 다음 저장 때 재시도한다. 대화 생성·회상 제한은 유지한다.
+
+R17 검증 짝: memory `ab1f8002d31bffacf4779760eda727cc57a658a8` (기존 e8cbd6f에서 전송 주입만 추가), 0.1.4. 요청별 훅은 생성자+AsyncLocalStorage로 연결하며 전역 fetch 교체가 없다. 이 정확한 소스 조합으로 관련290개와 실제 gRPC 종료·재기동 두 경우가 통과했다.
+
+R18 (#792 P01–P05): 904878e 위에 R17을 통합한다. Memory ab1f800의 생성자 훅+AsyncLocalStorage로 요청 extractor/summarizer를 전달하며 명시 off, 승인 누락 원문 보존, 오류 원인 전달, on-save 표시 및 삭제 검증기를 유지한다. 회귀는 memory-consolidation, memory-role-summarizer, uc1-memory-process (실 SIGTERM/재시작·사실>0·대기0), 전체 시험으로 검증한다.
+
+## UC-CODEX-CORE-SWAP — 코어 Pi 제거 및 Codex 기본화 (2026-11-06)
+
+사용자와 호스트(naia-os / 단독 CLI)는 `pi`(`@earendil-works/pi-coding-agent`) 없이 **`codex`를 기본 코어**로 사용하여 대화, 도구 실행, 역할 라우팅(`expert`/`main`/`sub`), 단독 CLI 코딩(`naia-agent run`), 에이전트 위임(`delegate_to_agent`), 자가 진단(`naia-agent doctor`)을 수행한다. 상세 내역은 [Pi 제거 및 Codex 기본화 기록](progress/99.dev-comm/codex-core-swap-pi-removal-2026-11-06.md)에 기록한다.
+
+| Test ID | 검증 | 증적 |
+|---|---|---|
+| TEST-CODEX-SWAP-01 | 서브에이전트 로스터(`SUPPORTED_SUBAGENTS`), 위임 스킬(`DELEGATE_AGENTS`), CLI 설정(`coding.agent`)에서 `pi`가 제거되고 `codex`가 기본 코어로 동작하며, `--no-tools` 읽기 전용(`--sandbox read-only`), 자식 환경 격리, 구 `coding.agent="pi"` 마이그레이션/거부를 검증한다. | `src/test/uc-cli-subagent-codex.contract.test.ts`, `src/test/delegate-agent-skill.contract.test.ts`, `src/test/cli-manage.contract.test.ts`, `src/test/cli-manage-process.integration.test.ts`, `src/test/uc-cli-host-entry.contract.test.ts` |
+| TEST-CODEX-SWAP-02 | 역할 실행기(`src/main/adapters/role-runner.ts`)가 Pi 없이 CLI 워커(`codex`, `claude-code-cli`, `grok`)만 실행하고 계정형 provider(`naia`/`nextain`, `anthropic`)는 spawn 전에 fail-closed로 차단하며(B2 선택지 (나)), Naia 모델 대소문자 무시 매칭과 실패 시 `verification.ok=false` 리포트를 검증한다. | `src/test/role-runner.contract.test.ts`, `src/test/llm-roles.contract.test.ts`, `src/test/discord-entry-wiring.contract.test.ts` |
+| TEST-CODEX-SWAP-03 | `package.json` 및 런타임 코드에 `@earendil-works/pi-*` 의존성이 남아 있지 않다. | `pnpm build`, `pnpm test` |

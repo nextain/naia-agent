@@ -1,6 +1,6 @@
-// adapters/subprocess-session — sub-agent CLI(pi·opencode 등)를 subprocess 로 감싸는 **공유 세션 머신**.
+// adapters/subprocess-session — sub-agent CLI(codex·opencode 등)를 subprocess 로 감싸는 **공유 세션 머신**.
 //
-// pi/opencode 어댑터(줄단위 NDJSON 모델)가 동형(同型) 구조를 가져 중복을 한 곳으로: child stdout 줄단위 파싱 →
+// codex/opencode 어댑터(줄단위 NDJSON 모델)가 동형(同型) 구조를 가져 중복을 한 곳으로: child stdout 줄단위 파싱 →
 // SubAgentEvent 스트림(큐+waiter 백프레셔), session_end 정확히 1회, late-stdout race 가드, 64MiB 단일줄 가드,
 // cancel=SIGTERM→유예→SIGKILL. 어댑터별로 다른 것은 (1) bin/args (2) `lineToEvent`(줄 → 이벤트) (3) 라벨뿐.
 // (subagent-shell 은 raw-chunk 모델의 독립 레퍼런스 — 줄 모델로의 통합은 동작변경이라 후속 검토 대상.)
@@ -159,7 +159,7 @@ export interface SpawnSessionSpec {
   readonly env?: NodeJS.ProcessEnv;
   readonly hardKillMs: number;
   readonly lineToEvent: LineToEvent;
-  /** 미가용/실패 메시지 prefix(예: "pi unavailable", "opencode unavailable"). */
+  /** 미가용/실패 메시지 prefix(예: "codex unavailable", "opencode unavailable"). */
   readonly label: string;
   /** Opt-in, redacted process-exit facts for a user-visible runner diagnostic. */
   readonly diagnostics?: boolean;

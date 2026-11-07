@@ -165,7 +165,7 @@ export class Supervisor {
       // ⚠️ 입력 스트림(sub-agent/workspace iterable) reject 를 흡수(P1, 적대리뷰 2026-06-23): 어떤 입력
       //    어댑터가 iteration 중 throw 해도 시도가 깨지거나 리포트 0회가 되면 안 됨(I1·AC2). 합성 session_end
       //    로 종결 처리 후 verify 로 진행 → exactly-one-report 불변식 보존. (오늘 shell 은 미reject 이나
-      //    2b pi/opencode transport·2c chokidar/git 권한 에러가 reject 경로를 실제로 친다.)
+      //    2b codex/opencode transport·2c chokidar/git 권한 에러가 reject 경로를 실제로 친다.)
       try {
         for await (const t of merged) {
           if (t.src === "ws") { if (baselineWorkspace === undefined) baselineWorkspace = t.c; latestWorkspace = t.c; continue; }
@@ -205,7 +205,7 @@ export class Supervisor {
       //   정리하게 한다(--watch hang 회귀, 적대감사 2026-06-23 M3). idempotent(이미 abort 면 무해).
       wsAbort.abort();
       // ★ sub-agent 자식 프로세스 종료 — wsAbort 의 형제(F1, 재감사 2026-06-23). **실제 session_end 미관측 시에만**
-      //   cancel(스트림 reject / no-session-end / 합성 terminal) — 이 경로들은 onAbort 가 안 불려 자식(shell/pi/
+      //   cancel(스트림 reject / no-session-end / 합성 terminal) — 이 경로들은 onAbort 가 안 불려 자식(shell/codex/
       //   opencode subprocess)이 고아로 잔존했다. 실제 종료를 봤으면(realSessionEnd) 자식은 이미 죽었으니 cancel
       //   생략(P3 stale-cancel 회피). cancel 은 idempotent 라 안전하지만, 정상경로 무호출이 계약상 더 깔끔.
       if (!realSessionEnd) {
