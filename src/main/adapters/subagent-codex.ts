@@ -31,6 +31,8 @@ export type { SpawnFn, ResolvedBin };
 export interface SubAgentCodexOptions {
   /** -m/--model 로 전달(옵셔널). TaskSpec.model 보다 우선. */
   readonly model?: string;
+  /** --no-tools 지정 시 읽기 전용 샌드박스(--sandbox read-only)로 실행. */
+  readonly noTools?: boolean;
   /** Codex CLI model_reasoning_effort. Kept separate from the model id so role profiles remain explicit. */
   readonly reasoningEffort?: "low" | "medium" | "high" | "xhigh";
   /** --skip-git-repo-check(기본 true — sub-agent 가 비-git workdir 도 동작하도록). */
@@ -46,6 +48,17 @@ export interface SubAgentCodexOptions {
   /** Maximum input-token count to which the pinned price snapshot applies. */
   readonly maximumPricedInputTokens?: number;
 }
+
+const DISALLOWED_NAIA_GATEWAY_MODELS = new Set([
+  "grok-4.3",
+  "deepseek-v4-flash",
+  "deepseek-v4-pro",
+  "solar-pro4",
+  "solar-mini",
+  "motif-3",
+  "hcx-007",
+  "hcx-dash-002",
+]);
 
 /**
  * A Naia-owned worker must never join a parent Codex app-server thread or
@@ -170,13 +183,18 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
   const skipGit = opts.skipGitRepoCheck ?? true;
   return {
     spawn(task: TaskSpec): SubAgentSession {
+      const model = opts.model ?? task.model;
+      if (model && DISALLOWED_NAIA_GATEWAY_MODELS.has(model.trim().toLowerCase())) {
+        return endedSession(
+          `codex model rejected before spawn: Naia gateway model '${model}' cannot be passed directly to OpenAI Codex CLI`,
+        );
+      }
       let bin: ResolvedBin;
       try {
         bin = resolveBin();
       } catch (e) {
         return endedSession(`codex unavailable: ${(e as Error).message}`);
       }
-      const model = opts.model ?? task.model;
       const executionId = randomUUID();
       let threadId: string | undefined;
       const lineToEvent = (line: string): SubAgentEvent | null => {
@@ -209,7 +227,10 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
         }
         return codexLineToEvent(line);
       };
-      const sandbox = task.filesystemAccess === "read_only" ? "read-only" : "workspace-write";
+      const sandbox =
+        opts.noTools === true || task.filesystemAccess === "read_only"
+          ? "read-only"
+          : "workspace-write";
       // exec --json --ignore-user-config --sandbox <semantic task boundary> <prompt>
       //   -c approval_policy="never" --ephemeral [--skip-git-repo-check] [--model X]
       // Global config/add-dir 상속을 끊고 non-interactive workspace 경계를 fail-closed로 고정.

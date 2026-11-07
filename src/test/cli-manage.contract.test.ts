@@ -7,6 +7,7 @@ import {
   credentialNameForProvider,
   getCliConfigValue,
   isSafeSessionId,
+  migrateLegacyCliCodingConfig,
   normalizeModelCatalog,
   parseCliConfig,
   parseManageArgs,
@@ -75,12 +76,22 @@ describe("SPEC-019 allowlisted config and precedence", () => {
     expect(resetCliConfigValue(tools.config, "workspace")).toMatchObject({ other: { keep: true }, coding: { agent: "codex" } });
   });
 
-  it("validates types/agent and recovers from damaged config", () => {
+  it("validates types/agent, rejects coding.agent=pi with fix guidance, and migrates stored pi config (R2)", () => {
     expect(parseCliConfig("{bad")).toEqual({});
     expect(setCliConfigValue({}, "coding.tools", "maybe")).toMatchObject({ ok: false });
     expect(setCliConfigValue({}, "coding.agent", "evil")).toMatchObject({ ok: false });
+    expect(setCliConfigValue({}, "coding.agent", "pi")).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("naia-agent config set coding.agent codex"),
+    });
     expect(setCliConfigValue({}, "coding.model", "--no-tools")).toMatchObject({ ok: false });
     expect(setCliConfigValue({}, "workspace", "--help")).toMatchObject({ ok: false });
+
+    const migrated = migrateLegacyCliCodingConfig({ coding: { agent: "pi", model: "gpt-5.4", tools: false } });
+    expect(migrated.migratedFromPi).toBe(true);
+    expect(migrated.config).toEqual({ coding: { agent: "codex", model: "gpt-5.4", tools: false } });
+    expect(applyCodingDefaults(["task"], { coding: { agent: "pi", model: "gpt-5.4", tools: false } }))
+      .toEqual(["task", "--agent", "codex", "--model", "gpt-5.4", "--no-tools"]);
   });
 
   it("treats stored agent/model/tools as one default tuple", () => {

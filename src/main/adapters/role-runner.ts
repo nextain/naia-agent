@@ -1,6 +1,6 @@
 import type { ToolProcessing } from "../domain/chat.js";
 import type { EffectiveLlmConfig, LlmRole, LlmRolesResolution } from "../domain/llm-roles.js";
-import { emptyVerification, type SupervisorReport, type TaskSpec } from "../domain/orchestration.js";
+import type { SupervisorReport, TaskSpec } from "../domain/orchestration.js";
 import type { SubAgentPort, SupervisorEgressPort } from "../ports/orchestration.js";
 import { makeClaudeCodeSubAgent, type SubAgentClaudeCodeOptions } from "./subagent-claude-code.js";
 import { makeCodexSubAgent, type SubAgentCodexOptions } from "./subagent-codex.js";
@@ -34,7 +34,8 @@ export type RoleFactoryResult =
   | { readonly ok: false; readonly reason: string };
 
 const DEVELOPMENT_ROLES: readonly DevelopmentRole[] = ["expert", "main", "sub"];
-const SUPPORTED_NAIA_ROLE_MODELS = new Set([
+
+export const SUPPORTED_NAIA_ROLE_MODELS = [
   "grok-4.3",
   "deepseek-v4-flash",
   "deepseek-v4-pro",
@@ -43,18 +44,22 @@ const SUPPORTED_NAIA_ROLE_MODELS = new Set([
   "motif-3",
   "HCX-007",
   "HCX-DASH-002",
-]);
+] as const;
 
-function isSupportedNaiaRoleModel(model: string): boolean {
-  return SUPPORTED_NAIA_ROLE_MODELS.has(model.trim());
+export function normalizeSupportedNaiaRoleModel(model: string | undefined): string | undefined {
+  if (typeof model !== "string") return undefined;
+  const trimmed = model.trim();
+  if (!trimmed) return undefined;
+  const lower = trimmed.toLowerCase();
+  return SUPPORTED_NAIA_ROLE_MODELS.find((candidate) => candidate.toLowerCase() === lower);
+}
+
+export function isSupportedNaiaRoleModel(model: string | undefined): boolean {
+  return normalizeSupportedNaiaRoleModel(model) !== undefined;
 }
 
 function isConfiguredRoleSupported(config: EffectiveLlmConfig): boolean {
-  if (cliWorkerForProvider(config.provider.value)) return true;
-  const provider = config.provider.value.toLowerCase();
-  if (provider === "anthropic") return true;
-  if (provider === "nextain" || provider === "naia") return isSupportedNaiaRoleModel(config.model.value);
-  return false;
+  return cliWorkerForProvider(config.provider.value) !== undefined;
 }
 
 function findRole(
@@ -92,44 +97,17 @@ export interface RoleSubAgentOptions {
 
 /**
  * Resolves a configured development role (`expert`, `main`, `sub`) to its CLI
- * worker adapter, with Codex (`makeCodexSubAgent`) as the default core.
+ * worker adapter (`codex`, `claude-code-cli`, or `grok`). Account providers
+ * (`naia`/`nextain`, `anthropic`) fail closed before spawn (B2 Option (나))
+ * so Naia/Anthropic model IDs are never passed raw to OpenAI Codex CLI.
  */
 export function makeRoleSubAgent(
   resolution: LlmRolesResolution | null,
   role: DevelopmentRole,
   options: SubAgentCodexOptions = {},
 ): RoleFactoryResult {
-  if (!DEVELOPMENT_ROLES.includes(role)) {
-    return { ok: false, reason: `Role '${String(role)}' is not a development role` };
-  }
-  if (!resolution || !resolution.ok) {
-    return { ok: false, reason: "LLM role configuration is missing or invalid" };
-  }
-  const config = findRole(resolution, role);
-  if (!config) {
-    return { ok: false, reason: `Role '${role}' is missing from configuration` };
-  }
-  if (config.provider.value === "nextain" || config.provider.value === "naia") {
-    if (!isSupportedNaiaRoleModel(config.model.value)) {
-      return { ok: false, reason: `Model '${config.model.value}' is not registered for Naia role '${role}'` };
-    }
-  } else if (
-    config.provider.value !== "codex"
-    && config.provider.value !== "anthropic"
-    && config.provider.value !== "claude-code-cli"
-    && config.provider.value !== "grok"
-  ) {
-    return { ok: false, reason: `Provider '${config.provider.value}' is not permitted for role '${role}'` };
-  }
   const { model: _ignoredModel, ...callerOptions } = options;
-  return {
-    ok: true,
-    role,
-    agent: makeCodexSubAgent({
-      ...callerOptions,
-      model: config.model.value,
-    }),
-  };
+  return resolveRoleSubAgent(resolution, role, { codex: callerOptions });
 }
 
 export function resolveRoleSubAgent(
@@ -178,7 +156,24 @@ export function resolveRoleSubAgent(
       }),
     };
   }
-  return makeRoleSubAgent(resolution, role, options.codex);
+  const providerLower = config.provider.value.trim().toLowerCase();
+  if (providerLower === "nextain" || providerLower === "naia") {
+    const canonicalModel = normalizeSupportedNaiaRoleModel(config.model.value);
+    if (!canonicalModel) {
+      return { ok: false, reason: `Model '${config.model.value}' is not registered for Naia role '${role}'` };
+    }
+    return {
+      ok: false,
+      reason: `Account provider '${config.provider.value}' (model '${canonicalModel}') is not supported on the Codex role runner after Pi removal; configure a CLI worker role (codex, claude-code-cli, or grok)`,
+    };
+  }
+  if (providerLower === "anthropic") {
+    return {
+      ok: false,
+      reason: `Account provider 'anthropic' (model '${config.model.value}') is not supported on the Codex role runner after Pi removal; configure 'claude-code-cli' for Claude CLI roles`,
+    };
+  }
+  return { ok: false, reason: `Provider '${config.provider.value}' is not permitted for role '${role}'` };
 }
 
 export const makeConfiguredRoleSubAgent = resolveRoleSubAgent;
@@ -220,7 +215,10 @@ export function makeRoleSupervisorRunner(
         filesChanged: 0,
         additions: 0,
         deletions: 0,
-        verification: emptyVerification(),
+        verification: {
+          ok: false,
+          checks: [{ name: "role", pass: false, details: reason }],
+        },
         sessionOk: false,
       };
       egress.event({ kind: "session_end", ok: false, reason });

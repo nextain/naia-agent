@@ -78,5 +78,5 @@
 ## 코어 교체 결정 — Codex 기본화 및 Pi 제거 (2026-11-06)
 
 - **기본 코어**: `naia-agent`의 기본 코어 및 역할 실행기(`expert`/`main`/`sub` CLI 워커, `naia-agent run` 기본 에이전트, 위임 스킬 기본 에이전트)는 **`codex`**다.
-- **Pi 제거**: `@earendil-works/pi-coding-agent` 및 `@earendil-works/pi-ai` 의존성, `subagent-pi`, `naia-pi-provider`, `user-owned-pi-provider`, `pi-continuous-loop` 등 Pi 전용 경로는 모두 제거한다.
-- **역할 라우팅**: CLI 역할 실행기(`pi-role-runner.ts` 호환 진입점)는 `codex`를 기본 코어(`makeCodexSubAgent`)로 라우팅하고, 명시된 `claude-code-cli`(`makeClaudeCodeSubAgent`)와 `grok`(`makeGrokSubAgent`)을 직접 연결한다.
+- **Pi 제거**: `@earendil-works/pi-coding-agent` 및 `@earendil-works/pi-ai` 의존성과 Pi 전용 어댑터·연속 루프·과금 브리지·비용 비교기 경로는 모두 제거한다.
+- **역할 라우팅 (B2 선택지 (나) 채택)**: CLI 역할 실행기(`src/main/adapters/role-runner.ts`)는 CLI 워커 provider인 `codex`(`makeCodexSubAgent`), `claude-code-cli`(`makeClaudeCodeSubAgent`), `grok`(`makeGrokSubAgent`)만 각자의 인증된 CLI 어댑터로 직접 연결한다. 계정형 provider(`naia`/`nextain`, `anthropic`)는 Naia/Anthropic 모델 ID가 기본 OpenAI Codex CLI(`codex exec --model <id>`)로 그대로 넘어가는 오라우팅을 막기 위해, 검증된 브리지 지원 전까지 **spawn 전에 명시적 오류(`ok: false`)로 차단**한다. 이때 `isSupportedNaiaRoleModel`은 기존 대소문자 무시 매칭(`hcx-007` → `HCX-007`)을 유지하여 미등록 모델 오류와 계정형 provider 미지원 오류를 구분하며, `makeRoleSupervisorRunner`는 역할 해석 실패 시 `verification: { ok: false, checks: [{ name: "role", pass: false, details }] }`를 보고한다.

@@ -531,8 +531,8 @@ Shell / CLI (naia-agent chat | run | manage)
        └─ shell       → adapters/subagent-shell.ts
 ```
 
-- **제거된 Pi 구성요소**: `@earendil-works/pi-coding-agent`, `@earendil-works/pi-ai` 패키지 의존성, `adapters/subagent-pi.ts`, `adapters/naia-pi-provider.ts`, `adapters/naia-pi-versioned-billing.ts`, `adapters/user-owned-pi-provider.ts`, `adapters/pi-cost-attestation.ts`, `composition/pi-continuous-loop*.ts`, `benchmark/pi-cost-comparison.ts`, `bin/naia-agent-loop.mjs` 및 Pi 전용 스크립트·시험 픽스처.
+- **제거된 Pi 구성요소**: `@earendil-works/pi-coding-agent`, `@earendil-works/pi-ai` 패키지 의존성, Pi 전용 어댑터·연속 루프·과금 브리지·비용 비교기 및 Pi 전용 스크립트·시험 픽스처(상세 삭제 목록은 [Pi 제거 및 Codex 기본화 기록](progress/99.dev-comm/codex-core-swap-pi-removal-2026-11-06.md) 참조).
 - **교체된 기본 경로**:
-  - `naia-agent run` 및 `cli-supervise`: 기본 `--agent`를 `codex`로 설정하고, `SUPPORTED_SUBAGENTS`·`DELEGATE_AGENTS`·`IssueTeamAgentKind`·`cli.json` `coding.agent` 허용 목록에서 `pi`를 제외한다.
+  - `naia-agent run` 및 `cli-supervise`: 기본 `--agent`를 `codex`로 설정하고, `--no-tools` 지정 시 `--sandbox read-only`(`filesystemAccess: "read_only"`)로 실행한다. `SUPPORTED_SUBAGENTS`·`DELEGATE_AGENTS`·`IssueTeamAgentKind`·`cli.json` `coding.agent` 허용 목록에서 `pi`를 제외하며, 구 저장값 `coding.agent="pi"`는 `"codex"`로 마이그레이션 안내한다.
   - `naia-agent doctor`: `pi` 패키지 검사 대신 `checkCodexPreflight`로 Codex CLI 설치·버전 상태를 진단(`component: "codex"`)한다.
-  - 역할 실행기(`pi-role-runner.ts`): `expert`/`main`/`sub` 역할 실행 시 `codex`(`makeCodexSubAgent`)를 기본 코어로 사용하며 `claude-code-cli`·`grok`을 함께 라우팅한다.
+  - 역할 실행기(`src/main/adapters/role-runner.ts`): `expert`/`main`/`sub` 역할 실행 시 CLI 워커(`codex` → `makeCodexSubAgent`, `claude-code-cli` → `makeClaudeCodeSubAgent`, `grok` → `makeGrokSubAgent`)만 라우팅하고, 계정형 provider(`naia`/`nextain`, `anthropic`)는 검증된 브리지 지원 전까지 spawn 전에 fail-closed로 차단한다(B2 선택지 (나)).

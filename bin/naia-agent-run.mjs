@@ -43,8 +43,11 @@ const shellOpts =
       ? { shell: { command: "cmd", args: (t) => ["/c", t.prompt] } }
       : { shell: { command: "/bin/sh", args: (t) => ["-c", t.prompt] } }
     : undefined;
-const subAgentOpts = shellOpts ?? (a.agent === "codex" && a.model ? {
-  codex: { model: a.model },
+const subAgentOpts = shellOpts ?? (a.agent === "codex" && (a.model || a.noTools) ? {
+  codex: {
+    ...(a.model ? { model: a.model } : {}),
+    ...(a.noTools ? { noTools: true } : {}),
+  },
 } : undefined);
 
 const controller = new AbortController();
@@ -100,7 +103,12 @@ const sup = wireSupervisor({
 
 try {
   await sup.run(
-    { prompt: a.prompt, workdir, ...(a.model !== undefined ? { model: a.model } : {}) },
+    {
+      prompt: a.prompt,
+      workdir,
+      ...(a.model !== undefined ? { model: a.model } : {}),
+      ...(a.noTools ? { filesystemAccess: "read_only" } : {}),
+    },
     controller.signal,
     egress,
   );

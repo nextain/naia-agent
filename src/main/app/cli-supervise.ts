@@ -38,7 +38,7 @@ const USAGE = `naia-agent run <task> [options]
   --agent <name>      sub-agent (codex | shell | opencode | claude-code | gemini | grok, 기본: codex)
   --model <id>        모델 힌트(옵션)
   --tools             저장된 tools=false 기본값을 이번 실행에서 명시적으로 켬
-  --no-tools          도구를 끄고 분석 전용으로 실행(DeepSeek V4 Pro 필수)
+  --no-tools          쓰기 도구를 끄고 읽기 전용(--sandbox read-only)으로 실행(codex 전용)
   --watch             워크스페이스 변경 감시(git status 폴링). 변경 수치는 폴 간격마다 샘플 —
                       폴 간격보다 빨리 끝나는 작업은 변경이 안 잡힐 수 있음(권위적 결과는 --check 사용).
   --poll <ms>         감시 폴링 간격(ms)
@@ -137,6 +137,12 @@ export function parseSuperviseArgs(argv: readonly string[]): ParseResult {
 
   const prompt = positionals.join(" ").trim();
   if (prompt === "") return { ok: false, error: `작업 지시(<task>)가 비어있음\n\n${USAGE}` };
+  if (noTools && agent !== "codex") {
+    return {
+      ok: false,
+      error: `--no-tools(읽기 전용 샌드박스)는 codex 에이전트에서만 지원됩니다(요청: ${agent})`,
+    };
+  }
 
   return {
     ok: true,

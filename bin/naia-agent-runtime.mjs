@@ -10,6 +10,7 @@ import {
   allowLegacyCredentialFallback,
   WINDOWS_DPAPI_TIMEOUT_MS,
   credentialNameForProvider,
+  migrateLegacyCliCodingConfig,
   parseCliConfig,
   removeEnvLines,
   serializeCliConfig,
@@ -48,7 +49,13 @@ export function readCliConfig() {
   const global = readGlobalConfig();
   const workspace = resolveWorkspace(global);
   const local = parseCliConfig(readText(workspaceCliConfigPath(workspace)));
-  return { ...global, ...(local.coding ? { coding: local.coding } : {}) };
+  const merged = { ...global, ...(local.coding ? { coding: local.coding } : {}) };
+  const migrated = migrateLegacyCliCodingConfig(merged);
+  if (migrated.migratedFromPi) {
+    try { writeWorkspaceCliConfig(migrated.config, workspace); } catch { /* best-effort */ }
+    process.stderr.write('[naia-agent] 안내: 저장된 coding.agent="pi"를 "codex"로 자동 이전했습니다.\n');
+  }
+  return migrated.config;
 }
 
 export function writeGlobalConfig(config) {

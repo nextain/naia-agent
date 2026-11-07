@@ -224,6 +224,12 @@ export function setCliConfigValue(config: CliGlobalConfig, key: CliConfigKey, ra
     if (bool === null) return { ok: false, error: "coding.tools는 true 또는 false여야 합니다" };
     coding.tools = bool;
   } else if (key === "coding.agent") {
+    if (value === "pi") {
+      return {
+        ok: false,
+        error: "지원하지 않는 coding.agent: pi (pi 에이전트는 제거되었습니다. 'naia-agent config set coding.agent codex'로 설정하세요)",
+      };
+    }
     if (!["codex", "shell", "opencode", "claude-code", "gemini", "grok"].includes(value)) {
       return { ok: false, error: `지원하지 않는 coding.agent: ${value}` };
     }
@@ -233,6 +239,26 @@ export function setCliConfigValue(config: CliGlobalConfig, key: CliConfigKey, ra
     coding.model = value;
   }
   return { ok: true, config: { ...config, coding } };
+}
+
+/** Migrate legacy stored `coding.agent="pi"` to `"codex"`. */
+export function migrateLegacyCliCodingConfig(config: CliGlobalConfig): {
+  readonly config: CliGlobalConfig;
+  readonly migratedFromPi: boolean;
+} {
+  if (config.coding?.agent !== "pi") {
+    return { config, migratedFromPi: false };
+  }
+  return {
+    config: {
+      ...config,
+      coding: {
+        ...config.coding,
+        agent: "codex",
+      },
+    },
+    migratedFromPi: true,
+  };
 }
 
 export function resetCliConfigValue(config: CliGlobalConfig, key?: CliConfigKey): CliGlobalConfig {
@@ -291,9 +317,10 @@ export function applyCodingDefaults(argv: readonly string[], config: CliGlobalCo
   // Preserve it verbatim so the downstream parser owns the error and exit code.
   if (malformed) return out;
   const coding = config.coding;
-  const matchesStoredAgent = !explicitAgent || explicitAgent === coding?.agent;
+  const storedAgent = coding?.agent === "pi" ? "codex" : coding?.agent;
+  const matchesStoredAgent = !explicitAgent || explicitAgent === storedAgent;
   const matchesStoredModel = !explicitModel || explicitModel === coding?.model;
-  if (coding?.agent && !hasAgent) out.push("--agent", coding.agent);
+  if (storedAgent && !hasAgent) out.push("--agent", storedAgent);
   // Stored model/tools are one tuple with the stored agent. Explicitly selecting another
   // agent or model must not inherit Codex/Grok capability defaults. The downstream parser is
   // last-option-wins, so repeated value options use their final occurrence here as well.

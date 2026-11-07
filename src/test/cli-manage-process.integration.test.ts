@@ -1,7 +1,7 @@
 // @spec SPEC-019 — UC20 isolated-HOME CLI process integration.
 import { afterEach, describe, expect, it } from "vitest";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -123,5 +123,58 @@ describe("TEST-S-020 isolated HOME management flow", () => {
     const result = run(env, ["run", task, "--agent", "shell", "--json"]);
     expect(result.status).toBe(0);
     expect(JSON.parse(result.stdout)).toMatchObject({ sessionOk: true });
+  });
+
+  it("migrates legacy coding.agent='pi' in cli.json to 'codex' with a one-time notice (R2)", () => {
+    const { workspace, env } = sandbox();
+    expect(run(env, ["config", "set", "workspace", workspace]).status).toBe(0);
+    const cliConfigPath = join(workspace, "naia-settings", "cli.json");
+    writeFileSync(cliConfigPath, JSON.stringify({ coding: { agent: "pi", model: "gpt-5.4", tools: false } }, null, 2));
+
+    const first = run(env, ["config", "list", "--json"]);
+    expect(first.status).toBe(0);
+    expect(first.stderr).toContain('coding.agent="pi"');
+    expect(JSON.parse(first.stdout).config).toMatchObject({
+      "coding.agent": "codex",
+      "coding.model": "gpt-5.4",
+      "coding.tools": false,
+    });
+    expect(JSON.parse(readFileSync(cliConfigPath, "utf8"))).toEqual({
+      coding: { agent: "codex", model: "gpt-5.4", tools: false },
+    });
+
+    const second = run(env, ["config", "list", "--json"]);
+    expect(second.status).toBe(0);
+    expect(second.stderr).not.toContain('coding.agent="pi"');
+  });
+
+  it("enforces --sandbox read-only on naia-agent run --no-tools and rejects --no-tools on non-codex agents (B1)", () => {
+    const { root, workspace, env } = sandbox();
+    expect(run(env, ["config", "set", "workspace", workspace]).status).toBe(0);
+    const argsFile = join(root, "codex-args.json");
+    const fakeCodex = join(root, process.platform === "win32" ? "fake-codex.cmd" : "fake-codex");
+    const scriptJs = join(root, "fake-codex.mjs");
+    writeFileSync(
+      scriptJs,
+      `import { writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(argsFile)}, JSON.stringify(process.argv.slice(2)));\nconsole.log('{"type":"thread.started","thread_id":"th_ro"}');\nconsole.log('{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1}}');\nprocess.exit(0);\n`,
+      "utf8",
+    );
+    if (process.platform === "win32") {
+      writeFileSync(fakeCodex, `@echo off\r\n"${process.execPath}" "${scriptJs}" %*\r\n`, "utf8");
+    } else {
+      writeFileSync(fakeCodex, `#!/bin/sh\nexec "${process.execPath}" "${scriptJs}" "$@"\n`, "utf8");
+      chmodSync(fakeCodex, 0o755);
+    }
+
+    const roRun = run({ ...env, CODEX_BIN: fakeCodex }, ["run", "inspect repo", "--no-tools", "--model", "gpt-5.4", "--json"]);
+    expect(roRun.status).toBe(0);
+    expect(JSON.parse(roRun.stdout)).toMatchObject({ sessionOk: true });
+    const capturedArgs = JSON.parse(readFileSync(argsFile, "utf8")) as string[];
+    expect(capturedArgs).toContain("read-only");
+    expect(capturedArgs).not.toContain("workspace-write");
+
+    const invalidNoTools = run(env, ["run", "inspect repo", "--agent", "shell", "--no-tools", "--json"]);
+    expect(invalidNoTools.status).toBe(64);
+    expect(invalidNoTools.stderr).toContain("--no-tools(읽기 전용 샌드박스)는 codex 에이전트에서만 지원됩니다");
   });
 });

@@ -261,13 +261,11 @@ it("IT-SM-AGENT-01 실제 조립에서 기억 우선, 빈 역할과 메인 선�
       const deps = await composeAgentRuntimeDeps({ env: { NAIA_ADK_PATH: workspace, AGENT_PROVIDER: "fake", NAIA_AGENT_SKILLS: "off", NAIA_AGENT_TRANSCRIPT: "off", NAIA_MEMORY_SURFACING: "off", NAIA_ANYLLM_API_KEY: "fake" } });
       try {
         expect(deps.defaultConfig.model).toBe("grok-4.3");
-        expect(makeRoleProcessingPlans(deps.llmRoles).find((plan) => plan.when?.values.includes("main"))?.model).toBe("grok-4.3");
+        expect(makeRoleProcessingPlans(deps.llmRoles)).toEqual([]);
         let codexArgs: readonly string[] = [];
         const codex = makeRoleSubAgent(deps.llmRoles, "main", { resolveBin: () => ({ command: "fake-codex", prefixArgs: [] }), spawnFn: (_command, args) => { codexArgs = args; return { stdout: { on() {} }, stderr: { on() {} }, on() { return this; }, kill() { return false; } } as unknown as import("node:child_process").ChildProcess; } });
-        expect(codex.ok).toBe(true);
-        if (!codex.ok) throw new Error(codex.reason);
-        codex.agent.spawn({ prompt: "inspect", workdir: workspace });
-        expect(codexArgs).toContain("--model"); expect(codexArgs).toContain("grok-4.3");
+        expect(codex).toMatchObject({ ok: false, reason: expect.stringContaining("not supported on the Codex role runner") });
+        expect(codexArgs).toEqual([]);
         const { ChatTurnHandler } = await import("../main/app/chat-turn-handler.js");
         const { makeInMemoryApproval } = await import("../main/adapters/approval.js");
         const { makeInMemoryCredentials } = await import("../main/composition/index.js");

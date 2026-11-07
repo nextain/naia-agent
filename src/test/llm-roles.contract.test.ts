@@ -111,9 +111,9 @@ describe("main/sub/memory 역할 해석", () => {
   it("configured development roles invoke Codex/CLI directly and invalid providers fail closed", async () => {
     const valid = resolveLlmRoles({
       roles: {
-        expert: { provider: "anthropic", model: "claude-opus-4-8" },
+        expert: { provider: "claude-code-cli", model: "claude-opus-4-8" },
         main: { provider: "codex", model: "gpt-5.4" },
-        sub: { provider: "claude-code-cli", model: "claude-sonnet-4-6" },
+        sub: { provider: "grok", model: "grok-4.6" },
         memory: { inherit: "sub" },
       },
     });
@@ -134,7 +134,13 @@ describe("main/sub/memory 역할 해석", () => {
     await expect(failClosed("main", { prompt: "inspect", workdir: "D:/workspace" }, new AbortController().signal, egress)).resolves.toMatchObject({ ok: false, reason: expect.stringContaining("not permitted") });
     expect(supervise).toHaveBeenCalledTimes(1);
     expect(egress.event).toHaveBeenCalledWith(expect.objectContaining({ kind: "session_end", ok: false }));
-    expect(egress.report).toHaveBeenCalledWith(expect.objectContaining({ sessionOk: false }));
+    expect(egress.report).toHaveBeenCalledWith(expect.objectContaining({
+      sessionOk: false,
+      verification: {
+        ok: false,
+        checks: [{ name: "role", pass: false, details: expect.stringContaining("not permitted") }],
+      },
+    }));
   });
 
   it("supervisor runner는 매 호출마다 최신 역할 resolution을 읽는다", async () => {
@@ -165,15 +171,15 @@ describe("main/sub/memory 역할 해석", () => {
   it("실제 실행 가능한 역할만 sub-LLM 처리 계획으로 공개한다", () => {
     const roles = resolveLlmRoles({
       roles: {
-        expert: { provider: "anthropic", model: "opus" },
+        expert: { provider: "claude-code-cli", model: "opus" },
         main: { provider: "codex", model: "luna" },
-        sub: { provider: "opencode", model: "unsupported" },
+        sub: { provider: "anthropic", model: "non-cli-account" },
         memory: { inherit: "sub" },
       },
     });
     expect(makeRoleProcessingPlans(roles)).toEqual([
       expect.objectContaining({ provider: "codex", model: "luna", when: { key: "agent", values: ["main"] } }),
-      expect.objectContaining({ provider: "anthropic", model: "opus", when: { key: "agent", values: ["expert"] } }),
+      expect.objectContaining({ provider: "claude-code-cli", model: "opus", when: { key: "agent", values: ["expert"] } }),
     ]);
   });
 });

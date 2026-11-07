@@ -4,10 +4,12 @@ import { resolveLlmRoles } from "../main/domain/llm-roles.js";
 import {
   cliWorkerForProvider,
   CLI_ROLE_WORKERS,
+  isSupportedNaiaRoleModel,
   makeConfiguredRoleSubAgent,
   makeRoleProcessingPlans,
   makeRoleSubAgent,
   makeRoleSupervisorRunner,
+  normalizeSupportedNaiaRoleModel,
 } from "../main/adapters/role-runner.js";
 import type { ResolvedBin, SpawnFn } from "../main/adapters/subprocess-session.js";
 import type { TaskSpec } from "../main/domain/orchestration.js";
@@ -71,14 +73,27 @@ describe("Codex-default development role factory", () => {
     });
   });
 
-  it("accepts every registered skill-capable Naia role model", () => {
-    const valid = resolveLlmRoles({
+  it("validates Naia role models case-insensitively and blocks account-provider roles before spawn (B2)", () => {
+    expect(isSupportedNaiaRoleModel("HCX-007")).toBe(true);
+    expect(isSupportedNaiaRoleModel("hcx-007")).toBe(true);
+    expect(isSupportedNaiaRoleModel("hcx-dash-002")).toBe(true);
+    expect(isSupportedNaiaRoleModel("grok-4.3")).toBe(true);
+    expect(isSupportedNaiaRoleModel("deepseek-v4-flash")).toBe(true);
+    expect(isSupportedNaiaRoleModel("gpt-4o")).toBe(false);
+    expect(isSupportedNaiaRoleModel(undefined)).toBe(false);
+    expect(normalizeSupportedNaiaRoleModel("hcx-007")).toBe("HCX-007");
+    expect(normalizeSupportedNaiaRoleModel("hcx-dash-002")).toBe("HCX-DASH-002");
+
+    const registeredNaia = resolveLlmRoles({
       roles: {
-        main: { provider: "nextain", model: "deepseek-v4-flash" },
+        main: { provider: "nextain", model: "hcx-007" },
         sub: { inherit: "main" }, memory: { inherit: "sub" }, expert: { inherit: "main" },
       },
     });
-    expect(makeRoleSubAgent(valid, "sub").ok).toBe(true);
+    expect(makeRoleSubAgent(registeredNaia, "sub")).toMatchObject({
+      ok: false,
+      reason: expect.stringContaining("Account provider 'nextain' (model 'HCX-007') is not supported on the Codex role runner"),
+    });
     const invalid = resolveLlmRoles({
       roles: {
         main: { provider: "nextain", model: "invented-model" },
@@ -230,7 +245,7 @@ describe("Configured development role adapter routing (Codex default, Claude, Gr
     }
   });
 
-  it("routes non-CLI account providers (anthropic, naia) to the Codex adapter as default core", () => {
+  it("fails closed before spawn for non-CLI account providers (anthropic, naia/nextain) so Naia model IDs are never passed to Codex (B2)", () => {
     const anthropicResolved = resolveLlmRoles({
       roles: {
         main: { provider: "anthropic", model: "claude-sonnet-4-6" },
@@ -243,14 +258,11 @@ describe("Configured development role adapter routing (Codex default, Claude, Gr
     const selectedAnthropic = makeConfiguredRoleSubAgent(anthropicResolved, "main", {
       codex: { resolveBin: fixedBin("codex"), spawnFn: captureAnthropic.spawnFn },
     });
-    expect(selectedAnthropic.ok).toBe(true);
-    if (!selectedAnthropic.ok) return;
-
-    selectedAnthropic.agent.spawn({ prompt: "codex fallback test", workdir: "/tmp/codex-workspace" });
-    expect(captureAnthropic.captured).toMatchObject({ command: "codex", cwd: "/tmp/codex-workspace" });
-    expect(captureAnthropic.captured?.args).toEqual(expect.arrayContaining([
-      "--sandbox", "workspace-write", "--model", "claude-sonnet-4-6", "--cd", "/tmp/codex-workspace",
-    ]));
+    expect(selectedAnthropic).toMatchObject({
+      ok: false,
+      reason: expect.stringContaining("Account provider 'anthropic' (model 'claude-sonnet-4-6') is not supported on the Codex role runner after Pi removal"),
+    });
+    expect(captureAnthropic.captured).toBeUndefined();
 
     const naiaResolved = resolveLlmRoles({
       roles: {
@@ -267,13 +279,13 @@ describe("Configured development role adapter routing (Codex default, Claude, Gr
         spawnFn: captureNaia.spawnFn,
       },
     });
-    expect(selectedNaia.ok).toBe(true);
-    if (!selectedNaia.ok) return;
-
-    selectedNaia.agent.spawn({ prompt: "naia fallback test", workdir: "/tmp/naia-workspace" });
-    expect(captureNaia.captured?.args).toEqual(expect.arrayContaining([
-      "--model", "deepseek-v4-flash", "--cd", "/tmp/naia-workspace",
-    ]));
+    expect(selectedNaia).toMatchObject({
+      ok: false,
+      reason: expect.stringContaining("Account provider 'nextain' (model 'deepseek-v4-flash') is not supported on the Codex role runner after Pi removal"),
+    });
+    expect(captureNaia.captured).toBeUndefined();
+    expect(makeRoleProcessingPlans(anthropicResolved)).toEqual([]);
+    expect(makeRoleProcessingPlans(naiaResolved)).toEqual([]);
   });
 
   it("fails closed when role configuration is invalid or provider is unsupported", () => {
@@ -314,7 +326,7 @@ describe("Configured development role adapter routing (Codex default, Claude, Gr
     ]));
   });
 
-  it("supervises configured role via makeRoleSupervisorRunner and asserts which worker ran", async () => {
+  it("supervises configured role via makeRoleSupervisorRunner and emits failing verification check on role failure (B2)", async () => {
     const multiRoles = resolveLlmRoles({
       roles: {
         expert: { provider: "claude-code-cli", model: "claude-opus-4-8" },
@@ -345,5 +357,45 @@ describe("Configured development role adapter routing (Codex default, Claude, Gr
     expect(capture.captured).toBeDefined();
     expect(capture.captured?.command).toBe("codex");
     expect(capture.captured?.cwd).toBe("/tmp/ws");
+
+    const naiaRole = resolveLlmRoles({
+      roles: {
+        main: { provider: "nextain", model: "grok-4.3" },
+        sub: { inherit: "main" },
+        memory: { inherit: "sub" },
+        expert: { inherit: "main" },
+      },
+    });
+    const failedReports: unknown[] = [];
+    const failedEvents: unknown[] = [];
+    const failRunner = makeRoleSupervisorRunner(naiaRole, async () => {});
+    const failRes = await failRunner(
+      "main",
+      { prompt: "test task", workdir: "/tmp/ws" },
+      new AbortController().signal,
+      { event: (e) => failedEvents.push(e), report: (r) => failedReports.push(r) },
+    );
+    expect(failRes.ok).toBe(false);
+    expect(failedEvents).toEqual([
+      expect.objectContaining({ kind: "session_end", ok: false, reason: expect.stringContaining("not supported on the Codex role runner") }),
+    ]);
+    expect(failedReports).toEqual([
+      {
+        filesChanged: 0,
+        additions: 0,
+        deletions: 0,
+        sessionOk: false,
+        verification: {
+          ok: false,
+          checks: [
+            {
+              name: "role",
+              pass: false,
+              details: expect.stringContaining("not supported on the Codex role runner"),
+            },
+          ],
+        },
+      },
+    ]);
   });
 });

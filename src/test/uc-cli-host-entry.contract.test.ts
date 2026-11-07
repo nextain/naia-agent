@@ -119,6 +119,13 @@ describe("parseSuperviseArgs — 정직한 에러(throw 없음)", () => {
     expect(parseSuperviseArgs(["t", "--workdir", "--json"]).ok).toBe(false);
     expect(parseSuperviseArgs(["t", "--check", "--watch"]).ok).toBe(false);
   });
+
+  it("B1 — codex 이외의 에이전트에 --no-tools 지정 시 spawn 전 에러로 거부", () => {
+    const r = parseSuperviseArgs(["t", "--agent", "shell", "--no-tools"]);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error).toContain("--no-tools(읽기 전용 샌드박스)는 codex 에이전트에서만 지원됩니다");
+  });
 });
 
 describe("reportExitCode — UC-CLI S4", () => {
