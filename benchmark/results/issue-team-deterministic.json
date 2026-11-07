@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "benchmarkId": "naia-issue-team-deterministic-v1",
-  "sourceRevision": "27bdb3b1d5130e41922569676b1190d887b2884c",
+  "sourceRevision": "20c44c0e69c6c42bfb590f7da0ed4528072f348d",
   "paidCalls": 0,
   "observation": {
     "roleOrderMatches": true,
@@ -29,7 +29,7 @@
       "src/main/app/issue-team-worker.ts": "0e091f480a99eb37d607b99f9a967b2dd680741da206757cc58c4c2a32f25fba",
       "src/main/adapters/sqlite-issue-team-store.ts": "6e604d24435d9e8de1135547fd60e730a543e6cbc1b32bc98bb054e41ce2951c",
       "src/main/adapters/subagent-opencode-cli.ts": "92896cec86a982f09a65bf323b9083e60633732b3c39030517aa4431e79d1745",
-      "src/main/adapters/subagent-codex.ts": "70c305eeb058a1d1bf3b208f897084795d81adc8dbdf1c307b8f755eab94590d",
+      "src/main/adapters/subagent-codex.ts": "9dd2dd6487ffce67eb6974d13622c83ca4d1e7b0c19d3c8e9e0a0ef087bcac48",
       "src/main/domain/issue-team.ts": "a26ea6c4c3a5797ffaca2413b3bfc1866135c243d3c983e3e7d82013baceb647",
       "src/main/domain/issue-team-benchmark.ts": "56b2ec0d2a35e28f7762453db07bbf1b916f13ce1996678c8054d335a8d69ebc",
       "src/main/ports/issue-team.ts": "e91ad06b36c866be0fab931c6647166fe6f5d9f9fac3282e54e57993001872d3",
@@ -48,7 +48,7 @@
       "dist/main/app/issue-team-worker.js": "93b3a9e73c67d60d96c20c9abc2cbfc2af87b6747eeffdf2683f93eefa9215f9",
       "dist/main/adapters/sqlite-issue-team-store.js": "5de30dd40d3b7e94adcba686228276ef257a0d9dfcbacb7e57de8800b8b710c8",
       "dist/main/adapters/subagent-opencode-cli.js": "d06189e62132613e29fdc48e3dfbc746da8141a874ed495183ba1463ac22344b",
-      "dist/main/adapters/subagent-codex.js": "09269feff9537f183d59efcd9fae336a39938a8922710939525757956df6c5d6",
+      "dist/main/adapters/subagent-codex.js": "c439f2608f6603b0ad81a1a2c39c3aa6204fa0246db5599ddec09e5303e303f4",
       "dist/main/domain/issue-team-benchmark.js": "b5f953546badfee9d31d42890f0641177387a526c0511a53ba095b6681effef0",
       "dist/main/composition/supervised-issue-worker.js": "b3bb1a7ab249633c487d016d44a5019b5e02b399f1dd07a550c5e8a92d243d02",
       "dist/main/composition/issue-team-role-executor.js": "9bb55875376ca4cbe4ef2b6d22da3940233d25cc645719e836d7c98f4733faeb",
