@@ -27,7 +27,7 @@
 | **어댑터** | `src/main/adapters/naia-pi-versioned-billing.ts` | `@earendil-works/pi-ai` 스트림 래핑 기반 게이트웨이 과금 브리지 | 파일 삭제 |
 | **어댑터** | `src/main/adapters/user-owned-pi-provider.ts` | 사용자 소유 자격증명용 로컬 루프백 프록시 + Pi `models.json` 생성기 | 파일 삭제 |
 | **어댑터** | `src/main/adapters/pi-cost-attestation.ts` | Pi 모델 카탈로그(`@earendil-works/pi-ai/models.generated.js`) 기반 비용 증명기 | 파일 삭제 |
-| **어댑터** | `src/main/adapters/pi-role-runner.ts` | LLM 역할(`expert`/`main`/`sub`) 실행기에서 `makePiSubAgent` 폴백 및 Pi 모델 검증 사용 | Codex 기본 라우팅(`makeCodexSubAgent` + `makeClaudeCodeSubAgent` + `makeGrokSubAgent`)으로 교체 |
+| **어댑터** | `src/main/adapters/pi-role-runner.ts` → `src/main/adapters/role-runner.ts` | LLM 역할(`expert`/`main`/`sub`) 실행기에서 `makePiSubAgent` 폴백 및 Pi 모델 검증 사용 | `role-runner.ts`로 개명 및 Codex 기본 라우팅(`makeCodexSubAgent` + `makeClaudeCodeSubAgent` + `makeGrokSubAgent`)으로 교체 |
 | **어댑터** | `src/main/adapters/subagent-roster.ts` | `SUPPORTED_SUBAGENTS`·`DECLARED_SUBAGENTS`에 `"pi"` 등록 및 `makePiSubAgent` 연결 | `"pi"` 제거, `["codex", "opencode", "shell", "claude-code", "gemini", "grok"]` 유지 |
 | **어댑터** | `src/main/adapters/delegate-agent-skill.ts` | `DELEGATE_AGENTS` 목록 첫 항목으로 `"pi"` 노출 | `"pi"` 제거 (`"codex"`가 첫 항목) |
 | **어댑터** | `src/main/adapters/subagent-issue-actors.ts` | `session_end` 이벤트에서 `piEstimatedCost` 추출 | 일반 `estimatedCost` / `costUsd` 추출로 전환 |
@@ -41,7 +41,7 @@
 | **컴포지션** | `src/main/composition/mixed-issue-team-agents.ts` | `makePiSubAgent` 임포트 및 `agent === "pi"` 분기 | `"pi"` 분기 및 임포트 제거 (`codex`·`opencode` 사용) |
 | **컴포지션** | `src/main/composition/issue-team-role-executor.ts` | `piEstimatedCost` 참조 | 일반 비용 필드로 정리 |
 | **컴포지션** | `src/main/composition/pi-continuous-loop.ts`, `pi-continuous-loop-control.ts` | Pi 전용 연속 루프 오케스트레이터 | 파일 삭제 |
-| **벤치마크** | `src/main/benchmark/pi-cost-comparison.ts`, `benchmark/*`, `scripts/pi/*`, `examples/*pi*` | Pi 전용 비용 비교·연속 루프 벤치마크 및 헬퍼 스크립트 | 파일 삭제 |
+| **벤치마크** | `src/main/benchmark/pi-cost-comparison.ts`, `benchmark/*pi*`, `scripts/pi/*`, `examples/*pi*` | Pi 전용 비용 비교·연속 루프 벤치마크 및 헬퍼 스크립트 | Pi 전용 파일 삭제 (`run-issue-team-deterministic.mjs`, `run-multi-issue-deterministic.mjs`, `run-single-issue-live.mjs`는 Codex 기준으로 유지 및 산출물 재생성) |
 | **CLI 진입점** | `bin/naia-agent.mjs`, `bin/naia-agent-run.mjs`, `bin/naia-agent-manage.mjs`, `bin/naia-agent-runtime.mjs`, `bin/naia-agent-loop.mjs` | `pi` 서브에이전트 분기, `doctor`의 `@earendil-works/pi-coding-agent` 점검, `naia-agent-loop.mjs` | `codex` 기본 분기·`doctor` Codex 점검으로 교체, `bin/naia-agent-loop.mjs` 삭제 |
-| **빌드 진입점** | `scripts/builds/agent-stdio-entry.mjs` | `pi-role-runner` 주석 및 배선 | Codex 기반 역할 실행기 배선 유지 및 Pi 참조 제거 |
-| **시험** | `src/test/uc-naia-pi-controlled.integration.test.ts` 외 Pi 전용 시험 14개 | controlled Pi fixture 및 Pi 전용 단위·계약·통합 시험 | Pi 전용 시험 삭제, 공용 CLI·역할·로스터·위임·예산·오케스트레이션 시험은 `codex` 기준으로 전환 |
+| **빌드 진입점** | `scripts/builds/agent-stdio-entry.mjs` | `pi-role-runner` 임포트 및 배선 | `role-runner.ts`(`makeRoleProcessingPlans`, `makeRoleSupervisorRunner`)로 교체 및 Pi 참조 제거 |
+| **시험** | `src/test/uc-naia-pi-controlled.integration.test.ts` 외 Pi 전용 시험 12개 및 `pi-role-runner.contract.test.ts` | controlled Pi fixture 및 Pi 전용 단위·계약·통합 시험 | Pi 전용 시험 12개 삭제, `pi-role-runner.contract.test.ts`는 `role-runner.contract.test.ts`로 전환, 공용 CLI·역할·로스터·위임·예산·오케스트레이션 시험은 `codex` 기준으로 전환 |

@@ -4,13 +4,13 @@
     "src/main/ports/paid-call-budget.ts": {
       "layer": "ports",
       "uc": ["UC-ORCH-004"],
-      "contract": "docs/progress/99.dev-comm/UC-ORCH-004-pi-continuous-loop-contract-2026-08-04.md",
+      "contract": "docs/requirements.md",
       "note": "Provider-neutral durable pre-call reservation and receipt-settlement boundary."
     },
     "src/main/adapters/sqlite-paid-call-budget.ts": {
       "layer": "adapters",
       "uc": ["UC-ORCH-004"],
-      "contract": "docs/progress/99.dev-comm/UC-ORCH-004-pi-continuous-loop-contract-2026-08-04.md",
+      "contract": "docs/requirements.md",
       "note": "Cross-process SQLite paid-call ledger with fail-closed unresolved reservations."
     },
     "src/main/composition/mixed-issue-team-agents.ts": {

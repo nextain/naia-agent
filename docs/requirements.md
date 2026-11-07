@@ -103,7 +103,7 @@
 | FR-CLI-10 | **모델 능력 fail-closed** — Grok과 실측에서 9/10 이상 구조화 `tool_calls`를 반환한 모델은 tool coding 허용. DeepSeek-V4-Flash/Pro는 명시적 `--no-tools` 분석만 허용하고 생략 시 Pi spawn 전에 실패한다. Motif 3은 두 차례 실측에서 구조화 `tool_calls` 9/10, 10/10(요청 함수 일치 8/10, 9/10)을 반환해 목록 허용 기준(9/10 이상)을 충족했다. | Done (#93; Motif probe and model capability contract) |
 | FR-CLI-11 | **동일 CLI 표면** — Codex가 자식 프로세스로 호출한 경우와 사용자가 직접 호출한 경우 provider/model/workdir/terminal report가 동일하다. | Done (#93) |
 | FR-CLI-12 | **격리 환경·고정 Pi·canonical identity** — 고정 버전 Pi는 격리 config와 Naia key/필수 env만 받고 direct-provider secret을 상속하지 않는다. gateway usage/billing key는 `azure:<exact-model>`이며 Azure client cache는 모델별 endpoint를 혼용하지 않는다. | Done (#93; live 청구는 `OPERATIONAL_UNVERIFIED`) |
-| FR-CLI-13 | **실행 가능한 매뉴얼** — `docs/naia-account-pi-manual.md`의 clean-HOME 명령, exit code, model/usage/diff/verifier 판정을 자동 실행 가능한 acceptance로 유지한다. | Done (#93) |
+| FR-CLI-13 | **실행 가능한 매뉴얼** — `docs/naia-agent-cli-manual.md`의 명령, exit code, model/usage/diff/verifier 판정을 자동 실행 가능한 acceptance로 유지한다. | Done (#93) |
 | FR-CLI-14 | **계정 명령군** — `auth status|login|logout`이 provider별 로그인 상태를 관리한다. TTY 입력은 화면에 표시하지 않고 Windows DPAPI/Linux secret-tool에 저장한다(평문 fallback 금지). status/JSON/오류에는 키 값을 출력하지 않는다. 기존 `login`은 호환 alias이고 `.env`는 읽기·마이그레이션만 한다. | Done (#97) |
 | FR-CLI-15 | **CLI 설정 명령군** — `config list|get|set|reset`이 `workspace`, `coding.agent`, `coding.model`, `coding.tools` allowlist만 관리한다. 전역 config는 workspace 포인터만, `coding.*`는 현재 workspace의 `naia-settings/cli.json`에 둔다. LLM 정본을 복제하거나 secret을 저장하지 않는다. | Done (#97) |
 | FR-CLI-16 | **모델 카탈로그** — `models [provider] [--json]`이 모델 ID, provider, 용도, 도구 지원을 안정된 형식으로 보여 준다. Naia catalog 장애 시 검증된 Pi 내장 목록으로 제한적으로 fallback하고 그 출처를 표시한다. | Done (#97) |
@@ -1245,5 +1245,5 @@ R18 (#792 P01–P05): 904878e 위에 R17을 통합한다. Memory ab1f800의 생�
 | ID | 요구사항 | 상태 |
 |----|----------|:----:|
 | FR-CODEX-SWAP-1 | **Pi 의존성 완전 제거** — `package.json` 및 `pnpm-lock.yaml`에서 `@earendil-works/pi-coding-agent`와 `@earendil-works/pi-ai`를 제거하고, Pi 전용 어댑터(`subagent-pi`, `naia-pi-provider`, `naia-pi-versioned-billing`, `user-owned-pi-provider`, `pi-cost-attestation`)·연속 루프(`pi-continuous-loop*`, `bin/naia-agent-loop.mjs`)·벤치마크(`pi-cost-comparison`, `scripts/pi/*`, `benchmark/*`)를 제거한다. | Done |
-| FR-CODEX-SWAP-2 | **Codex 기본 코어 일원화** — CLI 코딩 감독기(`naia-agent run`, `cli-supervise`), 설정 관리(`cli-manage` `coding.agent`), 서브에이전트 로스터(`subagent-roster`), 위임 스킬(`delegate-agent-skill`), 이슈 팀(`issue-team`, `mixed-issue-team-agents`), 역할 실행기(`pi-role-runner`)에서 `pi`를 제거하고 `codex`(`gpt-5.4` 기본 모델)를 기본 코어로 사용한다. | Done |
+| FR-CODEX-SWAP-2 | **Codex 기본 코어 일원화** — CLI 코딩 감독기(`naia-agent run`, `cli-supervise`), 설정 관리(`cli-manage` `coding.agent`), 서브에이전트 로스터(`subagent-roster`), 위임 스킬(`delegate-agent-skill`), 이슈 팀(`issue-team`, `mixed-issue-team-agents`), 역할 실행기(`role-runner`)에서 `pi`를 제거하고 `codex`(`gpt-5.4` 기본 모델)를 기본 코어로 사용한다. | Done |
 | FR-CODEX-SWAP-3 | **CLI 진단 및 계약 시험 전환** — `naia-agent doctor`는 `component: "codex"`(`checkCodexPreflight`)를 점검하며, 기존 Pi 의존 시험은 Codex 기준 계약 시험으로 전환하거나 Pi 전용 픽스처는 제거한다. | Done |
