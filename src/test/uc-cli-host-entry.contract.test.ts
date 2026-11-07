@@ -12,13 +12,13 @@ import {
 import type { SupervisorReport, SubAgentEvent } from "../main/domain/orchestration.js";
 
 describe("parseSuperviseArgs — 기본/직교", () => {
-  it("프롬프트만 주면 기본값(agent=shell, workdir='.', watch=false, json=false, checks=[])", () => {
+  it("프롬프트만 주면 기본값(agent=codex, workdir='.', watch=false, json=false, checks=[])", () => {
     const r = parseSuperviseArgs(["버그 고쳐줘"]);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.args).toMatchObject({
       prompt: "버그 고쳐줘",
-      agent: "shell",
+      agent: "codex",
       workdir: ".",
       watch: false,
       json: false,
@@ -39,7 +39,7 @@ describe("parseSuperviseArgs — 기본/직교", () => {
       "--workdir",
       "/tmp/w",
       "--agent",
-      "pi",
+      "codex",
       "--model",
       "gpt-x",
       "--no-tools",
@@ -53,7 +53,7 @@ describe("parseSuperviseArgs — 기본/직교", () => {
     expect(r.args).toMatchObject({
       prompt: "작업",
       workdir: "/tmp/w",
-      agent: "pi",
+      agent: "codex",
       model: "gpt-x",
       noTools: true,
       watch: true,
@@ -82,7 +82,7 @@ describe("parseSuperviseArgs — 정직한 에러(throw 없음)", () => {
   });
 
   it("옵션만 있고 task 없음 = 에러", () => {
-    const r = parseSuperviseArgs(["--agent", "pi"]);
+    const r = parseSuperviseArgs(["--agent", "codex"]);
     expect(r.ok).toBe(false);
   });
 

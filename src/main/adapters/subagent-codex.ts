@@ -11,7 +11,7 @@
 //
 // codex JSONL 은 item.completed = **완료 snapshot** 만 내보냄(start/end 경계 없음). 그래서 도구 항목은
 // tool_use_end{ok:true}(완료됨) 로 표현한다(시작 경계가 없는 codex 포맷의 정직한 단일 표현). terminal
-// session_end 는 process close(code) 가 단일 발생(pi/opencode/claude-code 동일).
+// session_end 는 process close(code) 가 단일 발생(opencode/claude-code 동일).
 //
 // RT-verified(2026-06-29): thread.started/turn.started/item.completed(agent_message/command_execution)/
 // turn.completed 이벤트 shape + `exec --json -a never` 거부(`-a` 미지원) 실측.

@@ -48,17 +48,17 @@ describe("TEST-S-020 isolated HOME management flow", () => {
   it("config is allowlisted, atomic-readable, and models/doctor JSON stay machine-readable", () => {
     const { root, workspace, env } = sandbox();
     expect(run(env, ["config", "set", "workspace", workspace]).status).toBe(0);
-    expect(run(env, ["config", "set", "coding.agent", "pi"]).status).toBe(0);
+    expect(run(env, ["config", "set", "coding.agent", "codex"]).status).toBe(0);
     expect(run(env, ["config", "set", "coding.model", "grok-4.3"]).status).toBe(0);
     expect(run(env, ["config", "set", "coding.tools", "true"]).status).toBe(0);
 
     const listed = run(env, ["config", "list", "--json"]);
     expect(listed.status).toBe(0);
     expect(JSON.parse(listed.stdout).config).toEqual({
-      workspace, "coding.agent": "pi", "coding.model": "grok-4.3", "coding.tools": true,
+      workspace, "coding.agent": "codex", "coding.model": "grok-4.3", "coding.tools": true,
     });
     expect(JSON.parse(readFileSync(join(root, ".naia-agent", "config.json"), "utf8"))).toEqual({ adkPath: workspace });
-    expect(JSON.parse(readFileSync(join(workspace, "naia-settings", "cli.json"), "utf8"))).toMatchObject({ coding: { agent: "pi", model: "grok-4.3", tools: true } });
+    expect(JSON.parse(readFileSync(join(workspace, "naia-settings", "cli.json"), "utf8"))).toMatchObject({ coding: { agent: "codex", model: "grok-4.3", tools: true } });
 
     const models = run(env, ["models", "--json"]);
     expect(models.status).toBe(0);
@@ -116,7 +116,7 @@ describe("TEST-S-020 isolated HOME management flow", () => {
   it("explicit run flags override stored coding defaults in a real child process", () => {
     const { workspace, env } = sandbox();
     expect(run(env, ["config", "set", "workspace", workspace]).status).toBe(0);
-    expect(run(env, ["config", "set", "coding.agent", "pi"]).status).toBe(0);
+    expect(run(env, ["config", "set", "coding.agent", "codex"]).status).toBe(0);
     expect(run(env, ["config", "set", "coding.model", "grok-4.3"]).status).toBe(0);
     expect(run(env, ["config", "set", "coding.tools", "false"]).status).toBe(0);
     const task = process.platform === "win32" ? "exit /b 0" : "true";

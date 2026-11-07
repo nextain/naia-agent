@@ -224,7 +224,7 @@ export function setCliConfigValue(config: CliGlobalConfig, key: CliConfigKey, ra
     if (bool === null) return { ok: false, error: "coding.tools는 true 또는 false여야 합니다" };
     coding.tools = bool;
   } else if (key === "coding.agent") {
-    if (!["pi", "shell", "opencode", "claude-code", "codex", "gemini", "grok"].includes(value)) {
+    if (!["codex", "shell", "opencode", "claude-code", "gemini", "grok"].includes(value)) {
       return { ok: false, error: `지원하지 않는 coding.agent: ${value}` };
     }
     coding.agent = value;
@@ -295,7 +295,7 @@ export function applyCodingDefaults(argv: readonly string[], config: CliGlobalCo
   const matchesStoredModel = !explicitModel || explicitModel === coding?.model;
   if (coding?.agent && !hasAgent) out.push("--agent", coding.agent);
   // Stored model/tools are one tuple with the stored agent. Explicitly selecting another
-  // agent or model must not inherit Pi/Grok capability defaults. The downstream parser is
+  // agent or model must not inherit Codex/Grok capability defaults. The downstream parser is
   // last-option-wins, so repeated value options use their final occurrence here as well.
   if (coding?.model && !hasModel && matchesStoredAgent) out.push("--model", coding.model);
   const mayApplyStoredTools = matchesStoredAgent && matchesStoredModel

@@ -1,24 +1,6 @@
 {
   "_doc": "파일단위 계약 앵커 (드리프트 자동차단). src/main 의 모든 .ts 는 여기 {layer, uc, contract} 와 함께 등록돼야 한다. 미등록 파일 = 미계약 코드 = RED (scripts/check-file-anchors.mjs). 계약 먼저, 코드 나중 — 새 파일 추가 전 이 manifest 에 앵커 선언. layer ∈ {domain,ports,app,adapters,composition}. contract = docs/progress 의 계약 문서.",
   "files": {
-    "src/main/adapters/naia-pi-versioned-billing.ts": {
-      "layer": "adapters",
-      "uc": ["UC-ORCH-004"],
-      "contract": "docs/progress/99.dev-comm/UC-ORCH-004-pi-continuous-loop-contract-2026-08-04.md",
-      "note": "Atomic non-streaming Naia gateway billing bridge, shared durable request-level pre-call budget, owner-only receipt journal, and Pi-compatible SSE reconstruction."
-    },
-    "src/main/benchmark/pi-cost-comparison.ts": {
-      "layer": "domain",
-      "uc": ["UC-ORCH-004"],
-      "contract": "docs/progress/99.dev-comm/UC-ORCH-004-pi-continuous-loop-contract-2026-08-04.md",
-      "note": "Pure fail-closed decision contract for exact provider-priced paired Pi routing evidence."
-    },
-    "src/main/adapters/pi-cost-attestation.ts": {
-      "layer": "adapters",
-      "uc": ["UC-ORCH-004"],
-      "contract": "docs/progress/99.dev-comm/UC-ORCH-004-pi-continuous-loop-contract-2026-08-04.md",
-      "note": "External-key HMAC adapter for canonical paired-cost evidence; secrets remain outside serialized artifacts."
-    },
     "src/main/ports/paid-call-budget.ts": {
       "layer": "ports",
       "uc": ["UC-ORCH-004"],
@@ -31,23 +13,11 @@
       "contract": "docs/progress/99.dev-comm/UC-ORCH-004-pi-continuous-loop-contract-2026-08-04.md",
       "note": "Cross-process SQLite paid-call ledger with fail-closed unresolved reservations."
     },
-    "src/main/composition/pi-continuous-loop.ts": {
-      "layer": "composition",
-      "uc": ["UC-ORCH-004"],
-      "contract": "docs/progress/99.dev-comm/UC-ORCH-004-pi-continuous-loop-contract-2026-08-04.md",
-      "note": "Standalone Pi-only multi-session composition; deliberately has no OpenCode import edge."
-    },
-    "src/main/composition/pi-continuous-loop-control.ts": {
-      "layer": "composition",
-      "uc": ["UC-ORCH-004"],
-      "contract": "docs/progress/99.dev-comm/UC-ORCH-004-pi-continuous-loop-contract-2026-08-04.md",
-      "note": "Persistent NDJSON control session for one durable Pi-only loop instance."
-    },
     "src/main/composition/mixed-issue-team-agents.ts": {
       "layer": "composition",
       "uc": ["UC-ORCH-003"],
       "contract": "docs/progress/99.dev-comm/UC-ORCH-003-issue-team-contract-2026-08-02.md",
-      "note": "Legacy mixed Codex/OpenCode/Pi adapter catalog, isolated from the Pi-only runtime graph."
+      "note": "Mixed Codex/OpenCode adapter catalog for issue-team roles."
     },
     "src/main/ports/compaction.ts": {
       "layer": "ports",
@@ -455,14 +425,6 @@
       "contract": "docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md",
       "note": "도구 executor 합성(first-name-wins)"
     },
-    "src/main/adapters/panel-tool-executor.ts": {
-      "layer": "adapters",
-      "uc": [
-        "UC-PANEL"
-      ],
-      "contract": ".agents/progress/panel-skill-grpc-port-2026-06-24.md",
-      "note": "환경 panel skill executor — execute()=panel_tool_call emit→PanelToolResult 대기(E1 위임, FR-PANEL-1~5)"
-    },
     "src/main/adapters/builtin-skills.ts": {
       "layer": "adapters",
       "uc": [
@@ -653,14 +615,6 @@
       "contract": "docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md",
       "note": "notify(slack/discord/google_chat) ToolExecutor — webhook POST(injected post+webhookUrl). external-skill 패턴(github 동형)."
     },
-    "src/main/adapters/cron-skills.ts": {
-      "layer": "adapters",
-      "uc": [
-        "UC5"
-      ],
-      "contract": "docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md",
-      "note": "cron ToolExecutor — schedule/list/cancel + 순수 schedule-parse + injected CronStorePort. external-skill 패턴."
-    },
     "src/main/adapters/diagnostics-provider.ts": {
       "layer": "adapters",
       "uc": [
@@ -709,19 +663,7 @@
       "layer": "adapters",
       "uc": ["UC-014"],
       "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
-      "note": "pi/opencode 공유 subprocess 세션 머신 — child stdout 줄→이벤트(큐+waiter)·session_end 1회·cancel SIGTERM→500ms→SIGKILL·late-stdout/64MiB 가드. child_process 격리. SPEC-010."
-    },
-    "src/main/adapters/subagent-pi.ts": {
-      "layer": "adapters",
-      "uc": ["UC-014", "UC-ORCH-003", "UC-ORCH-004"],
-      "contract": ["docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md", "docs/progress/99.dev-comm/UC-ORCH-003-issue-team-contract-2026-08-02.md", "docs/progress/99.dev-comm/UC-ORCH-004-pi-continuous-loop-contract-2026-08-04.md"],
-      "note": "pi 코딩에이전트 SubAgentPort — Pi NDJSON 누적 usage/priced-cost evidence, bin resolve, honest unsupported, read-only tool boundary."
-    },
-    "src/main/adapters/naia-pi-provider.ts": {
-      "layer": "adapters",
-      "uc": ["UC-016", "UC-ORCH-004"],
-      "contract": ["docs/progress/99.dev-comm/naia-account-pi-azure-contract-2026-07-30.md", "docs/progress/99.dev-comm/UC-ORCH-004-pi-continuous-loop-contract-2026-08-04.md"],
-      "note": "Naia-account Pi catalog and secret-free provider config, including per-response output ceiling."
+      "note": "codex/opencode 공유 subprocess 세션 머신 — child stdout 줄→이벤트(큐+waiter)·session_end 1회·cancel SIGTERM→500ms→SIGKILL·late-stdout/64MiB 가드. child_process 격리. SPEC-010."
     },
     "src/main/adapters/subagent-opencode-cli.ts": {
       "layer": "adapters",
@@ -757,7 +699,7 @@
       "layer": "adapters",
       "uc": ["UC-014"],
       "contract": "docs/progress/99.dev-comm/UC-cli-orchestration-contract-2026-06-22.md",
-      "note": "이름→SubAgentPort 선택 — pi/opencode/shell/claude-code/codex/gemini 구현 + unknown = honest-unsupported(throw 아님, AC6). SPEC-010."
+      "note": "이름→SubAgentPort 선택 — codex/opencode/shell/claude-code/gemini/grok 구현 + unknown = honest-unsupported(throw 아님, AC6). SPEC-010."
     },
     "src/main/adapters/delegate-agent-skill.ts": {
       "layer": "adapters",
@@ -985,7 +927,7 @@
       "layer": "composition",
       "uc": ["UC-ORCH-003"],
       "contract": "docs/progress/99.dev-comm/UC-ORCH-003-issue-team-contract-2026-08-02.md",
-      "note": "Predeclared Codex/OpenCode/Pi profile selection through Supervisor with bounded JSON and honest per-role receipts."
+      "note": "Predeclared Codex/OpenCode profile selection through Supervisor with bounded JSON and honest per-role receipts."
     },
     "src/main/composition/profiled-issue-worker.ts": {
       "layer": "composition",
@@ -1038,6 +980,213 @@
         "docs/user-scenarios.md"
       ],
       "note": "2026-11-03 사용자 0.2.6 AX 지시. FR-AX-026 / UC-AX-026; opt-in 초기 구현."
+    },
+    "src/main/adapters/anyllm-provider-selection-store.ts": {
+      "layer": "adapters",
+      "uc": ["UC1"],
+      "contract": "docs/requirements.md",
+      "note": "AnyLLM provider selection store adapter."
+    },
+    "src/main/adapters/app-tool-executor.ts": {
+      "layer": "adapters",
+      "uc": ["UC5"],
+      "contract": "docs/requirements.md",
+      "note": "App tool executor adapter."
+    },
+    "src/main/adapters/codex-app-server-provider.ts": {
+      "layer": "adapters",
+      "uc": ["UC1", "UC5", "UC13"],
+      "contract": [
+        "docs/ARCHITECTURE.md",
+        "docs/requirements.md",
+        "docs/user-scenarios.md"
+      ],
+      "note": "Codex app-server JSON-RPC provider adapter."
+    },
+    "src/main/adapters/coding-job-codex-runner.ts": {
+      "layer": "adapters",
+      "uc": ["UC-CODEX-DELEGATION"],
+      "contract": "docs/requirements.md",
+      "note": "Codex runner adapter for durable coding jobs."
+    },
+    "src/main/adapters/coding-job-stdio.ts": {
+      "layer": "adapters",
+      "uc": ["UC-CODEX-DELEGATION"],
+      "contract": "docs/requirements.md",
+      "note": "Stdio adapter for coding job execution."
+    },
+    "src/main/adapters/coding-job-store.ts": {
+      "layer": "adapters",
+      "uc": ["UC-CODEX-DELEGATION"],
+      "contract": "docs/requirements.md",
+      "note": "Durable store adapter for coding jobs."
+    },
+    "src/main/adapters/coding-job-worktree.ts": {
+      "layer": "adapters",
+      "uc": ["UC-CODEX-DELEGATION"],
+      "contract": "docs/requirements.md",
+      "note": "Worktree adapter for coding jobs."
+    },
+    "src/main/adapters/discord-outbound.ts": {
+      "layer": "adapters",
+      "uc": ["UC-DISCORD-RUNTIME"],
+      "contract": "docs/requirements.md",
+      "note": "Discord outbound delivery adapter."
+    },
+    "src/main/adapters/durable-supervisor-scheduler.ts": {
+      "layer": "adapters",
+      "uc": ["UC-014"],
+      "contract": "docs/requirements.md",
+      "note": "Durable supervisor scheduler adapter."
+    },
+    "src/main/adapters/gateway-pricing.ts": {
+      "layer": "adapters",
+      "uc": ["UC1"],
+      "contract": "docs/requirements.md",
+      "note": "Gateway pricing lookup adapter."
+    },
+    "src/main/adapters/llm-role-runtime.ts": {
+      "layer": "adapters",
+      "uc": ["UC1", "UC13"],
+      "contract": [
+        "docs/llm-roles.md",
+        "docs/requirements.md"
+      ],
+      "note": "3-tier LLM role runtime adapter."
+    },
+    "src/main/adapters/memory-role-summarizer.ts": {
+      "layer": "adapters",
+      "uc": ["UC-memory"],
+      "contract": "docs/requirements.md",
+      "note": "Smallmodel memory role summarizer adapter."
+    },
+    "src/main/adapters/memory-skill.ts": {
+      "layer": "adapters",
+      "uc": ["UC-memory"],
+      "contract": "docs/requirements.md",
+      "note": "Memory skill ToolExecutorPort adapter."
+    },
+    "src/main/adapters/reloadable-memory.ts": {
+      "layer": "adapters",
+      "uc": ["UC-memory"],
+      "contract": "docs/requirements.md",
+      "note": "Reloadable workspace memory adapter."
+    },
+    "src/main/adapters/role-runner.ts": {
+      "layer": "adapters",
+      "uc": ["UC-014", "UC13"],
+      "contract": [
+        "docs/ARCHITECTURE.md",
+        "docs/llm-roles.md",
+        "docs/requirements.md",
+        "docs/progress/99.dev-comm/codex-core-swap-pi-removal-2026-11-06.md"
+      ],
+      "note": "Codex default core role runner and CLI worker subagent router."
+    },
+    "src/main/adapters/selected-workspace-coding.ts": {
+      "layer": "adapters",
+      "uc": ["UC-CODEX-DELEGATION"],
+      "contract": "docs/requirements.md",
+      "note": "Selected workspace coding adapter."
+    },
+    "src/main/adapters/sqlite-durable-supervisor-store.ts": {
+      "layer": "adapters",
+      "uc": ["UC-014"],
+      "contract": "docs/requirements.md",
+      "note": "SQLite durable supervisor store adapter."
+    },
+    "src/main/app/coding-job-service.ts": {
+      "layer": "app",
+      "uc": ["UC-CODEX-DELEGATION"],
+      "contract": "docs/requirements.md",
+      "note": "Coding job application service."
+    },
+    "src/main/app/durable-supervisor.ts": {
+      "layer": "app",
+      "uc": ["UC-014"],
+      "contract": "docs/requirements.md",
+      "note": "Durable supervisor application service."
+    },
+    "src/main/app/jeonju-discord-course.ts": {
+      "layer": "app",
+      "uc": ["UC-DISCORD-RUNTIME"],
+      "contract": "docs/requirements.md",
+      "note": "Jeonju Discord course application handler."
+    },
+    "src/main/app/memory-surfacer.ts": {
+      "layer": "app",
+      "uc": ["UC-memory"],
+      "contract": "docs/requirements.md",
+      "note": "Proactive memory surfacer application service."
+    },
+    "src/main/composition/durable-supervisor.ts": {
+      "layer": "composition",
+      "uc": ["UC-014"],
+      "contract": "docs/requirements.md",
+      "note": "Durable supervisor composition wiring."
+    },
+    "src/main/domain/anyllm-provider-catalog.ts": {
+      "layer": "domain",
+      "uc": ["UC1"],
+      "contract": "docs/requirements.md",
+      "note": "Pure AnyLLM provider catalog domain policy."
+    },
+    "src/main/domain/coding-job.ts": {
+      "layer": "domain",
+      "uc": ["UC-CODEX-DELEGATION"],
+      "contract": "docs/requirements.md",
+      "note": "Pure coding job domain model."
+    },
+    "src/main/domain/durable-supervisor.ts": {
+      "layer": "domain",
+      "uc": ["UC-014"],
+      "contract": "docs/requirements.md",
+      "note": "Pure durable supervisor domain model."
+    },
+    "src/main/domain/jeonju-course.ts": {
+      "layer": "domain",
+      "uc": ["UC-DISCORD-RUNTIME"],
+      "contract": "docs/requirements.md",
+      "note": "Pure Jeonju course domain policy."
+    },
+    "src/main/domain/llm-roles.ts": {
+      "layer": "domain",
+      "uc": ["UC1", "UC13"],
+      "contract": [
+        "docs/llm-roles.md",
+        "docs/requirements.md"
+      ],
+      "note": "Pure 3-tier LLM roles domain model (main, smallmodel, reasoning)."
+    },
+    "src/main/domain/surfacing.ts": {
+      "layer": "domain",
+      "uc": ["UC-memory"],
+      "contract": "docs/requirements.md",
+      "note": "Pure proactive surfacing domain model."
+    },
+    "src/main/ports/coding-job.ts": {
+      "layer": "ports",
+      "uc": ["UC-CODEX-DELEGATION"],
+      "contract": "docs/requirements.md",
+      "note": "Coding job port definitions."
+    },
+    "src/main/ports/durable-supervisor.ts": {
+      "layer": "ports",
+      "uc": ["UC-014"],
+      "contract": "docs/requirements.md",
+      "note": "Durable supervisor port definitions."
+    },
+    "src/main/ports/outbound-delivery.ts": {
+      "layer": "ports",
+      "uc": ["UC-DISCORD-RUNTIME"],
+      "contract": "docs/requirements.md",
+      "note": "Outbound delivery port definitions."
+    },
+    "src/main/ports/surfacing.ts": {
+      "layer": "ports",
+      "uc": ["UC-memory"],
+      "contract": "docs/requirements.md",
+      "note": "Proactive surfacing port definitions."
     }
   }
 }

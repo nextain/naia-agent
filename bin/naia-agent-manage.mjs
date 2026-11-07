@@ -21,6 +21,7 @@ import {
   setCliConfigValue,
 } from "../dist/main/app/cli-manage.js";
 import { checkCodexAxPreflight, listCodexAxModels } from "../dist/main/adapters/codex-app-server-provider.js";
+import { resolveCodexBin } from "../dist/main/adapters/subagent-codex.js";
 import { redactSecrets } from "../dist/main/adapters/redact.js";
 import {
   CONFIG_PATH,
@@ -146,7 +147,7 @@ function doConfig(args) {
 
 async function fetchModels() {
   const auth = loadCredentialIntoProcess("naia");
-  if (!auth.present || !auth.value) return { models: FALLBACK_NAIA_MODELS, source: "fallback", warning: "Naia 계정이 없어 내장 Pi 목록을 표시합니다." };
+  if (!auth.present || !auth.value) return { models: FALLBACK_NAIA_MODELS, source: "fallback", warning: "Naia 계정이 없어 내장 기본 목록을 표시합니다." };
   const base = (process.env.NAIA_API_BASE_URL || process.env.NAIA_ANYLLM_BASE_URL || "https://api.nextain.io").replace(/\/+$/, "").replace(/\/v1$/, "");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
@@ -160,7 +161,7 @@ async function fetchModels() {
     if (!models.length) throw new Error("empty catalog");
     return { models, source: "live" };
   } catch (error) {
-    return { models: FALLBACK_NAIA_MODELS, source: "fallback", warning: `live catalog 실패(${error instanceof Error ? error.message : String(error)}); 내장 Pi 목록 사용` };
+    return { models: FALLBACK_NAIA_MODELS, source: "fallback", warning: `live catalog 실패(${error instanceof Error ? error.message : String(error)}); 내장 기본 목록 사용` };
   } finally { clearTimeout(timer); }
 }
 
@@ -253,16 +254,13 @@ async function doDoctor(args) {
   const workspace = resolveWorkspace(config);
   const auth = readCredential("naia", config);
   const settings = join(workspace, "naia-settings", "config.json");
-  const piCandidates = [
-    join(HERE, "..", "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js"),
-    join(HERE, "..", "node_modules", ".bin", process.platform === "win32" ? "pi.cmd" : "pi"),
-  ];
+  const codexBin = resolveCodexBin();
   const catalog = await fetchModels();
   const checks = [
     { component: "account.naia", status: auth.present ? "pass" : "fail", detail: auth.present ? `source=${auth.source}` : "naia-agent auth login --provider naia 필요" },
     { component: "workspace", status: fs.existsSync(workspace) ? "pass" : "fail", detail: workspace },
     { component: "naia-settings", status: fs.existsSync(settings) ? "pass" : "warn", detail: fs.existsSync(settings) ? settings : "workspace naia-settings/config.json 없음" },
-    { component: "pi", status: piCandidates.some((path) => fs.existsSync(path)) ? "pass" : "fail", detail: piCandidates.find((path) => fs.existsSync(path)) ?? "Pi executable/package 없음" },
+    { component: "codex", status: codexBin ? "pass" : "fail", detail: codexBin ? [codexBin.command, ...codexBin.prefixArgs].join(" ") : "Codex CLI executable 없음" },
     { component: "models", status: catalog.source === "live" ? "pass" : "warn", detail: catalog.source === "live" ? `${catalog.models.length} live models` : catalog.warning },
   ];
   const codex = await checkCodexAxPreflight();

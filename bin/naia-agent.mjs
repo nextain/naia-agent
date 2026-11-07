@@ -19,7 +19,6 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const CHAT = join(HERE, "naia-agent-chat.mjs");
 const RUN = join(HERE, "naia-agent-run.mjs");
 const MANAGE = join(HERE, "naia-agent-manage.mjs");
-const LOOP = join(HERE, "naia-agent-loop.mjs");
 const SERVE = join(HERE, "naia-agent-serve.mjs");
 
 const HELP = `naia-agent — naia 단일 CLI (naia-os 없이 독립 실행)
@@ -28,15 +27,13 @@ const HELP = `naia-agent — naia 단일 CLI (naia-os 없이 독립 실행)
   naia-agent [chat] [--provider <p>] [--model <id>] [--system <p>] [--no-tools]
                      [--workspace <ws>] [--once <msg>]      대화(기본, 멀티턴 REPL)
   naia-agent run <task> [--agent <name>] [--model <id>] [--no-tools] [--workdir <dir>] [--check <n=cmd>] [--watch] [--json]
-                     sub-agent(gemini/opencode/pi/...) 감독 + 정직 보고
+                     sub-agent(codex/gemini/opencode/...) 감독 + 정직 보고
   naia-agent serve                 독립 Discord 수신 호스트(장시간 실행, 토큰 전용 stdin pipe)
-  naia-agent loop <serve|start|list|show|answer|cancel|pump|budget|reservations> --config <json> [...]
-                     내장 Pi 전용 지속 다중 이슈/역할 루프
   naia-agent workspace [<path>]   워크스페이스 설정(전역 고정)/조회 — 1기기=1설정
   naia-agent auth status|login|logout [...]      OS credential store 계정 관리
   naia-agent config list|get|set|reset [...]     workspace·코딩 기본값 관리
   naia-agent models [provider] [--json]          모델/도구 지원 목록
-  naia-agent doctor [--json]                     계정·workspace·Pi·gateway 진단
+  naia-agent doctor [--json]                     계정·workspace·Codex·gateway 진단
   naia-agent session list|show|resume [...]      기존 대화 세션 관리
   naia-agent login --provider <p> [--key <v>]    auth login 호환 alias
   naia-agent -h | --help          이 도움말
@@ -59,12 +56,10 @@ if (sub === "-h" || sub === "--help" || sub === "help") {
 }
 
 const manageCommands = new Set(["auth", "config", "models", "doctor", "session"]);
-const target = sub === "serve" ? SERVE : sub === "run" ? RUN : sub === "loop" ? LOOP : (sub === "login" || manageCommands.has(sub) ? MANAGE : CHAT);
+const target = sub === "serve" ? SERVE : sub === "run" ? RUN : (sub === "login" || manageCommands.has(sub) ? MANAGE : CHAT);
 const args = sub === "run"
   ? process.argv.slice(3)
   : sub === "serve"
-    ? process.argv.slice(3)
-  : sub === "loop"
     ? process.argv.slice(3)
   : sub === "login"
     ? ["auth", "login", ...process.argv.slice(3)]

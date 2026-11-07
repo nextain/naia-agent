@@ -79,9 +79,9 @@ describe("T-DISCORD-RT-02/05 — production entry wiring", () => {
     expect(entry).toContain("adkPath && existsSync(adkPath) ? new CodingJobService");
   });
 
-  it("wires configured Pi roles into the desktop host with workspace and role allowlists", () => {
+  it("wires configured Codex roles into the desktop host with workspace and role allowlists", () => {
     expect(entry).toContain("makeDelegateAgentSkill");
-    expect(entry).toContain("makePiRoleSupervisorRunner");
+    expect(entry).toContain("makeRoleSupervisorRunner");
     expect(entry).toContain("wireSupervisor({ subAgentName: agent");
     expect(entry).toContain("allowedWorkdirRoot: adkPath");
     expect(entry).toContain("resolveDefaultWorkdir: () => currentAdkPath");
@@ -89,8 +89,8 @@ describe("T-DISCORD-RT-02/05 — production entry wiring", () => {
     expect(entry).toContain('allowedAgents: ["expert", "main", "sub"]');
     expect(entry).toContain("() => activeLlmRoles");
     expect(entry).toContain("activeLlmRoles = path ? settingsStore.loadLlmRoles(path) : null");
-    expect(entry).toContain("makePiRoleProcessingPlans");
-    expect(entry).toContain("resolveProcessing: () => makePiRoleProcessingPlans(activeLlmRoles)");
+    expect(entry).toContain("makeRoleProcessingPlans");
+    expect(entry).toContain("resolveProcessing: () => makeRoleProcessingPlans(activeLlmRoles)");
     expect(entry).toContain("credentials.get(config.provider.value)?.naiaKey");
     expect(entry).toContain("NAIA_API_KEY: secret");
     expect(entry).not.toContain('workload === "memory_llm" || workload === "sub_llm"');

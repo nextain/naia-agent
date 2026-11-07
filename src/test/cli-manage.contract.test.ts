@@ -62,7 +62,7 @@ describe("SPEC-019 secure credential precedence", () => {
 describe("SPEC-019 allowlisted config and precedence", () => {
   it("preserves unrelated keys while setting/resetting only managed fields", () => {
     const base = parseCliConfig('{"other":{"keep":true},"adkPath":"C:\\\\old"}');
-    const set = setCliConfigValue(base, "coding.agent", "pi");
+    const set = setCliConfigValue(base, "coding.agent", "codex");
     expect(set.ok).toBe(true);
     if (!set.ok) return;
     const model = setCliConfigValue(set.config, "coding.model", "grok-4.3");
@@ -72,7 +72,7 @@ describe("SPEC-019 allowlisted config and precedence", () => {
     expect(tools.ok).toBe(true);
     if (!tools.ok) return;
     expect(getCliConfigValue(tools.config, "coding.tools")).toBe(false);
-    expect(resetCliConfigValue(tools.config, "workspace")).toMatchObject({ other: { keep: true }, coding: { agent: "pi" } });
+    expect(resetCliConfigValue(tools.config, "workspace")).toMatchObject({ other: { keep: true }, coding: { agent: "codex" } });
   });
 
   it("validates types/agent and recovers from damaged config", () => {
@@ -84,32 +84,32 @@ describe("SPEC-019 allowlisted config and precedence", () => {
   });
 
   it("treats stored agent/model/tools as one default tuple", () => {
-    const config = { coding: { agent: "pi", model: "grok-4.3", tools: false } };
-    expect(applyCodingDefaults(["task"], config)).toEqual(["task", "--agent", "pi", "--model", "grok-4.3", "--no-tools"]);
-    expect(applyCodingDefaults(["task", "--agent", "codex", "--model", "x", "--tools"], config))
-      .toEqual(["task", "--agent", "codex", "--model", "x", "--tools"]);
+    const config = { coding: { agent: "codex", model: "grok-4.3", tools: false } };
+    expect(applyCodingDefaults(["task"], config)).toEqual(["task", "--agent", "codex", "--model", "grok-4.3", "--no-tools"]);
+    expect(applyCodingDefaults(["task", "--agent", "opencode", "--model", "x", "--tools"], config))
+      .toEqual(["task", "--agent", "opencode", "--model", "x", "--tools"]);
+    expect(applyCodingDefaults(["task", "--agent", "opencode"], config))
+      .toEqual(["task", "--agent", "opencode"]);
     expect(applyCodingDefaults(["task", "--agent", "codex"], config))
-      .toEqual(["task", "--agent", "codex"]);
-    expect(applyCodingDefaults(["task", "--agent", "pi"], config))
-      .toEqual(["task", "--agent", "pi", "--model", "grok-4.3", "--no-tools"]);
+      .toEqual(["task", "--agent", "codex", "--model", "grok-4.3", "--no-tools"]);
     expect(applyCodingDefaults(["task", "--model", "other-model"], config))
-      .toEqual(["task", "--model", "other-model", "--agent", "pi"]);
+      .toEqual(["task", "--model", "other-model", "--agent", "codex"]);
     expect(applyCodingDefaults(["task", "--model", "grok-4.3"], config))
-      .toEqual(["task", "--model", "grok-4.3", "--agent", "pi", "--no-tools"]);
+      .toEqual(["task", "--model", "grok-4.3", "--agent", "codex", "--no-tools"]);
   });
 
   it("uses the downstream parser's last-option-wins precedence for repeated values", () => {
-    const config = { coding: { agent: "pi", model: "grok-4.3", tools: true } };
-    expect(applyCodingDefaults(["task", "--agent", "pi", "--agent", "codex"], config))
-      .toEqual(["task", "--agent", "pi", "--agent", "codex"]);
-    expect(applyCodingDefaults(["task", "--agent", "codex", "--agent", "pi"], config))
-      .toEqual(["task", "--agent", "codex", "--agent", "pi", "--model", "grok-4.3", "--tools"]);
+    const config = { coding: { agent: "codex", model: "grok-4.3", tools: true } };
+    expect(applyCodingDefaults(["task", "--agent", "codex", "--agent", "opencode"], config))
+      .toEqual(["task", "--agent", "codex", "--agent", "opencode"]);
+    expect(applyCodingDefaults(["task", "--agent", "opencode", "--agent", "codex"], config))
+      .toEqual(["task", "--agent", "opencode", "--agent", "codex", "--model", "grok-4.3", "--tools"]);
     expect(applyCodingDefaults(["task", "--model", "grok-4.3", "--model", "other"], config))
-      .toEqual(["task", "--model", "grok-4.3", "--model", "other", "--agent", "pi"]);
+      .toEqual(["task", "--model", "grok-4.3", "--model", "other", "--agent", "codex"]);
   });
 
   it("preserves malformed argv for the downstream parser instead of masking it with defaults", () => {
-    const config = { coding: { agent: "pi", model: "grok-4.3", tools: false } };
+    const config = { coding: { agent: "codex", model: "grok-4.3", tools: false } };
     expect(applyCodingDefaults(["task", "--agent"], config)).toEqual(["task", "--agent"]);
     expect(applyCodingDefaults(["task", "--agent", "--model", "x"], config))
       .toEqual(["task", "--agent", "--model", "x"]);

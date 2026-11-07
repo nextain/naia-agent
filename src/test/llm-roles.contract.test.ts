@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { resolveLlmRoles } from "../main/domain/llm-roles.js";
-import { makePiRoleProcessingPlans, makePiRoleSupervisorRunner } from "../main/adapters/pi-role-runner.js";
+import { makeRoleProcessingPlans, makeRoleSupervisorRunner } from "../main/adapters/role-runner.js";
 
 describe("main/sub/memory 역할 해석", () => {
   it("세 역할을 서로 다른 provider/model로 독립 해석한다", () => {
@@ -108,7 +108,7 @@ describe("main/sub/memory 역할 해석", () => {
     })).toEqual({ ok: false, role: "main", reason: "cycle" });
   });
 
-  it("configured development roles invoke Pi directly and invalid providers fail closed", async () => {
+  it("configured development roles invoke Codex/CLI directly and invalid providers fail closed", async () => {
     const valid = resolveLlmRoles({
       roles: {
         expert: { provider: "anthropic", model: "claude-opus-4-8" },
@@ -118,7 +118,7 @@ describe("main/sub/memory 역할 해석", () => {
       },
     });
     const supervise = vi.fn(async () => {});
-    const runner = makePiRoleSupervisorRunner(valid, supervise);
+    const runner = makeRoleSupervisorRunner(valid, supervise);
     const egress = { event: vi.fn(), report: vi.fn() };
     await expect(runner("expert", { prompt: "inspect", workdir: "D:/workspace" }, new AbortController().signal, egress)).resolves.toEqual({ ok: true });
     expect(supervise).toHaveBeenCalledTimes(1);
@@ -130,7 +130,7 @@ describe("main/sub/memory 역할 해석", () => {
         memory: { inherit: "sub" },
       },
     });
-    const failClosed = makePiRoleSupervisorRunner(invalid, supervise);
+    const failClosed = makeRoleSupervisorRunner(invalid, supervise);
     await expect(failClosed("main", { prompt: "inspect", workdir: "D:/workspace" }, new AbortController().signal, egress)).resolves.toMatchObject({ ok: false, reason: expect.stringContaining("not permitted") });
     expect(supervise).toHaveBeenCalledTimes(1);
     expect(egress.event).toHaveBeenCalledWith(expect.objectContaining({ kind: "session_end", ok: false }));
@@ -146,7 +146,7 @@ describe("main/sub/memory 역할 해석", () => {
       },
     });
     const supervise = vi.fn(async () => {});
-    const runner = makePiRoleSupervisorRunner(() => active, supervise);
+    const runner = makeRoleSupervisorRunner(() => active, supervise);
     const egress = { event: vi.fn(), report: vi.fn() };
     await expect(runner("main", { prompt: "first", workdir: "/workspace" }, new AbortController().signal, egress))
       .resolves.toMatchObject({ ok: false });
@@ -162,7 +162,7 @@ describe("main/sub/memory 역할 해석", () => {
     expect(supervise).toHaveBeenCalledOnce();
   });
 
-  it("Pi로 실제 실행 가능한 역할만 sub-LLM 처리 계획으로 공개한다", () => {
+  it("실제 실행 가능한 역할만 sub-LLM 처리 계획으로 공개한다", () => {
     const roles = resolveLlmRoles({
       roles: {
         expert: { provider: "anthropic", model: "opus" },
@@ -171,7 +171,7 @@ describe("main/sub/memory 역할 해석", () => {
         memory: { inherit: "sub" },
       },
     });
-    expect(makePiRoleProcessingPlans(roles)).toEqual([
+    expect(makeRoleProcessingPlans(roles)).toEqual([
       expect.objectContaining({ provider: "codex", model: "luna", when: { key: "agent", values: ["main"] } }),
       expect.objectContaining({ provider: "anthropic", model: "opus", when: { key: "agent", values: ["expert"] } }),
     ]);

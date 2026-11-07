@@ -5,11 +5,10 @@ import {
   cliWorkerForProvider,
   CLI_ROLE_WORKERS,
   makeConfiguredRoleSubAgent,
-  makePiRoleProcessingPlans,
-  makePiRoleSubAgent,
-  makePiRoleSupervisorRunner,
-  piProviderForRole,
-} from "../main/adapters/pi-role-runner.js";
+  makeRoleProcessingPlans,
+  makeRoleSubAgent,
+  makeRoleSupervisorRunner,
+} from "../main/adapters/role-runner.js";
 import type { ResolvedBin, SpawnFn } from "../main/adapters/subprocess-session.js";
 import type { TaskSpec } from "../main/domain/orchestration.js";
 
@@ -37,7 +36,7 @@ function captureSpawn() {
   };
 }
 
-describe("Pi-only development role factory", () => {
+describe("Codex-default development role factory", () => {
   const resolved = resolveLlmRoles({
     roles: {
       main: { provider: "codex", model: "gpt-5.6" },
@@ -48,21 +47,13 @@ describe("Pi-only development role factory", () => {
   });
 
   it("accepts a configured Codex or Claude development role", () => {
-    expect(makePiRoleSubAgent(resolved, "expert").ok).toBe(true);
-    expect(makePiRoleSubAgent(resolved, "main").ok).toBe(true);
-    expect(makePiRoleSubAgent(resolved, "sub").ok).toBe(true);
+    expect(makeRoleSubAgent(resolved, "expert").ok).toBe(true);
+    expect(makeRoleSubAgent(resolved, "main").ok).toBe(true);
+    expect(makeRoleSubAgent(resolved, "sub").ok).toBe(true);
   });
 
-  it("maps the Codex account role to Pi's OAuth provider rather than the OpenAI API-key provider", () => {
-    expect(piProviderForRole("codex")).toBe("openai-codex");
-    expect(piProviderForRole("codex")).not.toBe("openai");
-    expect(piProviderForRole("claude-code-cli")).toBe("anthropic");
-    expect(piProviderForRole("nextain")).toBe("naia");
-  });
-
-  it("does not allow memory to become a development Pi role", () => {
-    // The public role type excludes memory; runtime callers cannot select it.
-    expect(makePiRoleSubAgent(resolved, "memory" as never).ok).toBe(false);
+  it("does not allow memory to become a development role", () => {
+    expect(makeRoleSubAgent(resolved, "memory" as never).ok).toBe(false);
   });
 
   it("fails closed for an unsupported provider rather than falling back", () => {
@@ -74,34 +65,34 @@ describe("Pi-only development role factory", () => {
         expert: { inherit: "main" },
       },
     });
-    expect(makePiRoleSubAgent(invalid, "main")).toEqual({
+    expect(makeRoleSubAgent(invalid, "main")).toEqual({
       ok: false,
-      reason: "Provider 'opencode' is not permitted for Pi role 'main'",
+      reason: "Provider 'opencode' is not permitted for role 'main'",
     });
   });
 
-  it("accepts every registered skill-capable Naia Pi model", () => {
+  it("accepts every registered skill-capable Naia role model", () => {
     const valid = resolveLlmRoles({
       roles: {
         main: { provider: "nextain", model: "deepseek-v4-flash" },
         sub: { inherit: "main" }, memory: { inherit: "sub" }, expert: { inherit: "main" },
       },
     });
-    expect(makePiRoleSubAgent(valid, "sub").ok).toBe(true);
+    expect(makeRoleSubAgent(valid, "sub").ok).toBe(true);
     const invalid = resolveLlmRoles({
       roles: {
         main: { provider: "nextain", model: "invented-model" },
         sub: { inherit: "main" }, memory: { inherit: "sub" }, expert: { inherit: "main" },
       },
     });
-    expect(makePiRoleSubAgent(invalid, "sub")).toMatchObject({
+    expect(makeRoleSubAgent(invalid, "sub")).toMatchObject({
       ok: false,
       reason: expect.stringContaining("not registered"),
     });
   });
 });
 
-describe("Configured development role adapter routing (Codex, Claude, Grok, Pi fallback)", () => {
+describe("Configured development role adapter routing (Codex default, Claude, Grok)", () => {
   const resolved = resolveLlmRoles({
     roles: {
       main: { provider: "codex", model: "gpt-5.6" },
@@ -111,7 +102,7 @@ describe("Configured development role adapter routing (Codex, Claude, Grok, Pi f
     },
   });
 
-  it("table maps provider ids to the expected CLI worker or Pi fallback", () => {
+  it("table maps provider ids to the expected CLI worker or Codex default", () => {
     expect(CLI_ROLE_WORKERS).toHaveProperty("codex");
     expect(CLI_ROLE_WORKERS).toHaveProperty("claude");
     expect(CLI_ROLE_WORKERS).toHaveProperty("grok");
@@ -202,7 +193,6 @@ describe("Configured development role adapter routing (Codex, Claude, Grok, Pi f
     const previousSecret = process.env.NAIA_TEST_SECRET;
     process.env.NAIA_TEST_SECRET = "super-secret-12345";
     try {
-      // Claude child env isolation
       const captureClaude = captureSpawn();
       const claudeSelected = makeConfiguredRoleSubAgent(resolved, "expert", {
         claude: { resolveBin: fixedBin("claude"), spawnFn: captureClaude.spawnFn },
@@ -215,7 +205,6 @@ describe("Configured development role adapter routing (Codex, Claude, Grok, Pi f
         expect(captureClaude.captured?.env?.PATH).toBeDefined();
       }
 
-      // Grok child env isolation
       const grokResolved = resolveLlmRoles({
         roles: {
           main: { provider: "grok", model: "grok-4.6" },
@@ -241,7 +230,7 @@ describe("Configured development role adapter routing (Codex, Claude, Grok, Pi f
     }
   });
 
-  it("routes non-CLI account providers (anthropic, naia) to the Pi adapter as fallback", () => {
+  it("routes non-CLI account providers (anthropic, naia) to the Codex adapter as default core", () => {
     const anthropicResolved = resolveLlmRoles({
       roles: {
         main: { provider: "anthropic", model: "claude-sonnet-4-6" },
@@ -252,15 +241,15 @@ describe("Configured development role adapter routing (Codex, Claude, Grok, Pi f
     });
     const captureAnthropic = captureSpawn();
     const selectedAnthropic = makeConfiguredRoleSubAgent(anthropicResolved, "main", {
-      pi: { resolveBin: fixedBin("pi"), spawnFn: captureAnthropic.spawnFn },
+      codex: { resolveBin: fixedBin("codex"), spawnFn: captureAnthropic.spawnFn },
     });
     expect(selectedAnthropic.ok).toBe(true);
     if (!selectedAnthropic.ok) return;
 
-    selectedAnthropic.agent.spawn({ prompt: "pi fallback test", workdir: "/tmp/pi-workspace" });
-    expect(captureAnthropic.captured).toMatchObject({ command: "pi", cwd: "/tmp/pi-workspace" });
+    selectedAnthropic.agent.spawn({ prompt: "codex fallback test", workdir: "/tmp/codex-workspace" });
+    expect(captureAnthropic.captured).toMatchObject({ command: "codex", cwd: "/tmp/codex-workspace" });
     expect(captureAnthropic.captured?.args).toEqual(expect.arrayContaining([
-      "-p", "pi fallback test", "--mode", "json", "--no-session", "--provider", "anthropic", "--model", "claude-sonnet-4-6",
+      "--sandbox", "workspace-write", "--model", "claude-sonnet-4-6", "--cd", "/tmp/codex-workspace",
     ]));
 
     const naiaResolved = resolveLlmRoles({
@@ -273,11 +262,9 @@ describe("Configured development role adapter routing (Codex, Claude, Grok, Pi f
     });
     const captureNaia = captureSpawn();
     const selectedNaia = makeConfiguredRoleSubAgent(naiaResolved, "main", {
-      pi: {
-        resolveBin: fixedBin("pi"),
+      codex: {
+        resolveBin: fixedBin("codex"),
         spawnFn: captureNaia.spawnFn,
-        env: { ...process.env, NAIA_API_KEY: "test-naia-key" },
-        gatewayBillingMode: "unavailable",
       },
     });
     expect(selectedNaia.ok).toBe(true);
@@ -285,7 +272,7 @@ describe("Configured development role adapter routing (Codex, Claude, Grok, Pi f
 
     selectedNaia.agent.spawn({ prompt: "naia fallback test", workdir: "/tmp/naia-workspace" });
     expect(captureNaia.captured?.args).toEqual(expect.arrayContaining([
-      "--provider", "naia", "--model", "deepseek-v4-flash",
+      "--model", "deepseek-v4-flash", "--cd", "/tmp/naia-workspace",
     ]));
   });
 
@@ -305,7 +292,7 @@ describe("Configured development role adapter routing (Codex, Claude, Grok, Pi f
     });
     expect(makeConfiguredRoleSubAgent(unsupported, "main")).toEqual({
       ok: false,
-      reason: "Provider 'opencode' is not permitted for Pi role 'main'",
+      reason: "Provider 'opencode' is not permitted for role 'main'",
     });
   });
 
@@ -318,7 +305,7 @@ describe("Configured development role adapter routing (Codex, Claude, Grok, Pi f
         memory: { inherit: "sub" },
       },
     });
-    const plans = makePiRoleProcessingPlans(multiRoles);
+    const plans = makeRoleProcessingPlans(multiRoles);
     expect(plans).toHaveLength(3);
     expect(plans).toEqual(expect.arrayContaining([
       expect.objectContaining({ provider: "codex", model: "gpt-5.6", when: { key: "agent", values: ["main"] } }),
@@ -327,7 +314,7 @@ describe("Configured development role adapter routing (Codex, Claude, Grok, Pi f
     ]));
   });
 
-  it("supervises configured role via makePiRoleSupervisorRunner and asserts which worker ran", async () => {
+  it("supervises configured role via makeRoleSupervisorRunner and asserts which worker ran", async () => {
     const multiRoles = resolveLlmRoles({
       roles: {
         expert: { provider: "claude-code-cli", model: "claude-opus-4-8" },
@@ -339,7 +326,7 @@ describe("Configured development role adapter routing (Codex, Claude, Grok, Pi f
     let supervisedAgent: unknown;
     let supervisedTask: TaskSpec | undefined;
     const capture = captureSpawn();
-    const runner = makePiRoleSupervisorRunner(
+    const runner = makeRoleSupervisorRunner(
       multiRoles,
       async (agent, task) => {
         supervisedAgent = agent;

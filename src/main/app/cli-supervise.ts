@@ -35,7 +35,7 @@ const USAGE = `naia-agent run <task> [options]
 
   <task>              작업 지시(필수, 따옴표로 감싸기)
   --workdir <dir>     작업 디렉터리(기본: 현재 디렉터리)
-  --agent <name>      sub-agent (shell | pi | opencode | claude-code | codex | gemini | grok, 기본: shell)
+  --agent <name>      sub-agent (codex | shell | opencode | claude-code | gemini | grok, 기본: codex)
   --model <id>        모델 힌트(옵션)
   --tools             저장된 tools=false 기본값을 이번 실행에서 명시적으로 켬
   --no-tools          도구를 끄고 분석 전용으로 실행(DeepSeek V4 Pro 필수)
@@ -60,7 +60,7 @@ export function superviseUsage(): string {
 export function parseSuperviseArgs(argv: readonly string[]): ParseResult {
   const positionals: string[] = [];
   let workdir = ".";
-  let agent = "shell";
+  let agent = "codex";
   let model: string | undefined;
   let noTools = false;
   let watch = false;
@@ -167,7 +167,7 @@ export function renderEvent(e: SubAgentEvent): string | null {
       return null;
     case "model_evidence": {
       const x = e.evidence;
-      return `· Pi 모델: ${x.provider}/${x.selectedModel}, tokens=${x.totalTokens}`;
+      return `· 에이전트 모델: ${x.provider}/${x.selectedModel}, tokens=${x.totalTokens}`;
     }
     case "session_end":
       return `· 세션 종료 (${e.ok ? "성공" : "실패"})${e.reason ? `: ${e.reason}` : ""}`;
@@ -182,7 +182,7 @@ export function renderReport(r: SupervisorReport): string {
   lines.push(`sub-agent 세션: ${r.sessionOk ? "성공" : "실패"}`);
   if (r.modelEvidence) {
     const x = r.modelEvidence;
-    lines.push(`Pi 모델 증거: ${x.provider}/${x.selectedModel}, input=${x.inputTokens}, output=${x.outputTokens}, total=${x.totalTokens}${x.piEstimatedCost !== undefined ? `, Pi 추정비용=$${x.piEstimatedCost}` : ""}`);
+    lines.push(`모델 증거: ${x.provider}/${x.selectedModel}, input=${x.inputTokens}, output=${x.outputTokens}, total=${x.totalTokens}${x.estimatedCostUsd !== undefined ? `, 추정비용=$${x.estimatedCostUsd}` : ""}`);
   }
   if (r.verification.checks.length === 0) {
     lines.push("검증: 미수행(검증 명령 없음)");

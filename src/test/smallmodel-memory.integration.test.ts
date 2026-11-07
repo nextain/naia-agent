@@ -248,7 +248,7 @@ it("IT-SM-AGENT-01 실제 조립에서 기억 우선, 빈 역할과 메인 선�
   const { mkdir, writeFile } = await import("node:fs/promises");
   // @ts-expect-error JavaScript composition entry has no TypeScript declaration.
   const { composeAgentRuntimeDeps } = await import("../../scripts/builds/compose-agent-deps.mjs");
-  const { makePiRoleProcessingPlans, makePiRoleSubAgent } = await import("../main/adapters/pi-role-runner.js");
+  const { makeRoleProcessingPlans, makeRoleSubAgent } = await import("../main/adapters/role-runner.js");
   const root = await mkdtemp(join(tmpdir(), "agent-compose-memory-"));
   const models: string[] = [];
   const originalFetch = globalThis.fetch;
@@ -261,13 +261,13 @@ it("IT-SM-AGENT-01 실제 조립에서 기억 우선, 빈 역할과 메인 선�
       const deps = await composeAgentRuntimeDeps({ env: { NAIA_ADK_PATH: workspace, AGENT_PROVIDER: "fake", NAIA_AGENT_SKILLS: "off", NAIA_AGENT_TRANSCRIPT: "off", NAIA_MEMORY_SURFACING: "off", NAIA_ANYLLM_API_KEY: "fake" } });
       try {
         expect(deps.defaultConfig.model).toBe("grok-4.3");
-        expect(makePiRoleProcessingPlans(deps.llmRoles).find((plan) => plan.when?.values.includes("main"))?.model).toBe("grok-4.3");
-        let piArgs: readonly string[] = [];
-        const pi = makePiRoleSubAgent(deps.llmRoles, "main", { env: { NAIA_API_KEY: "fake", PATH: "" }, piConfigDir: join(workspace, "pi-test"), resolveBin: () => ({ command: "fake-pi", prefixArgs: [] }), spawnFn: (_command, args) => { piArgs = args; return { stdout: { on() {} }, stderr: { on() {} }, on() { return this; }, kill() { return false; } } as unknown as import("node:child_process").ChildProcess; } });
-        expect(pi.ok).toBe(true);
-        if (!pi.ok) throw new Error(pi.reason);
-        pi.agent.spawn({ prompt: "inspect", workdir: workspace });
-        expect(piArgs).toContain("--model"); expect(piArgs).toContain("grok-4.3");
+        expect(makeRoleProcessingPlans(deps.llmRoles).find((plan) => plan.when?.values.includes("main"))?.model).toBe("grok-4.3");
+        let codexArgs: readonly string[] = [];
+        const codex = makeRoleSubAgent(deps.llmRoles, "main", { resolveBin: () => ({ command: "fake-codex", prefixArgs: [] }), spawnFn: (_command, args) => { codexArgs = args; return { stdout: { on() {} }, stderr: { on() {} }, on() { return this; }, kill() { return false; } } as unknown as import("node:child_process").ChildProcess; } });
+        expect(codex.ok).toBe(true);
+        if (!codex.ok) throw new Error(codex.reason);
+        codex.agent.spawn({ prompt: "inspect", workdir: workspace });
+        expect(codexArgs).toContain("--model"); expect(codexArgs).toContain("grok-4.3");
         const { ChatTurnHandler } = await import("../main/app/chat-turn-handler.js");
         const { makeInMemoryApproval } = await import("../main/adapters/approval.js");
         const { makeInMemoryCredentials } = await import("../main/composition/index.js");

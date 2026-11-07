@@ -196,7 +196,7 @@ export function deleteCredential(provider, config = readCliConfig()) {
   return { ok: true, name };
 }
 
-/** Load only into this process; child isolation remains subagent-pi's responsibility. */
+/** Load only into this process; child isolation remains the sub-agent's responsibility. */
 export function loadCredentialIntoProcess(provider, config = readCliConfig()) {
   const found = readCredential(provider, config);
   if (!found.present || !found.value) return found;
