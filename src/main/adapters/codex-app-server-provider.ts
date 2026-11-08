@@ -4,7 +4,7 @@
 // `codex app-server`를 사용하며 auth.json/token을 읽거나 복사하지 않는다.
 // app-server JSONL 프로토콜은 이 파일 안에 격리하고 ProviderPort에는 정규화 chunk만 노출한다.
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { buildIsolatedSubprocessEnv, resolveFallbackCommand, type ResolveCommandOptions } from "./subprocess-session.js";
@@ -96,38 +96,43 @@ export interface ManagedCodexHomeOptions {
  * auth.json (never reading or copying auth.json contents). This prevents inheriting a user's
  * ~/.codex/config.toml (MCP servers, model overrides, etc.) even when no workspace is bound.
  */
-export async function prepareManagedCodexHome(
+export function prepareManagedCodexHomeSync(
   opts: ManagedCodexHomeOptions = {},
-): Promise<string> {
+): string {
   const sourceEnv = opts.sourceEnv ?? process.env;
   const tmpBase = sourceEnv.TMPDIR || sourceEnv.TMP || sourceEnv.TEMP || tmpdir();
   const targetDir = opts.targetDir
     ?? (opts.workspaceRoot
       ? join(opts.workspaceRoot, "naia-settings", "codex-home")
       : join(tmpBase, "naia-settings", `codex-home-${process.pid}`));
-  const { mkdir, writeFile, symlink, lstat, unlink } = await import("node:fs/promises");
-  await mkdir(targetDir, { recursive: true, mode: 0o700 });
-  await writeFile(join(targetDir, "config.toml"), "", { mode: 0o600 });
+  mkdirSync(targetDir, { recursive: true, mode: 0o700 });
+  writeFileSync(join(targetDir, "config.toml"), "", { mode: 0o600 });
   const sourceCodexHome = sourceEnv.CODEX_HOME
     ?? (sourceEnv.HOME ? join(sourceEnv.HOME, ".codex") : undefined);
   if (sourceCodexHome && resolve(sourceCodexHome) !== resolve(targetDir)) {
     const targetAuth = join(targetDir, "auth.json");
     const sourceAuth = join(sourceCodexHome, "auth.json");
     try {
-      const stat = await lstat(targetAuth);
+      const stat = lstatSync(targetAuth);
       if (stat.isSymbolicLink()) {
-        await unlink(targetAuth);
-        await symlink(sourceAuth, targetAuth);
+        unlinkSync(targetAuth);
+        symlinkSync(sourceAuth, targetAuth);
       }
     } catch {
       try {
-        await symlink(sourceAuth, targetAuth);
+        symlinkSync(sourceAuth, targetAuth);
       } catch {
         /* symlink is best-effort without reading auth.json */
       }
     }
   }
   return targetDir;
+}
+
+export async function prepareManagedCodexHome(
+  opts: ManagedCodexHomeOptions = {},
+): Promise<string> {
+  return prepareManagedCodexHomeSync(opts);
 }
 
 /** token/auth.json을 읽지 않고 Codex CLI의 안정 명령만으로 버전·설치·로그인 상태를 확인한다. */
@@ -474,7 +479,7 @@ export async function* runCodexAppServerTurn(
   let peer: RpcPeer;
   try {
     peer = await (peerFactory ? peerFactory() : input.ax
-      ? makeCodexRpcPeer(() => spawnCodexAx(axCwd!, axModelCatalog))
+      ? makeCodexRpcPeer(() => spawnCodexAx(axCwd!, axModelCatalog, { workspaceRoot: input.workspace?.canonicalRoot }))
       : makeCodexRpcPeer(() => defaultSpawnCodex({ workspaceRoot: input.workspace?.canonicalRoot })));
   } catch (error) {
     if (axCwd) await (await import("node:fs/promises")).rm(axCwd, { recursive: true, force: true });
@@ -671,14 +676,23 @@ export async function checkCodexAxPreflight(runVersion?: RunCodexStatus, runLogi
   }
 }
 
-async function runCodexCommand(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+async function runCodexCommand(
+  args: string[],
+  opts?: ResolveCommandOptions & CodexSubprocessEnvOptions & ManagedCodexHomeOptions,
+): Promise<{ code: number; stdout: string; stderr: string }> {
   const { execFile } = await import("node:child_process");
   const { resolveFallbackCommand } = await import("./subprocess-session.js");
-  const bin = resolveFallbackCommand("codex");
+  const sourceEnv = opts?.env ?? process.env;
+  const bin = resolveFallbackCommand("codex", opts);
+  const codexHome = opts?.codexHome ?? await prepareManagedCodexHome({
+    ...(opts?.workspaceRoot && existsSync(opts.workspaceRoot) ? { workspaceRoot: opts.workspaceRoot } : {}),
+    ...(opts?.targetDir ? { targetDir: opts.targetDir } : {}),
+    sourceEnv,
+  });
   return new Promise((resolve, reject) => {
     execFile(bin.command, [...bin.prefixArgs, ...args], {
       timeout: 10_000, maxBuffer: 2 * 1024 * 1024, windowsHide: true,
-      env: buildCodexAxEnv(),
+      env: buildCodexAxEnv(sourceEnv, { ...opts, codexHome }),
     }, (error, stdout, stderr) => {
       if (error && typeof error.code !== "number") reject(error);
       else resolve({ code: error?.code as number ?? 0, stdout, stderr });
@@ -747,22 +761,41 @@ export function assertAxTransportConfig(config: Record<string, unknown>): void {
 
 /** A proxy or alternate trust root needs a separately reviewed enterprise policy.
  * Reject rather than silently bypassing the organization's configured proxy. */
-export function buildCodexAxEnv(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+export function buildCodexAxEnv(
+  source: NodeJS.ProcessEnv = process.env,
+  opts?: CodexSubprocessEnvOptions & ManagedCodexHomeOptions,
+): NodeJS.ProcessEnv {
   const overrides = ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy",
     "OPENAI_BASE_URL", "CHATGPT_BASE_URL",
     "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS"];
   if (overrides.some((key) => !!source[key])) throw new Error("AX proxy/TLS override requires enterprise transport acceptance");
-  return buildIsolatedSubprocessEnv(source, ["CODEX_HOME"]);
+  const codexHome = opts?.codexHome ?? prepareManagedCodexHomeSync({
+    ...(opts?.workspaceRoot && existsSync(opts.workspaceRoot) ? { workspaceRoot: opts.workspaceRoot } : {}),
+    ...(opts?.targetDir ? { targetDir: opts.targetDir } : {}),
+    sourceEnv: source,
+  });
+  return buildCodexSubprocessEnv(source, { ...opts, codexHome });
 }
 
-async function spawnCodexAx(cwd: string, modelCatalog?: string): Promise<ChildProcessWithoutNullStreams> {
+export async function spawnCodexAx(
+  cwd: string,
+  modelCatalog?: string,
+  opts?: DefaultSpawnCodexOptions & ManagedCodexHomeOptions,
+): Promise<ChildProcessWithoutNullStreams> {
   const { spawn } = await import("node:child_process");
   const { resolveFallbackCommand } = await import("./subprocess-session.js");
-  const bin = resolveFallbackCommand("codex");
+  const spawnImpl = opts?.spawnFn ?? spawn;
+  const sourceEnv = opts?.env ?? process.env;
+  const bin = resolveFallbackCommand("codex", opts);
+  const codexHome = opts?.codexHome ?? await prepareManagedCodexHome({
+    ...(opts?.workspaceRoot && existsSync(opts.workspaceRoot) ? { workspaceRoot: opts.workspaceRoot } : {}),
+    ...(opts?.targetDir ? { targetDir: opts.targetDir } : {}),
+    sourceEnv,
+  });
   const args = Object.entries({ ...codexAxConfig(), ...(modelCatalog ? { model_catalog_json: modelCatalog } : {}) }).flatMap(([key, value]) => ["-c", `${key}=${JSON.stringify(value)}`]);
-  return spawn(bin.command, [...bin.prefixArgs, "app-server", ...args], {
+  return spawnImpl(bin.command, [...bin.prefixArgs, "app-server", ...args], {
     cwd, stdio: ["pipe", "pipe", "pipe"], windowsHide: true,
-    env: buildCodexAxEnv(),
+    env: buildCodexAxEnv(sourceEnv, { ...opts, codexHome }),
   });
 }
 

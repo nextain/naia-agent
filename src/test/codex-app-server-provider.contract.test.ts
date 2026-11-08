@@ -424,7 +424,17 @@ describe("AX transport boundary before document transmission", () => {
       expect(() => buildCodexAxEnv({ [key]: "SECRET" })).toThrow(/enterprise transport acceptance/);
       try { buildCodexAxEnv({ [key]: "SECRET" }); } catch (error) { expect(String(error)).not.toContain("SECRET"); }
     }
-    expect(buildCodexAxEnv({ PATH: "/bin", CODEX_HOME: "/private/codex", OPENAI_API_KEY: "SECRET", CODEX_API_KEY: "SECRET", NODE_OPTIONS: "SECRET" })).toEqual({ PATH: "/bin", CODEX_HOME: "/private/codex" });
+    const axEnv = buildCodexAxEnv({ PATH: "/bin", CODEX_HOME: "/private/codex", OPENAI_API_KEY: "SECRET", CODEX_API_KEY: "SECRET", NODE_OPTIONS: "SECRET" });
+    expect(axEnv.PATH).toBe("/bin");
+    expect(axEnv.CODEX_HOME).toBeDefined();
+    expect(axEnv.CODEX_HOME).not.toBe("/private/codex");
+    expect(axEnv.OPENAI_API_KEY).toBeUndefined();
+    expect(axEnv.CODEX_API_KEY).toBeUndefined();
+    expect(axEnv.NODE_OPTIONS).toBeUndefined();
+    expect(buildCodexAxEnv(
+      { PATH: "/bin", CODEX_HOME: "/private/codex", OPENAI_API_KEY: "SECRET", CODEX_API_KEY: "SECRET", NODE_OPTIONS: "SECRET" },
+      { codexHome: "/explicit/managed/codex" },
+    )).toEqual({ PATH: "/bin", CODEX_HOME: "/explicit/managed/codex" });
   });
 });
 
@@ -817,5 +827,283 @@ describe("Step 1 — version/bin resolution, managed CODEX_HOME, child env isola
     expect(rawResponses).toEqual([
       { id: 99, result: { contentItems: [{ type: "inputText", text: "dynamic tool 'raw_untiered' is unavailable" }], success: false } },
     ]);
+  });
+
+  it("gates outer tool loop (tierOf) and inner executeTool with the same shared helper: untiered -> approvalRequest(ask), tier:none -> no approval, rejected -> not executed", async () => {
+    const { ChatTurnHandler, resolveEffectiveToolTier, resolveToolTierByName } = await import("../main/app/chat-turn-handler.js");
+    const { makeInMemoryApproval } = await import("../main/adapters/approval.js");
+    type AgentEmit = import("../main/domain/chat.js").AgentEmit;
+    type ProviderPort = import("../main/ports/uc1.js").ProviderPort;
+
+    // Shared helper unit assertions
+    expect(resolveEffectiveToolTier(undefined)).toBe("ask");
+    expect(resolveEffectiveToolTier({ tier: undefined })).toBe("ask");
+    expect(resolveEffectiveToolTier({ tier: "none" })).toBe("none");
+    expect(resolveEffectiveToolTier({ tier: "shell" })).toBe("shell");
+    expect(resolveToolTierByName([
+      { name: "untiered_tool", description: "미지정", parameters: {} },
+      { name: "read_tool", description: "읽기", parameters: {}, tier: "none" },
+    ], "untiered_tool")).toBe("ask");
+    expect(resolveToolTierByName([
+      { name: "untiered_tool", description: "미지정", parameters: {} },
+      { name: "read_tool", description: "읽기", parameters: {}, tier: "none" },
+    ], "read_tool")).toBe("none");
+
+    const makeOuterLoopProvider = (toolName: string, callId: string): ProviderPort => ({
+      async *chat(_cfg, messages) {
+        if (!messages.some((m) => m.role === "tool")) {
+          // Non-handled toolUse chunk -> goes through ChatTurnHandler outer tool loop (tierOf at :656-660, :896-897)
+          yield { kind: "toolUse", id: callId, name: toolName, args: { q: "test" } };
+          yield { kind: "usage", inputTokens: 4, outputTokens: 2 };
+          yield { kind: "finish" };
+        } else {
+          yield { kind: "text", text: "outer done" };
+          yield { kind: "usage", inputTokens: 5, outputTokens: 3 };
+          yield { kind: "finish" };
+        }
+      },
+    });
+
+    // 1) Untiered tool in outer loop -> requires approval ("ask"), executes on approve
+    let untieredApprovedRuns = 0;
+    const emitsApprove: AgentEmit[] = [];
+    const approvalApprove = makeInMemoryApproval();
+    const handlerOuterApprove = new ChatTurnHandler({
+      provider: makeOuterLoopProvider("outer_untiered", "call-outer-1"),
+      conversation: { assemble: (r) => ({ messages: r.messages }) },
+      credentials: { update: () => {}, get: () => undefined },
+      approval: approvalApprove,
+      egress: {
+        emit: (reqId, e) => {
+          emitsApprove.push(e);
+          if (e.kind === "approvalRequest") {
+            handlerOuterApprove.onApprovalResponse({
+              kind: "approvalResponse",
+              requestId: reqId,
+              toolCallId: e.toolCallId,
+              decision: "approve",
+            });
+          }
+        },
+      },
+      diag: { log: () => {} },
+      toolExecutor: {
+        specs: () => [{ name: "outer_untiered", description: "tier 미지정 바깥 루프 도구", parameters: { type: "object" } }],
+        async execute() {
+          untieredApprovedRuns++;
+          return { output: "outer untiered ok" };
+        },
+      },
+    });
+    await handlerOuterApprove.onChatRequest({
+      kind: "chat",
+      requestId: "req-outer-approve",
+      provider: { provider: "fake", model: "m" },
+      messages: [{ role: "user", content: "실행해줘" }],
+    });
+    expect(untieredApprovedRuns).toBe(1);
+    expect(emitsApprove.some((e) => e.kind === "approvalRequest" && e.toolName === "outer_untiered" && e.tier === "ask")).toBe(true);
+    expect(emitsApprove.find((e) => e.kind === "toolResult")).toMatchObject({
+      kind: "toolResult",
+      toolCallId: "call-outer-1",
+      toolName: "outer_untiered",
+      output: "outer untiered ok",
+      success: true,
+    });
+
+    // 2) Explicit tier: "none" read tool in outer loop -> no approvalRequest, executes immediately
+    let noneRuns = 0;
+    const emitsNone: AgentEmit[] = [];
+    const handlerOuterNone = new ChatTurnHandler({
+      provider: makeOuterLoopProvider("outer_read_none", "call-outer-none"),
+      conversation: { assemble: (r) => ({ messages: r.messages }) },
+      credentials: { update: () => {}, get: () => undefined },
+      approval: makeInMemoryApproval(),
+      egress: { emit: (_reqId, e) => { emitsNone.push(e); } },
+      diag: { log: () => {} },
+      toolExecutor: {
+        specs: () => [{ name: "outer_read_none", description: "명시적 none 읽기 도구", parameters: { type: "object" }, tier: "none" }],
+        async execute() {
+          noneRuns++;
+          return { output: "read none ok" };
+        },
+      },
+    });
+    await handlerOuterNone.onChatRequest({
+      kind: "chat",
+      requestId: "req-outer-none",
+      provider: { provider: "fake", model: "m" },
+      messages: [{ role: "user", content: "읽어줘" }],
+    });
+    expect(noneRuns).toBe(1);
+    expect(emitsNone.some((e) => e.kind === "approvalRequest")).toBe(false);
+    expect(emitsNone.find((e) => e.kind === "toolResult")).toMatchObject({
+      kind: "toolResult",
+      toolCallId: "call-outer-none",
+      toolName: "outer_read_none",
+      output: "read none ok",
+      success: true,
+    });
+
+    // 3) Untiered tool in outer loop when approval is rejected -> not executed
+    let untieredRejectedRuns = 0;
+    const emitsReject: AgentEmit[] = [];
+    const handlerOuterReject = new ChatTurnHandler({
+      provider: makeOuterLoopProvider("outer_untiered_reject", "call-outer-reject"),
+      conversation: { assemble: (r) => ({ messages: r.messages }) },
+      credentials: { update: () => {}, get: () => undefined },
+      approval: makeInMemoryApproval(),
+      egress: {
+        emit: (reqId, e) => {
+          emitsReject.push(e);
+          if (e.kind === "approvalRequest") {
+            handlerOuterReject.onApprovalResponse({
+              kind: "approvalResponse",
+              requestId: reqId,
+              toolCallId: e.toolCallId,
+              decision: "reject",
+            });
+          }
+        },
+      },
+      diag: { log: () => {} },
+      toolExecutor: {
+        specs: () => [{ name: "outer_untiered_reject", description: "거절될 미지정 도구", parameters: { type: "object" } }],
+        async execute() {
+          untieredRejectedRuns++;
+          return { output: "must not run" };
+        },
+      },
+    });
+    await handlerOuterReject.onChatRequest({
+      kind: "chat",
+      requestId: "req-outer-reject",
+      provider: { provider: "fake", model: "m" },
+      messages: [{ role: "user", content: "거절 테스트" }],
+    });
+    expect(untieredRejectedRuns).toBe(0);
+    expect(emitsReject.some((e) => e.kind === "approvalRequest" && e.toolName === "outer_untiered_reject" && e.tier === "ask")).toBe(true);
+    expect(emitsReject.find((e) => e.kind === "toolResult")).toMatchObject({
+      kind: "toolResult",
+      toolCallId: "call-outer-reject",
+      toolName: "outer_untiered_reject",
+      output: "도구 호출이 거부되었습니다",
+      success: false,
+    });
+  });
+
+  it("provisions managed CODEX_HOME (empty config.toml + auth.json symlink) across subagent-codex, codex-exec-provider, and codex-ax even when user CODEX_HOME is set", async () => {
+    const { spawnCodexAx } = await import("../main/adapters/codex-app-server-provider.js");
+    const { makeCodexSubAgent } = await import("../main/adapters/subagent-codex.js");
+    const { runCodexExec } = await import("../main/adapters/codex-exec-provider.js");
+    const { mkdirSync, mkdtempSync, readFileSync, lstatSync, readlinkSync, writeFileSync, chmodSync, rmSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { PassThrough } = await import("node:stream");
+    const { EventEmitter } = await import("node:events");
+
+    const baseTmp = "/home/nextain/work/codex-runs/agent-codex/tmp";
+    mkdirSync(baseTmp, { recursive: true });
+    const sandboxDir = mkdtempSync(join(baseTmp, "managed-codex-home-all-routes-"));
+    try {
+      const userCodexHome = join(sandboxDir, "user-codex-home");
+      const tmpEnvDir = join(sandboxDir, "tmp-env");
+      const subagentConfigDir = join(sandboxDir, "subagent-cfg");
+      const execTempRoot = join(sandboxDir, "exec-tmp");
+      const axCwd = join(sandboxDir, "ax-cwd");
+      mkdirSync(userCodexHome, { recursive: true });
+      mkdirSync(tmpEnvDir, { recursive: true });
+      mkdirSync(subagentConfigDir, { recursive: true });
+      mkdirSync(execTempRoot, { recursive: true });
+      mkdirSync(axCwd, { recursive: true });
+
+      writeFileSync(join(userCodexHome, "auth.json"), '{"token":"user-auth"}', { mode: 0o600 });
+      writeFileSync(join(userCodexHome, "config.toml"), 'model = "hostile-override"\n[mcp_servers.bad]\ncommand = "evil"\n');
+
+      const sourceEnv: NodeJS.ProcessEnv = {
+        PATH: process.env.PATH ?? "/usr/bin:/bin",
+        HOME: sandboxDir,
+        TMPDIR: tmpEnvDir,
+        CODEX_HOME: userCodexHome,
+        OPENAI_API_KEY: "must-not-leak",
+      };
+
+      // 1) subagent-codex (makeCodexSubAgent)
+      let subagentEnv: NodeJS.ProcessEnv | undefined;
+      let subagentArgs: readonly string[] = [];
+      const subagent = makeCodexSubAgent({
+        env: sourceEnv,
+        codexConfigDir: subagentConfigDir,
+        resolveBin: () => ({ command: "codex", prefixArgs: [] }),
+        spawnFn: (_cmd, args, opts) => {
+          subagentArgs = args;
+          subagentEnv = opts.env;
+          const proc = new EventEmitter() as any;
+          proc.stdout = new PassThrough();
+          proc.stderr = new PassThrough();
+          proc.kill = () => true;
+          queueMicrotask(() => {
+            proc.stdout.write('{"type":"turn.completed"}\n');
+            proc.stdout.end();
+            proc.emit("close", 0, null);
+          });
+          return proc;
+        },
+      });
+      const session = subagent.spawn({ prompt: "ping", workdir: sandboxDir });
+      for await (const _ of session.events) { /* drain */ }
+      expect(subagentArgs).toContain("--ignore-user-config");
+      expect(subagentEnv?.CODEX_HOME).toBe(join(subagentConfigDir, "codex-home"));
+      expect(subagentEnv?.CODEX_HOME).not.toBe(userCodexHome);
+      expect(readFileSync(join(subagentEnv!.CODEX_HOME!, "config.toml"), "utf8")).toBe("");
+      expect(lstatSync(join(subagentEnv!.CODEX_HOME!, "auth.json")).isSymbolicLink()).toBe(true);
+      expect(readlinkSync(join(subagentEnv!.CODEX_HOME!, "auth.json"))).toBe(join(userCodexHome, "auth.json"));
+
+      // 2) codex-exec-provider (runCodexExec)
+      const fakeExecBin = join(sandboxDir, "fake-codex-exec.mjs");
+      writeFileSync(fakeExecBin, [
+        `#!${process.execPath}`,
+        'process.stdin.resume();',
+        'process.stdin.on("end", () => {',
+        '  const payload = JSON.stringify({ codexHome: process.env.CODEX_HOME, openaiKey: process.env.OPENAI_API_KEY ?? null });',
+        '  process.stdout.write(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: payload } }) + "\\n");',
+        '  process.stdout.write(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }) + "\\n");',
+        '});',
+      ].join("\n"), { mode: 0o755 });
+      chmodSync(fakeExecBin, 0o755);
+
+      const execEvents: Array<Record<string, unknown>> = [];
+      for await (const ev of runCodexExec(
+        { model: "gpt-5.4", prompt: "hello" },
+        { tempRoot: execTempRoot, executable: fakeExecBin, env: sourceEnv },
+      )) {
+        execEvents.push(ev as Record<string, unknown>);
+      }
+      const msgEvent = execEvents.find((e) => e.type === "item.completed") as { item?: { text?: string } } | undefined;
+      const seenExec = JSON.parse(msgEvent?.item?.text ?? "{}") as { codexHome?: string; openaiKey?: string | null };
+      expect(seenExec.codexHome).toBeDefined();
+      expect(seenExec.codexHome).not.toBe(userCodexHome);
+      expect(seenExec.openaiKey).toBeNull();
+      expect(readFileSync(join(seenExec.codexHome!, "config.toml"), "utf8")).toBe("");
+      expect(lstatSync(join(seenExec.codexHome!, "auth.json")).isSymbolicLink()).toBe(true);
+      expect(readlinkSync(join(seenExec.codexHome!, "auth.json"))).toBe(join(userCodexHome, "auth.json"));
+
+      // 3) codex-app-server-provider AX path (spawnCodexAx / buildCodexAxEnv)
+      let axSpawnedEnv: NodeJS.ProcessEnv | undefined;
+      await spawnCodexAx(axCwd, undefined, {
+        env: { ...sourceEnv, CODEX_BIN: process.execPath },
+        spawnFn: ((_cmd: string, _args: readonly string[], options: { env?: NodeJS.ProcessEnv }) => {
+          axSpawnedEnv = options.env;
+          return { stdin: {}, stdout: {}, stderr: {}, on() { return this; }, kill() { return true; } } as any;
+        }) as any,
+      });
+      expect(axSpawnedEnv?.CODEX_HOME).toBeDefined();
+      expect(axSpawnedEnv?.CODEX_HOME).not.toBe(userCodexHome);
+      expect(axSpawnedEnv?.OPENAI_API_KEY).toBeUndefined();
+      expect(readFileSync(join(axSpawnedEnv!.CODEX_HOME!, "config.toml"), "utf8")).toBe("");
+      expect(lstatSync(join(axSpawnedEnv!.CODEX_HOME!, "auth.json")).isSymbolicLink()).toBe(true);
+      expect(readlinkSync(join(axSpawnedEnv!.CODEX_HOME!, "auth.json"))).toBe(join(userCodexHome, "auth.json"));
+    } finally {
+      rmSync(sandboxDir, { recursive: true, force: true });
+    }
   });
 });

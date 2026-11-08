@@ -146,7 +146,8 @@ describe("Configured development role adapter routing (Codex default, Claude, Gr
       expect(capture.captured?.args).toEqual(expect.arrayContaining([
         "--sandbox", "workspace-write", "--model", "gpt-5.6", "--cd", "/tmp/bound-workspace",
       ]));
-      expect(capture.captured?.env?.CODEX_HOME).toBe("/tmp/codex-home");
+      expect(capture.captured?.env?.CODEX_HOME).toBeDefined();
+      expect(capture.captured?.env?.CODEX_HOME).not.toBe("/tmp/codex-home");
     } finally {
       if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
       else process.env.CODEX_HOME = previousCodexHome;

@@ -1,14 +1,15 @@
 // UC1 / FR-AX-026.1–2 — opt-in text-only Codex exec ProviderPort.
 // The app-server provider remains the tool-capable Codex route.
-import { checkCodexAxPreflight } from "./codex-app-server-provider.js";
+import { buildCodexSubprocessEnv, checkCodexAxPreflight, prepareManagedCodexHome } from "./codex-app-server-provider.js";
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createInterface } from "node:readline";
 import type { ChatMessage, ProviderChunk } from "../domain/chat.js";
 import type { DiagnosticLog, ProviderPort } from "../ports/uc1.js";
-import { buildIsolatedSubprocessEnv, resolveSpawnableBin, resolveFallbackCommand } from "./subprocess-session.js";
+import { resolveSpawnableBin, resolveFallbackCommand } from "./subprocess-session.js";
 
 export interface CodexExecInput {
   readonly model: string;
@@ -24,6 +25,10 @@ export function makeCodexExecProvider(deps: {
   readonly tempRoot?: string;
   readonly executable?: string;
   readonly timeoutMs?: number;
+  readonly env?: NodeJS.ProcessEnv;
+  readonly codexHome?: string;
+  readonly workspaceRoot?: string;
+  readonly targetDir?: string;
   readonly diag?: DiagnosticLog;
 } = {}): ProviderPort {
   const run = deps.run ?? ((input) => runCodexExec(input, deps));
@@ -88,6 +93,10 @@ export async function* runCodexExec(input: CodexExecInput, deps: {
   readonly tempRoot?: string;
   readonly executable?: string;
   readonly timeoutMs?: number;
+  readonly env?: NodeJS.ProcessEnv;
+  readonly codexHome?: string;
+  readonly workspaceRoot?: string;
+  readonly targetDir?: string;
 } = {}): AsyncIterable<unknown> {
   input.signal?.throwIfAborted();
   if (!deps.executable) {
@@ -103,7 +112,13 @@ export async function* runCodexExec(input: CodexExecInput, deps: {
   try {
     input.signal?.throwIfAborted();
     const bin = deps.executable ? resolveSpawnableBin(deps.executable) : resolveFallbackCommand("codex");
-    const env = buildIsolatedSubprocessEnv(process.env, ["CODEX_HOME"]);
+    const sourceEnv = deps.env ?? process.env;
+    const codexHome = deps.codexHome ?? await prepareManagedCodexHome({
+      ...(deps.workspaceRoot && existsSync(deps.workspaceRoot) ? { workspaceRoot: deps.workspaceRoot } : {}),
+      ...(deps.targetDir ? { targetDir: deps.targetDir } : {}),
+      sourceEnv,
+    });
+    const env = buildCodexSubprocessEnv(sourceEnv, { codexHome });
     if (input.apiKey) env.CODEX_API_KEY = input.apiKey;
     const child = spawn(bin.command, [...bin.prefixArgs,
       "exec", "--json", "--ephemeral", "--ignore-user-config", "--ignore-rules",

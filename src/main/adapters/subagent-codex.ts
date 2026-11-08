@@ -4,10 +4,12 @@
 // 세션 머신(스트림·cancel·가드)은 공유 subprocess-session 에. 여기엔 codex 고유의 (1) bin 해석 (2) args
 // (3) line parser (4) Naia 8종·로컬 모델 루프백 브리지 배선만.
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TaskSpec, SubAgentEvent } from "../domain/orchestration.js";
 import type { SubAgentPort, SubAgentSession } from "../ports/orchestration.js";
+import { prepareManagedCodexHomeSync } from "./codex-app-server-provider.js";
 import {
   CODEX_NO_TOOLS_CONFIG_FLAGS,
   NAIA_MODEL_METADATA,
@@ -61,6 +63,8 @@ export interface SubAgentCodexOptions {
   readonly beforeSpawn?: () => void;
   readonly env?: NodeJS.ProcessEnv;
   readonly baseUrl?: string;
+  readonly codexHome?: string;
+  readonly workspaceRoot?: string;
   readonly codexConfigDir?: string;
   readonly piConfigDir?: string;
   readonly maxOutputTokens?: number;
@@ -80,6 +84,8 @@ export interface SubAgentCodexOptions {
 
 export interface CodexWorkerEnvOptions {
   readonly codexHome?: string;
+  readonly workspaceRoot?: string;
+  readonly targetDir?: string;
   readonly bridgeEnvKey?: string;
   readonly bridgeToken?: string;
   readonly allowBridgeEnvKey?: boolean;
@@ -90,6 +96,8 @@ export interface CodexWorkerEnvOptions {
  * inherit its thread identity. Its own CLI arguments define the requested
  * workspace-write/approval boundary, but an outer OS sandbox remains
  * authoritative and cannot be widened by a child process.
+ * Always provisions a managed CODEX_HOME (empty config.toml + symlinked auth.json)
+ * unless an explicit codexHome override is supplied via opts.
  */
 export function codexWorkerEnv(
   source: NodeJS.ProcessEnv = process.env,
@@ -97,9 +105,12 @@ export function codexWorkerEnv(
 ): NodeJS.ProcessEnv {
   const extraAllowed: string[] = ["CODEX_HOME"];
   const envSource: NodeJS.ProcessEnv = { ...source };
-  if (opts?.codexHome) {
-    envSource.CODEX_HOME = opts.codexHome;
-  }
+  const codexHome = opts?.codexHome ?? prepareManagedCodexHomeSync({
+    ...(opts?.workspaceRoot && existsSync(opts.workspaceRoot) ? { workspaceRoot: opts.workspaceRoot } : {}),
+    ...(opts?.targetDir ? { targetDir: opts.targetDir } : {}),
+    sourceEnv: source,
+  });
+  envSource.CODEX_HOME = codexHome;
   if (opts?.bridgeEnvKey) {
     if (opts.allowBridgeEnvKey !== false && opts.bridgeToken !== undefined && opts.bridgeToken.length > 0) {
       envSource[opts.bridgeEnvKey] = opts.bridgeToken;
@@ -240,11 +251,16 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
       const effectiveModel = isNaiaRoute ? naiaCanonical! : rawModel;
       const effectiveNoTools = opts.noTools === true;
       const configDirBase = opts.codexConfigDir ?? opts.piConfigDir;
+      const managedCodexHome = opts.codexHome ?? prepareManagedCodexHomeSync({
+        ...(opts.workspaceRoot && existsSync(opts.workspaceRoot) ? { workspaceRoot: opts.workspaceRoot } : {}),
+        ...(configDirBase ? { targetDir: join(configDirBase, "codex-home") } : {}),
+        sourceEnv,
+      });
 
       let bridgeOptions: CodexResponsesBridgeOptions | undefined;
       let baseUrlConfigKey: string | undefined;
       let receiptPath: string | undefined;
-      let childEnv: NodeJS.ProcessEnv = codexWorkerEnv(sourceEnv);
+      let childEnv: NodeJS.ProcessEnv = codexWorkerEnv(sourceEnv, { codexHome: managedCodexHome });
       const bridgeConfigArgs: string[] = [];
 
       if (isNaiaRoute) {
@@ -302,6 +318,7 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
           };
           baseUrlConfigKey = "model_providers.naia.base_url";
           childEnv = codexWorkerEnv(sourceEnv, {
+            codexHome: managedCodexHome,
             bridgeEnvKey: "NAIA_BRIDGE_TOKEN",
             bridgeToken,
             allowBridgeEnvKey: true,
@@ -600,6 +617,8 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
           ? "read-only"
           : "workspace-write";
       const buildSpawnArgs = (extraConfigArgs: readonly string[]): string[] => {
+        // 관리형 CODEX_HOME(빈 config.toml + auth.json 심볼릭 링크)과 --ignore-user-config를 함께 강제해
+        // 사용자 ~/.codex/config.toml(MCP 서버·모델 덮어쓰기 등)이 섞이지 않게 한다.
         const args: string[] = [
           "exec", "--json",
           "--ignore-user-config",

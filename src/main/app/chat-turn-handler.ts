@@ -101,6 +101,25 @@ const CONTINUE_MAX_UTTERANCES = 60;
 const CONTINUE_TOOL_RESULT_ACTIVATED = "continuous speaking activated";
 const CONTINUE_TOOL_RESULT_REJECTED = "continuous speaking rejected: explicit user request quote is missing or does not match the latest user message";
 
+/**
+ * 도구 tier 정규화 규칙(단일 진실 공급원):
+ * tier 미지정(undefined) 도구는 승인 없이 열리지 않도록 안전한 기본값 "ask"로 간주한다.
+ * tier: "none"을 명시한 읽기 도구만 무승인으로 실행된다.
+ */
+export function resolveEffectiveToolTier(spec: Pick<ToolSpec, "tier"> | undefined): string {
+  return spec?.tier ?? "ask";
+}
+
+export function resolveToolTierByName(
+  tools: readonly ToolSpec[] | undefined,
+  name: string,
+): string {
+  const matches = (tools ?? []).filter((s) => s.name === name && s.name !== CONTINUE_SPEAKING_TOOL_NAME);
+  if (matches.length === 0) return "ask";
+  const gated = matches.find((s) => resolveEffectiveToolTier(s) !== "none");
+  return gated ? resolveEffectiveToolTier(gated) : "none";
+}
+
 /** DeepSeek V4 Flash can report `stop` for a visibly incomplete response. */
 const DEEPSEEK_FINAL_TRAIL_DECO_RE = /[\s\p{Extended_Pictographic}\uFE00-\uFE0F\u200D｡•ᴗ·・~～〜ー☆★♥♡♪♫✦✧※❀]+$/u;
 const DEEPSEEK_FINAL_VOCATIVE_RE = /^(?:아[,.!]?[ ]*)?(?:네[,.!]?[ ]*)?(?:루크[ ]*)?(?:대표님|님)[.!?…]*$/u;
@@ -653,11 +672,8 @@ export class ChatTurnHandler {
       let nativeProcessingDenied: { message: string; code?: WireErrorCode } | undefined;
       const continuationClock = this.d.continuationClock ?? DEFAULT_CONTINUATION_CLOCK;
       const usedCids = new Set<string>(); // turn-unique correlation id (D-I7)
-      // tier 조회: name 매치 중 gated(none 아님) 있으면 그 tier(승인필요), 없으면 "none". 미등록=none. (중복 매치=보수적 gated 우선)
-      const tierOf = (name: string): string => {
-        const gated = tools.find((s) => s.name === name && s.tier !== undefined && s.tier !== "none");
-        return gated?.tier ?? "none";
-      };
+      // tier 조회: 공용 resolveToolTierByName 사용 — tier 미지정(undefined)은 "ask"(승인필요), 명시적 "none"만 무승인. (중복 매치=보수적 gated 우선)
+      const tierOf = (name: string): string => resolveToolTierByName(tools, name);
       // cid: call.id 가 used 면 round 접미사, 그것도 used 면 counter — unused 까지 반복(loop-until-unused, §D).
       const turnCid = (id: string): string => {
         if (!usedCids.has(id)) { usedCids.add(id); return id; }
@@ -1012,11 +1028,12 @@ export class ChatTurnHandler {
             (candidate) =>
               candidate.name === call.name
               && candidate.name !== CONTINUE_SPEAKING_TOOL_NAME
-              && ALLOWED_NATIVE_TOOL_TIERS.has(candidate.tier ?? "ask"),
+              && ALLOWED_NATIVE_TOOL_TIERS.has(resolveEffectiveToolTier(candidate)),
           );
-          if (!spec) return { output: `provider-native tool '${call.name}' is not authorized`, isError: true };
-          // tier 미지정(undefined) 도구는 승인 없이 열리지 않도록 안전한 기본값 "ask"로 간주한다.
-          const tier = spec.tier ?? "ask";
+          const tier = resolveToolTierByName(tools, call.name);
+          if (!spec || !ALLOWED_NATIVE_TOOL_TIERS.has(tier)) {
+            return { output: `provider-native tool '${call.name}' is not authorized`, isError: true };
+          }
           if (tier !== "none") {
             // 승인 대기는 raceAbort(..., TOOL_EXEC_TIMEOUT_MS) 호출 전에 수행해 승인 대기 중 도구 실행 타이머가 만료되지 않게 한다(897-915줄 패턴).
             if (signal.aborted) throw new Error("cancelled");
