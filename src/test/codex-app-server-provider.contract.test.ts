@@ -518,7 +518,7 @@ describe("Step 1 — version/bin resolution, managed CODEX_HOME, child env isola
 
   it("prepares managed CODEX_HOME (<adkPath>/naia-settings/codex-home) with empty config.toml and symlinked auth.json without reading auth.json", async () => {
     const { prepareManagedCodexHome } = await import("../main/adapters/codex-app-server-provider.js");
-    const { mkdirSync, mkdtempSync, readFileSync, lstatSync, writeFileSync, rmSync } = await import("node:fs");
+    const { mkdirSync, mkdtempSync, readFileSync, readlinkSync, lstatSync, writeFileSync, rmSync } = await import("node:fs");
     const { join } = await import("node:path");
     const baseTmp = "/home/nextain/work/codex-runs/agent-codex/tmp";
     mkdirSync(baseTmp, { recursive: true });
@@ -573,6 +573,21 @@ describe("Step 1 — version/bin resolution, managed CODEX_HOME, child env isola
       expect(spawnedEnv?.CODEX_HOME).not.toBe(sourceHome);
       expect(spawnedEnv?.OPENAI_API_KEY).toBeUndefined();
       expect(spawnedArgs).toContain("features.memory_tool=false");
+
+      // P3: Windows USERPROFILE fallback when HOME and CODEX_HOME are unset
+      const winUserProfile = join(sandboxDir, "win-user-profile");
+      const winCodexDir = join(winUserProfile, ".codex");
+      const winManagedDir = join(sandboxDir, "win-managed-home");
+      mkdirSync(winCodexDir, { recursive: true });
+      writeFileSync(join(winCodexDir, "auth.json"), '{"token":"win-auth"}', { mode: 0o600 });
+      const resolvedWinManaged = await prepareManagedCodexHome({
+        targetDir: winManagedDir,
+        sourceEnv: { USERPROFILE: winUserProfile, TMPDIR: noWorkspaceTmp },
+      });
+      expect(resolvedWinManaged).toBe(winManagedDir);
+      expect(readFileSync(join(winManagedDir, "config.toml"), "utf8")).toBe("");
+      expect(lstatSync(join(winManagedDir, "auth.json")).isSymbolicLink()).toBe(true);
+      expect(readlinkSync(join(winManagedDir, "auth.json"))).toBe(join(winCodexDir, "auth.json"));
     } finally {
       rmSync(sandboxDir, { recursive: true, force: true });
     }
@@ -733,13 +748,15 @@ describe("Step 1 — version/bin resolution, managed CODEX_HOME, child env isola
       success: false,
     });
 
-    // 3) P2 (나): tier 미지정(undefined) 도구는 승인 없이 열리지 않고 기본값 "ask"로 승인을 요구한다.
+    // 3) P2 (나): 바깥 경계 어댑터(normalizeExternalToolSpec / makeAppToolExecutor 등)를 지나온 tier 미지정(undefined) 도구는
+    // 경계에서 "ask"로 정규화되어 승인 없이 열리지 않고 승인을 요구한다.
     // 또한 runCodexAppServerTurn에 직접 tier:undefined 일반 도구를 넘기면 fail-closed로 제외·거부한다.
+    const { normalizeExternalToolSpec } = await import("../main/domain/chat.js");
     let untieredExecutions = 0;
     const untieredEmits: AgentEmit[] = [];
     const untieredToolExecutor = {
       specs: () => [
-        { name: "custom_untiered_tool", description: "tier 미지정 도구", parameters: { type: "object" } },
+        normalizeExternalToolSpec({ name: "custom_untiered_tool", description: "tier 미지정 바깥 도구", parameters: { type: "object" } }),
       ],
       async execute() {
         untieredExecutions++;
@@ -830,29 +847,67 @@ describe("Step 1 — version/bin resolution, managed CODEX_HOME, child env isola
   });
 
   it("gates outer tool loop (tierOf) and inner executeTool with the same shared helper: untiered -> approvalRequest(ask), tier:none -> no approval, rejected -> not executed", async () => {
-    const { ChatTurnHandler, resolveEffectiveToolTier, resolveToolTierByName } = await import("../main/app/chat-turn-handler.js");
+    const {
+      ChatTurnHandler,
+      isGatedToolTier,
+      normalizeExternalToolSpec,
+      normalizeExternalToolTier,
+      resolveEffectiveToolTier,
+      resolveToolTierByName,
+    } = await import("../main/app/chat-turn-handler.js");
     const { makeInMemoryApproval } = await import("../main/adapters/approval.js");
+    const { makeAppToolExecutor } = await import("../main/adapters/app-tool-executor.js");
+    const { makeCompositeToolExecutor } = await import("../main/adapters/composite-tool-executor.js");
     type AgentEmit = import("../main/domain/chat.js").AgentEmit;
     type ProviderPort = import("../main/ports/uc1.js").ProviderPort;
 
-    // Shared helper unit assertions
+    // Shared helper unit assertions:
+    // - Unknown/unmatched spec (undefined) or unknown tool name -> "ask" (requires approval)
+    // - Registered domain spec with tier: undefined or tier: "none" -> "none" (domain/chat.ts:38 contract)
+    // - External boundary adapter normalizes unspecified tier (undefined/null/"") -> "ask", explicit 0/"none" -> "none"
     expect(resolveEffectiveToolTier(undefined)).toBe("ask");
-    expect(resolveEffectiveToolTier({ tier: undefined })).toBe("ask");
+    expect(resolveEffectiveToolTier({ tier: undefined })).toBe("none");
     expect(resolveEffectiveToolTier({ tier: "none" })).toBe("none");
+    expect(resolveEffectiveToolTier({ tier: "ask" })).toBe("ask");
     expect(resolveEffectiveToolTier({ tier: "shell" })).toBe("shell");
+    expect(isGatedToolTier(undefined)).toBe(false);
+    expect(isGatedToolTier("none")).toBe(false);
+    expect(isGatedToolTier("ask")).toBe(true);
+    expect(normalizeExternalToolTier(undefined)).toBe("ask");
+    expect(normalizeExternalToolTier(null)).toBe("ask");
+    expect(normalizeExternalToolTier("")).toBe("ask");
+    expect(normalizeExternalToolTier(0)).toBe("none");
+    expect(normalizeExternalToolTier(1)).toBe("ask");
+    expect(normalizeExternalToolTier("none")).toBe("none");
     expect(resolveToolTierByName([
-      { name: "untiered_tool", description: "미지정", parameters: {} },
+      normalizeExternalToolSpec({ name: "untiered_tool", description: "바깥 미지정", parameters: {} }),
+      { name: "builtin_read_tool", description: "내장 읽기(미설정)", parameters: {} },
       { name: "read_tool", description: "읽기", parameters: {}, tier: "none" },
     ], "untiered_tool")).toBe("ask");
     expect(resolveToolTierByName([
-      { name: "untiered_tool", description: "미지정", parameters: {} },
+      normalizeExternalToolSpec({ name: "untiered_tool", description: "바깥 미지정", parameters: {} }),
+      { name: "builtin_read_tool", description: "내장 읽기(미설정)", parameters: {} },
+      { name: "read_tool", description: "읽기", parameters: {}, tier: "none" },
+    ], "builtin_read_tool")).toBe("none");
+    expect(resolveToolTierByName([
+      normalizeExternalToolSpec({ name: "untiered_tool", description: "바깥 미지정", parameters: {} }),
       { name: "read_tool", description: "읽기", parameters: {}, tier: "none" },
     ], "read_tool")).toBe("none");
+    expect(resolveToolTierByName([
+      { name: "read_tool", description: "읽기", parameters: {}, tier: "none" },
+    ], "unknown_unregistered_tool")).toBe("ask");
+
+    // Composite tool executor consistency with resolveEffectiveToolTier / resolveToolTierByName
+    const compNoneAndUndefined = makeCompositeToolExecutor([
+      { specs: () => [{ name: "dup_auto", description: "", parameters: {}, tier: "none" }], async execute() { return { output: "a" }; } },
+      { specs: () => [{ name: "dup_auto", description: "", parameters: {} }], async execute() { return { output: "b" }; } },
+    ]);
+    expect(resolveToolTierByName(compNoneAndUndefined.specs(), "dup_auto")).toBe("none");
 
     const makeOuterLoopProvider = (toolName: string, callId: string): ProviderPort => ({
       async *chat(_cfg, messages) {
         if (!messages.some((m) => m.role === "tool")) {
-          // Non-handled toolUse chunk -> goes through ChatTurnHandler outer tool loop (tierOf at :656-660, :896-897)
+          // Non-handled toolUse chunk -> goes through ChatTurnHandler outer tool loop (tierOf / resolveToolTierByName in onChatRequest)
           yield { kind: "toolUse", id: callId, name: toolName, args: { q: "test" } };
           yield { kind: "usage", inputTokens: 4, outputTokens: 2 };
           yield { kind: "finish" };
@@ -864,10 +919,25 @@ describe("Step 1 — version/bin resolution, managed CODEX_HOME, child env isola
       },
     });
 
-    // 1) Untiered tool in outer loop -> requires approval ("ask"), executes on approve
+    // 1) External untiered tool entering via external boundary (makeAppToolExecutor.register with tier: undefined)
+    // in outer loop -> normalized to "ask", requires approval ("ask"), executes on approve
     let untieredApprovedRuns = 0;
     const emitsApprove: AgentEmit[] = [];
     const approvalApprove = makeInMemoryApproval();
+    const appExecApprove = makeAppToolExecutor({
+      egress: {
+        emit: (reqId, e) => {
+          if (e.kind === "appToolCall") {
+            untieredApprovedRuns++;
+            appExecApprove.resolveResult(reqId, e.toolCallId, "outer untiered ok", true);
+          }
+        },
+      },
+    });
+    appExecApprove.register("ext-app", [
+      { name: "outer_untiered", description: "tier 미지정 바깥 루프 도구", parameters: { type: "object" } },
+    ]);
+    expect(appExecApprove.specs()[0]?.tier).toBe("ask");
     const handlerOuterApprove = new ChatTurnHandler({
       provider: makeOuterLoopProvider("outer_untiered", "call-outer-1"),
       conversation: { assemble: (r) => ({ messages: r.messages }) },
@@ -887,13 +957,7 @@ describe("Step 1 — version/bin resolution, managed CODEX_HOME, child env isola
         },
       },
       diag: { log: () => {} },
-      toolExecutor: {
-        specs: () => [{ name: "outer_untiered", description: "tier 미지정 바깥 루프 도구", parameters: { type: "object" } }],
-        async execute() {
-          untieredApprovedRuns++;
-          return { output: "outer untiered ok" };
-        },
-      },
+      toolExecutor: appExecApprove,
     });
     await handlerOuterApprove.onChatRequest({
       kind: "chat",
@@ -911,7 +975,7 @@ describe("Step 1 — version/bin resolution, managed CODEX_HOME, child env isola
       success: true,
     });
 
-    // 2) Explicit tier: "none" read tool in outer loop -> no approvalRequest, executes immediately
+    // 2) Explicit tier: "none" (or domain built-in tier: undefined) read tool in outer loop -> no approvalRequest, executes immediately
     let noneRuns = 0;
     const emitsNone: AgentEmit[] = [];
     const handlerOuterNone = new ChatTurnHandler({
@@ -945,9 +1009,53 @@ describe("Step 1 — version/bin resolution, managed CODEX_HOME, child env isola
       success: true,
     });
 
-    // 3) Untiered tool in outer loop when approval is rejected -> not executed
+    // 2b) Domain built-in tool with tier: undefined (per domain/chat.ts:38 contract) -> auto-executes without approvalRequest
+    let builtinUntieredRuns = 0;
+    const emitsBuiltinUntiered: AgentEmit[] = [];
+    const handlerBuiltinUntiered = new ChatTurnHandler({
+      provider: makeOuterLoopProvider("builtin_echo_like", "call-builtin-untiered"),
+      conversation: { assemble: (r) => ({ messages: r.messages }) },
+      credentials: { update: () => {}, get: () => undefined },
+      approval: makeInMemoryApproval(),
+      egress: { emit: (_reqId, e) => { emitsBuiltinUntiered.push(e); } },
+      diag: { log: () => {} },
+      toolExecutor: {
+        specs: () => [{ name: "builtin_echo_like", description: "내장 tier 미설정 도구", parameters: { type: "object" } }],
+        async execute() {
+          builtinUntieredRuns++;
+          return { output: "builtin untiered ok" };
+        },
+      },
+    });
+    await handlerBuiltinUntiered.onChatRequest({
+      kind: "chat",
+      requestId: "req-builtin-untiered",
+      provider: { provider: "fake", model: "m" },
+      messages: [{ role: "user", content: "내장 도구 실행" }],
+    });
+    expect(builtinUntieredRuns).toBe(1);
+    expect(emitsBuiltinUntiered.some((e) => e.kind === "approvalRequest")).toBe(false);
+    expect(emitsBuiltinUntiered.find((e) => e.kind === "toolResult")).toMatchObject({
+      kind: "toolResult",
+      toolCallId: "call-builtin-untiered",
+      toolName: "builtin_echo_like",
+      output: "builtin untiered ok",
+      success: true,
+    });
+
+    // 3) External untiered tool in outer loop when approval is rejected -> not executed
     let untieredRejectedRuns = 0;
     const emitsReject: AgentEmit[] = [];
+    const appExecReject = makeAppToolExecutor({
+      egress: {
+        emit: () => {
+          untieredRejectedRuns++;
+        },
+      },
+    });
+    appExecReject.register("ext-app-reject", [
+      { name: "outer_untiered_reject", description: "거절될 미지정 바깥 도구", parameters: { type: "object" } },
+    ]);
     const handlerOuterReject = new ChatTurnHandler({
       provider: makeOuterLoopProvider("outer_untiered_reject", "call-outer-reject"),
       conversation: { assemble: (r) => ({ messages: r.messages }) },
@@ -967,13 +1075,7 @@ describe("Step 1 — version/bin resolution, managed CODEX_HOME, child env isola
         },
       },
       diag: { log: () => {} },
-      toolExecutor: {
-        specs: () => [{ name: "outer_untiered_reject", description: "거절될 미지정 도구", parameters: { type: "object" } }],
-        async execute() {
-          untieredRejectedRuns++;
-          return { output: "must not run" };
-        },
-      },
+      toolExecutor: appExecReject,
     });
     await handlerOuterReject.onChatRequest({
       kind: "chat",

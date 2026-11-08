@@ -6,12 +6,12 @@
 //   LLM 에 안 보이고 execute 도 "unknown tool" 로 떨어진다(app skill 0% 동작). 따라서 specs()/execute()
 //   호출마다 child specs() 를 **재집계**한다(child 가 정적이면 결과 동일 = builtin 무회귀).
 import type { ToolExecutorPort } from "../ports/uc1.js";
-import type { ToolSpec, ToolCall } from "../domain/chat.js";
+import { isGatedToolTier, resolveEffectiveToolTier, type ToolSpec, type ToolCall } from "../domain/chat.js";
 
 /** executors 순서 = 우선순위(앞이 우선). 같은 tool name 중복 시 첫 executor 가 소유. */
 export function makeCompositeToolExecutor(executors: readonly ToolExecutorPort[]): ToolExecutorPort {
-  // tier 보수성: gated(none 아님)=1 > none/미설정=0. 중복 시 가장 보수적 tier 채택(gated→auto 조용히 강등 금지, UC5 §D.1).
-  const tierRank = (t?: string): number => (t !== undefined && t !== "none" ? 1 : 0);
+  // tier 보수성: 도메인 계약(resolveEffectiveToolTier / isGatedToolTier)과 동일하게 gated(none/미설정 아님)=1 > none/미설정=0. 중복 시 가장 보수적 tier 채택(gated→auto 조용히 강등 금지, UC5 §D.1).
+  const tierRank = (t?: string): number => (isGatedToolTier(t) ? 1 : 0);
   // 호출 시점 재집계 — name → 소유 executor(첫 등록), specs 병합(중복 name drop, tier 는 보수적 승격).
   const resolve = (): { owner: Map<string, ToolExecutorPort>; merged: ToolSpec[] } => {
     const owner = new Map<string, ToolExecutorPort>();
@@ -20,7 +20,7 @@ export function makeCompositeToolExecutor(executors: readonly ToolExecutorPort[]
       for (const s of ex.specs()) {
         const idx = merged.findIndex((m) => m.name === s.name);
         if (idx >= 0) {
-          if (tierRank(s.tier) > tierRank(merged[idx].tier)) merged[idx] = { ...merged[idx], tier: s.tier }; // 소유 불변, tier 승격만
+          if (tierRank(s.tier) > tierRank(merged[idx].tier)) merged[idx] = { ...merged[idx], tier: resolveEffectiveToolTier(s) }; // 소유 불변, tier 승격만
           continue;
         }
         owner.set(s.name, ex);

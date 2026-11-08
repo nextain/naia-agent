@@ -5,11 +5,11 @@
 // app-server JSONL 프로토콜은 이 파일 안에 격리하고 ProviderPort에는 정규화 chunk만 노출한다.
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { buildIsolatedSubprocessEnv, resolveFallbackCommand, type ResolveCommandOptions } from "./subprocess-session.js";
 import type { ProviderChatOpts, ProviderPort, ToolExecutorPort } from "../ports/uc1.js";
-import type { ChatMessage, ProviderChunk, ProviderConfig, ToolCall, ToolSpec } from "../domain/chat.js";
+import { resolveEffectiveToolTier, type ChatMessage, type ProviderChunk, type ProviderConfig, type ToolCall, type ToolSpec } from "../domain/chat.js";
 import { codexThreadWorkspace, type WorkspaceBind } from "../domain/workspace-bind.js";
 
 export type CodexTurnEvent =
@@ -107,8 +107,9 @@ export function prepareManagedCodexHomeSync(
       : join(tmpBase, "naia-settings", `codex-home-${process.pid}`));
   mkdirSync(targetDir, { recursive: true, mode: 0o700 });
   writeFileSync(join(targetDir, "config.toml"), "", { mode: 0o600 });
+  const homeDir = sourceEnv.HOME || sourceEnv.USERPROFILE || (opts.sourceEnv ? undefined : homedir());
   const sourceCodexHome = sourceEnv.CODEX_HOME
-    ?? (sourceEnv.HOME ? join(sourceEnv.HOME, ".codex") : undefined);
+    || (homeDir ? join(homeDir, ".codex") : undefined);
   if (sourceCodexHome && resolve(sourceCodexHome) !== resolve(targetDir)) {
     const targetAuth = join(targetDir, "auth.json");
     const sourceAuth = join(sourceCodexHome, "auth.json");
@@ -257,7 +258,7 @@ export function makeCodexAppServerProvider(deps?: {
       const axTools = deps?.axExecutor?.specs().filter((spec) => opts.tools?.some((t) => t.name === spec.name)) ?? [];
       const normalizedTools = opts.tools
         ? (opts.tools.some((tool) => tool.name !== "continue_speaking" && tool.tier === undefined)
-          ? opts.tools.map((tool) => (tool.name !== "continue_speaking" && tool.tier === undefined ? { ...tool, tier: "ask" as const } : tool))
+          ? opts.tools.map((tool) => (tool.name !== "continue_speaking" && tool.tier === undefined ? { ...tool, tier: resolveEffectiveToolTier(tool) } : tool))
           : opts.tools)
         : undefined;
       for await (const event of runTurn({
@@ -527,8 +528,8 @@ export async function* runCodexAppServerTurn(
       axThreadConfig = { mcp_servers: Object.fromEntries(Object.entries(servers ?? {}).map(([name, server]) => [name, { ...withoutNullConfig(server as Record<string, unknown>), enabled: false }])) };
     }
     // app-server 동적 도구는 executeTool 콜백 안에서 ApprovalPort 사용자 승인 및 processing guard를 거친 뒤 결과를 돌려준다.
-    // tier가 미지정(undefined)인 일반 도구는 승인 없이 열리지 않도록 동적 도구 목록에서 제외한다
-    // (ChatTurnHandler / makeCodexAppServerProvider 경유 시 "ask"로 정규화되며, 직접 호출 시 fail-closed).
+    // ChatTurnHandler / makeCodexAppServerProvider 경유 시 도메인 계약(resolveEffectiveToolTier)에 따라 tier가 채워지며,
+    // runCodexAppServerTurn에 직접 tier: undefined 일반 도구를 넘기면 바깥 경계에서 fail-closed로 동적 도구 목록에서 제외·거부한다.
     const ALLOWED_DYNAMIC_TOOL_TIERS = new Set(["none", "ask", "fs-read", "fs-write", "shell"]);
     const dynamicTools = (input.tools ?? [])
       // continue_speaking은 ChatTurnHandler가 인용 검증/상태 전이를 소유하는 내부 제어 도구다.

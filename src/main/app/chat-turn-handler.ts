@@ -4,7 +4,19 @@ import type {
   ChatRequest, CancelRequest, ApprovalResponse, CredsUpdate, ChatTurnState, ChatMessage, ToolCall, ToolSpec, ToolProcessing, ProviderConfig, WireErrorCode,
   ToolExecutionResult,
 } from "../domain/chat.js";
-import { mapProviderChunk, threadToolRound, estimateMessageTokens, resolveTurnThinking, normalizeAvatarThinkingTag, flushAvatarThinkingTag } from "../domain/chat.js";
+import {
+  mapProviderChunk,
+  threadToolRound,
+  estimateMessageTokens,
+  resolveTurnThinking,
+  normalizeAvatarThinkingTag,
+  flushAvatarThinkingTag,
+  isGatedToolTier,
+  normalizeExternalToolSpec,
+  normalizeExternalToolTier,
+  resolveEffectiveToolTier,
+  resolveToolTierByName,
+} from "../domain/chat.js";
 import { classifyProcessingEndpoint } from "../domain/processing-policy.js";
 import { calculateCost } from "../domain/cost.js";
 import type {
@@ -102,23 +114,18 @@ const CONTINUE_TOOL_RESULT_ACTIVATED = "continuous speaking activated";
 const CONTINUE_TOOL_RESULT_REJECTED = "continuous speaking rejected: explicit user request quote is missing or does not match the latest user message";
 
 /**
- * 도구 tier 정규화 규칙(단일 진실 공급원):
- * tier 미지정(undefined) 도구는 승인 없이 열리지 않도록 안전한 기본값 "ask"로 간주한다.
- * tier: "none"을 명시한 읽기 도구만 무승인으로 실행된다.
+ * 도구 tier 정규화 규칙(단일 진실 공급원 — domain/chat.ts 정의 재노출):
+ * - 바깥 경계 어댑터(AppToolExecutor, gRPC RegisterAppSkills, ADK SKILL.md, MCP 등)는 normalizeExternalToolTier로 미지정을 "ask"로 정규화한다.
+ * - ChatTurnHandler 안에서는 도메인 계약(domain/chat.ts:38)에 따라 등록된 도구의 미설정(undefined)/"none"은 "none"(자동),
+ *   알려진 목록(tools)에 없는 도구 이름(spec === undefined / matches.length === 0)은 "ask"(승인 필요)로 판정한다.
  */
-export function resolveEffectiveToolTier(spec: Pick<ToolSpec, "tier"> | undefined): string {
-  return spec?.tier ?? "ask";
-}
-
-export function resolveToolTierByName(
-  tools: readonly ToolSpec[] | undefined,
-  name: string,
-): string {
-  const matches = (tools ?? []).filter((s) => s.name === name && s.name !== CONTINUE_SPEAKING_TOOL_NAME);
-  if (matches.length === 0) return "ask";
-  const gated = matches.find((s) => resolveEffectiveToolTier(s) !== "none");
-  return gated ? resolveEffectiveToolTier(gated) : "none";
-}
+export {
+  isGatedToolTier,
+  normalizeExternalToolSpec,
+  normalizeExternalToolTier,
+  resolveEffectiveToolTier,
+  resolveToolTierByName,
+};
 
 /** DeepSeek V4 Flash can report `stop` for a visibly incomplete response. */
 const DEEPSEEK_FINAL_TRAIL_DECO_RE = /[\s\p{Extended_Pictographic}\uFE00-\uFE0F\u200D｡•ᴗ·・~～〜ー☆★♥♡♪♫✦✧※❀]+$/u;
@@ -672,8 +679,8 @@ export class ChatTurnHandler {
       let nativeProcessingDenied: { message: string; code?: WireErrorCode } | undefined;
       const continuationClock = this.d.continuationClock ?? DEFAULT_CONTINUATION_CLOCK;
       const usedCids = new Set<string>(); // turn-unique correlation id (D-I7)
-      // tier 조회: 공용 resolveToolTierByName 사용 — tier 미지정(undefined)은 "ask"(승인필요), 명시적 "none"만 무승인. (중복 매치=보수적 gated 우선)
-      const tierOf = (name: string): string => resolveToolTierByName(tools, name);
+      // tier 조회: 공용 resolveToolTierByName 사용 — 도메인 등록 도구의 미설정/"none"=무승인, 바깥 경계 정규화 도구·미등록 이름="ask"(승인필요). (중복 매치=보수적 gated 우선)
+      const tierOf = (name: string): string => resolveToolTierByName(tools, name, CONTINUE_SPEAKING_TOOL_NAME);
       // cid: call.id 가 used 면 round 접미사, 그것도 used 면 counter — unused 까지 반복(loop-until-unused, §D).
       const turnCid = (id: string): string => {
         if (!usedCids.has(id)) { usedCids.add(id); return id; }

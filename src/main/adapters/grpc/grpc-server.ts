@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
-import type { AgentRequest, AgentEmit, ToolSpec } from "../../domain/chat.js";
+import { isGatedToolTier, normalizeExternalToolTier, type AgentRequest, type AgentEmit, type ToolSpec } from "../../domain/chat.js";
 import {
   CodingJobNotFoundError,
   CodingJobResumeUnavailableError,
@@ -486,7 +486,7 @@ export function makeGrpcServer(deps: GrpcServerDeps): GrpcServer {
       const tools: ToolSpec[] = (r.tools ?? []).map((t) => {
         let parameters: unknown = {};
         try { if (t.parametersJson) parameters = JSON.parse(t.parametersJson); } catch { parameters = {}; }
-        return { name: String(t.name ?? ""), description: String(t.description ?? ""), parameters, ...(t.tier != null && t.tier > 0 ? { tier: "ask" } : {}) }; // M1: int>0 → gated "ask"(UC5 승인), 0/미설정=none(생략). String(int) 의미손실 제거.
+        return { name: String(t.name ?? ""), description: String(t.description ?? ""), parameters, tier: normalizeExternalToolTier(t.tier) }; // 바깥 경계: 명시적 0 → "none"(무승인), 미설정(undefined/null) 또는 >0 → "ask"(승인 필요)
       });
       deps.onRegisterAppSkills?.(String(r.appId ?? ""), tools);
       cb(null, { ok: true });
@@ -497,7 +497,7 @@ export function makeGrpcServer(deps: GrpcServerDeps): GrpcServer {
     },
     listSkills: (_call: grpc.ServerUnaryCall<unknown, unknown>, cb: grpc.sendUnaryData<{ tools: unknown[] }>) => {
       const tools = deps.onListSkills?.() ?? [];
-      cb(null, { tools: tools.map((t) => ({ name: t.name, description: t.description, parametersJson: JSON.stringify(t.parameters ?? {}), ...(t.tier != null && t.tier !== "none" ? { tier: 1 } : {}) })) }); // M1: gated→1, none/미설정 생략(Number("ask")=NaN 제거)
+      cb(null, { tools: tools.map((t) => ({ name: t.name, description: t.description, parametersJson: JSON.stringify(t.parameters ?? {}), ...(isGatedToolTier(t.tier) ? { tier: 1 } : {}) })) }); // 도메인 계약: gated(isGatedToolTier)→1, none/미설정 생략(Number("ask")=NaN 제거)
     },
     appToolResult: (call: grpc.ServerUnaryCall<unknown, unknown>, cb: grpc.sendUnaryData<{ ok: boolean }>) => {
       const r = call.request as { requestId?: string; toolCallId?: string; output?: string; success?: boolean; activityId?: string };
