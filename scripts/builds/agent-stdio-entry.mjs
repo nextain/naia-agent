@@ -91,7 +91,7 @@ const {
   nativeBaseUrl,
   resolveProviderRoute,
 } = await import("../../dist/main/domain/provider-route.js");
-const { makeCompositeToolExecutor } =
+const { composeBuiltinAndExternalToolExecutors, makeCompositeToolExecutor } =
   await import("../../dist/main/adapters/composite-tool-executor.js");
 const { makeAppToolExecutor } =
   await import("../../dist/main/adapters/app-tool-executor.js");
@@ -606,7 +606,12 @@ if (discordToken && discordConfig && discordAuthority) {
 // #610: discord_send / scheduled_report model tools removed (epic #589).
 if (!discordStandalone) {
   appExec = makeAppToolExecutor({ egress: grpcServer.egress });
-  toolExecutor = toolExecutor ? makeCompositeToolExecutor([toolExecutor, appExec]) : appExec;
+  // 조립 단계 분리(P2): 바깥 환경 실행기(appExec)는 composeBuiltinAndExternalToolExecutors로 감싸
+  // normalizeExternalToolSpec을 한 곳에서 강제한다.
+  toolExecutor = composeBuiltinAndExternalToolExecutors({
+    builtin: toolExecutor ? [toolExecutor] : [],
+    external: [appExec],
+  });
   skillsLabel += " + app(환경 위임)";
 }
 // Issue #82 proactive profiles — persistent activity stream + 좁은 BGM/KB 포트.

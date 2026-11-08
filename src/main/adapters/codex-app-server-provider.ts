@@ -9,7 +9,15 @@ import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { buildIsolatedSubprocessEnv, resolveFallbackCommand, type ResolveCommandOptions } from "./subprocess-session.js";
 import type { ProviderChatOpts, ProviderPort, ToolExecutorPort } from "../ports/uc1.js";
-import { resolveEffectiveToolTier, type ChatMessage, type ProviderChunk, type ProviderConfig, type ToolCall, type ToolSpec } from "../domain/chat.js";
+import {
+  ALLOWED_RUNTIME_TOOL_TIERS,
+  normalizeExternalToolSpec,
+  type ChatMessage,
+  type ProviderChunk,
+  type ProviderConfig,
+  type ToolCall,
+  type ToolSpec,
+} from "../domain/chat.js";
 import { codexThreadWorkspace, type WorkspaceBind } from "../domain/workspace-bind.js";
 
 export type CodexTurnEvent =
@@ -256,9 +264,16 @@ export function makeCodexAppServerProvider(deps?: {
       const systemPrompt = [opts.systemPrompt, folded.system].filter(Boolean).join("\n\n");
       const workspace = deps?.workspace?.();
       const axTools = deps?.axExecutor?.specs().filter((spec) => opts.tools?.some((t) => t.name === spec.name)) ?? [];
+      // ChatTurnHandler 경유 시 등록된 내장 도구는 이미 tier="none"으로 구체화되어 내려온다.
+      // makeCodexAppServerProvider에 직접 tier 미지정(undefined) 또는 비표준 tier(T1/T2 등) 도구가 넘어온 경우는
+      // 바깥 경계 규칙(normalizeExternalToolSpec)에 따라 "ask" 승인 게이트로 정규화한다(절대 "none"으로 덮어쓰지 않음).
       const normalizedTools = opts.tools
-        ? (opts.tools.some((tool) => tool.name !== "continue_speaking" && tool.tier === undefined)
-          ? opts.tools.map((tool) => (tool.name !== "continue_speaking" && tool.tier === undefined ? { ...tool, tier: resolveEffectiveToolTier(tool) } : tool))
+        ? (opts.tools.some((tool) => tool.name !== "continue_speaking" && (tool.tier === undefined || !ALLOWED_RUNTIME_TOOL_TIERS.has(tool.tier)))
+          ? opts.tools.map((tool) => (
+              tool.name !== "continue_speaking" && (tool.tier === undefined || !ALLOWED_RUNTIME_TOOL_TIERS.has(tool.tier))
+                ? normalizeExternalToolSpec(tool, ALLOWED_RUNTIME_TOOL_TIERS)
+                : tool
+            ))
           : opts.tools)
         : undefined;
       for await (const event of runTurn({
@@ -528,9 +543,10 @@ export async function* runCodexAppServerTurn(
       axThreadConfig = { mcp_servers: Object.fromEntries(Object.entries(servers ?? {}).map(([name, server]) => [name, { ...withoutNullConfig(server as Record<string, unknown>), enabled: false }])) };
     }
     // app-server 동적 도구는 executeTool 콜백 안에서 ApprovalPort 사용자 승인 및 processing guard를 거친 뒤 결과를 돌려준다.
-    // ChatTurnHandler / makeCodexAppServerProvider 경유 시 도메인 계약(resolveEffectiveToolTier)에 따라 tier가 채워지며,
-    // runCodexAppServerTurn에 직접 tier: undefined 일반 도구를 넘기면 바깥 경계에서 fail-closed로 동적 도구 목록에서 제외·거부한다.
-    const ALLOWED_DYNAMIC_TOOL_TIERS = new Set(["none", "ask", "fs-read", "fs-write", "shell"]);
+    // 조립 단계(wrapExternalToolExecutor)와 makeCodexAppServerProvider 경계는 바깥 도구의 미지정/비표준 tier를 "ask"로 정규화하며,
+    // ChatTurnHandler는 내장 도구의 미지정 tier를 도메인 계약에 따라 "none"으로 구체화해 넘긴다.
+    // runCodexAppServerTurn에 직접 tier: undefined 또는 허용 집합 밖 일반 도구를 넘기면 fail-closed로 동적 도구 목록에서 제외·거부한다.
+    const ALLOWED_DYNAMIC_TOOL_TIERS = ALLOWED_RUNTIME_TOOL_TIERS;
     const dynamicTools = (input.tools ?? [])
       // continue_speaking은 ChatTurnHandler가 인용 검증/상태 전이를 소유하는 내부 제어 도구다.
       // app-server 안에서 선실행하면 그 검증을 우회하므로 외부 executor 도구만 native 실행한다.

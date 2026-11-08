@@ -748,25 +748,46 @@ describe("Step 1 — version/bin resolution, managed CODEX_HOME, child env isola
       success: false,
     });
 
-    // 3) P2 (나): 바깥 경계 어댑터(normalizeExternalToolSpec / makeAppToolExecutor 등)를 지나온 tier 미지정(undefined) 도구는
-    // 경계에서 "ask"로 정규화되어 승인 없이 열리지 않고 승인을 요구한다.
-    // 또한 runCodexAppServerTurn에 직접 tier:undefined 일반 도구를 넘기면 fail-closed로 제외·거부한다.
-    const { normalizeExternalToolSpec } = await import("../main/domain/chat.js");
+    // 3) P2 (가): 정규화를 스스로 하지 않는 가짜 바깥 실행기(tier: undefined 그대로 반환)를
+    // 실제 조립 경로(wireAgentUC1 / composeBuiltinAndExternalToolExecutors / composeAgentRuntimeDeps)로 넣어도
+    // 조립 단계의 wrapExternalToolExecutor가 한 곳에서 "ask"로 정규화하여 반드시 approvalRequest(tier: "ask")를 거친다.
+    const { wireAgentUC1, composeBuiltinAndExternalToolExecutors } = await import("../main/composition/index.js");
+    // @ts-expect-error — .mjs 호스트 조립기(타입 선언 없음). 통합 경계라 의도적.
+    const { composeAgentRuntimeDeps } = await import("../../scripts/builds/compose-agent-deps.mjs");
+    const { makeBuiltinSkillsExecutor } = await import("../main/adapters/builtin-skills.js");
+    const { parseSkillMd, makeAdkSkillExecutor } = await import("../main/adapters/adk-skill-loader.js");
+
     let untieredExecutions = 0;
     const untieredEmits: AgentEmit[] = [];
-    const untieredToolExecutor = {
+    // 정규화를 빠뜨린 가짜 바깥 실행기(tier 필드 자체가 undefined)
+    const rawUnnormalizedExternalExecutor: import("../main/ports/uc1.js").ToolExecutorPort = {
       specs: () => [
-        normalizeExternalToolSpec({ name: "custom_untiered_tool", description: "tier 미지정 바깥 도구", parameters: { type: "object" } }),
+        { name: "custom_untiered_tool", description: "정규화를 빠뜨린 tier 미지정 바깥 도구", parameters: { type: "object" } },
       ],
       async execute() {
         untieredExecutions++;
         return { output: "untiered executed" };
       },
     };
+    expect(rawUnnormalizedExternalExecutor.specs()[0]?.tier).toBeUndefined();
+    expect(
+      composeBuiltinAndExternalToolExecutors({ external: [rawUnnormalizedExternalExecutor] })?.specs()[0]?.tier,
+    ).toBe("ask");
+    const runtimeDepsWithExternal = await composeAgentRuntimeDeps({
+      env: {
+        AGENT_PROVIDER: "fake",
+        NAIA_AGENT_SKILLS: "off",
+        NAIA_AGENT_MEMORY: "off",
+        NAIA_AGENT_TRANSCRIPT: "off",
+      },
+      externalToolExecutors: [rawUnnormalizedExternalExecutor],
+    }) as { toolExecutor?: import("../main/ports/uc1.js").ToolExecutorPort };
+    expect(runtimeDepsWithExternal.toolExecutor?.specs()[0]?.tier).toBe("ask");
+
     const providerUntieredReject = makeCodexAppServerProvider({
       runTurn: (input) => runCodexAppServerTurn(input, async () => peerForCall("custom_untiered_tool", "call-untiered-1", {})),
     });
-    const handlerUntieredReject = new ChatTurnHandler({
+    const wiredUntieredReject = wireAgentUC1({
       provider: providerUntieredReject,
       conversation: { assemble: (r) => ({ messages: r.messages }) },
       credentials: { update: () => {}, get: () => undefined },
@@ -775,7 +796,7 @@ describe("Step 1 — version/bin resolution, managed CODEX_HOME, child env isola
         emit: (reqId, e) => {
           untieredEmits.push(e);
           if (e.kind === "approvalRequest") {
-            handlerUntieredReject.onApprovalResponse({
+            wiredUntieredReject.handler.onApprovalResponse({
               kind: "approvalResponse",
               requestId: reqId,
               toolCallId: e.toolCallId,
@@ -785,9 +806,9 @@ describe("Step 1 — version/bin resolution, managed CODEX_HOME, child env isola
         },
       },
       diag: { log: () => {} },
-      toolExecutor: untieredToolExecutor,
+      externalToolExecutor: rawUnnormalizedExternalExecutor,
     });
-    await handlerUntieredReject.onChatRequest({
+    await wiredUntieredReject.handler.onChatRequest({
       kind: "chat",
       requestId: "req-untiered-reject",
       provider: { provider: "codex", model: "gpt-5.4" },
@@ -801,6 +822,108 @@ describe("Step 1 — version/bin resolution, managed CODEX_HOME, child env isola
       toolName: "custom_untiered_tool",
       output: "도구 호출이 거부되었습니다",
       success: false,
+    });
+
+    // 3b) makeCodexAppServerProvider 직접 호출 경계: ChatTurnHandler를 거치지 않고 tier: undefined 또는 비표준 tier("T2") 도구를
+    // 직접 넘기더라도 "none"으로 덮어쓰지 않고 normalizeExternalToolSpec에 따라 "ask"로 정규화한다.
+    let directProviderCapturedTools: readonly import("../main/domain/chat.js").ToolSpec[] | undefined;
+    const directProvider = makeCodexAppServerProvider({
+      runTurn: async function* (input) {
+        directProviderCapturedTools = input.tools;
+        yield { kind: "completed" as const };
+      },
+    });
+    for await (const _ of directProvider.chat(
+      { provider: "codex", model: "gpt-5.4" },
+      [{ role: "user", content: "direct" }],
+      {
+        requestId: "req-direct-provider",
+        tools: [
+          { name: "direct_untiered", description: "직접 호출 미지정 도구", parameters: { type: "object" } },
+          { name: "direct_t2", description: "직접 호출 T2 도구", parameters: { type: "object" }, tier: "T2" },
+        ],
+      },
+    )) { /* drain */ }
+    expect(directProviderCapturedTools).toEqual([
+      { name: "direct_untiered", description: "직접 호출 미지정 도구", parameters: { type: "object" }, tier: "ask" },
+      { name: "direct_t2", description: "직접 호출 T2 도구", parameters: { type: "object" }, tier: "ask" },
+    ]);
+
+    // 3c) P2 (나): 실제 내장 실행기(makeBuiltinSkillsExecutor의 get_time — tier: undefined)를
+    // 내장 조립 경로(wireAgentUC1({ toolExecutor }))로 넣으면 도메인 계약에 따라 승인 요청 없이 자동 실행된다.
+    const builtinInnerEmits: AgentEmit[] = [];
+    const realBuiltinExecutor = makeBuiltinSkillsExecutor({
+      clock: () => new Date("2026-11-08T00:00:00.000Z"),
+    });
+    expect(realBuiltinExecutor.specs().find((s) => s.name === "get_time")?.tier).toBeUndefined();
+    const wiredBuiltinInner = wireAgentUC1({
+      provider: makeCodexAppServerProvider({
+        runTurn: (input) => runCodexAppServerTurn(input, async () => peerForCall("get_time", "call-builtin-time-1", {})),
+      }),
+      conversation: { assemble: (r) => ({ messages: r.messages }) },
+      credentials: { update: () => {}, get: () => undefined },
+      approval,
+      egress: { emit: (_reqId, e) => { builtinInnerEmits.push(e); } },
+      diag: { log: () => {} },
+      toolExecutor: realBuiltinExecutor,
+    });
+    await wiredBuiltinInner.handler.onChatRequest({
+      kind: "chat",
+      requestId: "req-builtin-inner-time",
+      provider: { provider: "codex", model: "gpt-5.4" },
+      messages: [{ role: "user", content: "지금 몇 시야?" }],
+    });
+    expect(builtinInnerEmits.some((e) => e.kind === "approvalRequest")).toBe(false);
+    expect(builtinInnerEmits.find((e) => e.kind === "toolResult")).toMatchObject({
+      kind: "toolResult",
+      toolCallId: "call-builtin-time-1",
+      toolName: "get_time",
+      success: true,
+    });
+
+    // 3d) P3: ADK SKILL.md frontmatter의 tier: T2 / T1 은 바깥 경계에서 "ask"로 수렴되어
+    // Codex dynamicTools에 정상 노출되고 실행 시 approvalRequest(tier: "ask")를 거친다.
+    const parsedT2Skill = parseSkillMd(
+      `---\nname: copyright-reg\ndescription: "저작권 등록 서류 생성"\ntier: T2\n---\n# 절차\n1. 자료 수집`,
+    );
+    expect(parsedT2Skill?.tier).toBe("ask");
+    const adkT2Executor = makeAdkSkillExecutor([parsedT2Skill!]);
+    const adkT2Emits: AgentEmit[] = [];
+    const wiredAdkT2 = wireAgentUC1({
+      provider: makeCodexAppServerProvider({
+        runTurn: (input) => runCodexAppServerTurn(input, async () => peerForCall("skill_copyright-reg", "call-adk-t2", {})),
+      }),
+      conversation: { assemble: (r) => ({ messages: r.messages }) },
+      credentials: { update: () => {}, get: () => undefined },
+      approval,
+      egress: {
+        emit: (reqId, e) => {
+          adkT2Emits.push(e);
+          if (e.kind === "approvalRequest") {
+            wiredAdkT2.handler.onApprovalResponse({
+              kind: "approvalResponse",
+              requestId: reqId,
+              toolCallId: e.toolCallId,
+              decision: "approve",
+            });
+          }
+        },
+      },
+      diag: { log: () => {} },
+      externalToolExecutor: adkT2Executor,
+    });
+    await wiredAdkT2.handler.onChatRequest({
+      kind: "chat",
+      requestId: "req-adk-t2",
+      provider: { provider: "codex", model: "gpt-5.4" },
+      messages: [{ role: "user", content: "저작권 등록 스킬 실행" }],
+    });
+    expect(adkT2Emits.some((e) => e.kind === "approvalRequest" && e.toolName === "skill_copyright-reg" && e.tier === "ask")).toBe(true);
+    expect(adkT2Emits.find((e) => e.kind === "toolResult")).toMatchObject({
+      kind: "toolResult",
+      toolCallId: "call-adk-t2",
+      toolName: "skill_copyright-reg",
+      success: true,
     });
 
     // Direct runCodexAppServerTurn call with raw tier:undefined tool -> excluded from dynamicTools & rejected
@@ -855,8 +978,10 @@ describe("Step 1 — version/bin resolution, managed CODEX_HOME, child env isola
       resolveEffectiveToolTier,
       resolveToolTierByName,
     } = await import("../main/app/chat-turn-handler.js");
+    const { wireAgentUC1, composeBuiltinAndExternalToolExecutors, wrapExternalToolExecutor } = await import("../main/composition/index.js");
     const { makeInMemoryApproval } = await import("../main/adapters/approval.js");
     const { makeAppToolExecutor } = await import("../main/adapters/app-tool-executor.js");
+    const { makeBuiltinSkillsExecutor } = await import("../main/adapters/builtin-skills.js");
     const { makeCompositeToolExecutor } = await import("../main/adapters/composite-tool-executor.js");
     type AgentEmit = import("../main/domain/chat.js").AgentEmit;
     type ProviderPort = import("../main/ports/uc1.js").ProviderPort;
@@ -864,7 +989,7 @@ describe("Step 1 — version/bin resolution, managed CODEX_HOME, child env isola
     // Shared helper unit assertions:
     // - Unknown/unmatched spec (undefined) or unknown tool name -> "ask" (requires approval)
     // - Registered domain spec with tier: undefined or tier: "none" -> "none" (domain/chat.ts:38 contract)
-    // - External boundary adapter normalizes unspecified tier (undefined/null/"") -> "ask", explicit 0/"none" -> "none"
+    // - External boundary adapter/wrapper normalizes unspecified tier (undefined/null/"") and non-standard tiers ("T1"/"T2") -> "ask", explicit 0/"none" -> "none"
     expect(resolveEffectiveToolTier(undefined)).toBe("ask");
     expect(resolveEffectiveToolTier({ tier: undefined })).toBe("none");
     expect(resolveEffectiveToolTier({ tier: "none" })).toBe("none");
@@ -879,6 +1004,12 @@ describe("Step 1 — version/bin resolution, managed CODEX_HOME, child env isola
     expect(normalizeExternalToolTier(0)).toBe("none");
     expect(normalizeExternalToolTier(1)).toBe("ask");
     expect(normalizeExternalToolTier("none")).toBe("none");
+    expect(normalizeExternalToolTier("T1")).toBe("ask");
+    expect(normalizeExternalToolTier("T2")).toBe("ask");
+    expect(wrapExternalToolExecutor({
+      specs: () => [{ name: "raw_ext", description: "", parameters: {} }],
+      async execute() { return { output: "ok" }; },
+    }).specs()[0]?.tier).toBe("ask");
     expect(resolveToolTierByName([
       normalizeExternalToolSpec({ name: "untiered_tool", description: "바깥 미지정", parameters: {} }),
       { name: "builtin_read_tool", description: "내장 읽기(미설정)", parameters: {} },
@@ -903,6 +1034,12 @@ describe("Step 1 — version/bin resolution, managed CODEX_HOME, child env isola
       { specs: () => [{ name: "dup_auto", description: "", parameters: {} }], async execute() { return { output: "b" }; } },
     ]);
     expect(resolveToolTierByName(compNoneAndUndefined.specs(), "dup_auto")).toBe("none");
+    const compBuiltinAndRawExternal = composeBuiltinAndExternalToolExecutors({
+      builtin: [{ specs: () => [{ name: "get_time", description: "", parameters: {} }], async execute() { return { output: "t" }; } }],
+      external: [{ specs: () => [{ name: "raw_external_untiered", description: "", parameters: {} }], async execute() { return { output: "e" }; } }],
+    })!;
+    expect(resolveToolTierByName(compBuiltinAndRawExternal.specs(), "get_time")).toBe("none");
+    expect(resolveToolTierByName(compBuiltinAndRawExternal.specs(), "raw_external_untiered")).toBe("ask");
 
     const makeOuterLoopProvider = (toolName: string, callId: string): ProviderPort => ({
       async *chat(_cfg, messages) {
@@ -919,26 +1056,28 @@ describe("Step 1 — version/bin resolution, managed CODEX_HOME, child env isola
       },
     });
 
-    // 1) External untiered tool entering via external boundary (makeAppToolExecutor.register with tier: undefined)
-    // in outer loop -> normalized to "ask", requires approval ("ask"), executes on approve
+    // 1) 정규화를 하지 않는 가짜 바깥 실행기(tier: undefined) 및 makeAppToolExecutor를
+    // 실제 조립 함수(wireAgentUC1 externalToolExecutors)로 넣었을 때 외곽 루프에서도 "ask" 승인을 거친 뒤 승인 시 실행된다.
     let untieredApprovedRuns = 0;
     const emitsApprove: AgentEmit[] = [];
     const approvalApprove = makeInMemoryApproval();
-    const appExecApprove = makeAppToolExecutor({
-      egress: {
-        emit: (reqId, e) => {
-          if (e.kind === "appToolCall") {
-            untieredApprovedRuns++;
-            appExecApprove.resolveResult(reqId, e.toolCallId, "outer untiered ok", true);
-          }
-        },
+    const rawOuterExternalExec = {
+      specs: () => [
+        { name: "outer_untiered", description: "정규화 안 한 바깥 루프 도구", parameters: { type: "object" } },
+      ],
+      async execute() {
+        untieredApprovedRuns++;
+        return { output: "outer untiered ok" };
       },
+    };
+    const appExecApprove = makeAppToolExecutor({
+      egress: { emit: () => {} },
     });
     appExecApprove.register("ext-app", [
-      { name: "outer_untiered", description: "tier 미지정 바깥 루프 도구", parameters: { type: "object" } },
+      { name: "app_untiered", description: "앱 바깥 도구", parameters: { type: "object" } },
     ]);
     expect(appExecApprove.specs()[0]?.tier).toBe("ask");
-    const handlerOuterApprove = new ChatTurnHandler({
+    const wiredOuterApprove = wireAgentUC1({
       provider: makeOuterLoopProvider("outer_untiered", "call-outer-1"),
       conversation: { assemble: (r) => ({ messages: r.messages }) },
       credentials: { update: () => {}, get: () => undefined },
@@ -947,7 +1086,7 @@ describe("Step 1 — version/bin resolution, managed CODEX_HOME, child env isola
         emit: (reqId, e) => {
           emitsApprove.push(e);
           if (e.kind === "approvalRequest") {
-            handlerOuterApprove.onApprovalResponse({
+            wiredOuterApprove.handler.onApprovalResponse({
               kind: "approvalResponse",
               requestId: reqId,
               toolCallId: e.toolCallId,
@@ -957,9 +1096,9 @@ describe("Step 1 — version/bin resolution, managed CODEX_HOME, child env isola
         },
       },
       diag: { log: () => {} },
-      toolExecutor: appExecApprove,
+      externalToolExecutors: [rawOuterExternalExec, appExecApprove],
     });
-    await handlerOuterApprove.onChatRequest({
+    await wiredOuterApprove.handler.onChatRequest({
       kind: "chat",
       requestId: "req-outer-approve",
       provider: { provider: "fake", model: "m" },
@@ -975,7 +1114,7 @@ describe("Step 1 — version/bin resolution, managed CODEX_HOME, child env isola
       success: true,
     });
 
-    // 2) Explicit tier: "none" (or domain built-in tier: undefined) read tool in outer loop -> no approvalRequest, executes immediately
+    // 2) Explicit tier: "none" read tool in outer loop -> no approvalRequest, executes immediately
     let noneRuns = 0;
     const emitsNone: AgentEmit[] = [];
     const handlerOuterNone = new ChatTurnHandler({
@@ -1009,54 +1148,55 @@ describe("Step 1 — version/bin resolution, managed CODEX_HOME, child env isola
       success: true,
     });
 
-    // 2b) Domain built-in tool with tier: undefined (per domain/chat.ts:38 contract) -> auto-executes without approvalRequest
-    let builtinUntieredRuns = 0;
+    // 2b) 실제 내장 실행기(makeBuiltinSkillsExecutor의 get_time — tier: undefined)를 내장 조립 경로(wireAgentUC1 toolExecutor)로
+    // 넣었을 때(domain/chat.ts:38 계약) -> approvalRequest 없이 자동 실행된다.
+    let builtinTimeClockCalls = 0;
     const emitsBuiltinUntiered: AgentEmit[] = [];
-    const handlerBuiltinUntiered = new ChatTurnHandler({
-      provider: makeOuterLoopProvider("builtin_echo_like", "call-builtin-untiered"),
+    const builtinSkillsExec = makeBuiltinSkillsExecutor({
+      clock: () => {
+        builtinTimeClockCalls++;
+        return new Date("2026-11-08T00:00:00.000Z");
+      },
+    });
+    expect(builtinSkillsExec.specs().find((s) => s.name === "get_time")?.tier).toBeUndefined();
+    const wiredBuiltinUntiered = wireAgentUC1({
+      provider: makeOuterLoopProvider("get_time", "call-builtin-get-time"),
       conversation: { assemble: (r) => ({ messages: r.messages }) },
       credentials: { update: () => {}, get: () => undefined },
       approval: makeInMemoryApproval(),
       egress: { emit: (_reqId, e) => { emitsBuiltinUntiered.push(e); } },
       diag: { log: () => {} },
-      toolExecutor: {
-        specs: () => [{ name: "builtin_echo_like", description: "내장 tier 미설정 도구", parameters: { type: "object" } }],
-        async execute() {
-          builtinUntieredRuns++;
-          return { output: "builtin untiered ok" };
-        },
-      },
+      toolExecutor: builtinSkillsExec,
     });
-    await handlerBuiltinUntiered.onChatRequest({
+    await wiredBuiltinUntiered.handler.onChatRequest({
       kind: "chat",
       requestId: "req-builtin-untiered",
       provider: { provider: "fake", model: "m" },
-      messages: [{ role: "user", content: "내장 도구 실행" }],
+      messages: [{ role: "user", content: "내장 get_time 도구 실행" }],
     });
-    expect(builtinUntieredRuns).toBe(1);
+    expect(builtinTimeClockCalls).toBe(1);
     expect(emitsBuiltinUntiered.some((e) => e.kind === "approvalRequest")).toBe(false);
     expect(emitsBuiltinUntiered.find((e) => e.kind === "toolResult")).toMatchObject({
       kind: "toolResult",
-      toolCallId: "call-builtin-untiered",
-      toolName: "builtin_echo_like",
-      output: "builtin untiered ok",
+      toolCallId: "call-builtin-get-time",
+      toolName: "get_time",
       success: true,
     });
 
-    // 3) External untiered tool in outer loop when approval is rejected -> not executed
+    // 3) 정규화를 하지 않는 가짜 바깥 실행기(tier: undefined)를 실제 조립 경로(wireAgentUC1 externalToolExecutor)로 넣었을 때
+    // 승인이 거절되면 실행되지 않는다.
     let untieredRejectedRuns = 0;
     const emitsReject: AgentEmit[] = [];
-    const appExecReject = makeAppToolExecutor({
-      egress: {
-        emit: () => {
-          untieredRejectedRuns++;
-        },
+    const rawOuterRejectExec = {
+      specs: () => [
+        { name: "outer_untiered_reject", description: "거절될 정규화 누락 바깥 도구", parameters: { type: "object" } },
+      ],
+      async execute() {
+        untieredRejectedRuns++;
+        return { output: "should not execute" };
       },
-    });
-    appExecReject.register("ext-app-reject", [
-      { name: "outer_untiered_reject", description: "거절될 미지정 바깥 도구", parameters: { type: "object" } },
-    ]);
-    const handlerOuterReject = new ChatTurnHandler({
+    };
+    const wiredOuterReject = wireAgentUC1({
       provider: makeOuterLoopProvider("outer_untiered_reject", "call-outer-reject"),
       conversation: { assemble: (r) => ({ messages: r.messages }) },
       credentials: { update: () => {}, get: () => undefined },
@@ -1065,7 +1205,7 @@ describe("Step 1 — version/bin resolution, managed CODEX_HOME, child env isola
         emit: (reqId, e) => {
           emitsReject.push(e);
           if (e.kind === "approvalRequest") {
-            handlerOuterReject.onApprovalResponse({
+            wiredOuterReject.handler.onApprovalResponse({
               kind: "approvalResponse",
               requestId: reqId,
               toolCallId: e.toolCallId,
@@ -1075,9 +1215,9 @@ describe("Step 1 — version/bin resolution, managed CODEX_HOME, child env isola
         },
       },
       diag: { log: () => {} },
-      toolExecutor: appExecReject,
+      externalToolExecutor: rawOuterRejectExec,
     });
-    await handlerOuterReject.onChatRequest({
+    await wiredOuterReject.handler.onChatRequest({
       kind: "chat",
       requestId: "req-outer-reject",
       provider: { provider: "fake", model: "m" },

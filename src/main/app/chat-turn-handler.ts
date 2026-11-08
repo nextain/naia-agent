@@ -11,6 +11,7 @@ import {
   resolveTurnThinking,
   normalizeAvatarThinkingTag,
   flushAvatarThinkingTag,
+  ALLOWED_RUNTIME_TOOL_TIERS,
   isGatedToolTier,
   normalizeExternalToolSpec,
   normalizeExternalToolTier,
@@ -115,11 +116,13 @@ const CONTINUE_TOOL_RESULT_REJECTED = "continuous speaking rejected: explicit us
 
 /**
  * 도구 tier 정규화 규칙(단일 진실 공급원 — domain/chat.ts 정의 재노출):
- * - 바깥 경계 어댑터(AppToolExecutor, gRPC RegisterAppSkills, ADK SKILL.md, MCP 등)는 normalizeExternalToolTier로 미지정을 "ask"로 정규화한다.
- * - ChatTurnHandler 안에서는 도메인 계약(domain/chat.ts:38)에 따라 등록된 도구의 미설정(undefined)/"none"은 "none"(자동),
+ * - 조립 단계(composeBuiltinAndExternalToolExecutors/wrapExternalToolExecutor, wireAgentUC1, compose-agent-deps.mjs, agent-stdio-entry.mjs)는
+ *   내장 실행기와 바깥 실행기를 분리해 바깥 실행기를 한 곳에서 normalizeExternalToolSpec 래퍼로 감싸 미지정·비표준(T1/T2 등)을 "ask"로 수렴시킨다.
+ * - ChatTurnHandler 안에서는 도메인 계약(domain/chat.ts:38)에 따라 등록된 내장 도구의 미설정(undefined)/"none"은 "none"(자동)으로 구체화하고,
  *   알려진 목록(tools)에 없는 도구 이름(spec === undefined / matches.length === 0)은 "ask"(승인 필요)로 판정한다.
  */
 export {
+  ALLOWED_RUNTIME_TOOL_TIERS,
   isGatedToolTier,
   normalizeExternalToolSpec,
   normalizeExternalToolTier,
@@ -572,12 +575,14 @@ export class ChatTurnHandler {
       const allSpecs = exec?.specs() ?? [];
       const externalTools = req.enableTools === false
         ? []
-        : allSpecs.filter((s) => {
-            if (s.name === CONTINUE_SPEAKING_TOOL_NAME) return false;
-            if ((req.disabledSkills ?? []).includes(s.name)) return false;
-            if ((s.name === "skill_memory_recall" || s.name === "skill_memory_save") && (!privatePersistenceAllowed || req.processing)) return false;
-            return true;
-          });
+        : allSpecs
+            .filter((s) => {
+              if (s.name === CONTINUE_SPEAKING_TOOL_NAME) return false;
+              if ((req.disabledSkills ?? []).includes(s.name)) return false;
+              if ((s.name === "skill_memory_recall" || s.name === "skill_memory_save") && (!privatePersistenceAllowed || req.processing)) return false;
+              return true;
+            })
+            .map((s) => (s.tier === undefined ? { ...s, tier: resolveEffectiveToolTier(s) } : s));
       if (
         req.enableTools !== false &&
         this.d.memory &&
@@ -588,7 +593,10 @@ export class ChatTurnHandler {
         !(req.disabledSkills ?? []).includes("skill_memory_save") &&
         !externalTools.some((s) => s.name === "skill_memory_save")
       ) {
-        externalTools.push(MEMORY_SAVE_TOOL_SPEC);
+        externalTools.push({
+          ...MEMORY_SAVE_TOOL_SPEC,
+          tier: resolveEffectiveToolTier(MEMORY_SAVE_TOOL_SPEC),
+        });
       }
       const tools = req.enableTools === false ? [] : [CONTINUE_SPEAKING_TOOL, ...externalTools];
 
@@ -1028,7 +1036,7 @@ export class ChatTurnHandler {
   ): Promise<RoundResult> {
     // 요청별 provider 해석(resolver 주입 시) — config(provider/model/naiaKey)로 라우팅. 미주입=고정 provider(fallback/테스트).
     const provider = this.d.resolver ? this.d.resolver.resolve(cfg) : this.d.provider;
-    const ALLOWED_NATIVE_TOOL_TIERS = new Set(["none", "ask", "fs-read", "fs-write", "shell"]);
+    const ALLOWED_NATIVE_TOOL_TIERS = ALLOWED_RUNTIME_TOOL_TIERS;
     const executeTool = (this.d.toolExecutor || this.d.memory)
       ? async (call: ToolCall): Promise<ToolExecutionResult> => {
           const spec = tools?.find(

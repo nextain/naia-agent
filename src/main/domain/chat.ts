@@ -36,10 +36,12 @@ export interface ToolSpec {
   readonly description: string;
   readonly parameters: unknown /* JSON schema */;
   /**
-   * UC5 slice 2 도메인 계약: 코어(ChatTurnHandler·CompositeToolExecutor) 안에서는 미설정(undefined)/"none"=자동 실행,
-   * 그 외("ask"|"fs-read"|"fs-write"|"shell" 등)=ApprovalPort 승인 필요.
-   * 바깥 경계 어댑터(ADK SKILL.md, MCP, AppToolExecutor/gRPC RegisterAppSkills, 직접 호출된 Codex 동적 도구)는
-   * 경계를 지날 때 미설정(undefined)을 "ask"로 정규화(또는 fail-closed 거부)하고, 코어에서 알려진 도구 목록에 없는 이름은 "ask"로 판정한다.
+   * UC5 slice 2 도메인 계약: 내장(built-in) 실행기가 코어(ChatTurnHandler·CompositeToolExecutor)에 등록한 도구는
+   * 미설정(undefined)/"none"=자동 실행, 그 외("ask"|"fs-read"|"fs-write"|"shell" 등)=ApprovalPort 승인 필요.
+   * 조립 단계(composeBuiltinAndExternalToolExecutors/wrapExternalToolExecutor, wireAgentUC1, compose-agent-deps.mjs, agent-stdio-entry.mjs)는
+   * 내장 실행기와 바깥 실행기를 분리해 바깥 실행기를 한 곳에서 normalizeExternalToolSpec 래퍼로 감싸므로,
+   * 개별 어댑터가 정규화를 빠뜨려도 미설정(undefined)이나 비표준 tier(ADK SKILL.md의 "T1"/"T2" 등 ALLOWED_RUNTIME_TOOL_TIERS 밖 문자열)가
+   * 구조적으로 "ask" 승인 게이트로 수렴한다. 코어에서 알려진 도구 목록에 없는 이름 또한 "ask"로 판정한다.
    */
   readonly tier?: string /* UC5 slice 2: 미설정/"none"=자동, 그 외=승인 필요 */;
   /** Trusted executor-owned metadata; provider/model output schemas omit this field. */
@@ -80,23 +82,33 @@ export function resolveToolTierByName(
   return gated ? resolveEffectiveToolTier(gated) : "none";
 }
 
+/** 코어·동적 도구 런타임이 허용하는 표준 도구 tier 집합. */
+export const ALLOWED_RUNTIME_TOOL_TIERS: ReadonlySet<string> = new Set([
+  "none",
+  "ask",
+  "fs-read",
+  "fs-write",
+  "shell",
+]);
+
 /**
- * 바깥 경계 어댑터(AppToolExecutor, gRPC RegisterAppSkills, ADK SKILL.md, MCP 등)에서 들어오는 도구의 tier 정규화:
- * - 숫자 0 또는 문자열 "none"으로 명시된 경우에만 "none"(자동 실행)을 유지한다.
- * - 미지정(undefined/null/빈 문자열) 또는 비허용 값은 승인 게이트("ask")로 정규화한다.
+ * 바깥 경계(조립 단계의 외부 실행기 래퍼 wrapExternalToolExecutor, AppToolExecutor, gRPC RegisterAppSkills,
+ * ADK SKILL.md, MCP, makeCodexAppServerProvider 직접 호출 등)에서 들어오는 도구의 tier 정규화:
+ * - 숫자 0 또는 문자열 "none"으로 명시되고 allowedTiers에 포함된 경우에만 "none"(자동 실행)을 유지한다.
+ * - 미지정(undefined/null/빈 문자열) 또는 허용 집합(기본 ALLOWED_RUNTIME_TOOL_TIERS) 밖 문자열(예: ADK SKILL.md의 "T1"/"T2")은
+ *   승인 게이트("ask")로 수렴한다(docs/ARCHITECTURE.md 94줄의 T1/T2=질문 의미와도 합치).
  */
 export function normalizeExternalToolTier(
   tier: string | number | null | undefined,
-  allowedTiers?: ReadonlySet<string>,
+  allowedTiers: ReadonlySet<string> = ALLOWED_RUNTIME_TOOL_TIERS,
 ): string {
   if (typeof tier === "number") {
-    return tier === 0 ? "none" : "ask";
+    return tier === 0 && allowedTiers.has("none") ? "none" : "ask";
   }
   if (typeof tier === "string") {
     const trimmed = tier.trim();
     if (!trimmed) return "ask";
-    if (allowedTiers) return allowedTiers.has(trimmed) ? trimmed : "ask";
-    return trimmed;
+    return allowedTiers.has(trimmed) ? trimmed : "ask";
   }
   return "ask";
 }
@@ -104,7 +116,7 @@ export function normalizeExternalToolTier(
 /** 바깥 경계를 지나는 ToolSpec의 tier를 normalizeExternalToolTier로 정규화한다. */
 export function normalizeExternalToolSpec<T extends ToolSpec>(
   spec: T,
-  allowedTiers?: ReadonlySet<string>,
+  allowedTiers: ReadonlySet<string> = ALLOWED_RUNTIME_TOOL_TIERS,
 ): T {
   return { ...spec, tier: normalizeExternalToolTier(spec.tier, allowedTiers) };
 }

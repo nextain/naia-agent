@@ -23,7 +23,10 @@ import { makeGithubSkillsExecutor } from "../../dist/main/adapters/github-skills
 import { makeObsidianSkillsExecutor } from "../../dist/main/adapters/obsidian-skills.js";
 import { makeMcpSkillsExecutor } from "../../dist/main/adapters/mcp-skills.js";
 import { makeMcpJsonRpcClient } from "../../dist/main/adapters/mcp-stdio-transport.js";
-import { makeCompositeToolExecutor } from "../../dist/main/adapters/composite-tool-executor.js";
+import {
+  composeBuiltinAndExternalToolExecutors,
+  makeCompositeToolExecutor,
+} from "../../dist/main/adapters/composite-tool-executor.js";
 import { makeNotifyExecutor } from "../../dist/main/adapters/notify-skills.js";
 import { makeAdkSkillExecutor, parseSkillMd } from "../../dist/main/adapters/adk-skill-loader.js";
 import { makeFsTools } from "../../dist/main/adapters/fs-tools.js";
@@ -274,7 +277,11 @@ export async function composeAgentRuntimeDeps(o = {}) {
     const memo = makeFileMemoStore({ path: memoPath, dir: dirname(memoPath), fs: nodeFs });
     const builtin = makeBuiltinSkillsExecutor({ clock: () => new Date(), fetchWeather: makeOpenMeteoFetchWeather(), memo });
     skillsLabel = `time/weather/memo(${memoPath})`;
-    const executors = [builtin];
+    // 조립 단계 분리(P2): 내장 실행기(builtinExecutors)는 도메인 계약(tier 미설정/"none"=자동)을 유지하고,
+    // 바깥 실행기(externalExecutors: MCP·ADK SKILL.md·주입된 외부 실행기)는 composeBuiltinAndExternalToolExecutors가
+    // 한 곳에서 wrapExternalToolExecutor(normalizeExternalToolSpec)로 감싸 정규화 누락을 구조적으로 차단한다.
+    const builtinExecutors = [builtin, ...(Array.isArray(o.builtinToolExecutors) ? o.builtinToolExecutors : [])];
+    const externalExecutors = [...(Array.isArray(o.externalToolExecutors) ? o.externalToolExecutors : [])];
     for (const spec of builtin.specs().filter((s) => ["get_time", "memo_list", "memo_get"].includes(s.name))) {
       axRegistrations.push({ spec, classify: () => ["local_read"], execute: builtin.execute.bind(builtin) });
     }
@@ -292,7 +299,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
       },
       enableWrite: enableShell,
     });
-    executors.push(fsExecutor);
+    builtinExecutors.push(fsExecutor);
     for (const spec of fsExecutor.specs().filter((s) => ["list_dir", "read_file"].includes(s.name))) {
       axRegistrations.push({ spec, classify: () => ["local_read"], execute: fsExecutor.execute.bind(fsExecutor) });
     }
@@ -336,7 +343,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
       });
       // realpath 주입 — cwd 의 symlink/junction 탈출 재검증(fs-tools 와 동형). 부재/실패 시 throw → 어댑터가 거부.
       if (adkPath) {
-        executors.push(makeShellTool({ exec: shellExec, allowRoots: [adkPath], realpath: (p) => nodeFs.realpathSync(p) }));
+        builtinExecutors.push(makeShellTool({ exec: shellExec, allowRoots: [adkPath], realpath: (p) => nodeFs.realpathSync(p) }));
         skillsLabel += " + shell-tool(argv)";
       }
     }
@@ -432,7 +439,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
           },
         };
         knowledgeBackend = backend;
-        executors.push(makeKnowledgeSkillsExecutor({ backend }));
+        builtinExecutors.push(makeKnowledgeSkillsExecutor({ backend }));
         // Do not eagerly realpath/load the fallback workspace. A fresh desktop may boot before
         // the selected ADK exists; the dynamic backend must recover after SetWorkspace.
         skillsLabel += " + knowledge(canonical naia-settings, live-workspace-reload)";
@@ -442,9 +449,9 @@ export async function composeAgentRuntimeDeps(o = {}) {
     }
 
     const ghToken = env.GITHUB_TOKEN || env.GH_TOKEN;
-    if (ghToken) { executors.push(makeGithubSkillsExecutor({ token: ghToken })); skillsLabel += " + github(ro)"; }
+    if (ghToken) { builtinExecutors.push(makeGithubSkillsExecutor({ token: ghToken })); skillsLabel += " + github(ro)"; }
     const vault = env.NAIA_OBSIDIAN_VAULT;
-    if (vault) { executors.push(makeObsidianSkillsExecutor({ vaultDir: vault, fs: nodeFs })); skillsLabel += " + obsidian(ro)"; }
+    if (vault) { builtinExecutors.push(makeObsidianSkillsExecutor({ vaultDir: vault, fs: nodeFs })); skillsLabel += " + obsidian(ro)"; }
     const mcpCmd = env.NAIA_MCP_CMD;
     if (mcpCmd && env.NAIA_AGENT_AX !== "on") {
       try {
@@ -457,7 +464,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
         const channel = { send: (line) => child.stdin.write(line + "\n"), onLine: (cb) => { mcb = cb; return () => { mcb = null; }; }, close: () => { try { child.kill(); } catch { /* noop */ } } };
         const transport = makeMcpJsonRpcClient(channel);
         const mcpExec = await makeMcpSkillsExecutor({ transport, serverName: mcpName, initTimeoutMs: 30000 });
-        executors.push(mcpExec);
+        externalExecutors.push(mcpExec);
         cleanupFns.push(channel.close);
         skillsLabel += ` + mcp:${mcpName}(${mcpExec.specs().length})`;
       } catch (e) {
@@ -472,7 +479,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
         const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), ...(signal ? { signal } : {}) });
         return { ok: r.ok, status: r.status };
       };
-      executors.push(makeNotifyExecutor({ post: notifyPost, webhookUrl: notifyWebhookUrl }));
+      builtinExecutors.push(makeNotifyExecutor({ post: notifyPost, webhookUrl: notifyWebhookUrl }));
       skillsLabel += " + notify";
     }
     // naia-adk 동적 스킬(SKILL.md) — 정의=naia-adk 워크스페이스 / 실행=agent. 본문(절차)을 도구 output 으로(프롬프트 주입형).
@@ -489,10 +496,18 @@ export async function composeAgentRuntimeDeps(o = {}) {
     } catch { /* .agents/skills 없음 */ }
     if (adkSkills.length) {
       const adkExec = makeAdkSkillExecutor(adkSkills);
-      executors.push(adkExec);
+      externalExecutors.push(adkExec);
       skillsLabel += ` + adk-skills(${adkExec.specs().length}/${adkSkills.length})`;
     }
-    toolExecutor = executors.length > 1 ? makeCompositeToolExecutor(executors) : builtin;
+    toolExecutor = composeBuiltinAndExternalToolExecutors({
+      builtin: builtinExecutors,
+      external: externalExecutors,
+    });
+  } else if (Array.isArray(o.builtinToolExecutors) || Array.isArray(o.externalToolExecutors)) {
+    toolExecutor = composeBuiltinAndExternalToolExecutors({
+      builtin: Array.isArray(o.builtinToolExecutors) ? o.builtinToolExecutors : [],
+      external: Array.isArray(o.externalToolExecutors) ? o.externalToolExecutors : [],
+    });
   }
   if (env.NAIA_AGENT_AX === "on") {
     axExecutor = makeAxEffectBroker({ registrations: axRegistrations, diag });
