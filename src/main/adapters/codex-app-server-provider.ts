@@ -4,7 +4,9 @@
 // `codex app-server`를 사용하며 auth.json/token을 읽거나 복사하지 않는다.
 // app-server JSONL 프로토콜은 이 파일 안에 격리하고 ProviderPort에는 정규화 chunk만 노출한다.
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import { buildIsolatedSubprocessEnv } from "./subprocess-session.js";
+import { existsSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { buildIsolatedSubprocessEnv, resolveFallbackCommand, type ResolveCommandOptions } from "./subprocess-session.js";
 import type { ProviderChatOpts, ProviderPort, ToolExecutorPort } from "../ports/uc1.js";
 import type { ChatMessage, ProviderChunk, ProviderConfig, ToolCall, ToolSpec } from "../domain/chat.js";
 import { codexThreadWorkspace, type WorkspaceBind } from "../domain/workspace-bind.js";
@@ -49,10 +51,93 @@ export function codexExecutable(platform = process.platform): string {
   return platform === "win32" ? "codex.cmd" : "codex";
 }
 
-/** token/auth.json을 읽지 않고 Codex CLI의 안정 명령만으로 설치·로그인 상태를 확인한다. */
-export async function checkCodexPreflight(run?: RunCodexStatus): Promise<CodexPreflightStatus> {
+export interface CodexSubprocessEnvOptions {
+  readonly codexHome?: string;
+  /**
+   * Loopback bridge env_key configuration (e.g. "NAIA_BRIDGE_TOKEN").
+   * When bridgeToken is provided and allowBridgeEnvKey !== false, injects the one-time token
+   * and allowlists ["CODEX_HOME", bridgeEnvKey]. Otherwise only ["CODEX_HOME"] is allowlisted.
+   */
+  readonly bridgeEnvKey?: string;
+  readonly bridgeToken?: string;
+  readonly allowBridgeEnvKey?: boolean;
+}
+
+export function buildCodexSubprocessEnv(
+  source: NodeJS.ProcessEnv = process.env,
+  opts?: CodexSubprocessEnvOptions,
+): NodeJS.ProcessEnv {
+  const extraAllowed: string[] = ["CODEX_HOME"];
+  const envSource: NodeJS.ProcessEnv = { ...source };
+  if (opts?.codexHome) {
+    envSource.CODEX_HOME = opts.codexHome;
+  }
+  if (opts?.bridgeEnvKey) {
+    if (opts.allowBridgeEnvKey !== false && opts.bridgeToken !== undefined && opts.bridgeToken.length > 0) {
+      envSource[opts.bridgeEnvKey] = opts.bridgeToken;
+      extraAllowed.push(opts.bridgeEnvKey);
+    } else {
+      delete envSource[opts.bridgeEnvKey];
+    }
+  }
+  return buildIsolatedSubprocessEnv(envSource, extraAllowed);
+}
+
+export interface ManagedCodexHomeOptions {
+  readonly workspaceRoot?: string;
+  readonly targetDir?: string;
+  readonly sourceEnv?: NodeJS.ProcessEnv;
+}
+
+/**
+ * Prepares a managed CODEX_HOME directory (<adkPath>/naia-settings/codex-home) with an empty
+ * config.toml and a symlink to auth.json (never reading or copying auth.json contents).
+ */
+export async function prepareManagedCodexHome(
+  opts: ManagedCodexHomeOptions = {},
+): Promise<string | undefined> {
+  const sourceEnv = opts.sourceEnv ?? process.env;
+  const targetDir = opts.targetDir
+    ?? (opts.workspaceRoot ? join(opts.workspaceRoot, "naia-settings", "codex-home") : undefined);
+  if (!targetDir) return sourceEnv.CODEX_HOME;
+  const { mkdir, writeFile, symlink, lstat } = await import("node:fs/promises");
+  await mkdir(targetDir, { recursive: true, mode: 0o700 });
+  await writeFile(join(targetDir, "config.toml"), "", { mode: 0o600 });
+  const sourceCodexHome = sourceEnv.CODEX_HOME
+    ?? (sourceEnv.HOME ? join(sourceEnv.HOME, ".codex") : undefined);
+  if (sourceCodexHome && resolve(sourceCodexHome) !== resolve(targetDir)) {
+    const targetAuth = join(targetDir, "auth.json");
+    const sourceAuth = join(sourceCodexHome, "auth.json");
+    try {
+      await lstat(targetAuth);
+    } catch {
+      try {
+        await symlink(sourceAuth, targetAuth);
+      } catch {
+        /* symlink is best-effort without reading auth.json */
+      }
+    }
+  }
+  return targetDir;
+}
+
+/** token/auth.json을 읽지 않고 Codex CLI의 안정 명령만으로 버전·설치·로그인 상태를 확인한다. */
+export async function checkCodexPreflight(
+  run?: RunCodexStatus,
+  runVersion?: RunCodexStatus,
+): Promise<CodexPreflightStatus> {
   const execute = run ?? defaultRunCodexStatus;
+  const executeVersion = runVersion ?? (run ? undefined : defaultRunCodexVersion);
   try {
+    if (executeVersion) {
+      const version = await executeVersion();
+      if (version.code !== 0 || version.stdout.trim() !== `codex-cli ${CODEX_CLI_VERSION}`) {
+        return {
+          status: "error",
+          detail: `codex requires codex-cli ${CODEX_CLI_VERSION}; got ${version.stdout.trim() || `exit ${version.code}`}`,
+        };
+      }
+    }
     const result = await execute();
     const output = `${result.stdout}\n${result.stderr}`.trim();
     if (result.code === 0 && /logged in/i.test(output)) return { status: "ready", detail: output };
@@ -67,20 +152,32 @@ export async function checkCodexPreflight(run?: RunCodexStatus): Promise<CodexPr
   }
 }
 
-async function defaultRunCodexStatus(): Promise<{ code: number; stdout: string; stderr: string }> {
+export async function defaultRunCodexVersion(
+  opts?: ResolveCommandOptions & CodexSubprocessEnvOptions,
+): Promise<{ code: number; stdout: string; stderr: string }> {
+  return runIsolatedCodexCli(["--version"], opts);
+}
+
+export async function defaultRunCodexStatus(
+  opts?: ResolveCommandOptions & CodexSubprocessEnvOptions,
+): Promise<{ code: number; stdout: string; stderr: string }> {
+  return runIsolatedCodexCli(["login", "status"], opts);
+}
+
+async function runIsolatedCodexCli(
+  cliArgs: readonly string[],
+  opts?: ResolveCommandOptions & CodexSubprocessEnvOptions,
+): Promise<{ code: number; stdout: string; stderr: string }> {
   const { spawn } = await import("node:child_process");
-  return new Promise((resolve, reject) => {
-    const child = process.platform === "win32"
-      ? spawn(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", `${codexExecutable()} login status`], {
-        stdio: ["ignore", "pipe", "pipe"],
-        env: process.env,
-        windowsHide: true,
-      })
-      : spawn(codexExecutable(), ["login", "status"], {
-        stdio: ["ignore", "pipe", "pipe"],
-        env: process.env,
-        windowsHide: true,
-      });
+  const sourceEnv = opts?.env ?? process.env;
+  const bin = resolveFallbackCommand("codex", opts);
+  const env = buildCodexSubprocessEnv(sourceEnv, opts);
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(bin.command, [...bin.prefixArgs, ...cliArgs], {
+      stdio: ["ignore", "pipe", "pipe"],
+      env,
+      windowsHide: true,
+    });
     let stdout = "";
     let stderr = "";
     child.stdout.setEncoding("utf8");
@@ -88,7 +185,7 @@ async function defaultRunCodexStatus(): Promise<{ code: number; stdout: string; 
     child.stdout.on("data", (chunk: string) => { stdout += chunk; });
     child.stderr.on("data", (chunk: string) => { stderr += chunk; });
     child.once("error", reject);
-    child.once("exit", (code) => resolve({ code: code ?? 1, stdout, stderr }));
+    child.once("exit", (code) => resolvePromise({ code: code ?? 1, stdout, stderr }));
   });
 }
 
@@ -201,19 +298,35 @@ const APP_SERVER_REASONING_EFFORT = ALLOWED_EFFORTS.has(
   ? (process.env.NAIA_CODEX_REASONING_EFFORT as string)
   : "medium";
 
-async function defaultSpawnCodex(): Promise<ChildProcessWithoutNullStreams> {
+export interface DefaultSpawnCodexOptions extends ResolveCommandOptions, CodexSubprocessEnvOptions {
+  readonly workspaceRoot?: string;
+}
+
+export async function defaultSpawnCodex(
+  opts?: DefaultSpawnCodexOptions,
+): Promise<ChildProcessWithoutNullStreams> {
   const { spawn } = await import("node:child_process");
-  const effortConfig = `model_reasoning_effort="${APP_SERVER_REASONING_EFFORT}"`;
-  if (process.platform === "win32") {
-    return spawn(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", `${codexExecutable()} app-server --config ${effortConfig}`], {
-      stdio: ["pipe", "pipe", "pipe"],
-      env: process.env,
-      windowsHide: true,
-    });
+  const sourceEnv = opts?.env ?? process.env;
+  const bin = resolveFallbackCommand("codex", opts);
+  let codexHome = opts?.codexHome;
+  if (!codexHome && opts?.workspaceRoot && existsSync(opts.workspaceRoot)) {
+    codexHome = await prepareManagedCodexHome({ workspaceRoot: opts.workspaceRoot, sourceEnv });
   }
-  return spawn(codexExecutable(), ["app-server", "--config", effortConfig], {
+  const env = buildCodexSubprocessEnv(sourceEnv, {
+    ...opts,
+    ...(codexHome ? { codexHome } : {}),
+  });
+  const effortConfig = `model_reasoning_effort="${APP_SERVER_REASONING_EFFORT}"`;
+  return spawn(bin.command, [
+    ...bin.prefixArgs,
+    "app-server",
+    "--config",
+    effortConfig,
+    "-c",
+    "features.memory_tool=false",
+  ], {
     stdio: ["pipe", "pipe", "pipe"],
-    env: process.env,
+    env,
     windowsHide: true,
   });
 }
@@ -338,7 +451,8 @@ export async function* runCodexAppServerTurn(
   let peer: RpcPeer;
   try {
     peer = await (peerFactory ? peerFactory() : input.ax
-      ? makeCodexRpcPeer(() => spawnCodexAx(axCwd!, axModelCatalog)) : makeCodexRpcPeer());
+      ? makeCodexRpcPeer(() => spawnCodexAx(axCwd!, axModelCatalog))
+      : makeCodexRpcPeer(() => defaultSpawnCodex({ workspaceRoot: input.workspace?.canonicalRoot })));
   } catch (error) {
     if (axCwd) await (await import("node:fs/promises")).rm(axCwd, { recursive: true, force: true });
     throw error;
@@ -384,12 +498,12 @@ export async function* runCodexAppServerTurn(
       const servers = effective.config?.mcp_servers as Record<string, unknown> | undefined;
       axThreadConfig = { mcp_servers: Object.fromEntries(Object.entries(servers ?? {}).map(([name, server]) => [name, { ...withoutNullConfig(server as Record<string, unknown>), enabled: false }])) };
     }
-    // app-server 동적 도구는 한 RPC 안에서 즉시 결과를 돌려줘야 한다. 승인 필요 도구는 제외한다.
-    // processing metadata가 있는 도구는 ChatTurnHandler의 executeTool callback이 승인/공개한 뒤 실행한다.
+    // app-server 동적 도구는 executeTool 콜백 안에서 ApprovalPort 사용자 승인 및 processing guard를 거친 뒤 결과를 돌려준다.
+    const ALLOWED_DYNAMIC_TOOL_TIERS = new Set(["none", "ask", "fs-read", "fs-write", "shell"]);
     const dynamicTools = (input.tools ?? [])
       // continue_speaking은 ChatTurnHandler가 인용 검증/상태 전이를 소유하는 내부 제어 도구다.
       // app-server 안에서 선실행하면 그 검증을 우회하므로 외부 executor 도구만 native 실행한다.
-      .filter((tool) => tool.name !== "continue_speaking" && (tool.tier === undefined || tool.tier === "none"))
+      .filter((tool) => tool.name !== "continue_speaking" && (tool.tier === undefined || ALLOWED_DYNAMIC_TOOL_TIERS.has(tool.tier)))
       .map((tool) => ({
         type: "function" as const,
         name: tool.name,

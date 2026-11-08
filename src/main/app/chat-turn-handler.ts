@@ -1005,10 +1005,47 @@ export class ChatTurnHandler {
   ): Promise<RoundResult> {
     // 요청별 provider 해석(resolver 주입 시) — config(provider/model/naiaKey)로 라우팅. 미주입=고정 provider(fallback/테스트).
     const provider = this.d.resolver ? this.d.resolver.resolve(cfg) : this.d.provider;
+    const ALLOWED_NATIVE_TOOL_TIERS = new Set(["none", "ask", "fs-read", "fs-write", "shell"]);
     const executeTool = (this.d.toolExecutor || this.d.memory)
       ? async (call: ToolCall): Promise<ToolExecutionResult> => {
-          const spec = tools?.find((candidate) => candidate.name === call.name && (candidate.tier === undefined || candidate.tier === "none"));
+          const spec = tools?.find(
+            (candidate) =>
+              candidate.name === call.name
+              && candidate.name !== CONTINUE_SPEAKING_TOOL_NAME
+              && (candidate.tier === undefined || ALLOWED_NATIVE_TOOL_TIERS.has(candidate.tier)),
+          );
           if (!spec) return { output: `provider-native tool '${call.name}' is not authorized`, isError: true };
+          const tier = spec.tier ?? "none";
+          if (tier !== "none") {
+            // 승인 대기는 raceAbort(..., TOOL_EXEC_TIMEOUT_MS) 호출 전에 수행해 승인 대기 중 도구 실행 타이머가 만료되지 않게 한다(897-915줄 패턴).
+            if (signal.aborted) throw new Error("cancelled");
+            const { promise, dispose } = this.d.approval.prepareDecision(requestId, call.id, { signal });
+            void promise.catch(() => {});
+            if (signal.aborted) {
+              dispose();
+              throw new Error("cancelled");
+            }
+            let decision: "approve" | "reject" = "reject";
+            try {
+              nativeEmit({
+                kind: "approvalRequest",
+                toolCallId: call.id,
+                toolName: call.name,
+                tier,
+                args: call.args,
+                description: spec.description ?? "",
+              });
+              decision = await promise;
+            } catch {
+              decision = "reject";
+            } finally {
+              dispose();
+            }
+            if (signal.aborted) throw new Error("cancelled");
+            if (decision === "reject") {
+              return { output: "도구 호출이 거부되었습니다", isError: true };
+            }
+          }
           if (call.name === "skill_memory_save" && (!this.d.toolExecutor || !this.d.toolExecutor.specs().some((s) => s.name === "skill_memory_save"))) {
             if (!this.d.memory || typeof this.d.memory.save !== "function") {
               return { output: "memory save unavailable (memory port 미지원)", isError: true };

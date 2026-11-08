@@ -441,3 +441,251 @@ it("AX preflight reports enterprise env rejection before running CLI, without bl
     if (previous === undefined) delete process.env.HTTPS_PROXY; else process.env.HTTPS_PROXY = previous;
   }
 });
+
+describe("Step 1 — version/bin resolution, managed CODEX_HOME, child env isolation, and tier:ask approval", () => {
+  it("verifies codex-cli 0.163.0 in default checkCodexPreflight before login status", async () => {
+    const { CODEX_CLI_VERSION } = await import("../main/adapters/codex-app-server-provider.js");
+    let loginCalled = 0;
+    const mismatch = await checkCodexPreflight(
+      async () => { loginCalled++; return { code: 0, stdout: "Logged in", stderr: "" }; },
+      async () => ({ code: 0, stdout: "codex-cli 0.162.0\n", stderr: "" }),
+    );
+    expect(mismatch.status).toBe("error");
+    expect(mismatch.detail).toContain(`codex-cli ${CODEX_CLI_VERSION}`);
+    expect(loginCalled).toBe(0);
+
+    const matched = await checkCodexPreflight(
+      async () => { loginCalled++; return { code: 0, stdout: "Logged in using ChatGPT", stderr: "" }; },
+      async () => ({ code: 0, stdout: `codex-cli ${CODEX_CLI_VERSION}\n`, stderr: "" }),
+    );
+    expect(matched).toEqual({ status: "ready", detail: "Logged in using ChatGPT" });
+    expect(loginCalled).toBe(1);
+  });
+
+  it("isolates default Codex subprocess env (E3 default, E2 bridge token allowed, E1 bridge token unallowed)", async () => {
+    const { buildCodexSubprocessEnv } = await import("../main/adapters/codex-app-server-provider.js");
+    const dirtyEnv: NodeJS.ProcessEnv = {
+      PATH: "/usr/bin:/bin",
+      HOME: "/home/tester",
+      CODEX_HOME: "/tmp/codex-home",
+      OPENAI_API_KEY: "sk-parent-secret",
+      NAIA_API_KEY: "naia-parent-secret",
+      NAIA_ANYLLM_API_KEY: "anyllm-parent-secret",
+      ANTHROPIC_API_KEY: "anthropic-parent-secret",
+      DISCORD_BOT_TOKEN: "discord-parent-secret",
+      NAIA_BRIDGE_TOKEN: "stale-parent-token",
+    };
+
+    // E3: default (no bridge env_key) -> only allowlisted system keys + CODEX_HOME
+    const e3 = buildCodexSubprocessEnv(dirtyEnv);
+    expect(e3.PATH).toBe("/usr/bin:/bin");
+    expect(e3.CODEX_HOME).toBe("/tmp/codex-home");
+    expect(e3.OPENAI_API_KEY).toBeUndefined();
+    expect(e3.NAIA_API_KEY).toBeUndefined();
+    expect(e3.NAIA_ANYLLM_API_KEY).toBeUndefined();
+    expect(e3.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(e3.DISCORD_BOT_TOKEN).toBeUndefined();
+    expect(e3.NAIA_BRIDGE_TOKEN).toBeUndefined();
+
+    // E2: bridgeEnvKey + one-time bridgeToken -> injects token and allowlists ["CODEX_HOME", "NAIA_BRIDGE_TOKEN"]
+    const e2 = buildCodexSubprocessEnv(dirtyEnv, {
+      codexHome: "/tmp/managed-codex-home",
+      bridgeEnvKey: "NAIA_BRIDGE_TOKEN",
+      bridgeToken: "one-time-bridge-token-123",
+    });
+    expect(e2.CODEX_HOME).toBe("/tmp/managed-codex-home");
+    expect(e2.NAIA_BRIDGE_TOKEN).toBe("one-time-bridge-token-123");
+    expect(e2.NAIA_API_KEY).toBeUndefined();
+
+    // E1: bridgeEnvKey without allowlisting or without token -> omits NAIA_BRIDGE_TOKEN so Codex fails closed
+    const e1 = buildCodexSubprocessEnv(dirtyEnv, {
+      bridgeEnvKey: "NAIA_BRIDGE_TOKEN",
+      bridgeToken: "one-time-bridge-token-123",
+      allowBridgeEnvKey: false,
+    });
+    expect(e1.NAIA_BRIDGE_TOKEN).toBeUndefined();
+  });
+
+  it("prepares managed CODEX_HOME (<adkPath>/naia-settings/codex-home) with empty config.toml and symlinked auth.json without reading auth.json", async () => {
+    const { prepareManagedCodexHome } = await import("../main/adapters/codex-app-server-provider.js");
+    const { mkdirSync, mkdtempSync, readFileSync, lstatSync, writeFileSync, rmSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const baseTmp = "/home/nextain/work/codex-runs/agent-codex/tmp";
+    mkdirSync(baseTmp, { recursive: true });
+    const sandboxDir = mkdtempSync(join(baseTmp, "managed-codex-home-test-"));
+    try {
+      const sourceHome = join(sandboxDir, "source-codex-home");
+      const workspaceRoot = join(sandboxDir, "workspace");
+      mkdirSync(sourceHome, { recursive: true });
+      mkdirSync(workspaceRoot, { recursive: true });
+      writeFileSync(join(sourceHome, "auth.json"), '{"token":"opaque"}', { mode: 0o600 });
+      writeFileSync(join(sourceHome, "config.toml"), 'instructions = "HOSTILE_USER_OVERRIDE"\n[features]\nmemory_tool = true\n');
+
+      const managed = await prepareManagedCodexHome({
+        workspaceRoot,
+        sourceEnv: { PATH: "/usr/bin", CODEX_HOME: sourceHome },
+      });
+      expect(managed).toBe(join(workspaceRoot, "naia-settings", "codex-home"));
+      expect(readFileSync(join(managed!, "config.toml"), "utf8")).toBe("");
+      expect(lstatSync(join(managed!, "auth.json")).isSymbolicLink()).toBe(true);
+    } finally {
+      rmSync(sandboxDir, { recursive: true, force: true });
+    }
+  });
+
+  it("advertises tier:ask tools (memo_save, ADK SKILL.md) to app-server and routes executeTool through ApprovalPort before TOOL_EXEC_TIMEOUT_MS", async () => {
+    const { ChatTurnHandler } = await import("../main/app/chat-turn-handler.js");
+    const { makeInMemoryApproval } = await import("../main/adapters/approval.js");
+    type AgentEmit = import("../main/domain/chat.js").AgentEmit;
+
+    const approval = makeInMemoryApproval();
+    const emits: AgentEmit[] = [];
+    let advertisedNames: string[] = [];
+    let memoExecutions = 0;
+    let skillExecutions = 0;
+
+    const peerForCall = (toolName: string, callId: string, args: unknown): RpcPeer => ({
+      async request(method, params) {
+        if (method === "thread/start") {
+          const p = params as { dynamicTools?: Array<{ name: string }> };
+          advertisedNames = (p.dynamicTools ?? []).map((t) => t.name);
+          return { thread: { id: "thread-ask" } };
+        }
+        if (method === "turn/start") return { turn: { id: "turn-ask" } };
+        return {};
+      },
+      notify() {},
+      respond(_id, _result) {},
+      notifications() {
+        return (async function* () {
+          yield {
+            id: 41,
+            method: "item/tool/call",
+            params: {
+              threadId: "thread-ask",
+              turnId: "turn-ask",
+              callId,
+              namespace: "dynamic",
+              tool: toolName,
+              arguments: args,
+            },
+          };
+          yield {
+            method: "item/agentMessage/delta",
+            params: { threadId: "thread-ask", turnId: "turn-ask", delta: "처리 완료" },
+          };
+          yield {
+            method: "turn/completed",
+            params: { threadId: "thread-ask", turn: { id: "turn-ask", status: "completed" } },
+          };
+        })();
+      },
+      close() {},
+    });
+
+    const toolExecutor = {
+      specs: () => [
+        { name: "memo_save", description: "메모 저장", parameters: { type: "object" }, tier: "ask" },
+        { name: "skill_deploy_guide", description: "ADK SKILL.md", parameters: { type: "object" }, tier: "ask" },
+      ],
+      async execute(call: { name: string }) {
+        if (call.name === "memo_save") {
+          memoExecutions++;
+          return { output: "memo saved" };
+        }
+        skillExecutions++;
+        return { output: "skill body" };
+      },
+    };
+
+    // 1) Approval granted after a delay longer than toolTimeoutMs (verifies approval wait is outside raceAbort timer)
+    const providerApprove = makeCodexAppServerProvider({
+      runTurn: (input) => runCodexAppServerTurn(input, async () => peerForCall("memo_save", "call-memo-1", { title: "회의", content: "정리" })),
+    });
+    const handlerApprove = new ChatTurnHandler({
+      provider: providerApprove,
+      conversation: { assemble: (r) => ({ messages: r.messages }) },
+      credentials: { update: () => {}, get: () => undefined },
+      approval,
+      egress: {
+        emit: (reqId, e) => {
+          emits.push(e);
+          if (e.kind === "approvalRequest") {
+            setTimeout(() => {
+              handlerApprove.onApprovalResponse({
+                kind: "approvalResponse",
+                requestId: reqId,
+                toolCallId: e.toolCallId,
+                decision: "approve",
+              });
+            }, 40);
+          }
+        },
+      },
+      diag: { log: () => {} },
+      toolExecutor,
+      toolTimeoutMs: 15,
+    });
+
+    await handlerApprove.onChatRequest({
+      kind: "chat",
+      requestId: "req-approve",
+      provider: { provider: "codex", model: "gpt-5.4" },
+      messages: [{ role: "user", content: "메모 작성해줘" }],
+    });
+
+    expect(advertisedNames).toEqual(["memo_save", "skill_deploy_guide"]);
+    expect(memoExecutions).toBe(1);
+    expect(emits.some((e) => e.kind === "approvalRequest" && e.toolName === "memo_save" && e.tier === "ask")).toBe(true);
+    expect(emits.find((e) => e.kind === "toolResult")).toMatchObject({
+      kind: "toolResult",
+      toolCallId: "call-memo-1",
+      toolName: "memo_save",
+      output: "memo saved",
+      success: true,
+    });
+
+    // 2) Approval rejected on ADK SKILL.md tool -> executor not called, returns rejection toolResult
+    const rejectEmits: AgentEmit[] = [];
+    const providerReject = makeCodexAppServerProvider({
+      runTurn: (input) => runCodexAppServerTurn(input, async () => peerForCall("skill_deploy_guide", "call-skill-1", {})),
+    });
+    const handlerReject = new ChatTurnHandler({
+      provider: providerReject,
+      conversation: { assemble: (r) => ({ messages: r.messages }) },
+      credentials: { update: () => {}, get: () => undefined },
+      approval,
+      egress: {
+        emit: (reqId, e) => {
+          rejectEmits.push(e);
+          if (e.kind === "approvalRequest") {
+            handlerReject.onApprovalResponse({
+              kind: "approvalResponse",
+              requestId: reqId,
+              toolCallId: e.toolCallId,
+              decision: "reject",
+            });
+          }
+        },
+      },
+      diag: { log: () => {} },
+      toolExecutor,
+    });
+
+    await handlerReject.onChatRequest({
+      kind: "chat",
+      requestId: "req-reject",
+      provider: { provider: "codex", model: "gpt-5.4" },
+      messages: [{ role: "user", content: "가이드 스킬 실행" }],
+    });
+
+    expect(skillExecutions).toBe(0);
+    expect(rejectEmits.find((e) => e.kind === "toolResult")).toMatchObject({
+      kind: "toolResult",
+      toolCallId: "call-skill-1",
+      toolName: "skill_deploy_guide",
+      output: "도구 호출이 거부되었습니다",
+      success: false,
+    });
+  });
+});

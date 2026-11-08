@@ -15,18 +15,16 @@
 //
 // RT-verified(2026-06-29): thread.started/turn.started/item.completed(agent_message/command_execution)/
 // turn.completed 이벤트 shape + `exec --json -a never` 거부(`-a` 미지원) 실측.
-import { execSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { isAbsolute } from "node:path";
 import type { TaskSpec, SubAgentEvent } from "../domain/orchestration.js";
 import type { SubAgentPort, SubAgentSession } from "../ports/orchestration.js";
 import {
   DEFAULT_HARD_KILL_DEADLINE_MS, defaultSpawn, spawnSubprocessSession, endedSession,
-  type SpawnFn, type ResolvedBin, pickSpawnableBin, resolveSpawnableBin, resolveFallbackCommand,
+  type SpawnFn, type ResolvedBin, type ResolveCommandOptions, resolveFallbackCommand,
   buildIsolatedSubprocessEnv,
 } from "./subprocess-session.js";
 
-export type { SpawnFn, ResolvedBin };
+export type { SpawnFn, ResolvedBin, ResolveCommandOptions };
 
 export interface SubAgentCodexOptions {
   /** -m/--model 로 전달(옵셔널). TaskSpec.model 보다 우선. */
@@ -60,45 +58,43 @@ const DISALLOWED_NAIA_GATEWAY_MODELS = new Set([
   "hcx-dash-002",
 ]);
 
+export interface CodexWorkerEnvOptions {
+  readonly codexHome?: string;
+  readonly bridgeEnvKey?: string;
+  readonly bridgeToken?: string;
+  readonly allowBridgeEnvKey?: boolean;
+}
+
 /**
  * A Naia-owned worker must never join a parent Codex app-server thread or
  * inherit its thread identity. Its own CLI arguments define the requested
  * workspace-write/approval boundary, but an outer OS sandbox remains
  * authoritative and cannot be widened by a child process.
  */
-function codexWorkerEnv(): NodeJS.ProcessEnv {
-  return buildIsolatedSubprocessEnv(process.env, ["CODEX_HOME"]);
-}
-
-// ── bin resolution (동형 패턴: env 절대경로 검증 → PATH → npx fallback) ────────
-
-function validateCodexBin(raw: string | undefined): string | undefined {
-  if (!raw || raw.trim().length === 0) return undefined;
-  const trimmed = raw.trim();
-  if (trimmed.includes("\0")) throw new Error(`CODEX_BIN contains null byte — refusing to spawn (injection guard)`);
-  if (!isAbsolute(trimmed)) {
-    throw new Error(`CODEX_BIN must be an absolute path (got: ${trimmed.slice(0, 60)}) — set full path e.g. /usr/local/bin/codex`);
+export function codexWorkerEnv(
+  source: NodeJS.ProcessEnv = process.env,
+  opts?: CodexWorkerEnvOptions,
+): NodeJS.ProcessEnv {
+  const extraAllowed: string[] = ["CODEX_HOME"];
+  const envSource: NodeJS.ProcessEnv = { ...source };
+  if (opts?.codexHome) {
+    envSource.CODEX_HOME = opts.codexHome;
   }
-  return trimmed;
-}
-
-function findCodexInPath(): string | null {
-  const cmd = process.platform === "win32" ? `where codex` : `which codex`;
-  try {
-    const result = execSync(cmd, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true }).trim();
-    return pickSpawnableBin(result.split(/\r?\n/));
-  } catch {
-    return null;
+  if (opts?.bridgeEnvKey) {
+    if (opts.allowBridgeEnvKey !== false && opts.bridgeToken !== undefined && opts.bridgeToken.length > 0) {
+      envSource[opts.bridgeEnvKey] = opts.bridgeToken;
+      extraAllowed.push(opts.bridgeEnvKey);
+    } else {
+      delete envSource[opts.bridgeEnvKey];
+    }
   }
+  return buildIsolatedSubprocessEnv(envSource, extraAllowed);
 }
 
-export function resolveCodexBin(): ResolvedBin {
-  const validated = validateCodexBin(process.env["CODEX_BIN"]);
-  if (validated) return { command: validated, prefixArgs: [] };
-  const inPath = findCodexInPath();
-  if (inPath) return resolveSpawnableBin(inPath);
-  const fb = resolveFallbackCommand("npx");
-  return { command: fb.command, prefixArgs: [...fb.prefixArgs, "--yes", "@openai/codex"] };
+// ── bin resolution (탐색 순서: CODEX_BIN → 패키지 내부 node_modules/.bin/codex → 시스템 PATH; 무버전 npx 폴백 금지) ──
+
+export function resolveCodexBin(opts?: ResolveCommandOptions): ResolvedBin {
+  return resolveFallbackCommand("codex", opts);
 }
 
 // ── codex JSONL 파싱 ─────────────────────────────────────────────────────────

@@ -409,4 +409,62 @@ describe("subagent-codex 어댑터 계약 (SPEC-010 확장, fake child)", () => 
     expect(codexLineToEvent('{"type":"turn.completed","usage":{}}')).toEqual({ kind: "session_end", ok: true, reason: "codex turn.completed" });
     expect(codexLineToEvent('{"type":"item.completed","item":{"type":"agent_message","text":""}}')).toBeNull(); // 빈 텍스트=드롭
   });
+
+  it("resolves codex binary in order CODEX_BIN -> package-local node_modules/.bin/codex -> PATH and never falls back to unpinned npx", async () => {
+    const { resolveCodexBin } = await import("../main/adapters/subagent-codex.js");
+    const { mkdirSync, mkdtempSync, writeFileSync, chmodSync, rmSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const baseTmp = "/home/nextain/work/codex-runs/agent-codex/tmp";
+    mkdirSync(baseTmp, { recursive: true });
+    const root = mkdtempSync(join(baseTmp, "codex-bin-order-"));
+    try {
+      const pkgRoot = join(root, "pkg");
+      const pkgBinDir = join(pkgRoot, "node_modules", ".bin");
+      const pathDir = join(root, "global-path");
+      const explicitBin = join(root, "explicit-codex");
+      mkdirSync(pkgBinDir, { recursive: true });
+      mkdirSync(pathDir, { recursive: true });
+      const pkgCodex = join(pkgBinDir, "codex");
+      const pathCodex = join(pathDir, "codex");
+      writeFileSync(pkgCodex, "#!/bin/sh\necho 'codex-cli 0.163.0'\n");
+      writeFileSync(pathCodex, "#!/bin/sh\necho 'codex-cli 0.999.0'\n");
+      writeFileSync(explicitBin, "#!/bin/sh\necho 'codex-cli 0.163.0'\n");
+      chmodSync(pkgCodex, 0o755);
+      chmodSync(pathCodex, 0o755);
+      chmodSync(explicitBin, 0o755);
+
+      // 1) CODEX_BIN wins over package-local and PATH
+      expect(resolveCodexBin({
+        env: { CODEX_BIN: explicitBin, PATH: pathDir },
+        packageRoot: pkgRoot,
+        platform: "linux",
+      })).toEqual({ command: explicitBin, prefixArgs: [] });
+
+      // 2) Package-local node_modules/.bin/codex wins over global PATH
+      expect(resolveCodexBin({
+        env: { PATH: pathDir },
+        packageRoot: pkgRoot,
+        platform: "linux",
+      })).toEqual({ command: pkgCodex, prefixArgs: [] });
+
+      // 3) Global PATH is used when package-local binary is absent
+      expect(resolveCodexBin({
+        env: { PATH: pathDir },
+        packageRoot: join(root, "empty-pkg"),
+        platform: "linux",
+      })).toEqual({ command: pathCodex, prefixArgs: [] });
+
+      // 4) When absent everywhere, never falls back to unpinned `npx --yes @openai/codex`
+      const missing = resolveCodexBin({
+        env: { PATH: "" },
+        packageRoot: join(root, "empty-pkg"),
+        platform: "linux",
+        pathLookup: () => null,
+      });
+      expect(missing).toEqual({ command: "codex", prefixArgs: [] });
+      expect(missing.prefixArgs).not.toContain("@openai/codex");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
