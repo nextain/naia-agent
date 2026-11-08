@@ -26,13 +26,22 @@ export interface CodexLoopControlResponse {
 
 export type PiLoopControlResponse = CodexLoopControlResponse;
 
+export interface CodexLoopControlSessionOptions {
+  /** Maximum milliseconds to wait for an in-flight background pump on EOF before failing closed. */
+  readonly drainTimeoutMs?: number;
+}
+
+const DEFAULT_CONTROL_PUMP_DRAIN_TIMEOUT_MS = 30_000;
+
 /** Run one foreground, line-delimited control session over one durable loop instance. */
 export async function runCodexLoopControlSession(
   loop: ControlLoop,
   config: Pick<CodexContinuousLoopConfig, "profileId" | "facing" | "moderator">,
   lines: AsyncIterable<string>,
   emit: (response: CodexLoopControlResponse) => void,
+  options?: CodexLoopControlSessionOptions,
 ): Promise<void> {
+  const drainTimeoutMs = options?.drainTimeoutMs ?? DEFAULT_CONTROL_PUMP_DRAIN_TIMEOUT_MS;
   let activePump: Promise<void> | undefined;
   let pumpFailure: string | undefined;
   let pumpRequested = false;
@@ -64,7 +73,23 @@ export async function runCodexLoopControlSession(
       emit({ id: message?.id ?? null, ok: false, error: error instanceof Error ? error.message : String(error) });
     }
   }
-  if (activePump) await activePump;
+  if (activePump) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = await Promise.race([
+      activePump.then(() => false),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(true), drainTimeoutMs);
+        timer.unref?.();
+      }),
+    ]).finally(() => {
+      if (timer) clearTimeout(timer);
+    });
+    if (timedOut) {
+      pumpRequested = false;
+      emit({ id: null, ok: false, error: `background pump drain timed out after ${drainTimeoutMs}ms` });
+      return;
+    }
+  }
   if (pumpFailure) emit({ id: null, ok: false, error: `background pump failed: ${pumpFailure}` });
 }
 

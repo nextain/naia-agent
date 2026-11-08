@@ -102,6 +102,7 @@ export interface CodexResponsesBridgeOptions {
     readonly gatewayBudget: { readonly path: string; readonly policy: GatewayRequestBudgetPolicy };
   };
   readonly fetch?: typeof globalThis.fetch;
+  readonly createServerFn?: typeof createServer;
 }
 
 export interface CodexResponsesBridgeHandle {
@@ -229,6 +230,9 @@ export function makeNaiaVersionedBillingFetch(options: VersionedBillingFetchOpti
       model,
     });
     const sse = completionAsSse(response, payload);
+    // Append receipt to the hash-chained journal before settling the reservation so any post-call
+    // reservation overrun ("gateway receipt exceeded its durable reservation") leaves both the
+    // SQLite settled row and the journal entry intact for fail-closed orphan receipt reconciliation.
     appendNaiaPiGatewayReceipt(options.journalPath, receipt);
     settleGatewayRequest(options.gatewayBudget.path, options.gatewayBudget.policy, state.requestId, receipt);
     attempts.delete(requestHash);
@@ -426,7 +430,9 @@ export function convertResponsesToChatCompletionsRequest(
  * versioned gateway billing & receipt journals when configured, and records per-turn
  * `provider_reported` model evidence.
  */
-export function startCodexResponsesLoopbackBridge(options: CodexResponsesBridgeOptions): CodexResponsesBridgeHandle {
+export async function startCodexResponsesLoopbackBridge(
+  options: CodexResponsesBridgeOptions,
+): Promise<CodexResponsesBridgeHandle> {
   const turns: CodexBridgeTurnRecord[] = [];
   const reasoningByCallId = new Map<string, string>();
   let lastReasoningContent: string | undefined;
@@ -443,7 +449,8 @@ export function startCodexResponsesLoopbackBridge(options: CodexResponsesBridgeO
       })
     : undefined;
 
-  const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+  const createServerImpl = options.createServerFn ?? createServer;
+  const server = createServerImpl((req: IncomingMessage, res: ServerResponse) => {
     void handleBridgeRequest(req, res).catch((err) => {
       const msg = err instanceof Error ? err.message : String(err);
       lastError = msg;
@@ -729,19 +736,33 @@ export function startCodexResponsesLoopbackBridge(options: CodexResponsesBridgeO
     res.end();
   }
 
-  // Bind synchronously on 127.0.0.1:0 so synchronous SubAgentPort.spawn() immediately knows the port.
-  const internalServer = server as unknown as {
-    _listen2?: (address: string, port: number, addressType: number, backlog: number) => void;
-  };
-  if (typeof internalServer._listen2 === "function") {
-    internalServer._listen2("127.0.0.1", 0, 4, -1);
-  } else {
+  // Bind via public Node HTTP server.listen(0, "127.0.0.1") and await the "listening" event
+  // without relying on private server._listen2 internals. Fail closed if no valid port is assigned.
+  await new Promise<void>((resolve, reject) => {
+    const onError = (err: Error) => {
+      server.removeListener("listening", onListening);
+      reject(err);
+    };
+    const onListening = () => {
+      server.removeListener("error", onError);
+      resolve();
+    };
+    server.once("error", onError);
+    server.once("listening", onListening);
     server.listen(0, "127.0.0.1");
-  }
+  });
   server.unref();
 
   const addr = server.address();
-  const port = addr && typeof addr === "object" ? addr.port : 0;
+  const port = addr && typeof addr === "object" && typeof addr.port === "number" ? addr.port : 0;
+  if (!Number.isInteger(port) || port <= 0) {
+    try {
+      server.close();
+    } catch {
+      /* ignore close error */
+    }
+    throw new Error("Codex loopback bridge failed to bind a valid loopback port");
+  }
   let closed = false;
 
   return {

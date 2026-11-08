@@ -1012,10 +1012,11 @@ export class ChatTurnHandler {
             (candidate) =>
               candidate.name === call.name
               && candidate.name !== CONTINUE_SPEAKING_TOOL_NAME
-              && (candidate.tier === undefined || ALLOWED_NATIVE_TOOL_TIERS.has(candidate.tier)),
+              && ALLOWED_NATIVE_TOOL_TIERS.has(candidate.tier ?? "ask"),
           );
           if (!spec) return { output: `provider-native tool '${call.name}' is not authorized`, isError: true };
-          const tier = spec.tier ?? "none";
+          // tier 미지정(undefined) 도구는 승인 없이 열리지 않도록 안전한 기본값 "ask"로 간주한다.
+          const tier = spec.tier ?? "ask";
           if (tier !== "none") {
             // 승인 대기는 raceAbort(..., TOOL_EXEC_TIMEOUT_MS) 호출 전에 수행해 승인 대기 중 도구 실행 타이머가 만료되지 않게 한다(897-915줄 패턴).
             if (signal.aborted) throw new Error("cancelled");

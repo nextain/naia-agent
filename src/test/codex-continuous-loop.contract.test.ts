@@ -33,7 +33,7 @@ describe("Codex continuous loop contract (FR-LOOP-001, FR-LOOP-005..011, FR-CODE
     expect(profile.roles.implementer.binding).toEqual(binding("deepseek-v4-flash"));
   });
 
-  it("passes declared.binding.provider into makeCodexSubAgent in composeIssueTeamAgents", () => {
+  it("passes declared.binding.provider into makeCodexSubAgent in composeIssueTeamAgents", async () => {
     const profile = makeCodexOnlyTeamProfile({
       roles: {
         explorer: binding("deepseek-v4-flash"),
@@ -58,8 +58,8 @@ describe("Codex continuous loop contract (FR-LOOP-001, FR-LOOP-005..011, FR-CODE
     });
     const explorer = agents[profile.roles.explorer.agentProfileId]!.adapter;
     const session = explorer.spawn({ prompt: "inspect", workdir: "." });
+    await session.cancel("done");
     expect(capturedArgs).toContain('model_provider="naia"');
-    void session.cancel("done");
   });
 
   it("fails closed before opening state for a non-Naia or inactive binding", () => {

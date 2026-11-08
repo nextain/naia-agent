@@ -4,6 +4,7 @@
 // 세션 머신(스트림·cancel·가드)은 공유 subprocess-session 에. 여기엔 codex 고유의 (1) bin 해석 (2) args
 // (3) line parser (4) Naia 8종·로컬 모델 루프백 브리지 배선만.
 import { randomUUID } from "node:crypto";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TaskSpec, SubAgentEvent } from "../domain/orchestration.js";
 import type { SubAgentPort, SubAgentSession } from "../ports/orchestration.js";
@@ -24,6 +25,7 @@ import {
   startCodexResponsesLoopbackBridge,
   sumGatewayCustomerCost,
   type CodexResponsesBridgeHandle,
+  type CodexResponsesBridgeOptions,
   type GatewayRequestBudgetPolicy,
 } from "./naia-pi-versioned-billing.js";
 import {
@@ -239,7 +241,8 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
       const effectiveNoTools = opts.noTools === true;
       const configDirBase = opts.codexConfigDir ?? opts.piConfigDir;
 
-      let bridge: CodexResponsesBridgeHandle | undefined;
+      let bridgeOptions: CodexResponsesBridgeOptions | undefined;
+      let baseUrlConfigKey: string | undefined;
       let receiptPath: string | undefined;
       let childEnv: NodeJS.ProcessEnv = codexWorkerEnv(sourceEnv);
       const bridgeConfigArgs: string[] = [];
@@ -271,7 +274,7 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
               requestAllowance: { reservedUsd: 0.025, reservedInputTokens: 4_000, reservedOutputTokens },
             },
           };
-          let billing: CodexResponsesBridgeHandle extends never ? never : {
+          let billing: {
             readonly executionId: string;
             readonly journalPath: string;
             readonly gatewayBudget: { readonly path: string; readonly policy: GatewayRequestBudgetPolicy };
@@ -282,7 +285,7 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
             billing = { executionId, journalPath: receiptPath, gatewayBudget };
           }
           const bridgeToken = `naia-bridge-${randomUUID()}`;
-          bridge = startCodexResponsesLoopbackBridge({
+          bridgeOptions = {
             provider: NAIA_PI_PROVIDER,
             expectedModel: effectiveModel!,
             upstreamBaseUrl,
@@ -296,7 +299,8 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
                 : {}),
             ...(billing ? { billing } : {}),
             ...(opts.fetch ? { fetch: opts.fetch } : {}),
-          });
+          };
+          baseUrlConfigKey = "model_providers.naia.base_url";
           childEnv = codexWorkerEnv(sourceEnv, {
             bridgeEnvKey: "NAIA_BRIDGE_TOKEN",
             bridgeToken,
@@ -305,7 +309,6 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
           bridgeConfigArgs.push(
             "-c", 'model_provider="naia"',
             "-c", 'model_providers.naia.name="Naia Gateway"',
-            "-c", `model_providers.naia.base_url=${JSON.stringify(bridge.baseUrl)}`,
             "-c", 'model_providers.naia.wire_api="responses"',
             "-c", 'model_providers.naia.env_key="NAIA_BRIDGE_TOKEN"',
             "-c", `model_catalog_json=${JSON.stringify(catalogPath)}`,
@@ -315,7 +318,6 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
             bridgeConfigArgs.push("-c", `model_context_window=${NAIA_MODEL_METADATA["motif-3"].contextWindow}`);
           }
         } catch (e) {
-          bridge?.close();
           return endedSession(`naia codex configuration failed: ${(e as Error).message}`);
         }
       } else if (isUserOwnedRoute && opts.userOwnedProvider) {
@@ -329,24 +331,23 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
           );
           const upstreamBaseUrl = normalizeLoopbackBaseUrl(userOwned.baseUrl);
           const finalUpstream = upstreamBaseUrl.endsWith("/v1") ? upstreamBaseUrl : `${upstreamBaseUrl}/v1`;
-          bridge = startCodexResponsesLoopbackBridge({
+          bridgeOptions = {
             provider: userOwned.id,
             expectedModel: effectiveModel!,
             upstreamBaseUrl: finalUpstream,
             noTools: effectiveNoTools,
             maxOutputTokens: opts.maxOutputTokens ?? declaredModel.maxTokens,
             ...(opts.fetch ? { fetch: opts.fetch } : {}),
-          });
+          };
+          baseUrlConfigKey = `model_providers.${userOwned.id}.base_url`;
           bridgeConfigArgs.push(
             "-c", `model_provider=${JSON.stringify(userOwned.id)}`,
             "-c", `model_providers.${userOwned.id}.name=${JSON.stringify(userOwned.id)}`,
-            "-c", `model_providers.${userOwned.id}.base_url=${JSON.stringify(bridge.baseUrl)}`,
             "-c", `model_providers.${userOwned.id}.wire_api="responses"`,
             "-c", `model_catalog_json=${JSON.stringify(catalogPath)}`,
             "-c", "features.memory_tool=false",
           );
         } catch (e) {
-          bridge?.close();
           return endedSession(`user-owned codex configuration failed: ${(e as Error).message}`);
         }
       } else if (isLocalEngineRoute) {
@@ -367,7 +368,7 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
             },
             effectiveNoTools ? "codex-local-catalog-notools.json" : "codex-local-catalog.json",
           );
-          bridge = startCodexResponsesLoopbackBridge({
+          bridgeOptions = {
             provider: providerLower!,
             expectedModel: modelSlug,
             upstreamBaseUrl,
@@ -375,30 +376,107 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
             ...(opts.maxOutputTokens !== undefined ? { maxOutputTokens: opts.maxOutputTokens } : {}),
             ...(opts.thinkingLevel !== undefined ? { thinkingLevel: opts.thinkingLevel } : {}),
             ...(opts.fetch ? { fetch: opts.fetch } : {}),
-          });
+          };
+          baseUrlConfigKey = "model_providers.local.base_url";
           bridgeConfigArgs.push(
             "-c", 'model_provider="local"',
             "-c", 'model_providers.local.name="Local Engine"',
-            "-c", `model_providers.local.base_url=${JSON.stringify(bridge.baseUrl)}`,
             "-c", 'model_providers.local.wire_api="responses"',
             "-c", `model_catalog_json=${JSON.stringify(catalogPath)}`,
             "-c", "features.memory_tool=false",
           );
         } catch (e) {
-          bridge?.close();
           return endedSession(`local codex configuration failed: ${(e as Error).message}`);
+        }
+      } else if (effectiveNoTools) {
+        // 비브리지 openai-codex 경로에서도 noTools: true 요청 시 모델 카탈로그(shell_type:"disabled",
+        // apply_patch_tool_type:null)와 8개 도구 비활성화 플래그를 함께 주입하여 도구 0개를 강제한다.
+        try {
+          const tmpBase = sourceEnv.TMPDIR || sourceEnv.TMP || sourceEnv.TEMP || tmpdir();
+          const configDir = configDirBase ?? join(tmpBase, "naia-codex-catalog");
+          const slugs = Array.from(new Set([effectiveModel ?? "gpt-5.4", "gpt-5.4", "codex-default"]));
+          const catalogPath = writeCodexModelCatalogFile(
+            configDir,
+            {
+              models: slugs.map((slug) =>
+                buildCodexModelCatalogEntry({
+                  slug,
+                  contextWindow: 200_000,
+                  noTools: true,
+                }),
+              ),
+            },
+            "codex-openai-catalog-notools.json",
+          );
+          bridgeConfigArgs.push(
+            "-c", `model_catalog_json=${JSON.stringify(catalogPath)}`,
+            "-c", "features.memory_tool=false",
+          );
+        } catch (e) {
+          return endedSession(`codex noTools catalog configuration failed: ${(e as Error).message}`);
         }
       }
 
-      if (effectiveNoTools && isBridgedRoute) {
+      if (effectiveNoTools) {
         bridgeConfigArgs.push(...CODEX_NO_TOOLS_CONFIG_FLAGS);
       }
 
       let threadId: string | undefined;
-      const lineToEvent = (line: string): SubAgentEvent | readonly SubAgentEvent[] | null => {
+      const reconcileBridgeFailure = (reason: string): SubAgentEvent | readonly SubAgentEvent[] => {
+        if (isNaiaRoute && receiptPath) {
+          try {
+            const journal = readNaiaPiReceiptJournal(receiptPath, executionId);
+            if (journal.entries.length > 0) {
+              const gatewayBillingReceipts = journal.entries.map((entry) => entry.receipt);
+              const measuredCostUsd = sumGatewayCustomerCost(gatewayBillingReceipts);
+              const inputTokens = gatewayBillingReceipts.reduce((s, r) => s + r.inputTokens, 0);
+              const cachedInputTokens = gatewayBillingReceipts.reduce((s, r) => s + r.cachedInputTokens, 0);
+              const outputTokens = gatewayBillingReceipts.reduce((s, r) => s + r.outputTokens, 0);
+              const totalTokens = gatewayBillingReceipts.reduce((s, r) => s + r.totalTokens, 0);
+              const selectedModel = gatewayBillingReceipts.at(-1)?.responseModel ?? (effectiveModel ?? "codex-default");
+              const estimatedCostUsd = estimateNaiaModelCostUsd(
+                selectedModel,
+                inputTokens,
+                cachedInputTokens,
+                outputTokens,
+              );
+              const evidence: import("../domain/orchestration.js").SubAgentModelEvidence = {
+                provider: NAIA_PI_PROVIDER,
+                selectedModel,
+                modelEvidenceSource: "provider_reported",
+                ...(opts.reasoningEffort ? { reasoningEffort: opts.reasoningEffort } : {}),
+                inputTokens,
+                cachedInputTokens,
+                outputTokens,
+                totalTokens,
+                usageAvailable: true,
+                sessionId: threadId ?? executionId,
+                executionId,
+                ...(estimatedCostUsd !== undefined ? { estimatedCostUsd, piEstimatedCost: estimatedCostUsd } : {}),
+                measuredCostUsd,
+                gatewayBillingReceipts,
+              };
+              return [
+                { kind: "model_evidence", evidence },
+                { kind: "session_end", ok: false, reason, evidence },
+              ];
+            }
+          } catch {
+            /* preserve original failure reason if receipt journal cannot be read */
+          }
+        }
+        return { kind: "session_end", ok: false, reason };
+      };
+
+      const makeLineToEvent = (bridge?: CodexResponsesBridgeHandle) => (line: string): SubAgentEvent | readonly SubAgentEvent[] | null => {
         let raw: RawCodexEvent | undefined;
         try { raw = JSON.parse(line) as RawCodexEvent; } catch { /* base parser handles malformed input */ }
         if (raw?.type === "thread.started" && typeof raw.thread_id === "string") threadId = raw.thread_id;
+        if ((raw?.type === "turn.failed" || raw?.type === "error") && isBridgedRoute && bridge) {
+          const defaultReason = `codex ${raw.type}: ${codexFailureClass(raw)}`;
+          const reason = bridge.lastError ? `codex bridge error: ${bridge.lastError}` : defaultReason;
+          return reconcileBridgeFailure(reason);
+        }
         if (raw?.type === "turn.completed") {
           const usage = validUsage(raw.usage);
           let inputTokens = usage?.inputTokens ?? 0;
@@ -408,11 +486,7 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
 
           if (isBridgedRoute && bridge) {
             if (bridge.lastError) {
-              return {
-                kind: "session_end",
-                ok: false,
-                reason: `codex bridge error: ${bridge.lastError}`,
-              };
+              return reconcileBridgeFailure(`codex bridge error: ${bridge.lastError}`);
             }
             const reportedProvider = isNaiaRoute
               ? NAIA_PI_PROVIDER
@@ -525,44 +599,101 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
         effectiveNoTools || task.filesystemAccess === "read_only"
           ? "read-only"
           : "workspace-write";
-      const args: string[] = [
-        "exec", "--json",
-        "--ignore-user-config",
-        "--sandbox", sandbox,
-        "--config", 'approval_policy="never"',
-        "--ephemeral",
-      ];
-      if (skipGit) args.push("--skip-git-repo-check");
-      if (effectiveModel) args.push("--model", effectiveModel);
-      if (opts.reasoningEffort) args.push("--config", `model_reasoning_effort=${JSON.stringify(opts.reasoningEffort)}`);
-      if (bridgeConfigArgs.length > 0) args.push(...bridgeConfigArgs);
-      args.push("--cd", task.workdir);
-      args.push(task.prompt);
+      const buildSpawnArgs = (extraConfigArgs: readonly string[]): string[] => {
+        const args: string[] = [
+          "exec", "--json",
+          "--ignore-user-config",
+          "--sandbox", sandbox,
+          "--config", 'approval_policy="never"',
+          "--ephemeral",
+        ];
+        if (skipGit) args.push("--skip-git-repo-check");
+        if (effectiveModel) args.push("--model", effectiveModel);
+        if (opts.reasoningEffort) args.push("--config", `model_reasoning_effort=${JSON.stringify(opts.reasoningEffort)}`);
+        if (extraConfigArgs.length > 0) args.push(...extraConfigArgs);
+        args.push("--cd", task.workdir);
+        args.push(task.prompt);
+        return args;
+      };
 
-      const session = spawnSubprocessSession({
-        spawnFn, bin, args, cwd: task.workdir, env: childEnv, hardKillMs, lineToEvent, label: "codex", diagnostics: true,
-        terminateOnProtocolEnd: true,
-      });
+      if (!isBridgedRoute || !bridgeOptions || !baseUrlConfigKey) {
+        return spawnSubprocessSession({
+          spawnFn,
+          bin,
+          args: buildSpawnArgs(bridgeConfigArgs),
+          cwd: task.workdir,
+          env: childEnv,
+          hardKillMs,
+          lineToEvent: makeLineToEvent(undefined),
+          label: "codex",
+          diagnostics: true,
+          terminateOnProtocolEnd: true,
+        });
+      }
 
-      if (!bridge) return session;
-      const activeBridge = bridge;
+      const routeLabel = isNaiaRoute ? "naia" : isUserOwnedRoute ? "user-owned" : "local";
+      const pending = (async (): Promise<
+        | { readonly ok: true; readonly session: SubAgentSession; readonly bridge: CodexResponsesBridgeHandle }
+        | { readonly ok: false; readonly session: SubAgentSession }
+      > => {
+        let activeBridge: CodexResponsesBridgeHandle | undefined;
+        try {
+          activeBridge = await startCodexResponsesLoopbackBridge(bridgeOptions);
+          const finalBridgeConfigArgs = [
+            ...bridgeConfigArgs,
+            "-c", `${baseUrlConfigKey}=${JSON.stringify(activeBridge.baseUrl)}`,
+          ];
+          const session = spawnSubprocessSession({
+            spawnFn,
+            bin,
+            args: buildSpawnArgs(finalBridgeConfigArgs),
+            cwd: task.workdir,
+            env: childEnv,
+            hardKillMs,
+            lineToEvent: makeLineToEvent(activeBridge),
+            label: "codex",
+            diagnostics: true,
+            terminateOnProtocolEnd: true,
+          });
+          return { ok: true, session, bridge: activeBridge };
+        } catch (e) {
+          activeBridge?.close();
+          return {
+            ok: false,
+            session: endedSession(`${routeLabel} codex configuration failed: ${(e as Error).message}`),
+          };
+        }
+      })();
+
       return {
         events: {
           async *[Symbol.asyncIterator](): AsyncIterator<SubAgentEvent> {
+            const started = await pending;
+            if (!started.ok) {
+              for await (const ev of started.session.events) {
+                yield ev;
+              }
+              return;
+            }
             try {
-              for await (const ev of session.events) {
+              for await (const ev of started.session.events) {
                 yield ev;
               }
             } finally {
-              activeBridge.close();
+              started.bridge.close();
             }
           },
         },
         async cancel(reason?: string): Promise<void> {
+          const started = await pending;
+          if (!started.ok) {
+            await started.session.cancel(reason ?? "cancelled");
+            return;
+          }
           try {
-            await session.cancel(reason ?? "cancelled");
+            await started.session.cancel(reason ?? "cancelled");
           } finally {
-            activeBridge.close();
+            started.bridge.close();
           }
         },
       };

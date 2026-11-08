@@ -528,6 +528,41 @@ describe("Step 1 — version/bin resolution, managed CODEX_HOME, child env isola
       expect(managed).toBe(join(workspaceRoot, "naia-settings", "codex-home"));
       expect(readFileSync(join(managed!, "config.toml"), "utf8")).toBe("");
       expect(lstatSync(join(managed!, "auth.json")).isSymbolicLink()).toBe(true);
+
+      // P2 (가): workspaceRoot가 없을 때도 사용자 ~/.codex 또는 부모 CODEX_HOME을 그대로 물려받지 않고
+      // 격리된 관리형 CODEX_HOME(빈 config.toml + auth.json 심볼릭 링크)을 생성해 전달한다.
+      const { defaultSpawnCodex } = await import("../main/adapters/codex-app-server-provider.js");
+      const noWorkspaceTmp = join(sandboxDir, "no-ws-tmp");
+      mkdirSync(noWorkspaceTmp, { recursive: true });
+      const managedNoWs = await prepareManagedCodexHome({
+        sourceEnv: { PATH: "/usr/bin", TMPDIR: noWorkspaceTmp, CODEX_HOME: sourceHome, HOME: sandboxDir },
+      });
+      expect(managedNoWs).not.toBe(sourceHome);
+      expect(managedNoWs.startsWith(join(noWorkspaceTmp, "naia-settings"))).toBe(true);
+      expect(readFileSync(join(managedNoWs, "config.toml"), "utf8")).toBe("");
+      expect(lstatSync(join(managedNoWs, "auth.json")).isSymbolicLink()).toBe(true);
+
+      let spawnedEnv: NodeJS.ProcessEnv | undefined;
+      let spawnedArgs: readonly string[] = [];
+      await defaultSpawnCodex({
+        env: {
+          PATH: "/usr/bin",
+          TMPDIR: noWorkspaceTmp,
+          HOME: sandboxDir,
+          CODEX_HOME: sourceHome,
+          CODEX_BIN: process.execPath,
+          OPENAI_API_KEY: "must-not-leak",
+        },
+        spawnFn: ((_cmd: string, args: readonly string[], options: { env?: NodeJS.ProcessEnv }) => {
+          spawnedArgs = args;
+          spawnedEnv = options.env;
+          return { stdin: {}, stdout: {}, stderr: {}, on() { return this; }, kill() { return true; } } as any;
+        }) as any,
+      });
+      expect(spawnedEnv?.CODEX_HOME).toBe(managedNoWs);
+      expect(spawnedEnv?.CODEX_HOME).not.toBe(sourceHome);
+      expect(spawnedEnv?.OPENAI_API_KEY).toBeUndefined();
+      expect(spawnedArgs).toContain("features.memory_tool=false");
     } finally {
       rmSync(sandboxDir, { recursive: true, force: true });
     }
@@ -687,5 +722,100 @@ describe("Step 1 — version/bin resolution, managed CODEX_HOME, child env isola
       output: "도구 호출이 거부되었습니다",
       success: false,
     });
+
+    // 3) P2 (나): tier 미지정(undefined) 도구는 승인 없이 열리지 않고 기본값 "ask"로 승인을 요구한다.
+    // 또한 runCodexAppServerTurn에 직접 tier:undefined 일반 도구를 넘기면 fail-closed로 제외·거부한다.
+    let untieredExecutions = 0;
+    const untieredEmits: AgentEmit[] = [];
+    const untieredToolExecutor = {
+      specs: () => [
+        { name: "custom_untiered_tool", description: "tier 미지정 도구", parameters: { type: "object" } },
+      ],
+      async execute() {
+        untieredExecutions++;
+        return { output: "untiered executed" };
+      },
+    };
+    const providerUntieredReject = makeCodexAppServerProvider({
+      runTurn: (input) => runCodexAppServerTurn(input, async () => peerForCall("custom_untiered_tool", "call-untiered-1", {})),
+    });
+    const handlerUntieredReject = new ChatTurnHandler({
+      provider: providerUntieredReject,
+      conversation: { assemble: (r) => ({ messages: r.messages }) },
+      credentials: { update: () => {}, get: () => undefined },
+      approval,
+      egress: {
+        emit: (reqId, e) => {
+          untieredEmits.push(e);
+          if (e.kind === "approvalRequest") {
+            handlerUntieredReject.onApprovalResponse({
+              kind: "approvalResponse",
+              requestId: reqId,
+              toolCallId: e.toolCallId,
+              decision: "reject",
+            });
+          }
+        },
+      },
+      diag: { log: () => {} },
+      toolExecutor: untieredToolExecutor,
+    });
+    await handlerUntieredReject.onChatRequest({
+      kind: "chat",
+      requestId: "req-untiered-reject",
+      provider: { provider: "codex", model: "gpt-5.4" },
+      messages: [{ role: "user", content: "미지정 도구 실행" }],
+    });
+    expect(untieredExecutions).toBe(0);
+    expect(untieredEmits.some((e) => e.kind === "approvalRequest" && e.toolName === "custom_untiered_tool" && e.tier === "ask")).toBe(true);
+    expect(untieredEmits.find((e) => e.kind === "toolResult")).toMatchObject({
+      kind: "toolResult",
+      toolCallId: "call-untiered-1",
+      toolName: "custom_untiered_tool",
+      output: "도구 호출이 거부되었습니다",
+      success: false,
+    });
+
+    // Direct runCodexAppServerTurn call with raw tier:undefined tool -> excluded from dynamicTools & rejected
+    let rawUntieredCalled = 0;
+    let rawDynamicTools: unknown;
+    const rawResponses: unknown[] = [];
+    const rawPeer: RpcPeer = {
+      async request(method, params) {
+        if (method === "thread/start") {
+          rawDynamicTools = (params as { dynamicTools?: unknown }).dynamicTools;
+          return { thread: { id: "thread-raw" } };
+        }
+        if (method === "turn/start") return { turn: { id: "turn-raw" } };
+        return {};
+      },
+      notify() {},
+      respond(id, result) { rawResponses.push({ id, result }); },
+      notifications() {
+        return (async function* () {
+          yield {
+            id: 99,
+            method: "item/tool/call",
+            params: { threadId: "thread-raw", turnId: "turn-raw", callId: "c-raw", tool: "raw_untiered", arguments: {} },
+          };
+          yield {
+            method: "turn/completed",
+            params: { threadId: "thread-raw", turn: { id: "turn-raw", status: "completed" } },
+          };
+        })();
+      },
+      close() {},
+    };
+    for await (const _ of runCodexAppServerTurn({
+      model: "gpt-5.4",
+      prompt: "test raw untiered",
+      tools: [{ name: "raw_untiered", description: "raw", parameters: { type: "object" } }],
+      executeTool: async () => { rawUntieredCalled++; return { output: "should not run" }; },
+    }, async () => rawPeer)) { /* drain */ }
+    expect(rawDynamicTools).toBeUndefined();
+    expect(rawUntieredCalled).toBe(0);
+    expect(rawResponses).toEqual([
+      { id: 99, result: { contentItems: [{ type: "inputText", text: "dynamic tool 'raw_untiered' is unavailable" }], success: false } },
+    ]);
   });
 });

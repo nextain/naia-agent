@@ -244,7 +244,7 @@ describe("Configured development role adapter routing (Codex default, Claude, Gr
     }
   });
 
-  it("fails closed before spawn for anthropic account provider, while routing registered Naia and local roles through Codex loopback bridge (B2)", () => {
+  it("fails closed before spawn for anthropic account provider, while routing registered Naia and local roles through Codex loopback bridge (B2)", async () => {
     const anthropicResolved = resolveLlmRoles({
       roles: {
         main: { provider: "anthropic", model: "claude-sonnet-4-6" },
@@ -285,6 +285,7 @@ describe("Configured development role adapter routing (Codex default, Claude, Gr
       expect(selectedNaia.ok).toBe(true);
       if (selectedNaia.ok) {
         const s = selectedNaia.agent.spawn({ prompt: "summarize", workdir: "/tmp/naia-ws" });
+        await s.cancel("done");
         expect(captureNaia.captured?.args).toEqual(expect.arrayContaining([
           "-c", 'model_provider="naia"',
           "-c", expect.stringMatching(/^model_providers\.naia\.wire_api="responses"$/),
@@ -292,7 +293,6 @@ describe("Configured development role adapter routing (Codex default, Claude, Gr
         ]));
         expect(captureNaia.captured?.env?.NAIA_BRIDGE_TOKEN).toBeDefined();
         expect(captureNaia.captured?.env?.NAIA_API_KEY).toBeUndefined();
-        void s.cancel("done");
       }
       expect(makeRoleProcessingPlans(naiaResolved)).toEqual([
         expect.objectContaining({ provider: "nextain", model: "deepseek-v4-flash", when: { key: "agent", values: ["main"] } }),

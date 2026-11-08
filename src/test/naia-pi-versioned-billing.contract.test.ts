@@ -260,7 +260,7 @@ describe("FR-LOOP-008 Naia atomic versioned billing bridge and Codex /v1/respons
     };
 
     const bridgeToken = "test-bridge-token-123";
-    const bridge = startCodexResponsesLoopbackBridge({
+    const bridge = await startCodexResponsesLoopbackBridge({
       provider: "naia",
       upstreamBaseUrl: "https://gateway.example/v1",
       expectedModel: "deepseek-v4-flash",
@@ -277,6 +277,7 @@ describe("FR-LOOP-008 Naia atomic versioned billing bridge and Codex /v1/respons
     });
 
     try {
+      expect(bridge.port).toBeGreaterThan(0);
       const unauth = await fetch(`${bridge.baseUrl}/responses`, {
         method: "POST",
         headers: { "content-type": "application/json", authorization: "Bearer wrong-token" },
@@ -323,5 +324,54 @@ describe("FR-LOOP-008 Naia atomic versioned billing bridge and Codex /v1/respons
     } finally {
       bridge.close();
     }
+  });
+
+  it("binds loopback bridge via public server.listen without _listen2 and fails closed when port is 0 or invalid (P2-라)", async () => {
+    const { EventEmitter } = await import("node:events");
+    let listenCalledWith: unknown[] = [];
+    let closedCount = 0;
+
+    // 1) Public server.listen async binding succeeds even when private _listen2 does not exist
+    const emitterOk = new EventEmitter();
+    const fakeServerOk = Object.assign(emitterOk, {
+      listen(...args: unknown[]) {
+        listenCalledWith = args;
+        queueMicrotask(() => emitterOk.emit("listening"));
+        return fakeServerOk;
+      },
+      unref() {},
+      address() { return { address: "127.0.0.1", family: "IPv4", port: 43210 }; },
+      close() { closedCount += 1; },
+    });
+    const handle = await startCodexResponsesLoopbackBridge({
+      provider: "local",
+      expectedModel: "qwen",
+      upstreamBaseUrl: "http://127.0.0.1:11434/v1",
+      createServerFn: (() => fakeServerOk) as any,
+    });
+    expect(listenCalledWith).toEqual([0, "127.0.0.1"]);
+    expect(handle.port).toBe(43210);
+    expect(handle.baseUrl).toBe("http://127.0.0.1:43210/v1");
+    handle.close();
+    expect(closedCount).toBe(1);
+
+    // 2) Fails closed if server.address() returns port 0
+    const emitterZero = new EventEmitter();
+    const fakeServerZeroPort = Object.assign(emitterZero, {
+      listen() {
+        queueMicrotask(() => emitterZero.emit("listening"));
+        return fakeServerZeroPort;
+      },
+      unref() {},
+      address() { return { address: "127.0.0.1", family: "IPv4", port: 0 }; },
+      close() { closedCount += 1; },
+    });
+    await expect(startCodexResponsesLoopbackBridge({
+      provider: "local",
+      expectedModel: "qwen",
+      upstreamBaseUrl: "http://127.0.0.1:11434/v1",
+      createServerFn: (() => fakeServerZeroPort) as any,
+    })).rejects.toThrow("Codex loopback bridge failed to bind a valid loopback port");
+    expect(closedCount).toBe(2);
   });
 });

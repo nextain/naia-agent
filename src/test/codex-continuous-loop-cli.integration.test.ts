@@ -77,6 +77,43 @@ describe("Codex continuous-loop command backend", () => {
     (response) => responses.push(response));
     expect(responses).toHaveLength(2); expect(maximumActive).toBe(1); expect(pumpCalls).toBe(2); expect(active).toBe(0);
   });
+
+  it("bounds background pump drain at EOF via drainTimeoutMs so a hung pump cannot block shutdown indefinitely (P3)", async () => {
+    const responses: Array<{ id: unknown; ok: boolean; error?: string }> = [];
+    const loop = {
+      profile: {},
+      sessions: {
+        async submit() { return { sessionId: "s-hung" }; },
+        async answer() {},
+        async cancel() {},
+        get() {},
+        portfolio() { return {}; },
+        async pump() {
+          await new Promise<void>(() => { /* never settles */ });
+        },
+      },
+      budget: { snapshot() { return {}; }, reservations() { return []; } },
+    };
+    await runCodexLoopControlSession(
+      loop,
+      { profileId: "p", facing: { provider: "naia", model: "grok-4.3" }, moderator: { provider: "naia", model: "grok-4.3" } },
+      lines([
+        JSON.stringify({
+          id: "start-hung",
+          command: "start",
+          request: { text: "x", requiredObligations: ["x"], workspacePath: "/workspace" },
+        }),
+      ]),
+      (response) => responses.push(response),
+      { drainTimeoutMs: 25 },
+    );
+    expect(responses[0]).toMatchObject({ id: "start-hung", ok: true });
+    expect(responses.at(-1)).toMatchObject({
+      id: null,
+      ok: false,
+      error: "background pump drain timed out after 25ms",
+    });
+  });
 });
 
 async function* lines(values: readonly string[]) {

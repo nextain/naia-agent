@@ -6,15 +6,15 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   CODEX_NO_TOOLS_CONFIG_FLAGS,
   buildCodexModelCatalogEntry,
+  buildIsolatedPiChildEnv,
   buildNaiaCodexModelCatalog,
-  buildNaiaPiChildEnv,
   buildNaiaPiModelsConfig,
   ensureNaiaPiConfig,
   isNaiaPiModel,
   normalizeNaiaGatewayModel,
   writeCodexModelCatalogFile,
 } from "../main/adapters/naia-pi-provider.js";
-import { makeCodexSubAgent } from "../main/adapters/subagent-codex.js";
+import { codexWorkerEnv, makeCodexSubAgent } from "../main/adapters/subagent-codex.js";
 import type { SpawnFn } from "../main/adapters/subprocess-session.js";
 
 const tempDirs: string[] = [];
@@ -139,18 +139,33 @@ describe("UC-NAIA-PI provider isolation and Codex [model_providers.naia] loopbac
     expect(CODEX_NO_TOOLS_CONFIG_FLAGS).toHaveLength(16);
   });
 
-  it("child env keeps runtime values and Naia auth but drops global Pi/direct-provider secrets", () => {
-    const env = buildNaiaPiChildEnv({
+  it("child env keeps runtime values and one-time NAIA_BRIDGE_TOKEN while dropping NAIA_API_KEY and direct-provider secrets", () => {
+    const isolated = buildIsolatedPiChildEnv({
       PATH: "bin", PI_CODING_AGENT_DIR: "global-pi", NAIA_API_KEY: "n-old",
       OPENAI_API_KEY: "openai-secret", XAI_API_KEY: "xai-secret", DEEPSEEK_API_KEY: "deepseek-secret",
-    }, "isolated-pi", "naia-secret-value");
-    expect(env).toMatchObject({ PATH: "bin", PI_CODING_AGENT_DIR: "isolated-pi", NAIA_API_KEY: "naia-secret-value" });
-    expect(env.OPENAI_API_KEY).toBeUndefined();
-    expect(env.XAI_API_KEY).toBeUndefined();
-    expect(env.DEEPSEEK_API_KEY).toBeUndefined();
+    }, "isolated-pi");
+    expect(isolated).toMatchObject({ PATH: "bin", PI_CODING_AGENT_DIR: "isolated-pi" });
+    expect(isolated.NAIA_API_KEY).toBeUndefined();
+    expect(isolated.OPENAI_API_KEY).toBeUndefined();
+    expect(isolated.XAI_API_KEY).toBeUndefined();
+    expect(isolated.DEEPSEEK_API_KEY).toBeUndefined();
+
+    const workerEnv = codexWorkerEnv({
+      PATH: "bin",
+      NAIA_API_KEY: "naia-secret-value",
+      OPENAI_API_KEY: "openai-secret",
+    }, {
+      bridgeEnvKey: "NAIA_BRIDGE_TOKEN",
+      bridgeToken: "naia-bridge-one-time-token",
+      allowBridgeEnvKey: true,
+    });
+    expect(workerEnv.PATH).toBe("bin");
+    expect(workerEnv.NAIA_BRIDGE_TOKEN).toBe("naia-bridge-one-time-token");
+    expect(workerEnv.NAIA_API_KEY).toBeUndefined();
+    expect(workerEnv.OPENAI_API_KEY).toBeUndefined();
   });
 
-  it("spawns Codex with [model_providers.naia] (wire_api=responses), model_catalog_json, and NAIA_BRIDGE_TOKEN while keeping NAIA_API_KEY in parent only", () => {
+  it("spawns Codex with [model_providers.naia] (wire_api=responses), model_catalog_json, and NAIA_BRIDGE_TOKEN while keeping NAIA_API_KEY in parent only", async () => {
     let captured: { args: readonly string[]; env?: NodeJS.ProcessEnv } | undefined;
     const spawnFn: SpawnFn = (_command, args, options) => {
       captured = { args, env: options.env };
@@ -165,25 +180,22 @@ describe("UC-NAIA-PI provider isolation and Codex [model_providers.naia] loopbac
       piConfigDir: configDir,
       gatewayBudget: gatewayBudget(configDir),
     }).spawn({ prompt: "fix it", workdir: ".", model: "motif-3" });
-    try {
-      expect(captured?.args).toEqual(expect.arrayContaining([
-        "exec",
-        "--json",
-        "--skip-git-repo-check",
-        "-c", 'model_provider="naia"',
-        "-c", expect.stringMatching(/^model_providers\.naia\.base_url="http:\/\/127\.0\.0\.1:\d+\/v1"$/),
-        "-c", 'model_providers.naia.wire_api="responses"',
-        "-c", 'model_providers.naia.env_key="NAIA_BRIDGE_TOKEN"',
-        "-c", expect.stringMatching(/^model_catalog_json=/),
-        "-c", "model_context_window=262144",
-        "--model", "motif-3",
-      ]));
-      expect(captured?.env?.NAIA_BRIDGE_TOKEN).toMatch(/^naia-bridge-[0-9a-f-]{36}$/u);
-      expect(captured?.env?.NAIA_API_KEY).toBeUndefined();
-      expect(captured?.env?.OPENAI_API_KEY).toBeUndefined();
-    } finally {
-      void session.cancel("done");
-    }
+    await session.cancel("done");
+    expect(captured?.args).toEqual(expect.arrayContaining([
+      "exec",
+      "--json",
+      "--skip-git-repo-check",
+      "-c", 'model_provider="naia"',
+      "-c", expect.stringMatching(/^model_providers\.naia\.base_url="http:\/\/127\.0\.0\.1:\d+\/v1"$/),
+      "-c", 'model_providers.naia.wire_api="responses"',
+      "-c", 'model_providers.naia.env_key="NAIA_BRIDGE_TOKEN"',
+      "-c", expect.stringMatching(/^model_catalog_json=/),
+      "-c", "model_context_window=262144",
+      "--model", "motif-3",
+    ]));
+    expect(captured?.env?.NAIA_BRIDGE_TOKEN).toMatch(/^naia-bridge-[0-9a-f-]{36}$/u);
+    expect(captured?.env?.NAIA_API_KEY).toBeUndefined();
+    expect(captured?.env?.OPENAI_API_KEY).toBeUndefined();
   });
 
   it("fails before spawn when Naia auth is missing or direct vendor routing is requested", async () => {
@@ -201,7 +213,7 @@ describe("UC-NAIA-PI provider isolation and Codex [model_providers.naia] loopbac
     expect(spawns).toBe(0);
   });
 
-  it("passes all 8 noTools config flags and disabled catalog shell_type when noTools is requested on DeepSeek V4", () => {
+  it("passes all 8 noTools config flags and disabled catalog shell_type when noTools is requested on DeepSeek V4", async () => {
     let args: readonly string[] = [];
     const spawnFn: SpawnFn = (_command, next) => {
       args = next;
@@ -216,8 +228,8 @@ describe("UC-NAIA-PI provider isolation and Codex [model_providers.naia] loopbac
       piConfigDir: configDir,
       gatewayBudget: gatewayBudget(configDir),
     }).spawn({ prompt: "review", workdir: ".", model: "deepseek-v4-flash", filesystemAccess: "read_only" });
+    await s1.cancel("done");
     expect(args).not.toContain("features.shell_tool=false");
-    void s1.cancel("done");
 
     const s2 = makeCodexSubAgent({
       resolveBin: () => ({ command: "codex", prefixArgs: [] }),
@@ -228,10 +240,10 @@ describe("UC-NAIA-PI provider isolation and Codex [model_providers.naia] loopbac
       piConfigDir: configDir,
       gatewayBudget: gatewayBudget(configDir),
     }).spawn({ prompt: "review", workdir: ".", model: "deepseek-v4-pro" });
+    await s2.cancel("done");
     for (const flag of CODEX_NO_TOOLS_CONFIG_FLAGS) {
       expect(args).toContain(flag);
     }
-    void s2.cancel("done");
   });
 
   it("runs the beforeSpawn integrity gate for every spawn and fails before creating a child", async () => {
@@ -252,7 +264,7 @@ describe("UC-NAIA-PI provider isolation and Codex [model_providers.naia] loopbac
       gatewayBudget: gatewayBudget(configDir),
     });
     const first = adapter.spawn({ prompt: "one", workdir: ".", model: "grok-4.3" });
-    void first.cancel("done");
+    await first.cancel("done");
     const second = adapter.spawn({ prompt: "two", workdir: ".", model: "grok-4.3" });
     const events = [];
     for await (const event of second.events) events.push(event);
@@ -268,10 +280,13 @@ describe("UC-NAIA-PI provider isolation and Codex [model_providers.naia] loopbac
     let closeListener: ((code: number | null, signal: NodeJS.Signals | null) => void) | undefined;
     let capturedArgs: readonly string[] = [];
     let capturedEnv: NodeJS.ProcessEnv | undefined;
+    let resolveSpawned!: () => void;
+    const spawned = new Promise<void>((resolve) => { resolveSpawned = resolve; });
 
     const spawnFn: SpawnFn = (_command, args, options) => {
       capturedArgs = args;
       capturedEnv = options.env;
+      resolveSpawned();
       return {
         stdout: { on(ev: string, cb: (chunk: Buffer) => void) { if (ev === "data") stdoutListener = cb; } },
         stderr: { on() {} },
@@ -309,6 +324,7 @@ describe("UC-NAIA-PI provider isolation and Codex [model_providers.naia] loopbac
       fetch: fakeGatewayFetch,
     }).spawn({ prompt: "hello", workdir: ".", model: "grok-4.3" });
 
+    await spawned;
     const baseUrlArg = capturedArgs.find((a) => a.startsWith("model_providers.naia.base_url="))!;
     const baseUrl = JSON.parse(baseUrlArg.slice("model_providers.naia.base_url=".length)) as string;
     const res = await fetch(`${baseUrl}/responses`, {
@@ -358,5 +374,111 @@ describe("UC-NAIA-PI provider isolation and Codex [model_providers.naia] loopbac
       },
     });
     expect(events.at(-1)).toMatchObject({ kind: "session_end", ok: true });
+  });
+
+  it("reconciles and attaches orphan receipts to failed session_end evidence when settleGatewayRequest throws reservation exceeded (P3)", async () => {
+    const configDir = tempDir();
+    let stdoutListener: ((chunk: Buffer) => void) | undefined;
+    let closeListener: ((code: number | null, signal: NodeJS.Signals | null) => void) | undefined;
+    let capturedArgs: readonly string[] = [];
+    let capturedEnv: NodeJS.ProcessEnv | undefined;
+    let resolveSpawned!: () => void;
+    const spawned = new Promise<void>((resolve) => { resolveSpawned = resolve; });
+
+    const spawnFn: SpawnFn = (_command, args, options) => {
+      capturedArgs = args;
+      capturedEnv = options.env;
+      resolveSpawned();
+      return {
+        stdout: { on(ev: string, cb: (chunk: Buffer) => void) { if (ev === "data") stdoutListener = cb; } },
+        stderr: { on() {} },
+        on(ev: string, cb: (...a: any[]) => void) { if (ev === "close") closeListener = cb; return this; },
+        kill() { closeListener?.(0, null); return true; },
+      } as unknown as ChildProcess;
+    };
+
+    const overrunningFetch: typeof fetch = async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(JSON.stringify({
+        id: "chatcmpl-overrun-1",
+        object: "chat.completion",
+        created: 1,
+        model: "grok-4.3",
+        choices: [{ index: 0, message: { role: "assistant", content: "overrun" }, finish_reason: "stop" }],
+        // Exceeds reservedUsd: 0.05 -> settleGatewayRequest throws after appendNaiaPiGatewayReceipt
+        usage: { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25, prompt_tokens_details: { cached_tokens: 4 } },
+        customer_cost: "0.09000000",
+        price_version_id: "pv-1",
+        currency: "USD",
+        settlement_status: "settled",
+        billing_status: "settled",
+        gateway_request_id: body.gateway_request_id,
+        gateway_attempt: body.gateway_attempt,
+      }), { status: 200 });
+    };
+
+    const session = makeCodexSubAgent({
+      resolveBin: () => ({ command: "codex", prefixArgs: [] }),
+      spawnFn,
+      provider: "naia",
+      env: { NAIA_API_KEY: "test-naia-key" },
+      piConfigDir: configDir,
+      gatewayBudget: gatewayBudget(configDir),
+      fetch: overrunningFetch,
+    }).spawn({ prompt: "hello", workdir: ".", model: "grok-4.3" });
+
+    await spawned;
+    const baseUrlArg = capturedArgs.find((a) => a.startsWith("model_providers.naia.base_url="))!;
+    const baseUrl = JSON.parse(baseUrlArg.slice("model_providers.naia.base_url=".length)) as string;
+    const res = await fetch(`${baseUrl}/responses`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${capturedEnv?.NAIA_BRIDGE_TOKEN}`,
+      },
+      body: JSON.stringify({
+        model: "grok-4.3",
+        input: [{ type: "message", role: "user", content: [{ type: "input_text", text: "hello" }] }],
+      }),
+    });
+    expect(res.status).toBe(502);
+    await res.text();
+
+    stdoutListener?.(Buffer.from(
+      `${JSON.stringify({ type: "thread.started", thread_id: "t-overrun" })}\n` +
+      `${JSON.stringify({ type: "turn.failed", error: { message: "bridge returned 502" } })}\n`,
+    ));
+    closeListener?.(1, null);
+
+    const events = [];
+    for await (const ev of session.events) events.push(ev);
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "model_evidence",
+        evidence: expect.objectContaining({
+          provider: "naia",
+          selectedModel: "grok-4.3",
+          measuredCostUsd: 0.09,
+          gatewayBillingReceipts: [
+            expect.objectContaining({
+              customerCostDecimal: "0.09000000",
+            }),
+          ],
+        }),
+      }),
+      expect.objectContaining({
+        kind: "session_end",
+        ok: false,
+        reason: expect.stringContaining("gateway receipt exceeded its durable reservation"),
+        evidence: expect.objectContaining({
+          measuredCostUsd: 0.09,
+          gatewayBillingReceipts: [
+            expect.objectContaining({
+              customerCostDecimal: "0.09000000",
+            }),
+          ],
+        }),
+      }),
+    ]));
   });
 });

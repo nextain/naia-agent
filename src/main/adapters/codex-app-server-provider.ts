@@ -5,6 +5,7 @@
 // app-server JSONL 프로토콜은 이 파일 안에 격리하고 ProviderPort에는 정규화 chunk만 노출한다.
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { buildIsolatedSubprocessEnv, resolveFallbackCommand, type ResolveCommandOptions } from "./subprocess-session.js";
 import type { ProviderChatOpts, ProviderPort, ToolExecutorPort } from "../ports/uc1.js";
@@ -90,17 +91,21 @@ export interface ManagedCodexHomeOptions {
 }
 
 /**
- * Prepares a managed CODEX_HOME directory (<adkPath>/naia-settings/codex-home) with an empty
- * config.toml and a symlink to auth.json (never reading or copying auth.json contents).
+ * Prepares a managed CODEX_HOME directory (<adkPath>/naia-settings/codex-home, or an isolated
+ * temp directory when workspaceRoot is omitted) with an empty config.toml and a symlink to
+ * auth.json (never reading or copying auth.json contents). This prevents inheriting a user's
+ * ~/.codex/config.toml (MCP servers, model overrides, etc.) even when no workspace is bound.
  */
 export async function prepareManagedCodexHome(
   opts: ManagedCodexHomeOptions = {},
-): Promise<string | undefined> {
+): Promise<string> {
   const sourceEnv = opts.sourceEnv ?? process.env;
+  const tmpBase = sourceEnv.TMPDIR || sourceEnv.TMP || sourceEnv.TEMP || tmpdir();
   const targetDir = opts.targetDir
-    ?? (opts.workspaceRoot ? join(opts.workspaceRoot, "naia-settings", "codex-home") : undefined);
-  if (!targetDir) return sourceEnv.CODEX_HOME;
-  const { mkdir, writeFile, symlink, lstat } = await import("node:fs/promises");
+    ?? (opts.workspaceRoot
+      ? join(opts.workspaceRoot, "naia-settings", "codex-home")
+      : join(tmpBase, "naia-settings", `codex-home-${process.pid}`));
+  const { mkdir, writeFile, symlink, lstat, unlink } = await import("node:fs/promises");
   await mkdir(targetDir, { recursive: true, mode: 0o700 });
   await writeFile(join(targetDir, "config.toml"), "", { mode: 0o600 });
   const sourceCodexHome = sourceEnv.CODEX_HOME
@@ -109,7 +114,11 @@ export async function prepareManagedCodexHome(
     const targetAuth = join(targetDir, "auth.json");
     const sourceAuth = join(sourceCodexHome, "auth.json");
     try {
-      await lstat(targetAuth);
+      const stat = await lstat(targetAuth);
+      if (stat.isSymbolicLink()) {
+        await unlink(targetAuth);
+        await symlink(sourceAuth, targetAuth);
+      }
     } catch {
       try {
         await symlink(sourceAuth, targetAuth);
@@ -153,25 +162,32 @@ export async function checkCodexPreflight(
 }
 
 export async function defaultRunCodexVersion(
-  opts?: ResolveCommandOptions & CodexSubprocessEnvOptions,
+  opts?: ResolveCommandOptions & CodexSubprocessEnvOptions & { readonly workspaceRoot?: string },
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   return runIsolatedCodexCli(["--version"], opts);
 }
 
 export async function defaultRunCodexStatus(
-  opts?: ResolveCommandOptions & CodexSubprocessEnvOptions,
+  opts?: ResolveCommandOptions & CodexSubprocessEnvOptions & { readonly workspaceRoot?: string },
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   return runIsolatedCodexCli(["login", "status"], opts);
 }
 
 async function runIsolatedCodexCli(
   cliArgs: readonly string[],
-  opts?: ResolveCommandOptions & CodexSubprocessEnvOptions,
+  opts?: ResolveCommandOptions & CodexSubprocessEnvOptions & { readonly workspaceRoot?: string },
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   const { spawn } = await import("node:child_process");
   const sourceEnv = opts?.env ?? process.env;
   const bin = resolveFallbackCommand("codex", opts);
-  const env = buildCodexSubprocessEnv(sourceEnv, opts);
+  const codexHome = opts?.codexHome ?? await prepareManagedCodexHome({
+    ...(opts?.workspaceRoot && existsSync(opts.workspaceRoot) ? { workspaceRoot: opts.workspaceRoot } : {}),
+    sourceEnv,
+  });
+  const env = buildCodexSubprocessEnv(sourceEnv, {
+    ...opts,
+    codexHome,
+  });
   return new Promise((resolvePromise, reject) => {
     const child = spawn(bin.command, [...bin.prefixArgs, ...cliArgs], {
       stdio: ["ignore", "pipe", "pipe"],
@@ -234,6 +250,11 @@ export function makeCodexAppServerProvider(deps?: {
       const systemPrompt = [opts.systemPrompt, folded.system].filter(Boolean).join("\n\n");
       const workspace = deps?.workspace?.();
       const axTools = deps?.axExecutor?.specs().filter((spec) => opts.tools?.some((t) => t.name === spec.name)) ?? [];
+      const normalizedTools = opts.tools
+        ? (opts.tools.some((tool) => tool.name !== "continue_speaking" && tool.tier === undefined)
+          ? opts.tools.map((tool) => (tool.name !== "continue_speaking" && tool.tier === undefined ? { ...tool, tier: "ask" as const } : tool))
+          : opts.tools)
+        : undefined;
       for await (const event of runTurn({
         model: deps?.model ?? config.model,
         prompt: folded.prompt,
@@ -245,7 +266,7 @@ export function makeCodexAppServerProvider(deps?: {
             ? deps.axExecutor!.execute(call, { signal: signal ?? opts.signal, requestId: opts.requestId })
             : Promise.resolve({ output: "AX tool unavailable in this turn", isError: true }),
         } : {
-          ...(opts.tools ? { tools: opts.tools } : {}),
+          ...(normalizedTools ? { tools: normalizedTools } : {}),
           ...(opts.executeTool ? { executeTool: opts.executeTool } : {}),
         }),
         ...(workspace ? { workspace } : {}),
@@ -300,24 +321,26 @@ const APP_SERVER_REASONING_EFFORT = ALLOWED_EFFORTS.has(
 
 export interface DefaultSpawnCodexOptions extends ResolveCommandOptions, CodexSubprocessEnvOptions {
   readonly workspaceRoot?: string;
+  readonly spawnFn?: typeof import("node:child_process").spawn;
 }
 
 export async function defaultSpawnCodex(
   opts?: DefaultSpawnCodexOptions,
 ): Promise<ChildProcessWithoutNullStreams> {
   const { spawn } = await import("node:child_process");
+  const spawnImpl = opts?.spawnFn ?? spawn;
   const sourceEnv = opts?.env ?? process.env;
   const bin = resolveFallbackCommand("codex", opts);
-  let codexHome = opts?.codexHome;
-  if (!codexHome && opts?.workspaceRoot && existsSync(opts.workspaceRoot)) {
-    codexHome = await prepareManagedCodexHome({ workspaceRoot: opts.workspaceRoot, sourceEnv });
-  }
+  const codexHome = opts?.codexHome ?? await prepareManagedCodexHome({
+    ...(opts?.workspaceRoot && existsSync(opts.workspaceRoot) ? { workspaceRoot: opts.workspaceRoot } : {}),
+    sourceEnv,
+  });
   const env = buildCodexSubprocessEnv(sourceEnv, {
     ...opts,
-    ...(codexHome ? { codexHome } : {}),
+    codexHome,
   });
   const effortConfig = `model_reasoning_effort="${APP_SERVER_REASONING_EFFORT}"`;
-  return spawn(bin.command, [
+  return spawnImpl(bin.command, [
     ...bin.prefixArgs,
     "app-server",
     "--config",
@@ -499,11 +522,17 @@ export async function* runCodexAppServerTurn(
       axThreadConfig = { mcp_servers: Object.fromEntries(Object.entries(servers ?? {}).map(([name, server]) => [name, { ...withoutNullConfig(server as Record<string, unknown>), enabled: false }])) };
     }
     // app-server 동적 도구는 executeTool 콜백 안에서 ApprovalPort 사용자 승인 및 processing guard를 거친 뒤 결과를 돌려준다.
+    // tier가 미지정(undefined)인 일반 도구는 승인 없이 열리지 않도록 동적 도구 목록에서 제외한다
+    // (ChatTurnHandler / makeCodexAppServerProvider 경유 시 "ask"로 정규화되며, 직접 호출 시 fail-closed).
     const ALLOWED_DYNAMIC_TOOL_TIERS = new Set(["none", "ask", "fs-read", "fs-write", "shell"]);
     const dynamicTools = (input.tools ?? [])
       // continue_speaking은 ChatTurnHandler가 인용 검증/상태 전이를 소유하는 내부 제어 도구다.
       // app-server 안에서 선실행하면 그 검증을 우회하므로 외부 executor 도구만 native 실행한다.
-      .filter((tool) => tool.name !== "continue_speaking" && (tool.tier === undefined || ALLOWED_DYNAMIC_TOOL_TIERS.has(tool.tier)))
+      .filter((tool) => tool.name !== "continue_speaking" && (
+        input.ax
+          ? (tool.tier === undefined || ALLOWED_DYNAMIC_TOOL_TIERS.has(tool.tier))
+          : (tool.tier !== undefined && ALLOWED_DYNAMIC_TOOL_TIERS.has(tool.tier))
+      ))
       .map((tool) => ({
         type: "function" as const,
         name: tool.name,

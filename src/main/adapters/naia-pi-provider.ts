@@ -3,7 +3,6 @@ import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { ensureGatewayPricing } from "./gateway-pricing.js";
-import type { GatewayRequestBudgetPolicy } from "./naia-pi-versioned-billing.js";
 
 export const NAIA_PI_PROVIDER = "naia";
 export const NAIA_PI_MODELS = [
@@ -195,6 +194,13 @@ export function buildNaiaPiModelsConfig(baseUrl?: string, maxTokens?: number): R
  * - shell_type: "disabled"
  * - apply_patch_tool_type: null
  * - input_modalities: ["text"]
+ *
+ * Why apply_patch_tool_type is always `null` (including tool-enabled catalog entries):
+ * codex-cli 0.163.0 deserializes `apply_patch_tool_type` into Rust `Option<ApplyPatchToolType>`
+ * (`#[serde(rename_all = "snake_case")] enum ApplyPatchToolType { Freeform }`), which only
+ * accepts `"freeform"` or `null` (rejecting `"function"` with an unknown-variant error).
+ * Naia gateway / OpenAI-compatible chat-completions bridges reject Codex's non-standard
+ * `"freeform"` custom grammar tool schema unless native patch tools are disabled (`null`).
  */
 export function buildCodexModelCatalogEntry(opts: {
   readonly slug: string;
@@ -317,20 +323,5 @@ export function buildIsolatedPiChildEnv(source: NodeJS.ProcessEnv, configDir?: s
   const env: NodeJS.ProcessEnv = {};
   for (const key of CHILD_ENV_ALLOWLIST) if (source[key] !== undefined) env[key] = source[key];
   if (configDir) env["PI_CODING_AGENT_DIR"] = configDir;
-  return env;
-}
-
-/** Build a child-only environment that cannot inherit unrelated provider credentials or global routing. */
-export function buildNaiaPiChildEnv(source: NodeJS.ProcessEnv, configDir: string, naiaApiKey: string,
-  billing?: { readonly executionId: string; readonly receiptPath: string;
-    readonly gatewayBudget: { readonly path: string; readonly policy: GatewayRequestBudgetPolicy } }): NodeJS.ProcessEnv {
-  const env = buildIsolatedPiChildEnv(source, configDir);
-  env["NAIA_API_KEY"] = naiaApiKey;
-  if (billing) {
-    env["NAIA_PI_EXECUTION_ID"] = billing.executionId;
-    env["NAIA_PI_RECEIPT_PATH"] = billing.receiptPath;
-    env["NAIA_PI_GATEWAY_BUDGET_PATH"] = billing.gatewayBudget.path;
-    env["NAIA_PI_GATEWAY_BUDGET_POLICY"] = JSON.stringify(billing.gatewayBudget.policy);
-  }
   return env;
 }

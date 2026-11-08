@@ -160,12 +160,47 @@ describe("subagent-codex 어댑터 계약 (SPEC-010 확장, fake child)", () => 
     }
   });
 
-  it("enforces --sandbox read-only when noTools=true option is set (B1)", () => {
-    const f = fakeNdjson();
-    const port = makeCodexSubAgent({ resolveBin: fixedBin, spawnFn: f.spawnFn, noTools: true, model: "gpt-5.4" });
-    port.spawn({ prompt: "inspect only", workdir: "/tmp/w" });
-    expect(f.spawnArgs.args).toContain("read-only");
-    expect(f.spawnArgs.args).not.toContain("workspace-write");
+  it("enforces --sandbox read-only, 8 noTools config flags, and disabled model catalog when noTools=true option is set on non-bridge openai-codex (B1 / P2-다)", async () => {
+    const { CODEX_NO_TOOLS_CONFIG_FLAGS } = await import("../main/adapters/naia-pi-provider.js");
+    const { mkdtempSync, readFileSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const cfgDir = mkdtempSync(join(tmpdir(), "naia-codex-notools-test-"));
+    try {
+      const f = fakeNdjson();
+      const port = makeCodexSubAgent({
+        resolveBin: fixedBin,
+        spawnFn: f.spawnFn,
+        noTools: true,
+        model: "gpt-5.4",
+        codexConfigDir: cfgDir,
+      });
+      port.spawn({ prompt: "inspect only", workdir: "/tmp/w" });
+      expect(f.spawnArgs.args).toContain("read-only");
+      expect(f.spawnArgs.args).not.toContain("workspace-write");
+      for (const flag of CODEX_NO_TOOLS_CONFIG_FLAGS) {
+        expect(f.spawnArgs.args).toContain(flag);
+      }
+      expect(f.spawnArgs.args).toContain("features.memory_tool=false");
+      const catalogArg = f.spawnArgs.args.find((a) => a.startsWith("model_catalog_json="));
+      expect(catalogArg).toBeDefined();
+      const catalogPath = JSON.parse(catalogArg!.slice("model_catalog_json=".length)) as string;
+      const catalog = JSON.parse(readFileSync(catalogPath, "utf8")) as { models: Array<Record<string, unknown>> };
+      expect(catalog.models.length).toBeGreaterThan(0);
+      for (const entry of catalog.models) {
+        expect(entry).toMatchObject({
+          shell_type: "disabled",
+          apply_patch_tool_type: null,
+          supports_parallel_tool_calls: false,
+          use_responses_lite: false,
+          tool_mode: "direct",
+          experimental_supported_tools: [],
+          supports_search_tool: false,
+        });
+      }
+    } finally {
+      rmSync(cfgDir, { recursive: true, force: true });
+    }
   });
 
   it("rejects Naia gateway model IDs before spawn on the Codex CLI path (B1/B2)", async () => {

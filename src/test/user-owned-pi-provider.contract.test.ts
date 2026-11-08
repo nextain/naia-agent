@@ -63,7 +63,7 @@ describe("user-owned and built-in local providers on Codex loopback bridge", () 
     expect(resolveLocalEngineBaseUrl("lmstudio")).toBe("http://127.0.0.1:1234/v1");
   });
 
-  it("spawns the declared user-owned model with Codex [model_providers.local-vllm] and no unrelated secrets", () => {
+  it("spawns the declared user-owned model with Codex [model_providers.local-vllm] and no unrelated secrets", async () => {
     let captured: { args: readonly string[]; env?: NodeJS.ProcessEnv } | undefined;
     const spawnFn: SpawnFn = (_command, args, options) => {
       captured = { args, env: options.env };
@@ -79,18 +79,15 @@ describe("user-owned and built-in local providers on Codex loopback bridge", () 
       spawnFn,
       env: { PATH: "bin", OPENAI_API_KEY: "must-not-leak", NAIA_API_KEY: "must-not-leak" },
     }).spawn({ prompt: "inspect", workdir: ".", model: "naia-0.9-coding-24g", filesystemAccess: "read_only" });
-    try {
-      expect(captured?.args).toEqual(expect.arrayContaining([
-        "-c", 'model_provider="local-vllm"',
-        "-c", 'model_providers.local-vllm.wire_api="responses"',
-        "--model", "naia-0.9-coding-24g",
-        "--sandbox", "read-only",
-      ]));
-      expect(captured?.env?.NAIA_BRIDGE_TOKEN).toBeUndefined();
-      expect(captured?.env?.OPENAI_API_KEY).toBeUndefined();
-      expect(captured?.env?.NAIA_API_KEY).toBeUndefined();
-    } finally {
-      void session.cancel("done");
-    }
+    await session.cancel("done");
+    expect(captured?.args).toEqual(expect.arrayContaining([
+      "-c", 'model_provider="local-vllm"',
+      "-c", 'model_providers.local-vllm.wire_api="responses"',
+      "--model", "naia-0.9-coding-24g",
+      "--sandbox", "read-only",
+    ]));
+    expect(captured?.env?.NAIA_BRIDGE_TOKEN).toBeUndefined();
+    expect(captured?.env?.OPENAI_API_KEY).toBeUndefined();
+    expect(captured?.env?.NAIA_API_KEY).toBeUndefined();
   });
 });
