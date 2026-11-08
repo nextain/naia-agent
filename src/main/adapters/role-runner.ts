@@ -5,6 +5,7 @@ import type { SubAgentPort, SupervisorEgressPort } from "../ports/orchestration.
 import { makeClaudeCodeSubAgent, type SubAgentClaudeCodeOptions } from "./subagent-claude-code.js";
 import { makeCodexSubAgent, type SubAgentCodexOptions } from "./subagent-codex.js";
 import { makeGrokSubAgent, type SubAgentGrokOptions } from "./subagent-grok.js";
+import { isBuiltInLocalProvider } from "./user-owned-pi-provider.js";
 
 export type DevelopmentRole = Extract<LlmRole, "expert" | "main" | "sub">;
 
@@ -51,6 +52,7 @@ export function normalizeSupportedNaiaRoleModel(model: string | undefined): stri
   const trimmed = model.trim();
   if (!trimmed) return undefined;
   const lower = trimmed.toLowerCase();
+  if (lower === "dash-002") return "HCX-DASH-002";
   return SUPPORTED_NAIA_ROLE_MODELS.find((candidate) => candidate.toLowerCase() === lower);
 }
 
@@ -59,7 +61,15 @@ export function isSupportedNaiaRoleModel(model: string | undefined): boolean {
 }
 
 function isConfiguredRoleSupported(config: EffectiveLlmConfig): boolean {
-  return cliWorkerForProvider(config.provider.value) !== undefined;
+  if (cliWorkerForProvider(config.provider.value) !== undefined) return true;
+  const providerLower = config.provider.value.trim().toLowerCase();
+  if (providerLower === "nextain" || providerLower === "naia") {
+    return isSupportedNaiaRoleModel(config.model.value);
+  }
+  if (isBuiltInLocalProvider(providerLower)) {
+    return Boolean(config.model.value.trim());
+  }
+  return false;
 }
 
 function findRole(
@@ -163,8 +173,27 @@ export function resolveRoleSubAgent(
       return { ok: false, reason: `Model '${config.model.value}' is not registered for Naia role '${role}'` };
     }
     return {
-      ok: false,
-      reason: `Account provider '${config.provider.value}' (model '${canonicalModel}') is not supported on the Codex role runner after Pi removal; configure a CLI worker role (codex, claude-code-cli, or grok)`,
+      ok: true,
+      role,
+      agent: makeCodexSubAgent({
+        ...(options.codex ?? {}),
+        provider: "naia",
+        model: canonicalModel,
+        ...(config.baseUrl?.value ? { baseUrl: config.baseUrl.value } : {}),
+      }),
+    };
+  }
+  if (isBuiltInLocalProvider(providerLower)) {
+    return {
+      ok: true,
+      role,
+      agent: makeCodexSubAgent({
+        ...(options.codex ?? {}),
+        provider: providerLower,
+        model: config.model.value,
+        ...(config.baseUrl?.value ? { baseUrl: config.baseUrl.value } : {}),
+        ...(config.thinkingLevel?.value ? { thinkingLevel: config.thinkingLevel.value } : {}),
+      }),
     };
   }
   if (providerLower === "anthropic") {

@@ -73,7 +73,7 @@ describe("Codex-default development role factory", () => {
     });
   });
 
-  it("validates Naia role models case-insensitively and blocks account-provider roles before spawn (B2)", () => {
+  it("validates Naia role models case-insensitively and blocks unregistered Naia models before spawn (B2)", () => {
     expect(isSupportedNaiaRoleModel("HCX-007")).toBe(true);
     expect(isSupportedNaiaRoleModel("hcx-007")).toBe(true);
     expect(isSupportedNaiaRoleModel("hcx-dash-002")).toBe(true);
@@ -91,8 +91,7 @@ describe("Codex-default development role factory", () => {
       },
     });
     expect(makeRoleSubAgent(registeredNaia, "sub")).toMatchObject({
-      ok: false,
-      reason: expect.stringContaining("Account provider 'nextain' (model 'HCX-007') is not supported on the Codex role runner"),
+      ok: true,
     });
     const invalid = resolveLlmRoles({
       roles: {
@@ -245,7 +244,7 @@ describe("Configured development role adapter routing (Codex default, Claude, Gr
     }
   });
 
-  it("fails closed before spawn for non-CLI account providers (anthropic, naia/nextain) so Naia model IDs are never passed to Codex (B2)", () => {
+  it("fails closed before spawn for anthropic account provider, while routing registered Naia and local roles through Codex loopback bridge (B2)", () => {
     const anthropicResolved = resolveLlmRoles({
       roles: {
         main: { provider: "anthropic", model: "claude-sonnet-4-6" },
@@ -260,9 +259,10 @@ describe("Configured development role adapter routing (Codex default, Claude, Gr
     });
     expect(selectedAnthropic).toMatchObject({
       ok: false,
-      reason: expect.stringContaining("Account provider 'anthropic' (model 'claude-sonnet-4-6') is not supported on the Codex role runner after Pi removal"),
+      reason: expect.stringContaining("Account provider 'anthropic' (model 'claude-sonnet-4-6') is not supported on the Codex role runner"),
     });
     expect(captureAnthropic.captured).toBeUndefined();
+    expect(makeRoleProcessingPlans(anthropicResolved)).toEqual([]);
 
     const naiaResolved = resolveLlmRoles({
       roles: {
@@ -272,20 +272,37 @@ describe("Configured development role adapter routing (Codex default, Claude, Gr
         expert: { inherit: "main" },
       },
     });
-    const captureNaia = captureSpawn();
-    const selectedNaia = makeConfiguredRoleSubAgent(naiaResolved, "main", {
-      codex: {
-        resolveBin: fixedBin("codex"),
-        spawnFn: captureNaia.spawnFn,
-      },
-    });
-    expect(selectedNaia).toMatchObject({
-      ok: false,
-      reason: expect.stringContaining("Account provider 'nextain' (model 'deepseek-v4-flash') is not supported on the Codex role runner after Pi removal"),
-    });
-    expect(captureNaia.captured).toBeUndefined();
-    expect(makeRoleProcessingPlans(anthropicResolved)).toEqual([]);
-    expect(makeRoleProcessingPlans(naiaResolved)).toEqual([]);
+    const prevKey = process.env.NAIA_API_KEY;
+    process.env.NAIA_API_KEY = "test-naia-key";
+    try {
+      const captureNaia = captureSpawn();
+      const selectedNaia = makeConfiguredRoleSubAgent(naiaResolved, "main", {
+        codex: {
+          resolveBin: fixedBin("codex"),
+          spawnFn: captureNaia.spawnFn,
+        },
+      });
+      expect(selectedNaia.ok).toBe(true);
+      if (selectedNaia.ok) {
+        const s = selectedNaia.agent.spawn({ prompt: "summarize", workdir: "/tmp/naia-ws" });
+        expect(captureNaia.captured?.args).toEqual(expect.arrayContaining([
+          "-c", 'model_provider="naia"',
+          "-c", expect.stringMatching(/^model_providers\.naia\.wire_api="responses"$/),
+          "-c", expect.stringMatching(/^model_catalog_json=/),
+        ]));
+        expect(captureNaia.captured?.env?.NAIA_BRIDGE_TOKEN).toBeDefined();
+        expect(captureNaia.captured?.env?.NAIA_API_KEY).toBeUndefined();
+        void s.cancel("done");
+      }
+      expect(makeRoleProcessingPlans(naiaResolved)).toEqual([
+        expect.objectContaining({ provider: "nextain", model: "deepseek-v4-flash", when: { key: "agent", values: ["main"] } }),
+        expect.objectContaining({ provider: "nextain", model: "deepseek-v4-flash", when: { key: "agent", values: ["sub"] } }),
+        expect.objectContaining({ provider: "nextain", model: "deepseek-v4-flash", when: { key: "agent", values: ["expert"] } }),
+      ]);
+    } finally {
+      if (prevKey === undefined) delete process.env.NAIA_API_KEY;
+      else process.env.NAIA_API_KEY = prevKey;
+    }
   });
 
   it("fails closed when role configuration is invalid or provider is unsupported", () => {
@@ -358,9 +375,9 @@ describe("Configured development role adapter routing (Codex default, Claude, Gr
     expect(capture.captured?.command).toBe("codex");
     expect(capture.captured?.cwd).toBe("/tmp/ws");
 
-    const naiaRole = resolveLlmRoles({
+    const invalidRole = resolveLlmRoles({
       roles: {
-        main: { provider: "nextain", model: "grok-4.3" },
+        main: { provider: "anthropic", model: "claude-sonnet-4-6" },
         sub: { inherit: "main" },
         memory: { inherit: "sub" },
         expert: { inherit: "main" },
@@ -368,7 +385,7 @@ describe("Configured development role adapter routing (Codex default, Claude, Gr
     });
     const failedReports: unknown[] = [];
     const failedEvents: unknown[] = [];
-    const failRunner = makeRoleSupervisorRunner(naiaRole, async () => {});
+    const failRunner = makeRoleSupervisorRunner(invalidRole, async () => {});
     const failRes = await failRunner(
       "main",
       { prompt: "test task", workdir: "/tmp/ws" },

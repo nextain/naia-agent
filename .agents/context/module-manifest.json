@@ -1,6 +1,36 @@
 {
   "_doc": "파일단위 계약 앵커 (드리프트 자동차단). src/main 의 모든 .ts 는 여기 {layer, uc, contract} 와 함께 등록돼야 한다. 미등록 파일 = 미계약 코드 = RED (scripts/check-file-anchors.mjs). 계약 먼저, 코드 나중 — 새 파일 추가 전 이 manifest 에 앵커 선언. layer ∈ {domain,ports,app,adapters,composition}. contract = docs/progress 의 계약 문서.",
   "files": {
+    "src/main/adapters/naia-pi-versioned-billing.ts": {
+      "layer": "adapters",
+      "uc": ["UC-ORCH-004"],
+      "contract": "docs/requirements.md",
+      "note": "Atomic Naia gateway billing bridge, durable request-level pre-call budget, owner-only receipt journal, and Codex Responses loopback HTTP bridge."
+    },
+    "src/main/adapters/naia-pi-provider.ts": {
+      "layer": "adapters",
+      "uc": ["UC-ORCH-004"],
+      "contract": "docs/requirements.md",
+      "note": "Naia 8-model catalog, customer cost rates, and Codex model_catalog_json builder."
+    },
+    "src/main/adapters/user-owned-pi-provider.ts": {
+      "layer": "adapters",
+      "uc": ["UC-ORCH-004"],
+      "contract": "docs/requirements.md",
+      "note": "Loopback-only user-owned local model provider validation and Codex catalog builder."
+    },
+    "src/main/composition/codex-continuous-loop.ts": {
+      "layer": "composition",
+      "uc": ["UC-ORCH-004"],
+      "contract": "docs/requirements.md",
+      "note": "Standalone Codex-core multi-session composition supporting Naia 8 models and local user-owned models without OpenCode import edges."
+    },
+    "src/main/composition/codex-continuous-loop-control.ts": {
+      "layer": "composition",
+      "uc": ["UC-ORCH-004"],
+      "contract": "docs/requirements.md",
+      "note": "Persistent NDJSON control session for one durable Codex-core loop instance."
+    },
     "src/main/ports/paid-call-budget.ts": {
       "layer": "ports",
       "uc": ["UC-ORCH-004"],

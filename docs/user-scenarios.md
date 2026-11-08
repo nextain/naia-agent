@@ -701,17 +701,16 @@ issue.
 | T-ANYLLM-14 | The versioned pricebook uses decimal rates, ISO currency/minor units and round-half-even once at terminal settlement; only the Gateway supplies authoritative upstream and 1.1x billed amounts. |
 | T-ANYLLM-15 | An unsupported or downgraded Claude allowlist is disabled without remapping to a broader/older model or provider fallback. |
 
-## UC-NAIA-PI — Naia 계정 모델 및 Codex CLI 실행 (구 `--agent pi` 경로 제거됨, 2026-11-06)
+## UC-NAIA-PI — Naia 계정 8종·로컬 모델의 Codex 루프백 브리지 및 원자 과금 (#174 2단계 복원)
 
-> **상태**: 구 `naia-agent run --agent pi` 실행 경로는 `UC-CODEX-CORE-SWAP`(2026-11-06)에서 **제거됨**.
-> `naia-agent run`은 `codex`를 기본 코어(`--agent codex --model gpt-5.4`)로 사용하며, Naia 게이트웨이 모델(`grok-4.3`, `deepseek-v4-flash`, `deepseek-v4-pro`, `motif-3`, `solar-pro4`, `solar-mini`, `HCX-007`, `HCX-DASH-002`)은 `naia-agent chat --provider naia` 및 `naia-agent models naia`에서 사용한다.
+> **상태**: 구 `@earendil-works/pi-*` 의존성은 제거하되, Naia 게이트웨이 8종(`grok-4.3`, `deepseek-v4-flash`, `deepseek-v4-pro`, `motif-3`, `solar-pro4`, `solar-mini`, `HCX-007`, `HCX-DASH-002` + `DASH-002` 별칭)과 로컬 모델(`local`, `ollama`, `vllm`, `lmstudio`, `local-*`)은 Codex CLI(`[model_providers.naia]` / `[model_providers.local]`, `wire_api = "responses"`)와 부모 프로세스 내 `/v1/responses` ↔ `/v1/chat/completions` 루프백 브리지로 실행된다.
 
-- **S-NAIA-PI-1 (Codex coding / 구 Pi Grok coding 제거됨)**: `naia-agent run "..." --agent codex --model gpt-5.4`가 `--sandbox workspace-write`로 실행되고 파일 변경과 검증 결과를 정직한 리포트로 남긴다(구 `--agent pi --model grok-4.3` 경로는 제거됨).
-- **S-NAIA-PI-2 (읽기 전용 분석 및 Naia chat)**: `naia-agent run "..." --agent codex --no-tools`는 `--sandbox read-only`(`filesystemAccess: "read_only"`)로 실행된다. `deepseek-v4-flash`와 `deepseek-v4-pro`는 `naia-agent chat --provider naia`에서 사용한다.
-- **S-NAIA-PI-3 (capability & model guard)**: `--no-tools`를 읽기 전용 샌드박스를 보장할 수 없는 에이전트에 지정하거나, Naia 전용 모델 ID(`grok-4.3`, `deepseek-v4-pro` 등)를 `--agent codex`에 직접 넘기면 Codex spawn 전에 실패한다.
-- **S-NAIA-PI-4 (stored login)**: 새 CLI 프로세스가 OS 보안 저장소(또는 호환 `.env`)의 Naia 키를 읽고 키 인자 없이 `chat`/`models`를 실행한다.
-- **S-NAIA-PI-5 (honest failure & child env isolation)**: 키 누락·인증 실패·모델 미지원·upstream 실패를 구분하고 비밀을 출력하지 않으며, Codex 자식 프로세스에는 `DISCORD_BOT_TOKEN`·`NAIA_API_KEY`·`ANTHROPIC_API_KEY`가 전달되지 않는다.
-- **S-NAIA-PI-6 (Motif 3 & Naia catalog)**: `motif-3`는 구조화 `tool_calls` 기준(9/10 이상)을 충족해 Naia 도구 사용 모델 카탈로그(`cli-manage.ts`)에 포함되며, 스트리밍 `delta.reasoning` 문자열/객체는 thinking 이벤트로 전달된다.
+- **S-NAIA-PI-1 (Codex + Naia 8종 코딩 및 원자 과금)**: `naia-agent run "..." --agent codex --model grok-4.3`(또는 `motif-3`, `HCX-007` 등)이 부모 프로세스 루프백 브리지와 `model_catalog_json`(4개 필수 필드 포함)을 통해 실행되고, SQLite 사전 예약·비스트리밍 정산·해시 체인 영수증 저널·`turn.completed` 영수증 대조를 거쳐 정직한 리포트를 남긴다.
+- **S-NAIA-PI-2 (읽기 전용 분석 및 `--no-tools` 3중 차단)**: `naia-agent run "..." --agent codex --model deepseek-v4-flash --no-tools`는 `--sandbox read-only`, 카탈로그 `shell_type: "disabled"` / `apply_patch_tool_type: null`, 8개 비활성 플래그(`CODEX_NO_TOOLS_CONFIG_FLAGS`), 그리고 루프백 브리지의 `tools`/`tool_choice`/`parallel_tool_calls`/`additional_tools` 제거로 upstream에 도구 0개가 전달되게 한다.
+- **S-NAIA-PI-3 (capability & model guard)**: `--no-tools`를 읽기 전용 샌드박스를 보장할 수 없는 에이전트에 지정하거나, 미등록 모델 또는 직접 공급자(`xai`, `deepseek` 등)를 지정하면 spawn 전에 실패한다.
+- **S-NAIA-PI-4 (stored login)**: `bin/naia-agent-run.mjs`와 `bin/naia-agent-loop.mjs`가 OS 보안 저장소(또는 호환 `.env`)의 Naia 키를 부모 프로세스에 로드하여 키 인자 없이도 Naia 모델을 실행한다.
+- **S-NAIA-PI-5 (honest failure & child env isolation)**: `NAIA_API_KEY`는 부모만 읽고 자식에는 1회용 `NAIA_BRIDGE_TOKEN`만 전달하며, `DISCORD_BOT_TOKEN`·`NAIA_API_KEY`·`ANTHROPIC_API_KEY`는 자식에 전달되지 않는다.
+- **S-NAIA-PI-6 (Motif 3 & 로컬 모델)**: `motif-3`는 `262144` 컨텍스트 창·`8192` maxTokens·`1.30x` 고객 단가·`reasoning_content` 보존을 유지하며, 로컬 모델(`local`, `ollama`, `vllm`, `lmstudio`, `local-*`)은 0원 카탈로그와 Ollama `/api/show` `think` 정규화를 지원한다.
 
 과거 이력 기록은 `docs/progress/99.dev-comm/naia-account-pi-azure-contract-2026-07-30.md` 및 `docs/progress/99.dev-comm/codex-core-swap-pi-removal-2026-11-06.md`를 참조한다.
 
@@ -760,7 +759,7 @@ issue.
 | UC-CLI / AC2·AC4 (2c 정직보고) | `src/test/uc-cli-verifier.contract.test.ts`, `uc-cli-workspace.contract.test.ts`, `uc-cli-supervisor-real-verifier.integration.test.ts` (never-throws·git classify·실 verify — Pass) |
 | V모델: UC-CLI = UC-014 (REQ-011·012 → SPEC-009·010 → TEST-F-009·010), TEST-S-014 | `docs/progress/{01..05}/INDEX.md` (orphan 0) |
 | UC-CLI / S-CLI-CHAT·S-CLI-LOGIN (S1 대화·로그인) / FR-CLI-7·8 | `src/test/cli-chat.contract.test.ts`(멀티턴 history 누적·emit→stdout·finish 재프롬프트·error 격리·login 파싱→.env 기록) + bin 실행 검증(fake provider 2턴 맥락 유지) |
-| UC-NAIA-PI / FR-CLI-9~13 (구 Pi 경로 제거·Codex 전환) | `src/test/uc-cli-subagent-codex.contract.test.ts`, `src/test/codex-app-server-provider.contract.test.ts`, `src/test/uc-cli-host-entry.contract.test.ts`, `src/test/cli-chat.contract.test.ts`, `src/test/gateway-pricing.contract.test.ts`, `src/test/cli-manage.contract.test.ts`, `src/test/uc1-openai-compat.contract.test.ts` — Codex `0.163.0` 버전/탐색 순서(`CODEX_BIN`→패키지 내장→`PATH`, 무버전 `npx` 제거)·관리형 `CODEX_HOME`·자식 env 격리(`E1`/`E2`/`E3`)·`tier: "ask"` 동적 도구 승인 연동·`--no-tools`(`--sandbox read-only`), live pricing overlay, `delta.reasoning` 스트림 계약, secret-free 설정 |
+| UC-NAIA-PI / FR-CLI-9~13 (Codex 전환·Naia/로컬 루프백 브리지·원자 과금) | `src/test/uc-cli-subagent-codex.contract.test.ts`, `src/test/uc-naia-pi-provider.contract.test.ts`, `src/test/naia-pi-versioned-billing.contract.test.ts`, `src/test/user-owned-pi-provider.contract.test.ts`, `src/test/codex-app-server-provider.contract.test.ts`, `src/test/uc-cli-host-entry.contract.test.ts`, `src/test/cli-chat.contract.test.ts`, `src/test/gateway-pricing.contract.test.ts`, `src/test/cli-manage.contract.test.ts`, `src/test/uc1-openai-compat.contract.test.ts` — Codex `0.163.0` 버전/탐색 순서(`CODEX_BIN`→패키지 내장→`PATH`, 무버전 `npx` 제거)·관리형 `CODEX_HOME`·자식 env 격리(`E1`/`E2`/`E3`)·`tier: "ask"` 동적 도구 승인 연동·Naia 8종 및 로컬 모델 `[model_providers.*]`(`wire_api = "responses"`) 루프백 브리지·원자 과금 영수증 저널·`--no-tools` 3중 차단, live pricing overlay, `delta.reasoning` 스트림 계약, secret-free 설정 |
 | UC-CLI-MANAGE / FR-CLI-14~20 | `src/test/cli-manage.contract.test.ts`, `src/test/cli-manage-process.integration.test.ts`, `src/test/uc-cli-host-entry.contract.test.ts` — auth/config/models/doctor/session, isolated HOME, run defaults/override, `coding.agent="pi"` 마이그레이션/거부, secret redaction, resume, `--no-tools` 가드 — Pass |
 | UC-APP / S-APP-1·2·3 / FR-APP-1~5 | `src/test/uc-app-skill.contract.test.ts` (등록→노출·tool call→app_tool_call emit·result→주입·timeout/취소·동시성·builtin 무회귀) [예정] |
 | UC-PERSONA-CLI / S-PERSONA-1·2 / FR-PERSONA-1·2 | `src/test/uc-persona-compose.contract.test.ts` — describe "composePersonaPrompt" (full Alpha profile→prefix·존댓말·루크·마스터·Korean 포함, emotion-tag 제외 단언) + describe "Golden case D (CLI/no avatar)" (빈 profile→"", prefix-only→base only) + describe "PersonaSourcePort (fake fs)" (실 config.json shape→매핑 PersonaProfile, 파일부재→undefined) |
@@ -972,10 +971,10 @@ Discord ingress, terminal/file-opening UX, and naia-shell visualization.
 | a clean team result still fails the issue when the independent acceptance-check verifier fails | `single-issue-team-verifier.integration.test.ts` |
 | app/domain/port layers remain free of Discord, Shell, provider SDK, and subprocess imports | `issue-team-layer-boundary.contract.test.ts` |
 | a frozen no-paid-call workload gates ordering, isolation, recovery, loop convergence, receipt coverage, and cost accounting | `issue-team-benchmark.contract.test.ts` |
-## UC-ORCH-004 — Durable paid-call budget (retained) and Pi continuous coding loop (제거됨, 2026-11-06)
+## UC-ORCH-004 — Durable paid-call budget and Codex continuous coding loop (#174 2단계 복원)
 
-> **상태**: Pi 전용 연속 루프(`bin`, `composition`), 버전 과금 브리지, user-owned 로컬 Pi provider, Pi 비용 비교기는 `UC-CODEX-CORE-SWAP`(2026-11-06)에서 **제거됨**.
-> 다중 세션 오케스트레이션(`UC-ORCH-002`)과 이슈 팀 오케스트레이션(`UC-ORCH-003`)은 Codex 기본 코어로 유지되며, SQLite 기반 유료 호출 예산 원장(`SqlitePaidCallBudget`, `FR-LOOP-002..004`)은 그대로 유지된다.
+> **상태**: 구 Pi 패키지 의존성은 제거하되, 연속 코딩 루프(`bin/naia-agent-loop.mjs`, `codex-continuous-loop.ts`, `codex-continuous-loop-control.ts`), Naia 버전 과금 루프백 브리지(`naia-pi-versioned-billing.ts`), user-owned/내장 로컬 공급자(`user-owned-pi-provider.ts`)는 Codex 코어(`agentKind: "codex"`) 위에서 복원되었다.
+> 다중 세션 오케스트레이션(`UC-ORCH-002`), 이슈 팀 오케스트레이션(`UC-ORCH-003`), SQLite 기반 유료 호출 예산 원장(`SqlitePaidCallBudget`, `FR-LOOP-002..004`)이 함께 동작한다.
 
 Before each paid model attempt, Naia Agent durably reserves calls, dollars, input tokens, and output
 tokens in SQLite (`SqlitePaidCallBudget`). Restart cannot erase the budget or cause an unresolved paid attempt to be repeated. Complete
@@ -989,7 +988,7 @@ honestly.
 | independent SQLite connections serialize reservations and enforce all four aggregate limits | `sqlite-paid-call-budget.integration.test.ts` |
 | restart preserves settled and unresolved allowance; duplicate/conflicting receipts are deterministic | `sqlite-paid-call-budget.integration.test.ts` |
 | Codex/OpenCode role executor enforces read-only vs workspace-write boundaries and distinct attempt receipts | `issue-team-role-executor.integration.test.ts`, `uc-cli-subagent-codex.contract.test.ts` |
-| Pi-only continuous loop, Naia Pi versioned billing bridge, user-owned Pi provider, and Pi paired cost comparison | **제거됨 (`UC-CODEX-CORE-SWAP`, 2026-11-06)** |
+| Codex continuous loop, `naia-agent loop` NDJSON control CLI, Naia atomic versioned-billing loopback bridge, and user-owned/built-in local provider | `codex-continuous-loop.contract.test.ts`, `codex-continuous-loop-cli.integration.test.ts`, `naia-pi-versioned-billing.contract.test.ts`, `uc-naia-pi-provider.contract.test.ts`, `user-owned-pi-provider.contract.test.ts` |
 
 ## UC-024 — 나이아가 지금 무엇이 돌고 있는지 안다 (환경 관측)
 

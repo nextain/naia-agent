@@ -12,6 +12,7 @@
     "naia-agent": "bin/naia-agent.mjs",
     "naia-agent-chat": "bin/naia-agent-chat.mjs",
     "naia-agent-run": "bin/naia-agent-run.mjs",
+    "naia-agent-loop": "bin/naia-agent-loop.mjs",
     "naia-agent-manage": "bin/naia-agent-manage.mjs"
   },
   "scripts": {

@@ -14,7 +14,7 @@ import {
 } from "../dist/main/app/cli-supervise.js";
 import { applyCodingDefaults } from "../dist/main/app/cli-manage.js";
 import { wireSupervisor } from "../dist/main/composition/index.js";
-import { readCliConfig } from "./naia-agent-runtime.mjs";
+import { loadCredentialIntoProcess, readCliConfig } from "./naia-agent-runtime.mjs";
 
 const argv = process.argv.slice(2);
 // "run" 서브커맨드는 관용(생략 가능 — 첫 토큰이 프롬프트/옵션이면 바로 supervise).
@@ -34,6 +34,7 @@ if (!parsed.ok) {
 }
 const a = parsed.args;
 const workdir = a.workdir === "." ? process.cwd() : a.workdir;
+if (a.agent === "codex") loadCredentialIntoProcess("naia", cliConfig);
 
 // shell sub-agent 는 command 가 필요(roster 계약) — host 가 platform 셸을 주입(`/bin/sh -c <prompt>` / `cmd /c`).
 // codex/opencode 는 roster 기본(미주입). 미지/deferred 이름은 supervisor 가 정직 unsupported 로 표면화(AC6).

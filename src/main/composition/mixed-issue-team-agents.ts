@@ -4,7 +4,7 @@ import { assertIssueTeamProfile, type IssueTeamProfile } from "../domain/issue-t
 import type { SubAgentPort } from "../ports/orchestration.js";
 
 export interface IssueTeamAgentEnvironment {
-  readonly codex?: Omit<SubAgentCodexOptions, "model" | "reasoningEffort">;
+  readonly codex?: Omit<SubAgentCodexOptions, "model" | "provider" | "reasoningEffort">;
   readonly opencode?: Omit<SubAgentOpencodeOptions, "model" | "provider">;
 }
 
@@ -13,7 +13,7 @@ Readonly<Record<string, { readonly agentKind: import("../domain/issue-team.js").
   assertIssueTeamProfile(profile);
   return Object.fromEntries(Object.values(profile.roles).map((declared) => {
     const agent = declared.agentKind === "codex"
-      ? makeCodexSubAgent({ ...environment.codex, model: declared.binding.model,
+      ? makeCodexSubAgent({ ...environment.codex, provider: declared.binding.provider, model: declared.binding.model,
         ...(declared.binding.reasoningEffort ? { reasoningEffort: declared.binding.reasoningEffort as SubAgentCodexOptions["reasoningEffort"] } : {}) })
       : makeOpencodeSubAgent({ ...environment.opencode, model: declared.binding.model, provider: declared.binding.provider });
     return [declared.agentProfileId, { agentKind: declared.agentKind, adapter: agent }];

@@ -2,34 +2,52 @@
 //
 // `codex exec "<prompt>" --json [...]` 를 sub-agent 로 spawn → codex JSONL → SubAgentEvent.
 // 세션 머신(스트림·cancel·가드)은 공유 subprocess-session 에. 여기엔 codex 고유의 (1) bin 해석 (2) args
-// (3) line parser 만. bin 미해결/ENOENT = 정직한 session_end{ok:false}(throw 금지, AC6). spawnFn 주입 seam.
-//
-// ⚠️ codex `exec` 는 `-a/--ask-for-approval`(TUI 용) 미지원 — exec 는 본래 non-interactive.
-//    위임 실행은 사용자 전역 config가 경계를 넓히지 못하게 `--ignore-user-config` +
-//    `--sandbox workspace-write` + approval_policy=never를 매번 명시한다. cwd는 host가
-//    realpath로 ADK 아래임을 검증하므로 Codex OS sandbox의 쓰기 root도 그 범위 안으로 고정된다.
-//
-// codex JSONL 은 item.completed = **완료 snapshot** 만 내보냄(start/end 경계 없음). 그래서 도구 항목은
-// tool_use_end{ok:true}(완료됨) 로 표현한다(시작 경계가 없는 codex 포맷의 정직한 단일 표현). terminal
-// session_end 는 process close(code) 가 단일 발생(opencode/claude-code 동일).
-//
-// RT-verified(2026-06-29): thread.started/turn.started/item.completed(agent_message/command_execution)/
-// turn.completed 이벤트 shape + `exec --json -a never` 거부(`-a` 미지원) 실측.
+// (3) line parser (4) Naia 8종·로컬 모델 루프백 브리지 배선만.
 import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import type { TaskSpec, SubAgentEvent } from "../domain/orchestration.js";
 import type { SubAgentPort, SubAgentSession } from "../ports/orchestration.js";
+import {
+  CODEX_NO_TOOLS_CONFIG_FLAGS,
+  NAIA_MODEL_METADATA,
+  NAIA_PI_PROVIDER,
+  buildCodexModelCatalogEntry,
+  ensureNaiaPiConfig,
+  estimateNaiaModelCostUsd,
+  normalizeNaiaGatewayBaseUrl,
+  normalizeNaiaGatewayModel,
+  writeCodexModelCatalogFile,
+} from "./naia-pi-provider.js";
+import {
+  initializeNaiaPiReceiptJournal,
+  readNaiaPiReceiptJournal,
+  startCodexResponsesLoopbackBridge,
+  sumGatewayCustomerCost,
+  type CodexResponsesBridgeHandle,
+  type GatewayRequestBudgetPolicy,
+} from "./naia-pi-versioned-billing.js";
 import {
   DEFAULT_HARD_KILL_DEADLINE_MS, defaultSpawn, spawnSubprocessSession, endedSession,
   type SpawnFn, type ResolvedBin, type ResolveCommandOptions, resolveFallbackCommand,
   buildIsolatedSubprocessEnv,
 } from "./subprocess-session.js";
+import {
+  ensureUserOwnedPiConfig,
+  isBuiltInLocalProvider,
+  isUserOwnedPiBinding,
+  normalizeLoopbackBaseUrl,
+  resolveLocalEngineBaseUrl,
+  type UserOwnedPiProvider,
+} from "./user-owned-pi-provider.js";
 
 export type { SpawnFn, ResolvedBin, ResolveCommandOptions };
 
 export interface SubAgentCodexOptions {
+  /** 프로바이더 식별자 ("codex" | "openai-codex" | "naia" | "nextain" | "local" | "ollama" | "vllm" | "lmstudio" | "local-*"). */
+  readonly provider?: string;
   /** -m/--model 로 전달(옵셔널). TaskSpec.model 보다 우선. */
   readonly model?: string;
-  /** --no-tools 지정 시 읽기 전용 샌드박스(--sandbox read-only)로 실행. */
+  /** --no-tools 지정 시 읽기 전용 샌드박스(--sandbox read-only) 및 도구 비활성화로 실행. */
   readonly noTools?: boolean;
   /** Codex CLI model_reasoning_effort. Kept separate from the model id so role profiles remain explicit. */
   readonly reasoningEffort?: "low" | "medium" | "high" | "xhigh";
@@ -38,6 +56,17 @@ export interface SubAgentCodexOptions {
   readonly hardKillDeadlineMs?: number;
   readonly resolveBin?: () => ResolvedBin;
   readonly spawnFn?: SpawnFn;
+  readonly beforeSpawn?: () => void;
+  readonly env?: NodeJS.ProcessEnv;
+  readonly baseUrl?: string;
+  readonly codexConfigDir?: string;
+  readonly piConfigDir?: string;
+  readonly maxOutputTokens?: number;
+  readonly thinkingLevel?: string;
+  readonly userOwnedProvider?: UserOwnedPiProvider;
+  readonly gatewayBudget?: { readonly path: string; readonly policy: GatewayRequestBudgetPolicy };
+  readonly gatewayBillingMode?: "required" | "unavailable";
+  readonly fetch?: typeof globalThis.fetch;
   readonly priceUsdPerMillion?: {
     readonly uncachedInput: number;
     readonly cachedInput: number;
@@ -46,17 +75,6 @@ export interface SubAgentCodexOptions {
   /** Maximum input-token count to which the pinned price snapshot applies. */
   readonly maximumPricedInputTokens?: number;
 }
-
-const DISALLOWED_NAIA_GATEWAY_MODELS = new Set([
-  "grok-4.3",
-  "deepseek-v4-flash",
-  "deepseek-v4-pro",
-  "solar-pro4",
-  "solar-mini",
-  "motif-3",
-  "hcx-007",
-  "hcx-dash-002",
-]);
 
 export interface CodexWorkerEnvOptions {
   readonly codexHome?: string;
@@ -98,15 +116,6 @@ export function resolveCodexBin(opts?: ResolveCommandOptions): ResolvedBin {
 }
 
 // ── codex JSONL 파싱 ─────────────────────────────────────────────────────────
-// codex exec --json 이벤트(실측):
-//   {"type":"thread.started","thread_id":..}    → planning(시작 신호)
-//   {"type":"turn.started"}                     → 무시(thread.started 로 족함)
-//   {"type":"item.completed","item":{"type":"agent_message","text":..}} → text_delta
-//   {"type":"item.completed","item":{"type":"command_execution"|"file_change"|"file_edit"|...}}
-//                                               → tool_use_end{ok:true}(완료 snapshot, 경계 없음)
-//   {"type":"turn.completed","usage":{...}}     → logical success terminal (bounded child teardown)
-//   그 외(reasoning/item.created 등)            → 무시
-
 interface RawCodexItem { type?: string; text?: string; [k: string]: unknown }
 interface RawCodexEvent {
   type?: string;
@@ -143,14 +152,9 @@ export function codexLineToEvent(line: string): SubAgentEvent | null {
     case "thread.started":
       return { kind: "planning" };
     case "turn.completed":
-      // `codex exec --ephemeral` may remain alive waiting on stdin even though
-      // the one requested turn is complete. The shared session adapter tears
-      // down this Codex child after forwarding the logical terminal event.
       return { kind: "session_end", ok: true, reason: "codex turn.completed" };
     case "turn.failed":
     case "error":
-      // Codex may report a structured failure on stdout and still close with
-      // code zero. Preserve only a redacted category, never raw prompt data.
       return { kind: "session_end", ok: false, reason: `codex ${raw.type}: ${codexFailureClass(raw)}` };
     case "item.completed": {
       const item = raw.item;
@@ -159,15 +163,13 @@ export function codexLineToEvent(line: string): SubAgentEvent | null {
         const text = typeof item.text === "string" ? item.text : "";
         return text.length > 0 ? { kind: "text_delta", text } : null;
       }
-      // 도구 계열(command_execution/file_change/file_edit/...)은 완료 snapshot → tool_use_end.
-      // tool label = item.type(honest, 정보 손실 없음). 경계 시작은 codex 포맷에 없음.
       if (item.type === "command_execution" || item.type === "file_change" || item.type === "file_edit" || item.type === "mcp_tool_call") {
         return { kind: "tool_use_end", tool: item.type, ok: true };
       }
-      return null; // reasoning 등 = 무시.
+      return null;
     }
     default:
-      return null; // turn.started and unknown events are non-terminal.
+      return null;
   }
 }
 
@@ -179,29 +181,324 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
   const skipGit = opts.skipGitRepoCheck ?? true;
   return {
     spawn(task: TaskSpec): SubAgentSession {
-      const model = opts.model ?? task.model;
-      if (model && DISALLOWED_NAIA_GATEWAY_MODELS.has(model.trim().toLowerCase())) {
+      try {
+        opts.beforeSpawn?.();
+      } catch (error) {
+        return endedSession(`Codex pre-spawn integrity gate failed: ${(error as Error).message}`);
+      }
+      const sourceEnv = opts.env ?? process.env;
+      const rawModel = opts.model ?? task.model;
+      const naiaCanonical = normalizeNaiaGatewayModel(rawModel);
+      const isNaiaModel = naiaCanonical !== undefined;
+      const rawProvider = opts.provider?.trim();
+      const providerLower = rawProvider?.toLowerCase();
+
+      const liveNaiaKey = () =>
+        (opts.env?.["NAIA_API_KEY"] ?? opts.env?.["NAIA_ANYLLM_API_KEY"] ?? process.env["NAIA_API_KEY"] ?? process.env["NAIA_ANYLLM_API_KEY"])?.trim();
+
+      const isExplicitNaiaProvider = providerLower === "naia" || providerLower === "nextain";
+      const isNaiaRoute = isExplicitNaiaProvider || (isNaiaModel && rawProvider === undefined && Boolean(liveNaiaKey()));
+
+      if (isNaiaModel && !isNaiaRoute) {
+        if (rawProvider !== undefined && !isExplicitNaiaProvider) {
+          return endedSession(
+            `codex model rejected before spawn: Naia gateway model '${rawModel}' cannot use direct provider '${rawProvider}'`,
+          );
+        }
         return endedSession(
-          `codex model rejected before spawn: Naia gateway model '${model}' cannot be passed directly to OpenAI Codex CLI`,
+          `codex model rejected before spawn: Naia gateway model '${rawModel}' cannot be passed directly to OpenAI Codex CLI`,
         );
       }
+      if (isExplicitNaiaProvider && !isNaiaModel) {
+        return endedSession(
+          `codex model rejected before spawn: Model '${rawModel ?? ""}' is not registered for Naia provider`,
+        );
+      }
+      if (isNaiaRoute && opts.env !== undefined && !liveNaiaKey()) {
+        return endedSession("NAIA_API_KEY is required; run 'naia-agent login --provider naia'");
+      }
+
+      const isUserOwnedRoute = rawProvider !== undefined && rawModel !== undefined
+        ? isUserOwnedPiBinding(opts.userOwnedProvider, { provider: rawProvider, model: rawModel })
+        : false;
+      if (opts.userOwnedProvider && rawProvider === opts.userOwnedProvider.id && !isUserOwnedRoute) {
+        return endedSession(`user-owned model '${rawModel ?? ""}' is not in the declared local catalog`);
+      }
+      const isLocalEngineRoute = !isUserOwnedRoute && isBuiltInLocalProvider(rawProvider);
+      const isBridgedRoute = isNaiaRoute || isUserOwnedRoute || isLocalEngineRoute;
+
       let bin: ResolvedBin;
       try {
         bin = resolveBin();
       } catch (e) {
         return endedSession(`codex unavailable: ${(e as Error).message}`);
       }
+
       const executionId = randomUUID();
+      const effectiveModel = isNaiaRoute ? naiaCanonical! : rawModel;
+      const effectiveNoTools = opts.noTools === true;
+      const configDirBase = opts.codexConfigDir ?? opts.piConfigDir;
+
+      let bridge: CodexResponsesBridgeHandle | undefined;
+      let receiptPath: string | undefined;
+      let childEnv: NodeJS.ProcessEnv = codexWorkerEnv(sourceEnv);
+      const bridgeConfigArgs: string[] = [];
+
+      if (isNaiaRoute) {
+        try {
+          const upstreamBaseUrl = normalizeNaiaGatewayBaseUrl(
+            opts.baseUrl ?? sourceEnv["NAIA_ANYLLM_BASE_URL"] ?? sourceEnv["NAIA_GATEWAY_URL"],
+          );
+          const configDir = ensureNaiaPiConfig({
+            ...(configDirBase ? { dir: configDirBase } : {}),
+            baseUrl: upstreamBaseUrl,
+            ...(opts.maxOutputTokens ? { maxTokens: opts.maxOutputTokens } : {}),
+            noTools: effectiveNoTools,
+          });
+          const catalogPath = join(
+            configDir,
+            effectiveNoTools ? "codex-model-catalog-notools.json" : "codex-model-catalog.json",
+          );
+          const reservedOutputTokens = opts.maxOutputTokens
+            ?? (effectiveModel === "motif-3" ? 8_192 : 4_096);
+          const gatewayBudget = opts.gatewayBudget ?? {
+            path: join(configDir, "gateway-budgets", `${executionId}.db`),
+            policy: {
+              maxGatewayCalls: 8,
+              maxUsd: 0.2,
+              maxInputTokens: 32_000,
+              maxOutputTokens: reservedOutputTokens * 8,
+              requestAllowance: { reservedUsd: 0.025, reservedInputTokens: 4_000, reservedOutputTokens },
+            },
+          };
+          let billing: CodexResponsesBridgeHandle extends never ? never : {
+            readonly executionId: string;
+            readonly journalPath: string;
+            readonly gatewayBudget: { readonly path: string; readonly policy: GatewayRequestBudgetPolicy };
+          } | undefined;
+          if (opts.gatewayBillingMode !== "unavailable") {
+            receiptPath = join(configDir, "receipts", `${executionId}.json`);
+            initializeNaiaPiReceiptJournal(receiptPath, executionId);
+            billing = { executionId, journalPath: receiptPath, gatewayBudget };
+          }
+          const bridgeToken = `naia-bridge-${randomUUID()}`;
+          bridge = startCodexResponsesLoopbackBridge({
+            provider: NAIA_PI_PROVIDER,
+            expectedModel: effectiveModel!,
+            upstreamBaseUrl,
+            bridgeToken,
+            getApiKey: liveNaiaKey,
+            noTools: effectiveNoTools,
+            ...(opts.maxOutputTokens !== undefined
+              ? { maxOutputTokens: opts.maxOutputTokens }
+              : effectiveModel === "motif-3"
+                ? { maxOutputTokens: 8_192 }
+                : {}),
+            ...(billing ? { billing } : {}),
+            ...(opts.fetch ? { fetch: opts.fetch } : {}),
+          });
+          childEnv = codexWorkerEnv(sourceEnv, {
+            bridgeEnvKey: "NAIA_BRIDGE_TOKEN",
+            bridgeToken,
+            allowBridgeEnvKey: true,
+          });
+          bridgeConfigArgs.push(
+            "-c", 'model_provider="naia"',
+            "-c", 'model_providers.naia.name="Naia Gateway"',
+            "-c", `model_providers.naia.base_url=${JSON.stringify(bridge.baseUrl)}`,
+            "-c", 'model_providers.naia.wire_api="responses"',
+            "-c", 'model_providers.naia.env_key="NAIA_BRIDGE_TOKEN"',
+            "-c", `model_catalog_json=${JSON.stringify(catalogPath)}`,
+            "-c", "features.memory_tool=false",
+          );
+          if (effectiveModel === "motif-3") {
+            bridgeConfigArgs.push("-c", `model_context_window=${NAIA_MODEL_METADATA["motif-3"].contextWindow}`);
+          }
+        } catch (e) {
+          bridge?.close();
+          return endedSession(`naia codex configuration failed: ${(e as Error).message}`);
+        }
+      } else if (isUserOwnedRoute && opts.userOwnedProvider) {
+        try {
+          const userOwned = opts.userOwnedProvider;
+          const declaredModel = userOwned.models.find((m) => m.id === effectiveModel)!;
+          const configDir = ensureUserOwnedPiConfig(userOwned, configDirBase, { noTools: effectiveNoTools });
+          const catalogPath = join(
+            configDir,
+            effectiveNoTools ? "codex-model-catalog-notools.json" : "codex-model-catalog.json",
+          );
+          const upstreamBaseUrl = normalizeLoopbackBaseUrl(userOwned.baseUrl);
+          const finalUpstream = upstreamBaseUrl.endsWith("/v1") ? upstreamBaseUrl : `${upstreamBaseUrl}/v1`;
+          bridge = startCodexResponsesLoopbackBridge({
+            provider: userOwned.id,
+            expectedModel: effectiveModel!,
+            upstreamBaseUrl: finalUpstream,
+            noTools: effectiveNoTools,
+            maxOutputTokens: opts.maxOutputTokens ?? declaredModel.maxTokens,
+            ...(opts.fetch ? { fetch: opts.fetch } : {}),
+          });
+          bridgeConfigArgs.push(
+            "-c", `model_provider=${JSON.stringify(userOwned.id)}`,
+            "-c", `model_providers.${userOwned.id}.name=${JSON.stringify(userOwned.id)}`,
+            "-c", `model_providers.${userOwned.id}.base_url=${JSON.stringify(bridge.baseUrl)}`,
+            "-c", `model_providers.${userOwned.id}.wire_api="responses"`,
+            "-c", `model_catalog_json=${JSON.stringify(catalogPath)}`,
+            "-c", "features.memory_tool=false",
+          );
+        } catch (e) {
+          bridge?.close();
+          return endedSession(`user-owned codex configuration failed: ${(e as Error).message}`);
+        }
+      } else if (isLocalEngineRoute) {
+        try {
+          const modelSlug = effectiveModel ?? "local-default";
+          const upstreamBaseUrl = resolveLocalEngineBaseUrl(rawProvider!, opts.baseUrl, sourceEnv);
+          const configDir = configDirBase ?? join(task.workdir, ".naia-codex-local");
+          const catalogPath = writeCodexModelCatalogFile(
+            configDir,
+            {
+              models: [
+                buildCodexModelCatalogEntry({
+                  slug: modelSlug,
+                  contextWindow: 65_536,
+                  noTools: effectiveNoTools,
+                }),
+              ],
+            },
+            effectiveNoTools ? "codex-local-catalog-notools.json" : "codex-local-catalog.json",
+          );
+          bridge = startCodexResponsesLoopbackBridge({
+            provider: providerLower!,
+            expectedModel: modelSlug,
+            upstreamBaseUrl,
+            noTools: effectiveNoTools,
+            ...(opts.maxOutputTokens !== undefined ? { maxOutputTokens: opts.maxOutputTokens } : {}),
+            ...(opts.thinkingLevel !== undefined ? { thinkingLevel: opts.thinkingLevel } : {}),
+            ...(opts.fetch ? { fetch: opts.fetch } : {}),
+          });
+          bridgeConfigArgs.push(
+            "-c", 'model_provider="local"',
+            "-c", 'model_providers.local.name="Local Engine"',
+            "-c", `model_providers.local.base_url=${JSON.stringify(bridge.baseUrl)}`,
+            "-c", 'model_providers.local.wire_api="responses"',
+            "-c", `model_catalog_json=${JSON.stringify(catalogPath)}`,
+            "-c", "features.memory_tool=false",
+          );
+        } catch (e) {
+          bridge?.close();
+          return endedSession(`local codex configuration failed: ${(e as Error).message}`);
+        }
+      }
+
+      if (effectiveNoTools && isBridgedRoute) {
+        bridgeConfigArgs.push(...CODEX_NO_TOOLS_CONFIG_FLAGS);
+      }
+
       let threadId: string | undefined;
-      const lineToEvent = (line: string): SubAgentEvent | null => {
+      const lineToEvent = (line: string): SubAgentEvent | readonly SubAgentEvent[] | null => {
         let raw: RawCodexEvent | undefined;
         try { raw = JSON.parse(line) as RawCodexEvent; } catch { /* base parser handles malformed input */ }
         if (raw?.type === "thread.started" && typeof raw.thread_id === "string") threadId = raw.thread_id;
         if (raw?.type === "turn.completed") {
           const usage = validUsage(raw.usage);
-          const inputTokens = usage?.inputTokens ?? 0;
-          const cachedInputTokens = usage?.cachedInputTokens ?? 0;
-          const outputTokens = usage?.outputTokens ?? 0;
+          let inputTokens = usage?.inputTokens ?? 0;
+          let cachedInputTokens = usage?.cachedInputTokens ?? 0;
+          let outputTokens = usage?.outputTokens ?? 0;
+          let totalTokens = inputTokens + outputTokens;
+
+          if (isBridgedRoute && bridge) {
+            if (bridge.lastError) {
+              return {
+                kind: "session_end",
+                ok: false,
+                reason: `codex bridge error: ${bridge.lastError}`,
+              };
+            }
+            const reportedProvider = isNaiaRoute
+              ? NAIA_PI_PROVIDER
+              : isUserOwnedRoute && opts.userOwnedProvider
+                ? opts.userOwnedProvider.id
+                : (providerLower ?? "local");
+            const expectedModelName = effectiveModel ?? "codex-default";
+            let gatewayBillingReceipts: readonly import("../domain/orchestration.js").GatewayBillingReceipt[] | undefined;
+            let measuredCostUsd: number | undefined;
+
+            if (bridge.turns.length > 0) {
+              for (const turn of bridge.turns) {
+                if (turn.responseModel.toLowerCase() !== expectedModelName.toLowerCase()) {
+                  return {
+                    kind: "session_end",
+                    ok: false,
+                    reason: `codex model mismatch: expected ${reportedProvider}/${expectedModelName}, provider reported ${turn.responseModel}`,
+                  };
+                }
+              }
+              const bridgeUncachedInput = bridge.turns.reduce((s, t) => s + t.inputTokens, 0);
+              const bridgeCachedInput = bridge.turns.reduce((s, t) => s + t.cachedInputTokens, 0);
+              const bridgeOutput = bridge.turns.reduce((s, t) => s + t.outputTokens, 0);
+              const bridgeTotal = bridge.turns.reduce((s, t) => s + t.totalTokens, 0);
+              if (!usage) {
+                inputTokens = bridgeUncachedInput;
+                cachedInputTokens = bridgeCachedInput;
+                outputTokens = bridgeOutput;
+                totalTokens = bridgeTotal;
+              } else {
+                inputTokens = Math.max(0, usage.inputTokens - usage.cachedInputTokens);
+                cachedInputTokens = usage.cachedInputTokens;
+                outputTokens = usage.outputTokens;
+                totalTokens = usage.inputTokens + usage.outputTokens;
+              }
+            }
+
+            if (isNaiaRoute && receiptPath) {
+              try {
+                const journal = readNaiaPiReceiptJournal(receiptPath, executionId);
+                if (bridge.turns.length > 0 || journal.entries.length > 0) {
+                  if (journal.entries.length !== bridge.turns.length) {
+                    throw new Error("receipt count does not match Codex provider turns");
+                  }
+                  const latest = journal.entries.at(-1)!.receipt;
+                  if (latest.provider !== NAIA_PI_PROVIDER || latest.model !== expectedModelName) {
+                    throw new Error("receipt route does not match Codex model evidence");
+                  }
+                  gatewayBillingReceipts = journal.entries.map((entry) => entry.receipt);
+                  measuredCostUsd = sumGatewayCustomerCost(gatewayBillingReceipts);
+                }
+              } catch (error) {
+                return {
+                  kind: "session_end",
+                  ok: false,
+                  reason: `Naia billing receipt unavailable: ${error instanceof Error ? error.message : String(error)}`,
+                };
+              }
+            }
+
+            const selectedModel = bridge.turns.at(-1)?.responseModel ?? expectedModelName;
+            const estimatedCostUsd = isNaiaRoute
+              ? estimateNaiaModelCostUsd(selectedModel, inputTokens, cachedInputTokens, outputTokens)
+              : 0;
+            const evidence: import("../domain/orchestration.js").SubAgentModelEvidence = {
+              provider: reportedProvider,
+              selectedModel,
+              modelEvidenceSource: bridge.turns.length > 0 ? "provider_reported" : "adapter_requested",
+              ...(opts.reasoningEffort ? { reasoningEffort: opts.reasoningEffort } : {}),
+              inputTokens,
+              cachedInputTokens,
+              outputTokens,
+              totalTokens,
+              usageAvailable: Boolean(usage) || bridge.turns.length > 0,
+              sessionId: threadId ?? executionId,
+              executionId,
+              ...(estimatedCostUsd !== undefined ? { estimatedCostUsd, piEstimatedCost: estimatedCostUsd } : {}),
+              ...(measuredCostUsd !== undefined ? { measuredCostUsd } : {}),
+              ...(gatewayBillingReceipts ? { gatewayBillingReceipts } : {}),
+            };
+            return [
+              { kind: "model_evidence", evidence },
+              { kind: "session_end", ok: true, reason: "codex turn.completed", evidence },
+            ];
+          }
+
           const measuredCostUsd = opts.priceUsdPerMillion && usage
             && (opts.maximumPricedInputTokens === undefined || inputTokens <= opts.maximumPricedInputTokens)
             ? ((Math.max(0, inputTokens - cachedInputTokens) * opts.priceUsdPerMillion.uncachedInput)
@@ -211,10 +508,10 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
           return {
             kind: "session_end", ok: true, reason: "codex turn.completed",
             evidence: {
-              provider: "openai-codex", selectedModel: model ?? "codex-default",
+              provider: rawProvider ?? "openai-codex", selectedModel: effectiveModel ?? "codex-default",
               modelEvidenceSource: "adapter_requested",
               ...(opts.reasoningEffort ? { reasoningEffort: opts.reasoningEffort } : {}),
-              inputTokens, cachedInputTokens, outputTokens, totalTokens: inputTokens + outputTokens,
+              inputTokens, cachedInputTokens, outputTokens, totalTokens,
               usageAvailable: Boolean(usage),
               sessionId: threadId ?? executionId, executionId,
               ...(measuredCostUsd !== undefined ? { measuredCostUsd } : {}),
@@ -223,13 +520,11 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
         }
         return codexLineToEvent(line);
       };
+
       const sandbox =
-        opts.noTools === true || task.filesystemAccess === "read_only"
+        effectiveNoTools || task.filesystemAccess === "read_only"
           ? "read-only"
           : "workspace-write";
-      // exec --json --ignore-user-config --sandbox <semantic task boundary> <prompt>
-      //   -c approval_policy="never" --ephemeral [--skip-git-repo-check] [--model X]
-      // Global config/add-dir 상속을 끊고 non-interactive workspace 경계를 fail-closed로 고정.
       const args: string[] = [
         "exec", "--json",
         "--ignore-user-config",
@@ -238,20 +533,39 @@ export function makeCodexSubAgent(opts: SubAgentCodexOptions = {}): SubAgentPort
         "--ephemeral",
       ];
       if (skipGit) args.push("--skip-git-repo-check");
-      if (model) args.push("--model", model);
+      if (effectiveModel) args.push("--model", effectiveModel);
       if (opts.reasoningEffort) args.push("--config", `model_reasoning_effort=${JSON.stringify(opts.reasoningEffort)}`);
-      // `cwd` governs the child process, but Codex has its own workspace-root
-      // resolver. Pass the documented flag as well so a hosted/parent process
-      // cannot silently select its own repository as the edit root.
+      if (bridgeConfigArgs.length > 0) args.push(...bridgeConfigArgs);
       args.push("--cd", task.workdir);
-      // Keep the free-form request as the final positional argument.  Current
-      // Codex CLI releases parse exec options before its optional prompt;
-      // placing a multi-word task first can be interpreted as a command.
       args.push(task.prompt);
-      return spawnSubprocessSession({
-        spawnFn, bin, args, cwd: task.workdir, env: codexWorkerEnv(), hardKillMs, lineToEvent, label: "codex", diagnostics: true,
+
+      const session = spawnSubprocessSession({
+        spawnFn, bin, args, cwd: task.workdir, env: childEnv, hardKillMs, lineToEvent, label: "codex", diagnostics: true,
         terminateOnProtocolEnd: true,
       });
+
+      if (!bridge) return session;
+      const activeBridge = bridge;
+      return {
+        events: {
+          async *[Symbol.asyncIterator](): AsyncIterator<SubAgentEvent> {
+            try {
+              for await (const ev of session.events) {
+                yield ev;
+              }
+            } finally {
+              activeBridge.close();
+            }
+          },
+        },
+        async cancel(reason?: string): Promise<void> {
+          try {
+            await session.cancel(reason ?? "cancelled");
+          } finally {
+            activeBridge.close();
+          }
+        },
+      };
     },
   };
 }
