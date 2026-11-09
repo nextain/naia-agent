@@ -29,15 +29,17 @@ import type { ConversationPort } from "../ports/uc1.js";
  *   stripped so the window never *starts* with one.
  */
 const CHARS_PER_TOKEN = 4;
-/** UTF-8 CJK characters can occupy three bytes and multiple BPE tokens. Reserve
- * three tokens per code point instead of applying the English 4 chars/token
- * heuristic. This is a conservative estimate, not a model tokenizer guarantee. */
+/** CJK text costs far more than the English 4 chars/token heuristic. Measured on
+ * the Qwen3 tokenizer (2026-11-09): 1,640 Hangul in mixed Korean prose → 1,680
+ * tokens, ≈1.02 tokens per Hangul. Reserve 1.5 per code point for margin across
+ * models. This is a conservative estimate, not a model tokenizer guarantee. */
+const CJK_TOKENS_PER_CHAR = 1.5;
 export function estimateConversationTokens(text: string): number {
   let cjk = 0;
   for (const ch of text) {
     if (/[\p{Script=Han}\p{Script=Hangul}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Bopomofo}\p{Script=Yi}]/u.test(ch)) cjk += ch.length;
   }
-  return cjk * 3 + (text.length - cjk) / CHARS_PER_TOKEN;
+  return cjk * CJK_TOKENS_PER_CHAR + (text.length - cjk) / CHARS_PER_TOKEN;
 }
 const DEFAULT_MAX_TOKENS = 6000;
 const PER_MESSAGE_OVERHEAD_CHARS = 16; // role markers / framing per message
