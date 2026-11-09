@@ -79,7 +79,8 @@ async function readErrorBody(body: ErrorBody): Promise<string> {
 /** Context overflow is judged on the server's own error code/message, never on
  * the raw body (a 400 may echo the prompt). Output-parameter errors such as
  * "max_tokens exceeds max_model_len" are not input overflow: dropping history
- * cannot fix them. */
+ * cannot fix them. A real overflow that merely suggests "reduce your input or
+ * max_tokens" is still overflow. */
 function isContextOverflowError(errText: string, detail: string): boolean {
   let code: unknown;
   try {
@@ -88,13 +89,15 @@ function isContextOverflowError(errText: string, detail: string): boolean {
     code = undefined;
   }
   if (code === "context_length_exceeded") return true;
-  if (!detail || /\bmax_(?:completion_)?tokens\b/i.test(detail)) return false;
+  if (!detail || /\bmax_(?:completion_)?tokens\b[^.\n]{0,60}(?:exceeds?|greater than|larger than|too large|must be|out of range|invalid)/i.test(detail)) return false;
   return /maximum context length|context[ _-](?:length|window)[ _-]exceeded|prompt (?:is )?too long|too many (?:input|prompt) tokens|longer than the maximum model length|\b(?:input|prompt)\b[^.\n]{0,80}(?:exceeds?|longer|greater)[^.\n]{0,80}max_model_len/i.test(detail);
 }
 
-/** "maximum context length is 8192 tokens" → 8192, when the server says it. */
+/** "maximum context length is 8192 tokens" / "max_model_len 8192" (also =, :,
+ * parenthesised) → 8192, when the server says it. */
 function parseServerContextWindow(detail: string): number | undefined {
-  const m = /maximum (?:context|model) length (?:is |of )?(\d{3,8})/i.exec(detail);
+  const m = /maximum (?:context|model) length (?:is |of )?(\d{3,8})/i.exec(detail)
+    ?? /\bmax_model_len\b\s*[=:(]?\s*(\d{3,8})/i.exec(detail);
   const n = m ? Number(m[1]) : NaN;
   return Number.isSafeInteger(n) && n > 0 ? n : undefined;
 }

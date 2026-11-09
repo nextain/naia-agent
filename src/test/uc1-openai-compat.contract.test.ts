@@ -5,6 +5,7 @@ import type { AddressInfo } from "node:net";
 import { describe, it, expect } from "vitest";
 import { makeOpenAICompatProvider, STREAM_IDLE_TIMEOUT_MS } from "../main/adapters/openai-compat-provider.js";
 import { makeProviderResolver } from "../main/adapters/provider-resolver.js";
+import { conversationMessageCost } from "../main/adapters/budgeted-conversation.js";
 import { NAIA_PI_MODELS, NAIA_PI_PROVIDER, buildNaiaPiModelsConfig, naiaGatewayContextWindow } from "../main/adapters/naia-pi-provider.js";
 import type { ProviderChunk, ProviderConfig } from "../main/domain/chat.js";
 
@@ -619,6 +620,7 @@ describe("#176 검수 지적 1·4·5 — 문맥 한도와 400 판별", () => {
   for (const [label, status, payload] of [
     ["stop 토큰 수 오류", 400, { error: { message: "stop sequences contain too many tokens (max 4)" } }],
     ["max_tokens 파라미터 오류", 400, { error: { message: "Requested max_tokens (16384) exceeds max_model_len (8192)" } }],
+    ["max_completion_tokens 과대", 400, { error: { message: "'max_completion_tokens' is too large: 16384. This model's maximum context length is 8192 tokens" } }],
     ["본문 에코", 400, { detail: [{ msg: "field required", input: "prompt is too long maximum context length" }] }],
   ] as const) {
     it(`문맥 초과가 아닌 400(${label})은 재시도하지 않고 원래 오류를 낸다`, async () => {
@@ -641,6 +643,31 @@ describe("#176 검수 지적 1·4·5 — 문맥 한도와 400 판별", () => {
     expect(err.code).toBe("CONTEXT_WINDOW_EXCEEDED");
     expect(err.message).toMatch(/^문맥 길이 초과: .*8192 tokens/);
   });
+  // #176 rev2: 서버가 알려 준 한도의 여러 표기를 읽어 두 번째 요청을 실제 한도 안에 넣고,
+  // "input or max_tokens 를 줄이라"는 안내가 붙은 진짜 초과도 문맥 초과로 본다.
+  for (const form of [
+    (cost: number) => `input length ${Math.ceil(cost)} exceeds max_model_len 2048`,
+    (cost: number) => `prompt of ${Math.ceil(cost)} tokens exceeds max_model_len=2048`,
+    (cost: number) => `input (${Math.ceil(cost)} tokens) exceeds max_model_len: 2048`,
+    (cost: number) => `input ${Math.ceil(cost)} exceeds max_model_len (2048)`,
+    () => "This model's maximum context length is 2048 tokens. Please reduce your input or max_tokens.",
+  ]) {
+    it(`서버 한도 안으로 줄여 두 번째 요청에서 성공한다: ${form(5000)}`, async () => {
+      const costs: number[] = [];
+      const p = makeOpenAICompatProvider({ baseUrl: "https://test", apiKey: "k",
+        fetch: (async (_u: string, init: { body: string }) => {
+          const b = JSON.parse(init.body);
+          const cost = b.messages.reduce((n: number, m: any) => n + conversationMessageCost(m), 0);
+          costs.push(cost);
+          if (cost <= 2048) return new Response("data: [DONE]\n");
+          return new Response(JSON.stringify({ error: { message: form(cost) } }), { status: 400 });
+        }) as never });
+      const messages = [...Array.from({ length: 20 }, (_, i) => ({ role: "assistant" as const, content: String.fromCharCode(65 + i).repeat(1000) })), { role: "user" as const, content: "latest" }];
+      await collect(p.chat({ provider: "vllm", model: "unknown-model" } as ProviderConfig, messages, {}));
+      expect(costs).toHaveLength(2);
+      expect(costs[1]).toBeLessThanOrEqual(2048);
+    });
+  }
   it("줄일 기록이 없으면 같은 요청을 다시 보내지 않는다", async () => {
     let calls = 0;
     const p = makeOpenAICompatProvider({ baseUrl: "https://test", apiKey: "k",
