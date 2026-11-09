@@ -287,7 +287,7 @@ const ALPHA_PREFIX =
 const ALPHA_PROFILE: PersonaProfile = {
   agentName: "알파", userName: "루크", honorific: "마스터", speechStyle: "formal", locale: "ko", systemPromptPrefix: ALPHA_PREFIX,
 };
-const WS_SNAP: WorkspaceSnapshot = { cwd: "/home/luke/alpha-adk", projects: ["naia-os", "naia-agent"], projectTotal: 2 };
+const WS_SNAP: WorkspaceSnapshot = { cwd: "/home/user/alpha-adk", projects: ["naia-os", "naia-agent"], projectTotal: 2 };
 
 function makeCapturingProvider(): { provider: ProviderPort; seen: { systemPrompt?: string } } {
   const seen: { systemPrompt?: string } = {};

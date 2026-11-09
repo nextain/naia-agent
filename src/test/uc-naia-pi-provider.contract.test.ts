@@ -156,11 +156,11 @@ describe("UC-NAIA-PI provider isolation and Codex [model_providers.naia] loopbac
       OPENAI_API_KEY: "openai-secret",
     }, {
       bridgeEnvKey: "NAIA_BRIDGE_TOKEN",
-      bridgeToken: "naia-bridge-one-time-token",
+      bridgeToken: "test-naia-bridge-one-time-token",
       allowBridgeEnvKey: true,
     });
     expect(workerEnv.PATH).toBe("bin");
-    expect(workerEnv.NAIA_BRIDGE_TOKEN).toBe("naia-bridge-one-time-token");
+    expect(workerEnv.NAIA_BRIDGE_TOKEN).toBe("test-naia-bridge-one-time-token");
     expect(workerEnv.NAIA_API_KEY).toBeUndefined();
     expect(workerEnv.OPENAI_API_KEY).toBeUndefined();
   });

@@ -87,7 +87,7 @@ main은 이미 `codex` → `codex-app-server-provider.ts`, 별도 `subagent-code
 승인/거절 대기 → execute이다. 승인 키는 requestId+toolCallId이며 `adapters/approval.ts`가 등록 선행,
 취소·dispose·중복 settlement를 관리한다. tier가 없거나 none인 등록 도구는 자동 실행이다.
 
-셸 호출: `/home/nextain/work/026-shell/packages/shell/src-tauri/src/lib.rs`의 spawn_agent_core가 Node 자식을
+셸 호출: `<작업 폴더>/naia-shell/packages/shell/src-tauri/src/lib.rs`의 spawn_agent_core가 Node 자식을
 실행하며 frontend chat-service → invoke(send_to_agent_command) → Rust stdio/gRPC bridge로 요청한다.
 agent stdout의 GRPC_LISTENING 후 gRPC Chat·SetWorkspace를 사용한다. 승인은
 approval_request/gateway_approval_request → approval_response(requestId,toolCallId,approve|reject).
@@ -336,7 +336,7 @@ STT 신뢰도만으로 화자 인증이 되지는 않는다. speaker/echo/재생
 코드는 직접 텍스트 입력만 허용한다. 위험 효과에서 “응” 또는 잘못된 코드를 입력하면 제안 자체가 폐기된다.
 복수 제안이 겹치는 순간 기존/신규를 모두 거절한다. 이후 하나가 사라져도 이전 “응”을 살리지 않는다.
 
-셸 읽기 확인(수정 없음): `/home/nextain/work/naia-shell-824/packages/shell/src/lib/chat-service.ts`의
+셸 읽기 확인(수정 없음): `<작업 폴더>/naia-shell/packages/shell/src/lib/chat-service.ts`의
 기존 approval_response는 requestId/toolCallId/approve|reject이며, 일부 direct tool 요청은 implicit consent다.
 이 boolean/implicit consent를 AX 저장소의 사람 입력으로 변환하지 않는다.
 
@@ -506,7 +506,7 @@ FR-AX-026.16은 기존 host control lane의 describe→present→displayed→cap
 진단에는 목적지/본문이 없다. 네트워크 기능이나 기업 허용 목록을 새로 열지 않았다.
 실제 host adapter가 다른 URL로 보내거나 redirect/OS proxy를 쓰는 경우는 이 fixture로 보증할 수 없다.
 따라서 endpoint/proxy/CA 사전 차단을 유지하고 실제 공개 UI·OS 수신/방화벽 대조는 준의
-`/home/nextain/jun/ax-026-device-check-20261104.md`에 별도 인수 항목으로 넘긴다.
+`<작업 폴더>/ax-026-device-check-20261104.md`에 별도 인수 항목으로 넘긴다.
 메모 이관은 r8 공용 조립기를 유지한다. Windows 문자열/fake fs와 Linux 파일 시험은
 Windows/macOS 실파일·로그인·키체인·자손 종료의 실기 대체 증거가 아니다.
 짝 셸 HEAD 25b0599a의 `packages/shell/src/components/AxApprovalDraft.tsx`는 Unmounted draft이며

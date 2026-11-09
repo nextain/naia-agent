@@ -58,10 +58,10 @@ export function isLocalEngineBaseUrl(baseUrl: string): boolean {
 	if (!m) return false;
 	const [a, b] = [Number(m[1]), Number(m[2])];
 	if (a === 127) return true;                       // 127.0.0.0/8 loopback
-	if (a === 10) return true;                        // 10.0.0.0/8      (RFC1918)
-	if (a === 192 && b === 168) return true;          // 192.168.0.0/16  (RFC1918)
-	if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12   (RFC1918)
-	if (a === 100 && b >= 64 && b <= 127) return true; // 100.64.0.0/10  (RFC6598 CGNAT — Tailscale 자가망, #118)
+	if (a === 10) return true;                        // 10.x.x.x/8      (RFC1918)
+	if (a === 192 && b === 168) return true;          // 192.168.x.x/16  (RFC1918)
+	if (a === 172 && b >= 16 && b <= 31) return true; // 172.16-31.x.x/12 (RFC1918)
+	if (a === 100 && b >= 64 && b <= 127) return true; // 100.64-127.x.x/10 (RFC6598 CGNAT — Tailscale 자가망, #118)
 	return false;
 }
 

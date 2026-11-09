@@ -35,7 +35,7 @@ node scripts/check-logging.mjs
 node --test src/test/ci-verify-*.test.mjs
 ```
 
-해당 실행에서는 TMPDIR을 `/home/nextain/work/codex-runs/026-ax/tmp`로 지정했다.
+해당 실행에서는 TMPDIR을 `<작업 폴더>/tmp`로 지정했다.
 숫자는 성능 지표가 아니라 이번 시험 실행 개수다. 프로세스 fixture는 가짜 CLI이며 유료/실모델 호출 0회다.
 원시 로그는 실행 폴더 tmp/{final-target-test,build,compile-integrity,current-ci,logging}.log에 있다.
 전체 pnpm test: 기준 a4aef16은 7개 파일/28 실패/2238 통과/12 skip/2 errors, 작업본은 7개/28 실패/2271 통과/12 skip/2 errors. 출력의 FAIL 헤더 전체가 동일했다(29줄, 매개변수 시험의 동명 헤더 포함). 이 전체 실행은 마지막 보완 전 snapshot(신규 33건 포함)이며 마지막 보완·추가 회귀 후 관련 73건과 타입 검사를 다시 통과했다. 전체 green으로 보고하지 않는다. 실행 폴더 tmp/comparison.json 및 result.md에 비교를 기록했다.
@@ -56,7 +56,7 @@ Windows 미검증, 승인 callback 외부의 실제 사람 증명·TTL·single-u
 ## 2회차 독립 적대 리뷰 (2026-11-03 UTC)
 
 - 리뷰어: `/root/ax_review_r2`; 구현 파일은 수정하지 않고 diff·정책·합성·프로토콜을 대조했다.
-- 직접 재실행: `TMPDIR=/home/nextain/work/codex-runs/026-ax/tmp PATH=/home/nextain/work/codex-runs/026-ax/tmp/bin:$PATH pnpm exec vitest run src/test/codex-app-server-provider.contract.test.ts src/test/ax-approval-policy.contract.test.ts src/test/uc-provider-provenance.contract.test.ts src/test/uc5-tool-loop.contract.test.ts` — 4개 파일 63개 통과. 원시 출력: 실행 폴더 `tmp/r2-independent-review-tests.log`.
+- 직접 재실행: `TMPDIR=<작업 폴더>/tmp PATH=<작업 폴더>/tmp/bin:$PATH pnpm exec vitest run src/test/codex-app-server-provider.contract.test.ts src/test/ax-approval-policy.contract.test.ts src/test/uc-provider-provenance.contract.test.ts src/test/uc5-tool-loop.contract.test.ts` — 4개 파일 63개 통과. 원시 출력: 실행 폴더 `tmp/r2-independent-review-tests.log`.
 - 의미 있는 반증: 미등록 shell/MCP/HTTP 호출 거절, 등록 후 실행 함수·spec 변조 방지, 최강 효과 선택, broker 합성 후 원시 shell/자동 메모 도구 제거, 버전 불일치·미로그인·broker 부재 시 fail closed를 확인했다. 이 테스트들은 실제 외부 서비스 호출 없이 실행 경계의 부수효과 미발생을 관찰한다.
 - 수정 요청 1: AX 환경에서 resolver 재생성 시 `workspace` callback이 사라져 기존 codex 경로가 workspace bind를 잃는다. AX 활성 상태의 기존 공급자 보존 요구와 충돌하므로 callback 보존 필요.
 - 수정 요청 2: peer 종료만으로 이미 기다리는 비협조적 `executeTool` Promise를 취소하지 못한다. signal 취소와 timeout이 실행 대기에도 적용되어야 하며, underlying effect 자체가 취소를 무시하면 되돌릴 수 없다는 포트 한계도 명시해야 한다.
@@ -117,7 +117,7 @@ HTTP 요청 0, shell marker=false, MCP marker=false, completed=true를 확인했
 - 발견·재현: A/B 제안 중 B를 취소하면 A만 남아 과거의 모호한 “응”이 통과했다. 최초 빌드 산출물의 저장소를 직접 호출하여 `acceptedAfterOverlap: true`, 결과 `[true, false]`를 재현했다. 보완 후 두 번째 제안 등록 자체가 기존 제안을 폐기하고 새 제안도 거절하므로 이 경로가 닫혔다.
 - 승인 응답 직후 실제 실행 Promise가 재개되기 전에 scope·TTL·취소가 바뀌는 경계도 지적했다. 보완된 broker는 실행 직전 `validateApproval`을 동기 호출하며, 저장소는 WeakMap의 request 객체 결속 grant를 한 번 소비하고 scope/revision/TTL/dispose/AbortSignal을 재검사한다. 호스트는 두 approval callback과 이 validator를 함께 주입해야 한다.
 - 검토 계획 digest가 카드에 없던 계약 갭을 전달했고 보완 카드의 `reviewedPlanDigest`를 확인했다. digest의 실제 계획 검토·본문 대응 증명은 trusted host 책임이다.
-- 최초 독립 시험 55건 중 4건은 설치된 Vitest가 지원하지 않는 matcher 때문에 실패했다. matcher 보완 뒤 `TMPDIR=/home/nextain/work/codex-runs/026-ax/tmp node_modules/.bin/vitest run src/test/ax-approval-policy.contract.test.ts`를 다시 실행하여 **59건 모두 통과**했다. 승인과 실행 사이 scope/invalidate/dispose/expire 변경 회귀도 포함한다.
+- 최초 독립 시험 55건 중 4건은 설치된 Vitest가 지원하지 않는 matcher 때문에 실패했다. matcher 보완 뒤 `TMPDIR=<작업 폴더>/tmp node_modules/.bin/vitest run src/test/ax-approval-policy.contract.test.ts`를 다시 실행하여 **59건 모두 통과**했다. 승인과 실행 사이 scope/invalidate/dispose/expire 변경 회귀도 포함한다.
 - 판정: 검토한 저장소·broker 경계에 위 수정 요청의 잔여 blocker 없음. Shell의 실제 사람 입력 인증, trusted 카드 렌더링, 변경 시 invalidate, validator 합성 및 실제 캘린더/발송 E2E는 이번 독립 시험의 검증 범위 밖이다. 운영 접근·외부 발송·실모델 호출은 수행하지 않았다.
 
 
@@ -132,7 +132,7 @@ HTTP 요청 0, shell marker=false, MCP marker=false, completed=true를 확인했
 - 발견 및 보완: 최초 env 검사에서 ALL_PROXY/all_proxy는 allowlist 제거 후 검사하여 기업 proxy를 조용히 우회했다. 부모가 원본 env에서 proxy·endpoint·TLS override를 검사하도록 바꾸었고 관련 회귀를 확인했다.
 - 추가 보완: CLI model_instructions_file 등 사용자 instruction 입력은 host가 공개한 텍스트 외의 로컬 내용을 추가할 가능성이 있어 거절하도록 요청했다. 부모가 model/compact instruction 경로 및 문자열을 thread/start 전에 거절했다. 실제 민감 파일 읽기나 외부 모델 전송을 재현한 것은 아니며 보수적 경계 강화다.
 - profile 의심은 실제 pin CLI로 합성 설정을 읽어 반증했다. legacy profile 설정은 config/read 자체에서 거절되었고 우회는 확인하지 못했다. 부모는 선택 profile·비어 있지 않은 profiles도 보수적으로 거절했다.
-- 직접 재실행: `TMPDIR=/home/nextain/work/codex-runs/026-ax/tmp node_modules/.bin/vitest run src/test/codex-app-server-provider.contract.test.ts` — 최종 **36건 통과**. 원시 출력 `tmp/r4-independent-transport-final.log`. 시험은 thread/start·turn/start 미호출 및 오류의 비밀값 비노출을 직접 확인하므로 단순 함수 반환만 보는 검증이 아니다.
+- 직접 재실행: `TMPDIR=<작업 폴더>/tmp node_modules/.bin/vitest run src/test/codex-app-server-provider.contract.test.ts` — 최종 **36건 통과**. 원시 출력 `tmp/r4-independent-transport-final.log`. 시험은 thread/start·turn/start 미호출 및 오류의 비밀값 비노출을 직접 확인하므로 단순 함수 반환만 보는 검증이 아니다.
 - 판정: 검토한 AX CLI transport/config 경계에 잔여 blocker 없음. OS egress·DNS·인증 저장소·기업 CA·실제 Shell 공개 화면 또는 민감 문서 전체 보안 인수를 승인하는 판정은 아니다. 운영 접속·실모델 호출·다른 작업자 저장소 접근은 수행하지 않았다.
 
 ### 4회차 최종 경로 재검토
@@ -193,7 +193,7 @@ Agent 자체 peer 미지정 실행: 104통과/11skip. 전체 검증 결과는 �
 (SIGTERM handler 설치 전 취소 → SIGKILL 미관측). 준비 ACK를 기다리도록 시험만 변경했다.
 독립 재검토: 5초 준비 timeout/10초 시험 예산, finally timer 정리·cancel 적절,
 SIGTERM/SIGKILL/terminal 1회 단언 유지. 독립 재실행 8/8 통과, 차단 결함 없음.
-최종 전체 직접 재실행: `NAIA_SHELL_ROOT=/home/nextain/work/026-shell pnpm test`(tsc 포함),
+최종 전체 직접 재실행: `NAIA_SHELL_ROOT=<작업 폴더>/naia-shell pnpm test`(tsc 포함),
 186파일 중 183통과/3skip, 2438통과/실패0/11skip. 비용·결정론22건·준비ACK 취소 포함.
 원시 실행 로그는 실행 폴더 `tmp/r9-full-accepted.log`; 결정론 재현 JSON은 저장소에 추적한다.
 실 UI/OS/계정 인수 전 P05 In review 유지.

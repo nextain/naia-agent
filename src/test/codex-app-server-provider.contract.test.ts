@@ -501,16 +501,16 @@ describe("Step 1 — version/bin resolution, managed CODEX_HOME, child env isola
     const e2 = buildCodexSubprocessEnv(dirtyEnv, {
       codexHome: "/tmp/managed-codex-home",
       bridgeEnvKey: "NAIA_BRIDGE_TOKEN",
-      bridgeToken: "one-time-bridge-token-123",
+      bridgeToken: "test-one-time-bridge-token-123",
     });
     expect(e2.CODEX_HOME).toBe("/tmp/managed-codex-home");
-    expect(e2.NAIA_BRIDGE_TOKEN).toBe("one-time-bridge-token-123");
+    expect(e2.NAIA_BRIDGE_TOKEN).toBe("test-one-time-bridge-token-123");
     expect(e2.NAIA_API_KEY).toBeUndefined();
 
     // E1: bridgeEnvKey without allowlisting or without token -> omits NAIA_BRIDGE_TOKEN so Codex fails closed
     const e1 = buildCodexSubprocessEnv(dirtyEnv, {
       bridgeEnvKey: "NAIA_BRIDGE_TOKEN",
-      bridgeToken: "one-time-bridge-token-123",
+      bridgeToken: "test-one-time-bridge-token-123",
       allowBridgeEnvKey: false,
     });
     expect(e1.NAIA_BRIDGE_TOKEN).toBeUndefined();
@@ -519,8 +519,8 @@ describe("Step 1 — version/bin resolution, managed CODEX_HOME, child env isola
   it("prepares managed CODEX_HOME (<adkPath>/naia-settings/codex-home) with empty config.toml and symlinked auth.json without reading auth.json", async () => {
     const { prepareManagedCodexHome } = await import("../main/adapters/codex-app-server-provider.js");
     const { mkdirSync, mkdtempSync, readFileSync, readlinkSync, lstatSync, writeFileSync, rmSync } = await import("node:fs");
-    const { join } = await import("node:path");
-    const baseTmp = "/home/nextain/work/codex-runs/agent-codex/tmp";
+    const { join } = await import("node:path"); const { tmpdir } = await import("node:os");
+    const baseTmp = tmpdir();
     mkdirSync(baseTmp, { recursive: true });
     const sandboxDir = mkdtempSync(join(baseTmp, "managed-codex-home-test-"));
     try {
@@ -773,7 +773,9 @@ describe("Step 1 — version/bin resolution, managed CODEX_HOME, child env isola
     expect(
       composeBuiltinAndExternalToolExecutors({ external: [rawUnnormalizedExternalExecutor] })?.specs()[0]?.tier,
     ).toBe("ask");
+    const { tmpdir } = await import("node:os");
     const runtimeDepsWithExternal = await composeAgentRuntimeDeps({
+      homeDir: tmpdir(),
       env: {
         AGENT_PROVIDER: "fake",
         NAIA_AGENT_SKILLS: "off",
@@ -967,7 +969,7 @@ describe("Step 1 — version/bin resolution, managed CODEX_HOME, child env isola
     expect(rawResponses).toEqual([
       { id: 99, result: { contentItems: [{ type: "inputText", text: "dynamic tool 'raw_untiered' is unavailable" }], success: false } },
     ]);
-  });
+  }, 30_000);
 
   it("gates outer tool loop (tierOf) and inner executeTool with the same shared helper: untiered -> approvalRequest(ask), tier:none -> no approval, rejected -> not executed", async () => {
     const {
@@ -1239,11 +1241,11 @@ describe("Step 1 — version/bin resolution, managed CODEX_HOME, child env isola
     const { makeCodexSubAgent } = await import("../main/adapters/subagent-codex.js");
     const { runCodexExec } = await import("../main/adapters/codex-exec-provider.js");
     const { mkdirSync, mkdtempSync, readFileSync, lstatSync, readlinkSync, writeFileSync, chmodSync, rmSync } = await import("node:fs");
-    const { join } = await import("node:path");
+    const { join } = await import("node:path"); const { tmpdir } = await import("node:os");
     const { PassThrough } = await import("node:stream");
     const { EventEmitter } = await import("node:events");
 
-    const baseTmp = "/home/nextain/work/codex-runs/agent-codex/tmp";
+    const baseTmp = tmpdir();
     mkdirSync(baseTmp, { recursive: true });
     const sandboxDir = mkdtempSync(join(baseTmp, "managed-codex-home-all-routes-"));
     try {

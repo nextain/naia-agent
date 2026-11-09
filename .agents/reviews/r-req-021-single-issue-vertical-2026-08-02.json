@@ -5,7 +5,7 @@
   "baseline_revision": "c424be65d22891f0f158395428d915031cf8e412",
   "implementation_revision": "d0bbbe04353f50d969af16e4ea541ebd11ae862c",
   "charter": {
-    "path": "/var/home/luke/alpha-adk-worktrees/naia-orchestration-sot/.agents/context/naia-development-orchestration.yaml",
+    "path": "<작업 폴더>/naia-orchestration-sot/.agents/context/naia-development-orchestration.yaml",
     "sha256": "3707ebf9a593caf0c86eef8a6faa75bd271f2e6c990f3f125521a82dfbe7f8e5",
     "goal": "Naia is a conversational assistant and process manager; this slice proves one moderated coding issue, not a frontier coding-tool replacement."
   },

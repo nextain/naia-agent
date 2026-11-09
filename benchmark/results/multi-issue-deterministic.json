@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1.0",
   "benchmarkId": "uc-orch-002-deterministic-v1",
-  "sourceRevision": "27bdb3b1d5130e41922569676b1190d887b2884c",
+  "sourceRevision": "0fb842b110f71a23044bf3bced739a09b0f746f9",
   "paidCalls": 0,
   "observation": {
     "submitted": 4,
@@ -68,7 +68,7 @@
         "src/main/domain/multi-issue-benchmark.ts": "376c494476abb02e8180c8ab62624a1a3b1ed74a0fb2fb4cf84d90d571c5a720",
         "src/main/domain/multi-issue-session.ts": "45f736715f02bd74dc27c92b1a9c9b2f4d3dce5acbed4674030677f63cce68d6",
         "src/main/ports/multi-issue-session.ts": "56af132aa2f4164b9a53e3dcf150b1e7bc516bafd4a0ceca529844e14a323f31",
-        "package.json": "3696fc2972391e01c010603c11eee15ef3ed361c43f6c506993c8262bc7d4b3a",
+        "package.json": "82592b6b138ce4e93ccf421de370f3097a16f51283744e10d3e037f46c00a27f",
         "pnpm-lock.yaml": "e81a377862e3243299fbe6868df0ca979ed160ac2d7c83fbefd76b430567bb96",
         "tsconfig.json": "38204ea85e3c37122c6a44fc86255d6e2d653fd549facb84f5a91ddda743f5d2"
       },

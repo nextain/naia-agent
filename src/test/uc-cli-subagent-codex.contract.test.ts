@@ -448,8 +448,8 @@ describe("subagent-codex 어댑터 계약 (SPEC-010 확장, fake child)", () => 
   it("resolves codex binary in order CODEX_BIN -> package-local node_modules/.bin/codex -> PATH and never falls back to unpinned npx", async () => {
     const { resolveCodexBin } = await import("../main/adapters/subagent-codex.js");
     const { mkdirSync, mkdtempSync, writeFileSync, chmodSync, rmSync } = await import("node:fs");
-    const { join } = await import("node:path");
-    const baseTmp = "/home/nextain/work/codex-runs/agent-codex/tmp";
+    const { join } = await import("node:path"); const { tmpdir } = await import("node:os");
+    const baseTmp = tmpdir();
     mkdirSync(baseTmp, { recursive: true });
     const root = mkdtempSync(join(baseTmp, "codex-bin-order-"));
     try {
