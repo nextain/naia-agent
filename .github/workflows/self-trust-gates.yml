@@ -76,6 +76,13 @@ jobs:
         with:
           node-version: "22"
           cache: pnpm
+      # package.json 의 file:../naia-kb-compiler, file:../naia-memory 를 CI 에서도 풀리게 형제 자리에 받아 빌드
+      - name: sibling file deps (naia-kb-compiler, naia-memory)
+        run: |
+          for r in naia-kb-compiler naia-memory; do
+            git clone --depth 1 "https://github.com/nextain/$r" "../$r"
+            (cd "../$r" && pnpm install --frozen-lockfile --ignore-scripts && pnpm run build)
+          done
       - run: pnpm install --frozen-lockfile
       - name: compile integrity (tsc)
         run: node scripts/check-compile-integrity.mjs
