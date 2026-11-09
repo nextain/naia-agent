@@ -71,16 +71,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 시험이 git merge-base 로 기준 커밋 조상 관계를 본다
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: pnpm
-      # package.json 의 file:../naia-kb-compiler, file:../naia-memory 를 CI 에서도 풀리게 형제 자리에 받아 빌드
-      - name: sibling file deps (naia-kb-compiler, naia-memory)
+      # package.json 의 file:../naia-kb-compiler, file:../naia-memory 를 CI 에서도 풀리게 형제 자리에 받아 빌드.
+      # naia-shell 은 짝 저장소 wire 표본 대조 시험(TEST-S-024, REQ-022)이 읽기만 한다.
+      - name: sibling repos (naia-kb-compiler, naia-memory, naia-shell)
         run: |
-          for r in naia-kb-compiler naia-memory; do
+          for r in naia-kb-compiler naia-memory naia-shell; do
             git clone --depth 1 "https://github.com/nextain/$r" "../$r"
+          done
+          for r in naia-kb-compiler naia-memory; do
             (cd "../$r" && pnpm install --frozen-lockfile --ignore-scripts && pnpm run build)
           done
       - run: pnpm install --frozen-lockfile
