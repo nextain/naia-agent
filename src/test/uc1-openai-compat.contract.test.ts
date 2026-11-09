@@ -408,3 +408,58 @@ describe("#114 스트림 idle 데드라인 (FR-THINK-6)", () => {
     expect(STREAM_IDLE_TIMEOUT_MS).toBe(45_000);
   });
 });
+
+describe("context overflow request budget", () => {
+  for (const scenario of ["success", "twice", "other"] as const) {
+    it(`400 retry: ${scenario}`, async () => {
+      const requests: any[] = [];
+      const fetch = async (_url: string, init: { body: string }) => {
+        requests.push(JSON.parse(init.body));
+        if (requests.length === 1 || scenario === "twice") {
+          const detail = scenario === "other" ? "invalid tool schema" : "maximum context length: input_tokens=8193 max_model_len=8192";
+          return new Response(detail, { status: 400 });
+        }
+        return new Response("data: [DONE]\n");
+      };
+      const p = makeOpenAICompatProvider({ baseUrl: "https://test", apiKey: "test", fetch: fetch as never });
+      const messages = [...Array.from({ length: 12 }, () => ({ role: "assistant" as const, content: "x".repeat(1000) })), { role: "user" as const, content: "latest" }];
+      const result = collect(p.chat(cfg, messages, { systemPrompt: "system" }));
+      if (scenario === "success") await result;
+      else await expect(result).rejects.toThrow(/400/);
+      expect(requests).toHaveLength(scenario === "other" ? 1 : 2);
+      if (requests.length === 2) {
+        expect(JSON.stringify(requests[1].messages).length).toBeLessThan(JSON.stringify(requests[0].messages).length * 0.6);
+        expect(requests[1].messages[0]).toEqual({ role: "system", content: "system" });
+        expect(requests[1].messages.at(-1).content).toBe("latest");
+      }
+    });
+  }
+  it("subtracts system, tool schema and output reservation before history", async () => {
+    let request: any;
+    const p = makeOpenAICompatProvider({ baseUrl: "https://test", apiKey: "test", maxTokens: 1000,
+      fetch: (async (_u: string, init: { body: string }) => { request = JSON.parse(init.body); return new Response("data: [DONE]\n"); }) as never });
+    const messages = [...Array.from({ length: 20 }, () => ({ role: "assistant" as const, content: "x".repeat(1000) })), { role: "user" as const, content: "latest" }];
+    await collect(p.chat(cfg, messages, { systemPrompt: "s".repeat(4000), tools: [{ name: "t", description: "d".repeat(4000), parameters: {} }] }));
+    expect(JSON.stringify(request.messages).length + JSON.stringify(request.tools).length).toBeLessThanOrEqual(20000);
+    expect(request.max_tokens).toBe(1000);
+  });
+});
+
+it("counts echoed reasoning, preserves latest user/tool round and uses known context limit", async () => {
+  let request: any;
+  const p = makeOpenAICompatProvider({ baseUrl: "https://test", apiKey: "test", contextWindow: 1000, maxTokens: 100, echoReasoningContent: true,
+    fetch: (async (_u: string, init: { body: string }) => { request = JSON.parse(init.body); return new Response("data: [DONE]\n"); }) as never });
+  const latest = [{ role: "user" as const, content: "latest" }, { role: "assistant" as const, content: "", toolCalls: [{ id: "new", name: "t", args: {} }] }, { role: "tool" as const, content: "new result", toolCallId: "new" }];
+  await collect(p.chat(cfg, [{ role: "assistant", content: "old", reasoningContent: "한".repeat(2000), toolCalls: [{ id: "old", name: "t", args: {} }] }, { role: "tool", content: "old result", toolCallId: "old" }, ...latest], { systemPrompt: "system" }));
+  expect(request.messages.map((m: any) => m.role)).toEqual(["system", "user", "assistant", "tool"]);
+  expect(request.messages[2].tool_calls[0].id).toBe("new");
+  expect(request.messages[3].tool_call_id).toBe("new");
+});
+it("does not retry context overflow after cancellation", async () => {
+  const controller = new AbortController();
+  let calls = 0;
+  const p = makeOpenAICompatProvider({ baseUrl: "https://test", apiKey: "test",
+    fetch: (async () => { calls++; controller.abort(); return new Response("maximum context length", { status: 400 }); }) as never });
+  await expect(collect(p.chat(cfg, [{ role: "user", content: "latest" }], { signal: controller.signal }))).rejects.toThrow(/400/);
+  expect(calls).toBe(1);
+});

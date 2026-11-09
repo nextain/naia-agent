@@ -1214,3 +1214,12 @@ R17: 메인 로컬 모델로 사실을 뽑는 저장 단계는 최대 30초로 �
 R17 검증 짝: memory `ab1f8002d31bffacf4779760eda727cc57a658a8` (기존 e8cbd6f에서 전송 주입만 추가), 0.1.4. 요청별 훅은 생성자+AsyncLocalStorage로 연결하며 전역 fetch 교체가 없다. 이 정확한 소스 조합으로 관련290개와 실제 gRPC 종료·재기동 두 경우가 통과했다.
 
 R18 (#792 P01–P05): 904878e 위에 R17을 통합한다. Memory ab1f800의 생성자 훅+AsyncLocalStorage로 요청 extractor/summarizer를 전달하며 명시 off, 승인 누락 원문 보존, 오류 원인 전달, on-save 표시 및 삭제 검증기를 유지한다. 회귀는 memory-consolidation, memory-role-summarizer, uc1-memory-process (실 SIGTERM/재시작·사실>0·대기0), 전체 시험으로 검증한다.
+
+## UC-CONTEXT-CJK — 긴 한국어 대화를 문맥 예산 안에서 전송
+
+사용자는 한국어 방송 대화를 여러 턴 이어간다. agent는 CJK 비용, 시스템 프롬프트,
+도구 스키마와 출력 예약을 계산해 오래된 기록을 버리고 최신 사용자 블록과 도구 라운드를 보존한다.
+문맥 초과 HTTP 400에만 기록 예산을 절반으로 줄여 한 번 재시도한다.
+
+Test Coverage Map: `src/test/budgeted-conversation.contract.test.ts` (CJK/영어/블록 보존),
+`src/test/uc1-openai-compat.contract.test.ts` (최종 예산/400 재시도/실패/취소).

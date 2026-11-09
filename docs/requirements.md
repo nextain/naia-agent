@@ -1237,3 +1237,13 @@ R17: 메인 로컬 모델로 사실을 뽑는 저장 단계는 최대 30초로 �
 R17 검증 짝: memory `ab1f8002d31bffacf4779760eda727cc57a658a8` (기존 e8cbd6f에서 전송 주입만 추가), 0.1.4. 요청별 훅은 생성자+AsyncLocalStorage로 연결하며 전역 fetch 교체가 없다. 이 정확한 소스 조합으로 관련290개와 실제 gRPC 종료·재기동 두 경우가 통과했다.
 
 R18 (#792 P01–P05): 904878e 위에 R17을 통합한다. Memory ab1f800의 생성자 훅+AsyncLocalStorage로 요청 extractor/summarizer를 전달하며 명시 off, 승인 누락 원문 보존, 오류 원인 전달, on-save 표시 및 삭제 검증기를 유지한다. 회귀는 memory-consolidation, memory-role-summarizer, uc1-memory-process (실 SIGTERM/재시작·사실>0·대기0), 전체 시험으로 검증한다.
+
+## FR-CONTEXT-CJK — 보수적 문맥 예산
+
+상태: Done (mock 계약 검증 범위). UC-CONTEXT-CJK. CJK는 최소 글자당 1토큰, 기타 텍스트는 기존 4문자/토큰으로
+추정한다. 최종 요청은 시스템·도구·출력 예약을 포함한다. 알려진 문맥 한도를 주입받을 수 있고
+미지정 시 6000 예산을 유지한다. 최신 사용자부터 끝까지와 assistant/tool 묶음은 보존한다.
+문맥 초과 HTTP 400만 전송 기록 예산을 절반으로 줄여 최대 한 번 재시도하고 다른 오류는 전파한다.
+
+검증: 관련 두 계약 시험 파일 55건 통과, 독립 적대 리뷰 기록
+`.agents/reviews/context-budget-cjk-retry.md`. 실제 vLLM 운영 인수는 범위 밖이다.
