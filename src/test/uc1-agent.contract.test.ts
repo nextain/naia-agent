@@ -49,7 +49,7 @@ describe("domain (agent UC1)", () => {
     ])).toEqual([
       { role: "assistant", content: "", toolCalls: [{ id: "c1", name: "skill_tab_screenshot", args: {} }] },
       { role: "tool", toolCallId: "c1", content: "attached" },
-      { role: "user", content: "Image returned by tool skill_tab_screenshot.", inlineImages: [image] },
+      { role: "user", content: "Image returned by tool skill_tab_screenshot.", inlineImages: [image], synthetic: true },
     ]);
   });
 });
@@ -302,7 +302,8 @@ describe("context overflow terminal contract", () => {
       }) as never,
     });
     await new ChatTurnHandler({ ...deps, provider }).onChatRequest(req());
-    expect(attempts).toBe(2);
+    // 줄일 이전 기록이 없는 요청은 같은 본문을 다시 보내지 않는다(#176 검수 4).
+    expect(attempts).toBe(1);
     const errors = emits.filter(({ e }) => e.kind === "error");
     expect(errors).toHaveLength(1);
     expect(errors[0]!.e).toMatchObject({ code: "CONTEXT_WINDOW_EXCEEDED" });

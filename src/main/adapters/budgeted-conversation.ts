@@ -11,7 +11,8 @@ import type { ConversationPort } from "../ports/uc1.js";
  * compaction — the real summarizing compaction (rolling summary + light-model
  * recap + attachHandoff) lives in naia-memory's `compact()`; delegating to it is
  * tracked as a separate host-loop wiring task (agent#3). Token count is estimated
- * conservatively for CJK and at ≈4 chars/token otherwise, without a tokenizer.
+ * conservatively for CJK, other non-ASCII, code-like symbols and images, and at
+ * ≈4 chars/token for plain ASCII text, without a tokenizer.
  *
  * Correctness guards:
  * - **Tool rounds are atomic.** An `assistant` message carrying `toolCalls` plus
@@ -34,12 +35,29 @@ const CHARS_PER_TOKEN = 4;
  * tokens, ≈1.02 tokens per Hangul. Reserve 1.5 per code point for margin across
  * models. This is a conservative estimate, not a model tokenizer guarantee. */
 const CJK_TOKENS_PER_CHAR = 1.5;
+/** Other non-ASCII (emoji, CJK punctuation, full-width and other symbols) is
+ * usually one or more tokens per UTF-16 unit, not a quarter. */
+const OTHER_NON_ASCII_TOKENS_PER_UNIT = 1;
+/** ASCII punctuation and digits (code, JSON) split into ≈2 chars/token, not 4. */
+const ASCII_SYMBOL_TOKENS_PER_CHAR = 0.5;
+/** Providers tokenize images by pixels, not by base64 length. A fixed reserve
+ * per image covers a high-detail image on common vision models. */
+const INLINE_IMAGE_TOKENS = 1600;
+const CJK_RE = /[\p{Script=Han}\p{Script=Hangul}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Bopomofo}\p{Script=Yi}]/u;
 export function estimateConversationTokens(text: string): number {
-  let cjk = 0;
+  let cjk = 0, otherNonAscii = 0, asciiSymbols = 0;
   for (const ch of text) {
-    if (/[\p{Script=Han}\p{Script=Hangul}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Bopomofo}\p{Script=Yi}]/u.test(ch)) cjk += ch.length;
+    if (ch.charCodeAt(0) < 0x80) {
+      if (/[^A-Za-z\s]/.test(ch)) asciiSymbols++;
+    } else if (CJK_RE.test(ch)) {
+      cjk += ch.length;
+    } else {
+      otherNonAscii += ch.length;
+    }
   }
-  return cjk * CJK_TOKENS_PER_CHAR + (text.length - cjk) / CHARS_PER_TOKEN;
+  const plainAscii = text.length - cjk - otherNonAscii - asciiSymbols;
+  return cjk * CJK_TOKENS_PER_CHAR + otherNonAscii * OTHER_NON_ASCII_TOKENS_PER_UNIT +
+    asciiSymbols * ASCII_SYMBOL_TOKENS_PER_CHAR + plainAscii / CHARS_PER_TOKEN;
 }
 const DEFAULT_MAX_TOKENS = 6000;
 const PER_MESSAGE_OVERHEAD_CHARS = 16; // role markers / framing per message
@@ -49,6 +67,7 @@ export function conversationMessageCost(m: ChatMessage): number {
   if (m.reasoningContent) cost += estimateConversationTokens(m.reasoningContent);
   if (m.toolCalls?.length) cost += estimateConversationTokens(JSON.stringify(m.toolCalls)); // id/name/args payload
   if (m.toolCallId) cost += estimateConversationTokens(m.toolCallId);
+  if (m.inlineImages?.length) cost += m.inlineImages.length * INLINE_IMAGE_TOKENS;
   return cost;
 }
 
@@ -81,10 +100,12 @@ export function makeBudgetedConversation(opts?: { maxTokens?: number }): Convers
       const blocks = toBlocks(messages);
       const turnBudget = Number.isSafeInteger(requestedBudget) && requestedBudget! > 0 ? requestedBudget! : maxTokens;
       let budget = turnBudget - estimateConversationTokens(systemPrompt ?? "");
-      // Keep the latest user block and all subsequent tool rounds intact.
+      // Keep the latest real user block and everything after it intact. Synthetic
+      // user messages (tool-image carriers, retry/continuation instructions) belong
+      // to the current turn and must not move its start past the real question.
       let requiredFrom = blocks.length - 1;
       for (let b = blocks.length - 1; b >= 0; b--) {
-        if (blocks[b]!.some((m) => m.role === "user")) { requiredFrom = b; break; }
+        if (blocks[b]!.some((m) => m.role === "user" && !m.synthetic)) { requiredFrom = b; break; }
       }
       const kept: ChatMessage[][] = [];
       // Walk newest → oldest; keep whole blocks while the budget allows, always ≥1.

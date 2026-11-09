@@ -76,6 +76,29 @@ async function readErrorBody(body: ErrorBody): Promise<string> {
   return s.slice(0, 4096);
 }
 
+/** Context overflow is judged on the server's own error code/message, never on
+ * the raw body (a 400 may echo the prompt). Output-parameter errors such as
+ * "max_tokens exceeds max_model_len" are not input overflow: dropping history
+ * cannot fix them. */
+function isContextOverflowError(errText: string, detail: string): boolean {
+  let code: unknown;
+  try {
+    code = (JSON.parse(errText) as { error?: { code?: unknown } })?.error?.code;
+  } catch {
+    code = undefined;
+  }
+  if (code === "context_length_exceeded") return true;
+  if (!detail || /\bmax_(?:completion_)?tokens\b/i.test(detail)) return false;
+  return /maximum context length|context[ _-](?:length|window)[ _-]exceeded|prompt (?:is )?too long|too many (?:input|prompt) tokens|longer than the maximum model length|\b(?:input|prompt)\b[^.\n]{0,80}(?:exceeds?|longer|greater)[^.\n]{0,80}max_model_len/i.test(detail);
+}
+
+/** "maximum context length is 8192 tokens" → 8192, when the server says it. */
+function parseServerContextWindow(detail: string): number | undefined {
+  const m = /maximum (?:context|model) length (?:is |of )?(\d{3,8})/i.exec(detail);
+  const n = m ? Number(m[1]) : NaN;
+  return Number.isSafeInteger(n) && n > 0 ? n : undefined;
+}
+
 /** FastAPI `detail` or OpenAI `error.message`; empty when the body has neither. */
 function extractHttpErrorDetail(source: unknown): string {
   if (typeof source === "string") {
@@ -276,7 +299,12 @@ export function makeOpenAICompatProvider(deps: {
       // Budget at the wire boundary: tools and output reservation were not known
       // by the earlier conversation assembly. Preserve system + latest user turn.
       const configuredWindow = config.contextWindow ?? deps.contextWindow;
-      const contextBudget = Number.isSafeInteger(configuredWindow) && configuredWindow! > 0 ? configuredWindow! : 6000;
+      // Unknown window: a server that accepts max_tokens=N holds at least N output
+      // tokens, so keep a minimum input share on top of a large reservation —
+      // otherwise a fixed maxTokens above 6000 leaves no room for history at all.
+      const contextBudget = Number.isSafeInteger(configuredWindow) && configuredWindow! > 0
+        ? configuredWindow!
+        : Math.max(6000, (deps.maxTokens ?? 0) + 3000);
       const fixedCost = estimateConversationTokens(JSON.stringify(toolsBody ?? [])) + (deps.maxTokens ?? 0) + 32;
       const inputBudget = Math.max(0, contextBudget - fixedCost);
       deps.diag?.debug?.("OpenAICompatProvider.budget", { contextBudget, fixedCost, messages: messages.length });
@@ -293,19 +321,32 @@ export function makeOpenAICompatProvider(deps: {
         if (resp.ok && resp.body) break;
         // Consume/cancel the error body before retry or throw (undici cleanup).
         const errText = resp.body ? await readErrorBody(resp.body) : "";
-        const contextOverflow = resp.status === 400 &&
-          /maximum context length|context[ _-](?:length|window)[ _-]exceeded|prompt (?:is )?too long|too many (?:input )?tokens|(?:exceed|too long|greater|longer).{0,160}max_model_len|max_model_len.{0,160}(?:exceed|too long|greater|longer)/is.test(errText);
-        if (attempt === 0 && contextOverflow && !opts.signal?.aborted) {
-          deps.diag?.debug?.("OpenAICompatProvider.contextOverflowRetry", { messages: selected.length });
-          const historyCost = selected.reduce((sum, m) => sum + conversationMessageCost(m), 0);
-          selected = makeBudgetedConversation({ maxTokens: Math.min(inputBudget, historyCost / 2 + estimateConversationTokens(opts.systemPrompt ?? "")) })
-            .assemble({ messages: selected, systemPrompt: opts.systemPrompt }).messages;
-          continue;
-        }
+        const errDetail = extractHttpErrorDetail(errText);
+        const contextOverflow = resp.status === 400 && isContextOverflowError(errText, errDetail);
         if (contextOverflow && !opts.signal?.aborted) {
-          throw Object.assign(new Error("문맥 길이 초과: 오래된 대화를 줄인 재시도도 모델 한도를 넘었습니다."), { code: "CONTEXT_WINDOW_EXCEEDED" as const });
+          const historyCost = selected.reduce((sum, m) => sum + conversationMessageCost(m), 0);
+          const serverWindow = parseServerContextWindow(errDetail);
+          const retryBudget = Math.min(
+            inputBudget,
+            historyCost / 2 + estimateConversationTokens(opts.systemPrompt ?? ""),
+            serverWindow !== undefined ? Math.max(0, serverWindow - fixedCost) : Infinity,
+          );
+          const halved = attempt === 0
+            ? makeBudgetedConversation({ maxTokens: retryBudget }).assemble({ messages: selected, systemPrompt: opts.systemPrompt }).messages
+            : selected;
+          // Assembly only drops whole blocks, so an unchanged length means nothing
+          // droppable is left — resending the same request would fail the same way.
+          if (halved.length < selected.length) {
+            deps.diag?.debug?.("OpenAICompatProvider.contextOverflowRetry", { messages: selected.length, kept: halved.length });
+            selected = halved;
+            continue;
+          }
+          throw Object.assign(
+            new Error(`문맥 길이 초과: 오래된 대화를 줄여도 모델 한도를 넘었습니다.${errDetail ? ` (서버: ${errDetail.slice(0, 300)})` : ""}`),
+            { code: "CONTEXT_WINDOW_EXCEEDED" as const },
+          );
         }
-        throw new Error(formatCompatHttpError(base, resp.status, resp.statusText, extractHttpErrorDetail(errText)));
+        throw new Error(formatCompatHttpError(base, resp.status, resp.statusText, errDetail));
       }
 
       const reader = resp.body.getReader();

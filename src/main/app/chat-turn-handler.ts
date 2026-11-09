@@ -793,7 +793,7 @@ export class ChatTurnHandler {
 			messages = [
 			  ...messages,
 			  { role: "assistant", content: round.text },
-			  { role: "user", content: ACTION_PROMISE_RETRY_INSTRUCTION },
+			  { role: "user", content: ACTION_PROMISE_RETRY_INSTRUCTION, synthetic: true },
 			];
 			continue;
 		  }
@@ -803,7 +803,7 @@ export class ChatTurnHandler {
 			messages = [
 			  ...messages,
 			  { role: "assistant", content: round.text },
-			  { role: "user", content: "Continue exactly from the point where the answer was cut off. Complete the answer directly, without restarting, apologizing, reasoning, or mentioning this instruction." },
+			  { role: "user", content: "Continue exactly from the point where the answer was cut off. Complete the answer directly, without restarting, apologizing, reasoning, or mentioning this instruction.", synthetic: true },
 			];
 			continue;
 		  }
@@ -826,7 +826,7 @@ export class ChatTurnHandler {
             messages = [
               ...(continuation.baseMessages ?? messages),
               { role: "assistant", content: round.text },
-              { role: "user", content: continuationInstruction(continuation.topic) },
+              { role: "user", content: continuationInstruction(continuation.topic), synthetic: true },
             ];
             continue;
           }

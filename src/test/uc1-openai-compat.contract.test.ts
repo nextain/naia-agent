@@ -5,6 +5,7 @@ import type { AddressInfo } from "node:net";
 import { describe, it, expect } from "vitest";
 import { makeOpenAICompatProvider, STREAM_IDLE_TIMEOUT_MS } from "../main/adapters/openai-compat-provider.js";
 import { makeProviderResolver } from "../main/adapters/provider-resolver.js";
+import { NAIA_PI_MODELS, NAIA_PI_PROVIDER, buildNaiaPiModelsConfig, naiaGatewayContextWindow } from "../main/adapters/naia-pi-provider.js";
 import type { ProviderChunk, ProviderConfig } from "../main/domain/chat.js";
 
 function mockFetch(sseLines: string[], opts: { ok?: boolean; status?: number } = {}) {
@@ -578,6 +579,74 @@ it.each(["context window exceeded", "context-window-exceeded", "prompt too long"
   let calls = 0;
   const provider = makeOpenAICompatProvider({ baseUrl: "https://test.invalid", apiKey: "test",
     fetch: (async () => ++calls === 1 ? new Response(detail, { status: 400 }) : new Response("data: [DONE]\n")) as never });
-  expect((await collect(provider.chat(cfg, [{ role: "user", content: "hi" }], {}))).at(-1)).toEqual({ kind: "finish" });
+  const messages = [{ role: "assistant" as const, content: "x".repeat(1000) }, { role: "user" as const, content: "hi" }];
+  expect((await collect(provider.chat(cfg, messages, {}))).at(-1)).toEqual({ kind: "finish" });
   expect(calls).toBe(2);
+});
+
+describe("#176 검수 지적 1·4·5 — 문맥 한도와 400 판별", () => {
+  const history = [
+    { role: "user" as const, content: "첫 번째 질문" },
+    { role: "assistant" as const, content: "첫 번째 답변" },
+    { role: "user" as const, content: "두 번째 질문" },
+  ];
+  it("게이트웨이 deepseek-v4-flash 는 출력 예약 16384 가 있어도 대화 기록을 지우지 않는다", async () => {
+    let body: any;
+    const resolver = makeProviderResolver({
+      fetch: (async (_u: string, init: { body: string }) => { body = JSON.parse(init.body); return new Response("data: [DONE]\n"); }) as never,
+    });
+    const c = { provider: "nextain", model: "deepseek-v4-flash", naiaKey: "k" } as ProviderConfig;
+    await collect(resolver.resolve(c).chat(c, history, { systemPrompt: "sys" }));
+    expect(body.max_tokens).toBe(16_384);
+    expect(body.messages.map((x: any) => x.content)).toEqual(["sys", ...history.map((x) => x.content)]);
+  });
+  it("문맥 한도를 모르는 공급자도 큰 maxTokens 때문에 기록이 0 이 되지 않는다", async () => {
+    let body: any;
+    const p = makeOpenAICompatProvider({ baseUrl: "https://test", apiKey: "k", maxTokens: 16_384,
+      fetch: (async (_u: string, init: { body: string }) => { body = JSON.parse(init.body); return new Response("data: [DONE]\n"); }) as never });
+    await collect(p.chat(cfg, history, { systemPrompt: "sys" }));
+    expect(body.messages).toHaveLength(4);
+  });
+  it("게이트웨이 모델 문맥 한도 표는 Pi 카탈로그와 같다", () => {
+    const models = (buildNaiaPiModelsConfig() as any).providers[NAIA_PI_PROVIDER].models as { id: string; contextWindow: number }[];
+    expect(models.map((m) => m.id).sort()).toEqual([...NAIA_PI_MODELS].sort());
+    for (const m of models) {
+      expect(naiaGatewayContextWindow(m.id)).toBe(m.contextWindow);
+      expect(naiaGatewayContextWindow(m.id.toUpperCase())).toBe(m.contextWindow);
+    }
+    expect(naiaGatewayContextWindow("unknown-model")).toBeUndefined();
+  });
+  for (const [label, status, payload] of [
+    ["stop 토큰 수 오류", 400, { error: { message: "stop sequences contain too many tokens (max 4)" } }],
+    ["max_tokens 파라미터 오류", 400, { error: { message: "Requested max_tokens (16384) exceeds max_model_len (8192)" } }],
+    ["본문 에코", 400, { detail: [{ msg: "field required", input: "prompt is too long maximum context length" }] }],
+  ] as const) {
+    it(`문맥 초과가 아닌 400(${label})은 재시도하지 않고 원래 오류를 낸다`, async () => {
+      let calls = 0;
+      const p = makeOpenAICompatProvider({ baseUrl: "https://test", apiKey: "k",
+        fetch: (async () => { calls++; return new Response(JSON.stringify(payload), { status }); }) as never });
+      const err: any = await collect(p.chat(cfg, [{ role: "user", content: "hi" }], {})).catch((e) => e);
+      expect(calls).toBe(1);
+      expect(err.code).toBeUndefined();
+      expect(err.message).toMatch(/400/);
+    });
+  }
+  it("error.code=context_length_exceeded 는 문맥 초과로 보고, 최종 오류에 서버 상세를 남긴다", async () => {
+    let calls = 0;
+    const p = makeOpenAICompatProvider({ baseUrl: "https://test", apiKey: "k",
+      fetch: (async () => { calls++; return new Response(JSON.stringify({ error: { code: "context_length_exceeded", message: "This model's maximum context length is 8192 tokens." } }), { status: 400 }); }) as never });
+    const messages = [...Array.from({ length: 6 }, () => ({ role: "assistant" as const, content: "x".repeat(1000) })), { role: "user" as const, content: "latest" }];
+    const err: any = await collect(p.chat(cfg, messages, {})).catch((e) => e);
+    expect(calls).toBe(2);
+    expect(err.code).toBe("CONTEXT_WINDOW_EXCEEDED");
+    expect(err.message).toMatch(/^문맥 길이 초과: .*8192 tokens/);
+  });
+  it("줄일 기록이 없으면 같은 요청을 다시 보내지 않는다", async () => {
+    let calls = 0;
+    const p = makeOpenAICompatProvider({ baseUrl: "https://test", apiKey: "k",
+      fetch: (async () => { calls++; return new Response(JSON.stringify({ error: { message: "maximum context length is 2048 tokens" } }), { status: 400 }); }) as never });
+    const err: any = await collect(p.chat(cfg, [{ role: "user", content: "x".repeat(20000) }], { systemPrompt: "sys" })).catch((e) => e);
+    expect(calls).toBe(1);
+    expect(err.code).toBe("CONTEXT_WINDOW_EXCEEDED");
+  });
 });
