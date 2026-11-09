@@ -77,3 +77,18 @@ describe("budgeted-conversation (SPEC-007) — 토큰예산 대화 조립", () =
     expect(out.messages[0]!.content).toBe("최신질문");
   });
 });
+
+it("CJK 20k history is bounded by 6000 tokens", () => {
+  const messages = Array.from({ length: 20 }, () => m("assistant", "한".repeat(1000)));
+  messages.push(m("user", "최근"));
+  const out = makeBudgetedConversation().assemble({ messages });
+  expect(out.messages.reduce((n, x) => n + x.content.length, 0)).toBeLessThanOrEqual(6000);
+});
+it("English keeps the existing 4 chars/token boundary", () => {
+  const messages = [m("assistant", "x".repeat(200)), m("assistant", "x".repeat(160)), m("user", "hi")];
+  expect(makeBudgetedConversation({ maxTokens: 100 }).assemble({ messages }).messages).toEqual(messages.slice(1));
+});
+it("latest user survives trailing tool rounds even over budget", () => {
+  const messages = [m("user", "old"), m("user", "latest"), m("assistant", "", { toolCalls: [{ id: "a", name: "t", args: {} }] }), m("tool", "result", { toolCallId: "a" })];
+  expect(makeBudgetedConversation({ maxTokens: 1 }).assemble({ messages }).messages).toEqual(messages.slice(1));
+});

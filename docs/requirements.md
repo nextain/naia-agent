@@ -1061,3 +1061,12 @@ Status: Done (#154)
 네 실행의 실패 파일 집합과 실패 시험 제목·중복 건수는 모두 같고 신규 실패는 0건이다. 기준과 HEAD 모두 실패한 파일: `delegate-agent-skill.contract.test.ts`, `issue-team-benchmark.contract.test.ts`, `memory-store-path-isolation.contract.test.ts`, `multi-issue-benchmark.contract.test.ts`, `pi-cost-comparison-runner.contract.test.ts`, `selected-workspace-coding.contract.test.ts`, `uc-naia-pi-cli-process.integration.test.ts`, `uc1-memory-process.integration.test.ts`. 전체 시험은 기존 실패로 exit 1이다. 집중 시험(Discord·Jeonju·memory reload·wire security 18개 파일)은 256 통과·1 skip, `pnpm build`와 `tsc --noEmit`은 통과했다. 이전 r8 실행 환경의 수치(실패 20개 파일·132개 시험)는 격리하지 않은 환경 기준이라 이 표로 대체했다.
 
 검수 r3의 시작 경합은 lease 취득 후 기존 처리기 등록 지점 전의 상태 쓰기를 가로채는 자식 프로세스 시험으로 고정했다. SIGTERM 단독·SIGINT 단독·연속 신호에서 초기화 중단, stopped, lease 해제, 정상 종료와 즉시 재시작을 확인했다. 상태 쓰기 예외, 거절된 promise, runtime 시작 직후 예외도 실패 상태·lease 해제·즉시 재시작을 확인했다. 관련 프로세스·배선 집중 시험은 26개 모두 통과했다. 시험은 가짜 Gateway/REST를 사용하고 실제 Discord에 접속하지 않았다. P05는 독립 검수 r6에서 통과했다. 실제 Discord 자격증명·Gateway 권한·DM/thread 수신·재연결 dedupe 확인은 배포 전 실기 항목으로 남는다.
+## FR-CONTEXT-CJK — 보수적 문맥 예산
+
+상태: Done (mock 계약 검증 범위). UC-CONTEXT-CJK. CJK는 최소 글자당 1토큰, 기타 텍스트는 기존 4문자/토큰으로
+추정한다. 최종 요청은 시스템·도구·출력 예약을 포함한다. 알려진 문맥 한도를 주입받을 수 있고
+미지정 시 6000 예산을 유지한다. 최신 사용자부터 끝까지와 assistant/tool 묶음은 보존한다.
+문맥 초과 HTTP 400만 전송 기록 예산을 절반으로 줄여 최대 한 번 재시도하고 다른 오류는 전파한다.
+
+검증: 관련 두 계약 시험 파일 55건 통과, 독립 적대 리뷰 기록
+`.agents/reviews/context-budget-cjk-retry.md`. 실제 vLLM 운영 인수는 범위 밖이다.

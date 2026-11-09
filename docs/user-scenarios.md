@@ -1098,3 +1098,11 @@ Test Coverage Map: [UT-SM-AGENT-01~03, IT-SM-AGENT-01~05, UT-SM-SHELL-THINK-01, 
 | lease 취득 직후 SIGTERM/SIGINT, 중복 신호, 시작 상태 쓰기 예외·거절된 promise·runtime 시작 직후 예외 시 정리·상태 기록과 즉시 재시작 | `src/test/discord-serve-process.integration.test.ts` |
 | 읽기 전용 authority 디렉터리와 별도 쓰기 가능 lease, 원자적 authority 교체 및 rootless node UID 매핑 | `src/test/discord-trusted-state.contract.test.ts`, `src/test/discord-serve-process.integration.test.ts`, 컨테이너 오프라인 권한 검증 |
 | 셸 gRPC Chat·Cancel·승인·설정 회귀 | 기존 gRPC 및 Discord 배선 테스트 |
+## UC-CONTEXT-CJK — 긴 한국어 대화를 문맥 예산 안에서 전송
+
+사용자는 한국어 방송 대화를 여러 턴 이어간다. agent는 CJK 비용, 시스템 프롬프트,
+도구 스키마와 출력 예약을 계산해 오래된 기록을 버리고 최신 사용자 블록과 도구 라운드를 보존한다.
+문맥 초과 HTTP 400에만 기록 예산을 절반으로 줄여 한 번 재시도한다.
+
+Test Coverage Map: `src/test/budgeted-conversation.contract.test.ts` (CJK/영어/블록 보존),
+`src/test/uc1-openai-compat.contract.test.ts` (최종 예산/400 재시도/실패/취소).
