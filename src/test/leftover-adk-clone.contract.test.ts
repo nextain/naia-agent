@@ -28,7 +28,7 @@ describe("leftover ~/naia-adk clone is not a product store", () => {
   });
 
   it("resolveHostAdkPath: NAIA_ADK_PATH wins over leftover clone and CLI global pin", () => {
-    const leftover = "C:\\Users\\LukeYang\\naia-adk";
+    const leftover = "C:\\Users\\Default\\naia-adk";
     const selected = "D:\\alpha-adk";
     expect(resolveHostAdkPath({
       envAdkPath: selected,

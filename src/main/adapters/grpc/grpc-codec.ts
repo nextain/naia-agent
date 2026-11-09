@@ -8,8 +8,10 @@ import { decodeEnvironmentSegments } from "../protocol.js";
 export interface PbChatRequest {
   requestId: string;
   sessionId?: string;
+  appName?: string;
   messages: {
     role: string;
+    appName?: string;
     content: string;
     toolCallId?: string;
     attachments?: {
@@ -54,6 +56,7 @@ export function chatRequestToDomain(p: PbChatRequest): Extract<AgentRequest, { k
   const messages: ChatMessage[] = (p.messages ?? []).map((m) => ({
     role: (VALID_ROLES.has(m.role) ? m.role : "user") as ChatMessage["role"],
     content: String(m.content ?? ""),
+    ...(m.appName ? { appName: String(m.appName) } : {}),
     ...(m.toolCallId ? { toolCallId: m.toolCallId } : {}),
     ...(m.attachments !== undefined ? { attachments: m.attachments } : {}),
   }));
@@ -61,6 +64,7 @@ export function chatRequestToDomain(p: PbChatRequest): Extract<AgentRequest, { k
     kind: "chat",
     requestId: String(p.requestId ?? ""),
     messages,
+    ...(p.appName ? { appName: String(p.appName) } : {}),
     ...(p.sessionId !== undefined ? { sessionId: String(p.sessionId) } : {}),
     ...(p.systemPrompt !== undefined ? { systemPrompt: p.systemPrompt } : {}),
     ...(p.environmentSegmentsJson ? { environmentSegments: decodeEnvironmentSegments(parseJsonSafe(p.environmentSegmentsJson)) } : {}),

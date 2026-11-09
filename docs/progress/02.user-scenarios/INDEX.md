@@ -21,15 +21,15 @@
 | UC-008 | 유투브/BGM | 에이전트가 youtube BGM 을 검색/재생/볼륨 제어 (구 UC8) | REQ-007 | Done | TEST-S-008 |
 | UC-012 | 대화 토큰예산 가드 | 사용자가 긴 대화를 이어가도 에이전트가 토큰예산으로 오래된 메시지를 **드롭**해 컨텍스트 초과 없이 응답 (요약형 compaction 아님 — 그건 UC-013) | REQ-009 | Done | TEST-S-012 |
 | UC-013 | 대화 압축(요약) | 사용자가 긴 대화를 이어가도 에이전트가 오래된 맥락을 **버리지 않고 요약(recap)**해 유지하며 응답(naia-memory 위임, 정보보존). 요약은 장기기억에 영속돼 다음 세션에도 이어짐 | REQ-010 | Done | TEST-S-013 |
-| UC-014 | 단독 CLI 오케스트레이션 | 사용자(luke)가 naia-os 없이 터미널에서 naia-agent 를 단독 실행해, agent 가 외부 코딩에이전트(pi/opencode)를 sub-agent 로 spawn·감독하고 워크스페이스 변경·검증을 정직 숫자로 보고. 인터럽트 가능. (코어+composition+단독 CLI bin Done=SPEC-011; naia-os gRPC 호스트만 후속) | REQ-011, REQ-012 | Done | TEST-S-014 |
+| UC-014 | 단독 CLI 오케스트레이션 | 사용자(luke)가 naia-os 없이 터미널에서 naia-agent 를 단독 실행해, agent 가 외부 코딩에이전트(codex/opencode)를 sub-agent 로 spawn·감독하고 워크스페이스 변경·검증을 정직 숫자로 보고. 인터럽트 가능. (코어+composition+단독 CLI bin Done=SPEC-011; naia-os gRPC 호스트만 후속) | REQ-011, REQ-012 | Done | TEST-S-014 |
 | UC-015 | 선제·연속 발화 | 개인 라디오 DJ와 회사 전시 소개가 무입력으로 시작하고 사용자 제어에 양보. grounded 추천·지속 lease·명시 선호·전시 Q&A privacy와 TTS/제어/stale 경계를 자동 수용 | REQ-013 | Done | TEST-S-015 |
 | UC-016 | Discord 실시간 채널 대화 | 허용된 Discord 채널의 메시지를 Agent가 지속 연결로 받아 같은 채널에 응답하고, 재연결·중복·권한 변경·동시 채널에도 격리된 상태를 유지. 결정론적 자동화 완료, 실제 Discord 운영자 인수 대기 | REQ-014 | In-progress | TEST-S-016 |
-| UC-017 | main/sub 역할 분리 | 사용자가 Codex를 main provider로 선택해 시간 등 로컬 도구를 호출하고, 신뢰된 Discord 채널에서 활성 `expert/main/sub` 프로파일의 Pi 세션에 워크스페이스 안 작업을 위임하며 처리정책 공개와 시작·성공·실패 진행 상태를 확인 | REQ-015 | Done | TEST-S-017 |
+| UC-017 | main/sub 역할 분리 | 사용자가 Codex를 main provider로 선택해 시간 등 로컬 도구를 호출하고, 신뢰된 Discord 채널에서 활성 `expert/main/sub` 프로파일의 Codex/Claude/Grok 세션에 워크스페이스 안 작업을 위임하며 처리정책 공개와 시작·성공·실패 진행 상태를 확인 | REQ-015 | Done | TEST-S-017 |
 | UC-018 | Discord 유휴 세션 회전 | Gateway는 모델 호출 없이 대기하고, 같은 사용자·binding의 최근 임시 대화만 30분 기본 유휴시간 전까지 재사용하며 경계 이후 새 문맥으로 전환 | REQ-016 | Done | TEST-S-018 |
-| UC-019 | Agent outbound delivery and scheduled reports | Agent sends approved results/files and durable periodic reports to a DM or bound channel; Codex is the first verified runner and PI is a deferred compatible runner. | REQ-017 | In-progress | TEST-S-019 |
+| UC-019 | Agent outbound delivery and scheduled reports | Agent sends approved results/files and durable periodic reports to a DM or bound channel; Codex is the verified default runner. | REQ-017 | In-progress | TEST-S-019 |
 | UC-021 | AnyLLM-backed Naia providers | Agent owns a versioned native+AnyLLM catalog and authorized user/workspace selection; Shell is RPC-only, Gateway independently enforces immutable HY3/versioned Claude routes, scoped credentials, idempotent reconciliation and authoritative decimal 1.1x settlement. | REQ-018 | Pending | TEST-S-021 |
 | UC-022 | Durable issue supervisor | Agent-side runtime safely reopens SQLite, recovers dispatch, rejects stale worker events with a trusted clock, retries timeout with backoff, and persists every ten-minute report boundary. Production host ingress/activation remains pending. | REQ-019 | In-progress | TEST-S-022 |
-| UC-023 | First-class naia-agent CLI | 사용자가 계정·설정·모델·진단·세션을 한 CLI에서 관리하고 저장된 Pi/Grok 기본값으로 직접 또는 Codex 자식 프로세스에서 동일하게 코딩 실행 | REQ-020 | Done | TEST-S-020 |
+| UC-023 | First-class naia-agent CLI | 사용자가 계정·설정·모델·진단·세션을 한 CLI에서 관리하고 저장된 Codex/Grok 기본값으로 직접 또는 Codex 자식 프로세스에서 동일하게 코딩 실행 | REQ-020 | Done | TEST-S-020 |
 | UC-024 | 환경 관측 | 사용자 → "지금 뭐 돌고 있어?" → 나이아가 셸이 보고한 작업 표면과 활동 상태를 근거로 답한다. 터미널 관리자 어휘는 보지 않고, 환경이 만든 문자열은 지시문이 되지 않는다 | REQ-021 | In-progress | TEST-S-024 |
 | UC-025 | wire 어휘 동기 | 개발자가 한쪽 저장소에서 메시지 종류를 더하거나 이름을 바꾼다 → 상대가 따라오지 않았으면 양쪽 테스트가 그 자리에서 깨진다. 사람이 눈으로 찾아야 하는 구간이 없다 | REQ-022 | Done | TEST-S-025 |
 

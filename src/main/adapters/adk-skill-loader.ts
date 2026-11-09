@@ -7,7 +7,7 @@
 //   (시스템 지시보다 우선 못 함). adkPath 가 신뢰 안 되는 소스(공유/원격 워크스페이스)로 확장되면 추가 격리 필요.
 import { load as yamlLoad } from "js-yaml";
 import type { ToolExecutorPort } from "../ports/uc1.js";
-import type { ToolSpec, ToolCall } from "../domain/chat.js";
+import { normalizeExternalToolTier, type ToolSpec, type ToolCall } from "../domain/chat.js";
 import { isAborted } from "./signal-util.js";
 
 /** 파싱된 naia-adk 스킬(SKILL.md frontmatter + 본문). */
@@ -37,7 +37,8 @@ export function parseSkillMd(markdown: string): AdkSkill | null {
   const name = typeof fm.name === "string" ? fm.name.trim() : undefined;
   const description = typeof fm.description === "string" ? fm.description.trim() : undefined;
   if (!name || !description) return null; // 필수 누락 = 스킵
-  const tier = typeof fm.tier === "string" ? fm.tier : "ask"; // tier 미지정 = ask(외부 절차 승인 게이트)
+  const rawTier = typeof fm.tier === "string" || typeof fm.tier === "number" ? fm.tier : undefined;
+  const tier = normalizeExternalToolTier(rawTier); // 바깥 경계: tier 미지정/공백 및 비표준(T1/T2 등 ALLOWED_RUNTIME_TOOL_TIERS 밖) = ask(외부 절차 승인 게이트)
   const modelInvocable = fm["disable-model-invocation"] !== true; // 명시 금지 시 모델 도구 제외
   return { name, description, tier, body: m[2].replace(/\r\n/g, "\n").trim(), modelInvocable };
 }
@@ -64,7 +65,7 @@ export function makeAdkSkillExecutor(skills: readonly AdkSkill[]): ToolExecutorP
       name: toolName,
       description: s.description,
       parameters: { type: "object", properties: {}, additionalProperties: true }, // input_schema 1차 생략 → 자유 args
-      tier: s.tier,
+      tier: normalizeExternalToolTier(s.tier),
     });
   }
   return {

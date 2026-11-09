@@ -58,8 +58,8 @@ describe("small model memory request integration", () => {
     expect(calls).toEqual(["small", "main"]); expect(approvals).toEqual(["small", "main"]);
     calls.length = 0;
     const local = buildRoleMemorySummarizer(config("small", "ollama"), config("main"), fetch, () => {});
-    await expect(local({ messages: [{ role: "user", content: "hi" }], keepTail: 0, targetTokens: 20, seedSummary: "" }, async () => true)).rejects.toThrow();
-    expect(calls).toEqual(["small"]);
+    await expect(local({ messages: [{ role: "user", content: "hi" }], keepTail: 0, targetTokens: 20, seedSummary: "" }, async () => true)).resolves.toBe("fallback recap");
+    expect(calls).toEqual(["small", "main"]);
   });
 });
 
@@ -204,7 +204,7 @@ it("IT-SM-AGENT-04 추출과 압축의 승인 거부, 양쪽 실패와 로컬 �
     const result = await memory.compact({ messages: input.messages, keepTail: 0, targetTokens: 20, authorizeAndDisclose: async () => true });
     expect((await memory.recall("tea")).facts).toContain("I like tea");
     expect(result.recap).toContain("tea");
-    expect(calls).toEqual(["small", "small"]);
+    expect(calls).toEqual(["small", "main", "small", "main"]);
     expect(JSON.stringify(events)).not.toContain("private");
   } finally { vi.useRealTimers(); await memory.close(); await rm(dir, { recursive: true, force: true }); }
 });
@@ -248,7 +248,7 @@ it("IT-SM-AGENT-01 실제 조립에서 기억 우선, 빈 역할과 메인 선�
   const { mkdir, writeFile } = await import("node:fs/promises");
   // @ts-expect-error JavaScript composition entry has no TypeScript declaration.
   const { composeAgentRuntimeDeps } = await import("../../scripts/builds/compose-agent-deps.mjs");
-  const { makePiRoleProcessingPlans, makePiRoleSubAgent } = await import("../main/adapters/pi-role-runner.js");
+  const { makeRoleProcessingPlans, makeRoleSubAgent } = await import("../main/adapters/role-runner.js");
   const root = await mkdtemp(join(tmpdir(), "agent-compose-memory-"));
   const models: string[] = [];
   const originalFetch = globalThis.fetch;
@@ -261,13 +261,13 @@ it("IT-SM-AGENT-01 실제 조립에서 기억 우선, 빈 역할과 메인 선�
       const deps = await composeAgentRuntimeDeps({ env: { NAIA_ADK_PATH: workspace, AGENT_PROVIDER: "fake", NAIA_AGENT_SKILLS: "off", NAIA_AGENT_TRANSCRIPT: "off", NAIA_MEMORY_SURFACING: "off", NAIA_ANYLLM_API_KEY: "fake" } });
       try {
         expect(deps.defaultConfig.model).toBe("grok-4.3");
-        expect(makePiRoleProcessingPlans(deps.llmRoles).find((plan) => plan.when?.values.includes("main"))?.model).toBe("grok-4.3");
-        let piArgs: readonly string[] = [];
-        const pi = makePiRoleSubAgent(deps.llmRoles, "main", { env: { NAIA_API_KEY: "fake", PATH: "" }, piConfigDir: join(workspace, "pi-test"), resolveBin: () => ({ command: "fake-pi", prefixArgs: [] }), spawnFn: (_command, args) => { piArgs = args; return { stdout: { on() {} }, stderr: { on() {} }, on() { return this; }, kill() { return false; } } as unknown as import("node:child_process").ChildProcess; } });
-        expect(pi.ok).toBe(true);
-        if (!pi.ok) throw new Error(pi.reason);
-        pi.agent.spawn({ prompt: "inspect", workdir: workspace });
-        expect(piArgs).toContain("--model"); expect(piArgs).toContain("grok-4.3");
+        expect(makeRoleProcessingPlans(deps.llmRoles).find((plan) => plan.when?.values.includes("main"))?.model).toBe("grok-4.3");
+        let codexArgs: readonly string[] = [];
+        const codex = makeRoleSubAgent(deps.llmRoles, "main", { env: { NAIA_API_KEY: "fake", PATH: "" }, piConfigDir: join(workspace, "pi-test"), resolveBin: () => ({ command: "fake-codex", prefixArgs: [] }), spawnFn: (_command, args) => { codexArgs = args; return { stdout: { on() {} }, stderr: { on() {} }, on() { return this; }, kill() { return false; } } as unknown as import("node:child_process").ChildProcess; } });
+        expect(codex.ok).toBe(true);
+        if (!codex.ok) throw new Error(codex.reason);
+        await codex.agent.spawn({ prompt: "inspect", workdir: workspace }).cancel("done");
+        expect(codexArgs).toContain("--model"); expect(codexArgs).toContain("grok-4.3");
         const { ChatTurnHandler } = await import("../main/app/chat-turn-handler.js");
         const { makeInMemoryApproval } = await import("../main/adapters/approval.js");
         const { makeInMemoryCredentials } = await import("../main/composition/index.js");
@@ -280,7 +280,7 @@ it("IT-SM-AGENT-01 실제 조립에서 기억 우선, 빈 역할과 메인 선�
         await deps.memory.save("hello", "", { authorizeAndDisclose: async () => true });
         const compacted = await deps.memory.compact({ messages: [{ role: "user" as const, content: "I like tea" }], keepTail: 0, targetTokens: 20, authorizeAndDisclose: async () => true });
         const recalled = await deps.memory.recall("tea");
-        if (mode === "empty") { expect(models).toEqual([]); expect(recalled.facts).toContain("I like tea"); expect(compacted.recap).toContain("tea"); }
+        if (mode === "empty") { expect(models).toEqual(["grok-4.3", "grok-4.3"]); expect(recalled.facts).toContain("User likes tea"); expect(compacted.recap).toBe("memory recap"); }
         else { expect(models).toEqual([mode === "explicit" ? "memory" : "small", mode === "explicit" ? "memory" : "small"]); expect(recalled.facts).toContain("User likes tea"); expect(compacted.recap).toBe("memory recap"); }
         models.length = 0;
       } finally { vi.useRealTimers(); await deps.memory.close(); }

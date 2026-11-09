@@ -2,28 +2,29 @@ import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { runPiLoopControlSession } from "../main/composition/pi-continuous-loop-control.js";
-import { makePiContinuousLoop, type PiContinuousLoopConfig } from "../main/composition/pi-continuous-loop.js";
+import { runCodexLoopControlSession, runPiLoopControlSession } from "../main/composition/codex-continuous-loop-control.js";
+import { makeCodexContinuousLoop, type CodexContinuousLoopConfig } from "../main/composition/codex-continuous-loop.js";
 
-describe("Pi continuous-loop command backend", () => {
+describe("Codex continuous-loop command backend", () => {
   it("reopens one durable control state for budget and portfolio queries", () => {
-    const root = mkdtempSync(join(tmpdir(), "naia-pi-loop-cli-"));
+    const root = mkdtempSync(join(tmpdir(), "naia-codex-loop-cli-"));
     try {
       const workspace = join(root, "workspace"); mkdirSync(workspace); mkdirSync(join(root, "worktrees"));
       const binding = { provider: "naia", model: "grok-4.3" };
-      const config: PiContinuousLoopConfig = { stateDir: join(root, "state"), workspaceRoot: workspace,
+      const config: CodexContinuousLoopConfig = { stateDir: join(root, "state"), workspaceRoot: workspace,
         worktreeRoot: join(root, "worktrees"), facing: binding, moderator: binding, reporter: binding,
         roles: { explorer: binding, implementer: binding, tester: binding, reviewer: binding },
-        profileId: "economy-pi", maxRepairCycles: 1, requiredCleanCycles: 1,
+        profileId: "economy-codex", maxRepairCycles: 1, requiredCleanCycles: 1,
         acceptanceChecks: [{ name: "test", command: process.execPath, args: ["--version"] }],
         concurrency: 2, budget: { maxPaidCalls: 8, maxUsd: 0.2, maxInputTokens: 10_000, maxOutputTokens: 4_000 },
         callAllowance: { reservedUsd: 0.02, reservedInputTokens: 1_000, reservedOutputTokens: 400 } };
-      let loop = makePiContinuousLoop(config);
+      let loop = makeCodexContinuousLoop(config);
       expect(loop.budget.snapshot()).toMatchObject({ paidCalls: 0, activeReservations: 0, maxPaidCalls: 8 });
       expect(loop.sessions.portfolio()).toMatchObject({ sessions: [], activeReservationsUsd: 0, budgetBlocked: false });
-      loop.close(); loop = makePiContinuousLoop(config);
+      loop.close(); loop = makeCodexContinuousLoop(config);
       expect(loop.budget.snapshot()).toMatchObject({ paidCalls: 0, activeReservations: 0 });
       expect(loop.sessions.list()).toEqual([]); loop.close();
+      expect(runPiLoopControlSession).toBe(runCodexLoopControlSession);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -35,7 +36,7 @@ describe("Pi continuous-loop command backend", () => {
       portfolio() { return { sessions: submissions.length }; }, async pump() { throw new Error("fixture scheduler failure"); },
     }, budget: { snapshot() { return { paidCalls: 0 }; }, reservations() { return []; } } };
     const responses: Array<{ id: unknown; ok: boolean; error?: string }> = [];
-    await runPiLoopControlSession(loop, { profileId: "economy", facing: { provider: "naia", model: "grok-4.3" },
+    await runCodexLoopControlSession(loop, { profileId: "economy", facing: { provider: "naia", model: "grok-4.3" },
       moderator: { provider: "naia", model: "grok-4.3" } }, lines([
         JSON.stringify({ id: "a", command: "start", request: { requestId: "r1", text: "one",
           requiredObligations: ["one"], workspacePath: "/workspace/one" } }),
@@ -55,7 +56,7 @@ describe("Pi continuous-loop command backend", () => {
       async cancel() {}, get() {}, portfolio() { return {}; }, async pump() {
         await new Promise((resolve) => setImmediate(resolve)); throw new Error("late failure");
       } }, budget: { snapshot() { return {}; }, reservations() { return []; } } };
-    await runPiLoopControlSession(loop, { profileId: "p", facing: { provider: "naia", model: "grok-4.3" },
+    await runCodexLoopControlSession(loop, { profileId: "p", facing: { provider: "naia", model: "grok-4.3" },
       moderator: { provider: "naia", model: "grok-4.3" } }, lines([JSON.stringify({ id: "start", command: "start",
         request: { text: "x", requiredObligations: ["x"], workspacePath: "/workspace" } })]),
     (response) => responses.push(response));
@@ -71,12 +72,48 @@ describe("Pi continuous-loop command backend", () => {
       } }, budget: { snapshot() { return {}; }, reservations() { return []; } } };
     const request = (id: string) => JSON.stringify({ id, command: "start",
       request: { requestId: id, text: id, requiredObligations: [id], workspacePath: `/workspace/${id}` } });
-    await runPiLoopControlSession(loop, { profileId: "p", facing: { provider: "naia", model: "grok-4.3" },
+    await runCodexLoopControlSession(loop, { profileId: "p", facing: { provider: "naia", model: "grok-4.3" },
       moderator: { provider: "naia", model: "grok-4.3" } }, immediateLines([request("a"), request("b")]),
     (response) => responses.push(response));
     expect(responses).toHaveLength(2); expect(maximumActive).toBe(1); expect(pumpCalls).toBe(2); expect(active).toBe(0);
   });
 
+  it("bounds background pump drain at EOF via drainTimeoutMs so a hung pump cannot block shutdown indefinitely (P3)", async () => {
+    const responses: Array<{ id: unknown; ok: boolean; error?: string }> = [];
+    const loop = {
+      profile: {},
+      sessions: {
+        async submit() { return { sessionId: "s-hung" }; },
+        async answer() {},
+        async cancel() {},
+        get() {},
+        portfolio() { return {}; },
+        async pump() {
+          await new Promise<void>(() => { /* never settles */ });
+        },
+      },
+      budget: { snapshot() { return {}; }, reservations() { return []; } },
+    };
+    await runCodexLoopControlSession(
+      loop,
+      { profileId: "p", facing: { provider: "naia", model: "grok-4.3" }, moderator: { provider: "naia", model: "grok-4.3" } },
+      lines([
+        JSON.stringify({
+          id: "start-hung",
+          command: "start",
+          request: { text: "x", requiredObligations: ["x"], workspacePath: "/workspace" },
+        }),
+      ]),
+      (response) => responses.push(response),
+      { drainTimeoutMs: 25 },
+    );
+    expect(responses[0]).toMatchObject({ id: "start-hung", ok: true });
+    expect(responses.at(-1)).toMatchObject({
+      id: null,
+      ok: false,
+      error: "background pump drain timed out after 25ms",
+    });
+  });
 });
 
 async function* lines(values: readonly string[]) {

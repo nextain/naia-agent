@@ -1,17 +1,18 @@
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { pathToFileURL } from "node:url";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  convertResponsesToChatCompletionsRequest,
   initializeGatewayRequestBudget,
   initializeNaiaPiReceiptJournal,
   makeNaiaVersionedBillingFetch,
   readGatewayRequestBudget,
   readGatewayRequestBudgetEvidence,
   readNaiaPiReceiptJournal,
+  startCodexResponsesLoopbackBridge,
+  stripToolsFromPayload,
 } from "../main/adapters/naia-pi-versioned-billing.js";
-import { makeCumulativePiLineParser } from "../main/adapters/subagent-pi.js";
 
 const EXECUTION = "11111111-1111-4111-8111-111111111111";
 const dirs: string[] = [];
@@ -51,7 +52,7 @@ function billingFetch(journalPath: string, delegate: typeof fetch): typeof fetch
     gatewayBudget: { path, policy } });
 }
 
-describe("FR-LOOP-008 Naia Pi atomic versioned billing bridge", () => {
+describe("FR-LOOP-008 Naia atomic versioned billing bridge and Codex /v1/responses loopback", () => {
   it("sends a bound non-stream request, persists exact settlement, and reconstructs SSE", async () => {
     const journalPath = tempJournal();
     let outbound: Record<string, unknown> | undefined;
@@ -132,7 +133,7 @@ describe("FR-LOOP-008 Naia Pi atomic versioned billing bridge", () => {
     expect(readNaiaPiReceiptJournal(journalPath).entries).toHaveLength(0);
   });
 
-  it("detects journal tampering and refuses measured parent evidence", async () => {
+  it("detects journal tampering and refuses corrupted digest chains", async () => {
     const journalPath = tempJournal();
     const delegate: typeof fetch = async () => new Response(JSON.stringify(completion()), { status: 200 });
     await billingFetch(journalPath, delegate)(
@@ -140,47 +141,6 @@ describe("FR-LOOP-008 Naia Pi atomic versioned billing bridge", () => {
     const raw = readFileSync(journalPath, "utf8").replace("0.00001234", "0.10000000");
     writeFileSync(journalPath, raw, "utf8");
     expect(() => readNaiaPiReceiptJournal(journalPath, EXECUTION)).toThrow(/digest mismatch|amount or route invalid/u);
-
-    const parse = makeCumulativePiLineParser({ provider: "naia", model: "grok-4.3" },
-      { sessionId: "session", executionId: EXECUTION }, journalPath);
-    const events = parse(JSON.stringify({ type: "message_end", message: { role: "assistant", provider: "naia",
-      model: "grok-4.3", content: [], usage: { input: 7, cacheRead: 5, output: 4, totalTokens: 16 } } }));
-    expect(events.at(-1)).toMatchObject({ kind: "session_end", ok: false,
-      reason: expect.stringContaining("billing receipt unavailable") });
-    expect(events.some((event) => event.kind === "model_evidence" && event.evidence.measuredCostUsd !== undefined)).toBe(false);
-  });
-
-  it("binds ordered journal rows to cumulative Pi usage and measured cost", async () => {
-    const journalPath = tempJournal();
-    const delegate: typeof fetch = async (_input, init) => {
-      const sent = JSON.parse(String(init?.body)) as { gateway_request_id: string; gateway_attempt: number };
-      const index = sent.gateway_request_id.endsWith("-1") ? 1 : 2;
-      return new Response(JSON.stringify(completion({
-        gateway_request_id: sent.gateway_request_id, gateway_attempt: sent.gateway_attempt,
-        customer_cost: index === 1 ? "0.00001234" : "0.00002000",
-        usage: { prompt_tokens: index === 1 ? 12 : 8, completion_tokens: index === 1 ? 4 : 2,
-          total_tokens: index === 1 ? 16 : 10, prompt_tokens_details: { cached_tokens: index === 1 ? 5 : 0 } },
-      })), { status: 200 });
-    };
-    const bridged = billingFetch(journalPath, delegate);
-    await bridged("https://gateway.example/v1/chat/completions", { method: "POST", body: requestBody() });
-    const parse = makeCumulativePiLineParser({ provider: "naia", model: "grok-4.3" },
-      { sessionId: "session", executionId: EXECUTION }, journalPath);
-    const first = parse(JSON.stringify({ type: "message_end", message: { role: "assistant", provider: "naia",
-      model: "grok-4.3", content: [], usage: { input: 7, cacheRead: 5, output: 4, totalTokens: 16 } } }));
-    expect(first[0]).toMatchObject({ kind: "model_evidence", evidence: { measuredCostUsd: 0.00001234 } });
-
-    await bridged("https://gateway.example/v1/chat/completions", { method: "POST",
-      body: JSON.stringify({ model: "grok-4.3", messages: [{ role: "tool", content: "next" }], stream: true }) });
-    const second = parse(JSON.stringify({ type: "message_end", message: { role: "assistant", provider: "naia",
-      model: "grok-4.3", content: [], usage: { input: 8, output: 2, totalTokens: 10 } } }));
-    expect(second[0]).toMatchObject({ kind: "model_evidence", evidence: {
-      inputTokens: 15, cachedInputTokens: 5, outputTokens: 6, totalTokens: 26,
-      measuredCostUsd: 0.00003234, gatewayBillingReceipts: expect.arrayContaining([
-        expect.objectContaining({ localRequestId: `${EXECUTION}:call:1` }),
-        expect.objectContaining({ localRequestId: `${EXECUTION}:call:2` }),
-      ]),
-    } });
   });
 
   it("reserves each logical gateway request before fetch and blocks the next call at the durable cap", async () => {
@@ -230,35 +190,188 @@ describe("FR-LOOP-008 Naia Pi atomic versioned billing bridge", () => {
     expect(effects).toBe(1);
   });
 
-  it("is consumed by the exact Pi OpenAI completion API across a tool turn and final turn", async () => {
-    const journalPath = tempJournal(); let turn = 0;
-    const delegate: typeof fetch = async (_input, init) => {
-      turn += 1; const sent = JSON.parse(String(init?.body)) as { gateway_request_id: string; gateway_attempt: number };
-      const payload = turn === 1 ? completion({ gateway_request_id: sent.gateway_request_id,
-        choices: [{ index: 0, message: { role: "assistant", content: null,
-          tool_calls: [{ id: "call-1", type: "function", function: { name: "read", arguments: '{"path":"x"}' } }] },
-        finish_reason: "tool_calls" }] }) : completion({ gateway_request_id: sent.gateway_request_id,
-          choices: [{ index: 0, message: { role: "assistant", content: "finished" }, finish_reason: "stop" }] });
-      return new Response(JSON.stringify(payload), { status: 200 });
+  it("strips tools/tool_choice/parallel_tool_calls/additional_tools when noTools is enabled and preserves reasoning_content across tool turns", () => {
+    const stripped = stripToolsFromPayload({
+      model: "deepseek-v4-flash",
+      tools: [{ type: "function", name: "exec_command" }],
+      tool_choice: "auto",
+      parallel_tool_calls: true,
+      additional_tools: ["update_plan"],
+      input: [{ role: "user", content: "hello" }],
+    });
+    expect(stripped).not.toHaveProperty("tools");
+    expect(stripped).not.toHaveProperty("tool_choice");
+    expect(stripped).not.toHaveProperty("parallel_tool_calls");
+    expect(stripped).not.toHaveProperty("additional_tools");
+
+    const reasoningCache = new Map<string, string>([["call-42", "step-by-step reasoning"]]);
+    const converted = convertResponsesToChatCompletionsRequest({
+      model: "motif-3",
+      instructions: "be concise",
+      max_output_tokens: 8192,
+      input: [
+        { type: "message", role: "user", content: [{ type: "input_text", text: "inspect file" }] },
+        { type: "function_call", call_id: "call-42", name: "exec_command", arguments: '{"cmd":"ls"}' },
+        { type: "function_call_output", call_id: "call-42", output: "README.md" },
+      ],
+      tools: [{ type: "function", name: "exec_command", description: "run cmd", parameters: { type: "object" } }],
+      tool_choice: "auto",
+    }, { expectedModel: "motif-3", noTools: true, maxOutputTokens: 8192, reasoningByCallId: reasoningCache });
+
+    expect(converted).not.toHaveProperty("tools");
+    expect(converted).not.toHaveProperty("tool_choice");
+    expect(converted.max_tokens).toBe(8192);
+    const messages = converted.messages as Array<Record<string, unknown>>;
+    expect(messages[0]).toEqual({ role: "system", content: "be concise" });
+    expect(messages[1]).toEqual({ role: "user", content: "inspect file" });
+    expect(messages[2]).toMatchObject({
+      role: "assistant",
+      reasoning_content: "step-by-step reasoning",
+      tool_calls: [{ id: "call-42", type: "function", function: { name: "exec_command", arguments: '{"cmd":"ls"}' } }],
+    });
+    expect(messages[3]).toEqual({ role: "tool", tool_call_id: "call-42", content: "README.md" });
+  });
+
+  it("bridges Codex /v1/responses over loopback HTTP to Naia /v1/chat/completions with billing receipts, bridgeToken auth, and noTools stripping", async () => {
+    const journalPath = tempJournal();
+    const budgetPath = join(dirname(journalPath), "bridge-gateway.db");
+    const policy = { maxGatewayCalls: 4, maxUsd: 0.2, maxInputTokens: 16_000, maxOutputTokens: 2_000,
+      requestAllowance: { reservedUsd: 0.05, reservedInputTokens: 4_000, reservedOutputTokens: 500 } };
+    initializeGatewayRequestBudget(budgetPath, policy);
+
+    const upstreamCalls: Array<{ url: string; headers: Record<string, string>; body: Record<string, unknown> }> = [];
+    const delegate: typeof fetch = async (input, init) => {
+      const headers = new Headers(init?.headers);
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      upstreamCalls.push({
+        url: String(input),
+        headers: {
+          "x-anyllm-key": headers.get("x-anyllm-key") ?? "",
+          authorization: headers.get("authorization") ?? "",
+        },
+        body,
+      });
+      return new Response(JSON.stringify(completion({
+        model: "deepseek-v4-flash",
+        gateway_request_id: body.gateway_request_id,
+        gateway_attempt: body.gateway_attempt,
+        choices: [{ index: 0, message: { role: "assistant", content: "bridged-answer", reasoning_content: "thought-1" }, finish_reason: "stop" }],
+      })), { status: 200 });
     };
-    const bridged = billingFetch(journalPath, delegate);
-    const piAgentEntry = realpathSync(join(process.cwd(), "node_modules/@earendil-works/pi-coding-agent/dist/index.js"));
-    const apiUrl = pathToFileURL(realpathSync(join(dirname(dirname(piAgentEntry)),
-      "../pi-ai/dist/api/openai-completions.lazy.js"))).href;
-    const { openAICompletionsApi } = await import(apiUrl) as { openAICompletionsApi(): any };
-    const api = openAICompletionsApi();
-    const model = { id: "grok-4.3", name: "Grok", api: "openai-completions", provider: "naia",
-      baseUrl: "https://gateway.example/v1", reasoning: false, input: ["text"],
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 200_000, maxTokens: 500 };
-    const options = { apiKey: "test", fetch: bridged, maxRetries: 0 };
-    const first = await api.streamSimple(model, { messages: [{ role: "user", content: "read x", timestamp: 1 }],
-      tools: [{ name: "read", description: "read", parameters: { type: "object", properties: { path: { type: "string" } }, required: ["path"] } }] }, options).result();
-    expect(first.stopReason).toBe("toolUse");
-    expect(first.content).toEqual(expect.arrayContaining([expect.objectContaining({ type: "toolCall", name: "read",
-      arguments: { path: "x" } })]));
-    const second = await api.streamSimple(model, { messages: [{ role: "user", content: "continue", timestamp: 2 }] }, options).result();
-    expect(second).toMatchObject({ stopReason: "stop", content: [expect.objectContaining({ type: "text", text: "finished" })] });
-    expect(readNaiaPiReceiptJournal(journalPath).entries.map((entry) => entry.receipt.localRequestId))
-      .toEqual([`${EXECUTION}:call:1`, `${EXECUTION}:call:2`]);
+
+    const bridgeToken = "test-bridge-token-123";
+    const bridge = await startCodexResponsesLoopbackBridge({
+      provider: "naia",
+      upstreamBaseUrl: "https://gateway.example/v1",
+      expectedModel: "deepseek-v4-flash",
+      bridgeToken,
+      noTools: true,
+      maxOutputTokens: 8192,
+      getApiKey: () => "live-naia-key",
+      billing: {
+        executionId: EXECUTION,
+        journalPath,
+        gatewayBudget: { path: budgetPath, policy },
+      },
+      fetch: delegate,
+    });
+
+    try {
+      expect(bridge.port).toBeGreaterThan(0);
+      const unauth = await fetch(`${bridge.baseUrl}/responses`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: "Bearer wrong-token" },
+        body: JSON.stringify({ model: "deepseek-v4-flash", input: "hi" }),
+      });
+      expect(unauth.status).toBe(401);
+
+      const res = await fetch(`${bridge.baseUrl}/responses`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${bridgeToken}` },
+        body: JSON.stringify({
+          model: "deepseek-v4-flash",
+          input: [{ type: "message", role: "user", content: [{ type: "input_text", text: "summarize" }] }],
+          tools: [{ type: "function", name: "exec_command", parameters: { type: "object" } }],
+          tool_choice: "auto",
+          parallel_tool_calls: true,
+        }),
+      });
+      expect(res.status).toBe(200);
+      const sse = await res.text();
+      expect(sse).toContain("event: response.created");
+      expect(sse).toContain("event: response.completed");
+      expect(sse).toContain("bridged-answer");
+
+      expect(upstreamCalls).toHaveLength(1);
+      expect(upstreamCalls[0]?.url).toBe("https://gateway.example/v1/chat/completions");
+      expect(upstreamCalls[0]?.headers["x-anyllm-key"]).toBe("Bearer live-naia-key");
+      expect(upstreamCalls[0]?.headers.authorization).toBe("");
+      expect(upstreamCalls[0]?.body).not.toHaveProperty("tools");
+      expect(upstreamCalls[0]?.body).not.toHaveProperty("tool_choice");
+      expect(upstreamCalls[0]?.body).not.toHaveProperty("parallel_tool_calls");
+
+      expect(bridge.turns).toEqual([
+        expect.objectContaining({
+          requestModel: "deepseek-v4-flash",
+          responseModel: "deepseek-v4-flash",
+          inputTokens: 7,
+          cachedInputTokens: 5,
+          outputTokens: 4,
+          totalTokens: 16,
+        }),
+      ]);
+      expect(readNaiaPiReceiptJournal(journalPath, EXECUTION).entries).toHaveLength(1);
+    } finally {
+      bridge.close();
+    }
+  });
+
+  it("binds loopback bridge via public server.listen without _listen2 and fails closed when port is 0 or invalid (P2-라)", async () => {
+    const { EventEmitter } = await import("node:events");
+    let listenCalledWith: unknown[] = [];
+    let closedCount = 0;
+
+    // 1) Public server.listen async binding succeeds even when private _listen2 does not exist
+    const emitterOk = new EventEmitter();
+    const fakeServerOk = Object.assign(emitterOk, {
+      listen(...args: unknown[]) {
+        listenCalledWith = args;
+        queueMicrotask(() => emitterOk.emit("listening"));
+        return fakeServerOk;
+      },
+      unref() {},
+      address() { return { address: "127.0.0.1", family: "IPv4", port: 43210 }; },
+      close() { closedCount += 1; },
+    });
+    const handle = await startCodexResponsesLoopbackBridge({
+      provider: "local",
+      expectedModel: "qwen",
+      upstreamBaseUrl: "http://127.0.0.1:11434/v1",
+      createServerFn: (() => fakeServerOk) as any,
+    });
+    expect(listenCalledWith).toEqual([0, "127.0.0.1"]);
+    expect(handle.port).toBe(43210);
+    expect(handle.baseUrl).toBe("http://127.0.0.1:43210/v1");
+    handle.close();
+    expect(closedCount).toBe(1);
+
+    // 2) Fails closed if server.address() returns port 0
+    const emitterZero = new EventEmitter();
+    const fakeServerZeroPort = Object.assign(emitterZero, {
+      listen() {
+        queueMicrotask(() => emitterZero.emit("listening"));
+        return fakeServerZeroPort;
+      },
+      unref() {},
+      address() { return { address: "127.0.0.1", family: "IPv4", port: 0 }; },
+      close() { closedCount += 1; },
+    });
+    await expect(startCodexResponsesLoopbackBridge({
+      provider: "local",
+      expectedModel: "qwen",
+      upstreamBaseUrl: "http://127.0.0.1:11434/v1",
+      createServerFn: (() => fakeServerZeroPort) as any,
+    })).rejects.toThrow("Codex loopback bridge failed to bind a valid loopback port");
+    expect(closedCount).toBe(2);
   });
 });

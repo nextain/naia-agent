@@ -1,7 +1,7 @@
 # naia-agent CLI manual
 
-이 문서는 `naia-agent`를 Naia 계정 기반 독립 코딩 CLI로 설정하고 검증하는 실행 매뉴얼이다.
-현재 Pi 모델은 `grok-4.3`(도구 코딩)과 `deepseek-v4-flash`/`deepseek-v4-pro`(도구 없는 분석)다.
+이 문서는 `naia-agent`를 Codex 기본 코어 및 Naia 계정 기반 독립 코딩 CLI로 설정하고 검증하는 실행 매뉴얼이다.
+기본 코딩 에이전트는 `codex`(`gpt-5.4` 기본 모델)이며, Naia 게이트웨이 모델(`grok-4.3`, `deepseek-v4-flash`, `deepseek-v4-pro`)도 지원한다.
 naia-shell의 코딩 Workspace UI는 이 범위가 아니다.
 
 ## 1. 설치 확인
@@ -65,8 +65,8 @@ naia-agent auth logout --provider naia
 
 ```powershell
 naia-agent config set workspace D:\alpha-adk
-naia-agent config set coding.agent pi
-naia-agent config set coding.model grok-4.3
+naia-agent config set coding.agent codex
+naia-agent config set coding.model gpt-5.4
 naia-agent config set coding.tools true
 naia-agent config list
 naia-agent config list --json
@@ -80,8 +80,7 @@ naia-agent config set coding.tools false
 ```
 
 명령줄의 `--agent`, `--model`, `--tools`, `--no-tools`가 저장 기본값보다 우선한다.
-다른 agent를 명시하면 저장된 Pi 모델은 따라붙지 않는다. 예를 들어
-`--agent codex`에 Pi용 `grok-4.3`이 자동 전달되지 않는다.
+다른 agent를 명시하면 저장된 기본 모델은 따라붙지 않는다.
 
 설정 초기화:
 
@@ -102,37 +101,42 @@ naia-agent doctor --json
 `models`의 `source`:
 
 - `live`: Naia gateway의 현재 모델 응답
-- `fallback`: gateway를 확인하지 못해 내장 Pi 목록만 표시; 경고를 함께 출력
+- `fallback`: gateway를 확인하지 못해 내장 정적 목록만 표시; 경고를 함께 출력
 
-`doctor`는 `account.naia`, `workspace`, `naia-settings`, `pi`, `models`를 각각
+`doctor`는 `account.naia`, `workspace`, `naia-settings`, `codex`, `models`를 각각
 `pass`, `warn`, `fail`로 판정한다. `ready=false` 또는 exit code 1이면 코딩 전 실패 항목을 고친다.
 
 ## 6. 코딩과 분석
 
-Grok 코딩:
+Codex 코딩(기본 `--sandbox workspace-write`):
 
 ```powershell
 naia-agent run "요청한 파일을 수정하고 테스트해" `
-  --agent pi `
-  --model grok-4.3 `
+  --agent codex `
+  --model gpt-5.4 `
   --workdir D:\alpha-adk\projects\<target> `
   --check "test=pnpm test" `
   --json
 ```
 
-DeepSeek 분석:
+Codex 읽기 전용 분석(`--no-tools` → `--sandbox read-only`):
 
 ```powershell
 naia-agent run "이 설계를 검토하고 위험을 정리해" `
-  --agent pi `
-  --model deepseek-v4-pro `
+  --agent codex `
+  --model gpt-5.4 `
   --no-tools `
   --workdir D:\alpha-adk `
   --json
 ```
 
-기본값을 저장했다면 `--agent`, `--model`, `--no-tools`를 생략할 수 있다.
-DeepSeek에 도구가 켜져 있으면 Pi 시작과 Azure 호출 전에 실패한다.
+Naia 게이트웨이 모델(`grok-4.3`, `deepseek-v4-pro`, `deepseek-v4-flash` 등)은 `naia-agent chat`으로 호출한다(OpenAI Codex CLI에 Naia 모델 ID를 직접 넘기면 spawn 전에 거부됨):
+
+```powershell
+naia-agent chat --provider naia --model deepseek-v4-pro --no-tools --once "이 설계를 검토하고 위험을 정리해"
+```
+
+기본값을 저장했다면 `--agent`, `--model`, `--no-tools`를 생략할 수 있다. `--no-tools`를 읽기 전용 샌드박스를 보장하지 못하는 에이전트(`shell` 등)와 함께 지정하면 spawn 전에 인자 오류(exit 64)로 멈춘다.
 
 종료 코드:
 
@@ -163,10 +167,10 @@ naia-agent session resume <session-id>
 
 ## 8. Codex에서 호출
 
-Codex에게 아래 명령을 실행하도록 지시하면 별도 OpenCode 없이 같은 Naia 계정/Pi 경로를 사용한다.
+Codex에게 아래 명령을 실행하도록 지시하면 별도 OpenCode 없이 같은 `naia-agent` Codex 경로를 사용한다.
 
 ```powershell
-naia-agent run "<task>" --agent pi --model grok-4.3 --workdir "<repo>" --json
+naia-agent run "<task>" --agent codex --model gpt-5.4 --workdir "<repo>" --json
 ```
 
 직접 터미널에서 실행할 때와 Codex가 자식 프로세스로 실행할 때 `provider`, `model`,
@@ -195,7 +199,7 @@ npx vitest run src/test/cli-manage.contract.test.ts `
   src/test/cli-manage-process.integration.test.ts `
   src/test/cli-chat.contract.test.ts `
   src/test/uc-cli-host-entry.contract.test.ts `
-  src/test/uc-naia-pi-cli-process.integration.test.ts
+  src/test/role-runner.contract.test.ts
 pnpm test
 node scripts/check-traceability.mjs
 node scripts/check-logging.mjs
@@ -206,10 +210,10 @@ node --test src/test/ci-verify-*.test.mjs
 실계정 smoke의 합격 조건:
 
 1. `auth status --provider naia --json`에서 `authenticated=true`; 키 문자열은 없음.
-2. `doctor --json`에서 필수 component에 `fail` 없음.
-3. DeepSeek 분석 또는 Grok 코딩 1회가 exit 0.
-4. JSON report의 `modelEvidence.provider == "naia"`.
+2. `doctor --json`에서 필수 component(`codex` 포함)에 `fail` 없음.
+3. Codex 코딩(`--agent codex --model gpt-5.4`) 또는 읽기 전용 분석(`--agent codex --model gpt-5.4 --no-tools`) 1회가 exit 0.
+4. JSON report의 `modelEvidence.provider == "codex"`.
 5. `selectedModel`이 요청 모델과 같고 `totalTokens > 0`.
-6. DeepSeek negative test는 도구를 켠 상태에서 exit 3이고 upstream 호출 전에 끝남.
+6. Naia 전용 모델 ID(`deepseek-v4-pro`, `grok-4.3` 등)를 `--agent codex`에 직접 넘기면 exit 3으로 spawn 전에 끝남(`--no-tools`를 미지원 에이전트에 넘기면 exit 64로 spawn 전에 끝남).
 
 LLM이 만든 답변 문구 자체는 합격 조건이 아니다.

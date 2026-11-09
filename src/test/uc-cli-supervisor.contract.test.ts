@@ -243,7 +243,7 @@ describe("UC-CLI Supervisor 직교 계약 (2a, fake 포트)", () => {
   });
 
   it("P1(적대리뷰 2026-06-23) — sub-agent 이벤트 스트림이 iteration 중 reject 해도 run() 미throw + 합성 session_end + report 1회", async () => {
-    // 2b(pi/opencode transport 에러)·2c(chokidar/git 권한 에러)가 실제로 칠 경로. 구판은 여기서 run() 크래시 + 리포트 0회였음.
+    // 2b(codex/opencode transport 에러)·2c(chokidar/git 권한 에러)가 실제로 칠 경로. 구판은 여기서 run() 크래시 + 리포트 0회였음.
     const port: SubAgentPort = {
       spawn() {
         return {

@@ -1,5 +1,5 @@
 // gateway-pricing — live pricing overlay from the Naia gateway (naia-agent#59;
-// nextain/naia-shell#458: Pi models charged $0 because the static table never
+// nextain/naia-shell#458: gateway models charged $0 because the static table never
 // listed them and hardcoding each new model was rejected by the user).
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { applyGatewayPricing, calculateCost } from "../main/domain/cost.js";

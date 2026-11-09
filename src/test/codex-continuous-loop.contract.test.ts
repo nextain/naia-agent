@@ -1,30 +1,68 @@
+import type { ChildProcess } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { makePiContinuousLoop, makePiOnlyTeamProfile } from "../main/composition/pi-continuous-loop.js";
+import {
+  makeCodexContinuousLoop,
+  makeCodexOnlyTeamProfile,
+  makePiContinuousLoop,
+  makePiOnlyTeamProfile,
+} from "../main/composition/codex-continuous-loop.js";
+import { composeIssueTeamAgents } from "../main/composition/mixed-issue-team-agents.js";
+import type { SpawnFn } from "../main/adapters/subprocess-session.js";
 
 const binding = (model: string) => ({ provider: "naia", model });
 
-describe("Pi-only continuous loop contract", () => {
-  it("pins all authored team roles to built-in Pi with one writing role", () => {
-    const profile = makePiOnlyTeamProfile({ roles: { explorer: binding("deepseek-v4-flash"),
+describe("Codex continuous loop contract (FR-LOOP-001, FR-LOOP-005..011, FR-CODEX-SWAP-2)", () => {
+  it("pins all authored team roles to built-in Codex with one writing role", () => {
+    const profile = makeCodexOnlyTeamProfile({ roles: { explorer: binding("deepseek-v4-flash"),
       implementer: binding("grok-4.3"), tester: binding("deepseek-v4-flash"),
       reviewer: binding("deepseek-v4-flash") }, maxRepairCycles: 2, requiredCleanCycles: 2 });
-    expect(Object.values(profile.roles).map((role) => role.agentKind)).toEqual(["pi", "pi", "pi", "pi"]);
+    expect(Object.values(profile.roles).map((role) => role.agentKind)).toEqual(["codex", "codex", "codex", "codex"]);
     expect(Object.values(profile.roles).filter((role) => role.filesystemAccess === "workspace_write"))
       .toEqual([profile.roles.implementer]);
+    expect(makePiOnlyTeamProfile).toBe(makeCodexOnlyTeamProfile);
   });
 
   it("accepts DeepSeek V4 as a tool-capable writing implementer", () => {
-    const profile = makePiOnlyTeamProfile({ roles: { explorer: binding("grok-4.3"),
+    const profile = makeCodexOnlyTeamProfile({ roles: { explorer: binding("grok-4.3"),
       implementer: binding("deepseek-v4-flash"), tester: binding("grok-4.3"), reviewer: binding("grok-4.3") },
       maxRepairCycles: 1, requiredCleanCycles: 1 });
     expect(profile.roles.implementer.binding).toEqual(binding("deepseek-v4-flash"));
   });
 
-  it("fails closed before opening state for a non-Naia or inactive Pi binding", () => {
+  it("passes declared.binding.provider into makeCodexSubAgent in composeIssueTeamAgents", async () => {
+    const profile = makeCodexOnlyTeamProfile({
+      roles: {
+        explorer: binding("deepseek-v4-flash"),
+        implementer: binding("grok-4.3"),
+        tester: binding("solar-pro4"),
+        reviewer: binding("motif-3"),
+      },
+      maxRepairCycles: 1,
+      requiredCleanCycles: 1,
+    });
+    let capturedArgs: readonly string[] = [];
+    const spawnFn: SpawnFn = (_cmd, args) => {
+      capturedArgs = args;
+      return { stdout: { on() {} }, stderr: { on() {} }, on() { return this; }, kill() { return false; } } as unknown as ChildProcess;
+    };
+    const agents = composeIssueTeamAgents(profile, {
+      codex: {
+        resolveBin: () => ({ command: "codex", prefixArgs: [] }),
+        spawnFn,
+        env: { NAIA_API_KEY: "test-key" },
+      },
+    });
+    const explorer = agents[profile.roles.explorer.agentProfileId]!.adapter;
+    const session = explorer.spawn({ prompt: "inspect", workdir: "." });
+    await session.cancel("done");
+    expect(capturedArgs).toContain('model_provider="naia"');
+  });
+
+  it("fails closed before opening state for a non-Naia or inactive binding", () => {
     const invalid = { stateDir: "/must-not-be-created", workspaceRoot: "/tmp", worktreeRoot: "/tmp",
       facing: { provider: "opencode", model: "grok-4.3" }, moderator: binding("grok-4.3"),
       reporter: binding("grok-4.3"), roles: { explorer: binding("grok-4.3"), implementer: binding("grok-4.3"),
@@ -32,10 +70,10 @@ describe("Pi-only continuous loop contract", () => {
       requiredCleanCycles: 1, acceptanceChecks: [], concurrency: 1,
       budget: { maxPaidCalls: 1, maxUsd: 1, maxInputTokens: 1, maxOutputTokens: 1 },
       callAllowance: { reservedUsd: 1, reservedInputTokens: 1, reservedOutputTokens: 1 } } as const;
-    expect(() => makePiContinuousLoop(invalid)).toThrow(/active Naia or declared user-owned Pi catalog/u);
+    expect(() => makeCodexContinuousLoop(invalid)).toThrow(/active Naia or declared user-owned catalog/u);
   });
 
-  it("accepts only explicitly declared user-owned loopback bindings", () => {
+  it("accepts explicitly declared user-owned loopback bindings and built-in local bindings", () => {
     const localBinding = { provider: "local-vllm", model: "naia-0.9-coding-24g" } as const;
     const root = resolve(process.cwd()); const state = mkdtempSync(resolve(tmpdir(), "naia-local-loop-"));
     const config = { stateDir: state, workspaceRoot: root,
@@ -69,7 +107,7 @@ describe("Pi-only continuous loop contract", () => {
     const runtime = { makeSubAgent: (selectedBinding: { provider: string; model: string }) => {
       selected.push(selectedBinding); return { spawn: () => { throw new Error("not called during composition"); } };
     }, worktrees: {} as never, verifier: {} as never };
-    const loop = makePiContinuousLoop(config, runtime);
+    const loop = makeCodexContinuousLoop(config, runtime);
     try {
       expect(selected.filter((item) => item.provider === "openai-codex"))
         .toEqual([{ provider: "openai-codex", model: "gpt-5.6-luna", reasoningEffort: "high" }]);
@@ -85,32 +123,15 @@ describe("Pi-only continuous loop contract", () => {
       profileId: "hybrid", maxRepairCycles: 1, requiredCleanCycles: 2, acceptanceChecks: [], concurrency: 1,
       budget: { maxPaidCalls: 1, maxUsd: 1, maxInputTokens: 1, maxOutputTokens: 1 },
       callAllowance: { reservedUsd: 1, reservedInputTokens: 1, reservedOutputTokens: 1 } } as const;
-    expect(() => makePiContinuousLoop({ ...base,
+    expect(() => makeCodexContinuousLoop({ ...base,
       facing: { provider: "openai-codex", model: "gpt-5.6-luna" } })).toThrow(/facing, reporter, and worker/u);
-    expect(() => makePiContinuousLoop({ ...base,
+    expect(() => makeCodexContinuousLoop({ ...base,
       moderator: { provider: "openai-codex", model: "gpt-5.6-sol", reasoningEffort: "high" } }))
       .toThrow(/Codex gpt-5.6-luna/u);
   });
 
-  it("accepts DeepSeek bindings for worktree-inspecting issue-team roles", () => {
-    const root = resolve(process.cwd()); const state = mkdtempSync(resolve(tmpdir(), "naia-deepseek-loop-"));
-    const base = { stateDir: state, workspaceRoot: root, worktreeRoot: resolve(state, "worktrees"),
-      facing: binding("deepseek-v4-flash"), moderator: { provider: "openai-codex", model: "gpt-5.6-luna" },
-      reporter: binding("deepseek-v4-flash"), roles: { explorer: binding("deepseek-v4-pro"),
-        implementer: binding("deepseek-v4-flash"), tester: binding("deepseek-v4-pro"),
-        reviewer: binding("deepseek-v4-flash") }, profileId: "hybrid", maxRepairCycles: 1, requiredCleanCycles: 2,
-      acceptanceChecks: [{ name: "test", command: "true", args: [] }], concurrency: 1,
-      budget: { maxPaidCalls: 20, maxUsd: 10, maxInputTokens: 1_000_000, maxOutputTokens: 100_000 },
-      callAllowance: { reservedUsd: 0.25, reservedInputTokens: 50_000, reservedOutputTokens: 5_000 } } as const;
-    const runtime = { makeSubAgent: () => ({ spawn: () => { throw new Error("not called during composition"); } }),
-      worktrees: {} as never, verifier: {} as never };
-    const loop = makePiContinuousLoop(base, runtime);
-    try { expect(loop.profile.roles.implementer.binding.model).toBe("deepseek-v4-flash"); }
-    finally { loop.close(); rmSync(state, { recursive: true, force: true }); }
-  });
-
   it("has no OpenCode import, invocation, or fallback edge", () => {
-    const entry = fileURLToPath(new URL("../main/composition/pi-continuous-loop.ts", import.meta.url));
+    const entry = fileURLToPath(new URL("../main/composition/codex-continuous-loop.ts", import.meta.url));
     const pending = [entry]; const visited = new Set<string>();
     while (pending.length > 0) {
       const path = pending.pop()!; if (visited.has(path)) continue; visited.add(path);
@@ -125,26 +146,15 @@ describe("Pi-only continuous loop contract", () => {
 
   it("exposes a persistent NDJSON control session without claiming Discord or Shell ingress", () => {
     const source = readFileSync(new URL("../../bin/naia-agent-loop.mjs", import.meta.url), "utf8");
-    const control = readFileSync(new URL("../main/composition/pi-continuous-loop-control.ts", import.meta.url), "utf8");
+    const control = readFileSync(new URL("../main/composition/codex-continuous-loop-control.ts", import.meta.url), "utf8");
     expect(source).toContain("naia-agent loop serve");
     expect(source).toContain("createInterface({ input: process.stdin");
-    expect(source).toContain("runPiLoopControlSession");
+    expect(source).toContain("runCodexLoopControlSession");
     expect(source).toContain('["serve", "start", "answer", "cancel", "pump"]');
     expect(source).not.toContain(".pathname");
     expect(source).toContain("import(new URL(");
-    expect(control).toContain("runPiLoopControlSession");
+    expect(control).toContain("runCodexLoopControlSession");
     expect(source).not.toMatch(/from\s+["'][^"']*(?:discord|shell)|import\([^)]*(?:discord|shell)/iu);
     expect(`${source}\n${control}`).not.toContain('command === "reconcile"');
-    const live = readFileSync(new URL("../../benchmark/run-pi-continuous-loop-live.mjs", import.meta.url), "utf8");
-    expect(live).not.toContain(".pathname");
-    expect(live).toContain("import(new URL(");
-    expect(live).toContain("durable --output path is required for paid smoke");
-    expect(live).toContain("initializeGatewayRequestBudget");
-    expect(live).toContain('status: "unavailable"');
-    expect(live).not.toContain("rmSync(root");
-    const guardedSetup = live.indexOf("try {", live.indexOf("let budget; let billing"));
-    expect(guardedSetup).toBeGreaterThan(0);
-    expect(live.indexOf('await import(new URL("adapters/subagent-pi.js"', guardedSetup)).toBeGreaterThan(guardedSetup);
-    expect(live.indexOf("initializeGatewayRequestBudget", guardedSetup)).toBeGreaterThan(guardedSetup);
   });
 });

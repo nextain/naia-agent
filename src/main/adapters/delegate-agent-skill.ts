@@ -47,7 +47,7 @@ export interface DelegateAgentDeps {
 }
 
 /** roster 전체 agent(문서용 enum — host 가 화이트리스트 좁힐 수도). */
-export const DELEGATE_AGENTS = ["gemini", "opencode", "pi", "claude-code", "codex", "shell"] as const;
+export const DELEGATE_AGENTS = ["codex", "gemini", "opencode", "claude-code", "grok", "shell"] as const;
 
 /** ToolCall.args(unknown) → 문자열 필드 안전 추출. */
 function readArg(call: ToolCall, name: string): string | undefined {

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { PiContinuousLoopConfig } from "./pi-continuous-loop.js";
+import type { CodexContinuousLoopConfig } from "./codex-continuous-loop.js";
 
 interface ControlLoop {
   readonly profile: unknown;
@@ -17,20 +17,31 @@ interface ControlLoop {
   };
 }
 
-export interface PiLoopControlResponse {
+export interface CodexLoopControlResponse {
   readonly id: unknown;
   readonly ok: boolean;
   readonly result?: unknown;
   readonly error?: string;
 }
 
+export type PiLoopControlResponse = CodexLoopControlResponse;
+
+export interface CodexLoopControlSessionOptions {
+  /** Maximum milliseconds to wait for an in-flight background pump on EOF before failing closed. */
+  readonly drainTimeoutMs?: number;
+}
+
+const DEFAULT_CONTROL_PUMP_DRAIN_TIMEOUT_MS = 30_000;
+
 /** Run one foreground, line-delimited control session over one durable loop instance. */
-export async function runPiLoopControlSession(
+export async function runCodexLoopControlSession(
   loop: ControlLoop,
-  config: Pick<PiContinuousLoopConfig, "profileId" | "facing" | "moderator">,
+  config: Pick<CodexContinuousLoopConfig, "profileId" | "facing" | "moderator">,
   lines: AsyncIterable<string>,
-  emit: (response: PiLoopControlResponse) => void,
+  emit: (response: CodexLoopControlResponse) => void,
+  options?: CodexLoopControlSessionOptions,
 ): Promise<void> {
+  const drainTimeoutMs = options?.drainTimeoutMs ?? DEFAULT_CONTROL_PUMP_DRAIN_TIMEOUT_MS;
   let activePump: Promise<void> | undefined;
   let pumpFailure: string | undefined;
   let pumpRequested = false;
@@ -62,35 +73,79 @@ export async function runPiLoopControlSession(
       emit({ id: message?.id ?? null, ok: false, error: error instanceof Error ? error.message : String(error) });
     }
   }
-  if (activePump) await activePump;
+  if (activePump) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = await Promise.race([
+      activePump.then(() => false),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(true), drainTimeoutMs);
+        timer.unref?.();
+      }),
+    ]).finally(() => {
+      if (timer) clearTimeout(timer);
+    });
+    if (timedOut) {
+      pumpRequested = false;
+      emit({ id: null, ok: false, error: `background pump drain timed out after ${drainTimeoutMs}ms` });
+      return;
+    }
+  }
   if (pumpFailure) emit({ id: null, ok: false, error: `background pump failed: ${pumpFailure}` });
 }
 
-async function dispatch(loop: ControlLoop,
-  config: Pick<PiContinuousLoopConfig, "profileId" | "facing" | "moderator">,
-  message: Record<string, unknown>, schedulePump: () => void,
-  getActivePump: () => Promise<void> | undefined): Promise<unknown> {
+export const runPiLoopControlSession = runCodexLoopControlSession;
+
+async function dispatch(
+  loop: ControlLoop,
+  config: Pick<CodexContinuousLoopConfig, "profileId" | "facing" | "moderator">,
+  message: Record<string, unknown>,
+  schedulePump: () => void,
+  getActivePump: () => Promise<void> | undefined,
+): Promise<unknown> {
   const command = requiredString(message, "command");
   if (command === "start") {
     const source = requiredObject(message, "request");
     const requestId = optionalString(source, "requestId") ?? randomUUID();
-    const session = await loop.sessions.submit({ request: { requestId, text: requiredString(source, "text"),
-      requiredObligations: requiredStrings(source, "requiredObligations"), workspacePath: requiredString(source, "workspacePath"),
-      naiaBinding: config.facing, moderatorBinding: config.moderator,
-      workerProfiles: { [config.profileId]: loop.profile } }, source: { kind: "local",
-      sourceId: optionalString(source, "sourceId") ?? requestId, actorId: optionalString(source, "actorId") ?? "local-user" } });
-    schedulePump(); return session;
+    const session = await loop.sessions.submit({
+      request: {
+        requestId,
+        text: requiredString(source, "text"),
+        requiredObligations: requiredStrings(source, "requiredObligations"),
+        workspacePath: requiredString(source, "workspacePath"),
+        naiaBinding: config.facing,
+        moderatorBinding: config.moderator,
+        workerProfiles: { [config.profileId]: loop.profile },
+      },
+      source: {
+        kind: "local",
+        sourceId: optionalString(source, "sourceId") ?? requestId,
+        actorId: optionalString(source, "actorId") ?? "local-user",
+      },
+    });
+    schedulePump();
+    return session;
   }
   if (command === "list") return loop.sessions.portfolio();
   if (command === "show") return loop.sessions.get(requiredString(message, "session"));
   if (command === "answer") {
-    const session = await loop.sessions.answer(requiredString(message, "session"), requiredString(message, "question"),
-      requiredString(message, "text")); schedulePump(); return session;
+    const session = await loop.sessions.answer(
+      requiredString(message, "session"),
+      requiredString(message, "question"),
+      requiredString(message, "text"),
+    );
+    schedulePump();
+    return session;
   }
   if (command === "cancel") {
-    const session = await loop.sessions.cancel(requiredString(message, "session")); schedulePump(); return session;
+    const session = await loop.sessions.cancel(requiredString(message, "session"));
+    schedulePump();
+    return session;
   }
-  if (command === "pump") { schedulePump(); await getActivePump(); return loop.sessions.portfolio(); }
+  if (command === "pump") {
+    schedulePump();
+    await getActivePump();
+    return loop.sessions.portfolio();
+  }
   if (command === "budget") return loop.budget.snapshot();
   if (command === "reservations") return loop.budget.reservations();
   throw new Error(`unknown serve command: ${command}`);

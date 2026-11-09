@@ -8,7 +8,7 @@ import type { SubAgentEvent } from "../main/domain/orchestration.js";
 
 const fixedBin = (): ResolvedBin => ({ command: "claude", prefixArgs: [] });
 
-/** NDJSON 줄을 stdout 으로 흘리고 close/error/kill 을 제어하는 fake child. (pi 테스트와 동형) */
+/** NDJSON 줄을 stdout 으로 흘리고 close/error/kill 을 제어하는 fake child. (codex 테스트와 동형) */
 function fakeNdjson() {
   let stdoutCb: ((b: Buffer) => void) | undefined;
   const handlers: Record<string, (...a: unknown[]) => void> = {};

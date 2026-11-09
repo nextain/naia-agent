@@ -29,8 +29,8 @@ async function drain(events: AsyncIterable<SubAgentEvent>): Promise<SubAgentEven
 }
 
 describe("subagent-roster 계약 (2b, AC6)", () => {
-  it("'pi' → 실 pi 어댑터(주입 bin/spawn 으로 세션 생성 — session_end{ok:true})", async () => {
-    const port = selectSubAgent("pi", { pi: { resolveBin: fixedBin("pi"), spawnFn: closingSpawn() } });
+  it("'codex' → 실 codex 어댑터(주입 bin/spawn 으로 세션 생성 — session_end{ok:true})", async () => {
+    const port = selectSubAgent("codex", { codex: { resolveBin: fixedBin("codex"), spawnFn: closingSpawn() } });
     const events = await drain(port.spawn({ prompt: "x", workdir: "/tmp/w" }).events);
     expect(events.at(-1)?.kind).toBe("session_end");
     expect((events.at(-1) as Extract<SubAgentEvent, { kind: "session_end" }>).ok).toBe(true);
@@ -75,12 +75,12 @@ describe("subagent-roster 계약 (2b, AC6)", () => {
     expect(events).toHaveLength(1);
     expect(events[0].ok).toBe(false);
     expect(events[0].reason).toContain("unknown");
-    expect(events[0].reason).toContain("pi, opencode, shell"); // 안내
+    expect(events[0].reason).toContain("codex, opencode, shell"); // 안내
   });
 
   it("roster 목록: supported = declared (전원 구현됨, 2026-06-29 SPEC-010 확장)", () => {
-    expect(SUPPORTED_SUBAGENTS).toEqual(["pi", "opencode", "shell", "claude-code", "codex", "gemini", "grok"]);
-    expect(DECLARED_SUBAGENTS).toEqual(["pi", "opencode", "shell", "claude-code", "codex", "gemini", "grok"]);
+    expect(SUPPORTED_SUBAGENTS).toEqual(["codex", "opencode", "shell", "claude-code", "gemini", "grok"]);
+    expect(DECLARED_SUBAGENTS).toEqual(["codex", "opencode", "shell", "claude-code", "gemini", "grok"]);
     for (const s of SUPPORTED_SUBAGENTS) expect(DECLARED_SUBAGENTS).toContain(s);
     // supported ⊆ declared 이고 둘의 차집합 없음 = deferred 잔여 0
   });

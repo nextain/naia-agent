@@ -6,8 +6,11 @@ import type { AgentIngressPort, AgentEgressPort } from "../ports/uc1.js";
 import type { AgentRequest, AgentEmit, ChatMessage, ProviderConfig, ThinkingLevel } from "../domain/chat.js";
 
 // ── provider → 기본 모델 / api-key env 이름 (login·auto-detect·flag 기본값) ──
-// 기본 모델: naia main=gemini-3.1-flash-lite, anthropic=claude-sonnet-4-6(메모리 정본). 그 외는 --model 필수.
+// 기본 모델: codex=gpt-5.4, naia main=gemini-3.1-flash-lite, anthropic=claude-sonnet-4-6(메모리 정본). 그 외는 --model 필수.
 export const PROVIDER_DEFAULT_MODEL: Readonly<Record<string, string>> = {
+  codex: "gpt-5.4",
+  "codex-ax": "gpt-5.4",
+  "codex-exec": "gpt-5.4",
   anthropic: "claude-sonnet-4-6",
   gemini: "gemini-3.1-flash-lite",
 };

@@ -214,7 +214,7 @@ describe("adapters/memory-skill contract tests (skill_memory_recall)", () => {
   });
 
   it("sanitizeText masks secrets before clip: 490 filler chars followed by key never produces substring longer than 6 chars", async () => {
-    const key = "sk-proj-ABCdef1234567890XYZabc";
+    const key = "sk-proj-" + "ABCdef1234567890XYZabc";
     const text = "가".repeat(490) + key;
     const memory: Pick<MemoryPort, "recall"> = {
       recall: vi.fn(async () => ({

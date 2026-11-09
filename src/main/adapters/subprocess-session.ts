@@ -1,16 +1,19 @@
-// adapters/subprocess-session — sub-agent CLI(pi·opencode 등)를 subprocess 로 감싸는 **공유 세션 머신**.
+// adapters/subprocess-session — sub-agent CLI(codex·opencode 등)를 subprocess 로 감싸는 **공유 세션 머신**.
 //
-// pi/opencode 어댑터(줄단위 NDJSON 모델)가 동형(同型) 구조를 가져 중복을 한 곳으로: child stdout 줄단위 파싱 →
+// codex/opencode 어댑터(줄단위 NDJSON 모델)가 동형(同型) 구조를 가져 중복을 한 곳으로: child stdout 줄단위 파싱 →
 // SubAgentEvent 스트림(큐+waiter 백프레셔), session_end 정확히 1회, late-stdout race 가드, 64MiB 단일줄 가드,
 // cancel=SIGTERM→유예→SIGKILL. 어댑터별로 다른 것은 (1) bin/args (2) `lineToEvent`(줄 → 이벤트) (3) 라벨뿐.
 // (subagent-shell 은 raw-chunk 모델의 독립 레퍼런스 — 줄 모델로의 통합은 동작변경이라 후속 검토 대상.)
 //
 // ⚠️ child_process 는 adapters 안에서만(import-boundary 강제). PID·SIGTERM·exit code 는 여기서 끝난다.
 import { spawn, execSync, type ChildProcess } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { dirname, isAbsolute } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, isAbsolute, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { SubAgentEvent, SubAgentModelEvidence } from "../domain/orchestration.js";
 import type { SubAgentSession } from "../ports/orchestration.js";
+
+const DEFAULT_PACKAGE_ROOT = fileURLToPath(new URL("../../..", import.meta.url));
 
 export const DEFAULT_HARD_KILL_DEADLINE_MS = 500; // 구 contract C12 — SIGTERM 후 이 유예 내 미종료 시 SIGKILL.
 const MAX_LINE_BYTES = 64 * 1024 * 1024; // 단일 줄 상한(>64MiB = 비정상/DoS) — 구판 P0-3.
@@ -128,20 +131,90 @@ export function resolveSpawnableBin(picked: string): ResolvedBin {
   return { command: picked, prefixArgs: [] };
 }
 
-/**
- * `"npx"` 같은 fallback 명령을 spawn 가능한 ResolvedBin 으로 해석. CLI 미설치 시 어댑터들이 npx fallback
- * 을 쓰는데, Windows 에선 `npx` 가 확장자 없어 spawn 불가(ENOENT/EINVAL). `where` 로 찾아 shim 해석
- * (npx.cmd → node + npx-cli.js). non-Windows / 해석 실패 시 명령 그대로.
- */
-export function resolveFallbackCommand(command: string): ResolvedBin {
-  if (process.platform === "win32" && !/\.[a-z0-9]+$/i.test(command)) {
-    try {
-      const r = execSync(`where ${command}`, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true }).trim();
-      const picked = pickSpawnableBin(r.split(/\r?\n/));
-      if (picked) return resolveSpawnableBin(picked);
-    } catch {
-      /* fall through — 명령 그대로 반환(호출처가 정직 unsupported 로 처리) */
+export interface ResolveCommandOptions {
+  readonly env?: NodeJS.ProcessEnv;
+  readonly packageRoot?: string;
+  readonly platform?: NodeJS.Platform;
+  readonly pathLookup?: () => string | null;
+}
+
+export function validateCodexBin(raw: string | undefined): string | undefined {
+  if (!raw || raw.trim().length === 0) return undefined;
+  const trimmed = raw.trim();
+  if (trimmed.includes("\0")) throw new Error(`CODEX_BIN contains null byte — refusing to spawn (injection guard)`);
+  if (!isAbsolute(trimmed)) {
+    throw new Error(`CODEX_BIN must be an absolute path (got: ${trimmed.slice(0, 60)}) — set full path e.g. /usr/local/bin/codex`);
+  }
+  return trimmed;
+}
+
+export function findPackageLocalBin(
+  command: string,
+  packageRoot: string = DEFAULT_PACKAGE_ROOT,
+  platform: NodeJS.Platform = process.platform,
+): string | null {
+  const binDir = join(packageRoot, "node_modules", ".bin");
+  const candidates = platform === "win32"
+    ? [`${command}.cmd`, `${command}.exe`, `${command}.bat`, command]
+    : [command];
+  for (const name of candidates) {
+    const candidate = join(binDir, name);
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+export function findCommandInPath(
+  command: string,
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): string | null {
+  const pathRaw = env.PATH ?? env.Path ?? "";
+  const sep = platform === "win32" ? ";" : ":";
+  const candidates = platform === "win32"
+    ? [`${command}.cmd`, `${command}.exe`, `${command}.bat`, command]
+    : [command];
+  for (const dir of pathRaw.split(sep)) {
+    const trimmed = dir.trim();
+    if (!trimmed) continue;
+    for (const name of candidates) {
+      const full = join(trimmed, name);
+      if (existsSync(full)) return full;
     }
+  }
+  const cmd = platform === "win32" ? `where ${command}` : `which ${command}`;
+  try {
+    const result = execSync(cmd, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
+      env,
+    }).trim();
+    return pickSpawnableBin(result.split(/\r?\n/));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `"codex"` / `"npx"` 등을 spawn 가능한 ResolvedBin 으로 해석.
+ * 탐색 순서: (codex의 경우 CODEX_BIN) → 패키지 내부 `node_modules/.bin/<command>` → 시스템 `PATH`.
+ * CLI 미설치 시 Windows 에선 확장자 없는 명령이 spawn 불가하므로 shim 해석을 수행하고, 해석 실패 시 명령 그대로 반환.
+ */
+export function resolveFallbackCommand(command: string, opts?: ResolveCommandOptions): ResolvedBin {
+  const env = opts?.env ?? process.env;
+  const platform = opts?.platform ?? process.platform;
+  const packageRoot = opts?.packageRoot ?? DEFAULT_PACKAGE_ROOT;
+  if (command === "codex") {
+    const validated = validateCodexBin(env["CODEX_BIN"]);
+    if (validated) return resolveSpawnableBin(validated);
+  }
+  const localBin = findPackageLocalBin(command, packageRoot, platform);
+  if (localBin) return resolveSpawnableBin(localBin);
+  const inPath = opts?.pathLookup ? opts.pathLookup() : findCommandInPath(command, env, platform);
+  if (inPath) return resolveSpawnableBin(inPath);
+  if (platform === "win32" && command === "codex") {
+    return { command: "codex.cmd", prefixArgs: [] };
   }
   return { command, prefixArgs: [] };
 }
@@ -159,7 +232,7 @@ export interface SpawnSessionSpec {
   readonly env?: NodeJS.ProcessEnv;
   readonly hardKillMs: number;
   readonly lineToEvent: LineToEvent;
-  /** 미가용/실패 메시지 prefix(예: "pi unavailable", "opencode unavailable"). */
+  /** 미가용/실패 메시지 prefix(예: "codex unavailable", "opencode unavailable"). */
   readonly label: string;
   /** Opt-in, redacted process-exit facts for a user-visible runner diagnostic. */
   readonly diagnostics?: boolean;

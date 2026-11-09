@@ -1,19 +1,28 @@
-import { spawnSync, type ChildProcess } from "node:child_process";
-import { readFileSync, rmSync, mkdtempSync, writeFileSync } from "node:fs";
+import type { ChildProcess } from "node:child_process";
+import { readFileSync, rmSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  buildUserOwnedPiModelsConfig, ensureUserOwnedPiConfig, type UserOwnedPiProvider,
+  buildUserOwnedCodexModelCatalog,
+  buildUserOwnedPiModelsConfig,
+  ensureUserOwnedPiConfig,
+  isBuiltInLocalProvider,
+  resolveLocalEngineBaseUrl,
+  type UserOwnedPiProvider,
 } from "../main/adapters/user-owned-pi-provider.js";
-import { makePiSubAgent, type SpawnFn } from "../main/adapters/subagent-pi.js";
+import { makeCodexSubAgent } from "../main/adapters/subagent-codex.js";
+import type { SpawnFn } from "../main/adapters/subprocess-session.js";
 
-const local: UserOwnedPiProvider = { id: "local-vllm", baseUrl: "http://127.0.0.1:8000/v1/",
-  models: [{ id: "naia-0.9-coding-24g", name: "Qwen3.6 27B local", contextWindow: 65_536, maxTokens: 4_096 }] };
+const local: UserOwnedPiProvider = {
+  id: "local-vllm",
+  baseUrl: "http://127.0.0.1:8000/v1/",
+  models: [{ id: "naia-0.9-coding-24g", name: "Qwen3.6 27B local", contextWindow: 65_536, maxTokens: 4_096 }],
+};
 const dirs: string[] = [];
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
-describe("user-owned Pi provider", () => {
+describe("user-owned and built-in local providers on Codex loopback bridge", () => {
   it("writes a zero-catalog-price loopback provider without inherited credentials", () => {
     const dir = mkdtempSync(join(tmpdir(), "naia-local-pi-")); dirs.push(dir);
     ensureUserOwnedPiConfig(local, dir);
@@ -22,6 +31,16 @@ describe("user-owned Pi provider", () => {
     expect(text).toContain('"contextWindow": 65536');
     expect(text).toContain('"input": 0');
     expect(text).not.toMatch(/NAIA_API_KEY|OPENAI_API_KEY/u);
+
+    const catalog = buildUserOwnedCodexModelCatalog(local);
+    expect(catalog.models[0]).toMatchObject({
+      slug: "naia-0.9-coding-24g",
+      context_window: 65_536,
+      use_responses_lite: false,
+      tool_mode: "direct",
+      experimental_supported_tools: [],
+      supports_search_tool: false,
+    });
   });
 
   it("rejects remote, credential-bearing, duplicate, and reserved provider declarations", () => {
@@ -33,44 +52,42 @@ describe("user-owned Pi provider", () => {
     expect(() => buildUserOwnedPiModelsConfig({ ...local, models: [local.models[0]!, local.models[0]!] })).toThrow(/unique/u);
   });
 
-  it("spawns the declared model with an isolated Pi config and no unrelated secrets", () => {
+  it("resolves built-in local engines (local, ollama, vllm, lmstudio) to loopback base URLs", () => {
+    expect(isBuiltInLocalProvider("ollama")).toBe(true);
+    expect(isBuiltInLocalProvider("vllm")).toBe(true);
+    expect(isBuiltInLocalProvider("lmstudio")).toBe(true);
+    expect(isBuiltInLocalProvider("local")).toBe(true);
+    expect(isBuiltInLocalProvider("openai")).toBe(false);
+    expect(resolveLocalEngineBaseUrl("ollama")).toBe("http://127.0.0.1:11434/v1");
+    expect(resolveLocalEngineBaseUrl("vllm")).toBe("http://127.0.0.1:8000/v1");
+    expect(resolveLocalEngineBaseUrl("lmstudio")).toBe("http://127.0.0.1:1234/v1");
+  });
+
+  it("spawns the declared user-owned model with Codex [model_providers.local-vllm] and no unrelated secrets", async () => {
     let captured: { args: readonly string[]; env?: NodeJS.ProcessEnv } | undefined;
-    const spawnFn: SpawnFn = (_command, args, options) => { captured = { args, env: options.env };
-      return { stdout: { on() {} }, stderr: { on() {} }, on() { return this; }, kill() { return false; } } as unknown as ChildProcess; };
+    const spawnFn: SpawnFn = (_command, args, options) => {
+      captured = { args, env: options.env };
+      return { stdout: { on() {} }, stderr: { on() {} }, on() { return this; }, kill() { return false; } } as unknown as ChildProcess;
+    };
     const dir = mkdtempSync(join(tmpdir(), "naia-local-pi-")); dirs.push(dir);
-    makePiSubAgent({ provider: "local-vllm", model: "naia-0.9-coding-24g", userOwnedProvider: local,
-      piConfigDir: dir, resolveBin: () => ({ command: "pi", prefixArgs: [] }), spawnFn,
-      env: { PATH: "bin", OPENAI_API_KEY: "must-not-leak", NAIA_API_KEY: "must-not-leak" } })
-      .spawn({ prompt: "inspect", workdir: ".", model: "naia-0.9-coding-24g", filesystemAccess: "read_only" });
-    expect(captured?.args).toContain("local-vllm");
-    expect(captured?.args).toContain("naia-0.9-coding-24g");
-    expect(captured?.args).toContain("read,grep,find,ls");
-    expect(captured?.env).toMatchObject({ PATH: "bin", PI_CODING_AGENT_DIR: dir });
+    const session = makeCodexSubAgent({
+      provider: "local-vllm",
+      model: "naia-0.9-coding-24g",
+      userOwnedProvider: local,
+      piConfigDir: dir,
+      resolveBin: () => ({ command: "codex", prefixArgs: [] }),
+      spawnFn,
+      env: { PATH: "bin", OPENAI_API_KEY: "must-not-leak", NAIA_API_KEY: "must-not-leak" },
+    }).spawn({ prompt: "inspect", workdir: ".", model: "naia-0.9-coding-24g", filesystemAccess: "read_only" });
+    await session.cancel("done");
+    expect(captured?.args).toEqual(expect.arrayContaining([
+      "-c", 'model_provider="local-vllm"',
+      "-c", 'model_providers.local-vllm.wire_api="responses"',
+      "--model", "naia-0.9-coding-24g",
+      "--sandbox", "read-only",
+    ]));
+    expect(captured?.env?.NAIA_BRIDGE_TOKEN).toBeUndefined();
     expect(captured?.env?.OPENAI_API_KEY).toBeUndefined();
     expect(captured?.env?.NAIA_API_KEY).toBeUndefined();
-  });
-
-  it("rejects a remote live-benchmark endpoint before catalog or model I/O", () => {
-    const run = spawnSync(process.execPath, [join(process.cwd(), "benchmark/run-user-owned-three-layer-live.mjs")], {
-      encoding: "utf8", timeout: 10_000, env: { ...process.env,
-        NAIA_LOCAL_OPENAI_BASE_URL: "https://example.com/v1", NAIA_LOCAL_RUNTIME_CONTAINER: "must-not-inspect" },
-    });
-    expect(run.status).not.toBe(0);
-    expect(run.stderr).toContain("must be credential-free loopback HTTP");
-    expect(run.stderr).not.toContain("local model catalog failed");
-  });
-
-  it("preserves an existing live result before endpoint or model I/O", () => {
-    const dir = mkdtempSync(join(tmpdir(), "naia-local-live-output-")); dirs.push(dir);
-    const output = join(dir, "canonical.json"); writeFileSync(output, "preserve-me");
-    const run = spawnSync(process.execPath,
-      [join(process.cwd(), "benchmark/run-user-owned-three-layer-live.mjs"), "--output", output], {
-        encoding: "utf8", timeout: 10_000, env: { ...process.env,
-          NAIA_LOCAL_OPENAI_BASE_URL: "http://127.0.0.1:1/v1", NAIA_LOCAL_RUNTIME_CONTAINER: "must-not-inspect" },
-      });
-    expect(run.status).not.toBe(0);
-    expect(run.stderr).toContain("live benchmark output path already exists");
-    expect(run.stderr).not.toContain("local model catalog failed");
-    expect(readFileSync(output, "utf8")).toBe("preserve-me");
   });
 });

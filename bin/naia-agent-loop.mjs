@@ -6,7 +6,7 @@ import process from "node:process";
 import { createInterface } from "node:readline";
 import { loadCredentialIntoProcess } from "./naia-agent-runtime.mjs";
 
-const HELP = `naia-agent loop — durable hybrid coding-session manager
+const HELP = `naia-agent loop — durable hybrid coding-session manager (Codex core)
 
 Usage:
   naia-agent loop serve  --config <json>
@@ -21,7 +21,7 @@ Usage:
 
 serve keeps one foreground Naia Agent control session alive. It accepts one JSON object per stdin
 line with {id, command, ...arguments} and emits one {id, ok, result|error} JSON object per line.
-The config pins state/workspace/worktree roots, a Codex Luna moderator, Azure-backed Pi roles, checks, concurrency,
+The config pins state/workspace/worktree roots, a Codex Luna moderator, Naia/local Codex roles, checks, concurrency,
 and durable USD/token/call limits. Discord and OpenCode are not used by this command.
 `;
 
@@ -38,12 +38,12 @@ if (args.length === 0 || args.includes("--help") || args.includes("-h")) {
     if (!configPath) throw new CliUsageError("--config is required");
     const config = JSON.parse(readFileSync(resolve(configPath), "utf8"));
     if (["serve", "start", "answer", "cancel", "pump"].includes(command)) loadCredentialIntoProcess("naia");
-    const { makePiContinuousLoop } = await import(new URL("../dist/main/composition/pi-continuous-loop.js", import.meta.url).href);
-    loop = makePiContinuousLoop(config);
+    const { makeCodexContinuousLoop } = await import(new URL("../dist/main/composition/codex-continuous-loop.js", import.meta.url).href);
+    loop = makeCodexContinuousLoop(config);
     if (command === "serve") {
-      const { runPiLoopControlSession } = await import(new URL("../dist/main/composition/pi-continuous-loop-control.js", import.meta.url).href);
+      const { runCodexLoopControlSession } = await import(new URL("../dist/main/composition/codex-continuous-loop-control.js", import.meta.url).href);
       const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
-      await runPiLoopControlSession(loop, config, input,
+      await runCodexLoopControlSession(loop, config, input,
         (response) => process.stdout.write(`${JSON.stringify(response)}\n`));
     }
     else process.stdout.write(`${JSON.stringify(await dispatchOneShot(loop, config, command, args), null, 2)}\n`);

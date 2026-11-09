@@ -38,7 +38,7 @@ export function makeIssueTeamRoleExecutor(options: IssueTeamRoleExecutorOptions)
               if (Buffer.byteLength(pendingText, "utf8") + Buffer.byteLength(event.text, "utf8") > 64 * 1024) { overflow = true; return; }
               pendingText += event.text;
             } else if (event.kind === "model_evidence" && pendingText.length > 0) {
-              // Pi emits one model_evidence after each assistant message. Tool-using agents may narrate before
+              // Agents emit model_evidence after assistant turns. Tool-using agents may narrate before
               // a tool call; only the final assistant message is the role-result contract payload.
               text = pendingText; pendingText = "";
             }
@@ -62,8 +62,8 @@ export function makeIssueTeamRoleExecutor(options: IssueTeamRoleExecutorOptions)
         outputTokens: evidence.usageAvailable === true ? evidence.outputTokens : 0,
         latencyMs: Math.max(0, (options.nowMs ?? Date.now)() - startedAt),
         ...(evidence.modelEvidenceSource ? { modelEvidenceSource: evidence.modelEvidenceSource } : {}),
-        ...(evidence.piEstimatedCost !== undefined
-          ? { estimatedCostUsd: evidence.piEstimatedCost, estimatedCostSource: "pi_catalog" as const } : {}),
+        ...(evidence.estimatedCostUsd !== undefined
+          ? { estimatedCostUsd: evidence.estimatedCostUsd, estimatedCostSource: "catalog" as const } : {}),
         ...(evidence.gatewayBillingReceipts ? { gatewayBillingReceipts: evidence.gatewayBillingReceipts } : {}),
         cost: evidence.usageAvailable === true && evidence.measuredCostUsd !== undefined
           ? { state: "measured", usd: evidence.measuredCostUsd, source: evidence.gatewayBillingReceipts

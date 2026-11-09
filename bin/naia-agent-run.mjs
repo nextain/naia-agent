@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // naia-agent-run — UC-CLI(S2 supervisor mode) **host 진입점**. naia-os 없이 터미널에서 단독으로
-// naia-agent 오케스트레이션을 구동한다: 작업 지시 → sub-agent(shell/pi/opencode) spawn → 이벤트 스트림 +
+// naia-agent 오케스트레이션을 구동한다: 작업 지시 → sub-agent(codex/shell/opencode) spawn → 이벤트 스트림 +
 // (옵션)워크스페이스 감시 + (옵션)검증 → 정직한 숫자 리포트. Ctrl+C = 안전 중단(SIGTERM→유예→SIGKILL).
 //
 // 순수 로직(argv 파싱·이벤트/리포트 렌더·exit code)은 dist/main/app/cli-supervise. 여기선 process I/O·
@@ -34,18 +34,21 @@ if (!parsed.ok) {
 }
 const a = parsed.args;
 const workdir = a.workdir === "." ? process.cwd() : a.workdir;
-if (a.agent === "pi") loadCredentialIntoProcess("naia", cliConfig);
+if (a.agent === "codex") loadCredentialIntoProcess("naia", cliConfig);
 
 // shell sub-agent 는 command 가 필요(roster 계약) — host 가 platform 셸을 주입(`/bin/sh -c <prompt>` / `cmd /c`).
-// pi/opencode 는 roster 기본(미주입). 미지/deferred 이름은 supervisor 가 정직 unsupported 로 표면화(AC6).
+// codex/opencode 는 roster 기본(미주입). 미지/deferred 이름은 supervisor 가 정직 unsupported 로 표면화(AC6).
 const shellOpts =
   a.agent === "shell"
     ? process.platform === "win32"
       ? { shell: { command: "cmd", args: (t) => ["/c", t.prompt] } }
       : { shell: { command: "/bin/sh", args: (t) => ["-c", t.prompt] } }
     : undefined;
-const subAgentOpts = shellOpts ?? (a.agent === "pi" ? {
-  pi: { ...(a.model ? { model: a.model } : {}), noTools: a.noTools },
+const subAgentOpts = shellOpts ?? (a.agent === "codex" && (a.model || a.noTools) ? {
+  codex: {
+    ...(a.model ? { model: a.model } : {}),
+    ...(a.noTools ? { noTools: true } : {}),
+  },
 } : undefined);
 
 const controller = new AbortController();
@@ -101,7 +104,12 @@ const sup = wireSupervisor({
 
 try {
   await sup.run(
-    { prompt: a.prompt, workdir, ...(a.model !== undefined ? { model: a.model } : {}) },
+    {
+      prompt: a.prompt,
+      workdir,
+      ...(a.model !== undefined ? { model: a.model } : {}),
+      ...(a.noTools ? { filesystemAccess: "read_only" } : {}),
+    },
     controller.signal,
     egress,
   );

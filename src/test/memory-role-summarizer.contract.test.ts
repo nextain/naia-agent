@@ -128,3 +128,63 @@ it("approves an opaque main CLI as the selected provider and model before execut
   expect(approved).toEqual([expect.objectContaining({ provider: "codex", model: "main", endpoint })]);
   expect(calls).toEqual(["executed"]);
 });
+
+
+describe("R17 immediate facts survive a new conversation", () => {
+  for (const embedded of [false, true]) {
+    it(`A → fact list → close/reopen → B (embedding=${embedded})`, async () => {
+      const { readFile } = await import("node:fs/promises");
+      const { selectRecallByThreshold } = await import("../main/domain/surfacing.js");
+      const testDir = join(tmpdir(), `r17-${randomUUID()}`);
+      await mkdir(testDir, { recursive: true });
+      const storePath = join(testDir, "store.json");
+      const facts = ["내 할 일은 제안서 작성", "다음 주 보라 님 답사 간다"];
+      const models: string[] = [];
+      const fakeLlm = vi.fn(async (_url: string, init: { body: string }) => {
+        const body = JSON.parse(init.body);
+        models.push(body.model);
+        if (body.model === "unreachable-small") throw new Error("connection refused");
+        return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: JSON.stringify({ "1": facts }) } }] }) };
+      });
+      const extract = buildRoleMemoryExtractor({ provider: "vllm", model: "unreachable-small", baseUrl: "http://127.0.0.1:1/v1" }, { provider: "vllm", model: "main", baseUrl: "http://127.0.0.1:8031/v1" }, fakeLlm, () => {});
+      const embedding = { name: "fake-r17", dims: 3, embeddingSpaceId: "fake-r17-v1", embed: vi.fn(async () => [1, 0, 0]), embedBatch: vi.fn(async (texts: string[]) => texts.map(() => [1, 0, 0])) };
+      const opts = { project: "r17", storePath, consolidateOnSave: true, ...(embedded ? { embeddingProvider: embedding } : {}) };
+      let memory = makeNaiaMemory({ ...opts, sessionId: "A", roleExtractor: extract });
+      try {
+        await memory.ready();
+        await memory.save(facts.join(". "), "기억할게요", { durable: true, authorizeAndDisclose: async () => true });
+        // Do not advance the clock or wait five minutes. UI reads this same file.
+        const persisted = JSON.parse(await readFile(storePath, "utf8"));
+        expect(persisted.facts.map((f: { content: string }) => f.content)).toEqual(expect.arrayContaining(facts));
+        expect(persisted.episodes.filter((e: { role: string; consolidated: boolean }) => e.role === "user" && !e.consolidated)).toHaveLength(0);
+        expect(models).toEqual(["unreachable-small", "main"]);
+        if (embedded) expect(embedding.embed).toHaveBeenCalled();
+        await memory.close();
+        memory = makeNaiaMemory({ ...opts, sessionId: "B" });
+        await memory.ready();
+        const recalled = await memory.recall("내 할 일 뭐였지?", { touch: false, topK: 20 });
+        const selected = selectRecallByThreshold(recalled, "내 할 일 뭐였지?", { threshold: 0.86, maxItems: 3, keywordOnly: !embedded });
+        expect(selected.memory.facts).toContain(facts[0]);
+        const { formatRecalledMemory } = await import("../main/domain/memory.js");
+        expect(formatRecalledMemory(selected.memory)).toContain(facts[0]);
+        const { ChatTurnHandler } = await import("../main/app/chat-turn-handler.js");
+        const { makeInMemoryCredentials } = await import("../main/composition/index.js");
+        const { makeInMemoryApproval } = await import("../main/adapters/approval.js");
+        const output: string[] = [];
+        const handler = new ChatTurnHandler({
+          provider: { async *chat(_config, _messages, options) {
+            yield { kind: "text", text: options.systemPrompt?.includes(facts[0]) ? "제안서 작성이 할 일이었어요." : "기억이 없어요." };
+            yield { kind: "finish" };
+          } },
+          conversation: { assemble: r => ({ messages: r.messages, systemPrompt: r.systemPrompt }) },
+          credentials: makeInMemoryCredentials(), approval: makeInMemoryApproval(),
+          egress: { emit: (_id, event) => { if (event.kind === "text") output.push(event.text); } },
+          diag: { log: () => {} }, memory,
+          surfacer: { mode: () => "on-threshold", policy: () => ({ threshold: 0.86, maxItems: 3, keywordOnly: !embedded }), consume: () => undefined, schedule: () => {}, close: async () => {} },
+        });
+        await handler.onChatRequest({ kind: "chat", requestId: "B", provider: { provider: "vllm", model: "main" }, sessionId: "B", messages: [{ role: "user", content: "내 할 일 뭐였지?" }] });
+        expect(output.join("")).toContain("제안서 작성");
+      } finally { await memory.close(); await rm(testDir, { recursive: true, force: true }); }
+    });
+  }
+});

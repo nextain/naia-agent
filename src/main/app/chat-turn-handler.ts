@@ -4,7 +4,21 @@ import type {
   ChatRequest, CancelRequest, ApprovalResponse, CredsUpdate, ChatTurnState, ChatMessage, ToolCall, ToolSpec, ToolProcessing, ProviderConfig, WireErrorCode,
   ToolExecutionResult,
 } from "../domain/chat.js";
-import { mapProviderChunk, threadToolRound, estimateMessageTokens, resolveTurnThinking, normalizeAvatarThinkingTag, flushAvatarThinkingTag } from "../domain/chat.js";
+import {
+  mapProviderChunk,
+  threadToolRound,
+  estimateMessageTokens,
+  resolveTurnThinking,
+  normalizeAvatarThinkingTag,
+  flushAvatarThinkingTag,
+  ALLOWED_RUNTIME_TOOL_TIERS,
+  isGatedToolTier,
+  normalizeExternalToolSpec,
+  normalizeExternalToolTier,
+  resolveEffectiveToolTier,
+  resolveToolTierByName,
+} from "../domain/chat.js";
+import { classifyProcessingEndpoint } from "../domain/processing-policy.js";
 import { calculateCost } from "../domain/cost.js";
 import type {
   ProviderPort, ProviderResolverPort, ProcessingGuardPort, ConversationPort, CredentialPort, ApprovalPort, AgentEgressPort, DiagnosticLog, ToolExecutorPort, ProviderChatOpts, PersonaSourcePort, WorkspaceContextPort,
@@ -86,7 +100,7 @@ interface Turn { abort: AbortController; state: ChatTurnState; }
 const MAX_TOOL_ROUNDS = 8; // 허용 도구라운드 최대치(round 단위). cap-th 결과로 provider 1회 재호출 허용, 그게 또 도구면 error.
 const TOOL_EXEC_TIMEOUT_MS = 60_000; // per-tool 실행 deadline(UC5 리뷰): hung MCP/HTTP 도구가 turn 무한 hang 방지. 초과=isError(LLM 복구).
 const MEM_RECALL_TIMEOUT_MS = 5000; // recall bound — 무응답 시 주입 생략하고 턴 진행(terminal 항상 방출).
-const MEM_SAVE_TIMEOUT_MS = 5000;   // save bound — 무응답 시 finish/drain 영구정지 방지(timeout→로그 후 finish).
+const MEM_SAVE_TIMEOUT_MS = 30000;   // save bound — 로컬 사실 추출 시간을 허용하고 무응답은 유한하게 종료(timeout→로그 후 finish).
 // UC-compaction(FR-COMPACT) 기본값 — compaction 포트 주입 시에만 동작(미주입=압축 없음).
 const DEFAULT_COMPACT_THRESHOLD_TOKENS = 4000; // 추정 토큰 이 임계 초과 시 head 요약 시도.
 const DEFAULT_COMPACT_KEEP_TAIL = 6;           // 압축 시 원문 유지할 최근 메시지 수.
@@ -99,6 +113,22 @@ const CONTINUE_MAX_PAUSE_SECONDS = 30;
 const CONTINUE_MAX_UTTERANCES = 60;
 const CONTINUE_TOOL_RESULT_ACTIVATED = "continuous speaking activated";
 const CONTINUE_TOOL_RESULT_REJECTED = "continuous speaking rejected: explicit user request quote is missing or does not match the latest user message";
+
+/**
+ * 도구 tier 정규화 규칙(단일 진실 공급원 — domain/chat.ts 정의 재노출):
+ * - 조립 단계(composeBuiltinAndExternalToolExecutors/wrapExternalToolExecutor, wireAgentUC1, compose-agent-deps.mjs, agent-stdio-entry.mjs)는
+ *   내장 실행기와 바깥 실행기를 분리해 바깥 실행기를 한 곳에서 normalizeExternalToolSpec 래퍼로 감싸 미지정·비표준(T1/T2 등)을 "ask"로 수렴시킨다.
+ * - ChatTurnHandler 안에서는 도메인 계약(domain/chat.ts:38)에 따라 등록된 내장 도구의 미설정(undefined)/"none"은 "none"(자동)으로 구체화하고,
+ *   알려진 목록(tools)에 없는 도구 이름(spec === undefined / matches.length === 0)은 "ask"(승인 필요)로 판정한다.
+ */
+export {
+  ALLOWED_RUNTIME_TOOL_TIERS,
+  isGatedToolTier,
+  normalizeExternalToolSpec,
+  normalizeExternalToolTier,
+  resolveEffectiveToolTier,
+  resolveToolTierByName,
+};
 
 /** DeepSeek V4 Flash can report `stop` for a visibly incomplete response. */
 const DEEPSEEK_FINAL_TRAIL_DECO_RE = /[\s\p{Extended_Pictographic}\uFE00-\uFE0F\u200D｡•ᴗ·・~～〜ー☆★♥♡♪♫✦✧※❀]+$/u;
@@ -195,6 +225,7 @@ export function foldReasoningOnlyAnswer(thinking: string | undefined): string | 
 }
 
 export interface HandlerDeps {
+  readonly trustedToolsOnly?: boolean;
   /** 고정 provider(fallback/테스트). 라이브는 resolver 가 요청별 해석(우선). */
   readonly provider: ProviderPort;
   /** 요청별 provider 해석(config 기반 라우팅). 주입 시 runRound 가 resolver.resolve(cfg) 사용. */
@@ -301,6 +332,9 @@ export class ChatTurnHandler {
   }
 
   async onChatRequest(req: ChatRequest): Promise<void> {
+    // FR-CONV.6: filter before compaction, recall, surfacing and provider assembly.
+    req = { ...req, messages: req.messages.filter((m, i) => !m.appName ||
+      (!!req.appName && i === req.messages.length - 1 && m.role === "user" && m.appName === req.appName)) };
     if (this.turns.has(req.requestId)) {
       // 중복=requestId 고유성 불변식 위반(os §B.4.1). wire error emit 금지(기존 활성턴 종료 방지) — 진단 로그만.
       this.d.diag.log("duplicate requestId — 무시", req.requestId);
@@ -439,6 +473,10 @@ export class ChatTurnHandler {
         expectedRole?: "memory" | "main",
       ) => {
         if (memoryTransmission && !req.processing) {
+          // The configured loopback memory model stays on this device, like the
+          // main local conversation. Keep external/unknown destinations gated.
+          const destination = classifyProcessingEndpoint(expectedEndpoint);
+          if (destination.ok && destination.destination === "local_device") return true;
           const toolCallId = `memory-processing-${++memoryApprovalSequence}`;
           const approvalSignal = AbortSignal.any([signal, requestSignal ?? AbortSignal.timeout(this.d.memoryTimeoutMs ?? MEM_SAVE_TIMEOUT_MS)]);
           const { promise, dispose } = this.d.approval.prepareDecision(req.requestId, toolCallId, { signal: approvalSignal });
@@ -473,6 +511,7 @@ export class ChatTurnHandler {
         }
         if (errors.length < 4) errors.push({ operation, error });
         this.memoryRoleErrors.set(req.requestId, errors);
+        if (operation === "extraction") emit({ kind: "logEntry", level: "warn", message: "MEMORY_EXTRACTION_FAILED: 사실 추출 실패, 대화 원문은 보존됩니다" });
         const status = error && typeof error === "object" && "status" in error && typeof error.status === "number" ? error.status : undefined;
         this.d.diag.log("memory model attempt failed", status === undefined ? { reason: "request_failed" } : { reason: "http_error", status });
       };
@@ -536,22 +575,28 @@ export class ChatTurnHandler {
       const allSpecs = exec?.specs() ?? [];
       const externalTools = req.enableTools === false
         ? []
-        : allSpecs.filter((s) => {
-            if (s.name === CONTINUE_SPEAKING_TOOL_NAME) return false;
-            if ((req.disabledSkills ?? []).includes(s.name)) return false;
-            if ((s.name === "skill_memory_recall" || s.name === "skill_memory_save") && (!privatePersistenceAllowed || req.processing)) return false;
-            return true;
-          });
+        : allSpecs
+            .filter((s) => {
+              if (s.name === CONTINUE_SPEAKING_TOOL_NAME) return false;
+              if ((req.disabledSkills ?? []).includes(s.name)) return false;
+              if ((s.name === "skill_memory_recall" || s.name === "skill_memory_save") && (!privatePersistenceAllowed || req.processing)) return false;
+              return true;
+            })
+            .map((s) => (s.tier === undefined ? { ...s, tier: resolveEffectiveToolTier(s) } : s));
       if (
         req.enableTools !== false &&
         this.d.memory &&
         this.d.toolExecutor &&
         privatePersistenceAllowed &&
         !req.processing &&
+        !this.d.trustedToolsOnly &&
         !(req.disabledSkills ?? []).includes("skill_memory_save") &&
         !externalTools.some((s) => s.name === "skill_memory_save")
       ) {
-        externalTools.push(MEMORY_SAVE_TOOL_SPEC);
+        externalTools.push({
+          ...MEMORY_SAVE_TOOL_SPEC,
+          tier: resolveEffectiveToolTier(MEMORY_SAVE_TOOL_SPEC),
+        });
       }
       const tools = req.enableTools === false ? [] : [CONTINUE_SPEAKING_TOOL, ...externalTools];
 
@@ -642,11 +687,8 @@ export class ChatTurnHandler {
       let nativeProcessingDenied: { message: string; code?: WireErrorCode } | undefined;
       const continuationClock = this.d.continuationClock ?? DEFAULT_CONTINUATION_CLOCK;
       const usedCids = new Set<string>(); // turn-unique correlation id (D-I7)
-      // tier 조회: name 매치 중 gated(none 아님) 있으면 그 tier(승인필요), 없으면 "none". 미등록=none. (중복 매치=보수적 gated 우선)
-      const tierOf = (name: string): string => {
-        const gated = tools.find((s) => s.name === name && s.tier !== undefined && s.tier !== "none");
-        return gated?.tier ?? "none";
-      };
+      // tier 조회: 공용 resolveToolTierByName 사용 — 도메인 등록 도구의 미설정/"none"=무승인, 바깥 경계 정규화 도구·미등록 이름="ask"(승인필요). (중복 매치=보수적 gated 우선)
+      const tierOf = (name: string): string => resolveToolTierByName(tools, name, CONTINUE_SPEAKING_TOOL_NAME);
       // cid: call.id 가 used 면 round 접미사, 그것도 used 면 counter — unused 까지 반복(loop-until-unused, §D).
       const turnCid = (id: string): string => {
         if (!usedCids.has(id)) { usedCids.add(id); return id; }
@@ -720,7 +762,7 @@ export class ChatTurnHandler {
         }
         if (privatePersistenceAllowed && this.d.conversationLog && currentUserMsg) {
           try {
-            await this.d.conversationLog.append({ sessionId: req.sessionId ?? "default", userText: lastUserText, assistantText: assistantTurnParts.join("\n") });
+            await this.d.conversationLog.append({ sessionId: req.sessionId ?? "default", userText: lastUserText, assistantText: assistantTurnParts.join("\n"), ...(req.appName ? { appName: req.appName } : {}) });
           } catch (e) { this.safeDiag("transcript append 실패(턴 유지)", e); }
         }
         if (pricingReady) await raceTimeout(pricingReady, 5000);
@@ -994,10 +1036,49 @@ export class ChatTurnHandler {
   ): Promise<RoundResult> {
     // 요청별 provider 해석(resolver 주입 시) — config(provider/model/naiaKey)로 라우팅. 미주입=고정 provider(fallback/테스트).
     const provider = this.d.resolver ? this.d.resolver.resolve(cfg) : this.d.provider;
+    const ALLOWED_NATIVE_TOOL_TIERS = ALLOWED_RUNTIME_TOOL_TIERS;
     const executeTool = (this.d.toolExecutor || this.d.memory)
       ? async (call: ToolCall): Promise<ToolExecutionResult> => {
-          const spec = tools?.find((candidate) => candidate.name === call.name && (candidate.tier === undefined || candidate.tier === "none"));
-          if (!spec) return { output: `provider-native tool '${call.name}' is not authorized`, isError: true };
+          const spec = tools?.find(
+            (candidate) =>
+              candidate.name === call.name
+              && candidate.name !== CONTINUE_SPEAKING_TOOL_NAME
+              && ALLOWED_NATIVE_TOOL_TIERS.has(resolveEffectiveToolTier(candidate)),
+          );
+          const tier = resolveToolTierByName(tools, call.name);
+          if (!spec || !ALLOWED_NATIVE_TOOL_TIERS.has(tier)) {
+            return { output: `provider-native tool '${call.name}' is not authorized`, isError: true };
+          }
+          if (tier !== "none") {
+            // 승인 대기는 raceAbort(..., TOOL_EXEC_TIMEOUT_MS) 호출 전에 수행해 승인 대기 중 도구 실행 타이머가 만료되지 않게 한다(897-915줄 패턴).
+            if (signal.aborted) throw new Error("cancelled");
+            const { promise, dispose } = this.d.approval.prepareDecision(requestId, call.id, { signal });
+            void promise.catch(() => {});
+            if (signal.aborted) {
+              dispose();
+              throw new Error("cancelled");
+            }
+            let decision: "approve" | "reject" = "reject";
+            try {
+              nativeEmit({
+                kind: "approvalRequest",
+                toolCallId: call.id,
+                toolName: call.name,
+                tier,
+                args: call.args,
+                description: spec.description ?? "",
+              });
+              decision = await promise;
+            } catch {
+              decision = "reject";
+            } finally {
+              dispose();
+            }
+            if (signal.aborted) throw new Error("cancelled");
+            if (decision === "reject") {
+              return { output: "도구 호출이 거부되었습니다", isError: true };
+            }
+          }
           if (call.name === "skill_memory_save" && (!this.d.toolExecutor || !this.d.toolExecutor.specs().some((s) => s.name === "skill_memory_save"))) {
             if (!this.d.memory || typeof this.d.memory.save !== "function") {
               return { output: "memory save unavailable (memory port 미지원)", isError: true };
@@ -1049,6 +1130,7 @@ export class ChatTurnHandler {
         }
       : undefined;
     const stream = provider.chat(cfg, messages, {
+      requestId,
       ...(systemPrompt !== undefined ? { systemPrompt } : {}),
       signal,
       ...(tools && tools.length ? { tools } : {}),

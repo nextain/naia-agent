@@ -278,7 +278,118 @@ describe("FR-MEM-21 memory consolidation contract (nextain/naia-agent#141)", () 
     const compose = readFileSync(new URL("../../scripts/builds/compose-agent-deps.mjs", import.meta.url), "utf8");
     expect(compose).toContain("NAIA_MEMORY_CONSOLIDATION");
     expect(compose).toContain("memory consolidation failed");
-    expect(compose).toContain("consolidation: {}");
+    expect(compose).toContain("consolidateOnSave: consolidationOn");
     expect(compose).toContain("nextMemoryRuntime?.ok");
   });
+});
+
+it("S-MEM-SAVE-026 composed completed turns extract immediately and recall after restart", async () => {
+  const { createServer } = await import("node:http");
+  const { mkdirSync } = await import("node:fs");
+  // @ts-expect-error runtime composition MJS
+  const { composeAgentRuntimeDeps } = await import("../../scripts/builds/compose-agent-deps.mjs");
+  const { ChatTurnHandler } = await import("../main/app/chat-turn-handler.js");
+  const { makeInMemoryApproval } = await import("../main/adapters/approval.js");
+  const { makeInMemoryCredentials } = await import("../main/composition/index.js");
+  let extracts = 0, embeddings = 0, fail = false;
+  const { OfflineEmbeddingProvider } = await import("@nextain/naia-memory");
+  const vector = () => { embeddings++; return Array.from({ length: 384 }, (_, i) => i === 0 ? 1 : 0); };
+  const embed = vi.spyOn(OfflineEmbeddingProvider.prototype, "embed").mockImplementation(async () => vector());
+  const batch = vi.spyOn(OfflineEmbeddingProvider.prototype, "embedBatch").mockImplementation(async (texts) => texts.map(vector));
+  const server = createServer(async (req, res) => {
+    let raw = ""; for await (const chunk of req) raw += chunk;
+    const body = JSON.parse(raw);
+    res.setHeader("Content-Type", "application/json");
+    if (req.url?.endsWith("/embeddings")) {
+      embeddings++;
+      res.end(JSON.stringify({ data: (Array.isArray(body.input) ? body.input : [body.input]).map(() => ({ embedding: [1, 0, 0] })) }));
+    } else {
+      extracts++;
+      if (fail) { res.statusCode = 503; res.end('{"error":"fixture unavailable"}'); return; }
+      res.end(JSON.stringify({ choices: [{ message: { content: '{"1":["사용자의 비밀 코드명은 MemoryCanary026이다"]}' } }] }));
+    }
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const addr = server.address() as import("node:net").AddressInfo;
+  const baseUrl = `http://127.0.0.1:${addr.port}/v1`;
+  const dir = mkdtempSync(join(tmpdir(), "composed-memory-"));
+  mkdirSync(join(dir, "naia-settings"));
+  writeFileSync(join(dir, "naia-settings/config.json"), JSON.stringify({ provider: "fake", model: "test", llmRoles: { memory: { provider: "vllm", model: "qwen-test", baseUrl } }, memorySurfacingJudge: "threshold", memoryEmbeddingProvider: "offline", memoryOfflineModel: "all-MiniLM-L6-v2" }));
+  const env = { NAIA_ADK_PATH: dir, AGENT_PROVIDER: "fake", NAIA_AGENT_SKILLS: "off", NAIA_AGENT_TRANSCRIPT: "off" };
+  let deps = await composeAgentRuntimeDeps({ homeDir: dir, env });
+  const events: unknown[] = [];
+  const prompts: string[] = [];
+  const approval = makeInMemoryApproval();
+  const handler = () => new ChatTurnHandler({ defaultConfig: deps.defaultConfig, memory: deps.memory, surfacer: deps.surfacer, provider: { async *chat(_config, _messages, opts) { prompts.push(opts.systemPrompt ?? ""); yield { kind: "text", text: "알겠어" }; yield { kind: "finish" }; } }, conversation: { assemble: (r) => ({ messages: r.messages, systemPrompt: r.systemPrompt }) }, credentials: makeInMemoryCredentials(), approval, egress: { emit: (id, e) => { events.push(e); if (e.kind === "approvalRequest") queueMicrotask(() => approval.resolve(id, e.toolCallId, "approve")); } }, diag: { log() {} } });
+  try {
+    const a = handler();
+    for (let n = 0; n < 4; n++) await a.onChatRequest({ kind: "chat", requestId: `A${n}`, sessionId: "A", messages: [{ role: "user", content: "내 비밀 코드명은 MemoryCanary026이야" }] });
+    expect(extracts).toBe(4);
+    expect(embeddings).toBeGreaterThan(0);
+    const store = JSON.parse(readFileSync(join(dir, "naia-settings/memory/store.json"), "utf8"));
+    expect(store.episodes).toHaveLength(8);
+    expect(store.facts.length).toBeGreaterThan(0);
+    await deps.memory.close();
+    deps = await composeAgentRuntimeDeps({ homeDir: dir, env });
+    expect((await deps.memory.recall("MemoryCanary026")).facts.join(" ")).toContain("MemoryCanary026");
+    // A fresh OS process loads the same persisted facts (no process-local cache).
+    const { execFile } = await import("node:child_process");
+    const { promisify } = await import("node:util");
+    const memoryUrl = new URL("../../dist/main/adapters/naia-memory.js", import.meta.url).href;
+    const { stdout } = await promisify(execFile)(process.execPath, ["--input-type=module", "-e", `
+      import { makeNaiaMemory } from ${JSON.stringify(memoryUrl)};
+      const m = makeNaiaMemory({ storePath: ${JSON.stringify(join(dir, "naia-settings/memory/store.json"))}, project: ${JSON.stringify(store.episodes[0].encodingContext.project)}, sessionId: "B" });
+      process.stdout.write(JSON.stringify(await m.recall("MemoryCanary026")));
+      await m.close();
+    `]);
+    expect(JSON.parse(stdout).facts.join(" ")).toContain("MemoryCanary026");
+    expect((await deps.reloadMemory(dir)).status).toContain("consolidation=on-save");
+    // A remote failure must surface as a shell-readable warning, retaining the turn.
+    fail = true;
+    await handler().onChatRequest({ kind: "chat", requestId: "B", sessionId: "B", messages: [{ role: "user", content: "내 코드명을 기억해 줘" }] });
+    expect(prompts.at(-1)).toContain("MemoryCanary026");
+    expect(events).toContainEqual(expect.objectContaining({ kind: "logEntry", level: "warn", message: expect.stringContaining("MEMORY_EXTRACTION_FAILED") }));
+  } finally {
+    await deps.memory.close();
+    for (const cleanup of [...deps.cleanupFns].reverse()) cleanup();
+    await new Promise<void>((r, reject) => server.close((e) => e ? reject(e) : r()));
+    embed.mockRestore(); batch.mockRestore();
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 30_000);
+
+it("explicit consolidation off overrides a configured extractor; missing authorization preserves pending episodes", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "save-extraction-policy-"));
+  const extract = vi.fn(async () => []);
+  try {
+    for (const enabled of [false, true]) {
+      const storePath = join(dir, `${enabled}.json`);
+      const memory = makeNaiaMemory({ project: "policy", storePath, consolidateOnSave: enabled, roleExtractor: extract });
+      try {
+        await memory.save("I like tea", "", enabled ? undefined : { authorizeAndDisclose: async () => true });
+        await memory.flush();
+        expect(extract).not.toHaveBeenCalled();
+        expect(JSON.parse(readFileSync(storePath, "utf8")).episodes[0].consolidated).toBe(false);
+      } finally { await memory.close(); }
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+it("immediate extraction failure reports its cause and retries fresh episodes on the next save", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "save-extraction-retry-"));
+  const events: MemoryConsolidationEvent[] = [];
+  const extract = vi.fn().mockRejectedValueOnce(new Error("fixture extraction 503")).mockImplementation(async (episodes: Episode[]) => [{ content: "User likes tea", entities: [], topics: [], importance: 0.8, maxEmotion: 0, sourceEpisodeIds: [episodes[0].id] }]);
+  const storePath = join(dir, "store.json");
+  const memory = makeNaiaMemory({ project: "retry", storePath, consolidateOnSave: true, roleExtractor: extract, onConsolidation: (e) => events.push(e) });
+  try {
+    const onRoleError = vi.fn();
+    await memory.save("I like tea", "", { authorizeAndDisclose: async () => true, onRoleError });
+    await memory.flush();
+    expect(onRoleError).toHaveBeenCalledOnce();
+    expect(events).toContainEqual({ phase: "failed", error: "fixture extraction 503" });
+    expect(JSON.parse(readFileSync(storePath, "utf8")).episodes[0].consolidated).toBe(false);
+    await memory.save("remember it", "", { authorizeAndDisclose: async () => true });
+    expect(extract).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(readFileSync(storePath, "utf8")).facts).toHaveLength(1);
+  } finally { await memory.close(); rmSync(dir, { recursive: true, force: true }); }
 });

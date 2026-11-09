@@ -2,7 +2,9 @@
 // recall = 시맨틱/키워드 검색 결과의 *원문*(facts/episodes content)을 반환 — 프롬프트 프레이밍·예산
 // 절단은 domain formatRecalledMemory 소유(adapter 는 데이터만). save = user/assistant encode.
 import {
+  buildLLMDeleteVerifier,
   buildLLMFactExtractor,
+  heuristicFactExtractor,
   buildLLMSummarizer,
   LocalAdapter,
   MemorySystem,
@@ -10,8 +12,10 @@ import {
   OfflineEmbeddingProvider,
   OpenAICompatEmbeddingProvider,
 } from "@nextain/naia-memory";
-import type { CompactionSummarizer, EmbeddingProvider, ExtractedFact, FactExtractor } from "@nextain/naia-memory";
+import type { CompactionSummarizer, DeleteVerifier, EmbeddingProvider, ExtractedFact, FactExtractor } from "@nextain/naia-memory";
 import type { SubLlmCallOptions } from "../ports/sub-llm.js";
+import { selectRecallByThreshold } from "../domain/surfacing.js";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ManagedMemoryPort, MemoryRecallOptions } from "../ports/memory.js";
@@ -91,6 +95,8 @@ export interface NaiaMemoryOpts {
   readonly llm?: MemoryLlmConfig;
   /** Agent가 provider/auth를 해석해 만든 좁은 포트. 지정하면 legacy llm config보다 우선한다. */
   readonly factExtractor?: FactExtractor;
+  /** 삭제 검증기("지워줘" 근거 확인). 지정하면 llm 설정보다 우선. 미지정이고 llm 이 있으면 같은 설정으로 buildMemoryDeleteVerifier 가 만든다. */
+  readonly deleteVerifier?: DeleteVerifier;
   readonly summarizer?: CompactionSummarizer;
   readonly roleSummarizer?: (input: Parameters<CompactionSummarizer>[0], authorize: NonNullable<SubLlmCallOptions["authorizeAndDisclose"]>) => ReturnType<CompactionSummarizer>;
   readonly consolidateOnSave?: boolean;
@@ -150,6 +156,23 @@ export function buildMemoryFactExtractor(cfg?: MemoryLlmConfig): FactExtractor |
   return buildLLMFactExtractor(options);
 }
 
+/** MemoryLlmConfig → DeleteVerifier(또는 undefined). 사실추출이 내보낸 삭제 연산("지워줘·더 이상 ~않다")은 검증기가
+ *  없으면 통합 단계에서 거부된다(메모리 켬 36문항 시험에서 삭제 축 6→2 의 원인). 검증기는 사실추출과 같은 LLM 설정을
+ *  쓰므로 독립 판정은 아니다 — 근거 문장·대상 문장의 결정론 검사는 삭제 지점에서 따로 돈다. */
+export function buildMemoryDeleteVerifier(cfg?: MemoryLlmConfig): DeleteVerifier | undefined {
+  if (!cfg || cfg.provider === "none") return undefined;
+  if (!cfg.baseUrl?.trim() || !cfg.model?.trim()) {
+    throw new Error(`memory llm(${cfg.provider}): baseUrl·model 은 필수다(deleteVerifier).`);
+  }
+  const options = {
+    apiKey: cfg.apiKey ?? "",
+    baseURL: memoryLlmBaseUrl(cfg.baseUrl),
+    model: cfg.model,
+    auth: cfg.auth ?? (cfg.provider === "naia" || cfg.provider === "nextain" ? "x-anyllm" : "bearer"),
+  } as Parameters<typeof buildLLMDeleteVerifier>[0] & { auth?: "bearer" | "x-anyllm" };
+  return buildLLMDeleteVerifier(options);
+}
+
 /** MemoryLlmConfig → CompactionSummarizer(또는 undefined=결정론 recap). factExtractor 와 같은 small-LLM 설정
  *  사용 — 사용자 비전 "라이트 모델이 요약작업". compaction recap 을 LLM 으로 polish, 실패 시 결정론 폴백(무손실). */
 export function buildMemorySummarizer(cfg?: MemoryLlmConfig): CompactionSummarizer | undefined {
@@ -186,6 +209,8 @@ export interface MemoryEmbeddingConfig {
   readonly apiKey?: string;
   /** OpenAI-compat 임베딩 모델명(provider="vllm"|"ollama" 필수). */
   readonly model?: string;
+  readonly dimensions?: number;
+  readonly deploymentRevision?: string;
   /** naia 게이트웨이 URL(provider="naia" 필수). */
   readonly naiaGatewayUrl?: string;
   /** naia 게이트웨이 키(provider="naia" 필수). */
@@ -211,13 +236,13 @@ export function buildEmbeddingProvider(cfg?: MemoryEmbeddingConfig): EmbeddingPr
       if (!cfg.baseUrl?.trim() || !cfg.model?.trim()) {
         throw new Error(`memory embedding(${cfg.provider}): baseUrl·model 은 필수다.`);
       }
-      return new OpenAICompatEmbeddingProvider(cfg.baseUrl, cfg.apiKey ?? "", cfg.model);
+      return new OpenAICompatEmbeddingProvider(cfg.baseUrl, cfg.apiKey ?? "", cfg.model, cfg.dimensions ?? 1536, cfg.deploymentRevision);
     }
     case "naia": {
       if (!cfg.naiaGatewayUrl?.trim() || !cfg.naiaKey?.trim()) {
         throw new Error("memory embedding(naia): naiaGatewayUrl·naiaKey 는 필수다.");
       }
-      return new NaiaGatewayEmbeddingProvider(cfg.naiaGatewayUrl, cfg.naiaKey);
+      return new NaiaGatewayEmbeddingProvider(cfg.naiaGatewayUrl, cfg.naiaKey, cfg.deploymentRevision);
     }
     default:
       return undefined;
@@ -250,7 +275,17 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
   // issue #7: os 메모리 UI 의 adapter/embedding 선택을 런타임에 반영(이전엔 LocalAdapter+키워드-only 하드코딩).
   // embedding 은 adapter 선택과 분리해 빌드(순수). provider 별 필수 누락 = throw(상위 entry 가 catch→기억 없이 격리).
   const embeddingProvider = opts.embeddingProvider ?? buildEmbeddingProvider(opts.embedding);
-  const rawFactExtractor = opts.factExtractor ?? buildMemoryFactExtractor(opts.llm);
+  // The pinned MemorySystem accepts constructor hooks, not per-call overrides.
+  // ALS carries only this save/compact call's authorization across awaits.
+  const extractionScope = new AsyncLocalStorage<FactExtractor>();
+  const summaryScope = new AsyncLocalStorage<CompactionSummarizer>();
+  const rawFactExtractor = opts.roleExtractor
+    ? async (episodes: Parameters<FactExtractor>[0]) => {
+        const extract = extractionScope.getStore();
+        if (!extract) throw new Error("MEMORY_EXTRACTION_NOT_AUTHORIZED");
+        return extract(episodes);
+      }
+    : opts.factExtractor ?? buildMemoryFactExtractor(opts.llm);
   const factExtractor: FactExtractor | undefined = rawFactExtractor
     ? async (episodes) => {
         const results: ExtractedFact[] = [];
@@ -269,7 +304,15 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
         return results;
       }
     : undefined;
-  const summarizer = opts.summarizer ?? buildMemorySummarizer(opts.llm);
+  const summarizer = opts.roleSummarizer
+    ? async (input: Parameters<CompactionSummarizer>[0]) => {
+        const summarize = summaryScope.getStore();
+        if (!summarize) throw new Error("MEMORY_SUMMARY_NOT_AUTHORIZED");
+        return summarize(input);
+      }
+    : opts.summarizer ?? buildMemorySummarizer(opts.llm);
+  // Agent 가 factExtractor 를 직접 주입했으면 legacy llm 설정은 무시된다(위 주석) — 검증기도 같은 규칙으로 llm 에서 만들지 않는다.
+  const deleteVerifier = opts.deleteVerifier ?? (opts.factExtractor ? undefined : buildMemoryDeleteVerifier(opts.llm));
   let sys: MemorySystem;
   let localAdapter: LocalAdapter | null = null;
   if (opts.adapter === "qdrant") {
@@ -291,6 +334,7 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
       embeddingProvider,
       ...(factExtractor ? { factExtractor } : {}),
       ...(summarizer ? { summarizer } : {}),
+      ...(deleteVerifier ? { deleteVerifier } : {}),
     });
   } else {
     // local: storePath 제어 위해 LocalAdapter 직접 생성(MemorySystem 내부 빌드는 storePath 미지정). embeddingProvider
@@ -306,6 +350,7 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
       adapter: localAdapter,
       ...(factExtractor ? { factExtractor } : {}),
       ...(summarizer ? { summarizer } : {}),
+      ...(deleteVerifier ? { deleteVerifier } : {}),
     });
   }
   // QdrantAdapter 는 비동기 initialize() 필요(recall/encode 는 내부적으로 _initPromise 대기 안 함).
@@ -450,6 +495,17 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
         scopeMode,
         ...(opts?.touch === false ? { touch: false } : {}),
       });
+      // Without vectors, inspect the most recent active facts within this exact
+      // workspace. Korean spacing/particles can defeat the backend BM25 query.
+      // Never revive archived/superseded facts or facts from another project.
+      if (!embeddingProvider && localAdapter) {
+        const now = Date.now();
+        const recent = (await localAdapter.semantic.getAll())
+          .filter(f => f.encodingContext?.project === project && (f.status ?? "active") === "active" && (f.validTo == null || f.validTo > now) && (f.validFrom == null || f.validFrom <= now))
+          .sort((a, b) => b.updatedAt - a.updatedAt).slice(0, RAW_MAX_ITEMS);
+        const picked = selectRecallByThreshold({ facts: recent.map(f => f.content), episodes: [] }, query, { threshold: 0.86, maxItems: Math.min(k, 5), keywordOnly: true }).memory.facts;
+        result.facts = recent.filter(f => picked.includes(f.content)).slice(0, k);
+      }
       // 포트 반환 상한(방어): 항목 수 k·각 content RAW_ITEM_CAP 자로 bound — 거대 반환이 동기 처리에서
       // 루프/메모리를 고갈시키는 것 차단(formatter 도 별도 cap). RAW_ITEM_CAP > formatter maxItemChars 기본.
       // ⚠️ 절단 시 **표식**(…[절단됨]) 부착 — 무표식 절단은 문장 후반(조건·부정·출처)을 소리없이 잘라 기억
@@ -521,16 +577,28 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
         }
         await flush.call(sys);
       }
-      if ((opts.consolidateOnSave || opts.roleExtractor) && !saveOpts?.signal?.aborted && !closed) {
+      if ((opts.consolidateOnSave ?? !!opts.roleExtractor) && opts.roleExtractor && !saveOpts?.authorizeAndDisclose) {
+        const error = new Error("MEMORY_EXTRACTION_AUTHORIZATION_MISSING");
+        try { saveOpts?.onRoleError?.(error); } catch { /* observer only */ }
+        try { opts.onConsolidation?.({ phase: "failed", error: error.message }); } catch { /* observer only */ }
+      }
+      if ((opts.consolidateOnSave ?? !!opts.roleExtractor) && (!opts.roleExtractor || saveOpts?.authorizeAndDisclose) && !saveOpts?.signal?.aborted && !closed) {
         const extract: FactExtractor | undefined = opts.roleExtractor && saveOpts?.authorizeAndDisclose
           ? (episodes) => opts.roleExtractor!(episodes, saveOpts.authorizeAndDisclose!, saveOpts.signal)
           : undefined;
         try {
-          await (sys.consolidateNow as unknown as (force: boolean, extractor?: FactExtractor) => Promise<unknown>)(false, extract);
+          // Save is the consolidation trigger: freshly encoded episodes must not wait
+          // behind the engine's five-minute background age gate.
+          const result = await (extract ? extractionScope.run(extract, () => sys.consolidateNow(true)) : sys.consolidateNow(true));
+          await sys.flush();
+          try { opts.onConsolidation?.({ phase: "done", episodesProcessed: result.episodesProcessed, factsCreated: result.factsCreated, factsUpdated: result.factsUpdated }); } catch { /* observer only */ }
         } catch (error) {
           try { saveOpts?.onRoleError?.(error); } catch { /* observation cannot alter recovery */ }
-          opts.onConsolidation?.({ phase: "failed", error: "role extraction failed" });
-          if (opts.fallbackHeuristicOnFailure) await sys.consolidateNow(false);
+          try { opts.onConsolidation?.({ phase: "failed", error: describeError(error) }); } catch { /* observer only */ }
+          if (opts.fallbackHeuristicOnFailure && !saveOpts?.signal?.aborted) {
+            await extractionScope.run(heuristicFactExtractor, () => sys.consolidateNow(true));
+            await sys.flush();
+          }
         }
       }
     },
@@ -551,18 +619,21 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
       // 입력 메시지를 {role,content}로 정규화(상한 절단) — toolCalls/toolCallId 는 요약 대상 아님.
       const messages = req.messages.map((m) => ({ role: m.role, content: capInput(m.content, SAVE_CAP) }));
       await ready; // adapter init 완료 보장.
-      const r = await sys.compact({
+      const compactInput = {
         messages,
         keepTail: Math.max(0, Math.floor(req.keepTail)),
         targetTokens: Math.max(1, Math.floor(req.targetTokens)),
         sessionId,
-        ...(opts.roleSummarizer && req.authorizeAndDisclose ? {
-          summarizer: async (input: Parameters<CompactionSummarizer>[0]) => {
+      };
+      const summarize: CompactionSummarizer | undefined = opts.roleSummarizer && req.authorizeAndDisclose
+        ? async input => {
             try { return await opts.roleSummarizer!({ ...input, ...(req.signal ? { signal: req.signal } : {}) }, req.authorizeAndDisclose!); }
             catch (error) { try { req.onRoleError?.(error); } catch { /* observation cannot alter recovery */ } throw error; }
-          },
-        } : {}),
-      });
+          }
+        : undefined;
+      const r = summarize
+        ? await summaryScope.run(summarize, () => sys.compact(compactInput))
+        : await sys.compact(compactInput);
       // recap 반환 상한(systemPrompt 폭증 차단). droppedCount = 요약에 흡수된 메시지 수(MemorySystem 계약).
       return { recap: capInput(r?.summary?.content ?? "", RECAP_CAP), droppedCount: Number(r?.droppedCount ?? 0) };
     },

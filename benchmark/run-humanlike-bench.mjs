@@ -20,7 +20,7 @@ import { makeOpenAICompatProvider } from "../dist/main/adapters/openai-compat-pr
 const _here = dirname(fileURLToPath(import.meta.url));
 const LIVE = process.env.PREDICT_LIVE === "1";
 const RUNS = Math.max(1, Number(process.env.PREDICT_RUNS ?? 1) | 0);
-const GATEWAY = (process.env.NAIA_GATEWAY_URL ?? "https://naia-gateway-181404717065.asia-northeast3.run.app").replace(/\/+$/, "");
+const GATEWAY = (process.env.NAIA_GATEWAY_URL ?? "https://api.nextain.io").replace(/\/+$/, "");
 const MAIN_MODEL = process.env.HUMANLIKE_MAIN_MODEL ?? "vertexai:gemini-3.5-flash";
 const KEY = (process.env.NAIA_PROD_KEY ?? "").trim();
 

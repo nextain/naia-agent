@@ -154,6 +154,7 @@ export function makeMemorySurfacer(deps: MemorySurfacerDeps): SurfacingPort {
           : SURFACING_THRESHOLD_MAX_ITEMS;
       return {
         ...(p?.level !== undefined ? { level: p.level } : {}),
+        ...(p?.keywordOnly === true ? { keywordOnly: true } : {}),
         threshold,
         maxItems,
       };
