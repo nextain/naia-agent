@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "benchmarkId": "naia-issue-team-deterministic-v1",
-  "sourceRevision": "0fb842b110f71a23044bf3bced739a09b0f746f9",
+  "sourceRevision": "394a09518836b102bfdc653013db69a64da82da2",
   "paidCalls": 0,
   "observation": {
     "roleOrderMatches": true,
@@ -41,7 +41,7 @@
       "src/main/domain/issue-orchestration.ts": "eecdea57c5193abd8bd48fbd5406baed9ce30c3100eac2cbea3de040ebf37932",
       "src/main/ports/issue-orchestration.ts": "397638793a4b184130e70ee6901b8c86cf18b3114a823463bfd96c9b3bce85cb",
       "package.json": "82592b6b138ce4e93ccf421de370f3097a16f51283744e10d3e037f46c00a27f",
-      "pnpm-lock.yaml": "e81a377862e3243299fbe6868df0ca979ed160ac2d7c83fbefd76b430567bb96",
+      "pnpm-lock.yaml": "3d520be26a7e92bc13d3399e7a89bc5d8322d3a3a38b1ba859fea00d9965b941",
       "tsconfig.json": "38204ea85e3c37122c6a44fc86255d6e2d653fd549facb84f5a91ddda743f5d2"
     },
     "runtimeModules": {
