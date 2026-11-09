@@ -92,3 +92,12 @@ it("latest user survives trailing tool rounds even over budget", () => {
   const messages = [m("user", "old"), m("user", "latest"), m("assistant", "", { toolCalls: [{ id: "a", name: "t", args: {} }] }), m("tool", "result", { toolCallId: "a" })];
   expect(makeBudgetedConversation({ maxTokens: 1 }).assemble({ messages }).messages).toEqual(messages.slice(1));
 });
+
+it("summarizeDropped synthesizes [최근 대화 요약] from dropped older turns", () => {
+  const messages = Array.from({ length: 10 }, (_, i) => m(i % 2 === 0 ? "user" : "assistant", `사연 대화 ${i}: ${"가나다라마바사".repeat(30)}`));
+  const out = makeBudgetedConversation({ maxTokens: 1200, summarizeDropped: true }).assemble({
+    messages,
+    systemPrompt: "너는 나이아다.",
+  });
+  expect(out.systemPrompt).toContain("[최근 대화 요약 (이전 코너 맥락)]");
+});
