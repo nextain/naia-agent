@@ -77,9 +77,10 @@ function toBlocks(messages: readonly ChatMessage[]): ChatMessage[][] {
 export function makeBudgetedConversation(opts?: { maxTokens?: number }): ConversationPort {
   const maxTokens = Math.max(0, opts?.maxTokens ?? DEFAULT_MAX_TOKENS);
   return {
-    assemble: ({ messages, systemPrompt }) => {
+    assemble: ({ messages, systemPrompt, maxTokens: requestedBudget }) => {
       const blocks = toBlocks(messages);
-      let budget = maxTokens - estimateConversationTokens(systemPrompt ?? "");
+      const turnBudget = Number.isSafeInteger(requestedBudget) && requestedBudget! > 0 ? requestedBudget! : maxTokens;
+      let budget = turnBudget - estimateConversationTokens(systemPrompt ?? "");
       // Keep the latest user block and all subsequent tool rounds intact.
       let requiredFrom = blocks.length - 1;
       for (let b = blocks.length - 1; b >= 0; b--) {

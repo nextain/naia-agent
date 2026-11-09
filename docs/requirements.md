@@ -1063,10 +1063,23 @@ Status: Done (#154)
 검수 r3의 시작 경합은 lease 취득 후 기존 처리기 등록 지점 전의 상태 쓰기를 가로채는 자식 프로세스 시험으로 고정했다. SIGTERM 단독·SIGINT 단독·연속 신호에서 초기화 중단, stopped, lease 해제, 정상 종료와 즉시 재시작을 확인했다. 상태 쓰기 예외, 거절된 promise, runtime 시작 직후 예외도 실패 상태·lease 해제·즉시 재시작을 확인했다. 관련 프로세스·배선 집중 시험은 26개 모두 통과했다. 시험은 가짜 Gateway/REST를 사용하고 실제 Discord에 접속하지 않았다. P05는 독립 검수 r6에서 통과했다. 실제 Discord 자격증명·Gateway 권한·DM/thread 수신·재연결 dedupe 확인은 배포 전 실기 항목으로 남는다.
 ## FR-CONTEXT-CJK — 보수적 문맥 예산
 
-상태: Done (mock 계약 검증 범위). UC-CONTEXT-CJK. CJK는 최소 글자당 1토큰, 기타 텍스트는 기존 4문자/토큰으로
+상태: Done (mock 계약 검증 범위). UC-CONTEXT-CJK. CJK는 글자당 1.5토큰, 기타 텍스트는 기존 4문자/토큰으로
 추정한다. 최종 요청은 시스템·도구·출력 예약을 포함한다. 알려진 문맥 한도를 주입받을 수 있고
 미지정 시 6000 예산을 유지한다. 최신 사용자부터 끝까지와 assistant/tool 묶음은 보존한다.
 문맥 초과 HTTP 400만 전송 기록 예산을 절반으로 줄여 최대 한 번 재시도하고 다른 오류는 전파한다.
 
-검증: 관련 두 계약 시험 파일 55건 통과, 독립 적대 리뷰 기록
-`.agents/reviews/context-budget-cjk-retry.md`. 실제 vLLM 운영 인수는 범위 밖이다.
+검증: main 기준 관련 5개 시험 파일 159건 통과, 독립 적대 리뷰 기록
+`.agents/reviews/context-window-overflow-main.md`. 실제 vLLM 운영 인수는 범위 밖이다.
+
+FR-CONTEXT-CJK 확장 (P01–P05, Done: 로컬 mock 계약 범위): config.json.llmRoles.main.contextWindow(우선)·config.json.contextWindow 및 llm.json.main.contextWindow는
+양의 유한 정수만 받아 ProviderConfig를 거쳐 openai-compat 최종 예산에 사용한다. 미설정은 6000.
+문맥 400만 한 번 재시도하며 두 번째 문맥 초과는 CONTEXT_WINDOW_EXCEEDED 코드로 전달한다.
+ErrorEvent.code(기존 필드 2)에 enum 25를 추가하고 장부에 원문 없는 한 줄을 남긴다.
+실제 로컬 HTTP 흉내 서버는 독립적인 UTF-8 바이트 토큰 상한으로 입력 8192 초과를 400 처리한다.
+한국어 20턴은 응답 20건·400 0건이어야 한다. 실제 tokenizer/운영 vLLM 검증으로 주장하지 않는다.
+
+main 재검증: 관련 5개 파일 159/159, pnpm build exit 0. 재현 및 독립 검수 기록:
+`.agents/reviews/context-window-overflow-main.md`. 전체 시험/실제 vLLM 인수의 한계는 해당 기록에 구분한다.
+
+범위는 openai-compat이며 실제 tokenizer/이미지 토큰/서버 암묵 출력 예약은 미검증이다.
+시스템·도구·최신 필수 블록 또는 명시 출력 예약만으로 한도를 초과하면 한 번 재시도 후 길이 오류를 전달한다.

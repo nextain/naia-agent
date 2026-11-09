@@ -181,6 +181,7 @@ interface RoundResult {
   readonly usage: { inputTokens: number; outputTokens: number } | null; // 라운드 스냅샷(마지막 채택)
   readonly finished: boolean;                                     // finish chunk 수신
   readonly aborted: boolean;                                      // abort race 승 또는 abort 중 rejection
+  readonly rejectedCode?: WireErrorCode;
   readonly rejected?: string;                                     // provider rejection(abort 아님) 메시지
   readonly nativeToolUsed?: boolean;                              // provider-native(handled) toolUse 가 이 라운드에 있었음 (#687)
 }
@@ -329,6 +330,7 @@ export class ChatTurnHandler {
     const terminalError = (message: string, code?: WireErrorCode) => {
       if (!sawTerminal) {
         emit({ kind: "usage", ...totalUsage, cost: calculateCost(costModel, totalUsage.inputTokens, totalUsage.outputTokens, costProvider), model: costModel });
+        if (code === "CONTEXT_WINDOW_EXCEEDED") this.safeDiag("ChatTurnHandler CONTEXT_WINDOW_EXCEEDED", "retry exhausted");
         emit({ kind: "error", message, ...(code ? { code } : {}) });
         sawTerminal = true;
         t.state = "errored";
@@ -574,7 +576,7 @@ export class ChatTurnHandler {
       const memoPolicy = req.enableTools !== false && hasMemoSaveTool ? buildMemoPolicy(saveWillRun) : "";
       const baseSystemPrompt = [selectedSystemPrompt, actionPolicy, knowledgePolicy, memoryToolPolicy, memoPolicy].filter(Boolean).join("\n\n") || undefined;
       this.d.diag.debug?.("persona base 결정", { requestId: req.requestId, override: req.systemPrompt !== undefined, corePersona: corePersona.length > 0, workspace: coreWs.length > 0, environment: coreEnv.length > 0, source: req.systemPrompt !== undefined ? "override" : (coreComposed ? "core" : "none") });
-      const asm = this.d.conversation.assemble({ messages: preMessages, systemPrompt: baseSystemPrompt });
+      const asm = this.d.conversation.assemble({ messages: preMessages, systemPrompt: baseSystemPrompt, maxTokens: providerConfig.contextWindow });
       // compaction recap → systemPrompt 주입(leading assistant 메시지 회피, recall 과 동일 패턴). recall 은 이 뒤에 append.
       let memSystemPrompt = compactionRecap
         ? (asm.systemPrompt ? `${asm.systemPrompt}\n\n## 이전 대화 요약(compacted)\n${compactionRecap}` : `## 이전 대화 요약(compacted)\n${compactionRecap}`)
@@ -752,7 +754,7 @@ export class ChatTurnHandler {
           break;
         }
         if (round.aborted) { terminalError("cancelled"); break; }
-        if (round.rejected !== undefined) { terminalError(`provider error: ${round.rejected}`); break; }
+        if (round.rejected !== undefined) { terminalError(`provider error: ${round.rejected}`, round.rejectedCode); break; }
         if (!round.finished) { terminalError("incomplete stream"); break; }         // finish 없는 EOF = provider error(UC1 계승)
         if (signal.aborted) { terminalError("cancelled"); break; }                  // (b) provider loop 종료 직후 가드(finish 직후 취소 시 finish/cap-error 선방출 차단)
         let pushedThisRound = false;
@@ -969,7 +971,7 @@ export class ChatTurnHandler {
       }
     } catch (err) {
       // 루프 밖 예기치 못한 throw(포트 계약 위반 등). abort 면 cancelled.
-      terminalError(signal.aborted ? "cancelled" : errMessage(err));
+      terminalError(signal.aborted ? "cancelled" : errMessage(err), signal.aborted ? undefined : contextOverflowCode(err));
     } finally {
       if (!sawTerminal) terminalError(signal.aborted ? "cancelled" : "incomplete stream"); // 무-terminal 안전망
       this.turns.delete(req.requestId);                                             // 예외 무관 terminal 해제 보장
@@ -1122,7 +1124,7 @@ export class ChatTurnHandler {
       closeIt();
       flushTextPending();
       if (signal.aborted) return { text, thinking, calls, usage, finished: false, aborted: true, nativeToolUsed };
-      return { text, thinking, calls, usage, finished: false, aborted: false, rejected: errMessage(err), nativeToolUsed };
+      return { text, thinking, calls, usage, finished: false, aborted: false, rejected: errMessage(err), rejectedCode: contextOverflowCode(err), nativeToolUsed };
     } finally {
       if (abortListener) signal.removeEventListener("abort", abortListener);
     }
@@ -1274,4 +1276,9 @@ function raceTimeout<T>(p: Promise<T>, timeoutMs: number): Promise<boolean> {
       (e) => { if (!done) { done = true; clearTimeout(timer); reject(e); } },
     );
   });
+}
+
+function contextOverflowCode(error: unknown): WireErrorCode | undefined {
+  return error instanceof Error && "code" in error && error.code === "CONTEXT_WINDOW_EXCEEDED"
+    ? "CONTEXT_WINDOW_EXCEEDED" : undefined;
 }

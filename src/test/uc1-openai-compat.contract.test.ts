@@ -1,3 +1,6 @@
+import { wireAgentUC1 } from "../main/composition/index.js";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 // OpenAI-compat(GLM/zai) ProviderPort 계약 테스트 — mock fetch(SSE 재현, 실 API 없이).
 import { describe, it, expect } from "vitest";
 import { makeOpenAICompatProvider, STREAM_IDLE_TIMEOUT_MS } from "../main/adapters/openai-compat-provider.js";
@@ -425,6 +428,7 @@ describe("context overflow request budget", () => {
       const messages = [...Array.from({ length: 12 }, () => ({ role: "assistant" as const, content: "x".repeat(1000) })), { role: "user" as const, content: "latest" }];
       const result = collect(p.chat(cfg, messages, { systemPrompt: "system" }));
       if (scenario === "success") await result;
+      else if (scenario === "twice") await expect(result).rejects.toMatchObject({ code: "CONTEXT_WINDOW_EXCEEDED" });
       else await expect(result).rejects.toThrow(/400/);
       expect(requests).toHaveLength(scenario === "other" ? 1 : 2);
       if (requests.length === 2) {
@@ -462,4 +466,118 @@ it("does not retry context overflow after cancellation", async () => {
     fetch: (async () => { calls++; controller.abort(); return new Response("maximum context length", { status: 400 }); }) as never });
   await expect(collect(p.chat(cfg, [{ role: "user", content: "latest" }], { signal: controller.signal }))).rejects.toThrow(/400/);
   expect(calls).toBe(1);
+});
+
+// Deliberately independent synthetic tokenizer: one token per three UTF-8 bytes.
+// This exercises real HTTP framing and accumulated Korean history, not model quality.
+it("8192 HTTP server: Korean 20 turns, 20 responses and zero context 400s", async () => {
+  const tokens = (value: unknown) => Math.ceil(Buffer.byteLength(JSON.stringify(value), "utf8") / 3);
+  let requests = 0, overflows = 0, maxInput = 0;
+  const server = createServer(async (request, response) => {
+    let raw = "";
+    for await (const part of request) raw += part;
+    const body = JSON.parse(raw);
+    const input = tokens({ messages: body.messages, tools: body.tools });
+    requests++; maxInput = Math.max(maxInput, input);
+    if (input > 8192) {
+      overflows++;
+      response.writeHead(400, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ error: { message: "maximum context length is 8192 tokens", code: "context_length_exceeded" } }));
+      return;
+    }
+    response.writeHead(200, { "Content-Type": "text/event-stream" });
+    response.end('data: {"choices":[{"delta":{"content":"한국어 응답입니다."}}]}\n\ndata: [DONE]\n\n');
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const config: ProviderConfig = { provider: "vllm", model: "qwen-test", contextWindow: 8192,
+      vllmHost: `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1` };
+    const chunks: import("../main/domain/chat.js").AgentEmit[] = [];
+    const tools = [{ name: "radio", description: "라디오 곡을 선택합니다.", parameters: { type: "object" } }];
+    const agent = wireAgentUC1({ defaultConfig: config, resolver: makeProviderResolver(),
+      egress: { emit: (_id, event) => { chunks.push(event); } }, diag: { log() {} },
+      toolExecutor: { specs: () => tools, execute: async () => ({ output: "ok" }) },
+    });
+    const messages: import("../main/domain/chat.js").ChatMessage[] = [];
+    let replies = 0;
+    for (let turn = 1; turn <= 20; turn++) {
+      messages.push({ role: "user", content: `${turn}번째 이야기입니다. ` + "오늘 라디오에서는 한국어 대화를 나누며 음악과 날씨에 대해 이야기합니다. ".repeat(35) });
+      chunks.length = 0;
+      await agent.handler.onChatRequest({ kind: "chat", requestId: `turn${turn}`, messages, systemPrompt: "한국어 라디오 진행자입니다.", enableTools: true });
+      expect(chunks.filter((chunk) => chunk.kind === "error")).toHaveLength(0);
+      const text = chunks.filter((c) => c.kind === "text").map((c) => c.text).join("");
+      expect(text).toBe("한국어 응답입니다.");
+      expect(chunks.at(-1)).toEqual({ kind: "finish" });
+      messages.push({ role: "assistant", content: text }); replies++;
+    }
+    expect(tokens({ messages, tools })).toBeGreaterThan(8192); // proves trimming is necessary
+    expect({ requests, replies, overflows }).toEqual({ requests: 20, replies: 20, overflows: 0 });
+    expect(maxInput).toBeLessThanOrEqual(8192);
+    // Negative control: this server must reject accumulated untrimmed history.
+    const control = await fetch(`${config.vllmHost}/chat/completions`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages, tools }),
+    });
+    expect(control.status).toBe(400);
+    expect(await control.text()).toContain("maximum context length");
+    expect(overflows).toBe(1); // intentional control, after all 20 successful turns
+
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+it("ProviderConfig contextWindow changes native resolver wire history", async () => {
+  const counts: number[] = [];
+  const resolver = makeProviderResolver({ fetch: (async (_url: string, init: { body: string }) => {
+    counts.push(JSON.parse(init.body).messages.length);
+    return new Response("data: [DONE]\n");
+  }) as never });
+  const messages = [...Array.from({ length: 30 }, () => ({ role: "assistant" as const, content: "x".repeat(1000) })), { role: "user" as const, content: "latest" }];
+  for (const contextWindow of [1000, 8192]) {
+    const config = { provider: "vllm", model: "qwen", contextWindow };
+    await collect(resolver.resolve(config).chat(config, messages, {}));
+  }
+  expect(counts[0]).toBeLessThan(counts[1]!);
+});
+
+it.each(["unknown parameter input_tokens", "invalid max_model_len option"])("does not retry unrelated 400 mentioning token fields: %s", async (detail) => {
+  let calls = 0;
+  const provider = makeOpenAICompatProvider({ baseUrl: "https://test.invalid", apiKey: "test",
+    fetch: (async () => { calls++; return new Response(detail, { status: 400 }); }) as never });
+  await expect(collect(provider.chat(cfg, [{ role: "user", content: "hi" }], {}))).rejects.toThrow(/400/);
+  expect(calls).toBe(1);
+});
+
+it("composition uses contextWindow above 6000 and excludes radio-disabled tools on wire", async () => {
+  const requests: any[] = [];
+  const resolver = makeProviderResolver({ fetch: (async (_url: string, init: { body: string }) => {
+    requests.push(JSON.parse(init.body)); return new Response('data: {"choices":[{"delta":{"content":"완료했습니다."}}]}\ndata: [DONE]\n');
+  }) as never });
+  const agent = wireAgentUC1({ resolver, egress: { emit() {} }, diag: { log() {} },
+    toolExecutor: { specs: () => [
+      { name: "radio", description: "라디오", parameters: {} },
+      { name: "heavy", description: "x".repeat(10000), parameters: {} },
+    ], execute: async () => ({ output: "ok" }) },
+  });
+  const messages = [...Array.from({ length: 40 }, () => ({ role: "assistant" as const, content: "한글".repeat(100) })), { role: "user" as const, content: "최신" }];
+  for (const contextWindow of [6000, 32768]) {
+    agent.setDefaultConfig({ provider: "vllm", model: "qwen", contextWindow });
+    await agent.handler.onChatRequest({ kind: "chat", requestId: `r${contextWindow}`, messages,
+      disabledSkills: ["heavy"], enableTools: true });
+  }
+  expect(requests).toHaveLength(2);
+  expect(requests[1].messages.length).toBeGreaterThan(requests[0].messages.length);
+  expect(requests[1].messages.filter((m: any) => m.role !== "system")).toHaveLength(messages.length);
+  expect(requests[1].tools.map((tool: any) => tool.function.name)).toContain("radio");
+  expect(requests[1].tools.map((tool: any) => tool.function.name)).not.toContain("heavy");
+});
+
+it.each(["context window exceeded", "context-window-exceeded", "prompt too long", "too many input tokens"])("retries length variant once: %s", async (detail) => {
+  let calls = 0;
+  const provider = makeOpenAICompatProvider({ baseUrl: "https://test.invalid", apiKey: "test",
+    fetch: (async () => ++calls === 1 ? new Response(detail, { status: 400 }) : new Response("data: [DONE]\n")) as never });
+  expect((await collect(provider.chat(cfg, [{ role: "user", content: "hi" }], {}))).at(-1)).toEqual({ kind: "finish" });
+  expect(calls).toBe(2);
 });

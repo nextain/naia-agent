@@ -14,6 +14,8 @@ export interface ProviderConfig {
   readonly enableThinking?: boolean;
   readonly thinkingLevel?: ThinkingLevel;
   readonly ollamaNumCtx?: number;
+  /** Model context limit in tokens; positive integer, default budget 6000. */
+  readonly contextWindow?: number;
   readonly apiKey?: string;   // creds_update 채널로만 적재(chat_request wire 엔 없음)
   readonly naiaKey?: string;
 }
@@ -171,6 +173,7 @@ export interface ImageArtifact extends AttachmentRef {
   readonly name?: string;
 }
 export type WireErrorCode =
+  | "CONTEXT_WINDOW_EXCEEDED"
   | "PROVIDER_NOT_INSTALLED"
   | "PROVIDER_LOGIN_REQUIRED"
   | "PROVIDER_AUTH_EXPIRED"

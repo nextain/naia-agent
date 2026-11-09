@@ -275,7 +275,8 @@ export function makeOpenAICompatProvider(deps: {
 
       // Budget at the wire boundary: tools and output reservation were not known
       // by the earlier conversation assembly. Preserve system + latest user turn.
-      const contextBudget = deps.contextWindow ?? 6000;
+      const configuredWindow = config.contextWindow ?? deps.contextWindow;
+      const contextBudget = Number.isSafeInteger(configuredWindow) && configuredWindow! > 0 ? configuredWindow! : 6000;
       const fixedCost = estimateConversationTokens(JSON.stringify(toolsBody ?? [])) + (deps.maxTokens ?? 0) + 32;
       const inputBudget = Math.max(0, contextBudget - fixedCost);
       deps.diag?.debug?.("OpenAICompatProvider.budget", { contextBudget, fixedCost, messages: messages.length });
@@ -292,13 +293,17 @@ export function makeOpenAICompatProvider(deps: {
         if (resp.ok && resp.body) break;
         // Consume/cancel the error body before retry or throw (undici cleanup).
         const errText = resp.body ? await readErrorBody(resp.body) : "";
-        if (attempt === 0 && resp.status === 400 && !opts.signal?.aborted &&
-            /maximum context length|input_tokens|max_model_len|context[ _]length/i.test(errText)) {
+        const contextOverflow = resp.status === 400 &&
+          /maximum context length|context[ _-](?:length|window)[ _-]exceeded|prompt (?:is )?too long|too many (?:input )?tokens|(?:exceed|too long|greater|longer).{0,160}max_model_len|max_model_len.{0,160}(?:exceed|too long|greater|longer)/is.test(errText);
+        if (attempt === 0 && contextOverflow && !opts.signal?.aborted) {
           deps.diag?.debug?.("OpenAICompatProvider.contextOverflowRetry", { messages: selected.length });
           const historyCost = selected.reduce((sum, m) => sum + conversationMessageCost(m), 0);
           selected = makeBudgetedConversation({ maxTokens: Math.min(inputBudget, historyCost / 2 + estimateConversationTokens(opts.systemPrompt ?? "")) })
             .assemble({ messages: selected, systemPrompt: opts.systemPrompt }).messages;
           continue;
+        }
+        if (contextOverflow && !opts.signal?.aborted) {
+          throw Object.assign(new Error("문맥 길이 초과: 오래된 대화를 줄인 재시도도 모델 한도를 넘었습니다."), { code: "CONTEXT_WINDOW_EXCEEDED" as const });
         }
         throw new Error(formatCompatHttpError(base, resp.status, resp.statusText, extractHttpErrorDetail(errText)));
       }

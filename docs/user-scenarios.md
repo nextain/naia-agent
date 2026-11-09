@@ -1106,3 +1106,10 @@ Test Coverage Map: [UT-SM-AGENT-01~03, IT-SM-AGENT-01~05, UT-SM-SHELL-THINK-01, 
 
 Test Coverage Map: `src/test/budgeted-conversation.contract.test.ts` (CJK/영어/블록 보존),
 `src/test/uc1-openai-compat.contract.test.ts` (최종 예산/400 재시도/실패/취소).
+
+UC-CONTEXT-CJK 확장 (main, P01/P02): 공급자 설정 contextWindow를 전달해 긴 한국어 대화를 사전 절단한다.
+재시도도 문맥 초과이면 사용자가 길이 초과를 식별할 오류 코드와 진단 한 줄을 받는다.
+라디오 모드는 기존 ChatRequest.disabledSkills / gRPC disabled_skills로 광고 스키마를 줄인다.
+Coverage: uc-naia-settings-store.contract.test.ts(설정), uc1-agent.contract.test.ts(오류/로그),
+uc1-openai-compat.contract.test.ts(8192 HTTP 흉내 서버 한국어 20턴, 재시도 및 한도 전달),
+grpc-codec-uc1-fields.contract.test.ts(오류 프로토 필드).

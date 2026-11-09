@@ -1,3 +1,4 @@
+import { makeOpenAICompatProvider } from "../main/adapters/openai-compat-provider.js";
 // UC1 agent(brain) 계약 테스트 (P02). fake ProviderPort → ChatTurnHandler → egress 캡처.
 import { describe, it, expect } from "vitest";
 import { mapProviderChunk, isTerminalEmit, parseInlineImageDataUri, threadToolRound, type AgentEmit, type ChatRequest } from "../main/domain/chat.js";
@@ -287,5 +288,25 @@ describe("ChatTurnHandler (turn 파이프라인)", () => {
     h.onCredsUpdate({ kind: "credsUpdate", provider: "ollama", secret: { apiKey: "sk-1" } });
     await h.onChatRequest(req());
     expect(seenConfig!.apiKey).toBe("sk-1"); // creds_update 채널 → providerConfig 주입
+  });
+});
+
+describe("context overflow terminal contract", () => {
+  it("preserves provider length code through round rejection, logs once and serializes it", async () => {
+    const { deps, emits, logs } = capture();
+    let attempts = 0;
+    const provider = makeOpenAICompatProvider({ baseUrl: "https://test.invalid", apiKey: "test",
+      fetch: (async () => {
+        attempts++;
+        return new Response(JSON.stringify({ error: { message: "maximum context length is 8192 tokens" } }), { status: 400 });
+      }) as never,
+    });
+    await new ChatTurnHandler({ ...deps, provider }).onChatRequest(req());
+    expect(attempts).toBe(2);
+    const errors = emits.filter(({ e }) => e.kind === "error");
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.e).toMatchObject({ code: "CONTEXT_WINDOW_EXCEEDED" });
+    expect(logs.filter((line) => line.includes("CONTEXT_WINDOW_EXCEEDED"))).toHaveLength(1);
+    expect(encodeEmit("r1", errors[0]!.e)).toMatchObject({ code: "CONTEXT_WINDOW_EXCEEDED" });
   });
 });
