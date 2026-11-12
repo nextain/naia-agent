@@ -94,6 +94,9 @@ export interface ChatMessage {
   readonly attachments?: readonly AttachmentRef[];
   /** Tool-produced image bytes that are safe to send directly to a vision-capable provider. */
   readonly inlineImages?: readonly InlineImage[];
+  /** user 역할이지만 사람이 쓴 말이 아니라 에이전트가 덧붙인 것(도구 이미지 운반·재요청·이어 말하기 지시).
+   *  예산 조립이 '현재 턴의 시작'을 이 메시지로 잘못 잡지 않게 한다. wire 에는 실리지 않는다. */
+  readonly synthetic?: true;
 }
 
 export type ImageMimeType = "image/png" | "image/jpeg" | "image/webp";
@@ -389,6 +392,7 @@ export function threadToolRound(
       role: "user",
       content: `Image returned by tool ${calls[index]?.name ?? "unknown"}.`,
       inlineImages: result.images,
+      synthetic: true,
     });
   }
   return [...messages, assistant, ...toolMsgs, ...imageMessages];

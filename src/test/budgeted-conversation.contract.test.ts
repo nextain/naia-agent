@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { makeBudgetedConversation } from "../main/adapters/budgeted-conversation.js";
-import type { ChatMessage } from "../main/domain/chat.js";
+import { conversationMessageCost, estimateConversationTokens, makeBudgetedConversation } from "../main/adapters/budgeted-conversation.js";
+import { threadToolRound, type ChatMessage } from "../main/domain/chat.js";
 
 // @spec SPEC-007  (REQ-009 / UC-012 — 토큰예산 대화 압축)
 const m = (role: ChatMessage["role"], content: string, extra?: Partial<ChatMessage>): ChatMessage =>
@@ -91,6 +91,31 @@ it("English keeps the existing 4 chars/token boundary", () => {
 it("latest user survives trailing tool rounds even over budget", () => {
   const messages = [m("user", "old"), m("user", "latest"), m("assistant", "", { toolCalls: [{ id: "a", name: "t", args: {} }] }), m("tool", "result", { toolCallId: "a" })];
   expect(makeBudgetedConversation({ maxTokens: 1 }).assemble({ messages }).messages).toEqual(messages.slice(1));
+});
+
+describe("#176 검수 지적 2·4 — 합성 user 와 비-CJK 비용", () => {
+  it("도구 이미지 운반 user 가 붙어도 실제 질문과 현재 도구 라운드를 남긴다", () => {
+    const msgs = threadToolRound(
+      [m("user", "예전 질문"), m("assistant", "예전 답"), m("user", "스크린샷의 텍스트를 읽어줘")],
+      "",
+      [{ id: "call_1", name: "screenshot", args: {} }],
+      [{ output: "ok", images: [{ mimeType: "image/png", data: "AAAA" }] }],
+    );
+    const out = makeBudgetedConversation({ maxTokens: 15 }).assemble({ messages: msgs }).messages;
+    expect(out.map((x) => x.role)).toEqual(["user", "assistant", "tool", "user"]);
+    expect(out[0]!.content).toBe("스크린샷의 텍스트를 읽어줘");
+    expect(out.at(-1)!.synthetic).toBe(true);
+  });
+  it("합성 재요청 지시문도 requiredFrom 을 옮기지 않는다", () => {
+    const messages = [m("user", "old"), m("user", "real"), m("assistant", "약속만 함"), m("user", "지금 실행하라", { synthetic: true })];
+    expect(makeBudgetedConversation({ maxTokens: 1 }).assemble({ messages }).messages).toEqual(messages.slice(1));
+  });
+  it("이모지·CJK 문장부호·코드·이미지를 과소추정하지 않는다", () => {
+    expect(estimateConversationTokens("😀".repeat(1000))).toBeGreaterThanOrEqual(2000);
+    expect(estimateConversationTokens("。、「」…".repeat(200))).toBeGreaterThanOrEqual(1000);
+    expect(estimateConversationTokens("{\"a\":1,\"b\":[1,2,3],\"c\":\"x\"}\n".repeat(160))).toBeGreaterThanOrEqual(1800);
+    expect(conversationMessageCost(m("user", "봐줘", { inlineImages: [{ mimeType: "image/png", data: "A".repeat(40000) }] }))).toBeGreaterThanOrEqual(1000);
+  });
 });
 
 it("summarizeDropped synthesizes [최근 대화 요약] from dropped older turns", () => {

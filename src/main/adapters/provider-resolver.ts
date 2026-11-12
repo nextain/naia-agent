@@ -8,6 +8,7 @@ import type { ProviderConfig } from "../domain/chat.js";
 import type { ProviderPort, ProviderResolverPort } from "../ports/uc1.js";
 import { resolveProviderRoute, labProxyBaseUrl, nativeBaseUrl, anthropicBaseUrl, isLocalEngineBaseUrl } from "../domain/provider-route.js";
 import { makeOpenAICompatProvider } from "./openai-compat-provider.js";
+import { naiaGatewayContextWindow } from "./naia-pi-provider.js";
 import { makeOllamaProvider } from "./ollama-provider.js";
 import { makeAnthropicProvider } from "./anthropic-provider.js";
 import { makeClaudeCodeProvider } from "./claude-code-provider.js";
@@ -64,6 +65,7 @@ export function makeProviderResolver(deps?: ProviderResolverDeps): ProviderResol
 					// naia 게이트웨이 — OpenAI-compat /v1/chat/completions, auth=X-AnyLLM-Key: naiaKey.
 					// UC-THINKING/FR-THINK-3: 게이트웨이 뒤에 어떤 모델이 있을지 모른다 → reasoning_effort 미지원(false).
 					const baseUrl = labProxyBaseUrl(config);
+					const contextWindow = naiaGatewayContextWindow(config.model);
 					return makeOpenAICompatProvider({
 						baseUrl,
 						apiKey: config.naiaKey ?? "",
@@ -75,6 +77,8 @@ export function makeProviderResolver(deps?: ProviderResolverDeps): ProviderResol
 						supportsTools: true,
 						promptCacheShard: config.model === "gpt-5.6-sol" || config.model === "gpt-5.6-luna",
 						...(config.model === "deepseek-v4-flash" ? { maxTokens: 16_384 } : {}),
+						// 출력 예약(maxTokens)만 주고 문맥 한도를 빼면 기본 예산이 대화 기록을 다 지운다(#176 검수 1).
+						...(contextWindow ? { contextWindow } : {}),
 						...(f ? { fetch: f } : {}),
 					});
 				}

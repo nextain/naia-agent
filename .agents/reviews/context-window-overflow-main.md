@@ -82,7 +82,7 @@ error-body cap and missing whole-suite/native dependency limitations. The stale
 historical 55-test requirements text was updated after this follow-up.
 
 Reviewer invocation (both rounds, workspace agent-ctxmain):
-`/home/nextain/.local/bin/muse exec --trust-workspace --disable-sandbox --prompt-file <prompt>`.
+`muse exec --trust-workspace --disable-sandbox --prompt-file <prompt>`.
 Prompts: /tmp/ctxmain-review-prompt.md and /tmp/ctxmain-review-followup.md.
 Raw output: /tmp/ctxmain-muse-review.log and /tmp/ctxmain-muse-followup.log.
 
