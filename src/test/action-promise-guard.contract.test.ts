@@ -67,7 +67,7 @@ describe("nextain/naia-shell#687 promised-tool guard", () => {
 
     expect(calls).toBe(3);
     expect(executedCalls.length).toBe(1);
-    expect(seenMessages[1]?.at(-1)).toEqual({ role: "user", content: ACTION_PROMISE_RETRY_INSTRUCTION });
+    expect(seenMessages[1]?.at(-1)).toEqual({ role: "user", content: ACTION_PROMISE_RETRY_INSTRUCTION, synthetic: true });
     expect(seenMessages[1]?.at(-2)).toEqual({ role: "assistant", content: "지금 에디터에 열려 있는 파일을 확인해 보겠습니다." });
     const toolUseEmit = emits.find(({ e }) => e.kind === "toolUse");
     expect(toolUseEmit).toBeDefined();

@@ -66,7 +66,7 @@ export interface ToolExecutorPort {
 
 export interface ConversationPort {
   /** 대화조립 — token-budget + system-prompt. */
-  assemble(req: { messages: readonly ChatMessage[]; systemPrompt?: string }): { messages: readonly ChatMessage[]; systemPrompt?: string };
+  assemble(req: { messages: readonly ChatMessage[]; systemPrompt?: string; maxTokens?: number }): { messages: readonly ChatMessage[]; systemPrompt?: string };
 }
 
 /** UC-PERSONA-CLI driven — 워크스페이스 설정의 페르소나 프로필 로드(driven). 구현=persona-source-store

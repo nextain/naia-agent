@@ -28,6 +28,7 @@ export interface SettingsFsRead {
 export type ResolveSecret = (ref: string) => string | undefined;
 
 interface LLMRole {
+	contextWindow?: number;
 	provider?: string;
 	baseUrl?: string;
 	model?: string;
@@ -133,9 +134,10 @@ const NAIA_MEMORY_LLM_DEFAULT_MODEL = "gemini-3.1-flash-lite";
 function assembleConfig(
 	provider: string,
 	model: string,
-	opts: { secret?: string; baseUrl?: string; ollamaHost?: string; ollamaNumGpu?: number; vllmHost?: string },
+	opts: { secret?: string; baseUrl?: string; ollamaHost?: string; ollamaNumGpu?: number; vllmHost?: string; contextWindow?: number },
 ): ProviderConfig {
-	const base = { provider, model };
+	const contextWindow = opts.contextWindow;
+	const base = { provider, model, ...(Number.isSafeInteger(contextWindow) && contextWindow! > 0 ? { contextWindow } : {}) };
 	const route = resolveProviderRoute(base);
 	if (route === "lab-proxy") {
 		return { ...base, ...(opts.secret ? { naiaKey: opts.secret } : {}), ...(opts.baseUrl ? { labGatewayUrl: opts.baseUrl } : {}) };
@@ -203,7 +205,7 @@ export function makeNaiaSettingsStore(deps: {
 		const model = m.model ?? "";
 		if (!provider || !model) { log("naia-settings.main.incomplete", { file }); return null; }
 		const secret = m.apiKeyRef ? resolveSecret(m.apiKeyRef) : undefined;
-		return assembleConfig(provider, model, { ...(secret ? { secret } : {}), ...(m.baseUrl ? { baseUrl: m.baseUrl } : {}) });
+		return assembleConfig(provider, model, { contextWindow: m.contextWindow, ...(secret ? { secret } : {}), ...(m.baseUrl ? { baseUrl: m.baseUrl } : {}) });
 	}
 
 	/** (2) naia-os 셸 정본 포맷 config.json {provider, model, ollamaHost, vllmHost, naiaGatewayUrl/NAIA_ANYLLM_BASE_URL}.
@@ -232,6 +234,7 @@ export function makeNaiaSettingsStore(deps: {
 		//    ollamaHost 전용 필드 또는 llm.json baseUrl(CLI). nextain 이 아니면 baseUrl 미적용.
 		const baseUrl = structuredMain?.baseUrl ?? (provider === "nextain" ? (str("naiaGatewayUrl") ?? str("NAIA_ANYLLM_BASE_URL")) : undefined);
 		return assembleConfig(provider, model, {
+			contextWindow: structuredMain?.contextWindow ?? c["contextWindow"] as number | undefined,
 			...(mainSecret ? { secret: mainSecret } : {}),
 			...(baseUrl ? { baseUrl } : {}),
 			...(str("ollamaHost") ? { ollamaHost: str("ollamaHost")! } : {}),
@@ -276,6 +279,7 @@ export function makeNaiaSettingsStore(deps: {
 		const str = (key: string) => typeof role[key] === "string" ? (role[key] as string) : undefined;
 		const inherit = (["main", "sub", "memory", "expert"] as const).find((candidate) => candidate === str("inherit"));
 		const selection: LlmRoleSelection = {
+			...(typeof role["contextWindow"] === "number" && Number.isSafeInteger(role["contextWindow"]) && role["contextWindow"] > 0 ? { contextWindow: role["contextWindow"] } : {}),
 			...(str("provider") ? { provider: str("provider") } : {}),
 			...(str("model") ? { model: str("model") } : {}),
 			...(str("baseUrl") ? { baseUrl: str("baseUrl") } : {}),

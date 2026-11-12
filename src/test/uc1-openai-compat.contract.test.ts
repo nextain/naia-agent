@@ -1,7 +1,12 @@
+import { wireAgentUC1 } from "../main/composition/index.js";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 // OpenAI-compat(GLM/zai) ProviderPort 계약 테스트 — mock fetch(SSE 재현, 실 API 없이).
 import { describe, it, expect } from "vitest";
 import { makeOpenAICompatProvider, STREAM_IDLE_TIMEOUT_MS } from "../main/adapters/openai-compat-provider.js";
 import { makeProviderResolver } from "../main/adapters/provider-resolver.js";
+import { conversationMessageCost } from "../main/adapters/budgeted-conversation.js";
+import { NAIA_PI_MODELS, NAIA_PI_PROVIDER, buildNaiaPiModelsConfig, naiaGatewayContextWindow } from "../main/adapters/naia-pi-provider.js";
 import type { ProviderChunk, ProviderConfig } from "../main/domain/chat.js";
 
 function mockFetch(sseLines: string[], opts: { ok?: boolean; status?: number } = {}) {
@@ -406,5 +411,269 @@ describe("#114 스트림 idle 데드라인 (FR-THINK-6)", () => {
   });
   it("기본 데드라인 = 45s 상수", () => {
     expect(STREAM_IDLE_TIMEOUT_MS).toBe(45_000);
+  });
+});
+
+describe("context overflow request budget", () => {
+  for (const scenario of ["success", "twice", "other"] as const) {
+    it(`400 retry: ${scenario}`, async () => {
+      const requests: any[] = [];
+      const fetch = async (_url: string, init: { body: string }) => {
+        requests.push(JSON.parse(init.body));
+        if (requests.length === 1 || scenario === "twice") {
+          const detail = scenario === "other" ? "invalid tool schema" : "maximum context length: input_tokens=8193 max_model_len=8192";
+          return new Response(detail, { status: 400 });
+        }
+        return new Response("data: [DONE]\n");
+      };
+      const p = makeOpenAICompatProvider({ baseUrl: "https://test", apiKey: "test", fetch: fetch as never });
+      const messages = [...Array.from({ length: 12 }, () => ({ role: "assistant" as const, content: "x".repeat(1000) })), { role: "user" as const, content: "latest" }];
+      const result = collect(p.chat(cfg, messages, { systemPrompt: "system" }));
+      if (scenario === "success") await result;
+      else if (scenario === "twice") await expect(result).rejects.toMatchObject({ code: "CONTEXT_WINDOW_EXCEEDED" });
+      else await expect(result).rejects.toThrow(/400/);
+      expect(requests).toHaveLength(scenario === "other" ? 1 : 2);
+      if (requests.length === 2) {
+        expect(JSON.stringify(requests[1].messages).length).toBeLessThan(JSON.stringify(requests[0].messages).length * 0.6);
+        expect(requests[1].messages[0]).toEqual({ role: "system", content: "system" });
+        expect(requests[1].messages.at(-1).content).toBe("latest");
+      }
+    });
+  }
+  it("subtracts system, tool schema and output reservation before history", async () => {
+    let request: any;
+    const p = makeOpenAICompatProvider({ baseUrl: "https://test", apiKey: "test", maxTokens: 1000,
+      fetch: (async (_u: string, init: { body: string }) => { request = JSON.parse(init.body); return new Response("data: [DONE]\n"); }) as never });
+    const messages = [...Array.from({ length: 20 }, () => ({ role: "assistant" as const, content: "x".repeat(1000) })), { role: "user" as const, content: "latest" }];
+    await collect(p.chat(cfg, messages, { systemPrompt: "s".repeat(4000), tools: [{ name: "t", description: "d".repeat(4000), parameters: {} }] }));
+    expect(JSON.stringify(request.messages).length + JSON.stringify(request.tools).length).toBeLessThanOrEqual(20000);
+    expect(request.max_tokens).toBe(1000);
+  });
+});
+
+it("counts echoed reasoning, preserves latest user/tool round and uses known context limit", async () => {
+  let request: any;
+  const p = makeOpenAICompatProvider({ baseUrl: "https://test", apiKey: "test", contextWindow: 1000, maxTokens: 100, echoReasoningContent: true,
+    fetch: (async (_u: string, init: { body: string }) => { request = JSON.parse(init.body); return new Response("data: [DONE]\n"); }) as never });
+  const latest = [{ role: "user" as const, content: "latest" }, { role: "assistant" as const, content: "", toolCalls: [{ id: "new", name: "t", args: {} }] }, { role: "tool" as const, content: "new result", toolCallId: "new" }];
+  await collect(p.chat(cfg, [{ role: "assistant", content: "old", reasoningContent: "한".repeat(2000), toolCalls: [{ id: "old", name: "t", args: {} }] }, { role: "tool", content: "old result", toolCallId: "old" }, ...latest], { systemPrompt: "system" }));
+  expect(request.messages.map((m: any) => m.role)).toEqual(["system", "user", "assistant", "tool"]);
+  expect(request.messages[2].tool_calls[0].id).toBe("new");
+  expect(request.messages[3].tool_call_id).toBe("new");
+});
+it("does not retry context overflow after cancellation", async () => {
+  const controller = new AbortController();
+  let calls = 0;
+  const p = makeOpenAICompatProvider({ baseUrl: "https://test", apiKey: "test",
+    fetch: (async () => { calls++; controller.abort(); return new Response("maximum context length", { status: 400 }); }) as never });
+  await expect(collect(p.chat(cfg, [{ role: "user", content: "latest" }], { signal: controller.signal }))).rejects.toThrow(/400/);
+  expect(calls).toBe(1);
+});
+
+// Deliberately independent synthetic tokenizer: one token per three UTF-8 bytes.
+// This exercises real HTTP framing and accumulated Korean history, not model quality.
+it("8192 HTTP server: Korean 20 turns, 20 responses and zero context 400s", async () => {
+  const tokens = (value: unknown) => Math.ceil(Buffer.byteLength(JSON.stringify(value), "utf8") / 3);
+  let requests = 0, overflows = 0, maxInput = 0;
+  const server = createServer(async (request, response) => {
+    let raw = "";
+    for await (const part of request) raw += part;
+    const body = JSON.parse(raw);
+    const input = tokens({ messages: body.messages, tools: body.tools });
+    requests++; maxInput = Math.max(maxInput, input);
+    if (input > 8192) {
+      overflows++;
+      response.writeHead(400, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ error: { message: "maximum context length is 8192 tokens", code: "context_length_exceeded" } }));
+      return;
+    }
+    response.writeHead(200, { "Content-Type": "text/event-stream" });
+    response.end('data: {"choices":[{"delta":{"content":"한국어 응답입니다."}}]}\n\ndata: [DONE]\n\n');
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const config: ProviderConfig = { provider: "vllm", model: "qwen-test", contextWindow: 8192,
+      vllmHost: `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1` };
+    const chunks: import("../main/domain/chat.js").AgentEmit[] = [];
+    const tools = [{ name: "radio", description: "라디오 곡을 선택합니다.", parameters: { type: "object" } }];
+    const agent = wireAgentUC1({ defaultConfig: config, resolver: makeProviderResolver(),
+      egress: { emit: (_id, event) => { chunks.push(event); } }, diag: { log() {} },
+      toolExecutor: { specs: () => tools, execute: async () => ({ output: "ok" }) },
+    });
+    const messages: import("../main/domain/chat.js").ChatMessage[] = [];
+    let replies = 0;
+    for (let turn = 1; turn <= 20; turn++) {
+      messages.push({ role: "user", content: `${turn}번째 이야기입니다. ` + "오늘 라디오에서는 한국어 대화를 나누며 음악과 날씨에 대해 이야기합니다. ".repeat(35) });
+      chunks.length = 0;
+      await agent.handler.onChatRequest({ kind: "chat", requestId: `turn${turn}`, messages, systemPrompt: "한국어 라디오 진행자입니다.", enableTools: true });
+      expect(chunks.filter((chunk) => chunk.kind === "error")).toHaveLength(0);
+      const text = chunks.filter((c) => c.kind === "text").map((c) => c.text).join("");
+      expect(text).toBe("한국어 응답입니다.");
+      expect(chunks.at(-1)).toEqual({ kind: "finish" });
+      messages.push({ role: "assistant", content: text }); replies++;
+    }
+    expect(tokens({ messages, tools })).toBeGreaterThan(8192); // proves trimming is necessary
+    expect({ requests, replies, overflows }).toEqual({ requests: 20, replies: 20, overflows: 0 });
+    expect(maxInput).toBeLessThanOrEqual(8192);
+    // Negative control: this server must reject accumulated untrimmed history.
+    const control = await fetch(`${config.vllmHost}/chat/completions`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages, tools }),
+    });
+    expect(control.status).toBe(400);
+    expect(await control.text()).toContain("maximum context length");
+    expect(overflows).toBe(1); // intentional control, after all 20 successful turns
+
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+it("ProviderConfig contextWindow changes native resolver wire history", async () => {
+  const counts: number[] = [];
+  const resolver = makeProviderResolver({ fetch: (async (_url: string, init: { body: string }) => {
+    counts.push(JSON.parse(init.body).messages.length);
+    return new Response("data: [DONE]\n");
+  }) as never });
+  const messages = [...Array.from({ length: 30 }, () => ({ role: "assistant" as const, content: "x".repeat(1000) })), { role: "user" as const, content: "latest" }];
+  for (const contextWindow of [1000, 8192]) {
+    const config = { provider: "vllm", model: "qwen", contextWindow };
+    await collect(resolver.resolve(config).chat(config, messages, {}));
+  }
+  expect(counts[0]).toBeLessThan(counts[1]!);
+});
+
+it.each(["unknown parameter input_tokens", "invalid max_model_len option"])("does not retry unrelated 400 mentioning token fields: %s", async (detail) => {
+  let calls = 0;
+  const provider = makeOpenAICompatProvider({ baseUrl: "https://test.invalid", apiKey: "test",
+    fetch: (async () => { calls++; return new Response(detail, { status: 400 }); }) as never });
+  await expect(collect(provider.chat(cfg, [{ role: "user", content: "hi" }], {}))).rejects.toThrow(/400/);
+  expect(calls).toBe(1);
+});
+
+it("composition uses contextWindow above 6000 and excludes radio-disabled tools on wire", async () => {
+  const requests: any[] = [];
+  const resolver = makeProviderResolver({ fetch: (async (_url: string, init: { body: string }) => {
+    requests.push(JSON.parse(init.body)); return new Response('data: {"choices":[{"delta":{"content":"완료했습니다."}}]}\ndata: [DONE]\n');
+  }) as never });
+  const agent = wireAgentUC1({ resolver, egress: { emit() {} }, diag: { log() {} },
+    toolExecutor: { specs: () => [
+      { name: "radio", description: "라디오", parameters: {} },
+      { name: "heavy", description: "x".repeat(10000), parameters: {} },
+    ], execute: async () => ({ output: "ok" }) },
+  });
+  const messages = [...Array.from({ length: 40 }, () => ({ role: "assistant" as const, content: "한글".repeat(100) })), { role: "user" as const, content: "최신" }];
+  for (const contextWindow of [6000, 32768]) {
+    agent.setDefaultConfig({ provider: "vllm", model: "qwen", contextWindow });
+    await agent.handler.onChatRequest({ kind: "chat", requestId: `r${contextWindow}`, messages,
+      disabledSkills: ["heavy"], enableTools: true });
+  }
+  expect(requests).toHaveLength(2);
+  expect(requests[1].messages.length).toBeGreaterThan(requests[0].messages.length);
+  expect(requests[1].messages.filter((m: any) => m.role !== "system")).toHaveLength(messages.length);
+  expect(requests[1].tools.map((tool: any) => tool.function.name)).toContain("radio");
+  expect(requests[1].tools.map((tool: any) => tool.function.name)).not.toContain("heavy");
+});
+
+it.each(["context window exceeded", "context-window-exceeded", "prompt too long", "too many input tokens"])("retries length variant once: %s", async (detail) => {
+  let calls = 0;
+  const provider = makeOpenAICompatProvider({ baseUrl: "https://test.invalid", apiKey: "test",
+    fetch: (async () => ++calls === 1 ? new Response(detail, { status: 400 }) : new Response("data: [DONE]\n")) as never });
+  const messages = [{ role: "assistant" as const, content: "x".repeat(1000) }, { role: "user" as const, content: "hi" }];
+  expect((await collect(provider.chat(cfg, messages, {}))).at(-1)).toEqual({ kind: "finish" });
+  expect(calls).toBe(2);
+});
+
+describe("#176 검수 지적 1·4·5 — 문맥 한도와 400 판별", () => {
+  const history = [
+    { role: "user" as const, content: "첫 번째 질문" },
+    { role: "assistant" as const, content: "첫 번째 답변" },
+    { role: "user" as const, content: "두 번째 질문" },
+  ];
+  it("게이트웨이 deepseek-v4-flash 는 출력 예약 16384 가 있어도 대화 기록을 지우지 않는다", async () => {
+    let body: any;
+    const resolver = makeProviderResolver({
+      fetch: (async (_u: string, init: { body: string }) => { body = JSON.parse(init.body); return new Response("data: [DONE]\n"); }) as never,
+    });
+    const c = { provider: "nextain", model: "deepseek-v4-flash", naiaKey: "k" } as ProviderConfig;
+    await collect(resolver.resolve(c).chat(c, history, { systemPrompt: "sys" }));
+    expect(body.max_tokens).toBe(16_384);
+    expect(body.messages.map((x: any) => x.content)).toEqual(["sys", ...history.map((x) => x.content)]);
+  });
+  it("문맥 한도를 모르는 공급자도 큰 maxTokens 때문에 기록이 0 이 되지 않는다", async () => {
+    let body: any;
+    const p = makeOpenAICompatProvider({ baseUrl: "https://test", apiKey: "k", maxTokens: 16_384,
+      fetch: (async (_u: string, init: { body: string }) => { body = JSON.parse(init.body); return new Response("data: [DONE]\n"); }) as never });
+    await collect(p.chat(cfg, history, { systemPrompt: "sys" }));
+    expect(body.messages).toHaveLength(4);
+  });
+  it("게이트웨이 모델 문맥 한도 표는 Pi 카탈로그와 같다", () => {
+    const models = (buildNaiaPiModelsConfig() as any).providers[NAIA_PI_PROVIDER].models as { id: string; contextWindow: number }[];
+    expect(models.map((m) => m.id).sort()).toEqual([...NAIA_PI_MODELS].sort());
+    for (const m of models) {
+      expect(naiaGatewayContextWindow(m.id)).toBe(m.contextWindow);
+      expect(naiaGatewayContextWindow(m.id.toUpperCase())).toBe(m.contextWindow);
+    }
+    expect(naiaGatewayContextWindow("unknown-model")).toBeUndefined();
+  });
+  for (const [label, status, payload] of [
+    ["stop 토큰 수 오류", 400, { error: { message: "stop sequences contain too many tokens (max 4)" } }],
+    ["max_tokens 파라미터 오류", 400, { error: { message: "Requested max_tokens (16384) exceeds max_model_len (8192)" } }],
+    ["max_completion_tokens 과대", 400, { error: { message: "'max_completion_tokens' is too large: 16384. This model's maximum context length is 8192 tokens" } }],
+    ["본문 에코", 400, { detail: [{ msg: "field required", input: "prompt is too long maximum context length" }] }],
+  ] as const) {
+    it(`문맥 초과가 아닌 400(${label})은 재시도하지 않고 원래 오류를 낸다`, async () => {
+      let calls = 0;
+      const p = makeOpenAICompatProvider({ baseUrl: "https://test", apiKey: "k",
+        fetch: (async () => { calls++; return new Response(JSON.stringify(payload), { status }); }) as never });
+      const err: any = await collect(p.chat(cfg, [{ role: "user", content: "hi" }], {})).catch((e) => e);
+      expect(calls).toBe(1);
+      expect(err.code).toBeUndefined();
+      expect(err.message).toMatch(/400/);
+    });
+  }
+  it("error.code=context_length_exceeded 는 문맥 초과로 보고, 최종 오류에 서버 상세를 남긴다", async () => {
+    let calls = 0;
+    const p = makeOpenAICompatProvider({ baseUrl: "https://test", apiKey: "k",
+      fetch: (async () => { calls++; return new Response(JSON.stringify({ error: { code: "context_length_exceeded", message: "This model's maximum context length is 8192 tokens." } }), { status: 400 }); }) as never });
+    const messages = [...Array.from({ length: 6 }, () => ({ role: "assistant" as const, content: "x".repeat(1000) })), { role: "user" as const, content: "latest" }];
+    const err: any = await collect(p.chat(cfg, messages, {})).catch((e) => e);
+    expect(calls).toBe(2);
+    expect(err.code).toBe("CONTEXT_WINDOW_EXCEEDED");
+    expect(err.message).toMatch(/^문맥 길이 초과: .*8192 tokens/);
+  });
+  // #176 rev2: 서버가 알려 준 한도의 여러 표기를 읽어 두 번째 요청을 실제 한도 안에 넣고,
+  // "input or max_tokens 를 줄이라"는 안내가 붙은 진짜 초과도 문맥 초과로 본다.
+  for (const form of [
+    (cost: number) => `input length ${Math.ceil(cost)} exceeds max_model_len 2048`,
+    (cost: number) => `prompt of ${Math.ceil(cost)} tokens exceeds max_model_len=2048`,
+    (cost: number) => `input (${Math.ceil(cost)} tokens) exceeds max_model_len: 2048`,
+    (cost: number) => `input ${Math.ceil(cost)} exceeds max_model_len (2048)`,
+    () => "This model's maximum context length is 2048 tokens. Please reduce your input or max_tokens.",
+  ]) {
+    it(`서버 한도 안으로 줄여 두 번째 요청에서 성공한다: ${form(5000)}`, async () => {
+      const costs: number[] = [];
+      const p = makeOpenAICompatProvider({ baseUrl: "https://test", apiKey: "k",
+        fetch: (async (_u: string, init: { body: string }) => {
+          const b = JSON.parse(init.body);
+          const cost = b.messages.reduce((n: number, m: any) => n + conversationMessageCost(m), 0);
+          costs.push(cost);
+          if (cost <= 2048) return new Response("data: [DONE]\n");
+          return new Response(JSON.stringify({ error: { message: form(cost) } }), { status: 400 });
+        }) as never });
+      const messages = [...Array.from({ length: 20 }, (_, i) => ({ role: "assistant" as const, content: String.fromCharCode(65 + i).repeat(1000) })), { role: "user" as const, content: "latest" }];
+      await collect(p.chat({ provider: "vllm", model: "unknown-model" } as ProviderConfig, messages, {}));
+      expect(costs).toHaveLength(2);
+      expect(costs[1]).toBeLessThanOrEqual(2048);
+    });
+  }
+  it("줄일 기록이 없으면 같은 요청을 다시 보내지 않는다", async () => {
+    let calls = 0;
+    const p = makeOpenAICompatProvider({ baseUrl: "https://test", apiKey: "k",
+      fetch: (async () => { calls++; return new Response(JSON.stringify({ error: { message: "maximum context length is 2048 tokens" } }), { status: 400 }); }) as never });
+    const err: any = await collect(p.chat(cfg, [{ role: "user", content: "x".repeat(20000) }], { systemPrompt: "sys" })).catch((e) => e);
+    expect(calls).toBe(1);
+    expect(err.code).toBe("CONTEXT_WINDOW_EXCEEDED");
   });
 });

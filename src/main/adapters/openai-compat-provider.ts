@@ -2,8 +2,9 @@
 // OpenAI-호환 /chat/completions SSE 스트림(GLM coding plan·openai·vllm 공용). openai SDK 대신 raw fetch(deps 최소).
 // UC1 per-chunk 스트리밍(delta.content) + UC5 slice 1b tool_calls(계약 §C: tools 전송 + delta.tool_calls 재조립).
 // apiKey/baseUrl=주입(키는 wire 아님, env/CredentialPort). 실 검증=클라우드(GPU 불요).
-import type { ProviderPort, ProviderChatOpts } from "../ports/uc1.js";
+import type { ProviderPort, ProviderChatOpts, DiagnosticLog } from "../ports/uc1.js";
 import type { ProviderConfig, ChatMessage, ProviderChunk } from "../domain/chat.js";
+import { makeBudgetedConversation, estimateConversationTokens, conversationMessageCost } from "./budgeted-conversation.js";
 import { createHash } from "node:crypto";
 
 type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal }) => Promise<{
@@ -73,6 +74,32 @@ async function readErrorBody(body: ErrorBody): Promise<string> {
   } catch { /* diagnostic */ }
   try { await reader.cancel?.(); } catch { /* isolate */ }
   return s.slice(0, 4096);
+}
+
+/** Context overflow is judged on the server's own error code/message, never on
+ * the raw body (a 400 may echo the prompt). Output-parameter errors such as
+ * "max_tokens exceeds max_model_len" are not input overflow: dropping history
+ * cannot fix them. A real overflow that merely suggests "reduce your input or
+ * max_tokens" is still overflow. */
+function isContextOverflowError(errText: string, detail: string): boolean {
+  let code: unknown;
+  try {
+    code = (JSON.parse(errText) as { error?: { code?: unknown } })?.error?.code;
+  } catch {
+    code = undefined;
+  }
+  if (code === "context_length_exceeded") return true;
+  if (!detail || /\bmax_(?:completion_)?tokens\b[^.\n]{0,60}(?:exceeds?|greater than|larger than|too large|must be|out of range|invalid)/i.test(detail)) return false;
+  return /maximum context length|context[ _-](?:length|window)[ _-]exceeded|prompt (?:is )?too long|too many (?:input|prompt) tokens|longer than the maximum model length|\b(?:input|prompt)\b[^.\n]{0,80}(?:exceeds?|longer|greater)[^.\n]{0,80}max_model_len/i.test(detail);
+}
+
+/** "maximum context length is 8192 tokens" / "max_model_len 8192" (also =, :,
+ * parenthesised) → 8192, when the server says it. */
+function parseServerContextWindow(detail: string): number | undefined {
+  const m = /maximum (?:context|model) length (?:is |of )?(\d{3,8})/i.exec(detail)
+    ?? /\bmax_model_len\b\s*[=:(]?\s*(\d{3,8})/i.exec(detail);
+  const n = m ? Number(m[1]) : NaN;
+  return Number.isSafeInteger(n) && n > 0 ? n : undefined;
 }
 
 /** FastAPI `detail` or OpenAI `error.message`; empty when the body has neither. */
@@ -233,6 +260,9 @@ export function makeOpenAICompatProvider(deps: {
   supportsTools?: boolean;
   promptCacheShard?: boolean;
   maxTokens?: number;
+  /** Trusted model context limit, when known by the caller. Defaults to 6000. */
+  contextWindow?: number;
+  diag?: DiagnosticLog;
   idleTimeoutMs?: number;
   fetch?: FetchLike;
 }): ProviderPort {
@@ -245,7 +275,7 @@ export function makeOpenAICompatProvider(deps: {
     : { Authorization: `Bearer ${deps.apiKey}` };
   return {
     async *chat(config: ProviderConfig, messages: readonly ChatMessage[], opts: ProviderChatOpts): AsyncIterable<ProviderChunk> {
-      const wireMsgs = toWireMessages(opts.systemPrompt, messages, { echoReasoningContent: deps.echoReasoningContent }); // tool 메시지 toolCallId 누락 시 throw(§C.1)
+      toWireMessages(opts.systemPrompt, messages, { echoReasoningContent: deps.echoReasoningContent }); // Validate before dropping malformed history.
       const toolsBody = deps.supportsTools !== false && opts.tools && opts.tools.length > 0
         ? opts.tools.map((s) => ({ type: "function", function: { name: s.name, description: s.description, parameters: s.parameters } }))
         : undefined;
@@ -269,19 +299,57 @@ export function makeOpenAICompatProvider(deps: {
         ? { prompt_cache_key: buildPromptCacheShard(requestModel, opts.systemPrompt) }
         : undefined;
 
-      const resp = await doFetch(`${base}/chat/completions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeader },
-        body: JSON.stringify({ model: requestModel, messages: wireMsgs, stream: true, stream_options: { include_usage: true }, ...(deps.maxTokens ? { max_tokens: deps.maxTokens } : {}), ...(toolsBody ? { tools: toolsBody } : {}), ...(noThinkBody ?? {}), ...(thinkingLevelBody ?? {}), ...(promptCacheBody ?? {}) }),
-        ...(opts.signal ? { signal: opts.signal } : {}),
-      });
-      if (!resp.ok || !resp.body) {
-        // ⚠️ 비-OK(429/403/404 등)도 응답 본문이 딸려온다 — throw 전 **반드시 소비/취소**한다. 안 그러면 undici
-        //    소켓이 dangling 으로 남아, 호스트가 곧장 process.exit() 하는 경로(CLI once-mode)에서 libuv
-        //    "UV_HANDLE_CLOSING"(async.c) 어설션 크래시를 유발(실 키 round-trip 테스트로 적발 2026-06-26).
-        //    성공 경로는 아래 finally(reader.cancel)가 정리하나, 이 early-throw 는 reader 생성 전이라 누락됐었음.
+      // Budget at the wire boundary: tools and output reservation were not known
+      // by the earlier conversation assembly. Preserve system + latest user turn.
+      const configuredWindow = config.contextWindow ?? deps.contextWindow;
+      // Unknown window: a server that accepts max_tokens=N holds at least N output
+      // tokens, so keep a minimum input share on top of a large reservation —
+      // otherwise a fixed maxTokens above 6000 leaves no room for history at all.
+      const contextBudget = Number.isSafeInteger(configuredWindow) && configuredWindow! > 0
+        ? configuredWindow!
+        : Math.max(6000, (deps.maxTokens ?? 0) + 3000);
+      const fixedCost = estimateConversationTokens(JSON.stringify(toolsBody ?? [])) + (deps.maxTokens ?? 0) + 32;
+      const inputBudget = Math.max(0, contextBudget - fixedCost);
+      deps.diag?.debug?.("OpenAICompatProvider.budget", { contextBudget, fixedCost, messages: messages.length });
+      let selected = makeBudgetedConversation({ maxTokens: inputBudget }).assemble({ messages, systemPrompt: opts.systemPrompt }).messages;
+      let resp;
+      for (let attempt = 0; ; attempt++) {
+        const wireMsgs = toWireMessages(opts.systemPrompt, selected, { echoReasoningContent: deps.echoReasoningContent });
+        resp = await doFetch(`${base}/chat/completions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...authHeader },
+          body: JSON.stringify({ model: requestModel, messages: wireMsgs, stream: true, stream_options: { include_usage: true }, ...(deps.maxTokens ? { max_tokens: deps.maxTokens } : {}), ...(toolsBody ? { tools: toolsBody } : {}), ...(noThinkBody ?? {}), ...(thinkingLevelBody ?? {}), ...(promptCacheBody ?? {}) }),
+          ...(opts.signal ? { signal: opts.signal } : {}),
+        });
+        if (resp.ok && resp.body) break;
+        // Consume/cancel the error body before retry or throw (undici cleanup).
         const errText = resp.body ? await readErrorBody(resp.body) : "";
-        throw new Error(formatCompatHttpError(base, resp.status, resp.statusText, extractHttpErrorDetail(errText)));
+        const errDetail = extractHttpErrorDetail(errText);
+        const contextOverflow = resp.status === 400 && isContextOverflowError(errText, errDetail);
+        if (contextOverflow && !opts.signal?.aborted) {
+          const historyCost = selected.reduce((sum, m) => sum + conversationMessageCost(m), 0);
+          const serverWindow = parseServerContextWindow(errDetail);
+          const retryBudget = Math.min(
+            inputBudget,
+            historyCost / 2 + estimateConversationTokens(opts.systemPrompt ?? ""),
+            serverWindow !== undefined ? Math.max(0, serverWindow - fixedCost) : Infinity,
+          );
+          const halved = attempt === 0
+            ? makeBudgetedConversation({ maxTokens: retryBudget }).assemble({ messages: selected, systemPrompt: opts.systemPrompt }).messages
+            : selected;
+          // Assembly only drops whole blocks, so an unchanged length means nothing
+          // droppable is left — resending the same request would fail the same way.
+          if (halved.length < selected.length) {
+            deps.diag?.debug?.("OpenAICompatProvider.contextOverflowRetry", { messages: selected.length, kept: halved.length });
+            selected = halved;
+            continue;
+          }
+          throw Object.assign(
+            new Error(`문맥 길이 초과: 오래된 대화를 줄여도 모델 한도를 넘었습니다.${errDetail ? ` (서버: ${errDetail.slice(0, 300)})` : ""}`),
+            { code: "CONTEXT_WINDOW_EXCEEDED" as const },
+          );
+        }
+        throw new Error(formatCompatHttpError(base, resp.status, resp.statusText, errDetail));
       }
 
       const reader = resp.body.getReader();
