@@ -117,3 +117,12 @@ describe("#176 검수 지적 2·4 — 합성 user 와 비-CJK 비용", () => {
     expect(conversationMessageCost(m("user", "봐줘", { inlineImages: [{ mimeType: "image/png", data: "A".repeat(40000) }] }))).toBeGreaterThanOrEqual(1000);
   });
 });
+
+it("summarizeDropped synthesizes [최근 대화 요약] from dropped older turns", () => {
+  const messages = Array.from({ length: 10 }, (_, i) => m(i % 2 === 0 ? "user" : "assistant", `사연 대화 ${i}: ${"가나다라마바사".repeat(30)}`));
+  const out = makeBudgetedConversation({ maxTokens: 1200, summarizeDropped: true }).assemble({
+    messages,
+    systemPrompt: "너는 나이아다.",
+  });
+  expect(out.systemPrompt).toContain("[최근 대화 요약 (이전 코너 맥락)]");
+});
