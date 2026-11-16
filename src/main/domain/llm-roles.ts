@@ -20,6 +20,7 @@ export interface EffectiveLlmConfig {
 }
 
 export interface LlmRoleSelection {
+  readonly contextWindow?: number;
   readonly provider?: string;
   readonly model?: string;
   readonly baseUrl?: string;

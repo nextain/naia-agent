@@ -1,3 +1,4 @@
+import { loadSync, type MessageTypeDefinition } from "@grpc/proto-loader";
 // emitToProto 필드 보존 — UC1 리뷰 HIGH fix 의 agent+proto 측 lock(도구결과/승인 페이로드 cross-repo 전송).
 import { describe, it, expect } from "vitest";
 import {
@@ -108,4 +109,20 @@ describe("UC-WIRE-V1 paired shell contract", () => {
       state: "resumed",
     }).providerSession).toMatchObject({ state: "RESUMED" });
   });
+});
+
+it("context overflow uses the existing ErrorEvent code field", () => {
+  expect(emitToProto("r", { kind: "error", message: "문맥 길이 초과", code: "CONTEXT_WINDOW_EXCEEDED" }))
+    .toEqual({ requestId: "r", error: { message: "문맥 길이 초과", code: "CONTEXT_WINDOW_EXCEEDED" } });
+});
+
+it("proto serializes CONTEXT_WINDOW_EXCEEDED as enum 25 on ErrorEvent.code", () => {
+  const definitions = loadSync("src/main/adapters/grpc/naia_agent.proto", { enums: String });
+  const actualType = definitions["naia.agent.v1.ErrorEvent"] as MessageTypeDefinition<Record<string, unknown>, Record<string, unknown>>;
+  const decoded = actualType.deserialize(actualType.serialize({ message: "문맥 길이 초과", code: "CONTEXT_WINDOW_EXCEEDED" }));
+  expect(decoded).toMatchObject({ message: "문맥 길이 초과", code: "CONTEXT_WINDOW_EXCEEDED" });
+  const numericDefinitions = loadSync("src/main/adapters/grpc/naia_agent.proto");
+  const numericType = numericDefinitions["naia.agent.v1.ErrorEvent"] as MessageTypeDefinition<Record<string, unknown>, Record<string, unknown>>;
+  expect(numericType.deserialize(actualType.serialize({ message: "length", code: "CONTEXT_WINDOW_EXCEEDED" })))
+    .toMatchObject({ code: 25 });
 });

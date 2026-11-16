@@ -411,3 +411,24 @@ describe("loadEngineProfile — naia-os Profile & Engine 계약 (mode 잔재 Pha
 		expect(store({ [CONFIG]: JSON.stringify({ provider: "nextain", model: "m" }) }).loadEngineProfile("")).toBeNull();
 	});
 });
+
+describe("contextWindow settings", () => {
+  it("loads contextWindow from shell config and CLI main settings", () => {
+    for (const [file, value] of [
+      [CONFIG, { provider: "vllm", model: "qwen", contextWindow: 8192 }],
+      [LLM, { main: { provider: "vllm", model: "qwen", contextWindow: 8192 } }],
+    ] as const) {
+      expect(store({ [file]: JSON.stringify(value) }).loadMain("/ws")).toMatchObject({ contextWindow: 8192 });
+    }
+  });
+  it.each([0, -1, 1.5, "8192", null])("ignores invalid contextWindow %s", (contextWindow) => {
+    expect(store({ [CONFIG]: JSON.stringify({ provider: "vllm", model: "qwen", contextWindow }) }).loadMain("/ws"))
+      .not.toHaveProperty("contextWindow");
+  });
+});
+
+it("llmRoles.main.contextWindow is authoritative over the legacy top-level value", () => {
+  expect(store({ [CONFIG]: JSON.stringify({ contextWindow: 1000,
+    llmRoles: { main: { provider: "vllm", model: "qwen", contextWindow: 8192 } },
+  }) }).loadMain("/ws")).toMatchObject({ contextWindow: 8192 });
+});

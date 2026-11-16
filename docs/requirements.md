@@ -1123,3 +1123,26 @@ R18 (#792 P01–P05): 904878e 위에 R17을 통합한다. Memory ab1f800의 생�
 | FR-CODEX-SWAP-1 | **Pi 의존성 완전 제거** — `package.json` 및 `pnpm-lock.yaml`에서 `@earendil-works/pi-coding-agent`와 `@earendil-works/pi-ai`를 제거하고, Pi 전용 어댑터·연속 루프·과금 브리지·비용 비교기·Pi 전용 스크립트 및 Pi 전용 벤치마크를 제거한다(비-Pi 결정론·단일 이슈 벤치마크인 `benchmark/run-issue-team-deterministic.mjs`, `benchmark/run-multi-issue-deterministic.mjs`, `benchmark/run-single-issue-live.mjs`는 유지). | Done |
 | FR-CODEX-SWAP-2 | **Codex 기본 코어 일원화·루프백 브리지 및 연속 루프 복원(B1·B2·R2·R9·2단계)** — CLI 코딩 감독기(`naia-agent run`, `cli-supervise`), 연속 루프(`naia-agent loop`, `codex-continuous-loop`, `codex-continuous-loop-control`), 설정 관리(`cli-manage` `coding.agent`), 서브에이전트 로스터(`subagent-roster`), 위임 스킬(`delegate-agent-skill`), 이슈 팀(`issue-team`, `mixed-issue-team-agents`), 역할 실행기(`src/main/adapters/role-runner.ts`), `wireSupervisor`(기본 `subAgentName: "codex"`)에서 `pi` 패키지를 제거하고 `codex`(`gpt-5.4` 기본 모델)를 기본 코어로 사용한다. 역할 실행기와 `subagent-codex`는 CLI 워커(`codex`, `claude-code-cli`, `grok`)뿐 아니라 등록된 Naia 8종(`nextain`/`naia`)과 로컬 모델(`local`, `ollama`, `vllm`, `lmstudio`, `local-*`)을 Codex `[model_providers.*]`(`wire_api = "responses"`) + 부모 프로세스 내 `/v1/responses` ↔ `/v1/chat/completions` 루프백 브리지(`naia-pi-versioned-billing.ts`, `naia-pi-provider.ts`, `user-owned-pi-provider.ts`)로 실행하며, `anthropic` 및 미등록 Naia 모델은 spawn 전에 분명한 오류로 차단한다. 구 저장값 `coding.agent="pi"`는 `"codex"`로 자동 이전·안내하거나 명시적 수정 안내 오류를 낸다(R2). | Done |
 | FR-CODEX-SWAP-3 | **CLI 진단·버전/탐색 순서 고정 및 계약 시험 전환(B3·1단계·p3fix1·p3fix2·p3fix3·p3fix4)** — `package.json`에 `@openai/codex: "0.163.0"`을 고정하고 바이너리 탐색 순서를 `CODEX_BIN` → 패키지 내장 `node_modules/.bin/codex` → 시스템 `PATH`로 통일하며 무버전 `npx --yes @openai/codex` 폴백을 제거한다. `naia-agent doctor` 및 기본 `checkCodexPreflight`는 `codex-cli 0.163.0` 버전과 로그인을 점검하며, 자식 프로세스 환경 격리(`DISCORD_BOT_TOKEN`·`NAIA_API_KEY`·`ANTHROPIC_API_KEY` 차단 및 브리지 `NAIA_BRIDGE_TOKEN` 조건부 허용)·`subagent-codex`/`codex-exec-provider`/`codex-ax`/기본 `app-server` 전 경로의 관리형 `CODEX_HOME`(사용자 `config.toml` 무상속 + `HOME`/`USERPROFILE`/`os.homedir()` 폴백을 포함한 `auth.json` 심볼릭 링크)·도구 `tier` 단일 진실 공급원(`domain/chat.ts`: 내장 실행기 도구는 도메인 계약에 따라 `tier` 미설정/`"none"`이면 자동 실행(`resolveEffectiveToolTier`/`isGatedToolTier`), 알려진 도구 목록에 없는 이름은 `"ask"` 승인 필요(`resolveToolTierByName`), 조립 단계(`composeBuiltinAndExternalToolExecutors`/`wrapExternalToolExecutor`, `wireAgentUC1`, `compose-agent-deps.mjs`, `agent-stdio-entry.mjs`)가 내장 실행기와 바깥 실행기를 분리해 바깥 실행기를 한 곳에서 `normalizeExternalToolSpec` 래퍼로 감싸 정규화 누락을 구조적으로 차단하며, 바깥 경계 어댑터(`app-tool-executor.ts`, `grpc-server.ts` `registerAppSkills`/`listSkills`, `adk-skill-loader.ts`, `mcp-skills.ts`)와 `makeCodexAppServerProvider` 직접 호출 경계에서도 미지정 `tier` 및 비표준 문자열(`SKILL.md` `T1`/`T2` 등 `ALLOWED_RUNTIME_TOOL_TIERS` 밖 값)을 `"ask"`로 수렴시키고 `runCodexAppServerTurn` 직접 raw 호출 시 `tier: undefined`는 fail-closed 차단)·비브리지 `openai-codex`를 포함한 `noTools` 8개 플래그+카탈로그 강제·공개 `server.listen` 기반 루프백 브리지 포트 바인딩·예약 초과 실패 시 고아 영수증 회수를 Codex 계약 시험(`src/test/codex-app-server-provider.contract.test.ts`, `src/test/adk-skill-loader.contract.test.ts`, `src/test/uc-cli-subagent-codex.contract.test.ts`, `src/test/naia-pi-versioned-billing.contract.test.ts`, `src/test/uc-naia-pi-provider.contract.test.ts`, `src/test/role-runner.contract.test.ts`, `src/test/cli-manage.contract.test.ts`)으로 고정한다. | Done |
+
+## FR-CONTEXT-CJK — 보수적 문맥 예산
+
+상태: Done (mock 계약 검증 범위). UC-CONTEXT-CJK. CJK는 글자당 1.5토큰, 기타 텍스트는 기존 4문자/토큰으로
+추정한다. 최종 요청은 시스템·도구·출력 예약을 포함한다. 알려진 문맥 한도를 주입받을 수 있고
+미지정 시 6000 예산을 유지한다. 최신 사용자부터 끝까지와 assistant/tool 묶음은 보존한다.
+문맥 초과 HTTP 400만 전송 기록 예산을 절반으로 줄여 최대 한 번 재시도하고 다른 오류는 전파한다.
+
+검증: main 기준 관련 5개 시험 파일 159건 통과, 독립 적대 리뷰 기록
+`.agents/reviews/context-window-overflow-main.md`. 실제 vLLM 운영 인수는 범위 밖이다.
+
+FR-CONTEXT-CJK 확장 (P01–P05, Done: 로컬 mock 계약 범위): config.json.llmRoles.main.contextWindow(우선)·config.json.contextWindow 및 llm.json.main.contextWindow는
+양의 유한 정수만 받아 ProviderConfig를 거쳐 openai-compat 최종 예산에 사용한다. 미설정은 6000.
+문맥 400만 한 번 재시도하며 두 번째 문맥 초과는 CONTEXT_WINDOW_EXCEEDED 코드로 전달한다.
+ErrorEvent.code(기존 필드 2)에 enum 25를 추가하고 장부에 원문 없는 한 줄을 남긴다.
+실제 로컬 HTTP 흉내 서버는 독립적인 UTF-8 바이트 토큰 상한으로 입력 8192 초과를 400 처리한다.
+한국어 20턴은 응답 20건·400 0건이어야 한다. 실제 tokenizer/운영 vLLM 검증으로 주장하지 않는다.
+
+main 재검증: 관련 5개 파일 159/159, pnpm build exit 0. 재현 및 독립 검수 기록:
+`.agents/reviews/context-window-overflow-main.md`. 전체 시험/실제 vLLM 인수의 한계는 해당 기록에 구분한다.
+
+범위는 openai-compat이며 실제 tokenizer/이미지 토큰/서버 암묵 출력 예약은 미검증이다.
+시스템·도구·최신 필수 블록 또는 명시 출력 예약만으로 한도를 초과하면 한 번 재시도 후 길이 오류를 전달한다.
