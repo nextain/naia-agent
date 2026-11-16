@@ -1,7 +1,7 @@
 // adapters/subagent-roster — 이름 → SubAgentPort 선택(구 bin/naia-agent.ts buildSupervisorAdapter 이식, 단계 2b).
 //
 // "타 AI 오케스트레이터"의 선택 지점: 사용자가 어떤 코딩 에이전트를 sub-agent 로 쓸지 이름으로 고른다.
-// 구현됨: pi · opencode · shell · claude-code · codex · gemini · grok.
+// 구현됨: codex · opencode · shell · claude-code · gemini · grok.
 // 미지(unknown) = **정직한 unsupported**(throw 아님 — spawn 시 session_end{ok:false}
 // 1회, AC6). 호스트/CLI 가 이 결과를 그대로 표면화.
 //
@@ -9,7 +9,6 @@
 //    auth 복원 시 runtime smoke 필요. 자세한 정직 표기 = subagent-gemini.ts 헤더.
 import type { SubAgentPort } from "../ports/orchestration.js";
 import { endedSession } from "./subprocess-session.js";
-import { makePiSubAgent, type SubAgentPiOptions } from "./subagent-pi.js";
 import { makeOpencodeSubAgent, type SubAgentOpencodeOptions } from "./subagent-opencode-cli.js";
 import { makeShellSubAgent, type SubAgentShellOptions } from "./subagent-shell.js";
 import { makeClaudeCodeSubAgent, type SubAgentClaudeCodeOptions } from "./subagent-claude-code.js";
@@ -18,12 +17,11 @@ import { makeGeminiSubAgent, type SubAgentGeminiOptions } from "./subagent-gemin
 import { makeGrokSubAgent, type SubAgentGrokOptions } from "./subagent-grok.js";
 
 /** 실제 구현된 어댑터(선택 가능). grok 는 #126 SuperGrok 구독 CLI. */
-export const SUPPORTED_SUBAGENTS = ["pi", "opencode", "shell", "claude-code", "codex", "gemini", "grok"] as const;
+export const SUPPORTED_SUBAGENTS = ["codex", "opencode", "shell", "claude-code", "gemini", "grok"] as const;
 /** 로스터 전체 대상(선언) — 현재 SUPPORTED 와 동일(전원 구현됨). */
-export const DECLARED_SUBAGENTS = ["pi", "opencode", "shell", "claude-code", "codex", "gemini", "grok"] as const;
+export const DECLARED_SUBAGENTS = ["codex", "opencode", "shell", "claude-code", "gemini", "grok"] as const;
 
 export interface RosterOptions {
-  readonly pi?: SubAgentPiOptions;
   readonly opencode?: SubAgentOpencodeOptions;
   /** shell 은 임의 명령을 sub-agent 로 spawn → command 필수(SubAgentShellOptions). 미주입 시 정직 unsupported. */
   readonly shell?: SubAgentShellOptions;
@@ -36,8 +34,6 @@ export interface RosterOptions {
 /** 이름 → SubAgentPort. 미지(unknown) = 정직 unsupported(spawn 시 session_end{ok:false} 1회, throw 금지). */
 export function selectSubAgent(name: string, opts: RosterOptions = {}): SubAgentPort {
   switch (name) {
-    case "pi":
-      return makePiSubAgent(opts.pi);
     case "opencode":
       return makeOpencodeSubAgent(opts.opencode);
     case "shell":

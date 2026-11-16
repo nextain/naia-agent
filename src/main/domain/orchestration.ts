@@ -46,7 +46,7 @@ export interface SubAgentModelEvidence {
   readonly cachedInputTokens?: number;
   /** False when a terminal provider event omitted or malformed its usage object. */
   readonly usageAvailable?: boolean;
-  readonly piEstimatedCost?: number;
+  readonly estimatedCostUsd?: number;
   readonly sessionId?: string;
   readonly executionId?: string;
   readonly measuredCostUsd?: number;

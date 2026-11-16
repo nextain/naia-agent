@@ -265,6 +265,7 @@ async function doChat(args) {
 
   // 같은 파이프라인: gRPC 와 동일 deps + 동일 wireAgentUC1, ingress/egress 만 stdio/readline.
   const wired = wireAgentUC1({
+    ...(deps.axExecutor ? { axExecutor: deps.axExecutor } : {}),
     ingress: repl.ingress,
     egress: repl.egress,
     credentials: deps.credentials,

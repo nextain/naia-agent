@@ -52,9 +52,9 @@ describe("loadMain — config.json (naia-os 셸 정본 포맷; 키는 키체인=
 });
 
 describe("loadLlmRoles — main/sub/memory 독립 설정과 migration", () => {
-	it("작은 모델과 기억 모델이 모두 비어 있으면 기억의 기존 휴리스틱을 유지한다", () => {
+	it("작은 모델과 기억 모델이 모두 비어 있으면 메인 두뇌로 사실을 뽑는다", () => {
 		const result = store({ [CONFIG]: JSON.stringify({ provider: "nextain", model: "main" }) }).loadLlmRoles("/ws");
-		expect(result?.ok && result.configs[2].provider.value).toBe("none");
+		expect(result?.ok && result.configs[2].provider.value).toBe("nextain");
 	});
 	it("기억 모델이 비고 작은 모델을 명시하면 기억은 작은 모델을 따른다", () => {
 		const result = store({ [CONFIG]: JSON.stringify({ provider: "nextain", model: "main", subLlmProvider: "nextain", subLlmModel: "small" }) }).loadLlmRoles("/ws");

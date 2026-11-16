@@ -10,6 +10,8 @@ export type Unsub = () => void;
 
 // ── driven (brain 이 의존) ──
 export interface ProviderChatOpts {
+  readonly requestId?: string; // trusted host correlation for AX broker approval
+
   readonly systemPrompt?: string;
   readonly signal?: AbortSignal;
   readonly tools?: readonly ToolSpec[]; // UC5 — LLM 에 전달할 도구 사양(미지원 provider 는 무시)
