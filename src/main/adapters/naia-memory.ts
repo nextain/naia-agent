@@ -504,7 +504,17 @@ export function makeNaiaMemory(opts: NaiaMemoryOpts): ReadyManagedMemoryPort {
           .filter(f => f.encodingContext?.project === project && (f.status ?? "active") === "active" && (f.validTo == null || f.validTo > now) && (f.validFrom == null || f.validFrom <= now))
           .sort((a, b) => b.updatedAt - a.updatedAt).slice(0, RAW_MAX_ITEMS);
         const picked = selectRecallByThreshold({ facts: recent.map(f => f.content), episodes: [] }, query, { threshold: 0.86, maxItems: Math.min(k, 5), keywordOnly: true }).memory.facts;
-        result.facts = recent.filter(f => picked.includes(f.content)).slice(0, k);
+        const facts = [...result.facts];
+        const ids = new Set(facts.map(f => f.id));
+        const contents = new Set(facts.map(f => f.content));
+        for (const fact of recent) {
+          if (facts.length >= k) break;
+          if (!picked.includes(fact.content) || ids.has(fact.id) || contents.has(fact.content)) continue;
+          facts.push(fact);
+          ids.add(fact.id);
+          contents.add(fact.content);
+        }
+        result.facts = facts;
       }
       // 포트 반환 상한(방어): 항목 수 k·각 content RAW_ITEM_CAP 자로 bound — 거대 반환이 동기 처리에서
       // 루프/메모리를 고갈시키는 것 차단(formatter 도 별도 cap). RAW_ITEM_CAP > formatter maxItemChars 기본.

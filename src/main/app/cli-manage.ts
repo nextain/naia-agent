@@ -255,6 +255,9 @@ export function migrateLegacyCliCodingConfig(config: CliGlobalConfig): {
       coding: {
         ...config.coding,
         agent: "codex",
+        // The old config does not record a provider route, so a Pi model cannot
+        // safely be passed to Codex (including Naia models without a key).
+        model: "gpt-5.4",
       },
     },
     migratedFromPi: true,

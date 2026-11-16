@@ -148,6 +148,17 @@ describe("TEST-S-020 isolated HOME management flow", () => {
     expect(second.stderr).not.toContain('coding.agent="pi"');
   });
 
+  it("persists a Codex-compatible default when migrating a Pi model", () => {
+    const { workspace, env } = sandbox();
+    expect(run(env, ["config", "set", "workspace", workspace]).status).toBe(0);
+    const path = join(workspace, "naia-settings", "cli.json");
+    writeFileSync(path, JSON.stringify({ coding: { agent: "pi", model: "grok-4.3", tools: false } }));
+    const result = run(env, ["config", "list", "--json"]);
+    expect(result.status).toBe(0);
+    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ coding: { agent: "codex", model: "gpt-5.4", tools: false } });
+    expect(JSON.parse(result.stdout).config).toMatchObject({ "coding.agent": "codex", "coding.model": "gpt-5.4" });
+  });
+
   it("enforces --sandbox read-only on naia-agent run --no-tools and rejects --no-tools on non-codex agents (B1)", () => {
     const { root, workspace, env } = sandbox();
     expect(run(env, ["config", "set", "workspace", workspace]).status).toBe(0);
