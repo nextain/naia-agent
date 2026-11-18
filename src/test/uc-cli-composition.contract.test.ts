@@ -73,11 +73,27 @@ describe("wireSupervisor 합성 계약 (UC-CLI — 2a+2b+2c 조립)", () => {
     expect(reports[0].sessionOk).toBe(false); // unsupported → session_end ok:false
   });
 
-  it("subAgentName 생략 → 기본 'shell'(subAgentOpts.shell 로 구동)", async () => {
+  it("subAgentName 생략 → 기본 'codex'(subAgentOpts.codex 로 구동, R9)", async () => {
     const { egress, reports } = captureEgress();
-    const orch = wireSupervisor({ subAgentOpts: { shell: { command: NODE, args: () => ["-e", "process.exit(0)"] } } });
+    const orch = wireSupervisor({
+      subAgentOpts: {
+        codex: {
+          resolveBin: () => ({ command: NODE, prefixArgs: [] }),
+          spawnFn: (_command, _args, _opts) => {
+            const handlers: Record<string, (...a: unknown[]) => void> = {};
+            setTimeout(() => handlers.close?.(0, null), 0);
+            return {
+              stdout: { on: () => {} },
+              stderr: { on: () => {} },
+              on(ev: string, cb: (...a: unknown[]) => void) { handlers[ev] = cb; return this; },
+              kill: () => true,
+            } as unknown as import("node:child_process").ChildProcess;
+          },
+        },
+      },
+    });
     await orch.run(task, new AbortController().signal, egress);
-    expect(reports[0].sessionOk).toBe(true); // 기본 shell 로 조립
+    expect(reports[0].sessionOk).toBe(true); // 기본 codex 로 조립
   }, 15_000);
 
   it("동시 run() 독립 — 공유 포트라도 spawn() per-call 상태(교차오염 0, codex Q2)", async () => {

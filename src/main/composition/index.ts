@@ -7,7 +7,11 @@ import { makeStderrDiagnostic } from "../adapters/diagnostic.js";
 import { makeBudgetedConversation } from "../adapters/budgeted-conversation.js";
 import { ensureGatewayPricing } from "../adapters/gateway-pricing.js";
 import { makeMemorySkillsExecutor } from "../adapters/memory-skill.js";
-import { makeCompositeToolExecutor } from "../adapters/composite-tool-executor.js";
+import {
+  composeBuiltinAndExternalToolExecutors,
+  makeCompositeToolExecutor,
+  wrapExternalToolExecutor,
+} from "../adapters/composite-tool-executor.js";
 import type {
   ProviderPort, ProviderResolverPort, ProcessingGuardPort, ConversationPort, CredentialPort, ApprovalPort, AgentIngressPort, AgentEgressPort, DiagnosticLog, ToolExecutorPort, PersonaSourcePort, WorkspaceContextPort,
 } from "../ports/uc1.js";
@@ -40,7 +44,10 @@ export function wireAgentUC1(opts?: {
   conversation?: ConversationPort;
   credentials?: CredentialPort;
   approval?: ApprovalPort;
-  toolExecutor?: ToolExecutorPort; // UC5 — 미주입 = 도구 없음(UC1 순수 채팅)
+  axExecutor?: ToolExecutorPort; // trusted AX broker; replaces every raw executor after composition
+  toolExecutor?: ToolExecutorPort; // UC5 — 내장/합성 도구 실행기(미주입 = 도구 없음, UC1 순수 채팅)
+  externalToolExecutor?: ToolExecutorPort; // UC5 — 바깥 도구 실행기(조립 단계에서 normalizeExternalToolSpec 강제 래핑)
+  externalToolExecutors?: readonly ToolExecutorPort[]; // UC5 — 복수 바깥 도구 실행기(조립 단계에서 normalizeExternalToolSpec 강제 래핑)
   memory?: MemoryPort;             // UC-memory — 미주입 = 기존 동작(무회귀)
   surfacer?: SurfacingPort;        // #692 — 미주입 = 기존 동작
   compaction?: CompactionPort;     // UC-compaction — 미주입 = 압축 없음(무회귀, budgeted-conversation 드롭만)
@@ -60,15 +67,20 @@ export function wireAgentUC1(opts?: {
   // 표준 sink(docs/logging.md). 미주입=no-op write(코어 순수·무소음) — entry 가 process.stderr+debug 게이트 주입. console.* 금지.
   const diag: DiagnosticLog = opts?.diag ?? makeStderrDiagnostic();
   const approval: ApprovalPort = opts?.approval ?? makeInMemoryApproval(); // UC5 slice 2 — tier-gated 도구 승인 보류
-  let toolExecutor = opts?.toolExecutor;
+  let memExec: ToolExecutorPort | undefined;
   if (opts?.memory) {
-    const existing = toolExecutor?.specs().map((s) => s.name) ?? [];
+    const existing = opts.toolExecutor?.specs().map((s) => s.name) ?? [];
     if (!existing.includes("skill_memory_save")) {
-      const memExec = makeMemorySkillsExecutor({ memory: opts.memory });
-      toolExecutor = toolExecutor ? makeCompositeToolExecutor([toolExecutor, memExec]) : memExec;
+      memExec = makeMemorySkillsExecutor({ memory: opts.memory });
     }
   }
+  let toolExecutor = composeBuiltinAndExternalToolExecutors({
+    builtin: [opts?.toolExecutor, memExec],
+    external: [opts?.externalToolExecutor, ...(opts?.externalToolExecutors ?? [])],
+  });
+  if (opts?.axExecutor) toolExecutor = opts.axExecutor;
   const deps: HandlerDeps = {
+    ...(opts?.axExecutor ? { trustedToolsOnly: true } : {}),
     provider: opts?.provider ?? makeFakeProvider(),
     ...(opts?.resolver ? { resolver: opts.resolver } : {}),
     ...(opts?.processingGuard ? { processingGuard: opts.processingGuard } : {}),
@@ -145,8 +157,8 @@ export function wireAgentUC1(opts?: {
  */
 export function wireSupervisor(opts?: {
   subAgent?: SubAgentPort;          // 직접 주입(우선). 미주입 = roster 선택.
-  subAgentName?: string;            // roster 이름(기본 "shell"). pi/opencode/claude-code/codex/gemini/grok.
-  subAgentOpts?: RosterOptions;     // roster 어댑터 옵션(pi/opencode/shell).
+  subAgentName?: string;            // roster 이름(기본 "codex"). codex/opencode/claude-code/gemini/grok/shell.
+  subAgentOpts?: RosterOptions;     // roster 어댑터 옵션(codex/opencode/shell).
   workspace?: WorkspacePort;        // 직접 주입.
   watchWorkspace?: boolean;         // true + workspace 미주입 = makeGitWorkspace(git status 폴링).
   pollMs?: number;                  // workspace 폴링 간격.
@@ -156,7 +168,7 @@ export function wireSupervisor(opts?: {
   diag?: DiagnosticLog;
 }): { run: (task: TaskSpec, signal: AbortSignal, egress: SupervisorEgressPort) => Promise<void> } {
   const diag: DiagnosticLog = opts?.diag ?? makeStderrDiagnostic();
-  const subAgent: SubAgentPort = opts?.subAgent ?? selectSubAgent(opts?.subAgentName ?? "shell", opts?.subAgentOpts ?? {});
+  const subAgent: SubAgentPort = opts?.subAgent ?? selectSubAgent(opts?.subAgentName ?? "codex", opts?.subAgentOpts ?? {});
   const workspace: WorkspacePort | undefined =
     opts?.workspace ?? (opts?.watchWorkspace ? makeGitWorkspace(opts?.pollMs !== undefined ? { pollMs: opts.pollMs } : {}) : undefined);
   const verifier: VerifierPort | undefined =
@@ -182,3 +194,4 @@ export function wireSupervisor(opts?: {
 export { wireDurableSupervisorRuntime } from "./durable-supervisor.js";
 export type { DurableSupervisorRuntimeOptions } from "./durable-supervisor.js";
 export { makeIssueWorkerRouter, makeProfiledIssueWorker } from "./profiled-issue-worker.js";
+export { composeBuiltinAndExternalToolExecutors, makeCompositeToolExecutor, wrapExternalToolExecutor };

@@ -34,9 +34,9 @@ describe("composeWorkspaceContext — 렌더 (FR-WORKSPACE-1)", () => {
 	});
 
   it("cwd + projects → ## Workspace 블록(cwd 줄 + Projects 줄 + read_file 안내)", () => {
-    const out = composeWorkspaceContext({ cwd: "/home/luke/alpha-adk", projects: ["naia-os", "naia-agent", "naia-memory"], projectTotal: 3 });
+    const out = composeWorkspaceContext({ cwd: "/home/user/alpha-adk", projects: ["naia-os", "naia-agent", "naia-memory"], projectTotal: 3 });
     expect(out).toContain("## Workspace");
-    expect(out).toContain("Workspace root: /home/luke/alpha-adk");
+    expect(out).toContain("Workspace root: /home/user/alpha-adk");
     expect(out).toContain("Projects (3): naia-os, naia-agent, naia-memory");
     expect(out).toContain("read_file"); // 상세는 도구로(S3) — FR-WORKSPACE-4
   });
@@ -215,7 +215,7 @@ const ALPHA_PREFIX =
 const ALPHA_PROFILE: PersonaProfile = {
   agentName: "알파", userName: "루크", honorific: "마스터", speechStyle: "formal", locale: "ko", systemPromptPrefix: ALPHA_PREFIX,
 };
-const WS_SNAP: WorkspaceSnapshot = { cwd: "/home/luke/alpha-adk", projects: ["naia-os", "naia-agent"], projectTotal: 2 };
+const WS_SNAP: WorkspaceSnapshot = { cwd: "/home/user/alpha-adk", projects: ["naia-os", "naia-agent"], projectTotal: 2 };
 
 /** chat() 에서 받은 systemPrompt 를 캡처하는 fake provider(non-vacuous 단정 근거). */
 function makeCapturingProvider(): { provider: ProviderPort; seen: { systemPrompt?: string } } {
@@ -264,7 +264,7 @@ describe("ChatTurnHandler workspace 조립 (FR-WORKSPACE-3)", () => {
     expect(seen.systemPrompt).toBeDefined();
     expect(seen.systemPrompt).toContain(ALPHA_PREFIX);          // persona
     expect(seen.systemPrompt).toContain("## Workspace");        // workspace
-    expect(seen.systemPrompt).toContain("Workspace root: /home/luke/alpha-adk");
+    expect(seen.systemPrompt).toContain("Workspace root: /home/user/alpha-adk");
     expect(seen.systemPrompt).toContain("Projects (2): naia-os, naia-agent");
     // append 순서: persona base 가 workspace 블록보다 앞
     expect(seen.systemPrompt!.indexOf(ALPHA_PREFIX)).toBeLessThan(seen.systemPrompt!.indexOf("## Workspace"));

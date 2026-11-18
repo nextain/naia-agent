@@ -3,7 +3,7 @@
   "requirement": "REQ-023",
   "use_case": "UC-ORCH-003",
   "charter": {
-    "path": "/var/home/luke/alpha-adk-worktrees/naia-orchestration-sot/.agents/context/naia-development-orchestration.yaml",
+    "path": "<작업 폴더>/naia-orchestration-sot/.agents/context/naia-development-orchestration.yaml",
     "sha256": "3707ebf9a593caf0c86eef8a6faa75bd271f2e6c990f3f125521a82dfbe7f8e5"
   },
   "baseline_revision": "56af76284bd5bbb78400be7827a717cb75dc14b3",

@@ -4,8 +4,9 @@
 // ②의 wire text 에 비밀이 나오면 recall→inject→provider 경로가 stdio 로 관통됨을 증명.
 // 인과 분리: 비밀은 ①(저장 전, systemPrompt 무) wire 에는 안 나오고 ②에만 나온다 = 모델
 // 사전지식이 아니라 ①에 저장→②에 회상된 기억에서 옴. 실 @nextain/naia-memory 어댑터 사용.
-import { describe, it, expect, afterEach } from "vitest";
-import { mkdtemp, rm, readFile } from "node:fs/promises";
+import { describe, it, expect, afterEach, vi } from "vitest";
+import { MemorySystem } from "@nextain/naia-memory";
+import { mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { wireAgentUC1 } from "../main/composition/index.js";
@@ -76,6 +77,48 @@ describe("UC-memory — 실 stdio 관통(recall 주입 / save)", () => {
   afterEach(async () => {
     if (mem) { await mem.close(); mem = null; }
     if (dir) { await rm(dir, { recursive: true, force: true }); dir = null; }
+  });
+
+  it("preserves an older backend match while merging distinct recent keyword matches", async () => {
+    dir = await mkdtemp(join(tmpdir(), "naia-mem-old-fact-"));
+    const storePath = join(dir, "store.json");
+    const now = Date.now();
+    const fact = (id: string, content: string, updatedAt: number) => ({
+      id, content, entities: [], topics: [], createdAt: updatedAt, updatedAt,
+      importance: 1, recallCount: 0, lastAccessed: updatedAt, strength: 1,
+      status: "active", sourceEpisodes: [], encodingContext: { project: "old-fact" },
+    });
+    const old = "quartz is the older exact match";
+    const recent = "할일은 정원 가꾸기";
+    await writeFile(storePath, JSON.stringify({
+      version: 1, episodes: [], facts: [
+        fact("old", old, now - 10000),
+        fact("recent", recent, now),
+        ...Array.from({ length: 51 }, (_, i) => fact(`filler-${i}`, `unrelated filler ${i}`, now - i - 1)),
+      ], skills: [], reflections: [], associations: {}, factEmbeddings: {}, episodeEmbeddings: {},
+    }));
+    const memory = makeNaiaMemory({ storePath, project: "old-fact", sessionId: "s1" });
+    mem = memory;
+    const originalRecall = MemorySystem.prototype.recall;
+    let backendFacts: string[] = [];
+    const backend = vi.spyOn(MemorySystem.prototype, "recall").mockImplementation(async function (this: MemorySystem, ...args) {
+      const result = await originalRecall.apply(this, args);
+      backendFacts = result.facts.map(f => f.content);
+      return result;
+    });
+    try {
+      const result = await memory.recall("quartz 할 일", { topK: 10, touch: false });
+      expect(backendFacts).toContain(old);
+      expect(result.facts).toContain(old);
+      expect(result.facts).toContain(recent);
+      expect(result.facts.filter(f => f === recent)).toHaveLength(1);
+      expect(result.facts.length).toBeLessThanOrEqual(10);
+      const overlap = await memory.recall("할일", { topK: 10, touch: false });
+      expect(backendFacts).toContain(recent);
+      expect(overlap.facts.filter(f => f === recent)).toHaveLength(1);
+    } finally {
+      backend.mockRestore();
+    }
   });
 
   it("①사실 발화(save) → ②회상 질문(recall→systemPrompt 주입) — 비밀이 ②에만 wire 노출", async () => {

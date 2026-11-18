@@ -4,7 +4,7 @@ import type { SubAgentPort } from "../main/ports/orchestration.js";
 
 function agent(provider: string, model: string, session: string): SubAgentPort {
   return { spawn(task) { return { async cancel() {}, events: (async function* () {
-    const role = task.filesystemAccess === "workspace_write" ? "implementer" : provider === "pi" ? "tester" : provider === "opencode" ? "reviewer" : "explorer";
+    const role = task.filesystemAccess === "workspace_write" ? "implementer" : provider === "naia" ? "tester" : provider === "opencode" ? "reviewer" : "explorer";
     const decision = role === "explorer" ? "proceed" : role === "implementer" ? "implemented" : role === "tester" ? "pass" : "clean";
     yield { kind: "text_delta", text: JSON.stringify({ version: 1, role, decision, summary: "ok", findings: [] }) } as const;
     yield { kind: "session_end", ok: true, evidence: { provider, selectedModel: model, modelEvidenceSource: "adapter_requested",
@@ -19,16 +19,16 @@ describe("REQ-023 profiled role executor", () => {
       yield { kind: "text_delta", text: "I will inspect first." } as const;
       yield { kind: "model_evidence", evidence: { provider: "local-vllm", selectedModel: "local-model",
         modelEvidenceSource: "provider_reported", inputTokens: 1, outputTokens: 1, totalTokens: 2,
-        usageAvailable: true, piEstimatedCost: 0, sessionId: "s", executionId: "e" } } as const;
+        usageAvailable: true, estimatedCostUsd: 0, sessionId: "s", executionId: "e" } } as const;
       yield { kind: "text_delta", text: `Inspection complete.\n\n${JSON.stringify({ version: 1, role: "tester", decision: "pass", summary: "checked", findings: [] })}` } as const;
       yield { kind: "session_end", ok: true, evidence: { provider: "local-vllm", selectedModel: "local-model",
         modelEvidenceSource: "provider_reported", inputTokens: 1, outputTokens: 1, totalTokens: 2,
-        usageAvailable: true, piEstimatedCost: 0, sessionId: "s", executionId: "e" } } as const;
+        usageAvailable: true, estimatedCostUsd: 0, sessionId: "s", executionId: "e" } } as const;
     })() }; } };
-    const executor = makeIssueTeamRoleExecutor({ agents: { tester: { agentKind: "pi", adapter } },
+    const executor = makeIssueTeamRoleExecutor({ agents: { tester: { agentKind: "codex", adapter } },
       diag: { log() {}, debug() {} } });
     await executor.execute({ issueId: "issue", dispatchId: "dispatch", stepId: "dispatch:tester:1",
-      worktreePath: "/repo", task: "test", context: "{}", roleProfile: { agentProfileId: "tester", agentKind: "pi",
+      worktreePath: "/repo", task: "test", context: "{}", roleProfile: { agentProfileId: "tester", agentKind: "codex",
         binding: { provider: "local-vllm", model: "local-model" }, filesystemAccess: "read_only" },
       signal: new AbortController().signal });
     expect(prompt).toContain('decision must be chosen from ["pass","fail"]');
@@ -39,25 +39,25 @@ describe("REQ-023 profiled role executor", () => {
     expect(prompt).not.toContain('decision "pass|fail"');
   });
 
-  it("selects only declared Codex/OpenCode/Pi profiles and preserves honest evidence", async () => {
-    const executor = makeIssueTeamRoleExecutor({ agents: { codex: { agentKind: "codex", adapter: agent("codex", "codex-model", "s1") }, opencode: { agentKind: "opencode", adapter: agent("opencode", "opencode-model", "s2") }, pi: { agentKind: "pi", adapter: agent("pi", "pi-model", "s3") } },
+  it("selects only declared Codex/OpenCode profiles and preserves honest evidence", async () => {
+    const executor = makeIssueTeamRoleExecutor({ agents: { codex: { agentKind: "codex", adapter: agent("codex", "codex-model", "s1") }, opencode: { agentKind: "opencode", adapter: agent("opencode", "opencode-model", "s2") }, tester: { agentKind: "codex", adapter: agent("naia", "tester-model", "s3") } },
       diag: { log() {}, debug() {} }, nowMs: (() => { let n = 0; return () => ++n; })() });
     const cases = [
-      ["explorer", "codex", "codex", "codex-model", "read_only"],
-      ["implementer", "opencode", "opencode", "opencode-model", "workspace_write"],
-      ["tester", "pi", "pi", "pi-model", "read_only"],
+      ["explorer", "codex", "codex", "codex", "codex-model", "read_only"],
+      ["implementer", "opencode", "opencode", "opencode", "opencode-model", "workspace_write"],
+      ["tester", "tester", "codex", "naia", "tester-model", "read_only"],
     ] as const;
-    for (const [role, id, provider, model, filesystemAccess] of cases) {
+    for (const [role, id, kind, provider, model, filesystemAccess] of cases) {
       const output = await executor.execute({ issueId: "issue", dispatchId: "dispatch", stepId: `dispatch:${role}:1`, worktreePath: "/repo", task: "fix", context: "{}",
-        roleProfile: { agentProfileId: id, agentKind: id, binding: { provider, model }, filesystemAccess }, signal: new AbortController().signal });
-      expect(output).toMatchObject({ result: { role }, receipt: { workerRole: role, agentProfileId: id, agentKind: id,
+        roleProfile: { agentProfileId: id, agentKind: kind, binding: { provider, model }, filesystemAccess }, signal: new AbortController().signal });
+      expect(output).toMatchObject({ result: { role }, receipt: { workerRole: role, agentProfileId: id, agentKind: kind,
         provider, model, tokenCountsAvailable: false, cost: { state: "unavailable" } } });
     }
     await expect(executor.execute({ issueId: "issue", dispatchId: "dispatch", stepId: "dispatch:reviewer:1", worktreePath: "/repo", task: "fix", context: "{}",
       roleProfile: { agentProfileId: "missing", agentKind: "codex", binding: { provider: "codex", model: "codex-model" }, filesystemAccess: "read_only" }, signal: new AbortController().signal }))
       .rejects.toThrow("undeclared issue-team agent profile");
     await expect(executor.execute({ issueId: "issue", dispatchId: "dispatch", stepId: "dispatch:reviewer:1", worktreePath: "/repo", task: "fix", context: "{}",
-      roleProfile: { agentProfileId: "pi", agentKind: "codex", binding: { provider: "pi", model: "pi-model" }, filesystemAccess: "read_only" }, signal: new AbortController().signal }))
+      roleProfile: { agentProfileId: "opencode", agentKind: "codex", binding: { provider: "opencode", model: "opencode-model" }, filesystemAccess: "read_only" }, signal: new AbortController().signal }))
       .rejects.toThrow("undeclared issue-team agent profile");
   });
 

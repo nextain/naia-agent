@@ -16,11 +16,11 @@ const profile: IssueTeamProfile = {
   roles: {
     explorer: roleProfile("explorer", "codex", "read_only"),
     implementer: roleProfile("implementer", "opencode", "workspace_write"),
-    tester: roleProfile("tester", "pi", "read_only"),
+    tester: roleProfile("tester", "codex", "read_only"),
     reviewer: roleProfile("reviewer", "codex", "read_only"),
   },
 };
-function roleProfile(role: IssueTeamRole, agentKind: "codex" | "opencode" | "pi", filesystemAccess: "read_only" | "workspace_write") {
+function roleProfile(role: IssueTeamRole, agentKind: "codex" | "opencode", filesystemAccess: "read_only" | "workspace_write") {
   return { agentProfileId: `${role}-profile`, agentKind, filesystemAccess, binding: { provider: `${agentKind}-provider`, model: `${agentKind}-model` } } as const;
 }
 function result(role: IssueTeamRole, decision: IssueTeamRoleResult["decision"], code?: string): IssueTeamRoleResult {
