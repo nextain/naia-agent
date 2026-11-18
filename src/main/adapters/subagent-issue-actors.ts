@@ -222,8 +222,8 @@ async function runJson(options: JsonActorOptions, role: ActorReceipt["role"], id
     outputTokens: usageAvailable ? evidence.outputTokens : 0,
     latencyMs: Math.max(0, completedAt - startedAt),
     ...(evidence.modelEvidenceSource ? { modelEvidenceSource: evidence.modelEvidenceSource } : {}),
-    ...(evidence.piEstimatedCost !== undefined
-      ? { estimatedCostUsd: evidence.piEstimatedCost, estimatedCostSource: "pi_catalog" as const } : {}),
+    ...(evidence.estimatedCostUsd !== undefined
+      ? { estimatedCostUsd: evidence.estimatedCostUsd, estimatedCostSource: "catalog" as const } : {}),
     ...(evidence.gatewayBillingReceipts ? { gatewayBillingReceipts: evidence.gatewayBillingReceipts } : {}),
     cost: usageAvailable && evidence.measuredCostUsd !== undefined
       ? { state: "measured", usd: evidence.measuredCostUsd, source: evidence.gatewayBillingReceipts

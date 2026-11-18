@@ -46,7 +46,7 @@ export function buildRoleMemorySummarizer(
   const sub = asPort(subConfig, fetch, 1024);
   if (!sub) throw new Error("memory sub role unavailable");
   const main = asPort(mainConfig, fetch, 1024);
-  const port = withMainFallback(markRole(sub, sub.role ?? "memory"), main ? markRole(main, "main") : markRole(sub, sub.role ?? "memory"), log);
+  const port = withMainFallback(markRole(sub, sub.role ?? "memory"), main ? markRole(main, "main") : markRole(sub, sub.role ?? "memory"), log, { allowLocalFallback: true });
   return async (
     input: Parameters<CompactionSummarizer>[0],
     authorizeAndDisclose: NonNullable<SubLlmCallOptions["authorizeAndDisclose"]>,
@@ -86,7 +86,7 @@ export function buildRoleMemoryExtractor(
   const sub = asPort(subConfig, fetch, 8192);
   if (!sub) throw new Error("memory sub role unavailable");
   const main = asPort(mainConfig, fetch, 8192);
-  const port = withMainFallback(checked(markRole(sub, sub.role ?? "memory")), main ? checked(markRole(main, "main")) : checked(markRole(sub, sub.role ?? "memory")), log);
+  const port = withMainFallback(checked(markRole(sub, sub.role ?? "memory")), main ? checked(markRole(main, "main")) : checked(markRole(sub, sub.role ?? "memory")), log, { allowLocalFallback: true });
   return async (episodes: Parameters<FactExtractor>[0], authorizeAndDisclose: NonNullable<SubLlmCallOptions["authorizeAndDisclose"]>, signal?: AbortSignal) => {
     let transportError: unknown;
     const transport: typeof globalThis.fetch = async (_url, init) => {

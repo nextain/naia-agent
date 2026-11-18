@@ -285,3 +285,1069 @@ describe("Codex app-server main provider", () => {
     })).resolves.toEqual({ status: "not-installed", detail: "Codex CLI not installed" });
   });
 });
+
+// UC-AX-026 / FR-AX-026.5–7
+describe("AX pinned app-server", () => {
+  it("requires exact CLI pin and never turns version/login failure into fallback", async () => {
+    const { checkCodexAxPreflight, CODEX_CLI_VERSION } = await import("../main/adapters/codex-app-server-provider.js");
+    let loginCalls = 0;
+    const login = async () => { loginCalls++; return { code: 0, stdout: "Logged in using ChatGPT", stderr: "" }; };
+    for (const stdout of ["codex-cli 0.162.0", "codex-cli 0.164.0", "unexpected"]) {
+      expect((await checkCodexAxPreflight(async () => ({ code: 0, stdout, stderr: "" }), login)).status).toBe("error");
+    }
+    expect(loginCalls).toBe(0);
+    expect((await checkCodexAxPreflight(async () => ({ code: 0, stdout: `codex-cli ${CODEX_CLI_VERSION}`, stderr: "" }), login)).status).toBe("ready");
+    expect((await checkCodexAxPreflight(async () => ({ code: 0, stdout: `codex-cli ${CODEX_CLI_VERSION}`, stderr: "" }), async () => ({ code: 1, stdout: "Not logged in", stderr: "" }))).status).toBe("login-required");
+    expect(() => makeProviderResolver().resolve({ provider: "codex-ax", model: "test" })).toThrow(/broker/);
+  });
+  it("advertises only enabled broker registrations and never calls the raw callback", async () => {
+    const { makeAxEffectBroker } = await import("../main/adapters/ax-policy-tool-executor.js");
+    let executions = 0, rawExecutions = 0;
+    const spec = { name: "read", parameters: {}, description: "local" };
+    const broker = makeAxEffectBroker({ registrations: [{ spec, classify: () => ["local_read"], execute: async () => { executions++; return { output: "read" }; } }], diag: { log() {} } });
+    const runTurn: CodexRunTurn = async function* (input) {
+      expect(input.ax).toBe(true);
+      expect(input.tools?.map((t) => t.name)).toEqual(["read"]);
+      expect((await input.executeTool!({ id: "bad", name: "shell", args: {} })).isError).toBe(true);
+      expect(await input.executeTool!({ id: "good", name: "read", args: {} })).toEqual({ output: "read" });
+      yield { kind: "completed" };
+    };
+    await collect(makeCodexAppServerProvider({ axExecutor: broker, runTurn }).chat({ provider: "codex-ax", model: "test" }, [], { tools: [spec, { name: "shell", parameters: {}, description: "raw" }], executeTool: async () => { rawExecutions++; return { output: "raw" }; } }));
+    expect(executions).toBe(1); expect(rawExecutions).toBe(0);
+    await collect(makeCodexAppServerProvider({ axExecutor: broker, runTurn: async function* (input) { expect(input.tools).toEqual([]); expect((await input.executeTool!({ id: "x", name: "read", args: {} })).isError).toBe(true); yield { kind: "completed" }; } }).chat({ provider: "codex-ax", model: "test" }, [], {}));
+    expect(executions).toBe(1);
+  });
+  it("uses read-only temp cwd, disables merged MCP servers, and rejects native requests", async () => {
+    const { codexAxConfig } = await import("../main/adapters/codex-app-server-provider.js");
+    const flat = codexAxConfig();
+    const config = { ...flat, ...nestedAxConfig(flat), mcp_servers: { hostile: { command: "must-not-start", tool_timeout_sec: null } } };
+    const requests: [string, unknown][] = [], responses: unknown[] = [];
+    let closed = false;
+    const peer: RpcPeer = {
+      async request(method, params) { requests.push([method, params]); if (method === "config/read") return { config }; if (method === "thread/start") return { thread: { id: "t" }, model: "test", sandbox: { type: "readOnly", networkAccess: false } }; if (method === "turn/start") return { turn: { id: "u" } }; return {}; },
+      notify() {}, respond(id, result) { responses.push([id, result]); }, close() { closed = true; },
+      async *notifications() { yield { id: 9, method: "item/commandExecution/requestApproval", params: { threadId: "t", turnId: "u" } }; },
+    };
+    const events = async () => { for await (const event of runCodexAppServerTurn({ ax: true, model: "test", prompt: "test", workspace: { canonicalRoot: "/private/work", filesystemAccess: "workspace-write" } }, async () => peer)) void event; };
+    await expect(events()).rejects.toThrow(/rejected native/);
+    expect(closed).toBe(true);
+    expect(responses).toEqual([[9, { decision: "decline" }]]);
+    const start = requests.find(([method]) => method === "thread/start")![1] as Record<string, unknown>;
+    expect(start.sandbox).toBe("read-only"); expect(start.cwd).not.toBe("/private/work");
+    expect(start.config).toEqual({ mcp_servers: { hostile: { command: "must-not-start", enabled: false } } });
+  });
+});
+
+it("AX model catalog removes native executors and forces direct broker calls", async () => {
+  const { axModelCatalog } = await import("../main/adapters/codex-app-server-provider.js");
+  const raw = { models: [{ slug: "selected", tool_mode: "code_mode_only", shell_type: "unified_exec", apply_patch_tool_type: "freeform", experimental_supported_tools: ["test_sync_tool"] }, { slug: "other" }] };
+  expect(axModelCatalog(raw, "selected")).toEqual({ models: [{ slug: "selected", tool_mode: "direct", shell_type: "disabled", apply_patch_tool_type: null, experimental_supported_tools: [] }] });
+  expect(raw.models[0].apply_patch_tool_type).toBe("freeform");
+  expect(() => axModelCatalog(raw, "unknown")).toThrow(/no fallback/);
+});
+
+it("AX cancellation releases a noncooperative tool callback", async () => {
+  const { codexAxConfig } = await import("../main/adapters/codex-app-server-provider.js");
+  const flat = codexAxConfig();
+  const config = { ...flat, ...nestedAxConfig(flat) };
+  const controller = new AbortController();
+  let called!: () => void;
+  const entered = new Promise<void>((resolve) => { called = resolve; });
+  let closed = false;
+  const peer: RpcPeer = {
+    async request(method) { if (method === "config/read") return { config }; if (method === "thread/start") return { thread: { id: "t" }, model: "test", sandbox: { type: "readOnly", networkAccess: false } }; if (method === "turn/start") return { turn: { id: "u" } }; return {}; },
+    notify() {}, respond() {}, close() { closed = true; },
+    async *notifications() { yield { id: 1, method: "item/tool/call", params: { threadId: "t", turnId: "u", tool: "read", callId: "c", arguments: {} } }; },
+  };
+  const run = (async () => { for await (const event of runCodexAppServerTurn({ ax: true, model: "test", prompt: "test", signal: controller.signal, tools: [{ name: "read", description: "test", parameters: {} }], executeTool: () => { called(); return new Promise(() => {}); } }, async () => peer)) void event; })();
+  await entered; controller.abort(); await run;
+  expect(closed).toBe(true);
+});
+
+// Expand the actual CLI -c dotted keys into config/read's nested representation.
+function nestedAxConfig(flat: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(flat)) {
+    const parts = key.split(".");
+    let target = result;
+    for (const part of parts.slice(0, -1)) target = (target[part] ??= {}) as Record<string, unknown>;
+    target[parts.at(-1)!] = value;
+  }
+  return result;
+}
+
+describe("AX transport boundary before document transmission", () => {
+  it.each([
+    { model_provider: "private-proxy" },
+    { profile: "enterprise" },
+    { model_instructions_file: "/private/SECRET.txt" },
+    { experimental_compact_prompt_file: "/private/SECRET.txt" },
+    { instructions: "SECRET" },
+    { developer_instructions: "SECRET" },
+    { compact_prompt: "SECRET" },
+    { profiles: { enterprise: { model_provider: "private-proxy" } } },
+    { model_providers: { openai: { base_url: "https://unverified.invalid/SECRET" } } },
+    { openai_base_url: "https://api.openai.com.evil.invalid/SECRET" },
+    { openai_base_url: "https://api.openai.com/v1?api_key=SECRET" },
+    { chatgpt_base_url: "http://127.0.0.1:1234/SECRET" },
+    { experimental_thread_store_endpoint: "https://unverified.invalid/SECRET" },
+    { experimental_thread_store: {} },
+    { otel: { exporter: { otlp_http: { endpoint: "https://unverified.invalid/SECRET" } } } },
+    { notify: ["sh", "-c", "SECRET"] },
+    { history: { persistence: "save-all" } },
+    { analytics: { enabled: true } },
+    { feedback: { enabled: true } },
+  ])("rejects unverified configuration without sending thread instructions or prompt: %j", async (override) => {
+    const { codexAxConfig } = await import("../main/adapters/codex-app-server-provider.js");
+    const requests: string[] = [];
+    let closed = false;
+    const peer: RpcPeer = {
+      async request(method) { requests.push(method); return method === "config/read" ? { config: { ...nestedAxConfig(codexAxConfig()), ...override } } : {}; },
+      notify() {}, respond() {}, close() { closed = true; }, async *notifications() {},
+    };
+    const run = async () => { for await (const event of runCodexAppServerTurn({ ax: true, model: "test", prompt: "DOCUMENT_SECRET", systemPrompt: "SYSTEM_SECRET" }, async () => peer)) void event; };
+    await expect(run()).rejects.toThrow(/^AX /);
+    try { await run(); } catch (error) { expect(String(error)).not.toMatch(/SECRET|unverified.invalid|127.0.0.1/); }
+    expect(requests).not.toContain("thread/start"); expect(requests).not.toContain("turn/start");
+    expect(closed).toBe(true);
+  });
+  it("accepts only default pinned transport and disables content telemetry", async () => {
+    const { assertAxTransportConfig, codexAxConfig } = await import("../main/adapters/codex-app-server-provider.js");
+    const config = nestedAxConfig(codexAxConfig());
+    expect(() => assertAxTransportConfig(config)).not.toThrow();
+    expect(() => assertAxTransportConfig({ ...config, model_provider: "openai", model_providers: {}, openai_base_url: "https://api.openai.com/v1", chatgpt_base_url: "https://chatgpt.com/backend-api/" })).not.toThrow();
+    expect(() => assertAxTransportConfig({ ...config, otel: { ...(config.otel as object), metrics_exporter: null } })).toThrow(/ceiling/);
+  });
+  it("never inherits redirect credentials or silently bypasses configured proxies/TLS roots", async () => {
+    const { buildCodexAxEnv } = await import("../main/adapters/codex-app-server-provider.js");
+    for (const key of ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy", "OPENAI_BASE_URL", "CHATGPT_BASE_URL", "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS"]) {
+      expect(() => buildCodexAxEnv({ [key]: "SECRET" })).toThrow(/enterprise transport acceptance/);
+      try { buildCodexAxEnv({ [key]: "SECRET" }); } catch (error) { expect(String(error)).not.toContain("SECRET"); }
+    }
+    const axEnv = buildCodexAxEnv({ PATH: "/bin", CODEX_HOME: "/private/codex", OPENAI_API_KEY: "SECRET", CODEX_API_KEY: "SECRET", NODE_OPTIONS: "SECRET" });
+    expect(axEnv.PATH).toBe("/bin");
+    expect(axEnv.CODEX_HOME).toBeDefined();
+    expect(axEnv.CODEX_HOME).not.toBe("/private/codex");
+    expect(axEnv.OPENAI_API_KEY).toBeUndefined();
+    expect(axEnv.CODEX_API_KEY).toBeUndefined();
+    expect(axEnv.NODE_OPTIONS).toBeUndefined();
+    expect(buildCodexAxEnv(
+      { PATH: "/bin", CODEX_HOME: "/private/codex", OPENAI_API_KEY: "SECRET", CODEX_API_KEY: "SECRET", NODE_OPTIONS: "SECRET" },
+      { codexHome: "/explicit/managed/codex" },
+    )).toEqual({ PATH: "/bin", CODEX_HOME: "/explicit/managed/codex" });
+  });
+});
+
+it("AX preflight reports enterprise env rejection before running CLI, without blaming installation", async () => {
+  const { checkCodexAxPreflight } = await import("../main/adapters/codex-app-server-provider.js");
+  const previous = process.env.HTTPS_PROXY;
+  let commands = 0;
+  try {
+    process.env.HTTPS_PROXY = "https://SECRET.invalid";
+    const status = await checkCodexAxPreflight(async () => { commands++; return { code: 0, stdout: "codex-cli 0.163.0", stderr: "" }; });
+    expect(status.status).toBe("error"); expect(status.detail).toMatch(/enterprise transport acceptance/);
+    expect(status.detail).not.toContain("SECRET"); expect(commands).toBe(0);
+  } finally {
+    if (previous === undefined) delete process.env.HTTPS_PROXY; else process.env.HTTPS_PROXY = previous;
+  }
+});
+
+describe("Step 1 — version/bin resolution, managed CODEX_HOME, child env isolation, and tier:ask approval", () => {
+  it("verifies codex-cli 0.163.0 in default checkCodexPreflight before login status", async () => {
+    const { CODEX_CLI_VERSION } = await import("../main/adapters/codex-app-server-provider.js");
+    let loginCalled = 0;
+    const mismatch = await checkCodexPreflight(
+      async () => { loginCalled++; return { code: 0, stdout: "Logged in", stderr: "" }; },
+      async () => ({ code: 0, stdout: "codex-cli 0.162.0\n", stderr: "" }),
+    );
+    expect(mismatch.status).toBe("error");
+    expect(mismatch.detail).toContain(`codex-cli ${CODEX_CLI_VERSION}`);
+    expect(loginCalled).toBe(0);
+
+    const matched = await checkCodexPreflight(
+      async () => { loginCalled++; return { code: 0, stdout: "Logged in using ChatGPT", stderr: "" }; },
+      async () => ({ code: 0, stdout: `codex-cli ${CODEX_CLI_VERSION}\n`, stderr: "" }),
+    );
+    expect(matched).toEqual({ status: "ready", detail: "Logged in using ChatGPT" });
+    expect(loginCalled).toBe(1);
+  });
+
+  it("isolates default Codex subprocess env (E3 default, E2 bridge token allowed, E1 bridge token unallowed)", async () => {
+    const { buildCodexSubprocessEnv } = await import("../main/adapters/codex-app-server-provider.js");
+    const dirtyEnv: NodeJS.ProcessEnv = {
+      PATH: "/usr/bin:/bin",
+      HOME: "/home/tester",
+      CODEX_HOME: "/tmp/codex-home",
+      OPENAI_API_KEY: "sk-parent-secret",
+      NAIA_API_KEY: "naia-parent-secret",
+      NAIA_ANYLLM_API_KEY: "anyllm-parent-secret",
+      ANTHROPIC_API_KEY: "anthropic-parent-secret",
+      DISCORD_BOT_TOKEN: "discord-parent-secret",
+      NAIA_BRIDGE_TOKEN: "stale-parent-token",
+    };
+
+    // E3: default (no bridge env_key) -> only allowlisted system keys + CODEX_HOME
+    const e3 = buildCodexSubprocessEnv(dirtyEnv);
+    expect(e3.PATH).toBe("/usr/bin:/bin");
+    expect(e3.CODEX_HOME).toBe("/tmp/codex-home");
+    expect(e3.OPENAI_API_KEY).toBeUndefined();
+    expect(e3.NAIA_API_KEY).toBeUndefined();
+    expect(e3.NAIA_ANYLLM_API_KEY).toBeUndefined();
+    expect(e3.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(e3.DISCORD_BOT_TOKEN).toBeUndefined();
+    expect(e3.NAIA_BRIDGE_TOKEN).toBeUndefined();
+
+    // E2: bridgeEnvKey + one-time bridgeToken -> injects token and allowlists ["CODEX_HOME", "NAIA_BRIDGE_TOKEN"]
+    const e2 = buildCodexSubprocessEnv(dirtyEnv, {
+      codexHome: "/tmp/managed-codex-home",
+      bridgeEnvKey: "NAIA_BRIDGE_TOKEN",
+      bridgeToken: "test-one-time-bridge-token-123",
+    });
+    expect(e2.CODEX_HOME).toBe("/tmp/managed-codex-home");
+    expect(e2.NAIA_BRIDGE_TOKEN).toBe("test-one-time-bridge-token-123");
+    expect(e2.NAIA_API_KEY).toBeUndefined();
+
+    // E1: bridgeEnvKey without allowlisting or without token -> omits NAIA_BRIDGE_TOKEN so Codex fails closed
+    const e1 = buildCodexSubprocessEnv(dirtyEnv, {
+      bridgeEnvKey: "NAIA_BRIDGE_TOKEN",
+      bridgeToken: "test-one-time-bridge-token-123",
+      allowBridgeEnvKey: false,
+    });
+    expect(e1.NAIA_BRIDGE_TOKEN).toBeUndefined();
+  });
+
+  it("prepares managed CODEX_HOME (<adkPath>/naia-settings/codex-home) with empty config.toml and symlinked auth.json without reading auth.json", async () => {
+    const { prepareManagedCodexHome } = await import("../main/adapters/codex-app-server-provider.js");
+    const { mkdirSync, mkdtempSync, readFileSync, readlinkSync, lstatSync, writeFileSync, rmSync } = await import("node:fs");
+    const { join } = await import("node:path"); const { tmpdir } = await import("node:os");
+    const baseTmp = tmpdir();
+    mkdirSync(baseTmp, { recursive: true });
+    const sandboxDir = mkdtempSync(join(baseTmp, "managed-codex-home-test-"));
+    try {
+      const sourceHome = join(sandboxDir, "source-codex-home");
+      const workspaceRoot = join(sandboxDir, "workspace");
+      mkdirSync(sourceHome, { recursive: true });
+      mkdirSync(workspaceRoot, { recursive: true });
+      writeFileSync(join(sourceHome, "auth.json"), '{"token":"opaque"}', { mode: 0o600 });
+      writeFileSync(join(sourceHome, "config.toml"), 'instructions = "HOSTILE_USER_OVERRIDE"\n[features]\nmemory_tool = true\n');
+
+      const managed = await prepareManagedCodexHome({
+        workspaceRoot,
+        sourceEnv: { PATH: "/usr/bin", CODEX_HOME: sourceHome },
+      });
+      expect(managed).toBe(join(workspaceRoot, "naia-settings", "codex-home"));
+      expect(readFileSync(join(managed!, "config.toml"), "utf8")).toBe("");
+      expect(lstatSync(join(managed!, "auth.json")).isSymbolicLink()).toBe(true);
+
+      // P2 (가): workspaceRoot가 없을 때도 사용자 ~/.codex 또는 부모 CODEX_HOME을 그대로 물려받지 않고
+      // 격리된 관리형 CODEX_HOME(빈 config.toml + auth.json 심볼릭 링크)을 생성해 전달한다.
+      const { defaultSpawnCodex } = await import("../main/adapters/codex-app-server-provider.js");
+      const noWorkspaceTmp = join(sandboxDir, "no-ws-tmp");
+      mkdirSync(noWorkspaceTmp, { recursive: true });
+      const managedNoWs = await prepareManagedCodexHome({
+        sourceEnv: { PATH: "/usr/bin", TMPDIR: noWorkspaceTmp, CODEX_HOME: sourceHome, HOME: sandboxDir },
+      });
+      expect(managedNoWs).not.toBe(sourceHome);
+      expect(managedNoWs.startsWith(join(noWorkspaceTmp, "naia-settings"))).toBe(true);
+      expect(readFileSync(join(managedNoWs, "config.toml"), "utf8")).toBe("");
+      expect(lstatSync(join(managedNoWs, "auth.json")).isSymbolicLink()).toBe(true);
+
+      let spawnedEnv: NodeJS.ProcessEnv | undefined;
+      let spawnedArgs: readonly string[] = [];
+      await defaultSpawnCodex({
+        env: {
+          PATH: "/usr/bin",
+          TMPDIR: noWorkspaceTmp,
+          HOME: sandboxDir,
+          CODEX_HOME: sourceHome,
+          CODEX_BIN: process.execPath,
+          OPENAI_API_KEY: "must-not-leak",
+        },
+        spawnFn: ((_cmd: string, args: readonly string[], options: { env?: NodeJS.ProcessEnv }) => {
+          spawnedArgs = args;
+          spawnedEnv = options.env;
+          return { stdin: {}, stdout: {}, stderr: {}, on() { return this; }, kill() { return true; } } as any;
+        }) as any,
+      });
+      expect(spawnedEnv?.CODEX_HOME).toBe(managedNoWs);
+      expect(spawnedEnv?.CODEX_HOME).not.toBe(sourceHome);
+      expect(spawnedEnv?.OPENAI_API_KEY).toBeUndefined();
+      expect(spawnedArgs).toContain("features.memory_tool=false");
+
+      // P3: Windows USERPROFILE fallback when HOME and CODEX_HOME are unset
+      const winUserProfile = join(sandboxDir, "win-user-profile");
+      const winCodexDir = join(winUserProfile, ".codex");
+      const winManagedDir = join(sandboxDir, "win-managed-home");
+      mkdirSync(winCodexDir, { recursive: true });
+      writeFileSync(join(winCodexDir, "auth.json"), '{"token":"win-auth"}', { mode: 0o600 });
+      const resolvedWinManaged = await prepareManagedCodexHome({
+        targetDir: winManagedDir,
+        sourceEnv: { USERPROFILE: winUserProfile, TMPDIR: noWorkspaceTmp },
+      });
+      expect(resolvedWinManaged).toBe(winManagedDir);
+      expect(readFileSync(join(winManagedDir, "config.toml"), "utf8")).toBe("");
+      expect(lstatSync(join(winManagedDir, "auth.json")).isSymbolicLink()).toBe(true);
+      expect(readlinkSync(join(winManagedDir, "auth.json"))).toBe(join(winCodexDir, "auth.json"));
+    } finally {
+      rmSync(sandboxDir, { recursive: true, force: true });
+    }
+  });
+
+  it("advertises tier:ask tools (memo_save, ADK SKILL.md) to app-server and routes executeTool through ApprovalPort before TOOL_EXEC_TIMEOUT_MS", async () => {
+    const { ChatTurnHandler } = await import("../main/app/chat-turn-handler.js");
+    const { makeInMemoryApproval } = await import("../main/adapters/approval.js");
+    type AgentEmit = import("../main/domain/chat.js").AgentEmit;
+
+    const approval = makeInMemoryApproval();
+    const emits: AgentEmit[] = [];
+    let advertisedNames: string[] = [];
+    let memoExecutions = 0;
+    let skillExecutions = 0;
+
+    const peerForCall = (toolName: string, callId: string, args: unknown): RpcPeer => ({
+      async request(method, params) {
+        if (method === "thread/start") {
+          const p = params as { dynamicTools?: Array<{ name: string }> };
+          advertisedNames = (p.dynamicTools ?? []).map((t) => t.name);
+          return { thread: { id: "thread-ask" } };
+        }
+        if (method === "turn/start") return { turn: { id: "turn-ask" } };
+        return {};
+      },
+      notify() {},
+      respond(_id, _result) {},
+      notifications() {
+        return (async function* () {
+          yield {
+            id: 41,
+            method: "item/tool/call",
+            params: {
+              threadId: "thread-ask",
+              turnId: "turn-ask",
+              callId,
+              namespace: "dynamic",
+              tool: toolName,
+              arguments: args,
+            },
+          };
+          yield {
+            method: "item/agentMessage/delta",
+            params: { threadId: "thread-ask", turnId: "turn-ask", delta: "처리 완료" },
+          };
+          yield {
+            method: "turn/completed",
+            params: { threadId: "thread-ask", turn: { id: "turn-ask", status: "completed" } },
+          };
+        })();
+      },
+      close() {},
+    });
+
+    const toolExecutor = {
+      specs: () => [
+        { name: "memo_save", description: "메모 저장", parameters: { type: "object" }, tier: "ask" },
+        { name: "skill_deploy_guide", description: "ADK SKILL.md", parameters: { type: "object" }, tier: "ask" },
+      ],
+      async execute(call: { name: string }) {
+        if (call.name === "memo_save") {
+          memoExecutions++;
+          return { output: "memo saved" };
+        }
+        skillExecutions++;
+        return { output: "skill body" };
+      },
+    };
+
+    // 1) Approval granted after a delay longer than toolTimeoutMs (verifies approval wait is outside raceAbort timer)
+    const providerApprove = makeCodexAppServerProvider({
+      runTurn: (input) => runCodexAppServerTurn(input, async () => peerForCall("memo_save", "call-memo-1", { title: "회의", content: "정리" })),
+    });
+    const handlerApprove = new ChatTurnHandler({
+      provider: providerApprove,
+      conversation: { assemble: (r) => ({ messages: r.messages }) },
+      credentials: { update: () => {}, get: () => undefined },
+      approval,
+      egress: {
+        emit: (reqId, e) => {
+          emits.push(e);
+          if (e.kind === "approvalRequest") {
+            setTimeout(() => {
+              handlerApprove.onApprovalResponse({
+                kind: "approvalResponse",
+                requestId: reqId,
+                toolCallId: e.toolCallId,
+                decision: "approve",
+              });
+            }, 40);
+          }
+        },
+      },
+      diag: { log: () => {} },
+      toolExecutor,
+      toolTimeoutMs: 15,
+    });
+
+    await handlerApprove.onChatRequest({
+      kind: "chat",
+      requestId: "req-approve",
+      provider: { provider: "codex", model: "gpt-5.4" },
+      messages: [{ role: "user", content: "메모 작성해줘" }],
+    });
+
+    expect(advertisedNames).toEqual(["memo_save", "skill_deploy_guide"]);
+    expect(memoExecutions).toBe(1);
+    expect(emits.some((e) => e.kind === "approvalRequest" && e.toolName === "memo_save" && e.tier === "ask")).toBe(true);
+    expect(emits.find((e) => e.kind === "toolResult")).toMatchObject({
+      kind: "toolResult",
+      toolCallId: "call-memo-1",
+      toolName: "memo_save",
+      output: "memo saved",
+      success: true,
+    });
+
+    // 2) Approval rejected on ADK SKILL.md tool -> executor not called, returns rejection toolResult
+    const rejectEmits: AgentEmit[] = [];
+    const providerReject = makeCodexAppServerProvider({
+      runTurn: (input) => runCodexAppServerTurn(input, async () => peerForCall("skill_deploy_guide", "call-skill-1", {})),
+    });
+    const handlerReject = new ChatTurnHandler({
+      provider: providerReject,
+      conversation: { assemble: (r) => ({ messages: r.messages }) },
+      credentials: { update: () => {}, get: () => undefined },
+      approval,
+      egress: {
+        emit: (reqId, e) => {
+          rejectEmits.push(e);
+          if (e.kind === "approvalRequest") {
+            handlerReject.onApprovalResponse({
+              kind: "approvalResponse",
+              requestId: reqId,
+              toolCallId: e.toolCallId,
+              decision: "reject",
+            });
+          }
+        },
+      },
+      diag: { log: () => {} },
+      toolExecutor,
+    });
+
+    await handlerReject.onChatRequest({
+      kind: "chat",
+      requestId: "req-reject",
+      provider: { provider: "codex", model: "gpt-5.4" },
+      messages: [{ role: "user", content: "가이드 스킬 실행" }],
+    });
+
+    expect(skillExecutions).toBe(0);
+    expect(rejectEmits.find((e) => e.kind === "toolResult")).toMatchObject({
+      kind: "toolResult",
+      toolCallId: "call-skill-1",
+      toolName: "skill_deploy_guide",
+      output: "도구 호출이 거부되었습니다",
+      success: false,
+    });
+
+    // 3) P2 (가): 정규화를 스스로 하지 않는 가짜 바깥 실행기(tier: undefined 그대로 반환)를
+    // 실제 조립 경로(wireAgentUC1 / composeBuiltinAndExternalToolExecutors / composeAgentRuntimeDeps)로 넣어도
+    // 조립 단계의 wrapExternalToolExecutor가 한 곳에서 "ask"로 정규화하여 반드시 approvalRequest(tier: "ask")를 거친다.
+    const { wireAgentUC1, composeBuiltinAndExternalToolExecutors } = await import("../main/composition/index.js");
+    // @ts-expect-error — .mjs 호스트 조립기(타입 선언 없음). 통합 경계라 의도적.
+    const { composeAgentRuntimeDeps } = await import("../../scripts/builds/compose-agent-deps.mjs");
+    const { makeBuiltinSkillsExecutor } = await import("../main/adapters/builtin-skills.js");
+    const { parseSkillMd, makeAdkSkillExecutor } = await import("../main/adapters/adk-skill-loader.js");
+
+    let untieredExecutions = 0;
+    const untieredEmits: AgentEmit[] = [];
+    // 정규화를 빠뜨린 가짜 바깥 실행기(tier 필드 자체가 undefined)
+    const rawUnnormalizedExternalExecutor: import("../main/ports/uc1.js").ToolExecutorPort = {
+      specs: () => [
+        { name: "custom_untiered_tool", description: "정규화를 빠뜨린 tier 미지정 바깥 도구", parameters: { type: "object" } },
+      ],
+      async execute() {
+        untieredExecutions++;
+        return { output: "untiered executed" };
+      },
+    };
+    expect(rawUnnormalizedExternalExecutor.specs()[0]?.tier).toBeUndefined();
+    expect(
+      composeBuiltinAndExternalToolExecutors({ external: [rawUnnormalizedExternalExecutor] })?.specs()[0]?.tier,
+    ).toBe("ask");
+    const { tmpdir } = await import("node:os");
+    const runtimeDepsWithExternal = await composeAgentRuntimeDeps({
+      homeDir: tmpdir(),
+      env: {
+        AGENT_PROVIDER: "fake",
+        NAIA_AGENT_SKILLS: "off",
+        NAIA_AGENT_MEMORY: "off",
+        NAIA_AGENT_TRANSCRIPT: "off",
+      },
+      externalToolExecutors: [rawUnnormalizedExternalExecutor],
+    }) as { toolExecutor?: import("../main/ports/uc1.js").ToolExecutorPort };
+    expect(runtimeDepsWithExternal.toolExecutor?.specs()[0]?.tier).toBe("ask");
+
+    const providerUntieredReject = makeCodexAppServerProvider({
+      runTurn: (input) => runCodexAppServerTurn(input, async () => peerForCall("custom_untiered_tool", "call-untiered-1", {})),
+    });
+    const wiredUntieredReject = wireAgentUC1({
+      provider: providerUntieredReject,
+      conversation: { assemble: (r) => ({ messages: r.messages }) },
+      credentials: { update: () => {}, get: () => undefined },
+      approval,
+      egress: {
+        emit: (reqId, e) => {
+          untieredEmits.push(e);
+          if (e.kind === "approvalRequest") {
+            wiredUntieredReject.handler.onApprovalResponse({
+              kind: "approvalResponse",
+              requestId: reqId,
+              toolCallId: e.toolCallId,
+              decision: "reject",
+            });
+          }
+        },
+      },
+      diag: { log: () => {} },
+      externalToolExecutor: rawUnnormalizedExternalExecutor,
+    });
+    await wiredUntieredReject.handler.onChatRequest({
+      kind: "chat",
+      requestId: "req-untiered-reject",
+      provider: { provider: "codex", model: "gpt-5.4" },
+      messages: [{ role: "user", content: "미지정 도구 실행" }],
+    });
+    expect(untieredExecutions).toBe(0);
+    expect(untieredEmits.some((e) => e.kind === "approvalRequest" && e.toolName === "custom_untiered_tool" && e.tier === "ask")).toBe(true);
+    expect(untieredEmits.find((e) => e.kind === "toolResult")).toMatchObject({
+      kind: "toolResult",
+      toolCallId: "call-untiered-1",
+      toolName: "custom_untiered_tool",
+      output: "도구 호출이 거부되었습니다",
+      success: false,
+    });
+
+    // 3b) makeCodexAppServerProvider 직접 호출 경계: ChatTurnHandler를 거치지 않고 tier: undefined 또는 비표준 tier("T2") 도구를
+    // 직접 넘기더라도 "none"으로 덮어쓰지 않고 normalizeExternalToolSpec에 따라 "ask"로 정규화한다.
+    let directProviderCapturedTools: readonly import("../main/domain/chat.js").ToolSpec[] | undefined;
+    const directProvider = makeCodexAppServerProvider({
+      runTurn: async function* (input) {
+        directProviderCapturedTools = input.tools;
+        yield { kind: "completed" as const };
+      },
+    });
+    for await (const _ of directProvider.chat(
+      { provider: "codex", model: "gpt-5.4" },
+      [{ role: "user", content: "direct" }],
+      {
+        requestId: "req-direct-provider",
+        tools: [
+          { name: "direct_untiered", description: "직접 호출 미지정 도구", parameters: { type: "object" } },
+          { name: "direct_t2", description: "직접 호출 T2 도구", parameters: { type: "object" }, tier: "T2" },
+        ],
+      },
+    )) { /* drain */ }
+    expect(directProviderCapturedTools).toEqual([
+      { name: "direct_untiered", description: "직접 호출 미지정 도구", parameters: { type: "object" }, tier: "ask" },
+      { name: "direct_t2", description: "직접 호출 T2 도구", parameters: { type: "object" }, tier: "ask" },
+    ]);
+
+    // 3c) P2 (나): 실제 내장 실행기(makeBuiltinSkillsExecutor의 get_time — tier: undefined)를
+    // 내장 조립 경로(wireAgentUC1({ toolExecutor }))로 넣으면 도메인 계약에 따라 승인 요청 없이 자동 실행된다.
+    const builtinInnerEmits: AgentEmit[] = [];
+    const realBuiltinExecutor = makeBuiltinSkillsExecutor({
+      clock: () => new Date("2026-11-08T00:00:00.000Z"),
+    });
+    expect(realBuiltinExecutor.specs().find((s) => s.name === "get_time")?.tier).toBeUndefined();
+    const wiredBuiltinInner = wireAgentUC1({
+      provider: makeCodexAppServerProvider({
+        runTurn: (input) => runCodexAppServerTurn(input, async () => peerForCall("get_time", "call-builtin-time-1", {})),
+      }),
+      conversation: { assemble: (r) => ({ messages: r.messages }) },
+      credentials: { update: () => {}, get: () => undefined },
+      approval,
+      egress: { emit: (_reqId, e) => { builtinInnerEmits.push(e); } },
+      diag: { log: () => {} },
+      toolExecutor: realBuiltinExecutor,
+    });
+    await wiredBuiltinInner.handler.onChatRequest({
+      kind: "chat",
+      requestId: "req-builtin-inner-time",
+      provider: { provider: "codex", model: "gpt-5.4" },
+      messages: [{ role: "user", content: "지금 몇 시야?" }],
+    });
+    expect(builtinInnerEmits.some((e) => e.kind === "approvalRequest")).toBe(false);
+    expect(builtinInnerEmits.find((e) => e.kind === "toolResult")).toMatchObject({
+      kind: "toolResult",
+      toolCallId: "call-builtin-time-1",
+      toolName: "get_time",
+      success: true,
+    });
+
+    // 3d) P3: ADK SKILL.md frontmatter의 tier: T2 / T1 은 바깥 경계에서 "ask"로 수렴되어
+    // Codex dynamicTools에 정상 노출되고 실행 시 approvalRequest(tier: "ask")를 거친다.
+    const parsedT2Skill = parseSkillMd(
+      `---\nname: copyright-reg\ndescription: "저작권 등록 서류 생성"\ntier: T2\n---\n# 절차\n1. 자료 수집`,
+    );
+    expect(parsedT2Skill?.tier).toBe("ask");
+    const adkT2Executor = makeAdkSkillExecutor([parsedT2Skill!]);
+    const adkT2Emits: AgentEmit[] = [];
+    const wiredAdkT2 = wireAgentUC1({
+      provider: makeCodexAppServerProvider({
+        runTurn: (input) => runCodexAppServerTurn(input, async () => peerForCall("skill_copyright-reg", "call-adk-t2", {})),
+      }),
+      conversation: { assemble: (r) => ({ messages: r.messages }) },
+      credentials: { update: () => {}, get: () => undefined },
+      approval,
+      egress: {
+        emit: (reqId, e) => {
+          adkT2Emits.push(e);
+          if (e.kind === "approvalRequest") {
+            wiredAdkT2.handler.onApprovalResponse({
+              kind: "approvalResponse",
+              requestId: reqId,
+              toolCallId: e.toolCallId,
+              decision: "approve",
+            });
+          }
+        },
+      },
+      diag: { log: () => {} },
+      externalToolExecutor: adkT2Executor,
+    });
+    await wiredAdkT2.handler.onChatRequest({
+      kind: "chat",
+      requestId: "req-adk-t2",
+      provider: { provider: "codex", model: "gpt-5.4" },
+      messages: [{ role: "user", content: "저작권 등록 스킬 실행" }],
+    });
+    expect(adkT2Emits.some((e) => e.kind === "approvalRequest" && e.toolName === "skill_copyright-reg" && e.tier === "ask")).toBe(true);
+    expect(adkT2Emits.find((e) => e.kind === "toolResult")).toMatchObject({
+      kind: "toolResult",
+      toolCallId: "call-adk-t2",
+      toolName: "skill_copyright-reg",
+      success: true,
+    });
+
+    // Direct runCodexAppServerTurn call with raw tier:undefined tool -> excluded from dynamicTools & rejected
+    let rawUntieredCalled = 0;
+    let rawDynamicTools: unknown;
+    const rawResponses: unknown[] = [];
+    const rawPeer: RpcPeer = {
+      async request(method, params) {
+        if (method === "thread/start") {
+          rawDynamicTools = (params as { dynamicTools?: unknown }).dynamicTools;
+          return { thread: { id: "thread-raw" } };
+        }
+        if (method === "turn/start") return { turn: { id: "turn-raw" } };
+        return {};
+      },
+      notify() {},
+      respond(id, result) { rawResponses.push({ id, result }); },
+      notifications() {
+        return (async function* () {
+          yield {
+            id: 99,
+            method: "item/tool/call",
+            params: { threadId: "thread-raw", turnId: "turn-raw", callId: "c-raw", tool: "raw_untiered", arguments: {} },
+          };
+          yield {
+            method: "turn/completed",
+            params: { threadId: "thread-raw", turn: { id: "turn-raw", status: "completed" } },
+          };
+        })();
+      },
+      close() {},
+    };
+    for await (const _ of runCodexAppServerTurn({
+      model: "gpt-5.4",
+      prompt: "test raw untiered",
+      tools: [{ name: "raw_untiered", description: "raw", parameters: { type: "object" } }],
+      executeTool: async () => { rawUntieredCalled++; return { output: "should not run" }; },
+    }, async () => rawPeer)) { /* drain */ }
+    expect(rawDynamicTools).toBeUndefined();
+    expect(rawUntieredCalled).toBe(0);
+    expect(rawResponses).toEqual([
+      { id: 99, result: { contentItems: [{ type: "inputText", text: "dynamic tool 'raw_untiered' is unavailable" }], success: false } },
+    ]);
+  }, 30_000);
+
+  it("gates outer tool loop (tierOf) and inner executeTool with the same shared helper: untiered -> approvalRequest(ask), tier:none -> no approval, rejected -> not executed", async () => {
+    const {
+      ChatTurnHandler,
+      isGatedToolTier,
+      normalizeExternalToolSpec,
+      normalizeExternalToolTier,
+      resolveEffectiveToolTier,
+      resolveToolTierByName,
+    } = await import("../main/app/chat-turn-handler.js");
+    const { wireAgentUC1, composeBuiltinAndExternalToolExecutors, wrapExternalToolExecutor } = await import("../main/composition/index.js");
+    const { makeInMemoryApproval } = await import("../main/adapters/approval.js");
+    const { makeAppToolExecutor } = await import("../main/adapters/app-tool-executor.js");
+    const { makeBuiltinSkillsExecutor } = await import("../main/adapters/builtin-skills.js");
+    const { makeCompositeToolExecutor } = await import("../main/adapters/composite-tool-executor.js");
+    type AgentEmit = import("../main/domain/chat.js").AgentEmit;
+    type ProviderPort = import("../main/ports/uc1.js").ProviderPort;
+
+    // Shared helper unit assertions:
+    // - Unknown/unmatched spec (undefined) or unknown tool name -> "ask" (requires approval)
+    // - Registered domain spec with tier: undefined or tier: "none" -> "none" (domain/chat.ts:38 contract)
+    // - External boundary adapter/wrapper normalizes unspecified tier (undefined/null/"") and non-standard tiers ("T1"/"T2") -> "ask", explicit 0/"none" -> "none"
+    expect(resolveEffectiveToolTier(undefined)).toBe("ask");
+    expect(resolveEffectiveToolTier({ tier: undefined })).toBe("none");
+    expect(resolveEffectiveToolTier({ tier: "none" })).toBe("none");
+    expect(resolveEffectiveToolTier({ tier: "ask" })).toBe("ask");
+    expect(resolveEffectiveToolTier({ tier: "shell" })).toBe("shell");
+    expect(isGatedToolTier(undefined)).toBe(false);
+    expect(isGatedToolTier("none")).toBe(false);
+    expect(isGatedToolTier("ask")).toBe(true);
+    expect(normalizeExternalToolTier(undefined)).toBe("ask");
+    expect(normalizeExternalToolTier(null)).toBe("ask");
+    expect(normalizeExternalToolTier("")).toBe("ask");
+    expect(normalizeExternalToolTier(0)).toBe("none");
+    expect(normalizeExternalToolTier(1)).toBe("ask");
+    expect(normalizeExternalToolTier("none")).toBe("none");
+    expect(normalizeExternalToolTier("T1")).toBe("ask");
+    expect(normalizeExternalToolTier("T2")).toBe("ask");
+    expect(wrapExternalToolExecutor({
+      specs: () => [{ name: "raw_ext", description: "", parameters: {} }],
+      async execute() { return { output: "ok" }; },
+    }).specs()[0]?.tier).toBe("ask");
+    expect(resolveToolTierByName([
+      normalizeExternalToolSpec({ name: "untiered_tool", description: "바깥 미지정", parameters: {} }),
+      { name: "builtin_read_tool", description: "내장 읽기(미설정)", parameters: {} },
+      { name: "read_tool", description: "읽기", parameters: {}, tier: "none" },
+    ], "untiered_tool")).toBe("ask");
+    expect(resolveToolTierByName([
+      normalizeExternalToolSpec({ name: "untiered_tool", description: "바깥 미지정", parameters: {} }),
+      { name: "builtin_read_tool", description: "내장 읽기(미설정)", parameters: {} },
+      { name: "read_tool", description: "읽기", parameters: {}, tier: "none" },
+    ], "builtin_read_tool")).toBe("none");
+    expect(resolveToolTierByName([
+      normalizeExternalToolSpec({ name: "untiered_tool", description: "바깥 미지정", parameters: {} }),
+      { name: "read_tool", description: "읽기", parameters: {}, tier: "none" },
+    ], "read_tool")).toBe("none");
+    expect(resolveToolTierByName([
+      { name: "read_tool", description: "읽기", parameters: {}, tier: "none" },
+    ], "unknown_unregistered_tool")).toBe("ask");
+
+    // Composite tool executor consistency with resolveEffectiveToolTier / resolveToolTierByName
+    const compNoneAndUndefined = makeCompositeToolExecutor([
+      { specs: () => [{ name: "dup_auto", description: "", parameters: {}, tier: "none" }], async execute() { return { output: "a" }; } },
+      { specs: () => [{ name: "dup_auto", description: "", parameters: {} }], async execute() { return { output: "b" }; } },
+    ]);
+    expect(resolveToolTierByName(compNoneAndUndefined.specs(), "dup_auto")).toBe("none");
+    const compBuiltinAndRawExternal = composeBuiltinAndExternalToolExecutors({
+      builtin: [{ specs: () => [{ name: "get_time", description: "", parameters: {} }], async execute() { return { output: "t" }; } }],
+      external: [{ specs: () => [{ name: "raw_external_untiered", description: "", parameters: {} }], async execute() { return { output: "e" }; } }],
+    })!;
+    expect(resolveToolTierByName(compBuiltinAndRawExternal.specs(), "get_time")).toBe("none");
+    expect(resolveToolTierByName(compBuiltinAndRawExternal.specs(), "raw_external_untiered")).toBe("ask");
+
+    const makeOuterLoopProvider = (toolName: string, callId: string): ProviderPort => ({
+      async *chat(_cfg, messages) {
+        if (!messages.some((m) => m.role === "tool")) {
+          // Non-handled toolUse chunk -> goes through ChatTurnHandler outer tool loop (tierOf / resolveToolTierByName in onChatRequest)
+          yield { kind: "toolUse", id: callId, name: toolName, args: { q: "test" } };
+          yield { kind: "usage", inputTokens: 4, outputTokens: 2 };
+          yield { kind: "finish" };
+        } else {
+          yield { kind: "text", text: "outer done" };
+          yield { kind: "usage", inputTokens: 5, outputTokens: 3 };
+          yield { kind: "finish" };
+        }
+      },
+    });
+
+    // 1) 정규화를 하지 않는 가짜 바깥 실행기(tier: undefined) 및 makeAppToolExecutor를
+    // 실제 조립 함수(wireAgentUC1 externalToolExecutors)로 넣었을 때 외곽 루프에서도 "ask" 승인을 거친 뒤 승인 시 실행된다.
+    let untieredApprovedRuns = 0;
+    const emitsApprove: AgentEmit[] = [];
+    const approvalApprove = makeInMemoryApproval();
+    const rawOuterExternalExec = {
+      specs: () => [
+        { name: "outer_untiered", description: "정규화 안 한 바깥 루프 도구", parameters: { type: "object" } },
+      ],
+      async execute() {
+        untieredApprovedRuns++;
+        return { output: "outer untiered ok" };
+      },
+    };
+    const appExecApprove = makeAppToolExecutor({
+      egress: { emit: () => {} },
+    });
+    appExecApprove.register("ext-app", [
+      { name: "app_untiered", description: "앱 바깥 도구", parameters: { type: "object" } },
+    ]);
+    expect(appExecApprove.specs()[0]?.tier).toBe("ask");
+    const wiredOuterApprove = wireAgentUC1({
+      provider: makeOuterLoopProvider("outer_untiered", "call-outer-1"),
+      conversation: { assemble: (r) => ({ messages: r.messages }) },
+      credentials: { update: () => {}, get: () => undefined },
+      approval: approvalApprove,
+      egress: {
+        emit: (reqId, e) => {
+          emitsApprove.push(e);
+          if (e.kind === "approvalRequest") {
+            wiredOuterApprove.handler.onApprovalResponse({
+              kind: "approvalResponse",
+              requestId: reqId,
+              toolCallId: e.toolCallId,
+              decision: "approve",
+            });
+          }
+        },
+      },
+      diag: { log: () => {} },
+      externalToolExecutors: [rawOuterExternalExec, appExecApprove],
+    });
+    await wiredOuterApprove.handler.onChatRequest({
+      kind: "chat",
+      requestId: "req-outer-approve",
+      provider: { provider: "fake", model: "m" },
+      messages: [{ role: "user", content: "실행해줘" }],
+    });
+    expect(untieredApprovedRuns).toBe(1);
+    expect(emitsApprove.some((e) => e.kind === "approvalRequest" && e.toolName === "outer_untiered" && e.tier === "ask")).toBe(true);
+    expect(emitsApprove.find((e) => e.kind === "toolResult")).toMatchObject({
+      kind: "toolResult",
+      toolCallId: "call-outer-1",
+      toolName: "outer_untiered",
+      output: "outer untiered ok",
+      success: true,
+    });
+
+    // 2) Explicit tier: "none" read tool in outer loop -> no approvalRequest, executes immediately
+    let noneRuns = 0;
+    const emitsNone: AgentEmit[] = [];
+    const handlerOuterNone = new ChatTurnHandler({
+      provider: makeOuterLoopProvider("outer_read_none", "call-outer-none"),
+      conversation: { assemble: (r) => ({ messages: r.messages }) },
+      credentials: { update: () => {}, get: () => undefined },
+      approval: makeInMemoryApproval(),
+      egress: { emit: (_reqId, e) => { emitsNone.push(e); } },
+      diag: { log: () => {} },
+      toolExecutor: {
+        specs: () => [{ name: "outer_read_none", description: "명시적 none 읽기 도구", parameters: { type: "object" }, tier: "none" }],
+        async execute() {
+          noneRuns++;
+          return { output: "read none ok" };
+        },
+      },
+    });
+    await handlerOuterNone.onChatRequest({
+      kind: "chat",
+      requestId: "req-outer-none",
+      provider: { provider: "fake", model: "m" },
+      messages: [{ role: "user", content: "읽어줘" }],
+    });
+    expect(noneRuns).toBe(1);
+    expect(emitsNone.some((e) => e.kind === "approvalRequest")).toBe(false);
+    expect(emitsNone.find((e) => e.kind === "toolResult")).toMatchObject({
+      kind: "toolResult",
+      toolCallId: "call-outer-none",
+      toolName: "outer_read_none",
+      output: "read none ok",
+      success: true,
+    });
+
+    // 2b) 실제 내장 실행기(makeBuiltinSkillsExecutor의 get_time — tier: undefined)를 내장 조립 경로(wireAgentUC1 toolExecutor)로
+    // 넣었을 때(domain/chat.ts:38 계약) -> approvalRequest 없이 자동 실행된다.
+    let builtinTimeClockCalls = 0;
+    const emitsBuiltinUntiered: AgentEmit[] = [];
+    const builtinSkillsExec = makeBuiltinSkillsExecutor({
+      clock: () => {
+        builtinTimeClockCalls++;
+        return new Date("2026-11-08T00:00:00.000Z");
+      },
+    });
+    expect(builtinSkillsExec.specs().find((s) => s.name === "get_time")?.tier).toBeUndefined();
+    const wiredBuiltinUntiered = wireAgentUC1({
+      provider: makeOuterLoopProvider("get_time", "call-builtin-get-time"),
+      conversation: { assemble: (r) => ({ messages: r.messages }) },
+      credentials: { update: () => {}, get: () => undefined },
+      approval: makeInMemoryApproval(),
+      egress: { emit: (_reqId, e) => { emitsBuiltinUntiered.push(e); } },
+      diag: { log: () => {} },
+      toolExecutor: builtinSkillsExec,
+    });
+    await wiredBuiltinUntiered.handler.onChatRequest({
+      kind: "chat",
+      requestId: "req-builtin-untiered",
+      provider: { provider: "fake", model: "m" },
+      messages: [{ role: "user", content: "내장 get_time 도구 실행" }],
+    });
+    expect(builtinTimeClockCalls).toBe(1);
+    expect(emitsBuiltinUntiered.some((e) => e.kind === "approvalRequest")).toBe(false);
+    expect(emitsBuiltinUntiered.find((e) => e.kind === "toolResult")).toMatchObject({
+      kind: "toolResult",
+      toolCallId: "call-builtin-get-time",
+      toolName: "get_time",
+      success: true,
+    });
+
+    // 3) 정규화를 하지 않는 가짜 바깥 실행기(tier: undefined)를 실제 조립 경로(wireAgentUC1 externalToolExecutor)로 넣었을 때
+    // 승인이 거절되면 실행되지 않는다.
+    let untieredRejectedRuns = 0;
+    const emitsReject: AgentEmit[] = [];
+    const rawOuterRejectExec = {
+      specs: () => [
+        { name: "outer_untiered_reject", description: "거절될 정규화 누락 바깥 도구", parameters: { type: "object" } },
+      ],
+      async execute() {
+        untieredRejectedRuns++;
+        return { output: "should not execute" };
+      },
+    };
+    const wiredOuterReject = wireAgentUC1({
+      provider: makeOuterLoopProvider("outer_untiered_reject", "call-outer-reject"),
+      conversation: { assemble: (r) => ({ messages: r.messages }) },
+      credentials: { update: () => {}, get: () => undefined },
+      approval: makeInMemoryApproval(),
+      egress: {
+        emit: (reqId, e) => {
+          emitsReject.push(e);
+          if (e.kind === "approvalRequest") {
+            wiredOuterReject.handler.onApprovalResponse({
+              kind: "approvalResponse",
+              requestId: reqId,
+              toolCallId: e.toolCallId,
+              decision: "reject",
+            });
+          }
+        },
+      },
+      diag: { log: () => {} },
+      externalToolExecutor: rawOuterRejectExec,
+    });
+    await wiredOuterReject.handler.onChatRequest({
+      kind: "chat",
+      requestId: "req-outer-reject",
+      provider: { provider: "fake", model: "m" },
+      messages: [{ role: "user", content: "거절 테스트" }],
+    });
+    expect(untieredRejectedRuns).toBe(0);
+    expect(emitsReject.some((e) => e.kind === "approvalRequest" && e.toolName === "outer_untiered_reject" && e.tier === "ask")).toBe(true);
+    expect(emitsReject.find((e) => e.kind === "toolResult")).toMatchObject({
+      kind: "toolResult",
+      toolCallId: "call-outer-reject",
+      toolName: "outer_untiered_reject",
+      output: "도구 호출이 거부되었습니다",
+      success: false,
+    });
+  });
+
+  it("provisions managed CODEX_HOME (empty config.toml + auth.json symlink) across subagent-codex, codex-exec-provider, and codex-ax even when user CODEX_HOME is set", async () => {
+    const { spawnCodexAx } = await import("../main/adapters/codex-app-server-provider.js");
+    const { makeCodexSubAgent } = await import("../main/adapters/subagent-codex.js");
+    const { runCodexExec } = await import("../main/adapters/codex-exec-provider.js");
+    const { mkdirSync, mkdtempSync, readFileSync, lstatSync, readlinkSync, writeFileSync, chmodSync, rmSync } = await import("node:fs");
+    const { join } = await import("node:path"); const { tmpdir } = await import("node:os");
+    const { PassThrough } = await import("node:stream");
+    const { EventEmitter } = await import("node:events");
+
+    const baseTmp = tmpdir();
+    mkdirSync(baseTmp, { recursive: true });
+    const sandboxDir = mkdtempSync(join(baseTmp, "managed-codex-home-all-routes-"));
+    try {
+      const userCodexHome = join(sandboxDir, "user-codex-home");
+      const tmpEnvDir = join(sandboxDir, "tmp-env");
+      const subagentConfigDir = join(sandboxDir, "subagent-cfg");
+      const execTempRoot = join(sandboxDir, "exec-tmp");
+      const axCwd = join(sandboxDir, "ax-cwd");
+      mkdirSync(userCodexHome, { recursive: true });
+      mkdirSync(tmpEnvDir, { recursive: true });
+      mkdirSync(subagentConfigDir, { recursive: true });
+      mkdirSync(execTempRoot, { recursive: true });
+      mkdirSync(axCwd, { recursive: true });
+
+      writeFileSync(join(userCodexHome, "auth.json"), '{"token":"user-auth"}', { mode: 0o600 });
+      writeFileSync(join(userCodexHome, "config.toml"), 'model = "hostile-override"\n[mcp_servers.bad]\ncommand = "evil"\n');
+
+      const sourceEnv: NodeJS.ProcessEnv = {
+        PATH: process.env.PATH ?? "/usr/bin:/bin",
+        HOME: sandboxDir,
+        TMPDIR: tmpEnvDir,
+        CODEX_HOME: userCodexHome,
+        OPENAI_API_KEY: "must-not-leak",
+      };
+
+      // 1) subagent-codex (makeCodexSubAgent)
+      let subagentEnv: NodeJS.ProcessEnv | undefined;
+      let subagentArgs: readonly string[] = [];
+      const subagent = makeCodexSubAgent({
+        env: sourceEnv,
+        codexConfigDir: subagentConfigDir,
+        resolveBin: () => ({ command: "codex", prefixArgs: [] }),
+        spawnFn: (_cmd, args, opts) => {
+          subagentArgs = args;
+          subagentEnv = opts.env;
+          const proc = new EventEmitter() as any;
+          proc.stdout = new PassThrough();
+          proc.stderr = new PassThrough();
+          proc.kill = () => true;
+          queueMicrotask(() => {
+            proc.stdout.write('{"type":"turn.completed"}\n');
+            proc.stdout.end();
+            proc.emit("close", 0, null);
+          });
+          return proc;
+        },
+      });
+      const session = subagent.spawn({ prompt: "ping", workdir: sandboxDir });
+      for await (const _ of session.events) { /* drain */ }
+      expect(subagentArgs).toContain("--ignore-user-config");
+      expect(subagentEnv?.CODEX_HOME).toBe(join(subagentConfigDir, "codex-home"));
+      expect(subagentEnv?.CODEX_HOME).not.toBe(userCodexHome);
+      expect(readFileSync(join(subagentEnv!.CODEX_HOME!, "config.toml"), "utf8")).toBe("");
+      expect(lstatSync(join(subagentEnv!.CODEX_HOME!, "auth.json")).isSymbolicLink()).toBe(true);
+      expect(readlinkSync(join(subagentEnv!.CODEX_HOME!, "auth.json"))).toBe(join(userCodexHome, "auth.json"));
+
+      // 2) codex-exec-provider (runCodexExec)
+      const fakeExecBin = join(sandboxDir, "fake-codex-exec.mjs");
+      writeFileSync(fakeExecBin, [
+        `#!${process.execPath}`,
+        'process.stdin.resume();',
+        'process.stdin.on("end", () => {',
+        '  const payload = JSON.stringify({ codexHome: process.env.CODEX_HOME, openaiKey: process.env.OPENAI_API_KEY ?? null });',
+        '  process.stdout.write(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: payload } }) + "\\n");',
+        '  process.stdout.write(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }) + "\\n");',
+        '});',
+      ].join("\n"), { mode: 0o755 });
+      chmodSync(fakeExecBin, 0o755);
+
+      const execEvents: Array<Record<string, unknown>> = [];
+      for await (const ev of runCodexExec(
+        { model: "gpt-5.4", prompt: "hello" },
+        { tempRoot: execTempRoot, executable: fakeExecBin, env: sourceEnv },
+      )) {
+        execEvents.push(ev as Record<string, unknown>);
+      }
+      const msgEvent = execEvents.find((e) => e.type === "item.completed") as { item?: { text?: string } } | undefined;
+      const seenExec = JSON.parse(msgEvent?.item?.text ?? "{}") as { codexHome?: string; openaiKey?: string | null };
+      expect(seenExec.codexHome).toBeDefined();
+      expect(seenExec.codexHome).not.toBe(userCodexHome);
+      expect(seenExec.openaiKey).toBeNull();
+      expect(readFileSync(join(seenExec.codexHome!, "config.toml"), "utf8")).toBe("");
+      expect(lstatSync(join(seenExec.codexHome!, "auth.json")).isSymbolicLink()).toBe(true);
+      expect(readlinkSync(join(seenExec.codexHome!, "auth.json"))).toBe(join(userCodexHome, "auth.json"));
+
+      // 3) codex-app-server-provider AX path (spawnCodexAx / buildCodexAxEnv)
+      let axSpawnedEnv: NodeJS.ProcessEnv | undefined;
+      await spawnCodexAx(axCwd, undefined, {
+        env: { ...sourceEnv, CODEX_BIN: process.execPath },
+        spawnFn: ((_cmd: string, _args: readonly string[], options: { env?: NodeJS.ProcessEnv }) => {
+          axSpawnedEnv = options.env;
+          return { stdin: {}, stdout: {}, stderr: {}, on() { return this; }, kill() { return true; } } as any;
+        }) as any,
+      });
+      expect(axSpawnedEnv?.CODEX_HOME).toBeDefined();
+      expect(axSpawnedEnv?.CODEX_HOME).not.toBe(userCodexHome);
+      expect(axSpawnedEnv?.OPENAI_API_KEY).toBeUndefined();
+      expect(readFileSync(join(axSpawnedEnv!.CODEX_HOME!, "config.toml"), "utf8")).toBe("");
+      expect(lstatSync(join(axSpawnedEnv!.CODEX_HOME!, "auth.json")).isSymbolicLink()).toBe(true);
+      expect(readlinkSync(join(axSpawnedEnv!.CODEX_HOME!, "auth.json"))).toBe(join(userCodexHome, "auth.json"));
+    } finally {
+      rmSync(sandboxDir, { recursive: true, force: true });
+    }
+  });
+});

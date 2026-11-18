@@ -62,7 +62,7 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
 
 // Live pricing overlay — populated from the Naia gateway GET /v1/pricing
 // (adapters/gateway-pricing.ts). The gateway is the pricing SoT for models it
-// routes (naia-agent#59; nextain/naia-shell#458: Pi models like
+// routes (naia-agent#59; nextain/naia-shell#458: gateway models like
 // deepseek-v4-flash/solar-pro4 were absent from the static table above and
 // silently charged $0 in the shell). Static entries stay as the offline
 // fallback for direct providers the gateway does not know.

@@ -14,7 +14,7 @@ const sourceIndex = process.argv.indexOf("--source-revision");
 const sourceRevision = sourceIndex >= 0 ? process.argv[sourceIndex + 1] : execFileSync("git", ["rev-parse", "HEAD"], { cwd: repositoryRoot, encoding: "utf8" }).trim();
 if (!/^[0-9a-f]{40}$/u.test(sourceRevision ?? "")) throw new Error("source revision must be a full commit hash");
 const trackedInputs = ["benchmark/run-issue-team-deterministic.mjs", "benchmark/orchestration/issue-team-deterministic.json",
-  "src/main/app/issue-team-worker.ts", "src/main/adapters/sqlite-issue-team-store.ts", "src/main/adapters/subagent-pi.ts",
+  "src/main/app/issue-team-worker.ts", "src/main/adapters/sqlite-issue-team-store.ts",
   "src/main/adapters/subagent-opencode-cli.ts", "src/main/adapters/subagent-codex.ts", "src/main/domain/issue-team.ts",
   "src/main/domain/issue-team-benchmark.ts", "src/main/ports/issue-team.ts", "src/main/composition/supervised-issue-worker.ts",
   "src/main/composition/issue-team-role-executor.ts", "src/main/app/single-issue-orchestrator.ts",
@@ -31,7 +31,6 @@ const { makeIssueTeamWorker } = await import(pathToFileURL(join(distRoot, "main/
 const { SqliteIssueTeamStore } = await import(pathToFileURL(join(distRoot, "main/adapters/sqlite-issue-team-store.js")));
 const { evaluateIssueTeamBenchmark } = await import(pathToFileURL(join(distRoot, "main/domain/issue-team-benchmark.js")));
 const { makeSupervisedIssueWorker } = await import(pathToFileURL(join(distRoot, "main/composition/supervised-issue-worker.js")));
-const { makePiSubAgent } = await import(pathToFileURL(join(distRoot, "main/adapters/subagent-pi.js")));
 const { makeOpencodeSubAgent } = await import(pathToFileURL(join(distRoot, "main/adapters/subagent-opencode-cli.js")));
 const { makeCodexSubAgent } = await import(pathToFileURL(join(distRoot, "main/adapters/subagent-codex.js")));
 const { makeIssueTeamRoleExecutor } = await import(pathToFileURL(join(distRoot, "main/composition/issue-team-role-executor.js")));
@@ -41,7 +40,7 @@ const { makeIssueWorkerRouter } = await import(pathToFileURL(join(distRoot, "mai
 const root = mkdtempSync(join(tmpdir(), "naia-issue-team-benchmark-"));
 const profile = { kind: "team", maxRepairCycles: 2, requiredCleanCycles: 2, roles: Object.fromEntries(
   ["explorer", "implementer", "tester", "reviewer"].map((role) => [role, { agentProfileId: `${role}-profile`,
-    agentKind: role === "implementer" ? "opencode" : role === "tester" ? "pi" : "codex",
+    agentKind: role === "implementer" ? "opencode" : "codex",
     binding: { provider: `${role}-provider`, model: `${role}-model` }, filesystemAccess: role === "implementer" ? "workspace_write" : "read_only" }])) };
 const input = { issueId: "benchmark-issue", dispatchId: "benchmark-issue:dispatch:1", workspacePath: "/benchmark/repo", task: "fix parser",
   obligations: ["fix parser"], profileId: "benchmark-team", profile, acceptanceChecks: ["tests pass"], signal: new AbortController().signal };
@@ -94,7 +93,7 @@ try {
   await rejectedWorker.execute(rejectedInput).catch(() => undefined);
   const recoveredFailure = await rejectedWorker.recover?.(rejectedInput).catch((error) => error);
   const rejectedFailureRecovered = recoveredFailure?.receipts?.length === 1 && recoveredFailure.receipt?.workerRole === "explorer";
-  const adapterReadOnlyEnforced = await observeAdapterReadOnlyBoundary(makePiSubAgent, makeOpencodeSubAgent, makeCodexSubAgent);
+  const adapterReadOnlyEnforced = await observeAdapterReadOnlyBoundary(makeOpencodeSubAgent, makeCodexSubAgent);
   const roleExecutorBoundaryPreserved = await observeRoleExecutorBoundary(makeIssueTeamRoleExecutor);
   const parentProjectionValidated = await observeParentProjectionBoundary(SingleIssueOrchestrator, SqliteIssueOrchestrationStore, join(root, "parent.db"));
   const productionRouterWired = await observeProductionRouter(makeIssueWorkerRouter);
@@ -110,7 +109,7 @@ try {
     distinctReceiptIdentities: new Set(receipts.flatMap((item) => [item.sessionId, item.executionId])).size / 2,
     allCostsMeasured: receipts.every((item) => item.cost.state === "measured"), expectedCostUsd, observedCostUsd };
   const evaluation = evaluateIssueTeamBenchmark(observation);
-  const runtimeModules = ["main/app/issue-team-worker.js", "main/adapters/sqlite-issue-team-store.js", "main/adapters/subagent-pi.js",
+  const runtimeModules = ["main/app/issue-team-worker.js", "main/adapters/sqlite-issue-team-store.js",
     "main/adapters/subagent-opencode-cli.js", "main/adapters/subagent-codex.js", "main/domain/issue-team-benchmark.js",
     "main/composition/supervised-issue-worker.js", "main/composition/issue-team-role-executor.js", "main/app/single-issue-orchestrator.js",
     "main/adapters/sqlite-issue-orchestration-store.js", "main/composition/profiled-issue-worker.js"];
@@ -129,11 +128,7 @@ function receipt(role, key, n) { const declared = profile.roles[role]; return { 
   provider: declared.binding.provider, model: declared.binding.model, sessionId: `session-${n}`, executionId: `execution-${n}`, idempotencyKey: key,
   tokenCountsAvailable: true, inputTokens: 10, cachedInputTokens: 0, outputTokens: 2, latencyMs: 1, cost: { state: "measured", usd: corpus.costPerAttemptUsd, source: "fixture" } }; }
 async function until(predicate) { for (let i = 0; i < 200; i += 1) { if (predicate()) return; await new Promise((resolveWait) => setTimeout(resolveWait, 1)); } throw new Error("benchmark timed out"); }
-async function observeAdapterReadOnlyBoundary(makePi, makeOpencode, makeCodex) {
-  const piCapture = captureSpawn();
-  makePi({ resolveBin: () => ({ command: "pi", prefixArgs: [] }), spawnFn: piCapture.spawnFn })
-    .spawn({ prompt: "inspect", workdir: "/benchmark/worktree", filesystemAccess: "read_only" });
-  const piArgs = piCapture.args ?? [];
+async function observeAdapterReadOnlyBoundary(makeOpencode, makeCodex) {
   const opencodeCapture = captureSpawn();
   const opencodeSession = makeOpencode({ resolveBin: () => ({ command: "opencode", prefixArgs: [] }), spawnFn: opencodeCapture.spawnFn })
     .spawn({ prompt: "inspect", workdir: "/benchmark/worktree", filesystemAccess: "read_only" });
@@ -143,7 +138,7 @@ async function observeAdapterReadOnlyBoundary(makePi, makeOpencode, makeCodex) {
   makeCodex({ resolveBin: () => ({ command: "codex", prefixArgs: [] }), spawnFn: codexCapture.spawnFn })
     .spawn({ prompt: "inspect", workdir: "/benchmark/worktree", filesystemAccess: "read_only" });
   const sandboxIndex = (codexCapture.args ?? []).indexOf("--sandbox");
-  return piArgs.includes("--tools") && piArgs.includes("read,grep,find,ls") && opencodeCapture.calls === 0 && failedClosed
+  return opencodeCapture.calls === 0 && failedClosed
     && sandboxIndex >= 0 && codexCapture.args?.[sandboxIndex + 1] === "read-only";
 }
 async function observeRoleExecutorBoundary(makeExecutor) {

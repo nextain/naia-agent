@@ -6,11 +6,11 @@
 //
 // bin 미해결/ENOENT = 정직한 session_end{ok:false}(throw 금지, AC6). spawnFn 주입 seam.
 //
-// ⚠️ pi/opencode 어댑터는 **무상태** `lineToEvent`(줄 1개 → event 1개) 를 쓰나, claude stream-json 은
+// ⚠️ codex/opencode 어댑터는 **무상태** `lineToEvent`(줄 1개 → event 1개) 를 쓰나, claude stream-json 은
 //    assistant 메시지의 `tool_use`(id+name) 완료 후 **별도 줄** 의 user 메시지 `tool_result`(tool_use_id) 로
 //    짝지어져 돌아온다 — tool_use_end 에 name 을 복원하려면 id→name 매핑 상태가 필요하다. 그래서 claude 만
 //    **상태ful parser factory**(createClaudeLineParser, spawn 마다 1개) 를 쓴다. 동시 세션 격리 보장(모듈
-//    전역 상태 아님). terminal session_end 는 여전히 process close(code) 가 단일 발생(pi/opencode 동일).
+//    전역 상태 아님). terminal session_end 는 여전히 process close(code) 가 단일 발생(codex/opencode 동일).
 //
 // RT-verified(2026-06-29, claude 2.1.156): init/assistant(text·tool_use)/user(tool_result)/result(is_error)
 // 이벤트 shape 실측. 단 rate_limit(weekly) hit 로 본문 생성은 못했으나 shape 는 전부 확보됨.
@@ -48,7 +48,7 @@ export interface SubAgentClaudeCodeOptions {
   readonly env?: NodeJS.ProcessEnv;
 }
 
-// ── bin resolution (pi/opencode 동형 패턴: env 절대경로 검증 → PATH → npx fallback) ──
+// ── bin resolution (codex/opencode 동형 패턴: env 절대경로 검증 → PATH → npx fallback) ──
 
 function validateClaudeCodeBin(raw: string | undefined): string | undefined {
   if (!raw || raw.trim().length === 0) return undefined;

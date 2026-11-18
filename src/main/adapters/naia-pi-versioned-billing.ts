@@ -1,6 +1,7 @@
-// UC-ORCH-004 / FR-LOOP-008 — request-correlated atomic gateway billing for the Naia Pi route.
+// UC-ORCH-004 / FR-LOOP-008 — request-correlated atomic gateway billing and Codex Responses loopback bridge.
 import { createHash, randomUUID } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { dirname } from "node:path";
 import Database from "better-sqlite3";
 import type { GatewayBillingReceipt } from "../domain/orchestration.js";
@@ -76,6 +77,42 @@ export interface GatewayRequestBudgetEvidence {
   readonly snapshot: GatewayRequestBudgetSnapshot & { readonly chargedUsdDecimal: string };
 }
 
+export interface CodexBridgeTurnRecord {
+  readonly requestModel: string;
+  readonly responseModel: string;
+  readonly inputTokens: number;
+  readonly cachedInputTokens: number;
+  readonly outputTokens: number;
+  readonly totalTokens: number;
+  readonly receipt?: NaiaPiGatewayBillingReceipt;
+}
+
+export interface CodexResponsesBridgeOptions {
+  readonly provider: string;
+  readonly expectedModel: string;
+  readonly upstreamBaseUrl: string;
+  readonly bridgeToken?: string;
+  readonly getApiKey?: () => string | undefined;
+  readonly noTools?: boolean;
+  readonly maxOutputTokens?: number;
+  readonly thinkingLevel?: string;
+  readonly billing?: {
+    readonly executionId: string;
+    readonly journalPath: string;
+    readonly gatewayBudget: { readonly path: string; readonly policy: GatewayRequestBudgetPolicy };
+  };
+  readonly fetch?: typeof globalThis.fetch;
+  readonly createServerFn?: typeof createServer;
+}
+
+export interface CodexResponsesBridgeHandle {
+  readonly baseUrl: string;
+  readonly port: number;
+  readonly turns: readonly CodexBridgeTurnRecord[];
+  readonly lastError?: string;
+  close(): void;
+}
+
 const INITIAL_DIGEST_PREFIX = "naia-pi-receipt-journal-v1";
 const MONEY = /^(?:0|[1-9]\d*)(?:\.\d{1,8})?$/u;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -141,6 +178,16 @@ export function appendNaiaPiGatewayReceipt(path: string, receipt: NaiaPiGatewayB
   });
 }
 
+export function sumGatewayCustomerCost(receipts: readonly GatewayBillingReceipt[]): number {
+  let units = 0n;
+  for (const receipt of receipts) {
+    const [whole, fraction = ""] = receipt.customerCostDecimal.split(".");
+    units += BigInt(whole!) * 100_000_000n + BigInt(fraction.padEnd(8, "0"));
+  }
+  if (units > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error("gateway customer-cost aggregate exceeds safe range");
+  return Number(units) / 100_000_000;
+}
+
 export function makeNaiaVersionedBillingFetch(options: VersionedBillingFetchOptions): typeof globalThis.fetch {
   assertExecutionId(options.executionId);
   const delegate = options.delegate ?? globalThis.fetch;
@@ -183,11 +230,581 @@ export function makeNaiaVersionedBillingFetch(options: VersionedBillingFetchOpti
       model,
     });
     const sse = completionAsSse(response, payload);
+    // Append receipt to the hash-chained journal before settling the reservation so any post-call
+    // reservation overrun ("gateway receipt exceeded its durable reservation") leaves both the
+    // SQLite settled row and the journal entry intact for fail-closed orphan receipt reconciliation.
     appendNaiaPiGatewayReceipt(options.journalPath, receipt);
     settleGatewayRequest(options.gatewayBudget.path, options.gatewayBudget.policy, state.requestId, receipt);
     attempts.delete(requestHash);
     return sse;
   };
+}
+
+/**
+ * Strip `tools`, `tool_choice`, `parallel_tool_calls`, and `additional_tools` instructions
+ * from a `/v1/responses` or `/v1/chat/completions` request payload when `noTools: true` (Doc L138).
+ */
+export function stripToolsFromPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...payload };
+  delete next.tools;
+  delete next.tool_choice;
+  delete next.parallel_tool_calls;
+  delete next.additional_tools;
+  if (typeof next.instructions === "string") {
+    next.instructions = stripAdditionalToolsText(next.instructions);
+  }
+  if (Array.isArray(next.input)) {
+    next.input = next.input
+      .map((item) => {
+        if (!record(item)) return item;
+        if (typeof item.content === "string") {
+          const cleaned = stripAdditionalToolsText(item.content);
+          return cleaned.trim() ? { ...item, content: cleaned } : null;
+        }
+        if (Array.isArray(item.content)) {
+          const parts = item.content
+            .map((part) => {
+              if (!record(part) || typeof part.text !== "string") return part;
+              const cleaned = stripAdditionalToolsText(part.text);
+              return cleaned.trim() ? { ...part, text: cleaned } : null;
+            })
+            .filter(Boolean);
+          return parts.length > 0 ? { ...item, content: parts } : null;
+        }
+        return item;
+      })
+      .filter(Boolean);
+  }
+  if (Array.isArray(next.messages)) {
+    next.messages = next.messages
+      .map((msg) => {
+        if (!record(msg) || typeof msg.content !== "string") return msg;
+        const cleaned = stripAdditionalToolsText(msg.content);
+        return cleaned.trim() || msg.role === "user" ? { ...msg, content: cleaned } : null;
+      })
+      .filter(Boolean);
+  }
+  return next;
+}
+
+function stripAdditionalToolsText(text: string): string {
+  return text
+    .replace(/<additional_tools>[\s\S]*?<\/additional_tools>/giu, "")
+    .replace(/##\s*Additional\s+Tools[\s\S]*?(?=\n##\s|$)/giu, "");
+}
+
+/**
+ * Converts a Codex `/v1/responses` request body into an OpenAI `/v1/chat/completions` request body.
+ */
+export function convertResponsesToChatCompletionsRequest(
+  rawBody: Record<string, unknown>,
+  options: {
+    readonly expectedModel: string;
+    readonly noTools?: boolean;
+    readonly maxOutputTokens?: number;
+    readonly reasoningByCallId?: ReadonlyMap<string, string>;
+    readonly lastReasoningContent?: string;
+    readonly ollamaThink?: boolean | string;
+  },
+): Record<string, unknown> {
+  const body = options.noTools ? stripToolsFromPayload(rawBody) : rawBody;
+  const messages: Record<string, unknown>[] = [];
+
+  if (typeof body.instructions === "string" && body.instructions.trim().length > 0) {
+    messages.push({ role: "system", content: body.instructions });
+  }
+
+  if (typeof body.input === "string") {
+    messages.push({ role: "user", content: body.input });
+  } else if (Array.isArray(body.input)) {
+    for (const item of body.input) {
+      if (!record(item)) continue;
+      if (item.type === "function_call") {
+        const callId = typeof item.call_id === "string" ? item.call_id : typeof item.id === "string" ? item.id : "call_1";
+        const toolCall = {
+          id: callId,
+          type: "function",
+          function: {
+            name: typeof item.name === "string" ? item.name : "unknown",
+            arguments: typeof item.arguments === "string" ? item.arguments : JSON.stringify(item.arguments ?? {}),
+          },
+        };
+        const reasoning = options.reasoningByCallId?.get(callId) ?? options.lastReasoningContent;
+        const prev = messages.at(-1);
+        if (prev && prev.role === "assistant") {
+          const existing = Array.isArray(prev.tool_calls) ? prev.tool_calls : [];
+          prev.tool_calls = [...existing, toolCall];
+          if (reasoning && prev.reasoning_content === undefined) {
+            prev.reasoning_content = reasoning;
+          }
+        } else {
+          messages.push({
+            role: "assistant",
+            content: null,
+            tool_calls: [toolCall],
+            ...(reasoning ? { reasoning_content: reasoning } : {}),
+          });
+        }
+        continue;
+      }
+      if (item.type === "function_call_output") {
+        const callId = typeof item.call_id === "string" ? item.call_id : typeof item.id === "string" ? item.id : "call_1";
+        const output = typeof item.output === "string" ? item.output : JSON.stringify(item.output ?? "");
+        messages.push({
+          role: "tool",
+          tool_call_id: callId,
+          content: output,
+        });
+        continue;
+      }
+      if (item.type === "message" || typeof item.role === "string") {
+        const rawRole = typeof item.role === "string" ? item.role : "user";
+        // Naia and local providers use supportsDeveloperRole: false -> map developer to system
+        const role = rawRole === "developer" ? "system" : rawRole;
+        let text = "";
+        if (typeof item.content === "string") {
+          text = item.content;
+        } else if (Array.isArray(item.content)) {
+          text = item.content
+            .map((part) => (record(part) && typeof part.text === "string" ? part.text : ""))
+            .join("");
+        }
+        const reasoningContent = typeof item.reasoning_content === "string" ? item.reasoning_content : undefined;
+        messages.push({
+          role,
+          content: text,
+          ...(reasoningContent ? { reasoning_content: reasoningContent } : {}),
+        });
+      }
+    }
+  } else if (Array.isArray(body.messages)) {
+    for (const msg of body.messages) {
+      if (record(msg)) messages.push({ ...msg });
+    }
+  }
+
+  const chatRequest: Record<string, unknown> = {
+    model: options.expectedModel,
+    messages,
+    stream: false,
+  };
+
+  const maxTokens = options.maxOutputTokens
+    ?? (options.expectedModel === "motif-3" ? 8192 : typeof body.max_output_tokens === "number" ? body.max_output_tokens : undefined);
+  if (maxTokens !== undefined) {
+    chatRequest.max_tokens = maxTokens;
+  }
+
+  if (options.ollamaThink !== undefined) {
+    chatRequest.think = options.ollamaThink;
+  }
+
+  if (!options.noTools && Array.isArray(body.tools)) {
+    const convertedTools = body.tools
+      .filter((t): t is Record<string, unknown> => record(t) && t.type === "function")
+      .map((t) => {
+        const fn = record(t.function) ? t.function : t;
+        const name = typeof fn.name === "string" ? fn.name : "";
+        if (!name) return null;
+        return {
+          type: "function",
+          function: {
+            name,
+            ...(typeof fn.description === "string" ? { description: fn.description } : {}),
+            parameters: record(fn.parameters) ? fn.parameters : { type: "object", properties: {} },
+          },
+        };
+      })
+      .filter(Boolean);
+    if (convertedTools.length > 0) {
+      chatRequest.tools = convertedTools;
+    }
+  }
+
+  return chatRequest;
+}
+
+/**
+ * Starts an in-process HTTP loopback bridge on `127.0.0.1:0` that translates
+ * Codex CLI `/v1/responses` requests into `/v1/chat/completions` calls, enforces
+ * versioned gateway billing & receipt journals when configured, and records per-turn
+ * `provider_reported` model evidence.
+ */
+export async function startCodexResponsesLoopbackBridge(
+  options: CodexResponsesBridgeOptions,
+): Promise<CodexResponsesBridgeHandle> {
+  const turns: CodexBridgeTurnRecord[] = [];
+  const reasoningByCallId = new Map<string, string>();
+  let lastReasoningContent: string | undefined;
+  let lastError: string | undefined;
+  let ollamaThinkResolved = false;
+  let ollamaThinkValue: boolean | string | undefined;
+  const delegateFetch = options.fetch ?? globalThis.fetch;
+  const billingFetch = options.billing
+    ? makeNaiaVersionedBillingFetch({
+        executionId: options.billing.executionId,
+        journalPath: options.billing.journalPath,
+        gatewayBudget: options.billing.gatewayBudget,
+        delegate: delegateFetch,
+      })
+    : undefined;
+
+  const createServerImpl = options.createServerFn ?? createServer;
+  const server = createServerImpl((req: IncomingMessage, res: ServerResponse) => {
+    void handleBridgeRequest(req, res).catch((err) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      lastError = msg;
+      if (!res.headersSent) {
+        res.writeHead(502, { "Content-Type": "application/json" });
+      }
+      res.end(JSON.stringify({ error: { message: msg, type: "bridge_error" } }));
+    });
+  });
+
+  async function resolveOllamaThink(): Promise<boolean | string | undefined> {
+    if (ollamaThinkResolved) return ollamaThinkValue;
+    ollamaThinkResolved = true;
+    if (options.provider.toLowerCase() !== "ollama" || !options.thinkingLevel) return undefined;
+    try {
+      const showUrl = `${options.upstreamBaseUrl.replace(/\/v1\/?$/u, "")}/api/show`;
+      const showRes = await delegateFetch(showUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: options.expectedModel }),
+      });
+      if (showRes.ok) {
+        const showJson = (await showRes.json()) as Record<string, unknown>;
+        const caps = Array.isArray(showJson.capabilities) ? showJson.capabilities : [];
+        if (caps.includes("thinking")) {
+          ollamaThinkValue = options.thinkingLevel === "off" || options.thinkingLevel === "none" ? false : true;
+        }
+      }
+    } catch {
+      /* best-effort capability probe */
+    }
+    return ollamaThinkValue;
+  }
+
+  async function handleBridgeRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (options.bridgeToken) {
+      const auth = req.headers.authorization;
+      if (auth !== `Bearer ${options.bridgeToken}`) {
+        lastError = "Codex loopback bridge authorization token mismatch";
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: { message: lastError, type: "authentication_error" } }));
+        return;
+      }
+    }
+
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(Buffer.from(chunk));
+    const rawText = Buffer.concat(chunks).toString("utf8");
+    const rawBody = parseObject(rawText || "{}", "Codex bridge request body is not JSON");
+
+    const ollamaThink = await resolveOllamaThink();
+    const chatRequest = convertResponsesToChatCompletionsRequest(rawBody, {
+      expectedModel: options.expectedModel,
+      noTools: options.noTools,
+      maxOutputTokens: options.maxOutputTokens,
+      reasoningByCallId,
+      lastReasoningContent,
+      ...(ollamaThink !== undefined ? { ollamaThink } : {}),
+    });
+
+    const upstreamUrl = `${options.upstreamBaseUrl.replace(/\/+$/u, "")}/chat/completions`;
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (options.provider === "naia" || options.provider === "nextain") {
+      const liveKey = options.getApiKey?.()?.trim();
+      if (!liveKey) {
+        throw new Error("NAIA_API_KEY is required for Naia gateway bridge call");
+      }
+      headers["X-AnyLLM-Key"] = `Bearer ${liveKey}`;
+    }
+
+    let completionPayload: Record<string, unknown>;
+    let latestReceipt: NaiaPiGatewayBillingReceipt | undefined;
+    if (billingFetch && options.billing) {
+      const upstreamRes = await billingFetch(upstreamUrl, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(chatRequest),
+      });
+      const sseOrJson = await upstreamRes.text();
+      if (!upstreamRes.ok) {
+        lastError = `Upstream gateway returned HTTP ${upstreamRes.status}`;
+        res.writeHead(upstreamRes.status, { "Content-Type": "application/json" });
+        res.end(sseOrJson);
+        return;
+      }
+      completionPayload = extractCompletionFromBillingSse(sseOrJson);
+      const journal = readNaiaPiReceiptJournal(options.billing.journalPath, options.billing.executionId);
+      latestReceipt = journal.entries.at(-1)?.receipt;
+    } else {
+      const upstreamRes = await delegateFetch(upstreamUrl, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(chatRequest),
+      });
+      const text = await upstreamRes.text();
+      if (!upstreamRes.ok) {
+        lastError = `Upstream provider returned HTTP ${upstreamRes.status}`;
+        res.writeHead(upstreamRes.status, { "Content-Type": "application/json" });
+        res.end(text);
+        return;
+      }
+      completionPayload = parseObject(text, "Upstream chat completion response is not JSON");
+    }
+
+    const responseModel = typeof completionPayload.model === "string" && completionPayload.model.trim()
+      ? completionPayload.model.trim()
+      : options.expectedModel;
+    if (responseModel.toLowerCase() !== options.expectedModel.toLowerCase()) {
+      throw new Error(`Provider response model '${responseModel}' does not match requested model '${options.expectedModel}'`);
+    }
+
+    const usageObj = record(completionPayload.usage) ? completionPayload.usage : {};
+    const promptTokens = typeof usageObj.prompt_tokens === "number" ? usageObj.prompt_tokens : 0;
+    const completionTokens = typeof usageObj.completion_tokens === "number" ? usageObj.completion_tokens : 0;
+    const totalTokens = typeof usageObj.total_tokens === "number" ? usageObj.total_tokens : promptTokens + completionTokens;
+    const detailsObj = record(usageObj.prompt_tokens_details) ? usageObj.prompt_tokens_details : {};
+    const cachedTokens = typeof detailsObj.cached_tokens === "number" ? detailsObj.cached_tokens : 0;
+
+    turns.push({
+      requestModel: options.expectedModel,
+      responseModel,
+      inputTokens: Math.max(0, promptTokens - cachedTokens),
+      cachedInputTokens: cachedTokens,
+      outputTokens: completionTokens,
+      totalTokens,
+      ...(latestReceipt ? { receipt: latestReceipt } : {}),
+    });
+
+    const turnIdx = turns.length;
+    const choices = Array.isArray(completionPayload.choices) ? completionPayload.choices : [];
+    const firstChoice = record(choices[0]) ? choices[0] : {};
+    const message = record(firstChoice.message) ? firstChoice.message : record(firstChoice.delta) ? firstChoice.delta : {};
+
+    if (typeof message.reasoning_content === "string" && message.reasoning_content.length > 0) {
+      lastReasoningContent = message.reasoning_content;
+    }
+
+    const outputItems: Record<string, unknown>[] = [];
+    const contentText = typeof message.content === "string" ? message.content : "";
+    const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+
+    if (contentText.length > 0 || toolCalls.length === 0) {
+      outputItems.push({
+        type: "message",
+        id: `msg_${turnIdx}`,
+        status: "completed",
+        role: "assistant",
+        content: [{ type: "output_text", text: contentText, annotations: [] }],
+      });
+    }
+
+    toolCalls.forEach((rawTc, idx) => {
+      if (!record(rawTc)) return;
+      const fn = record(rawTc.function) ? rawTc.function : {};
+      const callId = typeof rawTc.id === "string" && rawTc.id ? rawTc.id : `call_${turnIdx}_${idx}`;
+      const rawName = typeof fn.name === "string" ? fn.name : "exec_command";
+      const rawArgs = typeof fn.arguments === "string" ? fn.arguments : JSON.stringify(fn.arguments ?? {});
+      if (lastReasoningContent) {
+        reasoningByCallId.set(callId, lastReasoningContent);
+      }
+      outputItems.push({
+        type: "function_call",
+        id: `fc_${turnIdx}_${idx}`,
+        call_id: callId,
+        name: rawName,
+        arguments: rawArgs,
+        status: "completed",
+      });
+    });
+
+    const responseObj = {
+      id: typeof completionPayload.id === "string" ? completionPayload.id : `resp_${turnIdx}`,
+      object: "response",
+      created_at: typeof completionPayload.created === "number" ? completionPayload.created : Math.floor(Date.now() / 1000),
+      status: "completed",
+      model: responseModel,
+      output: outputItems,
+      usage: {
+        input_tokens: promptTokens,
+        input_tokens_details: { cached_tokens: cachedTokens },
+        output_tokens: completionTokens,
+        output_tokens_details: { reasoning_tokens: 0 },
+        total_tokens: totalTokens,
+      },
+    };
+
+    const wantsJsonOnly = rawBody.stream === false && !String(req.headers.accept ?? "").includes("text/event-stream");
+    if (wantsJsonOnly) {
+      res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify(responseObj));
+      return;
+    }
+
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    });
+    res.write(
+      `event: response.created\ndata: ${JSON.stringify({
+        type: "response.created",
+        response: { ...responseObj, status: "in_progress", output: [] },
+      })}\n\n`,
+    );
+    outputItems.forEach((item, outputIndex) => {
+      if (item.type === "message") {
+        const itemId = String(item.id);
+        res.write(
+          `event: response.output_item.added\ndata: ${JSON.stringify({
+            type: "response.output_item.added",
+            output_index: outputIndex,
+            item: { type: "message", id: itemId, status: "in_progress", role: "assistant", content: [] },
+          })}\n\n`,
+        );
+        if (contentText.length > 0) {
+          res.write(
+            `event: response.output_text.delta\ndata: ${JSON.stringify({
+              type: "response.output_text.delta",
+              item_id: itemId,
+              output_index: outputIndex,
+              content_index: 0,
+              delta: contentText,
+            })}\n\n`,
+          );
+        }
+        res.write(
+          `event: response.output_text.done\ndata: ${JSON.stringify({
+            type: "response.output_text.done",
+            item_id: itemId,
+            output_index: outputIndex,
+            content_index: 0,
+            text: contentText,
+          })}\n\n`,
+        );
+        res.write(
+          `event: response.output_item.done\ndata: ${JSON.stringify({
+            type: "response.output_item.done",
+            output_index: outputIndex,
+            item,
+          })}\n\n`,
+        );
+      } else if (item.type === "function_call") {
+        const itemId = String(item.id);
+        const argsStr = String(item.arguments ?? "{}");
+        res.write(
+          `event: response.output_item.added\ndata: ${JSON.stringify({
+            type: "response.output_item.added",
+            output_index: outputIndex,
+            item: { ...item, status: "in_progress", arguments: "" },
+          })}\n\n`,
+        );
+        res.write(
+          `event: response.function_call_arguments.delta\ndata: ${JSON.stringify({
+            type: "response.function_call_arguments.delta",
+            item_id: itemId,
+            output_index: outputIndex,
+            delta: argsStr,
+          })}\n\n`,
+        );
+        res.write(
+          `event: response.function_call_arguments.done\ndata: ${JSON.stringify({
+            type: "response.function_call_arguments.done",
+            item_id: itemId,
+            output_index: outputIndex,
+            arguments: argsStr,
+          })}\n\n`,
+        );
+        res.write(
+          `event: response.output_item.done\ndata: ${JSON.stringify({
+            type: "response.output_item.done",
+            output_index: outputIndex,
+            item,
+          })}\n\n`,
+        );
+      }
+    });
+    res.write(
+      `event: response.completed\ndata: ${JSON.stringify({
+        type: "response.completed",
+        response: responseObj,
+      })}\n\n`,
+    );
+    res.end();
+  }
+
+  // Bind via public Node HTTP server.listen(0, "127.0.0.1") and await the "listening" event
+  // without relying on private server._listen2 internals. Fail closed if no valid port is assigned.
+  await new Promise<void>((resolve, reject) => {
+    const onError = (err: Error) => {
+      server.removeListener("listening", onListening);
+      reject(err);
+    };
+    const onListening = () => {
+      server.removeListener("error", onError);
+      resolve();
+    };
+    server.once("error", onError);
+    server.once("listening", onListening);
+    server.listen(0, "127.0.0.1");
+  });
+  server.unref();
+
+  const addr = server.address();
+  const port = addr && typeof addr === "object" && typeof addr.port === "number" ? addr.port : 0;
+  if (!Number.isInteger(port) || port <= 0) {
+    try {
+      server.close();
+    } catch {
+      /* ignore close error */
+    }
+    throw new Error("Codex loopback bridge failed to bind a valid loopback port");
+  }
+  let closed = false;
+
+  return {
+    baseUrl: `http://127.0.0.1:${port}/v1`,
+    port,
+    get turns() {
+      return turns;
+    },
+    get lastError() {
+      return lastError;
+    },
+    close() {
+      if (closed) return;
+      closed = true;
+      try {
+        server.close();
+      } catch {
+        /* already closed */
+      }
+    },
+  };
+}
+
+function extractCompletionFromBillingSse(sseText: string): Record<string, unknown> {
+  const dataLine = sseText
+    .split(/\r?\n/u)
+    .find((line) => line.startsWith("data: ") && line.trim() !== "data: [DONE]");
+  if (!dataLine) {
+    return parseObject(sseText, "Naia billing SSE response missing data chunk");
+  }
+  const chunk = parseObject(dataLine.slice(6), "Naia billing SSE chunk is not JSON");
+  if (Array.isArray(chunk.choices)) {
+    const choices = chunk.choices.map((c) => {
+      if (!record(c)) return c;
+      if (record(c.delta) && !record(c.message)) {
+        return { ...c, message: c.delta };
+      }
+      return c;
+    });
+    return { ...chunk, choices };
+  }
+  return chunk;
 }
 
 export function initializeGatewayRequestBudget(path: string, policy: GatewayRequestBudgetPolicy): void {

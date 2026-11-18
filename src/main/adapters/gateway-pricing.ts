@@ -1,7 +1,7 @@
 // adapters/gateway-pricing — Naia gateway GET /v1/pricing → domain cost overlay.
 //
 // The gateway is the pricing SoT for every model it routes (naia-agent#59 gap
-// "게이트웨이 pricing fetch"; nextain/naia-shell#458: Pi models charged $0 in the
+// "게이트웨이 pricing fetch"; nextain/naia-shell#458: gateway models charged $0 in the
 // shell because the static table never listed them, and hardcoding each new
 // model is exactly what the user rejected). Refresh is fire-and-forget and
 // throttled: pricing changes weekly (naia-anyllm#66), so one fetch per
