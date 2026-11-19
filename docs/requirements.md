@@ -65,9 +65,9 @@
 - memory(push)↔knowledge(pull) 분리 — 매 턴 자동주입 아님(에이전트 판단 호출), 저장소·주입 경로 분리. 조직지식↔개인기억 비혼합.
 - 실 backend(KB 컴파일/검색 품질·`openWorkspaceKnowledge` in-process 배선)=naia-kb-compiler + compose(K1a-2) 책임(본 어댑터 계약 범위 밖, fake 로 계약 검증).
 
-## UC-PROV FR/NFR (FR-PROV-1 ~ 8, FR-MODEL-1)
+## UC-PROV FR/NFR (FR-PROV-1 ~ 9, FR-MODEL-1)
 
-권위 계약·검증: 아래 FR-PROV-1~8·FR-MODEL-1 표 + Test Coverage Map 의 계약 테스트
+권위 계약·검증: 아래 FR-PROV-1~9·FR-MODEL-1 표 + Test Coverage Map 의 계약 테스트
 (`src/test/all-providers-wiring.contract.test.ts` 등). 상세 진행기록은 메인테이너 워크스페이스 보관(repo 외부).
 
 | ID | 요구사항 | 상태 |
@@ -80,6 +80,7 @@
 | FR-PROV-6 | ollama native tool_calls (UC5 §H, 2026-07-15) — `makeOllamaProvider` 가 `opts.tools` 를 native `/api/chat` 로 전송하고 `message.tool_calls`(완성체, arguments=object)를 toolUse chunk 로 파싱, tool-bearing 메시지(assistant.toolCalls·tool role+`tool_name` 복원) 매핑. tools 미지원 모델(400 "does not support tools")은 **tools 제거 1회 재시도**(graceful degrade — 순수 챗 유지). 배경: 시연 프로파일 provider=ollama 전환 시 어댑터가 tools 무시 → 스킬 전멸(회귀). 실측: ollama 0.32.0 + DNA 3.0 9B 왕복 확인. 권위 계약 = `docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md` §H. 적대리뷰 = `.agents/reviews/r-fr-prov-6-ollama-tools-2026-07-15.json` (PASS). | Done |
 | FR-PROV-7 | Windows 로그인·워크스페이스 자격증명 라이브 동기화 — Agent 시작 시 DPAPI 키가 아직 없거나 복호화가 일시 실패한 상태를 영구 캐시하지 않는다. 성공한 평문만 절대 파일 경로와 파일 버전 기준으로 캐시하며, OAuth 로그인·키 교체는 다음 credential read에 반영한다. `SetWorkspace`는 설정·메모리와 함께 credential 경로를 전환하고 원자적 reload 실패 시 이전 경로도 복원한다. 키 평문은 파일·로그에 기록하지 않는다. | Done |
 | FR-PROV-8 | 브라우저 에이전트의 메모리 자격증명 (R45). `creds_update`는 공급자별로 전달된 필드만 갱신하며, 빈 문자열은 해당 필드만 해제합니다. 다음 채팅에서 공급자 API 키와 Naia 계정 키를 독립적으로 읽습니다. (S-PROV-WEB-CREDS) | Done |
+| FR-PROV-9 | 브라우저 채팅의 Naia 게이트웨이 비용 (R47). OpenAI 호환 SSE의 마지막 `usage` 스냅샷에서 `cost`가 유한한 0 이상 숫자이면 사용량 조각에 USD 값으로 담습니다. Naia 게이트웨이 턴의 사용량 이벤트는 호출별 비용을 합산하며, 비용이 빠진 호출에는 기존 토큰 단가를 적용합니다. (S-PROV-WEB-USAGE) | Done |
 | FR-MODEL-1 | 모델 카탈로그 최신화 + registry↔cost 정합(2026-06-18) — registry(naia-os shell)의 native(per-token) provider 모델 ID 전부가 agent `cost.ts` MODEL_PRICING 에 등재되어야 한다(과금 0 회귀 금지; zai/glm 통째 누락이 회귀였음). 모델 ID 는 공식 문서로 확정(환각 금지), default 는 검증된 최신 ID 만 승격. 계약: `uc-provider-provenance` cost↔registry 정합 describe + naia-os `registry.test.ts` 카탈로그 정합. | Done |
 
 R45 검증. 수정 전 새 계약 시험 2건에서 계정 키 소실을 재현했습니다. 수정 후 UC1·키체인·gRPC 필드·브라우저 에이전트 표적 Vitest 61건이 통과했습니다. 독립 검토 기록은 `.agents/reviews/r45-browser-credentials-2026-11-20.json`에 있습니다.

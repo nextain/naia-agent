@@ -257,7 +257,7 @@ export type ProviderChunk =
   | { readonly kind: "thinking"; readonly text: string }
   | { readonly kind: "toolUse"; readonly id: string; readonly name: string; readonly args: unknown; readonly handled?: boolean }
   | { readonly kind: "toolResult"; readonly id: string; readonly name: string; readonly output: string; readonly success: boolean; readonly handled: true }
-  | { readonly kind: "usage"; readonly inputTokens: number; readonly outputTokens: number }
+  | { readonly kind: "usage"; readonly inputTokens: number; readonly outputTokens: number; readonly cost?: number } // 호출별 공급자 보고 비용(USD)
   | { readonly kind: "finish" };
 
 // ── egress 가 wire 로 내보낼 chat-turn domain chunk (os chat-turn AgentMessage 의 domain 표현, 폐쇄) ──

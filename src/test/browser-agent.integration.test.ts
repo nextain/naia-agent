@@ -14,6 +14,8 @@ import {
   type WebLLMEngineLike,
   type WebLLMChatRequest,
 } from "../main/composition/browser-agent.js";
+import { makeOpenAICompatProvider } from "../main/adapters/openai-compat-provider.js";
+import { calculateCost } from "../main/domain/cost.js";
 import type { ProviderPort, ProviderChatOpts } from "../main/ports/uc1.js";
 import type { ProviderConfig, ChatMessage, ProviderChunk } from "../main/domain/chat.js";
 
@@ -134,6 +136,57 @@ describe("browser-agent 통합 시험 (FE-05/FE-06)", () => {
 
     await sleep(500);
     expect(lines.length).toBe(countBeforeB3);
+  });
+
+  const inputTokens = 1999;
+  const outputTokens = 42;
+  const pricedModel = "gpt-4o-mini";
+  const estimatedCost = calculateCost(pricedModel, inputTokens, outputTokens);
+
+  it.each([
+    { name: "게이트웨이 USD 비용 전달", providerId: "nextain", model: "gpt-6.1-terra", costs: [0.0069043], expectedCost: 0.0069043 },
+    { name: "0 USD 비용 보존", providerId: "nextain", model: pricedModel, costs: [0], expectedCost: 0 },
+    { name: "호출별 비용 합산", providerId: "nextain", model: pricedModel, costs: [0.003, 0.004], expectedCost: 0.007 },
+    { name: "비용이 누락된 호출만 단가 적용", providerId: "nextain", model: pricedModel, costs: [0.004, undefined], expectedCost: 0.004 + estimatedCost },
+    { name: "다른 공급자는 기존 단가 적용", providerId: "openai", model: pricedModel, costs: [0.004], expectedCost: estimatedCost },
+  ])("R47 $name", async ({ providerId, model, costs, expectedCost }) => {
+    let rounds = 0;
+    const provider = makeOpenAICompatProvider({
+      baseUrl: "https://gateway.test/v1",
+      apiKey: "test",
+      fetch: async () => {
+        const cost = costs[rounds++];
+        // 마지막 호출에만 본문을 보내 빈 답 후 재호출하는 경로를 검증한다.
+        const choices = rounds === costs.length ? [{ delta: { content: "ok" } }] : [];
+        const usage = { prompt_tokens: inputTokens, completion_tokens: outputTokens, cost };
+        return new Response(`data: ${JSON.stringify({ choices, usage })}\n\ndata: [DONE]\n\n`);
+      },
+    });
+    const agent = startBrowserAgent({ port: port1, provider, diag: { log: () => {} } });
+
+    try {
+      port2.postMessage(JSON.stringify({
+        type: "chat_request",
+        requestId: "r47",
+        provider: { provider: providerId, model },
+        messages: [{ role: "user", content: "hi" }],
+      }));
+      await waitFor(() => lines.some((line) => parseLine(line)?.type === "finish"));
+
+      expect(rounds).toBe(costs.length);
+      const reply = lines.map(parseLine).filter((message) => message?.requestId === "r47");
+      expect(reply.filter((message) => message?.type === "usage")).toStrictEqual([{
+        type: "usage",
+        requestId: "r47",
+        inputTokens: inputTokens * rounds,
+        outputTokens: outputTokens * rounds,
+        cost: expectedCost,
+        model,
+      }]);
+      expect(reply.slice(-2).map((message) => message?.type)).toEqual(["usage", "finish"]);
+    } finally {
+      agent.stop();
+    }
   });
 
   it("진행 중 취소: cancel_stream 전송 시 종결 줄 도착 및 이후 줄 차단", async () => {

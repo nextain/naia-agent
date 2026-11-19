@@ -167,7 +167,7 @@ interface RoundResult {
   readonly text: string;                                          // 이 라운드 누적 텍스트(thinking 제외) — history threading 용
   readonly thinking: string;                                      // reasoning-only 폴드용. 사용자 표시는 thinking chunk 로 이미 emit
   readonly calls: readonly ToolCall[];                            // 버퍼링된 toolUse(아직 emit 안 함)
-  readonly usage: { inputTokens: number; outputTokens: number } | null; // 라운드 스냅샷(마지막 채택)
+  readonly usage: { inputTokens: number; outputTokens: number; cost?: number } | null; // 라운드 스냅샷(마지막 채택)
   readonly finished: boolean;                                     // finish chunk 수신
   readonly aborted: boolean;                                      // abort race 승 또는 abort 중 rejection
   readonly rejected?: string;                                     // provider rejection(abort 아님) 메시지
@@ -288,6 +288,8 @@ export class ChatTurnHandler {
     const signal = t.abort.signal;
     let sawTerminal = false;
     const totalUsage = { inputTokens: 0, outputTokens: 0 };
+    const usageWithoutCost = { inputTokens: 0, outputTokens: 0 };
+    let gatewayCost = 0;
     const emit = (e: Parameters<AgentEgressPort["emit"]>[1]) => {
       if (!sawTerminal) this.d.egress.emit(req.requestId, e);
     }; // egress no-throw; provider-native callback가 terminal을 만든 뒤의 late chunk는 폐기
@@ -295,11 +297,23 @@ export class ChatTurnHandler {
     const activeConfig = req.provider ?? this.activeDefaultConfig;
     const costModel = activeConfig?.model ?? ""; // 미설정 = calculateCost("") = 0(크래시 아님)
     const costProvider = activeConfig?.provider; // 구독형(claude-code-cli) = $0 분기용(동일 model ID anthropic 과 구별).
+    const emitUsage = () => emit({
+      kind: "usage",
+      ...totalUsage,
+      cost: gatewayCost + calculateCost(costModel, usageWithoutCost.inputTokens, usageWithoutCost.outputTokens, costProvider),
+      model: costModel,
+    });
     // terminal 래치(usage 중복 emit 원천 차단 — 두 종결 모두 이 헬퍼만 사용).
-    const terminalFinish = () => { if (!sawTerminal) { emit({ kind: "usage", ...totalUsage, cost: calculateCost(costModel, totalUsage.inputTokens, totalUsage.outputTokens, costProvider), model: costModel }); emit({ kind: "finish" }); sawTerminal = true; t.state = "finished"; } };
+    const terminalFinish = () => {
+      if (sawTerminal) return;
+      emitUsage();
+      emit({ kind: "finish" });
+      sawTerminal = true;
+      t.state = "finished";
+    };
     const terminalError = (message: string, code?: WireErrorCode) => {
       if (!sawTerminal) {
-        emit({ kind: "usage", ...totalUsage, cost: calculateCost(costModel, totalUsage.inputTokens, totalUsage.outputTokens, costProvider), model: costModel });
+        emitUsage();
         emit({ kind: "error", message, ...(code ? { code } : {}) });
         sawTerminal = true;
         t.state = "errored";
@@ -658,7 +672,18 @@ export class ChatTurnHandler {
             if (!nativeProcessingDenied || event.kind === "toolResult") emit(event);
           },
         );
-        if (round.usage) { totalUsage.inputTokens += round.usage.inputTokens; totalUsage.outputTokens += round.usage.outputTokens; } // 라운드 스냅샷 1회 합산
+        if (round.usage) { // 라운드 스냅샷 1회 합산
+          const { inputTokens, outputTokens, cost } = round.usage;
+          totalUsage.inputTokens += inputTokens;
+          totalUsage.outputTokens += outputTokens;
+          if (costProvider === "nextain" && cost !== undefined) {
+            this.d.diag.debug?.("ChatTurnHandler gateway usage cost", { requestId: req.requestId, inputTokens, outputTokens, cost });
+            gatewayCost += cost;
+          } else {
+            usageWithoutCost.inputTokens += inputTokens;
+            usageWithoutCost.outputTokens += outputTokens;
+          }
+        }
         if (round.nativeToolUsed) nativeToolUsed = true;
         if (nativeProcessingDenied) {
           terminalError(nativeProcessingDenied.message, nativeProcessingDenied.code);
@@ -1008,7 +1033,7 @@ export class ChatTurnHandler {
           thinking += chunk.text;
           nativeEmit(mapProviderChunk(chunk));
         } else if (chunk.kind === "usage") {
-          usage = { inputTokens: chunk.inputTokens, outputTokens: chunk.outputTokens }; // 마지막 스냅샷 채택(델타 아님)
+          usage = { inputTokens: chunk.inputTokens, outputTokens: chunk.outputTokens, cost: chunk.cost }; // 마지막 스냅샷 채택(델타 아님)
         } else if (chunk.kind === "finish") {
           flushTextPending();
           finished = true;

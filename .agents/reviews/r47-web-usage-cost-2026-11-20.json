@@ -1,0 +1,24 @@
+{
+  "uc": "UC-PROV-1 / S-PROV-WEB-USAGE (R47)",
+  "repo": "naia-agent",
+  "date": "2026-11-20",
+  "scope_files": [
+    "src/main/adapters/openai-compat-provider.ts",
+    "src/main/domain/chat.ts",
+    "src/main/app/chat-turn-handler.ts",
+    "src/test/uc1-openai-compat.contract.test.ts",
+    "src/test/browser-agent.integration.test.ts"
+  ],
+  "independent_review": {
+    "verdict": "PASS",
+    "contract": "마지막 SSE 사용량 스냅샷의 유효한 USD 비용을 보존합니다. Naia 게이트웨이 턴은 호출별 비용을 합산해 종료 직전 사용량 이벤트 한 건으로 전송합니다.",
+    "adversarial_check": "비용 0과 토큰 0, 비용 없는 마지막 스냅샷, 문자열·음수·직렬화된 NaN·숫자 오버플로, 여러 호출의 비용 합산, 비용이 없는 호출의 단가 적용, 다른 공급자의 기존 단가 적용을 대조했습니다.",
+    "browser_boundary": "셸의 web-worker/agent-worker.ts:41,265,427은 자체 파서를 브라우저 에이전트에 주입합니다. web-worker/openai-compat-provider.ts:468,532,611에서 비용 전달을 추가해야 합니다. ChatArea.tsx:3976,5858의 배지는 전달된 비용을 사용합니다."
+  },
+  "verification": {
+    "command": "node_modules/.bin/vitest run src/test/uc1-openai-compat.contract.test.ts src/test/browser-agent.integration.test.ts src/test/browser-boundary.contract.test.ts src/test/uc1-agent.contract.test.ts src/test/uc5-tool-loop.contract.test.ts src/test/uc5-tool-loop-stdio.integration.test.ts src/test/uc-provider-provenance.contract.test.ts src/test/grpc-codec-uc1-fields.contract.test.ts --maxWorkers=1 --minWorkers=1 --no-cache",
+    "tests_passed": 168,
+    "tests_failed": 0,
+    "reproduction": "수정 전 모의 SSE의 비용 0.0069043 USD가 MessagePort 사용량 이벤트에서 0이었습니다. 수정 후 0.0069043 USD와 입력 1999·출력 42 토큰이 함께 전달됐습니다."
+  }
+}
