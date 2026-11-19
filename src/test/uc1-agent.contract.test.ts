@@ -94,6 +94,22 @@ describe("reasoning-only final fold (#639)", () => {
     expect(emits.some(({ e }) => e.kind === "error")).toBe(false);
   });
 
+  it("R33 reports an empty answer (not reasoning-only) when neither reasoning nor text arrives", async () => {
+    const { deps, emits } = capture();
+    let calls = 0;
+    const provider: ProviderPort = {
+      async *chat(): AsyncIterable<ProviderChunk> {
+        calls += 1;
+        yield { kind: "finish" };
+      },
+    };
+    await new ChatTurnHandler({ ...deps, provider }).onChatRequest(req());
+    const err = emits.find(({ e }) => e.kind === "error")?.e as { message?: string } | undefined;
+    expect(calls).toBe(2); // one recovery retry, then fail
+    expect(err?.message).toContain("provider returned an empty answer");
+    expect(err?.message).not.toContain("reasoning");
+  });
+
   it("truncates leftover long reasoning instead of failing closed", () => {
     const long = "가".repeat(1600);
     const folded = foldReasoningOnlyAnswer(long);

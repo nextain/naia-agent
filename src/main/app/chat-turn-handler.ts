@@ -692,7 +692,10 @@ export class ChatTurnHandler {
 			  memSystemPrompt = `${memSystemPrompt ?? ""}\n\nReturn the final answer now. Do not emit reasoning, <think> tags, or analysis. Answer the user's latest message directly.`.trim();
 			  continue;
 			} else {
-			  terminalError("provider returned reasoning without a final answer");
+			  // R33: 생각도 본문도 없으면 "추론만 냈다"가 아니라 빈 답이다(원인 오인 방지).
+			  terminalError(round.thinking.trim()
+			    ? "provider returned reasoning without a final answer"
+			    : "provider returned an empty answer");
 			  break;
 			}
 		  }

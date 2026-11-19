@@ -239,6 +239,7 @@ spec + sandbox 정책(allow-root) + tier(승인)** 를 소유한다.
 | FR-THINK-9 | **게이트웨이 경로 reasoning_effort 제어(#149)** — provider-resolver 가 게이트웨이(lab-proxy) 경로에 `supportsThinkingLevel: true` 주입. OpenAI-compat 어댑터는 `supportsThinkingLevel` 활성 시 low/high 에 한해 `reasoning_effort: config.thinkingLevel` 을 싣고, off/미지정 시 키를 싣지 않음(무전송). 로컬 엔진의 FR-THINK-1·2(off → none) 무변경 유지 및 상호 배타성 보장. | Done |
 | FR-THINK-10 | **도구 루프 reasoning_content 에코(#149)** — `ChatMessage.reasoningContent?: string` 추가. `threadToolRound` 5번째 인자 `roundThinking?: string` 추가 및 `chat-turn-handler` 가 `round.thinking` 전달. provider-resolver 가 게이트웨이 경로에 `echoReasoningContent: true` 주입하고, `toWireMessages` 는 `echoReasoningContent` 활성 시 assistant 도구 호출 메시지에 `reasoning_content` 추가(빈 문자열 미전송). | Done |
 | FR-THINK-11 | **응답 형식 다중 수용(#149)** — OpenAI-compat 스트림 파서는 `delta.reasoning_content` 및 `delta.reasoning?.content` 를 모두 thinking 청크로 처리하며, 둘 다 있을 때는 `reasoning_content` 만 사용하여 중복 방지. | Done |
+| FR-THINK-12 | **빈 답 진단(R33)** — 웹 브라우저 채팅의 최종 라운드가 본문과 생각 없이 끝나면, 한 번의 기존 복구 시도 뒤 `provider returned an empty answer`를 보낸다. 생각 청크가 남은 라운드는 기존 추론 오류를 사용한다. | Done |
 
 FR-THINK-7(#149)은 FR-THINK-4 의 무변경 범위를 명시적으로 넘겨받아 proto 필드 15·`ChatMessage.reasoningContent`·`threadToolRound` 5번째 인자를 추가한다.
 
