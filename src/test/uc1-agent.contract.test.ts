@@ -4,7 +4,8 @@ import { mapProviderChunk, isTerminalEmit, parseInlineImageDataUri, threadToolRo
 import { ChatTurnHandler, foldReasoningOnlyAnswer, isLikelyIncompleteDeepSeekFinal, type HandlerDeps } from "../main/app/chat-turn-handler.js";
 import { decodeRequest, encodeEmit } from "../main/adapters/protocol.js";
 import { makeFakeProvider } from "../main/adapters/fake-provider.js";
-import { makeInMemoryCredentials } from "../main/composition/index.js";
+import { makeStdioEgress, makeStdioIngress, type LineIO } from "../main/adapters/stdio.js";
+import { makeInMemoryCredentials, wireAgentUC1 } from "../main/composition/index.js";
 import { makeInMemoryApproval } from "../main/adapters/approval.js";
 import type { ProviderPort, ProviderChatOpts } from "../main/ports/uc1.js";
 import type { ProviderConfig, ChatMessage, ProviderChunk } from "../main/domain/chat.js";
@@ -303,5 +304,64 @@ describe("ChatTurnHandler (turn 파이프라인)", () => {
     h.onCredsUpdate({ kind: "credsUpdate", provider: "ollama", secret: { apiKey: "sk-1" } });
     await h.onChatRequest(req());
     expect(seenConfig!.apiKey).toBe("sk-1"); // creds_update 채널 → providerConfig 주입
+  });
+});
+
+describe("browser credentials (R45)", () => {
+  it("R45 keeps the account key for the next chat after a wire API-key clear", async () => {
+    let receive = (_line: string): void => { throw new Error("Agent ingress is not started"); };
+    const replies: string[] = [];
+    const io: LineIO = {
+      onLine(callback) {
+        receive = callback;
+        return () => {};
+      },
+      writeLine(line) { replies.push(line); },
+    };
+    const configs: ProviderConfig[] = [];
+    const { start, drain } = wireAgentUC1({
+      ingress: makeStdioIngress(io),
+      egress: makeStdioEgress(io),
+      provider: {
+        async *chat(config) {
+          configs.push(config);
+          yield { kind: "text", text: "test reply" };
+          yield { kind: "finish" };
+        },
+      },
+    });
+    start!();
+    receive(JSON.stringify({ type: "creds_update", provider: "nextain", naiaKey: "test-account-key" }));
+    receive(JSON.stringify({ type: "creds_update", provider: "nextain", apiKey: "" }));
+    receive(JSON.stringify({
+      type: "chat_request",
+      requestId: "r45",
+      provider: { provider: "nextain", model: "gpt-6.1-terra" },
+      messages: [{ role: "user", content: "hi" }],
+    }));
+    await drain!();
+
+    expect(configs).toHaveLength(1);
+    expect(configs[0]).toMatchObject({ provider: "nextain", model: "gpt-6.1-terra", naiaKey: "test-account-key" });
+    expect(configs[0]?.apiKey).toBeUndefined();
+    expect(JSON.parse(replies[0]!)).toMatchObject({ type: "text", requestId: "r45", text: "test reply" });
+    expect(JSON.parse(replies.at(-1)!)).toMatchObject({ type: "finish", requestId: "r45" });
+  });
+
+  it("R45 updates each key independently and isolates provider entries", () => {
+    const credentials = makeInMemoryCredentials();
+    credentials.update("nextain", { apiKey: "test-provider-key", naiaKey: "test-account-key" });
+    credentials.update("openai", { apiKey: "test-openai-key" });
+    credentials.update("nextain", { apiKey: "test-provider-key-new" });
+    expect(credentials.get("nextain")).toEqual({ apiKey: "test-provider-key-new", naiaKey: "test-account-key" });
+
+    credentials.update("nextain", { naiaKey: "" });
+    credentials.update("nextain", {});
+    expect(credentials.get("nextain")).toEqual({ apiKey: "test-provider-key-new" });
+
+    credentials.update("nextain", { apiKey: "" });
+    credentials.update("nextain", { apiKey: "" });
+    expect(credentials.get("nextain")).toBeUndefined();
+    expect(credentials.get("openai")).toEqual({ apiKey: "test-openai-key" });
   });
 });

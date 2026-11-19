@@ -15,11 +15,19 @@ import type { ConversationLogPort } from "../ports/conversation-log.js";
 import type { SurfacingPort } from "../ports/surfacing.js";
 import type { AgentRequest, ProviderConfig } from "../domain/chat.js";
 
-/** in-memory credential store. */
+/** In-memory credentials. Missing fields retain their value; empty strings clear them. */
 export function makeInMemoryCredentials(): CredentialPort {
   const store = new Map<string, { apiKey?: string; naiaKey?: string }>();
   return {
-    update: (provider, secret) => { store.set(provider, secret); },
+    update(provider, secret) {
+      const previous = store.get(provider);
+      const { apiKey = previous?.apiKey, naiaKey = previous?.naiaKey } = secret;
+      if (apiKey || naiaKey) {
+        store.set(provider, { ...(apiKey ? { apiKey } : {}), ...(naiaKey ? { naiaKey } : {}) });
+      } else {
+        store.delete(provider);
+      }
+    },
     get: (provider) => store.get(provider),
   };
 }

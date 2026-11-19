@@ -196,6 +196,12 @@ Agent 재기동 없이 다음 credential read와 LLM 턴에서 새 키를 사용
 workspace로 함께 전환하며, 설정·메모리 reload가 원자적으로 실패하면 이전 credential workspace를 복원한다
 (FR-PROV-7).
 
+### S-PROV-WEB-CREDS (브라우저 에이전트의 Naia 계정 유지 — R45)
+
+브라우저에서 로그인한 사용자가 Naia Terra 또는 Luna를 적용하고 다시 로드하지 않은 채 첫 메시지를 보냅니다.
+브라우저 에이전트는 계정 키를 받은 뒤 공급자 API 키의 명시 해제를 받아도 다음 대화에서 계정 키를 사용합니다.
+계정 키만 명시 해제하면 다른 필드의 키는 계속 사용할 수 있습니다. (FR-PROV-8)
+
 ## UC-CLI (naia-agent 단독 CLI 오케스트레이션)
 
 사용자(luke)가 **naia-os 없이** 터미널에서 `naia-agent`를 단독 실행해 실제 작업을 시킨다. naia-agent는
@@ -740,6 +746,7 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 | FR-MEM-27 / 장기기억 추론 및 감정 태그 배제 | `src/test/memory-strip-tags.contract.test.ts` (핸들러 thinking 청크 배제·<think> 및 [THINK]/[THINKING] 블록 제거·미닫힘 <think> 실답변 보존·감정 태그 제거·#639 접힌 답변 메모리 보존·약속 미이행 재시도 pop·아바타 [THINKING] 스트림 정규화·[1] 및 [link](url) 보존·태그-only 시 assistant 에피소드 미저장·사용자 발화 무수정) |
 | UC-PROV-1 / FR-PROV-1·2·3 | `src/test/all-providers-wiring.contract.test.ts`, `uc1-reload-default-config.contract.test.ts`, `uc-naia-settings-store.contract.test.ts` |
 | UC-PROV-1 / FR-PROV-7 (로그인·workspace credential 동기화) | `src/test/uc-keychain-credentials.contract.test.ts`(login 전 부재·키 교체·workspace 분리·복호화 재시도), `src/test/discord-entry-wiring.contract.test.ts`(production DPAPI reader·SetWorkspace rollback 배선) |
+| UC-PROV-1 / S-PROV-WEB-CREDS / FR-PROV-8 (R45) | `src/test/uc1-agent.contract.test.ts` (와이어 `creds_update` 계정 설정 → API 키 해제 → 채팅까지 계정 유지, 각 키의 교체·해제 및 공급자 격리) |
 | UC-THINKING / S-THINK-1·2·3 / FR-THINK-1~4 | `src/test/uc-thinking.contract.test.ts` (요청 body 검증: enableThinking=false+로컬 → `reasoning_effort:"none"` / true·미지정 → 미전송 / **원격 baseUrl → 미전송**(400 회귀 방지) / `isLocalEngineBaseUrl` 순수 판별) |
 | UC-THINKING / S-THINK-4·5 / FR-THINK-5·6 (#114) | `src/test/uc1-openai-compat.contract.test.ts` — describe "#114 deepseek [THINK] 정규화" (①닫힘쌍 분리 ②미닫힘 thinking flush·text 무누출 ③청크 경계 분할 태그 ④literal [think] 트레이드오프 계약 ⑤flavor 대칭·꺾쇠 무회귀) + describe "#114 스트림 idle 데드라인" (hang → 데드라인 내 throw+reader.cancel / 연속 청크 무절단 / 기본 45s 상수) |
 | UC-THINKING / S-THINK-6~9 / FR-THINK-7~11 (#149) | `src/test/uc-thinking.contract.test.ts` (게이트웨이 off/low/high/미지정 reasoning_effort 무전송/전송, 로컬 off none 무변경, 원격 low 무전송, delta.reasoning.content 파싱 및 중복 방지, 도구 루프 reasoning_content 에코, grpc-codec thinking enum 디코드, resolveTurnThinking, threadToolRound 5인자) |
