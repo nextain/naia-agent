@@ -284,7 +284,7 @@ export function makeNaiaSettingsStore(deps: {
 			...(str("model") ? { model: str("model") } : {}),
 			...(str("baseUrl") ? { baseUrl: str("baseUrl") } : {}),
 			...(str("credentialRef") ? { credentialRef: str("credentialRef") } : {}),
-			...(["off", "low", "high", "xhigh"].includes(str("thinkingLevel") ?? "") ? { thinkingLevel: str("thinkingLevel") } : {}),
+			...(["off", "low", "high", "xhigh", "max"].includes(str("thinkingLevel") ?? "") ? { thinkingLevel: str("thinkingLevel") } : {}),
 			...(inherit ? { inherit } : {}),
 		};
 		return Object.keys(selection).length ? selection : undefined;

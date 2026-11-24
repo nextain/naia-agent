@@ -41,6 +41,7 @@ describe("UC-NAIA-PI provider isolation", () => {
       providers: { naia: { baseUrl: "https://gateway.example/v1", authHeader: false, models: [
         { id: "grok-4.3", cost: { input: 1.375, output: 2.75, cacheRead: 1.375 } },
         { id: "deepseek-v4-flash", cost: { input: 0.209, output: 0.561, cacheRead: 0.0308 } },
+        { id: "deepseek-v4.1-flash", cost: { input: 0.33, output: 1.32, cacheRead: 0.0066, cacheWrite: 0.33 }, contextWindow: 128000 },
         { id: "deepseek-v4-pro" },
         { id: "solar-pro4", cost: { input: 0.33, output: 1.32, cacheRead: 0.066 } },
         { id: "solar-mini", cost: { input: 0.165, output: 0.165, cacheRead: 0.165 } },
@@ -51,7 +52,7 @@ describe("UC-NAIA-PI provider isolation", () => {
       ] } },
     });
     expect(buildNaiaPiModelsConfig("https://gateway.example", 321)).toMatchObject({
-      providers: { naia: { models: [{ maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }] } },
+      providers: { naia: { models: [{ maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }] } },
     });
     const models = (buildNaiaPiModelsConfig("https://gateway.example") as {
       providers: { naia: { models: Array<{ id: string }> } };
@@ -59,6 +60,7 @@ describe("UC-NAIA-PI provider isolation", () => {
     expect(models).toEqual([
       "grok-4.3",
       "deepseek-v4-flash",
+      "deepseek-v4.1-flash",
       "deepseek-v4-pro",
       "solar-pro4",
       "solar-mini",
@@ -76,12 +78,13 @@ describe("UC-NAIA-PI provider isolation", () => {
     const dir = tempDir();
     ensureNaiaPiConfig({ dir, baseUrl: "https://gateway.example/v1/" });
     expect(readFileSync(join(dir, "models.json"), "utf8")).toContain('"deepseek-v4.1-flash"');
-    expect(buildNaiaPiModelsConfig("https://gateway.example")).toMatchObject({
-      providers: { naia: { models: [
-        { id: "deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash (Naia / Azure, analysis)", reasoning: false,
-          cost: { input: 0.33, output: 1.32, cacheRead: 0.0066, cacheWrite: 0.33 },
-          contextWindow: 128000 },
-      ] } },
+    const piModels = (buildNaiaPiModelsConfig("https://gateway.example") as {
+      providers: { naia: { models: Array<Record<string, unknown>> } };
+    }).providers.naia.models;
+    expect(piModels.find((m) => m.id === "deepseek-v4.1-flash")).toMatchObject({
+      id: "deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash (Naia / Azure, analysis)", reasoning: false,
+      cost: { input: 0.33, output: 1.32, cacheRead: 0.0066, cacheWrite: 0.33 },
+      contextWindow: 128000,
     });
     const models = (buildNaiaPiModelsConfig("https://gateway.example") as {
       providers: { naia: { models: Array<{ id: string }> } };

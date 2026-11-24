@@ -195,5 +195,6 @@ function decodeThinkingLevel(raw: unknown): ThinkingLevel | undefined {
   if (raw === 2 || raw === "THINKING_LEVEL_LOW") return "low";
   if (raw === 3 || raw === "THINKING_LEVEL_HIGH") return "high";
   if (raw === 4 || raw === "THINKING_LEVEL_XHIGH") return "xhigh";
+  if (raw === 5 || raw === "THINKING_LEVEL_MAX") return "max";
   return undefined;
 }

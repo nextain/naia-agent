@@ -32,7 +32,7 @@ export interface ChatArgs {
   readonly systemPrompt?: string;
   readonly once?: string;
   readonly noTools?: boolean;
-  /** UC-THINKING — 추론(thinking) 출력 on/off. 미지정=모델 기본. `--no-think` → false / `--think` → true / `--think=low|high|off`.
+  /** UC-THINKING — 추론(thinking) 출력 on/off. 미지정=모델 기본. `--no-think` → false / `--think` → true / `--think=low|high|xhigh|max|off`.
    *  ⚠️ 이게 없으면 CLI 로는 추론 모델의 "생각에 예산 다 쓰고 빈 답" 결함을 재현/검증할 수 없다
    *  (셸은 gRPC 로 보내지만 CLI 엔 표면이 없었다). */
   readonly enableThinking?: boolean;
@@ -89,6 +89,7 @@ export const CHAT_USAGE = `naia-agent chat — naia-agent 단독 대화(멀티�
   --no-think      추론(thinking) 출력 끔 — 추론 모델이 생각에 출력 토큰을 다 쓰고
                   본문을 못 내는 것을 막는다(로컬 ollama/vLLM 에만 적용, UC-THINKING)
   --think         추론 출력 켬. 미지정 = 모델 기본
+                  (--think=low|high|xhigh|max|off 로 세기 지정)
   --provider <p>  provider 강제(anthropic/openai/glm/gemini/vertex/nextain)
   --model <id>    모델 강제
   --workspace <w> 워크스페이스(ADK) 경로 — 이번 실행만 적용(전역 저장 안 함)
@@ -141,6 +142,7 @@ export function parseChatArgs(argv: readonly string[]): ParseResult {
       case "--think=low": enableThinking = true; thinking = { level: "low" }; break;
       case "--think=high": enableThinking = true; thinking = { level: "high" }; break;
       case "--think=xhigh": enableThinking = true; thinking = { level: "xhigh" }; break;
+      case "--think=max": enableThinking = true; thinking = { level: "max" }; break;
       case "--think=off": enableThinking = false; thinking = { level: "off" }; break;
       case "--provider": { const v = needsValue(); if (v === undefined) return { ok: false, error: `${t} 에 값이 필요합니다` }; provider = v; break; }
       case "--model": { const v = needsValue(); if (v === undefined) return { ok: false, error: `${t} 에 값이 필요합니다` }; model = v; break; }
@@ -154,7 +156,7 @@ export function parseChatArgs(argv: readonly string[]): ParseResult {
       }
       default: {
         if (t.startsWith("--think=")) {
-          return { ok: false, error: `--think 에는 low, high, xhigh, off 만 가능합니다 (입력: ${t.slice(8)})\n\n${CHAT_USAGE}` };
+          return { ok: false, error: `--think 에는 low, high, xhigh, max, off 만 가능합니다 (입력: ${t.slice(8)})\n\n${CHAT_USAGE}` };
         }
         return { ok: false, error: `알 수 없는 인자: ${t}\n\n${CHAT_USAGE}` };
       }

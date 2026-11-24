@@ -474,13 +474,14 @@ Ollama native 요청은 셸이 보낸 `thinkingLevel`을 현재 Ollama host와 �
 - **S-THINK-5 (스트림 idle 데드라인 — #114)**: 게이트웨이가 종료 신호 없이 무수신 hang 이면 마지막 청크
   이후 45초(상수, 주입 가능)에 스트림을 에러로 끊어 터미널 이벤트를 보장한다. 총시간 기준이 아니므로
   정상 장문 스트림은 절단되지 않는다.
-- **S-THINK-6 (턴 세기 선택 — #149)**: 셸이 턴마다 gRPC proto 필드 15(`ThinkingRequest thinking`, level: off/low/high) 또는
+- **S-THINK-6 (턴 세기 선택 — #149)**: 셸이 턴마다 gRPC proto 필드 15(`ThinkingRequest thinking`, level: off/low/high/xhigh/max) 또는
   stdio `thinking: {level}`을 명시 전송할 때, 도메인 `resolveTurnThinking(req)` 단일 결정 지점에서 `ThinkingLevel | undefined`로
   해석하여 `ProviderConfig.thinkingLevel`로 공급한다. 레벨 지정 시 `enableThinking = level !== "off"`로 동기화하며,
   미지정 시 기존 `enableThinking` 동작을 유지한다.
 - **S-THINK-7 (게이트웨이 경로 생각 켜기 — #149)**: 게이트웨이(lab-proxy) 경로(`supportsThinkingLevel: true`)에서 턴 세기가
-  low/high일 때 요청 body에 `reasoning_effort: "low" | "high"`를 싣는다. off이거나 미지정일 때는 아무것도 싣지 않아(무전송)
+  low/high/xhigh/max일 때 요청 body에 `reasoning_effort`를 같은 값으로 싣는다. off이거나 미지정일 때는 아무것도 싣지 않아(무전송)
   기존 요청 바이트 및 캐시를 보존한다. 로컬 엔진의 `reasoning_effort: "none"` 동작은 무변경 유지된다.
+  `gpt-6-luna`에는 `prompt_cache_key` 샤드를, `deepseek-v4.1-flash`에는 `max_tokens: 16384`(컨텍스트 128000, xhigh 추론 출력 잘림 방지)를 함께 싣는다.
 - **S-THINK-8 (도구 루프 생각 에코 — #149)**: 게이트웨이 경로(`echoReasoningContent: true`)의 한 턴 안 도구 루프에서
   모델이 도구를 호출한 라운드의 생각(`round.thinking`)을 `ChatMessage.reasoningContent`에 보존하고, 다음 라운드 요청의
   assistant(tool_calls) 메시지에 `reasoning_content`로 에코한다. 생각이 비어 있거나 에코 미지원 경로에서는 필드를 싣지 않는다.
@@ -488,7 +489,7 @@ Ollama native 요청은 셸이 보낸 `thinkingLevel`을 현재 Ollama host와 �
   게이트웨이 바깥 형식 `delta.reasoning?.content`(문자열)를 모두 thinking 청크로 수용한다. 단일 델타에 둘 다 존재할 경우
   `reasoning_content`만 채택하여 중복을 방지한다.
 - **S-THINK-11 (Ollama 모델 능력 기반 think 변환 — #758 S5)**: Ollama provider가 현재 host·model의 `POST /api/show` 결과를
-  성공한 경우에만 프로세스 메모리에 캐시하고, 동시 조회를 합친다. named level은 정확히 일치할 때만 보내며 불리언 능력은
+  성공한 경우에만 프로세스 메모리에 캐시하고, 동시 조회를 합친다. named level은 정확히 일치할 때만 보내며(`max`는 ollama 미지원 이름이므로 `xhigh`와 동일하게 — 목록에 `xhigh`가 있으면 `xhigh`, 없으면 활성 불리언 경로), 불리언 능력은
   기존 off/on으로 변환한다. 정확히 `thinking.values: [false]`일 때만 think를 끄고 명시 신호를 보낸다. 누락·형식 오류·HTTP 오류·
   timeout·fetch 거절은 기존 off/on으로 폴백하고 재시도 가능하게 둔다. Ollama 이외 provider는 영향을 받지 않는다.
 
@@ -722,7 +723,7 @@ Codex가 같은 명령을 자식 프로세스로 호출해도 provider/model/wor
 Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode fallback을 사용하지 않는다.
 
 - **S-NAIA-PI-1 (Grok coding)**: `grok-4.3`이 도구를 호출하고 파일 변경과 검증 결과를 정직한 리포트로 남긴다.
-- **S-NAIA-PI-2 (DeepSeek analysis)**: `deepseek-v4-flash`와 `deepseek-v4-pro`는 파일 도구가 필요 없는 분석·리뷰 요청에 응답한다. 비용 비교 후보는 Flash를 사용한다.
+- **S-NAIA-PI-2 (DeepSeek analysis)**: `deepseek-v4-flash`, `deepseek-v4.1-flash`, `deepseek-v4-pro`는 파일 도구가 필요 없는 분석·리뷰 요청에 응답한다. `deepseek-v4.1-flash`는 컨텍스트 128000, 고객 단가 input $0.33 / output $1.32 / cached $0.0066(1M tokens, 게이트웨이 영수증이 단일 진실원)이다. 비용 비교 후보는 Flash를 사용한다.
 - **S-NAIA-PI-3 (capability rejection)**: DeepSeek로 코딩을 요청하면 Pi spawn/Azure 호출 전에 tool 미지원 이유로 실패한다.
 - **S-NAIA-PI-4 (stored login)**: 새 CLI 프로세스가 `~/.naia-agent/.env`의 Naia 키를 읽고 키 인자 없이 실행한다.
 - **S-NAIA-PI-5 (honest failure)**: 키 누락·인증 실패·모델 미지원·upstream 실패를 구분하고 비밀을 출력하지 않는다.
@@ -763,7 +764,7 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 | UC-PROV-1 / S-PROV-WEB-USAGE / FR-PROV-9 (R47) | `src/test/uc1-openai-compat.contract.test.ts` (마지막 SSE 사용량의 비용 보존, 비용 누락·잘못된 값 생략), `src/test/browser-agent.integration.test.ts` (턴의 USD 비용을 MessagePort 사용량 이벤트로 전달) |
 | UC-THINKING / S-THINK-1·2·3 / FR-THINK-1~4 | `src/test/uc-thinking.contract.test.ts` (요청 body 검증: enableThinking=false+로컬 → `reasoning_effort:"none"` / true·미지정 → 미전송 / **원격 baseUrl → 미전송**(400 회귀 방지) / `isLocalEngineBaseUrl` 순수 판별) |
 | UC-THINKING / S-THINK-4·5 / FR-THINK-5·6 (#114) | `src/test/uc1-openai-compat.contract.test.ts` — describe "#114 deepseek [THINK] 정규화" (①닫힘쌍 분리 ②미닫힘 thinking flush·text 무누출 ③청크 경계 분할 태그 ④literal [think] 트레이드오프 계약 ⑤flavor 대칭·꺾쇠 무회귀) + describe "#114 스트림 idle 데드라인" (hang → 데드라인 내 throw+reader.cancel / 연속 청크 무절단 / 기본 45s 상수) |
-| UC-THINKING / S-THINK-6~9 / FR-THINK-7~11 (#149) | `src/test/uc-thinking.contract.test.ts` (게이트웨이 off/low/high/미지정 reasoning_effort 무전송/전송, 로컬 off none 무변경, 원격 low 무전송, delta.reasoning.content 파싱 및 중복 방지, 도구 루프 reasoning_content 에코, grpc-codec thinking enum 디코드, resolveTurnThinking, threadToolRound 5인자) |
+| UC-THINKING / S-THINK-6~9 / FR-THINK-7~11 (#149) | `src/test/uc-thinking.contract.test.ts` (게이트웨이 off/low/high/xhigh/max/미지정 reasoning_effort 무전송/전송, 로컬 off none 무변경, 원격 low 무전송, delta.reasoning.content 파싱 및 중복 방지, 도구 루프 reasoning_content 에코, grpc-codec thinking enum 디코드, resolveTurnThinking, threadToolRound 5인자) |
 | UC-THINKING / S-THINK-10 / FR-THINK-12 (R33) | `src/test/uc1-agent.contract.test.ts` (복구 요청 1회, 최종 빈 답 오류) |
 | UC-THINKING / S-THINK-11 / FR-THINK-15 (#758 S5) | `src/test/uc1-ollama-provider.contract.test.ts` (가짜 `/api/show` named/bool/unsupported/malformed/failure/timeout fixture, think body·성공 캐시·동시 합치기·재시도) 및 `src/test/uc-thinking.contract.test.ts` (ProviderConfig→Ollama signal egress); Shell `packages/shell/e2e/ollama-settings.spec.ts` (명시 미지원 안내·설정 보존·좁은 폭/접근성) |
 | FR-CONT-MVP-1~4·9 / 개인 라디오 DJ | 계약/통합: `src/test/personal-radio-dj.contract.test.ts` (`DJ-01~08`: ended 전환 멘트→radio 검색 포함), `src/test/activity-radio-dj-bgm.contract.test.ts`(`mode=radio_dj`, 최근곡·즐겨찾기 status), `src/test/radio-dj-shell-handoff.integration.test.ts`(실 Controller+activity app adapter의 ended→전환 발화→radio play→playing 관측), `src/test/radio-dj-product-acceptance.contract.test.ts`(local tombstone 우선 Naia Memory recall), `src/test/speech-profile-runtime.integration.test.ts`(제어 사전 검증), `src/test/grpc-shutdown.contract.test.ts`(제어 ACK가 긴 작업을 기다리지 않음). 실제 Tauri: shell `71-proactive-speech-profiles.spec.ts`의 profile 저장·복원과 `94-avatar-4060-facade.spec.ts`의 A→B 교체·TRT 발화·끼어들기. |

@@ -102,9 +102,12 @@ function resolveThinkValue(
   if (!hasExplicitSetting) return undefined;
   if (capability.kind === "unsupported") return false;
   if (config.thinkingLevel === "off") return false;
-  if (config.thinkingLevel === "low" || config.thinkingLevel === "high" || config.thinkingLevel === "xhigh") {
-    if (capability.kind === "named" && capability.values.includes(config.thinkingLevel)) {
-      return config.thinkingLevel;
+  // "max" 는 ollama 가 모르는 이름이므로 xhigh 와 동일·안전하게: named 목록에 있으면 xhigh 로 보내고
+  // 없으면 생각 켬(true)으로 폴백한다(무효 문자열 wire 전송 금지).
+  if (config.thinkingLevel === "low" || config.thinkingLevel === "high" || config.thinkingLevel === "xhigh" || config.thinkingLevel === "max") {
+    const effective = config.thinkingLevel === "max" ? "xhigh" : config.thinkingLevel;
+    if (capability.kind === "named" && capability.values.includes(effective)) {
+      return effective;
     }
     // Boolean, unknown, and string-level lists without this exact name preserve on/off.
     return true;
