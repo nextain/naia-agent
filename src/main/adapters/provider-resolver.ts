@@ -84,8 +84,8 @@ export function makeProviderResolver(deps?: ProviderResolverDeps): ProviderResol
 						supportsThinkingLevel: true,
 						echoReasoningContent: true,
 						supportsTools: true,
-						promptCacheShard: config.model === "gpt-5.6-sol" || config.model === "gpt-5.6-luna",
-						...(config.model === "deepseek-v4-flash" ? { maxTokens: 16_384 } : {}),
+						promptCacheShard: config.model === "gpt-5.6-sol" || config.model === "gpt-5.6-luna" || config.model === "gpt-6-luna",
+						...(config.model === "deepseek-v4-flash" || config.model === "deepseek-v4.1-flash" ? { maxTokens: 16_384 } : {}),
 						// 출력 예약(maxTokens)만 주고 문맥 한도를 빼면 기본 예산이 대화 기록을 다 지운다(#176 검수 1).
 						...(contextWindow ? { contextWindow } : {}),
 						...(f ? { fetch: f } : {}),

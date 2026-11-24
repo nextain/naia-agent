@@ -650,3 +650,23 @@ it("IT-SM-AGENT-THINK-01 legacy 설정이 기존 수준보다 우선해 실제 �
     }
   }
 });
+
+describe("ThinkingLevel max (gateway contract)", () => {
+  it("stdio protocol: thinking.level max 수용", () => {
+    const d = decodeRequest(JSON.stringify({ type: "chat_request", requestId: "r1", messages: [], thinking: { level: "max" } })) as ChatRequest;
+    expect(d.thinking).toEqual({ level: "max" });
+  });
+
+  it("gRPC: 숫자 5·THINKING_LEVEL_MAX → max", () => {
+    expect(chatRequestToDomain({ requestId: "r", messages: [], thinking: { level: 5 } }).thinking).toEqual({ level: "max" });
+    expect(chatRequestToDomain({ requestId: "r", messages: [], thinking: { level: "THINKING_LEVEL_MAX" } }).thinking).toEqual({ level: "max" });
+  });
+
+  it("gateway wire: thinkingLevel max → reasoning_effort max", async () => {
+    const sink: { body?: Record<string, unknown> } = {};
+    const provider = makeOpenAICompatProvider({ baseUrl: "https://example.invalid", apiKey: "test", supportsThinkingLevel: true, fetch: captureFetch(sink) as never });
+    const config = { provider: "nextain", model: "gpt-6-luna", thinkingLevel: "max", enableThinking: true } as unknown as ProviderConfig;
+    await drain(provider.chat(config, [], {}));
+    expect(sink.body?.reasoning_effort).toBe("max");
+  });
+});

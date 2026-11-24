@@ -117,7 +117,7 @@ export function buildSubLlmProvider(
 				model,
 				messages,
 				stream: false,
-				...((provider === "naia" || provider === "nextain") && (thinkingLevel === "low" || thinkingLevel === "high" || thinkingLevel === "xhigh")
+				...((provider === "naia" || provider === "nextain") && (thinkingLevel === "low" || thinkingLevel === "high" || thinkingLevel === "xhigh" || thinkingLevel === "max")
                   ? { reasoning_effort: thinkingLevel }
                   : isLocalEngineBaseUrl(baseUrl) && thinkingLevel === "off" ? { reasoning_effort: "none" } : {}),
 				...(temperature !== undefined ? { temperature } : {}),

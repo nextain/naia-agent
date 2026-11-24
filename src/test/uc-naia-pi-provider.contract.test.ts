@@ -8,6 +8,7 @@ import {
   buildNaiaPiModelsConfig,
   ensureNaiaPiConfig,
   isNaiaPiModel,
+  naiaGatewayContextWindow,
 } from "../main/adapters/naia-pi-provider.js";
 import { makeCumulativePiLineParser, makePiSubAgent, piLineToEvents, type SpawnFn } from "../main/adapters/subagent-pi.js";
 
@@ -31,6 +32,7 @@ describe("UC-NAIA-PI provider isolation", () => {
     expect(text).toContain('"grok-4.3"');
     expect(text).toContain('"deepseek-v4-flash"');
     expect(text).toContain('"deepseek-v4-pro"');
+    expect(text).toContain('"gpt-6-luna"');
     expect(text).not.toContain('"gpt-5.6-sol"');
     expect(text).not.toContain('"gpt-5.6-luna"');
     expect(text).not.toContain("prompt_cache_key");
@@ -40,7 +42,9 @@ describe("UC-NAIA-PI provider isolation", () => {
       providers: { naia: { baseUrl: "https://gateway.example/v1", authHeader: false, models: [
         { id: "grok-4.3", cost: { input: 1.375, output: 2.75, cacheRead: 1.375 } },
         { id: "deepseek-v4-flash", cost: { input: 0.209, output: 0.561, cacheRead: 0.0308 } },
+        { id: "deepseek-v4.1-flash", cost: { input: 0.33, output: 1.32, cacheRead: 0.0066, cacheWrite: 0.33 }, contextWindow: 128000 },
         { id: "deepseek-v4-pro" },
+        { id: "gpt-6-luna", cost: { input: 0.11, output: 0.55 }, contextWindow: 128000 },
         { id: "solar-pro4", cost: { input: 0.33, output: 1.32, cacheRead: 0.066 } },
         { id: "solar-mini", cost: { input: 0.165, output: 0.165, cacheRead: 0.165 } },
         { id: "motif-3", reasoning: true, contextWindow: 262144, maxTokens: 8192,
@@ -50,7 +54,7 @@ describe("UC-NAIA-PI provider isolation", () => {
       ] } },
     });
     expect(buildNaiaPiModelsConfig("https://gateway.example", 321)).toMatchObject({
-      providers: { naia: { models: [{ maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }] } },
+      providers: { naia: { models: [{ maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }] } },
     });
     const models = (buildNaiaPiModelsConfig("https://gateway.example") as {
       providers: { naia: { models: Array<{ id: string }> } };
@@ -58,13 +62,54 @@ describe("UC-NAIA-PI provider isolation", () => {
     expect(models).toEqual([
       "grok-4.3",
       "deepseek-v4-flash",
+      "deepseek-v4.1-flash",
       "deepseek-v4-pro",
+      "gpt-6-luna",
       "solar-pro4",
       "solar-mini",
       "motif-3",
       "HCX-007",
       "HCX-DASH-002",
     ]);
+  });
+
+  it("registers deepseek-v4.1-flash with gateway pricing and context", () => {
+    expect(isNaiaPiModel("deepseek-v4.1-flash")).toBe(true);
+    expect(isNaiaPiModel("deepseek-v4-flash")).toBe(true);
+    expect(naiaGatewayContextWindow("deepseek-v4.1-flash")).toBe(128000);
+    expect(naiaGatewayContextWindow("DEEPSEEK-V4.1-FLASH")).toBe(128000);
+    const dir = tempDir();
+    ensureNaiaPiConfig({ dir, baseUrl: "https://gateway.example/v1/" });
+    expect(readFileSync(join(dir, "models.json"), "utf8")).toContain('"deepseek-v4.1-flash"');
+    const piModels = (buildNaiaPiModelsConfig("https://gateway.example") as {
+      providers: { naia: { models: Array<Record<string, unknown>> } };
+    }).providers.naia.models;
+    expect(piModels.find((m) => m.id === "deepseek-v4.1-flash")).toMatchObject({
+      id: "deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash (Naia / Azure, analysis)", reasoning: false,
+      cost: { input: 0.33, output: 1.32, cacheRead: 0.0066, cacheWrite: 0.33 },
+      contextWindow: 128000,
+    });
+    const models = (buildNaiaPiModelsConfig("https://gateway.example") as {
+      providers: { naia: { models: Array<{ id: string }> } };
+    }).providers.naia.models.map(({ id }) => id);
+    expect(models).toContain("deepseek-v4.1-flash");
+    expect(models).toContain("deepseek-v4-flash");
+  });
+
+  it("registers gpt-6-luna with gateway catalog and context", () => {
+    expect(isNaiaPiModel("gpt-6-luna")).toBe(true);
+    expect(isNaiaPiModel("GPT-6-LUNA")).toBe(true);
+    expect(naiaGatewayContextWindow("gpt-6-luna")).toBe(128000);
+    const piModels = (buildNaiaPiModelsConfig("https://gateway.example") as {
+      providers: { naia: { models: Array<Record<string, unknown>> } };
+    }).providers.naia.models;
+    expect(piModels.find((model) => model.id === "gpt-6-luna")).toMatchObject({
+      id: "gpt-6-luna",
+      name: "GPT-6 Luna (Naia / Azure)",
+      reasoning: false,
+      cost: { input: 0.11, output: 0.55 },
+      contextWindow: 128000,
+    });
   });
 
   it("recognizes Naia models case-insensitively, incl. uppercase CLOVA ids", () => {
