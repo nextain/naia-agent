@@ -8,6 +8,7 @@ import {
   buildNaiaPiModelsConfig,
   ensureNaiaPiConfig,
   isNaiaPiModel,
+  naiaGatewayContextWindow,
 } from "../main/adapters/naia-pi-provider.js";
 import { makeCumulativePiLineParser, makePiSubAgent, piLineToEvents, type SpawnFn } from "../main/adapters/subagent-pi.js";
 
@@ -65,6 +66,28 @@ describe("UC-NAIA-PI provider isolation", () => {
       "HCX-007",
       "HCX-DASH-002",
     ]);
+  });
+
+  it("registers deepseek-v4.1-flash with gateway pricing and context", () => {
+    expect(isNaiaPiModel("deepseek-v4.1-flash")).toBe(true);
+    expect(isNaiaPiModel("deepseek-v4-flash")).toBe(true);
+    expect(naiaGatewayContextWindow("deepseek-v4.1-flash")).toBe(128000);
+    expect(naiaGatewayContextWindow("DEEPSEEK-V4.1-FLASH")).toBe(128000);
+    const dir = tempDir();
+    ensureNaiaPiConfig({ dir, baseUrl: "https://gateway.example/v1/" });
+    expect(readFileSync(join(dir, "models.json"), "utf8")).toContain('"deepseek-v4.1-flash"');
+    expect(buildNaiaPiModelsConfig("https://gateway.example")).toMatchObject({
+      providers: { naia: { models: [
+        { id: "deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash (Naia / Azure, analysis)", reasoning: false,
+          cost: { input: 0.33, output: 1.32, cacheRead: 0.0066, cacheWrite: 0.33 },
+          contextWindow: 128000 },
+      ] } },
+    });
+    const models = (buildNaiaPiModelsConfig("https://gateway.example") as {
+      providers: { naia: { models: Array<{ id: string }> } };
+    }).providers.naia.models.map(({ id }) => id);
+    expect(models).toContain("deepseek-v4.1-flash");
+    expect(models).toContain("deepseek-v4-flash");
   });
 
   it("recognizes Naia models case-insensitively, incl. uppercase CLOVA ids", () => {

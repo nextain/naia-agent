@@ -571,3 +571,17 @@ it("IT-SM-AGENT-THINK-01 미지정은 Ollama의 기존 생각 설정을 유지�
   await collect(provider.chat({ ...cfg, thinkingLevel: "xhigh", enableThinking: true }, [], {}));
   expect(fetch.chatBodies[0]?.think).toBe("xhigh");
 });
+
+it("ThinkingLevel max: xhigh와 동일·안전하게 think 변환", async () => {
+  const maxCfg = { ...cfg, thinkingLevel: "max", enableThinking: true } as unknown as ProviderConfig;
+  for (const [values, expected] of [
+    [["low", "high", "xhigh"], "xhigh"],
+    [["low", "high"], true],
+    [[true, false], true],
+    [[false], false],
+  ] as const) {
+    const fetch = makeThinkingFetch(async () => fakeJsonResponse({ thinking: { values } }));
+    await collect(makeOllamaProvider({ fetch: fetch as never }).chat(maxCfg, [], {}));
+    expect(fetch.chatBodies[0]?.think).toBe(expected);
+  }
+});

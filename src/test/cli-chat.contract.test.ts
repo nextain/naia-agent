@@ -38,6 +38,14 @@ describe("parseChatArgs", () => {
     expect(parseChatArgs(["--bogus"]).ok).toBe(false);
     expect(parseChatArgs(["--system"]).ok).toBe(false); // 값 누락
   });
+  it("--think=max 수용 + 미지 수준 오류 문구에 max", () => {
+    const r = parseChatArgs(["--think=max", "--once", "hi"]);
+    expect(r.ok).toBe(true);
+    expect(r.args).toMatchObject({ enableThinking: true, thinking: { level: "max" } });
+    const bad = parseChatArgs(["--think=ultra"]);
+    expect(bad.ok).toBe(false);
+    if (!bad.ok && !bad.help) expect(bad.error).toContain("max");
+  });
 });
 
 describe("upsertEnvLine", () => {

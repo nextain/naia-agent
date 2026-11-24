@@ -47,6 +47,24 @@ describe("REQ-AGENT-095 Naia GPT-5.6 prompt-cache shard", () => {
     expect(keys[3]).not.toBe(keys[0]);
   });
 
+  it("grants prompt_cache_key to gpt-6-luna like sol/luna", async () => {
+    const { bodies, fetch } = captureBodies();
+    const resolver = makeProviderResolver({ fetch: fetch as never });
+    const config = naiaConfig("gpt-6-luna");
+    await collect(resolver.resolve(config).chat(config, [{ role: "user", content: "hi" }], { systemPrompt: "stable α" }));
+    expect(bodies[0]?.prompt_cache_key).toMatch(/^agent-[0-9a-f]{64}$/);
+  });
+
+  it("grants max_tokens 16384 to deepseek-v4.1-flash like v4-flash", async () => {
+    const { bodies, fetch } = captureBodies();
+    const resolver = makeProviderResolver({ fetch: fetch as never });
+    for (const model of ["deepseek-v4-flash", "deepseek-v4.1-flash"] as const) {
+      const config = naiaConfig(model);
+      await collect(resolver.resolve(config).chat(config, [{ role: "user", content: "hi" }], {}));
+    }
+    expect(bodies.map((body) => body.max_tokens)).toEqual([16384, 16384]);
+  });
+
   it("does not add cache fields to unrelated Naia or native routes", async () => {
     const { bodies, fetch } = captureBodies();
     const resolver = makeProviderResolver({ fetch: fetch as never });
