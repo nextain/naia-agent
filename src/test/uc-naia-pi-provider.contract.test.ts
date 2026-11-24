@@ -32,6 +32,7 @@ describe("UC-NAIA-PI provider isolation", () => {
     expect(text).toContain('"grok-4.3"');
     expect(text).toContain('"deepseek-v4-flash"');
     expect(text).toContain('"deepseek-v4-pro"');
+    expect(text).toContain('"gpt-6-luna"');
     expect(text).not.toContain('"gpt-5.6-sol"');
     expect(text).not.toContain('"gpt-5.6-luna"');
     expect(text).not.toContain("prompt_cache_key");
@@ -43,6 +44,7 @@ describe("UC-NAIA-PI provider isolation", () => {
         { id: "deepseek-v4-flash", cost: { input: 0.209, output: 0.561, cacheRead: 0.0308 } },
         { id: "deepseek-v4.1-flash", cost: { input: 0.33, output: 1.32, cacheRead: 0.0066, cacheWrite: 0.33 }, contextWindow: 128000 },
         { id: "deepseek-v4-pro" },
+        { id: "gpt-6-luna", cost: { input: 0.11, output: 0.55 }, contextWindow: 128000 },
         { id: "solar-pro4", cost: { input: 0.33, output: 1.32, cacheRead: 0.066 } },
         { id: "solar-mini", cost: { input: 0.165, output: 0.165, cacheRead: 0.165 } },
         { id: "motif-3", reasoning: true, contextWindow: 262144, maxTokens: 8192,
@@ -52,7 +54,7 @@ describe("UC-NAIA-PI provider isolation", () => {
       ] } },
     });
     expect(buildNaiaPiModelsConfig("https://gateway.example", 321)).toMatchObject({
-      providers: { naia: { models: [{ maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }] } },
+      providers: { naia: { models: [{ maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }, { maxTokens: 321 }] } },
     });
     const models = (buildNaiaPiModelsConfig("https://gateway.example") as {
       providers: { naia: { models: Array<{ id: string }> } };
@@ -62,6 +64,7 @@ describe("UC-NAIA-PI provider isolation", () => {
       "deepseek-v4-flash",
       "deepseek-v4.1-flash",
       "deepseek-v4-pro",
+      "gpt-6-luna",
       "solar-pro4",
       "solar-mini",
       "motif-3",
@@ -91,6 +94,22 @@ describe("UC-NAIA-PI provider isolation", () => {
     }).providers.naia.models.map(({ id }) => id);
     expect(models).toContain("deepseek-v4.1-flash");
     expect(models).toContain("deepseek-v4-flash");
+  });
+
+  it("registers gpt-6-luna with gateway catalog and context", () => {
+    expect(isNaiaPiModel("gpt-6-luna")).toBe(true);
+    expect(isNaiaPiModel("GPT-6-LUNA")).toBe(true);
+    expect(naiaGatewayContextWindow("gpt-6-luna")).toBe(128000);
+    const piModels = (buildNaiaPiModelsConfig("https://gateway.example") as {
+      providers: { naia: { models: Array<Record<string, unknown>> } };
+    }).providers.naia.models;
+    expect(piModels.find((model) => model.id === "gpt-6-luna")).toMatchObject({
+      id: "gpt-6-luna",
+      name: "GPT-6 Luna (Naia / Azure)",
+      reasoning: false,
+      cost: { input: 0.11, output: 0.55 },
+      contextWindow: 128000,
+    });
   });
 
   it("recognizes Naia models case-insensitively, incl. uppercase CLOVA ids", () => {
