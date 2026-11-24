@@ -1,7 +1,7 @@
 // UC provider 출처(provider provenance) 계약 테스트 — 라우팅·cost·resolver(baseUrl/auth) 단위.
 // 계약: docs/progress/UC-provider-provenance-contract-2026-06-12.md
 import { describe, it, expect } from "vitest";
-import { resolveProviderRoute, labProxyBaseUrl, nativeBaseUrl } from "../main/domain/provider-route.js";
+import { resolveProviderRoute, labProxyBaseUrl, nativeBaseUrl, providerProcessingEndpoint } from "../main/domain/provider-route.js";
 import { calculateCost } from "../main/domain/cost.js";
 import { makeProviderResolver } from "../main/adapters/provider-resolver.js";
 import { ChatTurnHandler, type HandlerDeps } from "../main/app/chat-turn-handler.js";
@@ -30,6 +30,13 @@ describe("provider-route (순수 라우팅)", () => {
     expect(resolveProviderRoute(cfg({ provider: "zai", naiaKey: "naia-123" }))).toBe("native");
     expect(resolveProviderRoute(cfg({ provider: "gemini" }))).toBe("native");
     expect(resolveProviderRoute(cfg({ provider: "vllm", naiaKey: "naia-123" }))).toBe("native");
+  });
+  it("webllm → providerProcessingEndpoint 는 undefined (브라우저 전용, 네이티브 URL 폴백 격리)", () => {
+    expect(resolveProviderRoute({ provider: "webllm", model: "m" })).toBe("webllm");
+    expect(providerProcessingEndpoint({ provider: "webllm", model: "m" })).toBeUndefined();
+    // host override 가 있어도 네이티브 URL 로 새면 안 된다.
+    expect(providerProcessingEndpoint({ provider: "webllm", model: "m", labGatewayUrl: "https://gw.example" })).toBeUndefined();
+    expect(providerProcessingEndpoint({ provider: "webllm", model: "m", vllmHost: "http://localhost:8000" })).toBeUndefined();
   });
 });
 

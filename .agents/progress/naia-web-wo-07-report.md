@@ -137,7 +137,7 @@ rep3 exit=0
 각 반복 로그 끝 20줄:
 ```
 [rep1]
- RUN  v2.1.9 /var/home/luke/alpha-adk/projects/naia-web-probe/naia-agent
+ RUN  v2.1.9 <workspace>/projects/naia-web-probe/naia-agent
 
  ✓ src/test/browser-agent.integration.test.ts (7 tests) 1425ms
    ✓ browser-agent 통합 시험 (FE-05/FE-06) > 정상 요청 처리, 깨진 JSON 뒤 복구, stop() 뒤 줄 차단 528ms
@@ -150,7 +150,7 @@ rep3 exit=0
    Duration  1.89s (transform 239ms, setup 0ms, collect 281ms, tests 1.42s, environment 0ms, prepare 39ms)
 
 [rep2]
- RUN  v2.1.9 /var/home/luke/alpha-adk/projects/naia-web-probe/naia-agent
+ RUN  v2.1.9 <workspace>/projects/naia-web-probe/naia-agent
 
  ✓ src/test/browser-agent.integration.test.ts (7 tests) 1429ms
    ✓ browser-agent 통합 시험 (FE-05/FE-06) > 정상 요청 처리, 깨진 JSON 뒤 복구, stop() 뒤 줄 차단 529ms
@@ -163,7 +163,7 @@ rep3 exit=0
    Duration  1.82s (transform 165ms, setup 0ms, collect 199ms, tests 1.43s, environment 0ms, prepare 60ms)
 
 [rep3]
- RUN  v2.1.9 /var/home/luke/alpha-adk/projects/naia-web-probe/naia-agent
+ RUN  v2.1.9 <workspace>/projects/naia-web-probe/naia-agent
 
  ✓ src/test/browser-agent.integration.test.ts (7 tests) 1420ms
    ✓ browser-agent 통합 시험 (FE-05/FE-06) > 정상 요청 처리, 깨진 JSON 뒤 복구, stop() 뒤 줄 차단 529ms
@@ -195,7 +195,7 @@ pnpm build; echo "build exit=$?"
 
 출력:
 ```
-> @nextain/naia-agent@0.0.0 build /var/home/luke/alpha-adk/projects/naia-web-probe/naia-agent
+> @nextain/naia-agent@0.0.0 build <workspace>/projects/naia-web-probe/naia-agent
 > tsc -p tsconfig.json
 
 build exit=0

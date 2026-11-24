@@ -213,7 +213,7 @@ The latest test that might've caused the error is "reuses isolated-home login an
 ```bash
 grep -E "^ (Test Files|     Tests|    Errors) " /tmp/wo03c-test.log
 grep -E "^ FAIL " /tmp/wo03c-test.log | sort -u > /tmp/wo03c-fail.txt
-B=/var/home/luke/alpha-adk/.agents/progress/naia-web-20261003/agent-baseline-failures-3b0e101c.txt
+B=<workspace>/.agents/progress/naia-web-20261003/agent-baseline-failures-3b0e101c.txt
 comm -13 $B /tmp/wo03c-fail.txt; echo "new-fail-lines=$(comm -13 $B /tmp/wo03c-fail.txt | wc -l)"
 comm -23 $B /tmp/wo03c-fail.txt
 awk '/^⎯+ (Unhandled [A-Za-z]+|Uncaught Exception) ⎯+$/{getline; split($0,a,":"); cls=a[1]} /^This error originated in /{match($0,/"[^"]+"/); print cls" "substr($0,RSTART,RLENGTH)}' /tmp/wo03c-test.log | sort > /tmp/wo03c-errors.txt; echo "awk=$?"; cat /tmp/wo03c-errors.txt

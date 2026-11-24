@@ -97,7 +97,7 @@ exit=0
 ```bash
 pnpm test > /tmp/wo02b-test.log 2>&1; echo "exit=$?"
 grep -E "^ FAIL " /tmp/wo02b-test.log | sort -u > /tmp/wo02b-fail.txt
-comm -13 /var/home/luke/alpha-adk/.agents/progress/naia-web-20261003/agent-baseline-failures-3b0e101c.txt /tmp/wo02b-fail.txt; echo "new-fail-lines=$(comm -13 /var/home/luke/alpha-adk/.agents/progress/naia-web-20261003/agent-baseline-failures-3b0e101c.txt /tmp/wo02b-fail.txt | wc -l)"
+comm -13 <workspace>/.agents/progress/naia-web-20261003/agent-baseline-failures-3b0e101c.txt /tmp/wo02b-fail.txt; echo "new-fail-lines=$(comm -13 <workspace>/.agents/progress/naia-web-20261003/agent-baseline-failures-3b0e101c.txt /tmp/wo02b-fail.txt | wc -l)"
 ```
 - `grep -E "^      Tests " /tmp/wo02b-test.log`:
 ```text
@@ -113,7 +113,7 @@ comm -13 /var/home/luke/alpha-adk/.agents/progress/naia-web-20261003/agent-basel
 ```text
 new-fail-lines=0
 ```
-- `comm -23 /var/home/luke/alpha-adk/.agents/progress/naia-web-20261003/agent-baseline-failures-3b0e101c.txt /tmp/wo02b-fail.txt`:
+- `comm -23 <workspace>/.agents/progress/naia-web-20261003/agent-baseline-failures-3b0e101c.txt /tmp/wo02b-fail.txt`:
 ```text
 (출력 없음 - 사라진 실패 0건)
 ```

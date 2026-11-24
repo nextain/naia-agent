@@ -60,7 +60,7 @@
 - 출력 끝부분:
 
 ```text
-> @nextain/naia-agent@0.0.0 build /var/home/luke/alpha-adk/projects/naia-web-probe/naia-agent
+> @nextain/naia-agent@0.0.0 build <workspace>/projects/naia-web-probe/naia-agent
 > tsc -p tsconfig.json
 
 exit=0

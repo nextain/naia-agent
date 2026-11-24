@@ -214,7 +214,7 @@ before-json rc=0
 
 `build-before.log` 끝 20줄:
 ```
-> @nextain/naia-agent@0.0.0 build /var/home/luke/alpha-adk/projects/naia-web-probe/naia-agent
+> @nextain/naia-agent@0.0.0 build <workspace>/projects/naia-web-probe/naia-agent
 > tsc -p tsconfig.json
 ```
 
@@ -281,7 +281,7 @@ rep3 exit=0
 
 `rep-1.log` 끝 20줄:
 ```
- RUN  v2.1.9 /var/home/luke/alpha-adk/projects/naia-web-probe/naia-agent
+ RUN  v2.1.9 <workspace>/projects/naia-web-probe/naia-agent
 
  ✓ src/test/webllm-provider.contract.test.ts (252 tests) 146ms
  ✓ src/test/browser-agent.integration.test.ts (9 tests) 1434ms
@@ -297,7 +297,7 @@ rep3 exit=0
 
 `rep-2.log` 끝 20줄:
 ```
- RUN  v2.1.9 /var/home/luke/alpha-adk/projects/naia-web-probe/naia-agent
+ RUN  v2.1.9 <workspace>/projects/naia-web-probe/naia-agent
 
  ✓ src/test/webllm-provider.contract.test.ts (252 tests) 121ms
  ✓ src/test/browser-agent.integration.test.ts (9 tests) 1441ms
@@ -313,7 +313,7 @@ rep3 exit=0
 
 `rep-3.log` 끝 20줄:
 ```
- RUN  v2.1.9 /var/home/luke/alpha-adk/projects/naia-web-probe/naia-agent
+ RUN  v2.1.9 <workspace>/projects/naia-web-probe/naia-agent
 
  ✓ src/test/webllm-provider.contract.test.ts (252 tests) 157ms
  ✓ src/test/browser-agent.integration.test.ts (9 tests) 1445ms
@@ -340,7 +340,7 @@ build exit=0
 `tsc.log`: 오류 0건 (빈 출력)
 `build.log` 끝 20줄:
 ```
-> @nextain/naia-agent@0.0.0 build /var/home/luke/alpha-adk/projects/naia-web-probe/naia-agent
+> @nextain/naia-agent@0.0.0 build <workspace>/projects/naia-web-probe/naia-agent
 > tsc -p tsconfig.json
 ```
 

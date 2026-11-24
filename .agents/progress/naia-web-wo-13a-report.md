@@ -198,7 +198,7 @@ pnpm build > /tmp/wo13a/build.log 2>&1; rc=$?; echo "build exit=$rc"
 - 종료 값: `build exit=0`
 - `build.log` 내용:
 ```
-> @nextain/naia-agent@0.0.0 build /var/home/luke/alpha-adk/projects/naia-web-probe/naia-agent
+> @nextain/naia-agent@0.0.0 build <workspace>/projects/naia-web-probe/naia-agent
 > tsc -p tsconfig.json
 ```
 

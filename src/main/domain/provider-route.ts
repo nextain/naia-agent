@@ -115,5 +115,6 @@ export function providerProcessingEndpoint(config: ProviderConfig): string | und
   if (route === "ollama") return nativeBaseUrl("ollama", config.ollamaHost);
   if (route === "anthropic") return anthropicBaseUrl(config);
   if (route === "claude-code" || route === "codex" || route === "grok") return `opaque-cli:${encodeURIComponent(config.provider)}:${encodeURIComponent(config.model)}`;
+  if (route === "webllm") return undefined; // 브라우저 전용 WebLLM — 네이티브 URL 폴백에서 명시 격리
   try { return nativeBaseUrl(config.provider, config.labGatewayUrl ?? config.vllmHost); } catch { return undefined; }
 }

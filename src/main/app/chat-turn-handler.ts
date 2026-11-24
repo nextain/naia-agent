@@ -739,7 +739,10 @@ export class ChatTurnHandler {
             await this.d.conversationLog.append({ sessionId: req.sessionId ?? "default", userText: lastUserText, assistantText: assistantTurnParts.join("\n") });
           } catch (e) { this.safeDiag("transcript append 실패(턴 유지)", e); }
         }
-        if (pricingReady) await raceTimeout(pricingReady, 5000);
+        // SSE usage.cost 가 전 라운드에 있으면 gatewayCost 로 확정이라 live pricing 불필요.
+        // pricingReady 대기는 usageWithoutCost>0(누락분 calculateCost 필요) 또는 naia provider 일 때만.
+        const needsPricing = usageWithoutCost.inputTokens > 0 || usageWithoutCost.outputTokens > 0 || costProvider === "naia";
+        if (pricingReady && needsPricing) await raceTimeout(pricingReady, 5000);
         turnCommitted = true;
         terminalFinish();
       };
