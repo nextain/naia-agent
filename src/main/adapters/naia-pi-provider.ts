@@ -11,6 +11,7 @@ export const NAIA_PI_MODELS = [
   "deepseek-v4-flash",
   "deepseek-v4.1-flash",
   "deepseek-v4-pro",
+  "gpt-6-luna",
   "solar-pro4",
   "solar-mini",
   "motif-3",
@@ -27,6 +28,7 @@ export const NAIA_GATEWAY_CONTEXT_WINDOWS: Readonly<Record<NaiaPiModel, number>>
   "deepseek-v4-flash": 128000,
   "deepseek-v4.1-flash": 128000,
   "deepseek-v4-pro": 1000000,
+  "gpt-6-luna": 128000,
   "solar-pro4": 128000,
   "solar-mini": 32000,
   "motif-3": 262144,
@@ -41,6 +43,7 @@ const AZURE_CUSTOMER_COST = {
   grok43: { input: 1.375, output: 2.75, cacheRead: 1.375, cacheWrite: 1.375 },
   deepseekV4Flash: { input: 0.209, output: 0.561, cacheRead: 0.0308, cacheWrite: 0.209 },
   deepseekV41Flash: { input: 0.33, output: 1.32, cacheRead: 0.0066, cacheWrite: 0.33 },
+  gpt6Luna: { input: 0.11, output: 0.55 },
 } as const;
 
 // Upstage Solar (direct provider). Final customer rates = source x 1.10.
@@ -109,6 +112,8 @@ export function buildNaiaPiModelsConfig(baseUrl?: string, maxTokens?: number): R
             input: ["text"], cost: AZURE_CUSTOMER_COST.deepseekV41Flash,
             contextWindow: NAIA_GATEWAY_CONTEXT_WINDOWS["deepseek-v4.1-flash"], ...(maxTokens ? { maxTokens } : {}) },
           { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro (Naia / Azure, analysis)", reasoning: false, input: ["text"], contextWindow: NAIA_GATEWAY_CONTEXT_WINDOWS["deepseek-v4-pro"], ...(maxTokens ? { maxTokens } : {}) },
+          { id: "gpt-6-luna", name: "GPT-6 Luna (Naia / Azure)", reasoning: false, input: ["text"],
+            cost: AZURE_CUSTOMER_COST.gpt6Luna, contextWindow: NAIA_GATEWAY_CONTEXT_WINDOWS["gpt-6-luna"], ...(maxTokens ? { maxTokens } : {}) },
           { id: "solar-pro4", name: "Solar Pro 4 (Naia / Upstage, 국내)", reasoning: false, input: ["text"],
             cost: UPSTAGE_CUSTOMER_COST.solarPro4, contextWindow: NAIA_GATEWAY_CONTEXT_WINDOWS["solar-pro4"], ...(maxTokens ? { maxTokens } : {}) },
           { id: "solar-mini", name: "Solar Mini (Naia / Upstage, 국내)", reasoning: false, input: ["text"],
