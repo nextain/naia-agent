@@ -196,6 +196,16 @@ Agent 재기동 없이 다음 credential read와 LLM 턴에서 새 키를 사용
 workspace로 함께 전환하며, 설정·메모리 reload가 원자적으로 실패하면 이전 credential workspace를 복원한다
 (FR-PROV-7).
 
+### S-PROV-WEB-CREDS (브라우저 에이전트의 Naia 계정 유지 — R45)
+
+브라우저에서 로그인한 사용자가 Naia Terra 또는 Luna를 적용하고 다시 로드하지 않은 채 첫 메시지를 보냅니다.
+브라우저 에이전트는 계정 키를 받은 뒤 공급자 API 키의 명시 해제를 받아도 다음 대화에서 계정 키를 사용합니다.
+계정 키만 명시 해제하면 다른 필드의 키는 계속 사용할 수 있습니다. (FR-PROV-8)
+
+### S-PROV-WEB-USAGE (브라우저 채팅의 답변 비용 — R47)
+
+브라우저에서 Naia 계정으로 클라우드 모델과 대화하는 사용자는 답변 아래에서 해당 턴에 쓴 크레딧과 토큰 수를 확인합니다. 에이전트는 게이트웨이가 보고한 비용을 USD로 셸에 전달합니다.
+
 ## UC-CLI (naia-agent 단독 CLI 오케스트레이션)
 
 사용자(luke)가 **naia-os 없이** 터미널에서 `naia-agent`를 단독 실행해 실제 작업을 시킨다. naia-agent는
@@ -477,10 +487,13 @@ Ollama native 요청은 셸이 보낸 `thinkingLevel`을 현재 Ollama host와 �
 - **S-THINK-9 (스트림 응답 다중 형식 수용 — #149)**: OpenAI 호환 어댑터 스트림 파서는 `delta.reasoning_content`(문자열)와
   게이트웨이 바깥 형식 `delta.reasoning?.content`(문자열)를 모두 thinking 청크로 수용한다. 단일 델타에 둘 다 존재할 경우
   `reasoning_content`만 채택하여 중복을 방지한다.
-- **S-THINK-10 (Ollama 모델 능력 기반 think 변환 — #758 S5)**: Ollama provider가 현재 host·model의 `POST /api/show` 결과를
+- **S-THINK-11 (Ollama 모델 능력 기반 think 변환 — #758 S5)**: Ollama provider가 현재 host·model의 `POST /api/show` 결과를
   성공한 경우에만 프로세스 메모리에 캐시하고, 동시 조회를 합친다. named level은 정확히 일치할 때만 보내며 불리언 능력은
   기존 off/on으로 변환한다. 정확히 `thinking.values: [false]`일 때만 think를 끄고 명시 신호를 보낸다. 누락·형식 오류·HTTP 오류·
   timeout·fetch 거절은 기존 off/on으로 폴백하고 재시도 가능하게 둔다. Ollama 이외 provider는 영향을 받지 않는다.
+
+- **S-THINK-10 (브라우저 채팅의 빈 답 진단 — R33)**: 공급자가 종료 신호만 보내면 에이전트가 답을 한 번 더 요청한다.
+  본문과 생각이 모두 비어 있으면 웹 셸에 빈 답 오류를 전달한다.
 
 직교: 컨텍스트 예산(도구 스키마 미계상 / `finish` 에 잘림 사유 부재 / 잘림을 성공으로 오인)은 **별개 결함**
 (#80) 으로 분리 — 본 UC 는 "생각이 답변 예산을 잠식하는" 축만 닫는다.
@@ -746,10 +759,13 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 | FR-MEM-27 / 장기기억 추론 및 감정 태그 배제 | `src/test/memory-strip-tags.contract.test.ts` (핸들러 thinking 청크 배제·<think> 및 [THINK]/[THINKING] 블록 제거·미닫힘 <think> 실답변 보존·감정 태그 제거·#639 접힌 답변 메모리 보존·약속 미이행 재시도 pop·아바타 [THINKING] 스트림 정규화·[1] 및 [link](url) 보존·태그-only 시 assistant 에피소드 미저장·사용자 발화 무수정) |
 | UC-PROV-1 / FR-PROV-1·2·3 | `src/test/all-providers-wiring.contract.test.ts`, `uc1-reload-default-config.contract.test.ts`, `uc-naia-settings-store.contract.test.ts` |
 | UC-PROV-1 / FR-PROV-7 (로그인·workspace credential 동기화) | `src/test/uc-keychain-credentials.contract.test.ts`(login 전 부재·키 교체·workspace 분리·복호화 재시도), `src/test/discord-entry-wiring.contract.test.ts`(production DPAPI reader·SetWorkspace rollback 배선) |
+| UC-PROV-1 / S-PROV-WEB-CREDS / FR-PROV-8 (R45) | `src/test/uc1-agent.contract.test.ts` (와이어 `creds_update` 계정 설정 → API 키 해제 → 채팅까지 계정 유지, 각 키의 교체·해제 및 공급자 격리) |
+| UC-PROV-1 / S-PROV-WEB-USAGE / FR-PROV-9 (R47) | `src/test/uc1-openai-compat.contract.test.ts` (마지막 SSE 사용량의 비용 보존, 비용 누락·잘못된 값 생략), `src/test/browser-agent.integration.test.ts` (턴의 USD 비용을 MessagePort 사용량 이벤트로 전달) |
 | UC-THINKING / S-THINK-1·2·3 / FR-THINK-1~4 | `src/test/uc-thinking.contract.test.ts` (요청 body 검증: enableThinking=false+로컬 → `reasoning_effort:"none"` / true·미지정 → 미전송 / **원격 baseUrl → 미전송**(400 회귀 방지) / `isLocalEngineBaseUrl` 순수 판별) |
 | UC-THINKING / S-THINK-4·5 / FR-THINK-5·6 (#114) | `src/test/uc1-openai-compat.contract.test.ts` — describe "#114 deepseek [THINK] 정규화" (①닫힘쌍 분리 ②미닫힘 thinking flush·text 무누출 ③청크 경계 분할 태그 ④literal [think] 트레이드오프 계약 ⑤flavor 대칭·꺾쇠 무회귀) + describe "#114 스트림 idle 데드라인" (hang → 데드라인 내 throw+reader.cancel / 연속 청크 무절단 / 기본 45s 상수) |
 | UC-THINKING / S-THINK-6~9 / FR-THINK-7~11 (#149) | `src/test/uc-thinking.contract.test.ts` (게이트웨이 off/low/high/미지정 reasoning_effort 무전송/전송, 로컬 off none 무변경, 원격 low 무전송, delta.reasoning.content 파싱 및 중복 방지, 도구 루프 reasoning_content 에코, grpc-codec thinking enum 디코드, resolveTurnThinking, threadToolRound 5인자) |
-| UC-THINKING / S-THINK-10 / FR-THINK-12 (#758 S5) | `src/test/uc1-ollama-provider.contract.test.ts` (가짜 `/api/show` named/bool/unsupported/malformed/failure/timeout fixture, think body·성공 캐시·동시 합치기·재시도) 및 `src/test/uc-thinking.contract.test.ts` (ProviderConfig→Ollama signal egress); Shell `packages/shell/e2e/ollama-settings.spec.ts` (명시 미지원 안내·설정 보존·좁은 폭/접근성) |
+| UC-THINKING / S-THINK-10 / FR-THINK-12 (R33) | `src/test/uc1-agent.contract.test.ts` (복구 요청 1회, 최종 빈 답 오류) |
+| UC-THINKING / S-THINK-11 / FR-THINK-15 (#758 S5) | `src/test/uc1-ollama-provider.contract.test.ts` (가짜 `/api/show` named/bool/unsupported/malformed/failure/timeout fixture, think body·성공 캐시·동시 합치기·재시도) 및 `src/test/uc-thinking.contract.test.ts` (ProviderConfig→Ollama signal egress); Shell `packages/shell/e2e/ollama-settings.spec.ts` (명시 미지원 안내·설정 보존·좁은 폭/접근성) |
 | FR-CONT-MVP-1~4·9 / 개인 라디오 DJ | 계약/통합: `src/test/personal-radio-dj.contract.test.ts` (`DJ-01~08`: ended 전환 멘트→radio 검색 포함), `src/test/activity-radio-dj-bgm.contract.test.ts`(`mode=radio_dj`, 최근곡·즐겨찾기 status), `src/test/radio-dj-shell-handoff.integration.test.ts`(실 Controller+activity app adapter의 ended→전환 발화→radio play→playing 관측), `src/test/radio-dj-product-acceptance.contract.test.ts`(local tombstone 우선 Naia Memory recall), `src/test/speech-profile-runtime.integration.test.ts`(제어 사전 검증), `src/test/grpc-shutdown.contract.test.ts`(제어 ACK가 긴 작업을 기다리지 않음). 실제 Tauri: shell `71-proactive-speech-profiles.spec.ts`의 profile 저장·복원과 `94-avatar-4060-facade.spec.ts`의 A→B 교체·TRT 발화·끼어들기. |
 | FR-CONT-MVP-10 / #115 off-레이스·백오프·폴링 하한 | `src/test/personal-radio-dj.contract.test.ts` — describe "#115 radio DJ off-race·backoff·configure contract" (music_only churn 보존 / stop 후 churn start 미호출 / 동등 config·disabled 재전송 no-op / 연속실패 발화 1회+지수 백오프 단조 증가·상한 / 사용자 액션 리셋) + `src/test/activity-radio-dj-bgm.contract.test.ts` — describe "#115 BGM status 폴링 간격 하한" (주입 50ms → 1s 승격, wait ≥ 1000ms) |
 | FR-APP-6 / 앱 screenshot multimodal 전달 | `src/test/uc-app-skill.contract.test.ts`의 bounded data URI 추출·실패 격리, provider 계약 테스트의 OpenAI/Anthropic/Ollama image block 매핑, Shell `capture.rs`·`tab-skills.ts` 실제 PNG 반환 경로 |

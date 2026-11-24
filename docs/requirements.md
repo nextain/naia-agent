@@ -65,9 +65,9 @@
 - memory(push)↔knowledge(pull) 분리 — 매 턴 자동주입 아님(에이전트 판단 호출), 저장소·주입 경로 분리. 조직지식↔개인기억 비혼합.
 - 실 backend(KB 컴파일/검색 품질·`openWorkspaceKnowledge` in-process 배선)=naia-kb-compiler + compose(K1a-2) 책임(본 어댑터 계약 범위 밖, fake 로 계약 검증).
 
-## UC-PROV FR/NFR (FR-PROV-1 ~ 7, FR-MODEL-1)
+## UC-PROV FR/NFR (FR-PROV-1 ~ 9, FR-MODEL-1)
 
-권위 계약·검증: 아래 FR-PROV-1~7·FR-MODEL-1 표 + Test Coverage Map 의 계약 테스트
+권위 계약·검증: 아래 FR-PROV-1~9·FR-MODEL-1 표 + Test Coverage Map 의 계약 테스트
 (`src/test/all-providers-wiring.contract.test.ts` 등). 상세 진행기록은 메인테이너 워크스페이스 보관(repo 외부).
 
 | ID | 요구사항 | 상태 |
@@ -79,7 +79,11 @@
 | FR-PROV-5 | claude-code-cli = Claude Agent SDK 분리(2026-06-18) — `claude-code-cli` 는 anthropic(Messages API 직접키)에서 격리된 `claude-code` 라우트로, `@anthropic-ai/claude-agent-sdk` `query()`(로컬 Claude Code 구독 인증)를 사용. **apiKey 불요**(keychain `ANTHROPIC_API_KEY` 매핑 제거 → null), naia-settings `claude-code` 분기는 secret/baseUrl 미주입(구독을 직접키로 오인 금지). 비용 = $0(`SUBSCRIPTION_PROVIDERS` + chat-turn-handler `costProvider` 분기 — 동일 model ID 의 anthropic 직접키와 구별). | Done |
 | FR-PROV-6 | ollama native tool_calls (UC5 §H, 2026-07-15) — `makeOllamaProvider` 가 `opts.tools` 를 native `/api/chat` 로 전송하고 `message.tool_calls`(완성체, arguments=object)를 toolUse chunk 로 파싱, tool-bearing 메시지(assistant.toolCalls·tool role+`tool_name` 복원) 매핑. tools 미지원 모델(400 "does not support tools")은 **tools 제거 1회 재시도**(graceful degrade — 순수 챗 유지). 배경: 시연 프로파일 provider=ollama 전환 시 어댑터가 tools 무시 → 스킬 전멸(회귀). 실측: ollama 0.32.0 + DNA 3.0 9B 왕복 확인. 권위 계약 = `docs/progress/99.dev-comm/UC5-agent-tool-loop-contract-2026-06-10.md` §H. 적대리뷰 = `.agents/reviews/r-fr-prov-6-ollama-tools-2026-07-15.json` (PASS). | Done |
 | FR-PROV-7 | Windows 로그인·워크스페이스 자격증명 라이브 동기화 — Agent 시작 시 DPAPI 키가 아직 없거나 복호화가 일시 실패한 상태를 영구 캐시하지 않는다. 성공한 평문만 절대 파일 경로와 파일 버전 기준으로 캐시하며, OAuth 로그인·키 교체는 다음 credential read에 반영한다. `SetWorkspace`는 설정·메모리와 함께 credential 경로를 전환하고 원자적 reload 실패 시 이전 경로도 복원한다. 키 평문은 파일·로그에 기록하지 않는다. | Done |
+| FR-PROV-8 | 브라우저 에이전트의 메모리 자격증명 (R45). `creds_update`는 공급자별로 전달된 필드만 갱신하며, 빈 문자열은 해당 필드만 해제합니다. 다음 채팅에서 공급자 API 키와 Naia 계정 키를 독립적으로 읽습니다. (S-PROV-WEB-CREDS) | Done |
+| FR-PROV-9 | 브라우저 채팅의 Naia 게이트웨이 비용 (R47). OpenAI 호환 SSE의 마지막 `usage` 스냅샷에서 `cost`가 유한한 0 이상 숫자이면 사용량 조각에 USD 값으로 담습니다. Naia 게이트웨이 턴의 사용량 이벤트는 호출별 비용을 합산하며, 비용이 빠진 호출에는 기존 토큰 단가를 적용합니다. (S-PROV-WEB-USAGE) | Done |
 | FR-MODEL-1 | 모델 카탈로그 최신화 + registry↔cost 정합(2026-06-18) — registry(naia-os shell)의 native(per-token) provider 모델 ID 전부가 agent `cost.ts` MODEL_PRICING 에 등재되어야 한다(과금 0 회귀 금지; zai/glm 통째 누락이 회귀였음). 모델 ID 는 공식 문서로 확정(환각 금지), default 는 검증된 최신 ID 만 승격. 계약: `uc-provider-provenance` cost↔registry 정합 describe + naia-os `registry.test.ts` 카탈로그 정합. | Done |
+
+R45 검증. 수정 전 새 계약 시험 2건에서 계정 키 소실을 재현했습니다. 수정 후 UC1·키체인·gRPC 필드·브라우저 에이전트 표적 Vitest 61건이 통과했습니다. 독립 검토 기록은 `.agents/reviews/r45-browser-credentials-2026-11-20.json`에 있습니다.
 
 ### NFR
 - 직교(orthogonality): transport=gRPC adapter only(domain unaware). provider-wiring 경로가 도메인 계층을 인지하지 않음 — 어댑터/설정 경계만 통과.
@@ -239,7 +243,8 @@ spec + sandbox 정책(allow-root) + tier(승인)** 를 소유한다.
 | FR-THINK-9 | **게이트웨이 경로 reasoning_effort 제어(#149)** — provider-resolver 가 게이트웨이(lab-proxy) 경로에 `supportsThinkingLevel: true` 주입. OpenAI-compat 어댑터는 `supportsThinkingLevel` 활성 시 low/high 에 한해 `reasoning_effort: config.thinkingLevel` 을 싣고, off/미지정 시 키를 싣지 않음(무전송). 로컬 엔진의 FR-THINK-1·2(off → none) 무변경 유지 및 상호 배타성 보장. | Done |
 | FR-THINK-10 | **도구 루프 reasoning_content 에코(#149)** — `ChatMessage.reasoningContent?: string` 추가. `threadToolRound` 5번째 인자 `roundThinking?: string` 추가 및 `chat-turn-handler` 가 `round.thinking` 전달. provider-resolver 가 게이트웨이 경로에 `echoReasoningContent: true` 주입하고, `toWireMessages` 는 `echoReasoningContent` 활성 시 assistant 도구 호출 메시지에 `reasoning_content` 추가(빈 문자열 미전송). | Done |
 | FR-THINK-11 | **응답 형식 다중 수용(#149)** — OpenAI-compat 스트림 파서는 `delta.reasoning_content` 및 `delta.reasoning?.content` 를 모두 thinking 청크로 처리하며, 둘 다 있을 때는 `reasoning_content` 만 사용하여 중복 방지. | Done |
-| FR-THINK-12 | **Ollama 모델 능력 기반 `think` 변환(#758 S5)** — Ollama adapter가 현재 host·model로 `POST /api/show`를 조회하고 성공한 결과만 동시 요청과 공유 캐시에 저장한다. `off`는 `false`, 일치하는 named `low`/`high`는 정확한 문자열, 불리언 능력은 기존 off/on으로 바꾼다. 문자열 단계가 선택과 일치하지 않으면 `true`를 쓴다. 정확히 `thinking.values: [false]`만 요청별 미지원 신호를 내고 `false`로 낮춘다. 누락·잘못된 JSON 형식·HTTP 오류·timeout·fetch 거절은 기존 동작으로 폴백하며 실패를 캐시하지 않는다. 다른 provider 요청은 바꾸지 않는다. | Pending — `src/test/uc1-ollama-provider.contract.test.ts`의 가짜 `/api/show` fixture, handler 신호 배선 계약, Shell `packages/shell/e2e/ollama-settings.spec.ts` |
+| FR-THINK-12 | **빈 답 진단(R33)** — 웹 브라우저 채팅의 최종 라운드가 본문과 생각 없이 끝나면, 한 번의 기존 복구 시도 뒤 `provider returned an empty answer`를 보낸다. 생각 청크가 남은 라운드는 기존 추론 오류를 사용한다. | Done |
+| FR-THINK-15 | **Ollama 모델 능력 기반 `think` 변환(#758 S5)** — Ollama adapter가 현재 host·model로 `POST /api/show`를 조회하고 성공한 결과만 동시 요청과 공유 캐시에 저장한다. `off`는 `false`, 일치하는 named `low`/`high`는 정확한 문자열, 불리언 능력은 기존 off/on으로 바꾼다. 문자열 단계가 선택과 일치하지 않으면 `true`를 쓴다. 정확히 `thinking.values: [false]`만 요청별 미지원 신호를 내고 `false`로 낮춘다. 누락·잘못된 JSON 형식·HTTP 오류·timeout·fetch 거절은 기존 동작으로 폴백하며 실패를 캐시하지 않는다. 다른 provider 요청은 바꾸지 않는다. | Pending — `src/test/uc1-ollama-provider.contract.test.ts`의 가짜 `/api/show` fixture, handler 신호 배선 계약, Shell `packages/shell/e2e/ollama-settings.spec.ts` |
 
 FR-THINK-7(#149)은 FR-THINK-4 의 무변경 범위를 명시적으로 넘겨받아 proto 필드 15·`ChatMessage.reasoningContent`·`threadToolRound` 5번째 인자를 추가한다.
 

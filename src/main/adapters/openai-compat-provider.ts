@@ -356,6 +356,7 @@ export function makeOpenAICompatProvider(deps: {
       const decoder = new TextDecoder();
       let buffer = "";
       let inTok = 0, outTok = 0;
+      let usageCost: number | undefined;
       let finishReason: string | undefined;
       const thinkingFilter = new ThinkingTagFilter();
       const acc = new Map<number, ToolAcc>(); // 슬롯 별 tool_call 누적(§C.2)
@@ -383,7 +384,7 @@ export function makeOpenAICompatProvider(deps: {
               tool_calls?: Array<{ index?: unknown; id?: unknown; type?: unknown; function?: { name?: unknown; arguments?: unknown } }>;
             };
           }[];
-          usage?: { prompt_tokens?: number; completion_tokens?: number }; error?: unknown;
+          usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: unknown }; error?: unknown;
         };
         if (o.error) throw new Error(`OpenAI-compat stream error: ${JSON.stringify(o.error)}`);
         const out: ProviderChunk[] = [];
@@ -434,7 +435,12 @@ export function makeOpenAICompatProvider(deps: {
             }
           }
         }
-        if (o.usage) { inTok = o.usage.prompt_tokens ?? inTok; outTok = o.usage.completion_tokens ?? outTok; } // 호출 누계 스냅샷
+        if (o.usage) { // 호출 누계 스냅샷
+          inTok = o.usage.prompt_tokens ?? inTok;
+          outTok = o.usage.completion_tokens ?? outTok;
+          const cost = o.usage.cost;
+          usageCost = typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? cost : undefined;
+        }
         return out;
       };
 
@@ -491,7 +497,14 @@ export function makeOpenAICompatProvider(deps: {
           built.push({ id, name: a.name, args });
         }
         for (const b of built) yield { kind: "toolUse", id: b.id, name: b.name, args: b.args };
-        if (inTok > 0 || outTok > 0) yield { kind: "usage", inputTokens: inTok, outputTokens: outTok };
+        if (inTok > 0 || outTok > 0 || usageCost !== undefined) {
+          yield {
+            kind: "usage",
+            inputTokens: inTok,
+            outputTokens: outTok,
+            ...(usageCost !== undefined ? { cost: usageCost } : {}),
+          };
+        }
         yield { kind: "finish" };
       };
 

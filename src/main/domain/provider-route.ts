@@ -3,7 +3,7 @@
 // 첫 흐름(provider 출처)은 lab-proxy / native / ollama 만. local-live(naia-omni)·claude-cli·nextain-error 는 후속.
 import type { ProviderConfig } from "./chat.js";
 
-export type ProviderRoute = "lab-proxy" | "ollama" | "anthropic" | "claude-code" | "codex" | "grok" | "native";
+export type ProviderRoute = "lab-proxy" | "ollama" | "anthropic" | "claude-code" | "codex" | "grok" | "native" | "webllm";
 
 /**
  * **provider 타입**으로 라우팅(루크 정정 2026-06-12 — naiaKey 유무 아님):
@@ -19,6 +19,8 @@ export type ProviderRoute = "lab-proxy" | "ollama" | "anthropic" | "claude-code"
  */
 export function resolveProviderRoute(config: ProviderConfig): ProviderRoute {
 	if (config.provider === "nextain") return "lab-proxy";
+	// 브라우저 Worker 전용 로컬 엔진이며 엔진은 호스트가 주입한다.
+	if (config.provider === "webllm") return "webllm";
 	if (config.provider === "ollama") return "ollama";
 	if (config.provider === "claude-code-cli") return "claude-code"; // Agent SDK(구독 인증) — anthropic 보다 먼저 peel
 	if (config.provider === "codex") return "codex"; // app-server(로컬 Codex 로그인) — OpenAI API-key route 와 분리
@@ -113,5 +115,6 @@ export function providerProcessingEndpoint(config: ProviderConfig): string | und
   if (route === "ollama") return nativeBaseUrl("ollama", config.ollamaHost);
   if (route === "anthropic") return anthropicBaseUrl(config);
   if (route === "claude-code" || route === "codex" || route === "grok") return `opaque-cli:${encodeURIComponent(config.provider)}:${encodeURIComponent(config.model)}`;
+  if (route === "webllm") return undefined; // 브라우저 전용 WebLLM — 네이티브 URL 폴백에서 명시 격리
   try { return nativeBaseUrl(config.provider, config.labGatewayUrl ?? config.vllmHost); } catch { return undefined; }
 }

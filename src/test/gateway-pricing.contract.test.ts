@@ -5,7 +5,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { applyGatewayPricing, calculateCost } from "../main/domain/cost.js";
 import type { AgentEmit, ProviderConfig } from "../main/domain/chat.js";
 import type { ProviderPort } from "../main/ports/uc1.js";
-import { wireAgentUC1 } from "../main/composition/index.js";
+import { wireAgentUC1, makeInMemoryCredentials } from "../main/composition/index.js";
+import { ChatTurnHandler } from "../main/app/chat-turn-handler.js";
+import { makeBudgetedConversation } from "../main/adapters/budgeted-conversation.js";
+import { makeInMemoryApproval } from "../main/adapters/approval.js";
 import {
 	ensureGatewayPricing,
 	resetGatewayPricingThrottleForTest,
@@ -202,5 +205,87 @@ describe("wireAgentUC1 chat turn — gateway pricing cost calculation", () => {
 		await runTurn({ provider: "claude-code-cli", model: "claude-sonnet-4-6" });
 
 		expect(fetchMock).not.toHaveBeenCalled();
+	});
+});
+
+describe("commitCompletedTurn pricing wait — nextain SSE-cost fast path", () => {
+	function sseCostProvider(cost: number): ProviderPort {
+		return {
+			async *chat() {
+				yield { kind: "text", text: "ok." };
+				yield { kind: "usage", inputTokens: 1000, outputTokens: 500, cost };
+				yield { kind: "finish" };
+			},
+		};
+	}
+
+	function noCostProvider(): ProviderPort {
+		return {
+			async *chat() {
+				yield { kind: "text", text: "ok." };
+				yield { kind: "usage", inputTokens: 100_000, outputTokens: 50_000 };
+				yield { kind: "finish" };
+			},
+		};
+	}
+
+	async function runDirectTurn(opts: {
+		provider: ProviderPort;
+		model: string;
+		ensureGatewayPricing: (gatewayUrl?: string) => Promise<number>;
+	}) {
+		const emitted: AgentEmit[] = [];
+		const handler = new ChatTurnHandler({
+			provider: opts.provider,
+			conversation: makeBudgetedConversation(),
+			credentials: makeInMemoryCredentials(),
+			approval: makeInMemoryApproval(),
+			egress: { emit: (_reqId, e) => emitted.push(e) },
+			diag: { log: () => {}, debug: () => {} },
+			ensureGatewayPricing: opts.ensureGatewayPricing,
+		});
+		await handler.onChatRequest({
+			kind: "chat",
+			requestId: "req-pricing-fast-path",
+			provider: { provider: "nextain", model: opts.model },
+			messages: [{ role: "user", content: "hi" }],
+		});
+		return emitted;
+	}
+
+	it("nextain turn where every round supplied SSE usage.cost commits without awaiting a hanging pricingReady", async () => {
+		let pricingCalls = 0;
+		const hangingPricing = (): Promise<number> => {
+			pricingCalls++;
+			return new Promise<number>(() => {}); // 절대 resolve 안 됨 — 구 코드는 여기서 5000ms 대기
+		};
+		const start = Date.now();
+		const emitted = await runDirectTurn({
+			provider: sseCostProvider(0.0042),
+			model: "sse-cost-model",
+			ensureGatewayPricing: hangingPricing,
+		});
+		const elapsed = Date.now() - start;
+		expect(pricingCalls).toBe(1); // pricingReady 는 생성되지만 commit 에서 await 하지 않음
+		expect(elapsed).toBeLessThan(2000); // 구 코드면 raceTimeout 5000ms 대기
+		expect(emitted.at(-1)?.kind).toBe("finish");
+		const usage = emitted.find((e): e is Extract<AgentEmit, { kind: "usage" }> => e.kind === "usage");
+		expect(usage?.cost).toBeCloseTo(0.0042, 8);
+	});
+
+	it("nextain turn with missing SSE cost still awaits pricingReady (overlay 반영)", async () => {
+		const model = "pricing-await-probe-model";
+		const delayedOverlay = async (): Promise<number> => {
+			await new Promise((r) => setTimeout(r, 200));
+			return applyGatewayPricing([{ model, input: 1, output: 2 }]);
+		};
+		const emitted = await runDirectTurn({
+			provider: noCostProvider(),
+			model,
+			ensureGatewayPricing: delayedOverlay,
+		});
+		expect(emitted.at(-1)?.kind).toBe("finish");
+		const usage = emitted.find((e): e is Extract<AgentEmit, { kind: "usage" }> => e.kind === "usage");
+		expect(usage?.cost).toBeCloseTo((100_000 * 1 + 50_000 * 2) / 1_000_000, 8);
 	});
 });

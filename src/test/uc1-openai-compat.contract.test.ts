@@ -121,6 +121,64 @@ describe("makeOpenAICompatProvider (GLM/openai SSE, mock)", () => {
   });
 });
 
+describe("R47 OpenAI 호환 SSE 사용량 비용", () => {
+  const initialUsage = 'data: {"choices":[],"usage":{"prompt_tokens":1000,"completion_tokens":20,"cost":0.003}}\n';
+
+  it("마지막 사용량 스냅샷의 USD 비용과 토큰 수를 보존한다", async () => {
+    const out = await collect(prov([
+      initialUsage,
+      'data: {"choices":[],"usage":{"prompt_tokens":1999,"completion_tokens":42,"cost":0.0069043}}\n',
+      'data: {"choices":[{"delta":{"content":"ok"}}],"usage":null}\n',
+      "data: [DONE]\n",
+    ]).chat(cfg, [], {}));
+    expect(out).toStrictEqual([
+      { kind: "text", text: "ok" },
+      { kind: "usage", inputTokens: 1999, outputTokens: 42, cost: 0.0069043 },
+      { kind: "finish" },
+    ]);
+  });
+
+  it("토큰 수가 0이어도 비용 0을 보존한다", async () => {
+    const out = await collect(prov([
+      'data: {"choices":[],"usage":{"prompt_tokens":0,"completion_tokens":0,"cost":0}}\n',
+      "data: [DONE]\n",
+    ]).chat(cfg, [], {}));
+    expect(out).toStrictEqual([
+      { kind: "usage", inputTokens: 0, outputTokens: 0, cost: 0 },
+      { kind: "finish" },
+    ]);
+  });
+
+  it("마지막 사용량에 비용이 없으면 이전 비용을 버린다", async () => {
+    const out = await collect(prov([
+      initialUsage,
+      'data: {"choices":[],"usage":{"prompt_tokens":1999,"completion_tokens":42}}\n',
+      "data: [DONE]\n",
+    ]).chat(cfg, [], {}));
+    expect(out).toStrictEqual([
+      { kind: "usage", inputTokens: 1999, outputTokens: 42 },
+      { kind: "finish" },
+    ]);
+  });
+
+  it.each([
+    ["숫자 문자열", '"0.0069043"'],
+    ["음수", "-0.01"],
+    ["NaN의 JSON 표현인 null", JSON.stringify(NaN)],
+    ["비유한 숫자", "1e400"],
+  ])("마지막 사용량의 잘못된 비용을 생략한다 (%s)", async (_label, costJson) => {
+    const out = await collect(prov([
+      initialUsage,
+      `data: {"choices":[],"usage":{"prompt_tokens":1999,"completion_tokens":42,"cost":${costJson}}}\n`,
+      "data: [DONE]\n",
+    ]).chat(cfg, [], {}));
+    expect(out).toStrictEqual([
+      { kind: "usage", inputTokens: 1999, outputTokens: 42 },
+      { kind: "finish" },
+    ]);
+  });
+});
+
 // ── §C slice 1b: tools 전송 + streaming tool_calls 재조립 ──
 function captureStream(lines: string[]) {
   const enc = new TextEncoder();
