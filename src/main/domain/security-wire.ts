@@ -10,8 +10,9 @@ export type SecurityWireResult<T> =
 
 export interface TrustedBinding {
   readonly bindingId: string;
-  readonly guildId: string;
+  readonly guildId: string | null;
   readonly channelId: string;
+  readonly parentChannelId?: string;
   readonly allowedUserIds: readonly string[];
   readonly processingProfileRef: string;
 }
@@ -75,13 +76,21 @@ export function validateSecurityWireRequest(
     }
     const trusted = context.trustedBinding;
     if (!trusted) return fail(requestId, "WIRE_SCOPE_FORBIDDEN", "channel");
+    const guildMatches = trusted.guildId === null
+      ? discord.guildId === null
+      : bounded(discord.guildId, 128) && SNOWFLAKE.test(discord.guildId)
+        && discord.guildId === trusted.guildId;
+    const directChannelMatches = discord.channelId === trusted.channelId;
+    const threadParentMatches = trusted.guildId !== null
+      && trusted.parentChannelId === trusted.channelId
+      && discord.parentChannelId === trusted.parentChannelId
+      && discord.channelId !== trusted.channelId;
     if (!opaque(discord.bindingId)
-      || !bounded(discord.guildId, 128) || !SNOWFLAKE.test(discord.guildId)
       || !bounded(discord.channelId, 128) || !SNOWFLAKE.test(discord.channelId)
       || !bounded(discord.userId, 128) || !SNOWFLAKE.test(discord.userId)
       || discord.bindingId !== trusted.bindingId
-      || discord.guildId !== trusted.guildId
-      || discord.channelId !== trusted.channelId
+      || !guildMatches
+      || (!directChannelMatches && !threadParentMatches)
       || !trusted.allowedUserIds.includes(discord.userId)) {
       return fail(requestId, "WIRE_SCOPE_FORBIDDEN", "channel");
     }

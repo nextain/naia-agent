@@ -12,9 +12,11 @@ export interface SubLlmCallOptions {
 	 */
 	readonly authorizeAndDisclose?: (input: {
 		readonly workload: "sub_llm";
+        readonly role?: "memory" | "main";
 		readonly provider: string;
 		readonly model: string;
 		readonly endpoint: string;
+		readonly signal?: AbortSignal;
 	}) => Promise<boolean>;
 }
 
@@ -33,4 +35,7 @@ export interface SubLlmPort {
 	/** 구성 진단(테스트·로그용). */
 	readonly provider: string;
 	readonly model?: string;
+	readonly local?: boolean;
+	readonly endpoint?: string;
+    readonly role?: "memory" | "main";
 }

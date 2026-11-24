@@ -28,6 +28,7 @@ import { ChatTurnHandler, type HandlerDeps } from "../main/app/chat-turn-handler
 import { makeInMemoryCredentials } from "../main/composition/index.js";
 import { makeInMemoryApproval } from "../main/adapters/approval.js";
 import { makeFakeProvider } from "../main/adapters/fake-provider.js";
+import type { ProviderPort, ProviderChatOpts } from "../main/ports/uc1.js";
 
 /** 요청 body 를 포착하는 mock fetch(SSE 1줄 + DONE). */
 function captureFetch(sink: { body?: Record<string, unknown> }) {
@@ -408,6 +409,67 @@ describe("UC-THINKING — S-THINK-9 / FR-THINK-11 (응답 다중 형식 & 중복
   });
 });
 
+describe("UC-THINKING — Ollama capability status handoff", () => {
+  it("turn level survives into ProviderConfig and the explicit unsupported signal uses the existing AgentEmit path", async () => {
+    const emits: { requestId: string; e: AgentEmit }[] = [];
+    let seenConfig: ProviderConfig | undefined;
+    const provider: ProviderPort = {
+      async *chat(config: ProviderConfig, _messages: readonly ChatMessage[], opts: ProviderChatOpts): AsyncIterable<ProviderChunk> {
+        seenConfig = config;
+        opts.onOllamaThinkingUnsupported?.(config.ollamaHost ?? "http://localhost:11434", config.model);
+        yield { kind: "finish" };
+      },
+    };
+    const deps: HandlerDeps = {
+      provider: makeFakeProvider(),
+      resolver: { resolve: () => provider },
+      conversation: { assemble: (request) => ({ messages: request.messages }) },
+      credentials: makeInMemoryCredentials(),
+      approval: makeInMemoryApproval(),
+      egress: { emit: (requestId, e) => emits.push({ requestId, e }) },
+      diag: { log: () => {} },
+    };
+    await new ChatTurnHandler(deps).onChatRequest({
+      kind: "chat",
+      requestId: "ollama-thinking-status",
+      provider: { provider: "ollama", model: "qwen3:8b", ollamaHost: "http://localhost:11434" },
+      thinking: { level: "high" },
+      messages: [{ role: "user", content: "hi" }],
+    });
+
+    expect(seenConfig).toMatchObject({ thinkingLevel: "high", enableThinking: true });
+    expect(emits.map(({ e }) => e.kind)).toContain("logEntry");
+    expect(emits.find(({ e }) => e.kind === "logEntry")?.e).toEqual({
+      kind: "logEntry",
+      level: "ollama_thinking_unsupported",
+      message: JSON.stringify({ host: "http://localhost:11434", model: "qwen3:8b" }),
+    });
+  });
+
+  it("keeps Ollama capability probing and think conversion out of other providers", async () => {
+    const urls: string[] = [];
+    const bodies: Record<string, unknown>[] = [];
+    const enc = new TextEncoder();
+    const fetch = async (url: string, init: { body: string }) => {
+      urls.push(url);
+      bodies.push(JSON.parse(init.body) as Record<string, unknown>);
+      let index = 0;
+      const lines = ['data: {"choices":[{"delta":{"content":"ok"}}]}\n', "data: [DONE]\n"];
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        body: { getReader: () => ({ async read() { return index >= lines.length ? { done: true } : { done: false, value: enc.encode(lines[index++]!) }; } }) },
+      };
+    };
+    const resolver = makeProviderResolver({ fetch: fetch as never });
+    const config: ProviderConfig = { provider: "openai", model: "gpt-4o", thinkingLevel: "high", enableThinking: true };
+    await drain(resolver.resolve(config).chat(config, [{ role: "user", content: "hi" }], {}));
+    expect(urls.some((url) => url.endsWith("/api/show"))).toBe(false);
+    expect(bodies[0]).not.toHaveProperty("think");
+  });
+});
+
 describe("UC-THINKING — 핸들러 2라운드 도구 루프 통합 (첫 라운드 생각이 두 번째 요청 본문에 reasoning_content 로 실림)", () => {
   it("두 번째 요청 본문의 assistant 메시지에 reasoning_content 가 실린다", async () => {
     const capturedBodies: Record<string, unknown>[] = [];
@@ -490,3 +552,101 @@ describe("UC-THINKING — 핸들러 2라운드 도구 루프 통합 (첫 라운�
   });
 });
 
+
+describe("FR-THINK-13·14 small model transport", () => {
+  it("UT-SM-AGENT-THINK-01 proto 숫자와 이름의 네 수준을 디코드한다", () => {
+    for (const [number, name, expected] of [[1, "OFF", "off"], [2, "LOW", "low"], [3, "HIGH", "high"], [4, "XHIGH", "xhigh"]] as const) {
+      for (const level of [number, `THINKING_LEVEL_${name}`]) {
+        expect(chatRequestToDomain({ requestId: "r", messages: [], thinking: { level } }).thinking).toEqual({ level: expected });
+      }
+    }
+    for (const level of [0, "THINKING_LEVEL_UNSPECIFIED", 99, "UNKNOWN", undefined]) {
+      expect(chatRequestToDomain({ requestId: "r", messages: [], thinking: { level } }).thinking).toBeUndefined();
+    }
+    for (const level of [undefined, 99, "UNKNOWN"] as const) for (const enabled of [true, false, undefined]) {
+      const req = chatRequestToDomain({ requestId: "r", messages: [], ...(level === undefined ? {} : { thinking: { level } }), ...(enabled === undefined ? {} : { enableThinking: enabled }) });
+      expect(resolveTurnThinking(req)).toBeUndefined();
+      expect(req.enableThinking).toBe(enabled);
+      expect("enableThinking" in req).toBe(enabled !== undefined);
+    }
+  });
+
+  it("IT-SM-AGENT-THINK-01 요청 수준을 제공자별 계약대로 보낸다", async () => {
+    for (const level of ["off", "low", "high", "xhigh"] as const) {
+      const sink: { body?: Record<string, unknown> } = {};
+      const provider = makeOpenAICompatProvider({ baseUrl: "https://example.invalid", apiKey: "test", supportsThinkingLevel: true, fetch: captureFetch(sink) as never });
+      await drain(provider.chat({ provider: "nextain", model: "m", thinkingLevel: level, enableThinking: level !== "off" }, [], {}));
+      if (level === "off") expect(sink.body).not.toHaveProperty("reasoning_effort");
+      else expect(sink.body?.reasoning_effort).toBe(level);
+    }
+    for (const level of [undefined, 0, 99, "UNKNOWN"] as const) for (const enabled of [true, false, undefined]) {
+      const req = chatRequestToDomain({ requestId: "r", messages: [], ...(level === undefined ? {} : { thinking: { level } }), ...(enabled === undefined ? {} : { enableThinking: enabled }) });
+      for (const route of ["gateway", "local", "remote"] as const) {
+        const sink: { body?: Record<string, unknown> } = {};
+        const provider = makeOpenAICompatProvider({ baseUrl: "https://example.invalid", apiKey: "test", supportsThinkingLevel: route === "gateway", supportsReasoningEffort: route === "local", fetch: captureFetch(sink) as never });
+        await drain(provider.chat({ provider: "test", model: "m", ...(req.enableThinking === undefined ? {} : { enableThinking: req.enableThinking }) }, [], {}));
+        if (route === "local" && enabled === false) expect(sink.body?.reasoning_effort).toBe("none");
+        else expect(sink.body).not.toHaveProperty("reasoning_effort");
+      }
+    }
+  });
+});
+
+it("IT-SM-AGENT-THINK-01 Anthropic legacy 여섯 조합을 adaptive 본문으로 보존한다", async () => {
+  const { makeAnthropicProvider } = await import("../main/adapters/anthropic-provider.js");
+  for (const level of [undefined, 0, 99, "UNKNOWN"] as const) for (const enabled of [true, false, undefined]) {
+    const request = chatRequestToDomain({ requestId: "r", messages: [], ...(level === undefined ? {} : { thinking: { level } }), ...(enabled === undefined ? {} : { enableThinking: enabled }) });
+    const sink: { body?: Record<string, unknown> } = {};
+    const provider = makeAnthropicProvider({ baseUrl: "https://example.invalid", apiKey: "fake", fetch: captureFetch(sink) as never });
+    await drain(provider.chat({ provider: "anthropic", model: "m", ...(request.enableThinking === undefined ? {} : { enableThinking: request.enableThinking }) }, [], {}));
+    if (enabled === true) expect(sink.body?.thinking).toEqual({ type: "adaptive" });
+    else expect(sink.body).not.toHaveProperty("thinking");
+  }
+});
+
+it("IT-SM-AGENT-THINK-01 미지정은 기존 provider 설정을 덮지 않는다", async () => {
+  for (const raw of [undefined, 0, 99, "UNKNOWN"] as const) {
+    let seen: ProviderConfig | undefined;
+    const provider: ProviderPort = { async *chat(config) { seen = config; yield { kind: "finish" }; } };
+    const handler = new ChatTurnHandler({ provider, defaultConfig: { provider: "nextain", model: "m", thinkingLevel: "xhigh", enableThinking: true }, conversation: { assemble: (request) => ({ messages: request.messages }) }, credentials: makeInMemoryCredentials(), approval: makeInMemoryApproval(), egress: { emit: () => {} }, diag: { log: () => {} } });
+    const request = chatRequestToDomain({ requestId: "r", messages: [{ role: "user", content: "hi" }], ...(raw === undefined ? {} : { thinking: { level: raw } }) });
+    await handler.onChatRequest(request);
+    expect(seen).toMatchObject({ thinkingLevel: "xhigh", enableThinking: true });
+    const sink: { body?: Record<string, unknown> } = {};
+    const gateway = makeOpenAICompatProvider({ baseUrl: "https://example.invalid", apiKey: "fake", supportsThinkingLevel: true, fetch: captureFetch(sink) as never });
+    await drain(gateway.chat(seen!, [], {})); expect(sink.body?.reasoning_effort).toBe("xhigh");
+  }
+});
+
+it("IT-SM-AGENT-THINK-01 미지정은 Anthropic 기존 생각 설정을 유지한다", async () => {
+  const { makeAnthropicProvider } = await import("../main/adapters/anthropic-provider.js");
+  const sink: { body?: Record<string, unknown> } = {};
+  const provider = makeAnthropicProvider({ baseUrl: "https://example.invalid", apiKey: "fake", fetch: captureFetch(sink) as never });
+  await drain(provider.chat({ provider: "anthropic", model: "m", enableThinking: true }, [], {}));
+  expect(sink.body?.thinking).toEqual({ type: "adaptive" });
+});
+
+it("IT-SM-AGENT-THINK-01 legacy 설정이 기존 수준보다 우선해 실제 제공자 본문에 반영된다", async () => {
+  const { makeOllamaProvider } = await import("../main/adapters/ollama-provider.js");
+  for (const raw of [undefined, 0, 99, "UNKNOWN"] as const) for (const enabled of [false, true, undefined]) {
+    for (const route of ["gateway", "ollama"] as const) {
+      const bodies: Record<string, unknown>[] = [];
+      const gatewayFetch = captureFetch({});
+      const fetch = async (url: string, init: { body: string }) => {
+        if (url.endsWith("/api/show")) return { ok: true, status: 200, json: async () => ({ thinking: { values: [true, false] } }) };
+        bodies.push(JSON.parse(init.body));
+        if (route === "gateway") return gatewayFetch(url, init);
+        const enc = new TextEncoder(); let done = false;
+        return { ok: true, status: 200, statusText: "OK", body: { getReader: () => ({ read: async () => done ? { done: true } : (done = true, { done: false, value: enc.encode('{"done":true}\n') }), cancel: async () => {} }) } };
+      };
+      const provider = route === "gateway" ? makeOpenAICompatProvider({ baseUrl: "https://example.invalid", apiKey: "fake", supportsThinkingLevel: true, fetch: fetch as never }) : makeOllamaProvider({ fetch: fetch as never });
+      const handler = new ChatTurnHandler({ provider, defaultConfig: { provider: route === "gateway" ? "nextain" : "ollama", model: "m", thinkingLevel: "xhigh", enableThinking: true }, conversation: { assemble: (request) => ({ messages: request.messages }) }, credentials: makeInMemoryCredentials(), approval: makeInMemoryApproval(), egress: { emit: () => {} }, diag: { log: () => {} } });
+      await handler.onChatRequest(chatRequestToDomain({ requestId: "r", messages: [{ role: "user", content: "hi" }], ...(raw === undefined ? {} : { thinking: { level: raw } }), ...(enabled === undefined ? {} : { enableThinking: enabled }) }));
+      expect(bodies.length).toBeGreaterThan(0);
+      if (route === "gateway") {
+        if (enabled === undefined) expect(bodies[0]?.reasoning_effort).toBe("xhigh");
+        else expect(bodies[0]).not.toHaveProperty("reasoning_effort");
+      } else expect(bodies[0]?.think).toBe(enabled === undefined ? true : enabled);
+    }
+  }
+});

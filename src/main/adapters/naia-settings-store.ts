@@ -28,6 +28,7 @@ export interface SettingsFsRead {
 export type ResolveSecret = (ref: string) => string | undefined;
 
 interface LLMRole {
+	contextWindow?: number;
 	provider?: string;
 	baseUrl?: string;
 	model?: string;
@@ -133,9 +134,10 @@ const NAIA_MEMORY_LLM_DEFAULT_MODEL = "gemini-3.1-flash-lite";
 function assembleConfig(
 	provider: string,
 	model: string,
-	opts: { secret?: string; baseUrl?: string; ollamaHost?: string; ollamaNumGpu?: number; vllmHost?: string },
+	opts: { secret?: string; baseUrl?: string; ollamaHost?: string; ollamaNumGpu?: number; vllmHost?: string; contextWindow?: number },
 ): ProviderConfig {
-	const base = { provider, model };
+	const contextWindow = opts.contextWindow;
+	const base = { provider, model, ...(Number.isSafeInteger(contextWindow) && contextWindow! > 0 ? { contextWindow } : {}) };
 	const route = resolveProviderRoute(base);
 	if (route === "lab-proxy") {
 		return { ...base, ...(opts.secret ? { naiaKey: opts.secret } : {}), ...(opts.baseUrl ? { labGatewayUrl: opts.baseUrl } : {}) };
@@ -203,7 +205,7 @@ export function makeNaiaSettingsStore(deps: {
 		const model = m.model ?? "";
 		if (!provider || !model) { log("naia-settings.main.incomplete", { file }); return null; }
 		const secret = m.apiKeyRef ? resolveSecret(m.apiKeyRef) : undefined;
-		return assembleConfig(provider, model, { ...(secret ? { secret } : {}), ...(m.baseUrl ? { baseUrl: m.baseUrl } : {}) });
+		return assembleConfig(provider, model, { contextWindow: m.contextWindow, ...(secret ? { secret } : {}), ...(m.baseUrl ? { baseUrl: m.baseUrl } : {}) });
 	}
 
 	/** (2) naia-os 셸 정본 포맷 config.json {provider, model, ollamaHost, vllmHost, naiaGatewayUrl/NAIA_ANYLLM_BASE_URL}.
@@ -232,6 +234,7 @@ export function makeNaiaSettingsStore(deps: {
 		//    ollamaHost 전용 필드 또는 llm.json baseUrl(CLI). nextain 이 아니면 baseUrl 미적용.
 		const baseUrl = structuredMain?.baseUrl ?? (provider === "nextain" ? (str("naiaGatewayUrl") ?? str("NAIA_ANYLLM_BASE_URL")) : undefined);
 		return assembleConfig(provider, model, {
+			contextWindow: structuredMain?.contextWindow ?? c["contextWindow"] as number | undefined,
 			...(mainSecret ? { secret: mainSecret } : {}),
 			...(baseUrl ? { baseUrl } : {}),
 			...(str("ollamaHost") ? { ollamaHost: str("ollamaHost")! } : {}),
@@ -276,10 +279,12 @@ export function makeNaiaSettingsStore(deps: {
 		const str = (key: string) => typeof role[key] === "string" ? (role[key] as string) : undefined;
 		const inherit = (["main", "sub", "memory", "expert"] as const).find((candidate) => candidate === str("inherit"));
 		const selection: LlmRoleSelection = {
+			...(typeof role["contextWindow"] === "number" && Number.isSafeInteger(role["contextWindow"]) && role["contextWindow"] > 0 ? { contextWindow: role["contextWindow"] } : {}),
 			...(str("provider") ? { provider: str("provider") } : {}),
 			...(str("model") ? { model: str("model") } : {}),
 			...(str("baseUrl") ? { baseUrl: str("baseUrl") } : {}),
 			...(str("credentialRef") ? { credentialRef: str("credentialRef") } : {}),
+			...(["off", "low", "high", "xhigh"].includes(str("thinkingLevel") ?? "") ? { thinkingLevel: str("thinkingLevel") } : {}),
 			...(inherit ? { inherit } : {}),
 		};
 		return Object.keys(selection).length ? selection : undefined;
@@ -295,7 +300,8 @@ export function makeNaiaSettingsStore(deps: {
 		const mainRole = roleSelection(structured?.["main"]);
 		const expertRole = roleSelection(structured?.["expert"]);
 		const subRole = roleSelection(structured?.["sub"]);
-		const memoryRole = roleSelection(structured?.["memory"]);
+		const rawMemoryRole = roleSelection(structured?.["memory"]);
+		const memoryRole = rawMemoryRole?.provider === "none" ? { provider: "none", model: "none" } : rawMemoryRole;
 		const roles = {
 			...(expertRole ? { expert: expertRole } : {}),
 			...(mainRole ? { main: mainRole } : {}),
@@ -305,6 +311,7 @@ export function makeNaiaSettingsStore(deps: {
 		const providerSelection = (prefix: "" | "subLlm" | "memoryLlm"): LlmRoleSelection | undefined => {
 			const provider = str(prefix ? `${prefix}Provider` : "provider");
 			const model = str(prefix ? `${prefix}Model` : "model");
+			if (prefix === "memoryLlm" && provider === "none") return { provider: "none", model: "none" };
 			if (!provider || provider === "none") return undefined;
 			const baseUrl = prefix ? str(`${prefix}BaseUrl`) : undefined;
 			const credentialRef = prefix ? str(`${prefix}CredentialRef`) : undefined;
@@ -324,7 +331,10 @@ export function makeNaiaSettingsStore(deps: {
 			...(legacyMemory ? { memory: legacyMemory } : {}),
 		};
 		if (!Object.keys(roles).length && !Object.keys(legacy).length) return null;
-		return resolveLlmRoles({ roles, legacy });
+		const effectiveRoles = !subRole && !legacySub && !memoryRole && !legacyMemory
+			? { ...roles, memory: { provider: "none", model: "none" } }
+			: roles;
+		return resolveLlmRoles({ roles: effectiveRoles, legacy });
 	}
 
 	function fromLlmJsonLlmRoles(file: string): LlmRolesResolution | null {
@@ -344,7 +354,7 @@ export function makeNaiaSettingsStore(deps: {
 			roles: {
 				...(main ? { main } : {}),
 				...(sub ? { sub } : {}),
-				...(memory ? { memory } : {}),
+				...(memory ? { memory } : !sub ? { memory: { provider: "none", model: "none" } } : {}),
 			},
 		});
 	}

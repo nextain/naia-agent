@@ -2,6 +2,20 @@
 
 > **SoT**: `.agents/context/process-status.json`
 
+## Issue #169 — 독립 Discord 호스트와 DM·스레드 (검토 중)
+
+- 검수 r3 B1: lease 취득 전 SIGTERM/SIGINT 처리기를 설치하고, 시작 중 신호·예외·promise 거절에서 정리와 상태 기록을 수행한다. 중복 신호는 단일 종료 promise로 처리한다.
+- 검증 조건: Node 22.23.4, `CI=1`, CPU 0–3, Vitest 기본 3 workers 및 기본 heap. 각 `pnpm test`의 pretest 빌드 통과.
+
+| 실행 | 실패/통과/skip 파일 | 실패/통과/skip 시험 | uncaught errors |
+|---|---:|---:|---:|
+| 기준 `fdc6fcb` 1·2회 | 20 / 154 / 3 | 132 / 2,036 / 11 | 1 |
+| 수정 후 HEAD 1·2회 | 20 / 157 / 3 | 132 / 2,080 / 11 | 1 |
+
+- 네 실행의 실패 파일과 실패 시험 이름·중복 건수는 같고 uncaught error도 동일하다. 전체 시험은 기존 실패로 exit 1이다.
+- 가짜 Gateway 프로세스·배선 집중 26개 통과. SIGTERM 단독·SIGINT 단독·연속 신호, 시작 중 예외·promise 거절, lease 해제·상태 및 즉시 재시작을 검증했다. 실제 Discord에 접속하지 않았다.
+- P01~P04 완료, FR-DISCORD-169/P05는 독립 적대 리뷰 전까지 In review. PR #170은 초안이다.
+
 ## Memory live reload — 2026-08-03 (#106)
 
 - 상태: 구현·검증 완료, 상위 작업의 commit/push 대기.

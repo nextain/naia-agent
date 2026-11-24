@@ -1,7 +1,8 @@
 // adapters/llm-role-runtime — effective role config를 OpenAI-compatible batch/memory 런타임 설정으로 변환.
 // provider capability·endpoint·credential ref 규칙을 한 곳에 모아 sub와 memory가 설정 필드를 공유하지 않게 한다.
-import type { EffectiveLlmConfig, LlmRole } from "../domain/llm-roles.js";
-import { nativeBaseUrl } from "../domain/provider-route.js";
+import type { EffectiveLlmConfig, LlmRole, LlmRolesResolution } from "../domain/llm-roles.js";
+import { nativeBaseUrl, providerProcessingEndpoint } from "../domain/provider-route.js";
+import type { ProviderConfig } from "../domain/chat.js";
 import type { SubLlmConfig } from "./sub-llm-provider.js";
 
 const MAIN_ONLY = new Set(["codex", "claude-code-cli", "anthropic"]);
@@ -71,8 +72,42 @@ export function resolveRoleRuntimeConfig(
       model: effective.model.value,
       baseUrl,
       ...(apiKey ? { apiKey } : {}),
+	  ...(effective.thinkingLevel?.value ? { thinkingLevel: effective.thinkingLevel.value } : {}),
       ...((provider === "nextain" || provider === "naia") ? { auth: "x-anyllm" as const } : {}),
     },
     ...(credentialRef ? { credentialRef } : {}),
+  };
+}
+
+/** Look up only trusted selected roles; an ambiguous same-model endpoint fails closed. */
+export function resolveMemoryRoleEndpoint(
+  roles: LlmRolesResolution | null,
+  actual: { provider: string; model: string },
+  resolveSecret: (ref: string) => string | undefined,
+  mainConfig?: ProviderConfig,
+  expectedEndpoint?: string,
+  expectedRole?: "memory" | "main",
+): string | undefined {
+  if (!roles?.ok) return undefined;
+  const urls = roles.configs.filter((role) => (role.role === "memory" || role.role === "main") && (!expectedRole || role.role === expectedRole) && role.provider.value === actual.provider && role.model.value === actual.model)
+    .map((role) => {
+      if (role.role === "main" && mainConfig?.provider === actual.provider && mainConfig.model === actual.model) return providerProcessingEndpoint(mainConfig);
+      const runtime = resolveRoleRuntimeConfig({ ...role, role: "sub" }, resolveSecret);
+      return runtime.ok ? runtime.config.baseUrl : undefined;
+    }).filter((url): url is string => !!url).map((url) => url.replace(/\/+$/, ""));
+  const unique = [...new Set(urls)];
+  const matches = expectedEndpoint === undefined ? unique : unique.filter((url) => url === expectedEndpoint.replace(/\/+$/, ""));
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+/** Recheck the trusted selected endpoint before and after an asynchronous approval. */
+export function bindMemoryAuthorization(
+  resolveCurrent: (input: { provider: string; model: string; endpoint: string; role?: "memory" | "main" }) => string | undefined,
+  authorize: NonNullable<import("../ports/sub-llm.js").SubLlmCallOptions["authorizeAndDisclose"]>,
+): NonNullable<import("../ports/sub-llm.js").SubLlmCallOptions["authorizeAndDisclose"]> {
+  return async (input) => {
+    const expected = input.endpoint.replace(/\/+$/, "");
+    const matches = () => resolveCurrent(input)?.replace(/\/+$/, "") === expected;
+    return !input.signal?.aborted && matches() && await authorize(input) && !input.signal?.aborted && matches();
   };
 }

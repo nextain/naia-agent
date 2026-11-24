@@ -96,7 +96,7 @@ export function decodeRequest(line: string): AgentRequest | null {
           const t = o["thinking"];
           if (t && typeof t === "object") {
             const level = (t as Record<string, unknown>)["level"];
-            if (level === "off" || level === "low" || level === "high") {
+            if (level === "off" || level === "low" || level === "high" || level === "xhigh") {
               return { thinking: { level: level as ThinkingLevel } };
             }
           }

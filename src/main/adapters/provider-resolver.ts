@@ -8,6 +8,7 @@ import type { ProviderConfig, ProviderChunk } from "../domain/chat.js";
 import type { ProviderPort, ProviderResolverPort } from "../ports/uc1.js";
 import { resolveProviderRoute, labProxyBaseUrl, nativeBaseUrl, anthropicBaseUrl, isLocalEngineBaseUrl } from "../domain/provider-route.js";
 import { makeOpenAICompatProvider } from "./openai-compat-provider.js";
+import { naiaGatewayContextWindow } from "./naia-pi-provider.js";
 import { makeOllamaProvider } from "./ollama-provider.js";
 import { makeAnthropicProvider } from "./anthropic-provider.js";
 import { makeClaudeCodeProvider } from "./claude-code-provider.js";
@@ -30,6 +31,7 @@ export interface ProviderResolverDeps {
 
 export function makeProviderResolver(deps?: ProviderResolverDeps): ProviderResolverPort {
 	const f = deps?.fetch;
+	const ollamaProvider = makeOllamaProvider(f ? { fetch: f } : undefined);
 	return {
 		resolve(config: ProviderConfig): ProviderPort {
 			switch (resolveProviderRoute(config)) {
@@ -42,7 +44,7 @@ export function makeProviderResolver(deps?: ProviderResolverDeps): ProviderResol
 					};
 				case "ollama":
 					// fetch 주입 전달(미주입=global). 안 넘기면 헤드리스 테스트가 ollama 를 mock 못 해 실 네트워크로 샘(직교 위반).
-					return makeOllamaProvider(f ? { fetch: f } : undefined);
+					return ollamaProvider;
 				case "anthropic":
 					// anthropic — Messages API(/v1/messages, x-api-key, ANTHROPIC_API_KEY). OpenAI-compat 아님 → 전용 어댑터.
 					return makeAnthropicProvider({
@@ -72,6 +74,7 @@ export function makeProviderResolver(deps?: ProviderResolverDeps): ProviderResol
 					// naia 게이트웨이 — OpenAI-compat /v1/chat/completions, auth=X-AnyLLM-Key: naiaKey.
 					// UC-THINKING/FR-THINK-3: 게이트웨이 뒤에 어떤 모델이 있을지 모른다 → reasoning_effort 미지원(false).
 					const baseUrl = labProxyBaseUrl(config);
+					const contextWindow = naiaGatewayContextWindow(config.model);
 					return makeOpenAICompatProvider({
 						baseUrl,
 						apiKey: config.naiaKey ?? "",
@@ -83,6 +86,8 @@ export function makeProviderResolver(deps?: ProviderResolverDeps): ProviderResol
 						supportsTools: true,
 						promptCacheShard: config.model === "gpt-5.6-sol" || config.model === "gpt-5.6-luna",
 						...(config.model === "deepseek-v4-flash" ? { maxTokens: 16_384 } : {}),
+						// 출력 예약(maxTokens)만 주고 문맥 한도를 빼면 기본 예산이 대화 기록을 다 지운다(#176 검수 1).
+						...(contextWindow ? { contextWindow } : {}),
 						...(f ? { fetch: f } : {}),
 					});
 				}

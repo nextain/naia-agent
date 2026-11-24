@@ -24,6 +24,28 @@ export type RadioDjControl =
   | { readonly kind: "next" }
   | { readonly kind: "stop" };
 
+export interface RadioDjBgmEvent {
+  readonly kind: "track_ended" | "track_playing" | "track_changed" | "track_error";
+  readonly activityId?: string;
+  readonly playbackId?: string;
+  readonly sequence?: number;
+  readonly videoId?: string;
+  readonly title?: string;
+  readonly previousVideoId?: string;
+  readonly previousTitle?: string;
+  readonly nextPlaybackId?: string;
+  readonly nextVideoId?: string;
+  readonly nextTitle?: string;
+  readonly continued?: boolean;
+  readonly reason?: string;
+}
+
+export type RadioDjCommentGenerator = (input: {
+  readonly previousTitle?: string;
+  readonly nextTitle?: string;
+  readonly signal?: AbortSignal;
+}) => Promise<string | undefined>;
+
 export type PersonalRadioDjState =
   | "disabled"
   | "idle"
@@ -44,8 +66,14 @@ interface DjDeps {
   readonly selector: {
     select(
       snapshot: DjContextSnapshot,
-      opts?: { readonly changeVibe?: boolean },
+      opts?: {
+        readonly changeVibe?: boolean;
+        readonly attempt?: number;
+        readonly failedQueries?: readonly string[];
+        readonly excludedArtists?: readonly string[];
+      },
     ): Promise<{ readonly query: string; readonly reason: "time" | "weather" | "mood" | "preference" | "favorite" | "generic" }>;
+    recordFailure?(query: string): void;
   };
   readonly bgm: RadioDjBgmPort;
   readonly speech: RadioDjSpeechPort;
@@ -62,6 +90,8 @@ interface DjDeps {
   readonly lease?: { readonly durationMs?: number; readonly maxUtterances?: number };
   /** #119 — 자율(유휴 타이머) 실패 관측 로그. 미주입=no-op(테스트 무소음). */
   readonly log?: (message: string, ctx?: Record<string, unknown>) => void;
+  /** Optional main-model transition comment generator; falls back to template when absent/slow. */
+  readonly commentGenerator?: RadioDjCommentGenerator;
 }
 
 const WEATHER_FRESH_MS = 60 * 60_000;
@@ -114,6 +144,29 @@ export class PersonalRadioDjController {
   private controllerStarts = 0;
   private startFailureStreak = 0;
   private spokenFailureNotices = new Set<string>();
+  private userRequestedMusicOnly = false;
+  private awaitingPlaybackConfirmation = false;
+  private lastHandledTrackEndKey = "";
+  private lastHandledTrackChangeKey = "";
+  private lastWrappedUpTrackKey = "";
+  private activePlaybackId = "";
+  private activeVideoId = "";
+  private activePlaybackSequence = 0;
+  private retiredPlaybackIds = new Set<string>();
+  private retiredVideoIds = new Set<string>();
+  private announcedPlaybackIds = new Set<string>();
+  private announcedVideoId = "";
+  private pendingTransition?: {
+    readonly previousTitle: string;
+    readonly nextPlaybackId?: string;
+    readonly nextVideoId: string;
+    readonly nextTitle: string;
+  };
+  private deferredTransitionComment?: string;
+  private transitionSpeechChain: Promise<void> = Promise.resolve();
+  private failedSearchQueries = new Set<string>();
+  private retryRotationCursor = 0;
+  private preQueuedPlaybackKeys = new Set<string>();
 
   constructor(private readonly d: DjDeps) {}
 
@@ -129,7 +182,7 @@ export class PersonalRadioDjController {
 
   configure(config: PersonalRadioDjConfig | undefined): void {
     // #115 — idempotent guard: 활성(비-stopped) 상태에서 동등 config 재전송(disabled 재전송 포함)은 no-op.
-    //   프로필 재푸시/재연결 churn 이 진행 중 활동을 파괴하고 start() 를 재발화하는 레이스를 차단한다.
+    //   프로필 재푸시/재연결 churn 이 진행 중 활동을 파괴하고 start() 를 재발화하는 레이스 차단한다.
     //   stopped 상태의 명시 재-configure 는 재시작 신호이므로 기존 전체 리셋을 유지한다.
     if (this.currentState !== "stopped" && sameDjConfig(this.config, config)) return;
     this.deactivateCurrent();
@@ -142,6 +195,23 @@ export class PersonalRadioDjController {
     this.controllerStarts = 0;
     this.startFailureStreak = 0;
     this.spokenFailureNotices.clear();
+    this.userRequestedMusicOnly = false;
+    this.awaitingPlaybackConfirmation = false;
+    this.lastHandledTrackEndKey = "";
+    this.lastHandledTrackChangeKey = "";
+    this.lastWrappedUpTrackKey = "";
+    this.activePlaybackId = "";
+    this.activeVideoId = "";
+    this.activePlaybackSequence = 0;
+    this.retiredPlaybackIds.clear();
+    this.retiredVideoIds.clear();
+    this.announcedPlaybackIds.clear();
+    this.announcedVideoId = "";
+    this.pendingTransition = undefined;
+    this.deferredTransitionComment = undefined;
+    this.failedSearchQueries.clear();
+    this.retryRotationCursor = 0;
+    this.preQueuedPlaybackKeys.clear();
     this.armIdle();
   }
 
@@ -175,7 +245,7 @@ export class PersonalRadioDjController {
     if (
       !this.config
       || !this.activityId
-      || !["playing", "dj_speaking"].includes(this.currentState)
+      || !["selecting", "playing", "dj_speaking", "music_only"].includes(this.currentState)
     ) return undefined;
     this.cancelFlow();
     this.operationEpoch++;
@@ -200,13 +270,67 @@ export class PersonalRadioDjController {
       || binding.yieldGeneration !== this.yieldGeneration
       || binding.resumeToken !== expectedToken
     ) return false;
+    if (this.userRequestedMusicOnly) {
+      this.currentState = "music_only";
+      this.deferredTransitionComment = undefined;
+      return true;
+    }
     this.currentState = "dj_speaking";
-    this.scheduleComment();
+    const deferred = this.deferredTransitionComment;
+    this.deferredTransitionComment = undefined;
+    if (deferred) {
+      const generation = this.generation;
+      const activityId = this.activityId;
+      const operationEpoch = this.operationEpoch;
+      void this.enqueueTransitionSpeech(generation, activityId, operationEpoch, async (signal) => {
+        if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+        if (this.currentState === "yielded") {
+          this.deferredTransitionComment = this.deferredTransitionComment
+            ? `${deferred} ${this.deferredTransitionComment}`
+            : deferred;
+          return;
+        }
+        await this.speak(deferred, signal);
+        if (this.isOperationCurrent(generation, activityId, operationEpoch) && this.currentState === "dj_speaking") {
+          this.scheduleComment();
+        }
+      });
+    } else {
+      this.scheduleComment();
+    }
+    return true;
+  }
+
+  private ensureActivityOpen(): boolean {
+    if (!this.config) return false;
+    if (this.activityId && this.requestId) return true;
+    this.activityId = this.d.ids.next();
+    this.requestId = `radio-dj:${this.activityId}`;
+    this.activityAbort = new AbortController();
+    this.controllerStarts++;
+    this.leaseUtterances = 0;
+    this.armLease();
+    this.d.speech.open({
+      sessionId: this.config.sessionId,
+      activityId: this.activityId,
+      requestId: this.requestId,
+      profileGeneration: this.generation,
+    });
     return true;
   }
 
   async control(control: RadioDjControl): Promise<void> {
-    if (!this.config || !this.activityId || !this.requestId) return;
+    if (!this.config) return;
+    if (control.kind === "stop") {
+      await this.stop();
+      return;
+    }
+    if ((!this.activityId || !this.requestId) && this.currentState === "idle") {
+      this.cancelFlow();
+      this.ensureActivityOpen();
+      this.currentState = "dj_speaking";
+    }
+    if (!this.activityId || !this.requestId) return;
     this.resetStartFailureBackoff(); // #115 — 사용자 명시 액션은 실패 streak·발화 dedupe 를 리셋한다
     const generation = this.generation;
     const activityId = this.activityId;
@@ -214,6 +338,8 @@ export class PersonalRadioDjController {
     const operationEpoch = this.operationEpoch;
     switch (control.kind) {
       case "music_only":
+        this.userRequestedMusicOnly = true;
+        this.awaitingPlaybackConfirmation = false;
         this.cancelFlow();
         this.preserveLatePlaybackEpochs.add(operationEpoch);
         this.operationEpoch++;
@@ -233,6 +359,8 @@ export class PersonalRadioDjController {
         }
         return;
       case "talk_more":
+        this.userRequestedMusicOnly = false;
+        this.awaitingPlaybackConfirmation = false;
         this.intervalMs = Math.max(
           this.config.djIntervalMs,
           Math.floor(this.intervalMs / 2),
@@ -247,9 +375,15 @@ export class PersonalRadioDjController {
         }
         return;
       case "change_vibe":
+        this.userRequestedMusicOnly = false;
+        this.awaitingPlaybackConfirmation = false;
+        this.pendingTransition = undefined;
         await this.replaceSelection(true, generation, operationEpoch);
         return;
       case "next": {
+        this.userRequestedMusicOnly = false;
+        this.awaitingPlaybackConfirmation = false;
+        this.pendingTransition = undefined;
         if (this.d.bgm.capabilities().next) {
           let next;
           let previous: Awaited<ReturnType<RadioDjBgmPort["status"]>>;
@@ -270,7 +404,7 @@ export class PersonalRadioDjController {
             }
             return;
           }
-          // A tool dispatch is not a track transition.  Announce only the exact
+          // A tool dispatch is not a track transition. Announce only the exact
           // Player-accepted next track, and never narrate the same track as new.
           if (
             next.ok
@@ -278,10 +412,22 @@ export class PersonalRadioDjController {
             && next.title
             && next.videoId !== previous?.track?.videoId
           ) {
+            this.retireTrack(previous?.playbackId, previous?.track?.videoId);
+            this.acceptActiveTrack({
+              playbackId: next.playbackId,
+              videoId: next.videoId,
+              sequence: next.sequence,
+              title: next.title,
+            });
+            this.markTrackAnnounced(next.playbackId, next.videoId);
+            this.currentState = "dj_speaking";
             await this.speak(renderPlayIntro(next.title));
+            if (this.isOperationCurrent(generation, activityId, operationEpoch) && this.currentState === "dj_speaking") {
+              this.scheduleComment();
+            }
           } else {
             // Native next can be unavailable (empty/one-item queue) or reject a
-            // duplicate.  Select a new track instead of claiming that it changed.
+            // duplicate. Select a new track instead of claiming that it changed.
             await this.replaceSelection(true, generation, operationEpoch);
           }
         } else {
@@ -289,26 +435,21 @@ export class PersonalRadioDjController {
         }
         return;
       }
-      case "stop":
-        await this.stop();
     }
   }
 
   async stop(): Promise<void> {
-    this.cancelScheduled();
-    this.replacementInFlight = undefined;
-    this.preserveLatePlaybackEpochs.clear();
-    this.generation++;
-    this.operationEpoch++;
-    this.activityAbort?.abort();
     const activityId = this.activityId;
     const requestId = this.requestId;
-    if (activityId) this.d.speech.interrupt(activityId);
+    this.generation++;
+    this.retireActiveExecution();
     this.currentState = "stopped";
     if (activityId && requestId) {
       try { await this.d.bgm.stop({ requestId, activityId }); } catch { /* stop is best-effort but terminal */ }
     }
     if (activityId) this.d.speech.close(activityId, "finished");
+    this.activityId = undefined;
+    this.requestId = undefined;
   }
 
   async recordExplicitPreference(
@@ -390,21 +531,56 @@ export class PersonalRadioDjController {
       profileGeneration: generation,
     });
     let played: Awaited<ReturnType<RadioDjBgmPort["searchAndPlay"]>>;
+    let initialLive: Awaited<ReturnType<RadioDjBgmPort["status"]>>;
     try {
       const raw = await this.d.context.snapshot(config);
       if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
       const live = await this.d.bgm.status();
+      initialLive = live;
       if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
       const snapshot = this.freshSnapshot(raw, live);
       this.lastSnapshot = snapshot;
-      const selection = await this.d.selector.select(snapshot);
+      const usedInOperation = new Set<string>();
+      const selection = await this.selectDistinctQuery(snapshot, {
+        changeVibe: false,
+        attempt: 0,
+        usedInOperation,
+      });
       if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
       this.lastReason = sourceExists(selection.reason, snapshot) ? selection.reason : "generic";
       played = await this.d.bgm.searchAndPlay(selection.query, {
         requestId,
         activityId,
         signal: this.activityAbort.signal,
+        preserveActive: true,
       });
+      if (!played.ok) {
+        this.recordFailedQuery(selection.query);
+      } else if (played.preservedActive && played.nextPrepared === false) {
+        this.recordFailedQuery(selection.query);
+        if (this.isOperationCurrent(generation, activityId, operationEpoch)) {
+          const retrySelection = await this.selectDistinctQuery(snapshot, {
+            changeVibe: true,
+            attempt: 1,
+            usedInOperation,
+          });
+          if (this.isOperationCurrent(generation, activityId, operationEpoch)) {
+            this.lastReason = sourceExists(retrySelection.reason, snapshot) ? retrySelection.reason : "generic";
+            const retryPlayed = await this.d.bgm.searchAndPlay(retrySelection.query, {
+              requestId,
+              activityId,
+              signal: this.activityAbort.signal,
+              preserveActive: true,
+            });
+            if (!retryPlayed.ok || (retryPlayed.preservedActive && retryPlayed.nextPrepared === false)) {
+              this.recordFailedQuery(retrySelection.query);
+            }
+            if (retryPlayed.ok) {
+              played = retryPlayed;
+            }
+          }
+        }
+      }
     } catch {
       await this.failAndRearm(generation, activityId, operationEpoch, "음악을 준비하는 중 문제가 생겼어요.");
       return;
@@ -419,12 +595,31 @@ export class PersonalRadioDjController {
       this.startFailureStreak++; // #115
       this.noteAutoFailureOnce("지금은 조건에 맞는 음악을 재생하지 못했어요."); // #119 — 자율 시작 실패는 무발화
       if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
-      // A player timeout is recoverable. Keep the long-lived activity route so
-      // `next` / `change_vibe` can retry instead of ACKing against a stale ID.
+      // Unconfirmed playback is "confirming", not a permanent death. Keep the
+      // activity route and mark awaitingPlaybackConfirmation so a subsequent
+      // track_playing / track_ended event recovers speech automatically.
+      this.awaitingPlaybackConfirmation = true;
       this.currentState = "music_only";
       return;
     }
     this.resetStartFailureBackoff(); // #115 — 시작 성공이 연속 실패 구간을 닫는다
+    this.awaitingPlaybackConfirmation = false;
+    this.pendingTransition = undefined;
+    this.acceptActiveTrack({
+      playbackId: played.playbackId ?? (played.preservedActive ? initialLive?.playbackId : undefined),
+      videoId: played.videoId,
+      sequence: played.sequence ?? (played.preservedActive ? initialLive?.sequence : undefined),
+      title: played.title,
+    });
+    this.markTrackAnnounced(this.activePlaybackId, played.videoId);
+    if (played.preservedActive) {
+      // A user-chosen or LLM-initiated song is already playing; do not interrupt
+      // it with a startup intro. Wait for the song to finish and speak on transition.
+      this.currentState = "dj_speaking";
+      this.commentIndex = 0;
+      this.scheduleComment();
+      return;
+    }
     this.currentState = "playing";
     try {
       await this.speak(renderPlayIntro(played.title));
@@ -436,6 +631,528 @@ export class PersonalRadioDjController {
     this.currentState = "dj_speaking";
     this.commentIndex = 0;
     this.scheduleComment();
+  }
+
+  /**
+   * Handle real-time BGM lifecycle events (`track_playing`, `track_ended`,
+   * `track_changed`, `track_error`) pushed from the Shell regardless of
+   * `aiInterferenceEnabled`.
+   */
+  async onBgmEvent(event: RadioDjBgmEvent): Promise<void> {
+    if (!this.config || !this.subscriberReady) return;
+    if (this.currentState === "disabled" || this.currentState === "stopped") return;
+    if (event.activityId && this.activityId && event.activityId !== this.activityId) return;
+    if (this.currentState === "idle") {
+      if (event.kind === "track_playing") return;
+      this.cancelFlow();
+      if (!this.ensureActivityOpen()) return;
+      this.currentState = this.userRequestedMusicOnly ? "music_only" : "dj_speaking";
+    }
+    if (!this.activityId || !this.requestId) return;
+    if (this.isStaleBgmEvent(event)) return;
+    const generation = this.generation;
+    const activityId = this.activityId;
+    const operationEpoch = this.operationEpoch;
+
+    if (event.kind === "track_playing") {
+      const videoId = event.videoId?.trim() ?? "";
+      const title = event.title?.trim() ?? "";
+      this.acceptActiveTrack({
+        playbackId: event.playbackId,
+        videoId,
+        sequence: event.sequence,
+        title,
+      });
+      if (this.pendingTransition) {
+        const pending = this.pendingTransition;
+        if (
+          (!pending.nextPlaybackId || !event.playbackId || pending.nextPlaybackId === event.playbackId.trim())
+          && (!pending.nextVideoId || !videoId || pending.nextVideoId === videoId)
+        ) {
+          this.pendingTransition = undefined;
+          this.awaitingPlaybackConfirmation = false;
+          this.resetStartFailureBackoff();
+          const confirmedTitle = cleanTrackTitle(title || pending.nextTitle);
+          const trackPb = event.playbackId?.trim() || pending.nextPlaybackId || "";
+          const trackVid = videoId || pending.nextVideoId;
+          if (!this.userRequestedMusicOnly && confirmedTitle && !this.hasAnnouncedTrack(trackPb, trackVid)) {
+            this.markTrackAnnounced(trackPb, trackVid);
+            await this.enqueueTransitionSpeech(generation, activityId, operationEpoch, async (signal) => {
+              const intro = await this.buildTransitionComment("", confirmedTitle, signal);
+              if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+              if (this.currentState === "yielded") {
+                this.deferredTransitionComment = this.deferredTransitionComment
+                  ? `${this.deferredTransitionComment} ${intro}`
+                  : intro;
+                return;
+              }
+              this.currentState = "dj_speaking";
+              await this.speak(intro, signal);
+              if (this.isOperationCurrent(generation, activityId, operationEpoch) && this.currentState === "dj_speaking") {
+                this.scheduleComment();
+              }
+            });
+          }
+          return;
+        }
+      }
+      if (this.currentState === "selecting" || this.replacementInFlight) {
+        return;
+      }
+      if (this.currentState === "music_only" && (this.awaitingPlaybackConfirmation || !this.userRequestedMusicOnly)) {
+        this.awaitingPlaybackConfirmation = false;
+        this.resetStartFailureBackoff();
+        this.currentState = "dj_speaking";
+        const trackPb = event.playbackId?.trim() ?? "";
+        if (title && (trackPb || videoId) && !this.hasAnnouncedTrack(trackPb, videoId)) {
+          this.markTrackAnnounced(trackPb, videoId);
+          await this.speak(renderPlayIntro(cleanTrackTitle(title)));
+        }
+        if (this.isOperationCurrent(generation, activityId, operationEpoch) && this.currentState === "dj_speaking") {
+          this.scheduleComment();
+        }
+      }
+      return;
+    }
+
+    if (event.kind === "track_ended") {
+      const endKey =
+        event.playbackId?.trim() ||
+        `${event.previousVideoId ?? ""}:${event.previousTitle ?? ""}`;
+      if (endKey && this.lastHandledTrackEndKey === endKey) return;
+      if (endKey) this.lastHandledTrackEndKey = endKey;
+      this.retireTrack(event.playbackId, event.previousVideoId ?? event.videoId);
+      this.cancelFlow();
+      const prevTitle = cleanTrackTitle(
+        event.previousTitle || this.lastSnapshot?.nowPlaying?.title || "",
+      );
+      if (event.continued && event.nextTitle?.trim()) {
+        const nextTitle = cleanTrackTitle(event.nextTitle);
+        const nextVideoId = event.nextVideoId?.trim() ?? "";
+        const nextPlaybackId = event.nextPlaybackId?.trim() ?? "";
+        this.announcedVideoId = "";
+        if (nextPlaybackId) {
+          this.activePlaybackId = nextPlaybackId;
+          this.activePlaybackSequence = 0;
+          this.retiredPlaybackIds.delete(nextPlaybackId);
+        } else {
+          this.activePlaybackId = "";
+          this.activePlaybackSequence = 0;
+        }
+        if (nextVideoId) {
+          this.activeVideoId = nextVideoId;
+          this.retiredVideoIds.delete(nextVideoId);
+        } else {
+          this.activeVideoId = "";
+        }
+        this.pendingTransition = {
+          previousTitle: prevTitle,
+          ...(nextPlaybackId ? { nextPlaybackId } : {}),
+          nextVideoId,
+          nextTitle,
+        };
+        this.awaitingPlaybackConfirmation = true;
+        if (this.userRequestedMusicOnly) return;
+        if (prevTitle && (!endKey || this.lastWrappedUpTrackKey !== endKey)) {
+          if (endKey) this.lastWrappedUpTrackKey = endKey;
+          await this.enqueueTransitionSpeech(generation, activityId, operationEpoch, async (signal) => {
+            const wrapUp = await this.buildTransitionComment(prevTitle, "", signal);
+            if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+            if (this.currentState === "yielded") {
+              this.deferredTransitionComment = wrapUp;
+              return;
+            }
+            this.currentState = "dj_speaking";
+            await this.speak(wrapUp, signal);
+            if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+          });
+        }
+        return;
+      }
+      await this.selectAndPlayAfterRealtimeEnd(prevTitle, endKey, generation, operationEpoch);
+      return;
+    }
+
+    if (event.kind === "track_changed") {
+      const changeKey = `${event.previousVideoId ?? ""}->${event.nextVideoId ?? event.nextTitle ?? ""}`;
+      if (changeKey && this.lastHandledTrackChangeKey === changeKey) return;
+      if (changeKey) this.lastHandledTrackChangeKey = changeKey;
+      this.retireTrack(undefined, event.previousVideoId);
+      this.cancelFlow();
+      const prevTitle = cleanTrackTitle(
+        event.previousTitle || this.lastSnapshot?.nowPlaying?.title || "",
+      );
+      const nextTitle = cleanTrackTitle(event.nextTitle || "");
+      if (!nextTitle) return;
+      const nextVideoId = event.nextVideoId?.trim() ?? "";
+      const nextPlaybackId = (event.nextPlaybackId ?? event.playbackId)?.trim() ?? "";
+      this.announcedVideoId = "";
+      if (nextPlaybackId) {
+        this.activePlaybackId = nextPlaybackId;
+        this.retiredPlaybackIds.delete(nextPlaybackId);
+      }
+      if (nextVideoId) {
+        this.activeVideoId = nextVideoId;
+        this.retiredVideoIds.delete(nextVideoId);
+      }
+      this.pendingTransition = {
+        previousTitle: prevTitle,
+        ...(nextPlaybackId ? { nextPlaybackId } : {}),
+        nextVideoId,
+        nextTitle,
+      };
+      this.awaitingPlaybackConfirmation = true;
+      if (this.userRequestedMusicOnly) return;
+      const wrapKey = event.previousVideoId?.trim() || prevTitle;
+      if (prevTitle && (!wrapKey || this.lastWrappedUpTrackKey !== wrapKey)) {
+        if (wrapKey) this.lastWrappedUpTrackKey = wrapKey;
+        await this.enqueueTransitionSpeech(generation, activityId, operationEpoch, async (signal) => {
+          const wrapUp = await this.buildTransitionComment(prevTitle, "", signal);
+          if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+          if (this.currentState === "yielded") {
+            this.deferredTransitionComment = wrapUp;
+            return;
+          }
+          this.currentState = "dj_speaking";
+          await this.speak(wrapUp, signal);
+          if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+        });
+      }
+      return;
+    }
+
+    if (event.kind === "track_error") {
+      this.retireTrack(event.playbackId, event.previousVideoId ?? event.videoId);
+      if (event.continued && event.nextTitle?.trim()) {
+        const nextVideoId = event.nextVideoId?.trim() ?? "";
+        const nextPlaybackId = event.nextPlaybackId?.trim() ?? "";
+        this.announcedVideoId = "";
+        if (nextPlaybackId) {
+          this.activePlaybackId = nextPlaybackId;
+          this.activePlaybackSequence = 0;
+          this.retiredPlaybackIds.delete(nextPlaybackId);
+        }
+        if (nextVideoId) {
+          this.activeVideoId = nextVideoId;
+          this.retiredVideoIds.delete(nextVideoId);
+        }
+        this.pendingTransition = {
+          previousTitle: "",
+          ...(nextPlaybackId ? { nextPlaybackId } : {}),
+          nextVideoId,
+          nextTitle: cleanTrackTitle(event.nextTitle),
+        };
+        this.awaitingPlaybackConfirmation = true;
+        return;
+      }
+      if (!event.continued) {
+        await this.replaceSelection(true, generation, operationEpoch);
+      }
+    }
+  }
+
+  private async selectAndPlayAfterRealtimeEnd(
+    previousTitle: string,
+    endedTrackKey: string,
+    generation: number,
+    operationEpoch: number,
+  ): Promise<void> {
+    if (this.replacementInFlight) return this.replacementInFlight;
+    const attempt = (async () => {
+      if (!this.config || !this.activityId || !this.requestId) return;
+      const activityId = this.activityId;
+      const requestId = this.requestId;
+      const wasYielded = this.currentState === "yielded";
+      // FR-CONT-MVP-9 / MVP-1 / FR-RADIO-DJ.5:
+      // 1) After observing `ended`, complete the short wrap-up comment first (only referencing
+      //    the confirmed ended track; never announce an unconfirmed next track title).
+      if (!this.userRequestedMusicOnly && (!endedTrackKey || this.lastWrappedUpTrackKey !== endedTrackKey)) {
+        if (endedTrackKey) this.lastWrappedUpTrackKey = endedTrackKey;
+        await this.enqueueTransitionSpeech(generation, activityId, operationEpoch, async (signal) => {
+          const wrapUp = await this.buildTransitionComment(previousTitle, "", signal);
+          if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+          if (this.currentState === "yielded" || wasYielded) {
+            this.deferredTransitionComment = wrapUp;
+            return;
+          }
+          this.currentState = "dj_speaking";
+          await this.speak(wrapUp, signal);
+          if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+        });
+        if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+      }
+      // 2) In the same activity, request the next search & play with mode=radio_dj.
+      if (!wasYielded && this.currentState !== "yielded" && !this.userRequestedMusicOnly) {
+        this.currentState = "selecting";
+      }
+      let played: Awaited<ReturnType<RadioDjBgmPort["searchAndPlay"]>>;
+      const failedAttempts: { query: string; reason: string }[] = [];
+      try {
+        const raw = await this.d.context.snapshot(this.config);
+        if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+        const live = await this.d.bgm.status();
+        if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+        const snapshot = this.freshSnapshot(raw, live);
+        this.lastSnapshot = snapshot;
+        const usedInOperation = new Set<string>();
+        // 검색 한 번 실패로 라디오가 멈추지 않게: 힌트 검색어 → 힌트 없는 분위기 검색어 → 고정 기본 검색어 순으로 시도한다.
+        let lastPlayed: Awaited<ReturnType<RadioDjBgmPort["searchAndPlay"]>> | undefined;
+        for (let attempt = 0; attempt < NEXT_TRACK_SEARCH_ATTEMPTS; attempt++) {
+          const selection = await this.selectDistinctQuery(snapshot, {
+            changeVibe: true,
+            attempt,
+            usedInOperation,
+          });
+          if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+          this.lastReason = sourceExists(selection.reason, snapshot) ? selection.reason : "generic";
+          lastPlayed = await this.d.bgm.searchAndPlay(selection.query, {
+            requestId,
+            activityId,
+            signal: this.activityAbort?.signal,
+          });
+          if (lastPlayed.ok) break;
+          this.recordFailedQuery(selection.query);
+          failedAttempts.push({ query: selection.query, reason: lastPlayed.reason });
+          if (!this.isOperationCurrent(generation, activityId, operationEpoch)) break;
+        }
+        if (!lastPlayed) return;
+        played = lastPlayed;
+      } catch {
+        this.awaitingPlaybackConfirmation = true;
+        this.currentState = "music_only";
+        return;
+      }
+      if (!this.isOperationCurrent(generation, activityId, operationEpoch)) {
+        if (played.ok && this.shouldCompensateLatePlayback(operationEpoch)) {
+          await this.compensateLatePlayback(requestId, activityId);
+        }
+        return;
+      }
+      if (!played.ok) {
+        this.pendingTransition = {
+          previousTitle,
+          nextVideoId: "",
+          nextTitle: "",
+        };
+        this.awaitingPlaybackConfirmation = true;
+        // 조용한 실패 금지: 진단 기록을 남기고, 사용자가 다시 시킬 수 있게 분명히 알린다.
+        this.d.log?.("radio-dj next track search exhausted", { attempts: failedAttempts });
+        const failureNotice = NEXT_TRACK_EXHAUSTED_NOTICE;
+        if (!this.userRequestedMusicOnly && !this.spokenFailureNotices.has(failureNotice)) {
+          this.spokenFailureNotices.add(failureNotice);
+          await this.enqueueTransitionSpeech(generation, activityId, operationEpoch, async (signal) => {
+            if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+            if (this.currentState === "yielded" || wasYielded) {
+              this.deferredTransitionComment = this.deferredTransitionComment
+                ? `${this.deferredTransitionComment} ${failureNotice}`
+                : failureNotice;
+              return;
+            }
+            this.currentState = "dj_speaking";
+            await this.speak(failureNotice, signal);
+          });
+          if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+        }
+        if (this.currentState !== "yielded" && !wasYielded) {
+          this.currentState = "music_only";
+        }
+        return;
+      }
+      // 3) After `playing` is confirmed (`played.ok`), introduce the confirmed next track once.
+      this.resetStartFailureBackoff();
+      this.awaitingPlaybackConfirmation = false;
+      this.pendingTransition = undefined;
+      this.acceptActiveTrack({
+        playbackId: played.playbackId,
+        videoId: played.videoId,
+        sequence: played.sequence,
+        title: played.title,
+      });
+      if (this.userRequestedMusicOnly) {
+        this.currentState = "music_only";
+        return;
+      }
+      const nextTitle = cleanTrackTitle(played.title);
+      const trackPb = played.playbackId ?? this.activePlaybackId;
+      if (this.hasAnnouncedTrack(trackPb, played.videoId)) {
+        if (this.currentState !== "yielded" && !wasYielded) {
+          this.currentState = "dj_speaking";
+          this.scheduleComment();
+        }
+        return;
+      }
+      this.markTrackAnnounced(trackPb, played.videoId);
+      await this.enqueueTransitionSpeech(generation, activityId, operationEpoch, async (signal) => {
+        const intro = await this.buildTransitionComment("", nextTitle, signal);
+        if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+        if (this.currentState === "yielded" || wasYielded) {
+          this.deferredTransitionComment = this.deferredTransitionComment
+            ? `${this.deferredTransitionComment} ${intro}`
+            : intro;
+          return;
+        }
+        this.currentState = "dj_speaking";
+        await this.speak(intro, signal);
+        if (this.isOperationCurrent(generation, activityId, operationEpoch) && this.currentState === "dj_speaking") {
+          this.scheduleComment();
+        }
+      });
+    })();
+    const tracked = attempt.finally(() => {
+      if (this.replacementInFlight === tracked) this.replacementInFlight = undefined;
+    });
+    this.replacementInFlight = tracked;
+    return tracked;
+  }
+
+  private async buildTransitionComment(
+    previousTitle: string,
+    nextTitle: string,
+    signal: AbortSignal | undefined = this.activityAbort?.signal,
+  ): Promise<string> {
+    const prev = cleanTrackTitle(previousTitle);
+    const next = cleanTrackTitle(nextTitle);
+    const fallback = renderTrackTransition(prev, next);
+    if (signal?.aborted) return fallback;
+    if (!this.d.commentGenerator) return fallback;
+    try {
+      const generated = await this.d.commentGenerator({
+        ...(prev ? { previousTitle: prev } : {}),
+        ...(next ? { nextTitle: next } : {}),
+        ...(signal ? { signal } : {}),
+      });
+      const sanitized = sanitizeGeneratedDjComment(generated, prev, next);
+      return sanitized ?? fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  private acceptActiveTrack(input: {
+    readonly playbackId?: string;
+    readonly videoId?: string;
+    readonly sequence?: number;
+    readonly title?: string;
+  }): void {
+    const pb = input.playbackId?.trim() ?? "";
+    const vid = input.videoId?.trim() ?? "";
+    const title = input.title?.trim() ?? "";
+    if (pb && this.activePlaybackId && this.activePlaybackId !== pb) {
+      this.retiredPlaybackIds.add(this.activePlaybackId);
+    }
+    if (vid && this.activeVideoId && this.activeVideoId !== vid) {
+      this.retiredVideoIds.add(this.activeVideoId);
+      if (!pb && this.activePlaybackId) {
+        this.retiredPlaybackIds.add(this.activePlaybackId);
+        this.activePlaybackId = "";
+        this.activePlaybackSequence = 0;
+      }
+      if (this.announcedVideoId && this.announcedVideoId !== vid) {
+        this.announcedVideoId = "";
+      }
+    }
+    if (pb) {
+      const changedPlayback = this.activePlaybackId !== pb;
+      this.activePlaybackId = pb;
+      this.retiredPlaybackIds.delete(pb);
+      if (typeof input.sequence === "number" && Number.isFinite(input.sequence)) {
+        this.activePlaybackSequence = changedPlayback
+          ? input.sequence
+          : Math.max(this.activePlaybackSequence, input.sequence);
+      } else if (changedPlayback) {
+        this.activePlaybackSequence = 0;
+      }
+    } else if (typeof input.sequence === "number" && Number.isFinite(input.sequence)) {
+      this.activePlaybackSequence = Math.max(this.activePlaybackSequence, input.sequence);
+    }
+    if (vid) {
+      this.activeVideoId = vid;
+      this.retiredVideoIds.delete(vid);
+      if (title && this.lastSnapshot) {
+        this.lastSnapshot = {
+          ...this.lastSnapshot,
+          nowPlaying: { videoId: vid, title, source: "bgm-player" },
+        };
+      }
+    }
+  }
+
+  private retireTrack(playbackId: string | undefined, videoId: string | undefined): void {
+    const pb = playbackId?.trim() ?? "";
+    const vid = videoId?.trim() ?? "";
+    if (pb) {
+      this.retiredPlaybackIds.add(pb);
+      if (this.activePlaybackId === pb) {
+        this.activePlaybackId = "";
+        this.activePlaybackSequence = 0;
+      }
+    }
+    if (vid) {
+      this.retiredVideoIds.add(vid);
+      if (this.activeVideoId === vid) {
+        this.activeVideoId = "";
+      }
+    }
+  }
+
+  private markTrackAnnounced(playbackId: string | undefined, videoId: string | undefined): void {
+    const pb = playbackId?.trim() ?? "";
+    const vid = videoId?.trim() ?? "";
+    if (pb) this.announcedPlaybackIds.add(pb);
+    if (vid) this.announcedVideoId = vid;
+  }
+
+  private hasAnnouncedTrack(playbackId: string | undefined, videoId: string | undefined): boolean {
+    const pb = playbackId?.trim() ?? "";
+    const vid = videoId?.trim() ?? "";
+    if (pb && this.announcedPlaybackIds.has(pb)) return true;
+    if (vid && this.announcedVideoId === vid) {
+      if (pb) this.announcedPlaybackIds.add(pb);
+      return true;
+    }
+    return false;
+  }
+
+  private isStaleBgmEvent(event: RadioDjBgmEvent): boolean {
+    if (event.activityId && this.activityId && event.activityId !== this.activityId) {
+      return true;
+    }
+    const pb = event.playbackId?.trim() ?? "";
+    if (
+      pb
+      && this.activePlaybackId
+      && pb === this.activePlaybackId
+      && typeof event.sequence === "number"
+      && Number.isFinite(event.sequence)
+      && event.sequence < this.activePlaybackSequence
+    ) {
+      return true;
+    }
+    if (event.kind === "track_ended" || event.kind === "track_error") {
+      const vid = (event.previousVideoId ?? event.videoId ?? "").trim();
+      if (pb && this.retiredPlaybackIds.has(pb)) return true;
+      if (vid && this.retiredVideoIds.has(vid)) return true;
+      if (this.activePlaybackId && pb && pb !== this.activePlaybackId) return true;
+      if (this.activeVideoId && vid && vid !== this.activeVideoId) return true;
+      return false;
+    }
+    if (event.kind === "track_playing") {
+      const vid = (event.videoId ?? "").trim();
+      if (pb && this.retiredPlaybackIds.has(pb)) return true;
+      if (vid && this.retiredVideoIds.has(vid)) return true;
+      return false;
+    }
+    if (event.kind === "track_changed") {
+      const prevVid = (event.previousVideoId ?? "").trim();
+      const nextPb = (event.nextPlaybackId ?? event.playbackId ?? "").trim();
+      const nextVid = (event.nextVideoId ?? event.videoId ?? "").trim();
+      if (nextPb && this.retiredPlaybackIds.has(nextPb)) return true;
+      if (nextVid && this.retiredVideoIds.has(nextVid)) return true;
+      if (this.activeVideoId && prevVid && prevVid !== this.activeVideoId && nextVid !== this.activeVideoId) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private replaceSelection(changeVibe: boolean, generation: number, operationEpoch: number): Promise<void> {
@@ -464,15 +1181,25 @@ export class PersonalRadioDjController {
       try { await this.speak(transitionText); } catch { /* transition speech is best-effort */ }
       if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
     }
+    let liveBeforeReplace: Awaited<ReturnType<RadioDjBgmPort["status"]>>;
     let played: Awaited<ReturnType<RadioDjBgmPort["searchAndPlay"]>>;
+    let snapshot: DjContextSnapshot;
+    let firstQuery = "";
+    const usedInOperation = new Set<string>();
     try {
       const raw = await this.d.context.snapshot(this.config);
       if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
       const live = await this.d.bgm.status();
+      liveBeforeReplace = live;
       if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
-      const snapshot = this.freshSnapshot(raw, live);
+      snapshot = this.freshSnapshot(raw, live);
       this.lastSnapshot = snapshot;
-      const selection = await this.d.selector.select(snapshot, { changeVibe });
+      const selection = await this.selectDistinctQuery(snapshot, {
+        changeVibe,
+        attempt: 0,
+        usedInOperation,
+      });
+      firstQuery = selection.query;
       if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
       this.lastReason = sourceExists(selection.reason, snapshot) ? selection.reason : "generic";
       played = await this.d.bgm.searchAndPlay(selection.query, {
@@ -491,12 +1218,97 @@ export class PersonalRadioDjController {
       return;
     }
     if (!played.ok) {
-      await this.speakFailureNoticeOnce("다른 분위기의 음악을 찾지 못했어요.");
+      let afterLive: Awaited<ReturnType<RadioDjBgmPort["status"]>>;
+      try {
+        afterLive = await this.d.bgm.status();
+      } catch {
+        afterLive = undefined;
+      }
       if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
-      this.currentState = "music_only";
-      return;
+      if (
+        afterLive?.status === "playing" &&
+        afterLive.track &&
+        (afterLive.playbackId !== liveBeforeReplace?.playbackId ||
+          afterLive.track.videoId !== liveBeforeReplace?.track?.videoId)
+      ) {
+        this.retireTrack(liveBeforeReplace?.playbackId, liveBeforeReplace?.track?.videoId);
+        this.resetStartFailureBackoff();
+        this.awaitingPlaybackConfirmation = false;
+        this.pendingTransition = undefined;
+        this.acceptActiveTrack({
+          playbackId: afterLive.playbackId,
+          videoId: afterLive.track.videoId,
+          sequence: afterLive.sequence,
+          title: afterLive.track.title,
+        });
+        this.markTrackAnnounced(afterLive.playbackId, afterLive.track.videoId);
+        await this.speak(renderPlayIntro(afterLive.track.title));
+        if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+        this.currentState = "dj_speaking";
+        this.scheduleComment();
+        return;
+      }
+      if (
+        afterLive?.pendingTrack &&
+        afterLive.playbackId &&
+        afterLive.playbackId !== liveBeforeReplace?.playbackId
+      ) {
+        this.retireTrack(liveBeforeReplace?.playbackId, liveBeforeReplace?.track?.videoId);
+        this.awaitingPlaybackConfirmation = true;
+        this.currentState = "music_only";
+        return;
+      }
+      this.recordFailedQuery(firstQuery);
+      const failedAttempts: { query: string; reason: string }[] = [{ query: firstQuery, reason: played.reason }];
+      try {
+        for (let attempt = 1; attempt < NEXT_TRACK_SEARCH_ATTEMPTS; attempt++) {
+          const retrySelection = await this.selectDistinctQuery(snapshot, {
+            changeVibe: true,
+            attempt,
+            usedInOperation,
+          });
+          if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+          this.lastReason = sourceExists(retrySelection.reason, snapshot) ? retrySelection.reason : "generic";
+          played = await this.d.bgm.searchAndPlay(retrySelection.query, {
+            requestId,
+            activityId,
+            signal: this.activityAbort?.signal,
+          });
+          if (played.ok) break;
+          this.recordFailedQuery(retrySelection.query);
+          failedAttempts.push({ query: retrySelection.query, reason: played.reason });
+          if (!this.isOperationCurrent(generation, activityId, operationEpoch)) break;
+        }
+      } catch {
+        await this.failAndWaitForUserRetry(generation, activityId, operationEpoch, "다른 분위기의 음악을 준비하지 못했어요.");
+        return;
+      }
+      if (!this.isOperationCurrent(generation, activityId, operationEpoch)) {
+        if (played.ok && this.shouldCompensateLatePlayback(operationEpoch)) {
+          await this.compensateLatePlayback(requestId, activityId);
+        }
+        return;
+      }
+      if (!played.ok) {
+        this.d.log?.("radio-dj replacement search exhausted", { attempts: failedAttempts });
+        await this.speakFailureNoticeOnce("다른 분위기의 음악을 찾지 못했어요.");
+        if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+        this.awaitingPlaybackConfirmation = true;
+        this.currentState = "music_only";
+        return;
+      }
     }
+    this.retireTrack(liveBeforeReplace?.playbackId, liveBeforeReplace?.track?.videoId);
     this.resetStartFailureBackoff(); // #115 — 교체 성공도 연속 실패 구간을 닫는다
+    this.awaitingPlaybackConfirmation = false;
+    this.pendingTransition = undefined;
+    this.acceptActiveTrack({
+      playbackId: played.playbackId,
+      videoId: played.videoId,
+      sequence: played.sequence,
+      title: played.title,
+    });
+    this.markTrackAnnounced(this.activePlaybackId, played.videoId);
     await this.speak(renderPlayIntro(played.title));
     if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
     this.currentState = "dj_speaking";
@@ -563,6 +1375,7 @@ export class PersonalRadioDjController {
       if (live.track && this.lastSnapshot) {
         this.lastSnapshot = { ...this.lastSnapshot, nowPlaying: { ...live.track, source: "bgm-player" } };
       }
+      await this.preQueueNextTrackIfNeeded(live, generation, activityId, operationEpoch);
       if (!this.isOperationCurrent(generation, activityId, operationEpoch) || this.currentState !== "dj_speaking") return;
       await this.speak(renderDjComment(this.commentIndex++, this.lastSnapshot, this.lastReason));
       if (!this.isOperationCurrent(generation, activityId, operationEpoch) || this.currentState !== "dj_speaking") return;
@@ -573,13 +1386,145 @@ export class PersonalRadioDjController {
     if (!fired) this.cancelFlowTimer = cancelTimer;
   }
 
-  private async speak(text: string): Promise<"completed" | "cancelled"> {
-    if (!this.config || !this.activityId) return "cancelled";
+  private recordFailedQuery(query: string): void {
+    const trimmed = query.trim();
+    if (!trimmed) return;
+    this.failedSearchQueries.add(trimmed);
+    this.d.selector.recordFailure?.(trimmed);
+  }
+
+  private async selectDistinctQuery(
+    snapshot: DjContextSnapshot,
+    opts: {
+      readonly changeVibe: boolean;
+      readonly attempt: number;
+      readonly usedInOperation: Set<string>;
+    },
+  ): Promise<{ readonly query: string; readonly reason: "time" | "weather" | "mood" | "preference" | "favorite" | "generic" }> {
+    if (opts.attempt >= FIXED_FALLBACK_ATTEMPT) {
+      // 마지막 시도는 선곡기 힌트와 무관한 고정 기본 검색어로 한다.
+      const query = this.pickFallbackRetryQuery(opts.usedInOperation);
+      opts.usedInOperation.add(query);
+      return { query, reason: "generic" };
+    }
+    const failedQueries = [...this.failedSearchQueries, ...opts.usedInOperation];
+    const selected = await this.d.selector.select(snapshot, {
+      changeVibe: opts.changeVibe,
+      attempt: opts.attempt,
+      failedQueries,
+    });
+    let query = normalizeRadioSearchQuery(selected.query);
+    if (
+      !query
+      || this.failedSearchQueries.has(query)
+      || opts.usedInOperation.has(query)
+    ) {
+      query = this.pickFallbackRetryQuery(opts.usedInOperation);
+    }
+    // 선곡기는 정리 전 문자열로 중복을 보므로 정리 전후를 모두 이번 작업의 사용 목록에 넣는다.
+    const raw = selected.query.trim();
+    if (raw && raw !== query) opts.usedInOperation.add(raw);
+    opts.usedInOperation.add(query);
+    return {
+      query,
+      reason: selected.reason,
+    };
+  }
+
+  private pickFallbackRetryQuery(usedInOperation: Set<string>): string {
+    for (let i = 0; i < FALLBACK_RETRY_QUERIES.length; i++) {
+      const idx = (this.retryRotationCursor + i) % FALLBACK_RETRY_QUERIES.length;
+      const candidate = FALLBACK_RETRY_QUERIES[idx]!;
+      if (!this.failedSearchQueries.has(candidate) && !usedInOperation.has(candidate)) {
+        this.retryRotationCursor = idx + 1;
+        return candidate;
+      }
+    }
+    // 고정 목록을 모두 썼으면 번호를 붙이되, 이미 쓰거나 실패한 문자열은 건너뛴다.
+    for (let guard = 0; guard < 1_000; guard++) {
+      const base = FALLBACK_RETRY_QUERIES[this.retryRotationCursor % FALLBACK_RETRY_QUERIES.length]!;
+      this.retryRotationCursor++;
+      const candidate = `${base} ${this.retryRotationCursor}`;
+      if (!this.failedSearchQueries.has(candidate) && !usedInOperation.has(candidate)) return candidate;
+    }
+    return `${FALLBACK_RETRY_QUERIES[0]!} ${Date.now()}`;
+  }
+
+  private async preQueueNextTrackIfNeeded(
+    live: NonNullable<Awaited<ReturnType<RadioDjBgmPort["status"]>>>,
+    generation: number,
+    activityId: string,
+    operationEpoch: number,
+  ): Promise<void> {
+    if (!this.config || !this.requestId) return;
+    if (this.replacementInFlight || this.currentState === "selecting") return;
+    if (live.queueLength !== 0) return;
+    const duration = live.duration;
+    const currentTime = live.currentTime;
+    if (
+      duration === undefined
+      || !Number.isFinite(duration)
+      || duration <= 0
+      || currentTime === undefined
+      || !Number.isFinite(currentTime)
+      || currentTime < 0
+    ) {
+      return;
+    }
+    const nearEnd = duration - currentTime <= 60 || currentTime >= duration / 2;
+    if (!nearEnd) return;
+    const trackKey = (live.playbackId ?? live.track?.videoId ?? "").trim();
+    if (!trackKey || this.preQueuedPlaybackKeys.has(trackKey)) return;
+    this.preQueuedPlaybackKeys.add(trackKey);
+    const requestId = this.requestId;
+    try {
+      const raw = await this.d.context.snapshot(this.config);
+      if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+      const snapshot = this.freshSnapshot(raw, live);
+      this.lastSnapshot = snapshot;
+      const usedInOperation = new Set<string>();
+      for (let attempt = 0; attempt < NEXT_TRACK_SEARCH_ATTEMPTS; attempt++) {
+        const selection = await this.selectDistinctQuery(snapshot, {
+          changeVibe: true,
+          attempt,
+          usedInOperation,
+        });
+        if (!this.isOperationCurrent(generation, activityId, operationEpoch)) return;
+        const prepared = await this.d.bgm.searchAndPlay(selection.query, {
+          requestId,
+          activityId,
+          signal: this.activityAbort?.signal,
+          preserveActive: true,
+        });
+        if (prepared.ok && prepared.nextPrepared !== false) {
+          return;
+        }
+        this.recordFailedQuery(selection.query);
+      }
+    } catch {
+      // Pre-queuing is opportunistic; end-of-track fallback handles selection if it fails.
+    }
+  }
+
+  private async speak(
+    text: string,
+    signal: AbortSignal | undefined = this.activityAbort?.signal,
+  ): Promise<"completed" | "cancelled"> {
+    if (!this.config || !this.activityId || signal?.aborted || this.currentState === "stopped") {
+      return "cancelled";
+    }
+    const generation = this.generation;
+    const activityId = this.activityId;
+    const operationEpoch = this.operationEpoch;
     const result = await this.d.speech.speak({
       sessionId: this.config.sessionId,
-      activityId: this.activityId,
+      activityId,
       text,
+      ...(signal ? { signal } : {}),
     });
+    if (!this.isOperationCurrent(generation, activityId, operationEpoch) || signal?.aborted) {
+      return "cancelled";
+    }
     if (result === "completed") {
       this.leaseUtterances++;
       this.renewLeaseForUtteranceLimit();
@@ -662,15 +1607,37 @@ export class PersonalRadioDjController {
     return true;
   }
 
-  private deactivateCurrent(): void {
+  private enqueueTransitionSpeech(
+    generation: number,
+    activityId: string,
+    operationEpoch: number,
+    step: (signal: AbortSignal | undefined) => Promise<void>,
+  ): Promise<void> {
+    const signal = this.activityAbort?.signal;
+    const run = async () => {
+      if (!this.isOperationCurrent(generation, activityId, operationEpoch) || signal?.aborted) return;
+      await step(signal);
+    };
+    const next = this.transitionSpeechChain.then(run, run);
+    this.transitionSpeechChain = next.catch(() => {});
+    return next;
+  }
+
+  private retireActiveExecution(): void {
     this.cancelScheduled();
     this.replacementInFlight = undefined;
     this.preserveLatePlaybackEpochs.clear();
+    this.pendingTransition = undefined;
+    this.deferredTransitionComment = undefined;
     this.operationEpoch++;
     this.activityAbort?.abort();
+    if (this.activityId) this.d.speech.interrupt(this.activityId);
+  }
+
+  private deactivateCurrent(): void {
     const activityId = this.activityId;
     const requestId = this.requestId;
-    if (activityId) this.d.speech.interrupt(activityId);
+    this.retireActiveExecution();
     if (activityId) this.d.speech.close(activityId, "cancelled");
     if (activityId && requestId) {
       void this.d.bgm.stop({ requestId, activityId }).catch(() => {});
@@ -714,7 +1681,7 @@ export class PersonalRadioDjController {
       true,
       generation,
       operationEpoch,
-      "한 곡이 마무리됐어요. 다음 분위기를 이어서 골라볼게요.",
+      "한 곡이 마무리됐어요.",
     );
     const tracked = attempt.finally(() => {
       if (this.replacementInFlight === tracked) this.replacementInFlight = undefined;
@@ -725,9 +1692,117 @@ export class PersonalRadioDjController {
 
 }
 
+/** 곡 끝·교체·미리 확보 검색의 최대 시도 수: 힌트 검색어 → 힌트 없는 분위기 → 고정 기본 검색어. */
+const NEXT_TRACK_SEARCH_ATTEMPTS = 3;
+const FIXED_FALLBACK_ATTEMPT = 2;
+const NEXT_TRACK_EXHAUSTED_NOTICE =
+  "다음 곡을 찾지 못해 음악이 멈췄어요. “다음 곡”이라고 말씀해 주시면 다시 찾아볼게요.";
+const MAX_RADIO_SEARCH_QUERY_CHARS = 80;
+
+/**
+ * 셸로 보내는 검색어의 마지막 방어선. NFKC 로 꾸밈 글자(𝐏𝐥𝐚𝐲𝐥𝐢𝐬𝐭 → Playlist)를 풀고,
+ * 제어·서식 문자와 구분 기호(| … ★ 등)를 공백으로 바꾸고, 80자 안에서 낱말 단위로 자른다.
+ */
+export function normalizeRadioSearchQuery(raw: string): string {
+  // 선곡기 cleanRadioSearchText(adapters/radio-dj-runtime.ts)와 같은 규칙이다. app 층은 adapter 를 가져오지 않으므로 따로 둔다.
+  // 이름 안의 ' & - + / . 는 남기고(AC/DC, 1+1, R&B), 기호만으로 된 어절과 어절 앞뒤의 + / . 는 지운다.
+  const cleaned = raw
+    .normalize("NFKC")
+    .replace(/[\p{Cc}\p{Cf}]/gu, " ")
+    .replace(/[^\p{L}\p{N}\p{M}\s'&+/.-]+/gu, " ")
+    .split(/\s+/u)
+    .map((word) => word.replace(/^[+/.]+|[+/.]+$/gu, ""))
+    .filter((word) => word && !/^[-&'+/.]+$/u.test(word))
+    .join(" ");
+  if ([...cleaned].length <= MAX_RADIO_SEARCH_QUERY_CHARS) return cleaned;
+  let out = "";
+  for (const word of cleaned.split(" ")) {
+    const candidate = out ? `${out} ${word}` : word;
+    if ([...candidate].length > MAX_RADIO_SEARCH_QUERY_CHARS) break;
+    out = candidate;
+  }
+  return out || [...cleaned].slice(0, MAX_RADIO_SEARCH_QUERY_CHARS).join("");
+}
+
+const FALLBACK_RETRY_QUERIES: readonly string[] = [
+  "감성 인디 어쿠스틱 노래",
+  "잔잔한 피아노 연주곡",
+  "편안한 어쿠스틱 카페 음악",
+  "부드러운 재즈 보사노바 노래",
+  "맑은 날 드라이브 팝 음악",
+  "차분한 로파이 시티팝 노래",
+  "따뜻한 알앤비 소울 음악",
+  "상쾌한 모닝 어쿠스틱 팝",
+];
+
+const NOISY_TITLE_BRACKET_RE =
+  /[\(\[【]\s*(?:official\s*(?:music\s*)?(?:video|mv|audio|lyric\s*video|visualizer)|m\/v|mv|lyric\s*video|lyrics?|가사|visualizer|live\s*clip|special\s*clip|performance\s*video|full\s*audio|audio|4k|hd|uhd|remastered(?:\s*\d{4})?)\s*[\)\]】]/giu;
+const NOISY_TITLE_SUFFIX_RE =
+  /(?:\s*[-|｜/]\s*|\s+)(?:official\s*(?:music\s*)?(?:video|mv|audio|lyric\s*video)|m\/v)\s*$/giu;
+
+export function cleanTrackTitle(rawTitle: string): string {
+  const trimmed = rawTitle.trim();
+  if (!trimmed) return "";
+  const cleaned = trimmed
+    .replace(NOISY_TITLE_BRACKET_RE, " ")
+    .replace(NOISY_TITLE_SUFFIX_RE, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+  return cleaned || trimmed;
+}
+
+export function renderTrackTransition(previousTitle: string, nextTitle: string): string {
+  const prev = cleanTrackTitle(previousTitle);
+  const next = cleanTrackTitle(nextTitle);
+  if (prev && next) {
+    return `방금은 “${prev}”였어요. 이어서 “${next}” 들려 드릴게요.`;
+  }
+  if (next) {
+    return `이어서 “${next}” 들려 드릴게요.`;
+  }
+  if (prev) {
+    return `방금은 “${prev}”였어요.`;
+  }
+  return "한 곡이 마무리됐어요.";
+}
+
+function sanitizeGeneratedDjComment(
+  raw: string | undefined,
+  prevTitle: string,
+  nextTitle: string,
+): string | undefined {
+  if (!raw) return undefined;
+  const firstLine =
+    raw
+      .replace(/<think>[\s\S]*?<\/think>/giu, "")
+      .replace(/\[emotion:[^\]]*\]/giu, "")
+      .split(/[\r\n]+/u)
+      .map((line) => line.trim())
+      .find((line) => line.length > 0) ?? "";
+  const cleaned = [...firstLine.replace(/\s+/gu, " ").trim()].slice(0, 120).join("").trim();
+  if (!cleaned || [...cleaned].length < 10) {
+    return undefined;
+  }
+  const matchesTitleToken = (title: string): boolean => {
+    if (!title) return true;
+    const tokens = title
+      .toLocaleLowerCase()
+      .split(/[^\p{L}\p{N}]+/u)
+      .filter((tok) => [...tok].length >= 2);
+    if (tokens.length === 0) return true;
+    const lower = cleaned.toLocaleLowerCase();
+    return tokens.some((tok) => lower.includes(tok));
+  };
+  if (!matchesTitleToken(prevTitle) || !matchesTitleToken(nextTitle)) {
+    return undefined;
+  }
+  return cleaned;
+}
+
 function renderPlayIntro(videoTitle: string): string {
+  const cleaned = cleanTrackTitle(videoTitle);
   // title은 player가 확인한 영상 제목이다. 현재 세부 곡을 나타내는 슬롯은 의도적으로 없다.
-  return `“${videoTitle}” 영상을 재생 중이에요. 음악 흐름을 방해하지 않게 가끔 짧게 인사할게요.`;
+  return `“${cleaned}” 영상을 재생 중이에요. 음악 흐름을 방해하지 않게 가끔 짧게 인사할게요.`;
 }
 
 function renderDjComment(

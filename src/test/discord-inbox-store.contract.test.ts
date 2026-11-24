@@ -56,6 +56,14 @@ describe("FR-DISCORD.5/6 — owner-only inbox cache", () => {
       .toEqual([record(1)]);
   });
 
+  it("stores DM records in an explicit DM scope without inventing a guild id", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "naia-discord-inbox-")), "inbox.json");
+    const inbox = makeFileDiscordInbox({ path, generation: "generation_1" });
+    const dmRecord = { ...record(1), guildId: null, channelId: "500" };
+    await expect(inbox.append(dmRecord)).resolves.toBe(true);
+    expect(JSON.parse(readFileSync(path, "utf8")).channels["binding_1:dm:500"]).toEqual([dmRecord]);
+  });
+
   it("retries the same record after an atomic replace failure without a phantom commit", async () => {
     const path = join(mkdtempSync(join(tmpdir(), "naia-discord-inbox-")), "inbox.json");
     let attempts = 0;

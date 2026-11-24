@@ -1,10 +1,31 @@
 import type { DiagnosticLog } from "./uc1.js";
 import type { CodingJobCourseLifecycleState } from "../domain/coding-job.js";
 
+export const DISCORD_DM_CHANNEL_TYPE = 1 as const;
+export const DISCORD_GUILD_MESSAGE_CHANNEL_TYPES = [0, 5] as const;
+export const DISCORD_THREAD_CHANNEL_TYPES = [10, 11, 12] as const;
+
+export function isDiscordGuildMessageChannelType(value: unknown): value is typeof DISCORD_GUILD_MESSAGE_CHANNEL_TYPES[number] {
+  return typeof value === "number" && DISCORD_GUILD_MESSAGE_CHANNEL_TYPES.some((type) => type === value);
+}
+
+export function isDiscordThreadChannelType(value: unknown): value is typeof DISCORD_THREAD_CHANNEL_TYPES[number] {
+  return typeof value === "number" && DISCORD_THREAD_CHANNEL_TYPES.some((type) => type === value);
+}
+
+export function isSupportedDiscordChannelType(value: unknown): boolean {
+  return value === DISCORD_DM_CHANNEL_TYPE
+    || isDiscordGuildMessageChannelType(value)
+    || isDiscordThreadChannelType(value);
+}
+
 export interface DiscordGatewayMessage {
   readonly messageId: string;
   readonly guildId: string | null;
   readonly channelId: string;
+  /** Set only from a Gateway thread/channel object; missing parent metadata is fail-closed. */
+  readonly parentChannelId?: string;
+  readonly channelType?: number;
   readonly authorId: string;
   readonly authorIsBot: boolean;
   readonly content: string;
@@ -64,10 +85,17 @@ export interface DiscordGatewayClose {
 
 export interface DiscordGatewayConnection {
   readonly closed: Promise<DiscordGatewayClose>;
+  createThreadFromMessage(input: {
+    readonly guildId: string;
+    readonly channelId: string;
+    readonly messageId: string;
+    readonly name: string;
+    readonly signal?: AbortSignal;
+  }): Promise<string>;
   sendReply(input: {
     readonly channelId: string;
-    readonly guildId: string;
-    readonly messageId: string;
+    readonly guildId: string | null;
+    readonly messageId?: string;
     readonly content: string;
     /** Stable logical delivery key. The adapter hashes it into a Discord nonce. */
     readonly idempotencyKey?: string;
@@ -97,7 +125,7 @@ export interface DiscordInboxRecord {
   readonly recordId: string;
   readonly direction: "incoming" | "outgoing";
   readonly bindingId: string;
-  readonly guildId: string;
+  readonly guildId: string | null;
   readonly channelId: string;
   readonly sourceMessageId: string;
   readonly authorId?: string;
@@ -201,6 +229,8 @@ export interface DiscordRuntimeTextPort {
 export interface DiscordIngressAuthorityPort {
   /** Re-read cross-process generation authority. Missing or invalid state is inactive. */
   isActive(): boolean;
+  /** Claim one local process lease for this generation; concurrent copies fail closed. */
+  acquire?(): { release(): void } | undefined;
 }
 
 export interface DiscordRuntimeDeps {

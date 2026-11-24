@@ -43,7 +43,11 @@ export interface RadioDjPlaybackState {
   readonly status: "requested" | "loading" | "playing" | "paused" | "ended" | "error" | "timeout";
   readonly playbackId?: string;
   readonly sequence?: number;
+  readonly currentTime?: number;
+  readonly duration?: number;
+  readonly queueLength?: number;
   readonly track?: { readonly videoId: string; readonly title: string };
+  readonly pendingTrack?: { readonly videoId: string; readonly title: string };
   readonly reason?: string;
   readonly recentTracks?: readonly { readonly videoId: string; readonly title: string }[];
   readonly favoriteTracks?: readonly { readonly videoId: string; readonly title: string }[];
@@ -53,13 +57,33 @@ export interface RadioDjBgmPort {
   capabilities(): { readonly ready: boolean; readonly next: boolean };
   searchAndPlay(
     query: string,
-    opts: { readonly requestId: string; readonly activityId: string; readonly signal?: AbortSignal },
+    opts: {
+      readonly requestId: string;
+      readonly activityId: string;
+      readonly signal?: AbortSignal;
+      readonly preserveActive?: boolean;
+    },
   ): Promise<
-    | { readonly ok: true; readonly videoId: string; readonly title: string }
+      | {
+        readonly ok: true;
+        readonly videoId: string;
+        readonly title: string;
+        readonly playbackId?: string;
+        readonly sequence?: number;
+        readonly preservedActive?: boolean;
+        readonly queuedCount?: number;
+        readonly nextPrepared?: boolean;
+      }
     | { readonly ok: false; readonly reason: string }
   >;
   next(opts: { readonly requestId: string; readonly activityId: string; readonly signal?: AbortSignal }): Promise<
-    | { readonly ok: true; readonly videoId?: string; readonly title?: string }
+    | {
+        readonly ok: true;
+        readonly videoId?: string;
+        readonly title?: string;
+        readonly playbackId?: string;
+        readonly sequence?: number;
+      }
     | { readonly ok: false; readonly reason: string }
   >;
   stop(opts: { readonly requestId: string; readonly activityId: string }): Promise<{ readonly ok: boolean }>;
@@ -78,6 +102,7 @@ export interface ActivitySpeechPort {
     readonly activityId: string;
     readonly text: string;
     readonly sourceUris?: readonly string[];
+    readonly signal?: AbortSignal;
   }): Promise<"completed" | "cancelled">;
   interrupt(activityId: string): void;
   close(activityId: string, reason: "finished" | "cancelled"): void;

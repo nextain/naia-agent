@@ -6,12 +6,14 @@
 // transport(stdin/stdout/readline/grpc)·app(환경 위임, egress 필요)·shutdown 은 각 host 의 관심사 → 여기 없음.
 import { createInterface } from "node:readline";
 import { WINDOWS_DPAPI_TIMEOUT_MS } from "../../dist/main/app/cli-manage.js";
+import { isLocalEngineBaseUrl } from "../../dist/main/domain/provider-route.js";
 import { makeProviderResolver } from "../../dist/main/adapters/provider-resolver.js";
 import { makeFakeProvider, makeSystemEchoProvider } from "../../dist/main/adapters/fake-provider.js";
 import { makeKeychainCredentials, makeRefreshingKeychainRead } from "../../dist/main/adapters/keychain-secret-store.js";
 import { makeNaiaSettingsStore } from "../../dist/main/adapters/naia-settings-store.js";
 import { buildSubLlmProvider } from "../../dist/main/adapters/sub-llm-provider.js";
-import { resolveRoleRuntimeConfig } from "../../dist/main/adapters/llm-role-runtime.js";
+import { buildMainMemoryPort, buildRoleMemoryExtractor, buildRoleMemorySummarizer } from "../../dist/main/adapters/memory-role-summarizer.js";
+import { bindMemoryAuthorization, resolveRoleRuntimeConfig, resolveMemoryRoleEndpoint } from "../../dist/main/adapters/llm-role-runtime.js";
 import { makeMemorySurfacer } from "../../dist/main/app/memory-surfacer.js";
 import { decideSurfacing, resolveSurfacingThreshold, SURFACING_LIMITS, SURFACING_THRESHOLD_MAX_ITEMS } from "../../dist/main/domain/surfacing.js";
 import { makeStderrDiagnostic } from "../../dist/main/adapters/diagnostic.js";
@@ -82,6 +84,12 @@ export async function composeAgentRuntimeDeps(o = {}) {
   const homeDir = typeof o.homeDir === "string" && o.homeDir.trim() ? o.homeDir : homedir();
   const allowHomeAdkFallback = o.allowHomeAdkFallback === true;
   const cleanupFns = []; // 종료 시 정리(MCP 자식 등) — 호스트 shutdown 이 호출.
+  const requireConfiguredProvider = o.requireConfiguredProvider === true;
+  const failConfiguredStartup = (code) => {
+    for (const cleanup of cleanupFns) { try { cleanup(); } catch { /* best-effort */ } }
+    process.stderr.write(`[naia-agent] Discord standalone startup failed (${code})\n`);
+    throw new Error(code);
+  };
   const rejectExistingSymlink = (path, label) => {
     try {
       if (nodeFs.lstatSync(path).isSymbolicLink()) throw new Error(`${label} must not be a symbolic link`);
@@ -164,6 +172,12 @@ export async function composeAgentRuntimeDeps(o = {}) {
     defaultAdkPath: DEFAULT_ADK,
     allowHomeAdkFallback,
   });
+  if (requireConfiguredProvider) {
+    let workspaceReady = false;
+    try { workspaceReady = !!adkPath && nodeFs.statSync(adkPath).isDirectory(); } catch { /* fail closed */ }
+    if (!workspaceReady) failConfiguredStartup("workspace_unconfigured");
+    if (ap === "fake" || ap === "echo-system") failConfiguredStartup("provider_unconfigured");
+  }
   if (allowHomeAdkFallback && !trimAdkPath(env.NAIA_ADK_PATH) && !globalAdk && adkPath) {
     process.stderr.write(`[naia-agent] ⚠ 워크스페이스 미설정 — 기본(${DEFAULT_ADK}) 폴백. 'naia-agent-chat workspace <path>' 로 단일 device 워크스페이스 고정 권장(1기기=1설정).\n`);
   } else if (!adkPath) {
@@ -480,6 +494,17 @@ export async function composeAgentRuntimeDeps(o = {}) {
   const settingsResolveSecret = (ref) => env[ref] ?? keychainRead(ref);
   const settingsStore = makeNaiaSettingsStore({ fs: nodeFs, resolveSecret: settingsResolveSecret, log: (m, c) => process.stderr.write(`[naia-agent] ${m} ${c ? JSON.stringify(c) : ""}\n`) });
   const defaultConfig = settingsStore.loadMain(adkPath) ?? undefined;
+  if (requireConfiguredProvider) {
+    const hasMainProvider = !!defaultConfig
+      && typeof defaultConfig.provider === "string"
+      && defaultConfig.provider.trim().length > 0
+      && typeof defaultConfig.model === "string"
+      && defaultConfig.model.trim().length > 0
+      && !!resolver;
+    if (!hasMainProvider) failConfiguredStartup("provider_unconfigured");
+    try { resolver.resolve(defaultConfig); }
+    catch { failConfiguredStartup("provider_unconfigured"); }
+  }
   const configLabel = defaultConfig ? `naia-settings(${defaultConfig.provider}/${defaultConfig.model})` : `none(wire provider 필요) adk=${adkPath}`;
 
   // ── main/sub/memory 역할별 effective config. 신규 llmRoles 우선, legacy memoryLlm*은
@@ -621,6 +646,35 @@ export async function composeAgentRuntimeDeps(o = {}) {
         const nextMemoryRuntime = effectiveMemoryRole
           ? resolveRoleRuntimeConfig(effectiveMemoryRole, settingsResolveSecret)
           : undefined;
+        const effectiveMain = nextRoleConfigs.find((cfg) => cfg.role === "main");
+        const mainRuntime = effectiveMain
+          ? resolveRoleRuntimeConfig({ ...effectiveMain, role: "sub" }, settingsResolveSecret)
+          : undefined;
+        const mainConfig = settingsStore.loadMain(workspacePath);
+        const mainPort = mainConfig && resolver ? buildMainMemoryPort({ ...mainConfig, ...(credentials.get(mainConfig.provider) ?? {}) }, resolver) : undefined;
+        const selected = nextMemoryRuntime?.ok ? nextMemoryRuntime.config : nextMemoryRuntime?.reason === "unsupported" ? mainPort : undefined;
+        const authorizeCurrentRole = (authorize) => bindMemoryAuthorization(
+          (input) => resolveMemoryRoleEndpoint(settingsStore.loadLlmRoles(workspacePath), input, settingsResolveSecret, settingsStore.loadMain(workspacePath) ?? undefined, input.endpoint, input.role),
+          authorize,
+        );
+        const rawRoleSummarizer = effectiveMemoryRole?.provider.value !== "none" && selected
+          ? buildRoleMemorySummarizer(
+              selected,
+              mainPort ?? (mainRuntime?.ok ? mainRuntime.config : undefined),
+              async (url, init) => fetch(url, init),
+              (event) => process.stderr.write(`[naia-agent] memory model fallback ${JSON.stringify({ role: "memory", ...event })}\n`),
+            )
+          : undefined;
+        const rawRoleExtractor = effectiveMemoryRole?.provider.value !== "none" && selected
+          ? buildRoleMemoryExtractor(
+              selected,
+              mainPort ?? (mainRuntime?.ok ? mainRuntime.config : undefined),
+              async (url, init) => fetch(url, init),
+              (event) => process.stderr.write(`[naia-agent] memory model fallback ${JSON.stringify({ role: "memory", ...event })}\n`),
+            )
+          : undefined;
+        const roleSummarizer = rawRoleSummarizer ? (input, authorize) => rawRoleSummarizer(input, authorizeCurrentRole(authorize)) : undefined;
+        const roleExtractor = rawRoleExtractor ? (episodes, authorize, signal) => rawRoleExtractor(episodes, authorizeCurrentRole(authorize), signal) : undefined;
         const { canonical: canonicalWorkspace, storage } = canonicalProductRoot(workspacePath);
         // Preserve existing users: copy legacy identity first, then use that identity to find
         // the legacy hashed store. Never overwrite a new-boundary file.
@@ -663,7 +717,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
         }
         try { nodeFs.mkdirSync(dirname(storePath), { recursive: true, mode: 0o700 }); } catch { /* best-effort */ }
         const sessionId = env.NAIA_MEMORY_SESSION || `proc-${randomUUID()}`;
-        const consolidationOn = Boolean(nextMemoryRuntime?.ok && env.NAIA_MEMORY_CONSOLIDATION !== "off");
+        const consolidationOn = false;
         const next = makeNaiaMemory({
           storePath, project, sessionId,
           ...(nextMemCfg
@@ -674,7 +728,10 @@ export async function composeAgentRuntimeDeps(o = {}) {
                 embedding: nextMemCfg.embedding,
               }
             : {}),
-          ...(nextMemoryRuntime?.ok ? { llm: nextMemoryRuntime.config } : {}),
+          ...(env.NAIA_MEMORY_CONSOLIDATION !== "off" ? { consolidateOnSave: true } : {}),
+          ...((["ollama", "vllm"].includes(effectiveMemoryRole?.provider.value) || (nextMemoryRuntime?.ok && isLocalEngineBaseUrl(nextMemoryRuntime.config.baseUrl))) ? { fallbackHeuristicOnFailure: true } : {}),
+          ...(roleSummarizer ? { roleSummarizer } : {}),
+          ...(roleExtractor ? { roleExtractor } : {}),
           ...(consolidationOn ? { consolidation: {} } : {}),
           onConsolidation: (event) => {
             if (event.phase === "failed") {

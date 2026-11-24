@@ -103,8 +103,8 @@ R45 검증. 수정 전 새 계약 시험 2건에서 계정 키 소실을 재현�
 | FR-CLI-6 | **WorkspacePort** — 파일 변경 요약 스트림(added/modified/deleted + 수치). domain 은 git diff 포맷 모름(adapter=chokidar+git). | Done |
 | FR-CLI-7 | **CLI 대화 host (S1 멀티턴 REPL)** — `naia-agent chat` 가 stdio/readline **AgentIngressPort/AgentEgressPort** 어댑터를 gRPC 와 **동일 `wireAgentUC1`** 에 주입. 매 입력이 누적 history 와 함께 `ChatRequest` → 맥락 유지 멀티턴. emit(text)→stdout 스트리밍, finish→assistant 턴 history append+재프롬프트, error→격리(턴만 실패·루프 생존), Ctrl+C=현재 턴 cancel. | Done |
 | FR-CLI-8 | **CLI 로그인 (S1 자격증명)** — `naia-agent login --provider <p> [--key <k>\|stdin]` → 자격증명 영속(홈 `.naia-agent/.env` 0600, 옛 CLI 호환·크로스플랫폼; Linux 추가 secret-tool). chat host 기동 시 로드 → resolver/credentials 포트가 읽어 provider 연결(키 인자 없이 대화). | Done |
-| FR-CLI-9 | **Naia account Pi provider** — `run --agent pi --model grok-4.3`와 `deepseek-v4-flash`/`deepseek-v4-pro` 분석 실행은 저장된 `NAIA_API_KEY`와 Naia gateway만 사용한다. Pi 설정에는 환경변수 참조만 기록하고 direct Azure/xAI/DeepSeek key 및 OpenCode fallback을 금지한다. | Done (#93; Flash 확장 UC-ORCH-004, live Azure는 `OPERATIONAL_UNVERIFIED`) |
-| FR-CLI-10 | **모델 능력 fail-closed** — Grok은 tool coding 허용. DeepSeek-V4-Flash/Pro는 명시적 `--no-tools` 분석만 허용하고 생략 시 Pi spawn 전에 실패한다. 이 Agent 계약은 gateway가 별도 서버 가드를 제공한다고 주장하지 않는다. | Done (#93; Flash 확장 UC-ORCH-004) |
+| FR-CLI-9 | **Naia account Pi provider** — `run --agent pi --model grok-4.3`, `motif-3`, `deepseek-v4-flash`/`deepseek-v4-pro` 분석 실행은 저장된 `NAIA_API_KEY`와 Naia gateway만 사용한다. Motif Pi metadata declares reasoning, 262,144 context tokens, and the gateway's 1.30x cost estimate. Pi 설정에는 환경변수 참조만 기록하고 direct Azure/xAI/DeepSeek/Motif key 및 OpenCode fallback을 금지한다. | Done (#93; two live probes: 9/10 then 10/10 structured tool_calls; requested-function matches 8/10 then 9/10; threshold >=9/10) |
+| FR-CLI-10 | **모델 능력 fail-closed** — Grok과 실측에서 9/10 이상 구조화 `tool_calls`를 반환한 모델은 tool coding 허용. DeepSeek-V4-Flash/Pro는 명시적 `--no-tools` 분석만 허용하고 생략 시 Pi spawn 전에 실패한다. Motif 3은 두 차례 실측에서 구조화 `tool_calls` 9/10, 10/10(요청 함수 일치 8/10, 9/10)을 반환해 목록 허용 기준(9/10 이상)을 충족했다. | Done (#93; Motif probe and model capability contract) |
 | FR-CLI-11 | **동일 CLI 표면** — Codex가 자식 프로세스로 호출한 경우와 사용자가 직접 호출한 경우 provider/model/workdir/terminal report가 동일하다. | Done (#93) |
 | FR-CLI-12 | **격리 환경·고정 Pi·canonical identity** — 고정 버전 Pi는 격리 config와 Naia key/필수 env만 받고 direct-provider secret을 상속하지 않는다. gateway usage/billing key는 `azure:<exact-model>`이며 Azure client cache는 모델별 endpoint를 혼용하지 않는다. | Done (#93; live 청구는 `OPERATIONAL_UNVERIFIED`) |
 | FR-CLI-13 | **실행 가능한 매뉴얼** — `docs/naia-account-pi-manual.md`의 clean-HOME 명령, exit code, model/usage/diff/verifier 판정을 자동 실행 가능한 acceptance로 유지한다. | Done (#93) |
@@ -244,6 +244,7 @@ spec + sandbox 정책(allow-root) + tier(승인)** 를 소유한다.
 | FR-THINK-10 | **도구 루프 reasoning_content 에코(#149)** — `ChatMessage.reasoningContent?: string` 추가. `threadToolRound` 5번째 인자 `roundThinking?: string` 추가 및 `chat-turn-handler` 가 `round.thinking` 전달. provider-resolver 가 게이트웨이 경로에 `echoReasoningContent: true` 주입하고, `toWireMessages` 는 `echoReasoningContent` 활성 시 assistant 도구 호출 메시지에 `reasoning_content` 추가(빈 문자열 미전송). | Done |
 | FR-THINK-11 | **응답 형식 다중 수용(#149)** — OpenAI-compat 스트림 파서는 `delta.reasoning_content` 및 `delta.reasoning?.content` 를 모두 thinking 청크로 처리하며, 둘 다 있을 때는 `reasoning_content` 만 사용하여 중복 방지. | Done |
 | FR-THINK-12 | **빈 답 진단(R33)** — 웹 브라우저 채팅의 최종 라운드가 본문과 생각 없이 끝나면, 한 번의 기존 복구 시도 뒤 `provider returned an empty answer`를 보낸다. 생각 청크가 남은 라운드는 기존 추론 오류를 사용한다. | Done |
+| FR-THINK-15 | **Ollama 모델 능력 기반 `think` 변환(#758 S5)** — Ollama adapter가 현재 host·model로 `POST /api/show`를 조회하고 성공한 결과만 동시 요청과 공유 캐시에 저장한다. `off`는 `false`, 일치하는 named `low`/`high`는 정확한 문자열, 불리언 능력은 기존 off/on으로 바꾼다. 문자열 단계가 선택과 일치하지 않으면 `true`를 쓴다. 정확히 `thinking.values: [false]`만 요청별 미지원 신호를 내고 `false`로 낮춘다. 누락·잘못된 JSON 형식·HTTP 오류·timeout·fetch 거절은 기존 동작으로 폴백하며 실패를 캐시하지 않는다. 다른 provider 요청은 바꾸지 않는다. | Pending — `src/test/uc1-ollama-provider.contract.test.ts`의 가짜 `/api/show` fixture, handler 신호 배선 계약, Shell `packages/shell/e2e/ollama-settings.spec.ts` |
 
 FR-THINK-7(#149)은 FR-THINK-4 의 무변경 범위를 명시적으로 넘겨받아 proto 필드 15·`ChatMessage.reasoningContent`·`threadToolRound` 5번째 인자를 추가한다.
 
@@ -277,7 +278,7 @@ FR-THINK-7(#149)은 FR-THINK-4 의 무변경 범위를 명시적으로 넘겨받
 | FR-CONT-MVP-6 | **양보와 복귀** — 관람객/사용자 입력이 현재 발화와 TTS를 중단하고, 답변 뒤 아직 수행 중인 profile의 다음 미소개 항목으로 복귀한다. quiet/stop은 복귀하지 않는다. profile stream epoch로 이전 출력은 폐기하되 yield/resume의 같은 activity는 유지한다. | Done |
 | FR-CONT-MVP-7 | **기억·개인정보** — 활동 발화·수동 청취·재생 시간으로 취향을 추론하지 않고, 전시 activity/Q&A는 memory recall/save와 영속 transcript를 기본 사용하지 않는다. 명시적 DJ 선호만 provenance와 durable/idempotent handoff하며 최신 dislike는 같은 subject의 like를 무효화한다(PA-DJ-01, PA-EX-02). | Done |
 | FR-CONT-MVP-8 | **실제 증적** — 전체 계약/통합 테스트와 Playwright 7건이 TTS 두 경로·제어 6종·250ms interrupt·stale 폐기·전시 yield/resume를 검증하고, 실제 Tauri WebDriver가 file-backed 설정 저장·cache-clear 재수화·동의 철회를 검증한다. 물리 음질·현장 선호도는 자동 완료 판정 밖의 운영 관찰 항목이다. | Done |
-| FR-CONT-MVP-9 | **종료 기반 동적 선곡** — Player의 실제 `ended` 관측 뒤 짧은 전환 멘트를 먼저 완료하고 같은 activity에서 `skill_youtube_bgm {action:"play", mode:"radio_dj"}`로 다음 검색을 요청한다. Shell은 최근곡을 제외하고, Agent는 명시 선호와 최근에 재생하지 않은 즐겨찾기를 검색 힌트로 결합한다. 새 곡 제목은 상관된 `playing` 관측 뒤에만 말한다. | Done |
+| FR-CONT-MVP-9 | **종료 기반 동적 선곡** — Player의 실제 `ended` 관측 뒤 짧은 전환 멘트를 먼저 완료하고 같은 activity에서 `skill_youtube_bgm {action:"play", mode:"radio_dj"}`로 다음 검색을 요청한다. Shell은 최근곡을 제외하고, Agent는 명시 선호와 최근에 재생하지 않은 즐겨찾기를 검색 힌트로 결합한다. 힌트는 원문을 그대로 붙이지 않고 NFKC로 꾸밈 글자를 풀어 짧게 줄이며, 재생목록·모음 제목은 힌트에서 빼고, 실패한 검색에 쓴 힌트는 몇 차례 쉬게 한다. 한 번의 다음 곡 요청은 힌트 검색·힌트 없는 검색·고정 기본 검색어 순으로 최대 3번 시도하고, 모두 실패하면 시도한 검색어와 사유를 기록한 뒤 다시 요청하는 방법을 1회 말한다(0.2.4 실기 #18). 새 곡 제목은 상관된 `playing` 관측 뒤에만 말한다. | Done |
 | FR-CONT-MVP-10 | **off-레이스·연속 실패 백오프·폴링 하한(#115)** — 활성(비-stopped) 상태의 동등 profile 재-configure(disabled 재전송 포함)는 no-op 이다. subscriber 재연결 churn 은 stopped/disabled 를 idle 로 부활시키지 않고 music_only 활동을 파괴하지 않는다(재구독이 start() 를 재발화하지 못함 — 재개는 명시 next/change_vibe/talk_more 만). 연속 시작-실패는 지수 백오프(상한 10분)로만 재시도하고 동일 실패 발화는 연속 실패 구간에서 1회만 말한다(시작/교체 성공·사용자 명시 액션이 리셋). BGM status 관측 폴링 간격은 하한 1초를 강제한다(`MIN_BGM_STATUS_POLL_INTERVAL_MS`). | Done |
 
 | FR-APP-6 | **화면 캡처의 실제 multimodal 전달** — `skill_tab_screenshot`의 bounded PNG/JPEG/WebP data URI를 app executor가 base64 로그/텍스트에서 분리하고 도구 결과 결속 뒤 inline image로 보존한다. OpenAI-compatible·Anthropic·Ollama adapter는 각 provider의 image content 형식으로 전달하며, 미지원 provider는 이미지를 보았다고 표현하지 않는다. 손상·과대 data URI는 일반 오류 결과로 fail-closed한다. | Done |
@@ -946,6 +947,14 @@ Verification: `src/test/action-promise-guard.contract.test.ts`, `src/test/action
 
 Status: Done (contract tests and a real-LLM check pass; the attended naia-shell E2E is pending)
 
+# FR-ACTION-3 — 완성된 이모지 종결 최종답에 잘림 재요청을 쏘지 않는다 (0.2.4 chat-repeat)
+
+DeepSeek V4 Flash 최종답 판정(`isLikelyIncompleteDeepSeekFinal`)은 끝 장식(이모지·`｡•ᴗ•｡`·물결 등)을 벗긴 핵이 완성 어미(`요|다|죠|네|까|음|함|됨|중|완료`)나 종결 구두점으로 끝나면 완성으로 본다. 호칭-only(`아, 루크대표님.`)는 여전히 잘림으로 본다. 완성된 답에 "Continue exactly from the point where the answer was cut off" 재요청을 보내면 모델이 완성된 곡 소개·안내를 "이어쓰기"라며 되풀이하므로(셸 0.2.4 "곡을 또 이야기한것 같은데"), 이 오발을 막는다. 진짜 잘림(`노래는건` 등 중간 끊김)은 기존대로 재요청한다. 턴당 1회 상한(`finalRecoveryUsed`)은 그대로 공유한다.
+
+Verification: `src/test/chat-repeat-regression.contract.test.ts` (가짜 모델 글A→도구→글B 순서, 셸 텍스트=A+B 1회씩·2차 호출 입력에 A 포함·이모지 종결 완성/잘림 판정).
+
+Status: Done
+
 # FR-MEM-19 — 명시적 장기 기억 저장 도구 (`skill_memory_save`) (naia-agent#154)
 
 - **도구 정의**: `skill_memory_save` 는 사용자 발화로부터 도출된 사실 문장(`fact`)과 근거가 된 사용자 발화(`evidence`)를 인자로 받아 `MemoryPort.save` 로 장기 기억에 쓰고, 성공 또는 실패를 도구 결과로 돌려준다.
@@ -963,3 +972,119 @@ Status: Done (contract tests and a real-LLM check pass; the attended naia-shell 
 
 Status: Done (#154)
 
+
+
+## UC-SM-AGENT-01 — 작은 모델을 기억 작업에 연결 (목표 계약)
+
+이 절은 셸 `FR-SM.2`~`.7`, `NFR-SM.2`~`.3`, `FE-SM-01`~`03`의 에이전트 책임을 명시한다. 각 시험의 실제 실행 상태는 아래 표를 따른다. 셸 UI와 웹 기억 소비는 각 소유 범위에서 다룬다.
+
+| ID | 요구 및 받아들임 기준 | 시험 |
+|---|---|---|
+| FR-SM-AGENT-1 | 명시 기억 모델이 우선이고, 없으면 명시 `sub`를 쓴다. 기억과 작은 역할이 모두 미설정이면 메인을 호출하지 않고 기존 휴리스틱 추출과 누적 요약 또는 결정론 요약을 쓴다. `sub`가 명시적으로 메인을 상속하거나 지원되지 않는 작은 모델이면 메인을 따른다. 기억 끄기는 보존한다. 셸 FR-SM.4·.5, FE-SM-01·03. | UT-SM-AGENT-01, IT-SM-AGENT-01 |
+| FR-SM-AGENT-2 | 유효한 옛 `memoryLlm*`만 있고 작은 역할·`subLlm*`가 비면 공급자·모델·주소·자격 참조를 작은 역할과 기억 역할에 해석하되 기억 설정은 보존한다. 명시 작은 선택은 범용 작은 작업에서 옛 기억보다 우선하고 기억 역할은 별도로 유지한다. 셸이 전달한 선택과 생각 수준을 보존·해석한다. 셸 FR-SM.2·.4·.5, FE-SM-02·03. 셸 카탈로그 기본값 조건은 셸 UT-SM-01에서 검증한다. | UT-SM-AGENT-02, IT-SM-AGENT-02; 셸 UT-SM-01 (카탈로그) |
+| FR-SM-AGENT-3 | 데스크톱 대화의 기억 사실 추출과 압축 요약에 매 요청마다 해석된 기억 역할을 연결한다. 메인 대화와 보조 Pi 에이전트는 메인 모델을 유지한다. 요청 간 추출기·요약기와 승인 문맥은 섞이지 않는다. 셸 FR-SM.5·.7, FE-SM-01. | IT-SM-AGENT-01, IT-SM-AGENT-03 |
+| FR-SM-AGENT-4 | 작은 모델 작업 실패 시 실제 메인 대상의 승인을 확인하고 동일 작업을 최대 한 번 재시도한다. 두 시도가 실패하면 최초 오류를 보존한다. 모든 실제 전송 직전 해당 대상의 승인을 확인하며 거부된 전송은 0회다. 직접 선택한 로컬 Qwen 실패 시 클라우드 메인으로 전송하지 않고 휴리스틱 추출 또는 기존 누적·결정론 요약으로 복구한다. 셸 FR-SM.3·.6, FE-SM-03. | UT-SM-AGENT-03, IT-SM-AGENT-04 |
+| NFR-SM-AGENT-1 | 각 시도의 역할, 실제 공급자·모델, 성공/실패와 대체 사유를 기록하되 자격 증명과 대화 본문을 기록하지 않는다. 실패와 재시도로 사실을 중복 저장하지 않고 기존 떠오름·꺼짐·점수 문턱 선택을 보존한다. 셸 NFR-SM.2·.3, FE-SM-03. | IT-SM-AGENT-04, IT-SM-AGENT-05 |
+| FR-THINK-13 | 셸 요청 수준 `off`, `low`, `high`, `xhigh`를 전송부터 제공자까지 보존한다. proto의 기존 UNSPECIFIED=0, OFF=1, LOW=2, HIGH=3을 유지하고 XHIGH=4를 뒤에 추가한다. 셸 타입에 `medium`은 없으므로 추가하지 않는다. 숫자와 proto enum 이름을 디코드하고 0·미지정·알 수 없는 숫자/문자열은 수준 미지정으로 처리해 기존 `enableThinking` 경로를 쓴다. FR-THINK-7~9의 목표 확장이다. 셸 FR-SM.2, FE-SM-02. | UT-SM-SHELL-THINK-01, UT-SM-AGENT-THINK-01, IT-SM-AGENT-THINK-01 |
+| FR-THINK-14 | 게이트웨이 OpenAI 호환 경로에서 `low`·`high`·`xhigh`는 같은 `reasoning_effort`로 전송하고 `off`·미지정은 그 키를 생략한다. 로컬 OpenAI 호환 off의 `none`과 원격 미지원 경로의 미전송을 보존한다. Ollama는 능력 목록에 일치하는 이름만 그대로 쓰고 불일치 `xhigh`는 기존 활성 불리언 경로를 쓰며 명시 미지원이면 false 신호를 낸다. Anthropic은 기존 adaptive on/off를 사용한다. 지원하지 않는 제공자에 임의 파라미터를 추가하거나 `xhigh`를 `high`로 바꾸지 않는다. 셸 FR-SM.2, FE-SM-02. | IT-SM-AGENT-THINK-01 |
+
+기존 FR-MEM-11·12의 기억 LLM 미설정 시 자동 consolidation 중지 설명은 현재 동작 기록이다. 목표에서 두 역할이 모두 비었을 때 추출을 실행하는 경로는 기존 휴리스틱을 쓰되 메인 호출은 하지 않는다. 저장된 기억 끄기는 자동으로 켜지 않는다. 기존 FR-THINK-7·9의 세 수준 설명도 현재 동작이고 FR-THINK-13·14가 구현 목표다. 압축은 기억 라이브러리가 실패를 잡아 기존 요약을 반환할 수 있으므로, 양쪽 시도 실패의 최초 오류는 에이전트 호출 계층에서 보존·관찰 가능해야 한다. 이때 기록에는 오류에 섞인 자격 증명·대화 본문을 넣지 않는다.
+
+### 시험 계획 및 받아들임
+
+아래 시험은 지정 파일과 이름으로 실행하며 실제 상태는 바로 아래 표에 기록한다. 셸 시험은 다음 회차에 수행한다.
+
+| 번호 | 파일 및 시험 이름 | 기대값 |
+|---|---|---|
+| UT-SM-AGENT-01 | `src/test/llm-roles.contract.test.ts` — “기억 우선과 빈 두 역할의 무모델 경로를 구별한다” | 명시 기억 > 지정 sub; 둘 다 빈 경우 메인 호출 없음; 명시 상속과 비지원 sub는 메인; 기억 끄기 보존. |
+| UT-SM-AGENT-02 | `src/test/uc-naia-settings-store.contract.test.ts` — “옛 기억 전용 설정을 작은 역할로 이어받고 독립 선택을 보존한다” | 옛 기억의 공급자·모델·주소·자격 참조를 작은 역할로 이어받고 기억 설정을 유지; 명시 sub는 범용 작은 작업에서 우선하고 별도 기억 선택은 보존; 전달된 생각 수준을 보존·해석. |
+| UT-SM-AGENT-03 | `src/test/smallmodel-i1.contract.test.ts` — “각 대상 승인과 한 번 폴백 및 최초 오류를 지킨다” | 승인 거부 시 해당 전송 0회, 실패 시 메인 최대 1회, 양쪽 실패 최초 오류, 로컬 실패 시 클라우드 0회. |
+| IT-SM-AGENT-01 | `src/test/smallmodel-memory.integration.test.ts` — “대화 추출과 압축이 해석된 기억 역할을 쓴다” | 지정 sub 호출, 명시 기억 우선, 빈 두 역할에서 메인 0회와 기존 추출·요약 결과, 메인 대화·Pi는 메인. |
+| IT-SM-AGENT-02 | `src/test/smallmodel-legacy-sub-consumer.integration.test.ts` — “옛 기억만 있는 범용 소비와 별도 작은 선택을 이어 쓴다” | 옛 기억만 있을 때 범용 작은 작업은 상속된 공급자·모델·주소·자격 참조를 사용하고 기억 역할도 유지; 별도 작은 선택 후 범용 작업은 새 선택을 쓰며 기억 작업은 기존 기억 선택을 사용; 전달된 생각 수준 보존·해석. |
+| IT-SM-AGENT-03 | `src/test/smallmodel-memory.integration.test.ts` — “동시 요청별 추출기와 요약기 및 승인을 격리한다” | 두 요청이 각자 주입한 대상과 승인만 쓰고 서로 공유하지 않는다. |
+| IT-SM-AGENT-04 | `src/test/smallmodel-memory.integration.test.ts` — “추출과 압축의 실패·승인·로컬 복구를 각각 확인한다” | 두 작업에서 작은 실패 → 승인된 메인 한 번; 양쪽 실패 최초 오류 보존; 로컬 실패 시 클라우드 0회와 기존 복구 결과. |
+| IT-SM-AGENT-05 | `src/test/smallmodel-memory.integration.test.ts` — “재시도 후 중복 사실 없이 안전한 호출 기록을 남긴다” | 같은 사실 한 번 저장, 역할·실제 모델·결과·대체 사유 기록, 자격 증명·대화 본문 없음, 기존 기억 선택 유지. |
+| UT-SM-SHELL-THINK-01 | 셸 `packages/shell/src-tauri/src/agent_grpc.rs`의 네이티브 단위 시험 — “네 수준을 proto로 변환하고 미지정과 알 수 없는 값을 구분한다” | 네 수준이 각각 OFF=1, LOW=2, HIGH=3, XHIGH=4; 미지정·알 수 없는 값은 미지정. |
+| UT-SM-AGENT-THINK-01 | `src/test/uc-thinking.contract.test.ts` — “proto 숫자와 이름의 네 수준을 디코드한다” | 1~4와 네 enum 이름이 정확히 매핑되고 0·부재·알 수 없는 값은 미지정; 이전 값 불변. |
+| IT-SM-AGENT-THINK-01 | `src/test/uc-thinking.contract.test.ts`, `src/test/uc1-ollama-provider.contract.test.ts` — “요청 수준을 제공자별 계약대로 보낸다” | 게이트웨이의 low/high/xhigh 값과 off 생략, 로컬 off none, 원격 미지원 생략, Ollama 능력·Anthropic on/off를 가짜 전송으로 확인. |
+
+### 시험 상태
+
+| 번호 | 상태 |
+|---|---|
+| UT-SM-AGENT-01 | 작성; 통과 |
+| UT-SM-AGENT-02 | 작성; 통과 |
+| UT-SM-AGENT-03 | 작성; 통과 |
+| IT-SM-AGENT-01 | 작성; 통과 |
+| IT-SM-AGENT-02 | 작성; 통과 |
+| IT-SM-AGENT-03 | 작성; 통과 |
+| IT-SM-AGENT-04 | 작성; 통과 |
+| IT-SM-AGENT-05 | 작성; 통과 |
+| UT-SM-AGENT-THINK-01 | 작성; 통과 |
+| IT-SM-AGENT-THINK-01 | 작성; 통과 |
+| UT-SM-SHELL-THINK-01 | 다음 회차 |
+
+#### FR-THINK-13 하위 호환 시험 행렬
+
+아래 여섯 행은 각각 UT-SM-SHELL-THINK-01(셸 Rust→proto), UT-SM-AGENT-THINK-01(에이전트 디코드·해석), IT-SM-AGENT-THINK-01(제공자 요청)의 별도 시험 사례다. proto `enable_thinking`은 optional이므로 `false`와 부재를 구별한다. 알 수 없는 수준은 셸 입력의 미인식 문자열과 에이전트가 직접 받은 알 수 없는 proto 숫자·문자열을 각각 시험한다. 수준 0도 부재와 같은 미지정이다.
+
+| 입력 수준 | `enableThinking` | Rust→proto 기대값 | 에이전트 해석 기대값 | 제공자 요청 기대값 |
+|---|---|---|---|---|
+| 없음 | `true` | 수준 UNSPECIFIED=0; boolean `true` 유지 | 수준 미지정, legacy `true` 유지 | 아래 T |
+| 없음 | `false` | 수준 UNSPECIFIED=0; boolean `false` 존재 유지 | 수준 미지정, legacy `false` 유지 | 아래 F |
+| 없음 | 없음 | 수준 UNSPECIFIED=0; boolean 필드 부재 유지 | 수준 미지정, legacy 입력 부재; 기존 제공자 설정을 덮지 않음 | 아래 A |
+| 알 수 없는 값 | `true` | 수준 UNSPECIFIED=0; boolean `true` 유지 | 미지정으로 정규화, legacy `true` 유지 | 아래 T |
+| 알 수 없는 값 | `false` | 수준 UNSPECIFIED=0; boolean `false` 존재 유지 | 미지정으로 정규화, legacy `false` 유지 | 아래 F |
+| 알 수 없는 값 | 없음 | 수준 UNSPECIFIED=0; boolean 필드 부재 유지 | 미지정으로 정규화, legacy 입력 부재; 기존 제공자 설정을 덮지 않음 | 아래 A |
+
+제공자 요청은 기존 설정에 별도 생각 설정이 없는 기준으로 아래 실제 body를 각 행에서 확인한다. T/F/A는 각각 위 입력의 `true`/`false`/부재다. 별도 설정이 있는 경우 A는 그것을 덮어쓰지 않는 기존 경로도 확인한다.
+
+| 제공자 경로 | T | F | A |
+|---|---|---|---|
+| 게이트웨이 OpenAI 호환 | `reasoning_effort` 생략 | `reasoning_effort` 생략 | `reasoning_effort` 생략 |
+| 로컬 OpenAI 호환 (`supportsReasoningEffort`) | `reasoning_effort` 생략 | `reasoning_effort: "none"` | `reasoning_effort` 생략 |
+| 원격 미지원 OpenAI 호환 | 생각 관련 키 생략 | 생각 관련 키 생략 | 생각 관련 키 생략 |
+| Ollama (지원 또는 능력 미확정) | `think: true` | `think: false` | `think` 생략 |
+| Ollama (명시 미지원) | `think: false` | `think: false` | `think` 생략 |
+| Anthropic | `thinking: { type: "adaptive" }` | `thinking` 생략 | `thinking` 생략 |
+
+### FR-DISCORD-169 — 독립 Discord 호스트와 DM·스레드 (In review)
+
+기존 셸 호스트와 공통 조립을 공유하고 전용 stdin 비밀 파이프, 셸 경로의 loopback-only gRPC, 독립 경로의 gRPC 비활성화, 정상 종료와 상태·세대 소유권 검사를 제공한다. 독립 serve는 존재하는 workspace와 구체적인 main provider 설정을 시작 전에 확인하고, 빠진 설정을 `--help`에 안내하며 미설정 상태는 0이 아닌 코드로 끝난다. 허용 사용자 DM 및 허용 guild·부모 채널·사용자의 멘션과 스레드만 수신하며 빈 목록과 확인할 수 없는 부모는 거부한다. 일반 guild message channel은 type 0(text)·5(announcement), thread는 type 10·11·12만 허용하며 Gateway cache와 runtime 양쪽에서 그 밖의 type을 거부한다. 일반 채널 `parent_id`는 category ID로 보존하거나 thread 부모 검증에 사용하지 않는다. Guild 없는 메시지에서 type/recipient를 확인할 수 없으면 REST를 조회하고, 모든 DM 메시지는 type 1 및 recipients에 작성자가 있는지 확인한다. recipients 부재·조회 오류·그룹 DM·불일치는 거부하고 확인되지 않은 항목은 신뢰 캐시에 저장하지 않는다. `THREAD_LIST_SYNC`·`GUILD_CREATE`는 outer `guild_id`를 thread metadata에 전달하며, guild 정보가 불완전한 cache 항목은 REST 확인 성공 전까지 승인하지 않는다. 서버 channel/thread도 캐시가 없으면 조회해 guild·thread type·parent를 검증하고 불일치나 누락은 거부한다. 현재 generation authority와 process lease의 token 소유권을 ingress와 각 egress에서 확인하며, lease 상실 시 readiness를 내리고 처리를 멈춘 뒤 프로세스를 비정상 종료한다. lease 취득 전 SIGTERM/SIGINT 처리기를 등록하고, 시작 중 신호는 남은 초기화를 중단한 후 이미 등록된 자원을 한 번만 정리하고 stopped를 기록한다. 시작 중 예외·promise 거절도 실패 상태를 기록하고 소유한 lease를 해제한다. 기존 `NAIA_DISCORD_BINDINGS_JSON`에 선택적 `dm` 설정을 추가하되 필드가 없는 이전 설정은 그대로 허용한다. 봇·웹훅·자기 메시지를 거부하고 DM·스레드별 세션을 격리한다. Discord 개인 기억과 대화록의 기존 제한은 유지한다. 컨테이너 예제와 오프라인 통합·프로세스·셸 회귀 검증을 제공한다. 기억 복구와 긴 작업 위임은 후속 범위다.
+
+컨테이너 예제는 호스트 authority 디렉터리를 읽기 전용으로, lease·상태 디렉터리를 별도로 쓰기 가능하게 마운트한다. 선택적 절대 lease 경로를 지원하며 미설정 시 기존 경로를 유지한다. rootless 실행은 이미지 node UID/GID에 매핑한다.
+
+검증: 독립 검수 r6가 Node 22.23.4, pnpm 10.33.0, `CI=1`, CPU 0–3 affinity, Vitest 기본 worker/heap, Discord live 비활성, 자격증명 없는 격리 환경(`env -i`, 임시 HOME/XDG/TMPDIR)에서 기준과 HEAD `41bd3ed1`의 `pnpm test`를 각각 두 번 순차 실행했다. 각 실행의 pretest 빌드는 통과했다.
+
+| 실행 | 시험 파일 실패/통과/skip | 시험 실패/통과/skip | uncaught errors | 시간 |
+|---|---:|---:|---:|---:|
+| 기준 `fdc6fcb` 1회차 | 8 / 166 / 3 | 29 / 2,136 / 14 | 2 | 107.94s |
+| 기준 `fdc6fcb` 2회차 | 8 / 166 / 3 | 29 / 2,136 / 14 | 2 | 110.24s |
+| 수정 후 HEAD 1회차 | 8 / 169 / 3 | 29 / 2,183 / 14 | 2 | 117.52s |
+| 수정 후 HEAD 2회차 | 8 / 169 / 3 | 29 / 2,183 / 14 | 2 | 115.52s |
+
+네 실행의 실패 파일 집합과 실패 시험 제목·중복 건수는 모두 같고 신규 실패는 0건이다. 기준과 HEAD 모두 실패한 파일: `delegate-agent-skill.contract.test.ts`, `issue-team-benchmark.contract.test.ts`, `memory-store-path-isolation.contract.test.ts`, `multi-issue-benchmark.contract.test.ts`, `pi-cost-comparison-runner.contract.test.ts`, `selected-workspace-coding.contract.test.ts`, `uc-naia-pi-cli-process.integration.test.ts`, `uc1-memory-process.integration.test.ts`. 전체 시험은 기존 실패로 exit 1이다. 집중 시험(Discord·Jeonju·memory reload·wire security 18개 파일)은 256 통과·1 skip, `pnpm build`와 `tsc --noEmit`은 통과했다. 이전 r8 실행 환경의 수치(실패 20개 파일·132개 시험)는 격리하지 않은 환경 기준이라 이 표로 대체했다.
+
+검수 r3의 시작 경합은 lease 취득 후 기존 처리기 등록 지점 전의 상태 쓰기를 가로채는 자식 프로세스 시험으로 고정했다. SIGTERM 단독·SIGINT 단독·연속 신호에서 초기화 중단, stopped, lease 해제, 정상 종료와 즉시 재시작을 확인했다. 상태 쓰기 예외, 거절된 promise, runtime 시작 직후 예외도 실패 상태·lease 해제·즉시 재시작을 확인했다. 관련 프로세스·배선 집중 시험은 26개 모두 통과했다. 시험은 가짜 Gateway/REST를 사용하고 실제 Discord에 접속하지 않았다. P05는 독립 검수 r6에서 통과했다. 실제 Discord 자격증명·Gateway 권한·DM/thread 수신·재연결 dedupe 확인은 배포 전 실기 항목으로 남는다.
+## FR-CONTEXT-CJK — 보수적 문맥 예산
+
+상태: Done (mock 계약 검증 범위). UC-CONTEXT-CJK. CJK는 글자당 1.5토큰, 기타 텍스트는 기존 4문자/토큰으로
+추정한다. 최종 요청은 시스템·도구·출력 예약을 포함한다. 알려진 문맥 한도를 주입받을 수 있고
+미지정 시 6000 예산을 유지한다. 최신 사용자부터 끝까지와 assistant/tool 묶음은 보존한다.
+문맥 초과 HTTP 400만 전송 기록 예산을 절반으로 줄여 최대 한 번 재시도하고 다른 오류는 전파한다.
+
+검증: main 기준 관련 5개 시험 파일 159건 통과, 독립 적대 리뷰 기록
+`.agents/reviews/context-window-overflow-main.md`. 실제 vLLM 운영 인수는 범위 밖이다.
+
+FR-CONTEXT-CJK 확장 (P01–P05, Done: 로컬 mock 계약 범위): config.json.llmRoles.main.contextWindow(우선)·config.json.contextWindow 및 llm.json.main.contextWindow는
+양의 유한 정수만 받아 ProviderConfig를 거쳐 openai-compat 최종 예산에 사용한다. 미설정은 6000.
+문맥 400만 한 번 재시도하며 두 번째 문맥 초과는 CONTEXT_WINDOW_EXCEEDED 코드로 전달한다.
+ErrorEvent.code(기존 필드 2)에 enum 25를 추가하고 장부에 원문 없는 한 줄을 남긴다.
+실제 로컬 HTTP 흉내 서버는 독립적인 UTF-8 바이트 토큰 상한으로 입력 8192 초과를 400 처리한다.
+한국어 20턴은 응답 20건·400 0건이어야 한다. 실제 tokenizer/운영 vLLM 검증으로 주장하지 않는다.
+
+main 재검증: 관련 5개 파일 159/159, pnpm build exit 0. 재현 및 독립 검수 기록:
+`.agents/reviews/context-window-overflow-main.md`. 전체 시험/실제 vLLM 인수의 한계는 해당 기록에 구분한다.
+
+범위는 openai-compat이며 실제 tokenizer/이미지 토큰/서버 암묵 출력 예약은 미검증이다.
+시스템·도구·최신 필수 블록 또는 명시 출력 예약만으로 한도를 초과하면 한 번 재시도 후 길이 오류를 전달한다.

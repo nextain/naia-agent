@@ -13,6 +13,15 @@ export interface DiscordIngressPolicyInput {
 	readonly participation: "mentions" | "all" | "paused";
 }
 
+export interface DiscordDmIngressPolicyInput {
+	readonly readySelfUserId: string | null;
+	readonly messageId: string;
+	readonly channelId: string;
+	readonly authorId: string;
+	readonly authorIsBot: boolean;
+	readonly allowedUserIds: readonly string[];
+}
+
 export type DiscordIngressDecision =
 	| { readonly accepted: true; readonly messageId: string }
 	| { readonly accepted: false; readonly reason:
@@ -46,6 +55,15 @@ function isInput(value: unknown): value is DiscordIngressPolicyInput {
 		&& ["mentions", "all", "paused"].includes(String(input.participation));
 }
 
+function isDmInput(value: unknown): value is DiscordDmIngressPolicyInput {
+	if (typeof value !== "object" || value === null) return false;
+	const input = value as Record<string, unknown>;
+	return (input.readySelfUserId === null || isIdentifier(input.readySelfUserId))
+		&& isIdentifier(input.messageId) && isIdentifier(input.channelId) && isIdentifier(input.authorId)
+		&& typeof input.authorIsBot === "boolean"
+		&& isStringArray(input.allowedUserIds) && input.allowedUserIds.length > 0;
+}
+
 export function evaluateDiscordIngress(value: unknown): DiscordIngressDecision {
 	try {
 		if (!isInput(value)) return { accepted: false, reason: "invalid_event" };
@@ -59,6 +77,20 @@ export function evaluateDiscordIngress(value: unknown): DiscordIngressDecision {
 		if (value.participation === "mentions" && !value.mentionsSelf && !value.repliesToSelf) {
 			return { accepted: false, reason: "not_addressed" };
 		}
+		return { accepted: true, messageId: value.messageId };
+	} catch {
+		return { accepted: false, reason: "invalid_event" };
+	}
+}
+
+/** Direct messages are always conversational; the explicit user allowlist is mandatory. */
+export function evaluateDiscordDmIngress(value: unknown): DiscordIngressDecision {
+	try {
+		if (!isDmInput(value)) return { accepted: false, reason: "invalid_event" };
+		if (value.readySelfUserId === null) return { accepted: false, reason: "pre_ready" };
+		if (value.authorIsBot) return { accepted: false, reason: "bot_author" };
+		if (value.authorId === value.readySelfUserId) return { accepted: false, reason: "self_author" };
+		if (!containsIdentifier(value.allowedUserIds, value.authorId)) return { accepted: false, reason: "user_denied" };
 		return { accepted: true, messageId: value.messageId };
 	} catch {
 		return { accepted: false, reason: "invalid_event" };

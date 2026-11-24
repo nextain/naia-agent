@@ -140,6 +140,7 @@ export function parseChatArgs(argv: readonly string[]): ParseResult {
       case "--think": enableThinking = true; thinking = undefined; break;
       case "--think=low": enableThinking = true; thinking = { level: "low" }; break;
       case "--think=high": enableThinking = true; thinking = { level: "high" }; break;
+      case "--think=xhigh": enableThinking = true; thinking = { level: "xhigh" }; break;
       case "--think=off": enableThinking = false; thinking = { level: "off" }; break;
       case "--provider": { const v = needsValue(); if (v === undefined) return { ok: false, error: `${t} 에 값이 필요합니다` }; provider = v; break; }
       case "--model": { const v = needsValue(); if (v === undefined) return { ok: false, error: `${t} 에 값이 필요합니다` }; model = v; break; }
@@ -153,7 +154,7 @@ export function parseChatArgs(argv: readonly string[]): ParseResult {
       }
       default: {
         if (t.startsWith("--think=")) {
-          return { ok: false, error: `--think 에는 low, high, off 만 가능합니다 (입력: ${t.slice(8)})\n\n${CHAT_USAGE}` };
+          return { ok: false, error: `--think 에는 low, high, xhigh, off 만 가능합니다 (입력: ${t.slice(8)})\n\n${CHAT_USAGE}` };
         }
         return { ok: false, error: `알 수 없는 인자: ${t}\n\n${CHAT_USAGE}` };
       }

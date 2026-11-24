@@ -12,11 +12,25 @@ export const NAIA_PI_MODELS = [
   "deepseek-v4-pro",
   "solar-pro4",
   "solar-mini",
+  "motif-3",
   // Naver CLOVA canonical ids are uppercase (the gateway forwards them verbatim).
   "HCX-007",
   "HCX-DASH-002",
 ] as const;
 export type NaiaPiModel = (typeof NAIA_PI_MODELS)[number];
+
+/** Gateway model context windows. The Pi catalog and the direct gateway provider
+ * (provider-resolver lab-proxy) read the same table so their request budgets agree. */
+export const NAIA_GATEWAY_CONTEXT_WINDOWS: Readonly<Record<NaiaPiModel, number>> = {
+  "grok-4.3": 200000,
+  "deepseek-v4-flash": 128000,
+  "deepseek-v4-pro": 1000000,
+  "solar-pro4": 128000,
+  "solar-mini": 32000,
+  "motif-3": 262144,
+  "HCX-007": 128000,
+  "HCX-DASH-002": 32000,
+};
 
 // USD per 1M tokens. Operational Pi estimates use the 2026-08-04 Azure Korea Central
 // rate-card snapshot plus the gateway's documented 1.10 customer multiplier. These
@@ -41,6 +55,14 @@ const CLOVA_CUSTOMER_COST = {
   hcxDash002: { input: 0.388, output: 1.552, cacheRead: 0.388, cacheWrite: 0.388 },
 } as const;
 
+// Motif 3 (MorphFactory CBT). Customer prices are the gateway's source rates × 1.30.
+const MOTIF_CUSTOMER_COST = {
+  input: 0.26,
+  output: 1.04,
+  cacheRead: 0.052,
+  cacheWrite: 0.26,
+} as const;
+
 export function isNaiaPiModel(model: string | undefined): model is NaiaPiModel {
   // Case-insensitive on both sides: most ids are lowercase, but CLOVA ids
   // (HCX-007, HCX-DASH-002) are uppercase.
@@ -48,6 +70,13 @@ export function isNaiaPiModel(model: string | undefined): model is NaiaPiModel {
     typeof model === "string" &&
     (NAIA_PI_MODELS as readonly string[]).some((m) => m.toLowerCase() === model.toLowerCase())
   );
+}
+
+/** Context window for a gateway model id (same case rule as isNaiaPiModel), or undefined. */
+export function naiaGatewayContextWindow(model: string | undefined): number | undefined {
+  if (typeof model !== "string") return undefined;
+  const id = NAIA_PI_MODELS.find((m) => m.toLowerCase() === model.toLowerCase());
+  return id ? NAIA_GATEWAY_CONTEXT_WINDOWS[id] : undefined;
 }
 
 export function normalizeNaiaGatewayBaseUrl(raw: string | undefined): string {
@@ -69,19 +98,21 @@ export function buildNaiaPiModelsConfig(baseUrl?: string, maxTokens?: number): R
         compat: { supportsDeveloperRole: false, supportsReasoningEffort: false },
         models: [
           { id: "grok-4.3", name: "Grok 4.3 (Naia / Azure)", reasoning: false, input: ["text"],
-            cost: AZURE_CUSTOMER_COST.grok43, contextWindow: 200000, ...(maxTokens ? { maxTokens } : {}) },
+            cost: AZURE_CUSTOMER_COST.grok43, contextWindow: NAIA_GATEWAY_CONTEXT_WINDOWS["grok-4.3"], ...(maxTokens ? { maxTokens } : {}) },
           { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash (Naia / Azure, analysis)", reasoning: false,
             input: ["text"], cost: AZURE_CUSTOMER_COST.deepseekV4Flash,
-            contextWindow: 128000, ...(maxTokens ? { maxTokens } : {}) },
-          { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro (Naia / Azure, analysis)", reasoning: false, input: ["text"], contextWindow: 1000000, ...(maxTokens ? { maxTokens } : {}) },
+            contextWindow: NAIA_GATEWAY_CONTEXT_WINDOWS["deepseek-v4-flash"], ...(maxTokens ? { maxTokens } : {}) },
+          { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro (Naia / Azure, analysis)", reasoning: false, input: ["text"], contextWindow: NAIA_GATEWAY_CONTEXT_WINDOWS["deepseek-v4-pro"], ...(maxTokens ? { maxTokens } : {}) },
           { id: "solar-pro4", name: "Solar Pro 4 (Naia / Upstage, 국내)", reasoning: false, input: ["text"],
-            cost: UPSTAGE_CUSTOMER_COST.solarPro4, contextWindow: 128000, ...(maxTokens ? { maxTokens } : {}) },
+            cost: UPSTAGE_CUSTOMER_COST.solarPro4, contextWindow: NAIA_GATEWAY_CONTEXT_WINDOWS["solar-pro4"], ...(maxTokens ? { maxTokens } : {}) },
           { id: "solar-mini", name: "Solar Mini (Naia / Upstage, 국내)", reasoning: false, input: ["text"],
-            cost: UPSTAGE_CUSTOMER_COST.solarMini, contextWindow: 32000, ...(maxTokens ? { maxTokens } : {}) },
+            cost: UPSTAGE_CUSTOMER_COST.solarMini, contextWindow: NAIA_GATEWAY_CONTEXT_WINDOWS["solar-mini"], ...(maxTokens ? { maxTokens } : {}) },
+          { id: "motif-3", name: "Motif 3 (Naia / Motif, 국내 CBT)", reasoning: true, input: ["text"],
+            cost: MOTIF_CUSTOMER_COST, contextWindow: NAIA_GATEWAY_CONTEXT_WINDOWS["motif-3"], maxTokens: maxTokens ?? 8192 },
           { id: "HCX-007", name: "HyperCLOVA X HCX-007 (Naia / CLOVA, 국내)", reasoning: false, input: ["text"],
-            cost: CLOVA_CUSTOMER_COST.hcx007, contextWindow: 128000, ...(maxTokens ? { maxTokens } : {}) },
+            cost: CLOVA_CUSTOMER_COST.hcx007, contextWindow: NAIA_GATEWAY_CONTEXT_WINDOWS["HCX-007"], ...(maxTokens ? { maxTokens } : {}) },
           { id: "HCX-DASH-002", name: "HyperCLOVA X DASH (Naia / CLOVA, 국내)", reasoning: false, input: ["text"],
-            cost: CLOVA_CUSTOMER_COST.hcxDash002, contextWindow: 32000, ...(maxTokens ? { maxTokens } : {}) },
+            cost: CLOVA_CUSTOMER_COST.hcxDash002, contextWindow: NAIA_GATEWAY_CONTEXT_WINDOWS["HCX-DASH-002"], ...(maxTokens ? { maxTokens } : {}) },
         ],
       },
     },

@@ -93,6 +93,33 @@ describe("T-SEC-WIRE-03/04 — fail-closed Discord and zero-transit", () => {
     expect(validateSecurityWireRequest(discordRequest(), { trustedBinding: binding }).ok).toBe(true);
   });
 
+  it("accepts a trusted DM and a thread only when its parent matches the trusted channel", () => {
+    const dmBinding: TrustedBinding = {
+      bindingId: "dm_binding",
+      guildId: null,
+      channelId: "500",
+      allowedUserIds: ["300"],
+      processingProfileRef: "profile_1",
+    };
+    const dm = discordRequest({
+      channel: { kind: "discord", bindingId: "dm_binding", guildId: null, channelId: "500", userId: "300" },
+    });
+    expect(validateSecurityWireRequest(dm, { trustedBinding: dmBinding }).ok).toBe(true);
+
+    const threadBinding: TrustedBinding = { ...binding, parentChannelId: "200" };
+    const thread = discordRequest({
+      channel: {
+        kind: "discord", bindingId: "binding_1", guildId: "100", channelId: "700",
+        parentChannelId: "200", userId: "300",
+      },
+    });
+    expect(validateSecurityWireRequest(thread, { trustedBinding: threadBinding }).ok).toBe(true);
+    expect(validateSecurityWireRequest({
+      ...thread,
+      channel: { ...(thread.channel as object), parentChannelId: "201" },
+    }, { trustedBinding: threadBinding }).ok).toBe(false);
+  });
+
   it.each([
     ["apiKey", "sk-inline-secret"],
     ["naiaKey", "nk-inline-secret"],

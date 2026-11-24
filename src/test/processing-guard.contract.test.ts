@@ -177,3 +177,12 @@ describe("trusted processing guard", () => {
     })).toThrow();
   });
 });
+
+it("rejects a request-scoped endpoint after the trusted configuration changes", () => {
+  let url = "https://one.example.invalid/v1";
+  const guard = makeProcessingGuard({ profiles: { get: () => "cloud_enabled" }, endpoints: { resolve: () => ({ url, zone: "unverified" }) } });
+  const input = { processingProfileRef: "p", workload: "memory_llm" as const, provider, sessionId: "s", expectedEndpoint: url };
+  expect(() => guard.preparePlan([input])).not.toThrow();
+  url = "https://two.example.invalid/v1";
+  expect(() => guard.preparePlan([input])).toThrow("processing endpoint changed");
+});

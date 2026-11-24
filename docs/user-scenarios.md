@@ -436,6 +436,10 @@ ProviderPort). 옛 `<recall>` 마커·"부적절=실패" 도덕채점 폐기(SoT
 블록에 출력 토큰을 다 써버리고 **최종 답변을 한 글자도 못 내는** 일이 없어야 한다. naia-os 설정의
 "생각 표시" 토글(`enableThinking`)이 **OpenAI-compat wire 에도 반영**되어야 한다.
 
+Ollama native 요청은 셸이 보낸 `thinkingLevel`을 현재 Ollama host와 모델의 `/api/show` 응답에 맞춰
+`think`로 변환한다. 명시적 `thinking.values: [false]`만 미지원으로 처리해 이번 요청을 끄고 셸 설정 화면에
+알리며, 설정값은 유지한다. 능력 정보가 없거나 조회에 실패하면 기존 off/on 요청으로 동작한다.
+
 **근거(실측, 2026-07-14 — RTX 3080 Ti 16GB, ollama 0.32.0, Qwen3.5-9B 계열, 도구 9개):**
 
 | 구성 | 빈 답변 | 틀린 답변 |
@@ -483,6 +487,10 @@ ProviderPort). 옛 `<recall>` 마커·"부적절=실패" 도덕채점 폐기(SoT
 - **S-THINK-9 (스트림 응답 다중 형식 수용 — #149)**: OpenAI 호환 어댑터 스트림 파서는 `delta.reasoning_content`(문자열)와
   게이트웨이 바깥 형식 `delta.reasoning?.content`(문자열)를 모두 thinking 청크로 수용한다. 단일 델타에 둘 다 존재할 경우
   `reasoning_content`만 채택하여 중복을 방지한다.
+- **S-THINK-10 (Ollama 모델 능력 기반 think 변환 — #758 S5)**: Ollama provider가 현재 host·model의 `POST /api/show` 결과를
+  성공한 경우에만 프로세스 메모리에 캐시하고, 동시 조회를 합친다. named level은 정확히 일치할 때만 보내며 불리언 능력은
+  기존 off/on으로 변환한다. 정확히 `thinking.values: [false]`일 때만 think를 끄고 명시 신호를 보낸다. 누락·형식 오류·HTTP 오류·
+  timeout·fetch 거절은 기존 off/on으로 폴백하고 재시도 가능하게 둔다. Ollama 이외 provider는 영향을 받지 않는다.
 
 - **S-THINK-10 (브라우저 채팅의 빈 답 진단 — R33)**: 공급자가 종료 신호만 보내면 에이전트가 답을 한 번 더 요청한다.
   본문과 생각이 모두 비어 있으면 웹 셸에 빈 답 오류를 전달한다.
@@ -718,6 +726,7 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 - **S-NAIA-PI-3 (capability rejection)**: DeepSeek로 코딩을 요청하면 Pi spawn/Azure 호출 전에 tool 미지원 이유로 실패한다.
 - **S-NAIA-PI-4 (stored login)**: 새 CLI 프로세스가 `~/.naia-agent/.env`의 Naia 키를 읽고 키 인자 없이 실행한다.
 - **S-NAIA-PI-5 (honest failure)**: 키 누락·인증 실패·모델 미지원·upstream 실패를 구분하고 비밀을 출력하지 않는다.
+- **S-NAIA-PI-6 (Motif 3)**: `motif-3`는 두 차례 live probe에서 구조화 `tool_calls` 9/10, 10/10(요청 함수 일치 8/10, 9/10)을 반환해 기준(9/10 이상)을 충족한 뒤 도구 사용 모델과 Pi 목록에 포함된다. 스트리밍 `delta.reasoning` 문자열/객체는 thinking 이벤트로 전달되고 Pi 설정은 측정된 262,144 토큰 컨텍스트를 선언한다.
 
 권위 계약과 전체 REQ/FE/TEST 매핑은
 `docs/progress/99.dev-comm/naia-account-pi-azure-contract-2026-07-30.md`이다.
@@ -756,6 +765,7 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 | UC-THINKING / S-THINK-4·5 / FR-THINK-5·6 (#114) | `src/test/uc1-openai-compat.contract.test.ts` — describe "#114 deepseek [THINK] 정규화" (①닫힘쌍 분리 ②미닫힘 thinking flush·text 무누출 ③청크 경계 분할 태그 ④literal [think] 트레이드오프 계약 ⑤flavor 대칭·꺾쇠 무회귀) + describe "#114 스트림 idle 데드라인" (hang → 데드라인 내 throw+reader.cancel / 연속 청크 무절단 / 기본 45s 상수) |
 | UC-THINKING / S-THINK-6~9 / FR-THINK-7~11 (#149) | `src/test/uc-thinking.contract.test.ts` (게이트웨이 off/low/high/미지정 reasoning_effort 무전송/전송, 로컬 off none 무변경, 원격 low 무전송, delta.reasoning.content 파싱 및 중복 방지, 도구 루프 reasoning_content 에코, grpc-codec thinking enum 디코드, resolveTurnThinking, threadToolRound 5인자) |
 | UC-THINKING / S-THINK-10 / FR-THINK-12 (R33) | `src/test/uc1-agent.contract.test.ts` (복구 요청 1회, 최종 빈 답 오류) |
+| UC-THINKING / S-THINK-10 / FR-THINK-15 (#758 S5) | `src/test/uc1-ollama-provider.contract.test.ts` (가짜 `/api/show` named/bool/unsupported/malformed/failure/timeout fixture, think body·성공 캐시·동시 합치기·재시도) 및 `src/test/uc-thinking.contract.test.ts` (ProviderConfig→Ollama signal egress); Shell `packages/shell/e2e/ollama-settings.spec.ts` (명시 미지원 안내·설정 보존·좁은 폭/접근성) |
 | FR-CONT-MVP-1~4·9 / 개인 라디오 DJ | 계약/통합: `src/test/personal-radio-dj.contract.test.ts` (`DJ-01~08`: ended 전환 멘트→radio 검색 포함), `src/test/activity-radio-dj-bgm.contract.test.ts`(`mode=radio_dj`, 최근곡·즐겨찾기 status), `src/test/radio-dj-shell-handoff.integration.test.ts`(실 Controller+activity app adapter의 ended→전환 발화→radio play→playing 관측), `src/test/radio-dj-product-acceptance.contract.test.ts`(local tombstone 우선 Naia Memory recall), `src/test/speech-profile-runtime.integration.test.ts`(제어 사전 검증), `src/test/grpc-shutdown.contract.test.ts`(제어 ACK가 긴 작업을 기다리지 않음). 실제 Tauri: shell `71-proactive-speech-profiles.spec.ts`의 profile 저장·복원과 `94-avatar-4060-facade.spec.ts`의 A→B 교체·TRT 발화·끼어들기. |
 | FR-CONT-MVP-10 / #115 off-레이스·백오프·폴링 하한 | `src/test/personal-radio-dj.contract.test.ts` — describe "#115 radio DJ off-race·backoff·configure contract" (music_only churn 보존 / stop 후 churn start 미호출 / 동등 config·disabled 재전송 no-op / 연속실패 발화 1회+지수 백오프 단조 증가·상한 / 사용자 액션 리셋) + `src/test/activity-radio-dj-bgm.contract.test.ts` — describe "#115 BGM status 폴링 간격 하한" (주입 50ms → 1s 승격, wait ≥ 1000ms) |
 | FR-APP-6 / 앱 screenshot multimodal 전달 | `src/test/uc-app-skill.contract.test.ts`의 bounded data URI 추출·실패 격리, provider 계약 테스트의 OpenAI/Anthropic/Ollama image block 매핑, Shell `capture.rs`·`tab-skills.ts` 실제 PNG 반환 경로 |
@@ -769,7 +779,7 @@ Pi는 Naia gateway만 호출하며 Azure·xAI·DeepSeek 직접 키나 OpenCode f
 | UC-CLI / AC2·AC4 (2c 정직보고) | `src/test/uc-cli-verifier.contract.test.ts`, `uc-cli-workspace.contract.test.ts`, `uc-cli-supervisor-real-verifier.integration.test.ts` (never-throws·git classify·실 verify — Pass) |
 | V모델: UC-CLI = UC-014 (REQ-011·012 → SPEC-009·010 → TEST-F-009·010), TEST-S-014 | `docs/progress/{01..05}/INDEX.md` (orphan 0) |
 | UC-CLI / S-CLI-CHAT·S-CLI-LOGIN (S1 대화·로그인) / FR-CLI-7·8 | `src/test/cli-chat.contract.test.ts`(멀티턴 history 누적·emit→stdout·finish 재프롬프트·error 격리·login 파싱→.env 기록) + bin 실행 검증(fake provider 2턴 맥락 유지) |
-| UC-NAIA-PI / FR-CLI-9~13 | `src/test/uc-naia-pi-provider.contract.test.ts`, `uc-naia-pi-controlled.integration.test.ts`, `uc-cli-host-entry.contract.test.ts`, `uc-cli-subagent-pi.contract.test.ts`, `cli-chat.contract.test.ts` — secret-free config, exact host/spawn, stored-login env contract, 실제 Pi 0.83 Grok 도구 실행, DeepSeek analysis/tool-negative, model evidence |
+| UC-NAIA-PI / FR-CLI-9~13 | `src/test/uc-naia-pi-provider.contract.test.ts`, `uc-naia-pi-controlled.integration.test.ts`, `uc-cli-host-entry.contract.test.ts`, `uc-cli-subagent-pi.contract.test.ts`, `cli-chat.contract.test.ts`, `gateway-pricing.contract.test.ts`, `cli-manage.contract.test.ts`, `uc1-openai-compat.contract.test.ts` — Motif Pi cost/context/reasoning, live pricing overlay, CLI fallback and `delta.reasoning` stream contract, existing secret-free config and tool/provider behavior |
 | UC-CLI-MANAGE / FR-CLI-14~20 | `src/test/cli-manage.contract.test.ts`, `src/test/cli-manage-process.integration.test.ts`, `src/test/uc-cli-host-entry.contract.test.ts` — auth/config/models/doctor/session, isolated HOME, run defaults/override, secret redaction, resume, DeepSeek guard — Pass |
 | UC-APP / S-APP-1·2·3 / FR-APP-1~5 | `src/test/uc-app-skill.contract.test.ts` (등록→노출·tool call→app_tool_call emit·result→주입·timeout/취소·동시성·builtin 무회귀) [예정] |
 | UC-PERSONA-CLI / S-PERSONA-1·2 / FR-PERSONA-1·2 | `src/test/uc-persona-compose.contract.test.ts` — describe "composePersonaPrompt" (full Alpha profile→prefix·존댓말·루크·마스터·Korean 포함, emotion-tag 제외 단언) + describe "Golden case D (CLI/no avatar)" (빈 profile→"", prefix-only→base only) + describe "PersonaSourcePort (fake fs)" (실 config.json shape→매핑 PersonaProfile, 파일부재→undefined) |
@@ -1045,8 +1055,9 @@ honestly. The loop has no arbitrary two-minute ceiling and stops only at explici
 4. Private reasoning is carried separately from the final response, while code uses a language-tagged fenced Markdown block.
 5. If the model still ends a turn with only a promise ("확인해 보겠습니다", "I'll check") while real tools are offered and no tool was called in that turn, the agent re-asks it once to call the tool now or say plainly that it cannot (nextain/naia-shell#687). A normal final answer is not re-asked, and there is never more than one re-ask per turn.
 6. The model does not report a tool result (for example "the tool shows no open file") unless that tool was called in this turn and returned it.
+7. A complete final answer that ends with emoji/decoration ("있어요 ☀️☕") is not mistaken for a DeepSeek truncation: no "continue from the cut point" re-ask is sent, so the model does not restate the song intro and guidance it already gave. A genuinely cut-off final ("노래는건") is still re-asked once.
 
-Coverage: `src/test/action-execution-policy.contract.test.ts`, `src/test/action-promise-guard.contract.test.ts` plus naia-shell v0.2.2 local E2E (the #687 attended shell E2E is pending).
+Coverage: `src/test/action-execution-policy.contract.test.ts`, `src/test/action-promise-guard.contract.test.ts`, `src/test/chat-repeat-regression.contract.test.ts` plus naia-shell v0.2.2 local E2E (the #687 attended shell E2E is pending).
 
 # UC-154 — 장기 기억과 지식 저장 도구를 모델에 연다 (naia-agent#154)
 
@@ -1073,3 +1084,48 @@ Coverage: `src/test/action-execution-policy.contract.test.ts`, `src/test/action-
 | 턴 종료 자동 memory.save 실패/시간초과 시 그 사실이 logEntry 로 전달되고 조용히 성공처럼 속이지 않음 | `explicit-memory-knowledge-write.contract.test.ts` |
 | 기존 읽기 도구 (skill_memory_recall, skill_knowledge_search 등) 무회귀 유지 | `memory-skill.contract.test.ts`, `uc-knowledge.contract.test.ts` |
 
+
+
+## UC-SM-AGENT-01 — 대화에서 작은 모델로 기억을 만든다
+
+셸 UC-SM-01에 이어지는 데스크톱 후보판의 직접 확인이다. 사용할 수 있는 메인·작은 모델과 기억이 켜진 작업 공간을 준비한다. 목표 시나리오이며 후보판이 준비되기 전에는 미실시다. 기기·후보판·실제 결과를 기록한다.
+
+| 단계 | 행동 | 기대 결과와 관찰 위치 |
+|---|---|---|
+| 1 | 셸 설정에서 메인 모델을 확인하고 작은 모델을 다른 모델로 고른 뒤 저장한다. 설정을 닫고 다시 연다. | 설정의 메인·작은 모델 선택 칸에서 각각 선택이 유지된다. 기존에 별도 기억 모델이 있다면 기억 역할이 우선하므로 작은 모델 사용을 확인하려면 별도 기억 모델이 없는 작업 공간을 쓴다. |
+| 2 | 대화 화면에서 “나는 따뜻한 차를 좋아해. 너는 어떤 차를 추천해?”라고 말하고 응답을 기다린다. | 대화 화면에 응답이 보인다. |
+| 3 | 설정의 **기억(Memory)** 탭을 열어 저장된 사실 목록을 확인하고 필요하면 탭을 다시 연다. | 말한 선호가 목록에 저장되는 것이 목표다. 보이지 않으면 관찰 결과를 기록하며 저장 완료 시점을 확인할 수 없다면 미확인으로 둔다. 목록만으로 추출에 쓰인 모델이나 압축 호출은 판정할 수 없다. |
+
+실패 주입, 승인·호출 횟수, 로컬 복구, 빈 역할과 압축은 셸 UC-SM-01과 같이 자동 시험으로 확인한다. 자동 시험은 [시험 계획](requirements.md#시험-계획-및-받아들임)의 IT-SM-AGENT-01 (`src/test/smallmodel-memory.integration.test.ts`, “대화 추출과 압축이 해석된 기억 역할을 쓴다”), IT-SM-AGENT-04 (같은 파일, “추출과 압축의 실패·승인·로컬 복구를 각각 확인한다”), IT-SM-AGENT-05 (같은 파일, “재시도 후 중복 사실 없이 안전한 호출 기록을 남긴다”)다. 셸의 IT-SM-06·07도 각각 추출·압축의 실패와 복구를 검증한다.
+
+Test Coverage Map: [UT-SM-AGENT-01~03, IT-SM-AGENT-01~05, UT-SM-SHELL-THINK-01, UT-SM-AGENT-THINK-01, IT-SM-AGENT-THINK-01](requirements.md#시험-계획-및-받아들임). 셸 FR-SM.3~.7, NFR-SM.2·.3, FE-SM-01·03.
+## UC-DISCORD-STANDALONE-169 — 셸 없이 허용된 Discord 대화에 응답한다 (진행 중)
+
+사용자는 `naia-agent serve`와 전용 비밀 파이프, 명시적인 권한 설정으로 독립 호스트를 실행한다. serve는 기존 workspace와 구체적인 main provider 설정을 확인한 뒤 준비 상태를 보고하며, 누락 시 도움말에 필요한 설정을 안내하고 0이 아닌 코드로 끝난다. 서버 일반 메시지 채널은 text(0)·announcement(5), thread는 announcement/public/private thread(10·11·12)만 허용한다. 일반 채널의 `parent_id`는 category 관계이므로 thread 부모로 쓰지 않는다. thread 부모는 허용된 thread 유형에서만 검사한다. 미지원 유형은 Gateway 캐시와 runtime 모두 거부한다. DM은 캐시에 있더라도 매 메시지마다 type 1과 recipients 내 작성자 일치를 확인한다. 확인할 수 없는 READY·REST DM 항목은 신뢰 캐시로 승격하지 않으며, recipients 부재·조회 실패·그룹 DM·비허용 사용자는 거부한다. 서버 channel/thread 정보가 없거나 guild 정보가 불완전하면 REST 확인 뒤 사용한다. `THREAD_LIST_SYNC`·`GUILD_CREATE`의 바깥 guild ID를 thread metadata에 보충한다. 허용 guild·부모 채널·사용자가 모두 일치하는 멘션으로 스레드를 만들고 그 스레드의 후속 메시지는 멘션 없이 이어 간다. DM 채널·서버 스레드·사용자별 대화 문맥은 분리된다. ingress와 각 egress 쓰기에서 현재 generation authority와 process lease 소유권을 함께 확인하고, lease를 잃으면 처리와 readiness를 중단한 뒤 프로세스를 종료한다. Discord 개인 기억과 대화록의 기존 차단은 유지한다.
+
+| 시험 시나리오 | 검증 대상 |
+|---|---|
+| 허용 목록 AND, 빈 목록, 그룹/유형 미확인 DM, 봇·웹훅·자기 메시지 및 알 수 없는 스레드 부모 거부 | `src/test/discord-runtime.integration.test.ts`, `src/test/discord-gateway.contract.test.ts`, `src/test/discord-ingress-policy.contract.test.ts` |
+| DM·스레드 세션 격리, 멘션에서 스레드 생성, 중복·실패 처리 | `src/test/discord-runtime.integration.test.ts`, `src/test/discord-inbox-store.contract.test.ts`, `src/test/discord-gateway.contract.test.ts` |
+| 독립 호스트 공통 조립, stdin 토큰·상태·authority 설정 및 gRPC 비활성화 배선 | `src/test/discord-standalone-entry.contract.test.ts`, `src/test/discord-entry-wiring.contract.test.ts` |
+| Gateway 캐시/가짜 REST로 DM type·recipients와 스레드 guild·parent를 확인하고 실패 시 거부 | `src/test/discord-gateway.contract.test.ts`, `src/test/discord-standalone.integration.test.ts` |
+| 일반 채널 category parent 의미, 일반/thread 유형 allowlist, DM 매 메시지 recipient 확인, outer guild ID 보충 및 불완전 metadata REST 재확인 | `src/test/discord-gateway.contract.test.ts`, `src/test/discord-runtime.integration.test.ts`, `src/test/discord-standalone.integration.test.ts` |
+| 가짜 Gateway와 모델, REST를 통과하는 전체 흐름 및 독립 호스트의 pipe·SIGTERM·lease 탈취 fencing·workspace/provider 준비 검증 | `src/test/discord-standalone.integration.test.ts`, `src/test/discord-serve-process.integration.test.ts`, `src/test/discord-trusted-state.contract.test.ts` |
+| lease 취득 직후 SIGTERM/SIGINT, 중복 신호, 시작 상태 쓰기 예외·거절된 promise·runtime 시작 직후 예외 시 정리·상태 기록과 즉시 재시작 | `src/test/discord-serve-process.integration.test.ts` |
+| 읽기 전용 authority 디렉터리와 별도 쓰기 가능 lease, 원자적 authority 교체 및 rootless node UID 매핑 | `src/test/discord-trusted-state.contract.test.ts`, `src/test/discord-serve-process.integration.test.ts`, 컨테이너 오프라인 권한 검증 |
+| 셸 gRPC Chat·Cancel·승인·설정 회귀 | 기존 gRPC 및 Discord 배선 테스트 |
+## UC-CONTEXT-CJK — 긴 한국어 대화를 문맥 예산 안에서 전송
+
+사용자는 한국어 방송 대화를 여러 턴 이어간다. agent는 CJK 비용, 시스템 프롬프트,
+도구 스키마와 출력 예약을 계산해 오래된 기록을 버리고 최신 사용자 블록과 도구 라운드를 보존한다.
+문맥 초과 HTTP 400에만 기록 예산을 절반으로 줄여 한 번 재시도한다.
+
+Test Coverage Map: `src/test/budgeted-conversation.contract.test.ts` (CJK/영어/블록 보존),
+`src/test/uc1-openai-compat.contract.test.ts` (최종 예산/400 재시도/실패/취소).
+
+UC-CONTEXT-CJK 확장 (main, P01/P02): 공급자 설정 contextWindow를 전달해 긴 한국어 대화를 사전 절단한다.
+재시도도 문맥 초과이면 사용자가 길이 초과를 식별할 오류 코드와 진단 한 줄을 받는다.
+라디오 모드는 기존 ChatRequest.disabledSkills / gRPC disabled_skills로 광고 스키마를 줄인다.
+Coverage: uc-naia-settings-store.contract.test.ts(설정), uc1-agent.contract.test.ts(오류/로그),
+uc1-openai-compat.contract.test.ts(8192 HTTP 흉내 서버 한국어 20턴, 재시도 및 한도 전달),
+grpc-codec-uc1-fields.contract.test.ts(오류 프로토 필드).

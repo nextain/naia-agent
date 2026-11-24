@@ -1,0 +1,14 @@
+**
+!package.json
+!pnpm-lock.yaml
+!tsconfig.json
+!src
+!src/main
+!src/main/**
+!src/test
+!src/test/**
+!bin
+!bin/**
+!scripts
+!scripts/builds
+!scripts/builds/**

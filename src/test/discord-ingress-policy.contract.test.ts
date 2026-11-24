@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { evaluateDiscordIngress, type DiscordIngressPolicyInput } from "../main/domain/discord-ingress-policy.js";
+import {
+	evaluateDiscordDmIngress,
+	evaluateDiscordIngress,
+	type DiscordDmIngressPolicyInput,
+	type DiscordIngressPolicyInput,
+} from "../main/domain/discord-ingress-policy.js";
 
 const allowed: DiscordIngressPolicyInput = {
 	readySelfUserId: "bot-1", messageId: "m-1", guildId: "g-1", channelId: "c-1",
@@ -57,5 +62,32 @@ describe("PROPOSED-REQ-DG-02 partial", () => {
 		Object.defineProperties(hostile, { includes: { value: null }, every: { value: null } });
 		expect(evaluateDiscordIngress({ ...allowed, allowedGuildIds: hostile }))
 			.toEqual({ accepted: true, messageId: "m-1" });
+	});
+});
+
+describe("Discord direct-message policy", () => {
+	const dm: DiscordDmIngressPolicyInput = {
+		readySelfUserId: "bot-1",
+		messageId: "m-1",
+		channelId: "dm-channel-1",
+		authorId: "u-1",
+		authorIsBot: false,
+		allowedUserIds: ["u-1"],
+	};
+
+	it("accepts only an allowlisted human after READY without requiring a mention", () => {
+		expect(evaluateDiscordDmIngress(dm)).toEqual({ accepted: true, messageId: "m-1" });
+		expect(evaluateDiscordDmIngress({ ...dm, readySelfUserId: null }))
+			.toEqual({ accepted: false, reason: "pre_ready" });
+		expect(evaluateDiscordDmIngress({ ...dm, allowedUserIds: [] }))
+			.toEqual({ accepted: false, reason: "invalid_event" });
+	});
+
+	it.each([
+		[{ ...dm, authorIsBot: true }, "bot_author"],
+		[{ ...dm, authorId: "bot-1" }, "self_author"],
+		[{ ...dm, authorId: "u-2" }, "user_denied"],
+	] as const)("rejects unsafe DM sender: %o", (input, reason) => {
+		expect(evaluateDiscordDmIngress(input)).toEqual({ accepted: false, reason });
 	});
 });

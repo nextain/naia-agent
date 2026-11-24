@@ -13,6 +13,8 @@ export interface ProviderChatOpts {
   readonly systemPrompt?: string;
   readonly signal?: AbortSignal;
   readonly tools?: readonly ToolSpec[]; // UC5 — LLM 에 전달할 도구 사양(미지원 provider 는 무시)
+  /** Explicit Ollama model capability signal for the Shell settings status. */
+  readonly onOllamaThinkingUnsupported?: (host: string, model: string) => void;
   /** Provider-native 도구 호출(app-server 등)이 응답을 계속하려면 즉시 실행 결과가 필요할 때 사용한다.
    *  provider는 자신이 실제로 광고한 자동승인 도구만 호출해야 하며, handled chunk로 실행 사실을 알린다. */
   readonly executeTool?: (call: ToolCall) => Promise<ToolExecutionResult>;
@@ -31,6 +33,8 @@ export interface ProviderResolverPort {
 /** 일반 코드가 provider 호출 전에 처리 위치와 profile을 판정하는 포트. */
 export interface ProcessingAuthorizationInput {
   readonly processingProfileRef: string;
+  readonly expectedEndpoint?: string;
+  readonly expectedRole?: "memory" | "main";
   readonly workload: ProcessingWorkload;
   readonly provider: { readonly provider: string; readonly model: string };
   readonly sessionId: string;
@@ -62,7 +66,7 @@ export interface ToolExecutorPort {
 
 export interface ConversationPort {
   /** 대화조립 — token-budget + system-prompt. */
-  assemble(req: { messages: readonly ChatMessage[]; systemPrompt?: string }): { messages: readonly ChatMessage[]; systemPrompt?: string };
+  assemble(req: { messages: readonly ChatMessage[]; systemPrompt?: string; maxTokens?: number }): { messages: readonly ChatMessage[]; systemPrompt?: string };
 }
 
 /** UC-PERSONA-CLI driven — 워크스페이스 설정의 페르소나 프로필 로드(driven). 구현=persona-source-store
