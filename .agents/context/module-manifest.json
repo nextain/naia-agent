@@ -800,6 +800,11 @@
       ],
       "note": "S3 fs 도구 ToolExecutorPort(list_dir/read_file/write_file) — 모든 경로 2단계 검증(domain validatePath → realpathSync 재검증, TOCTOU). write 는 enableWrite=true(NAIA_SHELL_TOOL=1)에서만 spec 노출(opt-in). tier fs-read/fs-write→기존 ApprovalPort 게이트 발화. no-throw. FsLike 주입(node:fs, 테스트 fake). 테스트=src/test/uc-fs-tools.contract.test.ts"
     },
+    "src/main/adapters/browser-read-tools.ts": {
+      "layer": "adapters",
+      "uc": ["UC-FS-TOOLS"],
+      "contract": "docs/requirements.md"
+    },
     "src/main/adapters/shell-tool.ts": {
       "layer": "adapters",
       "uc": ["UC-FS-TOOLS"],
