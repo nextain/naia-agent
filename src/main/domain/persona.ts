@@ -99,6 +99,30 @@ export interface PersonaProfile {
   personaText?: string;
 }
 
+export const NAME_SUFFIX_HONORIFICS = [
+  "님",
+  "씨",
+  "군",
+  "양",
+  "さん",
+  "様",
+  "くん",
+  "ちゃん",
+  "君",
+] as const;
+
+export const NO_HONORIFIC_NO_NAME_ADDRESSING_INSTRUCTION =
+  'Never address the user with any title or nickname, such as "친구", "친구야", "friend", "buddy", or "pal". Speak directly without addressing them.';
+
+export const NO_HONORIFIC_NAME_ADDRESSING_INSTRUCTION =
+  'Never address the user with any title or nickname, such as "친구", "친구야", "friend", "buddy", or "pal". Apart from the occasional use of their name described above, speak directly without addressing them.';
+
+export const NO_HONORIFIC_ADDRESSING_INSTRUCTION =
+  NO_HONORIFIC_NO_NAME_ADDRESSING_INSTRUCTION;
+
+export const HONORIFIC_ADDRESSING_INSTRUCTION =
+  'Do not address the user with any other title or nickname, such as "친구", "친구야", "friend", "buddy", or "pal"; use only the form given above.';
+
 /**
  * PersonaProfile → 합성된 system prompt(순수). naia-os buildSystemPrompt 의 합성 순서를 거울로 하되
  * **emotion-tag 블록(아바타 전용)은 제외**. profile 이 사실상 비어 base 가 없으면 `""` 반환(호출자가
@@ -132,18 +156,43 @@ export function composePersonaPrompt(profile: PersonaProfile): string {
 
   if (profile.userName) {
     contextLines.push(
-      `The user's name is "${profile.userName}". Address them by name occasionally.`,
+      `The user's name is "${profile.userName}". Use the name only now and then: most replies should not contain it, never use it in two consecutive replies, and do not start replies with it.`,
     );
   }
 
+  const trimmedHonorific = (profile.honorific ?? "").trim();
   if (
-    profile.honorific &&
+    trimmedHonorific &&
     (!locale || FORMALITY_LOCALES.has(locale))
   ) {
     const lang = locale ? localeToLanguage(locale) : "the user's language";
-    contextLines.push(
-      `Address the user as "${profile.honorific} ${profile.userName || ""}" or "${profile.userName || ""}${profile.honorific}" as appropriate for ${lang}.`,
-    );
+    if (profile.userName) {
+      contextLines.push(
+        `Address the user as "${trimmedHonorific} ${profile.userName || ""}" or "${profile.userName || ""}${trimmedHonorific}" as appropriate for ${lang}.`,
+      );
+      contextLines.push(
+        `Use this form only now and then: most replies should not contain it, and never use it in two consecutive replies.`,
+      );
+      contextLines.push(HONORIFIC_ADDRESSING_INSTRUCTION);
+    } else {
+      if ((NAME_SUFFIX_HONORIFICS as readonly string[]).includes(trimmedHonorific)) {
+        contextLines.push(
+          `"${trimmedHonorific}" is a suffix that must follow a name, and the user's name is unknown, so never use "${trimmedHonorific}" by itself. Do not address the user at all; speak directly without any title or nickname.`,
+        );
+        contextLines.push(NO_HONORIFIC_NO_NAME_ADDRESSING_INSTRUCTION);
+      } else {
+        contextLines.push(
+          `Address the user as "${trimmedHonorific}". Use it only now and then: most replies should not contain it, and never use it in two consecutive replies.`,
+        );
+        contextLines.push(HONORIFIC_ADDRESSING_INSTRUCTION);
+      }
+    }
+  } else {
+    if (profile.userName) {
+      contextLines.push(NO_HONORIFIC_NAME_ADDRESSING_INSTRUCTION);
+    } else {
+      contextLines.push(NO_HONORIFIC_NO_NAME_ADDRESSING_INSTRUCTION);
+    }
   }
 
   if (locale) {

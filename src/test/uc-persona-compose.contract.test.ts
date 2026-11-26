@@ -90,10 +90,12 @@ describe("composePersonaPrompt — Golden case D (CLI/no avatar) (FR-PERSONA-1)"
     expect(composePersonaPrompt({ userName: "루크", honorific: "마스터", locale: "ko" })).toBe("");
   });
 
-  it("systemPromptPrefix 만 → 그 base 만 반환(불필요한 컨텍스트 줄 없음)", () => {
+  it("systemPromptPrefix 만 → base + 호칭 금지 줄(#158)만 반환(그 밖의 컨텍스트 줄 없음)", () => {
     const out = composePersonaPrompt({ systemPromptPrefix: ALPHA_PREFIX });
-    expect(out).toBe(ALPHA_PREFIX);
-    expect(out).not.toContain("Context:");
+    // #158: 호칭 줄이 없으면 호칭 금지 문장 A 는 항상 들어간다. 그 밖의 컨텍스트 줄은 여전히 없다.
+    expect(out).toBe(
+      `${ALPHA_PREFIX}\n\nContext:\nNever address the user with any title or nickname, such as "친구", "친구야", "friend", "buddy", or "pal". Speak directly without addressing them.`,
+    );
     expect(out).not.toContain("[HAPPY]");
   });
 
@@ -291,3 +293,209 @@ describe("PersonaSourcePort via fake fs (FR-PERSONA-2)", () => {
     expect(store.load()?.agentName).toBe("알파");
   });
 });
+
+describe("#158 호칭 규칙", () => {
+  const INSTRUCTION_A_NO_NAME =
+    'Never address the user with any title or nickname, such as "친구", "친구야", "friend", "buddy", or "pal". Speak directly without addressing them.';
+  const INSTRUCTION_A_WITH_NAME =
+    'Never address the user with any title or nickname, such as "친구", "친구야", "friend", "buddy", or "pal". Apart from the occasional use of their name described above, speak directly without addressing them.';
+  const INSTRUCTION_B =
+    'Do not address the user with any other title or nickname, such as "친구", "친구야", "friend", "buddy", or "pal"; use only the form given above.';
+  const FREQUENCY_LINE =
+    'Use this form only now and then: most replies should not contain it, and never use it in two consecutive replies.';
+
+  function extractHonorificInstructionLine(prompt: string): string | undefined {
+    return prompt
+      .split("\n")
+      .map((line) => line.trim())
+      .find(
+        (line) =>
+          line.startsWith("Address the user as") ||
+          line.includes("is a suffix that must follow a name"),
+      );
+  }
+
+  it("ko+casual, 호칭 없음: 출력에 이름 없는 문장 A 가 있고 문장 B 는 없다", () => {
+    const out = composePersonaPrompt({
+      systemPromptPrefix: "You are an AI companion. Speak casually and warmly.",
+      locale: "ko",
+      speechStyle: "casual",
+    });
+    expect(out).toContain(INSTRUCTION_A_NO_NAME);
+    expect(out).not.toContain(INSTRUCTION_B);
+  });
+
+  it("en, 호칭 없음: 출력에 이름 없는 문장 A 가 있고 문장 B 는 없다", () => {
+    const out = composePersonaPrompt({
+      systemPromptPrefix: "You are an AI companion.",
+      locale: "en",
+    });
+    expect(out).toContain(INSTRUCTION_A_NO_NAME);
+    expect(out).not.toContain(INSTRUCTION_B);
+  });
+
+  it("ko, 이름 '민수'·호칭 '님' 지정 (이름+님): 호칭 줄 바로 다음 줄이 빈도 줄과 문장 B, 문장 A 없음", () => {
+    const out = composePersonaPrompt({
+      systemPromptPrefix: "You are an AI companion.",
+      locale: "ko",
+      userName: "민수",
+      honorific: "님",
+    });
+    const expectedNameLine =
+      'The user\'s name is "민수". Use the name only now and then: most replies should not contain it, never use it in two consecutive replies, and do not start replies with it.';
+    const expectedHonorificLine = 'Address the user as "님 민수" or "민수님" as appropriate for Korean.';
+    expect(out).toContain(expectedNameLine);
+    expect(extractHonorificInstructionLine(out)).toBe(expectedHonorificLine);
+    expect(out).toContain(expectedHonorificLine);
+    expect(out).toContain(`${expectedHonorificLine}\n${FREQUENCY_LINE}\n${INSTRUCTION_B}`);
+    expect(out).not.toContain(INSTRUCTION_A_NO_NAME);
+    expect(out).not.toContain(INSTRUCTION_A_WITH_NAME);
+  });
+
+  it("en, 호칭 '님' 지정 (이름 없음): 기존 호칭 줄이 없고, 이름 없는 문장 A 가 있으며, 문장 B 는 없다", () => {
+    const out = composePersonaPrompt({
+      systemPromptPrefix: "You are an AI companion.",
+      locale: "en",
+      honorific: "님",
+    });
+    expect(out).not.toContain('Address the user as "님');
+    expect(out).toContain(INSTRUCTION_A_NO_NAME);
+    expect(out).not.toContain(INSTRUCTION_B);
+  });
+
+  it("locale 없음, 이름 '민수'·호칭 '님' 지정: 호칭 줄 바로 다음 줄이 빈도 줄과 문장 B, 문장 A 없음", () => {
+    const out = composePersonaPrompt({
+      systemPromptPrefix: "You are an AI companion.",
+      userName: "민수",
+      honorific: "님",
+    });
+    const expectedNameLine =
+      'The user\'s name is "민수". Use the name only now and then: most replies should not contain it, never use it in two consecutive replies, and do not start replies with it.';
+    const expectedHonorificLine =
+      'Address the user as "님 민수" or "민수님" as appropriate for the user\'s language.';
+    expect(out).toContain(expectedNameLine);
+    expect(out).toContain(expectedHonorificLine);
+    expect(out).toContain(`${expectedHonorificLine}\n${FREQUENCY_LINE}\n${INSTRUCTION_B}`);
+    expect(out).not.toContain(INSTRUCTION_A_NO_NAME);
+    expect(out).not.toContain(INSTRUCTION_A_WITH_NAME);
+  });
+
+  it("이름만 있음: 이름 줄과 이름 있는 문장 A 가 함께 있고 문장 B 는 없다", () => {
+    const out = composePersonaPrompt({
+      systemPromptPrefix: "You are an AI companion.",
+      userName: "민수",
+      locale: "ko",
+    });
+    const expectedNameLine =
+      'The user\'s name is "민수". Use the name only now and then: most replies should not contain it, never use it in two consecutive replies, and do not start replies with it.';
+    expect(out).toContain(expectedNameLine);
+    expect(out).toContain(INSTRUCTION_A_WITH_NAME);
+    expect(out).not.toContain(INSTRUCTION_B);
+    expect(out).not.toContain(INSTRUCTION_A_NO_NAME);
+  });
+
+  it("호칭만 있고 이름 없음(locale 'ko', 호칭 '님'): 접미사 문장과 이름 없는 문장 A 가 들어가고 'Address the user as'와 문장 B('use only the form given above') 없음", () => {
+    const out = composePersonaPrompt({
+      systemPromptPrefix: "You are an AI companion.",
+      locale: "ko",
+      honorific: "님",
+    });
+    const expectedSuffix =
+      '"님" is a suffix that must follow a name, and the user\'s name is unknown, so never use "님" by itself. Do not address the user at all; speak directly without any title or nickname.';
+    expect(extractHonorificInstructionLine(out)).toBe(expectedSuffix);
+    expect(out).toContain(expectedSuffix);
+    expect(out).toContain(`${expectedSuffix}\n${INSTRUCTION_A_NO_NAME}`);
+    expect(out).toContain(INSTRUCTION_A_NO_NAME);
+    expect(out).not.toContain('"님 "');
+    expect(out).not.toContain("Address the user as");
+    expect(out).not.toContain(INSTRUCTION_B);
+    expect(out).not.toContain("use only the form given above");
+    expect(out).not.toContain(INSTRUCTION_A_WITH_NAME);
+  });
+
+  it("호칭만 있고 이름 없음(locale 'ko', 호칭 '씨'): 접미사 문장과 이름 없는 문장 A 가 들어가고 'Address the user as'와 문장 B 없음", () => {
+    const out = composePersonaPrompt({
+      systemPromptPrefix: "You are an AI companion.",
+      locale: "ko",
+      honorific: "씨",
+    });
+    const expectedSuffix =
+      '"씨" is a suffix that must follow a name, and the user\'s name is unknown, so never use "씨" by itself. Do not address the user at all; speak directly without any title or nickname.';
+    expect(extractHonorificInstructionLine(out)).toBe(expectedSuffix);
+    expect(out).toContain(expectedSuffix);
+    expect(out).toContain(`${expectedSuffix}\n${INSTRUCTION_A_NO_NAME}`);
+    expect(out).toContain(INSTRUCTION_A_NO_NAME);
+    expect(out).not.toContain("Address the user as");
+    expect(out).not.toContain(INSTRUCTION_B);
+    expect(out).not.toContain("use only the form given above");
+    expect(out).not.toContain(INSTRUCTION_A_WITH_NAME);
+  });
+
+  it("호칭만 있고 이름 없음(locale 'ko', 호칭 ' 님 ' 공백): trim 된 접미사 문장과 이름 없는 문장 A 가 들어가고 'Address the user as'와 문장 B 없음", () => {
+    const out = composePersonaPrompt({
+      systemPromptPrefix: "You are an AI companion.",
+      locale: "ko",
+      honorific: " 님 ",
+    });
+    const expectedSuffix =
+      '"님" is a suffix that must follow a name, and the user\'s name is unknown, so never use "님" by itself. Do not address the user at all; speak directly without any title or nickname.';
+    expect(extractHonorificInstructionLine(out)).toBe(expectedSuffix);
+    expect(out).toContain(expectedSuffix);
+    expect(out).toContain(`${expectedSuffix}\n${INSTRUCTION_A_NO_NAME}`);
+    expect(out).toContain(INSTRUCTION_A_NO_NAME);
+    expect(out).not.toContain("Address the user as");
+    expect(out).not.toContain(INSTRUCTION_B);
+    expect(out).not.toContain("use only the form given above");
+    expect(out).not.toContain(INSTRUCTION_A_WITH_NAME);
+  });
+
+  it("호칭만 있고 이름 없음(locale 'ko', 호칭 '오빠'): 독립 호칭 문장에 '오빠' 포함되고 문장 B 가 들어가며 문장 A 없음", () => {
+    const out = composePersonaPrompt({
+      systemPromptPrefix: "You are an AI companion.",
+      locale: "ko",
+      honorific: "오빠",
+    });
+    const expected =
+      'Address the user as "오빠". Use it only now and then: most replies should not contain it, and never use it in two consecutive replies.';
+    expect(extractHonorificInstructionLine(out)).toBe(expected);
+    expect(out).toContain(expected);
+    expect(out).toContain(`${expected}\n${INSTRUCTION_B}`);
+    expect(out).toContain(INSTRUCTION_B);
+    expect(out).not.toContain(INSTRUCTION_A_NO_NAME);
+    expect(out).not.toContain(INSTRUCTION_A_WITH_NAME);
+  });
+
+  it("호칭만 있고 이름 없음(locale 'ja', 호칭 '先輩'): 독립 호칭 문장에 '先輩' 포함되고 문장 B 가 들어가며 문장 A 없음", () => {
+    const out = composePersonaPrompt({
+      systemPromptPrefix: "You are an AI companion.",
+      locale: "ja",
+      honorific: "先輩",
+    });
+    const expected =
+      'Address the user as "先輩". Use it only now and then: most replies should not contain it, and never use it in two consecutive replies.';
+    expect(extractHonorificInstructionLine(out)).toBe(expected);
+    expect(out).toContain(expected);
+    expect(out).toContain(`${expected}\n${INSTRUCTION_B}`);
+    expect(out).toContain(INSTRUCTION_B);
+    expect(out).not.toContain(INSTRUCTION_A_NO_NAME);
+    expect(out).not.toContain(INSTRUCTION_A_WITH_NAME);
+  });
+
+  it("ja, 이름 '민수'·호칭 'さん': 호칭 줄 바로 다음 줄이 빈도 줄과 문장 B, 문장 A 없음", () => {
+    const out = composePersonaPrompt({
+      systemPromptPrefix: "You are an AI companion.",
+      locale: "ja",
+      userName: "민수",
+      honorific: "さん",
+    });
+    const expectedNameLine =
+      'The user\'s name is "민수". Use the name only now and then: most replies should not contain it, never use it in two consecutive replies, and do not start replies with it.';
+    const expectedHonorificLine = 'Address the user as "さん 민수" or "민수さん" as appropriate for Japanese.';
+    expect(out).toContain(expectedNameLine);
+    expect(out).toContain(expectedHonorificLine);
+    expect(out).toContain(`${expectedHonorificLine}\n${FREQUENCY_LINE}\n${INSTRUCTION_B}`);
+    expect(out).not.toContain(INSTRUCTION_A_NO_NAME);
+    expect(out).not.toContain(INSTRUCTION_A_WITH_NAME);
+  });
+});
+

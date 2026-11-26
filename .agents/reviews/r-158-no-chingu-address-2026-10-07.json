@@ -1,0 +1,18 @@
+{
+  "uc": "S-PERSONA-4 / FR-PERSONA-4 호칭 미지정 시 친구/friend 호칭 금지 (#158)",
+  "repo": "naia-agent",
+  "date": "2026-10-07",
+  "trigger": "Steam 앱 한국어 반말 대화에서 나이아가 사용자를 '친구'라고 부름 (nextain/naia-agent#158, 관련 nextain/naia-shell#752)",
+  "process": "지시서 적대 검수 r1~r9(codex luna max, r9 PASS) → agy 구현 → 조정자 golden case D 기대값 수정(A 추가 계약 반영) → change.diff 적대 코드 검수 r1(codex luna max) PASS → 조정자 페르소나 시험 재실행",
+  "verdict": "PASS",
+  "evidence": {
+    "code_review": "alpha-adk .agents/progress/issue-752-no-chingu/code-review-158.r1.md (target_sha256 1ea1cbc0c55619c8329fd8bc3d96d73956ca85f940db657917468fe096212754)",
+    "persona_tests": "vitest uc-persona-compose + uc-persona-handler: 2 files, 46 passed (2026-10-07 14:18, 조정자 실행)",
+    "full_suite": "pnpm test 2088 passed / 30 failed. 실패 파일(benchmark·memory·cli-manage-process·pi-cli 통합)은 persona 를 참조하지 않으며 변경 전부터 실패하던 외부 의존 시험",
+    "build": "pnpm build tsc 0 error, ci-verify 27 passed (agy 보고)"
+  },
+  "open_items": [
+    "실모델 대화 20회 검증은 naia-shell#752 연결 뒤 조정자 단계",
+    "process-status.json 은 헌장 파일이라 세션 규칙(last_updated 갱신)과 충돌해 이번 작업에서 수정하지 않음, 이슈 #158 에 기록"
+  ]
+}
