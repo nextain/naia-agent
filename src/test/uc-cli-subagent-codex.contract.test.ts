@@ -290,4 +290,16 @@ describe("subagent-codex 어댑터 계약 (SPEC-010 확장, fake child)", () => 
     expect(codexLineToEvent('{"type":"turn.completed","usage":{}}')).toEqual({ kind: "session_end", ok: true, reason: "codex turn.completed" });
     expect(codexLineToEvent('{"type":"item.completed","item":{"type":"agent_message","text":""}}')).toBeNull(); // 빈 텍스트=드롭
   });
+
+  // 실패한 도구가 성공으로 보이면 안 된다: status failed/declined, 0 아닌 exit_code → ok:false.
+  it("도구 snapshot 실패 표시 — status·exit_code 로 ok 결정", () => {
+    const end = (item: object) => codexLineToEvent(JSON.stringify({ type: "item.completed", item }));
+    expect(end({ type: "command_execution", command: "false", exit_code: 1, status: "failed" })).toEqual({ kind: "tool_use_end", tool: "command_execution", ok: false });
+    expect(end({ type: "command_execution", command: "ls", exit_code: 2, status: "completed" })).toEqual({ kind: "tool_use_end", tool: "command_execution", ok: false });
+    expect(end({ type: "command_execution", command: "rm", status: "declined" })).toEqual({ kind: "tool_use_end", tool: "command_execution", ok: false });
+    expect(end({ type: "command_execution", command: "ls", exit_code: 0, status: "completed" })).toEqual({ kind: "tool_use_end", tool: "command_execution", ok: true });
+    expect(end({ type: "file_change", changes: [], status: "failed" })).toEqual({ kind: "tool_use_end", tool: "file_change", ok: false });
+    expect(end({ type: "file_change", changes: [], status: "completed" })).toEqual({ kind: "tool_use_end", tool: "file_change", ok: true });
+    expect(end({ type: "mcp_tool_call", server: "s", tool: "t", status: "failed", error: { message: "x" } })).toEqual({ kind: "tool_use_end", tool: "mcp_tool_call", ok: false });
+  });
 });

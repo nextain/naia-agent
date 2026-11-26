@@ -10,7 +10,8 @@
 //    realpath로 ADK 아래임을 검증하므로 Codex OS sandbox의 쓰기 root도 그 범위 안으로 고정된다.
 //
 // codex JSONL 은 item.completed = **완료 snapshot** 만 내보냄(start/end 경계 없음). 그래서 도구 항목은
-// tool_use_end{ok:true}(완료됨) 로 표현한다(시작 경계가 없는 codex 포맷의 정직한 단일 표현). terminal
+// tool_use_end 로 표현한다(시작 경계가 없는 codex 포맷의 정직한 단일 표현). ok 는 항목의 status·exit_code 로
+// 정한다(실패 도구가 성공으로 보이지 않게). terminal
 // session_end 는 process close(code) 가 단일 발생(pi/opencode/claude-code 동일).
 //
 // RT-verified(2026-06-29): thread.started/turn.started/item.completed(agent_message/command_execution)/
@@ -94,7 +95,8 @@ export function resolveCodexBin(): ResolvedBin {
 //   {"type":"turn.started"}                     → 무시(thread.started 로 족함)
 //   {"type":"item.completed","item":{"type":"agent_message","text":..}} → text_delta
 //   {"type":"item.completed","item":{"type":"command_execution"|"file_change"|"file_edit"|...}}
-//                                               → tool_use_end{ok:true}(완료 snapshot, 경계 없음)
+//                                               → tool_use_end(완료 snapshot, 경계 없음; status failed/declined
+//                                                 또는 0 아닌 exit_code 면 ok:false)
 //   {"type":"turn.completed","usage":{...}}     → logical success terminal (bounded child teardown)
 //   그 외(reasoning/item.created 등)            → 무시
 
@@ -116,6 +118,14 @@ function codexFailureClass(raw: RawCodexEvent): string {
   if (/permission|access denied|sandbox/.test(text)) return "permission";
   if (/rate.?limit|quota/.test(text)) return "rate_limited";
   return "unspecified";
+}
+
+// 도구 snapshot 의 실패 표시: status failed/declined 또는 0 이 아닌 exit_code.
+// 둘 다 없는 snapshot(예전 실측 모양)은 완료로 본다.
+function codexItemSucceeded(item: RawCodexItem): boolean {
+  if (item["status"] === "failed" || item["status"] === "declined") return false;
+  const exitCode = item["exit_code"];
+  return typeof exitCode !== "number" || exitCode === 0;
 }
 
 /** 단일 JSONL 줄 → SubAgentEvent 0~1개. malformed/빈줄/무관 type = null(드롭, no crash). */
@@ -153,7 +163,7 @@ export function codexLineToEvent(line: string): SubAgentEvent | null {
       // 도구 계열(command_execution/file_change/file_edit/...)은 완료 snapshot → tool_use_end.
       // tool label = item.type(honest, 정보 손실 없음). 경계 시작은 codex 포맷에 없음.
       if (item.type === "command_execution" || item.type === "file_change" || item.type === "file_edit" || item.type === "mcp_tool_call") {
-        return { kind: "tool_use_end", tool: item.type, ok: true };
+        return { kind: "tool_use_end", tool: item.type, ok: codexItemSucceeded(item) };
       }
       return null; // reasoning 등 = 무시.
     }
