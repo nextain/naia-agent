@@ -6,6 +6,7 @@
 /** 한 대화 turn(이 턴의 user 발화 + assistant 응답). 음향/시각 modality 필드는 Phase2(음성·노래) 예약(FR-CONV.5). */
 export interface ConversationTurnRecord {
   readonly sessionId: string;
+  readonly appName?: string;
   readonly userText: string;
   readonly assistantText: string;
 }

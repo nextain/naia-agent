@@ -6,7 +6,7 @@ import { makeStderrDiagnostic } from "../adapters/diagnostic.js";
 import { makeBudgetedConversation } from "../adapters/budgeted-conversation.js";
 import { ensureGatewayPricing } from "../adapters/gateway-pricing.js";
 import { makeMemorySkillsExecutor } from "../adapters/memory-skill.js";
-import { makeCompositeToolExecutor } from "../adapters/composite-tool-executor.js";
+import { composeBuiltinAndExternalToolExecutors } from "../adapters/composite-tool-executor.js";
 import type {
   ProviderPort, ProviderResolverPort, ProcessingGuardPort, ConversationPort, CredentialPort, ApprovalPort, AgentIngressPort, AgentEgressPort, DiagnosticLog, ToolExecutorPort, PersonaSourcePort, WorkspaceContextPort,
 } from "../ports/uc1.js";
@@ -41,7 +41,10 @@ export function wireAgentUC1(opts?: {
   conversation?: ConversationPort;
   credentials?: CredentialPort;
   approval?: ApprovalPort;
-  toolExecutor?: ToolExecutorPort; // UC5 — 미주입 = 도구 없음(UC1 순수 채팅)
+  axExecutor?: ToolExecutorPort; // Trusted AX broker replaces all other tool executors.
+  toolExecutor?: ToolExecutorPort;
+  externalToolExecutor?: ToolExecutorPort;
+  externalToolExecutors?: readonly ToolExecutorPort[];
   memory?: MemoryPort;             // UC-memory — 미주입 = 기존 동작(무회귀)
   surfacer?: SurfacingPort;        // #692 — 미주입 = 기존 동작
   compaction?: CompactionPort;     // UC-compaction — 미주입 = 압축 없음(무회귀, budgeted-conversation 드롭만)
@@ -61,15 +64,17 @@ export function wireAgentUC1(opts?: {
   // 표준 sink(docs/logging.md). 미주입=no-op write(코어 순수·무소음) — entry 가 process.stderr+debug 게이트 주입. console.* 금지.
   const diag: DiagnosticLog = opts?.diag ?? makeStderrDiagnostic();
   const approval: ApprovalPort = opts?.approval ?? makeInMemoryApproval(); // UC5 slice 2 — tier-gated 도구 승인 보류
-  let toolExecutor = opts?.toolExecutor;
-  if (opts?.memory) {
-    const existing = toolExecutor?.specs().map((s) => s.name) ?? [];
-    if (!existing.includes("skill_memory_save")) {
-      const memExec = makeMemorySkillsExecutor({ memory: opts.memory });
-      toolExecutor = toolExecutor ? makeCompositeToolExecutor([toolExecutor, memExec]) : memExec;
-    }
-  }
+  const axExecutor = opts?.axExecutor;
+  const memoryExecutor = !axExecutor && opts?.memory
+    && !opts.toolExecutor?.specs().some((spec) => spec.name === "skill_memory_save")
+    ? makeMemorySkillsExecutor({ memory: opts.memory })
+    : undefined;
+  const toolExecutor = axExecutor ?? composeBuiltinAndExternalToolExecutors({
+    builtin: [opts?.toolExecutor, memoryExecutor],
+    external: [opts?.externalToolExecutor, ...(opts?.externalToolExecutors ?? [])],
+  });
   const deps: HandlerDeps = {
+    ...(axExecutor ? { trustedToolsOnly: true } : {}),
     provider: opts?.provider ?? makeFakeProvider(),
     ...(opts?.resolver ? { resolver: opts.resolver } : {}),
     ...(opts?.processingGuard ? { processingGuard: opts.processingGuard } : {}),

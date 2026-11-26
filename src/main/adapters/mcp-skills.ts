@@ -2,7 +2,7 @@
 // MCP 서버(사용자 설정)를 JSON-RPC(initialize/tools-list/tools-call)로 연결해 그 도구를 agent 도구로 노출.
 // transport 주입(코어 순수 — stdio/SSE 연결·framing·id상관·바이트한도는 어댑터). 보수적 tier(기본 ask)·다층 검증.
 import type { ToolExecutorPort } from "../ports/uc1.js";
-import type { ToolSpec, ToolCall } from "../domain/chat.js";
+import { normalizeExternalToolTier, type ToolSpec, type ToolCall } from "../domain/chat.js";
 import { isAborted } from "./signal-util.js";
 
 // JSON-RPC 레벨 transport(주입). request=요청→result(에러/abort/바이트한도 시 reject). notify=알림(signal 받음·await).
@@ -110,7 +110,7 @@ export async function makeMcpSkillsExecutor(deps: McpDeps): Promise<ToolExecutor
   }
   const maxTools = normInt(deps.maxTools, DEFAULT_MAX_TOOLS, MAX_TOOLS_CAP);
   const initTimeout = normTimeout(deps.initTimeoutMs, DEFAULT_INIT_TIMEOUT, MAX_INIT_TIMEOUT);
-  const tier = typeof deps.defaultTier === "string" && VALID_TIERS.has(deps.defaultTier) ? deps.defaultTier : "ask";
+  const tier = normalizeExternalToolTier(deps.defaultTier, VALID_TIERS);
   const clientInfo = deps.clientInfo ?? { name: "naia-agent", version: "0" };
 
   const specs: ToolSpec[] = [];

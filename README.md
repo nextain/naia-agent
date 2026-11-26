@@ -15,7 +15,7 @@
 
 naia 생태계의 "뇌" 런타임이자 sub-agent 오케스트레이터. 셸(naia-shell)이 메시지를 던지면 agent 가 대화를
 조립하고 LLM provider 를 호출하고 도구를 실행해 응답을 스트리밍한다 — 나아가 외부 코딩 에이전트
-(pi · opencode · claude-code 등)를 **sub-agent 로 spawn·감독**하고, 워크스페이스 변경을 관찰하고
+(Codex · OpenCode · Claude Code 등)를 **sub-agent 로 spawn·감독**하고, 워크스페이스 변경을 관찰하고
 검증(test/lint/build)해 **정직한 숫자 리포트**를 낸다. 단말에서 외부·로컬 LLM 을 잇는 오케스트레이터
 클라이언트(내부 코드네임 "Hermes")이자 naia-shell 워크스페이스·naia-adk 와 연계해 일하는 에이전트.
 헥사고날 아키텍처로 깨끗하게 재구축(clean rebuild)된 코어.
@@ -27,7 +27,7 @@ naia 생태계의 "뇌" 런타임이자 sub-agent 오케스트레이터. 셸(nai
 
 naia-agent 는 **LLM 대화·도구 실행을 담당하는 헤드리스(GUI 없는) 처리 런타임**이다.
 호스트(naia-shell 데스크톱 셸 등)가 gRPC로 사용할 수도 있고, 사용자가 `naia-agent`
-CLI에서 계정·설정·모델·진단·세션을 관리하고 Pi 코딩 작업을 직접 실행할 수도 있다.
+CLI에서 계정·설정·모델·진단·세션을 관리하고 Codex 코딩 작업을 직접 실행할 수도 있다.
 
 대화 한 턴의 흐름:
 
@@ -63,7 +63,7 @@ agent 가 기동 시 로딩한 설정(naia-adk 의 naia-settings)대로 알아�
 | **BGM·선제 발화** | 일반 youtube BGM 스킬 어댑터는 독립 진입점이 아직 dormant다. 다만 opt-in `personal_radio_dj` profile은 좁은 shell BGM port로 실제 재생하고, `exhibition_intro`는 지정 KB 소개를 먼저 시작한다. 계약 테스트 범위와 실제 Tauri 검증 범위는 `docs/requirements.md`에 구분한다. | ✅ profile slice / 🔜 general skill |
 | **대화 토큰예산 가드** | 긴 대화를 provider 컨텍스트 예산 안으로 조립(최신 우선·오래된 것 **드롭**·tool 라운드 원자·systemPrompt 보존). ⚠️정보보존형 compaction(요약)은 naia-memory 책임 — agent 위임은 진행 예정(agent#3) | ✅(가드) |
 | **장기기억·RAG 연동** | `@nextain/naia-memory` recall/save 배선 — 진입점 default-on(`NAIA_AGENT_MEMORY=off` 로 비활성), FR-MEM-1~11 계약테스트 통과(`docs/requirements.md`). 실 backend 성숙도(원격/qdrant/임베딩 품질)는 naia-memory 책임 | ✅ |
-| **sub-agent 오케스트레이션** | 외부 코딩 에이전트(pi · opencode-cli + roster, claude-code/codex/gemini 선언)를 `SubAgentPort` 로 spawn → 이벤트 스트림 forward + 인터럽트(SIGTERM→유예→SIGKILL). supervisor 가 단일 작업 감독. **단독 CLI(`naia-agent run`)로 실행 가능** — naia-shell gRPC 호스트 배선은 후속(②) | ✅ CLI |
+| **sub-agent 오케스트레이션** | 외부 코딩 에이전트(Codex 기본, OpenCode 등)를 `SubAgentPort` 로 spawn → 이벤트 스트림 forward + 인터럽트(SIGTERM→유예→SIGKILL). supervisor 가 단일 작업 감독. **단독 CLI(`naia-agent run`)로 실행 가능** — naia-shell gRPC 호스트 배선은 후속(②) | ✅ CLI |
 | **정직보고(workspace+verify)** | `WorkspacePort`(git 변경 요약) + `VerifierPort`(test/lint/build 러너, never-throws) → session_end 후 검증해 filesChanged/검증 결과 숫자 리포트 + exit code(0/2/3). 단독 CLI 로 실행(↑) | ✅ CLI |
 | **레퍼런스 호스트** | **단독 CLI 호스트**(✅ `bin/naia-agent-run.mjs`, S2 supervisor mode) · naia-shell의 agent spawn/stdio entry 연동(✅) · naia-shell gRPC 오케스트레이션 배선(②, naia-shell 워크스페이스 작업 후) · 메신저 봇 | 🔜 일부 계획 |
 
@@ -141,7 +141,7 @@ naia-agent 는 naia-shell·naia-agent·naia-memory·naia-kb-compiler·naia-adk 5
 ```powershell
 naia-agent auth status
 naia-agent config set workspace D:\alpha-adk
-naia-agent config set coding.agent pi
+naia-agent config set coding.agent codex
 naia-agent config set coding.model grok-4.3
 naia-agent config set coding.tools true
 naia-agent doctor
@@ -209,67 +209,30 @@ provider/model 을 구성하고, `Chat(server-stream)` 으로 대화를 처리�
 
 ### 단독 CLI — 오케스트레이션 실행 (naia-shell 없이)
 
-내장 Pi로 여러 코딩 이슈를 영속 관리하는 경로는 `naia-agent loop --help`를 사용한다.
+Codex로 여러 코딩 이슈를 영속 관리하는 명령과 옵션은 `naia-agent loop --help`에서 확인할 수 있다.
 이 경로는 OpenCode를 설치·호출·fallback하지 않으며, SQLite에 호출 수·USD·입력/출력 토큰을
 호출 전에 예약하므로 재시작 뒤에도 미결 유료 호출을 반복하지 않는다. Discord ingress와
 naia-shell 표시는 후속 어댑터 범위다.
 
 ```bash
-cp examples/pi-continuous-loop.config.example.json /private/path/loop.json
-# 절대경로와 한도를 편집한 뒤:
+# 준비한 루프 설정 JSON에 절대경로와 한도를 지정한다.
 naia-agent loop serve --config /private/path/loop.json
 # 또는 1회 명령:
 naia-agent loop start --config /private/path/loop.json \
-  --request examples/pi-continuous-loop.request.example.json
+  --request /private/path/request.json
 naia-agent loop list --config /private/path/loop.json
 naia-agent loop budget --config /private/path/loop.json
 ```
 
-Codex 구독을 최소화하려면 `examples/codex-luna-azure-team.config.example.json`을 사용한다.
-이 프로파일은 moderator 한 슬롯만 `gpt-5.6-luna`로 고정하고 나머지 모델 세션은 Naia
-Gateway(Azure)로 보낸다.
+Codex 구독을 최소화하려면 moderator 한 슬롯만 `gpt-5.6-luna`로 고정하고
+나머지 모델 세션을 Naia Gateway로 보내는 프로파일을 구성할 수 있다.
 
 `serve`는 프로세스를 유지하며 stdin의 NDJSON 요청(`{ "id": "...", "command": "list" }`)을
 같은 세션 관리자에 연결한다. `start`, `answer`, `cancel`은 작업을 예약하고 백그라운드 pump를
 깨우므로 한 제어 세션에서 여러 이슈를 겹쳐 실행·조회할 수 있다.
 
-DeepSeek V4 Flash/Pro를 포함한 등록 Naia 모델은 모두 Pi 도구를 사용할 수 있으며,
-explorer/tester/reviewer와 쓰기 implementer 역할에도 배치할 수 있다. `--no-tools`는 사용자가
-명시적으로 도구 없는 실행을 요청할 때만 적용된다. 예시의 estimated-USD 한도는 고정된 Azure rate-card와
-gateway markup을 사용한 운영 상한이며, versioned Gateway 영수증이 없으면 측정 비용 주장이 아니다.
-
-비용 비교 계약은 `benchmark/orchestration/pi-cost-comparison.json`에 고정되어 있다. 실제 호출 전에
-외부 HMAC 키와 Naia gateway에서 확인한 정확한 price-version ID를 사용해 pins와 파생 계약을 만든다.
-
-```bash
-NAIA_BENCHMARK_JOURNAL_KEY='<32바이트 이상 외부 키>' \
-node benchmark/prepare-pi-cost-pins.mjs \
-  --git /usr/bin/git \
-  --price-version deepseek-v4-flash=<gateway-price-version-id> \
-  --price-version grok-4.3=<gateway-price-version-id> \
-  --output-pins /private/pi-cost-pins.json \
-  --output-contract /private/pi-cost-contract.json
-```
-
-준비 명령은 유료 호출을 하지 않고 pins 전체 SHA-256을 `pinsDigest`로 결박한 파생 계약을 생성한다.
-파생 계약은 정본에서 `pinsDigest`만 달라질 수 있다. 이후 이 두 파일을 같은 실행과 분석에 사용한다.
-
-```bash
-NAIA_PI_COST_CONFIRM=1 NAIA_API_KEY='<key>' NAIA_BENCHMARK_JOURNAL_KEY='<same-key>' \
-node benchmark/run-pi-cost-comparison-live.mjs \
-  --contract /private/pi-cost-contract.json --pins /private/pi-cost-pins.json \
-  --confirm-paid-comparison --output /private/pi-cost-result.json
-NAIA_BENCHMARK_JOURNAL_KEY='<same-key>' node benchmark/analyze-pi-cost-comparison.mjs \
-  --contract /private/pi-cost-contract.json --pins /private/pi-cost-pins.json \
-  --evidence /private/pi-cost-result.json
-```
-동일 과제·동일 역할 시도 구조·체크포인트 재개·결정론 검증을 모두 통과하고, 각 실제 도구 루프 호출이 gateway request
-ID와 price version에 결박된 실제 customer billing 영수증을 가져야만 절감 판정을 허용한다.
-증거 없이 실행하면 유료 호출 0건의 `unavailable`을 반환하며 Pi 추정가나 시간창 로그 차액은
-비용 효율 증명으로 취급하지 않는다. 제출 행뿐 아니라 각 실행의 해시체인 영수증 저널과 공유 SQLite
-게이트웨이 원장의 전체 요청 집합·정산 합계도 증거에 포함해 누락을 검출한다. 전체 증거는 외부 HMAC 키와 미리 고정한 키 ID로 검증하며,
-키·가격 버전·자격증명 중 하나라도 없으면 유료 호출 전에 중단한다. 이 검증은 고정된 내부 비교의
-사후 변조를 막지만, 현재 gateway 응답 자체에는 서버 서명이 없으므로 제3자 감사 증명으로 과장하지 않는다.
+단독 `run`에서 DeepSeek V4 Flash·V4.1 Flash·V4 Pro는 `--no-tools`를 지정해 분석에 사용한다.
+Naia 모델의 실비는 게이트웨이가 정산한 영수증을 따른다.
 
 `pnpm build` 후, 터미널에서 직접 작업을 시킨다(S2 supervisor mode). 외부 코딩 에이전트(또는 셸)를
 sub-agent 로 spawn → (옵션)워크스페이스 감시 + (옵션)검증 → **정직한 숫자 리포트**.
@@ -283,8 +246,8 @@ node bin/naia-agent-run.mjs run "echo hello" --agent shell
 # 완료 후 검증까지(검증 실패 시 exit 2):
 node bin/naia-agent-run.mjs run "pnpm -v" --agent shell --check build="pnpm build" --check test="pnpm test"
 
-# 외부 코딩 에이전트로(설치돼 있을 때): --agent pi | opencode
-node bin/naia-agent-run.mjs run "이 버그 고쳐줘" --agent pi --watch
+# Codex 코딩 에이전트로:
+node bin/naia-agent-run.mjs run "이 버그 고쳐줘" --agent codex --watch
 
 node bin/naia-agent-run.mjs --help     # 전체 옵션(--workdir/--model/--watch/--poll/--check/--json)
 ```

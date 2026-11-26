@@ -7,6 +7,7 @@ import {
   credentialNameForProvider,
   getCliConfigValue,
   isSafeSessionId,
+  migrateLegacyCliCodingConfig,
   normalizeModelCatalog,
   parseCliConfig,
   parseManageArgs,
@@ -62,7 +63,7 @@ describe("SPEC-019 secure credential precedence", () => {
 describe("SPEC-019 allowlisted config and precedence", () => {
   it("preserves unrelated keys while setting/resetting only managed fields", () => {
     const base = parseCliConfig('{"other":{"keep":true},"adkPath":"C:\\\\old"}');
-    const set = setCliConfigValue(base, "coding.agent", "pi");
+    const set = setCliConfigValue(base, "coding.agent", "codex");
     expect(set.ok).toBe(true);
     if (!set.ok) return;
     const model = setCliConfigValue(set.config, "coding.model", "grok-4.3");
@@ -72,44 +73,54 @@ describe("SPEC-019 allowlisted config and precedence", () => {
     expect(tools.ok).toBe(true);
     if (!tools.ok) return;
     expect(getCliConfigValue(tools.config, "coding.tools")).toBe(false);
-    expect(resetCliConfigValue(tools.config, "workspace")).toMatchObject({ other: { keep: true }, coding: { agent: "pi" } });
+    expect(resetCliConfigValue(tools.config, "workspace")).toMatchObject({ other: { keep: true }, coding: { agent: "codex" } });
   });
 
-  it("validates types/agent and recovers from damaged config", () => {
+  it("validates types/agent, rejects coding.agent=pi with fix guidance, and migrates stored pi config (R2)", () => {
     expect(parseCliConfig("{bad")).toEqual({});
     expect(setCliConfigValue({}, "coding.tools", "maybe")).toMatchObject({ ok: false });
     expect(setCliConfigValue({}, "coding.agent", "evil")).toMatchObject({ ok: false });
+    expect(setCliConfigValue({}, "coding.agent", "pi")).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("naia-agent config set coding.agent codex"),
+    });
     expect(setCliConfigValue({}, "coding.model", "--no-tools")).toMatchObject({ ok: false });
     expect(setCliConfigValue({}, "workspace", "--help")).toMatchObject({ ok: false });
+
+    const migrated = migrateLegacyCliCodingConfig({ coding: { agent: "pi", model: "gpt-5.4", tools: false } });
+    expect(migrated.migratedFromPi).toBe(true);
+    expect(migrated.config).toEqual({ coding: { agent: "codex", model: "gpt-5.4", tools: false } });
+    expect(applyCodingDefaults(["task"], { coding: { agent: "pi", model: "gpt-5.4", tools: false } }))
+      .toEqual(["task", "--agent", "codex", "--model", "gpt-5.4", "--no-tools"]);
   });
 
   it("treats stored agent/model/tools as one default tuple", () => {
-    const config = { coding: { agent: "pi", model: "grok-4.3", tools: false } };
-    expect(applyCodingDefaults(["task"], config)).toEqual(["task", "--agent", "pi", "--model", "grok-4.3", "--no-tools"]);
-    expect(applyCodingDefaults(["task", "--agent", "codex", "--model", "x", "--tools"], config))
-      .toEqual(["task", "--agent", "codex", "--model", "x", "--tools"]);
+    const config = { coding: { agent: "codex", model: "grok-4.3", tools: false } };
+    expect(applyCodingDefaults(["task"], config)).toEqual(["task", "--agent", "codex", "--model", "grok-4.3", "--no-tools"]);
+    expect(applyCodingDefaults(["task", "--agent", "opencode", "--model", "x", "--tools"], config))
+      .toEqual(["task", "--agent", "opencode", "--model", "x", "--tools"]);
+    expect(applyCodingDefaults(["task", "--agent", "opencode"], config))
+      .toEqual(["task", "--agent", "opencode"]);
     expect(applyCodingDefaults(["task", "--agent", "codex"], config))
-      .toEqual(["task", "--agent", "codex"]);
-    expect(applyCodingDefaults(["task", "--agent", "pi"], config))
-      .toEqual(["task", "--agent", "pi", "--model", "grok-4.3", "--no-tools"]);
+      .toEqual(["task", "--agent", "codex", "--model", "grok-4.3", "--no-tools"]);
     expect(applyCodingDefaults(["task", "--model", "other-model"], config))
-      .toEqual(["task", "--model", "other-model", "--agent", "pi"]);
+      .toEqual(["task", "--model", "other-model", "--agent", "codex"]);
     expect(applyCodingDefaults(["task", "--model", "grok-4.3"], config))
-      .toEqual(["task", "--model", "grok-4.3", "--agent", "pi", "--no-tools"]);
+      .toEqual(["task", "--model", "grok-4.3", "--agent", "codex", "--no-tools"]);
   });
 
   it("uses the downstream parser's last-option-wins precedence for repeated values", () => {
-    const config = { coding: { agent: "pi", model: "grok-4.3", tools: true } };
-    expect(applyCodingDefaults(["task", "--agent", "pi", "--agent", "codex"], config))
-      .toEqual(["task", "--agent", "pi", "--agent", "codex"]);
-    expect(applyCodingDefaults(["task", "--agent", "codex", "--agent", "pi"], config))
-      .toEqual(["task", "--agent", "codex", "--agent", "pi", "--model", "grok-4.3", "--tools"]);
+    const config = { coding: { agent: "codex", model: "grok-4.3", tools: true } };
+    expect(applyCodingDefaults(["task", "--agent", "codex", "--agent", "opencode"], config))
+      .toEqual(["task", "--agent", "codex", "--agent", "opencode"]);
+    expect(applyCodingDefaults(["task", "--agent", "opencode", "--agent", "codex"], config))
+      .toEqual(["task", "--agent", "opencode", "--agent", "codex", "--model", "grok-4.3", "--tools"]);
     expect(applyCodingDefaults(["task", "--model", "grok-4.3", "--model", "other"], config))
-      .toEqual(["task", "--model", "grok-4.3", "--model", "other", "--agent", "pi"]);
+      .toEqual(["task", "--model", "grok-4.3", "--model", "other", "--agent", "codex"]);
   });
 
   it("preserves malformed argv for the downstream parser instead of masking it with defaults", () => {
-    const config = { coding: { agent: "pi", model: "grok-4.3", tools: false } };
+    const config = { coding: { agent: "codex", model: "grok-4.3", tools: false } };
     expect(applyCodingDefaults(["task", "--agent"], config)).toEqual(["task", "--agent"]);
     expect(applyCodingDefaults(["task", "--agent", "--model", "x"], config))
       .toEqual(["task", "--agent", "--model", "x"]);
@@ -136,29 +147,35 @@ describe("SPEC-019 credential text policy", () => {
 });
 
 describe("SPEC-019 model catalog truthfulness", () => {
-  it("normalizes only skill-capable live models and keeps DeepSeek tool-capable", () => {
+  it("lists supported DeepSeek analyses and skill-capable live models", () => {
     expect(normalizeModelCatalog({ data: [
       { id: "deepseek-v4-flash", owned_by: "azure", name: "DeepSeek Flash", supports_tools: true },
+      { id: "deepseek-v4.1-flash", owned_by: "azure", supports_tools: false },
       { id: "deepseek-v4-pro", owned_by: "azure", name: "DeepSeek", supports_tools: true },
       { id: "grok-4.3", owned_by: "azure", supports_tools: true },
       { id: "grok-4.3", owned_by: "duplicate" },
       { id: "text-only", owned_by: "azure", supports_tools: false },
     ] })).toEqual([
-      { provider: "azure", id: "deepseek-v4-flash", label: "DeepSeek Flash", tools: true, use: "coding" },
-      { provider: "azure", id: "deepseek-v4-pro", label: "DeepSeek", tools: true, use: "coding" },
+      { provider: "azure", id: "deepseek-v4-flash", label: "DeepSeek Flash", tools: false, use: "analysis" },
+      { provider: "azure", id: "deepseek-v4-pro", label: "DeepSeek", tools: false, use: "analysis" },
+      { provider: "azure", id: "deepseek-v4.1-flash", label: "deepseek-v4.1-flash", tools: false, use: "analysis" },
       { provider: "azure", id: "grok-4.3", label: "grok-4.3", tools: true, use: "coding" },
     ]);
     expect(FALLBACK_NAIA_MODELS.map((x) => x.id)).toEqual([
       "grok-4.3",
       "deepseek-v4-flash",
+      "deepseek-v4.1-flash",
       "deepseek-v4-pro",
+      "gpt-6-luna",
       "solar-pro4",
       "solar-mini",
       "motif-3",
       "HCX-007",
       "HCX-DASH-002",
     ]);
-    expect(FALLBACK_NAIA_MODELS.every((model) => model.tools)).toBe(true);
+    expect(FALLBACK_NAIA_MODELS.filter((model) => !model.tools).map((model) => model.id)).toEqual([
+      "deepseek-v4-flash", "deepseek-v4.1-flash", "deepseek-v4-pro",
+    ]);
     expect(normalizeModelCatalog({ bad: true })).toEqual([]);
   });
 

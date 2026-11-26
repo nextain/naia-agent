@@ -34,8 +34,8 @@ export function sessionFileName(sessionId: string): string {
 }
 
 /** 한 메시지 → JSONL 한 줄. modality/audioRef 필드는 Phase1 미포함(text) — reader 가 optional 로 관용(FR-CONV.5 forward-compat). */
-function messageLine(role: "user" | "assistant", content: string, timestamp: number): string {
-  return `${JSON.stringify({ role, content, timestamp })}\n`;
+function messageLine(role: "user" | "assistant", content: string, timestamp: number, appName?: string): string {
+  return `${JSON.stringify({ role, content, timestamp, ...(appName ? { appName } : {}) })}\n`;
 }
 
 export function makeFileConversationLog(d: ConversationLogDeps): ConversationLogPort {
@@ -48,7 +48,7 @@ export function makeFileConversationLog(d: ConversationLogDeps): ConversationLog
         const ts = now();
         const file = d.join(d.conversationsDir, sessionFileName(turn.sessionId));
         // user → assistant 순(naia-memory.encode 와 동일 provenance). 한 번의 append 로 두 줄(부분쓰기 노출 최소).
-        d.fs.appendFileSync(file, messageLine("user", turn.userText, ts) + messageLine("assistant", turn.assistantText, ts));
+        d.fs.appendFileSync(file, messageLine("user", turn.userText, ts, turn.appName) + messageLine("assistant", turn.assistantText, ts, turn.appName));
       } catch {
         /* no-throw 격리(FR-CONV.1): transcript 실패(권한/디스크/경로)가 turn/finish/memory 를 안 깨뜨린다. */
       }

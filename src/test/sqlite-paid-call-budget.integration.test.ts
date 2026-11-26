@@ -143,13 +143,13 @@ describe("SQLite paid-call budget", () => {
     budget.settle("a", receipt("a"));
     expect(budget.snapshot().costBasis).toBe("measured");
     budget.reserve(reservation("b"));
-    budget.settle("b", { ...receipt("b"), estimatedCostUsd: 0.2, estimatedCostSource: "pi_catalog",
+    budget.settle("b", { ...receipt("b"), estimatedCostUsd: 0.2, estimatedCostSource: "catalog",
       cost: { state: "unavailable", reason: "catalog estimate" } });
     expect(budget.snapshot().costBasis).toBe("mixed");
     budget.close();
   });
 
-  it("rejects a fabricated estimate without provider identity and Pi catalog provenance", () => {
+  it("rejects a fabricated estimate without provider identity and catalog provenance", () => {
     const { budget } = create(); budget.reserve(reservation("a"));
     expect(() => budget.settle("a", { ...receipt("a"), modelEvidenceSource: "adapter_requested",
       estimatedCostUsd: 0.1, cost: { state: "unavailable", reason: "claimed estimate" } }))

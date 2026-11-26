@@ -3,7 +3,7 @@
 // 첫 흐름(provider 출처)은 lab-proxy / native / ollama 만. local-live(naia-omni)·claude-cli·nextain-error 는 후속.
 import type { ProviderConfig } from "./chat.js";
 
-export type ProviderRoute = "lab-proxy" | "ollama" | "anthropic" | "claude-code" | "codex" | "grok" | "native" | "webllm";
+export type ProviderRoute = "lab-proxy" | "ollama" | "anthropic" | "claude-code" | "codex" | "codex-ax" | "codex-exec" | "grok" | "native" | "webllm";
 
 /**
  * **provider 타입**으로 라우팅(루크 정정 2026-06-12 — naiaKey 유무 아님):
@@ -18,6 +18,8 @@ export type ProviderRoute = "lab-proxy" | "ollama" | "anthropic" | "claude-code"
  *    ⚠️ API-key 타입은 naiaKey 가 있어도 직결 — 키체인에 naiaKey 남아있다고 lab-proxy 로 보내면 안 됨(그게 500 원인이었음).
  */
 export function resolveProviderRoute(config: ProviderConfig): ProviderRoute {
+	if (config.provider === "codex-ax") return "codex-ax";
+	if (config.provider === "codex-exec") return "codex-exec";
 	if (config.provider === "nextain") return "lab-proxy";
 	// 브라우저 Worker 전용 로컬 엔진이며 엔진은 호스트가 주입한다.
 	if (config.provider === "webllm") return "webllm";
@@ -58,10 +60,10 @@ export function isLocalEngineBaseUrl(baseUrl: string): boolean {
 	if (!m) return false;
 	const [a, b] = [Number(m[1]), Number(m[2])];
 	if (a === 127) return true;                       // 127.0.0.0/8 loopback
-	if (a === 10) return true;                        // 10.0.0.0/8      (RFC1918)
-	if (a === 192 && b === 168) return true;          // 192.168.0.0/16  (RFC1918)
-	if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12   (RFC1918)
-	if (a === 100 && b >= 64 && b <= 127) return true; // 100.64.0.0/10  (RFC6598 CGNAT — Tailscale 자가망, #118)
+	if (a === 10) return true;                        // 10.x.x.x/8      (RFC1918)
+	if (a === 192 && b === 168) return true;          // 192.168.x.x/16  (RFC1918)
+	if (a === 172 && b >= 16 && b <= 31) return true; // 172.16-31.x.x/12 (RFC1918)
+	if (a === 100 && b >= 64 && b <= 127) return true; // 100.64-127.x.x/10 (RFC6598 CGNAT — Tailscale 자가망, #118)
 	return false;
 }
 
@@ -114,7 +116,7 @@ export function providerProcessingEndpoint(config: ProviderConfig): string | und
   if (route === "lab-proxy") return labProxyBaseUrl(config);
   if (route === "ollama") return nativeBaseUrl("ollama", config.ollamaHost);
   if (route === "anthropic") return anthropicBaseUrl(config);
-  if (route === "claude-code" || route === "codex" || route === "grok") return `opaque-cli:${encodeURIComponent(config.provider)}:${encodeURIComponent(config.model)}`;
   if (route === "webllm") return undefined; // 브라우저 전용 WebLLM — 네이티브 URL 폴백에서 명시 격리
+  if (route === "claude-code" || route === "codex" || route === "codex-exec" || route === "codex-ax" || route === "grok") return `opaque-cli:${encodeURIComponent(config.provider)}:${encodeURIComponent(config.model)}`;
   try { return nativeBaseUrl(config.provider, config.labGatewayUrl ?? config.vllmHost); } catch { return undefined; }
 }
