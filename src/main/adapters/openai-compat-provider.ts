@@ -4,7 +4,140 @@
 // apiKey/baseUrl=주입(키는 wire 아님, env/CredentialPort). 실 검증=클라우드(GPU 불요).
 import type { ProviderPort, ProviderChatOpts, DiagnosticLog } from "../ports/uc1.js";
 import type { ProviderConfig, ChatMessage, ProviderChunk } from "../domain/chat.js";
-import { makeBudgetedConversation, estimateConversationTokens, conversationMessageCost } from "./budgeted-conversation.js";
+import {
+  makeBudgetedConversation,
+  estimateConversationTokens,
+  conversationMessageCost,
+  truncateTextToTokens,
+} from "./budgeted-conversation.js";
+
+export const DEFAULT_MAX_INPUT_TOKENS = 5800;
+const PRIORITY_TOOL_NAME_RE = /^(continue_speaking|skill_youtube_bgm|skill_memory|skill_knowledge|memo_|get_time|get_weather|web_search)/i;
+
+function compactParametersSchema(schema: unknown): unknown {
+  if (!schema || typeof schema !== "object") return schema;
+  if (Array.isArray(schema)) return schema.map(compactParametersSchema);
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(schema as Record<string, unknown>)) {
+    if (k === "description" && typeof v === "string") {
+      out[k] = v.length > 60 ? v.slice(0, 57) + "..." : v;
+    } else if (v && typeof v === "object") {
+      out[k] = compactParametersSchema(v);
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+export interface WireToolSpec {
+  type: "function";
+  function: { name: string; description?: string; parameters?: unknown };
+}
+
+function compactToolSpec(spec: WireToolSpec): WireToolSpec {
+  const fn = spec.function;
+  const desc = typeof fn.description === "string" ? truncateTextToTokens(fn.description, 24) : fn.description;
+  const params = compactParametersSchema(fn.parameters);
+  return {
+    type: "function",
+    function: {
+      name: fn.name,
+      ...(desc ? { description: desc } : {}),
+      ...(params ? { parameters: params } : {}),
+    },
+  };
+}
+
+export function enforceWireInputBudget(args: {
+  systemPrompt?: string;
+  messages: readonly ChatMessage[];
+  tools?: readonly { name: string; description?: string; parameters?: unknown }[];
+  supportsTools?: boolean;
+  maxInputTokens?: number;
+  maxRecentBlocks?: number;
+}): {
+  systemPrompt?: string;
+  messages: readonly ChatMessage[];
+  toolsBody?: WireToolSpec[];
+  estimatedInputTokens: number;
+  compacted: boolean;
+} {
+  const maxInputTokens = args.maxInputTokens ?? DEFAULT_MAX_INPUT_TOKENS;
+  const maxRecentBlocks = args.maxRecentBlocks ?? 6;
+  const rawToolsBody: WireToolSpec[] | undefined =
+    args.supportsTools !== false && args.tools && args.tools.length > 0
+      ? args.tools.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.parameters } }))
+      : undefined;
+  const rawSysTokens = estimateConversationTokens(args.systemPrompt ?? "");
+  const rawMsgTokens = args.messages.reduce((sum, m) => sum + conversationMessageCost(m), 0);
+  const rawToolsTokens = rawToolsBody ? estimateConversationTokens(JSON.stringify(rawToolsBody)) : 0;
+  const rawTotal = rawSysTokens + rawMsgTokens + rawToolsTokens;
+
+  if (rawTotal <= maxInputTokens) {
+    return {
+      systemPrompt: args.systemPrompt,
+      messages: args.messages,
+      toolsBody: rawToolsBody,
+      estimatedInputTokens: rawTotal,
+      compacted: false,
+    };
+  }
+
+  let toolsBody = rawToolsBody;
+  let toolsTokens = rawToolsTokens;
+  if (toolsBody && (rawTotal > maxInputTokens || toolsTokens > 1400)) {
+    toolsBody = toolsBody.map(compactToolSpec);
+    toolsTokens = estimateConversationTokens(JSON.stringify(toolsBody));
+    const maxToolBudget = Math.min(1300, Math.floor(maxInputTokens * 0.25));
+    if (toolsTokens > maxToolBudget || rawSysTokens + toolsTokens + 800 > maxInputTokens) {
+      const usedToolNames = new Set<string>();
+      for (const m of args.messages) {
+        for (const tc of m.toolCalls ?? []) {
+          if (tc?.name) usedToolNames.add(tc.name);
+        }
+      }
+      const lastUserText = [...args.messages].reverse().find((m) => m.role === "user")?.content ?? "";
+      const prioritized = toolsBody.filter((t) => {
+        const name = t.function.name;
+        return usedToolNames.has(name) || PRIORITY_TOOL_NAME_RE.test(name) || (name && lastUserText.includes(name));
+      });
+      const candidates = prioritized.length > 0 ? prioritized : toolsBody.slice(0, 6);
+      const fitted: WireToolSpec[] = [];
+      let accTok = 4;
+      for (const t of candidates) {
+        const tTok = estimateConversationTokens(JSON.stringify(t));
+        if (fitted.length > 0 && accTok + tTok > maxToolBudget && !usedToolNames.has(t.function.name)) continue;
+        fitted.push(t);
+        accTok += tTok;
+      }
+      toolsBody = fitted.length > 0 ? fitted : undefined;
+      toolsTokens = toolsBody ? estimateConversationTokens(JSON.stringify(toolsBody)) : 0;
+    }
+  }
+
+  let curSystemPrompt = args.systemPrompt;
+  let sysTokens = estimateConversationTokens(curSystemPrompt ?? "");
+  const inputBudget = Math.max(0, maxInputTokens - toolsTokens - 32);
+  const assembled = makeBudgetedConversation({
+    maxTokens: inputBudget,
+    summarizeDropped: maxRecentBlocks > 0,
+    maxSummaryTokens: 180,
+  }).assemble({ messages: args.messages, systemPrompt: curSystemPrompt });
+
+  curSystemPrompt = assembled.systemPrompt;
+  sysTokens = estimateConversationTokens(curSystemPrompt ?? "");
+  const keptMessages = assembled.messages;
+  const msgTokens = keptMessages.reduce((sum, m) => sum + conversationMessageCost(m), 0);
+
+  return {
+    systemPrompt: curSystemPrompt,
+    messages: keptMessages,
+    toolsBody,
+    estimatedInputTokens: sysTokens + toolsTokens + msgTokens,
+    compacted: true,
+  };
+}
 import { createHash } from "node:crypto";
 
 type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal }) => Promise<{
@@ -292,8 +425,10 @@ export function makeOpenAICompatProvider(deps: {
         ? { reasoning_effort: config.thinkingLevel }
         : undefined;
       const noThinkBody = !deps.supportsThinkingLevel && deps.supportsReasoningEffort === true && config.enableThinking === false
-        ? { reasoning_effort: "none" as const }
-        : undefined;
+        ? { reasoning_effort: "none" as const, ...(base.includes(":8031") ? { chat_template_kwargs: { enable_thinking: false } } : {}) }
+        : (base.includes(":8031") && (config.enableThinking === false || (opts.systemPrompt ?? "").includes("Do not emit reasoning"))
+            ? { chat_template_kwargs: { enable_thinking: false } }
+            : undefined);
       const requestModel = deps.model ?? config.model;
       const promptCacheBody = deps.promptCacheShard === true
         ? { prompt_cache_key: buildPromptCacheShard(requestModel, opts.systemPrompt) }
