@@ -1,0 +1,361 @@
+[English](README.md) | **한국어**
+
+# naia-agent
+
+**한 줄로**: 당신이 맡긴 일을 여러 AI(코딩 AI·대화 모델)에게 시키고 감독해 대신 처리하는
+백그라운드 일꾼입니다. 끝나면 "파일 몇 개 바꿨고 테스트는 통과/실패" 같은 **정직한 결과**를 보고합니다.
+
+예를 들어 naia-shell 데스크톱 앱이 "이 버그 고쳐줘"를 보내면, naia-agent 가 적절한 코딩 AI 프로그램을
+실행해(spawn) 작업을 시키고, 워크스페이스 변경을 지켜본 뒤 test/lint/build 를 돌려 **꾸미지 않은
+숫자**로 답을 돌려줍니다.
+
+> naia-shell이 뒤에서 띄우는 **헤드리스(화면 없는) 처리 엔진**이면서, 사용자가 터미널에서
+> 직접 실행할 수 있는 first-class CLI입니다. 낯선 용어가 나오면 → [용어 사전](docs/glossary.md).
+
+<details>
+<summary>기술 요약 (개발자용)</summary>
+
+naia 생태계의 "뇌" 런타임이자 sub-agent 오케스트레이터. 셸(naia-shell)이 메시지를 던지면 agent 가 대화를
+조립하고 LLM provider 를 호출하고 도구를 실행해 응답을 스트리밍한다 — 나아가 외부 코딩 에이전트
+(pi · opencode · claude-code 등)를 **sub-agent 로 spawn·감독**하고, 워크스페이스 변경을 관찰하고
+검증(test/lint/build)해 **정직한 숫자 리포트**를 낸다. 단말에서 외부·로컬 LLM 을 잇는 오케스트레이터
+클라이언트(내부 코드네임 "Hermes")이자 naia-shell 워크스페이스·naia-adk 와 연계해 일하는 에이전트.
+헥사고날 아키텍처로 깨끗하게 재구축(clean rebuild)된 코어.
+</details>
+
+---
+
+## naia-agent 란?
+
+naia-agent 는 **LLM 대화·도구 실행을 담당하는 헤드리스(GUI 없는) 처리 런타임**이다.
+호스트(naia-shell 데스크톱 셸 등)가 gRPC로 사용할 수도 있고, 사용자가 `naia-agent`
+CLI에서 계정·설정·모델·진단·세션을 관리하고 Pi 코딩 작업을 직접 실행할 수도 있다.
+
+대화 한 턴의 흐름:
+
+```
+사용자 입력 ─(gRPC)→ naia-agent
+                       │  1. recall   — (선택) 장기기억에서 관련 맥락 회수
+                       │  2. assemble — 토큰예산 안에서 대화 조립(압축)
+                       │  3. provider — LLM 호출, 텍스트·도구호출 스트림
+                       │  4. tool-loop— 도구 실행 → 결과를 다시 LLM 에 전달
+                       │  5. save     — (선택) 이번 턴을 장기기억에 저장
+                       └─(gRPC 스트림)→ 셸이 화면에 표시
+```
+
+호스트는 **"무슨 provider 인지, 어떤 도구가 있는지" 몰라도 된다.** 메시지만 보내면
+agent 가 기동 시 로딩한 설정(naia-adk 의 naia-settings)대로 알아서 처리한다.
+
+---
+
+## 무엇을 하나 (역량 · 상태)
+
+> 아래 표는 **유지보수용 상태 추적**입니다. 처음이라면 "✅"(이미 동작하는 것) 줄만 훑고 넘어가도 됩니다.
+> 상태 기호(✅ · 🔌 배선대기 · 🔜 dormant 등) 설명은 표 아래에 있습니다.
+
+| 역량 | 설명 | 상태 |
+|------|------|:----:|
+| **채팅 파이프라인** | provider 호출 → wire 스트림(텍스트·thinking·usage). ollama·openai 호환·게이트웨이 등 다중 provider | ✅ |
+| **도구 실행 루프** | `toolUse → 실행 → 결과 스레딩 → 최종 응답`. 멀티 라운드 | ✅ |
+| **agent-local 스킬** | github · obsidian · 메모 · 날씨(openmeteo) · MCP 브리지 · composite · 승인게이트(tier ask) · notify(slack/discord/google_chat) · adk-skills(SKILL.md) — 진입점 배선됨 | ✅ |
+| **cron(예약) 스킬** | schedule/list/cancel 어댑터·계약테스트 존재. **진입점 미배선(dormant)** — **agent 소관**(스케줄러 자체를 agent가 자체 주입) + 트리거 시 shell notify 경로 신설 시 배선. 소유권 확정 = agent(상세 `.agents/progress/naia-agent-skill-role-reassignment-2026-06-29.md` GAP-1) | 🔜 dormant |
+| **provider 출처·자격증명** | naia-settings/키체인 기반 provider·키 결정, 라이브 reload(앱 재시작 없이 모델 교체), 키는 OS 키체인(평문 미보존) | ✅ |
+| **진단(Diagnostics) RPC** | provider/연결/상태 rich health 를 gRPC 로 보고 | ✅ |
+| **브라우저 스킬** | cmd 화이트리스트 + 주입 CLI(navigate/click/fill) 어댑터·계약테스트 존재. **진입점 미배선(dormant)** — **host 종속**: CLI 호스트=외부 브라우저 열기(`xdg-open`/`start`) 단순 spawn / 데스크톱(naia-shell)=셸 사이드카 소유. 소유권 확정(상세 `naia-agent-skill-role-reassignment-2026-06-29.md` GAP-2) | 🔜 dormant |
+| **BGM·선제 발화** | 일반 youtube BGM 스킬 어댑터는 독립 진입점이 아직 dormant다. 다만 opt-in `personal_radio_dj` profile은 좁은 shell BGM port로 실제 재생하고, `exhibition_intro`는 지정 KB 소개를 먼저 시작한다. 계약 테스트 범위와 실제 Tauri 검증 범위는 `docs/requirements.md`에 구분한다. | ✅ profile slice / 🔜 general skill |
+| **대화 토큰예산 가드** | 긴 대화를 provider 컨텍스트 예산 안으로 조립(최신 우선·오래된 것 **드롭**·tool 라운드 원자·systemPrompt 보존). ⚠️정보보존형 compaction(요약)은 naia-memory 책임 — agent 위임은 진행 예정(agent#3) | ✅(가드) |
+| **장기기억·RAG 연동** | `@nextain/naia-memory` recall/save 배선 — 진입점 default-on(`NAIA_AGENT_MEMORY=off` 로 비활성), FR-MEM-1~11 계약테스트 통과(`docs/requirements.md`). 실 backend 성숙도(원격/qdrant/임베딩 품질)는 naia-memory 책임 | ✅ |
+| **sub-agent 오케스트레이션** | 외부 코딩 에이전트(pi · opencode-cli + roster, claude-code/codex/gemini 선언)를 `SubAgentPort` 로 spawn → 이벤트 스트림 forward + 인터럽트(SIGTERM→유예→SIGKILL). supervisor 가 단일 작업 감독. **단독 CLI(`naia-agent run`)로 실행 가능** — naia-shell gRPC 호스트 배선은 후속(②) | ✅ CLI |
+| **정직보고(workspace+verify)** | `WorkspacePort`(git 변경 요약) + `VerifierPort`(test/lint/build 러너, never-throws) → session_end 후 검증해 filesChanged/검증 결과 숫자 리포트 + exit code(0/2/3). 단독 CLI 로 실행(↑) | ✅ CLI |
+| **레퍼런스 호스트** | **단독 CLI 호스트**(✅ `bin/naia-agent-run.mjs`, S2 supervisor mode) · naia-shell의 agent spawn/stdio entry 연동(✅) · naia-shell gRPC 오케스트레이션 배선(②, naia-shell 워크스페이스 작업 후) · 메신저 봇 | 🔜 일부 계획 |
+
+> ✅ = main 에 구현+계약테스트 통과 + **진입점(`scripts/builds/agent-stdio-entry.mjs`) 배선**(호스트가 실제 호출).
+> ✅ CLI = **단독 CLI(`naia-agent run`)로 지금 실행 가능**(아래 "빠른 시작 › 단독 CLI"). 코어+composition+계약테스트+e2e 완료. naia-shell gRPC 호스트 배선(②)은 naia-shell 워크스페이스 작업 후.
+> 🔜 dormant = 어댑터·계약테스트는 있으나 진입점에 미배선(설계상 환경=셸 사이드카 소유 또는 외부 store 미주입).
+> 🔜 일부 계획 = 설계됐고 일부 코드 존재, 통합 진행 중.
+> 정확한 추적은 `docs/progress/`(V모델 레지스트리)와 `docs/requirements.md` 참조.
+
+---
+
+## 생태계에서의 위치
+
+naia-agent 는 naia-shell·naia-agent·naia-memory·naia-kb-compiler·naia-adk 5개 레포가 맞물린 Naia Visual Agent 스택의 **처리 계층**이다. 사용자가 만나는 표면은 naia-shell이고, naia-agent는 그 뒤에서 provider 호출, 도구 실행, 하위 에이전트 감독을 맡는다.
+
+```
+┌───────────────┐   gRPC    ┌───────────────┐  recall/save  ┌────────────────┐
+│  naia-shell   │ ────────▶ │  naia-agent   │ ────────────▶ │  naia-memory   │
+│ (비주얼 셸)    │ ◀──────── │   (이 레포)    │ ◀──────────── │  (인지 기억)    │
+│  UI·음성·아바타 │  스트림    │  뇌/처리       │               │  장기기억·회상   │
+└───────────────┘           └───┬───────┬───┘               └────────────────┘
+                                │       │ search/ask  ┌──────────────────┐
+                  설정·스킬 로딩 │       └────────────▶│ naia-kb-compiler │
+                                ▼                     │   (지식 컴파일)    │
+                        ┌───────────────┐             └──────────────────┘
+                        │   naia-adk    │
+                        │ (워크스페이스)  │  provider/모델/스킬 설정 SoT
+                        └───────────────┘
+```
+
+| 레포 | 책임 (경계) |
+|------|------------|
+| **naia-shell** | 사용자가 보는 셸. agent 를 spawn 하고 gRPC 로 대화를 주고받는다. UI·음성·아바타 렌더. |
+| **naia-os** | naia-shell 스택을 담는 Bazzite/titanoboa 기반 배포판/ISO 계층. |
+| **naia-agent** (이 레포) | **뇌.** provider 호출 · 도구 실행 · 대화 조립(recall→assemble→provider→tool-loop→save). |
+| **naia-memory** | **장기기억**(누구 — push). agent 가 recall(회수)/save(저장)로 연동. 매 턴 자동 주입. |
+| **naia-kb-compiler** | **지식**(무엇 — pull). 자료를 오프라인 결정론으로 컴파일(`kb.json`) + 검색/질의응답. agent 가 `KnowledgeBackend` 포트로 주입해 `skill_knowledge_search`/`ask` 도구로 노출. |
+| **naia-adk** | provider·모델·**스킬 설정**이 사는 워크스페이스. agent 가 기동 시 로딩(`naia-settings/`). |
+
+> memory(푸시·WHO) 와 knowledge(풀·WHAT) 는 **저장소·주입 경로가 분리**된다 (섞지 않는다).
+> 상세 = `docs/user-scenarios.md` UC-KNOWLEDGE.
+
+**결합 방식 = 인터페이스, 런타임 의존 아님.** 레포들은 published 계약(gRPC proto,
+설정 포맷)으로 맞물릴 뿐 서로의 코드를 임베드하지 않는다. agent 의 호스트는 naia-shell이 아니어도 된다(같은 gRPC 계약을 말하는 어떤 호스트든 가능).
+
+---
+
+## 아키텍처 한눈에
+
+전형적 **헥사고날(ports & adapters)** 구조 — 핵심 로직(domain)은 바깥세상(파일·네트워크·gRPC)을 모르고,
+**포트**(경계 인터페이스)와 그 **어댑터**(구현)으로만 연결된다. 그래서 전송 방식을 갈아끼워도 핵심 로직은
+그대로다. (용어가 낯설면 → [용어 사전](docs/glossary.md))
+
+```
+입력층  ports/uc1.ts (AgentIngressPort)      ← gRPC 서버가 여기로 수신
+   │
+처리   app/chat-turn-handler.ts             ← recall→assemble→provider→tool-loop→save
+   │
+출력층  AgentEgressPort                       ← text/thinking/toolUse/usage/finish emit
+
+레이어: domain/(순수 계약) · app/(처리) · ports/(경계) · adapters/(gRPC·provider·skill·memory) · composition/(배선)
+```
+
+- **transport 직교**: `adapters/grpc/`(운영) 와 `adapters/stdio.ts`(테스트 in-process)가
+  같은 Ingress/Egress 포트를 구현 → 도메인 코드 변경 없이 전송 방식 교체.
+- 상세: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). 전체 생태계 사상(2축·인지 계층)은
+  [naia-shell (repo: naia-os)](https://github.com/nextain/naia-os) 측 아키텍처 문서 참조.
+
+---
+
+## 빠른 시작
+
+설치된 CLI를 바로 쓸 때:
+
+```powershell
+naia-agent auth status
+naia-agent config set workspace D:\alpha-adk
+naia-agent config set coding.agent pi
+naia-agent config set coding.model grok-4.3
+naia-agent config set coding.tools true
+naia-agent doctor
+naia-agent run "작업 지시" --workdir D:\path\to\repo --json
+```
+
+계정·모델·세션·검증 절차는 [naia-agent CLI 매뉴얼](docs/naia-agent-cli-manual.md)을 따른다.
+
+> **사전 요구: `naia-memory` 와 `naia-kb-compiler` 를 아래 레이아웃으로 함께 clone.**
+> **왜 이렇게?** naia-agent 의 `package.json` 은 옆 레포 **둘**을 로컬 폴더에서 바로 가져오도록 적혀 있다
+> (배포 패키지가 아니라 로컬 경로):
+>
+> ```jsonc
+> "@naia/kb-compiler":    "file:../../naia-kb-compiler",
+> "@nextain/naia-memory": "file:../../naia-memory",
+> ```
+>
+> 이건 메인테이너 폴더 배치(agent 를 `dev/` 하위에 두는)를 반영한 것이라, **딱 한 번** 아래 모양으로
+> 맞춰 두면 `pnpm install` 이 통과한다. **둘 중 하나라도 없으면 `pnpm install` 자체가 실패한다** —
+> 런타임에는 kb-compiler 가 없어도 지식 도구만 빠지고 채팅은 동작하지만(동적 import + 격리),
+> **의존성 해석은 런타임 플래그와 무관하게 항상 일어난다.**
+>
+> ```bash
+> mkdir naia-stack && cd naia-stack
+> git clone https://github.com/nextain/naia-memory.git
+> git clone https://github.com/nextain/naia-kb-compiler.git
+> git clone https://github.com/nextain/naia-agent.git dev/naia-agent
+> # 결과 레이아웃:
+> #   naia-stack/
+> #   ├── naia-memory/          ← file:../../naia-memory 가 가리키는 곳
+> #   ├── naia-kb-compiler/     ← file:../../naia-kb-compiler 가 가리키는 곳
+> #   └── dev/naia-agent/       ← 여기서 pnpm install
+> cd dev/naia-agent
+> ```
+>
+> **다른 레이아웃(예: ADK 워크스페이스의 `projects/` 아래 나란히 둔 경우)** 에서는 `file:../../` 가
+> 어긋난다. 그때는 두 레포를 **junction/심링크**로 기대 위치에 노출한다 (Windows 예):
+>
+> ```powershell
+> # <ws>/projects/naia-agent 에서 file:../../ 는 <ws>/ 를 가리킨다
+> cmd /c mklink /J "<ws>\naia-memory"      "<ws>\projects\naia-memory"
+> cmd /c mklink /J "<ws>\naia-kb-compiler" "<ws>\projects\naia-kb-compiler"
+> ```
+>
+> 빌드 순서: `naia-kb-compiler` → `naia-memory` → `naia-agent` (앞의 둘이 `dist/` 를 먼저 내야 한다).
+
+```bash
+pnpm install        # 의존성 설치 (위 레이아웃대로 clone 필요)
+pnpm build          # tsc 빌드
+pnpm test           # 단위·계약·통합 테스트 (vitest)
+```
+
+agent 는 **단독 실행보다 호스트가 spawn** 하는 게 정상 경로다. 직접 띄울 때:
+
+```bash
+pnpm start                  # = node scripts/builds/agent-stdio-entry.mjs
+                            # stdout 에 `GRPC_LISTENING <addr>` 출력 → 호스트가 connect
+```
+
+> 진입점은 `scripts/builds/agent-stdio-entry.mjs` 이며 `dist/main/composition/index.js`(빌드 산출물,
+> `pnpm build` 필요)를 로딩한다. 즉 `pnpm build` 를 먼저 실행해야 직접 기동된다.
+
+기동하면 agent 는 호스트의 `SetWorkspace(adkPath)` 로 naia-adk 설정을 로딩해
+provider/model 을 구성하고, `Chat(server-stream)` 으로 대화를 처리한다.
+
+### 단독 CLI — 오케스트레이션 실행 (naia-shell 없이)
+
+내장 Pi로 여러 코딩 이슈를 영속 관리하는 경로는 `naia-agent loop --help`를 사용한다.
+이 경로는 OpenCode를 설치·호출·fallback하지 않으며, SQLite에 호출 수·USD·입력/출력 토큰을
+호출 전에 예약하므로 재시작 뒤에도 미결 유료 호출을 반복하지 않는다. Discord ingress와
+naia-shell 표시는 후속 어댑터 범위다.
+
+```bash
+cp examples/pi-continuous-loop.config.example.json /private/path/loop.json
+# 절대경로와 한도를 편집한 뒤:
+naia-agent loop serve --config /private/path/loop.json
+# 또는 1회 명령:
+naia-agent loop start --config /private/path/loop.json \
+  --request examples/pi-continuous-loop.request.example.json
+naia-agent loop list --config /private/path/loop.json
+naia-agent loop budget --config /private/path/loop.json
+```
+
+Codex 구독을 최소화하려면 `examples/codex-luna-azure-team.config.example.json`을 사용한다.
+이 프로파일은 moderator 한 슬롯만 `gpt-5.6-luna`로 고정하고 나머지 모델 세션은 Naia
+Gateway(Azure)로 보낸다.
+
+`serve`는 프로세스를 유지하며 stdin의 NDJSON 요청(`{ "id": "...", "command": "list" }`)을
+같은 세션 관리자에 연결한다. `start`, `answer`, `cancel`은 작업을 예약하고 백그라운드 pump를
+깨우므로 한 제어 세션에서 여러 이슈를 겹쳐 실행·조회할 수 있다.
+
+DeepSeek V4 Flash/Pro를 포함한 등록 Naia 모델은 모두 Pi 도구를 사용할 수 있으며,
+explorer/tester/reviewer와 쓰기 implementer 역할에도 배치할 수 있다. `--no-tools`는 사용자가
+명시적으로 도구 없는 실행을 요청할 때만 적용된다. 예시의 estimated-USD 한도는 고정된 Azure rate-card와
+gateway markup을 사용한 운영 상한이며, versioned Gateway 영수증이 없으면 측정 비용 주장이 아니다.
+
+비용 비교 계약은 `benchmark/orchestration/pi-cost-comparison.json`에 고정되어 있다. 실제 호출 전에
+외부 HMAC 키와 Naia gateway에서 확인한 정확한 price-version ID를 사용해 pins와 파생 계약을 만든다.
+
+```bash
+NAIA_BENCHMARK_JOURNAL_KEY='<32바이트 이상 외부 키>' \
+node benchmark/prepare-pi-cost-pins.mjs \
+  --git /usr/bin/git \
+  --price-version deepseek-v4-flash=<gateway-price-version-id> \
+  --price-version grok-4.3=<gateway-price-version-id> \
+  --output-pins /private/pi-cost-pins.json \
+  --output-contract /private/pi-cost-contract.json
+```
+
+준비 명령은 유료 호출을 하지 않고 pins 전체 SHA-256을 `pinsDigest`로 결박한 파생 계약을 생성한다.
+파생 계약은 정본에서 `pinsDigest`만 달라질 수 있다. 이후 이 두 파일을 같은 실행과 분석에 사용한다.
+
+```bash
+NAIA_PI_COST_CONFIRM=1 NAIA_API_KEY='<key>' NAIA_BENCHMARK_JOURNAL_KEY='<same-key>' \
+node benchmark/run-pi-cost-comparison-live.mjs \
+  --contract /private/pi-cost-contract.json --pins /private/pi-cost-pins.json \
+  --confirm-paid-comparison --output /private/pi-cost-result.json
+NAIA_BENCHMARK_JOURNAL_KEY='<same-key>' node benchmark/analyze-pi-cost-comparison.mjs \
+  --contract /private/pi-cost-contract.json --pins /private/pi-cost-pins.json \
+  --evidence /private/pi-cost-result.json
+```
+동일 과제·동일 역할 시도 구조·체크포인트 재개·결정론 검증을 모두 통과하고, 각 실제 도구 루프 호출이 gateway request
+ID와 price version에 결박된 실제 customer billing 영수증을 가져야만 절감 판정을 허용한다.
+증거 없이 실행하면 유료 호출 0건의 `unavailable`을 반환하며 Pi 추정가나 시간창 로그 차액은
+비용 효율 증명으로 취급하지 않는다. 제출 행뿐 아니라 각 실행의 해시체인 영수증 저널과 공유 SQLite
+게이트웨이 원장의 전체 요청 집합·정산 합계도 증거에 포함해 누락을 검출한다. 전체 증거는 외부 HMAC 키와 미리 고정한 키 ID로 검증하며,
+키·가격 버전·자격증명 중 하나라도 없으면 유료 호출 전에 중단한다. 이 검증은 고정된 내부 비교의
+사후 변조를 막지만, 현재 gateway 응답 자체에는 서버 서명이 없으므로 제3자 감사 증명으로 과장하지 않는다.
+
+`pnpm build` 후, 터미널에서 직접 작업을 시킨다(S2 supervisor mode). 외부 코딩 에이전트(또는 셸)를
+sub-agent 로 spawn → (옵션)워크스페이스 감시 + (옵션)검증 → **정직한 숫자 리포트**.
+
+```bash
+pnpm build
+# 셸 명령을 sub-agent 로(즉시 사용 가능, 외부 도구 불필요):
+node bin/naia-agent-run.mjs run "echo hello" --agent shell
+#  = pnpm supervise run "echo hello" --agent shell   (동일)
+
+# 완료 후 검증까지(검증 실패 시 exit 2):
+node bin/naia-agent-run.mjs run "pnpm -v" --agent shell --check build="pnpm build" --check test="pnpm test"
+
+# 외부 코딩 에이전트로(설치돼 있을 때): --agent pi | opencode
+node bin/naia-agent-run.mjs run "이 버그 고쳐줘" --agent pi --watch
+
+node bin/naia-agent-run.mjs --help     # 전체 옵션(--workdir/--model/--watch/--poll/--check/--json)
+```
+
+**exit code**: `0` 세션 성공+검증 통과 · `2` 검증 실패 · `3` 세션 실패/중단 · `64` 인자 오류 (`--help` 는 `0`).
+미설치 sub-agent(예: `--agent claude-code`)는 정직하게 unsupported 로 끝난다(세션 실패=3).
+`package.json` 의 `bin` 으로 `naia-agent` 명령도 노출된다(`pnpm link`/설치 후 `naia-agent run ...`).
+
+**출력 채널**: `stdout` 은 **기계 출력 전용** — `--json` 일 때만 리포트 JSON 한 줄(항상 valid JSON, 파이프 안전).
+sub-agent 의 원출력(stdout·stderr 합쳐 transcript)과 진행 이벤트·사람용 리포트는 모두 `stderr` 로 간다.
+즉 `... --json 2>/dev/null | jq` 가 깨지지 않는다. `--watch` 의 변경 수치는 작업 시작 시점(baseline) 대비 **델타**
+(작업 전부터 dirty 였던 파일은 제외)이며 폴 간격마다 샘플한다(빠른 작업은 변경이 안 잡힐 수 있음 → `--check` 권장).
+
+> naia-shell과 함께 쓰는 전체 데스크톱 경험은 [naia-os](https://github.com/nextain/naia-os) README 참조.
+
+---
+
+## 개발 프로세스 (기여자용)
+
+이 레포는 **계약 우선 + V모델**로 관리된다 — 코드 한 줄 전에 시나리오·요구사항·테스트가 먼저.
+
+| 게이트 | 산출물 |
+|--------|--------|
+| P01 사용자 시나리오 | `docs/user-scenarios.md` UC |
+| P02 테스트 시나리오 | Test Coverage Map 매핑 |
+| P03 요구사항 | `docs/requirements.md` FR/NFR |
+| P04 통합 테스트 | `src/test/*.contract.test.ts` |
+| P05 완료 | 요구사항 상태 → Done |
+
+추적성 레지스트리(요구사항→UC→테스트→기능→테스트, orphan 0):
+`docs/progress/01.requirements ~ 05.features-tests`.
+
+모든 AI 도구의 진입점·규칙은 **[`AGENTS.md`](AGENTS.md)** — 처음이라면 이 README 다음에 읽으세요.
+빠른 첫 기여 가이드는 [`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md)(15분 fast-path 포함).
+
+---
+
+## 프로젝트 구조
+
+```
+naia-agent/
+├── AGENTS.md / CLAUDE.md / GEMINI.md / OPENCODE.md / CODEX.md   # AI 진입점(헌장) — AGENTS.md 가 SoT, 나머지는 자동 mirror
+├── .agents/        # AI 컨텍스트(규칙·상태·훅) — 사람이 편집
+│   └── context/    #   agents-rules.json(규칙 SoT) · process-status.json(진행) · module-manifest.json(파일단위 계약앵커)
+├── .users/         # .agents/ 의 사람용 마크다운 mirror
+├── src/
+│   ├── main/       # 메인 소스 — domain / app / ports / adapters / composition
+│   └── test/       # 계약·통합·단위 테스트
+├── scripts/        # enforce-root-structure.sh(구조강제) · sync-harness-mirrors.sh(mirror 동기화) 등
+└── docs/           # ARCHITECTURE · requirements · user-scenarios · progress(V모델 레지스트리)
+```
+
+구조 규칙: 새 루트 파일/폴더는 `agents-rules.json`(F12/F13)에 먼저 등록해야 한다.
+미등록 시 `scripts/enforce-root-structure.sh --fix` 가 **삭제**한다.
+
+---
+
+## 라이선스
+
+- **소스 코드**: Apache License 2.0 — [`LICENSE`](LICENSE).
+- **AI 컨텍스트**(`.agents/`·`.users/`·`AGENTS.md`): CC-BY-SA 4.0 — [`CONTEXT-LICENSE`](CONTEXT-LICENSE).
+
+**왜 듀얼 라이선스인가?** 소스 코드는 Apache 2.0 으로 자유롭게 수정·상용 가능하지만, AI 컨텍스트 파일(프로젝트 철학·기여 구조·AI 에이전트 협업 원칙)은 CC-BY-SA 4.0 입니다. 포크 시 컨텍스트 변경분도 **동일 라이선스로 공유(ShareAlike)**하고 원작자(Nextain)를 명시해야 합니다 — 업스트림 생태계(오픈소스 기여 구조 + AI 협업 원칙)가 모든 포크에 전파되도록 보호하기 위함입니다. 상세 = [`CONTEXT-LICENSE`](CONTEXT-LICENSE).
+
+기여 가이드·행동강령·보안정책은 [`.github/`](.github/) 참조.
+
+## 링크
+
+- **naia-shell (repo: naia-os)** (비주얼 셸 코드베이스 + 배포판 비전) — [github.com/nextain/naia-os](https://github.com/nextain/naia-os)
+- **naia-memory** (장기기억) — [github.com/nextain/naia-memory](https://github.com/nextain/naia-memory)
+- **naia-adk** (워크스페이스) — [github.com/nextain/naia-adk](https://github.com/nextain/naia-adk)
+- **Nextain** — [nextain.io](https://nextain.io)
