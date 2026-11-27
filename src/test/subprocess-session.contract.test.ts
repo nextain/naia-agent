@@ -1,4 +1,4 @@
-// 공유 subprocess-session 머신 직접 계약(2b) — pi/opencode 가 공유하는 고위험 동시성 로직을 어댑터 무관하게 검증.
+// 공유 subprocess-session 머신 직접 계약(2b) — codex/opencode 가 공유하는 고위험 동시성 로직을 어댑터 무관하게 검증.
 // passthrough 텍스트 lineToEvent 로 머신 자체를 시험: CRLF 정규화·session_end 1회·partial-line flush·late-stdout 드롭.
 import { describe, it, expect } from "vitest";
 import type { ChildProcess } from "node:child_process";

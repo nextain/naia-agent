@@ -19,9 +19,9 @@ function actor(role: ActorReceipt["role"], key: string, n: number, provider: str
 }
 const team: IssueTeamProfile = { kind: "team", maxRepairCycles: 1, requiredCleanCycles: 1, roles: {
   explorer: declared("explorer", "codex", "read_only"), implementer: declared("implementer", "opencode", "workspace_write"),
-  tester: declared("tester", "pi", "read_only"), reviewer: declared("reviewer", "codex", "read_only"),
+  tester: declared("tester", "codex", "read_only"), reviewer: declared("reviewer", "codex", "read_only"),
 } };
-function declared(role: IssueTeamRole, agentKind: "codex" | "opencode" | "pi", filesystemAccess: "read_only" | "workspace_write") {
+function declared(role: IssueTeamRole, agentKind: "codex" | "opencode", filesystemAccess: "read_only" | "workspace_write") {
   return { agentProfileId: `${role}-profile`, agentKind, filesystemAccess, binding: { provider: `${agentKind}-provider`, model: `${agentKind}-model` } } as const;
 }
 function teamProjection() {

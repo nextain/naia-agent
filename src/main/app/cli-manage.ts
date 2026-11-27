@@ -1,7 +1,7 @@
 // app/cli-manage — UC-023 / SPEC-019 first-class CLI 관리 표면의 순수 정책.
 // argv/config/credential text/model catalog/transcript를 결정론적으로 다룬다.
 // fs, TTY, OS keychain, HTTP, process는 bin/naia-agent-manage.mjs host가 주입한다.
-import type { ChatMessage } from "../domain/chat.js";
+import { isNaiaAnalysisOnlyModel, type ChatMessage } from "../domain/chat.js";
 
 export const CLI_CONFIG_KEYS = [
   "workspace",
@@ -224,7 +224,13 @@ export function setCliConfigValue(config: CliGlobalConfig, key: CliConfigKey, ra
     if (bool === null) return { ok: false, error: "coding.tools는 true 또는 false여야 합니다" };
     coding.tools = bool;
   } else if (key === "coding.agent") {
-    if (!["pi", "shell", "opencode", "claude-code", "codex", "gemini", "grok"].includes(value)) {
+    if (value === "pi") {
+      return {
+        ok: false,
+        error: "지원하지 않는 coding.agent: pi (pi 에이전트는 제거되었습니다. 'naia-agent config set coding.agent codex'로 설정하세요)",
+      };
+    }
+    if (!["codex", "shell", "opencode", "claude-code", "gemini", "grok"].includes(value)) {
       return { ok: false, error: `지원하지 않는 coding.agent: ${value}` };
     }
     coding.agent = value;
@@ -233,6 +239,29 @@ export function setCliConfigValue(config: CliGlobalConfig, key: CliConfigKey, ra
     coding.model = value;
   }
   return { ok: true, config: { ...config, coding } };
+}
+
+/** Migrate legacy stored `coding.agent="pi"` to `"codex"`. */
+export function migrateLegacyCliCodingConfig(config: CliGlobalConfig): {
+  readonly config: CliGlobalConfig;
+  readonly migratedFromPi: boolean;
+} {
+  if (config.coding?.agent !== "pi") {
+    return { config, migratedFromPi: false };
+  }
+  return {
+    config: {
+      ...config,
+      coding: {
+        ...config.coding,
+        agent: "codex",
+        // The old config does not record a provider route, so a Pi model cannot
+        // safely be passed to Codex (including Naia models without a key).
+        model: "gpt-5.4",
+      },
+    },
+    migratedFromPi: true,
+  };
 }
 
 export function resetCliConfigValue(config: CliGlobalConfig, key?: CliConfigKey): CliGlobalConfig {
@@ -291,11 +320,12 @@ export function applyCodingDefaults(argv: readonly string[], config: CliGlobalCo
   // Preserve it verbatim so the downstream parser owns the error and exit code.
   if (malformed) return out;
   const coding = config.coding;
-  const matchesStoredAgent = !explicitAgent || explicitAgent === coding?.agent;
+  const storedAgent = coding?.agent === "pi" ? "codex" : coding?.agent;
+  const matchesStoredAgent = !explicitAgent || explicitAgent === storedAgent;
   const matchesStoredModel = !explicitModel || explicitModel === coding?.model;
-  if (coding?.agent && !hasAgent) out.push("--agent", coding.agent);
+  if (storedAgent && !hasAgent) out.push("--agent", storedAgent);
   // Stored model/tools are one tuple with the stored agent. Explicitly selecting another
-  // agent or model must not inherit Pi/Grok capability defaults. The downstream parser is
+  // agent or model must not inherit Codex/Grok capability defaults. The downstream parser is
   // last-option-wins, so repeated value options use their final occurrence here as well.
   if (coding?.model && !hasModel && matchesStoredAgent) out.push("--model", coding.model);
   const mayApplyStoredTools = matchesStoredAgent && matchesStoredModel
@@ -326,8 +356,10 @@ export interface CliModel {
 
 export const FALLBACK_NAIA_MODELS: readonly CliModel[] = [
   { provider: "naia", id: "grok-4.3", label: "Grok 4.3 (Naia / Azure)", tools: true, use: "coding" },
-  { provider: "naia", id: "deepseek-v4-flash", label: "DeepSeek V4 Flash (Naia / Azure)", tools: true, use: "coding" },
-  { provider: "naia", id: "deepseek-v4-pro", label: "DeepSeek V4 Pro (Naia / Azure)", tools: true, use: "coding" },
+  { provider: "naia", id: "deepseek-v4-flash", label: "DeepSeek V4 Flash (Naia / Azure)", tools: false, use: "analysis" },
+  { provider: "naia", id: "deepseek-v4.1-flash", label: "DeepSeek V4.1 Flash (Naia / Azure)", tools: false, use: "analysis" },
+  { provider: "naia", id: "deepseek-v4-pro", label: "DeepSeek V4 Pro (Naia / Azure)", tools: false, use: "analysis" },
+  { provider: "naia", id: "gpt-6-luna", label: "GPT-6 Luna (Naia / Azure)", tools: true, use: "coding" },
   { provider: "naia", id: "solar-pro4", label: "Solar Pro 4 (Naia / Upstage, 국내)", tools: true, use: "coding" },
   { provider: "naia", id: "solar-mini", label: "Solar Mini (Naia / Upstage, 국내)", tools: true, use: "general" },
   { provider: "naia", id: "motif-3", label: "Motif 3 (Naia / Motif, 국내 CBT)", tools: true, use: "coding" },
@@ -352,9 +384,9 @@ export function normalizeModelCatalog(input: unknown): CliModel[] {
     const id = rawId.trim();
     if (!id || seen.has(id)) continue;
     if (Array.isArray(item.capabilities) && !item.capabilities.includes("llm")) continue;
-    // Naia exposes only skill-capable chat models. A catalog entry that
-    // explicitly denies tools is not selectable through the Agent CLI.
-    if (item.supports_tools === false) continue;
+    const analysisOnly = isNaiaAnalysisOnlyModel(id);
+    // Explicitly tool-less entries require a supported analysis route.
+    if (item.supports_tools === false && !analysisOnly) continue;
     seen.add(id);
     const provider = isBareArray
       ? "naia"
@@ -365,13 +397,12 @@ export function normalizeModelCatalog(input: unknown): CliModel[] {
     const label = typeof item.name === "string" && item.name.trim()
       ? item.name
       : (fallbackLabel ?? id);
-    const tools = true;
     models.push({
       provider,
       id,
       label,
-      tools,
-      use: tools ? "coding" : "general",
+      tools: !analysisOnly,
+      use: analysisOnly ? "analysis" : "coding",
     });
   }
   return models.sort((a, b) => `${a.provider}/${a.id}`.localeCompare(`${b.provider}/${b.id}`));

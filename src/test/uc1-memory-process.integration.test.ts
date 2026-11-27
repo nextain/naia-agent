@@ -5,6 +5,7 @@
 // 진입점은 dist 를 import 하므로 beforeAll 에서 빌드한다(self-contained).
 // transport=gRPC(stdio 이식 후) → 옛 stdin/stdout JSON 라인이 아니라 GRPC_LISTENING 핸드셰이크 + gRPC 클라.
 // provider/config 는 wire 가 아니라 naia-adk settings(`<adk>/naia-settings/config.json`)에서 로딩(canon).
+import { createServer } from "node:http";
 import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { mkdtemp, mkdir, rm, readFile, writeFile } from "node:fs/promises";
@@ -55,7 +56,7 @@ describe("UC-memory — 실 프로세스 관통(gRPC 진입점 종료 lifecycle)
     if (dir) { await rm(dir, { recursive: true, force: true }); dir = null; }
   });
 
-  it("실 진입점 2턴 e2e(gRPC): 턴1 save → 턴2 임베딩 없음 → 자동 주입 없음(#693) + SIGTERM 영속", async () => {
+  it("실 진입점 2턴 e2e(gRPC): 턴1 save → 턴2 임베딩 없이 낱말 회상 + SIGTERM 영속", async () => {
     dir = await mkdtemp(join(tmpdir(), "naia-mem-proc-"));
     const storePath = join(dir, "naia-settings", "memory", "store.json");
     const rejectedOverride = join(dir, "outside-settings.json");
@@ -93,10 +94,10 @@ describe("UC-memory — 실 프로세스 관통(gRPC 진입점 종료 lifecycle)
     // 턴1 — 사실 발화(save). 저장 전이라 systemPrompt(echo)에 비밀 없음(인과 분리).
     const t1 = await chatTurn(client, "p1", `내 비밀 코드명은 ${SECRET}야`);
     expect(t1).not.toContain(SECRET);
-    // 턴2 — 턴1 의 사실 질문. #693: 임베딩 없으면 자동 주입 꺼짐(surfacing=off(no-embedding)).
+    // R17: 임베딩 없이도 일치하는 낱말로 앞 대화의 사용자 기억을 주입한다.
     const t2 = await chatTurn(client, "p2", "내 코드명이 뭐였지?");
-    expect(t2).not.toContain(SECRET);
-    expect(stderr).toContain("surfacing=off(no-embedding)");
+    expect(t2).toContain(SECRET);
+    expect(stderr).toContain("surfacing=on-threshold(no-embedding");
     client.close?.();
 
     // SIGTERM graceful shutdown(drain→flush→exit 0)은 **POSIX 계약** — Windows 는 SIGTERM 을 못 잡고
@@ -116,6 +117,69 @@ describe("UC-memory — 실 프로세스 관통(gRPC 진입점 종료 lifecycle)
       await expect(readFile(rejectedOverride, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
     }
   }, 90000);
+
+  for (const embedded of [false, true]) {
+    it(`R17 real process restart A → fact list → B, embedding=${embedded}`, async () => {
+      dir = await mkdtemp(join(tmpdir(), "r17-process-"));
+      const workspace = dir;
+      const fact = "내 할 일은 제안서 작성";
+      const visit = "다음 주 보라 님 답사 간다";
+      const models: string[] = [];
+      let runtimeLog = "";
+      const server = createServer(async (req, res) => {
+        let raw = ""; for await (const chunk of req) raw += chunk;
+        const body = JSON.parse(raw || "{}");
+        if (req.url?.endsWith("/embeddings")) {
+          res.setHeader("Content-Type", "application/json");
+          const texts = Array.isArray(body.input) ? body.input : [body.input];
+          res.end(JSON.stringify({ data: texts.map((_: unknown, index: number) => ({ index, embedding: [1, 0, 0] })) })); return;
+        }
+        models.push(body.model);
+        if (!body.stream) {
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ "1": [fact, visit] }) } }] })); return;
+        }
+        const prompt = JSON.stringify(body.messages);
+        const content = prompt.includes("내 할 일 뭐였지") && prompt.includes(fact) ? "제안서 작성이 할 일이었어요." : "기억할게요.";
+        res.setHeader("Content-Type", "text/event-stream");
+        res.end('data: ' + JSON.stringify({ choices: [{ delta: { content }, finish_reason: null }] }) + '\n\ndata: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }] }) + '\n\ndata: [DONE]\n\n');
+      });
+      await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+      const baseUrl = `http://127.0.0.1:${(server.address() as { port: number }).port}/v1`;
+      await mkdir(join(workspace, "naia-settings"), { recursive: true });
+      await writeFile(join(workspace, "naia-settings", "config.json"), JSON.stringify({ provider: "vllm", model: "main", vllmHost: baseUrl, llmRoles: { memory: { provider: "vllm", model: "small", baseUrl } }, memoryEmbeddingProvider: embedded ? "vllm" : "none", memoryEmbeddingBaseUrl: baseUrl, memoryEmbeddingModel: "fake-embedding", memoryEmbeddingRevision: "fake-r17-v1", memoryEmbeddingDimensions: 3 }));
+      const start = async () => {
+        child = spawn(process.execPath, [entry], { cwd: pkgRoot, env: { ...process.env, AGENT_PROVIDER: "vllm", NAIA_AGENT_SKILLS: "off", NAIA_ADK_PATH: workspace, NAIA_HOME: workspace }, stdio: ["pipe", "pipe", "pipe"] });
+        let stderr = ""; child.stderr!.on("data", c => { stderr += c; runtimeLog += c; });
+        const addr = await new Promise<string>((resolve, reject) => {
+          let output = ""; const timer = setTimeout(() => reject(new Error(stderr)), 30000);
+          child!.stdout!.on("data", c => { output += c; const match = output.match(/GRPC_LISTENING\s+(\S+)/); if (match) { clearTimeout(timer); resolve(match[1]); } });
+          child!.once("exit", () => { clearTimeout(timer); reject(new Error(stderr)); });
+        });
+        return makeClient(addr);
+      };
+      const stop = async () => {
+        await new Promise<void>(resolve => { child!.once("exit", () => resolve()); child!.kill("SIGTERM"); });
+        expect(child!.exitCode).toBe(0); child = null;
+      };
+      try {
+        let client = await start();
+        await chatTurn(client, "A", fact + ". " + visit);
+        const stored = JSON.parse(await readFile(join(workspace, "naia-settings", "memory", "store.json"), "utf8").catch(error => { throw new Error(String(error) + runtimeLog); }));
+        expect(stored.facts.map((f: { content: string }) => f.content), JSON.stringify(models) + runtimeLog).toContain(fact);
+        expect(models).toContain("small");
+        expect(stored.facts.length).toBeGreaterThan(0);
+        expect(stored.episodes.filter((episode: { role: string; consolidated?: boolean }) => episode.role === "user" && episode.consolidated !== true)).toHaveLength(0);
+        client.close(); await stop();
+        client = await start();
+        expect(await chatTurn(client, "B", "내 할 일 뭐였지?"), runtimeLog).toContain("제안서 작성");
+        client.close(); await stop();
+      } finally {
+        if (child && child.exitCode === null) child.kill("SIGKILL");
+        await new Promise<void>(resolve => server.close(() => resolve()));
+      }
+    }, 90000);
+  }
 
   it("Discord secret-only stdin pipe를 닫은 뒤에만 gRPC runtime을 시작한다", async () => {
     dir = await mkdtemp(join(tmpdir(), "naia-discord-pipe-"));

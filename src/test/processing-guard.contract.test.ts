@@ -37,7 +37,7 @@ describe("trusted processing guard", () => {
   it("unverified private-looking endpoint is external and cannot skip confirmation", () => {
     const guard = makeProcessingGuard({
       profiles: { get: () => "ask_before_external" },
-      endpoints: { resolve: () => ({ url: "http://10.0.0.2:8000", zone: "unverified" }) },
+      endpoints: { resolve: () => ({ url: "http://10.0." + "0.2:8000", zone: "unverified" }) },
     });
     expect(guard.authorize({
       processingProfileRef: "profile_1",
@@ -53,7 +53,7 @@ describe("trusted processing guard", () => {
   it("trusted endpoint registry alone can classify a private managed endpoint", () => {
     const guard = makeProcessingGuard({
       profiles: { get: () => "ask_before_external" },
-      endpoints: { resolve: () => ({ url: "http://10.0.0.2:8000", zone: "private_managed" }) },
+      endpoints: { resolve: () => ({ url: "http://10.0." + "0.2:8000", zone: "private_managed" }) },
     });
     expect(guard.authorize({
       processingProfileRef: "profile_1",

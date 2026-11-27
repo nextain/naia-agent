@@ -84,8 +84,8 @@ describe("subagent-shell 어댑터 계약 (2a, 실 자식 프로세스)", () => 
     // Windows: SIGTERM 은 catch 불가(즉시 종료) → kill('SIGTERM') 1회로 끝나고 SIGKILL 미발사. 에스컬레이션 코드경로는
     //   동일하나(유예 타이머 설치 후 close 가 먼저 옴), 신호 시퀀스가 플랫폼별로 다름 → 플랫폼별 단언.
     const script = isWindows
-      ? "setInterval(() => {}, 1000);"
-      : "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);";
+      ? "process.stdout.write('READY'); setInterval(() => {}, 1000);"
+      : "process.on('SIGTERM', () => {}); process.stdout.write('READY'); setInterval(() => {}, 1000);";
     const grace = 200; // hard-kill 유예 단축(테스트, CI-safe). 기본 500ms.
 
     // 어댑터의 spawnFn 주입(이 codebase 의 IO-주입 패턴)으로 *실제 보낸 신호 시퀀스*를 boundary 에서 결정론 관측.
@@ -100,10 +100,23 @@ describe("subagent-shell 어댑터 계약 (2a, 실 자식 프로세스)", () => 
     const port = makeShellSubAgent({ command: NODE, args: () => ["-e", script], hardKillDeadlineMs: grace, spawnFn: observingSpawn });
     const session = port.spawn({ prompt: "long", workdir: process.cwd() });
     const events: SubAgentEvent[] = [];
-    const drained = (async () => { for await (const e of session.events) events.push(e); })();
+    let ready!: () => void;
+    const readiness = new Promise<void>((resolve) => { ready = resolve; });
+    let output = "";
+    const drained = (async () => { for await (const e of session.events) {
+      events.push(e);
+      if (e.kind === "text_delta") { output += e.text; if (output.includes("READY")) ready(); }
+    } })();
 
-    await new Promise((r) => setTimeout(r, 150)); // 프로세스 기동 + (POSIX) SIGTERM 트랩 설치 대기
-    await session.cancel("user stop");            // SIGTERM → grace → SIGKILL
+    let readyTimer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([readiness, new Promise<never>((_, reject) => {
+        readyTimer = setTimeout(() => reject(new Error("child readiness timeout")), 5_000);
+      })]);
+    } finally {
+      clearTimeout(readyTimer);
+      await session.cancel("user stop"); // handler installed before READY → SIGKILL
+    }
     await drained;
 
     expect(killSignals[0]).toBe("SIGTERM"); // 항상 SIGTERM 먼저(에스컬레이션 1단계) — 모든 플랫폼

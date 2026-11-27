@@ -7,6 +7,7 @@
 import { createInterface } from "node:readline";
 import { WINDOWS_DPAPI_TIMEOUT_MS } from "../../dist/main/app/cli-manage.js";
 import { isLocalEngineBaseUrl } from "../../dist/main/domain/provider-route.js";
+import { makeAxEffectBroker } from "../../dist/main/adapters/ax-policy-tool-executor.js";
 import { makeProviderResolver } from "../../dist/main/adapters/provider-resolver.js";
 import { makeFakeProvider, makeSystemEchoProvider } from "../../dist/main/adapters/fake-provider.js";
 import { makeKeychainCredentials, makeRefreshingKeychainRead } from "../../dist/main/adapters/keychain-secret-store.js";
@@ -22,7 +23,10 @@ import { makeGithubSkillsExecutor } from "../../dist/main/adapters/github-skills
 import { makeObsidianSkillsExecutor } from "../../dist/main/adapters/obsidian-skills.js";
 import { makeMcpSkillsExecutor } from "../../dist/main/adapters/mcp-skills.js";
 import { makeMcpJsonRpcClient } from "../../dist/main/adapters/mcp-stdio-transport.js";
-import { makeCompositeToolExecutor } from "../../dist/main/adapters/composite-tool-executor.js";
+import {
+  composeBuiltinAndExternalToolExecutors,
+  makeCompositeToolExecutor,
+} from "../../dist/main/adapters/composite-tool-executor.js";
 import { makeNotifyExecutor } from "../../dist/main/adapters/notify-skills.js";
 import { makeAdkSkillExecutor, parseSkillMd } from "../../dist/main/adapters/adk-skill-loader.js";
 import { makeFsTools } from "../../dist/main/adapters/fs-tools.js";
@@ -44,7 +48,38 @@ import * as nodeFs from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
-import { dirname, join, resolve, sep } from "node:path";
+import { dirname, join, resolve, sep, win32, posix } from "node:path";
+
+/** FR-AX-026.14: product memo home, with injectable path semantics for OS contracts. */
+export function resolveMemoStorage({ env = process.env, homeDir = homedir(), pathApi = process.platform === "win32" ? win32 : posix } = {}) {
+  const explicit = env.NAIA_MEMO_PATH?.trim();
+  const dataHome = env.NAIA_HOME?.trim() || pathApi.join(homeDir, ".naia");
+  return {
+    path: explicit || pathApi.join(dataHome, "memos.json"),
+    legacyPath: pathApi.join(homeDir, ".naia-agent", "memos.json"),
+    migrate: !explicit,
+  };
+}
+
+/** Copy once per destination; never overwrite or delete the legacy source. */
+export function prepareMemoStorage({ env, homeDir, fs = nodeFs, pathApi = process.platform === "win32" ? win32 : posix, diag } = {}) {
+  const storage = resolveMemoStorage({ env, homeDir, pathApi });
+  diag?.debug("memo-storage", "prepare", { explicit: !storage.migrate });
+  if (storage.migrate && !fs.existsSync(storage.path) && fs.existsSync(storage.legacyPath)) {
+    fs.mkdirSync(pathApi.dirname(storage.path), { recursive: true });
+    try {
+      fs.copyFileSync(storage.legacyPath, storage.path, nodeFs.constants.COPYFILE_EXCL);
+      diag?.debug("memo-storage", "legacy-copied", {});
+    } catch (error) {
+      if (error?.code !== "EEXIST") {
+        diag?.debug("memo-storage", "legacy-copy-failed", {});
+        throw new Error("memo storage migration failed", { cause: error });
+      }
+      diag?.debug("memo-storage", "destination-won-race", {});
+    }
+  }
+  return storage.path;
+}
 
 /** Trim a workspace path. Empty/non-string values become "". */
 export function trimAdkPath(value) {
@@ -81,6 +116,7 @@ export function resolveHostAdkPath({
  */
 export async function composeAgentRuntimeDeps(o = {}) {
   const env = o.env ?? process.env;
+  const diag = makeStderrDiagnostic({ write: (l) => process.stderr.write(l + "\n"), debug: env.NAIA_AGENT_DEBUG === "1" });
   const homeDir = typeof o.homeDir === "string" && o.homeDir.trim() ? o.homeDir : homedir();
   const allowHomeAdkFallback = o.allowHomeAdkFallback === true;
   const cleanupFns = []; // 종료 시 정리(MCP 자식 등) — 호스트 shutdown 이 호출.
@@ -232,29 +268,41 @@ export async function composeAgentRuntimeDeps(o = {}) {
 
   // ── UC5 실 스킬(time/weather/memo + github/obsidian/mcp/notify/adk) — 기본 활성(NAIA_AGENT_SKILLS=off 로 비활성). ──
   // ⚠️ app(환경 위임)은 여기 미포함 — egress 가 필요해 gRPC host 가 wire 후 합성(브라우저/BGM=셸 소유 환경, E1).
-  let toolExecutor, skillsLabel = "off";
+  let toolExecutor, axExecutor, skillsLabel = "off";
+  const axRegistrations = [];
   let knowledgeBackend;
   let setKnowledgeWorkspace = () => undefined;
   if (env.NAIA_AGENT_SKILLS !== "off") {
-    const memoPath = env.NAIA_MEMO_PATH || join(homeDir, ".naia-agent", "memos.json");
+    const memoPath = prepareMemoStorage({ env, homeDir, diag });
     const memo = makeFileMemoStore({ path: memoPath, dir: dirname(memoPath), fs: nodeFs });
     const builtin = makeBuiltinSkillsExecutor({ clock: () => new Date(), fetchWeather: makeOpenMeteoFetchWeather(), memo });
     skillsLabel = `time/weather/memo(${memoPath})`;
-    const executors = [builtin];
+    // 조립 단계 분리(P2): 내장 실행기(builtinExecutors)는 도메인 계약(tier 미설정/"none"=자동)을 유지하고,
+    // 바깥 실행기(externalExecutors: MCP·ADK SKILL.md·주입된 외부 실행기)는 composeBuiltinAndExternalToolExecutors가
+    // 한 곳에서 wrapExternalToolExecutor(normalizeExternalToolSpec)로 감싸 정규화 누락을 구조적으로 차단한다.
+    const builtinExecutors = [builtin, ...(Array.isArray(o.builtinToolExecutors) ? o.builtinToolExecutors : [])];
+    const externalExecutors = [...(Array.isArray(o.externalToolExecutors) ? o.externalToolExecutors : [])];
+    for (const spec of builtin.specs().filter((s) => ["get_time", "memo_list", "memo_get"].includes(s.name))) {
+      axRegistrations.push({ spec, classify: () => ["local_read"], execute: builtin.execute.bind(builtin) });
+    }
 
     // ── UC-FS-TOOLS(S3): 에이전트 직접 fs/shell 도구. ★ 보안 = 코어가 sandbox 정책(allow-root=adkPath)+tier 소유.
     //    실행기(realpath/exec)만 여기서 node:fs/child_process 주입(코어 순수). read/list 기본 등록, write/shell 은
     //    NAIA_SHELL_TOOL=1 opt-in. (GLM: env-var 게이트는 자식상속으로 약함 → 핵심 보안은 sandbox/denylist/argv;
     //    per-request capability 미래 강화는 요구사항 NFR-SEC 노트.)
     const enableShell = env.NAIA_SHELL_TOOL === "1";
-    executors.push(makeFsTools({
+    const fsExecutor = makeFsTools({
       fs: nodeFs,
       allowRoots: () => {
         const root = currentBind?.canonicalRoot ?? adkPath;
         return root ? [root] : [];
       },
       enableWrite: enableShell,
-    }));
+    });
+    builtinExecutors.push(fsExecutor);
+    for (const spec of fsExecutor.specs().filter((s) => ["list_dir", "read_file"].includes(s.name))) {
+      axRegistrations.push({ spec, classify: () => ["local_read"], execute: fsExecutor.execute.bind(fsExecutor) });
+    }
     skillsLabel += enableShell ? " + fs-tools(read/list/write)" : " + fs-tools(read/list)";
     if (enableShell) {
       // ── injection-safe argv 실행기 — **shell 없이** spawn(subprocess-session 헬퍼로 Windows .cmd/.bat shim 해석).
@@ -295,7 +343,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
       });
       // realpath 주입 — cwd 의 symlink/junction 탈출 재검증(fs-tools 와 동형). 부재/실패 시 throw → 어댑터가 거부.
       if (adkPath) {
-        executors.push(makeShellTool({ exec: shellExec, allowRoots: [adkPath], realpath: (p) => nodeFs.realpathSync(p) }));
+        builtinExecutors.push(makeShellTool({ exec: shellExec, allowRoots: [adkPath], realpath: (p) => nodeFs.realpathSync(p) }));
         skillsLabel += " + shell-tool(argv)";
       }
     }
@@ -391,7 +439,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
           },
         };
         knowledgeBackend = backend;
-        executors.push(makeKnowledgeSkillsExecutor({ backend }));
+        builtinExecutors.push(makeKnowledgeSkillsExecutor({ backend }));
         // Do not eagerly realpath/load the fallback workspace. A fresh desktop may boot before
         // the selected ADK exists; the dynamic backend must recover after SetWorkspace.
         skillsLabel += " + knowledge(canonical naia-settings, live-workspace-reload)";
@@ -401,11 +449,11 @@ export async function composeAgentRuntimeDeps(o = {}) {
     }
 
     const ghToken = env.GITHUB_TOKEN || env.GH_TOKEN;
-    if (ghToken) { executors.push(makeGithubSkillsExecutor({ token: ghToken })); skillsLabel += " + github(ro)"; }
+    if (ghToken) { builtinExecutors.push(makeGithubSkillsExecutor({ token: ghToken })); skillsLabel += " + github(ro)"; }
     const vault = env.NAIA_OBSIDIAN_VAULT;
-    if (vault) { executors.push(makeObsidianSkillsExecutor({ vaultDir: vault, fs: nodeFs })); skillsLabel += " + obsidian(ro)"; }
+    if (vault) { builtinExecutors.push(makeObsidianSkillsExecutor({ vaultDir: vault, fs: nodeFs })); skillsLabel += " + obsidian(ro)"; }
     const mcpCmd = env.NAIA_MCP_CMD;
-    if (mcpCmd) {
+    if (mcpCmd && env.NAIA_AGENT_AX !== "on") {
       try {
         const parts = mcpCmd.trim().split(/\s+/);
         const mcpName = env.NAIA_MCP_NAME || "mcp";
@@ -416,7 +464,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
         const channel = { send: (line) => child.stdin.write(line + "\n"), onLine: (cb) => { mcb = cb; return () => { mcb = null; }; }, close: () => { try { child.kill(); } catch { /* noop */ } } };
         const transport = makeMcpJsonRpcClient(channel);
         const mcpExec = await makeMcpSkillsExecutor({ transport, serverName: mcpName, initTimeoutMs: 30000 });
-        executors.push(mcpExec);
+        externalExecutors.push(mcpExec);
         cleanupFns.push(channel.close);
         skillsLabel += ` + mcp:${mcpName}(${mcpExec.specs().length})`;
       } catch (e) {
@@ -431,7 +479,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
         const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), ...(signal ? { signal } : {}) });
         return { ok: r.ok, status: r.status };
       };
-      executors.push(makeNotifyExecutor({ post: notifyPost, webhookUrl: notifyWebhookUrl }));
+      builtinExecutors.push(makeNotifyExecutor({ post: notifyPost, webhookUrl: notifyWebhookUrl }));
       skillsLabel += " + notify";
     }
     // naia-adk 동적 스킬(SKILL.md) — 정의=naia-adk 워크스페이스 / 실행=agent. 본문(절차)을 도구 output 으로(프롬프트 주입형).
@@ -448,11 +496,26 @@ export async function composeAgentRuntimeDeps(o = {}) {
     } catch { /* .agents/skills 없음 */ }
     if (adkSkills.length) {
       const adkExec = makeAdkSkillExecutor(adkSkills);
-      executors.push(adkExec);
+      externalExecutors.push(adkExec);
       skillsLabel += ` + adk-skills(${adkExec.specs().length}/${adkSkills.length})`;
     }
-    toolExecutor = executors.length > 1 ? makeCompositeToolExecutor(executors) : builtin;
+    toolExecutor = composeBuiltinAndExternalToolExecutors({
+      builtin: builtinExecutors,
+      external: externalExecutors,
+    });
+  } else if (Array.isArray(o.builtinToolExecutors) || Array.isArray(o.externalToolExecutors)) {
+    toolExecutor = composeBuiltinAndExternalToolExecutors({
+      builtin: Array.isArray(o.builtinToolExecutors) ? o.builtinToolExecutors : [],
+      external: Array.isArray(o.externalToolExecutors) ? o.externalToolExecutors : [],
+    });
   }
+  if (env.NAIA_AGENT_AX === "on") {
+    axExecutor = makeAxEffectBroker({ registrations: axRegistrations, diag });
+    toolExecutor = axExecutor;
+    if (resolver) resolver = makeProviderResolver({ axExecutor, workspace: () => currentBind });
+    skillsLabel = "AX trusted local reads (external actions require host approval integration)";
+  }
+
 
   // ── creds = OS 키체인 read-back. Linux=secret-tool(service=naia-agent account={env_key}).
   //    Windows=DPAPI({adkPath}/naia-settings/.keys/{env_key}.dpapi, CurrentUser scope — naia-os write_agent_key 가 저장).
@@ -556,7 +619,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
   const refreshSurfacing = (workspacePath, memoryAvailable) => {
     try {
       const memCfg = workspacePath ? settingsStore.loadMemoryConfig(workspacePath) : undefined;
-      const embeddingAvailable = memCfg ? memCfg.embedding?.provider !== "none" : false;
+      const embeddingAvailable = !!memCfg && memCfg.embedding?.provider !== "none" && (memCfg.embedding?.provider === "offline" || !!memCfg.embedding?.deploymentRevision);
       const surfConfig = workspacePath ? readMemorySurfacingConfig(workspacePath) : { off: false, judge: "llm", level: "normal" };
       const disabled = env.NAIA_MEMORY_SURFACING === "off" || surfConfig.off;
       const roles = workspacePath ? settingsStore.loadLlmRoles(workspacePath) : null;
@@ -579,6 +642,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
         level: surfConfig.level,
         threshold,
         maxItems: SURFACING_THRESHOLD_MAX_ITEMS,
+        keywordOnly: !embeddingAvailable,
       };
       surfacingLlm = decision.mode === "on-llm" && runtime?.ok
         ? buildSubLlmProvider(runtime.config, { fetch: async (url, init) => fetch(url, init), temperature: null, maxTokens: SURFACING_LIMITS.maxOutputTokens })
@@ -652,7 +716,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
           : undefined;
         const mainConfig = settingsStore.loadMain(workspacePath);
         const mainPort = mainConfig && resolver ? buildMainMemoryPort({ ...mainConfig, ...(credentials.get(mainConfig.provider) ?? {}) }, resolver) : undefined;
-        const selected = nextMemoryRuntime?.ok ? nextMemoryRuntime.config : nextMemoryRuntime?.reason === "unsupported" ? mainPort : undefined;
+        const selected = nextMemoryRuntime?.ok ? nextMemoryRuntime.config : mainPort;
         const authorizeCurrentRole = (authorize) => bindMemoryAuthorization(
           (input) => resolveMemoryRoleEndpoint(settingsStore.loadLlmRoles(workspacePath), input, settingsResolveSecret, settingsStore.loadMain(workspacePath) ?? undefined, input.endpoint, input.role),
           authorize,
@@ -717,7 +781,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
         }
         try { nodeFs.mkdirSync(dirname(storePath), { recursive: true, mode: 0o700 }); } catch { /* best-effort */ }
         const sessionId = env.NAIA_MEMORY_SESSION || `proc-${randomUUID()}`;
-        const consolidationOn = false;
+        const consolidationOn = env.NAIA_MEMORY_CONSOLIDATION !== "off";
         const next = makeNaiaMemory({
           storePath, project, sessionId,
           ...(nextMemCfg
@@ -725,14 +789,12 @@ export async function composeAgentRuntimeDeps(o = {}) {
                 adapter: nextMemCfg.adapter,
                 ...(nextMemCfg.qdrantUrl ? { qdrantUrl: nextMemCfg.qdrantUrl } : {}),
                 ...(nextMemCfg.qdrantApiKey ? { qdrantApiKey: nextMemCfg.qdrantApiKey } : {}),
-                embedding: nextMemCfg.embedding,
+                embedding: nextMemCfg.embedding.provider !== "offline" && !nextMemCfg.embedding.deploymentRevision ? { provider: "none" } : nextMemCfg.embedding,
               }
             : {}),
-          ...(env.NAIA_MEMORY_CONSOLIDATION !== "off" ? { consolidateOnSave: true } : {}),
-          ...((["ollama", "vllm"].includes(effectiveMemoryRole?.provider.value) || (nextMemoryRuntime?.ok && isLocalEngineBaseUrl(nextMemoryRuntime.config.baseUrl))) ? { fallbackHeuristicOnFailure: true } : {}),
+          consolidateOnSave: consolidationOn,
           ...(roleSummarizer ? { roleSummarizer } : {}),
           ...(roleExtractor ? { roleExtractor } : {}),
-          ...(consolidationOn ? { consolidation: {} } : {}),
           onConsolidation: (event) => {
             if (event.phase === "failed") {
               process.stderr.write(`[naia-agent] memory consolidation failed (episodes kept for retry): ${event.error}\n`);
@@ -768,7 +830,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
           next.close().catch(() => undefined);
         };
         next.ready().then(verify, onFail).catch(onFail);
-        const label = `naia-memory(${storePath}, project=${project}, adapter=${nextMemCfg?.adapter ?? "local"}, embed=${nextMemCfg?.embedding.provider ?? "none"}, llm=${nextMemoryRuntime?.ok ? nextMemoryRuntime.config.provider : "none"}, consolidation=${consolidationOn ? "on" : "off"})`;
+        const label = `naia-memory(${storePath}, project=${project}, adapter=${nextMemCfg?.adapter ?? "local"}, embed=${nextMemCfg?.embedding.provider ?? "none"}, llm=${nextMemoryRuntime?.ok ? nextMemoryRuntime.config.provider : "none"}, consolidation=${consolidationOn ? "on-save" : "off"})`;
         return { next, label, fingerprint: snapshot.fingerprint };
       };
 
@@ -826,7 +888,6 @@ export async function composeAgentRuntimeDeps(o = {}) {
   }
 
   // ── 표준 로깅 sink(docs/logging.md): stderr + debug 게이트(NAIA_AGENT_DEBUG=1). console.* 금지. ──
-  const diag = makeStderrDiagnostic({ write: (l) => process.stderr.write(l + "\n"), debug: env.NAIA_AGENT_DEBUG === "1" });
 
   const surfacer = memory
     ? makeMemorySurfacer({
@@ -840,7 +901,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
     : undefined;
   if (surfacer) cleanupFns.push(() => { surfacer.close().catch(() => undefined); });
 
-  if (memory) {
+  if (memory && !axExecutor) {
     const memorySkillExec = makeMemorySkillsExecutor({ memory });
     toolExecutor = toolExecutor ? makeCompositeToolExecutor([toolExecutor, memorySkillExec]) : memorySkillExec;
     skillsLabel = `${skillsLabel} + memory-skill(skill_memory_recall,skill_memory_save)`;
@@ -853,7 +914,7 @@ export async function composeAgentRuntimeDeps(o = {}) {
     settingsStore, settingsResolveSecret, defaultConfig, configLabel,
     engineProfile, engineLabel, llmRoles, roleLabel,
     subLlm, subLlmLabel,
-    toolExecutor, skillsLabel, knowledgeBackend, setKnowledgeWorkspace, setWorkspaceBind,
+    toolExecutor, axExecutor, skillsLabel, knowledgeBackend, setKnowledgeWorkspace, setWorkspaceBind,
     memory, memoryLabel, reloadMemory,
     surfacer, getSurfacingLabel: () => surfacingLabel,
     conversationLog, transcriptLabel,

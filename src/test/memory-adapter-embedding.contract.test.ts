@@ -10,7 +10,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildEmbeddingProvider, buildMemoryFactExtractor, buildMemorySummarizer, makeNaiaMemory, memoryLlmBaseUrl } from "../main/adapters/naia-memory.js";
+import { buildEmbeddingProvider, buildMemoryDeleteVerifier, buildMemoryFactExtractor, buildMemorySummarizer, makeNaiaMemory, memoryLlmBaseUrl } from "../main/adapters/naia-memory.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -251,5 +251,20 @@ describe("memoryLlmBaseUrl helper", () => {
     expect(memoryLlmBaseUrl("https://api.nextain.io/v1/")).toBe("https://api.nextain.io/v1/");
     expect(memoryLlmBaseUrl("https://api.nextain.io/v1//")).toBe("https://api.nextain.io/v1/");
     expect(memoryLlmBaseUrl("  https://api.nextain.io/v1///  ")).toBe("https://api.nextain.io/v1/");
+  });
+});
+
+describe("메모리 켬 삭제 축 — buildMemoryDeleteVerifier: 사실추출과 같은 LLM 설정 → DeleteVerifier", () => {
+  it("미지정/none = undefined(기존 동작·무회귀)", () => {
+    expect(buildMemoryDeleteVerifier()).toBeUndefined();
+    expect(buildMemoryDeleteVerifier({ provider: "none" })).toBeUndefined();
+  });
+  it("provider 설정이 있으면 함수를 만든다", () => {
+    expect(typeof buildMemoryDeleteVerifier({ provider: "vllm", baseUrl: "http://localhost:8000", model: "qwen" })).toBe("function");
+    expect(typeof buildMemoryDeleteVerifier({ provider: "naia", baseUrl: "https://gw", model: "m" })).toBe("function");
+  });
+  it("baseUrl·model 누락은 fail-closed throw(사실추출 빌더와 같음)", () => {
+    expect(() => buildMemoryDeleteVerifier({ provider: "vllm", model: "x" })).toThrow(/baseUrl/);
+    expect(() => buildMemoryDeleteVerifier({ provider: "ollama", baseUrl: "http://x" })).toThrow(/model/);
   });
 });

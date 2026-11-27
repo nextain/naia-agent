@@ -4,7 +4,7 @@ import { assertIssueTeamProfile, type IssueTeamProfile } from "../main/domain/is
 function valid(): IssueTeamProfile { return { kind: "team", maxRepairCycles: 2, requiredCleanCycles: 2, roles: {
   explorer: { agentProfileId: "explorer", agentKind: "codex", binding: { provider: "codex", model: "terra" }, filesystemAccess: "read_only" },
   implementer: { agentProfileId: "implementer", agentKind: "opencode", binding: { provider: "openrouter", model: "deepseek" }, filesystemAccess: "workspace_write" },
-  tester: { agentProfileId: "tester", agentKind: "pi", binding: { provider: "naia", model: "economy" }, filesystemAccess: "read_only" },
+  tester: { agentProfileId: "tester", agentKind: "codex", binding: { provider: "naia", model: "economy" }, filesystemAccess: "read_only" },
   reviewer: { agentProfileId: "reviewer", agentKind: "codex", binding: { provider: "codex", model: "sol" }, filesystemAccess: "read_only" },
 } }; }
 describe("REQ-023 issue-team profile contract", () => {
@@ -18,7 +18,7 @@ describe("REQ-023 issue-team profile contract", () => {
     expect(() => assertIssueTeamProfile({ ...valid(), roles: { ...valid().roles, explorer: { ...valid().roles.explorer,
       binding: { ...valid().roles.explorer.binding, provider: " codex" } } } })).toThrow("explorer profile");
     expect(() => assertIssueTeamProfile({ ...valid(), roles: { ...valid().roles, tester: { ...valid().roles.tester,
-      binding: { ...valid().roles.tester.binding, model: "pi\u0000model" } } } })).toThrow("tester profile");
+      binding: { ...valid().roles.tester.binding, model: "codex\u0000model" } } } })).toThrow("tester profile");
     expect(() => assertIssueTeamProfile({ ...valid(), roles: { ...valid().roles, reviewer: { ...valid().roles.reviewer,
       binding: { ...valid().roles.reviewer.binding, reasoningEffort: "extreme" } } } })).toThrow("reviewer profile");
   });

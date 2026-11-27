@@ -4,8 +4,20 @@
 // `codex app-server`를 사용하며 auth.json/token을 읽거나 복사하지 않는다.
 // app-server JSONL 프로토콜은 이 파일 안에 격리하고 ProviderPort에는 정규화 chunk만 노출한다.
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import type { ProviderChatOpts, ProviderPort } from "../ports/uc1.js";
-import type { ChatMessage, ProviderChunk, ProviderConfig, ToolCall, ToolSpec } from "../domain/chat.js";
+import { existsSync, lstatSync, mkdirSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { buildIsolatedSubprocessEnv, resolveFallbackCommand, type ResolveCommandOptions } from "./subprocess-session.js";
+import type { ProviderChatOpts, ProviderPort, ToolExecutorPort } from "../ports/uc1.js";
+import {
+  ALLOWED_RUNTIME_TOOL_TIERS,
+  normalizeExternalToolSpec,
+  type ChatMessage,
+  type ProviderChunk,
+  type ProviderConfig,
+  type ToolCall,
+  type ToolSpec,
+} from "../domain/chat.js";
 import { codexThreadWorkspace, type WorkspaceBind } from "../domain/workspace-bind.js";
 
 export type CodexTurnEvent =
@@ -16,13 +28,21 @@ export type CodexTurnEvent =
   | { readonly kind: "toolResult"; readonly id: string; readonly name: string; readonly output: string; readonly success: boolean }
   | { readonly kind: "completed" };
 
+export const CODEX_CLI_VERSION = "0.163.0";
+export const CODEX_PROVIDER_CATALOG = Object.freeze([
+  { id: "codex", transport: "app-server", tools: true },
+  { id: "codex-ax", transport: "app-server", tools: true, cliVersion: CODEX_CLI_VERSION },
+  { id: "codex-exec", transport: "exec", tools: false },
+]);
+
 export interface CodexTurnInput {
+  readonly ax?: boolean;
   readonly model: string;
   readonly prompt: string;
   readonly systemPrompt?: string;
   readonly signal?: AbortSignal;
   readonly tools?: readonly ToolSpec[];
-  readonly executeTool?: (call: ToolCall) => Promise<{ output: string; isError?: boolean }>;
+  readonly executeTool?: (call: ToolCall, signal?: AbortSignal) => Promise<{ output: string; isError?: boolean }>;
   /** Host workspace bind. When set, app-server cwd/sandbox follow this root instead of OS temp. */
   readonly workspace?: WorkspaceBind;
 }
@@ -40,10 +60,107 @@ export function codexExecutable(platform = process.platform): string {
   return platform === "win32" ? "codex.cmd" : "codex";
 }
 
-/** token/auth.json을 읽지 않고 Codex CLI의 안정 명령만으로 설치·로그인 상태를 확인한다. */
-export async function checkCodexPreflight(run?: RunCodexStatus): Promise<CodexPreflightStatus> {
+export interface CodexSubprocessEnvOptions {
+  readonly codexHome?: string;
+  /**
+   * Loopback bridge env_key configuration (e.g. "NAIA_BRIDGE_TOKEN").
+   * When bridgeToken is provided and allowBridgeEnvKey !== false, injects the one-time token
+   * and allowlists ["CODEX_HOME", bridgeEnvKey]. Otherwise only ["CODEX_HOME"] is allowlisted.
+   */
+  readonly bridgeEnvKey?: string;
+  readonly bridgeToken?: string;
+  readonly allowBridgeEnvKey?: boolean;
+}
+
+export function buildCodexSubprocessEnv(
+  source: NodeJS.ProcessEnv = process.env,
+  opts?: CodexSubprocessEnvOptions,
+): NodeJS.ProcessEnv {
+  const extraAllowed: string[] = ["CODEX_HOME"];
+  const envSource: NodeJS.ProcessEnv = { ...source };
+  if (opts?.codexHome) {
+    envSource.CODEX_HOME = opts.codexHome;
+  }
+  if (opts?.bridgeEnvKey) {
+    if (opts.allowBridgeEnvKey !== false && opts.bridgeToken !== undefined && opts.bridgeToken.length > 0) {
+      envSource[opts.bridgeEnvKey] = opts.bridgeToken;
+      extraAllowed.push(opts.bridgeEnvKey);
+    } else {
+      delete envSource[opts.bridgeEnvKey];
+    }
+  }
+  return buildIsolatedSubprocessEnv(envSource, extraAllowed);
+}
+
+export interface ManagedCodexHomeOptions {
+  readonly workspaceRoot?: string;
+  readonly targetDir?: string;
+  readonly sourceEnv?: NodeJS.ProcessEnv;
+}
+
+/**
+ * Prepares a managed CODEX_HOME directory (<adkPath>/naia-settings/codex-home, or an isolated
+ * temp directory when workspaceRoot is omitted) with an empty config.toml and a symlink to
+ * auth.json (never reading or copying auth.json contents). This prevents inheriting a user's
+ * ~/.codex/config.toml (MCP servers, model overrides, etc.) even when no workspace is bound.
+ */
+export function prepareManagedCodexHomeSync(
+  opts: ManagedCodexHomeOptions = {},
+): string {
+  const sourceEnv = opts.sourceEnv ?? process.env;
+  const tmpBase = sourceEnv.TMPDIR || sourceEnv.TMP || sourceEnv.TEMP || tmpdir();
+  const targetDir = opts.targetDir
+    ?? (opts.workspaceRoot
+      ? join(opts.workspaceRoot, "naia-settings", "codex-home")
+      : join(tmpBase, "naia-settings", `codex-home-${process.pid}`));
+  mkdirSync(targetDir, { recursive: true, mode: 0o700 });
+  writeFileSync(join(targetDir, "config.toml"), "", { mode: 0o600 });
+  const homeDir = sourceEnv.HOME || sourceEnv.USERPROFILE || (opts.sourceEnv ? undefined : homedir());
+  const sourceCodexHome = sourceEnv.CODEX_HOME
+    || (homeDir ? join(homeDir, ".codex") : undefined);
+  if (sourceCodexHome && resolve(sourceCodexHome) !== resolve(targetDir)) {
+    const targetAuth = join(targetDir, "auth.json");
+    const sourceAuth = join(sourceCodexHome, "auth.json");
+    try {
+      const stat = lstatSync(targetAuth);
+      if (stat.isSymbolicLink()) {
+        unlinkSync(targetAuth);
+        symlinkSync(sourceAuth, targetAuth);
+      }
+    } catch {
+      try {
+        symlinkSync(sourceAuth, targetAuth);
+      } catch {
+        /* symlink is best-effort without reading auth.json */
+      }
+    }
+  }
+  return targetDir;
+}
+
+export async function prepareManagedCodexHome(
+  opts: ManagedCodexHomeOptions = {},
+): Promise<string> {
+  return prepareManagedCodexHomeSync(opts);
+}
+
+/** token/auth.json을 읽지 않고 Codex CLI의 안정 명령만으로 버전·설치·로그인 상태를 확인한다. */
+export async function checkCodexPreflight(
+  run?: RunCodexStatus,
+  runVersion?: RunCodexStatus,
+): Promise<CodexPreflightStatus> {
   const execute = run ?? defaultRunCodexStatus;
+  const executeVersion = runVersion ?? (run ? undefined : defaultRunCodexVersion);
   try {
+    if (executeVersion) {
+      const version = await executeVersion();
+      if (version.code !== 0 || version.stdout.trim() !== `codex-cli ${CODEX_CLI_VERSION}`) {
+        return {
+          status: "error",
+          detail: `codex requires codex-cli ${CODEX_CLI_VERSION}; got ${version.stdout.trim() || `exit ${version.code}`}`,
+        };
+      }
+    }
     const result = await execute();
     const output = `${result.stdout}\n${result.stderr}`.trim();
     if (result.code === 0 && /logged in/i.test(output)) return { status: "ready", detail: output };
@@ -58,20 +175,39 @@ export async function checkCodexPreflight(run?: RunCodexStatus): Promise<CodexPr
   }
 }
 
-async function defaultRunCodexStatus(): Promise<{ code: number; stdout: string; stderr: string }> {
+export async function defaultRunCodexVersion(
+  opts?: ResolveCommandOptions & CodexSubprocessEnvOptions & { readonly workspaceRoot?: string },
+): Promise<{ code: number; stdout: string; stderr: string }> {
+  return runIsolatedCodexCli(["--version"], opts);
+}
+
+export async function defaultRunCodexStatus(
+  opts?: ResolveCommandOptions & CodexSubprocessEnvOptions & { readonly workspaceRoot?: string },
+): Promise<{ code: number; stdout: string; stderr: string }> {
+  return runIsolatedCodexCli(["login", "status"], opts);
+}
+
+async function runIsolatedCodexCli(
+  cliArgs: readonly string[],
+  opts?: ResolveCommandOptions & CodexSubprocessEnvOptions & { readonly workspaceRoot?: string },
+): Promise<{ code: number; stdout: string; stderr: string }> {
   const { spawn } = await import("node:child_process");
-  return new Promise((resolve, reject) => {
-    const child = process.platform === "win32"
-      ? spawn(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", `${codexExecutable()} login status`], {
-        stdio: ["ignore", "pipe", "pipe"],
-        env: process.env,
-        windowsHide: true,
-      })
-      : spawn(codexExecutable(), ["login", "status"], {
-        stdio: ["ignore", "pipe", "pipe"],
-        env: process.env,
-        windowsHide: true,
-      });
+  const sourceEnv = opts?.env ?? process.env;
+  const bin = resolveFallbackCommand("codex", opts);
+  const codexHome = opts?.codexHome ?? await prepareManagedCodexHome({
+    ...(opts?.workspaceRoot && existsSync(opts.workspaceRoot) ? { workspaceRoot: opts.workspaceRoot } : {}),
+    sourceEnv,
+  });
+  const env = buildCodexSubprocessEnv(sourceEnv, {
+    ...opts,
+    codexHome,
+  });
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(bin.command, [...bin.prefixArgs, ...cliArgs], {
+      stdio: ["ignore", "pipe", "pipe"],
+      env,
+      windowsHide: true,
+    });
     let stdout = "";
     let stderr = "";
     child.stdout.setEncoding("utf8");
@@ -79,7 +215,7 @@ async function defaultRunCodexStatus(): Promise<{ code: number; stdout: string; 
     child.stdout.on("data", (chunk: string) => { stdout += chunk; });
     child.stderr.on("data", (chunk: string) => { stderr += chunk; });
     child.once("error", reject);
-    child.once("exit", (code) => resolve({ code: code ?? 1, stdout, stderr }));
+    child.once("exit", (code) => resolvePromise({ code: code ?? 1, stdout, stderr }));
   });
 }
 
@@ -109,6 +245,7 @@ function foldMessages(messages: readonly ChatMessage[]): { system: string; promp
 }
 
 export function makeCodexAppServerProvider(deps?: {
+  readonly axExecutor?: ToolExecutorPort;
   readonly model?: string;
   readonly runTurn?: CodexRunTurn;
   readonly workspace?: () => WorkspaceBind | undefined;
@@ -120,16 +257,39 @@ export function makeCodexAppServerProvider(deps?: {
       messages: readonly ChatMessage[],
       opts: ProviderChatOpts,
     ): AsyncIterable<ProviderChunk> {
+      if (deps?.axExecutor && messages.some((m) => m.inlineImages?.length || m.attachments?.length)) {
+        throw new Error("codex-ax currently accepts text and broker tools only");
+      }
       const folded = foldMessages(messages);
       const systemPrompt = [opts.systemPrompt, folded.system].filter(Boolean).join("\n\n");
       const workspace = deps?.workspace?.();
+      const axTools = deps?.axExecutor?.specs().filter((spec) => opts.tools?.some((t) => t.name === spec.name)) ?? [];
+      // ChatTurnHandler 경유 시 등록된 내장 도구는 이미 tier="none"으로 구체화되어 내려온다.
+      // makeCodexAppServerProvider에 직접 tier 미지정(undefined) 또는 비표준 tier(T1/T2 등) 도구가 넘어온 경우는
+      // 바깥 경계 규칙(normalizeExternalToolSpec)에 따라 "ask" 승인 게이트로 정규화한다(절대 "none"으로 덮어쓰지 않음).
+      const normalizedTools = opts.tools
+        ? (opts.tools.some((tool) => tool.name !== "continue_speaking" && (tool.tier === undefined || !ALLOWED_RUNTIME_TOOL_TIERS.has(tool.tier)))
+          ? opts.tools.map((tool) => (
+              tool.name !== "continue_speaking" && (tool.tier === undefined || !ALLOWED_RUNTIME_TOOL_TIERS.has(tool.tier))
+                ? normalizeExternalToolSpec(tool, ALLOWED_RUNTIME_TOOL_TIERS)
+                : tool
+            ))
+          : opts.tools)
+        : undefined;
       for await (const event of runTurn({
         model: deps?.model ?? config.model,
         prompt: folded.prompt,
         ...(systemPrompt ? { systemPrompt } : {}),
         ...(opts.signal ? { signal: opts.signal } : {}),
-        ...(opts.tools ? { tools: opts.tools } : {}),
-        ...(opts.executeTool ? { executeTool: opts.executeTool } : {}),
+        ...(deps?.axExecutor ? {
+          ax: true, tools: axTools,
+          executeTool: (call: ToolCall, signal?: AbortSignal) => axTools.some((t) => t.name === call.name)
+            ? deps.axExecutor!.execute(call, { signal: signal ?? opts.signal, requestId: opts.requestId })
+            : Promise.resolve({ output: "AX tool unavailable in this turn", isError: true }),
+        } : {
+          ...(normalizedTools ? { tools: normalizedTools } : {}),
+          ...(opts.executeTool ? { executeTool: opts.executeTool } : {}),
+        }),
         ...(workspace ? { workspace } : {}),
       })) {
         if (event.kind === "text") yield { kind: "text", text: event.text };
@@ -180,19 +340,37 @@ const APP_SERVER_REASONING_EFFORT = ALLOWED_EFFORTS.has(
   ? (process.env.NAIA_CODEX_REASONING_EFFORT as string)
   : "medium";
 
-async function defaultSpawnCodex(): Promise<ChildProcessWithoutNullStreams> {
+export interface DefaultSpawnCodexOptions extends ResolveCommandOptions, CodexSubprocessEnvOptions {
+  readonly workspaceRoot?: string;
+  readonly spawnFn?: typeof import("node:child_process").spawn;
+}
+
+export async function defaultSpawnCodex(
+  opts?: DefaultSpawnCodexOptions,
+): Promise<ChildProcessWithoutNullStreams> {
   const { spawn } = await import("node:child_process");
+  const spawnImpl = opts?.spawnFn ?? spawn;
+  const sourceEnv = opts?.env ?? process.env;
+  const bin = resolveFallbackCommand("codex", opts);
+  const codexHome = opts?.codexHome ?? await prepareManagedCodexHome({
+    ...(opts?.workspaceRoot && existsSync(opts.workspaceRoot) ? { workspaceRoot: opts.workspaceRoot } : {}),
+    sourceEnv,
+  });
+  const env = buildCodexSubprocessEnv(sourceEnv, {
+    ...opts,
+    codexHome,
+  });
   const effortConfig = `model_reasoning_effort="${APP_SERVER_REASONING_EFFORT}"`;
-  if (process.platform === "win32") {
-    return spawn(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", `${codexExecutable()} app-server --config ${effortConfig}`], {
-      stdio: ["pipe", "pipe", "pipe"],
-      env: process.env,
-      windowsHide: true,
-    });
-  }
-  return spawn(codexExecutable(), ["app-server", "--config", effortConfig], {
+  return spawnImpl(bin.command, [
+    ...bin.prefixArgs,
+    "app-server",
+    "--config",
+    effortConfig,
+    "-c",
+    "features.memory_tool=false",
+  ], {
     stdio: ["pipe", "pipe", "pipe"],
-    env: process.env,
+    env,
     windowsHide: true,
   });
 }
@@ -243,6 +421,7 @@ export async function makeCodexRpcPeer(
     }
     if (message.method) push(message);
   });
+  child.stderr.resume();
   child.once("error", (error) => fail(new Error(`Codex app-server unavailable: ${error.message}`)));
   child.once("exit", (code) => fail(new Error(`Codex app-server exited (${code ?? "signal"})`)));
 
@@ -281,7 +460,7 @@ export async function makeCodexRpcPeer(
     },
     close() {
       if (closed) return;
-      closed = true;
+      fail(new Error("Codex app-server closed"));
       lines.close();
       child.kill();
       while (waiters.length) waiters.shift()!({ done: true, value: undefined });
@@ -296,11 +475,35 @@ export async function makeCodexRpcPeer(
  */
 export async function* runCodexAppServerTurn(
   input: CodexTurnInput,
-  peerFactory: () => Promise<RpcPeer> = makeCodexRpcPeer,
+  peerFactory?: () => Promise<RpcPeer>,
 ): AsyncIterable<CodexTurnEvent> {
-  const peer = await peerFactory();
+  input.signal?.throwIfAborted();
+  const axController = input.ax ? new AbortController() : undefined;
+  if (axController) input = { ...input, signal: input.signal ? AbortSignal.any([input.signal, axController.signal]) : axController.signal };
+  let axCwd: string | undefined;
+  let axModelCatalog: string | undefined;
+  if (input.ax && !peerFactory) {
+    const status = await checkCodexAxPreflight();
+    if (status.status !== "ready") throw new Error(status.detail);
+    const { mkdtemp } = await import("node:fs/promises");
+    const { join } = await import("node:path");
+    const { tmpdir } = await import("node:os");
+    axCwd = await mkdtemp(join(tmpdir(), "naia-codex-ax-"));
+    try { axModelCatalog = await prepareAxModelCatalog(input.model, axCwd); }
+    catch (error) { await (await import("node:fs/promises")).rm(axCwd, { recursive: true, force: true }); throw error; }
+  }
+  let peer: RpcPeer;
+  try {
+    peer = await (peerFactory ? peerFactory() : input.ax
+      ? makeCodexRpcPeer(() => spawnCodexAx(axCwd!, axModelCatalog, { workspaceRoot: input.workspace?.canonicalRoot }))
+      : makeCodexRpcPeer(() => defaultSpawnCodex({ workspaceRoot: input.workspace?.canonicalRoot })));
+  } catch (error) {
+    if (axCwd) await (await import("node:fs/promises")).rm(axCwd, { recursive: true, force: true });
+    throw error;
+  }
   if (input.signal?.aborted) {
     peer.close();
+    if (axCwd) await (await import("node:fs/promises")).rm(axCwd, { recursive: true, force: true });
     return;
   }
   let threadId = "";
@@ -311,7 +514,10 @@ export async function* runCodexAppServerTurn(
     readonly signature: string;
     readonly result: { output: string; isError?: boolean };
   }>();
+  const deadline = input.ax ? setTimeout(() => { axController?.abort(new Error("AX Codex timed out")); peer.close(); }, 120_000) : undefined;
+  deadline?.unref();
   const abort = () => {
+    if (input.ax) { peer.close(); return; }
     if (threadId && turnId) void peer.request("turn/interrupt", { threadId, turnId }).catch(() => {});
   };
   input.signal?.addEventListener("abort", abort, { once: true });
@@ -324,13 +530,31 @@ export async function* runCodexAppServerTurn(
     const { tmpdir } = await import("node:os");
     // Host workspace bind is the Codex sandbox root. Temp isolation remains only
     // when the host has no canonical workspace (first-run / missing ADK).
-    const threadWorkspace = codexThreadWorkspace(input.workspace, tmpdir());
-    // app-server 동적 도구는 한 RPC 안에서 즉시 결과를 돌려줘야 한다. 승인 필요 도구는 제외한다.
-    // processing metadata가 있는 도구는 ChatTurnHandler의 executeTool callback이 승인/공개한 뒤 실행한다.
+    const threadWorkspace = input.ax
+      ? { cwd: axCwd ?? tmpdir(), sandbox: "read-only" }
+      : codexThreadWorkspace(input.workspace, tmpdir());
+    let axThreadConfig: Record<string, unknown> = {};
+    if (input.ax) {
+      const effective = await peer.request("config/read", { includeLayers: false }) as { config?: Record<string, unknown> };
+      assertAxConfig(effective.config);
+      // TOML table overrides merge: {} does not erase user MCP entries.
+      // Disable every configured server before thread/start can initialize it.
+      const servers = effective.config?.mcp_servers as Record<string, unknown> | undefined;
+      axThreadConfig = { mcp_servers: Object.fromEntries(Object.entries(servers ?? {}).map(([name, server]) => [name, { ...withoutNullConfig(server as Record<string, unknown>), enabled: false }])) };
+    }
+    // app-server 동적 도구는 executeTool 콜백 안에서 ApprovalPort 사용자 승인 및 processing guard를 거친 뒤 결과를 돌려준다.
+    // 조립 단계(wrapExternalToolExecutor)와 makeCodexAppServerProvider 경계는 바깥 도구의 미지정/비표준 tier를 "ask"로 정규화하며,
+    // ChatTurnHandler는 내장 도구의 미지정 tier를 도메인 계약에 따라 "none"으로 구체화해 넘긴다.
+    // runCodexAppServerTurn에 직접 tier: undefined 또는 허용 집합 밖 일반 도구를 넘기면 fail-closed로 동적 도구 목록에서 제외·거부한다.
+    const ALLOWED_DYNAMIC_TOOL_TIERS = ALLOWED_RUNTIME_TOOL_TIERS;
     const dynamicTools = (input.tools ?? [])
       // continue_speaking은 ChatTurnHandler가 인용 검증/상태 전이를 소유하는 내부 제어 도구다.
       // app-server 안에서 선실행하면 그 검증을 우회하므로 외부 executor 도구만 native 실행한다.
-      .filter((tool) => tool.name !== "continue_speaking" && (tool.tier === undefined || tool.tier === "none"))
+      .filter((tool) => tool.name !== "continue_speaking" && (
+        input.ax
+          ? (tool.tier === undefined || ALLOWED_DYNAMIC_TOOL_TIERS.has(tool.tier))
+          : (tool.tier !== undefined && ALLOWED_DYNAMIC_TOOL_TIERS.has(tool.tier))
+      ))
       .map((tool) => ({
         type: "function" as const,
         name: tool.name,
@@ -344,9 +568,13 @@ export async function* runCodexAppServerTurn(
       approvalPolicy: "never",
       sandbox: threadWorkspace.sandbox,
       ephemeral: true,
+      ...(input.ax ? { config: axThreadConfig } : {}),
       ...(dynamicTools.length ? { dynamicTools } : {}),
       ...(input.systemPrompt ? { baseInstructions: input.systemPrompt } : {}),
-    }) as { thread?: { id?: string } };
+    }) as { thread?: { id?: string }; model?: string; sandbox?: { type?: string; networkAccess?: boolean } };
+    if (input.ax && (started.model !== input.model || started.sandbox?.type !== "readOnly" || started.sandbox.networkAccess === true)) {
+      throw new Error("AX effective model/sandbox differs from explicit selection");
+    }
     threadId = started.thread?.id ?? "";
     if (!threadId) throw new Error("Codex app-server returned no thread id");
     const turn = await peer.request("turn/start", {
@@ -359,7 +587,19 @@ export async function* runCodexAppServerTurn(
 
     for await (const message of peer.notifications()) {
       const params = (message.params ?? {}) as Record<string, unknown>;
+      if (input.ax && message.id !== undefined && message.method !== "item/tool/call") {
+        // Native command, patch, permissions, MCP elicitation and unknown requests
+        // never inherit a Naia grant. Reply fail closed so the server cannot hang.
+        peer.respond(message.id, { decision: "decline" });
+        throw new Error("AX rejected native or unknown Codex request");
+      }
       if (params["threadId"] !== threadId) continue;
+      if (input.ax && (message.method === "item/started" || message.method === "item/completed")) {
+        const item = params["item"] as { type?: string } | undefined;
+        if (["commandExecution", "fileChange", "mcpToolCall", "webSearch", "collabAgentToolCall"].includes(item?.type ?? "")) {
+          throw new Error("AX unexpected native execution event");
+        }
+      }
       if (message.method === "item/tool/call" && params["turnId"] === turnId && message.id !== undefined) {
         const id = typeof params["callId"] === "string" ? params["callId"] : String(message.id);
         const name = typeof params["tool"] === "string" ? params["tool"] : "";
@@ -382,7 +622,8 @@ export async function* runCodexAppServerTurn(
           result = { output: `dynamic tool '${name || "unknown"}' is unavailable`, isError: true };
         } else {
           try {
-            result = await input.executeTool({ id, name, args });
+            const pending = input.executeTool({ id, name, args }, input.signal);
+            result = input.ax ? await abortableCodexTool(pending, input.signal!) : await pending;
           } catch (error) {
             result = { output: error instanceof Error ? error.message : String(error), isError: true };
           }
@@ -414,6 +655,7 @@ export async function* runCodexAppServerTurn(
         if (turnResult.status === "failed") {
           throw new Error(`Codex turn failed: ${turnResult.error?.message ?? "unknown"}`);
         }
+        if (input.ax && turnResult?.status !== "completed" && turnResult?.status !== "interrupted") throw new Error("AX invalid terminal status");
         completed = true;
         if (turnResult.status === "interrupted" || input.signal?.aborted) break;
         if (lastUsage) yield { kind: "usage", ...lastUsage };
@@ -427,7 +669,212 @@ export async function* runCodexAppServerTurn(
     }
     if (!completed && !input.signal?.aborted) throw new Error("Codex app-server closed before turn completion");
   } finally {
+    if (deadline) clearTimeout(deadline);
     input.signal?.removeEventListener("abort", abort);
     peer.close();
+    if (axCwd) await (await import("node:fs/promises")).rm(axCwd, { recursive: true, force: true });
   }
+}
+
+// AX is pinned independently of legacy Codex. SDK is deliberately not installed.
+export async function checkCodexAxPreflight(runVersion?: RunCodexStatus, runLogin?: RunCodexStatus): Promise<CodexPreflightStatus> {
+  if (!runVersion || !runLogin) {
+    try { buildCodexAxEnv(); }
+    catch { return { status: "error", detail: "AX proxy/TLS override requires enterprise transport acceptance" }; }
+  }
+  try {
+    const version = await (runVersion ?? (() => runCodexCommand(["--version"])))();
+    if (version.code !== 0 || version.stdout.trim() !== `codex-cli ${CODEX_CLI_VERSION}`) {
+      return { status: "error", detail: `codex-ax requires codex-cli ${CODEX_CLI_VERSION}; no fallback` };
+    }
+    return await checkCodexPreflight(runLogin ?? (() => runCodexCommand(["login", "status"])));
+  } catch {
+    return { status: "not-installed", detail: `Install @openai/codex@${CODEX_CLI_VERSION}; no fallback` };
+  }
+}
+
+async function runCodexCommand(
+  args: string[],
+  opts?: ResolveCommandOptions & CodexSubprocessEnvOptions & ManagedCodexHomeOptions,
+): Promise<{ code: number; stdout: string; stderr: string }> {
+  const { execFile } = await import("node:child_process");
+  const { resolveFallbackCommand } = await import("./subprocess-session.js");
+  const sourceEnv = opts?.env ?? process.env;
+  const bin = resolveFallbackCommand("codex", opts);
+  const codexHome = opts?.codexHome ?? await prepareManagedCodexHome({
+    ...(opts?.workspaceRoot && existsSync(opts.workspaceRoot) ? { workspaceRoot: opts.workspaceRoot } : {}),
+    ...(opts?.targetDir ? { targetDir: opts.targetDir } : {}),
+    sourceEnv,
+  });
+  return new Promise((resolve, reject) => {
+    execFile(bin.command, [...bin.prefixArgs, ...args], {
+      timeout: 10_000, maxBuffer: 2 * 1024 * 1024, windowsHide: true,
+      env: buildCodexAxEnv(sourceEnv, { ...opts, codexHome }),
+    }, (error, stdout, stderr) => {
+      if (error && typeof error.code !== "number") reject(error);
+      else resolve({ code: error?.code as number ?? 0, stdout, stderr });
+    });
+  });
+}
+
+const AX_DISABLED_FEATURES = [
+  "shell_tool", "unified_exec", "js_repl", "code_mode", "code_mode_only", "code_mode_host",
+  "apps", "plugins", "plugin_hooks", "hooks", "codex_hooks", "multi_agent", "multi_agent_v2",
+  "browser_use", "browser_use_external", "computer_use", "view_image", "image_generation",
+  "memory_tool", "skill_mcp_dependency_install", "tool_suggest", "workspace_dependencies",
+  "remote_plugin", "plugin_sharing", "recommended_plugins", "in_app_browser", "browser_use_full_cdp_access",
+  "request_permissions_tool", "sleep_tool", "deferred_executor", "send_message_to_user_async",
+];
+
+export function codexAxConfig(): Record<string, unknown> {
+  return {
+    ...Object.fromEntries(AX_DISABLED_FEATURES.map((name) => [`features.${name}`, false])),
+    "mcp_servers": {}, "hooks": {}, "plugins": {}, "web_search": "disabled",
+    "approval_policy": "never", "sandbox_mode": "read-only",
+    "project_doc_max_bytes": 0, "model_reasoning_effort": "low",
+    "analytics.enabled": false, "otel.exporter": "none", "otel.trace_exporter": "none",
+    "otel.metrics_exporter": "none", "otel.log_user_prompt": false, "otel.log_agent_responses": false,
+    "history.persistence": "none", "feedback.enabled": false, "check_for_update_on_startup": false,
+    "notify": [],
+  };
+}
+
+function assertAxConfig(config: Record<string, unknown> | undefined): void {
+  if (!config || config.web_search !== "disabled" || config.sandbox_mode !== "read-only" || config.approval_policy !== "never") {
+    throw new Error("AX Codex configuration ceiling not established");
+  }
+  assertAxTransportConfig(config);
+  const features = config.features as Record<string, unknown> | undefined;
+  if (AX_DISABLED_FEATURES.some((key) => features?.[key] !== false)) throw new Error("AX native tools are not disabled");
+}
+
+/** Default pinned CLI transport only. Never print untrusted config values. */
+export function assertAxTransportConfig(config: Record<string, unknown>): void {
+  const provider = config.model_provider;
+  const providers = config.model_providers;
+  const profiles = config.profiles;
+  const defaultUrl = (value: unknown, expected: string) => value == null || value === expected;
+  if (["model_instructions_file", "experimental_compact_prompt_file", "instructions", "developer_instructions", "compact_prompt"].some((key) => config[key] != null) ||
+      config.profile != null ||
+      (profiles != null && (typeof profiles !== "object" || Array.isArray(profiles) || Object.keys(profiles).length !== 0)) ||
+      (provider != null && provider !== "openai") ||
+      (providers != null && (typeof providers !== "object" || Array.isArray(providers) || Object.keys(providers).length !== 0)) ||
+      !defaultUrl(config.openai_base_url, "https://api.openai.com/v1") ||
+      !defaultUrl(config.chatgpt_base_url, "https://chatgpt.com/backend-api/") ||
+      config.experimental_thread_store_endpoint != null || config.experimental_thread_store != null) {
+    throw new Error("AX unverified model transport configuration; no fallback");
+  }
+  const otel = config.otel as Record<string, unknown> | undefined;
+  const analytics = config.analytics as Record<string, unknown> | undefined;
+  const history = config.history as Record<string, unknown> | undefined;
+  const feedback = config.feedback as Record<string, unknown> | undefined;
+  if (otel?.exporter !== "none" || otel.trace_exporter !== "none" || otel.metrics_exporter !== "none" ||
+      otel.log_user_prompt !== false || otel.log_agent_responses !== false || analytics?.enabled !== false ||
+      history?.persistence !== "none" || feedback?.enabled !== false || config.check_for_update_on_startup !== false ||
+      (config.notify != null && (!Array.isArray(config.notify) || config.notify.length !== 0))) {
+    throw new Error("AX telemetry/history/notification ceiling not established");
+  }
+}
+
+/** A proxy or alternate trust root needs a separately reviewed enterprise policy.
+ * Reject rather than silently bypassing the organization's configured proxy. */
+export function buildCodexAxEnv(
+  source: NodeJS.ProcessEnv = process.env,
+  opts?: CodexSubprocessEnvOptions & ManagedCodexHomeOptions,
+): NodeJS.ProcessEnv {
+  const overrides = ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy",
+    "OPENAI_BASE_URL", "CHATGPT_BASE_URL",
+    "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS"];
+  if (overrides.some((key) => !!source[key])) throw new Error("AX proxy/TLS override requires enterprise transport acceptance");
+  const codexHome = opts?.codexHome ?? prepareManagedCodexHomeSync({
+    ...(opts?.workspaceRoot && existsSync(opts.workspaceRoot) ? { workspaceRoot: opts.workspaceRoot } : {}),
+    ...(opts?.targetDir ? { targetDir: opts.targetDir } : {}),
+    sourceEnv: source,
+  });
+  return buildCodexSubprocessEnv(source, { ...opts, codexHome });
+}
+
+export async function spawnCodexAx(
+  cwd: string,
+  modelCatalog?: string,
+  opts?: DefaultSpawnCodexOptions & ManagedCodexHomeOptions,
+): Promise<ChildProcessWithoutNullStreams> {
+  const { spawn } = await import("node:child_process");
+  const { resolveFallbackCommand } = await import("./subprocess-session.js");
+  const spawnImpl = opts?.spawnFn ?? spawn;
+  const sourceEnv = opts?.env ?? process.env;
+  const bin = resolveFallbackCommand("codex", opts);
+  const codexHome = opts?.codexHome ?? await prepareManagedCodexHome({
+    ...(opts?.workspaceRoot && existsSync(opts.workspaceRoot) ? { workspaceRoot: opts.workspaceRoot } : {}),
+    ...(opts?.targetDir ? { targetDir: opts.targetDir } : {}),
+    sourceEnv,
+  });
+  const args = Object.entries({ ...codexAxConfig(), ...(modelCatalog ? { model_catalog_json: modelCatalog } : {}) }).flatMap(([key, value]) => ["-c", `${key}=${JSON.stringify(value)}`]);
+  return spawnImpl(bin.command, [...bin.prefixArgs, "app-server", ...args], {
+    cwd, stdio: ["pipe", "pipe", "pipe"], windowsHide: true,
+    env: buildCodexAxEnv(sourceEnv, { ...opts, codexHome }),
+  });
+}
+
+/** CLI catalog is discovery, never an entitlement check or automatic fallback. */
+export async function listCodexAxModels(): Promise<readonly { id: string; provider: string; tools: boolean; use: string }[]> {
+  const status = await checkCodexAxPreflight();
+  if (status.status !== "ready") throw new Error(status.detail);
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { join } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const cwd = await mkdtemp(join(tmpdir(), "naia-codex-catalog-"));
+  let peer: RpcPeer | undefined;
+  const deadline = setTimeout(() => peer?.close(), 15_000);
+  try {
+    peer = await makeCodexRpcPeer(() => spawnCodexAx(cwd));
+    await peer.request("initialize", { clientInfo: { name: "naia-agent", version: "0.2.6" } });
+    peer.notify("initialized");
+    const effective = await peer.request("config/read", { includeLayers: false }) as { config?: Record<string, unknown> };
+    assertAxConfig(effective.config);
+    const result = await peer.request("model/list", { limit: 100 }) as { data?: { id?: string; model?: string }[] };
+    if (!Array.isArray(result.data)) throw new Error("Invalid Codex model catalog");
+    return result.data.map((model) => ({ id: model.model ?? model.id ?? "", provider: "codex-ax", tools: true, use: "chat" })).filter((m) => m.id);
+  } finally {
+    clearTimeout(deadline);
+    peer?.close();
+    await rm(cwd, { recursive: true, force: true });
+  }
+}
+
+/** Pin model tool construction too: current Codex models can force Code Mode,
+ * and native apply_patch is independent of the shell feature flag. */
+export function axModelCatalog(raw: unknown, model: string): { models: Record<string, unknown>[] } {
+  const models = (raw as { models?: Record<string, unknown>[] } | null)?.models;
+  const selected = models?.find((entry) => entry.slug === model);
+  if (!selected) throw new Error("AX model is absent from the pinned CLI catalog; no fallback");
+  return { models: [{ ...selected, tool_mode: "direct", shell_type: "disabled", apply_patch_tool_type: null, experimental_supported_tools: [] }] };
+}
+
+async function prepareAxModelCatalog(model: string, cwd: string): Promise<string> {
+  const bundled = await runCodexCommand(["debug", "models", "--bundled"]);
+  if (bundled.code !== 0) throw new Error("AX pinned model catalog unavailable");
+  const catalog = axModelCatalog(JSON.parse(bundled.stdout), model);
+  const { writeFile } = await import("node:fs/promises");
+  const { join } = await import("node:path");
+  const path = join(cwd, "models.json");
+  await writeFile(path, JSON.stringify(catalog), { mode: 0o600 });
+  return path;
+}
+
+function abortableCodexTool<T>(pending: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const abort = () => { signal.removeEventListener("abort", abort); reject(signal.reason ?? new Error("AX aborted")); };
+    pending.then((value) => { signal.removeEventListener("abort", abort); resolve(value); }, (error) => { signal.removeEventListener("abort", abort); reject(error); });
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) abort();
+  });
+}
+
+// config/read serializes optional fields as null; thread config translates JSON
+// to TOML, where null would become an invalid empty-string timeout/transport.
+function withoutNullConfig(value: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== null).map(([key, v]) => [key,
+    v && typeof v === "object" && !Array.isArray(v) ? withoutNullConfig(v as Record<string, unknown>) : v,
+  ]));
 }

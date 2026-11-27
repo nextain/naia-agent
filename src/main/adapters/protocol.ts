@@ -81,6 +81,8 @@ export function decodeRequest(line: string): AgentRequest | null {
       return {
         kind: "chat",
         requestId: str(o["requestId"]),
+        ...(typeof o["sessionId"] === "string" ? { sessionId: o["sessionId"] } : {}),
+        ...(typeof o["appName"] === "string" && o["appName"] ? { appName: o["appName"] } : {}),
         ...(hasProv ? { provider: prov as ProviderConfig } : {}),
         messages: (Array.isArray(o["messages"]) ? o["messages"] : []) as ChatMessage[],
         // ⚠️ systemPrompt override(C2/C1 신뢰모델): wire 의 systemPrompt 는 코어 조립(persona⊕workspace⊕

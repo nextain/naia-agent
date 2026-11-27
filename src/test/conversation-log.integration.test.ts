@@ -35,6 +35,15 @@ describe("conversation-log 실 fs 통합(FR-CONV.1)", () => {
     expect(lines[3]).toEqual({ role: "assistant", content: "응답2", timestamp: 1717000000000 });
   });
 
+  it("FR-CONV.6 restart preserves appName on both rows and old rows stay untagged", async () => {
+    const { log, conversationsDir } = realLog();
+    await log.append({ sessionId: "app", userText: "u", assistantText: "a", appName: "캐릭터" });
+    const restarted = makeFileConversationLog({ conversationsDir, fs: { appendFileSync, mkdirSync }, join });
+    await restarted.append({ sessionId: "app", userText: "normal", assistantText: "reply" });
+    const rows = readFileSync(join(conversationsDir, "app.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    expect(rows.map((row) => row.appName)).toEqual(["캐릭터", "캐릭터", undefined, undefined]);
+  });
+
   it("개행/따옴표 content 도 물리 1줄 유지(JSONL 무결성)", async () => {
     const { log, conversationsDir } = realLog();
     await log.append({ sessionId: "s", userText: '줄1\n"큰따옴표"\n줄3', assistantText: "a\tb" });

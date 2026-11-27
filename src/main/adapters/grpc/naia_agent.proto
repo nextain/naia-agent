@@ -88,6 +88,7 @@ message CompileKnowledgeResult {
 }
 
 message Message {
+  optional string app_name = 5;
   string role = 1;
   string content = 2;
   optional string tool_call_id = 3;
@@ -128,6 +129,7 @@ message ThinkingRequest { ThinkingLevel level = 1; }
 
 // 현 protocol.ts chat_request 전 필드 보존 (R1-1: enableThinking/gatewayUrl/disabledSkills 누락 금지). provider 제거(정본).
 message ChatRequest {
+  optional string app_name = 16;
   string request_id = 1;
   repeated Message messages = 2;
   optional string system_prompt = 3;

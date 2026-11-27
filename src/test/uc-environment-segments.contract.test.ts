@@ -287,7 +287,7 @@ const ALPHA_PREFIX =
 const ALPHA_PROFILE: PersonaProfile = {
   agentName: "알파", userName: "루크", honorific: "마스터", speechStyle: "formal", locale: "ko", systemPromptPrefix: ALPHA_PREFIX,
 };
-const WS_SNAP: WorkspaceSnapshot = { cwd: "/home/luke/alpha-adk", projects: ["naia-os", "naia-agent"], projectTotal: 2 };
+const WS_SNAP: WorkspaceSnapshot = { cwd: "/home/user/alpha-adk", projects: ["naia-os", "naia-agent"], projectTotal: 2 };
 
 function makeCapturingProvider(): { provider: ProviderPort; seen: { systemPrompt?: string } } {
   const seen: { systemPrompt?: string } = {};
@@ -749,7 +749,8 @@ describe("UC-024 wire 표본 대조 (TEST-S-024)", () => {
 
   it("짝 저장소 표본과 같다", () => {
     const REL = ["src", "test", "fixtures", "environment-surfaces-wire.json"];
-    const roots: string[] = [];
+    const roots: string[] = process.env.NAIA_SHELL_ROOT
+      ? [resolve(process.env.NAIA_SHELL_ROOT, ...REL)] : [];
     for (let up = 2; up <= 6; up += 1) {
       const base = resolve(__dirname, ...Array.from({ length: up }, () => ".."));
       roots.push(resolve(base, "naia-shell", ...REL));

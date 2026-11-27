@@ -108,8 +108,8 @@ export class SqlitePaidCallBudget implements PaidCallBudgetPort {
     if (!Number.isSafeInteger(actualInputTokens)) {
       throw new PaidCallReceiptUnavailableError("combined input usage exceeds the safe integer range");
     }
-    if (receipt.cost.state !== "measured" && receipt.estimatedCostSource !== "pi_catalog") {
-      throw new PaidCallReceiptUnavailableError("estimated cost requires Pi catalog provenance");
+    if (receipt.cost.state !== "measured" && receipt.estimatedCostSource !== "catalog") {
+      throw new PaidCallReceiptUnavailableError("estimated cost requires catalog provenance");
     }
     if (receipt.cost.state === "measured" && receipt.cost.source === "gateway_versioned_customer_billing") {
       assertGatewayBillingEvidence(receipt);
